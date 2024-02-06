@@ -25,7 +25,6 @@ use domain::{
         servers::{dgram::server::DgramServer, stream::server::StreamServer},
         traits::{
             message::ContextAwareMessage,
-            server::Server,
             service::{
                 CallResult, Service, ServiceCommand, ServiceError,
                 ServiceResult, ServiceResultItem, Transaction,
