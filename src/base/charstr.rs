@@ -55,12 +55,12 @@ use std::vec::Vec;
 ///
 /// The text representation of a character string comes in two flavors:
 /// Quoted and unquoted. In both cases, the content is interpreted as ASCII
-/// text and those octets that aren’t printable ASCII character as well as
-/// some special symbols are escaped.
+/// text and those octets that aren’t printable ASCII characters, as well as
+/// some special symbols, are escaped.
 ///
 /// There are two escaping mechanisms: octets that are printable ASCII
 /// characters but need to be escaped anyway use what we call a “simple
-/// escape” by precedes the character with an ASCII backslash. For all
+/// escape” that precedes the character with an ASCII backslash. For all
 /// non-printable octets “decimal escapes” are used: an ASCII backslash is
 /// followed by three decimal digits representing the decimal value of the
 /// octet. A consequence if this is that you cannot escape the digits 0, 1,
