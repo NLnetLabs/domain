@@ -1615,7 +1615,7 @@ impl<Octs> Txt<Octs> {
     ///
     /// The `octets` sequence most contain correctly encoded TXT record
     /// data. That is, it must contain a sequence of at least one character
-    /// strings of at most 255 octets each preceded by a length octet. An
+    /// string of at most 255 octets each preceded by a length octet. An
     /// empty sequence is not allowed.
     ///
     /// Returns an error if `octets` does not contain correctly encoded TXT
@@ -1644,7 +1644,6 @@ impl Txt<[u8]> {
     ///
     /// The slice must contain correctly encoded TXT record data,
     /// that is a sequence of encoded character strings. See
-    ///
     pub fn from_slice(slice: &[u8]) -> Result<&Self, TxtError> {
         Txt::check_slice(slice)?;
         Ok(unsafe { Txt::from_slice_unchecked(slice) })
@@ -1654,9 +1653,8 @@ impl Txt<[u8]> {
     ///
     /// # Safety
     ///
-    /// The passed octets must contain correctly encoded TXT record data or
-    /// else an error is returned. See [`from_octets][Self::from_octets] for
-    /// the required content.
+    /// The passed octets must contain correctly encoded TXT record data.
+    /// See [`from_octets][Self::from_octets] for the required content.
     unsafe fn from_slice_unchecked(slice: &[u8]) -> &Self {
         unsafe { &*(slice as *const [u8] as *const Self) }
     }
@@ -2160,7 +2158,7 @@ impl<'a> Iterator for TxtIter<'a> {
 
 /// Iteratively build TXT record data.
 ///
-/// This type allows building TXT record data by starting with a empty data
+/// This type allows building TXT record data by starting with empty data
 /// and appending either complete character strings or slices of data.
 #[derive(Clone, Debug)]
 pub struct TxtBuilder<Builder> {
@@ -2195,7 +2193,7 @@ impl TxtBuilder<BytesMut> {
 impl<Builder: OctetsBuilder + AsRef<[u8]> + AsMut<[u8]>> TxtBuilder<Builder> {
     /// Tries appending a slice.
     ///
-    /// Errors out of either appending the slice would result in exceeding the
+    /// Errors out if either appending the slice would result in exceeding the
     /// record data length limit or the underlying builder runs out of space.
     fn builder_append_slice(
         &mut self, slice: &[u8]
@@ -2211,9 +2209,9 @@ impl<Builder: OctetsBuilder + AsRef<[u8]> + AsMut<[u8]>> TxtBuilder<Builder> {
     ///
     /// The method breaks up the slice into individual octets strings if
     /// necessary. If a previous call has started a new octets string, it
-    /// fills this one up first before creating a new one. Thus, be only
-    /// using this method, the resulting TXT record data will consist of
-    /// character string where all but the last one are 255 octets long.
+    /// fills this one up first before creating a new one. Thus, by using
+    /// this method only, the resulting TXT record data will consist of
+    /// character strings where all but the last one are 255 octets long.
     ///
     /// You can force a character string break by calling
     /// [`close_char_str`][Self::close_char_str].
