@@ -4,6 +4,10 @@
 
 Breaking changes
 
+* The `Txt` record data type now rejects empty record data as invalid. As
+  a consequence `TxtBuilder` converts an empty builder into TXT record
+  data consisting of one empty character string which requires
+  `TxtBuilder::finish` to be able to return an error. ([#267])
 * The stub resolver now uses the new client transports. This doesn’t change
   how it is used but does change how it queries the configured servers.
   ([#215])
@@ -45,6 +49,7 @@ Other changes
 [#257]: https://github.com/NLnetLabs/domain/pull/257
 [#258]: https://github.com/NLnetLabs/domain/pull/258
 [#259]: https://github.com/NLnetLabs/domain/pull/259
+[#267]: https://github.com/NLnetLabs/domain/pull/267
 [@torin-carey]: https://github.com/torin-carey
 
 
