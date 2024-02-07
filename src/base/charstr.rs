@@ -51,6 +51,71 @@ use std::vec::Vec;
 /// As per [RFC 1035], character strings compare ignoring ASCII case.
 /// `CharStr`’s implementations of the `std::cmp` traits act accordingly.
 ///
+/// # Presentation format
+///
+/// The text representation of a character string comes in two flavors:
+/// Quoted and unquoted. In both cases, the content is interpreted as ASCII
+/// text and those octets that aren’t printable ASCII character as well as
+/// some special symbols are escaped.
+///
+/// There are two escaping mechanisms: octets that are printable ASCII
+/// characters but need to be escaped anyway use what we call a “simple
+/// escape” by precedes the character with an ASCII backslash. For all
+/// non-printable octets “decimal escapes” are used: an ASCII backslash is
+/// followed by three decimal digits representing the decimal value of the
+/// octet. A consequence if this is that you cannot escape the digits 0, 1,
+/// and 2 using simple escapes and you probably shouldn’t do it for the other
+/// digits.
+///
+/// In the quoted form, the content is preceded and followed by exactly one
+/// ASCII double quote. Inside, only double quotes, backslashes, and
+/// non-printable octets need to be escaped.
+///
+/// In the unquoted form, the content is formatted without any explicit
+/// delimiters. Instead, it ends at the first ASCII space or any other
+/// delimiting symbol, normally ASCII control characters or an ASCII
+/// semicolon which marks the start of a comment. These characters, as well
+/// as the double quote, also need to be escaped.
+///
+/// # `Display` and `FromStr`
+///
+/// When formatting a character string using the `Display` trait, a variation
+/// of the unquoted form is used where only backslashes and non-printable
+/// octets are escaped. Two methods are available that make it possible to
+/// format the character string in quoted and unquoted formats,
+/// [`display_quoted`][Self::display_quoted] and
+/// [`display_unquoted`][Self::display_unquoted]. They return a temporary
+/// value that can be given to a formatting macro.
+///
+/// The `FromStr` implementation reads a character string from a Rust string
+/// in the format created by `Display` but is more relaxed about escape
+/// sequences – it accepts all of them as long as they lead to a valid
+/// character string.
+///
+/// # Serde support
+///
+/// When the `serde` feature is enabled, the type supports serialization and
+/// deserialization. The format differs for human readable and non-human
+/// readable serialization formats.
+///
+/// For human readable formats, character strings are serialized as a newtype
+/// `CharStr` wrapping a string with the content as an ASCII string.
+/// Non-printable ASCII characters (i.e., those with a byte value below 32
+/// and above 176) are escaped using the decimal escape sequences as used by
+/// the presentation format. In addition, backslashes are escaped using a
+/// simple escape sequence and thus are doubled.
+///
+/// This leads to a slightly unfortunate situation in serialization formats
+/// that in turn use backslash as an escape sequence marker in their own
+/// string representation, such as JSON, where a backslash ends up as four
+/// backslashes.
+///
+/// When deserializing, escape sequences are excepted for all octets and
+/// translated. Non-ASCII characters are not accepted and lead to error.
+///
+/// For non-human readable formats, character strings are serialized as a
+/// newtype `CharStr` wrapping a byte array with the content as is.
+///
 /// [RFC 1035]: https://tools.ietf.org/html/rfc1035
 #[derive(Clone)]
 pub struct CharStr<Octs: ?Sized>(Octs);
@@ -292,9 +357,22 @@ impl<Octs> CharStr<Octs> {
 }
 
 impl<Octs: AsRef<[u8]> + ?Sized> CharStr<Octs> {
-    /// Returns an object that displays the string always quoted.
+    /// Returns an object that formats in quoted presentation format.
+    ///
+    /// The returned object will display the content surrounded by double
+    /// quotes. It will escape double quotes, backslashes, and non-printable
+    /// octets only.
     pub fn display_quoted(&self) -> DisplayQuoted {
         DisplayQuoted(self.for_slice())
+    }
+
+    /// Returns an object that formats in unquoted presentation format.
+    ///
+    /// The returned object will display the content without explicit
+    /// delimiters and escapes space, double quotes, semicolons, backslashes,
+    /// and non-printable octets.
+    pub fn display_unquoted(&self) -> DisplayUnquoted {
+        DisplayUnquoted(self.for_slice())
     }
 }
 
@@ -430,7 +508,7 @@ impl<T: AsRef<[u8]> + ?Sized> hash::Hash for CharStr<T> {
 impl<T: AsRef<[u8]> + ?Sized> fmt::Display for CharStr<T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         for &ch in self.0.as_ref() {
-            fmt::Display::fmt(&Symbol::from_octet(ch), f)?;
+            fmt::Display::fmt(&Symbol::display_from_octet(ch), f)?;
         }
         Ok(())
     }
@@ -816,7 +894,7 @@ impl<'a> Iterator for Iter<'a> {
 
 //------------ DisplayQuoted -------------------------------------------------
 
-/// Helper struct for display a character string surrounded by quotes.
+/// Helper struct for displaying in quoted presentation format.
 ///
 /// A value of this type can be obtained via `CharStr::display_quoted`.
 #[derive(Clone, Copy, Debug)]
@@ -826,9 +904,26 @@ impl<'a> fmt::Display for DisplayQuoted<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         f.write_str("\"")?;
         for &ch in self.0.as_ref() {
-            fmt::Display::fmt(&Symbol::from_quoted_octet(ch), f)?;
+            fmt::Display::fmt(&Symbol::quoted_from_octet(ch), f)?;
         }
         f.write_str("\"")
+    }
+}
+
+//------------ DisplayUnquoted -----------------------------------------------
+
+/// Helper struct for displaying in serialization format.
+///
+/// A value of this type can be obtained via `CharStr::display_serialized`.
+#[derive(Clone, Copy, Debug)]
+pub struct DisplayUnquoted<'a>(&'a CharStr<[u8]>);
+
+impl<'a> fmt::Display for DisplayUnquoted<'a> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        for &ch in self.0.as_ref() {
+            fmt::Display::fmt(&Symbol::from_octet(ch), f)?;
+        }
+        Ok(())
     }
 }
 
@@ -1055,47 +1150,50 @@ mod test {
         use serde_test::{assert_tokens, Configure, Token};
 
         assert_tokens(
-            &CharStr::from_octets(vec![b'f', b'o', 0x12])
+            &CharStr::from_octets(Vec::from(b"fo\x12 bar"))
                 .unwrap()
                 .compact(),
             &[
                 Token::NewtypeStruct { name: "CharStr" },
-                Token::ByteBuf(b"fo\x12"),
+                Token::ByteBuf(b"fo\x12 bar"),
             ],
         );
 
         assert_tokens(
-            &CharStr::from_octets(vec![b'f', b'o', 0x12])
+            &CharStr::from_octets(Vec::from(b"fo\x12 bar"))
                 .unwrap()
                 .readable(),
             &[
                 Token::NewtypeStruct { name: "CharStr" },
-                Token::Str("fo\\018"),
+                Token::Str("fo\\018 bar"),
             ],
         );
     }
 
+    #[cfg(feature = "serde")]
+    #[test]
+    fn cycle_serde_json() {
+        let json = r#""foo bar\" \\018;""#;
+
+        let cstr: CharStr<Vec<u8>> = serde_json::from_str(json).unwrap();
+        assert_eq!(cstr.as_slice(), b"foo bar\" \x12;");
+        assert_eq!(serde_json::to_string(&cstr).unwrap(), json);
+    }
+
     #[test]
     fn display() {
-        fn cmp(input: &[u8], normal: &str, quoted: &str) {
-            assert_eq!(
-                format!("{}", CharStr::from_octets(input).unwrap()),
-                normal
-            );
-            assert_eq!(
-                format!(
-                    "{}",
-                    CharStr::from_octets(input).unwrap().display_quoted()
-                ),
-                quoted
-            );
+        fn cmp(input: &[u8], normal: &str, quoted: &str, unquoted: &str) {
+            let s = CharStr::from_octets(input).unwrap();
+            assert_eq!(format!("{}", s), normal);
+            assert_eq!(format!("{}", s.display_quoted()), quoted);
+            assert_eq!(format!("{}", s.display_unquoted()), unquoted);
         }
 
-        cmp(b"foo", "foo", "\"foo\"");
-        cmp(b"f oo", "f\\ oo", "\"f oo\"");
-        cmp(b"f\"oo", "f\\\"oo", "\"f\\\"oo\"");
-        cmp(b"f\\oo", "f\\\\oo", "\"f\\\\oo\"");
-        cmp(b"f;oo", "f\\;oo", "\"f;oo\"");
-        cmp(b"f\noo", "f\\010oo", "\"f\\010oo\"");
+        cmp(br#"foo"#, r#"foo"#, r#""foo""#, r#"foo"#);
+        cmp(br#"f oo"#, r#"f oo"#, r#""f oo""#, r#"f\ oo"#);
+        cmp(br#"f"oo"#, r#"f"oo"#, r#""f\"oo""#, r#"f\"oo"#);
+        cmp(br#"f\oo"#, r#"f\\oo"#, r#""f\\oo""#, r#"f\\oo"#);
+        cmp(br#"f;oo"#, r#"f;oo"#, r#""f;oo""#, r#"f\;oo"#);
+        cmp(b"f\noo", r#"f\010oo"#, r#""f\010oo""#, r#"f\010oo"#);
     }
 }
