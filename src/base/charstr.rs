@@ -219,6 +219,19 @@ impl<Octs: ?Sized> CharStr<Octs> {
     }
 }
 
+impl CharStr<[u8]> {
+    /// Parses a character string from a parser atop a slice.
+    pub fn parse_slice<'a>(
+        parser: &mut Parser<'a, [u8]>,
+    ) -> Result<&'a Self, ParseError> {
+        let len = parser.parse_u8()? as usize;
+        parser
+            .parse_octets(len)
+            .map(|bytes| unsafe { Self::from_slice_unchecked(bytes) })
+            .map_err(Into::into)
+    }
+}
+
 impl<Octs: AsRef<[u8]> + ?Sized> CharStr<Octs> {
     /// Returns the length of the character string.
     ///
@@ -276,12 +289,11 @@ impl<Octs> CharStr<Octs> {
     ) -> Result<Self, S::Error> {
         scanner.scan_charstr()
     }
+}
 
+impl<Octs: AsRef<[u8]> + ?Sized> CharStr<Octs> {
     /// Returns an object that displays the string always quoted.
-    pub fn display_quoted(&self) -> DisplayQuoted
-    where
-        Octs: AsRef<[u8]>,
-    {
+    pub fn display_quoted(&self) -> DisplayQuoted {
         DisplayQuoted(self.for_slice())
     }
 }

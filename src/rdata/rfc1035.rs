@@ -1572,27 +1572,54 @@ impl<N: fmt::Display> fmt::Display for Soa<N> {
 
 /// Txt record data.
 ///
-/// Txt records hold descriptive text.
+/// Txt records hold descriptive text. While it may appear as a single text,
+/// it internally consists of a sequence of one or more [character
+/// strings][CharStr]. The type holds this sequence in its encoded form, i.e.,
+/// each character string is at most 255 octets long and preceded by an
+/// octet with its length.
+///
+/// The type provides means to iterate over these strings, either as
+/// [`CharStr`s][CharStr] via [`iter_char_strs`][Self::iter_char_strs] or
+/// as plain octets slices via [`iter`]. There is a short cut for the most
+/// common case of there being exactly one character string in
+/// [`as_flat_slice`][Self::as_flat_slice]. Finally, the two methods
+/// [`text`][Self::text] and [`try_text`][Self::try_text] allow combining the
+/// content into one single octets sequence.
 ///
 /// The Txt record type is defined in RFC 1035, section 3.3.14.
 #[derive(Clone)]
 pub struct Txt<Octs: ?Sized>(Octs);
 
 impl<Octs: FromBuilder> Txt<Octs> {
-    /// Creates a new Txt record from a single character string.
-    pub fn build_from_slice(text: &[u8]) -> Result<Self, ShortBuf>
+    /// Creates a new Txt record from a single slice.
+    ///
+    /// If the slice is longer than 255 octets, it will be broken up into
+    /// multiple character strings where all but the last string will be
+    /// 255 octets long.
+    ///
+    /// If the slice is longer than 65,535 octets or longer than what fits
+    /// into the octets type used, an error is returned.
+    pub fn build_from_slice(text: &[u8]) -> Result<Self, TxtAppendError>
     where
         <Octs as FromBuilder>::Builder:
             EmptyBuilder + AsRef<[u8]> + AsMut<[u8]>,
     {
         let mut builder = TxtBuilder::<Octs::Builder>::new();
         builder.append_slice(text)?;
-        Ok(builder.finish())
+        builder.finish().map_err(Into::into)
     }
 }
 
 impl<Octs> Txt<Octs> {
     /// Creates new TXT record data from its encoded content.
+    ///
+    /// The `octets` sequence most contain correctly encoded TXT record
+    /// data. That is, it must contain a sequence of at least one character
+    /// string of at most 255 octets each preceded by a length octet. An
+    /// empty sequence is not allowed.
+    ///
+    /// Returns an error if `octets` does not contain correctly encoded TXT
+    /// record data.
     pub fn from_octets(octets: Octs) -> Result<Self, TxtError>
     where
         Octs: AsRef<[u8]>,
@@ -1605,8 +1632,8 @@ impl<Octs> Txt<Octs> {
     ///
     /// # Safety
     ///
-    /// The passed octets must contain correctly encoded TXT record data,
-    /// that is a sequence of encoded character strings.
+    /// The passed octets must contain correctly encoded TXT record data.
+    /// See [`from_octets][Self::from_octets] for the required content.
     unsafe fn from_octets_unchecked(octets: Octs) -> Self {
         Txt(octets)
     }
@@ -1614,6 +1641,9 @@ impl<Octs> Txt<Octs> {
 
 impl Txt<[u8]> {
     /// Creates new TXT record data on an octets slice.
+    ///
+    /// The slice must contain correctly encoded TXT record data,
+    /// that is a sequence of encoded character strings. See
     pub fn from_slice(slice: &[u8]) -> Result<&Self, TxtError> {
         Txt::check_slice(slice)?;
         Ok(unsafe { Txt::from_slice_unchecked(slice) })
@@ -1623,14 +1653,17 @@ impl Txt<[u8]> {
     ///
     /// # Safety
     ///
-    /// The passed octets must contain correctly encoded TXT record data,
-    /// that is a sequence of encoded character strings.
+    /// The passed octets must contain correctly encoded TXT record data.
+    /// See [`from_octets][Self::from_octets] for the required content.
     unsafe fn from_slice_unchecked(slice: &[u8]) -> &Self {
         unsafe { &*(slice as *const [u8] as *const Self) }
     }
 
     /// Checks that a slice contains correctly encoded TXT data.
     fn check_slice(mut slice: &[u8]) -> Result<(), TxtError> {
+        if slice.is_empty() {
+            return Err(TxtError(TxtErrorInner::Empty))
+        }
         LongRecordData::check_len(slice.len())?;
         while let Some(&len) = slice.first() {
             let len = usize::from(len);
@@ -1644,6 +1677,7 @@ impl Txt<[u8]> {
 }
 
 impl<Octs> Txt<Octs> {
+    /// Parses TXT record data from the beginning of a parser.
     pub fn parse<'a, Src: Octets<Range<'a> = Octs> + ?Sized>(
         parser: &mut Parser<'a, Src>,
     ) -> Result<Self, ParseError>
@@ -1659,6 +1693,7 @@ impl<Octs> Txt<Octs> {
         Ok(Txt(text))
     }
 
+    /// Scans TXT record data.
     pub fn scan<S: Scanner<Octets = Octs>>(
         scanner: &mut S,
     ) -> Result<Self, S::Error> {
@@ -1667,14 +1702,16 @@ impl<Octs> Txt<Octs> {
 }
 
 impl<Octs: AsRef<[u8]> + ?Sized> Txt<Octs> {
-    /// Returns an iterator over the text items.
+    /// Returns an iterator over the character strings as slices.
     ///
-    /// The Txt format contains one or more length-delimited byte strings.
-    /// This method returns an iterator over each of them.
+    /// The returned iterator will always return at least one octets slice.
     pub fn iter(&self) -> TxtIter {
         TxtIter(self.iter_char_strs())
     }
 
+    /// Returns an iterator over the character strings.
+    ///
+    /// The returned iterator will always return at least one octets slice.
     pub fn iter_char_strs(&self) -> TxtCharStrIter {
         TxtCharStrIter(Parser::from_ref(self.0.as_ref()))
     }
@@ -1688,22 +1725,27 @@ impl<Octs: AsRef<[u8]> + ?Sized> Txt<Octs> {
         }
     }
 
+    /// Returns the length of the TXT record data.
+    ///
+    /// Note that this is the length of the encoded record data and therefore
+    /// never the length of the text, not even if there is only a single
+    /// character string – it is still preceded by a length octet.
+    ///
+    /// Note further that TXT record data is not allowed to be empty, so there
+    /// is no `is_empty` method.
+    #[allow(clippy::len_without_is_empty)]
     pub fn len(&self) -> usize {
         self.0.as_ref().len()
     }
 
-    pub fn is_empty(&self) -> bool {
-        self.0.as_ref().is_empty()
-    }
-
     /// Returns the text content.
     ///
-    /// If the data is only one single character string, returns a simple
-    /// clone of the slice with the data. If there are several character
-    /// strings, their content will be copied together into one single,
-    /// newly allocated bytes value.
+    /// The method appends the content of each character string to a newly
+    /// created octets builder. It does not add any delimiters between the
+    /// character string.
     ///
-    /// Access to the individual character strings is possible via iteration.
+    /// If your octets builder is not space limited, you can use
+    /// [`text`][Self::text] instead.
     pub fn try_text<T: FromBuilder>(
         &self,
     ) -> Result<T, <<T as FromBuilder>::Builder as OctetsBuilder>::AppendError>
@@ -1719,6 +1761,15 @@ impl<Octs: AsRef<[u8]> + ?Sized> Txt<Octs> {
         Ok(res.freeze())
     }
 
+    /// Returns the text content.
+    ///
+    /// The method appends the content of each character string to a newly
+    /// created octets builder. It does not add any delimiters between the
+    /// character string.
+    ///
+    /// This method is only available for octets builder types that are not
+    /// space limited. You can use [`try_text`][Self::try_text] with all
+    /// builder types.
     pub fn text<T: FromBuilder>(&self) -> T
     where
         <T as FromBuilder>::Builder: EmptyBuilder,
@@ -1730,12 +1781,18 @@ impl<Octs: AsRef<[u8]> + ?Sized> Txt<Octs> {
 }
 
 impl<SrcOcts> Txt<SrcOcts> {
+    /// Converts the octets type.
+    ///
+    /// This is used by the macros that create enum types.
     pub(super) fn convert_octets<Target: OctetsFrom<SrcOcts>>(
         self,
     ) -> Result<Txt<Target>, Target::Error> {
         Ok(Txt(self.0.try_octets_into()?))
     }
 
+    /// Flattens the contents.
+    ///
+    /// This is used by the macros that create enum types.
     pub(super) fn flatten<Octs: OctetsFrom<SrcOcts>>(
         self,
     ) -> Result<Txt<Octs>, Octs::Error> {
@@ -1992,7 +2049,7 @@ where
                         .append_u8(ch.into_octet().map_err(E::custom)?)
                         .map_err(E::custom)?;
                 }
-                Ok(builder.finish())
+                builder.finish().map_err(E::custom)
             }
 
             fn visit_seq<A: serde::de::SeqAccess<'de>>(
@@ -2004,7 +2061,7 @@ where
                 while let Some(s) = seq.next_element::<&'de str>()? {
                     builder.append_zone_char_str(s)?;
                 }
-                Ok(builder.finish())
+                builder.finish().map_err(serde::de::Error::custom)
             }
 
             fn visit_borrowed_bytes<E: serde::de::Error>(
@@ -2072,13 +2129,13 @@ where
 pub struct TxtCharStrIter<'a>(Parser<'a, [u8]>);
 
 impl<'a> Iterator for TxtCharStrIter<'a> {
-    type Item = CharStr<&'a [u8]>;
+    type Item = &'a CharStr<[u8]>;
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.0.remaining() == 0 {
             None
         } else {
-            Some(CharStr::parse(&mut self.0).unwrap())
+            Some(CharStr::parse_slice(&mut self.0).unwrap())
         }
     }
 }
@@ -2093,14 +2150,19 @@ impl<'a> Iterator for TxtIter<'a> {
     type Item = &'a [u8];
 
     fn next(&mut self) -> Option<Self::Item> {
-        self.0.next().map(CharStr::into_octets)
+        self.0.next().map(CharStr::as_slice)
     }
 }
 
 //------------ TxtBuilder ---------------------------------------------------
 
+/// Iteratively build TXT record data.
+///
+/// This type allows building TXT record data by starting with empty data
+/// and appending either complete character strings or slices of data.
 #[derive(Clone, Debug)]
 pub struct TxtBuilder<Builder> {
+    /// The underlying builder.
     builder: Builder,
 
     /// The index of the start of the current char string.
@@ -2110,6 +2172,7 @@ pub struct TxtBuilder<Builder> {
 }
 
 impl<Builder: OctetsBuilder + EmptyBuilder> TxtBuilder<Builder> {
+    /// Creates a new, empty TXT builder.
     #[must_use]
     pub fn new() -> Self {
         TxtBuilder {
@@ -2121,17 +2184,46 @@ impl<Builder: OctetsBuilder + EmptyBuilder> TxtBuilder<Builder> {
 
 #[cfg(feature = "bytes")]
 impl TxtBuilder<BytesMut> {
+    /// Creates a new, empty TXT builder using `BytesMut`.
     pub fn new_bytes() -> Self {
         Self::new()
     }
 }
 
 impl<Builder: OctetsBuilder + AsRef<[u8]> + AsMut<[u8]>> TxtBuilder<Builder> {
-    fn builder_append_slice(&mut self, slice: &[u8]) -> Result<(), ShortBuf> {
-        self.builder.append_slice(slice).map_err(Into::into)
+    /// Tries appending a slice.
+    ///
+    /// Errors out if either appending the slice would result in exceeding the
+    /// record data length limit or the underlying builder runs out of space.
+    fn builder_append_slice(
+        &mut self, slice: &[u8]
+    ) -> Result<(), TxtAppendError> {
+        LongRecordData::check_append_len(
+            self.builder.as_ref().len(), slice.len()
+        )?;
+        self.builder.append_slice(slice)?;
+        Ok(())
     }
 
-    pub fn append_slice(&mut self, mut slice: &[u8]) -> Result<(), ShortBuf> {
+    /// Appends a slice to the builder.
+    ///
+    /// The method breaks up the slice into individual octets strings if
+    /// necessary. If a previous call has started a new octets string, it
+    /// fills this one up first before creating a new one. Thus, by using
+    /// this method only, the resulting TXT record data will consist of
+    /// character strings where all but the last one are 255 octets long.
+    ///
+    /// You can force a character string break by calling
+    /// [`close_char_str`][Self::close_char_str].
+    ///
+    /// The method will return an error if appending the slice would result
+    /// in exceeding the record data length limit or the underlying builder
+    /// runs out of space. In this case, the method may have appended some
+    /// data already. I.e., you should consider the builder corrupt if the
+    /// method returns an error.
+    pub fn append_slice(
+        &mut self, mut slice: &[u8]
+    ) -> Result<(), TxtAppendError> {
         if let Some(start) = self.start {
             let left = 255 - (self.builder.as_ref().len() - (start + 1));
             if slice.len() < left {
@@ -2144,9 +2236,6 @@ impl<Builder: OctetsBuilder + AsRef<[u8]> + AsMut<[u8]>> TxtBuilder<Builder> {
             slice = left;
         }
         for chunk in slice.chunks(255) {
-            if self.builder.as_ref().len() + chunk.len() + 1 >= 0xFFFF {
-                return Err(ShortBuf);
-            }
             // Remember offset of this incomplete chunk
             self.start = if chunk.len() == 255 {
                 None
@@ -2159,10 +2248,40 @@ impl<Builder: OctetsBuilder + AsRef<[u8]> + AsMut<[u8]>> TxtBuilder<Builder> {
         Ok(())
     }
 
-    pub fn append_u8(&mut self, ch: u8) -> Result<(), ShortBuf> {
+    /// Appends a single octet.
+    ///
+    /// This method calls [`append_slice`][Self::append_slice], so all the
+    /// caveats described there apply.
+    pub fn append_u8(&mut self, ch: u8) -> Result<(), TxtAppendError> {
         self.append_slice(&[ch])
     }
 
+    /// Appends a complete character string.
+    ///
+    /// If a character string had previously been started by a call to
+    /// [`append_slice`][Self::append_slice], this string is closed before
+    /// appending the provided character string.
+    ///
+    /// The method will return an error if appending the slice would result
+    /// in exceeding the record data length limit or the underlying builder
+    /// runs out of space. In this case, the method may have appended some
+    /// data already. I.e., you should consider the builder corrupt if the
+    /// method returns an error.
+    pub fn append_charstr<Octs: AsRef<[u8]> + ?Sized>(
+        &mut self, s: &CharStr<Octs>
+    ) -> Result<(), TxtAppendError> {
+        self.close_char_str();
+        LongRecordData::check_append_len(
+            self.builder.as_ref().len(),
+            usize::from(s.compose_len())
+        )?;
+        s.compose(&mut self.builder)?;
+        Ok(())
+    }
+
+    /// Appends a character string in zone file format.
+    ///
+    /// This is used by the Serde deserializer.
     #[cfg(feature = "serde")]
     fn append_zone_char_str<E: serde::de::Error>(
         &mut self,
@@ -2189,19 +2308,32 @@ impl<Builder: OctetsBuilder + AsRef<[u8]> + AsMut<[u8]>> TxtBuilder<Builder> {
         Ok(())
     }
 
-    fn close_char_str(&mut self) {
+    /// Ends a character string.
+    ///
+    /// If a previous call to [`append_slice`][Self::append_slice] started a
+    /// new character string, a call to this method will close it.
+    pub fn close_char_str(&mut self) {
         if let Some(start) = self.start {
             let last_slice_len = self.builder.as_ref().len() - (start + 1);
             self.builder.as_mut()[start] = last_slice_len as u8;
+            self.start = None;
         }
     }
 
-    pub fn finish(mut self) -> Txt<Builder::Octets>
+    /// Finishes the builder and returns TXT record data.
+    ///
+    /// If the builder is empty, appends an empty character string before
+    /// returning. If that fails because the builder does not have enough
+    /// space, returns an error.
+    pub fn finish(mut self) -> Result<Txt<Builder::Octets>, TxtAppendError>
     where
         Builder: FreezeBuilder,
     {
         self.close_char_str();
-        Txt(self.builder.freeze())
+        if self.builder.as_ref().is_empty() {
+            self.builder.append_slice(b"\0")?;
+        }
+        Ok(Txt(self.builder.freeze()))
     }
 }
 
@@ -2221,6 +2353,7 @@ pub struct TxtError(TxtErrorInner);
 
 #[derive(Clone, Copy, Debug)]
 enum TxtErrorInner {
+    Empty,
     Long(LongRecordData),
     ShortInput,
 }
@@ -2229,6 +2362,7 @@ impl TxtError {
     #[must_use]
     pub fn as_str(self) -> &'static str {
         match self.0 {
+            TxtErrorInner::Empty => "empty TXT record",
             TxtErrorInner::Long(err) => err.as_str(),
             TxtErrorInner::ShortInput => "short input",
         }
@@ -2252,6 +2386,48 @@ impl fmt::Display for TxtError {
         f.write_str(self.as_str())
     }
 }
+
+//------------ TxtAppendError ------------------------------------------------
+
+/// An error occurred while append to TXT record data.
+#[derive(Clone, Copy, Debug)]
+pub enum TxtAppendError {
+    /// Appending would have caused the record data to be too long.
+    LongRecordData,
+
+    /// The octets builder did not have enough space.
+    ShortBuf
+}
+
+impl TxtAppendError {
+    /// Returns a static string with the error reason.
+    #[must_use]
+    pub fn as_str(self) -> &'static str {
+        match self {
+            TxtAppendError::LongRecordData => "record data too long",
+            TxtAppendError::ShortBuf => "buffer size exceeded"
+        }
+    }
+}
+
+impl From<LongRecordData> for TxtAppendError {
+    fn from(_: LongRecordData) -> TxtAppendError {
+        TxtAppendError::LongRecordData
+    }
+}
+
+impl<T: Into<ShortBuf>> From<T> for TxtAppendError {
+    fn from(_: T) -> TxtAppendError {
+        TxtAppendError::ShortBuf
+    }
+}
+
+impl fmt::Display for TxtAppendError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
 
 //============ Testing =======================================================
 
@@ -2407,6 +2583,8 @@ mod test {
 
     #[test]
     fn txt_from_slice() {
+        assert!(Txt::from_octets(b"").is_err());
+
         let short = b"01234";
         let txt: Txt<Vec<u8>> = Txt::build_from_slice(short).unwrap();
         assert_eq!(Some(&short[..]), txt.as_flat_slice());
@@ -2429,16 +2607,20 @@ mod test {
         for chunk in long.chunks(9) {
             builder.append_slice(chunk).unwrap();
         }
-        let txt = builder.finish();
+        let txt = builder.finish().unwrap();
         assert_eq!(None, txt.as_flat_slice());
         assert_eq!(long.to_vec(), txt.text::<Vec<u8>>());
 
         // Empty
+        let builder: TxtBuilder<Vec<u8>> = TxtBuilder::new();
+        let txt = builder.finish().unwrap();
+        assert_eq!(Some(b"".as_ref()), txt.as_flat_slice());
+
+        // Empty
         let mut builder: TxtBuilder<Vec<u8>> = TxtBuilder::new();
-        assert!(builder.append_slice(&[]).is_ok());
-        let empty = builder.finish();
-        assert!(empty.is_empty());
-        assert_eq!(0, empty.iter().count());
+        builder.append_slice(b"").unwrap();
+        let txt = builder.finish().unwrap();
+        assert_eq!(Some(b"".as_ref()), txt.as_flat_slice());
 
         // Invalid
         let mut parser = Parser::from_static(b"\x01");
@@ -2480,7 +2662,7 @@ mod test {
             .map(|e| {
                 let mut builder = TxtBuilder::<Vec<u8>>::new();
                 builder.append_slice(e.as_bytes()).unwrap();
-                builder.finish()
+                builder.finish().unwrap()
             })
             .collect::<Vec<_>>();
 

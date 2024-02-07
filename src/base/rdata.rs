@@ -503,6 +503,14 @@ impl LongRecordData {
             Ok(())
         }
     }
+
+    pub fn check_append_len(
+        len: usize,
+        extra_len: usize,
+    ) -> Result<(), Self> {
+        // This version is safe on 16 bit systems.
+        Self::check_len(len.checked_add(extra_len).ok_or(Self())?)
+    }
 }
 
 impl fmt::Display for LongRecordData {
