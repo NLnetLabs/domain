@@ -976,14 +976,14 @@ macro_rules! dname_type_base {
                 scanner.scan_dname().map(Self::new)
             }
 
-            pub(super) fn convert_octets<Target: OctetsFrom<N>>(
+            pub(in crate::rdata) fn convert_octets<Target: OctetsFrom<N>>(
                 self
             ) -> Result<$target<Target>, Target::Error> {
                 Target::try_octets_from(self.$field).map($target::new)
             }
 
             #[allow(dead_code)] // XXX Remove
-            pub(super) fn flatten<Target>(
+            pub(in crate::rdata) fn flatten<Target>(
                 self
             ) -> Result<$target<Target>, N::AppendError>
             where
