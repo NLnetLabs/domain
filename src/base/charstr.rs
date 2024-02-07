@@ -1150,7 +1150,7 @@ mod test {
         use serde_test::{assert_tokens, Configure, Token};
 
         assert_tokens(
-            &CharStr::from_octets(Vec::from(b"fo\x12 bar"))
+            &CharStr::from_octets(Vec::from(b"fo\x12 bar".as_ref()))
                 .unwrap()
                 .compact(),
             &[
@@ -1160,7 +1160,7 @@ mod test {
         );
 
         assert_tokens(
-            &CharStr::from_octets(Vec::from(b"fo\x12 bar"))
+            &CharStr::from_octets(Vec::from(b"fo\x12 bar".as_ref()))
                 .unwrap()
                 .readable(),
             &[
