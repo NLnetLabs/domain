@@ -8,6 +8,11 @@ Breaking changes
   a consequence `TxtBuilder` converts an empty builder into TXT record
   data consisting of one empty character string which requires
   `TxtBuilder::finish` to be able to return an error. ([#267])
+* The text formatting for `CharStr` has been redesigned. The `Display`
+  impl now uses a modified version of the representation format that
+  doesn’t escape white space but also doesn’t enclose the string in
+  quotes. Methods for explicitly formatting in quoted and unquoted
+  presentation format are provided. ([#270]);
 * The stub resolver now uses the new client transports. This doesn’t change
   how it is used but does change how it queries the configured servers.
   ([#215])
@@ -50,6 +55,7 @@ Other changes
 [#258]: https://github.com/NLnetLabs/domain/pull/258
 [#259]: https://github.com/NLnetLabs/domain/pull/259
 [#267]: https://github.com/NLnetLabs/domain/pull/267
+[#270]: https://github.com/NLnetLabs/domain/pull/270
 [@torin-carey]: https://github.com/torin-carey
 
 
