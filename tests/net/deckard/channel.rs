@@ -1,3 +1,6 @@
+// Using tokio::io::duplex() seems appealing but it can only create a channel
+// between two ends, it isn't possible to create additional client ends for a
+// single server end for example.
 use domain::net::client::protocol::{
     AsyncConnect, AsyncDgramRecv, AsyncDgramSend,
 };
@@ -24,6 +27,40 @@ enum Data {
     StreamRequest(Vec<u8>),
 }
 
+#[derive(Default)]
+struct ReadBufBuffer {
+    /// Buffer for received bytes that overflowed the client read buffer.
+    buf: Vec<u8>,
+
+    /// The index of the first unconsumed byte in last_read_buf.
+    start_idx: usize,
+}
+
+impl ReadBufBuffer {
+    pub fn extend(&mut self, data: Vec<u8>) -> &mut Self {
+        self.buf.extend(data);
+        self
+    }
+
+    pub fn fill(&mut self, target: &mut ReadBuf<'_>) -> usize {
+        let num_unread_bytes = self.buf.len() - self.start_idx;
+        let waiting_bytes_to_take =
+            cmp::min(target.remaining(), num_unread_bytes);
+        if waiting_bytes_to_take > 0 {
+            let start = self.start_idx;
+            let end = start + waiting_bytes_to_take;
+            target.put_slice(&self.buf[start..end]);
+            if end >= self.buf.len() {
+                self.buf.clear();
+                self.start_idx = 0;
+            } else {
+                self.start_idx = end;
+            }
+        }
+        waiting_bytes_to_take
+    }
+}
+
 struct ClientSocket {
     /// The address of this client.
     addr: SocketAddr,
@@ -37,10 +74,7 @@ struct ClientSocket {
     rx: Mutex<mpsc::Receiver<Vec<u8>>>,
 
     /// Buffer for received bytes that overflowed the client read buffer.
-    unread_buf: Vec<u8>,
-
-    /// The index of the first unconsumed byte in last_read_buf.
-    unread_buf_start_idx: usize,
+    unread_buf: ReadBufBuffer,
 }
 
 impl ClientSocket {
@@ -66,7 +100,6 @@ impl ClientSocket {
             tx: client_tx,
             rx: Mutex::new(client_rx),
             unread_buf: Default::default(),
-            unread_buf_start_idx: 0,
         };
 
         (res, server_tx)
@@ -95,10 +128,7 @@ struct ServerSocket {
     response_txs: HashMap<SocketAddr, mpsc::Sender<Vec<u8>>>,
 
     /// Buffer for received bytes that overflowed the server read buffer.
-    unread_buf: Vec<u8>,
-
-    /// The index of the first unconsumed byte in last_read_buf.
-    unread_buf_start_idx: usize,
+    unread_buf: ReadBufBuffer,
 }
 
 impl Default for ServerSocket {
@@ -113,7 +143,6 @@ impl Default for ServerSocket {
             tx: server_tx,
             response_txs: Default::default(),
             unread_buf: Default::default(),
-            unread_buf_start_idx: 0,
         }
     }
 }
@@ -466,24 +495,8 @@ impl AsyncRead for ClientServerChannel {
                 let rx = &mut client.rx.lock().unwrap();
                 match rx.poll_recv(cx) {
                     Poll::Ready(Some(data)) => {
-                        trace!("Reading {} bytes into internal buffer in client stream channel", data.len());
-                        client.unread_buf.extend(data);
-                        let num_unread_bytes = client.unread_buf.len()
-                            - client.unread_buf_start_idx;
-                        let waiting_bytes_to_take =
-                            cmp::min(buf.remaining(), num_unread_bytes);
-                        trace!("Copying {} bytes into buffer of len {} in client stream channel", waiting_bytes_to_take, buf.remaining());
-                        if waiting_bytes_to_take > 0 {
-                            let start = client.unread_buf_start_idx;
-                            let end = start + waiting_bytes_to_take;
-                            buf.put_slice(&client.unread_buf[start..end]);
-                            if end >= client.unread_buf.len() {
-                                client.unread_buf.clear();
-                                client.unread_buf_start_idx = 0;
-                            } else {
-                                client.unread_buf_start_idx = end;
-                            }
-                        }
+                        trace!("Reading {} bytes into internal buffer in server stream channel", data.len());
+                        client.unread_buf.extend(data).fill(buf);
                         Poll::Ready(Ok(()))
                     }
                     Poll::Ready(None) => {
@@ -494,21 +507,7 @@ impl AsyncRead for ClientServerChannel {
                     }
                     Poll::Pending => {
                         trace!("Pending read in client stream channel");
-                        let num_unread_bytes = client.unread_buf.len()
-                            - client.unread_buf_start_idx;
-                        let waiting_bytes_to_take =
-                            cmp::min(buf.remaining(), num_unread_bytes);
-                        trace!("Copying {} bytes into buffer of len {} in client stream channel", waiting_bytes_to_take, buf.remaining());
-                        if waiting_bytes_to_take > 0 {
-                            let start = client.unread_buf_start_idx;
-                            let end = start + waiting_bytes_to_take;
-                            buf.put_slice(&client.unread_buf[start..end]);
-                            if end >= client.unread_buf.len() {
-                                client.unread_buf.clear();
-                                client.unread_buf_start_idx = 0;
-                            } else {
-                                client.unread_buf_start_idx = end;
-                            }
+                        if client.unread_buf.fill(buf) > 0 {
                             Poll::Ready(Ok(()))
                         } else {
                             Poll::Pending
@@ -522,25 +521,7 @@ impl AsyncRead for ClientServerChannel {
                 match rx.poll_recv(cx) {
                     Poll::Ready(Some(Data::StreamRequest(data))) => {
                         trace!("Reading {} bytes into internal buffer in server stream channel", data.len());
-                        server_socket.unread_buf.extend(data);
-                        let num_unread_bytes = server_socket.unread_buf.len()
-                            - server_socket.unread_buf_start_idx;
-                        let waiting_bytes_to_take =
-                            cmp::min(buf.remaining(), num_unread_bytes);
-                        trace!("Copying {} bytes into buffer of len {} in server stream channel", waiting_bytes_to_take, buf.remaining());
-                        if waiting_bytes_to_take > 0 {
-                            let start = server_socket.unread_buf_start_idx;
-                            let end = start + waiting_bytes_to_take;
-                            buf.put_slice(
-                                &server_socket.unread_buf[start..end],
-                            );
-                            if end >= server_socket.unread_buf.len() {
-                                server_socket.unread_buf.clear();
-                                server_socket.unread_buf_start_idx = 0;
-                            } else {
-                                server_socket.unread_buf_start_idx = end;
-                            }
-                        }
+                        server_socket.unread_buf.extend(data).fill(buf);
                         Poll::Ready(Ok(()))
                     }
                     Poll::Ready(Some(Data::StreamAccept(..))) => {
@@ -558,24 +539,7 @@ impl AsyncRead for ClientServerChannel {
                     }
                     Poll::Pending => {
                         trace!("Pending read in server stream channel");
-                        let num_unread_bytes = server_socket.unread_buf.len()
-                            - server_socket.unread_buf_start_idx;
-                        let waiting_bytes_to_take =
-                            cmp::min(buf.remaining(), num_unread_bytes);
-                        trace!("Copying {} bytes into buffer of len {} in server stream channel", waiting_bytes_to_take, buf.remaining());
-                        if waiting_bytes_to_take > 0 {
-                            let start = server_socket.unread_buf_start_idx;
-                            let end = start + waiting_bytes_to_take;
-                            buf.put_slice(
-                                &server_socket.unread_buf[start..end],
-                            );
-                            if end >= server_socket.unread_buf.len() {
-                                server_socket.unread_buf.clear();
-                                server_socket.unread_buf_start_idx = 0;
-                            } else {
-                                server_socket.unread_buf_start_idx = end;
-                                // cx.waker().clone().wake();
-                            }
+                        if server_socket.unread_buf.fill(buf) > 0 {
                             Poll::Ready(Ok(()))
                         } else {
                             Poll::Pending
