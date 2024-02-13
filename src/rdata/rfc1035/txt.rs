@@ -69,9 +69,11 @@ use octseq::serde::{DeserializeOctets, SerializeOctets};
 ///
 /// For human-readable formats, the type serializes into a newtype `Txt`
 /// wrapping a sequence of serialized [`CharStr`]s. The deserializer supports
-/// a single string instead of the sequence – but unfortunately not all
-/// format implementations support alternative deserialization based on the
-/// encountered type. In particular, _serde-json_ doesn’t.
+/// a non-canonical form as a single string instead of the sequence. In this
+/// case the string is broken up into chunks of 255 octets if it is longer.
+/// However, not all format implementations support alternative
+/// deserialization based on the encountered type. In particular,
+/// _serde-json_ doesn’t, so it will only accept sequences.
 ///
 /// For compact formats, the type serializes as a newtype `Txt` that contains
 /// a byte array of the wire format representation of the content.

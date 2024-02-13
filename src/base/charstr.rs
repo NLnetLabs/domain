@@ -958,10 +958,12 @@ impl<'a> fmt::Display for DisplayUnquoted<'a> {
 /// string in wire format as part of a longer octets sequence. It uses the
 /// `DeserializeSeed` trait to append the content to an octets builder and
 /// returns `()` as the actual value.
+#[cfg(feature = "serde")]
 pub struct DeserializeCharStrSeed<'a, Builder> {
     builder: &'a mut Builder,
 }
 
+#[cfg(feature = "serde")]
 impl<'a, Builder> DeserializeCharStrSeed<'a, Builder> {
     /// Creates a new value wrapping a ref mut to the builder to append to.
     pub fn new(builder: &'a mut Builder) -> Self {
@@ -969,6 +971,7 @@ impl<'a, Builder> DeserializeCharStrSeed<'a, Builder> {
     }
 }
 
+#[cfg(feature = "serde")]
 impl<'de, 'a, Builder> serde::de::DeserializeSeed<'de>
     for DeserializeCharStrSeed<'a, Builder>
 where
