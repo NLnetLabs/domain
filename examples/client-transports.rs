@@ -2,6 +2,7 @@
 use domain::base::Dname;
 use domain::base::MessageBuilder;
 use domain::base::Rtype::Aaaa;
+use domain::net::client::cache;
 use domain::net::client::dgram;
 use domain::net::client::dgram_stream;
 use domain::net::client::multi_stream;
@@ -110,6 +111,16 @@ async fn main() {
     println!("multi TCP reply: {:?}", reply);
 
     drop(request);
+
+    // Cache
+    let cache = cache::Connection::new(tcp_conn.clone());
+
+    // Send a request message.
+    let mut request = cache.send_request(req.clone());
+
+    // Get the reply
+    let reply = request.get_response().await;
+    println!("Cache reply: {:?}", reply);
 
     // Some TLS boiler plate for the root certificates.
     let mut root_store = RootCertStore::empty();
