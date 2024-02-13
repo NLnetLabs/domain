@@ -1,0 +1,676 @@
+use domain::net::client::protocol::{
+    AsyncConnect, AsyncDgramRecv, AsyncDgramSend,
+};
+use domain::net::server::traits::sock::{AsyncAccept, AsyncDgramSock};
+use futures::future::ready;
+use futures_util::FutureExt;
+use std::collections::HashMap;
+use std::future::Future;
+use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
+use std::pin::Pin;
+use std::sync::{Arc, Mutex};
+use std::task::{Context, Poll};
+use std::{cmp, io};
+use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
+use tokio::sync::mpsc;
+use tracing::trace;
+
+pub const DEF_CLIENT_ADDR: SocketAddr =
+    SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::new(127, 0, 0, 1), 0));
+
+enum Data {
+    DgramRequest(Vec<u8>, SocketAddr),
+    StreamAccept(ClientServerChannel, SocketAddr),
+    StreamRequest(Vec<u8>),
+}
+
+struct ClientSocket {
+    /// The address of this client.
+    addr: SocketAddr,
+
+    /// Sender for sender requests to the server.
+    tx: mpsc::Sender<Data>,
+
+    /// Receiver for receving responses from the server.
+    ///
+    /// Wrapped in a mutex so that it can be mutated even from a &self fn.
+    rx: Mutex<mpsc::Receiver<Vec<u8>>>,
+
+    /// Buffer for received bytes that overflowed the client read buffer.
+    unread_buf: Vec<u8>,
+
+    /// The index of the first unconsumed byte in last_read_buf.
+    unread_buf_start_idx: usize,
+}
+
+impl ClientSocket {
+    /// Create a connected client socket.
+    ///
+    /// Creates a new connection to the server.
+    ///
+    /// Receives `client_tx` which it should use to send messages to the
+    /// server.
+    ///
+    /// Also creates its own sender/receive pair of which the sender half is
+    /// returned so that the server can use it to send responses to the
+    /// client, and the receiver half is kept for receiving the responses sent
+    /// by the server.
+    fn new(
+        addr: SocketAddr,
+        client_tx: mpsc::Sender<Data>,
+    ) -> (Self, mpsc::Sender<Vec<u8>>) {
+        let (server_tx, client_rx) = mpsc::channel(10);
+
+        let res = Self {
+            addr,
+            tx: client_tx,
+            rx: Mutex::new(client_rx),
+            unread_buf: Default::default(),
+            unread_buf_start_idx: 0,
+        };
+
+        (res, server_tx)
+    }
+}
+
+/// The server half of a client <-> server bidirectional connection.
+///
+/// Messages sent by clients must be attributed to the senders address
+/// otherwise the server has no way of knowing from which client the request
+/// came and thus to which client to respond to.
+struct ServerSocket {
+    /// Receiver for the server to receive messages from clients.
+    ///
+    /// Only the server uses this receiver.
+    rx: mpsc::Receiver<Data>,
+
+    /// Sender for sending messages by clients to the server.
+    ///
+    /// Each client receives a clone of this sender.
+    tx: mpsc::Sender<Data>,
+
+    /// Senders for the server to send responses to clients.
+    ///
+    /// One per client to which responses must be sent.
+    response_txs: HashMap<SocketAddr, mpsc::Sender<Vec<u8>>>,
+
+    /// Buffer for received bytes that overflowed the server read buffer.
+    unread_buf: Vec<u8>,
+
+    /// The index of the first unconsumed byte in last_read_buf.
+    unread_buf_start_idx: usize,
+}
+
+impl Default for ServerSocket {
+    fn default() -> Self {
+        let (server_tx, server_rx) = mpsc::channel(10);
+
+        // The server needs a fixed receiver where it receives messages from
+        // all clients, and a list of senders one per client it has to send a
+        // response to.
+        Self {
+            rx: server_rx,
+            tx: server_tx,
+            response_txs: Default::default(),
+            unread_buf: Default::default(),
+            unread_buf_start_idx: 0,
+        }
+    }
+}
+
+impl ServerSocket {
+    fn sender(&self) -> mpsc::Sender<Data> {
+        self.tx.clone()
+    }
+}
+
+#[derive(Default)]
+pub struct ClientServerChannel {
+    /// Details of the server end of the connection.
+    server: Arc<Mutex<ServerSocket>>,
+
+    /// Details of the client end of the connection, if connected.
+    client: Option<ClientSocket>,
+
+    /// Type of connection.
+    is_stream: bool,
+}
+
+impl Clone for ClientServerChannel {
+    /// Clones only the server half, the client half cannot be cloned. The
+    /// result can be used to connect a new client to an existing server.
+    fn clone(&self) -> Self {
+        Self {
+            server: self.server.clone(),
+            client: None,
+            is_stream: self.is_stream,
+        }
+    }
+}
+
+impl ClientServerChannel {
+    #[allow(dead_code)]
+    pub fn new_dgram() -> Self {
+        Self {
+            is_stream: false,
+            ..Default::default()
+        }
+    }
+
+    #[allow(dead_code)]
+    pub fn new_stream() -> Self {
+        Self {
+            is_stream: true,
+            ..Default::default()
+        }
+    }
+
+    pub fn connect(&self, client_addr: SocketAddr) -> Self {
+        fn setup_client(
+            server_socket: &mut ServerSocket,
+            client_addr: SocketAddr,
+        ) -> ClientSocket {
+            // Create a client socket for sending requests to the server.
+            let (client, response_tx) =
+                ClientSocket::new(client_addr, server_socket.sender());
+
+            // Tell the server how to respond to the client.
+            server_socket.response_txs.insert(client_addr, response_tx);
+
+            // Return the created client socket
+            client
+        }
+
+        match self.is_stream {
+            false => {
+                // For dgram connections all clients communicate with the same
+                // single server socket.
+                let server_socket = &mut self.server.lock().unwrap();
+                let client = setup_client(server_socket, client_addr);
+
+                // Tell the client how to contact the server.
+                Self {
+                    server: self.server.clone(),
+                    client: Some(client),
+                    is_stream: false,
+                }
+            }
+
+            true => {
+                // But for stream connections each new client communicates
+                // with a new server-side connection handler socket.
+                let mut server_socket = ServerSocket::default();
+                let client = setup_client(&mut server_socket, client_addr);
+
+                // Tell the client how to contact the new server connection handler.
+                let channel = Self {
+                    server: Arc::new(Mutex::new(server_socket)),
+                    client: Some(client),
+                    is_stream: true,
+                };
+
+                // Tell the server how to receive from and respond to the client
+                // by unblocking AsyncAccept::poll_accept() which is being polled
+                // by the server.
+                let sender = self.server.lock().unwrap().tx.clone();
+                let cloned_channel = channel.clone();
+                tokio::spawn(async move {
+                    sender
+                        .send(Data::StreamAccept(cloned_channel, client_addr))
+                        .await
+                });
+
+                channel
+            }
+        }
+    }
+}
+
+//--- AsynConnect
+//
+// Dgram connection establishment
+
+impl AsyncConnect for ClientServerChannel {
+    type Connection = ClientServerChannel;
+
+    type Fut = Pin<
+        Box<dyn Future<Output = Result<Self::Connection, io::Error>> + Send>,
+    >;
+
+    fn connect(&self, source_address: Option<SocketAddr>) -> Self::Fut {
+        trace!("Connect from {source_address:?}");
+        // 127.0.0.1 on any port is the default client source address assumed
+        // by Deckard tests.
+        let client_addr = source_address.unwrap_or(DEF_CLIENT_ADDR);
+
+        let conn = self.connect(client_addr);
+
+        Box::pin(async move { Ok(conn) })
+    }
+}
+
+//--- AsyncDgramRecv
+//
+// Dgram client socket.
+
+impl AsyncDgramRecv for ClientServerChannel {
+    fn poll_recv(
+        &self,
+        cx: &mut Context<'_>,
+        buf: &mut ReadBuf<'_>,
+    ) -> Poll<Result<(), io::Error>> {
+        let mut rx = self.client.as_ref().unwrap().rx.lock().unwrap();
+        match rx.poll_recv(cx) {
+            Poll::Ready(Some(data)) => {
+                trace!(
+                    "Reading {} bytes from dgram client channel",
+                    data.len()
+                );
+                buf.put_slice(&data);
+                Poll::Ready(Ok(()))
+            }
+            Poll::Ready(None) => {
+                trace!("Broken pipe while reading in dgram client channel");
+                Poll::Ready(Err(io::Error::from(io::ErrorKind::BrokenPipe)))
+            }
+            Poll::Pending => {
+                trace!("Pending read in dgram client channel");
+                Poll::Pending
+            }
+        }
+    }
+}
+
+impl AsyncDgramSend for ClientServerChannel {
+    fn poll_send(
+        &self,
+        cx: &mut Context<'_>,
+        data: &[u8],
+    ) -> Poll<Result<usize, io::Error>> {
+        match &self.client {
+            Some(client) => {
+                let msg = Data::DgramRequest(data.into(), client.addr);
+
+                // TODO: Can Deckard scripts mix and match fake responses with
+                // responses from a real server? Do we need to first try
+                // invoking do_server() to see if the .rpl script defined a
+                // hard-coded answer for this query (like net::deckard::dgram
+                // does), before attempting to dispatch it to the configured
+                // server?
+
+                let mut fut = Box::pin(client.tx.send(msg));
+                match fut.poll_unpin(cx) {
+                    Poll::Ready(Ok(())) => {
+                        trace!(
+                            "Sent {} bytes to {} in dgram client channel",
+                            data.len(),
+                            client.addr
+                        );
+                        Poll::Ready(Ok(data.len()))
+                    }
+                    Poll::Ready(Err(_)) => {
+                        trace!(
+                            "Broken pipe while sending in dgram client channel");
+                        Poll::Ready(Err(io::Error::from(
+                            io::ErrorKind::BrokenPipe,
+                        )))
+                    }
+                    Poll::Pending => {
+                        trace!("Pending write in dgram client channel");
+                        Poll::Pending
+                    }
+                }
+            }
+
+            None => {
+                trace!("Unable to send bytes in dgram client channel: not connected");
+                Poll::Ready(Err(io::Error::from(io::ErrorKind::NotConnected)))
+            }
+        }
+    }
+}
+
+//--- AsyncDgramSock
+//
+// Dgram server socket.
+
+impl AsyncDgramSock for ClientServerChannel {
+    fn poll_send_to(
+        &self,
+        cx: &mut Context,
+        data: &[u8],
+        dest: &std::net::SocketAddr,
+    ) -> Poll<io::Result<usize>> {
+        let server_socket = self.server.lock().unwrap();
+        let tx = server_socket.response_txs.get(dest);
+        if let Some(server_tx) = tx {
+            let mut fut = Box::pin(server_tx.send(data.to_vec()));
+            match fut.poll_unpin(cx) {
+                Poll::Ready(Ok(())) => {
+                    trace!(
+                        "Sent {} bytes to {} in dgram server channel",
+                        data.len(),
+                        dest
+                    );
+                    Poll::Ready(Ok(data.len()))
+                }
+                Poll::Ready(Err(_)) => {
+                    trace!(
+                        "Broken pipe while writing in dgram server channel"
+                    );
+                    Poll::Ready(Err(io::Error::from(
+                        io::ErrorKind::BrokenPipe,
+                    )))
+                }
+                Poll::Pending => {
+                    trace!("Pending write in dgram server channel");
+                    Poll::Pending
+                }
+            }
+        } else {
+            trace!(
+                "Unable to send bytes in dgram server channel: not connected"
+            );
+            Poll::Ready(Err(io::Error::from(io::ErrorKind::NotConnected)))
+        }
+    }
+
+    fn poll_recv_from(
+        &self,
+        cx: &mut Context,
+        buf: &mut ReadBuf<'_>,
+    ) -> Poll<io::Result<std::net::SocketAddr>> {
+        let mut server_socket = self.server.lock().unwrap();
+        let rx = &mut server_socket.rx;
+        match rx.poll_recv(cx) {
+            Poll::Ready(Some(Data::DgramRequest(data, client_addr))) => {
+                // TODO: use unread buf here to prevent overflow of given buf.
+                trace!("Reading {} bytes into buffer of len {} from {} in dgram server channel", data.len(), buf.remaining(), client_addr);
+                buf.put_slice(&data);
+                Poll::Ready(Ok(client_addr))
+            }
+            Poll::Ready(Some(Data::StreamAccept(..))) => unreachable!(),
+            Poll::Ready(Some(Data::StreamRequest(..))) => unreachable!(),
+            Poll::Ready(None) => {
+                trace!("Broken pipe while reading in dgram server channel");
+                Poll::Ready(Err(io::Error::from(io::ErrorKind::BrokenPipe)))
+            }
+            Poll::Pending => {
+                trace!("Pending read in dgram server channel");
+                Poll::Pending
+            }
+        }
+    }
+
+    fn poll_peek_from(
+        &self,
+        _cx: &mut Context,
+        _buf: &mut ReadBuf<'_>,
+    ) -> Poll<io::Result<std::net::SocketAddr>> {
+        todo!()
+    }
+}
+
+//--- AsyncAccept
+//
+// Stream connection establishment
+
+impl AsyncAccept for ClientServerChannel {
+    type Error = io::Error;
+    type StreamType = ClientServerChannel;
+    type Stream = futures::future::Ready<Result<Self::StreamType, io::Error>>;
+
+    fn poll_accept(
+        &self,
+        cx: &mut Context,
+    ) -> Poll<io::Result<(Self::Stream, SocketAddr)>> {
+        let mut server_socket = self.server.lock().unwrap();
+        let rx = &mut server_socket.rx;
+        match rx.poll_recv(cx) {
+            // This will become ready when ClientServerChannel::connect()
+            // sends the details of a new client connection to us.
+            Poll::Ready(Some(Data::StreamAccept(channel, client_addr))) => {
+                trace!(
+                    "Accepted connection from {} in stream channel",
+                    client_addr
+                );
+                Poll::Ready(Ok((ready(Ok(channel)), client_addr)))
+            }
+            Poll::Ready(Some(Data::StreamRequest(..))) => unreachable!(),
+            Poll::Ready(Some(Data::DgramRequest(..))) => unreachable!(),
+            Poll::Ready(None) => {
+                trace!("Broken pipe while accepting in stream channel");
+                Poll::Ready(Err(io::Error::from(io::ErrorKind::BrokenPipe)))
+            }
+            Poll::Pending => {
+                trace!("Pending accept in stream channel");
+                Poll::Pending
+            }
+        }
+    }
+}
+
+//--- AsyncRead
+//
+// Stream server socket read (from client)
+// Client socket read (from server)
+
+impl AsyncRead for ClientServerChannel {
+    fn poll_read(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &mut ReadBuf<'_>,
+    ) -> Poll<io::Result<()>> {
+        match &mut self.client {
+            Some(client) => {
+                let rx = &mut client.rx.lock().unwrap();
+                match rx.poll_recv(cx) {
+                    Poll::Ready(Some(data)) => {
+                        trace!("Reading {} bytes into internal buffer in client stream channel", data.len());
+                        client.unread_buf.extend(data);
+                        let num_unread_bytes = client.unread_buf.len()
+                            - client.unread_buf_start_idx;
+                        let waiting_bytes_to_take =
+                            cmp::min(buf.remaining(), num_unread_bytes);
+                        trace!("Copying {} bytes into buffer of len {} in client stream channel", waiting_bytes_to_take, buf.remaining());
+                        if waiting_bytes_to_take > 0 {
+                            let start = client.unread_buf_start_idx;
+                            let end = start + waiting_bytes_to_take;
+                            buf.put_slice(&client.unread_buf[start..end]);
+                            if end >= client.unread_buf.len() {
+                                client.unread_buf.clear();
+                                client.unread_buf_start_idx = 0;
+                            } else {
+                                client.unread_buf_start_idx = end;
+                            }
+                        }
+                        Poll::Ready(Ok(()))
+                    }
+                    Poll::Ready(None) => {
+                        trace!("Broken pipe while reading in client stream channel");
+                        Poll::Ready(Err(io::Error::from(
+                            io::ErrorKind::BrokenPipe,
+                        )))
+                    }
+                    Poll::Pending => {
+                        trace!("Pending read in client stream channel");
+                        let num_unread_bytes = client.unread_buf.len()
+                            - client.unread_buf_start_idx;
+                        let waiting_bytes_to_take =
+                            cmp::min(buf.remaining(), num_unread_bytes);
+                        trace!("Copying {} bytes into buffer of len {} in client stream channel", waiting_bytes_to_take, buf.remaining());
+                        if waiting_bytes_to_take > 0 {
+                            let start = client.unread_buf_start_idx;
+                            let end = start + waiting_bytes_to_take;
+                            buf.put_slice(&client.unread_buf[start..end]);
+                            if end >= client.unread_buf.len() {
+                                client.unread_buf.clear();
+                                client.unread_buf_start_idx = 0;
+                            } else {
+                                client.unread_buf_start_idx = end;
+                            }
+                            Poll::Ready(Ok(()))
+                        } else {
+                            Poll::Pending
+                        }
+                    }
+                }
+            }
+            None => {
+                let mut server_socket = self.server.lock().unwrap();
+                let rx = &mut server_socket.rx;
+                match rx.poll_recv(cx) {
+                    Poll::Ready(Some(Data::StreamRequest(data))) => {
+                        trace!("Reading {} bytes into internal buffer in server stream channel", data.len());
+                        server_socket.unread_buf.extend(data);
+                        let num_unread_bytes = server_socket.unread_buf.len()
+                            - server_socket.unread_buf_start_idx;
+                        let waiting_bytes_to_take =
+                            cmp::min(buf.remaining(), num_unread_bytes);
+                        trace!("Copying {} bytes into buffer of len {} in server stream channel", waiting_bytes_to_take, buf.remaining());
+                        if waiting_bytes_to_take > 0 {
+                            let start = server_socket.unread_buf_start_idx;
+                            let end = start + waiting_bytes_to_take;
+                            buf.put_slice(
+                                &server_socket.unread_buf[start..end],
+                            );
+                            if end >= server_socket.unread_buf.len() {
+                                server_socket.unread_buf.clear();
+                                server_socket.unread_buf_start_idx = 0;
+                            } else {
+                                server_socket.unread_buf_start_idx = end;
+                            }
+                        }
+                        Poll::Ready(Ok(()))
+                    }
+                    Poll::Ready(Some(Data::StreamAccept(..))) => {
+                        unreachable!()
+                    }
+                    Poll::Ready(Some(Data::DgramRequest(..))) => {
+                        unreachable!()
+                    }
+                    Poll::Ready(None) => {
+                        trace!("Broken pipe while reading in server stream channel");
+
+                        Poll::Ready(Err(io::Error::from(
+                            io::ErrorKind::BrokenPipe,
+                        )))
+                    }
+                    Poll::Pending => {
+                        trace!("Pending read in server stream channel");
+                        let num_unread_bytes = server_socket.unread_buf.len()
+                            - server_socket.unread_buf_start_idx;
+                        let waiting_bytes_to_take =
+                            cmp::min(buf.remaining(), num_unread_bytes);
+                        trace!("Copying {} bytes into buffer of len {} in server stream channel", waiting_bytes_to_take, buf.remaining());
+                        if waiting_bytes_to_take > 0 {
+                            let start = server_socket.unread_buf_start_idx;
+                            let end = start + waiting_bytes_to_take;
+                            buf.put_slice(
+                                &server_socket.unread_buf[start..end],
+                            );
+                            if end >= server_socket.unread_buf.len() {
+                                server_socket.unread_buf.clear();
+                                server_socket.unread_buf_start_idx = 0;
+                            } else {
+                                server_socket.unread_buf_start_idx = end;
+                                // cx.waker().clone().wake();
+                            }
+                            Poll::Ready(Ok(()))
+                        } else {
+                            Poll::Pending
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+//--- AsyncWrite
+//
+// Stream server socket write (to client)
+// Client socket write (to server)
+
+impl AsyncWrite for ClientServerChannel {
+    fn poll_write(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        data: &[u8],
+    ) -> Poll<Result<usize, io::Error>> {
+        match &self.client {
+            Some(client) => {
+                let mut fut = Box::pin(
+                    client.tx.send(Data::StreamRequest(data.to_vec())),
+                );
+                match fut.poll_unpin(cx) {
+                    Poll::Ready(Ok(())) => {
+                        trace!(
+                            "Sent {} bytes to {} in client stream channel",
+                            data.len(),
+                            client.addr
+                        );
+                        Poll::Ready(Ok(data.len()))
+                    }
+                    Poll::Ready(Err(_)) => {
+                        trace!("Broken pipe while writing in client stream channel");
+                        Poll::Ready(Err(io::Error::from(
+                            io::ErrorKind::BrokenPipe,
+                        )))
+                    }
+                    Poll::Pending => {
+                        trace!("Pending write in client stream channel");
+                        Poll::Pending
+                    }
+                }
+            }
+            None => {
+                let server_socket = self.server.lock().unwrap();
+                let tx = server_socket.response_txs.iter().next();
+                if let Some((_addr, server_tx)) = tx {
+                    let mut fut = Box::pin(server_tx.send(data.to_vec()));
+                    match fut.poll_unpin(cx) {
+                        Poll::Ready(Ok(())) => {
+                            trace!(
+                                "Sent {} bytes in server stream channel",
+                                data.len(),
+                            );
+                            Poll::Ready(Ok(data.len()))
+                        }
+                        Poll::Ready(Err(_)) => {
+                            trace!("Broken pipe while writing in server stream channel");
+                            Poll::Ready(Err(io::Error::from(
+                                io::ErrorKind::BrokenPipe,
+                            )))
+                        }
+                        Poll::Pending => {
+                            trace!("Pending write in server stream channel");
+                            Poll::Pending
+                        }
+                    }
+                } else {
+                    trace!("Failed write in server stream channel: not connected");
+                    Poll::Ready(Err(io::Error::from(
+                        io::ErrorKind::NotConnected,
+                    )))
+                }
+            }
+        }
+    }
+
+    fn poll_flush(
+        self: Pin<&mut Self>,
+        _cx: &mut Context<'_>,
+    ) -> Poll<Result<(), io::Error>> {
+        // NO OP
+        Poll::Ready(Ok(()))
+    }
+
+    fn poll_shutdown(
+        self: Pin<&mut Self>,
+        _cx: &mut Context<'_>,
+    ) -> Poll<Result<(), io::Error>> {
+        // Unsupported?
+        Poll::Ready(Ok(()))
+    }
+}

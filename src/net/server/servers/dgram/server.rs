@@ -1,3 +1,4 @@
+use std::fmt::Debug;
 use std::net::SocketAddr;
 use std::{future::poll_fn, string::String};
 
@@ -8,16 +9,20 @@ use std::{
 
 use tokio::task::JoinHandle;
 use tokio::{io::ReadBuf, sync::watch};
+use tracing::{enabled, error, trace, Level};
 
+use crate::base::Message;
 use crate::net::server::buf::BufSource;
 use crate::net::server::error::Error;
 use crate::net::server::metrics::ServerMetrics;
 use crate::net::server::middleware::chain::MiddlewareChain;
+use crate::net::server::traits::message::ContextAwareMessage;
 use crate::net::server::traits::processor::MessageProcessor;
 use crate::net::server::traits::service::{
     CallResult, Service, ServiceCommand,
 };
 use crate::net::server::traits::sock::AsyncDgramSock;
+use crate::net::server::util::to_pcap_text;
 
 //------------ DgramServer ---------------------------------------------------
 
@@ -101,7 +106,7 @@ impl<Sock, Buf, Svc> DgramServer<Sock, Buf, Svc>
 where
     Sock: AsyncDgramSock + Send + Sync + 'static,
     Buf: BufSource + Send + Sync + 'static,
-    Buf::Output: Send + Sync + 'static,
+    Buf::Output: Send + Sync + 'static + Debug,
     Svc: Service<Buf::Output> + Send + Sync + 'static,
 {
     pub async fn run(&self)
@@ -109,7 +114,7 @@ where
         Svc::Single: Send,
     {
         if let Err(err) = self.run_until_error().await {
-            eprintln!("DgramServer: {err}");
+            error!("DgramServer: {err}");
         }
     }
 
@@ -128,7 +133,7 @@ impl<Sock, Buf, Svc> DgramServer<Sock, Buf, Svc>
 where
     Sock: AsyncDgramSock + Send + Sync + 'static,
     Buf: BufSource + Send + Sync + 'static,
-    Buf::Output: Send + Sync + 'static,
+    Buf::Output: Send + Sync + 'static + Debug,
     Svc: Service<Buf::Output> + Send + Sync + 'static,
 {
     async fn run_until_error(&self) -> Result<(), String>
@@ -179,12 +184,17 @@ where
                 }
 
                 recv_res = self.recv_from() => {
-                    let (msg, addr) = recv_res
+                    let (msg, addr, bytes_read) = recv_res
                         .map_err(|err|
                             format!("Error while receiving message: {err}")
                         )?;
 
-                    <Self as MessageProcessor<Buf, Svc>>::process_message(
+                    if enabled!(Level::TRACE) {
+                        let pcap_text = to_pcap_text(&msg, bytes_read);
+                        trace!(%addr, pcap_text, "Received message");
+                    }
+
+                    self.process_message(
                         msg, addr, self.sock.clone(),
                         self.middleware_chain.clone(),
                         &self.service,
@@ -202,13 +212,15 @@ where
 
     async fn recv_from(
         &self,
-    ) -> Result<(Buf::Output, SocketAddr), io::Error> {
+    ) -> Result<(Buf::Output, SocketAddr, usize), io::Error> {
         let mut res = self.buf.create_buf();
-        let addr = {
+        let (addr, bytes_read) = {
             let mut buf = ReadBuf::new(res.as_mut());
-            poll_fn(|ctx| self.sock.poll_recv_from(ctx, &mut buf)).await?
+            let addr = poll_fn(|ctx| self.sock.poll_recv_from(ctx, &mut buf))
+                .await?;
+            (addr, buf.filled().len())
         };
-        Ok((res, addr))
+        Ok((res, addr, bytes_read))
     }
 
     async fn send_to(
@@ -232,10 +244,18 @@ impl<Sock, Buf, Svc> MessageProcessor<Buf, Svc>
 where
     Sock: AsyncDgramSock + Send + Sync + 'static,
     Buf: BufSource + Send + Sync + 'static,
-    Buf::Output: Send + Sync + 'static,
+    Buf::Output: Send + Sync + 'static + Debug,
     Svc: Service<Buf::Output> + Send + Sync + 'static,
 {
     type State = Arc<Sock>;
+
+    fn add_context_to_request(
+        &self,
+        request: Message<Buf::Output>,
+        addr: SocketAddr,
+    ) -> ContextAwareMessage<Message<Buf::Output>> {
+        ContextAwareMessage::new(request, false, addr)
+    }
 
     fn handle_finalized_response(
         CallResult { response, .. }: CallResult<Svc::Target>,
@@ -244,12 +264,15 @@ where
         _metrics: Arc<ServerMetrics>,
     ) -> JoinHandle<()> {
         tokio::spawn(async move {
-            let _ = Self::send_to(
-                &sock,
-                response.finish().as_dgram_slice(),
-                &addr,
-            )
-            .await;
+            let target = response.finish();
+            let bytes = target.as_dgram_slice();
+
+            if enabled!(Level::TRACE) {
+                let pcap_text = to_pcap_text(bytes, bytes.len());
+                trace!(%addr, pcap_text, "Sent response");
+            }
+
+            let _ = Self::send_to(&sock, bytes, &addr).await;
 
             // TODO:
             // metrics.num_pending_writes.store(???, Ordering::Relaxed);

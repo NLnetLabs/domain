@@ -1717,7 +1717,7 @@ impl<'a, Target: Composer + ?Sized> OptBuilder<'a, Target> {
 /// Because the length is 16 bits long, the assembled message can be at most
 /// 65536 octets long, independently of the maximum length the underlying
 /// builder allows.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct StreamTarget<Target> {
     /// The underlying octets builder.
     target: Target,

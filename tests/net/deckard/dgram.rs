@@ -3,11 +3,13 @@
 use crate::net::deckard::client::CurrStepValue;
 use crate::net::deckard::parse_deckard::Deckard;
 use crate::net::deckard::server::do_server;
+use domain::base::message_builder::AdditionalBuilder;
 use domain::base::Message;
 use domain::net::client::protocol::{
     AsyncConnect, AsyncDgramRecv, AsyncDgramSend,
 };
 use std::future::Future;
+use std::net::SocketAddr;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::sync::Mutex as SyncMutex;
@@ -21,6 +23,7 @@ pub struct Dgram {
 }
 
 impl Dgram {
+    #[allow(dead_code)]
     pub fn new(deckard: Deckard, step_value: Arc<CurrStepValue>) -> Self {
         Self {
             deckard,
@@ -37,7 +40,7 @@ impl AsyncConnect for Dgram {
                 + Send,
         >,
     >;
-    fn connect(&self) -> Self::Fut {
+    fn connect(&self, _source_address: Option<SocketAddr>) -> Self::Fut {
         let deckard = self.deckard.clone();
         let step_value = self.step_value.clone();
         Box::pin(async move { Ok(DgramConnection::new(deckard, step_value)) })
@@ -48,7 +51,7 @@ pub struct DgramConnection {
     deckard: Deckard,
     step_value: Arc<CurrStepValue>,
 
-    reply: SyncMutex<Option<Message<Vec<u8>>>>,
+    reply: SyncMutex<Option<AdditionalBuilder<Vec<u8>>>>,
     waker: SyncMutex<Option<Waker>>,
 }
 

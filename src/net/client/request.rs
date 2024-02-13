@@ -17,10 +17,12 @@ use octseq::Octets;
 use std::boxed::Box;
 use std::fmt::Debug;
 use std::future::Future;
+use std::net::SocketAddr;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::vec::Vec;
 use std::{error, fmt};
+use tracing::trace;
 
 //------------ ComposeRequest ------------------------------------------------
 
@@ -44,6 +46,14 @@ pub trait ComposeRequest: Debug + Send + Sync {
 
     /// Set the UDP payload size.
     fn set_udp_payload_size(&mut self, value: u16);
+
+    /// Get the source address
+    fn source_address(&self) -> Option<SocketAddr> {
+        None
+    }
+
+    /// Set the source address.
+    fn set_source_address(&mut self, _addr: SocketAddr) {}
 
     /// Add an EDNS option.
     fn add_opt(
@@ -96,6 +106,9 @@ pub struct RequestMessage<Octs: AsRef<[u8]>> {
 
     /// The OPT record to add if required.
     opt: Option<OptRecord<Vec<u8>>>,
+
+    /// The source address.
+    source_address: Option<SocketAddr>,
 }
 
 impl<Octs: AsRef<[u8]> + Debug + Octets> RequestMessage<Octs> {
@@ -107,6 +120,7 @@ impl<Octs: AsRef<[u8]> + Debug + Octets> RequestMessage<Octs> {
             msg,
             header,
             opt: None,
+            source_address: None,
         }
     }
 
@@ -219,6 +233,14 @@ impl<Octs: AsRef<[u8]> + Clone + Debug + Octets + Send + Sync + 'static>
         self.opt_mut().set_udp_payload_size(value);
     }
 
+    fn source_address(&self) -> Option<SocketAddr> {
+        self.source_address
+    }
+
+    fn set_source_address(&mut self, addr: SocketAddr) {
+        self.source_address = Some(addr);
+    }
+
     fn add_opt(
         &mut self,
         opt: &impl ComposeOptData,
@@ -232,6 +254,12 @@ impl<Octs: AsRef<[u8]> + Clone + Debug + Octets + Send + Sync + 'static>
 
         // First check qr is set and IDs match.
         if !answer_header.qr() || answer_header.id() != self.header.id() {
+            trace!(
+                "Wrong QR or ID: QR={}, answer ID={}, self ID={}",
+                answer_header.qr(),
+                answer_header.id(),
+                self.header.id()
+            );
             return false;
         }
 
@@ -250,9 +278,14 @@ impl<Octs: AsRef<[u8]> + Clone + Debug + Octets + Send + Sync + 'static>
         // Now the question section in the reply has to be the same as in the
         // query.
         if answer_hcounts.qdcount() != self.msg.header_counts().qdcount() {
+            trace!("Wrong QD count");
             false
         } else {
-            answer.question() == self.msg.for_slice().question()
+            let res = answer.question() == self.msg.for_slice().question();
+            if !res {
+                trace!("Wrong question");
+            }
+            res
         }
     }
 }

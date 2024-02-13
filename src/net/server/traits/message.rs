@@ -50,6 +50,7 @@ impl<RequestOctets: AsRef<[u8]>> MsgProvider<RequestOctets>
 
 //------------ ContextAwareMessage -------------------------------------------
 
+#[derive(Debug)]
 pub struct ContextAwareMessage<T> {
     message: T,
     received_over_tcp: bool,

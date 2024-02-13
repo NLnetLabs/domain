@@ -3,6 +3,7 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 
 use tokio::task::JoinHandle;
+use tracing::info_span;
 
 use crate::{
     base::Message,
@@ -28,6 +29,7 @@ where
     type State: Clone + Send + Sync + 'static;
 
     fn process_message(
+        &self,
         buf: <Buf as BufSource>::Output,
         addr: SocketAddr,
         state: Self::State,
@@ -38,7 +40,7 @@ where
     where
         Svc::Single: Send,
     {
-        let (frozen_request, pp_res) = Self::preprocess_request(
+        let (frozen_request, pp_res) = self.preprocess_request(
             buf,
             addr,
             middleware_chain.as_ref(),
@@ -47,6 +49,11 @@ where
 
         let (txn, aborted_pp_idx) = match pp_res {
             ControlFlow::Continue(()) => {
+                let span = info_span!("svc-call",
+                    msg_id = frozen_request.header().id(),
+                    client = %frozen_request.client_addr(),
+                );
+                let _guard = span.enter();
                 let txn = svc.call(frozen_request.clone())?;
                 (txn, None)
             }
@@ -55,7 +62,7 @@ where
             }
         };
 
-        Self::postprocess_response(
+        self.postprocess_response(
             frozen_request,
             state,
             middleware_chain,
@@ -67,8 +74,15 @@ where
         Ok(())
     }
 
+    fn add_context_to_request(
+        &self,
+        request: Message<Buf::Output>,
+        addr: SocketAddr,
+    ) -> ContextAwareMessage<Message<Buf::Output>>;
+
     #[allow(clippy::type_complexity)]
     fn preprocess_request(
+        &self,
         buf: <Buf as BufSource>::Output,
         addr: SocketAddr,
         middleware_chain: Option<&MiddlewareChain<Buf::Output, Svc::Target>>,
@@ -92,7 +106,13 @@ where
         let request = Message::from_octets(buf)
             .map_err(|_| ServiceError::Other("short message".into()))?;
 
-        let mut request = ContextAwareMessage::new(request, true, addr);
+        let mut request = self.add_context_to_request(request, addr);
+
+        let span = info_span!("pre-process",
+            msg_id = request.header().id(),
+            client = %request.client_addr(),
+        );
+        let _guard = span.enter();
 
         metrics
             .num_inflight_requests
@@ -112,6 +132,7 @@ where
 
     #[allow(clippy::type_complexity)]
     fn postprocess_response(
+        &self,
         msg: Arc<ContextAwareMessage<Message<Buf::Output>>>,
         state: Self::State,
         middleware_chain: Option<MiddlewareChain<Buf::Output, Svc::Target>>,
@@ -125,6 +146,13 @@ where
         Svc::Single: Send,
     {
         tokio::spawn(async move {
+            let span = info_span!("post-process",
+                msg_id = msg.header().id(),
+                client = %msg.client_addr(),
+            );
+            let _guard = span.enter();
+
+            // TODO: Handle Err results from txn.next().
             while let Some(Ok(mut call_result)) = txn.next().await {
                 if let Some(middleware_chain) = &middleware_chain {
                     middleware_chain.postprocess(

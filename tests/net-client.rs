@@ -12,9 +12,13 @@ use domain::net::client::dgram_stream;
 use domain::net::client::multi_stream;
 use domain::net::client::redundant;
 use domain::net::client::stream;
+use net::deckard::client::Dispatcher;
 use std::fs::File;
+use std::future::ready;
+use std::future::Future;
 use std::net::IpAddr;
 use std::net::SocketAddr;
+use std::pin::Pin;
 use std::str::FromStr;
 use std::sync::Arc;
 use tokio::net::TcpStream;
@@ -28,10 +32,16 @@ fn dgram() {
         let deckard = parse_file(file);
 
         let step_value = Arc::new(CurrStepValue::new());
-        let conn = Dgram::new(deckard.clone(), step_value.clone());
-        let octstr = dgram::Connection::new(conn);
 
-        do_client(&deckard, octstr, &step_value).await;
+        let client_factory = |_entry: &_| {
+            let conn = Dgram::new(deckard.clone(), step_value.clone());
+            let dgram = dgram::Connection::new(conn);
+            let conn =
+                Dispatcher::Dgram::<dgram::Connection<_>, ()>(Some(dgram));
+            Box::pin(ready(conn)) as Pin<Box<dyn Future<Output = _>>>
+        };
+
+        do_client(&deckard, client_factory, &step_value).await;
     });
 }
 
@@ -42,13 +52,20 @@ fn single() {
         let deckard = parse_file(file);
 
         let step_value = Arc::new(CurrStepValue::new());
-        let conn = Connection::new(deckard.clone(), step_value.clone());
-        let (octstr, transport) = stream::Connection::new(conn);
-        tokio::spawn(async move {
-            transport.run().await;
-        });
 
-        do_client(&deckard, octstr, &step_value).await;
+        let client_factory = |_entry: &_| {
+            let conn = Connection::new(deckard.clone(), step_value.clone());
+            let (octstr, transport) = stream::Connection::new(conn);
+            tokio::spawn(async move {
+                transport.run().await;
+            });
+
+            let conn =
+                Dispatcher::Dgram::<stream::Connection<_>, ()>(Some(octstr));
+            Box::pin(ready(conn)) as Pin<Box<dyn Future<Output = _>>>
+        };
+
+        do_client(&deckard, client_factory, &step_value).await;
     });
 }
 
@@ -59,14 +76,23 @@ fn multi() {
         let deckard = parse_file(file);
 
         let step_value = Arc::new(CurrStepValue::new());
-        let multi_conn = Connect::new(deckard.clone(), step_value.clone());
-        let (ms, ms_tran) = multi_stream::Connection::new(multi_conn);
-        tokio::spawn(async move {
-            ms_tran.run().await;
-            println!("multi conn run terminated");
-        });
 
-        do_client(&deckard, ms.clone(), &step_value).await;
+        let client_factory = |_entry: &_| {
+            let multi_conn =
+                Connect::new(deckard.clone(), step_value.clone());
+            let (ms, ms_tran) = multi_stream::Connection::new(multi_conn);
+            tokio::spawn(async move {
+                ms_tran.run().await;
+                println!("multi conn run terminated");
+            });
+
+            let conn = Dispatcher::Dgram::<multi_stream::Connection<_>, ()>(
+                Some(ms),
+            );
+            Box::pin(ready(conn)) as Pin<Box<dyn Future<Output = _>>>
+        };
+
+        do_client(&deckard, client_factory, &step_value).await;
     });
 }
 
@@ -77,15 +103,24 @@ fn dgram_stream() {
         let deckard = parse_file(file);
 
         let step_value = Arc::new(CurrStepValue::new());
-        let conn = Dgram::new(deckard.clone(), step_value.clone());
-        let multi_conn = Connect::new(deckard.clone(), step_value.clone());
-        let (ds, tran) = dgram_stream::Connection::new(conn, multi_conn);
-        tokio::spawn(async move {
-            tran.run().await;
-            println!("dgram_stream conn run terminated");
-        });
 
-        do_client(&deckard, ds, &step_value).await;
+        let client_factory = |_entry: &_| {
+            let conn = Dgram::new(deckard.clone(), step_value.clone());
+            let multi_conn =
+                Connect::new(deckard.clone(), step_value.clone());
+            let (ds, tran) = dgram_stream::Connection::new(conn, multi_conn);
+            tokio::spawn(async move {
+                tran.run().await;
+                println!("dgram_stream conn run terminated");
+            });
+
+            let conn = Dispatcher::Dgram::<dgram_stream::Connection<_, _>, ()>(
+                Some(ds),
+            );
+            Box::pin(ready(conn)) as Pin<Box<dyn Future<Output = _>>>
+        };
+
+        do_client(&deckard, client_factory, &step_value).await;
     });
 }
 
@@ -96,23 +131,33 @@ fn redundant() {
         let deckard = parse_file(file);
 
         let step_value = Arc::new(CurrStepValue::new());
-        let multi_conn = Connect::new(deckard.clone(), step_value.clone());
-        let (ms, ms_tran) = multi_stream::Connection::new(multi_conn);
-        tokio::spawn(async move {
-            ms_tran.run().await;
-            println!("multi conn run terminated");
-        });
 
-        // Redundant add previous connection.
-        let (redun, transp) = redundant::Connection::new();
-        let run_fut = transp.run();
-        tokio::spawn(async move {
-            run_fut.await;
-            println!("redundant conn run terminated");
-        });
-        redun.add(Box::new(ms.clone())).await.unwrap();
+        let client_factory = |_entry: &_| {
+            let multi_conn =
+                Connect::new(deckard.clone(), step_value.clone());
+            let (ms, ms_tran) = multi_stream::Connection::new(multi_conn);
+            tokio::spawn(async move {
+                ms_tran.run().await;
+                println!("multi conn run terminated");
+            });
 
-        do_client(&deckard, redun, &step_value).await;
+            // Redundant add previous connection.
+            let (redun, transp) = redundant::Connection::new();
+            let run_fut = transp.run();
+            tokio::spawn(async move {
+                run_fut.await;
+                println!("redundant conn run terminated");
+            });
+
+            let redun_fut = async move {
+                redun.add(Box::new(ms.clone())).await.unwrap();
+                Dispatcher::Dgram::<redundant::Connection<_>, ()>(Some(redun))
+            };
+
+            Box::pin(redun_fut) as Pin<Box<dyn Future<Output = _>>>
+        };
+
+        do_client(&deckard, client_factory, &step_value).await;
     });
 }
 
@@ -127,22 +172,29 @@ fn tcp() {
         let server_addr =
             SocketAddr::new(IpAddr::from_str("9.9.9.9").unwrap(), 53);
 
-        let tcp_conn = match TcpStream::connect(server_addr).await {
-            Ok(conn) => conn,
-            Err(err) => {
-                println!(
-                    "TCP Connection to {server_addr} failed: {err}, exiting"
-                );
-                return;
-            }
+        let client_factory = |_entry: &_| {
+            let conn_fut = async move {
+                let tcp_conn = match TcpStream::connect(server_addr).await {
+                    Ok(conn) => conn,
+                    Err(err) => {
+                        panic!(
+                            "TCP Connection to {server_addr} failed: {err}, exiting"
+                        );
+                    }
+                };
+
+                let (tcp, transport) = stream::Connection::new(tcp_conn);
+                tokio::spawn(async move {
+                    transport.run().await;
+                    println!("single TCP run terminated");
+                });
+
+                Dispatcher::Stream::<(), stream::Connection<_>>(Some(tcp))
+            };
+
+            Box::pin(conn_fut) as Pin<Box<dyn Future<Output = _>>>
         };
 
-        let (tcp, transport) = stream::Connection::new(tcp_conn);
-        tokio::spawn(async move {
-            transport.run().await;
-            println!("single TCP run terminated");
-        });
-
-        do_client(&deckard, tcp, &CurrStepValue::new()).await;
+        do_client(&deckard, client_factory, &CurrStepValue::new()).await;
     });
 }

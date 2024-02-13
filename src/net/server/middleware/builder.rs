@@ -1,5 +1,7 @@
 use std::{boxed::Box, vec::Vec};
 
+use octseq::Octets;
+
 use crate::base::wire::Composer;
 
 use super::{
@@ -43,7 +45,7 @@ where
 impl<RequestOctets, Target> Default
     for MiddlewareBuilder<RequestOctets, Target>
 where
-    RequestOctets: AsRef<[u8]>,
+    RequestOctets: AsRef<[u8]> + Octets,
     Target: Composer + Default,
 {
     #[must_use]

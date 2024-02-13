@@ -118,6 +118,7 @@ where
 
 #[derive(Debug)]
 pub enum ServiceError<T> {
+    RequestIgnored,
     ServiceSpecificError(T),
     ShuttingDown,
     Other(String),
@@ -126,6 +127,9 @@ pub enum ServiceError<T> {
 impl<T> core::fmt::Display for ServiceError<T> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
+            ServiceError::RequestIgnored => {
+                write!(f, "RequestIgnored")
+            }
             ServiceError::ServiceSpecificError(_err) => {
                 write!(f, "ServiceSpecificError")
             }

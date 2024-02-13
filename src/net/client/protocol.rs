@@ -30,7 +30,7 @@ pub trait AsyncConnect {
     type Fut: Future<Output = Result<Self::Connection, io::Error>> + Send;
 
     /// Returns a future that establishing a connection.
-    fn connect(&self) -> Self::Fut;
+    fn connect(&self, source_address: Option<SocketAddr>) -> Self::Fut;
 }
 
 //------------ TcpConnect --------------------------------------------------
@@ -63,7 +63,7 @@ where
         >,
     >;
 
-    fn connect(&self) -> Self::Fut {
+    fn connect(&self, _source_address: Option<SocketAddr>) -> Self::Fut {
         Box::pin(TcpStream::connect(self.addr.clone()))
     }
 }
@@ -110,7 +110,7 @@ where
         >,
     >;
 
-    fn connect(&self) -> Self::Fut {
+    fn connect(&self, _source_address: Option<SocketAddr>) -> Self::Fut {
         let tls_connection = TlsConnector::from(self.client_config.clone());
         let server_name = self.server_name.clone();
         let addr = self.addr.clone();
@@ -173,7 +173,7 @@ impl AsyncConnect for UdpConnect {
         >,
     >;
 
-    fn connect(&self) -> Self::Fut {
+    fn connect(&self, _source_address: Option<SocketAddr>) -> Self::Fut {
         Box::pin(self.bind_and_connect())
     }
 }

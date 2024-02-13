@@ -54,7 +54,7 @@ where
             arcount -= 1;
         }
         if !match_section(
-            sections.additional.clone(),
+            sections.additional.zone_entries.clone(),
             msg.additional().unwrap(),
             arcount,
             verbose,
@@ -74,7 +74,7 @@ where
         )
     {
         if verbose {
-            todo!();
+            println!("match_msg: answer section does not match");
         }
         return false;
     }
@@ -122,8 +122,8 @@ where
             if verbose {
                 println!(
                     "match_msg: RD does not match, got {}, expected {}",
-                    header.aa(),
-                    reply.aa
+                    header.rd(),
+                    reply.rd
                 );
             }
             return false;
@@ -166,24 +166,21 @@ where
     if matches.rcode {
         let msg_rcode =
             get_opt_rcode(&Message::from_octets(msg.as_slice()).unwrap());
-        if reply.noerror {
-            if let OptRcode::NoError = msg_rcode {
-                // Okay
-            } else {
-                if verbose {
-                    todo!();
-                }
-                return false;
-            }
+        let is_no_error = matches!(msg_rcode, OptRcode::NoError);
+        if reply.noerror == is_no_error {
+            // Okay
         } else {
-            println!("reply {reply:?}");
-            panic!("no rcode to match?");
+            if verbose {
+                todo!();
+            }
+            return false;
         }
     }
     if matches.subdomain {
         todo!()
     }
     if matches.tcp {
+        // Note: Creation of a TCP client is handled by the client factory passed to do_client().
         todo!()
     }
     if matches.ttl {
@@ -191,6 +188,16 @@ where
     }
     if matches.udp {
         todo!()
+    }
+    if "BADCOOKIE" == reply.yxrrset.as_str() {
+        let msg_rcode =
+            get_opt_rcode(&Message::from_octets(msg.as_slice()).unwrap());
+        if !matches!(msg_rcode, OptRcode::BadCookie) {
+            if verbose {
+                println!("match_msg: extended RCODE does not match");
+            }
+            return false;
+        }
     }
 
     // All checks passed!
@@ -209,7 +216,13 @@ fn match_section<
 ) -> bool {
     if match_section.len() != msg_count.into() {
         if verbose {
-            todo!();
+            println!("match_section: expected section length {} doesn't match message count {}", match_section.len(), msg_count);
+            if !match_section.is_empty() {
+                println!("expected sections:");
+                for section in match_section {
+                    println!("  {section:?}");
+                }
+            }
         }
         return false;
     }

@@ -2,7 +2,7 @@ use crate::base::{Message, StreamTarget};
 use crate::net::server::buf::BufSource;
 use crate::net::server::metrics::ServerMetrics;
 use crate::net::server::middleware::chain::MiddlewareChain;
-use crate::net::server::traits::message::MsgProvider;
+use crate::net::server::traits::message::{ContextAwareMessage, MsgProvider};
 use crate::net::server::traits::processor::MessageProcessor;
 use crate::net::server::traits::service::{
     CallResult, Service, ServiceCommand, ServiceError,
@@ -21,6 +21,7 @@ use tokio::io::{
 use tokio::sync::mpsc::Sender;
 use tokio::sync::{mpsc, watch};
 use tokio::task::JoinHandle;
+use tracing::{debug, error};
 
 //------------ Connection -----------------------------------------------
 
@@ -164,7 +165,7 @@ where
                         unreachable!()
                     }
                     ConnectionEvent::ServiceError(err) => {
-                        eprintln!("Service error: {}", err);
+                        error!("Service error: {}", err);
                     }
                 }
             }
@@ -205,7 +206,7 @@ where
 
         state.full_msg_received();
 
-        <Self as MessageProcessor<Buf, Svc>>::process_message(
+        self.process_message(
             msg_buf,
             self.addr,
             state.result_q_tx.clone(),
@@ -323,7 +324,7 @@ where
                 // mechanism to signal to us that we should adjust the point
                 // at which we will consider the connectin to be idle and thus
                 // potentially worthy of timing out.
-                eprintln!("Server connection timeout reconfigured to {idle_timeout:?}");
+                debug!("Server connection timeout reconfigured to {idle_timeout:?}");
                 if let Ok(timeout) = chrono::Duration::from_std(idle_timeout)
                 {
                     state.idle_timeout = timeout;
@@ -427,7 +428,7 @@ where
         if let Err(err) =
             state.stream_tx.write_all(msg.as_stream_slice()).await
         {
-            eprintln!("Write error: {err}");
+            error!("Write error: {err}");
             todo!()
         }
         if state.result_q_tx.capacity() == state.result_q_tx.max_capacity() {
@@ -447,9 +448,7 @@ where
             ServiceCommand::CloseConnection { .. } => todo!(),
             ServiceCommand::Init => todo!(),
             ServiceCommand::Reconfigure { idle_timeout } => {
-                eprintln!(
-                    "Reconfigured connection timeout to {idle_timeout:?}"
-                );
+                debug!("Reconfigured connection timeout to {idle_timeout:?}");
                 state.idle_timeout =
                     chrono::Duration::from_std(idle_timeout).unwrap();
                 // TODO: Check this unwrap()
@@ -473,6 +472,14 @@ where
 {
     type State = Sender<CallResult<Svc::Target>>;
 
+    fn add_context_to_request(
+        &self,
+        request: Message<Buf::Output>,
+        addr: SocketAddr,
+    ) -> ContextAwareMessage<Message<Buf::Output>> {
+        ContextAwareMessage::new(request, true, addr)
+    }
+
     fn handle_finalized_response(
         call_result: CallResult<Svc::Target>,
         _addr: SocketAddr,
@@ -482,9 +489,7 @@ where
         tokio::spawn(async move {
             if let Err(err) = tx.send(call_result).await {
                 // TODO: How should we properly communicate this to the operator?
-                eprintln!(
-                    "StreamServer: Error while queuing response: {err}"
-                );
+                error!("StreamServer: Error while queuing response: {err}");
             }
 
             metrics

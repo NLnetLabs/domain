@@ -1,0 +1,356 @@
+#![cfg(feature = "net")]
+mod net;
+
+use crate::net::deckard::channel::ClientServerChannel;
+use crate::net::deckard::channel::DEF_CLIENT_ADDR;
+use crate::net::deckard::client::do_client;
+use crate::net::deckard::client::CurrStepValue;
+use crate::net::deckard::client::Dispatcher;
+use crate::net::deckard::parse_deckard::parse_file;
+use domain::base::iana::Rcode;
+use domain::base::wire::Composer;
+use domain::base::Dname;
+use domain::base::Message;
+use domain::base::MessageBuilder;
+use domain::base::StreamTarget;
+use domain::base::ToDname;
+use domain::net::client::dgram;
+use domain::net::client::stream;
+use domain::net::server::buf::VecBufSource;
+use domain::net::server::middleware::builder::MiddlewareBuilder;
+use domain::net::server::middleware::processors::cookies::CookiesMiddlewareProcesor;
+use domain::net::server::servers::dgram::server::DgramServer;
+use domain::net::server::servers::stream::server::StreamServer;
+use domain::net::server::traits::message::ContextAwareMessage;
+use domain::net::server::traits::service::CallResult;
+use domain::net::server::traits::service::ServiceResult;
+use domain::net::server::traits::service::ServiceResultItem;
+use domain::net::server::traits::service::Transaction;
+use domain::net::server::util::mk_service;
+use domain::zonefile::inplace::Entry;
+use domain::zonefile::inplace::ScannedRecord;
+use domain::zonefile::inplace::Zonefile;
+use net::deckard::parse_deckard::Config;
+use octseq::FreezeBuilder;
+use octseq::Octets;
+use std::collections::HashMap;
+use std::collections::VecDeque;
+use std::fmt::Debug;
+use std::fs::File;
+use std::future::Future;
+use std::net::IpAddr;
+use std::net::SocketAddr;
+use std::sync::Arc;
+use std::sync::Mutex;
+use tracing::level_filters::LevelFilter;
+use tracing::trace;
+use tracing_subscriber::EnvFilter;
+
+const TEST_FILE: &str = "test-data/edns_downstream_cookies.rpl";
+
+//----------- Tests ----------------------------------------------------------
+
+#[tokio::test]
+async fn dgram() {
+    let filter = EnvFilter::from_default_env()
+        .add_directive(LevelFilter::DEBUG.into())
+        .add_directive(
+            "net_server::net::deckard::channel=OFF".parse().unwrap(),
+        );
+    tracing_subscriber::fmt()
+        .with_env_filter(filter)
+        .with_thread_ids(true)
+        .without_time()
+        .init();
+
+    // Load the test .rpl file that determines which queries will be sent
+    // and which responses will be expected, and how the server that
+    // answers them should be configured.
+    let file = File::open(TEST_FILE).unwrap();
+    let deckard = parse_file(file);
+    let server_config = parse_server_config(&deckard.config);
+
+    let mut middleware = MiddlewareBuilder::<Vec<u8>, Vec<u8>>::default();
+
+    #[cfg(feature = "siphasher")]
+    if server_config.cookies.enabled {
+        if let Some(secret) = server_config.cookies.secret {
+            let processor = CookiesMiddlewareProcesor::new(
+                <[u8; 16]>::try_from(hex::decode(secret).unwrap()).unwrap(),
+            );
+            let processor = processor
+                .with_denied_ips(server_config.cookies.ip_deny_list)
+                .with_allowed_ips(server_config.cookies.ip_allow_list);
+            middleware.push(processor);
+        }
+    }
+
+    let middleware = middleware.finish();
+
+    let service: Arc<_> =
+        mk_service(test_service::<Vec<u8>>, server_config.zonefile.clone())
+            .into();
+
+    let dgram_server_conn = ClientServerChannel::new_dgram();
+    let stream_server_conn = ClientServerChannel::new_stream();
+
+    let dgram_server = DgramServer::new(
+        dgram_server_conn.clone(),
+        Arc::new(VecBufSource),
+        service.clone(),
+    );
+
+    let stream_server = StreamServer::new(
+        stream_server_conn.clone(),
+        Arc::new(VecBufSource),
+        service,
+    );
+
+    let dgram_server = dgram_server.with_middleware(middleware.clone());
+    let stream_server = stream_server.with_middleware(middleware);
+
+    tokio::spawn(async move { dgram_server.run().await });
+    tokio::spawn(async move { stream_server.run().await });
+
+    let step_value = Arc::new(CurrStepValue::new());
+
+    let dgram_conns = Arc::new(Mutex::new(HashMap::new()));
+    let stream_conns = Arc::new(Mutex::new(HashMap::new()));
+
+    let client_factory = |entry: &net::deckard::parse_deckard::Entry| {
+        // Use an existing connection if one for the same client address
+        // already exists, otherwise create a new one.
+        let client_addr = entry.client_addr.unwrap_or(DEF_CLIENT_ADDR.ip());
+
+        if let Some(matches) = &entry.matches {
+            if matches.tcp {
+                let mut stream_conns = stream_conns.lock().unwrap();
+                let conn = stream_conns
+                    .entry(client_addr)
+                    .or_insert_with(|| {
+                        let (conn, transport) = stream::Connection::new(
+                            stream_server_conn
+                                .connect(SocketAddr::new(client_addr, 0)),
+                        );
+
+                        tokio::spawn(transport.run());
+
+                        conn
+                    })
+                    .clone();
+
+                return Box::pin(async move {
+                    Dispatcher::Stream(Some(conn.clone()))
+                })
+                    as std::pin::Pin<Box<dyn Future<Output = _>>>;
+            }
+        }
+
+        let mut dgram_conns = dgram_conns.lock().unwrap();
+        let conn = dgram_conns
+            .entry(client_addr)
+            .or_insert_with(|| {
+                dgram::Connection::new(dgram_server_conn.clone())
+            })
+            .clone();
+
+        Box::pin(async move { Dispatcher::Dgram(Some(conn.clone())) })
+            as std::pin::Pin<Box<dyn Future<Output = _>>>
+    };
+
+    do_client(&deckard, client_factory, &step_value).await;
+}
+
+//----------- test helpers ---------------------------------------------------
+
+// A test `Service` impl.
+//
+// This function can be used with `mk_service()` to create a `Service`
+// instance designed to respond to test queries.
+//
+// The functionality provided is the mininum common set of behaviour needed
+// by the tests that use it.
+//
+// It's behaviour should be influenced to match the conditions under test by:
+//   - Using different `MiddlewareChain` setups with the server(s) to which
+//     the `Service` will be passed.
+//   - Controlling the content of the `Zonefile` passed to instances of
+//     this `Service` impl.
+fn test_service<Target>(
+    request: Arc<ContextAwareMessage<Message<Vec<u8>>>>,
+    zonefile: Zonefile,
+) -> ServiceResult<
+    Target,
+    (),
+    impl Future<Output = ServiceResultItem<Target, ()>>,
+>
+where
+    Target: Composer + Octets + FreezeBuilder<Octets = Target> + Default,
+    <Target as octseq::OctetsBuilder>::AppendError: Debug,
+{
+    fn as_record_and_dname(
+        r: ScannedRecord,
+    ) -> Option<(ScannedRecord, Dname<Vec<u8>>)> {
+        r.owner().to_dname::<Vec<u8>>().map(|dname| (r, dname)).ok()
+    }
+
+    fn as_records(
+        e: Result<Entry, domain::zonefile::inplace::Error>,
+    ) -> Option<ScannedRecord> {
+        match e {
+            Ok(Entry::Record(r)) => Some(r),
+            Ok(_) => None,
+            Err(err) => panic!(
+                "Error while extracting records from the zonefile: {err}"
+            ),
+        }
+    }
+
+    fn create_builder_for_target<Target>(
+    ) -> MessageBuilder<StreamTarget<Target>>
+    where
+        Target: Composer + Octets + FreezeBuilder<Octets = Target> + Default,
+        <Target as octseq::OctetsBuilder>::AppendError: Debug,
+    {
+        let target = Target::default();
+        let target = StreamTarget::new(target).unwrap(); // SAFETY
+        MessageBuilder::from_target(target).unwrap() // SAFETY
+    }
+
+    trace!("Service received request");
+    Ok(Transaction::single(async move {
+        trace!("Service is constructing a single response");
+        // If given a single question:
+        let answer = request
+            .sole_question()
+            .ok()
+            .and_then(|q| {
+                // Walk the zone to find the queried name
+                zonefile
+                    .clone()
+                    .filter_map(as_records)
+                    .filter_map(as_record_and_dname)
+                    .find(|(_record, dname)| dname == q.qname())
+            })
+            .map_or_else(
+                || {
+                    // The Qname was not found in the zone:
+                    create_builder_for_target()
+                        .start_answer(&request, Rcode::NXDomain)
+                        .unwrap()
+                },
+                |(record, _)| {
+                    // Respond with the found record:
+                    let mut answer = create_builder_for_target()
+                        .start_answer(&request, Rcode::NoError)
+                        .unwrap();
+                    // As we serve all answers from our own zones we are the
+                    // authority for the domain in question.
+                    answer.header_mut().set_aa(true);
+                    answer.push(record).unwrap();
+                    answer
+                },
+            );
+
+        Ok(CallResult::new(answer.additional()))
+    }))
+}
+
+//----------- Deckard config block parsing -----------------------------------
+
+#[derive(Default)]
+struct ServerConfig<'a> {
+    cookies: CookieConfig<'a>,
+    zonefile: Zonefile,
+}
+
+#[derive(Default)]
+struct CookieConfig<'a> {
+    enabled: bool,
+    secret: Option<&'a str>,
+    ip_allow_list: Vec<IpAddr>,
+    ip_deny_list: Vec<IpAddr>,
+}
+
+fn parse_server_config(config: &Config) -> ServerConfig {
+    let mut parsed_config = ServerConfig::default();
+    let mut zone_file_bytes = VecDeque::<u8>::new();
+    let mut in_server_block = false;
+
+    for line in config.lines() {
+        if line.starts_with("server:") {
+            in_server_block = true;
+        } else if in_server_block {
+            if !line.starts_with(|c: char| c.is_whitespace()) {
+                in_server_block = false;
+            } else if let Some((setting, value)) = line.trim().split_once(':')
+            {
+                match (setting.trim(), value.trim()) {
+                    ("answer-cookie", "yes") => {
+                        parsed_config.cookies.enabled = true
+                    }
+                    ("cookie-secret", v) => {
+                        parsed_config.cookies.secret =
+                            Some(v.trim_matches('"'));
+                    }
+                    ("access-control", v) => {
+                        // TODO: Strictly speaking the "ip" is a netblock
+                        // "given as an IPv4 or IPv6 address /size appended
+                        // for a classless network block", but we only handle
+                        // an IP address here for now.
+                        // See: https://unbound.docs.nlnetlabs.nl/en/latest/manpages/unbound.conf.html?highlight=edns-tcp-keepalive#unbound-conf-access-control
+                        if let Some((ip, action)) =
+                            v.split_once(|c: char| c.is_whitespace())
+                        {
+                            match action {
+                                "allow_cookie" => {
+                                    if let Ok(ip) = ip.parse() {
+                                        parsed_config
+                                            .cookies
+                                            .ip_deny_list
+                                            .push(ip);
+                                    } else {
+                                        eprintln!("Ignoring malformed IP address '{ip}' in 'access-control' setting");
+                                    }
+                                }
+
+                                "allow" => {
+                                    if let Ok(ip) = ip.parse() {
+                                        parsed_config
+                                            .cookies
+                                            .ip_allow_list
+                                            .push(ip);
+                                    } else {
+                                        eprintln!("Ignoring malformed IP address '{ip}' in 'access-control' setting");
+                                    }
+                                }
+
+                                _ => {
+                                    eprintln!("Ignoring unknown action '{action}' for 'access-control' setting");
+                                }
+                            }
+                        }
+                    }
+                    ("local-data", v) => {
+                        if !zone_file_bytes.is_empty() {
+                            zone_file_bytes.push_back(b'\n');
+                        }
+                        zone_file_bytes
+                            .extend(v.trim_matches('"').as_bytes().iter());
+                        zone_file_bytes.push_back(b'\n');
+                    }
+                    _ => {
+                        eprintln!("Ignoring unknown server setting '{setting}' with value: {value}");
+                    }
+                }
+            }
+        }
+    }
+
+    if !zone_file_bytes.is_empty() {
+        parsed_config.zonefile =
+            Zonefile::load(&mut zone_file_bytes).unwrap();
+    }
+
+    parsed_config
+}

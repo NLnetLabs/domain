@@ -1,6 +1,7 @@
 use crate::net::deckard::client::CurrStepValue;
 use crate::net::deckard::parse_deckard::Deckard;
 use crate::net::deckard::server::do_server;
+use domain::base::message_builder::AdditionalBuilder;
 use domain::base::Message;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -16,7 +17,7 @@ pub struct Connection {
     deckard: Deckard,
     step_value: Arc<CurrStepValue>,
     waker: Option<Waker>,
-    reply: Option<Message<Vec<u8>>>,
+    reply: Option<AdditionalBuilder<Vec<u8>>>,
     send_body: bool,
 
     tmpbuf: Vec<u8>,

@@ -1,4 +1,6 @@
-use octseq::{Octets, OctetsBuilder};
+use core::ops::ControlFlow;
+use std::net::IpAddr;
+use std::vec::Vec;
 
 use crate::{
     base::{
@@ -6,23 +8,57 @@ use crate::{
         message_builder::AdditionalBuilder,
         opt::{self, Cookie},
         wire::{Composer, ParseError},
-        Message, MessageBuilder, Serial, StreamTarget,
+        Message, Serial, StreamTarget,
     },
     net::server::{
         middleware::processor::MiddlewareProcessor,
-        traits::message::ContextAwareMessage,
+        traits::message::ContextAwareMessage, util::mk_builder_for_target,
     },
 };
-use core::ops::ControlFlow;
 
+use octseq::{Octets, OctetsBuilder};
+use tracing::{debug, enabled, trace, Level};
+
+#[derive(Debug)]
 pub struct CookiesMiddlewareProcesor {
     server_secret: [u8; 16],
+
+    /// Clients connecting from these IP addresses are exempted from the
+    /// requirement to provide valid cookies.
+    ip_allow_list: Vec<IpAddr>,
+
+    /// Clients connecting from these IP addresses will be required to provide
+    /// a cookie otherwise they will receive REFUSED with TC=1 prompting them
+    /// to reconnect with TCP in order to "authenticate" themselves.
+    ip_deny_list: Vec<IpAddr>,
 }
 
 impl CookiesMiddlewareProcesor {
     #[must_use]
     pub fn new(server_secret: [u8; 16]) -> Self {
-        Self { server_secret }
+        Self {
+            server_secret,
+            ip_allow_list: vec![],
+            ip_deny_list: vec![],
+        }
+    }
+
+    #[must_use]
+    pub fn with_allowed_ips<T: Into<Vec<IpAddr>>>(
+        mut self,
+        ip_allow_list: T,
+    ) -> Self {
+        self.ip_allow_list = ip_allow_list.into();
+        self
+    }
+
+    #[must_use]
+    pub fn with_denied_ips<T: Into<Vec<IpAddr>>>(
+        mut self,
+        ip_deny_list: T,
+    ) -> Self {
+        self.ip_deny_list = ip_deny_list.into();
+        self
     }
 }
 
@@ -53,6 +89,42 @@ impl CookiesMiddlewareProcesor {
         true
     }
 
+    fn response_with_cookie<RequestOctets, Target>(
+        &self,
+        request: &ContextAwareMessage<Message<RequestOctets>>,
+        rcode: OptRcode,
+    ) -> AdditionalBuilder<StreamTarget<Target>>
+    where
+        RequestOctets: Octets,
+        Target: Composer + OctetsBuilder + Default,
+    {
+        let cookie = Self::cookie(request).unwrap().unwrap().create_response(
+            Serial::now(),
+            request.client_addr().ip(),
+            &self.server_secret,
+        );
+
+        let builder = mk_builder_for_target();
+        // RFC (1035?) compliance - copy question from request to response.
+        let mut builder = builder.question();
+        for rr in request.question() {
+            builder.push(rr.unwrap()).unwrap(); // SAFETY
+        }
+
+        // Note: if rcode is non-extended this will also correctly handle
+        // setting the rcode in the main message header.
+        let mut additional = builder.additional();
+        additional
+            .opt(|opt| {
+                opt.cookie(cookie)?;
+                opt.set_rcode(rcode);
+                Ok(())
+            })
+            .unwrap();
+
+        additional
+    }
+
     /// Panics
     ///
     /// This function will panic if the given request does not include a DNS
@@ -62,11 +134,10 @@ impl CookiesMiddlewareProcesor {
     fn bad_cookie_response<RequestOctets, Target>(
         &self,
         request: &ContextAwareMessage<Message<RequestOctets>>,
-        builder: MessageBuilder<StreamTarget<Target>>,
     ) -> AdditionalBuilder<StreamTarget<Target>>
     where
         RequestOctets: Octets,
-        Target: Composer + OctetsBuilder,
+        Target: Composer + OctetsBuilder + Default,
     {
         // https://datatracker.ietf.org/doc/html/rfc7873#section-5.2.3
         //   "If the server responds [ed: by sending a BADCOOKIE error
@@ -79,33 +150,17 @@ impl CookiesMiddlewareProcesor {
         // 7873 cookies instead of RFC 9018 interoperable cookies? For now err
         // on the side of robustness and go with RFC 9018 interoperable
         // cookies.
-        let cookie = Self::cookie(request).unwrap().unwrap().create_response(
-            Serial::now(),
-            request.client_addr().ip(),
-            &self.server_secret,
-        );
-
-        let mut additional = builder.additional();
-        additional
-            .opt(|opt| {
-                opt.cookie(cookie)?;
-                opt.set_rcode(OptRcode::BadCookie);
-                Ok(())
-            })
-            .unwrap();
-
-        additional
+        self.response_with_cookie(request, OptRcode::BadCookie)
     }
 
     #[must_use]
     fn prefetch_cookie_response<RequestOctets, Target>(
         &self,
         request: &ContextAwareMessage<Message<RequestOctets>>,
-        mut builder: MessageBuilder<StreamTarget<Target>>,
     ) -> AdditionalBuilder<StreamTarget<Target>>
     where
         RequestOctets: AsRef<[u8]> + Octets,
-        Target: Composer + OctetsBuilder,
+        Target: Composer + OctetsBuilder + Default,
     {
         // https://datatracker.ietf.org/doc/html/rfc7873#section-5.4
         // Querying for a Server Cookie:
@@ -118,18 +173,7 @@ impl CookiesMiddlewareProcesor {
         //
         //   If such a query provided just a Client Cookie and no Server
         //   Cookie, the response SHALL have the RCODE NOERROR."
-        let cookie = Self::cookie(request).unwrap().unwrap().create_response(
-            Serial::now(),
-            request.client_addr().ip(),
-            &self.server_secret,
-        );
-
-        builder.header_mut().set_rcode(Rcode::NoError);
-
-        let mut additional = builder.additional();
-        additional.opt(|opt| opt.cookie(cookie)).unwrap();
-
-        additional
+        self.response_with_cookie(request, Rcode::NoError.into())
     }
 
     #[must_use]
@@ -153,16 +197,6 @@ impl CookiesMiddlewareProcesor {
             None
         }
     }
-
-    fn mk_builder_for_target<Target>() -> MessageBuilder<StreamTarget<Target>>
-    where
-        Target: Composer + OctetsBuilder + Default,
-    {
-        let target = StreamTarget::new(Target::default())
-            .map_err(|_| ())
-            .unwrap(); // SAFETY
-        MessageBuilder::from_target(target).unwrap() // SAFETY
-    }
 }
 
 impl<RequestOctets, Target> MiddlewareProcessor<RequestOctets, Target>
@@ -175,18 +209,49 @@ where
         &self,
         request: &mut ContextAwareMessage<Message<RequestOctets>>,
     ) -> ControlFlow<AdditionalBuilder<StreamTarget<Target>>> {
+        if self.ip_allow_list.contains(&request.client_addr().ip()) {
+            if enabled!(Level::TRACE) {
+                trace!("Permitting request to flow due to matching IP allow list entry");
+            }
+            return ControlFlow::Continue(());
+        }
+
         match Self::cookie(request) {
             None => {
+                if enabled!(Level::TRACE) {
+                    trace!("Request does not include DNS cookies");
+                }
+
                 // https://datatracker.ietf.org/doc/html/rfc7873#section-5.2.1
                 // No OPT RR or No COOKIE Option:
                 //   "If there is no OPT record or no COOKIE option
                 //   present in the request, then the server responds to
                 //   the request as if the server doesn't implement the
                 //   COOKIE option."
-                // So, nothing to do here.
+
+                // For clients on the IP deny list they MUST authenticate
+                // themselves to the server, either with a cookie or by
+                // re-connecting over TCP, so we REFUSE them and reply with
+                // TC=1 to prompt them to reconnect via TCP.
+                if !request.received_over_tcp()
+                    && self.ip_deny_list.contains(&request.client_addr().ip())
+                {
+                    if enabled!(Level::DEBUG) {
+                        debug!(
+                            "Rejecting cookie-less non-TCP request due to matching IP deny list entry"
+                        );
+                    }
+                    let builder = mk_builder_for_target();
+                    let mut additional = builder.additional();
+                    additional.header_mut().set_rcode(Rcode::Refused);
+                    additional.header_mut().set_tc(true);
+                    return ControlFlow::Break(additional);
+                } else if enabled!(Level::TRACE) {
+                    trace!("Permitting cookie-less request to flow due to use of TCP transport");
+                }
             }
 
-            Some(Err(_err)) => {
+            Some(Err(err)) => {
                 // https://datatracker.ietf.org/doc/html/rfc7873#section-5.2.2
                 // Malformed COOKIE Option:
                 //   "If the COOKIE option is too short to contain a
@@ -202,7 +267,13 @@ where
                 // TODO: Should we warn in some way about the exact reason
                 // for rejecting the request?
 
-                let mut builder = Self::mk_builder_for_target();
+                // NOTE: The RFC doesn't say that we should send our server
+                // cookie back with the response, so we don't do that here
+                // unlike in the other cases where we respond early.
+                if enabled!(Level::DEBUG) {
+                    debug!("Received malformed DNS cookie: {err}");
+                }
+                let mut builder = mk_builder_for_target();
                 builder.header_mut().set_rcode(Rcode::FormErr);
                 return ControlFlow::Break(builder.additional());
             }
@@ -280,23 +351,32 @@ where
                     // 5.4 "Querying for a Server Cookie" too?
 
                     if request.header_counts().qdcount() == 0 {
-                        let builder = Self::mk_builder_for_target::<Target>();
                         let additional = if !server_cookie_exists {
                             // "If such a query provided just a Client Cookie
                             // and no Server Cookie, the response SHALL have
                             // the RCODE NOERROR."
-                            self.prefetch_cookie_response(request, builder)
+                            if enabled!(Level::TRACE) {
+                                trace!(
+                                    "Replying to DNS cookie pre-fetch request with missing server cookie");
+                            }
+                            self.prefetch_cookie_response(request)
                         } else {
                             // "In this case, the response SHALL have the
                             // RCODE BADCOOKIE if the Server Cookie sent with
                             // the query was invalid"
-                            self.bad_cookie_response(request, builder)
+                            if enabled!(Level::DEBUG) {
+                                debug!(
+                                    "Rejecting pre-fetch request due to invalid server cookie");
+                            }
+                            self.bad_cookie_response(request)
                         };
                         return ControlFlow::Break(additional);
                     } else if !request.received_over_tcp() {
-                        let builder = Self::mk_builder_for_target();
-                        let additional =
-                            self.bad_cookie_response(request, builder);
+                        let additional = self.bad_cookie_response(request);
+                        if enabled!(Level::DEBUG) {
+                            debug!(
+                                "Rejecting non-TCP request due to invalid server cookie");
+                        }
                         return ControlFlow::Break(additional);
                     }
                 } else if request.header_counts().qdcount() == 0 {
@@ -312,13 +392,20 @@ where
 
                     // TODO: Does the TCP check also apply to RFC 7873 section
                     // 5.4 "Querying for a Server Cookie" too?
-
-                    let builder = Self::mk_builder_for_target();
-                    let additional =
-                        self.prefetch_cookie_response(request, builder);
+                    if enabled!(Level::TRACE) {
+                        trace!(
+                            "Replying to DNS cookie pre-fetch request with valid server cookie");
+                    }
+                    let additional = self.prefetch_cookie_response(request);
                     return ControlFlow::Break(additional);
+                } else if enabled!(Level::TRACE) {
+                    trace!("Request has a valid DNS cookie");
                 }
             }
+        }
+
+        if enabled!(Level::TRACE) {
+            trace!("Permitting request to flow");
         }
 
         ControlFlow::Continue(())

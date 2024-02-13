@@ -5,6 +5,7 @@ use std::string::{String, ToString};
 use std::sync::{Arc, Mutex};
 use tokio::sync::watch;
 use tokio::task::JoinHandle;
+use tracing::error;
 
 use crate::net::server::buf::BufSource;
 use crate::net::server::error::Error;
@@ -241,7 +242,7 @@ where
         Svc::Single: Send,
     {
         if let Err(err) = self.run_until_error().await {
-            eprintln!("StreamServer: {err}");
+            error!("StreamServer: {err}");
         }
     }
 
