@@ -120,7 +120,7 @@ async fn dgram() {
     let client_factory = |entry: &net::deckard::parse_deckard::Entry| {
         // Use an existing connection if one for the same client address
         // already exists, otherwise create a new one.
-        let client_addr = entry.client_addr.unwrap_or(DEF_CLIENT_ADDR.ip());
+        let client_addr = entry.client_addr.unwrap_or(DEF_CLIENT_ADDR);
 
         if let Some(matches) = &entry.matches {
             if matches.tcp {

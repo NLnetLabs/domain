@@ -9,7 +9,7 @@ use futures::future::ready;
 use futures_util::FutureExt;
 use std::collections::HashMap;
 use std::future::Future;
-use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};
@@ -18,8 +18,9 @@ use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio::sync::mpsc;
 use tracing::trace;
 
-pub const DEF_CLIENT_ADDR: SocketAddr =
-    SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::new(127, 0, 0, 1), 0));
+// If MSRV gets bumped to 1.69.0 we can replace these with a const SocketAddr.
+pub const DEF_CLIENT_ADDR: IpAddr = IpAddr::V4(Ipv4Addr::LOCALHOST);
+pub const DEF_CLIENT_PORT: u16 = 0;
 
 enum Data {
     DgramRequest(Vec<u8>, SocketAddr),
@@ -270,7 +271,8 @@ impl AsyncConnect for ClientServerChannel {
         trace!("Connect from {source_address:?}");
         // 127.0.0.1 on any port is the default client source address assumed
         // by Deckard tests.
-        let client_addr = source_address.unwrap_or(DEF_CLIENT_ADDR);
+        let client_addr = source_address
+            .unwrap_or(SocketAddr::new(DEF_CLIENT_ADDR, DEF_CLIENT_PORT));
 
         let conn = self.connect(client_addr);
 
