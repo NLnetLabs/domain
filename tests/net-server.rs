@@ -30,6 +30,7 @@ use domain::net::server::util::mk_service;
 use domain::zonefile::inplace::Entry;
 use domain::zonefile::inplace::ScannedRecord;
 use domain::zonefile::inplace::Zonefile;
+use net::deckard::parse_deckard;
 use net::deckard::parse_deckard::Config;
 use octseq::FreezeBuilder;
 use octseq::Octets;
@@ -68,6 +69,7 @@ async fn dgram() {
     // answers them should be configured.
     let file = File::open(TEST_FILE).unwrap();
     let deckard = parse_file(file);
+    let step_value = Arc::new(CurrStepValue::new());
     let server_config = parse_server_config(&deckard.config);
 
     let mut middleware = MiddlewareBuilder::<Vec<u8>, Vec<u8>>::default();
@@ -75,9 +77,9 @@ async fn dgram() {
     #[cfg(feature = "siphasher")]
     if server_config.cookies.enabled {
         if let Some(secret) = server_config.cookies.secret {
-            let processor = CookiesMiddlewareProcesor::new(
-                <[u8; 16]>::try_from(hex::decode(secret).unwrap()).unwrap(),
-            );
+            let secret =
+                <[u8; 16]>::try_from(hex::decode(secret).unwrap()).unwrap();
+            let processor = CookiesMiddlewareProcesor::new(secret);
             let processor = processor
                 .with_denied_ips(server_config.cookies.ip_deny_list)
                 .with_allowed_ips(server_config.cookies.ip_allow_list);
@@ -87,37 +89,32 @@ async fn dgram() {
 
     let middleware = middleware.finish();
 
+    let zonefile = server_config.zonefile.clone();
     let service: Arc<_> =
-        mk_service(test_service::<Vec<u8>>, server_config.zonefile.clone())
-            .into();
+        mk_service(test_service::<Vec<u8>>, zonefile).into();
 
     let dgram_server_conn = ClientServerChannel::new_dgram();
-    let stream_server_conn = ClientServerChannel::new_stream();
-
     let dgram_server = DgramServer::new(
         dgram_server_conn.clone(),
         Arc::new(VecBufSource),
         service.clone(),
     );
+    let dgram_server = dgram_server.with_middleware(middleware.clone());
+    tokio::spawn(async move { dgram_server.run().await });
 
+    let stream_server_conn = ClientServerChannel::new_stream();
     let stream_server = StreamServer::new(
         stream_server_conn.clone(),
         Arc::new(VecBufSource),
         service,
     );
-
-    let dgram_server = dgram_server.with_middleware(middleware.clone());
     let stream_server = stream_server.with_middleware(middleware);
-
-    tokio::spawn(async move { dgram_server.run().await });
     tokio::spawn(async move { stream_server.run().await });
-
-    let step_value = Arc::new(CurrStepValue::new());
 
     let dgram_conns = Arc::new(Mutex::new(HashMap::new()));
     let stream_conns = Arc::new(Mutex::new(HashMap::new()));
 
-    let client_factory = |entry: &net::deckard::parse_deckard::Entry| {
+    let client_factory = |entry: &parse_deckard::Entry| {
         // Use an existing connection if one for the same client address
         // already exists, otherwise create a new one.
         let client_addr = entry.client_addr.unwrap_or(DEF_CLIENT_ADDR);
