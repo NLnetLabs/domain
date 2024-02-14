@@ -590,11 +590,26 @@ impl Symbol {
 
     /// Provides the best symbol for an octet inside a quoted string.
     ///
-    /// The function will only escape a double quote and backslash using the
+    /// The function will only escape a double quote and backslash using a
     /// simple escape and all non-printable characters using decimal escapes.
     #[must_use]
-    pub fn from_quoted_octet(ch: u8) -> Self {
+    pub fn quoted_from_octet(ch: u8) -> Self {
         if ch == b'"' || ch == b'\\' {
+            Symbol::SimpleEscape(ch)
+        } else if !(0x20..0x7F).contains(&ch) {
+            Symbol::DecimalEscape(ch)
+        } else {
+            Symbol::Char(ch as char)
+        }
+    }
+
+    /// Provides the best symbol for an octet inside a `Display` impl.
+    ///
+    /// The function will only escape a backslash using a simple escape and
+    /// all non-printable characters using decimal escapes.
+    #[must_use]
+    pub fn display_from_octet(ch: u8) -> Self {
+        if ch == b'\\' {
             Symbol::SimpleEscape(ch)
         } else if !(0x20..0x7F).contains(&ch) {
             Symbol::DecimalEscape(ch)
