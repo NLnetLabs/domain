@@ -1,3 +1,5 @@
+#![allow(clippy::type_complexity)]
+
 use crate::net::deckard::matches::match_msg;
 use crate::net::deckard::parse_deckard::{Deckard, Entry, Reply, StepType};
 use crate::net::deckard::parse_query;
@@ -8,11 +10,17 @@ use domain::base::{Message, MessageBuilder};
 use domain::net::client::request::{
     ComposeRequest, RequestMessage, SendRequest,
 };
-use std::future::Future;
-use std::net::SocketAddr;
+use std::collections::HashMap;
+use std::future::{ready, Future};
+use std::net::{IpAddr, SocketAddr};
 use std::pin::Pin;
+use std::rc::Rc;
 use std::sync::Mutex;
 use tracing::{debug, info_span, trace};
+
+use super::channel::DEF_CLIENT_ADDR;
+
+//----------- DeckardError ---------------------------------------------------
 
 #[derive(Debug)]
 pub struct DeckardError<'a> {
@@ -44,13 +52,15 @@ impl<'a> DeckardError<'a> {
     }
 }
 
+//----------- DeckardErrorCause ----------------------------------------------
+
 #[derive(Debug)]
 pub enum DeckardErrorCause {
     ClientError(domain::net::client::request::Error),
     MismatchedAnswer,
     MissingResponse,
     MissingStepEntry,
-    MissingClientFactory,
+    MissingClient,
 }
 
 impl From<domain::net::client::request::Error> for DeckardErrorCause {
@@ -68,9 +78,7 @@ impl std::fmt::Display for DeckardErrorCause {
             DeckardErrorCause::MismatchedAnswer => {
                 f.write_str("Mismatched answer")
             }
-            DeckardErrorCause::MissingClientFactory => {
-                f.write_str("Missing client factory")
-            }
+            DeckardErrorCause::MissingClient => f.write_str("Missing client"),
             DeckardErrorCause::MissingResponse => {
                 f.write_str("Missing response")
             }
@@ -81,58 +89,178 @@ impl std::fmt::Display for DeckardErrorCause {
     }
 }
 
-pub enum Dispatcher<Dgram, Stream> {
-    Dgram(Option<Dgram>),
-    Stream(Option<Stream>),
-}
+//----------- Dispatcher -----------------------------------------------------
 
-impl<Dgram, Stream> Dispatcher<Dgram, Stream>
-where
-    Dgram: SendRequest<RequestMessage<Vec<u8>>>,
-    Stream: SendRequest<RequestMessage<Vec<u8>>>,
-{
+pub struct Dispatcher(
+    Option<Rc<Box<dyn SendRequest<RequestMessage<Vec<u8>>>>>>,
+);
+
+impl Dispatcher {
+    #[allow(dead_code)]
+    pub fn with_client<T>(client: T) -> Self
+    where
+        T: SendRequest<RequestMessage<Vec<u8>>> + 'static,
+    {
+        Self(Some(Rc::new(Box::new(client))))
+    }
+
+    pub fn with_rc_boxed_client(
+        client: Rc<Box<dyn SendRequest<RequestMessage<Vec<u8>>>>>,
+    ) -> Self {
+        Self(Some(client))
+    }
+
+    pub fn without_client() -> Self {
+        Self(None)
+    }
+
     pub async fn dispatch(
         &self,
         entry: &Entry,
     ) -> Result<Option<Message<Bytes>>, DeckardErrorCause> {
-        let reqmsg = entry2reqmsg(entry);
-        trace!(?reqmsg);
-        match self {
-            Self::Dgram(Some(conn)) => {
-                let mut req = conn.send_request(reqmsg);
-                Ok(Some(req.get_response().await?))
-            }
-            Self::Stream(Some(conn)) => {
-                let mut req = conn.send_request(reqmsg);
-                Ok(Some(req.get_response().await?))
-            }
-            _ => Err(DeckardErrorCause::MissingClientFactory),
+        if let Some(dispatcher) = &self.0 {
+            let reqmsg = entry2reqmsg(entry);
+            trace!(?reqmsg);
+            let mut req = dispatcher.send_request(reqmsg);
+            return Ok(Some(req.get_response().await?));
+        }
+
+        Err(DeckardErrorCause::MissingClient)
+    }
+}
+
+//----------- ClientFactory --------------------------------------------------
+
+pub trait ClientFactory {
+    fn get(
+        &mut self,
+        entry: &Entry,
+    ) -> Pin<Box<dyn Future<Output = Dispatcher>>>;
+
+    fn is_suitable(&self, _entry: &Entry) -> bool {
+        true
+    }
+}
+
+//----------- SingleClientFactory --------------------------------------------
+
+pub struct SingleClientFactory(
+    Rc<Box<dyn SendRequest<RequestMessage<Vec<u8>>>>>,
+);
+
+impl SingleClientFactory {
+    #[allow(dead_code)]
+    pub fn new(
+        client: impl SendRequest<RequestMessage<Vec<u8>>> + 'static,
+    ) -> Self {
+        Self(Rc::new(Box::new(client)))
+    }
+}
+
+impl ClientFactory for SingleClientFactory {
+    fn get(
+        &mut self,
+        _entry: &Entry,
+    ) -> Pin<Box<dyn Future<Output = Dispatcher>>> {
+        Box::pin(ready(Dispatcher::with_rc_boxed_client(self.0.clone())))
+    }
+}
+
+//----------- PerClientAddressClientFactory ----------------------------------
+
+pub struct PerClientAddressClientFactory<F, S>
+where
+    F: Fn(&IpAddr) -> Box<dyn SendRequest<RequestMessage<Vec<u8>>>>,
+    S: Fn(&Entry) -> bool,
+{
+    clients_by_address:
+        HashMap<IpAddr, Rc<Box<dyn SendRequest<RequestMessage<Vec<u8>>>>>>,
+    factory_func: F,
+    is_suitable_func: S,
+}
+
+impl<F, S> PerClientAddressClientFactory<F, S>
+where
+    F: Fn(&IpAddr) -> Box<dyn SendRequest<RequestMessage<Vec<u8>>>>,
+    S: Fn(&Entry) -> bool,
+{
+    #[allow(dead_code)]
+    pub fn new(factory_func: F, is_suitable_func: S) -> Self {
+        Self {
+            clients_by_address: Default::default(),
+            factory_func,
+            is_suitable_func,
         }
     }
 }
 
-pub async fn do_client<'a, F, Dgram, Stream>(
-    deckard: &'a Deckard,
-    client_factory: F,
-    step_value: &'a CurrStepValue,
-) where
-    F: Fn(&Entry) -> Pin<Box<dyn Future<Output = Dispatcher<Dgram, Stream>>>>,
-    Dgram: SendRequest<RequestMessage<Vec<u8>>>,
-    Stream: SendRequest<RequestMessage<Vec<u8>>>,
+impl<F, S> ClientFactory for PerClientAddressClientFactory<F, S>
+where
+    F: Fn(&IpAddr) -> Box<dyn SendRequest<RequestMessage<Vec<u8>>>>,
+    S: Fn(&Entry) -> bool,
 {
-    async fn inner<F, Dgram, Stream>(
+    fn get(
+        &mut self,
+        entry: &Entry,
+    ) -> Pin<Box<dyn Future<Output = Dispatcher>>> {
+        // Use an existing connection if one for the same client address
+        // already exists, otherwise create a new one.
+        let client_addr = entry.client_addr.unwrap_or(DEF_CLIENT_ADDR);
+
+        let client = self
+            .clients_by_address
+            .entry(client_addr)
+            .or_insert_with_key(|addr| Rc::new((self.factory_func)(addr)))
+            .clone();
+
+        Box::pin(ready(Dispatcher::with_rc_boxed_client(client)))
+    }
+
+    fn is_suitable(&self, entry: &Entry) -> bool {
+        (self.is_suitable_func)(entry)
+    }
+}
+
+//----------- QueryTailoredClientFactory -------------------------------------
+
+pub struct QueryTailoredClientFactory {
+    factories: Vec<Box<dyn ClientFactory>>,
+}
+
+impl QueryTailoredClientFactory {
+    #[allow(dead_code)]
+    pub fn new(factories: Vec<Box<dyn ClientFactory>>) -> Self {
+        Self { factories }
+    }
+}
+
+impl ClientFactory for QueryTailoredClientFactory {
+    fn get(
+        &mut self,
+        entry: &Entry,
+    ) -> Pin<Box<dyn Future<Output = Dispatcher>>> {
+        for f in &mut self.factories {
+            if f.is_suitable(entry) {
+                return Box::pin(f.get(entry));
+            }
+        }
+
+        Box::pin(ready(Dispatcher::without_client()))
+    }
+}
+
+//----------- do_client() ----------------------------------------------------
+
+pub async fn do_client<'a, T: ClientFactory>(
+    deckard: &'a Deckard,
+    step_value: &'a CurrStepValue,
+    client_factory: T,
+) {
+    async fn inner<T: ClientFactory>(
         deckard: &Deckard,
         step_value: &CurrStepValue,
-        dispatcher: F,
-    ) -> Result<(), DeckardErrorCause>
-    where
-        F: Fn(
-            &Entry,
-        )
-            -> Pin<Box<dyn Future<Output = Dispatcher<Dgram, Stream>>>>,
-        Dgram: SendRequest<RequestMessage<Vec<u8>>>,
-        Stream: SendRequest<RequestMessage<Vec<u8>>>,
-    {
+        mut client_factory: T,
+    ) -> Result<(), DeckardErrorCause> {
         let mut resp: Option<Message<Bytes>> = None;
 
         // Assume steps are in order. Maybe we need to define that.
@@ -153,7 +281,11 @@ pub async fn do_client<'a, F, Dgram, Stream>(
                         .entry
                         .as_ref()
                         .ok_or(DeckardErrorCause::MissingStepEntry)?;
-                    resp = dispatcher(entry).await.dispatch(entry).await?;
+                    resp = client_factory
+                        .get(entry)
+                        .await
+                        .dispatch(entry)
+                        .await?;
                     trace!(?resp);
                 }
                 StepType::CheckAnswer => {
@@ -180,29 +312,6 @@ pub async fn do_client<'a, F, Dgram, Stream>(
 
     if let Err(cause) = inner(deckard, step_value, client_factory).await {
         panic!("{}", DeckardError::from_cause(deckard, step_value, cause));
-    }
-}
-
-struct RawOptData<'a> {
-    bytes: &'a [u8],
-}
-
-impl<'a> OptData for RawOptData<'a> {
-    fn code(&self) -> domain::base::iana::OptionCode {
-        u16::from_be_bytes(self.bytes[0..2].try_into().unwrap()).into()
-    }
-}
-
-impl<'a> ComposeOptData for RawOptData<'a> {
-    fn compose_len(&self) -> u16 {
-        u16::from_be_bytes(self.bytes[2..4].try_into().unwrap())
-    }
-
-    fn compose_option<Target: octseq::OctetsBuilder + ?Sized>(
-        &self,
-        target: &mut Target,
-    ) -> Result<(), Target::AppendError> {
-        target.append_slice(&self.bytes[4..])
     }
 }
 
@@ -273,5 +382,30 @@ impl CurrStepValue {
 impl std::fmt::Display for CurrStepValue {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_fmt(format_args!("{}", self.get()))
+    }
+}
+
+//----------- RawOptData -----------------------------------------------------
+
+struct RawOptData<'a> {
+    bytes: &'a [u8],
+}
+
+impl<'a> OptData for RawOptData<'a> {
+    fn code(&self) -> domain::base::iana::OptionCode {
+        u16::from_be_bytes(self.bytes[0..2].try_into().unwrap()).into()
+    }
+}
+
+impl<'a> ComposeOptData for RawOptData<'a> {
+    fn compose_len(&self) -> u16 {
+        u16::from_be_bytes(self.bytes[2..4].try_into().unwrap())
+    }
+
+    fn compose_option<Target: octseq::OctetsBuilder + ?Sized>(
+        &self,
+        target: &mut Target,
+    ) -> Result<(), Target::AppendError> {
+        target.append_slice(&self.bytes[4..])
     }
 }

@@ -2,11 +2,13 @@
 mod net;
 
 use crate::net::deckard::channel::ClientServerChannel;
-use crate::net::deckard::channel::DEF_CLIENT_ADDR;
 use crate::net::deckard::client::do_client;
 use crate::net::deckard::client::CurrStepValue;
-use crate::net::deckard::client::Dispatcher;
+use crate::net::deckard::client::PerClientAddressClientFactory;
+use crate::net::deckard::client::QueryTailoredClientFactory;
+use crate::net::deckard::parse_deckard;
 use crate::net::deckard::parse_deckard::parse_file;
+use crate::net::deckard::parse_deckard::Matches;
 use domain::base::iana::Rcode;
 use domain::base::wire::Composer;
 use domain::base::Dname;
@@ -18,6 +20,7 @@ use domain::net::client::dgram;
 use domain::net::client::stream;
 use domain::net::server::buf::VecBufSource;
 use domain::net::server::middleware::builder::MiddlewareBuilder;
+use domain::net::server::middleware::chain::MiddlewareChain;
 use domain::net::server::middleware::processors::cookies::CookiesMiddlewareProcesor;
 use domain::net::server::servers::dgram::server::DgramServer;
 use domain::net::server::servers::stream::server::StreamServer;
@@ -30,11 +33,9 @@ use domain::net::server::util::mk_service;
 use domain::zonefile::inplace::Entry;
 use domain::zonefile::inplace::ScannedRecord;
 use domain::zonefile::inplace::Zonefile;
-use net::deckard::parse_deckard;
 use net::deckard::parse_deckard::Config;
 use octseq::FreezeBuilder;
 use octseq::Octets;
-use std::collections::HashMap;
 use std::collections::VecDeque;
 use std::fmt::Debug;
 use std::fs::File;
@@ -42,7 +43,6 @@ use std::future::Future;
 use std::net::IpAddr;
 use std::net::SocketAddr;
 use std::sync::Arc;
-use std::sync::Mutex;
 use tracing::level_filters::LevelFilter;
 use tracing::trace;
 use tracing_subscriber::EnvFilter;
@@ -53,6 +53,7 @@ const TEST_FILE: &str = "test-data/edns_downstream_cookies.rpl";
 
 #[tokio::test]
 async fn dgram() {
+    // Configure Tokio tracing output.
     let filter = EnvFilter::from_default_env()
         .add_directive(LevelFilter::DEBUG.into())
         .add_directive(
@@ -72,27 +73,16 @@ async fn dgram() {
     let step_value = Arc::new(CurrStepValue::new());
     let server_config = parse_server_config(&deckard.config);
 
-    let mut middleware = MiddlewareBuilder::<Vec<u8>, Vec<u8>>::default();
+    // Prepare middleware to be used by the DNS servers to pre-process
+    // received requests and post-process created responses.
+    let middleware = mk_middleware_for_config(&server_config);
 
-    #[cfg(feature = "siphasher")]
-    if server_config.cookies.enabled {
-        if let Some(secret) = server_config.cookies.secret {
-            let secret =
-                <[u8; 16]>::try_from(hex::decode(secret).unwrap()).unwrap();
-            let processor = CookiesMiddlewareProcesor::new(secret);
-            let processor = processor
-                .with_denied_ips(server_config.cookies.ip_deny_list)
-                .with_allowed_ips(server_config.cookies.ip_allow_list);
-            middleware.push(processor);
-        }
-    }
-
-    let middleware = middleware.finish();
-
+    // Create a service to answer queries received by the DNS servers.
     let zonefile = server_config.zonefile.clone();
     let service: Arc<_> =
         mk_service(test_service::<Vec<u8>>, zonefile).into();
 
+    // Create a dgram server for handling UDP requests.
     let dgram_server_conn = ClientServerChannel::new_dgram();
     let dgram_server = DgramServer::new(
         dgram_server_conn.clone(),
@@ -102,6 +92,8 @@ async fn dgram() {
     let dgram_server = dgram_server.with_middleware(middleware.clone());
     tokio::spawn(async move { dgram_server.run().await });
 
+    // Create a stream server for handling TCP requests, i.e. Deckard queries
+    // with "MATCH TCP".
     let stream_server_conn = ClientServerChannel::new_stream();
     let stream_server = StreamServer::new(
         stream_server_conn.clone(),
@@ -111,54 +103,68 @@ async fn dgram() {
     let stream_server = stream_server.with_middleware(middleware);
     tokio::spawn(async move { stream_server.run().await });
 
-    let dgram_conns = Arc::new(Mutex::new(HashMap::new()));
-    let stream_conns = Arc::new(Mutex::new(HashMap::new()));
-
-    let client_factory = |entry: &parse_deckard::Entry| {
-        // Use an existing connection if one for the same client address
-        // already exists, otherwise create a new one.
-        let client_addr = entry.client_addr.unwrap_or(DEF_CLIENT_ADDR);
-
-        if let Some(matches) = &entry.matches {
-            if matches.tcp {
-                let mut stream_conns = stream_conns.lock().unwrap();
-                let conn = stream_conns
-                    .entry(client_addr)
-                    .or_insert_with(|| {
-                        let (conn, transport) = stream::Connection::new(
-                            stream_server_conn
-                                .connect(SocketAddr::new(client_addr, 0)),
-                        );
-
-                        tokio::spawn(transport.run());
-
-                        conn
-                    })
-                    .clone();
-
-                return Box::pin(async move {
-                    Dispatcher::Stream(Some(conn.clone()))
-                })
-                    as std::pin::Pin<Box<dyn Future<Output = _>>>;
-            }
-        }
-
-        let mut dgram_conns = dgram_conns.lock().unwrap();
-        let conn = dgram_conns
-            .entry(client_addr)
-            .or_insert_with(|| {
-                dgram::Connection::new(dgram_server_conn.clone())
-            })
-            .clone();
-
-        Box::pin(async move { Dispatcher::Dgram(Some(conn.clone())) })
-            as std::pin::Pin<Box<dyn Future<Output = _>>>
+    // Create a TCP client factory that only creates a client if (a) no
+    // existing TCP client exists for the source address of the Deckard query,
+    // and (b) if the query specifies "MATCHES TCP". Clients created by this
+    // factory connect to the TCP server created above.
+    let only_for_tcp_queries = |entry: &parse_deckard::Entry| {
+        matches!(entry.matches, Some(Matches { tcp: true, .. }))
     };
 
-    do_client(&deckard, client_factory, &step_value).await;
+    let tcp_client_factory = PerClientAddressClientFactory::new(
+        move |client_addr| {
+            let client_addr = SocketAddr::new(*client_addr, 0);
+            let stream = stream_server_conn.connect(client_addr);
+            let (conn, transport) = stream::Connection::new(stream);
+            tokio::spawn(transport.run());
+            Box::new(conn)
+        },
+        only_for_tcp_queries,
+    );
+
+    // Create a UDP client factory that only creates a client if (a) no
+    // existing UDP client exists for the source address of the Deckard query.
+    let for_all_other_queries = |_: &_| true;
+
+    let udp_client_factory = PerClientAddressClientFactory::new(
+        move |_| Box::new(dgram::Connection::new(dgram_server_conn.clone())),
+        for_all_other_queries,
+    );
+
+    // Create a combined client factory that will allow the Deckard runner to
+    // use existing or create new client connections as appropriate for the
+    // Deckard query being evaluated.
+    let client_factory = QueryTailoredClientFactory::new(vec![
+        Box::new(tcp_client_factory),
+        Box::new(udp_client_factory),
+    ]);
+
+    // Run the Deckard test!
+    do_client(&deckard, &step_value, client_factory).await;
 }
 
 //----------- test helpers ---------------------------------------------------
+
+fn mk_middleware_for_config(
+    config: &ServerConfig,
+) -> MiddlewareChain<Vec<u8>, Vec<u8>> {
+    let mut middleware = MiddlewareBuilder::default();
+
+    #[cfg(feature = "siphasher")]
+    if config.cookies.enabled {
+        if let Some(secret) = config.cookies.secret {
+            let secret = hex::decode(secret).unwrap();
+            let secret = <[u8; 16]>::try_from(secret).unwrap();
+            let processor = CookiesMiddlewareProcesor::new(secret);
+            let processor = processor
+                .with_denied_ips(config.cookies.ip_deny_list.clone())
+                .with_allowed_ips(config.cookies.ip_allow_list.clone());
+            middleware.push(processor);
+        }
+    }
+
+    middleware.finish()
+}
 
 // A test `Service` impl.
 //
