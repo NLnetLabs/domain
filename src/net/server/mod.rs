@@ -36,7 +36,8 @@
 //! implementation:
 //!
 //!   - Create an appropriate network source (more on this below).
-//!   - Construct a server instance with `new()` passing the network source.
+//!   - Construct a server transport with `new()` passing in the network
+//!     source as an argument.
 //!   - Tune the server behaviour via builder functions such as
 //!     `with_middleware()`.
 //!   - `run()` the server.
