@@ -412,7 +412,9 @@ where
             response, command, ..
         }: CallResult<Svc::Target>,
     ) {
-        self.write_result_to_stream(state, response.finish()).await;
+        if let Some(response) = response {
+            self.write_result_to_stream(state, response.finish()).await;
+        }
 
         if let Some(command) = command {
             self.act_on_queued_command(command, state).await;
@@ -480,7 +482,7 @@ where
         ContextAwareMessage::new(request, true, addr)
     }
 
-    fn handle_finalized_response(
+    fn handle_final_call_result(
         call_result: CallResult<Svc::Target>,
         _addr: SocketAddr,
         tx: Self::State,

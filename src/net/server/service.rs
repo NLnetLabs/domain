@@ -1,4 +1,4 @@
-//! The business logic of the service provided by a DNS service.
+//! The business logic of a DNS server.
 use core::marker::Send;
 use std::boxed::Box;
 use std::future::Future;
@@ -163,8 +163,9 @@ pub enum ServiceCommand {
 
 //------------ CallResult ----------------------------------------------------
 
+/// The result of processing a DNS request via [`Service::call()`].
 pub struct CallResult<Target> {
-    pub response: AdditionalBuilder<StreamTarget<Target>>,
+    pub response: Option<AdditionalBuilder<StreamTarget<Target>>>,
     pub command: Option<ServiceCommand>,
 }
 
@@ -193,8 +194,16 @@ where
     #[must_use]
     pub fn new(response: AdditionalBuilder<StreamTarget<Target>>) -> Self {
         Self {
-            response,
+            response: Some(response),
             command: None,
+        }
+    }
+
+    #[must_use]
+    pub fn command_only(command: ServiceCommand) -> Self {
+        Self {
+            response: None,
+            command: Some(command),
         }
     }
 

@@ -329,22 +329,24 @@ where
         ContextAwareMessage::new(request, false, addr)
     }
 
-    fn handle_finalized_response(
+    fn handle_final_call_result(
         CallResult { response, .. }: CallResult<Svc::Target>,
         addr: SocketAddr,
         sock: Self::State,
         _metrics: Arc<ServerMetrics>,
     ) -> JoinHandle<()> {
         tokio::spawn(async move {
-            let target = response.finish();
-            let bytes = target.as_dgram_slice();
+            if let Some(response) = response {
+                let target = response.finish();
+                let bytes = target.as_dgram_slice();
 
-            if enabled!(Level::TRACE) {
-                let pcap_text = to_pcap_text(bytes, bytes.len());
-                trace!(%addr, pcap_text, "Sent response");
+                if enabled!(Level::TRACE) {
+                    let pcap_text = to_pcap_text(bytes, bytes.len());
+                    trace!(%addr, pcap_text, "Sent response");
+                }
+
+                let _ = Self::send_to(&sock, bytes, &addr).await;
             }
-
-            let _ = Self::send_to(&sock, bytes, &addr).await;
 
             // TODO:
             // metrics.num_pending_writes.store(???, Ordering::Relaxed);

@@ -321,15 +321,17 @@ where
 
             // TODO: Handle Err results from txn.next().
             while let Some(Ok(mut call_result)) = txn.next().await {
-                if let Some(middleware_chain) = &middleware_chain {
-                    middleware_chain.postprocess(
-                        &msg,
-                        &mut call_result.response,
-                        last_processor_id,
-                    );
+                if let Some(ref mut response) = call_result.response {
+                    if let Some(middleware_chain) = &middleware_chain {
+                        middleware_chain.postprocess(
+                            &msg,
+                            response,
+                            last_processor_id,
+                        );
+                    }
                 }
 
-                let _ = Self::handle_finalized_response(
+                let _ = Self::handle_final_call_result(
                     call_result,
                     msg.client_addr(),
                     state.clone(),
@@ -361,7 +363,7 @@ where
     /// originating client.
     ///
     /// The response is the form of a [`CallResult`].
-    fn handle_finalized_response(
+    fn handle_final_call_result(
         call_result: CallResult<Svc::Target>,
         addr: SocketAddr,
         state: Self::State,
