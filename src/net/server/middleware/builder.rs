@@ -1,3 +1,4 @@
+//! Middleware builders.
 use std::{boxed::Box, vec::Vec};
 
 use octseq::Octets;
@@ -9,6 +10,7 @@ use super::{
     processors::mandatory::MandatoryMiddlewareProcesor,
 };
 
+/// A [`MiddlewareChain`] builder.
 pub struct MiddlewareBuilder<RequestOctets = Vec<u8>, Target = Vec<u8>>
 where
     RequestOctets: AsRef<[u8]>,

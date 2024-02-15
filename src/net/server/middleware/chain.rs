@@ -1,3 +1,4 @@
+//! Chaining [`MiddlewareProcessor`]s together.
 use std::boxed::Box;
 use std::future::Future;
 use std::sync::Arc;
@@ -14,13 +15,18 @@ use super::processor::MiddlewareProcessor;
 use crate::base::message_builder::AdditionalBuilder;
 use core::convert::AsRef;
 use core::ops::{ControlFlow, RangeTo};
-/// Middleware pre-processes requests and post-processes responses to
-/// filter/reject/modify them according to policy and standards.
-///
-/// Middleware processing should happen immediately after receipt of a request
-/// (to ensure the least resources are spent on processing malicious requests)
-/// and immediately prior to writing responses back to the client (to ensure
-/// that what is sent to the client is correct).
+
+/// A chain of [`MiddlewareProcessor`]s.
+/// 
+/// Processors earlier in the chain process requests _before_ and responses
+/// _after_ processors later in the chain.
+/// 
+/// The chain can be cloned in order to use it with more than one [server] at
+/// once, assuming that you want to use exactly the same set of processors for
+/// all servers using the same chain.
+/// 
+/// A [`MiddlewareChain`] is immutable. Requests should not be post-processed
+/// by a different or modified chain than they were pre-processed by.
 pub struct MiddlewareChain<RequestOctets, Target>
 where
     RequestOctets: AsRef<[u8]>,
@@ -38,6 +44,24 @@ where
     RequestOctets: AsRef<[u8]>,
     Target: Composer + Default,
 {
+    /// Create a new _empty_ chain of processors.
+    /// 
+    /// <div class="warning">Most DNS server implementations will need to
+    /// perform mandatory pre-processing of requests and post-processing of
+    /// responses in order to comply with RFC defined standards.
+    /// 
+    /// By using this function you are responsible for ensuring that you
+    /// perform such processing yourself.
+    /// 
+    /// Most users should **NOT** use this function but should instead use
+    /// [`MiddlewareBuilder::default()`] which constructs a chain that starts
+    /// with [`MandatoryMiddlewareProcessor`].
+    /// </div>
+    /// 
+    /// [`MiddlewareBuilder::default()`]:
+    ///     crate::net::server::middleware::builder::MiddlewareBuilder::default()
+    /// [`MandatoryMiddlewareProcessor`]:
+    ///     crate::net::server::middleware::processors::mandatory::MandatoryMiddlewareProcessor
     #[must_use]
     pub fn new(
         processors: Vec<
@@ -55,6 +79,19 @@ where
     RequestOctets: AsRef<[u8]> + Send + 'static,
     Target: Composer + Default + Send + 'static,
 {
+    /// Walks the chain forward invoking pre-processors one by one.
+    /// 
+    /// Pre-processors either inspect the given request, or may also
+    /// optionally modify it.
+    /// 
+    /// Returns either [`ControlFlow::Continue`] indicating that processing of
+    /// the request should continue, or [`ControlFlow::Break`] indicating that
+    /// a pre-processor dedecided to terminate processing of the request.
+    /// 
+    /// On [`ControlFlow::Break`] the caller should pass the given result to
+    /// [`postprocess()`][Self::postprocess]. If processing terminated early
+    /// the result includes the index of the pre-processor which terminated
+    /// the processing.
     #[allow(clippy::type_complexity)]
     pub fn preprocess<Error, Single>(
         &self,
@@ -88,6 +125,20 @@ where
         ControlFlow::Continue(())
     }
 
+    /// Walks the chain backward invoking post-processors one by one.
+    /// 
+    /// Post-processors either inspect the given response, or may also
+    /// optionally modify it.
+    /// 
+    /// The request supplied should be the request to which the response was
+    /// generated. This is used e.g. for copying the request DNS message ID
+    /// into the response, or for checking the transport by which the reques
+    /// was recieved.
+    /// 
+    /// The optional `last_processor_idx` value should come from an earlier
+    /// call to [`preprocess()`][Self::preprocess]. Post-processing will start
+    /// with this processor and walk backward from there, post-processors
+    /// further down the chain will not be invoked.
     pub fn postprocess(
         &self,
         request: &ContextAwareMessage<Message<RequestOctets>>,

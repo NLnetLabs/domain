@@ -1,7 +1,7 @@
 use crate::base::{Message, StreamTarget};
-use crate::net::server::buf::BufSource;
 use crate::net::server::metrics::ServerMetrics;
 use crate::net::server::middleware::chain::MiddlewareChain;
+use crate::net::server::traits::buf::BufSource;
 use crate::net::server::traits::message::{ContextAwareMessage, MsgProvider};
 use crate::net::server::traits::processor::MessageProcessor;
 use crate::net::server::traits::service::{

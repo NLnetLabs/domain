@@ -26,7 +26,7 @@ pub type ServiceResult<Target, Error, Single> = Result<
     ServiceError<Error>,
 >;
 
-/// A Service is responsible for generating responses to received DNS messages.
+/// Services generate DNS responses according to user defined business logic.
 ///
 /// Each [`Service`] implements a single [`Self::call()`] function which takes a DNS
 /// request [`Message`] and returns either a [`Transaction`] on success, or a

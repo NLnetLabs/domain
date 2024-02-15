@@ -12,10 +12,10 @@ use tokio::{io::ReadBuf, sync::watch};
 use tracing::{enabled, error, trace, Level};
 
 use crate::base::Message;
-use crate::net::server::buf::BufSource;
 use crate::net::server::error::Error;
 use crate::net::server::metrics::ServerMetrics;
 use crate::net::server::middleware::chain::MiddlewareChain;
+use crate::net::server::traits::buf::BufSource;
 use crate::net::server::traits::message::ContextAwareMessage;
 use crate::net::server::traits::processor::MessageProcessor;
 use crate::net::server::traits::service::{

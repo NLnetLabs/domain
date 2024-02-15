@@ -1,3 +1,4 @@
+//! Small utilities for building and working with servers.
 use std::future::Future;
 use std::string::String;
 use std::string::ToString;

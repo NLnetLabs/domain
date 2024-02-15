@@ -8,8 +8,8 @@ use tracing::info_span;
 use crate::{
     base::Message,
     net::server::{
-        buf::BufSource, metrics::ServerMetrics,
-        middleware::chain::MiddlewareChain,
+        metrics::ServerMetrics, middleware::chain::MiddlewareChain,
+        traits::buf::BufSource,
     },
 };
 

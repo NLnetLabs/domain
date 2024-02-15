@@ -24,8 +24,8 @@ use crate::base::{
     /*iana::Rcode, octets::OctetsRef,*/ Message,
     /*MessageBuilder,*/ StreamTarget,
 };
-use crate::net::server::buf::BufSource;
 use crate::net::server::servers::stream::server::StreamServer;
+use crate::net::server::traits::buf::BufSource;
 use crate::net::server::traits::service::CallResult;
 use crate::net::server::traits::service::Service;
 use crate::net::server::traits::service::ServiceCommand;
@@ -408,9 +408,9 @@ async fn stop_service_test() {
                 tokio::time::sleep(Duration::from_millis(250)).await;
                 eprintln!(
                     "Server status: #conn={:?}, #req={:?}, #writes={:?}",
-                    metrics.num_connections,
-                    metrics.num_inflight_requests,
-                    metrics.num_pending_writes
+                    metrics.num_connections(),
+                    metrics.num_inflight_requests(),
+                    metrics.num_pending_writes()
                 );
             }
         });

@@ -1,17 +1,11 @@
+//! Buffer types and allocation strategies.
 use std::vec::Vec;
 
-//------------ BufSource ----------------------------------------------------
-
-pub trait BufSource {
-    type Output: AsRef<[u8]> + AsMut<[u8]>;
-
-    fn create_buf(&self) -> Self::Output;
-
-    fn create_sized(&self, size: usize) -> Self::Output;
-}
+use super::traits::buf::BufSource;
 
 //----------- VecBufSource --------------------------------------------------
 
+/// A source for creating [`Vec<u8>`] based buffers.
 pub struct VecBufSource;
 
 impl BufSource for VecBufSource {
