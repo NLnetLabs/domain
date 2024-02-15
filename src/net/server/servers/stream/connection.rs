@@ -206,7 +206,7 @@ where
 
         state.full_msg_received();
 
-        self.process_message(
+        self.process_request(
             msg_buf,
             self.addr,
             state.result_q_tx.clone(),

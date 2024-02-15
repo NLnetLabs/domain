@@ -192,7 +192,7 @@ where
                         trace!(%addr, pcap_text, "Received message");
                     }
 
-                    self.process_message(
+                    self.process_request(
                         msg, addr, self.sock.clone(),
                         self.middleware_chain.clone(),
                         &self.service,

@@ -1,3 +1,4 @@
+//! The business logic of the service provided by a DNS service.
 use core::marker::Send;
 use std::boxed::Box;
 use std::future::Future;
