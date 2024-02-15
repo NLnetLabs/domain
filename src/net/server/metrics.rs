@@ -35,9 +35,9 @@ impl ServerMetrics {
     }
 
     /// The number of current connections, if applicable.
-    /// 
+    ///
     /// This will be None for connection-less servers such as [`DgramServer`].
-    /// 
+    ///
     /// [`DgramServer`]: servers::dgram::server::DgramServer
     pub fn num_connections(&self) -> Option<usize> {
         self.num_connections

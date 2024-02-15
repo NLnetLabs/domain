@@ -39,13 +39,13 @@
 //!   - `shutdown()` the server, explicitly or on [`drop()`].
 //!
 //! # Core concepts
-//! 
+//!
 //! ## Network transports
 //!
 //! Historically DNS servers communicated primarily via datagram based
 //! connection-less network transport protocols, and used stream based
 //! connection-oriented network transport protocols only for zone transfers.
-//! 
+//!
 //! Modern DNS servers increasingly need to support stream based
 //! connection-oriented network transport protocols for additional response
 //! capacity and connection security.
@@ -75,17 +75,17 @@
 //! implementations based on [`tokio::net::TcpListener`].
 //!
 //! ## Middleware
-//! 
+//!
 //! Mandatory functionality and logic required by all standards compliant DNS
 //! servers can be incorporated into your server by building a middleware
 //! chain starting from [`MiddlewareBuilder::default()`].
-//! 
+//!
 //! A selection of additional functionality relating to server behaviour and
 //! DNS standards (as opposed to your own business logic) is provided which
 //! you can incorporate into your DNS server via
 //! [`MiddlewareBuilder::push()`]. See the various implementations of
 //! [`MiddlewareProcessor`] for more information.
-//! 
+//!
 //! ## Business logic
 //!
 //! With the basic work of handling DNS requests and responses taken care of,
@@ -94,7 +94,7 @@
 //! trait.
 //!
 //! # Advanced
-//! 
+//!
 //! ## Memory allocation
 //!
 //! The allocation of buffers, e.g. for receiving DNS messages, is delegated

@@ -1,8 +1,8 @@
 /// A source for creating new buffers.
-/// 
+///
 /// A buffer source is used by servers to allocate new buffers when needed,
 /// for example to store an incoming request.
-/// 
+///
 /// If the size is known in advance a specific size of buffer can be
 /// requested, otherwise use the default.
 pub trait BufSource {
