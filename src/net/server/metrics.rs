@@ -38,7 +38,7 @@ impl ServerMetrics {
     ///
     /// This will be None for connection-less servers such as [`DgramServer`].
     ///
-    /// [`DgramServer`]: servers::dgram::server::DgramServer
+    /// [`DgramServer`]: crate::net::server::dgram::DgramServer
     pub fn num_connections(&self) -> Option<usize> {
         self.num_connections
             .as_ref()

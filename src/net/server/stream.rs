@@ -12,7 +12,7 @@
 //! > the **Transmission Control Protocol**, one of the major building blocks of
 //! > the Internet._
 //!
-//! [stream]: https://en.wikipedia.org/wiki/Reliable_byte_streamuse std::future::poll_fn;
+//! [stream]: https://en.wikipedia.org/wiki/Reliable_byte_streamuse
 use core::future::poll_fn;
 use std::io;
 use std::net::SocketAddr;
@@ -72,9 +72,9 @@ pub type TcpServer<Svc> = StreamServer<TcpListener, VecBufSource, Svc>;
 /// ```ignore
 /// # use std::sync::Arc;
 /// # use domain::base::Message;
-/// # use domain::net::server::service::Service;
-/// # use domain::net::server::stream::StreamServer;
-/// # use domain::net::server::buf::VecBufSource;
+/// # use domain::net::buf::VecBufSource;
+/// # use domain::net::service::Service;
+/// # use domain::net::stream::StreamServer;
 /// # use tokio::net::TcpListener;
 /// # fn my_service() -> impl Service<Vec<u8>, Message<Vec<u8>>> {
 /// #     todo!()
@@ -105,8 +105,8 @@ pub type TcpServer<Svc> = StreamServer<TcpListener, VecBufSource, Svc>;
 /// # }
 /// ```
 ///
-/// [`Service`]: crate::net::server::traits::service::Service
-/// [`VecBufSource`]: crate::net::server::buf::VecBufSource
+/// [`Service`]: super::service::Service
+/// [`VecBufSource`]: super::buf::VecBufSource
 /// [`tokio::net::TcpListener`]:
 ///     https://docs.rs/tokio/latest/tokio/net/struct.TcpListener.html
 pub struct StreamServer<Listener, Buf, Svc>
@@ -195,7 +195,7 @@ where
     ///
     /// The pre-connect hook can be used to inspect and/or modify the
     /// properties of a newly accepted stream before it is passed to a new
-    /// [`Connection`]. This is useful if you do not control the code that
+    /// connection handler. This is useful if you do not control the code that
     /// creates the underlying socket and wish to modify the socket options.
     ///
     /// # Examples
@@ -257,6 +257,8 @@ where
     /// # Drop behaviour
     ///
     /// When dropped [`shutdown()`] will be invoked.
+    /// 
+    /// [`shutdown()`]: Self::shutdown
     pub async fn run(&self)
     where
         Svc::Single: Send,

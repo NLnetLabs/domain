@@ -7,7 +7,7 @@ use crate::base::wire::Composer;
 
 use super::{
     chain::MiddlewareChain, processor::MiddlewareProcessor,
-    processors::mandatory::MandatoryMiddlewareProcesor,
+    processors::mandatory::MandatoryMiddlewareProcessor,
 };
 
 /// A [`MiddlewareChain`] builder.
@@ -88,7 +88,7 @@ where
     #[must_use]
     fn default() -> Self {
         let mut builder = Self::new();
-        builder.push(MandatoryMiddlewareProcesor::new());
+        builder.push(MandatoryMiddlewareProcessor::new());
         builder
     }
 }

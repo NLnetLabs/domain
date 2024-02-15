@@ -24,13 +24,13 @@ use core::ops::ControlFlow;
 /// | [1035] | TBD     |
 /// | [6891] | TBD     |
 ///
-/// [RFC 1035]: https://datatracker.ietf.org/doc/html/rfc1035
-/// [RFC 6891]: https://datatracker.ietf.org/doc/html/rfc6891
+/// [1035]: https://datatracker.ietf.org/doc/html/rfc1035
+/// [6891]: https://datatracker.ietf.org/doc/html/rfc6891
 /// [`MiddlewareProcessor`]: crate::net::server::middleware::processor::MiddlewareProcessor
 #[derive(Default)]
-pub struct MandatoryMiddlewareProcesor;
+pub struct MandatoryMiddlewareProcessor;
 
-impl MandatoryMiddlewareProcesor {
+impl MandatoryMiddlewareProcessor {
     /// Constructs an instance of this processor.
     #[must_use]
     pub fn new() -> Self {
@@ -39,7 +39,7 @@ impl MandatoryMiddlewareProcesor {
 }
 
 impl<RequestOctets, Target> MiddlewareProcessor<RequestOctets, Target>
-    for MandatoryMiddlewareProcesor
+    for MandatoryMiddlewareProcessor
 where
     RequestOctets: AsRef<[u8]> + Octets,
     Target: Composer + Default,

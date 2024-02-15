@@ -21,7 +21,7 @@ use core::ops::{ControlFlow, RangeTo};
 /// Processors earlier in the chain process requests _before_ and responses
 /// _after_ processors later in the chain.
 ///
-/// The chain can be cloned in order to use it with more than one [server] at
+/// The chain can be cloned in order to use it with more than one server at
 /// once, assuming that you want to use exactly the same set of processors for
 /// all servers using the same chain.
 ///
@@ -61,9 +61,9 @@ where
     /// </div>
     ///
     /// [`MiddlewareBuilder::default()`]:
-    ///     crate::net::server::middleware::builder::MiddlewareBuilder::default()
+    ///     super::builder::MiddlewareBuilder::default()
     /// [`MandatoryMiddlewareProcessor`]:
-    ///     crate::net::server::middleware::processors::mandatory::MandatoryMiddlewareProcessor
+    ///     super::processors::mandatory::MandatoryMiddlewareProcessor
     #[must_use]
     pub fn new(
         processors: Vec<

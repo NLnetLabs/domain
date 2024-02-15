@@ -4,8 +4,8 @@
 )]
 //! Asynchronous DNS serving.
 //!
-//! This module provides skeleton asynchronous [server] implementations based
-//! on the [Tokio](https://tokio.rs/) async runtime. In combination with an
+//! This module provides skeleton asynchronous server implementations based on
+//! the [Tokio](https://tokio.rs/) async runtime. In combination with an
 //! appropriate network source, optional [`MiddlewareChain`] and your own
 //! [`Service`] implementation they can be used to run a standards compliant
 //! DNS server that answers requests based on the business logic you specify.
@@ -28,14 +28,18 @@
 //!
 //! # Usage
 //!
-//! [Server] implementations implement a common interface. To use a server
+//! Servers are implemented by combining a server transport (see [dgram] and
+//! [stream]), [`BufSource`], (optional) [`MiddlewareChain`] and [`Service`]
+//! together.
+//!
+//! Server implementations implement a common interface. To use a server
 //! implementation:
 //!
 //!   - Create an appropriate network source (more on this below).
 //!   - Construct a server instance with `new()` passing the network source.
 //!   - Tune the server behaviour via builder functions such as
 //!     `with_middleware()`.
-//!   - `run()` the [server].
+//!   - `run()` the server.
 //!   - `shutdown()` the server, explicitly or on [`drop()`].
 //!
 //! # Core concepts
@@ -108,23 +112,21 @@
 //! though the actual degree of support for this is server implementation
 //! dependent.
 //!
-//! [`AsyncAccept`]: traits::sock::AsyncAccept
-//! [`AsyncDgramSock`]: traits::sock::AsyncDgramSock
+//! [`AsyncAccept`]: sock::AsyncAccept
+//! [`AsyncDgramSock`]: sock::AsyncDgramSock
 //! [`BufSource`]: buf::BufSource
-//! [`DgramServer`]: servers::dgram::server::DgramServer
+//! [`DgramServer`]: dgram::DgramServer
 //! [`MiddlewareBuilder::default()`]:
 //!     middleware::builder::MiddlewareBuilder::default()
 //! [`MiddlewareBuilder::push()`]:
 //!     middleware::builder::MiddlewareBuilder::push()
 //! [`MiddlewareChain`]: middleware::chain::MiddlewareChain
 //! [`MiddlewareProcessor`]: middleware::processor::MiddlewareProcessor
-//! [Server]: servers
-//! [`Service`]: traits::service::Service
-//! [`ServiceCommand::Reconfigure`]:
-//!     traits::service::ServiceCommand::Reconfigure
-//! [`StreamServer`]: servers::stream::server::StreamServer
-//! [`TcpServer`]: servers::TcpServer
-//! [`UdpServer`]: servers::UdpServer
+//! [`Service`]: service::Service
+//! [`ServiceCommand::Reconfigure`]: service::ServiceCommand::Reconfigure
+//! [`StreamServer`]: stream::StreamServer
+//! [`TcpServer`]: stream::TcpServer
+//! [`UdpServer`]: dgram::UdpServer
 //! [`tokio::io::AsyncRead`]:
 //!     https://docs.rs/tokio/latest/tokio/io/trait.AsyncRead.html
 //! [`tokio::io::AsyncWrite`]:

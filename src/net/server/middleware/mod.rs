@@ -1,6 +1,6 @@
 //! Request pre-processing and response post-processing.
 //!
-//! Middleware sits in the middle between the [server] nearest the client and
+//! Middleware sits in the middle between the server nearest the client and
 //! the [`Service`] that implements the business logic.
 //!
 //! Middleware pre-processes requests and post-processes responses to
@@ -21,14 +21,11 @@
 //! [`MiddlewareBuilder::push()`]. See the various implementations of
 //! [`MiddlewareProcessor`] for more information.
 //!
-//! [`MiddlewareBuilder::default()`]:
-//!     middleware::builder::MiddlewareBuilder::default()
-//! [`MiddlewareBuilder::push()`]:
-//!     middleware::builder::MiddlewareBuilder::push()
-//! [`MiddlewareChain`]: middleware::chain::MiddlewareChain
-//! [`MiddlewareProcessor`]: middleware::processor::MiddlewareProcessor
-//! [server]: crate::net::server::servers
-//! [`Service`]: traits::service::Service
+//! [`MiddlewareBuilder::default()`]: builder::MiddlewareBuilder::default()
+//! [`MiddlewareBuilder::push()`]: builder::MiddlewareBuilder::push()
+//! [`MiddlewareChain`]: chain::MiddlewareChain
+//! [`MiddlewareProcessor`]: processor::MiddlewareProcessor
+//! [`Service`]: crate::net::server::service::Service
 pub mod builder;
 pub mod chain;
 pub mod processor;

@@ -127,7 +127,7 @@ impl<T> core::ops::DerefMut for ContextAwareMessage<T> {
 
 //----------- MessageProcessor -----------------------------------------------
 
-/// Perform processing common to all messages being handled by a DNS [server].
+/// Perform processing common to all messages being handled by a DNS server.
 ///
 /// All messages received by a DNS server need to pass through the following
 /// processing stages:
@@ -147,7 +147,6 @@ impl<T> core::ops::DerefMut for ContextAwareMessage<T> {
 ///
 /// Processing starts at [`process_request()`].
 ///
-/// [server]: crate::net::server::servers
 /// [`process_request()`]: Self::process_request()
 pub trait MessageProcessor<Buf, Svc>
 where

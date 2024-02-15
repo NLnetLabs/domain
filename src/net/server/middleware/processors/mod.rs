@@ -1,6 +1,6 @@
 //! Pre-supplied [`MiddlewareProcessor`] implementations.
 //!
-//! [`MiddlewareProcessor`]: middleware::processor::MiddlewareProcessor
+//! [`MiddlewareProcessor`]: super::processor::MiddlewareProcessor
 #[cfg(feature = "siphasher")]
 pub mod cookies;
 pub mod mandatory;
