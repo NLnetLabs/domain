@@ -16,6 +16,16 @@ use std::vec::Vec;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::time::Instant;
 
+use super::buf::BufSource;
+use super::message::ContextAwareMessage;
+use super::servers::stream::server::StreamServer;
+use super::service::CallResult;
+use super::service::Service;
+use super::service::ServiceCommand;
+use super::service::ServiceError;
+use super::service::ServiceResultItem;
+use super::service::Transaction;
+use super::sock::AsyncAccept;
 use crate::base::Dname;
 use crate::base::MessageBuilder;
 use crate::base::Rtype;
@@ -24,17 +34,6 @@ use crate::base::{
     /*iana::Rcode, octets::OctetsRef,*/ Message,
     /*MessageBuilder,*/ StreamTarget,
 };
-use crate::net::server::servers::stream::server::StreamServer;
-use crate::net::server::traits::buf::BufSource;
-use crate::net::server::traits::service::CallResult;
-use crate::net::server::traits::service::Service;
-use crate::net::server::traits::service::ServiceCommand;
-use crate::net::server::traits::service::ServiceError;
-use crate::net::server::traits::service::Transaction;
-use crate::net::server::traits::sock::AsyncAccept;
-
-use super::traits::message::ContextAwareMessage;
-use super::traits::service::ServiceResultItem;
 
 /*fn service<RequestOctets: AsRef<[u8]> + Send + Sync + 'static>(
     count: Arc<AtomicU8>,

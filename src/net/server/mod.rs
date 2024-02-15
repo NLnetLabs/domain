@@ -144,10 +144,12 @@
 
 pub mod buf;
 pub mod error;
+pub mod message;
 pub mod metrics;
 pub mod middleware;
 pub mod servers;
-pub mod traits;
+pub mod service;
+pub mod sock;
 pub mod util;
 
 #[cfg(test)]

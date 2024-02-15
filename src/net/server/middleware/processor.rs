@@ -3,7 +3,7 @@ use crate::{
         message_builder::AdditionalBuilder, wire::Composer, Message,
         StreamTarget,
     },
-    net::server::traits::message::ContextAwareMessage,
+    net::server::message::ContextAwareMessage,
 };
 use core::ops::ControlFlow;
 

@@ -6,8 +6,8 @@ use std::vec::Vec;
 
 use crate::base::wire::Composer;
 use crate::base::{Message, StreamTarget};
-use crate::net::server::traits::message::ContextAwareMessage;
-use crate::net::server::traits::service::{
+use crate::net::server::message::ContextAwareMessage;
+use crate::net::server::service::{
     CallResult, ServiceResultItem, Transaction,
 };
 
@@ -46,9 +46,11 @@ where
 {
     /// Create a new _empty_ chain of processors.
     ///
-    /// <div class="warning">Most DNS server implementations will need to
-    /// perform mandatory pre-processing of requests and post-processing of
-    /// responses in order to comply with RFC defined standards.
+    /// <div class="warning">Warning:
+    ///
+    /// Most DNS server implementations will need to perform mandatory
+    /// pre-processing of requests and post-processing of responses in order
+    /// to comply with RFC defined standards.
     ///
     /// By using this function you are responsible for ensuring that you
     /// perform such processing yourself.

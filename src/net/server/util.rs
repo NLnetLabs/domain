@@ -10,7 +10,7 @@ use crate::base::MessageBuilder;
 use crate::base::StreamTarget;
 use crate::base::{wire::Composer, Message};
 
-use super::traits::{
+use super::{
     message::ContextAwareMessage,
     service::{Service, ServiceResult, ServiceResultItem},
 };

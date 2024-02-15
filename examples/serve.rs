@@ -32,7 +32,8 @@ use domain::{
             processors::cookies::CookiesMiddlewareProcesor,
         },
         servers::{dgram::server::DgramServer, stream::server::StreamServer},
-        traits::{
+        util::mk_service,
+        {
             message::ContextAwareMessage,
             service::{
                 CallResult, Service, ServiceCommand, ServiceError,
@@ -40,7 +41,6 @@ use domain::{
             },
             sock::AsyncAccept,
         },
-        util::mk_service,
     },
 };
 use octseq::{FreezeBuilder, Octets};

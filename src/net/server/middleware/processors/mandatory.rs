@@ -7,8 +7,9 @@ use crate::{
         wire::Composer, Message, StreamTarget,
     },
     net::server::{
+        message::ContextAwareMessage,
         middleware::processor::MiddlewareProcessor,
-        traits::message::ContextAwareMessage, util::mk_builder_for_target,
+        util::mk_builder_for_target,
     },
 };
 use core::ops::ControlFlow;

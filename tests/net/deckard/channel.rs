@@ -4,7 +4,7 @@
 use domain::net::client::protocol::{
     AsyncConnect, AsyncDgramRecv, AsyncDgramSend,
 };
-use domain::net::server::traits::sock::{AsyncAccept, AsyncDgramSock};
+use domain::net::server::sock::{AsyncAccept, AsyncDgramSock};
 use futures::future::ready;
 use futures_util::FutureExt;
 use std::collections::HashMap;
