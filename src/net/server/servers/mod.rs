@@ -1,4 +1,4 @@
-//! Servers for communicating with DNS clients.
+//! Server transports for communicating with DNS clients.
 
 use std::net::UdpSocket;
 
@@ -11,8 +11,8 @@ use super::buf::VecBufSource;
 pub mod dgram;
 pub mod stream;
 
-/// A UDP transport connection-less based DNS server.
+/// A UDP transport based DNS server.
 pub type UdpServer<Svc> = DgramServer<UdpSocket, VecBufSource, Svc>;
 
-/// A TCP connection-oriented transport based DNS server.
+/// A TCP transport based DNS server.
 pub type TcpServer<Svc> = StreamServer<TcpListener, VecBufSource, Svc>;
