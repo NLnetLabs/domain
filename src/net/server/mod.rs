@@ -145,8 +145,9 @@
 #![cfg_attr(docsrs, doc(cfg(feature = "unstable-server-transport")))]
 // #![warn(missing_docs)]
 
+mod connection;
+
 pub mod buf;
-pub mod connection;
 pub mod dgram;
 pub mod error;
 pub mod message;

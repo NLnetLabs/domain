@@ -25,7 +25,7 @@ use tracing::{debug, error};
 
 //------------ Connection -----------------------------------------------
 
-pub(super) struct Connection<Stream, Buf, Svc>
+pub struct Connection<Stream, Buf, Svc>
 where
     Stream: AsyncRead + AsyncWrite + Send + Sync + 'static,
     Buf: BufSource + Send + Sync + 'static,
@@ -50,7 +50,7 @@ where
     Svc: Service<Buf::Output> + Send + Sync + 'static,
 {
     #[must_use]
-    pub(super) fn new(
+    pub fn new(
         service: Arc<Svc>,
         middleware_chain: Option<MiddlewareChain<Buf::Output, Svc::Target>>,
         buf_source: Arc<Buf>,

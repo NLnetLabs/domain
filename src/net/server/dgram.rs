@@ -36,16 +36,40 @@ use crate::net::server::util::to_pcap_text;
 
 use super::buf::VecBufSource;
 
-/// A UDP transport based DNS server.
+/// A UDP transport based DNS server transport.
+///
+/// UDP aka User Datagram Protocol, as implied by the name, is a datagram
+/// based protocol. This type defines a type of [`DgramServer`] that expects
+/// connections to be received via [`UdpSocket`] and can thus be used to
+/// implement a UDP based DNS server.
 pub type UdpServer<Svc> = DgramServer<UdpSocket, VecBufSource, Svc>;
 
 //------------ DgramServer ---------------------------------------------------
 
-/// A server for connecting clients via datagram transport to a [`Service`].
+/// A server for connecting clients via a datagram based network transport to
+/// a [`Service`].
+///
+/// [`DgramServer`] doesn't itself define how messages should be received,
+/// message buffers should be allocated, message lengths should be determined
+/// or how request messages should be received and responses sent. Instead it
+/// is generic over types that provide these abilities.
+///
+/// By using different implementations of these traits, or even your own
+/// implementations, the behaviour of [`DgramServer`] can be tuned as needed.
+///
+/// The [`DgramServer`] needs a socket to receive incoming messages, a
+/// [`BufSource`] to create message buffers on demand, and a [`Service`] to
+/// handle received request messages and generate corresponding response
+/// messages for [`DgramServer`] to deliver to the client.
+///
+/// A socket is anything that implements the [`AsyncDgramSock`] trait. This
+/// crate provides an implementation for [`UdpSocket`].
+
 pub struct DgramServer<Sock, Buf, Svc>
 where
+    Sock: AsyncDgramSock + Send + Sync + 'static,
     Buf: BufSource + Send + Sync + 'static,
-    Buf::Output: Send + Sync + 'static,
+    Buf::Output: Send + Sync + 'static + Debug,
     Svc: Service<Buf::Output> + Send + Sync + 'static,
 {
     command_rx: watch::Receiver<ServiceCommand>,
@@ -63,9 +87,20 @@ impl<Sock, Buf, Svc> DgramServer<Sock, Buf, Svc>
 where
     Sock: AsyncDgramSock + Send + Sync + 'static,
     Buf: BufSource + Send + Sync + 'static,
-    Buf::Output: Send + Sync + 'static,
+    Buf::Output: Send + Sync + 'static + Debug,
     Svc: Service<Buf::Output> + Send + Sync + 'static,
 {
+    /// Constructs a new [`DgramServer`] instance.
+    ///
+    /// Takes:
+    /// - A socket which must implement [`AsyncDgramSock`] and is responsible
+    /// receiving new messages and send responses back to the client.
+    /// - A [`BufSource`] for creating buffers on demand.
+    /// - A [`Service`] for handling received requests and generating responses.
+    ///
+    /// Invoke [`run()`] to receive and process incoming messages.
+    ///
+    /// [`run()`]: Self::run()
     #[must_use]
     pub fn new(sock: Sock, buf: Arc<Buf>, service: Arc<Svc>) -> Self {
         let (command_tx, command_rx) = watch::channel(ServiceCommand::Init);
@@ -83,6 +118,7 @@ where
         }
     }
 
+    /// Configure the [`DgramServer`] to process messages via a [`MiddlewareChain`].
     #[must_use]
     pub fn with_middleware(
         mut self,
@@ -99,10 +135,10 @@ impl<Sock, Buf, Svc> DgramServer<Sock, Buf, Svc>
 where
     Sock: AsyncDgramSock + Send + Sync + 'static,
     Buf: BufSource + Send + Sync + 'static,
-    Buf::Output: Send + Sync + 'static,
+    Buf::Output: Send + Sync + 'static + Debug,
     Svc: Service<Buf::Output> + Send + Sync + 'static,
 {
-    /// Get a reference to the source.
+    /// Get a reference to the network source being used to receive messages.
     #[must_use]
     pub fn source(&self) -> Arc<Sock> {
         self.sock.clone()
@@ -124,6 +160,13 @@ where
     Buf::Output: Send + Sync + 'static + Debug,
     Svc: Service<Buf::Output> + Send + Sync + 'static,
 {
+    /// Start the server.
+    ///
+    /// # Drop behaviour
+    ///
+    /// When dropped [`shutdown()`] will be invoked.
+    ///
+    /// [`shutdown()`]: Self::shutdown
     pub async fn run(&self)
     where
         Svc::Single: Send,
@@ -133,6 +176,17 @@ where
         }
     }
 
+    /// Stop the server.
+    ///
+    /// No new messages will be received.
+    ///
+    /// Tip: Await the [`tokio::task::JoinHandle`] that you received when
+    /// spawning a task to run the server to know when shutdown is complete.
+    ///
+    ///
+    /// [`tokio::task::JoinHandle`]:
+    ///     https://docs.rs/tokio/latest/tokio/task/struct.JoinHandle.html
+    // TODO: Do we also need a non-graceful terminate immediately function?
     pub fn shutdown(&self) -> Result<(), Error> {
         self.command_tx
             .lock()
@@ -151,6 +205,9 @@ where
     Buf::Output: Send + Sync + 'static + Debug,
     Svc: Service<Buf::Output> + Send + Sync + 'static,
 {
+    /// Receive incoming messages until shutdown or fatal error.
+    ///
+    // TODO: Use a strongly typed error, not String.
     async fn run_until_error(&self) -> Result<(), String>
     where
         Svc::Single: Send,
@@ -292,5 +349,22 @@ where
             // TODO:
             // metrics.num_pending_writes.store(???, Ordering::Relaxed);
         })
+    }
+}
+
+//--- Drop
+
+impl<Sock, Buf, Svc> Drop for DgramServer<Sock, Buf, Svc>
+where
+    Sock: AsyncDgramSock + Send + Sync + 'static,
+    Buf: BufSource + Send + Sync + 'static,
+    Buf::Output: Send + Sync + 'static + Debug,
+    Svc: Service<Buf::Output> + Send + Sync + 'static,
+{
+    fn drop(&mut self) {
+        // Shutdown the DgramServer. Don't handle the failure case here as
+        // I'm not sure if it's safe to log or write to stderr from a Drop
+        // impl.
+        let _ = self.shutdown();
     }
 }

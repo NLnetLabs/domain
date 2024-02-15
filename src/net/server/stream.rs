@@ -36,11 +36,23 @@ use super::connection::Connection;
 // TODO: Should this crate also provide a TLS listener implementation?
 
 /// A TCP transport based DNS server.
+///
+/// The TCP aka Transport Control Protocol, as [noted by Wikipedia], is a
+/// stream based transport protocol. This type defines a type of
+/// [`StreamServer`] that expects connections to be received via
+/// [`tokio::net::TcpListener`] and can thus be used to implement a TCP based
+/// DNS server.
+///
+/// [noted by Wikipedia]:
+///     https://en.wikipedia.org/wiki/Reliable_byte_streamuse
+/// [`tokio::net::TcpListener`]:
+///     https://docs.rs/tokio/latest/tokio/net/struct.TcpListener.html
 pub type TcpServer<Svc> = StreamServer<TcpListener, VecBufSource, Svc>;
 
 //------------ StreamServer --------------------------------------------------
 
-/// A server for connecting clients via stream transport to a [`Service`].
+/// A server for connecting clients via stream based network transport to a
+/// [`Service`].
 ///
 /// [`StreamServer`] doesn't itself define how connections should be accepted,
 /// message buffers should be allocated, message lengths should be determined
@@ -155,7 +167,7 @@ where
     Buf::Output: Send + Sync + 'static,
     Svc: Service<Buf::Output> + Send + Sync + 'static,
 {
-    /// Create a new stream transport server.
+    /// Constructs a new [`StreamServer`] instance.
     ///
     /// Takes:
     /// - A listener which must implement [`AsyncAccept`] and is responsible
@@ -276,10 +288,9 @@ where
     /// Tip: Await the [`tokio::task::JoinHandle`] that you received when
     /// spawning a task to run the server to know when shutdown is complete.
     ///
-    /// TODO: Do we also need a non-graceful terminate immediately function?
-    ///
     /// [`tokio::task::JoinHandle`]:
     ///     https://docs.rs/tokio/latest/tokio/task/struct.JoinHandle.html
+    // TODO: Do we also need a non-graceful terminate immediately function?
     pub fn shutdown(&self) -> Result<(), Error> {
         self.command_tx
             .lock()
@@ -300,7 +311,7 @@ where
 {
     /// Accept stream connections until shutdown or fatal error.
     ///
-    /// TODO: Use a strongly typed error, not String.
+    // TODO: Use a strongly typed error, not String.
     async fn run_until_error(&self) -> Result<(), String>
     where
         Svc::Single: Send,
