@@ -32,7 +32,7 @@ use tracing::{debug, enabled, trace, Level};
 ///
 /// [7873]: https://datatracker.ietf.org/doc/html/rfc7873
 /// [9018]: https://datatracker.ietf.org/doc/html/rfc7873
-/// [`MiddlewareProcessor`]: middleware::processor::MiddlewareProcessor
+/// [`MiddlewareProcessor`]: crate::net::server::middleware::processor::MiddlewareProcessor
 #[derive(Debug)]
 pub struct CookiesMiddlewareProcesor {
     server_secret: [u8; 16],

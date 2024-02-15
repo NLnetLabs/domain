@@ -26,7 +26,7 @@ use core::ops::ControlFlow;
 ///
 /// [RFC 1035]: https://datatracker.ietf.org/doc/html/rfc1035
 /// [RFC 6891]: https://datatracker.ietf.org/doc/html/rfc6891
-/// [`MiddlewareProcessor`]: middleware::processor::MiddlewareProcessor
+/// [`MiddlewareProcessor`]: crate::net::server::middleware::processor::MiddlewareProcessor
 #[derive(Default)]
 pub struct MandatoryMiddlewareProcesor;
 
