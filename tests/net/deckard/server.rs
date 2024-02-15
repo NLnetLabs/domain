@@ -4,6 +4,7 @@ use crate::net::deckard::parse_deckard;
 use crate::net::deckard::parse_deckard::{Adjust, Deckard, Reply};
 use crate::net::deckard::parse_query;
 use domain::base::iana::rcode::Rcode;
+use domain::base::iana::Opcode;
 use domain::base::{Message, MessageBuilder};
 use domain::dep::octseq::Octets;
 use domain::zonefile::inplace::Entry as ZonefileEntry;
@@ -30,6 +31,7 @@ where
             return Some(reply);
         }
     }
+    println!("do_server: no reply at step value {step}");
     todo!();
 }
 
@@ -75,8 +77,13 @@ fn do_adjust<Octs: Octets>(
         msg.push(rec).unwrap();
     }
     let mut msg = msg.additional();
-    for _a in &sections.additional {
-        todo!();
+    for a in &sections.additional {
+        let rec = if let ZonefileEntry::Record(record) = a {
+            record
+        } else {
+            panic!("include not expected")
+        };
+        msg.push(rec).unwrap();
     }
     let reply: Reply = match &entry.reply {
         Some(reply) => reply.clone(),
@@ -86,34 +93,37 @@ fn do_adjust<Octs: Octets>(
         msg.header_mut().set_aa(true);
     }
     if reply.ad {
-        todo!()
+        msg.header_mut().set_ad(true);
     }
     if reply.cd {
-        todo!()
+        msg.header_mut().set_cd(true);
     }
     if reply.fl_do {
         todo!()
     }
     if reply.formerr {
-        todo!()
+        msg.header_mut().set_rcode(Rcode::FormErr);
     }
     if reply.noerror {
         msg.header_mut().set_rcode(Rcode::NoError);
     }
+    if reply.notimp {
+        msg.header_mut().set_rcode(Rcode::NotImp);
+    }
     if reply.nxdomain {
-        todo!()
+        msg.header_mut().set_rcode(Rcode::NXDomain);
     }
     if reply.qr {
         msg.header_mut().set_qr(true);
     }
     if reply.ra {
-        todo!()
+        msg.header_mut().set_ra(true);
     }
     if reply.rd {
         msg.header_mut().set_rd(true);
     }
     if reply.refused {
-        todo!()
+        msg.header_mut().set_rcode(Rcode::Refused);
     }
     if reply.servfail {
         todo!()
@@ -123,6 +133,9 @@ fn do_adjust<Octs: Octets>(
     }
     if reply.yxdomain {
         todo!()
+    }
+    if reply.notify {
+        msg.header_mut().set_opcode(Opcode::Notify);
     }
     if adjust.copy_id {
         msg.header_mut().set_id(reqmsg.header().id());
