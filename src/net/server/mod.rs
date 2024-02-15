@@ -2,7 +2,7 @@
     not(feature = "unstable-server-transport"),
     doc = " The `unstable-server-transport` feature is necessary to enable this module."
 )]
-//! Asynchronous DNS serving.
+//! Receiving requests and sending responses.
 //!
 //! This module provides skeleton asynchronous server implementations based on
 //! the [Tokio](https://tokio.rs/) async runtime. In combination with an
