@@ -18,7 +18,6 @@ use tokio::time::Instant;
 
 use super::buf::BufSource;
 use super::message::ContextAwareMessage;
-use super::servers::stream::server::StreamServer;
 use super::service::CallResult;
 use super::service::Service;
 use super::service::ServiceCommand;
@@ -26,6 +25,7 @@ use super::service::ServiceError;
 use super::service::ServiceResultItem;
 use super::service::Transaction;
 use super::sock::AsyncAccept;
+use super::stream::StreamServer;
 use crate::base::Dname;
 use crate::base::MessageBuilder;
 use crate::base::Rtype;

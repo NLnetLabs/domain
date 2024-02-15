@@ -31,8 +31,8 @@ use domain::{
             builder::MiddlewareBuilder,
             processors::cookies::CookiesMiddlewareProcesor,
         },
-        servers::{dgram::server::DgramServer, stream::server::StreamServer},
         util::mk_service,
+        {dgram::DgramServer, stream::StreamServer},
         {
             message::ContextAwareMessage,
             service::{

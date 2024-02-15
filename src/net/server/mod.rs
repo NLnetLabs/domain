@@ -143,13 +143,15 @@
 // #![warn(missing_docs)]
 
 pub mod buf;
+pub mod connection;
+pub mod dgram;
 pub mod error;
 pub mod message;
 pub mod metrics;
 pub mod middleware;
-pub mod servers;
 pub mod service;
 pub mod sock;
+pub mod stream;
 pub mod util;
 
 #[cfg(test)]

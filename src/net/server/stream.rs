@@ -1,8 +1,24 @@
-use std::future::poll_fn;
+//! Support for stream based server transports.
+//!
+//! Wikipedia defines [stream] as:
+//!
+//! > _A reliable byte stream is a common service paradigm in computer
+//! > networking; it refers to a byte stream in which the bytes which emerge
+//! > from the communication channel at the recipient are exactly the same,
+//! > and in exactly the same order, as they were when the sender inserted
+//! > them into the channel._
+//! >
+//! > _The classic example of a reliable byte stream communication protocol is
+//! > the **Transmission Control Protocol**, one of the major building blocks of
+//! > the Internet._
+//!
+//! [stream]: https://en.wikipedia.org/wiki/Reliable_byte_streamuse std::future::poll_fn;
+use core::future::poll_fn;
 use std::io;
 use std::net::SocketAddr;
 use std::string::{String, ToString};
 use std::sync::{Arc, Mutex};
+use tokio::net::TcpListener;
 use tokio::sync::watch;
 use tokio::task::JoinHandle;
 use tracing::error;
@@ -14,9 +30,13 @@ use crate::net::server::middleware::chain::MiddlewareChain;
 use crate::net::server::service::{Service, ServiceCommand};
 use crate::net::server::sock::AsyncAccept;
 
+use super::buf::VecBufSource;
 use super::connection::Connection;
 
 // TODO: Should this crate also provide a TLS listener implementation?
+
+/// A TCP transport based DNS server.
+pub type TcpServer<Svc> = StreamServer<TcpListener, VecBufSource, Svc>;
 
 //------------ StreamServer --------------------------------------------------
 
