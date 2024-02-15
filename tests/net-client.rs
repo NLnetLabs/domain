@@ -20,7 +20,7 @@ use std::str::FromStr;
 use std::sync::Arc;
 use tokio::net::TcpStream;
 
-const TEST_FILE: &str = "test-data/basic.rpl";
+const TEST_FILE: &str = "test-data/client/basic.rpl";
 
 #[test]
 fn dgram() {

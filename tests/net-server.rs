@@ -26,6 +26,7 @@ use domain::net::server::servers::dgram::server::DgramServer;
 use domain::net::server::servers::stream::server::StreamServer;
 use domain::net::server::traits::message::ContextAwareMessage;
 use domain::net::server::traits::service::CallResult;
+use domain::net::server::traits::service::Service;
 use domain::net::server::traits::service::ServiceResult;
 use domain::net::server::traits::service::ServiceResultItem;
 use domain::net::server::traits::service::Transaction;
@@ -33,54 +34,96 @@ use domain::net::server::util::mk_service;
 use domain::zonefile::inplace::Entry;
 use domain::zonefile::inplace::ScannedRecord;
 use domain::zonefile::inplace::Zonefile;
+use net::deckard::client::ClientFactory;
 use net::deckard::parse_deckard::Config;
 use octseq::FreezeBuilder;
 use octseq::Octets;
+use rstest::rstest;
 use std::collections::VecDeque;
+use std::convert::AsRef;
 use std::fmt::Debug;
 use std::fs::File;
 use std::future::Future;
+use std::marker::Send;
+use std::marker::Sync;
 use std::net::IpAddr;
 use std::net::SocketAddr;
+use std::path::PathBuf;
 use std::sync::Arc;
-use tracing::level_filters::LevelFilter;
+use tracing::instrument;
 use tracing::trace;
 use tracing_subscriber::EnvFilter;
 
-const TEST_FILE: &str = "test-data/edns_downstream_cookies.rpl";
-
 //----------- Tests ----------------------------------------------------------
 
+/// Deckard test cases for which the .rpl file defines a server: config block.
+/// 
+/// Note: Adding or removing .rpl files on disk won't be detected until the
+/// test is re-compiled.
+#[instrument(skip_all, fields(rpl = rpl_file.file_name().unwrap().to_str()))]
+#[rstest]
 #[tokio::test]
-async fn dgram() {
-    // Configure Tokio tracing output.
-    let filter = EnvFilter::from_default_env()
-        .add_directive(LevelFilter::DEBUG.into())
-        .add_directive(
-            "net_server::net::deckard::channel=OFF".parse().unwrap(),
-        );
-    tracing_subscriber::fmt()
-        .with_env_filter(filter)
-        .with_thread_ids(true)
-        .without_time()
-        .init();
+async fn server_tests(#[files("test-data/server/*.rpl")] rpl_file: PathBuf) {
+    init_logging();
 
     // Load the test .rpl file that determines which queries will be sent
     // and which responses will be expected, and how the server that
     // answers them should be configured.
-    let file = File::open(TEST_FILE).unwrap();
+    let file = File::open(rpl_file).unwrap();
     let deckard = parse_file(file);
-    let step_value = Arc::new(CurrStepValue::new());
     let server_config = parse_server_config(&deckard.config);
-
-    // Prepare middleware to be used by the DNS servers to pre-process
-    // received requests and post-process created responses.
-    let middleware = mk_middleware_for_config(&server_config);
 
     // Create a service to answer queries received by the DNS servers.
     let zonefile = server_config.zonefile.clone();
     let service: Arc<_> =
         mk_service(test_service::<Vec<u8>>, zonefile).into();
+
+    // Create dgram and stream servers for answering requests
+    let (dgram_server_conn, stream_server_conn) =
+        mk_servers(service, &server_config);
+
+    // Create a client factory for sending requests
+    let client_factory =
+        mk_client_factory(dgram_server_conn, stream_server_conn);
+
+    // Run the Deckard test!
+    let step_value = Arc::new(CurrStepValue::new());
+    do_client(&deckard, &step_value, client_factory).await;
+}
+
+//----------- test helpers ---------------------------------------------------
+
+/// Setup logging of events reported by domain and the test suite.
+///
+/// Use the RUST_LOG environment variable to override the defaults.
+///
+/// E.g. To enable debug level logging:
+///   RUST_LOG=DEBUG
+///
+/// Or to log only the steps processed by the Deckard client:
+///   RUST_LOG=net_server::net::deckard::client=DEBUG
+///
+/// Or to enable trace level logging but not for the test suite itself:
+///   RUST_LOG=TRACE,net_server=OFF
+fn init_logging() {
+    tracing_subscriber::fmt()
+        .with_env_filter(EnvFilter::from_default_env())
+        .with_thread_ids(true)
+        .without_time()
+        .try_init()
+        .ok();
+}
+
+fn mk_servers<Svc>(
+    service: Arc<Svc>,
+    server_config: &ServerConfig,
+) -> (ClientServerChannel, ClientServerChannel)
+where
+    Svc: Service + Send + Sync + 'static,
+{
+    // Prepare middleware to be used by the DNS servers to pre-process
+    // received requests and post-process created responses.
+    let middleware = mk_middleware_for_config(server_config);
 
     // Create a dgram server for handling UDP requests.
     let dgram_server_conn = ClientServerChannel::new_dgram();
@@ -103,6 +146,13 @@ async fn dgram() {
     let stream_server = stream_server.with_middleware(middleware);
     tokio::spawn(async move { stream_server.run().await });
 
+    (dgram_server_conn, stream_server_conn)
+}
+
+fn mk_client_factory(
+    dgram_server_conn: ClientServerChannel,
+    stream_server_conn: ClientServerChannel,
+) -> impl ClientFactory {
     // Create a TCP client factory that only creates a client if (a) no
     // existing TCP client exists for the source address of the Deckard query,
     // and (b) if the query specifies "MATCHES TCP". Clients created by this
@@ -134,20 +184,19 @@ async fn dgram() {
     // Create a combined client factory that will allow the Deckard runner to
     // use existing or create new client connections as appropriate for the
     // Deckard query being evaluated.
-    let client_factory = QueryTailoredClientFactory::new(vec![
+    QueryTailoredClientFactory::new(vec![
         Box::new(tcp_client_factory),
         Box::new(udp_client_factory),
-    ]);
-
-    // Run the Deckard test!
-    do_client(&deckard, &step_value, client_factory).await;
+    ])
 }
 
-//----------- test helpers ---------------------------------------------------
-
-fn mk_middleware_for_config(
+fn mk_middleware_for_config<RequestOctets, Target>(
     config: &ServerConfig,
-) -> MiddlewareChain<Vec<u8>, Vec<u8>> {
+) -> MiddlewareChain<RequestOctets, Target>
+where
+    RequestOctets: AsRef<[u8]> + Octets,
+    Target: Composer + Default + Send + Sync + 'static,
+{
     let mut middleware = MiddlewareBuilder::default();
 
     #[cfg(feature = "siphasher")]

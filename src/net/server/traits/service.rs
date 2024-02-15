@@ -1,3 +1,4 @@
+use core::marker::Send;
 use std::boxed::Box;
 use std::future::Future;
 use std::pin::Pin;
@@ -81,18 +82,17 @@ pub type ServiceResult<Target, Error, Single> = Result<
 pub trait Service<RequestOctets: AsRef<[u8]> = Vec<u8>> {
     type Error: Send + Sync + 'static;
     type Target: Composer + Default + Send + Sync + 'static;
-    type Single: Future<Output = ServiceResultItem<Self::Target, Self::Error>>;
+    type Single: Future<Output = ServiceResultItem<Self::Target, Self::Error>>
+        + Send;
 
     #[allow(clippy::type_complexity)]
     fn call(
         &self,
         message: Arc<ContextAwareMessage<Message<RequestOctets>>>,
-    ) -> ServiceResult<Self::Target, Self::Error, Self::Single>
-    where
-        <Self as Service<RequestOctets>>::Single: core::marker::Send;
+    ) -> ServiceResult<Self::Target, Self::Error, Self::Single>;
 }
 
-impl<F, Error, RequestOctets, Target, Single> Service<RequestOctets> for F
+impl<RequestOctets, Error, Target, Single, F> Service<RequestOctets> for F
 where
     F: Fn(
         Arc<ContextAwareMessage<Message<RequestOctets>>>,

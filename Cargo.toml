@@ -65,6 +65,7 @@ unstable-client-transport = []
 unstable-server-transport = ["chrono/clock", "futures", "hex", "libc", "tracing"]
 
 [dev-dependencies]
+rstest       = "0.18.2"
 rustls       = { version = "0.21.9" }
 serde_test   = "1.0.130"
 serde_json   = "1.0.113"
