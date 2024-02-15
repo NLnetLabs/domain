@@ -57,7 +57,7 @@ use tracing_subscriber::EnvFilter;
 //----------- Tests ----------------------------------------------------------
 
 /// Deckard test cases for which the .rpl file defines a server: config block.
-/// 
+///
 /// Note: Adding or removing .rpl files on disk won't be detected until the
 /// test is re-compiled.
 #[instrument(skip_all, fields(rpl = rpl_file.file_name().unwrap().to_str()))]
