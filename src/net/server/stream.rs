@@ -193,6 +193,7 @@ where
         }
     }
 
+    /// Configure the [`StreamServer`] to process messages via a [`MiddlewareChain`].
     #[must_use]
     pub fn with_middleware(
         mut self,
