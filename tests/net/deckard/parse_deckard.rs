@@ -28,6 +28,7 @@ const STEP: &str = "STEP";
 const STEP_TYPE_QUERY: &str = "QUERY";
 const STEP_TYPE_CHECK_ANSWER: &str = "CHECK_ANSWER";
 const STEP_TYPE_TIME_PASSES: &str = "TIME_PASSES";
+const STEP_TYPE_TIME_PASSES_ELAPSE: &str = "ELAPSE";
 const STEP_TYPE_TRAFFIC: &str = "TRAFFIC";
 const STEP_TYPE_CHECK_TEMPFILE: &str = "CHECK_TEMPFILE";
 const STEP_TYPE_ASSIGN: &str = "ASSIGN";
@@ -190,6 +191,7 @@ fn parse_range<Lines: Iterator<Item = Result<String, std::io::Error>>>(
 pub struct Step {
     pub step_value: u64,
     pub step_type: StepType,
+    pub time_passes: Option<u64>,
     pub entry: Option<Entry>,
 }
 
@@ -217,6 +219,7 @@ fn parse_step<Lines: Iterator<Item = Result<String, std::io::Error>>>(
     let mut step = Step {
         step_value,
         step_type,
+        time_passes: None,
         entry: None,
     };
 
@@ -224,7 +227,16 @@ fn parse_step<Lines: Iterator<Item = Result<String, std::io::Error>>>(
         StepType::Query => (),       // Continue with entry
         StepType::CheckAnswer => (), // Continue with entry
         StepType::TimePasses => {
-            println!("parse_step: should handle TIME_PASSES");
+            // The next token needs to be ELAPSE. Later we can add EVAL as
+            // well.
+            let elapsed_str = tokens.next().unwrap();
+            if elapsed_str != STEP_TYPE_TIME_PASSES_ELAPSE {
+                panic!("Expect ELAPSE after TIME_PASSES");
+            }
+
+            // Then we get the number of seconds that has passed.
+            let seconds = tokens.next().unwrap().parse::<u64>().unwrap();
+            step.time_passes = Some(seconds);
             return step;
         }
         StepType::Traffic => {
@@ -406,7 +418,10 @@ pub struct Matches {
     pub all: bool,
     pub answer: bool,
     pub authority: bool,
+    pub ad: bool,
+    pub cd: bool,
     pub fl_do: bool,
+    pub rd: bool,
     pub flags: bool,
     pub opcode: bool,
     pub qname: bool,
@@ -430,10 +445,18 @@ fn parse_match(mut tokens: LineTokens<'_>) -> Matches {
 
         if token == "all" {
             matches.all = true;
+        } else if token == "AD" {
+            matches.ad = true;
+        } else if token == "CD" {
+            matches.cd = true;
         } else if token == "DO" {
             matches.fl_do = true;
+        } else if token == "RD" {
+            matches.rd = true;
         } else if token == "opcode" {
             matches.opcode = true;
+        } else if token == "flags" {
+            matches.flags = true;
         } else if token == "qname" {
             matches.qname = true;
         } else if token == "question" {
@@ -487,16 +510,18 @@ pub struct Reply {
     pub ad: bool,
     pub cd: bool,
     pub fl_do: bool,
-    pub formerr: bool,
-    pub noerror: bool,
-    pub nxdomain: bool,
     pub qr: bool,
     pub ra: bool,
     pub rd: bool,
+    pub tc: bool,
+    pub formerr: bool,
+    pub noerror: bool,
+    pub notimp: bool,
+    pub nxdomain: bool,
     pub refused: bool,
     pub servfail: bool,
-    pub tc: bool,
     pub yxdomain: bool,
+    pub notify: bool,
 }
 
 fn parse_reply(mut tokens: LineTokens<'_>) -> Reply {
@@ -516,26 +541,30 @@ fn parse_reply(mut tokens: LineTokens<'_>) -> Reply {
             reply.cd = true;
         } else if token == "DO" {
             reply.fl_do = true;
-        } else if token == "FORMERR" {
-            reply.formerr = true;
-        } else if token == "NOERROR" {
-            reply.noerror = true;
-        } else if token == "NXDOMAIN" {
-            reply.nxdomain = true;
         } else if token == "QR" {
             reply.qr = true;
         } else if token == "RA" {
             reply.ra = true;
         } else if token == "RD" {
             reply.rd = true;
+        } else if token == "TC" {
+            reply.tc = true;
+        } else if token == "FORMERR" {
+            reply.formerr = true;
+        } else if token == "NOERROR" {
+            reply.noerror = true;
+        } else if token == "NOTIMP" {
+            reply.notimp = true;
+        } else if token == "NXDOMAIN" {
+            reply.nxdomain = true;
         } else if token == "REFUSED" {
             reply.refused = true;
         } else if token == "SERVFAIL" {
             reply.servfail = true;
-        } else if token == "TC" {
-            reply.tc = true;
         } else if token == "YXDOMAIN" {
             reply.yxdomain = true;
+        } else if token == "NOTIFY" {
+            reply.notify = true;
         } else {
             println!("should handle reply {token:?}");
             todo!();
