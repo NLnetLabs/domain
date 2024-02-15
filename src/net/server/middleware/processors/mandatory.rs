@@ -1,3 +1,4 @@
+//! Core DNS RFC standards based message processing.
 use octseq::Octets;
 use tracing::{debug, enabled, Level};
 
@@ -14,10 +15,23 @@ use crate::{
 };
 use core::ops::ControlFlow;
 
+/// A [`MiddlewareProcessor`] for enforcing RFC standards on processed messages.
+///
+/// Standards covered by ths implementation:
+///
+/// | RFC    | Status  |
+/// |--------|---------|
+/// | [1035] | TBD     |
+/// | [6891] | TBD     |
+///
+/// [RFC 1035]: https://datatracker.ietf.org/doc/html/rfc1035
+/// [RFC 6891]: https://datatracker.ietf.org/doc/html/rfc6891
+/// [`MiddlewareProcessor`]: middleware::processor::MiddlewareProcessor
 #[derive(Default)]
 pub struct MandatoryMiddlewareProcesor;
 
 impl MandatoryMiddlewareProcesor {
+    /// Constructs an instance of this processor.
     #[must_use]
     pub fn new() -> Self {
         Self

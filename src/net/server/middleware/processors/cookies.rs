@@ -1,3 +1,4 @@
+//! DNS Cookies related message processing.
 use core::ops::ControlFlow;
 use std::net::IpAddr;
 use std::vec::Vec;
@@ -20,6 +21,18 @@ use crate::{
 use octseq::{Octets, OctetsBuilder};
 use tracing::{debug, enabled, trace, Level};
 
+/// An DNS Cookies [`MiddlewareProcessor`].
+///
+/// Standards covered by ths implementation:
+///
+/// | RFC    | Status  |
+/// |--------|---------|
+/// | [7873] | TBD     |
+/// | [9018] | TBD     |
+///
+/// [7873]: https://datatracker.ietf.org/doc/html/rfc7873
+/// [9018]: https://datatracker.ietf.org/doc/html/rfc7873
+/// [`MiddlewareProcessor`]: middleware::processor::MiddlewareProcessor
 #[derive(Debug)]
 pub struct CookiesMiddlewareProcesor {
     server_secret: [u8; 16],
@@ -35,6 +48,7 @@ pub struct CookiesMiddlewareProcesor {
 }
 
 impl CookiesMiddlewareProcesor {
+    /// Constructs an instance of this processor.
     #[must_use]
     pub fn new(server_secret: [u8; 16]) -> Self {
         Self {
@@ -44,6 +58,13 @@ impl CookiesMiddlewareProcesor {
         }
     }
 
+    /// Define IP addresses allowed to bypass cookie restrictions.
+    ///
+    /// Similar to the Unbound [`access-control: allow`] server option IP
+    /// addresses on the allow list are permitted to bypass cookie
+    /// pre-processing checks.
+    ///
+    /// [`access-control: allow`]: https://unbound.docs.nlnetlabs.nl/en/latest/manpages/unbound.conf.html#unbound-conf-access-control-action-allow
     #[must_use]
     pub fn with_allowed_ips<T: Into<Vec<IpAddr>>>(
         mut self,
@@ -53,6 +74,14 @@ impl CookiesMiddlewareProcesor {
         self
     }
 
+    /// Define IP addresses required to supply DNS cookies if using UDP.
+    ///
+    /// Similar to the Unbound [`access-control: allow_cookie`] server option
+    /// IP addresses on the deny list are required to supply a valid DNS
+    /// cookie unless the request was sent via TCP.
+    ///
+    /// [`access-control: allow_cookie`]:
+    ///     https://unbound.docs.nlnetlabs.nl/en/latest/manpages/unbound.conf.html#unbound-conf-access-control-action-allow-cookie
     #[must_use]
     pub fn with_denied_ips<T: Into<Vec<IpAddr>>>(
         mut self,

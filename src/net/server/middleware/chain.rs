@@ -88,7 +88,7 @@ where
     ///
     /// Returns either [`ControlFlow::Continue`] indicating that processing of
     /// the request should continue, or [`ControlFlow::Break`] indicating that
-    /// a pre-processor dedecided to terminate processing of the request.
+    /// a pre-processor decided to terminate processing of the request.
     ///
     /// On [`ControlFlow::Break`] the caller should pass the given result to
     /// [`postprocess()`][Self::postprocess]. If processing terminated early
