@@ -21,7 +21,7 @@ use crate::{
 use octseq::{Octets, OctetsBuilder};
 use tracing::{debug, enabled, trace, Level};
 
-/// An DNS Cookies [`MiddlewareProcessor`].
+/// A DNS Cookies [`MiddlewareProcessor`].
 ///
 /// Standards covered by ths implementation:
 ///
