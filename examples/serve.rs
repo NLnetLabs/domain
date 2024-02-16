@@ -16,6 +16,21 @@ use std::{
 };
 
 use domain::{
+    base::message_builder::{AdditionalBuilder, PushError},
+    net::server::{
+        dgram::DgramServer,
+        middleware::{
+            builder::MiddlewareBuilder,
+            processors::cookies::CookiesMiddlewareProcesor,
+        },
+        prelude::*,
+        sock::AsyncAccept,
+        stream::StreamServer,
+    },
+};
+
+use domain::base::name::ToLabelIter;
+use domain::{
     base::{
         iana::{Class, Rcode},
         wire::Composer,
@@ -23,25 +38,6 @@ use domain::{
     },
     net::server::buf::VecBufSource,
     rdata::A,
-};
-use domain::{
-    base::{message_builder::AdditionalBuilder, name::ToLabelIter},
-    net::server::{
-        middleware::{
-            builder::MiddlewareBuilder,
-            processors::cookies::CookiesMiddlewareProcesor,
-        },
-        util::mk_service,
-        {dgram::DgramServer, stream::StreamServer},
-        {
-            message::ContextAwareMessage,
-            service::{
-                CallResult, Service, ServiceCommand, ServiceError,
-                ServiceResult, ServiceResultItem, Transaction,
-            },
-            sock::AsyncAccept,
-        },
-    },
 };
 use octseq::{FreezeBuilder, Octets};
 
@@ -57,22 +53,19 @@ use tokio_tfo::{TfoListener, TfoStream};
 fn mk_answer<Target>(
     msg: &ContextAwareMessage<Message<Vec<u8>>>,
     builder: MessageBuilder<StreamTarget<Target>>,
-) -> AdditionalBuilder<StreamTarget<Target>>
+) -> Result<AdditionalBuilder<StreamTarget<Target>>, PushError>
 where
     Target: Octets + Composer + FreezeBuilder<Octets = Target>,
     <Target as octseq::OctetsBuilder>::AppendError: fmt::Debug,
 {
     let mut answer = builder.start_answer(msg, Rcode::NoError).unwrap();
-    answer
-        .push((
-            Dname::root_ref(),
-            Class::In,
-            86400,
-            A::from_octets(192, 0, 2, 1),
-        ))
-        .unwrap();
-
-    answer.additional()
+    answer.push((
+        Dname::root_ref(),
+        Class::In,
+        86400,
+        A::from_octets(192, 0, 2, 1),
+    ))?;
+    Ok(answer.additional())
 }
 
 struct UnreachableStream;
@@ -96,9 +89,8 @@ impl Service<Vec<u8>> for MyService {
         &self,
         msg: Arc<ContextAwareMessage<Message<Vec<u8>>>>,
     ) -> ServiceResult<Self::Target, Self::Error, Self::Single> {
-        let target = StreamTarget::new(Self::Target::default()).unwrap(); // SAFETY
-        let builder = MessageBuilder::from_target(target).unwrap(); // SAFETY
-        let additional = mk_answer(&msg, builder);
+        let builder = mk_builder_for_target();
+        let additional = mk_answer(&msg, builder)?;
         let item = ready(Ok(CallResult::new(additional)));
         let txn = Transaction::single(item);
         Ok(txn)
@@ -122,7 +114,7 @@ impl DoubleListener {
 impl AsyncAccept for DoubleListener {
     type Error = io::Error;
     type StreamType = TcpStream;
-    type Stream = futures::future::Ready<Result<Self::StreamType, io::Error>>;
+    type Stream = Ready<Result<Self::StreamType, io::Error>>;
 
     fn poll_accept(
         &self,
@@ -133,16 +125,12 @@ impl AsyncAccept for DoubleListener {
             true => (&self.b, &self.a),
         };
 
-        match TcpListener::poll_accept(x, cx).map(|res| {
-            res.map(|(stream, addr)| {
-                (futures::future::ready(Ok(stream)), addr)
-            })
-        }) {
+        match TcpListener::poll_accept(x, cx)
+            .map(|res| res.map(|(stream, addr)| (ready(Ok(stream)), addr)))
+        {
             Poll::Ready(res) => Poll::Ready(res),
             Poll::Pending => TcpListener::poll_accept(y, cx).map(|res| {
-                res.map(|(stream, addr)| {
-                    (futures::future::ready(Ok(stream)), addr)
-                })
+                res.map(|(stream, addr)| (ready(Ok(stream)), addr))
             }),
         }
     }
@@ -167,17 +155,14 @@ impl std::ops::Deref for LocalTfoListener {
 impl AsyncAccept for LocalTfoListener {
     type Error = io::Error;
     type StreamType = TfoStream;
-    type Stream = futures::future::Ready<Result<Self::StreamType, io::Error>>;
+    type Stream = Ready<Result<Self::StreamType, io::Error>>;
 
     fn poll_accept(
         &self,
         cx: &mut Context,
     ) -> Poll<Result<(Self::Stream, SocketAddr), io::Error>> {
-        TfoListener::poll_accept(self, cx).map(|res| {
-            res.map(|(stream, addr)| {
-                (futures::future::ready(Ok(stream)), addr)
-            })
-        })
+        TfoListener::poll_accept(self, cx)
+            .map(|res| res.map(|(stream, addr)| (ready(Ok(stream)), addr)))
     }
 }
 
@@ -200,7 +185,7 @@ impl std::ops::Deref for BufferedTcpListener {
 impl AsyncAccept for BufferedTcpListener {
     type Error = io::Error;
     type StreamType = tokio::io::BufReader<TcpStream>;
-    type Stream = futures::future::Ready<Result<Self::StreamType, io::Error>>;
+    type Stream = Ready<Result<Self::StreamType, io::Error>>;
 
     fn poll_accept(
         &self,
@@ -209,7 +194,7 @@ impl AsyncAccept for BufferedTcpListener {
         match TcpListener::poll_accept(self, cx) {
             Poll::Ready(Ok((stream, addr))) => {
                 let stream = tokio::io::BufReader::new(stream);
-                Poll::Ready(Ok((futures::future::ready(Ok(stream)), addr)))
+                Poll::Ready(Ok((ready(Ok(stream)), addr)))
             }
             Poll::Ready(Err(err)) => Poll::Ready(Err(err)),
             Poll::Pending => Poll::Pending,
@@ -282,8 +267,8 @@ where
         let target = Target::default();
         let target = StreamTarget::new(target).unwrap(); // SAFETY
         let builder = MessageBuilder::from_target(target).unwrap(); // SAFETY
-        let additional = mk_answer(&msg, builder);
-        let res = CallResult::new(additional).with_command(cmd);
+        let answer = mk_answer(&msg, builder)?;
+        let res = CallResult::new(answer).with_command(cmd);
         Ok(res)
     };
     Ok(Transaction::single(fut))
@@ -291,57 +276,48 @@ where
 
 fn name_to_ip<Target>(
     msg: Arc<ContextAwareMessage<Message<Vec<u8>>>>,
-    _metadata: (),
 ) -> ServiceResult<
     Target,
     (),
     impl Future<Output = ServiceResultItem<Target, ()>>,
 >
 where
-    Target: Composer + Octets + FreezeBuilder<Octets = Target> + Default,
+    Target:
+        Composer + Octets + FreezeBuilder<Octets = Target> + Default + Send,
     <Target as octseq::OctetsBuilder>::AppendError: Debug,
 {
-    let fut = async move {
-        let mut out_answer = None;
-        if let Ok(question) = msg.sole_question() {
-            let qname = question.qname();
-            let num_labels = qname.label_count();
-            if num_labels >= 5 {
-                let mut iter = qname.iter_labels();
-                let a = iter.nth(num_labels - 5).unwrap();
-                let b = iter.next().unwrap();
-                let c = iter.next().unwrap();
-                let d = iter.next().unwrap();
-                let a_rec: Result<A, _> = format!("{a}.{b}.{c}.{d}").parse();
-                if let Ok(a_rec) = a_rec {
-                    let target = Target::default();
-                    let target = StreamTarget::new(target).unwrap(); // SAFETY
-                    let builder =
-                        MessageBuilder::from_target(target).unwrap(); // SAFETY
-                    let mut answer =
-                        builder.start_answer(&msg, Rcode::NoError).unwrap();
-                    answer
-                        .push((Dname::root_ref(), Class::In, 86400, a_rec))
-                        .unwrap();
-                    out_answer = Some(answer);
-                }
+    let mut out_answer = None;
+    if let Ok(question) = msg.sole_question() {
+        let qname = question.qname();
+        let num_labels = qname.label_count();
+        if num_labels >= 5 {
+            let mut iter = qname.iter_labels();
+            let a = iter.nth(num_labels - 5).unwrap();
+            let b = iter.next().unwrap();
+            let c = iter.next().unwrap();
+            let d = iter.next().unwrap();
+            let a_rec: Result<A, _> = format!("{a}.{b}.{c}.{d}").parse();
+            if let Ok(a_rec) = a_rec {
+                let builder = mk_builder_for_target();
+                let mut answer =
+                    builder.start_answer(&msg, Rcode::NoError).unwrap();
+                answer
+                    .push((Dname::root_ref(), Class::In, 86400, a_rec))
+                    .unwrap();
+                out_answer = Some(answer);
             }
         }
+    }
 
-        if out_answer.is_none() {
-            let target = Target::default();
-            let target = StreamTarget::new(target).unwrap(); // SAFETY
-            let builder = MessageBuilder::from_target(target).unwrap(); // SAFETY
-            out_answer =
-                Some(builder.start_answer(&msg, Rcode::Refused).unwrap());
-        }
+    if out_answer.is_none() {
+        let builder = mk_builder_for_target();
+        out_answer =
+            Some(builder.start_answer(&msg, Rcode::Refused).unwrap());
+    }
 
-        let additional = out_answer.unwrap().additional();
-
-        let res = CallResult::new(additional);
-        Ok(res)
-    };
-    Ok(Transaction::single(fut))
+    let additional = out_answer.unwrap().additional();
+    let item = Ok(CallResult::new(additional));
+    Ok(Transaction::single(ready(item)))
 }
 
 #[tokio::main(flavor = "multi_thread")]
@@ -368,11 +344,8 @@ async fn main() {
     //    dig +short +keepopen +tcp -4 @127.0.0.1 -p 8082 A google.com
     let udpsocket = UdpSocket::bind("127.0.0.1:8053").await.unwrap();
     let buf_source = Arc::new(VecBufSource);
-    let srv = DgramServer::new(
-        udpsocket,
-        buf_source.clone(),
-        mk_service(name_to_ip, ()).into(),
-    );
+    let srv =
+        DgramServer::new(udpsocket, buf_source.clone(), name_to_ip.into());
     let srv = srv.with_middleware(middleware.clone());
 
     let udp_join_handle = tokio::spawn(async move { srv.run().await });

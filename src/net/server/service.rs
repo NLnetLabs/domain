@@ -63,16 +63,129 @@ pub type ServiceResultItem<Target, Error> =
 ///
 /// # Usage
 ///
-/// There are three ways to implement the [`Service`] trait, from most
-/// flexible and difficult, to easiest but least flexible:
+/// There are three ways to implement the [`Service`] trait:
 ///
-///   1. Implement the trait on a struct.
-///   2. Define a function compatible with the trait.
-///   3. Define a function compatible with the [`mk_service()`] helper
-///      function.
+///   1. Implement the [`Service`] trait on a struct.
+///   2. Define a function compatible with the [`Service`] trait.
+///   3. Define a function compatible with [`mk_service()`].
 ///
-/// See [`mk_service()`] for an example of using it to create a [`Service`]
-/// impl.
+/// # Implementing the [`Service`] trait on a `struct`
+///
+/// ```
+/// use core::future::ready;
+/// use core::future::Ready;
+/// use domain::base::iana::Class;
+/// use domain::base::iana::Rcode;
+/// use domain::base::message_builder::AdditionalBuilder;
+/// use domain::base::Dname;
+/// use domain::base::MessageBuilder;
+/// use domain::base::StreamTarget;
+/// use domain::net::server::prelude::*;
+/// use domain::rdata::A;
+///
+/// fn mk_answer<T>(
+///     msg: &ContextAwareMessage<Message<Vec<u8>>>,
+///     builder: MessageBuilder<StreamTarget<Vec<u8>>>,
+/// ) -> Result<AdditionalBuilder<StreamTarget<Vec<u8>>>, ServiceError<T>> {
+///     let mut answer = builder.start_answer(msg, Rcode::NoError)?;
+///     answer.push((
+///         Dname::root_ref(),
+///         Class::In,
+///         86400,
+///         A::from_octets(192, 0, 2, 1),
+///     ))?;
+///     Ok(answer.additional())
+/// }
+///
+/// struct MyService;
+///
+/// impl Service<Vec<u8>> for MyService {
+///     type Error = ();
+///     type Target = Vec<u8>;
+///     type Single = Ready<ServiceResultItem<Self::Target, Self::Error>>;
+///
+///     fn call(
+///         &self,
+///         msg: Arc<ContextAwareMessage<Message<Vec<u8>>>>,
+///     ) -> ServiceResult<Self::Target, Self::Error, Self::Single> {
+///         let builder = mk_builder_for_target();
+///         let additional = mk_answer(&msg, builder)?;
+///         let item = ready(Ok(CallResult::new(additional)));
+///         let txn = Transaction::single(item);
+///         Ok(txn)
+///     }
+/// }
+/// ```
+///
+/// # Define a function compatible with the [`Service`] trait
+///
+/// ```
+/// use core::future::ready;
+/// use core::future::Future;
+/// use std::net::UdpSocket;
+/// use domain::base::iana::Class;
+/// use domain::base::iana::Rcode;
+/// use domain::base::name::ToLabelIter;
+/// use domain::base::Dname;
+/// use domain::net::server::prelude::*;
+/// use domain::rdata::A;
+///
+/// fn name_to_ip<Target>(
+///     msg: Arc<ContextAwareMessage<Message<Vec<u8>>>>,
+/// ) -> ServiceResult<
+///         Target,
+///         (),
+///         impl Future<Output = ServiceResultItem<Target, ()>>,
+///     >
+/// where
+///     Target: Composer + Octets + FreezeBuilder<Octets = Target> + Default + Send,
+///     <Target as octseq::OctetsBuilder>::AppendError: Debug,
+/// {
+///     let mut out_answer = None;
+///     if let Ok(question) = msg.sole_question() {
+///         let qname = question.qname();
+///         let num_labels = qname.label_count();
+///         if num_labels >= 5 {
+///             let mut iter = qname.iter_labels();
+///             let a = iter.nth(num_labels - 5).unwrap();
+///             let b = iter.next().unwrap();
+///             let c = iter.next().unwrap();
+///             let d = iter.next().unwrap();
+///             let a_rec: Result<A, _> = format!("{a}.{b}.{c}.{d}").parse();
+///             if let Ok(a_rec) = a_rec {
+///                 let builder = mk_builder_for_target();
+///                 let mut answer =
+///                     builder.start_answer(&msg, Rcode::NoError).unwrap();
+///                 answer
+///                     .push((Dname::root_ref(), Class::In, 86400, a_rec))
+///                     .unwrap();
+///                 out_answer = Some(answer);
+///             }
+///         }
+///     }
+///
+///     if out_answer.is_none() {
+///         let builder = mk_builder_for_target();
+///         out_answer =
+///             Some(builder.start_answer(&msg, Rcode::Refused).unwrap());
+///     }
+///
+///     let additional = out_answer.unwrap().additional();
+///     let item = Ok(CallResult::new(additional));
+///     Ok(Transaction::single(ready(item)))
+/// }
+/// ```
+///
+/// Now when you want to use the service call `.into()` when passing it to the server:
+///
+/// ```ignore
+/// let srv = DgramServer::new(sock, buf, name_to_ip.into());
+/// ```
+///
+/// # Define a function compatible with [`mk_service()`]
+///
+/// See [`mk_service()`] for an example of how to use it to create a
+/// [`Service`] impl from a funciton.
 ///
 /// [`MiddlewareChain`]: crate::net::server::middleware::MiddlewareChain
 /// [`DgramServer`]: crate::net::server::dgram::DgramServer
@@ -213,11 +326,9 @@ where
 {
     /// Construct a [`CallResult`] from a DNS response message.
     #[must_use]
-    pub fn new<T: Into<AdditionalBuilder<StreamTarget<Target>>>>(
-        response: T,
-    ) -> Self {
+    pub fn new(response: AdditionalBuilder<StreamTarget<Target>>) -> Self {
         Self {
-            response: Some(response.into()),
+            response: Some(response),
             command: None,
         }
     }

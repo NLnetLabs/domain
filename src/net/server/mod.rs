@@ -173,12 +173,15 @@ pub mod prelude {
     pub use crate::net::server::message::ContextAwareMessage;
     pub use crate::net::server::service::CallResult;
     pub use crate::net::server::service::Service;
+    pub use crate::net::server::service::ServiceCommand;
+    pub use crate::net::server::service::ServiceError;
+    pub use crate::net::server::service::ServiceResult;
+    pub use crate::net::server::service::ServiceResultItem;
     pub use crate::net::server::service::Transaction;
     pub use crate::net::server::util::mk_builder_for_target;
     pub use crate::net::server::util::mk_service;
     pub use crate::net::server::util::MkServiceRequest;
     pub use crate::net::server::util::MkServiceResult;
-    pub use crate::net::server::util::MkServiceTarget;
     pub use std::fmt::Debug;
     pub use std::sync::Arc;
 }

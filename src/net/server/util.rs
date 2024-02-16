@@ -73,7 +73,7 @@ where
 ///     Ok(Transaction::single(Box::pin(async move {
 ///         let builder = mk_builder_for_target();
 ///         let answer = builder.start_answer(&req, Rcode::NXDomain)?;
-///         Ok(CallResult::new(answer))
+///         Ok(CallResult::new(answer.additional()))
 ///     })))
 /// }
 ///
