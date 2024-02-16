@@ -7,12 +7,12 @@ use crate::net::deckard::connect::Connect;
 use crate::net::deckard::parse_deckard::parse_file;
 use domain::base::{Dname, MessageBuilder, Rtype::Aaaa};
 use domain::net::client::cache;
+use domain::net::client::clock::{Clock, FakeClock};
 use domain::net::client::multi_stream;
 use domain::net::client::redundant;
 use domain::net::client::request::{
     Error::NoTransportAvailable, RequestMessage, SendRequest,
 };
-use domain::net::client::time::FakeTime;
 use std::fs::File;
 use std::sync::Arc;
 
@@ -76,9 +76,10 @@ async fn async_test_cache(filename: &str) {
         ms_tran.run().await;
         println!("multi conn run terminated");
     });
-    let cached = cache::Connection::<_, FakeTime>::new_with_time(ms);
+    let clock = FakeClock::new();
+    let cached = cache::Connection::new_with_time(ms, clock.clone());
 
-    do_client(&deckard, cached, &step_value).await;
+    do_client(&deckard, cached, &step_value, &clock).await;
 }
 
 /*
@@ -112,7 +113,8 @@ async fn async_test_no_cache(filename: &str) {
         println!("multi conn run terminated");
     });
 
-    do_client(&deckard, ms, &step_value).await;
+    let clock = FakeClock::new();
+    do_client(&deckard, ms, &step_value, &clock).await;
 }
 
 #[tokio::test]
@@ -279,8 +281,9 @@ async fn test_transport_error() {
         redun_tran.run().await;
         println!("redundant conn run terminated");
     });
+    let clock = FakeClock::new();
     let cached =
-        cache::Connection::<_, FakeTime>::new_with_time(redun.clone());
+        cache::Connection::new_with_time(redun.clone(), clock.clone());
 
     let mut msg = MessageBuilder::new_vec();
     msg.header_mut().set_rd(true);
@@ -317,7 +320,7 @@ async fn test_transport_error() {
         panic!("Bad result {reply:?}");
     }
 
-    do_client(&deckard, redun, &step_value).await;
+    do_client(&deckard, redun, &step_value, &clock).await;
 }
 
 #[tokio::test]
