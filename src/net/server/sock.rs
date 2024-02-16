@@ -1,9 +1,4 @@
 //! Network socket abstractions.
-//!
-//! TODO: When Rust gains more support for async fns in traits consider if it
-//! is possible then to modify functions that return [`Poll`] to be async fns
-//! instead.
-
 use futures::Future;
 use std::io;
 use std::net::SocketAddr;
@@ -13,8 +8,13 @@ use tokio::net::{TcpListener, TcpStream, UdpSocket};
 
 //------------ AsyncDgramSock ------------------------------------------------
 
-/// Asynchronous sending of datagrams.
+/// Asynchronous datagram sending & receiving.
+///
+/// Must be implemented by "network source"s to be used with a [`DgramServer`].
+///
+/// [`DgramServer`]: crate::net::server::stream::DgramServer.
 pub trait AsyncDgramSock {
+    /// Attempts to send data on the socket to a given address.
     fn poll_send_to(
         &self,
         cx: &mut Context,
@@ -22,12 +22,14 @@ pub trait AsyncDgramSock {
         dest: &SocketAddr,
     ) -> Poll<io::Result<usize>>;
 
+    /// Attempts to receive a single datagram on the socket.
     fn poll_recv_from(
         &self,
         cx: &mut Context,
         buf: &mut ReadBuf<'_>,
     ) -> Poll<io::Result<SocketAddr>>;
 
+    /// Receives data from the socket, without removing it from the input queue. On success, returns the sending address of the datagram.
     fn poll_peek_from(
         &self,
         cx: &mut Context,
@@ -64,11 +66,20 @@ impl AsyncDgramSock for UdpSocket {
 
 //------------ AsyncAccept ---------------------------------------------------
 
+/// Asynchronous accepting of incoming connections.
+///
+/// Must be implemented by "network source"s to be used with a
+/// [`StreamServer`].
+///
+/// [`StreamServer`]: crate::net::server::stream::StreamServer.
 pub trait AsyncAccept {
     type Error: Send;
     type StreamType: AsyncRead + AsyncWrite + Send + Sync + 'static;
     type Stream: Future<Output = Result<Self::StreamType, Self::Error>> + Send;
 
+    /// Polls to accept a new incoming connection to this listener.
+    ///
+    /// If there is no connection to accept, Poll::Pending is returned.
     #[allow(clippy::type_complexity)]
     fn poll_accept(
         &self,
