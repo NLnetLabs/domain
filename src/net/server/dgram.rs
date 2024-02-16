@@ -12,6 +12,7 @@
 use std::fmt::Debug;
 use std::net::SocketAddr;
 use std::net::UdpSocket;
+use std::string::ToString;
 use std::{future::poll_fn, string::String};
 
 use std::{
@@ -216,43 +217,13 @@ where
 
         loop {
             tokio::select! {
+                // Poll futures in match arm order, not randomly.
                 biased;
 
-                command_res = command_rx.changed() => {
-                    command_res.map_err(|err| format!("Error while receiving command: {err}"))?;
-
-                    let cmd = *command_rx.borrow_and_update();
-
-                    match cmd {
-                        ServiceCommand::Reconfigure { .. } => {
-                            /* TODO */
-
-                            // TODO: Support dynamic replacement of the
-                            // middleware chain? E.g. via
-                            // ArcSwapOption<MiddlewareChain> instead of
-                            // Option?
-                        }
-
-                        ServiceCommand::Shutdown => break,
-
-                        ServiceCommand::Init => {
-                            // The initial "Init" value in the watch channel is never
-                            // actually seen because the select Into impl only calls
-                            // watch::Receiver::borrow_and_update() AFTER changed()
-                            // signals that a new value has been placed in the watch
-                            // channel. So the only way to end up here would be if
-                            // we somehow wrongly placed another ServiceCommand::Init
-                            // value into the watch channel after the initial one.
-                            unreachable!()
-                        }
-
-                        ServiceCommand::CloseConnection => {
-                            // A datagram server does not have connections so handling
-                            // the close of a connection which can never happen has no
-                            // meaning as it cannot occur.
-                            unreachable!()
-                        }
-                    }
+                // First, prefer obeying [`ServiceCommands`] over everything
+                // else.
+                res = command_rx.changed() => {
+                    self.process_service_command(res, &mut command_rx)?;
                 }
 
                 recv_res = self.recv_from() => {
@@ -276,6 +247,52 @@ where
                             format!("Error while processing message: {err}")
                         )?;
                 }
+            }
+        }
+    }
+
+    fn process_service_command(
+        &self,
+        res: Result<(), watch::error::RecvError>,
+        command_rx: &mut watch::Receiver<ServiceCommand>,
+    ) -> Result<(), String> {
+        // If the parent server no longer exists but was not cleanly shutdown
+        // then the command channel will be closed and attempting to check for
+        // a new command will fail. Advise the caller to break the connection
+        // and cleanup if such a problem occurs.
+        res.map_err(|err| format!("Error while receiving command: {err}"))?;
+
+        // Get the changed command.
+        let command = *command_rx.borrow_and_update();
+
+        // And process it.
+        match command {
+            ServiceCommand::Reconfigure { .. } => {
+                // TODO: Support dynamic replacement of the middleware chain?
+                // E.g. via ArcSwapOption<MiddlewareChain> instead of Option?
+            }
+
+            ServiceCommand::Shutdown => {
+                // Stop receiving new messages.
+                return Err("Shutdown command received".to_string());
+            }
+
+            ServiceCommand::Init => {
+                // The initial "Init" value in the watch channel is never
+                // actually seen because changed() is required to return true
+                // before we call borrow_and_update() but the initial value in
+                // the channel, Init, is not considered a "change". So the
+                // only way to end up here would be if we somehow wrongly
+                // placed another ServiceCommand::Init value into the watch
+                // channel after the initial one.
+                unreachable!()
+            }
+
+            ServiceCommand::CloseConnection => {
+                // A datagram server does not have connections so handling the
+                // close of a connection which can never happen has no meaning
+                // as it cannot occur.
+                unreachable!()
             }
         }
 

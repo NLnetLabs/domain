@@ -371,12 +371,12 @@ where
 
             ServiceCommand::Init => {
                 // The initial "Init" value in the watch channel is never
-                // actually seen because the select Into impl only calls
-                // watch::Receiver::borrow_and_update() AFTER changed()
-                // signals that a new value has been placed in the watch
-                // channel. So the only way to end up here would be if we
-                // somehow wrongly placed another ServiceCommand::Init value
-                // into the watch channel after the initial one.
+                // actually seen because changed() is required to return true
+                // before we call borrow_and_update() but the initial value in
+                // the channel, Init, is not considered a "change". So the
+                // only way to end up here would be if we somehow wrongly
+                // placed another ServiceCommand::Init value into the watch
+                // channel after the initial one.
                 unreachable!()
             }
 

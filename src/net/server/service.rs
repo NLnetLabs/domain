@@ -172,21 +172,30 @@ impl<T> From<PushError> for ServiceError<T> {
 
 //------------ ServiceCommand ------------------------------------------------
 
-/// Commands that [`Service`]s can send to influence the parent server.
+/// Commands a server, usually from a [`Service`], to do something.
 #[derive(Copy, Clone, Debug)]
 pub enum ServiceCommand {
+    #[doc(hidden)]
+    /// This command is for internal use only.
     Init,
 
+    /// Command the server to alter its configuration.
+    /// 
+    /// The effect may differ whether handled by a server or (for
+    /// connection-oriented transport protoocls) a connection handler.
     Reconfigure {
         idle_timeout: Duration,
     },
 
-    /// Close the connection.
+    /// Command the connection handler to terminate.
     ///
-    /// E.g. in the case where an RFC 5936 AXFR TCP server "believes beyond a
-    /// doubt that the AXFR client is attempting abusive behavior".
+    /// This command is only for connection handlers for connection-oriented
+    /// transport protocols, it should be ignored by servers.
     CloseConnection,
 
+    /// Command the server to terminate.
+    /// 
+    /// 
     Shutdown,
 }
 
