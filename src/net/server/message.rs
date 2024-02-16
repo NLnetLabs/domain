@@ -321,7 +321,7 @@ where
 
             // TODO: Handle Err results from txn.next().
             while let Some(Ok(mut call_result)) = txn.next().await {
-                if let Some(ref mut response) = call_result.response {
+                if let Some(response) = call_result.get_mut() {
                     if let Some(middleware_chain) = &middleware_chain {
                         middleware_chain.postprocess(
                             &msg,

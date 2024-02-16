@@ -61,12 +61,6 @@ pub type ServiceResultItem<Target, Error> =
 /// message is returned as a [`Future`] which the underlying server will
 /// resolve to a [`CallResult`].
 ///
-/// In most cases [`CallResult`] will be a DNS response message. For some
-/// advanced use cases it can instead, or additionally, output a
-/// [`ServiceCommand`] to have the server or connection handler handling the
-/// request to adjust its own configuration, or even to terminate the
-/// connection.
-///
 /// # Usage
 ///
 /// There are three ways to implement the [`Service`] trait, from most
@@ -202,33 +196,26 @@ pub enum ServiceCommand {
 //------------ CallResult ----------------------------------------------------
 
 /// The result of processing a DNS request via [`Service::call()`].
-pub struct CallResult<Target> {
-    pub response: Option<AdditionalBuilder<StreamTarget<Target>>>,
-    pub command: Option<ServiceCommand>,
-}
-
+///
 /// Directions to a server on how to respond to a request.
 ///
-/// [`CallResult`] supports the following ways to handle a client request:
+/// In most cases a [`CallResult`] will be a DNS response message.
 ///
-///   - Respond to the client. This is the default case.
-///
-///   - Respond to the client and adjust the servers handling of requests.
-///     This could be required for example to honour a client request EDNS(0)
-///     OPT RR that requests that the timeout from server to client be altered.
-///
-///   - Ignore the client request, e.g. due to policy.
-///
-///   - Terminate the connection with the client, e.g. due to policy or
-///     or because the service is shutting down.
-///
-/// For reasons of policy it may be necessary to ignore certain client
-/// requests without sending a response
+/// If needed a [`CallResult`] can instead, or additionally, contain a
+/// [`ServiceCommand`] directing the server or connection handler handling the
+/// request to adjust its own configuration, or even to terminate the
+/// connection.
+pub struct CallResult<Target> {
+    response: Option<AdditionalBuilder<StreamTarget<Target>>>,
+    command: Option<ServiceCommand>,
+}
+
 impl<Target> CallResult<Target>
 where
     Target: OctetsBuilder + AsRef<[u8]> + AsMut<[u8]>,
     Target::AppendError: Into<ShortBuf>,
 {
+    /// Construct a [`CallResult`] from a DNS response message.
     #[must_use]
     pub fn new<T: Into<AdditionalBuilder<StreamTarget<Target>>>>(
         response: T,
@@ -239,6 +226,7 @@ where
         }
     }
 
+    /// Construct a [`CallResult`] from a [`ServiceCommand`].
     #[must_use]
     pub fn command_only(command: ServiceCommand) -> Self {
         Self {
@@ -247,16 +235,60 @@ where
         }
     }
 
+    /// Add a [`ServiceCommand`] to an existing [`CallResult`].
     #[must_use]
     pub fn with_command(mut self, command: ServiceCommand) -> Self {
         self.command = Some(command);
         self
     }
+
+    /// Get the contained DNS response message, if any.
+    #[must_use]
+    pub fn get_mut(
+        &mut self,
+    ) -> Option<&mut AdditionalBuilder<StreamTarget<Target>>> {
+        self.response.as_mut()
+    }
+
+    /// Get the contained command, if any.
+    #[must_use]
+    pub fn command(&self) -> Option<ServiceCommand> {
+        self.command
+    }
+
+    /// Convert the [`CallResult`] into the contained DNS response message and command.
+    #[must_use]
+    pub fn into_inner(
+        self,
+    ) -> (
+        Option<AdditionalBuilder<StreamTarget<Target>>>,
+        Option<ServiceCommand>,
+    ) {
+        let CallResult { response, command } = self;
+        (response, command)
+    }
 }
 
 //------------ Transaction ---------------------------------------------------
 
-/// A server transaction generating the responses for a request.
+/// Zero or more DNS response futures relating to a single DNS request.
+/// 
+/// A transaction is either empty, a single DNS response future, or a stream
+/// of DNS response futures.
+/// 
+/// # Usage
+/// 
+/// Either:
+///   - Construct a transaction for a [`single()`] response future, OR
+///   - Construct a transaction [`stream()`] and [`push()`] response futures
+///     into it.
+/// 
+/// Then iterate over the response futures one at a time using [`next()`].
+/// 
+/// [`single()`]: Self::single()
+/// [`stream()`]: Self::stream()
+/// [`push()`]: Self::push()
+/// [`next()`]: Self::next()
 pub struct Transaction<Item, Single>(TransactionInner<Item, Single>)
 where
     Single: Future<Output = Item> + Send;
@@ -265,13 +297,16 @@ enum TransactionInner<Item, Single>
 where
     Single: Future<Output = Item> + Send,
 {
-    /// The transaction will be concluded with a single immediate response.
+    /// The transaction will result in a single immediate response.
+    /// 
+    /// This variant is for internal use only when aborting Middleware
+    /// processing early.
     Immediate(Option<Item>),
 
-    /// The transaction will be concluded with a single response.
+    /// The transaction will result in at most a single response future.
     Single(Option<Single>),
 
-    /// The transaction will results in stream of multiple responses.
+    /// The transaction will result in stream of multiple response futures.
     Stream(FuturesOrdered<Pin<Box<dyn Future<Output = Item> + Send>>>),
 }
 
@@ -279,18 +314,35 @@ impl<Item, Single> Transaction<Item, Single>
 where
     Single: Future<Output = Item> + Send,
 {
+    /// Construct a transaction for a single immediate response.
     pub(crate) fn immediate(item: Item) -> Self {
         Self(TransactionInner::Immediate(Some(item)))
     }
 
+    /// Construct an empty transaction.
+    pub fn empty() -> Self {
+        Self(TransactionInner::Single(None))
+    }
+
+    /// Construct a transaction for a single response future.
     pub fn single(fut: Single) -> Self {
         Self(TransactionInner::Single(Some(fut)))
     }
 
+    /// Construct a transaction for a stream of response futures.
+    /// 
+    /// Call [`push()`] to add a response future to the stream.
+    /// 
+    /// [`push()`]: Self::push()
     pub fn stream() -> Self {
         Self(TransactionInner::Stream(Default::default()))
     }
 
+    /// Add a response future to a transaction stream.
+    /// 
+    /// # Panics
+    /// 
+    /// This function will panic if this transaction is not a stream.
     pub fn push<T: Future<Output = Item> + Send + 'static>(
         &mut self,
         fut: T,
@@ -301,6 +353,13 @@ where
         }
     }
 
+    /// Take the next response from the transaction, if any.
+    /// 
+    /// This function provides a single way to take futures from the
+    /// transaction without needing to handle which type of transaction it is.
+    /// 
+    /// Returns None if there are no (more) responses to take, Some(future)
+    /// otherwise.
     pub async fn next(&mut self) -> Option<Item> {
         match &mut self.0 {
             TransactionInner::Immediate(item) => item.take(),

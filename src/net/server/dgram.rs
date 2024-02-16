@@ -347,12 +347,15 @@ where
     }
 
     fn handle_final_call_result(
-        CallResult { response, .. }: CallResult<Svc::Target>,
+        call_result: CallResult<Svc::Target>,
         addr: SocketAddr,
         sock: Self::State,
         _metrics: Arc<ServerMetrics>,
     ) -> JoinHandle<()> {
         tokio::spawn(async move {
+            // TODO: Handle ServiceCommand::Reconfigure.
+            let (response, _command) = call_result.into_inner();
+
             if let Some(response) = response {
                 let target = response.finish();
                 let bytes = target.as_dgram_slice();

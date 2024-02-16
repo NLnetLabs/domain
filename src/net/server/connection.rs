@@ -408,10 +408,10 @@ where
     async fn process_queued_result(
         &self,
         state: &mut StreamState<Stream, Buf, Svc>,
-        CallResult {
-            response, command, ..
-        }: CallResult<Svc::Target>,
+        call_result: CallResult<Svc::Target>,
     ) {
+        let (response, command) = call_result.into_inner();
+
         if let Some(response) = response {
             self.write_result_to_stream(state, response.finish()).await;
         }
