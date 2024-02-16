@@ -17,7 +17,7 @@ use futures_util::stream::FuturesOrdered;
 use futures_util::{FutureExt, StreamExt};
 use octseq::{OctetsBuilder, ShortBuf};
 
-use crate::base::message_builder::AdditionalBuilder;
+use crate::base::message_builder::{AdditionalBuilder, PushError};
 use crate::base::wire::Composer;
 use crate::base::{Message, StreamTarget};
 
@@ -112,6 +112,9 @@ pub enum ServiceError<T> {
     /// The service declined to handle the request.
     RequestIgnored,
 
+    /// The service was unable to assemble the response.
+    ResponseBuilderError,
+
     /// The service encountered a service-specific error condition.
     ServiceSpecificError(T),
 
@@ -128,6 +131,9 @@ impl<T> core::fmt::Display for ServiceError<T> {
             ServiceError::RequestIgnored => {
                 write!(f, "RequestIgnored")
             }
+            ServiceError::ResponseBuilderError => {
+                write!(f, "ResponseBuilderError")
+            }
             ServiceError::ServiceSpecificError(_err) => {
                 write!(f, "ServiceSpecificError")
             }
@@ -138,6 +144,12 @@ impl<T> core::fmt::Display for ServiceError<T> {
                 write!(f, "Other({})", err)
             }
         }
+    }
+}
+
+impl<T> From<PushError> for ServiceError<T> {
+    fn from(_err: PushError) -> Self {
+        Self::ResponseBuilderError
     }
 }
 
@@ -192,9 +204,11 @@ where
     Target::AppendError: Into<ShortBuf>,
 {
     #[must_use]
-    pub fn new(response: AdditionalBuilder<StreamTarget<Target>>) -> Self {
+    pub fn new<T: Into<AdditionalBuilder<StreamTarget<Target>>>>(
+        response: T,
+    ) -> Self {
         Self {
-            response: Some(response),
+            response: Some(response.into()),
             command: None,
         }
     }

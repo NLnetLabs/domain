@@ -42,66 +42,52 @@ where
 /// The [`Service`] trait supports a lot of flexibility in its signature and
 /// those of its associated types, but this makes implementing it for simple
 /// cases quite verbose.
-/// 
+///
 /// `mk_service()` and associated helpers [`MkServiceRequest`],
 /// [`MkServiceResult`] and [`mk_builder_for_target()`] enable you to write a
 /// simpler function definition that implements the [`Service`] trait than if
 /// you were to attempt to impl [`Service`] directly, at the cost of requiring
 /// that you [`Box::pin()`] the returned [`Future`].
-/// 
+///
 /// # Example
-/// 
+///
 /// The example below implements a simple service that returns a DNS NXDOMAIN
 /// error response, does not return an error and does not take any custom
 /// metadata as input.
 ///
 /// ```
+/// // Import the types we need.
 /// use domain::net::server::prelude::*;
 /// use domain::base::iana::Rcode;
 ///
+/// // Define some types to make the example easier to read.
 /// type MyError = ();
 /// type MyMeta = ();
 ///
+/// // Implement the business logic of our service.
 /// fn my_service(
-///     request: MkServiceRequest<Vec<u8>>,
-///     _meta: MyMeta,
-/// ) -> MkServiceResult<Vec<u8>, MyError> {
+///     req: MkServiceRequest<Vec<u8>>,      // The received DNS request
+///     _meta: MyMeta,                       // Any additional data you want to pass in
+/// ) -> MkServiceResult<Vec<u8>, MyError> { // The resulting DNS response(s)
+///     // For each request create a single response:
 ///     Ok(Transaction::single(Box::pin(async move {
-///         let answer = mk_builder_for_target()
-///             .start_answer(&request, Rcode::NXDomain)
-///             .unwrap();
-///         Ok(CallResult::new(answer.additional()))
+///         let builder = mk_builder_for_target();
+///         let answer = builder.start_answer(&req, Rcode::NXDomain)?;
+///         Ok(CallResult::new(answer))
 ///     })))
 /// }
 ///
+/// // Turn my_service() into an actual Service trait impl.
 /// let service = mk_service(my_service, MyMeta::default());
 /// ```
-/// 
-/// Let's look at that step by step:
-/// 
-/// - `use domain::net::server::prelude::*;` allows you to easily import the
-///   various types that you will need.
-/// - Neither `type MyError = ();` and `type MyMeta = ();` are strictly needed
-///   but make the example more readable.
-/// - `fn my_service()` defines the a [`Service`] like helper function.
-/// - `let service = mk_service()` wraps `my_service()` in a function that is
-///   a compatible match for the [`Service`] trait.
-/// 
-/// Within `my_service()` we then see, moving from the innermost code
-/// outwards:
-/// 
-/// - `mk_builder_for_target()` is used to create a [`MessageBuilder`]
-///   compatible with the [`Vec<u8>`] output type of our function.
-/// - [`MessageBuilder::start_answer()`] creates an empty answer corresponding
-///   to the given request and having a DNS response code `NXDomain`
-///   signalling that the service does not know the domain of the request, if
-///   any domain were actually provided in the request.
-/// - `Ok(CallResult::new(answer.additional()))` shows the constructed DNS
-///   answer section being turned into a single `CallResult` that will be the
-///   result of the future (the `async move` block we defined).
-/// - `Ok(Transaction::single())` wraps the future into a [`Transaction`]
-///   result signalling that this service produces a single DNS response
-///   message per DNS request that it is asked to process.
+///
+/// Above we see the outline of what we need to do:
+/// - Define a function that implements our request handling logic for our service.
+/// - Call [`mk_service()`] to wrap it in an actual [`Service`] impl.
+///
+/// [`Vec<u8>`]: std::vec::Vec<u8>
+/// [`CallResult`]: crate::net::server::service::CallResult
+/// [`Result::Ok()`]: std::result::Result::Ok
 pub fn mk_service<RequestOctets, Target, Error, Single, T, Metadata>(
     msg_handler: T,
     metadata: Metadata,
