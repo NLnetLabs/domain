@@ -5,10 +5,10 @@ use bytes::Bytes;
 
 use domain::base::iana::Opcode;
 use domain::base::{Message, MessageBuilder};
+use domain::net::client::clock::FakeClock;
 use domain::net::client::request::{
     ComposeRequest, RequestMessage, SendRequest,
 };
-use domain::net::client::time::FakeTime;
 use std::sync::Mutex;
 use std::time::Duration;
 
@@ -16,6 +16,7 @@ pub async fn do_client<R: SendRequest<RequestMessage<Vec<u8>>>>(
     deckard: &Deckard,
     request: R,
     step_value: &CurrStepValue,
+    clock: &FakeClock,
 ) {
     let mut resp: Option<Message<Bytes>> = None;
 
@@ -39,7 +40,7 @@ pub async fn do_client<R: SendRequest<RequestMessage<Vec<u8>>>>(
                 }
             }
             StepType::TimePasses => {
-                FakeTime::adjust_time(Duration::from_secs(
+                clock.adjust_time(Duration::from_secs(
                     step.time_passes.unwrap(),
                 ));
             }
