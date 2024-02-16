@@ -160,7 +160,7 @@ where
     ///
     /// This function consumes the given message buffer and processes the
     /// contained message, if any, to completion, possibly resulting in a
-    /// response being passed to [`handle_finalized_response()`].
+    /// response being passed to [`handle_final_call_result()`].
     ///
     /// The request message is a given as a seqeuence of bytes in `buf`
     /// originating from client address `addr`.
@@ -175,7 +175,7 @@ where
     ///
     /// On error the result will be a [`ServiceError`].
     ///
-    /// [`handle_finalized_response()`]: Self::handle_finalized_response()
+    /// [`handle_final_call_result()`]: Self::handle_final_call_result()
     fn process_request(
         &self,
         buf: <Buf as BufSource>::Output,
@@ -293,10 +293,10 @@ where
     /// [`Transaction::single()`].
     ///
     /// Responses are first post-processed by the [`MiddlewareChain`]
-    /// provided, if any, then passed to [`handle_finalized_response()`] for
+    /// provided, if any, then passed to [`handle_final_call_result()`] for
     /// final processing.
     ///
-    /// [`handle_finalized_response()`]: Self::handle_finalized_response()
+    /// [`handle_final_call_result()`]: Self::handle_final_call_result()
     #[allow(clippy::type_complexity)]
     fn postprocess_response(
         &self,
