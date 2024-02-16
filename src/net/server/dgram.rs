@@ -291,8 +291,10 @@ where
             ServiceCommand::CloseConnection => {
                 // A datagram server does not have connections so handling the
                 // close of a connection which can never happen has no meaning
-                // as it cannot occur.
-                unreachable!()
+                // as it cannot occur. However a Service impl cannot know
+                // which server will receive the ServiceCommand if it is
+                // shared between multiple servers and so we should just
+                // ignore this if we receive it.
             }
         }
 

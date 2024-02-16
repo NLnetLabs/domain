@@ -358,8 +358,8 @@ where
             }
 
             ServiceCommand::CloseConnection => {
-                // TODO: Why do we not handle this?
-                unreachable!()
+                // TODO: Should we flush in this case or not?
+                return Err(ConnectionEvent::DisconnectWithFlush);
             }
         }
 
