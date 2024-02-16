@@ -20,8 +20,10 @@ const TEST_FILE_AD: &str = "test-data/client-cache/cache_ad.rpl";
 const TEST_FILE_AD_REV: &str = "test-data/client-cache/cache_ad_rev.rpl";
 const TEST_FILE_DO_NSEC: &str = "test-data/client-cache/cache_do_nsec.rpl";
 const TEST_FILE_DO_NSEC3: &str = "test-data/client-cache/cache_do_nsec3.rpl";
-const TEST_FILE_DO_Q_RRSIG: &str = "test-data/client-cache/cache_do_q_rrsig.rpl";
-const TEST_FILE_DO_Q_NSEC: &str = "test-data/client-cache/cache_do_q_nsec.rpl";
+const TEST_FILE_DO_Q_RRSIG: &str =
+    "test-data/client-cache/cache_do_q_rrsig.rpl";
+const TEST_FILE_DO_Q_NSEC: &str =
+    "test-data/client-cache/cache_do_q_nsec.rpl";
 const TEST_FILE_RD: &str = "test-data/client-cache/cache_rd.rpl";
 const TEST_FILE_RD_REV: &str = "test-data/client-cache/cache_rd_rev.rpl";
 const TEST_FILE_CD: &str = "test-data/client-cache/cache_cd.rpl";
@@ -30,12 +32,16 @@ const TEST_FILE_CASE: &str = "test-data/client-cache/cache_case.rpl";
 const TEST_FILE_AA: &str = "test-data/client-cache/cache_aa.rpl";
 const TEST_FILE_NXDOMAIN: &str = "test-data/client-cache/cache_nxdomain.rpl";
 const TEST_FILE_NODATA: &str = "test-data/client-cache/cache_nodata.rpl";
-const TEST_FILE_DELEGATION: &str = "test-data/client-cache/cache_delegation.rpl";
-const TEST_FILE_BROKEN_NODATA: &str = "test-data/client-cache/cache_broken_nodata.rpl";
+const TEST_FILE_DELEGATION: &str =
+    "test-data/client-cache/cache_delegation.rpl";
+const TEST_FILE_BROKEN_NODATA: &str =
+    "test-data/client-cache/cache_broken_nodata.rpl";
 const TEST_FILE_REFUSED: &str = "test-data/client-cache/cache_refused.rpl";
-const TEST_FILE_TRANSPORT_ERROR: &str = "test-data/client-cache/cache_transport_error.rpl";
+const TEST_FILE_TRANSPORT_ERROR: &str =
+    "test-data/client-cache/cache_transport_error.rpl";
 const TEST_FILE_TTL: &str = "test-data/client-cache/cache_ttl.rpl";
-const TEST_FILE_TTL_SECTIONS: &str = "test-data/client-cache/cache_ttl_sections.rpl";
+const TEST_FILE_TTL_SECTIONS: &str =
+    "test-data/client-cache/cache_ttl_sections.rpl";
 const TEST_FILE_CHAOS: &str = "test-data/client-cache/cache_chaos.rpl";
 const TEST_FILE_NOTIFY: &str = "test-data/client-cache/cache_notify.rpl";
 
@@ -60,19 +66,19 @@ fn test_cache(filename: &str) {
 */
 
 async fn async_test_cache(filename: &str) {
-        let file = File::open(filename).unwrap();
-        let deckard = parse_file(file);
+    let file = File::open(filename).unwrap();
+    let deckard = parse_file(file);
 
-        let step_value = Arc::new(CurrStepValue::new());
-        let multi_conn = Connect::new(deckard.clone(), step_value.clone());
-        let (ms, ms_tran) = multi_stream::Connection::new(multi_conn);
-        tokio::spawn(async move {
-            ms_tran.run().await;
-            println!("multi conn run terminated");
-        });
-        let cached = cache::Connection::<_, FakeTime>::new_with_time(ms);
+    let step_value = Arc::new(CurrStepValue::new());
+    let multi_conn = Connect::new(deckard.clone(), step_value.clone());
+    let (ms, ms_tran) = multi_stream::Connection::new(multi_conn);
+    tokio::spawn(async move {
+        ms_tran.run().await;
+        println!("multi conn run terminated");
+    });
+    let cached = cache::Connection::<_, FakeTime>::new_with_time(ms);
 
-        do_client(&deckard, cached, &step_value).await;
+    do_client(&deckard, cached, &step_value).await;
 }
 
 /*
@@ -95,18 +101,18 @@ fn test_no_cache(filename: &str) {
 */
 
 async fn async_test_no_cache(filename: &str) {
-        let file = File::open(filename).unwrap();
-        let deckard = parse_file(file);
+    let file = File::open(filename).unwrap();
+    let deckard = parse_file(file);
 
-        let step_value = Arc::new(CurrStepValue::new());
-        let multi_conn = Connect::new(deckard.clone(), step_value.clone());
-        let (ms, ms_tran) = multi_stream::Connection::new(multi_conn);
-        tokio::spawn(async move {
-            ms_tran.run().await;
-            println!("multi conn run terminated");
-        });
+    let step_value = Arc::new(CurrStepValue::new());
+    let multi_conn = Connect::new(deckard.clone(), step_value.clone());
+    let (ms, ms_tran) = multi_stream::Connection::new(multi_conn);
+    tokio::spawn(async move {
+        ms_tran.run().await;
+        println!("multi conn run terminated");
+    });
 
-        do_client(&deckard, ms, &step_value).await;
+    do_client(&deckard, ms, &step_value).await;
 }
 
 #[tokio::test]
@@ -264,54 +270,54 @@ async fn test_transport_error() {
     // Transport errors should be cached. Create an empty redundant transport
     // and manually issue a query to trigger a transport error. Then add a
     // transport and issue a new query.
-        let file = File::open(TEST_FILE_TRANSPORT_ERROR).unwrap();
-        let deckard = parse_file(file);
+    let file = File::open(TEST_FILE_TRANSPORT_ERROR).unwrap();
+    let deckard = parse_file(file);
 
-        let step_value = Arc::new(CurrStepValue::new());
-        let (redun, redun_tran) = redundant::Connection::new();
-        tokio::spawn(async move {
-            redun_tran.run().await;
-            println!("redundant conn run terminated");
-        });
-        let cached =
-            cache::Connection::<_, FakeTime>::new_with_time(redun.clone());
+    let step_value = Arc::new(CurrStepValue::new());
+    let (redun, redun_tran) = redundant::Connection::new();
+    tokio::spawn(async move {
+        redun_tran.run().await;
+        println!("redundant conn run terminated");
+    });
+    let cached =
+        cache::Connection::<_, FakeTime>::new_with_time(redun.clone());
 
-        let mut msg = MessageBuilder::new_vec();
-        msg.header_mut().set_rd(true);
-        let mut msg = msg.question();
-        msg.push((Dname::vec_from_str("example.com").unwrap(), Aaaa))
-            .unwrap();
-        let req = RequestMessage::new(msg);
+    let mut msg = MessageBuilder::new_vec();
+    msg.header_mut().set_rd(true);
+    let mut msg = msg.question();
+    msg.push((Dname::vec_from_str("example.com").unwrap(), Aaaa))
+        .unwrap();
+    let req = RequestMessage::new(msg);
 
-        let mut request = cached.send_request(req.clone());
-        let reply = request.get_response().await;
+    let mut request = cached.send_request(req.clone());
+    let reply = request.get_response().await;
 
-        println!("got {reply:?}");
+    println!("got {reply:?}");
 
-        if let Err(NoTransportAvailable) = reply {
-            // This is what we expect.
-        } else {
-            panic!("Bad result {reply:?}");
-        }
+    if let Err(NoTransportAvailable) = reply {
+        // This is what we expect.
+    } else {
+        panic!("Bad result {reply:?}");
+    }
 
-        let multi_conn = Connect::new(deckard.clone(), step_value.clone());
-        let (ms, ms_tran) = multi_stream::Connection::new(multi_conn);
-        tokio::spawn(async move {
-            ms_tran.run().await;
-            println!("multi conn run terminated");
-        });
-        redun.add(Box::new(ms)).await.unwrap();
+    let multi_conn = Connect::new(deckard.clone(), step_value.clone());
+    let (ms, ms_tran) = multi_stream::Connection::new(multi_conn);
+    tokio::spawn(async move {
+        ms_tran.run().await;
+        println!("multi conn run terminated");
+    });
+    redun.add(Box::new(ms)).await.unwrap();
 
-        let mut request = cached.send_request(req);
-        let reply = request.get_response().await;
+    let mut request = cached.send_request(req);
+    let reply = request.get_response().await;
 
-        if let Err(NoTransportAvailable) = reply {
-            // This is what we expect.
-        } else {
-            panic!("Bad result {reply:?}");
-        }
+    if let Err(NoTransportAvailable) = reply {
+        // This is what we expect.
+    } else {
+        panic!("Bad result {reply:?}");
+    }
 
-        do_client(&deckard, redun, &step_value).await;
+    do_client(&deckard, redun, &step_value).await;
 }
 
 #[tokio::test]
