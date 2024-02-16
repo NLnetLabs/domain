@@ -1,4 +1,9 @@
 //! The business logic of a DNS server.
+//!
+//! The [`Service::call()`] function defines how the service should respond to
+//! a given DNS request. resulting in a [`ServiceResult`] containing a
+//! transaction that yields one or more future DNS responses, and/or a
+//! [`ServiceCommand`].
 use core::marker::Send;
 use std::boxed::Box;
 use std::future::Future;
@@ -20,64 +25,50 @@ use super::message::ContextAwareMessage;
 
 //------------ Service -------------------------------------------------------
 
-pub type ServiceResultItem<Target, Error> =
-    Result<CallResult<Target>, ServiceError<Error>>;
+/// The result of calling a [`Service`].
+///
+/// On success [`Service::call()`] results in a [`Transaction`] consisting of
+/// one or more [`ServiceResultItem`] futures.
+///
+/// On failure it instead results in a [`ServiceError`].
 pub type ServiceResult<Target, Error, Single> = Result<
     Transaction<ServiceResultItem<Target, Error>, Single>,
     ServiceError<Error>,
 >;
 
+/// A single result item from a [`ServiceResult`].
+///
+/// See [`Service::call()`].
+pub type ServiceResultItem<Target, Error> =
+    Result<CallResult<Target>, ServiceError<Error>>;
+
 /// Services generate DNS responses according to user defined business logic.
 ///
-/// Each [`Service`] implements a single [`Self::call()`] function which takes a DNS
-/// request [`Message`] and returns either a [`Transaction`] on success, or a
-/// [`ServiceError`] on failure.
+/// Each [`Service`] implementation defines a [`call()`] function which takes
+/// a [`ContextAwareMessage`] as input and returns either a [`Transaction`] on
+/// success, or a [`ServiceError`] on failure, as output.
 ///
-/// Responses are encapsulated inside a [`Transaction`] which is either a single response, or a stream of responses (e.g. for a zone
-/// transfer), where each response is a [`std::future::Future`] that resolves to a [`CallResult`].
+/// Responses are encapsulated inside a [`Transaction`] which is either a
+/// single response, or a stream of responses (e.g. for a zone transfer),
+/// where each response is a [`Future`] that resolves to a [`CallResult`].
 ///
 /// In the common case a [`CallResult`] is a DNS response message. For some
 /// advanced use cases it can instead, or additionally, direct the server
 /// handling the request (or a single connection it is handling) to adjust its
 /// own configuration, or even to terminate the connection.
 ///
-/// You can either implement the [`Service`] trait directly, or use the blanket
-/// impl to turn any function with a compatible signature into a [`Service`]
-/// implementation like so:
+/// There are three ways to implement the [`Service`] trait, from most
+/// flexible and difficult, to easiest but least flexible:
 ///
-/// ```ignore
-/// fn simple_service() -> impl Service<Vec<u8>, Message<Vec<u8>>> {
-///     type MyServiceResult = ServiceResult<Vec<u8>, ServiceError<()>>;
+///   1. Implement the trait on a struct.
+///   2. Define a function compatible with the trait.
+///   3. Define a function compatible with the [`mk_service()`] helper
+///      function.
 ///
-///     fn query(msg: Message<Vec<u8>>) -> Transaction<
-///         impl Future<Output = MyServiceResult>,
-///         Once<Pending<MyServiceResult>>,
-///     > {
-///         Transaction::Single(async move {
-///             let res = MessageBuilder::new_vec();
-///             let mut answer = res.start_answer(&msg, Rcode::NoError).unwrap();
-///             answer
-///                 .push((
-///                     Dname::root_ref(),
-///                     Class::In,
-///                     86400,
-///                     A::from_octets(192, 0, 2, 1),
-///                 ))
-///                 .unwrap();
+/// See [`mk_service()`] for an example of using it to create a [`Service`] impl.
 ///
-///             let mut target = StreamTarget::new_vec();
-///             target
-///                 .append_slice(&answer.into_message().into_octets())
-///                 .map_err(|err| ServiceError::Other(err.to_string()))?;
-///             Ok(CallResult::new(target))
-///         })
-///     }
-///
-///     |msg| Ok(query(msg))
-/// }
-///
-/// let service: Service = simple_service().into();
-/// ```
+/// [`call()`]: Self::call()
+/// [`mk_service()`]: crate::net::server::util::mk_service()
 pub trait Service<RequestOctets: AsRef<[u8]> = Vec<u8>> {
     type Error: Send + Sync + 'static;
     type Target: Composer + Default + Send + Sync + 'static;
@@ -115,11 +106,19 @@ where
 
 //------------ ServiceError --------------------------------------------------
 
+/// An error reported by a [`Service`].
 #[derive(Debug)]
 pub enum ServiceError<T> {
+    /// The service declined to handle the request.
     RequestIgnored,
+
+    /// The service encountered a service-specific error condition.
     ServiceSpecificError(T),
+
+    /// The service is shutting down.
     ShuttingDown,
+
+    /// Some other service error.
     Other(String),
 }
 
@@ -144,6 +143,7 @@ impl<T> core::fmt::Display for ServiceError<T> {
 
 //------------ ServiceCommand ------------------------------------------------
 
+/// Commands that [`Service`]s can send to influence the parent server.
 #[derive(Copy, Clone, Debug)]
 pub enum ServiceCommand {
     Init,

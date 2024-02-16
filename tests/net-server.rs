@@ -12,38 +12,29 @@ use crate::net::deckard::parse_deckard::Matches;
 use domain::base::iana::Rcode;
 use domain::base::wire::Composer;
 use domain::base::Dname;
-use domain::base::Message;
-use domain::base::MessageBuilder;
-use domain::base::StreamTarget;
 use domain::base::ToDname;
 use domain::net::client::dgram;
 use domain::net::client::stream;
 use domain::net::server::buf::VecBufSource;
 use domain::net::server::dgram::DgramServer;
-use domain::net::server::message::ContextAwareMessage;
 use domain::net::server::middleware::builder::MiddlewareBuilder;
 use domain::net::server::middleware::chain::MiddlewareChain;
 use domain::net::server::middleware::processors::cookies::CookiesMiddlewareProcesor;
+use domain::net::server::prelude::*;
 use domain::net::server::service::CallResult;
 use domain::net::server::service::Service;
-use domain::net::server::service::ServiceResult;
-use domain::net::server::service::ServiceResultItem;
 use domain::net::server::service::Transaction;
 use domain::net::server::stream::StreamServer;
-use domain::net::server::util::mk_service;
 use domain::zonefile::inplace::Entry;
 use domain::zonefile::inplace::ScannedRecord;
 use domain::zonefile::inplace::Zonefile;
 use net::deckard::client::ClientFactory;
 use net::deckard::parse_deckard::Config;
-use octseq::FreezeBuilder;
 use octseq::Octets;
 use rstest::rstest;
 use std::collections::VecDeque;
 use std::convert::AsRef;
-use std::fmt::Debug;
 use std::fs::File;
-use std::future::Future;
 use std::marker::Send;
 use std::marker::Sync;
 use std::net::IpAddr;
@@ -75,8 +66,7 @@ async fn server_tests(#[files("test-data/server/*.rpl")] rpl_file: PathBuf) {
 
     // Create a service to answer queries received by the DNS servers.
     let zonefile = server_config.zonefile.clone();
-    let service: Arc<_> =
-        mk_service(test_service::<Vec<u8>>, zonefile).into();
+    let service: Arc<_> = mk_service(test_service, zonefile).into();
 
     // Create dgram and stream servers for answering requests
     let (dgram_server_conn, stream_server_conn) =
@@ -228,18 +218,10 @@ where
 //     the `Service` will be passed.
 //   - Controlling the content of the `Zonefile` passed to instances of
 //     this `Service` impl.
-fn test_service<Target>(
-    request: Arc<ContextAwareMessage<Message<Vec<u8>>>>,
+fn test_service(
+    request: MkServiceRequest<Vec<u8>>,
     zonefile: Zonefile,
-) -> ServiceResult<
-    Target,
-    (),
-    impl Future<Output = ServiceResultItem<Target, ()>>,
->
-where
-    Target: Composer + Octets + FreezeBuilder<Octets = Target> + Default,
-    <Target as octseq::OctetsBuilder>::AppendError: Debug,
-{
+) -> MkServiceResult<Vec<u8>, ()> {
     fn as_record_and_dname(
         r: ScannedRecord,
     ) -> Option<(ScannedRecord, Dname<Vec<u8>>)> {
@@ -258,19 +240,8 @@ where
         }
     }
 
-    fn create_builder_for_target<Target>(
-    ) -> MessageBuilder<StreamTarget<Target>>
-    where
-        Target: Composer + Octets + FreezeBuilder<Octets = Target> + Default,
-        <Target as octseq::OctetsBuilder>::AppendError: Debug,
-    {
-        let target = Target::default();
-        let target = StreamTarget::new(target).unwrap(); // SAFETY
-        MessageBuilder::from_target(target).unwrap() // SAFETY
-    }
-
     trace!("Service received request");
-    Ok(Transaction::single(async move {
+    Ok(Transaction::single(Box::pin(async move {
         trace!("Service is constructing a single response");
         // If given a single question:
         let answer = request
@@ -287,13 +258,13 @@ where
             .map_or_else(
                 || {
                     // The Qname was not found in the zone:
-                    create_builder_for_target()
+                    mk_builder_for_target()
                         .start_answer(&request, Rcode::NXDomain)
                         .unwrap()
                 },
                 |(record, _)| {
                     // Respond with the found record:
-                    let mut answer = create_builder_for_target()
+                    let mut answer = mk_builder_for_target()
                         .start_answer(&request, Rcode::NoError)
                         .unwrap();
                     // As we serve all answers from our own zones we are the
@@ -305,7 +276,7 @@ where
             );
 
         Ok(CallResult::new(answer.additional()))
-    }))
+    })))
 }
 
 //----------- Deckard config block parsing -----------------------------------

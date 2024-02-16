@@ -32,8 +32,8 @@
 //! [stream]), [`BufSource`], (optional) [`MiddlewareChain`] and [`Service`]
 //! together.
 //!
-//! Server implementations implement a common interface. To use a server
-//! implementation:
+//! Whether using [`DgramServer`] or [`StreamServer`] the required steps are
+//! the same.
 //!
 //!   - Create an appropriate network source (more on this below).
 //!   - Construct a server transport with `new()` passing in the network
@@ -160,3 +160,25 @@ pub mod util;
 
 #[cfg(test)]
 pub mod tests;
+
+/// A Rust module for importing the types needed to create a [`Service`].
+///
+/// [`Service`]: crate::net::server::service::Service
+pub mod prelude {
+    pub use crate::base::wire::Composer;
+    pub use crate::base::Message;
+    pub use crate::dep::octseq::FreezeBuilder;
+    pub use crate::dep::octseq::Octets;
+    pub use crate::dep::octseq::OctetsBuilder;
+    pub use crate::net::server::message::ContextAwareMessage;
+    pub use crate::net::server::service::CallResult;
+    pub use crate::net::server::service::Service;
+    pub use crate::net::server::service::Transaction;
+    pub use crate::net::server::util::mk_builder_for_target;
+    pub use crate::net::server::util::mk_service;
+    pub use crate::net::server::util::MkServiceRequest;
+    pub use crate::net::server::util::MkServiceResult;
+    pub use crate::net::server::util::MkServiceTarget;
+    pub use std::fmt::Debug;
+    pub use std::sync::Arc;
+}
