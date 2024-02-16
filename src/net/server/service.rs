@@ -166,7 +166,7 @@ impl<T> From<PushError> for ServiceError<T> {
 
 //------------ ServiceCommand ------------------------------------------------
 
-/// Commands a server, usually from a [`Service`], to do something.
+/// Command a server to do something.
 #[derive(Copy, Clone, Debug)]
 pub enum ServiceCommand {
     #[doc(hidden)]
