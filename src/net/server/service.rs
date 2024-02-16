@@ -186,8 +186,6 @@ pub enum ServiceCommand {
     CloseConnection,
 
     /// Command the server to terminate.
-    ///
-    ///
     Shutdown,
 }
 
