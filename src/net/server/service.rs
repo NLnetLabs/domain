@@ -42,20 +42,32 @@ pub type ServiceResult<Target, Error, Single> = Result<
 pub type ServiceResultItem<Target, Error> =
     Result<CallResult<Target>, ServiceError<Error>>;
 
-/// Services generate DNS responses according to user defined business logic.
+/// [`Service`]s are responsible for determining how to respond to valid DNS
+/// requests.
+///
+/// A request is "valid" if it passed successfully through the underlying
+/// server (e.g. [`DgramServer`] or [`StreamServer`]) and [`MiddlewareChain`]
+/// stages.
+///
+/// For an overview of how services fit into the total flow of request and
+/// response handling see the [net::server module documentation].
 ///
 /// Each [`Service`] implementation defines a [`call()`] function which takes
-/// a [`ContextAwareMessage`] as input and returns either a [`Transaction`] on
-/// success, or a [`ServiceError`] on failure, as output.
+/// a [`ContextAwareMessage`] DNS request as input and returns either a
+/// [`Transaction`] on success, or a [`ServiceError`] on failure, as output.
 ///
-/// Responses are encapsulated inside a [`Transaction`] which is either a
-/// single response, or a stream of responses (e.g. for a zone transfer),
-/// where each response is a [`Future`] that resolves to a [`CallResult`].
+/// Each [`Transaction`] contains either a single DNS response message, or a
+/// stream of DNS response messages (e.g. for a zone transfer). Each response
+/// message is returned as a [`Future`] which the underlying server will
+/// resolve to a [`CallResult`].
 ///
-/// In the common case a [`CallResult`] is a DNS response message. For some
-/// advanced use cases it can instead, or additionally, direct the server
-/// handling the request (or a single connection it is handling) to adjust its
-/// own configuration, or even to terminate the connection.
+/// In most cases [`CallResult`] will be a DNS response message. For some
+/// advanced use cases it can instead, or additionally, output a
+/// [`ServiceCommand`] to have the server or connection handler handling the
+/// request to adjust its own configuration, or even to terminate the
+/// connection.
+///
+/// # Usage
 ///
 /// There are three ways to implement the [`Service`] trait, from most
 /// flexible and difficult, to easiest but least flexible:
@@ -65,8 +77,13 @@ pub type ServiceResultItem<Target, Error> =
 ///   3. Define a function compatible with the [`mk_service()`] helper
 ///      function.
 ///
-/// See [`mk_service()`] for an example of using it to create a [`Service`] impl.
+/// See [`mk_service()`] for an example of using it to create a [`Service`]
+/// impl.
 ///
+/// [`MiddlewareChain`]: crate::net::server::middleware::MiddlewareChain
+/// [`DgramServer`]: crate::net::server::dgram::DgramServer
+/// [`StreamServer`]: crate::net::server::stream::StreamServer
+/// [net::server module documentation]: crate::net::server
 /// [`call()`]: Self::call()
 /// [`mk_service()`]: crate::net::server::util::mk_service()
 pub trait Service<RequestOctets: AsRef<[u8]> = Vec<u8>> {
