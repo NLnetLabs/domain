@@ -174,12 +174,10 @@ pub enum ServiceCommand {
     Init,
 
     /// Command the server to alter its configuration.
-    /// 
+    ///
     /// The effect may differ whether handled by a server or (for
-    /// connection-oriented transport protoocls) a connection handler.
-    Reconfigure {
-        idle_timeout: Duration,
-    },
+    /// connection-oriented transport protocols) a connection handler.
+    Reconfigure { idle_timeout: Duration },
 
     /// Command the connection handler to terminate.
     ///
@@ -188,8 +186,8 @@ pub enum ServiceCommand {
     CloseConnection,
 
     /// Command the server to terminate.
-    /// 
-    /// 
+    ///
+    ///
     Shutdown,
 }
 
@@ -272,19 +270,19 @@ where
 //------------ Transaction ---------------------------------------------------
 
 /// Zero or more DNS response futures relating to a single DNS request.
-/// 
+///
 /// A transaction is either empty, a single DNS response future, or a stream
 /// of DNS response futures.
-/// 
+///
 /// # Usage
-/// 
+///
 /// Either:
 ///   - Construct a transaction for a [`single()`] response future, OR
 ///   - Construct a transaction [`stream()`] and [`push()`] response futures
 ///     into it.
-/// 
+///
 /// Then iterate over the response futures one at a time using [`next()`].
-/// 
+///
 /// [`single()`]: Self::single()
 /// [`stream()`]: Self::stream()
 /// [`push()`]: Self::push()
@@ -298,7 +296,7 @@ where
     Single: Future<Output = Item> + Send,
 {
     /// The transaction will result in a single immediate response.
-    /// 
+    ///
     /// This variant is for internal use only when aborting Middleware
     /// processing early.
     Immediate(Option<Item>),
@@ -330,18 +328,18 @@ where
     }
 
     /// Construct a transaction for a stream of response futures.
-    /// 
+    ///
     /// Call [`push()`] to add a response future to the stream.
-    /// 
+    ///
     /// [`push()`]: Self::push()
     pub fn stream() -> Self {
         Self(TransactionInner::Stream(Default::default()))
     }
 
     /// Add a response future to a transaction stream.
-    /// 
+    ///
     /// # Panics
-    /// 
+    ///
     /// This function will panic if this transaction is not a stream.
     pub fn push<T: Future<Output = Item> + Send + 'static>(
         &mut self,
@@ -354,10 +352,10 @@ where
     }
 
     /// Take the next response from the transaction, if any.
-    /// 
+    ///
     /// This function provides a single way to take futures from the
     /// transaction without needing to handle which type of transaction it is.
-    /// 
+    ///
     /// Returns None if there are no (more) responses to take, Some(future)
     /// otherwise.
     pub async fn next(&mut self) -> Option<Item> {
