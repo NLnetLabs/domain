@@ -81,44 +81,48 @@ pub type TcpServer<Svc> = StreamServer<TcpListener, VecBufSource, Svc>;
 /// handling. You can learn about creating a service in the [`Service`]
 /// documentation._
 ///
-/// ```ignore
-/// # use std::sync::Arc;
-/// # use domain::base::Message;
-/// # use domain::net::buf::VecBufSource;
-/// # use domain::net::service::Service;
-/// # use domain::net::stream::StreamServer;
-/// # use tokio::net::TcpListener;
-/// # fn my_service() -> impl Service<Vec<u8>, Message<Vec<u8>>> {
-/// #     todo!()
-/// # }
-/// #
-/// # #[tokio::main(flavor = "multi_thread")]
-/// # async fn main() {
-/// # let my_service = my_service().into();
-/// // Bind to a local port and listen for incoming TCP connections.
-/// let listener = TcpListener::bind("127.0.0.1:8053").await.unwrap();
+/// ```
+/// use domain::net::server::buf::VecBufSource;
+/// use domain::net::server::prelude::*;
+/// use domain::net::server::middleware::builder::MiddlewareBuilder;
+/// use domain::net::server::stream::StreamServer;
+/// use tokio::net::TcpListener;
 ///
-/// // Create a server that will accept those connections and pass
-/// // received messages to your service and in turn pass generated
-/// // responses back to the client.
-/// let srv = Arc::new(StreamServer::new(listener, VecBufSource, my_service));
+/// fn my_service(msg: Arc<ContextAwareMessage<Message<Vec<u8>>>>, _meta: ())
+///     -> MkServiceResult<Vec<u8>, ()>
+/// {
+///     todo!()
+/// }
 ///
-/// // Configure the server with default middleware.
-/// let middleware = MiddlewareBuilder::default().finish();
-/// let srv = srv.with_middleware(middleware);
+/// #[tokio::main(flavor = "multi_thread")]
+/// async fn main() {
+///     // Create a service impl from the service fn
+///     let svc = mk_service(my_service, ());
 ///
-/// // Run the server.
-/// let spawned_srv = srv.clone();
-/// let join_handle = tokio::spawn(async move { spawned_srv.run().await });
+///     // Bind to a local port and listen for incoming TCP connections.
+///     let listener = TcpListener::bind("127.0.0.1:8053").await.unwrap();
 ///
-/// // ... do something ...
+///     // Create the server with default middleware.
+///     let middleware = MiddlewareBuilder::default().finish();
 ///
-/// // Shutdown the server.
-/// srv.shutdown().unwrap();
+///     // Create a server that will accept those connections and pass
+///     // received messages to your service and in turn pass generated
+///     // responses back to the client.
+///     let srv = Arc::new(StreamServer::new(listener, VecBufSource, svc)
+///         .with_middleware(middleware));
 ///
-/// // Wait for shutdown to complete.
-/// join_handle.await.unwrap();
-/// # }
+///     // Run the server.
+///     let spawned_srv = srv.clone();
+///     let join_handle = tokio::spawn(async move { spawned_srv.run().await });
+///
+///     // ... do something ...
+///
+///     // Shutdown the server.
+///     srv.shutdown().unwrap();
+///
+///     // Wait for shutdown to complete.
+///     join_handle.await.unwrap();
+/// }
 /// ```
 ///
 /// [`Service`]: super::service::Service
