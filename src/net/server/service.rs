@@ -4,15 +4,14 @@
 //! a given DNS request. resulting in a [`ServiceResult`] containing a
 //! transaction that yields one or more future DNS responses, and/or a
 //! [`ServiceCommand`].
-use core::marker::Send;
 use core::ops::Deref;
 use std::boxed::Box;
 use std::future::Future;
 use std::pin::Pin;
+use std::string::String;
 use std::sync::Arc;
 use std::time::Duration;
 use std::vec::Vec;
-use std::{convert::AsRef, string::String};
 
 use futures_util::stream::FuturesOrdered;
 use futures_util::{FutureExt, StreamExt};

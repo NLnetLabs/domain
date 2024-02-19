@@ -13,7 +13,6 @@ use crate::net::server::service::{
 
 use super::processor::MiddlewareProcessor;
 use crate::base::message_builder::AdditionalBuilder;
-use core::convert::AsRef;
 use core::ops::{ControlFlow, RangeTo};
 
 /// A chain of [`MiddlewareProcessor`]s.

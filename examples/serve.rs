@@ -1,16 +1,13 @@
 use core::future::ready;
 // TODO: Split into separate examples?
 use std::{
-    fmt::{self, Debug},
+    fmt,
     fs::File,
     future::{Future, Ready},
     io::{self, BufReader},
     net::SocketAddr,
     path::Path,
-    sync::{
-        atomic::{AtomicBool, AtomicU8, Ordering},
-        Arc,
-    },
+    sync::atomic::{AtomicBool, AtomicU8, Ordering},
     task::{Context, Poll},
     time::Duration,
 };
@@ -33,18 +30,16 @@ use domain::base::name::ToLabelIter;
 use domain::{
     base::{
         iana::{Class, Rcode},
-        wire::Composer,
-        Dname, Message, MessageBuilder, StreamTarget,
+        Dname, MessageBuilder, StreamTarget,
     },
     net::server::buf::VecBufSource,
     rdata::A,
 };
-use octseq::{FreezeBuilder, Octets};
 
 use rustls_pemfile::{certs, rsa_private_keys};
 use tokio::net::{TcpListener, TcpSocket, TcpStream, UdpSocket};
 use tokio_rustls::{
-    rustls::{self, Certificate, PrivateKey},
+    rustls::{Certificate, PrivateKey},
     TlsAcceptor,
 };
 use tokio_tfo::{TfoListener, TfoStream};
