@@ -65,6 +65,48 @@ pub type UdpServer<Svc> = DgramServer<UdpSocket, VecBufSource, Svc>;
 ///
 /// A socket is anything that implements the [`AsyncDgramSock`] trait. This
 /// crate provides an implementation for [`UdpSocket`].
+///
+/// # Examples
+///
+/// The example below shows how to create, run and shutdown a [`DgramServer`]
+/// configured to receive requests and write responses via a
+/// [`std::net::UdpSocket`] using a [`VecBufSource`] for buffer allocation and
+/// a [`Service`] to generate responses to requests.
+///
+/// _Note: This example skips creation of the service and proper error
+/// handling. You can learn about creating a service in the [`Service`]
+/// documentation._
+///
+/// ```ignore
+/// // Bind to a local port and listen for incoming UDP messages.
+/// let udpsocket = UdpSocket::bind("127.0.0.1:8053").await.unwrap();
+///
+/// // Create a server that will receive those messages and pass them to your
+/// // service and in turn pass generated responses back to the client.
+/// let srv = Arc::new(DgramServer::new(udpsocket, VecBufSource, my_service));
+///
+/// // Configure the server with default middleware.
+/// let middleware = MiddlewareBuilder::default().finish();
+/// let srv = srv.with_middleware(middleware);
+///
+/// // Run the server.
+/// let spawned_srv = srv.clone();
+/// let join_handle = tokio::spawn(async move { spawned_srv.run().await });
+///
+/// // ... do something ...
+///
+/// // Shutdown the server.
+/// srv.shutdown().unwrap();
+///
+/// // Wait for shutdown to complete.
+/// join_handle.await.unwrap();
+/// # }
+/// ```
+///
+/// [`Service`]: super::service::Service
+/// [`VecBufSource`]: super::buf::VecBufSource
+/// [`tokio::net::TcpListener`]:
+///     https://docs.rs/tokio/latest/tokio/net/struct.TcpListener.html
 
 pub struct DgramServer<Sock, Buf, Svc>
 where
