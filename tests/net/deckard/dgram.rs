@@ -21,6 +21,7 @@ pub struct Dgram {
 }
 
 impl Dgram {
+    #[allow(dead_code)]
     pub fn new(deckard: Deckard, step_value: Arc<CurrStepValue>) -> Self {
         Self {
             deckard,
