@@ -77,10 +77,6 @@ pub type TcpServer<Svc> = StreamServer<TcpListener, VecBufSource, Svc>;
 /// [`tokio::net::TcpListener`] using a [`VecBufSource`] for buffer allocation
 /// and a [`Service`] to generate responses to requests.
 ///
-/// _Note: This example skips creation of the service and proper error
-/// handling. You can learn about creating a service in the [`Service`]
-/// documentation._
-///
 /// ```
 /// use domain::net::server::buf::VecBufSource;
 /// use domain::net::server::prelude::*;
