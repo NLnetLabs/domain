@@ -93,6 +93,14 @@ async fn main() {
     let reply = request.get_response().await;
     println!("Cache reply: {:?}", reply);
 
+    // Send a request message again.
+    let mut request = cache.send_request(req.clone());
+
+    // Get the reply
+    println!("Wating for cached reply");
+    let reply = request.get_response().await;
+    println!("Cached reply: {:?}", reply);
+
     // Create a new TCP connections object. Pass the destination address and
     // port as parameter.
     let tcp_connect = TcpConnect::new(server_addr);
