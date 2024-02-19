@@ -34,7 +34,8 @@ impl AsyncConnect for Dgram {
     type Fut = Pin<
         Box<
             dyn Future<Output = Result<Self::Connection, std::io::Error>>
-                + Send,
+                + Send
+                + Sync,
         >,
     >;
     fn connect(&self) -> Self::Fut {
