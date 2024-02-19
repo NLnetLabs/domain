@@ -11,7 +11,6 @@
 //! [Datagram]: https://en.wikipedia.org/wiki/Datagram
 use std::fmt::Debug;
 use std::net::SocketAddr;
-use std::net::UdpSocket;
 use std::string::ToString;
 use std::{future::poll_fn, string::String};
 
@@ -20,6 +19,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
+use tokio::net::UdpSocket;
 use tokio::task::JoinHandle;
 use tokio::{io::ReadBuf, sync::watch};
 use tracing::{enabled, error, trace, Level};
@@ -41,8 +41,8 @@ use super::buf::VecBufSource;
 ///
 /// UDP aka User Datagram Protocol, as implied by the name, is a datagram
 /// based protocol. This type defines a type of [`DgramServer`] that expects
-/// connections to be received via [`UdpSocket`] and can thus be used to
-/// implement a UDP based DNS server.
+/// connections to be received via [`tokio::net::UdpSocket`] and can thus be
+/// used to implement a UDP based DNS server.
 pub type UdpServer<Svc> = DgramServer<UdpSocket, VecBufSource, Svc>;
 
 //------------ DgramServer ---------------------------------------------------
@@ -64,43 +64,57 @@ pub type UdpServer<Svc> = DgramServer<UdpSocket, VecBufSource, Svc>;
 /// messages for [`DgramServer`] to deliver to the client.
 ///
 /// A socket is anything that implements the [`AsyncDgramSock`] trait. This
-/// crate provides an implementation for [`UdpSocket`].
+/// crate provides an implementation for [`tokio::net::UdpSocket`].
 ///
 /// # Examples
 ///
 /// The example below shows how to create, run and shutdown a [`DgramServer`]
 /// configured to receive requests and write responses via a
-/// [`std::net::UdpSocket`] using a [`VecBufSource`] for buffer allocation and
-/// a [`Service`] to generate responses to requests.
+/// [`tokio::net::UdpSocket`] using a [`VecBufSource`] for buffer allocation
+/// and a [`Service`] to generate responses to requests.
 ///
-/// _Note: This example skips creation of the service and proper error
-/// handling. You can learn about creating a service in the [`Service`]
-/// documentation._
+/// ```
+/// use domain::net::server::buf::VecBufSource;
+/// use domain::net::server::prelude::*;
+/// use domain::net::server::middleware::builder::MiddlewareBuilder;
+/// use domain::net::server::dgram::DgramServer;
+/// use tokio::net::UdpSocket;
 ///
-/// ```ignore
-/// // Bind to a local port and listen for incoming UDP messages.
-/// let udpsocket = UdpSocket::bind("127.0.0.1:8053").await.unwrap();
+/// fn my_service(msg: Arc<ContextAwareMessage<Message<Vec<u8>>>>, _meta: ())
+///     -> MkServiceResult<Vec<u8>, ()>
+/// {
+///     todo!()
+/// }
 ///
-/// // Create a server that will receive those messages and pass them to your
-/// // service and in turn pass generated responses back to the client.
-/// let srv = Arc::new(DgramServer::new(udpsocket, VecBufSource, my_service));
+/// #[tokio::main(flavor = "multi_thread")]
+/// async fn main() {
+///     // Create a service impl from the service fn
+///     let svc = mk_service(my_service, ());
 ///
-/// // Configure the server with default middleware.
-/// let middleware = MiddlewareBuilder::default().finish();
-/// let srv = srv.with_middleware(middleware);
+///     // Bind to a local port and listen for incoming UDP messages.
+///     let udpsocket = UdpSocket::bind("127.0.0.1:8053").await.unwrap();
 ///
-/// // Run the server.
-/// let spawned_srv = srv.clone();
-/// let join_handle = tokio::spawn(async move { spawned_srv.run().await });
+///     // Create the server with default middleware.
+///     let middleware = MiddlewareBuilder::default().finish();
 ///
-/// // ... do something ...
+///     // Create a server that will accept those connections and pass
+///     // received messages to your service and in turn pass generated
+///     // responses back to the client.
+///     let srv = Arc::new(DgramServer::new(udpsocket, VecBufSource, svc)
+///         .with_middleware(middleware));
 ///
-/// // Shutdown the server.
-/// srv.shutdown().unwrap();
+///     // Run the server.
+///     let spawned_srv = srv.clone();
+///     let join_handle = tokio::spawn(async move { spawned_srv.run().await });
 ///
-/// // Wait for shutdown to complete.
-/// join_handle.await.unwrap();
-/// # }
+///     // ... do something ...
+///
+///     // Shutdown the server.
+///     srv.shutdown().unwrap();
+///
+///     // Wait for shutdown to complete.
+///     join_handle.await.unwrap();
+/// }
 /// ```
 ///
 /// [`Service`]: super::service::Service

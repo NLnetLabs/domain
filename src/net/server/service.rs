@@ -123,7 +123,6 @@ pub type ServiceResultItem<Target, Error> =
 /// ```
 /// use core::future::ready;
 /// use core::future::Future;
-/// use std::net::UdpSocket;
 /// use domain::base::iana::Class;
 /// use domain::base::iana::Rcode;
 /// use domain::base::name::ToLabelIter;
