@@ -128,7 +128,7 @@ pub type TcpServer<Svc> = StreamServer<TcpListener, VecBufSource, Svc>;
 pub struct StreamServer<Listener, Buf, Svc>
 where
     Listener: AsyncAccept + Send + Sync + 'static,
-    Buf: BufSource + Send + Sync + 'static,
+    Buf: BufSource + Send + Sync + 'static + Clone,
     Buf::Output: Send + Sync + 'static,
     Svc: Service<Buf::Output> + Send + Sync + 'static,
 {
@@ -148,7 +148,7 @@ where
     listener: Arc<Listener>,
 
     /// A [`BufSource`] for creating buffers on demand.
-    buf: Arc<Buf>,
+    buf: Buf,
 
     /// A [`Service`] for handling received requests and generating responses.
     service: Arc<Svc>,
@@ -167,7 +167,7 @@ where
 impl<Listener, Buf, Svc> StreamServer<Listener, Buf, Svc>
 where
     Listener: AsyncAccept + Send + Sync + 'static,
-    Buf: BufSource + Send + Sync + 'static,
+    Buf: BufSource + Send + Sync + 'static + Clone,
     Buf::Output: Send + Sync + 'static,
     Svc: Service<Buf::Output> + Send + Sync + 'static,
 {
@@ -179,7 +179,7 @@ where
     /// - A [`BufSource`] for creating buffers on demand.
     /// - A [`Service`] for handling received requests and generating responses.
     #[must_use]
-    pub fn new(listener: Listener, buf: Arc<Buf>, service: Arc<Svc>) -> Self {
+    pub fn new(listener: Listener, buf: Buf, service: Arc<Svc>) -> Self {
         let (command_tx, command_rx) = watch::channel(ServiceCommand::Init);
         let command_tx = Arc::new(Mutex::new(command_tx));
         let listener = Arc::new(listener);
@@ -243,7 +243,7 @@ where
 impl<Listener, Buf, Svc> StreamServer<Listener, Buf, Svc>
 where
     Listener: AsyncAccept + Send + Sync + 'static,
-    Buf: BufSource + Send + Sync + 'static,
+    Buf: BufSource + Send + Sync + 'static + Clone,
     Buf::Output: Send + Sync + 'static,
     Svc: Service<Buf::Output> + Send + Sync + 'static,
 {
@@ -265,7 +265,7 @@ where
 impl<Listener, Buf, Svc> StreamServer<Listener, Buf, Svc>
 where
     Listener: AsyncAccept + Send + Sync + 'static,
-    Buf: BufSource + Send + Sync + 'static,
+    Buf: BufSource + Send + Sync + 'static + Clone,
     Buf::Output: Send + Sync + 'static,
     Svc: Service<Buf::Output> + Send + Sync + 'static,
 {
@@ -310,7 +310,7 @@ where
 impl<Listener, Buf, Svc> StreamServer<Listener, Buf, Svc>
 where
     Listener: AsyncAccept + Send + Sync + 'static,
-    Buf: BufSource + Send + Sync + 'static,
+    Buf: BufSource + Send + Sync + 'static + Clone,
     Buf::Output: Send + Sync + 'static,
     Svc: Service<Buf::Output> + Send + Sync + 'static,
 {
@@ -451,7 +451,7 @@ where
 impl<Listener, Buf, Svc> Drop for StreamServer<Listener, Buf, Svc>
 where
     Listener: AsyncAccept + Send + Sync + 'static,
-    Buf: BufSource + Send + Sync + 'static,
+    Buf: BufSource + Send + Sync + 'static + Clone,
     Buf::Output: Send + Sync + 'static,
     Svc: Service<Buf::Output> + Send + Sync + 'static,
 {

@@ -28,11 +28,11 @@ use tracing::{debug, error};
 pub struct Connection<Stream, Buf, Svc>
 where
     Stream: AsyncRead + AsyncWrite + Send + Sync + 'static,
-    Buf: BufSource + Send + Sync + 'static,
+    Buf: BufSource + Send + Sync + 'static + Clone,
     Buf::Output: Send + Sync + 'static,
     Svc: Service<Buf::Output> + Send + Sync + 'static,
 {
-    buf_source: Arc<Buf>,
+    buf_source: Buf,
     metrics: Arc<ServerMetrics>,
     service: Arc<Svc>,
     middleware_chain: Option<MiddlewareChain<Buf::Output, Svc::Target>>,
@@ -45,7 +45,7 @@ where
 impl<Stream, Buf, Svc> Connection<Stream, Buf, Svc>
 where
     Stream: AsyncRead + AsyncWrite + Send + Sync + 'static,
-    Buf: BufSource + Send + Sync + 'static,
+    Buf: BufSource + Send + Sync + 'static + Clone,
     Buf::Output: Send + Sync + 'static,
     Svc: Service<Buf::Output> + Send + Sync + 'static,
 {
@@ -53,7 +53,7 @@ where
     pub fn new(
         service: Arc<Svc>,
         middleware_chain: Option<MiddlewareChain<Buf::Output, Svc::Target>>,
-        buf_source: Arc<Buf>,
+        buf_source: Buf,
         metrics: Arc<ServerMetrics>,
         stream: Stream,
         addr: SocketAddr,
@@ -74,7 +74,7 @@ where
 impl<Stream, Buf, Svc> Connection<Stream, Buf, Svc>
 where
     Stream: AsyncRead + AsyncWrite + Send + Sync + 'static,
-    Buf: BufSource + Send + Sync + 'static,
+    Buf: BufSource + Send + Sync + 'static + Clone,
     Buf::Output: Send + Sync + 'static,
     Svc: Service<Buf::Output> + Send + Sync + 'static,
 {
@@ -117,7 +117,7 @@ where
 impl<Stream, Buf, Svc> Connection<Stream, Buf, Svc>
 where
     Stream: AsyncRead + AsyncWrite + Send + Sync + 'static,
-    Buf: BufSource + Send + Sync + 'static,
+    Buf: BufSource + Send + Sync + 'static + Clone,
     Buf::Output: Send + Sync + 'static,
     Svc: Service<Buf::Output> + Send + Sync + 'static,
 {
@@ -468,7 +468,7 @@ impl<Stream, Buf, Svc> MessageProcessor<Buf, Svc>
     for Connection<Stream, Buf, Svc>
 where
     Stream: AsyncRead + AsyncWrite + Send + Sync + 'static,
-    Buf: BufSource + Send + Sync + 'static,
+    Buf: BufSource + Send + Sync + 'static + Clone,
     Buf::Output: Send + Sync + 'static,
     Svc: Service<Buf::Output> + Send + Sync + 'static,
 {
@@ -532,7 +532,7 @@ enum ConnectionEvent<T> {
 pub struct StreamState<Stream, Buf, Svc>
 where
     Stream: AsyncRead + AsyncWrite + Send + Sync + 'static,
-    Buf: BufSource + Send + Sync + 'static,
+    Buf: BufSource + Send + Sync + 'static + Clone,
     Buf::Output: Send + Sync + 'static,
     Svc: Service<Buf::Output> + Send + Sync + 'static,
 {
@@ -570,7 +570,7 @@ where
 impl<Stream, Buf, Svc> StreamState<Stream, Buf, Svc>
 where
     Stream: AsyncRead + AsyncWrite + Send + Sync + 'static,
-    Buf: BufSource + Send + Sync + 'static,
+    Buf: BufSource + Send + Sync + 'static + Clone,
     Buf::Output: Send + Sync + 'static,
     Svc: Service<Buf::Output> + Send + Sync + 'static,
 {

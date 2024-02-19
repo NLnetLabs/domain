@@ -261,7 +261,9 @@ impl AsyncAccept for MockListener {
     }
 }
 
+#[derive(Clone)]
 struct MockBufSource;
+
 impl BufSource for MockBufSource {
     type Output = Vec<u8>;
 
@@ -395,11 +397,8 @@ async fn stop_service_test() {
 
         let buf = MockBufSource;
         let my_service = Arc::new(MyService::new());
-        let srv = Arc::new(StreamServer::new(
-            listener,
-            buf.into(),
-            my_service.clone(),
-        ));
+        let srv =
+            Arc::new(StreamServer::new(listener, buf, my_service.clone()));
 
         let metrics = srv.metrics();
         let server_status_printer_handle = tokio::spawn(async move {

@@ -119,7 +119,7 @@ where
     let dgram_server_conn = ClientServerChannel::new_dgram();
     let dgram_server = DgramServer::new(
         dgram_server_conn.clone(),
-        Arc::new(VecBufSource),
+        VecBufSource,
         service.clone(),
     );
     let dgram_server = dgram_server.with_middleware(middleware.clone());
@@ -128,11 +128,8 @@ where
     // Create a stream server for handling TCP requests, i.e. Deckard queries
     // with "MATCH TCP".
     let stream_server_conn = ClientServerChannel::new_stream();
-    let stream_server = StreamServer::new(
-        stream_server_conn.clone(),
-        Arc::new(VecBufSource),
-        service,
-    );
+    let stream_server =
+        StreamServer::new(stream_server_conn.clone(), VecBufSource, service);
     let stream_server = stream_server.with_middleware(middleware);
     tokio::spawn(async move { stream_server.run().await });
 

@@ -5,6 +5,7 @@
 //! transaction that yields one or more future DNS responses, and/or a
 //! [`ServiceCommand`].
 use core::marker::Send;
+// use core::ops::Deref;
 use std::boxed::Box;
 use std::future::Future;
 use std::pin::Pin;
@@ -199,12 +200,26 @@ pub trait Service<RequestOctets: AsRef<[u8]> = Vec<u8>> {
     type Single: Future<Output = ServiceResultItem<Self::Target, Self::Error>>
         + Send;
 
-    #[allow(clippy::type_complexity)]
     fn call(
         &self,
         message: Arc<ContextAwareMessage<Message<RequestOctets>>>,
     ) -> ServiceResult<Self::Target, Self::Error, Self::Single>;
 }
+
+// impl<RequestOctets: AsRef<[u8]>, T: Service<RequestOctets>>
+//     Service<RequestOctets> for Arc<T>
+// {
+//     type Error = T::Error;
+//     type Target = T::Target;
+//     type Single = T::Single;
+
+//     fn call(
+//         &self,
+//         message: Arc<ContextAwareMessage<Message<RequestOctets>>>,
+//     ) -> ServiceResult<Self::Target, Self::Error, Self::Single> {
+//         Arc::deref(self).call(message)
+//     }
+// }
 
 impl<RequestOctets, Error, Target, Single, F> Service<RequestOctets> for F
 where

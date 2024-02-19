@@ -118,7 +118,7 @@ where
     command_rx: watch::Receiver<ServiceCommand>,
     command_tx: Arc<Mutex<watch::Sender<ServiceCommand>>>,
     sock: Arc<Sock>,
-    buf: Arc<Buf>,
+    buf: Buf,
     service: Arc<Svc>,
     middleware_chain: Option<MiddlewareChain<Buf::Output, Svc::Target>>,
     metrics: Arc<ServerMetrics>,
@@ -129,7 +129,7 @@ where
 impl<Sock, Buf, Svc> DgramServer<Sock, Buf, Svc>
 where
     Sock: AsyncDgramSock + Send + Sync + 'static,
-    Buf: BufSource + Send + Sync + 'static,
+    Buf: BufSource + Send + Sync + 'static + Clone,
     Buf::Output: Send + Sync + 'static + Debug,
     Svc: Service<Buf::Output> + Send + Sync + 'static,
 {
@@ -145,7 +145,7 @@ where
     ///
     /// [`run()`]: Self::run()
     #[must_use]
-    pub fn new(sock: Sock, buf: Arc<Buf>, service: Arc<Svc>) -> Self {
+    pub fn new(sock: Sock, buf: Buf, service: Arc<Svc>) -> Self {
         let (command_tx, command_rx) = watch::channel(ServiceCommand::Init);
         let command_tx = Arc::new(Mutex::new(command_tx));
         let metrics = Arc::new(ServerMetrics::connection_less());
