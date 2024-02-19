@@ -11,11 +11,12 @@
 //! * [dgram] DNS over a datagram protocol, typically UDP.
 //! * [stream] DNS over an octet stream protocol, typically TCP or TLS.
 //!   Only a single connection is supported.
+//!   The transport works as long as the connection continues to exist.
 //! * [multi_stream] This is a layer on top [stream] where new connections
 //!   are established as old connections are closed (or fail).
-//! * [dgram_stream] This is a combination of [dgram] and [multi_stream]: if
-//!   a truncate response is received from [dgram] then the request is
-//!   retried over [multi_stream].
+//! * [dgram_stream] This is a combination of [dgram] and [multi_stream].
+//!   This is typically needed because a request over UDP can receive
+//!   a truncated response, which should be retried over TCP.
 //! * [redundant] This transport multiplexes requests over a collection of
 //!   transport connections. The [redundant] transport favors the connection
 //!   with the lowest response time. And of the other transports can be added
@@ -66,9 +67,11 @@
 //! # use domain::net::client::multi_stream;
 //! # use domain::net::client::protocol::TcpConnect;
 //! # use domain::net::client::request::SendRequest;
+//! # use std::net::{IpAddr, SocketAddr};
+//! # use std::str::FromStr;
 //! # use std::time::Duration;
 //! # async fn _test() {
-//! # let server_addr = String::from("127.0.0.1:53");
+//! # let server_addr = SocketAddr::new(IpAddr::from_str("::1").unwrap(), 53);
 //! let mut multi_stream_config = multi_stream::Config::default();
 //! multi_stream_config.stream_mut().set_response_timeout(
 //!     Duration::from_millis(100),
@@ -84,19 +87,6 @@
 //! # let mut request = tcp_conn.send_request(req);
 //! # }
 //! ```
-//! The currently implemented DNS transports have the following layering. At
-//! the lowest layer are [dgram] and [stream]. The dgram transport is used for
-//! DNS over UDP, the stream transport is used for DNS over a single TCP or
-//! TLS connection. The transport works as long as the connection continuous
-//! to exist.
-//! The [multi_stream] transport is layered on top of stream, and creates new
-//! TCP or TLS connections when old ones terminates.
-//! Next, [dgram_stream] combines the dgram transport with the multi_stream
-//! transport. This is typically needed because a request over UDP can receive
-//! a truncated response, which should be retried over TCP.
-//! Finally, the [redundant] transport can select the best transport out of
-//! a collection of underlying transports.
-
 //! # Sending the request
 //!
 //! A DNS transport implements the [SendRequest][request::SendRequest] trait.
@@ -107,10 +97,12 @@
 //! For example:
 //! ```no_run
 //! # use domain::net::client::request::SendRequest;
+//! # use std::net::{IpAddr, SocketAddr};
+//! # use std::str::FromStr;
 //! # async fn _test() {
 //! # let (tls_conn, _) = domain::net::client::stream::Connection::new(
 //! #     domain::net::client::protocol::TcpConnect::new(
-//! #         String::from("127.0.0.1:53")
+//! #         SocketAddr::new(IpAddr::from_str("::1").unwrap(), 53)
 //! #     )
 //! # );
 //! # let req = domain::net::client::request::RequestMessage::new(
@@ -133,10 +125,12 @@
 //! For example:
 //! ```no_run
 //! # use crate::domain::net::client::request::SendRequest;
+//! # use std::net::{IpAddr, SocketAddr};
+//! # use std::str::FromStr;
 //! # async fn _test() {
 //! # let (tls_conn, _) = domain::net::client::stream::Connection::new(
 //! #     domain::net::client::protocol::TcpConnect::new(
-//! #         String::from("127.0.0.1:53")
+//! #         SocketAddr::new(IpAddr::from_str("::1").unwrap(), 53)
 //! #     )
 //! # );
 //! # let req = domain::net::client::request::RequestMessage::new(
