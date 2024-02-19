@@ -130,7 +130,7 @@ where
     Listener: AsyncAccept + Send + Sync + 'static,
     Buf: BufSource + Send + Sync + 'static + Clone,
     Buf::Output: Send + Sync + 'static,
-    Svc: Service<Buf::Output> + Send + Sync + 'static,
+    Svc: Service<Buf::Output> + Send + Sync + 'static + Clone,
 {
     /// A receiver for receiving [`ServiceCommand`]s.
     ///
@@ -151,7 +151,7 @@ where
     buf: Buf,
 
     /// A [`Service`] for handling received requests and generating responses.
-    service: Arc<Svc>,
+    service: Svc,
 
     /// An optional pre-connect hook.
     pre_connect_hook: Option<fn(&mut Listener::StreamType)>,
@@ -169,7 +169,7 @@ where
     Listener: AsyncAccept + Send + Sync + 'static,
     Buf: BufSource + Send + Sync + 'static + Clone,
     Buf::Output: Send + Sync + 'static,
-    Svc: Service<Buf::Output> + Send + Sync + 'static,
+    Svc: Service<Buf::Output> + Send + Sync + 'static + Clone,
 {
     /// Constructs a new [`StreamServer`] instance.
     ///
@@ -179,7 +179,7 @@ where
     /// - A [`BufSource`] for creating buffers on demand.
     /// - A [`Service`] for handling received requests and generating responses.
     #[must_use]
-    pub fn new(listener: Listener, buf: Buf, service: Arc<Svc>) -> Self {
+    pub fn new(listener: Listener, buf: Buf, service: Svc) -> Self {
         let (command_tx, command_rx) = watch::channel(ServiceCommand::Init);
         let command_tx = Arc::new(Mutex::new(command_tx));
         let listener = Arc::new(listener);
@@ -245,7 +245,7 @@ where
     Listener: AsyncAccept + Send + Sync + 'static,
     Buf: BufSource + Send + Sync + 'static + Clone,
     Buf::Output: Send + Sync + 'static,
-    Svc: Service<Buf::Output> + Send + Sync + 'static,
+    Svc: Service<Buf::Output> + Send + Sync + 'static + Clone,
 {
     /// Get a reference to the source for this server.
     #[must_use]
@@ -267,7 +267,7 @@ where
     Listener: AsyncAccept + Send + Sync + 'static,
     Buf: BufSource + Send + Sync + 'static + Clone,
     Buf::Output: Send + Sync + 'static,
-    Svc: Service<Buf::Output> + Send + Sync + 'static,
+    Svc: Service<Buf::Output> + Send + Sync + 'static + Clone,
 {
     /// Start the server.
     ///
@@ -312,7 +312,7 @@ where
     Listener: AsyncAccept + Send + Sync + 'static,
     Buf: BufSource + Send + Sync + 'static + Clone,
     Buf::Output: Send + Sync + 'static,
-    Svc: Service<Buf::Output> + Send + Sync + 'static,
+    Svc: Service<Buf::Output> + Send + Sync + 'static + Clone,
 {
     /// Accept stream connections until shutdown or fatal error.
     ///
@@ -453,7 +453,7 @@ where
     Listener: AsyncAccept + Send + Sync + 'static,
     Buf: BufSource + Send + Sync + 'static + Clone,
     Buf::Output: Send + Sync + 'static,
-    Svc: Service<Buf::Output> + Send + Sync + 'static,
+    Svc: Service<Buf::Output> + Send + Sync + 'static + Clone,
 {
     fn drop(&mut self) {
         // Shutdown the StreamServer. Don't handle the failure case here as

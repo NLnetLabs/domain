@@ -344,8 +344,7 @@ async fn main() {
     //    dig +short +keepopen +tcp -4 @127.0.0.1 -p 8082 A google.com
     let udpsocket = UdpSocket::bind("127.0.0.1:8053").await.unwrap();
     let buf_source = Arc::new(VecBufSource);
-    let srv =
-        DgramServer::new(udpsocket, buf_source.clone(), name_to_ip.into());
+    let srv = DgramServer::new(udpsocket, buf_source.clone(), name_to_ip);
     let srv = srv.with_middleware(middleware.clone());
 
     let udp_join_handle = tokio::spawn(async move { srv.run().await });
@@ -481,7 +480,7 @@ async fn main() {
     let listener = BufferedTcpListener(listener);
     let count = Arc::new(AtomicU8::new(5));
 
-    let fn_svc = mk_service(query::<Vec<u8>>, count).into();
+    let fn_svc = mk_service(query::<Vec<u8>>, count);
 
     let mut fn_svc_middleware = MiddlewareBuilder::default();
     let server_secret = "server12secret34".as_bytes().try_into().unwrap();

@@ -30,11 +30,11 @@ where
     Stream: AsyncRead + AsyncWrite + Send + Sync + 'static,
     Buf: BufSource + Send + Sync + 'static + Clone,
     Buf::Output: Send + Sync + 'static,
-    Svc: Service<Buf::Output> + Send + Sync + 'static,
+    Svc: Service<Buf::Output> + Send + Sync + 'static + Clone,
 {
     buf_source: Buf,
     metrics: Arc<ServerMetrics>,
-    service: Arc<Svc>,
+    service: Svc,
     middleware_chain: Option<MiddlewareChain<Buf::Output, Svc::Target>>,
     stream: Option<Stream>,
     addr: SocketAddr,
@@ -47,11 +47,11 @@ where
     Stream: AsyncRead + AsyncWrite + Send + Sync + 'static,
     Buf: BufSource + Send + Sync + 'static + Clone,
     Buf::Output: Send + Sync + 'static,
-    Svc: Service<Buf::Output> + Send + Sync + 'static,
+    Svc: Service<Buf::Output> + Send + Sync + 'static + Clone,
 {
     #[must_use]
     pub fn new(
-        service: Arc<Svc>,
+        service: Svc,
         middleware_chain: Option<MiddlewareChain<Buf::Output, Svc::Target>>,
         buf_source: Buf,
         metrics: Arc<ServerMetrics>,
@@ -76,7 +76,7 @@ where
     Stream: AsyncRead + AsyncWrite + Send + Sync + 'static,
     Buf: BufSource + Send + Sync + 'static + Clone,
     Buf::Output: Send + Sync + 'static,
-    Svc: Service<Buf::Output> + Send + Sync + 'static,
+    Svc: Service<Buf::Output> + Send + Sync + 'static + Clone,
 {
     /// Start reading requests and writing responses to the stream.
     ///
@@ -119,7 +119,7 @@ where
     Stream: AsyncRead + AsyncWrite + Send + Sync + 'static,
     Buf: BufSource + Send + Sync + 'static + Clone,
     Buf::Output: Send + Sync + 'static,
-    Svc: Service<Buf::Output> + Send + Sync + 'static,
+    Svc: Service<Buf::Output> + Send + Sync + 'static + Clone,
 {
     async fn run_until_error(
         &self,
@@ -470,7 +470,7 @@ where
     Stream: AsyncRead + AsyncWrite + Send + Sync + 'static,
     Buf: BufSource + Send + Sync + 'static + Clone,
     Buf::Output: Send + Sync + 'static,
-    Svc: Service<Buf::Output> + Send + Sync + 'static,
+    Svc: Service<Buf::Output> + Send + Sync + 'static + Clone,
 {
     type State = Sender<CallResult<Svc::Target>>;
 
@@ -534,7 +534,7 @@ where
     Stream: AsyncRead + AsyncWrite + Send + Sync + 'static,
     Buf: BufSource + Send + Sync + 'static + Clone,
     Buf::Output: Send + Sync + 'static,
-    Svc: Service<Buf::Output> + Send + Sync + 'static,
+    Svc: Service<Buf::Output> + Send + Sync + 'static + Clone,
 {
     stream_tx: WriteHalf<Stream>,
 
@@ -572,7 +572,7 @@ where
     Stream: AsyncRead + AsyncWrite + Send + Sync + 'static,
     Buf: BufSource + Send + Sync + 'static + Clone,
     Buf::Output: Send + Sync + 'static,
-    Svc: Service<Buf::Output> + Send + Sync + 'static,
+    Svc: Service<Buf::Output> + Send + Sync + 'static + Clone,
 {
     #[must_use]
     fn new(

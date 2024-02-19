@@ -119,7 +119,7 @@ where
     command_tx: Arc<Mutex<watch::Sender<ServiceCommand>>>,
     sock: Arc<Sock>,
     buf: Buf,
-    service: Arc<Svc>,
+    service: Svc,
     middleware_chain: Option<MiddlewareChain<Buf::Output, Svc::Target>>,
     metrics: Arc<ServerMetrics>,
 }
@@ -145,7 +145,7 @@ where
     ///
     /// [`run()`]: Self::run()
     #[must_use]
-    pub fn new(sock: Sock, buf: Buf, service: Arc<Svc>) -> Self {
+    pub fn new(sock: Sock, buf: Buf, service: Svc) -> Self {
         let (command_tx, command_rx) = watch::channel(ServiceCommand::Init);
         let command_tx = Arc::new(Mutex::new(command_tx));
         let metrics = Arc::new(ServerMetrics::connection_less());

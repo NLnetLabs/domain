@@ -5,7 +5,7 @@
 //! transaction that yields one or more future DNS responses, and/or a
 //! [`ServiceCommand`].
 use core::marker::Send;
-// use core::ops::Deref;
+use core::ops::Deref;
 use std::boxed::Box;
 use std::future::Future;
 use std::pin::Pin;
@@ -206,20 +206,20 @@ pub trait Service<RequestOctets: AsRef<[u8]> = Vec<u8>> {
     ) -> ServiceResult<Self::Target, Self::Error, Self::Single>;
 }
 
-// impl<RequestOctets: AsRef<[u8]>, T: Service<RequestOctets>>
-//     Service<RequestOctets> for Arc<T>
-// {
-//     type Error = T::Error;
-//     type Target = T::Target;
-//     type Single = T::Single;
+impl<RequestOctets: AsRef<[u8]>, T: Service<RequestOctets>>
+    Service<RequestOctets> for Arc<T>
+{
+    type Error = T::Error;
+    type Target = T::Target;
+    type Single = T::Single;
 
-//     fn call(
-//         &self,
-//         message: Arc<ContextAwareMessage<Message<RequestOctets>>>,
-//     ) -> ServiceResult<Self::Target, Self::Error, Self::Single> {
-//         Arc::deref(self).call(message)
-//     }
-// }
+    fn call(
+        &self,
+        message: Arc<ContextAwareMessage<Message<RequestOctets>>>,
+    ) -> ServiceResult<Self::Target, Self::Error, Self::Single> {
+        Arc::deref(self).call(message)
+    }
+}
 
 impl<RequestOctets, Error, Target, Single, F> Service<RequestOctets> for F
 where
@@ -227,8 +227,8 @@ where
         Arc<ContextAwareMessage<Message<RequestOctets>>>,
     ) -> ServiceResult<Target, Error, Single>,
     RequestOctets: AsRef<[u8]>,
-    Target: Composer + Default + Send + Sync + 'static,
     Error: Send + Sync + 'static,
+    Target: Composer + Default + Send + Sync + 'static,
     Single: Future<Output = ServiceResultItem<Target, Error>> + Send,
 {
     type Error = Error;

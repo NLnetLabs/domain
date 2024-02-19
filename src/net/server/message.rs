@@ -182,7 +182,7 @@ where
         addr: SocketAddr,
         state: Self::State,
         middleware_chain: Option<MiddlewareChain<Buf::Output, Svc::Target>>,
-        svc: &Arc<Svc>,
+        svc: &Svc,
         metrics: Arc<ServerMetrics>,
     ) -> Result<(), ServiceError<Svc::Error>>
     where
