@@ -1,7 +1,7 @@
 //! A client cache.
 
-//#![warn(missing_docs)]
-//#![warn(clippy::missing_docs_in_private_items)]
+#![warn(missing_docs)]
+#![warn(clippy::missing_docs_in_private_items)]
 
 use crate::base::iana::{Class, Opcode, OptRcode, Rtype};
 use crate::base::name::ToDname;
@@ -12,36 +12,82 @@ use crate::base::ParsedDname;
 use crate::base::StaticCompressor;
 use crate::base::Ttl;
 use crate::dep::octseq::Octets;
+use crate::net::client::clock::{Clock, Elapsed, SystemClock};
 use crate::net::client::request::{
     ComposeRequest, Error, GetResponse, SendRequest,
 };
-use crate::net::client::time::{Elapsed, SimpleTime, Time};
 use crate::rdata::AllRecordData;
+use crate::utils::config::DefMinMax;
 use bytes::Bytes;
 use moka::future::Cache;
 use std::boxed::Box;
 use std::cmp::min;
 use std::fmt::{Debug, Formatter};
 use std::future::Future;
-use std::marker::PhantomData;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Duration;
 use std::vec::Vec;
 
-const MAX_CACHE_ENTRIES: u64 = 10_000;
+/// Configuration limit for the maximum number of entries in the cache.
+const MAX_CACHE_ENTRIES: DefMinMax<u64> =
+    DefMinMax::new(1_000, 1, 1_000_000_000);
 
-const MAX_VALIDITY: u32 = 1_000_000;
+/// Limit on the maximum time a cache entry is considered valid.
+///
+/// According to RFC 8767 the limit should be on the order of days to
+/// weeks with a recommended cap of 604800 seconds (7 days).
+const MAX_VALIDITY: DefMinMax<Duration> = DefMinMax::new(
+    Duration::from_secs(604800),
+    Duration::from_secs(60),
+    Duration::from_secs(6048000),
+);
 
-// Min 1 second, max 5 minutes
-const DEF_TRANSPORT_FAILURE_DURATION: Duration = Duration::from_secs(30);
+/// Amount of time to cache transport failures.
+///
+/// According to RFC 9520 at least 1 second and at most 5 minutes.
+const TRANSPORT_FAILURE_DURATION: DefMinMax<Duration> = DefMinMax::new(
+    Duration::from_secs(30),
+    Duration::from_secs(1),
+    Duration::from_secs(5 * 60),
+);
 
-// Min 1 second, max 5 minutes
-const DEF_MISC_ERROR_TTL: u32 = 30;
+/// Limit on the amount of time to cache DNS result codes that are not
+/// NOERROR or NXDOMAIN.
+///
+/// According to RFC 9520 at least 1 second and at most 5 minutes.
+const MISC_ERROR_DURATION: DefMinMax<Duration> = DefMinMax::new(
+    Duration::from_secs(30),
+    Duration::from_secs(1),
+    Duration::from_secs(5 * 60),
+);
 
-const DEF_NXDOMAIN_TTL: u32 = 24 * 3600;
-const DEF_NODATA_TTL: u32 = 24 * 3600;
-const DEF_DELEGATION_TTL: u32 = 24 * 3600;
+/// Limit on the amount of time to cache a NXDOMAIN error.
+///
+/// According to RFC 2308 the limit should be one to three hour with a
+/// maximum of one day.
+const MAX_NXDOMAIN_VALIDITY: DefMinMax<Duration> = DefMinMax::new(
+    Duration::from_secs(3600),
+    Duration::from_secs(60),
+    Duration::from_secs(24 * 3600),
+);
+
+/// Limit on the amount of time to cache a NODATA response.
+///
+/// According to RFC 2308 the limit should be one to three hour with a
+/// maximum of one day.
+const MAX_NODATA_VALIDITY: DefMinMax<Duration> = DefMinMax::new(
+    Duration::from_secs(3600),
+    Duration::from_secs(60),
+    Duration::from_secs(24 * 3600),
+);
+
+/// Limit on the amount of time a delegation is considered valid.
+const MAX_DELEGATION_VALIDITY: DefMinMax<Duration> = DefMinMax::new(
+    Duration::from_secs(1_000_000),
+    Duration::from_secs(60),
+    Duration::from_secs(1_000_000_000),
+);
 
 // The following four flags are relevant to caching: AD, CD, DO, and RD.
 //
@@ -91,32 +137,103 @@ const DEF_DELEGATION_TTL: u32 = 24 * 3600;
 //------------ Config ---------------------------------------------------------
 
 /// Configuration of a cache.
-#[derive(Clone, Debug, Default)]
-pub struct Config {}
+#[derive(Clone, Debug)]
+pub struct Config {
+    /// Maximum number of cache entries.
+    max_cache_entries: u64,
+
+    /// Maximum validity of a normal result.
+    max_validity: Duration,
+
+    /// Cache duration of transport failures.
+    transport_failure_duration: Duration,
+
+    /// Cache durations of misc. errors.
+    misc_error_duration: Duration,
+
+    /// Maximum validity of NXDOMAIN results.
+    max_nxdomain_validity: Duration,
+
+    /// Maximum validity of NODATA results.
+    max_nodata_validity: Duration,
+
+    /// Maximum validity of delegations.
+    max_delegation_validity: Duration,
+}
 
 impl Config {
     /// Creates a new config with default values.
     pub fn new() -> Self {
         Default::default()
     }
-}
 
-/*
-impl Default for Config {
-    fn default() -> Self {
-        Self {}
+    /// Set the maximum number of cache entries.
+    pub fn set_max_cache_entries(&mut self, value: u64) {
+        self.max_cache_entries = MAX_CACHE_ENTRIES.limit(value)
+    }
+
+    /// Set the maximum validity of cache entries.
+    pub fn set_max_validity(&mut self, value: Duration) {
+        self.max_validity = MAX_VALIDITY.limit(value)
+    }
+
+    /// Set the time to cache transport failures.
+    pub fn set_transport_failure_duration(&mut self, value: Duration) {
+        self.transport_failure_duration =
+            TRANSPORT_FAILURE_DURATION.limit(value)
+    }
+
+    /// Set the maximum time to cache results other than NOERROR or NXDOMAIN.
+    pub fn set_misc_error_duration(&mut self, value: Duration) {
+        self.misc_error_duration = MISC_ERROR_DURATION.limit(value)
+    }
+
+    /// Set the maximum time to cache NXDOMAIN results.
+    pub fn set_max_nxdomain_validity(&mut self, value: Duration) {
+        self.max_nxdomain_validity = MAX_NXDOMAIN_VALIDITY.limit(value)
+    }
+
+    /// Set the maximum time to cache NODATA results.
+    pub fn set_max_nodata_validity(&mut self, value: Duration) {
+        self.max_nodata_validity = MAX_NODATA_VALIDITY.limit(value)
+    }
+
+    /// Set the maximum time to cache delegations.
+    pub fn set_max_deletation_validity(&mut self, value: Duration) {
+        self.max_delegation_validity = MAX_DELEGATION_VALIDITY.limit(value)
     }
 }
-*/
+
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            max_cache_entries: MAX_CACHE_ENTRIES.default(),
+            max_validity: MAX_VALIDITY.default(),
+            transport_failure_duration: TRANSPORT_FAILURE_DURATION.default(),
+            misc_error_duration: MISC_ERROR_DURATION.default(),
+            max_nxdomain_validity: MAX_NXDOMAIN_VALIDITY.default(),
+            max_nodata_validity: MAX_NODATA_VALIDITY.default(),
+            max_delegation_validity: MAX_DELEGATION_VALIDITY.default(),
+        }
+    }
+}
 
 //------------ Connection -----------------------------------------------------
 
 #[derive(Clone)]
 /// A connection that cache response from an upstream connection.
-pub struct Connection<Upstream, T: Send + Sync + Time = SimpleTime> {
+pub struct Connection<Upstream, C: Clock + Send + Sync = SystemClock> {
+    /// Upstream transport to use for requests.
     upstream: Upstream,
-    cache: Cache<Key, Arc<Value<T>>>,
-    _phantom: PhantomData<T>,
+
+    /// The cache for this connection.
+    cache: Cache<Key, Arc<Value<C>>>,
+
+    /// The configuration of this connection.
+    config: Config,
+
+    /// The clock to use for expiring cache entries.
+    clock: C,
 }
 
 impl<Upstream> Connection<Upstream> {
@@ -126,30 +243,36 @@ impl<Upstream> Connection<Upstream> {
     }
 
     /// Create a new connection with specified configuration parameters.
-    pub fn with_config(upstream: Upstream, _config: Config) -> Self {
+    pub fn with_config(upstream: Upstream, config: Config) -> Self {
         Self {
             upstream,
-            cache: Cache::new(MAX_CACHE_ENTRIES),
-            _phantom: PhantomData,
+            cache: Cache::new(config.max_cache_entries),
+            config,
+            clock: SystemClock::new(),
         }
     }
 }
 
-impl<Upstream, T> Connection<Upstream, T>
+impl<Upstream, C> Connection<Upstream, C>
 where
-    T: Send + Sync + Time + 'static,
+    C: Clock + Send + Sync + 'static,
 {
     /// Create a new connection with default configuration parameters.
-    pub fn new_with_time(upstream: Upstream) -> Self {
-        Self::with_time_config(upstream, Default::default())
+    pub fn new_with_time(upstream: Upstream, clock: C) -> Self {
+        Self::with_time_config(upstream, clock, Default::default())
     }
 
     /// Create a new connection with specified configuration parameters.
-    pub fn with_time_config(upstream: Upstream, _config: Config) -> Self {
+    pub fn with_time_config(
+        upstream: Upstream,
+        clock: C,
+        config: Config,
+    ) -> Self {
         Self {
             upstream,
-            cache: Cache::new(MAX_CACHE_ENTRIES),
-            _phantom: PhantomData,
+            cache: Cache::new(config.max_cache_entries),
+            config,
+            clock,
         }
     }
 }
@@ -162,17 +285,22 @@ impl<Upstream> Debug for Connection<Upstream> {
 
 //------------ SendRequest ----------------------------------------------------
 
-impl<CR, Upstream, T> SendRequest<CR> for Connection<Upstream, T>
+impl<CR, Upstream, C> SendRequest<CR> for Connection<Upstream, C>
 where
     CR: Clone + ComposeRequest + 'static,
     Upstream: Clone + SendRequest<CR> + Send + Sync + 'static,
-    T: Debug + Time + Send + Sync + 'static,
+    C: Clock + Debug + Send + Sync + 'static,
 {
-    fn send_request(&self, request_msg: CR) -> Box<dyn GetResponse + Send> {
-        Box::new(Request::<CR, Upstream, T>::new(
+    fn send_request(
+        &self,
+        request_msg: CR,
+    ) -> Box<dyn GetResponse + Send + Sync> {
+        Box::new(Request::<CR, Upstream, C>::new(
             request_msg,
             self.upstream.clone(),
             self.cache.clone(),
+            self.config.clone(),
+            self.clock.clone(),
         ))
     }
 }
@@ -180,100 +308,137 @@ where
 //------------ Request --------------------------------------------------------
 
 /// The state of a request that is executed.
-pub struct Request<CR, Upstream, T>
+pub struct Request<CR, Upstream, C>
 where
     CR: Send + Sync,
     Upstream: Send + Sync,
-    T: Send + Sync + Time,
+    C: Clock + Send + Sync,
 {
+    /// State of the request.
+    state: RequestState,
+
+    /// The request message.
     request_msg: CR,
+
+    /// The upstream transport of the connection.
     upstream: Upstream,
-    cache: Cache<Key, Arc<Value<T>>>,
-    _phantom: PhantomData<T>,
+
+    /// The cache of the connection.
+    cache: Cache<Key, Arc<Value<C>>>,
+
+    /// The configuration of the connection.
+    config: Config,
+
+    /// The clock to use for expiring cache entries.
+    clock: C,
 }
 
-impl<CR, Upstream, T> Request<CR, Upstream, T>
+impl<CR, Upstream, C> Request<CR, Upstream, C>
 where
     CR: Clone + ComposeRequest + Send + Sync,
     Upstream: SendRequest<CR> + Send + Sync,
-    T: Debug + Send + Sync + Time + 'static,
+    C: Clock + Debug + Send + Sync + 'static,
 {
+    /// Create a new Request object.
     fn new(
         request_msg: CR,
         upstream: Upstream,
-        cache: Cache<Key, Arc<Value<T>>>,
-    ) -> Request<CR, Upstream, T> {
+        cache: Cache<Key, Arc<Value<C>>>,
+        config: Config,
+        clock: C,
+    ) -> Request<CR, Upstream, C> {
         Self {
+            state: RequestState::Init,
             request_msg,
             upstream,
             cache,
-            _phantom: PhantomData,
+            config,
+            clock,
         }
     }
 
-    // XXX Note that function has to be cancel safe but isn't
+    /// This is the implementation of the get_response method.
+    // This function is cancel safe.
     async fn get_response_impl(&mut self) -> Result<Message<Bytes>, Error> {
-        println!("get_response_impl: starting");
-        let msg = self.request_msg.to_message();
-        let header = msg.header();
-        let opcode = header.opcode();
+        loop {
+            match &mut self.state {
+                RequestState::Init => {
+                    let msg = self.request_msg.to_message();
+                    let header = msg.header();
+                    let opcode = header.opcode();
 
-        // Extract Qname, Qclass, Qtype
-        let mut question_section = msg.question();
-        let question = question_section.next().unwrap().unwrap();
-        if question_section.next().is_some() {
-            panic!("should handle multiple questions");
-        }
-        let qname = question.qname();
-        let qclass = question.qclass();
-        let qtype = question.qtype();
+                    // Extract Qname, Qclass, Qtype
+                    let mut question_section = msg.question();
+                    let question = question_section.next().unwrap().unwrap();
+                    if question_section.next().is_some() {
+                        panic!("should handle multiple questions");
+                    }
+                    let qname = question.qname();
+                    let qclass = question.qclass();
+                    let qtype = question.qtype();
 
-        if !(opcode == Opcode::Query && qclass == Class::In) {
-            // Anything other than a query on the Internet class
-            // should not be cached.
-            let mut request =
-                self.upstream.send_request(self.request_msg.clone());
-            return request.get_response().await;
-        }
+                    if !(opcode == Opcode::Query && qclass == Class::In) {
+                        // Anything other than a query on the Internet class
+                        // should not be cached.
+                        let request = self
+                            .upstream
+                            .send_request(self.request_msg.clone());
+                        self.state =
+                            RequestState::GetResponseNoCache(request);
+                        continue;
+                    }
 
-        println!("get_reponse_impl: got {qname} {qclass} {qtype}");
-        let mut ad = header.ad();
-        let cd = header.cd();
-        let rd = header.rd();
+                    let mut ad = header.ad();
+                    let cd = header.cd();
+                    let rd = header.rd();
 
-        let dnssec_ok = if let Some(opt) = msg.opt() {
-            opt.dnssec_ok()
-        } else {
-            false
-        };
-        if dnssec_ok && !ad {
-            ad = true;
-        }
-        println!("get_reponse_impl: ad {ad}, cd {cd}, rd {rd}, dnssec_ok {dnssec_ok}");
+                    let dnssec_ok = if let Some(opt) = msg.opt() {
+                        opt.dnssec_ok()
+                    } else {
+                        false
+                    };
+                    if dnssec_ok && !ad {
+                        ad = true;
+                    }
 
-        let key = Key::new(qname, qclass, qtype, ad, cd, dnssec_ok, rd);
-        let opt_ce = self.cache_lookup(&key).await;
-        println!("get_response_impl: opt_ce {opt_ce:?}");
-        if let Some(value) = opt_ce {
-            let opt_response = handle_cache_value(qname, value);
-            println!("get_response_impl: opt_response {opt_response:?}");
-            if let Some(response) = opt_response {
-                println!("get_response_impl: returning cached response {response:?}");
-                return response;
+                    let key =
+                        Key::new(qname, qclass, qtype, ad, cd, dnssec_ok, rd);
+                    let opt_ce = self.cache_lookup(&key).await;
+                    if let Some(value) = opt_ce {
+                        let opt_response =
+                            handle_cache_value::<_, C>(qname, value);
+                        if let Some(response) = opt_response {
+                            return response;
+                        }
+                    }
+
+                    let request =
+                        self.upstream.send_request(self.request_msg.clone());
+                    self.state = RequestState::GetResponse(key, request);
+                    continue;
+                }
+                RequestState::GetResponse(key, request) => {
+                    let response = request.get_response().await;
+
+                    let key = key.clone();
+                    let value = Arc::new(Value::new(
+                        &response,
+                        &self.config,
+                        &self.clock,
+                    ));
+                    self.cache_insert(key, value).await;
+
+                    return response;
+                }
+                RequestState::GetResponseNoCache(request) => {
+                    return request.get_response().await;
+                }
             }
         }
-
-        let mut request =
-            self.upstream.send_request(self.request_msg.clone());
-        let response = request.get_response().await;
-
-        let value = Arc::new(Value::<T>::new(&response));
-        self.cache_insert(key, value).await;
-
-        response
     }
 
-    async fn cache_lookup(&self, key: &Key) -> Option<Arc<Value<T>>> {
+    /// Try to find an cache entry for the key.
+    async fn cache_lookup(&self, key: &Key) -> Option<Arc<Value<C>>> {
         // There are 4 flags that may affect the response to a query.
         // In some cases the response to one value of a flag could be
         // used for the ohter value.
@@ -283,10 +448,12 @@ where
         self.cache_lookup_rd_do_ad(key).await
     }
 
+    /// Try to find an cache entry for the key taking into account the
+    /// RD, DO, and AD flags.
     async fn cache_lookup_rd_do_ad(
         &self,
         key: &Key,
-    ) -> Option<Arc<Value<T>>> {
+    ) -> Option<Arc<Value<C>>> {
         // For RD=1 we can only use responses to queries with RD set.
         // For RD=0, first try with RD=0 and then try with RD=1. If
         // RD=1 has an answer, store it as an answer for RD=0.
@@ -299,9 +466,7 @@ where
         // response unmodified.
         let mut alt_key = key.clone();
         alt_key.rd = true;
-        println!("cache_lookup_rd_do_ad: alt {alt_key:?}");
         let opt_value = self.cache_lookup_do_ad(&alt_key).await;
-        println!("cache_lookup_rd_do_ad: cached alt value {opt_value:?}");
         if let Some(value) = &opt_value {
             match &value.response {
                 Err(_) => {
@@ -311,9 +476,10 @@ where
                 Ok(msg) => {
                     let msg = clear_rd(msg);
                     let value =
-                        Arc::new(Value::<T>::new_from_value_and_response(
+                        Arc::new(Value::<C>::new_from_value_and_response(
                             value.clone(),
                             Ok(msg),
+                            &self.config,
                         ));
                     self.cache_insert(key.clone(), value.clone()).await;
                     return Some(value);
@@ -323,7 +489,9 @@ where
         opt_value
     }
 
-    async fn cache_lookup_do_ad(&self, key: &Key) -> Option<Arc<Value<T>>> {
+    /// Try to find an cache entry for the key taking into account the
+    /// DO and AD flags.
+    async fn cache_lookup_do_ad(&self, key: &Key) -> Option<Arc<Value<C>>> {
         // For DO=1 we can only use responses to queries with DO set.
         // For DO=0, first try with DO=0 and then try with DO=1. If
         // DO=1 has an answer, remove DNSSEC related resource records.
@@ -333,7 +501,6 @@ where
         // consistency (if DO is set then with respect to the AD flag
         // the behavior is as if AD is set.
 
-        println!("cache_lookup_do_ad: {key:?}");
         if key.dnssec_ok {
             assert!(key.ad);
         }
@@ -352,9 +519,7 @@ where
         let mut alt_key = key.clone();
         alt_key.dnssec_ok = true;
         alt_key.ad = true;
-        println!("cache_lookup_do_ad: alt {alt_key:?}");
         let opt_value = self.cache.get(&alt_key).await;
-        println!("cache_lookup_do_ad: cached alt value {opt_value:?}");
         if let Some(value) = &opt_value {
             match &value.response {
                 Err(_) => {
@@ -364,9 +529,10 @@ where
                 Ok(msg) => {
                     let msg = remove_dnssec(msg, key.ad);
                     let value =
-                        Arc::new(Value::<T>::new_from_value_and_response(
+                        Arc::new(Value::<C>::new_from_value_and_response(
                             value.clone(),
                             Ok(msg),
+                            &self.config,
                         ));
                     self.cache_insert(key.clone(), value.clone()).await;
                     return Some(value);
@@ -376,21 +542,19 @@ where
         opt_value
     }
 
-    async fn cache_lookup_ad(&self, key: &Key) -> Option<Arc<Value<T>>> {
+    /// Try to find an cache entry for the key taking into account the
+    /// AD flag.
+    async fn cache_lookup_ad(&self, key: &Key) -> Option<Arc<Value<C>>> {
         // For AD=1 we can only use responses to queries with AD set.
         // For AD=0, first try with AD=0 and then try with AD=1. If
         // AD=1 has an answer, clear the AD bit.
-        println!("cache_lookup_ad: {key:?}");
         let opt_value = self.cache.get(key).await;
-        println!("cache_lookup_ad: get cached value {opt_value:?}");
         if opt_value.is_some() || key.ad {
             return opt_value;
         }
         let mut alt_key = key.clone();
         alt_key.ad = true;
-        println!("cache_lookup_ad: alt {alt_key:?}");
         let opt_value = self.cache.get(&alt_key).await;
-        println!("cache_lookup_ad: get alt cached value {opt_value:?}");
         if let Some(value) = &opt_value {
             match &value.response {
                 Err(_) => {
@@ -406,9 +570,10 @@ where
 
                     let msg = clear_ad(msg);
                     let value =
-                        Arc::new(Value::<T>::new_from_value_and_response(
+                        Arc::new(Value::<C>::new_from_value_and_response(
                             value.clone(),
                             Ok(msg),
+                            &self.config,
                         ));
                     self.cache_insert(key.clone(), value.clone()).await;
                     return Some(value);
@@ -418,7 +583,11 @@ where
         opt_value
     }
 
-    async fn cache_insert(&self, key: Key, value: Arc<Value<T>>) {
+    /// Insert new entry in the cache.
+    ///
+    /// Do not insert if the validity is zero.
+    /// Make sure to clear the AA flag.
+    async fn cache_insert(&self, key: Key, value: Arc<Value<C>>) {
         if value.validity.is_zero() {
             // Do not insert cache value that are valid for zero duration.
             return;
@@ -431,9 +600,10 @@ where
             Ok(msg) => {
                 if msg.header().aa() {
                     let msg = clear_aa(msg);
-                    Arc::new(Value::<T>::new_from_value_and_response(
+                    Arc::new(Value::<C>::new_from_value_and_response(
                         value.clone(),
                         Ok(msg),
+                        &self.config,
                     ))
                 } else {
                     // AA is clear. Just insert this value.
@@ -442,51 +612,83 @@ where
             }
         };
 
-        println!("cache_insert: inserting response {key:?} {value:?}");
         self.cache.insert(key, value).await
     }
 }
 
-impl<CR, Upstream, T> Debug for Request<CR, Upstream, T>
+impl<CR, Upstream, C> Debug for Request<CR, Upstream, C>
 where
     CR: Send + Sync,
     Upstream: Send + Sync,
-    T: Send + Sync + Time,
+    C: Clock + Send + Sync,
 {
     fn fmt(&self, _: &mut Formatter<'_>) -> Result<(), core::fmt::Error> {
         todo!()
     }
 }
 
-impl<CR, Upstream, T> GetResponse for Request<CR, Upstream, T>
+impl<CR, Upstream, C> GetResponse for Request<CR, Upstream, C>
 where
     CR: Clone + ComposeRequest + Debug + Sync,
     Upstream: SendRequest<CR> + Send + Sync + 'static,
-    T: Debug + Time + Send + Sync + 'static,
+    C: Clock + Debug + Send + Sync + 'static,
 {
     fn get_response(
         &mut self,
     ) -> Pin<
-        Box<dyn Future<Output = Result<Message<Bytes>, Error>> + Send + '_>,
+        Box<
+            dyn Future<Output = Result<Message<Bytes>, Error>>
+                + Send
+                + Sync
+                + '_,
+        >,
     > {
         Box::pin(self.get_response_impl())
     }
 }
 
+//------------ RequestState ---------------------------------------------------
+/// States of the state machine in get_response_impl
+enum RequestState {
+    /// Initial state, perform a cache lookup.
+    Init,
+
+    /// Wait for a response and insert the response in the cache.
+    GetResponse(Key, Box<dyn GetResponse + Send + Sync>),
+
+    /// Wait for a response but do not insert the response in the cache.
+    GetResponseNoCache(Box<dyn GetResponse + Send + Sync>),
+}
+
 //------------ Key ------------------------------------------------------------
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
+/// The key for cache entries.
 struct Key {
+    /// DNS name in the request.
     qname: Dname<Vec<u8>>,
+
+    /// The request class. Always IN at the moment.
     qclass: Class,
+
+    /// The requested type.
     qtype: Rtype,
+
+    /// Value of the AD flag.
     ad: bool,
+
+    /// Value of the CD flag.
     cd: bool,
+
+    /// Value of the DO flag.
     dnssec_ok: bool,
+
+    /// Value of the RD flag.
     rd: bool,
 }
 
 impl Key {
+    /// Create a new key object.
     fn new<TDN>(
         qname: TDN,
         qclass: Class,
@@ -519,33 +721,47 @@ impl Key {
 //------------ Value ----------------------------------------------------------
 
 #[derive(Debug)]
-struct Value<T>
+/// The value to be cached.
+struct Value<C>
 where
-    T: Send + Sync + Time,
+    C: Clock + Send + Sync,
 {
-    creation: T::Instant,
+    /// Creation time of the cache entry.
+    creation: C::Instant,
+
+    /// The amount time the cache entry is valid.
     validity: Duration,
+
+    /// The cached response.
     response: Result<Message<Bytes>, Error>,
 }
 
-impl<T> Value<T>
+impl<C> Value<C>
 where
-    T: Send + Sync + Time,
+    C: Clock + Send + Sync,
 {
-    fn new(response: &Result<Message<Bytes>, Error>) -> Value<T> {
+    /// Create a new value object.
+    fn new(
+        response: &Result<Message<Bytes>, Error>,
+        config: &Config,
+        clock: &C,
+    ) -> Value<C> {
         Self {
-            creation: T::now(),
-            validity: validity(response),
+            creation: clock.now(),
+            validity: validity(response, config),
             response: response.clone(),
         }
     }
+
+    /// Create a value object that is derived from another value object.
     fn new_from_value_and_response(
-        val: Arc<Value<T>>,
+        val: Arc<Value<C>>,
         response: Result<Message<Bytes>, Error>,
-    ) -> Value<T> {
+        config: &Config,
+    ) -> Value<C> {
         Self {
-            creation: val.creation,
-            validity: validity(&response),
+            creation: val.creation.clone(),
+            validity: validity(&response, config),
             response,
         }
     }
@@ -553,16 +769,17 @@ where
 
 //------------ Utility functions ----------------------------------------------
 
-fn handle_cache_value<TDN, T>(
+/// Handle a cached value. Either return None if the value has expired or
+/// return a response message with decremented TTL values.
+fn handle_cache_value<TDN, C>(
     orig_qname: TDN,
-    value: Arc<Value<T>>,
+    value: Arc<Value<C>>,
 ) -> Option<Result<Message<Bytes>, Error>>
 where
     TDN: ToDname + Clone,
-    T: Send + Sync + Time,
+    C: Clock + Send + Sync,
 {
     let elapsed = value.creation.elapsed();
-    println!("handle_cache_value: elapsed {elapsed:?}");
     if elapsed > value.validity {
         return None;
     }
@@ -571,35 +788,41 @@ where
     Some(response)
 }
 
-fn validity(response: &Result<Message<Bytes>, Error>) -> Duration {
+/// Compute how long a response can be cached.
+fn validity(
+    response: &Result<Message<Bytes>, Error>,
+    config: &Config,
+) -> Duration {
     let msg = match response {
-        Err(_) => return DEF_TRANSPORT_FAILURE_DURATION,
+        Err(_) => return config.transport_failure_duration,
         Ok(msg) => msg,
     };
 
-    let mut min_val = MAX_VALIDITY;
+    let mut min_val = config.max_validity;
 
     match get_opt_rcode(msg) {
         OptRcode::NoError => {
             match classify_no_error(msg) {
                 NoErrorType::Answer => (),
-                NoErrorType::NoData => min_val = min(min_val, DEF_NODATA_TTL),
+                NoErrorType::NoData => {
+                    min_val = min(min_val, config.max_nodata_validity)
+                }
                 NoErrorType::Delegation => {
-                    min_val = min(min_val, DEF_DELEGATION_TTL)
+                    min_val = min(min_val, config.max_delegation_validity)
                 }
                 NoErrorType::NoErrorWeird =>
                 // Weird NODATA response. Don't cache this.
                 {
-                    min_val = 0
+                    min_val = Duration::from_secs(0)
                 }
             }
         }
         OptRcode::NXDomain => {
-            min_val = min(min_val, DEF_NXDOMAIN_TTL);
+            min_val = min(min_val, config.max_nxdomain_validity);
         }
 
         _ => {
-            min_val = min(min_val, DEF_MISC_ERROR_TTL);
+            min_val = min(min_val, config.misc_error_duration);
         }
     }
 
@@ -607,7 +830,8 @@ fn validity(response: &Result<Message<Bytes>, Error>) -> Duration {
     let mut msg = msg.answer().unwrap();
     for rr in &mut msg {
         let rr = rr.unwrap();
-        min_val = min(min_val, rr.ttl().as_secs());
+        min_val =
+            min(min_val, Duration::from_secs(rr.ttl().as_secs() as u64));
     }
 
     let mut msg = msg
@@ -616,7 +840,8 @@ fn validity(response: &Result<Message<Bytes>, Error>) -> Duration {
         .expect("section should be present");
     for rr in &mut msg {
         let rr = rr.unwrap();
-        min_val = min(min_val, rr.ttl().as_secs());
+        min_val =
+            min(min_val, Duration::from_secs(rr.ttl().as_secs() as u64));
     }
 
     let msg = msg
@@ -626,13 +851,15 @@ fn validity(response: &Result<Message<Bytes>, Error>) -> Duration {
     for rr in msg {
         let rr = rr.unwrap();
         if rr.rtype() != Rtype::Opt {
-            min_val = min(min_val, rr.ttl().as_secs());
+            min_val =
+                min(min_val, Duration::from_secs(rr.ttl().as_secs() as u64));
         }
     }
 
-    Duration::from_secs(min_val.into())
+    min_val
 }
 
+/// Return a new message with decremented TTL values.
 fn decrement_ttl<TDN>(
     orig_qname: TDN,
     response: &Result<Message<Bytes>, Error>,
@@ -717,6 +944,7 @@ where
     Ok(msg)
 }
 
+/// Return a new message without the DNSSEC type RRSIG, NSEC, and NSEC3.
 fn remove_dnssec(msg: &Message<Bytes>, ad: bool) -> Message<Bytes> {
     let mut target =
         MessageBuilder::from_target(StaticCompressor::new(Vec::new()))
@@ -789,17 +1017,28 @@ fn remove_dnssec(msg: &Message<Bytes>, ad: bool) -> Message<Bytes> {
         .expect("Message should be able to parse output from MessageBuilder")
 }
 
+/// Check if a type is a DNSSEC type that needs to be removed.
 fn is_dnssec(rtype: Rtype) -> bool {
     rtype == Rtype::Rrsig || rtype == Rtype::Nsec || rtype == Rtype::Nsec3
 }
 
+/// This type represents that various subtypes of a NOERROR result.
 enum NoErrorType {
+    /// The result is an answer to the question.
     Answer,
+
+    /// The name exists, but there is not data for the request class and tpye
+    /// combination.
     NoData,
+
+    /// The upstream DNS server sent a delegation to another DNS zone.
     Delegation,
+
+    /// None of the above. This is not a valid response.
     NoErrorWeird,
 }
 
+/// Classify a responses with a NOERROR result.
 fn classify_no_error<Octs>(msg: &Message<Octs>) -> NoErrorType
 where
     Octs: Octets,
@@ -862,6 +1101,7 @@ fn get_opt_rcode<Octs: Octets>(msg: &Message<Octs>) -> OptRcode {
     }
 }
 
+/// Return a message with the AA flag clear.
 fn clear_aa(msg: &Message<Bytes>) -> Message<Bytes> {
     // Assume the clear_aa will be called only if AA is set. So no need to
     // optimize for the case where AA is clear.
@@ -872,6 +1112,7 @@ fn clear_aa(msg: &Message<Bytes>) -> Message<Bytes> {
     Message::<Bytes>::from_octets(msg.into_octets().into()).unwrap()
 }
 
+/// Return a message with the AD flag clear.
 fn clear_ad(msg: &Message<Bytes>) -> Message<Bytes> {
     // Assume the clear_ad will be called only if AD is set. So no need to
     // optimize for the case where AD is clear.
@@ -882,6 +1123,7 @@ fn clear_ad(msg: &Message<Bytes>) -> Message<Bytes> {
     Message::<Bytes>::from_octets(msg.into_octets().into()).unwrap()
 }
 
+/// Return a message with the RD flag clear.
 fn clear_rd(msg: &Message<Bytes>) -> Message<Bytes> {
     // Assume the clear_rd will be called only if RD is set. So no need to
     // optimize for the case where RD is clear.
