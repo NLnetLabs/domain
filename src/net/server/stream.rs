@@ -90,7 +90,7 @@ pub type TcpServer<Svc> = StreamServer<TcpListener, VecBufSource, Svc>;
 ///     todo!()
 /// }
 ///
-/// #[tokio::main(flavor = "multi_thread")]
+/// #[tokio::main]
 /// async fn main() {
 ///     // Create a service impl from the service fn
 ///     let svc = mk_service(my_service, ());
