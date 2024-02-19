@@ -103,6 +103,10 @@ pub type TcpServer<Svc> = StreamServer<TcpListener, VecBufSource, Svc>;
 /// // responses back to the client.
 /// let srv = Arc::new(StreamServer::new(listener, VecBufSource, my_service));
 ///
+/// // Configure the server with default middleware.
+/// let middleware = MiddlewareBuilder::default().finish();
+/// let srv = srv.with_middleware(middleware);
+///
 /// // Run the server.
 /// let spawned_srv = srv.clone();
 /// let join_handle = tokio::spawn(async move { spawned_srv.run().await });
