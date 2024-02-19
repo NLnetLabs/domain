@@ -89,7 +89,7 @@ where
     /// Any requests received after the shutdown signal or requests still
     /// in-flight will be abandoned.
     ///
-    /// TODO: What does it "abandoned" mean in practice here?
+    /// TODO: What does "abandoned" mean in practice here?
     pub async fn run(mut self, command_rx: watch::Receiver<ServiceCommand>)
     where
         Svc::Single: Send,

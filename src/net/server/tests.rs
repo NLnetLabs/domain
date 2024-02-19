@@ -333,7 +333,6 @@ impl Service<Vec<u8>> for MyService {
     fn call(
         &self,
         _msg: Arc<ContextAwareMessage<Message<Vec<u8>>>>,
-        // TODO: pass other requestor address details e.g. IP address, port, etc.
     ) -> Result<
         Transaction<
             ServiceResultItem<Self::Target, Self::Error>,
