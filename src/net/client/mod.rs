@@ -7,6 +7,22 @@
 //! This module provides DNS transport protocols that allow sending a DNS
 //! request and receiving the corresponding reply.
 //!
+//! Currently the following transport protocols are supported:
+//! * [dgram] DNS over a datagram protocol, typically UDP.
+//! * [stream] DNS over an octet stream protocol, typically TCP or TLS.
+//!   Only a single connection is supported.
+//! * [multi_stream] This is a layer on top [stream] where new connections
+//!   are established as old connections are closed (or fail).
+//! * [dgram_stream] This is a combination of [dgram] and [multi_stream]: if
+//!   a truncate response is received from [dgram] then the request is
+//!   retried over [multi_stream].
+//! * [redundant] This transport multiplexes requests over a collection of
+//!   transport connections. The [redundant] transport favors the connection
+//!   with the lowest response time. And of the other transports can be added
+//!   as upstream transports.
+//! * [cache] This is a simple message cache that behaves like a transport.
+//!   The cache works with any of the other transports.
+//!
 //! Sending a request and receiving the reply consists of four steps:
 //! 1) Creating a request message,
 //! 2) Creating a DNS transport,
@@ -131,6 +147,21 @@
 //! # }
 //! ```
 
+//! # Limitations
+//!
+//! The current implementaton has the following limitations:
+//! * The [dgram] transport does not support DNS Cookies (RFC 7873,
+//!   Domain Name System (DNS) Cookies).
+//! * The [multi_stream] transport does not support timeouts or other limits on
+//!   the number of attempts to open a connection. The caller has to
+//!   implement a timeout mechanism.
+//! * The [cache] transport does not support:
+//!   * prefetching. In this context, prefetching means updating a cache entry
+//!     before it expires.
+//!   * RFC 8767 (Serving Stale Data to Improve DNS Resiliency)
+//!   * RFC 7871 (Client Subnet in DNS Queries)
+//!   * RFC 8198 (Aggressive Use of DNSSEC-Validated Cache)
+
 //! # Example with various transport connections
 //! ```no_run
 #![doc = include_str!("../../../examples/client-transports.rs")]
@@ -141,6 +172,7 @@
 #![warn(missing_docs)]
 
 pub mod cache;
+pub mod clock;
 pub mod dgram;
 pub mod dgram_stream;
 pub mod multi_stream;
@@ -148,4 +180,3 @@ pub mod protocol;
 pub mod redundant;
 pub mod request;
 pub mod stream;
-pub mod time;
