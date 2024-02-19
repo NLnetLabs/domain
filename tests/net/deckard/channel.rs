@@ -5,9 +5,9 @@ use domain::net::client::protocol::{
     AsyncConnect, AsyncDgramRecv, AsyncDgramSend,
 };
 use domain::net::server::sock::{AsyncAccept, AsyncDgramSock};
-use futures::future::ready;
 use futures_util::FutureExt;
 use std::collections::HashMap;
+use std::future::ready;
 use std::future::Future;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::pin::Pin;
@@ -449,7 +449,7 @@ impl AsyncDgramSock for ClientServerChannel {
 impl AsyncAccept for ClientServerChannel {
     type Error = io::Error;
     type StreamType = ClientServerChannel;
-    type Stream = futures::future::Ready<Result<Self::StreamType, io::Error>>;
+    type Stream = std::future::Ready<Result<Self::StreamType, io::Error>>;
 
     fn poll_accept(
         &self,

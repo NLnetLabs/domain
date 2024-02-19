@@ -1,5 +1,5 @@
 //! Network socket abstractions.
-use futures::Future;
+use std::future::Future;
 use std::io;
 use std::net::SocketAddr;
 use std::task::{Context, Poll};
@@ -90,7 +90,7 @@ pub trait AsyncAccept {
 impl AsyncAccept for TcpListener {
     type Error = io::Error;
     type StreamType = TcpStream;
-    type Stream = futures::future::Ready<Result<Self::StreamType, io::Error>>;
+    type Stream = std::future::Ready<Result<Self::StreamType, io::Error>>;
 
     #[allow(clippy::type_complexity)]
     fn poll_accept(
@@ -104,9 +104,7 @@ impl AsyncAccept for TcpListener {
             // is the plain implementation and users who want to set things
             // like TCP keep alive would need to provide their own impl? (just
             // as the serve example currently does).
-            res.map(|(stream, addr)| {
-                (futures::future::ready(Ok(stream)), addr)
-            })
+            res.map(|(stream, addr)| (std::future::ready(Ok(stream)), addr))
         })
     }
 }

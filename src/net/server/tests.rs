@@ -4,15 +4,15 @@ use core::sync::atomic::AtomicBool;
 use core::sync::atomic::Ordering;
 use core::task::Context;
 use core::task::Poll;
+use std::collections::VecDeque;
+use std::future::Future;
 use std::io;
 use std::net::SocketAddr;
+use std::sync::Arc;
 use std::sync::Mutex;
 use std::time::Duration;
-
-use futures::Future;
-use std::collections::VecDeque;
-use std::sync::Arc;
 use std::vec::Vec;
+
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::time::Instant;
 
@@ -210,7 +210,7 @@ impl MockListener {
 impl AsyncAccept for MockListener {
     type Error = io::Error;
     type StreamType = MockStream;
-    type Stream = futures::future::Ready<Result<Self::StreamType, io::Error>>;
+    type Stream = std::future::Ready<Result<Self::StreamType, io::Error>>;
 
     fn poll_accept(
         &self,
@@ -230,7 +230,7 @@ impl AsyncAccept for MockListener {
                     {
                         last_accept.replace(Instant::now());
                         return Poll::Ready(Ok((
-                            futures::future::ready(Ok(MockStream::new(
+                            std::future::ready(Ok(MockStream::new(
                                 messages,
                                 new_message_every,
                             ))),
