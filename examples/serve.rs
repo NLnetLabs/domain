@@ -511,13 +511,10 @@ async fn main() {
             .map(|mut keys| keys.drain(..).map(PrivateKey).collect())
     }
 
-    // https://github.com/rustls/hyper-rustls/blob/main/examples/ has sample
-    // certificate and key files that can be used here, like so:
-    //
-    //   wget -O /tmp/my.crt https://raw.githubusercontent.com/rustls/hyper-rustls/main/examples/sample.pem
-    //   wget -O /tmp/my.key https://raw.githubusercontent.com/rustls/hyper-rustls/main/examples/sample.rsa
-    let certs = load_certs(Path::new("/tmp/my.crt")).unwrap();
-    let mut keys = load_keys(Path::new("/tmp/my.key")).unwrap();
+    // Credit: The sample.(pem|rsa) files used here were taken from
+    // https://github.com/rustls/hyper-rustls/blob/main/examples/
+    let certs = load_certs(Path::new("examples/sample.pem")).unwrap();
+    let mut keys = load_keys(Path::new("examples/sample.rsa")).unwrap();
 
     let config = rustls::ServerConfig::builder()
         .with_safe_defaults()
