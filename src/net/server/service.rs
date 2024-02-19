@@ -177,10 +177,10 @@ pub type ServiceResultItem<Target, Error> =
 /// }
 /// ```
 ///
-/// Now when you want to use the service call `.into()` when passing it to the server:
+/// Now when you want to use the service pass it to the server:
 ///
 /// ```ignore
-/// let srv = DgramServer::new(sock, buf, name_to_ip.into());
+/// let srv = DgramServer::new(sock, buf, name_to_ip);
 /// ```
 ///
 /// # Define a function compatible with [`mk_service()`]
