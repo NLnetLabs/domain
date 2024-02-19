@@ -204,6 +204,7 @@ pub trait Service<RequestOctets: AsRef<[u8]> = Vec<u8>> {
     ) -> ServiceResult<Self::Target, Self::Error, Self::Single>;
 }
 
+/// Helper trait impl to treat an [`Arc<impl Service>`] as a [`Service`].
 impl<RequestOctets: AsRef<[u8]>, T: Service<RequestOctets>>
     Service<RequestOctets> for Arc<T>
 {
@@ -219,6 +220,7 @@ impl<RequestOctets: AsRef<[u8]>, T: Service<RequestOctets>>
     }
 }
 
+/// Helper trait impl to treat a function as a [`Service`].
 impl<RequestOctets, Error, Target, Single, F> Service<RequestOctets> for F
 where
     F: Fn(

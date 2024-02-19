@@ -113,6 +113,53 @@
 //! though the actual degree of support for this is server implementation
 //! dependent.
 //!
+//! # Performance
+//!
+//! Both [`DgramServer`] and [`StreamServer`] invoke [`Service::call()`]
+//! inside the Tokio task handling the request. For [`DgramServer`] this is
+//! the main task that receives incoming messages. For [`StreamServer`] this
+//! is a dedicated task per accepted connection.
+//!
+//! The initial work done by [`Service::call()`] should therefore complete as
+//! quickly as possible, delegating as much of the work as it can to the
+//! future(s) it returns. Until then it blocks the server from receiving new
+//! messages, or in the case of [`StreamServer`], new messages for the
+//! connection on which the current message was received.
+//!
+//! # Clone, Arc, and shared state
+//!
+//! Both [`DgramServer`] and [`StreamServer`] take ownership of the
+//! [`Service`] impl passed to them.
+//!
+//! While this may work for some scenarios, real DNS server applications will
+//! likely need to accept client requests over multiple transports, will
+//! require multiple instances of [`DgramServer`] and [`StreamServer`], and
+//! the [`Service`] impl will likely need to have its own state.
+//!
+//! In these more complex scenarios it becomes more important to understand
+//! how the servers work with the [`Service`] impl and the [`Clone`] and
+//! [`Arc`] traits.
+//!
+//! [`DgramServer`] uses a single copy of the [`Service`] impl that it
+//! receives but [`StreamServer`] requires that [`Service`] be [`Clone`]
+//! because it clones it for each new connection that it accepts.
+//!
+//! You have three choices for managing access to the internal state of your
+//! [`Service`] impl:
+//!
+//! 1. `#[derive(Clone)]` for your [`Service`] impl. If your [`Service`] impl
+//! has no state that needs to be shared amongst instances of itself then this
+//! may be good enough for you.
+//!
+//! 2. Wrap your [`Service`] impl instance inside an [`Arc`]. This crate
+//! implements the [`Service`] trait for `Arc<Service>` so you can pass an
+//! `Arc<Service>` to both [`DgramServer`] and [`StreamServer`] and they will
+//! [`Clone`] the [`Arc`] rather than the [`Service`] instance itself.
+//!
+//! 3. Implement [`Clone`] for your [`Service`] impl manually, giving you
+//! complete control over the locking and interior mutability strategy.
+//!
+//! [`Arc`]: std::sync::Arc
 //! [`AsyncAccept`]: sock::AsyncAccept
 //! [`AsyncDgramSock`]: sock::AsyncDgramSock
 //! [`BufSource`]: buf::BufSource
@@ -124,6 +171,7 @@
 //! [`MiddlewareChain`]: middleware::chain::MiddlewareChain
 //! [`MiddlewareProcessor`]: middleware::processor::MiddlewareProcessor
 //! [`Service`]: service::Service
+//! [`Service::call()`]: service::Service::call()
 //! [`ServiceCommand::Reconfigure`]: service::ServiceCommand::Reconfigure
 //! [`StreamServer`]: stream::StreamServer
 //! [`TcpServer`]: stream::TcpServer
