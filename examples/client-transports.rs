@@ -82,8 +82,11 @@ async fn main() {
     // when it is no longer needed.
     drop(request);
 
-    // Cache
-    let cache = cache::Connection::new(udptcp_conn.clone());
+    // Create a cached transport.
+    let mut cache_config = cache::Config::new();
+    cache_config.set_max_cache_entries(100); // Just an example.
+    let cache =
+        cache::Connection::with_config(udptcp_conn.clone(), cache_config);
 
     // Send a request message.
     let mut request = cache.send_request(req.clone());
@@ -93,7 +96,7 @@ async fn main() {
     let reply = request.get_response().await;
     println!("Cache reply: {:?}", reply);
 
-    // Send a request message again.
+    // Send the request message again.
     let mut request = cache.send_request(req.clone());
 
     // Get the reply
