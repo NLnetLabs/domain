@@ -66,7 +66,10 @@ pub trait ComposeRequest: Debug + Send + Sync {
 /// However, the use of 'dyn Request' in redundant currently prevents that.
 pub trait SendRequest<CR> {
     /// Request function that takes a ComposeRequest type.
-    fn send_request(&self, request_msg: CR) -> Box<dyn GetResponse + Send>;
+    fn send_request(
+        &self,
+        request_msg: CR,
+    ) -> Box<dyn GetResponse + Send + Sync>;
 }
 
 //------------ GetResponse ---------------------------------------------------
@@ -82,7 +85,12 @@ pub trait GetResponse: Debug {
     fn get_response(
         &mut self,
     ) -> Pin<
-        Box<dyn Future<Output = Result<Message<Bytes>, Error>> + Send + '_>,
+        Box<
+            dyn Future<Output = Result<Message<Bytes>, Error>>
+                + Send
+                + Sync
+                + '_,
+        >,
     >;
 }
 

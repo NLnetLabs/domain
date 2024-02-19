@@ -173,7 +173,10 @@ impl<Req> Clone for Connection<Req> {
 impl<Req: ComposeRequest + Clone + 'static> SendRequest<Req>
     for Connection<Req>
 {
-    fn send_request(&self, request_msg: Req) -> Box<dyn GetResponse + Send> {
+    fn send_request(
+        &self,
+        request_msg: Req,
+    ) -> Box<dyn GetResponse + Send + Sync> {
         Box::new(self.get_request(request_msg))
     }
 }
@@ -183,7 +186,9 @@ impl<Req: ComposeRequest + Clone + 'static> SendRequest<Req>
 /// An active request.
 pub struct Request {
     /// The underlying future.
-    fut: Pin<Box<dyn Future<Output = Result<Message<Bytes>, Error>> + Send>>,
+    fut: Pin<
+        Box<dyn Future<Output = Result<Message<Bytes>, Error>> + Send + Sync>,
+    >,
 }
 
 impl Request {
@@ -197,7 +202,12 @@ impl GetResponse for Request {
     fn get_response(
         &mut self,
     ) -> Pin<
-        Box<dyn Future<Output = Result<Message<Bytes>, Error>> + Send + '_>,
+        Box<
+            dyn Future<Output = Result<Message<Bytes>, Error>>
+                + Send
+                + Sync
+                + '_,
+        >,
     > {
         Box::pin(self.get_response_impl())
     }
