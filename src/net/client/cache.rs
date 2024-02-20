@@ -363,15 +363,32 @@ where
         loop {
             match &mut self.state {
                 RequestState::Init => {
-                    let msg = self.request_msg.to_message().unwrap();
+                    let msg = self.request_msg.to_message()?;
                     let header = msg.header();
                     let opcode = header.opcode();
 
                     // Extract Qname, Qclass, Qtype
                     let mut question_section = msg.question();
-                    let question = question_section.next().unwrap().unwrap();
+                    let question = match question_section.next() {
+                        None => {
+                            // No question. Just forward the request.
+                            let request = self
+                                .upstream
+                                .send_request(self.request_msg.clone());
+                            self.state =
+                                RequestState::GetResponseNoCache(request);
+                            continue;
+                        }
+                        Some(question) => question?,
+                    };
                     if question_section.next().is_some() {
-                        panic!("should handle multiple questions");
+                        // More than one question. Just forward the request.
+                        let request = self
+                            .upstream
+                            .send_request(self.request_msg.clone());
+                        self.state =
+                            RequestState::GetResponseNoCache(request);
+                        continue;
                     }
                     let qname = question.qname();
                     let qclass = question.qclass();
@@ -403,7 +420,7 @@ where
 
                     let key =
                         Key::new(qname, qclass, qtype, ad, cd, dnssec_ok, rd);
-                    let opt_ce = self.cache_lookup(&key).await;
+                    let opt_ce = self.cache_lookup(&key).await?;
                     if let Some(value) = opt_ce {
                         let opt_response =
                             handle_cache_value::<_, C>(qname, value);
@@ -425,7 +442,7 @@ where
                         &response,
                         &self.config,
                         &self.clock,
-                    ));
+                    )?);
                     self.cache_insert(key, value).await;
 
                     return response;
@@ -438,7 +455,10 @@ where
     }
 
     /// Try to find an cache entry for the key.
-    async fn cache_lookup(&self, key: &Key) -> Option<Arc<Value<C>>> {
+    async fn cache_lookup(
+        &self,
+        key: &Key,
+    ) -> Result<Option<Arc<Value<C>>>, Error> {
         // There are 4 flags that may affect the response to a query.
         // In some cases the response to one value of a flag could be
         // used for the ohter value.
@@ -453,20 +473,20 @@ where
     async fn cache_lookup_rd_do_ad(
         &self,
         key: &Key,
-    ) -> Option<Arc<Value<C>>> {
+    ) -> Result<Option<Arc<Value<C>>>, Error> {
         // For RD=1 we can only use responses to queries with RD set.
         // For RD=0, first try with RD=0 and then try with RD=1. If
         // RD=1 has an answer, store it as an answer for RD=0.
-        let opt_value = self.cache_lookup_do_ad(key).await;
+        let opt_value = self.cache_lookup_do_ad(key).await?;
         if opt_value.is_some() || key.rd {
-            return opt_value;
+            return Ok(opt_value);
         }
 
         // Look if there is something with RD=1. We can use the
         // response unmodified.
         let mut alt_key = key.clone();
         alt_key.rd = true;
-        let opt_value = self.cache_lookup_do_ad(&alt_key).await;
+        let opt_value = self.cache_lookup_do_ad(&alt_key).await?;
         if let Some(value) = &opt_value {
             match &value.response {
                 Err(_) => {
@@ -474,24 +494,27 @@ where
                     self.cache_insert(key.clone(), value.clone()).await;
                 }
                 Ok(msg) => {
-                    let msg = clear_rd(msg);
+                    let msg = clear_rd(msg)?;
                     let value =
                         Arc::new(Value::<C>::new_from_value_and_response(
                             value.clone(),
                             Ok(msg),
                             &self.config,
-                        ));
+                        )?);
                     self.cache_insert(key.clone(), value.clone()).await;
-                    return Some(value);
+                    return Ok(Some(value));
                 }
             }
         }
-        opt_value
+        Ok(opt_value)
     }
 
     /// Try to find an cache entry for the key taking into account the
     /// DO and AD flags.
-    async fn cache_lookup_do_ad(&self, key: &Key) -> Option<Arc<Value<C>>> {
+    async fn cache_lookup_do_ad(
+        &self,
+        key: &Key,
+    ) -> Result<Option<Arc<Value<C>>>, Error> {
         // For DO=1 we can only use responses to queries with DO set.
         // For DO=0, first try with DO=0 and then try with DO=1. If
         // DO=1 has an answer, remove DNSSEC related resource records.
@@ -505,15 +528,15 @@ where
             assert!(key.ad);
         }
 
-        let opt_value = self.cache_lookup_ad(key).await;
+        let opt_value = self.cache_lookup_ad(key).await?;
         if opt_value.is_some() || key.dnssec_ok {
-            return opt_value;
+            return Ok(opt_value);
         }
 
         if key.qclass == Class::In && is_dnssec(key.qtype) {
             // An explicit request for one of the DNSSEC type but
             // DO is not set. Force the request to be sent explicitly.
-            return None;
+            return Ok(None);
         }
 
         let mut alt_key = key.clone();
@@ -527,30 +550,33 @@ where
                     self.cache_insert(key.clone(), value.clone()).await;
                 }
                 Ok(msg) => {
-                    let msg = remove_dnssec(msg, key.ad);
+                    let msg = remove_dnssec(msg, key.ad)?;
                     let value =
                         Arc::new(Value::<C>::new_from_value_and_response(
                             value.clone(),
                             Ok(msg),
                             &self.config,
-                        ));
+                        )?);
                     self.cache_insert(key.clone(), value.clone()).await;
-                    return Some(value);
+                    return Ok(Some(value));
                 }
             }
         }
-        opt_value
+        Ok(opt_value)
     }
 
     /// Try to find an cache entry for the key taking into account the
     /// AD flag.
-    async fn cache_lookup_ad(&self, key: &Key) -> Option<Arc<Value<C>>> {
+    async fn cache_lookup_ad(
+        &self,
+        key: &Key,
+    ) -> Result<Option<Arc<Value<C>>>, Error> {
         // For AD=1 we can only use responses to queries with AD set.
         // For AD=0, first try with AD=0 and then try with AD=1. If
         // AD=1 has an answer, clear the AD bit.
         let opt_value = self.cache.get(key).await;
         if opt_value.is_some() || key.ad {
-            return opt_value;
+            return Ok(opt_value);
         }
         let mut alt_key = key.clone();
         alt_key.ad = true;
@@ -565,22 +591,22 @@ where
                     if !msg.header().ad() {
                         // AD is clear. Just insert this value.
                         self.cache_insert(key.clone(), value.clone()).await;
-                        return Some(value.clone());
+                        return Ok(Some(value.clone()));
                     }
 
-                    let msg = clear_ad(msg);
+                    let msg = clear_ad(msg)?;
                     let value =
                         Arc::new(Value::<C>::new_from_value_and_response(
                             value.clone(),
                             Ok(msg),
                             &self.config,
-                        ));
+                        )?);
                     self.cache_insert(key.clone(), value.clone()).await;
-                    return Some(value);
+                    return Ok(Some(value));
                 }
             }
         }
-        opt_value
+        Ok(opt_value)
     }
 
     /// Insert new entry in the cache.
@@ -592,26 +618,20 @@ where
             // Do not insert cache value that are valid for zero duration.
             return;
         }
-        let value = match &value.response {
-            Err(_) => {
-                // Just insert the error
-                value
-            }
-            Ok(msg) => {
-                if msg.header().aa() {
-                    let msg = clear_aa(msg);
-                    Arc::new(Value::<C>::new_from_value_and_response(
+        let value = match prepare_for_insert(value.clone(), &self.config) {
+            Ok(value) => value,
+            Err(e) => {
+                // Create a new value based on this error
+                Arc::new(
+                    Value::<C>::new_from_value_and_response(
                         value.clone(),
-                        Ok(msg),
+                        Err(e),
                         &self.config,
-                    ))
-                } else {
-                    // AA is clear. Just insert this value.
-                    value
-                }
+                    )
+                    .expect("value from error does not fail"),
+                )
             }
         };
-
         self.cache.insert(key, value).await
     }
 }
@@ -701,7 +721,7 @@ impl Key {
     where
         TDN: ToDname,
     {
-        let mut qname = qname.to_dname().unwrap();
+        let mut qname = qname.to_dname().expect("to_dname should not fail");
 
         // Make sure qname is canonical.
         qname.make_canonical();
@@ -745,12 +765,12 @@ where
         response: &Result<Message<Bytes>, Error>,
         config: &Config,
         clock: &C,
-    ) -> Value<C> {
-        Self {
+    ) -> Result<Value<C>, Error> {
+        Ok(Self {
             creation: clock.now(),
-            validity: validity(response, config),
+            validity: validity(response, config)?,
             response: response.clone(),
-        }
+        })
     }
 
     /// Create a value object that is derived from another value object.
@@ -758,12 +778,12 @@ where
         val: Arc<Value<C>>,
         response: Result<Message<Bytes>, Error>,
         config: &Config,
-    ) -> Value<C> {
-        Self {
+    ) -> Result<Value<C>, Error> {
+        Ok(Self {
             creation: val.creation.clone(),
-            validity: validity(&response, config),
+            validity: validity(&response, config)?,
             response,
-        }
+        })
     }
 }
 
@@ -792,9 +812,9 @@ where
 fn validity(
     response: &Result<Message<Bytes>, Error>,
     config: &Config,
-) -> Duration {
+) -> Result<Duration, Error> {
     let msg = match response {
-        Err(_) => return config.transport_failure_duration,
+        Err(_) => return Ok(config.transport_failure_duration),
         Ok(msg) => msg,
     };
 
@@ -802,7 +822,7 @@ fn validity(
 
     match get_opt_rcode(msg) {
         OptRcode::NoError => {
-            match classify_no_error(msg) {
+            match classify_no_error(msg)? {
                 NoErrorType::Answer => (),
                 NoErrorType::NoData => {
                     min_val = min(min_val, config.max_nodata_validity)
@@ -827,36 +847,30 @@ fn validity(
     }
 
     let msg = msg.question();
-    let mut msg = msg.answer().unwrap();
+    let mut msg = msg.answer()?;
     for rr in &mut msg {
-        let rr = rr.unwrap();
+        let rr = rr?;
         min_val =
             min(min_val, Duration::from_secs(rr.ttl().as_secs() as u64));
     }
 
-    let mut msg = msg
-        .next_section()
-        .unwrap()
-        .expect("section should be present");
+    let mut msg = msg.next_section()?.expect("section should be present");
     for rr in &mut msg {
-        let rr = rr.unwrap();
+        let rr = rr?;
         min_val =
             min(min_val, Duration::from_secs(rr.ttl().as_secs() as u64));
     }
 
-    let msg = msg
-        .next_section()
-        .unwrap()
-        .expect("section should be present");
+    let msg = msg.next_section()?.expect("section should be present");
     for rr in msg {
-        let rr = rr.unwrap();
+        let rr = rr?;
         if rr.rtype() != Rtype::Opt {
             min_val =
                 min(min_val, Duration::from_secs(rr.ttl().as_secs() as u64));
         }
     }
 
-    min_val
+    Ok(min_val)
 }
 
 /// Return a new message with decremented TTL values.
@@ -886,53 +900,43 @@ where
     let source = source.question();
     let mut target = target.question();
     for rr in source {
-        let rr = rr.unwrap();
+        let rr = rr?;
         target
             .push((orig_qname.clone(), rr.qtype(), rr.qclass()))
-            .unwrap();
+            .expect("push failed");
     }
-    let mut source = source.answer().unwrap();
+    let mut source = source.answer()?;
     let mut target = target.answer();
     for rr in &mut source {
-        let mut rr = rr
-            .unwrap()
-            .into_record::<AllRecordData<_, ParsedDname<_>>>()
-            .unwrap()
+        let mut rr = rr?
+            .into_record::<AllRecordData<_, ParsedDname<_>>>()?
             .expect("record expected");
         rr.set_ttl(rr.ttl() - amount);
-        target.push(rr).unwrap();
+        target.push(rr).expect("push failed");
     }
 
-    let mut source = source
-        .next_section()
-        .unwrap()
-        .expect("section should be present");
+    let mut source =
+        source.next_section()?.expect("section should be present");
     let mut target = target.authority();
     for rr in &mut source {
-        let mut rr = rr
-            .unwrap()
-            .into_record::<AllRecordData<_, ParsedDname<_>>>()
-            .unwrap()
+        let mut rr = rr?
+            .into_record::<AllRecordData<_, ParsedDname<_>>>()?
             .expect("record expected");
         rr.set_ttl(rr.ttl() - amount);
-        target.push(rr).unwrap();
+        target.push(rr).expect("push failed");
     }
 
-    let source = source
-        .next_section()
-        .unwrap()
-        .expect("section should be present");
+    let source = source.next_section()?.expect("section should be present");
     let mut target = target.additional();
     for rr in source {
-        let rr = rr.unwrap();
+        let rr = rr?;
         let mut rr = rr
-            .into_record::<AllRecordData<_, ParsedDname<_>>>()
-            .unwrap()
+            .into_record::<AllRecordData<_, ParsedDname<_>>>()?
             .expect("record expected");
         if rr.rtype() != Rtype::Opt {
             rr.set_ttl(rr.ttl() - amount);
         }
-        target.push(rr).unwrap();
+        target.push(rr).expect("push failed");
     }
 
     let result = target.as_builder().clone();
@@ -945,7 +949,10 @@ where
 }
 
 /// Return a new message without the DNSSEC type RRSIG, NSEC, and NSEC3.
-fn remove_dnssec(msg: &Message<Bytes>, ad: bool) -> Message<Bytes> {
+fn remove_dnssec(
+    msg: &Message<Bytes>,
+    ad: bool,
+) -> Result<Message<Bytes>, Error> {
     let mut target =
         MessageBuilder::from_target(StaticCompressor::new(Vec::new()))
             .expect("Vec is expected to have enough space");
@@ -962,59 +969,53 @@ fn remove_dnssec(msg: &Message<Bytes>, ad: bool) -> Message<Bytes> {
     let source = source.question();
     let mut target = target.question();
     for rr in source {
-        target.push(rr.unwrap()).unwrap();
+        target.push(rr?).expect("push failed");
     }
-    let mut source = source.answer().unwrap();
+    let mut source = source.answer()?;
     let mut target = target.answer();
     for rr in &mut source {
-        let rr = rr
-            .unwrap()
-            .into_record::<AllRecordData<_, ParsedDname<_>>>()
-            .unwrap()
+        let rr = rr?
+            .into_record::<AllRecordData<_, ParsedDname<_>>>()?
             .expect("record expected");
         if is_dnssec(rr.rtype()) {
             continue;
         }
-        target.push(rr).unwrap();
+        target.push(rr).expect("push error");
     }
 
-    let mut source = source
-        .next_section()
-        .unwrap()
-        .expect("section should be present");
+    let mut source =
+        source.next_section()?.expect("section should be present");
     let mut target = target.authority();
     for rr in &mut source {
-        let rr = rr
-            .unwrap()
-            .into_record::<AllRecordData<_, ParsedDname<_>>>()
-            .unwrap()
+        let rr = rr?
+            .into_record::<AllRecordData<_, ParsedDname<_>>>()?
             .expect("record expected");
         if is_dnssec(rr.rtype()) {
             continue;
         }
-        target.push(rr).unwrap();
+        target.push(rr).expect("push error");
     }
 
-    let source = source
-        .next_section()
-        .unwrap()
-        .expect("section should be present");
+    let source = source.next_section()?.expect("section should be present");
     let mut target = target.additional();
     for rr in source {
-        let rr = rr.unwrap();
+        let rr = rr?;
         let rr = rr
-            .into_record::<AllRecordData<_, ParsedDname<_>>>()
-            .unwrap()
+            .into_record::<AllRecordData<_, ParsedDname<_>>>()?
             .expect("record expected");
         if is_dnssec(rr.rtype()) {
             continue;
         }
-        target.push(rr).unwrap();
+        target.push(rr).expect("push error");
     }
 
     let result = target.as_builder().clone();
-    Message::<Bytes>::from_octets(result.finish().into_target().into())
-        .expect("Message should be able to parse output from MessageBuilder")
+    Ok(
+        Message::<Bytes>::from_octets(result.finish().into_target().into())
+            .expect(
+                "Message should be able to parse output from MessageBuilder",
+            ),
+    )
 }
 
 /// Check if a type is a DNSSEC type that needs to be removed.
@@ -1039,25 +1040,25 @@ enum NoErrorType {
 }
 
 /// Classify a responses with a NOERROR result.
-fn classify_no_error<Octs>(msg: &Message<Octs>) -> NoErrorType
+fn classify_no_error<Octs>(msg: &Message<Octs>) -> Result<NoErrorType, Error>
 where
     Octs: Octets,
 {
     // Check if we have something that resembles an answer.
     let mut question_section = msg.question();
-    let question = question_section.next().unwrap().unwrap();
+    let question = question_section.next().expect("section expected")?;
     let qtype = question.qtype();
     let qclass = question.qclass();
 
     // Note we only look qtype and qclass. The goal is not to perform
     // a consistency check. Just whether there is supposed to be an
     // answer or not.
-    let mut msg = msg.answer().unwrap();
+    let mut msg = msg.answer()?;
     for rr in &mut msg {
-        let rr = rr.unwrap();
+        let rr = rr?;
         if rr.rtype() == qtype && rr.class() == qclass {
             // We found an answer.
-            return NoErrorType::Answer;
+            return Ok(NoErrorType::Answer);
         }
     }
 
@@ -1066,14 +1067,11 @@ where
     // If SOA records are absent but NS records are present then the
     // response is a delegation.
     let mut found_ns = false;
-    let mut msg = msg
-        .next_section()
-        .unwrap()
-        .expect("section should be present");
+    let mut msg = msg.next_section()?.expect("section should be present");
     for rr in &mut msg {
-        let rr = rr.unwrap();
+        let rr = rr?;
         if rr.class() == qclass && rr.rtype() == Rtype::Soa {
-            return NoErrorType::NoData;
+            return Ok(NoErrorType::NoData);
         }
         if rr.class() == qclass && rr.rtype() == Rtype::Ns {
             found_ns = true;
@@ -1081,11 +1079,11 @@ where
     }
 
     if found_ns {
-        return NoErrorType::Delegation;
+        return Ok(NoErrorType::Delegation);
     }
 
     // Neither SOA nor NS were found. This is a broken response.
-    NoErrorType::NoErrorWeird
+    Ok(NoErrorType::NoErrorWeird)
 }
 
 /// Get the extended rcode of a message.
@@ -1102,34 +1100,59 @@ fn get_opt_rcode<Octs: Octets>(msg: &Message<Octs>) -> OptRcode {
 }
 
 /// Return a message with the AA flag clear.
-fn clear_aa(msg: &Message<Bytes>) -> Message<Bytes> {
+fn clear_aa(msg: &Message<Bytes>) -> Result<Message<Bytes>, Error> {
     // Assume the clear_aa will be called only if AA is set. So no need to
     // optimize for the case where AA is clear.
-    let mut msg =
-        Message::<Vec<u8>>::from_octets(msg.as_slice().into()).unwrap();
+    let mut msg = Message::<Vec<u8>>::from_octets(msg.as_slice().into())?;
     let hdr = msg.header_mut();
     hdr.set_aa(false);
-    Message::<Bytes>::from_octets(msg.into_octets().into()).unwrap()
+    Ok(Message::<Bytes>::from_octets(msg.into_octets().into())?)
 }
 
 /// Return a message with the AD flag clear.
-fn clear_ad(msg: &Message<Bytes>) -> Message<Bytes> {
+fn clear_ad(msg: &Message<Bytes>) -> Result<Message<Bytes>, Error> {
     // Assume the clear_ad will be called only if AD is set. So no need to
     // optimize for the case where AD is clear.
-    let mut msg =
-        Message::<Vec<u8>>::from_octets(msg.as_slice().into()).unwrap();
+    let mut msg = Message::<Vec<u8>>::from_octets(msg.as_slice().into())?;
     let hdr = msg.header_mut();
     hdr.set_ad(false);
-    Message::<Bytes>::from_octets(msg.into_octets().into()).unwrap()
+    Ok(Message::<Bytes>::from_octets(msg.into_octets().into())?)
 }
 
 /// Return a message with the RD flag clear.
-fn clear_rd(msg: &Message<Bytes>) -> Message<Bytes> {
+fn clear_rd(msg: &Message<Bytes>) -> Result<Message<Bytes>, Error> {
     // Assume the clear_rd will be called only if RD is set. So no need to
     // optimize for the case where RD is clear.
-    let mut msg =
-        Message::<Vec<u8>>::from_octets(msg.as_slice().into()).unwrap();
+    let mut msg = Message::<Vec<u8>>::from_octets(msg.as_slice().into())?;
     let hdr = msg.header_mut();
     hdr.set_rd(false);
-    Message::<Bytes>::from_octets(msg.into_octets().into()).unwrap()
+    Ok(Message::<Bytes>::from_octets(msg.into_octets().into())?)
+}
+
+fn prepare_for_insert<C>(
+    value: Arc<Value<C>>,
+    config: &Config,
+) -> Result<Arc<Value<C>>, Error>
+where
+    C: Clock + Send + Sync,
+{
+    Ok(match &value.response {
+        Err(_) => {
+            // Just insert the error
+            value
+        }
+        Ok(msg) => {
+            if msg.header().aa() {
+                let msg = clear_aa(msg)?;
+                Arc::new(Value::<C>::new_from_value_and_response(
+                    value.clone(),
+                    Ok(msg),
+                    config,
+                )?)
+            } else {
+                // AA is clear. Just insert this value.
+                value
+            }
+        }
+    })
 }
