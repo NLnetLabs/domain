@@ -26,7 +26,7 @@
 //! <-- network source                      - writes bytes to the client
 //! ````
 //!
-//! # Usage
+//! # Getting started
 //!
 //! Servers are implemented by combining a server transport (see [dgram] and
 //! [stream]), [`BufSource`], (optional) [`MiddlewareChain`] and [`Service`]
@@ -42,6 +42,9 @@
 //!     `with_middleware()`.
 //!   - `run()` the server.
 //!   - `shutdown()` the server, explicitly or on [`drop()`].
+//!
+//! See [`DgramServer`] and [`StreamServer`] for example code to help you get
+//! started.
 //!
 //! # Core concepts
 //!
