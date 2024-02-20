@@ -72,13 +72,13 @@ impl FakeClock {
     /// Adjust the current time by adding a [Duration]
     pub fn adjust_time(&self, adjust: Duration) {
         println!("adjust_time: adjust {:?}", adjust);
-        let mut now = self.now.lock().unwrap();
-        *now = (*now).checked_add(adjust).unwrap();
+        let mut now = self.now.lock().expect("lock should not fail");
+        *now = (*now).checked_add(adjust).expect("time wrapped");
     }
 
     /// Return the current (fake) time.
     fn curr_time(&self) -> Duration {
-        let now = self.now.lock().unwrap();
+        let now = self.now.lock().expect("lock should not fail");
         *now
     }
 }
@@ -93,7 +93,7 @@ impl Clock for FakeClock {
     }
 
     fn now(&self) -> Self::Instant {
-        let now = self.now.lock().unwrap();
+        let now = self.now.lock().expect("lock should not fail");
         Self::Instant::now(*now, self.clone())
     }
 }
@@ -119,6 +119,6 @@ impl FakeInstant {
 
 impl Elapsed for FakeInstant {
     fn elapsed(&self) -> Duration {
-        self.clock.curr_time().checked_sub(self.start).unwrap()
+        self.clock.curr_time().checked_sub(self.start).expect("clock went backwards")
     }
 }
