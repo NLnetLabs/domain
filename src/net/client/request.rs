@@ -4,12 +4,12 @@
 #![warn(clippy::missing_docs_in_private_items)]
 
 use crate::base::iana::Rcode;
-use crate::base::message::CopyRecordsError;
+use crate::base::message::{CopyRecordsError, ShortMessage};
 use crate::base::message_builder::{
     AdditionalBuilder, MessageBuilder, PushError, StaticCompressor,
 };
 use crate::base::opt::{ComposeOptData, LongOptData, OptRecord};
-use crate::base::wire::Composer;
+use crate::base::wire::{Composer, ParseError};
 use crate::base::{Header, Message, ParsedDname, Rtype};
 use crate::rdata::AllRecordData;
 use bytes::Bytes;
@@ -333,6 +333,18 @@ pub enum Error {
 impl From<LongOptData> for Error {
     fn from(_: LongOptData) -> Self {
         Self::OptTooLong
+    }
+}
+
+impl From<ParseError> for Error {
+    fn from(_: ParseError) -> Self {
+        Self::MessageParseError
+    }
+}
+
+impl From<ShortMessage> for Error {
+    fn from(_: ShortMessage) -> Self {
+        Self::ShortMessage
     }
 }
 
