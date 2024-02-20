@@ -1129,6 +1129,8 @@ fn clear_rd(msg: &Message<Bytes>) -> Result<Message<Bytes>, Error> {
     Ok(Message::<Bytes>::from_octets(msg.into_octets().into())?)
 }
 
+/// Prepare a value for inserting in the cache by clearing the AA flag if
+/// set.
 fn prepare_for_insert<C>(
     value: Arc<Value<C>>,
     config: &Config,
