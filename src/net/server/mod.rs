@@ -118,7 +118,7 @@
 //! Both [`DgramServer`] and [`StreamServer`] use [`MessageProcessor`] to
 //! pre-process the request, invoke [`Service::call()`], and post-process the
 //! response.
-//! 
+//!
 //!   - Pre-processing and [`Service::call()`] invocation are done from the
 //!     Tokio task handling the request. For [`DgramServer`] this is the main
 //!     task that receives incoming messages. For [`StreamServer`] this is a

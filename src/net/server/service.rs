@@ -73,7 +73,7 @@ pub type ServiceResultItem<Target, Error> =
 /// before returning from [`Service::call()`], as time spent here blocks the
 /// caller. Instead as much work as possible should be delegated to the
 /// futures returned as a [`Transaction`].
-/// 
+///
 /// # Implementing the [`Service`] trait on a `struct`
 ///
 /// ```

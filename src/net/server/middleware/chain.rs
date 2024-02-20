@@ -93,9 +93,9 @@ where
     /// [`postprocess()`][Self::postprocess]. If processing terminated early
     /// the result includes the index of the pre-processor which terminated
     /// the processing.
-    /// 
+    ///
     /// # Performance
-    /// 
+    ///
     /// Pre-processing may take place in the same task that handles receipt
     /// and pre-processing of other requests. It is therefore important to
     /// finish pre-processing as quickly as possible. It is also important to
