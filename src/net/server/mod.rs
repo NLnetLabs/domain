@@ -81,15 +81,25 @@
 //!
 //! ## Middleware
 //!
-//! Mandatory functionality and logic required by all standards compliant DNS
-//! servers can be incorporated into your server by building a
-//! [`MiddlewareChain`] starting from [`MiddlewareBuilder::default()`].
+//! [Middleware] provides a means to add logic for request pre-processing and
+//! response post-processing which doesn't belong in the outermost transport
+//! specific layer of a server nor does it constitute part of the core
+//! business logic of the application.
 //!
-//! A selection of additional functionality relating to server behaviour and
-//! DNS standards (as opposed to your own business logic) is provided which
-//! you can incorporate into your DNS server via
+//! With Middleware mandatory functionality and logic required by all
+//! standards compliant DNS servers can be incorporated into your server by
+//! building a [`MiddlewareChain`] starting from
+//! [`MiddlewareBuilder::default()`].
+//!
+//! You can also opt to incorporate additional behaviours into your DNS server
+//! from a selection of pre-supplied implementations via
 //! [`MiddlewareBuilder::push()`]. See the various implementations of
 //! [`MiddlewareProcessor`] for more information.
+//!
+//! And if the existing middleware processors don't meet your needs, maybe you
+//! have specific access control or rate limiting requirements for example,
+//! you can implement [`MiddlewareProcessor`] yourself to add your own pre-
+//! and post- processing stages into your DNS server.
 //!
 //! ## Business logic
 //!
@@ -172,6 +182,7 @@
 //! [`BufSource`]: buf::BufSource
 //! [`DgramServer`]: dgram::DgramServer
 //! [`MessageProcessor`]: message::MessageProcessor
+//! [Middleware]: middleware
 //! [`MiddlewareBuilder::default()`]:
 //!     middleware::builder::MiddlewareBuilder::default()
 //! [`MiddlewareBuilder::push()`]:
