@@ -123,7 +123,7 @@
 //! though the actual degree of support for this is server implementation
 //! dependent.
 //!
-//! # Performance
+//! ## Performance
 //!
 //! Both [`DgramServer`] and [`StreamServer`] use [`MessageProcessor`] to
 //! pre-process the request, invoke [`Service::call()`], and post-process the
@@ -143,7 +143,7 @@
 //! messages, or in the case of [`StreamServer`], new messages for the
 //! connection on which the current message was received.
 //!
-//! # Clone, Arc, and shared state
+//! ## Clone, Arc, and shared state
 //!
 //! Both [`DgramServer`] and [`StreamServer`] take ownership of the
 //! [`Service`] impl passed to them.
