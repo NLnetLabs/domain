@@ -66,7 +66,7 @@
 //! for [`tokio::net::UdpSocket`].
 //!
 //! The type alias [`UdpServer`] is provided for convenience for
-//! implementations baed on [`tokio::net::UdpSocket`].
+//! implementations based on [`tokio::net::UdpSocket`].
 //!
 //! ## Stream (e.g. TCP) servers
 //!
