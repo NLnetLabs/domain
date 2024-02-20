@@ -33,11 +33,11 @@ pub trait ComposeRequest: Debug + Send + Sync {
     ) -> Result<(), CopyRecordsError>;
 
     /// Create a message that captures the recorded changes.
-    fn to_message(&self) -> Message<Vec<u8>>;
+    fn to_message(&self) -> Result<Message<Vec<u8>>, Error>;
 
     /// Create a message that captures the recorded changes and convert to
     /// a Vec.
-    fn to_vec(&self) -> Vec<u8>;
+    fn to_vec(&self) -> Result<Vec<u8>, Error>;
 
     /// Return a reference to a mutable Header to record changes to the header.
     fn header_mut(&mut self) -> &mut Header;
@@ -213,13 +213,13 @@ impl<Octs: AsRef<[u8]> + Clone + Debug + Octets + Send + Sync + 'static>
         Ok(())
     }
 
-    fn to_vec(&self) -> Vec<u8> {
-        let msg = self.to_message();
-        msg.as_octets().clone()
+    fn to_vec(&self) -> Result<Vec<u8>, Error> {
+        let msg = self.to_message()?;
+        Ok(msg.as_octets().clone())
     }
 
-    fn to_message(&self) -> Message<Vec<u8>> {
-        self.to_message_impl().unwrap()
+    fn to_message(&self) -> Result<Message<Vec<u8>>, Error> {
+        self.to_message_impl()
     }
 
     fn header_mut(&mut self) -> &mut Header {
