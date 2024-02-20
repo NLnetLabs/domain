@@ -161,22 +161,17 @@
 //! receives but [`StreamServer`] requires that [`Service`] be [`Clone`]
 //! because it clones it for each new connection that it accepts.
 //!
-//! You have three choices for managing access to the internal state of your
-//! [`Service`] impl:
+//! There are various approaches you can take to manage the sharing of state
+//! between server instances and processing tasks, for example:
 //!
-//! 1. `#[derive(Clone)]` for your [`Service`] impl. If your [`Service`] impl
-//! has no state that needs to be shared amongst instances of itself then this
-//! may be good enough for you.
-//!
-//! 2. Wrap your [`Service`] impl instance inside an [`Arc`]. This crate
-//! implements the [`Service`] trait for `Arc<Service>` so you can pass an
-//! `Arc<Service>` to both [`DgramServer`] and [`StreamServer`] and they will
-//! [`Clone`] the [`Arc`] rather than the [`Service`] instance itself.
-//!
-//! 3. Implement [`Clone`] for your [`Service`] impl manually, giving you
-//! complete control over the locking and interior mutability strategy.
+//! | # | Difficulty | Summary | Description |
+//! |---|------------|---------|-------------|
+//! | 1 | Easy | `#[derive(Clone)]` | Add `#[derive(Clone)]` to your [`Service`] impl. If your [`Service`] impl has no state that needs to be shared amongst instances of itself then this may be good enough for you. |
+//! | 2 | Medium | [`Arc`] wrapper | Wrap your [`Service`] impl instance inside an [`Arc`] via [`Arc::new()`]. This crate implements the [`Service`] trait for `Arc<Service>` so you can pass an `Arc<Service>` to both [`DgramServer`] and [`StreamServer`] and they will [`Clone`] the [`Arc`] rather than the [`Service`] instance itself. |
+//! | 3 | Hard | Do it yourself | Manually implement [`Clone`] and/or your own locking and interior mutability strategy for your [`Service`] impl, giving you complete control over how state is shared by your server instances. |
 //!
 //! [`Arc`]: std::sync::Arc
+//! [`Arc::new()`]: std::sync::Arc::new()
 //! [`AsyncAccept`]: sock::AsyncAccept
 //! [`AsyncDgramSock`]: sock::AsyncDgramSock
 //! [`BufSource`]: buf::BufSource
