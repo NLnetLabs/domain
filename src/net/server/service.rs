@@ -69,6 +69,11 @@ pub type ServiceResultItem<Target, Error> =
 ///   2. Define a function compatible with the [`Service`] trait.
 ///   3. Define a function compatible with [`mk_service()`].
 ///
+/// Whichever approach you choose it is important to minimize the work done
+/// before returning from [`Service::call()`], as time spent here blocks the
+/// caller. Instead as much work as possible should be delegated to the
+/// futures returned as a [`Transaction`].
+/// 
 /// # Implementing the [`Service`] trait on a `struct`
 ///
 /// ```
@@ -193,11 +198,18 @@ pub type ServiceResultItem<Target, Error> =
 /// [`call()`]: Self::call()
 /// [`mk_service()`]: crate::net::server::util::mk_service()
 pub trait Service<RequestOctets: AsRef<[u8]> = Vec<u8>> {
+    /// The type of error returned by [`Service::call()`] on failure.
     type Error: Send + Sync + 'static;
+
+    /// The type of buffer in which [`ServiceResultItem`]s are stored.
     type Target: Composer + Default + Send + Sync + 'static;
+
+    /// The type of future returned by [`Service::call()`] via
+    /// [`Transaction::single()`].
     type Single: Future<Output = ServiceResultItem<Self::Target, Self::Error>>
         + Send;
 
+    /// Generate a response to a fully pre-processed request.
     fn call(
         &self,
         message: Arc<ContextAwareMessage<Message<RequestOctets>>>,

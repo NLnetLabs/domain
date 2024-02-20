@@ -82,8 +82,8 @@
 //! ## Middleware
 //!
 //! Mandatory functionality and logic required by all standards compliant DNS
-//! servers can be incorporated into your server by building a middleware
-//! chain starting from [`MiddlewareBuilder::default()`].
+//! servers can be incorporated into your server by building a
+//! [`MiddlewareChain`] starting from [`MiddlewareBuilder::default()`].
 //!
 //! A selection of additional functionality relating to server behaviour and
 //! DNS standards (as opposed to your own business logic) is provided which
@@ -115,10 +115,17 @@
 //!
 //! # Performance
 //!
-//! Both [`DgramServer`] and [`StreamServer`] invoke [`Service::call()`]
-//! inside the Tokio task handling the request. For [`DgramServer`] this is
-//! the main task that receives incoming messages. For [`StreamServer`] this
-//! is a dedicated task per accepted connection.
+//! Both [`DgramServer`] and [`StreamServer`] use [`MessageProcessor`] to
+//! pre-process the request, invoke [`Service::call()`], and post-process the
+//! response.
+//! 
+//!   - Pre-processing and [`Service::call()`] invocation are done from the
+//!     Tokio task handling the request. For [`DgramServer`] this is the main
+//!     task that receives incoming messages. For [`StreamServer`] this is a
+//!     dedicated task per accepted connection.
+//!   - Post-processing is done in a new task request within which each future
+//!     resulting from invoking [`Service::call()`] is awaited and the
+//!     resulting response is post-processed.
 //!
 //! The initial work done by [`Service::call()`] should therefore complete as
 //! quickly as possible, delegating as much of the work as it can to the
@@ -164,6 +171,7 @@
 //! [`AsyncDgramSock`]: sock::AsyncDgramSock
 //! [`BufSource`]: buf::BufSource
 //! [`DgramServer`]: dgram::DgramServer
+//! [`MessageProcessor`]: message::MessageProcessor
 //! [`MiddlewareBuilder::default()`]:
 //!     middleware::builder::MiddlewareBuilder::default()
 //! [`MiddlewareBuilder::push()`]:
