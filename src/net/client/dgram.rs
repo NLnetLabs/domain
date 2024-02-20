@@ -255,7 +255,7 @@ where
             }
 
             // Create the message and send it out.
-            let request_msg = request.to_message();
+            let request_msg = request.to_message().unwrap();
             let dgram = request_msg.as_slice();
             let sent = sock.send(dgram).await.map_err(QueryError::send)?;
             if sent != dgram.len() {

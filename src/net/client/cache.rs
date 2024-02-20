@@ -363,7 +363,7 @@ where
         loop {
             match &mut self.state {
                 RequestState::Init => {
-                    let msg = self.request_msg.to_message();
+                    let msg = self.request_msg.to_message().unwrap();
                     let header = msg.header();
                     let opcode = header.opcode();
 
