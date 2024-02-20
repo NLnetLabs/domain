@@ -119,6 +119,9 @@ impl FakeInstant {
 
 impl Elapsed for FakeInstant {
     fn elapsed(&self) -> Duration {
-        self.clock.curr_time().checked_sub(self.start).expect("clock went backwards")
+        self.clock
+            .curr_time()
+            .checked_sub(self.start)
+            .expect("clock went backwards")
     }
 }

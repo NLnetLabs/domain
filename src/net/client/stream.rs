@@ -870,7 +870,9 @@ mod test {
         assert_eq!(queries.vec.iter().flatten().count(), 12);
 
         for i in [1, 2, 3, 4, 7, 9] {
-            let item = queries.try_remove(idxs[i].expect("test failed")).expect("test failed");
+            let item = queries
+                .try_remove(idxs[i].expect("test failed"))
+                .expect("test failed");
             assert_eq!(i, item);
             idxs[i] = None;
         }
