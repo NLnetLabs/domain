@@ -3,3 +3,4 @@
 #![cfg_attr(docsrs, doc(cfg(feature = "zonefile")))]
 
 pub mod inplace;
+pub mod parsed;

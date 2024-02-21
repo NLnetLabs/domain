@@ -29,6 +29,7 @@ futures-util   = { version = "0.3", optional = true }
 heapless       = { version = "0.8", optional = true }
 hex            = { version = "0.4", optional = true }
 libc           = { version = "0.2.79", default-features = false, optional = true } # 0.2.79 is the first version that has IP_PMTUDISC_OMIT
+parking_lot    = { version = "0.11.2", optional = true }
 proc-macro2    = { version = "1.0.69", optional = true } # Force proc-macro2 to at least 1.0.69 for minimal-version build
 ring           = { version = "0.17", optional = true }
 serde          = { version = "1.0.130", optional = true, features = ["derive"] }
@@ -55,7 +56,7 @@ std         = ["bytes?/std", "octseq/std", "time/std"]
 net         = ["bytes", "futures-util", "rand", "std", "tokio", "tokio-rustls"]
 tsig        = ["bytes", "ring", "smallvec"]
 validate    = ["std", "ring"]
-zonefile    = ["bytes", "std"]
+zonefile    = ["bytes", "std", "parking_lot"]
 
 # Unstable features
 unstable-client-transport = []

@@ -160,3 +160,4 @@ pub mod tsig;
 pub mod utils;
 pub mod validate;
 pub mod zonefile;
+pub mod zonetree;
