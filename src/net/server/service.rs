@@ -427,6 +427,33 @@ pub struct Transaction<Item, Single>(TransactionInner<Item, Single>)
 where
     Single: Future<Output = Item> + Send;
 
+/// A stream of zero or more DNS response futures relating to a single DNS request.
+pub struct TransactionStream<Item> {
+    stream: FuturesOrdered<Pin<Box<dyn Future<Output = Item> + Send>>>,
+}
+
+impl<Item> TransactionStream<Item> {
+    /// Add a response future to a transaction stream.
+    pub fn push<T: Future<Output = Item> + Send + 'static>(
+        &mut self,
+        fut: T,
+    ) {
+        self.stream.push_back(fut.boxed());
+    }
+
+    async fn next(&mut self) -> Option<Item> {
+        self.stream.next().await
+    }
+}
+
+impl<Item> Default for TransactionStream<Item> {
+    fn default() -> Self {
+        Self {
+            stream: Default::default(),
+        }
+    }
+}
+
 enum TransactionInner<Item, Single>
 where
     Single: Future<Output = Item> + Send,
@@ -441,7 +468,12 @@ where
     Single(Option<Single>),
 
     /// The transaction will result in stream of multiple response futures.
-    Stream(FuturesOrdered<Pin<Box<dyn Future<Output = Item> + Send>>>),
+    PendingStream(
+        Pin<Box<dyn Future<Output = TransactionStream<Item>> + Send>>,
+    ),
+
+    /// The transaction is a stream of multiple response futures.
+    Stream(TransactionStream<Item>),
 }
 
 impl<Item, Single> Transaction<Item, Single>
@@ -463,28 +495,18 @@ where
         Self(TransactionInner::Single(Some(fut)))
     }
 
-    /// Construct a transaction for a stream of response futures.
+    /// Construct a transaction for a future stream of response futures.
     ///
-    /// Call [`push()`] to add a response future to the stream.
+    /// The given future should build the stream of response futures that will
+    /// eventually be resolved by [`Self::next()`].
     ///
-    /// [`push()`]: Self::push()
-    pub fn stream() -> Self {
-        Self(TransactionInner::Stream(Default::default()))
-    }
-
-    /// Add a response future to a transaction stream.
-    ///
-    /// # Panics
-    ///
-    /// This function will panic if this transaction is not a stream.
-    pub fn push<T: Future<Output = Item> + Send + 'static>(
-        &mut self,
-        fut: T,
-    ) {
-        match &mut self.0 {
-            TransactionInner::Stream(stream) => stream.push_back(fut.boxed()),
-            _ => unreachable!(),
-        }
+    /// This takes a future instead of a [`TransactionStream`] because the
+    /// caller may not yet know how many futures they need to push into the
+    /// stream and we don't want them to block us while they work that out.
+    pub fn stream(
+        fut: Pin<Box<dyn Future<Output = TransactionStream<Item>> + Send>>,
+    ) -> Self {
+        Self(TransactionInner::PendingStream(fut))
     }
 
     /// Take the next response from the transaction, if any.
@@ -502,6 +524,13 @@ where
                 Some(fut) => Some(fut.await),
                 None => None,
             },
+
+            TransactionInner::PendingStream(stream_fut) => {
+                let mut stream = stream_fut.await;
+                let next = stream.next().await;
+                self.0 = TransactionInner::Stream(stream);
+                next
+            }
 
             TransactionInner::Stream(stream) => stream.next().await,
         }
