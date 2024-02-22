@@ -756,7 +756,7 @@ impl<Builder: OctetsBuilder + AsRef<[u8]> + AsMut<[u8]>> TxtBuilder<Builder> {
             Symbol::from_chars(&mut chars).map_err(E::custom)?
         {
             if len == 255 {
-                return Err(E::custom(CharStrError));
+                return Err(E::custom(CharStrError::default()));
             }
             let sym = sym.into_octet().map_err(E::custom)?;
             self.builder_append_slice(&[sym]).map_err(E::custom)?;
