@@ -21,6 +21,9 @@ use crate::{
 use octseq::{Octets, OctetsBuilder};
 use tracing::{debug, enabled, trace, Level};
 
+const FIVE_MINUTES_AS_SECS: u32 = 5 * 60;
+const ONE_HOUR_AS_SECS: u32 = 60 * 60;
+
 /// A DNS Cookies [`MiddlewareProcessor`].
 ///
 /// Standards covered by ths implementation:
@@ -114,9 +117,19 @@ impl CookiesMiddlewareProcesor {
     }
 
     #[must_use]
-    fn timestamp_ok(_serial: Serial) -> bool {
-        // TODO
-        true
+    fn timestamp_ok(serial: Serial) -> bool {
+        // https://www.rfc-editor.org/rfc/rfc9018.html#section-4.3
+        // 4.3. The Timestamp Sub-Field:
+        //   "The Timestamp value prevents Replay Attacks and MUST be checked
+        //    by the server to be within a defined period of time. The DNS
+        //    server SHOULD allow cookies within a 1-hour period in the past
+        //    and a 5-minute period into the future to allow operation of
+        //    low-volume clients and some limited time skew between the DNS
+        //    servers in the anycast set."
+        let now = Serial::now();
+        let too_new_at = now.add(FIVE_MINUTES_AS_SECS);
+        let expires_at = serial.add(ONE_HOUR_AS_SECS);
+        now <= expires_at && serial <= too_new_at
     }
 
     fn response_with_cookie<RequestOctets, Target>(

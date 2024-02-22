@@ -29,6 +29,7 @@ const STEP_TYPE_QUERY: &str = "QUERY";
 const STEP_TYPE_CHECK_ANSWER: &str = "CHECK_ANSWER";
 const STEP_TYPE_TIME_PASSES: &str = "TIME_PASSES";
 const STEP_TYPE_TRAFFIC: &str = "TRAFFIC";
+const STEP_TYPE_TIME_PASSES_ELAPSE: &str = "ELAPSE";
 const STEP_TYPE_CHECK_TEMPFILE: &str = "CHECK_TEMPFILE";
 const STEP_TYPE_ASSIGN: &str = "ASSIGN";
 const HEX_EDNSDATA_BEGIN: &str = "HEX_EDNSDATA_BEGIN";
@@ -213,6 +214,7 @@ pub struct Step {
     pub step_value: u64,
     pub step_type: StepType,
     pub entry: Option<Entry>,
+    pub time_passes: Option<u64>,
 }
 
 fn parse_step<Lines: Iterator<Item = Result<String, std::io::Error>>>(
@@ -241,6 +243,7 @@ fn parse_step<Lines: Iterator<Item = Result<String, std::io::Error>>>(
         step_value,
         step_type,
         entry: None,
+        time_passes: None,
     };
 
     match step.step_type {
@@ -271,7 +274,16 @@ fn parse_step<Lines: Iterator<Item = Result<String, std::io::Error>>>(
         }
         StepType::CheckAnswer => (), // Continue with entry
         StepType::TimePasses => {
-            println!("parse_step: should handle TIME_PASSES");
+            // The next token needs to be ELAPSE. Later we can add EVAL as
+            // well.
+            let elapsed_str = tokens.next().unwrap();
+            if elapsed_str != STEP_TYPE_TIME_PASSES_ELAPSE {
+                panic!("Expect ELAPSE after TIME_PASSES");
+            }
+
+            // Then we get the number of seconds that has passed.
+            let seconds = tokens.next().unwrap().parse::<u64>().unwrap();
+            step.time_passes = Some(seconds);
             return step;
         }
         StepType::Traffic => {

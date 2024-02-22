@@ -42,9 +42,10 @@ use tracing_subscriber::EnvFilter;
 ///
 /// Note: Adding or removing .rpl files on disk won't be detected until the
 /// test is re-compiled.
+#[cfg(feature = "mock-time")]
 #[instrument(skip_all, fields(rpl = rpl_file.file_name().unwrap().to_str()))]
 #[rstest]
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn server_tests(#[files("test-data/server/*.rpl")] rpl_file: PathBuf) {
     init_logging();
 

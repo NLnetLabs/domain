@@ -38,6 +38,9 @@ tokio          = { version = "1.33", optional = true, features = ["io-util", "ma
 tokio-rustls   = { version = "0.24", optional = true, features = [] }
 tracing        = { version = "0.1.40", optional = true }
 
+# For testing in integration tests:
+mock_instant = { version = "0.3.2", optional = true, features = ["sync"] }
+
 [target.'cfg(macos)'.dependencies]
 # specifying this overrides minimum-version mio's 0.2.69 libc dependency, which allows the build to work
 libc = { version = "0.2.71", default-features = false, optional = true }
@@ -61,6 +64,9 @@ zonefile    = ["bytes", "std"]
 unstable-client-transport = []
 unstable-server-transport = ["chrono/clock", "hex", "libc", "tracing"]
 
+# Test features
+mock-time = ["mock_instant"]
+
 [dev-dependencies]
 rstest       = "0.18.2"
 rustls       = { version = "0.21.9" }
@@ -73,10 +79,10 @@ webpki-roots = { version = "0.25" }
 
 rustls-pemfile = { version = "1.0" }
 socket2        = { version = "0.5.5" }
-tokio-tfo    = { version = "0.2.0" }
+tokio-tfo      = { version = "0.2.0" }
 
 # For tracing support in integration tests:
-lazy_static  = { version = "1.4.0" } # Force lazy_static to > 1.0.0 for https://github.com/rust-lang-nursery/lazy-static.rs/pull/107
+lazy_static        = { version = "1.4.0" } # Force lazy_static to > 1.0.0 for https://github.com/rust-lang-nursery/lazy-static.rs/pull/107
 tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
 
 [package.metadata.docs.rs]

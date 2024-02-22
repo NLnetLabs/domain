@@ -16,7 +16,11 @@ use std::net::{IpAddr, SocketAddr};
 use std::pin::Pin;
 use std::rc::Rc;
 use std::sync::Mutex;
+use std::time::Duration;
 use tracing::{debug, info_span, trace};
+
+#[cfg(feature = "mock-time")]
+use mock_instant::MockClock;
 
 use super::channel::DEF_CLIENT_ADDR;
 
@@ -300,8 +304,14 @@ pub async fn do_client<'a, T: ClientFactory>(
                         return Err(DeckardErrorCause::MismatchedAnswer);
                     }
                 }
-                StepType::TimePasses
-                | StepType::Traffic
+                StepType::TimePasses => {
+                    let duration =
+                        Duration::from_secs(step.time_passes.unwrap());
+                    tokio::time::advance(duration).await;
+                    #[cfg(feature = "mock-time")]
+                    MockClock::advance_system_time(duration);
+                }
+                StepType::Traffic
                 | StepType::CheckTempfile
                 | StepType::Assign => todo!(),
             }
