@@ -31,7 +31,7 @@
 //! msg.header_mut().set_rd(true);
 //! let mut msg = msg.question();
 //! msg.push(
-//!     (Dname::vec_from_str("example.com").unwrap(), Rtype::Aaaa)
+//!     (Dname::vec_from_str("example.com").unwrap(), Rtype::AAAA)
 //! ).unwrap();
 //! let req = RequestMessage::new(msg);
 //! ```

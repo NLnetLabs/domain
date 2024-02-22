@@ -528,7 +528,7 @@ impl<Target: Composer> QuestionBuilder<Target> {
     /// let mut msg = MessageBuilder::new_vec().question();
     /// msg.push(Question::new_in(Dname::root_ref(), Rtype::A)).unwrap();
     /// msg.push(&Question::new_in(Dname::root_ref(), Rtype::A)).unwrap();
-    /// msg.push((Dname::root_ref(), Rtype::A, Class::In)).unwrap();
+    /// msg.push((Dname::root_ref(), Rtype::A, Class::IN)).unwrap();
     /// msg.push((Dname::root_ref(), Rtype::A)).unwrap();
     /// ```
     pub fn push(
@@ -772,12 +772,12 @@ impl<Target: Composer> AnswerBuilder<Target> {
     ///
     /// let mut msg = MessageBuilder::new_vec().answer();
     /// let record = Record::new(
-    ///     Dname::root_ref(), Class::In, Ttl::from_secs(86400), A::from_octets(192, 0, 2, 1)
+    ///     Dname::root_ref(), Class::IN, Ttl::from_secs(86400), A::from_octets(192, 0, 2, 1)
     /// );
     /// msg.push(&record).unwrap();
     /// msg.push(record).unwrap();
     /// msg.push(
-    ///     (Dname::root_ref(), Class::In, 86400, A::from_octets(192, 0, 2, 1))
+    ///     (Dname::root_ref(), Class::IN, 86400, A::from_octets(192, 0, 2, 1))
     /// ).unwrap();
     /// msg.push(
     ///     (Dname::root_ref(), 86400, A::from_octets(192, 0, 2, 1))
@@ -1024,12 +1024,13 @@ impl<Target: Composer> AuthorityBuilder<Target> {
     ///
     /// let mut msg = MessageBuilder::new_vec().authority();
     /// let record = Record::new(
-    ///     Dname::root_ref(), Class::In, Ttl::from_secs(86400), A::from_octets(192, 0, 2, 1)
+    ///     Dname::root_ref(), Class::IN, Ttl::from_secs(86400),
+    ///     A::from_octets(192, 0, 2, 1)
     /// );
     /// msg.push(&record).unwrap();
     /// msg.push(record).unwrap();
     /// msg.push(
-    ///     (Dname::root_ref(), Class::In, 86400, A::from_octets(192, 0, 2, 1))
+    ///     (Dname::root_ref(), Class::IN, 86400, A::from_octets(192, 0, 2, 1))
     /// ).unwrap();
     /// msg.push(
     ///     (Dname::root_ref(), 86400, A::from_octets(192, 0, 2, 1))
@@ -1281,12 +1282,12 @@ impl<Target: Composer> AdditionalBuilder<Target> {
     ///
     /// let mut msg = MessageBuilder::new_vec().additional();
     /// let record = Record::new(
-    ///     Dname::root_ref(), Class::In, Ttl::from_secs(86400), A::from_octets(192, 0, 2, 1)
+    ///     Dname::root_ref(), Class::IN, Ttl::from_secs(86400), A::from_octets(192, 0, 2, 1)
     /// );
     /// msg.push(&record).unwrap();
     /// msg.push(record).unwrap();
     /// msg.push(
-    ///     (Dname::root_ref(), Class::In, 86400, A::from_octets(192, 0, 2, 1))
+    ///     (Dname::root_ref(), Class::IN, 86400, A::from_octets(192, 0, 2, 1))
     /// ).unwrap();
     /// msg.push(
     ///     (Dname::root_ref(), 86400, A::from_octets(192, 0, 2, 1))
