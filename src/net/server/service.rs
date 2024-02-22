@@ -341,6 +341,7 @@ pub enum ServiceCommand {
 /// [`ServiceCommand`] directing the server or connection handler handling the
 /// request to adjust its own configuration, or even to terminate the
 /// connection.
+#[derive(Clone, Debug)]
 pub struct CallResult<Target> {
     response: Option<AdditionalBuilder<StreamTarget<Target>>>,
     command: Option<ServiceCommand>,

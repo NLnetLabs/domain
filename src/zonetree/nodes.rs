@@ -9,7 +9,9 @@ use std::sync::Arc;
 use std::vec::Vec;
 use crate::base::iana::{Class, Rtype};
 use crate::base::name::{Label, OwnedLabel, ToDname, ToLabelIter};
-use parking_lot::{RwLock, RwLockUpgradableReadGuard, RwLockWriteGuard};
+use parking_lot::lock_api::RwLockWriteGuard;
+use parking_lot::RawRwLock;
+use parking_lot::{RwLock, RwLockUpgradableReadGuard};
 use serde::{Deserialize, Serialize};
 use super::flavor::Flavor;
 use super::rrset::{SharedRr, SharedRrset, StoredDname, StoredRecord};
@@ -112,6 +114,12 @@ impl ZoneApex {
         self.rrsets.clean(version);
         self.children.clean(version);
     }
+
+    pub(crate) fn lock(&self) -> (parking_lot::lock_api::RwLockReadGuard<'_, RawRwLock, HashMap<Rtype, NodeRrset>>, parking_lot::lock_api::RwLockReadGuard<'_, RawRwLock, HashMap<OwnedLabel, Arc<ZoneNode>>>) {
+        let rrsets_lock = self.rrsets.lock();
+        let children_lock = self.children.lock();
+        (rrsets_lock, children_lock)
+    }
 }
 
 
@@ -191,6 +199,10 @@ pub struct NodeRrsets {
 }
 
 impl NodeRrsets {
+    pub(crate) fn lock(&self) -> parking_lot::lock_api::RwLockReadGuard<'_, RawRwLock, HashMap<Rtype, NodeRrset>> {
+        self.rrsets.read()
+    }
+
     /// Returns whether there are no RRsets for the given flavor.
     pub fn is_empty(&self, flavor: Option<Flavor>, version: Version) -> bool {
         let rrsets = self.rrsets.read();
@@ -249,7 +261,7 @@ impl NodeRrsets {
 //------------ NodeRrset -----------------------------------------------------
 
 #[derive(Default)]
-struct NodeRrset {
+pub(crate) struct NodeRrset {
     /// The RRsets for the various flavors.
     ///
     /// A stored `None` value means there is explicitely no RRset here. This
@@ -259,7 +271,7 @@ struct NodeRrset {
 }
 
 impl NodeRrset {
-    fn get(
+    pub fn get(
         &self, flavor: Option<Flavor>, version: Version
     ) -> Option<&SharedRrset> {
         self.rrsets.get(flavor, version).and_then(Option::as_ref)
@@ -314,6 +326,10 @@ pub struct NodeChildren {
 }
 
 impl NodeChildren {
+    pub fn lock(&self) -> parking_lot::lock_api::RwLockReadGuard<'_, RawRwLock, HashMap<OwnedLabel, Arc<ZoneNode>>> {
+        self.children.read()
+    }
+
     pub fn with<R>(
         &self,
         label: &Label,

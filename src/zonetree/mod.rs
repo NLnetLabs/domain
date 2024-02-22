@@ -3,7 +3,7 @@
 
 pub use self::builder::{ZoneBuilder, ZoneCutError, CnameError};
 pub use self::flavor::Flavor;
-pub use self::read::{Answer, ReadZone};
+pub use self::read::{Answer, AnswerContent, ReadZone};
 pub use self::rrset::{
     Rrset, SharedRr, SharedRrset, StoredDname, StoredRecord
 };

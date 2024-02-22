@@ -1,15 +1,17 @@
 //! Quering for zone data.
 
+use std::boxed::Box;
 use std::sync::Arc;
+
 use crate::base::iana::{Rcode, Rtype};
 use crate::base::message::Message;
 use crate::base::message_builder::{AdditionalBuilder, MessageBuilder};
-use crate::base::name::{Label, ToDname};
+use crate::base::name::{Label, ToDname, ToLabelIter};
 use crate::base::wire::Composer;
 use crate::dep::octseq::Octets;
 use super::flavor::Flavor;
 use super::nodes::{
-    NodeChildren, NodeRrsets, OutOfZone, Special, ZoneApex, ZoneCut, ZoneNode,
+    NodeChildren, NodeRrsets, OutOfZone, Special, ZoneApex, ZoneCut, ZoneNode
 };
 use super::rrset::{SharedRr, SharedRrset, StoredDname};
 use super::versioned::Version;
@@ -18,6 +20,7 @@ use super::zone::VersionMarker;
 
 //------------ ReadZone ------------------------------------------------------
 
+#[derive(Clone)]
 pub struct ReadZone {
     apex: Arc<ZoneApex>,
     flavor: Option<Flavor>,
@@ -41,20 +44,28 @@ impl ReadZone {
         let mut qname = self.apex.prepare_name(qname)?;
 
         let answer = if let Some(label) = qname.next() {
-            self.query_below_apex(label, qname, qtype)
+            self.query_below_apex(label, qname, qtype, None)
         }
         else {
-            self.query_rrsets(self.apex.rrsets(), qtype)
+            self.query_rrsets(self.apex.rrsets(), qtype, None)
         };
 
         Ok(answer.into_answer(self))
     }
 
+    pub fn walk(&self, op: Box<dyn Fn(Answer)>) {
+        let _locks = self.apex.lock();
+        self.query_rrsets(self.apex.rrsets(), Rtype::Any, Some(&op));
+        let qname_iter = self.apex.apex_name().iter_labels().rev();
+        self.query_below_apex(&Label::root(), qname_iter, Rtype::Any, Some(&op));
+    }
+
     fn query_below_apex<'l>(
         &self,
         label: &Label, qname: impl Iterator<Item=&'l Label>, qtype: Rtype,
+        op: Option<&Box<dyn Fn(Answer)>>
     ) -> NodeAnswer {
-        self.query_children(self.apex.children(), label, qname, qtype)
+        self.query_children(self.apex.children(), label, qname, qtype, op)
     }
 
     fn query_node<'l>(
@@ -62,12 +73,13 @@ impl ReadZone {
         node: &ZoneNode,
         mut qname: impl Iterator<Item=&'l Label>,
         qtype: Rtype,
+        op: Option<&Box<dyn Fn(Answer)>>
     ) -> NodeAnswer {
         if let Some(label) = qname.next() {
-            self.query_node_below(node, label, qname, qtype)
+            self.query_node_below(node, label, qname, qtype, op)
         }
         else {
-            self.query_node_here(node, qtype)
+            self.query_node_here(node, qtype, op)
         }
     }
 
@@ -77,6 +89,7 @@ impl ReadZone {
         label: &Label,
         qname: impl Iterator<Item=&'l Label>,
         qtype: Rtype,
+        op: Option<&Box<dyn Fn(Answer)>>
     ) -> NodeAnswer {
         node.with_special(self.flavor, self.version, |special| {
             match special {
@@ -94,7 +107,7 @@ impl ReadZone {
                     NodeAnswer::nx_domain()
                 }
                 Some(Special::Cname(_)) | None => {
-                    self.query_children(node.children(), label, qname, qtype)
+                    self.query_children(node.children(), label, qname, qtype, op)
                 }
             }
         })
@@ -104,6 +117,7 @@ impl ReadZone {
         &self,
         node: &ZoneNode,
         qtype: Rtype,
+        op: Option<&Box<dyn Fn(Answer)>>
     ) -> NodeAnswer {
         node.with_special(self.flavor, self.version, |special| {
             match special {
@@ -112,17 +126,27 @@ impl ReadZone {
                     NodeAnswer::cname(cname.clone())
                 }
                 Some(Special::NxDomain) => NodeAnswer::nx_domain(),
-                None => self.query_rrsets(node.rrsets(), qtype),
+                None => self.query_rrsets(node.rrsets(), qtype, op),
             }
         })
     }
 
     fn query_rrsets(
-        &self,  rrsets: &NodeRrsets, qtype: Rtype,
+        &self,  rrsets: &NodeRrsets, qtype: Rtype, op: Option<&Box<dyn Fn(Answer)>>,
     ) -> NodeAnswer {
-        match rrsets.get(qtype, self.flavor, self.version) {
-            Some(rrset) => NodeAnswer::data(rrset),
-            None => NodeAnswer::no_data(),
+        if let Some(op) = op {
+            let lock = rrsets.lock();
+            for (_rtype, rrset) in lock.iter() {
+                if let Some(shared_rrset) = rrset.get(self.flavor, self.version) {
+                    (op)(NodeAnswer::data(shared_rrset.clone()).into_answer(self));
+                }
+            }
+            NodeAnswer::no_data()
+        } else {
+            match rrsets.get(qtype, self.flavor, self.version) {
+                Some(rrset) => NodeAnswer::data(rrset),
+                None => NodeAnswer::no_data(),
+            }
         }
     }
 
@@ -157,6 +181,7 @@ impl ReadZone {
         label: &Label,
         qname: impl Iterator<Item=&'l Label>,
         qtype: Rtype,
+        op: Option<&Box<dyn Fn(Answer)>>
     ) -> NodeAnswer {
         // Step 1: See if we have a non-terminal child for label. If so,
         //         continue there. Because of flavors, the child may exist
@@ -168,7 +193,7 @@ impl ReadZone {
                     None
                 }
                 else {
-                    Some(self.query_node(node, qname, qtype))
+                    Some(self.query_node(node, qname, qtype, op))
                 }
             }
             else {
@@ -183,7 +208,7 @@ impl ReadZone {
         // node.
         children.with(Label::wildcard(), |node| {
             match node {
-                Some(node) => self.query_node_here(node, qtype),
+                Some(node) => self.query_node_here(node, qtype, op),
                 None => NodeAnswer::nx_domain()
             }
         })
@@ -325,6 +350,9 @@ impl Answer {
         match self.content {
             AnswerContent::Data(ref answer) => {
                 for item in answer.data() {
+                    // TODO: This will panic if too many answers were given,
+                    // rather than give the caller a way to push the rest into
+                    // another message.
                     builder.push((qname, qclass, answer.ttl(), item)).unwrap();
                 }
             }
@@ -362,6 +390,18 @@ impl Answer {
         }
 
         builder.additional()
+    }
+
+    pub fn rcode(&self) -> Rcode {
+        self.rcode
+    }
+
+    pub fn content(&self) -> &AnswerContent {
+        &self.content
+    }
+
+    pub fn authority(&self) -> Option<&AnswerAuthority> {
+        self.authority.as_ref()
     }
 }
 
