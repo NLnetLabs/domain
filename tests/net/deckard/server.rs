@@ -98,7 +98,7 @@ fn do_adjust<Octs: Octets>(
         todo!()
     }
     if reply.noerror {
-        msg.header_mut().set_rcode(Rcode::NoError);
+        msg.header_mut().set_rcode(Rcode::NOERROR);
     }
     if reply.nxdomain {
         todo!()

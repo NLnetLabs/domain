@@ -30,6 +30,11 @@ pub struct Mx<N> {
     exchange: N,
 }
 
+impl Mx<()> {
+    /// The rtype of this record data type.
+    pub(crate) const RTYPE: Rtype = Rtype::MX;
+}
+
 impl<N> Mx<N> {
     /// Creates a new Mx record data from the components.
     pub fn new(preference: u16, exchange: N) -> Self {
@@ -162,7 +167,7 @@ impl<N: ToDname, NN: ToDname> CanonicalOrd<Mx<NN>> for Mx<N> {
 
 impl<N> RecordData for Mx<N> {
     fn rtype(&self) -> Rtype {
-        Rtype::Mx
+        Mx::RTYPE
     }
 }
 
@@ -173,7 +178,7 @@ impl<'a, Octs: Octets + ?Sized> ParseRecordData<'a, Octs>
         rtype: Rtype,
         parser: &mut Parser<'a, Octs>,
     ) -> Result<Option<Self>, ParseError> {
-        if rtype == Rtype::Mx {
+        if rtype == Mx::RTYPE {
             Self::parse(parser).map(Some)
         } else {
             Ok(None)

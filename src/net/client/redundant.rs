@@ -734,12 +734,12 @@ fn skip<Octs: Octets>(msg: &Message<Octs>, config: &Config) -> bool {
 
     let opt_rcode = get_opt_rcode(msg);
     // OptRcode needs PartialEq
-    if let OptRcode::Refused = opt_rcode {
+    if let OptRcode::REFUSED = opt_rcode {
         if config.defer_refused {
             return true;
         }
     }
-    if let OptRcode::ServFail = opt_rcode {
+    if let OptRcode::SERVFAIL = opt_rcode {
         if config.defer_servfail {
             return true;
         }
@@ -753,10 +753,6 @@ fn get_opt_rcode<Octs: Octets>(msg: &Message<Octs>) -> OptRcode {
     let opt = msg.opt();
     match opt {
         Some(opt) => opt.rcode(msg.header()),
-        None => {
-            // Convert Rcode to OptRcode, this should be part of
-            // OptRcode
-            OptRcode::from_int(msg.header().rcode().to_int() as u16)
-        }
+        None => msg.header().rcode().into(),
     }
 }

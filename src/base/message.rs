@@ -298,12 +298,12 @@ impl<Octs: AsRef<[u8]> + ?Sized> Message<Octs> {
 
     /// Returns whether the rcode of the header is NoError.
     pub fn no_error(&self) -> bool {
-        self.header().rcode() == Rcode::NoError
+        self.header().rcode() == Rcode::NOERROR
     }
 
     /// Returns whether the rcode of the header is one of the error values.
     pub fn is_error(&self) -> bool {
-        self.header().rcode() != Rcode::NoError
+        self.header().rcode() != Rcode::NOERROR
     }
 }
 
@@ -1165,7 +1165,7 @@ where
                 Some(Err(err)) => return Some(Err(err)),
                 None => return None,
             };
-            if self.in_only && record.class() != Class::In {
+            if self.in_only && record.class() != Class::IN {
                 continue;
             }
             match record.into_record() {
@@ -1436,7 +1436,7 @@ mod test {
             if let Ok(Some(rr)) =
                 rr.into_record::<AllRecordData<_, ParsedDname<_>>>()
             {
-                if rr.rtype() == Rtype::Cname {
+                if rr.rtype() == Rtype::CNAME {
                     return Some(rr);
                 }
             }

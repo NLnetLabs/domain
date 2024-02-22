@@ -57,7 +57,7 @@ impl<N> Question<N> {
         Question {
             qname,
             qtype,
-            qclass: Class::In,
+            qclass: Class::IN,
         }
     }
 
@@ -121,7 +121,7 @@ impl<N: ToDname> From<(N, Rtype, Class)> for Question<N> {
 
 impl<N: ToDname> From<(N, Rtype)> for Question<N> {
     fn from((name, rtype): (N, Rtype)) -> Self {
-        Question::new(name, rtype, Class::In)
+        Question::new(name, rtype, Class::IN)
     }
 }
 
@@ -297,6 +297,6 @@ impl<Name: ToDname> ComposeQuestion for (Name, Rtype) {
         &self,
         target: &mut Target,
     ) -> Result<(), Target::AppendError> {
-        Question::new(&self.0, self.1, Class::In).compose(target)
+        Question::new(&self.0, self.1, Class::IN).compose(target)
     }
 }

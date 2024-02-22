@@ -78,6 +78,11 @@ pub struct Tsig<Octs, Name> {
     other: Octs,
 }
 
+impl Tsig<(), ()> {
+    /// The rtype of this record data type.
+    pub(crate) const RTYPE: Rtype = Rtype::TSIG;
+}
+
 impl<O, N> Tsig<O, N> {
     /// Creates new TSIG record data from its components.
     ///
@@ -500,7 +505,7 @@ impl<O: AsRef<[u8]>, N: hash::Hash> hash::Hash for Tsig<O, N> {
 
 impl<O, N> RecordData for Tsig<O, N> {
     fn rtype(&self) -> Rtype {
-        Rtype::Tsig
+        Tsig::RTYPE
     }
 }
 
@@ -511,7 +516,7 @@ impl<'a, Octs: Octets + ?Sized> ParseRecordData<'a, Octs>
         rtype: Rtype,
         parser: &mut Parser<'a, Octs>,
     ) -> Result<Option<Self>, ParseError> {
-        if rtype == Rtype::Tsig {
+        if rtype == Tsig::RTYPE {
             Self::parse(parser).map(Some)
         } else {
             Ok(None)
@@ -725,7 +730,7 @@ mod test {
             12,
             "foo",
             13,
-            TsigRcode::BadCookie,
+            TsigRcode::BADCOOKIE,
             "",
         ).unwrap();
         test_rdlen(&rdata);

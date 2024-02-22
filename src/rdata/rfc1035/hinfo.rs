@@ -41,6 +41,11 @@ pub struct Hinfo<Octs> {
     os: CharStr<Octs>,
 }
 
+impl Hinfo<()> {
+    /// The rtype of this record data type.
+    pub(crate) const RTYPE: Rtype = Rtype::HINFO;
+}
+
 impl<Octs> Hinfo<Octs> {
     /// Creates a new Hinfo record data from the components.
     pub fn new(cpu: CharStr<Octs>, os: CharStr<Octs>) -> Self {
@@ -168,7 +173,7 @@ impl<Octs: AsRef<[u8]>> hash::Hash for Hinfo<Octs> {
 
 impl<Octs> RecordData for Hinfo<Octs> {
     fn rtype(&self) -> Rtype {
-        Rtype::Hinfo
+        Hinfo::RTYPE
     }
 }
 
@@ -180,7 +185,7 @@ where
         rtype: Rtype,
         parser: &mut Parser<'a, Octs>,
     ) -> Result<Option<Self>, ParseError> {
-        if rtype == Rtype::Hinfo {
+        if rtype == Hinfo::RTYPE {
             Self::parse(parser).map(Some)
         } else {
             Ok(None)

@@ -15,12 +15,13 @@
 //! [RFC 2845]: https://tools.ietf.org/html/rfc2845
 //! [RFC 2930]: https://tools.ietf.org/html/rfc2930
 //! [RFC 6891]: https://tools.ietf.org/html/rfc6891
-//!
-#![allow(clippy::upper_case_acronyms)]
 
-use core::{cmp, fmt, hash};
+//  Note: Rcode and OptRcode don’t use the macros since they don’t use all the
+//  bits of the wrapped integer.
 
-//------------ Rcode --------------------------------------------------------
+use core::fmt;
+
+//------------ Rcode ---------------------------------------------------------
 
 /// DNS Response Codes.
 ///
@@ -44,8 +45,10 @@ use core::{cmp, fmt, hash};
 /// [IANA DNS RCODEs]: http://www.iana.org/assignments/dns-parameters/dns-parameters.xhtml#dns-parameters-6
 /// [RFC 1035]: https://tools.ietf.org/html/rfc1035
 /// [RFC 2671]: https://tools.ietf.org/html/rfc2671
-#[derive(Clone, Copy, Debug)]
-pub enum Rcode {
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct Rcode(u8);
+
+impl Rcode {
     /// No error condition.
     ///
     /// (Otherwise known as success.)
@@ -53,7 +56,7 @@ pub enum Rcode {
     /// Defined in [RFC 1035].
     ///
     /// [RFC 1035]: https://tools.ietf.org/html/rfc1035
-    NoError,
+    pub const NOERROR: Self = Self(0);
 
     /// Format error.
     ///
@@ -62,7 +65,7 @@ pub enum Rcode {
     /// Defined in [RFC 1035].
     ///
     /// [RFC 1035]: https://tools.ietf.org/html/rfc1035
-    FormErr,
+    pub const FORMERR: Self = Self(1);
 
     /// Server failure.
     ///
@@ -72,7 +75,7 @@ pub enum Rcode {
     /// Defined in [RFC 1035].
     ///
     /// [RFC 1035]: https://tools.ietf.org/html/rfc1035
-    ServFail,
+    pub const SERVFAIL: Self = Self(2);
 
     /// Name error.
     ///
@@ -81,7 +84,7 @@ pub enum Rcode {
     /// Defined in [RFC 1035].
     ///
     /// [RFC 1035]: https://tools.ietf.org/html/rfc1035
-    NXDomain,
+    pub const NXDOMAIN: Self = Self(3);
 
     /// Not implemented.
     ///
@@ -90,7 +93,7 @@ pub enum Rcode {
     /// Defined in [RFC 1035].
     ///
     /// [RFC 1035]: https://tools.ietf.org/html/rfc1035
-    NotImp,
+    pub const NOTIMP: Self = Self(4);
 
     /// Query refused.
     ///
@@ -100,7 +103,7 @@ pub enum Rcode {
     /// Defined in [RFC 1035].
     ///
     /// [RFC 1035]: https://tools.ietf.org/html/rfc1035
-    Refused,
+    pub const REFUSED: Self = Self(5);
 
     /// Name exists when it should not.
     ///
@@ -115,7 +118,7 @@ pub enum Rcode {
     ///
     /// [RFC 2136]: https://tools.ietf.org/html/rfc2136
     /// [RFC 6672]: https://tools.ietf.org/html/rfc6672
-    YXDomain,
+    pub const YXDOMAIN: Self = Self(6);
 
     /// RR set exists when it should not.
     ///
@@ -125,7 +128,7 @@ pub enum Rcode {
     /// Defined in [RFC 2136].
     ///
     /// [RFC 2136]: https://tools.ietf.org/html/rfc2136
-    YXRRSet,
+    pub const YXRRSET: Self = Self(7);
 
     /// RR set that should exist does not.
     ///
@@ -135,7 +138,7 @@ pub enum Rcode {
     /// Defined in [RFC 2136].
     ///
     /// [RFC 2136]: https://tools.ietf.org/html/rfc2136
-    NXRRSet,
+    pub const NXRRSET: Self = Self(8);
 
     /// Server not authoritative for zone or client not authorized.
     ///
@@ -148,7 +151,7 @@ pub enum Rcode {
     ///
     /// [RFC 2136]: https://tools.ietf.org/html/rfc2136
     /// [RFC 2845]: https://tools.ietf.org/html/rfc2845
-    NotAuth,
+    pub const NOTAUTH: Self = Self(9);
 
     /// Name not contained in zone.
     ///
@@ -158,36 +161,28 @@ pub enum Rcode {
     /// Defined in [RFC 2136].
     ///
     /// [RFC 2136]: https://tools.ietf.org/html/rfc2136
-    NotZone,
-
-    /// A raw, integer rcode value.
-    ///
-    /// When converting to an `u8`, only the lower four bits are used.
-    Int(u8),
+    pub const NOTZONE: Self = Self(10);
 }
 
 impl Rcode {
-    /// Creates an rcode from an integer.
+    /// Creates an rcode from an integer, returning `None` if invalid.
     ///
-    /// Only the lower four bits of `value` are considered.
+    /// The rcode is valid if the upper four bits of `value` are all zero.
     #[must_use]
-    pub fn from_int(value: u8) -> Rcode {
-        use self::Rcode::*;
-
-        match value & 0x0F {
-            0 => NoError,
-            1 => FormErr,
-            2 => ServFail,
-            3 => NXDomain,
-            4 => NotImp,
-            5 => Refused,
-            6 => YXDomain,
-            7 => YXRRSet,
-            8 => NXRRSet,
-            9 => NotAuth,
-            10 => NotZone,
-            value => Int(value),
+    pub const fn checked_from_int(value: u8) -> Option<Self> {
+        if value & 0xF0 != 0 {
+            None
+        } else {
+            Some(Rcode(value))
         }
+    }
+
+    /// Creates an rcode from an integer, only considering the lower four bits.
+    ///
+    /// This function will ignore the upper four bit of `value`.
+    #[must_use]
+    pub const fn saturating_from_int(value: u8) -> Self {
+        Rcode(value & 0x0F)
     }
 
     /// Returns the integer value for this rcode.
@@ -195,31 +190,18 @@ impl Rcode {
     /// Only the lower 4 bits of the returned octet are used by the rcode. The
     /// upper four bits are always zero.
     #[must_use]
-    pub fn to_int(self) -> u8 {
-        use self::Rcode::*;
-
-        match self {
-            NoError => 0,
-            FormErr => 1,
-            ServFail => 2,
-            NXDomain => 3,
-            NotImp => 4,
-            Refused => 5,
-            YXDomain => 6,
-            YXRRSet => 7,
-            NXRRSet => 8,
-            NotAuth => 9,
-            NotZone => 10,
-            Int(value) => value & 0x0F,
-        }
+    pub const fn to_int(self) -> u8 {
+        self.0
     }
 }
 
-//--- From
+//--- TryFrom and From
 
-impl From<u8> for Rcode {
-    fn from(value: u8) -> Rcode {
-        Rcode::from_int(value)
+impl TryFrom<u8> for Rcode {
+    type Error = InvalidRcode;
+
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        Rcode::checked_from_int(value).ok_or(InvalidRcode(()))
     }
 }
 
@@ -233,81 +215,20 @@ impl From<Rcode> for u8 {
 
 impl fmt::Display for Rcode {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        use self::Rcode::*;
-
         match *self {
-            NoError => "NOERROR".fmt(f),
-            FormErr => "FORMERR".fmt(f),
-            ServFail => "SERVFAIL".fmt(f),
-            NXDomain => "NXDOMAIN".fmt(f),
-            NotImp => "NOTIMP".fmt(f),
-            Refused => "REFUSED".fmt(f),
-            YXDomain => "YXDOMAIN".fmt(f),
-            YXRRSet => "YXRRSET".fmt(f),
-            NXRRSet => "NXRRSET".fmt(f),
-            NotAuth => "NOAUTH".fmt(f),
-            NotZone => "NOTZONE".fmt(f),
-            Int(i) => match Rcode::from_int(i) {
-                Rcode::Int(i) => i.fmt(f),
-                value => value.fmt(f),
-            },
+            Rcode::NOERROR => "NOERROR".fmt(f),
+            Rcode::FORMERR => "FORMERR".fmt(f),
+            Rcode::SERVFAIL => "SERVFAIL".fmt(f),
+            Rcode::NXDOMAIN => "NXDOMAIN".fmt(f),
+            Rcode::NOTIMP => "NOTIMP".fmt(f),
+            Rcode::REFUSED => "REFUSED".fmt(f),
+            Rcode::YXDOMAIN => "YXDOMAIN".fmt(f),
+            Rcode::YXRRSET => "YXRRSET".fmt(f),
+            Rcode::NXRRSET => "NXRRSET".fmt(f),
+            Rcode::NOTAUTH => "NOAUTH".fmt(f),
+            Rcode::NOTZONE => "NOTZONE".fmt(f),
+            _ => self.0.fmt(f),
         }
-    }
-}
-
-//--- PartialEq and Eq
-
-impl cmp::PartialEq for Rcode {
-    fn eq(&self, other: &Rcode) -> bool {
-        self.to_int() == other.to_int()
-    }
-}
-
-impl cmp::PartialEq<u8> for Rcode {
-    fn eq(&self, other: &u8) -> bool {
-        self.to_int() == *other
-    }
-}
-
-impl cmp::PartialEq<Rcode> for u8 {
-    fn eq(&self, other: &Rcode) -> bool {
-        *self == other.to_int()
-    }
-}
-
-impl cmp::Eq for Rcode {}
-
-//--- PartialOrd and Ord
-
-impl cmp::PartialOrd for Rcode {
-    fn partial_cmp(&self, other: &Self) -> Option<cmp::Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl cmp::PartialOrd<u8> for Rcode {
-    fn partial_cmp(&self, other: &u8) -> Option<cmp::Ordering> {
-        self.to_int().partial_cmp(other)
-    }
-}
-
-impl cmp::PartialOrd<Rcode> for u8 {
-    fn partial_cmp(&self, other: &Rcode) -> Option<cmp::Ordering> {
-        self.partial_cmp(&other.to_int())
-    }
-}
-
-impl cmp::Ord for Rcode {
-    fn cmp(&self, other: &Rcode) -> cmp::Ordering {
-        self.to_int().cmp(&other.to_int())
-    }
-}
-
-//--- Hash
-
-impl hash::Hash for Rcode {
-    fn hash<H: hash::Hasher>(&self, state: &mut H) {
-        self.to_int().hash(state)
     }
 }
 
@@ -328,7 +249,9 @@ impl<'de> serde::Deserialize<'de> for Rcode {
     fn deserialize<D: serde::Deserializer<'de>>(
         deserializer: D,
     ) -> Result<Self, D::Error> {
-        u8::deserialize(deserializer).map(Rcode::from_int)
+        u8::deserialize(deserializer).and_then(|code| {
+            Rcode::try_from(code).map_err(serde::de::Error::custom)
+        })
     }
 }
 
@@ -391,8 +314,10 @@ impl<'de> serde::Deserialize<'de> for Rcode {
 /// [RFC 2845]: https://tools.ietf.org/html/rfc2845
 /// [RFC 2930]: https://tools.ietf.org/html/rfc2930
 /// [RFC 6891]: https://tools.ietf.org/html/rfc6891
-#[derive(Clone, Copy, Debug)]
-pub enum OptRcode {
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct OptRcode(u16);
+
+impl OptRcode {
     /// No error condition.
     ///
     /// (Otherwise known as success.)
@@ -400,7 +325,7 @@ pub enum OptRcode {
     /// Defined in [RFC 1035].
     ///
     /// [RFC 1035]: https://tools.ietf.org/html/rfc1035
-    NoError,
+    pub const NOERROR: Self = Self::from_rcode(Rcode::NOERROR);
 
     /// Format error.
     ///
@@ -409,7 +334,7 @@ pub enum OptRcode {
     /// Defined in [RFC 1035].
     ///
     /// [RFC 1035]: https://tools.ietf.org/html/rfc1035
-    FormErr,
+    pub const FORMERR: Self = Self::from_rcode(Rcode::FORMERR);
 
     /// Server failure.
     ///
@@ -419,7 +344,7 @@ pub enum OptRcode {
     /// Defined in [RFC 1035].
     ///
     /// [RFC 1035]: https://tools.ietf.org/html/rfc1035
-    ServFail,
+    pub const SERVFAIL: Self = Self::from_rcode(Rcode::SERVFAIL);
 
     /// Name error.
     ///
@@ -428,7 +353,7 @@ pub enum OptRcode {
     /// Defined in [RFC 1035].
     ///
     /// [RFC 1035]: https://tools.ietf.org/html/rfc1035
-    NXDomain,
+    pub const NXDOMAIN: Self = Self::from_rcode(Rcode::NXDOMAIN);
 
     /// Not implemented.
     ///
@@ -437,7 +362,7 @@ pub enum OptRcode {
     /// Defined in [RFC 1035].
     ///
     /// [RFC 1035]: https://tools.ietf.org/html/rfc1035
-    NotImp,
+    pub const NOTIMP: Self = Self::from_rcode(Rcode::NOTIMP);
 
     /// Query refused.
     ///
@@ -447,7 +372,7 @@ pub enum OptRcode {
     /// Defined in [RFC 1035].
     ///
     /// [RFC 1035]: https://tools.ietf.org/html/rfc1035
-    Refused,
+    pub const REFUSED: Self = Self::from_rcode(Rcode::REFUSED);
 
     /// Name exists when it should not.
     ///
@@ -462,7 +387,7 @@ pub enum OptRcode {
     ///
     /// [RFC 2136]: https://tools.ietf.org/html/rfc2136
     /// [RFC 6672]: https://tools.ietf.org/html/rfc6672
-    YXDomain,
+    pub const YXDOMAIN: Self = Self::from_rcode(Rcode::YXDOMAIN);
 
     /// RR set exists when it should not.
     ///
@@ -472,7 +397,7 @@ pub enum OptRcode {
     /// Defined in [RFC 2136].
     ///
     /// [RFC 2136]: https://tools.ietf.org/html/rfc2136
-    YXRRSet,
+    pub const YXRRSET: Self = Self::from_rcode(Rcode::YXRRSET);
 
     /// RR set that should exist does not.
     ///
@@ -482,7 +407,7 @@ pub enum OptRcode {
     /// Defined in [RFC 2136].
     ///
     /// [RFC 2136]: https://tools.ietf.org/html/rfc2136
-    NXRRSet,
+    pub const NXRRSET: Self = Self::from_rcode(Rcode::NXRRSET);
 
     /// Server not authoritative for zone or client not authorized.
     ///
@@ -495,7 +420,7 @@ pub enum OptRcode {
     ///
     /// [RFC 2136]: https://tools.ietf.org/html/rfc2136
     /// [RFC 2845]: https://tools.ietf.org/html/rfc2845
-    NotAuth,
+    pub const NOTAUTH: Self = Self::from_rcode(Rcode::NOTAUTH);
 
     /// Name not contained in zone.
     ///
@@ -505,7 +430,7 @@ pub enum OptRcode {
     /// Defined in [RFC 2136].
     ///
     /// [RFC 2136]: https://tools.ietf.org/html/rfc2136
-    NotZone,
+    pub const NOTZONE: Self = Self::from_rcode(Rcode::NOTZONE);
 
     /// Bad OPT version.
     ///
@@ -515,10 +440,10 @@ pub enum OptRcode {
     /// Defined in [RFC 6891].
     ///
     /// [RFC 6891]: https://tools.ietf.org/html/rfc6891
-    BadVers,
+    pub const BADVERS: Self = Self(16);
 
     // XXX We will not define the values from the TSIG and TKEY RFCs,
-    //     unless are used in OPT records, too?
+    //     unless they are used in OPT records, too?
     /// Bad or missing server cookie.
     ///
     /// The request contained a COOKIE option either without a server cookie
@@ -527,39 +452,34 @@ pub enum OptRcode {
     /// Defined in [RFC 7873].
     ///
     /// [RFC 7873]: https://tools.ietf.org/html/rfc7873
-    BadCookie,
-
-    /// A raw, integer rcode value.
-    ///
-    /// When converting to a 12 bit code, the upper four bits are simply
-    /// ignored.
-    Int(u16),
+    pub const BADCOOKIE: Self = Self(23);
 }
 
 impl OptRcode {
-    /// Creates an rcode from an integer.
+    /// Creates an rcode from an integer, returning `None` if invalid.
     ///
-    /// Only the lower twelve bits of `value` are considered.
+    /// The rcode is valid if the upper four bits of `value` are all zero.
     #[must_use]
-    pub fn from_int(value: u16) -> OptRcode {
-        use self::OptRcode::*;
-
-        match value & 0x0FFF {
-            0 => NoError,
-            1 => FormErr,
-            2 => ServFail,
-            3 => NXDomain,
-            4 => NotImp,
-            5 => Refused,
-            6 => YXDomain,
-            7 => YXRRSet,
-            8 => NXRRSet,
-            9 => NotAuth,
-            10 => NotZone,
-            16 => BadVers,
-            23 => BadCookie,
-            value => Int(value),
+    pub const fn checked_from_int(value: u16) -> Option<OptRcode> {
+        if value & 0x0FFF != 0 {
+            None
+        } else {
+            Some(Self(value))
         }
+    }
+
+    /// Creates an rcode from an integer, only considering the lower four bits.
+    ///
+    /// This function will ignore the upper four bit of `value`.
+    #[must_use]
+    pub const fn saturating_from_int(value: u16) -> OptRcode {
+        Self(value & 0x0FFF)
+    }
+
+    /// Creates an OPT rcode from a plain rcode.
+    #[must_use]
+    pub const fn from_rcode(rcode: Rcode) -> Self {
+        Self(rcode.0 as u16)
     }
 
     /// Returns the integer value for this rcode.
@@ -567,38 +487,20 @@ impl OptRcode {
     /// Only the lower 12 bits of the returned octet are used by the rcode.
     /// The upper four bits are always zero.
     #[must_use]
-    pub fn to_int(self) -> u16 {
-        use self::OptRcode::*;
-
-        match self {
-            NoError => 0,
-            FormErr => 1,
-            ServFail => 2,
-            NXDomain => 3,
-            NotImp => 4,
-            Refused => 5,
-            YXDomain => 6,
-            YXRRSet => 7,
-            NXRRSet => 8,
-            NotAuth => 9,
-            NotZone => 10,
-            BadVers => 16,
-            BadCookie => 23,
-            Int(value) => value & 0x0FFF,
-        }
+    pub const fn to_int(self) -> u16 {
+        self.0
     }
 
     /// Creates an extended rcode value from its parts.
     #[must_use]
     pub fn from_parts(rcode: Rcode, ext: u8) -> OptRcode {
-        OptRcode::from_int(u16::from(ext) << 4 | u16::from(rcode.to_int()))
+        OptRcode(u16::from(ext) << 4 | u16::from(rcode.to_int()))
     }
 
     /// Returns the two parts of an extended rcode value.
     #[must_use]
     pub fn to_parts(self) -> (Rcode, u8) {
-        let res = self.to_int();
-        (Rcode::from_int(res as u8), (res >> 4) as u8)
+        (Rcode(self.0 as u8), (self.0 >> 4) as u8)
     }
 
     /// Returns the rcode part of the extended rcode.
@@ -614,11 +516,13 @@ impl OptRcode {
     }
 }
 
-//--- From
+//--- TryFrom and From
 
-impl From<u16> for OptRcode {
-    fn from(value: u16) -> OptRcode {
-        OptRcode::from_int(value)
+impl TryFrom<u16> for OptRcode {
+    type Error = InvalidRcode;
+
+    fn try_from(value: u16) -> Result<Self, Self::Error> {
+        OptRcode::checked_from_int(value).ok_or(InvalidRcode(()))
     }
 }
 
@@ -630,7 +534,7 @@ impl From<OptRcode> for u16 {
 
 impl From<Rcode> for OptRcode {
     fn from(value: Rcode) -> OptRcode {
-        OptRcode::from_parts(value, 0)
+        OptRcode::from_rcode(value)
     }
 }
 
@@ -638,26 +542,21 @@ impl From<Rcode> for OptRcode {
 
 impl fmt::Display for OptRcode {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        use self::OptRcode::*;
-
         match *self {
-            NoError => "NOERROR".fmt(f),
-            FormErr => "FORMERR".fmt(f),
-            ServFail => "SERVFAIL".fmt(f),
-            NXDomain => "NXDOMAIN".fmt(f),
-            NotImp => "NOTIMP".fmt(f),
-            Refused => "REFUSED".fmt(f),
-            YXDomain => "YXDOMAIN".fmt(f),
-            YXRRSet => "YXRRSET".fmt(f),
-            NXRRSet => "NXRRSET".fmt(f),
-            NotAuth => "NOAUTH".fmt(f),
-            NotZone => "NOTZONE".fmt(f),
-            BadVers => "BADVER".fmt(f),
-            BadCookie => "BADCOOKIE".fmt(f),
-            Int(i) => match OptRcode::from_int(i) {
-                Int(i) => i.fmt(f),
-                value => value.fmt(f),
-            },
+            OptRcode::NOERROR => "NOERROR".fmt(f),
+            OptRcode::FORMERR => "FORMERR".fmt(f),
+            OptRcode::SERVFAIL => "SERVFAIL".fmt(f),
+            OptRcode::NXDOMAIN => "NXDOMAIN".fmt(f),
+            OptRcode::NOTIMP => "NOTIMP".fmt(f),
+            OptRcode::REFUSED => "REFUSED".fmt(f),
+            OptRcode::YXDOMAIN => "YXDOMAIN".fmt(f),
+            OptRcode::YXRRSET => "YXRRSET".fmt(f),
+            OptRcode::NXRRSET => "NXRRSET".fmt(f),
+            OptRcode::NOTAUTH => "NOAUTH".fmt(f),
+            OptRcode::NOTZONE => "NOTZONE".fmt(f),
+            OptRcode::BADVERS => "BADVER".fmt(f),
+            OptRcode::BADCOOKIE => "BADCOOKIE".fmt(f),
+            _ => self.0.fmt(f),
         }
     }
 }
@@ -690,7 +589,7 @@ int_enum! {
     /// Defined in [RFC 1035].
     ///
     /// [RFC 1035]: https://tools.ietf.org/html/rfc1035
-    (NoError => 0, b"NOERROR")
+    (NOERROR => 0, b"NOERROR")
 
     /// Format error.
     ///
@@ -699,7 +598,7 @@ int_enum! {
     /// Defined in [RFC 1035].
     ///
     /// [RFC 1035]: https://tools.ietf.org/html/rfc1035
-    (FormErr => 1, b"FORMERR")
+    (FORMERR => 1, b"FORMERR")
 
     /// Server failure.
     ///
@@ -709,7 +608,7 @@ int_enum! {
     /// Defined in [RFC 1035].
     ///
     /// [RFC 1035]: https://tools.ietf.org/html/rfc1035
-    (ServFail => 2, b"SERVFAIL")
+    (SERVFAIL => 2, b"SERVFAIL")
 
     /// Name error.
     ///
@@ -718,7 +617,7 @@ int_enum! {
     /// Defined in [RFC 1035].
     ///
     /// [RFC 1035]: https://tools.ietf.org/html/rfc1035
-    (NXDomain => 3, b"NXDOMAIN")
+    (NXDOMAIN => 3, b"NXDOMAIN")
 
     /// Not implemented.
     ///
@@ -727,7 +626,7 @@ int_enum! {
     /// Defined in [RFC 1035].
     ///
     /// [RFC 1035]: https://tools.ietf.org/html/rfc1035
-    (NotImp => 4, b"NOTIMPL")
+    (NOTIMP => 4, b"NOTIMPL")
 
     /// Query refused.
     ///
@@ -737,7 +636,7 @@ int_enum! {
     /// Defined in [RFC 1035].
     ///
     /// [RFC 1035]: https://tools.ietf.org/html/rfc1035
-    (Refused => 5, b"REFUSED")
+    (REFUSED => 5, b"REFUSED")
 
     /// Name exists when it should not.
     ///
@@ -752,7 +651,7 @@ int_enum! {
     ///
     /// [RFC 2136]: https://tools.ietf.org/html/rfc2136
     /// [RFC 6672]: https://tools.ietf.org/html/rfc6672
-    (YXDomain => 6, b"YXDOMAIN")
+    (YXDOMAIN => 6, b"YXDOMAIN")
 
     /// RR set exists when it should not.
     ///
@@ -762,7 +661,7 @@ int_enum! {
     /// Defined in [RFC 2136].
     ///
     /// [RFC 2136]: https://tools.ietf.org/html/rfc2136
-    (YXRRSet => 7, b"YXRRSET")
+    (YXRRSET => 7, b"YXRRSET")
 
     /// RR set that should exist does not.
     ///
@@ -772,7 +671,7 @@ int_enum! {
     /// Defined in [RFC 2136].
     ///
     /// [RFC 2136]: https://tools.ietf.org/html/rfc2136
-    (NXRRSet => 8, b"NXRRSET")
+    (NXRRSET => 8, b"NXRRSET")
 
     /// Server not authoritative for zone or client not authorized.
     ///
@@ -785,7 +684,7 @@ int_enum! {
     ///
     /// [RFC 2136]: https://tools.ietf.org/html/rfc2136
     /// [RFC 2845]: https://tools.ietf.org/html/rfc2845
-    (NotAuth => 9, b"NOTAUTH")
+    (NOTAUTH => 9, b"NOTAUTH")
 
     /// Name not contained in zone.
     ///
@@ -795,7 +694,7 @@ int_enum! {
     /// Defined in [RFC 2136].
     ///
     /// [RFC 2136]: https://tools.ietf.org/html/rfc2136
-    (NotZone => 10, b"NOTZONE")
+    (NOTZONE => 10, b"NOTZONE")
 
     /// TSIG signature failure.
     ///
@@ -804,7 +703,7 @@ int_enum! {
     /// Defined in [RFC 2845].
     ///
     /// [RFC 2845]: https://tools.ietf.org/html/rfc2845
-    (BadSig => 16, b"BADSIG")
+    (BADSIG => 16, b"BADSIG")
 
     /// Key not recognized.
     ///
@@ -814,7 +713,7 @@ int_enum! {
     /// Defined in [RFC 2845].
     ///
     /// [RFC 2845]: https://tools.ietf.org/html/rfc2845
-    (BadKey => 17, b"BADKEY")
+    (BADKEY => 17, b"BADKEY")
 
     /// Signature out of time window.
     ///
@@ -824,7 +723,7 @@ int_enum! {
     /// Defined in [RFC 2845].
     ///
     /// [RFC 2845]: https://tools.ietf.org/html/rfc2845
-    (BadTime => 18, b"BADTIME")
+    (BADTIME => 18, b"BADTIME")
 
     /// Bad TKEY mode.
     ///
@@ -834,7 +733,7 @@ int_enum! {
     /// Defined in [RFC 2930].
     ///
     /// [RFC 2930]: https://tools.ietf.org/html/rfc2930
-    (BadMode => 19, b"BADMODE")
+    (BADMODE => 19, b"BADMODE")
 
     /// Duplicate key name.
     ///
@@ -845,7 +744,7 @@ int_enum! {
     /// Defined in [RFC 2930].
     ///
     /// [RFC 2930]: https://tools.ietf.org/html/rfc2930
-    (BadName => 20, b"BADNAME")
+    (BADNAME => 20, b"BADNAME")
 
     /// Algorithm not supported.
     ///
@@ -854,7 +753,7 @@ int_enum! {
     /// record contains a value not supported by the server.
     ///
     /// [RFC 2930]: https://tools.ietf.org/html/rfc2930
-    (BadAlg => 21, b"BADALG")
+    (BADALG => 21, b"BADALG")
 
     /// Bad truncation.
     ///
@@ -864,7 +763,7 @@ int_enum! {
     /// Defined in [RFC 4635].
     ///
     /// [RFC 4635]: https://tools.ietf.org/html/rfc4635
-    (BadTrunc => 22, b"BADTRUNC")
+    (BADTRUNC => 22, b"BADTRUNC")
 
     /// Bad or missing server cookie.
     ///
@@ -874,7 +773,7 @@ int_enum! {
     /// Defined in [RFC 7873].
     ///
     /// [RFC 7873]: https://tools.ietf.org/html/rfc7873
-    (BadCookie => 23, b"BADCOOKIE")
+    (BADCOOKIE => 23, b"BADCOOKIE")
 }
 
 //--- From
@@ -892,6 +791,21 @@ impl From<OptRcode> for TsigRcode {
 }
 
 int_enum_str_with_decimal!(TsigRcode, u16, "unknown TSIG error");
+
+//============ Error Types ===================================================
+
+/// An integer couldn’t be converted into an rcode.
+#[derive(Clone, Copy, Debug)]
+pub struct InvalidRcode(());
+
+impl fmt::Display for InvalidRcode {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.write_str("invalid rcode value")
+    }
+}
+
+#[cfg(feature = "std")]
+impl std::error::Error for InvalidRcode {}
 
 //============ Tests =========================================================
 
@@ -916,40 +830,24 @@ mod test {
             };
         }
 
-        // Test RFC 1035 Rcode enum variants that domain defines, plus any
-        // boundary cases not included in that set.
-        assert_eq!(Rcode::NoError, 0b0000);
-        assert_eq!(Rcode::FormErr, 0b0001);
-        assert_eq!(Rcode::ServFail, 0b0010);
-        assert_eq!(Rcode::NXDomain, 0b0011);
-        assert_eq!(Rcode::NotImp, 0b0100);
-        assert_eq!(Rcode::Refused, 0b0101);
-        assert_eq!(Rcode::YXDomain, 0b0110);
-        assert_eq!(Rcode::YXRRSet, 0b0111);
-        assert_eq!(Rcode::NXRRSet, 0b1000);
-        assert_eq!(Rcode::NotAuth, 0b1001);
-        assert_eq!(Rcode::NotZone, 0b1010);
-        assert_eq!(Rcode::Int(14), 0b1110);
-        assert_eq!(Rcode::Int(15), 0b1111);
-
         // Test RFC 6891 OptRcode enum variants that domain defines, plus any
         // boundary cases not included in that set:
-        assert_opt_rcode_parts_eq!(OptRcode::NoError, 0b000_0000, 0b0000);
-        assert_opt_rcode_parts_eq!(OptRcode::FormErr, 0b000_0000, 0b0001);
-        assert_opt_rcode_parts_eq!(OptRcode::ServFail, 0b000_0000, 0b0010);
-        assert_opt_rcode_parts_eq!(OptRcode::NXDomain, 0b000_0000, 0b0011);
-        assert_opt_rcode_parts_eq!(OptRcode::NotImp, 0b000_0000, 0b0100);
-        assert_opt_rcode_parts_eq!(OptRcode::Refused, 0b000_0000, 0b0101);
-        assert_opt_rcode_parts_eq!(OptRcode::YXDomain, 0b000_0000, 0b0110);
-        assert_opt_rcode_parts_eq!(OptRcode::YXRRSet, 0b000_0000, 0b0111);
-        assert_opt_rcode_parts_eq!(OptRcode::NXRRSet, 0b000_0000, 0b1000);
-        assert_opt_rcode_parts_eq!(OptRcode::NotAuth, 0b000_0000, 0b1001);
-        assert_opt_rcode_parts_eq!(OptRcode::NotZone, 0b000_0000, 0b1010);
-        assert_opt_rcode_parts_eq!(OptRcode::Int(15), 0b0000_0000, 0b1111);
-        assert_opt_rcode_parts_eq!(OptRcode::BadVers, 0b0000_0001, 0b0000);
-        assert_opt_rcode_parts_eq!(OptRcode::Int(17), 0b0000_0001, 0b0001);
-        assert_opt_rcode_parts_eq!(OptRcode::BadCookie, 0b000_0001, 0b0111);
-        assert_opt_rcode_parts_eq!(OptRcode::Int(4094), 0b1111_1111, 0b1110);
-        assert_opt_rcode_parts_eq!(OptRcode::Int(4095), 0b1111_1111, 0b1111);
+        assert_opt_rcode_parts_eq!(OptRcode::NOERROR, 0b000_0000, 0b0000);
+        assert_opt_rcode_parts_eq!(OptRcode::FORMERR, 0b000_0000, 0b0001);
+        assert_opt_rcode_parts_eq!(OptRcode::SERVFAIL, 0b000_0000, 0b0010);
+        assert_opt_rcode_parts_eq!(OptRcode::NXDOMAIN, 0b000_0000, 0b0011);
+        assert_opt_rcode_parts_eq!(OptRcode::NOTIMP, 0b000_0000, 0b0100);
+        assert_opt_rcode_parts_eq!(OptRcode::REFUSED, 0b000_0000, 0b0101);
+        assert_opt_rcode_parts_eq!(OptRcode::YXDOMAIN, 0b000_0000, 0b0110);
+        assert_opt_rcode_parts_eq!(OptRcode::YXRRSET, 0b000_0000, 0b0111);
+        assert_opt_rcode_parts_eq!(OptRcode::NXRRSET, 0b000_0000, 0b1000);
+        assert_opt_rcode_parts_eq!(OptRcode::NOTAUTH, 0b000_0000, 0b1001);
+        assert_opt_rcode_parts_eq!(OptRcode::NOTZONE, 0b000_0000, 0b1010);
+        assert_opt_rcode_parts_eq!(OptRcode(15), 0b0000_0000, 0b1111);
+        assert_opt_rcode_parts_eq!(OptRcode::BADVERS, 0b0000_0001, 0b0000);
+        assert_opt_rcode_parts_eq!(OptRcode(17), 0b0000_0001, 0b0001);
+        assert_opt_rcode_parts_eq!(OptRcode::BADCOOKIE, 0b000_0001, 0b0111);
+        assert_opt_rcode_parts_eq!(OptRcode(4094), 0b1111_1111, 0b1110);
+        assert_opt_rcode_parts_eq!(OptRcode(4095), 0b1111_1111, 0b1111);
     }
 }

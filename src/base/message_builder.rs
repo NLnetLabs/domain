@@ -267,7 +267,7 @@ impl<Target: Composer> MessageBuilder<Target> {
     ) -> Result<AnswerBuilder<Target>, PushError> {
         self.header_mut().set_random_id();
         let mut builder = self.question();
-        builder.push((apex, Rtype::Axfr))?;
+        builder.push((apex, Rtype::AXFR))?;
         Ok(builder.answer())
     }
 }
@@ -2376,12 +2376,12 @@ mod test {
         T::AppendError: fmt::Debug,
     {
         let mut msg = MessageBuilder::from_target(target).unwrap().question();
-        msg.header_mut().set_rcode(Rcode::NXDomain);
+        msg.header_mut().set_rcode(Rcode::NXDOMAIN);
         msg.header_mut().set_rd(true);
         msg.header_mut().set_ra(true);
         msg.header_mut().set_qr(true);
 
-        msg.push((&"example".parse::<Dname<Vec<u8>>>().unwrap(), Rtype::Ns))
+        msg.push((&"example".parse::<Dname<Vec<u8>>>().unwrap(), Rtype::NS))
             .unwrap();
         let mut msg = msg.authority();
 

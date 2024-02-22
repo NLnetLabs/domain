@@ -36,6 +36,11 @@ pub struct Padding<Octs: ?Sized> {
     octets: Octs,
 }
 
+impl Padding<()> {
+    /// The option code for this option.
+    pub const CODE: OptionCode = OptionCode::PADDING;
+}
+
 impl<Octs> Padding<Octs> {
     /// Creates a value from the padding octets.
     ///
@@ -122,7 +127,7 @@ impl<Octs: AsRef<[u8]> + ?Sized> borrow::Borrow<[u8]> for Padding<Octs> {
 
 impl<Octs> OptData for Padding<Octs> {
     fn code(&self) -> OptionCode {
-        OptionCode::Padding
+        OptionCode::PADDING
     }
 }
 
@@ -131,7 +136,7 @@ impl<'a, Octs: Octets> ParseOptData<'a, Octs> for Padding<Octs::Range<'a>> {
         code: OptionCode,
         parser: &mut Parser<'a, Octs>,
     ) -> Result<Option<Self>, ParseError> {
-        if code == OptionCode::Padding {
+        if code == OptionCode::PADDING {
             Self::parse(parser).map(Some)
         }
         else {
@@ -177,7 +182,7 @@ impl<Octs: AsRef<[u8]> + ?Sized> fmt::Debug for Padding<Octs> {
 impl<'a, Target: Composer> OptBuilder<'a, Target> {
     pub fn padding( &mut self, len: u16) -> Result<(), Target::AppendError> {
         self.push_raw_option(
-            OptionCode::Padding,
+            OptionCode::PADDING,
             len,
             |target| {
                 for _ in 0..len {
@@ -193,7 +198,7 @@ impl<'a, Target: Composer> OptBuilder<'a, Target> {
         &mut self, len: u16
     ) -> Result<(), Target::AppendError> {
         self.push_raw_option(
-            OptionCode::Padding,
+            OptionCode::PADDING,
             len,
             |target| {
                 for _ in 0..len {

@@ -26,6 +26,11 @@ pub struct Aaaa {
 }
 
 impl Aaaa {
+    /// The rtype of this record data type.
+    pub(crate) const RTYPE: Rtype = Rtype::AAAA;
+}
+
+impl Aaaa {
     #[must_use]
     pub fn new(addr: Ipv6Addr) -> Aaaa {
         Aaaa { addr }
@@ -106,7 +111,7 @@ impl CanonicalOrd for Aaaa {
 
 impl RecordData for Aaaa {
     fn rtype(&self) -> Rtype {
-        Rtype::Aaaa
+        Aaaa::RTYPE
     }
 }
 
@@ -115,7 +120,7 @@ impl<'a, Octs: AsRef<[u8]> + ?Sized> ParseRecordData<'a, Octs> for Aaaa {
         rtype: Rtype,
         parser: &mut Parser<'a, Octs>,
     ) -> Result<Option<Self>, ParseError> {
-        if rtype == Rtype::Aaaa {
+        if rtype == Aaaa::RTYPE {
             Self::parse(parser).map(Some)
         } else {
             Ok(None)

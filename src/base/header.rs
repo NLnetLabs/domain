@@ -286,7 +286,7 @@ impl Header {
     /// [`Rcode`]: ../../iana/rcode/enum.Rcode.html
     #[must_use]
     pub fn rcode(self) -> Rcode {
-        Rcode::from_int(self.inner[3] & 0x0F)
+        Rcode::saturating_from_int(self.inner[3])
     }
 
     /// Sets the value of the RCODE field.
@@ -1010,7 +1010,7 @@ mod test {
     fn header() {
         test_field!(id, set_id, 0, 0x1234);
         test_field!(qr, set_qr, false, true, false);
-        test_field!(opcode, set_opcode, Opcode::Query, Opcode::Notify);
+        test_field!(opcode, set_opcode, Opcode::QUERY, Opcode::NOTIFY);
         test_field!(
             flags,
             set_flags,
@@ -1027,7 +1027,7 @@ mod test {
         test_field!(z, set_z, false, true, false);
         test_field!(ad, set_ad, false, true, false);
         test_field!(cd, set_cd, false, true, false);
-        test_field!(rcode, set_rcode, Rcode::NoError, Rcode::Refused);
+        test_field!(rcode, set_rcode, Rcode::NOERROR, Rcode::REFUSED);
     }
 
     #[test]
