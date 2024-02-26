@@ -121,7 +121,7 @@ const MAX_DELEGATION_VALIDITY: DefMinMax<Duration> = DefMinMax::new(
 // is not a referral. NODATA is distinguished from a referral by the presence
 // of a SOA record in the authority section (a SOA record present implies
 // NODATA). A referral has one or more NS records in the authority section.
-// An NXDOMAIN reponse can only be cache if a SOA record is present in the
+// An NXDOMAIN response can only be cached if a SOA record is present in the
 // authority section. If the SOA record is absent then the NXDOMAIN response
 // should not be cached.
 // The TTL of the SOA record should reflect how long the response can be
@@ -484,9 +484,10 @@ where
         // There are 4 flags that may affect the response to a query.
         // In some cases the response to one value of a flag could be
         // used for the other value.
-        // This function takes all 4 flags. First we take care of the CD flag.
-        // This flag has to be used as is, so there is not much to do. Next
-        // we pass the request to a function that looks at RD, DO, and AD.
+        // This function takes all 4 flags into account. First we take care
+        // of the CD flag. This flag has to be used as is, so there is not
+        // much to do. Next we pass the request to a function that looks
+        // at RD, DO, and AD.
         self.cache_lookup_rd_do_ad(key).await
     }
 
@@ -637,7 +638,6 @@ where
     /// Make sure to clear the AA flag.
     async fn cache_insert(&self, key: Key, value: Arc<Value<C>>) {
         if value.valid_for.is_zero() {
-            // Do not insert cache value that are valid for zero duration.
             return;
         }
         let value = match prepare_for_insert(value.clone(), &self.config) {
