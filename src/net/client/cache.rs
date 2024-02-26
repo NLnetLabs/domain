@@ -722,7 +722,7 @@ impl Key {
 /// The value to be cached.
 struct Value {
     /// Creation time of the cache entry.
-    created_at: tokio::time::Instant, //C::Instant,
+    created_at: tokio::time::Instant,
 
     /// The amount time the cache entry is valid.
     valid_for: Duration,
