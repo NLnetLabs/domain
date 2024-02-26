@@ -1027,10 +1027,10 @@ where
 
 /// An error happened when reading a symbol.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct SymbolCharsError(pub(super) SymbolCharsEnum);
+pub struct SymbolCharsError(SymbolCharsEnum);
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(super) enum SymbolCharsEnum {
+enum SymbolCharsEnum {
     /// An illegal escape sequence was encountered.
     BadEscape,
 
@@ -1041,6 +1041,16 @@ pub(super) enum SymbolCharsEnum {
 }
 
 impl SymbolCharsError {
+    /// Creates a “bad escape” variant of the error.
+    pub(crate) fn bad_escape() -> Self {
+        Self(SymbolCharsEnum::BadEscape)
+    }
+
+    /// Creates a “short input” variant of the error.
+    pub(crate) fn short_input() -> Self {
+        Self(SymbolCharsEnum::ShortInput)
+    }
+
     /// Returns a static description of the error.
     #[must_use]
     pub fn as_str(self) -> &'static str {
@@ -1126,6 +1136,10 @@ enum BadSymbolEnum {
 }
 
 impl BadSymbol {
+    pub(crate) fn non_ascii() -> Self {
+        Self(BadSymbolEnum::NonAscii)
+    }
+
     /// Returns a static description of the error.
     #[must_use]
     pub fn as_str(self) -> &'static str {

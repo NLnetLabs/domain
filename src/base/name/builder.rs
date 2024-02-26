@@ -3,7 +3,7 @@
 //! This is a private module for tidiness. `DnameBuilder` and `PushError`
 //! are re-exported by the parent module.
 
-use super::super::scan::{Symbol, SymbolCharsError, Symbols};
+use super::super::scan::{BadSymbol, Symbol, SymbolCharsError, Symbols};
 use super::dname::Dname;
 use super::relative::{RelativeDname, RelativeDnameError};
 use super::traits::{ToDname, ToRelativeDname};
@@ -195,21 +195,16 @@ where
     pub fn push_symbol(&mut self, sym: Symbol) -> Result<(), FromStrError> {
         if matches!(sym, Symbol::Char('.')) {
             if !self.in_label() {
-                return Err(FromStrError::EmptyLabel);
+                return Err(PresentationErrorEnum::EmptyLabel.into());
             }
             self.end_label();
             Ok(())
         } else if matches!(sym, Symbol::SimpleEscape(b'['))
             && !self.in_label()
         {
-            Err(LabelFromStrError::BinaryLabel.into())
-        } else if let Ok(ch) = sym.into_octet() {
-            self.push(ch).map_err(Into::into)
+            Err(LabelFromStrErrorEnum::BinaryLabel.into())
         } else {
-            return Err(match sym {
-                Symbol::Char(ch) => FromStrError::IllegalCharacter(ch),
-                _ => FromStrError::IllegalEscape,
-            });
+            self.push(sym.into_octet()?).map_err(Into::into)
         }
     }
 
@@ -432,24 +427,24 @@ pub(super) fn parse_escape<C>(
 where
     C: Iterator<Item = char>,
 {
-    let ch = chars.next().ok_or(LabelFromStrError::UnexpectedEnd)?;
+    let ch = chars.next().ok_or(SymbolCharsError::short_input())?;
     if ch.is_ascii_digit() {
         let v = ch.to_digit(10).unwrap() * 100
             + chars
                 .next()
-                .ok_or(LabelFromStrError::UnexpectedEnd)
+                .ok_or(SymbolCharsError::short_input())
                 .and_then(|c| {
-                    c.to_digit(10).ok_or(LabelFromStrError::IllegalEscape)
+                    c.to_digit(10).ok_or(SymbolCharsError::bad_escape())
                 })?
                 * 10
             + chars
                 .next()
-                .ok_or(LabelFromStrError::UnexpectedEnd)
+                .ok_or(SymbolCharsError::short_input())
                 .and_then(|c| {
-                    c.to_digit(10).ok_or(LabelFromStrError::IllegalEscape)
+                    c.to_digit(10).ok_or(SymbolCharsError::bad_escape())
                 })?;
         if v > 255 {
-            return Err(LabelFromStrError::IllegalEscape);
+            return Err(SymbolCharsError::bad_escape().into());
         }
         Ok(v as u8)
     } else if ch == '[' {
@@ -458,7 +453,7 @@ where
         if in_label {
             Ok(b'[')
         } else {
-            Err(LabelFromStrError::BinaryLabel)
+            Err(LabelFromStrErrorEnum::BinaryLabel.into())
         }
     } else {
         Ok(ch as u8)
@@ -543,50 +538,53 @@ impl std::error::Error for PushNameError {}
 
 /// An error occured while reading a label from a string.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum LabelFromStrError {
-    /// The string ended when there should have been more characters.
-    ///
-    /// This most likely happens inside escape sequences and quoting.
-    UnexpectedEnd,
+pub struct LabelFromStrError(LabelFromStrErrorEnum);
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum LabelFromStrErrorEnum {
+    SymbolChars(SymbolCharsError),
+
+    BadSymbol(BadSymbol),
 
     /// A binary label was encountered.
     BinaryLabel,
 
     /// The label would exceed the limit of 63 bytes.
     LongLabel,
+}
 
-    /// An illegal escape sequence was encountered.
-    ///
-    /// Escape sequences are a backslash character followed by either a
-    /// three decimal digit sequence encoding a byte value or a single
-    /// other printable ASCII character.
-    IllegalEscape,
+//--- From
 
-    /// An illegal character was encountered.
-    ///
-    /// Only printable ASCII characters are allowed.
-    IllegalCharacter(char),
+impl From<LabelFromStrErrorEnum> for LabelFromStrError {
+    fn from(inner: LabelFromStrErrorEnum) -> Self {
+        Self(inner)
+    }
+}
+
+impl From<SymbolCharsError> for LabelFromStrError {
+    fn from(err: SymbolCharsError) -> Self {
+        Self(LabelFromStrErrorEnum::SymbolChars(err))
+    }
+}
+
+impl From<BadSymbol> for LabelFromStrError {
+    fn from(err: BadSymbol) -> Self {
+        Self(LabelFromStrErrorEnum::BadSymbol(err))
+    }
 }
 
 //--- Display and Error
 
 impl fmt::Display for LabelFromStrError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match *self {
-            LabelFromStrError::UnexpectedEnd => {
-                f.write_str("unexpected end of input")
-            }
-            LabelFromStrError::BinaryLabel => {
+        match self.0 {
+            LabelFromStrErrorEnum::SymbolChars(err) => err.fmt(f),
+            LabelFromStrErrorEnum::BadSymbol(err) => err.fmt(f),
+            LabelFromStrErrorEnum::BinaryLabel => {
                 f.write_str("a binary label was encountered")
             }
-            LabelFromStrError::LongLabel => {
+            LabelFromStrErrorEnum::LongLabel => {
                 f.write_str("label length limit exceeded")
-            }
-            LabelFromStrError::IllegalEscape => {
-                f.write_str("illegal escape sequence")
-            }
-            LabelFromStrError::IllegalCharacter(char) => {
-                write!(f, "illegal character '{}'", char)
             }
         }
     }
@@ -598,39 +596,18 @@ impl std::error::Error for LabelFromStrError {}
 //------------ FromStrError --------------------------------------------------
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-#[non_exhaustive]
 pub enum FromStrError {
-    /// The string ended when there should have been more characters.
-    ///
-    /// This most likely happens inside escape sequences and quoting.
-    UnexpectedEnd,
-
-    /// An empty label was encountered.
-    EmptyLabel,
-
-    /// A binary label was encountered.
-    BinaryLabel,
-
-    /// A domain name label has more than 63 octets.
-    LongLabel,
-
-    /// An illegal escape sequence was encountered.
-    ///
-    /// Escape sequences are a backslash character followed by either a
-    /// three decimal digit sequence encoding a byte value or a single
-    /// other printable ASCII character.
-    IllegalEscape,
-
-    /// An illegal character was encountered.
-    ///
-    /// Only printable ASCII characters are allowed.
-    IllegalCharacter(char),
-
-    /// The name has more than 255 characters.
-    LongName,
+    /// The string content was wrongly formatted.
+    Presentation(PresentationError),
 
     /// The buffer is too short to contain the name.
     ShortBuf,
+}
+
+impl FromStrError {
+    pub(super) fn empty_label() -> Self {
+        Self::Presentation(PresentationErrorEnum::EmptyLabel.into())
+    }
 }
 
 //--- From
@@ -638,8 +615,8 @@ pub enum FromStrError {
 impl From<PushError> for FromStrError {
     fn from(err: PushError) -> FromStrError {
         match err {
-            PushError::LongLabel => FromStrError::LongLabel,
-            PushError::LongName => FromStrError::LongName,
+            PushError::LongLabel => LabelFromStrErrorEnum::LongLabel.into(),
+            PushError::LongName => PresentationErrorEnum::LongName.into(),
             PushError::ShortBuf => FromStrError::ShortBuf,
         }
     }
@@ -648,34 +625,15 @@ impl From<PushError> for FromStrError {
 impl From<PushNameError> for FromStrError {
     fn from(err: PushNameError) -> FromStrError {
         match err {
-            PushNameError::LongName => FromStrError::LongName,
+            PushNameError::LongName => PresentationErrorEnum::LongName.into(),
             PushNameError::ShortBuf => FromStrError::ShortBuf,
         }
     }
 }
 
-impl From<LabelFromStrError> for FromStrError {
-    fn from(err: LabelFromStrError) -> FromStrError {
-        match err {
-            LabelFromStrError::UnexpectedEnd => FromStrError::UnexpectedEnd,
-            LabelFromStrError::BinaryLabel => FromStrError::BinaryLabel,
-            LabelFromStrError::LongLabel => FromStrError::LongLabel,
-            LabelFromStrError::IllegalEscape => FromStrError::IllegalEscape,
-            LabelFromStrError::IllegalCharacter(ch) => {
-                FromStrError::IllegalCharacter(ch)
-            }
-        }
-    }
-}
-
-impl From<SymbolCharsError> for FromStrError {
-    fn from(err: SymbolCharsError) -> FromStrError {
-        use crate::base::scan::SymbolCharsEnum;
-
-        match err.0 {
-            SymbolCharsEnum::BadEscape => Self::IllegalEscape,
-            SymbolCharsEnum::ShortInput => Self::UnexpectedEnd,
-        }
+impl<T: Into<PresentationError>> From<T> for FromStrError {
+    fn from(err: T) -> Self {
+        Self::Presentation(err.into())
     }
 }
 
@@ -684,25 +642,7 @@ impl From<SymbolCharsError> for FromStrError {
 impl fmt::Display for FromStrError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
-            FromStrError::UnexpectedEnd => {
-                f.write_str("unexpected end of input")
-            }
-            FromStrError::EmptyLabel => {
-                f.write_str("an empty label was encountered")
-            }
-            FromStrError::BinaryLabel => {
-                f.write_str("a binary label was encountered")
-            }
-            FromStrError::LongLabel => {
-                f.write_str("label length limit exceeded")
-            }
-            FromStrError::IllegalEscape => {
-                f.write_str("illegal escape sequence")
-            }
-            FromStrError::IllegalCharacter(char) => {
-                write!(f, "illegal character '{}'", char)
-            }
-            FromStrError::LongName => f.write_str("long domain name"),
+            FromStrError::Presentation(err) => err.fmt(f),
             FromStrError::ShortBuf => ShortBuf.fmt(f),
         }
     }
@@ -710,6 +650,54 @@ impl fmt::Display for FromStrError {
 
 #[cfg(feature = "std")]
 impl std::error::Error for FromStrError {}
+
+//------------ PresentationError ---------------------------------------------
+
+/// An illegal presentation format was encountered.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct PresentationError(PresentationErrorEnum);
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum PresentationErrorEnum {
+    BadLabel(LabelFromStrError),
+
+    /// An empty label was encountered.
+    EmptyLabel,
+
+    /// The name has more than 255 characters.
+    LongName,
+}
+
+//--- From
+
+impl From<PresentationErrorEnum> for PresentationError {
+    fn from(err: PresentationErrorEnum) -> Self {
+        Self(err)
+    }
+}
+
+impl<T: Into<LabelFromStrError>> From<T> for PresentationError {
+    fn from(err: T) -> Self {
+        Self(PresentationErrorEnum::BadLabel(err.into()))
+    }
+}
+
+//--- Display and Error
+
+impl fmt::Display for PresentationError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self.0 {
+            PresentationErrorEnum::BadLabel(ref err) => err.fmt(f),
+            PresentationErrorEnum::EmptyLabel => f.write_str("empty label"),
+            PresentationErrorEnum::LongName => {
+                f.write_str("long domain name")
+            }
+        }
+    }
+}
+
+#[cfg(feature = "std")]
+impl std::error::Error for PresentationError {}
 
 //============ Testing =======================================================
 

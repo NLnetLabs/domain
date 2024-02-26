@@ -50,7 +50,7 @@ impl<L: ToLabelIter, R: ToLabelIter> Chain<L, R> {
             > Dname::MAX_LEN
         {
             // TODO can't infer a specific type for Dname here
-            Err(LongChainError)
+            Err(LongChainError(()))
         } else {
             Ok(Chain { left, right })
         }
@@ -70,7 +70,7 @@ impl<Octets: AsRef<[u8]>, R: ToLabelIter> Chain<UncertainDname<Octets>, R> {
             if usize::from(name.compose_len() + right.compose_len())
                 > Dname::MAX_LEN
             {
-                return Err(LongChainError);
+                return Err(LongChainError(()));
             }
         }
         Ok(Chain { left, right })
@@ -362,7 +362,7 @@ where
 
 /// Chaining domain names would exceed the size limit.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct LongChainError;
+pub struct LongChainError(());
 
 //--- Display and Error
 

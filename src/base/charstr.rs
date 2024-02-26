@@ -413,7 +413,7 @@ where
         let mut chars = s.chars();
         while let Some(symbol) = Symbol::from_chars(&mut chars)? {
             if builder.len() == CharStr::MAX_LEN {
-                return Err(FromStrError::LongString);
+                return Err(PresentationErrorEnum::LongString.into());
             }
             builder.append_slice(&[symbol.into_octet()?])?
         }
@@ -951,9 +951,6 @@ impl std::error::Error for CharStrError {}
 /// An error happened when converting a Rust string to a DNS character string.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum FromStrError {
-    /// A character string has more than 255 octets.
-    LongString,
-
     /// The string content was wrongly formatted.
     Presentation(PresentationError),
 
@@ -980,9 +977,6 @@ impl From<ShortBuf> for FromStrError {
 impl fmt::Display for FromStrError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
-            FromStrError::LongString => {
-                f.write_str("character string with more than 255 octets")
-            }
             FromStrError::Presentation(ref err) => err.fmt(f),
             FromStrError::ShortBuf => ShortBuf.fmt(f),
         }
@@ -1000,6 +994,9 @@ pub struct PresentationError(PresentationErrorEnum);
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum PresentationErrorEnum {
+    /// A character string has more than 255 octets.
+    LongString,
+
     SymbolChars(SymbolCharsError),
 
     /// An illegal character was encountered.
@@ -1022,11 +1019,20 @@ impl From<BadSymbol> for PresentationError {
     }
 }
 
+impl From<PresentationErrorEnum> for PresentationError {
+    fn from(err: PresentationErrorEnum) -> Self {
+        Self(err)
+    }
+}
+
 //--- Display and Error
 
 impl fmt::Display for PresentationError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self.0 {
+            PresentationErrorEnum::LongString => {
+                f.write_str("character string with more than 255 octets")
+            }
             PresentationErrorEnum::SymbolChars(ref err) => err.fmt(f),
             PresentationErrorEnum::BadSymbol(ref err) => err.fmt(f),
         }
