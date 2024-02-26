@@ -89,41 +89,30 @@ fn do_adjust<Octs: Octets>(
         Some(reply) => reply.clone(),
         None => Default::default(),
     };
-    if reply.aa {
-        msg.header_mut().set_aa(true);
-    }
-    if reply.ad {
-        msg.header_mut().set_ad(true);
-    }
-    if reply.cd {
-        msg.header_mut().set_cd(true);
-    }
+    let header = msg.header_mut();
+    header.set_aa(reply.aa);
+    header.set_ad(reply.ad);
+    header.set_cd(reply.cd);
     if reply.fl_do {
         todo!()
     }
     if reply.formerr {
-        msg.header_mut().set_rcode(Rcode::FormErr);
+        header.set_rcode(Rcode::FormErr);
     }
     if reply.noerror {
-        msg.header_mut().set_rcode(Rcode::NoError);
+        header.set_rcode(Rcode::NoError);
     }
     if reply.notimp {
-        msg.header_mut().set_rcode(Rcode::NotImp);
+        header.set_rcode(Rcode::NotImp);
     }
     if reply.nxdomain {
-        msg.header_mut().set_rcode(Rcode::NXDomain);
+        header.set_rcode(Rcode::NXDomain);
     }
-    if reply.qr {
-        msg.header_mut().set_qr(true);
-    }
-    if reply.ra {
-        msg.header_mut().set_ra(true);
-    }
-    if reply.rd {
-        msg.header_mut().set_rd(true);
-    }
+    header.set_qr(reply.qr);
+    header.set_ra(reply.ra);
+    header.set_rd(reply.rd);
     if reply.refused {
-        msg.header_mut().set_rcode(Rcode::Refused);
+        header.set_rcode(Rcode::Refused);
     }
     if reply.servfail {
         todo!()
@@ -135,10 +124,10 @@ fn do_adjust<Octs: Octets>(
         todo!()
     }
     if reply.notify {
-        msg.header_mut().set_opcode(Opcode::Notify);
+        header.set_opcode(Opcode::Notify);
     }
     if adjust.copy_id {
-        msg.header_mut().set_id(reqmsg.header().id());
+        header.set_id(reqmsg.header().id());
     } else {
         todo!();
     }

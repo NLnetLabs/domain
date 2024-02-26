@@ -26,7 +26,7 @@ impl<T> DefMinMax<T> {
         self.def
     }
 
-    /// Trims the given value to fit into the minimum/maximum range.
+    /// Trims the given value to fit into the minimum/maximum range, inclusive.
     pub fn limit(self, value: T) -> T
     where
         T: Ord,

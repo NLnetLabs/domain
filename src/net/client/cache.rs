@@ -35,8 +35,9 @@ const MAX_CACHE_ENTRIES: DefMinMax<u64> =
 
 /// Limit on the maximum time a cache entry is considered valid.
 ///
-/// According to RFC 8767 the limit should be on the order of days to
-/// weeks with a recommended cap of 604800 seconds (7 days).
+/// According to [RFC 8767](https://www.rfc-editor.org/info/rfc8767) the
+/// limit should be on the order of days to weeks with a recommended cap of
+/// 604800 seconds (7 days).
 const MAX_VALIDITY: DefMinMax<Duration> = DefMinMax::new(
     Duration::from_secs(604800),
     Duration::from_secs(60),
@@ -45,7 +46,8 @@ const MAX_VALIDITY: DefMinMax<Duration> = DefMinMax::new(
 
 /// Amount of time to cache transport failures.
 ///
-/// According to RFC 9520 at least 1 second and at most 5 minutes.
+/// According to [RFC 9520](https://www.rfc-editor.org/info/rfc9520)
+/// at least 1 second and at most 5 minutes.
 const TRANSPORT_FAILURE_DURATION: DefMinMax<Duration> = DefMinMax::new(
     Duration::from_secs(30),
     Duration::from_secs(1),
@@ -55,7 +57,8 @@ const TRANSPORT_FAILURE_DURATION: DefMinMax<Duration> = DefMinMax::new(
 /// Limit on the amount of time to cache DNS result codes that are not
 /// NOERROR or NXDOMAIN.
 ///
-/// According to RFC 9520 at least 1 second and at most 5 minutes.
+/// According to [RFC 9520](https://www.rfc-editor.org/info/rfc9520)
+/// at least 1 second and at most 5 minutes.
 const MISC_ERROR_DURATION: DefMinMax<Duration> = DefMinMax::new(
     Duration::from_secs(30),
     Duration::from_secs(1),
@@ -64,8 +67,8 @@ const MISC_ERROR_DURATION: DefMinMax<Duration> = DefMinMax::new(
 
 /// Limit on the amount of time to cache a NXDOMAIN error.
 ///
-/// According to RFC 2308 the limit should be one to three hour with a
-/// maximum of one day.
+/// According to [RFC 2308](https://www.rfc-editor.org/info/rfc2308)
+/// the limit should be one to three hours with a maximum of one day.
 const MAX_NXDOMAIN_VALIDITY: DefMinMax<Duration> = DefMinMax::new(
     Duration::from_secs(3600),
     Duration::from_secs(60),
@@ -74,8 +77,8 @@ const MAX_NXDOMAIN_VALIDITY: DefMinMax<Duration> = DefMinMax::new(
 
 /// Limit on the amount of time to cache a NODATA response.
 ///
-/// According to RFC 2308 the limit should be one to three hour with a
-/// maximum of one day.
+/// According to [RFC 2308](https://www.rfc-editor.org/info/rfc2308)
+///  the limit should be one to three hours with a maximum of one day.
 const MAX_NODATA_VALIDITY: DefMinMax<Duration> = DefMinMax::new(
     Duration::from_secs(3600),
     Duration::from_secs(60),
@@ -94,45 +97,49 @@ const MAX_DELEGATION_VALIDITY: DefMinMax<Duration> = DefMinMax::new(
 // The AD flag needs to be part of the key when DO is clear. When replying,
 // if both AD and DO are not set in the original request then AD needs to be
 // cleared if it was set in the response (extra look up if no entry with
-// AD clear exists.
+// AD clear exists).
 //
 // The CD flag partitions the cache, responses to request with CD set must not
-// be visible to requests with CD and vice versa.
+// be visible to requests with CD clear and vice versa.
 //
 // A request with DO set can only be satisfied with a response to a request
-// with CD set. However, if CD in the request is clear then a reponse to a
-// request with CD set can be used if all unrequested DNSSEC records are
+// with DO set. However, if DO in the request is clear then a response to a
+// request with DO set can be used if all unrequested DNSSEC records are
 // stripped.
 //
 // A request with RD clear can be satisfied by a response to a request with
-// RD set. For simplicitly requests with RD set can only get a response to
-// a request with RD set. In theory some responses to requests with RD clear
-// could satisfy requests with RD set.
+// RD set. For simplicitly requests with RD set will only get a cached
+// response to another request with RD set. In theory some responses to
+// requests with RD clear could be used to satisfy requests with RD set.
+// However, this is not implemented.
 
-// Negative caching is described in RFC 2308.
+// Negative caching is described in RFC 2308
+// (https://www.rfc-editor.org/info/rfc2308).
 // NXDOMAIN and NODATA require special treatment. NXDOMAIN can be found
 // directly in the rcode field. NODATA is the condition where the answer
 // section does not contain any record that matches qtype and the message
-// is not a referral. NODATA is distinguished for a referral by the presence
+// is not a referral. NODATA is distinguished from a referral by the presence
 // of a SOA record in the authority section (a SOA record present implies
 // NODATA). A referral has one or more NS records in the authority section.
-// A NXDOMAIN reponse can only be cache if a SOA record is present in the
+// An NXDOMAIN reponse can only be cache if a SOA record is present in the
 // authority section. If the SOA record is absent then the NXDOMAIN response
 // should not be cached.
 // The TTL of the SOA record should reflect how long the response can be
-// cached. So no special treat is needed. Except that a different value should
-// limit the maximum time a negative response can be cached.
+// cached. So no special treatment is needed. Except that a different value
+// should limit the maximum time a negative response can be cached.
 //
 // Caching unreachable upstream should be limited to 5 minutes.
 // Caching SERVFAIL should be limited to 5 minutes.
 
-// RFC 8020 suggests a separate <QNAME, QCLASS> cache for NXDOMAIN, but
-// that may be too hard to implement.
+// RFC 8020 (https://www.rfc-editor.org/info/rfc8020) suggests a separate
+// <QNAME, QCLASS> cache for NXDOMAIN, but that may be too hard to implement.
 
-// RFC 9520 requires resolution failures to be cached for at least one
-// second. Resolution failure must not be cached for longer than 5 minutes.
+// RFC 9520 (https://www.rfc-editor.org/info/rfc9520) requires resolution
+// failures to be cached for at least one second. Resolution failure must
+// not be cached for longer than 5 minutes.
 
-// RFC 8767 describes serving stale data.
+// RFC 8767 (https://www.rfc-editor.org/info/rfc8767) describes serving stale
+// data.
 
 //------------ Config ---------------------------------------------------------
 
@@ -148,7 +155,7 @@ pub struct Config {
     /// Cache duration of transport failures.
     transport_failure_duration: Duration,
 
-    /// Cache durations of misc. errors.
+    /// Cache durations of misc. errors. (not NXDOMAIN or NOERROR)
     misc_error_duration: Duration,
 
     /// Maximum validity of NXDOMAIN results.
@@ -163,43 +170,66 @@ pub struct Config {
 
 impl Config {
     /// Creates a new config with default values.
+    ///
+    /// The default values are documented at the relevant set_* methods.
     pub fn new() -> Self {
         Default::default()
     }
 
     /// Set the maximum number of cache entries.
+    ///
+    /// The value has to be at least one, at most 1,000,000,000 and the
+    /// default is 1000.
     pub fn set_max_cache_entries(&mut self, value: u64) {
         self.max_cache_entries = MAX_CACHE_ENTRIES.limit(value)
     }
 
     /// Set the maximum validity of cache entries.
+    ///
+    /// The value has to be at least 60 seconds, at most 6,048,000 seconds
+    /// (10 weeks) and the default is 604800 seconds (one week).
     pub fn set_max_validity(&mut self, value: Duration) {
         self.max_validity = MAX_VALIDITY.limit(value)
     }
 
     /// Set the time to cache transport failures.
+    ///
+    /// The value has to be at least one second, at most 300 seconds
+    /// (five minutes) and the default is 30 seconds.
     pub fn set_transport_failure_duration(&mut self, value: Duration) {
         self.transport_failure_duration =
             TRANSPORT_FAILURE_DURATION.limit(value)
     }
 
     /// Set the maximum time to cache results other than NOERROR or NXDOMAIN.
+    ///
+    /// The value has to be at least one second, at most 300 seconds
+    /// (five minutes) and the default is 30 seconds.
     pub fn set_misc_error_duration(&mut self, value: Duration) {
         self.misc_error_duration = MISC_ERROR_DURATION.limit(value)
     }
 
     /// Set the maximum time to cache NXDOMAIN results.
+    ///
+    /// The value has to be at least 60 seconds (one minute), at most 86,400
+    /// seconds (one day) and the default is 3,600 seconds (one hour).
     pub fn set_max_nxdomain_validity(&mut self, value: Duration) {
         self.max_nxdomain_validity = MAX_NXDOMAIN_VALIDITY.limit(value)
     }
 
     /// Set the maximum time to cache NODATA results.
+    ///
+    /// The value has to be at least 60 seconds (one minute), at most 86,400
+    /// seconds (one day) and the default is 3,600 seconds (one hour).
     pub fn set_max_nodata_validity(&mut self, value: Duration) {
         self.max_nodata_validity = MAX_NODATA_VALIDITY.limit(value)
     }
 
     /// Set the maximum time to cache delegations.
-    pub fn set_max_deletation_validity(&mut self, value: Duration) {
+    ///
+    /// The value has to be at least 60 seconds (one minute), at most
+    /// 1,000,000,000 seconds and the default is 1,000,000 seconds.
+    pub fn set_max_delegation_validity(&mut self, value: Duration) {
         self.max_delegation_validity = MAX_DELEGATION_VALIDITY.limit(value)
     }
 }
@@ -221,7 +251,7 @@ impl Default for Config {
 //------------ Connection -----------------------------------------------------
 
 #[derive(Clone)]
-/// A connection that cache response from an upstream connection.
+/// A connection that caches responses from an upstream connection.
 pub struct Connection<Upstream, C: Clock + Send + Sync = SystemClock> {
     /// Upstream transport to use for requests.
     upstream: Upstream,
@@ -274,12 +304,6 @@ where
             config,
             clock,
         }
-    }
-}
-
-impl<Upstream> Debug for Connection<Upstream> {
-    fn fmt(&self, _: &mut Formatter<'_>) -> Result<(), core::fmt::Error> {
-        todo!()
     }
 }
 
@@ -358,7 +382,8 @@ where
     }
 
     /// This is the implementation of the get_response method.
-    // This function is cancel safe.
+    ///
+    /// This function is cancel safe.
     async fn get_response_impl(&mut self) -> Result<Message<Bytes>, Error> {
         loop {
             match &mut self.state {
@@ -409,11 +434,8 @@ where
                     let cd = header.cd();
                     let rd = header.rd();
 
-                    let dnssec_ok = if let Some(opt) = msg.opt() {
-                        opt.dnssec_ok()
-                    } else {
-                        false
-                    };
+                    let dnssec_ok =
+                        msg.opt().map_or(false, |opt| opt.dnssec_ok());
                     if dnssec_ok && !ad {
                         ad = true;
                     }
@@ -439,7 +461,7 @@ where
 
                     let key = key.clone();
                     let value = Arc::new(Value::new(
-                        &response,
+                        response.clone(),
                         &self.config,
                         &self.clock,
                     )?);
@@ -454,22 +476,22 @@ where
         }
     }
 
-    /// Try to find an cache entry for the key.
+    /// Try to find a cache entry for the key.
     async fn cache_lookup(
         &self,
         key: &Key,
     ) -> Result<Option<Arc<Value<C>>>, Error> {
         // There are 4 flags that may affect the response to a query.
         // In some cases the response to one value of a flag could be
-        // used for the ohter value.
-        // This function takes all 4 flags. First we fix the CD flag.
-        // This flag has to be used as is. Next we have the request to
-        // a function that looks at RD, DO, and AD.
+        // used for the other value.
+        // This function takes all 4 flags. First we take care of the CD flag.
+        // This flag has to be used as is, so there is not much to do. Next
+        // we pass the request to a function that looks at RD, DO, and AD.
         self.cache_lookup_rd_do_ad(key).await
     }
 
     /// Try to find an cache entry for the key taking into account the
-    /// RD, DO, and AD flags.
+    /// RD, DO, and AD flags. The CD flag is kept unchanged.
     async fn cache_lookup_rd_do_ad(
         &self,
         key: &Key,
@@ -510,7 +532,7 @@ where
     }
 
     /// Try to find an cache entry for the key taking into account the
-    /// DO and AD flags.
+    /// DO and AD flags. The CD and RD flags are kept unchanged.
     async fn cache_lookup_do_ad(
         &self,
         key: &Key,
@@ -522,7 +544,7 @@ where
 
         // If DO is set then AD is irrelevant. Force AD to be set for
         // consistency (if DO is set then with respect to the AD flag
-        // the behavior is as if AD is set.
+        // the behavior is as if AD is set).
 
         if key.dnssec_ok {
             assert!(key.ad);
@@ -533,8 +555,8 @@ where
             return Ok(opt_value);
         }
 
-        if key.qclass == Class::In && is_dnssec(key.qtype) {
-            // An explicit request for one of the DNSSEC type but
+        if is_dnssec(key.qtype) {
+            // An explicit request for one of the DNSSEC types but
             // DO is not set. Force the request to be sent explicitly.
             return Ok(None);
         }
@@ -566,7 +588,7 @@ where
     }
 
     /// Try to find an cache entry for the key taking into account the
-    /// AD flag.
+    /// AD flag. The CD, DO, and RD flags are kept unchanged.
     async fn cache_lookup_ad(
         &self,
         key: &Key,
@@ -614,7 +636,7 @@ where
     /// Do not insert if the validity is zero.
     /// Make sure to clear the AA flag.
     async fn cache_insert(&self, key: Key, value: Arc<Value<C>>) {
-        if value.validity.is_zero() {
+        if value.valid_for.is_zero() {
             // Do not insert cache value that are valid for zero duration.
             return;
         }
@@ -624,7 +646,7 @@ where
                 // Create a new value based on this error
                 Arc::new(
                     Value::<C>::new_from_value_and_response(
-                        value.clone(),
+                        value,
                         Err(e),
                         &self.config,
                     )
@@ -642,8 +664,10 @@ where
     Upstream: Send + Sync,
     C: Clock + Send + Sync,
 {
-    fn fmt(&self, _: &mut Formatter<'_>) -> Result<(), core::fmt::Error> {
-        todo!()
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), core::fmt::Error> {
+        f.debug_struct("Request")
+            .field("fut", &format_args!("_"))
+            .finish()
     }
 }
 
@@ -747,10 +771,10 @@ where
     C: Clock + Send + Sync,
 {
     /// Creation time of the cache entry.
-    creation: C::Instant,
+    created_at: C::Instant,
 
     /// The amount time the cache entry is valid.
-    validity: Duration,
+    valid_for: Duration,
 
     /// The cached response.
     response: Result<Message<Bytes>, Error>,
@@ -762,14 +786,14 @@ where
 {
     /// Create a new value object.
     fn new(
-        response: &Result<Message<Bytes>, Error>,
+        response: Result<Message<Bytes>, Error>,
         config: &Config,
         clock: &C,
     ) -> Result<Value<C>, Error> {
         Ok(Self {
-            creation: clock.now(),
-            validity: validity(response, config)?,
-            response: response.clone(),
+            created_at: clock.now(),
+            valid_for: validity(&response, config)?,
+            response,
         })
     }
 
@@ -780,8 +804,8 @@ where
         config: &Config,
     ) -> Result<Value<C>, Error> {
         Ok(Self {
-            creation: val.creation.clone(),
-            validity: validity(&response, config)?,
+            created_at: val.created_at.clone(),
+            valid_for: validity(&response, config)?,
             response,
         })
     }
@@ -799,8 +823,8 @@ where
     TDN: ToDname + Clone,
     C: Clock + Send + Sync,
 {
-    let elapsed = value.creation.elapsed();
-    if elapsed > value.validity {
+    let elapsed = value.created_at.elapsed();
+    if elapsed > value.valid_for {
         return None;
     }
     let secs = elapsed.as_secs() as u32;
@@ -813,9 +837,8 @@ fn validity(
     response: &Result<Message<Bytes>, Error>,
     config: &Config,
 ) -> Result<Duration, Error> {
-    let msg = match response {
-        Err(_) => return Ok(config.transport_failure_duration),
-        Ok(msg) => msg,
+    let Ok(msg) = response else {
+        return Ok(config.transport_failure_duration);
     };
 
     let mut min_val = config.max_validity;
@@ -1088,15 +1111,9 @@ where
 
 /// Get the extended rcode of a message.
 fn get_opt_rcode<Octs: Octets>(msg: &Message<Octs>) -> OptRcode {
-    let opt = msg.opt();
-    match opt {
-        Some(opt) => opt.rcode(msg.header()),
-        None => {
-            // Convert Rcode to OptRcode, this should be part of
-            // OptRcode
-            OptRcode::from_int(msg.header().rcode().to_int() as u16)
-        }
-    }
+    msg.opt()
+        .map(|opt| opt.rcode(msg.header()))
+        .unwrap_or_else(|| msg.header().rcode().into())
 }
 
 /// Return a message with the AA flag clear.
