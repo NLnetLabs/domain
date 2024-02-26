@@ -78,20 +78,13 @@ fn entry2reqmsg(entry: &Entry) -> RequestMessage<Vec<u8>> {
         Some(reply) => reply.clone(),
         None => Default::default(),
     };
-    if reply.rd {
-        msg.header_mut().set_rd(true);
-    }
-    if reply.ad {
-        msg.header_mut().set_ad(true);
-    }
-    if reply.cd {
-        msg.header_mut().set_cd(true);
-    }
+    let header = msg.header_mut();
+    header.set_rd(reply.rd);
+    header.set_ad(reply.ad);
+    header.set_cd(reply.cd);
     let msg = msg.into_message();
     let mut msg = RequestMessage::new(msg);
-    if reply.fl_do {
-        msg.set_dnssec_ok(true);
-    }
+    msg.set_dnssec_ok(reply.fl_do);
     if reply.notify {
         msg.header_mut().set_opcode(Opcode::Notify);
     }
