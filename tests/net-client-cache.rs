@@ -7,7 +7,6 @@ use crate::net::deckard::connect::Connect;
 use crate::net::deckard::parse_deckard::parse_file;
 use domain::base::{Dname, MessageBuilder, Rtype::Aaaa};
 use domain::net::client::cache;
-use domain::net::client::clock::{Clock, FakeClock};
 use domain::net::client::multi_stream;
 use domain::net::client::redundant;
 use domain::net::client::request::{
@@ -76,10 +75,9 @@ async fn async_test_cache(filename: &str) {
         ms_tran.run().await;
         println!("multi conn run terminated");
     });
-    let clock = FakeClock::new();
-    let cached = cache::Connection::new_with_time(ms, clock.clone());
+    let cached = cache::Connection::new(ms);
 
-    do_client(&deckard, cached, &step_value, &clock).await;
+    do_client(&deckard, cached, &step_value).await;
 }
 
 /*
@@ -113,97 +111,96 @@ async fn async_test_no_cache(filename: &str) {
         println!("multi conn run terminated");
     });
 
-    let clock = FakeClock::new();
-    do_client(&deckard, ms, &step_value, &clock).await;
+    do_client(&deckard, ms, &step_value).await;
 }
 
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn test_ad() {
     async_test_cache(TEST_FILE_AD).await;
 }
 
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 #[should_panic]
 async fn test_ad_no_cache() {
     async_test_no_cache(TEST_FILE_AD).await;
 }
 
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn test_ad_rev() {
     async_test_cache(TEST_FILE_AD_REV).await;
 }
 
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn test_do_nsec() {
     async_test_cache(TEST_FILE_DO_NSEC).await;
 }
 
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn test_do_nsec3() {
     async_test_cache(TEST_FILE_DO_NSEC3).await;
 }
 
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn test_do_q_rrsig() {
     async_test_cache(TEST_FILE_DO_Q_RRSIG).await;
 }
 
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn test_do_q_nsec() {
     async_test_cache(TEST_FILE_DO_Q_NSEC).await;
 }
 
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn test_rd() {
     async_test_cache(TEST_FILE_RD).await;
 }
 
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn test_rd_rev() {
     async_test_cache(TEST_FILE_RD_REV).await;
 }
 
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn test_cd() {
     async_test_cache(TEST_FILE_CD).await;
 }
 
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn test_cd_rev() {
     async_test_cache(TEST_FILE_CD_REV).await;
 }
 
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn test_aa() {
     async_test_cache(TEST_FILE_AA).await;
 }
 
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn test_case() {
     async_test_cache(TEST_FILE_CASE).await;
 }
 
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn test_nxdomain() {
     async_test_cache(TEST_FILE_NXDOMAIN).await;
 }
 
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn test_nodata() {
     async_test_cache(TEST_FILE_NODATA).await;
 }
 
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn test_delegation() {
     async_test_cache(TEST_FILE_DELEGATION).await;
 }
 
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn test_broken_nodata() {
     async_test_cache(TEST_FILE_BROKEN_NODATA).await;
 }
 
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn test_refused() {
     async_test_cache(TEST_FILE_REFUSED).await;
 }
@@ -267,7 +264,7 @@ fn test_transport_error() {
 }
 */
 
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn test_transport_error() {
     // Transport errors should be cached. Create an empty redundant transport
     // and manually issue a query to trigger a transport error. Then add a
@@ -281,9 +278,7 @@ async fn test_transport_error() {
         redun_tran.run().await;
         println!("redundant conn run terminated");
     });
-    let clock = FakeClock::new();
-    let cached =
-        cache::Connection::new_with_time(redun.clone(), clock.clone());
+    let cached = cache::Connection::new(redun.clone());
 
     let mut msg = MessageBuilder::new_vec();
     msg.header_mut().set_rd(true);
@@ -320,25 +315,25 @@ async fn test_transport_error() {
         panic!("Bad result {reply:?}");
     }
 
-    do_client(&deckard, redun, &step_value, &clock).await;
+    do_client(&deckard, redun, &step_value).await;
 }
 
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn test_ttl() {
     async_test_cache(TEST_FILE_TTL).await;
 }
 
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn test_ttl_sections() {
     async_test_cache(TEST_FILE_TTL_SECTIONS).await;
 }
 
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn test_chaos() {
     async_test_cache(TEST_FILE_CHAOS).await;
 }
 
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn test_notify() {
     async_test_cache(TEST_FILE_NOTIFY).await;
 }

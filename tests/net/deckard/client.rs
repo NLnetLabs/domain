@@ -5,7 +5,6 @@ use bytes::Bytes;
 
 use domain::base::iana::Opcode;
 use domain::base::{Message, MessageBuilder};
-use domain::net::client::clock::FakeClock;
 use domain::net::client::request::{
     ComposeRequest, RequestMessage, SendRequest,
 };
@@ -16,7 +15,6 @@ pub async fn do_client<R: SendRequest<RequestMessage<Vec<u8>>>>(
     deckard: &Deckard,
     request: R,
     step_value: &CurrStepValue,
-    clock: &FakeClock,
 ) {
     let mut resp: Option<Message<Bytes>> = None;
 
@@ -40,9 +38,10 @@ pub async fn do_client<R: SendRequest<RequestMessage<Vec<u8>>>>(
                 }
             }
             StepType::TimePasses => {
-                clock.adjust_time(Duration::from_secs(
+                tokio::time::advance(Duration::from_secs(
                     step.time_passes.unwrap(),
-                ));
+                ))
+                .await;
             }
             StepType::Traffic
             | StepType::CheckTempfile

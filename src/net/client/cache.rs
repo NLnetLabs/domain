@@ -12,7 +12,6 @@ use crate::base::ParsedDname;
 use crate::base::StaticCompressor;
 use crate::base::Ttl;
 use crate::dep::octseq::Octets;
-use crate::net::client::clock::{Clock, Elapsed, SystemClock};
 use crate::net::client::request::{
     ComposeRequest, Error, GetResponse, SendRequest,
 };
@@ -252,18 +251,15 @@ impl Default for Config {
 
 #[derive(Clone)]
 /// A connection that caches responses from an upstream connection.
-pub struct Connection<Upstream, C: Clock + Send + Sync = SystemClock> {
+pub struct Connection<Upstream> {
     /// Upstream transport to use for requests.
     upstream: Upstream,
 
     /// The cache for this connection.
-    cache: Cache<Key, Arc<Value<C>>>,
+    cache: Cache<Key, Arc<Value>>,
 
     /// The configuration of this connection.
     config: Config,
-
-    /// The clock to use for expiring cache entries.
-    clock: C,
 }
 
 impl<Upstream> Connection<Upstream> {
@@ -278,53 +274,26 @@ impl<Upstream> Connection<Upstream> {
             upstream,
             cache: Cache::new(config.max_cache_entries),
             config,
-            clock: SystemClock::new(),
-        }
-    }
-}
-
-impl<Upstream, C> Connection<Upstream, C>
-where
-    C: Clock + Send + Sync + 'static,
-{
-    /// Create a new connection with default configuration parameters.
-    pub fn new_with_time(upstream: Upstream, clock: C) -> Self {
-        Self::with_time_config(upstream, clock, Default::default())
-    }
-
-    /// Create a new connection with specified configuration parameters.
-    pub fn with_time_config(
-        upstream: Upstream,
-        clock: C,
-        config: Config,
-    ) -> Self {
-        Self {
-            upstream,
-            cache: Cache::new(config.max_cache_entries),
-            config,
-            clock,
         }
     }
 }
 
 //------------ SendRequest ----------------------------------------------------
 
-impl<CR, Upstream, C> SendRequest<CR> for Connection<Upstream, C>
+impl<CR, Upstream> SendRequest<CR> for Connection<Upstream>
 where
     CR: Clone + ComposeRequest + 'static,
     Upstream: Clone + SendRequest<CR> + Send + Sync + 'static,
-    C: Clock + Debug + Send + Sync + 'static,
 {
     fn send_request(
         &self,
         request_msg: CR,
     ) -> Box<dyn GetResponse + Send + Sync> {
-        Box::new(Request::<CR, Upstream, C>::new(
+        Box::new(Request::<CR, Upstream>::new(
             request_msg,
             self.upstream.clone(),
             self.cache.clone(),
             self.config.clone(),
-            self.clock.clone(),
         ))
     }
 }
@@ -332,11 +301,10 @@ where
 //------------ Request --------------------------------------------------------
 
 /// The state of a request that is executed.
-pub struct Request<CR, Upstream, C>
+pub struct Request<CR, Upstream>
 where
     CR: Send + Sync,
     Upstream: Send + Sync,
-    C: Clock + Send + Sync,
 {
     /// State of the request.
     state: RequestState,
@@ -348,36 +316,30 @@ where
     upstream: Upstream,
 
     /// The cache of the connection.
-    cache: Cache<Key, Arc<Value<C>>>,
+    cache: Cache<Key, Arc<Value>>,
 
     /// The configuration of the connection.
     config: Config,
-
-    /// The clock to use for expiring cache entries.
-    clock: C,
 }
 
-impl<CR, Upstream, C> Request<CR, Upstream, C>
+impl<CR, Upstream> Request<CR, Upstream>
 where
     CR: Clone + ComposeRequest + Send + Sync,
     Upstream: SendRequest<CR> + Send + Sync,
-    C: Clock + Debug + Send + Sync + 'static,
 {
     /// Create a new Request object.
     fn new(
         request_msg: CR,
         upstream: Upstream,
-        cache: Cache<Key, Arc<Value<C>>>,
+        cache: Cache<Key, Arc<Value>>,
         config: Config,
-        clock: C,
-    ) -> Request<CR, Upstream, C> {
+    ) -> Request<CR, Upstream> {
         Self {
             state: RequestState::Init,
             request_msg,
             upstream,
             cache,
             config,
-            clock,
         }
     }
 
@@ -445,7 +407,7 @@ where
                     let opt_ce = self.cache_lookup(&key).await?;
                     if let Some(value) = opt_ce {
                         let opt_response =
-                            handle_cache_value::<_, C>(qname, value);
+                            handle_cache_value::<_>(qname, value);
                         if let Some(response) = opt_response {
                             return response;
                         }
@@ -460,11 +422,8 @@ where
                     let response = request.get_response().await;
 
                     let key = key.clone();
-                    let value = Arc::new(Value::new(
-                        response.clone(),
-                        &self.config,
-                        &self.clock,
-                    )?);
+                    let value =
+                        Arc::new(Value::new(response.clone(), &self.config)?);
                     self.cache_insert(key, value).await;
 
                     return response;
@@ -480,7 +439,7 @@ where
     async fn cache_lookup(
         &self,
         key: &Key,
-    ) -> Result<Option<Arc<Value<C>>>, Error> {
+    ) -> Result<Option<Arc<Value>>, Error> {
         // There are 4 flags that may affect the response to a query.
         // In some cases the response to one value of a flag could be
         // used for the other value.
@@ -496,7 +455,7 @@ where
     async fn cache_lookup_rd_do_ad(
         &self,
         key: &Key,
-    ) -> Result<Option<Arc<Value<C>>>, Error> {
+    ) -> Result<Option<Arc<Value>>, Error> {
         // For RD=1 we can only use responses to queries with RD set.
         // For RD=0, first try with RD=0 and then try with RD=1. If
         // RD=1 has an answer, store it as an answer for RD=0.
@@ -518,12 +477,11 @@ where
                 }
                 Ok(msg) => {
                     let msg = clear_rd(msg)?;
-                    let value =
-                        Arc::new(Value::<C>::new_from_value_and_response(
-                            value.clone(),
-                            Ok(msg),
-                            &self.config,
-                        )?);
+                    let value = Arc::new(Value::new_from_value_and_response(
+                        value.clone(),
+                        Ok(msg),
+                        &self.config,
+                    )?);
                     self.cache_insert(key.clone(), value.clone()).await;
                     return Ok(Some(value));
                 }
@@ -537,7 +495,7 @@ where
     async fn cache_lookup_do_ad(
         &self,
         key: &Key,
-    ) -> Result<Option<Arc<Value<C>>>, Error> {
+    ) -> Result<Option<Arc<Value>>, Error> {
         // For DO=1 we can only use responses to queries with DO set.
         // For DO=0, first try with DO=0 and then try with DO=1. If
         // DO=1 has an answer, remove DNSSEC related resource records.
@@ -574,12 +532,11 @@ where
                 }
                 Ok(msg) => {
                     let msg = remove_dnssec(msg, key.ad)?;
-                    let value =
-                        Arc::new(Value::<C>::new_from_value_and_response(
-                            value.clone(),
-                            Ok(msg),
-                            &self.config,
-                        )?);
+                    let value = Arc::new(Value::new_from_value_and_response(
+                        value.clone(),
+                        Ok(msg),
+                        &self.config,
+                    )?);
                     self.cache_insert(key.clone(), value.clone()).await;
                     return Ok(Some(value));
                 }
@@ -593,7 +550,7 @@ where
     async fn cache_lookup_ad(
         &self,
         key: &Key,
-    ) -> Result<Option<Arc<Value<C>>>, Error> {
+    ) -> Result<Option<Arc<Value>>, Error> {
         // For AD=1 we can only use responses to queries with AD set.
         // For AD=0, first try with AD=0 and then try with AD=1. If
         // AD=1 has an answer, clear the AD bit.
@@ -618,12 +575,11 @@ where
                     }
 
                     let msg = clear_ad(msg)?;
-                    let value =
-                        Arc::new(Value::<C>::new_from_value_and_response(
-                            value.clone(),
-                            Ok(msg),
-                            &self.config,
-                        )?);
+                    let value = Arc::new(Value::new_from_value_and_response(
+                        value.clone(),
+                        Ok(msg),
+                        &self.config,
+                    )?);
                     self.cache_insert(key.clone(), value.clone()).await;
                     return Ok(Some(value));
                 }
@@ -636,7 +592,7 @@ where
     ///
     /// Do not insert if the validity is zero.
     /// Make sure to clear the AA flag.
-    async fn cache_insert(&self, key: Key, value: Arc<Value<C>>) {
+    async fn cache_insert(&self, key: Key, value: Arc<Value>) {
         if value.valid_for.is_zero() {
             return;
         }
@@ -645,7 +601,7 @@ where
             Err(e) => {
                 // Create a new value based on this error
                 Arc::new(
-                    Value::<C>::new_from_value_and_response(
+                    Value::new_from_value_and_response(
                         value,
                         Err(e),
                         &self.config,
@@ -658,11 +614,10 @@ where
     }
 }
 
-impl<CR, Upstream, C> Debug for Request<CR, Upstream, C>
+impl<CR, Upstream> Debug for Request<CR, Upstream>
 where
     CR: Send + Sync,
     Upstream: Send + Sync,
-    C: Clock + Send + Sync,
 {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), core::fmt::Error> {
         f.debug_struct("Request")
@@ -671,11 +626,10 @@ where
     }
 }
 
-impl<CR, Upstream, C> GetResponse for Request<CR, Upstream, C>
+impl<CR, Upstream> GetResponse for Request<CR, Upstream>
 where
     CR: Clone + ComposeRequest + Debug + Sync,
     Upstream: SendRequest<CR> + Send + Sync + 'static,
-    C: Clock + Debug + Send + Sync + 'static,
 {
     fn get_response(
         &mut self,
@@ -766,12 +720,9 @@ impl Key {
 
 #[derive(Debug)]
 /// The value to be cached.
-struct Value<C>
-where
-    C: Clock + Send + Sync,
-{
+struct Value {
     /// Creation time of the cache entry.
-    created_at: C::Instant,
+    created_at: tokio::time::Instant, //C::Instant,
 
     /// The amount time the cache entry is valid.
     valid_for: Duration,
@@ -780,18 +731,14 @@ where
     response: Result<Message<Bytes>, Error>,
 }
 
-impl<C> Value<C>
-where
-    C: Clock + Send + Sync,
-{
+impl Value {
     /// Create a new value object.
     fn new(
         response: Result<Message<Bytes>, Error>,
         config: &Config,
-        clock: &C,
-    ) -> Result<Value<C>, Error> {
+    ) -> Result<Value, Error> {
         Ok(Self {
-            created_at: clock.now(),
+            created_at: tokio::time::Instant::now(),
             valid_for: validity(&response, config)?,
             response,
         })
@@ -799,12 +746,12 @@ where
 
     /// Create a value object that is derived from another value object.
     fn new_from_value_and_response(
-        val: Arc<Value<C>>,
+        val: Arc<Value>,
         response: Result<Message<Bytes>, Error>,
         config: &Config,
-    ) -> Result<Value<C>, Error> {
+    ) -> Result<Value, Error> {
         Ok(Self {
-            created_at: val.created_at.clone(),
+            created_at: val.created_at,
             valid_for: validity(&response, config)?,
             response,
         })
@@ -815,13 +762,12 @@ where
 
 /// Handle a cached value. Either return None if the value has expired or
 /// return a response message with decremented TTL values.
-fn handle_cache_value<TDN, C>(
+fn handle_cache_value<TDN>(
     orig_qname: TDN,
-    value: Arc<Value<C>>,
+    value: Arc<Value>,
 ) -> Option<Result<Message<Bytes>, Error>>
 where
     TDN: ToDname + Clone,
-    C: Clock + Send + Sync,
 {
     let elapsed = value.created_at.elapsed();
     if elapsed > value.valid_for {
@@ -1148,13 +1094,10 @@ fn clear_rd(msg: &Message<Bytes>) -> Result<Message<Bytes>, Error> {
 
 /// Prepare a value for inserting in the cache by clearing the AA flag if
 /// set.
-fn prepare_for_insert<C>(
-    value: Arc<Value<C>>,
+fn prepare_for_insert(
+    value: Arc<Value>,
     config: &Config,
-) -> Result<Arc<Value<C>>, Error>
-where
-    C: Clock + Send + Sync,
-{
+) -> Result<Arc<Value>, Error> {
     Ok(match &value.response {
         Err(_) => {
             // Just insert the error
@@ -1163,7 +1106,7 @@ where
         Ok(msg) => {
             if msg.header().aa() {
                 let msg = clear_aa(msg)?;
-                Arc::new(Value::<C>::new_from_value_and_response(
+                Arc::new(Value::new_from_value_and_response(
                     value.clone(),
                     Ok(msg),
                     config,
