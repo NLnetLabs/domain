@@ -444,8 +444,7 @@ where
                         Key::new(qname, qclass, qtype, ad, cd, dnssec_ok, rd);
                     let opt_ce = self.cache_lookup(&key).await?;
                     if let Some(value) = opt_ce {
-                        let opt_response =
-                            handle_cache_value::<_, C>(qname, value);
+                        let opt_response = value.get_response(qname);
                         if let Some(response) = opt_response {
                             return response;
                         }
@@ -809,28 +808,28 @@ where
             response,
         })
     }
+
+    /// Get a reponse. Either return None if the value has expired or
+    /// return a response message with decremented TTL values.
+    fn get_response<TDN>(
+        &self,
+        orig_qname: TDN,
+    ) -> Option<Result<Message<Bytes>, Error>>
+    where
+        TDN: ToDname + Clone,
+        C: Clock + Send + Sync,
+    {
+        let elapsed = self.created_at.elapsed();
+        if elapsed > self.valid_for {
+            return None;
+        }
+        let secs = elapsed.as_secs() as u32;
+        let response = decrement_ttl(orig_qname, &self.response, secs);
+        Some(response)
+    }
 }
 
 //------------ Utility functions ----------------------------------------------
-
-/// Handle a cached value. Either return None if the value has expired or
-/// return a response message with decremented TTL values.
-fn handle_cache_value<TDN, C>(
-    orig_qname: TDN,
-    value: Arc<Value<C>>,
-) -> Option<Result<Message<Bytes>, Error>>
-where
-    TDN: ToDname + Clone,
-    C: Clock + Send + Sync,
-{
-    let elapsed = value.created_at.elapsed();
-    if elapsed > value.valid_for {
-        return None;
-    }
-    let secs = elapsed.as_secs() as u32;
-    let response = decrement_ttl(orig_qname, &value.response, secs);
-    Some(response)
-}
 
 /// Compute how long a response can be cached.
 fn validity(
