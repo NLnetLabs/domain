@@ -843,7 +843,7 @@ fn validity(
 
     let mut min_val = config.max_validity;
 
-    match get_opt_rcode(msg) {
+    match msg.opt_rcode() {
         OptRcode::NoError => {
             match classify_no_error(msg)? {
                 NoErrorType::Answer => (),
@@ -1107,13 +1107,6 @@ where
 
     // Neither SOA nor NS were found. This is a broken response.
     Ok(NoErrorType::NoErrorWeird)
-}
-
-/// Get the extended rcode of a message.
-fn get_opt_rcode<Octs: Octets>(msg: &Message<Octs>) -> OptRcode {
-    msg.opt()
-        .map(|opt| opt.rcode(msg.header()))
-        .unwrap_or_else(|| msg.header().rcode().into())
 }
 
 /// Return a message with the AA flag clear.
