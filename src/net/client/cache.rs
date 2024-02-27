@@ -5,12 +5,10 @@
 
 use crate::base::iana::{Class, Opcode, OptRcode, Rtype};
 use crate::base::name::ToDname;
-use crate::base::Dname;
-use crate::base::Message;
-use crate::base::MessageBuilder;
-use crate::base::ParsedDname;
-use crate::base::StaticCompressor;
-use crate::base::Ttl;
+use crate::base::{
+    Dname, Header, Message, MessageBuilder, ParsedDname, StaticCompressor,
+    Ttl,
+};
 use crate::dep::octseq::{octets::OctetsInto, Octets};
 use crate::net::client::clock::{Clock, Elapsed, SystemClock};
 use crate::net::client::request::{
@@ -523,24 +521,15 @@ where
         let mut alt_key = key.clone();
         alt_key.rd = true;
         let opt_value = self.cache_lookup_do_ad(&alt_key).await?;
-        if let Some(value) = &opt_value {
-            match &value.response {
-                Err(_) => {
-                    // Just insert the error
-                    self.cache_insert(key.clone(), value.clone()).await;
-                }
-                Ok(msg) => {
-                    let msg = clear_rd(msg)?;
-                    let value =
-                        Arc::new(Value::<C>::new_from_value_and_response(
-                            value.clone(),
-                            Ok(msg),
-                            &self.config,
-                        )?);
-                    self.cache_insert(key.clone(), value.clone()).await;
-                    return Ok(Some(value));
-                }
-            }
+        if let Some(value) = opt_value {
+            let value = update_header(
+                value,
+                &self.config,
+                |_hdr| true,
+                |hdr| hdr.set_rd(false),
+            )?;
+            self.cache_insert(key.clone(), value.clone()).await;
+            return Ok(Some(value));
         }
         Ok(opt_value)
     }
@@ -574,24 +563,15 @@ where
         let mut alt_key = key.clone();
         alt_key.addo = AdDo::Do;
         let opt_value = self.cache.get(&alt_key).await;
-        if let Some(value) = &opt_value {
-            match &value.response {
-                Err(_) => {
-                    // Just insert the error
-                    self.cache_insert(key.clone(), value.clone()).await;
-                }
-                Ok(msg) => {
-                    let msg = remove_dnssec(msg, key.addo.ad())?;
-                    let value =
-                        Arc::new(Value::<C>::new_from_value_and_response(
-                            value.clone(),
-                            Ok(msg),
-                            &self.config,
-                        )?);
-                    self.cache_insert(key.clone(), value.clone()).await;
-                    return Ok(Some(value));
-                }
-            }
+        if let Some(value) = opt_value {
+            let value = update_message(
+                value,
+                &self.config,
+                |_hdr| true,
+                |msg| remove_dnssec(msg, key.addo.ad()),
+            )?;
+            self.cache_insert(key.clone(), value.clone()).await;
+            return Ok(Some(value));
         }
         Ok(opt_value)
     }
@@ -612,30 +592,15 @@ where
         let mut alt_key = key.clone();
         alt_key.addo = AdDo::Ad;
         let opt_value = self.cache.get(&alt_key).await;
-        if let Some(value) = &opt_value {
-            match &value.response {
-                Err(_) => {
-                    // Just insert the error
-                    self.cache_insert(key.clone(), value.clone()).await;
-                }
-                Ok(msg) => {
-                    if !msg.header().ad() {
-                        // AD is clear. Just insert this value.
-                        self.cache_insert(key.clone(), value.clone()).await;
-                        return Ok(Some(value.clone()));
-                    }
-
-                    let msg = clear_ad(msg)?;
-                    let value =
-                        Arc::new(Value::<C>::new_from_value_and_response(
-                            value.clone(),
-                            Ok(msg),
-                            &self.config,
-                        )?);
-                    self.cache_insert(key.clone(), value.clone()).await;
-                    return Ok(Some(value));
-                }
-            }
+        if let Some(value) = opt_value {
+            let value = update_header(
+                value,
+                &self.config,
+                |hdr| hdr.ad(),
+                |hdr| hdr.set_ad(false),
+            )?;
+            self.cache_insert(key.clone(), value.clone()).await;
+            return Ok(Some(value));
         }
         Ok(opt_value)
     }
@@ -1164,36 +1129,6 @@ where
     Ok(NoErrorType::NoErrorWeird)
 }
 
-/// Return a message with the AA flag clear.
-fn clear_aa(msg: &Message<Bytes>) -> Result<Message<Bytes>, Error> {
-    // Assume the clear_aa will be called only if AA is set. So no need to
-    // optimize for the case where AA is clear.
-    let mut msg = Message::<Vec<u8>>::from_octets(msg.as_slice().into())?;
-    let hdr = msg.header_mut();
-    hdr.set_aa(false);
-    Ok(Message::<Bytes>::from_octets(msg.into_octets().into())?)
-}
-
-/// Return a message with the AD flag clear.
-fn clear_ad(msg: &Message<Bytes>) -> Result<Message<Bytes>, Error> {
-    // Assume the clear_ad will be called only if AD is set. So no need to
-    // optimize for the case where AD is clear.
-    let mut msg = Message::<Vec<u8>>::from_octets(msg.as_slice().into())?;
-    let hdr = msg.header_mut();
-    hdr.set_ad(false);
-    Ok(Message::<Bytes>::from_octets(msg.into_octets().into())?)
-}
-
-/// Return a message with the RD flag clear.
-fn clear_rd(msg: &Message<Bytes>) -> Result<Message<Bytes>, Error> {
-    // Assume the clear_rd will be called only if RD is set. So no need to
-    // optimize for the case where RD is clear.
-    let mut msg = Message::<Vec<u8>>::from_octets(msg.as_slice().into())?;
-    let hdr = msg.header_mut();
-    hdr.set_rd(false);
-    Ok(Message::<Bytes>::from_octets(msg.into_octets().into())?)
-}
-
 /// Prepare a value for inserting in the cache by clearing the AA flag if
 /// set.
 fn prepare_for_insert<C>(
@@ -1203,21 +1138,61 @@ fn prepare_for_insert<C>(
 where
     C: Clock + Send + Sync,
 {
+    update_header(value, config, |hdr| hdr.aa(), |hdr| hdr.set_aa(false))
+}
+
+/// Update the Header of a Message in a Value by creating a new Value with a
+/// new Message if the Header needs to be changed.
+///
+/// Return the original Value if no change is needed.
+/// hdrtst checks if the header needs updating, fhdr modifies the header.
+fn update_header<C>(
+    value: Arc<Value<C>>,
+    config: &Config,
+    hdrtst: fn(hdr: &Header) -> bool,
+    fhdr: fn(&mut Header) -> (),
+) -> Result<Arc<Value<C>>, Error>
+where
+    C: Clock + Send + Sync,
+{
+    update_message(value, config, hdrtst, |msg| {
+        let mut msg = Message::<Vec<u8>>::from_octets(msg.as_slice().into())?;
+        let hdr = msg.header_mut();
+        fhdr(hdr);
+        Ok(Message::<Bytes>::from_octets(msg.into_octets().into())?)
+    })
+}
+
+/// Update a Message in a Value by creating a new Value with a
+/// new Message if the Message needs to be changed.
+///
+/// Return the original Value if no change is needed.
+/// hdrtst checks if the Message needs updating, fmsg returns a new Message.
+fn update_message<C, FmsgFn>(
+    value: Arc<Value<C>>,
+    config: &Config,
+    hdrtst: fn(hdr: &Header) -> bool,
+    fmsg: FmsgFn,
+) -> Result<Arc<Value<C>>, Error>
+where
+    C: Clock + Send + Sync,
+    FmsgFn: Fn(&Message<Bytes>) -> Result<Message<Bytes>, Error>,
+{
     Ok(match &value.response {
         Err(_) => {
-            // Just insert the error
+            // No message, no need to change anything.
             value
         }
         Ok(msg) => {
-            if msg.header().aa() {
-                let msg = clear_aa(msg)?;
+            if hdrtst(&msg.header()) {
+                let msg = fmsg(msg)?;
                 Arc::new(Value::<C>::new_from_value_and_response(
                     value.clone(),
                     Ok(msg),
                     config,
                 )?)
             } else {
-                // AA is clear. Just insert this value.
+                // No need to change anything. Just insert this value.
                 value
             }
         }
