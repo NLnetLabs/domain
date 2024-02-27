@@ -1,5 +1,5 @@
-use crate::net::deckard::parse_deckard::{Entry, Matches, Reply};
-use crate::net::deckard::parse_query;
+use crate::net::stelline::parse_query;
+use crate::net::stelline::parse_stelline::{Entry, Matches, Reply};
 use domain::base::iana::Opcode;
 use domain::base::iana::OptRcode;
 use domain::base::iana::Rtype;
