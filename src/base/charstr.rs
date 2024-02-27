@@ -1011,7 +1011,6 @@ impl std::error::Error for FromStrError {}
 mod test {
     use super::*;
     use octseq::builder::infallible;
-    use std::vec::Vec;
 
     type CharStrRef<'a> = CharStr<&'a [u8]>;
 

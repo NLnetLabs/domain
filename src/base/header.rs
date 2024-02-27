@@ -17,7 +17,6 @@
 
 use super::iana::{Opcode, Rcode};
 use super::wire::ParseError;
-use core::convert::TryInto;
 use core::{fmt, mem, str::FromStr};
 use octseq::builder::OctetsBuilder;
 use octseq::parse::Parser;
@@ -941,7 +940,6 @@ impl std::error::Error for CountOverflow {}
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::base::iana::{Opcode, Rcode};
 
     #[test]
     #[cfg(feature = "std")]
