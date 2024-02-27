@@ -93,6 +93,16 @@ const MAX_DELEGATION_VALIDITY: DefMinMax<Duration> = DefMinMax::new(
 );
 
 // The following four flags are relevant to caching: AD, CD, DO, and RD.
+// The RD flag is defined in RFC 1035
+// (https://www.rfc-editor.org/info/rfc1035) Section 4.1.1.
+// The AD and CD flags are defined in RFC 2535
+// (https://www.rfc-editor.org/info/rfc2535) Section 6.1. However the
+// meaning of those flags has been redefined in RFC 4035
+// (https://www.rfc-editor.org/info/rfc4035). With another update for the
+// AD flag in RFC 6840 (https://www.rfc-editor.org/info/rfc6840)
+// Sections 5.7 and 5.8.
+// The DO flag is defined in RFC 3225
+// (https://www.rfc-editor.org/info/rfc3225) Section 3.
 //
 // The AD flag needs to be part of the key when DO is clear. When replying,
 // if both AD and DO are not set in the original request then AD needs to be
