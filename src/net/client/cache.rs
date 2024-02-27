@@ -4,13 +4,13 @@
 #![warn(clippy::missing_docs_in_private_items)]
 
 use crate::base::iana::{Class, Opcode, OptRcode, Rtype};
-use crate::base::name::ToDname;
-use crate::base::Dname;
+use crate::base::name::{ToDname, ToLabelIter};
 use crate::base::Message;
 use crate::base::MessageBuilder;
 use crate::base::ParsedDname;
 use crate::base::StaticCompressor;
 use crate::base::Ttl;
+use crate::base::{Dname, Question};
 use crate::dep::octseq::Octets;
 use crate::net::client::clock::{Clock, Elapsed, SystemClock};
 use crate::net::client::request::{
@@ -338,9 +338,6 @@ where
     Upstream: Send + Sync,
     C: Clock + Send + Sync,
 {
-    /// State of the request.
-    state: RequestState,
-
     /// The request message.
     request_msg: CR,
 
@@ -372,7 +369,6 @@ where
         clock: C,
     ) -> Request<CR, Upstream, C> {
         Self {
-            state: RequestState::Init,
             request_msg,
             upstream,
             cache,
@@ -385,95 +381,42 @@ where
     ///
     /// This function is cancel safe.
     async fn get_response_impl(&mut self) -> Result<Message<Bytes>, Error> {
-        loop {
-            match &mut self.state {
-                RequestState::Init => {
-                    let msg = self.request_msg.to_message()?;
-                    let header = msg.header();
-                    let opcode = header.opcode();
+        let msg = self.request_msg.to_message()?;
 
-                    // Extract Qname, Qclass, Qtype
-                    let mut question_section = msg.question();
-                    let question = match question_section.next() {
-                        None => {
-                            // No question. Just forward the request.
-                            let request = self
-                                .upstream
-                                .send_request(self.request_msg.clone());
-                            self.state =
-                                RequestState::GetResponseNoCache(request);
-                            continue;
-                        }
-                        Some(question) => question?,
-                    };
-                    if question_section.next().is_some() {
-                        // More than one question. Just forward the request.
-                        let request = self
-                            .upstream
-                            .send_request(self.request_msg.clone());
-                        self.state =
-                            RequestState::GetResponseNoCache(request);
-                        continue;
-                    }
-                    let qname = question.qname();
-                    let qclass = question.qclass();
-                    let qtype = question.qtype();
+        let cache_info = if msg.is_cacheable() {
+            let q = msg.sole_question().unwrap();
+            let key = msg.mk_cache_key(&q);
+            Some((key, q))
+        } else {
+            None
+        };
 
-                    if !(opcode == Opcode::Query && qclass == Class::In) {
-                        // Anything other than a query on the Internet class
-                        // should not be cached.
-                        let request = self
-                            .upstream
-                            .send_request(self.request_msg.clone());
-                        self.state =
-                            RequestState::GetResponseNoCache(request);
-                        continue;
-                    }
-
-                    let mut ad = header.ad();
-                    let cd = header.cd();
-                    let rd = header.rd();
-
-                    let dnssec_ok =
-                        msg.opt().map_or(false, |opt| opt.dnssec_ok());
-                    if dnssec_ok && !ad {
-                        ad = true;
-                    }
-
-                    let key =
-                        Key::new(qname, qclass, qtype, ad, cd, dnssec_ok, rd);
-                    let opt_ce = self.cache_lookup(&key).await?;
-                    if let Some(value) = opt_ce {
-                        let opt_response =
-                            handle_cache_value::<_, C>(qname, value);
-                        if let Some(response) = opt_response {
-                            return response;
-                        }
-                    }
-
-                    let request =
-                        self.upstream.send_request(self.request_msg.clone());
-                    self.state = RequestState::GetResponse(key, request);
-                    continue;
-                }
-                RequestState::GetResponse(key, request) => {
-                    let response = request.get_response().await;
-
-                    let key = key.clone();
-                    let value = Arc::new(Value::new(
-                        response.clone(),
-                        &self.config,
-                        &self.clock,
-                    )?);
-                    self.cache_insert(key, value).await;
-
-                    return response;
-                }
-                RequestState::GetResponseNoCache(request) => {
-                    return request.get_response().await;
-                }
+        if let Some((key, q)) = &cache_info {
+            if let Some(res) = self
+                .cache_lookup(key)
+                .await?
+                .and_then(|hit| handle_cache_value::<_, C>(q.qname(), hit))
+            {
+                return res;
             }
         }
+
+        let response = self
+            .upstream
+            .send_request(self.request_msg.clone())
+            .get_response()
+            .await;
+
+        if let Some((key, _)) = cache_info {
+            let value = Arc::new(Value::new(
+                response.clone(),
+                &self.config,
+                &self.clock,
+            )?);
+            self.cache_insert(key, value).await;
+        }
+
+        response
     }
 
     /// Try to find a cache entry for the key.
@@ -689,19 +632,6 @@ where
     > {
         Box::pin(self.get_response_impl())
     }
-}
-
-//------------ RequestState ---------------------------------------------------
-/// States of the state machine in get_response_impl
-enum RequestState {
-    /// Initial state, perform a cache lookup.
-    Init,
-
-    /// Wait for a response and insert the response in the cache.
-    GetResponse(Key, Box<dyn GetResponse + Send + Sync>),
-
-    /// Wait for a response but do not insert the response in the cache.
-    GetResponseNoCache(Box<dyn GetResponse + Send + Sync>),
 }
 
 //------------ Key ------------------------------------------------------------
@@ -1174,4 +1104,60 @@ where
             }
         }
     })
+}
+
+//----------- Cacheable ------------------------------------------------------
+
+/// Support for deciding if something is cacheable and creating a cache key.
+trait Cacheable {
+    /// Returns true if we meet the criteria to be cached.
+    fn is_cacheable(&self) -> bool;
+
+    /// Create a cache key in the context of the given question.
+    fn mk_cache_key<N>(&self, question: &Question<N>) -> Key
+    where
+        N: ToDname + ToLabelIter;
+}
+
+impl<T: Octets> Cacheable for Message<T> {
+    fn is_cacheable(&self) -> bool {
+        // We can only inspect the cache for a single question. No
+        // question means nothing to lookup. Too many questions means
+        // undefined behaviour (per
+        // https://www.ietf.org/id/draft-ietf-dnsop-qdcount-is-one-01.html).
+        if self.header_counts().qdcount() == 1 {
+            let question = self.sole_question().unwrap();
+            let header = self.header();
+            let opcode = header.opcode();
+            let qclass = question.qclass();
+            if opcode == Opcode::Query && qclass == Class::In {
+                return true;
+            }
+        }
+
+        false
+    }
+
+    fn mk_cache_key<N>(&self, q: &Question<N>) -> Key
+    where
+        N: ToDname + ToLabelIter,
+    {
+        let header = self.header();
+        let dnssec_ok = self.opt().map_or(false, |opt| opt.dnssec_ok());
+
+        let mut ad = header.ad();
+        if dnssec_ok && !ad {
+            ad = true;
+        }
+
+        Key::new(
+            q.qname(),
+            q.qclass(),
+            q.qtype(),
+            ad,
+            header.cd(),
+            dnssec_ok,
+            header.rd(),
+        )
+    }
 }
