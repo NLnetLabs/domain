@@ -774,7 +774,6 @@ impl Value {
     ) -> Option<Result<Message<Bytes>, Error>>
     where
         TDN: ToDname + Clone,
-        C: Clock + Send + Sync,
     {
         let elapsed = self.created_at.elapsed();
         if elapsed > self.valid_for {
