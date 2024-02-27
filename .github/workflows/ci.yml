@@ -8,6 +8,8 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest, macOS-latest]
         rust: [1.67.0, stable, beta, nightly]
+    env:
+        RUSTFLAGS: "-D warnings"
     steps:
     - name: Checkout repository
       uses: actions/checkout@v1
@@ -21,8 +23,8 @@ jobs:
       run: cargo clippy --all-features --all-targets -- -D warnings
     - if: matrix.rust == 'stable' && matrix.os == 'ubuntu-latest'
       run: cargo fmt --all -- --check
-    - run: RUSTFLAGS="-D warnings" cargo check --no-default-features --all-targets
-    - run: RUSTFLAGS="-D warnings" cargo test --all-features
+    - run: cargo check --no-default-features --all-targets
+    - run: cargo test --all-features
     - if: matrix.rust == 'nightly'
       run: |
         cargo +nightly update -Z minimal-versions
