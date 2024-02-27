@@ -484,11 +484,13 @@ impl<Octs: AsRef<[u8]>> fmt::Debug for UnknownRecordData<Octs> {
     }
 }
 
+//============ Errors ========================================================
+
 //------------ LongRecordData ------------------------------------------------
 
 /// The octets sequence to be used for record data is too long.
 #[derive(Clone, Copy, Debug)]
-pub struct LongRecordData();
+pub struct LongRecordData(());
 
 impl LongRecordData {
     #[must_use]
@@ -498,7 +500,7 @@ impl LongRecordData {
 
     pub fn check_len(len: usize) -> Result<(), Self> {
         if len > usize::from(u16::MAX) {
-            Err(LongRecordData())
+            Err(Self(()))
         } else {
             Ok(())
         }
@@ -509,7 +511,7 @@ impl LongRecordData {
         extra_len: usize,
     ) -> Result<(), Self> {
         // This version is safe on 16 bit systems.
-        Self::check_len(len.checked_add(extra_len).ok_or(Self())?)
+        Self::check_len(len.checked_add(extra_len).ok_or(Self(()))?)
     }
 }
 
