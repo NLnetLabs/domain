@@ -170,11 +170,12 @@ impl Serial {
                 .map_err(|_| IllegalSignatureTime(()))?
                 as i32;
             let month = Month::try_from(
-                u8::from_str(&src[4..6]).map_err(|_| IllegalSignatureTime(()))?,
+                u8::from_str(&src[4..6])
+                    .map_err(|_| IllegalSignatureTime(()))?,
             )
             .map_err(|_| IllegalSignatureTime(()))?;
-            let day =
-                u8::from_str(&src[6..8]).map_err(|_| IllegalSignatureTime(()))?;
+            let day = u8::from_str(&src[6..8])
+                .map_err(|_| IllegalSignatureTime(()))?;
             let hour = u8::from_str(&src[8..10])
                 .map_err(|_| IllegalSignatureTime(()))?;
             let minute = u8::from_str(&src[10..12])
