@@ -560,12 +560,8 @@ where
         // consistency (if DO is set then with respect to the AD flag
         // the behavior is as if AD is set).
 
-        if key.dnssec_ok {
-            assert!(key.ad);
-        }
-
         let opt_value = self.cache_lookup_ad(key).await?;
-        if opt_value.is_some() || key.dnssec_ok {
+        if opt_value.is_some() || key.addo.dnssec_ok() {
             return Ok(opt_value);
         }
 
@@ -576,8 +572,7 @@ where
         }
 
         let mut alt_key = key.clone();
-        alt_key.dnssec_ok = true;
-        alt_key.ad = true;
+        alt_key.addo = AdDo::Do;
         let opt_value = self.cache.get(&alt_key).await;
         if let Some(value) = &opt_value {
             match &value.response {
@@ -586,7 +581,7 @@ where
                     self.cache_insert(key.clone(), value.clone()).await;
                 }
                 Ok(msg) => {
-                    let msg = remove_dnssec(msg, key.ad)?;
+                    let msg = remove_dnssec(msg, key.addo.ad())?;
                     let value =
                         Arc::new(Value::<C>::new_from_value_and_response(
                             value.clone(),
@@ -611,11 +606,11 @@ where
         // For AD=0, first try with AD=0 and then try with AD=1. If
         // AD=1 has an answer, clear the AD bit.
         let opt_value = self.cache.get(key).await;
-        if opt_value.is_some() || key.ad {
+        if opt_value.is_some() || key.addo.ad() {
             return Ok(opt_value);
         }
         let mut alt_key = key.clone();
-        alt_key.ad = true;
+        alt_key.addo = AdDo::Ad;
         let opt_value = self.cache.get(&alt_key).await;
         if let Some(value) = &opt_value {
             match &value.response {
@@ -721,6 +716,8 @@ enum RequestState {
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 /// The key for cache entries.
+///
+/// Note that the AD and DO flags are combined into a single enum.
 struct Key {
     /// DNS name in the request.
     qname: Dname<Bytes>,
@@ -731,14 +728,11 @@ struct Key {
     /// The requested type.
     qtype: Rtype,
 
-    /// Value of the AD flag.
-    ad: bool,
+    /// Value of the AD and Do flags.
+    addo: AdDo,
 
     /// Value of the CD flag.
     cd: bool,
-
-    /// Value of the DO flag.
-    dnssec_ok: bool,
 
     /// Value of the RD flag.
     rd: bool,
@@ -769,10 +763,56 @@ impl Key {
             qname,
             qclass,
             qtype,
-            ad,
+            addo: AdDo::new(ad, dnssec_ok),
             cd,
-            dnssec_ok,
             rd,
+        }
+    }
+}
+
+/// The DO and AD flag have a special relationship. If the DO flag is set,
+/// then the AD flag is irrelevant, but to code looking for the AD flag
+/// we pretend that it is set. So we have three possibilities: DO is set
+/// and AD is irrelevant, DO is not set, but AD is set. Or neither DO nor
+/// AD is set.
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+enum AdDo {
+    /// DO is set, AD is ignored.
+    Do,
+
+    /// DO is clear, AD is set.
+    Ad,
+
+    /// Both AD and DO are clear.
+    None,
+}
+
+impl AdDo {
+    /// Create a new AdDo object based on the AD and DO flags.
+    fn new(ad: bool, dnssec_ok: bool) -> Self {
+        if dnssec_ok {
+            AdDo::Do
+        } else if ad {
+            AdDo::Ad
+        } else {
+            AdDo::None
+        }
+    }
+
+    /// Return whether AD is set or should be considered set.
+    fn ad(&self) -> bool {
+        match self {
+            // Do acts as if Ad is set
+            AdDo::Ad | AdDo::Do => true,
+            AdDo::None => false,
+        }
+    }
+
+    /// Return whether DO is set.
+    fn dnssec_ok(&self) -> bool {
+        match self {
+            AdDo::Do => true,
+            AdDo::Ad | AdDo::None => false,
         }
     }
 }
