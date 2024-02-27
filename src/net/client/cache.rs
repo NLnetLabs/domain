@@ -190,6 +190,10 @@ impl Config {
     ///
     /// The value has to be at least one, at most 1,000,000,000 and the
     /// default is 1000.
+    ///
+    /// The values are just best guesses at the moment. The upper limit is
+    /// set to be somewhat safe without being too limiting. The default is
+    /// meant to be reasonable for a small system.
     pub fn set_max_cache_entries(&mut self, value: u64) {
         self.max_cache_entries = MAX_CACHE_ENTRIES.limit(value)
     }
