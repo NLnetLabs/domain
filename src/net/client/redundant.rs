@@ -770,7 +770,7 @@ fn skip<Octs: Octets>(msg: &Message<Octs>, config: &Config) -> bool {
         return false;
     }
 
-    let opt_rcode = get_opt_rcode(msg);
+    let opt_rcode = msg.opt_rcode();
     // OptRcode needs PartialEq
     if let OptRcode::Refused = opt_rcode {
         if config.defer_refused {
@@ -784,17 +784,4 @@ fn skip<Octs: Octets>(msg: &Message<Octs>, config: &Config) -> bool {
     }
 
     false
-}
-
-/// Get the extended rcode of a message.
-fn get_opt_rcode<Octs: Octets>(msg: &Message<Octs>) -> OptRcode {
-    let opt = msg.opt();
-    match opt {
-        Some(opt) => opt.rcode(msg.header()),
-        None => {
-            // Convert Rcode to OptRcode, this should be part of
-            // OptRcode
-            OptRcode::from_int(msg.header().rcode().to_int() as u16)
-        }
-    }
 }

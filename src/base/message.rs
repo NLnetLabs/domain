@@ -11,7 +11,7 @@
 //! [`Message`]: struct.Message.html
 
 use super::header::{Header, HeaderCounts, HeaderSection};
-use super::iana::{Class, Rcode, Rtype};
+use super::iana::{Class, OptRcode, Rcode, Rtype};
 use super::message_builder::{AdditionalBuilder, AnswerBuilder, PushError};
 use super::name::ParsedDname;
 use super::opt::{Opt, OptRecord};
@@ -633,6 +633,14 @@ impl<Octs: Octets + ?Sized> Message<Octs> {
         }
 
         Ok(target)
+    }
+
+    /// Get the extended rcode of a message or the normal rcode converted
+    /// to an extended rcode if no opt record is present.
+    pub fn opt_rcode(&self) -> OptRcode {
+        self.opt()
+            .map(|opt| opt.rcode(self.header()))
+            .unwrap_or_else(|| self.header().rcode().into())
     }
 }
 

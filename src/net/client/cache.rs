@@ -92,6 +92,16 @@ const MAX_DELEGATION_VALIDITY: DefMinMax<Duration> = DefMinMax::new(
 );
 
 // The following four flags are relevant to caching: AD, CD, DO, and RD.
+// The RD flag is defined in RFC 1035
+// (https://www.rfc-editor.org/info/rfc1035) Section 4.1.1.
+// The AD and CD flags are defined in RFC 2535
+// (https://www.rfc-editor.org/info/rfc2535) Section 6.1. However the
+// meaning of those flags has been redefined in RFC 4035
+// (https://www.rfc-editor.org/info/rfc4035). With another update for the
+// AD flag in RFC 6840 (https://www.rfc-editor.org/info/rfc6840)
+// Sections 5.7 and 5.8.
+// The DO flag is defined in RFC 3225
+// (https://www.rfc-editor.org/info/rfc3225) Section 3.
 //
 // The AD flag needs to be part of the key when DO is clear. When replying,
 // if both AD and DO are not set in the original request then AD needs to be
@@ -406,8 +416,7 @@ where
                         Key::new(qname, qclass, qtype, ad, cd, dnssec_ok, rd);
                     let opt_ce = self.cache_lookup(&key).await?;
                     if let Some(value) = opt_ce {
-                        let opt_response =
-                            handle_cache_value::<_>(qname, value);
+                        let opt_response = value.get_response(qname);
                         if let Some(response) = opt_response {
                             return response;
                         }
@@ -756,27 +765,28 @@ impl Value {
             response,
         })
     }
+
+    /// Get a reponse. Either return None if the value has expired or
+    /// return a response message with decremented TTL values.
+    fn get_response<TDN>(
+        &self,
+        orig_qname: TDN,
+    ) -> Option<Result<Message<Bytes>, Error>>
+    where
+        TDN: ToDname + Clone,
+        C: Clock + Send + Sync,
+    {
+        let elapsed = self.created_at.elapsed();
+        if elapsed > self.valid_for {
+            return None;
+        }
+        let secs = elapsed.as_secs() as u32;
+        let response = decrement_ttl(orig_qname, &self.response, secs);
+        Some(response)
+    }
 }
 
 //------------ Utility functions ----------------------------------------------
-
-/// Handle a cached value. Either return None if the value has expired or
-/// return a response message with decremented TTL values.
-fn handle_cache_value<TDN>(
-    orig_qname: TDN,
-    value: Arc<Value>,
-) -> Option<Result<Message<Bytes>, Error>>
-where
-    TDN: ToDname + Clone,
-{
-    let elapsed = value.created_at.elapsed();
-    if elapsed > value.valid_for {
-        return None;
-    }
-    let secs = elapsed.as_secs() as u32;
-    let response = decrement_ttl(orig_qname, &value.response, secs);
-    Some(response)
-}
 
 /// Compute how long a response can be cached.
 fn validity(
@@ -789,7 +799,7 @@ fn validity(
 
     let mut min_val = config.max_validity;
 
-    match get_opt_rcode(msg) {
+    match msg.opt_rcode() {
         OptRcode::NoError => {
             match classify_no_error(msg)? {
                 NoErrorType::Answer => (),
@@ -1053,13 +1063,6 @@ where
 
     // Neither SOA nor NS were found. This is a broken response.
     Ok(NoErrorType::NoErrorWeird)
-}
-
-/// Get the extended rcode of a message.
-fn get_opt_rcode<Octs: Octets>(msg: &Message<Octs>) -> OptRcode {
-    msg.opt()
-        .map(|opt| opt.rcode(msg.header()))
-        .unwrap_or_else(|| msg.header().rcode().into())
 }
 
 /// Return a message with the AA flag clear.
