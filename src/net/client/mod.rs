@@ -22,8 +22,7 @@
 //!   with the lowest response time. Any of the other transports can be added
 //!   as upstream transports.
 //! * [cache] This is a simple message cache provided as a pass through
-//!   transport.
-//!   The cache works with any of the other transports.
+//!   transport. The cache works with any of the other transports.
 //!
 //! Sending a request and receiving the reply consists of four steps:
 //! 1) Creating a request message,
