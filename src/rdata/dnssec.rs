@@ -1752,20 +1752,20 @@ impl<Octs> RtypeBitmap<Octs> {
             while !data.is_empty() {
                 // At least bitmap number and length must be present.
                 if data.len() < 2 {
-                    return Err(RtypeBitmapError::ShortInput);
+                    return Err(RtypeBitmapErrorEnum::ShortInput.into());
                 }
 
                 let len = (data[1] as usize) + 2;
                 // https://tools.ietf.org/html/rfc4034#section-4.1.2:
                 //  Blocks with no types present MUST NOT be included.
                 if len == 2 {
-                    return Err(RtypeBitmapError::BadRtypeBitmap);
+                    return Err(RtypeBitmapErrorEnum::BadRtypeBitmap.into());
                 }
                 if len > 34 {
-                    return Err(RtypeBitmapError::BadRtypeBitmap);
+                    return Err(RtypeBitmapErrorEnum::BadRtypeBitmap.into());
                 }
                 if data.len() < len {
-                    return Err(RtypeBitmapError::ShortInput);
+                    return Err(RtypeBitmapErrorEnum::ShortInput.into());
                 }
                 data = &data[len..];
             }
@@ -2318,10 +2318,15 @@ impl<'a> Iterator for RtypeBitmapIter<'a> {
     }
 }
 
+//============ Error Types ===================================================
+
 //------------ RtypeBitmapError ----------------------------------------------
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum RtypeBitmapError {
+pub struct RtypeBitmapError(RtypeBitmapErrorEnum);
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum RtypeBitmapErrorEnum {
     ShortInput,
     BadRtypeBitmap,
 }
@@ -2330,12 +2335,18 @@ pub enum RtypeBitmapError {
 
 impl From<RtypeBitmapError> for ParseError {
     fn from(err: RtypeBitmapError) -> ParseError {
-        match err {
-            RtypeBitmapError::ShortInput => ParseError::ShortInput,
-            RtypeBitmapError::BadRtypeBitmap => {
+        match err.0 {
+            RtypeBitmapErrorEnum::ShortInput => ParseError::ShortInput,
+            RtypeBitmapErrorEnum::BadRtypeBitmap => {
                 FormError::new("invalid NSEC bitmap").into()
             }
         }
+    }
+}
+
+impl From<RtypeBitmapErrorEnum> for RtypeBitmapError {
+    fn from(err: RtypeBitmapErrorEnum) -> Self {
+        Self(err)
     }
 }
 
@@ -2343,9 +2354,9 @@ impl From<RtypeBitmapError> for ParseError {
 
 impl fmt::Display for RtypeBitmapError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match *self {
-            RtypeBitmapError::ShortInput => ParseError::ShortInput.fmt(f),
-            RtypeBitmapError::BadRtypeBitmap => {
+        match self.0 {
+            RtypeBitmapErrorEnum::ShortInput => ParseError::ShortInput.fmt(f),
+            RtypeBitmapErrorEnum::BadRtypeBitmap => {
                 f.write_str("invalid record type bitmap")
             }
         }
@@ -2355,7 +2366,7 @@ impl fmt::Display for RtypeBitmapError {
 #[cfg(feature = "std")]
 impl std::error::Error for RtypeBitmapError {}
 
-//------------ Friendly Helper Functions -------------------------------------
+//============ Friendly Helper Functions =====================================
 
 /// Splits an Rtype value into window number, octet number, and octet mask.
 fn split_rtype(rtype: Rtype) -> (u8, usize, u8) {
