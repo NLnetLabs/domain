@@ -47,7 +47,6 @@ use super::record::{Record, Ttl};
 use super::wire::{Compose, Composer, FormError, ParseError};
 use crate::utils::base16;
 use core::cmp::Ordering;
-use core::convert::TryInto;
 use core::marker::PhantomData;
 use core::{fmt, hash, mem};
 use octseq::builder::{EmptyBuilder, OctetsBuilder, ShortBuf};
@@ -1079,7 +1078,6 @@ pub(super) mod test {
     use super::*;
     use crate::base::rdata::test::{test_compose_parse, test_rdlen};
     use crate::base::record::ParsedRecord;
-    use crate::base::wire::Compose;
     use crate::base::{opt, MessageBuilder};
     use bytes::{Bytes, BytesMut};
     use core::fmt::Debug;
