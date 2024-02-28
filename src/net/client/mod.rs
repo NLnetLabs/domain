@@ -40,7 +40,7 @@
 //! [ComposeRequest][request::ComposeRequest] trait.
 //! This trait allows transports to add ENDS(0) options, set flags, etc.
 //! The [RequestMessage][request::RequestMessage] type implements this trait.
-//! The [new][request::RequestMessage::new] method of RequestMessage create
+//! The [new][request::RequestMessage::new] method of RequestMessage creates
 //! a new RequestMessage object based an existing messsage (that implements
 //! ```Into<Message<Octs>>```).
 //!
@@ -113,7 +113,7 @@
 //! ```
 //! where ```tls_conn``` is a transport connection for DNS over TLS.
 
-//! # Receiving the request
+//! # Receiving the response
 //!
 //! The [send_request][request::SendRequest::send_request] method returns an
 //! object that implements the [GetResponse][request::GetResponse] trait.
