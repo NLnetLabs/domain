@@ -89,7 +89,7 @@
 //! ```
 //! # Sending the request
 //!
-//! A DNS transport implements the [SendRequest][request::SendRequest] trait.
+//! A connection implements the [SendRequest][request::SendRequest] trait.
 //! This trait provides a single method,
 //! [send_request][request::SendRequest::send_request] and returns an object
 //! that provides the response.
