@@ -246,11 +246,23 @@ async fn main() {
     });
 
     // Send a request message.
-    let mut request = tcp.send_request(req);
+    let mut request = tcp.send_request(req.clone());
 
     // Get the reply
     let reply = request.get_response().await;
     println!("TCP reply: {:?}", reply);
 
     drop(tcp);
+
+    // Demonstrate query style transport use (inefficient for multiple queries
+    // as it will create a new connection each time it is called).
+    let tcp_conn = TcpStream::connect(server_addr).await.unwrap();
+    let reply = stream::Connection::query(tcp_conn, req.clone()).await;
+    println!("TCP reply: {:?}", reply);
+
+    // Demonstrate run style transport use (recommended for most use cases).
+    let tcp_conn = TcpStream::connect(server_addr).await.unwrap();
+    let tcp = stream::Connection::run(tcp_conn);
+    let reply = tcp.send_request(req.clone()).get_response().await;
+    println!("TCP reply: {:?}", reply);
 }

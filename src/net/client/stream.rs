@@ -110,28 +110,91 @@ pub struct Connection<Req> {
 }
 
 impl<Req> Connection<Req> {
-    /// Creates a new stream transport with default configuration.
+    /// Creates a new connection and transport.
     ///
-    /// Returns a connection and a future that drives the transport using
-    /// the provided stream. This future needs to be run while any queries
-    /// are active. This is most easly achieved by spawning it into a runtime.
-    /// It terminates when the last connection is dropped.
+    /// This is the same as calling [`with_config()`][`Self::with_config()`]
+    /// with [`Config::default()`].
     pub fn new<Stream>(stream: Stream) -> (Self, Transport<Stream, Req>) {
         Self::with_config(stream, Default::default())
     }
 
-    /// Creates a new stream transport with the given configuration.
+    /// Creates a new connection and transport with the given configuration.
     ///
-    /// Returns a connection and a future that drives the transport using
-    /// the provided stream. This future needs to be run while any queries
-    /// are active. This is most easly achieved by spawning it into a runtime.
-    /// It terminates when the last connection is dropped.
+    /// Returns a [`Connection`] and a [`Transport`]. Use [`Transport::run()`]
+    /// to start the transport running then use [`Connection::send_request()`]
+    /// to send a request and receive a response via the transport.
     pub fn with_config<Stream>(
         stream: Stream,
         config: Config,
     ) -> (Self, Transport<Stream, Req>) {
         let (sender, transport) = Transport::new(stream, config);
         (Self { sender }, transport)
+    }
+
+    /// Runs a new transport returning a connection to it.
+    ///
+    /// This is the same as calling
+    /// [`run_with_config()`][`Self::run_with_config()`] with
+    /// [`Config::default()`].
+    pub fn run<Remote>(remote: Remote) -> Self
+    where
+        Remote: AsyncRead + AsyncWrite + Send + 'static,
+        Req: ComposeRequest + 'static,
+    {
+        Self::run_with_config(remote, Default::default())
+    }
+
+    /// Runs a new transport with the given configuration, returning a
+    /// connection to it.
+    ///
+    /// Creates a [`Connection`] and [`Transport`], spawning the future that
+    /// drives the transport onto a new Tokio task and returns the
+    /// [`Connection`] ready for sending requests.
+    pub fn run_with_config<Remote>(remote: Remote, config: Config) -> Self
+    where
+        Remote: AsyncRead + AsyncWrite + Send + 'static,
+        Req: ComposeRequest + 'static,
+    {
+        let (connection, transport) = Self::with_config(remote, config);
+        let _join_handle = tokio::spawn(async move {
+            transport.run().await;
+        });
+        connection
+    }
+
+    /// Fetch the response to a single request over a temporary transport.
+    ///
+    /// This is the same as calling
+    /// [`query_with_config()`][`Self::query_with_config()`] with
+    /// [`Config::default()`].
+    pub async fn query<Remote>(
+        remote: Remote,
+        request_msg: Req,
+    ) -> Result<Message<Bytes>, Error>
+    where
+        Remote: AsyncRead + AsyncWrite + Send + 'static,
+        Req: ComposeRequest + 'static,
+        Self: SendRequest<Req>,
+    {
+        Self::query_with_config(remote, request_msg, Default::default()).await
+    }
+
+    /// Fetch the response to a single request over a temporary transport with
+    /// the given configuration.
+    pub async fn query_with_config<Remote>(
+        remote: Remote,
+        request_msg: Req,
+        config: Config,
+    ) -> Result<Message<Bytes>, Error>
+    where
+        Remote: AsyncRead + AsyncWrite + Send + 'static,
+        Req: ComposeRequest + 'static,
+        Self: SendRequest<Req>,
+    {
+        Self::run_with_config(remote, config)
+            .send_request(request_msg)
+            .get_response()
+            .await
     }
 }
 

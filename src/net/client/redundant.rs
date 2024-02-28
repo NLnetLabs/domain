@@ -93,15 +93,45 @@ where
 }
 
 impl<Req: Clone + Debug + Send + Sync + 'static> Connection<Req> {
-    /// Create a new connection.
+    /// Creates a new connection and transport.
+    ///
+    /// This is the same as calling [`with_config()`][`Self::with_config()`]
+    /// with [`Config::default()`].
     pub fn new() -> (Self, Transport<Req>) {
         Self::with_config(Default::default())
     }
 
-    /// Create a new connection with a given config.
+    /// Create a new connection and transport with the given configuration.
+    ///
+    /// Returns a [`Connection`] and a [`Transport`]. Use [`Transport::run()`]
+    /// to start the transport running then use [`Connection::send_request()`]
+    /// to send a request and receive a response via the transport.
     pub fn with_config(config: Config) -> (Self, Transport<Req>) {
         let (sender, receiver) = mpsc::channel(DEF_CHAN_CAP);
         (Self { config, sender }, Transport::new(receiver))
+    }
+
+    /// Runs a new transport returning a connection to it.
+    ///
+    /// This is the same as calling
+    /// [`run_with_config()`][`Self::run_with_config()`] with
+    /// [`Config::default()`].
+    pub fn run() -> Connection<Req> {
+        Self::run_with_config(Default::default())
+    }
+
+    /// Runs a new transport with the given configuration, returning a
+    /// connection to it.
+    ///
+    /// Creates a [`Connection`] and [`Transport`], spawning the future that
+    /// drives the transport onto a new Tokio task and returns the
+    /// [`Connection`] ready for sending requests.
+    pub fn run_with_config(config: Config) -> Connection<Req> {
+        let (redun, redun_tran) = Self::with_config(config);
+        let _join_handle = tokio::spawn(async move {
+            redun_tran.run().await;
+        });
+        redun
     }
 
     /// Add a transport connection.

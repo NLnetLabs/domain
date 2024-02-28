@@ -195,12 +195,15 @@ struct ConnectionState<S> {
 }
 
 impl<S> Connection<S> {
-    /// Create a new datagram transport with default configuration.
+    /// Creates a new connection.
+    ///
+    /// This is the same as calling [`with_config()`][`Self::with_config()`]
+    /// with [`Config::default()`].
     pub fn new(connect: S) -> Self {
         Self::with_config(connect, Default::default())
     }
 
-    /// Create a new datagram transport with a given configuration.
+    /// Creates a new connection with the given configuration.
     pub fn with_config(connect: S, config: Config) -> Self {
         Self {
             state: Arc::new(ConnectionState {
@@ -209,6 +212,40 @@ impl<S> Connection<S> {
                 connect,
             }),
         }
+    }
+
+    /// Fetch the response to a single request over a temporary connection.
+    ///
+    /// This is the same as calling
+    /// [`query_with_config()`][`Self::query_with_config()`] with
+    /// [`Config::default()`].
+    pub async fn query(
+        connect: S,
+        request_msg: S,
+    ) -> Result<Message<Bytes>, Error>
+    where
+        S: ComposeRequest + 'static,
+        Self: SendRequest<S>,
+    {
+        Self::query_with_config(connect, request_msg, Default::default())
+            .await
+    }
+
+    /// Fetch the response to a single request over a temporary connection
+    /// with the given configuration.
+    pub async fn query_with_config(
+        connect: S,
+        request_msg: S,
+        config: Config,
+    ) -> Result<Message<Bytes>, Error>
+    where
+        S: ComposeRequest + 'static,
+        Self: SendRequest<S>,
+    {
+        Self::with_config(connect, config)
+            .send_request(request_msg)
+            .get_response()
+            .await
     }
 }
 

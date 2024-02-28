@@ -21,6 +21,8 @@ use std::fmt::Debug;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
+use tokio::io::AsyncRead;
+use tokio::io::AsyncWrite;
 
 //------------ Config ---------------------------------------------------------
 
@@ -101,7 +103,10 @@ where
     DgramS::Connection:
         AsyncDgramRecv + AsyncDgramSend + Send + Sync + Unpin + 'static,
 {
-    /// Creates a new multi-stream transport with default configuration.
+    /// Creates a new connection and transport..
+    ///
+    /// This is the same as calling [`with_config()`][`Self::with_config()`]
+    /// with [`Config::default()`].
     pub fn new<StreamS>(
         dgram_remote: DgramS,
         stream_remote: StreamS,
@@ -109,7 +114,12 @@ where
         Self::with_config(dgram_remote, stream_remote, Default::default())
     }
 
-    /// Creates a new multi-stream transport.
+    /// Creates a new connection and transport with the given configuration.
+    ///
+    /// Returns a [`Connection`] and a [`Transport`][multi_stream::Transport].
+    /// Use [`Transport::run()`][multi_stream::Transport::run()] to start the
+    /// transport running then use [`Connection::send_request()`] to send a
+    /// request and receive a response via the transport.
     pub fn with_config<StreamS>(
         dgram_remote: DgramS,
         stream_remote: StreamS,
@@ -122,6 +132,89 @@ where
             config.multi_stream,
         );
         (Self { udp_conn, tcp_conn }, transport)
+    }
+
+    /// Runs a new transport returning a connection to it.
+    ///
+    /// This is the same as calling
+    /// [`run_with_config()`][`Self::run_with_config()`] with
+    /// [`Config::default()`].
+    pub fn run<StreamS>(dgram_remote: DgramS, stream_remote: StreamS) -> Self
+    where
+        StreamS: AsyncConnect + Send + 'static,
+        StreamS::Connection: AsyncRead + AsyncWrite + Send + 'static,
+        Req: ComposeRequest + Send + 'static,
+    {
+        Self::run_with_config(dgram_remote, stream_remote, Default::default())
+    }
+
+    /// Runs a new transport with the given configuration, returning a
+    /// connection to it.
+    ///
+    /// Creates a [`Connection`] and [`Transport`][multi_stream::Transport],
+    /// spawning the future that drives the transport onto a new Tokio task
+    /// and returns the [`Connection`] ready for sending requests.
+    pub fn run_with_config<StreamS>(
+        dgram_remote: DgramS,
+        stream_remote: StreamS,
+        config: Config,
+    ) -> Self
+    where
+        StreamS: AsyncConnect + Send + 'static,
+        StreamS::Connection: AsyncRead + AsyncWrite + Send + 'static,
+        Req: ComposeRequest + Send + 'static,
+    {
+        let (connection, transport) =
+            Self::with_config(dgram_remote, stream_remote, config);
+        let _join_handle = tokio::spawn(async move {
+            transport.run().await;
+        });
+        connection
+    }
+
+    /// Fetch the response to a single request over a temporary transport.
+    ///
+    /// This is the same as calling
+    /// [`query_with_config()`][`Self::query_with_config()`] with
+    /// [`Config::default()`].
+    pub async fn query<StreamS>(
+        dgram_remote: DgramS,
+        stream_remote: StreamS,
+        request_msg: Req,
+    ) -> Result<Message<Bytes>, Error>
+    where
+        StreamS: AsyncConnect + Send + 'static,
+        StreamS::Connection: AsyncRead + AsyncWrite + Send + 'static,
+        Req: ComposeRequest + Send + 'static,
+        Self: SendRequest<Req>,
+    {
+        Self::query_with_config(
+            dgram_remote,
+            stream_remote,
+            request_msg,
+            Default::default(),
+        )
+        .await
+    }
+
+    /// Fetch the response to a single request over a temporary transport with
+    /// the given configuration.
+    pub async fn query_with_config<StreamS>(
+        dgram_remote: DgramS,
+        stream_remote: StreamS,
+        request_msg: Req,
+        config: Config,
+    ) -> Result<Message<Bytes>, Error>
+    where
+        StreamS: AsyncConnect + Send + 'static,
+        StreamS::Connection: AsyncRead + AsyncWrite + Send + 'static,
+        Req: ComposeRequest + Send + 'static,
+        Self: SendRequest<Req>,
+    {
+        Self::run_with_config(dgram_remote, stream_remote, config)
+            .send_request(request_msg)
+            .get_response()
+            .await
     }
 }
 

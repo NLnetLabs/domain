@@ -279,12 +279,15 @@ pub struct Connection<Upstream, C: Clock + Send + Sync = SystemClock> {
 }
 
 impl<Upstream> Connection<Upstream> {
-    /// Create a new connection with default configuration parameters.
+    /// Create a new connection.
+    ///
+    /// This is the same as calling [`with_config()`][`Self::with_config()`]
+    /// with [`Config::default()`].
     pub fn new(upstream: Upstream) -> Self {
         Self::with_config(upstream, Default::default())
     }
 
-    /// Create a new connection with specified configuration parameters.
+    /// Create a new connection with the given configuration.
     pub fn with_config(upstream: Upstream, config: Config) -> Self {
         Self {
             upstream,

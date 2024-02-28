@@ -72,18 +72,58 @@ pub struct Connection<Req> {
 }
 
 impl<Req> Connection<Req> {
-    /// Creates a new multi-stream transport with default configuration.
+    /// Creates a new connection and transport.
+    ///
+    /// This is the same as calling [`with_config()`][`Self::with_config()`]
+    /// with [`Config::default()`].
     pub fn new<Remote>(remote: Remote) -> (Self, Transport<Remote, Req>) {
         Self::with_config(remote, Default::default())
     }
 
-    /// Creates a new multi-stream transport.
+    /// Creates a new connection and transport with the given configuration.
+    ///
+    /// Returns a [`Connection`] and a [`Transport`]. Use [`Transport::run()`]
+    /// to start the transport running then use [`Connection::send_request()`]
+    /// to send a request and receive a response via the transport.
     pub fn with_config<Remote>(
         remote: Remote,
         config: Config,
     ) -> (Self, Transport<Remote, Req>) {
         let (sender, transport) = Transport::new(remote, config);
         (Self { sender }, transport)
+    }
+
+    /// Runs a new transport returning a connection to it.
+    ///
+    /// This is the same as calling
+    /// [`run_with_config()`][`Self::run_with_config()`] with
+    /// [`Config::default()`].
+    pub fn run<Remote>(remote: Remote) -> Self
+    where
+        Remote: AsyncConnect + Send + 'static,
+        Remote::Connection: AsyncRead + AsyncWrite + Send,
+        Req: ComposeRequest + 'static,
+    {
+        Self::run_with_config(remote, Default::default())
+    }
+
+    /// Runs a new transport with the given configuration, returning a
+    /// connection to it.
+    ///
+    /// Creates a [`Connection`] and [`Transport`], spawning the future that
+    /// drives the transport onto a new Tokio task and returns the
+    /// [`Connection`] ready for sending requests.
+    pub fn run_with_config<Remote>(remote: Remote, config: Config) -> Self
+    where
+        Remote: AsyncConnect + Send + 'static,
+        Remote::Connection: AsyncRead + AsyncWrite + Send,
+        Req: ComposeRequest + 'static,
+    {
+        let (connection, transport) = Self::with_config(remote, config);
+        let _join_handle = tokio::spawn(async move {
+            transport.run().await;
+        });
+        connection
     }
 }
 
