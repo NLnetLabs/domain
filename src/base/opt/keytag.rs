@@ -13,7 +13,7 @@ use super::super::message_builder::OptBuilder;
 use super::super::wire::{Composer, ParseError};
 use super::{Opt, OptData, ComposeOptData, ParseOptData};
 use octseq::builder::OctetsBuilder;
-use octseq::octets::Octets;
+use octseq::octets::{Octets, OctetsFrom};
 use octseq::parse::Parser;
 use core::{borrow, fmt, hash};
 use core::cmp::Ordering;
@@ -146,6 +146,19 @@ impl<Octs: ?Sized> KeyTag<Octs> {
     pub fn iter(&self) -> KeyTagIter
     where Octs: AsRef<[u8]> {
         KeyTagIter(self.octets.as_ref())
+    }
+}
+
+//--- OctetsFrom
+
+impl<Octs, SrcOcts> OctetsFrom<KeyTag<SrcOcts>> for KeyTag<Octs>
+where Octs: OctetsFrom<SrcOcts> {
+    type Error = Octs::Error;
+
+    fn try_octets_from(src: KeyTag<SrcOcts>) -> Result<Self, Self::Error> {
+        Octs::try_octets_from(src.octets).map(|octets| unsafe {
+            Self::from_octets_unchecked(octets)
+        })
     }
 }
 

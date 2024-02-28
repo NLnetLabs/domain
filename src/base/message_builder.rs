@@ -141,8 +141,6 @@ use super::record::ComposeRecord;
 use super::wire::{Compose, Composer};
 #[cfg(feature = "bytes")]
 use bytes::BytesMut;
-#[cfg(feature = "std")]
-use core::convert::TryInto;
 use core::ops::{Deref, DerefMut};
 use core::{fmt, mem};
 #[cfg(feature = "std")]
@@ -2272,12 +2270,10 @@ impl std::error::Error for PushError {}
 #[cfg(feature = "std")]
 mod test {
     use super::*;
-    use crate::base::Serial;
-    use crate::base::Ttl;
-    use crate::base::{iana::Rtype, opt, Dname};
+    use crate::base::opt;
+    use crate::base::{Dname, Serial, Ttl};
     use crate::rdata::{Ns, Soa, A};
     use core::str::FromStr;
-    use std::vec::Vec;
 
     #[test]
     fn message_builder() {

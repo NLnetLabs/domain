@@ -14,7 +14,7 @@ use super::{
     BuildDataError, LongOptData, Opt, OptData, ComposeOptData, ParseOptData
 };
 use octseq::builder::OctetsBuilder;
-use octseq::octets::Octets;
+use octseq::octets::{Octets, OctetsFrom};
 use octseq::parse::Parser;
 use core::{borrow, fmt, hash, str};
 use core::cmp::Ordering;
@@ -126,6 +126,19 @@ impl<Octs: ?Sized> Nsid<Octs> {
         Octs: AsRef<[u8]>
     {
         unsafe { Nsid::from_slice_unchecked(self.octets.as_ref()) }
+    }
+}
+
+//--- OctetsFrom
+
+impl<Octs, SrcOcts> OctetsFrom<Nsid<SrcOcts>> for Nsid<Octs>
+where Octs: OctetsFrom<SrcOcts> {
+    type Error = Octs::Error;
+
+    fn try_octets_from(src: Nsid<SrcOcts>) -> Result<Self, Self::Error> {
+        Octs::try_octets_from(src.octets).map(|octets| unsafe {
+            Self::from_octets_unchecked(octets)
+        })
     }
 }
 

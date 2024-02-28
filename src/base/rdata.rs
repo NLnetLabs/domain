@@ -152,15 +152,13 @@ impl<'a, T: ComposeRecordData> ComposeRecordData for &'a T {
     }
 }
 
-//------------ ParseRecordData -----------------------------------------------
+//------------ ParseRecordData and ParseAllRecordData ------------------------
 
 /// A record data type that can be parsed from a message.
 ///
-/// When record data types are generic – typically over a domain name type –,
-/// they may not in all cases be parseable. They may still represent record
-/// data to be used when constructing the message.
-///
-/// To reflect this asymmetry, parsing of record data has its own trait.
+/// This trait allows a record data type to express whether it is able to
+/// parse record data for a specific record type. It is thus implemented by
+/// all record data types included in the [`rdata`][crate::rdata] module.
 pub trait ParseRecordData<'a, Octs: ?Sized>: RecordData + Sized {
     /// Parses the record data.
     ///
@@ -169,7 +167,7 @@ pub trait ParseRecordData<'a, Octs: ?Sized>: RecordData + Sized {
     /// `Ok(None)` if it doesn’t.
     ///
     /// The `parser` is positioned at the beginning of the record data and is
-    /// is limited to the length of the data. The method only needs to parse
+    /// is limited to the length of the data. The function only needs to parse
     /// as much data as it needs. The caller has to make sure to deal with
     /// data remaining in the parser.
     ///
@@ -179,6 +177,32 @@ pub trait ParseRecordData<'a, Octs: ?Sized>: RecordData + Sized {
         rtype: Rtype,
         parser: &mut Parser<'a, Octs>,
     ) -> Result<Option<Self>, ParseError>;
+}
+
+/// A record data type that can parse and represent any type of record.
+///
+/// While [`ParseRecordData`] allows a type to signal that it doesn’t
+/// actually cover a certain record type, this trait is for types that can
+/// parse and represent record data of any type.
+///
+/// When implementing a type for this trait, keep in mind that some record
+/// types – specifically those defined by [RFC 1035][crate::rdata::rfc1035] –
+/// can contain compressed domain names. Thus, this trait cannot be
+/// implemented by [`UnknownRecordData`] which just takes the raw data
+/// uninterpreted.
+pub trait ParseAnyRecordData<'a, Octs: ?Sized>: RecordData + Sized {
+    /// Parses the record data.
+    ///
+    /// The record data is for a record of type `rtype`.
+    ///
+    /// The `parser` is positioned at the beginning of the record data and is
+    /// is limited to the length of the data. The function only needs to parse
+    /// as much data as it needs. The caller has to make sure to deal with
+    /// data remaining in the parser.
+    fn parse_any_rdata(
+        rtype: Rtype,
+        parser: &mut Parser<'a, Octs>,
+    ) -> Result<Self, ParseError>;
 }
 
 //------------ UnknownRecordData ---------------------------------------------
@@ -304,6 +328,25 @@ impl<Octs> UnknownRecordData<Octs> {
         }
 
         Ok(UnknownRecordData { rtype, data })
+    }
+
+    /// Parses any record type as unknown record data.
+    ///
+    /// This is an associated function rather than an impl of
+    /// [`ParseAnyRecordData`] because some record types must not be parsed
+    /// as unknown data as they can contain compressed domain names.
+    pub fn parse_any_rdata<'a, SrcOcts>(
+        rtype: Rtype,
+        parser: &mut Parser<'a, SrcOcts>,
+    ) -> Result<Self, ParseError>
+    where
+        SrcOcts: Octets<Range<'a> = Octs> + ?Sized + 'a,
+    {
+        let rdlen = parser.remaining();
+        parser
+            .parse_octets(rdlen)
+            .map(|data| Self { rtype, data })
+            .map_err(Into::into)
     }
 }
 
@@ -460,6 +503,14 @@ impl LongRecordData {
             Ok(())
         }
     }
+
+    pub fn check_append_len(
+        len: usize,
+        extra_len: usize,
+    ) -> Result<(), Self> {
+        // This version is safe on 16 bit systems.
+        Self::check_len(len.checked_add(extra_len).ok_or(Self())?)
+    }
 }
 
 impl fmt::Display for LongRecordData {
@@ -476,8 +527,7 @@ impl std::error::Error for LongRecordData {}
 #[cfg(test)]
 #[cfg(all(feature = "std", feature = "bytes"))]
 pub(crate) mod test {
-    use super::super::scan::{IterScanner, Scanner};
-    use super::super::wire::ParseError;
+    use super::super::scan::IterScanner;
     use super::*;
     use bytes::{Bytes, BytesMut};
     use core::fmt::Debug;

@@ -13,7 +13,6 @@ use super::wire::{Compose, Composer, Parse, ParseError};
 #[cfg(feature = "chrono")]
 use chrono::{DateTime, TimeZone};
 use core::cmp::Ordering;
-use core::convert::TryFrom;
 use core::str::FromStr;
 use core::{cmp, fmt, str};
 use octseq::parse::Parser;

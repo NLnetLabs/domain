@@ -23,10 +23,8 @@ use crate::base::opt::{AllOptData, OptRecord, TcpKeepalive};
 use crate::net::client::request::{
     ComposeRequest, Error, GetResponse, SendRequest,
 };
-use bytes;
 use bytes::{Bytes, BytesMut};
 use core::cmp;
-use core::convert::From;
 use octseq::Octets;
 use std::boxed::Box;
 use std::fmt::Debug;

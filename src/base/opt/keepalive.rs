@@ -55,6 +55,13 @@ impl TcpKeepalive {
             IdleTimeout::parse(parser).map(|v| Self::new(Some(v)))
         }
     }
+
+    /// Placeholder for unnecessary octets conversion.
+    ///
+    /// This method only exists for the `AllOptData` macro.
+    pub(super) fn try_octets_from<E>(src: Self) -> Result<Self, E> {
+        Ok(src)
+    }
 }
 
 //--- OptData
@@ -144,7 +151,7 @@ impl IdleTimeout {
     const COMPOSE_LEN: u16 = 2;
 
     /// Parses a value from its wire format.
-    fn parse<Octs: AsRef<[u8]>>(
+    fn parse<Octs: AsRef<[u8]> + ?Sized>(
         parser: &mut Parser<Octs>
     ) -> Result<Self, ParseError> {
         u16::parse(parser).map(Self)
