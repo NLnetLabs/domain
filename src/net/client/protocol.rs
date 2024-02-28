@@ -122,7 +122,7 @@ impl AsyncConnect for TlsConnect {
 
 //------------ UdpConnect --------------------------------------------------
 
-/// Create new TCP connections.
+/// Create new UDP connections.
 #[derive(Clone, Copy, Debug)]
 pub struct UdpConnect {
     /// Remote address to connect to.

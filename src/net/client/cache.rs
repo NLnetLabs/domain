@@ -5,13 +5,13 @@
 
 use crate::base::iana::{Class, Opcode, OptRcode, Rtype};
 use crate::base::name::ToDname;
-use crate::base::Dname;
 use crate::base::Message;
 use crate::base::MessageBuilder;
 use crate::base::ParsedDname;
 use crate::base::StaticCompressor;
 use crate::base::Ttl;
-use crate::dep::octseq::Octets;
+use crate::base::{Dname, Header};
+use crate::dep::octseq::{octets::OctetsInto, Octets};
 use crate::net::client::request::{
     ComposeRequest, Error, GetResponse, SendRequest,
 };
@@ -189,6 +189,10 @@ impl Config {
     ///
     /// The value has to be at least one, at most 1,000,000,000 and the
     /// default is 1000.
+    ///
+    /// The values are just best guesses at the moment. The upper limit is
+    /// set to be somewhat safe without being too limiting. The default is
+    /// meant to be reasonable for a small system.
     pub fn set_max_cache_entries(&mut self, value: u64) {
         self.max_cache_entries = MAX_CACHE_ENTRIES.limit(value)
     }
@@ -478,23 +482,15 @@ where
         let mut alt_key = key.clone();
         alt_key.rd = true;
         let opt_value = self.cache_lookup_do_ad(&alt_key).await?;
-        if let Some(value) = &opt_value {
-            match &value.response {
-                Err(_) => {
-                    // Just insert the error
-                    self.cache_insert(key.clone(), value.clone()).await;
-                }
-                Ok(msg) => {
-                    let msg = clear_rd(msg)?;
-                    let value = Arc::new(Value::new_from_value_and_response(
-                        value.clone(),
-                        Ok(msg),
-                        &self.config,
-                    )?);
-                    self.cache_insert(key.clone(), value.clone()).await;
-                    return Ok(Some(value));
-                }
-            }
+        if let Some(value) = opt_value {
+            let value = update_header(
+                value,
+                &self.config,
+                |_hdr| true,
+                |hdr| hdr.set_rd(false),
+            )?;
+            self.cache_insert(key.clone(), value.clone()).await;
+            return Ok(Some(value));
         }
         Ok(opt_value)
     }
@@ -514,12 +510,8 @@ where
         // consistency (if DO is set then with respect to the AD flag
         // the behavior is as if AD is set).
 
-        if key.dnssec_ok {
-            assert!(key.ad);
-        }
-
         let opt_value = self.cache_lookup_ad(key).await?;
-        if opt_value.is_some() || key.dnssec_ok {
+        if opt_value.is_some() || key.addo.dnssec_ok() {
             return Ok(opt_value);
         }
 
@@ -530,26 +522,17 @@ where
         }
 
         let mut alt_key = key.clone();
-        alt_key.dnssec_ok = true;
-        alt_key.ad = true;
+        alt_key.addo = AdDo::Do;
         let opt_value = self.cache.get(&alt_key).await;
-        if let Some(value) = &opt_value {
-            match &value.response {
-                Err(_) => {
-                    // Just insert the error
-                    self.cache_insert(key.clone(), value.clone()).await;
-                }
-                Ok(msg) => {
-                    let msg = remove_dnssec(msg, key.ad)?;
-                    let value = Arc::new(Value::new_from_value_and_response(
-                        value.clone(),
-                        Ok(msg),
-                        &self.config,
-                    )?);
-                    self.cache_insert(key.clone(), value.clone()).await;
-                    return Ok(Some(value));
-                }
-            }
+        if let Some(value) = opt_value {
+            let value = update_message(
+                value,
+                &self.config,
+                |_hdr| true,
+                |msg| remove_dnssec(msg, key.addo.ad()),
+            )?;
+            self.cache_insert(key.clone(), value.clone()).await;
+            return Ok(Some(value));
         }
         Ok(opt_value)
     }
@@ -564,35 +547,21 @@ where
         // For AD=0, first try with AD=0 and then try with AD=1. If
         // AD=1 has an answer, clear the AD bit.
         let opt_value = self.cache.get(key).await;
-        if opt_value.is_some() || key.ad {
+        if opt_value.is_some() || key.addo.ad() {
             return Ok(opt_value);
         }
         let mut alt_key = key.clone();
-        alt_key.ad = true;
+        alt_key.addo = AdDo::Ad;
         let opt_value = self.cache.get(&alt_key).await;
-        if let Some(value) = &opt_value {
-            match &value.response {
-                Err(_) => {
-                    // Just insert the error
-                    self.cache_insert(key.clone(), value.clone()).await;
-                }
-                Ok(msg) => {
-                    if !msg.header().ad() {
-                        // AD is clear. Just insert this value.
-                        self.cache_insert(key.clone(), value.clone()).await;
-                        return Ok(Some(value.clone()));
-                    }
-
-                    let msg = clear_ad(msg)?;
-                    let value = Arc::new(Value::new_from_value_and_response(
-                        value.clone(),
-                        Ok(msg),
-                        &self.config,
-                    )?);
-                    self.cache_insert(key.clone(), value.clone()).await;
-                    return Ok(Some(value));
-                }
-            }
+        if let Some(value) = opt_value {
+            let value = update_header(
+                value,
+                &self.config,
+                |hdr| hdr.ad(),
+                |hdr| hdr.set_ad(false),
+            )?;
+            self.cache_insert(key.clone(), value.clone()).await;
+            return Ok(Some(value));
         }
         Ok(opt_value)
     }
@@ -671,9 +640,11 @@ enum RequestState {
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 /// The key for cache entries.
+///
+/// Note that the AD and DO flags are combined into a single enum.
 struct Key {
     /// DNS name in the request.
-    qname: Dname<Vec<u8>>,
+    qname: Dname<Bytes>,
 
     /// The request class. Always IN at the moment.
     qclass: Class,
@@ -681,14 +652,11 @@ struct Key {
     /// The requested type.
     qtype: Rtype,
 
-    /// Value of the AD flag.
-    ad: bool,
+    /// Value of the AD and Do flags.
+    addo: AdDo,
 
     /// Value of the CD flag.
     cd: bool,
-
-    /// Value of the DO flag.
-    dnssec_ok: bool,
 
     /// Value of the RD flag.
     rd: bool,
@@ -708,19 +676,67 @@ impl Key {
     where
         TDN: ToDname,
     {
-        let mut qname = qname.to_dname().expect("to_dname should not fail");
+        let mut qname: Dname<Vec<u8>> =
+            qname.to_dname().expect("to_dname should not fail");
 
         // Make sure qname is canonical.
         qname.make_canonical();
+        let qname: Dname<Bytes> = qname.octets_into();
 
         Self {
             qname,
             qclass,
             qtype,
-            ad,
+            addo: AdDo::new(ad, dnssec_ok),
             cd,
-            dnssec_ok,
             rd,
+        }
+    }
+}
+
+/// The DO and AD flag have a special relationship. If the DO flag is set,
+/// then the AD flag is irrelevant, but to code looking for the AD flag
+/// we pretend that it is set. So we have three possibilities: DO is set
+/// and AD is irrelevant, DO is not set, but AD is set. Or neither DO nor
+/// AD is set.
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+enum AdDo {
+    /// DO is set, AD is ignored.
+    Do,
+
+    /// DO is clear, AD is set.
+    Ad,
+
+    /// Both AD and DO are clear.
+    None,
+}
+
+impl AdDo {
+    /// Create a new AdDo object based on the AD and DO flags.
+    fn new(ad: bool, dnssec_ok: bool) -> Self {
+        if dnssec_ok {
+            AdDo::Do
+        } else if ad {
+            AdDo::Ad
+        } else {
+            AdDo::None
+        }
+    }
+
+    /// Return whether AD is set or should be considered set.
+    fn ad(&self) -> bool {
+        match self {
+            // Do acts as if Ad is set
+            AdDo::Ad | AdDo::Do => true,
+            AdDo::None => false,
+        }
+    }
+
+    /// Return whether DO is set.
+    fn dnssec_ok(&self) -> bool {
+        match self {
+            AdDo::Do => true,
+            AdDo::Ad | AdDo::None => false,
         }
     }
 }
@@ -766,7 +782,7 @@ impl Value {
         })
     }
 
-    /// Get a reponse. Either return None if the value has expired or
+    /// Get a response. Either return None if the value has expired or
     /// return a response message with decremented TTL values.
     fn get_response<TDN>(
         &self,
@@ -1064,57 +1080,63 @@ where
     Ok(NoErrorType::NoErrorWeird)
 }
 
-/// Return a message with the AA flag clear.
-fn clear_aa(msg: &Message<Bytes>) -> Result<Message<Bytes>, Error> {
-    // Assume the clear_aa will be called only if AA is set. So no need to
-    // optimize for the case where AA is clear.
-    let mut msg = Message::<Vec<u8>>::from_octets(msg.as_slice().into())?;
-    let hdr = msg.header_mut();
-    hdr.set_aa(false);
-    Ok(Message::<Bytes>::from_octets(msg.into_octets().into())?)
-}
-
-/// Return a message with the AD flag clear.
-fn clear_ad(msg: &Message<Bytes>) -> Result<Message<Bytes>, Error> {
-    // Assume the clear_ad will be called only if AD is set. So no need to
-    // optimize for the case where AD is clear.
-    let mut msg = Message::<Vec<u8>>::from_octets(msg.as_slice().into())?;
-    let hdr = msg.header_mut();
-    hdr.set_ad(false);
-    Ok(Message::<Bytes>::from_octets(msg.into_octets().into())?)
-}
-
-/// Return a message with the RD flag clear.
-fn clear_rd(msg: &Message<Bytes>) -> Result<Message<Bytes>, Error> {
-    // Assume the clear_rd will be called only if RD is set. So no need to
-    // optimize for the case where RD is clear.
-    let mut msg = Message::<Vec<u8>>::from_octets(msg.as_slice().into())?;
-    let hdr = msg.header_mut();
-    hdr.set_rd(false);
-    Ok(Message::<Bytes>::from_octets(msg.into_octets().into())?)
-}
-
 /// Prepare a value for inserting in the cache by clearing the AA flag if
 /// set.
 fn prepare_for_insert(
     value: Arc<Value>,
     config: &Config,
 ) -> Result<Arc<Value>, Error> {
+    update_header(value, config, |hdr| hdr.aa(), |hdr| hdr.set_aa(false))
+}
+
+/// Update the Header of a Message in a Value by creating a new Value with a
+/// new Message if the Header needs to be changed.
+///
+/// Return the original Value if no change is needed.
+/// hdrtst checks if the header needs updating, fhdr modifies the header.
+fn update_header(
+    value: Arc<Value>,
+    config: &Config,
+    hdrtst: fn(hdr: &Header) -> bool,
+    fhdr: fn(&mut Header) -> (),
+) -> Result<Arc<Value>, Error> {
+    update_message(value, config, hdrtst, |msg| {
+        let mut msg = Message::<Vec<u8>>::from_octets(msg.as_slice().into())?;
+        let hdr = msg.header_mut();
+        fhdr(hdr);
+        Ok(Message::<Bytes>::from_octets(msg.into_octets().into())?)
+    })
+}
+
+/// Update a Message in a Value by creating a new Value with a
+/// new Message if the Message needs to be changed.
+///
+/// Return the original Value if no change is needed.
+/// hdrtst checks if the Message needs updating, fmsg returns a new Message.
+fn update_message<FmsgFn>(
+    value: Arc<Value>,
+    config: &Config,
+    hdrtst: fn(hdr: &Header) -> bool,
+    fmsg: FmsgFn,
+) -> Result<Arc<Value>, Error>
+where
+    FmsgFn: Fn(&Message<Bytes>) -> Result<Message<Bytes>, Error>,
+{
     Ok(match &value.response {
         Err(_) => {
-            // Just insert the error
+            // No message, no need to change anything.
             value
         }
         Ok(msg) => {
-            if msg.header().aa() {
-                let msg = clear_aa(msg)?;
+            if hdrtst(&msg.header()) {
+                let msg = fmsg(msg)?;
                 Arc::new(Value::new_from_value_and_response(
                     value.clone(),
                     Ok(msg),
                     config,
                 )?)
             } else {
-                // AA is clear. Just insert this value.
+                // No need to change anything. Just insert this value.
                 value
             }
         }

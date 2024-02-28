@@ -197,7 +197,7 @@ impl Dname<[u8]> {
     ///
     /// ```
     /// use domain::base::name::Dname;
-    /// Dname::from_slice(b"\x07example\x03com");
+    /// Dname::from_slice(b"\x07example\x03com\x00");
     /// ```
     ///
     /// # Errors

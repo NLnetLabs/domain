@@ -47,7 +47,6 @@ use super::record::{Record, Ttl};
 use super::wire::{Compose, Composer, FormError, ParseError};
 use crate::utils::base16;
 use core::cmp::Ordering;
-use core::convert::TryInto;
 use core::marker::PhantomData;
 use core::{fmt, hash, mem};
 use octseq::builder::{EmptyBuilder, OctetsBuilder, ShortBuf};
@@ -838,7 +837,7 @@ pub trait ComposeOptData: OptData {
 /// An OPT option in its raw form.
 ///
 /// This type accepts any option type via its option code and raw data.
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct UnknownOptData<Octs> {
     /// The option code for the option.
     code: OptionCode,
@@ -896,6 +895,23 @@ impl<Octs> UnknownOptData<Octs> {
     }
 }
 
+//--- OctetsFrom
+
+impl<Octs, SrcOcts> OctetsFrom<UnknownOptData<SrcOcts>>
+    for UnknownOptData<Octs>
+where
+    Octs: OctetsFrom<SrcOcts>,
+{
+    type Error = Octs::Error;
+
+    fn try_octets_from(
+        src: UnknownOptData<SrcOcts>,
+    ) -> Result<Self, Self::Error> {
+        Ok(unsafe {
+            Self::new_unchecked(src.code, Octs::try_octets_from(src.data)?)
+        })
+    }
+}
 //--- AsRef and AsMut
 
 impl<Octs> AsRef<Octs> for UnknownOptData<Octs> {
@@ -955,11 +971,20 @@ impl<Octs: AsRef<[u8]>> ComposeOptData for UnknownOptData<Octs> {
     }
 }
 
-//--- Display
+//--- Display and Debug
 
 impl<Octs: AsRef<[u8]>> fmt::Display for UnknownOptData<Octs> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         base16::display(self.data.as_ref(), f)
+    }
+}
+
+impl<Octs: AsRef<[u8]>> fmt::Debug for UnknownOptData<Octs> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.debug_struct("UnknownOptData")
+            .field("code", &self.code)
+            .field("data", &format_args!("{}", self))
+            .finish()
     }
 }
 
@@ -1061,7 +1086,6 @@ pub(super) mod test {
     use super::*;
     use crate::base::rdata::test::{test_compose_parse, test_rdlen};
     use crate::base::record::ParsedRecord;
-    use crate::base::wire::Compose;
     use crate::base::{opt, MessageBuilder};
     use bytes::{Bytes, BytesMut};
     use core::fmt::Debug;

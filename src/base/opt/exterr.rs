@@ -14,7 +14,7 @@ use super::{
     BuildDataError, LongOptData, Opt, OptData, ComposeOptData, ParseOptData
 };
 use octseq::builder::OctetsBuilder;
-use octseq::octets::Octets;
+use octseq::octets::{Octets, OctetsFrom};
 use octseq::parse::Parser;
 use octseq::str::Str;
 use core::{fmt, hash, str};
@@ -146,6 +146,25 @@ where Octs: AsRef<[u8]> {
     }
 }
 
+//--- OctetsFrom
+
+impl<Octs, SrcOcts> OctetsFrom<ExtendedError<SrcOcts>> for ExtendedError<Octs>
+where
+    Octs: OctetsFrom<SrcOcts>
+{
+    type Error = Octs::Error;
+
+    fn try_octets_from(
+        source: ExtendedError<SrcOcts>
+    ) -> Result<Self, Self::Error> {
+        let text = match source.text {
+            Some(Ok(text)) => Some(Ok(Str::try_octets_from(text)?)),
+            Some(Err(octs)) => Some(Err(Octs::try_octets_from(octs)?)),
+            None => None,
+        };
+        Ok(Self { code: source.code, text })
+    }
+}
 //--- OptData, ParseOptData, and ComposeOptData
 
 impl<Octs> OptData for ExtendedError<Octs> {

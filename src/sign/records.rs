@@ -11,7 +11,6 @@ use crate::base::Ttl;
 use crate::rdata::dnssec::{ProtoRrsig, RtypeBitmap};
 use crate::rdata::{Dnskey, Ds, Nsec, Rrsig};
 use octseq::builder::{EmptyBuilder, FromBuilder, OctetsBuilder, Truncate};
-use std::iter::FromIterator;
 use std::vec::Vec;
 use std::{fmt, io, slice};
 
