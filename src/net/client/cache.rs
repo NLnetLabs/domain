@@ -830,7 +830,7 @@ where
         })
     }
 
-    /// Get a reponse. Either return None if the value has expired or
+    /// Get a response. Either return None if the value has expired or
     /// return a response message with decremented TTL values.
     fn get_response<TDN>(
         &self,
