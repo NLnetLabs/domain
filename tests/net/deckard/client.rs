@@ -15,7 +15,6 @@ pub async fn do_client<R: SendRequest<RequestMessage<Vec<u8>>>>(
     deckard: &Deckard,
     request: R,
     step_value: &CurrStepValue,
-    clock: &FakeClock,
 ) {
     let mut resp: Option<Message<Bytes>> = None;
 

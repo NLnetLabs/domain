@@ -7,7 +7,6 @@ use crate::net::deckard::connect::Connect;
 use crate::net::deckard::connection::Connection;
 use crate::net::deckard::dgram::Dgram;
 use crate::net::deckard::parse_deckard::parse_file;
-use domain::net::client::clock::{Clock, FakeClock};
 use domain::net::client::dgram;
 use domain::net::client::dgram_stream;
 use domain::net::client::multi_stream;
@@ -32,8 +31,7 @@ fn dgram() {
         let conn = Dgram::new(deckard.clone(), step_value.clone());
         let octstr = dgram::Connection::new(conn);
 
-        let clock = FakeClock::new();
-        do_client(&deckard, octstr, &step_value, &clock).await;
+        do_client(&deckard, octstr, &step_value).await;
     });
 }
 
@@ -50,8 +48,7 @@ fn single() {
             transport.run().await;
         });
 
-        let clock = FakeClock::new();
-        do_client(&deckard, octstr, &step_value, &clock).await;
+        do_client(&deckard, octstr, &step_value).await;
     });
 }
 
@@ -69,8 +66,7 @@ fn multi() {
             println!("multi conn run terminated");
         });
 
-        let clock = FakeClock::new();
-        do_client(&deckard, ms.clone(), &step_value, &clock).await;
+        do_client(&deckard, ms.clone(), &step_value).await;
     });
 }
 
@@ -89,8 +85,7 @@ fn dgram_stream() {
             println!("dgram_stream conn run terminated");
         });
 
-        let clock = FakeClock::new();
-        do_client(&deckard, ds, &step_value, &clock).await;
+        do_client(&deckard, ds, &step_value).await;
     });
 }
 
@@ -117,8 +112,7 @@ fn redundant() {
         });
         redun.add(Box::new(ms.clone())).await.unwrap();
 
-        let clock = FakeClock::new();
-        do_client(&deckard, redun, &step_value, &clock).await;
+        do_client(&deckard, redun, &step_value).await;
     });
 }
 
@@ -149,7 +143,6 @@ fn tcp() {
             println!("single TCP run terminated");
         });
 
-        let clock = FakeClock::new();
-        do_client(&deckard, tcp, &CurrStepValue::new(), &clock).await;
+        do_client(&deckard, tcp, &CurrStepValue::new()).await;
     });
 }
