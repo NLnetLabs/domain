@@ -358,11 +358,17 @@ pub struct Connection<Upstream, C: Clock + Send + Sync = SystemClock> {
 
 impl<Upstream> Connection<Upstream> {
     /// Create a new connection with default configuration parameters.
+    ///
+    /// Note that Upstream needs to implement [SendRequest]
+    /// (and Clone/Send/Sync) to be useful.
     pub fn new(upstream: Upstream) -> Self {
         Self::with_config(upstream, Default::default())
     }
 
     /// Create a new connection with specified configuration parameters.
+    ///
+    /// Note that Upstream needs to implement [SendRequest]
+    /// (and Clone/Send/Sync) to be useful.
     pub fn with_config(upstream: Upstream, config: Config) -> Self {
         Self {
             upstream,
