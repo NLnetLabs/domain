@@ -1,4 +1,30 @@
 //! A client cache.
+//!
+//! This module implements a simple message cache provided as a pass through
+//! transport. The cache works with any of the other transports.
+//! The basic operation is that from a request the query name, class, and type
+//! are extracted and the result is cached such that when a new request
+//! arrives with the same name, class, and type then the cached response can
+//! be returned with the TTL values of the DNS resource records reduced by
+//! the amount of time the message has been cached.
+//!
+//! The response to a query is in general affected by four flags: the
+//! AD, CD, DO, and RD flags.
+//! These flags are defined in the following RFCs:
+//! [RFC 1035](https://www.rfc-editor.org/info/rfc1035),
+//! [RFC 2535](https://www.rfc-editor.org/info/rfc2535),
+//! [RFC 3225](https://www.rfc-editor.org/info/rfc3225),
+//! [RFC 4035](https://www.rfc-editor.org/info/rfc4035),
+//! [RFC 6840](https://www.rfc-editor.org/info/rfc6840).
+//! The cache takes these flags into account to
+//! see if a cached response can be returned. In some cases, a cached response
+//! with one set of flags can be made suitable for a query with different
+//! flags.
+//!
+//! The [Config] object provides various configuration options, such as
+//! the maximum number of cache entries, how long different types of
+//! responses should be cached and whether truncated responses should be cached
+//! or not.
 
 #![warn(missing_docs)]
 #![warn(clippy::missing_docs_in_private_items)]
