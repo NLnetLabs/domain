@@ -554,6 +554,8 @@ where
                 RequestState::GetResponse(key, request) => {
                     let response = request.get_response().await;
 
+                    // The clone of key needs to happen before cache_insert
+                    // otherwise there will be a conflict between self and key.
                     let key = key.clone();
                     let value = Arc::new(Value::new(
                         response.clone(),
