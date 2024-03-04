@@ -755,7 +755,6 @@ impl fmt::Display for Error {
 #[cfg(test)]
 mod test {
     use super::*;
-    use std::io;
     use std::string::ToString;
 
     #[test]

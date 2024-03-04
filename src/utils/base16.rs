@@ -358,7 +358,6 @@ const ENCODE_ALPHABET: [&str; 256] = [
 #[cfg(feature = "std")]
 mod test {
     use super::*;
-    use std::string::String;
 
     #[test]
     #[cfg(feature = "bytes")]

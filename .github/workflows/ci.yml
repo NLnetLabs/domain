@@ -8,6 +8,8 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest, macOS-latest]
         rust: [1.67.0, stable, beta, nightly]
+    env:
+        RUSTFLAGS: "-D warnings"
     steps:
     - name: Checkout repository
       uses: actions/checkout@v1
