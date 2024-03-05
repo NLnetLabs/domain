@@ -30,6 +30,7 @@ where
     Buf: BufSource,
     Svc: Service<Buf::Output>,
 {
+    active: bool,
     buf_source: Buf,
     metrics: Arc<ServerMetrics>,
     service: Svc,
@@ -57,6 +58,7 @@ where
         addr: SocketAddr,
     ) -> Self {
         Self {
+            active: false,
             buf_source,
             service,
             middleware_chain,
@@ -98,15 +100,12 @@ where
             .unwrap()
             .fetch_add(1, Ordering::Relaxed);
 
+        // Flag that we have to decrease the metric count on Drop.
+        self.active = true;
+
         // TODO: Why use an Option and then Option::take()?
         let stream = self.stream.take().unwrap();
         self.run_until_error(command_rx, stream).await;
-
-        self.metrics
-            .num_connections
-            .as_ref()
-            .unwrap()
-            .fetch_sub(1, Ordering::Relaxed);
     }
 }
 
@@ -451,6 +450,25 @@ where
             ServiceCommand::Shutdown => {
                 state.stream_tx.shutdown().await.unwrap()
             }
+        }
+    }
+}
+
+//--- Drop
+
+impl<Stream, Buf, Svc> Drop for Connection<Stream, Buf, Svc>
+where
+    Buf: BufSource,
+    Svc: Service<Buf::Output>,
+{
+    fn drop(&mut self) {
+        if self.active {
+            self.active = false;
+            self.metrics
+                .num_connections
+                .as_ref()
+                .unwrap()
+                .fetch_sub(1, Ordering::Relaxed);
         }
     }
 }
