@@ -1,0 +1,46 @@
+{
+"upstream":
+    {
+    "redundant":
+	{
+	"transports":
+	    [
+		{
+		"UDP-only":
+		    {
+		    "servername": "dns.google",
+		    "addr": "1.1.1.1"
+		    }
+		},
+		{
+		"TLS":
+		    {
+		    "servername": "dns.google",
+		    "addr": "1.1.1.1"
+		    }
+		},
+		{
+		"UDP":
+		    {
+		    "servername": "dns.google",
+		    "addr": "8.8.8.8"
+		    }
+		},
+		{
+		"TLS":
+		    {
+		    "servername": "dns.google",
+		    "addr": "8.8.8.8"
+		    }
+		},
+		{
+		"TCP":
+		    {
+		    "servername": "dns.google",
+		    "addr": "9.9.9.9"
+		    }
+		}
+	    ]
+	}
+    }
+}
