@@ -22,6 +22,18 @@ pub trait BufSource {
     fn create_sized(&self, size: usize) -> Self::Output;
 }
 
+impl<T: BufSource> BufSource for Arc<T> {
+    type Output = T::Output;
+
+    fn create_buf(&self) -> Self::Output {
+        Arc::deref(self).create_buf()
+    }
+
+    fn create_sized(&self, size: usize) -> Self::Output {
+        Arc::deref(self).create_sized(size)
+    }
+}
+
 //----------- VecBufSource --------------------------------------------------
 
 /// A source for creating [`Vec<u8>`] based buffers.
@@ -37,17 +49,5 @@ impl BufSource for VecBufSource {
 
     fn create_sized(&self, size: usize) -> Self::Output {
         vec![0; size]
-    }
-}
-
-impl<T: BufSource> BufSource for Arc<T> {
-    type Output = T::Output;
-
-    fn create_buf(&self) -> Self::Output {
-        Arc::deref(self).create_buf()
-    }
-
-    fn create_sized(&self, size: usize) -> Self::Output {
-        Arc::deref(self).create_sized(size)
     }
 }
