@@ -1,7 +1,7 @@
 use crate::base::{Message, StreamTarget};
 use crate::net::server::buf::BufSource;
+use crate::net::server::message::ContextAwareMessage;
 use crate::net::server::message::MessageProcessor;
-use crate::net::server::message::{ContextAwareMessage, MsgProvider};
 use crate::net::server::metrics::ServerMetrics;
 use crate::net::server::middleware::chain::MiddlewareChain;
 use crate::net::server::service::{
@@ -134,10 +134,6 @@ where
         let mut state =
             StreamState::new(stream_tx, result_q_tx, idle_timeout);
 
-        let mut msg_size_buf = self
-            .buf_source
-            .create_sized(Message::<Buf::Output>::MIN_HDR_BYTES);
-
         loop {
             if let Err(err) = self
                 .transceive_one_request(
@@ -145,7 +141,6 @@ where
                     &mut state,
                     &mut stream_rx,
                     &mut result_q_rx,
-                    &mut msg_size_buf,
                 )
                 .await
             {
@@ -176,21 +171,22 @@ where
         state: &mut StreamState<Stream, Buf, Svc>,
         stream_rx: &mut ReadHalf<Stream>,
         result_q_rx: &mut mpsc::Receiver<CallResult<Svc::Target>>,
-        msg_size_buf: &mut <Buf as BufSource>::Output,
     ) -> Result<(), ConnectionEvent<Svc::Error>>
     where
         Svc::Single: Send,
     {
+        let mut msg_size_buf: [u8; 2] = [0; 2];
+
         self.transceive_until(
             command_rx,
             state,
             stream_rx,
             result_q_rx,
-            msg_size_buf,
+            &mut msg_size_buf,
         )
         .await?;
 
-        let msg_len = Message::determine_msg_len(msg_size_buf);
+        let msg_len = u16::from_be_bytes(msg_size_buf) as usize;
         let mut msg_buf = self.buf_source.create_sized(msg_len);
 
         self.transceive_until(
@@ -217,13 +213,13 @@ where
         Ok(())
     }
 
-    async fn transceive_until(
+    async fn transceive_until<T: AsMut<[u8]>>(
         &self,
         command_rx: &mut watch::Receiver<ServiceCommand>,
         state: &mut StreamState<Stream, Buf, Svc>,
         stream_rx: &mut ReadHalf<Stream>,
         result_q_rx: &mut mpsc::Receiver<CallResult<Svc::Target>>,
-        buf: &mut <Buf as BufSource>::Output,
+        buf: &mut T,
     ) -> Result<ConnectionEvent<Svc::Error>, ConnectionEvent<Svc::Error>>
     {
         // Note: The MPSC receiver used to receive finished service call
