@@ -71,7 +71,6 @@ mock-time = ["mock_instant"]
 clap       = { version = "=4.3.12", features = ["derive"] }
 rstest       = "0.18.2"
 rustls       = { version = "0.21.9" }
-serde_json = "1.0.107"
 serde_test   = "1.0.130"
 serde_json   = "1.0.113"
 serde_yaml   = "0.9"
@@ -117,7 +116,7 @@ required-features = ["net"]
 
 [[example]]
 name = "serve"
-required-features = ["net", "unstable-server-transport", "tokio-tfo", "tokio-rustls", "rustls-pemfile"]
+required-features = ["net", "unstable-server-transport", ]
 
 [[example]]
 name = "simple-proxy"

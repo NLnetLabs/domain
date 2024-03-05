@@ -5,10 +5,10 @@
 
 use clap::Parser;
 use domain::base::iana::Rtype;
-use domain::base::message_builder::PushError;
+use domain::base::message_builder::{AdditionalBuilder, PushError};
 use domain::base::opt::{Opt, OptRecord};
 use domain::base::{
-    Message, MessageBuilder, ParsedDname, StaticCompressor, StreamTarget,
+    Message, MessageBuilder, ParsedDname, /*StaticCompressor,*/ StreamTarget,
 };
 use domain::dep::octseq::Octets;
 use domain::net::client::dgram;
@@ -19,12 +19,13 @@ use domain::net::client::protocol::{TcpConnect, UdpConnect};
 use domain::net::client::redundant;
 use domain::net::client::request::SendRequest;
 use domain::net::client::request::{ComposeRequest, RequestMessage};
-use domain::rdata::AllRecordData;
 use domain::net::server::buf::BufSource;
 use domain::net::server::dgram::DgramServer;
+use domain::net::server::prelude::{/*Composer,*/ ContextAwareMessage, /*mk_service, */ /*MkServiceResult,*/ Transaction};
 use domain::net::server::service::{
-    CallResult, Service, ServiceError, Transaction,
+    CallResult, Service, ServiceError, ServiceResult, /*Transaction,*/
 };
+use domain::rdata::AllRecordData;
 use futures_util::stream::Stream;
 use futures_util::{future::BoxFuture, FutureExt};
 use rustls::ClientConfig;
@@ -135,6 +136,7 @@ struct UdpTcpConfig {
     port: Option<String>,
 }
 
+/*
 /// Convert a Message into a MessageBuilder.
 fn to_builder<Octs1: Octets>(
     source: &Message<Octs1>,
@@ -220,7 +222,90 @@ fn to_builder<Octs1: Octets>(
     // reference and then .clone()
     Ok(target.as_builder().clone())
 }
+*/
 
+/// Convert a Message into an AdditionalBuilder.
+fn to_builder_additional<Octs1: Octets>(
+    source: &Message<Octs1>,
+) -> Result<AdditionalBuilder<StreamTarget<Vec<u8>>>, PushError>
+{
+    let mut target = MessageBuilder::from_target(StreamTarget::new_vec(),)
+    .unwrap();
+
+    let header = source.header();
+    *target.header_mut() = header;
+
+    let source = source.question();
+    let mut target = target.additional().builder().question();
+    for rr in source {
+        let rr = rr.unwrap();
+        target.push(rr)?;
+    }
+    let mut source = source.answer().unwrap();
+    let mut target = target.answer();
+    for rr in &mut source {
+        let rr = rr.unwrap();
+        let rr = rr
+            .into_record::<AllRecordData<_, ParsedDname<_>>>()
+            .unwrap()
+            .unwrap();
+        target.push(rr)?;
+    }
+
+    let mut source = source.next_section().unwrap().unwrap();
+    let mut target = target.authority();
+    for rr in &mut source {
+        let rr = rr.unwrap();
+        let rr = rr
+            .into_record::<AllRecordData<_, ParsedDname<_>>>()
+            .unwrap()
+            .unwrap();
+        target.push(rr)?;
+    }
+
+    let source = source.next_section().unwrap().unwrap();
+    let mut target = target.additional();
+    for rr in source {
+        let rr = rr.unwrap();
+        if rr.rtype() == Rtype::Opt {
+            let rr = rr.into_record::<Opt<_>>().unwrap().unwrap();
+            let opt_record = OptRecord::from_record(rr);
+            target
+                .opt(|newopt| {
+                    newopt
+                        .set_udp_payload_size(opt_record.udp_payload_size());
+                    newopt.set_version(opt_record.version());
+                    newopt.set_dnssec_ok(opt_record.dnssec_ok());
+
+                    // Copy the transitive options that we support. Nothing
+                    // at the moment.
+                    /*
+                                for option in opt_record.opt().iter::<AllOptData<_, _>>()
+                                {
+                                let option = option.unwrap();
+                                if let AllOptData::TcpKeepalive(_) = option {
+                                    panic!("handle keepalive");
+                                } else {
+                                    newopt.push(&option).unwrap();
+                                }
+                                }
+                    */
+                    Ok(())
+                })
+                .unwrap();
+        } else {
+            let rr = rr
+                .into_record::<AllRecordData<_, ParsedDname<_>>>()
+                .unwrap()
+                .unwrap();
+            target.push(rr)?;
+        }
+    }
+
+    Ok(target)
+}
+
+/*
 /// Convert a Message into a StreamTarget.
 fn to_stream_target<Octs1: Octets>(
     source: &Message<Octs1>,
@@ -228,40 +313,58 @@ fn to_stream_target<Octs1: Octets>(
     let builder = to_builder(source).unwrap();
     Ok(builder.as_target().as_target().clone())
 }
+*/
+
+/// Convert a Message into an AdditionalBuilder with a StreamTarget.
+fn to_stream_additional<Octs1: Octets>(
+    source: &Message<Octs1>,
+) -> Result<AdditionalBuilder<StreamTarget<Vec<u8>>>, PushError> {
+    let builder = to_builder_additional(source).unwrap();
+    Ok(builder)
+}
 
 /// Function that returns a Service trait.
 ///
 /// This is a trick to capture the Future by an async block into a type.
 fn query_service<
-    RequestOctets: AsRef<[u8]> + Debug + Octets + Send + Sync + 'static,
+    RequestOctets,
 >(
     conn: impl SendRequest<RequestMessage<RequestOctets>>
         + Clone
         + Send
         + Sync
         + 'static,
-) -> impl Service<RequestOctets, Message<RequestOctets>>
+) -> impl Service<RequestOctets>
 where
+    RequestOctets: AsRef<[u8]> + Clone + Debug + Octets + Send + Sync + 'static,
     for<'a> &'a RequestOctets: AsRef<[u8]> + Debug,
 {
     /// Basic query function for Service.
-    fn query<RequestOctets: AsRef<[u8]> + Debug + Octets>(
-        message: Message<RequestOctets>,
+    fn query<RequestOctets, Error, >(
+        ctxmsg: Arc<ContextAwareMessage<Message<RequestOctets>>>,
         conn: impl SendRequest<RequestMessage<RequestOctets>> + Send + Sync,
-    ) -> Transaction<
-        impl Future<Output = Result<CallResult<Vec<u8>>, ServiceError<()>>>,
-        impl Stream<Item = Result<CallResult<Vec<u8>>, ServiceError<()>>>,
-    >
+    ) ->
+	ServiceResult<Vec<u8>, Error,
+		impl Future<
+		Output = Result<
+			CallResult<
+				Vec<u8>>,
+				ServiceError<Error>
+			>
+		> + Send,
+	>
     where
+	RequestOctets: AsRef<[u8]> + Clone + Debug + Octets + Send + Sync,
         for<'a> &'a RequestOctets: AsRef<[u8]> + Debug,
     {
-        Transaction::<_, NoStream<Vec<u8>>>::Single(async move {
+        Ok(Transaction::single(async move {
+	    let msg: Message<RequestOctets> =  (&ctxmsg as &Message<RequestOctets>).clone();
             // Extract the ID. We need to set it in the reply.
-            let id = message.header().id();
+            let id = msg.header().id();
             // We get a Message, but the client transport needs a
             // BaseMessageBuilder. Convert.
-            println!("request {:?}", message);
-            let request_msg = RequestMessage::new(message);
+            println!("request {:?}", msg);
+            let request_msg = RequestMessage::new(msg);
             println!("request {:?}", request_msg);
             let mut query = conn.send_request(request_msg);
             let reply = query.get_response().await.unwrap();
@@ -274,13 +377,48 @@ where
 
             // We get the reply as Message from the client transport but
             // we need to return a StreamTarget. Convert.
-            let stream = to_stream_target::<_>(&reply).unwrap();
+            let stream = to_stream_additional::<_>(&reply).unwrap();
             Ok(CallResult::new(stream))
-        })
+        }))
     }
 
-    move |message| Ok(query::<RequestOctets>(message, conn.clone()))
+    move |message| query::<RequestOctets, (), >(message, conn.clone())
 }
+
+/*
+fn do_query<RequestOctets, Metadata>
+(ctxmsg: Arc<ContextAwareMessage<Message<RequestOctets>>>, conn: Metadata)
+-> MkServiceResult<Vec<u8>, ()>
+    where
+	RequestOctets: AsRef<[u8]> + Clone + Debug + Octets + Send + Sync + 'static,
+	Metadata: SendRequest<RequestMessage<RequestOctets>> + Send + 'static,
+{
+    Ok(Transaction::single(Box::pin(async move {
+	let msg: Message<RequestOctets> =  (&ctxmsg as &Message<RequestOctets>).clone();
+
+	// Extract the ID. We need to set it in the reply.
+	let id = msg.header().id();
+	// We get a Message, but the client transport needs a
+	// BaseMessageBuilder. Convert.
+	println!("request {:?}", msg);
+	let request_msg = RequestMessage::new(msg);
+	println!("request {:?}", request_msg);
+	let mut query = conn.send_request(request_msg);
+	let reply = query.get_response().await.unwrap();
+	println!("got reply {:?}", reply);
+
+	// Set the ID
+	let mut reply: Message<Vec<u8>> =
+	    Message::from_octets(reply.as_slice().to_vec()).unwrap();
+	reply.header_mut().set_id(id);
+
+	// We get the reply as Message from the client transport but
+	// we need to return a StreamTarget. Convert.
+	let stream = to_stream_additional::<_>(&reply).unwrap();
+	Ok(CallResult::new(stream))
+    })))
+}
+*/
 
 /*
 /// Function that returns a Service trait.
@@ -431,7 +569,7 @@ async fn main() {
         }
     };
 
-    udp_join_handle.await.unwrap().unwrap();
+    udp_join_handle.await.unwrap();
 }
 
 /// Get a redundant transport based on its config
@@ -563,10 +701,11 @@ fn start_service(
     conn: impl SendRequest<RequestMessage<VecU8>> + Clone + Send + Sync + 'static,
     socket: UdpSocket,
     buf_source: Arc<VecBufSource>,
-) -> JoinHandle<Result<(), std::io::Error>> {
+) -> JoinHandle<()> {
     let svc = query_service(conn);
+    // let svc = mk_service(do_query, conn);
     let srv = Arc::new(DgramServer::new(socket, buf_source, Arc::new(svc)));
-    tokio::spawn(srv.run())
+    tokio::spawn(async move { srv.run().await })
 }
 
 /// Get a socket address for an IP address, and optional port and a
