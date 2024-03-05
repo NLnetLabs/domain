@@ -152,10 +152,6 @@ where
                             .await;
                         break;
                     }
-                    ConnectionEvent::ReadSucceeded => {
-                        // A success is not an error, this shouldn't happen.
-                        unreachable!()
-                    }
                     ConnectionEvent::ServiceError(err) => {
                         error!("Service error: {}", err);
                     }
@@ -219,8 +215,7 @@ where
         stream_rx: &mut ReadHalf<Stream>,
         result_q_rx: &mut mpsc::Receiver<CallResult<Svc::Target>>,
         buf: &mut T,
-    ) -> Result<ConnectionEvent<Svc::Error>, ConnectionEvent<Svc::Error>>
-    {
+    ) -> Result<(), ConnectionEvent<Svc::Error>> {
         // Note: The MPSC receiver used to receive finished service call
         // results can be read from safely even if the future is cancelled.
         // Thus we don't need to keep the future, we can just call recv()
@@ -266,9 +261,7 @@ where
                             // The stream read succeeded. Return to the caller
                             // so that it can process the bytes written to the
                             // buffer.
-                            Ok(_size) => {
-                                return Ok(ConnectionEvent::ReadSucceeded);
-                            }
+                            Ok(_size) => return Ok(()),
 
                             Err(err) => {
                                 match self.process_io_error(err) {
@@ -532,8 +525,6 @@ enum ConnectionEvent<T> {
     /// to send those responses.  Of course, the DNS server MAY cache those
     /// responses."
     DisconnectWithFlush,
-
-    ReadSucceeded,
 
     ServiceError(ServiceError<T>),
 }
