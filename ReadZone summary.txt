@@ -1,0 +1,91 @@
+Note: In the text below !! means a data lookup (in-mem, db, etc) occurs
+
+ZoneApex::get_soa()
+   fetch apex rrsets (NodeRrsets)
+!! get the first SharedRrset record for Soa Rtype, flavor and version
+
+ReadZone::query:
+     Check that the query name is in the zone and find the deepest matching point
+       e.g. example.com vs example.com
+       start at the right, so:
+         null == null, yes continue
+         com == com, yes continue
+         example == example, yes continue
+         no more nodes, stop returning the qname iterator at the point "example"
+   
+     If the query name is at the found node
+       fetch apex rrsets (NodeRrsets)
+       query_rrsets(apex_rrsets)
+!! +---> get the SharedRrset record for rtype, flavor and version
+   :     note special behaviours are NOT SUPPORTED HERE, i.e. no
+   :       zone cut or cname (ignore nxdomain as its just )
+   :     ***
+   :     END
+   :     ***
+   : Else
+   :   query_below_apex()
+   :     fetch apex children (NodeChildren) <<< WE DON'T NEED ALL
+   :     query_children(apex_children)          vvvv ONLY ONE
+!! :     > lookup the exact matching (non-terminal) child by label
+   :     : if found and not NXDomain
+   :     :   query_node(found_node)
+   :     :     if last label
+   :     :       query_node_here()
+   :  +--:-------> lookup the special item
+   :  :  :         if Special::Cut => {
+   :  :  :           query_at_cut(cut, qtype)
+   :  :  :             if qtype == ds => data answer or nodata
+   :  :  :             else authority answer
+   :  :  :         }
+   :  :  :         elif cname => return answer
+   :  :  :         elif NXDomain => return NXDomain
+   :  :  :         else {
+   :  :  :           fetch node rrsets (NodeRrsets)
+   +- :--:---------- query_rrsets(node_rrsets)
+      :  :         }
+      :  :     else
+      :  :       query_node_below()
+      :  :         lookup the special item
+      :  :         if Special::Cut => return answer
+      :  :         elif cname => {
+      :  :           fetch node children (NodeChildren)  <<< WE DON'T NEED ALL
+      :  +---------- query_children(node_children)           ONLY ONE (SEE ABOVE)
+      :            }
+      :            elif NXDomain => return NXDomain
+      :            else fall through to below
+      :    
+      :    if still no answer found
+      :      lookup the wildcard label
+      :      if found
+      +------- query_node_here(found_wildcard_node)
+             else
+               NXDomain
+
+Types
+=====
+NodeRrsets: RwLock<HashMap<Rtype, NodeRrset>>
+NodeRrset:
+  default: Versioned<T: Option<Rrset>> = Vec<(Version, Option<T>)
+  flavoured: FlavourVersioned<Option<T>>: Vec<Option<Versioned<Option<T>>>>
+    outer vec = optional inner vec per flavor index
+    outer option None means no flavoured Rrset because there is a default
+Rrset: { Rtype, Ttl, Vec<StoredRecordData> }
+SharedRrset: Arc<Rrset>
+NodeChildren: RwLock<HashMap<OwnedLabel, Arc<ZoneNode>>>
+ZoneNode: { rrsets, special, children }
+  rrsets: NodeRrsets
+  special: RwLock<FlavorVersioned<Option<Special>>>
+  children: NodeChildren
+  Special: enum {
+    Cut(ZoneCut),
+    Cname(SharedRr),
+    NxDomain,
+  }
+  ZoneCut: { name, ns, ds, glue }
+    name: StoredDname,
+    ns: SharedRrset,
+    ds: Option<SharedRrset>,
+    glue: Vec<Record<StoredDname, StoredRecordData>>,
+  }
+  SharedRr: { Ttl, StoredRecordData }
+  StoredRecordData: ZoneRecordData<Bytes, StoredDname>

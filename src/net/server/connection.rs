@@ -424,7 +424,6 @@ where
         state: &mut StreamState<Stream, Buf, Svc>,
         msg: StreamTarget<Svc::Target>,
     ) {
-        // TODO: spawn this as a task and serialize access to write with a lock?
         if let Err(err) =
             state.stream_tx.write_all(msg.as_stream_slice()).await
         {

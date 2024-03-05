@@ -1,0 +1,60 @@
+ReadZone::query()
+  ZoneApex::prepare_name()
+  if qname
+    ReadZone::query_below_apex(op_q(None))
+        ReadZone::query_children(ZoneApex::children(), op_q(n/a))
+          #1
+        > NodeChildren::with(label, op_qc((Option<&Arc<ZoneNode>>)))
+        |   v1 = {
+        |     Acquire self HashMap read lock
+        |     NodeChildren(aka HashMap)::get(label)
+        |   }
+        |   op_qc(v1)
+        |   where op_qc: |node: Option<&Arc<ZoneNode>>| {
+        |     if node
+        |       if ZoneNode(node)::is_nx_domain()
+        |         ZoneNode(node)::with_special(flavor, op_ind(Option<&Special>) -> R)
+        |           v2 = { #2
+        |             Acquire "special" read lock
+        |             ZoneNode(node)::with_special
+        |               #3
+        |               FlavorVersioned::get(flavor, version)
+        |                 Flavored<Versioned<T>>::get(flavor)
+        |                   Vec::get(Flavor.index)
+        |                   Versioned<T>::get(version)
+        |                     Vec::iter().rev().find_map()
+        |                 Versioned<T>::get(version) // optional, only if not special, then default
+        |                   Vec::iter().rev().find_map()
+        |           }
+        |           op_ind(v2)
+        |           where op_ind: |Option<&Special>| {
+        |             matches!(special, Some(Special::NxDomain))
+        |           )
+        |       else
+        |         ReadZone::query_node(node, qname, op_q(n/a))
+        |           if qname
+        |             ReadZone::query_node_below(node. op_q(n/a))
+        |               ZoneNode(node)::with_special(flavor, op_ind(Option<&Special>) -> R)
+        |                 op_ind()
+        |                 where op_ind: |Option<&Special>| {
+        |                   ReadZone::query_children(node.children(), op_q(n/a))
+        ^--------------------- See above #1
+                    else
+                      ReadZone::query_node_here(node, op_q(n/a))
+                        ZoneNode(node)::with_special(flavor, op_qnh(Option<&Special>) -> R)
+                        v3 = { See #2 above }
+                        op_qnh(v3)
+                        where op_qnh: |Option<&Special>| {
+                            ReadZone::query_at_cut()
+                            or
+                            ReadZone::query_rrsets(node.rrsets(), op_q(n/a))
+                              #4
+                              NodeRrsets::get(rtype)
+                                Acquire self HashMap read lock
+                                HashMap::get(rtype)
+                                NodeRrset::get(flavor, version)
+                                  See #3 above
+                        )
+  else
+    ReadZone::query_rrsets(ZoneApex::rrsets(), op_q(None))
+      See #4 above
