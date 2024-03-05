@@ -61,19 +61,10 @@ impl<T> ContextAwareMessage<T> {
     pub fn into_inner(self) -> T {
         self.message
     }
-}
 
-impl<T> core::ops::Deref for ContextAwareMessage<T> {
-    type Target = T;
-
-    fn deref(&self) -> &Self::Target {
+    /// Read access to the inner message
+    pub fn message(&self) -> &T {
         &self.message
-    }
-}
-
-impl<T> core::ops::DerefMut for ContextAwareMessage<T> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.message
     }
 }
 
@@ -150,7 +141,7 @@ where
         let (txn, aborted_pp_idx) = match pp_res {
             ControlFlow::Continue(()) => {
                 let span = info_span!("svc-call",
-                    msg_id = frozen_request.header().id(),
+                    msg_id = frozen_request.message().header().id(),
                     client = %frozen_request.client_addr(),
                 );
                 let _guard = span.enter();
@@ -215,7 +206,7 @@ where
         let mut request = self.add_context_to_request(request, addr);
 
         let span = info_span!("pre-process",
-            msg_id = request.header().id(),
+            msg_id = request.message().header().id(),
             client = %request.client_addr(),
         );
         let _guard = span.enter();
@@ -266,7 +257,7 @@ where
     {
         tokio::spawn(async move {
             let span = info_span!("post-process",
-                msg_id = msg.header().id(),
+                msg_id = msg.message().header().id(),
                 client = %msg.client_addr(),
             );
             let _guard = span.enter();

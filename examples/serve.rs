@@ -53,7 +53,8 @@ where
     Target: Octets + Composer + FreezeBuilder<Octets = Target>,
     <Target as octseq::OctetsBuilder>::AppendError: fmt::Debug,
 {
-    let mut answer = builder.start_answer(msg, Rcode::NoError).unwrap();
+    let mut answer =
+        builder.start_answer(msg.message(), Rcode::NoError).unwrap();
     answer.push((
         Dname::root_ref(),
         Class::In,
@@ -282,7 +283,7 @@ where
     <Target as octseq::OctetsBuilder>::AppendError: Debug,
 {
     let mut out_answer = None;
-    if let Ok(question) = msg.sole_question() {
+    if let Ok(question) = msg.message().sole_question() {
         let qname = question.qname();
         let num_labels = qname.label_count();
         if num_labels >= 5 {
@@ -294,8 +295,9 @@ where
             let a_rec: Result<A, _> = format!("{a}.{b}.{c}.{d}").parse();
             if let Ok(a_rec) = a_rec {
                 let builder = mk_builder_for_target();
-                let mut answer =
-                    builder.start_answer(&msg, Rcode::NoError).unwrap();
+                let mut answer = builder
+                    .start_answer(msg.message(), Rcode::NoError)
+                    .unwrap();
                 answer
                     .push((Dname::root_ref(), Class::In, 86400, a_rec))
                     .unwrap();
@@ -306,8 +308,9 @@ where
 
     if out_answer.is_none() {
         let builder = mk_builder_for_target();
-        out_answer =
-            Some(builder.start_answer(&msg, Rcode::Refused).unwrap());
+        out_answer = Some(
+            builder.start_answer(msg.message(), Rcode::Refused).unwrap(),
+        );
     }
 
     let additional = out_answer.unwrap().additional();

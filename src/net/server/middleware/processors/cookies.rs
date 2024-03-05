@@ -112,6 +112,7 @@ impl CookiesMiddlewareProcesor {
         // handle that case. TODO: Should we warn in some way if the request
         // has more than one COOKIE option?
         request
+            .message()
             .opt()
             .and_then(|opt| opt.opt().iter::<opt::Cookie>().next())
     }
@@ -150,7 +151,7 @@ impl CookiesMiddlewareProcesor {
         let builder = mk_builder_for_target();
         // RFC (1035?) compliance - copy question from request to response.
         let mut builder = builder.question();
-        for rr in request.question() {
+        for rr in request.message().question() {
             builder.push(rr.unwrap()).unwrap(); // SAFETY
         }
 
@@ -393,7 +394,7 @@ where
                     // TODO: Does the TCP check also apply to RFC 7873 section
                     // 5.4 "Querying for a Server Cookie" too?
 
-                    if request.header_counts().qdcount() == 0 {
+                    if request.message().header_counts().qdcount() == 0 {
                         let additional = if !server_cookie_exists {
                             // "If such a query provided just a Client Cookie
                             // and no Server Cookie, the response SHALL have
@@ -422,7 +423,7 @@ where
                         }
                         return ControlFlow::Break(additional);
                     }
-                } else if request.header_counts().qdcount() == 0 {
+                } else if request.message().header_counts().qdcount() == 0 {
                     // https://datatracker.ietf.org/doc/html/rfc7873#section-5.4
                     // Querying for a Server Cookie:
                     //   "This mechanism can also be used to

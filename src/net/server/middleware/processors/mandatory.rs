@@ -53,7 +53,7 @@ where
         // ...
         // "If a query message with more than one OPT RR is received, a
         //  FORMERR (RCODE=1) MUST be returned"
-        if let Ok(additional) = request.additional() {
+        if let Ok(additional) = request.message().additional() {
             let mut iter = additional.limit_to::<Opt<_>>();
             if matches!((iter.next(), iter.next()), (Some(_), Some(_))) {
                 // More than one OPT RR received.
@@ -81,7 +81,9 @@ where
         //         generates any kind of query.  This identifier is copied
         //         the corresponding reply and can be used by the requester
         //         to match up replies to outstanding queries.
-        response.header_mut().set_id(request.header().id());
+        response
+            .header_mut()
+            .set_id(request.message().header().id());
 
         // QR      A one bit field that specifies whether this message is a
         //         query (0), or a response (1).
@@ -91,7 +93,9 @@ where
         //         is copied into the response.  If RD is set, it directs
         //         the name server to pursue the query recursively.
         //         Recursive query support is optional.
-        response.header_mut().set_rd(request.header().rd());
+        response
+            .header_mut()
+            .set_rd(request.message().header().rd());
 
         // https://www.rfc-editor.org/rfc/rfc6891.html#section-6.1.1
         // 6.1.1: Basic Elements

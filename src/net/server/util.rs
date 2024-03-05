@@ -72,7 +72,7 @@ where
 ///     // For each request create a single response:
 ///     Ok(Transaction::single(Box::pin(async move {
 ///         let builder = mk_builder_for_target();
-///         let answer = builder.start_answer(&req, Rcode::NXDomain)?;
+///         let answer = builder.start_answer(req.message(), Rcode::NXDomain)?;
 ///         Ok(CallResult::new(answer.additional()))
 ///     })))
 /// }

@@ -234,6 +234,7 @@ fn test_service(
         trace!("Service is constructing a single response");
         // If given a single question:
         let answer = request
+            .message()
             .sole_question()
             .ok()
             .and_then(|q| {
@@ -248,13 +249,13 @@ fn test_service(
                 || {
                     // The Qname was not found in the zone:
                     mk_builder_for_target()
-                        .start_answer(&request, Rcode::NXDomain)
+                        .start_answer(request.message(), Rcode::NXDomain)
                         .unwrap()
                 },
                 |(record, _)| {
                     // Respond with the found record:
                     let mut answer = mk_builder_for_target()
-                        .start_answer(&request, Rcode::NoError)
+                        .start_answer(request.message(), Rcode::NoError)
                         .unwrap();
                     // As we serve all answers from our own zones we are the
                     // authority for the domain in question.

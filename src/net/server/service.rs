@@ -92,7 +92,7 @@ pub type ServiceResultItem<Target, Error> =
 ///     msg: &ContextAwareMessage<Message<Vec<u8>>>,
 ///     builder: MessageBuilder<StreamTarget<Vec<u8>>>,
 /// ) -> Result<AdditionalBuilder<StreamTarget<Vec<u8>>>, ServiceError<T>> {
-///     let mut answer = builder.start_answer(msg, Rcode::NoError)?;
+///     let mut answer = builder.start_answer(msg.message(), Rcode::NoError)?;
 ///     answer.push((
 ///         Dname::root_ref(),
 ///         Class::In,
@@ -146,7 +146,7 @@ pub type ServiceResultItem<Target, Error> =
 ///     <Target as octseq::OctetsBuilder>::AppendError: Debug,
 /// {
 ///     let mut out_answer = None;
-///     if let Ok(question) = msg.sole_question() {
+///     if let Ok(question) = msg.message().sole_question() {
 ///         let qname = question.qname();
 ///         let num_labels = qname.label_count();
 ///         if num_labels >= 5 {
@@ -159,7 +159,9 @@ pub type ServiceResultItem<Target, Error> =
 ///             if let Ok(a_rec) = a_rec {
 ///                 let builder = mk_builder_for_target();
 ///                 let mut answer =
-///                     builder.start_answer(&msg, Rcode::NoError).unwrap();
+///                     builder
+///                         .start_answer(msg.message(), Rcode::NoError)
+///                         .unwrap();
 ///                 answer
 ///                     .push((Dname::root_ref(), Class::In, 86400, a_rec))
 ///                     .unwrap();
@@ -170,8 +172,10 @@ pub type ServiceResultItem<Target, Error> =
 ///
 ///     if out_answer.is_none() {
 ///         let builder = mk_builder_for_target();
-///         out_answer =
-///             Some(builder.start_answer(&msg, Rcode::Refused).unwrap());
+///         let answer = builder
+///             .start_answer(msg.message(), Rcode::Refused)
+///             .unwrap();
+///         out_answer = Some(answer);
 ///     }
 ///
 ///     let additional = out_answer.unwrap().additional();
