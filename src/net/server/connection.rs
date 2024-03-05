@@ -27,10 +27,8 @@ use tracing::{debug, error};
 
 pub struct Connection<Stream, Buf, Svc>
 where
-    Stream: AsyncRead + AsyncWrite + Send + Sync + 'static,
-    Buf: BufSource + Send + Sync + 'static + Clone,
-    Buf::Output: Send + Sync + 'static,
-    Svc: Service<Buf::Output> + Send + Sync + 'static + Clone,
+    Buf: BufSource,
+    Svc: Service<Buf::Output>,
 {
     buf_source: Buf,
     metrics: Arc<ServerMetrics>,
