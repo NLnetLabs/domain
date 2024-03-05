@@ -147,16 +147,3 @@ pub mod protocol;
 pub mod redundant;
 pub mod request;
 pub mod stream;
-
-use self::request::{GetResponse, RequestMessage, SendRequest};
-use std::boxed::Box;
-use std::vec::Vec;
-
-impl SendRequest<RequestMessage<Vec<u8>>> for () {
-    fn send_request(
-        &self,
-        _request_msg: RequestMessage<Vec<u8>>,
-    ) -> Box<dyn GetResponse + Send> {
-        todo!()
-    }
-}
