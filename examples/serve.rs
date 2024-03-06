@@ -1,6 +1,5 @@
 use core::future::ready;
 
-use std::{fmt, io};
 use std::fs::File;
 use std::future::{Future, Ready};
 use std::io::BufReader;
@@ -9,16 +8,17 @@ use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::task::{Context, Poll};
 use std::time::Duration;
+use std::{fmt, io};
 
-use domain::base::{Dname, MessageBuilder, StreamTarget};
 use domain::base::iana::{Class, Rcode};
-use domain::base::name::ToLabelIter;
 use domain::base::message_builder::{AdditionalBuilder, PushError};
+use domain::base::name::ToLabelIter;
+use domain::base::{Dname, MessageBuilder, StreamTarget};
 use domain::net::server::buf::VecBufSource;
 use domain::net::server::dgram::DgramServer;
-use domain::net::server::prelude::*;
 use domain::net::server::middleware::builder::MiddlewareBuilder;
 use domain::net::server::middleware::processors::cookies::CookiesMiddlewareProcesor;
+use domain::net::server::prelude::*;
 use domain::net::server::sock::AsyncAccept;
 use domain::net::server::stream::StreamServer;
 use domain::rdata::A;
