@@ -111,7 +111,7 @@ pub struct RequestMessage<Octs: AsRef<[u8]>> {
     source_address: Option<SocketAddr>,
 }
 
-impl<Octs: AsRef<[u8]> + Debug + Octets> RequestMessage<Octs> {
+impl<Octs: Octets> RequestMessage<Octs> {
     /// Create a new BMB object.
     pub fn new(msg: impl Into<Message<Octs>>) -> Self {
         let msg = msg.into();

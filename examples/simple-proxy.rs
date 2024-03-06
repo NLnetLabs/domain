@@ -11,8 +11,7 @@ use domain::base::{
     Message, MessageBuilder, ParsedDname, /*StaticCompressor,*/ StreamTarget,
 };
 use domain::dep::octseq::Octets;
-use domain::net::client::dgram;
-use domain::net::client::dgram_stream;
+use domain::net::client::{dgram, dgram_stream};
 use domain::net::client::multi_stream;
 use domain::net::client::protocol::TlsConnect;
 use domain::net::client::protocol::{TcpConnect, UdpConnect};
@@ -21,10 +20,9 @@ use domain::net::client::request::SendRequest;
 use domain::net::client::request::{ComposeRequest, RequestMessage};
 use domain::net::server::buf::BufSource;
 use domain::net::server::dgram::DgramServer;
-use domain::net::server::prelude::{/*Composer,*/ ContextAwareMessage, /*mk_service, */ /*MkServiceResult,*/ Transaction};
-use domain::net::server::service::{
-    CallResult, Service, ServiceError, ServiceResult, /*Transaction,*/
-};
+use domain::net::server::middleware::builder::MiddlewareBuilder;
+use domain::net::server::service::{CallResult, ServiceError, Transaction};
+use domain::net::server::util::{mk_service, MkServiceRequest, MkServiceResult};
 use domain::rdata::AllRecordData;
 use futures_util::stream::Stream;
 use futures_util::{future::BoxFuture, FutureExt};
@@ -326,63 +324,29 @@ fn to_stream_additional<Octs1: Octets>(
 /// Function that returns a Service trait.
 ///
 /// This is a trick to capture the Future by an async block into a type.
-fn query_service<
-    RequestOctets,
->(
-    conn: impl SendRequest<RequestMessage<RequestOctets>>
-        + Clone
-        + Send
-        + Sync
-        + 'static,
-) -> impl Service<RequestOctets>
-where
-    RequestOctets: AsRef<[u8]> + Clone + Debug + Octets + Send + Sync + 'static,
-    for<'a> &'a RequestOctets: AsRef<[u8]> + Debug,
-{
-    /// Basic query function for Service.
-    fn query<RequestOctets, Error, >(
-        ctxmsg: Arc<ContextAwareMessage<Message<RequestOctets>>>,
-        conn: impl SendRequest<RequestMessage<RequestOctets>> + Send + Sync,
-    ) ->
-	ServiceResult<Vec<u8>, Error,
-		impl Future<
-		Output = Result<
-			CallResult<
-				Vec<u8>>,
-				ServiceError<Error>
-			>
-		> + Send,
-	>
-    where
-	RequestOctets: AsRef<[u8]> + Clone + Debug + Octets + Send + Sync,
-        for<'a> &'a RequestOctets: AsRef<[u8]> + Debug,
-    {
-        Ok(Transaction::single(async move {
-	    let msg: Message<RequestOctets> =  (&ctxmsg as &Message<RequestOctets>).clone();
-            // Extract the ID. We need to set it in the reply.
-            let id = msg.header().id();
-            // We get a Message, but the client transport needs a
-            // BaseMessageBuilder. Convert.
-            println!("request {:?}", msg);
-            let request_msg = RequestMessage::new(msg);
-            println!("request {:?}", request_msg);
-            let mut query = conn.send_request(request_msg);
-            let reply = query.get_response().await.unwrap();
-            println!("got reply {:?}", reply);
+fn query_service(
+    req: MkServiceRequest<Vec<u8>>,
+    conn: impl SendRequest<RequestMessage<Vec<u8>>> + Send + Sync + 'static,
+) -> MkServiceResult<Vec<u8>, ()> {
+    Ok(Transaction::single(Box::pin(async move {
+        // We get a Message, but the client transport needs a
+        // BaseMessageBuilder. Convert.
+        println!("request {:?}", req);
 
-            // Set the ID
-            let mut reply: Message<Vec<u8>> =
-                Message::from_octets(reply.as_slice().to_vec()).unwrap();
-            reply.header_mut().set_id(id);
+        let msg: Message<Vec<u8>> = (**req).clone();
+        let request_msg = RequestMessage::new(msg);
+        println!("request {:?}", request_msg);
 
-            // We get the reply as Message from the client transport but
-            // we need to return a StreamTarget. Convert.
-            let stream = to_stream_additional::<_>(&reply).unwrap();
-            Ok(CallResult::new(stream))
-        }))
-    }
+        let mut query = conn.send_request(request_msg);
 
-    move |message| query::<RequestOctets, (), >(message, conn.clone())
+        let reply = query.get_response().await.unwrap();
+        println!("got reply {:?}", reply);
+
+        // We get the reply as Message from the client transport but
+        // we need to return a StreamTarget. Convert.
+        let stream = to_stream_additional::<_>(&reply).unwrap();
+        Ok(CallResult::new(stream))
+    })))
 }
 
 /*
@@ -702,9 +666,10 @@ fn start_service(
     socket: UdpSocket,
     buf_source: Arc<VecBufSource>,
 ) -> JoinHandle<()> {
-    let svc = query_service(conn);
-    // let svc = mk_service(do_query, conn);
-    let srv = Arc::new(DgramServer::new(socket, buf_source, Arc::new(svc)));
+    let svc = mk_service(query_service, conn);
+    let srv = DgramServer::new(socket, buf_source, Arc::new(svc));
+    let srv = srv.with_middleware(MiddlewareBuilder::default().finish());
+    let srv = Arc::new(srv);
     tokio::spawn(async move { srv.run().await })
 }
 
