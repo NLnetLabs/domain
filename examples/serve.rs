@@ -1,48 +1,35 @@
 use core::future::ready;
-// TODO: Split into separate examples?
-use std::{
-    fmt,
-    fs::File,
-    future::{Future, Ready},
-    io::{self, BufReader},
-    net::SocketAddr,
-    path::Path,
-    sync::atomic::{AtomicBool, AtomicU8, Ordering},
-    task::{Context, Poll},
-    time::Duration,
-};
 
-use domain::{
-    base::message_builder::{AdditionalBuilder, PushError},
-    net::server::{
-        dgram::DgramServer,
-        middleware::{
-            builder::MiddlewareBuilder,
-            processors::cookies::CookiesMiddlewareProcesor,
-        },
-        prelude::*,
-        sock::AsyncAccept,
-        stream::StreamServer,
-    },
-};
+use std::{fmt, io};
+use std::fs::File;
+use std::future::{Future, Ready};
+use std::io::BufReader;
+use std::net::SocketAddr;
+use std::path::Path;
+use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
+use std::task::{Context, Poll};
+use std::time::Duration;
 
+use domain::base::{Dname, MessageBuilder, StreamTarget};
+use domain::base::iana::{Class, Rcode};
 use domain::base::name::ToLabelIter;
-use domain::{
-    base::{
-        iana::{Class, Rcode},
-        Dname, MessageBuilder, StreamTarget,
-    },
-    net::server::buf::VecBufSource,
-    rdata::A,
-};
+use domain::base::message_builder::{AdditionalBuilder, PushError};
+use domain::net::server::buf::VecBufSource;
+use domain::net::server::dgram::DgramServer;
+use domain::net::server::prelude::*;
+use domain::net::server::middleware::builder::MiddlewareBuilder;
+use domain::net::server::middleware::processors::cookies::CookiesMiddlewareProcesor;
+use domain::net::server::sock::AsyncAccept;
+use domain::net::server::stream::StreamServer;
+use domain::rdata::A;
 
 use rustls_pemfile::{certs, rsa_private_keys};
 use tokio::net::{TcpListener, TcpSocket, TcpStream, UdpSocket};
-use tokio_rustls::{
-    rustls::{Certificate, PrivateKey},
-    TlsAcceptor,
-};
+use tokio_rustls::rustls::{Certificate, PrivateKey};
+use tokio_rustls::TlsAcceptor;
 use tokio_tfo::{TfoListener, TfoStream};
+
+//----------- mk_answer() ----------------------------------------------------
 
 // Helper fn to create a dummy response to send back to the client
 fn mk_answer<Target>(
@@ -64,18 +51,16 @@ where
     Ok(answer.additional())
 }
 
-struct UnreachableStream;
+//----------- Example Service trait implementations --------------------------
 
-impl Iterator for UnreachableStream {
-    type Item = Result<CallResult<Vec<u8>>, ServiceError<()>>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        unreachable!()
-    }
-}
+//--- MyService
 
 struct MyService;
 
+/// This example shows how to implement the [`Service`] trait directly.
+///
+/// See [`query()`] and [`name_to_ip()`] for ways of implementing the
+/// [`Service`] trait for a function instead of a struct.
 impl Service<Vec<u8>> for MyService {
     type Error = ();
     type Target = Vec<u8>;
@@ -93,153 +78,18 @@ impl Service<Vec<u8>> for MyService {
     }
 }
 
-struct DoubleListener {
-    a: TcpListener,
-    b: TcpListener,
-    alt: AtomicBool,
-}
+//--- query()
 
-impl DoubleListener {
-    fn new(a: TcpListener, b: TcpListener) -> Self {
-        let alt = AtomicBool::new(false);
-        Self { a, b, alt }
-    }
-}
-
-/// Combine two streams into one by interleaving the output of both as it is produced.
-impl AsyncAccept for DoubleListener {
-    type Error = io::Error;
-    type StreamType = TcpStream;
-    type Stream = Ready<Result<Self::StreamType, io::Error>>;
-
-    fn poll_accept(
-        &self,
-        cx: &mut Context,
-    ) -> Poll<Result<(Self::Stream, SocketAddr), io::Error>> {
-        let (x, y) = match self.alt.fetch_xor(true, Ordering::SeqCst) {
-            false => (&self.a, &self.b),
-            true => (&self.b, &self.a),
-        };
-
-        match TcpListener::poll_accept(x, cx)
-            .map(|res| res.map(|(stream, addr)| (ready(Ok(stream)), addr)))
-        {
-            Poll::Ready(res) => Poll::Ready(res),
-            Poll::Pending => TcpListener::poll_accept(y, cx).map(|res| {
-                res.map(|(stream, addr)| (ready(Ok(stream)), addr))
-            }),
-        }
-    }
-}
-
-struct LocalTfoListener(TfoListener);
-
-impl std::ops::DerefMut for LocalTfoListener {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
-    }
-}
-
-impl std::ops::Deref for LocalTfoListener {
-    type Target = TfoListener;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl AsyncAccept for LocalTfoListener {
-    type Error = io::Error;
-    type StreamType = TfoStream;
-    type Stream = Ready<Result<Self::StreamType, io::Error>>;
-
-    fn poll_accept(
-        &self,
-        cx: &mut Context,
-    ) -> Poll<Result<(Self::Stream, SocketAddr), io::Error>> {
-        TfoListener::poll_accept(self, cx)
-            .map(|res| res.map(|(stream, addr)| (ready(Ok(stream)), addr)))
-    }
-}
-
-struct BufferedTcpListener(TcpListener);
-
-impl std::ops::DerefMut for BufferedTcpListener {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
-    }
-}
-
-impl std::ops::Deref for BufferedTcpListener {
-    type Target = TcpListener;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl AsyncAccept for BufferedTcpListener {
-    type Error = io::Error;
-    type StreamType = tokio::io::BufReader<TcpStream>;
-    type Stream = Ready<Result<Self::StreamType, io::Error>>;
-
-    fn poll_accept(
-        &self,
-        cx: &mut Context,
-    ) -> Poll<Result<(Self::Stream, SocketAddr), io::Error>> {
-        match TcpListener::poll_accept(self, cx) {
-            Poll::Ready(Ok((stream, addr))) => {
-                let stream = tokio::io::BufReader::new(stream);
-                Poll::Ready(Ok((ready(Ok(stream)), addr)))
-            }
-            Poll::Ready(Err(err)) => Poll::Ready(Err(err)),
-            Poll::Pending => Poll::Pending,
-        }
-    }
-}
-
-pub struct RustlsTcpListener {
-    listener: TcpListener,
-    acceptor: tokio_rustls::TlsAcceptor,
-}
-
-impl RustlsTcpListener {
-    pub fn new(
-        listener: TcpListener,
-        acceptor: tokio_rustls::TlsAcceptor,
-    ) -> Self {
-        Self { listener, acceptor }
-    }
-}
-
-impl AsyncAccept for RustlsTcpListener {
-    type Error = io::Error;
-    type StreamType = tokio_rustls::server::TlsStream<TcpStream>;
-    type Stream = tokio_rustls::Accept<TcpStream>;
-
-    #[allow(clippy::type_complexity)]
-    fn poll_accept(
-        &self,
-        cx: &mut Context,
-    ) -> Poll<Result<(Self::Stream, SocketAddr), io::Error>> {
-        TcpListener::poll_accept(&self.listener, cx).map(|res| {
-            res.map(|(stream, addr)| (self.acceptor.accept(stream), addr))
-        })
-    }
-}
-
-fn query<Target>(
-    msg: Arc<ContextAwareMessage<Message<Vec<u8>>>>,
+/// This function shows how to implement [`Service`] logic by matching the
+/// function signature required by [`mk_service()`].
+///
+/// The function signature is signifacantly simpler to write than when not
+/// using [`mk_service()`] but this approach requires the function to
+/// [`Box::pin()`] the generated response future.
+fn query(
+    msg: MkServiceRequest<Vec<u8>>,
     count: Arc<AtomicU8>,
-) -> ServiceResult<
-    Target,
-    (),
-    impl Future<Output = ServiceResultItem<Target, ()>>,
->
-where
-    Target: Composer + Octets + FreezeBuilder<Octets = Target> + Default,
-    <Target as octseq::OctetsBuilder>::AppendError: Debug,
-{
+) -> MkServiceResult<Vec<u8>, ()> {
     let cnt = count
         .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |x| {
             Some(if x > 0 { x - 1 } else { 0 })
@@ -260,16 +110,22 @@ where
         let cmd = ServiceCommand::Reconfigure { idle_timeout };
         eprintln!("Setting idle timeout to {idle_timeout:?}");
 
-        let target = Target::default();
-        let target = StreamTarget::new(target).unwrap(); // SAFETY
-        let builder = MessageBuilder::from_target(target).unwrap(); // SAFETY
+        let builder = mk_builder_for_target();
         let answer = mk_answer(&msg, builder)?;
         let res = CallResult::new(answer).with_command(cmd);
         Ok(res)
     };
-    Ok(Transaction::single(fut))
+    Ok(Transaction::single(Box::pin(fut)))
 }
 
+//--- name_to_ip()
+
+/// This function shows how to implement [`Service`] logic by matching the
+/// function signature required by the [`Service`] trait.
+///
+/// The function signature is more complex than when using [`mk_service()`]
+/// (see the [`query()`] example above) but can be generic over the `Target`
+/// and does not need to [`Box::pin()`] the generated future.
 fn name_to_ip<Target>(
     msg: Arc<ContextAwareMessage<Message<Vec<u8>>>>,
 ) -> ServiceResult<
@@ -317,6 +173,153 @@ where
     let item = Ok(CallResult::new(additional));
     Ok(Transaction::single(ready(item)))
 }
+
+//----------- Example socket trait implementations ---------------------------
+
+//--- DoubleListener
+
+struct DoubleListener {
+    a: TcpListener,
+    b: TcpListener,
+    alt: AtomicBool,
+}
+
+impl DoubleListener {
+    fn new(a: TcpListener, b: TcpListener) -> Self {
+        let alt = AtomicBool::new(false);
+        Self { a, b, alt }
+    }
+}
+
+/// Combine two streams into one by interleaving the output of both as it is produced.
+impl AsyncAccept for DoubleListener {
+    type Error = io::Error;
+    type StreamType = TcpStream;
+    type Stream = Ready<Result<Self::StreamType, io::Error>>;
+
+    fn poll_accept(
+        &self,
+        cx: &mut Context,
+    ) -> Poll<Result<(Self::Stream, SocketAddr), io::Error>> {
+        let (x, y) = match self.alt.fetch_xor(true, Ordering::SeqCst) {
+            false => (&self.a, &self.b),
+            true => (&self.b, &self.a),
+        };
+
+        match TcpListener::poll_accept(x, cx)
+            .map(|res| res.map(|(stream, addr)| (ready(Ok(stream)), addr)))
+        {
+            Poll::Ready(res) => Poll::Ready(res),
+            Poll::Pending => TcpListener::poll_accept(y, cx).map(|res| {
+                res.map(|(stream, addr)| (ready(Ok(stream)), addr))
+            }),
+        }
+    }
+}
+
+//--- LocalTfoListener
+
+struct LocalTfoListener(TfoListener);
+
+impl std::ops::DerefMut for LocalTfoListener {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
+impl std::ops::Deref for LocalTfoListener {
+    type Target = TfoListener;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl AsyncAccept for LocalTfoListener {
+    type Error = io::Error;
+    type StreamType = TfoStream;
+    type Stream = Ready<Result<Self::StreamType, io::Error>>;
+
+    fn poll_accept(
+        &self,
+        cx: &mut Context,
+    ) -> Poll<Result<(Self::Stream, SocketAddr), io::Error>> {
+        TfoListener::poll_accept(self, cx)
+            .map(|res| res.map(|(stream, addr)| (ready(Ok(stream)), addr)))
+    }
+}
+
+//--- BufferedTcpListener
+
+struct BufferedTcpListener(TcpListener);
+
+impl std::ops::DerefMut for BufferedTcpListener {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
+impl std::ops::Deref for BufferedTcpListener {
+    type Target = TcpListener;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl AsyncAccept for BufferedTcpListener {
+    type Error = io::Error;
+    type StreamType = tokio::io::BufReader<TcpStream>;
+    type Stream = Ready<Result<Self::StreamType, io::Error>>;
+
+    fn poll_accept(
+        &self,
+        cx: &mut Context,
+    ) -> Poll<Result<(Self::Stream, SocketAddr), io::Error>> {
+        match TcpListener::poll_accept(self, cx) {
+            Poll::Ready(Ok((stream, addr))) => {
+                let stream = tokio::io::BufReader::new(stream);
+                Poll::Ready(Ok((ready(Ok(stream)), addr)))
+            }
+            Poll::Ready(Err(err)) => Poll::Ready(Err(err)),
+            Poll::Pending => Poll::Pending,
+        }
+    }
+}
+
+//--- RustlsTcpListener
+
+pub struct RustlsTcpListener {
+    listener: TcpListener,
+    acceptor: tokio_rustls::TlsAcceptor,
+}
+
+impl RustlsTcpListener {
+    pub fn new(
+        listener: TcpListener,
+        acceptor: tokio_rustls::TlsAcceptor,
+    ) -> Self {
+        Self { listener, acceptor }
+    }
+}
+
+impl AsyncAccept for RustlsTcpListener {
+    type Error = io::Error;
+    type StreamType = tokio_rustls::server::TlsStream<TcpStream>;
+    type Stream = tokio_rustls::Accept<TcpStream>;
+
+    #[allow(clippy::type_complexity)]
+    fn poll_accept(
+        &self,
+        cx: &mut Context,
+    ) -> Poll<Result<(Self::Stream, SocketAddr), io::Error>> {
+        TcpListener::poll_accept(&self.listener, cx).map(|res| {
+            res.map(|(stream, addr)| (self.acceptor.accept(stream), addr))
+        })
+    }
+}
+
+//----------- main() ---------------------------------------------------------
 
 #[tokio::main(flavor = "multi_thread")]
 async fn main() {
@@ -478,7 +481,7 @@ async fn main() {
     let listener = BufferedTcpListener(listener);
     let count = Arc::new(AtomicU8::new(5));
 
-    let fn_svc = mk_service(query::<Vec<u8>>, count);
+    let fn_svc = mk_service(query, count);
 
     let mut fn_svc_middleware = MiddlewareBuilder::default();
     let server_secret = "server12secret34".as_bytes().try_into().unwrap();
