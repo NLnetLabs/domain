@@ -7,9 +7,7 @@ use clap::Parser;
 use domain::base::iana::Rtype;
 use domain::base::message_builder::{AdditionalBuilder, PushError};
 use domain::base::opt::{Opt, OptRecord};
-use domain::base::{
-    Message, MessageBuilder, ParsedDname, /*StaticCompressor,*/ StreamTarget,
-};
+use domain::base::{Message, MessageBuilder, ParsedDname, StreamTarget};
 use domain::dep::octseq::Octets;
 use domain::net::client::dgram;
 use domain::net::client::dgram_stream;
@@ -21,7 +19,10 @@ use domain::net::client::request::SendRequest;
 use domain::net::client::request::{ComposeRequest, RequestMessage};
 use domain::net::server::buf::BufSource;
 use domain::net::server::dgram::DgramServer;
-use domain::net::server::prelude::{/*Composer,*/ ContextAwareMessage, /*mk_service, */ /*MkServiceResult,*/ Transaction};
+use domain::net::server::middleware::builder::MiddlewareBuilder;
+use domain::net::server::prelude::{
+    mk_service, ContextAwareMessage, MkServiceResult, Transaction,
+};
 use domain::net::server::service::{
     CallResult, Service, ServiceError, ServiceResult, /*Transaction,*/
 };
@@ -42,6 +43,8 @@ use std::sync::Arc;
 use std::task::{Context, Poll};
 use tokio::net::UdpSocket;
 use tokio::task::JoinHandle;
+
+const USE_MK_SERVICE: bool = true;
 
 /// Arguments parser.
 #[derive(Parser, Debug)]
@@ -227,10 +230,9 @@ fn to_builder<Octs1: Octets>(
 /// Convert a Message into an AdditionalBuilder.
 fn to_builder_additional<Octs1: Octets>(
     source: &Message<Octs1>,
-) -> Result<AdditionalBuilder<StreamTarget<Vec<u8>>>, PushError>
-{
-    let mut target = MessageBuilder::from_target(StreamTarget::new_vec(),)
-    .unwrap();
+) -> Result<AdditionalBuilder<StreamTarget<Vec<u8>>>, PushError> {
+    let mut target =
+        MessageBuilder::from_target(StreamTarget::new_vec()).unwrap();
 
     let header = source.header();
     *target.header_mut() = header;
@@ -326,9 +328,7 @@ fn to_stream_additional<Octs1: Octets>(
 /// Function that returns a Service trait.
 ///
 /// This is a trick to capture the Future by an async block into a type.
-fn query_service<
-    RequestOctets,
->(
+fn query_service<RequestOctets>(
     conn: impl SendRequest<RequestMessage<RequestOctets>>
         + Clone
         + Send
@@ -336,33 +336,33 @@ fn query_service<
         + 'static,
 ) -> impl Service<RequestOctets>
 where
-    RequestOctets: AsRef<[u8]> + Clone + Debug + Octets + Send + Sync + 'static,
+    RequestOctets:
+        AsRef<[u8]> + Clone + Debug + Octets + Send + Sync + 'static,
     for<'a> &'a RequestOctets: AsRef<[u8]> + Debug,
 {
     /// Basic query function for Service.
-    fn query<RequestOctets, Error, >(
+    fn query<RequestOctets, Error>(
         ctxmsg: Arc<ContextAwareMessage<Message<RequestOctets>>>,
         conn: impl SendRequest<RequestMessage<RequestOctets>> + Send + Sync,
-    ) ->
-	ServiceResult<Vec<u8>, Error,
-		impl Future<
-		Output = Result<
-			CallResult<
-				Vec<u8>>,
-				ServiceError<Error>
-			>
-		> + Send,
-	>
+    ) -> ServiceResult<
+        Vec<u8>,
+        Error,
+        impl Future<Output = Result<CallResult<Vec<u8>>, ServiceError<Error>>>
+            + Send,
+    >
     where
-	RequestOctets: AsRef<[u8]> + Clone + Debug + Octets + Send + Sync,
+        RequestOctets: AsRef<[u8]> + Clone + Debug + Octets + Send + Sync,
         for<'a> &'a RequestOctets: AsRef<[u8]> + Debug,
     {
         Ok(Transaction::single(async move {
-	    let msg: Message<RequestOctets> =  (&ctxmsg as &Message<RequestOctets>).clone();
-            // Extract the ID. We need to set it in the reply.
-            let id = msg.header().id();
+            let msg: Message<RequestOctets> = (*ctxmsg).clone();
+
+            // Assume that the middleware layer will take care of setting the
+            // right ID in the reply.
+
             // We get a Message, but the client transport needs a
-            // BaseMessageBuilder. Convert.
+            // ComposeRequest (which is implemented by RequestMessage).
+            // Convert.
             println!("request {:?}", msg);
             let request_msg = RequestMessage::new(msg);
             println!("request {:?}", request_msg);
@@ -370,55 +370,46 @@ where
             let reply = query.get_response().await.unwrap();
             println!("got reply {:?}", reply);
 
-            // Set the ID
-            let mut reply: Message<Vec<u8>> =
-                Message::from_octets(reply.as_slice().to_vec()).unwrap();
-            reply.header_mut().set_id(id);
-
             // We get the reply as Message from the client transport but
-            // we need to return a StreamTarget. Convert.
+            // we need to return an AdditionalBuilder with a StreamTarget.
+            // Convert.
             let stream = to_stream_additional::<_>(&reply).unwrap();
             Ok(CallResult::new(stream))
         }))
     }
 
-    move |message| query::<RequestOctets, (), >(message, conn.clone())
+    move |message| query::<RequestOctets, ()>(message, conn.clone())
 }
 
-/*
-fn do_query<RequestOctets, Metadata>
-(ctxmsg: Arc<ContextAwareMessage<Message<RequestOctets>>>, conn: Metadata)
--> MkServiceResult<Vec<u8>, ()>
-    where
-	RequestOctets: AsRef<[u8]> + Clone + Debug + Octets + Send + Sync + 'static,
-	Metadata: SendRequest<RequestMessage<RequestOctets>> + Send + 'static,
+fn do_query<RequestOctets, Metadata>(
+    ctxmsg: Arc<ContextAwareMessage<Message<RequestOctets>>>,
+    conn: Metadata,
+) -> MkServiceResult<Vec<u8>, ()>
+where
+    RequestOctets:
+        AsRef<[u8]> + Clone + Debug + Octets + Send + Sync + 'static,
+    Metadata: SendRequest<RequestMessage<RequestOctets>> + Send + 'static,
 {
     Ok(Transaction::single(Box::pin(async move {
-	let msg: Message<RequestOctets> =  (&ctxmsg as &Message<RequestOctets>).clone();
+        let msg: Message<RequestOctets> = (*ctxmsg).clone();
 
-	// Extract the ID. We need to set it in the reply.
-	let id = msg.header().id();
-	// We get a Message, but the client transport needs a
-	// BaseMessageBuilder. Convert.
-	println!("request {:?}", msg);
-	let request_msg = RequestMessage::new(msg);
-	println!("request {:?}", request_msg);
-	let mut query = conn.send_request(request_msg);
-	let reply = query.get_response().await.unwrap();
-	println!("got reply {:?}", reply);
+        // The middleware layer will take care of the ID in the reply.
 
-	// Set the ID
-	let mut reply: Message<Vec<u8>> =
-	    Message::from_octets(reply.as_slice().to_vec()).unwrap();
-	reply.header_mut().set_id(id);
+        // We get a Message, but the client transport needs a ComposeRequest
+        // (which is implemented by RequestMessage). Convert.
+        println!("request {:?}", msg);
+        let request_msg = RequestMessage::new(msg);
+        println!("request {:?}", request_msg);
+        let mut query = conn.send_request(request_msg);
+        let reply = query.get_response().await.unwrap();
+        println!("got reply {:?}", reply);
 
-	// We get the reply as Message from the client transport but
-	// we need to return a StreamTarget. Convert.
-	let stream = to_stream_additional::<_>(&reply).unwrap();
-	Ok(CallResult::new(stream))
+        // We get the reply as Message from the client transport but
+        // we need to return an AdditionalBuilder with a StreamTarget. Convert.
+        let stream = to_stream_additional::<_>(&reply).unwrap();
+        Ok(CallResult::new(stream))
     })))
 }
-*/
 
 /*
 /// Function that returns a Service trait.
@@ -702,10 +693,19 @@ fn start_service(
     socket: UdpSocket,
     buf_source: Arc<VecBufSource>,
 ) -> JoinHandle<()> {
-    let svc = query_service(conn);
-    // let svc = mk_service(do_query, conn);
-    let srv = Arc::new(DgramServer::new(socket, buf_source, Arc::new(svc)));
-    tokio::spawn(async move { srv.run().await })
+    if USE_MK_SERVICE {
+        let svc = mk_service(do_query, conn);
+        let srv = DgramServer::new(socket, buf_source, Arc::new(svc));
+        let srv = srv.with_middleware(MiddlewareBuilder::default().finish());
+        let srv = Arc::new(srv);
+        tokio::spawn(async move { srv.run().await })
+    } else {
+        let svc = query_service(conn);
+        let srv = DgramServer::new(socket, buf_source, Arc::new(svc));
+        let srv = srv.with_middleware(MiddlewareBuilder::default().finish());
+        let srv = Arc::new(srv);
+        tokio::spawn(async move { srv.run().await })
+    }
 }
 
 /// Get a socket address for an IP address, and optional port and a
