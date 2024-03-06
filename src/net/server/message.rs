@@ -4,7 +4,7 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 
 use tokio::task::JoinHandle;
-use tracing::info_span;
+use tracing::{enabled, info_span, Level};
 
 use crate::{
     base::Message,
@@ -140,12 +140,16 @@ where
 
         let (txn, aborted_pp_idx) = match pp_res {
             ControlFlow::Continue(()) => {
-                let span = info_span!("svc-call",
-                    msg_id = frozen_request.message().header().id(),
-                    client = %frozen_request.client_addr(),
-                );
-                let _guard = span.enter();
-                let txn = svc.call(frozen_request.clone())?;
+                let txn = if enabled!(Level::INFO) {
+                    let span = info_span!("svc-call",
+                        msg_id = frozen_request.message().header().id(),
+                        client = %frozen_request.client_addr(),
+                    );
+                    let _guard = span.enter();
+                    svc.call(frozen_request.clone())?
+                } else {
+                    svc.call(frozen_request.clone())?
+                };
                 (txn, None)
             }
             ControlFlow::Break((txn, aborted_pp_idx)) => {
