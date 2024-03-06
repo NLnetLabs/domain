@@ -21,22 +21,26 @@ use tokio::io::{
 use tokio::sync::mpsc::Sender;
 use tokio::sync::{mpsc, watch};
 use tokio::task::JoinHandle;
+use tokio::time::timeout;
 use tracing::{debug, error};
 
 //------------ Connection -----------------------------------------------
 
 pub struct Connection<Stream, Buf, Svc>
 where
-    Buf: BufSource,
-    Svc: Service<Buf::Output>,
+    Stream: AsyncRead + AsyncWrite + Send + Sync + 'static,
+    Buf: BufSource + Send + Sync + Clone + 'static,
+    Buf::Output: Send + Sync,
+    Svc: Service<Buf::Output> + Send + Sync + Clone + 'static,
 {
     active: bool,
-    buf_source: Buf,
+    addr: SocketAddr,
     metrics: Arc<ServerMetrics>,
+    result_q_rx: mpsc::Receiver<CallResult<Svc::Target>>,
     service: Svc,
     middleware_chain: Option<MiddlewareChain<Buf::Output, Svc::Target>>,
-    stream: Option<Stream>,
-    addr: SocketAddr,
+    state: StreamState<Stream, Buf, Svc>,
+    transceiver: Transceiver<Stream, Buf>,
 }
 
 /// Creation
@@ -44,9 +48,9 @@ where
 impl<Stream, Buf, Svc> Connection<Stream, Buf, Svc>
 where
     Stream: AsyncRead + AsyncWrite + Send + Sync + 'static,
-    Buf: BufSource + Send + Sync + 'static + Clone,
-    Buf::Output: Send + Sync + 'static,
-    Svc: Service<Buf::Output> + Send + Sync + 'static + Clone,
+    Buf: BufSource + Send + Sync + Clone + 'static,
+    Buf::Output: Send + Sync,
+    Svc: Service<Buf::Output> + Send + Sync + Clone + 'static,
 {
     #[must_use]
     pub fn new(
@@ -57,14 +61,22 @@ where
         stream: Stream,
         addr: SocketAddr,
     ) -> Self {
+        let (stream_rx, stream_tx) = tokio::io::split(stream);
+        let (result_q_tx, result_q_rx) =
+            mpsc::channel::<CallResult<Svc::Target>>(10); // TODO: Take from configuration
+        let idle_timeout = chrono::Duration::seconds(3); // TODO: Take from configuration
+        let state = StreamState::new(stream_tx, result_q_tx, idle_timeout);
+        let transceiver = Transceiver::new(buf_source, stream_rx);
+
         Self {
             active: false,
-            buf_source,
+            addr,
+            result_q_rx,
             service,
             middleware_chain,
             metrics,
-            stream: Some(stream),
-            addr,
+            state,
+            transceiver,
         }
     }
 }
@@ -104,8 +116,7 @@ where
         self.active = true;
 
         // TODO: Why use an Option and then Option::take()?
-        let stream = self.stream.take().unwrap();
-        self.run_until_error(command_rx, stream).await;
+        self.run_until_error(command_rx).await;
     }
 }
 
@@ -119,37 +130,76 @@ where
     Svc: Service<Buf::Output> + Send + Sync + 'static + Clone,
 {
     async fn run_until_error(
-        &self,
+        mut self,
         mut command_rx: watch::Receiver<ServiceCommand>,
-        stream: Stream,
     ) where
         Svc::Single: Send,
     {
-        let (mut stream_rx, stream_tx) = tokio::io::split(stream);
-        let (result_q_tx, mut result_q_rx) =
-            mpsc::channel::<CallResult<Svc::Target>>(10); // TODO: Take from configuration
-        let idle_timeout = chrono::Duration::seconds(3); // TODO: Take from configuration
-
-        let mut state =
-            StreamState::new(stream_tx, result_q_tx, idle_timeout);
-
         loop {
-            if let Err(err) = self
-                .transceive_one_request(
-                    &mut command_rx,
-                    &mut state,
-                    &mut stream_rx,
-                    &mut result_q_rx,
-                )
-                .await
-            {
+            let res = tokio::select! {
+                biased;
+
+                res = command_rx.changed() => {
+                    self.process_service_command(res, &mut command_rx)
+                }
+
+                res = self.result_q_rx.recv() => {
+                    // If we failed to read the results of requests
+                    // processed by the service because the queue holding
+                    // those results is empty and can no longer be read
+                    // from, then there is no point continuing to read
+                    // from the input stream because we will not be able
+                    // to access the result of processing the request.
+                    // TODO: Describe when this can occur.
+                    match res {
+                        Some(call_result) => {
+                            self.process_queued_result(call_result).await;
+                            Ok(())
+                        }
+
+                        None => {
+                            Err(ConnectionEvent::DisconnectWithFlush)
+                        }
+                    }
+                }
+
+                res = timeout(self.state.timeout_as_std(), self.transceiver.transceive()) => {
+                    match res {
+                        Err(_elapsed) => {
+                            // Timeout elapsed
+                            Err(ConnectionEvent::DisconnectWithoutFlush)
+                        }
+
+                        Ok(Ok(msg_buf)) => {
+                            // Message received
+                            self.state.full_msg_received();
+
+                            self.process_request(
+                                msg_buf,
+                                self.addr,
+                                self.state.result_q_tx.clone(),
+                                self.middleware_chain.clone(),
+                                &self.service,
+                                self.metrics.clone(),
+                            )
+                            .map_err(ConnectionEvent::ServiceError)
+                        }
+
+                        Ok(Err(err)) => {
+                            // Receive error
+                            Err(err)
+                        }
+                    }
+                }
+            };
+
+            if let Err(err) = res {
                 match err {
                     ConnectionEvent::DisconnectWithoutFlush => {
                         break;
                     }
                     ConnectionEvent::DisconnectWithFlush => {
-                        self.flush_write_queue(&mut state, &mut result_q_rx)
-                            .await;
+                        self.flush_write_queue().await;
                         break;
                     }
                     ConnectionEvent::ServiceError(err) => {
@@ -160,130 +210,9 @@ where
         }
     }
 
-    async fn transceive_one_request(
-        &self,
-        command_rx: &mut watch::Receiver<ServiceCommand>,
-        state: &mut StreamState<Stream, Buf, Svc>,
-        stream_rx: &mut ReadHalf<Stream>,
-        result_q_rx: &mut mpsc::Receiver<CallResult<Svc::Target>>,
-    ) -> Result<(), ConnectionEvent<Svc::Error>>
-    where
-        Svc::Single: Send,
-    {
-        let mut msg_size_buf: [u8; 2] = [0; 2];
-
-        self.transceive_until(
-            command_rx,
-            state,
-            stream_rx,
-            result_q_rx,
-            &mut msg_size_buf,
-        )
-        .await?;
-
-        let msg_len = u16::from_be_bytes(msg_size_buf) as usize;
-        let mut msg_buf = self.buf_source.create_sized(msg_len);
-
-        self.transceive_until(
-            command_rx,
-            state,
-            stream_rx,
-            result_q_rx,
-            &mut msg_buf,
-        )
-        .await?;
-
-        state.full_msg_received();
-
-        self.process_request(
-            msg_buf,
-            self.addr,
-            state.result_q_tx.clone(),
-            self.middleware_chain.clone(),
-            &self.service,
-            self.metrics.clone(),
-        )
-        .map_err(ConnectionEvent::ServiceError)?;
-
-        Ok(())
-    }
-
-    async fn transceive_until<T: AsMut<[u8]>>(
-        &self,
-        command_rx: &mut watch::Receiver<ServiceCommand>,
-        state: &mut StreamState<Stream, Buf, Svc>,
-        stream_rx: &mut ReadHalf<Stream>,
-        result_q_rx: &mut mpsc::Receiver<CallResult<Svc::Target>>,
-        buf: &mut T,
-    ) -> Result<(), ConnectionEvent<Svc::Error>> {
-        // Note: The MPSC receiver used to receive finished service call
-        // results can be read from safely even if the future is cancelled.
-        // Thus we don't need to keep the future, we can just call recv()
-        // again when we need to.
-        //
-        // The same is not true of reading an exact number of bytes from the
-        // incoming data stream, the future cannot be cancelled safely as any
-        // bytes already read will be written to the buffer but we will lose
-        // the knowledge of how many bytes have been written to the buffer. So
-        // we must keep using the same future until it finally resolves when
-        // the read is complete or results in an error.
-        'read: loop {
-            let stream_read_fut = stream_rx.read_exact(buf.as_mut());
-            let timeout_fut = tokio::time::sleep(state.timeout_as_std());
-
-            tokio::pin!(stream_read_fut);
-            tokio::pin!(timeout_fut);
-
-            loop {
-                tokio::select! {
-                    biased;
-
-                    res = command_rx.changed() => {
-                        self.process_service_command(res, state, command_rx)?;
-                    }
-
-                    result_q_res = result_q_rx.recv() => {
-                        // If we failed to read the results of requests
-                        // processed by the service because the queue holding
-                        // those results is empty and can no longer be read
-                        // from, then there is no point continuing to read
-                        // from the input stream because we will not be able
-                        // to access the result of processing the request.
-                        // TODO: Describe when this can occur.
-                        let call_result = result_q_res
-                            .ok_or(ConnectionEvent::DisconnectWithFlush)?;
-
-                        self.process_queued_result(state, call_result).await;
-                    }
-
-                    stream_read_res = &mut stream_read_fut => {
-                        match stream_read_res {
-                            // The stream read succeeded. Return to the caller
-                            // so that it can process the bytes written to the
-                            // buffer.
-                            Ok(_size) => return Ok(()),
-
-                            Err(err) => {
-                                match self.process_io_error(err) {
-                                    ControlFlow::Continue(_) => continue 'read,
-                                    ControlFlow::Break(err) => return Err(err),
-                                }
-                            }
-                        }
-                    }
-
-                    _ = &mut timeout_fut => {
-                        return Err(ConnectionEvent::DisconnectWithFlush);
-                    }
-                }
-            }
-        }
-    }
-
     fn process_service_command(
-        &self,
+        &mut self,
         res: Result<(), watch::error::RecvError>,
-        state: &mut StreamState<Stream, Buf, Svc>,
         command_rx: &mut watch::Receiver<ServiceCommand>,
     ) -> Result<(), ConnectionEvent<Svc::Error>> {
         // If the parent server no longer exists but was not cleanly shutdown
@@ -313,7 +242,7 @@ where
                 debug!("Server connection timeout reconfigured to {idle_timeout:?}");
                 if let Ok(timeout) = chrono::Duration::from_std(idle_timeout)
                 {
-                    state.idle_timeout = timeout;
+                    self.state.idle_timeout = timeout;
                 }
 
                 // TODO: Support dynamic replacement of the middleware chain?
@@ -352,96 +281,64 @@ where
         Ok(())
     }
 
-    #[must_use]
-    fn process_io_error(
-        &self,
-        err: io::Error,
-    ) -> ControlFlow<ConnectionEvent<Svc::Error>> {
-        match err.kind() {
-            io::ErrorKind::UnexpectedEof => {
-                // The client disconnected. Per RFC 7766 6.2.4 pending
-                // responses MUST NOT be sent to the client.
-                ControlFlow::Break(ConnectionEvent::DisconnectWithoutFlush)
-            }
-            io::ErrorKind::TimedOut | io::ErrorKind::Interrupted => {
-                // These errors might be recoverable, try again.
-                ControlFlow::Continue(())
-            }
-            _ => {
-                // Everything else is either unrecoverable or unknown to us at
-                // the time of writing and so we can't guess how to handle it,
-                // so abort.
-                ControlFlow::Break(ConnectionEvent::DisconnectWithoutFlush)
-            }
-        }
-    }
-
-    async fn flush_write_queue(
-        &self,
-        state: &mut StreamState<Stream, Buf, Svc>,
-        result_q_rx: &mut mpsc::Receiver<CallResult<Svc::Target>>,
-    ) {
+    async fn flush_write_queue(&mut self) {
         // Stop accepting new response messages (should we check for in-flight
         // messages that haven't generated a response yet but should be
         // allowed to do so?) so that we can flush the write queue and exit
         // this connection handler.
-        result_q_rx.close();
-        while let Some(call_result) = result_q_rx.recv().await {
-            self.process_queued_result(state, call_result).await;
+        self.result_q_rx.close();
+        while let Some(call_result) = self.result_q_rx.recv().await {
+            self.process_queued_result(call_result).await;
         }
     }
 
     async fn process_queued_result(
-        &self,
-        state: &mut StreamState<Stream, Buf, Svc>,
+        &mut self,
         call_result: CallResult<Svc::Target>,
     ) {
         let (response, command) = call_result.into_inner();
 
         if let Some(response) = response {
-            self.write_result_to_stream(state, response.finish()).await;
+            self.write_result_to_stream(response.finish()).await;
         }
 
         if let Some(command) = command {
-            self.act_on_queued_command(command, state).await;
+            self.act_on_queued_command(command).await;
         }
     }
 
     async fn write_result_to_stream(
-        &self,
-        state: &mut StreamState<Stream, Buf, Svc>,
+        &mut self,
         msg: StreamTarget<Svc::Target>,
     ) {
         if let Err(err) =
-            state.stream_tx.write_all(msg.as_stream_slice()).await
+            self.state.stream_tx.write_all(msg.as_stream_slice()).await
         {
             error!("Write error: {err}");
             todo!()
         }
-        if state.result_q_tx.capacity() == state.result_q_tx.max_capacity() {
-            state.response_queue_emptied();
+        if self.state.result_q_tx.capacity()
+            == self.state.result_q_tx.max_capacity()
+        {
+            self.state.response_queue_emptied();
         }
         self.metrics
             .num_pending_writes
             .fetch_sub(1, Ordering::Relaxed);
     }
 
-    async fn act_on_queued_command(
-        &self,
-        cmd: ServiceCommand,
-        state: &mut StreamState<Stream, Buf, Svc>,
-    ) {
+    async fn act_on_queued_command(&mut self, cmd: ServiceCommand) {
         match cmd {
             ServiceCommand::CloseConnection { .. } => todo!(),
             ServiceCommand::Init => todo!(),
             ServiceCommand::Reconfigure { idle_timeout } => {
                 debug!("Reconfigured connection timeout to {idle_timeout:?}");
-                state.idle_timeout =
+                self.state.idle_timeout =
                     chrono::Duration::from_std(idle_timeout).unwrap();
                 // TODO: Check this unwrap()
             }
             ServiceCommand::Shutdown => {
-                state.stream_tx.shutdown().await.unwrap()
+                self.state.stream_tx.shutdown().await.unwrap()
             }
         }
     }
@@ -451,8 +348,10 @@ where
 
 impl<Stream, Buf, Svc> Drop for Connection<Stream, Buf, Svc>
 where
-    Buf: BufSource,
-    Svc: Service<Buf::Output>,
+    Stream: AsyncRead + AsyncWrite + Send + Sync,
+    Buf: BufSource + Send + Sync + Clone,
+    Buf::Output: Send + Sync,
+    Svc: Service<Buf::Output> + Send + Sync + Clone,
 {
     fn drop(&mut self) {
         if self.active {
@@ -471,10 +370,10 @@ where
 impl<Stream, Buf, Svc> MessageProcessor<Buf, Svc>
     for Connection<Stream, Buf, Svc>
 where
-    Stream: AsyncRead + AsyncWrite + Send + Sync + 'static,
-    Buf: BufSource + Send + Sync + 'static + Clone,
-    Buf::Output: Send + Sync + 'static,
-    Svc: Service<Buf::Output> + Send + Sync + 'static + Clone,
+    Stream: AsyncRead + AsyncWrite + Send + Sync,
+    Buf: BufSource + Send + Sync + Clone,
+    Buf::Output: Send + Sync,
+    Svc: Service<Buf::Output> + Send + Sync + Clone,
 {
     type State = Sender<CallResult<Svc::Target>>;
 
@@ -502,6 +401,100 @@ where
                 .num_pending_writes
                 .store(tx.max_capacity() - tx.capacity(), Ordering::Relaxed);
         })
+    }
+}
+
+//----------- Transceiver ----------------------------------------------------
+
+struct Transceiver<Stream, Buf>
+where
+    Stream: AsyncRead + AsyncWrite + Send + Sync + 'static,
+    Buf: BufSource + Send + Sync + 'static + Clone,
+{
+    buf_source: Buf,
+    stream_rx: ReadHalf<Stream>,
+}
+
+impl<Stream, Buf> Transceiver<Stream, Buf>
+where
+    Stream: AsyncRead + AsyncWrite + Send + Sync + 'static,
+    Buf: BufSource + Send + Sync + 'static + Clone,
+    Buf::Output: Send + Sync + 'static,
+{
+    fn new(buf_source: Buf, stream_rx: ReadHalf<Stream>) -> Self {
+        Self {
+            buf_source,
+            stream_rx,
+        }
+    }
+
+    pub async fn transceive<E>(
+        &mut self,
+    ) -> Result<Buf::Output, ConnectionEvent<E>> {
+        let mut msg_size_buf: [u8; 2] = [0; 2];
+
+        self.transceive_until(&mut msg_size_buf).await?;
+
+        let msg_len = u16::from_be_bytes(msg_size_buf) as usize;
+        let mut msg_buf = self.buf_source.create_sized(msg_len);
+
+        self.transceive_until(&mut msg_buf).await?;
+
+        Ok(msg_buf)
+    }
+
+    async fn transceive_until<E, T: AsMut<[u8]>>(
+        &mut self,
+        buf: &mut T,
+    ) -> Result<(), ConnectionEvent<E>> {
+        // Note: The MPSC receiver used to receive finished service call
+        // results can be read from safely even if the future is cancelled.
+        // Thus we don't need to keep the future, we can just call recv()
+        // again when we need to.
+        //
+        // The same is not true of reading an exact number of bytes from the
+        // incoming data stream, the future cannot be cancelled safely as any
+        // bytes already read will be written to the buffer but we will lose
+        // the knowledge of how many bytes have been written to the buffer. So
+        // we must keep using the same future until it finally resolves when
+        // the read is complete or results in an error.
+        'read: loop {
+            match self.stream_rx.read_exact(buf.as_mut()).await {
+                // The stream read succeeded. Return to the caller
+                // so that it can process the bytes written to the
+                // buffer.
+                Ok(_size) => return Ok(()),
+
+                Err(err) => match self.process_io_error(err) {
+                    ControlFlow::Continue(_) => continue 'read,
+                    ControlFlow::Break(err) => return Err(err),
+                },
+            }
+        }
+    }
+
+    #[must_use]
+    fn process_io_error<E>(
+        &self,
+        err: io::Error,
+    ) -> ControlFlow<ConnectionEvent<E>> {
+        match err.kind() {
+            io::ErrorKind::UnexpectedEof => {
+                // The client disconnected. Per RFC 7766 6.2.4 pending
+                // responses MUST NOT be sent to the client.
+                ControlFlow::Break(ConnectionEvent::DisconnectWithoutFlush)
+            }
+            io::ErrorKind::TimedOut | io::ErrorKind::Interrupted => {
+                // These errors might be recoverable, try again.
+                ControlFlow::Continue(())
+            }
+            _ => {
+                // Everything else is either unrecoverable or unknown to us at
+                // the time of writing and so we can't guess how to handle it,
+                // so abort.
+                ControlFlow::Break(ConnectionEvent::DisconnectWithoutFlush)
+            }
+        }
     }
 }
 
