@@ -21,7 +21,8 @@ use tokio::io::{
 use tokio::sync::mpsc::Sender;
 use tokio::sync::{mpsc, watch};
 use tokio::task::JoinHandle;
-use tokio::time::timeout;
+use tokio::time::error::Elapsed;
+use tokio::time::{sleep, timeout};
 use tracing::{debug, error};
 
 //------------ Connection -----------------------------------------------
@@ -35,12 +36,14 @@ where
 {
     active: bool,
     addr: SocketAddr,
+    buf_source: Buf,
     metrics: Arc<ServerMetrics>,
     result_q_rx: mpsc::Receiver<CallResult<Svc::Target>>,
     service: Svc,
     middleware_chain: Option<MiddlewareChain<Buf::Output, Svc::Target>>,
+    network_timeout: std::time::Duration,
     state: StreamState<Stream, Buf, Svc>,
-    transceiver: Transceiver<Stream, Buf>,
+    stream_rx: Option<ReadHalf<Stream>>,
 }
 
 /// Creation
@@ -65,18 +68,29 @@ where
         let (result_q_tx, result_q_rx) =
             mpsc::channel::<CallResult<Svc::Target>>(10); // TODO: Take from configuration
         let idle_timeout = chrono::Duration::seconds(3); // TODO: Take from configuration
+        let network_timeout = std::time::Duration::from_secs(1); // TODO: Take from configuration
         let state = StreamState::new(stream_tx, result_q_tx, idle_timeout);
-        let transceiver = Transceiver::new(buf_source, stream_rx);
+
+        // Place the ReadHalf of the stream into an Option so that we can take
+        // it out (as we can't clone it and we can't place it into an Arc
+        // (even though it is Send and Sync) because AsyncRead::poll_read()
+        // takes Pin<&mut Self> which can't be obtained from an Arc without
+        // having the only Arc). We want to take it out so that we can use it
+        // without taking a reference to self as that conflicts with other
+        // uses of self we have to do while running.
+        let stream_rx = Some(stream_rx);
 
         Self {
             active: false,
             addr,
+            buf_source,
             result_q_rx,
             service,
             middleware_chain,
             metrics,
+            network_timeout,
             state,
-            transceiver,
+            stream_rx,
         }
     }
 }
@@ -135,75 +149,59 @@ where
     ) where
         Svc::Single: Send,
     {
-        loop {
-            let res = tokio::select! {
-                biased;
+        let stream_rx = self.stream_rx.take().unwrap();
+        let mut transceiver =
+            Transceiver::new(self.buf_source.clone(), stream_rx);
 
-                res = command_rx.changed() => {
-                    self.process_service_command(res, &mut command_rx)
-                }
+        'outer: loop {
+            // Create a read future that will survive when other
+            // tokio::select! branches resolve before the branch awaiting this
+            // future resolves. This ensures that in-progress non-cancel-safe
+            // reads do not get cancelled. This works because it doesn't
+            // avoids creating a new future each time as would happen if we
+            // called transceive() in a tokio::select! branch.
+            let transceive_fut = transceiver.transceive();
+            tokio::pin!(transceive_fut);
 
-                res = self.result_q_rx.recv() => {
-                    // If we failed to read the results of requests
-                    // processed by the service because the queue holding
-                    // those results is empty and can no longer be read
-                    // from, then there is no point continuing to read
-                    // from the input stream because we will not be able
-                    // to access the result of processing the request.
-                    // TODO: Describe when this can occur.
-                    match res {
-                        Some(call_result) => {
-                            self.process_queued_result(call_result).await;
-                            Ok(())
-                        }
+            'inner: loop {
+                let res = tokio::select! {
+                    biased;
 
-                        None => {
-                            Err(ConnectionEvent::DisconnectWithFlush)
+                    res = command_rx.changed() => {
+                        self.process_service_command(res, &mut command_rx)
+                    }
+
+                    res = self.result_q_rx.recv() => {
+                        self.process_queued_result(res).await
+                    }
+
+                    _ = sleep(self.state.idle_timeout_remaining_as_std()) => {
+                        self.process_dns_idle_timeout()
+                    }
+
+                    res = timeout(self.network_timeout, &mut transceive_fut) => {
+                        let res = self.process_read_result(res).await;
+                        if res.is_ok() {
+                            // Set up to receive another message
+                            break 'inner;
+                        } else {
+                            res
                         }
                     }
-                }
+                };
 
-                res = timeout(self.state.timeout_as_std(), self.transceiver.transceive()) => {
-                    match res {
-                        Err(_elapsed) => {
-                            // Timeout elapsed
-                            Err(ConnectionEvent::DisconnectWithoutFlush)
+                if let Err(err) = res {
+                    match err {
+                        ConnectionEvent::DisconnectWithoutFlush => {
+                            break 'outer;
                         }
-
-                        Ok(Ok(msg_buf)) => {
-                            // Message received
-                            self.state.full_msg_received();
-
-                            self.process_request(
-                                msg_buf,
-                                self.addr,
-                                self.state.result_q_tx.clone(),
-                                self.middleware_chain.clone(),
-                                &self.service,
-                                self.metrics.clone(),
-                            )
-                            .map_err(ConnectionEvent::ServiceError)
+                        ConnectionEvent::DisconnectWithFlush => {
+                            self.flush_write_queue().await;
+                            break 'outer;
                         }
-
-                        Ok(Err(err)) => {
-                            // Receive error
-                            Err(err)
+                        ConnectionEvent::ServiceError(err) => {
+                            error!("Service error: {}", err);
                         }
-                    }
-                }
-            };
-
-            if let Err(err) = res {
-                match err {
-                    ConnectionEvent::DisconnectWithoutFlush => {
-                        break;
-                    }
-                    ConnectionEvent::DisconnectWithFlush => {
-                        self.flush_write_queue().await;
-                        break;
-                    }
-                    ConnectionEvent::ServiceError(err) => {
-                        error!("Service error: {}", err);
                     }
                 }
             }
@@ -288,14 +286,28 @@ where
         // this connection handler.
         self.result_q_rx.close();
         while let Some(call_result) = self.result_q_rx.recv().await {
-            self.process_queued_result(call_result).await;
+            if let Err(_err) =
+                self.process_queued_result(Some(call_result)).await
+            {
+                // TOOD: log this error?
+            }
         }
     }
 
     async fn process_queued_result(
         &mut self,
-        call_result: CallResult<Svc::Target>,
-    ) {
+        call_result: Option<CallResult<Svc::Target>>,
+    ) -> Result<(), ConnectionEvent<Svc::Error>> {
+        // If we failed to read the results of requests processed by the
+        // service because the queue holding those results is empty and can no
+        // longer be read from, then there is no point continuing to read from
+        // the input stream because we will not be able to access the result
+        // of processing the request.
+        // TODO: Describe when this can occur.
+        let Some(call_result) = call_result else {
+            return Err(ConnectionEvent::DisconnectWithFlush);
+        };
+
         let (response, command) = call_result.into_inner();
 
         if let Some(response) = response {
@@ -305,6 +317,8 @@ where
         if let Some(command) = command {
             self.act_on_queued_command(command).await;
         }
+
+        Ok(())
     }
 
     async fn write_result_to_stream(
@@ -339,6 +353,53 @@ where
             }
             ServiceCommand::Shutdown => {
                 self.state.stream_tx.shutdown().await.unwrap()
+            }
+        }
+    }
+
+    fn process_dns_idle_timeout(
+        &self,
+    ) -> Result<(), ConnectionEvent<Svc::Error>> {
+        // DNS idle timeout elapsed, or was it reset?
+        if self.state.idle_timeout_remaining() > chrono::Duration::zero() {
+            Ok(())
+        } else {
+            Err(ConnectionEvent::DisconnectWithoutFlush)
+        }
+    }
+
+    async fn process_read_result(
+        &mut self,
+        res: Result<
+            Result<Buf::Output, ConnectionEvent<Svc::Error>>,
+            Elapsed,
+        >,
+    ) -> Result<(), ConnectionEvent<Svc::Error>> {
+        match res {
+            Err(_elapsed) => {
+                // Timeout elapsed
+                Err(ConnectionEvent::DisconnectWithoutFlush)
+            }
+
+            Ok(Ok(msg_buf)) => {
+                // Message received, reset the DNS idle timer
+                self.state.full_msg_received();
+
+                // Process the received message
+                self.process_request(
+                    msg_buf,
+                    self.addr,
+                    self.state.result_q_tx.clone(),
+                    self.middleware_chain.clone(),
+                    &self.service,
+                    self.metrics.clone(),
+                )
+                .map_err(ConnectionEvent::ServiceError)
+            }
+
+            Ok(Err(err)) => {
+                // Receive error
+                Err(err)
             }
         }
     }
@@ -411,6 +472,7 @@ where
     Stream: AsyncRead + AsyncWrite + Send + Sync + 'static,
     Buf: BufSource + Send + Sync + 'static + Clone,
 {
+    msg_size_buf: [u8; 2],
     buf_source: Buf,
     stream_rx: ReadHalf<Stream>,
 }
@@ -423,6 +485,7 @@ where
 {
     fn new(buf_source: Buf, stream_rx: ReadHalf<Stream>) -> Self {
         Self {
+            msg_size_buf: [0; 2],
             buf_source,
             stream_rx,
         }
@@ -431,20 +494,19 @@ where
     pub async fn transceive<E>(
         &mut self,
     ) -> Result<Buf::Output, ConnectionEvent<E>> {
-        let mut msg_size_buf: [u8; 2] = [0; 2];
+        Self::transceive_until(&mut self.stream_rx, &mut self.msg_size_buf)
+            .await?;
 
-        self.transceive_until(&mut msg_size_buf).await?;
-
-        let msg_len = u16::from_be_bytes(msg_size_buf) as usize;
+        let msg_len = u16::from_be_bytes(self.msg_size_buf) as usize;
         let mut msg_buf = self.buf_source.create_sized(msg_len);
 
-        self.transceive_until(&mut msg_buf).await?;
+        Self::transceive_until(&mut self.stream_rx, &mut msg_buf).await?;
 
         Ok(msg_buf)
     }
 
     async fn transceive_until<E, T: AsMut<[u8]>>(
-        &mut self,
+        stream_rx: &mut ReadHalf<Stream>,
         buf: &mut T,
     ) -> Result<(), ConnectionEvent<E>> {
         // Note: The MPSC receiver used to receive finished service call
@@ -459,13 +521,13 @@ where
         // we must keep using the same future until it finally resolves when
         // the read is complete or results in an error.
         'read: loop {
-            match self.stream_rx.read_exact(buf.as_mut()).await {
+            match stream_rx.read_exact(buf.as_mut()).await {
                 // The stream read succeeded. Return to the caller
                 // so that it can process the bytes written to the
                 // buffer.
                 Ok(_size) => return Ok(()),
 
-                Err(err) => match self.process_io_error(err) {
+                Err(err) => match Self::process_io_error(err) {
                     ControlFlow::Continue(_) => continue 'read,
                     ControlFlow::Break(err) => return Err(err),
                 },
@@ -475,7 +537,6 @@ where
 
     #[must_use]
     fn process_io_error<E>(
-        &self,
         err: io::Error,
     ) -> ControlFlow<ConnectionEvent<E>> {
         match err.kind() {
@@ -588,20 +649,20 @@ where
     /// When we (will) have been sat idle for longer than the configured idle
     /// timeout for this connection.
     #[must_use]
-    pub fn timeout_at(&self) -> chrono::Duration {
+    pub fn idle_timeout_remaining(&self) -> chrono::Duration {
         self.idle_timeout
-            .checked_sub(&self.idle_time())
+            .checked_sub(&self.idle_duration_since_reset())
             .unwrap_or(chrono::Duration::zero())
     }
 
     #[must_use]
-    pub fn timeout_as_std(&self) -> Duration {
-        self.timeout_at().to_std().unwrap_or_default()
+    pub fn idle_timeout_remaining_as_std(&self) -> Duration {
+        self.idle_timeout_remaining().to_std().unwrap_or_default()
     }
 
     /// How long has this connection been sat idle?
     #[must_use]
-    pub fn idle_time(&self) -> chrono::Duration {
+    pub fn idle_duration_since_reset(&self) -> chrono::Duration {
         Utc::now().signed_duration_since(self.idle_timer_reset_at)
     }
 
