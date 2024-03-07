@@ -575,7 +575,7 @@ where
         tx: Self::State,
         metrics: Arc<ServerMetrics>,
     ) {
-        // We can't send in a spawned async taskas then we would just
+        // We can't send in a spawned async task as then we would just
         // accumlate tasks even if the target queue is full. We can't call
         // `tx.blocking_send()` as that would block the Tokio runtime. So
         // instead we try and send and if that fails because the queue is full
