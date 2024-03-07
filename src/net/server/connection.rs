@@ -48,7 +48,7 @@ const IDLE_TIMEOUT: DefMinMax<Duration> = DefMinMax::new(
     Duration::from_secs(30 * 24 * 60 * 60),
 );
 
-/// Limit on the number of DNS responses queued for wriing to the client.
+/// Limit on the number of DNS responses queued for writing to the client.
 ///
 /// The value has to be between zero and 1,024. The default value is 10. These
 /// numbers are just a guess at something reasonable.
@@ -283,7 +283,7 @@ where
             // Create a read future that will survive when other
             // tokio::select! branches resolve before the branch awaiting this
             // future resolves. This ensures that in-progress non-cancel-safe
-            // reads do not get cancelled. This works because it doesn't
+            // reads do not get cancelled. This works because it
             // avoids creating a new future each time as would happen if we
             // called transceive() in a tokio::select! branch.
             let msg_recv = dns_msg_receiver.recv();
