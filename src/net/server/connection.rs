@@ -150,8 +150,8 @@ where
         Svc::Single: Send,
     {
         let stream_rx = self.stream_rx.take().unwrap();
-        let mut transceiver =
-            Transceiver::new(self.buf_source.clone(), stream_rx);
+        let mut dns_msg_receiver =
+            DnsMessageReceiver::new(self.buf_source.clone(), stream_rx);
 
         'outer: loop {
             // Create a read future that will survive when other
@@ -160,8 +160,8 @@ where
             // reads do not get cancelled. This works because it doesn't
             // avoids creating a new future each time as would happen if we
             // called transceive() in a tokio::select! branch.
-            let transceive_fut = transceiver.transceive();
-            tokio::pin!(transceive_fut);
+            let msg_recv = dns_msg_receiver.recv();
+            tokio::pin!(msg_recv);
 
             'inner: loop {
                 let res = tokio::select! {
@@ -179,7 +179,7 @@ where
                         self.process_dns_idle_timeout()
                     }
 
-                    res = timeout(self.network_timeout, &mut transceive_fut) => {
+                    res = timeout(self.network_timeout, &mut msg_recv) => {
                         let res = self.process_read_result(res).await;
                         if res.is_ok() {
                             // Set up to receive another message
@@ -465,9 +465,9 @@ where
     }
 }
 
-//----------- Transceiver ----------------------------------------------------
+//----------- DnsMessageReceiver ---------------------------------------------
 
-struct Transceiver<Stream, Buf>
+struct DnsMessageReceiver<Stream, Buf>
 where
     Stream: AsyncRead + AsyncWrite + Send + Sync + 'static,
     Buf: BufSource + Send + Sync + 'static + Clone,
@@ -477,7 +477,7 @@ where
     stream_rx: ReadHalf<Stream>,
 }
 
-impl<Stream, Buf> Transceiver<Stream, Buf>
+impl<Stream, Buf> DnsMessageReceiver<Stream, Buf>
 where
     Stream: AsyncRead + AsyncWrite + Send + Sync + 'static,
     Buf: BufSource + Send + Sync + 'static + Clone,
@@ -491,36 +491,35 @@ where
         }
     }
 
-    pub async fn transceive<E>(
+    /// Receive a single DNS message.
+    ///
+    /// # Cancel safety
+    ///
+    /// This function is NOT cancel safe.
+    pub async fn recv<E>(
         &mut self,
     ) -> Result<Buf::Output, ConnectionEvent<E>> {
-        Self::transceive_until(&mut self.stream_rx, &mut self.msg_size_buf)
+        Self::recv_n_bytes(&mut self.stream_rx, &mut self.msg_size_buf)
             .await?;
 
         let msg_len = u16::from_be_bytes(self.msg_size_buf) as usize;
         let mut msg_buf = self.buf_source.create_sized(msg_len);
 
-        Self::transceive_until(&mut self.stream_rx, &mut msg_buf).await?;
+        Self::recv_n_bytes(&mut self.stream_rx, &mut msg_buf).await?;
 
         Ok(msg_buf)
     }
 
-    async fn transceive_until<E, T: AsMut<[u8]>>(
+    /// Receive exactly as many bytes as the given buffer can hold.
+    ///
+    /// # Cancel safety
+    ///
+    /// This function is NOT cancel safe.
+    async fn recv_n_bytes<E, T: AsMut<[u8]>>(
         stream_rx: &mut ReadHalf<Stream>,
         buf: &mut T,
     ) -> Result<(), ConnectionEvent<E>> {
-        // Note: The MPSC receiver used to receive finished service call
-        // results can be read from safely even if the future is cancelled.
-        // Thus we don't need to keep the future, we can just call recv()
-        // again when we need to.
-        //
-        // The same is not true of reading an exact number of bytes from the
-        // incoming data stream, the future cannot be cancelled safely as any
-        // bytes already read will be written to the buffer but we will lose
-        // the knowledge of how many bytes have been written to the buffer. So
-        // we must keep using the same future until it finally resolves when
-        // the read is complete or results in an error.
-        'read: loop {
+        loop {
             match stream_rx.read_exact(buf.as_mut()).await {
                 // The stream read succeeded. Return to the caller
                 // so that it can process the bytes written to the
@@ -528,7 +527,7 @@ where
                 Ok(_size) => return Ok(()),
 
                 Err(err) => match Self::process_io_error(err) {
-                    ControlFlow::Continue(_) => continue 'read,
+                    ControlFlow::Continue(_) => continue,
                     ControlFlow::Break(err) => return Err(err),
                 },
             }
