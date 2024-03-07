@@ -4,8 +4,10 @@ use std::fs::File;
 use std::future::{Future, Ready};
 use std::io::BufReader;
 use std::net::SocketAddr;
+use std::ops::ControlFlow;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
+use std::sync::RwLock;
 use std::task::{Context, Poll};
 use std::time::Duration;
 use std::{fmt, io};
@@ -17,7 +19,9 @@ use domain::base::{Dname, MessageBuilder, StreamTarget};
 use domain::net::server::buf::VecBufSource;
 use domain::net::server::dgram::DgramServer;
 use domain::net::server::middleware::builder::MiddlewareBuilder;
+use domain::net::server::middleware::processor::MiddlewareProcessor;
 use domain::net::server::middleware::processors::cookies::CookiesMiddlewareProcesor;
+use domain::net::server::middleware::processors::mandatory::MandatoryMiddlewareProcessor;
 use domain::net::server::prelude::*;
 use domain::net::server::sock::AsyncAccept;
 use domain::net::server::stream::StreamServer;
@@ -25,9 +29,11 @@ use domain::rdata::A;
 
 use rustls_pemfile::{certs, rsa_private_keys};
 use tokio::net::{TcpListener, TcpSocket, TcpStream, UdpSocket};
+use tokio::time::Instant;
 use tokio_rustls::rustls::{Certificate, PrivateKey};
 use tokio_rustls::TlsAcceptor;
 use tokio_tfo::{TfoListener, TfoStream};
+use tracing::Level;
 
 //----------- mk_answer() ----------------------------------------------------
 
@@ -319,10 +325,104 @@ impl AsyncAccept for RustlsTcpListener {
     }
 }
 
+//----------- CustomMiddleware -----------------------------------------------
+
+#[derive(Default)]
+struct Stats {
+    slowest_req: Duration,
+    fastest_req: Duration,
+    num_req_bytes: u32,
+    num_resp_bytes: u32,
+    num_reqs: u32,
+    num_ipv4: u32,
+    num_ipv6: u32,
+    num_udp: u32,
+}
+
+#[derive(Default)]
+pub struct StatsMiddlewareProcessor {
+    stats: RwLock<Stats>,
+}
+
+impl StatsMiddlewareProcessor {
+    /// Constructs an instance of this processor.
+    #[must_use]
+    pub fn new() -> Self {
+        Default::default()
+    }
+}
+
+impl std::fmt::Display for StatsMiddlewareProcessor {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let stats = self.stats.read().unwrap();
+        write!(f, "# Reqs={} [UDP={}, IPv4={}, IPv6={}] Bytes [rx={}, tx={}] Speed [fastest={}μs, slowest={}μs]",
+            stats.num_reqs,
+            stats.num_udp,
+            stats.num_ipv4,
+            stats.num_ipv6,
+            stats.num_req_bytes,
+            stats.num_resp_bytes,
+            stats.fastest_req.as_micros(),
+            stats.slowest_req.as_micros())?;
+        Ok(())
+    }
+}
+
+impl<RequestOctets, Target> MiddlewareProcessor<RequestOctets, Target>
+    for StatsMiddlewareProcessor
+where
+    RequestOctets: AsRef<[u8]> + Octets,
+    Target: Composer + Default,
+{
+    fn preprocess(
+        &self,
+        _request: &mut ContextAwareMessage<Message<RequestOctets>>,
+    ) -> ControlFlow<AdditionalBuilder<StreamTarget<Target>>> {
+        ControlFlow::Continue(())
+    }
+
+    fn postprocess(
+        &self,
+        request: &ContextAwareMessage<Message<RequestOctets>>,
+        _response: &mut AdditionalBuilder<StreamTarget<Target>>,
+    ) {
+        let duration = Instant::now().duration_since(request.received_at());
+        let mut stats = self.stats.write().unwrap();
+
+        stats.num_reqs += 1;
+        stats.num_req_bytes += request.message().as_slice().len() as u32;
+        stats.num_resp_bytes += _response.as_slice().len() as u32;
+
+        if request.received_over_udp() {
+            stats.num_udp += 1;
+        }
+
+        if request.client_addr().is_ipv4() {
+            stats.num_ipv4 += 1;
+        } else {
+            stats.num_ipv6 += 1;
+        }
+
+        if duration < stats.fastest_req {
+            stats.fastest_req = duration;
+        }
+        if duration > stats.slowest_req {
+            stats.slowest_req = duration;
+        }
+    }
+}
+
 //----------- main() ---------------------------------------------------------
 
 #[tokio::main(flavor = "multi_thread")]
 async fn main() {
+    tracing_subscriber::fmt()
+        .with_thread_ids(true)
+        .without_time()
+        .with_max_level(Level::INFO)
+        .try_init()
+        .ok();
+
     eprintln!("Test with commands such as:");
     eprintln!("  dig +short -4 @127.0.0.1 -p 8053 A google.com");
     eprintln!("  dig +short -4 @127.0.0.1 +tcp -p 8053 A google.com");
@@ -334,11 +434,14 @@ async fn main() {
 
     let svc = Arc::new(MyService);
 
-    let mut middleware = MiddlewareBuilder::<Vec<u8>, Vec<u8>>::default();
+    let mut middleware = MiddlewareBuilder::<Vec<u8>, Vec<u8>>::new();
     let server_secret = "server12secret34".as_bytes().try_into().unwrap();
+    let stats = Arc::new(StatsMiddlewareProcessor::new());
+    middleware.push(stats.clone());
+    middleware.push(MandatoryMiddlewareProcessor::new().into());
     #[cfg(feature = "siphasher")]
-    middleware.push(CookiesMiddlewareProcesor::new(server_secret));
-    let middleware = middleware.finish();
+    middleware.push(CookiesMiddlewareProcesor::new(server_secret).into());
+    let middleware = middleware.build();
 
     // -----------------------------------------------------------------------
     // Run a DNS server on UDP port 8053 on 127.0.0.1. Test it like so:
@@ -486,8 +589,9 @@ async fn main() {
     let mut fn_svc_middleware = MiddlewareBuilder::default();
     let server_secret = "server12secret34".as_bytes().try_into().unwrap();
     #[cfg(feature = "siphasher")]
-    fn_svc_middleware.push(CookiesMiddlewareProcesor::new(server_secret));
-    let fn_svc_middleware = fn_svc_middleware.finish();
+    fn_svc_middleware
+        .push(CookiesMiddlewareProcesor::new(server_secret).into());
+    let fn_svc_middleware = fn_svc_middleware.build();
 
     let srv = StreamServer::new(listener, buf_source.clone(), fn_svc);
     let srv = srv.with_middleware(fn_svc_middleware.clone());
@@ -528,6 +632,16 @@ async fn main() {
     let srv = StreamServer::new(listener, buf_source.clone(), svc.clone());
     let srv = srv.with_middleware(middleware.clone());
     let tls_join_handle = tokio::spawn(async move { srv.run().await });
+
+    // -----------------------------------------------------------------------
+    // Print statistics periodically
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(Duration::from_secs(5));
+        loop {
+            interval.tick().await;
+            println!("Statistics report: {}", stats);
+        }
+    });
 
     // -----------------------------------------------------------------------
     // Keep the services running in the background

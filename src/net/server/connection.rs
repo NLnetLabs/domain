@@ -24,6 +24,8 @@ use tokio::sync::{mpsc, watch};
 use tokio::time::{sleep_until, Instant};
 use tracing::{debug, error};
 
+use super::message::MessageDetails;
+
 /// Limit on the amount of time to allow between client requests.
 ///
 /// According to [RFC 7766]:
@@ -499,36 +501,29 @@ where
         &mut self,
         res: Result<Buf::Output, ConnectionEvent<Svc::Error>>,
     ) -> Result<(), ConnectionEvent<Svc::Error>> {
-        match res {
-            Ok(msg_buf) => {
-                self.metrics
-                    .num_received_requests
-                    .fetch_add(1, Ordering::Relaxed);
+        res.and_then(|msg_buf| {
+            let received_at = Instant::now();
 
-                // Message received, reset the DNS idle timer
-                self.state.full_msg_received();
+            self.metrics
+                .num_received_requests
+                .fetch_add(1, Ordering::Relaxed);
 
-                // Process the received message
-                self.process_request(
-                    msg_buf,
-                    self.addr,
-                    self.state.result_q_tx.clone(),
-                    self.middleware_chain.clone(),
-                    &self.service,
-                    self.metrics.clone(),
-                )
-                .map_err(ConnectionEvent::ServiceError)
-            }
+            // Message received, reset the DNS idle timer
+            self.state.full_msg_received();
 
-            Err(err) => {
-                // Receive error
-                error!(
-                    "Error while receiving from client {}: {err}",
-                    self.addr
-                );
-                Err(err)
-            }
-        }
+            let msg_details =
+                MessageDetails::new(msg_buf, received_at, self.addr);
+
+            // Process the received message
+            self.process_request(
+                msg_details,
+                self.state.result_q_tx.clone(),
+                self.middleware_chain.clone(),
+                &self.service,
+                self.metrics.clone(),
+            )
+            .map_err(ConnectionEvent::ServiceError)
+        })
     }
 }
 
@@ -568,9 +563,10 @@ where
     fn add_context_to_request(
         &self,
         request: Message<Buf::Output>,
+        received_at: Instant,
         addr: SocketAddr,
     ) -> ContextAwareMessage<Message<Buf::Output>> {
-        ContextAwareMessage::new(request, true, addr)
+        ContextAwareMessage::new(request, addr, received_at, false)
     }
 
     fn handle_final_call_result(
@@ -709,6 +705,7 @@ where
             io::ErrorKind::UnexpectedEof => {
                 // The client disconnected. Per RFC 7766 6.2.4 pending
                 // responses MUST NOT be sent to the client.
+                error!("I/O error: {}", err);
                 ControlFlow::Break(ConnectionEvent::DisconnectWithoutFlush)
             }
             io::ErrorKind::TimedOut | io::ErrorKind::Interrupted => {
@@ -719,6 +716,7 @@ where
                 // Everything else is either unrecoverable or unknown to us at
                 // the time of writing and so we can't guess how to handle it,
                 // so abort.
+                error!("I/O error: {}", err);
                 ControlFlow::Break(ConnectionEvent::DisconnectWithoutFlush)
             }
         }
@@ -747,19 +745,6 @@ enum ConnectionEvent<T> {
     DisconnectWithFlush,
 
     ServiceError(ServiceError<T>),
-}
-
-//--- Display
-
-impl<T> std::fmt::Display for ConnectionEvent<T> {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        use ConnectionEvent::*;
-        match self {
-            DisconnectWithoutFlush => write!(f, "Disconnect without flush"),
-            DisconnectWithFlush => write!(f, "Disconnect with flush"),
-            ServiceError(err) => write!(f, "Service error: {err}"),
-        }
-    }
 }
 
 //------------ StreamState ---------------------------------------------------

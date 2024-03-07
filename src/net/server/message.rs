@@ -3,6 +3,7 @@ use core::{ops::ControlFlow, sync::atomic::Ordering};
 use std::net::SocketAddr;
 use std::sync::Arc;
 
+use tokio::time::Instant;
 use tracing::{enabled, info_span, Level};
 
 use crate::{
@@ -29,26 +30,34 @@ use super::service::{
 #[derive(Debug)]
 pub struct ContextAwareMessage<T> {
     message: T,
-    received_over_tcp: bool,
+    received_at: Instant,
+    received_over_udp: bool,
     client_addr: std::net::SocketAddr,
 }
 
 impl<T> ContextAwareMessage<T> {
     pub fn new(
         message: T,
-        received_over_tcp: bool,
         client_addr: std::net::SocketAddr,
+        received_at: Instant,
+        received_over_udp: bool,
     ) -> Self {
         Self {
             message,
-            received_over_tcp,
+            received_at,
+            received_over_udp,
             client_addr,
         }
     }
 
-    /// Was this message received via a TCP transport?
-    pub fn received_over_tcp(&self) -> bool {
-        self.received_over_tcp
+    /// When was this message received?
+    pub fn received_at(&self) -> Instant {
+        self.received_at
+    }
+
+    /// Was this message received via a UDP transport?
+    pub fn received_over_udp(&self) -> bool {
+        self.received_over_udp
     }
 
     /// From which IP address and port number was this message received?
@@ -68,6 +77,32 @@ impl<T> ContextAwareMessage<T> {
 }
 
 //----------- MessageProcessor -----------------------------------------------
+
+pub struct MessageDetails<Buf>
+where
+    Buf: BufSource,
+{
+    buf: Buf::Output,
+    received_at: Instant,
+    addr: SocketAddr,
+}
+
+impl<Buf> MessageDetails<Buf>
+where
+    Buf: BufSource,
+{
+    pub fn new(
+        buf: Buf::Output,
+        received_at: Instant,
+        addr: SocketAddr,
+    ) -> Self {
+        Self {
+            buf,
+            received_at,
+            addr,
+        }
+    }
+}
 
 /// Perform processing common to all messages being handled by a DNS server.
 ///
@@ -120,8 +155,7 @@ where
     /// [`handle_final_call_result()`]: Self::handle_final_call_result()
     fn process_request(
         &self,
-        buf: <Buf as BufSource>::Output,
-        addr: SocketAddr,
+        msg_details: MessageDetails<Buf>,
         state: Self::State,
         middleware_chain: Option<MiddlewareChain<Buf::Output, Svc::Target>>,
         svc: &Svc,
@@ -131,8 +165,7 @@ where
         Svc::Single: Send,
     {
         let (frozen_request, pp_res) = self.preprocess_request(
-            buf,
-            addr,
+            msg_details,
             middleware_chain.as_ref(),
             &metrics,
         )?;
@@ -183,8 +216,7 @@ where
     #[allow(clippy::type_complexity)]
     fn preprocess_request(
         &self,
-        buf: <Buf as BufSource>::Output,
-        addr: SocketAddr,
+        msg_details: MessageDetails<Buf>,
         middleware_chain: Option<&MiddlewareChain<Buf::Output, Svc::Target>>,
         metrics: &Arc<ServerMetrics>,
     ) -> Result<
@@ -203,10 +235,16 @@ where
     where
         Svc::Single: Send,
     {
+        let MessageDetails {
+            buf,
+            received_at,
+            addr,
+        } = msg_details;
         let request = Message::from_octets(buf)
             .map_err(|_| ServiceError::Other("short message".into()))?;
 
-        let mut request = self.add_context_to_request(request, addr);
+        let mut request =
+            self.add_context_to_request(request, received_at, addr);
 
         let span = info_span!("pre-process",
             msg_id = request.message().header().id(),
@@ -298,6 +336,7 @@ where
     fn add_context_to_request(
         &self,
         request: Message<Buf::Output>,
+        received_at: Instant,
         addr: SocketAddr,
     ) -> ContextAwareMessage<Message<Buf::Output>>;
 

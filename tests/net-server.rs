@@ -187,11 +187,11 @@ where
             let processor = processor
                 .with_denied_ips(config.cookies.ip_deny_list.clone())
                 .with_allowed_ips(config.cookies.ip_allow_list.clone());
-            middleware.push(processor);
+            middleware.push(processor.into());
         }
     }
 
-    middleware.finish()
+    middleware.build()
 }
 
 // A test `Service` impl.

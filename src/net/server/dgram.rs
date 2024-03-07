@@ -20,14 +20,15 @@ use std::{
 };
 
 use tokio::net::UdpSocket;
+use tokio::time::Instant;
 use tokio::{io::ReadBuf, sync::watch};
 use tracing::{enabled, error, trace, Level};
 
 use crate::base::Message;
 use crate::net::server::buf::BufSource;
 use crate::net::server::error::Error;
-use crate::net::server::message::ContextAwareMessage;
 use crate::net::server::message::MessageProcessor;
+use crate::net::server::message::{ContextAwareMessage, MessageDetails};
 use crate::net::server::metrics::ServerMetrics;
 use crate::net::server::middleware::chain::MiddlewareChain;
 use crate::net::server::service::{CallResult, Service, ServiceCommand};
@@ -94,7 +95,7 @@ pub type UdpServer<Svc> = DgramServer<UdpSocket, VecBufSource, Svc>;
 ///     let udpsocket = UdpSocket::bind("127.0.0.1:8053").await.unwrap();
 ///
 ///     // Create the server with default middleware.
-///     let middleware = MiddlewareBuilder::default().finish();
+///     let middleware = MiddlewareBuilder::default().build();
 ///
 ///     // Create a server that will accept those connections and pass
 ///     // received messages to your service and in turn pass generated
@@ -287,13 +288,17 @@ where
                             format!("Error while receiving message: {err}")
                         )?;
 
+                    let received_at = Instant::now();
+
                     if enabled!(Level::TRACE) {
                         let pcap_text = to_pcap_text(&msg, bytes_read);
                         trace!(%addr, pcap_text, "Received message");
                     }
 
+                    let msg_details = MessageDetails::new(msg, received_at, addr);
+
                     self.process_request(
-                        msg, addr, self.sock.clone(),
+                        msg_details, self.sock.clone(),
                         self.middleware_chain.clone(),
                         &self.service,
                         self.metrics.clone()
@@ -398,9 +403,10 @@ where
     fn add_context_to_request(
         &self,
         request: Message<Buf::Output>,
+        received_at: Instant,
         addr: SocketAddr,
     ) -> ContextAwareMessage<Message<Buf::Output>> {
-        ContextAwareMessage::new(request, false, addr)
+        ContextAwareMessage::new(request, addr, received_at, true)
     }
 
     fn handle_final_call_result(

@@ -1,5 +1,4 @@
 //! Chaining [`MiddlewareProcessor`]s together.
-use std::boxed::Box;
 use std::future::Future;
 use std::sync::Arc;
 use std::vec::Vec;
@@ -33,7 +32,7 @@ where
 {
     processors: Arc<
         Vec<
-            Box<dyn MiddlewareProcessor<RequestOctets, Target> + Sync + Send>,
+            Arc<dyn MiddlewareProcessor<RequestOctets, Target> + Sync + Send>,
         >,
     >,
 }
@@ -66,7 +65,7 @@ where
     #[must_use]
     pub fn new(
         processors: Vec<
-            Box<dyn MiddlewareProcessor<RequestOctets, Target> + Send + Sync>,
+            Arc<dyn MiddlewareProcessor<RequestOctets, Target> + Send + Sync>,
         >,
     ) -> MiddlewareChain<RequestOctets, Target> {
         Self {

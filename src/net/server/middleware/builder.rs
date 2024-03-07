@@ -1,5 +1,6 @@
 //! Middleware builders.
-use std::{boxed::Box, vec::Vec};
+use std::sync::Arc;
+use std::vec::Vec;
 
 use octseq::Octets;
 
@@ -27,7 +28,12 @@ where
     Target: Composer + Default,
 {
     processors: Vec<
-        Box<dyn MiddlewareProcessor<RequestOctets, Target> + Sync + Send>,
+        Arc<
+            dyn MiddlewareProcessor<RequestOctets, Target>
+                + Send
+                + Sync
+                + 'static,
+        >,
     >,
 }
 
@@ -54,16 +60,16 @@ where
     ///
     /// Processors later in the chain pre-process requests after, and
     /// post-process responses before, than processors earlier in the chain.
-    pub fn push<T>(&mut self, processor: T)
+    pub fn push<T>(&mut self, processor: Arc<T>)
     where
-        T: MiddlewareProcessor<RequestOctets, Target> + Sync + Send + 'static,
+        T: MiddlewareProcessor<RequestOctets, Target> + Send + Sync + 'static,
     {
-        self.processors.push(Box::new(processor));
+        self.processors.push(processor);
     }
 
     /// Turn the builder into an immutable [`MiddlewareChain`].
     #[must_use]
-    pub fn finish(self) -> MiddlewareChain<RequestOctets, Target> {
+    pub fn build(self) -> MiddlewareChain<RequestOctets, Target> {
         MiddlewareChain::new(self.processors)
     }
 }
@@ -88,7 +94,7 @@ where
     #[must_use]
     fn default() -> Self {
         let mut builder = Self::new();
-        builder.push(MandatoryMiddlewareProcessor::new());
+        builder.push(MandatoryMiddlewareProcessor::new().into());
         builder
     }
 }

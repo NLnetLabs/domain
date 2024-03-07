@@ -277,7 +277,7 @@ where
                 // themselves to the server, either with a cookie or by
                 // re-connecting over TCP, so we REFUSE them and reply with
                 // TC=1 to prompt them to reconnect via TCP.
-                if !request.received_over_tcp()
+                if request.received_over_udp()
                     && self.ip_deny_list.contains(&request.client_addr().ip())
                 {
                     if enabled!(Level::DEBUG) {
@@ -415,7 +415,7 @@ where
                             self.bad_cookie_response(request)
                         };
                         return ControlFlow::Break(additional);
-                    } else if !request.received_over_tcp() {
+                    } else if request.received_over_udp() {
                         let additional = self.bad_cookie_response(request);
                         if enabled!(Level::DEBUG) {
                             debug!(

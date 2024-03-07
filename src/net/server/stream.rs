@@ -152,7 +152,7 @@ impl Default for Config {
 ///     let listener = TcpListener::bind("127.0.0.1:8053").await.unwrap();
 ///
 ///     // Create the server with default middleware.
-///     let middleware = MiddlewareBuilder::default().finish();
+///     let middleware = MiddlewareBuilder::default().build();
 ///
 ///     // Create a server that will accept those connections and pass
 ///     // received messages to your service and in turn pass generated
