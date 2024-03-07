@@ -67,7 +67,7 @@ where
         let (stream_rx, stream_tx) = tokio::io::split(stream);
         let (result_q_tx, result_q_rx) =
             mpsc::channel::<CallResult<Svc::Target>>(10); // TODO: Take from configuration
-        let idle_timeout = chrono::Duration::seconds(3); // TODO: Take from configuration
+        let idle_timeout = chrono::Duration::try_seconds(3).unwrap(); // TODO: Take from configuration
         let network_timeout = std::time::Duration::from_secs(1); // TODO: Take from configuration
         let state = StreamState::new(stream_tx, result_q_tx, idle_timeout);
 
