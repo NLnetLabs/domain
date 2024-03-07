@@ -6,13 +6,20 @@ use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 
 /// Metrics common to all provided DNS server implementations.
-#[derive(Debug)]
+///
+/// Server metrics should track values that cannot be known and exposed by the
+/// [`Service`] implementation.
+#[derive(Debug, Default)]
 pub struct ServerMetrics {
     pub(super) num_connections: Option<AtomicUsize>,
 
     pub(super) num_inflight_requests: AtomicUsize,
 
     pub(super) num_pending_writes: AtomicUsize,
+
+    pub(super) num_received_requests: AtomicUsize,
+
+    pub(super) num_sent_responses: AtomicUsize,
 }
 
 impl ServerMetrics {
@@ -20,8 +27,7 @@ impl ServerMetrics {
     pub fn connection_less() -> Self {
         Self {
             num_connections: None,
-            num_inflight_requests: AtomicUsize::new(0),
-            num_pending_writes: AtomicUsize::new(0),
+            ..Default::default()
         }
     }
 
@@ -29,8 +35,7 @@ impl ServerMetrics {
     pub fn connection_oriented() -> Self {
         Self {
             num_connections: Some(AtomicUsize::new(0)),
-            num_inflight_requests: AtomicUsize::new(0),
-            num_pending_writes: AtomicUsize::new(0),
+            ..Default::default()
         }
     }
 
@@ -53,5 +58,15 @@ impl ServerMetrics {
     /// The number of responses generated but not yet sent back to the client.
     pub fn num_pending_writes(&self) -> usize {
         self.num_pending_writes.load(Ordering::Relaxed)
+    }
+
+    /// The number of DNS requests received.
+    pub fn num_received_requests(&self) -> usize {
+        self.num_received_requests.load(Ordering::Relaxed)
+    }
+
+    /// The number of DNS responses sent.
+    pub fn num_sent_responses(&self) -> usize {
+        self.num_sent_responses.load(Ordering::Relaxed)
     }
 }

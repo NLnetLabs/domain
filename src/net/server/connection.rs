@@ -7,23 +7,129 @@ use crate::net::server::middleware::chain::MiddlewareChain;
 use crate::net::server::service::{
     CallResult, Service, ServiceCommand, ServiceError,
 };
+use crate::utils::config::DefMinMax;
 
-use chrono::{DateTime, Utc};
 use core::ops::ControlFlow;
 use core::sync::atomic::Ordering;
-use core::time::Duration;
 use std::io;
 use std::net::SocketAddr;
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::io::{
     AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, ReadHalf, WriteHalf,
 };
+use tokio::sync::mpsc::error::TrySendError;
 use tokio::sync::mpsc::Sender;
 use tokio::sync::{mpsc, watch};
-use tokio::task::JoinHandle;
-use tokio::time::error::Elapsed;
-use tokio::time::{sleep, timeout};
+use tokio::time::{sleep_until, Instant};
 use tracing::{debug, error};
+
+/// Limit on the amount of time to allow between client requests.
+///
+/// According to [RFC 7766]:
+/// - "A timeout of at least a few seconds is advisable for normal
+///   operations".
+/// - "Servers MAY use zero timeouts when they are experiencing heavy load or
+///    are under attack".
+/// - "Servers MAY allow idle connections to remain open for longer periods as
+///   resources permit".
+///
+/// The value has to be between zero and 30 days with a default of 30 seconds.
+/// The default and minimum values are the same as those of the Unbound 1.19.2
+/// `tcp-idle-timeout` configuration setting. The upper bound is a guess at
+/// something reasonable.
+///
+/// [RFC 7766]: https://datatracker.ietf.org/doc/html/rfc7766#section-6.2.3
+const IDLE_TIMEOUT: DefMinMax<Duration> = DefMinMax::new(
+    Duration::from_secs(30),
+    Duration::from_millis(200),
+    Duration::from_secs(30 * 24 * 60 * 60),
+);
+
+/// Limit on the number of DNS responses queued for wriing to the client.
+///
+/// The value has to be between zero and 1,024. The default value is 10. These
+/// numbers are just a guess at something reasonable.
+///
+/// If the limit is hit handling of client requests will block until space
+/// becomes available.
+const MAX_QUEUED_RESPONSES: DefMinMax<usize> = DefMinMax::new(10, 0, 1024);
+
+//----------- Config ---------------------------------------------------------
+
+/// Configuration for a stream server connection.
+#[derive(Clone, Debug)]
+pub struct Config {
+    /// Limit on the amount of time to allow between client requests.
+    ///
+    /// This setting can be overridden on a per connection basis by a
+    /// [`Service`] by returning a [`ServiceCommand::Reconfigure`] command
+    /// with a response message, for example to adjust it per [RFC 7828]
+    /// section 3.3.1 "Receivomg queries" which says:
+    ///
+    ///   A DNS server that receives a query using TCP transport that includes
+    ///   the edns-tcp-keepalive option MAY modify the local idle timeout
+    ///   associated with that TCP session if resources permit. idle_timeout:
+    ///   Duration,
+    ///
+    /// [RFC 7828]: https://datatracker.ietf.org/doc/html/rfc7828#section-3.3.1
+    idle_timeout: Duration,
+
+    /// Limit on the number of DNS responses queued for wriing to the client.
+    max_queued_responses: usize,
+}
+
+impl Config {
+    /// Creates a new, default config.
+    #[allow(dead_code)]
+    pub fn new() -> Self {
+        Default::default()
+    }
+
+    /// Set the limit on the amount of time to allow between client requests.
+    ///
+    /// According to [RFC 7766]:
+    /// - "A timeout of at least a few seconds is advisable for normal
+    ///   operations".
+    /// - "Servers MAY use zero timeouts when they are experiencing heavy load
+    ///    or are under attack".
+    /// - "Servers MAY allow idle connections to remain open for longer
+    ///   periods as resources permit".
+    ///
+    /// The value has to be between zero and 30 days with a default of 30
+    /// seconds. The default and minimum values are the same as those of the
+    /// Unbound 1.19.2 `tcp-idle-timeout` configuration setting. The upper
+    /// bound is a guess at something reasonable.
+    ///
+    /// [RFC 7766]:
+    ///     https://datatracker.ietf.org/doc/html/rfc7766#section-6.2.3
+    #[allow(dead_code)]
+    pub fn set_idle_timeout(&mut self, value: Duration) {
+        self.idle_timeout = value;
+    }
+
+    /// Set the limit on the number of DNS responses queued for writing to the
+    /// client.
+    ///
+    /// The value has to be between zero and 1,024. The default value is 10.
+    /// These numbers are just a guess at something reasonable.
+    ///
+    /// DNS response messages will be discarded if they cannot be queued for
+    /// sending because the queue is full.
+    #[allow(dead_code)]
+    pub fn set_max_queued_responses(&mut self, value: usize) {
+        self.max_queued_responses = value;
+    }
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            idle_timeout: IDLE_TIMEOUT.default(),
+            max_queued_responses: MAX_QUEUED_RESPONSES.default(),
+        }
+    }
+}
 
 //------------ Connection -----------------------------------------------
 
@@ -41,7 +147,6 @@ where
     result_q_rx: mpsc::Receiver<CallResult<Svc::Target>>,
     service: Svc,
     middleware_chain: Option<MiddlewareChain<Buf::Output, Svc::Target>>,
-    network_timeout: std::time::Duration,
     state: StreamState<Stream, Buf, Svc>,
     stream_rx: Option<ReadHalf<Stream>>,
 }
@@ -56,6 +161,7 @@ where
     Svc: Service<Buf::Output> + Send + Sync + Clone + 'static,
 {
     #[must_use]
+    #[allow(dead_code)]
     pub fn new(
         service: Svc,
         middleware_chain: Option<MiddlewareChain<Buf::Output, Svc::Target>>,
@@ -64,12 +170,32 @@ where
         stream: Stream,
         addr: SocketAddr,
     ) -> Self {
+        Self::with_config(
+            service,
+            middleware_chain,
+            buf_source,
+            metrics,
+            stream,
+            addr,
+            Config::default(),
+        )
+    }
+
+    #[must_use]
+    pub fn with_config(
+        service: Svc,
+        middleware_chain: Option<MiddlewareChain<Buf::Output, Svc::Target>>,
+        buf_source: Buf,
+        metrics: Arc<ServerMetrics>,
+        stream: Stream,
+        addr: SocketAddr,
+        config: Config,
+    ) -> Self {
         let (stream_rx, stream_tx) = tokio::io::split(stream);
         let (result_q_tx, result_q_rx) =
-            mpsc::channel::<CallResult<Svc::Target>>(10); // TODO: Take from configuration
-        let idle_timeout = chrono::Duration::try_seconds(3).unwrap(); // TODO: Take from configuration
-        let network_timeout = std::time::Duration::from_secs(1); // TODO: Take from configuration
-        let state = StreamState::new(stream_tx, result_q_tx, idle_timeout);
+            mpsc::channel(config.max_queued_responses);
+        let state =
+            StreamState::new(stream_tx, result_q_tx, config.idle_timeout);
 
         // Place the ReadHalf of the stream into an Option so that we can take
         // it out (as we can't clone it and we can't place it into an Arc
@@ -88,7 +214,6 @@ where
             service,
             middleware_chain,
             metrics,
-            network_timeout,
             state,
             stream_rx,
         }
@@ -129,7 +254,6 @@ where
         // Flag that we have to decrease the metric count on Drop.
         self.active = true;
 
-        // TODO: Why use an Option and then Option::take()?
         self.run_until_error(command_rx).await;
     }
 }
@@ -175,11 +299,11 @@ where
                         self.process_queued_result(res).await
                     }
 
-                    _ = sleep(self.state.idle_timeout_remaining_as_std()) => {
+                    _ = sleep_until(self.state.idle_timeout_deadline()) => {
                         self.process_dns_idle_timeout()
                     }
 
-                    res = timeout(self.network_timeout, &mut msg_recv) => {
+                    res = &mut msg_recv => {
                         let res = self.process_read_result(res).await;
                         if res.is_ok() {
                             // Set up to receive another message
@@ -205,6 +329,11 @@ where
                     }
                 }
             }
+        }
+
+        #[cfg(test)]
+        if dns_msg_receiver.cancelled() {
+            panic!("Async not-cancel-safe code was cancelled");
         }
     }
 
@@ -238,10 +367,7 @@ where
                 // at which we will consider the connectin to be idle and thus
                 // potentially worthy of timing out.
                 debug!("Server connection timeout reconfigured to {idle_timeout:?}");
-                if let Ok(timeout) = chrono::Duration::from_std(idle_timeout)
-                {
-                    self.state.idle_timeout = timeout;
-                }
+                self.state.idle_timeout = idle_timeout;
 
                 // TODO: Support dynamic replacement of the middleware chain?
                 // E.g. via ArcSwapOption<MiddlewareChain> instead of Option?
@@ -331,6 +457,9 @@ where
             error!("Write error: {err}");
             todo!()
         }
+        self.metrics
+            .num_sent_responses
+            .fetch_add(1, Ordering::Relaxed);
         if self.state.result_q_tx.capacity()
             == self.state.result_q_tx.max_capacity()
         {
@@ -347,9 +476,7 @@ where
             ServiceCommand::Init => todo!(),
             ServiceCommand::Reconfigure { idle_timeout } => {
                 debug!("Reconfigured connection timeout to {idle_timeout:?}");
-                self.state.idle_timeout =
-                    chrono::Duration::from_std(idle_timeout).unwrap();
-                // TODO: Check this unwrap()
+                self.state.idle_timeout = idle_timeout;
             }
             ServiceCommand::Shutdown => {
                 self.state.stream_tx.shutdown().await.unwrap()
@@ -361,27 +488,23 @@ where
         &self,
     ) -> Result<(), ConnectionEvent<Svc::Error>> {
         // DNS idle timeout elapsed, or was it reset?
-        if self.state.idle_timeout_remaining() > chrono::Duration::zero() {
-            Ok(())
-        } else {
+        if self.state.idle_timeout_expired() {
             Err(ConnectionEvent::DisconnectWithoutFlush)
+        } else {
+            Ok(())
         }
     }
 
     async fn process_read_result(
         &mut self,
-        res: Result<
-            Result<Buf::Output, ConnectionEvent<Svc::Error>>,
-            Elapsed,
-        >,
+        res: Result<Buf::Output, ConnectionEvent<Svc::Error>>,
     ) -> Result<(), ConnectionEvent<Svc::Error>> {
         match res {
-            Err(_elapsed) => {
-                // Timeout elapsed
-                Err(ConnectionEvent::DisconnectWithoutFlush)
-            }
+            Ok(msg_buf) => {
+                self.metrics
+                    .num_received_requests
+                    .fetch_add(1, Ordering::Relaxed);
 
-            Ok(Ok(msg_buf)) => {
                 // Message received, reset the DNS idle timer
                 self.state.full_msg_received();
 
@@ -397,8 +520,12 @@ where
                 .map_err(ConnectionEvent::ServiceError)
             }
 
-            Ok(Err(err)) => {
+            Err(err) => {
                 // Receive error
+                error!(
+                    "Error while receiving from client {}: {err}",
+                    self.addr
+                );
                 Err(err)
             }
         }
@@ -451,21 +578,42 @@ where
         _addr: SocketAddr,
         tx: Self::State,
         metrics: Arc<ServerMetrics>,
-    ) -> JoinHandle<()> {
-        tokio::spawn(async move {
-            if let Err(err) = tx.send(call_result).await {
-                // TODO: How should we properly communicate this to the operator?
-                error!("StreamServer: Error while queuing response: {err}");
+    ) {
+        // We can't send in a spawned async taskas then we would just
+        // accumlate tasks even if the target queue is full. We can't call
+        // `tx.blocking_send()` as that would block the Tokio runtime. So
+        // instead we try and send and if that fails because the queue is full
+        // then we abort.
+        match tx.try_send(call_result) {
+            Ok(()) => {
+                metrics.num_pending_writes.store(
+                    tx.max_capacity() - tx.capacity(),
+                    Ordering::Relaxed,
+                );
             }
 
-            metrics
-                .num_pending_writes
-                .store(tx.max_capacity() - tx.capacity(), Ordering::Relaxed);
-        })
+            Err(TrySendError::Closed(_msg)) => {
+                // TODO: How should we properly communicate this to the operator?
+                error!("StreamServer: Unable to queue message for sending: server is shutting down.");
+            }
+
+            Err(TrySendError::Full(_msg)) => {
+                // TODO: How should we properly communicate this to the operator?
+                error!("StreamServer: Unable to queue message for sending: queue is full.");
+            }
+        }
     }
 }
 
 //----------- DnsMessageReceiver ---------------------------------------------
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+enum Status {
+    New,
+    WaitingForMessageHeader,
+    WaitingForMessageBody,
+    MessageReceived,
+}
 
 struct DnsMessageReceiver<Stream, Buf>
 where
@@ -475,6 +623,9 @@ where
     msg_size_buf: [u8; 2],
     buf_source: Buf,
     stream_rx: ReadHalf<Stream>,
+    status: Status,
+    #[cfg(test)]
+    cancelled: bool,
 }
 
 impl<Stream, Buf> DnsMessageReceiver<Stream, Buf>
@@ -488,7 +639,15 @@ where
             msg_size_buf: [0; 2],
             buf_source,
             stream_rx,
+            status: Status::New,
+            #[cfg(test)]
+            cancelled: false,
         }
+    }
+
+    #[cfg(test)]
+    pub fn cancelled(&self) -> bool {
+        self.cancelled
     }
 
     /// Receive a single DNS message.
@@ -499,14 +658,22 @@ where
     pub async fn recv<E>(
         &mut self,
     ) -> Result<Buf::Output, ConnectionEvent<E>> {
+        #[cfg(test)]
+        if self.status == Status::WaitingForMessageBody {
+            self.cancelled = true;
+        }
+
+        self.status = Status::WaitingForMessageHeader;
         Self::recv_n_bytes(&mut self.stream_rx, &mut self.msg_size_buf)
             .await?;
 
         let msg_len = u16::from_be_bytes(self.msg_size_buf) as usize;
         let mut msg_buf = self.buf_source.create_sized(msg_len);
 
+        self.status = Status::WaitingForMessageBody;
         Self::recv_n_bytes(&mut self.stream_rx, &mut msg_buf).await?;
 
+        self.status = Status::MessageReceived;
         Ok(msg_buf)
     }
 
@@ -582,6 +749,19 @@ enum ConnectionEvent<T> {
     ServiceError(ServiceError<T>),
 }
 
+//--- Display
+
+impl<T> std::fmt::Display for ConnectionEvent<T> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        use ConnectionEvent::*;
+        match self {
+            DisconnectWithoutFlush => write!(f, "Disconnect without flush"),
+            DisconnectWithFlush => write!(f, "Disconnect with flush"),
+            ServiceError(err) => write!(f, "Service error: {err}"),
+        }
+    }
+}
+
 //------------ StreamState ---------------------------------------------------
 
 pub struct StreamState<Stream, Buf, Svc>
@@ -615,11 +795,9 @@ where
     //     the cache in the usual manner, but still used by the current
     //     request, even after intervals of many seconds due to system
     //     load, query retransmission timeouts, etc."
-    //
-    //
-    idle_timer_reset_at: DateTime<Utc>,
+    idle_timer_reset_at: Instant,
 
-    idle_timeout: chrono::Duration,
+    idle_timeout: std::time::Duration,
 }
 
 impl<Stream, Buf, Svc> StreamState<Stream, Buf, Svc>
@@ -633,12 +811,12 @@ where
     fn new(
         stream_tx: WriteHalf<Stream>,
         result_q_tx: mpsc::Sender<CallResult<Svc::Target>>,
-        idle_timeout: chrono::Duration,
+        idle_timeout: std::time::Duration,
     ) -> Self {
         Self {
             stream_tx,
             result_q_tx,
-            idle_timer_reset_at: Utc::now(),
+            idle_timer_reset_at: Instant::now(),
             idle_timeout,
         }
     }
@@ -648,25 +826,19 @@ where
     /// When we (will) have been sat idle for longer than the configured idle
     /// timeout for this connection.
     #[must_use]
-    pub fn idle_timeout_remaining(&self) -> chrono::Duration {
-        self.idle_timeout
-            .checked_sub(&self.idle_duration_since_reset())
-            .unwrap_or(chrono::Duration::zero())
+    pub fn idle_timeout_deadline(&self) -> Instant {
+        self.idle_timer_reset_at
+            .checked_add(self.idle_timeout)
+            .unwrap()
     }
 
     #[must_use]
-    pub fn idle_timeout_remaining_as_std(&self) -> Duration {
-        self.idle_timeout_remaining().to_std().unwrap_or_default()
-    }
-
-    /// How long has this connection been sat idle?
-    #[must_use]
-    pub fn idle_duration_since_reset(&self) -> chrono::Duration {
-        Utc::now().signed_duration_since(self.idle_timer_reset_at)
+    pub fn idle_timeout_expired(&self) -> bool {
+        self.idle_timeout_deadline() <= Instant::now()
     }
 
     fn reset_idle_timer(&mut self) {
-        self.idle_timer_reset_at = Utc::now()
+        self.idle_timer_reset_at = Instant::now();
     }
 
     fn full_msg_received(&mut self) {

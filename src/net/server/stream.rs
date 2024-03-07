@@ -20,7 +20,6 @@ use std::string::{String, ToString};
 use std::sync::{Arc, Mutex};
 use tokio::net::TcpListener;
 use tokio::sync::watch;
-use tokio::task::JoinHandle;
 use tracing::error;
 
 use crate::net::server::buf::BufSource;
@@ -29,9 +28,10 @@ use crate::net::server::metrics::ServerMetrics;
 use crate::net::server::middleware::chain::MiddlewareChain;
 use crate::net::server::service::{Service, ServiceCommand};
 use crate::net::server::sock::AsyncAccept;
+use crate::utils::config::DefMinMax;
 
 use super::buf::VecBufSource;
-use super::connection::Connection;
+use super::connection::{self, Connection};
 
 // TODO: Should this crate also provide a TLS listener implementation?
 
@@ -48,6 +48,59 @@ use super::connection::Connection;
 /// [`tokio::net::TcpListener`]:
 ///     https://docs.rs/tokio/latest/tokio/net/struct.TcpListener.html
 pub type TcpServer<Svc> = StreamServer<TcpListener, VecBufSource, Svc>;
+
+/// Limit on the number of concurrent TCP connections that can be handled by
+/// the server.
+///
+/// The value has to be between one and 100,000. The default value is 100. The
+/// default value is based on the default value of the NSD 4.8.0 `-n number`
+/// configuration setting .
+///
+/// If the limit is hit, further connections will be accepted but closed
+/// immediately.
+const MAX_CONCURRENT_TCP_CONNECTIONS: DefMinMax<usize> =
+    DefMinMax::new(100, 1, 100000);
+
+//----------- Config ---------------------------------------------------------
+
+/// Configuration for a stream server connection.
+#[derive(Clone, Debug)]
+pub struct Config {
+    /// Limit on the number of concurrent TCP connections that can be handled
+    /// by the server.
+    max_concurrent_connections: usize,
+    connection_config: connection::Config,
+}
+
+impl Config {
+    /// Creates a new, default config.
+    pub fn new() -> Self {
+        Default::default()
+    }
+
+    /// Set the limit on the number of concurrent TCP connections that can be
+    /// handled by the server.
+    ///
+    /// The value has to be between one and 100,000. The default value is 100.
+    /// The default value is based on the default value of the NSD 4.8.0 `-n
+    /// number` configuration setting .
+    ///
+    /// If the limit is hit, further connections will be accepted but closed
+    /// immediately.
+    pub fn set_max_concurrent_connections(&mut self, value: usize) {
+        self.max_concurrent_connections = value;
+    }
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            max_concurrent_connections: MAX_CONCURRENT_TCP_CONNECTIONS
+                .default(),
+            connection_config: connection::Config::default(),
+        }
+    }
+}
 
 //------------ StreamServer --------------------------------------------------
 
@@ -132,6 +185,9 @@ where
     Buf::Output: Send + Sync + 'static,
     Svc: Service<Buf::Output> + Send + Sync + 'static + Clone,
 {
+    /// The configuration of the server.
+    config: Config,
+
     /// A receiver for receiving [`ServiceCommand`]s.
     ///
     /// Used by both the server and spawned connections to react to sent
@@ -180,12 +236,23 @@ where
     /// - A [`Service`] for handling received requests and generating responses.
     #[must_use]
     pub fn new(listener: Listener, buf: Buf, service: Svc) -> Self {
+        Self::with_config(listener, buf, service, Config::default())
+    }
+
+    #[must_use]
+    pub fn with_config(
+        listener: Listener,
+        buf: Buf,
+        service: Svc,
+        config: Config,
+    ) -> Self {
         let (command_tx, command_rx) = watch::channel(ServiceCommand::Init);
         let command_tx = Arc::new(Mutex::new(command_tx));
         let listener = Arc::new(listener);
         let metrics = Arc::new(ServerMetrics::connection_oriented());
 
         StreamServer {
+            config,
             command_tx,
             command_rx,
             listener,
@@ -336,13 +403,21 @@ where
 
                 // Next, handle a connection that has been accepted, if any.
                 accept_res = self.accept() => {
-                    // TODO: Do we really want to abort here?
-                    let (stream, addr) = accept_res
-                        .map_err(|err|
-                            format!("Error while accepting connection: {err}")
-                        )?;
+                    match accept_res {
+                        Ok((stream, addr)) => {
+                            // SAFETY: This is a connection-oriented server so there
+                            // must always be a connection count metric avasilable to
+                            // unwrap.
+                            let num_conn = self.metrics.num_connections().unwrap();
+                            if num_conn < self.config.max_concurrent_connections {
+                                self.process_new_connection(stream, addr);
+                            }
+                        }
 
-                    self.process_new_connection(stream, addr)?;
+                        Err(err) => {
+                            error!("Error while accepting TCP connection: {err}");
+                        }
+                    }
                 }
             }
         }
@@ -398,13 +473,13 @@ where
         &self,
         stream: Listener::Stream,
         addr: SocketAddr,
-    ) -> Result<JoinHandle<()>, String>
-    where
+    ) where
         Svc::Single: Send,
     {
         // Work around the compiler wanting to move self to the async block by
         // preparing only those pieces of information from self for the new
         // connection handler that it actually needs.
+        let conn_config = self.config.connection_config.clone();
         let conn_command_rx = self.command_rx.clone();
         let conn_service = self.service.clone();
         let conn_middleware_chain = self.middleware_chain.clone();
@@ -412,7 +487,7 @@ where
         let conn_metrics = self.metrics.clone();
         let pre_connect_hook = self.pre_connect_hook;
 
-        let join_handle = tokio::spawn(async move {
+        tokio::spawn(async move {
             if let Ok(mut stream) = stream.await {
                 // Let the caller inspect and/or modify the accepted stream
                 // before passing it to Connection.
@@ -420,20 +495,19 @@ where
                     hook(&mut stream);
                 }
 
-                let conn = Connection::new(
+                let conn = Connection::with_config(
                     conn_service,
                     conn_middleware_chain,
                     conn_buf,
                     conn_metrics,
                     stream,
                     addr,
+                    conn_config,
                 );
 
                 conn.run(conn_command_rx).await
             }
         });
-
-        Ok(join_handle)
     }
 
     /// Wait for and accept a single stream connection.

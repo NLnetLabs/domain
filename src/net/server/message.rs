@@ -3,7 +3,6 @@ use core::{ops::ControlFlow, sync::atomic::Ordering};
 use std::net::SocketAddr;
 use std::sync::Arc;
 
-use tokio::task::JoinHandle;
 use tracing::{enabled, info_span, Level};
 
 use crate::{
@@ -278,13 +277,12 @@ where
                     }
                 }
 
-                let _ = Self::handle_final_call_result(
+                Self::handle_final_call_result(
                     call_result,
                     msg.client_addr(),
                     state.clone(),
                     metrics.clone(),
-                )
-                .await;
+                );
             }
 
             metrics
@@ -315,5 +313,5 @@ where
         addr: SocketAddr,
         state: Self::State,
         metrics: Arc<ServerMetrics>,
-    ) -> JoinHandle<()>;
+    );
 }

@@ -20,7 +20,6 @@ use std::{
 };
 
 use tokio::net::UdpSocket;
-use tokio::task::JoinHandle;
 use tokio::{io::ReadBuf, sync::watch};
 use tracing::{enabled, error, trace, Level};
 
@@ -409,7 +408,7 @@ where
         addr: SocketAddr,
         sock: Self::State,
         _metrics: Arc<ServerMetrics>,
-    ) -> JoinHandle<()> {
+    ) {
         tokio::spawn(async move {
             // TODO: Handle ServiceCommand::Reconfigure.
             let (response, _command) = call_result.into_inner();
@@ -428,7 +427,7 @@ where
 
             // TODO:
             // metrics.num_pending_writes.store(???, Ordering::Relaxed);
-        })
+        });
     }
 }
 
