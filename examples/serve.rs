@@ -492,6 +492,30 @@ async fn main() {
         // libc crate (as the nix crate doesn't support IP_MTU_DISCOVER at the
         // time of writing). This example is inspired by
         // https://mailarchive.ietf.org/arch/msg/dnsop/Zy3wbhHephubsy2uJesGeDst4F4/
+        //
+        // We could also try the following settings that the Unbound man page
+        // mentions:
+        //  - SO_RCVBUF      - Unbound advises setting so-rcvbuf to 4m on busy
+        //                     servers to prevent short request spikes causing
+        //                     packet drops,
+        //  - SO_SNDBUF      - Unbound advises setting so-sndbuf to 4m on busy
+        //                     servers to avoid resource temporarily
+        //                     unavailable errors,
+        //  - SO_REUSEPORT   - Unbound advises to turn it off at extreme load
+        //                     to distribute queries evenly,
+        //  - IP_TRANSPARENT - Allows to bind to non-existent IP addresses
+        //                     that are going to exist later on. Unbound uses
+        //                     IP_BINDANY on FreeBSD and SO_BINDANY on
+        //                     OpenBSD.
+        //  - IP_FREEBIND    - Linux only, similar to IP_TRANSPARENT. Allows
+        //                     to bind to IP addresses that are nonlocal or do
+        //                     not exist, like when the network interface is
+        //                     down.
+        //  - TCP_MAXSEG     - Value lower than common MSS on Ethernet (1220
+        //                     for example) will address path MTU problem.
+        //  - A means to control the value of the Differentiated Services
+        //    Codepoint (DSCP) in the differentiated services field (DS) of
+        //    the  outgoing IP packet headers.
         let udpsocket = UdpSocket::bind("127.0.0.1:8054").await.unwrap();
         let fd = <UdpSocket as std::os::fd::AsRawFd>::as_raw_fd(&udpsocket);
         let result = unsafe {
