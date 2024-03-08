@@ -33,6 +33,7 @@ pub struct ContextAwareMessage<T> {
     received_at: Instant,
     received_over_udp: bool,
     client_addr: std::net::SocketAddr,
+    max_response_size_hint: Option<usize>,
 }
 
 impl<T> ContextAwareMessage<T> {
@@ -47,7 +48,17 @@ impl<T> ContextAwareMessage<T> {
             received_at,
             received_over_udp,
             client_addr,
+            max_response_size_hint: None,
         }
+    }
+
+    pub fn set_max_response_size_hint(&mut self, value: usize) {
+        self.max_response_size_hint = Some(value);
+    }
+
+    /// Maximum response size hint, if any.
+    pub fn max_response_size_hint(&self) -> Option<usize> {
+        self.max_response_size_hint
     }
 
     /// When was this message received?

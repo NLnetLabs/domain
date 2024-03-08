@@ -34,6 +34,7 @@ use crate::net::server::middleware::chain::MiddlewareChain;
 use crate::net::server::service::{CallResult, Service, ServiceCommand};
 use crate::net::server::sock::AsyncDgramSock;
 use crate::net::server::util::to_pcap_text;
+use crate::utils::config::DefMinMax;
 
 use super::buf::VecBufSource;
 
@@ -44,6 +45,56 @@ use super::buf::VecBufSource;
 /// connections to be received via [`tokio::net::UdpSocket`] and can thus be
 /// used to implement a UDP based DNS server.
 pub type UdpServer<Svc> = DgramServer<UdpSocket, VecBufSource, Svc>;
+
+/// Limit suggested for the maximum response size to create.
+///
+/// The value has to be between 512 and 4,096 per [RFC 6891]. The default
+/// value is 1232 per the [2020 DNS Flag Day].
+///
+/// The [`Service`] and [`MiddlewareChain`] (if any) are response for
+/// enforcing this limit.
+///
+/// [2020 DNS Flag Day]: http://www.dnsflagday.net/2020/
+/// [RFC 6891]: https://datatracker.ietf.org/doc/html/rfc6891#section-6.2.5
+const MAX_RESPONSE_SIZE: DefMinMax<usize> = DefMinMax::new(1232, 512, 4096);
+
+//----------- Config ---------------------------------------------------------
+
+/// Configuration for a datagram server.
+#[derive(Clone, Debug)]
+pub struct Config {
+    /// Limit suggested to [`Service`] on maximum response size to create.
+    max_response_size: Option<usize>,
+}
+
+impl Config {
+    /// Creates a new, default config.
+    pub fn new() -> Self {
+        Default::default()
+    }
+
+    /// Sets the limit suggested for the maximum response size to create.
+    ///
+    /// The value has to be between 512 and 4,096 per [RFC 6891]. The default
+    /// value is 1232 per the [2020 DNS Flag Day].
+    ///
+    /// The [`Service`] and [`MiddlewareChain`] (if any) are response for
+    /// enforcing this limit.
+    ///
+    /// [2020 DNS Flag Day]: http://www.dnsflagday.net/2020/
+    /// [RFC 6891]: https://datatracker.ietf.org/doc/html/rfc6891#section-6.2.5
+    pub fn set_max_response_size(&mut self, value: usize) {
+        self.max_response_size = Some(value);
+    }
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            max_response_size: Some(MAX_RESPONSE_SIZE.default()),
+        }
+    }
+}
 
 //------------ DgramServer ---------------------------------------------------
 
@@ -129,6 +180,7 @@ where
     Buf::Output: Send + Sync + 'static + Debug,
     Svc: Service<Buf::Output> + Send + Sync + 'static,
 {
+    config: Config,
     command_rx: watch::Receiver<ServiceCommand>,
     command_tx: Arc<Mutex<watch::Sender<ServiceCommand>>>,
     sock: Arc<Sock>,
@@ -147,24 +199,39 @@ where
     Buf::Output: Send + Sync + 'static + Debug,
     Svc: Service<Buf::Output> + Send + Sync + 'static,
 {
-    /// Constructs a new [`DgramServer`] instance.
+    /// Constructs a new [`DgramServer`] with default configuration.
+    ///
+    /// See [`with_config()`].
+    #[must_use]
+    pub fn new(sock: Sock, buf: Buf, service: Svc) -> Self {
+        Self::with_config(sock, buf, service, Config::default())
+    }
+
+    /// Constructs a new [`DgramServer`] with a given configuration.
     ///
     /// Takes:
     /// - A socket which must implement [`AsyncDgramSock`] and is responsible
     /// receiving new messages and send responses back to the client.
     /// - A [`BufSource`] for creating buffers on demand.
     /// - A [`Service`] for handling received requests and generating responses.
+    /// - A [`Config`] with settings to control the server behaviour.
     ///
     /// Invoke [`run()`] to receive and process incoming messages.
     ///
     /// [`run()`]: Self::run()
     #[must_use]
-    pub fn new(sock: Sock, buf: Buf, service: Svc) -> Self {
+    pub fn with_config(
+        sock: Sock,
+        buf: Buf,
+        service: Svc,
+        config: Config,
+    ) -> Self {
         let (command_tx, command_rx) = watch::channel(ServiceCommand::Init);
         let command_tx = Arc::new(Mutex::new(command_tx));
         let metrics = Arc::new(ServerMetrics::connection_less());
 
         DgramServer {
+            config,
             command_tx,
             command_rx,
             sock: sock.into(),
@@ -406,7 +473,12 @@ where
         received_at: Instant,
         addr: SocketAddr,
     ) -> ContextAwareMessage<Message<Buf::Output>> {
-        ContextAwareMessage::new(request, addr, received_at, true)
+        let mut msg =
+            ContextAwareMessage::new(request, addr, received_at, true);
+        if let Some(max_response_size) = self.config.max_response_size {
+            msg.set_max_response_size_hint(max_response_size);
+        }
+        msg
     }
 
     fn handle_final_call_result(
