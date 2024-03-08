@@ -1,4 +1,30 @@
 //! A client cache.
+//!
+//! This module implements a simple message cache provided as a pass through
+//! transport. The cache works with any of the other transports.
+//! The basic operation is that from a request the query name, class, and type
+//! are extracted and the result is cached such that when a new request
+//! arrives with the same name, class, and type then the cached response can
+//! be returned with the TTL values of the DNS resource records reduced by
+//! the amount of time the message has been cached.
+//!
+//! The response to a query is in general affected by four flags: the
+//! AD, CD, DO, and RD flags.
+//! These flags are defined in the following RFCs:
+//! [RFC 1035](https://www.rfc-editor.org/info/rfc1035),
+//! [RFC 2535](https://www.rfc-editor.org/info/rfc2535),
+//! [RFC 3225](https://www.rfc-editor.org/info/rfc3225),
+//! [RFC 4035](https://www.rfc-editor.org/info/rfc4035),
+//! [RFC 6840](https://www.rfc-editor.org/info/rfc6840).
+//! The cache takes these flags into account to
+//! see if a cached response can be returned. In some cases, a cached response
+//! with one set of flags can be made suitable for a query with different
+//! flags.
+//!
+//! The [Config] object provides various configuration options, such as
+//! the maximum number of cache entries, how long different types of
+//! responses should be cached and whether truncated responses should be cached
+//! or not.
 
 #![warn(missing_docs)]
 #![warn(clippy::missing_docs_in_private_items)]
@@ -121,6 +147,17 @@ const MAX_DELEGATION_VALIDITY: DefMinMax<Duration> = DefMinMax::new(
 // requests with RD clear could be used to satisfy requests with RD set.
 // However, this is not implemented.
 
+// Caching the result of a query for a wildcard record seems to disallowed
+// by Section 4.3.3 of RFC 1034 (https://www.rfc-editor.org/info/rfc1034)
+// which says:
+// A * label appearing in a query name has no special effect, but can be
+// used to test for wildcards in an authoritative zone; such a query is the
+// only way to get a response containing RRs with an owner name with * in
+// it.  The result of such a query should not be cached.
+//
+// However Erratum #5316 (https://www.rfc-editor.org/errata/eid5316) fixes
+// this by replacing the word 'cached' with 'used to synthesize RRs'
+
 // Negative caching is described in RFC 2308
 // (https://www.rfc-editor.org/info/rfc2308).
 // NXDOMAIN and NODATA require special treatment. NXDOMAIN can be found
@@ -133,11 +170,40 @@ const MAX_DELEGATION_VALIDITY: DefMinMax<Duration> = DefMinMax::new(
 // authority section. If the SOA record is absent then the NXDOMAIN response
 // should not be cached.
 // The TTL of the SOA record should reflect how long the response can be
-// cached. So no special treatment is needed. Except that a different value
+// cached. Section 3 of the RFC requires authoritative servers to limit the
+// TTL of the SOA record in negative responses to the minimum of the MINIUM
+// field in the SOA record and the original TTL of the SOA record. For this
+// reason, no special treatment is needed. Except that a different value
 // should limit the maximum time a negative response can be cached.
 //
 // Caching unreachable upstream should be limited to 5 minutes.
 // Caching SERVFAIL should be limited to 5 minutes.
+
+// Truncated responses require special treatment. RFC 1035, Section 7.4
+// (https://www.rfc-editor.org/info/rfc1035) warns against potentially
+// caching partial sets of resource records. However, because this is a
+// message cache, the users of the cache still has to decide what to do
+// with a truncated response and there is no risk of using cached
+// resource records in a different context.
+// The issue is made more complex by the introduction of the UDP payload
+// size field in RFC 6891, Section 6.1.2
+// (https://www.rfc-editor.org/info/rfc6891).
+// This means that a later request with a larger value UDP payload size might
+// get an answer that is not truncated. However the complexity of keeping
+// track of the UDP payload size in the cache does not seem worth it for the
+// following reasons:
+// 1) truncated responses are returned by the dgram transport but we expect
+//    that the dgram_stream transport will be commonly used. So we expect
+//    very little actual caching of truncated responses.
+// 2) To avoid fragmentation, servers are likely to have their own limits on
+//    the size of replies they send. So a higher UDP payload size may not have
+//    an effect.
+// 3) It is likely that applications have one UDP payload size and do not
+//    issue the same query with different UDP payload sizes.
+// For these reasons, the default is that truncated responses are not cached.
+// A configuration option is provided (set_cache_truncated) that enables
+// caching of truncated responses without taking into account the UDP payload
+// size.
 
 // RFC 8020 (https://www.rfc-editor.org/info/rfc8020) suggests a separate
 // <QNAME, QCLASS> cache for NXDOMAIN, but that may be too hard to implement.
@@ -174,6 +240,9 @@ pub struct Config {
 
     /// Maximum validity of delegations.
     max_delegation_validity: Duration,
+
+    /// Whether to cache a truncated response or not.
+    cache_truncated: bool,
 }
 
 impl Config {
@@ -244,6 +313,14 @@ impl Config {
     pub fn set_max_delegation_validity(&mut self, value: Duration) {
         self.max_delegation_validity = MAX_DELEGATION_VALIDITY.limit(value)
     }
+
+    /// Enable or disable caching of response messages with the TC
+    /// (truncated) flag set.
+    ///
+    /// The default value is false (disabled).
+    pub fn set_cache_truncated(&mut self, value: bool) {
+        self.cache_truncated = value;
+    }
 }
 
 impl Default for Config {
@@ -256,6 +333,7 @@ impl Default for Config {
             max_nxdomain_validity: MAX_NXDOMAIN_VALIDITY.default(),
             max_nodata_validity: MAX_NODATA_VALIDITY.default(),
             max_delegation_validity: MAX_DELEGATION_VALIDITY.default(),
+            cache_truncated: false,
         }
     }
 }
@@ -280,11 +358,17 @@ pub struct Connection<Upstream, C: Clock + Send + Sync = SystemClock> {
 
 impl<Upstream> Connection<Upstream> {
     /// Create a new connection with default configuration parameters.
+    ///
+    /// Note that Upstream needs to implement [SendRequest]
+    /// (and Clone/Send/Sync) to be useful.
     pub fn new(upstream: Upstream) -> Self {
         Self::with_config(upstream, Default::default())
     }
 
     /// Create a new connection with specified configuration parameters.
+    ///
+    /// Note that Upstream needs to implement [SendRequest]
+    /// (and Clone/Send/Sync) to be useful.
     pub fn with_config(upstream: Upstream, config: Config) -> Self {
         Self {
             upstream,
@@ -470,6 +554,8 @@ where
                 RequestState::GetResponse(key, request) => {
                     let response = request.get_response().await;
 
+                    // The clone of key needs to happen before cache_insert
+                    // otherwise there will be a conflict between self and key.
                     let key = key.clone();
                     let value = Arc::new(Value::new(
                         response.clone(),
@@ -861,6 +947,12 @@ fn validity(
         return Ok(config.transport_failure_duration);
     };
 
+    if msg.header().tc() && !config.cache_truncated {
+        // Return zero duration to signal that the truncated message should
+        // not be cached.
+        return Ok(Duration::ZERO);
+    }
+
     let mut min_val = config.max_validity;
 
     match msg.opt_rcode() {
@@ -876,7 +968,7 @@ fn validity(
                 NoErrorType::NoErrorWeird =>
                 // Weird NODATA response. Don't cache this.
                 {
-                    min_val = Duration::from_secs(0)
+                    min_val = Duration::ZERO
                 }
             }
         }
