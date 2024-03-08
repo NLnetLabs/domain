@@ -3,6 +3,7 @@ use domain::base::MessageBuilder;
 use domain::base::Name;
 use domain::base::Rtype;
 use domain::net::client::cache;
+use domain::validator::context::ValidationContext;
 use domain::net::client::dgram;
 use domain::net::client::dgram_stream;
 use domain::net::client::multi_stream;
@@ -10,8 +11,10 @@ use domain::net::client::protocol::{TcpConnect, TlsConnect, UdpConnect};
 use domain::net::client::redundant;
 use domain::net::client::request::{RequestMessage, SendRequest};
 use domain::net::client::stream;
+use domain::net::client::validator;
 use std::net::{IpAddr, SocketAddr};
 use std::str::FromStr;
+use std::sync::Arc;
 use std::time::Duration;
 use tokio::net::TcpStream;
 use tokio::time::timeout;
@@ -30,12 +33,12 @@ async fn main() {
     let mut msg = MessageBuilder::new_vec();
     msg.header_mut().set_rd(true);
     let mut msg = msg.question();
-    msg.push((Name::vec_from_str("example.com").unwrap(), Rtype::AAAA))
+    msg.push((Dname::vec_from_str("stereo.hq.test-dname.phicoh.nl").unwrap(), Aaaa))
         .unwrap();
     let req = RequestMessage::new(msg);
 
     // Destination for UDP and TCP
-    let server_addr = SocketAddr::new(IpAddr::from_str("::1").unwrap(), 53);
+    let server_addr = SocketAddr::new(IpAddr::from_str("9.9.9.9").unwrap(), 53);
 
     let mut stream_config = stream::Config::new();
     stream_config.set_response_timeout(Duration::from_millis(100));
@@ -103,6 +106,18 @@ async fn main() {
     println!("Wating for cached reply");
     let reply = request.get_response().await;
     println!("Cached reply: {reply:?}");
+
+    // Create a validating transport
+    let vc = Arc::new(ValidationContext::new());
+    let val_conn = validator::Connection::new(udptcp_conn.clone(), vc);
+
+    // Send a query message.
+    let mut request = val_conn.send_request(req.clone());
+
+    // Get the reply
+    println!("Wating for Validator reply");
+    let reply = request.get_response().await;
+    println!("Validator reply: {:?}", reply);
 
     // Create a new TCP connections object. Pass the destination address and
     // port as parameter.

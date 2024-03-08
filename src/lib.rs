@@ -165,5 +165,6 @@ pub mod test;
 pub mod tsig;
 pub mod utils;
 pub mod validate;
+pub mod validator;
 pub mod zonefile;
 pub mod zonetree;
