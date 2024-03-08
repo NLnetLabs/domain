@@ -500,6 +500,7 @@ where
                     "Write timed out (>{:?})",
                     self.config.response_write_timeout
                 );
+                // TODO: Push it to the back of the queue to retry it?
             }
             Ok(Err(err)) => {
                 error!("Write error: {err}");
