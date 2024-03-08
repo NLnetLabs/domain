@@ -21,7 +21,7 @@ use tokio::io::{
 use tokio::sync::mpsc::error::TrySendError;
 use tokio::sync::mpsc::Sender;
 use tokio::sync::{mpsc, watch};
-use tokio::time::{sleep_until, Instant};
+use tokio::time::{sleep_until, timeout, Instant};
 use tracing::{debug, error};
 
 use super::message::MessageDetails;
@@ -46,6 +46,18 @@ const IDLE_TIMEOUT: DefMinMax<Duration> = DefMinMax::new(
     Duration::from_secs(30),
     Duration::from_millis(200),
     Duration::from_secs(30 * 24 * 60 * 60),
+);
+
+/// Limit on the amount of time to wait for writing a response to complete.
+///
+/// The value has to be between 1 millisecond and 1 hour with a default of 30
+/// seconds. These values are guesses at something reasonable. The default is
+/// based on the Unbound 1.19.2 default value for its `tcp-idle-timeout`
+/// setting.
+const RESPONSE_WRITE_TIMEOUT: DefMinMax<Duration> = DefMinMax::new(
+    Duration::from_secs(30),
+    Duration::from_millis(1),
+    Duration::from_secs(60 * 60),
 );
 
 /// Limit on the number of DNS responses queued for writing to the client.
@@ -76,6 +88,15 @@ pub struct Config {
     ///
     /// [RFC 7828]: https://datatracker.ietf.org/doc/html/rfc7828#section-3.3.1
     idle_timeout: Duration,
+
+    /// Limit on the amount of time to wait for writing a response to
+    /// complete.
+    ///
+    /// The value has to be between 1 millisecond and 1 hour with a default of
+    /// 30 seconds. These values are guesses at something reasonable. The
+    /// default is based on the Unbound 1.19.2 default value for its
+    /// `tcp-idle-timeout` setting.
+    response_write_timeout: Duration,
 
     /// Limit on the number of DNS responses queued for wriing to the client.
     max_queued_responses: usize,
@@ -110,6 +131,18 @@ impl Config {
         self.idle_timeout = value;
     }
 
+    /// Set the limit on the amount of time to wait for writing a response to
+    /// complete.
+    ///
+    /// The value has to be between 1 millisecond and 1 hour with a default of
+    /// 30 seconds. These values are guesses at something reasonable. The
+    /// default is based on the Unbound 1.19.2 default value for its
+    /// `tcp-idle-timeout` setting.
+    #[allow(dead_code)]
+    pub fn set_response_write_timeout(&mut self, value: Duration) {
+        self.response_write_timeout = value;
+    }
+
     /// Set the limit on the number of DNS responses queued for writing to the
     /// client.
     ///
@@ -128,6 +161,7 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             idle_timeout: IDLE_TIMEOUT.default(),
+            response_write_timeout: RESPONSE_WRITE_TIMEOUT.default(),
             max_queued_responses: MAX_QUEUED_RESPONSES.default(),
         }
     }
@@ -145,6 +179,7 @@ where
     active: bool,
     addr: SocketAddr,
     buf_source: Buf,
+    config: Config,
     metrics: Arc<ServerMetrics>,
     result_q_rx: mpsc::Receiver<CallResult<Svc::Target>>,
     service: Svc,
@@ -212,6 +247,7 @@ where
             active: false,
             addr,
             buf_source,
+            config,
             result_q_rx,
             service,
             middleware_chain,
@@ -438,12 +474,12 @@ where
 
         let (response, command) = call_result.into_inner();
 
-        if let Some(response) = response {
-            self.write_result_to_stream(response.finish()).await;
-        }
-
         if let Some(command) = command {
             self.act_on_queued_command(command).await;
+        }
+
+        if let Some(response) = response {
+            self.write_result_to_stream(response.finish()).await;
         }
 
         Ok(())
@@ -453,20 +489,34 @@ where
         &mut self,
         msg: StreamTarget<Svc::Target>,
     ) {
-        if let Err(err) =
-            self.state.stream_tx.write_all(msg.as_stream_slice()).await
+        match timeout(
+            self.config.response_write_timeout,
+            self.state.stream_tx.write_all(msg.as_stream_slice()),
+        )
+        .await
         {
-            error!("Write error: {err}");
-            todo!()
+            Err(_) => {
+                error!(
+                    "Write timed out (>{:?})",
+                    self.config.response_write_timeout
+                );
+            }
+            Ok(Err(err)) => {
+                error!("Write error: {err}");
+            }
+            Ok(Ok(_)) => {
+                self.metrics
+                    .num_sent_responses
+                    .fetch_add(1, Ordering::Relaxed);
+            }
         }
-        self.metrics
-            .num_sent_responses
-            .fetch_add(1, Ordering::Relaxed);
+
         if self.state.result_q_tx.capacity()
             == self.state.result_q_tx.max_capacity()
         {
             self.state.response_queue_emptied();
         }
+
         self.metrics
             .num_pending_writes
             .fetch_sub(1, Ordering::Relaxed);
