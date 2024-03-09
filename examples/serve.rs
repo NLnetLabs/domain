@@ -34,6 +34,7 @@ use tokio_rustls::rustls::{Certificate, PrivateKey};
 use tokio_rustls::TlsAcceptor;
 use tokio_tfo::{TfoListener, TfoStream};
 use tracing::Level;
+use tracing_subscriber::EnvFilter;
 
 //----------- mk_answer() ----------------------------------------------------
 
@@ -417,9 +418,9 @@ where
 #[tokio::main(flavor = "multi_thread")]
 async fn main() {
     tracing_subscriber::fmt()
+        .with_env_filter(EnvFilter::from_default_env())
         .with_thread_ids(true)
         .without_time()
-        .with_max_level(Level::INFO)
         .try_init()
         .ok();
 
