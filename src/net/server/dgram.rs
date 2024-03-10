@@ -77,14 +77,18 @@ impl Config {
     ///
     /// The value has to be between 512 and 4,096 per [RFC 6891]. The default
     /// value is 1232 per the [2020 DNS Flag Day].
+    /// 
+    /// Pass `None` to prevent sending a limit suggestion to the middleware
+    /// (if any) and service.
     ///
     /// The [`Service`] and [`MiddlewareChain`] (if any) are response for
-    /// enforcing this limit.
+    /// enforcing the suggested limit, or deciding what to do if this is None.
     ///
     /// [2020 DNS Flag Day]: http://www.dnsflagday.net/2020/
-    /// [RFC 6891]: https://datatracker.ietf.org/doc/html/rfc6891#section-6.2.5
-    pub fn set_max_response_size(&mut self, value: usize) {
-        self.max_response_size = Some(value);
+    /// [RFC 6891]:
+    ///     https://datatracker.ietf.org/doc/html/rfc6891#section-6.2.5
+    pub fn set_max_response_size(&mut self, value: Option<usize>) {
+        self.max_response_size = value;
     }
 }
 
