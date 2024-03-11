@@ -350,7 +350,7 @@ where
                 // Poll futures in match arm order, not randomly.
                 biased;
 
-                // First, prefer obeying [`ServiceCommands`] over everything
+                // First, prefer obeying `ServerCommand`s over everything
                 // else.
                 res = command_rx.changed() => {
                     self.process_service_command(res, &mut command_rx)?;
@@ -408,7 +408,7 @@ where
                 // before we call borrow_and_update() but the initial value in
                 // the channel, Init, is not considered a "change". So the
                 // only way to end up here would be if we somehow wrongly
-                // placed another ServiceCommand::Init value into the watch
+                // placed another ServerCommand::Init value into the watch
                 // channel after the initial one.
                 unreachable!()
             }
@@ -417,7 +417,7 @@ where
                 // A datagram server does not have connections so handling the
                 // close of a connection which can never happen has no meaning
                 // as it cannot occur. However a Service impl cannot know
-                // which server will receive the ServiceCommand if it is
+                // which server will receive the ServerCommand if it is
                 // shared between multiple servers and so we should just
                 // ignore this if we receive it.
             }

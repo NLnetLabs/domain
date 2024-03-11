@@ -79,7 +79,7 @@ pub struct Config {
     /// Limit on the amount of time to allow between client requests.
     ///
     /// This setting can be overridden on a per connection basis by a
-    /// [`Service`] by returning a [`ServiceCommand::Reconfigure`] command
+    /// [`Service`] by returning a [`ServerCommand::Reconfigure`] command
     /// with a response message, for example to adjust it per [RFC 7828]
     /// section 3.3.1 "Receivomg queries" which says:
     ///
@@ -274,7 +274,7 @@ where
     /// # Shutdown behaviour
     ///
     /// When the parent server is shutdown (explicitly or via Drop) the child
-    /// connections will also see the [`ServiceCommand::Shutdown`] signal and
+    /// connections will also see the [`ServerCommand::Shutdown`] signal and
     /// shutdown and flush any pending writes to the output stream.
     ///
     /// Any requests received after the shutdown signal or requests still
@@ -402,7 +402,7 @@ where
                 // before we call borrow_and_update() but the initial value in
                 // the channel, Init, is not considered a "change". So the
                 // only way to end up here would be if we somehow wrongly
-                // placed another ServiceCommand::Init value into the watch
+                // placed another ServerCommand::Init value into the watch
                 // channel after the initial one.
                 unreachable!()
             }

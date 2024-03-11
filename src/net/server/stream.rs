@@ -190,13 +190,13 @@ where
     /// The configuration of the server.
     config: Config,
 
-    /// A receiver for receiving [`ServiceCommand`]s.
+    /// A receiver for receiving [`ServerCommand`]s.
     ///
     /// Used by both the server and spawned connections to react to sent
     /// commands.
     command_rx: watch::Receiver<ServerCommand<Config>>,
 
-    /// A sender for sending [`ServiceCommand`]s.
+    /// A sender for sending [`ServerCommand`]s.
     ///
     /// Used to signal the server to stop, reconfigure, etc.
     command_tx: Arc<Mutex<watch::Sender<ServerCommand<Config>>>>,
@@ -397,7 +397,7 @@ where
                 // Poll futures in match arm order, not randomly.
                 biased;
 
-                // First, prefer obeying [`ServiceCommands`] over everything
+                // First, prefer obeying [`ServerCommands`] over everything
                 // else.
                 res = command_rx.changed() => {
                     self.process_service_command(res, &mut command_rx)?;
@@ -460,7 +460,7 @@ where
                 // before we call borrow_and_update() but the initial value in
                 // the channel, Init, is not considered a "change". So the
                 // only way to end up here would be if we somehow wrongly
-                // placed another ServiceCommand::Init value into the watch
+                // placed another ServerCommand::Init value into the watch
                 // channel after the initial one.
                 unreachable!()
             }
