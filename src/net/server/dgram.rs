@@ -372,7 +372,7 @@ where
                     let msg_details = MessageDetails::new(msg, received_at, addr);
 
                     self.process_request(
-                        msg_details, self.sock.clone(),
+                        msg_details, (self.sock.clone(), self.command_tx.clone()),
                         self.middleware_chain.clone(),
                         &self.service,
                         self.metrics.clone()
@@ -475,7 +475,8 @@ where
     Buf::Output: Send + Sync + 'static + Debug,
     Svc: Service<Buf::Output> + Send + Sync + 'static,
 {
-    type State = Arc<Sock>;
+    type State =
+        (Arc<Sock>, Arc<Mutex<watch::Sender<ServerCommand<Config>>>>);
 
     fn add_context_to_request(
         &self,
@@ -494,12 +495,35 @@ where
     fn process_call_result(
         call_result: CallResult<Buf::Output, Svc::Target>,
         addr: SocketAddr,
-        sock: Self::State,
+        (sock, command_tx): Self::State,
         _metrics: Arc<ServerMetrics>,
     ) {
         tokio::spawn(async move {
-            // TODO: Handle ServiceFeedback::Reconfigure.
             let (request, response, feedback) = call_result.into_inner();
+
+            if let Some(feedback) = feedback {
+                match feedback {
+                    ServiceFeedback::Reconfigure {
+                        idle_timeout: _, // N/A - only applies to connection-oriented transports
+                    } => {
+                        // Nothing to do.
+                    }
+
+                    ServiceFeedback::CloseConnection => {
+                        // N/A - only applies to connection-oriented transports
+                    }
+
+                    ServiceFeedback::Shutdown => {
+                        if let Err(err) = command_tx
+                            .lock()
+                            .unwrap()
+                            .send(ServerCommand::Shutdown)
+                        {
+                            warn!("Service requested shutdown but shutdown failed: {err}");
+                        }
+                    }
+                }
+            }
 
             // Process the DNS response message, if any.
             if let Some(mut response) = response {
