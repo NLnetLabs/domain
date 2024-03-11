@@ -122,7 +122,7 @@
 //! ## Dynamic reconfiguration
 //!
 //! Servers in principle support the ability to dynamically reconfigure
-//! themselves in response to [`ServiceCommand::Reconfigure`] while running,
+//! themselves in response to [`ServerCommand::Reconfigure`] while running,
 //! though the actual degree of support for this is server implementation
 //! dependent.
 //!
@@ -189,7 +189,7 @@
 //! [`MiddlewareProcessor`]: middleware::processor::MiddlewareProcessor
 //! [`Service`]: service::Service
 //! [`Service::call()`]: service::Service::call()
-//! [`ServiceCommand::Reconfigure`]: service::ServiceCommand::Reconfigure
+//! [`ServerCommand::Reconfigure`]: service::ServerCommand::Reconfigure
 //! [`StreamServer`]: stream::StreamServer
 //! [`TcpServer`]: stream::TcpServer
 //! [`UdpServer`]: dgram::UdpServer
@@ -238,8 +238,8 @@ pub mod prelude {
     pub use crate::net::server::message::ContextAwareMessage;
     pub use crate::net::server::service::CallResult;
     pub use crate::net::server::service::Service;
-    pub use crate::net::server::service::ServiceCommand;
     pub use crate::net::server::service::ServiceError;
+    pub use crate::net::server::service::ServiceFeedback;
     pub use crate::net::server::service::ServiceResult;
     pub use crate::net::server::service::ServiceResultItem;
     pub use crate::net::server::service::Transaction;

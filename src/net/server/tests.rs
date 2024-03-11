@@ -21,8 +21,8 @@ use super::buf::BufSource;
 use super::message::ContextAwareMessage;
 use super::service::CallResult;
 use super::service::Service;
-use super::service::ServiceCommand;
 use super::service::ServiceError;
+use super::service::ServiceFeedback;
 use super::service::ServiceResultItem;
 use super::service::Transaction;
 use super::sock::AsyncAccept;
@@ -317,11 +317,11 @@ impl Future for MySingle {
         let builder = MessageBuilder::new_stream_vec();
         let response = builder.additional();
 
-        let command = ServiceCommand::Reconfigure {
+        let command = ServiceFeedback::Reconfigure {
             idle_timeout: Duration::from_millis(5000),
         };
 
-        let call_result = CallResult::new(response).with_command(command);
+        let call_result = CallResult::new(response).with_feedback(command);
 
         Poll::Ready(Ok(call_result))
     }

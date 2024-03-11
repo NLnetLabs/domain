@@ -33,7 +33,6 @@ use tokio::time::Instant;
 use tokio_rustls::rustls::{Certificate, PrivateKey};
 use tokio_rustls::TlsAcceptor;
 use tokio_tfo::{TfoListener, TfoStream};
-use tracing::Level;
 use tracing_subscriber::EnvFilter;
 
 //----------- mk_answer() ----------------------------------------------------
@@ -114,12 +113,12 @@ fn query(
         // and generating an answer.
 
         let idle_timeout = Duration::from_millis((50 * cnt).into());
-        let cmd = ServiceCommand::Reconfigure { idle_timeout };
+        let cmd = ServiceFeedback::Reconfigure { idle_timeout };
         eprintln!("Setting idle timeout to {idle_timeout:?}");
 
         let builder = mk_builder_for_target();
         let answer = mk_answer(&msg, builder)?;
-        let res = CallResult::new(answer).with_command(cmd);
+        let res = CallResult::new(answer).with_feedback(cmd);
         Ok(res)
     };
     Ok(Transaction::single(Box::pin(fut)))

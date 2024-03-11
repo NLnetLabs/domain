@@ -5,11 +5,11 @@ use crate::net::server::message::MessageProcessor;
 use crate::net::server::metrics::ServerMetrics;
 use crate::net::server::middleware::chain::MiddlewareChain;
 use crate::net::server::service::{
-    CallResult, Service, ServiceCommand, ServiceError,
+    CallResult, Service, ServiceError, ServiceFeedback,
 };
 use crate::utils::config::DefMinMax;
 
-use core::ops::ControlFlow;
+use core::ops::{ControlFlow, Deref};
 use core::sync::atomic::Ordering;
 use std::io;
 use std::net::SocketAddr;
@@ -25,6 +25,8 @@ use tokio::time::{sleep_until, timeout, Instant};
 use tracing::{debug, error};
 
 use super::message::MessageDetails;
+use super::service::ServerCommand;
+use super::stream::Config as ServerConfig;
 
 /// Limit on the amount of time to allow between client requests.
 ///
@@ -279,8 +281,10 @@ where
     /// in-flight will be abandoned.
     ///
     /// TODO: What does "abandoned" mean in practice here?
-    pub async fn run(mut self, command_rx: watch::Receiver<ServiceCommand>)
-    where
+    pub async fn run(
+        mut self,
+        command_rx: watch::Receiver<ServerCommand<ServerConfig>>,
+    ) where
         Svc::Single: Send,
     {
         self.metrics
@@ -307,7 +311,7 @@ where
 {
     async fn run_until_error(
         mut self,
-        mut command_rx: watch::Receiver<ServiceCommand>,
+        mut command_rx: watch::Receiver<ServerCommand<ServerConfig>>,
     ) where
         Svc::Single: Send,
     {
@@ -378,7 +382,7 @@ where
     fn process_service_command(
         &mut self,
         res: Result<(), watch::error::RecvError>,
-        command_rx: &mut watch::Receiver<ServiceCommand>,
+        command_rx: &mut watch::Receiver<ServerCommand<ServerConfig>>,
     ) -> Result<(), ConnectionEvent<Svc::Error>> {
         // If the parent server no longer exists but was not cleanly shutdown
         // then the command channel will be closed and attempting to check for
@@ -387,11 +391,36 @@ where
         res.map_err(|_err| ConnectionEvent::DisconnectWithFlush)?;
 
         // Get the changed command.
-        let command = *command_rx.borrow_and_update();
+        let lock = command_rx.borrow_and_update();
+        let command = lock.deref();
 
         // And process it.
         match command {
-            ServiceCommand::Reconfigure { idle_timeout } => {
+            ServerCommand::Init => {
+                // The initial "Init" value in the watch channel is never
+                // actually seen because changed() is required to return true
+                // before we call borrow_and_update() but the initial value in
+                // the channel, Init, is not considered a "change". So the
+                // only way to end up here would be if we somehow wrongly
+                // placed another ServiceCommand::Init value into the watch
+                // channel after the initial one.
+                unreachable!()
+            }
+
+            ServerCommand::CloseConnection => {
+                // TODO: Should we flush in this case or not?
+                return Err(ConnectionEvent::DisconnectWithFlush);
+            }
+
+            ServerCommand::Reconfigure(ServerConfig {
+                max_concurrent_connections: _,
+                connection_config:
+                    Config {
+                        idle_timeout,
+                        response_write_timeout: _, // TO DO
+                        max_queued_responses: _, // TO DO: Cannot be changed?
+                    },
+            }) => {
                 // Support RFC 7828 "The edns-tcp-keepalive EDNS0 Option".
                 // This cannot be done by the caller as it requires knowing
                 // (a) when the last message was received and (b) when all
@@ -405,13 +434,13 @@ where
                 // at which we will consider the connectin to be idle and thus
                 // potentially worthy of timing out.
                 debug!("Server connection timeout reconfigured to {idle_timeout:?}");
-                self.state.idle_timeout = idle_timeout;
+                self.state.idle_timeout = *idle_timeout;
 
                 // TODO: Support dynamic replacement of the middleware chain?
                 // E.g. via ArcSwapOption<MiddlewareChain> instead of Option?
             }
 
-            ServiceCommand::Shutdown => {
+            ServerCommand::Shutdown => {
                 // The parent server has been shutdown. Close this connection
                 // but ensure that we write any pending responses to the
                 // stream first.
@@ -420,22 +449,6 @@ where
                 // complete before shutting down? And if so how should we
                 // respond to any requests received in the meantime? Should we
                 // even stop reading from the stream?
-                return Err(ConnectionEvent::DisconnectWithFlush);
-            }
-
-            ServiceCommand::Init => {
-                // The initial "Init" value in the watch channel is never
-                // actually seen because changed() is required to return true
-                // before we call borrow_and_update() but the initial value in
-                // the channel, Init, is not considered a "change". So the
-                // only way to end up here would be if we somehow wrongly
-                // placed another ServiceCommand::Init value into the watch
-                // channel after the initial one.
-                unreachable!()
-            }
-
-            ServiceCommand::CloseConnection => {
-                // TODO: Should we flush in this case or not?
                 return Err(ConnectionEvent::DisconnectWithFlush);
             }
         }
@@ -472,10 +485,10 @@ where
             return Err(ConnectionEvent::DisconnectWithFlush);
         };
 
-        let (response, command) = call_result.into_inner();
+        let (response, feedback) = call_result.into_inner();
 
-        if let Some(command) = command {
-            self.act_on_queued_command(command).await;
+        if let Some(feedback) = feedback {
+            self.act_on_feedback(feedback).await;
         }
 
         if let Some(response) = response {
@@ -523,16 +536,19 @@ where
             .fetch_sub(1, Ordering::Relaxed);
     }
 
-    async fn act_on_queued_command(&mut self, cmd: ServiceCommand) {
+    async fn act_on_feedback(&mut self, cmd: ServiceFeedback) {
         match cmd {
-            ServiceCommand::CloseConnection { .. } => todo!(),
-            ServiceCommand::Init => todo!(),
-            ServiceCommand::Reconfigure { idle_timeout } => {
+            ServiceFeedback::CloseConnection => {
+                self.state.stream_tx.shutdown().await.unwrap()
+            }
+
+            ServiceFeedback::Reconfigure { idle_timeout } => {
                 debug!("Reconfigured connection timeout to {idle_timeout:?}");
                 self.state.idle_timeout = idle_timeout;
             }
-            ServiceCommand::Shutdown => {
-                self.state.stream_tx.shutdown().await.unwrap()
+
+            ServiceFeedback::Shutdown => {
+                // TO DO
             }
         }
     }
@@ -809,7 +825,7 @@ where
 {
     stream_tx: WriteHalf<Stream>,
 
-    result_q_tx: mpsc::Sender<CallResult<Svc::Target>>,
+    result_q_tx: mpsc::Sender<CallResult<Buf::Output, Svc::Target>>,
 
     // RFC 1035 7.1: "Since a resolver must be able to multiplex multiple
     // requests if it is to perform its function efficiently, each pending

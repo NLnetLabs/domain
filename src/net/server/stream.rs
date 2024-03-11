@@ -14,6 +14,7 @@
 //!
 //! [stream]: https://en.wikipedia.org/wiki/Reliable_byte_streamuse
 use core::future::poll_fn;
+use core::ops::Deref;
 use std::io;
 use std::net::SocketAddr;
 use std::string::{String, ToString};
@@ -26,12 +27,13 @@ use crate::net::server::buf::BufSource;
 use crate::net::server::error::Error;
 use crate::net::server::metrics::ServerMetrics;
 use crate::net::server::middleware::chain::MiddlewareChain;
-use crate::net::server::service::{Service, ServiceCommand};
+use crate::net::server::service::Service;
 use crate::net::server::sock::AsyncAccept;
 use crate::utils::config::DefMinMax;
 
 use super::buf::VecBufSource;
 use super::connection::{self, Connection};
+use super::service::ServerCommand;
 
 // TODO: Should this crate also provide a TLS listener implementation?
 
@@ -192,12 +194,12 @@ where
     ///
     /// Used by both the server and spawned connections to react to sent
     /// commands.
-    command_rx: watch::Receiver<ServiceCommand>,
+    command_rx: watch::Receiver<ServerCommand<Config>>,
 
     /// A sender for sending [`ServiceCommand`]s.
     ///
     /// Used to signal the server to stop, reconfigure, etc.
-    command_tx: Arc<Mutex<watch::Sender<ServiceCommand>>>,
+    command_tx: Arc<Mutex<watch::Sender<ServerCommand<Config>>>>,
 
     /// A listener for listening for and accepting incoming stream
     /// connections.
@@ -246,7 +248,7 @@ where
         service: Svc,
         config: Config,
     ) -> Self {
-        let (command_tx, command_rx) = watch::channel(ServiceCommand::Init);
+        let (command_tx, command_rx) = watch::channel(ServerCommand::Init);
         let command_tx = Arc::new(Mutex::new(command_tx));
         let listener = Arc::new(listener);
         let metrics = Arc::new(ServerMetrics::connection_oriented());
@@ -367,7 +369,7 @@ where
         self.command_tx
             .lock()
             .unwrap()
-            .send(ServiceCommand::Shutdown)
+            .send(ServerCommand::Shutdown)
             .map_err(|_| Error::CommandCouldNotBeSent)
     }
 }
@@ -426,7 +428,7 @@ where
     fn process_service_command(
         &self,
         res: Result<(), watch::error::RecvError>,
-        command_rx: &mut watch::Receiver<ServiceCommand>,
+        command_rx: &mut watch::Receiver<ServerCommand<Config>>,
     ) -> Result<(), String> {
         // If the parent server no longer exists but was not cleanly shutdown
         // then the command channel will be closed and attempting to check for
@@ -435,20 +437,24 @@ where
         res.map_err(|err| format!("Error while receiving command: {err}"))?;
 
         // Get the changed command.
-        let command = *command_rx.borrow_and_update();
+        let lock = command_rx.borrow_and_update();
+        let command = lock.deref();
 
         // And process it.
         match command {
-            ServiceCommand::Reconfigure { .. } => { /* TODO */ }
+            ServerCommand::Reconfigure(Config {
+                max_concurrent_connections: _, // TO DO
+                connection_config: _,          // N/A
+            }) => { /* TODO */ }
 
-            ServiceCommand::Shutdown => {
+            ServerCommand::Shutdown => {
                 // Stop accepting new connections, terminate the server. Child
                 // connections also receeive the command and handle it
                 // themselves.
                 return Err("Shutdown command received".to_string());
             }
 
-            ServiceCommand::Init => {
+            ServerCommand::Init => {
                 // The initial "Init" value in the watch channel is never
                 // actually seen because changed() is required to return true
                 // before we call borrow_and_update() but the initial value in
@@ -459,7 +465,7 @@ where
                 unreachable!()
             }
 
-            ServiceCommand::CloseConnection => {
+            ServerCommand::CloseConnection => {
                 // Individual connections can be closed. The server itself
                 // should never receive a CloseConnection command.
                 unreachable!()

@@ -1,10 +1,12 @@
 //! Server related errors.
 
+use std::fmt::Display;
+
 /// Errors raised by DNS servers.
 #[derive(Debug)]
 pub enum Error {
-    /// An attempt to send a [`ServiceCommand`] to the server failed.
+    /// An attempt to send a [`ServerCommand`] to the server failed.
     ///
-    /// [`ServiceCommand`]: crate::net::server::service::ServiceCommand
+    /// [`ServerCommand`]: crate::net::server::service::ServerCommand
     CommandCouldNotBeSent,
 }

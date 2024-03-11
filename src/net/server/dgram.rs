@@ -9,6 +9,7 @@
 //! > of arrival of datagrams need not be guaranteed by the network._
 //!
 //! [Datagram]: https://en.wikipedia.org/wiki/Datagram
+use core::ops::Deref;
 use std::fmt::Debug;
 use std::net::SocketAddr;
 use std::string::ToString;
@@ -22,7 +23,7 @@ use std::{
 use tokio::net::UdpSocket;
 use tokio::time::Instant;
 use tokio::{io::ReadBuf, sync::watch};
-use tracing::{enabled, error, trace, Level};
+use tracing::{enabled, error, trace, warn, Level};
 
 use crate::base::Message;
 use crate::net::server::buf::BufSource;
@@ -31,12 +32,13 @@ use crate::net::server::message::MessageProcessor;
 use crate::net::server::message::{ContextAwareMessage, MessageDetails};
 use crate::net::server::metrics::ServerMetrics;
 use crate::net::server::middleware::chain::MiddlewareChain;
-use crate::net::server::service::{CallResult, Service, ServiceCommand};
+use crate::net::server::service::{CallResult, Service, ServiceFeedback};
 use crate::net::server::sock::AsyncDgramSock;
 use crate::net::server::util::to_pcap_text;
 use crate::utils::config::DefMinMax;
 
 use super::buf::VecBufSource;
+use super::service::ServerCommand;
 
 /// A UDP transport based DNS server transport.
 ///
@@ -185,8 +187,8 @@ where
     Svc: Service<Buf::Output> + Send + Sync + 'static,
 {
     config: Config,
-    command_rx: watch::Receiver<ServiceCommand>,
-    command_tx: Arc<Mutex<watch::Sender<ServiceCommand>>>,
+    command_rx: watch::Receiver<ServerCommand<Config>>,
+    command_tx: Arc<Mutex<watch::Sender<ServerCommand<Config>>>>,
     sock: Arc<Sock>,
     buf: Buf,
     service: Svc,
@@ -230,7 +232,7 @@ where
         service: Svc,
         config: Config,
     ) -> Self {
-        let (command_tx, command_rx) = watch::channel(ServiceCommand::Init);
+        let (command_tx, command_rx) = watch::channel(ServerCommand::Init);
         let command_tx = Arc::new(Mutex::new(command_tx));
         let metrics = Arc::new(ServerMetrics::connection_less());
 
@@ -319,7 +321,7 @@ where
         self.command_tx
             .lock()
             .unwrap()
-            .send(ServiceCommand::Shutdown)
+            .send(ServerCommand::Shutdown)
             .map_err(|_| Error::CommandCouldNotBeSent)
     }
 }
@@ -385,7 +387,7 @@ where
     fn process_service_command(
         &self,
         res: Result<(), watch::error::RecvError>,
-        command_rx: &mut watch::Receiver<ServiceCommand>,
+        command_rx: &mut watch::Receiver<ServerCommand<Config>>,
     ) -> Result<(), String> {
         // If the parent server no longer exists but was not cleanly shutdown
         // then the command channel will be closed and attempting to check for
@@ -394,21 +396,12 @@ where
         res.map_err(|err| format!("Error while receiving command: {err}"))?;
 
         // Get the changed command.
-        let command = *command_rx.borrow_and_update();
+        let lock = command_rx.borrow_and_update();
+        let command = lock.deref();
 
         // And process it.
         match command {
-            ServiceCommand::Reconfigure { .. } => {
-                // TODO: Support dynamic replacement of the middleware chain?
-                // E.g. via ArcSwapOption<MiddlewareChain> instead of Option?
-            }
-
-            ServiceCommand::Shutdown => {
-                // Stop receiving new messages.
-                return Err("Shutdown command received".to_string());
-            }
-
-            ServiceCommand::Init => {
+            ServerCommand::Init => {
                 // The initial "Init" value in the watch channel is never
                 // actually seen because changed() is required to return true
                 // before we call borrow_and_update() but the initial value in
@@ -419,13 +412,25 @@ where
                 unreachable!()
             }
 
-            ServiceCommand::CloseConnection => {
+            ServerCommand::CloseConnection => {
                 // A datagram server does not have connections so handling the
                 // close of a connection which can never happen has no meaning
                 // as it cannot occur. However a Service impl cannot know
                 // which server will receive the ServiceCommand if it is
                 // shared between multiple servers and so we should just
                 // ignore this if we receive it.
+            }
+
+            ServerCommand::Reconfigure(Config {
+                max_response_size: _, // TO DO
+            }) => {
+                // TODO: Support dynamic replacement of the middleware chain?
+                // E.g. via ArcSwapOption<MiddlewareChain> instead of Option?
+            }
+
+            ServerCommand::Shutdown => {
+                // Stop receiving new messages.
+                return Err("Shutdown command received".to_string());
             }
         }
 

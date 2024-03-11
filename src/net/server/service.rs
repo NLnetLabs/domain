@@ -3,7 +3,7 @@
 //! The [`Service::call()`] function defines how the service should respond to
 //! a given DNS request. resulting in a [`ServiceResult`] containing a
 //! transaction that yields one or more future DNS responses, and/or a
-//! [`ServiceCommand`].
+//! [`ServerCommand`].
 use core::ops::Deref;
 use std::boxed::Box;
 use std::future::Future;
@@ -31,16 +31,16 @@ use super::message::ContextAwareMessage;
 /// one or more [`ServiceResultItem`] futures.
 ///
 /// On failure it instead results in a [`ServiceError`].
-pub type ServiceResult<Target, Error, Single> = Result<
-    Transaction<ServiceResultItem<Target, Error>, Single>,
+pub type ServiceResult<RequestOctets, Target, Error, Single> = Result<
+    Transaction<ServiceResultItem<RequestOctets, Target, Error>, Single>,
     ServiceError<Error>,
 >;
 
 /// A single result item from a [`ServiceResult`].
 ///
 /// See [`Service::call()`].
-pub type ServiceResultItem<Target, Error> =
-    Result<CallResult<Target>, ServiceError<Error>>;
+pub type ServiceResultItem<RequestOctets, Target, Error> =
+    Result<CallResult<RequestOctets, Target>, ServiceError<Error>>;
 
 /// [`Service`]s are responsible for determining how to respond to valid DNS
 /// requests.
@@ -107,12 +107,12 @@ pub type ServiceResultItem<Target, Error> =
 /// impl Service<Vec<u8>> for MyService {
 ///     type Error = ();
 ///     type Target = Vec<u8>;
-///     type Single = Ready<ServiceResultItem<Self::Target, Self::Error>>;
+///     type Single = Ready<ServiceResultItem<Vec<u8>, Self::Target, Self::Error>>;
 ///
 ///     fn call(
 ///         &self,
 ///         msg: Arc<ContextAwareMessage<Message<Vec<u8>>>>,
-///     ) -> ServiceResult<Self::Target, Self::Error, Self::Single> {
+///     ) -> ServiceResult<Vec<u8>, Self::Target, Self::Error, Self::Single> {
 ///         let builder = mk_builder_for_target();
 ///         let additional = mk_answer(&msg, builder)?;
 ///         let item = ready(Ok(CallResult::new(additional)));
@@ -137,9 +137,10 @@ pub type ServiceResultItem<Target, Error> =
 /// fn name_to_ip<Target>(
 ///     msg: Arc<ContextAwareMessage<Message<Vec<u8>>>>,
 /// ) -> ServiceResult<
+///         Vec<u8>,
 ///         Target,
 ///         (),
-///         impl Future<Output = ServiceResultItem<Target, ()>>,
+///         impl Future<Output = ServiceResultItem<Vec<u8>, Target, ()>>,
 ///     >
 /// where
 ///     Target: Composer + Octets + FreezeBuilder<Octets = Target> + Default + Send,
@@ -195,7 +196,7 @@ pub type ServiceResultItem<Target, Error> =
 /// See [`mk_service()`] for an example of how to use it to create a
 /// [`Service`] impl from a funciton.
 ///
-/// [`MiddlewareChain`]: crate::net::server::middleware::MiddlewareChain
+/// [`MiddlewareChain`]: crate::net::server::middleware::chain::MiddlewareChain
 /// [`DgramServer`]: crate::net::server::dgram::DgramServer
 /// [`StreamServer`]: crate::net::server::stream::StreamServer
 /// [net::server module documentation]: crate::net::server
@@ -210,14 +211,19 @@ pub trait Service<RequestOctets: AsRef<[u8]> = Vec<u8>> {
 
     /// The type of future returned by [`Service::call()`] via
     /// [`Transaction::single()`].
-    type Single: Future<Output = ServiceResultItem<Self::Target, Self::Error>>
-        + Send;
+    type Single: Future<
+            Output = ServiceResultItem<
+                RequestOctets,
+                Self::Target,
+                Self::Error,
+            >,
+        > + Send;
 
     /// Generate a response to a fully pre-processed request.
     fn call(
         &self,
         message: Arc<ContextAwareMessage<Message<RequestOctets>>>,
-    ) -> ServiceResult<Self::Target, Self::Error, Self::Single>;
+    ) -> ServiceResult<RequestOctets, Self::Target, Self::Error, Self::Single>;
 }
 
 /// Helper trait impl to treat an [`Arc<impl Service>`] as a [`Service`].
@@ -231,7 +237,8 @@ impl<RequestOctets: AsRef<[u8]>, T: Service<RequestOctets>>
     fn call(
         &self,
         message: Arc<ContextAwareMessage<Message<RequestOctets>>>,
-    ) -> ServiceResult<Self::Target, Self::Error, Self::Single> {
+    ) -> ServiceResult<RequestOctets, Self::Target, Self::Error, Self::Single>
+    {
         Arc::deref(self).call(message)
     }
 }
@@ -241,11 +248,12 @@ impl<RequestOctets, Error, Target, Single, F> Service<RequestOctets> for F
 where
     F: Fn(
         Arc<ContextAwareMessage<Message<RequestOctets>>>,
-    ) -> ServiceResult<Target, Error, Single>,
+    ) -> ServiceResult<RequestOctets, Target, Error, Single>,
     RequestOctets: AsRef<[u8]>,
     Error: Send + Sync + 'static,
     Target: Composer + Default + Send + Sync + 'static,
-    Single: Future<Output = ServiceResultItem<Target, Error>> + Send,
+    Single: Future<Output = ServiceResultItem<RequestOctets, Target, Error>>
+        + Send,
 {
     type Error = Error;
     type Target = Target;
@@ -254,7 +262,7 @@ where
     fn call(
         &self,
         message: Arc<ContextAwareMessage<Message<RequestOctets>>>,
-    ) -> ServiceResult<Target, Error, Self::Single> {
+    ) -> ServiceResult<RequestOctets, Target, Error, Self::Single> {
         (*self)(message)
     }
 }
@@ -308,20 +316,17 @@ impl<T> From<PushError> for ServiceError<T> {
     }
 }
 
-//------------ ServiceCommand ------------------------------------------------
+//------------ ServerCommand ------------------------------------------------
 
 /// Command a server to do something.
 #[derive(Copy, Clone, Debug)]
-pub enum ServiceCommand {
+pub enum ServerCommand<T: Sized> {
     #[doc(hidden)]
     /// This command is for internal use only.
     Init,
 
     /// Command the server to alter its configuration.
-    ///
-    /// The effect may differ whether handled by a server or (for
-    /// connection-oriented transport protocols) a connection handler.
-    Reconfigure { idle_timeout: Duration },
+    Reconfigure(T),
 
     /// Command the connection handler to terminate.
     ///
@@ -330,6 +335,24 @@ pub enum ServiceCommand {
     CloseConnection,
 
     /// Command the server to terminate.
+    Shutdown,
+}
+
+//------------ ServiceFeedback -----------------------------------------------
+
+/// Feedback from a [`Service`] to a server asking it to do something.
+#[derive(Copy, Clone, Debug)]
+pub enum ServiceFeedback {
+    /// Ask the server to alter its configuration.
+    Reconfigure { idle_timeout: Duration },
+
+    /// Ask the connection handler to terminate.
+    ///
+    /// This command is only applicable to connection-oriented
+    /// transport protocols.
+    CloseConnection,
+
+    /// Ask the server to shutdown.
     Shutdown,
 }
 
@@ -342,12 +365,12 @@ pub enum ServiceCommand {
 /// In most cases a [`CallResult`] will be a DNS response message.
 ///
 /// If needed a [`CallResult`] can instead, or additionally, contain a
-/// [`ServiceCommand`] directing the server or connection handler handling the
+/// [`ServerCommand`] directing the server or connection handler handling the
 /// request to adjust its own configuration, or even to terminate the
 /// connection.
 pub struct CallResult<Target> {
     response: Option<AdditionalBuilder<StreamTarget<Target>>>,
-    command: Option<ServiceCommand>,
+    feedback: Option<ServiceFeedback>,
 }
 
 impl<Target> CallResult<Target>
@@ -360,38 +383,38 @@ where
     pub fn new(response: AdditionalBuilder<StreamTarget<Target>>) -> Self {
         Self {
             response: Some(response),
-            command: None,
+            feedback: None,
         }
     }
 
-    /// Construct a [`CallResult`] from a [`ServiceCommand`].
+    /// Construct a [`CallResult`] from a [`ServiceFeedback`].
     #[must_use]
-    pub fn command_only(command: ServiceCommand) -> Self {
+    pub fn feedback_only(command: ServiceFeedback) -> Self {
         Self {
             response: None,
-            command: Some(command),
+            feedback: Some(command),
         }
     }
 
     /// Add a [`ServiceCommand`] to an existing [`CallResult`].
     #[must_use]
-    pub fn with_command(mut self, command: ServiceCommand) -> Self {
-        self.command = Some(command);
+    pub fn with_feedback(mut self, feedback: ServiceFeedback) -> Self {
+        self.feedback = Some(feedback);
         self
     }
 
-    /// Get the contained DNS response message, if any.
+    /// Get the contained feedback, if any.
+    #[must_use]
+    pub fn feedback(&self) -> Option<ServiceFeedback> {
+        self.feedback
+    }
+
+    /// Get a mutable reference to the contained DNS response message, if any.
     #[must_use]
     pub fn get_mut(
         &mut self,
     ) -> Option<&mut AdditionalBuilder<StreamTarget<Target>>> {
         self.response.as_mut()
-    }
-
-    /// Get the contained command, if any.
-    #[must_use]
-    pub fn command(&self) -> Option<ServiceCommand> {
-        self.command
     }
 
     /// Convert the [`CallResult`] into the contained DNS response message and command.
