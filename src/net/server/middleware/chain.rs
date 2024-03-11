@@ -105,12 +105,13 @@ where
         &self,
         request: &mut ContextAwareMessage<Message<RequestOctets>>,
     ) -> ControlFlow<(
-        Transaction<ServiceResultItem<Target, Error>, Single>,
+        Transaction<ServiceResultItem<RequestOctets, Target, Error>, Single>,
         usize,
     )>
     where
         Error: Send + 'static,
-        Single: Future<Output = ServiceResultItem<Target, Error>> + Send,
+        Single: Future<Output = ServiceResultItem<RequestOctets, Target, Error>>
+            + Send,
     {
         for (i, p) in self.processors.iter().enumerate() {
             match p.preprocess(request) {

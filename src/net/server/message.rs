@@ -33,7 +33,7 @@ pub struct ContextAwareMessage<T> {
     received_at: Instant,
     received_over_udp: bool,
     client_addr: std::net::SocketAddr,
-    max_response_size_hint: Option<usize>,
+    max_response_size_hint: Option<u16>,
 }
 
 impl<T> ContextAwareMessage<T> {
@@ -52,12 +52,12 @@ impl<T> ContextAwareMessage<T> {
         }
     }
 
-    pub fn set_max_response_size_hint(&mut self, value: usize) {
+    pub fn set_max_response_size_hint(&mut self, value: u16) {
         self.max_response_size_hint = Some(value);
     }
 
     /// Maximum response size hint, if any.
-    pub fn max_response_size_hint(&self) -> Option<usize> {
+    pub fn max_response_size_hint(&self) -> Option<u16> {
         self.max_response_size_hint
     }
 
@@ -148,7 +148,7 @@ where
     ///
     /// This function consumes the given message buffer and processes the
     /// contained message, if any, to completion, possibly resulting in a
-    /// response being passed to [`handle_final_call_result()`].
+    /// response being passed to [`Self::process_call_result()`].
     ///
     /// The request message is a given as a seqeuence of bytes in `buf`
     /// originating from client address `addr`.
@@ -162,8 +162,6 @@ where
     /// defined by the implementing type.
     ///
     /// On error the result will be a [`ServiceError`].
-    ///
-    /// [`handle_final_call_result()`]: Self::handle_final_call_result()
     fn process_request(
         &self,
         msg_details: MessageDetails<Buf>,
@@ -235,7 +233,7 @@ where
             Arc<ContextAwareMessage<Message<Buf::Output>>>,
             ControlFlow<(
                 Transaction<
-                    ServiceResultItem<Svc::Target, Svc::Error>,
+                    ServiceResultItem<Buf::Output, Svc::Target, Svc::Error>,
                     Svc::Single,
                 >,
                 usize,
@@ -288,18 +286,16 @@ where
     /// [`Transaction::single()`].
     ///
     /// Responses are first post-processed by the [`MiddlewareChain`]
-    /// provided, if any, then passed to [`handle_final_call_result()`] for
+    /// provided, if any, then passed to [`Self::process_call_result()`] for
     /// final processing.
-    ///
-    /// [`handle_final_call_result()`]: Self::handle_final_call_result()
     #[allow(clippy::type_complexity)]
     fn postprocess_response(
         &self,
-        msg: Arc<ContextAwareMessage<Message<Buf::Output>>>,
+        request: Arc<ContextAwareMessage<Message<Buf::Output>>>,
         state: Self::State,
         middleware_chain: Option<MiddlewareChain<Buf::Output, Svc::Target>>,
-        mut txn: Transaction<
-            ServiceResultItem<Svc::Target, Svc::Error>,
+        mut response_txn: Transaction<
+            ServiceResultItem<Buf::Output, Svc::Target, Svc::Error>,
             Svc::Single,
         >,
         last_processor_id: Option<usize>,
@@ -309,26 +305,28 @@ where
     {
         tokio::spawn(async move {
             let span = info_span!("post-process",
-                msg_id = msg.message().header().id(),
-                client = %msg.client_addr(),
+                msg_id = request.message().header().id(),
+                client = %request.client_addr(),
             );
             let _guard = span.enter();
 
             // TODO: Handle Err results from txn.next().
-            while let Some(Ok(mut call_result)) = txn.next().await {
-                if let Some(response) = call_result.get_mut() {
+            while let Some(Ok(mut call_result)) = response_txn.next().await {
+                if let Some(response) = call_result.get_response_mut() {
                     if let Some(middleware_chain) = &middleware_chain {
                         middleware_chain.postprocess(
-                            &msg,
+                            &request,
                             response,
                             last_processor_id,
                         );
                     }
                 }
 
-                Self::handle_final_call_result(
+                let call_result = call_result.with_request(request.clone());
+
+                Self::process_call_result(
                     call_result,
-                    msg.client_addr(),
+                    request.client_addr(),
                     state.clone(),
                     metrics.clone(),
                 );
@@ -358,8 +356,8 @@ where
     /// originating client.
     ///
     /// The response is the form of a [`CallResult`].
-    fn handle_final_call_result(
-        call_result: CallResult<Svc::Target>,
+    fn process_call_result(
+        call_result: CallResult<Buf::Output, Svc::Target>,
         addr: SocketAddr,
         state: Self::State,
         metrics: Arc<ServerMetrics>,

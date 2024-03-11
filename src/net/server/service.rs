@@ -368,13 +368,22 @@ pub enum ServiceFeedback {
 /// [`ServerCommand`] directing the server or connection handler handling the
 /// request to adjust its own configuration, or even to terminate the
 /// connection.
-pub struct CallResult<Target> {
+pub struct CallResult<RequestOctets, Target>
+where
+    RequestOctets: AsRef<[u8]>,
+{
+    request: Option<Arc<ContextAwareMessage<Message<RequestOctets>>>>,
     response: Option<AdditionalBuilder<StreamTarget<Target>>>,
     feedback: Option<ServiceFeedback>,
 }
 
-impl<Target> CallResult<Target>
+type RequestMsg<RequestOctets> =
+    Arc<ContextAwareMessage<Message<RequestOctets>>>;
+type ResponseMsg<Target> = AdditionalBuilder<StreamTarget<Target>>;
+
+impl<RequestOctets, Target> CallResult<RequestOctets, Target>
 where
+    RequestOctets: AsRef<[u8]>,
     Target: OctetsBuilder + AsRef<[u8]> + AsMut<[u8]>,
     Target::AppendError: Into<ShortBuf>,
 {
@@ -382,6 +391,7 @@ where
     #[must_use]
     pub fn new(response: AdditionalBuilder<StreamTarget<Target>>) -> Self {
         Self {
+            request: None,
             response: Some(response),
             feedback: None,
         }
@@ -391,12 +401,22 @@ where
     #[must_use]
     pub fn feedback_only(command: ServiceFeedback) -> Self {
         Self {
+            request: None,
             response: None,
             feedback: Some(command),
         }
     }
 
-    /// Add a [`ServiceCommand`] to an existing [`CallResult`].
+    /// Add an [`Arc<ContextAwareMessage<_>>`] to an existing [`CallResult`].
+    pub fn with_request(
+        mut self,
+        request: Arc<ContextAwareMessage<Message<RequestOctets>>>,
+    ) -> Self {
+        self.request = Some(request);
+        self
+    }
+
+    /// Add a [`ServiceFeedback`] to an existing [`CallResult`].
     #[must_use]
     pub fn with_feedback(mut self, feedback: ServiceFeedback) -> Self {
         self.feedback = Some(feedback);
@@ -411,7 +431,7 @@ where
 
     /// Get a mutable reference to the contained DNS response message, if any.
     #[must_use]
-    pub fn get_mut(
+    pub fn get_response_mut(
         &mut self,
     ) -> Option<&mut AdditionalBuilder<StreamTarget<Target>>> {
         self.response.as_mut()
@@ -422,11 +442,16 @@ where
     pub fn into_inner(
         self,
     ) -> (
-        Option<AdditionalBuilder<StreamTarget<Target>>>,
-        Option<ServiceCommand>,
+        Option<RequestMsg<RequestOctets>>,
+        Option<ResponseMsg<Target>>,
+        Option<ServiceFeedback>,
     ) {
-        let CallResult { response, command } = self;
-        (response, command)
+        let CallResult {
+            request,
+            response,
+            feedback,
+        } = self;
+        (request, response, feedback)
     }
 }
 
@@ -448,7 +473,7 @@ where
 ///
 /// [`single()`]: Self::single()
 /// [`stream()`]: Self::stream()
-/// [`push()`]: Self::push()
+/// [`push()`]: TransactionStream::push()
 /// [`next()`]: Self::next()
 pub struct Transaction<Item, Single>(TransactionInner<Item, Single>)
 where

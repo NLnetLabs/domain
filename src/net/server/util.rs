@@ -66,9 +66,9 @@ where
 ///
 /// // Implement the business logic of our service.
 /// fn my_service(
-///     req: MkServiceRequest<Vec<u8>>,      // The received DNS request
-///     _meta: MyMeta,                       // Any additional data you want to pass in
-/// ) -> MkServiceResult<Vec<u8>, MyError> { // The resulting DNS response(s)
+///     req: MkServiceRequest<Vec<u8>>,               // The received DNS request
+///     _meta: MyMeta,                                // Any additional data you need
+/// ) -> MkServiceResult<Vec<u8>, Vec<u8>, MyError> { // The resulting DNS response(s)
 ///     // For each request create a single response:
 ///     Ok(Transaction::single(Box::pin(async move {
 ///         let builder = mk_builder_for_target();
@@ -97,12 +97,13 @@ where
     RequestOctets: AsRef<[u8]>,
     Target: Composer + Default + Send + Sync + 'static,
     Error: Send + Sync + 'static,
-    Single: Future<Output = ServiceResultItem<Target, Error>> + Send,
+    Single: Future<Output = ServiceResultItem<RequestOctets, Target, Error>>
+        + Send,
     Metadata: Clone,
     T: Fn(
             Arc<ContextAwareMessage<Message<RequestOctets>>>,
             Metadata,
-        ) -> ServiceResult<Target, Error, Single>
+        ) -> ServiceResult<RequestOctets, Target, Error, Single>
         + Clone,
 {
     move |msg| msg_handler(msg, metadata.clone())
@@ -111,11 +112,19 @@ where
 //----------- MkServiceResult ------------------------------------------------
 
 /// The result of a [`Service`] created by [`mk_service()`].
-pub type MkServiceResult<Target, Error> = Result<
+pub type MkServiceResult<RequestOctets, Target, Error> = Result<
     Transaction<
-        ServiceResultItem<Target, Error>,
+        ServiceResultItem<RequestOctets, Target, Error>,
         Pin<
-            Box<dyn Future<Output = ServiceResultItem<Target, Error>> + Send>,
+            Box<
+                dyn Future<
+                        Output = ServiceResultItem<
+                            RequestOctets,
+                            Target,
+                            Error,
+                        >,
+                    > + Send,
+            >,
         >,
     >,
     ServiceError<Error>,

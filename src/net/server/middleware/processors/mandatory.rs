@@ -1,6 +1,6 @@
 //! Core DNS RFC standards based message processing.
 use octseq::Octets;
-use tracing::{debug, enabled, trace, warn, Level};
+use tracing::{debug, enabled, trace, Level};
 
 use crate::{
     base::{
@@ -86,7 +86,7 @@ where
                         } else if request.max_response_size_hint().is_none() {
                             trace!("Setting max response size hint from EDNS(0) requestor's UDP payload size ({})", requestors_udp_payload_size);
                             new_max_response_size_hint =
-                                Some(requestors_udp_payload_size.into());
+                                Some(requestors_udp_payload_size);
                         }
                     }
                 }
@@ -158,13 +158,5 @@ where
         // TODO: For non-error responses is it mandatory that the question
         // from the request be copied to the response? Unbound and domain
         // think so. If this has not been done, how should we react here?
-
-        if let Some(max_response_size_hint) = request.max_response_size_hint()
-        {
-            let response_size = response.as_slice().len();
-            if response_size > max_response_size_hint {
-                warn!("Response size {response_size} exceeds max response size hint ({max_response_size_hint})");
-            }
-        }
     }
 }

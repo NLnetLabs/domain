@@ -140,7 +140,7 @@ impl Default for Config {
 /// use tokio::net::TcpListener;
 ///
 /// fn my_service(msg: Arc<ContextAwareMessage<Message<Vec<u8>>>>, _meta: ())
-///     -> MkServiceResult<Vec<u8>, ()>
+///     -> MkServiceResult<Vec<u8>, Vec<u8>, ()>
 /// {
 ///     todo!()
 /// }

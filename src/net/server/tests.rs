@@ -308,7 +308,7 @@ async fn stop_service_fn_test() {
 struct MySingle;
 
 impl Future for MySingle {
-    type Output = Result<CallResult<Vec<u8>>, ServiceError<()>>;
+    type Output = Result<CallResult<Vec<u8>, Vec<u8>>, ServiceError<()>>;
 
     fn poll(
         self: Pin<&mut Self>,
@@ -345,7 +345,7 @@ impl Service<Vec<u8>> for MyService {
         _msg: Arc<ContextAwareMessage<Message<Vec<u8>>>>,
     ) -> Result<
         Transaction<
-            ServiceResultItem<Self::Target, Self::Error>,
+            ServiceResultItem<Vec<u8>, Self::Target, Self::Error>,
             Self::Single,
         >,
         ServiceError<Self::Error>,

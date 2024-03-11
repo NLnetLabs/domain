@@ -210,7 +210,7 @@ where
 fn test_service(
     request: MkServiceRequest<Vec<u8>>,
     zonefile: Zonefile,
-) -> MkServiceResult<Vec<u8>, ()> {
+) -> MkServiceResult<Vec<u8>, Vec<u8>, ()> {
     fn as_record_and_dname(
         r: ScannedRecord,
     ) -> Option<(ScannedRecord, Dname<Vec<u8>>)> {

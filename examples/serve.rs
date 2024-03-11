@@ -70,12 +70,13 @@ struct MyService;
 impl Service<Vec<u8>> for MyService {
     type Error = ();
     type Target = Vec<u8>;
-    type Single = Ready<ServiceResultItem<Self::Target, Self::Error>>;
+    type Single =
+        Ready<ServiceResultItem<Vec<u8>, Self::Target, Self::Error>>;
 
     fn call(
         &self,
         msg: Arc<ContextAwareMessage<Message<Vec<u8>>>>,
-    ) -> ServiceResult<Self::Target, Self::Error, Self::Single> {
+    ) -> ServiceResult<Vec<u8>, Self::Target, Self::Error, Self::Single> {
         let builder = mk_builder_for_target();
         let additional = mk_answer(&msg, builder)?;
         let item = ready(Ok(CallResult::new(additional)));
@@ -95,7 +96,7 @@ impl Service<Vec<u8>> for MyService {
 fn query(
     msg: MkServiceRequest<Vec<u8>>,
     count: Arc<AtomicU8>,
-) -> MkServiceResult<Vec<u8>, ()> {
+) -> MkServiceResult<Vec<u8>, Vec<u8>, ()> {
     let cnt = count
         .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |x| {
             Some(if x > 0 { x - 1 } else { 0 })
@@ -135,9 +136,10 @@ fn query(
 fn name_to_ip<Target>(
     msg: Arc<ContextAwareMessage<Message<Vec<u8>>>>,
 ) -> ServiceResult<
+    Vec<u8>,
     Target,
     (),
-    impl Future<Output = ServiceResultItem<Target, ()>>,
+    impl Future<Output = ServiceResultItem<Vec<u8>, Target, ()>>,
 >
 where
     Target:

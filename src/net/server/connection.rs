@@ -183,7 +183,7 @@ where
     buf_source: Buf,
     config: Config,
     metrics: Arc<ServerMetrics>,
-    result_q_rx: mpsc::Receiver<CallResult<Svc::Target>>,
+    result_q_rx: mpsc::Receiver<CallResult<Buf::Output, Svc::Target>>,
     service: Svc,
     middleware_chain: Option<MiddlewareChain<Buf::Output, Svc::Target>>,
     state: StreamState<Stream, Buf, Svc>,
@@ -473,7 +473,7 @@ where
 
     async fn process_queued_result(
         &mut self,
-        call_result: Option<CallResult<Svc::Target>>,
+        call_result: Option<CallResult<Buf::Output, Svc::Target>>,
     ) -> Result<(), ConnectionEvent<Svc::Error>> {
         // If we failed to read the results of requests processed by the
         // service because the queue holding those results is empty and can no
@@ -485,7 +485,7 @@ where
             return Err(ConnectionEvent::DisconnectWithFlush);
         };
 
-        let (response, feedback) = call_result.into_inner();
+        let (_request, response, feedback) = call_result.into_inner();
 
         if let Some(feedback) = feedback {
             self.act_on_feedback(feedback).await;
@@ -625,7 +625,7 @@ where
     Buf::Output: Send + Sync,
     Svc: Service<Buf::Output> + Send + Sync + Clone,
 {
-    type State = Sender<CallResult<Svc::Target>>;
+    type State = Sender<CallResult<Buf::Output, Svc::Target>>;
 
     fn add_context_to_request(
         &self,
@@ -636,8 +636,8 @@ where
         ContextAwareMessage::new(request, addr, received_at, false)
     }
 
-    fn handle_final_call_result(
-        call_result: CallResult<Svc::Target>,
+    fn process_call_result(
+        call_result: CallResult<Buf::Output, Svc::Target>,
         _addr: SocketAddr,
         tx: Self::State,
         metrics: Arc<ServerMetrics>,
@@ -862,7 +862,7 @@ where
     #[must_use]
     fn new(
         stream_tx: WriteHalf<Stream>,
-        result_q_tx: mpsc::Sender<CallResult<Svc::Target>>,
+        result_q_tx: mpsc::Sender<CallResult<Buf::Output, Svc::Target>>,
         idle_timeout: std::time::Duration,
     ) -> Self {
         Self {

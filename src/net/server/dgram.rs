@@ -20,6 +20,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
+use octseq::Truncate;
 use tokio::net::UdpSocket;
 use tokio::time::Instant;
 use tokio::{io::ReadBuf, sync::watch};
@@ -58,7 +59,7 @@ pub type UdpServer<Svc> = DgramServer<UdpSocket, VecBufSource, Svc>;
 ///
 /// [2020 DNS Flag Day]: http://www.dnsflagday.net/2020/
 /// [RFC 6891]: https://datatracker.ietf.org/doc/html/rfc6891#section-6.2.5
-const MAX_RESPONSE_SIZE: DefMinMax<usize> = DefMinMax::new(1232, 512, 4096);
+const MAX_RESPONSE_SIZE: DefMinMax<u16> = DefMinMax::new(1232, 512, 4096);
 
 //----------- Config ---------------------------------------------------------
 
@@ -66,7 +67,7 @@ const MAX_RESPONSE_SIZE: DefMinMax<usize> = DefMinMax::new(1232, 512, 4096);
 #[derive(Clone, Debug)]
 pub struct Config {
     /// Limit suggested to [`Service`] on maximum response size to create.
-    max_response_size: Option<usize>,
+    max_response_size: Option<u16>,
 }
 
 impl Config {
@@ -79,7 +80,7 @@ impl Config {
     ///
     /// The value has to be between 512 and 4,096 per [RFC 6891]. The default
     /// value is 1232 per the [2020 DNS Flag Day].
-    /// 
+    ///
     /// Pass `None` to prevent sending a limit suggestion to the middleware
     /// (if any) and service.
     ///
@@ -89,7 +90,7 @@ impl Config {
     /// [2020 DNS Flag Day]: http://www.dnsflagday.net/2020/
     /// [RFC 6891]:
     ///     https://datatracker.ietf.org/doc/html/rfc6891#section-6.2.5
-    pub fn set_max_response_size(&mut self, value: Option<usize>) {
+    pub fn set_max_response_size(&mut self, value: Option<u16>) {
         self.max_response_size = value;
     }
 }
@@ -138,7 +139,7 @@ impl Default for Config {
 /// use tokio::net::UdpSocket;
 ///
 /// fn my_service(msg: Arc<ContextAwareMessage<Message<Vec<u8>>>>, _meta: ())
-///     -> MkServiceResult<Vec<u8>, ()>
+///     -> MkServiceResult<Vec<u8>, Vec<u8>, ()>
 /// {
 ///     todo!()
 /// }
@@ -490,25 +491,77 @@ where
         msg
     }
 
-    fn handle_final_call_result(
-        call_result: CallResult<Svc::Target>,
+    fn process_call_result(
+        call_result: CallResult<Buf::Output, Svc::Target>,
         addr: SocketAddr,
         sock: Self::State,
         _metrics: Arc<ServerMetrics>,
     ) {
         tokio::spawn(async move {
-            // TODO: Handle ServiceCommand::Reconfigure.
-            let (response, _command) = call_result.into_inner();
+            // TODO: Handle ServiceFeedback::Reconfigure.
+            let (request, response, feedback) = call_result.into_inner();
 
-            if let Some(response) = response {
-                let target = response.finish();
+            // Process the DNS response message, if any.
+            if let Some(mut response) = response {
+                // Determine if the response needs to be truncated.
+                let mut truncate_to = None;
+
+                if let Some(request) = request {
+                    if let Some(max_response_size_hint) =
+                        request.max_response_size_hint()
+                    {
+                        let max_response_size_hint: usize =
+                            max_response_size_hint.into();
+                        let response_len = response.as_slice().len();
+                        if response_len > max_response_size_hint {
+                            // Truncate per RFC 1035 section 6.2 and RFC 2181 sections 5.1
+                            // and 9:
+                            //
+                            // https://datatracker.ietf.org/doc/html/rfc1035#section-6.2
+                            //   "When a response is so long that truncation is required,
+                            //    the truncation should start at the end of the response
+                            //    and work forward in the datagram.  Thus if there is any
+                            //    data for the authority section, the answer section is
+                            //    guaranteed to be unique."
+                            //
+                            // https://datatracker.ietf.org/doc/html/rfc2181#section-5.1
+                            //   "A query for a specific (or non-specific) label, class,
+                            //    and type, will always return all records in the
+                            //    associated RRSet - whether that be one or more RRs.  The
+                            //    response must be marked as "truncated" if the entire
+                            //    RRSet will not fit in the response."
+                            //
+                            // https://datatracker.ietf.org/doc/html/rfc2181#section-9 ""
+                            //   "Where TC is set, the partial RRSet that would not
+                            //    completely fit may be left in the response.  When a DNS
+                            //    client receives a reply with TC set, it should ignore
+                            //    that response, and query again, using a mechanism, such
+                            //    as a TCP connection, that will permit larger replies."
+
+                            // Simplistic approach:
+                            trace!("Truncating response from {response_len} bytes to {max_response_size_hint} bytes");
+                            truncate_to = Some(max_response_size_hint);
+                            response.header_mut().set_tc(true);
+                        }
+                    }
+                }
+
+                // Convert the DNS response message into bytes and apply
+                // truncation if needed.
+                let mut target = response.finish();
+                if let Some(max_response_size) = truncate_to {
+                    target.truncate(max_response_size);
+                }
                 let bytes = target.as_dgram_slice();
 
+                // Logging
                 if enabled!(Level::TRACE) {
                     let pcap_text = to_pcap_text(bytes, bytes.len());
                     trace!(%addr, pcap_text, "Sent response");
                 }
 
+                // Actually write the DNS response message bytes to the UDP
+                // socket.
                 let _ = Self::send_to(&sock, bytes, &addr).await;
             }
 

@@ -114,7 +114,11 @@ where
         }
         if reply.tc != header.tc() {
             if verbose {
-                todo!();
+                println!(
+                    "match_msg: TC does not match, got {}, expected {}",
+                    header.tc(),
+                    reply.tc
+                );
             }
             return false;
         }
