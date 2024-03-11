@@ -74,7 +74,7 @@ const MAX_QUEUED_RESPONSES: DefMinMax<usize> = DefMinMax::new(10, 0, 1024);
 //----------- Config ---------------------------------------------------------
 
 /// Configuration for a stream server connection.
-#[derive(Clone, Debug)]
+#[derive(Clone, Copy, Debug)]
 pub struct Config {
     /// Limit on the amount of time to allow between client requests.
     ///
@@ -233,8 +233,7 @@ where
         let (stream_rx, stream_tx) = tokio::io::split(stream);
         let (result_q_tx, result_q_rx) =
             mpsc::channel(config.max_queued_responses);
-        let state =
-            StreamState::new(stream_tx, result_q_tx, config.idle_timeout);
+        let state = StreamState::new(stream_tx, result_q_tx);
 
         // Place the ReadHalf of the stream into an Option so that we can take
         // it out (as we can't clone it and we can't place it into an Arc
@@ -341,7 +340,7 @@ where
                         self.process_queued_result(res).await
                     }
 
-                    _ = sleep_until(self.state.idle_timeout_deadline()) => {
+                    _ = sleep_until(self.state.idle_timeout_deadline(self.config.idle_timeout)) => {
                         self.process_dns_idle_timeout()
                     }
 
@@ -413,13 +412,13 @@ where
             }
 
             ServerCommand::Reconfigure(ServerConfig {
-                max_concurrent_connections: _,
                 connection_config:
                     Config {
                         idle_timeout,
-                        response_write_timeout: _, // TO DO
+                        response_write_timeout,
                         max_queued_responses: _, // TO DO: Cannot be changed?
                     },
+                .. // Ignore the Server configuration settings
             }) => {
                 // Support RFC 7828 "The edns-tcp-keepalive EDNS0 Option".
                 // This cannot be done by the caller as it requires knowing
@@ -434,7 +433,8 @@ where
                 // at which we will consider the connectin to be idle and thus
                 // potentially worthy of timing out.
                 debug!("Server connection timeout reconfigured to {idle_timeout:?}");
-                self.state.idle_timeout = *idle_timeout;
+                self.config.idle_timeout = *idle_timeout;
+                self.config.response_write_timeout = *response_write_timeout;
 
                 // TODO: Support dynamic replacement of the middleware chain?
                 // E.g. via ArcSwapOption<MiddlewareChain> instead of Option?
@@ -544,12 +544,10 @@ where
 
             ServiceFeedback::Reconfigure { idle_timeout } => {
                 debug!("Reconfigured connection timeout to {idle_timeout:?}");
-                self.state.idle_timeout = idle_timeout;
+                self.config.idle_timeout = idle_timeout;
             }
 
-            ServiceFeedback::Shutdown => {
-                // TO DO
-            }
+            ServiceFeedback::Shutdown => {}
         }
     }
 
@@ -557,7 +555,7 @@ where
         &self,
     ) -> Result<(), ConnectionEvent<Svc::Error>> {
         // DNS idle timeout elapsed, or was it reset?
-        if self.state.idle_timeout_expired() {
+        if self.state.idle_timeout_expired(self.config.idle_timeout) {
             Err(ConnectionEvent::DisconnectWithoutFlush)
         } else {
             Ok(())
@@ -829,8 +827,6 @@ where
 
     // RFC 7766 section 6.2.3 / RFC 7828 section 3 idle time out tracking
     idle_timer_reset_at: Instant,
-
-    idle_timeout: std::time::Duration,
 }
 
 impl<Stream, Buf, Svc> StreamState<Stream, Buf, Svc>
@@ -844,13 +840,11 @@ where
     fn new(
         stream_tx: WriteHalf<Stream>,
         result_q_tx: mpsc::Sender<CallResult<Buf::Output, Svc::Target>>,
-        idle_timeout: std::time::Duration,
     ) -> Self {
         Self {
             stream_tx,
             result_q_tx,
             idle_timer_reset_at: Instant::now(),
-            idle_timeout,
         }
     }
 
@@ -859,15 +853,13 @@ where
     /// When we (will) have been sat idle for longer than the configured idle
     /// timeout for this connection.
     #[must_use]
-    pub fn idle_timeout_deadline(&self) -> Instant {
-        self.idle_timer_reset_at
-            .checked_add(self.idle_timeout)
-            .unwrap()
+    pub fn idle_timeout_deadline(&self, timeout: Duration) -> Instant {
+        self.idle_timer_reset_at.checked_add(timeout).unwrap()
     }
 
     #[must_use]
-    pub fn idle_timeout_expired(&self) -> bool {
-        self.idle_timeout_deadline() <= Instant::now()
+    pub fn idle_timeout_expired(&self, timeout: Duration) -> bool {
+        self.idle_timeout_deadline(timeout) <= Instant::now()
     }
 
     fn reset_idle_timer(&mut self) {

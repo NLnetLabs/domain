@@ -13,6 +13,7 @@
 //! > the Internet._
 //!
 //! [stream]: https://en.wikipedia.org/wiki/Reliable_byte_streamuse
+use arc_swap::ArcSwap;
 use core::future::poll_fn;
 use core::ops::Deref;
 use std::io;
@@ -66,7 +67,7 @@ const MAX_CONCURRENT_TCP_CONNECTIONS: DefMinMax<usize> =
 //----------- Config ---------------------------------------------------------
 
 /// Configuration for a stream server connection.
-#[derive(Clone, Debug)]
+#[derive(Clone, Copy, Debug)]
 pub struct Config {
     /// Limit on the number of concurrent TCP connections that can be handled
     /// by the server.
@@ -188,7 +189,7 @@ where
     Svc: Service<Buf::Output> + Send + Sync + 'static + Clone,
 {
     /// The configuration of the server.
-    config: Config,
+    config: Arc<ArcSwap<Config>>,
 
     /// A receiver for receiving [`ServerCommand`]s.
     ///
@@ -252,6 +253,7 @@ where
         let command_tx = Arc::new(Mutex::new(command_tx));
         let listener = Arc::new(listener);
         let metrics = Arc::new(ServerMetrics::connection_oriented());
+        let config = Arc::new(ArcSwap::from_pointee(config));
 
         StreamServer {
             config,
@@ -411,7 +413,7 @@ where
                             // must always be a connection count metric avasilable to
                             // unwrap.
                             let num_conn = self.metrics.num_connections().unwrap();
-                            if num_conn < self.config.max_concurrent_connections {
+                            if num_conn < self.config.load().max_concurrent_connections {
                                 self.process_new_connection(stream, addr);
                             }
                         }
@@ -442,10 +444,9 @@ where
 
         // And process it.
         match command {
-            ServerCommand::Reconfigure(Config {
-                max_concurrent_connections: _, // TO DO
-                connection_config: _,          // N/A
-            }) => { /* TODO */ }
+            ServerCommand::Reconfigure(new_config) => {
+                self.config.store(Arc::new(*new_config));
+            }
 
             ServerCommand::Shutdown => {
                 // Stop accepting new connections, terminate the server. Child
@@ -485,7 +486,7 @@ where
         // Work around the compiler wanting to move self to the async block by
         // preparing only those pieces of information from self for the new
         // connection handler that it actually needs.
-        let conn_config = self.config.connection_config.clone();
+        let conn_config = self.config.load().connection_config;
         let conn_command_rx = self.command_rx.clone();
         let conn_service = self.service.clone();
         let conn_middleware_chain = self.middleware_chain.clone();
