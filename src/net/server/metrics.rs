@@ -9,6 +9,8 @@ use std::sync::atomic::Ordering;
 ///
 /// Server metrics should track values that cannot be known and exposed by the
 /// [`Service`] implementation.
+///
+/// [`Service`]: crate::net::server::service::Service
 #[derive(Debug, Default)]
 pub struct ServerMetrics {
     pub(super) num_connections: Option<AtomicUsize>,

@@ -10,3 +10,13 @@ pub enum Error {
     /// [`ServerCommand`]: crate::net::server::service::ServerCommand
     CommandCouldNotBeSent,
 }
+
+impl Display for Error {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::CommandCouldNotBeSent => {
+                write!(f, "Command could not be sent")
+            }
+        }
+    }
+}

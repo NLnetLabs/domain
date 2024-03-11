@@ -827,26 +827,7 @@ where
 
     result_q_tx: mpsc::Sender<CallResult<Buf::Output, Svc::Target>>,
 
-    // RFC 1035 7.1: "Since a resolver must be able to multiplex multiple
-    // requests if it is to perform its function efficiently, each pending
-    // request is usually represented in some block of state information.
-    // This state block will typically contain:
-    //
-    //   - A timestamp indicating the time the request began.
-    //     The timestamp is used to decide whether RRs in the database
-    //     can be used or are out of date.  This timestamp uses the
-    //     absolute time format previously discussed for RR storage in
-    //     zones and caches.  Note that when an RRs TTL indicates a
-    //     relative time, the RR must be timely, since it is part of a
-    //     zone.  When the RR has an absolute time, it is part of a
-    //     cache, and the TTL of the RR is compared against the timestamp
-    //     for the start of the request.
-
-    //     Note that using the timestamp is superior to using a current
-    //     time, since it allows RRs with TTLs of zero to be entered in
-    //     the cache in the usual manner, but still used by the current
-    //     request, even after intervals of many seconds due to system
-    //     load, query retransmission timeouts, etc."
+    // RFC 7766 section 6.2.3 / RFC 7828 section 3 idle time out tracking
     idle_timer_reset_at: Instant,
 
     idle_timeout: std::time::Duration,

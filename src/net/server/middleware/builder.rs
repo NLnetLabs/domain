@@ -17,11 +17,11 @@ use super::{
 /// [`MiddlewareProcessor`] at a time.
 ///
 /// This builder allows you to add [`MiddlewareProcessor`]s sequentially using
-/// [`push()`] before finally calling [`finish()`] to turn the builder into an
+/// [`push()`] before finally calling [`build()`] to turn the builder into an
 /// immutable [`MiddlewareChain`].
 ///
 /// [`push()`]: Self::push()
-/// [`finish()`]: Self::finish()
+/// [`build()`]: Self::build()
 pub struct MiddlewareBuilder<RequestOctets = Vec<u8>, Target = Vec<u8>>
 where
     RequestOctets: AsRef<[u8]>,

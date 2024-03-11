@@ -208,7 +208,7 @@ where
 {
     /// Constructs a new [`DgramServer`] with default configuration.
     ///
-    /// See [`with_config()`].
+    /// See [`Self::with_config()`].
     #[must_use]
     pub fn new(sock: Sock, buf: Buf, service: Svc) -> Self {
         Self::with_config(sock, buf, service, Config::default())

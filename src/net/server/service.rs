@@ -408,6 +408,7 @@ where
     }
 
     /// Add an [`Arc<ContextAwareMessage<_>>`] to an existing [`CallResult`].
+    #[must_use]
     pub fn with_request(
         mut self,
         request: Arc<ContextAwareMessage<Message<RequestOctets>>>,
