@@ -86,7 +86,7 @@ impl Config {
 
 /// DNS transport connection that first issues a query over a UDP transport and
 /// falls back to TCP if the reply is truncated.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Connection<DgramS, Req> {
     /// The UDP transport connection.
     udp_conn: Arc<dgram::Connection<DgramS>>,
@@ -133,7 +133,10 @@ where
     DgramS::Connection: AsyncDgramRecv + AsyncDgramSend + Send + Sync + Unpin,
     Req: ComposeRequest + Clone + 'static,
 {
-    fn send_request(&self, request_msg: Req) -> Box<dyn GetResponse + Send> {
+    fn send_request(
+        &self,
+        request_msg: Req,
+    ) -> Box<dyn GetResponse + Send + Sync> {
         Box::new(Request::new(
             request_msg,
             self.udp_conn.clone(),
@@ -167,13 +170,13 @@ enum QueryState {
     StartUdpRequest,
 
     /// Get the response from the UDP transport.
-    GetUdpResponse(Box<dyn GetResponse + Send>),
+    GetUdpResponse(Box<dyn GetResponse + Send + Sync>),
 
     /// Start a request over the TCP transport.
     StartTcpRequest,
 
     /// Get the response from the TCP transport.
-    GetTcpResponse(Box<dyn GetResponse + Send>),
+    GetTcpResponse(Box<dyn GetResponse + Send + Sync>),
 }
 
 impl<S, Req> Request<S, Req>
@@ -244,7 +247,12 @@ where
     fn get_response(
         &mut self,
     ) -> Pin<
-        Box<dyn Future<Output = Result<Message<Bytes>, Error>> + Send + '_>,
+        Box<
+            dyn Future<Output = Result<Message<Bytes>, Error>>
+                + Send
+                + Sync
+                + '_,
+        >,
     > {
         Box::pin(self.get_response_impl())
     }

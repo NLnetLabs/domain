@@ -21,6 +21,7 @@ pub struct Dgram {
 }
 
 impl Dgram {
+    #[allow(dead_code)]
     pub fn new(deckard: Deckard, step_value: Arc<CurrStepValue>) -> Self {
         Self {
             deckard,
@@ -34,7 +35,8 @@ impl AsyncConnect for Dgram {
     type Fut = Pin<
         Box<
             dyn Future<Output = Result<Self::Connection, std::io::Error>>
-                + Send,
+                + Send
+                + Sync,
         >,
     >;
     fn connect(&self) -> Self::Fut {

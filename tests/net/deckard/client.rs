@@ -3,14 +3,20 @@ use crate::net::deckard::parse_deckard::{Deckard, Entry, Reply, StepType};
 use crate::net::deckard::parse_query;
 use bytes::Bytes;
 
+use domain::base::iana::Opcode;
 use domain::base::{Message, MessageBuilder};
-use domain::net::client::request::{RequestMessage, SendRequest};
+use domain::net::client::clock::FakeClock;
+use domain::net::client::request::{
+    ComposeRequest, RequestMessage, SendRequest,
+};
 use std::sync::Mutex;
+use std::time::Duration;
 
 pub async fn do_client<R: SendRequest<RequestMessage<Vec<u8>>>>(
     deckard: &Deckard,
     request: R,
     step_value: &CurrStepValue,
+    clock: &FakeClock,
 ) {
     let mut resp: Option<Message<Bytes>> = None;
 
@@ -26,11 +32,19 @@ pub async fn do_client<R: SendRequest<RequestMessage<Vec<u8>>>>(
             StepType::CheckAnswer => {
                 let answer = resp.take().unwrap();
                 if !match_msg(step.entry.as_ref().unwrap(), &answer, true) {
+                    println!(
+                        "Reply message does not match at step {}",
+                        step_value.get()
+                    );
                     panic!("reply failed");
                 }
             }
-            StepType::TimePasses
-            | StepType::Traffic
+            StepType::TimePasses => {
+                clock.adjust_time(Duration::from_secs(
+                    step.time_passes.unwrap(),
+                ));
+            }
+            StepType::Traffic
             | StepType::CheckTempfile
             | StepType::Assign => todo!(),
         }
@@ -64,11 +78,17 @@ fn entry2reqmsg(entry: &Entry) -> RequestMessage<Vec<u8>> {
         Some(reply) => reply.clone(),
         None => Default::default(),
     };
-    if reply.rd {
-        msg.header_mut().set_rd(true);
-    }
+    let header = msg.header_mut();
+    header.set_rd(reply.rd);
+    header.set_ad(reply.ad);
+    header.set_cd(reply.cd);
     let msg = msg.into_message();
-    RequestMessage::new(msg)
+    let mut msg = RequestMessage::new(msg);
+    msg.set_dnssec_ok(reply.fl_do);
+    if reply.notify {
+        msg.header_mut().set_opcode(Opcode::Notify);
+    }
+    msg
 }
 
 #[derive(Debug)]

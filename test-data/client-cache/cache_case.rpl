@@ -1,3 +1,8 @@
+; Test if case-insensitive caching works properly. First we issue a query
+; with the first letter capitalized and the rest lower case.
+; Then we issue a test with another letter capitalized. Make sure that we
+; get an answer from the cache.
+
 do-ip6: no
 
 ; config options
@@ -6,7 +11,7 @@ do-ip6: no
 	stub-addr: 193.0.14.129 	# K.ROOT-SERVERS.NET.
 CONFIG_END
 
-SCENARIO_BEGIN Test iterator with NS falsely declaring referral answer as authoritative.
+SCENARIO_BEGIN Test AD flag set followed by AD flag clear.
 
 ; K.ROOT-SERVERS.NET.
 RANGE_BEGIN 0 100
@@ -125,17 +130,33 @@ ENTRY_END
 RANGE_END
 
 ; a.gtld-servers.net.
-RANGE_BEGIN 0 100
+RANGE_BEGIN 0 9
 	ADDRESS 192.5.6.30
 
 ENTRY_BEGIN
 MATCH opcode qtype qname
 ADJUST copy_id copy_query
-REPLY QR RD RA NOERROR
+REPLY QR RD NOERROR
 SECTION QUESTION
-example.com. IN A
+Example.com. IN AAAA
 SECTION ANSWER
-example.com. IN A	93.184.216.34
+Example.com. IN AAAA	2606:2800:220:1:248:1893:25c8:1946
+ENTRY_END
+
+RANGE_END
+
+; a.gtld-servers.net.
+RANGE_BEGIN 10 19
+	ADDRESS 192.5.6.30
+
+ENTRY_BEGIN
+MATCH opcode qtype qname
+ADJUST copy_id copy_query
+REPLY QR RD NOERROR
+SECTION QUESTION
+eXample.com. IN AAAA
+SECTION ANSWER
+eXample.com. IN AAAA	2001:DB8::1
 ENTRY_END
 
 RANGE_END
@@ -144,18 +165,34 @@ STEP 1 QUERY
 ENTRY_BEGIN
 REPLY RD
 SECTION QUESTION
-example.com. IN A
+Example.com. IN AAAA
 ENTRY_END
 
-; recursion happens here.
-STEP 10 CHECK_ANSWER
+STEP 2 CHECK_ANSWER
 ENTRY_BEGIN
 MATCH all
-REPLY QR RD RA NOERROR
+REPLY QR RD NOERROR
 SECTION QUESTION
-example.com. IN A
+Example.com. IN AAAA
 SECTION ANSWER
-example.com. IN A 93.184.216.34
+Example.com. IN AAAA 2606:2800:220:1:248:1893:25c8:1946
+ENTRY_END
+
+STEP 10 QUERY
+ENTRY_BEGIN
+REPLY RD
+SECTION QUESTION
+eXample.com. IN AAAA
+ENTRY_END
+
+STEP 11 CHECK_ANSWER
+ENTRY_BEGIN
+MATCH all
+REPLY QR RD NOERROR
+SECTION QUESTION
+eXample.com. IN AAAA
+SECTION ANSWER
+Example.com. IN AAAA 2606:2800:220:1:248:1893:25c8:1946
 ENTRY_END
 
 SCENARIO_END

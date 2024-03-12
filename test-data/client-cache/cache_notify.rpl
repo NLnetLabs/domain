@@ -1,3 +1,7 @@
+; Make sure an opcode other than QUERY is not cached. We issue the same request
+; twice. For the second request, make sure that we do not get an answer from
+; the cache.
+
 do-ip6: no
 
 ; config options
@@ -6,7 +10,7 @@ do-ip6: no
 	stub-addr: 193.0.14.129 	# K.ROOT-SERVERS.NET.
 CONFIG_END
 
-SCENARIO_BEGIN Test iterator with NS falsely declaring referral answer as authoritative.
+SCENARIO_BEGIN Test AD flag set followed by AD flag clear.
 
 ; K.ROOT-SERVERS.NET.
 RANGE_BEGIN 0 100
@@ -125,37 +129,61 @@ ENTRY_END
 RANGE_END
 
 ; a.gtld-servers.net.
-RANGE_BEGIN 0 100
+RANGE_BEGIN 0 9
 	ADDRESS 192.5.6.30
 
 ENTRY_BEGIN
 MATCH opcode qtype qname
 ADJUST copy_id copy_query
-REPLY QR RD RA NOERROR
+REPLY QR NOTIFY NOERROR
 SECTION QUESTION
-example.com. IN A
-SECTION ANSWER
-example.com. IN A	93.184.216.34
+example.com. IN SOA
+ENTRY_END
+
+RANGE_END
+
+; a.gtld-servers.net.
+RANGE_BEGIN 10 19
+	ADDRESS 192.5.6.30
+
+ENTRY_BEGIN
+MATCH opcode qtype qname
+ADJUST copy_id copy_query
+REPLY QR NOTIFY NOTIMP
+SECTION QUESTION
+example.com. IN SOA
 ENTRY_END
 
 RANGE_END
 
 STEP 1 QUERY
 ENTRY_BEGIN
-REPLY RD
+REPLY NOTIFY
 SECTION QUESTION
-example.com. IN A
+example.com. IN SOA
 ENTRY_END
 
-; recursion happens here.
-STEP 10 CHECK_ANSWER
+STEP 2 CHECK_ANSWER
 ENTRY_BEGIN
 MATCH all
-REPLY QR RD RA NOERROR
+REPLY QR NOTIFY NOERROR
 SECTION QUESTION
-example.com. IN A
-SECTION ANSWER
-example.com. IN A 93.184.216.34
+example.com. IN SOA
+ENTRY_END
+
+STEP 10 QUERY
+ENTRY_BEGIN
+REPLY NOTIFY
+SECTION QUESTION
+example.com. IN SOA
+ENTRY_END
+
+STEP 11 CHECK_ANSWER
+ENTRY_BEGIN
+MATCH all
+REPLY QR NOTIFY NOTIMP
+SECTION QUESTION
+example.com. IN SOA
 ENTRY_END
 
 SCENARIO_END

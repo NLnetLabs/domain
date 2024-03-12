@@ -173,7 +173,10 @@ impl<Req> Clone for Connection<Req> {
 impl<Req: ComposeRequest + Clone + 'static> SendRequest<Req>
     for Connection<Req>
 {
-    fn send_request(&self, request_msg: Req) -> Box<dyn GetResponse + Send> {
+    fn send_request(
+        &self,
+        request_msg: Req,
+    ) -> Box<dyn GetResponse + Send + Sync> {
         Box::new(self.get_request(request_msg))
     }
 }
@@ -183,7 +186,9 @@ impl<Req: ComposeRequest + Clone + 'static> SendRequest<Req>
 /// An active request.
 pub struct Request {
     /// The underlying future.
-    fut: Pin<Box<dyn Future<Output = Result<Message<Bytes>, Error>> + Send>>,
+    fut: Pin<
+        Box<dyn Future<Output = Result<Message<Bytes>, Error>> + Send + Sync>,
+    >,
 }
 
 impl Request {
@@ -197,7 +202,12 @@ impl GetResponse for Request {
     fn get_response(
         &mut self,
     ) -> Pin<
-        Box<dyn Future<Output = Result<Message<Bytes>, Error>> + Send + '_>,
+        Box<
+            dyn Future<Output = Result<Message<Bytes>, Error>>
+                + Send
+                + Sync
+                + '_,
+        >,
     > {
         Box::pin(self.get_response_impl())
     }
@@ -850,7 +860,7 @@ mod test {
         let mut queries = Queries::new();
 
         for i in 0..12 {
-            let (idx, item) = queries.insert(i).unwrap();
+            let (idx, item) = queries.insert(i).expect("test failed");
             idxs[i] = Some(idx);
             assert_eq!(i, *item);
         }
@@ -858,7 +868,9 @@ mod test {
         assert_eq!(queries.vec.iter().flatten().count(), 12);
 
         for i in [1, 2, 3, 4, 7, 9] {
-            let item = queries.try_remove(idxs[i].unwrap()).unwrap();
+            let item = queries
+                .try_remove(idxs[i].expect("test failed"))
+                .expect("test failed");
             assert_eq!(i, item);
             idxs[i] = None;
         }
@@ -866,7 +878,7 @@ mod test {
         assert_eq!(queries.vec.iter().flatten().count(), 6);
 
         for i in 12..20 {
-            let (idx, item) = queries.insert(i).unwrap();
+            let (idx, item) = queries.insert(i).expect("test failed");
             idxs[i] = Some(idx);
             assert_eq!(i, *item);
         }
@@ -875,7 +887,7 @@ mod test {
 
         for i in 0..20 {
             if let Some(idx) = idxs[i] {
-                let item = queries.try_remove(idx).unwrap();
+                let item = queries.try_remove(idx).expect("test failed");
                 assert_eq!(i, item);
             }
         }

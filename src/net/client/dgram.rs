@@ -17,8 +17,9 @@ use crate::net::client::protocol::{
 use crate::net::client::request::{
     ComposeRequest, Error, GetResponse, SendRequest,
 };
+use crate::utils::config::DefMinMax;
 use bytes::Bytes;
-use core::{cmp, fmt};
+use core::fmt;
 use octseq::OctetsInto;
 use std::boxed::Box;
 use std::future::Future;
@@ -254,7 +255,7 @@ where
             }
 
             // Create the message and send it out.
-            let request_msg = request.to_message();
+            let request_msg = request.to_message()?;
             let dgram = request_msg.as_slice();
             let sent = sock.send(dgram).await.map_err(QueryError::send)?;
             if sent != dgram.len() {
@@ -324,7 +325,10 @@ where
         AsyncDgramRecv + AsyncDgramSend + Send + Sync + Unpin + 'static,
     Req: ComposeRequest + Clone + Send + Sync + 'static,
 {
-    fn send_request(&self, request_msg: Req) -> Box<dyn GetResponse + Send> {
+    fn send_request(
+        &self,
+        request_msg: Req,
+    ) -> Box<dyn GetResponse + Send + Sync> {
         Box::new(Request {
             fut: Box::pin(self.clone().handle_request_impl(request_msg)),
         })
@@ -336,7 +340,9 @@ where
 /// The state of a DNS request.
 pub struct Request {
     /// Future that does the actual work of GetResponse.
-    fut: Pin<Box<dyn Future<Output = Result<Message<Bytes>, Error>> + Send>>,
+    fut: Pin<
+        Box<dyn Future<Output = Result<Message<Bytes>, Error>> + Send + Sync>,
+    >,
 }
 
 impl Request {
@@ -356,44 +362,14 @@ impl GetResponse for Request {
     fn get_response(
         &mut self,
     ) -> Pin<
-        Box<dyn Future<Output = Result<Message<Bytes>, Error>> + Send + '_>,
+        Box<
+            dyn Future<Output = Result<Message<Bytes>, Error>>
+                + Send
+                + Sync
+                + '_,
+        >,
     > {
         Box::pin(self.get_response_impl())
-    }
-}
-
-//------------ DefMinMax -----------------------------------------------------
-
-/// The default, minimum, and maximum values for a config variable.
-#[derive(Clone, Copy)]
-struct DefMinMax<T> {
-    /// The default value,
-    def: T,
-
-    /// The minimum value,
-    min: T,
-
-    /// The maximum value,
-    max: T,
-}
-
-impl<T> DefMinMax<T> {
-    /// Creates a new value.
-    const fn new(def: T, min: T, max: T) -> Self {
-        Self { def, min, max }
-    }
-
-    /// Returns the default value.
-    fn default(self) -> T {
-        self.def
-    }
-
-    /// Trims the given value to fit into the minimum/maximum range.
-    fn limit(self, value: T) -> T
-    where
-        T: Ord,
-    {
-        cmp::max(self.min, cmp::min(self.max, value))
     }
 }
 

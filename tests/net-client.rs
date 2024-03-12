@@ -7,6 +7,7 @@ use crate::net::deckard::connect::Connect;
 use crate::net::deckard::connection::Connection;
 use crate::net::deckard::dgram::Dgram;
 use crate::net::deckard::parse_deckard::parse_file;
+use domain::net::client::clock::{Clock, FakeClock};
 use domain::net::client::dgram;
 use domain::net::client::dgram_stream;
 use domain::net::client::multi_stream;
@@ -31,7 +32,8 @@ fn dgram() {
         let conn = Dgram::new(deckard.clone(), step_value.clone());
         let octstr = dgram::Connection::new(conn);
 
-        do_client(&deckard, octstr, &step_value).await;
+        let clock = FakeClock::new();
+        do_client(&deckard, octstr, &step_value, &clock).await;
     });
 }
 
@@ -48,7 +50,8 @@ fn single() {
             transport.run().await;
         });
 
-        do_client(&deckard, octstr, &step_value).await;
+        let clock = FakeClock::new();
+        do_client(&deckard, octstr, &step_value, &clock).await;
     });
 }
 
@@ -66,7 +69,8 @@ fn multi() {
             println!("multi conn run terminated");
         });
 
-        do_client(&deckard, ms.clone(), &step_value).await;
+        let clock = FakeClock::new();
+        do_client(&deckard, ms.clone(), &step_value, &clock).await;
     });
 }
 
@@ -85,7 +89,8 @@ fn dgram_stream() {
             println!("dgram_stream conn run terminated");
         });
 
-        do_client(&deckard, ds, &step_value).await;
+        let clock = FakeClock::new();
+        do_client(&deckard, ds, &step_value, &clock).await;
     });
 }
 
@@ -112,7 +117,8 @@ fn redundant() {
         });
         redun.add(Box::new(ms.clone())).await.unwrap();
 
-        do_client(&deckard, redun, &step_value).await;
+        let clock = FakeClock::new();
+        do_client(&deckard, redun, &step_value, &clock).await;
     });
 }
 
@@ -143,6 +149,7 @@ fn tcp() {
             println!("single TCP run terminated");
         });
 
-        do_client(&deckard, tcp, &CurrStepValue::new()).await;
+        let clock = FakeClock::new();
+        do_client(&deckard, tcp, &CurrStepValue::new(), &clock).await;
     });
 }
