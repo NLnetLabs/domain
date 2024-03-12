@@ -165,6 +165,16 @@ where
             }
             return false;
         }
+        if reply.ra != header.ra() {
+            if verbose {
+                println!(
+                    "match_msg: RA does not match, got {}, expected {}",
+                    header.ra(),
+                    reply.ra
+                );
+            }
+            return false;
+        }
         if reply.rd != header.rd() {
             if verbose {
                 println!(
