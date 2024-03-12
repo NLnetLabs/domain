@@ -30,6 +30,7 @@ futures-util   = { version = "0.3", optional = true }
 heapless       = { version = "0.8", optional = true }
 hex            = { version = "0.4", optional = true }
 libc           = { version = "0.2.79", default-features = false, optional = true } # 0.2.79 is the first version that has IP_PMTUDISC_OMIT
+moka           = { version = "0.12.3", optional = true, features = ["future"] }
 proc-macro2    = { version = "1.0.69", optional = true } # Force proc-macro2 to at least 1.0.69 for minimal-version build
 ring           = { version = "0.17", optional = true }
 serde          = { version = "1.0.130", optional = true, features = ["derive"] }
@@ -62,7 +63,7 @@ validate    = ["std", "ring"]
 zonefile    = ["bytes", "std"]
 
 # Unstable features
-unstable-client-transport = []
+unstable-client-transport = [ "moka" ]
 unstable-server-transport = ["arc-swap", "chrono/clock", "hex", "libc", "tracing"]
 
 # Test features
@@ -112,7 +113,7 @@ required-features = ["std", "rand"]
 
 [[example]]
 name = "client-transports"
-required-features = ["net"]
+required-features = ["net", "unstable-client-transport"]
 
 [[example]]
 name = "serve"

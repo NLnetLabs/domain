@@ -1,0 +1,231 @@
+; Test if DO caching works properly. First we issue a query with the DO flag
+; set and we receive an answer with NSEC3 and RRSIG records and with the AD
+; flag set. Then we issue a test with the DO flag clear and AD set. Make sure
+; that we get an answer from the cache and that the DNSSEC records are 
+; stripped and the AD is set. Then issue a test with AD clear. Make sure we 
+; get the same answer as with AD set but now AD should be clear.
+
+do-ip6: no
+
+; config options
+;	target-fetch-policy: "3 2 1 0 0"
+;	name: "."
+	stub-addr: 193.0.14.129 	# K.ROOT-SERVERS.NET.
+CONFIG_END
+
+SCENARIO_BEGIN Test DO flag set followed by DO flag clear.
+
+; K.ROOT-SERVERS.NET.
+RANGE_BEGIN 0 100
+	ADDRESS 193.0.14.129 
+ENTRY_BEGIN
+MATCH opcode qtype qname
+ADJUST copy_id
+REPLY QR NOERROR
+SECTION QUESTION
+. IN NS
+SECTION ANSWER
+. IN NS	K.ROOT-SERVERS.NET.
+SECTION ADDITIONAL
+K.ROOT-SERVERS.NET.	IN	A	193.0.14.129
+ENTRY_END
+
+; net.
+ENTRY_BEGIN
+MATCH opcode qname
+ADJUST copy_id copy_query
+REPLY QR NOERROR
+SECTION QUESTION
+net. IN NS
+SECTION AUTHORITY
+.	IN SOA	. . 0 0 0 0 0
+ENTRY_END
+
+; root-servers.net.
+ENTRY_BEGIN
+MATCH opcode qtype qname
+ADJUST copy_id
+REPLY QR NOERROR
+SECTION QUESTION
+root-servers.net. IN NS
+SECTION ANSWER
+root-servers.net.	IN NS	k.root-servers.net.
+SECTION ADDITIONAL
+k.root-servers.net.	IN 	A	193.0.14.129
+ENTRY_END
+
+ENTRY_BEGIN
+MATCH opcode qname
+ADJUST copy_id copy_query
+REPLY QR NOERROR
+SECTION QUESTION
+root-servers.net. IN A
+SECTION AUTHORITY
+root-servers.net.	IN	SOA	. . 0 0 0 0 0
+ENTRY_END
+
+ENTRY_BEGIN
+MATCH opcode qtype qname
+ADJUST copy_id
+REPLY QR NOERROR
+SECTION QUESTION
+k.root-servers.net.	IN 	A
+SECTION ANSWER
+k.root-servers.net.	IN 	A	193.0.14.129
+SECTION ADDITIONAL
+ENTRY_END
+
+ENTRY_BEGIN
+MATCH opcode qtype qname
+ADJUST copy_id
+REPLY QR NOERROR
+SECTION QUESTION
+k.root-servers.net.	IN 	AAAA
+SECTION AUTHORITY
+root-servers.net.	IN	SOA	. . 0 0 0 0 0
+ENTRY_END
+
+; gtld-servers.net.
+ENTRY_BEGIN
+MATCH opcode qtype qname
+ADJUST copy_id
+REPLY QR NOERROR
+SECTION QUESTION
+gtld-servers.net. IN NS
+SECTION ANSWER
+gtld-servers.net.	IN NS	a.gtld-servers.net.
+SECTION ADDITIONAL
+a.gtld-servers.net.	IN 	A	192.5.6.30
+ENTRY_END
+
+ENTRY_BEGIN
+MATCH opcode qname
+ADJUST copy_id copy_query
+REPLY QR NOERROR
+SECTION QUESTION
+gtld-servers.net. IN A
+SECTION AUTHORITY
+gtld-servers.net.	IN	SOA	. . 0 0 0 0 0
+ENTRY_END
+
+ENTRY_BEGIN
+MATCH opcode qtype qname
+ADJUST copy_id
+REPLY QR NOERROR
+SECTION QUESTION
+a.gtld-servers.net.	IN 	A
+SECTION ANSWER
+a.gtld-servers.net.	IN 	A	192.5.6.30
+SECTION ADDITIONAL
+ENTRY_END
+
+ENTRY_BEGIN
+MATCH opcode qtype qname
+ADJUST copy_id
+REPLY QR NOERROR
+SECTION QUESTION
+a.gtld-servers.net.	IN 	AAAA
+SECTION AUTHORITY
+gtld-servers.net.	IN	SOA	. . 0 0 0 0 0
+ENTRY_END
+
+RANGE_END
+
+; a.gtld-servers.net.
+RANGE_BEGIN 0 9
+	ADDRESS 192.5.6.30
+
+ENTRY_BEGIN
+MATCH opcode qtype qname DO
+ADJUST copy_id copy_query
+REPLY QR RD AD NOERROR
+SECTION QUESTION
+doesnotexist.example.com. IN TXT
+SECTION AUTHORITY
+example.com.	900	IN	SOA	a.example.net. nstld.example.com. 1706885485 1800 900 604800 86400
+example.com.	900	IN	RRSIG	SOA 13 1 900 20240209145125 20240202134125 4534 example.com. uAEEE4oYH9x/QE/5xi41m5TkELdDLEQ+kqoIag/NcISzf//phx+i5ezFPUY3Y/XnaeZLIKFdGVx6D1oFZmLxpA==
+CK0POJMG874LJREF7EFN8430QVIT8BSM.example.com.	21600	IN	NSEC3	1 1 0 -  ck0q2d6ni4i7eqh8na30ns61o48ul8g5 NS SOA RRSIG DNSKEY NSEC3PARAM 
+CK0POJMG874LJREF7EFN8430QVIT8BSM.example.com.	21600	IN	RRSIG	NSEC3 13 2 86400 20240206052637 20240130041637 4534 example.com. +NFtkRVj+SxKGDAJypPm9byEhYAkLFqco9kgi1cI+bO4kJ55Zd/9QFay3xzFIPduA7pjBrWthR9uhHE0Qnf5OA==
+7K5NUBQUB56BBNKQJ6B485STCN1RQ6HT.example.com.	21600	IN	NSEC3	1 1 0 -  7k5oetj08ci9mdtvqueq1gq0dgp84qe8 NS DS RRSIG 
+7K5NUBQUB56BBNKQJ6B485STCN1RQ6HT.example.com.	21600	IN	RRSIG	NSEC3 13 2 86400 20240206080851 20240130065851 4534 example.com. vYruIKBWnObM4V/+aqPmoxdAi5+UvAQsWBH6i3SbgT7GChssl7FcX8UFlQfeUPilc3lriST4FTXGswGa5111XA==
+3RL2Q58205687C8I9KC9MV46DGHCNS45.example.com.	21600	IN	NSEC3	1 1 0 -  3rl2shvumc300iuc2tdl4vml2hnf0o7i NS DS RRSIG 
+3RL2Q58205687C8I9KC9MV46DGHCNS45.example.com.	21600	IN	RRSIG	NSEC3 13 2 86400 20240209055857 20240202044857 4534 example.com. TgLjE/venWu8OxOn7iLvdt87u4aojGY4Nh7Susc7xXWAKir5s1yjoW/R/7E8E/9vEouJGKViZ82NQ3PMec3jbw==
+ENTRY_END
+
+RANGE_END
+
+; a.gtld-servers.net.
+RANGE_BEGIN 10 19
+	ADDRESS 192.5.6.30
+
+ENTRY_BEGIN
+MATCH opcode qtype qname
+ADJUST copy_id copy_query
+REPLY QR RD AD NOERROR
+SECTION QUESTION
+example.com. IN A
+SECTION ANSWER
+example.com. IN A	1.2.3.4
+ENTRY_END
+
+RANGE_END
+
+STEP 1 QUERY
+ENTRY_BEGIN
+REPLY RD DO
+SECTION QUESTION
+doesnotexist.example.com. IN TXT
+ENTRY_END
+
+STEP 2 CHECK_ANSWER
+ENTRY_BEGIN
+MATCH all
+REPLY QR RD AD NOERROR
+SECTION QUESTION
+doesnotexist.example.com. IN TXT
+SECTION AUTHORITY
+example.com.	900	IN	SOA	a.example.net. nstld.example.com. 1706885485 1800 900 604800 86400
+example.com.	900	IN	RRSIG	SOA 13 1 900 20240209145125 20240202134125 4534 example.com. uAEEE4oYH9x/QE/5xi41m5TkELdDLEQ+kqoIag/NcISzf//phx+i5ezFPUY3Y/XnaeZLIKFdGVx6D1oFZmLxpA==
+CK0POJMG874LJREF7EFN8430QVIT8BSM.example.com.	21600	IN	NSEC3	1 1 0 -  ck0q2d6ni4i7eqh8na30ns61o48ul8g5 NS SOA RRSIG DNSKEY NSEC3PARAM 
+CK0POJMG874LJREF7EFN8430QVIT8BSM.example.com.	21600	IN	RRSIG	NSEC3 13 2 86400 20240206052637 20240130041637 4534 example.com. +NFtkRVj+SxKGDAJypPm9byEhYAkLFqco9kgi1cI+bO4kJ55Zd/9QFay3xzFIPduA7pjBrWthR9uhHE0Qnf5OA==
+7K5NUBQUB56BBNKQJ6B485STCN1RQ6HT.example.com.	21600	IN	NSEC3	1 1 0 -  7k5oetj08ci9mdtvqueq1gq0dgp84qe8 NS DS RRSIG 
+7K5NUBQUB56BBNKQJ6B485STCN1RQ6HT.example.com.	21600	IN	RRSIG	NSEC3 13 2 86400 20240206080851 20240130065851 4534 example.com. vYruIKBWnObM4V/+aqPmoxdAi5+UvAQsWBH6i3SbgT7GChssl7FcX8UFlQfeUPilc3lriST4FTXGswGa5111XA==
+3RL2Q58205687C8I9KC9MV46DGHCNS45.example.com.	21600	IN	NSEC3	1 1 0 -  3rl2shvumc300iuc2tdl4vml2hnf0o7i NS DS RRSIG 
+3RL2Q58205687C8I9KC9MV46DGHCNS45.example.com.	21600	IN	RRSIG	NSEC3 13 2 86400 20240209055857 20240202044857 4534 example.com. TgLjE/venWu8OxOn7iLvdt87u4aojGY4Nh7Susc7xXWAKir5s1yjoW/R/7E8E/9vEouJGKViZ82NQ3PMec3jbw==
+ENTRY_END
+
+STEP 10 QUERY
+ENTRY_BEGIN
+REPLY RD
+SECTION QUESTION
+doesnotexist.example.com. IN TXT
+ENTRY_END
+
+STEP 11 CHECK_ANSWER
+ENTRY_BEGIN
+MATCH all
+REPLY QR RD NOERROR
+SECTION QUESTION
+doesnotexist.example.com. IN TXT
+SECTION AUTHORITY
+example.com.	900	IN	SOA	a.example.net. nstld.example.com. 1706885485 1800 900 604800 86400
+ENTRY_END
+
+STEP 20 QUERY
+ENTRY_BEGIN
+REPLY RD AD
+SECTION QUESTION
+doesnotexist.example.com. IN TXT
+ENTRY_END
+
+STEP 21 CHECK_ANSWER
+ENTRY_BEGIN
+MATCH all
+REPLY QR RD AD NOERROR
+SECTION QUESTION
+doesnotexist.example.com. IN TXT
+SECTION AUTHORITY
+example.com.	900	IN	SOA	a.example.net. nstld.example.com. 1706885485 1800 900 604800 86400
+ENTRY_END
+
+SCENARIO_END

@@ -4,12 +4,12 @@
 #![warn(clippy::missing_docs_in_private_items)]
 
 use crate::base::iana::Rcode;
-use crate::base::message::CopyRecordsError;
+use crate::base::message::{CopyRecordsError, ShortMessage};
 use crate::base::message_builder::{
     AdditionalBuilder, MessageBuilder, PushError, StaticCompressor,
 };
 use crate::base::opt::{ComposeOptData, LongOptData, OptRecord};
-use crate::base::wire::Composer;
+use crate::base::wire::{Composer, ParseError};
 use crate::base::{Header, Message, ParsedDname, Rtype};
 use crate::rdata::AllRecordData;
 use bytes::Bytes;
@@ -35,11 +35,11 @@ pub trait ComposeRequest: Debug + Send + Sync {
     ) -> Result<(), CopyRecordsError>;
 
     /// Create a message that captures the recorded changes.
-    fn to_message(&self) -> Message<Vec<u8>>;
+    fn to_message(&self) -> Result<Message<Vec<u8>>, Error>;
 
     /// Create a message that captures the recorded changes and convert to
     /// a Vec.
-    fn to_vec(&self) -> Vec<u8>;
+    fn to_vec(&self) -> Result<Vec<u8>, Error>;
 
     /// Return a reference to a mutable Header to record changes to the header.
     fn header_mut(&mut self) -> &mut Header;
@@ -54,6 +54,9 @@ pub trait ComposeRequest: Debug + Send + Sync {
 
     /// Set the source address.
     fn set_source_address(&mut self, _addr: SocketAddr) {}
+
+    /// Set the DNSSEC OK flag.
+    fn set_dnssec_ok(&mut self, value: bool);
 
     /// Add an EDNS option.
     fn add_opt(
@@ -73,7 +76,10 @@ pub trait ComposeRequest: Debug + Send + Sync {
 /// However, the use of 'dyn Request' in redundant currently prevents that.
 pub trait SendRequest<CR> {
     /// Request function that takes a ComposeRequest type.
-    fn send_request(&self, request_msg: CR) -> Box<dyn GetResponse + Send>;
+    fn send_request(
+        &self,
+        request_msg: CR,
+    ) -> Box<dyn GetResponse + Send + Sync>;
 }
 
 //------------ GetResponse ---------------------------------------------------
@@ -89,7 +95,12 @@ pub trait GetResponse: Debug {
     fn get_response(
         &mut self,
     ) -> Pin<
-        Box<dyn Future<Output = Result<Message<Bytes>, Error>> + Send + '_>,
+        Box<
+            dyn Future<Output = Result<Message<Bytes>, Error>>
+                + Send
+                + Sync
+                + '_,
+        >,
     >;
 }
 
@@ -216,13 +227,13 @@ impl<Octs: AsRef<[u8]> + Clone + Debug + Octets + Send + Sync + 'static>
         Ok(())
     }
 
-    fn to_vec(&self) -> Vec<u8> {
-        let msg = self.to_message();
-        msg.as_octets().clone()
+    fn to_vec(&self) -> Result<Vec<u8>, Error> {
+        let msg = self.to_message()?;
+        Ok(msg.as_octets().clone())
     }
 
-    fn to_message(&self) -> Message<Vec<u8>> {
-        self.to_message_impl().unwrap()
+    fn to_message(&self) -> Result<Message<Vec<u8>>, Error> {
+        self.to_message_impl()
     }
 
     fn header_mut(&mut self) -> &mut Header {
@@ -239,6 +250,10 @@ impl<Octs: AsRef<[u8]> + Clone + Debug + Octets + Send + Sync + 'static>
 
     fn set_source_address(&mut self, addr: SocketAddr) {
         self.source_address = Some(addr);
+    }
+
+    fn set_dnssec_ok(&mut self, value: bool) {
+        self.opt_mut().set_dnssec_ok(value);
     }
 
     fn add_opt(
@@ -351,6 +366,18 @@ pub enum Error {
 impl From<LongOptData> for Error {
     fn from(_: LongOptData) -> Self {
         Self::OptTooLong
+    }
+}
+
+impl From<ParseError> for Error {
+    fn from(_: ParseError) -> Self {
+        Self::MessageParseError
+    }
+}
+
+impl From<ShortMessage> for Error {
+    fn from(_: ShortMessage) -> Self {
+        Self::ShortMessage
     }
 }
 

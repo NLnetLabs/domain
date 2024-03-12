@@ -25,7 +25,11 @@ impl Connect {
 impl AsyncConnect for Connect {
     type Connection = Connection;
     type Fut = Pin<
-        Box<dyn Future<Output = Result<Connection, std::io::Error>> + Send>,
+        Box<
+            dyn Future<Output = Result<Connection, std::io::Error>>
+                + Send
+                + Sync,
+        >,
     >;
 
     fn connect(&self, _source_address: Option<SocketAddr>) -> Self::Fut {

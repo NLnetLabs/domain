@@ -2,6 +2,7 @@
 use domain::base::Dname;
 use domain::base::MessageBuilder;
 use domain::base::Rtype::Aaaa;
+use domain::net::client::cache;
 use domain::net::client::dgram;
 use domain::net::client::dgram_stream;
 use domain::net::client::multi_stream;
@@ -80,6 +81,28 @@ async fn main() {
     // The query may have a reference to the connection. Drop the query
     // when it is no longer needed.
     drop(request);
+
+    // Create a cached transport.
+    let mut cache_config = cache::Config::new();
+    cache_config.set_max_cache_entries(100); // Just an example.
+    let cache =
+        cache::Connection::with_config(udptcp_conn.clone(), cache_config);
+
+    // Send a request message.
+    let mut request = cache.send_request(req.clone());
+
+    // Get the reply
+    println!("Wating for cache reply");
+    let reply = request.get_response().await;
+    println!("Cache reply: {:?}", reply);
+
+    // Send the request message again.
+    let mut request = cache.send_request(req.clone());
+
+    // Get the reply
+    println!("Wating for cached reply");
+    let reply = request.get_response().await;
+    println!("Cached reply: {:?}", reply);
 
     // Create a new TCP connections object. Pass the destination address and
     // port as parameter.

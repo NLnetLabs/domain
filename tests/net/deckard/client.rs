@@ -5,6 +5,7 @@ use crate::net::deckard::parse_deckard::{Deckard, Entry, Reply, StepType};
 use crate::net::deckard::parse_query;
 use bytes::Bytes;
 
+use domain::base::iana::Opcode;
 use domain::base::opt::{ComposeOptData, OptData};
 use domain::base::{Message, MessageBuilder};
 use domain::net::client::request::{
@@ -351,12 +352,17 @@ fn entry2reqmsg(entry: &Entry) -> RequestMessage<Vec<u8>> {
         Some(reply) => reply.clone(),
         None => Default::default(),
     };
-    if reply.rd {
-        msg.header_mut().set_rd(true);
-    }
+    let header = msg.header_mut();
+    header.set_rd(reply.rd);
+    header.set_ad(reply.ad);
+    header.set_cd(reply.cd);
     let msg = msg.into_message();
 
     let mut reqmsg = RequestMessage::new(msg);
+    reqmsg.set_dnssec_ok(reply.fl_do);
+    if reply.notify {
+        reqmsg.header_mut().set_opcode(Opcode::Notify);
+    }
 
     let edns_bytes = &sections.additional.edns_bytes;
     if !edns_bytes.is_empty() {

@@ -264,7 +264,11 @@ impl AsyncConnect for ClientServerChannel {
     type Connection = ClientServerChannel;
 
     type Fut = Pin<
-        Box<dyn Future<Output = Result<Self::Connection, io::Error>> + Send>,
+        Box<
+            dyn Future<Output = Result<Self::Connection, io::Error>>
+                + Send
+                + Sync,
+        >,
     >;
 
     fn connect(&self, source_address: Option<SocketAddr>) -> Self::Fut {
