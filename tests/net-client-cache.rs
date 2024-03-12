@@ -36,10 +36,10 @@ async fn async_test_cache(filename: &str) {
         println!("multi conn run terminated");
     });
     // let clock = FakeClock::new();
-    let cached = cache::Connection::new(ms);//_with_time(ms, clock.clone());
+    let cached = cache::Connection::new(ms); //_with_time(ms, clock.clone());
     let client_factory = SingleClientFactory::new(cached);
 
-    do_client(&deckard, &step_value, client_factory, /*, &clock*/).await;
+    do_client(&deckard, &step_value, client_factory /*, &clock*/).await;
 }
 
 async fn async_test_no_cache(filename: &str) {
@@ -57,7 +57,7 @@ async fn async_test_no_cache(filename: &str) {
     // let clock = FakeClock::new();
     let client_factory = SingleClientFactory::new(ms);
 
-    do_client(&deckard, &step_value, client_factory, /*, &clock*/).await;
+    do_client(&deckard, &step_value, client_factory /*, &clock*/).await;
 }
 
 #[tokio::test]
@@ -81,7 +81,7 @@ async fn test_transport_error() {
         println!("redundant conn run terminated");
     });
     // let clock = FakeClock::new();
-    let cached = cache::Connection::new(redun.clone());//_with_time(redun.clone(), clock.clone());
+    let cached = cache::Connection::new(redun.clone()); //_with_time(redun.clone(), clock.clone());
 
     let mut msg = MessageBuilder::new_vec();
     msg.header_mut().set_rd(true);
@@ -119,7 +119,7 @@ async fn test_transport_error() {
     }
 
     let client_factory = SingleClientFactory::new(redun);
-    do_client(&deckard, &step_value, client_factory, /*, &clock*/).await;
+    do_client(&deckard, &step_value, client_factory /*, &clock*/).await;
 }
 
 #[instrument(skip_all, fields(rpl = rpl_file.file_name().unwrap().to_str()))]
