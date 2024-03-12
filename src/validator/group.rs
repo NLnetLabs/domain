@@ -3,12 +3,18 @@
 // For lack of a better term we call this a group. RR set refers to just
 // the resource records without the signatures.
 
+use bytes::Bytes;
+use crate::base::Dname;
 use crate::base::ParsedRecord;
 use crate::base::Record;
 use crate::base::Rtype;
+use crate::base::iana::class::Class;
+use crate::base::name::ToDname;
 use crate::dep::octseq::Octets;
 use std::fmt::Debug;
 use std::slice::Iter;
+use std::slice::IterMut;
+use std::sync::Mutex;
 use std::vec::Vec;
 use super::types::ValidationState;
 use super::context::ValidationContext;
@@ -19,16 +25,17 @@ where Octs: Debug + Octets
 {
 	rr_set: Vec<ParsedRecord<'a, Octs>>,
 	sig_set: Vec<Record<Name, Octs>>,
+	state: Mutex<Option<ValidationState>>,
 }
 
 impl<'a, Name, Octs> Group<'a, Name, Octs>
-where Octs: Clone + Debug + Octets {
+where Octs: Clone + Debug + Octets,
+	Name: ToDname {
 	fn new(rr: ParsedRecord<'a, Octs>) -> Self
-	where Octs: Octets,
 	{
 		if rr.rtype() != Rtype::Rrsig {
 		    return Self { rr_set: vec![rr],
-			sig_set: Vec::new() };
+			sig_set: Vec::new(), state: Mutex::new(None) };
 		}
 		todo!();
 	}
@@ -50,7 +57,47 @@ where Octs: Clone + Debug + Octets {
 	    Err(())
 	}
 
-	pub fn validate_with_vc(&self, vc: &ValidationContext) -> ValidationState {
+	pub fn set_state(&self, state: ValidationState) {
+	    let mut m_state = self.state.lock().unwrap();
+	    *m_state = Some(state)
+	}
+
+	pub fn get_state(&self) -> Option<ValidationState> {
+	    let m_state = self.state.lock().unwrap();
+	    *m_state
+	}
+
+	pub fn name(&self) -> Dname<Bytes> {
+	    if !self.rr_set.is_empty() {
+		return self.rr_set[0].owner().to_bytes();
+	    }
+	
+	    // This may fail if sig_set is empty. But either rr_set or
+	    // sig_set is not empty.
+	    return self.sig_set[0].owner().to_bytes();
+	}
+
+	pub fn class(&self) -> Class {
+	    if !self.rr_set.is_empty() {
+		return self.rr_set[0].class();
+	    }
+	
+	    // This may fail if sig_set is empty. But either rr_set or
+	    // sig_set is not empty.
+	    return self.sig_set[0].class();
+	}
+
+	pub fn rtype(&self) -> Rtype {
+	    if !self.rr_set.is_empty() {
+		return self.rr_set[0].rtype();
+	    }
+	
+	    // The type in sig_set is always Rrsig
+	    return Rtype::Rrsig;
+	}
+
+	pub fn validate_with_vc(&self, vc: &ValidationContext) -> ValidationState
+	{
 	    // We have two cases, with an without RRSIGs. With RRSIGs we can
 	    // look at the signer_name. We need to find the DNSSEC status
 	    // of signer_name. If the status is secure, we can validate
@@ -79,6 +126,14 @@ where Octs: Clone + Debug + Octets {
 		self.rr_set[0].owner()
 	    };
 	    let node = vc.get_node(&target);
+	    let state = node.validation_state();
+	    match state {
+		ValidationState::Secure => (), // Continue validating
+		ValidationState::Insecure 
+		| ValidationState::Bogus 
+		| ValidationState::Indeterminate =>
+		    return state 
+	    }
 	    todo!();
 	}
 }
@@ -88,7 +143,8 @@ pub struct GroupList<'a, Name, Octs>(Vec<Group<'a, Name, Octs>>)
 where Octs: Debug + Octets;
 
 impl<'a, Name, Octs> GroupList<'a, Name, Octs>
-where Octs: Clone + Debug + Octets
+where Octs: Clone + Debug + Octets,
+	Name: ToDname
 {
 	pub fn new() -> Self {
 		Self(Vec::new())
@@ -127,6 +183,10 @@ where Octs: Clone + Debug + Octets
 
 	pub fn iter(&mut self) -> Iter<Group<Name, Octs>> {
 		self.0.iter()
+	}
+
+	pub fn iter_mut(&'a mut self) -> IterMut<Group<Name, Octs>> {
+		self.0.iter_mut()
 	}
 }
 

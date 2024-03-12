@@ -1,13 +1,17 @@
 // Trust anchor
 
-pub struct TrustAnchor {
+pub struct TrustAnchors {
 }
 
-impl TrustAnchor {
+impl TrustAnchors {
     pub fn new() -> Self {
 	Self {}
     }
 
-    pub fn find(&self) -> Option<()> {
+    pub fn find(&self) -> Option<TrustAnchor> {
+	None
     }
+}
+
+pub struct TrustAnchor {
 }

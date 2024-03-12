@@ -3,18 +3,19 @@
 // or evaluated results.
 
 use crate::base::ParsedDname;
-use super::anchor::TrustAnchor;
+use super::anchor::TrustAnchors;
+use super::types::ValidationState;
 
 pub struct ValidationContext {
-    ta: TrustAnchor,
+    ta: TrustAnchors,
 }
 
 impl ValidationContext {
-    pub fn new(ta: TrustAnchor) -> Self {
+    pub fn new(ta: TrustAnchors) -> Self {
 	Self { ta }
     }
 
-    pub fn get_node<Octs>(&self, name: &ParsedDname<Octs>) {
+    pub fn get_node<Octs>(&self, name: &ParsedDname<Octs>) -> Node {
 	// Check the cache first
 	if let Some(node) = self.cache_lookup(name) {
 	    return node;
@@ -23,12 +24,26 @@ impl ValidationContext {
 	// Find a trust anchor. 
 	let Some(ta) = self.ta.find() else {
 	    // Try to get an indeterminate node for the root
-	    todo!();
+	    return Node::new(ValidationState::Indeterminate);
 	};
 	todo!();
     }
 
-    fn cache_lookup<Octs>(&self, name: &ParsedDname<Octs>) -> Option<()> {
+    fn cache_lookup<Octs>(&self, name: &ParsedDname<Octs>) -> Option<Node> {
 	None
+    }
+}
+
+pub struct Node {
+	state: ValidationState
+}
+
+impl Node {
+    fn new(state: ValidationState) -> Self {
+	Self { state }
+    }
+
+    pub fn validation_state(&self) -> ValidationState {
+	self.state
     }
 }

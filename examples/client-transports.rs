@@ -3,6 +3,7 @@ use domain::base::MessageBuilder;
 use domain::base::Name;
 use domain::base::Rtype;
 use domain::net::client::cache;
+use domain::validator::anchor::TrustAnchors;
 use domain::validator::context::ValidationContext;
 use domain::net::client::dgram;
 use domain::net::client::dgram_stream;
@@ -33,7 +34,7 @@ async fn main() {
     let mut msg = MessageBuilder::new_vec();
     msg.header_mut().set_rd(true);
     let mut msg = msg.question();
-    msg.push((Dname::vec_from_str("stereo.hq.test-dname.phicoh.nl").unwrap(), Aaaa))
+    msg.push((Dname::vec_from_str("stereo.hq.phicoh.net").unwrap(), Aaaa))
         .unwrap();
     let req = RequestMessage::new(msg);
 
@@ -108,7 +109,8 @@ async fn main() {
     println!("Cached reply: {reply:?}");
 
     // Create a validating transport
-    let vc = Arc::new(ValidationContext::new());
+    let ta = TrustAnchors::new();
+    let vc = Arc::new(ValidationContext::new(ta));
     let val_conn = validator::Connection::new(udptcp_conn.clone(), vc);
 
     // Send a query message.

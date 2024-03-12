@@ -57,6 +57,8 @@ pub trait ComposeRequest: Debug + Send + Sync {
 
     /// Returns whether a message is an answer to the request.
     fn is_answer(&self, answer: &Message<[u8]>) -> bool;
+
+    fn dnssec_ok(&self) -> bool;
 }
 
 //------------ SendRequest ---------------------------------------------------
@@ -281,6 +283,10 @@ impl<Octs: AsRef<[u8]> + Clone + Debug + Octets + Send + Sync + 'static>
             }
             res
         }
+    }
+
+    fn dnssec_ok(&self) -> bool {
+	false
     }
 }
 

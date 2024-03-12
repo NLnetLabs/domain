@@ -2,11 +2,16 @@
 
 use bytes::Bytes;
 use crate::base::Message;
+use crate::base::MessageBuilder;
+use crate::base::ParsedDname;
+use crate::base::StaticCompressor;
 use crate::validator::context::ValidationContext;
+use crate::validator::types::ValidationState;
 use crate::net::client::request::ComposeRequest;
 use crate::net::client::request::Error;
 use crate::net::client::request::GetResponse;
 use crate::net::client::request::SendRequest;
+use crate::rdata::AllRecordData;
 use crate::validator;
 use std::boxed::Box;
 use std::fmt::Debug;
@@ -14,6 +19,7 @@ use std::fmt::Formatter;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
+use std::vec::Vec;
 
 //------------ Config ---------------------------------------------------------
 
@@ -156,7 +162,34 @@ where
 	let response_msg = request.get_response().await?;
 
 	// We should validate.
-	validator::validate_msg(response_msg, &self.vc);
+	let res = validator::validate_msg(&response_msg, &self.vc);
+	println!("get_response_impl: {res:?}");
+	match res {
+	    Err(err) => {
+		todo!();
+	    }
+	    Ok(state) => {
+		match state {
+		    ValidationState::Secure => todo!(),
+		    ValidationState::Insecure => todo!(),
+		    ValidationState::Bogus => todo!(),
+		    ValidationState::Indeterminate => {
+			// Check the state of the DO flag to see if we have to
+			// strip DNSSEC records. Clear the AD flag if it is
+			// set.
+			let dnssec_ok = self.request_msg.dnssec_ok();
+			if dnssec_ok {
+			    todo!();
+			}
+			else
+			{
+			    let msg = remove_dnssec(&response_msg, false);
+			    todo!();
+			}
+		    }
+		}
+	    }
+	}
 
 	todo!();
 
@@ -193,5 +226,75 @@ where
     > {
         Box::pin(self.get_response_impl())
     }
+}
+
+/// Return a new message without the DNSSEC type RRSIG, NSEC, and NSEC3.
+fn remove_dnssec(
+    msg: &Message<Bytes>,
+    ad: bool,
+) -> Result<Message<Bytes>, Error> {
+    let mut target =
+        MessageBuilder::from_target(StaticCompressor::new(Vec::new()))
+            .expect("Vec is expected to have enough space");
+
+    let source = msg;
+
+    *target.header_mut() = source.header();
+
+    if !ad {
+        // Clear ad
+        target.header_mut().set_ad(false);
+    }
+
+    let source = source.question();
+    let mut target = target.question();
+    for rr in source {
+        target.push(rr?).expect("push failed");
+    }
+    let mut source = source.answer()?;
+    let mut target = target.answer();
+    for rr in &mut source {
+        let rr = rr?
+            .into_record::<AllRecordData<_, ParsedDname<_>>>()?
+            .expect("record expected");
+        if is_dnssec(rr.rtype()) {
+            continue;
+        }
+        target.push(rr).expect("push error");
+    }
+
+    let mut source =
+        source.next_section()?.expect("section should be present");
+    let mut target = target.authority();
+    for rr in &mut source {
+        let rr = rr?
+            .into_record::<AllRecordData<_, ParsedDname<_>>>()?
+            .expect("record expected");
+        if is_dnssec(rr.rtype()) {
+            continue;
+        }
+        target.push(rr).expect("push error");
+    }
+
+    let source = source.next_section()?.expect("section should be present");
+    let mut target = target.additional();
+    for rr in source {
+        let rr = rr?;
+        let rr = rr
+            .into_record::<AllRecordData<_, ParsedDname<_>>>()?
+            .expect("record expected");
+        if is_dnssec(rr.rtype()) {
+            continue;
+        }
+        target.push(rr).expect("push error");
+    }
+
+    let result = target.as_builder().clone();
+    Ok(
+        Message::<Bytes>::from_octets(result.finish().into_target().into())
+            .expect(
+                "Message should be able to parse output from MessageBuilder",
+            ),
+    )
 }
 
