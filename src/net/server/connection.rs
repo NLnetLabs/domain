@@ -44,6 +44,13 @@ use super::stream::Config as ServerConfig;
 /// something reasonable.
 ///
 /// [RFC 7766]: https://datatracker.ietf.org/doc/html/rfc7766#section-6.2.3
+//
+// Note: Unbound 1.19.2 has another setting, edns-tcp-keepalive-timeout,
+// which if set and edns-tcp-keepalive is set to yes, then Unbound has a
+// default timeout value of 2 minutes instead of 30 seconds. Internally both
+// Unbound options configure the same timeout limit, the tcp-idle-timeout
+// setting may exist for backward compatibility. TO DO: Should we increase
+// the default timeout value to 2 minutes instead of 30 seconds?
 const IDLE_TIMEOUT: DefMinMax<Duration> = DefMinMax::new(
     Duration::from_secs(30),
     Duration::from_millis(200),
