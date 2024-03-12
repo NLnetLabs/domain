@@ -19,7 +19,7 @@ use crate::{
 };
 
 use octseq::{Octets, OctetsBuilder};
-use tracing::{debug, enabled, trace, Level};
+use tracing::{debug, trace};
 
 const FIVE_MINUTES_AS_SECS: u32 = 5 * 60;
 const ONE_HOUR_AS_SECS: u32 = 60 * 60;
@@ -254,17 +254,13 @@ where
         request: &mut ContextAwareMessage<Message<RequestOctets>>,
     ) -> ControlFlow<AdditionalBuilder<StreamTarget<Target>>> {
         if self.ip_allow_list.contains(&request.client_addr().ip()) {
-            if enabled!(Level::TRACE) {
-                trace!("Permitting request to flow due to matching IP allow list entry");
-            }
+            trace!("Permitting request to flow due to matching IP allow list entry");
             return ControlFlow::Continue(());
         }
 
         match Self::cookie(request) {
             None => {
-                if enabled!(Level::TRACE) {
-                    trace!("Request does not include DNS cookies");
-                }
+                trace!("Request does not include DNS cookies");
 
                 // https://datatracker.ietf.org/doc/html/rfc7873#section-5.2.1
                 // No OPT RR or No COOKIE Option:
@@ -280,17 +276,15 @@ where
                 if request.received_over_udp()
                     && self.ip_deny_list.contains(&request.client_addr().ip())
                 {
-                    if enabled!(Level::DEBUG) {
-                        debug!(
-                            "Rejecting cookie-less non-TCP request due to matching IP deny list entry"
-                        );
-                    }
+                    debug!(
+                        "Rejecting cookie-less non-TCP request due to matching IP deny list entry"
+                    );
                     let builder = mk_builder_for_target();
                     let mut additional = builder.additional();
                     additional.header_mut().set_rcode(Rcode::Refused);
                     additional.header_mut().set_tc(true);
                     return ControlFlow::Break(additional);
-                } else if enabled!(Level::TRACE) {
+                } else {
                     trace!("Permitting cookie-less request to flow due to use of TCP transport");
                 }
             }
@@ -314,9 +308,7 @@ where
                 // NOTE: The RFC doesn't say that we should send our server
                 // cookie back with the response, so we don't do that here
                 // unlike in the other cases where we respond early.
-                if enabled!(Level::DEBUG) {
-                    debug!("Received malformed DNS cookie: {err}");
-                }
+                debug!("Received malformed DNS cookie: {err}");
                 let mut builder = mk_builder_for_target();
                 builder.header_mut().set_rcode(Rcode::FormErr);
                 return ControlFlow::Break(builder.additional());
@@ -399,28 +391,23 @@ where
                             // "If such a query provided just a Client Cookie
                             // and no Server Cookie, the response SHALL have
                             // the RCODE NOERROR."
-                            if enabled!(Level::TRACE) {
-                                trace!(
-                                    "Replying to DNS cookie pre-fetch request with missing server cookie");
-                            }
+                            trace!(
+                                "Replying to DNS cookie pre-fetch request with missing server cookie");
                             self.prefetch_cookie_response(request)
                         } else {
                             // "In this case, the response SHALL have the
                             // RCODE BADCOOKIE if the Server Cookie sent with
                             // the query was invalid"
-                            if enabled!(Level::DEBUG) {
-                                debug!(
+                            debug!(
                                     "Rejecting pre-fetch request due to invalid server cookie");
-                            }
                             self.bad_cookie_response(request)
                         };
                         return ControlFlow::Break(additional);
                     } else if request.received_over_udp() {
                         let additional = self.bad_cookie_response(request);
                         if enabled!(Level::DEBUG) {
-                            debug!(
+                        debug!(
                                 "Rejecting non-TCP request due to invalid server cookie");
-                        }
                         return ControlFlow::Break(additional);
                     }
                 } else if request.message().header_counts().qdcount() == 0 {
@@ -436,21 +423,17 @@ where
 
                     // TODO: Does the TCP check also apply to RFC 7873 section
                     // 5.4 "Querying for a Server Cookie" too?
-                    if enabled!(Level::TRACE) {
-                        trace!(
+                    trace!(
                             "Replying to DNS cookie pre-fetch request with valid server cookie");
-                    }
                     let additional = self.prefetch_cookie_response(request);
                     return ControlFlow::Break(additional);
-                } else if enabled!(Level::TRACE) {
+                } else {
                     trace!("Request has a valid DNS cookie");
                 }
             }
         }
 
-        if enabled!(Level::TRACE) {
-            trace!("Permitting request to flow");
-        }
+        trace!("Permitting request to flow");
 
         ControlFlow::Continue(())
     }
