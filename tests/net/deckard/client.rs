@@ -145,6 +145,8 @@ pub trait ClientFactory {
     fn is_suitable(&self, _entry: &Entry) -> bool {
         true
     }
+
+    fn discard(&mut self, entry: &Entry);
 }
 
 //----------- SingleClientFactory --------------------------------------------
@@ -168,6 +170,10 @@ impl ClientFactory for SingleClientFactory {
         _entry: &Entry,
     ) -> Pin<Box<dyn Future<Output = Dispatcher>>> {
         Box::pin(ready(Dispatcher::with_rc_boxed_client(self.0.clone())))
+    }
+
+    fn discard(&mut self, _entry: &Entry) {
+        // Cannot discard the only client we have, nothing to do.
     }
 }
 
@@ -221,6 +227,11 @@ where
         Box::pin(ready(Dispatcher::with_rc_boxed_client(client)))
     }
 
+    fn discard(&mut self, entry: &Entry) {
+        let client_addr = entry.client_addr.unwrap_or(DEF_CLIENT_ADDR);
+        let _ = self.clients_by_address.remove(&client_addr);
+    }
+
     fn is_suitable(&self, entry: &Entry) -> bool {
         (self.is_suitable_func)(entry)
     }
@@ -251,6 +262,14 @@ impl ClientFactory for QueryTailoredClientFactory {
         }
 
         Box::pin(ready(Dispatcher::without_client()))
+    }
+
+    fn discard(&mut self, entry: &Entry) {
+        for f in &mut self.factories {
+            if f.is_suitable(entry) {
+                f.discard(entry);
+            }
+        }
     }
 }
 
@@ -286,11 +305,27 @@ pub async fn do_client<'a, T: ClientFactory>(
                         .entry
                         .as_ref()
                         .ok_or(DeckardErrorCause::MissingStepEntry)?;
-                    resp = client_factory
+
+                    // Dispatch the request to a suitable client.
+                    let mut res =
+                        client_factory.get(entry).await.dispatch(entry).await;
+
+                    // If the client is no longer connected, discard it and
+                    // try again with a new client.
+                    if let Err(DeckardErrorCause::ClientError(
+                        Error::ConnectionClosed,
+                    )) = res
+                    {
+                        client_factory.discard(entry);
+                        res = client_factory
                         .get(entry)
                         .await
                         .dispatch(entry)
-                        .await?;
+                            .await;
+                    }
+
+                    resp = res?;
+
                     trace!(?resp);
                 }
                 StepType::CheckAnswer => {
