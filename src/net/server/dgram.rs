@@ -10,6 +10,8 @@
 //!
 //! [Datagram]: https://en.wikipedia.org/wiki/Datagram
 use core::ops::Deref;
+use core::sync::atomic::Ordering;
+use core::time::Duration;
 use std::fmt::Debug;
 use std::net::SocketAddr;
 use std::string::ToString;
@@ -20,8 +22,8 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use octseq::Truncate;
 use tokio::net::UdpSocket;
+use tokio::time::timeout;
 use tokio::time::Instant;
 use tokio::{io::ReadBuf, sync::watch};
 use tracing::{enabled, error, trace, warn, Level};
@@ -50,6 +52,16 @@ use super::service::ServerCommand;
 /// used to implement a UDP based DNS server.
 pub type UdpServer<Svc> = DgramServer<UdpSocket, VecBufSource, Svc>;
 
+/// Limit the time to wait for a complete message to be written to the client.
+///
+/// The value has to be between 1ms and 60 seconds. The default value is 5
+/// seconds.
+const WRITE_TIMEOUT: DefMinMax<Duration> = DefMinMax::new(
+    Duration::from_secs(5),
+    Duration::from_millis(1),
+    Duration::from_secs(60),
+);
+
 /// Limit suggested for the maximum response size to create.
 ///
 /// The value has to be between 512 and 4,096 per [RFC 6891]. The default
@@ -69,6 +81,9 @@ const MAX_RESPONSE_SIZE: DefMinMax<u16> = DefMinMax::new(1232, 512, 4096);
 pub struct Config {
     /// Limit suggested to [`Service`] on maximum response size to create.
     max_response_size: Option<u16>,
+
+    /// Limit the time to wait for a complete message to be written to the client.
+    write_timeout: Duration,
 }
 
 impl Config {
@@ -94,12 +109,21 @@ impl Config {
     pub fn set_max_response_size(&mut self, value: Option<u16>) {
         self.max_response_size = value;
     }
+
+    /// Limit the time to wait for a complete message to be written to the client.
+    ///
+    /// The value has to be between 1ms and 60 seconds. The default value is 5
+    /// seconds.
+    pub fn set_write_timeout(&mut self, value: Duration) {
+        self.write_timeout = value;
+    }
 }
 
 impl Default for Config {
     fn default() -> Self {
         Self {
             max_response_size: Some(MAX_RESPONSE_SIZE.default()),
+            write_timeout: WRITE_TIMEOUT.default(),
         }
     }
 }
@@ -367,8 +391,11 @@ where
 
                     let msg_details = MessageDetails::new(msg, received_at, addr);
 
+                    let state = self.mk_state_for_request();
+
                     self.process_request(
-                        msg_details, (self.sock.clone(), self.command_tx.clone()),
+                        msg_details,
+                        state,
                         self.middleware_chain.clone(),
                         &self.service,
                         self.metrics.clone()
@@ -420,6 +447,7 @@ where
 
             ServerCommand::Reconfigure(Config {
                 max_response_size: _, // TO DO
+                write_timeout: _,     // TO DO
             }) => {
                 // TODO: Support dynamic replacement of the middleware chain?
                 // E.g. via ArcSwapOption<MiddlewareChain> instead of Option?
@@ -451,13 +479,31 @@ where
         sock: &Sock,
         data: &[u8],
         dest: &SocketAddr,
+        limit: Duration,
     ) -> Result<(), io::Error> {
-        let sent = poll_fn(|ctx| sock.poll_send_to(ctx, data, dest)).await?;
+        let send_res =
+            timeout(limit, poll_fn(|ctx| sock.poll_send_to(ctx, data, dest)))
+                .await;
+
+        let Ok(send_res) = send_res else {
+            return Err(io::ErrorKind::TimedOut.into());
+        };
+
+        let sent = send_res?;
+
         if sent != data.len() {
             Err(io::Error::new(io::ErrorKind::Other, "short send"))
         } else {
             Ok(())
         }
+    }
+
+    fn mk_state_for_request(&self) -> RequestState<Sock> {
+        RequestState::new(
+            self.sock.clone(),
+            self.command_tx.clone(),
+            self.config.write_timeout,
+        )
     }
 }
 
@@ -471,8 +517,7 @@ where
     Buf::Output: Send + Sync + 'static + Debug,
     Svc: Service<Buf::Output> + Send + Sync + 'static,
 {
-    type State =
-        (Arc<Sock>, Arc<Mutex<watch::Sender<ServerCommand<Config>>>>);
+    type State = RequestState<Sock>;
 
     fn add_context_to_request(
         &self,
@@ -490,7 +535,7 @@ where
     fn process_call_result(
         call_result: CallResult<Buf::Output, Svc::Target>,
         addr: SocketAddr,
-        (sock, command_tx): Self::State,
+        state: RequestState<Sock>,
         _metrics: Arc<ServerMetrics>,
     ) {
         tokio::spawn(async move {
@@ -509,7 +554,8 @@ where
                     }
 
                     ServiceFeedback::Shutdown => {
-                        if let Err(err) = command_tx
+                        if let Err(err) = state
+                            .command_tx
                             .lock()
                             .unwrap()
                             .send(ServerCommand::Shutdown)
@@ -534,11 +580,14 @@ where
 
                 // Actually write the DNS response message bytes to the UDP
                 // socket.
-                let _ = Self::send_to(&sock, bytes, &addr).await;
-            }
+                let _ = Self::send_to(
+                    &state.sock,
+                    bytes,
+                    &addr,
+                    state.write_timeout,
+                )
+                .await;
 
-            // TODO:
-            // metrics.num_pending_writes.store(???, Ordering::Relaxed);
         });
     }
 }
@@ -557,5 +606,46 @@ where
         // I'm not sure if it's safe to log or write to stderr from a Drop
         // impl.
         let _ = self.shutdown();
+    }
+}
+
+//----------- RequestState ---------------------------------------------------
+
+#[derive(Debug)]
+pub struct RequestState<Sock> {
+    sock: Arc<Sock>,
+    command_tx: Arc<Mutex<watch::Sender<ServerCommand<Config>>>>,
+    write_timeout: Duration,
+}
+
+impl<Sock> RequestState<Sock>
+where
+    Sock: AsyncDgramSock + Send + Sync + 'static,
+{
+    fn new(
+        sock: Arc<Sock>,
+        command_tx: Arc<Mutex<watch::Sender<ServerCommand<Config>>>>,
+        write_timeout: Duration,
+    ) -> Self {
+        Self {
+            sock,
+            command_tx,
+            write_timeout,
+        }
+    }
+}
+
+//--- Clone
+
+impl<Sock> Clone for RequestState<Sock>
+where
+    Sock: AsyncDgramSock + Send + Sync + 'static,
+{
+    fn clone(&self) -> Self {
+        Self {
+            sock: self.sock.clone(),
+            command_tx: self.command_tx.clone(),
+            write_timeout: self.write_timeout,
+        }
     }
 }
