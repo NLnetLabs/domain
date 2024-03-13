@@ -22,7 +22,7 @@ use tokio::sync::mpsc::error::TrySendError;
 use tokio::sync::mpsc::Sender;
 use tokio::sync::{mpsc, watch};
 use tokio::time::{sleep_until, timeout, Instant};
-use tracing::{debug, error};
+use tracing::{debug, enabled, error, trace, warn, Level};
 
 use super::message::{
     MessageDetails, NonUdpTransportContext, TransportSpecificContext,
@@ -379,6 +379,9 @@ where
                     }
                 }
             }
+        }
+        if let Err(err) = self.state.stream_tx.shutdown().await {
+            warn!("Error while shutting down the write stream: {err}");
         }
 
         #[cfg(test)]
@@ -822,6 +825,24 @@ enum ConnectionEvent<T> {
     DisconnectWithFlush,
 
     ServiceError(ServiceError<T>),
+}
+
+//--- Display
+
+impl<T> Display for ConnectionEvent<T> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            ConnectionEvent::DisconnectWithoutFlush => {
+                write!(f, "Disconnect without flush")
+            }
+            ConnectionEvent::DisconnectWithFlush => {
+                write!(f, "Disconnect with flush")
+            }
+            ConnectionEvent::ServiceError(err) => {
+                write!(f, "Service error: {err}")
+            }
+        }
+    }
 }
 
 //------------ StreamState ---------------------------------------------------
