@@ -12,7 +12,7 @@ use super::{
     chain::MiddlewareChain,
     processor::MiddlewareProcessor,
     processors::{
-    chain::MiddlewareChain, processor::MiddlewareProcessor,
+        edns::EdnsMiddlewareProcessor,
         mandatory::MandatoryMiddlewareProcessor,
     },
 };
@@ -78,6 +78,7 @@ where
     pub fn modern() -> Self {
         let mut builder = Self::new();
         builder.push(MandatoryMiddlewareProcessor.into());
+        builder.push(EdnsMiddlewareProcessor::default().into());
         #[cfg(feature = "siphasher")]
         builder.push(CookiesMiddlewareProcessor::default().into());
         builder

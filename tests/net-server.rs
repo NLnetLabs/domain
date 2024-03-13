@@ -19,6 +19,8 @@ use domain::net::server::dgram::DgramServer;
 use domain::net::server::middleware::builder::MiddlewareBuilder;
 use domain::net::server::middleware::chain::MiddlewareChain;
 use domain::net::server::middleware::processors::cookies::CookiesMiddlewareProcessor;
+use domain::net::server::middleware::processors::edns::EdnsMiddlewareProcessor;
+use domain::net::server::middleware::processors::edns::EDNS_VERSION_ZERO;
 use domain::net::server::prelude::*;
 use domain::net::server::stream::StreamServer;
 use domain::zonefile::inplace::Entry;
@@ -169,7 +171,18 @@ where
         }
     }
 
-    middleware.build()
+    if config.edns_tcp_keepalive {
+        let processor = EdnsMiddlewareProcessor::new(EDNS_VERSION_ZERO);
+        middleware.push(processor.into());
+    }
+
+    if let Some(idle_timeout) = config.idle_timeout {
+        let mut connection_config =
+            domain::net::server::ConnectionConfig::default();
+        connection_config.set_idle_timeout(idle_timeout);
+        stream_config.set_connection_config(connection_config);
+    }
+
 }
 
 // A test `Service` impl.
@@ -252,6 +265,8 @@ fn test_service(
 #[derive(Default)]
 struct ServerConfig<'a> {
     cookies: CookieConfig<'a>,
+    edns_tcp_keepalive: bool,
+    idle_timeout: Option<Duration>,
     zonefile: Zonefile,
 }
 
@@ -276,7 +291,14 @@ fn parse_server_config(config: &Config) -> ServerConfig {
                 in_server_block = false;
             } else if let Some((setting, value)) = line.trim().split_once(':')
             {
-                match (setting.trim(), value.trim()) {
+                // Trim off whitespace and trailing comments.
+                let setting = setting.trim();
+                let value = value
+                    .split_once('#')
+                    .map_or(value, |(value, _rest)| value)
+                    .trim();
+
+                match (setting, value) {
                     ("answer-cookie", "yes") => {
                         parsed_config.cookies.enabled = true
                     }
@@ -329,6 +351,16 @@ fn parse_server_config(config: &Config) -> ServerConfig {
                         zone_file_bytes
                             .extend(v.trim_matches('"').as_bytes().iter());
                         zone_file_bytes.push_back(b'\n');
+                    }
+                    ("edns-tcp-keepalive", "yes") => {
+                        parsed_config.edns_tcp_keepalive = true;
+                    }
+                    ("edns-tcp-keepalive-timeout", v) => {
+                        if parsed_config.edns_tcp_keepalive {
+                            parsed_config.idle_timeout = Some(
+                                Duration::from_millis(v.parse().unwrap()),
+                            );
+                        }
                     }
                     _ => {
                         eprintln!("Ignoring unknown server setting '{setting}' with value: {value}");

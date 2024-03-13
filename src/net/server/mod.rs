@@ -211,6 +211,7 @@
 // #![warn(missing_docs)]
 
 mod connection;
+pub use connection::Config as ConnectionConfig;
 
 pub mod buf;
 pub mod dgram;

@@ -3,6 +3,7 @@ use crate::net::deckard::parse_query;
 use domain::base::iana::Opcode;
 use domain::base::iana::OptRcode;
 use domain::base::iana::Rtype;
+use domain::base::opt::{Opt, OptRecord};
 use domain::base::Message;
 use domain::base::ParsedDname;
 use domain::base::QuestionSection;
@@ -48,13 +49,23 @@ where
         matches.qname = true;
     }
 
+    if matches.edns_data {
+        matches.additional = true;
+    }
+
     if matches.additional {
         let mut arcount = msg.header_counts().arcount();
         if msg.opt().is_some() {
             arcount -= 1;
         }
+        let match_edns_bytes = if matches.edns_data {
+            Some(sections.additional.edns_bytes.as_ref())
+        } else {
+            None
+        };
         if !match_section(
             sections.additional.zone_entries.clone(),
+            match_edns_bytes,
             msg.additional().unwrap(),
             arcount,
             matches.ttl,
@@ -69,6 +80,7 @@ where
     if matches.answer
         && !match_section(
             sections.answer.clone(),
+            None,
             msg.answer().unwrap(),
             msg.header_counts().ancount(),
             matches.ttl,
@@ -83,6 +95,7 @@ where
     if matches.authority
         && !match_section(
             sections.authority.clone(),
+            None,
             msg.authority().unwrap(),
             msg.header_counts().nscount(),
             matches.ttl,
@@ -94,6 +107,7 @@ where
         }
         return false;
     }
+
     if matches.ad && !msg.header().ad() {
         if verbose {
             println!("match_msg: AD not in message",);
@@ -282,9 +296,18 @@ where
                 }
                 return false;
             }
+        } else if "BADCOOKIE" == reply.yxrrset.as_str() {
+            if !matches!(msg_rcode, OptRcode::BadCookie) {
+                if verbose {
+                    println!(
+                        "Wrong Rcode, expected BADCOOKIE, got {msg_rcode}"
+                    );
+                }
+                return false;
+            }
         } else {
             if verbose {
-                todo!();
+                println!("Unexpected Rcode: {msg_rcode}");
             }
             return false;
         }
@@ -294,23 +317,14 @@ where
     }
     if matches.tcp {
         // Note: Creation of a TCP client is handled by the client factory passed to do_client().
-        todo!()
+        // TODO: Verify that the client is actually a TCP client.
     }
     if matches.ttl {
         // Nothing to do. TTLs are checked in the relevant sections.
     }
     if matches.udp {
-        todo!()
-    }
-    if "BADCOOKIE" == reply.yxrrset.as_str() {
-        let msg_rcode =
-            get_opt_rcode(&Message::from_octets(msg.as_slice()).unwrap());
-        if !matches!(msg_rcode, OptRcode::BadCookie) {
-            if verbose {
-                println!("match_msg: extended RCODE does not match");
-            }
-            return false;
-        }
+        // Note: Creation of a UDP client is handled by the client factory passed to do_client().
+        // TODO: Verify that the client is actually a UDP client.
     }
 
     // All checks passed!
@@ -323,11 +337,15 @@ fn match_section<
     Octs2: AsRef<[u8]> + Clone,
 >(
     mut match_section: Vec<ZonefileEntry>,
+    match_edns_bytes: Option<&[u8]>,
     msg_section: RecordSection<'a, Octs>,
     msg_count: u16,
     match_ttl: bool,
     verbose: bool,
 ) -> bool {
+    let mat_opt =
+        match_edns_bytes.map(|bytes| Opt::from_slice(bytes).unwrap());
+
     if match_section.len() != msg_count.into() {
         if verbose {
             println!("match_section: expected section length {} doesn't match message count {}", match_section.len(), msg_count);
@@ -343,7 +361,17 @@ fn match_section<
     'outer: for msg_rr in msg_section {
         let msg_rr = msg_rr.unwrap();
         if msg_rr.rtype() == Rtype::Opt {
-            continue;
+            if let Some(mat_opt) = mat_opt {
+                let record =
+                    msg_rr.clone().into_record::<Opt<_>>().unwrap().unwrap();
+                let record = OptRecord::from_record(record);
+                println!("matching {:?} with {:?}", record.opt(), mat_opt);
+                if record.opt() == mat_opt {
+                    continue;
+                }
+            } else {
+                continue;
+            }
         }
         for (index, mat_rr) in match_section.iter().enumerate() {
             // Remove outer Record
@@ -414,6 +442,7 @@ fn match_section<
         }
         return false;
     }
+
     // All entries in the reply were matched.
     true
 }

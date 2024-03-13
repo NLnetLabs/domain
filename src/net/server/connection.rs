@@ -24,7 +24,9 @@ use tokio::sync::{mpsc, watch};
 use tokio::time::{sleep_until, timeout, Instant};
 use tracing::{debug, error};
 
-use super::message::MessageDetails;
+use super::message::{
+    MessageDetails, NonUdpTransportContext, TransportSpecificContext,
+};
 use super::service::ServerCommand;
 use super::stream::Config as ServerConfig;
 
@@ -638,7 +640,10 @@ where
         received_at: Instant,
         addr: SocketAddr,
     ) -> ContextAwareMessage<Message<Buf::Output>> {
-        ContextAwareMessage::new(request, addr, received_at, false)
+        let ctx = TransportSpecificContext::NonUdp(NonUdpTransportContext {
+            idle_timeout: Some(self.config.idle_timeout),
+        });
+        ContextAwareMessage::new(addr, received_at, request, ctx)
     }
 
     fn process_call_result(

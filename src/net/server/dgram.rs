@@ -39,6 +39,7 @@ use crate::net::server::util::to_pcap_text;
 use crate::utils::config::DefMinMax;
 
 use super::buf::VecBufSource;
+use super::message::{TransportSpecificContext, UdpSpecificTransportContext};
 use super::service::ServerCommand;
 
 /// A UDP transport based DNS server transport.
@@ -479,12 +480,11 @@ where
         received_at: Instant,
         addr: SocketAddr,
     ) -> ContextAwareMessage<Message<Buf::Output>> {
-        let mut msg =
-            ContextAwareMessage::new(request, addr, received_at, true);
-        if let Some(max_response_size) = self.config.max_response_size {
-            msg.set_max_response_size_hint(max_response_size);
-        }
-        msg
+        let ctx =
+            TransportSpecificContext::Udp(UdpSpecificTransportContext {
+                max_response_size_hint: self.config.max_response_size,
+            });
+        ContextAwareMessage::new(addr, received_at, request, ctx)
     }
 
     fn process_call_result(
@@ -521,56 +521,9 @@ where
             }
 
             // Process the DNS response message, if any.
-            if let Some(mut response) = response {
-                // Determine if the response needs to be truncated.
-                let mut truncate_to = None;
-
-                if let Some(request) = request {
-                    if let Some(max_response_size_hint) =
-                        request.max_response_size_hint()
-                    {
-                        let max_response_size_hint: usize =
-                            max_response_size_hint.into();
-                        let response_len = response.as_slice().len();
-                        if response_len > max_response_size_hint {
-                            // Truncate per RFC 1035 section 6.2 and RFC 2181 sections 5.1
-                            // and 9:
-                            //
-                            // https://datatracker.ietf.org/doc/html/rfc1035#section-6.2
-                            //   "When a response is so long that truncation is required,
-                            //    the truncation should start at the end of the response
-                            //    and work forward in the datagram.  Thus if there is any
-                            //    data for the authority section, the answer section is
-                            //    guaranteed to be unique."
-                            //
-                            // https://datatracker.ietf.org/doc/html/rfc2181#section-5.1
-                            //   "A query for a specific (or non-specific) label, class,
-                            //    and type, will always return all records in the
-                            //    associated RRSet - whether that be one or more RRs.  The
-                            //    response must be marked as "truncated" if the entire
-                            //    RRSet will not fit in the response."
-                            //
-                            // https://datatracker.ietf.org/doc/html/rfc2181#section-9 ""
-                            //   "Where TC is set, the partial RRSet that would not
-                            //    completely fit may be left in the response.  When a DNS
-                            //    client receives a reply with TC set, it should ignore
-                            //    that response, and query again, using a mechanism, such
-                            //    as a TCP connection, that will permit larger replies."
-
-                            // Simplistic approach:
-                            trace!("Truncating response from {response_len} bytes to {max_response_size_hint} bytes");
-                            truncate_to = Some(max_response_size_hint);
-                            response.header_mut().set_tc(true);
-                        }
-                    }
-                }
-
-                // Convert the DNS response message into bytes and apply
-                // truncation if needed.
-                let mut target = response.finish();
-                if let Some(max_response_size) = truncate_to {
-                    target.truncate(max_response_size);
-                }
+            if let Some(response) = response {
+                // Convert the DNS response message into bytes.
+                let target = response.finish();
                 let bytes = target.as_dgram_slice();
 
                 // Logging

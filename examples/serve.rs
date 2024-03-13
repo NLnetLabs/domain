@@ -396,7 +396,7 @@ where
         stats.num_req_bytes += request.message().as_slice().len() as u32;
         stats.num_resp_bytes += _response.as_slice().len() as u32;
 
-        if request.received_over_udp() {
+        if request.transport().is_udp() {
             stats.num_udp += 1;
         }
 

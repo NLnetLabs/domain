@@ -1,5 +1,5 @@
 //! Support for working with DNS messages in servers.
-use core::{ops::ControlFlow, sync::atomic::Ordering};
+use core::{ops::ControlFlow, sync::atomic::Ordering, time::Duration};
 use std::net::SocketAddr;
 use std::sync::Arc;
 
@@ -20,6 +20,32 @@ use super::service::{
 
 //------------ ContextAwareMessage -------------------------------------------
 
+#[derive(Debug, Copy, Clone)]
+pub struct UdpSpecificTransportContext {
+    pub max_response_size_hint: Option<u16>,
+}
+
+#[derive(Debug, Copy, Clone)]
+pub struct NonUdpTransportContext {
+    pub idle_timeout: Option<Duration>,
+}
+
+#[derive(Debug, Copy, Clone)]
+pub enum TransportSpecificContext {
+    Udp(UdpSpecificTransportContext),
+    NonUdp(NonUdpTransportContext),
+}
+
+impl TransportSpecificContext {
+    pub fn is_udp(&self) -> bool {
+        matches!(self, Self::Udp(_))
+    }
+
+    pub fn is_non_udp(&self) -> bool {
+        matches!(self, Self::NonUdp(_))
+    }
+}
+
 /// A DNS message with additional properties describing its context.
 ///
 /// DNS messages don't exist in isolation, they are received from somewhere or
@@ -29,36 +55,25 @@ use super::service::{
 /// delivery.
 #[derive(Debug)]
 pub struct ContextAwareMessage<T> {
-    message: T,
-    received_at: Instant,
-    received_over_udp: bool,
     client_addr: std::net::SocketAddr,
-    max_response_size_hint: Option<u16>,
+    received_at: Instant,
+    message: T,
+    transport_specific: TransportSpecificContext,
 }
 
 impl<T> ContextAwareMessage<T> {
     pub fn new(
-        message: T,
         client_addr: std::net::SocketAddr,
         received_at: Instant,
-        received_over_udp: bool,
+        message: T,
+        transport_specific: TransportSpecificContext,
     ) -> Self {
         Self {
-            message,
-            received_at,
-            received_over_udp,
             client_addr,
-            max_response_size_hint: None,
+            received_at,
+            message,
+            transport_specific,
         }
-    }
-
-    pub fn set_max_response_size_hint(&mut self, value: u16) {
-        self.max_response_size_hint = Some(value);
-    }
-
-    /// Maximum response size hint, if any.
-    pub fn max_response_size_hint(&self) -> Option<u16> {
-        self.max_response_size_hint
     }
 
     /// When was this message received?
@@ -66,9 +81,9 @@ impl<T> ContextAwareMessage<T> {
         self.received_at
     }
 
-    /// Was this message received via a UDP transport?
-    pub fn received_over_udp(&self) -> bool {
-        self.received_over_udp
+    /// Get the transport specific context
+    pub fn transport(&self) -> &TransportSpecificContext {
+        &self.transport_specific
     }
 
     /// From which IP address and port number was this message received?

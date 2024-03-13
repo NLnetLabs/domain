@@ -1,16 +1,18 @@
-//! Core DNS RFC standards based message processing.
+//! Core DNS RFC standards based message processing for MUST requirements.
 use octseq::Octets;
-use tracing::{debug, enabled, trace, Level};
+use tracing::{debug, trace};
 
 use crate::{
     base::{
-        iana::Rcode, message_builder::AdditionalBuilder, opt::Opt,
-        wire::Composer, Message, StreamTarget,
+        iana::Rcode, message_builder::AdditionalBuilder, wire::Composer, Message, StreamTarget
     },
     net::server::{
-        message::ContextAwareMessage,
+        message::{
+            ContextAwareMessage, TransportSpecificContext,
+            UdpSpecificTransportContext,
+        },
         middleware::processor::MiddlewareProcessor,
-        util::mk_builder_for_target,
+        prelude::mk_builder_for_target,
     },
 };
 use core::ops::ControlFlow;
@@ -23,12 +25,15 @@ use core::ops::ControlFlow;
 /// | RFC    | Status  |
 /// |--------|---------|
 /// | [1035] | TBD     |
+/// | [2181] | TBD     |
 /// | [6891] | TBD     |
 ///
+/// [`MiddlewareProcessor`]:
+///     crate::net::server::middleware::processor::MiddlewareProcessor
 /// [1035]: https://datatracker.ietf.org/doc/html/rfc1035
+/// [2181]: https://datatracker.ietf.org/doc/html/rfc2181
 /// [6891]: https://datatracker.ietf.org/doc/html/rfc6891
-/// [`MiddlewareProcessor`]: crate::net::server::middleware::processor::MiddlewareProcessor
-#[derive(Default)]
+#[derive(Debug, Default)]
 pub struct MandatoryMiddlewareProcessor;
 
 impl MandatoryMiddlewareProcessor {
@@ -39,6 +44,84 @@ impl MandatoryMiddlewareProcessor {
     }
 }
 
+impl MandatoryMiddlewareProcessor {
+    fn truncate<RequestOctets, Target>(
+        request: &ContextAwareMessage<Message<RequestOctets>>,
+        response: &mut AdditionalBuilder<StreamTarget<Target>>,
+    ) where
+        RequestOctets: Octets,
+        Target: Composer + Default,
+    {
+        if let TransportSpecificContext::Udp(UdpSpecificTransportContext {
+            max_response_size_hint: Some(max_response_size_hint),
+        }) = request.transport()
+        {
+            let max_response_size_hint = *max_response_size_hint as usize;
+            let response_len = response.as_slice().len();
+
+            if response_len > max_response_size_hint {
+                // Truncate per RFC 1035 section 6.2 and RFC 2181 sections 5.1
+                // and 9:
+                //
+                // https://datatracker.ietf.org/doc/html/rfc1035#section-6.2
+                //   "When a response is so long that truncation is required,
+                //    the truncation should start at the end of the response
+                //    and work forward in the datagram.  Thus if there is any
+                //    data for the authority section, the answer section is
+                //    guaranteed to be unique."
+                //
+                // https://datatracker.ietf.org/doc/html/rfc2181#section-5.1
+                //   "A query for a specific (or non-specific) label, class,
+                //    and type, will always return all records in the
+                //    associated RRSet - whether that be one or more RRs.  The
+                //    response must be marked as "truncated" if the entire
+                //    RRSet will not fit in the response."
+                //
+                // https://datatracker.ietf.org/doc/html/rfc2181#section-9
+                //   "Where TC is set, the partial RRSet that would not
+                //    completely fit may be left in the response.  When a DNS
+                //    client receives a reply with TC set, it should ignore
+                //    that response, and query again, using a mechanism, such
+                //    as a TCP connection, that will permit larger replies."
+                //
+                // https://datatracker.ietf.org/doc/html/rfc6891#section-7
+                //   "The minimal response MUST be the DNS header, question
+                //     section, and an OPT record.  This MUST also occur when
+                //     a truncated response (using the DNS header's TC bit) is
+                //     returned."
+
+                // Tell the client that we are truncating the response.
+                response.header_mut().set_tc(true);
+
+                // Remember the original length.
+                let old_len = response.as_slice().len();
+
+                // Copy the header, question and opt record from the
+                // additional section, but leave the answer and authority
+                // sections empty.
+                let source = response.as_message();
+                let mut target = mk_builder_for_target();
+
+                *target.header_mut() = source.header();
+
+                let mut target = target.question();
+                for rr in source.question() {
+                    target.push(rr.unwrap()).unwrap(); // TODO: SAFETY
+                }
+
+                let mut target = target.additional();
+                if let Some(opt) = source.opt() {
+                    target.push(opt.as_record()).unwrap(); // TODO: SAFETY
+                }
+
+                let new_len = target.as_slice().len();
+                trace!("Truncating response from {old_len} bytes to {new_len} bytes");
+
+                *response = target;
+            }
+        }
+    }
+}
 
 //--- MiddlewareProcessor
 
@@ -67,13 +150,11 @@ where
             if let Some(opt) = iter.next() {
                 if iter.next().is_some() {
                     // More than one OPT RR received.
-                    if enabled!(Level::DEBUG) {
-                        debug!("RFC 6891 6.1.1 violation: request contains more than one OPT RR.");
-                    }
+                    debug!("RFC 6891 6.1.1 violation: request contains more than one OPT RR.");
                     let mut builder = mk_builder_for_target();
                     builder.header_mut().set_rcode(Rcode::FormErr);
                     return ControlFlow::Break(builder.additional());
-                } else if request.received_over_udp() {
+                } else if request.transport().is_udp() {
                     if let Ok(opt) = opt {
                         // https://datatracker.ietf.org/doc/html/rfc6891#section-6.2.3
                         // 6.2.3. Requestor's Payload Size
@@ -87,9 +168,7 @@ where
                         //    Values lower than 512 MUST be treated as equal to 512."
                         let requestors_udp_payload_size: u16 =
                             opt.class().into();
-                        if requestors_udp_payload_size < 512
-                            && enabled!(Level::DEBUG)
-                        {
+                        if requestors_udp_payload_size < 512 {
                             debug!("RFC 6891 6.2.3 violation: OPT RR class (requestor's UDP payload size) < 512");
                         } else if request.max_response_size_hint().is_none() {
                             trace!("Setting max response size hint from EDNS(0) requestor's UDP payload size ({})", requestors_udp_payload_size);
@@ -113,6 +192,8 @@ where
         request: &ContextAwareMessage<Message<RequestOctets>>,
         response: &mut AdditionalBuilder<StreamTarget<Target>>,
     ) {
+        Self::truncate(request, response);
+
         // https://datatracker.ietf.org/doc/html/rfc1035#section-4.1.1
         // 4.1.1: Header section format
         //

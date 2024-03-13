@@ -512,6 +512,7 @@ pub struct Matches {
     pub ttl: bool,
     pub udp: bool,
     pub server_cookie: bool,
+    pub edns_data: bool,
 }
 
 fn parse_match(mut tokens: LineTokens<'_>) -> Matches {
@@ -553,6 +554,8 @@ fn parse_match(mut tokens: LineTokens<'_>) -> Matches {
             matches.tcp = true;
         } else if token == "server_cookie" {
             matches.server_cookie = true;
+        } else if token == "ednsdata" {
+            matches.edns_data = true;
         } else {
             println!("should handle match {token:?}");
             todo!();

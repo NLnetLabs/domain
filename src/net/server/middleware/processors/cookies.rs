@@ -289,7 +289,7 @@ where
                 // themselves to the server, either with a cookie or by
                 // re-connecting over TCP, so we REFUSE them and reply with
                 // TC=1 to prompt them to reconnect via TCP.
-                if request.received_over_udp()
+                if request.transport().is_udp()
                     && self.ip_deny_list.contains(&request.client_addr().ip())
                 {
                     debug!(
@@ -419,7 +419,7 @@ where
                             self.bad_cookie_response(request)
                         };
                         return ControlFlow::Break(additional);
-                    } else if request.received_over_udp() {
+                    } else if request.transport().is_udp() {
                         let additional = self.bad_cookie_response(request);
                         debug!(
                                 "Rejecting non-TCP request due to invalid server cookie");
