@@ -16,13 +16,14 @@
 use arc_swap::ArcSwap;
 use core::future::poll_fn;
 use core::ops::Deref;
+use core::sync::atomic::{AtomicUsize, Ordering};
 use std::io;
 use std::net::SocketAddr;
 use std::string::{String, ToString};
 use std::sync::{Arc, Mutex};
 use tokio::net::TcpListener;
 use tokio::sync::watch;
-use tracing::error;
+use tracing::{error, trace, trace_span};
 
 use crate::net::server::buf::BufSource;
 use crate::net::server::error::Error;
@@ -226,6 +227,8 @@ where
 
     /// [`ServerMetrics`] describing the status of the server.
     metrics: Arc<ServerMetrics>,
+
+    connection_idx: AtomicUsize,
 }
 
 /// # Creation
@@ -272,6 +275,7 @@ where
             pre_connect_hook: None,
             middleware_chain: None,
             metrics,
+            connection_idx: AtomicUsize::new(0),
         }
     }
 
@@ -508,9 +512,14 @@ where
         let conn_buf = self.buf.clone();
         let conn_metrics = self.metrics.clone();
         let pre_connect_hook = self.pre_connect_hook;
+        let new_connection_idx =
+            self.connection_idx.fetch_add(1, Ordering::SeqCst);
 
         trace!("Spawning new connection handler.");
         tokio::spawn(async move {
+            let span = trace_span!("stream", conn = new_connection_idx);
+            let _guard = span.enter();
+
             trace!("Accepting connection.");
             if let Ok(mut stream) = stream.await {
                 trace!("Connection accepted.");

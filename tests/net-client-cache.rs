@@ -1,19 +1,19 @@
 #![cfg(feature = "net")]
 mod net;
 
-use crate::net::deckard::client::do_client;
-use crate::net::deckard::client::CurrStepValue;
-use crate::net::deckard::connect::Connect;
-use crate::net::deckard::parse_deckard::parse_file;
 use domain::base::{Dname, MessageBuilder, Rtype::Aaaa};
 use domain::net::client::cache;
+use net::deckard::client::do_client;
+use net::deckard::client::CurrStepValue;
+use net::deckard::client::SingleClientFactory;
+use net::deckard::connect::Connect;
+use net::deckard::parse_deckard::parse_file;
 // use domain::net::client::clock::{Clock, FakeClock};
 use domain::net::client::multi_stream;
 use domain::net::client::redundant;
 use domain::net::client::request::{
     Error::NoTransportAvailable, RequestMessage, SendRequest,
 };
-use net::deckard::client::SingleClientFactory;
 use rstest::rstest;
 use std::fs::File;
 use std::path::PathBuf;

@@ -4,7 +4,8 @@ use tracing::{debug, trace};
 
 use crate::{
     base::{
-        iana::Rcode, message_builder::AdditionalBuilder, wire::Composer, Message, StreamTarget
+        iana::Rcode, message_builder::AdditionalBuilder, opt::Opt,
+        wire::Composer, Message, StreamTarget,
     },
     net::server::{
         message::{
@@ -144,43 +145,14 @@ where
         // ...
         // "If a query message with more than one OPT RR is received, a
         //  FORMERR (RCODE=1) MUST be returned"
-        let mut new_max_response_size_hint = None;
         if let Ok(additional) = request.message().additional() {
-            let mut iter = additional.limit_to::<Opt<_>>();
-            if let Some(opt) = iter.next() {
-                if iter.next().is_some() {
-                    // More than one OPT RR received.
-                    debug!("RFC 6891 6.1.1 violation: request contains more than one OPT RR.");
-                    let mut builder = mk_builder_for_target();
-                    builder.header_mut().set_rcode(Rcode::FormErr);
-                    return ControlFlow::Break(builder.additional());
-                } else if request.transport().is_udp() {
-                    if let Ok(opt) = opt {
-                        // https://datatracker.ietf.org/doc/html/rfc6891#section-6.2.3
-                        // 6.2.3. Requestor's Payload Size
-                        //
-                        //   "The requestor's UDP payload size (encoded in the RR CLASS field) is
-                        //    the number of octets of the largest UDP payload that can be
-                        //    reassembled and delivered in the requestor's network stack.  Note
-                        //    that path MTU, with or without fragmentation, could be smaller than
-                        //    this.
-                        //
-                        //    Values lower than 512 MUST be treated as equal to 512."
-                        let requestors_udp_payload_size: u16 =
-                            opt.class().into();
-                        if requestors_udp_payload_size < 512 {
-                            debug!("RFC 6891 6.2.3 violation: OPT RR class (requestor's UDP payload size) < 512");
-                        } else if request.max_response_size_hint().is_none() {
-                            trace!("Setting max response size hint from EDNS(0) requestor's UDP payload size ({})", requestors_udp_payload_size);
-                            new_max_response_size_hint =
-                                Some(requestors_udp_payload_size);
-                        }
-                    }
-                }
-            }
-
-            if let Some(max_response_size_hint) = new_max_response_size_hint {
-                request.set_max_response_size_hint(max_response_size_hint);
+            let iter = additional.limit_to::<Opt<_>>();
+            if iter.count() > 1 {
+                // More than one OPT RR received.
+                debug!("RFC 6891 6.1.1 violation: request contains more than one OPT RR.");
+                let mut builder = mk_builder_for_target();
+                builder.header_mut().set_rcode(Rcode::FormErr);
+                return ControlFlow::Break(builder.additional());
             }
         }
 

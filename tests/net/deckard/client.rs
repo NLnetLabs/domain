@@ -9,7 +9,7 @@ use domain::base::iana::Opcode;
 use domain::base::opt::{ComposeOptData, OptData};
 use domain::base::{Message, MessageBuilder};
 use domain::net::client::request::{
-    ComposeRequest, RequestMessage, SendRequest,
+    ComposeRequest, Error, RequestMessage, SendRequest,
 };
 use std::collections::HashMap;
 use std::future::{ready, Future};
@@ -19,6 +19,7 @@ use std::rc::Rc;
 use std::sync::Mutex;
 use std::time::Duration;
 use tracing::{debug, info_span, trace};
+use tracing_subscriber::EnvFilter;
 
 #[cfg(feature = "mock-time")]
 use mock_instant::MockClock;
@@ -314,9 +315,9 @@ pub async fn do_client<'a, T: ClientFactory>(
                     {
                         client_factory.discard(entry);
                         res = client_factory
-                        .get(entry)
-                        .await
-                        .dispatch(entry)
+                            .get(entry)
+                            .await
+                            .dispatch(entry)
                             .await;
                     }
 
