@@ -548,10 +548,12 @@ where
         call_result: CallResult<Buf::Output, Svc::Target>,
         addr: SocketAddr,
         state: RequestState<Sock>,
-        _metrics: Arc<ServerMetrics>,
+        metrics: Arc<ServerMetrics>,
     ) {
+        metrics.num_pending_writes.fetch_add(1, Ordering::Relaxed);
+
         tokio::spawn(async move {
-            let (request, response, feedback) = call_result.into_inner();
+            let (_request, response, feedback) = call_result.into_inner();
 
             if let Some(feedback) = feedback {
                 match feedback {
@@ -600,6 +602,8 @@ where
                 )
                 .await;
 
+                metrics.num_pending_writes.fetch_sub(1, Ordering::Relaxed);
+            }
         });
     }
 }
