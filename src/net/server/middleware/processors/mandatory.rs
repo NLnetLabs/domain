@@ -15,7 +15,8 @@ use crate::{
 };
 use core::ops::ControlFlow;
 
-/// A [`MiddlewareProcessor`] for enforcing RFC standards on processed messages.
+/// A [`MiddlewareProcessor`] for enforcing core RFC MUST requirements on
+/// processed messages.
 ///
 /// Standards covered by ths implementation:
 ///
@@ -38,6 +39,13 @@ impl MandatoryMiddlewareProcessor {
     }
 }
 
+
+//--- MiddlewareProcessor
+
+// TODO: If we extend this later to do a lot more than setting a couple of
+// header flags, and if we think that there may be a need for alternate
+// truncation strategies, then it might make sense to factor out truncation to
+// make it "pluggable" by the user.
 impl<RequestOctets, Target> MiddlewareProcessor<RequestOctets, Target>
     for MandatoryMiddlewareProcessor
 where

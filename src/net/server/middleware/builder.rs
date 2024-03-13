@@ -42,7 +42,7 @@ where
     RequestOctets: AsRef<[u8]>,
     Target: Composer + Default,
 {
-    /// Create a new builder.
+    /// Create a new empty builder.
     ///
     /// <div class="warning">Warning:
     ///
@@ -73,6 +73,8 @@ where
         MiddlewareChain::new(self.processors)
     }
 }
+
+//--- Default
 
 impl<RequestOctets, Target> Default
     for MiddlewareBuilder<RequestOctets, Target>

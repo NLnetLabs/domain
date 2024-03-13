@@ -309,15 +309,10 @@ where
 
     /// Stop the server.
     ///
-    /// No new messages will be received.
-    ///
-    /// Tip: Await the [`tokio::task::JoinHandle`] that you received when
-    /// spawning a task to run the server to know when shutdown is complete.
-    ///
-    ///
-    /// [`tokio::task::JoinHandle`]:
-    ///     https://docs.rs/tokio/latest/tokio/task/struct.JoinHandle.html
-    // TODO: Do we also need a non-graceful terminate immediately function?
+    /// In-flight requests will continue being processed but no new messages
+    /// will be accepted. Pending responses will be written as long as the
+    /// socket that was given to the server when it was created remains
+    /// operational.
     pub fn shutdown(&self) -> Result<(), Error> {
         self.command_tx
             .lock()

@@ -434,10 +434,18 @@ async fn main() {
     eprintln!("  dig +short -4 @127.0.0.1 +tcp -p 8081 A google.com");
     eprintln!("  dig +short -4 @127.0.0.1 +tls -p 8443 A google.com");
 
+
+    // -----------------------------------------------------------------------
+    // Wrap `MyService` in an `Arc` so that it can be used by multiple servers
+    // at once.
     let svc = Arc::new(MyService);
 
-    let mut middleware = MiddlewareBuilder::<Vec<u8>, Vec<u8>>::new();
-    let server_secret = "server12secret34".as_bytes().try_into().unwrap();
+    // -----------------------------------------------------------------------
+    // Prepare a modern middleware chain for use by servers defined below.
+    // Inject a custom statistics middleware processor (defined above) at the
+    // start of the chain so that it can time the request processing time from
+    // as early till as late as possible (excluding time spent in the servers
+    // that receive the requests and send the responses).
     let stats = Arc::new(StatsMiddlewareProcessor::new());
     middleware.push(stats.clone());
     middleware.push(MandatoryMiddlewareProcessor::new().into());
@@ -447,7 +455,7 @@ async fn main() {
 
     // -----------------------------------------------------------------------
     // Run a DNS server on UDP port 8053 on 127.0.0.1. Test it like so:
-    //    dig +short +keepopen +tcp -4 @127.0.0.1 -p 8082 A google.com
+    //    dig +short -4 @127.0.0.1 -p 8053 A google.com
     let udpsocket = UdpSocket::bind("127.0.0.1:8053").await.unwrap();
     let buf_source = Arc::new(VecBufSource);
     let srv = DgramServer::new(udpsocket, buf_source.clone(), name_to_ip);
@@ -457,7 +465,7 @@ async fn main() {
 
     // -----------------------------------------------------------------------
     // Run a DNS server on TCP port 8053 on 127.0.0.1. Test it like so:
-    //    dig +short +keepopen +tcp -4 @127.0.0.1 +tcp -p 8053 A google.com
+    //    dig +short +keepopen +tcp -4 @127.0.0.1 -p 8053 A google.com
     let v4socket = TcpSocket::new_v4().unwrap();
     v4socket.set_reuseaddr(true).unwrap();
     v4socket.bind("127.0.0.1:8053".parse().unwrap()).unwrap();
@@ -492,8 +500,14 @@ async fn main() {
     let udp_mtu_join_handle = {
         // This UDP example sets IP_MTU_DISCOVER via setsockopt(), using the
         // libc crate (as the nix crate doesn't support IP_MTU_DISCOVER at the
-        // time of writing). This example is inspired by
-        // https://mailarchive.ietf.org/arch/msg/dnsop/Zy3wbhHephubsy2uJesGeDst4F4/
+        // time of writing). This example is inspired by:
+        //
+        // - https://www.ietf.org/archive/id/draft-ietf-dnsop-avoid-fragmentation-17.html#name-recommendations-for-udp-res
+        // - https://mailarchive.ietf.org/arch/msg/dnsop/Zy3wbhHephubsy2uJesGeDst4F4/
+        // - https://man7.org/linux/man-pages/man7/ip.7.html
+        //
+        // Some other good reading on sending faster via UDP with Rust:
+        // - https://devork.be/blog/2023/11/modern-linux-sockets/
         //
         // We could also try the following settings that the Unbound man page
         // mentions:
@@ -610,6 +624,8 @@ async fn main() {
     let listener = BufferedTcpListener(listener);
     let count = Arc::new(AtomicU8::new(5));
 
+    // Make our service from the `query()` function with the help of the
+    // `mk_service()` function.
     let fn_svc = mk_service(query, count);
 
     let mut fn_svc_middleware = MiddlewareBuilder::default();

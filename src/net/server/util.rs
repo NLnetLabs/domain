@@ -153,6 +153,14 @@ where
 
 //----------- to_pcap_text() -------------------------------------------------
 
+/// Create a string of hex encoded bytes representing the given byte sequence.
+///
+/// The created string is compatible with the Wireshark text2pcap tool and the
+/// Wireshark "File -> Import from hex dump" feature.
+///
+/// When converting/importing, select Ethernet encapsulation with a dummy UDP
+/// header with destination port 53. Wireshark should then automatically
+/// interpret the bytes as DNS messages.
 pub(crate) fn to_pcap_text<T: AsRef<[u8]>>(
     bytes: T,
     num_bytes: usize,
