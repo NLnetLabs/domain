@@ -681,7 +681,7 @@ async fn main() {
     // -----------------------------------------------------------------------
     // Print statistics periodically
     tokio::spawn(async move {
-        let mut interval = tokio::time::interval(Duration::from_secs(5));
+        let mut interval = tokio::time::interval(Duration::from_secs(15));
         loop {
             interval.tick().await;
             println!("Statistics report: {}", stats);
