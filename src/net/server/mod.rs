@@ -204,8 +204,6 @@
 //! [`tokio::net::UdpSocket`]:
 //!     https://docs.rs/tokio/latest/tokio/net/struct.UdpSocket.html
 
-// TODO: Re-read https://datatracker.ietf.org/doc/html/rfc9210.
-
 #![cfg(feature = "unstable-server-transport")]
 #![cfg_attr(docsrs, doc(cfg(feature = "unstable-server-transport")))]
 // #![warn(missing_docs)]

@@ -589,7 +589,7 @@ where
                 // Logging
                 if enabled!(Level::TRACE) {
                     let pcap_text = to_pcap_text(bytes, bytes.len());
-                    trace!(%addr, pcap_text, "Sent response");
+                    trace!(%addr, pcap_text, "Sending response");
                 }
 
                 // Actually write the DNS response message bytes to the UDP
