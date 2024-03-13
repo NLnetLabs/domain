@@ -14,11 +14,12 @@ use crate::{
     net::server::{
         message::ContextAwareMessage,
         middleware::processor::MiddlewareProcessor,
-        util::mk_builder_for_target,
+        util::{mk_builder_for_target, start_reply},
     },
 };
 
 use octseq::{Octets, OctetsBuilder};
+use rand::RngCore;
 use tracing::{debug, trace};
 
 const FIVE_MINUTES_AS_SECS: u32 = 5 * 60;
@@ -37,7 +38,7 @@ const ONE_HOUR_AS_SECS: u32 = 60 * 60;
 /// [9018]: https://datatracker.ietf.org/doc/html/rfc7873
 /// [`MiddlewareProcessor`]: crate::net::server::middleware::processor::MiddlewareProcessor
 #[derive(Debug)]
-pub struct CookiesMiddlewareProcesor {
+pub struct CookiesMiddlewareProcessor {
     server_secret: [u8; 16],
 
     /// Clients connecting from these IP addresses are exempted from the
@@ -50,7 +51,7 @@ pub struct CookiesMiddlewareProcesor {
     ip_deny_list: Vec<IpAddr>,
 }
 
-impl CookiesMiddlewareProcesor {
+impl CookiesMiddlewareProcessor {
     /// Constructs an instance of this processor.
     #[must_use]
     pub fn new(server_secret: [u8; 16]) -> Self {
@@ -95,7 +96,7 @@ impl CookiesMiddlewareProcesor {
     }
 }
 
-impl CookiesMiddlewareProcesor {
+impl CookiesMiddlewareProcessor {
     /// Get the DNS COOKIE, if any, for the given message.
     ///
     /// https://datatracker.ietf.org/doc/html/rfc7873#section-5.2:
@@ -104,7 +105,7 @@ impl CookiesMiddlewareProcesor {
     ///   first (the one closest to the DNS header) is considered. All others
     ///   are ignored."
     #[must_use]
-    fn cookie<RequestOctets: AsRef<[u8]> + Octets>(
+    fn cookie<RequestOctets: Octets>(
         request: &ContextAwareMessage<Message<RequestOctets>>,
     ) -> Option<Result<opt::Cookie, ParseError>> {
         // Note: We don't use `opt::Opt::first()` because that will silently
@@ -142,18 +143,13 @@ impl CookiesMiddlewareProcesor {
         RequestOctets: Octets,
         Target: Composer + OctetsBuilder + Default,
     {
+        let builder = start_reply(request);
+
         let cookie = Self::cookie(request).unwrap().unwrap().create_response(
             Serial::now(),
             request.client_addr().ip(),
             &self.server_secret,
         );
-
-        let builder = mk_builder_for_target();
-        // RFC (1035?) compliance - copy question from request to response.
-        let mut builder = builder.question();
-        for rr in request.message().question() {
-            builder.push(rr.unwrap()).unwrap(); // SAFETY
-        }
 
         // Note: if rcode is non-extended this will also correctly handle
         // setting the rcode in the main message header.
@@ -203,7 +199,7 @@ impl CookiesMiddlewareProcesor {
         request: &ContextAwareMessage<Message<RequestOctets>>,
     ) -> AdditionalBuilder<StreamTarget<Target>>
     where
-        RequestOctets: AsRef<[u8]> + Octets,
+        RequestOctets: Octets,
         Target: Composer + OctetsBuilder + Default,
     {
         // https://datatracker.ietf.org/doc/html/rfc7873#section-5.4
@@ -243,10 +239,30 @@ impl CookiesMiddlewareProcesor {
     }
 }
 
+//--- Default
+
+impl Default for CookiesMiddlewareProcessor {
+    /// Constructs an instance of this processor with default configuration.
+    ///
+    /// The processor will use a randomly generated server secret.
+    fn default() -> Self {
+        let mut server_secret = [0u8; 16];
+        rand::thread_rng().fill_bytes(&mut server_secret);
+
+        Self {
+            server_secret,
+            ip_allow_list: Default::default(),
+            ip_deny_list: Default::default(),
+        }
+    }
+}
+
+//--- MiddlewareProcessor
+
 impl<RequestOctets, Target> MiddlewareProcessor<RequestOctets, Target>
-    for CookiesMiddlewareProcesor
+    for CookiesMiddlewareProcessor
 where
-    RequestOctets: AsRef<[u8]> + Octets,
+    RequestOctets: Octets,
     Target: Composer + OctetsBuilder + Default,
 {
     fn preprocess(
@@ -405,7 +421,6 @@ where
                         return ControlFlow::Break(additional);
                     } else if request.received_over_udp() {
                         let additional = self.bad_cookie_response(request);
-                        if enabled!(Level::DEBUG) {
                         debug!(
                                 "Rejecting non-TCP request due to invalid server cookie");
                         return ControlFlow::Break(additional);

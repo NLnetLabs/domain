@@ -20,7 +20,7 @@ use domain::net::server::buf::VecBufSource;
 use domain::net::server::dgram::DgramServer;
 use domain::net::server::middleware::builder::MiddlewareBuilder;
 use domain::net::server::middleware::processor::MiddlewareProcessor;
-use domain::net::server::middleware::processors::cookies::CookiesMiddlewareProcesor;
+use domain::net::server::middleware::processors::cookies::CookiesMiddlewareProcessor;
 use domain::net::server::middleware::processors::mandatory::MandatoryMiddlewareProcessor;
 use domain::net::server::prelude::*;
 use domain::net::server::sock::AsyncAccept;
@@ -446,11 +446,9 @@ async fn main() {
     // start of the chain so that it can time the request processing time from
     // as early till as late as possible (excluding time spent in the servers
     // that receive the requests and send the responses).
+    let mut middleware = MiddlewareBuilder::modern();
     let stats = Arc::new(StatsMiddlewareProcessor::new());
-    middleware.push(stats.clone());
-    middleware.push(MandatoryMiddlewareProcessor::new().into());
-    #[cfg(feature = "siphasher")]
-    middleware.push(CookiesMiddlewareProcesor::new(server_secret).into());
+    middleware.push_front(stats.clone());
     let middleware = middleware.build();
 
     // -----------------------------------------------------------------------
@@ -628,11 +626,16 @@ async fn main() {
     // `mk_service()` function.
     let fn_svc = mk_service(query, count);
 
-    let mut fn_svc_middleware = MiddlewareBuilder::default();
+    // Show that we don't have to use the same middleware with every server by
+    // creating a separate middleware chain for use just by this server, and
+    // also show that by creating the individual middleware processors
+    // ourselves we can override their default configuration.
     let server_secret = "server12secret34".as_bytes().try_into().unwrap();
+    let mut fn_svc_middleware = MiddlewareBuilder::new();
+    fn_svc_middleware.push(MandatoryMiddlewareProcessor::new().into());
     #[cfg(feature = "siphasher")]
     fn_svc_middleware
-        .push(CookiesMiddlewareProcesor::new(server_secret).into());
+        .push(CookiesMiddlewareProcessor::new(server_secret).into());
     let fn_svc_middleware = fn_svc_middleware.build();
 
     let srv = StreamServer::new(listener, buf_source.clone(), fn_svc);

@@ -18,7 +18,7 @@ use domain::net::server::buf::VecBufSource;
 use domain::net::server::dgram::DgramServer;
 use domain::net::server::middleware::builder::MiddlewareBuilder;
 use domain::net::server::middleware::chain::MiddlewareChain;
-use domain::net::server::middleware::processors::cookies::CookiesMiddlewareProcesor;
+use domain::net::server::middleware::processors::cookies::CookiesMiddlewareProcessor;
 use domain::net::server::prelude::*;
 use domain::net::server::stream::StreamServer;
 use domain::zonefile::inplace::Entry;
@@ -161,7 +161,7 @@ where
         if let Some(secret) = config.cookies.secret {
             let secret = hex::decode(secret).unwrap();
             let secret = <[u8; 16]>::try_from(secret).unwrap();
-            let processor = CookiesMiddlewareProcesor::new(secret);
+            let processor = CookiesMiddlewareProcessor::new(secret);
             let processor = processor
                 .with_denied_ips(config.cookies.ip_deny_list.clone())
                 .with_allowed_ips(config.cookies.ip_allow_list.clone());

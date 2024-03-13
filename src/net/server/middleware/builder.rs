@@ -6,9 +6,15 @@ use octseq::Octets;
 
 use crate::base::wire::Composer;
 
+#[cfg(feature = "siphasher")]
+use super::processors::cookies::CookiesMiddlewareProcessor;
 use super::{
+    chain::MiddlewareChain,
+    processor::MiddlewareProcessor,
+    processors::{
     chain::MiddlewareChain, processor::MiddlewareProcessor,
-    processors::mandatory::MandatoryMiddlewareProcessor,
+        mandatory::MandatoryMiddlewareProcessor,
+    },
 };
 
 /// A [`MiddlewareChain`] builder.
@@ -24,7 +30,7 @@ use super::{
 /// [`build()`]: Self::build()
 pub struct MiddlewareBuilder<RequestOctets = Vec<u8>, Target = Vec<u8>>
 where
-    RequestOctets: AsRef<[u8]>,
+    RequestOctets: Octets,
     Target: Composer + Default,
 {
     processors: Vec<
@@ -39,7 +45,7 @@ where
 
 impl<RequestOctets, Target> MiddlewareBuilder<RequestOctets, Target>
 where
-    RequestOctets: AsRef<[u8]>,
+    RequestOctets: Octets,
     Target: Composer + Default,
 {
     /// Create a new empty builder.
@@ -47,13 +53,34 @@ where
     /// <div class="warning">Warning:
     ///
     /// When building a standards compliant DNS server you should probably use
-    /// [`MiddlewareBuilder::default()`] instead.
+    /// [`MiddlewareBuilder::default()`] or [`MiddlewareBuilder::modern()`]
+    /// instead.
     /// </div>
     ///
     /// [`MiddlewareBuilder::default()`]: Self::default()
+    /// [`MiddlewareBuilder::modern()`]: Self::modern()
     #[must_use]
     pub fn new() -> Self {
         Self { processors: vec![] }
+    }
+
+    /// Creates a new builder pre-populated with "modern" middleware
+    /// processors.
+    ///
+    /// The constructed builder will be pre-populated with the following
+    /// [`MiddlewareProcessor`]s in their [`Default`] configuration.
+    ///
+    /// - [`MandatoryMiddlewareProcessor`]
+    /// - [`EdnsMiddlewareProcessor`]
+    /// - [`CookiesMiddlewareProcessor`] _(only if crate feature [`siphasher"]
+    ///   is enabled)_
+    #[must_use]
+    pub fn modern() -> Self {
+        let mut builder = Self::new();
+        builder.push(MandatoryMiddlewareProcessor.into());
+        #[cfg(feature = "siphasher")]
+        builder.push(CookiesMiddlewareProcessor::default().into());
+        builder
     }
 
     /// Add a [`MiddlewareProcessor`] to the end of the chain.
@@ -65,6 +92,17 @@ where
         T: MiddlewareProcessor<RequestOctets, Target> + Send + Sync + 'static,
     {
         self.processors.push(processor);
+    }
+
+    /// Add a [`MiddlewareProcessor`] to the start of the chain.
+    ///
+    /// Processors later in the chain pre-process requests after, and
+    /// post-process responses before, processors earlier in the chain.
+    pub fn push_front<T>(&mut self, processor: Arc<T>)
+    where
+        T: MiddlewareProcessor<RequestOctets, Target> + Send + Sync + 'static,
+    {
+        self.processors.insert(0, processor);
     }
 
     /// Turn the builder into an immutable [`MiddlewareChain`].

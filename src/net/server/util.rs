@@ -11,6 +11,7 @@ use octseq::FreezeBuilder;
 use octseq::Octets;
 use octseq::OctetsBuilder;
 
+use crate::base::message_builder::QuestionBuilder;
 use crate::base::MessageBuilder;
 use crate::base::StreamTarget;
 use crate::base::{wire::Composer, Message};
@@ -180,4 +181,24 @@ pub(crate) fn to_pcap_text<T: AsRef<[u8]>>(
         }
     }
     formatted
+}
+
+//----------- start_reply ----------------------------------------------------
+
+pub fn start_reply<RequestOctets, Target>(
+    request: &ContextAwareMessage<Message<RequestOctets>>,
+) -> QuestionBuilder<StreamTarget<Target>>
+where
+    RequestOctets: Octets,
+    Target: Composer + OctetsBuilder + Default,
+{
+    let builder = mk_builder_for_target();
+
+    // RFC (1035?) compliance - copy question from request to response.
+    let mut builder = builder.question();
+    for rr in request.message().question() {
+        builder.push(rr.unwrap()).unwrap(); // SAFETY
+    }
+
+    builder
 }
