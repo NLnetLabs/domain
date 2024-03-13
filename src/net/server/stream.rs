@@ -71,8 +71,8 @@ const MAX_CONCURRENT_TCP_CONNECTIONS: DefMinMax<usize> =
 pub struct Config {
     /// Limit on the number of concurrent TCP connections that can be handled
     /// by the server.
-    pub(crate) max_concurrent_connections: usize,
-    pub(crate) connection_config: connection::Config,
+    pub(super) max_concurrent_connections: usize,
+    pub(super) connection_config: connection::Config,
 }
 
 impl Config {
@@ -92,6 +92,13 @@ impl Config {
     /// immediately.
     pub fn set_max_concurrent_connections(&mut self, value: usize) {
         self.max_concurrent_connections = value;
+    }
+
+    pub fn set_connection_config(
+        &mut self,
+        connection_config: connection::Config,
+    ) {
+        self.connection_config = connection_config;
     }
 }
 
