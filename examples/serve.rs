@@ -524,25 +524,32 @@ async fn main() {
         //  - A means to control the value of the Differentiated Services
         //    Codepoint (DSCP) in the differentiated services field (DS) of
         //    the  outgoing IP packet headers.
+        fn setsockopt(socket: libc::c_int, flag: libc::c_int) -> libc::c_int {
+            unsafe {
+                libc::setsockopt(
+                    socket,
+                    libc::IPPROTO_UDP,
+                    libc::IP_MTU_DISCOVER,
+                    &flag as *const libc::c_int as *const libc::c_void,
+                    std::mem::size_of_val(&flag) as libc::socklen_t,
+                )
+            }
+        }
+
         let udpsocket = UdpSocket::bind("127.0.0.1:8054").await.unwrap();
         let fd = <UdpSocket as std::os::fd::AsRawFd>::as_raw_fd(&udpsocket);
-        let result = unsafe {
-            libc::setsockopt(
-                fd,
-                libc::IPPROTO_UDP,
-                libc::IP_MTU_DISCOVER,
-                &libc::IP_PMTUDISC_OMIT as *const libc::c_int
-                    as *const libc::c_void,
-                std::mem::size_of_val(&libc::IP_PMTUDISC_OMIT)
-                    as libc::socklen_t,
-            )
-        };
-
-        if result == -1 {
+        if setsockopt(fd, libc::IP_PMTUDISC_OMIT) == -1 {
             eprintln!(
-                "setsockopt error when setting IP_MTU_DISCOVER: {}",
+                "setsockopt error when setting IP_MTU_DISCOVER to IP_PMTUDISC_OMIT, will retry with IP_PMTUDISC_DONT: {}",
                 std::io::Error::last_os_error()
             );
+
+            if setsockopt(fd, libc::IP_PMTUDISC_DONT) == -1 {
+                eprintln!(
+                    "setsockopt error when setting IP_MTU_DISCOVER to IP_PMTUDISC_DONT: {}",
+                    std::io::Error::last_os_error()
+                );
+            }
         }
 
         let srv =
