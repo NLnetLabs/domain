@@ -509,11 +509,15 @@ where
         let conn_metrics = self.metrics.clone();
         let pre_connect_hook = self.pre_connect_hook;
 
+        trace!("Spawning new connection handler.");
         tokio::spawn(async move {
+            trace!("Accepting connection.");
             if let Ok(mut stream) = stream.await {
+                trace!("Connection accepted.");
                 // Let the caller inspect and/or modify the accepted stream
                 // before passing it to Connection.
                 if let Some(hook) = pre_connect_hook {
+                    trace!("Running pre-connect hook.");
                     hook(&mut stream);
                 }
 
@@ -527,7 +531,9 @@ where
                     conn_config,
                 );
 
-                conn.run(conn_command_rx).await
+                trace!("Starting connection handler.");
+                conn.run(conn_command_rx).await;
+                trace!("Connection handler terminated.");
             }
         });
     }

@@ -7,10 +7,12 @@ use crate::net::server::middleware::chain::MiddlewareChain;
 use crate::net::server::service::{
     CallResult, Service, ServiceError, ServiceFeedback,
 };
+use crate::net::server::util::to_pcap_text;
 use crate::utils::config::DefMinMax;
 
 use core::ops::{ControlFlow, Deref};
 use core::sync::atomic::Ordering;
+use std::fmt::Display;
 use std::io;
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -380,9 +382,12 @@ where
                 }
             }
         }
+
+        trace!("Shutting down the write stream.");
         if let Err(err) = self.state.stream_tx.shutdown().await {
             warn!("Error while shutting down the write stream: {err}");
         }
+        trace!("Connection terminated.");
 
         #[cfg(test)]
         if dns_msg_receiver.cancelled() {
@@ -469,18 +474,25 @@ where
     }
 
     async fn flush_write_queue(&mut self) {
+        debug!("Flushing connection write queue.");
         // Stop accepting new response messages (should we check for in-flight
         // messages that haven't generated a response yet but should be
         // allowed to do so?) so that we can flush the write queue and exit
         // this connection handler.
+        trace!("Stop queueing up new results.");
         self.result_q_rx.close();
+        trace!("Process already queued results.");
         while let Some(call_result) = self.result_q_rx.recv().await {
-            if let Err(_err) =
+            trace!("Processing queued result.");
+            if let Err(err) =
                 self.process_queued_result(Some(call_result)).await
             {
-                // TOOD: log this error?
+                warn!("Error while processing queued result: {err}");
+            } else {
+                trace!("Result processed");
             }
         }
+        debug!("Connection write queue flush complete.");
     }
 
     async fn process_queued_result(
@@ -514,6 +526,12 @@ where
         &mut self,
         msg: StreamTarget<Svc::Target>,
     ) {
+        if enabled!(Level::TRACE) {
+            let bytes = msg.as_dgram_slice();
+            let pcap_text = to_pcap_text(bytes, bytes.len());
+            trace!(addr = %self.addr, pcap_text, "Sending response");
+        }
+
         match timeout(
             self.config.response_write_timeout,
             self.state.stream_tx.write_all(msg.as_stream_slice()),
@@ -537,15 +555,15 @@ where
             }
         }
 
+        self.metrics
+            .num_pending_writes
+            .fetch_sub(1, Ordering::Relaxed);
+
         if self.state.result_q_tx.capacity()
             == self.state.result_q_tx.max_capacity()
         {
             self.state.response_queue_emptied();
         }
-
-        self.metrics
-            .num_pending_writes
-            .fetch_sub(1, Ordering::Relaxed);
     }
 
     async fn act_on_feedback(&mut self, cmd: ServiceFeedback) {
@@ -578,8 +596,13 @@ where
         &mut self,
         res: Result<Buf::Output, ConnectionEvent<Svc::Error>>,
     ) -> Result<(), ConnectionEvent<Svc::Error>> {
-        res.and_then(|msg_buf| {
+        res.and_then(|msg| {
             let received_at = Instant::now();
+
+            if enabled!(Level::TRACE) {
+                let pcap_text = to_pcap_text(&msg, msg.as_ref().len());
+                trace!(addr = %self.addr, pcap_text, "Received message");
+            }
 
             self.metrics
                 .num_received_requests
@@ -589,7 +612,7 @@ where
             self.state.full_msg_received();
 
             let msg_details =
-                MessageDetails::new(msg_buf, received_at, self.addr);
+                MessageDetails::new(msg, received_at, self.addr);
 
             // Process the received message
             self.process_request(
