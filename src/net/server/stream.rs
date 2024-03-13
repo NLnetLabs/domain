@@ -363,12 +363,24 @@ where
     /// processed but no new messages will be accepted. Pending responses will
     /// be written as long as the client side of connection remains remains
     /// operational.
+    ///
+    /// [`Self::is_shutdown()`] can be used to dertermine if shutdown is
+    /// complete.
     pub fn shutdown(&self) -> Result<(), Error> {
         self.command_tx
             .lock()
             .unwrap()
             .send(ServerCommand::Shutdown)
             .map_err(|_| Error::CommandCouldNotBeSent)
+    }
+
+    /// Check if shutdown has completed.
+    ///
+    /// Note that until shutdown is fully complete some Tokio background tasks
+    /// may remain scheduled or active to process in-flight requests.
+    pub fn is_shutdown(&self) -> bool {
+        self.metrics.num_inflight_requests() == 0
+            && self.metrics.num_pending_writes() == 0
     }
 }
 
