@@ -34,9 +34,11 @@ use std::fs::File;
 use std::net::IpAddr;
 use std::net::SocketAddr;
 use std::path::PathBuf;
+use std::time::Duration;
+use tokio::time::timeout;
+use tracing::debug;
 use tracing::instrument;
 use tracing::trace;
-use tracing_subscriber::EnvFilter;
 
 //----------- Tests ----------------------------------------------------------
 
@@ -61,51 +63,77 @@ async fn server_tests(#[files("test-data/server/*.rpl")] rpl_file: PathBuf) {
     let service: Arc<_> = mk_service(test_service, zonefile).into();
 
     // Create dgram and stream servers for answering requests
-    let (dgram_server_conn, stream_server_conn) =
+    let (dgram_srv, dgram_conn, stream_srv, stream_conn) =
         mk_servers(service, &server_config);
 
     // Create a client factory for sending requests
-    let client_factory =
-        mk_client_factory(dgram_server_conn, stream_server_conn);
+    let client_factory = mk_client_factory(dgram_conn, stream_conn);
 
     // Run the Deckard test!
     let step_value = Arc::new(CurrStepValue::new());
     do_client(&deckard, &step_value, client_factory).await;
+
+    // Await shutdown
+    timeout(
+        Duration::from_secs(3),
+        await_shutdown(dgram_srv, stream_srv),
+    )
+    .await
+    .unwrap();
 }
 
 //----------- test helpers ---------------------------------------------------
 
-
+#[allow(clippy::type_complexity)]
 fn mk_servers<Svc>(
     service: Arc<Svc>,
     server_config: &ServerConfig,
-) -> (ClientServerChannel, ClientServerChannel)
+) -> (
+    Arc<DgramServer<ClientServerChannel, VecBufSource, Arc<Svc>>>,
+    ClientServerChannel,
+    Arc<StreamServer<ClientServerChannel, VecBufSource, Arc<Svc>>>,
+    ClientServerChannel,
+)
 where
     Svc: Service + Send + Sync + 'static,
 {
     // Prepare middleware to be used by the DNS servers to pre-process
     // received requests and post-process created responses.
-    let middleware = mk_middleware_for_config(server_config);
+    let (middleware, dgram_config, stream_config) =
+        mk_server_configs(server_config);
 
     // Create a dgram server for handling UDP requests.
     let dgram_server_conn = ClientServerChannel::new_dgram();
-    let dgram_server = DgramServer::new(
+    let dgram_server = DgramServer::with_config(
         dgram_server_conn.clone(),
         VecBufSource,
         service.clone(),
+        dgram_config,
     );
-    let dgram_server = dgram_server.with_middleware(middleware.clone());
-    tokio::spawn(async move { dgram_server.run().await });
+    let dgram_server =
+        Arc::new(dgram_server.with_middleware(middleware.clone()));
+    let cloned_dgram_server = dgram_server.clone();
+    tokio::spawn(async move { cloned_dgram_server.run().await });
 
     // Create a stream server for handling TCP requests, i.e. Deckard queries
     // with "MATCH TCP".
     let stream_server_conn = ClientServerChannel::new_stream();
-    let stream_server =
-        StreamServer::new(stream_server_conn.clone(), VecBufSource, service);
-    let stream_server = stream_server.with_middleware(middleware);
-    tokio::spawn(async move { stream_server.run().await });
+    let stream_server = StreamServer::with_config(
+        stream_server_conn.clone(),
+        VecBufSource,
+        service,
+        stream_config,
+    );
+    let stream_server = Arc::new(stream_server.with_middleware(middleware));
+    let cloned_stream_server = stream_server.clone();
+    tokio::spawn(async move { cloned_stream_server.run().await });
 
-    (dgram_server_conn, stream_server_conn)
+    (
+        dgram_server,
+        dgram_server_conn,
+        stream_server,
+        stream_server_conn,
+    )
 }
 
 fn mk_client_factory(
@@ -149,14 +177,20 @@ fn mk_client_factory(
     ])
 }
 
-fn mk_middleware_for_config<RequestOctets, Target>(
+fn mk_server_configs<RequestOctets, Target>(
     config: &ServerConfig,
-) -> MiddlewareChain<RequestOctets, Target>
+) -> (
+    MiddlewareChain<RequestOctets, Target>,
+    domain::net::server::dgram::Config,
+    domain::net::server::stream::Config,
+)
 where
     RequestOctets: AsRef<[u8]> + Octets,
     Target: Composer + Default + Send + Sync + 'static,
 {
     let mut middleware = MiddlewareBuilder::default();
+    let dgram_config = domain::net::server::dgram::Config::default();
+    let mut stream_config = domain::net::server::stream::Config::default();
 
     #[cfg(feature = "siphasher")]
     if config.cookies.enabled {
@@ -183,6 +217,7 @@ where
         stream_config.set_connection_config(connection_config);
     }
 
+    (middleware.build(), dgram_config, stream_config)
 }
 
 // A test `Service` impl.
@@ -258,6 +293,29 @@ fn test_service(
 
         Ok(CallResult::new(answer.additional()))
     })))
+}
+
+async fn await_shutdown<Svc>(
+    dgram_server: Arc<
+        DgramServer<ClientServerChannel, VecBufSource, Arc<Svc>>,
+    >,
+    stream_server: Arc<
+        StreamServer<ClientServerChannel, VecBufSource, Arc<Svc>>,
+    >,
+) where
+    Svc: Service + Send + Sync + 'static,
+{
+    debug!("Shutting down");
+
+    dgram_server.shutdown().unwrap();
+    stream_server.shutdown().unwrap();
+
+    let mut interval = tokio::time::interval(Duration::from_millis(100));
+    while !dgram_server.is_shutdown() && !stream_server.is_shutdown() {
+        interval.tick().await;
+    }
+
+    debug!("Shutdown complete");
 }
 
 //----------- Deckard config block parsing -----------------------------------
