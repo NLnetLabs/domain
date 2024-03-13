@@ -289,12 +289,8 @@ pub async fn do_client<'a, T: ClientFactory>(
 
         // Assume steps are in order. Maybe we need to define that.
         for step in &deckard.scenario.steps {
-            let span = info_span!(
-                "deckard",
-                "{}:{}",
-                step.step_value,
-                step.step_type
-            );
+            let span =
+                info_span!("step", "{}:{}", step.step_value, step.step_type);
             let _guard = span.enter();
 
             debug!("Processing step");
@@ -356,9 +352,39 @@ pub async fn do_client<'a, T: ClientFactory>(
         Ok(())
     }
 
+    init_logging();
+
+    let name = deckard
+        .name
+        .rsplit_once('/')
+        .unwrap_or(("", &deckard.name))
+        .1;
+    let span = tracing::info_span!("deckard", "{}", name);
+    let _guard = span.enter();
     if let Err(cause) = inner(deckard, step_value, client_factory).await {
         panic!("{}", DeckardError::from_cause(deckard, step_value, cause));
     }
+}
+
+/// Setup logging of events reported by domain and the test suite.
+///
+/// Use the RUST_LOG environment variable to override the defaults.
+///
+/// E.g. To enable debug level logging:
+///   RUST_LOG=DEBUG
+///
+/// Or to log only the steps processed by the Deckard client:
+///   RUST_LOG=net_server::net::deckard::client=DEBUG
+///
+/// Or to enable trace level logging but not for the test suite itself:
+///   RUST_LOG=TRACE,net_server=OFF
+fn init_logging() {
+    tracing_subscriber::fmt()
+        .with_env_filter(EnvFilter::from_default_env())
+        .with_thread_ids(true)
+        .without_time()
+        .try_init()
+        .ok();
 }
 
 fn entry2reqmsg(entry: &Entry) -> RequestMessage<Vec<u8>> {

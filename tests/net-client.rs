@@ -27,7 +27,7 @@ const TEST_FILE: &str = "test-data/client/basic.rpl";
 fn dgram() {
     tokio_test::block_on(async {
         let file = File::open(TEST_FILE).unwrap();
-        let deckard = parse_file(file);
+        let deckard = parse_file(file, TEST_FILE);
         let step_value = Arc::new(CurrStepValue::new());
 
         let conn = Dgram::new(deckard.clone(), step_value.clone());
@@ -42,7 +42,7 @@ fn dgram() {
 fn single() {
     tokio_test::block_on(async {
         let file = File::open(TEST_FILE).unwrap();
-        let deckard = parse_file(file);
+        let deckard = parse_file(file, TEST_FILE);
         let step_value = Arc::new(CurrStepValue::new());
 
         let conn = Connection::new(deckard.clone(), step_value.clone());
@@ -60,7 +60,7 @@ fn single() {
 fn multi() {
     tokio_test::block_on(async {
         let file = File::open(TEST_FILE).unwrap();
-        let deckard = parse_file(file);
+        let deckard = parse_file(file, TEST_FILE);
         let step_value = Arc::new(CurrStepValue::new());
 
         let multi_conn = Connect::new(deckard.clone(), step_value.clone());
@@ -79,7 +79,7 @@ fn multi() {
 fn dgram_stream() {
     tokio_test::block_on(async {
         let file = File::open(TEST_FILE).unwrap();
-        let deckard = parse_file(file);
+        let deckard = parse_file(file, TEST_FILE);
         let step_value = Arc::new(CurrStepValue::new());
 
         let conn = Dgram::new(deckard.clone(), step_value.clone());
@@ -99,7 +99,7 @@ fn dgram_stream() {
 fn redundant() {
     tokio_test::block_on(async {
         let file = File::open(TEST_FILE).unwrap();
-        let deckard = parse_file(file);
+        let deckard = parse_file(file, TEST_FILE);
         let step_value = Arc::new(CurrStepValue::new());
 
         let multi_conn = Connect::new(deckard.clone(), step_value.clone());
@@ -130,7 +130,7 @@ fn redundant() {
 fn tcp() {
     tokio_test::block_on(async {
         let file = File::open(TEST_FILE).unwrap();
-        let deckard = parse_file(file);
+        let deckard = parse_file(file, TEST_FILE);
         let step_value = Arc::new(CurrStepValue::new());
 
         let server_addr =

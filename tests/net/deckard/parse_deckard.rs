@@ -79,13 +79,14 @@ impl Config {
 
 #[derive(Clone, Debug)]
 pub struct Deckard {
+    pub name: String,
     pub config: Config,
     pub scenario: Scenario,
 }
-
-pub fn parse_file<F: Debug + Read>(file: F) -> Deckard {
+pub fn parse_file<F: Debug + Read, T: ToString>(file: F, name: T) -> Deckard {
     let mut lines = io::BufReader::new(file).lines();
     Deckard {
+        name: name.to_string(),
         config: parse_config(&mut lines),
         scenario: parse_scenario(&mut lines),
     }

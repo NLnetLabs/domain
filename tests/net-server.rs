@@ -47,13 +47,11 @@ use tracing_subscriber::EnvFilter;
 #[rstest]
 #[tokio::test(start_paused = true)]
 async fn server_tests(#[files("test-data/server/*.rpl")] rpl_file: PathBuf) {
-    init_logging();
-
     // Load the test .rpl file that determines which queries will be sent
     // and which responses will be expected, and how the server that
     // answers them should be configured.
-    let file = File::open(rpl_file).unwrap();
-    let deckard = parse_file(file);
+    let file = File::open(&rpl_file).unwrap();
+    let deckard = parse_file(&file, rpl_file.to_str().unwrap());
     let server_config = parse_server_config(&deckard.config);
 
     // Create a service to answer queries received by the DNS servers.
@@ -75,26 +73,6 @@ async fn server_tests(#[files("test-data/server/*.rpl")] rpl_file: PathBuf) {
 
 //----------- test helpers ---------------------------------------------------
 
-/// Setup logging of events reported by domain and the test suite.
-///
-/// Use the RUST_LOG environment variable to override the defaults.
-///
-/// E.g. To enable debug level logging:
-///   RUST_LOG=DEBUG
-///
-/// Or to log only the steps processed by the Deckard client:
-///   RUST_LOG=net_server::net::deckard::client=DEBUG
-///
-/// Or to enable trace level logging but not for the test suite itself:
-///   RUST_LOG=TRACE,net_server=OFF
-fn init_logging() {
-    tracing_subscriber::fmt()
-        .with_env_filter(EnvFilter::from_default_env())
-        .with_thread_ids(true)
-        .without_time()
-        .try_init()
-        .ok();
-}
 
 fn mk_servers<Svc>(
     service: Arc<Svc>,

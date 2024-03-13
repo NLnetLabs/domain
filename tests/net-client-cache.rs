@@ -26,7 +26,7 @@ const TEST_FILE_TRANSPORT_ERROR: &str =
 
 async fn async_test_cache(filename: &str) {
     let file = File::open(filename).unwrap();
-    let deckard = parse_file(file);
+    let deckard = parse_file(&file, filename);
 
     let step_value = Arc::new(CurrStepValue::new());
     let multi_conn = Connect::new(deckard.clone(), step_value.clone());
@@ -44,7 +44,7 @@ async fn async_test_cache(filename: &str) {
 
 async fn async_test_no_cache(filename: &str) {
     let file = File::open(filename).unwrap();
-    let deckard = parse_file(file);
+    let deckard = parse_file(&file, filename);
 
     let step_value = Arc::new(CurrStepValue::new());
     let multi_conn = Connect::new(deckard.clone(), step_value.clone());
@@ -72,7 +72,7 @@ async fn test_transport_error() {
     // and manually issue a query to trigger a transport error. Then add a
     // transport and issue a new query.
     let file = File::open(TEST_FILE_TRANSPORT_ERROR).unwrap();
-    let deckard = parse_file(file);
+    let deckard = parse_file(&file, TEST_FILE_TRANSPORT_ERROR);
 
     let step_value = Arc::new(CurrStepValue::new());
     let (redun, redun_tran) = redundant::Connection::new();
