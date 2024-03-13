@@ -428,6 +428,15 @@ async fn main() {
     eprintln!("  dig +short -4 @127.0.0.1 +tcp -p 8081 A google.com");
     eprintln!("  dig +short -4 @127.0.0.1 +tls -p 8443 A google.com");
 
+    // -----------------------------------------------------------------------
+    // Setup logging. You can override the log level by setting environment
+    // variable RUST_LOG, e.g. RUST_LOG=trace.
+    tracing_subscriber::fmt()
+        .with_env_filter(EnvFilter::from_default_env())
+        .with_thread_ids(true)
+        .without_time()
+        .try_init()
+        .ok();
 
     // -----------------------------------------------------------------------
     // Wrap `MyService` in an `Arc` so that it can be used by multiple servers
