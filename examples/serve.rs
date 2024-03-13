@@ -172,6 +172,7 @@ where
 
     if out_answer.is_none() {
         let builder = mk_builder_for_target();
+        eprintln!("Refusing request, only requests for A records in IPv4 dotted quad format are accepted by this service.");
         out_answer = Some(
             builder.start_answer(msg.message(), Rcode::Refused).unwrap(),
         );
@@ -418,15 +419,8 @@ where
 
 #[tokio::main(flavor = "multi_thread")]
 async fn main() {
-    tracing_subscriber::fmt()
-        .with_env_filter(EnvFilter::from_default_env())
-        .with_thread_ids(true)
-        .without_time()
-        .try_init()
-        .ok();
-
     eprintln!("Test with commands such as:");
-    eprintln!("  dig +short -4 @127.0.0.1 -p 8053 A google.com");
+    eprintln!("  dig +short -4 @127.0.0.1 -p 8053 A 1.2.3.4");
     eprintln!("  dig +short -4 @127.0.0.1 +tcp -p 8053 A google.com");
     eprintln!("  dig +short -4 @127.0.0.1 -p 8054 A google.com");
     eprintln!("  dig +short -4 @127.0.0.1 +tcp -p 8080 A google.com");
