@@ -14,10 +14,10 @@ use domain::base::Dname;
 use domain::base::ToDname;
 use domain::net::client::dgram;
 use domain::net::client::stream;
+use domain::net::server::buf::BufSource;
 use domain::net::server::buf::VecBufSource;
 use domain::net::server::dgram::DgramServer;
 use domain::net::server::middleware::builder::MiddlewareBuilder;
-use domain::net::server::middleware::chain::MiddlewareChain;
 use domain::net::server::middleware::processors::cookies::CookiesMiddlewareProcessor;
 use domain::net::server::middleware::processors::edns::EdnsMiddlewareProcessor;
 use domain::net::server::middleware::processors::edns::EDNS_VERSION_ZERO;
@@ -36,7 +36,7 @@ use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::time::Duration;
 use tracing::instrument;
-use tracing::trace;
+use tracing::{trace, warn};
 
 //----------- Tests ----------------------------------------------------------
 
@@ -52,6 +52,7 @@ async fn server_tests(#[files("test-data/server/*.rpl")] rpl_file: PathBuf) {
     // Load the test .rpl file that determines which queries will be sent
     // and which responses will be expected, and how the server that
     // answers them should be configured.
+
     let file = File::open(&rpl_file).unwrap();
     let deckard = parse_file(&file, rpl_file.to_str().unwrap());
     let server_config = parse_server_config(&deckard.config);
@@ -98,8 +99,7 @@ where
 {
     // Prepare middleware to be used by the DNS servers to pre-process
     // received requests and post-process created responses.
-    let (middleware, dgram_config, stream_config) =
-        mk_server_configs(server_config);
+    let (dgram_config, stream_config) = mk_server_configs(server_config);
 
     // Create a dgram server for handling UDP requests.
     let dgram_server_conn = ClientServerChannel::new_dgram();
@@ -109,8 +109,7 @@ where
         service.clone(),
         dgram_config,
     );
-    let dgram_server =
-        Arc::new(dgram_server.with_middleware(middleware.clone()));
+    let dgram_server = Arc::new(dgram_server);
     let cloned_dgram_server = dgram_server.clone();
     tokio::spawn(async move { cloned_dgram_server.run().await });
 
@@ -123,7 +122,7 @@ where
         service,
         stream_config,
     );
-    let stream_server = Arc::new(stream_server.with_middleware(middleware));
+    let stream_server = Arc::new(stream_server);
     let cloned_stream_server = stream_server.clone();
     tokio::spawn(async move { cloned_stream_server.run().await });
 
@@ -176,20 +175,18 @@ fn mk_client_factory(
     ])
 }
 
-fn mk_server_configs<RequestOctets, Target>(
+fn mk_server_configs<Buf, Svc>(
     config: &ServerConfig,
 ) -> (
-    MiddlewareChain<RequestOctets, Target>,
-    domain::net::server::dgram::Config,
-    domain::net::server::stream::Config,
+    domain::net::server::dgram::Config<Buf, Svc>,
+    domain::net::server::stream::Config<Buf, Svc>,
 )
 where
-    RequestOctets: AsRef<[u8]> + Octets,
-    Target: Composer + Default + Send + Sync + 'static,
+    Buf: BufSource,
+    Buf::Output: Octets,
+    Svc: Service<Buf::Output>,
 {
-    let mut middleware = MiddlewareBuilder::default();
-    let dgram_config = domain::net::server::dgram::Config::default();
-    let mut stream_config = domain::net::server::stream::Config::default();
+    let mut middleware = MiddlewareBuilder::minimal();
 
     #[cfg(feature = "siphasher")]
     if config.cookies.enabled {
@@ -209,14 +206,21 @@ where
         middleware.push(processor.into());
     }
 
+    let middleware = middleware.build();
+
+    let mut dgram_config = domain::net::server::dgram::Config::default();
+    dgram_config.set_middleware_chain(middleware.clone());
+
+    let mut stream_config = domain::net::server::stream::Config::default();
     if let Some(idle_timeout) = config.idle_timeout {
         let mut connection_config =
             domain::net::server::ConnectionConfig::default();
         connection_config.set_idle_timeout(idle_timeout);
+        connection_config.set_middleware_chain(middleware);
         stream_config.set_connection_config(connection_config);
     }
 
-    (middleware.build(), dgram_config, stream_config)
+    (dgram_config, stream_config)
 }
 
 // A test `Service` impl.

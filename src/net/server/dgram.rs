@@ -22,6 +22,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
+use octseq::Octets;
 use tokio::net::UdpSocket;
 use tokio::time::{interval, Instant};
 use tokio::time::{timeout, MissedTickBehavior};
@@ -42,6 +43,7 @@ use crate::utils::config::DefMinMax;
 
 use super::buf::VecBufSource;
 use super::message::{TransportSpecificContext, UdpSpecificTransportContext};
+use super::middleware::builder::MiddlewareBuilder;
 use super::service::ServerCommand;
 
 /// A UDP transport based DNS server transport.
@@ -78,15 +80,28 @@ const MAX_RESPONSE_SIZE: DefMinMax<u16> = DefMinMax::new(1232, 512, 4096);
 
 /// Configuration for a datagram server.
 #[derive(Clone, Debug)]
-pub struct Config {
+pub struct Config<Buf, Svc>
+where
+    Buf: BufSource,
+    Svc: Service<Buf::Output>,
+{
     /// Limit suggested to [`Service`] on maximum response size to create.
     max_response_size: Option<u16>,
 
     /// Limit the time to wait for a complete message to be written to the client.
     write_timeout: Duration,
+
+    /// The middleware chain used to pre-process requests and post-process
+    /// responses.
+    middleware_chain: MiddlewareChain<Buf::Output, Svc::Target>,
 }
 
-impl Config {
+impl<Buf, Svc> Config<Buf, Svc>
+where
+    Buf: BufSource,
+    Buf::Output: Octets,
+    Svc: Service<Buf::Output>,
+{
     /// Creates a new, default config.
     pub fn new() -> Self {
         Default::default()
@@ -117,18 +132,38 @@ impl Config {
     pub fn set_write_timeout(&mut self, value: Duration) {
         self.write_timeout = value;
     }
+
+    /// Set the middleware chain used to pre-process requests and post-process
+    /// responses.
+    pub fn set_middleware_chain(
+        &mut self,
+        value: MiddlewareChain<Buf::Output, Svc::Target>,
+    ) {
+        self.middleware_chain = value;
+    }
 }
 
-impl Default for Config {
+impl<Buf, Svc> Default for Config<Buf, Svc>
+where
+    Buf: BufSource,
+    Buf::Output: Octets,
+    Svc: Service<Buf::Output>,
+{
     fn default() -> Self {
         Self {
             max_response_size: Some(MAX_RESPONSE_SIZE.default()),
             write_timeout: WRITE_TIMEOUT.default(),
+            middleware_chain: MiddlewareBuilder::default().build(),
         }
     }
 }
 
 //------------ DgramServer ---------------------------------------------------
+
+type ServerCommandType<Buf, Svc> = ServerCommand<Config<Buf, Svc>>;
+type CommandSender<Buf, Svc> =
+    Arc<Mutex<watch::Sender<ServerCommandType<Buf, Svc>>>>;
+type CommandReceiver<Buf, Svc> = watch::Receiver<ServerCommandType<Buf, Svc>>;
 
 /// A server for connecting clients via a datagram based network transport to
 /// a [`Service`].
@@ -177,14 +212,10 @@ impl Default for Config {
 ///     // Bind to a local port and listen for incoming UDP messages.
 ///     let udpsocket = UdpSocket::bind("127.0.0.1:8053").await.unwrap();
 ///
-///     // Create the server with default middleware.
-///     let middleware = MiddlewareBuilder::default().build();
-///
 ///     // Create a server that will accept those connections and pass
 ///     // received messages to your service and in turn pass generated
 ///     // responses back to the client.
-///     let srv = Arc::new(DgramServer::new(udpsocket, VecBufSource, svc)
-///         .with_middleware(middleware));
+///     let srv = Arc::new(DgramServer::new(udpsocket, VecBufSource, svc));
 ///
 ///     // Run the server.
 ///     let spawned_srv = srv.clone();
@@ -206,16 +237,15 @@ pub struct DgramServer<Sock, Buf, Svc>
 where
     Sock: AsyncDgramSock + Send + Sync + 'static,
     Buf: BufSource + Send + Sync + 'static,
-    Buf::Output: Send + Sync + 'static + Debug,
+    Buf::Output: Send + Sync + 'static,
     Svc: Service<Buf::Output> + Send + Sync + 'static,
 {
-    config: Config,
-    command_rx: watch::Receiver<ServerCommand<Config>>,
-    command_tx: Arc<Mutex<watch::Sender<ServerCommand<Config>>>>,
+    config: Config<Buf, Svc>,
+    command_rx: CommandReceiver<Buf, Svc>,
+    command_tx: CommandSender<Buf, Svc>,
     sock: Arc<Sock>,
     buf: Buf,
     service: Svc,
-    middleware_chain: Option<MiddlewareChain<Buf::Output, Svc::Target>>,
     metrics: Arc<ServerMetrics>,
 }
 
@@ -225,7 +255,7 @@ impl<Sock, Buf, Svc> DgramServer<Sock, Buf, Svc>
 where
     Sock: AsyncDgramSock + Send + Sync + 'static,
     Buf: BufSource + Send + Sync + 'static + Clone,
-    Buf::Output: Send + Sync + 'static + Debug,
+    Buf::Output: Octets + Send + Sync + 'static,
     Svc: Service<Buf::Output> + Send + Sync + 'static,
 {
     /// Constructs a new [`DgramServer`] with default configuration.
@@ -253,7 +283,7 @@ where
         sock: Sock,
         buf: Buf,
         service: Svc,
-        config: Config,
+        config: Config<Buf, Svc>,
     ) -> Self {
         let (command_tx, command_rx) = watch::channel(ServerCommand::Init);
         let command_tx = Arc::new(Mutex::new(command_tx));
@@ -267,18 +297,7 @@ where
             buf,
             service,
             metrics,
-            middleware_chain: None,
         }
-    }
-
-    /// Configure the [`DgramServer`] to process messages via a [`MiddlewareChain`].
-    #[must_use]
-    pub fn with_middleware(
-        mut self,
-        middleware_chain: MiddlewareChain<Buf::Output, Svc::Target>,
-    ) -> Self {
-        self.middleware_chain = Some(middleware_chain);
-        self
     }
 }
 
@@ -290,6 +309,7 @@ where
     Buf: BufSource + Send + Sync + 'static,
     Buf::Output: Send + Sync + 'static + Debug,
     Svc: Service<Buf::Output> + Send + Sync + 'static,
+    Svc::Target: Debug,
 {
     /// Get a reference to the network source being used to receive messages.
     #[must_use]
@@ -310,7 +330,7 @@ impl<Sock, Buf, Svc> DgramServer<Sock, Buf, Svc>
 where
     Sock: AsyncDgramSock + Send + Sync + 'static,
     Buf: BufSource + Send + Sync + 'static,
-    Buf::Output: Send + Sync + 'static + Debug,
+    Buf::Output: Send + Sync + 'static,
     Svc: Service<Buf::Output> + Send + Sync + 'static,
 {
     /// Start the server.
@@ -384,7 +404,7 @@ impl<Sock, Buf, Svc> DgramServer<Sock, Buf, Svc>
 where
     Sock: AsyncDgramSock + Send + Sync + 'static,
     Buf: BufSource + Send + Sync + 'static,
-    Buf::Output: Send + Sync + 'static + Debug,
+    Buf::Output: Send + Sync + 'static,
     Svc: Service<Buf::Output> + Send + Sync + 'static,
 {
     /// Receive incoming messages until shutdown or fatal error.
@@ -427,7 +447,7 @@ where
                     self.process_request(
                         msg_details,
                         state,
-                        self.middleware_chain.clone(),
+                        self.config.middleware_chain.clone(),
                         &self.service,
                         self.metrics.clone()
                     )
@@ -442,7 +462,7 @@ where
     fn process_service_command(
         &self,
         res: Result<(), watch::error::RecvError>,
-        command_rx: &mut watch::Receiver<ServerCommand<Config>>,
+        command_rx: &mut CommandReceiver<Buf, Svc>,
     ) -> Result<(), String> {
         // If the parent server no longer exists but was not cleanly shutdown
         // then the command channel will be closed and attempting to check for
@@ -479,6 +499,7 @@ where
             ServerCommand::Reconfigure(Config {
                 max_response_size: _, // TO DO
                 write_timeout: _,     // TO DO
+                middleware_chain: _,  // TO DO
             }) => {
                 // TODO: Support dynamic replacement of the middleware chain?
                 // E.g. via ArcSwapOption<MiddlewareChain> instead of Option?
@@ -529,7 +550,7 @@ where
         }
     }
 
-    fn mk_state_for_request(&self) -> RequestState<Sock> {
+    fn mk_state_for_request(&self) -> RequestState<Sock, Buf, Svc> {
         RequestState::new(
             self.sock.clone(),
             self.command_tx.clone(),
@@ -545,10 +566,10 @@ impl<Sock, Buf, Svc> MessageProcessor<Buf, Svc>
 where
     Sock: AsyncDgramSock + Send + Sync + 'static,
     Buf: BufSource + Send + Sync + 'static,
-    Buf::Output: Send + Sync + 'static + Debug,
+    Buf::Output: Send + Sync + 'static,
     Svc: Service<Buf::Output> + Send + Sync + 'static,
 {
-    type State = RequestState<Sock>;
+    type State = RequestState<Sock, Buf, Svc>;
 
     fn add_context_to_request(
         &self,
@@ -566,7 +587,7 @@ where
     fn process_call_result(
         call_result: CallResult<Buf::Output, Svc::Target>,
         addr: SocketAddr,
-        state: RequestState<Sock>,
+        state: RequestState<Sock, Buf, Svc>,
         metrics: Arc<ServerMetrics>,
     ) {
         metrics.num_pending_writes.fetch_add(1, Ordering::Relaxed);
@@ -633,7 +654,7 @@ impl<Sock, Buf, Svc> Drop for DgramServer<Sock, Buf, Svc>
 where
     Sock: AsyncDgramSock + Send + Sync + 'static,
     Buf: BufSource + Send + Sync + 'static,
-    Buf::Output: Send + Sync + 'static + Debug,
+    Buf::Output: Send + Sync + 'static,
     Svc: Service<Buf::Output> + Send + Sync + 'static,
 {
     fn drop(&mut self) {
@@ -646,20 +667,25 @@ where
 
 //----------- RequestState ---------------------------------------------------
 
-#[derive(Debug)]
-pub struct RequestState<Sock> {
+pub struct RequestState<Sock, Buf, Svc>
+where
+    Buf: BufSource,
+    Svc: Service<Buf::Output>,
+{
     sock: Arc<Sock>,
-    command_tx: Arc<Mutex<watch::Sender<ServerCommand<Config>>>>,
+    command_tx: CommandSender<Buf, Svc>,
     write_timeout: Duration,
 }
 
-impl<Sock> RequestState<Sock>
+impl<Sock, Buf, Svc> RequestState<Sock, Buf, Svc>
 where
     Sock: AsyncDgramSock + Send + Sync + 'static,
+    Buf: BufSource,
+    Svc: Service<Buf::Output>,
 {
     fn new(
         sock: Arc<Sock>,
-        command_tx: Arc<Mutex<watch::Sender<ServerCommand<Config>>>>,
+        command_tx: CommandSender<Buf, Svc>,
         write_timeout: Duration,
     ) -> Self {
         Self {
@@ -672,9 +698,11 @@ where
 
 //--- Clone
 
-impl<Sock> Clone for RequestState<Sock>
+impl<Sock, Buf, Svc> Clone for RequestState<Sock, Buf, Svc>
 where
     Sock: AsyncDgramSock + Send + Sync + 'static,
+    Buf: BufSource,
+    Svc: Service<Buf::Output>,
 {
     fn clone(&self) -> Self {
         Self {

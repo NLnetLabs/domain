@@ -12,7 +12,8 @@ use crate::utils::config::DefMinMax;
 
 use core::ops::{ControlFlow, Deref};
 use core::sync::atomic::Ordering;
-use std::fmt::Display;
+use octseq::Octets;
+use std::fmt::{Debug, Display};
 use std::io;
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -29,6 +30,7 @@ use tracing::{debug, enabled, error, trace, warn, Level};
 use super::message::{
     MessageDetails, NonUdpTransportContext, TransportSpecificContext,
 };
+use super::middleware::builder::MiddlewareBuilder;
 use super::service::ServerCommand;
 use super::stream::Config as ServerConfig;
 
@@ -85,8 +87,11 @@ const MAX_QUEUED_RESPONSES: DefMinMax<usize> = DefMinMax::new(10, 0, 1024);
 //----------- Config ---------------------------------------------------------
 
 /// Configuration for a stream server connection.
-#[derive(Clone, Copy, Debug)]
-pub struct Config {
+pub struct Config<Buf, Svc>
+where
+    Buf: BufSource,
+    Svc: Service<Buf::Output>,
+{
     /// Limit on the amount of time to allow between client requests.
     ///
     /// This setting can be overridden on a per connection basis by a
@@ -113,9 +118,18 @@ pub struct Config {
 
     /// Limit on the number of DNS responses queued for wriing to the client.
     max_queued_responses: usize,
+
+    /// The middleware chain used to pre-process requests and post-process
+    /// responses.
+    middleware_chain: MiddlewareChain<Buf::Output, Svc::Target>,
 }
 
-impl Config {
+impl<Buf, Svc> Config<Buf, Svc>
+where
+    Buf: BufSource,
+    Buf::Output: Octets,
+    Svc: Service<Buf::Output>,
+{
     /// Creates a new, default config.
     #[allow(dead_code)]
     pub fn new() -> Self {
@@ -168,14 +182,49 @@ impl Config {
     pub fn set_max_queued_responses(&mut self, value: usize) {
         self.max_queued_responses = value;
     }
+
+    /// Set the middleware chain used to pre-process requests and post-process
+    /// responses.
+    pub fn set_middleware_chain(
+        &mut self,
+        value: MiddlewareChain<Buf::Output, Svc::Target>,
+    ) {
+        self.middleware_chain = value;
+    }
 }
 
-impl Default for Config {
+//--- Default
+
+impl<Buf, Svc> Default for Config<Buf, Svc>
+where
+    Buf: BufSource,
+    Buf::Output: Octets,
+    Svc: Service<Buf::Output>,
+{
     fn default() -> Self {
         Self {
             idle_timeout: IDLE_TIMEOUT.default(),
             response_write_timeout: RESPONSE_WRITE_TIMEOUT.default(),
             max_queued_responses: MAX_QUEUED_RESPONSES.default(),
+            middleware_chain: MiddlewareBuilder::default().build(),
+        }
+    }
+}
+
+//--- Clone
+
+impl<Buf, Svc> Clone for Config<Buf, Svc>
+where
+    Buf: BufSource,
+    Buf::Output: Octets,
+    Svc: Service<Buf::Output>,
+{
+    fn clone(&self) -> Self {
+        Self {
+            idle_timeout: self.idle_timeout,
+            response_write_timeout: self.response_write_timeout,
+            max_queued_responses: self.max_queued_responses,
+            middleware_chain: self.middleware_chain.clone(),
         }
     }
 }
@@ -192,11 +241,10 @@ where
     active: bool,
     addr: SocketAddr,
     buf_source: Buf,
-    config: Config,
+    config: Config<Buf, Svc>,
     metrics: Arc<ServerMetrics>,
     result_q_rx: mpsc::Receiver<CallResult<Buf::Output, Svc::Target>>,
     service: Svc,
-    middleware_chain: Option<MiddlewareChain<Buf::Output, Svc::Target>>,
     state: StreamState<Stream, Buf, Svc>,
     stream_rx: Option<ReadHalf<Stream>>,
 }
@@ -207,14 +255,13 @@ impl<Stream, Buf, Svc> Connection<Stream, Buf, Svc>
 where
     Stream: AsyncRead + AsyncWrite + Send + Sync + 'static,
     Buf: BufSource + Send + Sync + Clone + 'static,
-    Buf::Output: Send + Sync,
+    Buf::Output: Octets + Send + Sync,
     Svc: Service<Buf::Output> + Send + Sync + Clone + 'static,
 {
     #[must_use]
     #[allow(dead_code)]
     pub fn new(
         service: Svc,
-        middleware_chain: Option<MiddlewareChain<Buf::Output, Svc::Target>>,
         buf_source: Buf,
         metrics: Arc<ServerMetrics>,
         stream: Stream,
@@ -222,7 +269,6 @@ where
     ) -> Self {
         Self::with_config(
             service,
-            middleware_chain,
             buf_source,
             metrics,
             stream,
@@ -234,12 +280,11 @@ where
     #[must_use]
     pub fn with_config(
         service: Svc,
-        middleware_chain: Option<MiddlewareChain<Buf::Output, Svc::Target>>,
         buf_source: Buf,
         metrics: Arc<ServerMetrics>,
         stream: Stream,
         addr: SocketAddr,
-        config: Config,
+        config: Config<Buf, Svc>,
     ) -> Self {
         let (stream_rx, stream_tx) = tokio::io::split(stream);
         let (result_q_tx, result_q_rx) =
@@ -262,7 +307,6 @@ where
             config,
             result_q_rx,
             service,
-            middleware_chain,
             metrics,
             state,
             stream_rx,
@@ -276,7 +320,7 @@ impl<Stream, Buf, Svc> Connection<Stream, Buf, Svc>
 where
     Stream: AsyncRead + AsyncWrite + Send + Sync + 'static,
     Buf: BufSource + Send + Sync + 'static + Clone,
-    Buf::Output: Send + Sync + 'static,
+    Buf::Output: Octets + Send + Sync + 'static,
     Svc: Service<Buf::Output> + Send + Sync + 'static + Clone,
 {
     /// Start reading requests and writing responses to the stream.
@@ -293,7 +337,7 @@ where
     /// TODO: What does "abandoned" mean in practice here?
     pub async fn run(
         mut self,
-        command_rx: watch::Receiver<ServerCommand<ServerConfig>>,
+        command_rx: watch::Receiver<ServerCommand<ServerConfig<Buf, Svc>>>,
     ) where
         Svc::Single: Send,
     {
@@ -316,12 +360,14 @@ impl<Stream, Buf, Svc> Connection<Stream, Buf, Svc>
 where
     Stream: AsyncRead + AsyncWrite + Send + Sync + 'static,
     Buf: BufSource + Send + Sync + 'static + Clone,
-    Buf::Output: Send + Sync + 'static,
+    Buf::Output: Octets + Send + Sync + 'static,
     Svc: Service<Buf::Output> + Send + Sync + 'static + Clone,
 {
     async fn run_until_error(
         mut self,
-        mut command_rx: watch::Receiver<ServerCommand<ServerConfig>>,
+        mut command_rx: watch::Receiver<
+            ServerCommand<ServerConfig<Buf, Svc>>,
+        >,
     ) where
         Svc::Single: Send,
     {
@@ -398,7 +444,9 @@ where
     fn process_service_command(
         &mut self,
         res: Result<(), watch::error::RecvError>,
-        command_rx: &mut watch::Receiver<ServerCommand<ServerConfig>>,
+        command_rx: &mut watch::Receiver<
+            ServerCommand<ServerConfig<Buf, Svc>>,
+        >,
     ) -> Result<(), ConnectionEvent<Svc::Error>> {
         // If the parent server no longer exists but was not cleanly shutdown
         // then the command channel will be closed and attempting to check for
@@ -434,6 +482,7 @@ where
                         idle_timeout,
                         response_write_timeout,
                         max_queued_responses: _, // TO DO: Cannot be changed?
+                        middleware_chain: _,     // TO DO
                     },
                 .. // Ignore the Server configuration settings
             }) => {
@@ -618,7 +667,7 @@ where
             self.process_request(
                 msg_details,
                 self.state.result_q_tx.clone(),
-                self.middleware_chain.clone(),
+                self.config.middleware_chain.clone(),
                 &self.service,
                 self.metrics.clone(),
             )

@@ -53,15 +53,32 @@ where
     /// <div class="warning">Warning:
     ///
     /// When building a standards compliant DNS server you should probably use
-    /// [`MiddlewareBuilder::default()`] or [`MiddlewareBuilder::modern()`]
+    /// [`MiddlewareBuilder::minimal()`] or [`MiddlewareBuilder::modern()`]
     /// instead.
     /// </div>
     ///
-    /// [`MiddlewareBuilder::default()`]: Self::default()
+    /// [`MiddlewareBuilder::minimal()`]: Self::minimal()
     /// [`MiddlewareBuilder::modern()`]: Self::modern()
     #[must_use]
     pub fn new() -> Self {
         Self { processors: vec![] }
+    }
+
+    /// Creates a new builder pre-populated with "minimal" middleware
+    /// processors.
+    ///
+    /// The default configuration pre-populates the builder with a
+    /// [`MandatoryMiddlewareProcessor`] in the chain.
+    ///
+    /// This is the minimum most normal DNS servers probably need to comply
+    /// with applicable RFC standards for DNS servers, only special cases like
+    /// testing and research may want a chain that doesn't start with the
+    /// mandatory processor.
+    #[must_use]
+    pub fn minimal() -> Self {
+        let mut builder = Self::new();
+        builder.push(MandatoryMiddlewareProcessor.into());
+        builder
     }
 
     /// Creates a new builder pre-populated with "modern" middleware
@@ -121,21 +138,10 @@ where
     RequestOctets: AsRef<[u8]> + Octets,
     Target: Composer + Default,
 {
-    /// Create a builder with default configuration.
+    /// Create a middleware builder with default, aka "modern", processors.
     ///
-    /// The default configuration pre-populates the builder with an initial
-    /// [`MandatoryMiddlewareProcessor`] in the chain.
-    ///
-    /// This is the default because most normal DNS servers probably need to
-    /// comply with applicable RFC standards for DNS servers, only special
-    /// cases like testing and research may want a chain that doesn't start
-    /// with the mandatory processor.
-    ///
-    /// [`MandatoryMiddlewareProcessor`]: crate::net::server::middleware::processors::mandatory::MandatoryMiddlewareProcessor
-    #[must_use]
+    /// See [`Self::modern()`].
     fn default() -> Self {
-        let mut builder = Self::new();
-        builder.push(MandatoryMiddlewareProcessor::new().into());
-        builder
+        Self::modern()
     }
 }

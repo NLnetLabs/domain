@@ -1,4 +1,5 @@
 //! Chaining [`MiddlewareProcessor`]s together.
+use std::fmt::Debug;
 use std::future::Future;
 use std::sync::Arc;
 use std::vec::Vec;
@@ -25,6 +26,7 @@ use core::ops::{ControlFlow, RangeTo};
 ///
 /// A [`MiddlewareChain`] is immutable. Requests should not be post-processed
 /// by a different or modified chain than they were pre-processed by.
+#[derive(Default)]
 pub struct MiddlewareChain<RequestOctets, Target>
 where
     RequestOctets: AsRef<[u8]>,
@@ -166,6 +168,8 @@ where
     }
 }
 
+//--- Clone
+
 impl<RequestOctets, Target> Clone for MiddlewareChain<RequestOctets, Target>
 where
     RequestOctets: AsRef<[u8]>,
@@ -175,5 +179,19 @@ where
         Self {
             processors: self.processors.clone(),
         }
+    }
+}
+
+//--- Debug
+
+impl<RequestOctets, Target> Debug for MiddlewareChain<RequestOctets, Target>
+where
+    RequestOctets: AsRef<[u8]>,
+    Target: Composer + Default,
+{
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("MiddlewareChain")
+            .field("processors", &self.processors.len())
+            .finish()
     }
 }

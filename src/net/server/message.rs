@@ -181,7 +181,7 @@ where
         &self,
         msg_details: MessageDetails<Buf>,
         state: Self::State,
-        middleware_chain: Option<MiddlewareChain<Buf::Output, Svc::Target>>,
+        middleware_chain: MiddlewareChain<Buf::Output, Svc::Target>,
         svc: &Svc,
         metrics: Arc<ServerMetrics>,
     ) -> Result<(), ServiceError<Svc::Error>>
@@ -190,7 +190,7 @@ where
     {
         let (frozen_request, pp_res) = self.preprocess_request(
             msg_details,
-            middleware_chain.as_ref(),
+            &middleware_chain,
             &metrics,
         )?;
 
@@ -241,7 +241,7 @@ where
     fn preprocess_request(
         &self,
         msg_details: MessageDetails<Buf>,
-        middleware_chain: Option<&MiddlewareChain<Buf::Output, Svc::Target>>,
+        middleware_chain: &MiddlewareChain<Buf::Output, Svc::Target>,
         metrics: &Arc<ServerMetrics>,
     ) -> Result<
         (
@@ -280,12 +280,8 @@ where
             .num_inflight_requests
             .fetch_add(1, Ordering::Relaxed);
 
-        let pp_res = if let Some(middleware_chain) = middleware_chain {
-            middleware_chain
-                .preprocess::<Svc::Error, Svc::Single>(&mut request)
-        } else {
-            ControlFlow::Continue(())
-        };
+        let pp_res = middleware_chain
+            .preprocess::<Svc::Error, Svc::Single>(&mut request);
 
         let frozen_request = Arc::new(request);
 
@@ -308,7 +304,7 @@ where
         &self,
         request: Arc<ContextAwareMessage<Message<Buf::Output>>>,
         state: Self::State,
-        middleware_chain: Option<MiddlewareChain<Buf::Output, Svc::Target>>,
+        middleware_chain: MiddlewareChain<Buf::Output, Svc::Target>,
         mut response_txn: Transaction<
             ServiceResultItem<Buf::Output, Svc::Target, Svc::Error>,
             Svc::Single,
@@ -328,13 +324,11 @@ where
             // TODO: Handle Err results from txn.next().
             while let Some(Ok(mut call_result)) = response_txn.next().await {
                 if let Some(response) = call_result.get_response_mut() {
-                    if let Some(middleware_chain) = &middleware_chain {
-                        middleware_chain.postprocess(
-                            &request,
-                            response,
-                            last_processor_id,
-                        );
-                    }
+                    middleware_chain.postprocess(
+                        &request,
+                        response,
+                        last_processor_id,
+                    );
                 }
 
                 let call_result = call_result.with_request(request.clone());

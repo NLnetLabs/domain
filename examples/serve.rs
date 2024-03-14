@@ -17,14 +17,14 @@ use domain::base::message_builder::{AdditionalBuilder, PushError};
 use domain::base::name::ToLabelIter;
 use domain::base::{Dname, MessageBuilder, StreamTarget};
 use domain::net::server::buf::VecBufSource;
-use domain::net::server::dgram::DgramServer;
+use domain::net::server::dgram::{self, DgramServer};
 use domain::net::server::middleware::builder::MiddlewareBuilder;
 use domain::net::server::middleware::processor::MiddlewareProcessor;
 use domain::net::server::middleware::processors::cookies::CookiesMiddlewareProcessor;
 use domain::net::server::middleware::processors::mandatory::MandatoryMiddlewareProcessor;
-use domain::net::server::prelude::*;
 use domain::net::server::sock::AsyncAccept;
 use domain::net::server::stream::StreamServer;
+use domain::net::server::{prelude::*, stream, ConnectionConfig};
 use domain::rdata::A;
 
 use rustls_pemfile::{certs, rsa_private_keys};
@@ -449,7 +449,7 @@ async fn main() {
     // start of the chain so that it can time the request processing time from
     // as early till as late as possible (excluding time spent in the servers
     // that receive the requests and send the responses).
-    let mut middleware = MiddlewareBuilder::modern();
+    let mut middleware = MiddlewareBuilder::default();
     let stats = Arc::new(StatsMiddlewareProcessor::new());
     middleware.push_front(stats.clone());
     let middleware = middleware.build();
@@ -459,8 +459,14 @@ async fn main() {
     //    dig +short -4 @127.0.0.1 -p 8053 A google.com
     let udpsocket = UdpSocket::bind("127.0.0.1:8053").await.unwrap();
     let buf_source = Arc::new(VecBufSource);
-    let srv = DgramServer::new(udpsocket, buf_source.clone(), name_to_ip);
-    let srv = srv.with_middleware(middleware.clone());
+    let mut config = dgram::Config::default();
+    config.set_middleware_chain(middleware.clone());
+    let srv = DgramServer::with_config(
+        udpsocket,
+        buf_source.clone(),
+        name_to_ip,
+        config,
+    );
 
     let udp_join_handle = tokio::spawn(async move { srv.run().await });
 
@@ -472,8 +478,16 @@ async fn main() {
     v4socket.bind("127.0.0.1:8053".parse().unwrap()).unwrap();
     let v4listener = v4socket.listen(1024).unwrap();
     let buf_source = Arc::new(VecBufSource);
-    let srv = StreamServer::new(v4listener, buf_source.clone(), svc.clone());
-    let srv = srv.with_middleware(middleware.clone());
+    let mut conn_config = ConnectionConfig::default();
+    conn_config.set_middleware_chain(middleware.clone());
+    let mut config = stream::Config::default();
+    config.set_connection_config(conn_config);
+    let srv = StreamServer::with_config(
+        v4listener,
+        buf_source.clone(),
+        svc.clone(),
+        config,
+    );
     let srv = srv.with_pre_connect_hook(|stream| {
         // Demonstrate one way without having access to the code that creates
         // the socket initially to enable TCP keep alive,
@@ -561,9 +575,14 @@ async fn main() {
             }
         }
 
-        let srv =
-            DgramServer::new(udpsocket, buf_source.clone(), svc.clone());
-        let srv = srv.with_middleware(middleware.clone());
+        let mut config = dgram::Config::default();
+        config.set_middleware_chain(middleware.clone());
+        let srv = DgramServer::with_config(
+            udpsocket,
+            buf_source.clone(),
+            svc.clone(),
+            config,
+        );
 
         tokio::spawn(async move { srv.run().await })
     };

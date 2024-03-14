@@ -18,6 +18,8 @@ use core::future::poll_fn;
 use core::ops::Deref;
 use core::sync::atomic::{AtomicUsize, Ordering};
 use core::time::Duration;
+use octseq::Octets;
+use std::fmt::Debug;
 use std::io;
 use std::net::SocketAddr;
 use std::string::{String, ToString};
@@ -70,15 +72,25 @@ const MAX_CONCURRENT_TCP_CONNECTIONS: DefMinMax<usize> =
 //----------- Config ---------------------------------------------------------
 
 /// Configuration for a stream server connection.
-#[derive(Clone, Copy, Debug)]
-pub struct Config {
+#[derive(Clone)]
+pub struct Config<Buf, Svc>
+where
+    Buf: BufSource,
+    Buf::Output: Octets,
+    Svc: Service<Buf::Output>,
+{
     /// Limit on the number of concurrent TCP connections that can be handled
     /// by the server.
     pub(super) max_concurrent_connections: usize,
-    pub(super) connection_config: connection::Config,
+    pub(super) connection_config: connection::Config<Buf, Svc>,
 }
 
-impl Config {
+impl<Buf, Svc> Config<Buf, Svc>
+where
+    Buf: BufSource,
+    Buf::Output: Octets,
+    Svc: Service<Buf::Output>,
+{
     /// Creates a new, default config.
     pub fn new() -> Self {
         Default::default()
@@ -99,13 +111,18 @@ impl Config {
 
     pub fn set_connection_config(
         &mut self,
-        connection_config: connection::Config,
+        connection_config: connection::Config<Buf, Svc>,
     ) {
         self.connection_config = connection_config;
     }
 }
 
-impl Default for Config {
+impl<Buf, Svc> Default for Config<Buf, Svc>
+where
+    Buf: BufSource,
+    Buf::Output: Octets,
+    Svc: Service<Buf::Output>,
+{
     fn default() -> Self {
         Self {
             max_concurrent_connections: MAX_CONCURRENT_TCP_CONNECTIONS
@@ -116,6 +133,11 @@ impl Default for Config {
 }
 
 //------------ StreamServer --------------------------------------------------
+
+type ServerCommandType<Buf, Svc> = ServerCommand<Config<Buf, Svc>>;
+type CommandSender<Buf, Svc> =
+    Arc<Mutex<watch::Sender<ServerCommandType<Buf, Svc>>>>;
+type CommandReceiver<Buf, Svc> = watch::Receiver<ServerCommandType<Buf, Svc>>;
 
 /// A server for connecting clients via stream based network transport to a
 /// [`Service`].
@@ -195,22 +217,22 @@ pub struct StreamServer<Listener, Buf, Svc>
 where
     Listener: AsyncAccept + Send + Sync + 'static,
     Buf: BufSource + Send + Sync + 'static + Clone,
-    Buf::Output: Send + Sync + 'static,
+    Buf::Output: Octets + Send + Sync + 'static,
     Svc: Service<Buf::Output> + Send + Sync + 'static + Clone,
 {
     /// The configuration of the server.
-    config: Arc<ArcSwap<Config>>,
+    config: Arc<ArcSwap<Config<Buf, Svc>>>,
 
     /// A receiver for receiving [`ServerCommand`]s.
     ///
     /// Used by both the server and spawned connections to react to sent
     /// commands.
-    command_rx: watch::Receiver<ServerCommand<Config>>,
+    command_rx: CommandReceiver<Buf, Svc>,
 
     /// A sender for sending [`ServerCommand`]s.
     ///
     /// Used to signal the server to stop, reconfigure, etc.
-    command_tx: Arc<Mutex<watch::Sender<ServerCommand<Config>>>>,
+    command_tx: CommandSender<Buf, Svc>,
 
     /// A listener for listening for and accepting incoming stream
     /// connections.
@@ -239,7 +261,7 @@ impl<Listener, Buf, Svc> StreamServer<Listener, Buf, Svc>
 where
     Listener: AsyncAccept + Send + Sync + 'static,
     Buf: BufSource + Send + Sync + 'static + Clone,
-    Buf::Output: Send + Sync + 'static,
+    Buf::Output: Octets + Send + Sync + 'static,
     Svc: Service<Buf::Output> + Send + Sync + 'static + Clone,
 {
     /// Constructs a new [`StreamServer`] instance.
@@ -259,7 +281,7 @@ where
         listener: Listener,
         buf: Buf,
         service: Svc,
-        config: Config,
+        config: Config<Buf, Svc>,
     ) -> Self {
         let (command_tx, command_rx) = watch::channel(ServerCommand::Init);
         let command_tx = Arc::new(Mutex::new(command_tx));
@@ -328,8 +350,9 @@ impl<Listener, Buf, Svc> StreamServer<Listener, Buf, Svc>
 where
     Listener: AsyncAccept + Send + Sync + 'static,
     Buf: BufSource + Send + Sync + 'static + Clone,
-    Buf::Output: Send + Sync + 'static,
+    Buf::Output: Octets + Debug + Send + Sync + 'static,
     Svc: Service<Buf::Output> + Send + Sync + 'static + Clone,
+    Svc::Target: Debug,
 {
     /// Get a reference to the source for this server.
     #[must_use]
@@ -350,7 +373,7 @@ impl<Listener, Buf, Svc> StreamServer<Listener, Buf, Svc>
 where
     Listener: AsyncAccept + Send + Sync + 'static,
     Buf: BufSource + Send + Sync + 'static + Clone,
-    Buf::Output: Send + Sync + 'static,
+    Buf::Output: Octets + Send + Sync + 'static,
     Svc: Service<Buf::Output> + Send + Sync + 'static + Clone,
 {
     /// Start the server.
@@ -425,7 +448,7 @@ impl<Listener, Buf, Svc> StreamServer<Listener, Buf, Svc>
 where
     Listener: AsyncAccept + Send + Sync + 'static,
     Buf: BufSource + Send + Sync + 'static + Clone,
-    Buf::Output: Send + Sync + 'static,
+    Buf::Output: Octets + Send + Sync + 'static,
     Svc: Service<Buf::Output> + Send + Sync + 'static + Clone,
 {
     /// Accept stream connections until shutdown or fatal error.
@@ -473,7 +496,7 @@ where
     fn process_service_command(
         &self,
         res: Result<(), watch::error::RecvError>,
-        command_rx: &mut watch::Receiver<ServerCommand<Config>>,
+        command_rx: &mut watch::Receiver<ServerCommand<Config<Buf, Svc>>>,
     ) -> Result<(), String> {
         // If the parent server no longer exists but was not cleanly shutdown
         // then the command channel will be closed and attempting to check for
@@ -488,7 +511,7 @@ where
         // And process it.
         match command {
             ServerCommand::Reconfigure(new_config) => {
-                self.config.store(Arc::new(*new_config));
+                self.config.store(new_config.clone().into());
             }
 
             ServerCommand::Shutdown => {
@@ -524,15 +547,15 @@ where
         stream: Listener::Stream,
         addr: SocketAddr,
     ) where
+        Buf::Output: Octets,
         Svc::Single: Send,
     {
         // Work around the compiler wanting to move self to the async block by
         // preparing only those pieces of information from self for the new
         // connection handler that it actually needs.
-        let conn_config = self.config.load().connection_config;
+        let conn_config = self.config.load().connection_config.clone();
         let conn_command_rx = self.command_rx.clone();
         let conn_service = self.service.clone();
-        let conn_middleware_chain = self.middleware_chain.clone();
         let conn_buf = self.buf.clone();
         let conn_metrics = self.metrics.clone();
         let pre_connect_hook = self.pre_connect_hook;
@@ -556,7 +579,6 @@ where
 
                 let conn = Connection::with_config(
                     conn_service,
-                    conn_middleware_chain,
                     conn_buf,
                     conn_metrics,
                     stream,
@@ -587,7 +609,7 @@ impl<Listener, Buf, Svc> Drop for StreamServer<Listener, Buf, Svc>
 where
     Listener: AsyncAccept + Send + Sync + 'static,
     Buf: BufSource + Send + Sync + 'static + Clone,
-    Buf::Output: Send + Sync + 'static,
+    Buf::Output: Octets + Send + Sync + 'static,
     Svc: Service<Buf::Output> + Send + Sync + 'static + Clone,
 {
     fn drop(&mut self) {
