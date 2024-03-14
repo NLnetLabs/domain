@@ -12,7 +12,7 @@ The name Stelline derives from Dr Ana Stelline, a descendant of Deckard, where D
 
 Stelline is capable of exercising both the client and server code provided by the `domain` crate.
 
-Stelline is unaware of whether the clients and servers in use are mock or real, this is determined by the clients & servers & mock connections created by the test setup code on a per test basis.
+Stelline is unaware of whether the clients and servers in use are mock or real, this is determined by the clients, servers & mock connections created by the test setup code on a per test basis.
 
 In both cases real `net::client` instances handle interaction with the server.
 
