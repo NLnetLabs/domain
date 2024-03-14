@@ -4,7 +4,7 @@ Stelline is a test runner based around DNS message request/response sequences de
 
 ## Etymology and origins
 
-The Stelline replay file format is a variant of the original `.rpl` format used by the [Unbound](https://www.unbound.net/) test tool "testbound".
+The Stelline replay file format is a variant of the `.rpl` format used by the [Unbound](https://www.unbound.net/) test tool "testbound", which was itself based on (or inspired by) [ldns-testns](https://nlnetlabs.nl/projects/ldns/about/).
 
 The name Stelline derives from Dr Ana Stelline, a descendant of Deckard, where Deckard is both a reference to Rick Deckard in the movie Blade Runner 2049 and to the CZ-NIC Deckard project which was [_"heavily inspired by testbound"_](https://lists.nlnetlabs.nl/pipermail/unbound-users/2017-March/004699.html). Coincidentally Dr Ana Stelline is a machine (a "replicant") who creates false memories while the test cases run by Stelline can also be seen as false memories being replayed by a machine.
 
