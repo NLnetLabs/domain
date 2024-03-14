@@ -392,6 +392,17 @@ where
         }
     }
 
+    /// Reconfigure the server while running.
+    ///
+    ///
+    pub fn reconfigure(&self, config: Config<Buf, Svc>) -> Result<(), Error> {
+        self.command_tx
+            .lock()
+            .unwrap()
+            .send(ServerCommand::Reconfigure(config))
+            .map_err(|_| Error::CommandCouldNotBeSent)
+    }
+
     /// Stop the server.
     ///
     /// No new connections will be accepted and open connections will be
