@@ -286,7 +286,7 @@ impl<Octs: AsRef<[u8]> + Clone + Debug + Octets + Send + Sync + 'static>
     }
 
     fn dnssec_ok(&self) -> bool {
-	false
+        self.opt.as_ref().unwrap().dnssec_ok()
     }
 }
 

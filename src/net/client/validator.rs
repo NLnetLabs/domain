@@ -1,18 +1,20 @@
 // DNSSEC validator transport
 
-use bytes::Bytes;
 use crate::base::Message;
 use crate::base::MessageBuilder;
 use crate::base::ParsedDname;
+use crate::base::Rtype;
 use crate::base::StaticCompressor;
-use crate::validator::context::ValidationContext;
-use crate::validator::types::ValidationState;
+use crate::dep::octseq::OctetsInto;
 use crate::net::client::request::ComposeRequest;
 use crate::net::client::request::Error;
 use crate::net::client::request::GetResponse;
 use crate::net::client::request::SendRequest;
 use crate::rdata::AllRecordData;
 use crate::validator;
+use crate::validator::context::ValidationContext;
+use crate::validator::types::ValidationState;
+use bytes::Bytes;
 use std::boxed::Box;
 use std::fmt::Debug;
 use std::fmt::Formatter;
@@ -25,8 +27,7 @@ use std::vec::Vec;
 
 /// Configuration of a cache.
 #[derive(Clone, Debug)]
-pub struct Config {
-}
+pub struct Config {}
 
 impl Config {
     /// Creates a new config with default values.
@@ -35,13 +36,11 @@ impl Config {
     pub fn new() -> Self {
         Default::default()
     }
-
 }
 
 impl Default for Config {
     fn default() -> Self {
-        Self {
-        }
+        Self {}
     }
 }
 
@@ -49,7 +48,7 @@ impl Default for Config {
 
 #[derive(Clone)]
 /// A connection that caches responses from an upstream connection.
-pub struct Connection<Upstream, > {
+pub struct Connection<Upstream> {
     /// Upstream transport to use for requests.
     upstream: Upstream,
 
@@ -72,11 +71,14 @@ impl<Upstream> Connection<Upstream> {
     ///
     /// Note that Upstream needs to implement [SendRequest]
     /// (and Clone/Send/Sync) to be useful.
-    pub fn with_config(upstream: Upstream, vc: Arc<ValidationContext>, 
-	config: Config) -> Self {
+    pub fn with_config(
+        upstream: Upstream,
+        vc: Arc<ValidationContext>,
+        config: Config,
+    ) -> Self {
         Self {
             upstream,
-	    vc,
+            vc,
             config,
         }
     }
@@ -84,7 +86,7 @@ impl<Upstream> Connection<Upstream> {
 
 //------------ SendRequest ----------------------------------------------------
 
-impl<CR, Upstream, > SendRequest<CR> for Connection<Upstream,>
+impl<CR, Upstream> SendRequest<CR> for Connection<Upstream>
 where
     CR: Clone + ComposeRequest + 'static,
     Upstream: Clone + SendRequest<CR> + Send + Sync + 'static,
@@ -92,11 +94,11 @@ where
     fn send_request(
         &self,
         request_msg: CR,
-    ) -> Box<dyn GetResponse + Send + > {
-        Box::new(Request::<CR, Upstream, >::new(
+    ) -> Box<dyn GetResponse + Send + Sync> {
+        Box::new(Request::<CR, Upstream>::new(
             request_msg,
             self.upstream.clone(),
-	    self.vc.clone(),
+            self.vc.clone(),
             self.config.clone(),
         ))
     }
@@ -105,7 +107,7 @@ where
 //------------ Request --------------------------------------------------------
 
 /// The state of a request that is executed.
-pub struct Request<CR, Upstream, >
+pub struct Request<CR, Upstream>
 where
     CR: Send + Sync,
     Upstream: Send + Sync,
@@ -126,7 +128,7 @@ where
     config: Config,
 }
 
-impl<CR, Upstream, > Request<CR, Upstream, >
+impl<CR, Upstream> Request<CR, Upstream>
 where
     CR: Clone + ComposeRequest + Send + Sync,
     Upstream: SendRequest<CR> + Send + Sync,
@@ -135,13 +137,13 @@ where
     fn new(
         request_msg: CR,
         upstream: Upstream,
-	vc: Arc<ValidationContext>,
+        vc: Arc<ValidationContext>,
         config: Config,
-    ) -> Request<CR, Upstream, > {
+    ) -> Request<CR, Upstream> {
         Self {
             request_msg,
             upstream,
-	    vc,
+            vc,
             config,
         }
     }
@@ -150,55 +152,67 @@ where
     ///
     /// This function is not cancel safe.
     async fn get_response_impl(&mut self) -> Result<Message<Bytes>, Error> {
+        // We should check for the CD flag. If set then just perform the
+        // request without validating.
 
-	// We should check for the CD flag. If set then just perform the
-	// request without validating.
+        // We should make sure the DO is set, otherwise we can't validate.
 
-	// We should make sure the DO is set, otherwise we can't validate.
+        let mut request =
+            self.upstream.send_request(self.request_msg.clone());
 
-	let mut request =
-		self.upstream.send_request(self.request_msg.clone());
+        let response_msg = request.get_response().await?;
 
-	let response_msg = request.get_response().await?;
+        // We should validate.
+        let res = validator::validate_msg(&response_msg, &self.vc);
+        println!("get_response_impl: {res:?}");
+        match res {
+            Err(err) => {
+                todo!();
+            }
+            Ok(state) => {
+                match state {
+                    ValidationState::Secure => todo!(),
+                    ValidationState::Insecure => todo!(),
+                    ValidationState::Bogus => todo!(),
+                    ValidationState::Indeterminate => {
+                        // Check the state of the DO flag to see if we have to
+                        // strip DNSSEC records. Clear the AD flag if it is
+                        // set.
+                        let dnssec_ok = self.request_msg.dnssec_ok();
+                        if dnssec_ok {
+                            // Clear AD if it is set.
+                            if response_msg.header().ad() {
+                                let mut response_msg = Message::from_octets(
+                                    response_msg.as_slice().to_vec(),
+                                )
+                                .unwrap();
+                                response_msg.header_mut().set_ad(false);
+                                let response_msg =
+                                    Message::<Bytes>::from_octets(
+                                        response_msg
+                                            .into_octets()
+                                            .octets_into(),
+                                    )
+                                    .unwrap();
+                                return Ok(response_msg);
+                            }
+                            return Ok(response_msg);
+                        } else {
+                            let msg = remove_dnssec(&response_msg, false);
+                            return msg;
+                        }
+                    }
+                }
+            }
+        }
 
-	// We should validate.
-	let res = validator::validate_msg(&response_msg, &self.vc);
-	println!("get_response_impl: {res:?}");
-	match res {
-	    Err(err) => {
-		todo!();
-	    }
-	    Ok(state) => {
-		match state {
-		    ValidationState::Secure => todo!(),
-		    ValidationState::Insecure => todo!(),
-		    ValidationState::Bogus => todo!(),
-		    ValidationState::Indeterminate => {
-			// Check the state of the DO flag to see if we have to
-			// strip DNSSEC records. Clear the AD flag if it is
-			// set.
-			let dnssec_ok = self.request_msg.dnssec_ok();
-			if dnssec_ok {
-			    todo!();
-			}
-			else
-			{
-			    let msg = remove_dnssec(&response_msg, false);
-			    todo!();
-			}
-		    }
-		}
-	    }
-	}
+        todo!();
 
-	todo!();
-
-	Ok(response_msg)
+        Ok(response_msg)
     }
-
 }
 
-impl<CR, Upstream, > Debug for Request<CR, Upstream, >
+impl<CR, Upstream> Debug for Request<CR, Upstream>
 where
     CR: Send + Sync,
     Upstream: Send + Sync,
@@ -210,7 +224,7 @@ where
     }
 }
 
-impl<CR, Upstream, > GetResponse for Request<CR, Upstream, >
+impl<CR, Upstream> GetResponse for Request<CR, Upstream>
 where
     CR: Clone + ComposeRequest + Debug + Sync,
     Upstream: SendRequest<CR> + Send + Sync + 'static,
@@ -221,6 +235,7 @@ where
         Box<
             dyn Future<Output = Result<Message<Bytes>, Error>>
                 + Send
+                + Sync
                 + '_,
         >,
     > {
@@ -298,3 +313,7 @@ fn remove_dnssec(
     )
 }
 
+/// Check if a type is a DNSSEC type that needs to be removed.
+fn is_dnssec(rtype: Rtype) -> bool {
+    rtype == Rtype::Rrsig || rtype == Rtype::Nsec || rtype == Rtype::Nsec3
+}

@@ -5,10 +5,10 @@ use crate::base::wire;
 // RFC 4033, Section 5 defines the security states of data:
 #[derive(Clone, Copy, Debug)]
 pub enum ValidationState {
-	Secure,
-	Insecure,
-	Bogus,
-	Indeterminate,
+    Secure,
+    Insecure,
+    Bogus,
+    Indeterminate,
 }
 
 #[derive(Debug)]
@@ -18,5 +18,7 @@ pub enum Error {
 }
 
 impl From<wire::ParseError> for Error {
-	fn from(_: wire::ParseError) -> Self { Error::ParseError } 
+    fn from(_: wire::ParseError) -> Self {
+        Error::ParseError
+    }
 }

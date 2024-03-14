@@ -1,57 +1,59 @@
 // Validator
 
-use bytes::Bytes;
 use crate::base::Dname;
 use crate::base::Message;
-use crate::base::ParsedDname;
-use crate::base::Rtype;
+use bytes::Bytes;
+//use crate::base::ParseRecordData;
+//use crate::base::ParsedDname;
 use crate::base::iana::Class;
 use crate::base::iana::OptRcode::NoError;
 use crate::base::name::ToDname;
+use crate::base::Rtype;
 use crate::dep::octseq::Octets;
+//use crate::dep::octseq::OctetsFrom;
+//use crate::dep::octseq::OctetsInto;
+//use crate::rdata::AllRecordData;
 use context::ValidationContext;
-use group::Group;
+//use group::Group;
 use group::GroupList;
 use std::fmt::Debug;
 use types::Error;
 use types::ValidationState;
 
-pub fn validate_msg<'a, Octs>(msg: &Message<Octs>, vc: &ValidationContext) ->
-	Result<ValidationState, Error>
-where Octs: Clone + Debug + Octets + 'a,
-	<Octs as Octets>::Range<'a>: Debug
+pub fn validate_msg<'a, Octs>(
+    msg: &'a Message<Octs>,
+    vc: &ValidationContext,
+) -> Result<ValidationState, Error>
+where
+    Octs: Clone + Debug + Octets + 'a,
+    <Octs as Octets>::Range<'a>: Debug,
 {
     // First convert the Answer and Authority sections to lists of RR groups
-    let mut answers = GroupList::<Dname<Octs>, _>::new();
+    let mut answers = GroupList::new();
     for rr in msg.answer().unwrap() {
-	answers.add(rr.unwrap());
+        answers.add(rr.unwrap());
     }
-    let mut authorities = GroupList::<Dname<Octs>, _>::new();
+    let mut authorities = GroupList::new();
     for rr in msg.authority().unwrap() {
-	authorities.add(rr.unwrap());
+        authorities.add(rr.unwrap());
     }
 
-    println!("Answer groups: {answers:?}");
-    println!("Authority groups: {authorities:?}");
+    //println!("Answer groups: {answers:?}");
+    //println!("Authority groups: {authorities:?}");
 
     // Get rid of redundant unsigned CNAMEs
     answers.remove_redundant_cnames();
 
-    // Validate each group. We cannot use iter_mut because something gets
-    // confused about mutable borrows. Group can handle this by hiding the
-    // state behind a Mutex.
-    for g in answers.iter() {
-	println!("Validating group {g:?}");
-	let state = g.validate_with_vc(vc);
-	if let ValidationState::Bogus = state {
-	    return Ok(state);
-	}
-	g.set_state(state);
+    // Validate each group. We cannot use iter_mut because it requires a
+    // reference with a lifetime that is too long.
+    // Group can handle this by hiding the state behind a Mutex.
+    match validate_groups(&mut answers, vc) {
+        Some(state) => return Ok(state),
+        None => (),
     }
-    for g in authorities.iter() {
-	println!("Validating group {g:?}");
-	todo!();
-	//g.validate_with_vc();
+    match validate_groups(&mut authorities, vc) {
+        Some(state) => return Ok(state),
+        None => (),
     }
 
     // Go through the answers and use CNAME and DNAME records to update 'SNAME'
@@ -63,13 +65,13 @@ where Octs: Clone + Debug + Octets + 'a,
     // Extract Qname, Qclass, Qtype
     let mut question_section = msg.question();
     let question = match question_section.next() {
-	None => {
-	    return Err(Error::FormError);
-	}
-	Some(question) => question?,
+        None => {
+            return Err(Error::FormError);
+        }
+        Some(question) => question?,
     };
     if question_section.next().is_some() {
-	return Err(Error::FormError);
+        return Err(Error::FormError);
     }
     let qname: Dname<Bytes> = question.qname().to_dname().unwrap();
     let qclass = question.qclass();
@@ -82,47 +84,102 @@ where Octs: Clone + Debug + Octets + 'a,
     // For NODATA first get the SOA, this determines if the proof of a
     // negative result is signed or not.
     if let NoError = msg.opt_rcode() {
-	let opt_group = get_answer(sname, qclass, qtype, &mut answers);
-	if let Some(group) = opt_group {
-	    return Ok(group.get_state().unwrap());
-	}
+        let opt_state = get_answer_state(&sname, qclass, qtype, &mut answers);
+        if let Some(state) = opt_state {
+            return Ok(state);
+        }
     }
+
+    // For both NOERROR/NODATA and for NXDOMAIN we can first look at the SOA
+    // record in the authority section. If there is no SOA, return bogus. If
+    // there is one and the state is not secure, then return the state of the
+    // SOA record.
+    match get_soa_state(sname, qclass, &mut authorities) {
+        None => return Ok(ValidationState::Bogus), // No SOA, assume the worst.
+        Some(state) => match state {
+            ValidationState::Secure => (), // Continue validation.
+            ValidationState::Insecure
+            | ValidationState::Bogus
+            | ValidationState::Indeterminate => return Ok(state),
+        },
+    }
+
     todo!();
 }
 
-fn do_cname_dname<Name, Octs>(qname: Dname<Bytes>, qclass: Class, qtype: Rtype, groups: &mut GroupList<Name, Octs>) -> Dname<Bytes>
-where Octs: Clone + Debug + Octets,
-	Name: ToDname,
-{
+fn do_cname_dname(
+    qname: Dname<Bytes>,
+    qclass: Class,
+    _qtype: Rtype,
+    groups: &mut GroupList,
+) -> Dname<Bytes> {
     for g in groups.iter() {
-	if g.class() != qclass {
-	    continue;
-	}
-	let rtype = g.rtype();
-	if rtype != Rtype::Cname && rtype != Rtype::Dname {
-	    continue;
-	}
-	todo!();
+        if g.class() != qclass {
+            continue;
+        }
+        let rtype = g.rtype();
+        if rtype != Rtype::Cname && rtype != Rtype::Dname {
+            continue;
+        }
+        todo!();
     }
 
     qname
 }
 
-fn get_answer<'a, Name, Octs>(qname: Dname<Bytes>, qclass: Class, qtype: Rtype, groups: &'a mut GroupList<'a, Name, Octs>) -> Option<&'a Group<'a, Name, Octs>>
-where Octs: Clone + Debug + Octets,
-	Name: ToDname
-{
+fn get_answer_state(
+    qname: &Dname<Bytes>,
+    qclass: Class,
+    qtype: Rtype,
+    groups: &mut GroupList,
+) -> Option<ValidationState> {
     for g in groups.iter() {
-	if g.class() != qclass {
-	    continue;
-	}
-	if g.rtype() != qtype {
-	    continue;
-	}
-	if g.name() != qname {
-	    continue;
-	}
-	return Some(g);
+        if g.class() != qclass {
+            continue;
+        }
+        if g.rtype() != qtype {
+            continue;
+        }
+        if g.name() != qname {
+            continue;
+        }
+        return Some(g.get_state().unwrap());
+    }
+    None
+}
+
+fn get_soa_state(
+    qname: Dname<Bytes>,
+    qclass: Class,
+    groups: &mut GroupList,
+) -> Option<ValidationState> {
+    for g in groups.iter() {
+	println!("get_soa_state: trying {g:?} for {qname:?}");
+        if g.class() != qclass {
+            continue;
+        }
+        if g.rtype() != Rtype::Soa {
+            continue;
+        }
+        if !qname.starts_with(&g.name()) {
+            continue;
+        }
+        return Some(g.get_state().unwrap());
+    }
+    None
+}
+
+fn validate_groups(
+    groups: &mut GroupList,
+    vc: &ValidationContext,
+) -> Option<ValidationState> {
+    for g in groups.iter() {
+        //println!("Validating group {g:?}");
+        let state = g.validate_with_vc(vc);
+        if let ValidationState::Bogus = state {
+            return Some(state);
+        }
+        g.set_state(state);
     }
     None
 }

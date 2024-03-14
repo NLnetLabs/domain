@@ -3,16 +3,18 @@ use domain::base::MessageBuilder;
 use domain::base::Name;
 use domain::base::Rtype;
 use domain::net::client::cache;
-use domain::validator::anchor::TrustAnchors;
-use domain::validator::context::ValidationContext;
 use domain::net::client::dgram;
 use domain::net::client::dgram_stream;
 use domain::net::client::multi_stream;
 use domain::net::client::protocol::{TcpConnect, TlsConnect, UdpConnect};
 use domain::net::client::redundant;
-use domain::net::client::request::{RequestMessage, SendRequest};
+use domain::net::client::request::{
+    ComposeRequest, RequestMessage, SendRequest,
+};
 use domain::net::client::stream;
 use domain::net::client::validator;
+use domain::validator::anchor::TrustAnchors;
+use domain::validator::context::ValidationContext;
 use std::net::{IpAddr, SocketAddr};
 use std::str::FromStr;
 use std::sync::Arc;
@@ -33,13 +35,19 @@ async fn main() {
     // `RequestMessage` manually.
     let mut msg = MessageBuilder::new_vec();
     msg.header_mut().set_rd(true);
+    msg.header_mut().set_ad(true);
     let mut msg = msg.question();
-    msg.push((Dname::vec_from_str("stereo.hq.phicoh.net").unwrap(), Aaaa))
-        .unwrap();
-    let req = RequestMessage::new(msg);
+    msg.push((
+        Dname::vec_from_str("stereo.hq.phicoh.net").unwrap(),
+        Rtype::Txt,
+    ))
+    .unwrap();
+    let mut req = RequestMessage::new(msg);
+    req.set_dnssec_ok(true);
 
     // Destination for UDP and TCP
-    let server_addr = SocketAddr::new(IpAddr::from_str("9.9.9.9").unwrap(), 53);
+    let server_addr =
+        SocketAddr::new(IpAddr::from_str("9.9.9.9").unwrap(), 53);
 
     let mut stream_config = stream::Config::new();
     stream_config.set_response_timeout(Duration::from_millis(100));
