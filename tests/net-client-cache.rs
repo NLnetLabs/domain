@@ -3,11 +3,11 @@ mod net;
 
 use domain::base::{Dname, MessageBuilder, Rtype::Aaaa};
 use domain::net::client::cache;
-use net::deckard::client::do_client;
-use net::deckard::client::CurrStepValue;
-use net::deckard::client::SingleClientFactory;
-use net::deckard::connect::Connect;
-use net::deckard::parse_deckard::parse_file;
+use net::stelline::client::do_client;
+use net::stelline::client::CurrStepValue;
+use net::stelline::client::SingleClientFactory;
+use net::stelline::connect::Connect;
+use net::stelline::parse_stelline::parse_file;
 // use domain::net::client::clock::{Clock, FakeClock};
 use domain::net::client::multi_stream;
 use domain::net::client::redundant;
@@ -26,10 +26,10 @@ const TEST_FILE_TRANSPORT_ERROR: &str =
 
 async fn async_test_cache(filename: &str) {
     let file = File::open(filename).unwrap();
-    let deckard = parse_file(&file, filename);
+    let stelline = parse_file(&file, filename);
 
     let step_value = Arc::new(CurrStepValue::new());
-    let multi_conn = Connect::new(deckard.clone(), step_value.clone());
+    let multi_conn = Connect::new(stelline.clone(), step_value.clone());
     let (ms, ms_tran) = multi_stream::Connection::new(multi_conn);
     tokio::spawn(async move {
         ms_tran.run().await;
@@ -39,15 +39,15 @@ async fn async_test_cache(filename: &str) {
     let cached = cache::Connection::new(ms); //_with_time(ms, clock.clone());
     let client_factory = SingleClientFactory::new(cached);
 
-    do_client(&deckard, &step_value, client_factory /*, &clock*/).await;
+    do_client(&stelline, &step_value, client_factory /*, &clock*/).await;
 }
 
 async fn async_test_no_cache(filename: &str) {
     let file = File::open(filename).unwrap();
-    let deckard = parse_file(&file, filename);
+    let stelline = parse_file(&file, filename);
 
     let step_value = Arc::new(CurrStepValue::new());
-    let multi_conn = Connect::new(deckard.clone(), step_value.clone());
+    let multi_conn = Connect::new(stelline.clone(), step_value.clone());
     let (ms, ms_tran) = multi_stream::Connection::new(multi_conn);
     tokio::spawn(async move {
         ms_tran.run().await;
@@ -57,7 +57,7 @@ async fn async_test_no_cache(filename: &str) {
     // let clock = FakeClock::new();
     let client_factory = SingleClientFactory::new(ms);
 
-    do_client(&deckard, &step_value, client_factory /*, &clock*/).await;
+    do_client(&stelline, &step_value, client_factory /*, &clock*/).await;
 }
 
 #[tokio::test]
@@ -72,7 +72,7 @@ async fn test_transport_error() {
     // and manually issue a query to trigger a transport error. Then add a
     // transport and issue a new query.
     let file = File::open(TEST_FILE_TRANSPORT_ERROR).unwrap();
-    let deckard = parse_file(&file, TEST_FILE_TRANSPORT_ERROR);
+    let stelline = parse_file(&file, TEST_FILE_TRANSPORT_ERROR);
 
     let step_value = Arc::new(CurrStepValue::new());
     let (redun, redun_tran) = redundant::Connection::new();
@@ -101,7 +101,7 @@ async fn test_transport_error() {
         panic!("Bad result {reply:?}");
     }
 
-    let multi_conn = Connect::new(deckard.clone(), step_value.clone());
+    let multi_conn = Connect::new(stelline.clone(), step_value.clone());
     let (ms, ms_tran) = multi_stream::Connection::new(multi_conn);
     tokio::spawn(async move {
         ms_tran.run().await;
@@ -119,7 +119,7 @@ async fn test_transport_error() {
     }
 
     let client_factory = SingleClientFactory::new(redun);
-    do_client(&deckard, &step_value, client_factory /*, &clock*/).await;
+    do_client(&stelline, &step_value, client_factory /*, &clock*/).await;
 }
 
 #[instrument(skip_all, fields(rpl = rpl_file.file_name().unwrap().to_str()))]

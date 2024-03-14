@@ -1,6 +1,6 @@
-use crate::net::deckard::client::CurrStepValue;
-use crate::net::deckard::parse_deckard::Deckard;
-use crate::net::deckard::server::do_server;
+use crate::net::stelline::client::CurrStepValue;
+use crate::net::stelline::parse_stelline::Stelline;
+use crate::net::stelline::server::do_server;
 use domain::base::message_builder::AdditionalBuilder;
 use domain::base::Message;
 use std::pin::Pin;
@@ -14,7 +14,7 @@ use tokio::io::ReadBuf;
 
 #[derive(Debug)]
 pub struct Connection {
-    deckard: Deckard,
+    stelline: Stelline,
     step_value: Arc<CurrStepValue>,
     waker: Option<Waker>,
     reply: Option<AdditionalBuilder<Vec<u8>>>,
@@ -25,11 +25,11 @@ pub struct Connection {
 
 impl Connection {
     pub fn new(
-        deckard: Deckard,
+        stelline: Stelline,
         step_value: Arc<CurrStepValue>,
     ) -> Connection {
         Self {
-            deckard,
+            stelline,
             step_value,
             waker: None,
             reply: None,
@@ -84,7 +84,7 @@ impl AsyncWrite for Connection {
         }
         let msg = Message::from_octets(self.tmpbuf[2..].to_vec()).unwrap();
         self.tmpbuf = Vec::new();
-        let opt_reply = do_server(&msg, &self.deckard, &self.step_value);
+        let opt_reply = do_server(&msg, &self.stelline, &self.step_value);
         if opt_reply.is_some() {
             // Do we need to support more than one reply?
             self.reply = opt_reply;

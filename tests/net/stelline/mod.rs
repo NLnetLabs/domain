@@ -4,6 +4,6 @@ pub mod connect;
 pub mod connection;
 pub mod dgram;
 mod matches;
-pub mod parse_deckard;
+pub mod parse_stelline;
 mod parse_query;
 pub mod server;

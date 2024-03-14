@@ -3,8 +3,8 @@ use std::fmt::Debug;
 use std::io::{self, BufRead, Read};
 use std::net::IpAddr;
 
-use crate::net::deckard::parse_query;
-use crate::net::deckard::parse_query::Zonefile as QueryZonefile;
+use crate::net::stelline::parse_query;
+use crate::net::stelline::parse_query::Zonefile as QueryZonefile;
 use domain::zonefile::inplace::Entry as ZonefileEntry;
 use domain::zonefile::inplace::Zonefile;
 
@@ -78,14 +78,14 @@ impl Config {
 }
 
 #[derive(Clone, Debug)]
-pub struct Deckard {
+pub struct Stelline {
     pub name: String,
     pub config: Config,
     pub scenario: Scenario,
 }
-pub fn parse_file<F: Debug + Read, T: ToString>(file: F, name: T) -> Deckard {
+pub fn parse_file<F: Debug + Read, T: ToString>(file: F, name: T) -> Stelline {
     let mut lines = io::BufReader::new(file).lines();
-    Deckard {
+    Stelline {
         name: name.to_string(),
         config: parse_config(&mut lines),
         scenario: parse_scenario(&mut lines),

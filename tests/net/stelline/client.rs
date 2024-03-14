@@ -1,8 +1,8 @@
 #![allow(clippy::type_complexity)]
 
-use crate::net::deckard::matches::match_msg;
-use crate::net::deckard::parse_deckard::{Deckard, Entry, Reply, StepType};
-use crate::net::deckard::parse_query;
+use crate::net::stelline::matches::match_msg;
+use crate::net::stelline::parse_stelline::{Stelline, Entry, Reply, StepType};
+use crate::net::stelline::parse_query;
 use bytes::Bytes;
 
 use domain::base::iana::Opcode;
@@ -26,42 +26,42 @@ use mock_instant::MockClock;
 
 use super::channel::DEF_CLIENT_ADDR;
 
-//----------- DeckardError ---------------------------------------------------
+//----------- StellineError ---------------------------------------------------
 
 #[derive(Debug)]
-pub struct DeckardError<'a> {
-    _deckard: &'a Deckard,
+pub struct StellineError<'a> {
+    _stelline: &'a Stelline,
     step_value: &'a CurrStepValue,
-    cause: DeckardErrorCause,
+    cause: StellineErrorCause,
 }
 
-impl<'a> std::fmt::Display for DeckardError<'a> {
+impl<'a> std::fmt::Display for StellineError<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_fmt(format_args!(
-            "Deckard test failed at step {} with error: {}",
+            "Stelline test failed at step {} with error: {}",
             self.step_value, self.cause
         ))
     }
 }
 
-impl<'a> DeckardError<'a> {
+impl<'a> StellineError<'a> {
     pub fn from_cause(
-        deckard: &'a Deckard,
+        stelline: &'a Stelline,
         step_value: &'a CurrStepValue,
-        cause: DeckardErrorCause,
+        cause: StellineErrorCause,
     ) -> Self {
         Self {
-            _deckard: deckard,
+            _stelline: stelline,
             step_value,
             cause,
         }
     }
 }
 
-//----------- DeckardErrorCause ----------------------------------------------
+//----------- StellineErrorCause ----------------------------------------------
 
 #[derive(Debug)]
-pub enum DeckardErrorCause {
+pub enum StellineErrorCause {
     ClientError(domain::net::client::request::Error),
     MismatchedAnswer,
     MissingResponse,
@@ -69,26 +69,26 @@ pub enum DeckardErrorCause {
     MissingClient,
 }
 
-impl From<domain::net::client::request::Error> for DeckardErrorCause {
+impl From<domain::net::client::request::Error> for StellineErrorCause {
     fn from(err: domain::net::client::request::Error) -> Self {
         Self::ClientError(err)
     }
 }
 
-impl std::fmt::Display for DeckardErrorCause {
+impl std::fmt::Display for StellineErrorCause {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            DeckardErrorCause::ClientError(err) => {
+            StellineErrorCause::ClientError(err) => {
                 f.write_fmt(format_args!("Client error: {err}"))
             }
-            DeckardErrorCause::MismatchedAnswer => {
+            StellineErrorCause::MismatchedAnswer => {
                 f.write_str("Mismatched answer")
             }
-            DeckardErrorCause::MissingClient => f.write_str("Missing client"),
-            DeckardErrorCause::MissingResponse => {
+            StellineErrorCause::MissingClient => f.write_str("Missing client"),
+            StellineErrorCause::MissingResponse => {
                 f.write_str("Missing response")
             }
-            DeckardErrorCause::MissingStepEntry => {
+            StellineErrorCause::MissingStepEntry => {
                 f.write_str("Missing step entry")
             }
         }
@@ -123,7 +123,7 @@ impl Dispatcher {
     pub async fn dispatch(
         &self,
         entry: &Entry,
-    ) -> Result<Option<Message<Bytes>>, DeckardErrorCause> {
+    ) -> Result<Option<Message<Bytes>>, StellineErrorCause> {
         if let Some(dispatcher) = &self.0 {
             let reqmsg = entry2reqmsg(entry);
             trace!(?reqmsg);
@@ -131,7 +131,7 @@ impl Dispatcher {
             return Ok(Some(req.get_response().await?));
         }
 
-        Err(DeckardErrorCause::MissingClient)
+        Err(StellineErrorCause::MissingClient)
     }
 }
 
@@ -277,19 +277,19 @@ impl ClientFactory for QueryTailoredClientFactory {
 //----------- do_client() ----------------------------------------------------
 
 pub async fn do_client<'a, T: ClientFactory>(
-    deckard: &'a Deckard,
+    stelline: &'a Stelline,
     step_value: &'a CurrStepValue,
     client_factory: T,
 ) {
     async fn inner<T: ClientFactory>(
-        deckard: &Deckard,
+        stelline: &Stelline,
         step_value: &CurrStepValue,
         mut client_factory: T,
-    ) -> Result<(), DeckardErrorCause> {
+    ) -> Result<(), StellineErrorCause> {
         let mut resp: Option<Message<Bytes>> = None;
 
         // Assume steps are in order. Maybe we need to define that.
-        for step in &deckard.scenario.steps {
+        for step in &stelline.scenario.steps {
             let span =
                 info_span!("step", "{}:{}", step.step_value, step.step_type);
             let _guard = span.enter();
@@ -301,7 +301,7 @@ pub async fn do_client<'a, T: ClientFactory>(
                     let entry = step
                         .entry
                         .as_ref()
-                        .ok_or(DeckardErrorCause::MissingStepEntry)?;
+                        .ok_or(StellineErrorCause::MissingStepEntry)?;
 
                     // Dispatch the request to a suitable client.
                     let mut res =
@@ -309,7 +309,7 @@ pub async fn do_client<'a, T: ClientFactory>(
 
                     // If the client is no longer connected, discard it and
                     // try again with a new client.
-                    if let Err(DeckardErrorCause::ClientError(
+                    if let Err(StellineErrorCause::ClientError(
                         Error::ConnectionClosed,
                     )) = res
                     {
@@ -328,13 +328,13 @@ pub async fn do_client<'a, T: ClientFactory>(
                 StepType::CheckAnswer => {
                     let answer = resp
                         .take()
-                        .ok_or(DeckardErrorCause::MissingResponse)?;
+                        .ok_or(StellineErrorCause::MissingResponse)?;
                     let entry = step
                         .entry
                         .as_ref()
-                        .ok_or(DeckardErrorCause::MissingStepEntry)?;
+                        .ok_or(StellineErrorCause::MissingStepEntry)?;
                     if !match_msg(entry, &answer, true) {
-                        return Err(DeckardErrorCause::MismatchedAnswer);
+                        return Err(StellineErrorCause::MismatchedAnswer);
                     }
                 }
                 StepType::TimePasses => {
@@ -355,15 +355,15 @@ pub async fn do_client<'a, T: ClientFactory>(
 
     init_logging();
 
-    let name = deckard
+    let name = stelline
         .name
         .rsplit_once('/')
-        .unwrap_or(("", &deckard.name))
+        .unwrap_or(("", &stelline.name))
         .1;
-    let span = tracing::info_span!("deckard", "{}", name);
+    let span = tracing::info_span!("stelline", "{}", name);
     let _guard = span.enter();
-    if let Err(cause) = inner(deckard, step_value, client_factory).await {
-        panic!("{}", DeckardError::from_cause(deckard, step_value, cause));
+    if let Err(cause) = inner(stelline, step_value, client_factory).await {
+        panic!("{}", StellineError::from_cause(stelline, step_value, cause));
     }
 }
 
@@ -374,8 +374,8 @@ pub async fn do_client<'a, T: ClientFactory>(
 /// E.g. To enable debug level logging:
 ///   RUST_LOG=DEBUG
 ///
-/// Or to log only the steps processed by the Deckard client:
-///   RUST_LOG=net_server::net::deckard::client=DEBUG
+/// Or to log only the steps processed by the Stelline client:
+///   RUST_LOG=net_server::net::stelline::client=DEBUG
 ///
 /// Or to enable trace level logging but not for the test suite itself:
 ///   RUST_LOG=TRACE,net_server=OFF

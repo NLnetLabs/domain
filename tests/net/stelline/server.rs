@@ -1,10 +1,10 @@
 use std::fmt::Debug;
 
-use crate::net::deckard::client::CurrStepValue;
-use crate::net::deckard::matches::match_msg;
-use crate::net::deckard::parse_deckard;
-use crate::net::deckard::parse_deckard::{Adjust, Deckard, Reply};
-use crate::net::deckard::parse_query;
+use crate::net::stelline::client::CurrStepValue;
+use crate::net::stelline::matches::match_msg;
+use crate::net::stelline::parse_stelline;
+use crate::net::stelline::parse_stelline::{Adjust, Stelline, Reply};
+use crate::net::stelline::parse_query;
 use domain::base::iana::rcode::Rcode;
 use domain::base::iana::Opcode;
 use domain::base::message_builder::AdditionalBuilder;
@@ -16,7 +16,7 @@ use octseq::{OctetsBuilder, Truncate};
 
 pub fn do_server<'a, Oct, Target>(
     msg: &'a Message<Oct>,
-    deckard: &Deckard,
+    stelline: &Stelline,
     step_value: &CurrStepValue,
 ) -> Option<AdditionalBuilder<Target>>
 where
@@ -25,7 +25,7 @@ where
     Target: Composer + Default + OctetsBuilder + Truncate,
     <Target as OctetsBuilder>::AppendError: Debug,
 {
-    let ranges = &deckard.scenario.ranges;
+    let ranges = &stelline.scenario.ranges;
     let step = step_value.get();
     for range in ranges {
         if step < range.start_value || step > range.end_value {
@@ -44,7 +44,7 @@ where
 }
 
 fn do_adjust<Octs, Target>(
-    entry: &parse_deckard::Entry,
+    entry: &parse_stelline::Entry,
     reqmsg: &Message<Octs>,
 ) -> AdditionalBuilder<Target>
 where

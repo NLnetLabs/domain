@@ -1,14 +1,14 @@
 #![cfg(feature = "net")]
 mod net;
 
-use crate::net::deckard::channel::ClientServerChannel;
-use crate::net::deckard::client::do_client;
-use crate::net::deckard::client::CurrStepValue;
-use crate::net::deckard::client::PerClientAddressClientFactory;
-use crate::net::deckard::client::QueryTailoredClientFactory;
-use crate::net::deckard::parse_deckard;
-use crate::net::deckard::parse_deckard::parse_file;
-use crate::net::deckard::parse_deckard::Matches;
+use crate::net::stelline::channel::ClientServerChannel;
+use crate::net::stelline::client::do_client;
+use crate::net::stelline::client::CurrStepValue;
+use crate::net::stelline::client::PerClientAddressClientFactory;
+use crate::net::stelline::client::QueryTailoredClientFactory;
+use crate::net::stelline::parse_stelline;
+use crate::net::stelline::parse_stelline::parse_file;
+use crate::net::stelline::parse_stelline::Matches;
 use domain::base::iana::Rcode;
 use domain::base::Dname;
 use domain::base::ToDname;
@@ -26,8 +26,8 @@ use domain::net::server::stream::StreamServer;
 use domain::zonefile::inplace::Entry;
 use domain::zonefile::inplace::ScannedRecord;
 use domain::zonefile::inplace::Zonefile;
-use net::deckard::client::ClientFactory;
-use net::deckard::parse_deckard::Config;
+use net::stelline::client::ClientFactory;
+use net::stelline::parse_stelline::Config;
 use rstest::rstest;
 use std::collections::VecDeque;
 use std::fs::File;
@@ -40,7 +40,7 @@ use tracing::{trace, warn};
 
 //----------- Tests ----------------------------------------------------------
 
-/// Deckard test cases for which the .rpl file defines a server: config block.
+/// Stelline test cases for which the .rpl file defines a server: config block.
 ///
 /// Note: Adding or removing .rpl files on disk won't be detected until the
 /// test is re-compiled.
@@ -54,8 +54,8 @@ async fn server_tests(#[files("test-data/server/*.rpl")] rpl_file: PathBuf) {
     // answers them should be configured.
 
     let file = File::open(&rpl_file).unwrap();
-    let deckard = parse_file(&file, rpl_file.to_str().unwrap());
-    let server_config = parse_server_config(&deckard.config);
+    let stelline = parse_file(&file, rpl_file.to_str().unwrap());
+    let server_config = parse_server_config(&stelline.config);
 
     // Create a service to answer queries received by the DNS servers.
     let zonefile = server_config.zonefile.clone();
@@ -68,9 +68,9 @@ async fn server_tests(#[files("test-data/server/*.rpl")] rpl_file: PathBuf) {
     // Create a client factory for sending requests
     let client_factory = mk_client_factory(dgram_conn, stream_conn);
 
-    // Run the Deckard test!
+    // Run the Stelline test!
     let step_value = Arc::new(CurrStepValue::new());
-    do_client(&deckard, &step_value, client_factory).await;
+    do_client(&stelline, &step_value, client_factory).await;
 
     // Await shutdown
     if !dgram_srv.await_shutdown(Duration::from_secs(5)).await {
@@ -113,7 +113,7 @@ where
     let cloned_dgram_server = dgram_server.clone();
     tokio::spawn(async move { cloned_dgram_server.run().await });
 
-    // Create a stream server for handling TCP requests, i.e. Deckard queries
+    // Create a stream server for handling TCP requests, i.e. Stelline queries
     // with "MATCH TCP".
     let stream_server_conn = ClientServerChannel::new_stream();
     let stream_server = StreamServer::with_config(
@@ -139,10 +139,10 @@ fn mk_client_factory(
     stream_server_conn: ClientServerChannel,
 ) -> impl ClientFactory {
     // Create a TCP client factory that only creates a client if (a) no
-    // existing TCP client exists for the source address of the Deckard query,
+    // existing TCP client exists for the source address of the Stelline query,
     // and (b) if the query specifies "MATCHES TCP". Clients created by this
     // factory connect to the TCP server created above.
-    let only_for_tcp_queries = |entry: &parse_deckard::Entry| {
+    let only_for_tcp_queries = |entry: &parse_stelline::Entry| {
         matches!(entry.matches, Some(Matches { tcp: true, .. }))
     };
 
@@ -158,7 +158,7 @@ fn mk_client_factory(
     );
 
     // Create a UDP client factory that only creates a client if (a) no
-    // existing UDP client exists for the source address of the Deckard query.
+    // existing UDP client exists for the source address of the Stelline query.
     let for_all_other_queries = |_: &_| true;
 
     let udp_client_factory = PerClientAddressClientFactory::new(
@@ -166,9 +166,9 @@ fn mk_client_factory(
         for_all_other_queries,
     );
 
-    // Create a combined client factory that will allow the Deckard runner to
+    // Create a combined client factory that will allow the Stelline runner to
     // use existing or create new client connections as appropriate for the
-    // Deckard query being evaluated.
+    // Stelline query being evaluated.
     QueryTailoredClientFactory::new(vec![
         Box::new(tcp_client_factory),
         Box::new(udp_client_factory),
@@ -298,7 +298,7 @@ fn test_service(
     })))
 }
 
-//----------- Deckard config block parsing -----------------------------------
+//----------- Stelline config block parsing -----------------------------------
 
 #[derive(Default)]
 struct ServerConfig<'a> {

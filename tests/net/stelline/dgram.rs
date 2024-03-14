@@ -1,8 +1,8 @@
 //! Provide server-side of datagram protocols
 
-use crate::net::deckard::client::CurrStepValue;
-use crate::net::deckard::parse_deckard::Deckard;
-use crate::net::deckard::server::do_server;
+use crate::net::stelline::client::CurrStepValue;
+use crate::net::stelline::parse_stelline::Stelline;
+use crate::net::stelline::server::do_server;
 use domain::base::message_builder::AdditionalBuilder;
 use domain::base::Message;
 use domain::net::client::protocol::{
@@ -18,15 +18,15 @@ use tokio::io::ReadBuf;
 
 #[derive(Clone, Debug)]
 pub struct Dgram {
-    deckard: Deckard,
+    stelline: Stelline,
     step_value: Arc<CurrStepValue>,
 }
 
 impl Dgram {
     #[allow(dead_code)]
-    pub fn new(deckard: Deckard, step_value: Arc<CurrStepValue>) -> Self {
+    pub fn new(stelline: Stelline, step_value: Arc<CurrStepValue>) -> Self {
         Self {
-            deckard,
+            stelline,
             step_value,
         }
     }
@@ -42,14 +42,14 @@ impl AsyncConnect for Dgram {
         >,
     >;
     fn connect(&self, _source_address: Option<SocketAddr>) -> Self::Fut {
-        let deckard = self.deckard.clone();
+        let stelline = self.stelline.clone();
         let step_value = self.step_value.clone();
-        Box::pin(async move { Ok(DgramConnection::new(deckard, step_value)) })
+        Box::pin(async move { Ok(DgramConnection::new(stelline, step_value)) })
     }
 }
 
 pub struct DgramConnection {
-    deckard: Deckard,
+    stelline: Stelline,
     step_value: Arc<CurrStepValue>,
 
     reply: SyncMutex<Option<AdditionalBuilder<Vec<u8>>>>,
@@ -57,9 +57,9 @@ pub struct DgramConnection {
 }
 
 impl DgramConnection {
-    fn new(deckard: Deckard, step_value: Arc<CurrStepValue>) -> Self {
+    fn new(stelline: Stelline, step_value: Arc<CurrStepValue>) -> Self {
         Self {
-            deckard,
+            stelline,
             step_value,
             reply: SyncMutex::new(None),
             waker: SyncMutex::new(None),
@@ -93,7 +93,7 @@ impl AsyncDgramSend for DgramConnection {
         buf: &[u8],
     ) -> Poll<Result<usize, std::io::Error>> {
         let msg = Message::from_octets(buf).unwrap();
-        let opt_reply = do_server(&msg, &self.deckard, &self.step_value);
+        let opt_reply = do_server(&msg, &self.stelline, &self.step_value);
         let len = buf.len();
         if opt_reply.is_some() {
             // Do we need to support more than one reply?
