@@ -110,7 +110,7 @@ impl Config {
         self.max_response_size = value;
     }
 
-    /// Limit the time to wait for a complete message to be written to the client.
+    /// Sets the time to wait for a complete message to be written to the client.
     ///
     /// The value has to be between 1ms and 60 seconds. The default value is 5
     /// seconds.
