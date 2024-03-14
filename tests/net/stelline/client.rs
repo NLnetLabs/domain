@@ -1,6 +1,8 @@
-use crate::net::deckard::matches::match_msg;
-use crate::net::deckard::parse_deckard::{Deckard, Entry, Reply, StepType};
-use crate::net::deckard::parse_query;
+use crate::net::stelline::matches::match_msg;
+use crate::net::stelline::parse_query;
+use crate::net::stelline::parse_stelline::{
+    Entry, Reply, Stelline, StepType,
+};
 use bytes::Bytes;
 
 use domain::base::iana::Opcode;
@@ -13,7 +15,7 @@ use std::sync::Mutex;
 use std::time::Duration;
 
 pub async fn do_client<R: SendRequest<RequestMessage<Vec<u8>>>>(
-    deckard: &Deckard,
+    stelline: &Stelline,
     request: R,
     step_value: &CurrStepValue,
     clock: &FakeClock,
@@ -21,7 +23,7 @@ pub async fn do_client<R: SendRequest<RequestMessage<Vec<u8>>>>(
     let mut resp: Option<Message<Bytes>> = None;
 
     // Assume steps are in order. Maybe we need to define that.
-    for step in &deckard.scenario.steps {
+    for step in &stelline.scenario.steps {
         step_value.set(step.step_value);
         match step.step_type {
             StepType::Query => {

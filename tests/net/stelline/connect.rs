@@ -1,20 +1,23 @@
-use crate::net::deckard::client::CurrStepValue;
-use crate::net::deckard::connection::Connection;
-use crate::net::deckard::parse_deckard::Deckard;
+use crate::net::stelline::client::CurrStepValue;
+use crate::net::stelline::connection::Connection;
+use crate::net::stelline::parse_stelline::Stelline;
 use domain::net::client::protocol::AsyncConnect;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 
 pub struct Connect {
-    deckard: Deckard,
+    stelline: Stelline,
     step_value: Arc<CurrStepValue>,
 }
 
 impl Connect {
-    pub fn new(deckard: Deckard, step_value: Arc<CurrStepValue>) -> Connect {
+    pub fn new(
+        stelline: Stelline,
+        step_value: Arc<CurrStepValue>,
+    ) -> Connect {
         Self {
-            deckard,
+            stelline,
             step_value,
         }
     }
@@ -31,8 +34,8 @@ impl AsyncConnect for Connect {
     >;
 
     fn connect(&self) -> Self::Fut {
-        let deckard = self.deckard.clone();
+        let stelline = self.stelline.clone();
         let step_value = self.step_value.clone();
-        Box::pin(async move { Ok(Connection::new(deckard, step_value)) })
+        Box::pin(async move { Ok(Connection::new(stelline, step_value)) })
     }
 }

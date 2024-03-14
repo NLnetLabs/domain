@@ -1,12 +1,12 @@
 #![cfg(feature = "net")]
 mod net;
 
-use crate::net::deckard::client::do_client;
-use crate::net::deckard::client::CurrStepValue;
-use crate::net::deckard::connect::Connect;
-use crate::net::deckard::connection::Connection;
-use crate::net::deckard::dgram::Dgram;
-use crate::net::deckard::parse_deckard::parse_file;
+use crate::net::stelline::client::do_client;
+use crate::net::stelline::client::CurrStepValue;
+use crate::net::stelline::connect::Connect;
+use crate::net::stelline::connection::Connection;
+use crate::net::stelline::dgram::Dgram;
+use crate::net::stelline::parse_stelline::parse_file;
 use domain::net::client::clock::{Clock, FakeClock};
 use domain::net::client::dgram;
 use domain::net::client::dgram_stream;
@@ -26,14 +26,14 @@ const TEST_FILE: &str = "test-data/basic.rpl";
 fn dgram() {
     tokio_test::block_on(async {
         let file = File::open(TEST_FILE).unwrap();
-        let deckard = parse_file(file);
+        let stelline = parse_file(file);
 
         let step_value = Arc::new(CurrStepValue::new());
-        let conn = Dgram::new(deckard.clone(), step_value.clone());
+        let conn = Dgram::new(stelline.clone(), step_value.clone());
         let octstr = dgram::Connection::new(conn);
 
         let clock = FakeClock::new();
-        do_client(&deckard, octstr, &step_value, &clock).await;
+        do_client(&stelline, octstr, &step_value, &clock).await;
     });
 }
 
@@ -41,17 +41,17 @@ fn dgram() {
 fn single() {
     tokio_test::block_on(async {
         let file = File::open(TEST_FILE).unwrap();
-        let deckard = parse_file(file);
+        let stelline = parse_file(file);
 
         let step_value = Arc::new(CurrStepValue::new());
-        let conn = Connection::new(deckard.clone(), step_value.clone());
+        let conn = Connection::new(stelline.clone(), step_value.clone());
         let (octstr, transport) = stream::Connection::new(conn);
         tokio::spawn(async move {
             transport.run().await;
         });
 
         let clock = FakeClock::new();
-        do_client(&deckard, octstr, &step_value, &clock).await;
+        do_client(&stelline, octstr, &step_value, &clock).await;
     });
 }
 
@@ -59,10 +59,10 @@ fn single() {
 fn multi() {
     tokio_test::block_on(async {
         let file = File::open(TEST_FILE).unwrap();
-        let deckard = parse_file(file);
+        let stelline = parse_file(file);
 
         let step_value = Arc::new(CurrStepValue::new());
-        let multi_conn = Connect::new(deckard.clone(), step_value.clone());
+        let multi_conn = Connect::new(stelline.clone(), step_value.clone());
         let (ms, ms_tran) = multi_stream::Connection::new(multi_conn);
         tokio::spawn(async move {
             ms_tran.run().await;
@@ -70,7 +70,7 @@ fn multi() {
         });
 
         let clock = FakeClock::new();
-        do_client(&deckard, ms.clone(), &step_value, &clock).await;
+        do_client(&stelline, ms.clone(), &step_value, &clock).await;
     });
 }
 
@@ -78,11 +78,11 @@ fn multi() {
 fn dgram_stream() {
     tokio_test::block_on(async {
         let file = File::open(TEST_FILE).unwrap();
-        let deckard = parse_file(file);
+        let stelline = parse_file(file);
 
         let step_value = Arc::new(CurrStepValue::new());
-        let conn = Dgram::new(deckard.clone(), step_value.clone());
-        let multi_conn = Connect::new(deckard.clone(), step_value.clone());
+        let conn = Dgram::new(stelline.clone(), step_value.clone());
+        let multi_conn = Connect::new(stelline.clone(), step_value.clone());
         let (ds, tran) = dgram_stream::Connection::new(conn, multi_conn);
         tokio::spawn(async move {
             tran.run().await;
@@ -90,7 +90,7 @@ fn dgram_stream() {
         });
 
         let clock = FakeClock::new();
-        do_client(&deckard, ds, &step_value, &clock).await;
+        do_client(&stelline, ds, &step_value, &clock).await;
     });
 }
 
@@ -98,10 +98,10 @@ fn dgram_stream() {
 fn redundant() {
     tokio_test::block_on(async {
         let file = File::open(TEST_FILE).unwrap();
-        let deckard = parse_file(file);
+        let stelline = parse_file(file);
 
         let step_value = Arc::new(CurrStepValue::new());
-        let multi_conn = Connect::new(deckard.clone(), step_value.clone());
+        let multi_conn = Connect::new(stelline.clone(), step_value.clone());
         let (ms, ms_tran) = multi_stream::Connection::new(multi_conn);
         tokio::spawn(async move {
             ms_tran.run().await;
@@ -118,7 +118,7 @@ fn redundant() {
         redun.add(Box::new(ms.clone())).await.unwrap();
 
         let clock = FakeClock::new();
-        do_client(&deckard, redun, &step_value, &clock).await;
+        do_client(&stelline, redun, &step_value, &clock).await;
     });
 }
 
@@ -128,7 +128,7 @@ fn redundant() {
 fn tcp() {
     tokio_test::block_on(async {
         let file = File::open(TEST_FILE).unwrap();
-        let deckard = parse_file(file);
+        let stelline = parse_file(file);
 
         let server_addr =
             SocketAddr::new(IpAddr::from_str("9.9.9.9").unwrap(), 53);
@@ -150,6 +150,6 @@ fn tcp() {
         });
 
         let clock = FakeClock::new();
-        do_client(&deckard, tcp, &CurrStepValue::new(), &clock).await;
+        do_client(&stelline, tcp, &CurrStepValue::new(), &clock).await;
     });
 }

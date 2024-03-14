@@ -1,8 +1,8 @@
-use crate::net::deckard::client::CurrStepValue;
-use crate::net::deckard::matches::match_msg;
-use crate::net::deckard::parse_deckard;
-use crate::net::deckard::parse_deckard::{Adjust, Deckard, Reply};
-use crate::net::deckard::parse_query;
+use crate::net::stelline::client::CurrStepValue;
+use crate::net::stelline::matches::match_msg;
+use crate::net::stelline::parse_query;
+use crate::net::stelline::parse_stelline;
+use crate::net::stelline::parse_stelline::{Adjust, Reply, Stelline};
 use domain::base::iana::rcode::Rcode;
 use domain::base::iana::Opcode;
 use domain::base::{Message, MessageBuilder};
@@ -11,13 +11,13 @@ use domain::zonefile::inplace::Entry as ZonefileEntry;
 
 pub fn do_server<'a, Oct: Clone + Octets + 'a>(
     msg: &'a Message<Oct>,
-    deckard: &Deckard,
+    stelline: &Stelline,
     step_value: &CurrStepValue,
 ) -> Option<Message<Vec<u8>>>
 where
     <Oct as Octets>::Range<'a>: Clone,
 {
-    let ranges = &deckard.scenario.ranges;
+    let ranges = &stelline.scenario.ranges;
     let step = step_value.get();
     for range in ranges {
         if step < range.start_value || step > range.end_value {
@@ -36,7 +36,7 @@ where
 }
 
 fn do_adjust<Octs: Octets>(
-    entry: &parse_deckard::Entry,
+    entry: &parse_stelline::Entry,
     reqmsg: &Message<Octs>,
 ) -> Message<Vec<u8>> {
     let sections = entry.sections.as_ref().unwrap();
