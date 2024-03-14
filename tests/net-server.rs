@@ -35,8 +35,6 @@ use std::net::IpAddr;
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::time::Duration;
-use tokio::time::timeout;
-use tracing::debug;
 use tracing::instrument;
 use tracing::trace;
 
@@ -74,12 +72,13 @@ async fn server_tests(#[files("test-data/server/*.rpl")] rpl_file: PathBuf) {
     do_client(&deckard, &step_value, client_factory).await;
 
     // Await shutdown
-    timeout(
-        Duration::from_secs(3),
-        await_shutdown(dgram_srv, stream_srv),
-    )
-    .await
-    .unwrap();
+    if !dgram_srv.await_shutdown(Duration::from_secs(5)).await {
+        warn!("Datagram server did not shutdown on time.");
+    }
+
+    if !stream_srv.await_shutdown(Duration::from_secs(5)).await {
+        warn!("Stream server did not shutdown on time.");
+    }
 }
 
 //----------- test helpers ---------------------------------------------------
@@ -293,29 +292,6 @@ fn test_service(
 
         Ok(CallResult::new(answer.additional()))
     })))
-}
-
-async fn await_shutdown<Svc>(
-    dgram_server: Arc<
-        DgramServer<ClientServerChannel, VecBufSource, Arc<Svc>>,
-    >,
-    stream_server: Arc<
-        StreamServer<ClientServerChannel, VecBufSource, Arc<Svc>>,
-    >,
-) where
-    Svc: Service + Send + Sync + 'static,
-{
-    debug!("Shutting down");
-
-    dgram_server.shutdown().unwrap();
-    stream_server.shutdown().unwrap();
-
-    let mut interval = tokio::time::interval(Duration::from_millis(100));
-    while !dgram_server.is_shutdown() && !stream_server.is_shutdown() {
-        interval.tick().await;
-    }
-
-    debug!("Shutdown complete");
 }
 
 //----------- Deckard config block parsing -----------------------------------

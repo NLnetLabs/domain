@@ -17,12 +17,14 @@ use arc_swap::ArcSwap;
 use core::future::poll_fn;
 use core::ops::Deref;
 use core::sync::atomic::{AtomicUsize, Ordering};
+use core::time::Duration;
 use std::io;
 use std::net::SocketAddr;
 use std::string::{String, ToString};
 use std::sync::{Arc, Mutex};
 use tokio::net::TcpListener;
 use tokio::sync::watch;
+use tokio::time::{interval, timeout, MissedTickBehavior};
 use tracing::{error, trace, trace_span};
 
 use crate::net::server::buf::BufSource;
@@ -377,6 +379,9 @@ where
     ///
     /// [`Self::is_shutdown()`] can be used to dertermine if shutdown is
     /// complete.
+    ///
+    /// [`Self::await_shutdown()`] can be used to wait for shutdown to
+    /// complete.
     pub fn shutdown(&self) -> Result<(), Error> {
         self.command_tx
             .lock()
@@ -392,6 +397,25 @@ where
     pub fn is_shutdown(&self) -> bool {
         self.metrics.num_inflight_requests() == 0
             && self.metrics.num_pending_writes() == 0
+    }
+
+    /// Wait for an in-progress shutdown to complete.
+    ///
+    /// Returns true if the server shutdown in the given time period, false
+    /// otherwise.
+    ///
+    /// To start the shutdown process first call [`Self::shutdown()`] then use
+    /// this method to wait for the shutdown process to complete.
+    pub async fn await_shutdown(&self, duration: Duration) -> bool {
+        timeout(duration, async {
+            let mut interval = interval(Duration::from_millis(100));
+            interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
+            while !self.is_shutdown() {
+                interval.tick().await;
+            }
+        })
+        .await
+        .is_ok()
     }
 }
 

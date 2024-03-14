@@ -23,8 +23,8 @@ use std::{
 };
 
 use tokio::net::UdpSocket;
-use tokio::time::timeout;
-use tokio::time::Instant;
+use tokio::time::{interval, Instant};
+use tokio::time::{timeout, MissedTickBehavior};
 use tokio::{io::ReadBuf, sync::watch};
 use tracing::{enabled, error, trace, warn, Level};
 
@@ -188,15 +188,12 @@ impl Default for Config {
 ///
 ///     // Run the server.
 ///     let spawned_srv = srv.clone();
-///     let join_handle = tokio::spawn(async move { spawned_srv.run().await });
+///     tokio::spawn(async move { spawned_srv.run().await });
 ///
 ///     // ... do something ...
 ///
 ///     // Shutdown the server.
 ///     srv.shutdown().unwrap();
-///
-///     // Wait for shutdown to complete.
-///     join_handle.await.unwrap();
 /// }
 /// ```
 ///
@@ -341,6 +338,9 @@ where
     ///
     /// [`Self::is_shutdown()`] can be used to dertermine if shutdown is
     /// complete.
+    ///
+    /// [`Self::await_shutdown()`] can be used to wait for shutdown to
+    /// complete.
     pub fn shutdown(&self) -> Result<(), Error> {
         self.command_tx
             .lock()
@@ -356,6 +356,25 @@ where
     pub fn is_shutdown(&self) -> bool {
         self.metrics.num_inflight_requests() == 0
             && self.metrics.num_pending_writes() == 0
+    }
+
+    /// Wait for an in-progress shutdown to complete.
+    ///
+    /// Returns true if the server shutdown in the given time period, false
+    /// otherwise.
+    ///
+    /// To start the shutdown process first call [`Self::shutdown()`] then use
+    /// this method to wait for the shutdown process to complete.
+    pub async fn await_shutdown(&self, duration: Duration) -> bool {
+        timeout(duration, async {
+            let mut interval = interval(Duration::from_millis(100));
+            interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
+            while !self.is_shutdown() {
+                interval.tick().await;
+            }
+        })
+        .await
+        .is_ok()
     }
 }
 
