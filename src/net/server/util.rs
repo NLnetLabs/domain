@@ -11,10 +11,12 @@ use octseq::FreezeBuilder;
 use octseq::Octets;
 use octseq::OctetsBuilder;
 
-use crate::base::message_builder::QuestionBuilder;
-use crate::base::MessageBuilder;
-use crate::base::StreamTarget;
+use crate::base::message_builder::{AdditionalBuilder, PushError};
+use crate::base::message_builder::{OptBuilder, QuestionBuilder};
+use crate::base::opt::UnknownOptData;
 use crate::base::{wire::Composer, Message};
+use crate::base::{MessageBuilder, Rtype};
+use crate::base::{ParsedDname, StreamTarget};
 
 use super::service::ServiceError;
 use super::service::Transaction;
@@ -22,6 +24,7 @@ use super::{
     message::ContextAwareMessage,
     service::{Service, ServiceResult, ServiceResultItem},
 };
+use crate::rdata::AllRecordData;
 
 //----------- mk_builder_for_target() ----------------------------------------
 
@@ -201,4 +204,70 @@ where
     }
 
     builder
+}
+
+//----------- add_edns_option ------------------------------------------------
+
+// TODO: This is not ideal as it has to copy the current response temporarily
+// in the case that the response already has at least one record in the
+// additional section. An alternate approach might be something like
+// `ComposeReply` based on `ComposeRequest` which would delay response
+// building until the complete set of differences to a base response are
+// known. Or a completely different builder approach that can edit a partially
+// built message.
+pub fn add_edns_options<F, Target>(
+    response: &mut AdditionalBuilder<StreamTarget<Target>>,
+    op: F,
+) -> Result<(), PushError>
+where
+    F: FnOnce(
+        &mut OptBuilder<StreamTarget<Target>>,
+    ) -> Result<
+        (),
+        <StreamTarget<Target> as OctetsBuilder>::AppendError,
+    >,
+    Target: Composer,
+{
+    if response.counts().arcount() > 0 {
+        // Make a copy of the response
+        let copied_response = response.as_slice().to_vec();
+        let copied_response = Message::from_octets(&copied_response).unwrap();
+
+        if let Some(current_opt) = copied_response.opt() {
+            // Discard the current records in the additional section of the
+            // response.
+            response.rewind();
+
+            // Copy the non-OPT records from the copied response to the
+            // current response.
+            if let Ok(current_additional) = copied_response.additional() {
+                for rr in current_additional.flatten() {
+                    if rr.rtype() != Rtype::Opt {
+                        if let Ok(Some(rr)) = rr
+                            .into_record::<AllRecordData<_, ParsedDname<_>>>()
+                        {
+                            response.push(rr)?;
+                        }
+                    }
+                }
+            }
+
+            // Build a new OPT record in the current response, consisting of
+            // the options within the existing OPT record plus the new options
+            // that we want to add.
+            let res = response.opt(|builder| {
+                for opt in
+                    current_opt.opt().iter::<UnknownOptData<_>>().flatten()
+                {
+                    builder.push(&opt)?;
+                }
+                op(builder)
+            });
+
+            return res;
+        }
+    }
+
+    // No existing OPT record in the additional section so build a new one.
+    response.opt(op)
 }

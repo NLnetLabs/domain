@@ -2,6 +2,7 @@
 use octseq::Octets;
 use tracing::{debug, trace, warn};
 
+use crate::net::server::util::add_edns_options;
 use crate::{
     base::{
         iana::OptRcode,
@@ -248,16 +249,19 @@ where
                                 // timeout is known: "Signal the timeout value
                                 // using the edns-tcp-keepalive EDNS(0) option
                                 // [RFC7828]".
-                                let _ = response.opt(|builder| {
-                                    let keep_alive =
-                                        TcpKeepalive::new(Some(timeout));
-                                    builder.push(&keep_alive)?;
-                                    Ok(())
-                                });
+                                if let Err(err) =
+                                    add_edns_options(response, |builder| {
+                                        builder.push(&TcpKeepalive::new(
+                                            Some(timeout),
+                                        ))
+                                    })
+                                {
+                                    warn!("Cannot add RFC 7828 edns-tcp-keepalive option to response: {err}");
+                                }
                             }
 
                             Err(err) => {
-                                warn!("Cannot add edns-tcp-keepalive EDNS(0) option [RFC7828] to response: invalid timeout: {err}");
+                                warn!("Cannot add RFC 7828 edns-tcp-keepalive option to response: invalid timeout: {err}");
                             }
                         }
                     }

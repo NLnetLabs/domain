@@ -18,9 +18,10 @@ use crate::{
     },
 };
 
+use crate::net::server::util::add_edns_options;
 use octseq::{Octets, OctetsBuilder};
 use rand::RngCore;
-use tracing::{debug, trace};
+use tracing::{debug, trace, warn};
 
 const FIVE_MINUTES_AS_SECS: u32 = 5 * 60;
 const ONE_HOUR_AS_SECS: u32 = 60 * 60;
@@ -490,11 +491,11 @@ where
             //   option from the request or (b) generating a new COOKIE option
             //   containing both the Client Cookie copied from the request and
             //   a valid Server Cookie it has generated."
-
-            // TODO: Do we need to replace all COOKIE options rather than
-            // append another one (which, if not the first, should be ignored
-            // by the client) ?
-            response.opt(|opt| opt.cookie(filled_cookie)).unwrap();
+            if let Err(err) = add_edns_options(response, |builder| {
+                builder.push(&filled_cookie)
+            }) {
+                warn!("Cannot add RFC 7873 DNS Cookie option to response: {err}");
+            }
         }
     }
 }
