@@ -4,7 +4,7 @@ use crate::{
         message_builder::AdditionalBuilder, wire::Composer, Message,
         StreamTarget,
     },
-    net::server::message::ContextAwareMessage,
+    net::server::message::Request,
 };
 use core::ops::ControlFlow;
 
@@ -25,7 +25,7 @@ where
     /// [`MiddlewareChain::preprocess()`]: crate::net::server::middleware::chain::MiddlewareChain::preprocess()
     fn preprocess(
         &self,
-        request: &mut ContextAwareMessage<Message<RequestOctets>>,
+        request: &mut Request<Message<RequestOctets>>,
     ) -> ControlFlow<AdditionalBuilder<StreamTarget<Target>>>;
 
     /// Apply middleware post-processing rules to a response.
@@ -35,7 +35,7 @@ where
     /// [`MiddlewareChain::postprocess()`]: crate::net::server::middleware::chain::MiddlewareChain::postprocess()
     fn postprocess(
         &self,
-        request: &ContextAwareMessage<Message<RequestOctets>>,
+        request: &Request<Message<RequestOctets>>,
         response: &mut AdditionalBuilder<StreamTarget<Target>>,
     );
 }

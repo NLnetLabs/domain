@@ -13,25 +13,33 @@
 //! > the Internet._
 //!
 //! [stream]: https://en.wikipedia.org/wiki/Reliable_byte_streamuse
+use arc_swap::ArcSwap;
 use core::future::poll_fn;
+use core::ops::Deref;
+use core::sync::atomic::{AtomicUsize, Ordering};
+use core::time::Duration;
+use octseq::Octets;
+use std::fmt::Debug;
 use std::io;
 use std::net::SocketAddr;
 use std::string::{String, ToString};
 use std::sync::{Arc, Mutex};
 use tokio::net::TcpListener;
 use tokio::sync::watch;
-use tokio::task::JoinHandle;
-use tracing::error;
+use tokio::time::{interval, timeout, MissedTickBehavior};
+use tracing::{error, trace, trace_span};
 
 use crate::net::server::buf::BufSource;
 use crate::net::server::error::Error;
 use crate::net::server::metrics::ServerMetrics;
 use crate::net::server::middleware::chain::MiddlewareChain;
-use crate::net::server::service::{Service, ServiceCommand};
+use crate::net::server::service::Service;
 use crate::net::server::sock::AsyncAccept;
+use crate::utils::config::DefMinMax;
 
 use super::buf::VecBufSource;
-use super::connection::Connection;
+use super::connection::{self, Connection};
+use super::service::ServerCommand;
 
 // TODO: Should this crate also provide a TLS listener implementation?
 
@@ -49,7 +57,87 @@ use super::connection::Connection;
 ///     https://docs.rs/tokio/latest/tokio/net/struct.TcpListener.html
 pub type TcpServer<Svc> = StreamServer<TcpListener, VecBufSource, Svc>;
 
+/// Limit on the number of concurrent TCP connections that can be handled by
+/// the server.
+///
+/// The value has to be between one and 100,000. The default value is 100. The
+/// default value is based on the default value of the NSD 4.8.0 `-n number`
+/// configuration setting .
+///
+/// If the limit is hit, further connections will be accepted but closed
+/// immediately.
+const MAX_CONCURRENT_TCP_CONNECTIONS: DefMinMax<usize> =
+    DefMinMax::new(100, 1, 100000);
+
+//----------- Config ---------------------------------------------------------
+
+/// Configuration for a stream server connection.
+#[derive(Clone)]
+pub struct Config<Buf, Svc>
+where
+    Buf: BufSource,
+    Buf::Output: Octets,
+    Svc: Service<Buf::Output>,
+{
+    /// Limit on the number of concurrent TCP connections that can be handled
+    /// by the server.
+    pub(super) max_concurrent_connections: usize,
+    pub(super) connection_config: connection::Config<Buf, Svc>,
+}
+
+impl<Buf, Svc> Config<Buf, Svc>
+where
+    Buf: BufSource,
+    Buf::Output: Octets,
+    Svc: Service<Buf::Output>,
+{
+    /// Creates a new, default config.
+    pub fn new() -> Self {
+        Default::default()
+    }
+
+    /// Set the limit on the number of concurrent TCP connections that can be
+    /// handled by the server.
+    ///
+    /// The value has to be between one and 100,000. The default value is 100.
+    /// The default value is based on the default value of the NSD 4.8.0 `-n
+    /// number` configuration setting .
+    ///
+    /// If the limit is hit, further connections will be accepted but closed
+    /// immediately.
+    pub fn set_max_concurrent_connections(&mut self, value: usize) {
+        self.max_concurrent_connections = value;
+    }
+
+    pub fn set_connection_config(
+        &mut self,
+        connection_config: connection::Config<Buf, Svc>,
+    ) {
+        self.connection_config = connection_config;
+    }
+}
+
+impl<Buf, Svc> Default for Config<Buf, Svc>
+where
+    Buf: BufSource,
+    Buf::Output: Octets,
+    Svc: Service<Buf::Output>,
+{
+    fn default() -> Self {
+        Self {
+            max_concurrent_connections: MAX_CONCURRENT_TCP_CONNECTIONS
+                .default(),
+            connection_config: connection::Config::default(),
+        }
+    }
+}
+
 //------------ StreamServer --------------------------------------------------
+
+type ServerCommandType<Buf, Svc> = ServerCommand<Config<Buf, Svc>>;
+type CommandSender<Buf, Svc> =
+    Arc<Mutex<watch::Sender<ServerCommandType<Buf, Svc>>>>;
+type CommandReceiver<Buf, Svc> = watch::Receiver<ServerCommandType<Buf, Svc>>;
 
 /// A server for connecting clients via stream based network transport to a
 /// [`Service`].
@@ -78,14 +166,15 @@ pub type TcpServer<Svc> = StreamServer<TcpListener, VecBufSource, Svc>;
 /// and a [`Service`] to generate responses to requests.
 ///
 /// ```
+/// use std::future::{Future, Ready};
 /// use domain::net::server::buf::VecBufSource;
 /// use domain::net::server::prelude::*;
 /// use domain::net::server::middleware::builder::MiddlewareBuilder;
 /// use domain::net::server::stream::StreamServer;
 /// use tokio::net::TcpListener;
 ///
-/// fn my_service(msg: Arc<ContextAwareMessage<Message<Vec<u8>>>>, _meta: ())
-///     -> MkServiceResult<Vec<u8>, ()>
+/// fn my_service(msg: Request<Message<Vec<u8>>>, _meta: ())
+///     -> ServiceResult<Vec<u8>, Vec<u8>, Ready<ServiceResultItem<Vec<u8>, Vec<u8>>>>
 /// {
 ///     todo!()
 /// }
@@ -93,13 +182,13 @@ pub type TcpServer<Svc> = StreamServer<TcpListener, VecBufSource, Svc>;
 /// #[tokio::main]
 /// async fn main() {
 ///     // Create a service impl from the service fn
-///     let svc = mk_service(my_service, ());
+///     let svc = service_fn(my_service, ());
 ///
 ///     // Bind to a local port and listen for incoming TCP connections.
 ///     let listener = TcpListener::bind("127.0.0.1:8053").await.unwrap();
 ///
 ///     // Create the server with default middleware.
-///     let middleware = MiddlewareBuilder::default().finish();
+///     let middleware = MiddlewareBuilder::default().build();
 ///
 ///     // Create a server that will accept those connections and pass
 ///     // received messages to your service and in turn pass generated
@@ -129,19 +218,22 @@ pub struct StreamServer<Listener, Buf, Svc>
 where
     Listener: AsyncAccept + Send + Sync + 'static,
     Buf: BufSource + Send + Sync + 'static + Clone,
-    Buf::Output: Send + Sync + 'static,
+    Buf::Output: Octets + Send + Sync + 'static,
     Svc: Service<Buf::Output> + Send + Sync + 'static + Clone,
 {
-    /// A receiver for receiving [`ServiceCommand`]s.
+    /// The configuration of the server.
+    config: Arc<ArcSwap<Config<Buf, Svc>>>,
+
+    /// A receiver for receiving [`ServerCommand`]s.
     ///
     /// Used by both the server and spawned connections to react to sent
     /// commands.
-    command_rx: watch::Receiver<ServiceCommand>,
+    command_rx: CommandReceiver<Buf, Svc>,
 
-    /// A sender for sending [`ServiceCommand`]s.
+    /// A sender for sending [`ServerCommand`]s.
     ///
     /// Used to signal the server to stop, reconfigure, etc.
-    command_tx: Arc<Mutex<watch::Sender<ServiceCommand>>>,
+    command_tx: CommandSender<Buf, Svc>,
 
     /// A listener for listening for and accepting incoming stream
     /// connections.
@@ -160,6 +252,8 @@ where
 
     /// [`ServerMetrics`] describing the status of the server.
     metrics: Arc<ServerMetrics>,
+
+    connection_idx: AtomicUsize,
 }
 
 /// # Creation
@@ -168,7 +262,7 @@ impl<Listener, Buf, Svc> StreamServer<Listener, Buf, Svc>
 where
     Listener: AsyncAccept + Send + Sync + 'static,
     Buf: BufSource + Send + Sync + 'static + Clone,
-    Buf::Output: Send + Sync + 'static,
+    Buf::Output: Octets + Send + Sync + 'static,
     Svc: Service<Buf::Output> + Send + Sync + 'static + Clone,
 {
     /// Constructs a new [`StreamServer`] instance.
@@ -180,12 +274,24 @@ where
     /// - A [`Service`] for handling received requests and generating responses.
     #[must_use]
     pub fn new(listener: Listener, buf: Buf, service: Svc) -> Self {
-        let (command_tx, command_rx) = watch::channel(ServiceCommand::Init);
+        Self::with_config(listener, buf, service, Config::default())
+    }
+
+    #[must_use]
+    pub fn with_config(
+        listener: Listener,
+        buf: Buf,
+        service: Svc,
+        config: Config<Buf, Svc>,
+    ) -> Self {
+        let (command_tx, command_rx) = watch::channel(ServerCommand::Init);
         let command_tx = Arc::new(Mutex::new(command_tx));
         let listener = Arc::new(listener);
         let metrics = Arc::new(ServerMetrics::connection_oriented());
+        let config = Arc::new(ArcSwap::from_pointee(config));
 
         StreamServer {
+            config,
             command_tx,
             command_rx,
             listener,
@@ -194,6 +300,7 @@ where
             pre_connect_hook: None,
             middleware_chain: None,
             metrics,
+            connection_idx: AtomicUsize::new(0),
         }
     }
 
@@ -244,8 +351,9 @@ impl<Listener, Buf, Svc> StreamServer<Listener, Buf, Svc>
 where
     Listener: AsyncAccept + Send + Sync + 'static,
     Buf: BufSource + Send + Sync + 'static + Clone,
-    Buf::Output: Send + Sync + 'static,
+    Buf::Output: Octets + Debug + Send + Sync + 'static,
     Svc: Service<Buf::Output> + Send + Sync + 'static + Clone,
+    Svc::Target: Debug,
 {
     /// Get a reference to the source for this server.
     #[must_use]
@@ -266,7 +374,7 @@ impl<Listener, Buf, Svc> StreamServer<Listener, Buf, Svc>
 where
     Listener: AsyncAccept + Send + Sync + 'static,
     Buf: BufSource + Send + Sync + 'static + Clone,
-    Buf::Output: Send + Sync + 'static,
+    Buf::Output: Octets + Send + Sync + 'static,
     Svc: Service<Buf::Output> + Send + Sync + 'static + Clone,
 {
     /// Start the server.
@@ -278,30 +386,71 @@ where
     /// [`shutdown()`]: Self::shutdown
     pub async fn run(&self)
     where
-        Svc::Single: Send,
+        Svc::Future: Send,
     {
         if let Err(err) = self.run_until_error().await {
             error!("StreamServer: {err}");
         }
     }
 
+    /// Reconfigure the server while running.
+    ///
+    ///
+    pub fn reconfigure(&self, config: Config<Buf, Svc>) -> Result<(), Error> {
+        self.command_tx
+            .lock()
+            .unwrap()
+            .send(ServerCommand::Reconfigure(config))
+            .map_err(|_| Error::CommandCouldNotBeSent)
+    }
+
     /// Stop the server.
     ///
-    /// No new connections will be accepted and in-progress connections will
-    /// be signalled to shutdown.
+    /// No new connections will be accepted and open connections will be
+    /// signalled to shutdown. In-flight requests will continue being
+    /// processed but no new messages will be accepted. Pending responses will
+    /// be written as long as the client side of connection remains remains
+    /// operational.
     ///
-    /// Tip: Await the [`tokio::task::JoinHandle`] that you received when
-    /// spawning a task to run the server to know when shutdown is complete.
+    /// [`Self::is_shutdown()`] can be used to dertermine if shutdown is
+    /// complete.
     ///
-    /// [`tokio::task::JoinHandle`]:
-    ///     https://docs.rs/tokio/latest/tokio/task/struct.JoinHandle.html
-    // TODO: Do we also need a non-graceful terminate immediately function?
+    /// [`Self::await_shutdown()`] can be used to wait for shutdown to
+    /// complete.
     pub fn shutdown(&self) -> Result<(), Error> {
         self.command_tx
             .lock()
             .unwrap()
-            .send(ServiceCommand::Shutdown)
+            .send(ServerCommand::Shutdown)
             .map_err(|_| Error::CommandCouldNotBeSent)
+    }
+
+    /// Check if shutdown has completed.
+    ///
+    /// Note that until shutdown is fully complete some Tokio background tasks
+    /// may remain scheduled or active to process in-flight requests.
+    pub fn is_shutdown(&self) -> bool {
+        self.metrics.num_inflight_requests() == 0
+            && self.metrics.num_pending_writes() == 0
+    }
+
+    /// Wait for an in-progress shutdown to complete.
+    ///
+    /// Returns true if the server shutdown in the given time period, false
+    /// otherwise.
+    ///
+    /// To start the shutdown process first call [`Self::shutdown()`] then use
+    /// this method to wait for the shutdown process to complete.
+    pub async fn await_shutdown(&self, duration: Duration) -> bool {
+        timeout(duration, async {
+            let mut interval = interval(Duration::from_millis(100));
+            interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
+            while !self.is_shutdown() {
+                interval.tick().await;
+            }
+        })
+        .await
+        .is_ok()
     }
 }
 
@@ -311,7 +460,7 @@ impl<Listener, Buf, Svc> StreamServer<Listener, Buf, Svc>
 where
     Listener: AsyncAccept + Send + Sync + 'static,
     Buf: BufSource + Send + Sync + 'static + Clone,
-    Buf::Output: Send + Sync + 'static,
+    Buf::Output: Octets + Send + Sync + 'static,
     Svc: Service<Buf::Output> + Send + Sync + 'static + Clone,
 {
     /// Accept stream connections until shutdown or fatal error.
@@ -319,7 +468,7 @@ where
     // TODO: Use a strongly typed error, not String.
     async fn run_until_error(&self) -> Result<(), String>
     where
-        Svc::Single: Send,
+        Svc::Future: Send,
     {
         let mut command_rx = self.command_rx.clone();
 
@@ -328,7 +477,7 @@ where
                 // Poll futures in match arm order, not randomly.
                 biased;
 
-                // First, prefer obeying [`ServiceCommands`] over everything
+                // First, prefer obeying [`ServerCommands`] over everything
                 // else.
                 res = command_rx.changed() => {
                     self.process_service_command(res, &mut command_rx)?;
@@ -336,13 +485,21 @@ where
 
                 // Next, handle a connection that has been accepted, if any.
                 accept_res = self.accept() => {
-                    // TODO: Do we really want to abort here?
-                    let (stream, addr) = accept_res
-                        .map_err(|err|
-                            format!("Error while accepting connection: {err}")
-                        )?;
+                    match accept_res {
+                        Ok((stream, addr)) => {
+                            // SAFETY: This is a connection-oriented server so there
+                            // must always be a connection count metric avasilable to
+                            // unwrap.
+                            let num_conn = self.metrics.num_connections().unwrap();
+                            if num_conn < self.config.load().max_concurrent_connections {
+                                self.process_new_connection(stream, addr);
+                            }
+                        }
 
-                    self.process_new_connection(stream, addr)?;
+                        Err(err) => {
+                            error!("Error while accepting TCP connection: {err}");
+                        }
+                    }
                 }
             }
         }
@@ -351,7 +508,7 @@ where
     fn process_service_command(
         &self,
         res: Result<(), watch::error::RecvError>,
-        command_rx: &mut watch::Receiver<ServiceCommand>,
+        command_rx: &mut watch::Receiver<ServerCommand<Config<Buf, Svc>>>,
     ) -> Result<(), String> {
         // If the parent server no longer exists but was not cleanly shutdown
         // then the command channel will be closed and attempting to check for
@@ -360,31 +517,34 @@ where
         res.map_err(|err| format!("Error while receiving command: {err}"))?;
 
         // Get the changed command.
-        let command = *command_rx.borrow_and_update();
+        let lock = command_rx.borrow_and_update();
+        let command = lock.deref();
 
         // And process it.
         match command {
-            ServiceCommand::Reconfigure { .. } => { /* TODO */ }
+            ServerCommand::Reconfigure(new_config) => {
+                self.config.store(new_config.clone().into());
+            }
 
-            ServiceCommand::Shutdown => {
+            ServerCommand::Shutdown => {
                 // Stop accepting new connections, terminate the server. Child
                 // connections also receeive the command and handle it
                 // themselves.
                 return Err("Shutdown command received".to_string());
             }
 
-            ServiceCommand::Init => {
+            ServerCommand::Init => {
                 // The initial "Init" value in the watch channel is never
                 // actually seen because changed() is required to return true
                 // before we call borrow_and_update() but the initial value in
                 // the channel, Init, is not considered a "change". So the
                 // only way to end up here would be if we somehow wrongly
-                // placed another ServiceCommand::Init value into the watch
+                // placed another ServerCommand::Init value into the watch
                 // channel after the initial one.
                 unreachable!()
             }
 
-            ServiceCommand::CloseConnection => {
+            ServerCommand::CloseConnection => {
                 // Individual connections can be closed. The server itself
                 // should never receive a CloseConnection command.
                 unreachable!()
@@ -398,42 +558,51 @@ where
         &self,
         stream: Listener::Stream,
         addr: SocketAddr,
-    ) -> Result<JoinHandle<()>, String>
-    where
-        Svc::Single: Send,
+    ) where
+        Buf::Output: Octets,
+        Svc::Future: Send,
     {
         // Work around the compiler wanting to move self to the async block by
         // preparing only those pieces of information from self for the new
         // connection handler that it actually needs.
+        let conn_config = self.config.load().connection_config.clone();
         let conn_command_rx = self.command_rx.clone();
         let conn_service = self.service.clone();
-        let conn_middleware_chain = self.middleware_chain.clone();
         let conn_buf = self.buf.clone();
         let conn_metrics = self.metrics.clone();
         let pre_connect_hook = self.pre_connect_hook;
+        let new_connection_idx =
+            self.connection_idx.fetch_add(1, Ordering::SeqCst);
 
-        let join_handle = tokio::spawn(async move {
+        trace!("Spawning new connection handler.");
+        tokio::spawn(async move {
+            let span = trace_span!("stream", conn = new_connection_idx);
+            let _guard = span.enter();
+
+            trace!("Accepting connection.");
             if let Ok(mut stream) = stream.await {
+                trace!("Connection accepted.");
                 // Let the caller inspect and/or modify the accepted stream
                 // before passing it to Connection.
                 if let Some(hook) = pre_connect_hook {
+                    trace!("Running pre-connect hook.");
                     hook(&mut stream);
                 }
 
-                let conn = Connection::new(
+                let conn = Connection::with_config(
                     conn_service,
-                    conn_middleware_chain,
                     conn_buf,
                     conn_metrics,
                     stream,
                     addr,
+                    conn_config,
                 );
 
-                conn.run(conn_command_rx).await
+                trace!("Starting connection handler.");
+                conn.run(conn_command_rx).await;
+                trace!("Connection handler terminated.");
             }
         });
-
-        Ok(join_handle)
     }
 
     /// Wait for and accept a single stream connection.
@@ -452,7 +621,7 @@ impl<Listener, Buf, Svc> Drop for StreamServer<Listener, Buf, Svc>
 where
     Listener: AsyncAccept + Send + Sync + 'static,
     Buf: BufSource + Send + Sync + 'static + Clone,
-    Buf::Output: Send + Sync + 'static,
+    Buf::Output: Octets + Send + Sync + 'static,
     Svc: Service<Buf::Output> + Send + Sync + 'static + Clone,
 {
     fn drop(&mut self) {

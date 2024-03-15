@@ -1,130 +1,138 @@
 #![cfg(feature = "net")]
 mod net;
 
-use crate::net::deckard::channel::ClientServerChannel;
-use crate::net::deckard::client::do_client;
-use crate::net::deckard::client::CurrStepValue;
-use crate::net::deckard::client::PerClientAddressClientFactory;
-use crate::net::deckard::client::QueryTailoredClientFactory;
-use crate::net::deckard::parse_deckard;
-use crate::net::deckard::parse_deckard::parse_file;
-use crate::net::deckard::parse_deckard::Matches;
+use crate::net::stelline::channel::ClientServerChannel;
+use crate::net::stelline::client::do_client;
+use crate::net::stelline::client::CurrStepValue;
+use crate::net::stelline::client::PerClientAddressClientFactory;
+use crate::net::stelline::client::QueryTailoredClientFactory;
+use crate::net::stelline::parse_stelline;
+use crate::net::stelline::parse_stelline::parse_file;
+use crate::net::stelline::parse_stelline::Matches;
 use domain::base::iana::Rcode;
 use domain::base::Dname;
 use domain::base::ToDname;
 use domain::net::client::dgram;
 use domain::net::client::stream;
+use domain::net::server::buf::BufSource;
 use domain::net::server::buf::VecBufSource;
 use domain::net::server::dgram::DgramServer;
 use domain::net::server::middleware::builder::MiddlewareBuilder;
-use domain::net::server::middleware::chain::MiddlewareChain;
-use domain::net::server::middleware::processors::cookies::CookiesMiddlewareProcesor;
+use domain::net::server::middleware::processors::cookies::CookiesMiddlewareProcessor;
+use domain::net::server::middleware::processors::edns::EdnsMiddlewareProcessor;
+use domain::net::server::middleware::processors::edns::EDNS_VERSION_ZERO;
 use domain::net::server::prelude::*;
 use domain::net::server::stream::StreamServer;
 use domain::zonefile::inplace::Entry;
 use domain::zonefile::inplace::ScannedRecord;
 use domain::zonefile::inplace::Zonefile;
-use net::deckard::client::ClientFactory;
-use net::deckard::parse_deckard::Config;
+use net::stelline::client::ClientFactory;
+use net::stelline::parse_stelline::Config;
 use rstest::rstest;
 use std::collections::VecDeque;
 use std::fs::File;
+use std::future::Future;
 use std::net::IpAddr;
 use std::net::SocketAddr;
 use std::path::PathBuf;
+use std::time::Duration;
 use tracing::instrument;
-use tracing::trace;
-use tracing_subscriber::EnvFilter;
+use tracing::{trace, warn};
 
 //----------- Tests ----------------------------------------------------------
 
-/// Deckard test cases for which the .rpl file defines a server: config block.
+/// Stelline test cases for which the .rpl file defines a server: config block.
 ///
 /// Note: Adding or removing .rpl files on disk won't be detected until the
 /// test is re-compiled.
+#[cfg(feature = "mock-time")]
 #[instrument(skip_all, fields(rpl = rpl_file.file_name().unwrap().to_str()))]
 #[rstest]
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn server_tests(#[files("test-data/server/*.rpl")] rpl_file: PathBuf) {
-    init_logging();
-
     // Load the test .rpl file that determines which queries will be sent
     // and which responses will be expected, and how the server that
     // answers them should be configured.
-    let file = File::open(rpl_file).unwrap();
-    let deckard = parse_file(file);
-    let server_config = parse_server_config(&deckard.config);
+
+    let file = File::open(&rpl_file).unwrap();
+    let stelline = parse_file(&file, rpl_file.to_str().unwrap());
+    let server_config = parse_server_config(&stelline.config);
 
     // Create a service to answer queries received by the DNS servers.
     let zonefile = server_config.zonefile.clone();
-    let service: Arc<_> = mk_service(test_service, zonefile).into();
+    let service: Arc<_> = service_fn(test_service, zonefile).into();
 
     // Create dgram and stream servers for answering requests
-    let (dgram_server_conn, stream_server_conn) =
+    let (dgram_srv, dgram_conn, stream_srv, stream_conn) =
         mk_servers(service, &server_config);
 
     // Create a client factory for sending requests
-    let client_factory =
-        mk_client_factory(dgram_server_conn, stream_server_conn);
+    let client_factory = mk_client_factory(dgram_conn, stream_conn);
 
-    // Run the Deckard test!
+    // Run the Stelline test!
     let step_value = Arc::new(CurrStepValue::new());
-    do_client(&deckard, &step_value, client_factory).await;
+    do_client(&stelline, &step_value, client_factory).await;
+
+    // Await shutdown
+    if !dgram_srv.await_shutdown(Duration::from_secs(5)).await {
+        warn!("Datagram server did not shutdown on time.");
+    }
+
+    if !stream_srv.await_shutdown(Duration::from_secs(5)).await {
+        warn!("Stream server did not shutdown on time.");
+    }
 }
 
 //----------- test helpers ---------------------------------------------------
 
-/// Setup logging of events reported by domain and the test suite.
-///
-/// Use the RUST_LOG environment variable to override the defaults.
-///
-/// E.g. To enable debug level logging:
-///   RUST_LOG=DEBUG
-///
-/// Or to log only the steps processed by the Deckard client:
-///   RUST_LOG=net_server::net::deckard::client=DEBUG
-///
-/// Or to enable trace level logging but not for the test suite itself:
-///   RUST_LOG=TRACE,net_server=OFF
-fn init_logging() {
-    tracing_subscriber::fmt()
-        .with_env_filter(EnvFilter::from_default_env())
-        .with_thread_ids(true)
-        .without_time()
-        .try_init()
-        .ok();
-}
-
+#[allow(clippy::type_complexity)]
 fn mk_servers<Svc>(
     service: Arc<Svc>,
     server_config: &ServerConfig,
-) -> (ClientServerChannel, ClientServerChannel)
+) -> (
+    Arc<DgramServer<ClientServerChannel, VecBufSource, Arc<Svc>>>,
+    ClientServerChannel,
+    Arc<StreamServer<ClientServerChannel, VecBufSource, Arc<Svc>>>,
+    ClientServerChannel,
+)
 where
     Svc: Service + Send + Sync + 'static,
 {
     // Prepare middleware to be used by the DNS servers to pre-process
     // received requests and post-process created responses.
-    let middleware = mk_middleware_for_config(server_config);
+    let (dgram_config, stream_config) = mk_server_configs(server_config);
 
     // Create a dgram server for handling UDP requests.
     let dgram_server_conn = ClientServerChannel::new_dgram();
-    let dgram_server = DgramServer::new(
+    let dgram_server = DgramServer::with_config(
         dgram_server_conn.clone(),
         VecBufSource,
         service.clone(),
+        dgram_config,
     );
-    let dgram_server = dgram_server.with_middleware(middleware.clone());
-    tokio::spawn(async move { dgram_server.run().await });
+    let dgram_server = Arc::new(dgram_server);
+    let cloned_dgram_server = dgram_server.clone();
+    tokio::spawn(async move { cloned_dgram_server.run().await });
 
-    // Create a stream server for handling TCP requests, i.e. Deckard queries
+    // Create a stream server for handling TCP requests, i.e. Stelline queries
     // with "MATCH TCP".
     let stream_server_conn = ClientServerChannel::new_stream();
-    let stream_server =
-        StreamServer::new(stream_server_conn.clone(), VecBufSource, service);
-    let stream_server = stream_server.with_middleware(middleware);
-    tokio::spawn(async move { stream_server.run().await });
+    let stream_server = StreamServer::with_config(
+        stream_server_conn.clone(),
+        VecBufSource,
+        service,
+        stream_config,
+    );
+    let stream_server = Arc::new(stream_server);
+    let cloned_stream_server = stream_server.clone();
+    tokio::spawn(async move { cloned_stream_server.run().await });
 
-    (dgram_server_conn, stream_server_conn)
+    (
+        dgram_server,
+        dgram_server_conn,
+        stream_server,
+        stream_server_conn,
+    )
 }
 
 fn mk_client_factory(
@@ -132,10 +140,10 @@ fn mk_client_factory(
     stream_server_conn: ClientServerChannel,
 ) -> impl ClientFactory {
     // Create a TCP client factory that only creates a client if (a) no
-    // existing TCP client exists for the source address of the Deckard query,
+    // existing TCP client exists for the source address of the Stelline query,
     // and (b) if the query specifies "MATCHES TCP". Clients created by this
     // factory connect to the TCP server created above.
-    let only_for_tcp_queries = |entry: &parse_deckard::Entry| {
+    let only_for_tcp_queries = |entry: &parse_stelline::Entry| {
         matches!(entry.matches, Some(Matches { tcp: true, .. }))
     };
 
@@ -151,7 +159,7 @@ fn mk_client_factory(
     );
 
     // Create a UDP client factory that only creates a client if (a) no
-    // existing UDP client exists for the source address of the Deckard query.
+    // existing UDP client exists for the source address of the Stelline query.
     let for_all_other_queries = |_: &_| true;
 
     let udp_client_factory = PerClientAddressClientFactory::new(
@@ -159,43 +167,66 @@ fn mk_client_factory(
         for_all_other_queries,
     );
 
-    // Create a combined client factory that will allow the Deckard runner to
+    // Create a combined client factory that will allow the Stelline runner to
     // use existing or create new client connections as appropriate for the
-    // Deckard query being evaluated.
+    // Stelline query being evaluated.
     QueryTailoredClientFactory::new(vec![
         Box::new(tcp_client_factory),
         Box::new(udp_client_factory),
     ])
 }
 
-fn mk_middleware_for_config<RequestOctets, Target>(
+fn mk_server_configs<Buf, Svc>(
     config: &ServerConfig,
-) -> MiddlewareChain<RequestOctets, Target>
+) -> (
+    domain::net::server::dgram::Config<Buf, Svc>,
+    domain::net::server::stream::Config<Buf, Svc>,
+)
 where
-    RequestOctets: AsRef<[u8]> + Octets,
-    Target: Composer + Default + Send + Sync + 'static,
+    Buf: BufSource,
+    Buf::Output: Octets,
+    Svc: Service<Buf::Output>,
 {
-    let mut middleware = MiddlewareBuilder::default();
+    let mut middleware = MiddlewareBuilder::minimal();
 
     #[cfg(feature = "siphasher")]
     if config.cookies.enabled {
         if let Some(secret) = config.cookies.secret {
             let secret = hex::decode(secret).unwrap();
             let secret = <[u8; 16]>::try_from(secret).unwrap();
-            let processor = CookiesMiddlewareProcesor::new(secret);
+            let processor = CookiesMiddlewareProcessor::new(secret);
             let processor = processor
                 .with_denied_ips(config.cookies.ip_deny_list.clone())
                 .with_allowed_ips(config.cookies.ip_allow_list.clone());
-            middleware.push(processor);
+            middleware.push(processor.into());
         }
     }
 
-    middleware.finish()
+    if config.edns_tcp_keepalive {
+        let processor = EdnsMiddlewareProcessor::new(EDNS_VERSION_ZERO);
+        middleware.push(processor.into());
+    }
+
+    let middleware = middleware.build();
+
+    let mut dgram_config = domain::net::server::dgram::Config::default();
+    dgram_config.set_middleware_chain(middleware.clone());
+
+    let mut stream_config = domain::net::server::stream::Config::default();
+    if let Some(idle_timeout) = config.idle_timeout {
+        let mut connection_config =
+            domain::net::server::ConnectionConfig::default();
+        connection_config.set_idle_timeout(idle_timeout);
+        connection_config.set_middleware_chain(middleware);
+        stream_config.set_connection_config(connection_config);
+    }
+
+    (dgram_config, stream_config)
 }
 
 // A test `Service` impl.
 //
-// This function can be used with `mk_service()` to create a `Service`
+// This function can be used with `service_fn()` to create a `Service`
 // instance designed to respond to test queries.
 //
 // The functionality provided is the mininum common set of behaviour needed
@@ -207,9 +238,13 @@ where
 //   - Controlling the content of the `Zonefile` passed to instances of
 //     this `Service` impl.
 fn test_service(
-    request: MkServiceRequest<Vec<u8>>,
+    request: Request<Message<Vec<u8>>>,
     zonefile: Zonefile,
-) -> MkServiceResult<Vec<u8>, ()> {
+) -> ServiceResult<
+    Vec<u8>,
+    Vec<u8>,
+    impl Future<Output = ServiceResultItem<Vec<u8>, Vec<u8>>> + Send,
+> {
     fn as_record_and_dname(
         r: ScannedRecord,
     ) -> Option<(ScannedRecord, Dname<Vec<u8>>)> {
@@ -229,10 +264,11 @@ fn test_service(
     }
 
     trace!("Service received request");
-    Ok(Transaction::single(Box::pin(async move {
+    Ok(Transaction::single(async move {
         trace!("Service is constructing a single response");
         // If given a single question:
         let answer = request
+            .message()
             .sole_question()
             .ok()
             .and_then(|q| {
@@ -247,13 +283,13 @@ fn test_service(
                 || {
                     // The Qname was not found in the zone:
                     mk_builder_for_target()
-                        .start_answer(&request, Rcode::NXDomain)
+                        .start_answer(request.message(), Rcode::NXDomain)
                         .unwrap()
                 },
                 |(record, _)| {
                     // Respond with the found record:
                     let mut answer = mk_builder_for_target()
-                        .start_answer(&request, Rcode::NoError)
+                        .start_answer(request.message(), Rcode::NoError)
                         .unwrap();
                     // As we serve all answers from our own zones we are the
                     // authority for the domain in question.
@@ -264,14 +300,16 @@ fn test_service(
             );
 
         Ok(CallResult::new(answer.additional()))
-    })))
+    }))
 }
 
-//----------- Deckard config block parsing -----------------------------------
+//----------- Stelline config block parsing -----------------------------------
 
 #[derive(Default)]
 struct ServerConfig<'a> {
     cookies: CookieConfig<'a>,
+    edns_tcp_keepalive: bool,
+    idle_timeout: Option<Duration>,
     zonefile: Zonefile,
 }
 
@@ -296,7 +334,14 @@ fn parse_server_config(config: &Config) -> ServerConfig {
                 in_server_block = false;
             } else if let Some((setting, value)) = line.trim().split_once(':')
             {
-                match (setting.trim(), value.trim()) {
+                // Trim off whitespace and trailing comments.
+                let setting = setting.trim();
+                let value = value
+                    .split_once('#')
+                    .map_or(value, |(value, _rest)| value)
+                    .trim();
+
+                match (setting, value) {
                     ("answer-cookie", "yes") => {
                         parsed_config.cookies.enabled = true
                     }
@@ -349,6 +394,16 @@ fn parse_server_config(config: &Config) -> ServerConfig {
                         zone_file_bytes
                             .extend(v.trim_matches('"').as_bytes().iter());
                         zone_file_bytes.push_back(b'\n');
+                    }
+                    ("edns-tcp-keepalive", "yes") => {
+                        parsed_config.edns_tcp_keepalive = true;
+                    }
+                    ("edns-tcp-keepalive-timeout", v) => {
+                        if parsed_config.edns_tcp_keepalive {
+                            parsed_config.idle_timeout = Some(
+                                Duration::from_millis(v.parse().unwrap()),
+                            );
+                        }
                     }
                     _ => {
                         eprintln!("Ignoring unknown server setting '{setting}' with value: {value}");

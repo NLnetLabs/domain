@@ -1,72 +1,54 @@
 //! Support for working with DNS messages in servers.
-use core::{ops::ControlFlow, sync::atomic::Ordering};
+use core::{ops::ControlFlow, sync::atomic::Ordering, time::Duration};
 use std::net::SocketAddr;
 use std::sync::Arc;
 
-use tokio::task::JoinHandle;
-use tracing::info_span;
+use octseq::Octets;
+use tokio::time::Instant;
+use tracing::{enabled, error, info_span, warn, Level};
 
 use crate::{
-    base::{message::ShortMessage, Message},
+    base::Message,
     net::server::{
         buf::BufSource, metrics::ServerMetrics,
         middleware::chain::MiddlewareChain,
     },
 };
 
-use super::service::{
-    CallResult, Service, ServiceError, ServiceResultItem, Transaction,
+use super::{
+    service::{
+        CallResult, Service, ServiceError, ServiceResultItem, Transaction,
+    },
+    util::start_reply,
 };
 
-//------------ MsgProvider ---------------------------------------------------
+//------------ Request -------------------------------------------
 
-/// A MsgProvider can determine the number of bytes of message data to expect
-/// and then turn those bytes into a concrete message type.
-pub trait MsgProvider<RequestOctets: AsRef<[u8]>> {
-    /// The number of bytes that need to be read before it is possible to
-    /// determine how many more bytes of message should follow. Not all
-    /// message types require this, e.g. UDP DNS message length is determined
-    /// by the size of the UDP message received, while for TCP DNS messages
-    /// the number of bytes to expect is determined by the first two bytes
-    /// received.
-    const MIN_HDR_BYTES: usize;
-
-    /// The concrete type of message that we produce from given message
-    /// bytes.
-    type Msg;
-
-    /// The actual number of message bytes to follow given at least
-    /// MIN_HDR_BYTES of message header.
-    fn determine_msg_len(hdr_buf: &mut RequestOctets) -> usize;
-
-    /// Convert a sequence of bytes to a concrete message.
-    fn from_octets(octets: RequestOctets) -> Result<Self::Msg, ShortMessage>;
+#[derive(Debug, Copy, Clone)]
+pub struct UdpSpecificTransportContext {
+    pub max_response_size_hint: Option<u16>,
 }
 
-/// An implementation of MsgProvider for DNS [`Message`]s.
-impl<RequestOctets: AsRef<[u8]>> MsgProvider<RequestOctets>
-    for Message<RequestOctets>
-{
-    /// RFC 1035 section 4.2.2 "TCP Usage" says:
-    ///     "The message is prefixed with a two byte length field which gives
-    ///      the message length, excluding the two byte length field.  This
-    ///      length field allows the low-level processing to assemble a
-    ///      complete message before beginning to parse it."
-    const MIN_HDR_BYTES: usize = 2;
-
-    type Msg = Self;
-
-    #[must_use]
-    fn determine_msg_len(hdr_buf: &mut RequestOctets) -> usize {
-        u16::from_be_bytes(hdr_buf.as_ref().try_into().unwrap()) as usize
-    }
-
-    fn from_octets(octets: RequestOctets) -> Result<Self, ShortMessage> {
-        Self::from_octets(octets)
-    }
+#[derive(Debug, Copy, Clone)]
+pub struct NonUdpTransportContext {
+    pub idle_timeout: Option<Duration>,
 }
 
-//------------ ContextAwareMessage -------------------------------------------
+#[derive(Debug, Copy, Clone)]
+pub enum TransportSpecificContext {
+    Udp(UdpSpecificTransportContext),
+    NonUdp(NonUdpTransportContext),
+}
+
+impl TransportSpecificContext {
+    pub fn is_udp(&self) -> bool {
+        matches!(self, Self::Udp(_))
+    }
+
+    pub fn is_non_udp(&self) -> bool {
+        matches!(self, Self::NonUdp(_))
+    }
+}
 
 /// A DNS message with additional properties describing its context.
 ///
@@ -76,28 +58,36 @@ impl<RequestOctets: AsRef<[u8]>> MsgProvider<RequestOctets>
 /// message itself but also on the circumstances surrounding its creation and
 /// delivery.
 #[derive(Debug)]
-pub struct ContextAwareMessage<T> {
-    message: T,
-    received_over_tcp: bool,
+pub struct Request<T> {
     client_addr: std::net::SocketAddr,
+    received_at: Instant,
+    message: Arc<T>,
+    transport_specific: TransportSpecificContext,
 }
 
-impl<T> ContextAwareMessage<T> {
+impl<T> Request<T> {
     pub fn new(
-        message: T,
-        received_over_tcp: bool,
         client_addr: std::net::SocketAddr,
+        received_at: Instant,
+        message: T,
+        transport_specific: TransportSpecificContext,
     ) -> Self {
         Self {
-            message,
-            received_over_tcp,
             client_addr,
+            received_at,
+            message: Arc::new(message),
+            transport_specific,
         }
     }
 
-    /// Was this message received via a TCP transport?
-    pub fn received_over_tcp(&self) -> bool {
-        self.received_over_tcp
+    /// When was this message received?
+    pub fn received_at(&self) -> Instant {
+        self.received_at
+    }
+
+    /// Get the transport specific context
+    pub fn transport(&self) -> &TransportSpecificContext {
+        &self.transport_specific
     }
 
     /// From which IP address and port number was this message received?
@@ -105,27 +95,52 @@ impl<T> ContextAwareMessage<T> {
         self.client_addr
     }
 
-    /// Exchange this wrapper for the inner message that it wraps.
-    pub fn into_inner(self) -> T {
-        self.message
-    }
-}
-
-impl<T> core::ops::Deref for ContextAwareMessage<T> {
-    type Target = T;
-
-    fn deref(&self) -> &Self::Target {
+    /// Read access to the inner message
+    pub fn message(&self) -> &T {
         &self.message
     }
 }
 
-impl<T> core::ops::DerefMut for ContextAwareMessage<T> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.message
+//--- Clone
+
+impl<T> Clone for Request<T> {
+    fn clone(&self) -> Self {
+        Self {
+            client_addr: self.client_addr,
+            received_at: self.received_at,
+            message: Arc::clone(&self.message),
+            transport_specific: self.transport_specific,
+        }
     }
 }
 
 //----------- MessageProcessor -----------------------------------------------
+
+pub struct MessageDetails<Buf>
+where
+    Buf: BufSource,
+{
+    buf: Buf::Output,
+    received_at: Instant,
+    addr: SocketAddr,
+}
+
+impl<Buf> MessageDetails<Buf>
+where
+    Buf: BufSource,
+{
+    pub fn new(
+        buf: Buf::Output,
+        received_at: Instant,
+        addr: SocketAddr,
+    ) -> Self {
+        Self {
+            buf,
+            received_at,
+            addr,
+        }
+    }
+}
 
 /// Perform processing common to all messages being handled by a DNS server.
 ///
@@ -151,7 +166,7 @@ impl<T> core::ops::DerefMut for ContextAwareMessage<T> {
 pub trait MessageProcessor<Buf, Svc>
 where
     Buf: BufSource + Send + Sync + 'static,
-    Buf::Output: Send + Sync + 'static,
+    Buf::Output: Octets + Send + Sync + 'static,
     Svc: Service<Buf::Output> + Send + Sync + 'static,
 {
     type State: Clone + Send + Sync + 'static;
@@ -160,7 +175,7 @@ where
     ///
     /// This function consumes the given message buffer and processes the
     /// contained message, if any, to completion, possibly resulting in a
-    /// response being passed to [`handle_final_call_result()`].
+    /// response being passed to [`Self::process_call_result()`].
     ///
     /// The request message is a given as a seqeuence of bytes in `buf`
     /// originating from client address `addr`.
@@ -174,35 +189,52 @@ where
     /// defined by the implementing type.
     ///
     /// On error the result will be a [`ServiceError`].
-    ///
-    /// [`handle_final_call_result()`]: Self::handle_final_call_result()
     fn process_request(
         &self,
-        buf: <Buf as BufSource>::Output,
-        addr: SocketAddr,
+        msg_details: MessageDetails<Buf>,
         state: Self::State,
-        middleware_chain: Option<MiddlewareChain<Buf::Output, Svc::Target>>,
+        middleware_chain: MiddlewareChain<Buf::Output, Svc::Target>,
         svc: &Svc,
         metrics: Arc<ServerMetrics>,
-    ) -> Result<(), ServiceError<Svc::Error>>
+    ) -> Result<(), ServiceError>
     where
-        Svc::Single: Send,
+        Svc::Future: Send,
     {
-        let (frozen_request, pp_res) = self.preprocess_request(
-            buf,
-            addr,
-            middleware_chain.as_ref(),
+        let (request, pp_res) = self.preprocess_request(
+            msg_details,
+            &middleware_chain,
             &metrics,
         )?;
 
         let (txn, aborted_pp_idx) = match pp_res {
             ControlFlow::Continue(()) => {
-                let span = info_span!("svc-call",
-                    msg_id = frozen_request.header().id(),
-                    client = %frozen_request.client_addr(),
-                );
-                let _guard = span.enter();
-                let txn = svc.call(frozen_request.clone())?;
+                let request_for_svc = request.clone();
+
+                let res = if enabled!(Level::INFO) {
+                    let span = info_span!("svc-call",
+                        msg_id = request_for_svc.message().header().id(),
+                        client = %request_for_svc.client_addr(),
+                    );
+                    let _guard = span.enter();
+                    svc.call(request_for_svc)
+                } else {
+                    svc.call(request_for_svc)
+                };
+
+                let request_for_error = &request;
+                let txn = res.unwrap_or_else(|err| {
+                    if matches!(err, ServiceError::InternalError) {
+                        error!(
+                            "Service error while processing request: {err}"
+                        );
+                    }
+
+                    let mut response = start_reply(request_for_error);
+                    response.header_mut().set_rcode(err.rcode());
+                    let call_result = CallResult::new(response.additional());
+                    Transaction::immediate(Ok(call_result))
+                });
+
                 (txn, None)
             }
             ControlFlow::Break((txn, aborted_pp_idx)) => {
@@ -211,7 +243,7 @@ where
         };
 
         self.postprocess_response(
-            frozen_request,
+            request,
             state,
             middleware_chain,
             txn,
@@ -237,33 +269,40 @@ where
     #[allow(clippy::type_complexity)]
     fn preprocess_request(
         &self,
-        buf: <Buf as BufSource>::Output,
-        addr: SocketAddr,
-        middleware_chain: Option<&MiddlewareChain<Buf::Output, Svc::Target>>,
+        msg_details: MessageDetails<Buf>,
+        middleware_chain: &MiddlewareChain<Buf::Output, Svc::Target>,
         metrics: &Arc<ServerMetrics>,
     ) -> Result<
         (
-            Arc<ContextAwareMessage<Message<Buf::Output>>>,
+            Request<Message<Buf::Output>>,
             ControlFlow<(
                 Transaction<
-                    ServiceResultItem<Svc::Target, Svc::Error>,
-                    Svc::Single,
+                    ServiceResultItem<Buf::Output, Svc::Target>,
+                    Svc::Future,
                 >,
                 usize,
             )>,
         ),
-        ServiceError<Svc::Error>,
+        ServiceError,
     >
     where
-        Svc::Single: Send,
+        Svc::Future: Send,
     {
-        let request = Message::from_octets(buf)
-            .map_err(|_| ServiceError::Other("short message".into()))?;
+        let MessageDetails {
+            buf,
+            received_at,
+            addr,
+        } = msg_details;
+        let request = Message::from_octets(buf).map_err(|err| {
+            warn!("Failed while parsing request message: {err}");
+            ServiceError::InternalError
+        })?;
 
-        let mut request = self.add_context_to_request(request, addr);
+        let mut request =
+            self.add_context_to_request(request, received_at, addr);
 
         let span = info_span!("pre-process",
-            msg_id = request.header().id(),
+            msg_id = request.message().header().id(),
             client = %request.client_addr(),
         );
         let _guard = span.enter();
@@ -272,16 +311,9 @@ where
             .num_inflight_requests
             .fetch_add(1, Ordering::Relaxed);
 
-        let pp_res = if let Some(middleware_chain) = middleware_chain {
-            middleware_chain
-                .preprocess::<Svc::Error, Svc::Single>(&mut request)
-        } else {
-            ControlFlow::Continue(())
-        };
+        let pp_res = middleware_chain.preprocess(&mut request);
 
-        let frozen_request = Arc::new(request);
-
-        Ok((frozen_request, pp_res))
+        Ok((request, pp_res))
     }
 
     /// Post-process a response in the context of its originating request.
@@ -293,51 +325,48 @@ where
     /// [`Transaction::single()`].
     ///
     /// Responses are first post-processed by the [`MiddlewareChain`]
-    /// provided, if any, then passed to [`handle_final_call_result()`] for
+    /// provided, if any, then passed to [`Self::process_call_result()`] for
     /// final processing.
-    ///
-    /// [`handle_final_call_result()`]: Self::handle_final_call_result()
     #[allow(clippy::type_complexity)]
     fn postprocess_response(
         &self,
-        msg: Arc<ContextAwareMessage<Message<Buf::Output>>>,
+        request: Request<Message<Buf::Output>>,
         state: Self::State,
-        middleware_chain: Option<MiddlewareChain<Buf::Output, Svc::Target>>,
-        mut txn: Transaction<
-            ServiceResultItem<Svc::Target, Svc::Error>,
-            Svc::Single,
+        middleware_chain: MiddlewareChain<Buf::Output, Svc::Target>,
+        mut response_txn: Transaction<
+            ServiceResultItem<Buf::Output, Svc::Target>,
+            Svc::Future,
         >,
         last_processor_id: Option<usize>,
         metrics: Arc<ServerMetrics>,
     ) where
-        Svc::Single: Send,
+        Svc::Future: Send,
     {
         tokio::spawn(async move {
             let span = info_span!("post-process",
-                msg_id = msg.header().id(),
-                client = %msg.client_addr(),
+                msg_id = request.message().header().id(),
+                client = %request.client_addr(),
             );
             let _guard = span.enter();
 
             // TODO: Handle Err results from txn.next().
-            while let Some(Ok(mut call_result)) = txn.next().await {
-                if let Some(response) = call_result.get_mut() {
-                    if let Some(middleware_chain) = &middleware_chain {
-                        middleware_chain.postprocess(
-                            &msg,
-                            response,
-                            last_processor_id,
-                        );
-                    }
+            while let Some(Ok(mut call_result)) = response_txn.next().await {
+                if let Some(response) = call_result.get_response_mut() {
+                    middleware_chain.postprocess(
+                        &request,
+                        response,
+                        last_processor_id,
+                    );
                 }
 
-                let _ = Self::handle_final_call_result(
+                let call_result = call_result.with_request(request.clone());
+
+                Self::process_call_result(
                     call_result,
-                    msg.client_addr(),
+                    request.client_addr(),
                     state.clone(),
                     metrics.clone(),
-                )
-                .await;
+                );
             }
 
             metrics
@@ -353,8 +382,9 @@ where
     fn add_context_to_request(
         &self,
         request: Message<Buf::Output>,
+        received_at: Instant,
         addr: SocketAddr,
-    ) -> ContextAwareMessage<Message<Buf::Output>>;
+    ) -> Request<Message<Buf::Output>>;
 
     /// Finalize a response.
     ///
@@ -363,10 +393,10 @@ where
     /// originating client.
     ///
     /// The response is the form of a [`CallResult`].
-    fn handle_final_call_result(
-        call_result: CallResult<Svc::Target>,
+    fn process_call_result(
+        call_result: CallResult<Buf::Output, Svc::Target>,
         addr: SocketAddr,
         state: Self::State,
         metrics: Arc<ServerMetrics>,
-    ) -> JoinHandle<()>;
+    );
 }

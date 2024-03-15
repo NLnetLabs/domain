@@ -264,13 +264,17 @@ impl AsyncConnect for ClientServerChannel {
     type Connection = ClientServerChannel;
 
     type Fut = Pin<
-        Box<dyn Future<Output = Result<Self::Connection, io::Error>> + Send>,
+        Box<
+            dyn Future<Output = Result<Self::Connection, io::Error>>
+                + Send
+                + Sync,
+        >,
     >;
 
     fn connect(&self, source_address: Option<SocketAddr>) -> Self::Fut {
         trace!("Connect from {source_address:?}");
         // 127.0.0.1 on any port is the default client source address assumed
-        // by Deckard tests.
+        // by Stelline tests.
         let client_addr = source_address
             .unwrap_or(SocketAddr::new(DEF_CLIENT_ADDR, DEF_CLIENT_PORT));
 
@@ -322,10 +326,10 @@ impl AsyncDgramSend for ClientServerChannel {
             Some(client) => {
                 let msg = Data::DgramRequest(data.into(), client.addr);
 
-                // TODO: Can Deckard scripts mix and match fake responses with
+                // TODO: Can Stelline scripts mix and match fake responses with
                 // responses from a real server? Do we need to first try
                 // invoking do_server() to see if the .rpl script defined a
-                // hard-coded answer for this query (like net::deckard::dgram
+                // hard-coded answer for this query (like net::stelline::dgram
                 // does), before attempting to dispatch it to the configured
                 // server?
 

@@ -14,14 +14,15 @@ use std::time::Duration;
 use std::vec::Vec;
 
 use tokio::io::{AsyncRead, AsyncWrite};
+use tokio::time::sleep;
 use tokio::time::Instant;
 
 use super::buf::BufSource;
-use super::message::ContextAwareMessage;
+use super::message::Request;
 use super::service::CallResult;
 use super::service::Service;
-use super::service::ServiceCommand;
 use super::service::ServiceError;
+use super::service::ServiceFeedback;
 use super::service::ServiceResultItem;
 use super::service::Transaction;
 use super::sock::AsyncAccept;
@@ -138,7 +139,7 @@ impl AsyncRead for MockStream {
 
         let waker = cx.waker().clone();
         tokio::spawn(async move {
-            tokio::time::sleep(Duration::from_millis(500)).await;
+            sleep(Duration::from_millis(500)).await;
             waker.wake();
         });
 
@@ -170,16 +171,22 @@ impl AsyncWrite for MockStream {
     }
 }
 
+struct MockClientConfig {
+    pub new_message_every: Duration,
+    pub messages: VecDeque<Vec<u8>>,
+    pub client_port: u16,
+}
+
 struct MockListener {
     ready: Arc<AtomicBool>,
     last_accept: Mutex<Option<Instant>>,
-    streams_to_read: Mutex<VecDeque<(Duration, VecDeque<Vec<u8>>)>>,
+    streams_to_read: Mutex<VecDeque<MockClientConfig>>,
     new_client_every: Duration,
 }
 
 impl MockListener {
     fn new(
-        streams_to_read: VecDeque<(Duration, VecDeque<Vec<u8>>)>,
+        streams_to_read: VecDeque<MockClientConfig>,
         new_client_every: Duration,
     ) -> Self {
         Self {
@@ -189,7 +196,6 @@ impl MockListener {
             new_client_every,
         }
     }
-
     fn get_ready_flag(&self) -> Arc<AtomicBool> {
         self.ready.clone()
     }
@@ -225,8 +231,11 @@ impl AsyncAccept for MockListener {
                 {
                     let mut streams_to_read =
                         self.streams_to_read.lock().unwrap();
-                    if let Some((new_message_every, messages)) =
-                        streams_to_read.pop_front()
+                    if let Some(MockClientConfig {
+                        new_message_every,
+                        messages,
+                        client_port,
+                    }) = streams_to_read.pop_front()
                     {
                         last_accept.replace(Instant::now());
                         return Poll::Ready(Ok((
@@ -234,7 +243,8 @@ impl AsyncAccept for MockListener {
                                 messages,
                                 new_message_every,
                             ))),
-                            SocketAddr::from_str("192.168.0.1:12345")
+                            format!("192.168.0.1:{}", client_port)
+                                .parse()
                                 .unwrap(),
                         )));
                     } else {
@@ -253,7 +263,7 @@ impl AsyncAccept for MockListener {
 
         let waker = cx.waker().clone();
         tokio::spawn(async move {
-            tokio::time::sleep(Duration::from_millis(100)).await;
+            sleep(Duration::from_millis(100)).await;
             waker.wake();
         });
 
@@ -298,7 +308,7 @@ async fn stop_service_fn_test() {
 struct MySingle;
 
 impl Future for MySingle {
-    type Output = Result<CallResult<Vec<u8>>, ServiceError<()>>;
+    type Output = Result<CallResult<Vec<u8>, Vec<u8>>, ServiceError>;
 
     fn poll(
         self: Pin<&mut Self>,
@@ -307,11 +317,11 @@ impl Future for MySingle {
         let builder = MessageBuilder::new_stream_vec();
         let response = builder.additional();
 
-        let command = ServiceCommand::Reconfigure {
+        let command = ServiceFeedback::Reconfigure {
             idle_timeout: Duration::from_millis(5000),
         };
 
-        let call_result = CallResult::new(response).with_command(command);
+        let call_result = CallResult::new(response).with_feedback(command);
 
         Poll::Ready(Ok(call_result))
     }
@@ -326,19 +336,15 @@ impl MyService {
 }
 
 impl Service<Vec<u8>> for MyService {
-    type Error = ();
     type Target = Vec<u8>;
-    type Single = MySingle;
+    type Future = MySingle;
 
     fn call(
         &self,
-        _msg: Arc<ContextAwareMessage<Message<Vec<u8>>>>,
+        _msg: Request<Message<Vec<u8>>>,
     ) -> Result<
-        Transaction<
-            ServiceResultItem<Self::Target, Self::Error>,
-            Self::Single,
-        >,
-        ServiceError<Self::Error>,
+        Transaction<ServiceResultItem<Vec<u8>, Self::Target>, Self::Future>,
+        ServiceError,
     > {
         Ok(Transaction::single(MySingle))
         // Err(ServiceError::ShuttingDown)
@@ -378,17 +384,27 @@ fn mk_query() -> StreamTarget<Vec<u8>> {
 #[tokio::test(flavor = "current_thread", start_paused = true)]
 async fn stop_service_test() {
     let (srv_handle, server_status_printer_handle) = {
-        let fast_client = (
-            Duration::from_millis(100),
-            VecDeque::from([mk_query().as_stream_slice().to_vec()]),
-        );
-        let slow_client = (
-            Duration::from_millis(3000),
-            VecDeque::from([
+        let fast_client = MockClientConfig {
+            new_message_every: Duration::from_millis(100),
+            messages: VecDeque::from([
+                mk_query().as_stream_slice().to_vec(),
+                mk_query().as_stream_slice().to_vec(),
+                mk_query().as_stream_slice().to_vec(),
                 mk_query().as_stream_slice().to_vec(),
                 mk_query().as_stream_slice().to_vec(),
             ]),
-        );
+            client_port: 1,
+        };
+        let slow_client = MockClientConfig {
+            new_message_every: Duration::from_millis(3000),
+            messages: VecDeque::from([
+                mk_query().as_stream_slice().to_vec(),
+                mk_query().as_stream_slice().to_vec(),
+            ]),
+            client_port: 2,
+        };
+        let num_messages =
+            fast_client.messages.len() + slow_client.messages.len();
         let streams_to_read = VecDeque::from([fast_client, slow_client]);
         let new_client_every = Duration::from_millis(2000);
         let listener = MockListener::new(streams_to_read, new_client_every);
@@ -402,12 +418,14 @@ async fn stop_service_test() {
         let metrics = srv.metrics();
         let server_status_printer_handle = tokio::spawn(async move {
             loop {
-                tokio::time::sleep(Duration::from_millis(250)).await;
+                sleep(Duration::from_millis(250)).await;
                 eprintln!(
-                    "Server status: #conn={:?}, #req={:?}, #writes={:?}",
+                    "Server status: #conn={:?}, #in-flight={}, #pending-writes={}, #msgs-recvd={}, #msgs-sent={}",
                     metrics.num_connections(),
                     metrics.num_inflight_requests(),
-                    metrics.num_pending_writes()
+                    metrics.num_pending_writes(),
+                    metrics.num_received_requests(),
+                    metrics.num_sent_responses(),
                 );
             }
         });
@@ -416,14 +434,14 @@ async fn stop_service_test() {
         let srv_handle = tokio::spawn(async move { spawned_srv.run().await });
 
         eprintln!("Clients sleeping");
-        tokio::time::sleep(Duration::from_millis(1000)).await;
+        sleep(Duration::from_secs(1)).await;
 
         eprintln!("Clients connecting");
         ready_flag.store(true, Ordering::Relaxed);
 
         // Simulate a wait long enough that all simulated clients had time
         // to connect, communicate and disconnect.
-        tokio::time::sleep(Duration::from_millis(15000)).await;
+        sleep(Duration::from_secs(20)).await;
 
         // Verify that all simulated clients connected.
         assert_eq!(0, srv.source().streams_remaining());
@@ -433,6 +451,8 @@ async fn stop_service_test() {
         assert_eq!(srv.metrics().num_connections(), Some(0));
         assert_eq!(srv.metrics().num_inflight_requests(), 0);
         assert_eq!(srv.metrics().num_pending_writes(), 0);
+        assert_eq!(srv.metrics().num_received_requests(), num_messages);
+        assert_eq!(srv.metrics().num_sent_responses(), num_messages);
 
         eprintln!("Shutting down");
         srv.shutdown().unwrap();

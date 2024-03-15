@@ -12,14 +12,19 @@ use crate::{
         Message, Serial, StreamTarget,
     },
     net::server::{
-        message::ContextAwareMessage,
+        message::Request,
         middleware::processor::MiddlewareProcessor,
-        util::mk_builder_for_target,
+        util::{mk_builder_for_target, start_reply},
     },
 };
 
+use crate::net::server::util::add_edns_options;
 use octseq::{Octets, OctetsBuilder};
-use tracing::{debug, enabled, trace, Level};
+use rand::RngCore;
+use tracing::{debug, trace, warn};
+
+const FIVE_MINUTES_AS_SECS: u32 = 5 * 60;
+const ONE_HOUR_AS_SECS: u32 = 60 * 60;
 
 /// A DNS Cookies [`MiddlewareProcessor`].
 ///
@@ -34,7 +39,7 @@ use tracing::{debug, enabled, trace, Level};
 /// [9018]: https://datatracker.ietf.org/doc/html/rfc7873
 /// [`MiddlewareProcessor`]: crate::net::server::middleware::processor::MiddlewareProcessor
 #[derive(Debug)]
-pub struct CookiesMiddlewareProcesor {
+pub struct CookiesMiddlewareProcessor {
     server_secret: [u8; 16],
 
     /// Clients connecting from these IP addresses are exempted from the
@@ -47,7 +52,7 @@ pub struct CookiesMiddlewareProcesor {
     ip_deny_list: Vec<IpAddr>,
 }
 
-impl CookiesMiddlewareProcesor {
+impl CookiesMiddlewareProcessor {
     /// Constructs an instance of this processor.
     #[must_use]
     pub fn new(server_secret: [u8; 16]) -> Self {
@@ -92,7 +97,7 @@ impl CookiesMiddlewareProcesor {
     }
 }
 
-impl CookiesMiddlewareProcesor {
+impl CookiesMiddlewareProcessor {
     /// Get the DNS COOKIE, if any, for the given message.
     ///
     /// https://datatracker.ietf.org/doc/html/rfc7873#section-5.2:
@@ -101,45 +106,51 @@ impl CookiesMiddlewareProcesor {
     ///   first (the one closest to the DNS header) is considered. All others
     ///   are ignored."
     #[must_use]
-    fn cookie<RequestOctets: AsRef<[u8]> + Octets>(
-        request: &ContextAwareMessage<Message<RequestOctets>>,
+    fn cookie<RequestOctets: Octets>(
+        request: &Request<Message<RequestOctets>>,
     ) -> Option<Result<opt::Cookie, ParseError>> {
         // Note: We don't use `opt::Opt::first()` because that will silently
         // ignore an unparseable COOKIE option but we need to detect and
         // handle that case. TODO: Should we warn in some way if the request
         // has more than one COOKIE option?
         request
+            .message()
             .opt()
             .and_then(|opt| opt.opt().iter::<opt::Cookie>().next())
     }
 
     #[must_use]
-    fn timestamp_ok(_serial: Serial) -> bool {
-        // TODO
-        true
+    fn timestamp_ok(serial: Serial) -> bool {
+        // https://www.rfc-editor.org/rfc/rfc9018.html#section-4.3
+        // 4.3. The Timestamp Sub-Field:
+        //   "The Timestamp value prevents Replay Attacks and MUST be checked
+        //    by the server to be within a defined period of time. The DNS
+        //    server SHOULD allow cookies within a 1-hour period in the past
+        //    and a 5-minute period into the future to allow operation of
+        //    low-volume clients and some limited time skew between the DNS
+        //    servers in the anycast set."
+        let now = Serial::now();
+        let too_new_at = now.add(FIVE_MINUTES_AS_SECS);
+        let expires_at = serial.add(ONE_HOUR_AS_SECS);
+        now <= expires_at && serial <= too_new_at
     }
 
     fn response_with_cookie<RequestOctets, Target>(
         &self,
-        request: &ContextAwareMessage<Message<RequestOctets>>,
+        request: &Request<Message<RequestOctets>>,
         rcode: OptRcode,
     ) -> AdditionalBuilder<StreamTarget<Target>>
     where
         RequestOctets: Octets,
         Target: Composer + OctetsBuilder + Default,
     {
+        let builder = start_reply(request);
+
         let cookie = Self::cookie(request).unwrap().unwrap().create_response(
             Serial::now(),
             request.client_addr().ip(),
             &self.server_secret,
         );
-
-        let builder = mk_builder_for_target();
-        // RFC (1035?) compliance - copy question from request to response.
-        let mut builder = builder.question();
-        for rr in request.question() {
-            builder.push(rr.unwrap()).unwrap(); // SAFETY
-        }
 
         // Note: if rcode is non-extended this will also correctly handle
         // setting the rcode in the main message header.
@@ -163,7 +174,7 @@ impl CookiesMiddlewareProcesor {
     #[must_use]
     fn bad_cookie_response<RequestOctets, Target>(
         &self,
-        request: &ContextAwareMessage<Message<RequestOctets>>,
+        request: &Request<Message<RequestOctets>>,
     ) -> AdditionalBuilder<StreamTarget<Target>>
     where
         RequestOctets: Octets,
@@ -186,10 +197,10 @@ impl CookiesMiddlewareProcesor {
     #[must_use]
     fn prefetch_cookie_response<RequestOctets, Target>(
         &self,
-        request: &ContextAwareMessage<Message<RequestOctets>>,
+        request: &Request<Message<RequestOctets>>,
     ) -> AdditionalBuilder<StreamTarget<Target>>
     where
-        RequestOctets: AsRef<[u8]> + Octets,
+        RequestOctets: Octets,
         Target: Composer + OctetsBuilder + Default,
     {
         // https://datatracker.ietf.org/doc/html/rfc7873#section-5.4
@@ -209,7 +220,7 @@ impl CookiesMiddlewareProcesor {
     #[must_use]
     fn ensure_cookie_is_complete<Target: Octets>(
         &self,
-        request: &ContextAwareMessage<Message<Target>>,
+        request: &Request<Message<Target>>,
     ) -> Option<Cookie> {
         if let Some(Ok(cookie)) = Self::cookie(request) {
             let cookie = if cookie.server().is_some() {
@@ -229,28 +240,44 @@ impl CookiesMiddlewareProcesor {
     }
 }
 
+//--- Default
+
+impl Default for CookiesMiddlewareProcessor {
+    /// Constructs an instance of this processor with default configuration.
+    ///
+    /// The processor will use a randomly generated server secret.
+    fn default() -> Self {
+        let mut server_secret = [0u8; 16];
+        rand::thread_rng().fill_bytes(&mut server_secret);
+
+        Self {
+            server_secret,
+            ip_allow_list: Default::default(),
+            ip_deny_list: Default::default(),
+        }
+    }
+}
+
+//--- MiddlewareProcessor
+
 impl<RequestOctets, Target> MiddlewareProcessor<RequestOctets, Target>
-    for CookiesMiddlewareProcesor
+    for CookiesMiddlewareProcessor
 where
-    RequestOctets: AsRef<[u8]> + Octets,
+    RequestOctets: Octets,
     Target: Composer + OctetsBuilder + Default,
 {
     fn preprocess(
         &self,
-        request: &mut ContextAwareMessage<Message<RequestOctets>>,
+        request: &mut Request<Message<RequestOctets>>,
     ) -> ControlFlow<AdditionalBuilder<StreamTarget<Target>>> {
         if self.ip_allow_list.contains(&request.client_addr().ip()) {
-            if enabled!(Level::TRACE) {
-                trace!("Permitting request to flow due to matching IP allow list entry");
-            }
+            trace!("Permitting request to flow due to matching IP allow list entry");
             return ControlFlow::Continue(());
         }
 
         match Self::cookie(request) {
             None => {
-                if enabled!(Level::TRACE) {
-                    trace!("Request does not include DNS cookies");
-                }
+                trace!("Request does not include DNS cookies");
 
                 // https://datatracker.ietf.org/doc/html/rfc7873#section-5.2.1
                 // No OPT RR or No COOKIE Option:
@@ -263,20 +290,18 @@ where
                 // themselves to the server, either with a cookie or by
                 // re-connecting over TCP, so we REFUSE them and reply with
                 // TC=1 to prompt them to reconnect via TCP.
-                if !request.received_over_tcp()
+                if request.transport().is_udp()
                     && self.ip_deny_list.contains(&request.client_addr().ip())
                 {
-                    if enabled!(Level::DEBUG) {
-                        debug!(
-                            "Rejecting cookie-less non-TCP request due to matching IP deny list entry"
-                        );
-                    }
+                    debug!(
+                        "Rejecting cookie-less non-TCP request due to matching IP deny list entry"
+                    );
                     let builder = mk_builder_for_target();
                     let mut additional = builder.additional();
                     additional.header_mut().set_rcode(Rcode::Refused);
                     additional.header_mut().set_tc(true);
                     return ControlFlow::Break(additional);
-                } else if enabled!(Level::TRACE) {
+                } else {
                     trace!("Permitting cookie-less request to flow due to use of TCP transport");
                 }
             }
@@ -300,9 +325,7 @@ where
                 // NOTE: The RFC doesn't say that we should send our server
                 // cookie back with the response, so we don't do that here
                 // unlike in the other cases where we respond early.
-                if enabled!(Level::DEBUG) {
-                    debug!("Received malformed DNS cookie: {err}");
-                }
+                debug!("Received malformed DNS cookie: {err}");
                 let mut builder = mk_builder_for_target();
                 builder.header_mut().set_rcode(Rcode::FormErr);
                 return ControlFlow::Break(builder.additional());
@@ -380,36 +403,30 @@ where
                     // TODO: Does the TCP check also apply to RFC 7873 section
                     // 5.4 "Querying for a Server Cookie" too?
 
-                    if request.header_counts().qdcount() == 0 {
+                    if request.message().header_counts().qdcount() == 0 {
                         let additional = if !server_cookie_exists {
                             // "If such a query provided just a Client Cookie
                             // and no Server Cookie, the response SHALL have
                             // the RCODE NOERROR."
-                            if enabled!(Level::TRACE) {
-                                trace!(
-                                    "Replying to DNS cookie pre-fetch request with missing server cookie");
-                            }
+                            trace!(
+                                "Replying to DNS cookie pre-fetch request with missing server cookie");
                             self.prefetch_cookie_response(request)
                         } else {
                             // "In this case, the response SHALL have the
                             // RCODE BADCOOKIE if the Server Cookie sent with
                             // the query was invalid"
-                            if enabled!(Level::DEBUG) {
-                                debug!(
+                            debug!(
                                     "Rejecting pre-fetch request due to invalid server cookie");
-                            }
                             self.bad_cookie_response(request)
                         };
                         return ControlFlow::Break(additional);
-                    } else if !request.received_over_tcp() {
+                    } else if request.transport().is_udp() {
                         let additional = self.bad_cookie_response(request);
-                        if enabled!(Level::DEBUG) {
-                            debug!(
+                        debug!(
                                 "Rejecting non-TCP request due to invalid server cookie");
-                        }
                         return ControlFlow::Break(additional);
                     }
-                } else if request.header_counts().qdcount() == 0 {
+                } else if request.message().header_counts().qdcount() == 0 {
                     // https://datatracker.ietf.org/doc/html/rfc7873#section-5.4
                     // Querying for a Server Cookie:
                     //   "This mechanism can also be used to
@@ -422,28 +439,24 @@ where
 
                     // TODO: Does the TCP check also apply to RFC 7873 section
                     // 5.4 "Querying for a Server Cookie" too?
-                    if enabled!(Level::TRACE) {
-                        trace!(
+                    trace!(
                             "Replying to DNS cookie pre-fetch request with valid server cookie");
-                    }
                     let additional = self.prefetch_cookie_response(request);
                     return ControlFlow::Break(additional);
-                } else if enabled!(Level::TRACE) {
+                } else {
                     trace!("Request has a valid DNS cookie");
                 }
             }
         }
 
-        if enabled!(Level::TRACE) {
-            trace!("Permitting request to flow");
-        }
+        trace!("Permitting request to flow");
 
         ControlFlow::Continue(())
     }
 
     fn postprocess(
         &self,
-        request: &ContextAwareMessage<Message<RequestOctets>>,
+        request: &Request<Message<RequestOctets>>,
         response: &mut AdditionalBuilder<StreamTarget<Target>>,
     ) {
         // https://datatracker.ietf.org/doc/html/rfc7873#section-5.2.1
@@ -478,11 +491,11 @@ where
             //   option from the request or (b) generating a new COOKIE option
             //   containing both the Client Cookie copied from the request and
             //   a valid Server Cookie it has generated."
-
-            // TODO: Do we need to replace all COOKIE options rather than
-            // append another one (which, if not the first, should be ignored
-            // by the client) ?
-            response.opt(|opt| opt.cookie(filled_cookie)).unwrap();
+            if let Err(err) = add_edns_options(response, |builder| {
+                builder.push(&filled_cookie)
+            }) {
+                warn!("Cannot add RFC 7873 DNS Cookie option to response: {err}");
+            }
         }
     }
 }

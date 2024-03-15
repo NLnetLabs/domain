@@ -1,26 +1,23 @@
 //! Small utilities for building and working with servers.
-use std::boxed::Box;
-use std::fmt::Debug;
-use std::future::Future;
-use std::pin::Pin;
 use std::string::String;
 use std::string::ToString;
-use std::sync::Arc;
 
-use octseq::FreezeBuilder;
 use octseq::Octets;
 use octseq::OctetsBuilder;
+use tracing::warn;
 
-use crate::base::MessageBuilder;
-use crate::base::StreamTarget;
+use crate::base::message_builder::{AdditionalBuilder, PushError};
+use crate::base::message_builder::{OptBuilder, QuestionBuilder};
+use crate::base::opt::UnknownOptData;
 use crate::base::{wire::Composer, Message};
+use crate::base::{MessageBuilder, Rtype};
+use crate::base::{ParsedDname, StreamTarget};
 
-use super::service::ServiceError;
-use super::service::Transaction;
 use super::{
-    message::ContextAwareMessage,
+    message::Request,
     service::{Service, ServiceResult, ServiceResultItem},
 };
+use crate::rdata::AllRecordData;
 
 //----------- mk_builder_for_target() ----------------------------------------
 
@@ -35,7 +32,7 @@ where
     MessageBuilder::from_target(target).unwrap() // SAFETY
 }
 
-//------------ mk_service() --------------------------------------------------
+//------------ service_fn() --------------------------------------------------
 
 /// Helper to simplify making a [`Service`] impl.
 ///
@@ -43,11 +40,9 @@ where
 /// those of its associated types, but this makes implementing it for simple
 /// cases quite verbose.
 ///
-/// `mk_service()` and associated helpers [`MkServiceRequest`],
-/// [`MkServiceResult`] and [`mk_builder_for_target()`] enable you to write a
-/// simpler function definition that implements the [`Service`] trait than if
-/// you were to attempt to impl [`Service`] directly, at the cost of requiring
-/// that you [`Box::pin()`] the returned [`Future`].
+/// `service_fn()` enables you to write a slightly simpler function definition
+/// that implements the [`Service`] trait than implementing [`Service`]
+/// directly.
 ///
 /// # Example
 ///
@@ -57,93 +52,69 @@ where
 ///
 /// ```
 /// // Import the types we need.
+/// use std::future::Future;
 /// use domain::net::server::prelude::*;
 /// use domain::base::iana::Rcode;
 ///
 /// // Define some types to make the example easier to read.
-/// type MyError = ();
 /// type MyMeta = ();
 ///
 /// // Implement the business logic of our service.
+/// // Takes the received DNS request and any additional meta data you wish to
+/// // provide, and returns one or more future DNS responses.
 /// fn my_service(
-///     req: MkServiceRequest<Vec<u8>>,      // The received DNS request
-///     _meta: MyMeta,                       // Any additional data you want to pass in
-/// ) -> MkServiceResult<Vec<u8>, MyError> { // The resulting DNS response(s)
+///     req: Request<Message<Vec<u8>>>,
+///     _meta: MyMeta,
+/// ) -> ServiceResult<Vec<u8>, Vec<u8>, impl Future<Output = ServiceResultItem<Vec<u8>, Vec<u8>>>> {
 ///     // For each request create a single response:
 ///     Ok(Transaction::single(Box::pin(async move {
 ///         let builder = mk_builder_for_target();
-///         let answer = builder.start_answer(&req, Rcode::NXDomain)?;
+///         let answer = builder.start_answer(req.message(), Rcode::NXDomain)?;
 ///         Ok(CallResult::new(answer.additional()))
 ///     })))
 /// }
 ///
 /// // Turn my_service() into an actual Service trait impl.
-/// let service = mk_service(my_service, MyMeta::default());
+/// let service = service_fn(my_service, MyMeta::default());
 /// ```
 ///
 /// Above we see the outline of what we need to do:
-/// - Define a function that implements our request handling logic for our service.
-/// - Call [`mk_service()`] to wrap it in an actual [`Service`] impl.
+/// - Define a function that implements our request handling logic for our
+///   service.
+/// - Call [`service_fn()`] to wrap it in an actual [`Service`] impl.
 ///
 /// [`Vec<u8>`]: std::vec::Vec<u8>
 /// [`CallResult`]: crate::net::server::service::CallResult
 /// [`Result::Ok()`]: std::result::Result::Ok
-pub fn mk_service<RequestOctets, Target, Error, Single, T, Metadata>(
+pub fn service_fn<RequestOctets, Target, Future, T, Metadata>(
     msg_handler: T,
     metadata: Metadata,
-) -> impl Service<RequestOctets, Error = Error, Target = Target, Single = Single>
-       + Clone
+) -> impl Service<RequestOctets, Target = Target, Future = Future> + Clone
 where
     RequestOctets: AsRef<[u8]>,
     Target: Composer + Default + Send + Sync + 'static,
-    Error: Send + Sync + 'static,
-    Single: Future<Output = ServiceResultItem<Target, Error>> + Send,
+    Future: std::future::Future<Output = ServiceResultItem<RequestOctets, Target>>
+        + Send,
     Metadata: Clone,
     T: Fn(
-            Arc<ContextAwareMessage<Message<RequestOctets>>>,
+            Request<Message<RequestOctets>>,
             Metadata,
-        ) -> ServiceResult<Target, Error, Single>
+        ) -> ServiceResult<RequestOctets, Target, Future>
         + Clone,
 {
     move |msg| msg_handler(msg, metadata.clone())
 }
 
-//----------- MkServiceResult ------------------------------------------------
-
-/// The result of a [`Service`] created by [`mk_service()`].
-pub type MkServiceResult<Target, Error> = Result<
-    Transaction<
-        ServiceResultItem<Target, Error>,
-        Pin<
-            Box<dyn Future<Output = ServiceResultItem<Target, Error>> + Send>,
-        >,
-    >,
-    ServiceError<Error>,
->;
-
-//----------- MkServiceRequest -------------------------------------------------
-
-/// The input to a [`Service`] created by [`mk_service()`].
-pub type MkServiceRequest<RequestOctets> =
-    Arc<ContextAwareMessage<Message<RequestOctets>>>;
-
-//----------- MkServiceTarget --------------------------------------------------
-
-/// Helper trait to simplify specifying [`Service`] impl trait bounds.
-pub trait MkServiceTarget<Target>:
-    Composer + Octets + FreezeBuilder<Octets = Target> + Default
-{
-}
-
-impl<Target> MkServiceTarget<Target> for Target
-where
-    Target: Composer + Octets + FreezeBuilder<Octets = Target> + Default,
-    Target::AppendError: Debug,
-{
-}
-
 //----------- to_pcap_text() -------------------------------------------------
 
+/// Create a string of hex encoded bytes representing the given byte sequence.
+///
+/// The created string is compatible with the Wireshark text2pcap tool and the
+/// Wireshark "File -> Import from hex dump" feature.
+///
+/// When converting/importing, select Ethernet encapsulation with a dummy UDP
+/// header with destination port 53. Wireshark should then automatically
+/// interpret the bytes as DNS messages.
 pub(crate) fn to_pcap_text<T: AsRef<[u8]>>(
     bytes: T,
     num_bytes: usize,
@@ -163,4 +134,101 @@ pub(crate) fn to_pcap_text<T: AsRef<[u8]>>(
         }
     }
     formatted
+}
+
+//----------- start_reply ----------------------------------------------------
+
+pub fn start_reply<RequestOctets, Target>(
+    request: &Request<Message<RequestOctets>>,
+) -> QuestionBuilder<StreamTarget<Target>>
+where
+    RequestOctets: Octets,
+    Target: Composer + OctetsBuilder + Default,
+{
+    let builder = mk_builder_for_target();
+
+    // RFC (1035?) compliance - copy question from request to response.
+    let mut builder = builder.question();
+    for rr in request.message().question() {
+        match rr {
+            Ok(rr) => {
+                if let Err(err) = builder.push(rr) {
+                    warn!("Internal error while copying question RR to the resposne: {err}");
+                }
+            }
+            Err(err) => {
+                warn!(
+                    "Parse error while copying question RR to the resposne: {err} [RR: {rr:?}]"
+                );
+            }
+        }
+    }
+
+    builder
+}
+
+//----------- add_edns_option ------------------------------------------------
+
+// TODO: This is not ideal as it has to copy the current response temporarily
+// in the case that the response already has at least one record in the
+// additional section. An alternate approach might be something like
+// `ComposeReply` based on `ComposeRequest` which would delay response
+// building until the complete set of differences to a base response are
+// known. Or a completely different builder approach that can edit a partially
+// built message.
+pub fn add_edns_options<F, Target>(
+    response: &mut AdditionalBuilder<StreamTarget<Target>>,
+    op: F,
+) -> Result<(), PushError>
+where
+    F: FnOnce(
+        &mut OptBuilder<StreamTarget<Target>>,
+    ) -> Result<
+        (),
+        <StreamTarget<Target> as OctetsBuilder>::AppendError,
+    >,
+    Target: Composer,
+{
+    if response.counts().arcount() > 0 {
+        // Make a copy of the response
+        let copied_response = response.as_slice().to_vec();
+        let copied_response = Message::from_octets(&copied_response).unwrap();
+
+        if let Some(current_opt) = copied_response.opt() {
+            // Discard the current records in the additional section of the
+            // response.
+            response.rewind();
+
+            // Copy the non-OPT records from the copied response to the
+            // current response.
+            if let Ok(current_additional) = copied_response.additional() {
+                for rr in current_additional.flatten() {
+                    if rr.rtype() != Rtype::Opt {
+                        if let Ok(Some(rr)) = rr
+                            .into_record::<AllRecordData<_, ParsedDname<_>>>()
+                        {
+                            response.push(rr)?;
+                        }
+                    }
+                }
+            }
+
+            // Build a new OPT record in the current response, consisting of
+            // the options within the existing OPT record plus the new options
+            // that we want to add.
+            let res = response.opt(|builder| {
+                for opt in
+                    current_opt.opt().iter::<UnknownOptData<_>>().flatten()
+                {
+                    builder.push(&opt)?;
+                }
+                op(builder)
+            });
+
+            return res;
+        }
+    }
+
+    // No existing OPT record in the additional section so build a new one.
+    response.opt(op)
 }

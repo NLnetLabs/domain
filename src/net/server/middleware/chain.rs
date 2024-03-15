@@ -1,12 +1,11 @@
 //! Chaining [`MiddlewareProcessor`]s together.
-use std::boxed::Box;
-use std::future::Future;
+use std::fmt::Debug;
 use std::sync::Arc;
 use std::vec::Vec;
 
 use crate::base::wire::Composer;
 use crate::base::{Message, StreamTarget};
-use crate::net::server::message::ContextAwareMessage;
+use crate::net::server::message::Request;
 use crate::net::server::service::{
     CallResult, ServiceResultItem, Transaction,
 };
@@ -26,6 +25,7 @@ use core::ops::{ControlFlow, RangeTo};
 ///
 /// A [`MiddlewareChain`] is immutable. Requests should not be post-processed
 /// by a different or modified chain than they were pre-processed by.
+#[derive(Default)]
 pub struct MiddlewareChain<RequestOctets, Target>
 where
     RequestOctets: AsRef<[u8]>,
@@ -33,7 +33,7 @@ where
 {
     processors: Arc<
         Vec<
-            Box<dyn MiddlewareProcessor<RequestOctets, Target> + Sync + Send>,
+            Arc<dyn MiddlewareProcessor<RequestOctets, Target> + Sync + Send>,
         >,
     >,
 }
@@ -66,7 +66,7 @@ where
     #[must_use]
     pub fn new(
         processors: Vec<
-            Box<dyn MiddlewareProcessor<RequestOctets, Target> + Send + Sync>,
+            Arc<dyn MiddlewareProcessor<RequestOctets, Target> + Send + Sync>,
         >,
     ) -> MiddlewareChain<RequestOctets, Target> {
         Self {
@@ -102,16 +102,17 @@ where
     /// put pre-processors which protect the server against doing too much
     /// work as early in the chain as possible.
     #[allow(clippy::type_complexity)]
-    pub fn preprocess<Error, Single>(
+    pub fn preprocess<Future>(
         &self,
-        request: &mut ContextAwareMessage<Message<RequestOctets>>,
+        request: &mut Request<Message<RequestOctets>>,
     ) -> ControlFlow<(
-        Transaction<ServiceResultItem<Target, Error>, Single>,
+        Transaction<ServiceResultItem<RequestOctets, Target>, Future>,
         usize,
     )>
     where
-        Error: Send + 'static,
-        Single: Future<Output = ServiceResultItem<Target, Error>> + Send,
+        Future: std::future::Future<
+                Output = ServiceResultItem<RequestOctets, Target>,
+            > + Send,
     {
         for (i, p) in self.processors.iter().enumerate() {
             match p.preprocess(request) {
@@ -150,7 +151,7 @@ where
     /// further down the chain will not be invoked.
     pub fn postprocess(
         &self,
-        request: &ContextAwareMessage<Message<RequestOctets>>,
+        request: &Request<Message<RequestOctets>>,
         response: &mut AdditionalBuilder<StreamTarget<Target>>,
         last_processor_idx: Option<usize>,
     ) {
@@ -166,6 +167,8 @@ where
     }
 }
 
+//--- Clone
+
 impl<RequestOctets, Target> Clone for MiddlewareChain<RequestOctets, Target>
 where
     RequestOctets: AsRef<[u8]>,
@@ -175,5 +178,19 @@ where
         Self {
             processors: self.processors.clone(),
         }
+    }
+}
+
+//--- Debug
+
+impl<RequestOctets, Target> Debug for MiddlewareChain<RequestOctets, Target>
+where
+    RequestOctets: AsRef<[u8]>,
+    Target: Composer + Default,
+{
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("MiddlewareChain")
+            .field("processors", &self.processors.len())
+            .finish()
     }
 }

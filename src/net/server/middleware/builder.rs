@@ -1,13 +1,20 @@
 //! Middleware builders.
-use std::{boxed::Box, vec::Vec};
+use std::sync::Arc;
+use std::vec::Vec;
 
 use octseq::Octets;
 
 use crate::base::wire::Composer;
 
+#[cfg(feature = "siphasher")]
+use super::processors::cookies::CookiesMiddlewareProcessor;
 use super::{
-    chain::MiddlewareChain, processor::MiddlewareProcessor,
-    processors::mandatory::MandatoryMiddlewareProcessor,
+    chain::MiddlewareChain,
+    processor::MiddlewareProcessor,
+    processors::{
+        edns::EdnsMiddlewareProcessor,
+        mandatory::MandatoryMiddlewareProcessor,
+    },
 };
 
 /// A [`MiddlewareChain`] builder.
@@ -16,57 +23,114 @@ use super::{
 /// [`MiddlewareProcessor`] at a time.
 ///
 /// This builder allows you to add [`MiddlewareProcessor`]s sequentially using
-/// [`push()`] before finally calling [`finish()`] to turn the builder into an
+/// [`push()`] before finally calling [`build()`] to turn the builder into an
 /// immutable [`MiddlewareChain`].
 ///
 /// [`push()`]: Self::push()
-/// [`finish()`]: Self::finish()
+/// [`build()`]: Self::build()
 pub struct MiddlewareBuilder<RequestOctets = Vec<u8>, Target = Vec<u8>>
 where
-    RequestOctets: AsRef<[u8]>,
+    RequestOctets: Octets,
     Target: Composer + Default,
 {
     processors: Vec<
-        Box<dyn MiddlewareProcessor<RequestOctets, Target> + Sync + Send>,
+        Arc<
+            dyn MiddlewareProcessor<RequestOctets, Target>
+                + Send
+                + Sync
+                + 'static,
+        >,
     >,
 }
 
 impl<RequestOctets, Target> MiddlewareBuilder<RequestOctets, Target>
 where
-    RequestOctets: AsRef<[u8]>,
+    RequestOctets: Octets,
     Target: Composer + Default,
 {
-    /// Create a new builder.
+    /// Create a new empty builder.
     ///
     /// <div class="warning">Warning:
     ///
     /// When building a standards compliant DNS server you should probably use
-    /// [`MiddlewareBuilder::default()`] instead.
+    /// [`MiddlewareBuilder::minimal()`] or [`MiddlewareBuilder::modern()`]
+    /// instead.
     /// </div>
     ///
-    /// [`MiddlewareBuilder::default()`]: Self::default()
+    /// [`MiddlewareBuilder::minimal()`]: Self::minimal()
+    /// [`MiddlewareBuilder::modern()`]: Self::modern()
     #[must_use]
     pub fn new() -> Self {
         Self { processors: vec![] }
+    }
+
+    /// Creates a new builder pre-populated with "minimal" middleware
+    /// processors.
+    ///
+    /// The default configuration pre-populates the builder with a
+    /// [`MandatoryMiddlewareProcessor`] in the chain.
+    ///
+    /// This is the minimum most normal DNS servers probably need to comply
+    /// with applicable RFC standards for DNS servers, only special cases like
+    /// testing and research may want a chain that doesn't start with the
+    /// mandatory processor.
+    #[must_use]
+    pub fn minimal() -> Self {
+        let mut builder = Self::new();
+        builder.push(MandatoryMiddlewareProcessor::default().into());
+        builder
+    }
+
+    /// Creates a new builder pre-populated with "modern" middleware
+    /// processors.
+    ///
+    /// The constructed builder will be pre-populated with the following
+    /// [`MiddlewareProcessor`]s in their [`Default`] configuration.
+    ///
+    /// - [`MandatoryMiddlewareProcessor`]
+    /// - [`EdnsMiddlewareProcessor`]
+    /// - [`CookiesMiddlewareProcessor`] _(only if crate feature [`siphasher"]
+    ///   is enabled)_
+    #[must_use]
+    pub fn modern() -> Self {
+        let mut builder = Self::new();
+        builder.push(MandatoryMiddlewareProcessor::default().into());
+        builder.push(EdnsMiddlewareProcessor::default().into());
+        #[cfg(feature = "siphasher")]
+        builder.push(CookiesMiddlewareProcessor::default().into());
+        builder
     }
 
     /// Add a [`MiddlewareProcessor`] to the end of the chain.
     ///
     /// Processors later in the chain pre-process requests after, and
     /// post-process responses before, than processors earlier in the chain.
-    pub fn push<T>(&mut self, processor: T)
+    pub fn push<T>(&mut self, processor: Arc<T>)
     where
-        T: MiddlewareProcessor<RequestOctets, Target> + Sync + Send + 'static,
+        T: MiddlewareProcessor<RequestOctets, Target> + Send + Sync + 'static,
     {
-        self.processors.push(Box::new(processor));
+        self.processors.push(processor);
+    }
+
+    /// Add a [`MiddlewareProcessor`] to the start of the chain.
+    ///
+    /// Processors later in the chain pre-process requests after, and
+    /// post-process responses before, processors earlier in the chain.
+    pub fn push_front<T>(&mut self, processor: Arc<T>)
+    where
+        T: MiddlewareProcessor<RequestOctets, Target> + Send + Sync + 'static,
+    {
+        self.processors.insert(0, processor);
     }
 
     /// Turn the builder into an immutable [`MiddlewareChain`].
     #[must_use]
-    pub fn finish(self) -> MiddlewareChain<RequestOctets, Target> {
+    pub fn build(self) -> MiddlewareChain<RequestOctets, Target> {
         MiddlewareChain::new(self.processors)
     }
 }
+
+//--- Default
 
 impl<RequestOctets, Target> Default
     for MiddlewareBuilder<RequestOctets, Target>
@@ -74,21 +138,10 @@ where
     RequestOctets: AsRef<[u8]> + Octets,
     Target: Composer + Default,
 {
-    /// Create a builder with default configuration.
+    /// Create a middleware builder with default, aka "modern", processors.
     ///
-    /// The default configuration pre-populates the builder with an initial
-    /// [`MandatoryMiddlewareProcessor`] in the chain.
-    ///
-    /// This is the default because most normal DNS servers probably need to
-    /// comply with applicable RFC standards for DNS servers, only special
-    /// cases like testing and research may want a chain that doesn't start
-    /// with the mandatory processor.
-    ///
-    /// [`MandatoryMiddlewareProcessor`]: crate::net::server::middleware::processors::mandatory::MandatoryMiddlewareProcessor
-    #[must_use]
+    /// See [`Self::modern()`].
     fn default() -> Self {
-        let mut builder = Self::new();
-        builder.push(MandatoryMiddlewareProcessor::new());
-        builder
+        Self::modern()
     }
 }

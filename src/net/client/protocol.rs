@@ -9,7 +9,7 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use std::task::{Context, Poll};
 use tokio::io::ReadBuf;
-use tokio::net::{TcpStream, ToSocketAddrs, UdpSocket};
+use tokio::net::{TcpStream, UdpSocket};
 use tokio_rustls::client::TlsStream;
 use tokio_rustls::rustls::{ClientConfig, ServerName};
 use tokio_rustls::TlsConnector;
@@ -27,7 +27,9 @@ pub trait AsyncConnect {
     type Connection;
 
     /// The future establishing the connection.
-    type Fut: Future<Output = Result<Self::Connection, io::Error>> + Send;
+    type Fut: Future<Output = Result<Self::Connection, io::Error>>
+        + Send
+        + Sync;
 
     /// Returns a future that establishing a connection.
     fn connect(&self, source_address: Option<SocketAddr>) -> Self::Fut;
@@ -37,34 +39,32 @@ pub trait AsyncConnect {
 
 /// Create new TCP connections.
 #[derive(Clone, Copy, Debug)]
-pub struct TcpConnect<Addr> {
+pub struct TcpConnect {
     /// Remote address to connect to.
-    addr: Addr,
+    addr: SocketAddr,
 }
 
-impl<Addr> TcpConnect<Addr> {
+impl TcpConnect {
     /// Create new TCP connections.
     ///
     /// addr is the destination address to connect to.
-    pub fn new(addr: Addr) -> Self {
+    pub fn new(addr: SocketAddr) -> Self {
         Self { addr }
     }
 }
 
-impl<Addr> AsyncConnect for TcpConnect<Addr>
-where
-    Addr: ToSocketAddrs + Clone + Send + 'static,
-{
+impl AsyncConnect for TcpConnect {
     type Connection = TcpStream;
     type Fut = Pin<
         Box<
             dyn Future<Output = Result<Self::Connection, std::io::Error>>
-                + Send,
+                + Send
+                + Sync,
         >,
     >;
 
     fn connect(&self, _source_address: Option<SocketAddr>) -> Self::Fut {
-        Box::pin(TcpStream::connect(self.addr.clone()))
+        Box::pin(TcpStream::connect(self.addr))
     }
 }
 
@@ -72,7 +72,7 @@ where
 
 /// Create new TLS connections
 #[derive(Clone, Debug)]
-pub struct TlsConnect<Addr> {
+pub struct TlsConnect {
     /// Configuration for setting up a TLS connection.
     client_config: Arc<ClientConfig>,
 
@@ -80,15 +80,15 @@ pub struct TlsConnect<Addr> {
     server_name: ServerName,
 
     /// Remote address to connect to.
-    addr: Addr,
+    addr: SocketAddr,
 }
 
-impl<Addr> TlsConnect<Addr> {
+impl TlsConnect {
     /// Function to create a new TLS connection stream
     pub fn new(
         client_config: impl Into<Arc<ClientConfig>>,
         server_name: ServerName,
-        addr: Addr,
+        addr: SocketAddr,
     ) -> Self {
         Self {
             client_config: client_config.into(),
@@ -98,23 +98,21 @@ impl<Addr> TlsConnect<Addr> {
     }
 }
 
-impl<Addr> AsyncConnect for TlsConnect<Addr>
-where
-    Addr: ToSocketAddrs + Clone + Send + 'static,
-{
+impl AsyncConnect for TlsConnect {
     type Connection = TlsStream<TcpStream>;
     type Fut = Pin<
         Box<
             dyn Future<Output = Result<Self::Connection, std::io::Error>>
-                + Send,
+                + Send
+                + Sync,
         >,
     >;
 
     fn connect(&self, _source_address: Option<SocketAddr>) -> Self::Fut {
         let tls_connection = TlsConnector::from(self.client_config.clone());
         let server_name = self.server_name.clone();
-        let addr = self.addr.clone();
-        Box::pin(async {
+        let addr = self.addr;
+        Box::pin(async move {
             let box_connection = Box::new(tls_connection);
             let tcp = TcpStream::connect(addr).await?;
             box_connection.connect(server_name, tcp).await
@@ -169,7 +167,8 @@ impl AsyncConnect for UdpConnect {
     type Fut = Pin<
         Box<
             dyn Future<Output = Result<Self::Connection, std::io::Error>>
-                + Send,
+                + Send
+                + Sync,
         >,
     >;
 

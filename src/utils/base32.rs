@@ -519,7 +519,6 @@ const ENCODE_HEX_ALPHABET: [char; 32] = [
 #[cfg(feature = "std")]
 mod test {
     use super::*;
-    use std::string::String;
 
     #[test]
     #[cfg(feature = "bytes")]

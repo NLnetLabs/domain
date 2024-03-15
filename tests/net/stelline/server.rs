@@ -1,11 +1,12 @@
 use std::fmt::Debug;
 
-use crate::net::deckard::client::CurrStepValue;
-use crate::net::deckard::matches::match_msg;
-use crate::net::deckard::parse_deckard;
-use crate::net::deckard::parse_deckard::{Adjust, Deckard, Reply};
-use crate::net::deckard::parse_query;
+use crate::net::stelline::client::CurrStepValue;
+use crate::net::stelline::matches::match_msg;
+use crate::net::stelline::parse_query;
+use crate::net::stelline::parse_stelline;
+use crate::net::stelline::parse_stelline::{Adjust, Reply, Stelline};
 use domain::base::iana::rcode::Rcode;
+use domain::base::iana::Opcode;
 use domain::base::message_builder::AdditionalBuilder;
 use domain::base::wire::Composer;
 use domain::base::{Message, MessageBuilder};
@@ -15,7 +16,7 @@ use octseq::{OctetsBuilder, Truncate};
 
 pub fn do_server<'a, Oct, Target>(
     msg: &'a Message<Oct>,
-    deckard: &Deckard,
+    stelline: &Stelline,
     step_value: &CurrStepValue,
 ) -> Option<AdditionalBuilder<Target>>
 where
@@ -24,7 +25,7 @@ where
     Target: Composer + Default + OctetsBuilder + Truncate,
     <Target as OctetsBuilder>::AppendError: Debug,
 {
-    let ranges = &deckard.scenario.ranges;
+    let ranges = &stelline.scenario.ranges;
     let step = step_value.get();
     for range in ranges {
         if step < range.start_value || step > range.end_value {
@@ -38,11 +39,12 @@ where
             return Some(reply);
         }
     }
+    println!("do_server: no reply at step value {step}");
     todo!();
 }
 
 fn do_adjust<Octs, Target>(
-    entry: &parse_deckard::Entry,
+    entry: &parse_stelline::Entry,
     reqmsg: &Message<Octs>,
 ) -> AdditionalBuilder<Target>
 where
@@ -90,45 +92,42 @@ where
         msg.push(rec).unwrap();
     }
     let mut msg = msg.additional();
-    for _a in &sections.additional.zone_entries {
-        todo!();
+    for a in &sections.additional.zone_entries {
+        let rec = if let ZonefileEntry::Record(record) = a {
+            record
+        } else {
+            panic!("include not expected")
+        };
+        msg.push(rec).unwrap();
     }
     let reply: Reply = match &entry.reply {
         Some(reply) => reply.clone(),
         None => Default::default(),
     };
-    if reply.aa {
-        msg.header_mut().set_aa(true);
-    }
-    if reply.ad {
-        todo!()
-    }
-    if reply.cd {
-        todo!()
-    }
+    let header = msg.header_mut();
+    header.set_aa(reply.aa);
+    header.set_ad(reply.ad);
+    header.set_cd(reply.cd);
     if reply.fl_do {
         todo!()
     }
     if reply.formerr {
-        todo!()
+        header.set_rcode(Rcode::FormErr);
     }
     if reply.noerror {
-        msg.header_mut().set_rcode(Rcode::NoError);
+        header.set_rcode(Rcode::NoError);
+    }
+    if reply.notimp {
+        header.set_rcode(Rcode::NotImp);
     }
     if reply.nxdomain {
-        todo!()
+        header.set_rcode(Rcode::NXDomain);
     }
-    if reply.qr {
-        msg.header_mut().set_qr(true);
-    }
-    if reply.ra {
-        todo!()
-    }
-    if reply.rd {
-        msg.header_mut().set_rd(true);
-    }
+    header.set_qr(reply.qr);
+    header.set_ra(reply.ra);
+    header.set_rd(reply.rd);
     if reply.refused {
-        todo!()
+        header.set_rcode(Rcode::Refused);
     }
     if reply.servfail {
         todo!()
@@ -139,8 +138,11 @@ where
     if reply.yxdomain {
         todo!()
     }
+    if reply.notify {
+        header.set_opcode(Opcode::Notify);
+    }
     if adjust.copy_id {
-        msg.header_mut().set_id(reqmsg.header().id());
+        header.set_id(reqmsg.header().id());
     } else {
         todo!();
     }

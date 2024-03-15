@@ -122,7 +122,7 @@
 //! ## Dynamic reconfiguration
 //!
 //! Servers in principle support the ability to dynamically reconfigure
-//! themselves in response to [`ServiceCommand::Reconfigure`] while running,
+//! themselves in response to [`ServerCommand::Reconfigure`] while running,
 //! though the actual degree of support for this is server implementation
 //! dependent.
 //!
@@ -189,7 +189,7 @@
 //! [`MiddlewareProcessor`]: middleware::processor::MiddlewareProcessor
 //! [`Service`]: service::Service
 //! [`Service::call()`]: service::Service::call()
-//! [`ServiceCommand::Reconfigure`]: service::ServiceCommand::Reconfigure
+//! [`ServerCommand::Reconfigure`]: service::ServerCommand::Reconfigure
 //! [`StreamServer`]: stream::StreamServer
 //! [`TcpServer`]: stream::TcpServer
 //! [`UdpServer`]: dgram::UdpServer
@@ -204,13 +204,12 @@
 //! [`tokio::net::UdpSocket`]:
 //!     https://docs.rs/tokio/latest/tokio/net/struct.UdpSocket.html
 
-// TODO: Re-read https://datatracker.ietf.org/doc/html/rfc9210.
-
 #![cfg(feature = "unstable-server-transport")]
 #![cfg_attr(docsrs, doc(cfg(feature = "unstable-server-transport")))]
 // #![warn(missing_docs)]
 
 mod connection;
+pub use connection::Config as ConnectionConfig;
 
 pub mod buf;
 pub mod dgram;
@@ -235,18 +234,16 @@ pub mod prelude {
     pub use crate::dep::octseq::FreezeBuilder;
     pub use crate::dep::octseq::Octets;
     pub use crate::dep::octseq::OctetsBuilder;
-    pub use crate::net::server::message::ContextAwareMessage;
+    pub use crate::net::server::message::Request;
     pub use crate::net::server::service::CallResult;
     pub use crate::net::server::service::Service;
-    pub use crate::net::server::service::ServiceCommand;
     pub use crate::net::server::service::ServiceError;
+    pub use crate::net::server::service::ServiceFeedback;
     pub use crate::net::server::service::ServiceResult;
     pub use crate::net::server::service::ServiceResultItem;
     pub use crate::net::server::service::Transaction;
     pub use crate::net::server::util::mk_builder_for_target;
-    pub use crate::net::server::util::mk_service;
-    pub use crate::net::server::util::MkServiceRequest;
-    pub use crate::net::server::util::MkServiceResult;
+    pub use crate::net::server::util::service_fn;
     pub use std::fmt::Debug;
     pub use std::sync::Arc;
 }
