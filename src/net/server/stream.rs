@@ -173,7 +173,7 @@ type CommandReceiver<Buf, Svc> = watch::Receiver<ServerCommandType<Buf, Svc>>;
 /// use domain::net::server::stream::StreamServer;
 /// use tokio::net::TcpListener;
 ///
-/// fn my_service(msg: ContextAwareMessage<Message<Vec<u8>>>, _meta: ())
+/// fn my_service(msg: Request<Message<Vec<u8>>>, _meta: ())
 ///     -> ServiceResult<Vec<u8>, Vec<u8>, Ready<ServiceResultItem<Vec<u8>, Vec<u8>>>>
 /// {
 ///     todo!()
@@ -386,7 +386,7 @@ where
     /// [`shutdown()`]: Self::shutdown
     pub async fn run(&self)
     where
-        Svc::Single: Send,
+        Svc::Future: Send,
     {
         if let Err(err) = self.run_until_error().await {
             error!("StreamServer: {err}");
@@ -468,7 +468,7 @@ where
     // TODO: Use a strongly typed error, not String.
     async fn run_until_error(&self) -> Result<(), String>
     where
-        Svc::Single: Send,
+        Svc::Future: Send,
     {
         let mut command_rx = self.command_rx.clone();
 
@@ -560,7 +560,7 @@ where
         addr: SocketAddr,
     ) where
         Buf::Output: Octets,
-        Svc::Single: Send,
+        Svc::Future: Send,
     {
         // Work around the compiler wanting to move self to the async block by
         // preparing only those pieces of information from self for the new

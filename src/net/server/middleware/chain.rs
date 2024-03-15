@@ -1,12 +1,11 @@
 //! Chaining [`MiddlewareProcessor`]s together.
 use std::fmt::Debug;
-use std::future::Future;
 use std::sync::Arc;
 use std::vec::Vec;
 
 use crate::base::wire::Composer;
 use crate::base::{Message, StreamTarget};
-use crate::net::server::message::ContextAwareMessage;
+use crate::net::server::message::Request;
 use crate::net::server::service::{
     CallResult, ServiceResultItem, Transaction,
 };
@@ -103,16 +102,17 @@ where
     /// put pre-processors which protect the server against doing too much
     /// work as early in the chain as possible.
     #[allow(clippy::type_complexity)]
-    pub fn preprocess<Single>(
+    pub fn preprocess<Future>(
         &self,
-        request: &mut ContextAwareMessage<Message<RequestOctets>>,
+        request: &mut Request<Message<RequestOctets>>,
     ) -> ControlFlow<(
-        Transaction<ServiceResultItem<RequestOctets, Target>, Single>,
+        Transaction<ServiceResultItem<RequestOctets, Target>, Future>,
         usize,
     )>
     where
-        Single:
-            Future<Output = ServiceResultItem<RequestOctets, Target>> + Send,
+        Future: std::future::Future<
+                Output = ServiceResultItem<RequestOctets, Target>,
+            > + Send,
     {
         for (i, p) in self.processors.iter().enumerate() {
             match p.preprocess(request) {
@@ -151,7 +151,7 @@ where
     /// further down the chain will not be invoked.
     pub fn postprocess(
         &self,
-        request: &ContextAwareMessage<Message<RequestOctets>>,
+        request: &Request<Message<RequestOctets>>,
         response: &mut AdditionalBuilder<StreamTarget<Target>>,
         last_processor_idx: Option<usize>,
     ) {

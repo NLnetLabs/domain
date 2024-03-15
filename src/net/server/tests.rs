@@ -18,7 +18,7 @@ use tokio::time::sleep;
 use tokio::time::Instant;
 
 use super::buf::BufSource;
-use super::message::ContextAwareMessage;
+use super::message::Request;
 use super::service::CallResult;
 use super::service::Service;
 use super::service::ServiceError;
@@ -337,13 +337,13 @@ impl MyService {
 
 impl Service<Vec<u8>> for MyService {
     type Target = Vec<u8>;
-    type Single = MySingle;
+    type Future = MySingle;
 
     fn call(
         &self,
-        _msg: ContextAwareMessage<Message<Vec<u8>>>,
+        _msg: Request<Message<Vec<u8>>>,
     ) -> Result<
-        Transaction<ServiceResultItem<Vec<u8>, Self::Target>, Self::Single>,
+        Transaction<ServiceResultItem<Vec<u8>, Self::Target>, Self::Future>,
         ServiceError,
     > {
         Ok(Transaction::single(MySingle))

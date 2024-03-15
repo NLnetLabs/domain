@@ -33,7 +33,7 @@ use crate::base::Message;
 use crate::net::server::buf::BufSource;
 use crate::net::server::error::Error;
 use crate::net::server::message::MessageProcessor;
-use crate::net::server::message::{ContextAwareMessage, MessageDetails};
+use crate::net::server::message::{MessageDetails, Request};
 use crate::net::server::metrics::ServerMetrics;
 use crate::net::server::middleware::chain::MiddlewareChain;
 use crate::net::server::service::{CallResult, Service, ServiceFeedback};
@@ -199,7 +199,7 @@ type CommandReceiver<Buf, Svc> = watch::Receiver<ServerCommandType<Buf, Svc>>;
 /// use domain::net::server::dgram::DgramServer;
 /// use tokio::net::UdpSocket;
 ///
-/// fn my_service(msg: ContextAwareMessage<Message<Vec<u8>>>, _meta: ())
+/// fn my_service(msg: Request<Message<Vec<u8>>>, _meta: ())
 ///     -> ServiceResult<Vec<u8>, Vec<u8>, Ready<ServiceResultItem<Vec<u8>, Vec<u8>>>>
 /// {
 ///     todo!()
@@ -343,7 +343,7 @@ where
     /// [`shutdown()`]: Self::shutdown
     pub async fn run(&self)
     where
-        Svc::Single: Send,
+        Svc::Future: Send,
     {
         if let Err(err) = self.run_until_error().await {
             error!("DgramServer: {err}");
@@ -424,7 +424,7 @@ where
     // TODO: Use a strongly typed error, not String.
     async fn run_until_error(&self) -> Result<(), String>
     where
-        Svc::Single: Send,
+        Svc::Future: Send,
     {
         let mut command_rx = self.command_rx.clone();
 
@@ -588,12 +588,12 @@ where
         request: Message<Buf::Output>,
         received_at: Instant,
         addr: SocketAddr,
-    ) -> ContextAwareMessage<Message<Buf::Output>> {
+    ) -> Request<Message<Buf::Output>> {
         let ctx =
             TransportSpecificContext::Udp(UdpSpecificTransportContext {
                 max_response_size_hint: self.config.max_response_size,
             });
-        ContextAwareMessage::new(addr, received_at, request, ctx)
+        Request::new(addr, received_at, request, ctx)
     }
 
     fn process_call_result(

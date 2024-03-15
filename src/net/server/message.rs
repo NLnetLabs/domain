@@ -22,7 +22,7 @@ use super::{
     util::start_reply,
 };
 
-//------------ ContextAwareMessage -------------------------------------------
+//------------ Request -------------------------------------------
 
 #[derive(Debug, Copy, Clone)]
 pub struct UdpSpecificTransportContext {
@@ -58,14 +58,14 @@ impl TransportSpecificContext {
 /// message itself but also on the circumstances surrounding its creation and
 /// delivery.
 #[derive(Debug)]
-pub struct ContextAwareMessage<T> {
+pub struct Request<T> {
     client_addr: std::net::SocketAddr,
     received_at: Instant,
     message: Arc<T>,
     transport_specific: TransportSpecificContext,
 }
 
-impl<T> ContextAwareMessage<T> {
+impl<T> Request<T> {
     pub fn new(
         client_addr: std::net::SocketAddr,
         received_at: Instant,
@@ -103,7 +103,7 @@ impl<T> ContextAwareMessage<T> {
 
 //--- Clone
 
-impl<T> Clone for ContextAwareMessage<T> {
+impl<T> Clone for Request<T> {
     fn clone(&self) -> Self {
         Self {
             client_addr: self.client_addr,
@@ -198,7 +198,7 @@ where
         metrics: Arc<ServerMetrics>,
     ) -> Result<(), ServiceError>
     where
-        Svc::Single: Send,
+        Svc::Future: Send,
     {
         let (request, pp_res) = self.preprocess_request(
             msg_details,
@@ -274,11 +274,11 @@ where
         metrics: &Arc<ServerMetrics>,
     ) -> Result<
         (
-            ContextAwareMessage<Message<Buf::Output>>,
+            Request<Message<Buf::Output>>,
             ControlFlow<(
                 Transaction<
                     ServiceResultItem<Buf::Output, Svc::Target>,
-                    Svc::Single,
+                    Svc::Future,
                 >,
                 usize,
             )>,
@@ -286,7 +286,7 @@ where
         ServiceError,
     >
     where
-        Svc::Single: Send,
+        Svc::Future: Send,
     {
         let MessageDetails {
             buf,
@@ -330,17 +330,17 @@ where
     #[allow(clippy::type_complexity)]
     fn postprocess_response(
         &self,
-        request: ContextAwareMessage<Message<Buf::Output>>,
+        request: Request<Message<Buf::Output>>,
         state: Self::State,
         middleware_chain: MiddlewareChain<Buf::Output, Svc::Target>,
         mut response_txn: Transaction<
             ServiceResultItem<Buf::Output, Svc::Target>,
-            Svc::Single,
+            Svc::Future,
         >,
         last_processor_id: Option<usize>,
         metrics: Arc<ServerMetrics>,
     ) where
-        Svc::Single: Send,
+        Svc::Future: Send,
     {
         tokio::spawn(async move {
             let span = info_span!("post-process",
@@ -384,7 +384,7 @@ where
         request: Message<Buf::Output>,
         received_at: Instant,
         addr: SocketAddr,
-    ) -> ContextAwareMessage<Message<Buf::Output>>;
+    ) -> Request<Message<Buf::Output>>;
 
     /// Finalize a response.
     ///

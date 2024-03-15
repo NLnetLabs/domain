@@ -12,7 +12,7 @@ use crate::{
         Message, Serial, StreamTarget,
     },
     net::server::{
-        message::ContextAwareMessage,
+        message::Request,
         middleware::processor::MiddlewareProcessor,
         util::{mk_builder_for_target, start_reply},
     },
@@ -107,7 +107,7 @@ impl CookiesMiddlewareProcessor {
     ///   are ignored."
     #[must_use]
     fn cookie<RequestOctets: Octets>(
-        request: &ContextAwareMessage<Message<RequestOctets>>,
+        request: &Request<Message<RequestOctets>>,
     ) -> Option<Result<opt::Cookie, ParseError>> {
         // Note: We don't use `opt::Opt::first()` because that will silently
         // ignore an unparseable COOKIE option but we need to detect and
@@ -137,7 +137,7 @@ impl CookiesMiddlewareProcessor {
 
     fn response_with_cookie<RequestOctets, Target>(
         &self,
-        request: &ContextAwareMessage<Message<RequestOctets>>,
+        request: &Request<Message<RequestOctets>>,
         rcode: OptRcode,
     ) -> AdditionalBuilder<StreamTarget<Target>>
     where
@@ -174,7 +174,7 @@ impl CookiesMiddlewareProcessor {
     #[must_use]
     fn bad_cookie_response<RequestOctets, Target>(
         &self,
-        request: &ContextAwareMessage<Message<RequestOctets>>,
+        request: &Request<Message<RequestOctets>>,
     ) -> AdditionalBuilder<StreamTarget<Target>>
     where
         RequestOctets: Octets,
@@ -197,7 +197,7 @@ impl CookiesMiddlewareProcessor {
     #[must_use]
     fn prefetch_cookie_response<RequestOctets, Target>(
         &self,
-        request: &ContextAwareMessage<Message<RequestOctets>>,
+        request: &Request<Message<RequestOctets>>,
     ) -> AdditionalBuilder<StreamTarget<Target>>
     where
         RequestOctets: Octets,
@@ -220,7 +220,7 @@ impl CookiesMiddlewareProcessor {
     #[must_use]
     fn ensure_cookie_is_complete<Target: Octets>(
         &self,
-        request: &ContextAwareMessage<Message<Target>>,
+        request: &Request<Message<Target>>,
     ) -> Option<Cookie> {
         if let Some(Ok(cookie)) = Self::cookie(request) {
             let cookie = if cookie.server().is_some() {
@@ -268,7 +268,7 @@ where
 {
     fn preprocess(
         &self,
-        request: &mut ContextAwareMessage<Message<RequestOctets>>,
+        request: &mut Request<Message<RequestOctets>>,
     ) -> ControlFlow<AdditionalBuilder<StreamTarget<Target>>> {
         if self.ip_allow_list.contains(&request.client_addr().ip()) {
             trace!("Permitting request to flow due to matching IP allow list entry");
@@ -456,7 +456,7 @@ where
 
     fn postprocess(
         &self,
-        request: &ContextAwareMessage<Message<RequestOctets>>,
+        request: &Request<Message<RequestOctets>>,
         response: &mut AdditionalBuilder<StreamTarget<Target>>,
     ) {
         // https://datatracker.ietf.org/doc/html/rfc7873#section-5.2.1

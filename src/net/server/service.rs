@@ -22,7 +22,7 @@ use crate::base::message_builder::{AdditionalBuilder, PushError};
 use crate::base::wire::{Composer, ParseError};
 use crate::base::{Message, StreamTarget};
 
-use super::message::ContextAwareMessage;
+use super::message::Request;
 
 //------------ Service -------------------------------------------------------
 
@@ -32,8 +32,8 @@ use super::message::ContextAwareMessage;
 /// one or more [`ServiceResultItem`] futures.
 ///
 /// On failure it instead results in a [`ServiceError`].
-pub type ServiceResult<RequestOctets, Target, Single> = Result<
-    Transaction<ServiceResultItem<RequestOctets, Target>, Single>,
+pub type ServiceResult<RequestOctets, Target, Future> = Result<
+    Transaction<ServiceResultItem<RequestOctets, Target>, Future>,
     ServiceError,
 >;
 
@@ -54,7 +54,7 @@ pub type ServiceResultItem<RequestOctets, Target> =
 /// response handling see the [net::server module documentation].
 ///
 /// Each [`Service`] implementation defines a [`call()`] function which takes
-/// a [`ContextAwareMessage`] DNS request as input and returns either a
+/// a [`Request`] DNS request as input and returns either a
 /// [`Transaction`] on success, or a [`ServiceError`] on failure, as output.
 ///
 /// Each [`Transaction`] contains either a single DNS response message, or a
@@ -90,7 +90,7 @@ pub type ServiceResultItem<RequestOctets, Target> =
 /// use domain::rdata::A;
 ///
 /// fn mk_answer(
-///     msg: &ContextAwareMessage<Message<Vec<u8>>>,
+///     msg: &Request<Message<Vec<u8>>>,
 ///     builder: MessageBuilder<StreamTarget<Vec<u8>>>,
 /// ) -> Result<AdditionalBuilder<StreamTarget<Vec<u8>>>, ServiceError> {
 ///     let mut answer = builder.start_answer(msg.message(), Rcode::NoError)?;
@@ -107,12 +107,12 @@ pub type ServiceResultItem<RequestOctets, Target> =
 ///
 /// impl Service<Vec<u8>> for MyService {
 ///     type Target = Vec<u8>;
-///     type Single = Ready<ServiceResultItem<Vec<u8>, Self::Target>>;
+///     type Future = Ready<ServiceResultItem<Vec<u8>, Self::Target>>;
 ///
 ///     fn call(
 ///         &self,
-///         msg: ContextAwareMessage<Message<Vec<u8>>>,
-///     ) -> ServiceResult<Vec<u8>, Self::Target, Self::Single> {
+///         msg: Request<Message<Vec<u8>>>,
+///     ) -> ServiceResult<Vec<u8>, Self::Target, Self::Future> {
 ///         let builder = mk_builder_for_target();
 ///         let additional = mk_answer(&msg, builder)?;
 ///         let item = ready(Ok(CallResult::new(additional)));
@@ -135,7 +135,7 @@ pub type ServiceResultItem<RequestOctets, Target> =
 /// use domain::rdata::A;
 ///
 /// fn name_to_ip<Target>(
-///     msg: ContextAwareMessage<Message<Vec<u8>>>,
+///     msg: Request<Message<Vec<u8>>>,
 /// ) -> ServiceResult<
 ///         Vec<u8>,
 ///         Target,
@@ -207,14 +207,15 @@ pub trait Service<RequestOctets: AsRef<[u8]> = Vec<u8>> {
 
     /// The type of future returned by [`Service::call()`] via
     /// [`Transaction::single()`].
-    type Single: Future<Output = ServiceResultItem<RequestOctets, Self::Target>>
-        + Send;
+    type Future: std::future::Future<
+            Output = ServiceResultItem<RequestOctets, Self::Target>,
+        > + Send;
 
     /// Generate a response to a fully pre-processed request.
     fn call(
         &self,
-        message: ContextAwareMessage<Message<RequestOctets>>,
-    ) -> ServiceResult<RequestOctets, Self::Target, Self::Single>;
+        message: Request<Message<RequestOctets>>,
+    ) -> ServiceResult<RequestOctets, Self::Target, Self::Future>;
 }
 
 /// Helper trait impl to treat an [`Arc<impl Service>`] as a [`Service`].
@@ -222,33 +223,34 @@ impl<RequestOctets: AsRef<[u8]>, T: Service<RequestOctets>>
     Service<RequestOctets> for Arc<T>
 {
     type Target = T::Target;
-    type Single = T::Single;
+    type Future = T::Future;
 
     fn call(
         &self,
-        message: ContextAwareMessage<Message<RequestOctets>>,
-    ) -> ServiceResult<RequestOctets, Self::Target, Self::Single> {
+        message: Request<Message<RequestOctets>>,
+    ) -> ServiceResult<RequestOctets, Self::Target, Self::Future> {
         Arc::deref(self).call(message)
     }
 }
 
 /// Helper trait impl to treat a function as a [`Service`].
-impl<RequestOctets, Target, Single, F> Service<RequestOctets> for F
+impl<RequestOctets, Target, Future, F> Service<RequestOctets> for F
 where
     F: Fn(
-        ContextAwareMessage<Message<RequestOctets>>,
-    ) -> ServiceResult<RequestOctets, Target, Single>,
+        Request<Message<RequestOctets>>,
+    ) -> ServiceResult<RequestOctets, Target, Future>,
     RequestOctets: AsRef<[u8]>,
     Target: Composer + Default + Send + Sync + 'static,
-    Single: Future<Output = ServiceResultItem<RequestOctets, Target>> + Send,
+    Future: std::future::Future<Output = ServiceResultItem<RequestOctets, Target>>
+        + Send,
 {
     type Target = Target;
-    type Single = Single;
+    type Future = Future;
 
     fn call(
         &self,
-        message: ContextAwareMessage<Message<RequestOctets>>,
-    ) -> ServiceResult<RequestOctets, Target, Self::Single> {
+        message: Request<Message<RequestOctets>>,
+    ) -> ServiceResult<RequestOctets, Target, Self::Future> {
         (*self)(message)
     }
 }
@@ -367,12 +369,12 @@ pub struct CallResult<RequestOctets, Target>
 where
     RequestOctets: AsRef<[u8]>,
 {
-    request: Option<ContextAwareMessage<Message<RequestOctets>>>,
+    request: Option<Request<Message<RequestOctets>>>,
     response: Option<AdditionalBuilder<StreamTarget<Target>>>,
     feedback: Option<ServiceFeedback>,
 }
 
-type RequestMsg<RequestOctets> = ContextAwareMessage<Message<RequestOctets>>;
+type RequestMsg<RequestOctets> = Request<Message<RequestOctets>>;
 type ResponseMsg<Target> = AdditionalBuilder<StreamTarget<Target>>;
 
 impl<RequestOctets, Target> CallResult<RequestOctets, Target>
@@ -401,11 +403,11 @@ where
         }
     }
 
-    /// Add an [`ContextAwareMessage<_>`] to an existing [`CallResult`].
+    /// Add an [`Request<_>`] to an existing [`CallResult`].
     #[must_use]
     pub fn with_request(
         mut self,
-        request: ContextAwareMessage<Message<RequestOctets>>,
+        request: Request<Message<RequestOctets>>,
     ) -> Self {
         self.request = Some(request);
         self
@@ -470,9 +472,9 @@ where
 /// [`stream()`]: Self::stream()
 /// [`push()`]: TransactionStream::push()
 /// [`next()`]: Self::next()
-pub struct Transaction<Item, Single>(TransactionInner<Item, Single>)
+pub struct Transaction<Item, Future>(TransactionInner<Item, Future>)
 where
-    Single: Future<Output = Item> + Send;
+    Future: std::future::Future<Output = Item> + Send;
 
 /// A stream of zero or more DNS response futures relating to a single DNS request.
 pub struct TransactionStream<Item> {
@@ -501,9 +503,9 @@ impl<Item> Default for TransactionStream<Item> {
     }
 }
 
-enum TransactionInner<Item, Single>
+enum TransactionInner<Item, Future>
 where
-    Single: Future<Output = Item> + Send,
+    Future: std::future::Future<Output = Item> + Send,
 {
     /// The transaction will result in a single immediate response.
     ///
@@ -512,20 +514,25 @@ where
     Immediate(Option<Item>),
 
     /// The transaction will result in at most a single response future.
-    Single(Option<Single>),
+    Single(Option<Future>),
 
     /// The transaction will result in stream of multiple response futures.
     PendingStream(
-        Pin<Box<dyn Future<Output = TransactionStream<Item>> + Send>>,
+        Pin<
+            Box<
+                dyn std::future::Future<Output = TransactionStream<Item>>
+                    + Send,
+            >,
+        >,
     ),
 
     /// The transaction is a stream of multiple response futures.
     Stream(TransactionStream<Item>),
 }
 
-impl<Item, Single> Transaction<Item, Single>
+impl<Item, Future> Transaction<Item, Future>
 where
-    Single: Future<Output = Item> + Send,
+    Future: std::future::Future<Output = Item> + Send,
 {
     /// Construct a transaction for a single immediate response.
     pub(crate) fn immediate(item: Item) -> Self {
@@ -538,7 +545,7 @@ where
     }
 
     /// Construct a transaction for a single response future.
-    pub fn single(fut: Single) -> Self {
+    pub fn single(fut: Future) -> Self {
         Self(TransactionInner::Single(Some(fut)))
     }
 
@@ -551,7 +558,12 @@ where
     /// caller may not yet know how many futures they need to push into the
     /// stream and we don't want them to block us while they work that out.
     pub fn stream(
-        fut: Pin<Box<dyn Future<Output = TransactionStream<Item>> + Send>>,
+        fut: Pin<
+            Box<
+                dyn std::future::Future<Output = TransactionStream<Item>>
+                    + Send,
+            >,
+        >,
     ) -> Self {
         Self(TransactionInner::PendingStream(fut))
     }

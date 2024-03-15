@@ -12,8 +12,7 @@ use crate::{
     },
     net::server::{
         message::{
-            ContextAwareMessage, TransportSpecificContext,
-            UdpSpecificTransportContext,
+            Request, TransportSpecificContext, UdpSpecificTransportContext,
         },
         middleware::processor::MiddlewareProcessor,
         prelude::mk_builder_for_target,
@@ -57,7 +56,7 @@ impl MandatoryMiddlewareProcessor {
 
     fn error_response<RequestOctets, Target>(
         &self,
-        request: &ContextAwareMessage<Message<RequestOctets>>,
+        request: &Request<Message<RequestOctets>>,
         rcode: Rcode,
     ) -> AdditionalBuilder<StreamTarget<Target>>
     where
@@ -74,7 +73,7 @@ impl MandatoryMiddlewareProcessor {
 
 impl MandatoryMiddlewareProcessor {
     fn truncate<RequestOctets, Target>(
-        request: &ContextAwareMessage<Message<RequestOctets>>,
+        request: &Request<Message<RequestOctets>>,
         response: &mut AdditionalBuilder<StreamTarget<Target>>,
     ) where
         RequestOctets: Octets,
@@ -165,7 +164,7 @@ where
 {
     fn preprocess(
         &self,
-        request: &mut ContextAwareMessage<Message<RequestOctets>>,
+        request: &mut Request<Message<RequestOctets>>,
     ) -> ControlFlow<AdditionalBuilder<StreamTarget<Target>>> {
         // https://www.rfc-editor.org/rfc/rfc3425.html
         // 3 - Effect on RFC 1035
@@ -204,7 +203,7 @@ where
 
     fn postprocess(
         &self,
-        request: &ContextAwareMessage<Message<RequestOctets>>,
+        request: &Request<Message<RequestOctets>>,
         response: &mut AdditionalBuilder<StreamTarget<Target>>,
     ) {
         Self::truncate(request, response);

@@ -1,7 +1,7 @@
 use crate::base::{Message, StreamTarget};
 use crate::net::server::buf::BufSource;
-use crate::net::server::message::ContextAwareMessage;
 use crate::net::server::message::MessageProcessor;
+use crate::net::server::message::Request;
 use crate::net::server::metrics::ServerMetrics;
 use crate::net::server::middleware::chain::MiddlewareChain;
 use crate::net::server::service::{
@@ -339,7 +339,7 @@ where
         mut self,
         command_rx: watch::Receiver<ServerCommand<ServerConfig<Buf, Svc>>>,
     ) where
-        Svc::Single: Send,
+        Svc::Future: Send,
     {
         self.metrics
             .num_connections
@@ -369,7 +369,7 @@ where
             ServerCommand<ServerConfig<Buf, Svc>>,
         >,
     ) where
-        Svc::Single: Send,
+        Svc::Future: Send,
     {
         let stream_rx = self.stream_rx.take().unwrap();
         let mut dns_msg_receiver =
@@ -712,11 +712,11 @@ where
         request: Message<Buf::Output>,
         received_at: Instant,
         addr: SocketAddr,
-    ) -> ContextAwareMessage<Message<Buf::Output>> {
+    ) -> Request<Message<Buf::Output>> {
         let ctx = TransportSpecificContext::NonUdp(NonUdpTransportContext {
             idle_timeout: Some(self.config.idle_timeout),
         });
-        ContextAwareMessage::new(addr, received_at, request, ctx)
+        Request::new(addr, received_at, request, ctx)
     }
 
     fn process_call_result(

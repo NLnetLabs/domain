@@ -39,7 +39,7 @@ use tracing_subscriber::EnvFilter;
 
 // Helper fn to create a dummy response to send back to the client
 fn mk_answer<Target>(
-    msg: &ContextAwareMessage<Message<Vec<u8>>>,
+    msg: &Request<Message<Vec<u8>>>,
     builder: MessageBuilder<StreamTarget<Target>>,
 ) -> Result<AdditionalBuilder<StreamTarget<Target>>, PushError>
 where
@@ -69,12 +69,12 @@ struct MyService;
 /// [`Service`] trait for a function instead of a struct.
 impl Service<Vec<u8>> for MyService {
     type Target = Vec<u8>;
-    type Single = Ready<ServiceResultItem<Vec<u8>, Self::Target>>;
+    type Future = Ready<ServiceResultItem<Vec<u8>, Self::Target>>;
 
     fn call(
         &self,
-        msg: ContextAwareMessage<Message<Vec<u8>>>,
-    ) -> ServiceResult<Vec<u8>, Self::Target, Self::Single> {
+        msg: Request<Message<Vec<u8>>>,
+    ) -> ServiceResult<Vec<u8>, Self::Target, Self::Future> {
         let builder = mk_builder_for_target();
         let additional = mk_answer(&msg, builder)?;
         let item = ready(Ok(CallResult::new(additional)));
@@ -91,7 +91,7 @@ impl Service<Vec<u8>> for MyService {
 /// The function signature is slightly more complex than when using
 /// [`service_fn()`] (see the [`query()`] example below).
 fn name_to_ip<Target>(
-    msg: ContextAwareMessage<Message<Vec<u8>>>,
+    msg: Request<Message<Vec<u8>>>,
 ) -> ServiceResult<
     Vec<u8>,
     Target,
@@ -148,7 +148,7 @@ where
 /// [`service_fn()`] and supports passing in meta data without any extra
 /// boilerplate.
 fn query(
-    msg: ContextAwareMessage<Message<Vec<u8>>>,
+    msg: Request<Message<Vec<u8>>>,
     count: Arc<AtomicU8>,
 ) -> ServiceResult<
     Vec<u8>,
@@ -379,14 +379,14 @@ where
 {
     fn preprocess(
         &self,
-        _request: &mut ContextAwareMessage<Message<RequestOctets>>,
+        _request: &mut Request<Message<RequestOctets>>,
     ) -> ControlFlow<AdditionalBuilder<StreamTarget<Target>>> {
         ControlFlow::Continue(())
     }
 
     fn postprocess(
         &self,
-        request: &ContextAwareMessage<Message<RequestOctets>>,
+        request: &Request<Message<RequestOctets>>,
         _response: &mut AdditionalBuilder<StreamTarget<Target>>,
     ) {
         let duration = Instant::now().duration_since(request.received_at());

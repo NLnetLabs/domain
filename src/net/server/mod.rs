@@ -234,7 +234,7 @@ pub mod prelude {
     pub use crate::dep::octseq::FreezeBuilder;
     pub use crate::dep::octseq::Octets;
     pub use crate::dep::octseq::OctetsBuilder;
-    pub use crate::net::server::message::ContextAwareMessage;
+    pub use crate::net::server::message::Request;
     pub use crate::net::server::service::CallResult;
     pub use crate::net::server::service::Service;
     pub use crate::net::server::service::ServiceError;

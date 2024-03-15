@@ -12,7 +12,7 @@ use crate::{
         Message, StreamTarget,
     },
     net::server::{
-        message::{ContextAwareMessage, TransportSpecificContext},
+        message::{Request, TransportSpecificContext},
         middleware::processor::MiddlewareProcessor,
         util::start_reply,
     },
@@ -56,7 +56,7 @@ impl EdnsMiddlewareProcessor {
 
 impl EdnsMiddlewareProcessor {
     fn err_response<RequestOctets, Target>(
-        request: &ContextAwareMessage<Message<RequestOctets>>,
+        request: &Request<Message<RequestOctets>>,
         rcode: OptRcode,
     ) -> AdditionalBuilder<StreamTarget<Target>>
     where
@@ -107,7 +107,7 @@ where
 {
     fn preprocess(
         &self,
-        request: &mut ContextAwareMessage<Message<RequestOctets>>,
+        request: &mut Request<Message<RequestOctets>>,
     ) -> ControlFlow<AdditionalBuilder<StreamTarget<Target>>> {
         // https://www.rfc-editor.org/rfc/rfc6891.html#section-6.1.1
         // 6.1.1: Basic Elements
@@ -222,7 +222,7 @@ where
 
     fn postprocess(
         &self,
-        request: &ContextAwareMessage<Message<RequestOctets>>,
+        request: &Request<Message<RequestOctets>>,
         response: &mut AdditionalBuilder<StreamTarget<Target>>,
     ) {
         // https://datatracker.ietf.org/doc/html/rfc7828#section-3.3.2
