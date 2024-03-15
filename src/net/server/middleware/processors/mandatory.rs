@@ -14,6 +14,7 @@ use crate::{
         },
         middleware::processor::MiddlewareProcessor,
         prelude::mk_builder_for_target,
+        util::start_reply,
     },
 };
 use core::ops::ControlFlow;
@@ -42,6 +43,21 @@ impl MandatoryMiddlewareProcessor {
     #[must_use]
     pub fn new() -> Self {
         Self
+    }
+    fn error_response<RequestOctets, Target>(
+        &self,
+        request: &ContextAwareMessage<Message<RequestOctets>>,
+        rcode: Rcode,
+    ) -> AdditionalBuilder<StreamTarget<Target>>
+    where
+        RequestOctets: Octets,
+        Target: Composer + Default,
+    {
+        let mut response = start_reply(request);
+        response.header_mut().set_rcode(rcode);
+        let mut additional = response.additional();
+        self.postprocess(request, &mut additional);
+        additional
     }
 }
 
@@ -150,9 +166,9 @@ where
             if iter.count() > 1 {
                 // More than one OPT RR received.
                 debug!("RFC 6891 6.1.1 violation: request contains more than one OPT RR.");
-                let mut builder = mk_builder_for_target();
-                builder.header_mut().set_rcode(Rcode::FormErr);
-                return ControlFlow::Break(builder.additional());
+                return ControlFlow::Break(
+                    self.error_response(request, Rcode::FormErr),
+                );
             }
         }
 

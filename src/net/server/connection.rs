@@ -702,7 +702,7 @@ impl<Stream, Buf, Svc> MessageProcessor<Buf, Svc>
 where
     Stream: AsyncRead + AsyncWrite + Send + Sync,
     Buf: BufSource + Send + Sync + Clone,
-    Buf::Output: Send + Sync,
+    Buf::Output: Octets + Send + Sync,
     Svc: Service<Buf::Output> + Send + Sync + Clone,
 {
     type State = Sender<CallResult<Buf::Output, Svc::Target>>;

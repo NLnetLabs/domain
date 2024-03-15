@@ -3,8 +3,9 @@ use core::{ops::ControlFlow, sync::atomic::Ordering, time::Duration};
 use std::net::SocketAddr;
 use std::sync::Arc;
 
+use octseq::Octets;
 use tokio::time::Instant;
-use tracing::{enabled, info_span, Level};
+use tracing::{enabled, error, info_span, warn, Level};
 
 use crate::{
     base::Message,
@@ -14,8 +15,11 @@ use crate::{
     },
 };
 
-use super::service::{
-    CallResult, Service, ServiceError, ServiceResultItem, Transaction,
+use super::{
+    service::{
+        CallResult, Service, ServiceError, ServiceResultItem, Transaction,
+    },
+    util::start_reply,
 };
 
 //------------ ContextAwareMessage -------------------------------------------
@@ -154,7 +158,7 @@ where
 pub trait MessageProcessor<Buf, Svc>
 where
     Buf: BufSource + Send + Sync + 'static,
-    Buf::Output: Send + Sync + 'static,
+    Buf::Output: Octets + Send + Sync + 'static,
     Svc: Service<Buf::Output> + Send + Sync + 'static,
 {
     type State: Clone + Send + Sync + 'static;
@@ -188,7 +192,7 @@ where
     where
         Svc::Single: Send,
     {
-        let (frozen_request, pp_res) = self.preprocess_request(
+        let (request, pp_res) = self.preprocess_request(
             msg_details,
             &middleware_chain,
             &metrics,
@@ -196,16 +200,33 @@ where
 
         let (txn, aborted_pp_idx) = match pp_res {
             ControlFlow::Continue(()) => {
-                let txn = if enabled!(Level::INFO) {
+                let request_for_svc = request.clone();
+
+                let res = if enabled!(Level::INFO) {
                     let span = info_span!("svc-call",
-                        msg_id = frozen_request.message().header().id(),
-                        client = %frozen_request.client_addr(),
+                        msg_id = request_for_svc.message().header().id(),
+                        client = %request_for_svc.client_addr(),
                     );
                     let _guard = span.enter();
-                    svc.call(frozen_request.clone())?
+                    svc.call(request_for_svc)
                 } else {
-                    svc.call(frozen_request.clone())?
+                    svc.call(request_for_svc)
                 };
+
+                let request_for_error = &request;
+                let txn = res.unwrap_or_else(|err| {
+                    if matches!(err, ServiceError::InternalError) {
+                        error!(
+                            "Service error while processing request: {err}"
+                        );
+                    }
+
+                    let mut response = start_reply(request_for_error);
+                    response.header_mut().set_rcode(err.rcode());
+                    let call_result = CallResult::new(response.additional());
+                    Transaction::immediate(Ok(call_result))
+                });
+
                 (txn, None)
             }
             ControlFlow::Break((txn, aborted_pp_idx)) => {
@@ -214,7 +235,7 @@ where
         };
 
         self.postprocess_response(
-            frozen_request,
+            request,
             state,
             middleware_chain,
             txn,
@@ -264,8 +285,10 @@ where
             received_at,
             addr,
         } = msg_details;
-        let request = Message::from_octets(buf)
-            .map_err(|_| ServiceError::Other("short message".into()))?;
+        let request = Message::from_octets(buf).map_err(|err| {
+            warn!("Failed while parsing request message: {err}");
+            ServiceError::InternalError
+        })?;
 
         let mut request =
             self.add_context_to_request(request, received_at, addr);

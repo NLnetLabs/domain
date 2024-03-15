@@ -4,11 +4,11 @@
 //! a given DNS request. resulting in a [`ServiceResult`] containing a
 //! transaction that yields one or more future DNS responses, and/or a
 //! [`ServerCommand`].
+use core::fmt::Display;
 use core::ops::Deref;
 use std::boxed::Box;
 use std::future::Future;
 use std::pin::Pin;
-use std::string::String;
 use std::sync::Arc;
 use std::time::Duration;
 use std::vec::Vec;
@@ -17,6 +17,7 @@ use futures_util::stream::FuturesOrdered;
 use futures_util::{FutureExt, StreamExt};
 use octseq::{OctetsBuilder, ShortBuf};
 
+use crate::base::iana::Rcode;
 use crate::base::message_builder::{AdditionalBuilder, PushError};
 use crate::base::wire::Composer;
 use crate::base::{Message, StreamTarget};
@@ -257,47 +258,48 @@ where
 /// An error reported by a [`Service`].
 #[derive(Debug)]
 pub enum ServiceError {
-    /// The service declined to handle the request.
-    RequestIgnored,
-
-    /// The service was unable to assemble the response.
-    ResponseBuilderError,
+    /// The service was unable to parse the request.
+    FormatError,
 
     /// The service encountered a service-specific error condition.
-    ServiceSpecificError(T),
+    InternalError,
 
-    /// The service is shutting down.
-    ShuttingDown,
+    /// The service was unable to assemble the response.
+    NotImplemented,
 
-    /// Some other service error.
-    Other(String),
+    /// The service declined to handle the request.
+    Refused,
 }
 
-impl core::fmt::Display for ServiceError {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+impl ServiceError {
+    pub fn rcode(&self) -> Rcode {
         match self {
-            ServiceError::RequestIgnored => {
-                write!(f, "RequestIgnored")
-            }
-            ServiceError::ResponseBuilderError => {
-                write!(f, "ResponseBuilderError")
-            }
-            ServiceError::ServiceSpecificError => {
-                write!(f, "ServiceSpecificError")
-            }
-            ServiceError::ShuttingDown => {
-                write!(f, "ShuttingDown")
-            }
-            ServiceError::Other(err) => {
-                write!(f, "Other({})", err)
-            }
+            Self::FormatError => Rcode::FormErr,
+            Self::InternalError => Rcode::ServFail,
+            Self::NotImplemented => Rcode::NotImp,
+            Self::Refused => Rcode::Refused,
         }
     }
 }
 
+//--- Display
+
+impl Display for ServiceError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::FormatError => write!(f, "Format error"),
+            Self::InternalError => write!(f, "Internal error"),
+            Self::NotImplemented => write!(f, "Not implemented"),
+            Self::Refused => write!(f, "Refused"),
+        }
+    }
+}
+
+//--- From<PushError>
+
 impl From<PushError> for ServiceError {
     fn from(_: PushError) -> Self {
-        Self::ResponseBuilderError
+        Self::InternalError
     }
 }
 
