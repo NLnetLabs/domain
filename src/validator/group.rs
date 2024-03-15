@@ -4,9 +4,9 @@
 // the resource records without the signatures.
 
 use crate::base::Dname;
-use bytes::Bytes;
-//use crate::base::ParsedDname;
+use crate::base::ParsedDname;
 use crate::base::ParsedRecord;
+use bytes::Bytes;
 //use crate::base::ParseRecordData;
 use crate::base::iana::class::Class;
 use crate::base::name::ToDname;
@@ -29,16 +29,14 @@ use std::vec::Vec;
 
 #[derive(Debug)]
 pub struct Group {
-    rr_set: Vec<Record<Dname<Bytes>, AllRecordData<Bytes, Dname<Bytes>>>>,
+    rr_set:
+        Vec<Record<Dname<Bytes>, AllRecordData<Bytes, ParsedDname<Bytes>>>>,
     sig_set: Vec<Record<Dname<Bytes>, Rrsig<Bytes, Dname<Bytes>>>>,
     state: Mutex<Option<ValidationState>>,
 }
 
 impl Group {
-    fn new<'a, Octs>(rr: ParsedRecord<'a, Octs>) -> Self
-    where
-        Octs: Octets,
-    {
+    fn new<'a>(rr: ParsedRecord<'a, Bytes>) -> Self {
         if rr.rtype() != Rtype::Rrsig {
             return Self {
                 rr_set: vec![to_bytes_record(&rr)],
@@ -49,10 +47,7 @@ impl Group {
         todo!();
     }
 
-    fn add<'a, Octs>(&mut self, rr: &ParsedRecord<'a, Octs>) -> Result<(), ()>
-    where
-        Octs: Octets,
-    {
+    fn add<'a>(&mut self, rr: &ParsedRecord<'a, Bytes>) -> Result<(), ()> {
         // First check owner. That is easier to do with a separate if
         // statement.
         if !self.rr_set.is_empty() {
@@ -210,10 +205,7 @@ impl GroupList {
         Self(Vec::new())
     }
 
-    pub fn add<'a, Octs>(&mut self, rr: ParsedRecord<'a, Octs>)
-    where
-        Octs: Octets,
-    {
+    pub fn add<'a>(&mut self, rr: ParsedRecord<'a, Bytes>) {
         // Very simplistic implementation of add. Assume resource records
         // are mostly in order. If this O(n^2) algorithm is not enough,
         // then we should use a small hash table or sort first.
@@ -248,30 +240,14 @@ impl GroupList {
     }
 }
 
-fn to_bytes_record<'a, Octs>(
-    rr: &ParsedRecord<'a, Octs>,
-) -> Record<Dname<Bytes>, AllRecordData<Bytes, Dname<Bytes>>>
-where
-    Octs: Octets,
-    Octs::Range<'a>: Octets,
-{
-    let record = rr
-        .to_record::<UnknownRecordData<Octs::Range<'a>>>()
-        .unwrap()
-        .unwrap();
-    //Record::<Dname<Bytes>, Bytes>::new(rr.owner().to_dname::<Bytes>().unwrap(), rr.class(), rr.ttl(), rr.data())
-    let unknown_rd: UnknownRecordData<Bytes> =
-        UnknownRecordData::from_octets(
-            record.rtype(),
-            Bytes::copy_from_slice(record.data().data().as_ref()),
-        )
-        .unwrap();
-    let all_rd: AllRecordData<Bytes, Dname<Bytes>> =
-        AllRecordData::from(unknown_rd);
-    Record::<Dname<Bytes>, AllRecordData<Bytes, Dname<Bytes>>>::new(
+fn to_bytes_record<'a>(
+    rr: &ParsedRecord<'a, Bytes>,
+) -> Record<Dname<Bytes>, AllRecordData<Bytes, ParsedDname<Bytes>>> {
+    let record = rr.to_record::<AllRecordData<_, _>>().unwrap().unwrap();
+    Record::<Dname<Bytes>, AllRecordData<Bytes, ParsedDname<Bytes>>>::new(
         rr.owner().to_dname::<Bytes>().unwrap(),
         rr.class(),
         rr.ttl(),
-        all_rd,
+        record.data().clone(),
     )
 }

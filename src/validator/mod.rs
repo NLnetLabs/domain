@@ -10,6 +10,7 @@ use crate::base::iana::OptRcode::NoError;
 use crate::base::name::ToDname;
 use crate::base::Rtype;
 use crate::dep::octseq::Octets;
+use crate::dep::octseq::OctetsInto;
 //use crate::dep::octseq::OctetsFrom;
 //use crate::dep::octseq::OctetsInto;
 //use crate::rdata::AllRecordData;
@@ -28,6 +29,10 @@ where
     Octs: Clone + Debug + Octets + 'a,
     <Octs as Octets>::Range<'a>: Debug,
 {
+    // Convert to Bytes.
+    let bytes = Bytes::copy_from_slice(msg.as_slice());
+    let msg = Message::from_octets(bytes).unwrap();
+
     // First convert the Answer and Authority sections to lists of RR groups
     let mut answers = GroupList::new();
     for rr in msg.answer().unwrap() {
@@ -154,14 +159,32 @@ fn get_soa_state(
     groups: &mut GroupList,
 ) -> Option<ValidationState> {
     for g in groups.iter() {
-	println!("get_soa_state: trying {g:?} for {qname:?}");
+        println!("get_soa_state: trying {g:?} for {qname:?}");
         if g.class() != qclass {
+            println!("get_soa_state: wrong class");
             continue;
         }
         if g.rtype() != Rtype::Soa {
+            println!("get_soa_state: wrong type");
             continue;
         }
-        if !qname.starts_with(&g.name()) {
+        if !qname.ends_with(&g.name()) {
+            println!(
+                "get_soa_state: wrong name {qname:?} should end with {:?}",
+                g.name()
+            );
+            println!(
+                "{:?}.ends_with({:?}): {:?}",
+                qname,
+                g.name(),
+                qname.ends_with(&g.name())
+            );
+            println!(
+                "{:?}.ends_with({:?}): {:?}",
+                g.name(),
+                qname,
+                g.name().ends_with(&qname)
+            );
             continue;
         }
         return Some(g.get_state().unwrap());

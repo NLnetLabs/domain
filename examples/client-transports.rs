@@ -38,7 +38,7 @@ async fn main() {
     msg.header_mut().set_ad(true);
     let mut msg = msg.question();
     msg.push((
-        Dname::vec_from_str("stereo.hq.phicoh.net").unwrap(),
+        Dname::vec_from_str("stereo-foo.hq.phicoh.net").unwrap(),
         Rtype::Txt,
     ))
     .unwrap();
