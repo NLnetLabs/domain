@@ -44,7 +44,9 @@ impl AsyncConnect for Dgram {
     fn connect(&self, _source_address: Option<SocketAddr>) -> Self::Fut {
         let stelline = self.stelline.clone();
         let step_value = self.step_value.clone();
-        Box::pin(async move { Ok(DgramConnection::new(stelline, step_value)) })
+        Box::pin(
+            async move { Ok(DgramConnection::new(stelline, step_value)) },
+        )
     }
 }
 

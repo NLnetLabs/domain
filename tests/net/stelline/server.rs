@@ -2,9 +2,9 @@ use std::fmt::Debug;
 
 use crate::net::stelline::client::CurrStepValue;
 use crate::net::stelline::matches::match_msg;
-use crate::net::stelline::parse_stelline;
-use crate::net::stelline::parse_stelline::{Adjust, Stelline, Reply};
 use crate::net::stelline::parse_query;
+use crate::net::stelline::parse_stelline;
+use crate::net::stelline::parse_stelline::{Adjust, Reply, Stelline};
 use domain::base::iana::rcode::Rcode;
 use domain::base::iana::Opcode;
 use domain::base::message_builder::AdditionalBuilder;

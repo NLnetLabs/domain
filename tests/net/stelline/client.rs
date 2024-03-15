@@ -1,8 +1,10 @@
 #![allow(clippy::type_complexity)]
 
 use crate::net::stelline::matches::match_msg;
-use crate::net::stelline::parse_stelline::{Stelline, Entry, Reply, StepType};
 use crate::net::stelline::parse_query;
+use crate::net::stelline::parse_stelline::{
+    Entry, Reply, Stelline, StepType,
+};
 use bytes::Bytes;
 
 use domain::base::iana::Opcode;
@@ -84,7 +86,9 @@ impl std::fmt::Display for StellineErrorCause {
             StellineErrorCause::MismatchedAnswer => {
                 f.write_str("Mismatched answer")
             }
-            StellineErrorCause::MissingClient => f.write_str("Missing client"),
+            StellineErrorCause::MissingClient => {
+                f.write_str("Missing client")
+            }
             StellineErrorCause::MissingResponse => {
                 f.write_str("Missing response")
             }

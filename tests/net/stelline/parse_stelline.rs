@@ -83,7 +83,10 @@ pub struct Stelline {
     pub config: Config,
     pub scenario: Scenario,
 }
-pub fn parse_file<F: Debug + Read, T: ToString>(file: F, name: T) -> Stelline {
+pub fn parse_file<F: Debug + Read, T: ToString>(
+    file: F,
+    name: T,
+) -> Stelline {
     let mut lines = io::BufReader::new(file).lines();
     Stelline {
         name: name.to_string(),
