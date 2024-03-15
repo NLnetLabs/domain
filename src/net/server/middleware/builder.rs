@@ -77,7 +77,7 @@ where
     #[must_use]
     pub fn minimal() -> Self {
         let mut builder = Self::new();
-        builder.push(MandatoryMiddlewareProcessor.into());
+        builder.push(MandatoryMiddlewareProcessor::default().into());
         builder
     }
 
@@ -94,7 +94,7 @@ where
     #[must_use]
     pub fn modern() -> Self {
         let mut builder = Self::new();
-        builder.push(MandatoryMiddlewareProcessor.into());
+        builder.push(MandatoryMiddlewareProcessor::default().into());
         builder.push(EdnsMiddlewareProcessor::default().into());
         #[cfg(feature = "siphasher")]
         builder.push(CookiesMiddlewareProcessor::default().into());

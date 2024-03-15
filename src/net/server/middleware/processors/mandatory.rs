@@ -1,11 +1,14 @@
 //! Core DNS RFC standards based message processing for MUST requirements.
 use octseq::Octets;
-use tracing::{debug, trace};
+use tracing::{debug, trace, warn};
 
 use crate::{
     base::{
-        iana::Rcode, message_builder::AdditionalBuilder, opt::Opt,
-        wire::Composer, Message, StreamTarget,
+        iana::{Opcode, Rcode},
+        message_builder::AdditionalBuilder,
+        opt::Opt,
+        wire::Composer,
+        Message, StreamTarget,
     },
     net::server::{
         message::{
@@ -35,15 +38,23 @@ use core::ops::ControlFlow;
 /// [1035]: https://datatracker.ietf.org/doc/html/rfc1035
 /// [2181]: https://datatracker.ietf.org/doc/html/rfc2181
 /// [6891]: https://datatracker.ietf.org/doc/html/rfc6891
-#[derive(Debug, Default)]
-pub struct MandatoryMiddlewareProcessor;
+#[derive(Debug)]
+pub struct MandatoryMiddlewareProcessor {
+    strict: bool,
+}
 
 impl MandatoryMiddlewareProcessor {
     /// Constructs an instance of this processor.
     #[must_use]
     pub fn new() -> Self {
-        Self
+        Self { strict: true }
     }
+
+    #[must_use]
+    pub fn relaxed() -> Self {
+        Self { strict: false }
+    }
+
     fn error_response<RequestOctets, Target>(
         &self,
         request: &ContextAwareMessage<Message<RequestOctets>>,
@@ -156,6 +167,22 @@ where
         &self,
         request: &mut ContextAwareMessage<Message<RequestOctets>>,
     ) -> ControlFlow<AdditionalBuilder<StreamTarget<Target>>> {
+        // https://www.rfc-editor.org/rfc/rfc3425.html
+        // 3 - Effect on RFC 1035
+        //   ..
+        //   "Therefore IQUERY is now obsolete, and name servers SHOULD return
+        //    a "Not Implemented" error when an IQUERY request is received."
+        if self.strict
+            && request.message().header().opcode() == Opcode::IQuery
+        {
+            debug!(
+                "RFC 3425 3 violation: request opcode IQUERY is obsolete."
+            );
+            return ControlFlow::Break(
+                self.error_response(request, Rcode::NotImp),
+            );
+        }
+
         // https://www.rfc-editor.org/rfc/rfc6891.html#section-6.1.1
         // 6.1.1: Basic Elements
         // ...
@@ -232,8 +259,26 @@ where
         // if request.opt().is_none() && response.opt().is_some() {
         // }
 
-        // TODO: For non-error responses is it mandatory that the question
-        // from the request be copied to the response? Unbound and domain
-        // think so. If this has not been done, how should we react here?
+        // https://www.rfc-editor.org/rfc/rfc1035.html
+        // https://www.rfc-editor.org/rfc/rfc3425.html
+        //
+        // All responses shown in RFC 1035 (except those for inverse queries,
+        // opcode 1, which was obsoleted by RFC 4325) contain the question
+        // from the request. So we would expect the number of questions in the
+        // response to match the number of questions in the request.
+        if self.strict
+            && !request.message().header_counts().qdcount()
+                == response.counts().qdcount()
+        {
+            warn!("RFC 1035 violation: response question count != request question count");
+        }
+    }
+}
+
+//--- Default
+
+impl Default for MandatoryMiddlewareProcessor {
+    fn default() -> Self {
+        Self::new()
     }
 }
