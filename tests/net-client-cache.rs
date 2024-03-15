@@ -1,24 +1,23 @@
 #![cfg(feature = "net")]
 mod net;
 
-use domain::base::{Dname, MessageBuilder, Rtype::Aaaa};
-use domain::net::client::cache;
-use net::stelline::client::do_client;
-use net::stelline::client::CurrStepValue;
-use net::stelline::client::SingleClientFactory;
-use net::stelline::connect::Connect;
-use net::stelline::parse_stelline::parse_file;
-// use domain::net::client::clock::{Clock, FakeClock};
-use domain::net::client::multi_stream;
-use domain::net::client::redundant;
-use domain::net::client::request::{
-    Error::NoTransportAvailable, RequestMessage, SendRequest,
-};
-use rstest::rstest;
 use std::fs::File;
 use std::path::PathBuf;
 use std::sync::Arc;
+
+use net::stelline::client::do_client;
+use net::stelline::client::{CurrStepValue, SingleClientFactory};
+use net::stelline::connect::Connect;
+use net::stelline::parse_stelline::parse_file;
+
+use rstest::rstest;
 use tracing::instrument;
+
+// use domain::net::client::clock::{Clock, FakeClock};
+use domain::base::{Dname, MessageBuilder, Rtype::Aaaa};
+use domain::net::client::request::Error::NoTransportAvailable;
+use domain::net::client::request::{RequestMessage, SendRequest};
+use domain::net::client::{cache, multi_stream, redundant};
 
 const TEST_FILE_AD: &str = "test-data/client-cache/cache_ad.rpl";
 const TEST_FILE_TRANSPORT_ERROR: &str =

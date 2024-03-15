@@ -1,8 +1,11 @@
 //! Chaining [`MiddlewareProcessor`]s together.
+use core::ops::{ControlFlow, RangeTo};
+
 use std::fmt::Debug;
 use std::sync::Arc;
 use std::vec::Vec;
 
+use crate::base::message_builder::AdditionalBuilder;
 use crate::base::wire::Composer;
 use crate::base::{Message, StreamTarget};
 use crate::net::server::message::Request;
@@ -11,8 +14,6 @@ use crate::net::server::service::{
 };
 
 use super::processor::MiddlewareProcessor;
-use crate::base::message_builder::AdditionalBuilder;
-use core::ops::{ControlFlow, RangeTo};
 
 /// A chain of [`MiddlewareProcessor`]s.
 ///

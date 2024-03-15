@@ -1,31 +1,17 @@
 use core::future::ready;
 
+use core::fmt;
+use core::future::{Future, Ready};
+use core::ops::ControlFlow;
+use core::sync::atomic::{AtomicBool, AtomicU8, Ordering};
+use core::task::{Context, Poll};
+use core::time::Duration;
 use std::fs::File;
-use std::future::{Future, Ready};
+use std::io;
 use std::io::BufReader;
 use std::net::SocketAddr;
-use std::ops::ControlFlow;
 use std::path::Path;
-use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::RwLock;
-use std::task::{Context, Poll};
-use std::time::Duration;
-use std::{fmt, io};
-
-use domain::base::iana::{Class, Rcode};
-use domain::base::message_builder::{AdditionalBuilder, PushError};
-use domain::base::name::ToLabelIter;
-use domain::base::{Dname, MessageBuilder, StreamTarget};
-use domain::net::server::buf::VecBufSource;
-use domain::net::server::dgram::{self, DgramServer};
-use domain::net::server::middleware::builder::MiddlewareBuilder;
-use domain::net::server::middleware::processor::MiddlewareProcessor;
-use domain::net::server::middleware::processors::cookies::CookiesMiddlewareProcessor;
-use domain::net::server::middleware::processors::mandatory::MandatoryMiddlewareProcessor;
-use domain::net::server::sock::AsyncAccept;
-use domain::net::server::stream::StreamServer;
-use domain::net::server::{prelude::*, stream, ConnectionConfig};
-use domain::rdata::A;
 
 use rustls_pemfile::{certs, rsa_private_keys};
 use tokio::net::{TcpListener, TcpSocket, TcpStream, UdpSocket};
@@ -34,6 +20,24 @@ use tokio_rustls::rustls::{Certificate, PrivateKey};
 use tokio_rustls::TlsAcceptor;
 use tokio_tfo::{TfoListener, TfoStream};
 use tracing_subscriber::EnvFilter;
+
+use domain::base::iana::{Class, Rcode};
+use domain::base::message_builder::{AdditionalBuilder, PushError};
+use domain::base::name::ToLabelIter;
+use domain::base::{Dname, MessageBuilder, StreamTarget};
+use domain::net::server::buf::VecBufSource;
+use domain::net::server::dgram;
+use domain::net::server::dgram::DgramServer;
+use domain::net::server::middleware::builder::MiddlewareBuilder;
+use domain::net::server::middleware::processor::MiddlewareProcessor;
+use domain::net::server::middleware::processors::cookies::CookiesMiddlewareProcessor;
+use domain::net::server::middleware::processors::mandatory::MandatoryMiddlewareProcessor;
+use domain::net::server::prelude::*;
+use domain::net::server::sock::AsyncAccept;
+use domain::net::server::stream;
+use domain::net::server::stream::StreamServer;
+use domain::net::server::ConnectionConfig;
+use domain::rdata::A;
 
 //----------- mk_answer() ----------------------------------------------------
 

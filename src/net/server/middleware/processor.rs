@@ -1,12 +1,10 @@
 //! Supporting types common to all processors.
-use crate::{
-    base::{
-        message_builder::AdditionalBuilder, wire::Composer, Message,
-        StreamTarget,
-    },
-    net::server::message::Request,
-};
 use core::ops::ControlFlow;
+
+use crate::base::message_builder::AdditionalBuilder;
+use crate::base::wire::Composer;
+use crate::base::{Message, StreamTarget};
+use crate::net::server::message::Request;
 
 /// A processing stage applied to incoming and outgoing messages.
 ///

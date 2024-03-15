@@ -1,26 +1,25 @@
 //! Support for working with DNS messages in servers.
-use core::{ops::ControlFlow, sync::atomic::Ordering, time::Duration};
+use core::ops::ControlFlow;
+use core::sync::atomic::Ordering;
+use core::time::Duration;
+
 use std::net::SocketAddr;
 use std::sync::Arc;
 
 use octseq::Octets;
 use tokio::time::Instant;
-use tracing::{enabled, error, info_span, warn, Level};
+use tracing::Level;
+use tracing::{enabled, error, info_span, warn};
 
-use crate::{
-    base::Message,
-    net::server::{
-        buf::BufSource, metrics::ServerMetrics,
-        middleware::chain::MiddlewareChain,
-    },
-};
+use crate::base::Message;
+use crate::net::server::buf::BufSource;
+use crate::net::server::metrics::ServerMetrics;
+use crate::net::server::middleware::chain::MiddlewareChain;
 
-use super::{
-    service::{
-        CallResult, Service, ServiceError, ServiceResultItem, Transaction,
-    },
-    util::start_reply,
+use super::service::{
+    CallResult, Service, ServiceError, ServiceResultItem, Transaction,
 };
+use super::util::start_reply;
 
 //------------ Request -------------------------------------------
 

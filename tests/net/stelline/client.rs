@@ -1,18 +1,4 @@
 #![allow(clippy::type_complexity)]
-
-use crate::net::stelline::matches::match_msg;
-use crate::net::stelline::parse_query;
-use crate::net::stelline::parse_stelline::{
-    Entry, Reply, Stelline, StepType,
-};
-use bytes::Bytes;
-
-use domain::base::iana::Opcode;
-use domain::base::opt::{ComposeOptData, OptData};
-use domain::base::{Message, MessageBuilder};
-use domain::net::client::request::{
-    ComposeRequest, Error, RequestMessage, SendRequest,
-};
 use std::collections::HashMap;
 use std::future::{ready, Future};
 use std::net::{IpAddr, SocketAddr};
@@ -20,11 +6,25 @@ use std::pin::Pin;
 use std::rc::Rc;
 use std::sync::Mutex;
 use std::time::Duration;
+
+use bytes::Bytes;
+#[cfg(feature = "mock-time")]
+use mock_instant::MockClock;
 use tracing::{debug, info_span, trace};
 use tracing_subscriber::EnvFilter;
 
-#[cfg(feature = "mock-time")]
-use mock_instant::MockClock;
+use domain::base::iana::Opcode;
+use domain::base::opt::{ComposeOptData, OptData};
+use domain::base::{Message, MessageBuilder};
+use domain::net::client::request::{
+    ComposeRequest, Error, RequestMessage, SendRequest,
+};
+
+use crate::net::stelline::matches::match_msg;
+use crate::net::stelline::parse_query;
+use crate::net::stelline::parse_stelline::{
+    Entry, Reply, Stelline, StepType,
+};
 
 use super::channel::DEF_CLIENT_ADDR;
 

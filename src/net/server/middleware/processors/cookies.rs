@@ -1,27 +1,23 @@
 //! DNS Cookies related message processing.
 use core::ops::ControlFlow;
+
 use std::net::IpAddr;
 use std::vec::Vec;
 
-use crate::{
-    base::{
-        iana::{OptRcode, Rcode},
-        message_builder::AdditionalBuilder,
-        opt::{self, Cookie},
-        wire::{Composer, ParseError},
-        Message, Serial, StreamTarget,
-    },
-    net::server::{
-        message::Request,
-        middleware::processor::MiddlewareProcessor,
-        util::{mk_builder_for_target, start_reply},
-    },
-};
-
-use crate::net::server::util::add_edns_options;
 use octseq::{Octets, OctetsBuilder};
 use rand::RngCore;
 use tracing::{debug, trace, warn};
+
+use crate::base::iana::{OptRcode, Rcode};
+use crate::base::message_builder::AdditionalBuilder;
+use crate::base::opt;
+use crate::base::opt::Cookie;
+use crate::base::wire::{Composer, ParseError};
+use crate::base::{Message, Serial, StreamTarget};
+use crate::net::server::message::Request;
+use crate::net::server::middleware::processor::MiddlewareProcessor;
+use crate::net::server::util::add_edns_options;
+use crate::net::server::util::{mk_builder_for_target, start_reply};
 
 const FIVE_MINUTES_AS_SECS: u32 = 5 * 60;
 const ONE_HOUR_AS_SECS: u32 = 60 * 60;

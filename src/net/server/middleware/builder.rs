@@ -6,16 +6,12 @@ use octseq::Octets;
 
 use crate::base::wire::Composer;
 
+use super::chain::MiddlewareChain;
+use super::processor::MiddlewareProcessor;
 #[cfg(feature = "siphasher")]
 use super::processors::cookies::CookiesMiddlewareProcessor;
-use super::{
-    chain::MiddlewareChain,
-    processor::MiddlewareProcessor,
-    processors::{
-        edns::EdnsMiddlewareProcessor,
-        mandatory::MandatoryMiddlewareProcessor,
-    },
-};
+use super::processors::edns::EdnsMiddlewareProcessor;
+use super::processors::mandatory::MandatoryMiddlewareProcessor;
 
 /// A [`MiddlewareChain`] builder.
 ///

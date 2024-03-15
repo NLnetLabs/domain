@@ -1,25 +1,20 @@
 //! Core DNS RFC standards based message processing for MUST requirements.
+use core::ops::ControlFlow;
+
 use octseq::Octets;
 use tracing::{debug, trace, warn};
 
-use crate::{
-    base::{
-        iana::{Opcode, Rcode},
-        message_builder::AdditionalBuilder,
-        opt::Opt,
-        wire::Composer,
-        Message, StreamTarget,
-    },
-    net::server::{
-        message::{
-            Request, TransportSpecificContext, UdpSpecificTransportContext,
-        },
-        middleware::processor::MiddlewareProcessor,
-        prelude::mk_builder_for_target,
-        util::start_reply,
-    },
+use crate::base::iana::{Opcode, Rcode};
+use crate::base::message_builder::AdditionalBuilder;
+use crate::base::opt::Opt;
+use crate::base::wire::Composer;
+use crate::base::{Message, StreamTarget};
+use crate::net::server::message::{
+    Request, TransportSpecificContext, UdpSpecificTransportContext,
 };
-use core::ops::ControlFlow;
+use crate::net::server::middleware::processor::MiddlewareProcessor;
+use crate::net::server::prelude::mk_builder_for_target;
+use crate::net::server::util::start_reply;
 
 /// A [`MiddlewareProcessor`] for enforcing core RFC MUST requirements on
 /// processed messages.
