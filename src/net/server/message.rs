@@ -184,7 +184,7 @@ where
         middleware_chain: MiddlewareChain<Buf::Output, Svc::Target>,
         svc: &Svc,
         metrics: Arc<ServerMetrics>,
-    ) -> Result<(), ServiceError<Svc::Error>>
+    ) -> Result<(), ServiceError>
     where
         Svc::Single: Send,
     {
@@ -248,13 +248,13 @@ where
             Arc<ContextAwareMessage<Message<Buf::Output>>>,
             ControlFlow<(
                 Transaction<
-                    ServiceResultItem<Buf::Output, Svc::Target, Svc::Error>,
+                    ServiceResultItem<Buf::Output, Svc::Target>,
                     Svc::Single,
                 >,
                 usize,
             )>,
         ),
-        ServiceError<Svc::Error>,
+        ServiceError,
     >
     where
         Svc::Single: Send,
@@ -280,8 +280,7 @@ where
             .num_inflight_requests
             .fetch_add(1, Ordering::Relaxed);
 
-        let pp_res = middleware_chain
-            .preprocess::<Svc::Error, Svc::Single>(&mut request);
+        let pp_res = middleware_chain.preprocess(&mut request);
 
         let frozen_request = Arc::new(request);
 
@@ -306,7 +305,7 @@ where
         state: Self::State,
         middleware_chain: MiddlewareChain<Buf::Output, Svc::Target>,
         mut response_txn: Transaction<
-            ServiceResultItem<Buf::Output, Svc::Target, Svc::Error>,
+            ServiceResultItem<Buf::Output, Svc::Target>,
             Svc::Single,
         >,
         last_processor_id: Option<usize>,

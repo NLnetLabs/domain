@@ -65,14 +65,13 @@ where
 /// use domain::base::iana::Rcode;
 ///
 /// // Define some types to make the example easier to read.
-/// type MyError = ();
 /// type MyMeta = ();
 ///
 /// // Implement the business logic of our service.
 /// fn my_service(
 ///     req: MkServiceRequest<Vec<u8>>,               // The received DNS request
 ///     _meta: MyMeta,                                // Any additional data you need
-/// ) -> MkServiceResult<Vec<u8>, Vec<u8>, MyError> { // The resulting DNS response(s)
+/// ) -> MkServiceResult<Vec<u8>, Vec<u8>> { // The resulting DNS response(s)
 ///     // For each request create a single response:
 ///     Ok(Transaction::single(Box::pin(async move {
 ///         let builder = mk_builder_for_target();
@@ -92,22 +91,19 @@ where
 /// [`Vec<u8>`]: std::vec::Vec<u8>
 /// [`CallResult`]: crate::net::server::service::CallResult
 /// [`Result::Ok()`]: std::result::Result::Ok
-pub fn mk_service<RequestOctets, Target, Error, Single, T, Metadata>(
+pub fn mk_service<RequestOctets, Target, Single, T, Metadata>(
     msg_handler: T,
     metadata: Metadata,
-) -> impl Service<RequestOctets, Error = Error, Target = Target, Single = Single>
-       + Clone
+) -> impl Service<RequestOctets, Target = Target, Single = Single> + Clone
 where
     RequestOctets: AsRef<[u8]>,
     Target: Composer + Default + Send + Sync + 'static,
-    Error: Send + Sync + 'static,
-    Single: Future<Output = ServiceResultItem<RequestOctets, Target, Error>>
-        + Send,
+    Single: Future<Output = ServiceResultItem<RequestOctets, Target>> + Send,
     Metadata: Clone,
     T: Fn(
             Arc<ContextAwareMessage<Message<RequestOctets>>>,
             Metadata,
-        ) -> ServiceResult<RequestOctets, Target, Error, Single>
+        ) -> ServiceResult<RequestOctets, Target, Single>
         + Clone,
 {
     move |msg| msg_handler(msg, metadata.clone())
@@ -116,22 +112,17 @@ where
 //----------- MkServiceResult ------------------------------------------------
 
 /// The result of a [`Service`] created by [`mk_service()`].
-pub type MkServiceResult<RequestOctets, Target, Error> = Result<
+pub type MkServiceResult<RequestOctets, Target> = Result<
     Transaction<
-        ServiceResultItem<RequestOctets, Target, Error>,
+        ServiceResultItem<RequestOctets, Target>,
         Pin<
             Box<
-                dyn Future<
-                        Output = ServiceResultItem<
-                            RequestOctets,
-                            Target,
-                            Error,
-                        >,
-                    > + Send,
+                dyn Future<Output = ServiceResultItem<RequestOctets, Target>>
+                    + Send,
             >,
         >,
     >,
-    ServiceError<Error>,
+    ServiceError,
 >;
 
 //----------- MkServiceRequest -------------------------------------------------

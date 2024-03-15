@@ -447,7 +447,7 @@ where
         command_rx: &mut watch::Receiver<
             ServerCommand<ServerConfig<Buf, Svc>>,
         >,
-    ) -> Result<(), ConnectionEvent<Svc::Error>> {
+    ) -> Result<(), ConnectionEvent> {
         // If the parent server no longer exists but was not cleanly shutdown
         // then the command channel will be closed and attempting to check for
         // a new command will fail. Advise the caller to break the connection
@@ -547,7 +547,7 @@ where
     async fn process_queued_result(
         &mut self,
         call_result: Option<CallResult<Buf::Output, Svc::Target>>,
-    ) -> Result<(), ConnectionEvent<Svc::Error>> {
+    ) -> Result<(), ConnectionEvent> {
         // If we failed to read the results of requests processed by the
         // service because the queue holding those results is empty and can no
         // longer be read from, then there is no point continuing to read from
@@ -630,9 +630,7 @@ where
         }
     }
 
-    fn process_dns_idle_timeout(
-        &self,
-    ) -> Result<(), ConnectionEvent<Svc::Error>> {
+    fn process_dns_idle_timeout(&self) -> Result<(), ConnectionEvent> {
         // DNS idle timeout elapsed, or was it reset?
         if self.state.idle_timeout_expired(self.config.idle_timeout) {
             Err(ConnectionEvent::DisconnectWithoutFlush)
@@ -643,8 +641,8 @@ where
 
     async fn process_read_result(
         &mut self,
-        res: Result<Buf::Output, ConnectionEvent<Svc::Error>>,
-    ) -> Result<(), ConnectionEvent<Svc::Error>> {
+        res: Result<Buf::Output, ConnectionEvent>,
+    ) -> Result<(), ConnectionEvent> {
         res.and_then(|msg| {
             let received_at = Instant::now();
 
@@ -803,9 +801,7 @@ where
     /// # Cancel safety
     ///
     /// This function is NOT cancel safe.
-    pub async fn recv<E>(
-        &mut self,
-    ) -> Result<Buf::Output, ConnectionEvent<E>> {
+    pub async fn recv(&mut self) -> Result<Buf::Output, ConnectionEvent> {
         #[cfg(test)]
         if self.status == Status::WaitingForMessageBody {
             self.cancelled = true;
@@ -830,10 +826,10 @@ where
     /// # Cancel safety
     ///
     /// This function is NOT cancel safe.
-    async fn recv_n_bytes<E, T: AsMut<[u8]>>(
+    async fn recv_n_bytes<T: AsMut<[u8]>>(
         stream_rx: &mut ReadHalf<Stream>,
         buf: &mut T,
-    ) -> Result<(), ConnectionEvent<E>> {
+    ) -> Result<(), ConnectionEvent> {
         loop {
             match stream_rx.read_exact(buf.as_mut()).await {
                 // The stream read succeeded. Return to the caller
@@ -850,9 +846,7 @@ where
     }
 
     #[must_use]
-    fn process_io_error<E>(
-        err: io::Error,
-    ) -> ControlFlow<ConnectionEvent<E>> {
+    fn process_io_error(err: io::Error) -> ControlFlow<ConnectionEvent> {
         match err.kind() {
             io::ErrorKind::UnexpectedEof => {
                 // The client disconnected. Per RFC 7766 6.2.4 pending
@@ -877,7 +871,7 @@ where
 
 //------------ ConnectionEvent -----------------------------------------------
 
-enum ConnectionEvent<T> {
+enum ConnectionEvent {
     /// RFC 7766 6.2.4 "Under normal operation DNS clients typically initiate
     /// connection closing on idle connections; however, DNS servers can close
     /// the connection if the idle timeout set by local policy is exceeded.
@@ -896,12 +890,12 @@ enum ConnectionEvent<T> {
     /// responses."
     DisconnectWithFlush,
 
-    ServiceError(ServiceError<T>),
+    ServiceError(ServiceError),
 }
 
 //--- Display
 
-impl<T> Display for ConnectionEvent<T> {
+impl Display for ConnectionEvent {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             ConnectionEvent::DisconnectWithoutFlush => {

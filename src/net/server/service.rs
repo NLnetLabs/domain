@@ -31,16 +31,16 @@ use super::message::ContextAwareMessage;
 /// one or more [`ServiceResultItem`] futures.
 ///
 /// On failure it instead results in a [`ServiceError`].
-pub type ServiceResult<RequestOctets, Target, Error, Single> = Result<
-    Transaction<ServiceResultItem<RequestOctets, Target, Error>, Single>,
-    ServiceError<Error>,
+pub type ServiceResult<RequestOctets, Target, Single> = Result<
+    Transaction<ServiceResultItem<RequestOctets, Target>, Single>,
+    ServiceError,
 >;
 
 /// A single result item from a [`ServiceResult`].
 ///
 /// See [`Service::call()`].
-pub type ServiceResultItem<RequestOctets, Target, Error> =
-    Result<CallResult<RequestOctets, Target>, ServiceError<Error>>;
+pub type ServiceResultItem<RequestOctets, Target> =
+    Result<CallResult<RequestOctets, Target>, ServiceError>;
 
 /// [`Service`]s are responsible for determining how to respond to valid DNS
 /// requests.
@@ -88,10 +88,10 @@ pub type ServiceResultItem<RequestOctets, Target, Error> =
 /// use domain::net::server::prelude::*;
 /// use domain::rdata::A;
 ///
-/// fn mk_answer<T>(
+/// fn mk_answer(
 ///     msg: &ContextAwareMessage<Message<Vec<u8>>>,
 ///     builder: MessageBuilder<StreamTarget<Vec<u8>>>,
-/// ) -> Result<AdditionalBuilder<StreamTarget<Vec<u8>>>, ServiceError<T>> {
+/// ) -> Result<AdditionalBuilder<StreamTarget<Vec<u8>>>, ServiceError> {
 ///     let mut answer = builder.start_answer(msg.message(), Rcode::NoError)?;
 ///     answer.push((
 ///         Dname::root_ref(),
@@ -105,14 +105,13 @@ pub type ServiceResultItem<RequestOctets, Target, Error> =
 /// struct MyService;
 ///
 /// impl Service<Vec<u8>> for MyService {
-///     type Error = ();
 ///     type Target = Vec<u8>;
-///     type Single = Ready<ServiceResultItem<Vec<u8>, Self::Target, Self::Error>>;
+///     type Single = Ready<ServiceResultItem<Vec<u8>, Self::Target>>;
 ///
 ///     fn call(
 ///         &self,
 ///         msg: Arc<ContextAwareMessage<Message<Vec<u8>>>>,
-///     ) -> ServiceResult<Vec<u8>, Self::Target, Self::Error, Self::Single> {
+///     ) -> ServiceResult<Vec<u8>, Self::Target, Self::Single> {
 ///         let builder = mk_builder_for_target();
 ///         let additional = mk_answer(&msg, builder)?;
 ///         let item = ready(Ok(CallResult::new(additional)));
@@ -139,8 +138,7 @@ pub type ServiceResultItem<RequestOctets, Target, Error> =
 /// ) -> ServiceResult<
 ///         Vec<u8>,
 ///         Target,
-///         (),
-///         impl Future<Output = ServiceResultItem<Vec<u8>, Target, ()>>,
+///         impl Future<Output = ServiceResultItem<Vec<u8>, Target>>,
 ///     >
 /// where
 ///     Target: Composer + Octets + FreezeBuilder<Octets = Target> + Default + Send,
@@ -203,66 +201,53 @@ pub type ServiceResultItem<RequestOctets, Target, Error> =
 /// [`call()`]: Self::call()
 /// [`mk_service()`]: crate::net::server::util::mk_service()
 pub trait Service<RequestOctets: AsRef<[u8]> = Vec<u8>> {
-    /// The type of error returned by [`Service::call()`] on failure.
-    type Error: Send + Sync + 'static;
-
     /// The type of buffer in which [`ServiceResultItem`]s are stored.
     type Target: Composer + Default + Send + Sync + 'static;
 
     /// The type of future returned by [`Service::call()`] via
     /// [`Transaction::single()`].
-    type Single: Future<
-            Output = ServiceResultItem<
-                RequestOctets,
-                Self::Target,
-                Self::Error,
-            >,
-        > + Send;
+    type Single: Future<Output = ServiceResultItem<RequestOctets, Self::Target>>
+        + Send;
 
     /// Generate a response to a fully pre-processed request.
     fn call(
         &self,
         message: Arc<ContextAwareMessage<Message<RequestOctets>>>,
-    ) -> ServiceResult<RequestOctets, Self::Target, Self::Error, Self::Single>;
+    ) -> ServiceResult<RequestOctets, Self::Target, Self::Single>;
 }
 
 /// Helper trait impl to treat an [`Arc<impl Service>`] as a [`Service`].
 impl<RequestOctets: AsRef<[u8]>, T: Service<RequestOctets>>
     Service<RequestOctets> for Arc<T>
 {
-    type Error = T::Error;
     type Target = T::Target;
     type Single = T::Single;
 
     fn call(
         &self,
         message: Arc<ContextAwareMessage<Message<RequestOctets>>>,
-    ) -> ServiceResult<RequestOctets, Self::Target, Self::Error, Self::Single>
-    {
+    ) -> ServiceResult<RequestOctets, Self::Target, Self::Single> {
         Arc::deref(self).call(message)
     }
 }
 
 /// Helper trait impl to treat a function as a [`Service`].
-impl<RequestOctets, Error, Target, Single, F> Service<RequestOctets> for F
+impl<RequestOctets, Target, Single, F> Service<RequestOctets> for F
 where
     F: Fn(
         Arc<ContextAwareMessage<Message<RequestOctets>>>,
-    ) -> ServiceResult<RequestOctets, Target, Error, Single>,
+    ) -> ServiceResult<RequestOctets, Target, Single>,
     RequestOctets: AsRef<[u8]>,
-    Error: Send + Sync + 'static,
     Target: Composer + Default + Send + Sync + 'static,
-    Single: Future<Output = ServiceResultItem<RequestOctets, Target, Error>>
-        + Send,
+    Single: Future<Output = ServiceResultItem<RequestOctets, Target>> + Send,
 {
-    type Error = Error;
     type Target = Target;
     type Single = Single;
 
     fn call(
         &self,
         message: Arc<ContextAwareMessage<Message<RequestOctets>>>,
-    ) -> ServiceResult<RequestOctets, Target, Error, Self::Single> {
+    ) -> ServiceResult<RequestOctets, Target, Self::Single> {
         (*self)(message)
     }
 }
@@ -271,7 +256,7 @@ where
 
 /// An error reported by a [`Service`].
 #[derive(Debug)]
-pub enum ServiceError<T> {
+pub enum ServiceError {
     /// The service declined to handle the request.
     RequestIgnored,
 
@@ -288,7 +273,7 @@ pub enum ServiceError<T> {
     Other(String),
 }
 
-impl<T> core::fmt::Display for ServiceError<T> {
+impl core::fmt::Display for ServiceError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             ServiceError::RequestIgnored => {
@@ -297,7 +282,7 @@ impl<T> core::fmt::Display for ServiceError<T> {
             ServiceError::ResponseBuilderError => {
                 write!(f, "ResponseBuilderError")
             }
-            ServiceError::ServiceSpecificError(_err) => {
+            ServiceError::ServiceSpecificError => {
                 write!(f, "ServiceSpecificError")
             }
             ServiceError::ShuttingDown => {
@@ -310,8 +295,8 @@ impl<T> core::fmt::Display for ServiceError<T> {
     }
 }
 
-impl<T> From<PushError> for ServiceError<T> {
-    fn from(_err: PushError) -> Self {
+impl From<PushError> for ServiceError {
+    fn from(_: PushError) -> Self {
         Self::ResponseBuilderError
     }
 }

@@ -103,17 +103,16 @@ where
     /// put pre-processors which protect the server against doing too much
     /// work as early in the chain as possible.
     #[allow(clippy::type_complexity)]
-    pub fn preprocess<Error, Single>(
+    pub fn preprocess<Single>(
         &self,
         request: &mut ContextAwareMessage<Message<RequestOctets>>,
     ) -> ControlFlow<(
-        Transaction<ServiceResultItem<RequestOctets, Target, Error>, Single>,
+        Transaction<ServiceResultItem<RequestOctets, Target>, Single>,
         usize,
     )>
     where
-        Error: Send + 'static,
-        Single: Future<Output = ServiceResultItem<RequestOctets, Target, Error>>
-            + Send,
+        Single:
+            Future<Output = ServiceResultItem<RequestOctets, Target>> + Send,
     {
         for (i, p) in self.processors.iter().enumerate() {
             match p.preprocess(request) {
