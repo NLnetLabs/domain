@@ -116,5 +116,5 @@ name = "client-transports"
 required-features = ["net", "unstable-client-transport"]
 
 [[example]]
-name = "serve"
+name = "server-transports"
 required-features = ["net", "unstable-server-transport"]
