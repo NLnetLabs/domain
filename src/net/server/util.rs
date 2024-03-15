@@ -1,15 +1,12 @@
 //! Small utilities for building and working with servers.
-use std::boxed::Box;
-use std::fmt::Debug;
 use std::future::Future;
-use std::pin::Pin;
 use std::string::String;
 use std::string::ToString;
 use std::sync::Arc;
 
-use octseq::FreezeBuilder;
 use octseq::Octets;
 use octseq::OctetsBuilder;
+use tracing::warn;
 
 use crate::base::message_builder::{AdditionalBuilder, PushError};
 use crate::base::message_builder::{OptBuilder, QuestionBuilder};
@@ -18,8 +15,6 @@ use crate::base::{wire::Composer, Message};
 use crate::base::{MessageBuilder, Rtype};
 use crate::base::{ParsedDname, StreamTarget};
 
-use super::service::ServiceError;
-use super::service::Transaction;
 use super::{
     message::ContextAwareMessage,
     service::{Service, ServiceResult, ServiceResultItem},
@@ -39,7 +34,7 @@ where
     MessageBuilder::from_target(target).unwrap() // SAFETY
 }
 
-//------------ mk_service() --------------------------------------------------
+//------------ service_fn() --------------------------------------------------
 
 /// Helper to simplify making a [`Service`] impl.
 ///
@@ -47,11 +42,9 @@ where
 /// those of its associated types, but this makes implementing it for simple
 /// cases quite verbose.
 ///
-/// `mk_service()` and associated helpers [`MkServiceRequest`],
-/// [`MkServiceResult`] and [`mk_builder_for_target()`] enable you to write a
-/// simpler function definition that implements the [`Service`] trait than if
-/// you were to attempt to impl [`Service`] directly, at the cost of requiring
-/// that you [`Box::pin()`] the returned [`Future`].
+/// `service_fn()` enables you to write a slightly simpler function definition
+/// that implements the [`Service`] trait than implementing [`Service`]
+/// directly.
 ///
 /// # Example
 ///
@@ -61,6 +54,7 @@ where
 ///
 /// ```
 /// // Import the types we need.
+/// use std::future::Future;
 /// use domain::net::server::prelude::*;
 /// use domain::base::iana::Rcode;
 ///
@@ -68,10 +62,12 @@ where
 /// type MyMeta = ();
 ///
 /// // Implement the business logic of our service.
+/// // Takes the received DNS request and any additional meta data you wish to
+/// // provide, and returns one or more future DNS responses.
 /// fn my_service(
-///     req: MkServiceRequest<Vec<u8>>,               // The received DNS request
-///     _meta: MyMeta,                                // Any additional data you need
-/// ) -> MkServiceResult<Vec<u8>, Vec<u8>> { // The resulting DNS response(s)
+///     req: Arc<ContextAwareMessage<Message<Vec<u8>>>>,
+///     _meta: MyMeta,
+/// ) -> ServiceResult<Vec<u8>, Vec<u8>, impl Future<Output = ServiceResultItem<Vec<u8>, Vec<u8>>>> {
 ///     // For each request create a single response:
 ///     Ok(Transaction::single(Box::pin(async move {
 ///         let builder = mk_builder_for_target();
@@ -81,17 +77,18 @@ where
 /// }
 ///
 /// // Turn my_service() into an actual Service trait impl.
-/// let service = mk_service(my_service, MyMeta::default());
+/// let service = service_fn(my_service, MyMeta::default());
 /// ```
 ///
 /// Above we see the outline of what we need to do:
-/// - Define a function that implements our request handling logic for our service.
-/// - Call [`mk_service()`] to wrap it in an actual [`Service`] impl.
+/// - Define a function that implements our request handling logic for our
+///   service.
+/// - Call [`service_fn()`] to wrap it in an actual [`Service`] impl.
 ///
 /// [`Vec<u8>`]: std::vec::Vec<u8>
 /// [`CallResult`]: crate::net::server::service::CallResult
 /// [`Result::Ok()`]: std::result::Result::Ok
-pub fn mk_service<RequestOctets, Target, Single, T, Metadata>(
+pub fn service_fn<RequestOctets, Target, Single, T, Metadata>(
     msg_handler: T,
     metadata: Metadata,
 ) -> impl Service<RequestOctets, Target = Target, Single = Single> + Clone
@@ -107,43 +104,6 @@ where
         + Clone,
 {
     move |msg| msg_handler(msg, metadata.clone())
-}
-
-//----------- MkServiceResult ------------------------------------------------
-
-/// The result of a [`Service`] created by [`mk_service()`].
-pub type MkServiceResult<RequestOctets, Target> = Result<
-    Transaction<
-        ServiceResultItem<RequestOctets, Target>,
-        Pin<
-            Box<
-                dyn Future<Output = ServiceResultItem<RequestOctets, Target>>
-                    + Send,
-            >,
-        >,
-    >,
-    ServiceError,
->;
-
-//----------- MkServiceRequest -------------------------------------------------
-
-/// The input to a [`Service`] created by [`mk_service()`].
-pub type MkServiceRequest<RequestOctets> =
-    Arc<ContextAwareMessage<Message<RequestOctets>>>;
-
-//----------- MkServiceTarget --------------------------------------------------
-
-/// Helper trait to simplify specifying [`Service`] impl trait bounds.
-pub trait MkServiceTarget<Target>:
-    Composer + Octets + FreezeBuilder<Octets = Target> + Default
-{
-}
-
-impl<Target> MkServiceTarget<Target> for Target
-where
-    Target: Composer + Octets + FreezeBuilder<Octets = Target> + Default,
-    Target::AppendError: Debug,
-{
 }
 
 //----------- to_pcap_text() -------------------------------------------------
@@ -191,7 +151,18 @@ where
     // RFC (1035?) compliance - copy question from request to response.
     let mut builder = builder.question();
     for rr in request.message().question() {
-        builder.push(rr.unwrap()).unwrap(); // SAFETY
+        match rr {
+            Ok(rr) => {
+                if let Err(err) = builder.push(rr) {
+                    warn!("Internal error while copying question RR to the resposne: {err}");
+                }
+            }
+            Err(err) => {
+                warn!(
+                    "Parse error while copying question RR to the resposne: {err} [RR: {rr:?}]"
+                );
+            }
+        }
     }
 
     builder

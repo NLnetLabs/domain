@@ -166,6 +166,7 @@ type CommandReceiver<Buf, Svc> = watch::Receiver<ServerCommandType<Buf, Svc>>;
 /// and a [`Service`] to generate responses to requests.
 ///
 /// ```
+/// use std::future::{Future, Ready};
 /// use domain::net::server::buf::VecBufSource;
 /// use domain::net::server::prelude::*;
 /// use domain::net::server::middleware::builder::MiddlewareBuilder;
@@ -173,7 +174,7 @@ type CommandReceiver<Buf, Svc> = watch::Receiver<ServerCommandType<Buf, Svc>>;
 /// use tokio::net::TcpListener;
 ///
 /// fn my_service(msg: Arc<ContextAwareMessage<Message<Vec<u8>>>>, _meta: ())
-///     -> MkServiceResult<Vec<u8>, Vec<u8>>
+///     -> ServiceResult<Vec<u8>, Vec<u8>, Ready<ServiceResultItem<Vec<u8>, Vec<u8>>>>
 /// {
 ///     todo!()
 /// }
@@ -181,7 +182,7 @@ type CommandReceiver<Buf, Svc> = watch::Receiver<ServerCommandType<Buf, Svc>>;
 /// #[tokio::main]
 /// async fn main() {
 ///     // Create a service impl from the service fn
-///     let svc = mk_service(my_service, ());
+///     let svc = service_fn(my_service, ());
 ///
 ///     // Bind to a local port and listen for incoming TCP connections.
 ///     let listener = TcpListener::bind("127.0.0.1:8053").await.unwrap();

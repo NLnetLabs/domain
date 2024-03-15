@@ -83,54 +83,13 @@ impl Service<Vec<u8>> for MyService {
     }
 }
 
-//--- query()
-
-/// This function shows how to implement [`Service`] logic by matching the
-/// function signature required by [`mk_service()`].
-///
-/// The function signature is signifacantly simpler to write than when not
-/// using [`mk_service()`] but this approach requires the function to
-/// [`Box::pin()`] the generated response future.
-fn query(
-    msg: MkServiceRequest<Vec<u8>>,
-    count: Arc<AtomicU8>,
-) -> MkServiceResult<Vec<u8>, Vec<u8>> {
-    let cnt = count
-        .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |x| {
-            Some(if x > 0 { x - 1 } else { 0 })
-        })
-        .unwrap();
-
-    // This fn blocks the server until it returns. By returning a future
-    // that handles the request we allow the server to execute the future
-    // in the background without blocking the server.
-    let fut = async move {
-        eprintln!("Sleeping for 100ms");
-        tokio::time::sleep(Duration::from_millis(100)).await;
-
-        // TODO: business logic of processing the request
-        // and generating an answer.
-
-        let idle_timeout = Duration::from_millis((50 * cnt).into());
-        let cmd = ServiceFeedback::Reconfigure { idle_timeout };
-        eprintln!("Setting idle timeout to {idle_timeout:?}");
-
-        let builder = mk_builder_for_target();
-        let answer = mk_answer(&msg, builder)?;
-        let res = CallResult::new(answer).with_feedback(cmd);
-        Ok(res)
-    };
-    Ok(Transaction::single(Box::pin(fut)))
-}
-
 //--- name_to_ip()
 
 /// This function shows how to implement [`Service`] logic by matching the
 /// function signature required by the [`Service`] trait.
 ///
-/// The function signature is more complex than when using [`mk_service()`]
-/// (see the [`query()`] example above) but can be generic over the `Target`
-/// and does not need to [`Box::pin()`] the generated future.
+/// The function signature is slightly more complex than when using
+/// [`service_fn()`] (see the [`query()`] example below).
 fn name_to_ip<Target>(
     msg: Arc<ContextAwareMessage<Message<Vec<u8>>>>,
 ) -> ServiceResult<
@@ -178,6 +137,50 @@ where
     let additional = out_answer.unwrap().additional();
     let item = Ok(CallResult::new(additional));
     Ok(Transaction::single(ready(item)))
+}
+
+//--- query()
+
+/// This function shows how to implement [`Service`] logic by matching the
+/// function signature required by [`service_fn()`].
+///
+/// The function signature is slightly simpler to write than when not using
+/// [`service_fn()`] and supports passing in meta data without any extra
+/// boilerplate.
+fn query(
+    msg: Arc<ContextAwareMessage<Message<Vec<u8>>>>,
+    count: Arc<AtomicU8>,
+) -> ServiceResult<
+    Vec<u8>,
+    Vec<u8>,
+    impl Future<Output = ServiceResultItem<Vec<u8>, Vec<u8>>> + Send,
+> {
+    let cnt = count
+        .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |x| {
+            Some(if x > 0 { x - 1 } else { 0 })
+        })
+        .unwrap();
+
+    // This fn blocks the server until it returns. By returning a future
+    // that handles the request we allow the server to execute the future
+    // in the background without blocking the server.
+    let fut = async move {
+        eprintln!("Sleeping for 100ms");
+        tokio::time::sleep(Duration::from_millis(100)).await;
+
+        // TODO: business logic of processing the request
+        // and generating an answer.
+
+        let idle_timeout = Duration::from_millis((50 * cnt).into());
+        let cmd = ServiceFeedback::Reconfigure { idle_timeout };
+        eprintln!("Setting idle timeout to {idle_timeout:?}");
+
+        let builder = mk_builder_for_target();
+        let answer = mk_answer(&msg, builder)?;
+        let res = CallResult::new(answer).with_feedback(cmd);
+        Ok(res)
+    };
+    Ok(Transaction::single(fut))
 }
 
 //----------- Example socket trait implementations ---------------------------
@@ -649,8 +652,8 @@ async fn main() {
     let count = Arc::new(AtomicU8::new(5));
 
     // Make our service from the `query()` function with the help of the
-    // `mk_service()` function.
-    let fn_svc = mk_service(query, count);
+    // `service_fn()` function.
+    let fn_svc = service_fn(query, count);
 
     // Show that we don't have to use the same middleware with every server by
     // creating a separate middleware chain for use just by this server, and

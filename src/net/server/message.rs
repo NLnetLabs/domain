@@ -57,7 +57,7 @@ impl TransportSpecificContext {
 /// about its origins so that decisions can be taken based not just on the
 /// message itself but also on the circumstances surrounding its creation and
 /// delivery.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct ContextAwareMessage<T> {
     client_addr: std::net::SocketAddr,
     received_at: Instant,

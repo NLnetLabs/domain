@@ -31,6 +31,7 @@ use net::stelline::parse_stelline::Config;
 use rstest::rstest;
 use std::collections::VecDeque;
 use std::fs::File;
+use std::future::Future;
 use std::net::IpAddr;
 use std::net::SocketAddr;
 use std::path::PathBuf;
@@ -59,7 +60,7 @@ async fn server_tests(#[files("test-data/server/*.rpl")] rpl_file: PathBuf) {
 
     // Create a service to answer queries received by the DNS servers.
     let zonefile = server_config.zonefile.clone();
-    let service: Arc<_> = mk_service(test_service, zonefile).into();
+    let service: Arc<_> = service_fn(test_service, zonefile).into();
 
     // Create dgram and stream servers for answering requests
     let (dgram_srv, dgram_conn, stream_srv, stream_conn) =
@@ -225,7 +226,7 @@ where
 
 // A test `Service` impl.
 //
-// This function can be used with `mk_service()` to create a `Service`
+// This function can be used with `service_fn()` to create a `Service`
 // instance designed to respond to test queries.
 //
 // The functionality provided is the mininum common set of behaviour needed
@@ -237,9 +238,13 @@ where
 //   - Controlling the content of the `Zonefile` passed to instances of
 //     this `Service` impl.
 fn test_service(
-    request: MkServiceRequest<Vec<u8>>,
+    request: Arc<ContextAwareMessage<Message<Vec<u8>>>>,
     zonefile: Zonefile,
-) -> MkServiceResult<Vec<u8>, Vec<u8>> {
+) -> ServiceResult<
+    Vec<u8>,
+    Vec<u8>,
+    impl Future<Output = ServiceResultItem<Vec<u8>, Vec<u8>>> + Send,
+> {
     fn as_record_and_dname(
         r: ScannedRecord,
     ) -> Option<(ScannedRecord, Dname<Vec<u8>>)> {
@@ -259,7 +264,7 @@ fn test_service(
     }
 
     trace!("Service received request");
-    Ok(Transaction::single(Box::pin(async move {
+    Ok(Transaction::single(async move {
         trace!("Service is constructing a single response");
         // If given a single question:
         let answer = request
@@ -295,7 +300,7 @@ fn test_service(
             );
 
         Ok(CallResult::new(answer.additional()))
-    })))
+    }))
 }
 
 //----------- Stelline config block parsing -----------------------------------

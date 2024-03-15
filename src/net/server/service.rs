@@ -19,7 +19,7 @@ use octseq::{OctetsBuilder, ShortBuf};
 
 use crate::base::iana::Rcode;
 use crate::base::message_builder::{AdditionalBuilder, PushError};
-use crate::base::wire::Composer;
+use crate::base::wire::{Composer, ParseError};
 use crate::base::{Message, StreamTarget};
 
 use super::message::ContextAwareMessage;
@@ -68,7 +68,7 @@ pub type ServiceResultItem<RequestOctets, Target> =
 ///
 ///   1. Implement the [`Service`] trait on a struct.
 ///   2. Define a function compatible with the [`Service`] trait.
-///   3. Define a function compatible with [`mk_service()`].
+///   3. Define a function compatible with [`service_fn()`].
 ///
 /// Whichever approach you choose it is important to minimize the work done
 /// before returning from [`Service::call()`], as time spent here blocks the
@@ -190,9 +190,9 @@ pub type ServiceResultItem<RequestOctets, Target> =
 /// let srv = DgramServer::new(sock, buf, name_to_ip);
 /// ```
 ///
-/// # Define a function compatible with [`mk_service()`]
+/// # Define a function compatible with [`service_fn()`]
 ///
-/// See [`mk_service()`] for an example of how to use it to create a
+/// See [`service_fn()`] for an example of how to use it to create a
 /// [`Service`] impl from a funciton.
 ///
 /// [`MiddlewareChain`]: crate::net::server::middleware::chain::MiddlewareChain
@@ -200,7 +200,7 @@ pub type ServiceResultItem<RequestOctets, Target> =
 /// [`StreamServer`]: crate::net::server::stream::StreamServer
 /// [net::server module documentation]: crate::net::server
 /// [`call()`]: Self::call()
-/// [`mk_service()`]: crate::net::server::util::mk_service()
+/// [`service_fn()`]: crate::net::server::util::service_fn()
 pub trait Service<RequestOctets: AsRef<[u8]> = Vec<u8>> {
     /// The type of buffer in which [`ServiceResultItem`]s are stored.
     type Target: Composer + Default + Send + Sync + 'static;
@@ -300,6 +300,14 @@ impl Display for ServiceError {
 impl From<PushError> for ServiceError {
     fn from(_: PushError) -> Self {
         Self::InternalError
+    }
+}
+
+//--- From<ParseError>
+
+impl From<ParseError> for ServiceError {
+    fn from(_: ParseError) -> Self {
+        Self::FormatError
     }
 }
 
