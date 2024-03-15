@@ -57,11 +57,11 @@ impl TransportSpecificContext {
 /// about its origins so that decisions can be taken based not just on the
 /// message itself but also on the circumstances surrounding its creation and
 /// delivery.
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct ContextAwareMessage<T> {
     client_addr: std::net::SocketAddr,
     received_at: Instant,
-    message: T,
+    message: Arc<T>,
     transport_specific: TransportSpecificContext,
 }
 
@@ -75,7 +75,7 @@ impl<T> ContextAwareMessage<T> {
         Self {
             client_addr,
             received_at,
-            message,
+            message: Arc::new(message),
             transport_specific,
         }
     }
@@ -95,14 +95,22 @@ impl<T> ContextAwareMessage<T> {
         self.client_addr
     }
 
-    /// Exchange this wrapper for the inner message that it wraps.
-    pub fn into_inner(self) -> T {
-        self.message
-    }
-
     /// Read access to the inner message
     pub fn message(&self) -> &T {
         &self.message
+    }
+}
+
+//--- Clone
+
+impl<T> Clone for ContextAwareMessage<T> {
+    fn clone(&self) -> Self {
+        Self {
+            client_addr: self.client_addr,
+            received_at: self.received_at,
+            message: Arc::clone(&self.message),
+            transport_specific: self.transport_specific,
+        }
     }
 }
 
@@ -266,7 +274,7 @@ where
         metrics: &Arc<ServerMetrics>,
     ) -> Result<
         (
-            Arc<ContextAwareMessage<Message<Buf::Output>>>,
+            ContextAwareMessage<Message<Buf::Output>>,
             ControlFlow<(
                 Transaction<
                     ServiceResultItem<Buf::Output, Svc::Target>,
@@ -305,9 +313,7 @@ where
 
         let pp_res = middleware_chain.preprocess(&mut request);
 
-        let frozen_request = Arc::new(request);
-
-        Ok((frozen_request, pp_res))
+        Ok((request, pp_res))
     }
 
     /// Post-process a response in the context of its originating request.
@@ -324,7 +330,7 @@ where
     #[allow(clippy::type_complexity)]
     fn postprocess_response(
         &self,
-        request: Arc<ContextAwareMessage<Message<Buf::Output>>>,
+        request: ContextAwareMessage<Message<Buf::Output>>,
         state: Self::State,
         middleware_chain: MiddlewareChain<Buf::Output, Svc::Target>,
         mut response_txn: Transaction<

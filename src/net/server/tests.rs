@@ -341,7 +341,7 @@ impl Service<Vec<u8>> for MyService {
 
     fn call(
         &self,
-        _msg: Arc<ContextAwareMessage<Message<Vec<u8>>>>,
+        _msg: ContextAwareMessage<Message<Vec<u8>>>,
     ) -> Result<
         Transaction<ServiceResultItem<Vec<u8>, Self::Target>, Self::Single>,
         ServiceError,

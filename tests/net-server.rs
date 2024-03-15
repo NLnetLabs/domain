@@ -238,7 +238,7 @@ where
 //   - Controlling the content of the `Zonefile` passed to instances of
 //     this `Service` impl.
 fn test_service(
-    request: Arc<ContextAwareMessage<Message<Vec<u8>>>>,
+    request: ContextAwareMessage<Message<Vec<u8>>>,
     zonefile: Zonefile,
 ) -> ServiceResult<
     Vec<u8>,

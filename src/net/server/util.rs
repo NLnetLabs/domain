@@ -2,7 +2,6 @@
 use std::future::Future;
 use std::string::String;
 use std::string::ToString;
-use std::sync::Arc;
 
 use octseq::Octets;
 use octseq::OctetsBuilder;
@@ -65,7 +64,7 @@ where
 /// // Takes the received DNS request and any additional meta data you wish to
 /// // provide, and returns one or more future DNS responses.
 /// fn my_service(
-///     req: Arc<ContextAwareMessage<Message<Vec<u8>>>>,
+///     req: ContextAwareMessage<Message<Vec<u8>>>,
 ///     _meta: MyMeta,
 /// ) -> ServiceResult<Vec<u8>, Vec<u8>, impl Future<Output = ServiceResultItem<Vec<u8>, Vec<u8>>>> {
 ///     // For each request create a single response:
@@ -98,7 +97,7 @@ where
     Single: Future<Output = ServiceResultItem<RequestOctets, Target>> + Send,
     Metadata: Clone,
     T: Fn(
-            Arc<ContextAwareMessage<Message<RequestOctets>>>,
+            ContextAwareMessage<Message<RequestOctets>>,
             Metadata,
         ) -> ServiceResult<RequestOctets, Target, Single>
         + Clone,

@@ -111,7 +111,7 @@ pub type ServiceResultItem<RequestOctets, Target> =
 ///
 ///     fn call(
 ///         &self,
-///         msg: Arc<ContextAwareMessage<Message<Vec<u8>>>>,
+///         msg: ContextAwareMessage<Message<Vec<u8>>>,
 ///     ) -> ServiceResult<Vec<u8>, Self::Target, Self::Single> {
 ///         let builder = mk_builder_for_target();
 ///         let additional = mk_answer(&msg, builder)?;
@@ -135,7 +135,7 @@ pub type ServiceResultItem<RequestOctets, Target> =
 /// use domain::rdata::A;
 ///
 /// fn name_to_ip<Target>(
-///     msg: Arc<ContextAwareMessage<Message<Vec<u8>>>>,
+///     msg: ContextAwareMessage<Message<Vec<u8>>>,
 /// ) -> ServiceResult<
 ///         Vec<u8>,
 ///         Target,
@@ -213,7 +213,7 @@ pub trait Service<RequestOctets: AsRef<[u8]> = Vec<u8>> {
     /// Generate a response to a fully pre-processed request.
     fn call(
         &self,
-        message: Arc<ContextAwareMessage<Message<RequestOctets>>>,
+        message: ContextAwareMessage<Message<RequestOctets>>,
     ) -> ServiceResult<RequestOctets, Self::Target, Self::Single>;
 }
 
@@ -226,7 +226,7 @@ impl<RequestOctets: AsRef<[u8]>, T: Service<RequestOctets>>
 
     fn call(
         &self,
-        message: Arc<ContextAwareMessage<Message<RequestOctets>>>,
+        message: ContextAwareMessage<Message<RequestOctets>>,
     ) -> ServiceResult<RequestOctets, Self::Target, Self::Single> {
         Arc::deref(self).call(message)
     }
@@ -236,7 +236,7 @@ impl<RequestOctets: AsRef<[u8]>, T: Service<RequestOctets>>
 impl<RequestOctets, Target, Single, F> Service<RequestOctets> for F
 where
     F: Fn(
-        Arc<ContextAwareMessage<Message<RequestOctets>>>,
+        ContextAwareMessage<Message<RequestOctets>>,
     ) -> ServiceResult<RequestOctets, Target, Single>,
     RequestOctets: AsRef<[u8]>,
     Target: Composer + Default + Send + Sync + 'static,
@@ -247,7 +247,7 @@ where
 
     fn call(
         &self,
-        message: Arc<ContextAwareMessage<Message<RequestOctets>>>,
+        message: ContextAwareMessage<Message<RequestOctets>>,
     ) -> ServiceResult<RequestOctets, Target, Self::Single> {
         (*self)(message)
     }
@@ -367,13 +367,12 @@ pub struct CallResult<RequestOctets, Target>
 where
     RequestOctets: AsRef<[u8]>,
 {
-    request: Option<Arc<ContextAwareMessage<Message<RequestOctets>>>>,
+    request: Option<ContextAwareMessage<Message<RequestOctets>>>,
     response: Option<AdditionalBuilder<StreamTarget<Target>>>,
     feedback: Option<ServiceFeedback>,
 }
 
-type RequestMsg<RequestOctets> =
-    Arc<ContextAwareMessage<Message<RequestOctets>>>;
+type RequestMsg<RequestOctets> = ContextAwareMessage<Message<RequestOctets>>;
 type ResponseMsg<Target> = AdditionalBuilder<StreamTarget<Target>>;
 
 impl<RequestOctets, Target> CallResult<RequestOctets, Target>
@@ -402,11 +401,11 @@ where
         }
     }
 
-    /// Add an [`Arc<ContextAwareMessage<_>>`] to an existing [`CallResult`].
+    /// Add an [`ContextAwareMessage<_>`] to an existing [`CallResult`].
     #[must_use]
     pub fn with_request(
         mut self,
-        request: Arc<ContextAwareMessage<Message<RequestOctets>>>,
+        request: ContextAwareMessage<Message<RequestOctets>>,
     ) -> Self {
         self.request = Some(request);
         self

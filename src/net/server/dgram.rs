@@ -199,7 +199,7 @@ type CommandReceiver<Buf, Svc> = watch::Receiver<ServerCommandType<Buf, Svc>>;
 /// use domain::net::server::dgram::DgramServer;
 /// use tokio::net::UdpSocket;
 ///
-/// fn my_service(msg: Arc<ContextAwareMessage<Message<Vec<u8>>>>, _meta: ())
+/// fn my_service(msg: ContextAwareMessage<Message<Vec<u8>>>, _meta: ())
 ///     -> ServiceResult<Vec<u8>, Vec<u8>, Ready<ServiceResultItem<Vec<u8>, Vec<u8>>>>
 /// {
 ///     todo!()

@@ -73,7 +73,7 @@ impl Service<Vec<u8>> for MyService {
 
     fn call(
         &self,
-        msg: Arc<ContextAwareMessage<Message<Vec<u8>>>>,
+        msg: ContextAwareMessage<Message<Vec<u8>>>,
     ) -> ServiceResult<Vec<u8>, Self::Target, Self::Single> {
         let builder = mk_builder_for_target();
         let additional = mk_answer(&msg, builder)?;
@@ -91,7 +91,7 @@ impl Service<Vec<u8>> for MyService {
 /// The function signature is slightly more complex than when using
 /// [`service_fn()`] (see the [`query()`] example below).
 fn name_to_ip<Target>(
-    msg: Arc<ContextAwareMessage<Message<Vec<u8>>>>,
+    msg: ContextAwareMessage<Message<Vec<u8>>>,
 ) -> ServiceResult<
     Vec<u8>,
     Target,
@@ -148,7 +148,7 @@ where
 /// [`service_fn()`] and supports passing in meta data without any extra
 /// boilerplate.
 fn query(
-    msg: Arc<ContextAwareMessage<Message<Vec<u8>>>>,
+    msg: ContextAwareMessage<Message<Vec<u8>>>,
     count: Arc<AtomicU8>,
 ) -> ServiceResult<
     Vec<u8>,
