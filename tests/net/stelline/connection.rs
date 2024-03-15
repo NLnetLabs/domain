@@ -1,7 +1,7 @@
 use std::pin::Pin;
 use std::sync::Arc;
-use std::task::{Context, Poll};
 use std::task::Waker;
+use std::task::{Context, Poll};
 
 use crate::net::stelline::client::CurrStepValue;
 use crate::net::stelline::parse_stelline::Stelline;
