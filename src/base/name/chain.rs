@@ -381,7 +381,7 @@ impl std::error::Error for LongChainError {}
 #[cfg(feature = "std")]
 mod test {
     use super::*;
-    use crate::base::name::{Dname, RelativeDname, ToLabelIter};
+    use crate::base::name::RelativeDname;
     use octseq::builder::infallible;
 
     /// Tests that `ToDname` and `ToRelativeDname` are implemented for the

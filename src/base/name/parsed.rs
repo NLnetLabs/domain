@@ -734,7 +734,6 @@ impl From<ParsedDnameError> for ParseError {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::base::name::{Dname, RelativeDname};
 
     macro_rules! name {
         (root) => {

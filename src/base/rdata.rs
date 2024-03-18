@@ -529,8 +529,7 @@ impl std::error::Error for LongRecordData {}
 #[cfg(test)]
 #[cfg(all(feature = "std", feature = "bytes"))]
 pub(crate) mod test {
-    use super::super::scan::{IterScanner, Scanner};
-    use super::super::wire::ParseError;
+    use super::super::scan::IterScanner;
     use super::*;
     use bytes::{Bytes, BytesMut};
     use core::fmt::Debug;

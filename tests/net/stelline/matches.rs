@@ -1,5 +1,5 @@
-use crate::net::deckard::parse_deckard::{Entry, Matches, Reply};
-use crate::net::deckard::parse_query;
+use crate::net::stelline::parse_query;
+use crate::net::stelline::parse_stelline::{Entry, Matches, Reply};
 use domain::base::iana::Opcode;
 use domain::base::iana::OptRcode;
 use domain::base::iana::Rtype;
@@ -57,6 +57,7 @@ where
             sections.additional.clone(),
             msg.additional().unwrap(),
             arcount,
+            matches.ttl,
             verbose,
         ) {
             if verbose {
@@ -70,11 +71,12 @@ where
             sections.answer.clone(),
             msg.answer().unwrap(),
             msg.header_counts().ancount(),
+            matches.ttl,
             verbose,
         )
     {
         if verbose {
-            todo!();
+            println!("match_msg: answer section does not match");
         }
         return false;
     }
@@ -83,16 +85,47 @@ where
             sections.authority.clone(),
             msg.authority().unwrap(),
             msg.header_counts().nscount(),
+            matches.ttl,
             verbose,
         )
     {
         if verbose {
-            todo!();
+            println!("match_msg: authority section does not match");
+        }
+        return false;
+    }
+    if matches.ad && !msg.header().ad() {
+        if verbose {
+            println!("match_msg: AD not in message",);
+        }
+        return false;
+    }
+    if matches.cd && !msg.header().cd() {
+        if verbose {
+            println!("match_msg: CD not in message",);
         }
         return false;
     }
     if matches.fl_do {
-        todo!();
+        if let Some(opt) = msg.opt() {
+            if !opt.dnssec_ok() {
+                if verbose {
+                    println!("match_msg: DO not in message",);
+                }
+                return false;
+            }
+        } else {
+            if verbose {
+                println!("match_msg: DO not in message (not opt record)",);
+            }
+            return false;
+        }
+    }
+    if matches.rd && !msg.header().rd() {
+        if verbose {
+            println!("match_msg: RD not in message",);
+        }
+        return false;
     }
     if matches.flags {
         let header = msg.header();
@@ -118,34 +151,60 @@ where
             }
             return false;
         }
+        if reply.ra != header.ra() {
+            if verbose {
+                println!(
+                    "match_msg: RA does not match, got {}, expected {}",
+                    header.ra(),
+                    reply.ra
+                );
+            }
+            return false;
+        }
         if reply.rd != header.rd() {
             if verbose {
                 println!(
                     "match_msg: RD does not match, got {}, expected {}",
-                    header.aa(),
-                    reply.aa
+                    header.rd(),
+                    reply.rd
                 );
             }
             return false;
         }
         if reply.ad != header.ad() {
             if verbose {
-                todo!();
+                println!(
+                    "match_msg: AD does not match, got {}, expected {}",
+                    header.ad(),
+                    reply.ad
+                );
             }
             return false;
         }
         if reply.cd != header.cd() {
             if verbose {
-                todo!();
+                println!(
+                    "match_msg: CD does not match, got {}, expected {}",
+                    header.cd(),
+                    reply.cd
+                );
             }
             return false;
         }
     }
     if matches.opcode {
-        // Not clear what that means. JUst check if it is Query
-        if msg.header().opcode() != Opcode::Query {
+        let expected_opcode = if reply.notify {
+            Opcode::Notify
+        } else {
+            Opcode::Query
+        };
+        if msg.header().opcode() != expected_opcode {
             if verbose {
-                todo!();
+                println!(
+                    "Opcode does not match, got {} expected {}",
+                    msg.header().opcode(),
+                    expected_opcode
+                );
             }
             return false;
         }
@@ -171,7 +230,51 @@ where
                 // Okay
             } else {
                 if verbose {
-                    todo!();
+                    println!(
+                        "Wrong Rcode, expected NOERROR, got {msg_rcode}"
+                    );
+                }
+                return false;
+            }
+        } else if reply.formerr {
+            if let OptRcode::FormErr = msg_rcode {
+                // Okay
+            } else {
+                if verbose {
+                    println!(
+                        "Wrong Rcode, expected FORMERR, got {msg_rcode}"
+                    );
+                }
+                return false;
+            }
+        } else if reply.notimp {
+            if let OptRcode::NotImp = msg_rcode {
+                // Okay
+            } else {
+                if verbose {
+                    println!("Wrong Rcode, expected NOTIMP, got {msg_rcode}");
+                }
+                return false;
+            }
+        } else if reply.nxdomain {
+            if let OptRcode::NXDomain = msg_rcode {
+                // Okay
+            } else {
+                if verbose {
+                    println!(
+                        "Wrong Rcode, expected NXDOMAIN, got {msg_rcode}"
+                    );
+                }
+                return false;
+            }
+        } else if reply.refused {
+            if let OptRcode::Refused = msg_rcode {
+                // Okay
+            } else {
+                if verbose {
+                    println!(
+                        "Wrong Rcode, expected REFUSED, got {msg_rcode}"
+                    );
                 }
                 return false;
             }
@@ -187,7 +290,7 @@ where
         todo!()
     }
     if matches.ttl {
-        todo!()
+        // Nothing to do. TTLs are checked in the relevant sections.
     }
     if matches.udp {
         todo!()
@@ -205,11 +308,16 @@ fn match_section<
     mut match_section: Vec<ZonefileEntry>,
     msg_section: RecordSection<'a, Octs>,
     msg_count: u16,
+    match_ttl: bool,
     verbose: bool,
 ) -> bool {
     if match_section.len() != msg_count.into() {
         if verbose {
-            todo!();
+            println!(
+                "Expected {} entries, got {}",
+                match_section.len(),
+                msg_count
+            );
         }
         return false;
     }
@@ -225,12 +333,27 @@ fn match_section<
             } else {
                 panic!("include not expected");
             };
+            println!(
+                "matching {:?} with {:?}",
+                msg_rr.owner(),
+                mat_rr.owner()
+            );
             if msg_rr.owner() != mat_rr.owner() {
                 continue;
             }
+            println!(
+                "matching {:?} with {:?}",
+                msg_rr.class(),
+                mat_rr.class()
+            );
             if msg_rr.class() != mat_rr.class() {
                 continue;
             }
+            println!(
+                "matching {:?} with {:?}",
+                msg_rr.rtype(),
+                mat_rr.rtype()
+            );
             if msg_rr.rtype() != mat_rr.rtype() {
                 continue;
             }
@@ -239,11 +362,25 @@ fn match_section<
                 .into_record::<ZoneRecordData<Octs2, ParsedDname<Octs2>>>()
                 .unwrap()
                 .unwrap();
+            println!(
+                "matching {:?} with {:?}",
+                msg_rdata.data(),
+                mat_rr.data()
+            );
             if msg_rdata.data() != mat_rr.data() {
                 continue;
             }
 
-            // Found one. Delete this entry
+            // Found one. Check TTL
+            if match_ttl && msg_rr.ttl() != mat_rr.ttl() {
+                if verbose {
+                    println!("match_section: TTL does not match for {} {} {}: got {:?} expected {:?}",
+			msg_rr.owner(), msg_rr.class(), msg_rr.rtype(),
+			msg_rr.ttl(), mat_rr.ttl());
+                }
+                return false;
+            }
+            // Delete this entry
             match_section.swap_remove(index);
             continue 'outer;
         }

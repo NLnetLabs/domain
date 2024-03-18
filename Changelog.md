@@ -8,11 +8,15 @@ Breaking changes
   a consequence `TxtBuilder` converts an empty builder into TXT record
   data consisting of one empty character string which requires
   `TxtBuilder::finish` to be able to return an error. ([#267])
+* `Txt` record data serialization has been redesigned. It now serialized as
+  a sequence of character strings. It also deserializes from such a sequence.
+  If supported by the format, it alternatively deserializes from a string that
+  is broken up into 255 octet chunks if necessary. ([#268])
 * The text formatting for `CharStr` has been redesigned. The `Display`
   impl now uses a modified version of the representation format that
   doesn’t escape white space but also doesn’t enclose the string in
   quotes. Methods for explicitly formatting in quoted and unquoted
-  presentation format are provided. ([#270]);
+  presentation format are provided. ([#270])
 * The stub resolver now uses the new client transports. This doesn’t change
   how it is used but does change how it queries the configured servers.
   ([#215])
@@ -41,8 +45,9 @@ Bug fixes
 Unstable features
 
 * Add the module `net::client` with experimental support for client
-  message transport, i.e., sending of request and receiving responses.
-  This is gated by the `unstable-client-transport` feature. ([#215])
+  message transport, i.e., sending of requests and receiving responses
+  as well as caching of responses.
+  This is gated by the `unstable-client-transport` feature. ([#215],[#275])
 
 Other changes
 
@@ -55,7 +60,9 @@ Other changes
 [#258]: https://github.com/NLnetLabs/domain/pull/258
 [#259]: https://github.com/NLnetLabs/domain/pull/259
 [#267]: https://github.com/NLnetLabs/domain/pull/267
+[#268]: https://github.com/NLnetLabs/domain/pull/268
 [#270]: https://github.com/NLnetLabs/domain/pull/270
+[#275]: https://github.com/NLnetLabs/domain/pull/275
 [@torin-carey]: https://github.com/torin-carey
 
 
