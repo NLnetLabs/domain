@@ -19,6 +19,7 @@ use tokio::time::{sleep_until, timeout};
 use tracing::Level;
 use tracing::{debug, enabled, error, trace, warn};
 
+use crate::base::wire::Composer;
 use crate::base::{Message, StreamTarget};
 use crate::net::server::buf::BufSource;
 use crate::net::server::message::MessageProcessor;
@@ -91,10 +92,10 @@ const MAX_QUEUED_RESPONSES: DefMinMax<usize> = DefMinMax::new(10, 0, 1024);
 //----------- Config ---------------------------------------------------------
 
 /// Configuration for a stream server connection.
-pub struct Config<Buf, Svc>
+pub struct Config<RequestOctets, Target>
 where
-    Buf: BufSource,
-    Svc: Service<Buf::Output>,
+    RequestOctets: Octets,
+    Target: Composer + Default,
 {
     /// Limit on the amount of time to allow between client requests.
     ///
@@ -125,14 +126,13 @@ where
 
     /// The middleware chain used to pre-process requests and post-process
     /// responses.
-    middleware_chain: MiddlewareChain<Buf::Output, Svc::Target>,
+    middleware_chain: MiddlewareChain<RequestOctets, Target>,
 }
 
-impl<Buf, Svc> Config<Buf, Svc>
+impl<RequestOctets, Target> Config<RequestOctets, Target>
 where
-    Buf: BufSource,
-    Buf::Output: Octets,
-    Svc: Service<Buf::Output>,
+    RequestOctets: Octets,
+    Target: Composer + Default,
 {
     /// Creates a new, default config.
     #[allow(dead_code)]
@@ -191,7 +191,7 @@ where
     /// responses.
     pub fn set_middleware_chain(
         &mut self,
-        value: MiddlewareChain<Buf::Output, Svc::Target>,
+        value: MiddlewareChain<RequestOctets, Target>,
     ) {
         self.middleware_chain = value;
     }
@@ -199,11 +199,10 @@ where
 
 //--- Default
 
-impl<Buf, Svc> Default for Config<Buf, Svc>
+impl<RequestOctets, Target> Default for Config<RequestOctets, Target>
 where
-    Buf: BufSource,
-    Buf::Output: Octets,
-    Svc: Service<Buf::Output>,
+    RequestOctets: Octets,
+    Target: Composer + Default,
 {
     fn default() -> Self {
         Self {
@@ -217,11 +216,10 @@ where
 
 //--- Clone
 
-impl<Buf, Svc> Clone for Config<Buf, Svc>
+impl<RequestOctets, Target> Clone for Config<RequestOctets, Target>
 where
-    Buf: BufSource,
-    Buf::Output: Octets,
-    Svc: Service<Buf::Output>,
+    RequestOctets: Octets,
+    Target: Composer + Default,
 {
     fn clone(&self) -> Self {
         Self {
@@ -239,13 +237,13 @@ pub struct Connection<Stream, Buf, Svc>
 where
     Stream: AsyncRead + AsyncWrite + Send + Sync + 'static,
     Buf: BufSource + Send + Sync + Clone + 'static,
-    Buf::Output: Send + Sync,
+    Buf::Output: Octets + Send + Sync,
     Svc: Service<Buf::Output> + Send + Sync + Clone + 'static,
 {
     active: bool,
     addr: SocketAddr,
     buf_source: Buf,
-    config: Config<Buf, Svc>,
+    config: Config<Buf::Output, Svc::Target>,
     metrics: Arc<ServerMetrics>,
     result_q_rx: mpsc::Receiver<CallResult<Buf::Output, Svc::Target>>,
     service: Svc,
@@ -288,7 +286,7 @@ where
         metrics: Arc<ServerMetrics>,
         stream: Stream,
         addr: SocketAddr,
-        config: Config<Buf, Svc>,
+        config: Config<Buf::Output, Svc::Target>,
     ) -> Self {
         let (stream_rx, stream_tx) = tokio::io::split(stream);
         let (result_q_tx, result_q_rx) =
@@ -341,7 +339,9 @@ where
     /// TODO: What does "abandoned" mean in practice here?
     pub async fn run(
         mut self,
-        command_rx: watch::Receiver<ServerCommand<ServerConfig<Buf, Svc>>>,
+        command_rx: watch::Receiver<
+            ServerCommand<ServerConfig<Buf::Output, Svc::Target>>,
+        >,
     ) where
         Svc::Future: Send,
     {
@@ -370,7 +370,7 @@ where
     async fn run_until_error(
         mut self,
         mut command_rx: watch::Receiver<
-            ServerCommand<ServerConfig<Buf, Svc>>,
+            ServerCommand<ServerConfig<Buf::Output, Svc::Target>>,
         >,
     ) where
         Svc::Future: Send,
@@ -449,7 +449,7 @@ where
         &mut self,
         res: Result<(), watch::error::RecvError>,
         command_rx: &mut watch::Receiver<
-            ServerCommand<ServerConfig<Buf, Svc>>,
+            ServerCommand<ServerConfig<Buf::Output, Svc::Target>>,
         >,
     ) -> Result<(), ConnectionEvent> {
         // If the parent server no longer exists but was not cleanly shutdown
@@ -684,7 +684,7 @@ impl<Stream, Buf, Svc> Drop for Connection<Stream, Buf, Svc>
 where
     Stream: AsyncRead + AsyncWrite + Send + Sync,
     Buf: BufSource + Send + Sync + Clone,
-    Buf::Output: Send + Sync,
+    Buf::Output: Octets + Send + Sync,
     Svc: Service<Buf::Output> + Send + Sync + Clone,
 {
     fn drop(&mut self) {

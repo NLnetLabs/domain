@@ -366,6 +366,7 @@ pub enum ServiceFeedback {
 /// [`ServerCommand`] directing the server or connection handler handling the
 /// request to adjust its own configuration, or even to terminate the
 /// connection.
+#[derive(Clone, Debug)]
 pub struct CallResult<RequestOctets, Target>
 where
     RequestOctets: AsRef<[u8]>,

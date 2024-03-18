@@ -40,6 +40,7 @@ use crate::utils::config::DefMinMax;
 use super::buf::VecBufSource;
 use super::connection::{self, Connection};
 use super::service::ServerCommand;
+use crate::base::wire::Composer;
 
 // TODO: Should this crate also provide a TLS listener implementation?
 
@@ -72,24 +73,21 @@ const MAX_CONCURRENT_TCP_CONNECTIONS: DefMinMax<usize> =
 //----------- Config ---------------------------------------------------------
 
 /// Configuration for a stream server connection.
-#[derive(Clone)]
-pub struct Config<Buf, Svc>
+pub struct Config<RequestOctets, Target>
 where
-    Buf: BufSource,
-    Buf::Output: Octets,
-    Svc: Service<Buf::Output>,
+    RequestOctets: Octets,
+    Target: Composer + Default,
 {
     /// Limit on the number of concurrent TCP connections that can be handled
     /// by the server.
     pub(super) max_concurrent_connections: usize,
-    pub(super) connection_config: connection::Config<Buf, Svc>,
+    pub(super) connection_config: connection::Config<RequestOctets, Target>,
 }
 
-impl<Buf, Svc> Config<Buf, Svc>
+impl<RequestOctets, Target> Config<RequestOctets, Target>
 where
-    Buf: BufSource,
-    Buf::Output: Octets,
-    Svc: Service<Buf::Output>,
+    RequestOctets: Octets,
+    Target: Composer + Default,
 {
     /// Creates a new, default config.
     pub fn new() -> Self {
@@ -111,17 +109,18 @@ where
 
     pub fn set_connection_config(
         &mut self,
-        connection_config: connection::Config<Buf, Svc>,
+        connection_config: connection::Config<RequestOctets, Target>,
     ) {
         self.connection_config = connection_config;
     }
 }
 
-impl<Buf, Svc> Default for Config<Buf, Svc>
+//---Default
+
+impl<RequestOctets, Target> Default for Config<RequestOctets, Target>
 where
-    Buf: BufSource,
-    Buf::Output: Octets,
-    Svc: Service<Buf::Output>,
+    RequestOctets: Octets,
+    Target: Composer + Default,
 {
     fn default() -> Self {
         Self {
@@ -132,12 +131,29 @@ where
     }
 }
 
+//---Clone
+
+impl<RequestOctets, Target> Clone for Config<RequestOctets, Target>
+where
+    RequestOctets: Octets,
+    Target: Composer + Default,
+{
+    fn clone(&self) -> Self {
+        Self {
+            max_concurrent_connections: self.max_concurrent_connections,
+            connection_config: self.connection_config.clone(),
+        }
+    }
+}
+
 //------------ StreamServer --------------------------------------------------
 
-type ServerCommandType<Buf, Svc> = ServerCommand<Config<Buf, Svc>>;
-type CommandSender<Buf, Svc> =
-    Arc<Mutex<watch::Sender<ServerCommandType<Buf, Svc>>>>;
-type CommandReceiver<Buf, Svc> = watch::Receiver<ServerCommandType<Buf, Svc>>;
+type ServerCommandType<RequestOctets, Target> =
+    ServerCommand<Config<RequestOctets, Target>>;
+type CommandSender<RequestOctets, Target> =
+    Arc<Mutex<watch::Sender<ServerCommandType<RequestOctets, Target>>>>;
+type CommandReceiver<RequestOctets, Target> =
+    watch::Receiver<ServerCommandType<RequestOctets, Target>>;
 
 /// A server for connecting clients via stream based network transport to a
 /// [`Service`].
@@ -222,18 +238,18 @@ where
     Svc: Service<Buf::Output> + Send + Sync + 'static + Clone,
 {
     /// The configuration of the server.
-    config: Arc<ArcSwap<Config<Buf, Svc>>>,
+    config: Arc<ArcSwap<Config<Buf::Output, Svc::Target>>>,
 
     /// A receiver for receiving [`ServerCommand`]s.
     ///
     /// Used by both the server and spawned connections to react to sent
     /// commands.
-    command_rx: CommandReceiver<Buf, Svc>,
+    command_rx: CommandReceiver<Buf::Output, Svc::Target>,
 
     /// A sender for sending [`ServerCommand`]s.
     ///
     /// Used to signal the server to stop, reconfigure, etc.
-    command_tx: CommandSender<Buf, Svc>,
+    command_tx: CommandSender<Buf::Output, Svc::Target>,
 
     /// A listener for listening for and accepting incoming stream
     /// connections.
@@ -282,7 +298,7 @@ where
         listener: Listener,
         buf: Buf,
         service: Svc,
-        config: Config<Buf, Svc>,
+        config: Config<Buf::Output, Svc::Target>,
     ) -> Self {
         let (command_tx, command_rx) = watch::channel(ServerCommand::Init);
         let command_tx = Arc::new(Mutex::new(command_tx));
@@ -396,7 +412,10 @@ where
     /// Reconfigure the server while running.
     ///
     ///
-    pub fn reconfigure(&self, config: Config<Buf, Svc>) -> Result<(), Error> {
+    pub fn reconfigure(
+        &self,
+        config: Config<Buf::Output, Svc::Target>,
+    ) -> Result<(), Error> {
         self.command_tx
             .lock()
             .unwrap()
@@ -508,7 +527,9 @@ where
     fn process_service_command(
         &self,
         res: Result<(), watch::error::RecvError>,
-        command_rx: &mut watch::Receiver<ServerCommand<Config<Buf, Svc>>>,
+        command_rx: &mut watch::Receiver<
+            ServerCommand<Config<Buf::Output, Svc::Target>>,
+        >,
     ) -> Result<(), String> {
         // If the parent server no longer exists but was not cleanly shutdown
         // then the command channel will be closed and attempting to check for
@@ -523,7 +544,7 @@ where
         // And process it.
         match command {
             ServerCommand::Reconfigure(new_config) => {
-                self.config.store(new_config.clone().into());
+                self.config.store(Arc::new(new_config.clone()));
             }
 
             ServerCommand::Shutdown => {
