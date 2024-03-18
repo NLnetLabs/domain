@@ -8,7 +8,7 @@ use crate::base::rdata::{
     ComposeRecordData, LongRecordData, ParseRecordData, RecordData,
 };
 use crate::base::wire::{Composer, ParseError};
-use core::{fmt, hash, str};
+use core::{fmt, hash};
 use core::cmp::Ordering;
 use octseq::octets::{Octets, OctetsFrom, OctetsInto};
 use octseq::parse::Parser;

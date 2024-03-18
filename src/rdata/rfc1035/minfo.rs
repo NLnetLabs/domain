@@ -10,7 +10,7 @@ use crate::base::rdata::{
 };
 use crate::base::scan::Scanner;
 use crate::base::wire::{Composer, ParseError};
-use core::{fmt, str};
+use core::fmt;
 use core::cmp::Ordering;
 use octseq::octets::{Octets, OctetsFrom, OctetsInto};
 use octseq::parse::Parser;

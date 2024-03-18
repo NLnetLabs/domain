@@ -47,7 +47,6 @@ use super::record::{Record, Ttl};
 use super::wire::{Compose, Composer, FormError, ParseError};
 use crate::utils::base16;
 use core::cmp::Ordering;
-use core::convert::TryInto;
 use core::marker::PhantomData;
 use core::{fmt, hash, mem};
 use octseq::builder::{EmptyBuilder, OctetsBuilder, ShortBuf};
@@ -570,6 +569,14 @@ impl<Octs> OptRecord<Octs> {
         self.flags & 0x8000 != 0
     }
 
+    pub fn set_dnssec_ok(&mut self, value: bool) {
+        if value {
+            self.flags |= 0x8000;
+        } else {
+            self.flags &= !0x8000;
+        }
+    }
+
     /// Returns a reference to the raw options.
     pub fn opt(&self) -> &Opt<Octs> {
         &self.data
@@ -1084,7 +1091,6 @@ pub(super) mod test {
     use super::*;
     use crate::base::rdata::test::{test_compose_parse, test_rdlen};
     use crate::base::record::ParsedRecord;
-    use crate::base::wire::Compose;
     use crate::base::{opt, MessageBuilder};
     use bytes::{Bytes, BytesMut};
     use core::fmt::Debug;

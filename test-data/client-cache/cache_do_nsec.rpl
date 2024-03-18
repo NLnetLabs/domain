@@ -1,0 +1,225 @@
+; Test if DO caching works properly. First we issue a query with the DO flag
+; set and we receive an answer with NSEC and RRSIG records and with the AD
+; flag set. Then we issue a test with the DO flag clear and AD clear. Make sure
+; that we get an answer from the cache and that the DNSSEC records are 
+; stripped and the AD is clear. Then issue a test with AD set. Make sure we 
+; get the same answer as with AD clear but now AD should be set.
+
+do-ip6: no
+
+; config options
+;	target-fetch-policy: "3 2 1 0 0"
+;	name: "."
+	stub-addr: 193.0.14.129 	# K.ROOT-SERVERS.NET.
+CONFIG_END
+
+SCENARIO_BEGIN Test DO flag set followed by DO flag clear.
+
+; K.ROOT-SERVERS.NET.
+RANGE_BEGIN 0 100
+	ADDRESS 193.0.14.129 
+ENTRY_BEGIN
+MATCH opcode qtype qname
+ADJUST copy_id
+REPLY QR NOERROR
+SECTION QUESTION
+. IN NS
+SECTION ANSWER
+. IN NS	K.ROOT-SERVERS.NET.
+SECTION ADDITIONAL
+K.ROOT-SERVERS.NET.	IN	A	193.0.14.129
+ENTRY_END
+
+; net.
+ENTRY_BEGIN
+MATCH opcode qname
+ADJUST copy_id copy_query
+REPLY QR NOERROR
+SECTION QUESTION
+net. IN NS
+SECTION AUTHORITY
+.	IN SOA	. . 0 0 0 0 0
+ENTRY_END
+
+; root-servers.net.
+ENTRY_BEGIN
+MATCH opcode qtype qname
+ADJUST copy_id
+REPLY QR NOERROR
+SECTION QUESTION
+root-servers.net. IN NS
+SECTION ANSWER
+root-servers.net.	IN NS	k.root-servers.net.
+SECTION ADDITIONAL
+k.root-servers.net.	IN 	A	193.0.14.129
+ENTRY_END
+
+ENTRY_BEGIN
+MATCH opcode qname
+ADJUST copy_id copy_query
+REPLY QR NOERROR
+SECTION QUESTION
+root-servers.net. IN A
+SECTION AUTHORITY
+root-servers.net.	IN	SOA	. . 0 0 0 0 0
+ENTRY_END
+
+ENTRY_BEGIN
+MATCH opcode qtype qname
+ADJUST copy_id
+REPLY QR NOERROR
+SECTION QUESTION
+k.root-servers.net.	IN 	A
+SECTION ANSWER
+k.root-servers.net.	IN 	A	193.0.14.129
+SECTION ADDITIONAL
+ENTRY_END
+
+ENTRY_BEGIN
+MATCH opcode qtype qname
+ADJUST copy_id
+REPLY QR NOERROR
+SECTION QUESTION
+k.root-servers.net.	IN 	AAAA
+SECTION AUTHORITY
+root-servers.net.	IN	SOA	. . 0 0 0 0 0
+ENTRY_END
+
+; gtld-servers.net.
+ENTRY_BEGIN
+MATCH opcode qtype qname
+ADJUST copy_id
+REPLY QR NOERROR
+SECTION QUESTION
+gtld-servers.net. IN NS
+SECTION ANSWER
+gtld-servers.net.	IN NS	a.gtld-servers.net.
+SECTION ADDITIONAL
+a.gtld-servers.net.	IN 	A	192.5.6.30
+ENTRY_END
+
+ENTRY_BEGIN
+MATCH opcode qname
+ADJUST copy_id copy_query
+REPLY QR NOERROR
+SECTION QUESTION
+gtld-servers.net. IN A
+SECTION AUTHORITY
+gtld-servers.net.	IN	SOA	. . 0 0 0 0 0
+ENTRY_END
+
+ENTRY_BEGIN
+MATCH opcode qtype qname
+ADJUST copy_id
+REPLY QR NOERROR
+SECTION QUESTION
+a.gtld-servers.net.	IN 	A
+SECTION ANSWER
+a.gtld-servers.net.	IN 	A	192.5.6.30
+SECTION ADDITIONAL
+ENTRY_END
+
+ENTRY_BEGIN
+MATCH opcode qtype qname
+ADJUST copy_id
+REPLY QR NOERROR
+SECTION QUESTION
+a.gtld-servers.net.	IN 	AAAA
+SECTION AUTHORITY
+gtld-servers.net.	IN	SOA	. . 0 0 0 0 0
+ENTRY_END
+
+RANGE_END
+
+; a.gtld-servers.net.
+RANGE_BEGIN 0 9
+	ADDRESS 192.5.6.30
+
+ENTRY_BEGIN
+MATCH opcode qtype qname DO
+ADJUST copy_id copy_query
+REPLY QR RD AD NOERROR
+SECTION QUESTION
+doesnotexist.example.com. IN TXT
+SECTION ANSWER
+doesnotexist.example.com. IN TXT "star"
+doesnotexist.example.com.	60	IN	RRSIG	TXT 8 2 60 20240229091551 20240201091551 63939 example.com. l01lAi1yB6JvZtWoil1ZGhESrT/2sqr2I3YDey/Ub3npAJ/6TctahmIInnQHispcCZomv0N6/aIKpJSCvRrs5XZSjdD2mspnzyFSmYev6Lbf9spes3HkZtjwU7ANXcQN9g8eck4XIe6+KRFi40FCSpH/Ldf9igaCPGGz6IxEc04LdfvUN6BcJGHZ98bdbT/J3IjnJAwDUYWXZUKqfZSdoapUEtVga12Lk3cvv8/WKWNlNFYj3Qz42QOuBkQTlVV2sqGKtHkzhn+wkQyoUEbkNTaqtsVIPW3xNbvLpLi2laPOQic9XBEbs7tW9H9lXofn1168R0HtkCe7TRMZKoBFLQ==
+SECTION AUTHORITY
+does-exist.example.com.	3600	IN	NSEC	exists.example.com. A RRSIG NSEC 
+does-exist.example.com.	3600	IN	RRSIG	NSEC 8 3 3600 20240229091553 20240201091553 63939 example.com. WezFhdCGSG4azmZkeBXxILnfwWuvhkjijsfpkcKqSfhOvQXPEjY0T0Gm4FoHOGieReGPQi4+Jgqp5AjC08yQwphPR9Cq3IsIVCAhPEzh1E9pVRmAFrlf+k/EnxCZ7aN7rq9rrFsx1jK5JtB1hUuvBLpVsVwIqx5yM7LohxWwhnTj+JqqiUbMVp0BcGzz5UubaSIlyJjiGc5ra79X6PGp2Ql19+krqEzaqrVuuD044+BBQWRvG3PzIEQwC1iEumKcfyWb+4F6s806f3NqvliBZl4nxVZUdl2vwhq2+gguN/+o6l3EjySvlKUFu6z5pto+qC9qrML2EM5mPETm253pVg==
+ENTRY_END
+
+RANGE_END
+
+; a.gtld-servers.net.
+RANGE_BEGIN 10 19
+	ADDRESS 192.5.6.30
+
+ENTRY_BEGIN
+MATCH opcode qtype qname
+ADJUST copy_id copy_query
+REPLY QR RD AD NOERROR
+SECTION QUESTION
+example.com. IN A
+SECTION ANSWER
+example.com. IN A	1.2.3.4
+ENTRY_END
+
+RANGE_END
+
+STEP 1 QUERY
+ENTRY_BEGIN
+REPLY RD DO
+SECTION QUESTION
+doesnotexist.example.com. IN TXT
+ENTRY_END
+
+STEP 2 CHECK_ANSWER
+ENTRY_BEGIN
+MATCH all
+REPLY QR RD AD NOERROR
+SECTION QUESTION
+doesnotexist.example.com. IN TXT
+SECTION ANSWER
+doesnotexist.example.com. IN TXT "star"
+doesnotexist.example.com.	60	IN	RRSIG	TXT 8 2 60 20240229091551 20240201091551 63939 example.com. l01lAi1yB6JvZtWoil1ZGhESrT/2sqr2I3YDey/Ub3npAJ/6TctahmIInnQHispcCZomv0N6/aIKpJSCvRrs5XZSjdD2mspnzyFSmYev6Lbf9spes3HkZtjwU7ANXcQN9g8eck4XIe6+KRFi40FCSpH/Ldf9igaCPGGz6IxEc04LdfvUN6BcJGHZ98bdbT/J3IjnJAwDUYWXZUKqfZSdoapUEtVga12Lk3cvv8/WKWNlNFYj3Qz42QOuBkQTlVV2sqGKtHkzhn+wkQyoUEbkNTaqtsVIPW3xNbvLpLi2laPOQic9XBEbs7tW9H9lXofn1168R0HtkCe7TRMZKoBFLQ==
+SECTION AUTHORITY
+does-exist.example.com.	3600	IN	NSEC	exists.example.com. A RRSIG NSEC 
+does-exist.example.com.	3600	IN	RRSIG	NSEC 8 3 3600 20240229091553 20240201091553 63939 example.com. WezFhdCGSG4azmZkeBXxILnfwWuvhkjijsfpkcKqSfhOvQXPEjY0T0Gm4FoHOGieReGPQi4+Jgqp5AjC08yQwphPR9Cq3IsIVCAhPEzh1E9pVRmAFrlf+k/EnxCZ7aN7rq9rrFsx1jK5JtB1hUuvBLpVsVwIqx5yM7LohxWwhnTj+JqqiUbMVp0BcGzz5UubaSIlyJjiGc5ra79X6PGp2Ql19+krqEzaqrVuuD044+BBQWRvG3PzIEQwC1iEumKcfyWb+4F6s806f3NqvliBZl4nxVZUdl2vwhq2+gguN/+o6l3EjySvlKUFu6z5pto+qC9qrML2EM5mPETm253pVg==
+ENTRY_END
+
+STEP 10 QUERY
+ENTRY_BEGIN
+REPLY RD
+SECTION QUESTION
+doesnotexist.example.com. IN TXT
+ENTRY_END
+
+STEP 11 CHECK_ANSWER
+ENTRY_BEGIN
+MATCH all
+REPLY QR RD NOERROR
+SECTION QUESTION
+doesnotexist.example.com. IN TXT
+SECTION ANSWER
+doesnotexist.example.com. IN TXT "star"
+ENTRY_END
+
+STEP 20 QUERY
+ENTRY_BEGIN
+REPLY RD AD
+SECTION QUESTION
+doesnotexist.example.com. IN TXT
+ENTRY_END
+
+STEP 21 CHECK_ANSWER
+ENTRY_BEGIN
+MATCH all
+REPLY QR RD AD NOERROR
+SECTION QUESTION
+doesnotexist.example.com. IN TXT
+SECTION ANSWER
+doesnotexist.example.com. IN TXT "star"
+ENTRY_END
+
+SCENARIO_END

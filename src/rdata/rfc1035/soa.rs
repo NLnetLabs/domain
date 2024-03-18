@@ -12,7 +12,7 @@ use crate::base::record::Ttl;
 use crate::base::scan::{Scan, Scanner};
 use crate::base::serial::Serial;
 use crate::base::wire::{Compose, Composer, ParseError};
-use core::{fmt, str};
+use core::fmt;
 use core::cmp::Ordering;
 use octseq::octets::{Octets, OctetsFrom, OctetsInto};
 use octseq::parse::Parser;

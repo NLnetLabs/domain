@@ -500,10 +500,7 @@ impl OptRcode {
     /// Returns the two parts of an extended rcode value.
     #[must_use]
     pub fn to_parts(self) -> (Rcode, u8) {
-        (
-            Rcode::masked_from_int(self.0 as u8),
-            (self.0 >> 4) as u8,
-        )
+        (Rcode::masked_from_int(self.0 as u8), (self.0 >> 4) as u8)
     }
 
     /// Returns the rcode part of the extended rcode.

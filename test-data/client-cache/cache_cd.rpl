@@ -1,0 +1,217 @@
+; Test if CD caching works properly. First we issue a query with the CD flag
+; set. Then we issue a test with the CD flag clear. Make sure that we
+; don't get an answer from the cache.
+
+do-ip6: no
+
+; config options
+;	target-fetch-policy: "3 2 1 0 0"
+;	name: "."
+	stub-addr: 193.0.14.129 	# K.ROOT-SERVERS.NET.
+CONFIG_END
+
+SCENARIO_BEGIN Test AD flag set followed by AD flag clear.
+
+; K.ROOT-SERVERS.NET.
+RANGE_BEGIN 0 100
+	ADDRESS 193.0.14.129 
+ENTRY_BEGIN
+MATCH opcode qtype qname
+ADJUST copy_id
+REPLY QR NOERROR
+SECTION QUESTION
+. IN NS
+SECTION ANSWER
+. IN NS	K.ROOT-SERVERS.NET.
+SECTION ADDITIONAL
+K.ROOT-SERVERS.NET.	IN	A	193.0.14.129
+ENTRY_END
+
+; net.
+ENTRY_BEGIN
+MATCH opcode qname
+ADJUST copy_id copy_query
+REPLY QR NOERROR
+SECTION QUESTION
+net. IN NS
+SECTION AUTHORITY
+.	IN SOA	. . 0 0 0 0 0
+ENTRY_END
+
+; root-servers.net.
+ENTRY_BEGIN
+MATCH opcode qtype qname
+ADJUST copy_id
+REPLY QR NOERROR
+SECTION QUESTION
+root-servers.net. IN NS
+SECTION ANSWER
+root-servers.net.	IN NS	k.root-servers.net.
+SECTION ADDITIONAL
+k.root-servers.net.	IN 	A	193.0.14.129
+ENTRY_END
+
+ENTRY_BEGIN
+MATCH opcode qname
+ADJUST copy_id copy_query
+REPLY QR NOERROR
+SECTION QUESTION
+root-servers.net. IN A
+SECTION AUTHORITY
+root-servers.net.	IN	SOA	. . 0 0 0 0 0
+ENTRY_END
+
+ENTRY_BEGIN
+MATCH opcode qtype qname
+ADJUST copy_id
+REPLY QR NOERROR
+SECTION QUESTION
+k.root-servers.net.	IN 	A
+SECTION ANSWER
+k.root-servers.net.	IN 	A	193.0.14.129
+SECTION ADDITIONAL
+ENTRY_END
+
+ENTRY_BEGIN
+MATCH opcode qtype qname
+ADJUST copy_id
+REPLY QR NOERROR
+SECTION QUESTION
+k.root-servers.net.	IN 	AAAA
+SECTION AUTHORITY
+root-servers.net.	IN	SOA	. . 0 0 0 0 0
+ENTRY_END
+
+; gtld-servers.net.
+ENTRY_BEGIN
+MATCH opcode qtype qname
+ADJUST copy_id
+REPLY QR NOERROR
+SECTION QUESTION
+gtld-servers.net. IN NS
+SECTION ANSWER
+gtld-servers.net.	IN NS	a.gtld-servers.net.
+SECTION ADDITIONAL
+a.gtld-servers.net.	IN 	A	192.5.6.30
+ENTRY_END
+
+ENTRY_BEGIN
+MATCH opcode qname
+ADJUST copy_id copy_query
+REPLY QR NOERROR
+SECTION QUESTION
+gtld-servers.net. IN A
+SECTION AUTHORITY
+gtld-servers.net.	IN	SOA	. . 0 0 0 0 0
+ENTRY_END
+
+ENTRY_BEGIN
+MATCH opcode qtype qname
+ADJUST copy_id
+REPLY QR NOERROR
+SECTION QUESTION
+a.gtld-servers.net.	IN 	A
+SECTION ANSWER
+a.gtld-servers.net.	IN 	A	192.5.6.30
+SECTION ADDITIONAL
+ENTRY_END
+
+ENTRY_BEGIN
+MATCH opcode qtype qname
+ADJUST copy_id
+REPLY QR NOERROR
+SECTION QUESTION
+a.gtld-servers.net.	IN 	AAAA
+SECTION AUTHORITY
+gtld-servers.net.	IN	SOA	. . 0 0 0 0 0
+ENTRY_END
+
+RANGE_END
+
+; a.gtld-servers.net.
+RANGE_BEGIN 0 9
+	ADDRESS 192.5.6.30
+
+ENTRY_BEGIN
+MATCH opcode qtype qname CD
+ADJUST copy_id copy_query
+REPLY QR RD CD NOERROR
+SECTION QUESTION
+example.com. IN AAAA
+SECTION ANSWER
+example.com. IN AAAA	2606:2800:220:1:248:1893:25c8:1946
+ENTRY_END
+
+ENTRY_BEGIN
+MATCH opcode qtype qname
+ADJUST copy_id copy_query
+REPLY QR RD NOERROR
+SECTION QUESTION
+example.com. IN AAAA
+SECTION ANSWER
+example.com. IN AAAA	2001:DB8::2
+ENTRY_END
+
+RANGE_END
+
+; a.gtld-servers.net.
+RANGE_BEGIN 10 19
+	ADDRESS 192.5.6.30
+
+ENTRY_BEGIN
+MATCH opcode qtype qname CD
+ADJUST copy_id copy_query
+REPLY QR RD CD NOERROR
+SECTION QUESTION
+example.com. IN AAAA
+SECTION ANSWER
+example.com. IN AAAA	2001:DB8::2
+ENTRY_END
+
+ENTRY_BEGIN
+MATCH opcode qtype qname
+ADJUST copy_id copy_query
+REPLY QR RD NOERROR
+SECTION QUESTION
+example.com. IN AAAA
+SECTION ANSWER
+example.com. IN AAAA	2001:DB8::1
+ENTRY_END
+
+RANGE_END
+
+STEP 1 QUERY
+ENTRY_BEGIN
+REPLY RD CD
+SECTION QUESTION
+example.com. IN AAAA
+ENTRY_END
+
+STEP 2 CHECK_ANSWER
+ENTRY_BEGIN
+MATCH all
+REPLY QR RD CD NOERROR
+SECTION QUESTION
+example.com. IN AAAA
+SECTION ANSWER
+example.com. IN AAAA 2606:2800:220:1:248:1893:25c8:1946
+ENTRY_END
+
+STEP 10 QUERY
+ENTRY_BEGIN
+REPLY RD
+SECTION QUESTION
+example.com. IN AAAA
+ENTRY_END
+
+STEP 11 CHECK_ANSWER
+ENTRY_BEGIN
+MATCH all
+REPLY QR RD NOERROR
+SECTION QUESTION
+example.com. IN AAAA
+SECTION ANSWER
+example.com. IN AAAA 2001:DB8::1
+ENTRY_END
+
+SCENARIO_END

@@ -148,7 +148,6 @@ fn hexdigit(nibble: u8) -> u8 {
 #[cfg(test)]
 mod test {
     use super::*;
-    use core::str::FromStr;
 
     #[test]
     fn test_dname_from_addr() {

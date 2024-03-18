@@ -26,6 +26,7 @@ bytes          = { version = "1.0", optional = true, default-features = false }
 chrono         = { version = "0.4.6", optional = true, default-features = false }
 futures-util   = { version = "0.3", optional = true }
 heapless       = { version = "0.8", optional = true }
+moka           = { version = "0.12.3", optional = true, features = ["future"] }
 #openssl       = { version = "0.10", optional = true }
 ring           = { version = "0.17", optional = true }
 serde          = { version = "1.0.130", optional = true, features = ["derive"] }
@@ -57,15 +58,17 @@ validate    = ["std", "ring"]
 zonefile    = ["bytes", "std"]
 
 # Unstable features
-unstable-client-transport = []
+unstable-client-transport = [ "moka" ]
 
 [dev-dependencies]
+rstest             = "0.18.2"
 rustls             = { version = "0.21.9" }
 serde_test         = "1.0.130"
 serde_json         = "1.0.113"
 serde_yaml         = "0.9"
 tokio              = { version = "1", features = ["rt-multi-thread", "io-util", "net"] }
 tokio-test	   = "0.4"
+tracing            = "0.1.40"
 webpki-roots       = { version = "0.25" }
 
 [package.metadata.docs.rs]
@@ -94,4 +97,4 @@ required-features = ["std", "rand"]
 
 [[example]]
 name = "client-transports"
-required-features = ["net"]
+required-features = ["net", "unstable-client-transport"]

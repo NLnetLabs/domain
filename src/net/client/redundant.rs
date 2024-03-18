@@ -81,7 +81,10 @@ pub struct Config {
 
 /// This type represents a transport connection.
 #[derive(Debug)]
-pub struct Connection<Req> {
+pub struct Connection<Req>
+where
+    Req: Send + Sync,
+{
     /// User configuation.
     config: Config,
 
@@ -131,7 +134,10 @@ impl<Req: Clone + Debug + Send + Sync + 'static> Connection<Req> {
     }
 }
 
-impl<Req> Clone for Connection<Req> {
+impl<Req> Clone for Connection<Req>
+where
+    Req: Send + Sync,
+{
     fn clone(&self) -> Self {
         Self {
             config: self.config,
@@ -143,7 +149,10 @@ impl<Req> Clone for Connection<Req> {
 impl<Req: Clone + Debug + Send + Sync + 'static> SendRequest<Req>
     for Connection<Req>
 {
-    fn send_request(&self, request_msg: Req) -> Box<dyn GetResponse + Send> {
+    fn send_request(
+        &self,
+        request_msg: Req,
+    ) -> Box<dyn GetResponse + Send + Sync> {
         Box::new(Request {
             fut: Box::pin(self.clone().request_impl(request_msg)),
         })
@@ -155,7 +164,9 @@ impl<Req: Clone + Debug + Send + Sync + 'static> SendRequest<Req>
 /// An active request.
 pub struct Request {
     /// The underlying future.
-    fut: Pin<Box<dyn Future<Output = Result<Message<Bytes>, Error>> + Send>>,
+    fut: Pin<
+        Box<dyn Future<Output = Result<Message<Bytes>, Error>> + Send + Sync>,
+    >,
 }
 
 impl Request {
@@ -169,7 +180,12 @@ impl GetResponse for Request {
     fn get_response(
         &mut self,
     ) -> Pin<
-        Box<dyn Future<Output = Result<Message<Bytes>, Error>> + Send + '_>,
+        Box<
+            dyn Future<Output = Result<Message<Bytes>, Error>>
+                + Send
+                + Sync
+                + '_,
+        >,
     > {
         Box::pin(self.get_response_impl())
     }
@@ -187,7 +203,10 @@ impl Debug for Request {
 
 /// This type represents an active query request.
 #[derive(Debug)]
-pub struct Query<Req> {
+pub struct Query<Req>
+where
+    Req: Send + Sync,
+{
     /// User configuration.
     config: Config,
 
@@ -204,8 +223,9 @@ pub struct Query<Req> {
     sender: mpsc::Sender<ChanReq<Req>>,
 
     /// List of futures for outstanding requests.
-    fut_list:
-        FuturesUnordered<Pin<Box<dyn Future<Output = FutListOutput> + Send>>>,
+    fut_list: FuturesUnordered<
+        Pin<Box<dyn Future<Output = FutListOutput> + Send + Sync>>,
+    >,
 
     /// Transport error that should be reported if nothing better shows
     /// up.
@@ -239,7 +259,10 @@ enum QueryState {
 }
 
 /// The commands that can be sent to the run function.
-enum ChanReq<Req> {
+enum ChanReq<Req>
+where
+    Req: Send + Sync,
+{
     /// Add a connection
     Add(AddReq<Req>),
 
@@ -256,7 +279,10 @@ enum ChanReq<Req> {
     Failure(TimeReport),
 }
 
-impl<Req> Debug for ChanReq<Req> {
+impl<Req> Debug for ChanReq<Req>
+where
+    Req: Send + Sync,
+{
     fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), std::fmt::Error> {
         f.debug_struct("ChanReq").finish()
     }
@@ -284,7 +310,10 @@ struct RTReq /*<Octs>*/ {
 type RTReply = Result<Vec<ConnRT>, Error>;
 
 /// Request to start a request
-struct RequestReq<Req> {
+struct RequestReq<Req>
+where
+    Req: Send + Sync,
+{
     /// Identifier of connection
     id: u64,
 
@@ -295,7 +324,10 @@ struct RequestReq<Req> {
     tx: oneshot::Sender<RequestReply>,
 }
 
-impl<Req: Debug> Debug for RequestReq<Req> {
+impl<Req: Debug> Debug for RequestReq<Req>
+where
+    Req: Send + Sync,
+{
     fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), std::fmt::Error> {
         f.debug_struct("RequestReq")
             .field("id", &self.id)
@@ -305,7 +337,7 @@ impl<Req: Debug> Debug for RequestReq<Req> {
 }
 
 /// Reply to a request request.
-type RequestReply = Result<Box<dyn GetResponse + Send>, Error>;
+type RequestReply = Result<Box<dyn GetResponse + Send + Sync>, Error>;
 
 /// Report the amount of time until success or failure.
 #[derive(Debug)]
@@ -579,7 +611,10 @@ impl<Req: Clone + Send + Sync + 'static> Query<Req> {
 
 /// Type that actually implements the connection.
 #[derive(Debug)]
-pub struct Transport<Req> {
+pub struct Transport<Req>
+where
+    Req: Send + Sync,
+{
     /// Receive side of the channel used by the runner.
     receiver: mpsc::Receiver<ChanReq<Req>>,
 }
@@ -701,7 +736,10 @@ async fn start_request<Req>(
     id: u64,
     sender: mpsc::Sender<ChanReq<Req>>,
     request_msg: Req,
-) -> (usize, Result<Message<Bytes>, Error>) {
+) -> (usize, Result<Message<Bytes>, Error>)
+where
+    Req: Send + Sync,
+{
     let (tx, rx) = oneshot::channel();
     sender
         .send(ChanReq::Query(RequestReq {
@@ -732,7 +770,7 @@ fn skip<Octs: Octets>(msg: &Message<Octs>, config: &Config) -> bool {
         return false;
     }
 
-    let opt_rcode = get_opt_rcode(msg);
+    let opt_rcode = msg.opt_rcode();
     // OptRcode needs PartialEq
     if let OptRcode::REFUSED = opt_rcode {
         if config.defer_refused {
@@ -746,13 +784,4 @@ fn skip<Octs: Octets>(msg: &Message<Octs>, config: &Config) -> bool {
     }
 
     false
-}
-
-/// Get the extended rcode of a message.
-fn get_opt_rcode<Octs: Octets>(msg: &Message<Octs>) -> OptRcode {
-    let opt = msg.opt();
-    match opt {
-        Some(opt) => opt.rcode(msg.header()),
-        None => msg.header().rcode().into(),
-    }
 }

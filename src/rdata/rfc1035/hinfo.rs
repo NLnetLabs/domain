@@ -10,8 +10,9 @@ use crate::base::rdata::{
 };
 use crate::base::scan::Scanner;
 use crate::base::wire::{Composer, ParseError};
-use core::{fmt, hash, str};
+use core::{fmt, hash};
 use core::cmp::Ordering;
+#[cfg(feature = "serde")]
 use octseq::builder::{EmptyBuilder, FromBuilder};
 use octseq::octets::{Octets, OctetsFrom, OctetsInto};
 use octseq::parse::Parser;
