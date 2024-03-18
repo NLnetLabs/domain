@@ -286,7 +286,7 @@ impl Header {
     /// [`Rcode`]: ../../iana/rcode/enum.Rcode.html
     #[must_use]
     pub fn rcode(self) -> Rcode {
-        Rcode::saturating_from_int(self.inner[3])
+        Rcode::masked_from_int(self.inner[3])
     }
 
     /// Sets the value of the RCODE field.

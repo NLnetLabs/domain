@@ -181,7 +181,7 @@ impl Rcode {
     ///
     /// This function will ignore the upper four bit of `value`.
     #[must_use]
-    pub const fn saturating_from_int(value: u8) -> Self {
+    pub const fn masked_from_int(value: u8) -> Self {
         Rcode(value & 0x0F)
     }
 
@@ -472,7 +472,7 @@ impl OptRcode {
     ///
     /// This function will ignore the upper four bit of `value`.
     #[must_use]
-    pub const fn saturating_from_int(value: u16) -> OptRcode {
+    pub const fn masked_from_int(value: u16) -> OptRcode {
         Self(value & 0x0FFF)
     }
 
@@ -501,7 +501,7 @@ impl OptRcode {
     #[must_use]
     pub fn to_parts(self) -> (Rcode, u8) {
         (
-            Rcode::saturating_from_int(self.0 as u8),
+            Rcode::masked_from_int(self.0 as u8),
             (self.0 >> 4) as u8,
         )
     }
