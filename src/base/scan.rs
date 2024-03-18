@@ -1042,12 +1042,12 @@ enum SymbolCharsEnum {
 
 impl SymbolCharsError {
     /// Creates a “bad escape” variant of the error.
-    pub(crate) fn bad_escape() -> Self {
+    pub(crate) const fn bad_escape() -> Self {
         Self(SymbolCharsEnum::BadEscape)
     }
 
     /// Creates a “short input” variant of the error.
-    pub(crate) fn short_input() -> Self {
+    pub(crate) const fn short_input() -> Self {
         Self(SymbolCharsEnum::ShortInput)
     }
 
