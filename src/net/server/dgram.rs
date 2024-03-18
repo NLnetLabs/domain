@@ -48,6 +48,7 @@ use super::buf::VecBufSource;
 use super::message::{TransportSpecificContext, UdpSpecificTransportContext};
 use super::middleware::builder::MiddlewareBuilder;
 use super::service::ServerCommand;
+use crate::base::wire::Composer;
 
 /// A UDP transport based DNS server transport.
 ///
@@ -83,10 +84,10 @@ const MAX_RESPONSE_SIZE: DefMinMax<u16> = DefMinMax::new(1232, 512, 4096);
 
 /// Configuration for a datagram server.
 #[derive(Clone, Debug)]
-pub struct Config<Buf, Svc>
+pub struct Config<RequestOctets, Target>
 where
-    Buf: BufSource,
-    Svc: Service<Buf::Output>,
+    RequestOctets: Octets,
+    Target: Composer + Default,
 {
     /// Limit suggested to [`Service`] on maximum response size to create.
     max_response_size: Option<u16>,
@@ -96,14 +97,13 @@ where
 
     /// The middleware chain used to pre-process requests and post-process
     /// responses.
-    middleware_chain: MiddlewareChain<Buf::Output, Svc::Target>,
+    middleware_chain: MiddlewareChain<RequestOctets, Target>,
 }
 
-impl<Buf, Svc> Config<Buf, Svc>
+impl<RequestOctets, Target> Config<RequestOctets, Target>
 where
-    Buf: BufSource,
-    Buf::Output: Octets,
-    Svc: Service<Buf::Output>,
+    RequestOctets: Octets,
+    Target: Composer + Default,
 {
     /// Creates a new, default config.
     pub fn new() -> Self {
@@ -140,17 +140,16 @@ where
     /// responses.
     pub fn set_middleware_chain(
         &mut self,
-        value: MiddlewareChain<Buf::Output, Svc::Target>,
+        value: MiddlewareChain<RequestOctets, Target>,
     ) {
         self.middleware_chain = value;
     }
 }
 
-impl<Buf, Svc> Default for Config<Buf, Svc>
+impl<RequestOctets, Target> Default for Config<RequestOctets, Target>
 where
-    Buf: BufSource,
-    Buf::Output: Octets,
-    Svc: Service<Buf::Output>,
+    RequestOctets: Octets,
+    Target: Composer + Default,
 {
     fn default() -> Self {
         Self {
@@ -244,9 +243,9 @@ where
     Buf::Output: Octets + Send + Sync + 'static,
     Svc: Service<Buf::Output> + Send + Sync + 'static,
 {
-    config: Config<Buf, Svc>,
-    command_rx: CommandReceiver<Buf, Svc>,
-    command_tx: CommandSender<Buf, Svc>,
+    config: Config<Buf::Output, Svc::Target>,
+    command_rx: CommandReceiver<Buf::Output, Svc::Target>,
+    command_tx: CommandSender<Buf::Output, Svc::Target>,
     sock: Arc<Sock>,
     buf: Buf,
     service: Svc,
@@ -287,7 +286,7 @@ where
         sock: Sock,
         buf: Buf,
         service: Svc,
-        config: Config<Buf, Svc>,
+        config: Config<Buf::Output, Svc::Target>,
     ) -> Self {
         let (command_tx, command_rx) = watch::channel(ServerCommand::Init);
         let command_tx = Arc::new(Mutex::new(command_tx));
@@ -356,7 +355,10 @@ where
     /// Reconfigure the server while running.
     ///
     ///
-    pub fn reconfigure(&self, config: Config<Buf, Svc>) -> Result<(), Error> {
+    pub fn reconfigure(
+        &self,
+        config: Config<Buf::Output, Svc::Target>,
+    ) -> Result<(), Error> {
         self.command_tx
             .lock()
             .unwrap()
@@ -477,7 +479,7 @@ where
     fn process_service_command(
         &self,
         res: Result<(), watch::error::RecvError>,
-        command_rx: &mut CommandReceiver<Buf, Svc>,
+        command_rx: &mut CommandReceiver<Buf::Output, Svc::Target>,
     ) -> Result<(), String> {
         // If the parent server no longer exists but was not cleanly shutdown
         // then the command channel will be closed and attempting to check for
@@ -565,7 +567,9 @@ where
         }
     }
 
-    fn mk_state_for_request(&self) -> RequestState<Sock, Buf, Svc> {
+    fn mk_state_for_request(
+        &self,
+    ) -> RequestState<Sock, Buf::Output, Svc::Target> {
         RequestState::new(
             self.sock.clone(),
             self.command_tx.clone(),
@@ -584,7 +588,7 @@ where
     Buf::Output: Octets + Send + Sync + 'static,
     Svc: Service<Buf::Output> + Send + Sync + 'static,
 {
-    type State = RequestState<Sock, Buf, Svc>;
+    type State = RequestState<Sock, Buf::Output, Svc::Target>;
 
     fn add_context_to_request(
         &self,
@@ -602,7 +606,7 @@ where
     fn process_call_result(
         call_result: CallResult<Buf::Output, Svc::Target>,
         addr: SocketAddr,
-        state: RequestState<Sock, Buf, Svc>,
+        state: RequestState<Sock, Buf::Output, Svc::Target>,
         metrics: Arc<ServerMetrics>,
     ) {
         metrics.num_pending_writes.fetch_add(1, Ordering::Relaxed);
@@ -682,25 +686,24 @@ where
 
 //----------- RequestState ---------------------------------------------------
 
-pub struct RequestState<Sock, Buf, Svc>
+pub struct RequestState<Sock, RequestOctets, Target>
 where
-    Buf: BufSource,
-    Svc: Service<Buf::Output>,
+    RequestOctets: Octets,
+    Target: Composer + Default,
 {
     sock: Arc<Sock>,
-    command_tx: CommandSender<Buf, Svc>,
+    command_tx: CommandSender<RequestOctets, Target>,
     write_timeout: Duration,
 }
 
-impl<Sock, Buf, Svc> RequestState<Sock, Buf, Svc>
+impl<Sock, RequestOctets, Target> RequestState<Sock, RequestOctets, Target>
 where
-    Sock: AsyncDgramSock + Send + Sync + 'static,
-    Buf: BufSource,
-    Svc: Service<Buf::Output>,
+    RequestOctets: Octets,
+    Target: Composer + Default,
 {
     fn new(
         sock: Arc<Sock>,
-        command_tx: CommandSender<Buf, Svc>,
+        command_tx: CommandSender<RequestOctets, Target>,
         write_timeout: Duration,
     ) -> Self {
         Self {
@@ -713,11 +716,11 @@ where
 
 //--- Clone
 
-impl<Sock, Buf, Svc> Clone for RequestState<Sock, Buf, Svc>
+impl<Sock, RequestOctets, Target> Clone
+    for RequestState<Sock, RequestOctets, Target>
 where
-    Sock: AsyncDgramSock + Send + Sync + 'static,
-    Buf: BufSource,
-    Svc: Service<Buf::Output>,
+    RequestOctets: Octets,
+    Target: Composer + Default,
 {
     fn clone(&self) -> Self {
         Self {

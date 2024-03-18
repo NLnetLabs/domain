@@ -17,7 +17,7 @@ use tracing::{trace, warn};
 use domain::base::iana::Rcode;
 use domain::base::{Dname, ToDname};
 use domain::net::client::{dgram, stream};
-use domain::net::server::buf::{BufSource, VecBufSource};
+use domain::net::server::buf::VecBufSource;
 use domain::net::server::dgram::DgramServer;
 use domain::net::server::middleware::builder::MiddlewareBuilder;
 use domain::net::server::middleware::processors::cookies::CookiesMiddlewareProcessor;
@@ -173,16 +173,15 @@ fn mk_client_factory(
     ])
 }
 
-fn mk_server_configs<Buf, Svc>(
+fn mk_server_configs<RequestOctets, Target>(
     config: &ServerConfig,
 ) -> (
-    domain::net::server::dgram::Config<Buf, Svc>,
-    domain::net::server::stream::Config<Buf, Svc>,
+    domain::net::server::dgram::Config<RequestOctets, Target>,
+    domain::net::server::stream::Config<RequestOctets, Target>,
 )
 where
-    Buf: BufSource,
-    Buf::Output: Octets,
-    Svc: Service<Buf::Output>,
+    RequestOctets: Octets,
+    Target: Composer + Default,
 {
     let mut middleware = MiddlewareBuilder::minimal();
 
