@@ -296,7 +296,7 @@ impl CharStr<[u8]> {
             .map_err(Into::into)
     }
 
-    /// Decodes the readable epresentation and appends it to a builder.
+    /// Decodes the readable presentation and appends it to a builder.
     ///
     /// This is a helper function used both by the `FromStr` impl and
     /// deserialization. It reads the string in unquoted form and appends its
@@ -305,7 +305,8 @@ impl CharStr<[u8]> {
     /// length octet.
     ///
     /// The function is here on `CharStr<[u8]>` so that it can be called
-    /// simply via `CharStr::append_from_str` with providing a type argument.
+    /// simply via `CharStr::append_from_str` without having to provide a
+    /// type argument.
     fn append_from_str(
         s: &str,
         target: &mut impl OctetsBuilder,
