@@ -1,23 +1,19 @@
 //! RFC 6891 and related EDNS message processing.
+use core::ops::ControlFlow;
+
 use octseq::Octets;
 use tracing::{debug, trace, warn};
 
+use crate::base::iana::OptRcode;
+use crate::base::message_builder::AdditionalBuilder;
+use crate::base::opt::keepalive::IdleTimeout;
+use crate::base::opt::{Opt, OptRecord, TcpKeepalive};
+use crate::base::wire::Composer;
+use crate::base::{Message, StreamTarget};
+use crate::net::server::message::{Request, TransportSpecificContext};
+use crate::net::server::middleware::processor::MiddlewareProcessor;
 use crate::net::server::util::add_edns_options;
-use crate::{
-    base::{
-        iana::OptRcode,
-        message_builder::AdditionalBuilder,
-        opt::{keepalive::IdleTimeout, Opt, OptRecord, TcpKeepalive},
-        wire::Composer,
-        Message, StreamTarget,
-    },
-    net::server::{
-        message::{Request, TransportSpecificContext},
-        middleware::processor::MiddlewareProcessor,
-        util::start_reply,
-    },
-};
-use core::ops::ControlFlow;
+use crate::net::server::util::start_reply;
 
 /// EDNS version 0.
 ///

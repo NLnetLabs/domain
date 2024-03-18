@@ -9,25 +9,28 @@
 //! > of arrival of datagrams need not be guaranteed by the network._
 //!
 //! [Datagram]: https://en.wikipedia.org/wiki/Datagram
+use core::fmt::Debug;
+use core::future::poll_fn;
 use core::ops::Deref;
 use core::sync::atomic::Ordering;
 use core::time::Duration;
-use std::fmt::Debug;
-use std::net::SocketAddr;
-use std::string::ToString;
-use std::{future::poll_fn, string::String};
 
-use std::{
-    io,
-    sync::{Arc, Mutex},
-};
+use std::io;
+use std::net::SocketAddr;
+use std::string::String;
+use std::string::ToString;
+use std::sync::{Arc, Mutex};
 
 use octseq::Octets;
+use tokio::io::ReadBuf;
 use tokio::net::UdpSocket;
-use tokio::time::{interval, Instant};
-use tokio::time::{timeout, MissedTickBehavior};
-use tokio::{io::ReadBuf, sync::watch};
-use tracing::{enabled, error, trace, warn, Level};
+use tokio::sync::watch;
+use tokio::time::interval;
+use tokio::time::timeout;
+use tokio::time::Instant;
+use tokio::time::MissedTickBehavior;
+use tracing::Level;
+use tracing::{enabled, error, trace, warn};
 
 use crate::base::Message;
 use crate::net::server::buf::BufSource;

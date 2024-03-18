@@ -41,8 +41,9 @@ Bug fixes
 Unstable features
 
 * Add the module `net::client` with experimental support for client
-  message transport, i.e., sending of request and receiving responses.
-  This is gated by the `unstable-client-transport` feature. ([#215])
+  message transport, i.e., sending of requests and receiving responses
+  as well as caching of responses.
+  This is gated by the `unstable-client-transport` feature. ([#215],[#275])
 
 Other changes
 
@@ -56,6 +57,7 @@ Other changes
 [#259]: https://github.com/NLnetLabs/domain/pull/259
 [#267]: https://github.com/NLnetLabs/domain/pull/267
 [#270]: https://github.com/NLnetLabs/domain/pull/270
+[#275]: https://github.com/NLnetLabs/domain/pull/275
 [@torin-carey]: https://github.com/torin-carey
 
 

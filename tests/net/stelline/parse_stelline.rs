@@ -3,10 +3,11 @@ use std::fmt::Debug;
 use std::io::{self, BufRead, Read};
 use std::net::IpAddr;
 
-use crate::net::stelline::parse_query;
-use crate::net::stelline::parse_query::Zonefile as QueryZonefile;
 use domain::zonefile::inplace::Entry as ZonefileEntry;
 use domain::zonefile::inplace::Zonefile;
+
+use crate::net::stelline::parse_query;
+use crate::net::stelline::parse_query::Zonefile as QueryZonefile;
 
 const CONFIG_END: &str = "CONFIG_END";
 const SCENARIO_BEGIN: &str = "SCENARIO_BEGIN";

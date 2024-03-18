@@ -1,17 +1,12 @@
-use crate::net::stelline::parse_query;
-use crate::net::stelline::parse_stelline::{Entry, Matches, Reply};
-use domain::base::iana::Opcode;
-use domain::base::iana::OptRcode;
-use domain::base::iana::Rtype;
+use domain::base::iana::{Opcode, OptRcode, Rtype};
 use domain::base::opt::{Opt, OptRecord};
-use domain::base::Message;
-use domain::base::ParsedDname;
-use domain::base::QuestionSection;
-use domain::base::RecordSection;
+use domain::base::{Message, ParsedDname, QuestionSection, RecordSection};
 use domain::dep::octseq::Octets;
 use domain::rdata::ZoneRecordData;
 use domain::zonefile::inplace::Entry as ZonefileEntry;
-//use std::fmt::Debug;
+
+use crate::net::stelline::parse_query;
+use crate::net::stelline::parse_stelline::{Entry, Matches, Reply};
 
 pub fn match_msg<'a, Octs: AsRef<[u8]> + Clone + Octets + 'a>(
     entry: &Entry,

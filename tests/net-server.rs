@@ -1,21 +1,23 @@
 #![cfg(feature = "net")]
 mod net;
 
-use crate::net::stelline::channel::ClientServerChannel;
-use crate::net::stelline::client::do_client;
-use crate::net::stelline::client::CurrStepValue;
-use crate::net::stelline::client::PerClientAddressClientFactory;
-use crate::net::stelline::client::QueryTailoredClientFactory;
-use crate::net::stelline::parse_stelline;
-use crate::net::stelline::parse_stelline::parse_file;
-use crate::net::stelline::parse_stelline::Matches;
+use std::collections::VecDeque;
+use std::fs::File;
+use std::future::Future;
+use std::net::{IpAddr, SocketAddr};
+use std::path::PathBuf;
+use std::time::Duration;
+
+use net::stelline::client::ClientFactory;
+use net::stelline::parse_stelline::Config;
+use rstest::rstest;
+use tracing::instrument;
+use tracing::{trace, warn};
+
 use domain::base::iana::Rcode;
-use domain::base::Dname;
-use domain::base::ToDname;
-use domain::net::client::dgram;
-use domain::net::client::stream;
-use domain::net::server::buf::BufSource;
-use domain::net::server::buf::VecBufSource;
+use domain::base::{Dname, ToDname};
+use domain::net::client::{dgram, stream};
+use domain::net::server::buf::{BufSource, VecBufSource};
 use domain::net::server::dgram::DgramServer;
 use domain::net::server::middleware::builder::MiddlewareBuilder;
 use domain::net::server::middleware::processors::cookies::CookiesMiddlewareProcessor;
@@ -23,21 +25,16 @@ use domain::net::server::middleware::processors::edns::EdnsMiddlewareProcessor;
 use domain::net::server::middleware::processors::edns::EDNS_VERSION_ZERO;
 use domain::net::server::prelude::*;
 use domain::net::server::stream::StreamServer;
-use domain::zonefile::inplace::Entry;
-use domain::zonefile::inplace::ScannedRecord;
-use domain::zonefile::inplace::Zonefile;
-use net::stelline::client::ClientFactory;
-use net::stelline::parse_stelline::Config;
-use rstest::rstest;
-use std::collections::VecDeque;
-use std::fs::File;
-use std::future::Future;
-use std::net::IpAddr;
-use std::net::SocketAddr;
-use std::path::PathBuf;
-use std::time::Duration;
-use tracing::instrument;
-use tracing::{trace, warn};
+use domain::zonefile::inplace::{Entry, ScannedRecord, Zonefile};
+
+use crate::net::stelline::channel::ClientServerChannel;
+use crate::net::stelline::client::do_client;
+use crate::net::stelline::client::{
+    CurrStepValue, PerClientAddressClientFactory, QueryTailoredClientFactory,
+};
+use crate::net::stelline::parse_stelline;
+use crate::net::stelline::parse_stelline::parse_file;
+use crate::net::stelline::parse_stelline::Matches;
 
 //----------- Tests ----------------------------------------------------------
 

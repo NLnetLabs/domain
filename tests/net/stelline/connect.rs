@@ -1,11 +1,13 @@
-use crate::net::stelline::client::CurrStepValue;
-use crate::net::stelline::connection::Connection;
-use crate::net::stelline::parse_stelline::Stelline;
-use domain::net::client::protocol::AsyncConnect;
 use std::future::Future;
 use std::net::SocketAddr;
 use std::pin::Pin;
 use std::sync::Arc;
+
+use domain::net::client::protocol::AsyncConnect;
+
+use crate::net::stelline::client::CurrStepValue;
+use crate::net::stelline::connection::Connection;
+use crate::net::stelline::parse_stelline::Stelline;
 
 pub struct Connect {
     stelline: Stelline,

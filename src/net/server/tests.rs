@@ -1,74 +1,34 @@
+use core::future::Future;
 use core::pin::Pin;
 use core::str::FromStr;
-use core::sync::atomic::AtomicBool;
-use core::sync::atomic::Ordering;
-use core::task::Context;
-use core::task::Poll;
+use core::sync::atomic::{AtomicBool, Ordering};
+use core::task::{Context, Poll};
+use core::time::Duration;
+
 use std::collections::VecDeque;
-use std::future::Future;
 use std::io;
 use std::net::SocketAddr;
-use std::sync::Arc;
-use std::sync::Mutex;
-use std::time::Duration;
+use std::sync::{Arc, Mutex};
 use std::vec::Vec;
 
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::time::sleep;
 use tokio::time::Instant;
 
-use super::buf::BufSource;
-use super::message::Request;
-use super::service::CallResult;
-use super::service::Service;
-use super::service::ServiceError;
-use super::service::ServiceFeedback;
-use super::service::ServiceResultItem;
-use super::service::Transaction;
-use super::sock::AsyncAccept;
-use super::stream::StreamServer;
 use crate::base::Dname;
 use crate::base::MessageBuilder;
 use crate::base::Rtype;
 use crate::base::StaticCompressor;
-use crate::base::{
-    /*iana::Rcode, octets::OctetsRef,*/ Message,
-    /*MessageBuilder,*/ StreamTarget,
+use crate::base::{Message, StreamTarget};
+
+use super::buf::BufSource;
+use super::message::Request;
+use super::service::{
+    CallResult, Service, ServiceError, ServiceFeedback, ServiceResultItem,
+    Transaction,
 };
-
-/*fn service<RequestOctets: AsRef<[u8]> + Send + Sync + 'static>(
-    count: Arc<AtomicU8>,
-) -> impl Service<RequestOctets>
-where
-    for<'a> &'a RequestOctets: OctetsRef,
-{
-    #[allow(clippy::type_complexity)]
-    fn query<RequestOctets: AsRef<[u8]>>(
-        count: Arc<AtomicU8>,
-        msg: Message<RequestOctets>,
-    ) -> Transaction<
-        impl Future<Output = Result<StreamTarget<Vec<u8>>, io::Error>>,
-        Once<Pending<Result<StreamTarget<Vec<u8>>, io::Error>>>,
-    >
-    where
-        for<'a> &'a RequestOctets: OctetsRef,
-    {
-        let txn = Transaction::Single(async move {
-            let res = MessageBuilder::new_stream_vec();
-            let answer = res.start_answer(&msg, Rcode::NoError).unwrap();
-            Ok(answer.finish())
-        });
-
-        let cnt = count.fetch_add(1, Ordering::Relaxed);
-        if cnt >= 50 {
-            txn.terminate()
-        } else {
-            txn
-        }
-    }
-
-    move |msg| query(count.clone(), msg)
-}*/
+use super::sock::AsyncAccept;
+use super::stream::StreamServer;
 
 struct MockStream {
     last_ready: Mutex<Option<Instant>>,

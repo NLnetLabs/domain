@@ -1,23 +1,20 @@
 //! Small utilities for building and working with servers.
-use std::string::String;
-use std::string::ToString;
+use std::string::{String, ToString};
 
-use octseq::Octets;
-use octseq::OctetsBuilder;
+use octseq::{Octets, OctetsBuilder};
 use tracing::warn;
 
-use crate::base::message_builder::{AdditionalBuilder, PushError};
-use crate::base::message_builder::{OptBuilder, QuestionBuilder};
-use crate::base::opt::UnknownOptData;
-use crate::base::{wire::Composer, Message};
-use crate::base::{MessageBuilder, Rtype};
-use crate::base::{ParsedDname, StreamTarget};
-
-use super::{
-    message::Request,
-    service::{Service, ServiceResult, ServiceResultItem},
+use crate::base::message_builder::{
+    AdditionalBuilder, OptBuilder, PushError, QuestionBuilder,
 };
+use crate::base::opt::UnknownOptData;
+use crate::base::wire::Composer;
+use crate::base::Message;
+use crate::base::{MessageBuilder, ParsedDname, Rtype, StreamTarget};
 use crate::rdata::AllRecordData;
+
+use super::message::Request;
+use super::service::{Service, ServiceResult, ServiceResultItem};
 
 //----------- mk_builder_for_target() ----------------------------------------
 

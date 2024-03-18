@@ -12,6 +12,13 @@
 #![cfg(feature = "bytes")]
 #![cfg_attr(docsrs, doc(cfg(feature = "bytes")))]
 
+use core::str::FromStr;
+use core::{fmt, str};
+
+use bytes::buf::UninitSlice;
+use bytes::{Buf, BufMut, Bytes, BytesMut};
+use octseq::str::Str;
+
 use crate::base::charstr::CharStr;
 use crate::base::iana::{Class, Rtype};
 use crate::base::name::{Chain, Dname, RelativeDname, ToDname};
@@ -22,11 +29,6 @@ use crate::base::scan::{
 };
 use crate::base::Ttl;
 use crate::rdata::ZoneRecordData;
-use bytes::buf::UninitSlice;
-use bytes::{Buf, BufMut, Bytes, BytesMut};
-use core::str::FromStr;
-use core::{fmt, str};
-use octseq::str::Str;
 
 //------------ Type Aliases --------------------------------------------------
 

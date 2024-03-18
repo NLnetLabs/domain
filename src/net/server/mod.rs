@@ -229,21 +229,18 @@ pub mod tests;
 ///
 /// [`Service`]: crate::net::server::service::Service
 pub mod prelude {
+    pub use core::fmt::Debug;
+
+    pub use std::sync::Arc;
+
     pub use crate::base::wire::Composer;
     pub use crate::base::Message;
-    pub use crate::dep::octseq::FreezeBuilder;
-    pub use crate::dep::octseq::Octets;
     pub use crate::dep::octseq::OctetsBuilder;
+    pub use crate::dep::octseq::{FreezeBuilder, Octets};
     pub use crate::net::server::message::Request;
-    pub use crate::net::server::service::CallResult;
-    pub use crate::net::server::service::Service;
-    pub use crate::net::server::service::ServiceError;
-    pub use crate::net::server::service::ServiceFeedback;
-    pub use crate::net::server::service::ServiceResult;
-    pub use crate::net::server::service::ServiceResultItem;
-    pub use crate::net::server::service::Transaction;
-    pub use crate::net::server::util::mk_builder_for_target;
-    pub use crate::net::server::util::service_fn;
-    pub use std::fmt::Debug;
-    pub use std::sync::Arc;
+    pub use crate::net::server::service::{
+        CallResult, Service, ServiceError, ServiceFeedback, ServiceResult,
+        ServiceResultItem, Transaction,
+    };
+    pub use crate::net::server::util::{mk_builder_for_target, service_fn};
 }
