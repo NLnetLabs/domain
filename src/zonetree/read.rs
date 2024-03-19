@@ -59,7 +59,7 @@ impl ReadZone {
     }
 
     #[allow(unused)]
-    fn walk(&self, op: Box<dyn Fn(Answer)>) {
+    pub fn walk(&self, op: Box<dyn Fn(Answer)>) {
         self.query_rrsets(self.apex.rrsets(), Rtype::Any, Some(&op));
         let qname_iter = self.apex.apex_name().iter_labels().rev();
         self.query_below_apex(
