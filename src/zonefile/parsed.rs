@@ -1,13 +1,12 @@
 //! Importing from and exporting to a zonefiles.
 
-use std::collections::{BTreeMap, HashMap};
-use std::vec::Vec;
 use crate::base::iana::{Class, Rtype};
 use crate::zonetree::{
-    CnameError, SharedRr, StoredDname, StoredRecord, Rrset, ZoneBuilder,
+    CnameError, Rrset, SharedRr, StoredDname, StoredRecord, ZoneBuilder,
     ZoneCutError,
 };
-
+use std::collections::{BTreeMap, HashMap};
+use std::vec::Vec;
 
 //------------ Zonefile ------------------------------------------------------
 
@@ -51,36 +50,38 @@ impl Zonefile {
 
     /// Inserts the record into the zone file.
     pub fn insert(
-        &mut self, record: StoredRecord,
+        &mut self,
+        record: StoredRecord,
     ) -> Result<(), RecordError> {
         if record.class() != self.class {
-            return Err(RecordError::ClassMismatch)
+            return Err(RecordError::ClassMismatch);
         }
         if !record.owner().ends_with(&self.apex) {
-            self.out_of_zone.entry(record.owner().clone()).insert(record);
+            self.out_of_zone
+                .entry(record.owner().clone())
+                .insert(record);
             Ok(())
-        }
-        else {
+        } else {
             match record.rtype() {
                 Rtype::Ns | Rtype::Ds => {
                     if self.normal.contains(record.owner())
                         || self.cnames.contains(record.owner())
                     {
-                        return Err(RecordError::IllegalZoneCut)
+                        return Err(RecordError::IllegalZoneCut);
                     }
-                    self.zone_cuts.entry(
-                        record.owner().clone()
-                    ).insert(record);
+                    self.zone_cuts
+                        .entry(record.owner().clone())
+                        .insert(record);
                     Ok(())
                 }
                 Rtype::Cname => {
                     if self.normal.contains(record.owner())
                         || self.zone_cuts.contains(record.owner())
                     {
-                        return Err(RecordError::IllegalCname)
+                        return Err(RecordError::IllegalCname);
                     }
                     if self.cnames.contains(record.owner()) {
-                        return Err(RecordError::MultipleCnames)
+                        return Err(RecordError::MultipleCnames);
                     }
                     self.cnames.insert(record.owner().clone(), record.into());
                     Ok(())
@@ -89,11 +90,9 @@ impl Zonefile {
                     if self.zone_cuts.contains(record.owner())
                         || self.cnames.contains(record.owner())
                     {
-                        return Err(RecordError::IllegalRecord)
+                        return Err(RecordError::IllegalRecord);
                     }
-                    self.normal.entry(
-                        record.owner().clone()
-                    ).insert(record);
+                    self.normal.entry(record.owner().clone()).insert(record);
                     Ok(())
                 }
             }
@@ -114,15 +113,15 @@ impl Zonefile {
                 Some(ns) => ns.into_shared(),
                 None => {
                     zone_err.add_error(name, OwnerError::MissingNs);
-                    continue
+                    continue;
                 }
             };
             let ds = cut.ds.map(Rrset::into_shared);
             let glue = self.normal.collect_glue(&name);
 
-            if let Err(err) = builder.insert_zone_cut(
-                &name, ns, ds, glue, None
-            ) {
+            if let Err(err) =
+                builder.insert_zone_cut(&name, ns, ds, glue, None)
+            {
                 zone_err.add_error(name, OwnerError::InvalidZonecut(err))
             }
         }
@@ -137,11 +136,13 @@ impl Zonefile {
         // Finally, all the normal records.
         for (name, rrsets) in self.normal.into_iter() {
             for (rtype, rrset) in rrsets.into_iter() {
-                if builder.insert_rrset(
-                    &name, rrset.into_shared(), None
-                ).is_err() {
+                if builder
+                    .insert_rrset(&name, rrset.into_shared(), None)
+                    .is_err()
+                {
                     zone_err.add_error(
-                        name.clone(), OwnerError::OutOfZone(rtype)
+                        name.clone(),
+                        OwnerError::OutOfZone(rtype),
                     );
                 }
             }
@@ -151,16 +152,14 @@ impl Zonefile {
         // surprises.
         for (name, rrsets) in self.out_of_zone.into_iter() {
             for (rtype, _) in rrsets.into_iter() {
-                zone_err.add_error(
-                    name.clone(), OwnerError::OutOfZone(rtype)
-                );
+                zone_err
+                    .add_error(name.clone(), OwnerError::OutOfZone(rtype));
             }
         }
 
         zone_err.into_result().map(|_| builder)
     }
 }
-
 
 //------------ Owners --------------------------------------------------------
 
@@ -187,13 +186,13 @@ impl<Content> Owners<Content> {
     }
 
     fn entry(&mut self, name: StoredDname) -> &mut Content
-    where Content: Default {
+    where
+        Content: Default,
+    {
         self.owners.entry(name).or_default()
     }
 
-    fn into_iter(
-        self
-    ) -> impl Iterator<Item = (StoredDname, Content)> {
+    fn into_iter(self) -> impl Iterator<Item = (StoredDname, Content)> {
         self.owners.into_iter()
     }
 }
@@ -207,11 +206,10 @@ impl Owners<Normal> {
 impl<Content> Default for Owners<Content> {
     fn default() -> Self {
         Owners {
-            owners: Default::default()
+            owners: Default::default(),
         }
     }
 }
-
 
 //------------ Normal --------------------------------------------------------
 
@@ -239,7 +237,6 @@ impl Normal {
     }
 }
 
-
 //------------ ZoneCut -------------------------------------------------------
 
 #[derive(Clone, Default)]
@@ -254,16 +251,14 @@ impl ZoneCut {
             Rtype::Ns => {
                 if let Some(ns) = self.ns.as_mut() {
                     ns.push_record(record)
-                }
-                else {
+                } else {
                     self.ns = Some(record.into())
                 }
             }
             Rtype::Ds => {
                 if let Some(ds) = self.ds.as_mut() {
                     ds.push_record(record)
-                }
-                else {
+                } else {
                     self.ds = Some(record.into())
                 }
             }
@@ -271,7 +266,6 @@ impl ZoneCut {
         }
     }
 }
-
 
 /*
 //------------ OwnerRecords --------------------------------------------------
@@ -386,7 +380,6 @@ enum Special {
 }
 */
 
-
 //============ Errors ========================================================
 
 //------------ RecordError ---------------------------------------------------
@@ -409,7 +402,6 @@ pub enum RecordError {
     MultipleCnames,
 }
 
-
 //------------ ZoneError -----------------------------------------------------
 
 #[derive(Clone, Debug, Default)]
@@ -418,22 +410,18 @@ pub struct ZoneError {
 }
 
 impl ZoneError {
-    fn add_error(
-        &mut self, name: StoredDname, error: OwnerError,
-    ) {
+    fn add_error(&mut self, name: StoredDname, error: OwnerError) {
         self.errors.push((name, error))
     }
 
     fn into_result(self) -> Result<(), Self> {
         if self.errors.is_empty() {
             Ok(())
-        }
-        else {
+        } else {
             Err(self)
         }
     }
 }
-
 
 //------------ OwnerError ---------------------------------------------------
 
@@ -454,7 +442,6 @@ enum OwnerError {
     OutOfZone(Rtype),
 }
 
-
 /*
 //------------ InsertZoneError -----------------------------------------------
 
@@ -464,4 +451,3 @@ pub enum InsertZoneError {
     ZoneExists,
 }
 */
-

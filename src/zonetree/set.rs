@@ -1,13 +1,12 @@
 //! The known set of zones.
 
-use std::io;
-use std::collections::hash_map;
-use std::collections::HashMap;
-use std::vec::Vec;
+use super::zone::Zone;
 use crate::base::iana::Class;
 use crate::base::name::{Label, OwnedLabel, ToDname, ToLabelIter};
-use super::zone::Zone;
-
+use std::collections::hash_map;
+use std::collections::HashMap;
+use std::io;
+use std::vec::Vec;
 
 //------------ ZoneSet -------------------------------------------------------
 
@@ -28,22 +27,22 @@ impl ZoneSet {
         apex_name: &impl ToDname,
         class: Class,
     ) -> Option<&Zone> {
-        self.roots.get(class)?.get_zone(apex_name.iter_labels().rev())
+        self.roots
+            .get(class)?
+            .get_zone(apex_name.iter_labels().rev())
     }
 
-    pub fn insert_zone(
-        &mut self,
-        zone: Zone,
-    ) -> Result<(), InsertZoneError> {
+    pub fn insert_zone(&mut self, zone: Zone) -> Result<(), InsertZoneError> {
         self.roots.get_or_insert(zone.apex().class()).insert_zone(
-            &mut zone.apex_name().clone().iter_labels().rev(), zone
+            &mut zone.apex_name().clone().iter_labels().rev(),
+            zone,
         )
     }
 
     pub fn find_zone(
         &self,
         qname: &impl ToDname,
-        class: Class
+        class: Class,
     ) -> Option<&Zone> {
         self.roots.get(class)?.find_zone(qname.iter_labels().rev())
     }
@@ -52,7 +51,6 @@ impl ZoneSet {
         ZoneSetIter::new(self)
     }
 }
-
 
 //------------ Roots ---------------------------------------------------------
 
@@ -66,8 +64,7 @@ impl Roots {
     pub fn get(&self, class: Class) -> Option<&ZoneSetNode> {
         if class == Class::In {
             Some(&self.in_)
-        }
-        else {
+        } else {
             self.others.get(&class)
         }
     }
@@ -75,13 +72,11 @@ impl Roots {
     pub fn get_or_insert(&mut self, class: Class) -> &mut ZoneSetNode {
         if class == Class::In {
             &mut self.in_
-        }
-        else {
+        } else {
             self.others.entry(class).or_default()
         }
     }
 }
-
 
 //------------ ZoneSetNode ---------------------------------------------------
 
@@ -97,29 +92,24 @@ impl ZoneSetNode {
         mut apex_name: impl Iterator<Item = &'l Label>,
     ) -> Option<&Zone> {
         match apex_name.next() {
-            Some(label) => {
-                self.children.get(label)?.get_zone(apex_name)
-            }
-            None => {
-                self.zone.as_ref()
-            }
+            Some(label) => self.children.get(label)?.get_zone(apex_name),
+            None => self.zone.as_ref(),
         }
     }
 
     pub fn find_zone<'l>(
         &self,
-        mut qname: impl Iterator<Item = &'l Label>
+        mut qname: impl Iterator<Item = &'l Label>,
     ) -> Option<&Zone> {
         if let Some(label) = qname.next() {
             if let Some(node) = self.children.get(label) {
                 if let Some(zone) = node.find_zone(qname) {
-                    return Some(zone)
+                    return Some(zone);
                 }
             }
         }
         self.zone.as_ref()
     }
-
 
     fn insert_zone<'l>(
         &mut self,
@@ -127,19 +117,18 @@ impl ZoneSetNode {
         zone: Zone,
     ) -> Result<(), InsertZoneError> {
         if let Some(label) = apex_name.next() {
-            self.children.entry(label.into()).or_default()
+            self.children
+                .entry(label.into())
+                .or_default()
                 .insert_zone(apex_name, zone)
-        }
-        else if self.zone.is_some() {
+        } else if self.zone.is_some() {
             Err(InsertZoneError::ZoneExists)
-        }
-        else {
+        } else {
             self.zone = Some(zone);
             Ok(())
         }
     }
 }
-
 
 //------------ ZoneSetIter ---------------------------------------------------
 
@@ -164,17 +153,15 @@ impl<'a> Iterator for ZoneSetIter<'a> {
         loop {
             if let Some(node) = self.nodes.next() {
                 if let Some(zone) = node.zone.as_ref() {
-                    return Some(zone)
-                }
-                else {
-                    continue
+                    return Some(zone);
+                } else {
+                    continue;
                 }
             }
             self.nodes = NodesIter::new(self.roots.next()?);
         }
     }
 }
-
 
 //------------ NodesIter -----------------------------------------------------
 
@@ -193,16 +180,15 @@ impl<'a> NodesIter<'a> {
 
     fn next_node(&mut self) -> Option<&'a ZoneSetNode> {
         if let Some(node) = self.root.take() {
-            return Some(node)
+            return Some(node);
         }
         loop {
             if let Some(iter) = self.stack.last_mut() {
                 if let Some(node) = iter.next() {
-                    return Some(node)
+                    return Some(node);
                 }
-            }
-            else {
-                return None
+            } else {
+                return None;
             }
             let _ = self.stack.pop();
         }
@@ -218,7 +204,6 @@ impl<'a> Iterator for NodesIter<'a> {
         Some(node)
     }
 }
-
 
 //============ Error Types ===================================================
 
@@ -239,10 +224,7 @@ impl From<InsertZoneError> for io::Error {
         match src {
             InsertZoneError::Io(err) => err,
             InsertZoneError::ZoneExists => {
-                io::Error::new(
-                    io::ErrorKind::Other,
-                    "zone exists"
-                )
+                io::Error::new(io::ErrorKind::Other, "zone exists")
             }
         }
     }

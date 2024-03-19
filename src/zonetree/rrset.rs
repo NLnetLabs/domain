@@ -1,21 +1,19 @@
-
+use crate::base::name::Dname;
+use crate::base::rdata::RecordData;
+use crate::base::record::Record;
+use crate::base::{iana::Rtype, Ttl};
+use crate::rdata::ZoneRecordData;
+use bytes::Bytes;
+use serde::{Deserialize, Serialize};
 use std::ops;
 use std::sync::Arc;
 use std::vec::Vec;
-use bytes::Bytes;
-use crate::base::{iana::Rtype, Ttl};
-use crate::base::name::Dname;
-use crate::base::record::Record;
-use crate::base::rdata::RecordData;
-use crate::rdata::ZoneRecordData;
-use serde::{Deserialize, Serialize};
 
 //------------ Type Aliases --------------------------------------------------
 
 pub type StoredDname = Dname<Bytes>;
 pub type StoredRecordData = ZoneRecordData<Bytes, StoredDname>;
 pub type StoredRecord = Record<StoredDname, StoredRecordData>;
-
 
 //------------ SharedRr ------------------------------------------------------
 
@@ -47,11 +45,10 @@ impl From<StoredRecord> for SharedRr {
     fn from(record: StoredRecord) -> Self {
         SharedRr {
             ttl: record.ttl(),
-            data: record.into_data()
+            data: record.into_data(),
         }
     }
 }
-
 
 //------------ Rrset ---------------------------------------------------------
 
@@ -94,8 +91,9 @@ impl Rrset {
     }
 
     pub fn first(&self) -> Option<SharedRr> {
-        self.data.first().map(|data| {
-            SharedRr { ttl: self.ttl, data: data.clone() }
+        self.data.first().map(|data| SharedRr {
+            ttl: self.ttl,
+            data: data.clone(),
         })
     }
 
@@ -134,7 +132,6 @@ impl From<StoredRecord> for Rrset {
     }
 }
 
-
 //------------ SharedRrset ---------------------------------------------------
 
 /// An RRset behind an arc.
@@ -150,7 +147,6 @@ impl SharedRrset {
         self.0.as_ref()
     }
 }
-
 
 //--- Deref, AsRef, Borrow
 
@@ -168,12 +164,11 @@ impl AsRef<Rrset> for SharedRrset {
     }
 }
 
-
 //--- Deserialize and Serialize
 
 impl<'de> Deserialize<'de> for SharedRrset {
     fn deserialize<D: serde::Deserializer<'de>>(
-        deserializer: D
+        deserializer: D,
     ) -> Result<Self, D::Error> {
         Rrset::deserialize(deserializer).map(SharedRrset::new)
     }
@@ -181,9 +176,9 @@ impl<'de> Deserialize<'de> for SharedRrset {
 
 impl Serialize for SharedRrset {
     fn serialize<S: serde::Serializer>(
-        &self, serializer: S
+        &self,
+        serializer: S,
     ) -> Result<S::Ok, S::Error> {
         self.as_rrset().serialize(serializer)
     }
 }
-

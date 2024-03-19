@@ -1,13 +1,12 @@
-use std::sync::{Arc, Weak};
-use std::vec::Vec;
-use parking_lot::RwLock;
-use crate::base::iana::Class;
 use super::flavor::Flavor;
 use super::nodes::ZoneApex;
 use super::read::ReadZone;
 use super::rrset::StoredDname;
 use super::versioned::Version;
-
+use crate::base::iana::Class;
+use parking_lot::RwLock;
+use std::sync::{Arc, Weak};
+use std::vec::Vec;
 
 //------------ Zone ----------------------------------------------------------
 
@@ -48,7 +47,6 @@ impl Zone {
     }
 }
 
-
 //------------ ZoneVersions --------------------------------------------------
 
 pub(super) struct ZoneVersions {
@@ -64,7 +62,9 @@ impl ZoneVersions {
     }
 
     pub fn push_version(
-        &mut self, version: Version, marker: Arc<VersionMarker>
+        &mut self,
+        version: Version,
+        marker: Arc<VersionMarker>,
     ) {
         self.all.push((version, Arc::downgrade(&marker)))
     }
@@ -74,15 +74,14 @@ impl ZoneVersions {
         self.all.retain(|item| {
             if item.1.strong_count() > 0 {
                 true
-            }
-            else {
+            } else {
                 match max_version {
                     Some(old) => {
                         if item.0 > old {
                             max_version = Some(item.0)
                         }
                     }
-                    None => max_version = Some(item.0)
+                    None => max_version = Some(item.0),
                 }
                 false
             }
@@ -97,11 +96,10 @@ impl Default for ZoneVersions {
         let weak_marker = Arc::downgrade(&marker);
         ZoneVersions {
             current: (Version::default(), marker),
-            all: vec![(Version::default(), weak_marker)]
+            all: vec![(Version::default(), weak_marker)],
         }
     }
 }
-
 
 //------------ VersionMarker -------------------------------------------------
 

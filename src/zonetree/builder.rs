@@ -3,14 +3,14 @@
 use std::sync::Arc;
 use std::vec::Vec;
 
-use crate::base::iana::Class;
-use crate::base::name::{Label, ToDname};
 use super::flavor::Flavor;
 use super::nodes::{OutOfZone, Special, ZoneApex, ZoneCut, ZoneNode};
 use super::rrset::{SharedRr, SharedRrset, StoredDname, StoredRecord};
 use super::set::{InsertZoneError, ZoneSet};
 use super::versioned::Version;
 use super::zone::Zone;
+use crate::base::iana::Class;
+use crate::base::name::{Label, ToDname};
 
 //------------ ZoneBuilder ---------------------------------------------------
 
@@ -30,7 +30,8 @@ impl ZoneBuilder {
     }
 
     pub fn finalize_into_set(
-        self, zone_set: &mut ZoneSet
+        self,
+        zone_set: &mut ZoneSet,
     ) -> Result<(), InsertZoneError> {
         zone_set.insert_zone(self.finalize())
     }
@@ -61,9 +62,16 @@ impl ZoneBuilder {
         flavor: Option<Flavor>,
     ) -> Result<(), ZoneCutError> {
         let node = self.get_node(self.apex.prepare_name(name)?)?;
-        let cut = ZoneCut { name: name.to_bytes(), ns, ds, glue };
+        let cut = ZoneCut {
+            name: name.to_bytes(),
+            ns,
+            ds,
+            glue,
+        };
         node.update_special(
-            flavor, Version::default(), Some(Special::Cut(cut))
+            flavor,
+            Version::default(),
+            Some(Special::Cut(cut)),
         );
         Ok(())
     }
@@ -76,7 +84,9 @@ impl ZoneBuilder {
     ) -> Result<(), CnameError> {
         let node = self.get_node(self.apex.prepare_name(name)?)?;
         node.update_special(
-            flavor, Version::default(), Some(Special::Cname(cname))
+            flavor,
+            Version::default(),
+            Some(Special::Cname(cname)),
         );
         Ok(())
     }
@@ -87,20 +97,20 @@ impl ZoneBuilder {
     ) -> Result<Arc<ZoneNode>, &ZoneApex> {
         let label = match name.next() {
             Some(label) => label,
-            None => return Err(&self.apex)
+            None => return Err(&self.apex),
         };
-        let mut node = self.apex.children().with_or_default(label,
-            |node, _| node.clone()
-        );
+        let mut node = self
+            .apex
+            .children()
+            .with_or_default(label, |node, _| node.clone());
         for label in name {
-            node = node.children().with_or_default(label, 
-                |node, _| node.clone()
-            );
+            node = node
+                .children()
+                .with_or_default(label, |node, _| node.clone());
         }
         Ok(node)
     }
 }
-
 
 #[derive(Clone, Copy, Debug)]
 pub enum ZoneCutError {
@@ -120,7 +130,6 @@ impl<'a> From<&'a ZoneApex> for ZoneCutError {
     }
 }
 
-
 #[derive(Clone, Copy, Debug)]
 pub enum CnameError {
     OutOfZone,
@@ -138,4 +147,3 @@ impl<'a> From<&'a ZoneApex> for CnameError {
         CnameError::CnameAtApex
     }
 }
-

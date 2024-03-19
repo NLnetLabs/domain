@@ -1,7 +1,7 @@
 //! Types that differ per flavor.
 
-use std::vec::Vec;
 use serde::{Deserialize, Serialize};
+use std::vec::Vec;
 
 //------------ Flavor --------------------------------------------------------
 
@@ -15,7 +15,6 @@ impl Flavor {
         Flavor { index }
     }
 }
-
 
 //------------ Flavored ------------------------------------------------------
 
@@ -34,7 +33,9 @@ impl<T> Flavored<T> {
     }
 
     pub fn get_or_default(&mut self, flavor: Flavor) -> &mut T
-    where T: Default {
+    where
+        T: Default,
+    {
         while self.flavors.len() <= flavor.index {
             self.flavors.push(None)
         }
@@ -61,8 +62,7 @@ impl<T> Flavored<T> {
 impl<T> Default for Flavored<T> {
     fn default() -> Self {
         Flavored {
-            flavors: Vec::new()
+            flavors: Vec::new(),
         }
     }
 }
-

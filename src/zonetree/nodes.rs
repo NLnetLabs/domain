@@ -1,22 +1,21 @@
 //! The nodes in a zone tree.
 
 // use std::io;
+use super::flavor::Flavor;
+use super::rrset::{SharedRr, SharedRrset, StoredDname, StoredRecord};
+use super::versioned::{FlavorVersioned, Version};
+use crate::base::iana::{Class, Rtype};
+use crate::base::name::{Label, OwnedLabel, ToDname, ToLabelIter};
 use parking_lot::{
     RwLock, RwLockReadGuard, RwLockUpgradableReadGuard, RwLockWriteGuard,
 };
+use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
 use std::collections::{hash_map, HashMap};
 use std::string::String;
 use std::string::ToString;
 use std::sync::Arc;
 use std::vec::Vec;
-use crate::base::iana::{Class, Rtype};
-use crate::base::name::{Label, OwnedLabel, ToDname, ToLabelIter};
-use serde::{Deserialize, Serialize};
-use super::flavor::Flavor;
-use super::rrset::{SharedRr, SharedRrset, StoredDname, StoredRecord};
-use super::versioned::{FlavorVersioned, Version};
-
 
 //------------ ZoneApex ------------------------------------------------------
 
@@ -29,7 +28,7 @@ pub struct ZoneApex {
 }
 
 impl ZoneApex {
-    /// Creates a new apex. 
+    /// Creates a new apex.
     pub fn new(apex_name: StoredDname, class: Class) -> Self {
         ZoneApex {
             apex_name_display: format!("{}", apex_name),
@@ -40,8 +39,13 @@ impl ZoneApex {
         }
     }
 
-    /// Creates a new apex. 
-    pub fn from_parts(apex_name: StoredDname, class: Class, rrsets: NodeRrsets, children: NodeChildren) -> Self {
+    /// Creates a new apex.
+    pub fn from_parts(
+        apex_name: StoredDname,
+        class: Class,
+        rrsets: NodeRrsets,
+        children: NodeChildren,
+    ) -> Self {
         ZoneApex {
             apex_name_display: format!("{}", apex_name),
             apex_name,
@@ -50,7 +54,7 @@ impl ZoneApex {
             children,
         }
     }
-    
+
     /// Returns the apex name of the zone.
     pub fn apex_name(&self) -> &StoredDname {
         &self.apex_name
@@ -70,18 +74,19 @@ impl ZoneApex {
     pub fn display_class(&self) -> Cow<str> {
         match self.class() {
             Class::In => Cow::Borrowed("IN"),
-            class => Cow::Owned(class.to_string())
+            class => Cow::Owned(class.to_string()),
         }
     }
 
     pub fn prepare_name<'l>(
-        &self, qname: &'l impl ToDname
-    ) -> Result<impl Iterator<Item=&'l Label>, OutOfZone> {
+        &self,
+        qname: &'l impl ToDname,
+    ) -> Result<impl Iterator<Item = &'l Label>, OutOfZone> {
         let mut qname = qname.iter_labels().rev();
         for apex_label in self.apex_name().iter_labels().rev() {
             let qname_label = qname.next();
             if Some(apex_label) != qname_label {
-                return Err(OutOfZone)
+                return Err(OutOfZone);
             }
         }
         Ok(qname)
@@ -94,9 +99,12 @@ impl ZoneApex {
 
     /// Returns the SOA record for the given flavor and version if available.
     pub fn get_soa(
-        &self, flavor: Option<Flavor>, version: Version
+        &self,
+        flavor: Option<Flavor>,
+        version: Version,
     ) -> Option<SharedRr> {
-        self.rrsets().get(Rtype::Soa, flavor, version)
+        self.rrsets()
+            .get(Rtype::Soa, flavor, version)
             .and_then(|rrset| rrset.first())
     }
 
@@ -138,7 +146,9 @@ impl ZoneNode {
 
     /// Returns whether the node is NXDomain for a flavor.
     pub fn is_nx_domain(
-        &self, flavor: Option<Flavor>, version: Version
+        &self,
+        flavor: Option<Flavor>,
+        version: Version,
     ) -> bool {
         self.with_special(flavor, version, |special| {
             matches!(special, Some(Special::NxDomain))
@@ -147,19 +157,22 @@ impl ZoneNode {
 
     pub fn with_special<R>(
         &self,
-        flavor: Option<Flavor>, version: Version,
-        op: impl FnOnce(Option<&Special>) -> R
+        flavor: Option<Flavor>,
+        version: Version,
+        op: impl FnOnce(Option<&Special>) -> R,
     ) -> R {
-        op(
-            self.special.read().get(flavor, version)
-                .and_then(Option::as_ref)
-        )
+        op(self
+            .special
+            .read()
+            .get(flavor, version)
+            .and_then(Option::as_ref))
     }
 
     /// Updates the special.
     pub fn update_special(
         &self,
-        flavor: Option<Flavor>, version: Version,
+        flavor: Option<Flavor>,
+        version: Version,
         special: Option<Special>,
     ) {
         self.special.write().update(flavor, version, special)
@@ -183,7 +196,6 @@ impl ZoneNode {
     }
 }
 
-
 //------------ NodeRrsets ----------------------------------------------------
 
 #[derive(Default)]
@@ -196,11 +208,11 @@ impl NodeRrsets {
     pub fn is_empty(&self, flavor: Option<Flavor>, version: Version) -> bool {
         let rrsets = self.rrsets.read();
         if rrsets.is_empty() {
-            return true
+            return true;
         }
         for value in self.rrsets.read().values() {
             if value.get(flavor, version).is_some() {
-                return false
+                return false;
             }
         }
         true
@@ -208,41 +220,58 @@ impl NodeRrsets {
 
     /// Returns the RRset for a given record type.
     pub fn get(
-        &self, rtype: Rtype, flavor: Option<Flavor>, version: Version
+        &self,
+        rtype: Rtype,
+        flavor: Option<Flavor>,
+        version: Version,
     ) -> Option<SharedRrset> {
-        self.rrsets.read().get(&rtype)
+        self.rrsets
+            .read()
+            .get(&rtype)
             .and_then(|rrsets| rrsets.get(flavor, version))
             .cloned()
     }
 
     /// Updates an RRset.
     pub fn update(
-        &self, rrset: SharedRrset, flavor: Option<Flavor>, version: Version
+        &self,
+        rrset: SharedRrset,
+        flavor: Option<Flavor>,
+        version: Version,
     ) {
-        self.rrsets.write()
-            .entry(rrset.rtype()).or_default()
+        self.rrsets
+            .write()
+            .entry(rrset.rtype())
+            .or_default()
             .update(rrset, flavor, version)
     }
 
     /// Removes the RRset for the given type.
     pub fn remove(
-        &self, rtype: Rtype, flavor: Option<Flavor>, version: Version
+        &self,
+        rtype: Rtype,
+        flavor: Option<Flavor>,
+        version: Version,
     ) {
-        self.rrsets.write()
-            .entry(rtype).or_default()
+        self.rrsets
+            .write()
+            .entry(rtype)
+            .or_default()
             .remove(flavor, version)
     }
 
     pub fn rollback(&self, version: Version) {
-        self.rrsets.write().values_mut().for_each(|rrset| {
-            rrset.rollback(version)
-        });
+        self.rrsets
+            .write()
+            .values_mut()
+            .for_each(|rrset| rrset.rollback(version));
     }
 
     pub fn clean(&self, version: Version) {
-        self.rrsets.write().values_mut().for_each(|rrset| {
-            rrset.clean(version)
-        });
+        self.rrsets
+            .write()
+            .values_mut()
+            .for_each(|rrset| rrset.clean(version));
     }
 
     pub(super) fn iter(&self) -> NodeRrsetsIter {
@@ -280,13 +309,18 @@ pub(crate) struct NodeRrset {
 
 impl NodeRrset {
     pub fn get(
-        &self, flavor: Option<Flavor>, version: Version
+        &self,
+        flavor: Option<Flavor>,
+        version: Version,
     ) -> Option<&SharedRrset> {
         self.rrsets.get(flavor, version).and_then(Option::as_ref)
     }
 
     fn update(
-        &mut self, rrset: SharedRrset, flavor: Option<Flavor>, version: Version
+        &mut self,
+        rrset: SharedRrset,
+        flavor: Option<Flavor>,
+        version: Version,
     ) {
         self.rrsets.update(flavor, version, Some(rrset))
     }
@@ -304,7 +338,6 @@ impl NodeRrset {
     }
 }
 
-
 //------------ Special -------------------------------------------------------
 
 #[derive(Clone)]
@@ -313,7 +346,6 @@ pub enum Special {
     Cname(SharedRr),
     NxDomain,
 }
-
 
 //------------ ZoneCut -------------------------------------------------------
 
@@ -325,19 +357,18 @@ pub struct ZoneCut {
     pub glue: Vec<StoredRecord>,
 }
 
-
 //------------ NodeChildren --------------------------------------------------
 
 #[derive(Default)]
 pub struct NodeChildren {
-    children: RwLock<HashMap<OwnedLabel, Arc<ZoneNode>>>
+    children: RwLock<HashMap<OwnedLabel, Arc<ZoneNode>>>,
 }
 
 impl NodeChildren {
     pub fn with<R>(
         &self,
         label: &Label,
-        op: impl FnOnce(Option<&Arc<ZoneNode>>) -> R
+        op: impl FnOnce(Option<&Arc<ZoneNode>>) -> R,
     ) -> R {
         op(self.children.read().get(label))
     }
@@ -349,11 +380,11 @@ impl NodeChildren {
     pub fn with_or_default<R>(
         &self,
         label: &Label,
-        op: impl FnOnce(&Arc<ZoneNode>, bool) -> R
+        op: impl FnOnce(&Arc<ZoneNode>, bool) -> R,
     ) -> R {
         let lock = self.children.upgradable_read();
         if let Some(node) = lock.get(label) {
-            return op(node, false)
+            return op(node, false);
         }
         let mut lock = RwLockUpgradableReadGuard::upgrade(lock);
         lock.insert(label.into(), Default::default());
@@ -362,14 +393,19 @@ impl NodeChildren {
     }
 
     fn rollback(&self, version: Version) {
-        self.children.read().values().for_each(|item| item.rollback(version))
+        self.children
+            .read()
+            .values()
+            .for_each(|item| item.rollback(version))
     }
 
     fn clean(&self, version: Version) {
-        self.children.read().values().for_each(|item| item.clean(version))
+        self.children
+            .read()
+            .values()
+            .for_each(|item| item.clean(version))
     }
 }
-
 
 //============ Error Types ==================================================
 
