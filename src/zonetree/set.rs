@@ -11,15 +11,14 @@ use std::vec::Vec;
 //------------ ZoneSet -------------------------------------------------------
 
 /// The set of zones we are authoritative for.
+#[derive(Default)]
 pub struct ZoneSet {
     roots: Roots,
 }
 
 impl ZoneSet {
     pub fn new() -> Self {
-        ZoneSet {
-            roots: Default::default(),
-        }
+        Default::default()
     }
 
     pub fn get_zone(

@@ -114,6 +114,7 @@ impl<T> FlavorVersioned<T> {
         self.default.get(version)
     }
 
+    #[allow(unused)]
     pub fn iter_version(
         &self,
         version: Version,

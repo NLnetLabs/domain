@@ -55,12 +55,14 @@ pub(super) struct ZoneVersions {
 }
 
 impl ZoneVersions {
+    #[allow(unused)]
     pub fn update_current(&mut self, version: Version) -> Arc<VersionMarker> {
         let marker = Arc::new(VersionMarker);
         self.current = (version, marker.clone());
         marker
     }
 
+    #[allow(unused)]
     pub fn push_version(
         &mut self,
         version: Version,
@@ -69,6 +71,7 @@ impl ZoneVersions {
         self.all.push((version, Arc::downgrade(&marker)))
     }
 
+    #[allow(unused)]
     pub fn clean_versions(&mut self) -> Option<Version> {
         let mut max_version = None;
         self.all.retain(|item| {

@@ -48,6 +48,7 @@ impl<T> Flavored<T> {
         self.flavors[flavor.index].as_mut().unwrap()
     }
 
+    #[allow(unused)]
     pub fn iter(&self) -> impl Iterator<Item = (Flavor, &'_ T)> + '_ {
         self.flavors.iter().enumerate().filter_map(|(idx, item)| {
             item.as_ref().map(|item| (Flavor::new(idx), item))

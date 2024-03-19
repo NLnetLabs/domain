@@ -58,11 +58,12 @@ impl ReadZone {
         Ok(answer.into_answer(self))
     }
 
+    #[allow(unused)]
     fn walk(&self, op: Box<dyn Fn(Answer)>) {
         self.query_rrsets(self.apex.rrsets(), Rtype::Any, Some(&op));
         let qname_iter = self.apex.apex_name().iter_labels().rev();
         self.query_below_apex(
-            &Label::root(),
+            Label::root(),
             qname_iter,
             Rtype::Any,
             Some(&op),
@@ -74,7 +75,7 @@ impl ReadZone {
         label: &Label,
         qname: impl Iterator<Item = &'l Label>,
         qtype: Rtype,
-        op: Option<&Box<dyn Fn(Answer)>>,
+        op: Option<&dyn Fn(Answer)>,
     ) -> NodeAnswer {
         self.query_children(self.apex.children(), label, qname, qtype, op)
     }
@@ -84,7 +85,7 @@ impl ReadZone {
         node: &ZoneNode,
         mut qname: impl Iterator<Item = &'l Label>,
         qtype: Rtype,
-        op: Option<&Box<dyn Fn(Answer)>>,
+        op: Option<&dyn Fn(Answer)>,
     ) -> NodeAnswer {
         if let Some(label) = qname.next() {
             self.query_node_below(node, label, qname, qtype, op)
@@ -99,7 +100,7 @@ impl ReadZone {
         label: &Label,
         qname: impl Iterator<Item = &'l Label>,
         qtype: Rtype,
-        op: Option<&Box<dyn Fn(Answer)>>,
+        op: Option<&dyn Fn(Answer)>,
     ) -> NodeAnswer {
         node.with_special(
             self.flavor,
@@ -129,7 +130,7 @@ impl ReadZone {
         &self,
         node: &ZoneNode,
         qtype: Rtype,
-        op: Option<&Box<dyn Fn(Answer)>>,
+        op: Option<&dyn Fn(Answer)>,
     ) -> NodeAnswer {
         node.with_special(
             self.flavor,
@@ -149,7 +150,7 @@ impl ReadZone {
         &self,
         rrsets: &NodeRrsets,
         qtype: Rtype,
-        op: Option<&Box<dyn Fn(Answer)>>,
+        op: Option<&dyn Fn(Answer)>,
     ) -> NodeAnswer {
         if let Some(op) = op {
             let node_rrsets_iter = rrsets.iter();
@@ -196,7 +197,7 @@ impl ReadZone {
         label: &Label,
         qname: impl Iterator<Item = &'l Label>,
         qtype: Rtype,
-        op: Option<&Box<dyn Fn(Answer)>>,
+        op: Option<&dyn Fn(Answer)>,
     ) -> NodeAnswer {
         // Step 1: See if we have a non-terminal child for label. If so,
         //         continue there. Because of flavors, the child may exist
