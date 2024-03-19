@@ -24,6 +24,12 @@ impl Zone {
         }
     }
 
+    // Note: This should not be made pub because then anyone with access to
+    // this Zone would be able to reach ZoneApex::rrsets() or
+    // ZoneApex::children() via which modifications can be made while a call
+    // to read() is in progress. Modifications to the tree should only be
+    // made via write(). This avoids the need to lock the entire tree when
+    // making changes.
     pub(super) fn apex(&self) -> &ZoneApex {
         &self.apex
     }

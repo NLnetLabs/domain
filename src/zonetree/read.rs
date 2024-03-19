@@ -54,7 +54,6 @@ impl ReadZone {
     }
 
     pub fn walk(&self, op: Box<dyn Fn(Answer)>) {
-        let _locks = self.apex.lock();
         self.query_rrsets(self.apex.rrsets(), Rtype::Any, Some(&op));
         let qname_iter = self.apex.apex_name().iter_labels().rev();
         self.query_below_apex(&Label::root(), qname_iter, Rtype::Any, Some(&op));
@@ -135,8 +134,8 @@ impl ReadZone {
         &self,  rrsets: &NodeRrsets, qtype: Rtype, op: Option<&Box<dyn Fn(Answer)>>,
     ) -> NodeAnswer {
         if let Some(op) = op {
-            let lock = rrsets.lock();
-            for (_rtype, rrset) in lock.iter() {
+            let node_rrsets_iter = rrsets.iter();
+            for (_rtype, rrset) in node_rrsets_iter.iter() {
                 if let Some(shared_rrset) = rrset.get(self.flavor, self.version) {
                     (op)(NodeAnswer::data(shared_rrset.clone()).into_answer(self));
                 }

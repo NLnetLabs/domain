@@ -1,17 +1,17 @@
 //! The nodes in a zone tree.
 
 // use std::io;
+use parking_lot::{
+    RwLock, RwLockReadGuard, RwLockUpgradableReadGuard, RwLockWriteGuard,
+};
 use std::borrow::Cow;
-use std::collections::HashMap;
+use std::collections::{hash_map, HashMap};
 use std::string::String;
 use std::string::ToString;
 use std::sync::Arc;
 use std::vec::Vec;
 use crate::base::iana::{Class, Rtype};
 use crate::base::name::{Label, OwnedLabel, ToDname, ToLabelIter};
-use parking_lot::lock_api::RwLockWriteGuard;
-use parking_lot::RawRwLock;
-use parking_lot::{RwLock, RwLockUpgradableReadGuard};
 use serde::{Deserialize, Serialize};
 use super::flavor::Flavor;
 use super::rrset::{SharedRr, SharedRrset, StoredDname, StoredRecord};
@@ -114,14 +114,7 @@ impl ZoneApex {
         self.rrsets.clean(version);
         self.children.clean(version);
     }
-
-    pub(crate) fn lock(&self) -> (parking_lot::lock_api::RwLockReadGuard<'_, RawRwLock, HashMap<Rtype, NodeRrset>>, parking_lot::lock_api::RwLockReadGuard<'_, RawRwLock, HashMap<OwnedLabel, Arc<ZoneNode>>>) {
-        let rrsets_lock = self.rrsets.lock();
-        let children_lock = self.children.lock();
-        (rrsets_lock, children_lock)
-    }
 }
-
 
 //------------ ZoneNode ------------------------------------------------------
 
@@ -199,10 +192,6 @@ pub struct NodeRrsets {
 }
 
 impl NodeRrsets {
-    pub(crate) fn lock(&self) -> parking_lot::lock_api::RwLockReadGuard<'_, RawRwLock, HashMap<Rtype, NodeRrset>> {
-        self.rrsets.read()
-    }
-
     /// Returns whether there are no RRsets for the given flavor.
     pub fn is_empty(&self, flavor: Option<Flavor>, version: Version) -> bool {
         let rrsets = self.rrsets.read();
@@ -255,8 +244,27 @@ impl NodeRrsets {
             rrset.clean(version)
         });
     }
+
+    pub(super) fn iter(&self) -> NodeRrsetsIter {
+        NodeRrsetsIter::new(self.rrsets.read())
+    }
 }
 
+//------------ NodeRrsetIter -------------------------------------------------
+
+pub(super) struct NodeRrsetsIter<'a> {
+    guard: RwLockReadGuard<'a, HashMap<Rtype, NodeRrset>>,
+}
+
+impl<'a> NodeRrsetsIter<'a> {
+    fn new(guard: RwLockReadGuard<'a, HashMap<Rtype, NodeRrset>>) -> Self {
+        Self { guard }
+    }
+
+    pub fn iter(&self) -> hash_map::Iter<'_, Rtype, NodeRrset> {
+        self.guard.iter()
+    }
+}
 
 //------------ NodeRrset -----------------------------------------------------
 
@@ -326,10 +334,6 @@ pub struct NodeChildren {
 }
 
 impl NodeChildren {
-    pub fn lock(&self) -> parking_lot::lock_api::RwLockReadGuard<'_, RawRwLock, HashMap<OwnedLabel, Arc<ZoneNode>>> {
-        self.children.read()
-    }
-
     pub fn with<R>(
         &self,
         label: &Label,
