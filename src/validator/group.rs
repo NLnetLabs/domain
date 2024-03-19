@@ -12,10 +12,12 @@ use crate::base::iana::class::Class;
 use crate::base::name::ToDname;
 use crate::base::Record;
 use crate::base::Rtype;
-use crate::base::UnknownRecordData;
-use crate::dep::octseq::Octets;
+//use crate::base::UnknownRecordData;
+//use crate::dep::octseq::Octets;
 //use crate::dep::octseq::OctetsFrom;
 //use crate::dep::octseq::OctetsInto;
+use crate::net::client::request::RequestMessage;
+use crate::net::client::request::SendRequest;
 use crate::rdata::AllRecordData;
 use crate::rdata::Rrsig;
 use std::fmt::Debug;
@@ -155,10 +157,13 @@ impl Group {
         return Rtype::Rrsig;
     }
 
-    pub fn validate_with_vc(
+    pub async fn validate_with_vc<Upstream>(
         &self,
-        vc: &ValidationContext,
-    ) -> ValidationState {
+        vc: &ValidationContext<Upstream>,
+    ) -> ValidationState
+    where
+        Upstream: Clone + SendRequest<RequestMessage<Bytes>>,
+    {
         // We have two cases, with an without RRSIGs. With RRSIGs we can
         // look at the signer_name. We need to find the DNSSEC status
         // of signer_name. If the status is secure, we can validate
@@ -185,7 +190,7 @@ impl Group {
         } else {
             self.rr_set[0].owner()
         };
-        let node = vc.get_node(target);
+        let node = vc.get_node(target).await;
         let state = node.validation_state();
         match state {
             ValidationState::Secure => (), // Continue validating

@@ -10,9 +10,11 @@ use crate::base::iana::OptRcode::NoError;
 use crate::base::name::ToDname;
 use crate::base::Rtype;
 use crate::dep::octseq::Octets;
-use crate::dep::octseq::OctetsInto;
+//use crate::dep::octseq::OctetsInto;
 //use crate::dep::octseq::OctetsFrom;
 //use crate::dep::octseq::OctetsInto;
+use crate::net::client::request::RequestMessage;
+use crate::net::client::request::SendRequest;
 //use crate::rdata::AllRecordData;
 use context::ValidationContext;
 //use group::Group;
@@ -21,13 +23,14 @@ use std::fmt::Debug;
 use types::Error;
 use types::ValidationState;
 
-pub fn validate_msg<'a, Octs>(
+pub async fn validate_msg<'a, Octs, Upstream>(
     msg: &'a Message<Octs>,
-    vc: &ValidationContext,
+    vc: &ValidationContext<Upstream>,
 ) -> Result<ValidationState, Error>
 where
     Octs: Clone + Debug + Octets + 'a,
     <Octs as Octets>::Range<'a>: Debug,
+    Upstream: Clone + SendRequest<RequestMessage<Bytes>>,
 {
     // Convert to Bytes.
     let bytes = Bytes::copy_from_slice(msg.as_slice());
@@ -52,11 +55,11 @@ where
     // Validate each group. We cannot use iter_mut because it requires a
     // reference with a lifetime that is too long.
     // Group can handle this by hiding the state behind a Mutex.
-    match validate_groups(&mut answers, vc) {
+    match validate_groups(&mut answers, vc).await {
         Some(state) => return Ok(state),
         None => (),
     }
-    match validate_groups(&mut authorities, vc) {
+    match validate_groups(&mut authorities, vc).await {
         Some(state) => return Ok(state),
         None => (),
     }
@@ -192,13 +195,16 @@ fn get_soa_state(
     None
 }
 
-fn validate_groups(
+async fn validate_groups<Upstream>(
     groups: &mut GroupList,
-    vc: &ValidationContext,
-) -> Option<ValidationState> {
+    vc: &ValidationContext<Upstream>,
+) -> Option<ValidationState>
+where
+    Upstream: Clone + SendRequest<RequestMessage<Bytes>>,
+{
     for g in groups.iter() {
         //println!("Validating group {g:?}");
-        let state = g.validate_with_vc(vc);
+        let state = g.validate_with_vc(vc).await;
         if let ValidationState::Bogus = state {
             return Some(state);
         }

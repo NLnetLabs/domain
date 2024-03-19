@@ -9,6 +9,7 @@ use crate::dep::octseq::OctetsInto;
 use crate::net::client::request::ComposeRequest;
 use crate::net::client::request::Error;
 use crate::net::client::request::GetResponse;
+use crate::net::client::request::RequestMessage;
 use crate::net::client::request::SendRequest;
 use crate::rdata::AllRecordData;
 use crate::validator;
@@ -48,22 +49,25 @@ impl Default for Config {
 
 #[derive(Clone)]
 /// A connection that caches responses from an upstream connection.
-pub struct Connection<Upstream> {
+pub struct Connection<Upstream, VCUpstream> {
     /// Upstream transport to use for requests.
     upstream: Upstream,
 
-    vc: Arc<ValidationContext>,
+    vc: Arc<ValidationContext<VCUpstream>>,
 
     /// The configuration of this connection.
     config: Config,
 }
 
-impl<Upstream> Connection<Upstream> {
+impl<Upstream, VCUpstream> Connection<Upstream, VCUpstream> {
     /// Create a new connection with default configuration parameters.
     ///
     /// Note that Upstream needs to implement [SendRequest]
     /// (and Clone/Send/Sync) to be useful.
-    pub fn new(upstream: Upstream, vc: Arc<ValidationContext>) -> Self {
+    pub fn new(
+        upstream: Upstream,
+        vc: Arc<ValidationContext<VCUpstream>>,
+    ) -> Self {
         Self::with_config(upstream, vc, Default::default())
     }
 
@@ -73,7 +77,7 @@ impl<Upstream> Connection<Upstream> {
     /// (and Clone/Send/Sync) to be useful.
     pub fn with_config(
         upstream: Upstream,
-        vc: Arc<ValidationContext>,
+        vc: Arc<ValidationContext<VCUpstream>>,
         config: Config,
     ) -> Self {
         Self {
@@ -86,16 +90,19 @@ impl<Upstream> Connection<Upstream> {
 
 //------------ SendRequest ----------------------------------------------------
 
-impl<CR, Upstream> SendRequest<CR> for Connection<Upstream>
+impl<CR, Upstream, VCUpstream> SendRequest<CR>
+    for Connection<Upstream, VCUpstream>
 where
-    CR: Clone + ComposeRequest + 'static,
+    CR: ComposeRequest + Clone + Send + Sync + 'static,
     Upstream: Clone + SendRequest<CR> + Send + Sync + 'static,
+    VCUpstream:
+        Clone + SendRequest<RequestMessage<Bytes>> + Send + Sync + 'static,
 {
     fn send_request(
         &self,
         request_msg: CR,
     ) -> Box<dyn GetResponse + Send + Sync> {
-        Box::new(Request::<CR, Upstream>::new(
+        Box::new(Request::<CR, Upstream, VCUpstream>::new(
             request_msg,
             self.upstream.clone(),
             self.vc.clone(),
@@ -107,9 +114,8 @@ where
 //------------ Request --------------------------------------------------------
 
 /// The state of a request that is executed.
-pub struct Request<CR, Upstream>
+pub struct Request<CR, Upstream, VCUpstream>
 where
-    CR: Send + Sync,
     Upstream: Send + Sync,
 {
     /// State of the request.
@@ -122,24 +128,23 @@ where
     upstream: Upstream,
 
     /// The validation context.
-    vc: Arc<ValidationContext>,
+    vc: Arc<ValidationContext<VCUpstream>>,
 
     /// The configuration of the connection.
     config: Config,
 }
 
-impl<CR, Upstream> Request<CR, Upstream>
+impl<CR, Upstream, VCUpstream> Request<CR, Upstream, VCUpstream>
 where
-    CR: Clone + ComposeRequest + Send + Sync,
     Upstream: SendRequest<CR> + Send + Sync,
 {
     /// Create a new Request object.
     fn new(
         request_msg: CR,
         upstream: Upstream,
-        vc: Arc<ValidationContext>,
+        vc: Arc<ValidationContext<VCUpstream>>,
         config: Config,
-    ) -> Request<CR, Upstream> {
+    ) -> Request<CR, Upstream, VCUpstream> {
         Self {
             request_msg,
             upstream,
@@ -151,7 +156,12 @@ where
     /// This is the implementation of the get_response method.
     ///
     /// This function is not cancel safe.
-    async fn get_response_impl(&mut self) -> Result<Message<Bytes>, Error> {
+    async fn get_response_impl(&mut self) -> Result<Message<Bytes>, Error>
+    where
+        CR: Clone + ComposeRequest,
+        Upstream: Clone + SendRequest<CR>,
+        VCUpstream: Clone + SendRequest<RequestMessage<Bytes>>,
+    {
         // We should check for the CD flag. If set then just perform the
         // request without validating.
 
@@ -163,7 +173,7 @@ where
         let response_msg = request.get_response().await?;
 
         // We should validate.
-        let res = validator::validate_msg(&response_msg, &self.vc);
+        let res = validator::validate_msg(&response_msg, &self.vc).await;
         println!("get_response_impl: {res:?}");
         match res {
             Err(err) => {
@@ -212,9 +222,8 @@ where
     }
 }
 
-impl<CR, Upstream> Debug for Request<CR, Upstream>
+impl<CR, Upstream, VCUpstream> Debug for Request<CR, Upstream, VCUpstream>
 where
-    CR: Send + Sync,
     Upstream: Send + Sync,
 {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), core::fmt::Error> {
@@ -224,10 +233,13 @@ where
     }
 }
 
-impl<CR, Upstream> GetResponse for Request<CR, Upstream>
+impl<CR, Upstream, VCUpstream> GetResponse
+    for Request<CR, Upstream, VCUpstream>
 where
-    CR: Clone + ComposeRequest + Debug + Sync,
-    Upstream: SendRequest<CR> + Send + Sync + 'static,
+    CR: Clone + ComposeRequest,
+    Upstream: Clone + SendRequest<CR> + Send + Sync + 'static,
+    VCUpstream:
+        Clone + SendRequest<RequestMessage<Bytes>> + Send + Sync + 'static,
 {
     fn get_response(
         &mut self,
