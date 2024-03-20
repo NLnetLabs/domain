@@ -1,6 +1,5 @@
 //! Write access to zones.
 
-use super::flavor::Flavor;
 use super::nodes::{Special, ZoneApex, ZoneCut, ZoneNode};
 use super::rrset::{SharedRr, SharedRrset};
 use super::versioned::Version;
@@ -151,10 +150,10 @@ pub trait WriteableZoneNode {
 
 #[macro_export]
 macro_rules! write_zone {
-    ($zone:ident.open($flavor:expr)) => {
+    ($zone:ident.open()) => {
         match $zone.is_async() {
-            true => $zone.open_async($flavor).await,
-            false => $zone.open($flavor),
+            true => $zone.open_async().await,
+            false => $zone.open(),
         }
     };
 
@@ -171,10 +170,7 @@ pub trait WriteableZone {
 
     //--- Sync variants
 
-    fn open(
-        &self,
-        _flavor: Option<Flavor>,
-    ) -> Result<Box<dyn WriteableZoneNode>, io::Error> {
+    fn open(&self) -> Result<Box<dyn WriteableZoneNode>, io::Error> {
         unimplemented!()
     }
 
@@ -187,7 +183,6 @@ pub trait WriteableZone {
     #[allow(clippy::type_complexity)]
     fn open_async(
         &self,
-        flavor: Option<Flavor>,
     ) -> Pin<
         Box<
             dyn Future<
@@ -195,7 +190,7 @@ pub trait WriteableZone {
             >,
         >,
     > {
-        Box::pin(ready(self.open(flavor)))
+        Box::pin(ready(self.open()))
     }
 
     fn commit_async(
@@ -260,11 +255,8 @@ impl WriteableZone for WriteZone {
         false
     }
 
-    fn open(
-        &self,
-        flavor: Option<Flavor>,
-    ) -> Result<Box<dyn WriteableZoneNode>, io::Error> {
-        WriteNode::new_apex(self.clone(), flavor)
+    fn open(&self) -> Result<Box<dyn WriteableZoneNode>, io::Error> {
+        WriteNode::new_apex(self.clone())
             .map(|node| Box::new(node) as Box<dyn WriteableZoneNode>)
             .map_err(|err| io::Error::other(format!("Open error: {err}")))
     }
@@ -296,21 +288,14 @@ pub struct WriteNode {
 
     /// The node we are updating.
     node: Either<Arc<ZoneApex>, Arc<ZoneNode>>,
-
-    /// The flavor of the node we are updating.
-    flavor: Option<Flavor>,
 }
 
 impl WriteNode {
-    fn new_apex(
-        zone: WriteZone,
-        flavor: Option<Flavor>,
-    ) -> Result<Self, io::Error> {
+    fn new_apex(zone: WriteZone) -> Result<Self, io::Error> {
         let apex = zone.apex.clone();
         Ok(WriteNode {
             zone,
             node: Either::Left(apex),
-            flavor,
         })
     }
 
@@ -321,40 +306,31 @@ impl WriteNode {
             Either::Right(ref node) => node,
         };
         let opt_new_nxdomain =
-            node.with_special(self.flavor, self.zone.version, |special| {
-                match special {
-                    Some(Special::NxDomain) => {
-                        if !node
-                            .rrsets()
-                            .is_empty(self.flavor, self.zone.version)
-                        {
-                            Some(false)
-                        } else {
-                            None
-                        }
+            node.with_special(self.zone.version, |special| match special {
+                Some(Special::NxDomain) => {
+                    if !node.rrsets().is_empty(self.zone.version) {
+                        Some(false)
+                    } else {
+                        None
                     }
-                    None => {
-                        if node
-                            .rrsets()
-                            .is_empty(self.flavor, self.zone.version)
-                        {
-                            Some(true)
-                        } else {
-                            None
-                        }
-                    }
-                    _ => None,
                 }
+                None => {
+                    if node.rrsets().is_empty(self.zone.version) {
+                        Some(true)
+                    } else {
+                        None
+                    }
+                }
+                _ => None,
             });
         if let Some(new_nxdomain) = opt_new_nxdomain {
             if new_nxdomain {
                 node.update_special(
-                    self.flavor,
                     self.zone.version,
                     Some(Special::NxDomain),
                 );
             } else {
-                node.update_special(self.flavor, self.zone.version, None);
+                node.update_special(self.zone.version, None);
             }
         }
         Ok(())
@@ -381,7 +357,6 @@ impl WriteableZoneNode for WriteNode {
         let node = WriteNode {
             zone: self.zone.clone(),
             node: Either::Right(node),
-            flavor: self.flavor,
         };
         if created {
             node.make_regular()?;
@@ -395,7 +370,7 @@ impl WriteableZoneNode for WriteNode {
             Either::Right(ref apex) => apex.rrsets(),
             Either::Left(ref node) => node.rrsets(),
         };
-        rrsets.update(rrset, self.flavor, self.zone.version);
+        rrsets.update(rrset, self.zone.version);
         self.check_nx_domain()?;
         Ok(())
     }
@@ -405,14 +380,14 @@ impl WriteableZoneNode for WriteNode {
             Either::Left(ref apex) => apex.rrsets(),
             Either::Right(ref node) => node.rrsets(),
         };
-        rrsets.remove(rtype, self.flavor, self.zone.version);
+        rrsets.remove(rtype, self.zone.version);
         self.check_nx_domain()?;
         Ok(())
     }
 
     fn make_regular(&self) -> Result<(), io::Error> {
         if let Either::Right(ref node) = self.node {
-            node.update_special(self.flavor, self.zone.version, None);
+            node.update_special(self.zone.version, None);
             self.check_nx_domain()?;
         }
         Ok(())
@@ -423,7 +398,6 @@ impl WriteableZoneNode for WriteNode {
             Either::Left(_) => Err(WriteApexError::NotAllowed),
             Either::Right(ref node) => {
                 node.update_special(
-                    self.flavor,
                     self.zone.version,
                     Some(Special::Cut(cut)),
                 );
@@ -438,7 +412,6 @@ impl WriteableZoneNode for WriteNode {
             Either::Left(_) => Err(WriteApexError::NotAllowed),
             Either::Right(ref node) => {
                 node.update_special(
-                    self.flavor,
                     self.zone.version,
                     Some(Special::Cname(cname)),
                 );

@@ -1,4 +1,3 @@
-use super::flavor::Flavor;
 use super::read::ReadableZone;
 use super::rrset::StoredDname;
 use super::versioned::Version;
@@ -22,7 +21,6 @@ pub trait ZoneData: Sync + Send {
 
     fn read(
         self: Arc<Self>,
-        flavor: Option<Flavor>,
         current: (Version, Arc<VersionMarker>),
     ) -> Box<dyn ReadableZone>;
 
@@ -56,9 +54,9 @@ impl Zone {
         self.data.apex_name()
     }
 
-    pub fn read(&self, flavor: Option<Flavor>) -> Box<dyn ReadableZone> {
+    pub fn read(&self) -> Box<dyn ReadableZone> {
         let current = self.versions.read().current.clone();
-        self.data.clone().read(flavor, current)
+        self.data.clone().read(current)
     }
 
     pub fn write(

@@ -1,10 +1,8 @@
 //! The nodes in a zone tree.
 
-// use std::io;
-use super::flavor::Flavor;
 use super::read::ReadableZone;
 use super::rrset::{SharedRr, SharedRrset, StoredDname, StoredRecord};
-use super::versioned::{FlavorVersioned, Version};
+use super::versioned::{Version, Versioned};
 use super::write::{WriteZone, WriteableZone};
 use super::zone::{VersionMarker, ZoneData, ZoneVersions};
 use super::ReadZone;
@@ -99,13 +97,9 @@ impl ZoneApex {
     }
 
     /// Returns the SOA record for the given flavor and version if available.
-    pub fn get_soa(
-        &self,
-        flavor: Option<Flavor>,
-        version: Version,
-    ) -> Option<SharedRr> {
+    pub fn get_soa(&self, version: Version) -> Option<SharedRr> {
         self.rrsets()
-            .get(Rtype::Soa, flavor, version)
+            .get(Rtype::Soa, version)
             .and_then(|rrset| rrset.first())
     }
 
@@ -138,11 +132,10 @@ impl ZoneData for ZoneApex {
 
     fn read(
         self: Arc<Self>,
-        flavor: Option<Flavor>,
         current: (Version, Arc<VersionMarker>),
     ) -> Box<dyn ReadableZone> {
         let (version, marker) = current;
-        Box::new(ReadZone::new(self, flavor, version, marker))
+        Box::new(ReadZone::new(self, version, marker))
     }
 
     fn write(
@@ -166,7 +159,7 @@ pub struct ZoneNode {
     rrsets: NodeRrsets,
 
     /// The special functions of the node for the various flavors.
-    special: RwLock<FlavorVersioned<Option<Special>>>,
+    special: RwLock<Versioned<Option<Special>>>,
 
     /// The child nodes of the node.
     children: NodeChildren,
@@ -179,37 +172,23 @@ impl ZoneNode {
     }
 
     /// Returns whether the node is NXDomain for a flavor.
-    pub fn is_nx_domain(
-        &self,
-        flavor: Option<Flavor>,
-        version: Version,
-    ) -> bool {
-        self.with_special(flavor, version, |special| {
+    pub fn is_nx_domain(&self, version: Version) -> bool {
+        self.with_special(version, |special| {
             matches!(special, Some(Special::NxDomain))
         })
     }
 
     pub fn with_special<R>(
         &self,
-        flavor: Option<Flavor>,
         version: Version,
         op: impl FnOnce(Option<&Special>) -> R,
     ) -> R {
-        op(self
-            .special
-            .read()
-            .get(flavor, version)
-            .and_then(Option::as_ref))
+        op(self.special.read().get(version).and_then(Option::as_ref))
     }
 
     /// Updates the special.
-    pub fn update_special(
-        &self,
-        flavor: Option<Flavor>,
-        version: Version,
-        special: Option<Special>,
-    ) {
-        self.special.write().update(flavor, version, special)
+    pub fn update_special(&self, version: Version, special: Option<Special>) {
+        self.special.write().update(version, special)
     }
 
     /// Returns the children.
@@ -239,13 +218,13 @@ pub struct NodeRrsets {
 
 impl NodeRrsets {
     /// Returns whether there are no RRsets for the given flavor.
-    pub fn is_empty(&self, flavor: Option<Flavor>, version: Version) -> bool {
+    pub fn is_empty(&self, version: Version) -> bool {
         let rrsets = self.rrsets.read();
         if rrsets.is_empty() {
             return true;
         }
         for value in self.rrsets.read().values() {
-            if value.get(flavor, version).is_some() {
+            if value.get(version).is_some() {
                 return false;
             }
         }
@@ -253,45 +232,30 @@ impl NodeRrsets {
     }
 
     /// Returns the RRset for a given record type.
-    pub fn get(
-        &self,
-        rtype: Rtype,
-        flavor: Option<Flavor>,
-        version: Version,
-    ) -> Option<SharedRrset> {
+    pub fn get(&self, rtype: Rtype, version: Version) -> Option<SharedRrset> {
         self.rrsets
             .read()
             .get(&rtype)
-            .and_then(|rrsets| rrsets.get(flavor, version))
+            .and_then(|rrsets| rrsets.get(version))
             .cloned()
     }
 
     /// Updates an RRset.
-    pub fn update(
-        &self,
-        rrset: SharedRrset,
-        flavor: Option<Flavor>,
-        version: Version,
-    ) {
+    pub fn update(&self, rrset: SharedRrset, version: Version) {
         self.rrsets
             .write()
             .entry(rrset.rtype())
             .or_default()
-            .update(rrset, flavor, version)
+            .update(rrset, version)
     }
 
     /// Removes the RRset for the given type.
-    pub fn remove(
-        &self,
-        rtype: Rtype,
-        flavor: Option<Flavor>,
-        version: Version,
-    ) {
+    pub fn remove(&self, rtype: Rtype, version: Version) {
         self.rrsets
             .write()
             .entry(rtype)
             .or_default()
-            .remove(flavor, version)
+            .remove(version)
     }
 
     pub fn rollback(&self, version: Version) {
@@ -338,29 +302,20 @@ pub(crate) struct NodeRrset {
     /// A stored `None` value means there is explicitely no RRset here. This
     /// is used to signal that a flavor doesn’t have an RRset if a default is
     /// present.
-    rrsets: FlavorVersioned<Option<SharedRrset>>,
+    rrsets: Versioned<Option<SharedRrset>>,
 }
 
 impl NodeRrset {
-    pub fn get(
-        &self,
-        flavor: Option<Flavor>,
-        version: Version,
-    ) -> Option<&SharedRrset> {
-        self.rrsets.get(flavor, version).and_then(Option::as_ref)
+    pub fn get(&self, version: Version) -> Option<&SharedRrset> {
+        self.rrsets.get(version).and_then(Option::as_ref)
     }
 
-    fn update(
-        &mut self,
-        rrset: SharedRrset,
-        flavor: Option<Flavor>,
-        version: Version,
-    ) {
-        self.rrsets.update(flavor, version, Some(rrset))
+    fn update(&mut self, rrset: SharedRrset, version: Version) {
+        self.rrsets.update(version, Some(rrset))
     }
 
-    fn remove(&mut self, flavor: Option<Flavor>, version: Version) {
-        self.rrsets.update(flavor, version, None)
+    fn remove(&mut self, version: Version) {
+        self.rrsets.update(version, None)
     }
 
     pub fn rollback(&mut self, version: Version) {

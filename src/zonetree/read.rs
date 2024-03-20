@@ -8,7 +8,6 @@ use std::sync::Arc;
 
 use bytes::Bytes;
 
-use super::flavor::Flavor;
 use super::nodes::{
     NodeChildren, NodeRrsets, OutOfZone, Special, ZoneApex, ZoneCut, ZoneNode,
 };
@@ -39,7 +38,7 @@ macro_rules! read_zone {
             true => $zone.walk_async($op).await,
             false => $zone.walk($op),
         }
-    }
+    };
 }
 
 pub trait ReadableZone: Send {
@@ -57,10 +56,7 @@ pub trait ReadableZone: Send {
         unimplemented!()
     }
 
-    fn walk(
-        &self,
-        _op: Box<dyn Fn(Answer) + Send>,
-    ) {
+    fn walk(&self, _op: Box<dyn Fn(Answer) + Send>) {
         unimplemented!()
     }
 
@@ -88,7 +84,6 @@ pub trait ReadableZone: Send {
 #[derive(Clone)]
 pub struct ReadZone {
     apex: Arc<ZoneApex>,
-    flavor: Option<Flavor>,
     version: Version,
     _version_marker: Arc<VersionMarker>,
 }
@@ -96,13 +91,11 @@ pub struct ReadZone {
 impl ReadZone {
     pub(super) fn new(
         apex: Arc<ZoneApex>,
-        flavor: Option<Flavor>,
         version: Version,
         _version_marker: Arc<VersionMarker>,
     ) -> Self {
         ReadZone {
             apex,
-            flavor,
             version,
             _version_marker,
         }
@@ -129,10 +122,7 @@ impl ReadableZone for ReadZone {
         })
     }
 
-    fn walk(
-        &self,
-        op: Box<dyn Fn(Answer) + Send>,
-    ) {
+    fn walk(&self, op: Box<dyn Fn(Answer) + Send>) {
         self.query_rrsets(self.apex.rrsets(), Rtype::Any, Some(&op));
         let qname_iter = self.apex.apex_name().iter_labels().rev();
         self.query_below_apex(
@@ -177,28 +167,20 @@ impl ReadZone {
         qtype: Rtype,
         op: Option<&dyn Fn(Answer)>,
     ) -> NodeAnswer {
-        node.with_special(
-            self.flavor,
-            self.version,
-            |special| match special {
-                Some(Special::Cut(ref cut)) => {
-                    NodeAnswer::authority(AnswerAuthority::new(
-                        cut.name.clone(),
-                        None,
-                        Some(cut.ns.clone()),
-                        cut.ds.as_ref().cloned(),
-                    ))
-                }
-                Some(Special::NxDomain) => NodeAnswer::nx_domain(),
-                Some(Special::Cname(_)) | None => self.query_children(
-                    node.children(),
-                    label,
-                    qname,
-                    qtype,
-                    op,
-                ),
-            },
-        )
+        node.with_special(self.version, |special| match special {
+            Some(Special::Cut(ref cut)) => {
+                NodeAnswer::authority(AnswerAuthority::new(
+                    cut.name.clone(),
+                    None,
+                    Some(cut.ns.clone()),
+                    cut.ds.as_ref().cloned(),
+                ))
+            }
+            Some(Special::NxDomain) => NodeAnswer::nx_domain(),
+            Some(Special::Cname(_)) | None => {
+                self.query_children(node.children(), label, qname, qtype, op)
+            }
+        })
     }
 
     fn query_node_here(
@@ -207,18 +189,12 @@ impl ReadZone {
         qtype: Rtype,
         op: Option<&dyn Fn(Answer)>,
     ) -> NodeAnswer {
-        node.with_special(
-            self.flavor,
-            self.version,
-            |special| match special {
-                Some(Special::Cut(cut)) => self.query_at_cut(cut, qtype),
-                Some(Special::Cname(cname)) => {
-                    NodeAnswer::cname(cname.clone())
-                }
-                Some(Special::NxDomain) => NodeAnswer::nx_domain(),
-                None => self.query_rrsets(node.rrsets(), qtype, op),
-            },
-        )
+        node.with_special(self.version, |special| match special {
+            Some(Special::Cut(cut)) => self.query_at_cut(cut, qtype),
+            Some(Special::Cname(cname)) => NodeAnswer::cname(cname.clone()),
+            Some(Special::NxDomain) => NodeAnswer::nx_domain(),
+            None => self.query_rrsets(node.rrsets(), qtype, op),
+        })
     }
 
     fn query_rrsets(
@@ -230,9 +206,7 @@ impl ReadZone {
         if let Some(op) = op {
             let node_rrsets_iter = rrsets.iter();
             for (_rtype, rrset) in node_rrsets_iter.iter() {
-                if let Some(shared_rrset) =
-                    rrset.get(self.flavor, self.version)
-                {
+                if let Some(shared_rrset) = rrset.get(self.version) {
                     (op)(
                         NodeAnswer::data(shared_rrset.clone())
                             .into_answer(self),
@@ -241,7 +215,7 @@ impl ReadZone {
             }
             NodeAnswer::no_data()
         } else {
-            match rrsets.get(qtype, self.flavor, self.version) {
+            match rrsets.get(qtype, self.version) {
                 Some(rrset) => NodeAnswer::data(rrset),
                 None => NodeAnswer::no_data(),
             }
@@ -280,7 +254,7 @@ impl ReadZone {
         //         exist.
         let answer = children.with(label, |node| {
             if let Some(node) = node {
-                if node.is_nx_domain(self.flavor, self.version) {
+                if node.is_nx_domain(self.version) {
                     None
                 } else {
                     Some(self.query_node(node, qname, qtype, op))
@@ -362,7 +336,7 @@ impl NodeAnswer {
 
     fn into_answer(mut self, zone: &ReadZone) -> Answer {
         if self.add_soa {
-            if let Some(soa) = zone.apex.get_soa(zone.flavor, zone.version) {
+            if let Some(soa) = zone.apex.get_soa(zone.version) {
                 self.answer.add_authority(AnswerAuthority::new(
                     zone.apex.apex_name().clone(),
                     Some(soa),

@@ -3,7 +3,6 @@
 use std::sync::Arc;
 use std::vec::Vec;
 
-use super::flavor::Flavor;
 use super::nodes::{OutOfZone, Special, ZoneApex, ZoneCut, ZoneNode};
 use super::rrset::{SharedRr, SharedRrset, StoredDname, StoredRecord};
 use super::set::{InsertZoneError, ZoneSet};
@@ -40,15 +39,10 @@ impl ZoneBuilder {
         &mut self,
         name: &impl ToDname,
         rrset: SharedRrset,
-        flavor: Option<Flavor>,
     ) -> Result<(), OutOfZone> {
         match self.get_node(self.apex.prepare_name(name)?) {
-            Ok(node) => {
-                node.rrsets().update(rrset, flavor, Version::default())
-            }
-            Err(apex) => {
-                apex.rrsets().update(rrset, flavor, Version::default())
-            }
+            Ok(node) => node.rrsets().update(rrset, Version::default()),
+            Err(apex) => apex.rrsets().update(rrset, Version::default()),
         }
         Ok(())
     }
@@ -59,7 +53,6 @@ impl ZoneBuilder {
         ns: SharedRrset,
         ds: Option<SharedRrset>,
         glue: Vec<StoredRecord>,
-        flavor: Option<Flavor>,
     ) -> Result<(), ZoneCutError> {
         let node = self.get_node(self.apex.prepare_name(name)?)?;
         let cut = ZoneCut {
@@ -68,11 +61,7 @@ impl ZoneBuilder {
             ds,
             glue,
         };
-        node.update_special(
-            flavor,
-            Version::default(),
-            Some(Special::Cut(cut)),
-        );
+        node.update_special(Version::default(), Some(Special::Cut(cut)));
         Ok(())
     }
 
@@ -80,14 +69,9 @@ impl ZoneBuilder {
         &mut self,
         name: &impl ToDname,
         cname: SharedRr,
-        flavor: Option<Flavor>,
     ) -> Result<(), CnameError> {
         let node = self.get_node(self.apex.prepare_name(name)?)?;
-        node.update_special(
-            flavor,
-            Version::default(),
-            Some(Special::Cname(cname)),
-        );
+        node.update_special(Version::default(), Some(Special::Cname(cname)));
         Ok(())
     }
 

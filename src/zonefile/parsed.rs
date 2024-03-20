@@ -119,16 +119,14 @@ impl Zonefile {
             let ds = cut.ds.map(Rrset::into_shared);
             let glue = self.normal.collect_glue(&name);
 
-            if let Err(err) =
-                builder.insert_zone_cut(&name, ns, ds, glue, None)
-            {
+            if let Err(err) = builder.insert_zone_cut(&name, ns, ds, glue) {
                 zone_err.add_error(name, OwnerError::InvalidZonecut(err))
             }
         }
 
         // Now insert all the CNAMEs.
         for (name, rrset) in self.cnames.into_iter() {
-            if let Err(err) = builder.insert_cname(&name, rrset, None) {
+            if let Err(err) = builder.insert_cname(&name, rrset) {
                 zone_err.add_error(name, OwnerError::InvalidCname(err))
             }
         }
@@ -136,10 +134,7 @@ impl Zonefile {
         // Finally, all the normal records.
         for (name, rrsets) in self.normal.into_iter() {
             for (rtype, rrset) in rrsets.into_iter() {
-                if builder
-                    .insert_rrset(&name, rrset.into_shared(), None)
-                    .is_err()
-                {
+                if builder.insert_rrset(&name, rrset.into_shared()).is_err() {
                     zone_err.add_error(
                         name.clone(),
                         OwnerError::OutOfZone(rtype),
