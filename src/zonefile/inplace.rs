@@ -913,7 +913,7 @@ impl<'a> EntryScanner<'a> {
             // or an escape sequence.
             while self.zonefile.buf.next_ascii_symbol()?.is_some() {
                 *write += 1;
-                if *write >= latest {
+                if *write > latest {
                     return Err(EntryError::bad_charstr());
                 }
             }
@@ -930,7 +930,7 @@ impl<'a> EntryScanner<'a> {
                 Some(sym) => {
                     self.zonefile.buf.buf[*write] = sym.into_octet()?;
                     *write += 1;
-                    if *write >= latest {
+                    if *write > latest {
                         return Err(EntryError::bad_charstr());
                     }
                 }
@@ -1637,5 +1637,16 @@ mod test {
         TestCase::test(include_str!(
             "../../test-data/zonefiles/unknown.yaml"
         ));
+    }
+
+    #[test]
+    fn test_chrstr_decoding() {
+        TestCase::test(include_str!("../../test-data/zonefiles/strlen.yaml"));
+    }
+
+    #[test]
+    #[should_panic(expected = "character string with more than 255 octets")]
+    fn test_chrstr_overlfow_decoding() {
+        TestCase::test(include_str!("../../test-data/zonefiles/stroverflow.yaml"));
     }
 }
