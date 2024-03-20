@@ -1647,6 +1647,8 @@ mod test {
     #[test]
     #[should_panic(expected = "character string with more than 255 octets")]
     fn test_chrstr_overlfow_decoding() {
-        TestCase::test(include_str!("../../test-data/zonefiles/stroverflow.yaml"));
+        TestCase::test(include_str!(
+            "../../test-data/zonefiles/stroverflow.yaml"
+        ));
     }
 }
