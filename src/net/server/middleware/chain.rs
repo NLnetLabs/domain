@@ -9,9 +9,7 @@ use crate::base::message_builder::AdditionalBuilder;
 use crate::base::wire::Composer;
 use crate::base::{Message, StreamTarget};
 use crate::net::server::message::Request;
-use crate::net::server::service::{
-    CallResult, ServiceResultItem, Transaction,
-};
+use crate::net::server::service::{CallResult, ServiceError, Transaction};
 
 use super::processor::MiddlewareProcessor;
 
@@ -107,12 +105,18 @@ where
         &self,
         request: &mut Request<Message<RequestOctets>>,
     ) -> ControlFlow<(
-        Transaction<ServiceResultItem<RequestOctets, Target>, Future>,
+        Transaction<
+            Result<CallResult<RequestOctets, Target>, ServiceError>,
+            Future,
+        >,
         usize,
     )>
     where
         Future: std::future::Future<
-                Output = ServiceResultItem<RequestOctets, Target>,
+                Output = Result<
+                    CallResult<RequestOctets, Target>,
+                    ServiceError,
+                >,
             > + Send,
     {
         for (i, p) in self.processors.iter().enumerate() {

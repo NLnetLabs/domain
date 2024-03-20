@@ -239,8 +239,7 @@ pub mod prelude {
     pub use crate::dep::octseq::{FreezeBuilder, Octets};
     pub use crate::net::server::message::Request;
     pub use crate::net::server::service::{
-        CallResult, Service, ServiceError, ServiceFeedback, ServiceResult,
-        ServiceResultItem, Transaction,
+        CallResult, Service, ServiceError, ServiceFeedback, Transaction,
     };
     pub use crate::net::server::util::{mk_builder_for_target, service_fn};
 }

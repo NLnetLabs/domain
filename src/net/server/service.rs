@@ -27,23 +27,6 @@ use super::message::Request;
 
 //------------ Service -------------------------------------------------------
 
-/// The result of calling a [`Service`].
-///
-/// On success [`Service::call()`] results in a [`Transaction`] consisting of
-/// one or more [`ServiceResultItem`] futures.
-///
-/// On failure it instead results in a [`ServiceError`].
-pub type ServiceResult<RequestOctets, Target, Future> = Result<
-    Transaction<ServiceResultItem<RequestOctets, Target>, Future>,
-    ServiceError,
->;
-
-/// A single result item from a [`ServiceResult`].
-///
-/// See [`Service::call()`].
-pub type ServiceResultItem<RequestOctets, Target> =
-    Result<CallResult<RequestOctets, Target>, ServiceError>;
-
 /// [`Service`]s are responsible for determining how to respond to valid DNS
 /// requests.
 ///
@@ -108,12 +91,18 @@ pub type ServiceResultItem<RequestOctets, Target> =
 ///
 /// impl Service<Vec<u8>> for MyService {
 ///     type Target = Vec<u8>;
-///     type Future = Ready<ServiceResultItem<Vec<u8>, Self::Target>>;
+///     type Future = Ready<Result<CallResult<Vec<u8>, Self::Target>, ServiceError>>;
 ///
 ///     fn call(
 ///         &self,
 ///         msg: Request<Message<Vec<u8>>>,
-///     ) -> ServiceResult<Vec<u8>, Self::Target, Self::Future> {
+///     ) -> Result<
+///             Transaction<
+///             Result<CallResult<Vec<u8>, Self::Target>, ServiceError>,
+///             Self::Future,
+///         >,
+///         ServiceError,
+///     > {
 ///         let builder = mk_builder_for_target();
 ///         let additional = mk_answer(&msg, builder)?;
 ///         let item = ready(Ok(CallResult::new(additional)));
@@ -137,11 +126,18 @@ pub type ServiceResultItem<RequestOctets, Target> =
 ///
 /// fn name_to_ip<Target>(
 ///     msg: Request<Message<Vec<u8>>>,
-/// ) -> ServiceResult<
-///         Vec<u8>,
-///         Target,
-///         impl Future<Output = ServiceResultItem<Vec<u8>, Target>>,
-///     >
+/// ) -> Result<
+///     Transaction<
+///         Result<CallResult<Vec<u8>, Target>, ServiceError>,
+///         impl Future<
+///             Output = Result<
+///                 CallResult<Vec<u8>, Target>,
+///                 ServiceError,
+///             >,
+///         > + Send,
+///     >,
+///     ServiceError,
+/// >
 /// where
 ///     Target: Composer + Octets + FreezeBuilder<Octets = Target> + Default + Send,
 ///     <Target as octseq::OctetsBuilder>::AppendError: Debug,
@@ -209,14 +205,24 @@ pub trait Service<RequestOctets: AsRef<[u8]> = Vec<u8>> {
     /// The type of future returned by [`Service::call()`] via
     /// [`Transaction::single()`].
     type Future: std::future::Future<
-            Output = ServiceResultItem<RequestOctets, Self::Target>,
+            Output = Result<
+                CallResult<RequestOctets, Self::Target>,
+                ServiceError,
+            >,
         > + Send;
 
     /// Generate a response to a fully pre-processed request.
+    #[allow(clippy::type_complexity)]
     fn call(
         &self,
         message: Request<Message<RequestOctets>>,
-    ) -> ServiceResult<RequestOctets, Self::Target, Self::Future>;
+    ) -> Result<
+        Transaction<
+            Result<CallResult<RequestOctets, Self::Target>, ServiceError>,
+            Self::Future,
+        >,
+        ServiceError,
+    >;
 }
 
 /// Helper trait impl to treat an [`Arc<impl Service>`] as a [`Service`].
@@ -229,7 +235,13 @@ impl<RequestOctets: AsRef<[u8]>, T: Service<RequestOctets>>
     fn call(
         &self,
         message: Request<Message<RequestOctets>>,
-    ) -> ServiceResult<RequestOctets, Self::Target, Self::Future> {
+    ) -> Result<
+        Transaction<
+            Result<CallResult<RequestOctets, Self::Target>, ServiceError>,
+            Self::Future,
+        >,
+        ServiceError,
+    > {
         Arc::deref(self).call(message)
     }
 }
@@ -239,11 +251,18 @@ impl<RequestOctets, Target, Future, F> Service<RequestOctets> for F
 where
     F: Fn(
         Request<Message<RequestOctets>>,
-    ) -> ServiceResult<RequestOctets, Target, Future>,
+    ) -> Result<
+        Transaction<
+            Result<CallResult<RequestOctets, Target>, ServiceError>,
+            Future,
+        >,
+        ServiceError,
+    >,
     RequestOctets: AsRef<[u8]>,
     Target: Composer + Default + Send + Sync + 'static,
-    Future: std::future::Future<Output = ServiceResultItem<RequestOctets, Target>>
-        + Send,
+    Future: std::future::Future<
+            Output = Result<CallResult<RequestOctets, Target>, ServiceError>,
+        > + Send,
 {
     type Target = Target;
     type Future = Future;
@@ -251,7 +270,13 @@ where
     fn call(
         &self,
         message: Request<Message<RequestOctets>>,
-    ) -> ServiceResult<RequestOctets, Target, Self::Future> {
+    ) -> Result<
+        Transaction<
+            Result<CallResult<RequestOctets, Self::Target>, ServiceError>,
+            Self::Future,
+        >,
+        ServiceError,
+    > {
         (*self)(message)
     }
 }

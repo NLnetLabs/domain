@@ -16,9 +16,7 @@ use crate::net::server::buf::BufSource;
 use crate::net::server::metrics::ServerMetrics;
 use crate::net::server::middleware::chain::MiddlewareChain;
 
-use super::service::{
-    CallResult, Service, ServiceError, ServiceResultItem, Transaction,
-};
+use super::service::{CallResult, Service, ServiceError, Transaction};
 use super::util::start_reply;
 
 //------------ Request -------------------------------------------
@@ -276,7 +274,10 @@ where
             Request<Message<Buf::Output>>,
             ControlFlow<(
                 Transaction<
-                    ServiceResultItem<Buf::Output, Svc::Target>,
+                    Result<
+                        CallResult<Buf::Output, Svc::Target>,
+                        ServiceError,
+                    >,
                     Svc::Future,
                 >,
                 usize,
@@ -333,7 +334,7 @@ where
         state: Self::State,
         middleware_chain: MiddlewareChain<Buf::Output, Svc::Target>,
         mut response_txn: Transaction<
-            ServiceResultItem<Buf::Output, Svc::Target>,
+            Result<CallResult<Buf::Output, Svc::Target>, ServiceError>,
             Svc::Future,
         >,
         last_processor_id: Option<usize>,
