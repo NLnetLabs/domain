@@ -1,7 +1,12 @@
 //! Quering for zone data.
 
+use core::future::ready;
 use std::boxed::Box;
+use std::future::Future;
+use std::pin::Pin;
 use std::sync::Arc;
+
+use bytes::Bytes;
 
 use super::flavor::Flavor;
 use super::nodes::{
@@ -9,13 +14,74 @@ use super::nodes::{
 };
 use super::rrset::{SharedRr, SharedRrset, StoredDname};
 use super::versioned::Version;
-use super::zone::VersionMarker;
+use super::zone::{VersionMarker, ZoneData};
 use crate::base::iana::{Rcode, Rtype};
 use crate::base::message::Message;
 use crate::base::message_builder::{AdditionalBuilder, MessageBuilder};
-use crate::base::name::{Label, ToDname, ToLabelIter};
+use crate::base::name::{Label, ToLabelIter};
 use crate::base::wire::Composer;
+use crate::base::Dname;
 use crate::dep::octseq::Octets;
+
+//------------ ReadableZone --------------------------------------------------
+
+#[macro_export]
+macro_rules! read_zone {
+    ($zone:ident.query($qname:expr, $qtype:expr)) => {
+        match $zone.is_async() {
+            true => $zone.query_async($qname, $qtype).await,
+            false => $zone.query($qname, $qtype),
+        }
+    };
+
+    ($zone:ident.walk($op:expr)) => {
+        match $zone.is_async() {
+            true => $zone.walk_async($op).await,
+            false => $zone.walk($op),
+        }
+    }
+}
+
+pub trait ReadableZone: Send {
+    fn is_async(&self) -> bool {
+        true
+    }
+
+    //--- Sync variants
+
+    fn query(
+        &self,
+        _qname: Dname<Bytes>,
+        _qtype: Rtype,
+    ) -> Result<Answer, OutOfZone> {
+        unimplemented!()
+    }
+
+    fn walk(
+        &self,
+        _op: Box<dyn Fn(Answer) + Send>,
+    ) {
+        unimplemented!()
+    }
+
+    //--- Async variants
+
+    fn query_async(
+        &self,
+        qname: Dname<Bytes>,
+        qtype: Rtype,
+    ) -> Pin<Box<dyn Future<Output = Result<Answer, OutOfZone>> + Send>> {
+        Box::pin(ready(self.query(qname, qtype)))
+    }
+
+    fn walk_async(
+        &self,
+        op: Box<dyn Fn(Answer) + Send>,
+    ) -> Pin<Box<dyn Future<Output = ()> + Send>> {
+        self.walk(op);
+        Box::pin(ready(()))
+    }
+}
 
 //------------ ReadZone ------------------------------------------------------
 
@@ -41,25 +107,32 @@ impl ReadZone {
             _version_marker,
         }
     }
+}
 
-    pub fn query(
-        &self,
-        qname: &impl ToDname,
-        qtype: Rtype,
-    ) -> Result<Answer, OutOfZone> {
-        let mut qname = self.apex.prepare_name(qname)?;
-
-        let answer = if let Some(label) = qname.next() {
-            self.query_below_apex(label, qname, qtype, None)
-        } else {
-            self.query_rrsets(self.apex.rrsets(), qtype, None)
-        };
-
-        Ok(answer.into_answer(self))
+impl ReadableZone for ReadZone {
+    fn is_async(&self) -> bool {
+        false
     }
 
-    #[allow(unused)]
-    pub fn walk(&self, op: Box<dyn Fn(Answer)>) {
+    fn query(
+        &self,
+        qname: Dname<Bytes>,
+        qtype: Rtype,
+    ) -> Result<Answer, OutOfZone> {
+        self.apex.prepare_name(&qname).map(|mut qname| {
+            let answer = if let Some(label) = qname.next() {
+                self.query_below_apex(label, qname, qtype, None)
+            } else {
+                self.query_rrsets(self.apex.rrsets(), qtype, None)
+            };
+            answer.into_answer(self)
+        })
+    }
+
+    fn walk(
+        &self,
+        op: Box<dyn Fn(Answer) + Send>,
+    ) {
         self.query_rrsets(self.apex.rrsets(), Rtype::Any, Some(&op));
         let qname_iter = self.apex.apex_name().iter_labels().rev();
         self.query_below_apex(
@@ -69,7 +142,9 @@ impl ReadZone {
             Some(&op),
         );
     }
+}
 
+impl ReadZone {
     fn query_below_apex<'l>(
         &self,
         label: &Label,

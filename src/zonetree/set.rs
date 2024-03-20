@@ -32,7 +32,7 @@ impl ZoneSet {
     }
 
     pub fn insert_zone(&mut self, zone: Zone) -> Result<(), InsertZoneError> {
-        self.roots.get_or_insert(zone.apex().class()).insert_zone(
+        self.roots.get_or_insert(zone.class()).insert_zone(
             &mut zone.apex_name().clone().iter_labels().rev(),
             zone,
         )
@@ -110,6 +110,10 @@ impl ZoneSetNode {
         self.zone.as_ref()
     }
 
+    // TODO: If this is not async, how will we persist the addition of this
+    // zone in the backing store, e.g. a database? Should that actually be done
+    // separately prior to calling this function and this is only about
+    // updating the in-memory view of the set of zones in the backing store?
     fn insert_zone<'l>(
         &mut self,
         mut apex_name: impl Iterator<Item = &'l Label>,

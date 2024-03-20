@@ -1,55 +1,78 @@
 use super::flavor::Flavor;
-use super::nodes::ZoneApex;
-use super::read::ReadZone;
+use super::read::ReadableZone;
 use super::rrset::StoredDname;
 use super::versioned::Version;
+use super::write::WriteableZone;
 use crate::base::iana::Class;
 use parking_lot::RwLock;
+use std::boxed::Box;
+use std::future::Future;
+use std::pin::Pin;
 use std::sync::{Arc, Weak};
 use std::vec::Vec;
+
+//------------ ZoneMeta ------------------------------------------------------
+
+pub trait ZoneData: Sync + Send {
+    /// Returns the class of the zone.
+    fn class(&self) -> Class;
+
+    /// Returns the apex name of the zone.
+    fn apex_name(&self) -> &StoredDname;
+
+    fn read(
+        self: Arc<Self>,
+        flavor: Option<Flavor>,
+        current: (Version, Arc<VersionMarker>),
+    ) -> Box<dyn ReadableZone>;
+
+    fn write(
+        self: Arc<Self>,
+        version: Version,
+        zone_versions: Arc<RwLock<ZoneVersions>>,
+    ) -> Pin<Box<dyn Future<Output = Box<dyn WriteableZone>>>>;
+}
 
 //------------ Zone ----------------------------------------------------------
 
 pub struct Zone {
-    apex: Arc<ZoneApex>,
+    data: Arc<dyn ZoneData>,
     versions: Arc<RwLock<ZoneVersions>>,
 }
 
 impl Zone {
-    pub fn new(apex: Arc<ZoneApex>) -> Self {
+    pub fn new(data: impl ZoneData + 'static) -> Self {
         Zone {
-            apex,
+            data: Arc::new(data),
             versions: Default::default(),
         }
     }
 
-    // Note: This should not be made pub because then anyone with access to
-    // this Zone would be able to reach ZoneApex::rrsets() or
-    // ZoneApex::children() via which modifications can be made while a call
-    // to read() is in progress. Modifications to the tree should only be
-    // made via write(). This avoids the need to lock the entire tree when
-    // making changes.
-    pub(super) fn apex(&self) -> &ZoneApex {
-        &self.apex
-    }
-
     pub fn class(&self) -> Class {
-        self.apex.class()
+        self.data.class()
     }
 
     pub fn apex_name(&self) -> &StoredDname {
-        self.apex.apex_name()
+        self.data.apex_name()
     }
 
-    pub fn read(&self, flavor: Option<Flavor>) -> ReadZone {
-        let (version, marker) = self.versions.read().current.clone();
-        ReadZone::new(self.apex.clone(), flavor, version, marker)
+    pub fn read(&self, flavor: Option<Flavor>) -> Box<dyn ReadableZone> {
+        let current = self.versions.read().current.clone();
+        self.data.clone().read(flavor, current)
+    }
+
+    pub fn write(
+        &self,
+    ) -> Pin<Box<dyn Future<Output = Box<dyn WriteableZone>>>> {
+        let version = self.versions.read().current.0.next();
+        let zone_versions = self.versions.clone();
+        self.data.clone().write(version, zone_versions)
     }
 }
 
 //------------ ZoneVersions --------------------------------------------------
 
-pub(super) struct ZoneVersions {
+pub struct ZoneVersions {
     current: (Version, Arc<VersionMarker>),
     all: Vec<(Version, Weak<VersionMarker>)>,
 }
@@ -106,4 +129,4 @@ impl Default for ZoneVersions {
 
 //------------ VersionMarker -------------------------------------------------
 
-pub(super) struct VersionMarker;
+pub struct VersionMarker;

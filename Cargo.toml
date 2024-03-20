@@ -61,7 +61,7 @@ std         = ["bytes?/std", "octseq/std", "time/std"]
 net         = ["bytes", "futures-util", "rand", "std", "tokio", "tokio-rustls"]
 tsig        = ["bytes", "ring", "smallvec"]
 validate    = ["std", "ring"]
-zonefile    = ["bytes", "std", "parking_lot"]
+zonefile    = ["bytes", "std", "parking_lot", "futures"]
 
 # Unstable features
 unstable-client-transport = [ "moka" ]

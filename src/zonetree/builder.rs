@@ -26,7 +26,7 @@ impl ZoneBuilder {
     }
 
     pub fn finalize(self) -> Zone {
-        Zone::new(self.apex.into())
+        Zone::new(self.apex)
     }
 
     pub fn finalize_into_set(

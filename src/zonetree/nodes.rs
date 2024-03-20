@@ -2,8 +2,12 @@
 
 // use std::io;
 use super::flavor::Flavor;
+use super::read::ReadableZone;
 use super::rrset::{SharedRr, SharedRrset, StoredDname, StoredRecord};
 use super::versioned::{FlavorVersioned, Version};
+use super::write::{WriteZone, WriteableZone};
+use super::zone::{VersionMarker, ZoneData, ZoneVersions};
+use super::ReadZone;
 use crate::base::iana::{Class, Rtype};
 use crate::base::name::{Label, OwnedLabel, ToDname, ToLabelIter};
 use parking_lot::{
@@ -11,11 +15,15 @@ use parking_lot::{
 };
 use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
+use std::boxed::Box;
 use std::collections::{hash_map, HashMap};
+use std::future::Future;
+use std::pin::Pin;
 use std::string::String;
 use std::string::ToString;
 use std::sync::Arc;
 use std::vec::Vec;
+use tokio::sync::Mutex;
 
 //------------ ZoneApex ------------------------------------------------------
 
@@ -25,6 +33,7 @@ pub struct ZoneApex {
     class: Class,
     rrsets: NodeRrsets,
     children: NodeChildren,
+    update_lock: Arc<Mutex<()>>,
 }
 
 impl ZoneApex {
@@ -36,6 +45,7 @@ impl ZoneApex {
             class,
             rrsets: Default::default(),
             children: Default::default(),
+            update_lock: Default::default(),
         }
     }
 
@@ -52,22 +62,13 @@ impl ZoneApex {
             class,
             rrsets,
             children,
+            update_lock: Default::default(),
         }
-    }
-
-    /// Returns the apex name of the zone.
-    pub fn apex_name(&self) -> &StoredDname {
-        &self.apex_name
     }
 
     /// Returns the string version of the apex name.
     pub fn apex_name_display(&self) -> &str {
         &self.apex_name_display
-    }
-
-    /// Returns the class of the zone.
-    pub fn class(&self) -> Class {
-        self.class
     }
 
     /// Returns the class name.
@@ -121,6 +122,39 @@ impl ZoneApex {
     pub fn clean(&self, version: Version) {
         self.rrsets.clean(version);
         self.children.clean(version);
+    }
+}
+
+//--- impl ZoneData
+
+impl ZoneData for ZoneApex {
+    fn class(&self) -> Class {
+        self.class
+    }
+
+    fn apex_name(&self) -> &StoredDname {
+        &self.apex_name
+    }
+
+    fn read(
+        self: Arc<Self>,
+        flavor: Option<Flavor>,
+        current: (Version, Arc<VersionMarker>),
+    ) -> Box<dyn ReadableZone> {
+        let (version, marker) = current;
+        Box::new(ReadZone::new(self, flavor, version, marker))
+    }
+
+    fn write(
+        self: Arc<Self>,
+        version: Version,
+        zone_versions: Arc<RwLock<ZoneVersions>>,
+    ) -> Pin<Box<dyn Future<Output = Box<dyn WriteableZone>>>> {
+        Box::pin(async move {
+            let lock = self.update_lock.clone().lock_owned().await;
+            Box::new(WriteZone::new(self, lock, version, zone_versions))
+                as Box<dyn WriteableZone>
+        })
     }
 }
 
