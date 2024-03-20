@@ -18,89 +18,9 @@ use tokio::sync::OwnedMutexGuard;
 
 //------------ WritableZone --------------------------------------------------
 
-#[macro_export]
-macro_rules! write_zone_node {
-    ($node:ident.update_child($label:expr)) => {
-        match $node.is_async() {
-            true => $node.update_child_async($label).await,
-            false => $node.update_child($label),
-        }
-    };
-
-    ($node:ident.update_rrset($rrset:expr)) => {
-        match $node.is_async() {
-            true => $node.update_rrset_async($rrset).await,
-            false => $node.update_rrset($rrset),
-        }
-    };
-
-    ($node:ident.remove_rrset($rrtype:expr)) => {
-        match $node.is_async() {
-            true => $node.remove_rrset_async($rrtype).await,
-            false => $node.remove_rrset($rrtype),
-        }
-    };
-
-    ($node:ident.make_regular()) => {
-        match $node.is_async() {
-            true => $node.make_regular_async().await,
-            false => $node.make_regular(),
-        }
-    };
-
-    ($node:ident.make_zone_cut($cut:expr)) => {
-        match $node.is_async() {
-            true => $node.make_zone_cut_async($cut).await,
-            false => $node.make_zone_cut($cut),
-        }
-    };
-
-    ($node:ident.make_cname($cname:expr)) => {
-        match $node.is_async() {
-            true => $node.make_cname_async($cname).await,
-            false => $node.make_cname($cname),
-        }
-    };
-}
-
 pub trait WriteableZoneNode {
-    fn is_async(&self) -> bool {
-        true
-    }
-
-    //--- Sync variants
-
-    fn update_child(
-        &self,
-        _label: &Label,
-    ) -> Result<Box<dyn WriteableZoneNode>, io::Error> {
-        unimplemented!()
-    }
-
-    fn update_rrset(&self, _rrset: SharedRrset) -> Result<(), io::Error> {
-        unimplemented!()
-    }
-
-    fn remove_rrset(&self, _rtype: Rtype) -> Result<(), io::Error> {
-        unimplemented!()
-    }
-
-    fn make_regular(&self) -> Result<(), io::Error> {
-        unimplemented!()
-    }
-
-    fn make_zone_cut(&self, _cut: ZoneCut) -> Result<(), io::Error> {
-        unimplemented!()
-    }
-
-    fn make_cname(&self, _cname: SharedRr) -> Result<(), io::Error> {
-        unimplemented!()
-    }
-
-    //--- Async variants
-
     #[allow(clippy::type_complexity)]
-    fn update_child_async(
+    fn update_child(
         &self,
         label: &Label,
     ) -> Pin<
@@ -109,79 +29,36 @@ pub trait WriteableZoneNode {
                 Output = Result<Box<dyn WriteableZoneNode>, io::Error>,
             >,
         >,
-    > {
-        Box::pin(ready(self.update_child(label)))
-    }
+    >;
 
-    fn update_rrset_async(
+    fn update_rrset(
         &self,
         rrset: SharedRrset,
-    ) -> Pin<Box<dyn Future<Output = Result<(), io::Error>>>> {
-        Box::pin(ready(self.update_rrset(rrset)))
-    }
+    ) -> Pin<Box<dyn Future<Output = Result<(), io::Error>>>>;
 
-    fn remove_rrset_async(
+    fn remove_rrset(
         &self,
         rtype: Rtype,
-    ) -> Pin<Box<dyn Future<Output = Result<(), io::Error>>>> {
-        Box::pin(ready(self.remove_rrset(rtype)))
-    }
+    ) -> Pin<Box<dyn Future<Output = Result<(), io::Error>>>>;
 
-    fn make_regular_async(
+    fn make_regular(
         &self,
-    ) -> Pin<Box<dyn Future<Output = Result<(), io::Error>>>> {
-        Box::pin(ready(self.make_regular()))
-    }
+    ) -> Pin<Box<dyn Future<Output = Result<(), io::Error>>>>;
 
-    fn make_zone_cut_async(
+    fn make_zone_cut(
         &self,
         cut: ZoneCut,
-    ) -> Pin<Box<dyn Future<Output = Result<(), io::Error>>>> {
-        Box::pin(ready(self.make_zone_cut(cut)))
-    }
+    ) -> Pin<Box<dyn Future<Output = Result<(), io::Error>>>>;
 
-    fn make_cname_async(
+    fn make_cname(
         &self,
         cname: SharedRr,
-    ) -> Pin<Box<dyn Future<Output = Result<(), io::Error>>>> {
-        Box::pin(ready(self.make_cname(cname)))
-    }
-}
-
-#[macro_export]
-macro_rules! write_zone {
-    ($zone:ident.open()) => {
-        match $zone.is_async() {
-            true => $zone.open_async().await,
-            false => $zone.open(),
-        }
-    };
-
-    ($zone:ident.commit()) => {
-        match $zone.is_async() {
-            true => $zone.commit_async().await,
-            false => $zone.commit(),
-        }
-    };
+    ) -> Pin<Box<dyn Future<Output = Result<(), io::Error>>>>;
 }
 
 pub trait WriteableZone {
-    fn is_async(&self) -> bool;
-
-    //--- Sync variants
-
-    fn open(&self) -> Result<Box<dyn WriteableZoneNode>, io::Error> {
-        unimplemented!()
-    }
-
-    fn commit(&mut self) -> Result<(), io::Error> {
-        unimplemented!()
-    }
-
-    //--- Async variants
-
     #[allow(clippy::type_complexity)]
-    fn open_async(
+    fn open(
         &self,
     ) -> Pin<
         Box<
@@ -189,15 +66,11 @@ pub trait WriteableZone {
                 Output = Result<Box<dyn WriteableZoneNode>, io::Error>,
             >,
         >,
-    > {
-        Box::pin(ready(self.open()))
-    }
+    >;
 
-    fn commit_async(
+    fn commit(
         &mut self,
-    ) -> Pin<Box<dyn Future<Output = Result<(), io::Error>>>> {
-        Box::pin(ready(self.commit()))
-    }
+    ) -> Pin<Box<dyn Future<Output = Result<(), io::Error>>>>;
 }
 
 //------------ WriteZone -----------------------------------------------------
@@ -251,23 +124,26 @@ impl Drop for WriteZone {
 //--- impl WriteableZone
 
 impl WriteableZone for WriteZone {
-    fn is_async(&self) -> bool {
-        false
-    }
-
-    fn open(&self) -> Result<Box<dyn WriteableZoneNode>, io::Error> {
-        WriteNode::new_apex(self.clone())
+    #[allow(clippy::type_complexity)]
+    fn open(
+        &self,
+    ) -> Pin<
+        Box<
+            dyn Future<
+                Output = Result<Box<dyn WriteableZoneNode>, io::Error>,
+            >,
+        >,
+    > {
+        let res = WriteNode::new_apex(self.clone())
             .map(|node| Box::new(node) as Box<dyn WriteableZoneNode>)
-            .map_err(|err| io::Error::other(format!("Open error: {err}")))
+            .map_err(|err| io::Error::other(format!("Open error: {err}")));
+        Box::pin(ready(res))
     }
 
-    fn commit(&mut self) -> Result<(), io::Error> {
-        // The order here is important so we don’t accidentally remove the
-        // newly created version right away.
+    fn commit(
+        &mut self,
+    ) -> Pin<Box<dyn Future<Output = Result<(), io::Error>>>> {
         let marker = self.zone_versions.write().update_current(self.version);
-        if let Some(version) = self.zone_versions.write().clean_versions() {
-            self.apex.clean(version)
-        }
         self.zone_versions
             .write()
             .push_version(self.version, marker);
@@ -276,7 +152,7 @@ impl WriteableZone for WriteZone {
         self.version = self.version.next();
         self.dirty = false;
 
-        Ok(())
+        Box::pin(ready(Ok(())))
     }
 }
 
@@ -298,56 +174,7 @@ impl WriteNode {
             node: Either::Left(apex),
         })
     }
-
-    /// Makes sure a NXDomain special is set or removed as necesssary.
-    fn check_nx_domain(&self) -> Result<(), io::Error> {
-        let node = match self.node {
-            Either::Left(_) => return Ok(()),
-            Either::Right(ref node) => node,
-        };
-        let opt_new_nxdomain =
-            node.with_special(self.zone.version, |special| match special {
-                Some(Special::NxDomain) => {
-                    if !node.rrsets().is_empty(self.zone.version) {
-                        Some(false)
-                    } else {
-                        None
-                    }
-                }
-                None => {
-                    if node.rrsets().is_empty(self.zone.version) {
-                        Some(true)
-                    } else {
-                        None
-                    }
-                }
-                _ => None,
-            });
-        if let Some(new_nxdomain) = opt_new_nxdomain {
-            if new_nxdomain {
-                node.update_special(
-                    self.zone.version,
-                    Some(Special::NxDomain),
-                );
-            } else {
-                node.update_special(self.zone.version, None);
-            }
-        }
-        Ok(())
-    }
-}
-
-//--- impl WriteableZoneNode
-
-impl WriteableZoneNode for WriteNode {
-    fn is_async(&self) -> bool {
-        false
-    }
-
-    fn update_child(
-        &self,
-        label: &Label,
-    ) -> Result<Box<dyn WriteableZoneNode>, io::Error> {
+    fn update_child(&self, label: &Label) -> Result<WriteNode, io::Error> {
         let children = match self.node {
             Either::Left(ref apex) => apex.children(),
             Either::Right(ref node) => node.children(),
@@ -362,7 +189,7 @@ impl WriteableZoneNode for WriteNode {
             node.make_regular()?;
         }
 
-        Ok(Box::new(node) as Box<dyn WriteableZoneNode>)
+        Ok(node)
     }
 
     fn update_rrset(&self, rrset: SharedRrset) -> Result<(), io::Error> {
@@ -419,6 +246,98 @@ impl WriteableZoneNode for WriteNode {
             }
         }
         .map_err(|err| io::Error::other(format!("WriteApexError: {err}")))
+    }
+
+    /// Makes sure a NXDomain special is set or removed as necesssary.
+    fn check_nx_domain(&self) -> Result<(), io::Error> {
+        let node = match self.node {
+            Either::Left(_) => return Ok(()),
+            Either::Right(ref node) => node,
+        };
+        let opt_new_nxdomain =
+            node.with_special(self.zone.version, |special| match special {
+                Some(Special::NxDomain) => {
+                    if !node.rrsets().is_empty(self.zone.version) {
+                        Some(false)
+                    } else {
+                        None
+                    }
+                }
+                None => {
+                    if node.rrsets().is_empty(self.zone.version) {
+                        Some(true)
+                    } else {
+                        None
+                    }
+                }
+                _ => None,
+            });
+        if let Some(new_nxdomain) = opt_new_nxdomain {
+            if new_nxdomain {
+                node.update_special(
+                    self.zone.version,
+                    Some(Special::NxDomain),
+                );
+            } else {
+                node.update_special(self.zone.version, None);
+            }
+        }
+        Ok(())
+    }
+}
+
+//--- impl WriteableZoneNode
+
+impl WriteableZoneNode for WriteNode {
+    #[allow(clippy::type_complexity)]
+    fn update_child(
+        &self,
+        label: &Label,
+    ) -> Pin<
+        Box<
+            dyn Future<
+                Output = Result<Box<dyn WriteableZoneNode>, io::Error>,
+            >,
+        >,
+    > {
+        let node = self
+            .update_child(label)
+            .map(|node| Box::new(node) as Box<dyn WriteableZoneNode>);
+        Box::pin(ready(node))
+    }
+
+    fn update_rrset(
+        &self,
+        rrset: SharedRrset,
+    ) -> Pin<Box<dyn Future<Output = Result<(), io::Error>>>> {
+        Box::pin(ready(self.update_rrset(rrset)))
+    }
+
+    fn remove_rrset(
+        &self,
+        rtype: Rtype,
+    ) -> Pin<Box<dyn Future<Output = Result<(), io::Error>>>> {
+        Box::pin(ready(self.remove_rrset(rtype)))
+    }
+
+    fn make_regular(
+        &self,
+    ) -> Pin<Box<dyn Future<Output = Result<(), io::Error>>>> {
+        Box::pin(ready(self.make_regular()))
+    }
+
+    fn make_zone_cut(
+        &self,
+        cut: ZoneCut,
+    ) -> Pin<Box<dyn Future<Output = Result<(), io::Error>>>> {
+        Box::pin(ready(self.make_zone_cut(cut)))
+    }
+
+    fn make_cname(
+        &self,
+        cname: SharedRr,
+    ) -> Pin<Box<dyn Future<Output = Result<(), io::Error>>>> {
+        Box::pin(ready(self.make_cname(cname)))
     }
 }
 

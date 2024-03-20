@@ -24,23 +24,6 @@ use crate::dep::octseq::Octets;
 
 //------------ ReadableZone --------------------------------------------------
 
-#[macro_export]
-macro_rules! read_zone {
-    ($zone:ident.query($qname:expr, $qtype:expr)) => {
-        match $zone.is_async() {
-            true => $zone.query_async($qname, $qtype).await,
-            false => $zone.query($qname, $qtype),
-        }
-    };
-
-    ($zone:ident.walk($op:expr)) => {
-        match $zone.is_async() {
-            true => $zone.walk_async($op).await,
-            false => $zone.walk($op),
-        }
-    };
-}
-
 pub trait ReadableZone: Send {
     fn is_async(&self) -> bool {
         true
