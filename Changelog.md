@@ -41,6 +41,8 @@ Bug fixes
 * Fixed the extended part returned by `OptRcode::to_parts` (it was shifted
   by 4 bits too many) and return all 12 bits for the `Int` variant in
   `OptRcode::to_int`. ([#258])
+* Fixed a bug in the `inplace` zonefile parser that made it reject
+  character string of length 255. ([#284])
 
 Unstable features
 
@@ -63,6 +65,7 @@ Other changes
 [#268]: https://github.com/NLnetLabs/domain/pull/268
 [#270]: https://github.com/NLnetLabs/domain/pull/270
 [#275]: https://github.com/NLnetLabs/domain/pull/275
+[#284]: https://github.com/NLnetLabs/domain/pull/284
 [@torin-carey]: https://github.com/torin-carey
 
 
