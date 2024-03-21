@@ -471,7 +471,7 @@ impl<K: AsRef<Key>> ClientTransaction<K> {
     where
         Target: Composer,
     {
-        let variables = Variables::new(now, fudge, TsigRcode::NoError, None);
+        let variables = Variables::new(now, fudge, TsigRcode::NOERROR, None);
         let (mut context, mac) = SigningContext::request(
             key,
             message.as_slice(),
@@ -613,7 +613,7 @@ impl<K: AsRef<Key>> ServerTransaction<K> {
     where
         Target: Composer,
     {
-        let variables = Variables::new(now, fudge, TsigRcode::NoError, None);
+        let variables = Variables::new(now, fudge, TsigRcode::NOERROR, None);
         let (mac, key) =
             self.context
                 .final_answer(message.as_slice(), None, &variables);
@@ -698,7 +698,7 @@ impl<K: AsRef<Key>> ClientSequence<K> {
     where
         Target: Composer,
     {
-        let variables = Variables::new(now, fudge, TsigRcode::NoError, None);
+        let variables = Variables::new(now, fudge, TsigRcode::NOERROR, None);
         let (mut context, mac) = SigningContext::request(
             key,
             message.as_slice(),
@@ -931,7 +931,7 @@ impl<K: AsRef<Key>> ServerSequence<K> {
     where
         Target: Composer,
     {
-        let variables = Variables::new(now, fudge, TsigRcode::NoError, None);
+        let variables = Variables::new(now, fudge, TsigRcode::NOERROR, None);
         let mac = if self.first {
             self.first = false;
             self.context
@@ -1013,11 +1013,11 @@ impl<K: AsRef<Key>> SigningContext<K> {
         let algorithm =
             match Algorithm::from_dname(tsig.record.data().algorithm()) {
                 Some(algorithm) => algorithm,
-                None => return Err(ServerError::unsigned(TsigRcode::BadKey)),
+                None => return Err(ServerError::unsigned(TsigRcode::BADKEY)),
             };
         let key = match store.get_key(tsig.record.owner(), algorithm) {
             Some(key) => key,
-            None => return Err(ServerError::unsigned(TsigRcode::BadKey)),
+            None => return Err(ServerError::unsigned(TsigRcode::BADKEY)),
         };
         let variables = tsig.variables();
 
@@ -1042,9 +1042,9 @@ impl<K: AsRef<Key>> SigningContext<K> {
         );
         if let Err(err) = res {
             return Err(ServerError::unsigned(match err {
-                ValidationError::BadTrunc => TsigRcode::BadTrunc,
-                ValidationError::BadKey => TsigRcode::BadKey,
-                _ => TsigRcode::FormErr,
+                ValidationError::BadTrunc => TsigRcode::BADTRUNC,
+                ValidationError::BadKey => TsigRcode::BADKEY,
+                _ => TsigRcode::FORMERR,
             }));
         }
 
@@ -1061,7 +1061,7 @@ impl<K: AsRef<Key>> SigningContext<K> {
                 Variables::new(
                     variables.time_signed,
                     variables.fudge,
-                    TsigRcode::BadTime,
+                    TsigRcode::BADTIME,
                     Some(now),
                 ),
             ));
@@ -1099,11 +1099,11 @@ impl<K: AsRef<Key>> SigningContext<K> {
         };
 
         // Check for unsigned errors.
-        if message.header().rcode() == Rcode::NotAuth {
-            if tsig.record.data().error() == TsigRcode::BadKey {
+        if message.header().rcode() == Rcode::NOTAUTH {
+            if tsig.record.data().error() == TsigRcode::BADKEY {
                 return Err(ValidationError::ServerBadKey);
             }
-            if tsig.record.data().error() == TsigRcode::BadSig {
+            if tsig.record.data().error() == TsigRcode::BADSIG {
                 return Err(ValidationError::ServerBadSig);
             }
         }
@@ -1129,8 +1129,8 @@ impl<K: AsRef<Key>> SigningContext<K> {
     where
         Octs: Octets + ?Sized,
     {
-        if message.header().rcode() == Rcode::NotAuth
-            && tsig.record.data().error() == TsigRcode::BadTime
+        if message.header().rcode() == Rcode::NOTAUTH
+            && tsig.record.data().error() == TsigRcode::BADTIME
         {
             let server = match tsig.record.data().other_time() {
                 Some(time) => time,
@@ -1399,7 +1399,7 @@ impl Variables {
         };
         builder.push((
             key.name.clone(),
-            Class::Any,
+            Class::ANY,
             0,
             // The only reason creating TSIG record data can fail here is
             // that the hmac is unreasonable large. Since we control its
@@ -1426,7 +1426,7 @@ impl Variables {
             context.update(label.as_wire_slice());
         }
         // CLASS (Always ANY in the current specification)
-        context.update(&Class::Any.to_int().to_be_bytes());
+        context.update(&Class::ANY.to_int().to_be_bytes());
         // TTL (Always 0 in the current specification)
         context.update(&0u32.to_be_bytes());
         // Algorithm Name (in canonical wire format)
@@ -1643,7 +1643,7 @@ impl<K: AsRef<Key>> ServerError<K> {
         Octs: Octets + ?Sized,
         Target: Composer,
     {
-        let builder = builder.start_answer(msg, Rcode::NotAuth)?;
+        let builder = builder.start_answer(msg, Rcode::NOTAUTH)?;
         let mut builder = builder.additional();
         match self.0 {
             ServerErrorInner::Unsigned { error } => {

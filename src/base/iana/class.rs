@@ -30,30 +30,30 @@ int_enum! {
     ///
     /// This class is defined in RFC 1035 and really the only one relevant
     /// at all.
-    (In => 1, b"IN")
+    (IN => 1, b"IN")
 
     /// Chaosnet (CH).
     ///
     /// A network protocol developed at MIT in the 1970s. Reused by BIND for
     /// built-in server information zones.",
-    (Ch => 3, b"CH")
+    (CH => 3, b"CH")
 
     /// Hesiod (HS).
     ///
     /// A system information protocol part of MIT's Project Athena.",
-    (Hs => 4, b"HS")
+    (HS => 4, b"HS")
 
     /// Query class None.
     ///
     /// Defined in RFC 2136, this class is used in UPDATE queries to
     /// require that an RRset does not exist prior to the update.",
-    (None => 0xFE, b"NONE")
+    (NONE => 0xFE, b"NONE")
 
     /// Query class * (ANY).
     ///
     /// This class can be used in a query to indicate that records for the
     /// given name from any class are requested.",
-    (Any => 0xFF, b"*")
+    (ANY => 0xFF, b"*")
 }
 
 int_enum_str_with_prefix!(Class, "CLASS", b"CLASS", u16, "unknown class");
@@ -68,9 +68,9 @@ mod test {
         use super::Class;
         use serde_test::{assert_tokens, Configure, Token};
 
-        assert_tokens(&Class::In.readable(), &[Token::Str("IN")]);
-        assert_tokens(&Class::Int(5).readable(), &[Token::Str("CLASS5")]);
-        assert_tokens(&Class::In.compact(), &[Token::U16(1)]);
-        assert_tokens(&Class::Int(5).compact(), &[Token::U16(5)]);
+        assert_tokens(&Class::IN.readable(), &[Token::Str("IN")]);
+        assert_tokens(&Class(5).readable(), &[Token::Str("CLASS5")]);
+        assert_tokens(&Class::IN.compact(), &[Token::U16(1)]);
+        assert_tokens(&Class(5).compact(), &[Token::U16(5)]);
     }
 }

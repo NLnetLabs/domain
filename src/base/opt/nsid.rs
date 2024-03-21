@@ -37,6 +37,11 @@ pub struct Nsid<Octs: ?Sized> {
     octets: Octs,
 }
 
+impl Nsid<()> {
+    /// The option code for this option.
+    pub(super) const CODE: OptionCode = OptionCode::NSID;
+}
+    
 impl<Octs> Nsid<Octs> {
     /// Creates a value from the ocets of the name server identifier.
     ///
@@ -160,7 +165,7 @@ impl<Octs: AsRef<[u8]> + ?Sized> borrow::Borrow<[u8]> for Nsid<Octs> {
 
 impl<Octs: ?Sized> OptData for Nsid<Octs> {
     fn code(&self) -> OptionCode {
-        OptionCode::Nsid
+        OptionCode::NSID
     }
 }
 
@@ -169,7 +174,7 @@ impl<'a, Octs: Octets> ParseOptData<'a, Octs> for Nsid<Octs::Range<'a>> {
         code: OptionCode,
         parser: &mut Parser<'a, Octs>,
     ) -> Result<Option<Self>, ParseError> {
-        if code == OptionCode::Nsid {
+        if code == OptionCode::NSID {
             Self::parse(parser).map(Some)
         }
         else {

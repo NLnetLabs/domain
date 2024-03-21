@@ -52,6 +52,11 @@ pub struct Nsec3<Octs> {
     types: RtypeBitmap<Octs>,
 }
 
+impl Nsec3<()> {
+    /// The rtype of this record data type.
+    pub(crate) const RTYPE: Rtype = Rtype::NSEC3;
+}
+
 impl<Octs> Nsec3<Octs> {
     pub fn new(
         hash_algorithm: Nsec3HashAlg,
@@ -280,7 +285,7 @@ impl<Octs: AsRef<[u8]>> hash::Hash for Nsec3<Octs> {
 
 impl<Octs> RecordData for Nsec3<Octs> {
     fn rtype(&self) -> Rtype {
-        Rtype::Nsec3
+        Nsec3::RTYPE
     }
 }
 
@@ -292,7 +297,7 @@ where
         rtype: Rtype,
         parser: &mut Parser<'a, Octs>,
     ) -> Result<Option<Self>, ParseError> {
-        if rtype == Rtype::Nsec3 {
+        if rtype == Nsec3::RTYPE {
             Self::parse(parser).map(Some)
         } else {
             Ok(None)
@@ -385,6 +390,11 @@ pub struct Nsec3param<Octs> {
     flags: u8,
     iterations: u16,
     salt: Nsec3Salt<Octs>,
+}
+
+impl Nsec3param<()> {
+    /// The rtype of this record data type.
+    pub(crate) const RTYPE: Rtype = Rtype::NSEC3PARAM;
 }
 
 impl<Octs> Nsec3param<Octs> {
@@ -577,7 +587,7 @@ impl<Octs: AsRef<[u8]>> hash::Hash for Nsec3param<Octs> {
 
 impl<Octs> RecordData for Nsec3param<Octs> {
     fn rtype(&self) -> Rtype {
-        Rtype::Nsec3param
+        Nsec3param::RTYPE
     }
 }
 
@@ -589,7 +599,7 @@ where
         rtype: Rtype,
         parser: &mut Parser<'a, Octs>,
     ) -> Result<Option<Self>, ParseError> {
-        if rtype == Rtype::Nsec3param {
+        if rtype == Nsec3param::RTYPE {
             Self::parse(parser).map(Some)
         } else {
             Ok(None)
@@ -1456,9 +1466,9 @@ mod test {
     fn nsec3_compose_parse_scan() {
         let mut rtype = RtypeBitmapBuilder::new_vec();
         rtype.add(Rtype::A).unwrap();
-        rtype.add(Rtype::Srv).unwrap();
+        rtype.add(Rtype::SRV).unwrap();
         let rdata = Nsec3::new(
-            Nsec3HashAlg::Sha1,
+            Nsec3HashAlg::SHA1,
             10,
             11,
             Nsec3Salt::from_octets(Vec::from("bar")).unwrap(),
@@ -1478,7 +1488,7 @@ mod test {
     #[allow(clippy::redundant_closure)] // lifetimes ...
     fn nsec3param_compose_parse_scan() {
         let rdata = Nsec3param::new(
-            Nsec3HashAlg::Sha1,
+            Nsec3HashAlg::SHA1,
             10,
             11,
             Nsec3Salt::from_octets(Vec::from("bar")).unwrap(),

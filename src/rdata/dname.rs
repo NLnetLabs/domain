@@ -16,7 +16,7 @@ dname_type_canonical! {
     /// name tree in the DNS.
     ///
     /// The DNAME type is defined in RFC 6672.
-    (Dname, Dname, dname, into_dname)
+    (Dname, DNAME, dname, into_dname)
 }
 
 //============ Testing ======================================================

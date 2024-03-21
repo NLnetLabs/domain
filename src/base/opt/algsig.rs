@@ -217,6 +217,18 @@ impl<Variant, Octs: ?Sized> Understood<Variant, Octs> {
     }
 }
 
+impl Understood<DauVariant, ()> {
+    pub(super) const CODE: OptionCode = OptionCode::DAU;
+}
+
+impl Understood<DhuVariant, ()> {
+    pub(super) const CODE: OptionCode = OptionCode::DHU;
+}
+
+impl Understood<N3uVariant, ()> {
+    pub(super) const CODE: OptionCode = OptionCode::N3U;
+}
+
 //--- OctetsFrom
 
 impl<Variant, O, OO> OctetsFrom<Understood<Variant, O>>
@@ -280,19 +292,19 @@ impl<Variant, Octs: AsRef<[u8]>> hash::Hash for Understood<Variant, Octs> {
 
 impl<Octs: ?Sized> OptData for Understood<DauVariant, Octs> {
     fn code(&self) -> OptionCode {
-        OptionCode::Dau
+        OptionCode::DAU
     }
 }
 
 impl<Octs: ?Sized> OptData for Understood<DhuVariant, Octs> {
     fn code(&self) -> OptionCode {
-        OptionCode::Dhu
+        OptionCode::DHU
     }
 }
 
 impl<Octs: ?Sized> OptData for Understood<N3uVariant, Octs> {
     fn code(&self) -> OptionCode {
-        OptionCode::N3u
+        OptionCode::N3U
     }
 }
 
@@ -302,7 +314,7 @@ for Understood<DauVariant, Octs::Range<'a>> {
         code: OptionCode,
         parser: &mut Parser<'a, Octs>,
     ) -> Result<Option<Self>, ParseError> {
-        if code == OptionCode::Dau {
+        if code == OptionCode::DAU {
             Self::parse(parser).map(Some)
         }
         else {
@@ -317,7 +329,7 @@ for Understood<DhuVariant, Octs::Range<'a>> {
         code: OptionCode,
         parser: &mut Parser<'a, Octs>,
     ) -> Result<Option<Self>, ParseError> {
-        if code == OptionCode::Dhu {
+        if code == OptionCode::DHU {
             Self::parse(parser).map(Some)
         }
         else {
@@ -332,7 +344,7 @@ for Understood<N3uVariant, Octs::Range<'a>> {
         code: OptionCode,
         parser: &mut Parser<'a, Octs>,
     ) -> Result<Option<Self>, ParseError> {
-        if code == OptionCode::N3u {
+        if code == OptionCode::N3U {
             Self::parse(parser).map(Some)
         }
         else {
@@ -453,7 +465,7 @@ impl<'a, Target: Composer> OptBuilder<'a, Target> {
         &mut self, algs: &impl AsRef<[SecAlg]>,
     ) -> Result<(), BuildDataError> {
         Ok(self.push_raw_option(
-            OptionCode::Dau,
+            OptionCode::DAU,
             u16::try_from(
                 algs.as_ref().len() * usize::from(SecAlg::COMPOSE_LEN)
             ).map_err(|_| BuildDataError::LongOptData)?,
@@ -470,7 +482,7 @@ impl<'a, Target: Composer> OptBuilder<'a, Target> {
         &mut self, algs: &impl AsRef<[SecAlg]>,
     ) -> Result<(), BuildDataError> {
         Ok(self.push_raw_option(
-            OptionCode::Dhu,
+            OptionCode::DHU,
             u16::try_from(
                 algs.as_ref().len() * usize::from(SecAlg::COMPOSE_LEN)
             ).map_err(|_| BuildDataError::LongOptData)?,
@@ -487,7 +499,7 @@ impl<'a, Target: Composer> OptBuilder<'a, Target> {
         &mut self, algs: &impl AsRef<[SecAlg]>,
     ) -> Result<(), BuildDataError> {
         Ok(self.push_raw_option(
-            OptionCode::N3u,
+            OptionCode::N3U,
             u16::try_from(
                 algs.as_ref().len() * usize::from(SecAlg::COMPOSE_LEN)
             ).map_err(|_| BuildDataError::LongOptData)?,

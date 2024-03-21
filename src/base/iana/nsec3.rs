@@ -17,7 +17,7 @@ int_enum! {
     Nsec3HashAlg, u8;
 
     /// Specifies that the SHA-1 hash function is used.
-    (Sha1 => 1, b"SHA-1")
+    (SHA1 => 1, b"SHA-1")
 }
 
 int_enum_str_decimal!(Nsec3HashAlg, u8);

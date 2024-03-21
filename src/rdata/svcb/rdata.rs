@@ -115,6 +115,16 @@ pub type Svcb<Octs, Name> = SvcbRdata<SvcbVariant, Octs, Name>;
 /// See [`SvcbRdata<..>`][SvcbRdata] for details.
 pub type Https<Octs, Name> = SvcbRdata<HttpsVariant, Octs, Name>;
 
+impl SvcbRdata<SvcbVariant, (), ()> {
+    /// The rtype of this record data type.
+    pub(crate) const RTYPE: Rtype = Rtype::SVCB;
+}
+
+impl SvcbRdata<HttpsVariant, (), ()> {
+    /// The rtype of this record data type.
+    pub(crate) const RTYPE: Rtype = Rtype::HTTPS;
+}
+
 impl<Variant, Octs, Name> SvcbRdata<Variant, Octs, Name> {
     /// Create a new value from its components.
     ///
@@ -339,13 +349,13 @@ for SvcbRdata<Variant, Octs, Name> {
 
 impl<Octs, Name> RecordData for SvcbRdata<SvcbVariant, Octs, Name> {
     fn rtype(&self) -> Rtype {
-        Rtype::Svcb
+        Rtype::SVCB
     }
 }
 
 impl<Octs, Name> RecordData for SvcbRdata<HttpsVariant, Octs, Name> {
     fn rtype(&self) -> Rtype {
-        Rtype::Https
+        Rtype::HTTPS
     }
 }
 
@@ -354,7 +364,7 @@ for SvcbRdata<SvcbVariant, Octs::Range<'a>, ParsedDname<Octs::Range<'a>>> {
     fn parse_rdata(
         rtype: Rtype, parser: &mut Parser<'a, Octs>
     ) -> Result<Option<Self>, ParseError> {
-        if rtype == Rtype::Svcb {
+        if rtype == Rtype::SVCB {
             Self::parse(parser).map(Some)
         }
         else {
@@ -368,7 +378,7 @@ for SvcbRdata<HttpsVariant, Octs::Range<'a>, ParsedDname<Octs::Range<'a>>> {
     fn parse_rdata(
         rtype: Rtype, parser: &mut Parser<'a, Octs>
     ) -> Result<Option<Self>, ParseError> {
-        if rtype == Rtype::Https{
+        if rtype == Rtype::HTTPS {
             Self::parse(parser).map(Some)
         }
         else {
@@ -503,7 +513,7 @@ mod test {
         let mut param_iter = svcb.params().iter();
         match param_iter.next() {
             Some(Ok(AllValues::Unknown(param))) => {
-                assert_eq!(0x029b, param.key());
+                assert_eq!(0x029b, param.key().to_int());
                 assert_eq!(b"\x68\x65\x6c\x6c\x6f".as_ref(), *param.value(),);
             }
             r => panic!("{:?}", r),

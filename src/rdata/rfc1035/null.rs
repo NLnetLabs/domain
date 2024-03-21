@@ -38,6 +38,11 @@ pub struct Null<Octs: ?Sized> {
     data: Octs,
 }
 
+impl Null<()> {
+    /// The rtype of this record data type.
+    pub(crate) const RTYPE: Rtype = Rtype::NULL;
+}
+
 impl<Octs> Null<Octs> {
     /// Creates new NULL record data from the given octets.
     ///
@@ -198,7 +203,7 @@ impl<Octs: AsRef<[u8]> + ?Sized> hash::Hash for Null<Octs> {
 
 impl<Octs: ?Sized> RecordData for Null<Octs> {
     fn rtype(&self) -> Rtype {
-        Rtype::Null
+        Null::RTYPE
     }
 }
 
@@ -210,7 +215,7 @@ where
         rtype: Rtype,
         parser: &mut Parser<'a, Octs>,
     ) -> Result<Option<Self>, ParseError> {
-        if rtype == Rtype::Null {
+        if rtype == Null::RTYPE {
             Self::parse(parser).map(Some)
         } else {
             Ok(None)

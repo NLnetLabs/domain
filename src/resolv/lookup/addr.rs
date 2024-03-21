@@ -29,7 +29,7 @@ pub async fn lookup_addr<R: Resolver>(
     addr: IpAddr,
 ) -> Result<FoundAddrs<R>, io::Error> {
     let name = dname_from_addr(addr);
-    resolv.query((name, Rtype::Ptr)).await.map(FoundAddrs)
+    resolv.query((name, Rtype::PTR)).await.map(FoundAddrs)
 }
 
 //------------ FoundAddrs ----------------------------------------------------

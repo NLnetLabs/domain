@@ -18,12 +18,12 @@ int_enum! {
     /// Specifies that the SHA-1 hash function is used.
     ///
     /// Implementation of this function is currently mandatory.
-    (Sha1 => 1, b"SHA-1")
+    (SHA1 => 1, b"SHA-1")
 
     /// Specifies that the SHA-256 hash function is used.
     ///
     /// Implementation of this function is currently mandatory.
-    (Sha256 => 2, b"SHA-256")
+    (SHA256 => 2, b"SHA-256")
 
     /// Specifies that the GOST R 34.11-94 hash function is used.
     ///
@@ -31,7 +31,7 @@ int_enum! {
     /// the function is optional.
     ///
     /// [RFC 5933]: https://tools.ietf.org/html/rfc5933
-    (Gost => 3, b"GOST R 34.11-94")
+    (GOST => 3, b"GOST R 34.11-94")
 
     /// Specifies that the SHA-384 hash function is used.
     ///
@@ -39,7 +39,7 @@ int_enum! {
     /// the function is optional.
     ///
     /// [RFC 6605]: https://tools.ietf.org/html/rfc6605
-    (Sha384 => 4, b"SHA-384")
+    (SHA384 => 4, b"SHA-384")
 }
 
 int_enum_str_decimal!(DigestAlg, u8);
@@ -54,7 +54,7 @@ mod test {
         use super::DigestAlg;
         use serde_test::{assert_tokens, Token};
 
-        assert_tokens(&DigestAlg::Sha384, &[Token::U8(4)]);
-        assert_tokens(&DigestAlg::Int(100), &[Token::U8(100)]);
+        assert_tokens(&DigestAlg::SHA384, &[Token::U8(4)]);
+        assert_tokens(&DigestAlg(100), &[Token::U8(100)]);
     }
 }

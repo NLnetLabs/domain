@@ -35,7 +35,13 @@ pub struct Chain<Name: ?Sized> {
     start: Name
 }
 
+impl Chain<()> {
+    /// The option code for this option.
+    pub(super) const CODE: OptionCode = OptionCode::CHAIN;
+}
+
 impl<Name: ?Sized> Chain<Name> {
+    
     /// Creates new CHAIN option data using the given name as the start.
     pub fn new(start: Name) -> Self
     where
@@ -132,7 +138,7 @@ impl<Name: hash::Hash> hash::Hash for Chain<Name> {
 
 impl<Name> OptData for Chain<Name> {
     fn code(&self) -> OptionCode {
-        OptionCode::Chain
+        OptionCode::CHAIN
     }
 }
 
@@ -142,7 +148,7 @@ where Octs: Octets {
         code: OptionCode,
         parser: &mut Parser<'a, Octs>,
     ) -> Result<Option<Self>, ParseError> {
-        if code == OptionCode::Chain {
+        if code == OptionCode::CHAIN {
             Self::parse(parser).map(Some)
         }
         else {

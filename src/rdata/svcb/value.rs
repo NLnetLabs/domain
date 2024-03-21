@@ -51,7 +51,7 @@ macro_rules! values_enum {
                 let pos = parser.pos();
                 let res = match key {
                     $(
-                        SvcParamKey::$type => {
+                        $type::KEY => {
                             $type::parse(
                                 parser
                             ).map(Self::$type)
@@ -116,7 +116,7 @@ macro_rules! values_enum {
             ) -> Result<Option<Self>, ParseError> {
                 match key {
                     $(
-                        SvcParamKey::$type => {
+                        $type::KEY => {
                             $type::parse(
                                 parser
                             ).map(|res| Some(Self::$type(res)))
@@ -223,10 +223,15 @@ values_enum! {
 
 /// Defines the standard methods for a parameter type wrapping octets.
 macro_rules! octets_wrapper {
-    ( $(#[$attr:meta])* $name:ident ) => {
+    ( $(#[$attr:meta])* $name:ident => $key:ident) => {
         $(#[$attr])*
         #[derive(Debug, Clone)]
         pub struct $name<Octs: ?Sized>(Octs);
+
+        impl $name<()> {
+            /// The key for this type.
+            const KEY: SvcParamKey = SvcParamKey::$key;
+        }
 
         impl<Octs> $name<Octs> {
             /// Creates a new value from octets without checking.
@@ -325,7 +330,7 @@ macro_rules! octets_wrapper {
 
         impl<Octs: ?Sized> SvcParamValue for $name<Octs> {
             fn key(&self) -> SvcParamKey {
-                SvcParamKey::$name
+                $name::KEY
             }
         }
 
@@ -335,7 +340,7 @@ macro_rules! octets_wrapper {
                 key: SvcParamKey,
                 parser: &mut Parser<'a, Octs>,
             ) -> Result<Option<Self>, ParseError> {
-                if key == SvcParamKey::$name {
+                if key == $name::KEY {
                     Self::parse(parser).map(Some)
                 }
                 else {
@@ -357,8 +362,8 @@ macro_rules! octets_wrapper {
         }
     };
 
-    ($(#[$attr:meta])* $name:ident, $iter:ident) => {
-        octets_wrapper!( $(#[$attr])* $name );
+    ($(#[$attr:meta])* $name:ident => $key:ident, $iter:ident) => {
+        octets_wrapper!( $(#[$attr])* $name => $key);
 
         impl<Octs: AsRef<[u8]> + ?Sized> $name<Octs> {
             /// Returns an iterator over the elements of the value.
@@ -392,7 +397,7 @@ octets_wrapper!(
     /// included to the [`from_keys`][Self::from_keys] function. You can
     /// get an iterator over the keys in an existing value through the
     /// [`iter`][Self::iter] method.
-    Mandatory,
+    Mandatory => MANDATORY,
     MandatoryIter
 );
 
@@ -516,7 +521,7 @@ impl<Octs: OctetsBuilder + AsRef<[u8]> + AsMut<[u8]>> SvcParamsBuilder<Octs> {
         &mut self, keys: impl AsRef<[SvcParamKey]>,
     ) -> Result<(), PushValueError> {
         self.push_raw(
-            SvcParamKey::Mandatory,
+            Mandatory::KEY,
             u16::try_from(
                 keys.as_ref().len() * usize::from(SvcParamKey::COMPOSE_LEN)
             ).map_err(|_| PushValueError::LongSvcParam)?,
@@ -547,7 +552,7 @@ octets_wrapper!(
     ///
     /// The `iter` method produces an iterator over the individual protocol
     /// names in the value.
-    Alpn,
+    Alpn => ALPN,
     AlpnIter
 );
 
@@ -665,7 +670,7 @@ impl<Octs: OctetsBuilder + AsRef<[u8]> + AsMut<[u8]>> SvcParamsBuilder<Octs> {
             ).ok_or(PushAlpnError::LongSvcParam)?;
         }
         self.push_raw(
-            SvcParamKey::Alpn,
+            Alpn::KEY,
             len,
             |octs| {
                 protocols.iter().try_for_each(|proto| {
@@ -747,6 +752,11 @@ impl<Target> AlpnBuilder<Target> {
 pub struct NoDefaultAlpn;
 
 impl NoDefaultAlpn {
+    /// The key for this type.
+    const KEY: SvcParamKey = SvcParamKey::NO_DEFAULT_ALPN;
+}
+
+impl NoDefaultAlpn {
     /// Parses a no-default-alpn value from its wire-format.
     pub fn parse<Src: Octets + ?Sized>(
         _parser: &mut Parser<Src>,
@@ -759,7 +769,7 @@ impl NoDefaultAlpn {
 
 impl SvcParamValue for NoDefaultAlpn {
     fn key(&self) -> SvcParamKey {
-        SvcParamKey::NoDefaultAlpn
+        Self::KEY
     }
 }
 
@@ -768,7 +778,7 @@ impl<'a, Octs: Octets + ?Sized> ParseSvcParamValue<'a, Octs> for NoDefaultAlpn {
         key: SvcParamKey,
         parser: &mut Parser<'a, Octs>,
     ) -> Result<Option<Self>, ParseError> {
-        if key == SvcParamKey::NoDefaultAlpn {
+        if key == Self::KEY {
             Self::parse(parser).map(Some)
         }
         else {
@@ -822,6 +832,11 @@ impl<Octs: OctetsBuilder + AsRef<[u8]> + AsMut<[u8]>> SvcParamsBuilder<Octs> {
 pub struct Port(u16);
 
 impl Port {
+    /// The key for this type.
+    const KEY: SvcParamKey = SvcParamKey::PORT;
+}
+
+impl Port {
     /// Creates a new port value with the given port.
     #[must_use]
     pub fn new(port: u16) -> Self {
@@ -846,7 +861,7 @@ impl Port {
 
 impl SvcParamValue for Port {
     fn key(&self) -> SvcParamKey {
-        SvcParamKey::Port
+        Self::KEY
     }
 }
 
@@ -855,7 +870,7 @@ impl<'a, Octs: Octets + ?Sized> ParseSvcParamValue<'a, Octs> for Port {
         key: SvcParamKey,
         parser: &mut Parser<'a, Octs>,
     ) -> Result<Option<Self>, ParseError> {
-        if key == SvcParamKey::Port {
+        if key == Self::KEY {
             Self::parse(parser).map(Some)
         }
         else {
@@ -911,7 +926,7 @@ octets_wrapper!(
     /// development as Internet draft [draft-ietf-tls-esni].
     ///
     /// [draft-ietf-tls-esni]: https://datatracker.ietf.org/doc/draft-ietf-tls-esni/
-    Ech
+    Ech => ECH
 );
 
 impl<Octs: AsRef<[u8]>> Ech<Octs> {
@@ -1002,7 +1017,7 @@ octets_wrapper!(
     ///
     /// The type contains the value in its wire format which consists of the
     /// sequence of IPv4 addresses.
-    Ipv4Hint,
+    Ipv4Hint => IPV4HINT,
     Ipv4HintIter
 );
 
@@ -1119,7 +1134,7 @@ impl<Octs: OctetsBuilder + AsRef<[u8]> + AsMut<[u8]>> SvcParamsBuilder<Octs> {
         &mut self, addrs: impl AsRef<[Ipv4Addr]>,
     ) -> Result<(), PushValueError> {
         self.push_raw(
-            SvcParamKey::Ipv4Hint,
+            Ipv4Hint::KEY,
             u16::try_from(
                 addrs.as_ref().len() * usize::from(Ipv4Addr::COMPOSE_LEN)
             ).map_err(|_| PushValueError::LongSvcParam)?,
@@ -1145,7 +1160,7 @@ octets_wrapper!(
     ///
     /// The type contains the value in its wire format which consists of the
     /// sequence of IPv6 addresses.
-    Ipv6Hint,
+    Ipv6Hint => IPV6HINT,
     Ipv6HintIter
 );
 
@@ -1266,7 +1281,7 @@ impl<Octs: OctetsBuilder + AsRef<[u8]> + AsMut<[u8]>> SvcParamsBuilder<Octs> {
         &mut self, addrs: impl AsRef<[Ipv6Addr]>,
     ) -> Result<(), PushValueError> {
         self.push_raw(
-            SvcParamKey::Ipv6Hint,
+            Ipv6Hint::KEY,
             u16::try_from(
                 addrs.as_ref().len() * usize::from(Ipv6Addr::COMPOSE_LEN)
             ).map_err(|_| PushValueError::LongSvcParam)?,
@@ -1290,7 +1305,7 @@ octets_wrapper!(
     /// This value type is described as part of the specification for
     /// using service bindings with DNS-over-HTTPS, currently
     /// [draft-ietf-add-svcb-dns](https://datatracker.ietf.org/doc/html/draft-ietf-add-svcb-dns).
-    DohPath
+    DohPath => DOHPATH
 );
 
 impl<Octs: AsRef<[u8]>> DohPath<Octs> {
@@ -1415,7 +1430,7 @@ impl<Octs: OctetsBuilder + AsRef<[u8]> + AsMut<[u8]>> SvcParamsBuilder<Octs> {
         &mut self, template: &str
     ) -> Result<(), PushValueError> {
         self.push_raw(
-            SvcParamKey::DohPath,
+            DohPath::KEY,
             u16::try_from(
                 template.len()
             ).map_err(|_| PushValueError::LongSvcParam)?,

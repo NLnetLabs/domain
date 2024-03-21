@@ -772,12 +772,12 @@ fn skip<Octs: Octets>(msg: &Message<Octs>, config: &Config) -> bool {
 
     let opt_rcode = msg.opt_rcode();
     // OptRcode needs PartialEq
-    if let OptRcode::Refused = opt_rcode {
+    if let OptRcode::REFUSED = opt_rcode {
         if config.defer_refused {
             return true;
         }
     }
-    if let OptRcode::ServFail = opt_rcode {
+    if let OptRcode::SERVFAIL = opt_rcode {
         if config.defer_servfail {
             return true;
         }

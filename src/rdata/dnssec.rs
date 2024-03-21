@@ -56,6 +56,11 @@ pub struct Dnskey<Octs> {
     public_key: Octs,
 }
 
+impl Dnskey<()> {
+    /// The rtype of this record data type.
+    pub(crate) const RTYPE: Rtype = Rtype::DNSKEY;
+}
+
 impl<Octs> Dnskey<Octs> {
     pub fn new(
         flags: u16,
@@ -169,7 +174,7 @@ impl<Octs> Dnskey<Octs> {
     where
         Octs: AsRef<[u8]>,
     {
-        if self.algorithm == SecAlg::RsaMd5 {
+        if self.algorithm == SecAlg::RSAMD5 {
             // The key tag is third-to-last and second-to-last octets of the
             // key as a big-endian u16. If we don’t have enough octets in the
             // key, we return 0.
@@ -350,7 +355,7 @@ impl<Octs: AsRef<[u8]>> hash::Hash for Dnskey<Octs> {
 
 impl<Octs> RecordData for Dnskey<Octs> {
     fn rtype(&self) -> Rtype {
-        Rtype::Dnskey
+        Dnskey::RTYPE
     }
 }
 
@@ -362,7 +367,7 @@ where
         rtype: Rtype,
         parser: &mut Parser<'a, Octs>,
     ) -> Result<Option<Self>, ParseError> {
-        if rtype == Rtype::Dnskey {
+        if rtype == Dnskey::RTYPE {
             Self::parse(parser).map(Some)
         } else {
             Ok(None)
@@ -604,6 +609,11 @@ pub struct Rrsig<Octs, Name> {
         serde(with = "crate::utils::base64::serde")
     )]
     signature: Octs,
+}
+
+impl Rrsig<(), ()> {
+    /// The rtype of this record data type.
+    pub(crate) const RTYPE: Rtype = Rtype::RRSIG;
 }
 
 impl<Octs, Name> Rrsig<Octs, Name> {
@@ -1009,7 +1019,7 @@ impl<O: AsRef<[u8]>, N: hash::Hash> hash::Hash for Rrsig<O, N> {
 
 impl<Octs, Name> RecordData for Rrsig<Octs, Name> {
     fn rtype(&self) -> Rtype {
-        Rtype::Rrsig
+        Rrsig::RTYPE
     }
 }
 
@@ -1020,7 +1030,7 @@ impl<'a, Octs: Octets + ?Sized> ParseRecordData<'a, Octs>
         rtype: Rtype,
         parser: &mut Parser<'a, Octs>,
     ) -> Result<Option<Self>, ParseError> {
-        if rtype == Rtype::Rrsig {
+        if rtype == Rrsig::RTYPE {
             Self::parse(parser).map(Some)
         } else {
             Ok(None)
@@ -1154,6 +1164,11 @@ where
 pub struct Nsec<Octs, Name> {
     next_name: Name,
     types: RtypeBitmap<Octs>,
+}
+
+impl Nsec<(), ()> {
+    /// The rtype of this record data type.
+    pub(crate) const RTYPE: Rtype = Rtype::NSEC;
 }
 
 impl<Octs, Name> Nsec<Octs, Name> {
@@ -1331,7 +1346,7 @@ impl<Octs: AsRef<[u8]>, Name: hash::Hash> hash::Hash for Nsec<Octs, Name> {
 
 impl<Octs, Name> RecordData for Nsec<Octs, Name> {
     fn rtype(&self) -> Rtype {
-        Rtype::Nsec
+        Nsec::RTYPE
     }
 }
 
@@ -1342,7 +1357,7 @@ impl<'a, Octs: Octets + ?Sized> ParseRecordData<'a, Octs>
         rtype: Rtype,
         parser: &mut Parser<'a, Octs>,
     ) -> Result<Option<Self>, ParseError> {
-        if rtype == Rtype::Nsec {
+        if rtype == Nsec::RTYPE {
             Self::parse(parser).map(Some)
         } else {
             Ok(None)
@@ -1435,6 +1450,11 @@ pub struct Ds<Octs> {
         serde(with = "crate::utils::base64::serde")
     )]
     digest: Octs,
+}
+
+impl Ds<()> {
+    /// The rtype of this record data type.
+    pub(crate) const RTYPE: Rtype = Rtype::DS;
 }
 
 impl<Octs> Ds<Octs> {
@@ -1657,7 +1677,7 @@ impl<Octs: AsRef<[u8]>> hash::Hash for Ds<Octs> {
 
 impl<Octs> RecordData for Ds<Octs> {
     fn rtype(&self) -> Rtype {
-        Rtype::Ds
+        Ds::RTYPE
     }
 }
 
@@ -1669,7 +1689,7 @@ where
         rtype: Rtype,
         parser: &mut Parser<'a, Octs>,
     ) -> Result<Option<Self>, ParseError> {
-        if rtype == Rtype::Ds {
+        if rtype == Ds::RTYPE {
             Self::parse(parser).map(Some)
         } else {
             Ok(None)
@@ -2412,7 +2432,7 @@ mod test {
     #[test]
     #[allow(clippy::redundant_closure)] // lifetimes ...
     fn dnskey_compose_parse_scan() {
-        let rdata = Dnskey::new(10, 11, SecAlg::RsaSha1, b"key0").unwrap();
+        let rdata = Dnskey::new(10, 11, SecAlg::RSASHA1, b"key0").unwrap();
         test_rdlen(&rdata);
         test_compose_parse(&rdata, |parser| Dnskey::parse(parser));
         test_scan(&["10", "11", "RSASHA1", "a2V5MA=="], Dnskey::scan, &rdata);
@@ -2425,7 +2445,7 @@ mod test {
     fn rrsig_compose_parse_scan() {
         let rdata = Rrsig::new(
             Rtype::A,
-            SecAlg::RsaSha1,
+            SecAlg::RSASHA1,
             3,
             Ttl::from_secs(12),
             Serial::from(13),
@@ -2461,7 +2481,7 @@ mod test {
     fn nsec_compose_parse_scan() {
         let mut rtype = RtypeBitmapBuilder::new_vec();
         rtype.add(Rtype::A).unwrap();
-        rtype.add(Rtype::Srv).unwrap();
+        rtype.add(Rtype::SRV).unwrap();
         let rdata = Nsec::new(
             Dname::<Vec<u8>>::from_str("example.com.").unwrap(),
             rtype.finalize(),
@@ -2477,7 +2497,7 @@ mod test {
     #[allow(clippy::redundant_closure)] // lifetimes ...
     fn ds_compose_parse_scan() {
         let rdata =
-            Ds::new(10, SecAlg::RsaSha1, DigestAlg::Sha256, b"key").unwrap();
+            Ds::new(10, SecAlg::RSASHA1, DigestAlg::SHA256, b"key").unwrap();
         test_rdlen(&rdata);
         test_compose_parse(&rdata, |parser| Ds::parse(parser));
         test_scan(&["10", "RSASHA1", "2", "6b6579"], Ds::scan, &rdata);
@@ -2488,15 +2508,15 @@ mod test {
     #[test]
     fn rtype_split() {
         assert_eq!(split_rtype(Rtype::A), (0, 0, 0b01000000));
-        assert_eq!(split_rtype(Rtype::Ns), (0, 0, 0b00100000));
-        assert_eq!(split_rtype(Rtype::Caa), (1, 0, 0b01000000));
+        assert_eq!(split_rtype(Rtype::NS), (0, 0, 0b00100000));
+        assert_eq!(split_rtype(Rtype::CAA), (1, 0, 0b01000000));
     }
 
     #[test]
     fn rtype_bitmap_read_window() {
         let mut builder = RtypeBitmapBuilder::new_vec();
         builder.add(Rtype::A).unwrap();
-        builder.add(Rtype::Caa).unwrap();
+        builder.add(Rtype::CAA).unwrap();
         let bitmap = builder.finalize();
 
         let ((n, window), data) = read_window(bitmap.as_slice()).unwrap();
@@ -2510,11 +2530,11 @@ mod test {
     #[test]
     fn rtype_bitmap_builder() {
         let mut builder = RtypeBitmapBuilder::new_vec();
-        builder.add(Rtype::Int(1234)).unwrap(); // 0x04D2
+        builder.add(Rtype::from_int(1234)).unwrap(); // 0x04D2
         builder.add(Rtype::A).unwrap(); // 0x0001
-        builder.add(Rtype::Mx).unwrap(); // 0x000F
-        builder.add(Rtype::Rrsig).unwrap(); // 0x002E
-        builder.add(Rtype::Nsec).unwrap(); // 0x002F
+        builder.add(Rtype::MX).unwrap(); // 0x000F
+        builder.add(Rtype::RRSIG).unwrap(); // 0x002E
+        builder.add(Rtype::NSEC).unwrap(); // 0x002F
         let bitmap = builder.finalize();
         assert_eq!(
             bitmap.as_slice(),
@@ -2526,12 +2546,12 @@ mod test {
         );
 
         assert!(bitmap.contains(Rtype::A));
-        assert!(bitmap.contains(Rtype::Mx));
-        assert!(bitmap.contains(Rtype::Rrsig));
-        assert!(bitmap.contains(Rtype::Nsec));
-        assert!(bitmap.contains(Rtype::Int(1234)));
-        assert!(!bitmap.contains(Rtype::Int(1235)));
-        assert!(!bitmap.contains(Rtype::Ns));
+        assert!(bitmap.contains(Rtype::MX));
+        assert!(bitmap.contains(Rtype::RRSIG));
+        assert!(bitmap.contains(Rtype::NSEC));
+        assert!(bitmap.contains(Rtype::from(1234)));
+        assert!(!bitmap.contains(Rtype::from(1235)));
+        assert!(!bitmap.contains(Rtype::NS));
     }
 
     #[test]
@@ -2540,15 +2560,15 @@ mod test {
 
         let mut builder = RtypeBitmapBuilder::new_vec();
         let types = vec![
-            Rtype::Ns,
-            Rtype::Soa,
-            Rtype::Mx,
-            Rtype::Txt,
-            Rtype::Rrsig,
-            Rtype::Dnskey,
-            Rtype::Nsec3param,
-            Rtype::Spf,
-            Rtype::Caa,
+            Rtype::NS,
+            Rtype::SOA,
+            Rtype::MX,
+            Rtype::TXT,
+            Rtype::RRSIG,
+            Rtype::DNSKEY,
+            Rtype::NSEC3PARAM,
+            Rtype::SPF,
+            Rtype::CAA,
         ];
         for t in types.iter() {
             builder.add(*t).unwrap();
@@ -2565,7 +2585,7 @@ mod test {
             Dnskey::new(
                 256,
                 3,
-                SecAlg::RsaSha256,
+                SecAlg::RSASHA256,
                 base64::decode::<Vec<u8>>(
                     "AwEAAcTQyaIe6nt3xSPOG2L/YfwBkOVTJN6mlnZ249O5Rtt3ZSRQHxQS\
                      W61AODYw6bvgxrrGq8eeOuenFjcSYgNAMcBYoEYYmKDW6e9EryW4ZaT/\
@@ -2584,7 +2604,7 @@ mod test {
             Dnskey::new(
                 257,
                 3,
-                SecAlg::RsaSha256,
+                SecAlg::RSASHA256,
                 base64::decode::<Vec<u8>>(
                     "AwEAAaz/tAm8yTn4Mfeh5eyI96WSVexTBAvkMgJzkKTO\
                     iW1vkIbzxeF3+/4RgWOq7HrxRixHlFlExOLAJr5emLvN\
@@ -2605,7 +2625,7 @@ mod test {
             Dnskey::new(
                 257,
                 3,
-                SecAlg::RsaMd5,
+                SecAlg::RSAMD5,
                 base64::decode::<Vec<u8>>(
                     "AwEAAcVaA4jSBIGRrSzpecoJELvKE9+OMuFnL8mmUBsY\
                     lB6epN1CqX7NzwjDpi6VySiEXr0C4uTYkU/L1uMv2mHE\
@@ -2623,7 +2643,7 @@ mod test {
     #[test]
     fn dnskey_flags() {
         let dnskey =
-            Dnskey::new(257, 3, SecAlg::RsaSha256, bytes::Bytes::new())
+            Dnskey::new(257, 3, SecAlg::RSASHA256, bytes::Bytes::new())
                 .unwrap();
         assert!(dnskey.is_zsk());
         assert!(dnskey.is_secure_entry_point());

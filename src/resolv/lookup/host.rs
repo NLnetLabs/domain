@@ -26,7 +26,7 @@ pub async fn lookup_host<R: Resolver>(
 ) -> Result<FoundHosts<R>, io::Error> {
     let (a, aaaa) = tokio::join!(
         resolver.query((&qname, Rtype::A)),
-        resolver.query((&qname, Rtype::Aaaa)),
+        resolver.query((&qname, Rtype::AAAA)),
     );
     FoundHosts::new(aaaa, a)
 }

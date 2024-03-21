@@ -1074,13 +1074,11 @@ mod test {
     #[cfg(feature = "std")]
     #[test]
     fn test_representation() {
-        use crate::base::iana::svcb::SVC_PARAM_KEY_PRIVATE_RANGE_BEGIN;
-
         let mandatory = value::Mandatory::<Octets512>::from_keys(
             [
-                SvcParamKey::Alpn,
-                SvcParamKey::Ipv4Hint,
-                SVC_PARAM_KEY_PRIVATE_RANGE_BEGIN.into()
+                SvcParamKey::ALPN,
+                SvcParamKey::IPV4HINT,
+                SvcParamKey::PRIVATE_RANGE_BEGIN.into()
             ].into_iter()
         ).unwrap();
         assert_eq!(

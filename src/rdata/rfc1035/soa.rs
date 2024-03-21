@@ -37,6 +37,11 @@ pub struct Soa<N> {
     minimum: Ttl,
 }
 
+impl Soa<()> {
+    /// The rtype of this record data type.
+    pub(crate) const RTYPE: Rtype = Rtype::SOA;
+}
+
 impl<N> Soa<N> {
     /// Creates new Soa record data from content.
     pub fn new(
@@ -306,7 +311,7 @@ impl<N: ToDname, NN: ToDname> CanonicalOrd<Soa<NN>> for Soa<N> {
 
 impl<N> RecordData for Soa<N> {
     fn rtype(&self) -> Rtype {
-        Rtype::Soa
+        Soa::RTYPE
     }
 }
 
@@ -317,7 +322,7 @@ impl<'a, Octs: Octets + ?Sized> ParseRecordData<'a, Octs>
         rtype: Rtype,
         parser: &mut Parser<'a, Octs>,
     ) -> Result<Option<Self>, ParseError> {
-        if rtype == Rtype::Soa {
+        if rtype == Soa::RTYPE {
             Self::parse(parser).map(Some)
         } else {
             Ok(None)

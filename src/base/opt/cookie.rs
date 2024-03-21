@@ -66,6 +66,9 @@ pub struct Cookie {
 }
 
 impl Cookie {
+    /// The option code for this option.
+    pub(super) const CODE: OptionCode = OptionCode::COOKIE;
+
     /// Creates a new cookie from client and optional server cookie.
     #[must_use]
     pub fn new(
@@ -170,7 +173,7 @@ impl Cookie {
 
 impl OptData for Cookie {
     fn code(&self) -> OptionCode {
-        OptionCode::Cookie
+        OptionCode::COOKIE
     }
 }
 
@@ -179,7 +182,7 @@ impl<'a, Octs: AsRef<[u8]> + ?Sized> ParseOptData<'a, Octs> for Cookie {
         code: OptionCode,
         parser: &mut Parser<'a, Octs>,
     ) -> Result<Option<Self>, ParseError> {
-        if code == OptionCode::Cookie {
+        if code == OptionCode::COOKIE {
             Self::parse(parser).map(Some)
         }
         else {

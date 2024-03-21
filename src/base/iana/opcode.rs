@@ -25,7 +25,7 @@ int_enum! {
     /// This value is defined in [RFC 1035].
     ///
     /// [RFC 1035]: https://tools.ietf.org/html/rfc1035
-    (Query => 0, b"QUERY")
+    (QUERY => 0, b"QUERY")
 
     /// An inverse query (IQUERY) (1, obsolete).
     ///
@@ -38,7 +38,7 @@ int_enum! {
     ///
     /// [RFC 1035]: https://tools.ietf.org/html/rfc1035
     /// [RFC 3425]: https://tools.ietf.org/html/rfc3425
-    (IQuery => 1, b"IQUERY")
+    (IQUERY => 1, b"IQUERY")
 
     /// A server status request (2).
     ///
@@ -48,7 +48,7 @@ int_enum! {
     ///
     /// [RFC 1034]: https://tools.ietf.org/html/rfc1034
     /// [RFC 1035]: https://tools.ietf.org/html/rfc1035
-    (Status => 2, b"STATUS")
+    (STATUS => 2, b"STATUS")
 
     /// A NOTIFY query (4).
     ///
@@ -58,7 +58,7 @@ int_enum! {
     /// This value and the NOTIFY query are defined in [RFC 1996].
     ///
     /// [RFC 1996]: https://tools.ietf.org/html/rfc1996
-    (Notify => 4, b"NOTIFY")
+    (NOTIFY => 4, b"NOTIFY")
 
     /// An UPDATE query (5).
     ///
@@ -68,7 +68,7 @@ int_enum! {
     /// This value and the UPDATE query are defined in [RFC 2136].
     ///
     /// [RFC 2136]: https://tools.ietf.org/html/rfc2136
-    (Update => 5, b"UPDATE")
+    (UPDATE => 5, b"UPDATE")
 
     /// DNS Stateful operations (DSO) (6).
     ///
@@ -78,7 +78,7 @@ int_enum! {
     /// This value and the DOS query are defined in [RFC 8490].
     ///
     /// [RFC 8490]: https://tools.ietf.org/html/rfc8490
-    (Dso => 6, b"DSO")
+    (DSO => 6, b"DSO")
 }
 
 int_enum_str_with_decimal!(Opcode, u8, "unknown opcode");

@@ -147,7 +147,7 @@ fn tsig_server_drill() {
             };
             let answer = TestBuilder::new_stream_vec();
             let answer =
-                answer.start_answer(&request, Rcode::NoError).unwrap();
+                answer.start_answer(&request, Rcode::NOERROR).unwrap();
             let tran = match tsig::ServerTransaction::request(
                 &&key,
                 &mut request,
@@ -255,7 +255,7 @@ fn tsig_client_sequence_nsd() {
             // Last message has SOA as last record in answer section.
             // We don’t care about details.
             if answer.answer().unwrap().last().unwrap().unwrap().rtype()
-                == Rtype::Soa
+                == Rtype::SOA
             {
                 break;
             }
@@ -348,7 +348,7 @@ fn send_tcp(sock: &mut TcpStream, msg: &[u8]) -> Result<(), io::Error> {
 
 fn make_first_axfr(request: &TestMessage) -> TestAdditional {
     let msg = TestBuilder::new_stream_vec();
-    let mut msg = msg.start_answer(request, Rcode::NoError).unwrap();
+    let mut msg = msg.start_answer(request, Rcode::NOERROR).unwrap();
     push_soa(&mut msg);
     push_a(&mut msg, 0, 0, 0);
     msg.additional()
@@ -360,14 +360,14 @@ fn make_middle_axfr(
     two: u8,
 ) -> TestAdditional {
     let msg = TestBuilder::new_stream_vec();
-    let mut msg = msg.start_answer(request, Rcode::NoError).unwrap();
+    let mut msg = msg.start_answer(request, Rcode::NOERROR).unwrap();
     push_a(&mut msg, 1, one, two);
     msg.additional()
 }
 
 fn make_last_axfr(request: &TestMessage) -> TestAdditional {
     let msg = TestBuilder::new_stream_vec();
-    let mut msg = msg.start_answer(request, Rcode::NoError).unwrap();
+    let mut msg = msg.start_answer(request, Rcode::NOERROR).unwrap();
     push_a(&mut msg, 2, 0, 0);
     push_soa(&mut msg);
     msg.additional()

@@ -51,7 +51,7 @@ impl<'a> Key<'a> {
             dnskey: Dnskey::new(
                 flags,
                 3,
-                SecAlg::EcdsaP256Sha256,
+                SecAlg::ECDSAP256SHA256,
                 public_key,
             )
             .expect("long key"),
@@ -82,7 +82,7 @@ impl<'a> SigningKey for Key<'a> {
         Ok(Ds::new(
             self.key_tag()?,
             self.dnskey.algorithm(),
-            DigestAlg::Sha256,
+            DigestAlg::SHA256,
             digest,
         )
         .expect("long digest"))

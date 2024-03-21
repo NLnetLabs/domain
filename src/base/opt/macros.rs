@@ -75,7 +75,7 @@ macro_rules! opt_types {
             fn code(&self) -> OptionCode {
                 match *self {
                     $( $(
-                        AllOptData::$opt(_) => OptionCode::$opt,
+                        AllOptData::$opt(_) => $module::$opt::CODE,
                     )* )*
                     AllOptData::Other(ref inner) => inner.code(),
                 }
@@ -90,7 +90,7 @@ macro_rules! opt_types {
             ) -> Result<Option<Self>, ParseError> {
                 match code {
                     $( $(
-                        OptionCode::$opt => {
+                        $module::$opt::CODE => {
                             Ok(Some(AllOptData::$opt(
                                 $opt::parse(parser)?
                             )))

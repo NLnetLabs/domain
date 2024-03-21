@@ -20,7 +20,7 @@ dname_type_well_known! {
     /// name alias.
     ///
     /// The CNAME type is defined in RFC 1035, section 3.3.1.
-    (Cname, Cname, cname, into_cname)
+    (Cname, CNAME, cname, into_cname)
 }
 
 //------------ Mb -----------------------------------------------------------
@@ -31,7 +31,7 @@ dname_type_well_known! {
     /// The experimental MB record specifies a host that serves a mailbox.
     ///
     /// The MB record type is defined in RFC 1035, section 3.3.3.
-    (Mb, Mb, madname, into_madname)
+    (Mb, MB, madname, into_madname)
 }
 
 //------------ Md -----------------------------------------------------------
@@ -46,7 +46,7 @@ dname_type_well_known! {
     /// or convert them into an Mx record at preference 0.
     ///
     /// The MD record type is defined in RFC 1035, section 3.3.4.
-    (Md, Md, madname, into_madname)
+    (Md, MD, madname, into_madname)
 }
 
 //------------ Mf -----------------------------------------------------------
@@ -61,7 +61,7 @@ dname_type_well_known! {
     /// or convert them into an Mx record at preference 10.
     ///
     /// The MF record type is defined in RFC 1035, section 3.3.5.
-    (Mf, Mf, madname, into_madname)
+    (Mf, MF, madname, into_madname)
 }
 
 //------------ Mg -----------------------------------------------------------
@@ -75,7 +75,7 @@ dname_type_well_known! {
     /// The MG record is experimental.
     ///
     /// The MG record type is defined in RFC 1035, section 3.3.6.
-    (Mg, Mg, madname, into_madname)
+    (Mg, MG, madname, into_madname)
 }
 
 //------------ Mr -----------------------------------------------------------
@@ -89,7 +89,7 @@ dname_type_well_known! {
     /// The MR record is experimental.
     ///
     /// The MR record type is defined in RFC 1035, section 3.3.8.
-    (Mr, Mr, newname, into_newname)
+    (Mr, MR, newname, into_newname)
 }
 
 //------------ Ns -----------------------------------------------------------
@@ -100,7 +100,7 @@ dname_type_well_known! {
     /// NS records specify hosts that are authoritative for a class and domain.
     ///
     /// The NS record type is defined in RFC 1035, section 3.3.11.
-    (Ns, Ns, nsdname, into_nsdname)
+    (Ns, NS, nsdname, into_nsdname)
 }
 
 //------------ Ptr ----------------------------------------------------------
@@ -112,7 +112,7 @@ dname_type_well_known! {
     /// in the domain space.
     ///
     /// The PTR record type is defined in RFC 1035, section 3.3.12.
-    (Ptr, Ptr, ptrdname, into_ptrdname)
+    (Ptr, PTR, ptrdname, into_ptrdname)
 }
 
 //============ Testing =======================================================

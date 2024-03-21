@@ -45,6 +45,11 @@ pub struct Cdnskey<Octs> {
     public_key: Octs,
 }
 
+impl Cdnskey<()> {
+    /// The rtype of this record data type.
+    pub(crate) const RTYPE: Rtype = Rtype::CDNSKEY;
+}
+
 impl<Octs> Cdnskey<Octs> {
     pub fn new(
         flags: u16,
@@ -242,7 +247,7 @@ impl<Octs: AsRef<[u8]>> hash::Hash for Cdnskey<Octs> {
 
 impl<Octs> RecordData for Cdnskey<Octs> {
     fn rtype(&self) -> Rtype {
-        Rtype::Cdnskey
+        Cdnskey::RTYPE
     }
 }
 
@@ -254,7 +259,7 @@ where
         rtype: Rtype,
         parser: &mut Parser<'a, Octs>,
     ) -> Result<Option<Self>, ParseError> {
-        if rtype == Rtype::Cdnskey {
+        if rtype == Cdnskey::RTYPE {
             Self::parse(parser).map(Some)
         } else {
             Ok(None)
@@ -343,6 +348,11 @@ pub struct Cds<Octs> {
         serde(with = "crate::utils::base64::serde")
     )]
     digest: Octs,
+}
+
+impl Cds<()> {
+    /// The rtype of this record data type.
+    pub(crate) const RTYPE: Rtype = Rtype::CDS;
 }
 
 impl<Octs> Cds<Octs> {
@@ -556,7 +566,7 @@ impl<Octs: AsRef<[u8]>> hash::Hash for Cds<Octs> {
 
 impl<Octs> RecordData for Cds<Octs> {
     fn rtype(&self) -> Rtype {
-        Rtype::Cds
+        Cds::RTYPE
     }
 }
 
@@ -568,7 +578,7 @@ where
         rtype: Rtype,
         parser: &mut Parser<'a, Octs>,
     ) -> Result<Option<Self>, ParseError> {
-        if rtype == Rtype::Cds {
+        if rtype == Cds::RTYPE {
             Self::parse(parser).map(Some)
         } else {
             Ok(None)
@@ -657,7 +667,7 @@ mod test {
     #[test]
     #[allow(clippy::redundant_closure)] // lifetimes ...
     fn cdnskey_compose_parse_scan() {
-        let rdata = Cdnskey::new(10, 11, SecAlg::RsaSha1, b"key").unwrap();
+        let rdata = Cdnskey::new(10, 11, SecAlg::RSASHA1, b"key").unwrap();
         test_rdlen(&rdata);
         test_compose_parse(&rdata, |parser| Cdnskey::parse(parser));
         test_scan(&["10", "11", "RSASHA1", "a2V5"], Cdnskey::scan, &rdata);
@@ -669,7 +679,7 @@ mod test {
     #[allow(clippy::redundant_closure)] // lifetimes ...
     fn cds_compose_parse_scan() {
         let rdata = Cds::new(
-            10, SecAlg::RsaSha1, DigestAlg::Sha256, b"key"
+            10, SecAlg::RSASHA1, DigestAlg::SHA256, b"key"
         ).unwrap();
         test_rdlen(&rdata);
         test_compose_parse(&rdata, |parser| Cds::parse(parser));

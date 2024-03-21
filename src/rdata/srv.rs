@@ -26,8 +26,12 @@ pub struct Srv<N> {
     target: N,
 }
 
+impl Srv<()> {
+    /// The rtype of this record data type.
+    pub(crate) const RTYPE: Rtype = Rtype::SRV;
+}
+
 impl<N> Srv<N> {
-    pub const RTYPE: Rtype = Rtype::Srv;
 
     pub fn new(priority: u16, weight: u16, port: u16, target: N) -> Self {
         Srv {
@@ -213,7 +217,7 @@ impl<N: ToDname, NN: ToDname> CanonicalOrd<Srv<NN>> for Srv<N> {
 
 impl<N> RecordData for Srv<N> {
     fn rtype(&self) -> Rtype {
-        Rtype::Srv
+        Srv::RTYPE
     }
 }
 
@@ -224,7 +228,7 @@ impl<'a, Octs: Octets + ?Sized> ParseRecordData<'a, Octs>
         rtype: Rtype,
         parser: &mut Parser<'a, Octs>,
     ) -> Result<Option<Self>, ParseError> {
-        if rtype == Rtype::Srv {
+        if rtype == Srv::RTYPE {
             Self::parse(parser).map(Some)
         } else {
             Ok(None)
