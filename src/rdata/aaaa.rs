@@ -111,7 +111,7 @@ impl CanonicalOrd for Aaaa {
 
 impl RecordData for Aaaa {
     fn rtype(&self) -> Rtype {
-        Aaaa::RTYPE
+        Self::RTYPE
     }
 }
 
@@ -120,7 +120,7 @@ impl<'a, Octs: AsRef<[u8]> + ?Sized> ParseRecordData<'a, Octs> for Aaaa {
         rtype: Rtype,
         parser: &mut Parser<'a, Octs>,
     ) -> Result<Option<Self>, ParseError> {
-        if rtype == Aaaa::RTYPE {
+        if rtype == Self::RTYPE {
             Self::parse(parser).map(Some)
         } else {
             Ok(None)
