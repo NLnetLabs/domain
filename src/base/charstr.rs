@@ -198,7 +198,7 @@ impl CharStr<[u8]> {
     /// Checks whether an octets slice contains a correct character string.
     fn check_slice(slice: &[u8]) -> Result<(), CharStrError> {
         if slice.len() > CharStr::MAX_LEN {
-            Err(CharStrError)
+            Err(CharStrError(()))
         } else {
             Ok(())
         }
@@ -316,7 +316,7 @@ impl CharStr<[u8]> {
         while let Some(symbol) = Symbol::from_chars(&mut chars)? {
             // We have the max length but there’s another character. Error!
             if len == u8::MAX {
-                return Err(FromStrError::LongString);
+                return Err(PresentationErrorEnum::LongString.into());
             }
             target
                 .append_slice(&[symbol.into_octet()?])
@@ -745,7 +745,7 @@ impl<Builder: OctetsBuilder + AsRef<[u8]>> CharStrBuilder<Builder> {
     /// returned.
     pub fn from_builder(builder: Builder) -> Result<Self, CharStrError> {
         if builder.as_ref().len() > CharStr::MAX_LEN {
-            Err(CharStrError)
+            Err(CharStrError(()))
         } else {
             Ok(unsafe { Self::from_builder_unchecked(builder) })
         }
@@ -1093,8 +1093,8 @@ where
 /// A byte sequence does not represent a valid character string.
 ///
 /// This can only mean that the sequence is longer than 255 bytes.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct CharStrError;
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct CharStrError(());
 
 impl fmt::Display for CharStrError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -1105,21 +1105,13 @@ impl fmt::Display for CharStrError {
 #[cfg(feature = "std")]
 impl std::error::Error for CharStrError {}
 
-//------------ FromStrError --------------------------------------------
+//------------ FromStrError --------------------------------------------------
 
 /// An error happened when converting a Rust string to a DNS character string.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-#[non_exhaustive]
 pub enum FromStrError {
-    /// A character string has more than 255 octets.
-    LongString,
-
-    SymbolChars(SymbolCharsError),
-
-    /// An illegal character was encountered.
-    ///
-    /// Only printable ASCII characters are allowed.
-    BadSymbol(BadSymbol),
+    /// The string content was wrongly formatted.
+    Presentation(PresentationError),
 
     /// The octet builder’s buffer was too short for the data.
     ShortBuf,
@@ -1127,15 +1119,9 @@ pub enum FromStrError {
 
 //--- From
 
-impl From<SymbolCharsError> for FromStrError {
-    fn from(err: SymbolCharsError) -> FromStrError {
-        FromStrError::SymbolChars(err)
-    }
-}
-
-impl From<BadSymbol> for FromStrError {
-    fn from(err: BadSymbol) -> FromStrError {
-        FromStrError::BadSymbol(err)
+impl<T: Into<PresentationError>> From<T> for FromStrError {
+    fn from(err: T) -> Self {
+        Self::Presentation(err.into())
     }
 }
 
@@ -1150,11 +1136,7 @@ impl From<ShortBuf> for FromStrError {
 impl fmt::Display for FromStrError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
-            FromStrError::LongString => {
-                f.write_str("character string with more than 255 octets")
-            }
-            FromStrError::SymbolChars(ref err) => err.fmt(f),
-            FromStrError::BadSymbol(ref err) => err.fmt(f),
+            FromStrError::Presentation(ref err) => err.fmt(f),
             FromStrError::ShortBuf => ShortBuf.fmt(f),
         }
     }
@@ -1162,6 +1144,62 @@ impl fmt::Display for FromStrError {
 
 #[cfg(feature = "std")]
 impl std::error::Error for FromStrError {}
+
+//------------ PresentationError ---------------------------------------------
+
+/// An illegal presentation format was encountered.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct PresentationError(PresentationErrorEnum);
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum PresentationErrorEnum {
+    /// A character string has more than 255 octets.
+    LongString,
+
+    SymbolChars(SymbolCharsError),
+
+    /// An illegal character was encountered.
+    ///
+    /// Only printable ASCII characters are allowed.
+    BadSymbol(BadSymbol),
+}
+
+//--- From
+
+impl From<SymbolCharsError> for PresentationError {
+    fn from(err: SymbolCharsError) -> Self {
+        Self(PresentationErrorEnum::SymbolChars(err))
+    }
+}
+
+impl From<BadSymbol> for PresentationError {
+    fn from(err: BadSymbol) -> Self {
+        Self(PresentationErrorEnum::BadSymbol(err))
+    }
+}
+
+impl From<PresentationErrorEnum> for PresentationError {
+    fn from(err: PresentationErrorEnum) -> Self {
+        Self(err)
+    }
+}
+
+//--- Display and Error
+
+impl fmt::Display for PresentationError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self.0 {
+            PresentationErrorEnum::LongString => {
+                f.write_str("character string with more than 255 octets")
+            }
+            PresentationErrorEnum::SymbolChars(ref err) => err.fmt(f),
+            PresentationErrorEnum::BadSymbol(ref err) => err.fmt(f),
+        }
+    }
+}
+
+#[cfg(feature = "std")]
+impl std::error::Error for PresentationError {}
 
 //============ Testing =======================================================
 

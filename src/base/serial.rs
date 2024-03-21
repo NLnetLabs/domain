@@ -162,36 +162,37 @@ impl Serial {
     /// [RRSIG]: ../../rdata/rfc4034/struct.Rrsig.html
     pub fn rrsig_from_str(src: &str) -> Result<Self, IllegalSignatureTime> {
         if !src.is_ascii() {
-            return Err(IllegalSignatureTime);
+            return Err(IllegalSignatureTime(()));
         }
         if src.len() == 14 {
             let year = u32::from_str(&src[0..4])
-                .map_err(|_| IllegalSignatureTime)?
+                .map_err(|_| IllegalSignatureTime(()))?
                 as i32;
             let month = Month::try_from(
-                u8::from_str(&src[4..6]).map_err(|_| IllegalSignatureTime)?,
+                u8::from_str(&src[4..6])
+                    .map_err(|_| IllegalSignatureTime(()))?,
             )
-            .map_err(|_| IllegalSignatureTime)?;
-            let day =
-                u8::from_str(&src[6..8]).map_err(|_| IllegalSignatureTime)?;
+            .map_err(|_| IllegalSignatureTime(()))?;
+            let day = u8::from_str(&src[6..8])
+                .map_err(|_| IllegalSignatureTime(()))?;
             let hour = u8::from_str(&src[8..10])
-                .map_err(|_| IllegalSignatureTime)?;
+                .map_err(|_| IllegalSignatureTime(()))?;
             let minute = u8::from_str(&src[10..12])
-                .map_err(|_| IllegalSignatureTime)?;
+                .map_err(|_| IllegalSignatureTime(()))?;
             let second = u8::from_str(&src[12..14])
-                .map_err(|_| IllegalSignatureTime)?;
+                .map_err(|_| IllegalSignatureTime(()))?;
             Ok(Serial(
                 PrimitiveDateTime::new(
                     Date::from_calendar_date(year, month, day)
-                        .map_err(|_| IllegalSignatureTime)?,
+                        .map_err(|_| IllegalSignatureTime(()))?,
                     Time::from_hms(hour, minute, second)
-                        .map_err(|_| IllegalSignatureTime)?,
+                        .map_err(|_| IllegalSignatureTime(()))?,
                 )
                 .assume_utc()
                 .unix_timestamp() as u32,
             ))
         } else {
-            Serial::from_str(src).map_err(|_| IllegalSignatureTime)
+            Serial::from_str(src).map_err(|_| IllegalSignatureTime(()))
         }
     }
 }
@@ -303,10 +304,10 @@ fn u32_from_buf(buf: &[u8]) -> u32 {
     res
 }
 
-//============ Testing =======================================================
+//============ Errors ========================================================
 
 #[derive(Clone, Copy, Debug)]
-pub struct IllegalSignatureTime;
+pub struct IllegalSignatureTime(());
 
 impl fmt::Display for IllegalSignatureTime {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {

@@ -311,7 +311,7 @@ macro_rules! int_enum_str_with_decimal {
                         if let Ok(res) = s.parse() {
                             Ok($ianatype::from_int(res))
                         } else {
-                            Err(FromStrError)
+                            Err(FromStrError(()))
                         }
                     }
                 }
@@ -420,14 +420,14 @@ macro_rules! int_enum_str_with_prefix {
                             if l.eq_ignore_ascii_case($str_prefix) {
                                 let value = match r.parse() {
                                     Ok(x) => x,
-                                    Err(..) => return Err(FromStrError),
+                                    Err(..) => return Err(FromStrError(())),
                                 };
                                 Ok($ianatype::from_int(value))
                             } else {
-                                Err(FromStrError)
+                                Err(FromStrError(()))
                             }
                         } else {
-                            Err(FromStrError)
+                            Err(FromStrError(()))
                         }
                     }
                 }
@@ -505,7 +505,7 @@ macro_rules! scan_impl {
 macro_rules! from_str_error {
     ($description:expr) => {
         #[derive(Clone, Debug)]
-        pub struct FromStrError;
+        pub struct FromStrError(());
 
         #[cfg(feature = "std")]
         impl std::error::Error for FromStrError {

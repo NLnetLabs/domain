@@ -679,8 +679,11 @@ impl LabelType {
 //------------ ParsedDnameError ----------------------------------------------
 
 /// Parsing a domain name failed.
+///
+/// This type isn’t used as a public error type but is only converted into
+/// [`FormError`]s etc. Thus it doesn’t need to be public.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum ParsedDnameError {
+enum ParsedDnameError {
     /// A bad label was encountered.
     BadLabel(LabelTypeError),
 

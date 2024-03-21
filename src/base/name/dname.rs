@@ -3,7 +3,7 @@
 //! This is a private module. Its public types are re-exported by the parent.
 
 use super::super::cmp::CanonicalOrd;
-use super::super::scan::{Scanner, Symbol, Symbols};
+use super::super::scan::{Scanner, Symbol, SymbolCharsError, Symbols};
 use super::super::wire::{FormError, ParseError};
 use super::builder::{DnameBuilder, FromStrError};
 use super::label::{Label, LabelTypeError, SplitLabelError};
@@ -101,11 +101,11 @@ impl<Octs> Dname<Octs> {
         let mut symbols = symbols.into_iter();
         let first = match symbols.next() {
             Some(first) => first,
-            None => return Err(FromStrError::UnexpectedEnd),
+            None => return Err(SymbolCharsError::short_input().into()),
         };
         if first == Symbol::Char('.') {
             if symbols.next().is_some() {
-                return Err(FromStrError::EmptyLabel);
+                return Err(FromStrError::empty_label());
             } else {
                 // Make a root name.
                 let mut builder =
@@ -218,7 +218,7 @@ impl Dname<[u8]> {
     /// Checks whether an octet slice contains a correctly encoded name.
     fn check_slice(mut slice: &[u8]) -> Result<(), DnameError> {
         if slice.len() > Dname::MAX_LEN {
-            return Err(DnameError::LongName);
+            return Err(DnameError(DnameErrorEnum::LongName));
         }
         loop {
             let (label, tail) = Label::split_from(slice)?;
@@ -226,11 +226,11 @@ impl Dname<[u8]> {
                 if tail.is_empty() {
                     break;
                 } else {
-                    return Err(DnameError::TrailingData);
+                    return Err(DnameError(DnameErrorEnum::TrailingData));
                 }
             }
             if tail.is_empty() {
-                return Err(DnameError::RelativeName);
+                return Err(DnameError(DnameErrorEnum::RelativeName));
             }
             slice = tail;
         }
@@ -694,7 +694,7 @@ impl<Octs> Dname<Octs> {
             parser.remaining() - tmp.len()
         };
         if len > Dname::MAX_LEN {
-            Err(DnameError::LongName.into())
+            Err(DnameError(DnameErrorEnum::LongName).into())
         } else {
             Ok(len)
         }
@@ -1115,7 +1115,10 @@ impl<'a> fmt::Display for DisplayWithDot<'a> {
 
 /// A domain name wasn’t encoded correctly.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum DnameError {
+pub struct DnameError(DnameErrorEnum);
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum DnameErrorEnum {
     /// The encoding contained an unknown or disallowed label type.
     BadLabel(LabelTypeError),
 
@@ -1138,39 +1141,39 @@ pub enum DnameError {
 //--- From
 
 impl From<LabelTypeError> for DnameError {
-    fn from(err: LabelTypeError) -> DnameError {
-        DnameError::BadLabel(err)
+    fn from(err: LabelTypeError) -> Self {
+        Self(DnameErrorEnum::BadLabel(err))
     }
 }
 
 impl From<SplitLabelError> for DnameError {
-    fn from(err: SplitLabelError) -> DnameError {
-        match err {
-            SplitLabelError::Pointer(_) => DnameError::CompressedName,
-            SplitLabelError::BadType(t) => DnameError::BadLabel(t),
-            SplitLabelError::ShortInput => DnameError::ShortInput,
-        }
+    fn from(err: SplitLabelError) -> Self {
+        Self(match err {
+            SplitLabelError::Pointer(_) => DnameErrorEnum::CompressedName,
+            SplitLabelError::BadType(t) => DnameErrorEnum::BadLabel(t),
+            SplitLabelError::ShortInput => DnameErrorEnum::ShortInput,
+        })
     }
 }
 
 impl From<DnameError> for FormError {
     fn from(err: DnameError) -> FormError {
-        FormError::new(match err {
-            DnameError::BadLabel(_) => "unknown label type",
-            DnameError::CompressedName => "compressed domain name",
-            DnameError::LongName => "long domain name",
-            DnameError::RelativeName => "relative domain name",
-            DnameError::TrailingData => "trailing data in buffer",
-            DnameError::ShortInput => "unexpected end of buffer",
+        FormError::new(match err.0 {
+            DnameErrorEnum::BadLabel(_) => "unknown label type",
+            DnameErrorEnum::CompressedName => "compressed domain name",
+            DnameErrorEnum::LongName => "long domain name",
+            DnameErrorEnum::RelativeName => "relative domain name",
+            DnameErrorEnum::TrailingData => "trailing data in buffer",
+            DnameErrorEnum::ShortInput => "unexpected end of buffer",
         })
     }
 }
 
 impl From<DnameError> for ParseError {
     fn from(err: DnameError) -> ParseError {
-        match err {
-            DnameError::ShortInput => ParseError::ShortInput,
-            other => ParseError::Form(other.into()),
+        match err.0 {
+            DnameErrorEnum::ShortInput => ParseError::ShortInput,
+            _ => ParseError::Form(err.into()),
         }
     }
 }
@@ -1179,15 +1182,15 @@ impl From<DnameError> for ParseError {
 
 impl fmt::Display for DnameError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match *self {
-            DnameError::BadLabel(ref err) => err.fmt(f),
-            DnameError::CompressedName => {
+        match self.0 {
+            DnameErrorEnum::BadLabel(ref err) => err.fmt(f),
+            DnameErrorEnum::CompressedName => {
                 f.write_str("compressed domain name")
             }
-            DnameError::LongName => f.write_str("long domain name"),
-            DnameError::RelativeName => f.write_str("relative name"),
-            DnameError::TrailingData => f.write_str("trailing data"),
-            DnameError::ShortInput => ParseError::ShortInput.fmt(f),
+            DnameErrorEnum::LongName => f.write_str("long domain name"),
+            DnameErrorEnum::RelativeName => f.write_str("relative name"),
+            DnameErrorEnum::TrailingData => f.write_str("trailing data"),
+            DnameErrorEnum::ShortInput => ParseError::ShortInput.fmt(f),
         }
     }
 }
@@ -1268,13 +1271,13 @@ pub(crate) mod test {
         // relative name
         assert_eq!(
             Dname::from_slice(b"\x03www\x07example\x03com"),
-            Err(DnameError::RelativeName)
+            Err(DnameError(DnameErrorEnum::RelativeName))
         );
 
         // bytes shorter than what label length says.
         assert_eq!(
             Dname::from_slice(b"\x03www\x07exa"),
-            Err(DnameError::ShortInput)
+            Err(DnameError(DnameErrorEnum::ShortInput))
         );
 
         // label 63 long ok, 64 bad.
@@ -1311,11 +1314,14 @@ pub(crate) mod test {
         );
         assert_eq!(
             Dname::from_slice(b"\xccasdasds"),
-            Err(DnameError::CompressedName)
+            Err(DnameError(DnameErrorEnum::CompressedName))
         );
 
         // empty input
-        assert_eq!(Dname::from_slice(b""), Err(DnameError::ShortInput));
+        assert_eq!(
+            Dname::from_slice(b""),
+            Err(DnameError(DnameErrorEnum::ShortInput))
+        );
     }
 
     // `Dname::from_chars` is covered in the `FromStr` test.
@@ -1783,7 +1789,7 @@ pub(crate) mod test {
         p.advance(4).unwrap();
         assert_eq!(
             Dname::parse(&mut p),
-            Err(DnameError::CompressedName.into())
+            Err(DnameError(DnameErrorEnum::CompressedName).into())
         );
 
         // Bad label header.
@@ -1809,7 +1815,10 @@ pub(crate) mod test {
         buf.extend_from_slice(b"\0");
         assert_eq!(buf.len(), 256);
         let mut p = Parser::from_ref(buf.as_slice());
-        assert_eq!(Dname::parse(&mut p), Err(DnameError::LongName.into()));
+        assert_eq!(
+            Dname::parse(&mut p),
+            Err(DnameError(DnameErrorEnum::LongName).into())
+        );
     }
 
     // I don’t think we need tests for `Compose::compose` since it only

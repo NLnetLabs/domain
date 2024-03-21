@@ -688,7 +688,7 @@ impl<Octs: ?Sized> Nsec3Salt<Octs> {
         Octs: AsRef<[u8]> + Sized,
     {
         if octets.as_ref().len() > Nsec3Salt::MAX_LEN {
-            Err(Nsec3SaltError)
+            Err(Nsec3SaltError(()))
         } else {
             Ok(unsafe { Self::from_octets_unchecked(octets) })
         }
@@ -759,7 +759,7 @@ impl Nsec3Salt<[u8]> {
     /// Creates a new salt value from an octet slice.
     pub fn from_slice(slice: &[u8]) -> Result<&Self, Nsec3SaltError> {
         if slice.len() > Nsec3Salt::MAX_LEN {
-            Err(Nsec3SaltError)
+            Err(Nsec3SaltError(()))
         } else {
             Ok(unsafe { &*(slice as *const [u8] as *const Nsec3Salt<[u8]>) })
         }
@@ -1089,7 +1089,7 @@ impl<Octs> OwnerHash<Octs> {
         Octs: AsRef<[u8]>,
     {
         if octets.as_ref().len() > OwnerHash::MAX_LEN {
-            Err(OwnerHashError)
+            Err(OwnerHashError(()))
         } else {
             Ok(unsafe { Self::from_octets_unchecked(octets) })
         }
@@ -1167,7 +1167,7 @@ impl OwnerHash<[u8]> {
     /// Creates a new owner hash from an octet slice.
     pub fn from_slice(slice: &[u8]) -> Result<&Self, OwnerHashError> {
         if slice.len() > OwnerHash::MAX_LEN {
-            Err(OwnerHashError)
+            Err(OwnerHashError(()))
         } else {
             Ok(unsafe { &*(slice as *const [u8] as *const OwnerHash<[u8]>) })
         }
@@ -1411,7 +1411,7 @@ where
 ///
 /// This can only mean that the sequence is longer than 255 bytes.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct Nsec3SaltError;
+pub struct Nsec3SaltError(());
 
 impl fmt::Display for Nsec3SaltError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -1428,7 +1428,7 @@ impl std::error::Error for Nsec3SaltError {}
 ///
 /// This can only mean that the sequence is longer than 255 bytes.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct OwnerHashError;
+pub struct OwnerHashError(());
 
 impl fmt::Display for OwnerHashError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
