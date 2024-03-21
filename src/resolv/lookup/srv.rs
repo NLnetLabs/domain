@@ -297,7 +297,7 @@ impl SrvItem {
                 srv.priority(),
                 srv.weight(),
                 srv.port(),
-                srv.target().to_dname().unwrap(),
+                srv.target().try_to_dname().unwrap(),
             ),
             fallback: false,
             resolved: None,
@@ -306,7 +306,7 @@ impl SrvItem {
 
     fn fallback(name: impl ToDname, fallback_port: u16) -> Self {
         SrvItem {
-            srv: Srv::new(0, 0, fallback_port, name.to_dname().unwrap()),
+            srv: Srv::new(0, 0, fallback_port, name.try_to_dname().unwrap()),
             fallback: true,
             resolved: None,
         }

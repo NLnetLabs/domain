@@ -391,7 +391,7 @@ where
         algorithm: Algorithm,
     ) -> Option<Self::Key> {
         // XXX This seems a bit wasteful.
-        let name = name.to_dname().unwrap();
+        let name = name.try_to_dname().unwrap();
         self.get(&(name, algorithm)).cloned()
     }
 }
