@@ -20,6 +20,10 @@ Breaking changes
 * The stub resolver now uses the new client transports. This doesn’t change
   how it is used but does change how it queries the configured servers.
   ([#215])
+* Many error types have been changed from enums to structs that hide
+  internal error details. Enums have been kept for errors where
+  distinguishing variants might be meaningful for dealing with the error.
+  ([#277])
 * Upgraded `octseq` to 0.5. ([#257])
 
 New
@@ -65,6 +69,7 @@ Other changes
 [#268]: https://github.com/NLnetLabs/domain/pull/268
 [#270]: https://github.com/NLnetLabs/domain/pull/270
 [#275]: https://github.com/NLnetLabs/domain/pull/275
+[#277]: https://github.com/NLnetLabs/domain/pull/277
 [#284]: https://github.com/NLnetLabs/domain/pull/284
 [@torin-carey]: https://github.com/torin-carey
 
