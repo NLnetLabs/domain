@@ -1,12 +1,17 @@
 //! Importing from and exporting to a zonefiles.
 
 use crate::base::iana::{Class, Rtype};
+use crate::base::name::FlattenInto;
+use crate::base::ToDname;
+use crate::rdata::ZoneRecordData;
 use crate::zonetree::{
     CnameError, Rrset, SharedRr, StoredDname, StoredRecord, ZoneBuilder,
     ZoneCutError,
 };
 use std::collections::{BTreeMap, HashMap};
 use std::vec::Vec;
+
+use super::inplace::{self, Entry};
 
 //------------ Zonefile ------------------------------------------------------
 
@@ -63,7 +68,14 @@ impl Zonefile {
             Ok(())
         } else {
             match record.rtype() {
-                Rtype::Ns | Rtype::Ds => {
+                // An Name Server (NS) record at the apex is a nameserver RR
+                // that indicates a server for the zone. An NS record is only
+                // an indication of a zone cut when it is NOT at the apex.
+                //
+                // A Delegation Signer (DS) record can only appear within the
+                // parent zone and refer to a child zone, a DS record cannot
+                // therefore appear at the apex.
+                Rtype::Ns | Rtype::Ds if record.owner() != &self.apex => {
                     if self.normal.contains(record.owner())
                         || self.cnames.contains(record.owner())
                     {
@@ -100,8 +112,6 @@ impl Zonefile {
     }
 
     /// Inserts the content as a new zone into a zone set.
-    ///
-    /// The content is inserted as the default flavor.
     pub fn into_zone_builder(mut self) -> Result<ZoneBuilder, ZoneError> {
         let mut builder = ZoneBuilder::new(self.apex.clone(), self.class);
         let mut zone_err = ZoneError::default();
@@ -117,7 +127,12 @@ impl Zonefile {
                 }
             };
             let ds = cut.ds.map(Rrset::into_shared);
-            let glue = self.normal.collect_glue(&name);
+            let mut glue = vec![];
+            for rdata in ns.data() {
+                if let ZoneRecordData::Ns(ns) = rdata {
+                    glue.append(&mut self.normal.collect_glue(ns.nsdname()));
+                }
+            }
 
             if let Err(err) = builder.insert_zone_cut(&name, ns, ds, glue) {
                 zone_err.add_error(name, OwnerError::InvalidZonecut(err))
@@ -153,6 +168,52 @@ impl Zonefile {
         }
 
         zone_err.into_result().map(|_| builder)
+    }
+}
+
+//--- TryFrom<inplace::Zonefile>
+
+impl TryFrom<inplace::Zonefile> for Zonefile {
+    type Error = RecordError;
+
+    fn try_from(mut source: inplace::Zonefile) -> Result<Self, Self::Error> {
+        let mut non_soa_records = Vec::<StoredRecord>::new();
+
+        let mut sink = loop {
+            let entry = source
+                .next_entry()
+                .map_err(|_| RecordError::InvalidRecord)?
+                .ok_or(RecordError::MissingSoa)?;
+
+            if let Entry::Record(record) = entry {
+                match record.rtype() {
+                    Rtype::Soa => {
+                        let apex = record
+                            .owner()
+                            .to_dname()
+                            .map_err(|_| RecordError::InvalidRecord)?;
+
+                        let mut sink = Zonefile::new(apex, record.class());
+
+                        for r in non_soa_records {
+                            sink.insert(r)?;
+                        }
+                        sink.insert(record.flatten_into())?;
+                        break sink;
+                    }
+
+                    _ => {
+                        non_soa_records.push(record.flatten_into());
+                    }
+                }
+            }
+        };
+
+        while let Some(Ok(Entry::Record(r))) = source.next() {
+            sink.insert(r.flatten_into())?;
+        }
+
+        Ok(sink)
     }
 }
 
@@ -193,8 +254,37 @@ impl<Content> Owners<Content> {
 }
 
 impl Owners<Normal> {
-    fn collect_glue(&mut self, _name: &StoredDname) -> Vec<StoredRecord> {
-        unimplemented!()
+    fn collect_glue(&mut self, name: &StoredDname) -> Vec<StoredRecord> {
+        let mut glue_records = vec![];
+
+        // https://www.rfc-editor.org/rfc/rfc9471.html
+        // 2.1. Glue for In-Domain Name Servers
+
+        // For each NS delegation find the names of the nameservers the NS
+        // records point to, and then see if the A/AAAA records for this names
+        // are defined in the authoritative (normal) data for this zone, and
+        // if so extract them.
+        if let Some(normal) = self.owners.get(name) {
+            // Now see if A/AAAA records exists for the name in
+            // this zone.
+            for (_rtype, rrset) in
+                normal.records.iter().filter(|(&rtype, _)| {
+                    rtype == Rtype::A || rtype == Rtype::Aaaa
+                })
+            {
+                for rdata in rrset.data() {
+                    let glue_record = StoredRecord::new(
+                        name.clone(),
+                        Class::In,
+                        rrset.ttl(),
+                        rdata.clone(),
+                    );
+                    glue_records.push(glue_record);
+                }
+            }
+        }
+
+        glue_records
     }
 }
 
@@ -262,119 +352,6 @@ impl ZoneCut {
     }
 }
 
-/*
-//------------ OwnerRecords --------------------------------------------------
-
-/// The records of a single owner name.
-#[derive(Clone, Default)]
-pub struct OwnerRecords {
-    records: HashMap<Rtype, Rrset>,
-    special: Option<Special>,
-}
-
-impl OwnerRecords {
-    fn insert(
-        &mut self, record: StoredRecord
-    ) -> Result<(), RecordError> {
-        match record.rtype() {
-            Rtype::Ns | Rtype::Ds => {
-                self.switch_special(Special::ZoneCut)?;
-            }
-            Rtype::Cname => {
-                self.switch_special(Special::Cname)?;
-                if !self.records.is_empty() {
-                    return Err(RecordError::MultipleCnames)
-                }
-            }
-            _ => { }
-        }
-        let rrset = self.records.entry(record.rtype()).or_insert_with(|| {
-            Rrset::new(record.rtype(), record.ttl())
-        });
-        rrset.limit_ttl(record.ttl());
-        rrset.push_data(record.into_data());
-        Ok(())
-    }
-
-    fn switch_special(
-        &mut self, special: Special,
-    ) -> Result<(), RecordError> {
-        if self.special == Some(special) {
-            Ok(())
-        }
-        else if self.special.is_none() && self.records.is_empty() {
-            self.special = Some(special);
-            Ok(())
-        }
-        else {
-            match special {
-                Special::ZoneCut => Err(RecordError::IllegalZoneCut),
-                Special::Cname => Err(RecordError::IllegalCname)
-            }
-        }
-    }
-
-    /// Insert the records into a zone builder.
-    fn insert_into_builder(
-        self,
-        name: StoredDname,
-        additional: &BTreeMap<StoredDname, OwnerRecords>,
-        builder: &mut ZoneBuilder
-    ) {
-        match self.special {
-            None => {
-                self.insert_builder_normal(name, additional, builder)
-            }
-            Some(Special::ZoneCut) => {
-                self.insert_builder_cut(name, additional, builder)
-            }
-                /*
-            Some(Special::Cname) => {
-                self.insert_builder_cname(&mut builder, name, records)
-            }
-                */
-            _ => unimplemented!()
-        }
-    }
-
-    /// Insert the records of a non-special name into a zone builder.
-    ///
-    /// XXX This currently doesn’t do any additional section processing.
-    fn insert_builder_normal(
-        self,
-        name: StoredDname,
-        _additional: &BTreeMap<StoredDname, OwnerRecords>,
-        builder: &mut ZoneBuilder
-    ) {
-        for record in self.records.into_values() {
-            builder.insert_rrset(&name, record.into_shared(), None).unwrap();
-        }
-    }
-
-    /// Inserts the records of a zone cut into a zone builder
-    fn insert_builder_cut(
-        self,
-        name: StoredDname,
-        _additional: &BTreeMap<StoredDname, OwnerRecords>,
-        builder: &mut ZoneBuilder
-    ) {
-    }
-}
-
-
-//------------ Special -------------------------------------------------------
-
-/// If an owner is special, what is it?
-#[derive(Clone, Copy, Eq, PartialEq)]
-enum Special {
-    /// A zone cut.
-    ZoneCut,
-
-    /// A CNAME.
-    Cname,
-}
-*/
-
 //============ Errors ========================================================
 
 //------------ RecordError ---------------------------------------------------
@@ -395,6 +372,12 @@ pub enum RecordError {
 
     /// Attempted to add multiple CNAME records for an owner.
     MultipleCnames,
+
+    /// The record could not be parsed.
+    InvalidRecord,
+
+    /// The SOA record was not found.
+    MissingSoa,
 }
 
 //------------ ZoneError -----------------------------------------------------
@@ -436,13 +419,3 @@ enum OwnerError {
     /// A record is out of zone.
     OutOfZone(Rtype),
 }
-
-/*
-//------------ InsertZoneError -----------------------------------------------
-
-#[derive(Clone, Copy, Debug)]
-pub enum InsertZoneError {
-    /// The zone exist already.
-    ZoneExists,
-}
-*/

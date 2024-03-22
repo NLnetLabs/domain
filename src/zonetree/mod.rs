@@ -4,7 +4,7 @@
 pub use self::builder::{CnameError, ZoneBuilder, ZoneCutError};
 pub use self::nodes::OutOfZone;
 pub(crate) use self::read::ReadZone;
-pub use self::read::{Answer, AnswerContent, ReadableZone};
+pub use self::read::{Answer, AnswerContent, ReadableZone, WalkOp};
 pub use self::rrset::{
     Rrset, SharedRr, SharedRrset, StoredDname, StoredRecord,
 };

@@ -2,9 +2,12 @@ use super::read::ReadableZone;
 use super::rrset::StoredDname;
 use super::versioned::Version;
 use super::write::WriteableZone;
+use super::ZoneBuilder;
 use crate::base::iana::Class;
+use crate::zonefile::{inplace, parsed};
 use parking_lot::RwLock;
 use std::boxed::Box;
+use std::fmt::Debug;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::{Arc, Weak};
@@ -12,7 +15,7 @@ use std::vec::Vec;
 
 //------------ ZoneMeta ------------------------------------------------------
 
-pub trait ZoneData: Sync + Send {
+pub trait ZoneData: Debug + Sync + Send {
     /// Returns the class of the zone.
     fn class(&self) -> Class;
 
@@ -33,6 +36,7 @@ pub trait ZoneData: Sync + Send {
 
 //------------ Zone ----------------------------------------------------------
 
+#[derive(Debug)]
 pub struct Zone {
     data: Arc<dyn ZoneData>,
     versions: Arc<RwLock<ZoneVersions>>,
@@ -68,8 +72,39 @@ impl Zone {
     }
 }
 
+//--- TryFrom<ZoneBuilder>
+
+impl From<ZoneBuilder> for Zone {
+    fn from(builder: ZoneBuilder) -> Self {
+        builder.finalize()
+    }
+}
+
+//--- TryFrom<parsed::Zonefile>
+
+impl TryFrom<parsed::Zonefile> for Zone {
+    type Error = parsed::ZoneError;
+
+    fn try_from(source: parsed::Zonefile) -> Result<Self, Self::Error> {
+        Ok(Zone::from(ZoneBuilder::try_from(source)?))
+    }
+}
+
+//--- TryFrom<inplace::Zonefile>
+
+impl TryFrom<inplace::Zonefile> for Zone {
+    type Error = parsed::RecordError;
+
+    fn try_from(source: inplace::Zonefile) -> Result<Self, Self::Error> {
+        parsed::Zonefile::try_from(source)?
+            .try_into()
+            .map_err(|_| parsed::RecordError::InvalidRecord)
+    }
+}
+
 //------------ ZoneVersions --------------------------------------------------
 
+#[derive(Debug)]
 pub struct ZoneVersions {
     current: (Version, Arc<VersionMarker>),
     all: Vec<(Version, Weak<VersionMarker>)>,
@@ -127,4 +162,5 @@ impl Default for ZoneVersions {
 
 //------------ VersionMarker -------------------------------------------------
 
+#[derive(Debug)]
 pub struct VersionMarker;

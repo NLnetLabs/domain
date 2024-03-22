@@ -1,6 +1,6 @@
 //! The nodes in a zone tree.
 
-use super::read::ReadableZone;
+use super::read::{ReadableZone, WalkState};
 use super::rrset::{SharedRr, SharedRrset, StoredDname, StoredRecord};
 use super::versioned::{Version, Versioned};
 use super::write::{WriteZone, WriteableZone};
@@ -25,6 +25,7 @@ use tokio::sync::Mutex;
 
 //------------ ZoneApex ------------------------------------------------------
 
+#[derive(Debug)]
 pub struct ZoneApex {
     apex_name: StoredDname,
     apex_name_display: String,
@@ -80,7 +81,7 @@ impl ZoneApex {
     pub fn prepare_name<'l>(
         &self,
         qname: &'l impl ToDname,
-    ) -> Result<impl Iterator<Item = &'l Label>, OutOfZone> {
+    ) -> Result<impl Iterator<Item = &'l Label> + Clone, OutOfZone> {
         let mut qname = qname.iter_labels().rev();
         for apex_label in self.apex_name().iter_labels().rev() {
             let qname_label = qname.next();
@@ -96,7 +97,7 @@ impl ZoneApex {
         &self.rrsets
     }
 
-    /// Returns the SOA record for the given flavor and version if available.
+    /// Returns the SOA record for the given version if available.
     pub fn get_soa(&self, version: Version) -> Option<SharedRr> {
         self.rrsets()
             .get(Rtype::Soa, version)
@@ -153,12 +154,12 @@ impl ZoneData for ZoneApex {
 
 //------------ ZoneNode ------------------------------------------------------
 
-#[derive(Default)]
+#[derive(Default, Debug)]
 pub struct ZoneNode {
     /// The RRsets of the node.
     rrsets: NodeRrsets,
 
-    /// The special functions of the node for the various flavors.
+    /// The special functions of the node.
     special: RwLock<Versioned<Option<Special>>>,
 
     /// The child nodes of the node.
@@ -171,7 +172,7 @@ impl ZoneNode {
         &self.rrsets
     }
 
-    /// Returns whether the node is NXDomain for a flavor.
+    /// Returns whether the node is NXDomain for a version.
     pub fn is_nx_domain(&self, version: Version) -> bool {
         self.with_special(version, |special| {
             matches!(special, Some(Special::NxDomain))
@@ -211,13 +212,13 @@ impl ZoneNode {
 
 //------------ NodeRrsets ----------------------------------------------------
 
-#[derive(Default)]
+#[derive(Default, Debug)]
 pub struct NodeRrsets {
     rrsets: RwLock<HashMap<Rtype, NodeRrset>>,
 }
 
 impl NodeRrsets {
-    /// Returns whether there are no RRsets for the given flavor.
+    /// Returns whether there are no RRsets for the given version.
     pub fn is_empty(&self, version: Version) -> bool {
         let rrsets = self.rrsets.read();
         if rrsets.is_empty() {
@@ -295,27 +296,23 @@ impl<'a> NodeRrsetsIter<'a> {
 
 //------------ NodeRrset -----------------------------------------------------
 
-#[derive(Default)]
+#[derive(Default, Debug)]
 pub(crate) struct NodeRrset {
-    /// The RRsets for the various flavors.
-    ///
-    /// A stored `None` value means there is explicitely no RRset here. This
-    /// is used to signal that a flavor doesn’t have an RRset if a default is
-    /// present.
-    rrsets: Versioned<Option<SharedRrset>>,
+    /// The RRsets for the various versions.
+    rrsets: Versioned<SharedRrset>,
 }
 
 impl NodeRrset {
     pub fn get(&self, version: Version) -> Option<&SharedRrset> {
-        self.rrsets.get(version).and_then(Option::as_ref)
+        self.rrsets.get(version)
     }
 
     fn update(&mut self, rrset: SharedRrset, version: Version) {
-        self.rrsets.update(version, Some(rrset))
+        self.rrsets.update(version, rrset)
     }
 
     fn remove(&mut self, version: Version) {
-        self.rrsets.update(version, None)
+        self.rrsets.clean(version)
     }
 
     pub fn rollback(&mut self, version: Version) {
@@ -329,7 +326,7 @@ impl NodeRrset {
 
 //------------ Special -------------------------------------------------------
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum Special {
     Cut(ZoneCut),
     Cname(SharedRr),
@@ -348,7 +345,7 @@ pub struct ZoneCut {
 
 //------------ NodeChildren --------------------------------------------------
 
-#[derive(Default)]
+#[derive(Debug, Default)]
 pub struct NodeChildren {
     children: RwLock<HashMap<OwnedLabel, Arc<ZoneNode>>>,
 }
@@ -393,6 +390,16 @@ impl NodeChildren {
             .read()
             .values()
             .for_each(|item| item.clean(version))
+    }
+
+    pub(super) fn walk(
+        &self,
+        walk: WalkState,
+        op: impl Fn(WalkState, (&OwnedLabel, &Arc<ZoneNode>)),
+    ) {
+        for child in self.children.read().iter() {
+            (op)(walk.clone(), child)
+        }
     }
 }
 

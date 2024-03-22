@@ -10,6 +10,7 @@ use super::versioned::Version;
 use super::zone::Zone;
 use crate::base::iana::Class;
 use crate::base::name::{Label, ToDname};
+use crate::zonefile::parsed;
 
 //------------ ZoneBuilder ---------------------------------------------------
 
@@ -95,6 +96,18 @@ impl ZoneBuilder {
         Ok(node)
     }
 }
+
+//--- TryFrom<parsed::Zonefile>
+
+impl TryFrom<parsed::Zonefile> for ZoneBuilder {
+    type Error = parsed::ZoneError;
+
+    fn try_from(source: parsed::Zonefile) -> Result<Self, Self::Error> {
+        source.into_zone_builder()
+    }
+}
+
+//------------ ZoneCutError --------------------------------------------------
 
 #[derive(Clone, Copy, Debug)]
 pub enum ZoneCutError {

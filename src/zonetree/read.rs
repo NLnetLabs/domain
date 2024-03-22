@@ -1,10 +1,12 @@
 //! Quering for zone data.
 
 use core::future::ready;
+use core::iter;
 use std::boxed::Box;
 use std::future::Future;
 use std::pin::Pin;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
+use std::vec::Vec;
 
 use bytes::Bytes;
 
@@ -14,13 +16,16 @@ use super::nodes::{
 use super::rrset::{SharedRr, SharedRrset, StoredDname};
 use super::versioned::Version;
 use super::zone::{VersionMarker, ZoneData};
+use super::Rrset;
 use crate::base::iana::{Rcode, Rtype};
 use crate::base::message::Message;
 use crate::base::message_builder::{AdditionalBuilder, MessageBuilder};
-use crate::base::name::{Label, ToLabelIter};
+use crate::base::name::{Label, OwnedLabel};
 use crate::base::wire::Composer;
-use crate::base::Dname;
+use crate::base::{Dname, DnameBuilder};
 use crate::dep::octseq::Octets;
+
+pub type WalkOp = Box<dyn Fn(Dname<Bytes>, &Rrset) + Send + Sync>;
 
 //------------ ReadableZone --------------------------------------------------
 
@@ -39,7 +44,7 @@ pub trait ReadableZone: Send {
         unimplemented!()
     }
 
-    fn walk(&self, _op: Box<dyn Fn(Answer) + Send>) {
+    fn walk(&self, _op: WalkOp) {
         unimplemented!()
     }
 
@@ -55,7 +60,7 @@ pub trait ReadableZone: Send {
 
     fn walk_async(
         &self,
-        op: Box<dyn Fn(Answer) + Send>,
+        op: WalkOp,
     ) -> Pin<Box<dyn Future<Output = ()> + Send>> {
         self.walk(op);
         Box::pin(ready(()))
@@ -85,6 +90,63 @@ impl ReadZone {
     }
 }
 
+struct WalkStateInner {
+    op: WalkOp,
+    label_stack: Mutex<Vec<OwnedLabel>>,
+}
+
+impl WalkStateInner {
+    fn new(op: WalkOp) -> Self {
+        Self {
+            op,
+            label_stack: Default::default(),
+        }
+    }
+}
+
+#[derive(Clone)]
+pub(super) struct WalkState {
+    inner: Option<Arc<WalkStateInner>>,
+}
+
+impl WalkState {
+    pub const DISABLED: WalkState = WalkState { inner: None };
+
+    fn new(op: WalkOp) -> Self {
+        Self {
+            inner: Some(Arc::new(WalkStateInner::new(op))),
+        }
+    }
+
+    fn enabled(&self) -> bool {
+        self.inner.is_some()
+    }
+
+    fn op(&self, rrset: &Rrset) {
+        if let Some(inner) = &self.inner {
+            let labels = inner.label_stack.lock().unwrap();
+            let mut dname = DnameBuilder::new_bytes();
+            for label in labels.iter().rev() {
+                dname.append_label(label.as_slice()).unwrap();
+            }
+            let owner = dname.into_dname().unwrap();
+            (inner.op)(owner, rrset);
+        }
+    }
+
+    fn push(&self, label: OwnedLabel) {
+        if let Some(inner) = &self.inner {
+            inner.label_stack.lock().unwrap().push(label);
+        }
+    }
+
+    fn pop(&self) {
+        if let Some(inner) = &self.inner {
+            inner.label_stack.lock().unwrap().pop();
+        }
+    }
+}
+
 impl ReadableZone for ReadZone {
     fn is_async(&self) -> bool {
         false
@@ -95,25 +157,29 @@ impl ReadableZone for ReadZone {
         qname: Dname<Bytes>,
         qtype: Rtype,
     ) -> Result<Answer, OutOfZone> {
-        self.apex.prepare_name(&qname).map(|mut qname| {
-            let answer = if let Some(label) = qname.next() {
-                self.query_below_apex(label, qname, qtype, None)
-            } else {
-                self.query_rrsets(self.apex.rrsets(), qtype, None)
-            };
-            answer.into_answer(self)
-        })
+        let mut qname = self.apex.prepare_name(&qname)?;
+
+        let answer = if let Some(label) = qname.next() {
+            self.query_below_apex(label, qname, qtype, WalkState::DISABLED)
+        } else {
+            self.query_rrsets(self.apex.rrsets(), qtype, WalkState::DISABLED)
+        };
+
+        Ok(answer.into_answer(self))
     }
 
-    fn walk(&self, op: Box<dyn Fn(Answer) + Send>) {
-        self.query_rrsets(self.apex.rrsets(), Rtype::Any, Some(&op));
-        let qname_iter = self.apex.apex_name().iter_labels().rev();
-        self.query_below_apex(
-            Label::root(),
-            qname_iter,
-            Rtype::Any,
-            Some(&op),
-        );
+    fn walk(&self, op: WalkOp) {
+        // https://datatracker.ietf.org/doc/html/rfc8482 notes that the ANY
+        // query type is problematic and should be answered as minimally as
+        // possible. Rather than use ANY internally here to achieve a walk, as
+        // specific behaviour may actually be wanted for ANY we instead use
+        // the presence of a callback `op` to indicate that walking mode is
+        // requested. We still have to pass an Rtype but it won't be used for
+        // matching when in walk mode, so we set it to Any as it most closely
+        // matches our intent and will be ignored anyway.
+        let walk = WalkState::new(op);
+        self.query_rrsets(self.apex.rrsets(), Rtype::Any, walk.clone());
+        self.query_below_apex(Label::root(), iter::empty(), Rtype::Any, walk);
     }
 }
 
@@ -121,62 +187,100 @@ impl ReadZone {
     fn query_below_apex<'l>(
         &self,
         label: &Label,
-        qname: impl Iterator<Item = &'l Label>,
+        qname: impl Iterator<Item = &'l Label> + Clone,
         qtype: Rtype,
-        op: Option<&dyn Fn(Answer)>,
+        walk: WalkState,
     ) -> NodeAnswer {
-        self.query_children(self.apex.children(), label, qname, qtype, op)
+        self.query_children(self.apex.children(), label, qname, qtype, walk)
     }
 
     fn query_node<'l>(
         &self,
         node: &ZoneNode,
-        mut qname: impl Iterator<Item = &'l Label>,
+        mut qname: impl Iterator<Item = &'l Label> + Clone,
         qtype: Rtype,
-        op: Option<&dyn Fn(Answer)>,
+        walk: WalkState,
     ) -> NodeAnswer {
-        if let Some(label) = qname.next() {
-            self.query_node_below(node, label, qname, qtype, op)
+        if walk.enabled() {
+            // Make sure we visit everything when walking the tree.
+            self.query_rrsets(node.rrsets(), qtype, walk.clone());
+            self.query_node_here_and_below(
+                node,
+                Label::root(),
+                qname,
+                qtype,
+                walk,
+            )
+        } else if let Some(label) = qname.next() {
+            self.query_node_here_and_below(node, label, qname, qtype, walk)
         } else {
-            self.query_node_here(node, qtype, op)
+            self.query_node_here_but_not_below(node, qtype, walk)
         }
     }
 
-    fn query_node_below<'l>(
+    fn query_node_here_and_below<'l>(
         &self,
         node: &ZoneNode,
         label: &Label,
-        qname: impl Iterator<Item = &'l Label>,
+        qname: impl Iterator<Item = &'l Label> + Clone,
         qtype: Rtype,
-        op: Option<&dyn Fn(Answer)>,
+        walk: WalkState,
     ) -> NodeAnswer {
         node.with_special(self.version, |special| match special {
             Some(Special::Cut(ref cut)) => {
-                NodeAnswer::authority(AnswerAuthority::new(
+                let answer = NodeAnswer::authority(AnswerAuthority::new(
                     cut.name.clone(),
                     None,
                     Some(cut.ns.clone()),
                     cut.ds.as_ref().cloned(),
-                ))
+                ));
+
+                walk.op(&cut.ns);
+                if let Some(ds) = &cut.ds {
+                    walk.op(ds);
+                }
+
+                answer
             }
             Some(Special::NxDomain) => NodeAnswer::nx_domain(),
-            Some(Special::Cname(_)) | None => {
-                self.query_children(node.children(), label, qname, qtype, op)
-            }
+            Some(Special::Cname(_)) | None => self.query_children(
+                node.children(),
+                label,
+                qname,
+                qtype,
+                walk,
+            ),
         })
     }
 
-    fn query_node_here(
+    fn query_node_here_but_not_below(
         &self,
         node: &ZoneNode,
         qtype: Rtype,
-        op: Option<&dyn Fn(Answer)>,
+        walk: WalkState,
     ) -> NodeAnswer {
         node.with_special(self.version, |special| match special {
-            Some(Special::Cut(cut)) => self.query_at_cut(cut, qtype),
-            Some(Special::Cname(cname)) => NodeAnswer::cname(cname.clone()),
+            Some(Special::Cut(cut)) => {
+                let answer = self.query_at_cut(cut, qtype);
+                if walk.enabled() {
+                    walk.op(&cut.ns);
+                    if let Some(ds) = &cut.ds {
+                        walk.op(ds);
+                    }
+                }
+                answer
+            }
+            Some(Special::Cname(cname)) => {
+                let answer = NodeAnswer::cname(cname.clone());
+                if walk.enabled() {
+                    let mut rrset = Rrset::new(Rtype::Cname, cname.ttl());
+                    rrset.push_data(cname.data().clone());
+                    walk.op(&rrset);
+                }
+                answer
+            }
             Some(Special::NxDomain) => NodeAnswer::nx_domain(),
-            None => self.query_rrsets(node.rrsets(), qtype, op),
+            None => self.query_rrsets(node.rrsets(), qtype, walk),
         })
     }
 
@@ -184,16 +288,14 @@ impl ReadZone {
         &self,
         rrsets: &NodeRrsets,
         qtype: Rtype,
-        op: Option<&dyn Fn(Answer)>,
+        walk: WalkState,
     ) -> NodeAnswer {
-        if let Some(op) = op {
+        if walk.enabled() {
+            // Walk the zone, don't match by qtype.
             let node_rrsets_iter = rrsets.iter();
             for (_rtype, rrset) in node_rrsets_iter.iter() {
                 if let Some(shared_rrset) = rrset.get(self.version) {
-                    (op)(
-                        NodeAnswer::data(shared_rrset.clone())
-                            .into_answer(self),
-                    );
+                    walk.op(shared_rrset);
                 }
             }
             NodeAnswer::no_data()
@@ -227,24 +329,28 @@ impl ReadZone {
         &self,
         children: &NodeChildren,
         label: &Label,
-        qname: impl Iterator<Item = &'l Label>,
+        qname: impl Iterator<Item = &'l Label> + Clone,
         qtype: Rtype,
-        op: Option<&dyn Fn(Answer)>,
+        walk: WalkState,
     ) -> NodeAnswer {
+        if walk.enabled() {
+            children.walk(walk, |walk, (label, node)| {
+                walk.push(*label);
+                self.query_node(
+                    node,
+                    std::iter::empty(),
+                    qtype,
+                    walk.clone(),
+                );
+                walk.pop();
+            });
+            return NodeAnswer::no_data();
+        }
+
         // Step 1: See if we have a non-terminal child for label. If so,
-        //         continue there. Because of flavors, the child may exist
-        //         but maked as NXDomain in which case it doesn’t really
-        //         exist.
+        //         continue there.
         let answer = children.with(label, |node| {
-            if let Some(node) = node {
-                if node.is_nx_domain(self.version) {
-                    None
-                } else {
-                    Some(self.query_node(node, qname, qtype, op))
-                }
-            } else {
-                None
-            }
+            node.map(|node| self.query_node(node, qname, qtype, walk.clone()))
         });
         if let Some(answer) = answer {
             return answer;
@@ -253,7 +359,9 @@ impl ReadZone {
         // Step 2: Now see if we have an asterisk label. If so, query that
         // node.
         children.with(Label::wildcard(), |node| match node {
-            Some(node) => self.query_node_here(node, qtype, op),
+            Some(node) => {
+                self.query_node_here_but_not_below(node, qtype, walk)
+            }
             None => NodeAnswer::nx_domain(),
         })
     }
@@ -273,17 +381,11 @@ struct NodeAnswer {
 
 impl NodeAnswer {
     fn data(rrset: SharedRrset) -> Self {
-        // Empty RRsets are used to remove a default RRset for a flavor. So
-        // they really are NODATA responses.
-        if rrset.is_empty() {
-            Self::no_data()
-        } else {
-            let mut answer = Answer::new(Rcode::NoError);
-            answer.add_answer(rrset);
-            NodeAnswer {
-                answer,
-                add_soa: false,
-            }
+        let mut answer = Answer::new(Rcode::NoError);
+        answer.add_answer(rrset);
+        NodeAnswer {
+            answer,
+            add_soa: false,
         }
     }
 

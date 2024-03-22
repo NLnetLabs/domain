@@ -61,7 +61,7 @@ std         = ["bytes?/std", "octseq/std", "time/std"]
 net         = ["bytes", "futures-util", "rand", "std", "tokio", "tokio-rustls"]
 tsig        = ["bytes", "ring", "smallvec"]
 validate    = ["std", "ring"]
-zonefile    = ["bytes", "std", "parking_lot", "futures"]
+zonefile    = ["bytes", "futures", "parking_lot", "serde", "std", "tokio", "tracing"]
 
 # Unstable features
 unstable-client-transport = [ "moka" ]
@@ -93,7 +93,11 @@ all-features = true
 rustdoc-args = ["--cfg", "docsrs"]
 
 [[example]]
-name = "readzone"
+name = "read-zone"
+required-features = ["zonefile"]
+
+[[example]]
+name = "query-zone"
 required-features = ["zonefile"]
 
 [[example]]
