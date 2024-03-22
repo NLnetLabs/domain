@@ -744,12 +744,12 @@ where
 
             Err(TrySendError::Closed(_msg)) => {
                 // TODO: How should we properly communicate this to the operator?
-                error!("StreamServer: Unable to queue message for sending: server is shutting down.");
+                error!("Unable to queue message for sending: server is shutting down.");
             }
 
             Err(TrySendError::Full(_msg)) => {
                 // TODO: How should we properly communicate this to the operator?
-                error!("StreamServer: Unable to queue message for sending: queue is full.");
+                error!("Unable to queue message for sending: queue is full.");
             }
         }
     }
@@ -855,7 +855,6 @@ where
             io::ErrorKind::UnexpectedEof => {
                 // The client disconnected. Per RFC 7766 6.2.4 pending
                 // responses MUST NOT be sent to the client.
-                error!("I/O error: {}", err);
                 ControlFlow::Break(ConnectionEvent::DisconnectWithoutFlush)
             }
             io::ErrorKind::TimedOut | io::ErrorKind::Interrupted => {

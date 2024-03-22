@@ -361,7 +361,7 @@ where
         Svc::Future: Send,
     {
         if let Err(err) = self.run_until_error().await {
-            error!("DgramServer: {err}");
+            error!("Server stopped due to error: {err}");
         }
     }
 
