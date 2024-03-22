@@ -116,18 +116,13 @@
 use std::{future::Future, pin::Pin, str::FromStr, sync::Arc};
 
 use bytes::Bytes;
-use domain::{
-    base::{
-        iana::{Class, Rcode},
-        scan::IterScanner,
-        Dname, Rtype, Ttl,
-    },
-    rdata::ZoneRecordData,
-    zonetree::{
-        Answer, OutOfZone, ReadableZone, Rrset, SharedRrset, StoredDname,
-        Version, VersionMarker, WalkOp, WriteableZone, Zone, ZoneData,
-        ZoneSet,
-    },
+use domain::base::iana::{Class, Rcode};
+use domain::base::scan::IterScanner;
+use domain::base::{Dname, Rtype, Ttl};
+use domain::rdata::ZoneRecordData;
+use domain::zonetree::{
+    Answer, OutOfZone, ReadableZone, Rrset, SharedRrset, StoredDname,
+    Version, VersionMarker, WalkOp, WriteableZone, Zone, ZoneData, ZoneSet,
 };
 use parking_lot::RwLock;
 use sqlx::{mysql::MySqlConnectOptions, MySqlPool};
