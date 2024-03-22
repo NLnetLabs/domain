@@ -182,7 +182,9 @@ type CommandReceiver<RequestOctets, Target> =
 /// and a [`Service`] to generate responses to requests.
 ///
 /// ```
+/// use std::boxed::Box;
 /// use std::future::{Future, Ready};
+/// use std::pin::Pin;
 /// use domain::net::server::buf::VecBufSource;
 /// use domain::net::server::prelude::*;
 /// use domain::net::server::middleware::builder::MiddlewareBuilder;
@@ -190,7 +192,18 @@ type CommandReceiver<RequestOctets, Target> =
 /// use tokio::net::TcpListener;
 ///
 /// fn my_service(msg: Request<Message<Vec<u8>>>, _meta: ())
-///     -> ServiceResult<Vec<u8>, Vec<u8>, Ready<ServiceResultItem<Vec<u8>, Vec<u8>>>>
+/// -> Result<
+///        Transaction<
+///           Result<CallResult<Vec<u8>, Vec<u8>>, ServiceError>,
+///           Pin<Box<dyn Future<
+///               Output = Result<
+///                   CallResult<Vec<u8>, Vec<u8>>,
+///                   ServiceError,
+///               >,
+///           > + Send>>,
+///       >,
+///       ServiceError,
+///    >
 /// {
 ///     todo!()
 /// }

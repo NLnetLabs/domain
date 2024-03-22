@@ -14,7 +14,7 @@ use crate::base::{MessageBuilder, ParsedDname, Rtype, StreamTarget};
 use crate::rdata::AllRecordData;
 
 use super::message::Request;
-use super::service::{Service, ServiceResult, ServiceResultItem};
+use super::service::{CallResult, Service, ServiceError, Transaction};
 
 //----------- mk_builder_for_target() ----------------------------------------
 
@@ -49,7 +49,9 @@ where
 ///
 /// ```
 /// // Import the types we need.
+/// use std::boxed::Box;
 /// use std::future::Future;
+/// use std::pin::Pin;
 /// use domain::net::server::prelude::*;
 /// use domain::base::iana::Rcode;
 ///
@@ -62,7 +64,18 @@ where
 /// fn my_service(
 ///     req: Request<Message<Vec<u8>>>,
 ///     _meta: MyMeta,
-/// ) -> ServiceResult<Vec<u8>, Vec<u8>, impl Future<Output = ServiceResultItem<Vec<u8>, Vec<u8>>>> {
+/// ) -> Result<
+///     Transaction<
+///         Result<CallResult<Vec<u8>, Vec<u8>>, ServiceError>,
+///         Pin<Box<dyn Future<
+///             Output = Result<
+///                 CallResult<Vec<u8>, Vec<u8>>,
+///                 ServiceError,
+///             >,
+///         > + Send>>,
+///     >,
+///     ServiceError,
+/// > {
 ///     // For each request create a single response:
 ///     Ok(Transaction::single(Box::pin(async move {
 ///         let builder = mk_builder_for_target();
@@ -90,14 +103,20 @@ pub fn service_fn<RequestOctets, Target, Future, T, Metadata>(
 where
     RequestOctets: AsRef<[u8]>,
     Target: Composer + Default + Send + Sync + 'static,
-    Future: std::future::Future<Output = ServiceResultItem<RequestOctets, Target>>
-        + Send,
+    Future: std::future::Future<
+            Output = Result<CallResult<RequestOctets, Target>, ServiceError>,
+        > + Send,
     Metadata: Clone,
     T: Fn(
             Request<Message<RequestOctets>>,
             Metadata,
-        ) -> ServiceResult<RequestOctets, Target, Future>
-        + Clone,
+        ) -> Result<
+            Transaction<
+                Result<CallResult<RequestOctets, Target>, ServiceError>,
+                Future,
+            >,
+            ServiceError,
+        > + Clone,
 {
     move |msg| msg_handler(msg, metadata.clone())
 }

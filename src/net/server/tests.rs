@@ -24,8 +24,7 @@ use crate::base::{Message, StreamTarget};
 use super::buf::BufSource;
 use super::message::Request;
 use super::service::{
-    CallResult, Service, ServiceError, ServiceFeedback, ServiceResultItem,
-    Transaction,
+    CallResult, Service, ServiceError, ServiceFeedback, Transaction,
 };
 use super::sock::AsyncAccept;
 use super::stream::StreamServer;
@@ -303,7 +302,10 @@ impl Service<Vec<u8>> for MyService {
         &self,
         _msg: Request<Message<Vec<u8>>>,
     ) -> Result<
-        Transaction<ServiceResultItem<Vec<u8>, Self::Target>, Self::Future>,
+        Transaction<
+            Result<CallResult<Vec<u8>, Self::Target>, ServiceError>,
+            Self::Future,
+        >,
         ServiceError,
     > {
         Ok(Transaction::single(MySingle))

@@ -73,12 +73,19 @@ struct MyService;
 /// [`Service`] trait for a function instead of a struct.
 impl Service<Vec<u8>> for MyService {
     type Target = Vec<u8>;
-    type Future = Ready<ServiceResultItem<Vec<u8>, Self::Target>>;
+    type Future =
+        Ready<Result<CallResult<Vec<u8>, Self::Target>, ServiceError>>;
 
     fn call(
         &self,
         msg: Request<Message<Vec<u8>>>,
-    ) -> ServiceResult<Vec<u8>, Self::Target, Self::Future> {
+    ) -> Result<
+        Transaction<
+            Result<CallResult<Vec<u8>, Self::Target>, ServiceError>,
+            Self::Future,
+        >,
+        ServiceError,
+    > {
         let builder = mk_builder_for_target();
         let additional = mk_answer(&msg, builder)?;
         let item = ready(Ok(CallResult::new(additional)));
@@ -94,12 +101,16 @@ impl Service<Vec<u8>> for MyService {
 ///
 /// The function signature is slightly more complex than when using
 /// [`service_fn()`] (see the [`query()`] example below).
+#[allow(clippy::type_complexity)]
 fn name_to_ip<Target>(
     msg: Request<Message<Vec<u8>>>,
-) -> ServiceResult<
-    Vec<u8>,
-    Target,
-    impl Future<Output = ServiceResultItem<Vec<u8>, Target>>,
+) -> Result<
+    Transaction<
+        Result<CallResult<Vec<u8>, Target>, ServiceError>,
+        impl Future<Output = Result<CallResult<Vec<u8>, Target>, ServiceError>>
+            + Send,
+    >,
+    ServiceError,
 >
 where
     Target:
@@ -151,13 +162,18 @@ where
 /// The function signature is slightly simpler to write than when not using
 /// [`service_fn()`] and supports passing in meta data without any extra
 /// boilerplate.
+#[allow(clippy::type_complexity)]
 fn query(
     msg: Request<Message<Vec<u8>>>,
     count: Arc<AtomicU8>,
-) -> ServiceResult<
-    Vec<u8>,
-    Vec<u8>,
-    impl Future<Output = ServiceResultItem<Vec<u8>, Vec<u8>>> + Send,
+) -> Result<
+    Transaction<
+        Result<CallResult<Vec<u8>, Vec<u8>>, ServiceError>,
+        impl Future<
+                Output = Result<CallResult<Vec<u8>, Vec<u8>>, ServiceError>,
+            > + Send,
+    >,
+    ServiceError,
 > {
     let cnt = count
         .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |x| {

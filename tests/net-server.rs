@@ -233,13 +233,18 @@ where
 //     the `Service` will be passed.
 //   - Controlling the content of the `Zonefile` passed to instances of
 //     this `Service` impl.
+#[allow(clippy::type_complexity)]
 fn test_service(
     request: Request<Message<Vec<u8>>>,
     zonefile: Zonefile,
-) -> ServiceResult<
-    Vec<u8>,
-    Vec<u8>,
-    impl Future<Output = ServiceResultItem<Vec<u8>, Vec<u8>>> + Send,
+) -> Result<
+    Transaction<
+        Result<CallResult<Vec<u8>, Vec<u8>>, ServiceError>,
+        impl Future<
+                Output = Result<CallResult<Vec<u8>, Vec<u8>>, ServiceError>,
+            > + Send,
+    >,
+    ServiceError,
 > {
     fn as_record_and_dname(
         r: ScannedRecord,
