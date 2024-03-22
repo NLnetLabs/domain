@@ -103,16 +103,15 @@ fn main() {
     if verbosity != Verbosity::Quiet {
         println!("Finding zone for qname {qname} class {qclass}...");
     }
-    let Some(zone) = zones.find_zone(&qname, qclass) else {
-        eprintln!("Error: No zone found for qname {qname} class {qclass}");
-        exit(2);
+    let zone_answer = if let Some(zone) = zones.find_zone(&qname, qclass) {
+        // Query the built zone for the requested records.
+        if verbosity != Verbosity::Quiet {
+            println!("Querying zone {} class {} for qname {qname} with qtype {qtype}...", zone.apex_name(), zone.class());
+        }
+        zone.read().query(qname.clone(), qtype).unwrap()
+    } else {
+        Answer::nxdomain()
     };
-
-    // Query the built zone for the requested records.
-    if verbosity != Verbosity::Quiet {
-        println!("Querying zone {} class {} for qname {qname} with qtype {qtype}...", zone.apex_name(), zone.class());
-    }
-    let zone_answer = zone.read().query(qname.clone(), qtype).unwrap();
 
     // Emulate a DIG style response by generating a complete DNS wire response
     // from the zone answer, which requires that we fake a DNS wire query to
@@ -232,6 +231,52 @@ fn print_dig_style_response(
     short: bool,
 ) {
     if !short {
+        let qh = query.header();
+        let rh = response.header();
+        println!("; (1 in-memory server found)");
+        println!(";; global options:");
+        println!(";; Got answer:");
+        println!(
+            ";; ->>HEADER<<- opcode: {}, status: {}, id: {}",
+            qh.opcode(),
+            rh.rcode(),
+            rh.id()
+        );
+        print!(";; flags: ");
+        if rh.aa() {
+            print!("aa ");
+        }
+        if rh.ad() {
+            print!("ad ");
+        }
+        if rh.cd() {
+            print!("cd ");
+        }
+        if rh.qr() {
+            print!("qr ");
+        }
+        if rh.ra() {
+            print!("ra ");
+        }
+        if rh.rd() {
+            print!("rd ");
+        }
+        if rh.tc() {
+            print!("tc ");
+        }
+        let counts = response.header_counts();
+        println!(
+            "; QUERY: {}, ANSWER: {}, AUTHORITY: {}, ADDITIONAL: {}",
+            counts.qdcount(),
+            counts.ancount(),
+            counts.arcount(),
+            counts.adcount()
+        );
+
+        // println!(";; OPT PSEUDOSECTION:");
+        // println!("; EDNS: version: 0, flags:; udp: 1232");
+        // println!("; NSID: 72 65 73 37 31 30 2e 61 6d 73 2e 72 72 64 6e 73 2e 70 63 68 2e 6e 65 74 ("res710.ams.rrdns.pch.net")");
+
         if let Ok(question) = query.sole_question() {
             println!(";; QUESTION SECTION:");
             println!(
