@@ -12,8 +12,8 @@ use domain::base::{Dname, Message, MessageBuilder, ParsedDname, Rtype};
 use domain::base::{ParsedRecord, Record};
 use domain::rdata::ZoneRecordData;
 use domain::zonefile::inplace;
-use domain::zonetree::Zone;
 use domain::zonetree::{Answer, Rrset};
+use domain::zonetree::{Zone, ZoneSet};
 use octseq::Parser;
 use tracing_subscriber::EnvFilter;
 
@@ -37,12 +37,12 @@ fn main() {
     let mut args = env::args();
     let prog_name = args.next().unwrap(); // SAFETY: O/S always passes our name as the first argument.
     let usage = format!(
-        "Usage: {} [-q|--quiet|-v|--verbose] [+short] <zonefile_path> <qtype> <qname>",
+        "Usage: {} [-q|--quiet|-v|--verbose] [+short] <zonefile_path> [<zonefile_path> ..] <qtype> <qname>",
         prog_name
     );
 
     // Process command line arguments.
-    let (verbosity, mut zone_file, qtype, qname, short) =
+    let (verbosity, zone_files, qtype, qname, short) =
         process_dig_style_args(args).unwrap_or_else(|err| {
             eprintln!("{}", usage);
             eprintln!("{}", err);
@@ -50,35 +50,67 @@ fn main() {
         });
 
     // Go!
-    if verbosity != Verbosity::Quiet {
-        println!("Reading zone file...");
-    }
-    let reader = inplace::Zonefile::load(&mut zone_file).unwrap();
+    let mut zones = ZoneSet::new();
 
-    if verbosity != Verbosity::Quiet {
-        println!("Constructing zone...");
+    for (zone_file_path, mut zone_file) in zone_files {
+        if verbosity != Verbosity::Quiet {
+            println!("Reading zone file '{zone_file_path}'...");
+        }
+        let reader = inplace::Zonefile::load(&mut zone_file).unwrap();
+
+        if verbosity != Verbosity::Quiet {
+            println!("Constructing zone...");
+        }
+        let zone = Zone::try_from(reader).unwrap_or_else(|err| {
+            eprintln!("Error while constructing zone: {err}");
+            exit(1);
+        });
+
+        if verbosity != Verbosity::Quiet {
+            println!(
+                "Inserting zone for {} class {}...",
+                zone.apex_name(),
+                zone.class()
+            );
+        }
+        zones.insert_zone(zone).unwrap_or_else(|err| {
+            eprintln!("Error while inserting zone: {err}");
+            exit(1);
+        });
     }
-    let zone = Zone::try_from(reader).unwrap_or_else(|err| {
-        eprintln!("Error while constructing zone: {err}");
-        exit(1);
-    });
 
     if let Verbosity::Verbose(level) = verbosity {
-        println!("Dumping zone...");
-        zone.read().walk(Box::new(move |owner, rrset| {
-            dump_rrset(owner, rrset);
-        }));
-        println!("Dump complete.");
+        for zone in zones.iter_zones() {
+            println!(
+                "Dumping zone {} class {}...",
+                zone.apex_name(),
+                zone.class()
+            );
+            zone.read().walk(Box::new(move |owner, rrset| {
+                dump_rrset(owner, rrset);
+            }));
+            println!("Dump complete.");
 
-        if level > 0 {
-            println!("Debug dumping zone...");
-            dbg!(&zone);
+            if level > 0 {
+                println!("Debug dumping zone...");
+                dbg!(zone);
+            }
         }
     }
 
+    // Find the zone to query
+    let qclass = Class::In;
+    if verbosity != Verbosity::Quiet {
+        println!("Finding zone for qname {qname} class {qclass}...");
+    }
+    let Some(zone) = zones.find_zone(&qname, qclass) else {
+        eprintln!("Error: No zone found for qname {qname} class {qclass}");
+        exit(2);
+    };
+
     // Query the built zone for the requested records.
     if verbosity != Verbosity::Quiet {
-        println!("Querying zone for qname {qname} with qtype {qtype}...");
+        println!("Querying zone {} class {} for qname {qname} with qtype {qtype}...", zone.apex_name(), zone.class());
     }
     let zone_answer = zone.read().query(qname.clone(), qtype).unwrap();
 
@@ -93,12 +125,15 @@ fn main() {
     print_dig_style_response(&wire_query, &wire_response, short);
 }
 
+#[allow(clippy::type_complexity)]
 fn process_dig_style_args(
     args: env::Args,
-) -> Result<(Verbosity, File, Rtype, Dname<Bytes>, bool), String> {
+) -> Result<(Verbosity, Vec<(String, File)>, Rtype, Dname<Bytes>, bool), String>
+{
     let mut abort_with_usage = false;
     let mut verbosity = Verbosity::Normal;
     let mut short = false;
+    let mut zone_files = vec![];
 
     let args: Vec<_> = args
         .filter(|arg| {
@@ -127,15 +162,24 @@ fn process_dig_style_args(
         })
         .collect();
 
-    if args.len() == 3 {
-        let zone_file = File::open(&args[0])
-            .map_err(|err| format!("Cannot open zone file: {err}"))?;
-        let qtype = Rtype::from_str(&args[1])
+    if args.len() >= 3 {
+        let mut i = 0;
+        while i < args.len() - 2 {
+            let zone_file = File::open(&args[i]).map_err(|err| {
+                format!("Cannot open zone file '{}': {err}", args[i])
+            })?;
+            zone_files.push((args[i].to_string(), zone_file));
+            i += 1;
+        }
+
+        let qtype = Rtype::from_str(&args[i])
             .map_err(|err| format!("Cannot parse qtype: {err}"))?;
-        let qname = Dname::<Bytes>::from_str(&args[2])
+        i += 1;
+
+        let qname = Dname::<Bytes>::from_str(&args[i])
             .map_err(|err| format!("Cannot parse qname: {err}"))?;
 
-        Ok((verbosity, zone_file, qtype, qname, short))
+        Ok((verbosity, zone_files, qtype, qname, short))
     } else {
         Err("Insufficient arguments".to_string())
     }

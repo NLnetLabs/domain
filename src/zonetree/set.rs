@@ -5,6 +5,7 @@ use crate::base::iana::Class;
 use crate::base::name::{Label, OwnedLabel, ToDname, ToLabelIter};
 use std::collections::hash_map;
 use std::collections::HashMap;
+use std::fmt::Display;
 use std::io;
 use std::vec::Vec;
 
@@ -229,6 +230,15 @@ impl From<InsertZoneError> for io::Error {
             InsertZoneError::ZoneExists => {
                 io::Error::new(io::ErrorKind::Other, "zone exists")
             }
+        }
+    }
+}
+
+impl Display for InsertZoneError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            InsertZoneError::ZoneExists => write!(f, "Zone already exists"),
+            InsertZoneError::Io(err) => write!(f, "Io error: {err}"),
         }
     }
 }
