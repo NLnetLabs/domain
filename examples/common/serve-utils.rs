@@ -1,9 +1,7 @@
 use bytes::Bytes;
-use domain::{
-    base::{Dname, Message, MessageBuilder, ParsedDname, Rtype},
-    rdata::ZoneRecordData,
-    zonetree::Answer,
-};
+use domain::base::{Dname, Message, MessageBuilder, ParsedDname, Rtype};
+use domain::rdata::ZoneRecordData;
+use domain::zonetree::Answer;
 
 pub fn generate_wire_query(
     qname: &Dname<Bytes>,
