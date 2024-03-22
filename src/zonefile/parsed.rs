@@ -401,8 +401,12 @@ impl Display for RecordError {
             RecordError::IllegalRecord => write!(f, "IllegalRecord"),
             RecordError::IllegalCname => write!(f, "IllegalCname"),
             RecordError::MultipleCnames => write!(f, "MultipleCnames"),
-            RecordError::MalformedRecord(err) => write!(f, "MalformedRecord: {err}"),
-            RecordError::InvalidRecord(err) => write!(f, "InvalidRecord: {err}"),
+            RecordError::MalformedRecord(err) => {
+                write!(f, "MalformedRecord: {err}")
+            }
+            RecordError::InvalidRecord(err) => {
+                write!(f, "InvalidRecord: {err}")
+            }
             RecordError::MissingSoa => write!(f, "MissingSoa"),
         }
     }
