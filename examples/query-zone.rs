@@ -21,7 +21,7 @@ use tracing_subscriber::EnvFilter;
 enum Verbosity {
     Quiet,
     Normal,
-    Verbose,
+    Verbose(u8),
 }
 
 fn main() {
@@ -58,14 +58,22 @@ fn main() {
     if verbosity != Verbosity::Quiet {
         println!("Constructing zone...");
     }
-    let zone = Zone::try_from(reader).unwrap();
+    let zone = Zone::try_from(reader).unwrap_or_else(|err| {
+        eprintln!("Error while constructing zone: {err}");
+        exit(1);
+    });
 
-    if verbosity == Verbosity::Verbose {
+    if let Verbosity::Verbose(level) = verbosity {
         println!("Dumping zone...");
         zone.read().walk(Box::new(move |owner, rrset| {
             dump_rrset(owner, rrset);
         }));
         println!("Dump complete.");
+
+        if level > 0 {
+            println!("Debug dumping zone...");
+            dbg!(&zone);
+        }
     }
 
     // Query the built zone for the requested records.
@@ -89,19 +97,25 @@ fn process_dig_style_args(
     args: env::Args,
 ) -> Result<(Verbosity, File, Rtype, Dname<Bytes>, bool), String> {
     let mut abort_with_usage = false;
-    let mut mode = Verbosity::Normal;
+    let mut verbosity = Verbosity::Normal;
     let mut short = false;
 
     let args: Vec<_> = args
         .filter(|arg| {
             if arg.starts_with(['-', '+']) {
                 match arg.as_str() {
-                    "-q" | "--quiet" => mode = Verbosity::Quiet,
-                    "-v" | "--verbose" => mode = Verbosity::Verbose,
+                    "-q" | "--quiet" => verbosity = Verbosity::Quiet,
+                    "-v" | "--verbose" => {
+                        if let Verbosity::Verbose(level) = verbosity {
+                            verbosity = Verbosity::Verbose(level + 1)
+                        } else {
+                            verbosity = Verbosity::Verbose(0)
+                        }
+                    }
                     "+short" => {
                         short = true;
-                        if mode == Verbosity::Normal {
-                            mode = Verbosity::Quiet
+                        if verbosity == Verbosity::Normal {
+                            verbosity = Verbosity::Quiet
                         }
                     }
                     _ => abort_with_usage = true,
@@ -121,7 +135,7 @@ fn process_dig_style_args(
         let qname = Dname::<Bytes>::from_str(&args[2])
             .map_err(|err| format!("Cannot parse qname: {err}"))?;
 
-        Ok((mode, zone_file, qtype, qname, short))
+        Ok((verbosity, zone_file, qtype, qname, short))
     } else {
         Err("Insufficient arguments".to_string())
     }

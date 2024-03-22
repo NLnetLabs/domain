@@ -1420,7 +1420,7 @@ enum ItemCat {
 //------------ EntryError ----------------------------------------------------
 
 /// An error returned by the entry scanner.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 struct EntryError(&'static str);
 
 impl EntryError {
@@ -1498,7 +1498,7 @@ impl std::error::Error for EntryError {}
 
 //------------ Error ---------------------------------------------------------
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Error {
     err: EntryError,
     line: usize,

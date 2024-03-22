@@ -1,5 +1,7 @@
 //! Importing from and exporting to a zonefiles.
 
+use tracing::trace;
+
 use crate::base::iana::{Class, Rtype};
 use crate::base::name::FlattenInto;
 use crate::base::ToDname;
@@ -8,7 +10,9 @@ use crate::zonetree::{
     CnameError, Rrset, SharedRr, StoredDname, StoredRecord, ZoneBuilder,
     ZoneCutError,
 };
+use core::convert::Infallible;
 use std::collections::{BTreeMap, HashMap};
+use std::fmt::Display;
 use std::vec::Vec;
 
 use super::inplace::{self, Entry};
@@ -58,6 +62,7 @@ impl Zonefile {
         &mut self,
         record: StoredRecord,
     ) -> Result<(), RecordError> {
+        trace!("{record}");
         if record.class() != self.class {
             return Err(RecordError::ClassMismatch);
         }
@@ -182,7 +187,7 @@ impl TryFrom<inplace::Zonefile> for Zonefile {
         let mut sink = loop {
             let entry = source
                 .next_entry()
-                .map_err(|_| RecordError::InvalidRecord)?
+                .map_err(|err| RecordError::MalformedRecord(err))?
                 .ok_or(RecordError::MissingSoa)?;
 
             if let Entry::Record(record) = entry {
@@ -191,7 +196,7 @@ impl TryFrom<inplace::Zonefile> for Zonefile {
                         let apex = record
                             .owner()
                             .to_dname()
-                            .map_err(|_| RecordError::InvalidRecord)?;
+                            .map_err(|_: Infallible| unreachable!())?;
 
                         let mut sink = Zonefile::new(apex, record.class());
 
@@ -209,8 +214,13 @@ impl TryFrom<inplace::Zonefile> for Zonefile {
             }
         };
 
-        while let Some(Ok(Entry::Record(r))) = source.next() {
-            sink.insert(r.flatten_into())?;
+        for res in source {
+            match res.map_err(|err| RecordError::MalformedRecord(err))? {
+                Entry::Record(r) => sink.insert(r.flatten_into())?,
+                entry => {
+                    trace!("Skipping unsupported zone file entry: {entry:?}")
+                }
+            }
         }
 
         Ok(sink)
@@ -356,7 +366,7 @@ impl ZoneCut {
 
 //------------ RecordError ---------------------------------------------------
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 pub enum RecordError {
     /// The class of the record does not match the class of the zone.
     ClassMismatch,
@@ -374,10 +384,28 @@ pub enum RecordError {
     MultipleCnames,
 
     /// The record could not be parsed.
-    InvalidRecord,
+    MalformedRecord(inplace::Error),
+
+    /// The record is parseable but not valid.
+    InvalidRecord(ZoneError),
 
     /// The SOA record was not found.
     MissingSoa,
+}
+
+impl Display for RecordError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            RecordError::ClassMismatch => write!(f, "ClassMismatch"),
+            RecordError::IllegalZoneCut => write!(f, "IllegalZoneCut"),
+            RecordError::IllegalRecord => write!(f, "IllegalRecord"),
+            RecordError::IllegalCname => write!(f, "IllegalCname"),
+            RecordError::MultipleCnames => write!(f, "MultipleCnames"),
+            RecordError::MalformedRecord(err) => write!(f, "MalformedRecord: {err}"),
+            RecordError::InvalidRecord(err) => write!(f, "InvalidRecord: {err}"),
+            RecordError::MissingSoa => write!(f, "MissingSoa"),
+        }
+    }
 }
 
 //------------ ZoneError -----------------------------------------------------
@@ -401,6 +429,16 @@ impl ZoneError {
     }
 }
 
+impl Display for ZoneError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "Zone file errors: [")?;
+        for err in &self.errors {
+            write!(f, "'{}': {},", err.0, err.1)?;
+        }
+        write!(f, "]")
+    }
+}
+
 //------------ OwnerError ---------------------------------------------------
 
 #[derive(Clone, Debug)]
@@ -418,4 +456,15 @@ enum OwnerError {
 
     /// A record is out of zone.
     OutOfZone(Rtype),
+}
+
+impl Display for OwnerError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            OwnerError::MissingNs => write!(f, "MissingNs"),
+            OwnerError::InvalidZonecut(_) => write!(f, "InvalidZonecut"),
+            OwnerError::InvalidCname(_) => write!(f, "InvalidCname"),
+            OwnerError::OutOfZone(_) => write!(f, "OutOfZone"),
+        }
+    }
 }
