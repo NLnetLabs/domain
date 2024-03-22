@@ -88,6 +88,9 @@ tokio-tfo      = { version = "0.2.0" }
 lazy_static        = { version = "1.4.0" } # Force lazy_static to > 1.0.0 for https://github.com/rust-lang-nursery/lazy-static.rs/pull/107
 tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
 
+# For the "mysql-zone" example
+sqlx = { version = "0.7", features = [ "runtime-tokio", "mysql" ] }
+
 [package.metadata.docs.rs]
 all-features = true
 rustdoc-args = ["--cfg", "docsrs"]
@@ -126,4 +129,8 @@ required-features = ["net", "unstable-server-transport"]
 
 [[example]]
 name = "serve-zone"
+required-features = ["zonefile", "net", "unstable-server-transport"]
+
+[[example]]
+name = "mysql-zone"
 required-features = ["zonefile", "net", "unstable-server-transport"]
