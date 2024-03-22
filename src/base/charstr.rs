@@ -95,8 +95,8 @@ use std::vec::Vec;
 /// # Serde support
 ///
 /// When the `serde` feature is enabled, the type supports serialization and
-/// deserialization. The format differs for human readable and non-human
-/// readable serialization formats.
+/// deserialization. The format differs for human readable and compact
+/// serialization formats.
 ///
 /// For human readable formats, character strings are serialized as a newtype
 /// `CharStr` wrapping a string with the content as an ASCII string.
@@ -113,7 +113,7 @@ use std::vec::Vec;
 /// When deserializing, escape sequences are excepted for all octets and
 /// translated. Non-ASCII characters are not accepted and lead to error.
 ///
-/// For non-human readable formats, character strings are serialized as a
+/// For compact formats, character strings are serialized as a
 /// newtype `CharStr` wrapping a byte array with the content as is.
 ///
 /// [RFC 1035]: https://tools.ietf.org/html/rfc1035
@@ -198,7 +198,7 @@ impl CharStr<[u8]> {
     /// Checks whether an octets slice contains a correct character string.
     fn check_slice(slice: &[u8]) -> Result<(), CharStrError> {
         if slice.len() > CharStr::MAX_LEN {
-            Err(CharStrError)
+            Err(CharStrError(()))
         } else {
             Ok(())
         }
@@ -294,6 +294,36 @@ impl CharStr<[u8]> {
             .parse_octets(len)
             .map(|bytes| unsafe { Self::from_slice_unchecked(bytes) })
             .map_err(Into::into)
+    }
+
+    /// Decodes the readable presentation and appends it to a builder.
+    ///
+    /// This is a helper function used both by the `FromStr` impl and
+    /// deserialization. It reads the string in unquoted form and appends its
+    /// wire format to the builder. Note that this does _not_ contain the
+    /// length octet. The function does, however, return the value of the
+    /// length octet.
+    ///
+    /// The function is here on `CharStr<[u8]>` so that it can be called
+    /// simply via `CharStr::append_from_str` without having to provide a
+    /// type argument.
+    fn append_from_str(
+        s: &str,
+        target: &mut impl OctetsBuilder,
+    ) -> Result<u8, FromStrError> {
+        let mut len = 0u8;
+        let mut chars = s.chars();
+        while let Some(symbol) = Symbol::from_chars(&mut chars)? {
+            // We have the max length but there’s another character. Error!
+            if len == u8::MAX {
+                return Err(PresentationErrorEnum::LongString.into());
+            }
+            target
+                .append_slice(&[symbol.into_octet()?])
+                .map_err(Into::into)?;
+            len += 1;
+        }
+        Ok(len)
     }
 }
 
@@ -410,13 +440,7 @@ where
             CharStrBuilder::<<Octets as FromBuilder>::Builder>::with_capacity(
                 s.len(),
             );
-        let mut chars = s.chars();
-        while let Some(symbol) = Symbol::from_chars(&mut chars)? {
-            if builder.len() == CharStr::MAX_LEN {
-                return Err(FromStrError::LongString);
-            }
-            builder.append_slice(&[symbol.into_octet()?])?
-        }
+        CharStr::append_from_str(s, &mut builder)?;
         Ok(builder.finish())
     }
 }
@@ -721,7 +745,7 @@ impl<Builder: OctetsBuilder + AsRef<[u8]>> CharStrBuilder<Builder> {
     /// returned.
     pub fn from_builder(builder: Builder) -> Result<Self, CharStrError> {
         if builder.as_ref().len() > CharStr::MAX_LEN {
-            Err(CharStrError)
+            Err(CharStrError(()))
         } else {
             Ok(unsafe { Self::from_builder_unchecked(builder) })
         }
@@ -927,6 +951,141 @@ impl<'a> fmt::Display for DisplayUnquoted<'a> {
     }
 }
 
+//------------ DeserializeCharStrSeed ----------------------------------------
+
+/// A helper type to deserialize a character string into an octets builder.
+///
+/// This type can be used when deserializing a type that keeps a character
+/// string in wire format as part of a longer octets sequence. It uses the
+/// `DeserializeSeed` trait to append the content to an octets builder and
+/// returns `()` as the actual value.
+#[cfg(feature = "serde")]
+pub struct DeserializeCharStrSeed<'a, Builder> {
+    builder: &'a mut Builder,
+}
+
+#[cfg(feature = "serde")]
+impl<'a, Builder> DeserializeCharStrSeed<'a, Builder> {
+    /// Creates a new value wrapping a ref mut to the builder to append to.
+    pub fn new(builder: &'a mut Builder) -> Self {
+        Self { builder }
+    }
+}
+
+#[cfg(feature = "serde")]
+impl<'de, 'a, Builder> serde::de::DeserializeSeed<'de>
+    for DeserializeCharStrSeed<'a, Builder>
+where
+    Builder: OctetsBuilder + AsMut<[u8]>,
+{
+    // We don’t return anything but append the value to `self.builder`.
+    type Value = ();
+
+    fn deserialize<D: serde::de::Deserializer<'de>>(
+        self,
+        deserializer: D,
+    ) -> Result<Self::Value, D::Error> {
+        // Here’s how this all hangs together: CharStr serializes as a
+        // newtype, so we have a visitor for that. It dispatches to an
+        // inner vistor that differs for binary and human-readable formats.
+        // All of them just wrap around the `self` we’ve been given.
+
+        // Visitor for the outer newtype
+        struct NewtypeVisitor<'a, Builder>(
+            DeserializeCharStrSeed<'a, Builder>,
+        );
+
+        impl<'de, 'a, Builder> serde::de::Visitor<'de> for NewtypeVisitor<'a, Builder>
+        where
+            Builder: OctetsBuilder + AsMut<[u8]>,
+        {
+            type Value = ();
+
+            fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+                f.write_str("a character string")
+            }
+
+            fn visit_newtype_struct<D: serde::Deserializer<'de>>(
+                self,
+                deserializer: D,
+            ) -> Result<Self::Value, D::Error> {
+                if deserializer.is_human_readable() {
+                    deserializer.deserialize_str(ReadableVisitor(self.0))
+                } else {
+                    deserializer.deserialize_bytes(BinaryVisitor(self.0))
+                }
+            }
+        }
+
+        // Visitor for a human readable inner value
+        struct ReadableVisitor<'a, Builder>(
+            DeserializeCharStrSeed<'a, Builder>,
+        );
+
+        impl<'de, 'a, Builder> serde::de::Visitor<'de>
+            for ReadableVisitor<'a, Builder>
+        where
+            Builder: OctetsBuilder + AsMut<[u8]>,
+        {
+            type Value = ();
+
+            fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+                f.write_str("a character string")
+            }
+
+            fn visit_str<E: serde::de::Error>(
+                self,
+                value: &str,
+            ) -> Result<Self::Value, E> {
+                // Append a placeholder for the length octet, remember its
+                // index.
+                let start = self.0.builder.as_mut().len();
+                self.0
+                    .builder
+                    .append_slice(&[0])
+                    .map_err(|_| E::custom(ShortBuf))?;
+
+                // Decode and append the string.
+                let len = CharStr::append_from_str(value, self.0.builder)
+                    .map_err(E::custom)?;
+
+                // Update the length octet.
+                self.0.builder.as_mut()[start] = len;
+                Ok(())
+            }
+        }
+
+        // Visitor for a binary inner value
+        struct BinaryVisitor<'a, Builder>(
+            DeserializeCharStrSeed<'a, Builder>,
+        );
+
+        impl<'de, 'a, Builder> serde::de::Visitor<'de> for BinaryVisitor<'a, Builder>
+        where
+            Builder: OctetsBuilder,
+        {
+            type Value = ();
+
+            fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+                f.write_str("a character string")
+            }
+
+            fn visit_bytes<E: serde::de::Error>(
+                self,
+                value: &[u8],
+            ) -> Result<Self::Value, E> {
+                CharStr::from_slice(value)
+                    .map_err(E::custom)?
+                    .compose(self.0.builder)
+                    .map_err(|_| E::custom(ShortBuf))
+            }
+        }
+
+        deserializer
+            .deserialize_newtype_struct("CharStr", NewtypeVisitor(self))
+    }
+}
+
 //============ Error Types ===================================================
 
 //------------ CharStrError --------------------------------------------------
@@ -934,8 +1093,8 @@ impl<'a> fmt::Display for DisplayUnquoted<'a> {
 /// A byte sequence does not represent a valid character string.
 ///
 /// This can only mean that the sequence is longer than 255 bytes.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct CharStrError;
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct CharStrError(());
 
 impl fmt::Display for CharStrError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -946,21 +1105,13 @@ impl fmt::Display for CharStrError {
 #[cfg(feature = "std")]
 impl std::error::Error for CharStrError {}
 
-//------------ FromStrError --------------------------------------------
+//------------ FromStrError --------------------------------------------------
 
 /// An error happened when converting a Rust string to a DNS character string.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-#[non_exhaustive]
 pub enum FromStrError {
-    /// A character string has more than 255 octets.
-    LongString,
-
-    SymbolChars(SymbolCharsError),
-
-    /// An illegal character was encountered.
-    ///
-    /// Only printable ASCII characters are allowed.
-    BadSymbol(BadSymbol),
+    /// The string content was wrongly formatted.
+    Presentation(PresentationError),
 
     /// The octet builder’s buffer was too short for the data.
     ShortBuf,
@@ -968,15 +1119,9 @@ pub enum FromStrError {
 
 //--- From
 
-impl From<SymbolCharsError> for FromStrError {
-    fn from(err: SymbolCharsError) -> FromStrError {
-        FromStrError::SymbolChars(err)
-    }
-}
-
-impl From<BadSymbol> for FromStrError {
-    fn from(err: BadSymbol) -> FromStrError {
-        FromStrError::BadSymbol(err)
+impl<T: Into<PresentationError>> From<T> for FromStrError {
+    fn from(err: T) -> Self {
+        Self::Presentation(err.into())
     }
 }
 
@@ -991,11 +1136,7 @@ impl From<ShortBuf> for FromStrError {
 impl fmt::Display for FromStrError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
-            FromStrError::LongString => {
-                f.write_str("character string with more than 255 octets")
-            }
-            FromStrError::SymbolChars(ref err) => err.fmt(f),
-            FromStrError::BadSymbol(ref err) => err.fmt(f),
+            FromStrError::Presentation(ref err) => err.fmt(f),
             FromStrError::ShortBuf => ShortBuf.fmt(f),
         }
     }
@@ -1003,6 +1144,62 @@ impl fmt::Display for FromStrError {
 
 #[cfg(feature = "std")]
 impl std::error::Error for FromStrError {}
+
+//------------ PresentationError ---------------------------------------------
+
+/// An illegal presentation format was encountered.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct PresentationError(PresentationErrorEnum);
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum PresentationErrorEnum {
+    /// A character string has more than 255 octets.
+    LongString,
+
+    SymbolChars(SymbolCharsError),
+
+    /// An illegal character was encountered.
+    ///
+    /// Only printable ASCII characters are allowed.
+    BadSymbol(BadSymbol),
+}
+
+//--- From
+
+impl From<SymbolCharsError> for PresentationError {
+    fn from(err: SymbolCharsError) -> Self {
+        Self(PresentationErrorEnum::SymbolChars(err))
+    }
+}
+
+impl From<BadSymbol> for PresentationError {
+    fn from(err: BadSymbol) -> Self {
+        Self(PresentationErrorEnum::BadSymbol(err))
+    }
+}
+
+impl From<PresentationErrorEnum> for PresentationError {
+    fn from(err: PresentationErrorEnum) -> Self {
+        Self(err)
+    }
+}
+
+//--- Display and Error
+
+impl fmt::Display for PresentationError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self.0 {
+            PresentationErrorEnum::LongString => {
+                f.write_str("character string with more than 255 octets")
+            }
+            PresentationErrorEnum::SymbolChars(ref err) => err.fmt(f),
+            PresentationErrorEnum::BadSymbol(ref err) => err.fmt(f),
+        }
+    }
+}
+
+#[cfg(feature = "std")]
+impl std::error::Error for PresentationError {}
 
 //============ Testing =======================================================
 

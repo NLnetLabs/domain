@@ -439,7 +439,7 @@ impl FromStr for Flags {
                 "AD" | "Ad" | "aD" | "ad" => flags.ad = true,
                 "CD" | "Cd" | "cD" | "cd" => flags.cd = true,
                 "" => {}
-                _ => return Err(FlagsFromStrError),
+                _ => return Err(FlagsFromStrError(())),
             }
         }
         Ok(flags)
@@ -572,7 +572,7 @@ impl HeaderCounts {
                 self.set_qdcount(count);
                 Ok(())
             }
-            None => Err(CountOverflow),
+            None => Err(CountOverflow(())),
         }
     }
 
@@ -611,7 +611,7 @@ impl HeaderCounts {
                 self.set_ancount(count);
                 Ok(())
             }
-            None => Err(CountOverflow),
+            None => Err(CountOverflow(())),
         }
     }
 
@@ -650,7 +650,7 @@ impl HeaderCounts {
                 self.set_nscount(count);
                 Ok(())
             }
-            None => Err(CountOverflow),
+            None => Err(CountOverflow(())),
         }
     }
 
@@ -689,7 +689,7 @@ impl HeaderCounts {
                 self.set_arcount(count);
                 Ok(())
             }
-            None => Err(CountOverflow),
+            None => Err(CountOverflow(())),
         }
     }
 
@@ -909,7 +909,7 @@ impl AsMut<HeaderCounts> for HeaderSection {
 
 /// An error happened when converting string to flags.
 #[derive(Debug)]
-pub struct FlagsFromStrError;
+pub struct FlagsFromStrError(());
 
 impl fmt::Display for FlagsFromStrError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -924,7 +924,7 @@ impl std::error::Error for FlagsFromStrError {}
 
 /// An error happened while increasing a header count.
 #[derive(Debug)]
-pub struct CountOverflow;
+pub struct CountOverflow(());
 
 impl fmt::Display for CountOverflow {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {

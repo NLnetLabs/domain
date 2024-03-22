@@ -168,12 +168,12 @@ impl RelativeDname<[u8]> {
         mut slice: &[u8],
     ) -> Result<(), RelativeDnameError> {
         if slice.len() > 254 {
-            return Err(RelativeDnameError::LongName);
+            return Err(RelativeDnameErrorEnum::LongName.into());
         }
         while !slice.is_empty() {
             let (label, tail) = Label::split_from(slice)?;
             if label.is_root() {
-                return Err(RelativeDnameError::AbsoluteName);
+                return Err(RelativeDnameErrorEnum::AbsoluteName.into());
             }
             slice = tail;
         }
@@ -574,7 +574,7 @@ impl<Octs: AsRef<[u8]> + ?Sized> RelativeDname<Octs> {
             self.0.truncate(idx);
             Ok(())
         } else {
-            Err(StripSuffixError)
+            Err(StripSuffixError(()))
         }
     }
 }
@@ -955,7 +955,10 @@ impl<'a> DoubleEndedIterator for DnameIter<'a> {
 
 /// An error happened while creating a domain name from octets.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum RelativeDnameError {
+pub struct RelativeDnameError(RelativeDnameErrorEnum);
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum RelativeDnameErrorEnum {
     /// A bad label was encountered.
     BadLabel(LabelTypeError),
 
@@ -976,17 +979,27 @@ pub enum RelativeDnameError {
 
 impl From<LabelTypeError> for RelativeDnameError {
     fn from(err: LabelTypeError) -> Self {
-        RelativeDnameError::BadLabel(err)
+        Self(RelativeDnameErrorEnum::BadLabel(err))
     }
 }
 
 impl From<SplitLabelError> for RelativeDnameError {
     fn from(err: SplitLabelError) -> Self {
-        match err {
-            SplitLabelError::Pointer(_) => RelativeDnameError::CompressedName,
-            SplitLabelError::BadType(t) => RelativeDnameError::BadLabel(t),
-            SplitLabelError::ShortInput => RelativeDnameError::ShortInput,
-        }
+        Self(match err {
+            SplitLabelError::Pointer(_) => {
+                RelativeDnameErrorEnum::CompressedName
+            }
+            SplitLabelError::BadType(t) => {
+                RelativeDnameErrorEnum::BadLabel(t)
+            }
+            SplitLabelError::ShortInput => RelativeDnameErrorEnum::ShortInput,
+        })
+    }
+}
+
+impl From<RelativeDnameErrorEnum> for RelativeDnameError {
+    fn from(err: RelativeDnameErrorEnum) -> Self {
+        Self(err)
     }
 }
 
@@ -994,14 +1007,18 @@ impl From<SplitLabelError> for RelativeDnameError {
 
 impl fmt::Display for RelativeDnameError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match *self {
-            RelativeDnameError::BadLabel(err) => err.fmt(f),
-            RelativeDnameError::CompressedName => {
+        match self.0 {
+            RelativeDnameErrorEnum::BadLabel(err) => err.fmt(f),
+            RelativeDnameErrorEnum::CompressedName => {
                 f.write_str("compressed domain name")
             }
-            RelativeDnameError::ShortInput => ParseError::ShortInput.fmt(f),
-            RelativeDnameError::LongName => f.write_str("long domain name"),
-            RelativeDnameError::AbsoluteName => {
+            RelativeDnameErrorEnum::ShortInput => {
+                ParseError::ShortInput.fmt(f)
+            }
+            RelativeDnameErrorEnum::LongName => {
+                f.write_str("long domain name")
+            }
+            RelativeDnameErrorEnum::AbsoluteName => {
                 f.write_str("absolute domain name")
             }
         }
@@ -1051,7 +1068,7 @@ impl std::error::Error for RelativeFromStrError {}
 
 /// An attempt was made to strip a suffix that wasn’t actually a suffix.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct StripSuffixError;
+pub struct StripSuffixError(());
 
 //--- Display and Error
 
@@ -1157,17 +1174,17 @@ mod test {
         // absolute names
         assert_eq!(
             RelativeDname::from_slice(b"\x03www\x07example\x03com\0"),
-            Err(RelativeDnameError::AbsoluteName)
+            Err(RelativeDnameError(RelativeDnameErrorEnum::AbsoluteName))
         );
         assert_eq!(
             RelativeDname::from_slice(b"\0"),
-            Err(RelativeDnameError::AbsoluteName)
+            Err(RelativeDnameError(RelativeDnameErrorEnum::AbsoluteName))
         );
 
         // bytes shorter than what label length says.
         assert_eq!(
             RelativeDname::from_slice(b"\x03www\x07exa"),
-            Err(RelativeDnameError::ShortInput)
+            Err(RelativeDnameError(RelativeDnameErrorEnum::ShortInput))
         );
 
         // label 63 long ok, 64 bad.
@@ -1201,7 +1218,7 @@ mod test {
         );
         assert_eq!(
             RelativeDname::from_slice(b"\xccasdasds"),
-            Err(RelativeDnameError::CompressedName)
+            Err(RelativeDnameError(RelativeDnameErrorEnum::CompressedName))
         );
     }
 
@@ -1643,9 +1660,9 @@ mod test {
         assert_eq!(tmp.strip_suffix(&RelativeDname::empty_ref()), Ok(()));
         assert_eq!(tmp.as_slice(), b"\x03www\x07example\x03com");
 
-        assert_eq!(wec.clone().strip_suffix(&wen), Err(StripSuffixError));
-        assert_eq!(wec.clone().strip_suffix(&en), Err(StripSuffixError));
-        assert_eq!(wec.clone().strip_suffix(&n), Err(StripSuffixError));
+        assert!(wec.clone().strip_suffix(&wen).is_err());
+        assert!(wec.clone().strip_suffix(&en).is_err());
+        assert!(wec.clone().strip_suffix(&n).is_err());
     }
 
     // No test for Compose since the implementation is so simple.
