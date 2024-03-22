@@ -4,9 +4,7 @@ use domain::base::{Message, ToDname};
 use domain::net::server::buf::VecBufSource;
 use domain::net::server::dgram::DgramServer;
 use domain::net::server::message::Request;
-use domain::net::server::service::{
-    CallResult, ServiceResult, ServiceResultItem, Transaction,
-};
+use domain::net::server::service::{CallResult, ServiceError, Transaction};
 use domain::net::server::stream::StreamServer;
 use domain::net::server::util::{mk_builder_for_target, service_fn};
 use domain::zonefile::inplace;
@@ -57,13 +55,18 @@ async fn main() {
     let () = pending().await;
 }
 
+#[allow(clippy::type_complexity)]
 fn my_service(
     msg: Request<Message<Vec<u8>>>,
     zones: Arc<ZoneSet>,
-) -> ServiceResult<
-    Vec<u8>,
-    Vec<u8>,
-    impl Future<Output = ServiceResultItem<Vec<u8>, Vec<u8>>>,
+) -> Result<
+    Transaction<
+        Result<CallResult<Vec<u8>, Vec<u8>>, ServiceError>,
+        impl Future<
+                Output = Result<CallResult<Vec<u8>, Vec<u8>>, ServiceError>,
+            > + Send,
+    >,
+    ServiceError,
 > {
     let fut = async move {
         let question = msg.message().sole_question().unwrap();
@@ -87,5 +90,5 @@ fn my_service(
         let additional = answer.to_message(msg.message(), builder);
         Ok(CallResult::new(additional))
     };
-    Ok(Transaction::single(Box::pin(fut)))
+    Ok(Transaction::single(fut))
 }
