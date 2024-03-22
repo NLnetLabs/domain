@@ -8,14 +8,22 @@ Breaking changes
   a consequence `TxtBuilder` converts an empty builder into TXT record
   data consisting of one empty character string which requires
   `TxtBuilder::finish` to be able to return an error. ([#267])
+* `Txt` record data serialization has been redesigned. It now serialized as
+  a sequence of character strings. It also deserializes from such a sequence.
+  If supported by the format, it alternatively deserializes from a string that
+  is broken up into 255 octet chunks if necessary. ([#268])
 * The text formatting for `CharStr` has been redesigned. The `Display`
   impl now uses a modified version of the representation format that
   doesn’t escape white space but also doesn’t enclose the string in
   quotes. Methods for explicitly formatting in quoted and unquoted
-  presentation format are provided. ([#270]);
+  presentation format are provided. ([#270])
 * The stub resolver now uses the new client transports. This doesn’t change
   how it is used but does change how it queries the configured servers.
   ([#215])
+* Many error types have been changed from enums to structs that hide
+  internal error details. Enums have been kept for errors where
+  distinguishing variants might be meaningful for dealing with the error.
+  ([#277])
 * Upgraded `octseq` to 0.5. ([#257])
 
 New
@@ -37,6 +45,8 @@ Bug fixes
 * Fixed the extended part returned by `OptRcode::to_parts` (it was shifted
   by 4 bits too many) and return all 12 bits for the `Int` variant in
   `OptRcode::to_int`. ([#258])
+* Fixed a bug in the `inplace` zonefile parser that made it reject
+  character string of length 255. ([#284])
 
 Unstable features
 
@@ -56,8 +66,11 @@ Other changes
 [#258]: https://github.com/NLnetLabs/domain/pull/258
 [#259]: https://github.com/NLnetLabs/domain/pull/259
 [#267]: https://github.com/NLnetLabs/domain/pull/267
+[#268]: https://github.com/NLnetLabs/domain/pull/268
 [#270]: https://github.com/NLnetLabs/domain/pull/270
 [#275]: https://github.com/NLnetLabs/domain/pull/275
+[#277]: https://github.com/NLnetLabs/domain/pull/277
+[#284]: https://github.com/NLnetLabs/domain/pull/284
 [@torin-carey]: https://github.com/torin-carey
 
 

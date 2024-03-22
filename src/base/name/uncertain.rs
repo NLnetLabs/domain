@@ -86,7 +86,7 @@ impl<Octets> UncertainDname<Octets> {
         mut slice: &[u8],
     ) -> Result<bool, UncertainDnameError> {
         if slice.len() > Dname::MAX_LEN {
-            return Err(UncertainDnameError::LongName);
+            return Err(UncertainDnameErrorEnum::LongName.into());
         }
         loop {
             let (label, tail) = Label::split_from(slice)?;
@@ -94,7 +94,7 @@ impl<Octets> UncertainDname<Octets> {
                 if tail.is_empty() {
                     return Ok(true);
                 } else {
-                    return Err(UncertainDnameError::TrailingData);
+                    return Err(UncertainDnameErrorEnum::TrailingData.into());
                 }
             }
             if tail.is_empty() {
@@ -564,7 +564,10 @@ where
 
 /// A domain name wasn’t encoded correctly.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum UncertainDnameError {
+pub struct UncertainDnameError(UncertainDnameErrorEnum);
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum UncertainDnameErrorEnum {
     /// The encoding contained an unknown or disallowed label type.
     BadLabel(LabelTypeError),
 
@@ -584,20 +587,30 @@ pub enum UncertainDnameError {
 //--- From
 
 impl From<LabelTypeError> for UncertainDnameError {
-    fn from(err: LabelTypeError) -> UncertainDnameError {
-        UncertainDnameError::BadLabel(err)
+    fn from(err: LabelTypeError) -> Self {
+        Self(UncertainDnameErrorEnum::BadLabel(err))
     }
 }
 
 impl From<SplitLabelError> for UncertainDnameError {
     fn from(err: SplitLabelError) -> UncertainDnameError {
-        match err {
+        Self(match err {
             SplitLabelError::Pointer(_) => {
-                UncertainDnameError::CompressedName
+                UncertainDnameErrorEnum::CompressedName
             }
-            SplitLabelError::BadType(t) => UncertainDnameError::BadLabel(t),
-            SplitLabelError::ShortInput => UncertainDnameError::ShortInput,
-        }
+            SplitLabelError::BadType(t) => {
+                UncertainDnameErrorEnum::BadLabel(t)
+            }
+            SplitLabelError::ShortInput => {
+                UncertainDnameErrorEnum::ShortInput
+            }
+        })
+    }
+}
+
+impl From<UncertainDnameErrorEnum> for UncertainDnameError {
+    fn from(err: UncertainDnameErrorEnum) -> Self {
+        Self(err)
     }
 }
 
@@ -605,14 +618,20 @@ impl From<SplitLabelError> for UncertainDnameError {
 
 impl fmt::Display for UncertainDnameError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match *self {
-            UncertainDnameError::BadLabel(ref err) => err.fmt(f),
-            UncertainDnameError::CompressedName => {
+        match self.0 {
+            UncertainDnameErrorEnum::BadLabel(ref err) => err.fmt(f),
+            UncertainDnameErrorEnum::CompressedName => {
                 f.write_str("compressed domain name")
             }
-            UncertainDnameError::LongName => f.write_str("long domain name"),
-            UncertainDnameError::TrailingData => f.write_str("trailing data"),
-            UncertainDnameError::ShortInput => ParseError::ShortInput.fmt(f),
+            UncertainDnameErrorEnum::LongName => {
+                f.write_str("long domain name")
+            }
+            UncertainDnameErrorEnum::TrailingData => {
+                f.write_str("trailing data")
+            }
+            UncertainDnameErrorEnum::ShortInput => {
+                ParseError::ShortInput.fmt(f)
+            }
         }
     }
 }
@@ -659,48 +678,18 @@ mod test {
             b"\x03w\0w\x07example\x03com"
         );
 
-        assert_eq!(U::from_str(r"w\01"), Err(FromStrError::UnexpectedEnd));
-        assert_eq!(U::from_str(r"w\"), Err(FromStrError::UnexpectedEnd));
-        assert_eq!(
-            U::from_str(r"www..example.com"),
-            Err(FromStrError::EmptyLabel)
-        );
-        assert_eq!(
-            U::from_str(r"www.example.com.."),
-            Err(FromStrError::EmptyLabel)
-        );
-        assert_eq!(
-            U::from_str(r".www.example.com"),
-            Err(FromStrError::EmptyLabel)
-        );
-        assert_eq!(
-            U::from_str(r"www.\[322].example.com"),
-            Err(FromStrError::BinaryLabel)
-        );
-        assert_eq!(
-            U::from_str(r"www.\2example.com"),
-            Err(FromStrError::IllegalEscape)
-        );
-        assert_eq!(
-            U::from_str(r"www.\29example.com"),
-            Err(FromStrError::IllegalEscape)
-        );
-        assert_eq!(
-            U::from_str(r"www.\299example.com"),
-            Err(FromStrError::IllegalEscape)
-        );
-        assert_eq!(
-            U::from_str(r"www.\892example.com"),
-            Err(FromStrError::IllegalEscape)
-        );
-        assert_eq!(
-            U::from_str("www.e\0ample.com"),
-            Err(FromStrError::IllegalCharacter('\0'))
-        );
-        assert_eq!(
-            U::from_str("www.eüample.com"),
-            Err(FromStrError::IllegalCharacter('ü'))
-        );
+        U::from_str(r"w\01").unwrap_err();
+        U::from_str(r"w\").unwrap_err();
+        U::from_str(r"www..example.com").unwrap_err();
+        U::from_str(r"www.example.com..").unwrap_err();
+        U::from_str(r".www.example.com").unwrap_err();
+        U::from_str(r"www.\[322].example.com").unwrap_err();
+        U::from_str(r"www.\2example.com").unwrap_err();
+        U::from_str(r"www.\29example.com").unwrap_err();
+        U::from_str(r"www.\299example.com").unwrap_err();
+        U::from_str(r"www.\892example.com").unwrap_err();
+        U::from_str("www.e\0ample.com").unwrap_err();
+        U::from_str("www.eüample.com").unwrap_err();
 
         // LongLabel
         let mut s = String::from("www.");
@@ -714,7 +703,7 @@ mod test {
             s.push('x');
         }
         s.push_str(".com");
-        assert_eq!(U::from_str(&s), Err(FromStrError::LongLabel));
+        U::from_str(&s).unwrap_err();
 
         // Long Name
         let mut s = String::new();
@@ -729,10 +718,10 @@ mod test {
         assert_eq!(name(&s1).as_slice().len(), 254);
         let mut s1 = s.clone();
         s1.push_str("coma.");
-        assert_eq!(U::from_str(&s1), Err(FromStrError::LongName));
+        U::from_str(&s1).unwrap_err();
         let mut s1 = s.clone();
         s1.push_str("coma");
-        assert_eq!(U::from_str(&s1), Err(FromStrError::LongName));
+        U::from_str(&s1).unwrap_err();
     }
 
     #[cfg(feature = "serde")]

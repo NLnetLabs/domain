@@ -3,8 +3,11 @@
 //! This is a private module. Its public types are re-exported by the parent
 //! module.
 
+use super::super::scan::BadSymbol;
 use super::super::wire::{FormError, ParseError};
-use super::builder::{parse_escape, LabelFromStrError};
+use super::builder::{
+    parse_escape, LabelFromStrError, LabelFromStrErrorEnum,
+};
 use core::str::FromStr;
 use core::{borrow, cmp, fmt, hash, iter, ops, slice};
 use octseq::builder::OctetsBuilder;
@@ -81,7 +84,7 @@ impl Label {
     /// This will fail if the slice is longer than 63 octets.
     pub fn from_slice(slice: &[u8]) -> Result<&Self, LongLabelError> {
         if slice.len() > Label::MAX_LEN {
-            Err(LongLabelError)
+            Err(LongLabelError(()))
         } else {
             Ok(unsafe { Self::from_slice_unchecked(slice) })
         }
@@ -94,7 +97,7 @@ impl Label {
         slice: &mut [u8],
     ) -> Result<&mut Self, LongLabelError> {
         if slice.len() > Label::MAX_LEN {
-            Err(LongLabelError)
+            Err(LongLabelError(()))
         } else {
             Ok(unsafe { Self::from_slice_mut_unchecked(slice) })
         }
@@ -479,12 +482,12 @@ impl OwnedLabel {
         let mut res = [0u8; 64];
         while let Some(ch) = chars.next() {
             if res[0] as usize >= Label::MAX_LEN {
-                return Err(LabelFromStrError::LongLabel);
+                return Err(LabelFromStrErrorEnum::LongLabel.into());
             }
             let ch = match ch {
                 ' '..='-' | '/'..='[' | ']'..='~' => ch as u8,
                 '\\' => parse_escape(&mut chars, res[0] > 0)?,
-                _ => return Err(LabelFromStrError::IllegalCharacter(ch)),
+                _ => return Err(BadSymbol::non_ascii().into()),
             };
             res[(res[0] as usize) + 1] = ch;
             res[0] += 1;
@@ -810,7 +813,7 @@ impl std::error::Error for LabelTypeError {}
 
 /// A label was longer than the allowed 63 octets.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct LongLabelError;
+pub struct LongLabelError(());
 
 //--- Display and Error
 
