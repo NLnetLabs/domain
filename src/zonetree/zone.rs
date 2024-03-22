@@ -98,7 +98,7 @@ impl TryFrom<inplace::Zonefile> for Zone {
     fn try_from(source: inplace::Zonefile) -> Result<Self, Self::Error> {
         parsed::Zonefile::try_from(source)?
             .try_into()
-            .map_err(|err| Self::Error::InvalidRecord(err))
+            .map_err(Self::Error::InvalidRecord)
     }
 }
 

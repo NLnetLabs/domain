@@ -187,7 +187,7 @@ impl TryFrom<inplace::Zonefile> for Zonefile {
         let mut sink = loop {
             let entry = source
                 .next_entry()
-                .map_err(|err| RecordError::MalformedRecord(err))?
+                .map_err(RecordError::MalformedRecord)?
                 .ok_or(RecordError::MissingSoa)?;
 
             if let Entry::Record(record) = entry {
@@ -215,7 +215,7 @@ impl TryFrom<inplace::Zonefile> for Zonefile {
         };
 
         for res in source {
-            match res.map_err(|err| RecordError::MalformedRecord(err))? {
+            match res.map_err(RecordError::MalformedRecord)? {
                 Entry::Record(r) => sink.insert(r.flatten_into())?,
                 entry => {
                     trace!("Skipping unsupported zone file entry: {entry:?}")
