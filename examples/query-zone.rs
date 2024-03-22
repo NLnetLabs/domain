@@ -108,7 +108,7 @@ fn main() {
         if verbosity != Verbosity::Quiet {
             println!("Querying zone {} class {} for qname {qname} with qtype {qtype}...", zone.apex_name(), zone.class());
         }
-        zone.read().query(qname.clone(), qtype).unwrap()
+        let mut answer = zone.read().query(qname.clone(), qtype).unwrap();
     } else {
         Answer::nxdomain()
     };
@@ -272,10 +272,8 @@ fn print_dig_style_response(
             counts.arcount(),
             counts.adcount()
         );
-
-        // println!(";; OPT PSEUDOSECTION:");
-        // println!("; EDNS: version: 0, flags:; udp: 1232");
-        // println!("; NSID: 72 65 73 37 31 30 2e 61 6d 73 2e 72 72 64 6e 73 2e 70 63 68 2e 6e 65 74 ("res710.ams.rrdns.pch.net")");
+        
+        // TODO: add OPT PSEUDOSECTION
 
         if let Ok(question) = query.sole_question() {
             println!(";; QUESTION SECTION:");
