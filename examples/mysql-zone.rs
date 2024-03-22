@@ -303,7 +303,6 @@ impl ReadableZone for DatabaseReadZone {
                 let mut rrset = Rrset::new(rtype, Ttl::from_secs(row.ttl.unwrap() as u32));
                 let content = &row.content.unwrap();
                 let content_strings = content.split_ascii_whitespace().collect::<std::vec::Vec<&str>>();
-                // eprintln!("Scanning {rtype} content: {:?}", content_strings);
                 let mut scanner = IterScanner::new(&content_strings);
                 match ZoneRecordData::scan(rtype, &mut scanner) {
                     Ok(data) => {
