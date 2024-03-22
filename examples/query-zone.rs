@@ -108,7 +108,7 @@ fn main() {
         if verbosity != Verbosity::Quiet {
             println!("Querying zone {} class {} for qname {qname} with qtype {qtype}...", zone.apex_name(), zone.class());
         }
-        let mut answer = zone.read().query(qname.clone(), qtype).unwrap();
+        zone.read().query(qname.clone(), qtype).unwrap()
     } else {
         Answer::nxdomain()
     };
@@ -272,7 +272,7 @@ fn print_dig_style_response(
             counts.arcount(),
             counts.adcount()
         );
-        
+
         // TODO: add OPT PSEUDOSECTION
 
         if let Ok(question) = query.sole_question() {
