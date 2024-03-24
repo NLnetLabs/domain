@@ -465,8 +465,8 @@ impl Answer {
         }
     }
 
-    pub fn nxdomain() -> Self {
-        Answer::new(Rcode::NXDomain)
+    pub fn other(rcode: Rcode) -> Self {
+        Answer::new(rcode)
     }
 
     pub fn refused() -> Self {

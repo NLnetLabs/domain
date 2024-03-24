@@ -93,7 +93,7 @@ impl<T> Request<T> {
     }
 
     /// Read access to the inner message
-    pub fn message(&self) -> &T {
+    pub fn message(&self) -> &Arc<T> {
         &self.message
     }
 }

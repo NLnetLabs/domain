@@ -6,7 +6,7 @@ use std::fs::File;
 use std::{process::exit, str::FromStr};
 
 use bytes::Bytes;
-use domain::base::iana::Class;
+use domain::base::iana::{Class, Rcode};
 use domain::base::record::ComposeRecord;
 use domain::base::{Dname, ParsedDname, Rtype};
 use domain::base::{ParsedRecord, Record};
@@ -113,7 +113,7 @@ fn main() {
         }
         zone.read().query(qname.clone(), qtype).unwrap()
     } else {
-        Answer::nxdomain()
+        Answer::other(Rcode::NXDomain)
     };
 
     // Emulate a DIG style response by generating a complete DNS wire response
