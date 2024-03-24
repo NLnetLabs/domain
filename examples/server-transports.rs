@@ -79,13 +79,8 @@ impl Service<Vec<u8>> for MyService {
     fn call(
         &self,
         msg: Request<Message<Vec<u8>>>,
-    ) -> Result<
-        Transaction<
-            Result<CallResult<Vec<u8>, Self::Target>, ServiceError>,
-            Self::Future,
-        >,
-        ServiceError,
-    > {
+    ) -> Result<Transaction<Vec<u8>, Self::Target, Self::Future>, ServiceError>
+    {
         let builder = mk_builder_for_target();
         let additional = mk_answer(&msg, builder)?;
         let item = ready(Ok(CallResult::new(additional)));
@@ -106,7 +101,8 @@ fn name_to_ip<Target>(
     msg: Request<Message<Vec<u8>>>,
 ) -> Result<
     Transaction<
-        Result<CallResult<Vec<u8>, Target>, ServiceError>,
+        Vec<u8>,
+        Target,
         impl Future<Output = Result<CallResult<Vec<u8>, Target>, ServiceError>>
             + Send,
     >,
@@ -168,7 +164,8 @@ fn query(
     count: Arc<AtomicU8>,
 ) -> Result<
     Transaction<
-        Result<CallResult<Vec<u8>, Vec<u8>>, ServiceError>,
+        Vec<u8>,
+        Vec<u8>,
         impl Future<
                 Output = Result<CallResult<Vec<u8>, Vec<u8>>, ServiceError>,
             > + Send,

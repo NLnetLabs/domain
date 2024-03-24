@@ -205,8 +205,7 @@ type CommandReceiver<Buf, Svc> = watch::Receiver<ServerCommandType<Buf, Svc>>;
 ///
 /// fn my_service(msg: Request<Message<Vec<u8>>>, _meta: ())
 /// -> Result<
-///     Transaction<
-///         Result<CallResult<Vec<u8>, Vec<u8>>, ServiceError>,
+///     Transaction<Vec<u8>, Vec<u8>,
 ///         Pin<Box<dyn Future<
 ///             Output = Result<
 ///                 CallResult<Vec<u8>, Vec<u8>>,

@@ -1,9 +1,8 @@
 //! The business logic of a DNS server.
 //!
 //! The [`Service::call()`] function defines how the service should respond to
-//! a given DNS request. resulting in a [`ServiceResult`] containing a
-//! transaction that yields one or more future DNS responses, and/or a
-//! [`ServerCommand`].
+//! a given DNS request. resulting in a transaction that yields one or more
+//! future DNS responses, and/or a [`ServerCommand`].
 use core::fmt::Display;
 use core::ops::Deref;
 
@@ -96,11 +95,7 @@ use super::message::Request;
 ///     fn call(
 ///         &self,
 ///         msg: Request<Message<Vec<u8>>>,
-///     ) -> Result<
-///             Transaction<
-///             Result<CallResult<Vec<u8>, Self::Target>, ServiceError>,
-///             Self::Future,
-///         >,
+///     ) -> Result<Transaction<Vec<u8>, Self::Target, Self::Future>,
 ///         ServiceError,
 ///     > {
 ///         let builder = mk_builder_for_target();
@@ -127,8 +122,7 @@ use super::message::Request;
 /// fn name_to_ip<Target>(
 ///     msg: Request<Message<Vec<u8>>>,
 /// ) -> Result<
-///     Transaction<
-///         Result<CallResult<Vec<u8>, Target>, ServiceError>,
+///     Transaction<Vec<u8>, Target,
 ///         impl Future<
 ///             Output = Result<
 ///                 CallResult<Vec<u8>, Target>,
@@ -199,7 +193,7 @@ use super::message::Request;
 /// [`call()`]: Self::call()
 /// [`service_fn()`]: crate::net::server::util::service_fn()
 pub trait Service<RequestOctets: AsRef<[u8]> = Vec<u8>> {
-    /// The type of buffer in which [`ServiceResultItem`]s are stored.
+    /// The type of buffer to store the output messages in.
     type Target: Composer + Default + Send + Sync + 'static;
 
     /// The type of future returned by [`Service::call()`] via
@@ -217,10 +211,7 @@ pub trait Service<RequestOctets: AsRef<[u8]> = Vec<u8>> {
         &self,
         message: Request<Message<RequestOctets>>,
     ) -> Result<
-        Transaction<
-            Result<CallResult<RequestOctets, Self::Target>, ServiceError>,
-            Self::Future,
-        >,
+        Transaction<RequestOctets, Self::Target, Self::Future>,
         ServiceError,
     >;
 }
@@ -236,10 +227,7 @@ impl<RequestOctets: AsRef<[u8]>, T: Service<RequestOctets>>
         &self,
         message: Request<Message<RequestOctets>>,
     ) -> Result<
-        Transaction<
-            Result<CallResult<RequestOctets, Self::Target>, ServiceError>,
-            Self::Future,
-        >,
+        Transaction<RequestOctets, Self::Target, Self::Future>,
         ServiceError,
     > {
         Arc::deref(self).call(message)
@@ -251,13 +239,8 @@ impl<RequestOctets, Target, Future, F> Service<RequestOctets> for F
 where
     F: Fn(
         Request<Message<RequestOctets>>,
-    ) -> Result<
-        Transaction<
-            Result<CallResult<RequestOctets, Target>, ServiceError>,
-            Future,
-        >,
-        ServiceError,
-    >,
+    )
+        -> Result<Transaction<RequestOctets, Target, Future>, ServiceError>,
     RequestOctets: AsRef<[u8]>,
     Target: Composer + Default + Send + Sync + 'static,
     Future: std::future::Future<
@@ -271,10 +254,7 @@ where
         &self,
         message: Request<Message<RequestOctets>>,
     ) -> Result<
-        Transaction<
-            Result<CallResult<RequestOctets, Self::Target>, ServiceError>,
-            Self::Future,
-        >,
+        Transaction<RequestOctets, Self::Target, Self::Future>,
         ServiceError,
     > {
         (*self)(message)
@@ -499,9 +479,14 @@ where
 /// [`stream()`]: Self::stream()
 /// [`push()`]: TransactionStream::push()
 /// [`next()`]: Self::next()
-pub struct Transaction<Item, Future>(TransactionInner<Item, Future>)
+pub struct Transaction<RequestOctets, Target, Future>(
+    TransactionInner<RequestOctets, Target, Future>,
+)
 where
-    Future: std::future::Future<Output = Item> + Send;
+    RequestOctets: AsRef<[u8]>,
+    Future: std::future::Future<
+        Output = Result<CallResult<RequestOctets, Target>, ServiceError>,
+    >;
 
 /// A stream of zero or more DNS response futures relating to a single DNS request.
 pub struct TransactionStream<Item> {
@@ -530,15 +515,24 @@ impl<Item> Default for TransactionStream<Item> {
     }
 }
 
-enum TransactionInner<Item, Future>
+type Stream<RequestOctets, Target> = TransactionStream<
+    Result<CallResult<RequestOctets, Target>, ServiceError>,
+>;
+
+enum TransactionInner<RequestOctets, Target, Future>
 where
-    Future: std::future::Future<Output = Item> + Send,
+    RequestOctets: AsRef<[u8]>,
+    Future: std::future::Future<
+        Output = Result<CallResult<RequestOctets, Target>, ServiceError>,
+    >,
 {
     /// The transaction will result in a single immediate response.
     ///
     /// This variant is for internal use only when aborting Middleware
     /// processing early.
-    Immediate(Option<Item>),
+    Immediate(
+        Option<Result<CallResult<RequestOctets, Target>, ServiceError>>,
+    ),
 
     /// The transaction will result in at most a single response future.
     Single(Option<Future>),
@@ -547,22 +541,32 @@ where
     PendingStream(
         Pin<
             Box<
-                dyn std::future::Future<Output = TransactionStream<Item>>
-                    + Send,
+                dyn std::future::Future<
+                        Output = Stream<RequestOctets, Target>,
+                    > + Send,
             >,
         >,
     ),
 
     /// The transaction is a stream of multiple response futures.
-    Stream(TransactionStream<Item>),
+    Stream(
+        TransactionStream<
+            Result<CallResult<RequestOctets, Target>, ServiceError>,
+        >,
+    ),
 }
 
-impl<Item, Future> Transaction<Item, Future>
+impl<RequestOctets, Target, Future> Transaction<RequestOctets, Target, Future>
 where
-    Future: std::future::Future<Output = Item> + Send,
+    RequestOctets: AsRef<[u8]>,
+    Future: std::future::Future<
+        Output = Result<CallResult<RequestOctets, Target>, ServiceError>,
+    >,
 {
     /// Construct a transaction for a single immediate response.
-    pub(crate) fn immediate(item: Item) -> Self {
+    pub(crate) fn immediate(
+        item: Result<CallResult<RequestOctets, Target>, ServiceError>,
+    ) -> Self {
         Self(TransactionInner::Immediate(Some(item)))
     }
 
@@ -587,8 +591,9 @@ where
     pub fn stream(
         fut: Pin<
             Box<
-                dyn std::future::Future<Output = TransactionStream<Item>>
-                    + Send,
+                dyn std::future::Future<
+                        Output = Stream<RequestOctets, Target>,
+                    > + Send,
             >,
         >,
     ) -> Self {
@@ -602,7 +607,9 @@ where
     ///
     /// Returns None if there are no (more) responses to take, Some(future)
     /// otherwise.
-    pub async fn next(&mut self) -> Option<Item> {
+    pub async fn next(
+        &mut self,
+    ) -> Option<Result<CallResult<RequestOctets, Target>, ServiceError>> {
         match &mut self.0 {
             TransactionInner::Immediate(item) => item.take(),
 

@@ -273,13 +273,7 @@ where
         (
             Request<Message<Buf::Output>>,
             ControlFlow<(
-                Transaction<
-                    Result<
-                        CallResult<Buf::Output, Svc::Target>,
-                        ServiceError,
-                    >,
-                    Svc::Future,
-                >,
+                Transaction<Buf::Output, Svc::Target, Svc::Future>,
                 usize,
             )>,
         ),
@@ -333,10 +327,7 @@ where
         request: Request<Message<Buf::Output>>,
         state: Self::State,
         middleware_chain: MiddlewareChain<Buf::Output, Svc::Target>,
-        mut response_txn: Transaction<
-            Result<CallResult<Buf::Output, Svc::Target>, ServiceError>,
-            Svc::Future,
-        >,
+        mut response_txn: Transaction<Buf::Output, Svc::Target, Svc::Future>,
         last_processor_id: Option<usize>,
         metrics: Arc<ServerMetrics>,
     ) where
