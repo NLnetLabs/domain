@@ -11,6 +11,7 @@ use super::zone::Zone;
 use crate::base::iana::Class;
 use crate::base::name::{Label, ToDname};
 use crate::zonefile::parsed;
+use std::fmt::Display;
 
 //------------ ZoneBuilder ---------------------------------------------------
 
@@ -127,6 +128,17 @@ impl<'a> From<&'a ZoneApex> for ZoneCutError {
     }
 }
 
+impl Display for ZoneCutError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            ZoneCutError::OutOfZone => write!(f, "Out of zone"),
+            ZoneCutError::ZoneCutAtApex => write!(f, "Zone cut at apex"),
+        }
+    }
+}
+
+//----------- CnameError -----------------------------------------------------
+
 #[derive(Clone, Copy, Debug)]
 pub enum CnameError {
     OutOfZone,
@@ -142,5 +154,14 @@ impl From<OutOfZone> for CnameError {
 impl<'a> From<&'a ZoneApex> for CnameError {
     fn from(_: &'a ZoneApex) -> CnameError {
         CnameError::CnameAtApex
+    }
+}
+
+impl Display for CnameError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            CnameError::OutOfZone => write!(f, "Out of zone"),
+            CnameError::CnameAtApex => write!(f, "CNAME at apex"),
+        }
     }
 }

@@ -465,10 +465,14 @@ enum OwnerError {
 impl Display for OwnerError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            OwnerError::MissingNs => write!(f, "MissingNs"),
-            OwnerError::InvalidZonecut(_) => write!(f, "InvalidZonecut"),
-            OwnerError::InvalidCname(_) => write!(f, "InvalidCname"),
-            OwnerError::OutOfZone(_) => write!(f, "OutOfZone"),
+            OwnerError::MissingNs => write!(f, "Missing NS"),
+            OwnerError::InvalidZonecut(err) => {
+                write!(f, "Invalid zone cut: {err}")
+            }
+            OwnerError::InvalidCname(err) => {
+                write!(f, "Invalid CNAME: {err}")
+            }
+            OwnerError::OutOfZone(err) => write!(f, "Out of zone: {err}"),
         }
     }
 }
