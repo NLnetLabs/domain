@@ -1,0 +1,36 @@
+{
+  "db_name": "MySQL",
+  "query": "SELECT R.content, R.ttl FROM domains D, records R WHERE D.name = ? AND D.id = R.domain_id AND R.name = ? AND R.type = ? LIMIT 1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "content",
+        "type_info": {
+          "type": "VarString",
+          "flags": "",
+          "char_set": 224,
+          "max_size": 256000
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "ttl",
+        "type_info": {
+          "type": "Long",
+          "flags": "",
+          "char_set": 63,
+          "max_size": 11
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": [
+      true,
+      true
+    ]
+  },
+  "hash": "d410c466988c550a9388f4db1de93c6c48268e1deb06b83e69f563fd7e9e5411"
+}

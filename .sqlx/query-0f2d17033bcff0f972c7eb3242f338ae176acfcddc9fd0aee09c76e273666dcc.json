@@ -1,0 +1,58 @@
+{
+  "db_name": "MySQL",
+  "query": "SELECT R.name, R.type AS rtype, R.content, R.ttl FROM domains D, records R WHERE D.name = ? AND D.id = R.domain_id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "name",
+        "type_info": {
+          "type": "VarString",
+          "flags": "MULTIPLE_KEY",
+          "char_set": 224,
+          "max_size": 1020
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "rtype",
+        "type_info": {
+          "type": "VarString",
+          "flags": "",
+          "char_set": 224,
+          "max_size": 40
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "content",
+        "type_info": {
+          "type": "VarString",
+          "flags": "",
+          "char_set": 224,
+          "max_size": 256000
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "ttl",
+        "type_info": {
+          "type": "Long",
+          "flags": "",
+          "char_set": 63,
+          "max_size": 11
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      true,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "0f2d17033bcff0f972c7eb3242f338ae176acfcddc9fd0aee09c76e273666dcc"
+}
