@@ -111,10 +111,6 @@ impl ZoneSetNode {
         self.zone.as_ref()
     }
 
-    // TODO: If this is not async, how will we persist the addition of this
-    // zone in the backing store, e.g. a database? Should that actually be done
-    // separately prior to calling this function and this is only about
-    // updating the in-memory view of the set of zones in the backing store?
     fn insert_zone<'l>(
         &mut self,
         mut apex_name: impl Iterator<Item = &'l Label>,
