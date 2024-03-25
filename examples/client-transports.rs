@@ -76,7 +76,7 @@ async fn main() {
     // Get the reply
     println!("Wating for UDP+TCP reply");
     let reply = request.get_response().await;
-    println!("UDP+TCP reply: {:?}", reply);
+    println!("UDP+TCP reply: {reply:?}");
 
     // The query may have a reference to the connection. Drop the query
     // when it is no longer needed.
@@ -94,7 +94,7 @@ async fn main() {
     // Get the reply
     println!("Wating for cache reply");
     let reply = request.get_response().await;
-    println!("Cache reply: {:?}", reply);
+    println!("Cache reply: {reply:?}");
 
     // Send the request message again.
     let mut request = cache.send_request(req.clone());
@@ -102,7 +102,7 @@ async fn main() {
     // Get the reply
     println!("Wating for cached reply");
     let reply = request.get_response().await;
-    println!("Cached reply: {:?}", reply);
+    println!("Cached reply: {reply:?}");
 
     // Create a new TCP connections object. Pass the destination address and
     // port as parameter.
@@ -130,7 +130,7 @@ async fn main() {
     println!("Wating for multi TCP reply");
     let reply =
         timeout(Duration::from_millis(500), request.get_response()).await;
-    println!("multi TCP reply: {:?}", reply);
+    println!("multi TCP reply: {reply:?}");
 
     drop(request);
 
@@ -181,7 +181,7 @@ async fn main() {
     println!("Wating for TLS reply");
     let reply =
         timeout(Duration::from_millis(500), request.get_response()).await;
-    println!("TLS reply: {:?}", reply);
+    println!("TLS reply: {reply:?}");
 
     drop(request);
 
@@ -205,7 +205,7 @@ async fn main() {
         let mut request = redun.send_request(req.clone());
         let reply = request.get_response().await;
         if i == 2 {
-            println!("redundant connection reply: {:?}", reply);
+            println!("redundant connection reply: {reply:?}");
         }
     }
 
@@ -224,7 +224,7 @@ async fn main() {
     //
     // Get the reply
     let reply = request.get_response().await;
-    println!("Dgram reply: {:?}", reply);
+    println!("Dgram reply: {reply:?}");
 
     // Create a single TCP transport connection. This is usefull for a
     // single request or a small burst of requests.
@@ -232,8 +232,7 @@ async fn main() {
         Ok(conn) => conn,
         Err(err) => {
             println!(
-                "TCP Connection to {} failed: {}, exiting",
-                server_addr, err
+                "TCP Connection to {server_addr} failed: {err}, exiting",
             );
             return;
         }
@@ -250,7 +249,7 @@ async fn main() {
 
     // Get the reply
     let reply = request.get_response().await;
-    println!("TCP reply: {:?}", reply);
+    println!("TCP reply: {reply:?}");
 
     drop(tcp);
 }

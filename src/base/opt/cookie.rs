@@ -271,7 +271,7 @@ impl<'a, Target: Composer> OptBuilder<'a, Target> {
 /// [`from_octets`][ClientCookie::from_octets]. Similarly, the `Default`
 /// implementation will create a random cookie and is thus only available if
 /// the `rand` feature is enabled.
-#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialOrd)]
 pub struct ClientCookie([u8; 8]);
 
 impl ClientCookie {
@@ -356,6 +356,14 @@ impl AsMut<[u8]> for ClientCookie {
 impl hash::Hash for ClientCookie {
     fn hash<H: hash::Hasher>(&self, state: &mut H) {
         state.write(&self.0)
+    }
+}
+
+//--- PartialEq
+
+impl PartialEq for ClientCookie {
+    fn eq(&self, other: &Self) -> bool {
+        self.0 == other.0
     }
 }
 

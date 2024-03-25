@@ -73,7 +73,7 @@ async fn main() {
     tokio::spawn(async move { udp_srv.run().await });
     tokio::spawn(async move { tcp_srv.run().await });
 
-    let () = pending().await;
+    pending::<()>().await;
 }
 
 #[allow(clippy::type_complexity)]
@@ -218,11 +218,11 @@ async fn handle_axfr_request(
     });
     zone.walk(op);
 
-    let mutex = Arc::into_inner(stream).unwrap();
+    let mutex = Arc::try_unwrap(stream).unwrap();
     let mut stream = mutex.into_inner().unwrap();
 
     // Push the end SOA response message into the stream
-    add_to_stream(soa_answer.clone(), msg.message(), &mut stream);
+    add_to_stream(soa_answer, msg.message(), &mut stream);
 
     stream
 }

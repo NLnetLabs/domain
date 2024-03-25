@@ -515,6 +515,12 @@ impl<Item> Default for TransactionStream<Item> {
     }
 }
 
+impl<Item> std::fmt::Debug for TransactionStream<Item> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("TransactionStream").finish()
+    }
+}
+
 type Stream<RequestOctets, Target> = TransactionStream<
     Result<CallResult<RequestOctets, Target>, ServiceError>,
 >;

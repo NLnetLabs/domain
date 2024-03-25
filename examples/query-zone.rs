@@ -40,15 +40,14 @@ fn main() {
     let mut args = env::args();
     let prog_name = args.next().unwrap(); // SAFETY: O/S always passes our name as the first argument.
     let usage = format!(
-        "Usage: {} [-q|--quiet|-v|--verbose] [+short] <zonefile_path> [<zonefile_path> ..] <qtype> <qname>",
-        prog_name
+        "Usage: {prog_name} [-q|--quiet|-v|--verbose] [+short] <zonefile_path> [<zonefile_path> ..] <qtype> <qname>",
     );
 
     // Process command line arguments.
     let (verbosity, zone_files, qtype, qname, short) =
         process_dig_style_args(args).unwrap_or_else(|err| {
-            eprintln!("{}", usage);
-            eprintln!("{}", err);
+            eprintln!("{usage}");
+            eprintln!("{err}");
             exit(2);
         });
 

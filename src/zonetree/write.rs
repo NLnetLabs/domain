@@ -136,7 +136,12 @@ impl WriteableZone for WriteZone {
     > {
         let res = WriteNode::new_apex(self.clone())
             .map(|node| Box::new(node) as Box<dyn WriteableZoneNode>)
-            .map_err(|err| io::Error::other(format!("Open error: {err}")));
+            .map_err(|err| {
+                io::Error::new(
+                    io::ErrorKind::Other,
+                    format!("Open error: {err}"),
+                )
+            });
         Box::pin(ready(res))
     }
 
@@ -231,7 +236,12 @@ impl WriteNode {
                 Ok(())
             }
         }
-        .map_err(|err| io::Error::other(format!("WriteApexError: {err}")))
+        .map_err(|err| {
+            io::Error::new(
+                io::ErrorKind::Other,
+                format!("Write apex error: {err}"),
+            )
+        })
     }
 
     fn make_cname(&self, cname: SharedRr) -> Result<(), io::Error> {
@@ -245,7 +255,12 @@ impl WriteNode {
                 Ok(())
             }
         }
-        .map_err(|err| io::Error::other(format!("WriteApexError: {err}")))
+        .map_err(|err| {
+            io::Error::new(
+                io::ErrorKind::Other,
+                format!("Write apex error: {err}"),
+            )
+        })
     }
 
     /// Makes sure a NXDomain special is set or removed as necesssary.

@@ -7,10 +7,10 @@
         "ordinal": 0,
         "name": "content",
         "type_info": {
-          "type": "VarString",
-          "flags": "",
+          "type": "Blob",
+          "flags": "BLOB",
           "char_set": 224,
-          "max_size": 256000
+          "max_size": 67108860
         }
       },
       {

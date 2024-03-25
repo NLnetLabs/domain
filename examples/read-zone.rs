@@ -15,12 +15,12 @@ fn main() {
     let zone_files: Vec<_> = args.collect();
 
     if zone_files.is_empty() {
-        eprintln!("Usage: {} <path/to/zonefile/to/read> [<more>, <zone>, <files>, <to>, <read>, ...]", prog_name);
+        eprintln!("Usage: {prog_name} <path/to/zonefile/to/read> [<more>, <zone>, <files>, <to>, <read>, ...]");
         exit(2);
     }
 
     for zone_file in zone_files {
-        print!("Processing {}: ", zone_file);
+        print!("Processing {zone_file}: ");
         let start = SystemTime::now();
         let mut reader =
             Zonefile::load(&mut File::open(&zone_file).unwrap()).unwrap();

@@ -26,6 +26,6 @@ fn main() {
     let res = res.answer().unwrap().limit_to::<AllRecordData<_, _>>();
     for record in res {
         let record = record.unwrap();
-        println!("{}", record);
+        println!("{record}");
     }
 }

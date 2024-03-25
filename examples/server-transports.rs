@@ -730,7 +730,7 @@ async fn main() {
         let mut interval = tokio::time::interval(Duration::from_secs(15));
         loop {
             interval.tick().await;
-            println!("Statistics report: {}", stats);
+            println!("Statistics report: {stats}");
         }
     });
 

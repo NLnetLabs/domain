@@ -92,9 +92,9 @@ fn main() {
     for option in response.opt().unwrap().opt().iter::<AllOptData<_, _>>() {
         let opt = option.unwrap();
         match opt {
-            AllOptData::Nsid(nsid) => println!("{}", nsid),
+            AllOptData::Nsid(nsid) => println!("{nsid}"),
             AllOptData::ExtendedError(extendederror) => {
-                println!("{}", extendederror)
+                println!("{extendederror}")
             }
             _ => println!("NO OPT!"),
         }
