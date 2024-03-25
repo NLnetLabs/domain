@@ -61,11 +61,12 @@ std         = ["bytes?/std", "octseq/std", "time/std"]
 net         = ["bytes", "futures-util", "rand", "std", "tokio", "tokio-rustls"]
 tsig        = ["bytes", "ring", "smallvec"]
 validate    = ["std", "ring"]
-zonefile    = ["bytes", "futures", "parking_lot", "serde", "std", "tokio", "tracing"]
+zonefile    = ["bytes", "std"]
 
 # Unstable features
 unstable-client-transport = [ "moka" ]
 unstable-server-transport = ["arc-swap", "chrono/clock", "hex", "libc", "tracing"]
+unstable-zonetree = ["futures", "parking_lot", "serde", "tokio", "tracing"]
 
 # Test features
 mock-time = ["mock_instant"]
@@ -101,7 +102,7 @@ required-features = ["zonefile"]
 
 [[example]]
 name = "query-zone"
-required-features = ["zonefile"]
+required-features = ["unstable-zonetree"]
 
 [[example]]
 name = "download-rust-lang"
@@ -129,8 +130,8 @@ required-features = ["net", "unstable-server-transport"]
 
 [[example]]
 name = "serve-zone"
-required-features = ["zonefile", "net", "unstable-server-transport"]
+required-features = ["net", "unstable-server-transport", "unstable-zonetree"]
 
 [[example]]
 name = "mysql-zone"
-required-features = ["zonefile", "net", "unstable-server-transport"]
+required-features = ["net", "unstable-server-transport", "unstable-zonetree"]

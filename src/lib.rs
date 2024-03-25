@@ -129,6 +129,8 @@
 //!   a client perspective; primarily the `net::client` module.
 //! * `unstable-server-transport`: receiving and sending DNS messages from
 //!   a server perspective; primarily the `net::server` module.
+//! * `unstable-zonetree`: building & querying zone trees; primarily the
+//!   `zonetree` module.
 //!
 //! Note: Some functionality is currently informally marked as
 //! “experimental” since it was introduced before adoption of the concept
