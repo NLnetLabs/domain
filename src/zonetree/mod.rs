@@ -20,7 +20,10 @@
 //! For an example of implementing an alternate zone backing store see
 //! `examples/other/mysql-zone.rs`.
 //!
-//! # Using the in-memory store
+//! # Usage
+//! 
+//! The following example builds and queries a [`ZoneTree`] containing a single
+//! in-memory [`Zone`].
 //!
 //! ```
 //! use domain::base::iana::{Class, Rcode, Rtype};
