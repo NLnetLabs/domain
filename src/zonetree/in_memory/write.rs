@@ -1,77 +1,26 @@
 //! Write access to zones.
 
-use super::nodes::{Special, ZoneApex, ZoneCut, ZoneNode};
-use super::rrset::{SharedRr, SharedRrset};
-use super::versioned::Version;
-use super::zone::ZoneVersions;
-use crate::base::iana::Rtype;
-use crate::base::name::Label;
 use core::future::ready;
-use futures::future::Either;
-use parking_lot::RwLock;
 use std::boxed::Box;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
+use std::sync::Weak;
+use std::vec::Vec;
 use std::{fmt, io};
+
+use futures::future::Either;
+use parking_lot::RwLock;
 use tokio::sync::OwnedMutexGuard;
 
-//------------ WritableZone --------------------------------------------------
+use crate::base::iana::Rtype;
+use crate::base::name::Label;
+use crate::zonetree::types::ZoneCut;
+use crate::zonetree::SharedRr;
+use crate::zonetree::{SharedRrset, WriteableZone, WriteableZoneNode};
 
-pub trait WriteableZoneNode {
-    #[allow(clippy::type_complexity)]
-    fn update_child(
-        &self,
-        label: &Label,
-    ) -> Pin<
-        Box<
-            dyn Future<
-                Output = Result<Box<dyn WriteableZoneNode>, io::Error>,
-            >,
-        >,
-    >;
-
-    fn update_rrset(
-        &self,
-        rrset: SharedRrset,
-    ) -> Pin<Box<dyn Future<Output = Result<(), io::Error>>>>;
-
-    fn remove_rrset(
-        &self,
-        rtype: Rtype,
-    ) -> Pin<Box<dyn Future<Output = Result<(), io::Error>>>>;
-
-    fn make_regular(
-        &self,
-    ) -> Pin<Box<dyn Future<Output = Result<(), io::Error>>>>;
-
-    fn make_zone_cut(
-        &self,
-        cut: ZoneCut,
-    ) -> Pin<Box<dyn Future<Output = Result<(), io::Error>>>>;
-
-    fn make_cname(
-        &self,
-        cname: SharedRr,
-    ) -> Pin<Box<dyn Future<Output = Result<(), io::Error>>>>;
-}
-
-pub trait WriteableZone {
-    #[allow(clippy::type_complexity)]
-    fn open(
-        &self,
-    ) -> Pin<
-        Box<
-            dyn Future<
-                Output = Result<Box<dyn WriteableZoneNode>, io::Error>,
-            >,
-        >,
-    >;
-
-    fn commit(
-        &mut self,
-    ) -> Pin<Box<dyn Future<Output = Result<(), io::Error>>>>;
-}
+use super::nodes::{Special, ZoneApex, ZoneNode};
+use super::versioned::{Version, VersionMarker};
 
 //------------ WriteZone -----------------------------------------------------
 
@@ -100,6 +49,8 @@ impl WriteZone {
     }
 }
 
+//--- impl Clone
+
 impl Clone for WriteZone {
     fn clone(&self) -> Self {
         Self {
@@ -111,6 +62,8 @@ impl Clone for WriteZone {
         }
     }
 }
+
+//--- impl Drop
 
 impl Drop for WriteZone {
     fn drop(&mut self) {
@@ -393,6 +346,68 @@ impl fmt::Display for WriteApexError {
                 f.write_str("operation not allowed")
             }
             WriteApexError::Io(ref err) => err.fmt(f),
+        }
+    }
+}
+
+//------------ ZoneVersions --------------------------------------------------
+
+#[derive(Debug)]
+pub struct ZoneVersions {
+    current: (Version, Arc<VersionMarker>),
+    all: Vec<(Version, Weak<VersionMarker>)>,
+}
+
+impl ZoneVersions {
+    #[allow(unused)]
+    pub fn update_current(&mut self, version: Version) -> Arc<VersionMarker> {
+        let marker = Arc::new(VersionMarker);
+        self.current = (version, marker.clone());
+        marker
+    }
+
+    #[allow(unused)]
+    pub fn push_version(
+        &mut self,
+        version: Version,
+        marker: Arc<VersionMarker>,
+    ) {
+        self.all.push((version, Arc::downgrade(&marker)))
+    }
+
+    #[allow(unused)]
+    pub fn clean_versions(&mut self) -> Option<Version> {
+        let mut max_version = None;
+        self.all.retain(|item| {
+            if item.1.strong_count() > 0 {
+                true
+            } else {
+                match max_version {
+                    Some(old) => {
+                        if item.0 > old {
+                            max_version = Some(item.0)
+                        }
+                    }
+                    None => max_version = Some(item.0),
+                }
+                false
+            }
+        });
+        max_version
+    }
+
+    pub fn current(&self) -> &(Version, Arc<VersionMarker>) {
+        &self.current
+    }
+}
+
+impl Default for ZoneVersions {
+    fn default() -> Self {
+        let marker = Arc::new(VersionMarker);
+        let weak_marker = Arc::downgrade(&marker);
+        ZoneVersions {
+            current: (Version::default(), marker),
+            all: vec![(Version::default(), weak_marker)],
         }
     }
 }

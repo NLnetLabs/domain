@@ -29,7 +29,7 @@ use domain::net::server::stream::StreamServer;
 use domain::net::server::util::{mk_builder_for_target, service_fn};
 use domain::zonefile::inplace;
 use domain::zonetree::{Answer, Rrset};
-use domain::zonetree::{Zone, ZoneSet};
+use domain::zonetree::{Zone, ZoneTree};
 use octseq::OctetsBuilder;
 use std::future::{pending, ready, Future};
 use std::io::BufReader;
@@ -49,7 +49,7 @@ async fn main() {
         .ok();
 
     // Populate a zone tree with test data
-    let mut zones = ZoneSet::new();
+    let mut zones = ZoneTree::new();
     let zone_bytes = include_bytes!("../test-data/zonefiles/nsd-example.txt");
     let mut zone_bytes = BufReader::new(&zone_bytes[..]);
 
@@ -79,7 +79,7 @@ async fn main() {
 #[allow(clippy::type_complexity)]
 fn my_service(
     msg: Request<Message<Vec<u8>>>,
-    zones: Arc<ZoneSet>,
+    zones: Arc<ZoneTree>,
 ) -> Result<
     Transaction<
         Vec<u8>,
@@ -105,7 +105,7 @@ fn my_service(
 
 async fn handle_non_axfr_request(
     msg: Request<Message<Vec<u8>>>,
-    zones: Arc<ZoneSet>,
+    zones: Arc<ZoneTree>,
 ) -> Result<CallResult<Vec<u8>, Vec<u8>>, ServiceError> {
     let question = msg.message().sole_question().unwrap();
     let zone = zones
@@ -127,7 +127,7 @@ async fn handle_non_axfr_request(
 
 async fn handle_axfr_request(
     msg: Request<Message<Vec<u8>>>,
-    zones: Arc<ZoneSet>,
+    zones: Arc<ZoneTree>,
 ) -> TransactionStream<Result<CallResult<Vec<u8>, Vec<u8>>, ServiceError>> {
     let mut stream = TransactionStream::default();
 

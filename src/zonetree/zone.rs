@@ -1,74 +1,59 @@
-use super::read::ReadableZone;
-use super::rrset::StoredDname;
-use super::versioned::Version;
-use super::write::WriteableZone;
-use super::ZoneBuilder;
-use crate::base::iana::Class;
-use crate::zonefile::{inplace, parsed};
-use parking_lot::RwLock;
 use std::boxed::Box;
 use std::fmt::Debug;
 use std::future::Future;
 use std::pin::Pin;
-use std::sync::{Arc, Weak};
-use std::vec::Vec;
+use std::sync::Arc;
 
-//------------ ZoneMeta ------------------------------------------------------
+use crate::base::iana::Class;
+use crate::zonefile::{inplace, parsed};
 
-pub trait ZoneData: Debug + Sync + Send {
-    /// Returns the class of the zone.
-    fn class(&self) -> Class;
+use super::in_memory::ZoneBuilder;
+use super::traits::WriteableZone;
+use super::{ReadableZone, StoredDname, ZoneStore};
 
-    /// Returns the apex name of the zone.
-    fn apex_name(&self) -> &StoredDname;
-
-    fn read(
-        self: Arc<Self>,
-        current: (Version, Arc<VersionMarker>),
-    ) -> Box<dyn ReadableZone>;
-
-    fn write(
-        self: Arc<Self>,
-        version: Version,
-        zone_versions: Arc<RwLock<ZoneVersions>>,
-    ) -> Pin<Box<dyn Future<Output = Box<dyn WriteableZone>>>>;
-}
-
+// TODO: Delete Zone, rename ZoneStore to Zone (and make ZoneSetNode generic?)
 //------------ Zone ----------------------------------------------------------
 
 #[derive(Debug)]
 pub struct Zone {
-    data: Arc<dyn ZoneData>,
-    versions: Arc<RwLock<ZoneVersions>>,
+    store: Arc<dyn ZoneStore>,
 }
 
 impl Zone {
-    pub fn new(data: impl ZoneData + 'static) -> Self {
+    pub fn new(data: impl ZoneStore + 'static) -> Self {
         Zone {
-            data: Arc::new(data),
-            versions: Default::default(),
+            store: Arc::new(data),
         }
     }
 
     pub fn class(&self) -> Class {
-        self.data.class()
+        self.store.class()
     }
 
     pub fn apex_name(&self) -> &StoredDname {
-        self.data.apex_name()
+        self.store.apex_name()
     }
 
     pub fn read(&self) -> Box<dyn ReadableZone> {
-        let current = self.versions.read().current.clone();
-        self.data.clone().read(current)
+        self.store.clone().read()
     }
 
     pub fn write(
         &self,
     ) -> Pin<Box<dyn Future<Output = Box<dyn WriteableZone>>>> {
-        let version = self.versions.read().current.0.next();
-        let zone_versions = self.versions.clone();
-        self.data.clone().write(version, zone_versions)
+        self.store.clone().write()
+    }
+}
+
+//--- TryFrom<inplace::Zonefile>
+
+impl TryFrom<inplace::Zonefile> for Zone {
+    type Error = parsed::RecordError;
+
+    fn try_from(source: inplace::Zonefile) -> Result<Self, Self::Error> {
+        parsed::Zonefile::try_from(source)?
+            .try_into()
+            .map_err(Self::Error::InvalidRecord)
     }
 }
 
@@ -90,77 +75,65 @@ impl TryFrom<parsed::Zonefile> for Zone {
     }
 }
 
-//--- TryFrom<inplace::Zonefile>
+// //------------ ZoneVersions --------------------------------------------------
 
-impl TryFrom<inplace::Zonefile> for Zone {
-    type Error = parsed::RecordError;
+// #[derive(Debug)]
+// pub struct ZoneVersions {
+//     current: (Version, Arc<VersionMarker>),
+//     all: Vec<(Version, Weak<VersionMarker>)>,
+// }
 
-    fn try_from(source: inplace::Zonefile) -> Result<Self, Self::Error> {
-        parsed::Zonefile::try_from(source)?
-            .try_into()
-            .map_err(Self::Error::InvalidRecord)
-    }
-}
+// impl ZoneVersions {
+//     #[allow(unused)]
+//     pub fn update_current(&mut self, version: Version) -> Arc<VersionMarker> {
+//         let marker = Arc::new(VersionMarker);
+//         self.current = (version, marker.clone());
+//         marker
+//     }
 
-//------------ ZoneVersions --------------------------------------------------
+//     #[allow(unused)]
+//     pub fn push_version(
+//         &mut self,
+//         version: Version,
+//         marker: Arc<VersionMarker>,
+//     ) {
+//         self.all.push((version, Arc::downgrade(&marker)))
+//     }
 
-#[derive(Debug)]
-pub struct ZoneVersions {
-    current: (Version, Arc<VersionMarker>),
-    all: Vec<(Version, Weak<VersionMarker>)>,
-}
+//     #[allow(unused)]
+//     pub fn clean_versions(&mut self) -> Option<Version> {
+//         let mut max_version = None;
+//         self.all.retain(|item| {
+//             if item.1.strong_count() > 0 {
+//                 true
+//             } else {
+//                 match max_version {
+//                     Some(old) => {
+//                         if item.0 > old {
+//                             max_version = Some(item.0)
+//                         }
+//                     }
+//                     None => max_version = Some(item.0),
+//                 }
+//                 false
+//             }
+//         });
+//         max_version
+//     }
+// }
 
-impl ZoneVersions {
-    #[allow(unused)]
-    pub fn update_current(&mut self, version: Version) -> Arc<VersionMarker> {
-        let marker = Arc::new(VersionMarker);
-        self.current = (version, marker.clone());
-        marker
-    }
+// impl Default for ZoneVersions {
+//     fn default() -> Self {
+//         let marker = Arc::new(VersionMarker);
+//         let weak_marker = Arc::downgrade(&marker);
+//         ZoneVersions {
+//             current: (Version::default(), marker),
+//             all: vec![(Version::default(), weak_marker)],
+//         }
+//     }
+// }
 
-    #[allow(unused)]
-    pub fn push_version(
-        &mut self,
-        version: Version,
-        marker: Arc<VersionMarker>,
-    ) {
-        self.all.push((version, Arc::downgrade(&marker)))
-    }
+// //------------ VersionMarker -------------------------------------------------
 
-    #[allow(unused)]
-    pub fn clean_versions(&mut self) -> Option<Version> {
-        let mut max_version = None;
-        self.all.retain(|item| {
-            if item.1.strong_count() > 0 {
-                true
-            } else {
-                match max_version {
-                    Some(old) => {
-                        if item.0 > old {
-                            max_version = Some(item.0)
-                        }
-                    }
-                    None => max_version = Some(item.0),
-                }
-                false
-            }
-        });
-        max_version
-    }
-}
-
-impl Default for ZoneVersions {
-    fn default() -> Self {
-        let marker = Arc::new(VersionMarker);
-        let weak_marker = Arc::downgrade(&marker);
-        ZoneVersions {
-            current: (Version::default(), marker),
-            all: vec![(Version::default(), weak_marker)],
-        }
-    }
-}
-
-//------------ VersionMarker -------------------------------------------------
-
-#[derive(Debug)]
-pub struct VersionMarker;
+// #[derive(Debug)]
+// pub struct VersionMarker;

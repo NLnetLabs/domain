@@ -182,3 +182,13 @@ impl Serialize for SharedRrset {
         self.as_rrset().serialize(serializer)
     }
 }
+
+//------------ ZoneCut -------------------------------------------------------
+
+#[derive(Clone, Debug)]
+pub struct ZoneCut {
+    pub name: StoredDname,
+    pub ns: SharedRrset,
+    pub ds: Option<SharedRrset>,
+    pub glue: Vec<StoredRecord>,
+}

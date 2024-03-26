@@ -1,15 +1,14 @@
 //! Reads a zone file.
 
+use std::env;
+use std::fs::File;
 use std::process::exit;
+use std::time::SystemTime;
 
 use domain::zonefile::inplace::Entry;
+use domain::zonefile::inplace::Zonefile;
 
 fn main() {
-    use domain::zonefile::inplace::Zonefile;
-    use std::env;
-    use std::fs::File;
-    use std::time::SystemTime;
-
     let mut args = env::args();
     let prog_name = args.next().unwrap(); // SAFETY: O/S always passes our name as the first argument.
     let zone_files: Vec<_> = args.collect();
@@ -44,7 +43,6 @@ fn main() {
                     eprintln!("  Error: {err}");
                     if let Some(entry) = &last_entry {
                         if let Entry::Record(record) = &entry {
-                            // let record = record.unwrap().into_record::<ZoneRecordData<_, ParsedDname<_>>>().unwrap().unwrap();
                             eprintln!(
                                 "\nThe last record read was:\n{record}."
                             );

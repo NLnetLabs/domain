@@ -1,17 +1,5 @@
 //! The nodes in a zone tree.
 
-use super::read::{ReadableZone, WalkState};
-use super::rrset::{SharedRr, SharedRrset, StoredDname, StoredRecord};
-use super::versioned::{Version, Versioned};
-use super::write::{WriteZone, WriteableZone};
-use super::zone::{VersionMarker, ZoneData, ZoneVersions};
-use super::ReadZone;
-use crate::base::iana::{Class, Rtype};
-use crate::base::name::{Label, OwnedLabel, ToDname, ToLabelIter};
-use parking_lot::{
-    RwLock, RwLockReadGuard, RwLockUpgradableReadGuard, RwLockWriteGuard,
-};
-use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
 use std::boxed::Box;
 use std::collections::{hash_map, HashMap};
@@ -20,8 +8,25 @@ use std::pin::Pin;
 use std::string::String;
 use std::string::ToString;
 use std::sync::Arc;
-use std::vec::Vec;
+
+use parking_lot::{
+    RwLock, RwLockReadGuard, RwLockUpgradableReadGuard, RwLockWriteGuard,
+};
 use tokio::sync::Mutex;
+
+use crate::base::iana::{Class, Rtype};
+use crate::base::name::{Label, OwnedLabel, ToDname, ToLabelIter};
+use crate::zonefile::error::{CnameError, OutOfZone, ZoneCutError};
+use crate::zonetree::types::ZoneCut;
+use crate::zonetree::walk::WalkState;
+use crate::zonetree::{
+    ReadableZone, SharedRr, SharedRrset, StoredDname, WriteableZone,
+    ZoneStore,
+};
+
+use super::read::ReadZone;
+use super::versioned::{Version, Versioned};
+use super::write::{WriteZone, ZoneVersions};
 
 //------------ ZoneApex ------------------------------------------------------
 
@@ -33,6 +38,7 @@ pub struct ZoneApex {
     rrsets: NodeRrsets,
     children: NodeChildren,
     update_lock: Arc<Mutex<()>>,
+    versions: Arc<RwLock<ZoneVersions>>,
 }
 
 impl ZoneApex {
@@ -45,6 +51,7 @@ impl ZoneApex {
             rrsets: Default::default(),
             children: Default::default(),
             update_lock: Default::default(),
+            versions: Default::default(),
         }
     }
 
@@ -54,6 +61,7 @@ impl ZoneApex {
         class: Class,
         rrsets: NodeRrsets,
         children: NodeChildren,
+        versions: ZoneVersions,
     ) -> Self {
         ZoneApex {
             apex_name_display: format!("{}", apex_name),
@@ -62,6 +70,7 @@ impl ZoneApex {
             rrsets,
             children,
             update_lock: Default::default(),
+            versions: Arc::new(RwLock::new(versions)),
         }
     }
 
@@ -118,11 +127,15 @@ impl ZoneApex {
         self.rrsets.clean(version);
         self.children.clean(version);
     }
+
+    pub fn versions(&self) -> &RwLock<ZoneVersions> {
+        &self.versions
+    }
 }
 
-//--- impl ZoneData
+//--- impl ZoneStore
 
-impl ZoneData for ZoneApex {
+impl ZoneStore for ZoneApex {
     fn class(&self) -> Class {
         self.class
     }
@@ -131,24 +144,37 @@ impl ZoneData for ZoneApex {
         &self.apex_name
     }
 
-    fn read(
-        self: Arc<Self>,
-        current: (Version, Arc<VersionMarker>),
-    ) -> Box<dyn ReadableZone> {
-        let (version, marker) = current;
+    fn read(self: Arc<Self>) -> Box<dyn ReadableZone> {
+        let (version, marker) = self.versions().read().current().clone();
         Box::new(ReadZone::new(self, version, marker))
     }
 
     fn write(
         self: Arc<Self>,
-        version: Version,
-        zone_versions: Arc<RwLock<ZoneVersions>>,
     ) -> Pin<Box<dyn Future<Output = Box<dyn WriteableZone>>>> {
         Box::pin(async move {
             let lock = self.update_lock.clone().lock_owned().await;
+            let version = self.versions().read().current().0.next();
+            let zone_versions = self.versions.clone();
             Box::new(WriteZone::new(self, lock, version, zone_versions))
                 as Box<dyn WriteableZone>
         })
+    }
+}
+
+//--- impl From<&'a ZoneApex>
+
+impl<'a> From<&'a ZoneApex> for CnameError {
+    fn from(_: &'a ZoneApex) -> CnameError {
+        CnameError::CnameAtApex
+    }
+}
+
+//--- impl From<&'a ZoneApex>
+
+impl<'a> From<&'a ZoneApex> for ZoneCutError {
+    fn from(_: &'a ZoneApex) -> ZoneCutError {
+        ZoneCutError::ZoneCutAtApex
     }
 }
 
@@ -333,16 +359,6 @@ pub enum Special {
     NxDomain,
 }
 
-//------------ ZoneCut -------------------------------------------------------
-
-#[derive(Clone, Debug, Deserialize, Serialize)]
-pub struct ZoneCut {
-    pub name: StoredDname,
-    pub ns: SharedRrset,
-    pub ds: Option<SharedRrset>,
-    pub glue: Vec<StoredRecord>,
-}
-
 //------------ NodeChildren --------------------------------------------------
 
 #[derive(Debug, Default)]
@@ -402,9 +418,3 @@ impl NodeChildren {
         }
     }
 }
-
-//============ Error Types ==================================================
-
-/// A domain name is not under the zone’s apex.
-#[derive(Clone, Copy, Debug)]
-pub struct OutOfZone;

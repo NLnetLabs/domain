@@ -13,7 +13,7 @@ use domain::base::{ParsedRecord, Record};
 use domain::rdata::ZoneRecordData;
 use domain::zonefile::inplace;
 use domain::zonetree::{Answer, Rrset};
-use domain::zonetree::{Zone, ZoneSet};
+use domain::zonetree::{Zone, ZoneTree};
 use octseq::Parser;
 use tracing_subscriber::EnvFilter;
 
@@ -52,7 +52,7 @@ fn main() {
         });
 
     // Go!
-    let mut zones = ZoneSet::new();
+    let mut zones = ZoneTree::new();
 
     for (zone_file_path, mut zone_file) in zone_files {
         if verbosity != Verbosity::Quiet {

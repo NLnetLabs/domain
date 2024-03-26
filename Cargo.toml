@@ -97,14 +97,6 @@ all-features = true
 rustdoc-args = ["--cfg", "docsrs"]
 
 [[example]]
-name = "read-zone"
-required-features = ["zonefile"]
-
-[[example]]
-name = "query-zone"
-required-features = ["unstable-zonetree"]
-
-[[example]]
 name = "download-rust-lang"
 required-features = ["resolv"]
 
@@ -129,8 +121,16 @@ name = "server-transports"
 required-features = ["net", "unstable-server-transport"]
 
 [[example]]
+name = "read-zone"
+required-features = ["zonefile"]
+
+[[example]]
+name = "query-zone"
+required-features = ["zonefile", "unstable-zonetree"]
+
+[[example]]
 name = "serve-zone"
-required-features = ["net", "unstable-server-transport", "unstable-zonetree"]
+required-features = ["zonefile", "net", "unstable-server-transport", "unstable-zonetree"]
 
 # This example is commented out because it is difficult, if not impossible,
 # when including the sqlx dependency, to make the dependency tree compatible

@@ -1,6 +1,6 @@
 //! MySQL backed zone serving minimal proof of concept.
 //
-// This example extends `domain` with a new `ZoneData` impl adding support for
+// This example extends `domain` with a new `ZoneStore` impl adding support for
 // MySQL backed zones. This demonstration only implements the `ReadableZone`
 // trait, it doesn't implement the `WritableZone` trait, so database access is
 // read-only. Write access could be implemented, it just isn't in this
@@ -123,8 +123,8 @@ use domain::base::scan::IterScanner;
 use domain::base::{Dname, Rtype, Ttl};
 use domain::rdata::ZoneRecordData;
 use domain::zonetree::{
-    Answer, OutOfZone, ReadableZone, Rrset, SharedRrset, StoredDname,
-    Version, VersionMarker, WalkOp, WriteableZone, Zone, ZoneData, ZoneSet,
+    Answer, OutOfZone, ReadableZone, Rrset, SharedRrset, StoredDname, WalkOp,
+    WriteableZone, Zone, ZoneSet, ZoneStore,
 };
 use parking_lot::RwLock;
 use sqlx::Row;
@@ -195,9 +195,9 @@ impl DatabaseNode {
     }
 }
 
-//--- impl ZoneData
+//--- impl ZoneStore
 
-impl ZoneData for DatabaseNode {
+impl ZoneStore for DatabaseNode {
     fn class(&self) -> Class {
         Class::In
     }
@@ -206,10 +206,7 @@ impl ZoneData for DatabaseNode {
         &self.apex_name
     }
 
-    fn read(
-        self: Arc<Self>,
-        _current: (Version, Arc<VersionMarker>),
-    ) -> Box<dyn ReadableZone> {
+    fn read(self: Arc<Self>) -> Box<dyn ReadableZone> {
         Box::new(DatabaseReadZone::new(
             self.db_pool.clone(),
             self.apex_name.clone(),
@@ -218,8 +215,6 @@ impl ZoneData for DatabaseNode {
 
     fn write(
         self: Arc<Self>,
-        _version: Version,
-        _zone_versions: Arc<RwLock<domain::zonetree::ZoneVersions>>,
     ) -> Pin<Box<dyn Future<Output = Box<dyn WriteableZone>>>> {
         todo!()
     }

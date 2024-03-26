@@ -78,3 +78,8 @@ impl<T> Default for Versioned<T> {
         Self::new()
     }
 }
+
+//------------ VersionMarker -------------------------------------------------
+
+#[derive(Debug)]
+pub struct VersionMarker;

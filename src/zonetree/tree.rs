@@ -9,15 +9,15 @@ use std::fmt::Display;
 use std::io;
 use std::vec::Vec;
 
-//------------ ZoneSet -------------------------------------------------------
+//------------ ZoneTree ------------------------------------------------------
 
-/// The set of zones we are authoritative for.
+/// The hierarchy of zones we are authoritative for.
 #[derive(Default)]
-pub struct ZoneSet {
+pub struct ZoneTree {
     roots: Roots,
 }
 
-impl ZoneSet {
+impl ZoneTree {
     pub fn new() -> Self {
         Default::default()
     }
@@ -138,7 +138,7 @@ pub struct ZoneSetIter<'a> {
 }
 
 impl<'a> ZoneSetIter<'a> {
-    fn new(set: &'a ZoneSet) -> Self {
+    fn new(set: &'a ZoneTree) -> Self {
         ZoneSetIter {
             roots: set.roots.others.values(),
             nodes: NodesIter::new(&set.roots.in_),

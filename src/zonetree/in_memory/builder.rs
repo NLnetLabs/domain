@@ -3,15 +3,18 @@
 use std::sync::Arc;
 use std::vec::Vec;
 
-use super::nodes::{OutOfZone, Special, ZoneApex, ZoneCut, ZoneNode};
-use super::rrset::{SharedRr, SharedRrset, StoredDname, StoredRecord};
-use super::set::{InsertZoneError, ZoneSet};
-use super::versioned::Version;
-use super::zone::Zone;
 use crate::base::iana::Class;
 use crate::base::name::{Label, ToDname};
+use crate::zonefile::error::{CnameError, OutOfZone, ZoneCutError};
 use crate::zonefile::parsed;
-use std::fmt::Display;
+use crate::zonetree::tree::InsertZoneError;
+use crate::zonetree::types::ZoneCut;
+use crate::zonetree::{
+    SharedRr, SharedRrset, StoredDname, StoredRecord, Zone, ZoneTree,
+};
+
+use super::nodes::{Special, ZoneApex, ZoneNode};
+use super::versioned::Version;
 
 //------------ ZoneBuilder ---------------------------------------------------
 
@@ -32,7 +35,7 @@ impl ZoneBuilder {
 
     pub fn finalize_into_set(
         self,
-        zone_set: &mut ZoneSet,
+        zone_set: &mut ZoneTree,
     ) -> Result<(), InsertZoneError> {
         zone_set.insert_zone(self.finalize())
     }
@@ -105,63 +108,5 @@ impl TryFrom<parsed::Zonefile> for ZoneBuilder {
 
     fn try_from(source: parsed::Zonefile) -> Result<Self, Self::Error> {
         source.into_zone_builder()
-    }
-}
-
-//------------ ZoneCutError --------------------------------------------------
-
-#[derive(Clone, Copy, Debug)]
-pub enum ZoneCutError {
-    OutOfZone,
-    ZoneCutAtApex,
-}
-
-impl From<OutOfZone> for ZoneCutError {
-    fn from(_: OutOfZone) -> ZoneCutError {
-        ZoneCutError::OutOfZone
-    }
-}
-
-impl<'a> From<&'a ZoneApex> for ZoneCutError {
-    fn from(_: &'a ZoneApex) -> ZoneCutError {
-        ZoneCutError::ZoneCutAtApex
-    }
-}
-
-impl Display for ZoneCutError {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        match self {
-            ZoneCutError::OutOfZone => write!(f, "Out of zone"),
-            ZoneCutError::ZoneCutAtApex => write!(f, "Zone cut at apex"),
-        }
-    }
-}
-
-//----------- CnameError -----------------------------------------------------
-
-#[derive(Clone, Copy, Debug)]
-pub enum CnameError {
-    OutOfZone,
-    CnameAtApex,
-}
-
-impl From<OutOfZone> for CnameError {
-    fn from(_: OutOfZone) -> CnameError {
-        CnameError::OutOfZone
-    }
-}
-
-impl<'a> From<&'a ZoneApex> for CnameError {
-    fn from(_: &'a ZoneApex) -> CnameError {
-        CnameError::CnameAtApex
-    }
-}
-
-impl Display for CnameError {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        match self {
-            CnameError::OutOfZone => write!(f, "Out of zone"),
-            CnameError::CnameAtApex => write!(f, "CNAME at apex"),
-        }
     }
 }
