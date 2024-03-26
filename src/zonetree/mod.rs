@@ -4,7 +4,7 @@
 //! Storing and querying of zone trees.
 //!
 //! A [`ZoneTree`] is a multi-rooted hierarchy of [`Zone`]s, each root being a
-//! distinct [`Class`], The tree can be queried by [`Class`], [`Rtype`] and
+//! distinct [`Class`], A tree can be queried by [`Class`], [`Rtype`] and
 //! [`Dname`] resulting in an [`Answer`].
 //!
 //! Trees can be iterated over to inspect or export their content.
@@ -14,7 +14,7 @@
 //! matching name) and removed from the tree.
 //!
 //! Zones with other types of backing store can be created by implementing the
-//! [`ZoneStore`] trait and passing instances of the implementing struct to
+//! [`ZoneStore`] trait and passing an instance of the implementing struct to
 //! [`Zone::new()`].
 //!
 //! For an example of implementing an alternate zone backing store see
