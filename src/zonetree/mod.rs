@@ -4,7 +4,7 @@
 //! Storing and querying of zone trees.
 //!
 //! A [`ZoneTree`] is a multi-rooted hierarchy of [`Zone`]s, each root being a
-//! distinct [`Class`], A tree can be queried by [`Class`], [`Rtype`] and
+//! distinct [`Class`]. A tree can be queried by [`Class`], [`Rtype`] and
 //! [`Dname`] resulting in an [`Answer`].
 //!
 //! Trees can be iterated over to inspect or export their content.
