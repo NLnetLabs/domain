@@ -30,7 +30,7 @@ use super::write::{WriteZone, ZoneVersions};
 
 #[derive(Debug)]
 pub struct ZoneApex {
-    origin: StoredDname,
+    apex_name: StoredDname,
     class: Class,
     rrsets: NodeRrsets,
     children: NodeChildren,
@@ -40,9 +40,9 @@ pub struct ZoneApex {
 
 impl ZoneApex {
     /// Creates a new apex.
-    pub fn new(origin: StoredDname, class: Class) -> Self {
+    pub fn new(apex_name: StoredDname, class: Class) -> Self {
         ZoneApex {
-            origin,
+            apex_name,
             class,
             rrsets: Default::default(),
             children: Default::default(),
@@ -60,7 +60,7 @@ impl ZoneApex {
         versions: ZoneVersions,
     ) -> Self {
         ZoneApex {
-            origin: apex_name,
+            apex_name,
             class,
             rrsets,
             children,
@@ -82,7 +82,7 @@ impl ZoneApex {
         qname: &'l impl ToDname,
     ) -> Result<impl Iterator<Item = &'l Label> + Clone, OutOfZone> {
         let mut qname = qname.iter_labels().rev();
-        for apex_label in self.apex_name().iter_labels().rev() {
+        for apex_label in self.name().iter_labels().rev() {
             let qname_label = qname.next();
             if Some(apex_label) != qname_label {
                 return Err(OutOfZone);
@@ -122,8 +122,8 @@ impl ZoneApex {
         &self.versions
     }
 
-    pub fn origin(&self) -> &StoredDname {
-        &self.origin
+    pub fn name(&self) -> &StoredDname {
+        &self.apex_name
     }
 }
 
@@ -135,7 +135,7 @@ impl ZoneStore for ZoneApex {
     }
 
     fn apex_name(&self) -> &StoredDname {
-        &self.origin
+        &self.apex_name
     }
 
     fn read(self: Arc<Self>) -> Box<dyn ReadableZone> {

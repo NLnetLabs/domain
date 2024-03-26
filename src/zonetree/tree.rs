@@ -32,7 +32,10 @@ impl ZoneTree {
             .get_zone(apex_name.iter_labels().rev())
     }
 
-    pub fn insert_zone(&mut self, zone: Zone) -> Result<(), InsertZoneError> {
+    pub fn insert_zone(
+        &mut self,
+        zone: Zone,
+    ) -> Result<(), ZoneTreeModificationError> {
         self.roots.get_or_insert(zone.class()).insert_zone(
             &mut zone.apex_name().clone().iter_labels().rev(),
             zone,
@@ -50,6 +53,18 @@ impl ZoneTree {
     pub fn iter_zones(&self) -> ZoneSetIter {
         ZoneSetIter::new(self)
     }
+
+    pub fn remove_zone(
+        &mut self,
+        apex_name: &impl ToDname,
+        class: Class,
+    ) -> Result<(), ZoneTreeModificationError> {
+        if let Some(root) = self.roots.get_mut(class) {
+            root.remove_zone(apex_name.iter_labels().rev())
+        } else {
+            Err(ZoneTreeModificationError::ZoneDoesNotExist)
+        }
+    }
 }
 
 //------------ Roots ---------------------------------------------------------
@@ -66,6 +81,14 @@ impl Roots {
             Some(&self.in_)
         } else {
             self.others.get(&class)
+        }
+    }
+
+    pub fn get_mut(&mut self, class: Class) -> Option<&mut ZoneSetNode> {
+        if class == Class::In {
+            Some(&mut self.in_)
+        } else {
+            self.others.get_mut(&class)
         }
     }
 
@@ -115,18 +138,35 @@ impl ZoneSetNode {
         &mut self,
         mut apex_name: impl Iterator<Item = &'l Label>,
         zone: Zone,
-    ) -> Result<(), InsertZoneError> {
+    ) -> Result<(), ZoneTreeModificationError> {
         if let Some(label) = apex_name.next() {
             self.children
                 .entry(label.into())
                 .or_default()
                 .insert_zone(apex_name, zone)
         } else if self.zone.is_some() {
-            Err(InsertZoneError::ZoneExists)
+            Err(ZoneTreeModificationError::ZoneExists)
         } else {
             self.zone = Some(zone);
             Ok(())
         }
+    }
+
+    fn remove_zone<'l>(
+        &mut self,
+        mut apex_name: impl Iterator<Item = &'l Label>,
+    ) -> Result<(), ZoneTreeModificationError> {
+        match apex_name.next() {
+            Some(label) => {
+                if self.children.remove(label).is_none() {
+                    return Err(ZoneTreeModificationError::ZoneDoesNotExist);
+                }
+            }
+            None => {
+                self.zone = None;
+            }
+        }
+        Ok(())
     }
 }
 
@@ -208,35 +248,44 @@ impl<'a> Iterator for NodesIter<'a> {
 //============ Error Types ===================================================
 
 #[derive(Debug)]
-pub enum InsertZoneError {
+pub enum ZoneTreeModificationError {
     ZoneExists,
+    ZoneDoesNotExist,
     Io(io::Error),
 }
 
-impl From<io::Error> for InsertZoneError {
+impl From<io::Error> for ZoneTreeModificationError {
     fn from(src: io::Error) -> Self {
-        InsertZoneError::Io(src)
+        ZoneTreeModificationError::Io(src)
     }
 }
 
-impl From<InsertZoneError> for io::Error {
-    fn from(src: InsertZoneError) -> Self {
+impl From<ZoneTreeModificationError> for io::Error {
+    fn from(src: ZoneTreeModificationError) -> Self {
         match src {
-            InsertZoneError::Io(err) => err,
-            InsertZoneError::ZoneExists => {
+            ZoneTreeModificationError::Io(err) => err,
+            ZoneTreeModificationError::ZoneDoesNotExist => {
+                io::Error::new(io::ErrorKind::Other, "zone does not exist")
+            }
+            ZoneTreeModificationError::ZoneExists => {
                 io::Error::new(io::ErrorKind::Other, "zone exists")
             }
         }
     }
 }
 
-impl Display for InsertZoneError {
+impl Display for ZoneTreeModificationError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            InsertZoneError::ZoneExists => write!(f, "Zone already exists"),
-            InsertZoneError::Io(err) => write!(f, "Io error: {err}"),
+            ZoneTreeModificationError::ZoneExists => {
+                write!(f, "Zone already exists")
+            }
+            ZoneTreeModificationError::ZoneDoesNotExist => {
+                write!(f, "Zone does not exist")
+            }
+            ZoneTreeModificationError::Io(err) => {
+                write!(f, "Io error: {err}")
+            }
         }
     }
 }
-
-pub struct ZoneExists; // XXX

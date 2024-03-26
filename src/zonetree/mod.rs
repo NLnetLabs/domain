@@ -3,17 +3,19 @@
 #![warn(missing_docs)]
 //! Storing and querying of zone trees.
 //!
-//! A [`ZoneTree`] represents a multi-rooted hierarchy of [`Zone`]s, one
-//! subtree per [`Class`], which can then be queried by [`Class`], [`Rtype`]
-//! and [`Dname`] to obtain [`Answer`]s, successful ([`NoError`]) or otherwise
-//! (e.g. [`NxDomain`]).
+//! A [`ZoneTree`] is a multi-rooted hierarchy of [`Zone`]s, each root being a
+//! distinct [`Class`], The tree can be queried by [`Class`], [`Rtype`] and
+//! [`Dname`] resulting in an [`Answer`].
 //!
-//! For diagnostic and export (e.g. zone transfer) purposes zones, and trees
-//! also support iteration.
+//! Trees can be iterated over to inspect or export their content.
 //!
-//! Use [`ZoneBuilder`] to easily construct an in-memory [`Zone`] from given
-//! DNS records, or implement the [`ZoneStore`] trait to enable construction
-//! of zones backed by your own choice of storage.
+//! In-memory [`Zone`]s can be created from DNS records using [`ZoneBuilder`],
+//! inserted into a [`ZoneTree`], looked up in the tree (by exact or closest
+//! matching name) and removed from the tree.
+//!
+//! Zones with other types of backing store can be created by implementing the
+//! [`ZoneStore`] trait and passing instances of the implementing struct to
+//! [`Zone::new()`].
 //!
 //! For an example of implementing an alternate zone backing store see
 //! `examples/other/mysql-zone.rs`.
@@ -36,8 +38,8 @@
 //! let parsed = parsed::Zonefile::try_from(reader).unwrap();
 //! let builder = ZoneBuilder::try_from(parsed).unwrap();
 //!
-//! // Verify that the zone origin matches that of the imported data.
-//! assert_eq!(&format!("{}", builder.apex().origin()), "example.com");
+//! // Verify that the zone apex name matches that of the imported data.
+//! assert_eq!(&format!("{}", builder.apex().name()), "example.com");
 //!
 //! // Turn the builder into a zone.
 //! let zone = Zone::from(builder);
@@ -81,7 +83,7 @@ pub use self::in_memory::ZoneBuilder;
 pub use self::traits::{
     ReadableZone, WritableZone, WritableZoneNode, ZoneStore,
 };
-pub use self::tree::{ZoneExists, ZoneTree};
+pub use self::tree::ZoneTree;
 pub use self::types::{
     Rrset, SharedRr, SharedRrset, StoredDname, StoredRecord,
 };

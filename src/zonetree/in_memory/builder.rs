@@ -6,7 +6,7 @@ use std::vec::Vec;
 use crate::base::iana::Class;
 use crate::base::name::{Label, ToDname};
 use crate::zonefile::error::{CnameError, OutOfZone, ZoneCutError};
-use crate::zonetree::tree::InsertZoneError;
+use crate::zonetree::tree::ZoneTreeModificationError;
 use crate::zonetree::types::ZoneCut;
 use crate::zonetree::{
     SharedRr, SharedRrset, StoredDname, StoredRecord, Zone, ZoneTree,
@@ -35,7 +35,7 @@ impl ZoneBuilder {
     pub fn finalize_into_tree(
         self,
         zone_set: &mut ZoneTree,
-    ) -> Result<(), InsertZoneError> {
+    ) -> Result<(), ZoneTreeModificationError> {
         zone_set.insert_zone(self.finalize())
     }
 

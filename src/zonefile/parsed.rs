@@ -281,7 +281,7 @@ impl TryFrom<inplace::Zonefile> for Zonefile {
 //------------ Owners --------------------------------------------------------
 
 #[derive(Clone)]
-struct Owners<Content> {
+pub struct Owners<Content> {
     owners: BTreeMap<StoredDname, Content>,
 }
 
@@ -360,7 +360,7 @@ impl<Content> Default for Owners<Content> {
 //------------ Normal --------------------------------------------------------
 
 #[derive(Clone, Default)]
-struct Normal {
+pub struct Normal {
     records: HashMap<Rtype, Rrset>,
 }
 
@@ -386,7 +386,7 @@ impl Normal {
 //------------ ZoneCut -------------------------------------------------------
 
 #[derive(Clone, Default)]
-struct ZoneCut {
+pub struct ZoneCut {
     ns: Option<Rrset>,
     ds: Option<Rrset>,
 }

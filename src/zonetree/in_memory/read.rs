@@ -12,9 +12,7 @@ use crate::zonefile::error::OutOfZone;
 use crate::zonetree::answer::{Answer, AnswerAuthority};
 use crate::zonetree::types::ZoneCut;
 use crate::zonetree::walk::WalkState;
-use crate::zonetree::{
-    ReadableZone, Rrset, SharedRr, SharedRrset, WalkOp, ZoneStore,
-};
+use crate::zonetree::{ReadableZone, Rrset, SharedRr, SharedRrset, WalkOp};
 
 use super::nodes::{NodeChildren, NodeRrsets, Special, ZoneApex, ZoneNode};
 use super::versioned::Version;
@@ -321,7 +319,7 @@ impl NodeAnswer {
         if self.add_soa {
             if let Some(soa) = zone.apex.get_soa(zone.version) {
                 self.answer.add_authority(AnswerAuthority::new(
-                    zone.apex.apex_name().clone(),
+                    zone.apex.name().clone(),
                     Some(soa),
                     None,
                     None,
