@@ -29,7 +29,7 @@ pub trait ZoneStore: Debug + Sync + Send {
 
     fn write(
         self: Arc<Self>,
-    ) -> Pin<Box<dyn Future<Output = Box<dyn WriteableZone>>>>;
+    ) -> Pin<Box<dyn Future<Output = Box<dyn WritableZone>>>>;
 }
 
 //------------ ReadableZone --------------------------------------------------
@@ -70,15 +70,13 @@ pub trait ReadableZone: Send {
 
 //------------ WritableZone --------------------------------------------------
 
-pub trait WriteableZone {
+pub trait WritableZone {
     #[allow(clippy::type_complexity)]
     fn open(
         &self,
     ) -> Pin<
         Box<
-            dyn Future<
-                Output = Result<Box<dyn WriteableZoneNode>, io::Error>,
-            >,
+            dyn Future<Output = Result<Box<dyn WritableZoneNode>, io::Error>>,
         >,
     >;
 
@@ -87,18 +85,16 @@ pub trait WriteableZone {
     ) -> Pin<Box<dyn Future<Output = Result<(), io::Error>>>>;
 }
 
-//------------ WriteableZoneNode ----------------------------------------------
+//------------ WritableZoneNode ----------------------------------------------
 
-pub trait WriteableZoneNode {
+pub trait WritableZoneNode {
     #[allow(clippy::type_complexity)]
     fn update_child(
         &self,
         label: &Label,
     ) -> Pin<
         Box<
-            dyn Future<
-                Output = Result<Box<dyn WriteableZoneNode>, io::Error>,
-            >,
+            dyn Future<Output = Result<Box<dyn WritableZoneNode>, io::Error>>,
         >,
     >;
 

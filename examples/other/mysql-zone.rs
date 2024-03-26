@@ -124,7 +124,7 @@ use domain::base::{Dname, Rtype, Ttl};
 use domain::rdata::ZoneRecordData;
 use domain::zonetree::{
     Answer, OutOfZone, ReadableZone, Rrset, SharedRrset, StoredDname, WalkOp,
-    WriteableZone, Zone, ZoneSet, ZoneStore,
+    WritableZone, Zone, ZoneSet, ZoneStore,
 };
 use parking_lot::RwLock;
 use sqlx::Row;
@@ -215,7 +215,7 @@ impl ZoneStore for DatabaseNode {
 
     fn write(
         self: Arc<Self>,
-    ) -> Pin<Box<dyn Future<Output = Box<dyn WriteableZone>>>> {
+    ) -> Pin<Box<dyn Future<Output = Box<dyn WritableZone>>>> {
         todo!()
     }
 }

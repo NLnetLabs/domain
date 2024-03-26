@@ -5,7 +5,6 @@ use std::boxed::Box;
 use std::collections::{hash_map, HashMap};
 use std::future::Future;
 use std::pin::Pin;
-use std::string::String;
 use std::string::ToString;
 use std::sync::Arc;
 
@@ -20,8 +19,7 @@ use crate::zonefile::error::{CnameError, OutOfZone, ZoneCutError};
 use crate::zonetree::types::ZoneCut;
 use crate::zonetree::walk::WalkState;
 use crate::zonetree::{
-    ReadableZone, SharedRr, SharedRrset, StoredDname, WriteableZone,
-    ZoneStore,
+    ReadableZone, SharedRr, SharedRrset, StoredDname, WritableZone, ZoneStore,
 };
 
 use super::read::ReadZone;
@@ -32,8 +30,7 @@ use super::write::{WriteZone, ZoneVersions};
 
 #[derive(Debug)]
 pub struct ZoneApex {
-    apex_name: StoredDname,
-    apex_name_display: String,
+    origin: StoredDname,
     class: Class,
     rrsets: NodeRrsets,
     children: NodeChildren,
@@ -43,10 +40,9 @@ pub struct ZoneApex {
 
 impl ZoneApex {
     /// Creates a new apex.
-    pub fn new(apex_name: StoredDname, class: Class) -> Self {
+    pub fn new(origin: StoredDname, class: Class) -> Self {
         ZoneApex {
-            apex_name_display: format!("{}", apex_name),
-            apex_name,
+            origin,
             class,
             rrsets: Default::default(),
             children: Default::default(),
@@ -64,19 +60,13 @@ impl ZoneApex {
         versions: ZoneVersions,
     ) -> Self {
         ZoneApex {
-            apex_name_display: format!("{}", apex_name),
-            apex_name,
+            origin: apex_name,
             class,
             rrsets,
             children,
             update_lock: Default::default(),
             versions: Arc::new(RwLock::new(versions)),
         }
-    }
-
-    /// Returns the string version of the apex name.
-    pub fn apex_name_display(&self) -> &str {
-        &self.apex_name_display
     }
 
     /// Returns the class name.
@@ -131,6 +121,10 @@ impl ZoneApex {
     pub fn versions(&self) -> &RwLock<ZoneVersions> {
         &self.versions
     }
+
+    pub fn origin(&self) -> &StoredDname {
+        &self.origin
+    }
 }
 
 //--- impl ZoneStore
@@ -141,7 +135,7 @@ impl ZoneStore for ZoneApex {
     }
 
     fn apex_name(&self) -> &StoredDname {
-        &self.apex_name
+        &self.origin
     }
 
     fn read(self: Arc<Self>) -> Box<dyn ReadableZone> {
@@ -151,13 +145,13 @@ impl ZoneStore for ZoneApex {
 
     fn write(
         self: Arc<Self>,
-    ) -> Pin<Box<dyn Future<Output = Box<dyn WriteableZone>>>> {
+    ) -> Pin<Box<dyn Future<Output = Box<dyn WritableZone>>>> {
         Box::pin(async move {
             let lock = self.update_lock.clone().lock_owned().await;
             let version = self.versions().read().current().0.next();
             let zone_versions = self.versions.clone();
             Box::new(WriteZone::new(self, lock, version, zone_versions))
-                as Box<dyn WriteableZone>
+                as Box<dyn WritableZone>
         })
     }
 }

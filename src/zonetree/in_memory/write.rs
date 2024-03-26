@@ -17,7 +17,7 @@ use crate::base::iana::Rtype;
 use crate::base::name::Label;
 use crate::zonetree::types::ZoneCut;
 use crate::zonetree::SharedRr;
-use crate::zonetree::{SharedRrset, WriteableZone, WriteableZoneNode};
+use crate::zonetree::{SharedRrset, WritableZone, WritableZoneNode};
 
 use super::nodes::{Special, ZoneApex, ZoneNode};
 use super::versioned::{Version, VersionMarker};
@@ -74,21 +74,19 @@ impl Drop for WriteZone {
     }
 }
 
-//--- impl WriteableZone
+//--- impl WritableZone
 
-impl WriteableZone for WriteZone {
+impl WritableZone for WriteZone {
     #[allow(clippy::type_complexity)]
     fn open(
         &self,
     ) -> Pin<
         Box<
-            dyn Future<
-                Output = Result<Box<dyn WriteableZoneNode>, io::Error>,
-            >,
+            dyn Future<Output = Result<Box<dyn WritableZoneNode>, io::Error>>,
         >,
     > {
         let res = WriteNode::new_apex(self.clone())
-            .map(|node| Box::new(node) as Box<dyn WriteableZoneNode>)
+            .map(|node| Box::new(node) as Box<dyn WritableZoneNode>)
             .map_err(|err| {
                 io::Error::new(
                     io::ErrorKind::Other,
@@ -254,23 +252,21 @@ impl WriteNode {
     }
 }
 
-//--- impl WriteableZoneNode
+//--- impl WritableZoneNode
 
-impl WriteableZoneNode for WriteNode {
+impl WritableZoneNode for WriteNode {
     #[allow(clippy::type_complexity)]
     fn update_child(
         &self,
         label: &Label,
     ) -> Pin<
         Box<
-            dyn Future<
-                Output = Result<Box<dyn WriteableZoneNode>, io::Error>,
-            >,
+            dyn Future<Output = Result<Box<dyn WritableZoneNode>, io::Error>>,
         >,
     > {
         let node = self
             .update_child(label)
-            .map(|node| Box::new(node) as Box<dyn WriteableZoneNode>);
+            .map(|node| Box::new(node) as Box<dyn WritableZoneNode>);
         Box::pin(ready(node))
     }
 

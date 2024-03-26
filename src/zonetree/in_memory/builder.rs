@@ -6,7 +6,6 @@ use std::vec::Vec;
 use crate::base::iana::Class;
 use crate::base::name::{Label, ToDname};
 use crate::zonefile::error::{CnameError, OutOfZone, ZoneCutError};
-use crate::zonefile::parsed;
 use crate::zonetree::tree::InsertZoneError;
 use crate::zonetree::types::ZoneCut;
 use crate::zonetree::{
@@ -33,7 +32,7 @@ impl ZoneBuilder {
         Zone::new(self.apex)
     }
 
-    pub fn finalize_into_set(
+    pub fn finalize_into_tree(
         self,
         zone_set: &mut ZoneTree,
     ) -> Result<(), InsertZoneError> {
@@ -99,14 +98,8 @@ impl ZoneBuilder {
         }
         Ok(node)
     }
-}
 
-//--- TryFrom<parsed::Zonefile>
-
-impl TryFrom<parsed::Zonefile> for ZoneBuilder {
-    type Error = parsed::ZoneError;
-
-    fn try_from(source: parsed::Zonefile) -> Result<Self, Self::Error> {
-        source.into_zone_builder()
+    pub fn apex(&self) -> &ZoneApex {
+        &self.apex
     }
 }

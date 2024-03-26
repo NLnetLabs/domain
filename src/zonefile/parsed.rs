@@ -1,36 +1,53 @@
-//! Importing from and exporting to a zonefiles.
+//! Importing from and (in future) exporting to a zonefiles.
 
 use core::convert::Infallible;
 use std::collections::{BTreeMap, HashMap};
-use std::fmt::Display;
 use std::vec::Vec;
 
 use tracing::trace;
 
-use super::error::{CnameError, ZoneCutError};
+use super::error::{OwnerError, RecordError, ZoneErrors};
 use super::inplace::{self, Entry};
 
 use crate::base::iana::{Class, Rtype};
 use crate::base::name::FlattenInto;
 use crate::base::ToDname;
 use crate::rdata::ZoneRecordData;
-use crate::zonetree::in_memory::ZoneBuilder;
+use crate::zonetree::ZoneBuilder;
 use crate::zonetree::{Rrset, SharedRr, StoredDname, StoredRecord};
 
 //------------ Zonefile ------------------------------------------------------
 
-/// The content of a zonefile.
+/// A parsed sanity checked representation of a zonefile.
 ///
-/// Note: This is a very simple version of how this may look later. It just
-/// reads all the records and stores them so we can then insert them into the
-/// zone tree.
-#[derive(Clone)]
+/// This type eases creation of a [`ZoneBuilder`] from a collection of
+/// [`StoredRecord`]s, e.g.  and accepts only records that are valid within
+/// the zone.
+///
+/// The zone origin and class may be specified explicitly or be derived from
+/// the SOA record when inserted. The relationship of each resource record
+/// with the zone is classified on insert, similar to that described by [RFC
+/// 1034 4.2.1].
+///
+/// Getter functions provide insight into the classification results.
+///
+/// When ready the [`Self::into_zone_builder()`] function can be used to
+/// convert the parsed zonefile into a pre-populated [`ZoneBuilder`].
+///
+/// # Usage
+///
+/// See the [zonetree] module docs for example usage.
+///
+/// [RFC 1034 4.2.1]:
+///     https://datatracker.ietf.org/doc/html/rfc1034#section-4.2.1
+/// [zonetree]: crate::zonetree
+#[derive(Clone, Default)]
 pub struct Zonefile {
     /// The name of the apex of the zone.
-    apex: StoredDname,
+    origin: Option<StoredDname>,
 
     /// The class of the zone.
-    class: Class,
+    class: Option<Class>,
 
     /// The records for names that have regular RRsets attached to them.
     normal: Owners<Normal>,
@@ -48,13 +65,16 @@ pub struct Zonefile {
 impl Zonefile {
     pub fn new(apex: StoredDname, class: Class) -> Self {
         Zonefile {
-            apex,
-            class,
-            normal: Default::default(),
-            zone_cuts: Default::default(),
-            cnames: Default::default(),
-            out_of_zone: Default::default(),
+            origin: Some(apex),
+            class: Some(class),
+            ..Default::default()
         }
+    }
+}
+
+impl Zonefile {
+    pub fn set_origin(&mut self, origin: StoredDname) {
+        self.origin = Some(origin)
     }
 
     /// Inserts the record into the zone file.
@@ -62,11 +82,36 @@ impl Zonefile {
         &mut self,
         record: StoredRecord,
     ) -> Result<(), RecordError> {
-        trace!("{record}");
-        if record.class() != self.class {
+        // If a zone apex and class were not provided via [`Self::new()`],
+        // i.e. we were created by [`Self::default()`], require the first
+        // record to be a SOA record and use its owner name and class as the
+        // zone apex name and class.
+        eprintln!("XX 1");
+        if self.origin.is_none() {
+            eprintln!("XX 2");
+            if record.rtype() != Rtype::Soa {
+                eprintln!("XX 3");
+                return Err(RecordError::MissingSoa);
+            } else {
+                eprintln!("XX 4");
+                let apex = record
+                    .owner()
+                    .to_dname()
+                    .map_err(|_: Infallible| unreachable!())?;
+                self.class = Some(record.class());
+                self.origin = Some(apex);
+            }
+        }
+
+        eprintln!("XX 5: {:?}", self.origin);
+        let (zone_apex, zone_class) =
+            (self.origin().unwrap(), self.class().unwrap());
+
+        if record.class() != zone_class {
             return Err(RecordError::ClassMismatch);
         }
-        if !record.owner().ends_with(&self.apex) {
+
+        if !record.owner().ends_with(zone_apex) {
             self.out_of_zone
                 .entry(record.owner().clone())
                 .insert(record);
@@ -80,7 +125,7 @@ impl Zonefile {
                 // A Delegation Signer (DS) record can only appear within the
                 // parent zone and refer to a child zone, a DS record cannot
                 // therefore appear at the apex.
-                Rtype::Ns | Rtype::Ds if record.owner() != &self.apex => {
+                Rtype::Ns | Rtype::Ds if record.owner() != zone_apex => {
                     if self.normal.contains(record.owner())
                         || self.cnames.contains(record.owner())
                     {
@@ -115,15 +160,49 @@ impl Zonefile {
             }
         }
     }
+}
 
-    /// Inserts the content as a new zone into a zone set.
-    pub fn into_zone_builder(mut self) -> Result<ZoneBuilder, ZoneError> {
-        let mut builder = ZoneBuilder::new(self.apex.clone(), self.class);
-        let mut zone_err = ZoneError::default();
+impl Zonefile {
+    pub fn origin(&self) -> Option<&StoredDname> {
+        self.origin.as_ref()
+    }
+
+    pub fn class(&self) -> Option<Class> {
+        self.class
+    }
+
+    pub fn normal(&self) -> &Owners<Normal> {
+        &self.normal
+    }
+
+    pub fn zone_cuts(&self) -> &Owners<ZoneCut> {
+        &self.zone_cuts
+    }
+
+    pub fn cnames(&self) -> &Owners<SharedRr> {
+        &self.cnames
+    }
+
+    pub fn out_of_zone(&self) -> &Owners<Normal> {
+        &self.out_of_zone
+    }
+}
+
+impl TryFrom<Zonefile> for ZoneBuilder {
+    type Error = ZoneErrors;
+
+    fn try_from(mut zonefile: Zonefile) -> Result<Self, Self::Error> {
+        eprintln!("TF parsed -> ZoneBuilder");
+        eprintln!("ZF: {:?}", zonefile.origin);
+        let mut builder = ZoneBuilder::new(
+            zonefile.origin.unwrap(),
+            zonefile.class.unwrap(),
+        );
+        let mut zone_err = ZoneErrors::default();
 
         // Insert all the zone cuts first. Fish out potential glue records
         // from the normal or out-of-zone records.
-        for (name, cut) in self.zone_cuts.into_iter() {
+        for (name, cut) in zonefile.zone_cuts.into_iter() {
             let ns = match cut.ns {
                 Some(ns) => ns.into_shared(),
                 None => {
@@ -135,7 +214,9 @@ impl Zonefile {
             let mut glue = vec![];
             for rdata in ns.data() {
                 if let ZoneRecordData::Ns(ns) = rdata {
-                    glue.append(&mut self.normal.collect_glue(ns.nsdname()));
+                    glue.append(
+                        &mut zonefile.normal.collect_glue(ns.nsdname()),
+                    );
                 }
             }
 
@@ -145,14 +226,14 @@ impl Zonefile {
         }
 
         // Now insert all the CNAMEs.
-        for (name, rrset) in self.cnames.into_iter() {
+        for (name, rrset) in zonefile.cnames.into_iter() {
             if let Err(err) = builder.insert_cname(&name, rrset) {
                 zone_err.add_error(name, OwnerError::InvalidCname(err))
             }
         }
 
         // Finally, all the normal records.
-        for (name, rrsets) in self.normal.into_iter() {
+        for (name, rrsets) in zonefile.normal.into_iter() {
             for (rtype, rrset) in rrsets.into_iter() {
                 if builder.insert_rrset(&name, rrset.into_shared()).is_err() {
                     zone_err.add_error(
@@ -165,7 +246,7 @@ impl Zonefile {
 
         // If there are out-of-zone records left, we will error to avoid
         // surprises.
-        for (name, rrsets) in self.out_of_zone.into_iter() {
+        for (name, rrsets) in zonefile.out_of_zone.into_iter() {
             for (rtype, _) in rrsets.into_iter() {
                 zone_err
                     .add_error(name.clone(), OwnerError::OutOfZone(rtype));
@@ -181,49 +262,19 @@ impl Zonefile {
 impl TryFrom<inplace::Zonefile> for Zonefile {
     type Error = RecordError;
 
-    fn try_from(mut source: inplace::Zonefile) -> Result<Self, Self::Error> {
-        let mut non_soa_records = Vec::<StoredRecord>::new();
-
-        let mut sink = loop {
-            let entry = source
-                .next_entry()
-                .map_err(RecordError::MalformedRecord)?
-                .ok_or(RecordError::MissingSoa)?;
-
-            if let Entry::Record(record) = entry {
-                match record.rtype() {
-                    Rtype::Soa => {
-                        let apex = record
-                            .owner()
-                            .to_dname()
-                            .map_err(|_: Infallible| unreachable!())?;
-
-                        let mut sink = Zonefile::new(apex, record.class());
-
-                        for r in non_soa_records {
-                            sink.insert(r)?;
-                        }
-                        sink.insert(record.flatten_into())?;
-                        break sink;
-                    }
-
-                    _ => {
-                        non_soa_records.push(record.flatten_into());
-                    }
-                }
-            }
-        };
+    fn try_from(source: inplace::Zonefile) -> Result<Self, Self::Error> {
+        let mut zonefile = Zonefile::default();
 
         for res in source {
             match res.map_err(RecordError::MalformedRecord)? {
-                Entry::Record(r) => sink.insert(r.flatten_into())?,
+                Entry::Record(r) => zonefile.insert(r.flatten_into())?,
                 entry => {
                     trace!("Skipping unsupported zone file entry: {entry:?}")
                 }
             }
         }
 
-        Ok(sink)
+        Ok(zonefile)
     }
 }
 
@@ -358,121 +409,6 @@ impl ZoneCut {
                 }
             }
             _ => panic!("inserting wrong rtype to zone cut"),
-        }
-    }
-}
-
-//============ Errors ========================================================
-
-//------------ RecordError ---------------------------------------------------
-
-#[derive(Clone, Debug)]
-pub enum RecordError {
-    /// The class of the record does not match the class of the zone.
-    ClassMismatch,
-
-    /// Attempted to add zone cut records where there is no zone cut.
-    IllegalZoneCut,
-
-    /// Attempted to add a normal record to a zone cut or CNAME.
-    IllegalRecord,
-
-    /// Attempted to add a CNAME record where there are other records.
-    IllegalCname,
-
-    /// Attempted to add multiple CNAME records for an owner.
-    MultipleCnames,
-
-    /// The record could not be parsed.
-    MalformedRecord(inplace::Error),
-
-    /// The record is parseable but not valid.
-    InvalidRecord(ZoneError),
-
-    /// The SOA record was not found.
-    MissingSoa,
-}
-
-impl Display for RecordError {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        match self {
-            RecordError::ClassMismatch => write!(f, "ClassMismatch"),
-            RecordError::IllegalZoneCut => write!(f, "IllegalZoneCut"),
-            RecordError::IllegalRecord => write!(f, "IllegalRecord"),
-            RecordError::IllegalCname => write!(f, "IllegalCname"),
-            RecordError::MultipleCnames => write!(f, "MultipleCnames"),
-            RecordError::MalformedRecord(err) => {
-                write!(f, "MalformedRecord: {err}")
-            }
-            RecordError::InvalidRecord(err) => {
-                write!(f, "InvalidRecord: {err}")
-            }
-            RecordError::MissingSoa => write!(f, "MissingSoa"),
-        }
-    }
-}
-
-//------------ ZoneError -----------------------------------------------------
-
-#[derive(Clone, Debug, Default)]
-pub struct ZoneError {
-    errors: Vec<(StoredDname, OwnerError)>,
-}
-
-impl ZoneError {
-    fn add_error(&mut self, name: StoredDname, error: OwnerError) {
-        self.errors.push((name, error))
-    }
-
-    fn into_result(self) -> Result<(), Self> {
-        if self.errors.is_empty() {
-            Ok(())
-        } else {
-            Err(self)
-        }
-    }
-}
-
-impl Display for ZoneError {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        write!(f, "Zone file errors: [")?;
-        for err in &self.errors {
-            write!(f, "'{}': {},", err.0, err.1)?;
-        }
-        write!(f, "]")
-    }
-}
-
-//------------ OwnerError ---------------------------------------------------
-
-#[derive(Clone, Debug)]
-enum OwnerError {
-    /// A NS RRset is missing at a zone cut.
-    ///
-    /// (This happens if there is only a DS RRset.)
-    MissingNs,
-
-    /// A zone cut appeared where it shouldn’t have.
-    InvalidZonecut(ZoneCutError),
-
-    /// A CNAME appeared where it shouldn’t have.
-    InvalidCname(CnameError),
-
-    /// A record is out of zone.
-    OutOfZone(Rtype),
-}
-
-impl Display for OwnerError {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        match self {
-            OwnerError::MissingNs => write!(f, "Missing NS"),
-            OwnerError::InvalidZonecut(err) => {
-                write!(f, "Invalid zone cut: {err}")
-            }
-            OwnerError::InvalidCname(err) => {
-                write!(f, "Invalid CNAME: {err}")
-            }
-            OwnerError::OutOfZone(err) => write!(f, "Out of zone: {err}"),
         }
     }
 }

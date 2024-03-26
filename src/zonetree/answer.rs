@@ -1,3 +1,7 @@
+//! A DNS answer to a DNS query against a [`Zone`].
+//!
+//! [`Zone`]: crate::zonetree:Zone
+
 //------------ Answer --------------------------------------------------------
 
 use super::{SharedRr, SharedRrset, StoredDname};

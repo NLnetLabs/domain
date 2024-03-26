@@ -45,8 +45,11 @@
 //!   Experimental support for DNSSEC validation.
 #![cfg_attr(feature = "zonefile", doc = "* [zonefile]:")]
 #![cfg_attr(not(feature = "zonefile"), doc = "* zonefile:")]
-//!   Experimental reading and writing of zone files, i.e., the textual
+//!   Experimental reading and writing of zone files, i.e. the textual
 //!   representation of DNS data.
+#![cfg_attr(feature = "unstable-zonetree", doc = "* [zonetree]:")]
+#![cfg_attr(not(feature = "unstable-zonetree"), doc = "* zonetree:")]
+//!   Experimental storing and querying of zone trees.
 //!
 //! Finally, the [dep] module contains re-exports of some important
 //! dependencies to help avoid issues with multiple versions of a crate.
