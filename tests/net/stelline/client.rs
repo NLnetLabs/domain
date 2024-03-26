@@ -103,6 +103,7 @@ impl std::fmt::Display for StellineErrorCause {
 
 //----------- do_client_simple() ----------------------------------------------
 
+#[allow(dead_code)]
 pub async fn do_client_simple<R: SendRequest<RequestMessage<Vec<u8>>>>(
     stelline: &Stelline,
     step_value: &CurrStepValue,
