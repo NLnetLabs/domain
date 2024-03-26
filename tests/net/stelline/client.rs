@@ -1,7 +1,7 @@
 #![allow(clippy::type_complexity)]
 use std::collections::HashMap;
 use std::future::{ready, Future};
-use std::net::{IpAddr, SocketAddr};
+use std::net::IpAddr;
 use std::pin::Pin;
 use std::rc::Rc;
 use std::sync::Mutex;
@@ -434,10 +434,6 @@ fn entry2reqmsg(entry: &Entry) -> RequestMessage<Vec<u8>> {
     if !edns_bytes.is_empty() {
         let raw_opt = RawOptData { bytes: edns_bytes };
         reqmsg.add_opt(&raw_opt).unwrap();
-    }
-
-    if let Some(client_addr) = entry.client_addr {
-        reqmsg.set_source_address(SocketAddr::new(client_addr, 0));
     }
 
     reqmsg
