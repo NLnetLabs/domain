@@ -68,6 +68,8 @@ pub enum StellineErrorCause {
     MismatchedAnswer,
     MissingResponse,
     MissingStepEntry,
+
+    #[allow(dead_code)]
     MissingClient,
 }
 
@@ -99,6 +101,82 @@ impl std::fmt::Display for StellineErrorCause {
     }
 }
 
+//----------- do_client_simple() ----------------------------------------------
+
+pub async fn do_client_simple<R: SendRequest<RequestMessage<Vec<u8>>>>(
+    stelline: &Stelline,
+    step_value: &CurrStepValue,
+    request: R,
+) {
+    async fn inner<R: SendRequest<RequestMessage<Vec<u8>>>>(
+        stelline: &Stelline,
+        step_value: &CurrStepValue,
+        request: R,
+    ) -> Result<(), StellineErrorCause> {
+        let mut resp: Option<Message<Bytes>> = None;
+
+        // Assume steps are in order. Maybe we need to define that.
+        for step in &stelline.scenario.steps {
+            let span =
+                info_span!("step", "{}:{}", step.step_value, step.step_type);
+            let _guard = span.enter();
+
+            debug!("Processing step");
+            step_value.set(step.step_value);
+            match step.step_type {
+                StepType::Query => {
+                    let entry = step
+                        .entry
+                        .as_ref()
+                        .ok_or(StellineErrorCause::MissingStepEntry)?;
+                    let reqmsg = entry2reqmsg(entry);
+                    let mut req = request.send_request(reqmsg);
+                    resp = Some(req.get_response().await?);
+
+                    trace!(?resp);
+                }
+                StepType::CheckAnswer => {
+                    let answer = resp
+                        .take()
+                        .ok_or(StellineErrorCause::MissingResponse)?;
+                    let entry = step
+                        .entry
+                        .as_ref()
+                        .ok_or(StellineErrorCause::MissingStepEntry)?;
+                    if !match_msg(entry, &answer, true) {
+                        return Err(StellineErrorCause::MismatchedAnswer);
+                    }
+                }
+                StepType::TimePasses => {
+                    let duration =
+                        Duration::from_secs(step.time_passes.unwrap());
+                    tokio::time::advance(duration).await;
+                    #[cfg(feature = "mock-time")]
+                    MockClock::advance_system_time(duration);
+                }
+                StepType::Traffic
+                | StepType::CheckTempfile
+                | StepType::Assign => todo!(),
+            }
+        }
+
+        Ok(())
+    }
+
+    init_logging();
+
+    let name = stelline
+        .name
+        .rsplit_once('/')
+        .unwrap_or(("", &stelline.name))
+        .1;
+    let span = tracing::info_span!("stelline", "{}", name);
+    let _guard = span.enter();
+    if let Err(cause) = inner(stelline, step_value, request).await {
+        panic!("{}", StellineError::from_cause(stelline, step_value, cause));
+    }
+}
+
 //----------- Dispatcher -----------------------------------------------------
 
 pub struct Dispatcher(
@@ -124,6 +202,7 @@ impl Dispatcher {
         Self(None)
     }
 
+    #[allow(dead_code)]
     pub async fn dispatch(
         &self,
         entry: &Entry,
@@ -280,6 +359,7 @@ impl ClientFactory for QueryTailoredClientFactory {
 
 //----------- do_client() ----------------------------------------------------
 
+#[allow(dead_code)]
 pub async fn do_client<'a, T: ClientFactory>(
     stelline: &'a Stelline,
     step_value: &'a CurrStepValue,
