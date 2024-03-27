@@ -21,7 +21,7 @@
 //! `examples/other/mysql-zone.rs`.
 //!
 //! # Usage
-//! 
+//!
 //! The following example builds and queries a [`ZoneTree`] containing a single
 //! in-memory [`Zone`].
 //!
