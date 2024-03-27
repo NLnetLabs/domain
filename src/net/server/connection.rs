@@ -345,6 +345,10 @@ where
     ) where
         Svc::Future: Send,
     {
+        // SAFETY: It is always safe to unwrap `num_connections` because our
+        // parent code in `stream.rs` constructs the `metrics` type using the
+        // [`ServerMetrics::connection_oriented()`] constructor which ensures
+        // there is a `Some` value in the `num_connections` field.
         self.metrics
             .num_connections
             .as_ref()
