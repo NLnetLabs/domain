@@ -379,7 +379,11 @@ where
     ) where
         Svc::Future: Send,
     {
+        // SAFETY: This unwrap is safe because we always put a Some value into
+        // self.stream_rx in [`Self::with_config()`] above (and thus also in
+        // [`Self::new()`] which calls [`Self::with_config()`]).
         let stream_rx = self.stream_rx.take().unwrap();
+
         let mut dns_msg_receiver =
             DnsMessageReceiver::new(self.buf_source.clone(), stream_rx);
 
