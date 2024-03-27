@@ -3,7 +3,7 @@
 //! The [`Service::call()`] function defines how the service should respond to
 //! a given DNS request. resulting in a [`ServiceResult`] containing a
 //! transaction that yields one or more future DNS responses, and/or a
-//! [`ServerCommand`].
+//! [`ServiceFeedback`].
 use core::fmt::Display;
 use core::ops::Deref;
 
