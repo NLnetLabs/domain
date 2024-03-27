@@ -24,6 +24,7 @@ use octseq::Octets;
 /// is invoked for your zone content in order to tailor the DNS message
 /// produced by [`Self::to_message()`] based on the outcome of the query.
 ///
+/// [`Zone`]: crate::zonetree::Zone
 /// [`Zone::query()`]: crate::zonetree::Zone::query()
 #[derive(Clone)]
 pub struct Answer {
