@@ -62,7 +62,7 @@ impl TryFrom<inplace::Zonefile> for Zone {
 
 impl From<ZoneBuilder> for Zone {
     fn from(builder: ZoneBuilder) -> Self {
-        builder.finalize()
+        builder.build()
     }
 }
 

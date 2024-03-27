@@ -52,6 +52,15 @@ impl From<StoredRecord> for SharedRr {
 
 //------------ Rrset ---------------------------------------------------------
 
+/// A set of related resource records.
+///
+/// This type should be used to create and edit one or more resource records
+/// for use with a [`Zone`]. RRset records should all have the same type and
+/// TTL but differing data, as defined by [RFC 9499 section 5.1.3].
+///
+/// [`Zone`]: crate::zonetree::Zone
+/// [RFC 9499 section 5.1.3]:
+///     https://datatracker.ietf.org/doc/html/rfc9499#section-5-1.3
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct Rrset {
     rtype: Rtype,
@@ -60,12 +69,7 @@ pub struct Rrset {
 }
 
 impl Rrset {
-    /*
-    fn is_delegation(rtype: Rtype) -> bool {
-        matches!(rtype, Rtype::Ns | Rtype::Ds)
-    }
-    */
-
+    /// Creates a new RRset.
     pub fn new(rtype: Rtype, ttl: Ttl) -> Self {
         Rrset {
             rtype,
@@ -74,22 +78,27 @@ impl Rrset {
         }
     }
 
+    /// Gets the common type of each record in the RRset.
     pub fn rtype(&self) -> Rtype {
         self.rtype
     }
 
+    /// Gets the common TTL of each record in the RRset.
     pub fn ttl(&self) -> Ttl {
         self.ttl
     }
 
+    /// Gets the data for each record in the RRset.
     pub fn data(&self) -> &[StoredRecordData] {
         &self.data
     }
 
+    /// Returns true if this RRset has no resource records, false otherwise.
     pub fn is_empty(&self) -> bool {
         self.data.is_empty()
     }
 
+    /// Gets the first RRset record, if any.
     pub fn first(&self) -> Option<SharedRr> {
         self.data.first().map(|data| SharedRr {
             ttl: self.ttl,
@@ -97,26 +106,42 @@ impl Rrset {
         })
     }
 
+    /// Changesthe TTL of every record in the RRset.
     pub fn set_ttl(&mut self, ttl: Ttl) {
         self.ttl = ttl;
     }
 
+    /// Limits the TTL of every record in the RRSet.
+    ///
+    /// If the TTL currently exceeds the given limit it will be set to the
+    /// limit.
     pub fn limit_ttl(&mut self, ttl: Ttl) {
         if self.ttl > ttl {
             self.ttl = ttl
         }
     }
 
+    /// Adds a resource record to the RRset.
+    ///
+    /// # Panics
+    ///
+    /// This function will panic if the provided record data is for a
+    /// different type than the RRset.
     pub fn push_data(&mut self, data: StoredRecordData) {
         assert_eq!(data.rtype(), self.rtype);
         self.data.push(data);
     }
 
+    /// Adds a resource record to the RRset, limiting the TTL to that of the
+    /// new record.
+    ///
+    /// See [`Self::limit_ttl()`] and [`Self::push_data()`].
     pub fn push_record(&mut self, record: StoredRecord) {
         self.limit_ttl(record.ttl());
         self.push_data(record.into_data());
     }
 
+    /// Converts this [`Rrset`] to an [`SharedRrset`].
     pub fn into_shared(self) -> SharedRrset {
         SharedRrset::new(self)
     }
@@ -135,14 +160,18 @@ impl From<StoredRecord> for Rrset {
 //------------ SharedRrset ---------------------------------------------------
 
 /// An RRset behind an arc.
+///
+/// See [`Rrset`] for more information.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct SharedRrset(Arc<Rrset>);
 
 impl SharedRrset {
+    /// Creates a new RRset.
     pub fn new(rrset: Rrset) -> Self {
         SharedRrset(Arc::new(rrset))
     }
 
+    /// Gets a reference to the inner [`Rrset`].
     pub fn as_rrset(&self) -> &Rrset {
         self.0.as_ref()
     }

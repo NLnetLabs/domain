@@ -1,7 +1,7 @@
 #![cfg(feature = "unstable-zonetree")]
 #![cfg_attr(docsrs, doc(cfg(feature = "unstable-zonetree")))]
 #![warn(missing_docs)]
-//! Storing and querying of zone trees.
+//! Experimental storing and querying of zone trees.
 //!
 //! A [`ZoneTree`] is a multi-rooted hierarchy of [`Zone`]s, each root being a
 //! distinct [`Class`]. A tree can be queried by [`Class`], [`Rtype`] and
@@ -40,9 +40,6 @@
 //! let reader = inplace::Zonefile::load(&mut zone_bytes).unwrap();
 //! let parsed = parsed::Zonefile::try_from(reader).unwrap();
 //! let builder = ZoneBuilder::try_from(parsed).unwrap();
-//!
-//! // Verify that the zone apex name matches that of the imported data.
-//! assert_eq!(&format!("{}", builder.apex().name()), "example.com");
 //!
 //! // Turn the builder into a zone.
 //! let zone = Zone::from(builder);

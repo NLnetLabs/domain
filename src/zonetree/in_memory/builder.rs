@@ -1,4 +1,4 @@
-//! Building a new zone.
+//! Builders for in-memory zones.
 
 use std::sync::Arc;
 use std::vec::Vec;
@@ -6,10 +6,9 @@ use std::vec::Vec;
 use crate::base::iana::Class;
 use crate::base::name::{Label, ToDname};
 use crate::zonefile::error::{CnameError, OutOfZone, ZoneCutError};
-use crate::zonetree::tree::ZoneTreeModificationError;
 use crate::zonetree::types::ZoneCut;
 use crate::zonetree::{
-    SharedRr, SharedRrset, StoredDname, StoredRecord, Zone, ZoneTree,
+    SharedRr, SharedRrset, StoredDname, StoredRecord, Zone,
 };
 
 use super::nodes::{Special, ZoneApex, ZoneNode};
@@ -17,28 +16,57 @@ use super::versioned::Version;
 
 //------------ ZoneBuilder ---------------------------------------------------
 
+/// An in-memory [`Zone`] builder.
+///
+/// [`ZoneBuilder`] is used to build [`Zone`]s that use the default in-memory
+/// backing store. It has dedicated functions for inserting certain kinds of
+/// resource record properly into the zone in order to cater to RR types that
+/// require or benefit from special handling when is [`ReadableZone::query()`]
+/// invoked for the zone.
+///
+/// Each [`ZoneBuilder`] builds a single zone with a named apex and a single
+/// class. All resource records within the zone are considered to have the
+/// specified class.
+///
+/// # Usage
+///
+/// To use a [`ZoneBuilder`]:
+/// - Call [`ZoneBuilder::new()`] to create a new builder.
+/// - Call the various `insert_()` functions to add as many resource records
+/// as needed.
+/// - Call [`ZoneBuilder::build()`] to exchange the builder for a populated
+///   [`Zone`].
+///
+/// [`ReadableZone::query()`]: crate::zonetree::ReadableZone::query()
 pub struct ZoneBuilder {
     apex: ZoneApex,
 }
 
 impl ZoneBuilder {
+    /// Creates a new builder for the specified apex name and class.
+    ///
+    /// All resource records in the zone will be considered to have the
+    /// specified [`Class`].
+    #[must_use]
     pub fn new(apex_name: StoredDname, class: Class) -> Self {
         ZoneBuilder {
             apex: ZoneApex::new(apex_name, class),
         }
     }
 
-    pub fn finalize(self) -> Zone {
+    /// Builds a [`Zone`] from this builder.
+    ///
+    /// Calling this function consumes the [`ZoneBuilder`]. The returned
+    /// in-memory [`Zone`] will be populated with the resource records that
+    /// were inserted into the builder.
+    #[must_use]
+    pub fn build(self) -> Zone {
         Zone::new(self.apex)
     }
 
-    pub fn finalize_into_tree(
-        self,
-        zone_set: &mut ZoneTree,
-    ) -> Result<(), ZoneTreeModificationError> {
-        zone_set.insert_zone(self.finalize())
-    }
-
+    /// Inserts a related set of resource records.
+    ///
+    /// Inserts a [`SharedRrset`] for the given owner name.
     pub fn insert_rrset(
         &mut self,
         name: &impl ToDname,
@@ -51,6 +79,39 @@ impl ZoneBuilder {
         Ok(())
     }
 
+    /// Insert one or more resource records that represent a zone cut.
+    ///
+    /// Per [RFC 9499 section 7.2.13] a zone cut is the _"delimitation point
+    /// between two zones where the origin of one of the zones is the child of
+    /// the other zone"_.
+    ///
+    /// Originally the _"existence of a zone cut [was] indicated in the parent
+    /// zone by the existence of NS records specifying the origin of the child
+    /// zone"_ ([RFC 1034 section 4.2], [RFC 2181 section 6]).
+    ///
+    /// When these NS records specify that _"the name server's name is 'below'
+    /// the cut"_ they are one form of what is referred to as "glue" ([RFC
+    /// 9499 section 7.2.30]).
+    ///
+    /// Additionally, DNSSEC introduced the Delegation Signer (DS) record
+    /// which _"resides at a [delegation point] in a parent zone"_ ([RFC 4033
+    /// section 3.1]).
+    ///
+    /// The [`ZoneBuilder`] and in-memory [`Zone`]s are aware of these
+    /// differences and thus this function requires you to specify them
+    /// separately and explicitly.
+    ///
+    /// [RFC 1034 section 4.2]:
+    ///     https://www.rfc-editor.org/rfc/rfc1034#section-4.2
+    /// [RFC 2181 section 6]: https://www.rfc-editor.org/rfc/rfc2181#section-6
+    /// [RFC 4033 section 3.1]:
+    ///     https://datatracker.ietf.org/doc/html/rfc4033#section-3.1
+    /// [RFC 9499 section 7.2.13]:
+    ///     https://datatracker.ietf.org/doc/html/rfc9499#section-7-2.13
+    /// [RFC 9499 section 7.2.30]:
+    ///     https://datatracker.ietf.org/doc/html/rfc9499#section-7-2.30
+    /// [delegation point]:
+    ///     https://datatracker.ietf.org/doc/html/rfc4033#section-2
     pub fn insert_zone_cut(
         &mut self,
         name: &impl ToDname,
@@ -69,6 +130,15 @@ impl ZoneBuilder {
         Ok(())
     }
 
+    /// Inserts a CNAME resource record.
+    ///
+    /// Inserts a CNAME record ([RFC 1035 section 3.2.2]). See also [RFC 9499
+    /// section 2.1.43].
+    ///
+    /// [RFC 1035 section 3.2.2]:
+    ///     view-source:https://www.ietf.org/rfc/rfc1035.html#section-3.2.2
+    /// [RFC 9499 section 2.1.43]:
+    ///     https://datatracker.ietf.org/doc/html/rfc9499#section-2-1.43
     pub fn insert_cname(
         &mut self,
         name: &impl ToDname,
@@ -97,9 +167,5 @@ impl ZoneBuilder {
                 .with_or_default(label, |node, _| node.clone());
         }
         Ok(node)
-    }
-
-    pub fn apex(&self) -> &ZoneApex {
-        &self.apex
     }
 }
