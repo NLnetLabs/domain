@@ -3,27 +3,34 @@
 #![warn(missing_docs)]
 //! Experimental storing and querying of zone trees.
 //!
-//! A [`ZoneTree`] is a multi-rooted hierarchy of [`Zone`]s, each root being a
-//! distinct [`Class`]. A tree can be queried by [`Class`], [`Rtype`] and
-//! [`Dname`] resulting in an [`Answer`].
+//! A [`ZoneTree`] is a multi-rooted hierarchy of [`Zone`]s, each root being
+//! the apex of a subtree for a distinct [`Class`].
+//! 
+//! Individual `Zone`s within the tree can be looked up by containing or exact
+//! name, and then the found `Zone` can be queried by [`Class`], [`Rtype`] and
+//! [`Dname`] to produce an [`Answer`], which in turn can be used to produce a
+//! response [`Message`] for serving to a DNS client.
 //!
-//! Trees can be iterated over to inspect or export their content.
+//! Trees can also be iterated over to inspect or export their content.
 //!
-//! In-memory [`Zone`]s can be created from DNS records using [`ZoneBuilder`],
-//! inserted into a [`ZoneTree`], looked up in the tree (by exact or closest
-//! matching name) and removed from the tree.
-//!
+//! The `Zone`s that a tree is comprised of can be created by feeding
+//! zonefiles or individual resource records into [`ZoneBuilder`] and then
+//! inserted into a `ZoneTree`.
+//! 
 //! Zones with other types of backing store can be created by implementing the
 //! [`ZoneStore`] trait and passing an instance of the implementing struct to
 //! [`Zone::new()`].
 //!
-//! For an example of implementing an alternate zone backing store see
-//! `examples/other/mysql-zone.rs`.
+//! The example below shows how to populate a `ZoneTree` from a zonefile. For
+//! more examples of using `Zone`s and `ZoneTree`s including implementing an
+//! alternate zone backing store for your `Zone`s, see the [examples in the
+//! GitHub
+//! repository](https://github.com/NLnetLabs/domain/tree/main/examples).
 //!
 //! # Usage
 //!
-//! The following example builds and queries a [`ZoneTree`] containing a single
-//! in-memory [`Zone`].
+//! The following example builds and queries a [`ZoneTree`] containing a
+//! single in-memory [`Zone`].
 //!
 //! ```
 //! use domain::base::iana::{Class, Rcode, Rtype};
@@ -65,6 +72,7 @@
 //! [`Class`]: base::iana::Class
 //! [`Rtype`]: base::iana::Rtype
 //! [`Dname`]: base::iana::Dname
+//! [`Message`]: base::Message
 //! [`NoError`]: base::iana::code::Rcode::NoError
 //! [`NxDomain`]: base::iana::code::Rcode::NxDomain
 //! [`ZoneBuilder`]: in_memory::ZoneBuilder
