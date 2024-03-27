@@ -18,25 +18,44 @@ use super::versioned::Version;
 
 /// A builder of in-memory [`Zone`]s.
 ///
-/// [`ZoneBuilder`] is used to build [`Zone`]s that use the default in-memory
-/// backing store. It has dedicated functions for inserting certain kinds of
-/// resource record properly into the zone in order to cater to RR types that
-/// require or benefit from special handling when is [`ReadableZone::query()`]
-/// invoked for the zone.
+/// `ZoneBuilder` is used to specify the content of a single zone one,
+/// resource record or RRset at a time, and to then turn that specification
+/// into a populated in-memory [`Zone`].
 ///
-/// Each [`ZoneBuilder`] builds a single zone with a named apex and a single
-/// class. All resource records within the zone are considered to have the
+/// <div class="warning">
+///
+/// Already have a zonefile in [presentation format]?
+///
+/// Check out the example [module docs] which shows how to use
+/// [`inplace::Zonefile`], [`parsed::Zonefile`] and `ZoneBuilder` together
+/// without having to manually insert each resource record into the
+/// `ZoneBuilder` yourself.
+///
+/// </div>
+///
+/// Each `ZoneBuilder` builds a single zone with a named apex and a single
+/// [`Class`]. All resource records within the zone are considered to have the
 /// specified class.
+///
+/// `ZoneBuilder` has dedicated functions for inserting certain kinds of
+/// resource record properly into the zone in order to cater to RR types that
+/// require or benefit from special handling when [`ReadableZone::query()`] is
+/// invoked for the zone.
 ///
 /// # Usage
 ///
-/// To use a [`ZoneBuilder`]:
+/// To use `ZoneBuilder`:
 /// - Call [`ZoneBuilder::new()`] to create a new builder.
 /// - Call the various `insert_()` functions to add as many resource records
 /// as needed.
 /// - Call [`ZoneBuilder::build()`] to exchange the builder for a populated
 ///   [`Zone`].
 ///
+/// [module docs]: crate::zonetree
+/// [`inplace::Zonefile`]: crate::zonefile::inplace::Zonefile
+/// [`parsed::Zonefile`]: crate::zonefile::parsed::Zonefile
+/// [presentation format]:
+///     https://datatracker.ietf.org/doc/html/rfc9499#section-2-1.16.1.6.1.3
 /// [`ReadableZone::query()`]: crate::zonetree::ReadableZone::query()
 pub struct ZoneBuilder {
     apex: ZoneApex,
@@ -54,11 +73,11 @@ impl ZoneBuilder {
         }
     }
 
-    /// Builds a [`Zone`] from this builder.
+    /// Builds an in-memory [`Zone`] from this builder.
     ///
     /// Calling this function consumes the [`ZoneBuilder`]. The returned
-    /// in-memory [`Zone`] will be populated with the resource records that
-    /// were inserted into the builder.
+    /// `Zone` will be populated with the resource records that were inserted
+    /// into the builder.
     #[must_use]
     pub fn build(self) -> Zone {
         Zone::new(self.apex)
@@ -81,35 +100,21 @@ impl ZoneBuilder {
 
     /// Insert one or more resource records that represent a zone cut.
     ///
-    /// Per [RFC 9499 section 7.2.13] a zone cut is the _"delimitation point
-    /// between two zones where the origin of one of the zones is the child of
-    /// the other zone"_.
+    /// A zone cut is the _"delimitation point between two zones where the
+    /// origin of one of the zones is the child of the other zone"_ ([RFC 9499
+    /// section 7.2.13]).
     ///
-    /// Originally the _"existence of a zone cut [was] indicated in the parent
-    /// zone by the existence of NS records specifying the origin of the child
-    /// zone"_ ([RFC 1034 section 4.2], [RFC 2181 section 6]).
+    /// Several different resource record types may appear at a zone cut and
+    /// may be inserted into the `ZoneBuilder` using this function:
     ///
-    /// When these NS records specify that _"the name server's name is 'below'
-    /// the cut"_ they are one form of what is referred to as "glue" ([RFC
-    /// 9499 section 7.2.30]).
+    /// - [Ns] records
+    /// - [Ds] records
+    /// - Glue records _(see [RFC 9499 section 7.2.30])_
     ///
-    /// Additionally, DNSSEC introduced the Delegation Signer (DS) record
-    /// which _"resides at a [delegation point] in a parent zone"_ ([RFC 4033
-    /// section 3.1]).
-    ///
-    /// The [`ZoneBuilder`] and in-memory [`Zone`]s are aware of these
-    /// differences and thus this function requires you to specify them
-    /// separately and explicitly.
-    ///
-    /// [RFC 1034 section 4.2]:
-    ///     https://www.rfc-editor.org/rfc/rfc1034#section-4.2
-    /// [RFC 2181 section 6]: https://www.rfc-editor.org/rfc/rfc2181#section-6
-    /// [RFC 4033 section 3.1]:
-    ///     https://datatracker.ietf.org/doc/html/rfc4033#section-3.1
+    /// [Ns]: crate::rdata::rfc1035::Ns
+    /// [Ds]: crate::rdata::dnssec::Ds
     /// [RFC 9499 section 7.2.13]:
     ///     https://datatracker.ietf.org/doc/html/rfc9499#section-7-2.13
-    /// [RFC 9499 section 7.2.30]:
-    ///     https://datatracker.ietf.org/doc/html/rfc9499#section-7-2.30
     /// [delegation point]:
     ///     https://datatracker.ietf.org/doc/html/rfc4033#section-2
     pub fn insert_zone_cut(
@@ -132,13 +137,9 @@ impl ZoneBuilder {
 
     /// Inserts a CNAME resource record.
     ///
-    /// Inserts a CNAME record ([RFC 1035 section 3.2.2]). See also [RFC 9499
-    /// section 2.1.43].
+    /// See: [`Cname`]
     ///
-    /// [RFC 1035 section 3.2.2]:
-    ///     view-source:https://www.ietf.org/rfc/rfc1035.html#section-3.2.2
-    /// [RFC 9499 section 2.1.43]:
-    ///     https://datatracker.ietf.org/doc/html/rfc9499#section-2-1.43
+    /// [`Cname`]: crate::rdata::rfc1035::Cname
     pub fn insert_cname(
         &mut self,
         name: &impl ToDname,
