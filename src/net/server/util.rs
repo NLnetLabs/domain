@@ -65,8 +65,7 @@ where
 ///     req: Request<Message<Vec<u8>>>,
 ///     _meta: MyMeta,
 /// ) -> Result<
-///     Transaction<
-///         Result<CallResult<Vec<u8>, Vec<u8>>, ServiceError>,
+///     Transaction<Vec<u8>, Vec<u8>,
 ///         Pin<Box<dyn Future<
 ///             Output = Result<
 ///                 CallResult<Vec<u8>, Vec<u8>>,
@@ -110,13 +109,9 @@ where
     T: Fn(
             Request<Message<RequestOctets>>,
             Metadata,
-        ) -> Result<
-            Transaction<
-                Result<CallResult<RequestOctets, Target>, ServiceError>,
-                Future,
-            >,
-            ServiceError,
-        > + Clone,
+        )
+            -> Result<Transaction<RequestOctets, Target, Future>, ServiceError>
+        + Clone,
 {
     move |msg| msg_handler(msg, metadata.clone())
 }

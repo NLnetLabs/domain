@@ -104,13 +104,7 @@ where
     pub fn preprocess<Future>(
         &self,
         request: &mut Request<Message<RequestOctets>>,
-    ) -> ControlFlow<(
-        Transaction<
-            Result<CallResult<RequestOctets, Target>, ServiceError>,
-            Future,
-        >,
-        usize,
-    )>
+    ) -> ControlFlow<(Transaction<RequestOctets, Target, Future>, usize)>
     where
         Future: std::future::Future<
                 Output = Result<

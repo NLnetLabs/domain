@@ -301,13 +301,8 @@ impl Service<Vec<u8>> for MyService {
     fn call(
         &self,
         _msg: Request<Message<Vec<u8>>>,
-    ) -> Result<
-        Transaction<
-            Result<CallResult<Vec<u8>, Self::Target>, ServiceError>,
-            Self::Future,
-        >,
-        ServiceError,
-    > {
+    ) -> Result<Transaction<Vec<u8>, Self::Target, Self::Future>, ServiceError>
+    {
         Ok(Transaction::single(MySingle))
         // Err(ServiceError::ShuttingDown)
     }

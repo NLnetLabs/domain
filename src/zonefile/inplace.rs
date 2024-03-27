@@ -189,7 +189,7 @@ impl Zonefile {
     }
 
     /// Returns the origin name of the zonefile.
-    fn get_origin(&self) -> Result<Dname<Bytes>, EntryError> {
+    pub fn origin(&self) -> Result<Dname<Bytes>, EntryError> {
         self.origin
             .as_ref()
             .cloned()
@@ -637,7 +637,7 @@ impl<'a> Scanner for EntryScanner<'a> {
                     self.zonefile.buf.next_item()?;
                     if start == 0 {
                         return RelativeDname::empty_bytes()
-                            .chain(self.zonefile.get_origin()?)
+                            .chain(self.zonefile.origin()?)
                             .map_err(|_| EntryError::bad_dname());
                     } else {
                         return unsafe {
@@ -676,7 +676,7 @@ impl<'a> Scanner for EntryScanner<'a> {
                         RelativeDname::from_octets_unchecked(
                             self.zonefile.buf.split_to(write).freeze(),
                         )
-                        .chain(self.zonefile.get_origin()?)
+                        .chain(self.zonefile.origin()?)
                         .map_err(|_| EntryError::bad_dname())
                     };
                 }
@@ -1420,8 +1420,8 @@ enum ItemCat {
 //------------ EntryError ----------------------------------------------------
 
 /// An error returned by the entry scanner.
-#[derive(Debug)]
-struct EntryError(&'static str);
+#[derive(Clone, Debug)]
+pub struct EntryError(&'static str);
 
 impl EntryError {
     fn bad_symbol(_err: SymbolOctetsError) -> Self {
@@ -1498,7 +1498,7 @@ impl std::error::Error for EntryError {}
 
 //------------ Error ---------------------------------------------------------
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Error {
     err: EntryError,
     line: usize,
