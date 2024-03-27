@@ -1,4 +1,4 @@
-//! The business logic of a DNS server.
+//! The application logic of a DNS server.
 //!
 //! The [`Service::call()`] function defines how the service should respond to
 //! a given DNS request. resulting in a [`ServiceResult`] containing a
