@@ -117,7 +117,7 @@ async fn handle_non_axfr_request(
             let qtype = question.qtype();
             zone.query(qname, qtype).unwrap()
         }
-        None => Answer::other(Rcode::NXDomain),
+        None => Answer::new(Rcode::NXDomain),
     };
 
     let builder = mk_builder_for_target();
@@ -139,7 +139,7 @@ async fn handle_axfr_request(
 
     // If not found, return an NXDOMAIN error response.
     let Some(zone) = zone else {
-        let answer = Answer::other(Rcode::NXDomain);
+        let answer = Answer::new(Rcode::NXDomain);
         add_to_stream(answer, msg.message(), &mut stream);
         return stream;
     };
@@ -163,7 +163,7 @@ async fn handle_axfr_request(
     // record. If not found, return a SERVFAIL error response.
     let qname = question.qname().to_bytes();
     let Ok(soa_answer) = zone.query(qname, Rtype::Soa) else {
-        let answer = Answer::other(Rcode::ServFail);
+        let answer = Answer::new(Rcode::ServFail);
         add_to_stream(answer, msg.message(), &mut stream);
         return stream;
     };

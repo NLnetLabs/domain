@@ -112,7 +112,7 @@ fn main() {
         }
         zone.read().query(qname.clone(), qtype).unwrap()
     } else {
-        Answer::other(Rcode::NXDomain)
+        Answer::new(Rcode::NXDomain)
     };
 
     // Emulate a DIG style response by generating a complete DNS wire response

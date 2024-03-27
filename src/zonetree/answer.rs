@@ -41,10 +41,6 @@ impl Answer {
         }
     }
 
-    pub fn other(rcode: Rcode) -> Self {
-        Answer::new(rcode)
-    }
-
     pub fn refused() -> Self {
         Answer::new(Rcode::Refused)
     }
