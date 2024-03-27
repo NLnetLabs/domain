@@ -103,6 +103,9 @@ impl std::fmt::Display for StellineErrorCause {
 
 //----------- do_client_simple() ----------------------------------------------
 
+// This function handles the client part of a Stelline script. If works only
+// with SendRequest and is use to test the various client transport
+// implementations. This frees do_client of supporting SendRequest.
 #[allow(dead_code)]
 pub async fn do_client_simple<R: SendRequest<RequestMessage<Vec<u8>>>>(
     stelline: &Stelline,
@@ -360,6 +363,13 @@ impl ClientFactory for QueryTailoredClientFactory {
 
 //----------- do_client() ----------------------------------------------------
 
+// This function handles the client part of a Stelline script. It is meant
+// to test server code. This code need refactoring. The do_client_simple
+// function takes care of supporting SendRequest, so no need to support that
+// here. UDP support can be made simplere by removing any notion of a
+// connection and associating a source address with every request. TCP
+// suport can be made simpler because the test code does not have to be
+// careful about the TcpKeepalive option and just keep the connection open.
 #[allow(dead_code)]
 pub async fn do_client<'a, T: ClientFactory>(
     stelline: &'a Stelline,
