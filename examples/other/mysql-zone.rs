@@ -130,7 +130,7 @@ use parking_lot::RwLock;
 use sqlx::Row;
 use sqlx::{mysql::MySqlConnectOptions, MySqlPool};
 
-#[path = "common/serve-utils.rs"]
+#[path = "../common/serve-utils.rs"]
 mod common;
 
 #[tokio::main]
