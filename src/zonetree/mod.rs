@@ -5,7 +5,7 @@
 //!
 //! A [`ZoneTree`] is a multi-rooted hierarchy of [`Zone`]s, each root being
 //! the apex of a subtree for a distinct [`Class`].
-//! 
+//!
 //! Individual `Zone`s within the tree can be looked up by containing or exact
 //! name, and then the found `Zone` can be queried by [`Class`], [`Rtype`] and
 //! [`Dname`] to produce an [`Answer`], which in turn can be used to produce a
@@ -16,7 +16,7 @@
 //! The `Zone`s that a tree is comprised of can be created by feeding
 //! zonefiles or individual resource records into [`ZoneBuilder`] and then
 //! inserted into a `ZoneTree`.
-//! 
+//!
 //! By default `Zone`s are stored in memory only. Zones with other types of
 //! backing store can be created by implementing the [`ZoneStore`] trait and
 //! passing an instance of the implementing struct to [`Zone::new()`]. Zones
