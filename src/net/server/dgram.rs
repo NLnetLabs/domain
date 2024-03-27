@@ -73,7 +73,7 @@ const WRITE_TIMEOUT: DefMinMax<Duration> = DefMinMax::new(
 /// The value has to be between 512 and 4,096 per [RFC 6891]. The default
 /// value is 1232 per the [2020 DNS Flag Day].
 ///
-/// The [`Service`] and [`MiddlewareChain`] (if any) are response for
+/// The [`Service`] and [`MiddlewareChain`] (if any) are responsible for
 /// enforcing this limit.
 ///
 /// [2020 DNS Flag Day]: http://www.dnsflagday.net/2020/
