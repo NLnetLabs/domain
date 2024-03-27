@@ -36,8 +36,8 @@ use super::message::{
     MessageDetails, NonUdpTransportContext, TransportSpecificContext,
 };
 use super::middleware::builder::MiddlewareBuilder;
-use super::ServerCommand;
 use super::stream::Config as ServerConfig;
+use super::ServerCommand;
 
 /// Limit on the amount of time to allow between client requests.
 ///
