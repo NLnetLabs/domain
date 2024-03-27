@@ -16,7 +16,7 @@ use super::versioned::Version;
 
 //------------ ZoneBuilder ---------------------------------------------------
 
-/// An in-memory [`Zone`] builder.
+/// A builder of in-memory [`Zone`]s.
 ///
 /// [`ZoneBuilder`] is used to build [`Zone`]s that use the default in-memory
 /// backing store. It has dedicated functions for inserting certain kinds of
