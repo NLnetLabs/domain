@@ -503,60 +503,6 @@ pub struct Transaction<Item, Future>(TransactionInner<Item, Future>)
 where
     Future: std::future::Future<Output = Item> + Send;
 
-/// A stream of zero or more DNS response futures relating to a single DNS request.
-pub struct TransactionStream<Item> {
-    stream: FuturesOrdered<Pin<Box<dyn Future<Output = Item> + Send>>>,
-}
-
-impl<Item> TransactionStream<Item> {
-    /// Add a response future to a transaction stream.
-    pub fn push<T: Future<Output = Item> + Send + 'static>(
-        &mut self,
-        fut: T,
-    ) {
-        self.stream.push_back(fut.boxed());
-    }
-
-    async fn next(&mut self) -> Option<Item> {
-        self.stream.next().await
-    }
-}
-
-impl<Item> Default for TransactionStream<Item> {
-    fn default() -> Self {
-        Self {
-            stream: Default::default(),
-        }
-    }
-}
-
-enum TransactionInner<Item, Future>
-where
-    Future: std::future::Future<Output = Item> + Send,
-{
-    /// The transaction will result in a single immediate response.
-    ///
-    /// This variant is for internal use only when aborting Middleware
-    /// processing early.
-    Immediate(Option<Item>),
-
-    /// The transaction will result in at most a single response future.
-    Single(Option<Future>),
-
-    /// The transaction will result in stream of multiple response futures.
-    PendingStream(
-        Pin<
-            Box<
-                dyn std::future::Future<Output = TransactionStream<Item>>
-                    + Send,
-            >,
-        >,
-    ),
-
-    /// The transaction is a stream of multiple response futures.
-    Stream(TransactionStream<Item>),
-}
-
 impl<Item, Future> Transaction<Item, Future>
 where
     Future: std::future::Future<Output = Item> + Send,
@@ -619,6 +565,71 @@ where
             }
 
             TransactionInner::Stream(stream) => stream.next().await,
+        }
+    }
+}
+
+//------------ TransactionInner ----------------------------------------------
+
+/// Private inner details of the [`Transaction`] type.
+///
+/// This type exists to (a) hide the `Immediate` variant from the consumer of
+/// this library as it is for internal use only and not something a
+/// [`Service`] impl should return, and (b) to control the interface offered
+/// to consumers of this type and avoid them having to work with the enum
+/// variants directly.
+enum TransactionInner<Item, Future>
+where
+    Future: std::future::Future<Output = Item> + Send,
+{
+    /// The transaction will result in a single immediate response.
+    ///
+    /// This variant is for internal use only when aborting Middleware
+    /// processing early.
+    Immediate(Option<Item>),
+
+    /// The transaction will result in at most a single response future.
+    Single(Option<Future>),
+
+    /// The transaction will result in stream of multiple response futures.
+    PendingStream(
+        Pin<
+            Box<
+                dyn std::future::Future<Output = TransactionStream<Item>>
+                    + Send,
+            >,
+        >,
+    ),
+
+    /// The transaction is a stream of multiple response futures.
+    Stream(TransactionStream<Item>),
+}
+
+//------------ TransacationStream --------------------------------------------
+
+/// A stream of zero or more DNS response futures relating to a single DNS request.
+pub struct TransactionStream<Item> {
+    stream: FuturesOrdered<Pin<Box<dyn Future<Output = Item> + Send>>>,
+}
+
+impl<Item> TransactionStream<Item> {
+    /// Add a response future to a transaction stream.
+    pub fn push<T: Future<Output = Item> + Send + 'static>(
+        &mut self,
+        fut: T,
+    ) {
+        self.stream.push_back(fut.boxed());
+    }
+
+    async fn next(&mut self) -> Option<Item> {
+        self.stream.next().await
+    }
+}
+
+impl<Item> Default for TransactionStream<Item> {
+    fn default() -> Self {
+        Self {
+            stream: Default::default(),
         }
     }
 }
