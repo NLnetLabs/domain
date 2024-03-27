@@ -39,7 +39,7 @@ use crate::utils::config::DefMinMax;
 
 use super::buf::VecBufSource;
 use super::connection::{self, Connection};
-use super::service::ServerCommand;
+use super::ServerCommand;
 use crate::base::wire::Composer;
 
 // TODO: Should this crate also provide a TLS listener implementation?

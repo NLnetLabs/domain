@@ -47,7 +47,7 @@ use crate::utils::config::DefMinMax;
 use super::buf::VecBufSource;
 use super::message::{TransportSpecificContext, UdpSpecificTransportContext};
 use super::middleware::builder::MiddlewareBuilder;
-use super::service::ServerCommand;
+use super::ServerCommand;
 use crate::base::wire::Composer;
 
 /// A UDP transport based DNS server transport.

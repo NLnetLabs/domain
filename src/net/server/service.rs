@@ -339,28 +339,6 @@ impl From<ParseError> for ServiceError {
     }
 }
 
-//------------ ServerCommand ------------------------------------------------
-
-/// Command a server to do something.
-#[derive(Copy, Clone, Debug)]
-pub enum ServerCommand<T: Sized> {
-    #[doc(hidden)]
-    /// This command is for internal use only.
-    Init,
-
-    /// Command the server to alter its configuration.
-    Reconfigure(T),
-
-    /// Command the connection handler to terminate.
-    ///
-    /// This command is only for connection handlers for connection-oriented
-    /// transport protocols, it should be ignored by servers.
-    CloseConnection,
-
-    /// Command the server to terminate.
-    Shutdown,
-}
-
 //------------ ServiceFeedback -----------------------------------------------
 
 /// Feedback from a [`Service`] to a server asking it to do something.

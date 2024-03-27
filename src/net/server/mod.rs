@@ -243,3 +243,25 @@ pub mod prelude {
     };
     pub use crate::net::server::util::{mk_builder_for_target, service_fn};
 }
+
+//------------ ServerCommand ------------------------------------------------
+
+/// Command a server to do something.
+#[derive(Copy, Clone, Debug)]
+pub enum ServerCommand<T: Sized> {
+    #[doc(hidden)]
+    /// This command is for internal use only.
+    Init,
+
+    /// Command the server to alter its configuration.
+    Reconfigure(T),
+
+    /// Command the connection handler to terminate.
+    ///
+    /// This command is only for connection handlers for connection-oriented
+    /// transport protocols, it should be ignored by servers.
+    CloseConnection,
+
+    /// Command the server to terminate.
+    Shutdown,
+}
