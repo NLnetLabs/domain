@@ -318,7 +318,7 @@ impl NodeAnswer {
     fn into_answer(mut self, zone: &ReadZone) -> Answer {
         if self.add_soa {
             if let Some(soa) = zone.apex.get_soa(zone.version) {
-                self.answer.add_authority(AnswerAuthority::new(
+                self.answer.set_authority(AnswerAuthority::new(
                     zone.apex.name().clone(),
                     Some(soa),
                     None,

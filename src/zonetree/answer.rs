@@ -1,6 +1,4 @@
-//! A DNS answer to a DNS query against a [`Zone`].
-//!
-//! [`Zone`]: crate::zonetree:Zone
+//! Answers to zone tree queries.
 
 //------------ Answer --------------------------------------------------------
 
@@ -12,6 +10,21 @@ use crate::base::Message;
 use crate::base::MessageBuilder;
 use octseq::Octets;
 
+/// A DNS answer to a query against a [`Zone`].
+///
+/// [`Answer`] is the type returned by [`Zone::query()`].
+///
+/// Callers of [`Zone::query()`] will likely only ever need to use the
+/// [`Self::to_message()`] function. Alternatively, for complete control use
+/// the getter functions on [`Answer`] instead and construct a response
+/// message yourself using [`MessageBuilder`].
+///
+/// Implementers of alternate backing stores for [`Zone`]s will need to use
+/// one of the various `Answer` constructor functions when [`Zone::query()`]
+/// is invoked for your zone content in order to tailor the DNS message
+/// produced by [`Self::to_message()`] based on the outcome of the query.
+///
+/// [`Zone::query()`]: crate::zonetree::Zone::query()
 #[derive(Clone)]
 pub struct Answer {
     /// The response code of the answer.
@@ -25,6 +38,9 @@ pub struct Answer {
 }
 
 impl Answer {
+    /// Creates an "empty" answer.
+    ///
+    /// The answer, authority and additinal sections will be empty.
     pub fn new(rcode: Rcode) -> Self {
         Answer {
             rcode,
@@ -33,6 +49,9 @@ impl Answer {
         }
     }
 
+    /// Creates a new message with a populated authority section.
+    ///
+    /// The answer and additional sections will be empty.
     pub fn with_authority(rcode: Rcode, authority: AnswerAuthority) -> Self {
         Answer {
             rcode,
@@ -41,22 +60,37 @@ impl Answer {
         }
     }
 
+    /// Creates a new [Rcode::Refused] answer.
+    ///
+    /// This is equivalent to calling [`Answer::new(Rcode::Refused)`].
     pub fn refused() -> Self {
         Answer::new(Rcode::Refused)
     }
 
+    /// Adds a CNAME to the answer section.
     pub fn add_cname(&mut self, cname: SharedRr) {
         self.content = AnswerContent::Cname(cname);
     }
 
+    /// Adds an RRset to the answer section.
     pub fn add_answer(&mut self, answer: SharedRrset) {
         self.content = AnswerContent::Data(answer);
     }
 
-    pub fn add_authority(&mut self, authority: AnswerAuthority) {
+    /// Sets the content of the authority section.
+    pub fn set_authority(&mut self, authority: AnswerAuthority) {
         self.authority = Some(authority)
     }
 
+    /// Prepares a response to the given request based on the properties of
+    /// this answer.
+    ///
+    /// The response [Rcode], question, answer and authority sections of the
+    /// produced [`AdditionalBuilder`] will be populated based on the
+    /// properties of this [`Answer`] as determined by the constructor and
+    /// add/set functions called prior to calling this function.
+    ///
+    /// See also: [`MessageBuilder::start_answer()`]
     pub fn to_message<RequestOctets: Octets, Target: Composer>(
         &self,
         message: &Message<RequestOctets>,
@@ -125,14 +159,17 @@ impl Answer {
         builder.additional()
     }
 
+    /// Gets the [`Rcode`] for this answer.
     pub fn rcode(&self) -> Rcode {
         self.rcode
     }
 
+    /// Gets the answer section content for this answer.
     pub fn content(&self) -> &AnswerContent {
         &self.content
     }
 
+    /// Gets the authority section content for this answer.
     pub fn authority(&self) -> Option<&AnswerAuthority> {
         self.authority.as_ref()
     }
