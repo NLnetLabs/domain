@@ -82,10 +82,10 @@ mod walk;
 mod zone;
 
 pub use self::answer::Answer;
-pub use self::in_memory::ZoneBuilder;
-pub use self::traits::{
-    ReadableZone, WritableZone, WritableZoneNode, ZoneStore,
+pub use self::in_memory::{
+    ReadZoneIter, ReadZoneQuery, StorableZoneApex, ZoneBuilder,
 };
+pub use self::traits::ZoneStore;
 pub use self::tree::ZoneTree;
 pub use self::types::{
     Rrset, SharedRr, SharedRrset, StoredDname, StoredRecord,

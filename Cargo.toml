@@ -66,7 +66,7 @@ zonefile    = ["bytes", "std"]
 # Unstable features
 unstable-client-transport = [ "moka" ]
 unstable-server-transport = ["arc-swap", "chrono/clock", "hex", "libc", "tracing"]
-unstable-zonetree = ["futures", "parking_lot", "serde", "tokio", "tracing"]
+unstable-zonetree = ["futures", "parking_lot", "serde", "smallvec", "tokio", "tracing"]
 
 # Test features
 mock-time = ["mock_instant"]
@@ -90,7 +90,7 @@ lazy_static        = { version = "1.4.0" } # Force lazy_static to > 1.0.0 for ht
 tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
 
 # For the "mysql-zone" example
-#sqlx = { version = "0.6", features = [ "runtime-tokio-native-tls", "mysql" ] }
+sqlx = { version = "0.6", features = [ "runtime-tokio-native-tls", "mysql" ] }
 
 [package.metadata.docs.rs]
 all-features = true
@@ -138,7 +138,7 @@ required-features = ["zonefile", "net", "unstable-server-transport", "unstable-z
 # supported Rust version (1.67 at the time of writing), both of which are
 # tested by our CI setup. To try this example, uncomment the lines below and
 # the sqlx dependency above, then run `cargo run --example mysql-zone`.
-#[[example]]
-#name = "mysql-zone"
-#path = "examples/other/mysql-zone.rs"
-#required-features = ["zonefile", "net", "unstable-server-transport", "unstable-zonetree"]
+[[example]]
+name = "mysql-zone"
+path = "examples/other/mysql-zone.rs"
+required-features = ["zonefile", "net", "unstable-server-transport", "unstable-zonetree"]

@@ -146,6 +146,10 @@ impl SharedRrset {
     pub fn as_rrset(&self) -> &Rrset {
         self.0.as_ref()
     }
+
+    pub fn as_arc(&self) -> &Arc<Rrset> {
+        &self.0
+    }
 }
 
 //--- Deref, AsRef, Borrow

@@ -2,9 +2,8 @@
 
 use std::borrow::Cow;
 use std::boxed::Box;
-use std::collections::{hash_map, HashMap};
+use std::collections::HashMap;
 use std::future::Future;
-use std::pin::Pin;
 use std::string::ToString;
 use std::sync::Arc;
 
@@ -18,13 +17,17 @@ use crate::base::name::{Label, OwnedLabel, ToDname, ToLabelIter};
 use crate::zonefile::error::{CnameError, OutOfZone, ZoneCutError};
 use crate::zonetree::types::ZoneCut;
 use crate::zonetree::walk::WalkState;
-use crate::zonetree::{
-    ReadableZone, SharedRr, SharedRrset, StoredDname, WritableZone, ZoneStore,
-};
+use crate::zonetree::{Answer, Rrset, SharedRr, SharedRrset, StoredDname};
 
-use super::read::ReadZone;
+use super::read::{ReadZoneIter, ReadZoneQuery};
 use super::versioned::{Version, Versioned};
-use super::write::{WriteZone, ZoneVersions};
+use super::write::ZoneVersions;
+use crate::base::Dname;
+use crate::zonetree::traits::ZoneStore;
+use bytes::Bytes;
+use core::ops::Deref;
+use futures::prelude::Stream;
+use std::default::Default;
 
 //------------ ZoneApex ------------------------------------------------------
 
@@ -71,7 +74,7 @@ impl ZoneApex {
 
     /// Returns the class name.
     pub fn display_class(&self) -> Cow<str> {
-        match self.class() {
+        match self.class {
             Class::In => Cow::Borrowed("IN"),
             class => Cow::Owned(class.to_string()),
         }
@@ -129,30 +132,79 @@ impl ZoneApex {
 
 //--- impl ZoneStore
 
-impl ZoneStore for ZoneApex {
+#[derive(Debug)]
+pub struct StorableZoneApex(pub Arc<ZoneApex>);
+
+// impl Default for StorableZoneApex {
+//     fn default() -> Self {
+//         Self(Default::default())
+//     }
+// }
+
+impl ZoneStore for StorableZoneApex {
+    type QueryFut = ReadZoneQuery;
+
+    type IterFut = ReadZoneIter;
+
+    fn query(&self, qname: Dname<Bytes>, qtype: Rtype) -> Self::QueryFut {
+        let current = self.0.versions().read().current().clone();
+        ReadZoneQuery::new(self.0.clone(), qname, qtype, current)
+    }
+
+    fn iter(&self) -> Self::IterFut {
+        let current = self.0.versions().read().current().clone();
+        ReadZoneIter::new(self.0.clone(), current)
+    }
+
     fn class(&self) -> Class {
-        self.class
+        self.0.class
     }
 
     fn apex_name(&self) -> &StoredDname {
-        &self.apex_name
+        &self.0.apex_name
     }
 
-    fn read(self: Arc<Self>) -> Box<dyn ReadableZone> {
-        let (version, marker) = self.versions().read().current().clone();
-        Box::new(ReadZone::new(self, version, marker))
+    // fn read(self: Arc<Self>) -> Box<dyn ReadableZone> {
+    //     let (version, marker) = self.versions().read().current().clone();
+    //     Box::new(ReadZone::new(self, version, marker))
+    // }
+
+    // fn write(
+    //     self: Arc<Self>,
+    // ) -> Pin<Box<dyn Future<Output = Box<dyn WritableZone>>>> {
+    //     Box::pin(async move {
+    //         let lock = self.update_lock.clone().lock_owned().await;
+    //         let version = self.versions().read().current().0.next();
+    //         let zone_versions = self.versions.clone();
+    //         Box::new(WriteZone::new(self, lock, version, zone_versions))
+    //             as Box<dyn WritableZone>
+    //     })
+    // }
+}
+
+impl<Q, I> ZoneStore for Box<dyn ZoneStore<QueryFut = Q, IterFut = I>>
+where
+    Q: Future<Output = Result<Answer, OutOfZone>>,
+    I: Stream<Item = (Dname<Bytes>, Arc<Rrset>)>,
+{
+    type QueryFut = Q;
+
+    type IterFut = I;
+
+    fn class(&self) -> Class {
+        self.deref().class()
     }
 
-    fn write(
-        self: Arc<Self>,
-    ) -> Pin<Box<dyn Future<Output = Box<dyn WritableZone>>>> {
-        Box::pin(async move {
-            let lock = self.update_lock.clone().lock_owned().await;
-            let version = self.versions().read().current().0.next();
-            let zone_versions = self.versions.clone();
-            Box::new(WriteZone::new(self, lock, version, zone_versions))
-                as Box<dyn WritableZone>
-        })
+    fn apex_name(&self) -> &StoredDname {
+        self.deref().apex_name()
+    }
+
+    fn query(&self, qname: Dname<Bytes>, qtype: Rtype) -> Self::QueryFut {
+        self.deref().query(qname, qtype)
+    }
+
+    fn iter(&self) -> Self::IterFut {
+        self.deref().iter()
     }
 }
 
@@ -293,26 +345,28 @@ impl NodeRrsets {
             .for_each(|rrset| rrset.clean(version));
     }
 
-    pub(super) fn iter(&self) -> NodeRrsetsIter {
-        NodeRrsetsIter::new(self.rrsets.read())
+    pub(super) fn lock(
+        &self,
+    ) -> RwLockReadGuard<'_, HashMap<Rtype, NodeRrset>> {
+        self.rrsets.read()
     }
 }
 
 //------------ NodeRrsetIter -------------------------------------------------
 
-pub(super) struct NodeRrsetsIter<'a> {
-    guard: RwLockReadGuard<'a, HashMap<Rtype, NodeRrset>>,
-}
+// pub(super) struct NodeRrsetsIter<'a> {
+//     guard: RwLockReadGuard<'a, HashMap<Rtype, NodeRrset>>,
+// }
 
-impl<'a> NodeRrsetsIter<'a> {
-    fn new(guard: RwLockReadGuard<'a, HashMap<Rtype, NodeRrset>>) -> Self {
-        Self { guard }
-    }
+// impl<'a> NodeRrsetsIter<'a> {
+//     fn new(guard: RwLockReadGuard<'a, HashMap<Rtype, NodeRrset>>) -> Self {
+//         Self { guard }
+//     }
 
-    pub fn iter(&self) -> hash_map::Iter<'_, Rtype, NodeRrset> {
-        self.guard.iter()
-    }
-}
+//     pub fn iter(&self) -> hash_map::Iter<'_, Rtype, NodeRrset> {
+//         self.guard.iter()
+//     }
+// }
 
 //------------ NodeRrset -----------------------------------------------------
 

@@ -12,8 +12,9 @@ use domain::base::{Dname, ParsedDname, Rtype};
 use domain::base::{ParsedRecord, Record};
 use domain::rdata::ZoneRecordData;
 use domain::zonefile::inplace;
-use domain::zonetree::{Answer, Rrset};
+use domain::zonetree::{Answer, Rrset, ZoneStore};
 use domain::zonetree::{Zone, ZoneTree};
+use futures::StreamExt;
 use octseq::Parser;
 use tracing_subscriber::EnvFilter;
 
@@ -27,7 +28,8 @@ enum Verbosity {
     Verbose(u8),
 }
 
-fn main() {
+#[tokio::main]
+async fn main() {
     // Initialize tracing based logging. Override with env var RUST_LOG, e.g.
     // RUST_LOG=trace.
     tracing_subscriber::fmt()
@@ -52,7 +54,8 @@ fn main() {
         });
 
     // Go!
-    let mut zones = ZoneTree::new();
+    let mut zones =
+        ZoneTree::<Box<dyn ZoneStore<QueryFut = _, IterFut = _>>>::new();
 
     for (zone_file_path, mut zone_file) in zone_files {
         if verbosity != Verbosity::Quiet {
@@ -67,6 +70,7 @@ fn main() {
             eprintln!("Error while constructing zone: {err}");
             exit(1);
         });
+        let zone = zone.into_box();
 
         if verbosity != Verbosity::Quiet {
             println!(
@@ -88,9 +92,13 @@ fn main() {
                 zone.apex_name(),
                 zone.class()
             );
-            zone.read().walk(Box::new(move |owner, rrset| {
-                dump_rrset(owner, rrset);
-            }));
+            // zone.read().walk(Box::new(move |owner, rrset| {
+            //     dump_rrset(owner, rrset);
+            // }));
+            let mut stream = zone.iter();
+            while let Some((owner, rrset)) = stream.next().await {
+                dump_rrset(owner, &rrset)
+            }
             println!("Dump complete.");
 
             if level > 0 {
@@ -110,7 +118,8 @@ fn main() {
         if verbosity != Verbosity::Quiet {
             println!("Querying zone {} class {} for qname {qname} with qtype {qtype}...", zone.apex_name(), zone.class());
         }
-        zone.read().query(qname.clone(), qtype).unwrap()
+        // zone.read().query(qname.clone(), qtype).unwrap()
+        zone.query(qname.clone(), qtype).await.unwrap()
     } else {
         Answer::other(Rcode::NXDomain)
     };

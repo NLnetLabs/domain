@@ -17,7 +17,7 @@ use crate::base::iana::Rtype;
 use crate::base::name::Label;
 use crate::zonetree::types::ZoneCut;
 use crate::zonetree::SharedRr;
-use crate::zonetree::{SharedRrset, WritableZone, WritableZoneNode};
+use crate::zonetree::SharedRrset;
 
 use super::nodes::{Special, ZoneApex, ZoneNode};
 use super::versioned::{Version, VersionMarker};
@@ -76,41 +76,41 @@ impl Drop for WriteZone {
 
 //--- impl WritableZone
 
-impl WritableZone for WriteZone {
-    #[allow(clippy::type_complexity)]
-    fn open(
-        &self,
-    ) -> Pin<
-        Box<
-            dyn Future<Output = Result<Box<dyn WritableZoneNode>, io::Error>>,
-        >,
-    > {
-        let res = WriteNode::new_apex(self.clone())
-            .map(|node| Box::new(node) as Box<dyn WritableZoneNode>)
-            .map_err(|err| {
-                io::Error::new(
-                    io::ErrorKind::Other,
-                    format!("Open error: {err}"),
-                )
-            });
-        Box::pin(ready(res))
-    }
+// impl WritableZone for WriteZone {
+//     #[allow(clippy::type_complexity)]
+//     fn open(
+//         &self,
+//     ) -> Pin<
+//         Box<
+//             dyn Future<Output = Result<Box<dyn WritableZoneNode>, io::Error>>,
+//         >,
+//     > {
+//         let res = WriteNode::new_apex(self.clone())
+//             .map(|node| Box::new(node) as Box<dyn WritableZoneNode>)
+//             .map_err(|err| {
+//                 io::Error::new(
+//                     io::ErrorKind::Other,
+//                     format!("Open error: {err}"),
+//                 )
+//             });
+//         Box::pin(ready(res))
+//     }
 
-    fn commit(
-        &mut self,
-    ) -> Pin<Box<dyn Future<Output = Result<(), io::Error>>>> {
-        let marker = self.zone_versions.write().update_current(self.version);
-        self.zone_versions
-            .write()
-            .push_version(self.version, marker);
+//     fn commit(
+//         &mut self,
+//     ) -> Pin<Box<dyn Future<Output = Result<(), io::Error>>>> {
+//         let marker = self.zone_versions.write().update_current(self.version);
+//         self.zone_versions
+//             .write()
+//             .push_version(self.version, marker);
 
-        // Start the next version.
-        self.version = self.version.next();
-        self.dirty = false;
+//         // Start the next version.
+//         self.version = self.version.next();
+//         self.dirty = false;
 
-        Box::pin(ready(Ok(())))
-    }
-}
+//         Box::pin(ready(Ok(())))
+//     }
+// }
 
 //------------ WriteNode ------------------------------------------------------
 
@@ -254,56 +254,56 @@ impl WriteNode {
 
 //--- impl WritableZoneNode
 
-impl WritableZoneNode for WriteNode {
-    #[allow(clippy::type_complexity)]
-    fn update_child(
-        &self,
-        label: &Label,
-    ) -> Pin<
-        Box<
-            dyn Future<Output = Result<Box<dyn WritableZoneNode>, io::Error>>,
-        >,
-    > {
-        let node = self
-            .update_child(label)
-            .map(|node| Box::new(node) as Box<dyn WritableZoneNode>);
-        Box::pin(ready(node))
-    }
+// impl WritableZoneNode for WriteNode {
+//     #[allow(clippy::type_complexity)]
+//     fn update_child(
+//         &self,
+//         label: &Label,
+//     ) -> Pin<
+//         Box<
+//             dyn Future<Output = Result<Box<dyn WritableZoneNode>, io::Error>>,
+//         >,
+//     > {
+//         let node = self
+//             .update_child(label)
+//             .map(|node| Box::new(node) as Box<dyn WritableZoneNode>);
+//         Box::pin(ready(node))
+//     }
 
-    fn update_rrset(
-        &self,
-        rrset: SharedRrset,
-    ) -> Pin<Box<dyn Future<Output = Result<(), io::Error>>>> {
-        Box::pin(ready(self.update_rrset(rrset)))
-    }
+//     fn update_rrset(
+//         &self,
+//         rrset: SharedRrset,
+//     ) -> Pin<Box<dyn Future<Output = Result<(), io::Error>>>> {
+//         Box::pin(ready(self.update_rrset(rrset)))
+//     }
 
-    fn remove_rrset(
-        &self,
-        rtype: Rtype,
-    ) -> Pin<Box<dyn Future<Output = Result<(), io::Error>>>> {
-        Box::pin(ready(self.remove_rrset(rtype)))
-    }
+//     fn remove_rrset(
+//         &self,
+//         rtype: Rtype,
+//     ) -> Pin<Box<dyn Future<Output = Result<(), io::Error>>>> {
+//         Box::pin(ready(self.remove_rrset(rtype)))
+//     }
 
-    fn make_regular(
-        &self,
-    ) -> Pin<Box<dyn Future<Output = Result<(), io::Error>>>> {
-        Box::pin(ready(self.make_regular()))
-    }
+//     fn make_regular(
+//         &self,
+//     ) -> Pin<Box<dyn Future<Output = Result<(), io::Error>>>> {
+//         Box::pin(ready(self.make_regular()))
+//     }
 
-    fn make_zone_cut(
-        &self,
-        cut: ZoneCut,
-    ) -> Pin<Box<dyn Future<Output = Result<(), io::Error>>>> {
-        Box::pin(ready(self.make_zone_cut(cut)))
-    }
+//     fn make_zone_cut(
+//         &self,
+//         cut: ZoneCut,
+//     ) -> Pin<Box<dyn Future<Output = Result<(), io::Error>>>> {
+//         Box::pin(ready(self.make_zone_cut(cut)))
+//     }
 
-    fn make_cname(
-        &self,
-        cname: SharedRr,
-    ) -> Pin<Box<dyn Future<Output = Result<(), io::Error>>>> {
-        Box::pin(ready(self.make_cname(cname)))
-    }
-}
+//     fn make_cname(
+//         &self,
+//         cname: SharedRr,
+//     ) -> Pin<Box<dyn Future<Output = Result<(), io::Error>>>> {
+//         Box::pin(ready(self.make_cname(cname)))
+//     }
+// }
 
 //------------ WriteApexError ------------------------------------------------
 

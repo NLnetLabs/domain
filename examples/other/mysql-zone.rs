@@ -123,10 +123,9 @@ use domain::base::scan::IterScanner;
 use domain::base::{Dname, Rtype, Ttl};
 use domain::rdata::ZoneRecordData;
 use domain::zonetree::{
-    Answer, OutOfZone, ReadableZone, Rrset, SharedRrset, StoredDname, WalkOp,
-    WritableZone, Zone, ZoneSet, ZoneStore,
+    Answer, ReadableZone, Rrset, SharedRrset, StoredDname, WalkOp,
+    WritableZone, Zone, ZoneStore, ZoneTree,
 };
-use parking_lot::RwLock;
 use sqlx::Row;
 use sqlx::{mysql::MySqlConnectOptions, MySqlPool};
 
@@ -137,7 +136,7 @@ mod common;
 async fn main() {
     // Create a zone whose queries will be satisfied by querying the database
     // defined by the DATABASE_URL environment variable.
-    let mut zones = ZoneSet::new();
+    let mut zones = ZoneTree::new();
     let db_zone = DatabaseZoneBuilder::mk_test_zone("example.com").await;
     zones.insert_zone(db_zone).unwrap();
 
@@ -171,7 +170,7 @@ async fn main() {
 pub struct DatabaseZoneBuilder;
 
 impl DatabaseZoneBuilder {
-    pub async fn mk_test_zone(apex_name: &str) -> Zone {
+    pub async fn mk_test_zone<T>(apex_name: &str) -> Zone<T> {
         let opts: MySqlConnectOptions =
             std::env::var("DATABASE_URL").unwrap().parse().unwrap();
         let pool = MySqlPool::connect_with(opts).await.unwrap();
@@ -206,16 +205,32 @@ impl ZoneStore for DatabaseNode {
         &self.apex_name
     }
 
-    fn read(self: Arc<Self>) -> Box<dyn ReadableZone> {
-        Box::new(DatabaseReadZone::new(
-            self.db_pool.clone(),
-            self.apex_name.clone(),
-        ))
-    }
+    // fn read(self: Arc<Self>) -> Box<dyn ReadableZone> {
+    //     Box::new(DatabaseReadZone::new(
+    //         self.db_pool.clone(),
+    //         self.apex_name.clone(),
+    //     ))
+    // }
 
-    fn write(
-        self: Arc<Self>,
-    ) -> Pin<Box<dyn Future<Output = Box<dyn WritableZone>>>> {
+    // fn write(
+    //     self: Arc<Self>,
+    // ) -> Pin<Box<dyn Future<Output = Box<dyn WritableZone>>>> {
+    //     todo!()
+    // }
+    
+    type QueryFut;
+    
+    type IterFut;
+    
+    fn query(
+        &self,
+        qname: Dname<Bytes>,
+        qtype: Rtype,
+    ) -> Self::QueryFut {
+        todo!()
+    }
+    
+    fn iter(&self) -> Self::IterFut {
         todo!()
     }
 }

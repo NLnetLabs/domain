@@ -8,16 +8,22 @@ use std::collections::HashMap;
 use std::fmt::Display;
 use std::io;
 use std::vec::Vec;
+use super::traits::ZoneStore;
 
 //------------ ZoneTree ------------------------------------------------------
 
 /// The hierarchy of zones we are authoritative for.
-#[derive(Default)]
-pub struct ZoneTree {
-    roots: Roots,
+pub struct ZoneTree<T: ZoneStore> {
+    roots: Roots<T>,
 }
 
-impl ZoneTree {
+impl<T: ZoneStore> std::default::Default for ZoneTree<T> {
+    fn default() -> Self {
+        Self { roots: Default::default() }
+    }
+}
+
+impl<T: ZoneStore + 'static> ZoneTree<T> {
     pub fn new() -> Self {
         Default::default()
     }
@@ -26,7 +32,7 @@ impl ZoneTree {
         &self,
         apex_name: &impl ToDname,
         class: Class,
-    ) -> Option<&Zone> {
+    ) -> Option<&Zone<T>> {
         self.roots
             .get(class)?
             .get_zone(apex_name.iter_labels().rev())
@@ -34,7 +40,7 @@ impl ZoneTree {
 
     pub fn insert_zone(
         &mut self,
-        zone: Zone,
+        zone: Zone<T>,
     ) -> Result<(), ZoneTreeModificationError> {
         self.roots.get_or_insert(zone.class()).insert_zone(
             &mut zone.apex_name().clone().iter_labels().rev(),
@@ -46,11 +52,11 @@ impl ZoneTree {
         &self,
         qname: &impl ToDname,
         class: Class,
-    ) -> Option<&Zone> {
+    ) -> Option<&Zone<T>> {
         self.roots.get(class)?.find_zone(qname.iter_labels().rev())
     }
 
-    pub fn iter_zones(&self) -> ZoneSetIter {
+    pub fn iter_zones(&self) -> ZoneSetIter<T> {
         ZoneSetIter::new(self)
     }
 
@@ -69,14 +75,19 @@ impl ZoneTree {
 
 //------------ Roots ---------------------------------------------------------
 
-#[derive(Default)]
-struct Roots {
-    in_: ZoneSetNode,
-    others: HashMap<Class, ZoneSetNode>,
+struct Roots<T: ZoneStore> {
+    in_: ZoneSetNode<T>,
+    others: HashMap<Class, ZoneSetNode<T>>,
 }
 
-impl Roots {
-    pub fn get(&self, class: Class) -> Option<&ZoneSetNode> {
+impl<T: ZoneStore> std::default::Default for Roots<T> {
+    fn default() -> Self {
+        Self { in_: Default::default(), others: Default::default() }
+    }
+}
+
+impl<T: ZoneStore> Roots<T> {
+    pub fn get(&self, class: Class) -> Option<&ZoneSetNode<T>> {
         if class == Class::In {
             Some(&self.in_)
         } else {
@@ -84,7 +95,7 @@ impl Roots {
         }
     }
 
-    pub fn get_mut(&mut self, class: Class) -> Option<&mut ZoneSetNode> {
+    pub fn get_mut(&mut self, class: Class) -> Option<&mut ZoneSetNode<T>> {
         if class == Class::In {
             Some(&mut self.in_)
         } else {
@@ -92,7 +103,7 @@ impl Roots {
         }
     }
 
-    pub fn get_or_insert(&mut self, class: Class) -> &mut ZoneSetNode {
+    pub fn get_or_insert(&mut self, class: Class) -> &mut ZoneSetNode<T> {
         if class == Class::In {
             &mut self.in_
         } else {
@@ -103,17 +114,22 @@ impl Roots {
 
 //------------ ZoneSetNode ---------------------------------------------------
 
-#[derive(Default)]
-struct ZoneSetNode {
-    zone: Option<Zone>,
-    children: HashMap<OwnedLabel, ZoneSetNode>,
+struct ZoneSetNode<T: ZoneStore> {
+    zone: Option<Zone<T>>,
+    children: HashMap<OwnedLabel, ZoneSetNode<T>>,
 }
 
-impl ZoneSetNode {
+impl<T: ZoneStore> std::default::Default for ZoneSetNode<T> {
+    fn default() -> Self {
+        Self { zone: Default::default(), children: Default::default() }
+    }
+}
+
+impl<T: ZoneStore> ZoneSetNode<T> {
     fn get_zone<'l>(
         &self,
         mut apex_name: impl Iterator<Item = &'l Label>,
-    ) -> Option<&Zone> {
+    ) -> Option<&Zone<T>> {
         match apex_name.next() {
             Some(label) => self.children.get(label)?.get_zone(apex_name),
             None => self.zone.as_ref(),
@@ -123,7 +139,7 @@ impl ZoneSetNode {
     pub fn find_zone<'l>(
         &self,
         mut qname: impl Iterator<Item = &'l Label>,
-    ) -> Option<&Zone> {
+    ) -> Option<&Zone<T>> {
         if let Some(label) = qname.next() {
             if let Some(node) = self.children.get(label) {
                 if let Some(zone) = node.find_zone(qname) {
@@ -137,7 +153,7 @@ impl ZoneSetNode {
     fn insert_zone<'l>(
         &mut self,
         mut apex_name: impl Iterator<Item = &'l Label>,
-        zone: Zone,
+        zone: Zone<T>,
     ) -> Result<(), ZoneTreeModificationError> {
         if let Some(label) = apex_name.next() {
             self.children
@@ -172,13 +188,13 @@ impl ZoneSetNode {
 
 //------------ ZoneSetIter ---------------------------------------------------
 
-pub struct ZoneSetIter<'a> {
-    roots: hash_map::Values<'a, Class, ZoneSetNode>,
-    nodes: NodesIter<'a>,
+pub struct ZoneSetIter<'a, T: ZoneStore> {
+    roots: hash_map::Values<'a, Class, ZoneSetNode<T>>,
+    nodes: NodesIter<'a, T>,
 }
 
-impl<'a> ZoneSetIter<'a> {
-    fn new(set: &'a ZoneTree) -> Self {
+impl<'a, T: ZoneStore> ZoneSetIter<'a, T> {
+    fn new(set: &'a ZoneTree<T>) -> Self {
         ZoneSetIter {
             roots: set.roots.others.values(),
             nodes: NodesIter::new(&set.roots.in_),
@@ -186,8 +202,8 @@ impl<'a> ZoneSetIter<'a> {
     }
 }
 
-impl<'a> Iterator for ZoneSetIter<'a> {
-    type Item = &'a Zone;
+impl<'a, T: ZoneStore> Iterator for ZoneSetIter<'a, T> {
+    type Item = &'a Zone<T>;
 
     fn next(&mut self) -> Option<Self::Item> {
         loop {
@@ -205,20 +221,20 @@ impl<'a> Iterator for ZoneSetIter<'a> {
 
 //------------ NodesIter -----------------------------------------------------
 
-struct NodesIter<'a> {
-    root: Option<&'a ZoneSetNode>,
-    stack: Vec<hash_map::Values<'a, OwnedLabel, ZoneSetNode>>,
+struct NodesIter<'a, T: ZoneStore> {
+    root: Option<&'a ZoneSetNode<T>>,
+    stack: Vec<hash_map::Values<'a, OwnedLabel, ZoneSetNode<T>>>,
 }
 
-impl<'a> NodesIter<'a> {
-    fn new(node: &'a ZoneSetNode) -> Self {
+impl<'a, T: ZoneStore> NodesIter<'a, T> {
+    fn new(node: &'a ZoneSetNode<T>) -> Self {
         NodesIter {
             root: Some(node),
             stack: Vec::new(),
         }
     }
 
-    fn next_node(&mut self) -> Option<&'a ZoneSetNode> {
+    fn next_node(&mut self) -> Option<&'a ZoneSetNode<T>> {
         if let Some(node) = self.root.take() {
             return Some(node);
         }
@@ -235,8 +251,8 @@ impl<'a> NodesIter<'a> {
     }
 }
 
-impl<'a> Iterator for NodesIter<'a> {
-    type Item = &'a ZoneSetNode;
+impl<'a, T: ZoneStore> Iterator for NodesIter<'a, T> {
+    type Item = &'a ZoneSetNode<T>;
 
     fn next(&mut self) -> Option<Self::Item> {
         let node = self.next_node()?;

@@ -12,7 +12,7 @@ use crate::zonetree::{
     SharedRr, SharedRrset, StoredDname, StoredRecord, Zone, ZoneTree,
 };
 
-use super::nodes::{Special, ZoneApex, ZoneNode};
+use super::nodes::{Special, StorableZoneApex, ZoneApex, ZoneNode};
 use super::versioned::Version;
 
 //------------ ZoneBuilder ---------------------------------------------------
@@ -28,13 +28,13 @@ impl ZoneBuilder {
         }
     }
 
-    pub fn finalize(self) -> Zone {
-        Zone::new(self.apex)
+    pub fn finalize(self) -> Zone<StorableZoneApex> {
+        Zone::new(StorableZoneApex(Arc::new(self.apex)))
     }
 
     pub fn finalize_into_tree(
         self,
-        zone_set: &mut ZoneTree,
+        zone_set: &mut ZoneTree<StorableZoneApex>,
     ) -> Result<(), ZoneTreeModificationError> {
         zone_set.insert_zone(self.finalize())
     }

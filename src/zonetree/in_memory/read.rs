@@ -1,6 +1,4 @@
 //! Quering for zone data.
-use core::iter;
-
 use std::sync::Arc;
 
 use bytes::Bytes;
@@ -12,11 +10,104 @@ use crate::zonefile::error::OutOfZone;
 use crate::zonetree::answer::{Answer, AnswerAuthority};
 use crate::zonetree::types::ZoneCut;
 use crate::zonetree::walk::WalkState;
-use crate::zonetree::{ReadableZone, Rrset, SharedRr, SharedRrset, WalkOp};
+use crate::zonetree::{Rrset, SharedRr, SharedRrset};
 
 use super::nodes::{NodeChildren, NodeRrsets, Special, ZoneApex, ZoneNode};
 use super::versioned::Version;
 use super::versioned::VersionMarker;
+use core::pin::Pin;
+use core::task::{Context, Poll};
+use futures::stream::Stream;
+use smallvec::SmallVec;
+use std::future::Future;
+
+pub struct ReadZoneQuery {
+    read_zone: ReadZone,
+    qname: Dname<Bytes>,
+    qtype: Rtype,
+}
+
+impl ReadZoneQuery {
+    pub fn new(
+        apex: Arc<ZoneApex>,
+        qname: Dname<Bytes>,
+        qtype: Rtype,
+        (version, marker): (Version, Arc<VersionMarker>),
+    ) -> Self {
+        Self {
+            read_zone: ReadZone::new(apex, version, marker),
+            qname,
+            qtype,
+        }
+    }
+}
+
+impl Future for ReadZoneQuery {
+    type Output = Result<Answer, OutOfZone>;
+
+    fn poll(
+        self: Pin<&mut Self>,
+        _cx: &mut Context<'_>,
+    ) -> Poll<Self::Output> {
+        Poll::Ready(self.read_zone.query(self.qname.clone(), self.qtype))
+    }
+}
+
+enum ReadZoneIterState {
+    IterTopLevelRrsets(Dname<Bytes>, SmallVec<[Arc<Rrset>; 8]>),
+}
+
+pub struct ReadZoneIter {
+    state: ReadZoneIterState,
+}
+
+impl ReadZoneIter {
+    pub fn new(
+        apex: Arc<ZoneApex>,
+        (version, _marker): (Version, Arc<VersionMarker>),
+    ) -> ReadZoneIter {
+        // HACK: Clone the RRset Arcs into a vec that we can iterate over in
+        // fn poll(), as we can't keep the iterator returned by the rrsets
+        // HashMap due to lifetimes and because of the RwLock read guard that
+        // we also would need to hold, and even if you try being generic over
+        // lifetimes to resolve that those lifetimes then bleed into the
+        // ZoneStore trait QueryFut associated type and into the return type
+        // of ZoneStore::query(), which makes it no longer possible to create
+        // a trait object from the trait.
+        let mut rrsets = SmallVec::new();
+        for (_rtype, rrset) in apex.rrsets().lock().iter() {
+            if let Some(rrset) = rrset.get(version) {
+                rrsets.push(rrset.as_arc().clone());
+            }
+        }
+        let owner = apex.name().clone();
+        let state = ReadZoneIterState::IterTopLevelRrsets(owner, rrsets);
+        Self {
+            state,
+        }
+    }
+}
+
+impl Stream for ReadZoneIter {
+    type Item = (Dname<Bytes>, Arc<Rrset>);
+
+    fn poll_next(
+        mut self: Pin<&mut Self>,
+        _cx: &mut Context<'_>,
+    ) -> Poll<Option<Self::Item>> {
+        match &mut self.state {
+            // TODO: Add more state machine states to handle walking down the
+            // zone tree. We only handle the outermost part of the zone tree
+            // in the current state of this POC.
+            ReadZoneIterState::IterTopLevelRrsets(
+                ref owner,
+                ref mut rrsets,
+            ) => {
+                Poll::Ready(rrsets.pop().map(|rrset| (owner.clone(), rrset)))
+            }
+        }
+    }
+}
 
 //------------ ReadZone ------------------------------------------------------
 
@@ -42,6 +133,22 @@ impl ReadZone {
 }
 
 impl ReadZone {
+    fn query(
+        &self,
+        qname: Dname<Bytes>,
+        qtype: Rtype,
+    ) -> Result<Answer, OutOfZone> {
+        let mut qname = self.apex.prepare_name(&qname)?;
+
+        let answer = if let Some(label) = qname.next() {
+            self.query_below_apex(label, qname, qtype, WalkState::DISABLED)
+        } else {
+            self.query_rrsets(self.apex.rrsets(), qtype, WalkState::DISABLED)
+        };
+
+        Ok(answer.into_answer(self))
+    }
+
     fn query_below_apex<'l>(
         &self,
         label: &Label,
@@ -150,7 +257,7 @@ impl ReadZone {
     ) -> NodeAnswer {
         if walk.enabled() {
             // Walk the zone, don't match by qtype.
-            let node_rrsets_iter = rrsets.iter();
+            let node_rrsets_iter = rrsets.lock();
             for (_rtype, rrset) in node_rrsets_iter.iter() {
                 if let Some(shared_rrset) = rrset.get(self.version) {
                     walk.op(shared_rrset);
@@ -227,41 +334,41 @@ impl ReadZone {
 
 //--- impl ReadableZone
 
-impl ReadableZone for ReadZone {
-    fn is_async(&self) -> bool {
-        false
-    }
+// impl ReadableZone for ReadZone {
+//     fn is_async(&self) -> bool {
+//         false
+//     }
 
-    fn query(
-        &self,
-        qname: Dname<Bytes>,
-        qtype: Rtype,
-    ) -> Result<Answer, OutOfZone> {
-        let mut qname = self.apex.prepare_name(&qname)?;
+//     fn query(
+//         &self,
+//         qname: Dname<Bytes>,
+//         qtype: Rtype,
+//     ) -> Result<Answer, OutOfZone> {
+//         let mut qname = self.apex.prepare_name(&qname)?;
 
-        let answer = if let Some(label) = qname.next() {
-            self.query_below_apex(label, qname, qtype, WalkState::DISABLED)
-        } else {
-            self.query_rrsets(self.apex.rrsets(), qtype, WalkState::DISABLED)
-        };
+//         let answer = if let Some(label) = qname.next() {
+//             self.query_below_apex(label, qname, qtype, WalkState::DISABLED)
+//         } else {
+//             self.query_rrsets(self.apex.rrsets(), qtype, WalkState::DISABLED)
+//         };
 
-        Ok(answer.into_answer(self))
-    }
+//         Ok(answer.into_answer(self))
+//     }
 
-    fn walk(&self, op: WalkOp) {
-        // https://datatracker.ietf.org/doc/html/rfc8482 notes that the ANY
-        // query type is problematic and should be answered as minimally as
-        // possible. Rather than use ANY internally here to achieve a walk, as
-        // specific behaviour may actually be wanted for ANY we instead use
-        // the presence of a callback `op` to indicate that walking mode is
-        // requested. We still have to pass an Rtype but it won't be used for
-        // matching when in walk mode, so we set it to Any as it most closely
-        // matches our intent and will be ignored anyway.
-        let walk = WalkState::new(op);
-        self.query_rrsets(self.apex.rrsets(), Rtype::Any, walk.clone());
-        self.query_below_apex(Label::root(), iter::empty(), Rtype::Any, walk);
-    }
-}
+//     fn walk(&self, op: WalkOp) {
+//         // https://datatracker.ietf.org/doc/html/rfc8482 notes that the ANY
+//         // query type is problematic and should be answered as minimally as
+//         // possible. Rather than use ANY internally here to achieve a walk, as
+//         // specific behaviour may actually be wanted for ANY we instead use
+//         // the presence of a callback `op` to indicate that walking mode is
+//         // requested. We still have to pass an Rtype but it won't be used for
+//         // matching when in walk mode, so we set it to Any as it most closely
+//         // matches our intent and will be ignored anyway.
+//         let walk = WalkState::new(op);
+//         self.query_rrsets(self.apex.rrsets(), Rtype::Any, walk.clone());
+//         self.query_below_apex(Label::root(), iter::empty(), Rtype::Any, walk);
+//     }
+// }
 
 //------------ NodeAnswer ----------------------------------------------------
 
