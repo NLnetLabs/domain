@@ -266,7 +266,11 @@ where
     #[allow(clippy::type_complexity)]
     fn preprocess_request(
         &self,
-        msg_details: MessageDetails<Buf>,
+        MessageDetails {
+            buf,
+            received_at,
+            addr,
+        }: MessageDetails<Buf>,
         middleware_chain: &MiddlewareChain<Buf::Output, Svc::Target>,
         metrics: &Arc<ServerMetrics>,
     ) -> Result<
@@ -288,18 +292,13 @@ where
     where
         Svc::Future: Send,
     {
-        let MessageDetails {
-            buf,
-            received_at,
-            addr,
-        } = msg_details;
-        let request = Message::from_octets(buf).map_err(|err| {
+        let message = Message::from_octets(buf).map_err(|err| {
             warn!("Failed while parsing request message: {err}");
             ServiceError::InternalError
         })?;
 
         let mut request =
-            self.add_context_to_request(request, received_at, addr);
+            self.add_context_to_request(message, received_at, addr);
 
         let span = info_span!("pre-process",
             msg_id = request.message().header().id(),
