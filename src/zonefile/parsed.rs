@@ -86,14 +86,10 @@ impl Zonefile {
         // i.e. we were created by [`Self::default()`], require the first
         // record to be a SOA record and use its owner name and class as the
         // zone apex name and class.
-        eprintln!("XX 1");
         if self.origin.is_none() {
-            eprintln!("XX 2");
             if record.rtype() != Rtype::Soa {
-                eprintln!("XX 3");
                 return Err(RecordError::MissingSoa);
             } else {
-                eprintln!("XX 4");
                 let apex = record
                     .owner()
                     .to_dname()
@@ -103,7 +99,6 @@ impl Zonefile {
             }
         }
 
-        eprintln!("XX 5: {:?}", self.origin);
         let (zone_apex, zone_class) =
             (self.origin().unwrap(), self.class().unwrap());
 
@@ -192,8 +187,6 @@ impl TryFrom<Zonefile> for ZoneBuilder {
     type Error = ZoneErrors;
 
     fn try_from(mut zonefile: Zonefile) -> Result<Self, Self::Error> {
-        eprintln!("TF parsed -> ZoneBuilder");
-        eprintln!("ZF: {:?}", zonefile.origin);
         let mut builder = ZoneBuilder::new(
             zonefile.origin.unwrap(),
             zonefile.class.unwrap(),
