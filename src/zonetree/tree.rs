@@ -11,7 +11,7 @@ use std::vec::Vec;
 
 //------------ ZoneTree ------------------------------------------------------
 
-/// The hierarchy of zones we are authoritative for.
+/// A multi-rooted zone hierarchy.
 #[derive(Default)]
 pub struct ZoneTree {
     roots: Roots,
