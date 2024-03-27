@@ -1,6 +1,5 @@
 //! Provide server-side of datagram protocols
 use std::future::Future;
-use std::net::SocketAddr;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::sync::Mutex as SyncMutex;
@@ -43,7 +42,7 @@ impl AsyncConnect for Dgram {
                 + Sync,
         >,
     >;
-    fn connect(&self, _source_address: Option<SocketAddr>) -> Self::Fut {
+    fn connect(&self) -> Self::Fut {
         let stelline = self.stelline.clone();
         let step_value = self.step_value.clone();
         Box::pin(

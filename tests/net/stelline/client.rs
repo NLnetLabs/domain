@@ -1,7 +1,7 @@
 #![allow(clippy::type_complexity)]
 use std::collections::HashMap;
 use std::future::{ready, Future};
-use std::net::{IpAddr, SocketAddr};
+use std::net::IpAddr;
 use std::pin::Pin;
 use std::rc::Rc;
 use std::sync::Mutex;
@@ -68,6 +68,8 @@ pub enum StellineErrorCause {
     MismatchedAnswer,
     MissingResponse,
     MissingStepEntry,
+
+    #[allow(dead_code)]
     MissingClient,
 }
 
@@ -99,6 +101,86 @@ impl std::fmt::Display for StellineErrorCause {
     }
 }
 
+//----------- do_client_simple() ----------------------------------------------
+
+// This function handles the client part of a Stelline script. If works only
+// with SendRequest and is use to test the various client transport
+// implementations. This frees do_client of supporting SendRequest.
+#[allow(dead_code)]
+pub async fn do_client_simple<R: SendRequest<RequestMessage<Vec<u8>>>>(
+    stelline: &Stelline,
+    step_value: &CurrStepValue,
+    request: R,
+) {
+    async fn inner<R: SendRequest<RequestMessage<Vec<u8>>>>(
+        stelline: &Stelline,
+        step_value: &CurrStepValue,
+        request: R,
+    ) -> Result<(), StellineErrorCause> {
+        let mut resp: Option<Message<Bytes>> = None;
+
+        // Assume steps are in order. Maybe we need to define that.
+        for step in &stelline.scenario.steps {
+            let span =
+                info_span!("step", "{}:{}", step.step_value, step.step_type);
+            let _guard = span.enter();
+
+            debug!("Processing step");
+            step_value.set(step.step_value);
+            match step.step_type {
+                StepType::Query => {
+                    let entry = step
+                        .entry
+                        .as_ref()
+                        .ok_or(StellineErrorCause::MissingStepEntry)?;
+                    let reqmsg = entry2reqmsg(entry);
+                    let mut req = request.send_request(reqmsg);
+                    resp = Some(req.get_response().await?);
+
+                    trace!(?resp);
+                }
+                StepType::CheckAnswer => {
+                    let answer = resp
+                        .take()
+                        .ok_or(StellineErrorCause::MissingResponse)?;
+                    let entry = step
+                        .entry
+                        .as_ref()
+                        .ok_or(StellineErrorCause::MissingStepEntry)?;
+                    if !match_msg(entry, &answer, true) {
+                        return Err(StellineErrorCause::MismatchedAnswer);
+                    }
+                }
+                StepType::TimePasses => {
+                    let duration =
+                        Duration::from_secs(step.time_passes.unwrap());
+                    tokio::time::advance(duration).await;
+                    #[cfg(feature = "mock-time")]
+                    MockClock::advance_system_time(duration);
+                }
+                StepType::Traffic
+                | StepType::CheckTempfile
+                | StepType::Assign => todo!(),
+            }
+        }
+
+        Ok(())
+    }
+
+    init_logging();
+
+    let name = stelline
+        .name
+        .rsplit_once('/')
+        .unwrap_or(("", &stelline.name))
+        .1;
+    let span = tracing::info_span!("stelline", "{}", name);
+    let _guard = span.enter();
+    if let Err(cause) = inner(stelline, step_value, request).await {
+        panic!("{}", StellineError::from_cause(stelline, step_value, cause));
+    }
+}
+
 //----------- Dispatcher -----------------------------------------------------
 
 pub struct Dispatcher(
@@ -124,6 +206,7 @@ impl Dispatcher {
         Self(None)
     }
 
+    #[allow(dead_code)]
     pub async fn dispatch(
         &self,
         entry: &Entry,
@@ -280,6 +363,14 @@ impl ClientFactory for QueryTailoredClientFactory {
 
 //----------- do_client() ----------------------------------------------------
 
+// This function handles the client part of a Stelline script. It is meant
+// to test server code. This code need refactoring. The do_client_simple
+// function takes care of supporting SendRequest, so no need to support that
+// here. UDP support can be made simplere by removing any notion of a
+// connection and associating a source address with every request. TCP
+// suport can be made simpler because the test code does not have to be
+// careful about the TcpKeepalive option and just keep the connection open.
+#[allow(dead_code)]
 pub async fn do_client<'a, T: ClientFactory>(
     stelline: &'a Stelline,
     step_value: &'a CurrStepValue,
@@ -434,10 +525,6 @@ fn entry2reqmsg(entry: &Entry) -> RequestMessage<Vec<u8>> {
     if !edns_bytes.is_empty() {
         let raw_opt = RawOptData { bytes: edns_bytes };
         reqmsg.add_opt(&raw_opt).unwrap();
-    }
-
-    if let Some(client_addr) = entry.client_addr {
-        reqmsg.set_source_address(SocketAddr::new(client_addr, 0));
     }
 
     reqmsg

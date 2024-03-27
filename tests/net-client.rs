@@ -1,7 +1,7 @@
 #![cfg(feature = "net")]
 mod net;
 
-use crate::net::stelline::client::do_client;
+use crate::net::stelline::client::do_client_simple;
 use crate::net::stelline::client::CurrStepValue;
 use crate::net::stelline::connect::Connect;
 use crate::net::stelline::connection::Connection;
@@ -13,7 +13,6 @@ use domain::net::client::dgram_stream;
 use domain::net::client::multi_stream;
 use domain::net::client::redundant;
 use domain::net::client::stream;
-use net::stelline::client::SingleClientFactory;
 use std::fs::File;
 use std::net::IpAddr;
 use std::net::SocketAddr;
@@ -32,9 +31,8 @@ fn dgram() {
 
         let conn = Dgram::new(stelline.clone(), step_value.clone());
         let dgram = dgram::Connection::new(conn);
-        let client_factory = SingleClientFactory::new(dgram);
 
-        do_client(&stelline, &step_value, client_factory).await;
+        do_client_simple(&stelline, &step_value, dgram).await;
     });
 }
 
@@ -50,9 +48,8 @@ fn single() {
         tokio::spawn(async move {
             transport.run().await;
         });
-        let client_factory = SingleClientFactory::new(octstr);
 
-        do_client(&stelline, &step_value, client_factory).await;
+        do_client_simple(&stelline, &step_value, octstr).await;
     });
 }
 
@@ -69,9 +66,8 @@ fn multi() {
             ms_tran.run().await;
             println!("multi conn run terminated");
         });
-        let client_factory = SingleClientFactory::new(ms);
 
-        do_client(&stelline, &step_value, client_factory).await;
+        do_client_simple(&stelline, &step_value, ms).await;
     });
 }
 
@@ -89,9 +85,8 @@ fn dgram_stream() {
             tran.run().await;
             println!("dgram_stream conn run terminated");
         });
-        let client_factory = SingleClientFactory::new(ds);
 
-        do_client(&stelline, &step_value, client_factory).await;
+        do_client_simple(&stelline, &step_value, ds).await;
     });
 }
 
@@ -118,9 +113,8 @@ fn redundant() {
         });
 
         redun.add(Box::new(ms.clone())).await.unwrap();
-        let client_factory = SingleClientFactory::new(redun);
 
-        do_client(&stelline, &step_value, client_factory).await;
+        do_client_simple(&stelline, &step_value, redun).await;
     });
 }
 
@@ -150,8 +144,7 @@ fn tcp() {
             transport.run().await;
             println!("single TCP run terminated");
         });
-        let client_factory = SingleClientFactory::new(tcp);
 
-        do_client(&stelline, &step_value, client_factory).await;
+        do_client_simple(&stelline, &step_value, tcp).await;
     });
 }

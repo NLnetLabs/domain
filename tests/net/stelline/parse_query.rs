@@ -189,6 +189,7 @@ pub enum Entry {
     /// When this entry is encountered, the referenced file should be scanned
     /// next. If `origin` is given, this file should be scanned with it as the
     /// initial origin name,
+    #[allow(dead_code)]
     Include {
         /// The path to the file to be included.
         path: ScannedString,

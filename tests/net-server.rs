@@ -4,7 +4,7 @@ mod net;
 use std::collections::VecDeque;
 use std::fs::File;
 use std::future::Future;
-use std::net::{IpAddr, SocketAddr};
+use std::net::IpAddr;
 use std::path::PathBuf;
 use std::time::Duration;
 
@@ -145,9 +145,8 @@ fn mk_client_factory(
     };
 
     let tcp_client_factory = PerClientAddressClientFactory::new(
-        move |client_addr| {
-            let client_addr = SocketAddr::new(*client_addr, 0);
-            let stream = stream_server_conn.connect(client_addr);
+        move |_source_addr| {
+            let stream = stream_server_conn.connect();
             let (conn, transport) = stream::Connection::new(stream);
             tokio::spawn(transport.run());
             Box::new(conn)

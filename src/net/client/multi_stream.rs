@@ -506,7 +506,7 @@ where
                             _ = chan.send(resp);
                         } else {
                             opt_chan = Some(chan);
-                            stream_fut = Box::pin(self.stream.connect(None));
+                            stream_fut = Box::pin(self.stream.connect());
                             do_stream = true;
                         }
                     }
