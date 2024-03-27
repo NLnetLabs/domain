@@ -388,7 +388,7 @@ pub enum ServiceFeedback {
 /// In most cases a [`CallResult`] will be a DNS response message.
 ///
 /// If needed a [`CallResult`] can instead, or additionally, contain a
-/// [`ServerCommand`] directing the server or connection handler handling the
+/// [`ServiceFeedback`] directing the server or connection handler handling the
 /// request to adjust its own configuration, or even to terminate the
 /// connection.
 #[derive(Clone, Debug)]
