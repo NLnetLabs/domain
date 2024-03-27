@@ -29,8 +29,7 @@
 //! use domain::base::iana::{Class, Rcode, Rtype};
 //! use domain::base::name::Dname;
 //! use domain::zonefile::{inplace, parsed};
-//! use domain::zonetree::ZoneBuilder;
-//! use domain::zonetree::{Answer, Zone, ZoneTree};
+//! use domain::zonetree::{Answer, Zone, ZoneBuilder, ZoneTree};
 //!
 //! // Prepare some zone file bytes to demonstrate with.
 //! let zone_file = include_bytes!("../../test-data/zonefiles/nsd-example.txt");
