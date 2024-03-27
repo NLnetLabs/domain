@@ -52,7 +52,7 @@ impl From<StoredRecord> for SharedRr {
 
 //------------ Rrset ---------------------------------------------------------
 
-/// A set of related resource records.
+/// A set of related resource records for use with [`Zone`]s.
 ///
 /// This type should be used to create and edit one or more resource records
 /// for use with a [`Zone`]. RRset records should all have the same type and
@@ -159,9 +159,11 @@ impl From<StoredRecord> for Rrset {
 
 //------------ SharedRrset ---------------------------------------------------
 
-/// An RRset behind an arc.
+/// An RRset behind an [`Arc`] for use with [`Zone`]s.
 ///
 /// See [`Rrset`] for more information.
+/// 
+/// [`Zone`]: crate::zonetree::Zone.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct SharedRrset(Arc<Rrset>);
 
