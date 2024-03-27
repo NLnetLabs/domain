@@ -79,6 +79,7 @@ impl Config {
 }
 
 #[derive(Clone, Debug)]
+#[allow(dead_code)]
 pub struct Stelline {
     pub name: String,
     #[allow(dead_code)]

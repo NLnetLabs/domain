@@ -180,6 +180,7 @@ impl Iterator for Zonefile {
 
 /// An entry of a zonefile.
 #[derive(Clone, Debug)]
+#[allow(dead_code)]
 pub enum Entry {
     /// A DNS record.
     QueryRecord(ScannedQueryRecord),
