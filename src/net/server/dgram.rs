@@ -199,9 +199,14 @@ where
 
 //------------ DgramServer ---------------------------------------------------
 
+/// A [`ServerCommand`] capable of propagating a DgramServer [`Config`] value.
 type ServerCommandType<Buf, Svc> = ServerCommand<Config<Buf, Svc>>;
+
+/// A thread safe sender of [`ServerCommand`]s.
 type CommandSender<Buf, Svc> =
     Arc<Mutex<watch::Sender<ServerCommandType<Buf, Svc>>>>;
+
+/// A thread safe receiver of [`ServerCommand`]s.
 type CommandReceiver<Buf, Svc> = watch::Receiver<ServerCommandType<Buf, Svc>>;
 
 /// A server for connecting clients via a datagram based network transport to
@@ -551,6 +556,7 @@ where
         }
     }
 
+    /// Decide what to do with a received [`ServerCommand`].
     fn process_server_command(
         &self,
         res: Result<(), watch::error::RecvError>,
@@ -601,6 +607,7 @@ where
         Ok(())
     }
 
+    /// Receive a single datagram using the user supplied network socket.
     async fn recv_from(
         &self,
     ) -> Result<(Buf::Output, SocketAddr, usize), io::Error> {
@@ -614,6 +621,7 @@ where
         Ok((res, addr, bytes_read))
     }
 
+    /// Send a single datagram using the user supplied network socket.
     async fn send_to(
         sock: &Sock,
         data: &[u8],
@@ -637,6 +645,10 @@ where
         }
     }
 
+    /// Helper function to package references to key parts of our server state
+    /// into a [`RequestState`] ready for passing through the
+    /// [`MessageProcessor`] call chain and ultimately back to ourselves at
+    /// [`process_call_reusult()`].
     fn mk_state_for_request(
         &self,
     ) -> RequestState<Sock, Buf::Output, Svc::Target> {
@@ -749,6 +761,8 @@ where
 
 //----------- RequestState ---------------------------------------------------
 
+/// Data needed by [`process_call_result()`] which needs to be passed through
+/// the [`MessageProcessor`] call chain.
 pub struct RequestState<Sock, RequestOctets, Target>
 where
     RequestOctets: Octets,
@@ -773,6 +787,7 @@ where
     RequestOctets: Octets,
     Target: Composer + Default,
 {
+    /// Creates a new instance of [`RequestState`].
     fn new(
         sock: Arc<Sock>,
         command_tx: CommandSender<RequestOctets, Target>,
