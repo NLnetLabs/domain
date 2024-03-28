@@ -704,7 +704,9 @@ where
     async fn process_service_feedback(&mut self, cmd: ServiceFeedback) {
         match cmd {
             ServiceFeedback::CloseConnection => {
-                self.stream_tx.shutdown().await.unwrap()
+                if let Err(err) = self.stream_tx.shutdown().await {
+                    warn!("Error while shutting down response stream while closing connection: {err}");
+                }
             }
 
             ServiceFeedback::Reconfigure { idle_timeout } => {
@@ -781,6 +783,11 @@ where
     fn drop(&mut self) {
         if self.active {
             self.active = false;
+            // SAFETY: It is always safe to unwrap `num_connections` because
+            // our parent code in `stream.rs` constructs the `metrics` type
+            // using the [`ServerMetrics::connection_oriented()`] constructor
+            // which ensures there is a `Some` value in the `num_connections`
+            // field.
             self.metrics
                 .num_connections
                 .as_ref()
@@ -1071,7 +1078,12 @@ impl IdleTimer {
     /// timeout for this connection.
     #[must_use]
     pub fn idle_timeout_deadline(&self, timeout: Duration) -> Instant {
-        self.idle_timer_reset_at.checked_add(timeout).unwrap()
+        self.idle_timer_reset_at
+            .checked_add(timeout)
+            .unwrap_or_else(|| {
+                warn!("Unable to reset idle timer: value out of bounds");
+                Instant::now()
+            })
     }
 
     /// Did the idle timeout expire?
