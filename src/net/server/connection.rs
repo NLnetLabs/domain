@@ -372,9 +372,8 @@ where
     /// shutdown and flush any pending writes to the output stream.
     ///
     /// Any requests received after the shutdown signal or requests still
-    /// in-flight will be abandoned.
-    ///
-    /// TODO: What does "abandoned" mean in practice here?
+    /// in-flight will continue processing and then fail to queue the response
+    /// for writing.
     pub async fn run(
         mut self,
         command_rx: watch::Receiver<
