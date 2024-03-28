@@ -688,12 +688,16 @@ async fn main() {
     // creating a separate middleware chain for use just by this server, and
     // also show that by creating the individual middleware processors
     // ourselves we can override their default configuration.
-    let server_secret = "server12secret34".as_bytes().try_into().unwrap();
     let mut fn_svc_middleware = MiddlewareBuilder::new();
     fn_svc_middleware.push(MandatoryMiddlewareProcessor::new().into());
+
     #[cfg(feature = "siphasher")]
-    fn_svc_middleware
-        .push(CookiesMiddlewareProcessor::new(server_secret).into());
+    {
+        let server_secret = "server12secret34".as_bytes().try_into().unwrap();
+        fn_svc_middleware
+            .push(CookiesMiddlewareProcessor::new(server_secret).into());
+    }
+
     let fn_svc_middleware = fn_svc_middleware.build();
 
     let srv = StreamServer::new(listener, buf_source.clone(), fn_svc);
