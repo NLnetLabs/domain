@@ -2,6 +2,8 @@
     not(feature = "unstable-server-transport"),
     doc = " The `unstable-server-transport` feature is necessary to enable this module."
 )]
+#![warn(missing_docs)]
+#![warn(clippy::missing_docs_in_private_items)]
 //! Receiving requests and sending responses.
 //!
 //! This module provides skeleton asynchronous server implementations based on
@@ -206,7 +208,6 @@
 
 #![cfg(feature = "unstable-server-transport")]
 #![cfg_attr(docsrs, doc(cfg(feature = "unstable-server-transport")))]
-// #![warn(missing_docs)]
 
 mod connection;
 pub use connection::Config as ConnectionConfig;

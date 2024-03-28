@@ -1,4 +1,4 @@
-use core::fmt::{Debug, Display};
+//! Support for stream based connections.
 use core::ops::{ControlFlow, Deref};
 use core::sync::atomic::Ordering;
 use core::time::Duration;
@@ -38,6 +38,7 @@ use super::message::{
 use super::middleware::builder::MiddlewareBuilder;
 use super::stream::Config as ServerConfig;
 use super::ServerCommand;
+use std::fmt::Display;
 
 /// Limit on the amount of time to allow between client requests.
 ///
@@ -271,6 +272,7 @@ where
 
 //------------ Connection -----------------------------------------------
 
+/// A handler for a single stream connection between client and server.
 pub struct Connection<Stream, Buf, Svc>
 where
     Stream: AsyncRead + AsyncWrite + Send + Sync + 'static,
@@ -330,6 +332,7 @@ where
     Buf::Output: Octets + Send + Sync,
     Svc: Service<Buf::Output> + Send + Sync + Clone + 'static,
 {
+    /// Creates a new handler for an accepted stream connection.
     #[must_use]
     #[allow(dead_code)]
     pub fn new(
@@ -349,6 +352,7 @@ where
         )
     }
 
+    /// Create a new connection handler with a given configuration.
     #[must_use]
     pub fn with_config(
         service: Svc,
@@ -442,6 +446,7 @@ where
     Buf::Output: Octets + Send + Sync + 'static,
     Svc: Service<Buf::Output> + Send + Sync + 'static + Clone,
 {
+    /// Connection handler main loop.
     async fn run_until_error(
         mut self,
         mut command_rx: watch::Receiver<
@@ -485,7 +490,7 @@ where
                     }
 
                     res = &mut msg_recv => {
-                        let res = self.process_read_result(res).await;
+                        let res = self.process_read_request(res).await;
                         if res.is_ok() {
                             // Set up to receive another message
                             break 'inner;
@@ -524,6 +529,7 @@ where
         }
     }
 
+    /// Decide what to do with a received [`ServerCommand`].
     fn process_server_command(
         &mut self,
         res: Result<(), watch::error::RecvError>,
@@ -602,6 +608,7 @@ where
         Ok(())
     }
 
+    /// Stop queueing new responses and process those already in the queue.
     async fn flush_write_queue(&mut self) {
         debug!("Flushing connection write queue.");
         // Stop accepting new response messages (should we check for in-flight
@@ -624,6 +631,7 @@ where
         debug!("Connection write queue flush complete.");
     }
 
+    /// Process a single queued response.
     async fn process_queued_result(
         &mut self,
         call_result: Option<CallResult<Buf::Output, Svc::Target>>,
@@ -641,17 +649,18 @@ where
         let (_request, response, feedback) = call_result.into_inner();
 
         if let Some(feedback) = feedback {
-            self.act_on_feedback(feedback).await;
+            self.process_service_feedback(feedback).await;
         }
 
         if let Some(response) = response {
-            self.write_result_to_stream(response.finish()).await;
+            self.write_response_to_stream(response.finish()).await;
         }
 
         Ok(())
     }
 
-    async fn write_result_to_stream(
+    /// Write a response back to the caller over the network stream.
+    async fn write_response_to_stream(
         &mut self,
         msg: StreamTarget<Svc::Target>,
     ) {
@@ -693,7 +702,8 @@ where
         }
     }
 
-    async fn act_on_feedback(&mut self, cmd: ServiceFeedback) {
+    /// Decide what to do with received [`ServiceFeedback`].
+    async fn process_service_feedback(&mut self, cmd: ServiceFeedback) {
         match cmd {
             ServiceFeedback::CloseConnection => {
                 self.stream_tx.shutdown().await.unwrap()
@@ -706,6 +716,10 @@ where
         }
     }
 
+    /// Implemnt DNS rules regarding timing out of idle connections.
+    ///
+    /// Disconnects the current connection of the timer is expired, flushing
+    /// pending responses first.
     fn process_dns_idle_timeout(&self) -> Result<(), ConnectionEvent> {
         // DNS idle timeout elapsed, or was it reset?
         if self
@@ -718,7 +732,8 @@ where
         }
     }
 
-    async fn process_read_result(
+    /// Process a received request message.
+    async fn process_read_request(
         &mut self,
         res: Result<Buf::Output, ConnectionEvent>,
     ) -> Result<(), ConnectionEvent> {
@@ -786,6 +801,8 @@ where
 {
     type State = Sender<CallResult<Buf::Output, Svc::Target>>;
 
+    /// Add information to the request that relates to the type of server we
+    /// are and our state where relevant.
     fn add_context_to_request(
         &self,
         request: Message<Buf::Output>,
@@ -798,6 +815,8 @@ where
         Request::new(addr, received_at, request, ctx)
     }
 
+    /// Process the result from the middleware -> service -> middleware call
+    /// tree.
     fn process_call_result(
         call_result: CallResult<Buf::Output, Svc::Target>,
         _addr: SocketAddr,
@@ -832,24 +851,52 @@ where
 
 //----------- DnsMessageReceiver ---------------------------------------------
 
+/// The [`DnsMessageReceiver`] state machine.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 enum Status {
+    /// Initial state.
     New,
+
+    /// Waiting to receive a DNS message header.
     WaitingForMessageHeader,
+
+    /// Waiting to receive a DNS message body.
     WaitingForMessageBody,
+
+    /// A full DNS message header and body has been received.
     MessageReceived,
 }
 
+/// A cancel safe DNS message receiver.
+///
+/// If the message is received in bits, e.g. header then body, this receiver
+/// ensures that any part of the request already received is not lost if the
+/// read operation is cancelled by Tokio and then a new read operation is
+/// started.
 struct DnsMessageReceiver<Stream, Buf>
 where
     Stream: AsyncRead + AsyncWrite + Send + Sync + 'static,
     Buf: BufSource + Send + Sync + 'static + Clone,
 {
+    /// A buffer to record the total expected size of the message currently
+    /// being received. DNS TCP streams preceed the DNS message by bytes
+    /// indicating the length of the message that follows.
     msg_size_buf: [u8; 2],
+
+    /// A [`BufSource`] for creating buffers on demand. e.g. to hold response
+    /// messages.
     buf: Buf,
+
+    /// The incoming connection stream from the client.
     stream_rx: ReadHalf<Stream>,
+
+    /// Our state machine state.
     status: Status,
+
     #[cfg(test)]
+    /// A flag used only during testing that will be set if a read operation
+    /// is started but detects that a previous read operation didn't complete,
+    /// i.e. the async operation was cancelled.
     cancelled: bool,
 }
 
@@ -859,6 +906,7 @@ where
     Buf: BufSource + Send + Sync + 'static + Clone,
     Buf::Output: Send + Sync + 'static,
 {
+    /// Creates a new message receiver.
     fn new(buf: Buf, stream_rx: ReadHalf<Stream>) -> Self {
         Self {
             msg_size_buf: [0; 2],
@@ -871,6 +919,7 @@ where
     }
 
     #[cfg(test)]
+    /// Was a read operation using this receiver cancelled at some point?
     pub fn cancelled(&self) -> bool {
         self.cancelled
     }
@@ -924,6 +973,8 @@ where
         }
     }
 
+    /// Handle I/O errors by deciding whether to log them, and whethr to
+    /// continue or abort.
     #[must_use]
     fn process_io_error(err: io::Error) -> ControlFlow<ConnectionEvent> {
         match err.kind() {
@@ -950,6 +1001,8 @@ where
 
 //------------ ConnectionEvent -----------------------------------------------
 
+/// An event that occurred while the connection handler was handling the
+/// connection.
 enum ConnectionEvent {
     /// RFC 7766 6.2.4 "Under normal operation DNS clients typically initiate
     /// connection closing on idle connections; however, DNS servers can close
@@ -969,6 +1022,8 @@ enum ConnectionEvent {
     /// responses."
     DisconnectWithFlush,
 
+    /// A [`Service`] specific error occurred while the service was processing
+    /// a request message.
     ServiceError(ServiceError),
 }
 
@@ -994,10 +1049,14 @@ impl Display for ConnectionEvent {
 
 /// RFC 7766 section 6.2.3 / RFC 7828 section 3 idle time out tracking.
 pub struct IdleTimer {
+    /// The instant when the timer was last reset.
     idle_timer_reset_at: Instant,
 }
 
 impl IdleTimer {
+    /// Creates a new idle timer.
+    ///
+    /// Sets the last reset instant to now.
     #[must_use]
     fn new() -> Self {
         Self {
@@ -1014,15 +1073,20 @@ impl IdleTimer {
         self.idle_timer_reset_at.checked_add(timeout).unwrap()
     }
 
+    /// Did the idle timeout expire?
     #[must_use]
     pub fn idle_timeout_expired(&self, timeout: Duration) -> bool {
         self.idle_timeout_deadline(timeout) <= Instant::now()
     }
 
+    /// Reset the idle timer to now.
     fn reset_idle_timer(&mut self) {
         self.idle_timer_reset_at = Instant::now();
     }
 
+    /// Act on the fact that a complete DNS message was received.
+    ///
+    /// Per RFC 7766 this resets the idle timer.
     fn full_msg_received(&mut self) {
         // RFC 7766 6.2.3: "DNS messages delivered over TCP might arrive in
         // multiple segments.  A DNS server that resets its idle timeout after
@@ -1033,6 +1097,10 @@ impl IdleTimer {
         self.reset_idle_timer()
     }
 
+    /// Act on the fact that the connection handler caught up with processing
+    /// all queued responses.
+    ///
+    /// Per RFC 7766 this resets the idle timer.
     fn response_queue_emptied(&mut self) {
         // RFC 7766 3: "A DNS server considers an established DNS-over-TCP
         // session to be idle when it has sent responses to all the queries it

@@ -660,6 +660,8 @@ where
 {
     type State = RequestState<Sock, Buf::Output, Svc::Target>;
 
+    /// Add information to the request that relates to the type of server we
+    /// are and our state where relevant.
     fn add_context_to_request(
         &self,
         request: Message<Buf::Output>,
@@ -673,6 +675,8 @@ where
         Request::new(addr, received_at, request, ctx)
     }
 
+    /// Process the result from the middleware -> service -> middleware call
+    /// tree.
     fn process_call_result(
         call_result: CallResult<Buf::Output, Svc::Target>,
         addr: SocketAddr,
