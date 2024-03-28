@@ -34,6 +34,8 @@ use std::fmt::Display;
 /// [6891]: https://datatracker.ietf.org/doc/html/rfc6891
 #[derive(Debug)]
 pub struct MandatoryMiddlewareProcessor {
+    /// In strict mode the processor does more checks on requests and
+    /// responses.
     strict: bool,
 }
 

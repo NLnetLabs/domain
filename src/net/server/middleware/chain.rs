@@ -30,6 +30,8 @@ where
     RequestOctets: AsRef<[u8]>,
     Target: Composer + Default,
 {
+    /// The ordered set of processors which will pre-process requests and then
+    /// in reverse order will post-process responses.
     processors: Arc<
         Vec<
             Arc<dyn MiddlewareProcessor<RequestOctets, Target> + Sync + Send>,

@@ -36,6 +36,7 @@ const ONE_HOUR_AS_SECS: u32 = 60 * 60;
 /// [`MiddlewareProcessor`]: crate::net::server::middleware::processor::MiddlewareProcessor
 #[derive(Debug)]
 pub struct CookiesMiddlewareProcessor {
+    /// A user supplied secret used in making the cookie value.
     server_secret: [u8; 16],
 
     /// Clients connecting from these IP addresses are exempted from the

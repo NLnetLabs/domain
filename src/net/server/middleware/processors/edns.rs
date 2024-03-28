@@ -39,6 +39,7 @@ pub const EDNS_VERSION_ZERO: u8 = 0;
 /// [`MiddlewareProcessor`]: crate::net::server::middleware::processor::MiddlewareProcessor
 #[derive(Debug)]
 pub struct EdnsMiddlewareProcessor {
+    /// Don't accept messages that advertize a higher EDNS version than this.
     max_version: u8,
 }
 

@@ -300,12 +300,31 @@ where
     Buf::Output: Octets + Send + Sync + 'static,
     Svc: Service<Buf::Output> + Send + Sync + 'static,
 {
+    /// The configuration of the server.
     config: Arc<ArcSwap<Config<Buf::Output, Svc::Target>>>,
+
+    /// A receiver for receiving [`ServerCommand`]s.
+    ///
+    /// Used by both the server and spawned connections to react to sent
+    /// commands.
     command_rx: CommandReceiver<Buf::Output, Svc::Target>,
+
+    /// A sender for sending [`ServerCommand`]s.
+    ///
+    /// Used to signal the server to stop, reconfigure, etc.
     command_tx: CommandSender<Buf::Output, Svc::Target>,
+
+    /// The network socket over which client requests will be received
+    /// and responses sent.
     sock: Arc<Sock>,
+
+    /// A [`BufSource`] for creating buffers on demand.
     buf: Buf,
+
+    /// A [`Service`] for handling received requests and generating responses.
     service: Svc,
+
+    /// [`ServerMetrics`] describing the status of the server.
     metrics: Arc<ServerMetrics>,
 }
 
@@ -731,8 +750,17 @@ where
     RequestOctets: Octets,
     Target: Composer + Default,
 {
+    /// The network socket over which this request was received and over which
+    /// the response should be sent.
     sock: Arc<Sock>,
+
+    /// A sender for sending [`ServerCommand`]s.
+    ///
+    /// Used to signal the server to stop, reconfigure, etc.
     command_tx: CommandSender<RequestOctets, Target>,
+
+    /// The maximum amount of time to wait for a response datagram to be
+    /// accepted by the operating system for writing back to the client.
     write_timeout: Duration,
 }
 

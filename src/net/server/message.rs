@@ -56,9 +56,17 @@ impl TransportSpecificContext {
 /// delivery.
 #[derive(Debug)]
 pub struct Request<T> {
+    /// The network address of the connected client.
     client_addr: std::net::SocketAddr,
+
+    /// The instant when the request was received.
     received_at: Instant,
+
+    /// The message that was received.
     message: Arc<T>,
+
+    /// Properties of the request specific to the server and transport
+    /// protocol via which it was received.
     transport_specific: TransportSpecificContext,
 }
 
