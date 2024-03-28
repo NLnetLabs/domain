@@ -159,24 +159,25 @@ impl CookiesMiddlewareProcessor {
         RequestOctets: Octets,
         Target: Composer + OctetsBuilder + Default,
     {
-        let builder = start_reply(request);
+        let mut additional = start_reply(request).additional();
 
-        let cookie = Self::cookie(request).unwrap().unwrap().create_response(
-            Serial::now(),
-            request.client_addr().ip(),
-            &self.server_secret,
-        );
+        if let Some(Ok(client_cookie)) = Self::cookie(request) {
+            let response_cookie = client_cookie.create_response(
+                Serial::now(),
+                request.client_addr().ip(),
+                &self.server_secret,
+            );
 
-        // Note: if rcode is non-extended this will also correctly handle
-        // setting the rcode in the main message header.
-        let mut additional = builder.additional();
-        additional
-            .opt(|opt| {
-                opt.cookie(cookie)?;
-                opt.set_rcode(rcode);
-                Ok(())
-            })
-            .unwrap();
+            // Note: if rcode is non-extended this will also correctly handle
+            // setting the rcode in the main message header.
+            additional
+                .opt(|opt| {
+                    opt.cookie(response_cookie)?;
+                    opt.set_rcode(rcode);
+                    Ok(())
+                })
+                .unwrap();
+        }
 
         additional
     }
