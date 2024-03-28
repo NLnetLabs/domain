@@ -640,7 +640,8 @@ where
 
     /// Wait for and accept a single stream connection.
     ///
-    /// TODO: This may be obsoleted when Rust gains more support for async fns in traits.
+    /// TODO: This may be obsoleted when Rust gains more support for async fns
+    /// in traits.
     async fn accept(
         &self,
     ) -> Result<(Listener::Stream, SocketAddr), io::Error> {
