@@ -164,7 +164,7 @@ where
     ///
     /// [RFC 7766]:
     ///     https://datatracker.ietf.org/doc/html/rfc7766#section-6.2.3
-    /// 
+    ///
     /// [`StreamServer::reconfigure()`]:
     ///     super::stream::StreamServer::reconfigure()
     #[allow(dead_code)]
@@ -185,7 +185,7 @@ where
     /// On [`StreamServer::reconfigure()`] any responses currently being
     /// written will NOT use the new timeout, it will only apply to responses
     /// that start being sent after the timeout is changed.
-    /// 
+    ///
     /// [`StreamServer::reconfigure()`]:
     ///     super::stream::StreamServer::reconfigure()
     #[allow(dead_code)]
@@ -207,7 +207,7 @@ where
     /// On [`StreamServer::reconfigure()`] only new connections created after
     /// this setting is changed will use the new value, existing connections
     /// will continue to use their exisitng queue at its existing size.
-    /// 
+    ///
     /// [`StreamServer::reconfigure()`]:
     ///     super::stream::StreamServer::reconfigure()
     #[allow(dead_code)]
