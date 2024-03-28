@@ -2,18 +2,19 @@
 use core::ops::ControlFlow;
 
 use octseq::Octets;
-use tracing::{debug, trace, warn};
+use tracing::{debug, error, trace, warn};
 
 use crate::base::iana::{Opcode, Rcode};
-use crate::base::message_builder::AdditionalBuilder;
+use crate::base::message_builder::{AdditionalBuilder, PushError};
 use crate::base::opt::Opt;
-use crate::base::wire::Composer;
+use crate::base::wire::{Composer, ParseError};
 use crate::base::{Message, StreamTarget};
 use crate::net::server::message::{
     Request, TransportSpecificContext, UdpSpecificTransportContext,
 };
 use crate::net::server::middleware::processor::MiddlewareProcessor;
 use crate::net::server::util::{mk_builder_for_target, start_reply};
+use std::fmt::Display;
 
 /// A [`MiddlewareProcessor`] for enforcing core RFC MUST requirements on
 /// processed messages.
@@ -69,7 +70,8 @@ impl MandatoryMiddlewareProcessor {
     fn truncate<RequestOctets, Target>(
         request: &Request<Message<RequestOctets>>,
         response: &mut AdditionalBuilder<StreamTarget<Target>>,
-    ) where
+    ) -> Result<(), TruncateError>
+    where
         RequestOctets: Octets,
         Target: Composer + Default,
     {
@@ -127,12 +129,12 @@ impl MandatoryMiddlewareProcessor {
 
                 let mut target = target.question();
                 for rr in source.question() {
-                    target.push(rr.unwrap()).unwrap(); // TODO: SAFETY
+                    target.push(rr?)?;
                 }
 
                 let mut target = target.additional();
                 if let Some(opt) = source.opt() {
-                    target.push(opt.as_record()).unwrap(); // TODO: SAFETY
+                    target.push(opt.as_record())?;
                 }
 
                 let new_len = target.as_slice().len();
@@ -141,6 +143,8 @@ impl MandatoryMiddlewareProcessor {
                 *response = target;
             }
         }
+
+        Ok(())
     }
 }
 
@@ -200,7 +204,11 @@ where
         request: &Request<Message<RequestOctets>>,
         response: &mut AdditionalBuilder<StreamTarget<Target>>,
     ) {
-        Self::truncate(request, response);
+        if let Err(err) = Self::truncate(request, response) {
+            error!("Error while truncating response: {err}");
+            *response = self.error_response(request, Rcode::ServFail);
+            return;
+        }
 
         // https://datatracker.ietf.org/doc/html/rfc1035#section-4.1.1
         // 4.1.1: Header section format
@@ -273,5 +281,37 @@ where
 impl Default for MandatoryMiddlewareProcessor {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+//------------ TruncateError -------------------------------------------------
+
+enum TruncateError {
+    InvalidQuestion(ParseError),
+    PushFailure(PushError),
+}
+
+impl Display for TruncateError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            TruncateError::InvalidQuestion(err) => {
+                write!(f, "Unable to parse question: {err}")
+            }
+            TruncateError::PushFailure(err) => {
+                write!(f, "Unable to push into response: {err}")
+            }
+        }
+    }
+}
+
+impl From<ParseError> for TruncateError {
+    fn from(err: ParseError) -> Self {
+        Self::InvalidQuestion(err)
+    }
+}
+
+impl From<PushError> for TruncateError {
+    fn from(err: PushError) -> Self {
+        Self::PushFailure(err)
     }
 }
