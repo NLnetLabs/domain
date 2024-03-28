@@ -360,9 +360,6 @@ pub enum ServiceFeedback {
     /// This command is only applicable to connection-oriented
     /// transport protocols.
     CloseConnection,
-
-    /// Ask the server to shutdown.
-    Shutdown,
 }
 
 //------------ CallResult ----------------------------------------------------

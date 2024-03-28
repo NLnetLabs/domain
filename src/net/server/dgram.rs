@@ -30,7 +30,7 @@ use tokio::time::timeout;
 use tokio::time::Instant;
 use tokio::time::MissedTickBehavior;
 use tracing::Level;
-use tracing::{enabled, error, trace, warn};
+use tracing::{enabled, error, trace};
 
 use crate::base::Message;
 use crate::net::server::buf::BufSource;
@@ -677,17 +677,6 @@ where
 
                     ServiceFeedback::CloseConnection => {
                         // N/A - only applies to connection-oriented transports
-                    }
-
-                    ServiceFeedback::Shutdown => {
-                        if let Err(err) = state
-                            .command_tx
-                            .lock()
-                            .unwrap()
-                            .send(ServerCommand::Shutdown)
-                        {
-                            warn!("Service requested shutdown but shutdown failed: {err}");
-                        }
                     }
                 }
             }

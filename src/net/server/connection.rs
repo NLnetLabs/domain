@@ -675,8 +675,6 @@ where
                 debug!("Reconfigured connection timeout to {idle_timeout:?}");
                 self.config.idle_timeout = idle_timeout;
             }
-
-            ServiceFeedback::Shutdown => {}
         }
     }
 
