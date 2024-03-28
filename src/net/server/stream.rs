@@ -185,11 +185,17 @@ type CommandReceiver<RequestOctets, Target> =
 /// use std::boxed::Box;
 /// use std::future::{Future, Ready};
 /// use std::pin::Pin;
-/// use domain::net::server::buf::VecBufSource;
-/// use domain::net::server::prelude::*;
-/// use domain::net::server::middleware::builder::MiddlewareBuilder;
-/// use domain::net::server::stream::StreamServer;
+/// use std::sync::Arc;
+///
 /// use tokio::net::TcpListener;
+///
+/// use domain::base::Message;
+/// use domain::net::server::buf::VecBufSource;
+/// use domain::net::server::message::Request;
+/// use domain::net::server::middleware::builder::MiddlewareBuilder;
+/// use domain::net::server::service::{CallResult, ServiceError, Transaction};
+/// use domain::net::server::stream::StreamServer;
+/// use domain::net::server::util::service_fn;
 ///
 /// fn my_service(msg: Request<Message<Vec<u8>>>, _meta: ())
 /// -> Result<

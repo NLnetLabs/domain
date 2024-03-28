@@ -64,13 +64,15 @@ use super::message::Request;
 /// ```
 /// use core::future::ready;
 /// use core::future::Ready;
-/// use domain::base::iana::Class;
-/// use domain::base::iana::Rcode;
+///
+/// use domain::base::iana::{Class, Rcode};
 /// use domain::base::message_builder::AdditionalBuilder;
-/// use domain::base::Dname;
-/// use domain::base::MessageBuilder;
-/// use domain::base::StreamTarget;
-/// use domain::net::server::prelude::*;
+/// use domain::base::{Dname, Message, MessageBuilder, StreamTarget};
+/// use domain::net::server::message::Request;
+/// use domain::net::server::service::{
+///     CallResult, Service, ServiceError, Transaction
+/// };
+/// use domain::net::server::util::mk_builder_for_target;
 /// use domain::rdata::A;
 ///
 /// fn mk_answer(
@@ -115,13 +117,18 @@ use super::message::Request;
 /// # Define a function compatible with the [`Service`] trait
 ///
 /// ```
+/// use core::fmt::Debug;
 /// use core::future::ready;
 /// use core::future::Future;
-/// use domain::base::iana::Class;
-/// use domain::base::iana::Rcode;
+///
+/// use domain::base::{Dname, Message};
+/// use domain::base::iana::{Class, Rcode};
 /// use domain::base::name::ToLabelIter;
-/// use domain::base::Dname;
-/// use domain::net::server::prelude::*;
+/// use domain::base::wire::Composer;
+/// use domain::dep::octseq::{OctetsBuilder, FreezeBuilder, Octets};
+/// use domain::net::server::message::Request;
+/// use domain::net::server::service::{CallResult, ServiceError, Transaction};
+/// use domain::net::server::util::mk_builder_for_target;
 /// use domain::rdata::A;
 ///
 /// fn name_to_ip<Target>(
@@ -140,7 +147,7 @@ use super::message::Request;
 /// >
 /// where
 ///     Target: Composer + Octets + FreezeBuilder<Octets = Target> + Default + Send,
-///     <Target as octseq::OctetsBuilder>::AppendError: Debug,
+///     <Target as OctetsBuilder>::AppendError: Debug,
 /// {
 ///     let mut out_answer = None;
 ///     if let Ok(question) = msg.message().sole_question() {

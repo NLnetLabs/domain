@@ -13,8 +13,7 @@ use crate::net::server::message::{
     Request, TransportSpecificContext, UdpSpecificTransportContext,
 };
 use crate::net::server::middleware::processor::MiddlewareProcessor;
-use crate::net::server::prelude::mk_builder_for_target;
-use crate::net::server::util::start_reply;
+use crate::net::server::util::{mk_builder_for_target, start_reply};
 
 /// A [`MiddlewareProcessor`] for enforcing core RFC MUST requirements on
 /// processed messages.

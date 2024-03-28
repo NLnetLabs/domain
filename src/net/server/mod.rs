@@ -225,25 +225,6 @@ pub mod util;
 #[cfg(test)]
 pub mod tests;
 
-/// A Rust module for importing the types needed to create a [`Service`].
-///
-/// [`Service`]: crate::net::server::service::Service
-pub mod prelude {
-    pub use core::fmt::Debug;
-
-    pub use std::sync::Arc;
-
-    pub use crate::base::wire::Composer;
-    pub use crate::base::Message;
-    pub use crate::dep::octseq::OctetsBuilder;
-    pub use crate::dep::octseq::{FreezeBuilder, Octets};
-    pub use crate::net::server::message::Request;
-    pub use crate::net::server::service::{
-        CallResult, Service, ServiceError, ServiceFeedback, Transaction,
-    };
-    pub use crate::net::server::util::{mk_builder_for_target, service_fn};
-}
-
 //------------ ServerCommand ------------------------------------------------
 
 /// Command a server to do something.

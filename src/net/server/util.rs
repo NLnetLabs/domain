@@ -52,8 +52,11 @@ where
 /// use std::boxed::Box;
 /// use std::future::Future;
 /// use std::pin::Pin;
-/// use domain::net::server::prelude::*;
 /// use domain::base::iana::Rcode;
+/// use domain::base::Message;
+/// use domain::net::server::message::Request;
+/// use domain::net::server::service::{CallResult, ServiceError, Transaction};
+/// use domain::net::server::util::{mk_builder_for_target, service_fn};
 ///
 /// // Define some types to make the example easier to read.
 /// type MyMeta = ();

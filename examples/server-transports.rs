@@ -1,6 +1,7 @@
 use core::future::ready;
 
 use core::fmt;
+use core::fmt::Debug;
 use core::future::{Future, Ready};
 use core::ops::ControlFlow;
 use core::sync::atomic::{AtomicBool, AtomicU8, Ordering};
@@ -11,8 +12,10 @@ use std::io;
 use std::io::BufReader;
 use std::net::SocketAddr;
 use std::path::Path;
+use std::sync::Arc;
 use std::sync::RwLock;
 
+use octseq::{FreezeBuilder, Octets};
 use rustls_pemfile::{certs, rsa_private_keys};
 use tokio::net::{TcpListener, TcpSocket, TcpStream, UdpSocket};
 use tokio::time::Instant;
@@ -24,18 +27,24 @@ use tracing_subscriber::EnvFilter;
 use domain::base::iana::{Class, Rcode};
 use domain::base::message_builder::{AdditionalBuilder, PushError};
 use domain::base::name::ToLabelIter;
-use domain::base::{Dname, MessageBuilder, StreamTarget};
+use domain::base::wire::Composer;
+use domain::base::{Dname, Message, MessageBuilder, StreamTarget};
 use domain::net::server::buf::VecBufSource;
 use domain::net::server::dgram;
 use domain::net::server::dgram::DgramServer;
+use domain::net::server::message::Request;
 use domain::net::server::middleware::builder::MiddlewareBuilder;
 use domain::net::server::middleware::processor::MiddlewareProcessor;
+#[cfg(feature = "siphasher")]
 use domain::net::server::middleware::processors::cookies::CookiesMiddlewareProcessor;
 use domain::net::server::middleware::processors::mandatory::MandatoryMiddlewareProcessor;
-use domain::net::server::prelude::*;
+use domain::net::server::service::{
+    CallResult, Service, ServiceError, ServiceFeedback, Transaction,
+};
 use domain::net::server::sock::AsyncAccept;
 use domain::net::server::stream;
 use domain::net::server::stream::StreamServer;
+use domain::net::server::util::{mk_builder_for_target, service_fn};
 use domain::net::server::ConnectionConfig;
 use domain::rdata::A;
 
