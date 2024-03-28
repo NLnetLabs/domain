@@ -19,7 +19,12 @@ use crate::net::server::middleware::processor::MiddlewareProcessor;
 use crate::net::server::util::add_edns_options;
 use crate::net::server::util::{mk_builder_for_target, start_reply};
 
+/// The five minute period referred to by
+/// https://www.rfc-editor.org/rfc/rfc9018.html#section-4.3.
 const FIVE_MINUTES_AS_SECS: u32 = 5 * 60;
+
+/// The one hour period referred to by
+/// https://www.rfc-editor.org/rfc/rfc9018.html#section-4.3.
 const ONE_HOUR_AS_SECS: u32 = 60 * 60;
 
 /// A DNS Cookies [`MiddlewareProcessor`].
@@ -116,6 +121,12 @@ impl CookiesMiddlewareProcessor {
             .and_then(|opt| opt.opt().iter::<opt::Cookie>().next())
     }
 
+    /// Check whether or not the given timestamp is okay.
+    ///
+    /// Returns true if the given timestamp is within the permitted difference
+    /// to now as specified by [RFC 9018 section 4.3].
+    ///
+    /// [RFC 9018 section 4.3]: https://www.rfc-editor.org/rfc/rfc9018.html#section-4.3
     #[must_use]
     fn timestamp_ok(serial: Serial) -> bool {
         // https://www.rfc-editor.org/rfc/rfc9018.html#section-4.3
@@ -132,6 +143,7 @@ impl CookiesMiddlewareProcessor {
         now <= expires_at && serial <= too_new_at
     }
 
+    /// Create a DNS response message for the given request, including cookie.
     fn response_with_cookie<RequestOctets, Target>(
         &self,
         request: &Request<Message<RequestOctets>>,
@@ -163,6 +175,9 @@ impl CookiesMiddlewareProcessor {
         additional
     }
 
+    /// Create a DNS error response message indicating that the client
+    /// supplied cookie is not okay.
+    ///
     /// Panics
     ///
     /// This function will panic if the given request does not include a DNS
@@ -191,6 +206,7 @@ impl CookiesMiddlewareProcessor {
         self.response_with_cookie(request, OptRcode::BadCookie)
     }
 
+    /// Create a DNS response to a client cookie prefetch request.
     #[must_use]
     fn prefetch_cookie_response<RequestOctets, Target>(
         &self,
@@ -214,6 +230,8 @@ impl CookiesMiddlewareProcessor {
         self.response_with_cookie(request, Rcode::NoError.into())
     }
 
+    /// Check the cookie contained in the request to make sure that it is
+    /// complete, and if so return the cookie to the caller.
     #[must_use]
     fn ensure_cookie_is_complete<Target: Octets>(
         &self,
