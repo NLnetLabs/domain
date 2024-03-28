@@ -15,8 +15,10 @@ use chrono::{DateTime, TimeZone};
 use core::cmp::Ordering;
 use core::str::FromStr;
 use core::{cmp, fmt, str};
+#[cfg(all(feature = "std", feature = "mock-time"))]
+use mock_instant::{SystemTime, UNIX_EPOCH};
 use octseq::parse::Parser;
-#[cfg(feature = "std")]
+#[cfg(all(feature = "std", not(feature = "mock-time")))]
 use std::time::{SystemTime, UNIX_EPOCH};
 use time::{Date, Month, PrimitiveDateTime, Time};
 

@@ -29,7 +29,7 @@
 //!
 #![cfg_attr(feature = "net", doc = "* [net]:")]
 #![cfg_attr(not(feature = "net"), doc = "* net:")]
-//!   Sending and receiving DNS message.
+//!   Sending and receiving DNS messages.
 #![cfg_attr(feature = "resolv", doc = "* [resolv]:")]
 #![cfg_attr(not(feature = "resolv"), doc = "* resolv:")]
 //!   An asynchronous DNS resolver based on the
@@ -127,6 +127,8 @@
 //!
 //! * `unstable-client-transport`: sending and receiving DNS messages from
 //!   a client perspective; primarily the `net::client` module.
+//! * `unstable-server-transport`: receiving and sending DNS messages from
+//!   a server perspective; primarily the `net::server` module.
 //!
 //! Note: Some functionality is currently informally marked as
 //! “experimental” since it was introduced before adoption of the concept
