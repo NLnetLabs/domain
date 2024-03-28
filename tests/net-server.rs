@@ -22,6 +22,7 @@ use domain::net::server::buf::VecBufSource;
 use domain::net::server::dgram::DgramServer;
 use domain::net::server::message::Request;
 use domain::net::server::middleware::builder::MiddlewareBuilder;
+#[cfg(feature = "siphasher")]
 use domain::net::server::middleware::processors::cookies::CookiesMiddlewareProcessor;
 use domain::net::server::middleware::processors::edns::EdnsMiddlewareProcessor;
 use domain::net::server::middleware::processors::edns::EDNS_VERSION_ZERO;
