@@ -63,7 +63,7 @@ validate    = ["std", "ring"]
 zonefile    = ["bytes", "std"]
 
 # Unstable features
-unstable-client-transport = [ "moka" ]
+unstable-client-transport = [ "moka", "tracing" ]
 unstable-server-transport = ["arc-swap", "chrono/clock", "hex", "libc", "tracing"]
 
 # Test features
