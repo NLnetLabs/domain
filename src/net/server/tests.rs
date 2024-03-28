@@ -29,9 +29,17 @@ use super::service::{
 use super::sock::AsyncAccept;
 use super::stream::StreamServer;
 
+/// Mock I/O which supplies a sequence of mock messages to the server at a
+/// defined rate.
 struct MockStream {
+    /// The instant when poll_read() last returned Poll::Ready.
     last_ready: Mutex<Option<Instant>>,
+
+    /// The messages that the server should read via our mock I/O.
+    /// Messages are popped from the front one at a time.
     messages_to_read: Mutex<VecDeque<Vec<u8>>>,
+
+    /// The rate at which messages should be made available to the server.
     new_message_every: Duration,
 }
 
@@ -46,17 +54,10 @@ impl MockStream {
             new_message_every,
         }
     }
-
-    fn _last_ready(&self) -> Option<Instant> {
-        *self.last_ready.lock().unwrap()
-    }
-
-    fn _messages_remaining(&self) -> usize {
-        self.messages_to_read.lock().unwrap().len()
-    }
 }
 
 impl AsyncRead for MockStream {
+    /// Serve mock messages one at a time at a defined rate.
     fn poll_read(
         self: Pin<&mut Self>,
         cx: &mut Context<'_>,
@@ -130,16 +131,31 @@ impl AsyncWrite for MockStream {
     }
 }
 
+/// Configuration for a mock client defining which messages it should "send",
+/// how often, and from which TCP/IP port the messages should appear to come
+/// from.
 struct MockClientConfig {
     pub new_message_every: Duration,
     pub messages: VecDeque<Vec<u8>>,
     pub client_port: u16,
 }
 
+/// A mock TCP connection acceptor with a fixed rate at which (mock) client
+/// connections will be accepted.
 struct MockListener {
+    /// Don't accept connections until we are marked as ready. The caller
+    /// acquires a clone of this (because they give away the MockListener
+    /// itself) and sets it to true when they want to start accepting
+    /// connections from (mock) clients.
     ready: Arc<AtomicBool>,
+
+    /// The instant when poll_accept() last returned Poll::Ready.
     last_accept: Mutex<Option<Instant>>,
+
+    /// The mock client connections to accept.
     streams_to_read: Mutex<VecDeque<MockClientConfig>>,
+
+    /// The rate at which connections should be accepted.
     new_client_every: Duration,
 }
 
@@ -177,6 +193,7 @@ impl AsyncAccept for MockListener {
     type StreamType = MockStream;
     type Stream = std::future::Ready<Result<Self::StreamType, io::Error>>;
 
+    /// Accept mock connections one at a time at a defined rate.
     fn poll_accept(
         &self,
         cx: &mut Context,
@@ -230,6 +247,7 @@ impl AsyncAccept for MockListener {
     }
 }
 
+/// A mock buffer source, just to show it is possible to define your own.
 #[derive(Clone)]
 struct MockBufSource;
 
@@ -245,25 +263,8 @@ impl BufSource for MockBufSource {
     }
 }
 
-/*#[tokio::test(flavor = "multi_thread")]
-async fn stop_service_fn_test() {
-    let srv_join_handle = {
-        let sock = MockSock;
-        let buf = MockBufSource;
-        let count = Arc::new(AtomicU8::new(0));
-        let srv =
-            Arc::new(StreamServer::new(sock, buf, service(count).into()));
-        let handle = tokio::spawn(srv.clone().run());
-        tokio::time::sleep(std::time::Duration::from_millis(2000)).await;
-        srv.shutdown(); // without this the task never finishes below when .await'd
-        handle
-    };
-
-    let _ = srv_join_handle.await;
-
-    tokio::time::sleep(std::time::Duration::from_millis(5000)).await;
-}*/
-
+/// A mock single result to be returned by a mock service, just to show that
+/// it is possible to define your own.
 struct MySingle;
 
 impl Future for MySingle {
@@ -286,6 +287,8 @@ impl Future for MySingle {
     }
 }
 
+/// A mock service that returns MySingle whenever it receives a message.
+/// Just to show MySingle in action.
 struct MyService;
 
 impl MyService {
@@ -313,6 +316,7 @@ impl Service<Vec<u8>> for MyService {
     }
 }
 
+/// Create a mock DNS client request.
 fn mk_query() -> StreamTarget<Vec<u8>> {
     let mut msg = MessageBuilder::from_target(StaticCompressor::new(
         StreamTarget::new_vec(),
@@ -344,7 +348,7 @@ fn mk_query() -> StreamTarget<Vec<u8>> {
 // time dependent test to run much faster without actual periods of
 // waiting to allow time to elapse.
 #[tokio::test(flavor = "current_thread", start_paused = true)]
-async fn stop_service_test() {
+async fn service_test() {
     let (srv_handle, server_status_printer_handle) = {
         let fast_client = MockClientConfig {
             new_message_every: Duration::from_millis(100),
