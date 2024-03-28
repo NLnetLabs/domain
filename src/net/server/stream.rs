@@ -81,6 +81,8 @@ where
     /// Limit on the number of concurrent TCP connections that can be handled
     /// by the server.
     pub(super) max_concurrent_connections: usize,
+
+    /// Connection specific configuration.
     pub(super) connection_config: connection::Config<RequestOctets, Target>,
 }
 
@@ -103,6 +105,14 @@ where
     ///
     /// If the limit is hit, further connections will be accepted but closed
     /// immediately.
+    /// Limit on the number of concurrent TCP connections that can be handled
+    /// by the server.
+    ///
+    /// # Reconfigure
+    ///
+    /// On [`StreamServer::reconfigure()`] if there are more connections
+    /// currently than the new limit the exceess connections will be allowed
+    /// to complete normally, connections will NOT be terminated.
     pub fn set_max_concurrent_connections(&mut self, value: usize) {
         self.max_concurrent_connections = value;
     }

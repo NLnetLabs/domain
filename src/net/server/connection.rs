@@ -155,6 +155,13 @@ where
     /// Unbound 1.19.2 `tcp-idle-timeout` configuration setting. The upper
     /// bound is a guess at something reasonable.
     ///
+    /// # Reconfigure
+    ///
+    /// On [`StreamServer::reconfigure()`]` the current idle period will NOT
+    /// be affected. Subsequent idle periods (after the next message is
+    /// received or response is sent, assuming that happens within the current
+    /// idle period) will use the new timeout value.
+    ///
     /// [RFC 7766]:
     ///     https://datatracker.ietf.org/doc/html/rfc7766#section-6.2.3
     #[allow(dead_code)]
@@ -169,6 +176,12 @@ where
     /// 30 seconds. These values are guesses at something reasonable. The
     /// default is based on the Unbound 1.19.2 default value for its
     /// `tcp-idle-timeout` setting.
+    ///
+    /// # Reconfigure
+    ///
+    /// On [`StreamServer::reconfigure()`]` any responses currently being
+    /// written will NOT use the new timeout, it will only applies to
+    /// responses that start being sent after the timeout is changed.
     #[allow(dead_code)]
     pub fn set_response_write_timeout(&mut self, value: Duration) {
         self.response_write_timeout = value;
@@ -182,6 +195,11 @@ where
     ///
     /// DNS response messages will be discarded if they cannot be queued for
     /// sending because the queue is full.
+    ///
+    /// # Reconfigure
+    ///
+    /// [`StreamServer::reconfigure()`]` currently has no effect on this
+    /// setting.
     #[allow(dead_code)]
     pub fn set_max_queued_responses(&mut self, value: usize) {
         self.max_queued_responses = value;
@@ -189,6 +207,11 @@ where
 
     /// Set the middleware chain used to pre-process requests and post-process
     /// responses.
+    ///
+    /// # Reconfigure
+    ///
+    /// [`StreamServer::reconfigure()`]` currently has no effect on this
+    /// setting.
     pub fn set_middleware_chain(
         &mut self,
         value: MiddlewareChain<RequestOctets, Target>,
