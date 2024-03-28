@@ -8,7 +8,8 @@
 //! the [Tokio](https://tokio.rs/) async runtime. In combination with an
 //! appropriate network source, optional [`MiddlewareChain`] and your own
 //! [`Service`] implementation they can be used to run a standards compliant
-//! DNS server that answers requests based on the business logic you specify.
+//! DNS server that answers requests based on the application logic you
+//! specify.
 //!
 //! # Architecture
 //!
@@ -87,7 +88,7 @@
 //! [Middleware] provides a means to add logic for request pre-processing and
 //! response post-processing which doesn't belong in the outermost transport
 //! specific layer of a server nor does it constitute part of the core
-//! business logic of the application.
+//! application logic.
 //!
 //! With Middleware mandatory functionality and logic required by all
 //! standards compliant DNS servers can be incorporated into your server by
@@ -107,9 +108,9 @@
 //! ## Business logic
 //!
 //! With the basic work of handling DNS requests and responses taken care of,
-//! the actual business logic that differentiates your DNS server from other
-//! DNS servers is left for you to define by implementing the [`Service`]
-//! trait.
+//! the actual application logic that differentiates your DNS server from
+//! other DNS servers is left for you to define by implementing the
+//! [`Service`] trait.
 //!
 //! # Advanced
 //!

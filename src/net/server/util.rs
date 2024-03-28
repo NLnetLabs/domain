@@ -61,7 +61,7 @@ where
 /// // Define some types to make the example easier to read.
 /// type MyMeta = ();
 ///
-/// // Implement the business logic of our service.
+/// // Implement the application logic of our service.
 /// // Takes the received DNS request and any additional meta data you wish to
 /// // provide, and returns one or more future DNS responses.
 /// fn my_service(

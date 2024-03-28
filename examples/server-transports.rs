@@ -197,7 +197,7 @@ fn query(
         eprintln!("Sleeping for 100ms");
         tokio::time::sleep(Duration::from_millis(100)).await;
 
-        // TODO: business logic of processing the request
+        // TODO: application logic of processing the request
         // and generating an answer.
 
         let idle_timeout = Duration::from_millis((50 * cnt).into());
