@@ -483,8 +483,6 @@ where
     Svc: Service<Buf::Output> + Send + Sync + 'static,
 {
     /// Receive incoming messages until shutdown or fatal error.
-    ///
-    // TODO: Use a strongly typed error, not String.
     async fn run_until_error(&self) -> Result<(), String>
     where
         Svc::Future: Send,

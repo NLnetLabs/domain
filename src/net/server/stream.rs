@@ -497,8 +497,6 @@ where
     Svc: Service<Buf::Output> + Send + Sync + 'static + Clone,
 {
     /// Accept stream connections until shutdown or fatal error.
-    ///
-    // TODO: Use a strongly typed error, not String.
     async fn run_until_error(&self) -> Result<(), String>
     where
         Svc::Future: Send,

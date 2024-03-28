@@ -598,8 +598,8 @@ where
         // service because the queue holding those results is empty and can no
         // longer be read from, then there is no point continuing to read from
         // the input stream because we will not be able to access the result
-        // of processing the request.
-        // TODO: Describe when this can occur.
+        // of processing the request. I'm not sure when this could happen,
+        // perhaps if we were dropped?
         let Some(call_result) = call_result else {
             return Err(ConnectionEvent::DisconnectWithFlush);
         };
