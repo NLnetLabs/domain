@@ -54,10 +54,14 @@ use super::message::Request;
 ///   2. Define a function compatible with the [`Service`] trait.
 ///   3. Define a function compatible with [`service_fn()`].
 ///
+/// <div class="warning">
+///
 /// Whichever approach you choose it is important to minimize the work done
 /// before returning from [`Service::call()`], as time spent here blocks the
 /// caller. Instead as much work as possible should be delegated to the
 /// futures returned as a [`Transaction`].
+///
+/// </div>
 ///
 /// # Implementing the [`Service`] trait on a `struct`
 ///
