@@ -278,15 +278,47 @@ where
     Buf::Output: Octets + Send + Sync,
     Svc: Service<Buf::Output> + Send + Sync + Clone + 'static,
 {
+    /// Flag used by the Drop impl to track if the metric count has to be
+    /// decreased or not.
     active: bool,
-    addr: SocketAddr,
+
+    /// A [`BufSource`] for creating buffers on demand. e.g. to hold response
+    /// messages.
     buf_source: Buf,
+
+    /// User supplied settings that influence our behaviour.
+    ///
+    /// Note: Some reconfiguration is possible at runtime via
+    /// [`ServerCommand::Reconfigure`] and [`ServiceFeedback::Reconfigure`].
     config: Config<Buf::Output, Svc::Target>,
-    metrics: Arc<ServerMetrics>,
-    result_q_rx: mpsc::Receiver<CallResult<Buf::Output, Svc::Target>>,
-    service: Svc,
-    state: StreamState<Stream, Buf, Svc>,
+
+    /// The address of the connected client.
+    addr: SocketAddr,
+
+    /// The incoming connection stream from the client.
+    ///
+    /// Note: Though this is an Option it should never be None.
     stream_rx: Option<ReadHalf<Stream>>,
+
+    /// The outgoing connection stream to the client.
+    stream_tx: WriteHalf<Stream>,
+
+    /// The reader for consuming from the queue of responses waiting to be
+    /// written back to the client.
+    result_q_rx: mpsc::Receiver<CallResult<Buf::Output, Svc::Target>>,
+
+    /// The writer for pushing ready responses onto the queue waiting
+    /// to be written back the client.
+    result_q_tx: mpsc::Sender<CallResult<Buf::Output, Svc::Target>>,
+
+    /// A [`Service`] for handling received requests and generating responses.
+    service: Svc,
+
+    /// DNS protocol idle time out tracking.
+    idle_timer: IdleTimer,
+
+    /// [`ServerMetrics`] describing the status of the server.
+    metrics: Arc<ServerMetrics>,
 }
 
 /// Creation
@@ -329,7 +361,7 @@ where
         let (stream_rx, stream_tx) = tokio::io::split(stream);
         let (result_q_tx, result_q_rx) =
             mpsc::channel(config.max_queued_responses);
-        let state = StreamState::new(stream_tx, result_q_tx);
+        let idle_timer = IdleTimer::new();
 
         // Place the ReadHalf of the stream into an Option so that we can take
         // it out (as we can't clone it and we can't place it into an Arc
@@ -342,14 +374,16 @@ where
 
         Self {
             active: false,
-            addr,
             buf_source,
             config,
-            result_q_rx,
-            service,
-            metrics,
-            state,
+            addr,
             stream_rx,
+            stream_tx,
+            result_q_rx,
+            result_q_tx,
+            service,
+            idle_timer,
+            metrics,
         }
     }
 }
@@ -446,7 +480,7 @@ where
                         self.process_queued_result(res).await
                     }
 
-                    _ = sleep_until(self.state.idle_timeout_deadline(self.config.idle_timeout)) => {
+                    _ = sleep_until(self.idle_timer.idle_timeout_deadline(self.config.idle_timeout)) => {
                         self.process_dns_idle_timeout()
                     }
 
@@ -479,7 +513,7 @@ where
         }
 
         trace!("Shutting down the write stream.");
-        if let Err(err) = self.state.stream_tx.shutdown().await {
+        if let Err(err) = self.stream_tx.shutdown().await {
             warn!("Error while shutting down the write stream: {err}");
         }
         trace!("Connection terminated.");
@@ -629,7 +663,7 @@ where
 
         match timeout(
             self.config.response_write_timeout,
-            self.state.stream_tx.write_all(msg.as_stream_slice()),
+            self.stream_tx.write_all(msg.as_stream_slice()),
         )
         .await
         {
@@ -654,17 +688,15 @@ where
             .num_pending_writes
             .fetch_sub(1, Ordering::Relaxed);
 
-        if self.state.result_q_tx.capacity()
-            == self.state.result_q_tx.max_capacity()
-        {
-            self.state.response_queue_emptied();
+        if self.result_q_tx.capacity() == self.result_q_tx.max_capacity() {
+            self.idle_timer.response_queue_emptied();
         }
     }
 
     async fn act_on_feedback(&mut self, cmd: ServiceFeedback) {
         match cmd {
             ServiceFeedback::CloseConnection => {
-                self.state.stream_tx.shutdown().await.unwrap()
+                self.stream_tx.shutdown().await.unwrap()
             }
 
             ServiceFeedback::Reconfigure { idle_timeout } => {
@@ -676,7 +708,10 @@ where
 
     fn process_dns_idle_timeout(&self) -> Result<(), ConnectionEvent> {
         // DNS idle timeout elapsed, or was it reset?
-        if self.state.idle_timeout_expired(self.config.idle_timeout) {
+        if self
+            .idle_timer
+            .idle_timeout_expired(self.config.idle_timeout)
+        {
             Err(ConnectionEvent::DisconnectWithoutFlush)
         } else {
             Ok(())
@@ -700,7 +735,7 @@ where
                 .fetch_add(1, Ordering::Relaxed);
 
             // Message received, reset the DNS idle timer
-            self.state.full_msg_received();
+            self.idle_timer.full_msg_received();
 
             let msg_details =
                 MessageDetails::new(msg, received_at, self.addr);
@@ -708,7 +743,7 @@ where
             // Process the received message
             self.process_request(
                 msg_details,
-                self.state.result_q_tx.clone(),
+                self.result_q_tx.clone(),
                 self.config.middleware_chain.clone(),
                 &self.service,
                 self.metrics.clone(),
@@ -955,38 +990,17 @@ impl Display for ConnectionEvent {
     }
 }
 
-//------------ StreamState ---------------------------------------------------
+//------------ IdleTimer -----------------------------------------------------
 
-pub struct StreamState<Stream, Buf, Svc>
-where
-    Stream: AsyncRead + AsyncWrite + Send + Sync + 'static,
-    Buf: BufSource + Send + Sync + 'static + Clone,
-    Buf::Output: Send + Sync + 'static,
-    Svc: Service<Buf::Output> + Send + Sync + 'static + Clone,
-{
-    stream_tx: WriteHalf<Stream>,
-
-    result_q_tx: mpsc::Sender<CallResult<Buf::Output, Svc::Target>>,
-
-    // RFC 7766 section 6.2.3 / RFC 7828 section 3 idle time out tracking
+/// RFC 7766 section 6.2.3 / RFC 7828 section 3 idle time out tracking.
+pub struct IdleTimer {
     idle_timer_reset_at: Instant,
 }
 
-impl<Stream, Buf, Svc> StreamState<Stream, Buf, Svc>
-where
-    Stream: AsyncRead + AsyncWrite + Send + Sync + 'static,
-    Buf: BufSource + Send + Sync + 'static + Clone,
-    Buf::Output: Send + Sync + 'static,
-    Svc: Service<Buf::Output> + Send + Sync + 'static + Clone,
-{
+impl IdleTimer {
     #[must_use]
-    fn new(
-        stream_tx: WriteHalf<Stream>,
-        result_q_tx: mpsc::Sender<CallResult<Buf::Output, Svc::Target>>,
-    ) -> Self {
+    fn new() -> Self {
         Self {
-            stream_tx,
-            result_q_tx,
             idle_timer_reset_at: Instant::now(),
         }
     }
