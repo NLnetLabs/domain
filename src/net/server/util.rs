@@ -26,8 +26,10 @@ where
 {
     let target = StreamTarget::new(Target::default())
         .map_err(|_| ())
-        .unwrap(); // SAFETY
-    MessageBuilder::from_target(target).unwrap() // SAFETY
+        .expect("Internal error: Unable to create new target.");
+    MessageBuilder::from_target(target).expect(
+        "Internal error: Unable to convert target to message builder.",
+    )
 }
 
 //------------ service_fn() --------------------------------------------------
@@ -229,7 +231,11 @@ where
     if response.counts().arcount() > 0 {
         // Make a copy of the response
         let copied_response = response.as_slice().to_vec();
-        let copied_response = Message::from_octets(&copied_response).unwrap();
+        let Ok(copied_response) = Message::from_octets(&copied_response)
+        else {
+            warn!("Internal error: Unable to create message from octets while adding EDNS option");
+            return Ok(());
+        };
 
         if let Some(current_opt) = copied_response.opt() {
             // Discard the current records in the additional section of the

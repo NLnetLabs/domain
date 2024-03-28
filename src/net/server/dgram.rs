@@ -463,7 +463,7 @@ where
     pub fn shutdown(&self) -> Result<(), Error> {
         self.command_tx
             .lock()
-            .unwrap()
+            .map_err(|_| Error::CommandCouldNotBeSent)?
             .send(ServerCommand::Shutdown)
             .map_err(|_| Error::CommandCouldNotBeSent)
     }
