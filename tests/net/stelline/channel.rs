@@ -437,12 +437,12 @@ impl AsyncDgramSock for ClientServerChannel {
 impl AsyncAccept for ClientServerChannel {
     type Error = io::Error;
     type StreamType = ClientServerChannel;
-    type Stream = std::future::Ready<Result<Self::StreamType, io::Error>>;
+    type Future = std::future::Ready<Result<Self::StreamType, io::Error>>;
 
     fn poll_accept(
         &self,
         cx: &mut Context,
-    ) -> Poll<io::Result<(Self::Stream, SocketAddr)>> {
+    ) -> Poll<io::Result<(Self::Future, SocketAddr)>> {
         let mut server_socket = self.server.lock().unwrap();
         let rx = &mut server_socket.rx;
         match rx.poll_recv(cx) {

@@ -708,8 +708,12 @@ where
             }
 
             ServiceFeedback::Reconfigure { idle_timeout } => {
-                debug!("Reconfigured connection timeout to {idle_timeout:?}");
-                self.config.idle_timeout = idle_timeout;
+                if let Some(idle_timeout) = idle_timeout {
+                    debug!(
+                        "Reconfigured connection timeout to {idle_timeout:?}"
+                    );
+                    self.config.idle_timeout = idle_timeout;
+                }
             }
         }
     }

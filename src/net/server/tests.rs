@@ -191,13 +191,13 @@ impl MockListener {
 impl AsyncAccept for MockListener {
     type Error = io::Error;
     type StreamType = MockStream;
-    type Stream = std::future::Ready<Result<Self::StreamType, io::Error>>;
+    type Future = std::future::Ready<Result<Self::StreamType, io::Error>>;
 
     /// Accept mock connections one at a time at a defined rate.
     fn poll_accept(
         &self,
         cx: &mut Context,
-    ) -> Poll<Result<(Self::Stream, SocketAddr), io::Error>> {
+    ) -> Poll<Result<(Self::Future, SocketAddr), io::Error>> {
         match self.ready.load(Ordering::Relaxed) {
             true => {
                 let mut last_accept = self.last_accept.lock().unwrap();
@@ -278,7 +278,7 @@ impl Future for MySingle {
         let response = builder.additional();
 
         let command = ServiceFeedback::Reconfigure {
-            idle_timeout: Duration::from_millis(5000),
+            idle_timeout: Some(Duration::from_millis(5000)),
         };
 
         let call_result = CallResult::new(response).with_feedback(command);

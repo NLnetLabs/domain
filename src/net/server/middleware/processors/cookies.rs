@@ -55,7 +55,7 @@ pub struct CookiesMiddlewareProcessor {
 }
 
 impl CookiesMiddlewareProcessor {
-    /// Constructs an instance of this processor.
+    /// Creates an instance of this processor.
     #[must_use]
     pub fn new(server_secret: [u8; 16]) -> Self {
         Self {
@@ -258,7 +258,7 @@ impl CookiesMiddlewareProcessor {
 //--- Default
 
 impl Default for CookiesMiddlewareProcessor {
-    /// Constructs an instance of this processor with default configuration.
+    /// Creates an instance of this processor with default configuration.
     ///
     /// The processor will use a randomly generated server secret.
     fn default() -> Self {

@@ -758,8 +758,8 @@ where
 
 //----------- RequestState ---------------------------------------------------
 
-/// Data needed by [`process_call_result()`] which needs to be passed through
-/// the [`CommonMessageFlow`] call chain.
+/// Data needed by [`DgramServer::process_call_result()`] which needs to be
+/// passed through the [`CommonMessageFlow`] call chain.
 pub struct RequestState<Sock, RequestOctets, Target>
 where
     RequestOctets: Octets,

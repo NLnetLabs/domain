@@ -311,6 +311,7 @@ pub enum ServiceError {
 }
 
 impl ServiceError {
+    /// The DNS RCODE to send back to the client for this error.
     pub fn rcode(&self) -> Rcode {
         match self {
             Self::FormatError => Rcode::FormErr,
@@ -357,7 +358,11 @@ impl From<ParseError> for ServiceError {
 pub enum ServiceFeedback {
     /// Ask the server to alter its configuration. For connection-oriented
     /// servers the changes will only apply to the current connection.
-    Reconfigure { idle_timeout: Duration },
+    Reconfigure {
+        /// If `Some`, the new idle timeout the [`Service`] would like the
+        /// server to use.
+        idle_timeout: Option<Duration>,
+    },
 
     /// Ask the connection handler to terminate.
     ///
@@ -383,13 +388,15 @@ pub struct CallResult<RequestOctets, Target>
 where
     RequestOctets: AsRef<[u8]>,
 {
+    /// The request that this result relates to, if any.
     request: Option<Request<Message<RequestOctets>>>,
+
+    /// Optional response to send back to the client.
     response: Option<AdditionalBuilder<StreamTarget<Target>>>,
+
+    /// Optioanl feedback from the [`Service`] to the server.
     feedback: Option<ServiceFeedback>,
 }
-
-type RequestMsg<RequestOctets> = Request<Message<RequestOctets>>;
-type ResponseMsg<Target> = AdditionalBuilder<StreamTarget<Target>>;
 
 impl<RequestOctets, Target> CallResult<RequestOctets, Target>
 where
@@ -450,11 +457,12 @@ where
 
     /// Convert the [`CallResult`] into the contained DNS response message and command.
     #[must_use]
+    #[allow(clippy::type_complexity)]
     pub fn into_inner(
         self,
     ) -> (
-        Option<RequestMsg<RequestOctets>>,
-        Option<ResponseMsg<Target>>,
+        Option<Request<Message<RequestOctets>>>,
+        Option<AdditionalBuilder<StreamTarget<Target>>>,
         Option<ServiceFeedback>,
     ) {
         let CallResult {
@@ -596,6 +604,8 @@ where
 
 /// A stream of zero or more DNS response futures relating to a single DNS request.
 pub struct TransactionStream<Item> {
+    /// An ordered sequence of futures that will resolve to responses to be
+    /// sent back to the client.
     stream: FuturesOrdered<Pin<Box<dyn Future<Output = Item> + Send>>>,
 }
 
@@ -608,6 +618,7 @@ impl<Item> TransactionStream<Item> {
         self.stream.push_back(fut.boxed());
     }
 
+    /// Fetch the next message from the stream, if any.
     async fn next(&mut self) -> Option<Item> {
         self.stream.next().await
     }

@@ -160,10 +160,15 @@ where
 
 //------------ StreamServer --------------------------------------------------
 
+/// A [`ServerCommand`] capable of propagating a StreamServer [`Config`] value.
 type ServerCommandType<RequestOctets, Target> =
     ServerCommand<Config<RequestOctets, Target>>;
+
+/// A thread safe sender of [`ServerCommand`]s.
 type CommandSender<RequestOctets, Target> =
     Arc<Mutex<watch::Sender<ServerCommandType<RequestOctets, Target>>>>;
+
+/// A thread safe receiver of [`ServerCommand`]s.
 type CommandReceiver<RequestOctets, Target> =
     watch::Receiver<ServerCommandType<RequestOctets, Target>>;
 
@@ -307,7 +312,7 @@ where
     Buf::Output: Octets + Send + Sync + 'static,
     Svc: Service<Buf::Output> + Send + Sync + 'static + Clone,
 {
-    /// Constructs a new [`StreamServer`] instance.
+    /// Creates a new [`StreamServer`] instance.
     ///
     /// Takes:
     /// - A listener which must implement [`AsyncAccept`] and is responsible
@@ -319,6 +324,7 @@ where
         Self::with_config(listener, buf, service, Config::default())
     }
 
+    /// Creates a new [`StreamServer`] instance with a given configuration.
     #[must_use]
     pub fn with_config(
         listener: Listener,
@@ -525,7 +531,7 @@ where
                             // unwrap.
                             let num_conn = self.metrics.num_connections().unwrap();
                             if num_conn < self.config.load().max_concurrent_connections {
-                                self.process_new_connection(stream, addr);
+                                self.spawn_connection_handler(stream, addr);
                             }
                         }
 
@@ -538,6 +544,7 @@ where
         }
     }
 
+    /// Decide what to do with a received [`ServerCommand`].
     fn process_server_command(
         &self,
         res: Result<(), watch::error::RecvError>,
@@ -589,9 +596,10 @@ where
         Ok(())
     }
 
-    fn process_new_connection(
+    /// Spawn a handler for a newly accepted connection.
+    fn spawn_connection_handler(
         &self,
-        stream: Listener::Stream,
+        stream: Listener::Future,
         addr: SocketAddr,
     ) where
         Buf::Output: Octets,
@@ -646,7 +654,7 @@ where
     /// in traits.
     async fn accept(
         &self,
-    ) -> Result<(Listener::Stream, SocketAddr), io::Error> {
+    ) -> Result<(Listener::Future, SocketAddr), io::Error> {
         poll_fn(|ctx| self.listener.poll_accept(ctx)).await
     }
 }

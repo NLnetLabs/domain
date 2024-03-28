@@ -33,6 +33,11 @@ pub struct UdpTransportContext {
     /// The [`EdnsMiddlewareProcessor`] may adjust this limit.
     ///
     /// The [`MandatoryMiddlewareProcessor`] enforces this limit.
+    ///
+    /// [`EdnsMiddlewareProcessor`]:
+    ///     crate::net::server::middleware::processors::edns::EdnsMiddlewareProcessor
+    /// [`MandatoryMiddlewareProcessor`]:
+    ///     crate::net::server::middleware::processors::mandatory::MandatoryMiddlewareProcessor
     pub max_response_size_hint: Option<u16>,
 }
 
@@ -49,12 +54,15 @@ pub struct NonUdpTransportContext {
     /// This is provided by the server to indicate what the current timeout
     /// setting in effect is.
     ///
-    /// The [`EdnsMiddlewareProcessor`] may report this timeout value back
-    /// to clients capable of interpreting it.
+    /// The [`EdnsMiddlewareProcessor`] may report this timeout value back to
+    /// clients capable of interpreting it.
     ///
     /// [RFC 7766 section 6.2.3]:
     ///     https://datatracker.ietf.org/doc/html/rfc7766#section-6.2.3
     /// [RFC 78828]: https://www.rfc-editor.org/rfc/rfc7828
+    ///
+    /// [`EdnsMiddlewareProcessor`]:
+    ///     crate::net::server::middleware::processors::edns::EdnsMiddlewareProcessor
     pub idle_timeout: Option<Duration>,
 }
 
@@ -204,8 +212,8 @@ where
     Svc: Service<Buf::Output> + Send + Sync + 'static,
 {
     /// Server-specific data that it chooses to pass along with the request in
-    /// order that it may receive it when [`process_call_result()`] is
-    /// invoked.
+    /// order that it may receive it when `process_call_result()` is
+    /// invoked on the implementing server.
     type Meta: Clone + Send + Sync + 'static;
 
     /// Process a DNS request message.

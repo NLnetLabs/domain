@@ -44,7 +44,7 @@ pub struct EdnsMiddlewareProcessor {
 }
 
 impl EdnsMiddlewareProcessor {
-    /// Constructs an instance of this processor.
+    /// Creates an instance of this processor.
     #[must_use]
     pub fn new(max_version: u8) -> Self {
         Self { max_version }
@@ -80,7 +80,7 @@ impl EdnsMiddlewareProcessor {
 //--- Default
 
 impl Default for EdnsMiddlewareProcessor {
-    /// Constructs an instance of this processor with default configuration.
+    /// Creates an instance of this processor with default configuration.
     ///
     /// The processor will only accept EDNS version 0 OPT records from
     /// clients. EDNS version 0 is the highest EDNS version number recoded in

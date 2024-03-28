@@ -12,14 +12,19 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 /// [`Service`]: crate::net::server::service::Service
 #[derive(Debug, Default)]
 pub struct ServerMetrics {
+    /// The number of connections currently being handled.
     pub(super) num_connections: Option<AtomicUsize>,
 
+    /// The number of requests received but still pending responses.
     pub(super) num_inflight_requests: AtomicUsize,
 
+    /// The number of responses waiting to be written back to the client.
     pub(super) num_pending_writes: AtomicUsize,
 
+    /// The total number of requests received since this metric collection was created.
     pub(super) num_received_requests: AtomicUsize,
 
+    /// The total number of responses sent since this metric collection was created.
     pub(super) num_sent_responses: AtomicUsize,
 }
 

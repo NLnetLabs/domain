@@ -201,7 +201,9 @@ fn query(
         // the request and generate an response.
 
         let idle_timeout = Duration::from_millis((50 * cnt).into());
-        let cmd = ServiceFeedback::Reconfigure { idle_timeout };
+        let cmd = ServiceFeedback::Reconfigure {
+            idle_timeout: Some(idle_timeout),
+        };
         eprintln!("Setting idle timeout to {idle_timeout:?}");
 
         let builder = mk_builder_for_target();
@@ -233,12 +235,12 @@ impl DoubleListener {
 impl AsyncAccept for DoubleListener {
     type Error = io::Error;
     type StreamType = TcpStream;
-    type Stream = Ready<Result<Self::StreamType, io::Error>>;
+    type Future = Ready<Result<Self::StreamType, io::Error>>;
 
     fn poll_accept(
         &self,
         cx: &mut Context,
-    ) -> Poll<Result<(Self::Stream, SocketAddr), io::Error>> {
+    ) -> Poll<Result<(Self::Future, SocketAddr), io::Error>> {
         let (x, y) = match self.alt.fetch_xor(true, Ordering::SeqCst) {
             false => (&self.a, &self.b),
             true => (&self.b, &self.a),
@@ -276,12 +278,12 @@ impl std::ops::Deref for LocalTfoListener {
 impl AsyncAccept for LocalTfoListener {
     type Error = io::Error;
     type StreamType = TfoStream;
-    type Stream = Ready<Result<Self::StreamType, io::Error>>;
+    type Future = Ready<Result<Self::StreamType, io::Error>>;
 
     fn poll_accept(
         &self,
         cx: &mut Context,
-    ) -> Poll<Result<(Self::Stream, SocketAddr), io::Error>> {
+    ) -> Poll<Result<(Self::Future, SocketAddr), io::Error>> {
         TfoListener::poll_accept(self, cx)
             .map(|res| res.map(|(stream, addr)| (ready(Ok(stream)), addr)))
     }
@@ -308,12 +310,12 @@ impl std::ops::Deref for BufferedTcpListener {
 impl AsyncAccept for BufferedTcpListener {
     type Error = io::Error;
     type StreamType = tokio::io::BufReader<TcpStream>;
-    type Stream = Ready<Result<Self::StreamType, io::Error>>;
+    type Future = Ready<Result<Self::StreamType, io::Error>>;
 
     fn poll_accept(
         &self,
         cx: &mut Context,
-    ) -> Poll<Result<(Self::Stream, SocketAddr), io::Error>> {
+    ) -> Poll<Result<(Self::Future, SocketAddr), io::Error>> {
         match TcpListener::poll_accept(self, cx) {
             Poll::Ready(Ok((stream, addr))) => {
                 let stream = tokio::io::BufReader::new(stream);
@@ -344,13 +346,13 @@ impl RustlsTcpListener {
 impl AsyncAccept for RustlsTcpListener {
     type Error = io::Error;
     type StreamType = tokio_rustls::server::TlsStream<TcpStream>;
-    type Stream = tokio_rustls::Accept<TcpStream>;
+    type Future = tokio_rustls::Accept<TcpStream>;
 
     #[allow(clippy::type_complexity)]
     fn poll_accept(
         &self,
         cx: &mut Context,
-    ) -> Poll<Result<(Self::Stream, SocketAddr), io::Error>> {
+    ) -> Poll<Result<(Self::Future, SocketAddr), io::Error>> {
         TcpListener::poll_accept(&self.listener, cx).map(|res| {
             res.map(|(stream, addr)| (self.acceptor.accept(stream), addr))
         })
@@ -377,7 +379,7 @@ pub struct StatsMiddlewareProcessor {
 }
 
 impl StatsMiddlewareProcessor {
-    /// Constructs an instance of this processor.
+    /// Creates an instance of this processor.
     #[must_use]
     pub fn new() -> Self {
         Default::default()

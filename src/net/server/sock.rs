@@ -1,5 +1,4 @@
 //! Network socket abstractions.
-use std::future::Future;
 use std::io;
 use std::net::SocketAddr;
 use std::task::{Context, Poll};
@@ -74,9 +73,15 @@ impl AsyncDgramSock for UdpSocket {
 ///
 /// [`StreamServer`]: crate::net::server::stream::StreamServer.
 pub trait AsyncAccept {
+    /// The type of error that the trait impl produces.
     type Error: Send;
+
+    /// The type of stream that the trait impl consumes.
     type StreamType: AsyncRead + AsyncWrite + Send + Sync + 'static;
-    type Stream: Future<Output = Result<Self::StreamType, Self::Error>> + Send;
+
+    /// The type of [`std::future::Future`] that the trait impl returns.
+    type Future: std::future::Future<Output = Result<Self::StreamType, Self::Error>>
+        + Send;
 
     /// Polls to accept a new incoming connection to this listener.
     ///
@@ -85,19 +90,19 @@ pub trait AsyncAccept {
     fn poll_accept(
         &self,
         cx: &mut Context,
-    ) -> Poll<io::Result<(Self::Stream, SocketAddr)>>;
+    ) -> Poll<io::Result<(Self::Future, SocketAddr)>>;
 }
 
 impl AsyncAccept for TcpListener {
     type Error = io::Error;
     type StreamType = TcpStream;
-    type Stream = std::future::Ready<Result<Self::StreamType, io::Error>>;
+    type Future = std::future::Ready<Result<Self::StreamType, io::Error>>;
 
     #[allow(clippy::type_complexity)]
     fn poll_accept(
         &self,
         cx: &mut Context,
-    ) -> Poll<io::Result<(Self::Stream, SocketAddr)>> {
+    ) -> Poll<io::Result<(Self::Future, SocketAddr)>> {
         TcpListener::poll_accept(self, cx).map(|res| {
             // TODO: Should we support some sort of callback here to set
             // arbitrary socket options? E.g. TCP keep alive ala
