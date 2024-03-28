@@ -176,7 +176,7 @@ type CommandReceiver<RequestOctets, Target> =
 /// [`Service`].
 ///
 /// [`StreamServer`] doesn't itself define how connections should be accepted,
-/// message buffers should be allocated, message lengths should be determined
+/// message buffers should be allocated,
 /// or how request messages should be received and responses sent. Instead it
 /// is generic over types that provide these abilities.
 ///
