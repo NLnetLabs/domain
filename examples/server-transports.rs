@@ -197,8 +197,8 @@ fn query(
         eprintln!("Sleeping for 100ms");
         tokio::time::sleep(Duration::from_millis(100)).await;
 
-        // TODO: application logic of processing the request
-        // and generating an answer.
+        // Note: A real service would have application logic here to process
+        // the request and generate an response.
 
         let idle_timeout = Duration::from_millis((50 * cnt).into());
         let cmd = ServiceFeedback::Reconfigure { idle_timeout };
