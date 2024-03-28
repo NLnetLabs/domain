@@ -282,7 +282,7 @@ where
     listener: Arc<Listener>,
 
     /// A [`BufSource`] for creating buffers on demand.
-    buf_source: Buf,
+    buf: Buf,
 
     /// A [`Service`] for handling received requests and generating responses.
     service: Svc,
@@ -337,7 +337,7 @@ where
             command_tx,
             command_rx,
             listener,
-            buf_source: buf,
+            buf,
             service,
             pre_connect_hook: None,
             metrics,
@@ -603,7 +603,7 @@ where
         let conn_config = self.config.load().connection_config.clone();
         let conn_command_rx = self.command_rx.clone();
         let conn_service = self.service.clone();
-        let conn_buf = self.buf_source.clone();
+        let conn_buf = self.buf.clone();
         let conn_metrics = self.metrics.clone();
         let pre_connect_hook = self.pre_connect_hook;
         let new_connection_idx =

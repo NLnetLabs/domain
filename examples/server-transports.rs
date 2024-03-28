@@ -487,15 +487,11 @@ async fn main() {
     // Run a DNS server on UDP port 8053 on 127.0.0.1. Test it like so:
     //    dig +short -4 @127.0.0.1 -p 8053 A google.com
     let udpsocket = UdpSocket::bind("127.0.0.1:8053").await.unwrap();
-    let buf_source = Arc::new(VecBufSource);
+    let buf = Arc::new(VecBufSource);
     let mut config = dgram::Config::default();
     config.set_middleware_chain(middleware.clone());
-    let srv = DgramServer::with_config(
-        udpsocket,
-        buf_source.clone(),
-        name_to_ip,
-        config,
-    );
+    let srv =
+        DgramServer::with_config(udpsocket, buf.clone(), name_to_ip, config);
 
     let udp_join_handle = tokio::spawn(async move { srv.run().await });
 
@@ -506,14 +502,14 @@ async fn main() {
     v4socket.set_reuseaddr(true).unwrap();
     v4socket.bind("127.0.0.1:8053".parse().unwrap()).unwrap();
     let v4listener = v4socket.listen(1024).unwrap();
-    let buf_source = Arc::new(VecBufSource);
+    let buf = Arc::new(VecBufSource);
     let mut conn_config = ConnectionConfig::default();
     conn_config.set_middleware_chain(middleware.clone());
     let mut config = stream::Config::default();
     config.set_connection_config(conn_config);
     let srv = StreamServer::with_config(
         v4listener,
-        buf_source.clone(),
+        buf.clone(),
         svc.clone(),
         config,
     );
@@ -608,7 +604,7 @@ async fn main() {
         config.set_middleware_chain(middleware.clone());
         let srv = DgramServer::with_config(
             udpsocket,
-            buf_source.clone(),
+            buf.clone(),
             svc.clone(),
             config,
         );
@@ -636,12 +632,8 @@ async fn main() {
     conn_config.set_middleware_chain(middleware.clone());
     let mut config = stream::Config::new();
     config.set_connection_config(conn_config);
-    let srv = StreamServer::with_config(
-        listener,
-        buf_source.clone(),
-        svc.clone(),
-        config,
-    );
+    let srv =
+        StreamServer::with_config(listener, buf.clone(), svc.clone(), config);
     let double_tcp_join_handle = tokio::spawn(async move { srv.run().await });
 
     // -----------------------------------------------------------------------
@@ -666,12 +658,8 @@ async fn main() {
     conn_config.set_middleware_chain(middleware.clone());
     let mut config = stream::Config::new();
     config.set_connection_config(conn_config);
-    let srv = StreamServer::with_config(
-        listener,
-        buf_source.clone(),
-        svc.clone(),
-        config,
-    );
+    let srv =
+        StreamServer::with_config(listener, buf.clone(), svc.clone(), config);
     let tfo_join_handle = tokio::spawn(async move { srv.run().await });
 
     // -----------------------------------------------------------------------
@@ -720,12 +708,8 @@ async fn main() {
     conn_config.set_middleware_chain(fn_svc_middleware);
     let mut config = stream::Config::new();
     config.set_connection_config(conn_config);
-    let srv = StreamServer::with_config(
-        listener,
-        buf_source.clone(),
-        fn_svc,
-        config,
-    );
+    let srv =
+        StreamServer::with_config(listener, buf.clone(), fn_svc, config);
     let fn_join_handle = tokio::spawn(async move { srv.run().await });
 
     // -----------------------------------------------------------------------
@@ -765,12 +749,8 @@ async fn main() {
     conn_config.set_middleware_chain(middleware.clone());
     let mut config = stream::Config::new();
     config.set_connection_config(conn_config);
-    let srv = StreamServer::with_config(
-        listener,
-        buf_source.clone(),
-        svc.clone(),
-        config,
-    );
+    let srv =
+        StreamServer::with_config(listener, buf.clone(), svc.clone(), config);
 
     let tls_join_handle = tokio::spawn(async move { srv.run().await });
 

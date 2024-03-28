@@ -284,7 +284,7 @@ where
 
     /// A [`BufSource`] for creating buffers on demand. e.g. to hold response
     /// messages.
-    buf_source: Buf,
+    buf: Buf,
 
     /// User supplied settings that influence our behaviour.
     ///
@@ -334,14 +334,14 @@ where
     #[allow(dead_code)]
     pub fn new(
         service: Svc,
-        buf_source: Buf,
+        buf: Buf,
         metrics: Arc<ServerMetrics>,
         stream: Stream,
         addr: SocketAddr,
     ) -> Self {
         Self::with_config(
             service,
-            buf_source,
+            buf,
             metrics,
             stream,
             addr,
@@ -352,7 +352,7 @@ where
     #[must_use]
     pub fn with_config(
         service: Svc,
-        buf_source: Buf,
+        buf: Buf,
         metrics: Arc<ServerMetrics>,
         stream: Stream,
         addr: SocketAddr,
@@ -374,7 +374,7 @@ where
 
         Self {
             active: false,
-            buf_source,
+            buf,
             config,
             addr,
             stream_rx,
@@ -456,7 +456,7 @@ where
         let stream_rx = self.stream_rx.take().unwrap();
 
         let mut dns_msg_receiver =
-            DnsMessageReceiver::new(self.buf_source.clone(), stream_rx);
+            DnsMessageReceiver::new(self.buf.clone(), stream_rx);
 
         'outer: loop {
             // Create a read future that will survive when other
@@ -846,7 +846,7 @@ where
     Buf: BufSource + Send + Sync + 'static + Clone,
 {
     msg_size_buf: [u8; 2],
-    buf_source: Buf,
+    buf: Buf,
     stream_rx: ReadHalf<Stream>,
     status: Status,
     #[cfg(test)]
@@ -859,10 +859,10 @@ where
     Buf: BufSource + Send + Sync + 'static + Clone,
     Buf::Output: Send + Sync + 'static,
 {
-    fn new(buf_source: Buf, stream_rx: ReadHalf<Stream>) -> Self {
+    fn new(buf: Buf, stream_rx: ReadHalf<Stream>) -> Self {
         Self {
             msg_size_buf: [0; 2],
-            buf_source,
+            buf,
             stream_rx,
             status: Status::New,
             #[cfg(test)]
@@ -891,7 +891,7 @@ where
             .await?;
 
         let msg_len = u16::from_be_bytes(self.msg_size_buf) as usize;
-        let mut msg_buf = self.buf_source.create_sized(msg_len);
+        let mut msg_buf = self.buf.create_sized(msg_len);
 
         self.status = Status::WaitingForMessageBody;
         Self::recv_n_bytes(&mut self.stream_rx, &mut msg_buf).await?;
