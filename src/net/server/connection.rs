@@ -22,7 +22,7 @@ use tracing::{debug, enabled, error, trace, warn};
 use crate::base::wire::Composer;
 use crate::base::{Message, StreamTarget};
 use crate::net::server::buf::BufSource;
-use crate::net::server::message::MessageProcessor;
+use crate::net::server::message::CommonMessageFlow;
 use crate::net::server::message::Request;
 use crate::net::server::metrics::ServerMetrics;
 use crate::net::server::middleware::chain::MiddlewareChain;
@@ -32,9 +32,7 @@ use crate::net::server::service::{
 use crate::net::server::util::to_pcap_text;
 use crate::utils::config::DefMinMax;
 
-use super::message::{
-    MessageDetails, NonUdpTransportContext, TransportSpecificContext,
-};
+use super::message::{NonUdpTransportContext, TransportSpecificContext};
 use super::middleware::builder::MiddlewareBuilder;
 use super::stream::Config as ServerConfig;
 use super::ServerCommand;
@@ -752,16 +750,15 @@ where
             // Message received, reset the DNS idle timer
             self.idle_timer.full_msg_received();
 
-            let msg_details =
-                MessageDetails::new(msg, received_at, self.addr);
-
             // Process the received message
             self.process_request(
-                msg_details,
-                self.result_q_tx.clone(),
+                msg,
+                received_at,
+                self.addr,
                 self.config.middleware_chain.clone(),
                 &self.service,
                 self.metrics.clone(),
+                self.result_q_tx.clone(),
             )
             .map_err(ConnectionEvent::ServiceError)
         })
@@ -789,9 +786,9 @@ where
     }
 }
 
-//--- MessageProcessor
+//--- CommonMessageFlow
 
-impl<Stream, Buf, Svc> MessageProcessor<Buf, Svc>
+impl<Stream, Buf, Svc> CommonMessageFlow<Buf, Svc>
     for Connection<Stream, Buf, Svc>
 where
     Stream: AsyncRead + AsyncWrite + Send + Sync,
@@ -799,7 +796,7 @@ where
     Buf::Output: Octets + Send + Sync,
     Svc: Service<Buf::Output> + Send + Sync + Clone,
 {
-    type State = Sender<CallResult<Buf::Output, Svc::Target>>;
+    type Meta = Sender<CallResult<Buf::Output, Svc::Target>>;
 
     /// Add information to the request that relates to the type of server we
     /// are and our state where relevant.
@@ -820,7 +817,7 @@ where
     fn process_call_result(
         call_result: CallResult<Buf::Output, Svc::Target>,
         _addr: SocketAddr,
-        tx: Self::State,
+        tx: Self::Meta,
         metrics: Arc<ServerMetrics>,
     ) {
         // We can't send in a spawned async task as then we would just

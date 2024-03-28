@@ -35,8 +35,8 @@ use tracing::{enabled, error, trace};
 use crate::base::Message;
 use crate::net::server::buf::BufSource;
 use crate::net::server::error::Error;
-use crate::net::server::message::MessageProcessor;
-use crate::net::server::message::{MessageDetails, Request};
+use crate::net::server::message::CommonMessageFlow;
+use crate::net::server::message::Request;
 use crate::net::server::metrics::ServerMetrics;
 use crate::net::server::middleware::chain::MiddlewareChain;
 use crate::net::server::service::{CallResult, Service, ServiceFeedback};
@@ -45,7 +45,7 @@ use crate::net::server::util::to_pcap_text;
 use crate::utils::config::DefMinMax;
 
 use super::buf::VecBufSource;
-use super::message::{TransportSpecificContext, UdpSpecificTransportContext};
+use super::message::{TransportSpecificContext, UdpTransportContext};
 use super::middleware::builder::MiddlewareBuilder;
 use super::ServerCommand;
 use crate::base::wire::Composer;
@@ -537,16 +537,14 @@ where
                         trace!(%addr, pcap_text, "Received message");
                     }
 
-                    let msg_details = MessageDetails::new(msg, received_at, addr);
-
                     let state = self.mk_state_for_request();
 
                     self.process_request(
-                        msg_details,
-                        state,
+                        msg, received_at, addr,
                         self.config.load().middleware_chain.clone(),
                         &self.service,
-                        self.metrics.clone()
+                        self.metrics.clone(),
+                        state,
                     )
                         .map_err(|err|
                             format!("Error while processing message: {err}")
@@ -647,7 +645,7 @@ where
 
     /// Helper function to package references to key parts of our server state
     /// into a [`RequestState`] ready for passing through the
-    /// [`MessageProcessor`] call chain and ultimately back to ourselves at
+    /// [`CommonMessageFlow`] call chain and ultimately back to ourselves at
     /// [`process_call_reusult()`].
     fn mk_state_for_request(
         &self,
@@ -660,9 +658,9 @@ where
     }
 }
 
-//--- MessageProcessor
+//--- CommonMessageFlow
 
-impl<Sock, Buf, Svc> MessageProcessor<Buf, Svc>
+impl<Sock, Buf, Svc> CommonMessageFlow<Buf, Svc>
     for DgramServer<Sock, Buf, Svc>
 where
     Sock: AsyncDgramSock + Send + Sync + 'static,
@@ -670,7 +668,7 @@ where
     Buf::Output: Octets + Send + Sync + 'static,
     Svc: Service<Buf::Output> + Send + Sync + 'static,
 {
-    type State = RequestState<Sock, Buf::Output, Svc::Target>;
+    type Meta = RequestState<Sock, Buf::Output, Svc::Target>;
 
     /// Add information to the request that relates to the type of server we
     /// are and our state where relevant.
@@ -680,10 +678,9 @@ where
         received_at: Instant,
         addr: SocketAddr,
     ) -> Request<Message<Buf::Output>> {
-        let ctx =
-            TransportSpecificContext::Udp(UdpSpecificTransportContext {
-                max_response_size_hint: self.config.load().max_response_size,
-            });
+        let ctx = TransportSpecificContext::Udp(UdpTransportContext {
+            max_response_size_hint: self.config.load().max_response_size,
+        });
         Request::new(addr, received_at, request, ctx)
     }
 
@@ -762,7 +759,7 @@ where
 //----------- RequestState ---------------------------------------------------
 
 /// Data needed by [`process_call_result()`] which needs to be passed through
-/// the [`MessageProcessor`] call chain.
+/// the [`CommonMessageFlow`] call chain.
 pub struct RequestState<Sock, RequestOctets, Target>
 where
     RequestOctets: Octets,

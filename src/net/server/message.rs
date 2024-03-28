@@ -19,33 +19,78 @@ use crate::net::server::middleware::chain::MiddlewareChain;
 use super::service::{CallResult, Service, ServiceError, Transaction};
 use super::util::start_reply;
 
-//------------ Request -------------------------------------------
+//------------ UdpTransportContext -------------------------------------------
 
+/// Request context for a UDP transport.
 #[derive(Debug, Copy, Clone)]
-pub struct UdpSpecificTransportContext {
+pub struct UdpTransportContext {
+    /// Optional maximum response size.
+    ///
+    /// `None` if the server had no specific configuration regarding maximum
+    /// allowed response size, `Some(n)` otherwise where `n` is the maximum
+    /// number of bytes allowed for the response message.
+    ///
+    /// The [`EdnsMiddlewareProcessor`] may adjust this limit.
+    ///
+    /// The [`MandatoryMiddlewareProcessor`] enforces this limit.
     pub max_response_size_hint: Option<u16>,
 }
 
+//------------ NonUdpTransportContext ----------------------------------------
+
+/// Request context for a non-UDP transport.
 #[derive(Debug, Copy, Clone)]
 pub struct NonUdpTransportContext {
+    /// Optional indication of any idle timeout relevant to the request.
+    ///
+    /// A connection idle timeout such as the [RFC 7766 section 6.2.3] TCP
+    /// idle timeout or edns-tcp-keepalive timeout [RFC 7828].
+    ///
+    /// This is provided by the server to indicate what the current timeout
+    /// setting in effect is.
+    ///
+    /// The [`EdnsMiddlewareProcessor`] may report this timeout value back
+    /// to clients capable of interpreting it.
+    ///
+    /// [RFC 7766 section 6.2.3]:
+    ///     https://datatracker.ietf.org/doc/html/rfc7766#section-6.2.3
+    /// [RFC 78828]: https://www.rfc-editor.org/rfc/rfc7828
     pub idle_timeout: Option<Duration>,
 }
 
+//------------ TransportSpecificContext --------------------------------------
+
+/// Transport dependent context.
+///
+/// Knowing the context of a request may be needed in order to process it
+/// correctly. Some kinds of contextual information are only available for
+/// certain transport types.
+///
+/// Context values may be adjusted by processors in the [`MiddlewareChain`]
+/// and/or by the [`Service`] that receives the request, in order to influence
+/// the behaviour of other processors, the service or the server.
 #[derive(Debug, Copy, Clone)]
 pub enum TransportSpecificContext {
-    Udp(UdpSpecificTransportContext),
+    /// Context for a UDP transport.
+    Udp(UdpTransportContext),
+
+    /// Context for a non-UDP transport.
     NonUdp(NonUdpTransportContext),
 }
 
 impl TransportSpecificContext {
+    /// Was the message received over a UDP transport?
     pub fn is_udp(&self) -> bool {
         matches!(self, Self::Udp(_))
     }
 
+    /// Was the message received over a non-UDP transport?
     pub fn is_non_udp(&self) -> bool {
         matches!(self, Self::NonUdp(_))
     }
 }
+
+//------------ Request -------------------------------------------------------
 
 /// A DNS message with additional properties describing its context.
 ///
@@ -71,6 +116,7 @@ pub struct Request<T> {
 }
 
 impl<T> Request<T> {
+    /// Creates a new request wrapper around a message along with its context.
     pub fn new(
         client_addr: std::net::SocketAddr,
         received_at: Instant,
@@ -119,33 +165,7 @@ impl<T> Clone for Request<T> {
     }
 }
 
-//----------- MessageProcessor -----------------------------------------------
-
-pub struct MessageDetails<Buf>
-where
-    Buf: BufSource,
-{
-    buf: Buf::Output,
-    received_at: Instant,
-    addr: SocketAddr,
-}
-
-impl<Buf> MessageDetails<Buf>
-where
-    Buf: BufSource,
-{
-    pub fn new(
-        buf: Buf::Output,
-        received_at: Instant,
-        addr: SocketAddr,
-    ) -> Self {
-        Self {
-            buf,
-            received_at,
-            addr,
-        }
-    }
-}
+//----------- CommonMessageFlow ----------------------------------------------
 
 /// Perform processing common to all messages being handled by a DNS server.
 ///
@@ -167,14 +187,26 @@ where
 ///
 /// Processing starts at [`process_request()`].
 ///
+/// <div class="warning">
+///
+/// This trait exists as a convenient mechanism for sharing common code
+/// between server implementations. The default function implementations
+/// provided by this trait are not intended to be overridden by consumers of
+/// this library.
+///
+/// </div>
+///
 /// [`process_request()`]: Self::process_request()
-pub trait MessageProcessor<Buf, Svc>
+pub trait CommonMessageFlow<Buf, Svc>
 where
     Buf: BufSource + Send + Sync + 'static,
     Buf::Output: Octets + Send + Sync + 'static,
     Svc: Service<Buf::Output> + Send + Sync + 'static,
 {
-    type State: Clone + Send + Sync + 'static;
+    /// Server-specific data that it chooses to pass along with the request in
+    /// order that it may receive it when [`process_call_result()`] is
+    /// invoked.
+    type Meta: Clone + Send + Sync + 'static;
 
     /// Process a DNS request message.
     ///
@@ -194,191 +226,30 @@ where
     /// defined by the implementing type.
     ///
     /// On error the result will be a [`ServiceError`].
+    #[allow(clippy::too_many_arguments)]
     fn process_request(
         &self,
-        msg_details: MessageDetails<Buf>,
-        state: Self::State,
+        buf: Buf::Output,
+        received_at: Instant,
+        addr: SocketAddr,
         middleware_chain: MiddlewareChain<Buf::Output, Svc::Target>,
         svc: &Svc,
         metrics: Arc<ServerMetrics>,
+        meta: Self::Meta,
     ) -> Result<(), ServiceError>
     where
         Svc::Future: Send,
     {
-        let (request, pp_res) = self.preprocess_request(
-            msg_details,
-            &middleware_chain,
-            &metrics,
-        )?;
-
-        let (txn, aborted_pp_idx) = match pp_res {
-            ControlFlow::Continue(()) => {
-                let request_for_svc = request.clone();
-
-                let res = if enabled!(Level::INFO) {
-                    let span = info_span!("svc-call",
-                        msg_id = request_for_svc.message().header().id(),
-                        client = %request_for_svc.client_addr(),
-                    );
-                    let _guard = span.enter();
-                    svc.call(request_for_svc)
-                } else {
-                    svc.call(request_for_svc)
-                };
-
-                let request_for_error = &request;
-                let txn = res.unwrap_or_else(|err| {
-                    if matches!(err, ServiceError::InternalError) {
-                        error!(
-                            "Service error while processing request: {err}"
-                        );
-                    }
-
-                    let mut response = start_reply(request_for_error);
-                    response.header_mut().set_rcode(err.rcode());
-                    let call_result = CallResult::new(response.additional());
-                    Transaction::immediate(Ok(call_result))
-                });
-
-                (txn, None)
-            }
-            ControlFlow::Break((txn, aborted_pp_idx)) => {
-                (txn, Some(aborted_pp_idx))
-            }
-        };
-
-        self.postprocess_response(
-            request,
-            state,
-            middleware_chain,
-            txn,
-            aborted_pp_idx,
-            metrics,
-        );
-
-        Ok(())
-    }
-
-    /// Pre-process a request.
-    ///
-    /// Pre-processing involves parsing a [`Message`] from the byte buffer and
-    /// pre-processing it via any supplied [`MiddlewareChain`].
-    ///
-    /// On success the result is an immutable request message and a
-    /// [`ControlFlow`] decision about whether to continue with further
-    /// processing or to break early with a possible response. If processing
-    /// failed the result will be a [`ServiceError`].
-    ///
-    /// On break the result will be one ([`Transaction::single()`]) or more
-    /// ([`Transaction::stream()`]) to post-process.
-    #[allow(clippy::type_complexity)]
-    fn preprocess_request(
-        &self,
-        MessageDetails {
+        boomerang(
+            self,
             buf,
             received_at,
             addr,
-        }: MessageDetails<Buf>,
-        middleware_chain: &MiddlewareChain<Buf::Output, Svc::Target>,
-        metrics: &Arc<ServerMetrics>,
-    ) -> Result<
-        (
-            Request<Message<Buf::Output>>,
-            ControlFlow<(
-                Transaction<
-                    Result<
-                        CallResult<Buf::Output, Svc::Target>,
-                        ServiceError,
-                    >,
-                    Svc::Future,
-                >,
-                usize,
-            )>,
-        ),
-        ServiceError,
-    >
-    where
-        Svc::Future: Send,
-    {
-        let message = Message::from_octets(buf).map_err(|err| {
-            warn!("Failed while parsing request message: {err}");
-            ServiceError::InternalError
-        })?;
-
-        let mut request =
-            self.add_context_to_request(message, received_at, addr);
-
-        let span = info_span!("pre-process",
-            msg_id = request.message().header().id(),
-            client = %request.client_addr(),
-        );
-        let _guard = span.enter();
-
-        metrics
-            .num_inflight_requests
-            .fetch_add(1, Ordering::Relaxed);
-
-        let pp_res = middleware_chain.preprocess(&mut request);
-
-        Ok((request, pp_res))
-    }
-
-    /// Post-process a response in the context of its originating request.
-    ///
-    /// Each response is post-processed in its own Tokio task. Note that there
-    /// is no guarantee about the order in which responses will be
-    /// post-processed. If the order of a seqence of responses is important it
-    /// should be provided as a [`Transaction::stream()`] rather than
-    /// [`Transaction::single()`].
-    ///
-    /// Responses are first post-processed by the [`MiddlewareChain`]
-    /// provided, if any, then passed to [`Self::process_call_result()`] for
-    /// final processing.
-    #[allow(clippy::type_complexity)]
-    fn postprocess_response(
-        &self,
-        request: Request<Message<Buf::Output>>,
-        state: Self::State,
-        middleware_chain: MiddlewareChain<Buf::Output, Svc::Target>,
-        mut response_txn: Transaction<
-            Result<CallResult<Buf::Output, Svc::Target>, ServiceError>,
-            Svc::Future,
-        >,
-        last_processor_id: Option<usize>,
-        metrics: Arc<ServerMetrics>,
-    ) where
-        Svc::Future: Send,
-    {
-        tokio::spawn(async move {
-            let span = info_span!("post-process",
-                msg_id = request.message().header().id(),
-                client = %request.client_addr(),
-            );
-            let _guard = span.enter();
-
-            while let Some(Ok(mut call_result)) = response_txn.next().await {
-                if let Some(response) = call_result.get_response_mut() {
-                    middleware_chain.postprocess(
-                        &request,
-                        response,
-                        last_processor_id,
-                    );
-                }
-
-                let call_result = call_result.with_request(request.clone());
-
-                Self::process_call_result(
-                    call_result,
-                    request.client_addr(),
-                    state.clone(),
-                    metrics.clone(),
-                );
-            }
-
-            metrics
-                .num_inflight_requests
-                .fetch_sub(1, Ordering::Relaxed);
-        });
+            middleware_chain,
+            metrics,
+            svc,
+            meta,
+        )
     }
 
     /// Add context to a request.
@@ -402,7 +273,242 @@ where
     fn process_call_result(
         call_result: CallResult<Buf::Output, Svc::Target>,
         addr: SocketAddr,
-        state: Self::State,
+        state: Self::Meta,
         metrics: Arc<ServerMetrics>,
     );
+}
+
+/// Propogate a message through the [`MiddlewareChain`] to the [`Service`] and
+/// flow the response in reverse back down the same path, a bit like throwing
+/// a boomerang.
+#[allow(clippy::too_many_arguments)]
+fn boomerang<Buf, Svc, Server>(
+    server: &Server,
+    buf: <Buf as BufSource>::Output,
+    received_at: Instant,
+    addr: SocketAddr,
+    middleware_chain: MiddlewareChain<
+        <Buf as BufSource>::Output,
+        <Svc as Service<<Buf as BufSource>::Output>>::Target,
+    >,
+    metrics: Arc<ServerMetrics>,
+    svc: &Svc,
+    meta: Server::Meta,
+) -> Result<(), ServiceError>
+where
+    Buf: BufSource + Send + Sync + 'static,
+    Buf::Output: Octets + Send + Sync + 'static,
+    Svc: Service<Buf::Output> + Send + Sync + 'static,
+    Server: CommonMessageFlow<Buf, Svc> + ?Sized,
+{
+    let (request, preprocessing_result) = do_middleware_preprocessing(
+        server,
+        buf,
+        received_at,
+        addr,
+        &middleware_chain,
+        &metrics,
+    )?;
+
+    let (txn, aborted_preprocessor_idx) =
+        do_service_call::<Buf, Svc>(preprocessing_result, &request, svc);
+
+    do_middleware_postprocessing::<Buf, Svc, Server>(
+        request,
+        meta,
+        middleware_chain,
+        txn,
+        aborted_preprocessor_idx,
+        metrics,
+    );
+
+    Ok(())
+}
+
+/// Pass a pre-processed request to the [`Service`] to handle.
+///
+/// If [`Service::call()`] returns an error this function will produce a DNS
+/// ServFail error response. If the returned error is
+/// [`ServiceError::InternalError`] it will also be logged.
+#[allow(clippy::type_complexity)]
+fn do_service_call<Buf, Svc>(
+    preprocessing_result: ControlFlow<(
+        Transaction<
+            Result<CallResult<Buf::Output, Svc::Target>, ServiceError>,
+            Svc::Future,
+        >,
+        usize,
+    )>,
+    request: &Request<Message<<Buf as BufSource>::Output>>,
+    svc: &Svc,
+) -> (
+    Transaction<
+        Result<CallResult<Buf::Output, Svc::Target>, ServiceError>,
+        Svc::Future,
+    >,
+    Option<usize>,
+)
+where
+    Buf: BufSource + Send + Sync + 'static,
+    Buf::Output: Octets + Send + Sync + 'static,
+    Svc: Service<Buf::Output> + Send + Sync + 'static,
+{
+    match preprocessing_result {
+        ControlFlow::Continue(()) => {
+            let request_for_svc = request.clone();
+
+            let res = if enabled!(Level::INFO) {
+                let span = info_span!("svc-call",
+                    msg_id = request_for_svc.message().header().id(),
+                    client = %request_for_svc.client_addr(),
+                );
+                let _guard = span.enter();
+                svc.call(request_for_svc)
+            } else {
+                svc.call(request_for_svc)
+            };
+
+            // Handle any error returned by the service.
+            let request_for_error = request;
+            let txn = res.unwrap_or_else(|err| {
+                if matches!(err, ServiceError::InternalError) {
+                    error!("Service error while processing request: {err}");
+                }
+
+                let mut response = start_reply(request_for_error);
+                response.header_mut().set_rcode(err.rcode());
+                let call_result = CallResult::new(response.additional());
+                Transaction::immediate(Ok(call_result))
+            });
+
+            // Pass the transaction out for post-processing.
+            (txn, None)
+        }
+
+        ControlFlow::Break((txn, aborted_preprocessor_idx)) => {
+            (txn, Some(aborted_preprocessor_idx))
+        }
+    }
+}
+
+/// Pre-process a request.
+///
+/// Pre-processing involves parsing a [`Message`] from the byte buffer and
+/// pre-processing it via any supplied [`MiddlewareChain`].
+///
+/// On success the result is an immutable request message and a
+/// [`ControlFlow`] decision about whether to continue with further
+/// processing or to break early with a possible response. If processing
+/// failed the result will be a [`ServiceError`].
+///
+/// On break the result will be one ([`Transaction::single()`]) or more
+/// ([`Transaction::stream()`]) to post-process.
+#[allow(clippy::type_complexity)]
+fn do_middleware_preprocessing<Buf, Svc, Server>(
+    server: &Server,
+    buf: Buf::Output,
+    received_at: Instant,
+    addr: SocketAddr,
+    middleware_chain: &MiddlewareChain<Buf::Output, Svc::Target>,
+    metrics: &Arc<ServerMetrics>,
+) -> Result<
+    (
+        Request<Message<Buf::Output>>,
+        ControlFlow<(
+            Transaction<
+                Result<CallResult<Buf::Output, Svc::Target>, ServiceError>,
+                Svc::Future,
+            >,
+            usize,
+        )>,
+    ),
+    ServiceError,
+>
+where
+    Buf: BufSource + Send + Sync + 'static,
+    Buf::Output: Octets + Send + Sync + 'static,
+    Svc: Service<Buf::Output> + Send + Sync + 'static,
+    Server: CommonMessageFlow<Buf, Svc> + ?Sized,
+{
+    let message = Message::from_octets(buf).map_err(|err| {
+        warn!("Failed while parsing request message: {err}");
+        ServiceError::InternalError
+    })?;
+
+    let mut request =
+        server.add_context_to_request(message, received_at, addr);
+
+    let span = info_span!("pre-process",
+        msg_id = request.message().header().id(),
+        client = %request.client_addr(),
+    );
+    let _guard = span.enter();
+
+    metrics
+        .num_inflight_requests
+        .fetch_add(1, Ordering::Relaxed);
+
+    let pp_res = middleware_chain.preprocess(&mut request);
+
+    Ok((request, pp_res))
+}
+
+/// Post-process a response in the context of its originating request.
+///
+/// Each response is post-processed in its own Tokio task. Note that there
+/// is no guarantee about the order in which responses will be
+/// post-processed. If the order of a seqence of responses is important it
+/// should be provided as a [`Transaction::stream()`] rather than
+/// [`Transaction::single()`].
+///
+/// Responses are first post-processed by the [`MiddlewareChain`]
+/// provided, if any, then passed to [`Self::process_call_result()`] for
+/// final processing.
+#[allow(clippy::type_complexity)]
+fn do_middleware_postprocessing<Buf, Svc, Server>(
+    request: Request<Message<Buf::Output>>,
+    meta: Server::Meta,
+    middleware_chain: MiddlewareChain<Buf::Output, Svc::Target>,
+    mut response_txn: Transaction<
+        Result<CallResult<Buf::Output, Svc::Target>, ServiceError>,
+        Svc::Future,
+    >,
+    last_processor_id: Option<usize>,
+    metrics: Arc<ServerMetrics>,
+) where
+    Buf: BufSource + Send + Sync + 'static,
+    Buf::Output: Octets + Send + Sync + 'static,
+    Svc: Service<Buf::Output> + Send + Sync + 'static,
+    Server: CommonMessageFlow<Buf, Svc> + ?Sized,
+{
+    tokio::spawn(async move {
+        let span = info_span!("post-process",
+            msg_id = request.message().header().id(),
+            client = %request.client_addr(),
+        );
+        let _guard = span.enter();
+
+        while let Some(Ok(mut call_result)) = response_txn.next().await {
+            if let Some(response) = call_result.get_response_mut() {
+                middleware_chain.postprocess(
+                    &request,
+                    response,
+                    last_processor_id,
+                );
+            }
+
+            let call_result = call_result.with_request(request.clone());
+
+            Server::process_call_result(
+                call_result,
+                request.client_addr(),
+                meta.clone(),
+                metrics.clone(),
+            );
+        }
+
+        metrics
+            .num_inflight_requests
+            .fetch_sub(1, Ordering::Relaxed);
+    });
 }

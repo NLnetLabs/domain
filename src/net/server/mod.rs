@@ -131,7 +131,7 @@
 //!
 //! ## Performance
 //!
-//! Both [`DgramServer`] and [`StreamServer`] use [`MessageProcessor`] to
+//! Both [`DgramServer`] and [`StreamServer`] use [`CommonMessageFlow`] to
 //! pre-process the request, invoke [`Service::call()`], and post-process the
 //! response.
 //!
@@ -182,7 +182,7 @@
 //! [`AsyncDgramSock`]: sock::AsyncDgramSock
 //! [`BufSource`]: buf::BufSource
 //! [`DgramServer`]: dgram::DgramServer
-//! [`MessageProcessor`]: message::MessageProcessor
+//! [`CommonMessageFlow`]: message::CommonMessageFlow
 //! [Middleware]: middleware
 //! [`MiddlewareBuilder::default()`]:
 //!     middleware::builder::MiddlewareBuilder::default()

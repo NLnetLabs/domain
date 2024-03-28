@@ -10,7 +10,7 @@ use crate::base::opt::Opt;
 use crate::base::wire::{Composer, ParseError};
 use crate::base::{Message, StreamTarget};
 use crate::net::server::message::{
-    Request, TransportSpecificContext, UdpSpecificTransportContext,
+    Request, TransportSpecificContext, UdpTransportContext,
 };
 use crate::net::server::middleware::processor::MiddlewareProcessor;
 use crate::net::server::util::{mk_builder_for_target, start_reply};
@@ -93,7 +93,7 @@ impl MandatoryMiddlewareProcessor {
         RequestOctets: Octets,
         Target: Composer + Default,
     {
-        if let TransportSpecificContext::Udp(UdpSpecificTransportContext {
+        if let TransportSpecificContext::Udp(UdpTransportContext {
             max_response_size_hint: Some(max_response_size_hint),
         }) = request.transport()
         {
