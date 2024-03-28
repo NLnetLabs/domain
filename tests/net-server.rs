@@ -50,7 +50,8 @@ use net::stelline::parse_stelline::Matches;
 ///
 /// Note: Adding or removing .rpl files on disk won't be detected until the
 /// test is re-compiled.
-#[cfg(feature = "mock-time")]
+// #[cfg(feature = "mock-time")] # Needed for the cookies test but that is
+// currently disabled by renaming it to .rpl.not.
 #[instrument(skip_all, fields(rpl = rpl_file.file_name().unwrap().to_str()))]
 #[rstest]
 #[tokio::test(start_paused = true)]
