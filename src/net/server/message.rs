@@ -348,7 +348,6 @@ where
             );
             let _guard = span.enter();
 
-            // TODO: Handle Err results from txn.next().
             while let Some(Ok(mut call_result)) = response_txn.next().await {
                 if let Some(response) = call_result.get_response_mut() {
                     middleware_chain.postprocess(
