@@ -102,11 +102,17 @@ impl CookiesMiddlewareProcessor {
 impl CookiesMiddlewareProcessor {
     /// Get the DNS COOKIE, if any, for the given message.
     ///
-    /// https://datatracker.ietf.org/doc/html/rfc7873#section-5.2:
-    /// Responding to a Request:
-    ///   "In all cases of multiple COOKIE options in a request, only the
-    ///   first (the one closest to the DNS header) is considered. All others
-    ///   are ignored."
+    /// https://datatracker.ietf.org/doc/html/rfc7873#section-5.2: Responding
+    /// to a Request: "In all cases of multiple COOKIE options in a request,
+    ///   only the first (the one closest to the DNS header) is considered.
+    ///   All others are ignored."
+    ///
+    /// Returns:
+    ///   - `None` if the request has no cookie,
+    ///   - Some(Ok(cookie)) if the request has a cookie in the correct
+    ///     format,
+    ///   - Some(Err(err)) if the request has a cookie that we could not
+    ///     parse.
     #[must_use]
     fn cookie<RequestOctets: Octets>(
         request: &Request<Message<RequestOctets>>,
