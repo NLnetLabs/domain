@@ -170,13 +170,13 @@ impl CookiesMiddlewareProcessor {
 
             // Note: if rcode is non-extended this will also correctly handle
             // setting the rcode in the main message header.
-            additional
-                .opt(|opt| {
-                    opt.cookie(response_cookie)?;
-                    opt.set_rcode(rcode);
-                    Ok(())
-                })
-                .unwrap();
+            if let Err(err) = additional.opt(|opt| {
+                opt.cookie(response_cookie)?;
+                opt.set_rcode(rcode);
+                Ok(())
+            }) {
+                warn!("Failed to add cookie to response: {err}");
+            }
         }
 
         additional
