@@ -107,7 +107,7 @@
 //! you can implement [`MiddlewareProcessor`] yourself to add your own pre-
 //! and post- processing stages into your DNS server.
 //!
-//! ## Business logic
+//! ## Application logic
 //!
 //! With the basic work of handling DNS requests and responses taken care of,
 //! the actual application logic that differentiates your DNS server from
