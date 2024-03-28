@@ -1,7 +1,7 @@
 //! The application logic of a DNS server.
 //!
 //! The [`Service::call()`] function defines how the service should respond to
-//! a given DNS request. resulting in a [`ServiceResult`] containing a
+//! a given DNS request. resulting in a [`Transaction`] containing a
 //! transaction that yields one or more future DNS responses, and/or a
 //! [`ServiceFeedback`].
 use core::fmt::Display;
@@ -206,7 +206,7 @@ use super::message::Request;
 /// [`call()`]: Self::call()
 /// [`service_fn()`]: crate::net::server::util::service_fn()
 pub trait Service<RequestOctets: AsRef<[u8]> = Vec<u8>> {
-    /// The type of buffer in which [`ServiceResultItem`]s are stored.
+    /// The type of buffer in which response messages are stored.
     type Target: Composer + Default + Send + Sync + 'static;
 
     /// The type of future returned by [`Service::call()`] via

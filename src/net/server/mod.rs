@@ -189,7 +189,6 @@
 //! [`MiddlewareProcessor`]: middleware::processor::MiddlewareProcessor
 //! [`Service`]: service::Service
 //! [`Service::call()`]: service::Service::call()
-//! [`ServerCommand::Reconfigure`]: service::ServerCommand::Reconfigure
 //! [`StreamServer`]: stream::StreamServer
 //! [`TcpServer`]: stream::TcpServer
 //! [`UdpServer`]: dgram::UdpServer
