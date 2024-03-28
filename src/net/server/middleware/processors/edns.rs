@@ -61,17 +61,18 @@ impl EdnsMiddlewareProcessor {
         RequestOctets: Octets,
         Target: Composer + Default,
     {
-        let builder = start_reply(request);
+        let mut additional = start_reply(request).additional();
 
         // Note: if rcode is non-extended this will also correctly handle
         // setting the rcode in the main message header.
-        let mut additional = builder.additional();
-        additional
-            .opt(|opt| {
-                opt.set_rcode(rcode);
-                Ok(())
-            })
-            .unwrap();
+        if let Err(err) = additional.opt(|opt| {
+            opt.set_rcode(rcode);
+            Ok(())
+        }) {
+            warn!(
+                "Failed to set (extended) error '{rcode}' in response: {err}"
+            );
+        }
 
         additional
     }
