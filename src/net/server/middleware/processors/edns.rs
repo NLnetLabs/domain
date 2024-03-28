@@ -52,7 +52,8 @@ impl EdnsMiddlewareProcessor {
 }
 
 impl EdnsMiddlewareProcessor {
-    fn err_response<RequestOctets, Target>(
+    /// Create a DNS error response to the given request with the given RCODE.
+    fn error_response<RequestOctets, Target>(
         request: &Request<Message<RequestOctets>>,
         rcode: OptRcode,
     ) -> AdditionalBuilder<StreamTarget<Target>>
@@ -117,7 +118,7 @@ where
                 if iter.next().is_some() {
                     // More than one OPT RR received.
                     debug!("RFC 6891 6.1.1 violation: request contains more than one OPT RR.");
-                    return ControlFlow::Break(Self::err_response(
+                    return ControlFlow::Break(Self::error_response(
                         request,
                         OptRcode::FormErr,
                     ));
@@ -133,7 +134,7 @@ where
                     //    RCODE=BADVERS."
                     if opt_rec.version() > self.max_version {
                         debug!("RFC 6891 6.1.3 violation: request EDNS version {} > {}", opt_rec.version(), self.max_version);
-                        return ControlFlow::Break(Self::err_response(
+                        return ControlFlow::Break(Self::error_response(
                             request,
                             OptRcode::BadVers,
                         ));
@@ -154,7 +155,7 @@ where
                             if opt_rec.opt().tcp_keepalive().is_some() {
                                 debug!("RFC 7828 3.2.1 violation: edns-tcp-keepalive option received via UDP");
                                 return ControlFlow::Break(
-                                    Self::err_response(
+                                    Self::error_response(
                                         request,
                                         OptRcode::FormErr,
                                     ),
@@ -201,7 +202,7 @@ where
                                 if keep_alive.timeout().is_some() {
                                     debug!("RFC 7828 3.2.1 violation: edns-tcp-keepalive option received via TCP contains timeout");
                                     return ControlFlow::Break(
-                                        Self::err_response(
+                                        Self::error_response(
                                             request,
                                             OptRcode::FormErr,
                                         ),

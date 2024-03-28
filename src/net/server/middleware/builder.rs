@@ -29,6 +29,8 @@ where
     RequestOctets: Octets,
     Target: Composer + Default,
 {
+    /// The ordered set of processors which will pre-process requests and then
+    /// in reverse order will post-process responses.
     processors: Vec<
         Arc<
             dyn MiddlewareProcessor<RequestOctets, Target>

@@ -40,17 +40,23 @@ pub struct MandatoryMiddlewareProcessor {
 }
 
 impl MandatoryMiddlewareProcessor {
-    /// Constructs an instance of this processor.
+    /// Creates a new processor instance.
+    ///
+    /// The processor will operate in strict mode.
     #[must_use]
     pub fn new() -> Self {
         Self { strict: true }
     }
 
+    /// Creates a new processor instance.
+    ///
+    /// The processor will operate in relaxed mode.
     #[must_use]
     pub fn relaxed() -> Self {
         Self { strict: false }
     }
 
+    /// Create a DNS error response to the given request with the given RCODE.
     fn error_response<RequestOctets, Target>(
         &self,
         request: &Request<Message<RequestOctets>>,
@@ -69,6 +75,16 @@ impl MandatoryMiddlewareProcessor {
 }
 
 impl MandatoryMiddlewareProcessor {
+    /// Truncate the given response message if it is too large.
+    ///
+    /// Honours either a transport supplied hint, if present in the given
+    /// [`UdpSpecificTransportContext`], as to how large the response is
+    /// allowed to be, or if missing will instead honour the clients indicated
+    /// UDP response payload size (if an EDNS OPT is present in the request).
+    ///
+    /// Truncation discards the authority and additional sections, except for
+    /// any OPT record present which will be preserved, then truncates to the
+    /// specified byte length.
     fn truncate<RequestOctets, Target>(
         request: &Request<Message<RequestOctets>>,
         response: &mut AdditionalBuilder<StreamTarget<Target>>,
@@ -288,8 +304,13 @@ impl Default for MandatoryMiddlewareProcessor {
 
 //------------ TruncateError -------------------------------------------------
 
+/// An error occured during oversize response truncation.
 enum TruncateError {
+    /// There was a problem parsing the request, specifically the question
+    /// section.
     InvalidQuestion(ParseError),
+
+    /// There was a problem pushing to the response.
     PushFailure(PushError),
 }
 
