@@ -632,8 +632,16 @@ async fn main() {
     let v6listener = v6socket.listen(1024).unwrap();
 
     let listener = DoubleListener::new(v4listener, v6listener);
-    let srv = StreamServer::new(listener, buf_source.clone(), svc.clone());
-    let srv = srv.with_middleware(middleware.clone());
+    let mut conn_config = ConnectionConfig::new();
+    conn_config.set_middleware_chain(middleware.clone());
+    let mut config = stream::Config::new();
+    config.set_connection_config(conn_config);
+    let srv = StreamServer::with_config(
+        listener,
+        buf_source.clone(),
+        svc.clone(),
+        config,
+    );
     let double_tcp_join_handle = tokio::spawn(async move { srv.run().await });
 
     // -----------------------------------------------------------------------
@@ -654,8 +662,16 @@ async fn main() {
         .await
         .unwrap();
     let listener = LocalTfoListener(listener);
-    let srv = StreamServer::new(listener, buf_source.clone(), svc.clone());
-    let srv = srv.with_middleware(middleware.clone());
+    let mut conn_config = ConnectionConfig::new();
+    conn_config.set_middleware_chain(middleware.clone());
+    let mut config = stream::Config::new();
+    config.set_connection_config(conn_config);
+    let srv = StreamServer::with_config(
+        listener,
+        buf_source.clone(),
+        svc.clone(),
+        config,
+    );
     let tfo_join_handle = tokio::spawn(async move { srv.run().await });
 
     // -----------------------------------------------------------------------
@@ -700,8 +716,16 @@ async fn main() {
 
     let fn_svc_middleware = fn_svc_middleware.build();
 
-    let srv = StreamServer::new(listener, buf_source.clone(), fn_svc);
-    let srv = srv.with_middleware(fn_svc_middleware.clone());
+    let mut conn_config = ConnectionConfig::new();
+    conn_config.set_middleware_chain(fn_svc_middleware);
+    let mut config = stream::Config::new();
+    config.set_connection_config(conn_config);
+    let srv = StreamServer::with_config(
+        listener,
+        buf_source.clone(),
+        fn_svc,
+        config,
+    );
     let fn_join_handle = tokio::spawn(async move { srv.run().await });
 
     // -----------------------------------------------------------------------
@@ -736,8 +760,18 @@ async fn main() {
     let acceptor = TlsAcceptor::from(Arc::new(config));
     let listener = TcpListener::bind("127.0.0.1:8443").await.unwrap();
     let listener = RustlsTcpListener::new(listener, acceptor);
-    let srv = StreamServer::new(listener, buf_source.clone(), svc.clone());
-    let srv = srv.with_middleware(middleware.clone());
+
+    let mut conn_config = ConnectionConfig::new();
+    conn_config.set_middleware_chain(middleware.clone());
+    let mut config = stream::Config::new();
+    config.set_connection_config(conn_config);
+    let srv = StreamServer::with_config(
+        listener,
+        buf_source.clone(),
+        svc.clone(),
+        config,
+    );
+
     let tls_join_handle = tokio::spawn(async move { srv.run().await });
 
     // -----------------------------------------------------------------------

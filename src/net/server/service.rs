@@ -351,7 +351,8 @@ impl From<ParseError> for ServiceError {
 /// Feedback from a [`Service`] to a server asking it to do something.
 #[derive(Copy, Clone, Debug)]
 pub enum ServiceFeedback {
-    /// Ask the server to alter its configuration.
+    /// Ask the server to alter its configuration. For connection-oriented
+    /// servers the changes will only apply to the current connection.
     Reconfigure { idle_timeout: Duration },
 
     /// Ask the connection handler to terminate.

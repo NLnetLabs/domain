@@ -32,7 +32,6 @@ use tracing::{error, trace, trace_span};
 use crate::net::server::buf::BufSource;
 use crate::net::server::error::Error;
 use crate::net::server::metrics::ServerMetrics;
-use crate::net::server::middleware::chain::MiddlewareChain;
 use crate::net::server::service::Service;
 use crate::net::server::sock::AsyncAccept;
 use crate::utils::config::DefMinMax;
@@ -72,7 +71,7 @@ const MAX_CONCURRENT_TCP_CONNECTIONS: DefMinMax<usize> =
 
 //----------- Config ---------------------------------------------------------
 
-/// Configuration for a stream server connection.
+/// Configuration for a stream server.
 pub struct Config<RequestOctets, Target>
 where
     RequestOctets: Octets,
@@ -117,6 +116,9 @@ where
         self.max_concurrent_connections = value;
     }
 
+    /// Connection specific configuration.
+    ///
+    /// See [`connection::Config`] for more information.
     pub fn set_connection_config(
         &mut self,
         connection_config: connection::Config<RequestOctets, Target>,
@@ -125,7 +127,7 @@ where
     }
 }
 
-//---Default
+//--- Default
 
 impl<RequestOctets, Target> Default for Config<RequestOctets, Target>
 where
@@ -141,7 +143,7 @@ where
     }
 }
 
-//---Clone
+//--- Clone
 
 impl<RequestOctets, Target> Clone for Config<RequestOctets, Target>
 where
@@ -202,7 +204,6 @@ type CommandReceiver<RequestOctets, Target> =
 /// use domain::base::Message;
 /// use domain::net::server::buf::VecBufSource;
 /// use domain::net::server::message::Request;
-/// use domain::net::server::middleware::builder::MiddlewareBuilder;
 /// use domain::net::server::service::{CallResult, ServiceError, Transaction};
 /// use domain::net::server::stream::StreamServer;
 /// use domain::net::server::util::service_fn;
@@ -232,14 +233,10 @@ type CommandReceiver<RequestOctets, Target> =
 ///     // Bind to a local port and listen for incoming TCP connections.
 ///     let listener = TcpListener::bind("127.0.0.1:8053").await.unwrap();
 ///
-///     // Create the server with default middleware.
-///     let middleware = MiddlewareBuilder::default().build();
-///
 ///     // Create a server that will accept those connections and pass
 ///     // received messages to your service and in turn pass generated
 ///     // responses back to the client.
-///     let srv = Arc::new(StreamServer::new(listener, VecBufSource, svc)
-///         .with_middleware(middleware));
+///     let srv = Arc::new(StreamServer::new(listener, VecBufSource, svc));
 ///
 ///     // Run the server.
 ///     let spawned_srv = srv.clone();
@@ -293,8 +290,6 @@ where
     /// An optional pre-connect hook.
     pre_connect_hook: Option<fn(&mut Listener::StreamType)>,
 
-    middleware_chain: Option<MiddlewareChain<Buf::Output, Svc::Target>>,
-
     /// [`ServerMetrics`] describing the status of the server.
     metrics: Arc<ServerMetrics>,
 
@@ -343,20 +338,9 @@ where
             buf,
             service,
             pre_connect_hook: None,
-            middleware_chain: None,
             metrics,
             connection_idx: AtomicUsize::new(0),
         }
-    }
-
-    /// Configure the [`StreamServer`] to process messages via a [`MiddlewareChain`].
-    #[must_use]
-    pub fn with_middleware(
-        mut self,
-        middleware_chain: MiddlewareChain<Buf::Output, Svc::Target>,
-    ) -> Self {
-        self.middleware_chain = Some(middleware_chain);
-        self
     }
 
     /// Specify a pre-connect hook to be invoked by the given
@@ -440,7 +424,8 @@ where
 
     /// Reconfigure the server while running.
     ///
-    ///
+    /// This command will be received both by the server and by any existing
+    /// connections.
     pub fn reconfigure(
         &self,
         config: Config<Buf::Output, Svc::Target>,
@@ -528,7 +513,7 @@ where
                 // First, prefer obeying [`ServerCommands`] over everything
                 // else.
                 res = command_rx.changed() => {
-                    self.process_service_command(res, &mut command_rx)?;
+                    self.process_server_command(res, &mut command_rx)?;
                 }
 
                 // Next, handle a connection that has been accepted, if any.
@@ -553,7 +538,7 @@ where
         }
     }
 
-    fn process_service_command(
+    fn process_server_command(
         &self,
         res: Result<(), watch::error::RecvError>,
         command_rx: &mut watch::Receiver<

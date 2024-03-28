@@ -157,13 +157,16 @@ where
     ///
     /// # Reconfigure
     ///
-    /// On [`StreamServer::reconfigure()`]` the current idle period will NOT
+    /// On [`StreamServer::reconfigure()`] the current idle period will NOT
     /// be affected. Subsequent idle periods (after the next message is
     /// received or response is sent, assuming that happens within the current
     /// idle period) will use the new timeout value.
     ///
     /// [RFC 7766]:
     ///     https://datatracker.ietf.org/doc/html/rfc7766#section-6.2.3
+    /// 
+    /// [`StreamServer::reconfigure()`]:
+    ///     super::stream::StreamServer::reconfigure()
     #[allow(dead_code)]
     pub fn set_idle_timeout(&mut self, value: Duration) {
         self.idle_timeout = value;
@@ -179,9 +182,12 @@ where
     ///
     /// # Reconfigure
     ///
-    /// On [`StreamServer::reconfigure()`]` any responses currently being
-    /// written will NOT use the new timeout, it will only applies to
-    /// responses that start being sent after the timeout is changed.
+    /// On [`StreamServer::reconfigure()`] any responses currently being
+    /// written will NOT use the new timeout, it will only apply to responses
+    /// that start being sent after the timeout is changed.
+    /// 
+    /// [`StreamServer::reconfigure()`]:
+    ///     super::stream::StreamServer::reconfigure()
     #[allow(dead_code)]
     pub fn set_response_write_timeout(&mut self, value: Duration) {
         self.response_write_timeout = value;
@@ -198,8 +204,12 @@ where
     ///
     /// # Reconfigure
     ///
-    /// [`StreamServer::reconfigure()`]` currently has no effect on this
-    /// setting.
+    /// On [`StreamServer::reconfigure()`] only new connections created after
+    /// this setting is changed will use the new value, existing connections
+    /// will continue to use their exisitng queue at its existing size.
+    /// 
+    /// [`StreamServer::reconfigure()`]:
+    ///     super::stream::StreamServer::reconfigure()
     #[allow(dead_code)]
     pub fn set_max_queued_responses(&mut self, value: usize) {
         self.max_queued_responses = value;
@@ -210,8 +220,13 @@ where
     ///
     /// # Reconfigure
     ///
-    /// [`StreamServer::reconfigure()`]` currently has no effect on this
-    /// setting.
+    /// On [`StreamServer::reconfigure()`] only new connections created after
+    /// this setting is changed will use the new value, existing connections
+    /// and in-flight requests (and their responses) will continue to use
+    /// their current middleware chain.
+    ///
+    /// [`StreamServer::reconfigure()`]:
+    ///     super::stream::StreamServer::reconfigure()
     pub fn set_middleware_chain(
         &mut self,
         value: MiddlewareChain<RequestOctets, Target>,
@@ -425,7 +440,7 @@ where
                     biased;
 
                     res = command_rx.changed() => {
-                        self.process_service_command(res, &mut command_rx)
+                        self.process_server_command(res, &mut command_rx)
                     }
 
                     res = self.result_q_rx.recv() => {
@@ -476,7 +491,7 @@ where
         }
     }
 
-    fn process_service_command(
+    fn process_server_command(
         &mut self,
         res: Result<(), watch::error::RecvError>,
         command_rx: &mut watch::Receiver<
@@ -516,10 +531,10 @@ where
                     Config {
                         idle_timeout,
                         response_write_timeout,
-                        max_queued_responses: _, // TO DO: Cannot be changed?
-                        middleware_chain: _,     // TO DO
+                        max_queued_responses: _,
+                        middleware_chain: _,
                     },
-                .. // Ignore the Server configuration settings
+                .. // Ignore the Server specific configuration settings
             }) => {
                 // Support RFC 7828 "The edns-tcp-keepalive EDNS0 Option".
                 // This cannot be done by the caller as it requires knowing

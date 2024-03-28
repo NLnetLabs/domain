@@ -49,6 +49,7 @@ use super::message::{TransportSpecificContext, UdpSpecificTransportContext};
 use super::middleware::builder::MiddlewareBuilder;
 use super::ServerCommand;
 use crate::base::wire::Composer;
+use arc_swap::ArcSwap;
 
 /// A UDP transport based DNS server transport.
 ///
@@ -83,7 +84,7 @@ const MAX_RESPONSE_SIZE: DefMinMax<u16> = DefMinMax::new(1232, 512, 4096);
 //----------- Config ---------------------------------------------------------
 
 /// Configuration for a datagram server.
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct Config<RequestOctets, Target>
 where
     RequestOctets: Octets,
@@ -121,6 +122,12 @@ where
     /// The [`Service`] and [`MiddlewareChain`] (if any) are response for
     /// enforcing the suggested limit, or deciding what to do if this is None.
     ///
+    /// # Reconfigure
+    ///
+    /// On [`DgramServer::reconfigure()`]` any change to this setting will
+    /// only affect requests received after the setting is changed, in
+    /// progress requests will be unaffected.
+    ///
     /// [2020 DNS Flag Day]: http://www.dnsflagday.net/2020/
     /// [RFC 6891]:
     ///     https://datatracker.ietf.org/doc/html/rfc6891#section-6.2.5
@@ -132,12 +139,24 @@ where
     ///
     /// The value has to be between 1ms and 60 seconds. The default value is 5
     /// seconds.
+    ///
+    /// # Reconfigure
+    ///
+    /// On [`DgramServer::reconfigure()`]` any change to this setting will
+    /// only affect responses sent after the setting is changed, in-flight
+    /// responses will be unaffected.
     pub fn set_write_timeout(&mut self, value: Duration) {
         self.write_timeout = value;
     }
 
     /// Set the middleware chain used to pre-process requests and post-process
     /// responses.
+    ///
+    /// # Reconfigure
+    ///
+    /// On [`DgramServer::reconfigure()`]` any change to this setting will
+    /// only affect requests (and their responses) received after the setting
+    /// is changed, in progress requests will be unaffected.
     pub fn set_middleware_chain(
         &mut self,
         value: MiddlewareChain<RequestOctets, Target>,
@@ -145,6 +164,8 @@ where
         self.middleware_chain = value;
     }
 }
+
+//--- Default
 
 impl<RequestOctets, Target> Default for Config<RequestOctets, Target>
 where
@@ -156,6 +177,22 @@ where
             max_response_size: Some(MAX_RESPONSE_SIZE.default()),
             write_timeout: WRITE_TIMEOUT.default(),
             middleware_chain: MiddlewareBuilder::default().build(),
+        }
+    }
+}
+
+//--- Clone
+
+impl<RequestOctets, Target> Clone for Config<RequestOctets, Target>
+where
+    RequestOctets: Octets,
+    Target: Composer + Default,
+{
+    fn clone(&self) -> Self {
+        Self {
+            max_response_size: self.max_response_size,
+            write_timeout: self.write_timeout,
+            middleware_chain: self.middleware_chain.clone(),
         }
     }
 }
@@ -263,7 +300,7 @@ where
     Buf::Output: Octets + Send + Sync + 'static,
     Svc: Service<Buf::Output> + Send + Sync + 'static,
 {
-    config: Config<Buf::Output, Svc::Target>,
+    config: Arc<ArcSwap<Config<Buf::Output, Svc::Target>>>,
     command_rx: CommandReceiver<Buf::Output, Svc::Target>,
     command_tx: CommandSender<Buf::Output, Svc::Target>,
     sock: Arc<Sock>,
@@ -311,6 +348,7 @@ where
         let (command_tx, command_rx) = watch::channel(ServerCommand::Init);
         let command_tx = Arc::new(Mutex::new(command_tx));
         let metrics = Arc::new(ServerMetrics::connection_less());
+        let config = Arc::new(ArcSwap::from_pointee(config));
 
         DgramServer {
             config,
@@ -461,7 +499,7 @@ where
                 // First, prefer obeying `ServerCommand`s over everything
                 // else.
                 res = command_rx.changed() => {
-                    self.process_service_command(res, &mut command_rx)?;
+                    self.process_server_command(res, &mut command_rx)?;
                 }
 
                 recv_res = self.recv_from() => {
@@ -484,7 +522,7 @@ where
                     self.process_request(
                         msg_details,
                         state,
-                        self.config.middleware_chain.clone(),
+                        self.config.load().middleware_chain.clone(),
                         &self.service,
                         self.metrics.clone()
                     )
@@ -496,7 +534,7 @@ where
         }
     }
 
-    fn process_service_command(
+    fn process_server_command(
         &self,
         res: Result<(), watch::error::RecvError>,
         command_rx: &mut CommandReceiver<Buf::Output, Svc::Target>,
@@ -533,13 +571,8 @@ where
                 // ignore this if we receive it.
             }
 
-            ServerCommand::Reconfigure(Config {
-                max_response_size: _, // TO DO
-                write_timeout: _,     // TO DO
-                middleware_chain: _,  // TO DO
-            }) => {
-                // TODO: Support dynamic replacement of the middleware chain?
-                // E.g. via ArcSwapOption<MiddlewareChain> instead of Option?
+            ServerCommand::Reconfigure(new_config) => {
+                self.config.store(Arc::new(new_config.clone()));
             }
 
             ServerCommand::Shutdown => {
@@ -593,7 +626,7 @@ where
         RequestState::new(
             self.sock.clone(),
             self.command_tx.clone(),
-            self.config.write_timeout,
+            self.config.load().write_timeout,
         )
     }
 }
@@ -618,7 +651,7 @@ where
     ) -> Request<Message<Buf::Output>> {
         let ctx =
             TransportSpecificContext::Udp(UdpSpecificTransportContext {
-                max_response_size_hint: self.config.max_response_size,
+                max_response_size_hint: self.config.load().max_response_size,
             });
         Request::new(addr, received_at, request, ctx)
     }
