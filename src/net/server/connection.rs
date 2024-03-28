@@ -550,9 +550,6 @@ where
                 debug!("Server connection timeout reconfigured to {idle_timeout:?}");
                 self.config.idle_timeout = *idle_timeout;
                 self.config.response_write_timeout = *response_write_timeout;
-
-                // TODO: Support dynamic replacement of the middleware chain?
-                // E.g. via ArcSwapOption<MiddlewareChain> instead of Option?
             }
 
             ServerCommand::Shutdown => {
