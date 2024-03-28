@@ -443,7 +443,7 @@ where
     ) -> Result<(), Error> {
         self.command_tx
             .lock()
-            .unwrap()
+            .map_err(|_| Error::CommandCouldNotBeSent)?
             .send(ServerCommand::Reconfigure(config))
             .map_err(|_| Error::CommandCouldNotBeSent)
     }
