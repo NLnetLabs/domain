@@ -6,7 +6,7 @@ use std::fmt::Display;
 #[derive(Debug)]
 pub enum Error {
     /// An attempt to send a [`ServerCommand`] to the server failed.
-    /// 
+    ///
     /// [`ServerCommand`]: crate::net::server::ServerCommand
     CommandCouldNotBeSent,
 }
