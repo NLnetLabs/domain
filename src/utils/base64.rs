@@ -306,7 +306,6 @@ impl<Builder: OctetsBuilder> Decoder<Builder> {
 
 //--- Default
 
-#[cfg(feature = "bytes")]
 impl<Builder: EmptyBuilder> Default for Decoder<Builder> {
     fn default() -> Self {
         Self::new()
