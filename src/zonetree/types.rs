@@ -162,7 +162,7 @@ impl From<StoredRecord> for Rrset {
 /// An RRset behind an [`Arc`] for use with [`Zone`]s.
 ///
 /// See [`Rrset`] for more information.
-/// 
+///
 /// [`Zone`]: crate::zonetree::Zone.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct SharedRrset(Arc<Rrset>);

@@ -12,7 +12,7 @@ use std::vec::Vec;
 //------------ ZoneTree ------------------------------------------------------
 
 /// A multi-rooted [`Zone`] hierarchy.
-/// 
+///
 /// [`Zone`]: crate::zonetree::Zone.
 #[derive(Default)]
 pub struct ZoneTree {
