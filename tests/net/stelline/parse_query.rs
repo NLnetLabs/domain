@@ -180,6 +180,7 @@ impl Iterator for Zonefile {
 
 /// An entry of a zonefile.
 #[derive(Clone, Debug)]
+#[allow(dead_code)]
 pub enum Entry {
     /// A DNS record.
     QueryRecord(ScannedQueryRecord),
@@ -189,6 +190,7 @@ pub enum Entry {
     /// When this entry is encountered, the referenced file should be scanned
     /// next. If `origin` is given, this file should be scanned with it as the
     /// initial origin name,
+    #[allow(dead_code)]
     Include {
         /// The path to the file to be included.
         #[allow(dead_code)]

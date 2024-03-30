@@ -2,19 +2,19 @@
 use core::ops::ControlFlow;
 
 use octseq::Octets;
-use tracing::{debug, trace, warn};
+use tracing::{debug, error, trace, warn};
 
 use crate::base::iana::{Opcode, Rcode};
-use crate::base::message_builder::AdditionalBuilder;
+use crate::base::message_builder::{AdditionalBuilder, PushError};
 use crate::base::opt::Opt;
-use crate::base::wire::Composer;
+use crate::base::wire::{Composer, ParseError};
 use crate::base::{Message, StreamTarget};
 use crate::net::server::message::{
-    Request, TransportSpecificContext, UdpSpecificTransportContext,
+    Request, TransportSpecificContext, UdpTransportContext,
 };
 use crate::net::server::middleware::processor::MiddlewareProcessor;
-use crate::net::server::prelude::mk_builder_for_target;
-use crate::net::server::util::start_reply;
+use crate::net::server::util::{mk_builder_for_target, start_reply};
+use std::fmt::Display;
 
 /// A [`MiddlewareProcessor`] for enforcing core RFC MUST requirements on
 /// processed messages.
@@ -34,21 +34,29 @@ use crate::net::server::util::start_reply;
 /// [6891]: https://datatracker.ietf.org/doc/html/rfc6891
 #[derive(Debug)]
 pub struct MandatoryMiddlewareProcessor {
+    /// In strict mode the processor does more checks on requests and
+    /// responses.
     strict: bool,
 }
 
 impl MandatoryMiddlewareProcessor {
-    /// Constructs an instance of this processor.
+    /// Creates a new processor instance.
+    ///
+    /// The processor will operate in strict mode.
     #[must_use]
     pub fn new() -> Self {
         Self { strict: true }
     }
 
+    /// Creates a new processor instance.
+    ///
+    /// The processor will operate in relaxed mode.
     #[must_use]
     pub fn relaxed() -> Self {
         Self { strict: false }
     }
 
+    /// Create a DNS error response to the given request with the given RCODE.
     fn error_response<RequestOctets, Target>(
         &self,
         request: &Request<Message<RequestOctets>>,
@@ -67,14 +75,25 @@ impl MandatoryMiddlewareProcessor {
 }
 
 impl MandatoryMiddlewareProcessor {
+    /// Truncate the given response message if it is too large.
+    ///
+    /// Honours either a transport supplied hint, if present in the given
+    /// [`UdpSpecificTransportContext`], as to how large the response is
+    /// allowed to be, or if missing will instead honour the clients indicated
+    /// UDP response payload size (if an EDNS OPT is present in the request).
+    ///
+    /// Truncation discards the authority and additional sections, except for
+    /// any OPT record present which will be preserved, then truncates to the
+    /// specified byte length.
     fn truncate<RequestOctets, Target>(
         request: &Request<Message<RequestOctets>>,
         response: &mut AdditionalBuilder<StreamTarget<Target>>,
-    ) where
+    ) -> Result<(), TruncateError>
+    where
         RequestOctets: Octets,
         Target: Composer + Default,
     {
-        if let TransportSpecificContext::Udp(UdpSpecificTransportContext {
+        if let TransportSpecificContext::Udp(UdpTransportContext {
             max_response_size_hint: Some(max_response_size_hint),
         }) = request.transport()
         {
@@ -128,12 +147,12 @@ impl MandatoryMiddlewareProcessor {
 
                 let mut target = target.question();
                 for rr in source.question() {
-                    target.push(rr.unwrap()).unwrap(); // TODO: SAFETY
+                    target.push(rr?)?;
                 }
 
                 let mut target = target.additional();
                 if let Some(opt) = source.opt() {
-                    target.push(opt.as_record()).unwrap(); // TODO: SAFETY
+                    target.push(opt.as_record())?;
                 }
 
                 let new_len = target.as_slice().len();
@@ -142,6 +161,8 @@ impl MandatoryMiddlewareProcessor {
                 *response = target;
             }
         }
+
+        Ok(())
     }
 }
 
@@ -201,7 +222,11 @@ where
         request: &Request<Message<RequestOctets>>,
         response: &mut AdditionalBuilder<StreamTarget<Target>>,
     ) {
-        Self::truncate(request, response);
+        if let Err(err) = Self::truncate(request, response) {
+            error!("Error while truncating response: {err}");
+            *response = self.error_response(request, Rcode::ServFail);
+            return;
+        }
 
         // https://datatracker.ietf.org/doc/html/rfc1035#section-4.1.1
         // 4.1.1: Header section format
@@ -274,5 +299,42 @@ where
 impl Default for MandatoryMiddlewareProcessor {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+//------------ TruncateError -------------------------------------------------
+
+/// An error occured during oversize response truncation.
+enum TruncateError {
+    /// There was a problem parsing the request, specifically the question
+    /// section.
+    InvalidQuestion(ParseError),
+
+    /// There was a problem pushing to the response.
+    PushFailure(PushError),
+}
+
+impl Display for TruncateError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            TruncateError::InvalidQuestion(err) => {
+                write!(f, "Unable to parse question: {err}")
+            }
+            TruncateError::PushFailure(err) => {
+                write!(f, "Unable to push into response: {err}")
+            }
+        }
+    }
+}
+
+impl From<ParseError> for TruncateError {
+    fn from(err: ParseError) -> Self {
+        Self::InvalidQuestion(err)
+    }
+}
+
+impl From<PushError> for TruncateError {
+    fn from(err: PushError) -> Self {
+        Self::PushFailure(err)
     }
 }

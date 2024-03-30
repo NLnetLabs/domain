@@ -19,7 +19,12 @@ use crate::net::server::middleware::processor::MiddlewareProcessor;
 use crate::net::server::util::add_edns_options;
 use crate::net::server::util::{mk_builder_for_target, start_reply};
 
+/// The five minute period referred to by
+/// https://www.rfc-editor.org/rfc/rfc9018.html#section-4.3.
 const FIVE_MINUTES_AS_SECS: u32 = 5 * 60;
+
+/// The one hour period referred to by
+/// https://www.rfc-editor.org/rfc/rfc9018.html#section-4.3.
 const ONE_HOUR_AS_SECS: u32 = 60 * 60;
 
 /// A DNS Cookies [`MiddlewareProcessor`].
@@ -36,6 +41,7 @@ const ONE_HOUR_AS_SECS: u32 = 60 * 60;
 /// [`MiddlewareProcessor`]: crate::net::server::middleware::processor::MiddlewareProcessor
 #[derive(Debug)]
 pub struct CookiesMiddlewareProcessor {
+    /// A user supplied secret used in making the cookie value.
     server_secret: [u8; 16],
 
     /// Clients connecting from these IP addresses are exempted from the
@@ -49,7 +55,7 @@ pub struct CookiesMiddlewareProcessor {
 }
 
 impl CookiesMiddlewareProcessor {
-    /// Constructs an instance of this processor.
+    /// Creates an instance of this processor.
     #[must_use]
     pub fn new(server_secret: [u8; 16]) -> Self {
         Self {
@@ -96,11 +102,17 @@ impl CookiesMiddlewareProcessor {
 impl CookiesMiddlewareProcessor {
     /// Get the DNS COOKIE, if any, for the given message.
     ///
-    /// https://datatracker.ietf.org/doc/html/rfc7873#section-5.2:
-    /// Responding to a Request:
-    ///   "In all cases of multiple COOKIE options in a request, only the
-    ///   first (the one closest to the DNS header) is considered. All others
-    ///   are ignored."
+    /// https://datatracker.ietf.org/doc/html/rfc7873#section-5.2: Responding
+    /// to a Request: "In all cases of multiple COOKIE options in a request,
+    ///   only the first (the one closest to the DNS header) is considered.
+    ///   All others are ignored."
+    ///
+    /// Returns:
+    ///   - `None` if the request has no cookie,
+    ///   - Some(Ok(cookie)) if the request has a cookie in the correct
+    ///     format,
+    ///   - Some(Err(err)) if the request has a cookie that we could not
+    ///     parse.
     #[must_use]
     fn cookie<RequestOctets: Octets>(
         request: &Request<Message<RequestOctets>>,
@@ -115,6 +127,12 @@ impl CookiesMiddlewareProcessor {
             .and_then(|opt| opt.opt().iter::<opt::Cookie>().next())
     }
 
+    /// Check whether or not the given timestamp is okay.
+    ///
+    /// Returns true if the given timestamp is within the permitted difference
+    /// to now as specified by [RFC 9018 section 4.3].
+    ///
+    /// [RFC 9018 section 4.3]: https://www.rfc-editor.org/rfc/rfc9018.html#section-4.3
     #[must_use]
     fn timestamp_ok(serial: Serial) -> bool {
         // https://www.rfc-editor.org/rfc/rfc9018.html#section-4.3
@@ -131,6 +149,7 @@ impl CookiesMiddlewareProcessor {
         now <= expires_at && serial <= too_new_at
     }
 
+    /// Create a DNS response message for the given request, including cookie.
     fn response_with_cookie<RequestOctets, Target>(
         &self,
         request: &Request<Message<RequestOctets>>,
@@ -140,28 +159,32 @@ impl CookiesMiddlewareProcessor {
         RequestOctets: Octets,
         Target: Composer + OctetsBuilder + Default,
     {
-        let builder = start_reply(request);
+        let mut additional = start_reply(request).additional();
 
-        let cookie = Self::cookie(request).unwrap().unwrap().create_response(
-            Serial::now(),
-            request.client_addr().ip(),
-            &self.server_secret,
-        );
+        if let Some(Ok(client_cookie)) = Self::cookie(request) {
+            let response_cookie = client_cookie.create_response(
+                Serial::now(),
+                request.client_addr().ip(),
+                &self.server_secret,
+            );
 
-        // Note: if rcode is non-extended this will also correctly handle
-        // setting the rcode in the main message header.
-        let mut additional = builder.additional();
-        additional
-            .opt(|opt| {
-                opt.cookie(cookie)?;
+            // Note: if rcode is non-extended this will also correctly handle
+            // setting the rcode in the main message header.
+            if let Err(err) = additional.opt(|opt| {
+                opt.cookie(response_cookie)?;
                 opt.set_rcode(rcode);
                 Ok(())
-            })
-            .unwrap();
+            }) {
+                warn!("Failed to add cookie to response: {err}");
+            }
+        }
 
         additional
     }
 
+    /// Create a DNS error response message indicating that the client
+    /// supplied cookie is not okay.
+    ///
     /// Panics
     ///
     /// This function will panic if the given request does not include a DNS
@@ -190,6 +213,7 @@ impl CookiesMiddlewareProcessor {
         self.response_with_cookie(request, OptRcode::BadCookie)
     }
 
+    /// Create a DNS response to a client cookie prefetch request.
     #[must_use]
     fn prefetch_cookie_response<RequestOctets, Target>(
         &self,
@@ -213,6 +237,8 @@ impl CookiesMiddlewareProcessor {
         self.response_with_cookie(request, Rcode::NoError.into())
     }
 
+    /// Check the cookie contained in the request to make sure that it is
+    /// complete, and if so return the cookie to the caller.
     #[must_use]
     fn ensure_cookie_is_complete<Target: Octets>(
         &self,
@@ -239,7 +265,7 @@ impl CookiesMiddlewareProcessor {
 //--- Default
 
 impl Default for CookiesMiddlewareProcessor {
-    /// Constructs an instance of this processor with default configuration.
+    /// Creates an instance of this processor with default configuration.
     ///
     /// The processor will use a randomly generated server secret.
     fn default() -> Self {

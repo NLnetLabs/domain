@@ -61,15 +61,20 @@ std         = ["bytes?/std", "octseq/std", "time/std"]
 net         = ["bytes", "futures-util", "rand", "std", "tokio", "tokio-rustls"]
 tsig        = ["bytes", "ring", "smallvec"]
 validate    = ["std", "ring"]
-zonefile    = ["bytes", "std"]
+zonefile    = ["bytes", "serde", "std"]
 
 # Unstable features
-unstable-client-transport = [ "moka" ]
+unstable-client-transport = [ "moka", "tracing" ]
 unstable-server-transport = ["arc-swap", "chrono/clock", "hex", "libc", "tracing"]
 unstable-zonetree = ["futures", "parking_lot", "serde", "tokio", "tracing"]
 
 # Test features
-mock-time = ["mock_instant"]
+# Commented out as using --all-features to build would cause mock time to also
+# be used. We plan to move the test code under src/ and then use #[cfg(test)]
+# and this will no longer be needed. The cookies test that depends on this is
+# currently also disabled by being renamed to .rpl.not so it is okay to comment
+# this out.
+#mock-time = ["mock_instant"]
 
 [dev-dependencies]
 rstest       = "0.18.2"

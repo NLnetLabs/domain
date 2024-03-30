@@ -32,14 +32,13 @@ use tracing::{error, trace, trace_span};
 use crate::net::server::buf::BufSource;
 use crate::net::server::error::Error;
 use crate::net::server::metrics::ServerMetrics;
-use crate::net::server::middleware::chain::MiddlewareChain;
 use crate::net::server::service::Service;
 use crate::net::server::sock::AsyncAccept;
 use crate::utils::config::DefMinMax;
 
 use super::buf::VecBufSource;
 use super::connection::{self, Connection};
-use super::service::ServerCommand;
+use super::ServerCommand;
 use crate::base::wire::Composer;
 
 // TODO: Should this crate also provide a TLS listener implementation?
@@ -72,7 +71,7 @@ const MAX_CONCURRENT_TCP_CONNECTIONS: DefMinMax<usize> =
 
 //----------- Config ---------------------------------------------------------
 
-/// Configuration for a stream server connection.
+/// Configuration for a stream server.
 pub struct Config<RequestOctets, Target>
 where
     RequestOctets: Octets,
@@ -81,6 +80,8 @@ where
     /// Limit on the number of concurrent TCP connections that can be handled
     /// by the server.
     pub(super) max_concurrent_connections: usize,
+
+    /// Connection specific configuration.
     pub(super) connection_config: connection::Config<RequestOctets, Target>,
 }
 
@@ -103,10 +104,21 @@ where
     ///
     /// If the limit is hit, further connections will be accepted but closed
     /// immediately.
+    /// Limit on the number of concurrent TCP connections that can be handled
+    /// by the server.
+    ///
+    /// # Reconfigure
+    ///
+    /// On [`StreamServer::reconfigure()`] if there are more connections
+    /// currently than the new limit the exceess connections will be allowed
+    /// to complete normally, connections will NOT be terminated.
     pub fn set_max_concurrent_connections(&mut self, value: usize) {
         self.max_concurrent_connections = value;
     }
 
+    /// Connection specific configuration.
+    ///
+    /// See [`connection::Config`] for more information.
     pub fn set_connection_config(
         &mut self,
         connection_config: connection::Config<RequestOctets, Target>,
@@ -115,7 +127,7 @@ where
     }
 }
 
-//---Default
+//--- Default
 
 impl<RequestOctets, Target> Default for Config<RequestOctets, Target>
 where
@@ -131,7 +143,7 @@ where
     }
 }
 
-//---Clone
+//--- Clone
 
 impl<RequestOctets, Target> Clone for Config<RequestOctets, Target>
 where
@@ -148,10 +160,15 @@ where
 
 //------------ StreamServer --------------------------------------------------
 
+/// A [`ServerCommand`] capable of propagating a StreamServer [`Config`] value.
 type ServerCommandType<RequestOctets, Target> =
     ServerCommand<Config<RequestOctets, Target>>;
+
+/// A thread safe sender of [`ServerCommand`]s.
 type CommandSender<RequestOctets, Target> =
     Arc<Mutex<watch::Sender<ServerCommandType<RequestOctets, Target>>>>;
+
+/// A thread safe receiver of [`ServerCommand`]s.
 type CommandReceiver<RequestOctets, Target> =
     watch::Receiver<ServerCommandType<RequestOctets, Target>>;
 
@@ -159,7 +176,7 @@ type CommandReceiver<RequestOctets, Target> =
 /// [`Service`].
 ///
 /// [`StreamServer`] doesn't itself define how connections should be accepted,
-/// message buffers should be allocated, message lengths should be determined
+/// message buffers should be allocated,
 /// or how request messages should be received and responses sent. Instead it
 /// is generic over types that provide these abilities.
 ///
@@ -185,11 +202,16 @@ type CommandReceiver<RequestOctets, Target> =
 /// use std::boxed::Box;
 /// use std::future::{Future, Ready};
 /// use std::pin::Pin;
-/// use domain::net::server::buf::VecBufSource;
-/// use domain::net::server::prelude::*;
-/// use domain::net::server::middleware::builder::MiddlewareBuilder;
-/// use domain::net::server::stream::StreamServer;
+/// use std::sync::Arc;
+///
 /// use tokio::net::TcpListener;
+///
+/// use domain::base::Message;
+/// use domain::net::server::buf::VecBufSource;
+/// use domain::net::server::message::Request;
+/// use domain::net::server::service::{CallResult, ServiceError, Transaction};
+/// use domain::net::server::stream::StreamServer;
+/// use domain::net::server::util::service_fn;
 ///
 /// fn my_service(msg: Request<Message<Vec<u8>>>, _meta: ())
 /// -> Result<
@@ -215,14 +237,10 @@ type CommandReceiver<RequestOctets, Target> =
 ///     // Bind to a local port and listen for incoming TCP connections.
 ///     let listener = TcpListener::bind("127.0.0.1:8053").await.unwrap();
 ///
-///     // Create the server with default middleware.
-///     let middleware = MiddlewareBuilder::default().build();
-///
 ///     // Create a server that will accept those connections and pass
 ///     // received messages to your service and in turn pass generated
 ///     // responses back to the client.
-///     let srv = Arc::new(StreamServer::new(listener, VecBufSource, svc)
-///         .with_middleware(middleware));
+///     let srv = Arc::new(StreamServer::new(listener, VecBufSource, svc));
 ///
 ///     // Run the server.
 ///     let spawned_srv = srv.clone();
@@ -276,12 +294,12 @@ where
     /// An optional pre-connect hook.
     pre_connect_hook: Option<fn(&mut Listener::StreamType)>,
 
-    middleware_chain: Option<MiddlewareChain<Buf::Output, Svc::Target>>,
+    /// An ascending "ID" number assigned incrementally to newly accepted
+    /// connections.
+    connection_idx: AtomicUsize,
 
     /// [`ServerMetrics`] describing the status of the server.
     metrics: Arc<ServerMetrics>,
-
-    connection_idx: AtomicUsize,
 }
 
 /// # Creation
@@ -293,7 +311,7 @@ where
     Buf::Output: Octets + Send + Sync + 'static,
     Svc: Service<Buf::Output> + Send + Sync + 'static + Clone,
 {
-    /// Constructs a new [`StreamServer`] instance.
+    /// Creates a new [`StreamServer`] instance.
     ///
     /// Takes:
     /// - A listener which must implement [`AsyncAccept`] and is responsible
@@ -305,6 +323,7 @@ where
         Self::with_config(listener, buf, service, Config::default())
     }
 
+    /// Creates a new [`StreamServer`] instance with a given configuration.
     #[must_use]
     pub fn with_config(
         listener: Listener,
@@ -326,20 +345,9 @@ where
             buf,
             service,
             pre_connect_hook: None,
-            middleware_chain: None,
             metrics,
             connection_idx: AtomicUsize::new(0),
         }
-    }
-
-    /// Configure the [`StreamServer`] to process messages via a [`MiddlewareChain`].
-    #[must_use]
-    pub fn with_middleware(
-        mut self,
-        middleware_chain: MiddlewareChain<Buf::Output, Svc::Target>,
-    ) -> Self {
-        self.middleware_chain = Some(middleware_chain);
-        self
     }
 
     /// Specify a pre-connect hook to be invoked by the given
@@ -423,14 +431,15 @@ where
 
     /// Reconfigure the server while running.
     ///
-    ///
+    /// This command will be received both by the server and by any existing
+    /// connections.
     pub fn reconfigure(
         &self,
         config: Config<Buf::Output, Svc::Target>,
     ) -> Result<(), Error> {
         self.command_tx
             .lock()
-            .unwrap()
+            .map_err(|_| Error::CommandCouldNotBeSent)?
             .send(ServerCommand::Reconfigure(config))
             .map_err(|_| Error::CommandCouldNotBeSent)
     }
@@ -451,7 +460,7 @@ where
     pub fn shutdown(&self) -> Result<(), Error> {
         self.command_tx
             .lock()
-            .unwrap()
+            .map_err(|_| Error::CommandCouldNotBeSent)?
             .send(ServerCommand::Shutdown)
             .map_err(|_| Error::CommandCouldNotBeSent)
     }
@@ -495,8 +504,6 @@ where
     Svc: Service<Buf::Output> + Send + Sync + 'static + Clone,
 {
     /// Accept stream connections until shutdown or fatal error.
-    ///
-    // TODO: Use a strongly typed error, not String.
     async fn run_until_error(&self) -> Result<(), String>
     where
         Svc::Future: Send,
@@ -511,7 +518,7 @@ where
                 // First, prefer obeying [`ServerCommands`] over everything
                 // else.
                 res = command_rx.changed() => {
-                    self.process_service_command(res, &mut command_rx)?;
+                    self.process_server_command(res, &mut command_rx)?;
                 }
 
                 // Next, handle a connection that has been accepted, if any.
@@ -523,7 +530,7 @@ where
                             // unwrap.
                             let num_conn = self.metrics.num_connections().unwrap();
                             if num_conn < self.config.load().max_concurrent_connections {
-                                self.process_new_connection(stream, addr);
+                                self.spawn_connection_handler(stream, addr);
                             }
                         }
 
@@ -536,7 +543,8 @@ where
         }
     }
 
-    fn process_service_command(
+    /// Decide what to do with a received [`ServerCommand`].
+    fn process_server_command(
         &self,
         res: Result<(), watch::error::RecvError>,
         command_rx: &mut watch::Receiver<
@@ -587,9 +595,10 @@ where
         Ok(())
     }
 
-    fn process_new_connection(
+    /// Spawn a handler for a newly accepted connection.
+    fn spawn_connection_handler(
         &self,
-        stream: Listener::Stream,
+        stream: Listener::Future,
         addr: SocketAddr,
     ) where
         Buf::Output: Octets,
@@ -640,10 +649,11 @@ where
 
     /// Wait for and accept a single stream connection.
     ///
-    /// TODO: This may be obsoleted when Rust gains more support for async fns in traits.
+    /// TODO: This may be obsoleted when Rust gains more support for async fns
+    /// in traits.
     async fn accept(
         &self,
-    ) -> Result<(Listener::Stream, SocketAddr), io::Error> {
+    ) -> Result<(Listener::Future, SocketAddr), io::Error> {
         poll_fn(|ctx| self.listener.poll_accept(ctx)).await
     }
 }

@@ -1,7 +1,7 @@
 //! Request pre-processing and response post-processing.
 //!
 //! Middleware sits in the middle between the server nearest the client and
-//! the [`Service`] that implements the business logic.
+//! the [`Service`] that implements the application logic.
 //!
 //! Middleware pre-processes requests and post-processes responses to
 //! filter/reject/modify them according to policy and standards.
@@ -16,7 +16,7 @@
 //! chain starting from [`MiddlewareBuilder::default()`].
 //!
 //! A selection of additional functionality relating to server behaviour and
-//! DNS standards (as opposed to your own business logic) is provided which
+//! DNS standards (as opposed to your own application logic) is provided which
 //! you can incorporate into your DNS server via
 //! [`MiddlewareBuilder::push()`]. See the various implementations of
 //! [`MiddlewareProcessor`] for more information.

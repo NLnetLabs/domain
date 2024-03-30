@@ -2,13 +2,16 @@
     not(feature = "unstable-server-transport"),
     doc = " The `unstable-server-transport` feature is necessary to enable this module."
 )]
+#![warn(missing_docs)]
+#![warn(clippy::missing_docs_in_private_items)]
 //! Receiving requests and sending responses.
 //!
 //! This module provides skeleton asynchronous server implementations based on
 //! the [Tokio](https://tokio.rs/) async runtime. In combination with an
 //! appropriate network source, optional [`MiddlewareChain`] and your own
 //! [`Service`] implementation they can be used to run a standards compliant
-//! DNS server that answers requests based on the business logic you specify.
+//! DNS server that answers requests based on the application logic you
+//! specify.
 //!
 //! # Architecture
 //!
@@ -87,7 +90,7 @@
 //! [Middleware] provides a means to add logic for request pre-processing and
 //! response post-processing which doesn't belong in the outermost transport
 //! specific layer of a server nor does it constitute part of the core
-//! business logic of the application.
+//! application logic.
 //!
 //! With Middleware mandatory functionality and logic required by all
 //! standards compliant DNS servers can be incorporated into your server by
@@ -104,12 +107,12 @@
 //! you can implement [`MiddlewareProcessor`] yourself to add your own pre-
 //! and post- processing stages into your DNS server.
 //!
-//! ## Business logic
+//! ## Application logic
 //!
 //! With the basic work of handling DNS requests and responses taken care of,
-//! the actual business logic that differentiates your DNS server from other
-//! DNS servers is left for you to define by implementing the [`Service`]
-//! trait.
+//! the actual application logic that differentiates your DNS server from
+//! other DNS servers is left for you to define by implementing the
+//! [`Service`] trait.
 //!
 //! # Advanced
 //!
@@ -128,7 +131,7 @@
 //!
 //! ## Performance
 //!
-//! Both [`DgramServer`] and [`StreamServer`] use [`MessageProcessor`] to
+//! Both [`DgramServer`] and [`StreamServer`] use [`CommonMessageFlow`] to
 //! pre-process the request, invoke [`Service::call()`], and post-process the
 //! response.
 //!
@@ -179,7 +182,7 @@
 //! [`AsyncDgramSock`]: sock::AsyncDgramSock
 //! [`BufSource`]: buf::BufSource
 //! [`DgramServer`]: dgram::DgramServer
-//! [`MessageProcessor`]: message::MessageProcessor
+//! [`CommonMessageFlow`]: message::CommonMessageFlow
 //! [Middleware]: middleware
 //! [`MiddlewareBuilder::default()`]:
 //!     middleware::builder::MiddlewareBuilder::default()
@@ -189,7 +192,6 @@
 //! [`MiddlewareProcessor`]: middleware::processor::MiddlewareProcessor
 //! [`Service`]: service::Service
 //! [`Service::call()`]: service::Service::call()
-//! [`ServerCommand::Reconfigure`]: service::ServerCommand::Reconfigure
 //! [`StreamServer`]: stream::StreamServer
 //! [`TcpServer`]: stream::TcpServer
 //! [`UdpServer`]: dgram::UdpServer
@@ -206,7 +208,6 @@
 
 #![cfg(feature = "unstable-server-transport")]
 #![cfg_attr(docsrs, doc(cfg(feature = "unstable-server-transport")))]
-// #![warn(missing_docs)]
 
 mod connection;
 pub use connection::Config as ConnectionConfig;
@@ -225,21 +226,24 @@ pub mod util;
 #[cfg(test)]
 pub mod tests;
 
-/// A Rust module for importing the types needed to create a [`Service`].
-///
-/// [`Service`]: crate::net::server::service::Service
-pub mod prelude {
-    pub use core::fmt::Debug;
+//------------ ServerCommand ------------------------------------------------
 
-    pub use std::sync::Arc;
+/// Command a server to do something.
+#[derive(Copy, Clone, Debug)]
+pub enum ServerCommand<T: Sized> {
+    #[doc(hidden)]
+    /// This command is for internal use only.
+    Init,
 
-    pub use crate::base::wire::Composer;
-    pub use crate::base::Message;
-    pub use crate::dep::octseq::OctetsBuilder;
-    pub use crate::dep::octseq::{FreezeBuilder, Octets};
-    pub use crate::net::server::message::Request;
-    pub use crate::net::server::service::{
-        CallResult, Service, ServiceError, ServiceFeedback, Transaction,
-    };
-    pub use crate::net::server::util::{mk_builder_for_target, service_fn};
+    /// Command the server to alter its configuration.
+    Reconfigure(T),
+
+    /// Command the connection handler to terminate.
+    ///
+    /// This command is only for connection handlers for connection-oriented
+    /// transport protocols, it should be ignored by servers.
+    CloseConnection,
+
+    /// Command the server to terminate.
+    Shutdown,
 }

@@ -17,7 +17,6 @@ use octseq::Octets;
 use std::boxed::Box;
 use std::fmt::Debug;
 use std::future::Future;
-use std::net::SocketAddr;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::vec::Vec;
@@ -46,14 +45,6 @@ pub trait ComposeRequest: Debug + Send + Sync {
 
     /// Set the UDP payload size.
     fn set_udp_payload_size(&mut self, value: u16);
-
-    /// Get the source address
-    fn source_address(&self) -> Option<SocketAddr> {
-        None
-    }
-
-    /// Set the source address.
-    fn set_source_address(&mut self, _addr: SocketAddr) {}
 
     /// Set the DNSSEC OK flag.
     fn set_dnssec_ok(&mut self, value: bool);
@@ -117,9 +108,6 @@ pub struct RequestMessage<Octs: AsRef<[u8]>> {
 
     /// The OPT record to add if required.
     opt: Option<OptRecord<Vec<u8>>>,
-
-    /// The source address.
-    source_address: Option<SocketAddr>,
 }
 
 impl<Octs: AsRef<[u8]> + Debug + Octets> RequestMessage<Octs> {
@@ -131,7 +119,6 @@ impl<Octs: AsRef<[u8]> + Debug + Octets> RequestMessage<Octs> {
             msg,
             header,
             opt: None,
-            source_address: None,
         }
     }
 
@@ -242,14 +229,6 @@ impl<Octs: AsRef<[u8]> + Clone + Debug + Octets + Send + Sync + 'static>
 
     fn set_udp_payload_size(&mut self, value: u16) {
         self.opt_mut().set_udp_payload_size(value);
-    }
-
-    fn source_address(&self) -> Option<SocketAddr> {
-        self.source_address
-    }
-
-    fn set_source_address(&mut self, addr: SocketAddr) {
-        self.source_address = Some(addr);
     }
 
     fn set_dnssec_ok(&mut self, value: bool) {

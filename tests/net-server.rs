@@ -4,37 +4,45 @@ mod net;
 use std::collections::VecDeque;
 use std::fs::File;
 use std::future::Future;
-use std::net::{IpAddr, SocketAddr};
+use std::net::IpAddr;
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::Duration;
 
-use net::stelline::client::ClientFactory;
-use net::stelline::parse_stelline::Config;
+use octseq::Octets;
 use rstest::rstest;
 use tracing::instrument;
 use tracing::{trace, warn};
 
 use domain::base::iana::Rcode;
-use domain::base::{Dname, ToDname};
+use domain::base::wire::Composer;
+use domain::base::{Dname, Message, ToDname};
 use domain::net::client::{dgram, stream};
 use domain::net::server::buf::VecBufSource;
 use domain::net::server::dgram::DgramServer;
+use domain::net::server::message::Request;
 use domain::net::server::middleware::builder::MiddlewareBuilder;
+#[cfg(feature = "siphasher")]
 use domain::net::server::middleware::processors::cookies::CookiesMiddlewareProcessor;
 use domain::net::server::middleware::processors::edns::EdnsMiddlewareProcessor;
 use domain::net::server::middleware::processors::edns::EDNS_VERSION_ZERO;
-use domain::net::server::prelude::*;
+use domain::net::server::service::{
+    CallResult, Service, ServiceError, Transaction,
+};
 use domain::net::server::stream::StreamServer;
+use domain::net::server::util::{mk_builder_for_target, service_fn};
 use domain::zonefile::inplace::{Entry, ScannedRecord, Zonefile};
 
-use crate::net::stelline::channel::ClientServerChannel;
-use crate::net::stelline::client::do_client;
-use crate::net::stelline::client::{
+use net::stelline::channel::ClientServerChannel;
+use net::stelline::client::do_client;
+use net::stelline::client::ClientFactory;
+use net::stelline::client::{
     CurrStepValue, PerClientAddressClientFactory, QueryTailoredClientFactory,
 };
-use crate::net::stelline::parse_stelline;
-use crate::net::stelline::parse_stelline::parse_file;
-use crate::net::stelline::parse_stelline::Matches;
+use net::stelline::parse_stelline;
+use net::stelline::parse_stelline::parse_file;
+use net::stelline::parse_stelline::Config;
+use net::stelline::parse_stelline::Matches;
 
 //----------- Tests ----------------------------------------------------------
 
@@ -42,7 +50,8 @@ use crate::net::stelline::parse_stelline::Matches;
 ///
 /// Note: Adding or removing .rpl files on disk won't be detected until the
 /// test is re-compiled.
-#[cfg(feature = "mock-time")]
+// #[cfg(feature = "mock-time")] # Needed for the cookies test but that is
+// currently disabled by renaming it to .rpl.not.
 #[instrument(skip_all, fields(rpl = rpl_file.file_name().unwrap().to_str()))]
 #[rstest]
 #[tokio::test(start_paused = true)]
@@ -145,9 +154,8 @@ fn mk_client_factory(
     };
 
     let tcp_client_factory = PerClientAddressClientFactory::new(
-        move |client_addr| {
-            let client_addr = SocketAddr::new(*client_addr, 0);
-            let stream = stream_server_conn.connect(client_addr);
+        move |_source_addr| {
+            let stream = stream_server_conn.connect();
             let (conn, transport) = stream::Connection::new(stream);
             tokio::spawn(transport.run());
             Box::new(conn)

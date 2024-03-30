@@ -1,8 +1,9 @@
-//! The business logic of a DNS server.
+//! The application logic of a DNS server.
 //!
 //! The [`Service::call()`] function defines how the service should respond to
-//! a given DNS request. resulting in a transaction that yields one or more
-//! future DNS responses, and/or a [`ServerCommand`].
+//! a given DNS request. resulting in a [`Transaction`] containing a
+//! transaction that yields one or more future DNS responses, and/or a
+//! [`ServiceFeedback`].
 use core::fmt::Display;
 use core::ops::Deref;
 
@@ -53,23 +54,29 @@ use super::message::Request;
 ///   2. Define a function compatible with the [`Service`] trait.
 ///   3. Define a function compatible with [`service_fn()`].
 ///
+/// <div class="warning">
+///
 /// Whichever approach you choose it is important to minimize the work done
 /// before returning from [`Service::call()`], as time spent here blocks the
 /// caller. Instead as much work as possible should be delegated to the
 /// futures returned as a [`Transaction`].
+///
+/// </div>
 ///
 /// # Implementing the [`Service`] trait on a `struct`
 ///
 /// ```
 /// use core::future::ready;
 /// use core::future::Ready;
-/// use domain::base::iana::Class;
-/// use domain::base::iana::Rcode;
+///
+/// use domain::base::iana::{Class, Rcode};
 /// use domain::base::message_builder::AdditionalBuilder;
-/// use domain::base::Dname;
-/// use domain::base::MessageBuilder;
-/// use domain::base::StreamTarget;
-/// use domain::net::server::prelude::*;
+/// use domain::base::{Dname, Message, MessageBuilder, StreamTarget};
+/// use domain::net::server::message::Request;
+/// use domain::net::server::service::{
+///     CallResult, Service, ServiceError, Transaction
+/// };
+/// use domain::net::server::util::mk_builder_for_target;
 /// use domain::rdata::A;
 ///
 /// fn mk_answer(
@@ -95,7 +102,8 @@ use super::message::Request;
 ///     fn call(
 ///         &self,
 ///         msg: Request<Message<Vec<u8>>>,
-///     ) -> Result<Transaction<Vec<u8>, Self::Target, Self::Future>,
+///     ) -> Result<
+///         Transaction<Vec<u8>, Self::Target, Self::Future>,
 ///         ServiceError,
 ///     > {
 ///         let builder = mk_builder_for_target();
@@ -110,13 +118,18 @@ use super::message::Request;
 /// # Define a function compatible with the [`Service`] trait
 ///
 /// ```
+/// use core::fmt::Debug;
 /// use core::future::ready;
 /// use core::future::Future;
-/// use domain::base::iana::Class;
-/// use domain::base::iana::Rcode;
+///
+/// use domain::base::{Dname, Message};
+/// use domain::base::iana::{Class, Rcode};
 /// use domain::base::name::ToLabelIter;
-/// use domain::base::Dname;
-/// use domain::net::server::prelude::*;
+/// use domain::base::wire::Composer;
+/// use domain::dep::octseq::{OctetsBuilder, FreezeBuilder, Octets};
+/// use domain::net::server::message::Request;
+/// use domain::net::server::service::{CallResult, ServiceError, Transaction};
+/// use domain::net::server::util::mk_builder_for_target;
 /// use domain::rdata::A;
 ///
 /// fn name_to_ip<Target>(
@@ -134,7 +147,7 @@ use super::message::Request;
 /// >
 /// where
 ///     Target: Composer + Octets + FreezeBuilder<Octets = Target> + Default + Send,
-///     <Target as octseq::OctetsBuilder>::AppendError: Debug,
+///     <Target as OctetsBuilder>::AppendError: Debug,
 /// {
 ///     let mut out_answer = None;
 ///     if let Ok(question) = msg.message().sole_question() {
@@ -193,7 +206,7 @@ use super::message::Request;
 /// [`call()`]: Self::call()
 /// [`service_fn()`]: crate::net::server::util::service_fn()
 pub trait Service<RequestOctets: AsRef<[u8]> = Vec<u8>> {
-    /// The type of buffer to store the output messages in.
+    /// The type of buffer in which response messages are stored.
     type Target: Composer + Default + Send + Sync + 'static;
 
     /// The type of future returned by [`Service::call()`] via
@@ -280,6 +293,7 @@ pub enum ServiceError {
 }
 
 impl ServiceError {
+    /// The DNS RCODE to send back to the client for this error.
     pub fn rcode(&self) -> Rcode {
         match self {
             Self::FormatError => Rcode::FormErr,
@@ -319,44 +333,24 @@ impl From<ParseError> for ServiceError {
     }
 }
 
-//------------ ServerCommand ------------------------------------------------
-
-/// Command a server to do something.
-#[derive(Copy, Clone, Debug)]
-pub enum ServerCommand<T: Sized> {
-    #[doc(hidden)]
-    /// This command is for internal use only.
-    Init,
-
-    /// Command the server to alter its configuration.
-    Reconfigure(T),
-
-    /// Command the connection handler to terminate.
-    ///
-    /// This command is only for connection handlers for connection-oriented
-    /// transport protocols, it should be ignored by servers.
-    CloseConnection,
-
-    /// Command the server to terminate.
-    Shutdown,
-}
-
 //------------ ServiceFeedback -----------------------------------------------
 
 /// Feedback from a [`Service`] to a server asking it to do something.
 #[derive(Copy, Clone, Debug)]
 pub enum ServiceFeedback {
-    /// Ask the server to alter its configuration.
-    Reconfigure { idle_timeout: Duration },
+    /// Ask the server to alter its configuration. For connection-oriented
+    /// servers the changes will only apply to the current connection.
+    Reconfigure {
+        /// If `Some`, the new idle timeout the [`Service`] would like the
+        /// server to use.
+        idle_timeout: Option<Duration>,
+    },
 
     /// Ask the connection handler to terminate.
     ///
     /// This command is only applicable to connection-oriented
     /// transport protocols.
     CloseConnection,
-
-    /// Ask the server to shutdown.
-    Shutdown,
 }
 
 //------------ CallResult ----------------------------------------------------
@@ -368,7 +362,7 @@ pub enum ServiceFeedback {
 /// In most cases a [`CallResult`] will be a DNS response message.
 ///
 /// If needed a [`CallResult`] can instead, or additionally, contain a
-/// [`ServerCommand`] directing the server or connection handler handling the
+/// [`ServiceFeedback`] directing the server or connection handler handling the
 /// request to adjust its own configuration, or even to terminate the
 /// connection.
 #[derive(Clone, Debug)]
@@ -376,13 +370,15 @@ pub struct CallResult<RequestOctets, Target>
 where
     RequestOctets: AsRef<[u8]>,
 {
+    /// The request that this result relates to, if any.
     request: Option<Request<Message<RequestOctets>>>,
+
+    /// Optional response to send back to the client.
     response: Option<AdditionalBuilder<StreamTarget<Target>>>,
+
+    /// Optioanl feedback from the [`Service`] to the server.
     feedback: Option<ServiceFeedback>,
 }
-
-type RequestMsg<RequestOctets> = Request<Message<RequestOctets>>;
-type ResponseMsg<Target> = AdditionalBuilder<StreamTarget<Target>>;
 
 impl<RequestOctets, Target> CallResult<RequestOctets, Target>
 where
@@ -443,11 +439,12 @@ where
 
     /// Convert the [`CallResult`] into the contained DNS response message and command.
     #[must_use]
+    #[allow(clippy::type_complexity)]
     pub fn into_inner(
         self,
     ) -> (
-        Option<RequestMsg<RequestOctets>>,
-        Option<ResponseMsg<Target>>,
+        Option<Request<Message<RequestOctets>>>,
+        Option<AdditionalBuilder<StreamTarget<Target>>>,
         Option<ServiceFeedback>,
     ) {
         let CallResult {
@@ -487,80 +484,6 @@ where
     Future: std::future::Future<
         Output = Result<CallResult<RequestOctets, Target>, ServiceError>,
     >;
-
-/// A stream of zero or more DNS response futures relating to a single DNS request.
-pub struct TransactionStream<Item> {
-    stream: FuturesOrdered<Pin<Box<dyn Future<Output = Item> + Send>>>,
-}
-
-impl<Item> TransactionStream<Item> {
-    /// Add a response future to a transaction stream.
-    pub fn push<T: Future<Output = Item> + Send + 'static>(
-        &mut self,
-        fut: T,
-    ) {
-        self.stream.push_back(fut.boxed());
-    }
-
-    async fn next(&mut self) -> Option<Item> {
-        self.stream.next().await
-    }
-}
-
-impl<Item> Default for TransactionStream<Item> {
-    fn default() -> Self {
-        Self {
-            stream: Default::default(),
-        }
-    }
-}
-
-impl<Item> std::fmt::Debug for TransactionStream<Item> {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.debug_struct("TransactionStream").finish()
-    }
-}
-
-type Stream<RequestOctets, Target> = TransactionStream<
-    Result<CallResult<RequestOctets, Target>, ServiceError>,
->;
-
-enum TransactionInner<RequestOctets, Target, Future>
-where
-    RequestOctets: AsRef<[u8]>,
-    Future: std::future::Future<
-        Output = Result<CallResult<RequestOctets, Target>, ServiceError>,
-    >,
-{
-    /// The transaction will result in a single immediate response.
-    ///
-    /// This variant is for internal use only when aborting Middleware
-    /// processing early.
-    Immediate(
-        Option<Result<CallResult<RequestOctets, Target>, ServiceError>>,
-    ),
-
-    /// The transaction will result in at most a single response future.
-    Single(Option<Future>),
-
-    /// The transaction will result in stream of multiple response futures.
-    PendingStream(
-        Pin<
-            Box<
-                dyn std::future::Future<
-                        Output = Stream<RequestOctets, Target>,
-                    > + Send,
-            >,
-        >,
-    ),
-
-    /// The transaction is a stream of multiple response futures.
-    Stream(
-        TransactionStream<
-            Result<CallResult<RequestOctets, Target>, ServiceError>,
-        >,
-    ),
-}
 
 impl<RequestOctets, Target, Future> Transaction<RequestOctets, Target, Future>
 where
@@ -633,5 +556,93 @@ where
 
             TransactionInner::Stream(stream) => stream.next().await,
         }
+    }
+}
+
+//------------ TransactionInner ----------------------------------------------
+
+/// Private inner details of the [`Transaction`] type.
+///
+/// This type exists to (a) hide the `Immediate` variant from the consumer of
+/// this library as it is for internal use only and not something a
+/// [`Service`] impl should return, and (b) to control the interface offered
+/// to consumers of this type and avoid them having to work with the enum
+/// variants directly.
+enum TransactionInner<RequestOctets, Target, Future>
+where
+    RequestOctets: AsRef<[u8]>,
+    Future: std::future::Future<
+        Output = Result<CallResult<RequestOctets, Target>, ServiceError>,
+    >,
+{
+    /// The transaction will result in a single immediate response.
+    ///
+    /// This variant is for internal use only when aborting Middleware
+    /// processing early.
+    Immediate(
+        Option<Result<CallResult<RequestOctets, Target>, ServiceError>>,
+    ),
+
+    /// The transaction will result in at most a single response future.
+    Single(Option<Future>),
+
+    /// The transaction will result in stream of multiple response futures.
+    PendingStream(
+        Pin<
+            Box<
+                dyn std::future::Future<
+                        Output = Stream<RequestOctets, Target>,
+                    > + Send,
+            >,
+        >,
+    ),
+
+    /// The transaction is a stream of multiple response futures.
+    Stream(
+        TransactionStream<
+            Result<CallResult<RequestOctets, Target>, ServiceError>,
+        >,
+    ),
+}
+
+//------------ TransacationStream --------------------------------------------
+
+type Stream<RequestOctets, Target> = TransactionStream<
+    Result<CallResult<RequestOctets, Target>, ServiceError>,
+>;
+
+/// A stream of zero or more DNS response futures relating to a single DNS request.
+pub struct TransactionStream<Item> {
+    /// An ordered sequence of futures that will resolve to responses to be
+    /// sent back to the client.
+    stream: FuturesOrdered<Pin<Box<dyn Future<Output = Item> + Send>>>,
+}
+
+impl<Item> TransactionStream<Item> {
+    /// Add a response future to a transaction stream.
+    pub fn push<T: Future<Output = Item> + Send + 'static>(
+        &mut self,
+        fut: T,
+    ) {
+        self.stream.push_back(fut.boxed());
+    }
+
+    /// Fetch the next message from the stream, if any.
+    async fn next(&mut self) -> Option<Item> {
+        self.stream.next().await
+    }
+}
+
+impl<Item> Default for TransactionStream<Item> {
+    fn default() -> Self {
+        Self {
+            stream: Default::default(),
+        }
+    }
+}
+
+impl<Item> std::fmt::Debug for TransactionStream<Item> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("TransactionStream").finish()
     }
 }

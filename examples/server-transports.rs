@@ -1,6 +1,7 @@
 use core::future::ready;
 
 use core::fmt;
+use core::fmt::Debug;
 use core::future::{Future, Ready};
 use core::ops::ControlFlow;
 use core::sync::atomic::{AtomicBool, AtomicU8, Ordering};
@@ -11,8 +12,10 @@ use std::io;
 use std::io::BufReader;
 use std::net::SocketAddr;
 use std::path::Path;
+use std::sync::Arc;
 use std::sync::RwLock;
 
+use octseq::{FreezeBuilder, Octets};
 use rustls_pemfile::{certs, rsa_private_keys};
 use tokio::net::{TcpListener, TcpSocket, TcpStream, UdpSocket};
 use tokio::time::Instant;
@@ -24,18 +27,24 @@ use tracing_subscriber::EnvFilter;
 use domain::base::iana::{Class, Rcode};
 use domain::base::message_builder::{AdditionalBuilder, PushError};
 use domain::base::name::ToLabelIter;
-use domain::base::{Dname, MessageBuilder, StreamTarget};
+use domain::base::wire::Composer;
+use domain::base::{Dname, Message, MessageBuilder, StreamTarget};
 use domain::net::server::buf::VecBufSource;
 use domain::net::server::dgram;
 use domain::net::server::dgram::DgramServer;
+use domain::net::server::message::Request;
 use domain::net::server::middleware::builder::MiddlewareBuilder;
 use domain::net::server::middleware::processor::MiddlewareProcessor;
+#[cfg(feature = "siphasher")]
 use domain::net::server::middleware::processors::cookies::CookiesMiddlewareProcessor;
 use domain::net::server::middleware::processors::mandatory::MandatoryMiddlewareProcessor;
-use domain::net::server::prelude::*;
+use domain::net::server::service::{
+    CallResult, Service, ServiceError, ServiceFeedback, Transaction,
+};
 use domain::net::server::sock::AsyncAccept;
 use domain::net::server::stream;
 use domain::net::server::stream::StreamServer;
+use domain::net::server::util::{mk_builder_for_target, service_fn};
 use domain::net::server::ConnectionConfig;
 use domain::rdata::A;
 
@@ -185,11 +194,13 @@ fn query(
         eprintln!("Sleeping for 100ms");
         tokio::time::sleep(Duration::from_millis(100)).await;
 
-        // TODO: business logic of processing the request
-        // and generating an answer.
+        // Note: A real service would have application logic here to process
+        // the request and generate an response.
 
         let idle_timeout = Duration::from_millis((50 * cnt).into());
-        let cmd = ServiceFeedback::Reconfigure { idle_timeout };
+        let cmd = ServiceFeedback::Reconfigure {
+            idle_timeout: Some(idle_timeout),
+        };
         eprintln!("Setting idle timeout to {idle_timeout:?}");
 
         let builder = mk_builder_for_target();
@@ -221,12 +232,12 @@ impl DoubleListener {
 impl AsyncAccept for DoubleListener {
     type Error = io::Error;
     type StreamType = TcpStream;
-    type Stream = Ready<Result<Self::StreamType, io::Error>>;
+    type Future = Ready<Result<Self::StreamType, io::Error>>;
 
     fn poll_accept(
         &self,
         cx: &mut Context,
-    ) -> Poll<Result<(Self::Stream, SocketAddr), io::Error>> {
+    ) -> Poll<Result<(Self::Future, SocketAddr), io::Error>> {
         let (x, y) = match self.alt.fetch_xor(true, Ordering::SeqCst) {
             false => (&self.a, &self.b),
             true => (&self.b, &self.a),
@@ -264,12 +275,12 @@ impl std::ops::Deref for LocalTfoListener {
 impl AsyncAccept for LocalTfoListener {
     type Error = io::Error;
     type StreamType = TfoStream;
-    type Stream = Ready<Result<Self::StreamType, io::Error>>;
+    type Future = Ready<Result<Self::StreamType, io::Error>>;
 
     fn poll_accept(
         &self,
         cx: &mut Context,
-    ) -> Poll<Result<(Self::Stream, SocketAddr), io::Error>> {
+    ) -> Poll<Result<(Self::Future, SocketAddr), io::Error>> {
         TfoListener::poll_accept(self, cx)
             .map(|res| res.map(|(stream, addr)| (ready(Ok(stream)), addr)))
     }
@@ -296,12 +307,12 @@ impl std::ops::Deref for BufferedTcpListener {
 impl AsyncAccept for BufferedTcpListener {
     type Error = io::Error;
     type StreamType = tokio::io::BufReader<TcpStream>;
-    type Stream = Ready<Result<Self::StreamType, io::Error>>;
+    type Future = Ready<Result<Self::StreamType, io::Error>>;
 
     fn poll_accept(
         &self,
         cx: &mut Context,
-    ) -> Poll<Result<(Self::Stream, SocketAddr), io::Error>> {
+    ) -> Poll<Result<(Self::Future, SocketAddr), io::Error>> {
         match TcpListener::poll_accept(self, cx) {
             Poll::Ready(Ok((stream, addr))) => {
                 let stream = tokio::io::BufReader::new(stream);
@@ -332,13 +343,13 @@ impl RustlsTcpListener {
 impl AsyncAccept for RustlsTcpListener {
     type Error = io::Error;
     type StreamType = tokio_rustls::server::TlsStream<TcpStream>;
-    type Stream = tokio_rustls::Accept<TcpStream>;
+    type Future = tokio_rustls::Accept<TcpStream>;
 
     #[allow(clippy::type_complexity)]
     fn poll_accept(
         &self,
         cx: &mut Context,
-    ) -> Poll<Result<(Self::Stream, SocketAddr), io::Error>> {
+    ) -> Poll<Result<(Self::Future, SocketAddr), io::Error>> {
         TcpListener::poll_accept(&self.listener, cx).map(|res| {
             res.map(|(stream, addr)| (self.acceptor.accept(stream), addr))
         })
@@ -365,7 +376,7 @@ pub struct StatsMiddlewareProcessor {
 }
 
 impl StatsMiddlewareProcessor {
-    /// Constructs an instance of this processor.
+    /// Creates an instance of this processor.
     #[must_use]
     pub fn new() -> Self {
         Default::default()
@@ -475,15 +486,11 @@ async fn main() {
     // Run a DNS server on UDP port 8053 on 127.0.0.1. Test it like so:
     //    dig +short -4 @127.0.0.1 -p 8053 A google.com
     let udpsocket = UdpSocket::bind("127.0.0.1:8053").await.unwrap();
-    let buf_source = Arc::new(VecBufSource);
+    let buf = Arc::new(VecBufSource);
     let mut config = dgram::Config::default();
     config.set_middleware_chain(middleware.clone());
-    let srv = DgramServer::with_config(
-        udpsocket,
-        buf_source.clone(),
-        name_to_ip,
-        config,
-    );
+    let srv =
+        DgramServer::with_config(udpsocket, buf.clone(), name_to_ip, config);
 
     let udp_join_handle = tokio::spawn(async move { srv.run().await });
 
@@ -494,14 +501,14 @@ async fn main() {
     v4socket.set_reuseaddr(true).unwrap();
     v4socket.bind("127.0.0.1:8053".parse().unwrap()).unwrap();
     let v4listener = v4socket.listen(1024).unwrap();
-    let buf_source = Arc::new(VecBufSource);
+    let buf = Arc::new(VecBufSource);
     let mut conn_config = ConnectionConfig::default();
     conn_config.set_middleware_chain(middleware.clone());
     let mut config = stream::Config::default();
     config.set_connection_config(conn_config);
     let srv = StreamServer::with_config(
         v4listener,
-        buf_source.clone(),
+        buf.clone(),
         svc.clone(),
         config,
     );
@@ -596,7 +603,7 @@ async fn main() {
         config.set_middleware_chain(middleware.clone());
         let srv = DgramServer::with_config(
             udpsocket,
-            buf_source.clone(),
+            buf.clone(),
             svc.clone(),
             config,
         );
@@ -620,8 +627,12 @@ async fn main() {
     let v6listener = v6socket.listen(1024).unwrap();
 
     let listener = DoubleListener::new(v4listener, v6listener);
-    let srv = StreamServer::new(listener, buf_source.clone(), svc.clone());
-    let srv = srv.with_middleware(middleware.clone());
+    let mut conn_config = ConnectionConfig::new();
+    conn_config.set_middleware_chain(middleware.clone());
+    let mut config = stream::Config::new();
+    config.set_connection_config(conn_config);
+    let srv =
+        StreamServer::with_config(listener, buf.clone(), svc.clone(), config);
     let double_tcp_join_handle = tokio::spawn(async move { srv.run().await });
 
     // -----------------------------------------------------------------------
@@ -642,8 +653,12 @@ async fn main() {
         .await
         .unwrap();
     let listener = LocalTfoListener(listener);
-    let srv = StreamServer::new(listener, buf_source.clone(), svc.clone());
-    let srv = srv.with_middleware(middleware.clone());
+    let mut conn_config = ConnectionConfig::new();
+    conn_config.set_middleware_chain(middleware.clone());
+    let mut config = stream::Config::new();
+    config.set_connection_config(conn_config);
+    let srv =
+        StreamServer::with_config(listener, buf.clone(), svc.clone(), config);
     let tfo_join_handle = tokio::spawn(async move { srv.run().await });
 
     // -----------------------------------------------------------------------
@@ -676,16 +691,24 @@ async fn main() {
     // creating a separate middleware chain for use just by this server, and
     // also show that by creating the individual middleware processors
     // ourselves we can override their default configuration.
-    let server_secret = "server12secret34".as_bytes().try_into().unwrap();
     let mut fn_svc_middleware = MiddlewareBuilder::new();
     fn_svc_middleware.push(MandatoryMiddlewareProcessor::new().into());
+
     #[cfg(feature = "siphasher")]
-    fn_svc_middleware
-        .push(CookiesMiddlewareProcessor::new(server_secret).into());
+    {
+        let server_secret = "server12secret34".as_bytes().try_into().unwrap();
+        fn_svc_middleware
+            .push(CookiesMiddlewareProcessor::new(server_secret).into());
+    }
+
     let fn_svc_middleware = fn_svc_middleware.build();
 
-    let srv = StreamServer::new(listener, buf_source.clone(), fn_svc);
-    let srv = srv.with_middleware(fn_svc_middleware.clone());
+    let mut conn_config = ConnectionConfig::new();
+    conn_config.set_middleware_chain(fn_svc_middleware);
+    let mut config = stream::Config::new();
+    config.set_connection_config(conn_config);
+    let srv =
+        StreamServer::with_config(listener, buf.clone(), fn_svc, config);
     let fn_join_handle = tokio::spawn(async move { srv.run().await });
 
     // -----------------------------------------------------------------------
@@ -720,8 +743,14 @@ async fn main() {
     let acceptor = TlsAcceptor::from(Arc::new(config));
     let listener = TcpListener::bind("127.0.0.1:8443").await.unwrap();
     let listener = RustlsTcpListener::new(listener, acceptor);
-    let srv = StreamServer::new(listener, buf_source.clone(), svc.clone());
-    let srv = srv.with_middleware(middleware.clone());
+
+    let mut conn_config = ConnectionConfig::new();
+    conn_config.set_middleware_chain(middleware.clone());
+    let mut config = stream::Config::new();
+    config.set_connection_config(conn_config);
+    let srv =
+        StreamServer::with_config(listener, buf.clone(), svc.clone(), config);
+
     let tls_join_handle = tokio::spawn(async move { srv.run().await });
 
     // -----------------------------------------------------------------------

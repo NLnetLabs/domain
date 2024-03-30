@@ -32,7 +32,7 @@ pub trait AsyncConnect {
         + Sync;
 
     /// Returns a future that establishing a connection.
-    fn connect(&self, source_address: Option<SocketAddr>) -> Self::Fut;
+    fn connect(&self) -> Self::Fut;
 }
 
 //------------ TcpConnect --------------------------------------------------
@@ -63,7 +63,7 @@ impl AsyncConnect for TcpConnect {
         >,
     >;
 
-    fn connect(&self, _source_address: Option<SocketAddr>) -> Self::Fut {
+    fn connect(&self) -> Self::Fut {
         Box::pin(TcpStream::connect(self.addr))
     }
 }
@@ -108,7 +108,7 @@ impl AsyncConnect for TlsConnect {
         >,
     >;
 
-    fn connect(&self, _source_address: Option<SocketAddr>) -> Self::Fut {
+    fn connect(&self) -> Self::Fut {
         let tls_connection = TlsConnector::from(self.client_config.clone());
         let server_name = self.server_name.clone();
         let addr = self.addr;
@@ -172,7 +172,7 @@ impl AsyncConnect for UdpConnect {
         >,
     >;
 
-    fn connect(&self, _source_address: Option<SocketAddr>) -> Self::Fut {
+    fn connect(&self) -> Self::Fut {
         Box::pin(self.bind_and_connect())
     }
 }

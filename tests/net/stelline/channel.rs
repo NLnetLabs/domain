@@ -22,11 +22,12 @@ use domain::net::server::sock::{AsyncAccept, AsyncDgramSock};
 
 // If MSRV gets bumped to 1.69.0 we can replace these with a const SocketAddr.
 pub const DEF_CLIENT_ADDR: IpAddr = IpAddr::V4(Ipv4Addr::LOCALHOST);
+#[allow(dead_code)]
 pub const DEF_CLIENT_PORT: u16 = 0;
 
 enum Data {
-    DgramRequest(Vec<u8>, SocketAddr),
-    StreamAccept(ClientServerChannel, SocketAddr),
+    DgramRequest(Vec<u8>),
+    StreamAccept(ClientServerChannel),
     StreamRequest(Vec<u8>),
 }
 
@@ -65,9 +66,6 @@ impl ReadBufBuffer {
 }
 
 struct ClientSocket {
-    /// The address of this client.
-    addr: SocketAddr,
-
     /// Sender for sender requests to the server.
     tx: mpsc::Sender<Data>,
 
@@ -92,14 +90,10 @@ impl ClientSocket {
     /// returned so that the server can use it to send responses to the
     /// client, and the receiver half is kept for receiving the responses sent
     /// by the server.
-    fn new(
-        addr: SocketAddr,
-        client_tx: mpsc::Sender<Data>,
-    ) -> (Self, mpsc::Sender<Vec<u8>>) {
+    fn new(client_tx: mpsc::Sender<Data>) -> (Self, mpsc::Sender<Vec<u8>>) {
         let (server_tx, client_rx) = mpsc::channel(10);
 
         let res = Self {
-            addr,
             tx: client_tx,
             rx: Mutex::new(client_rx),
             unread_buf: Default::default(),
@@ -128,7 +122,7 @@ struct ServerSocket {
     /// Senders for the server to send responses to clients.
     ///
     /// One per client to which responses must be sent.
-    response_txs: HashMap<SocketAddr, mpsc::Sender<Vec<u8>>>,
+    response_txs: HashMap<(), mpsc::Sender<Vec<u8>>>,
 
     /// Buffer for received bytes that overflowed the server read buffer.
     unread_buf: ReadBufBuffer,
@@ -197,17 +191,14 @@ impl ClientServerChannel {
         }
     }
 
-    pub fn connect(&self, client_addr: SocketAddr) -> Self {
-        fn setup_client(
-            server_socket: &mut ServerSocket,
-            client_addr: SocketAddr,
-        ) -> ClientSocket {
+    pub fn connect(&self) -> Self {
+        fn setup_client(server_socket: &mut ServerSocket) -> ClientSocket {
             // Create a client socket for sending requests to the server.
             let (client, response_tx) =
-                ClientSocket::new(client_addr, server_socket.sender());
+                ClientSocket::new(server_socket.sender());
 
             // Tell the server how to respond to the client.
-            server_socket.response_txs.insert(client_addr, response_tx);
+            server_socket.response_txs.insert((), response_tx);
 
             // Return the created client socket
             client
@@ -218,7 +209,7 @@ impl ClientServerChannel {
                 // For dgram connections all clients communicate with the same
                 // single server socket.
                 let server_socket = &mut self.server.lock().unwrap();
-                let client = setup_client(server_socket, client_addr);
+                let client = setup_client(server_socket);
 
                 // Tell the client how to contact the server.
                 Self {
@@ -232,7 +223,7 @@ impl ClientServerChannel {
                 // But for stream connections each new client communicates
                 // with a new server-side connection handler socket.
                 let mut server_socket = ServerSocket::default();
-                let client = setup_client(&mut server_socket, client_addr);
+                let client = setup_client(&mut server_socket);
 
                 // Tell the client how to contact the new server connection handler.
                 let channel = Self {
@@ -247,9 +238,7 @@ impl ClientServerChannel {
                 let sender = self.server.lock().unwrap().tx.clone();
                 let cloned_channel = channel.clone();
                 tokio::spawn(async move {
-                    sender
-                        .send(Data::StreamAccept(cloned_channel, client_addr))
-                        .await
+                    sender.send(Data::StreamAccept(cloned_channel)).await
                 });
 
                 channel
@@ -273,14 +262,8 @@ impl AsyncConnect for ClientServerChannel {
         >,
     >;
 
-    fn connect(&self, source_address: Option<SocketAddr>) -> Self::Fut {
-        trace!("Connect from {source_address:?}");
-        // 127.0.0.1 on any port is the default client source address assumed
-        // by Stelline tests.
-        let client_addr = source_address
-            .unwrap_or(SocketAddr::new(DEF_CLIENT_ADDR, DEF_CLIENT_PORT));
-
-        let conn = self.connect(client_addr);
+    fn connect(&self) -> Self::Fut {
+        let conn = self.connect();
 
         Box::pin(async move { Ok(conn) })
     }
@@ -326,7 +309,7 @@ impl AsyncDgramSend for ClientServerChannel {
     ) -> Poll<Result<usize, io::Error>> {
         match &self.client {
             Some(client) => {
-                let msg = Data::DgramRequest(data.into(), client.addr);
+                let msg = Data::DgramRequest(data.into());
 
                 // TODO: Can Stelline scripts mix and match fake responses with
                 // responses from a real server? Do we need to first try
@@ -339,9 +322,8 @@ impl AsyncDgramSend for ClientServerChannel {
                 match fut.poll_unpin(cx) {
                     Poll::Ready(Ok(())) => {
                         trace!(
-                            "Sent {} bytes to {} in dgram client channel",
+                            "Sent {} bytes in dgram client channel",
                             data.len(),
-                            client.addr
                         );
                         Poll::Ready(Ok(data.len()))
                     }
@@ -379,7 +361,7 @@ impl AsyncDgramSock for ClientServerChannel {
         dest: &std::net::SocketAddr,
     ) -> Poll<io::Result<usize>> {
         let server_socket = self.server.lock().unwrap();
-        let tx = server_socket.response_txs.get(dest);
+        let tx = server_socket.response_txs.get(&());
         if let Some(server_tx) = tx {
             let mut fut = Box::pin(server_tx.send(data.to_vec()));
             match fut.poll_unpin(cx) {
@@ -416,15 +398,15 @@ impl AsyncDgramSock for ClientServerChannel {
         &self,
         cx: &mut Context,
         buf: &mut ReadBuf<'_>,
-    ) -> Poll<io::Result<std::net::SocketAddr>> {
+    ) -> Poll<io::Result<SocketAddr>> {
         let mut server_socket = self.server.lock().unwrap();
         let rx = &mut server_socket.rx;
         match rx.poll_recv(cx) {
-            Poll::Ready(Some(Data::DgramRequest(data, client_addr))) => {
+            Poll::Ready(Some(Data::DgramRequest(data))) => {
                 // TODO: use unread buf here to prevent overflow of given buf.
-                trace!("Reading {} bytes into buffer of len {} from {} in dgram server channel", data.len(), buf.remaining(), client_addr);
+                trace!("Reading {} bytes into buffer of len {} in dgram server channel", data.len(), buf.remaining());
                 buf.put_slice(&data);
-                Poll::Ready(Ok(client_addr))
+                Poll::Ready(Ok(SocketAddr::new("::".parse().unwrap(), 0)))
             }
             Poll::Ready(Some(Data::StreamAccept(..))) => unreachable!(),
             Poll::Ready(Some(Data::StreamRequest(..))) => unreachable!(),
@@ -455,23 +437,23 @@ impl AsyncDgramSock for ClientServerChannel {
 impl AsyncAccept for ClientServerChannel {
     type Error = io::Error;
     type StreamType = ClientServerChannel;
-    type Stream = std::future::Ready<Result<Self::StreamType, io::Error>>;
+    type Future = std::future::Ready<Result<Self::StreamType, io::Error>>;
 
     fn poll_accept(
         &self,
         cx: &mut Context,
-    ) -> Poll<io::Result<(Self::Stream, SocketAddr)>> {
+    ) -> Poll<io::Result<(Self::Future, SocketAddr)>> {
         let mut server_socket = self.server.lock().unwrap();
         let rx = &mut server_socket.rx;
         match rx.poll_recv(cx) {
             // This will become ready when ClientServerChannel::connect()
             // sends the details of a new client connection to us.
-            Poll::Ready(Some(Data::StreamAccept(channel, client_addr))) => {
-                trace!(
-                    "Accepted connection from {} in stream channel",
-                    client_addr
-                );
-                Poll::Ready(Ok((ready(Ok(channel)), client_addr)))
+            Poll::Ready(Some(Data::StreamAccept(channel))) => {
+                trace!("Accepted connection in stream channel",);
+                Poll::Ready(Ok((
+                    ready(Ok(channel)),
+                    SocketAddr::new("::".parse().unwrap(), 0),
+                )))
             }
             Poll::Ready(Some(Data::StreamRequest(..))) => unreachable!(),
             Poll::Ready(Some(Data::DgramRequest(..))) => unreachable!(),
@@ -578,9 +560,8 @@ impl AsyncWrite for ClientServerChannel {
                 match fut.poll_unpin(cx) {
                     Poll::Ready(Ok(())) => {
                         trace!(
-                            "Sent {} bytes to {} in client stream channel",
+                            "Sent {} bytes in client stream channel",
                             data.len(),
-                            client.addr
                         );
                         Poll::Ready(Ok(data.len()))
                     }

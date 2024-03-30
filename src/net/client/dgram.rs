@@ -243,7 +243,7 @@ where
             let mut sock = self
                 .state
                 .connect
-                .connect(request.source_address())
+                .connect()
                 .await
                 .map_err(QueryError::connect)?;
 

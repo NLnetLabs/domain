@@ -39,11 +39,12 @@ pub const EDNS_VERSION_ZERO: u8 = 0;
 /// [`MiddlewareProcessor`]: crate::net::server::middleware::processor::MiddlewareProcessor
 #[derive(Debug)]
 pub struct EdnsMiddlewareProcessor {
+    /// Don't accept messages that advertize a higher EDNS version than this.
     max_version: u8,
 }
 
 impl EdnsMiddlewareProcessor {
-    /// Constructs an instance of this processor.
+    /// Creates an instance of this processor.
     #[must_use]
     pub fn new(max_version: u8) -> Self {
         Self { max_version }
@@ -51,7 +52,8 @@ impl EdnsMiddlewareProcessor {
 }
 
 impl EdnsMiddlewareProcessor {
-    fn err_response<RequestOctets, Target>(
+    /// Create a DNS error response to the given request with the given RCODE.
+    fn error_response<RequestOctets, Target>(
         request: &Request<Message<RequestOctets>>,
         rcode: OptRcode,
     ) -> AdditionalBuilder<StreamTarget<Target>>
@@ -59,17 +61,18 @@ impl EdnsMiddlewareProcessor {
         RequestOctets: Octets,
         Target: Composer + Default,
     {
-        let builder = start_reply(request);
+        let mut additional = start_reply(request).additional();
 
         // Note: if rcode is non-extended this will also correctly handle
         // setting the rcode in the main message header.
-        let mut additional = builder.additional();
-        additional
-            .opt(|opt| {
-                opt.set_rcode(rcode);
-                Ok(())
-            })
-            .unwrap();
+        if let Err(err) = additional.opt(|opt| {
+            opt.set_rcode(rcode);
+            Ok(())
+        }) {
+            warn!(
+                "Failed to set (extended) error '{rcode}' in response: {err}"
+            );
+        }
 
         additional
     }
@@ -78,7 +81,7 @@ impl EdnsMiddlewareProcessor {
 //--- Default
 
 impl Default for EdnsMiddlewareProcessor {
-    /// Constructs an instance of this processor with default configuration.
+    /// Creates an instance of this processor with default configuration.
     ///
     /// The processor will only accept EDNS version 0 OPT records from
     /// clients. EDNS version 0 is the highest EDNS version number recoded in
@@ -116,7 +119,7 @@ where
                 if iter.next().is_some() {
                     // More than one OPT RR received.
                     debug!("RFC 6891 6.1.1 violation: request contains more than one OPT RR.");
-                    return ControlFlow::Break(Self::err_response(
+                    return ControlFlow::Break(Self::error_response(
                         request,
                         OptRcode::FormErr,
                     ));
@@ -132,7 +135,7 @@ where
                     //    RCODE=BADVERS."
                     if opt_rec.version() > self.max_version {
                         debug!("RFC 6891 6.1.3 violation: request EDNS version {} > {}", opt_rec.version(), self.max_version);
-                        return ControlFlow::Break(Self::err_response(
+                        return ControlFlow::Break(Self::error_response(
                             request,
                             OptRcode::BadVers,
                         ));
@@ -153,7 +156,7 @@ where
                             if opt_rec.opt().tcp_keepalive().is_some() {
                                 debug!("RFC 7828 3.2.1 violation: edns-tcp-keepalive option received via UDP");
                                 return ControlFlow::Break(
-                                    Self::err_response(
+                                    Self::error_response(
                                         request,
                                         OptRcode::FormErr,
                                     ),
@@ -200,7 +203,7 @@ where
                                 if keep_alive.timeout().is_some() {
                                     debug!("RFC 7828 3.2.1 violation: edns-tcp-keepalive option received via TCP contains timeout");
                                     return ControlFlow::Break(
-                                        Self::err_response(
+                                        Self::error_response(
                                             request,
                                             OptRcode::FormErr,
                                         ),

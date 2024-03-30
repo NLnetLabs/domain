@@ -14,6 +14,7 @@ use std::vec::Vec;
 /// If the size is known in advance a specific size of buffer can be
 /// requested, otherwise use the default.
 pub trait BufSource {
+    /// The type of buffer created by this source.
     type Output: AsRef<[u8]> + AsMut<[u8]>;
 
     /// Creates a buffer with the default properties for this source.

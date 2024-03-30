@@ -5,8 +5,8 @@ use std::fs::File;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use net::stelline::client::do_client;
-use net::stelline::client::{CurrStepValue, SingleClientFactory};
+use net::stelline::client::do_client_simple;
+use net::stelline::client::CurrStepValue;
 use net::stelline::connect::Connect;
 use net::stelline::parse_stelline::parse_file;
 
@@ -36,9 +36,8 @@ async fn async_test_cache(filename: &str) {
     });
     // let clock = FakeClock::new();
     let cached = cache::Connection::new(ms); //_with_time(ms, clock.clone());
-    let client_factory = SingleClientFactory::new(cached);
 
-    do_client(&stelline, &step_value, client_factory /*, &clock*/).await;
+    do_client_simple(&stelline, &step_value, cached /*, &clock*/).await;
 }
 
 async fn async_test_no_cache(filename: &str) {
@@ -54,9 +53,8 @@ async fn async_test_no_cache(filename: &str) {
     });
 
     // let clock = FakeClock::new();
-    let client_factory = SingleClientFactory::new(ms);
 
-    do_client(&stelline, &step_value, client_factory /*, &clock*/).await;
+    do_client_simple(&stelline, &step_value, ms /*, &clock*/).await;
 }
 
 #[tokio::test]
@@ -117,8 +115,7 @@ async fn test_transport_error() {
         panic!("Bad result {reply:?}");
     }
 
-    let client_factory = SingleClientFactory::new(redun);
-    do_client(&stelline, &step_value, client_factory /*, &clock*/).await;
+    do_client_simple(&stelline, &step_value, redun /*, &clock*/).await;
 }
 
 #[instrument(skip_all, fields(rpl = rpl_file.file_name().unwrap().to_str()))]

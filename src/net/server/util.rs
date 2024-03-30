@@ -15,6 +15,7 @@ use crate::rdata::AllRecordData;
 
 use super::message::Request;
 use super::service::{CallResult, Service, ServiceError, Transaction};
+use crate::base::iana::Rcode;
 
 //----------- mk_builder_for_target() ----------------------------------------
 
@@ -25,8 +26,10 @@ where
 {
     let target = StreamTarget::new(Target::default())
         .map_err(|_| ())
-        .unwrap(); // SAFETY
-    MessageBuilder::from_target(target).unwrap() // SAFETY
+        .expect("Internal error: Unable to create new target.");
+    MessageBuilder::from_target(target).expect(
+        "Internal error: Unable to convert target to message builder.",
+    )
 }
 
 //------------ service_fn() --------------------------------------------------
@@ -52,13 +55,16 @@ where
 /// use std::boxed::Box;
 /// use std::future::Future;
 /// use std::pin::Pin;
-/// use domain::net::server::prelude::*;
 /// use domain::base::iana::Rcode;
+/// use domain::base::Message;
+/// use domain::net::server::message::Request;
+/// use domain::net::server::service::{CallResult, ServiceError, Transaction};
+/// use domain::net::server::util::{mk_builder_for_target, service_fn};
 ///
 /// // Define some types to make the example easier to read.
 /// type MyMeta = ();
 ///
-/// // Implement the business logic of our service.
+/// // Implement the application logic of our service.
 /// // Takes the received DNS request and any additional meta data you wish to
 /// // provide, and returns one or more future DNS responses.
 /// fn my_service(
@@ -149,6 +155,13 @@ pub(crate) fn to_pcap_text<T: AsRef<[u8]>>(
 
 //----------- start_reply ----------------------------------------------------
 
+/// Create a DNS response message that is a reply to a given request message.
+///
+/// Copy the request question into a new response and return the builder for
+/// further message construction.
+///
+/// On internal error this function will attempt to set RCODE ServFail in the
+/// returned message.
 pub fn start_reply<RequestOctets, Target>(
     request: &Request<Message<RequestOctets>>,
 ) -> QuestionBuilder<StreamTarget<Target>>
@@ -159,20 +172,29 @@ where
     let builder = mk_builder_for_target();
 
     // RFC (1035?) compliance - copy question from request to response.
+    let mut abort = false;
     let mut builder = builder.question();
     for rr in request.message().question() {
         match rr {
             Ok(rr) => {
                 if let Err(err) = builder.push(rr) {
                     warn!("Internal error while copying question RR to the resposne: {err}");
+                    abort = true;
+                    break;
                 }
             }
             Err(err) => {
                 warn!(
                     "Parse error while copying question RR to the resposne: {err} [RR: {rr:?}]"
                 );
+                abort = true;
+                break;
             }
         }
+    }
+
+    if abort {
+        builder.header_mut().set_rcode(Rcode::ServFail);
     }
 
     builder
@@ -180,13 +202,7 @@ where
 
 //----------- add_edns_option ------------------------------------------------
 
-// TODO: This is not ideal as it has to copy the current response temporarily
-// in the case that the response already has at least one record in the
-// additional section. An alternate approach might be something like
-// `ComposeReply` based on `ComposeRequest` which would delay response
-// building until the complete set of differences to a base response are
-// known. Or a completely different builder approach that can edit a partially
-// built message.
+/// Add an EDNS OPT option to a response.
 pub fn add_edns_options<F, Target>(
     response: &mut AdditionalBuilder<StreamTarget<Target>>,
     op: F,
@@ -200,10 +216,21 @@ where
     >,
     Target: Composer,
 {
+    // TODO: This is not ideal as it has to copy the current response
+    // temporarily in the case that the response already has at least one
+    // record in the additional section. An alternate approach might be
+    // something like `ComposeReply` based on `ComposeRequest` which would
+    // delay response building until the complete set of differences to a base
+    // response are known. Or a completely different builder approach that can
+    // edit a partially built message.
     if response.counts().arcount() > 0 {
         // Make a copy of the response
         let copied_response = response.as_slice().to_vec();
-        let copied_response = Message::from_octets(&copied_response).unwrap();
+        let Ok(copied_response) = Message::from_octets(&copied_response)
+        else {
+            warn!("Internal error: Unable to create message from octets while adding EDNS option");
+            return Ok(());
+        };
 
         if let Some(current_opt) = copied_response.opt() {
             // Discard the current records in the additional section of the

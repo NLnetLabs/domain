@@ -1,4 +1,4 @@
-use core::fmt::{Debug, Display};
+//! Support for stream based connections.
 use core::ops::{ControlFlow, Deref};
 use core::sync::atomic::Ordering;
 use core::time::Duration;
@@ -22,7 +22,7 @@ use tracing::{debug, enabled, error, trace, warn};
 use crate::base::wire::Composer;
 use crate::base::{Message, StreamTarget};
 use crate::net::server::buf::BufSource;
-use crate::net::server::message::MessageProcessor;
+use crate::net::server::message::CommonMessageFlow;
 use crate::net::server::message::Request;
 use crate::net::server::metrics::ServerMetrics;
 use crate::net::server::middleware::chain::MiddlewareChain;
@@ -32,12 +32,11 @@ use crate::net::server::service::{
 use crate::net::server::util::to_pcap_text;
 use crate::utils::config::DefMinMax;
 
-use super::message::{
-    MessageDetails, NonUdpTransportContext, TransportSpecificContext,
-};
+use super::message::{NonUdpTransportContext, TransportSpecificContext};
 use super::middleware::builder::MiddlewareBuilder;
-use super::service::ServerCommand;
 use super::stream::Config as ServerConfig;
+use super::ServerCommand;
+use std::fmt::Display;
 
 /// Limit on the amount of time to allow between client requests.
 ///
@@ -155,8 +154,18 @@ where
     /// Unbound 1.19.2 `tcp-idle-timeout` configuration setting. The upper
     /// bound is a guess at something reasonable.
     ///
+    /// # Reconfigure
+    ///
+    /// On [`StreamServer::reconfigure()`] the current idle period will NOT
+    /// be affected. Subsequent idle periods (after the next message is
+    /// received or response is sent, assuming that happens within the current
+    /// idle period) will use the new timeout value.
+    ///
     /// [RFC 7766]:
     ///     https://datatracker.ietf.org/doc/html/rfc7766#section-6.2.3
+    ///
+    /// [`StreamServer::reconfigure()`]:
+    ///     super::stream::StreamServer::reconfigure()
     #[allow(dead_code)]
     pub fn set_idle_timeout(&mut self, value: Duration) {
         self.idle_timeout = value;
@@ -169,6 +178,15 @@ where
     /// 30 seconds. These values are guesses at something reasonable. The
     /// default is based on the Unbound 1.19.2 default value for its
     /// `tcp-idle-timeout` setting.
+    ///
+    /// # Reconfigure
+    ///
+    /// On [`StreamServer::reconfigure()`] any responses currently being
+    /// written will NOT use the new timeout, it will only apply to responses
+    /// that start being sent after the timeout is changed.
+    ///
+    /// [`StreamServer::reconfigure()`]:
+    ///     super::stream::StreamServer::reconfigure()
     #[allow(dead_code)]
     pub fn set_response_write_timeout(&mut self, value: Duration) {
         self.response_write_timeout = value;
@@ -182,6 +200,15 @@ where
     ///
     /// DNS response messages will be discarded if they cannot be queued for
     /// sending because the queue is full.
+    ///
+    /// # Reconfigure
+    ///
+    /// On [`StreamServer::reconfigure()`] only new connections created after
+    /// this setting is changed will use the new value, existing connections
+    /// will continue to use their exisitng queue at its existing size.
+    ///
+    /// [`StreamServer::reconfigure()`]:
+    ///     super::stream::StreamServer::reconfigure()
     #[allow(dead_code)]
     pub fn set_max_queued_responses(&mut self, value: usize) {
         self.max_queued_responses = value;
@@ -189,6 +216,16 @@ where
 
     /// Set the middleware chain used to pre-process requests and post-process
     /// responses.
+    ///
+    /// # Reconfigure
+    ///
+    /// On [`StreamServer::reconfigure()`] only new connections created after
+    /// this setting is changed will use the new value, existing connections
+    /// and in-flight requests (and their responses) will continue to use
+    /// their current middleware chain.
+    ///
+    /// [`StreamServer::reconfigure()`]:
+    ///     super::stream::StreamServer::reconfigure()
     pub fn set_middleware_chain(
         &mut self,
         value: MiddlewareChain<RequestOctets, Target>,
@@ -233,6 +270,7 @@ where
 
 //------------ Connection -----------------------------------------------
 
+/// A handler for a single stream connection between client and server.
 pub struct Connection<Stream, Buf, Svc>
 where
     Stream: AsyncRead + AsyncWrite + Send + Sync + 'static,
@@ -240,15 +278,47 @@ where
     Buf::Output: Octets + Send + Sync,
     Svc: Service<Buf::Output> + Send + Sync + Clone + 'static,
 {
+    /// Flag used by the Drop impl to track if the metric count has to be
+    /// decreased or not.
     active: bool,
-    addr: SocketAddr,
-    buf_source: Buf,
+
+    /// A [`BufSource`] for creating buffers on demand. e.g. to hold response
+    /// messages.
+    buf: Buf,
+
+    /// User supplied settings that influence our behaviour.
+    ///
+    /// Note: Some reconfiguration is possible at runtime via
+    /// [`ServerCommand::Reconfigure`] and [`ServiceFeedback::Reconfigure`].
     config: Config<Buf::Output, Svc::Target>,
-    metrics: Arc<ServerMetrics>,
-    result_q_rx: mpsc::Receiver<CallResult<Buf::Output, Svc::Target>>,
-    service: Svc,
-    state: StreamState<Stream, Buf, Svc>,
+
+    /// The address of the connected client.
+    addr: SocketAddr,
+
+    /// The incoming connection stream from the client.
+    ///
+    /// Note: Though this is an Option it should never be None.
     stream_rx: Option<ReadHalf<Stream>>,
+
+    /// The outgoing connection stream to the client.
+    stream_tx: WriteHalf<Stream>,
+
+    /// The reader for consuming from the queue of responses waiting to be
+    /// written back to the client.
+    result_q_rx: mpsc::Receiver<CallResult<Buf::Output, Svc::Target>>,
+
+    /// The writer for pushing ready responses onto the queue waiting
+    /// to be written back the client.
+    result_q_tx: mpsc::Sender<CallResult<Buf::Output, Svc::Target>>,
+
+    /// A [`Service`] for handling received requests and generating responses.
+    service: Svc,
+
+    /// DNS protocol idle time out tracking.
+    idle_timer: IdleTimer,
+
+    /// [`ServerMetrics`] describing the status of the server.
+    metrics: Arc<ServerMetrics>,
 }
 
 /// Creation
@@ -260,18 +330,19 @@ where
     Buf::Output: Octets + Send + Sync,
     Svc: Service<Buf::Output> + Send + Sync + Clone + 'static,
 {
+    /// Creates a new handler for an accepted stream connection.
     #[must_use]
     #[allow(dead_code)]
     pub fn new(
         service: Svc,
-        buf_source: Buf,
+        buf: Buf,
         metrics: Arc<ServerMetrics>,
         stream: Stream,
         addr: SocketAddr,
     ) -> Self {
         Self::with_config(
             service,
-            buf_source,
+            buf,
             metrics,
             stream,
             addr,
@@ -279,10 +350,11 @@ where
         )
     }
 
+    /// Create a new connection handler with a given configuration.
     #[must_use]
     pub fn with_config(
         service: Svc,
-        buf_source: Buf,
+        buf: Buf,
         metrics: Arc<ServerMetrics>,
         stream: Stream,
         addr: SocketAddr,
@@ -291,7 +363,7 @@ where
         let (stream_rx, stream_tx) = tokio::io::split(stream);
         let (result_q_tx, result_q_rx) =
             mpsc::channel(config.max_queued_responses);
-        let state = StreamState::new(stream_tx, result_q_tx);
+        let idle_timer = IdleTimer::new();
 
         // Place the ReadHalf of the stream into an Option so that we can take
         // it out (as we can't clone it and we can't place it into an Arc
@@ -304,14 +376,16 @@ where
 
         Self {
             active: false,
-            addr,
-            buf_source,
+            buf,
             config,
-            result_q_rx,
-            service,
-            metrics,
-            state,
+            addr,
             stream_rx,
+            stream_tx,
+            result_q_rx,
+            result_q_tx,
+            service,
+            idle_timer,
+            metrics,
         }
     }
 }
@@ -334,9 +408,8 @@ where
     /// shutdown and flush any pending writes to the output stream.
     ///
     /// Any requests received after the shutdown signal or requests still
-    /// in-flight will be abandoned.
-    ///
-    /// TODO: What does "abandoned" mean in practice here?
+    /// in-flight will continue processing and then fail to queue the response
+    /// for writing.
     pub async fn run(
         mut self,
         command_rx: watch::Receiver<
@@ -345,6 +418,10 @@ where
     ) where
         Svc::Future: Send,
     {
+        // SAFETY: It is always safe to unwrap `num_connections` because our
+        // parent code in `stream.rs` constructs the `metrics` type using the
+        // [`ServerMetrics::connection_oriented()`] constructor which ensures
+        // there is a `Some` value in the `num_connections` field.
         self.metrics
             .num_connections
             .as_ref()
@@ -367,6 +444,7 @@ where
     Buf::Output: Octets + Send + Sync + 'static,
     Svc: Service<Buf::Output> + Send + Sync + 'static + Clone,
 {
+    /// Connection handler main loop.
     async fn run_until_error(
         mut self,
         mut command_rx: watch::Receiver<
@@ -375,9 +453,13 @@ where
     ) where
         Svc::Future: Send,
     {
+        // SAFETY: This unwrap is safe because we always put a Some value into
+        // self.stream_rx in [`Self::with_config()`] above (and thus also in
+        // [`Self::new()`] which calls [`Self::with_config()`]).
         let stream_rx = self.stream_rx.take().unwrap();
+
         let mut dns_msg_receiver =
-            DnsMessageReceiver::new(self.buf_source.clone(), stream_rx);
+            DnsMessageReceiver::new(self.buf.clone(), stream_rx);
 
         'outer: loop {
             // Create a read future that will survive when other
@@ -394,19 +476,19 @@ where
                     biased;
 
                     res = command_rx.changed() => {
-                        self.process_service_command(res, &mut command_rx)
+                        self.process_server_command(res, &mut command_rx)
                     }
 
                     res = self.result_q_rx.recv() => {
                         self.process_queued_result(res).await
                     }
 
-                    _ = sleep_until(self.state.idle_timeout_deadline(self.config.idle_timeout)) => {
+                    _ = sleep_until(self.idle_timer.idle_timeout_deadline(self.config.idle_timeout)) => {
                         self.process_dns_idle_timeout()
                     }
 
                     res = &mut msg_recv => {
-                        let res = self.process_read_result(res).await;
+                        let res = self.process_read_request(res).await;
                         if res.is_ok() {
                             // Set up to receive another message
                             break 'inner;
@@ -434,7 +516,7 @@ where
         }
 
         trace!("Shutting down the write stream.");
-        if let Err(err) = self.state.stream_tx.shutdown().await {
+        if let Err(err) = self.stream_tx.shutdown().await {
             warn!("Error while shutting down the write stream: {err}");
         }
         trace!("Connection terminated.");
@@ -445,7 +527,8 @@ where
         }
     }
 
-    fn process_service_command(
+    /// Decide what to do with a received [`ServerCommand`].
+    fn process_server_command(
         &mut self,
         res: Result<(), watch::error::RecvError>,
         command_rx: &mut watch::Receiver<
@@ -485,10 +568,10 @@ where
                     Config {
                         idle_timeout,
                         response_write_timeout,
-                        max_queued_responses: _, // TO DO: Cannot be changed?
-                        middleware_chain: _,     // TO DO
+                        max_queued_responses: _,
+                        middleware_chain: _,
                     },
-                .. // Ignore the Server configuration settings
+                .. // Ignore the Server specific configuration settings
             }) => {
                 // Support RFC 7828 "The edns-tcp-keepalive EDNS0 Option".
                 // This cannot be done by the caller as it requires knowing
@@ -505,9 +588,6 @@ where
                 debug!("Server connection timeout reconfigured to {idle_timeout:?}");
                 self.config.idle_timeout = *idle_timeout;
                 self.config.response_write_timeout = *response_write_timeout;
-
-                // TODO: Support dynamic replacement of the middleware chain?
-                // E.g. via ArcSwapOption<MiddlewareChain> instead of Option?
             }
 
             ServerCommand::Shutdown => {
@@ -526,6 +606,7 @@ where
         Ok(())
     }
 
+    /// Stop queueing new responses and process those already in the queue.
     async fn flush_write_queue(&mut self) {
         debug!("Flushing connection write queue.");
         // Stop accepting new response messages (should we check for in-flight
@@ -548,6 +629,7 @@ where
         debug!("Connection write queue flush complete.");
     }
 
+    /// Process a single queued response.
     async fn process_queued_result(
         &mut self,
         call_result: Option<CallResult<Buf::Output, Svc::Target>>,
@@ -556,8 +638,8 @@ where
         // service because the queue holding those results is empty and can no
         // longer be read from, then there is no point continuing to read from
         // the input stream because we will not be able to access the result
-        // of processing the request.
-        // TODO: Describe when this can occur.
+        // of processing the request. I'm not sure when this could happen,
+        // perhaps if we were dropped?
         let Some(call_result) = call_result else {
             return Err(ConnectionEvent::DisconnectWithFlush);
         };
@@ -565,17 +647,18 @@ where
         let (_request, response, feedback) = call_result.into_inner();
 
         if let Some(feedback) = feedback {
-            self.act_on_feedback(feedback).await;
+            self.process_service_feedback(feedback).await;
         }
 
         if let Some(response) = response {
-            self.write_result_to_stream(response.finish()).await;
+            self.write_response_to_stream(response.finish()).await;
         }
 
         Ok(())
     }
 
-    async fn write_result_to_stream(
+    /// Write a response back to the caller over the network stream.
+    async fn write_response_to_stream(
         &mut self,
         msg: StreamTarget<Svc::Target>,
     ) {
@@ -587,7 +670,7 @@ where
 
         match timeout(
             self.config.response_write_timeout,
-            self.state.stream_tx.write_all(msg.as_stream_slice()),
+            self.stream_tx.write_all(msg.as_stream_slice()),
         )
         .await
         {
@@ -612,38 +695,49 @@ where
             .num_pending_writes
             .fetch_sub(1, Ordering::Relaxed);
 
-        if self.state.result_q_tx.capacity()
-            == self.state.result_q_tx.max_capacity()
-        {
-            self.state.response_queue_emptied();
+        if self.result_q_tx.capacity() == self.result_q_tx.max_capacity() {
+            self.idle_timer.response_queue_emptied();
         }
     }
 
-    async fn act_on_feedback(&mut self, cmd: ServiceFeedback) {
+    /// Decide what to do with received [`ServiceFeedback`].
+    async fn process_service_feedback(&mut self, cmd: ServiceFeedback) {
         match cmd {
             ServiceFeedback::CloseConnection => {
-                self.state.stream_tx.shutdown().await.unwrap()
+                if let Err(err) = self.stream_tx.shutdown().await {
+                    warn!("Error while shutting down response stream while closing connection: {err}");
+                }
             }
 
             ServiceFeedback::Reconfigure { idle_timeout } => {
-                debug!("Reconfigured connection timeout to {idle_timeout:?}");
-                self.config.idle_timeout = idle_timeout;
+                if let Some(idle_timeout) = idle_timeout {
+                    debug!(
+                        "Reconfigured connection timeout to {idle_timeout:?}"
+                    );
+                    self.config.idle_timeout = idle_timeout;
+                }
             }
-
-            ServiceFeedback::Shutdown => {}
         }
     }
 
+    /// Implemnt DNS rules regarding timing out of idle connections.
+    ///
+    /// Disconnects the current connection of the timer is expired, flushing
+    /// pending responses first.
     fn process_dns_idle_timeout(&self) -> Result<(), ConnectionEvent> {
         // DNS idle timeout elapsed, or was it reset?
-        if self.state.idle_timeout_expired(self.config.idle_timeout) {
+        if self
+            .idle_timer
+            .idle_timeout_expired(self.config.idle_timeout)
+        {
             Err(ConnectionEvent::DisconnectWithoutFlush)
         } else {
             Ok(())
         }
     }
 
-    async fn process_read_result(
+    /// Process a received request message.
+    async fn process_read_request(
         &mut self,
         res: Result<Buf::Output, ConnectionEvent>,
     ) -> Result<(), ConnectionEvent> {
@@ -660,18 +754,17 @@ where
                 .fetch_add(1, Ordering::Relaxed);
 
             // Message received, reset the DNS idle timer
-            self.state.full_msg_received();
-
-            let msg_details =
-                MessageDetails::new(msg, received_at, self.addr);
+            self.idle_timer.full_msg_received();
 
             // Process the received message
             self.process_request(
-                msg_details,
-                self.state.result_q_tx.clone(),
+                msg,
+                received_at,
+                self.addr,
                 self.config.middleware_chain.clone(),
                 &self.service,
                 self.metrics.clone(),
+                self.result_q_tx.clone(),
             )
             .map_err(ConnectionEvent::ServiceError)
         })
@@ -690,6 +783,11 @@ where
     fn drop(&mut self) {
         if self.active {
             self.active = false;
+            // SAFETY: It is always safe to unwrap `num_connections` because
+            // our parent code in `stream.rs` constructs the `metrics` type
+            // using the [`ServerMetrics::connection_oriented()`] constructor
+            // which ensures there is a `Some` value in the `num_connections`
+            // field.
             self.metrics
                 .num_connections
                 .as_ref()
@@ -699,9 +797,9 @@ where
     }
 }
 
-//--- MessageProcessor
+//--- CommonMessageFlow
 
-impl<Stream, Buf, Svc> MessageProcessor<Buf, Svc>
+impl<Stream, Buf, Svc> CommonMessageFlow<Buf, Svc>
     for Connection<Stream, Buf, Svc>
 where
     Stream: AsyncRead + AsyncWrite + Send + Sync,
@@ -709,8 +807,10 @@ where
     Buf::Output: Octets + Send + Sync,
     Svc: Service<Buf::Output> + Send + Sync + Clone,
 {
-    type State = Sender<CallResult<Buf::Output, Svc::Target>>;
+    type Meta = Sender<CallResult<Buf::Output, Svc::Target>>;
 
+    /// Add information to the request that relates to the type of server we
+    /// are and our state where relevant.
     fn add_context_to_request(
         &self,
         request: Message<Buf::Output>,
@@ -723,10 +823,12 @@ where
         Request::new(addr, received_at, request, ctx)
     }
 
+    /// Process the result from the middleware -> service -> middleware call
+    /// tree.
     fn process_call_result(
         call_result: CallResult<Buf::Output, Svc::Target>,
         _addr: SocketAddr,
-        tx: Self::State,
+        tx: Self::Meta,
         metrics: Arc<ServerMetrics>,
     ) {
         // We can't send in a spawned async task as then we would just
@@ -757,24 +859,52 @@ where
 
 //----------- DnsMessageReceiver ---------------------------------------------
 
+/// The [`DnsMessageReceiver`] state machine.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 enum Status {
+    /// Initial state.
     New,
+
+    /// Waiting to receive a DNS message header.
     WaitingForMessageHeader,
+
+    /// Waiting to receive a DNS message body.
     WaitingForMessageBody,
+
+    /// A full DNS message header and body has been received.
     MessageReceived,
 }
 
+/// A cancel safe DNS message receiver.
+///
+/// If the message is received in bits, e.g. header then body, this receiver
+/// ensures that any part of the request already received is not lost if the
+/// read operation is cancelled by Tokio and then a new read operation is
+/// started.
 struct DnsMessageReceiver<Stream, Buf>
 where
     Stream: AsyncRead + AsyncWrite + Send + Sync + 'static,
     Buf: BufSource + Send + Sync + 'static + Clone,
 {
+    /// A buffer to record the total expected size of the message currently
+    /// being received. DNS TCP streams preceed the DNS message by bytes
+    /// indicating the length of the message that follows.
     msg_size_buf: [u8; 2],
-    buf_source: Buf,
+
+    /// A [`BufSource`] for creating buffers on demand. e.g. to hold response
+    /// messages.
+    buf: Buf,
+
+    /// The incoming connection stream from the client.
     stream_rx: ReadHalf<Stream>,
+
+    /// Our state machine state.
     status: Status,
+
     #[cfg(test)]
+    /// A flag used only during testing that will be set if a read operation
+    /// is started but detects that a previous read operation didn't complete,
+    /// i.e. the async operation was cancelled.
     cancelled: bool,
 }
 
@@ -784,10 +914,11 @@ where
     Buf: BufSource + Send + Sync + 'static + Clone,
     Buf::Output: Send + Sync + 'static,
 {
-    fn new(buf_source: Buf, stream_rx: ReadHalf<Stream>) -> Self {
+    /// Creates a new message receiver.
+    fn new(buf: Buf, stream_rx: ReadHalf<Stream>) -> Self {
         Self {
             msg_size_buf: [0; 2],
-            buf_source,
+            buf,
             stream_rx,
             status: Status::New,
             #[cfg(test)]
@@ -796,6 +927,7 @@ where
     }
 
     #[cfg(test)]
+    /// Was a read operation using this receiver cancelled at some point?
     pub fn cancelled(&self) -> bool {
         self.cancelled
     }
@@ -816,7 +948,7 @@ where
             .await?;
 
         let msg_len = u16::from_be_bytes(self.msg_size_buf) as usize;
-        let mut msg_buf = self.buf_source.create_sized(msg_len);
+        let mut msg_buf = self.buf.create_sized(msg_len);
 
         self.status = Status::WaitingForMessageBody;
         Self::recv_n_bytes(&mut self.stream_rx, &mut msg_buf).await?;
@@ -849,6 +981,8 @@ where
         }
     }
 
+    /// Handle I/O errors by deciding whether to log them, and whethr to
+    /// continue or abort.
     #[must_use]
     fn process_io_error(err: io::Error) -> ControlFlow<ConnectionEvent> {
         match err.kind() {
@@ -874,6 +1008,8 @@ where
 
 //------------ ConnectionEvent -----------------------------------------------
 
+/// An event that occurred while the connection handler was handling the
+/// connection.
 enum ConnectionEvent {
     /// RFC 7766 6.2.4 "Under normal operation DNS clients typically initiate
     /// connection closing on idle connections; however, DNS servers can close
@@ -893,6 +1029,8 @@ enum ConnectionEvent {
     /// responses."
     DisconnectWithFlush,
 
+    /// A [`Service`] specific error occurred while the service was processing
+    /// a request message.
     ServiceError(ServiceError),
 }
 
@@ -914,38 +1052,21 @@ impl Display for ConnectionEvent {
     }
 }
 
-//------------ StreamState ---------------------------------------------------
+//------------ IdleTimer -----------------------------------------------------
 
-pub struct StreamState<Stream, Buf, Svc>
-where
-    Stream: AsyncRead + AsyncWrite + Send + Sync + 'static,
-    Buf: BufSource + Send + Sync + 'static + Clone,
-    Buf::Output: Send + Sync + 'static,
-    Svc: Service<Buf::Output> + Send + Sync + 'static + Clone,
-{
-    stream_tx: WriteHalf<Stream>,
-
-    result_q_tx: mpsc::Sender<CallResult<Buf::Output, Svc::Target>>,
-
-    // RFC 7766 section 6.2.3 / RFC 7828 section 3 idle time out tracking
+/// RFC 7766 section 6.2.3 / RFC 7828 section 3 idle time out tracking.
+pub struct IdleTimer {
+    /// The instant when the timer was last reset.
     idle_timer_reset_at: Instant,
 }
 
-impl<Stream, Buf, Svc> StreamState<Stream, Buf, Svc>
-where
-    Stream: AsyncRead + AsyncWrite + Send + Sync + 'static,
-    Buf: BufSource + Send + Sync + 'static + Clone,
-    Buf::Output: Send + Sync + 'static,
-    Svc: Service<Buf::Output> + Send + Sync + 'static + Clone,
-{
+impl IdleTimer {
+    /// Creates a new idle timer.
+    ///
+    /// Sets the last reset instant to now.
     #[must_use]
-    fn new(
-        stream_tx: WriteHalf<Stream>,
-        result_q_tx: mpsc::Sender<CallResult<Buf::Output, Svc::Target>>,
-    ) -> Self {
+    fn new() -> Self {
         Self {
-            stream_tx,
-            result_q_tx,
             idle_timer_reset_at: Instant::now(),
         }
     }
@@ -956,18 +1077,28 @@ where
     /// timeout for this connection.
     #[must_use]
     pub fn idle_timeout_deadline(&self, timeout: Duration) -> Instant {
-        self.idle_timer_reset_at.checked_add(timeout).unwrap()
+        self.idle_timer_reset_at
+            .checked_add(timeout)
+            .unwrap_or_else(|| {
+                warn!("Unable to reset idle timer: value out of bounds");
+                Instant::now()
+            })
     }
 
+    /// Did the idle timeout expire?
     #[must_use]
     pub fn idle_timeout_expired(&self, timeout: Duration) -> bool {
         self.idle_timeout_deadline(timeout) <= Instant::now()
     }
 
+    /// Reset the idle timer to now.
     fn reset_idle_timer(&mut self) {
         self.idle_timer_reset_at = Instant::now();
     }
 
+    /// Act on the fact that a complete DNS message was received.
+    ///
+    /// Per RFC 7766 this resets the idle timer.
     fn full_msg_received(&mut self) {
         // RFC 7766 6.2.3: "DNS messages delivered over TCP might arrive in
         // multiple segments.  A DNS server that resets its idle timeout after
@@ -978,6 +1109,10 @@ where
         self.reset_idle_timer()
     }
 
+    /// Act on the fact that the connection handler caught up with processing
+    /// all queued responses.
+    ///
+    /// Per RFC 7766 this resets the idle timer.
     fn response_queue_emptied(&mut self) {
         // RFC 7766 3: "A DNS server considers an established DNS-over-TCP
         // session to be idle when it has sent responses to all the queries it

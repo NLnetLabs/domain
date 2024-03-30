@@ -30,13 +30,13 @@ use tokio::time::timeout;
 use tokio::time::Instant;
 use tokio::time::MissedTickBehavior;
 use tracing::Level;
-use tracing::{enabled, error, trace, warn};
+use tracing::{enabled, error, trace};
 
 use crate::base::Message;
 use crate::net::server::buf::BufSource;
 use crate::net::server::error::Error;
-use crate::net::server::message::MessageProcessor;
-use crate::net::server::message::{MessageDetails, Request};
+use crate::net::server::message::CommonMessageFlow;
+use crate::net::server::message::Request;
 use crate::net::server::metrics::ServerMetrics;
 use crate::net::server::middleware::chain::MiddlewareChain;
 use crate::net::server::service::{CallResult, Service, ServiceFeedback};
@@ -45,10 +45,11 @@ use crate::net::server::util::to_pcap_text;
 use crate::utils::config::DefMinMax;
 
 use super::buf::VecBufSource;
-use super::message::{TransportSpecificContext, UdpSpecificTransportContext};
+use super::message::{TransportSpecificContext, UdpTransportContext};
 use super::middleware::builder::MiddlewareBuilder;
-use super::service::ServerCommand;
+use super::ServerCommand;
 use crate::base::wire::Composer;
+use arc_swap::ArcSwap;
 
 /// A UDP transport based DNS server transport.
 ///
@@ -73,7 +74,7 @@ const WRITE_TIMEOUT: DefMinMax<Duration> = DefMinMax::new(
 /// The value has to be between 512 and 4,096 per [RFC 6891]. The default
 /// value is 1232 per the [2020 DNS Flag Day].
 ///
-/// The [`Service`] and [`MiddlewareChain`] (if any) are response for
+/// The [`Service`] and [`MiddlewareChain`] (if any) are responsible for
 /// enforcing this limit.
 ///
 /// [2020 DNS Flag Day]: http://www.dnsflagday.net/2020/
@@ -83,7 +84,7 @@ const MAX_RESPONSE_SIZE: DefMinMax<u16> = DefMinMax::new(1232, 512, 4096);
 //----------- Config ---------------------------------------------------------
 
 /// Configuration for a datagram server.
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct Config<RequestOctets, Target>
 where
     RequestOctets: Octets,
@@ -121,6 +122,12 @@ where
     /// The [`Service`] and [`MiddlewareChain`] (if any) are response for
     /// enforcing the suggested limit, or deciding what to do if this is None.
     ///
+    /// # Reconfigure
+    ///
+    /// On [`DgramServer::reconfigure()`]` any change to this setting will
+    /// only affect requests received after the setting is changed, in
+    /// progress requests will be unaffected.
+    ///
     /// [2020 DNS Flag Day]: http://www.dnsflagday.net/2020/
     /// [RFC 6891]:
     ///     https://datatracker.ietf.org/doc/html/rfc6891#section-6.2.5
@@ -132,12 +139,24 @@ where
     ///
     /// The value has to be between 1ms and 60 seconds. The default value is 5
     /// seconds.
+    ///
+    /// # Reconfigure
+    ///
+    /// On [`DgramServer::reconfigure()`]` any change to this setting will
+    /// only affect responses sent after the setting is changed, in-flight
+    /// responses will be unaffected.
     pub fn set_write_timeout(&mut self, value: Duration) {
         self.write_timeout = value;
     }
 
     /// Set the middleware chain used to pre-process requests and post-process
     /// responses.
+    ///
+    /// # Reconfigure
+    ///
+    /// On [`DgramServer::reconfigure()`]` any change to this setting will
+    /// only affect requests (and their responses) received after the setting
+    /// is changed, in progress requests will be unaffected.
     pub fn set_middleware_chain(
         &mut self,
         value: MiddlewareChain<RequestOctets, Target>,
@@ -145,6 +164,8 @@ where
         self.middleware_chain = value;
     }
 }
+
+//--- Default
 
 impl<RequestOctets, Target> Default for Config<RequestOctets, Target>
 where
@@ -160,11 +181,32 @@ where
     }
 }
 
+//--- Clone
+
+impl<RequestOctets, Target> Clone for Config<RequestOctets, Target>
+where
+    RequestOctets: Octets,
+    Target: Composer + Default,
+{
+    fn clone(&self) -> Self {
+        Self {
+            max_response_size: self.max_response_size,
+            write_timeout: self.write_timeout,
+            middleware_chain: self.middleware_chain.clone(),
+        }
+    }
+}
+
 //------------ DgramServer ---------------------------------------------------
 
+/// A [`ServerCommand`] capable of propagating a DgramServer [`Config`] value.
 type ServerCommandType<Buf, Svc> = ServerCommand<Config<Buf, Svc>>;
+
+/// A thread safe sender of [`ServerCommand`]s.
 type CommandSender<Buf, Svc> =
     Arc<Mutex<watch::Sender<ServerCommandType<Buf, Svc>>>>;
+
+/// A thread safe receiver of [`ServerCommand`]s.
 type CommandReceiver<Buf, Svc> = watch::Receiver<ServerCommandType<Buf, Svc>>;
 
 /// A server for connecting clients via a datagram based network transport to
@@ -197,11 +239,18 @@ type CommandReceiver<Buf, Svc> = watch::Receiver<ServerCommandType<Buf, Svc>>;
 /// use std::boxed::Box;
 /// use std::future::{Future, Ready};
 /// use std::pin::Pin;
-/// use domain::net::server::buf::VecBufSource;
-/// use domain::net::server::prelude::*;
-/// use domain::net::server::middleware::builder::MiddlewareBuilder;
-/// use domain::net::server::dgram::DgramServer;
+/// use std::sync::Arc;
+///
 /// use tokio::net::UdpSocket;
+///
+/// use domain::base::Message;
+/// use domain::net::server::buf::VecBufSource;
+/// use domain::net::server::dgram::DgramServer;
+/// use domain::net::server::message::Request;
+/// use domain::net::server::middleware::builder::MiddlewareBuilder;
+/// use domain::net::server::service::{CallResult, ServiceError, Transaction};
+/// use domain::net::server::stream::StreamServer;
+/// use domain::net::server::util::service_fn;
 ///
 /// fn my_service(msg: Request<Message<Vec<u8>>>, _meta: ())
 /// -> Result<
@@ -255,12 +304,31 @@ where
     Buf::Output: Octets + Send + Sync + 'static,
     Svc: Service<Buf::Output> + Send + Sync + 'static,
 {
-    config: Config<Buf::Output, Svc::Target>,
+    /// The configuration of the server.
+    config: Arc<ArcSwap<Config<Buf::Output, Svc::Target>>>,
+
+    /// A receiver for receiving [`ServerCommand`]s.
+    ///
+    /// Used by both the server and spawned connections to react to sent
+    /// commands.
     command_rx: CommandReceiver<Buf::Output, Svc::Target>,
+
+    /// A sender for sending [`ServerCommand`]s.
+    ///
+    /// Used to signal the server to stop, reconfigure, etc.
     command_tx: CommandSender<Buf::Output, Svc::Target>,
+
+    /// The network socket over which client requests will be received
+    /// and responses sent.
     sock: Arc<Sock>,
+
+    /// A [`BufSource`] for creating buffers on demand.
     buf: Buf,
+
+    /// A [`Service`] for handling received requests and generating responses.
     service: Svc,
+
+    /// [`ServerMetrics`] describing the status of the server.
     metrics: Arc<ServerMetrics>,
 }
 
@@ -303,6 +371,7 @@ where
         let (command_tx, command_rx) = watch::channel(ServerCommand::Init);
         let command_tx = Arc::new(Mutex::new(command_tx));
         let metrics = Arc::new(ServerMetrics::connection_less());
+        let config = Arc::new(ArcSwap::from_pointee(config));
 
         DgramServer {
             config,
@@ -373,7 +442,7 @@ where
     ) -> Result<(), Error> {
         self.command_tx
             .lock()
-            .unwrap()
+            .map_err(|_| Error::CommandCouldNotBeSent)?
             .send(ServerCommand::Reconfigure(config))
             .map_err(|_| Error::CommandCouldNotBeSent)
     }
@@ -393,7 +462,7 @@ where
     pub fn shutdown(&self) -> Result<(), Error> {
         self.command_tx
             .lock()
-            .unwrap()
+            .map_err(|_| Error::CommandCouldNotBeSent)?
             .send(ServerCommand::Shutdown)
             .map_err(|_| Error::CommandCouldNotBeSent)
     }
@@ -437,8 +506,6 @@ where
     Svc: Service<Buf::Output> + Send + Sync + 'static,
 {
     /// Receive incoming messages until shutdown or fatal error.
-    ///
-    // TODO: Use a strongly typed error, not String.
     async fn run_until_error(&self) -> Result<(), String>
     where
         Svc::Future: Send,
@@ -453,7 +520,7 @@ where
                 // First, prefer obeying `ServerCommand`s over everything
                 // else.
                 res = command_rx.changed() => {
-                    self.process_service_command(res, &mut command_rx)?;
+                    self.process_server_command(res, &mut command_rx)?;
                 }
 
                 recv_res = self.recv_from() => {
@@ -469,16 +536,14 @@ where
                         trace!(%addr, pcap_text, "Received message");
                     }
 
-                    let msg_details = MessageDetails::new(msg, received_at, addr);
-
                     let state = self.mk_state_for_request();
 
                     self.process_request(
-                        msg_details,
-                        state,
-                        self.config.middleware_chain.clone(),
+                        msg, received_at, addr,
+                        self.config.load().middleware_chain.clone(),
                         &self.service,
-                        self.metrics.clone()
+                        self.metrics.clone(),
+                        state,
                     )
                         .map_err(|err|
                             format!("Error while processing message: {err}")
@@ -488,7 +553,8 @@ where
         }
     }
 
-    fn process_service_command(
+    /// Decide what to do with a received [`ServerCommand`].
+    fn process_server_command(
         &self,
         res: Result<(), watch::error::RecvError>,
         command_rx: &mut CommandReceiver<Buf::Output, Svc::Target>,
@@ -525,13 +591,8 @@ where
                 // ignore this if we receive it.
             }
 
-            ServerCommand::Reconfigure(Config {
-                max_response_size: _, // TO DO
-                write_timeout: _,     // TO DO
-                middleware_chain: _,  // TO DO
-            }) => {
-                // TODO: Support dynamic replacement of the middleware chain?
-                // E.g. via ArcSwapOption<MiddlewareChain> instead of Option?
+            ServerCommand::Reconfigure(new_config) => {
+                self.config.store(Arc::new(new_config.clone()));
             }
 
             ServerCommand::Shutdown => {
@@ -543,6 +604,7 @@ where
         Ok(())
     }
 
+    /// Receive a single datagram using the user supplied network socket.
     async fn recv_from(
         &self,
     ) -> Result<(Buf::Output, SocketAddr, usize), io::Error> {
@@ -556,6 +618,7 @@ where
         Ok((res, addr, bytes_read))
     }
 
+    /// Send a single datagram using the user supplied network socket.
     async fn send_to(
         sock: &Sock,
         data: &[u8],
@@ -579,20 +642,24 @@ where
         }
     }
 
+    /// Helper function to package references to key parts of our server state
+    /// into a [`RequestState`] ready for passing through the
+    /// [`CommonMessageFlow`] call chain and ultimately back to ourselves at
+    /// [`process_call_reusult()`].
     fn mk_state_for_request(
         &self,
     ) -> RequestState<Sock, Buf::Output, Svc::Target> {
         RequestState::new(
             self.sock.clone(),
             self.command_tx.clone(),
-            self.config.write_timeout,
+            self.config.load().write_timeout,
         )
     }
 }
 
-//--- MessageProcessor
+//--- CommonMessageFlow
 
-impl<Sock, Buf, Svc> MessageProcessor<Buf, Svc>
+impl<Sock, Buf, Svc> CommonMessageFlow<Buf, Svc>
     for DgramServer<Sock, Buf, Svc>
 where
     Sock: AsyncDgramSock + Send + Sync + 'static,
@@ -600,21 +667,24 @@ where
     Buf::Output: Octets + Send + Sync + 'static,
     Svc: Service<Buf::Output> + Send + Sync + 'static,
 {
-    type State = RequestState<Sock, Buf::Output, Svc::Target>;
+    type Meta = RequestState<Sock, Buf::Output, Svc::Target>;
 
+    /// Add information to the request that relates to the type of server we
+    /// are and our state where relevant.
     fn add_context_to_request(
         &self,
         request: Message<Buf::Output>,
         received_at: Instant,
         addr: SocketAddr,
     ) -> Request<Message<Buf::Output>> {
-        let ctx =
-            TransportSpecificContext::Udp(UdpSpecificTransportContext {
-                max_response_size_hint: self.config.max_response_size,
-            });
+        let ctx = TransportSpecificContext::Udp(UdpTransportContext {
+            max_response_size_hint: self.config.load().max_response_size,
+        });
         Request::new(addr, received_at, request, ctx)
     }
 
+    /// Process the result from the middleware -> service -> middleware call
+    /// tree.
     fn process_call_result(
         call_result: CallResult<Buf::Output, Svc::Target>,
         addr: SocketAddr,
@@ -636,17 +706,6 @@ where
 
                     ServiceFeedback::CloseConnection => {
                         // N/A - only applies to connection-oriented transports
-                    }
-
-                    ServiceFeedback::Shutdown => {
-                        if let Err(err) = state
-                            .command_tx
-                            .lock()
-                            .unwrap()
-                            .send(ServerCommand::Shutdown)
-                        {
-                            warn!("Service requested shutdown but shutdown failed: {err}");
-                        }
                     }
                 }
             }
@@ -698,13 +757,24 @@ where
 
 //----------- RequestState ---------------------------------------------------
 
+/// Data needed by [`DgramServer::process_call_result()`] which needs to be
+/// passed through the [`CommonMessageFlow`] call chain.
 pub struct RequestState<Sock, RequestOctets, Target>
 where
     RequestOctets: Octets,
     Target: Composer + Default,
 {
+    /// The network socket over which this request was received and over which
+    /// the response should be sent.
     sock: Arc<Sock>,
+
+    /// A sender for sending [`ServerCommand`]s.
+    ///
+    /// Used to signal the server to stop, reconfigure, etc.
     command_tx: CommandSender<RequestOctets, Target>,
+
+    /// The maximum amount of time to wait for a response datagram to be
+    /// accepted by the operating system for writing back to the client.
     write_timeout: Duration,
 }
 
@@ -713,6 +783,7 @@ where
     RequestOctets: Octets,
     Target: Composer + Default,
 {
+    /// Creates a new instance of [`RequestState`].
     fn new(
         sock: Arc<Sock>,
         command_tx: CommandSender<RequestOctets, Target>,

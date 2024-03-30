@@ -170,7 +170,6 @@
 #![warn(missing_docs)]
 
 pub mod cache;
-pub mod clock;
 pub mod dgram;
 pub mod dgram_stream;
 pub mod multi_stream;
