@@ -598,15 +598,12 @@ where
     ),
 
     /// The transaction is a stream of multiple response futures.
-    Stream(
-        TransactionStream<
-            Result<CallResult<RequestOctets, Target>, ServiceError>,
-        >,
-    ),
+    Stream(Stream<RequestOctets, Target>),
 }
 
 //------------ TransacationStream --------------------------------------------
 
+/// A [`TransactionStream`] of [`Service`] results.
 type Stream<RequestOctets, Target> = TransactionStream<
     Result<CallResult<RequestOctets, Target>, ServiceError>,
 >;
