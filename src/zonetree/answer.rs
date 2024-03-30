@@ -12,20 +12,21 @@ use octseq::Octets;
 
 /// A DNS answer to a query against a [`Zone`].
 ///
-/// [`Answer`] is the type returned by [`Zone::query()`].
+/// [`Answer`] is the type returned by [`ReadableZone::query()`].
 ///
-/// Callers of [`Zone::query()`] will likely only ever need to use the
+/// Callers of [`ReadableZone::query()`] will likely only ever need to use the
 /// [`Self::to_message()`] function. Alternatively, for complete control use
 /// the getter functions on [`Answer`] instead and construct a response
 /// message yourself using [`MessageBuilder`].
 ///
 /// Implementers of alternate backing stores for [`Zone`]s will need to use
-/// one of the various `Answer` constructor functions when [`Zone::query()`]
-/// is invoked for your zone content in order to tailor the DNS message
-/// produced by [`Self::to_message()`] based on the outcome of the query.
+/// one of the various `Answer` constructor functions when
+/// [`ReadableZone::query()`] is invoked for your zone content in order to
+/// tailor the DNS message produced by [`Self::to_message()`] based on the
+/// outcome of the query.
 ///
 /// [`Zone`]: crate::zonetree::Zone
-/// [`Zone::query()`]: crate::zonetree::Zone::query()
+/// [`ReadableZone::query()`]: crate::zonetree::traits::ReadableZone::query()
 #[derive(Clone)]
 pub struct Answer {
     /// The response code of the answer.

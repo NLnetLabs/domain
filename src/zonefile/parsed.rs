@@ -31,7 +31,7 @@ use crate::zonetree::{Rrset, SharedRr, StoredDname, StoredRecord};
 ///
 /// Getter functions provide insight into the classification results.
 ///
-/// When ready the [`Self::into_zone_builder()`] function can be used to
+/// When ready the [`ZoneBuilder::try_from()`] function can be used to
 /// convert the parsed zonefile into a pre-populated [`ZoneBuilder`].
 ///
 /// # Usage

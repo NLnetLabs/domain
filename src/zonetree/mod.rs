@@ -71,12 +71,12 @@
 //! assert_eq!(res.rcode(), Rcode::NoError);
 //! ```
 //!
-//! [`Class`]: base::iana::Class
-//! [`Rtype`]: base::iana::Rtype
-//! [`Dname`]: base::iana::Dname
-//! [`Message`]: base::Message
-//! [`NoError`]: base::iana::code::Rcode::NoError
-//! [`NxDomain`]: base::iana::code::Rcode::NxDomain
+//! [`Class`]: crate::base::iana::Class
+//! [`Rtype`]: crate::base::iana::Rtype
+//! [`Dname`]: crate::base::name::Dname
+//! [`Message`]: crate::base::Message
+//! [`NoError`]: crate::base::iana::code::Rcode::NoError
+//! [`NxDomain`]: crate::base::iana::code::Rcode::NxDomain
 //! [`ZoneBuilder`]: in_memory::ZoneBuilder
 
 mod answer;
