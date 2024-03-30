@@ -12,33 +12,38 @@ use super::in_memory::ZoneBuilder;
 use super::traits::WritableZone;
 use super::{ReadableZone, StoredDname, ZoneStore};
 
-// TODO: Delete Zone, rename ZoneStore to Zone (and make ZoneSetNode generic?)
 //------------ Zone ----------------------------------------------------------
 
+/// A single DNS zone.
 #[derive(Debug)]
 pub struct Zone {
     store: Arc<dyn ZoneStore>,
 }
 
 impl Zone {
+    /// Creates a new [`Zone`] instance with the given data.
     pub fn new(data: impl ZoneStore + 'static) -> Self {
         Zone {
             store: Arc::new(data),
         }
     }
 
+    /// Gets the CLASS of this zone.
     pub fn class(&self) -> Class {
         self.store.class()
     }
 
+    /// Gets the apex name of this zone.
     pub fn apex_name(&self) -> &StoredDname {
         self.store.apex_name()
     }
 
+    /// Gets a read interface to this zone.
     pub fn read(&self) -> Box<dyn ReadableZone> {
         self.store.clone().read()
     }
 
+    /// Gets a write interface to this zone.
     pub fn write(
         &self,
     ) -> Pin<Box<dyn Future<Output = Box<dyn WritableZone>>>> {

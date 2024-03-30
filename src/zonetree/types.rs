@@ -11,12 +11,21 @@ use std::vec::Vec;
 
 //------------ Type Aliases --------------------------------------------------
 
+/// A [`Bytes`] backed [`Dname`].
 pub type StoredDname = Dname<Bytes>;
+
+/// A [`Bytes`] backed [`ZoneRecordData`].
 pub type StoredRecordData = ZoneRecordData<Bytes, StoredDname>;
+
+/// A [`Bytes`] backed [`Record`].`
 pub type StoredRecord = Record<StoredDname, StoredRecordData>;
 
 //------------ SharedRr ------------------------------------------------------
 
+/// A cheaply clonable resource record.
+///
+/// A [`Bytes`] backed resource record which is cheap to [`Clone`] because
+/// [`Bytes`] is cheap to clone.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct SharedRr {
     ttl: Ttl,
@@ -24,18 +33,22 @@ pub struct SharedRr {
 }
 
 impl SharedRr {
+    /// Create a new [`SharedRr`] instance.
     pub fn new(ttl: Ttl, data: StoredRecordData) -> Self {
         SharedRr { ttl, data }
     }
 
+    /// Gets the type of this resource record.
     pub fn rtype(&self) -> Rtype {
         self.data.rtype()
     }
 
+    /// Gets the TTL of this resource record.
     pub fn ttl(&self) -> Ttl {
         self.ttl
     }
 
+    /// Gets a reference to the data of this resource record.
     pub fn data(&self) -> &StoredRecordData {
         &self.data
     }

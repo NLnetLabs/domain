@@ -8,6 +8,8 @@ use super::Rrset;
 use crate::base::name::OwnedLabel;
 use crate::base::{Dname, DnameBuilder};
 
+/// A callback function invoked for each leaf node visited while walking a
+/// [`Zone`].
 pub type WalkOp = Box<dyn Fn(Dname<Bytes>, &Rrset) + Send + Sync>;
 
 struct WalkStateInner {

@@ -20,10 +20,12 @@ pub struct ZoneTree {
 }
 
 impl ZoneTree {
+    /// Creates an empty [`ZoneTree`].
     pub fn new() -> Self {
         Default::default()
     }
 
+    /// Gets a [`Zone`] for the given apex name and CLASS, if any.
     pub fn get_zone(
         &self,
         apex_name: &impl ToDname,
@@ -34,6 +36,10 @@ impl ZoneTree {
             .get_zone(apex_name.iter_labels().rev())
     }
 
+    /// Inserts the given [`Zone`].
+    ///
+    /// Returns a [`ZoneTreeModificationError`] if a zone with the same apex
+    /// and CLASS already exists in the tree.
     pub fn insert_zone(
         &mut self,
         zone: Zone,
@@ -44,6 +50,8 @@ impl ZoneTree {
         )
     }
 
+    /// Gets the closest matching [`Zone`] for the given QNAME and CLASS, if
+    /// any.
     pub fn find_zone(
         &self,
         qname: &impl ToDname,
@@ -52,10 +60,12 @@ impl ZoneTree {
         self.roots.get(class)?.find_zone(qname.iter_labels().rev())
     }
 
+    /// Returns an iterator over all of the [`Zone`]s in the tree.
     pub fn iter_zones(&self) -> ZoneSetIter {
         ZoneSetIter::new(self)
     }
 
+    /// Removes the specified [`Zone`], if any.
     pub fn remove_zone(
         &mut self,
         apex_name: &impl ToDname,
