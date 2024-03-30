@@ -1055,7 +1055,7 @@ impl SymbolCharsError {
     #[must_use]
     pub fn as_str(self) -> &'static str {
         match self.0 {
-            SymbolCharsEnum::BadEscape => "illegale escape sequence",
+            SymbolCharsEnum::BadEscape => "illegal escape sequence",
             SymbolCharsEnum::ShortInput => "unexpected end of input",
         }
     }
