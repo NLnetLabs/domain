@@ -1548,7 +1548,7 @@ mod test {
             });
         }
 
-        test(" unquoted\n", b"unquoted");
+        test(" unquoted\r\n", b"unquoted");
         test(" unquoted  ", b"unquoted");
         test("unquoted ", b"unquoted");
         test("unqu\\oted ", b"unquoted");

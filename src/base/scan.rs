@@ -703,6 +703,7 @@ impl Symbol {
             Symbol::Char(ch) => {
                 ch != ' '
                     && ch != '\t'
+                    && ch != '\r'
                     && ch != '\n'
                     && ch != '('
                     && ch != ')'
