@@ -42,6 +42,7 @@
 //!
 //! // Prepare some zone file bytes to demonstrate with.
 //! let zone_file = include_bytes!("../../test-data/zonefiles/nsd-example.txt");
+//! eprintln!("{:X?}", &zone_file);
 //! let mut zone_bytes = std::io::BufReader::new(&zone_file[..]);
 //!
 //! // Read, parse and build a zone.
