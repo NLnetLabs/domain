@@ -531,6 +531,7 @@ where
                         )?;
 
                     let received_at = Instant::now();
+                    self.metrics.num_received_requests.fetch_add(1, Ordering::Relaxed);
 
                     if enabled!(Level::TRACE) {
                         let pcap_text = to_pcap_text(&msg, bytes_read);
@@ -734,6 +735,7 @@ where
                 .await;
 
                 metrics.num_pending_writes.fetch_sub(1, Ordering::Relaxed);
+                metrics.num_sent_responses.fetch_add(1, Ordering::Relaxed);
             }
         });
     }
