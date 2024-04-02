@@ -664,7 +664,7 @@ impl<Sock, Buf, Svc> CommonMessageFlow<Buf, Svc>
     for DgramServer<Sock, Buf, Svc>
 where
     Sock: AsyncDgramSock + Send + Sync + 'static,
-    Buf: BufSource + Send + Sync,
+    Buf: BufSource + Send + Sync + 'static,
     Buf::Output: Octets + Send + Sync + 'static,
     Svc: Service<Buf::Output> + Send + Sync + 'static,
     Svc::Target: Send + Composer + Default,

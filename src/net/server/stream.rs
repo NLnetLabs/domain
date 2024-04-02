@@ -428,7 +428,7 @@ where
         Listener::Future: Send + 'static,
         Listener::StreamType: AsyncRead + AsyncWrite + Send + Sync + 'static,
         Svc: 'static,
-        Svc::Target: Send,
+        Svc::Target: Send + Sync,
         Svc::Future: Send,
     {
         if let Err(err) = self.run_until_error().await {
@@ -521,7 +521,7 @@ where
         Listener::StreamType: AsyncRead + AsyncWrite + Send + Sync + 'static,
         Svc: 'static,
         Svc::Future: Send,
-        Svc::Target: Send + 'static,
+        Svc::Target: Send + Sync + 'static,
     {
         let mut command_rx = self.command_rx.clone();
 
@@ -623,7 +623,7 @@ where
         Listener::StreamType: AsyncRead + AsyncWrite + Send + Sync + 'static,
         Svc: 'static,
         Svc::Future: Send,
-        Svc::Target: Send + 'static,
+        Svc::Target: Send + Sync + 'static,
     {
         // Work around the compiler wanting to move self to the async block by
         // preparing only those pieces of information from self for the new
