@@ -2,7 +2,6 @@
 use core::ops::ControlFlow;
 
 use crate::base::message_builder::AdditionalBuilder;
-use crate::base::wire::Composer;
 use crate::base::{Message, StreamTarget};
 use crate::net::server::message::Request;
 
@@ -11,11 +10,7 @@ use crate::net::server::message::Request;
 /// See the documentation in the [`middleware`] module for more information.
 ///
 /// [`middleware`]: crate::net::server::middleware
-pub trait MiddlewareProcessor<RequestOctets, Target>
-where
-    RequestOctets: AsRef<[u8]>,
-    Target: Composer + Default,
-{
+pub trait MiddlewareProcessor<RequestOctets, Target> {
     /// Apply middleware pre-processing rules to a request.
     ///
     /// See [`MiddlewareChain::preprocess()`] for more information.

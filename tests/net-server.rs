@@ -103,6 +103,8 @@ fn mk_servers<Svc>(
 )
 where
     Svc: Service + Send + Sync + 'static,
+    Svc::Future: Send,
+    Svc::Target: Composer + Default + Send,
 {
     // Prepare middleware to be used by the DNS servers to pre-process
     // received requests and post-process created responses.

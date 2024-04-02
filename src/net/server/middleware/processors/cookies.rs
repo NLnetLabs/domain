@@ -4,7 +4,7 @@ use core::ops::ControlFlow;
 use std::net::IpAddr;
 use std::vec::Vec;
 
-use octseq::{Octets, OctetsBuilder};
+use octseq::Octets;
 use rand::RngCore;
 use tracing::{debug, trace, warn};
 
@@ -157,7 +157,7 @@ impl CookiesMiddlewareProcessor {
     ) -> AdditionalBuilder<StreamTarget<Target>>
     where
         RequestOctets: Octets,
-        Target: Composer + OctetsBuilder + Default,
+        Target: Composer + Default,
     {
         let mut additional = start_reply(request).additional();
 
@@ -197,7 +197,7 @@ impl CookiesMiddlewareProcessor {
     ) -> AdditionalBuilder<StreamTarget<Target>>
     where
         RequestOctets: Octets,
-        Target: Composer + OctetsBuilder + Default,
+        Target: Composer + Default,
     {
         // https://datatracker.ietf.org/doc/html/rfc7873#section-5.2.3
         //   "If the server responds [ed: by sending a BADCOOKIE error
@@ -221,7 +221,7 @@ impl CookiesMiddlewareProcessor {
     ) -> AdditionalBuilder<StreamTarget<Target>>
     where
         RequestOctets: Octets,
-        Target: Composer + OctetsBuilder + Default,
+        Target: Composer + Default,
     {
         // https://datatracker.ietf.org/doc/html/rfc7873#section-5.4
         // Querying for a Server Cookie:
@@ -286,7 +286,7 @@ impl<RequestOctets, Target> MiddlewareProcessor<RequestOctets, Target>
     for CookiesMiddlewareProcessor
 where
     RequestOctets: Octets,
-    Target: Composer + OctetsBuilder + Default,
+    Target: Composer + Default,
 {
     fn preprocess(
         &self,

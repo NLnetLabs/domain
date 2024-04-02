@@ -22,7 +22,7 @@ use crate::base::iana::Rcode;
 /// Helper for creating a [`MessageBuilder`] for a `Target`.
 pub fn mk_builder_for_target<Target>() -> MessageBuilder<StreamTarget<Target>>
 where
-    Target: Composer + OctetsBuilder + Default,
+    Target: Composer + Default,
 {
     let target = StreamTarget::new(Target::default())
         .map_err(|_| ())
@@ -77,7 +77,7 @@ where
 ///                 CallResult<Vec<u8>, Vec<u8>>,
 ///                 ServiceError,
 ///             >,
-///         > + Send>>,
+///         >>>,
 ///     >,
 ///     ServiceError,
 /// > {
@@ -107,10 +107,9 @@ pub fn service_fn<RequestOctets, Target, Future, T, Metadata>(
 ) -> impl Service<RequestOctets, Target = Target, Future = Future> + Clone
 where
     RequestOctets: AsRef<[u8]>,
-    Target: Composer + Default + Send + Sync + 'static,
     Future: std::future::Future<
-            Output = Result<CallResult<RequestOctets, Target>, ServiceError>,
-        > + Send,
+        Output = Result<CallResult<RequestOctets, Target>, ServiceError>,
+    >,
     Metadata: Clone,
     T: Fn(
             Request<Message<RequestOctets>>,
@@ -167,7 +166,7 @@ pub fn start_reply<RequestOctets, Target>(
 ) -> QuestionBuilder<StreamTarget<Target>>
 where
     RequestOctets: Octets,
-    Target: Composer + OctetsBuilder + Default,
+    Target: Composer + Default,
 {
     let builder = mk_builder_for_target();
 

@@ -90,7 +90,6 @@ impl MandatoryMiddlewareProcessor {
         response: &mut AdditionalBuilder<StreamTarget<Target>>,
     ) -> Result<(), TruncateError>
     where
-        RequestOctets: Octets,
         Target: Composer + Default,
     {
         if let TransportSpecificContext::Udp(UdpTransportContext {

@@ -85,11 +85,7 @@ const MAX_RESPONSE_SIZE: DefMinMax<u16> = DefMinMax::new(1232, 512, 4096);
 
 /// Configuration for a datagram server.
 #[derive(Debug)]
-pub struct Config<RequestOctets, Target>
-where
-    RequestOctets: Octets,
-    Target: Composer + Default,
-{
+pub struct Config<RequestOctets, Target> {
     /// Limit suggested to [`Service`] on maximum response size to create.
     max_response_size: Option<u16>,
 
@@ -301,8 +297,9 @@ pub struct DgramServer<Sock, Buf, Svc>
 where
     Sock: AsyncDgramSock + Send + Sync + 'static,
     Buf: BufSource + Send + Sync + 'static,
-    Buf::Output: Octets + Send + Sync + 'static,
+    Buf::Output: Octets + Send + Sync,
     Svc: Service<Buf::Output> + Send + Sync + 'static,
+    Svc::Target: Send + Composer + Default,
 {
     /// The configuration of the server.
     config: Arc<ArcSwap<Config<Buf::Output, Svc::Target>>>,
@@ -336,10 +333,11 @@ where
 ///
 impl<Sock, Buf, Svc> DgramServer<Sock, Buf, Svc>
 where
-    Sock: AsyncDgramSock + Send + Sync + 'static,
-    Buf: BufSource + Send + Sync + 'static + Clone,
-    Buf::Output: Octets + Send + Sync + 'static,
-    Svc: Service<Buf::Output> + Send + Sync + 'static,
+    Sock: AsyncDgramSock + Send + Sync,
+    Buf: BufSource + Send + Sync,
+    Buf::Output: Octets + Send + Sync,
+    Svc: Service<Buf::Output> + Send + Sync,
+    Svc::Target: Send + Composer + Default,
 {
     /// Constructs a new [`DgramServer`] with default configuration.
     ///
@@ -393,7 +391,7 @@ where
     Buf: BufSource + Send + Sync + 'static,
     Buf::Output: Octets + Send + Sync + 'static + Debug,
     Svc: Service<Buf::Output> + Send + Sync + 'static,
-    Svc::Target: Debug,
+    Svc::Target: Send + Composer + Debug + Default,
 {
     /// Get a reference to the network source being used to receive messages.
     #[must_use]
@@ -413,9 +411,10 @@ where
 impl<Sock, Buf, Svc> DgramServer<Sock, Buf, Svc>
 where
     Sock: AsyncDgramSock + Send + Sync + 'static,
-    Buf: BufSource + Send + Sync + 'static,
+    Buf: BufSource + Send + Sync,
     Buf::Output: Octets + Send + Sync + 'static,
     Svc: Service<Buf::Output> + Send + Sync + 'static,
+    Svc::Target: Send + Composer + Default,
 {
     /// Start the server.
     ///
@@ -501,9 +500,10 @@ where
 impl<Sock, Buf, Svc> DgramServer<Sock, Buf, Svc>
 where
     Sock: AsyncDgramSock + Send + Sync + 'static,
-    Buf: BufSource + Send + Sync + 'static,
+    Buf: BufSource + Send + Sync,
     Buf::Output: Octets + Send + Sync + 'static,
     Svc: Service<Buf::Output> + Send + Sync + 'static,
+    Svc::Target: Send + Composer + Default,
 {
     /// Receive incoming messages until shutdown or fatal error.
     async fn run_until_error(&self) -> Result<(), String>
@@ -664,9 +664,10 @@ impl<Sock, Buf, Svc> CommonMessageFlow<Buf, Svc>
     for DgramServer<Sock, Buf, Svc>
 where
     Sock: AsyncDgramSock + Send + Sync + 'static,
-    Buf: BufSource + Send + Sync + 'static,
+    Buf: BufSource + Send + Sync,
     Buf::Output: Octets + Send + Sync + 'static,
     Svc: Service<Buf::Output> + Send + Sync + 'static,
+    Svc::Target: Send + Composer + Default,
 {
     type Meta = RequestState<Sock, Buf::Output, Svc::Target>;
 
@@ -746,8 +747,9 @@ impl<Sock, Buf, Svc> Drop for DgramServer<Sock, Buf, Svc>
 where
     Sock: AsyncDgramSock + Send + Sync + 'static,
     Buf: BufSource + Send + Sync + 'static,
-    Buf::Output: Octets + Send + Sync + 'static,
+    Buf::Output: Octets + Send + Sync,
     Svc: Service<Buf::Output> + Send + Sync + 'static,
+    Svc::Target: Send + Composer + Default,
 {
     fn drop(&mut self) {
         // Shutdown the DgramServer. Don't handle the failure case here as
@@ -761,11 +763,7 @@ where
 
 /// Data needed by [`DgramServer::process_call_result()`] which needs to be
 /// passed through the [`CommonMessageFlow`] call chain.
-pub struct RequestState<Sock, RequestOctets, Target>
-where
-    RequestOctets: Octets,
-    Target: Composer + Default,
-{
+pub struct RequestState<Sock, RequestOctets, Target> {
     /// The network socket over which this request was received and over which
     /// the response should be sent.
     sock: Arc<Sock>,
@@ -780,11 +778,7 @@ where
     write_timeout: Duration,
 }
 
-impl<Sock, RequestOctets, Target> RequestState<Sock, RequestOctets, Target>
-where
-    RequestOctets: Octets,
-    Target: Composer + Default,
-{
+impl<Sock, RequestOctets, Target> RequestState<Sock, RequestOctets, Target> {
     /// Creates a new instance of [`RequestState`].
     fn new(
         sock: Arc<Sock>,
@@ -803,9 +797,6 @@ where
 
 impl<Sock, RequestOctets, Target> Clone
     for RequestState<Sock, RequestOctets, Target>
-where
-    RequestOctets: Octets,
-    Target: Composer + Default,
 {
     fn clone(&self) -> Self {
         Self {

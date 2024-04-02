@@ -18,6 +18,7 @@ use crate::net::server::middleware::chain::MiddlewareChain;
 
 use super::service::{CallResult, Service, ServiceError, Transaction};
 use super::util::start_reply;
+use crate::base::wire::Composer;
 
 //------------ UdpTransportContext -------------------------------------------
 
@@ -207,9 +208,9 @@ impl<T> Clone for Request<T> {
 /// [`process_request()`]: Self::process_request()
 pub trait CommonMessageFlow<Buf, Svc>
 where
-    Buf: BufSource + Send + Sync + 'static,
-    Buf::Output: Octets + Send + Sync + 'static,
-    Svc: Service<Buf::Output> + Send + Sync + 'static,
+    Buf: BufSource,
+    Buf::Output: Octets + Send + Sync,
+    Svc: Service<Buf::Output> + Send + Sync,
 {
     /// Server-specific data that it chooses to pass along with the request in
     /// order that it may receive it when `process_call_result()` is
@@ -246,7 +247,10 @@ where
         meta: Self::Meta,
     ) -> Result<(), ServiceError>
     where
+        Svc: 'static,
+        Svc::Target: Send + Composer + Default,
         Svc::Future: Send,
+        Buf::Output: 'static,
     {
         boomerang(
             self,
@@ -304,9 +308,11 @@ fn boomerang<Buf, Svc, Server>(
     meta: Server::Meta,
 ) -> Result<(), ServiceError>
 where
-    Buf: BufSource + Send + Sync + 'static,
+    Buf: BufSource,
     Buf::Output: Octets + Send + Sync + 'static,
     Svc: Service<Buf::Output> + Send + Sync + 'static,
+    Svc::Future: Send,
+    Svc::Target: Send + Composer + Default,
     Server: CommonMessageFlow<Buf, Svc> + ?Sized,
 {
     let (request, preprocessing_result) = do_middleware_preprocessing(
@@ -351,9 +357,10 @@ fn do_service_call<Buf, Svc>(
     Option<usize>,
 )
 where
-    Buf: BufSource + Send + Sync + 'static,
-    Buf::Output: Octets + Send + Sync + 'static,
-    Svc: Service<Buf::Output> + Send + Sync + 'static,
+    Buf: BufSource,
+    Buf::Output: Octets,
+    Svc: Service<Buf::Output>,
+    Svc::Target: Composer + Default,
 {
     match preprocessing_result {
         ControlFlow::Continue(()) => {
@@ -424,9 +431,11 @@ fn do_middleware_preprocessing<Buf, Svc, Server>(
     ServiceError,
 >
 where
-    Buf: BufSource + Send + Sync + 'static,
+    Buf: BufSource,
     Buf::Output: Octets + Send + Sync + 'static,
-    Svc: Service<Buf::Output> + Send + Sync + 'static,
+    Svc: Service<Buf::Output> + Send + Sync,
+    Svc::Future: Send,
+    Svc::Target: Send + Composer + Default + 'static,
     Server: CommonMessageFlow<Buf, Svc> + ?Sized,
 {
     let message = Message::from_octets(buf).map_err(|err| {
@@ -472,9 +481,11 @@ fn do_middleware_postprocessing<Buf, Svc, Server>(
     last_processor_id: Option<usize>,
     metrics: Arc<ServerMetrics>,
 ) where
-    Buf: BufSource + Send + Sync + 'static,
+    Buf: BufSource,
     Buf::Output: Octets + Send + Sync + 'static,
     Svc: Service<Buf::Output> + Send + Sync + 'static,
+    Svc::Future: Send,
+    Svc::Target: Send + Composer + Default,
     Server: CommonMessageFlow<Buf, Svc> + ?Sized,
 {
     tokio::spawn(async move {

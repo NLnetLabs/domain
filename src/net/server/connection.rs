@@ -91,11 +91,7 @@ const MAX_QUEUED_RESPONSES: DefMinMax<usize> = DefMinMax::new(10, 0, 1024);
 //----------- Config ---------------------------------------------------------
 
 /// Configuration for a stream server connection.
-pub struct Config<RequestOctets, Target>
-where
-    RequestOctets: Octets,
-    Target: Composer + Default,
-{
+pub struct Config<RequestOctets, Target> {
     /// Limit on the amount of time to allow between client requests.
     ///
     /// This setting can be overridden on a per connection basis by a
@@ -253,11 +249,7 @@ where
 
 //--- Clone
 
-impl<RequestOctets, Target> Clone for Config<RequestOctets, Target>
-where
-    RequestOctets: Octets,
-    Target: Composer + Default,
-{
+impl<RequestOctets, Target> Clone for Config<RequestOctets, Target> {
     fn clone(&self) -> Self {
         Self {
             idle_timeout: self.idle_timeout,
@@ -273,10 +265,8 @@ where
 /// A handler for a single stream connection between client and server.
 pub struct Connection<Stream, Buf, Svc>
 where
-    Stream: AsyncRead + AsyncWrite + Send + Sync + 'static,
-    Buf: BufSource + Send + Sync + Clone + 'static,
-    Buf::Output: Octets + Send + Sync,
-    Svc: Service<Buf::Output> + Send + Sync + Clone + 'static,
+    Buf: BufSource,
+    Svc: Service<Buf::Output>,
 {
     /// Flag used by the Drop impl to track if the metric count has to be
     /// decreased or not.
@@ -325,10 +315,11 @@ where
 ///
 impl<Stream, Buf, Svc> Connection<Stream, Buf, Svc>
 where
-    Stream: AsyncRead + AsyncWrite + Send + Sync + 'static,
-    Buf: BufSource + Send + Sync + Clone + 'static,
-    Buf::Output: Octets + Send + Sync,
-    Svc: Service<Buf::Output> + Send + Sync + Clone + 'static,
+    Stream: AsyncRead + AsyncWrite,
+    Buf: BufSource,
+    Buf::Output: Octets,
+    Svc: Service<Buf::Output>,
+    Svc::Target: Composer + Default,
 {
     /// Creates a new handler for an accepted stream connection.
     #[must_use]
@@ -395,9 +386,10 @@ where
 impl<Stream, Buf, Svc> Connection<Stream, Buf, Svc>
 where
     Stream: AsyncRead + AsyncWrite + Send + Sync + 'static,
-    Buf: BufSource + Send + Sync + 'static + Clone,
-    Buf::Output: Octets + Send + Sync + 'static,
-    Svc: Service<Buf::Output> + Send + Sync + 'static + Clone,
+    Buf: BufSource + Send + Sync + Clone + 'static,
+    Buf::Output: Octets + Send + Sync,
+    Svc: Service<Buf::Output> + Send + Sync + 'static,
+    Svc::Target: Send + Composer + Default,
 {
     /// Start reading requests and writing responses to the stream.
     ///
@@ -440,9 +432,11 @@ where
 impl<Stream, Buf, Svc> Connection<Stream, Buf, Svc>
 where
     Stream: AsyncRead + AsyncWrite + Send + Sync + 'static,
-    Buf: BufSource + Send + Sync + 'static + Clone,
-    Buf::Output: Octets + Send + Sync + 'static,
-    Svc: Service<Buf::Output> + Send + Sync + 'static + Clone,
+    Buf: BufSource + Send + Sync + Clone + 'static,
+    Buf::Output: Octets + Send + Sync,
+    Svc: Service<Buf::Output> + Send + Sync + 'static,
+    Svc::Future: Send,
+    Svc::Target: Send + Composer + Default,
 {
     /// Connection handler main loop.
     async fn run_until_error(
@@ -450,9 +444,7 @@ where
         mut command_rx: watch::Receiver<
             ServerCommand<ServerConfig<Buf::Output, Svc::Target>>,
         >,
-    ) where
-        Svc::Future: Send,
-    {
+    ) {
         // SAFETY: This unwrap is safe because we always put a Some value into
         // self.stream_rx in [`Self::with_config()`] above (and thus also in
         // [`Self::new()`] which calls [`Self::with_config()`]).
@@ -740,7 +732,10 @@ where
     async fn process_read_request(
         &mut self,
         res: Result<Buf::Output, ConnectionEvent>,
-    ) -> Result<(), ConnectionEvent> {
+    ) -> Result<(), ConnectionEvent>
+    where
+        Svc::Future: Send,
+    {
         res.and_then(|msg| {
             let received_at = Instant::now();
 
@@ -775,10 +770,8 @@ where
 
 impl<Stream, Buf, Svc> Drop for Connection<Stream, Buf, Svc>
 where
-    Stream: AsyncRead + AsyncWrite + Send + Sync,
-    Buf: BufSource + Send + Sync + Clone,
-    Buf::Output: Octets + Send + Sync,
-    Svc: Service<Buf::Output> + Send + Sync + Clone,
+    Buf: BufSource,
+    Svc: Service<Buf::Output>,
 {
     fn drop(&mut self) {
         if self.active {
@@ -802,10 +795,10 @@ where
 impl<Stream, Buf, Svc> CommonMessageFlow<Buf, Svc>
     for Connection<Stream, Buf, Svc>
 where
-    Stream: AsyncRead + AsyncWrite + Send + Sync,
-    Buf: BufSource + Send + Sync + Clone,
-    Buf::Output: Octets + Send + Sync,
-    Svc: Service<Buf::Output> + Send + Sync + Clone,
+    Buf: BufSource,
+    Buf::Output: Octets + Send + Sync + 'static,
+    Svc: Service<Buf::Output> + Send + Sync + 'static,
+    Svc::Target: Send,
 {
     type Meta = Sender<CallResult<Buf::Output, Svc::Target>>;
 
@@ -881,11 +874,7 @@ enum Status {
 /// ensures that any part of the request already received is not lost if the
 /// read operation is cancelled by Tokio and then a new read operation is
 /// started.
-struct DnsMessageReceiver<Stream, Buf>
-where
-    Stream: AsyncRead + AsyncWrite + Send + Sync + 'static,
-    Buf: BufSource + Send + Sync + 'static + Clone,
-{
+struct DnsMessageReceiver<Stream, Buf> {
     /// A buffer to record the total expected size of the message currently
     /// being received. DNS TCP streams preceed the DNS message by bytes
     /// indicating the length of the message that follows.

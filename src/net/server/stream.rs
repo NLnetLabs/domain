@@ -40,6 +40,7 @@ use super::buf::VecBufSource;
 use super::connection::{self, Connection};
 use super::ServerCommand;
 use crate::base::wire::Composer;
+use tokio::io::{AsyncRead, AsyncWrite};
 
 // TODO: Should this crate also provide a TLS listener implementation?
 
@@ -72,11 +73,7 @@ const MAX_CONCURRENT_TCP_CONNECTIONS: DefMinMax<usize> =
 //----------- Config ---------------------------------------------------------
 
 /// Configuration for a stream server.
-pub struct Config<RequestOctets, Target>
-where
-    RequestOctets: Octets,
-    Target: Composer + Default,
-{
+pub struct Config<RequestOctets, Target> {
     /// Limit on the number of concurrent TCP connections that can be handled
     /// by the server.
     pub(super) max_concurrent_connections: usize,
@@ -262,10 +259,11 @@ type CommandReceiver<RequestOctets, Target> =
 ///     https://docs.rs/tokio/latest/tokio/net/struct.TcpListener.html
 pub struct StreamServer<Listener, Buf, Svc>
 where
-    Listener: AsyncAccept + Send + Sync + 'static,
-    Buf: BufSource + Send + Sync + 'static + Clone,
-    Buf::Output: Octets + Send + Sync + 'static,
-    Svc: Service<Buf::Output> + Send + Sync + 'static + Clone,
+    Listener: AsyncAccept + Send + Sync,
+    Buf: BufSource + Send + Sync + Clone,
+    Buf::Output: Octets + Send + Sync,
+    Svc: Service<Buf::Output> + Send + Sync + Clone,
+    Svc::Target: Composer + Default + 'static,
 {
     /// The configuration of the server.
     config: Arc<ArcSwap<Config<Buf::Output, Svc::Target>>>,
@@ -306,10 +304,11 @@ where
 ///
 impl<Listener, Buf, Svc> StreamServer<Listener, Buf, Svc>
 where
-    Listener: AsyncAccept + Send + Sync + 'static,
-    Buf: BufSource + Send + Sync + 'static + Clone,
-    Buf::Output: Octets + Send + Sync + 'static,
-    Svc: Service<Buf::Output> + Send + Sync + 'static + Clone,
+    Listener: AsyncAccept + Send + Sync,
+    Buf: BufSource + Send + Sync + Clone,
+    Buf::Output: Octets + Send + Sync,
+    Svc: Service<Buf::Output> + Send + Sync + Clone,
+    Svc::Target: Composer + Default,
 {
     /// Creates a new [`StreamServer`] instance.
     ///
@@ -385,11 +384,11 @@ where
 ///
 impl<Listener, Buf, Svc> StreamServer<Listener, Buf, Svc>
 where
-    Listener: AsyncAccept + Send + Sync + 'static,
-    Buf: BufSource + Send + Sync + 'static + Clone,
-    Buf::Output: Octets + Debug + Send + Sync + 'static,
-    Svc: Service<Buf::Output> + Send + Sync + 'static + Clone,
-    Svc::Target: Debug,
+    Listener: AsyncAccept + Send + Sync,
+    Buf: BufSource + Send + Sync + Clone,
+    Buf::Output: Octets + Debug + Send + Sync,
+    Svc: Service<Buf::Output> + Send + Sync + Clone,
+    Svc::Target: Composer + Default,
 {
     /// Get a reference to the source for this server.
     #[must_use]
@@ -408,10 +407,11 @@ where
 ///
 impl<Listener, Buf, Svc> StreamServer<Listener, Buf, Svc>
 where
-    Listener: AsyncAccept + Send + Sync + 'static,
-    Buf: BufSource + Send + Sync + 'static + Clone,
-    Buf::Output: Octets + Send + Sync + 'static,
-    Svc: Service<Buf::Output> + Send + Sync + 'static + Clone,
+    Listener: AsyncAccept + Send + Sync,
+    Buf: BufSource + Send + Sync + Clone,
+    Buf::Output: Octets + Send + Sync,
+    Svc: Service<Buf::Output> + Send + Sync + Clone,
+    Svc::Target: Composer + Default + 'static,
 {
     /// Start the server.
     ///
@@ -422,6 +422,13 @@ where
     /// [`shutdown()`]: Self::shutdown
     pub async fn run(&self)
     where
+        Buf: 'static,
+        Buf::Output: 'static,
+        Listener::Error: Send,
+        Listener::Future: Send + 'static,
+        Listener::StreamType: AsyncRead + AsyncWrite + Send + Sync + 'static,
+        Svc: 'static,
+        Svc::Target: Send,
         Svc::Future: Send,
     {
         if let Err(err) = self.run_until_error().await {
@@ -498,15 +505,23 @@ where
 
 impl<Listener, Buf, Svc> StreamServer<Listener, Buf, Svc>
 where
-    Listener: AsyncAccept + Send + Sync + 'static,
-    Buf: BufSource + Send + Sync + 'static + Clone,
-    Buf::Output: Octets + Send + Sync + 'static,
-    Svc: Service<Buf::Output> + Send + Sync + 'static + Clone,
+    Listener: AsyncAccept + Send + Sync,
+    Buf: BufSource + Send + Sync + Clone,
+    Buf::Output: Octets + Send + Sync,
+    Svc: Service<Buf::Output> + Send + Sync + Clone,
+    Svc::Target: Composer + Default,
 {
     /// Accept stream connections until shutdown or fatal error.
     async fn run_until_error(&self) -> Result<(), String>
     where
+        Buf: 'static,
+        Buf::Output: 'static,
+        Listener::Error: Send,
+        Listener::Future: Send + 'static,
+        Listener::StreamType: AsyncRead + AsyncWrite + Send + Sync + 'static,
+        Svc: 'static,
         Svc::Future: Send,
+        Svc::Target: Send + 'static,
     {
         let mut command_rx = self.command_rx.clone();
 
@@ -601,8 +616,14 @@ where
         stream: Listener::Future,
         addr: SocketAddr,
     ) where
-        Buf::Output: Octets,
+        Buf: 'static,
+        Buf::Output: Octets + 'static,
+        Listener::Error: Send,
+        Listener::Future: Send + 'static,
+        Listener::StreamType: AsyncRead + AsyncWrite + Send + Sync + 'static,
+        Svc: 'static,
         Svc::Future: Send,
+        Svc::Target: Send + 'static,
     {
         // Work around the compiler wanting to move self to the async block by
         // preparing only those pieces of information from self for the new
@@ -662,10 +683,11 @@ where
 
 impl<Listener, Buf, Svc> Drop for StreamServer<Listener, Buf, Svc>
 where
-    Listener: AsyncAccept + Send + Sync + 'static,
-    Buf: BufSource + Send + Sync + 'static + Clone,
-    Buf::Output: Octets + Send + Sync + 'static,
-    Svc: Service<Buf::Output> + Send + Sync + 'static + Clone,
+    Listener: AsyncAccept + Send + Sync,
+    Buf: BufSource + Send + Sync + Clone,
+    Buf::Output: Octets + Send + Sync,
+    Svc: Service<Buf::Output> + Send + Sync + Clone,
+    Svc::Target: Composer + Default + 'static,
 {
     fn drop(&mut self) {
         // Shutdown the StreamServer. Don't handle the failure case here as

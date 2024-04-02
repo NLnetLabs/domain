@@ -24,11 +24,7 @@ use super::processors::mandatory::MandatoryMiddlewareProcessor;
 ///
 /// [`push()`]: Self::push()
 /// [`build()`]: Self::build()
-pub struct MiddlewareBuilder<RequestOctets = Vec<u8>, Target = Vec<u8>>
-where
-    RequestOctets: Octets,
-    Target: Composer + Default,
-{
+pub struct MiddlewareBuilder<RequestOctets = Vec<u8>, Target = Vec<u8>> {
     /// The ordered set of processors which will pre-process requests and then
     /// in reverse order will post-process responses.
     processors: Vec<
@@ -133,7 +129,7 @@ where
 impl<RequestOctets, Target> Default
     for MiddlewareBuilder<RequestOctets, Target>
 where
-    RequestOctets: AsRef<[u8]> + Octets,
+    RequestOctets: Octets,
     Target: Composer + Default,
 {
     /// Create a middleware builder with default, aka "modern", processors.

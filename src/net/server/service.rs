@@ -16,11 +16,10 @@ use std::vec::Vec;
 
 use futures_util::stream::FuturesOrdered;
 use futures_util::{FutureExt, StreamExt};
-use octseq::{OctetsBuilder, ShortBuf};
 
 use crate::base::iana::Rcode;
 use crate::base::message_builder::{AdditionalBuilder, PushError};
-use crate::base::wire::{Composer, ParseError};
+use crate::base::wire::ParseError;
 use crate::base::{Message, StreamTarget};
 
 use super::message::Request;
@@ -207,16 +206,16 @@ use super::message::Request;
 /// [`service_fn()`]: crate::net::server::util::service_fn()
 pub trait Service<RequestOctets: AsRef<[u8]> = Vec<u8>> {
     /// The type of buffer in which response messages are stored.
-    type Target: Composer + Default + Send + Sync + 'static;
+    type Target;
 
     /// The type of future returned by [`Service::call()`] via
     /// [`Transaction::single()`].
     type Future: std::future::Future<
-            Output = Result<
-                CallResult<RequestOctets, Self::Target>,
-                ServiceError,
-            >,
-        > + Send;
+        Output = Result<
+            CallResult<RequestOctets, Self::Target>,
+            ServiceError,
+        >,
+    >;
 
     /// Generate a response to a fully pre-processed request.
     #[allow(clippy::type_complexity)]
@@ -255,10 +254,9 @@ where
     )
         -> Result<Transaction<RequestOctets, Target, Future>, ServiceError>,
     RequestOctets: AsRef<[u8]>,
-    Target: Composer + Default + Send + Sync + 'static,
     Future: std::future::Future<
-            Output = Result<CallResult<RequestOctets, Target>, ServiceError>,
-        > + Send,
+        Output = Result<CallResult<RequestOctets, Target>, ServiceError>,
+    >,
 {
     type Target = Target;
     type Future = Future;
@@ -383,8 +381,6 @@ where
 impl<RequestOctets, Target> CallResult<RequestOctets, Target>
 where
     RequestOctets: AsRef<[u8]>,
-    Target: OctetsBuilder + AsRef<[u8]> + AsMut<[u8]>,
-    Target::AppendError: Into<ShortBuf>,
 {
     /// Construct a [`CallResult`] from a DNS response message.
     #[must_use]

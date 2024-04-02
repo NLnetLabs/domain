@@ -25,11 +25,7 @@ use super::processor::MiddlewareProcessor;
 /// A [`MiddlewareChain`] is immutable. Requests should not be post-processed
 /// by a different or modified chain than they were pre-processed by.
 #[derive(Default)]
-pub struct MiddlewareChain<RequestOctets, Target>
-where
-    RequestOctets: AsRef<[u8]>,
-    Target: Composer + Default,
-{
+pub struct MiddlewareChain<RequestOctets, Target> {
     /// The ordered set of processors which will pre-process requests and then
     /// in reverse order will post-process responses.
     processors: Arc<
@@ -39,11 +35,7 @@ where
     >,
 }
 
-impl<RequestOctets, Target> MiddlewareChain<RequestOctets, Target>
-where
-    RequestOctets: AsRef<[u8]>,
-    Target: Composer + Default,
-{
+impl<RequestOctets, Target> MiddlewareChain<RequestOctets, Target> {
     /// Create a new _empty_ chain of processors.
     ///
     /// <div class="warning">Warning:
@@ -170,11 +162,7 @@ where
 
 //--- Clone
 
-impl<RequestOctets, Target> Clone for MiddlewareChain<RequestOctets, Target>
-where
-    RequestOctets: AsRef<[u8]>,
-    Target: Composer + Default,
-{
+impl<RequestOctets, Target> Clone for MiddlewareChain<RequestOctets, Target> {
     fn clone(&self) -> Self {
         Self {
             processors: self.processors.clone(),
@@ -184,11 +172,7 @@ where
 
 //--- Debug
 
-impl<RequestOctets, Target> Debug for MiddlewareChain<RequestOctets, Target>
-where
-    RequestOctets: AsRef<[u8]>,
-    Target: Composer + Default,
-{
+impl<RequestOctets, Target> Debug for MiddlewareChain<RequestOctets, Target> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("MiddlewareChain")
             .field("processors", &self.processors.len())

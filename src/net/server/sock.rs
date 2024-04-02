@@ -3,7 +3,7 @@ use std::io;
 use std::net::SocketAddr;
 use std::task::{Context, Poll};
 
-use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
+use tokio::io::ReadBuf;
 use tokio::net::{TcpListener, TcpStream, UdpSocket};
 
 //------------ AsyncDgramSock ------------------------------------------------
@@ -74,14 +74,15 @@ impl AsyncDgramSock for UdpSocket {
 /// [`StreamServer`]: crate::net::server::stream::StreamServer.
 pub trait AsyncAccept {
     /// The type of error that the trait impl produces.
-    type Error: Send;
+    type Error;
 
     /// The type of stream that the trait impl consumes.
-    type StreamType: AsyncRead + AsyncWrite + Send + Sync + 'static;
+    type StreamType;
 
     /// The type of [`std::future::Future`] that the trait impl returns.
-    type Future: std::future::Future<Output = Result<Self::StreamType, Self::Error>>
-        + Send;
+    type Future: std::future::Future<
+        Output = Result<Self::StreamType, Self::Error>,
+    >;
 
     /// Polls to accept a new incoming connection to this listener.
     ///
