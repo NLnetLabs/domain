@@ -88,7 +88,7 @@ impl Zonefile {
         // zone apex name and class.
         if self.origin.is_none() {
             if record.rtype() != Rtype::Soa {
-                return Err(RecordError::MissingSoa);
+                return Err(RecordError::MissingSoa(record));
             } else {
                 let apex = record
                     .owner()
@@ -103,7 +103,7 @@ impl Zonefile {
             (self.origin().unwrap(), self.class().unwrap());
 
         if record.class() != zone_class {
-            return Err(RecordError::ClassMismatch);
+            return Err(RecordError::ClassMismatch(record));
         }
 
         if !record.owner().ends_with(zone_apex) {
@@ -124,7 +124,7 @@ impl Zonefile {
                     if self.normal.contains(record.owner())
                         || self.cnames.contains(record.owner())
                     {
-                        return Err(RecordError::IllegalZoneCut);
+                        return Err(RecordError::IllegalZoneCut(record));
                     }
                     self.zone_cuts
                         .entry(record.owner().clone())
@@ -135,10 +135,10 @@ impl Zonefile {
                     if self.normal.contains(record.owner())
                         || self.zone_cuts.contains(record.owner())
                     {
-                        return Err(RecordError::IllegalCname);
+                        return Err(RecordError::IllegalCname(record));
                     }
                     if self.cnames.contains(record.owner()) {
-                        return Err(RecordError::MultipleCnames);
+                        return Err(RecordError::MultipleCnames(record));
                     }
                     self.cnames.insert(record.owner().clone(), record.into());
                     Ok(())
@@ -147,7 +147,7 @@ impl Zonefile {
                     if self.zone_cuts.contains(record.owner())
                         || self.cnames.contains(record.owner())
                     {
-                        return Err(RecordError::IllegalRecord);
+                        return Err(RecordError::IllegalRecord(record));
                     }
                     self.normal.entry(record.owner().clone()).insert(record);
                     Ok(())
