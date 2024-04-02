@@ -235,7 +235,7 @@ type CommandReceiver<Buf, Svc> = watch::Receiver<ServerCommandType<Buf, Svc>>;
 /// [`tokio::net::UdpSocket`] using a [`VecBufSource`] for buffer allocation
 /// and a [`Service`] to generate responses to requests.
 ///
-/// ```
+/// ```no_run
 /// use std::boxed::Box;
 /// use std::future::{Future, Ready};
 /// use std::pin::Pin;

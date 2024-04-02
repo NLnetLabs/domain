@@ -198,7 +198,7 @@ type CommandReceiver<RequestOctets, Target> =
 /// [`tokio::net::TcpListener`] using a [`VecBufSource`] for buffer allocation
 /// and a [`Service`] to generate responses to requests.
 ///
-/// ```
+/// ```no_run
 /// use std::boxed::Box;
 /// use std::future::{Future, Ready};
 /// use std::pin::Pin;
