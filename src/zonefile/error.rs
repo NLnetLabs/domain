@@ -6,7 +6,7 @@ use std::fmt::Display;
 use std::vec::Vec;
 
 use crate::base::Rtype;
-use crate::zonetree::StoredDname;
+use crate::zonetree::{StoredDname, StoredRecord};
 
 use super::inplace;
 
@@ -67,19 +67,19 @@ pub struct OutOfZone;
 #[derive(Clone, Debug)]
 pub enum RecordError {
     /// The class of the record does not match the class of the zone.
-    ClassMismatch,
+    ClassMismatch(StoredRecord),
 
     /// Attempted to add zone cut records where there is no zone cut.
-    IllegalZoneCut,
+    IllegalZoneCut(StoredRecord),
 
     /// Attempted to add a normal record to a zone cut or CNAME.
-    IllegalRecord,
+    IllegalRecord(StoredRecord),
 
     /// Attempted to add a CNAME record where there are other records.
-    IllegalCname,
+    IllegalCname(StoredRecord),
 
     /// Attempted to add multiple CNAME records for an owner.
-    MultipleCnames,
+    MultipleCnames(StoredRecord),
 
     /// The record could not be parsed.
     MalformedRecord(inplace::Error),
@@ -88,24 +88,34 @@ pub enum RecordError {
     InvalidRecord(ZoneErrors),
 
     /// The SOA record was not found.
-    MissingSoa,
+    MissingSoa(StoredRecord),
 }
 
 impl Display for RecordError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            RecordError::ClassMismatch => write!(f, "ClassMismatch"),
-            RecordError::IllegalZoneCut => write!(f, "IllegalZoneCut"),
-            RecordError::IllegalRecord => write!(f, "IllegalRecord"),
-            RecordError::IllegalCname => write!(f, "IllegalCname"),
-            RecordError::MultipleCnames => write!(f, "MultipleCnames"),
+            RecordError::ClassMismatch(rec) => {
+                write!(f, "ClassMismatch: {rec}")
+            }
+            RecordError::IllegalZoneCut(rec) => {
+                write!(f, "IllegalZoneCut: {rec}")
+            }
+            RecordError::IllegalRecord(rec) => {
+                write!(f, "IllegalRecord: {rec}")
+            }
+            RecordError::IllegalCname(rec) => {
+                write!(f, "IllegalCname: {rec}")
+            }
+            RecordError::MultipleCnames(rec) => {
+                write!(f, "MultipleCnames: {rec}")
+            }
             RecordError::MalformedRecord(err) => {
                 write!(f, "MalformedRecord: {err}")
             }
             RecordError::InvalidRecord(err) => {
                 write!(f, "InvalidRecord: {err}")
             }
-            RecordError::MissingSoa => write!(f, "MissingSoa"),
+            RecordError::MissingSoa(rec) => write!(f, "MissingSoa: {rec}"),
         }
     }
 }
