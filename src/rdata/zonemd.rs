@@ -114,7 +114,7 @@ impl<Octs> Zonemd<Octs> {
     }
 
     pub(super) fn flatten<Target: OctetsFrom<Octs>>(
-        self
+        self,
     ) -> Result<Zonemd<Target>, Target::Error> {
         self.convert_octets()
     }
@@ -361,8 +361,6 @@ mod test {
     use crate::base::rdata::test::{
         test_compose_parse, test_rdlen, test_scan,
     };
-    use crate::base::Dname;
-    use crate::rdata::ZoneRecordData;
     use crate::utils::base16::decode;
     use std::string::ToString;
     use std::vec::Vec;
@@ -393,6 +391,8 @@ mod test {
     #[cfg(feature = "zonefile")]
     #[test]
     fn zonemd_parse_zonefile() {
+        use crate::base::Dname;
+        use crate::rdata::ZoneRecordData;
         use crate::zonefile::inplace::{Entry, Zonefile};
 
         // section A.1

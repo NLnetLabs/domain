@@ -56,6 +56,7 @@ pub struct Config {
 }
 
 #[derive(Clone, Debug)]
+#[allow(dead_code)]
 pub struct Stelline {
     pub config: Config,
     pub scenario: Scenario,
