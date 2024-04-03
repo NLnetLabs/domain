@@ -207,7 +207,7 @@ where
     }
 
     if config.edns_tcp_keepalive {
-        let processor = EdnsMiddlewareProcessor::new(EDNS_VERSION_ZERO);
+        let processor = EdnsMiddlewareProcessor::new();
         middleware.push(processor.into());
     }
 

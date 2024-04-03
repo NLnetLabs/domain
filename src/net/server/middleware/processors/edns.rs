@@ -38,17 +38,14 @@ pub const EDNS_VERSION_ZERO: u8 = 0;
 /// [7828]: https://datatracker.ietf.org/doc/html/rfc7828
 /// [9210]: https://datatracker.ietf.org/doc/html/rfc9210
 /// [`MiddlewareProcessor`]: crate::net::server::middleware::processor::MiddlewareProcessor
-#[derive(Debug)]
-pub struct EdnsMiddlewareProcessor {
-    /// Don't accept messages that advertize a higher EDNS version than this.
-    max_version: u8,
-}
+#[derive(Debug, Default)]
+pub struct EdnsMiddlewareProcessor;
 
 impl EdnsMiddlewareProcessor {
     /// Creates an instance of this processor.
     #[must_use]
-    pub fn new(max_version: u8) -> Self {
-        Self { max_version }
+    pub fn new() -> Self {
+        Self
     }
 }
 
@@ -76,24 +73,6 @@ impl EdnsMiddlewareProcessor {
         }
 
         additional
-    }
-}
-
-//--- Default
-
-impl Default for EdnsMiddlewareProcessor {
-    /// Creates an instance of this processor with default configuration.
-    ///
-    /// The processor will only accept EDNS version 0 OPT records from
-    /// clients. EDNS version 0 is the highest EDNS version number recoded in
-    /// the [IANA registry] at the time of writing.
-    ///
-    /// [IANA registry]:
-    ///     https://www.iana.org/assignments/dns-parameters/dns-parameters.xhtml#dns-parameters-14
-    fn default() -> Self {
-        Self {
-            max_version: EDNS_VERSION_ZERO,
-        }
     }
 }
 
@@ -135,8 +114,8 @@ where
                     //   "If a responder does not implement the VERSION level
                     //    of the request, then it MUST respond with
                     //    RCODE=BADVERS."
-                    if opt_rec.version() > self.max_version {
-                        debug!("RFC 6891 6.1.3 violation: request EDNS version {} > {}", opt_rec.version(), self.max_version);
+                    if opt_rec.version() > EDNS_VERSION_ZERO {
+                        debug!("RFC 6891 6.1.3 violation: request EDNS version {} > 0", opt_rec.version());
                         return ControlFlow::Break(Self::error_response(
                             request,
                             OptRcode::BadVers,
@@ -426,7 +405,7 @@ mod tests {
         );
 
         // And pass the query through the middleware processor
-        let processor = EdnsMiddlewareProcessor::default();
+        let processor = EdnsMiddlewareProcessor::new();
         let processor: &dyn MiddlewareProcessor<Vec<u8>, Vec<u8>> =
             &processor;
         let mut response = MessageBuilder::new_stream_vec().additional();
