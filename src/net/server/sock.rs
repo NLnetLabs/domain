@@ -3,6 +3,10 @@ use std::io;
 use std::net::SocketAddr;
 use std::task::{Context, Poll};
 
+use std::boxed::Box;
+use std::future::Future;
+use std::pin::Pin;
+use std::sync::Arc;
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio::net::{TcpListener, TcpStream, UdpSocket};
 
@@ -10,7 +14,22 @@ use tokio::net::{TcpListener, TcpStream, UdpSocket};
 
 /// Asynchronous datagram sending & receiving.
 ///
-/// Must be implemented by "network source"s to be used with a [`DgramServer`].
+/// Must be implemented by "network source"s to be used with a
+/// [`DgramServer`].
+///
+/// When reading the server will wait until [`Self::readable()`] succeeds and
+/// then call `try_recv_buf_from()`.
+///
+/// # Design notes
+///
+/// When the underlying socket implementation is [`tokio::net::UdpSocket`]
+/// this pattern scales better than using `poll_recv_from()` as the latter
+/// causes the socket to be locked for exclusive access even if it was
+/// [`Arc::clone()`]d.
+///
+/// With the `readable()` then `try_recv_buf_from()` pattern one can
+/// [`Arc::clone()`] the socket and use it with multiple server instances at
+/// once for greater throughput without any such locking occurring.
 ///
 /// [`DgramServer`]: crate::net::server::stream::DgramServer.
 pub trait AsyncDgramSock {
@@ -22,19 +41,27 @@ pub trait AsyncDgramSock {
         dest: &SocketAddr,
     ) -> Poll<io::Result<usize>>;
 
-    /// Attempts to receive a single datagram on the socket.
-    fn poll_recv_from(
+    /// Waits for the socket to become readable.
+    ///
+    /// The function may complete without the socket being readable. This is a
+    /// false-positive and attempting a try_recv() will return with
+    /// io::ErrorKind::WouldBlock.
+    fn readable(
         &self,
-        cx: &mut Context,
-        buf: &mut ReadBuf<'_>,
-    ) -> Poll<io::Result<SocketAddr>>;
+    ) -> Pin<Box<dyn Future<Output = io::Result<()>> + '_ + Send>>;
 
-    /// Receives data from the socket, without removing it from the input queue. On success, returns the sending address of the datagram.
-    fn poll_peek_from(
+    /// Tries to receive a single datagram message on the socket. On success,
+    /// returns the number of bytes read and the origin.
+    ///
+    /// When there is no pending data, Err(io::ErrorKind::WouldBlock) is
+    /// returned. This can happen if there are multiple consumers of this
+    /// socket and one of the other consumers read the data first.
+    ///
+    /// This function is usually paired with readable().
+    fn try_recv_buf_from(
         &self,
-        cx: &mut Context,
         buf: &mut ReadBuf<'_>,
-    ) -> Poll<io::Result<SocketAddr>>;
+    ) -> io::Result<(usize, SocketAddr)>;
 }
 
 impl AsyncDgramSock for UdpSocket {
@@ -47,20 +74,41 @@ impl AsyncDgramSock for UdpSocket {
         UdpSocket::poll_send_to(self, cx, data, *dest)
     }
 
-    fn poll_recv_from(
+    fn readable(
         &self,
-        cx: &mut Context,
-        buf: &mut ReadBuf<'_>,
-    ) -> Poll<io::Result<SocketAddr>> {
-        UdpSocket::poll_recv_from(self, cx, buf)
+    ) -> Pin<Box<dyn Future<Output = io::Result<()>> + '_ + Send>> {
+        Box::pin(UdpSocket::readable(self))
     }
 
-    fn poll_peek_from(
+    fn try_recv_buf_from(
+        &self,
+        buf: &mut ReadBuf<'_>,
+    ) -> io::Result<(usize, SocketAddr)> {
+        UdpSocket::try_recv_buf_from(self, buf)
+    }
+}
+
+impl AsyncDgramSock for Arc<UdpSocket> {
+    fn poll_send_to(
         &self,
         cx: &mut Context,
+        data: &[u8],
+        dest: &SocketAddr,
+    ) -> Poll<io::Result<usize>> {
+        UdpSocket::poll_send_to(self, cx, data, *dest)
+    }
+
+    fn readable(
+        &self,
+    ) -> Pin<Box<dyn Future<Output = io::Result<()>> + '_ + Send>> {
+        Box::pin(UdpSocket::readable(self))
+    }
+
+    fn try_recv_buf_from(
+        &self,
         buf: &mut ReadBuf<'_>,
-    ) -> Poll<io::Result<SocketAddr>> {
-        UdpSocket::poll_peek_from(self, cx, buf)
+    ) -> io::Result<(usize, SocketAddr)> {
+        UdpSocket::try_recv_buf_from(self, buf)
     }
 }
 
