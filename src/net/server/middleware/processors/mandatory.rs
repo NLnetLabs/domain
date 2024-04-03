@@ -16,6 +16,13 @@ use crate::net::server::middleware::processor::MiddlewareProcessor;
 use crate::net::server::util::{mk_builder_for_target, start_reply};
 use std::fmt::Display;
 
+/// The minimum legal UDP response size in bytes.
+///
+/// As defined by [RFC 1035 section 4.2.1].
+///
+/// [RFC 1035 section 4.2.1]: https://datatracker.ietf.org/doc/html/rfc1035#section-4.2.1
+pub const MINIMUM_RESPONSE_BYTE_LEN: u16 = 512;
+
 /// A [`MiddlewareProcessor`] for enforcing core RFC MUST requirements on
 /// processed messages.
 ///
@@ -93,13 +100,19 @@ impl MandatoryMiddlewareProcessor {
         Target: Composer + Default,
     {
         if let TransportSpecificContext::Udp(UdpTransportContext {
-            max_response_size_hint: Some(max_response_size_hint),
+            max_response_size_hint,
         }) = request.transport()
         {
-            let max_response_size_hint = *max_response_size_hint as usize;
+            // https://datatracker.ietf.org/doc/html/rfc1035#section-4.2.1
+            //   "Messages carried by UDP are restricted to 512 bytes (not
+            //    counting the IP or UDP headers).  Longer messages are
+            //    truncated and the TC bit is set in the header."
+            let max_response_size =
+                max_response_size_hint.unwrap_or(MINIMUM_RESPONSE_BYTE_LEN);
+            let max_response_size = max_response_size as usize;
             let response_len = response.as_slice().len();
 
-            if response_len > max_response_size_hint {
+            if response_len > max_response_size {
                 // Truncate per RFC 1035 section 6.2 and RFC 2181 sections 5.1
                 // and 9:
                 //
@@ -335,5 +348,113 @@ impl From<ParseError> for TruncateError {
 impl From<PushError> for TruncateError {
     fn from(err: PushError) -> Self {
         Self::PushFailure(err)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use core::net::{IpAddr, Ipv4Addr, SocketAddr};
+    use core::ops::ControlFlow;
+
+    use std::vec::Vec;
+
+    use bytes::Bytes;
+    use tokio::time::Instant;
+
+    use crate::base::{Dname, MessageBuilder, Rtype};
+    use crate::net::server::message::{
+        Request, TransportSpecificContext, UdpTransportContext,
+    };
+
+    use super::MandatoryMiddlewareProcessor;
+    use crate::base::iana::OptionCode;
+    use crate::net::server::middleware::processor::MiddlewareProcessor;
+    use crate::net::server::middleware::processors::mandatory::MINIMUM_RESPONSE_BYTE_LEN;
+    use octseq::OctetsBuilder;
+
+    //------------ Constants -------------------------------------------------
+
+    const DUMMY_ADDR: SocketAddr =
+        SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 12345);
+    const MIN_ALLOWED: u16 = MINIMUM_RESPONSE_BYTE_LEN;
+    const TOO_SMALL: u16 = 511;
+    const JUST_RIGHT: u16 = MIN_ALLOWED;
+    const HUGE: u16 = u16::MAX;
+
+    //------------ Tests -----------------------------------------------------
+
+    #[test]
+    fn clamp_max_response_size_correctly() {
+        assert!(process(None) <= Some(MIN_ALLOWED as usize));
+        assert!(process(Some(TOO_SMALL)) <= Some(MIN_ALLOWED as usize));
+        assert!(process(Some(TOO_SMALL)) <= Some(MIN_ALLOWED as usize));
+        assert!(process(Some(TOO_SMALL)) <= Some(MIN_ALLOWED as usize));
+        assert!(process(Some(JUST_RIGHT)) <= Some(JUST_RIGHT as usize));
+        assert!(process(Some(JUST_RIGHT)) <= Some(JUST_RIGHT as usize));
+        assert!(process(Some(JUST_RIGHT)) <= Some(JUST_RIGHT as usize));
+        assert!(process(Some(HUGE)) <= Some(HUGE as usize));
+        assert!(process(Some(HUGE)) <= Some(HUGE as usize));
+        assert!(process(Some(HUGE)) <= Some(HUGE as usize));
+    }
+
+    //------------ Helper functions ------------------------------------------
+
+    // Returns Some(n) if truncation occurred where n is the size after
+    // truncation.
+    fn process(max_response_size_hint: Option<u16>) -> Option<usize> {
+        // Build a dummy DNS query.
+        let query = MessageBuilder::new_vec();
+        let mut query = query.question();
+        query.push((Dname::<Bytes>::root(), Rtype::A)).unwrap();
+        let extra_bytes = vec![0; (MIN_ALLOWED as usize) * 2];
+        let mut additional = query.additional();
+        additional
+            .opt(|builder| {
+                builder.push_raw_option(
+                    OptionCode::Padding,
+                    extra_bytes.len() as u16,
+                    |target| {
+                        target.append_slice(&extra_bytes).unwrap();
+                        Ok(())
+                    },
+                )
+            })
+            .unwrap();
+        let old_size = additional.as_slice().len();
+        let message = additional.into_message();
+
+        // TODO: Artificially expand the message to be as big as possible
+        // so that it will get truncated.
+
+        // Package the query into a context aware request to make it look
+        // as if it came from a UDP server.
+        let udp_context = UdpTransportContext {
+            max_response_size_hint,
+        };
+        let mut request = Request::new(
+            DUMMY_ADDR,
+            Instant::now(),
+            message,
+            TransportSpecificContext::Udp(udp_context),
+        );
+
+        // And pass the query through the middleware processor
+        let processor = MandatoryMiddlewareProcessor::default();
+        let processor: &dyn MiddlewareProcessor<Vec<u8>, Vec<u8>> =
+            &processor;
+        let mut response = MessageBuilder::new_stream_vec().additional();
+        if let ControlFlow::Continue(()) = processor.preprocess(&mut request)
+        {
+            processor.postprocess(&request, &mut response);
+        }
+
+        // Get the response length
+        let new_size = response.as_slice().len();
+
+        if new_size < old_size {
+            Some(new_size)
+        } else {
+            None
+        }
     }
 }

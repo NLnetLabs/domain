@@ -145,9 +145,14 @@ impl<T> Request<T> {
         self.received_at
     }
 
-    /// Get the transport specific context
+    /// Get a reference to the transport specific context
     pub fn transport(&self) -> &TransportSpecificContext {
         &self.transport_specific
+    }
+
+    /// Get a mutable reference to the transport specific context
+    pub fn transport_mut(&mut self) -> &mut TransportSpecificContext {
+        &mut self.transport_specific
     }
 
     /// From which IP address and port number was this message received?
@@ -315,11 +320,16 @@ where
     Svc::Target: Send + Composer + Default,
     Server: CommonMessageFlow<Buf, Svc> + ?Sized,
 {
-    let (request, preprocessing_result) = do_middleware_preprocessing(
-        server,
-        buf,
-        received_at,
-        addr,
+    let message = Message::from_octets(buf).map_err(|err| {
+        warn!("Failed while parsing request message: {err}");
+        ServiceError::InternalError
+    })?;
+
+    let mut request =
+        server.add_context_to_request(message, received_at, addr);
+
+    let preprocessing_result = do_middleware_preprocessing::<Buf, Svc>(
+        &mut request,
         &middleware_chain,
         &metrics,
     )?;
@@ -413,21 +423,12 @@ where
 /// On break the result will be one ([`Transaction::single()`]) or more
 /// ([`Transaction::stream()`]) to post-process.
 #[allow(clippy::type_complexity)]
-fn do_middleware_preprocessing<Buf, Svc, Server>(
-    server: &Server,
-    buf: Buf::Output,
-    received_at: Instant,
-    addr: SocketAddr,
+fn do_middleware_preprocessing<Buf, Svc>(
+    request: &mut Request<Message<Buf::Output>>,
     middleware_chain: &MiddlewareChain<Buf::Output, Svc::Target>,
     metrics: &Arc<ServerMetrics>,
 ) -> Result<
-    (
-        Request<Message<Buf::Output>>,
-        ControlFlow<(
-            Transaction<Buf::Output, Svc::Target, Svc::Future>,
-            usize,
-        )>,
-    ),
+    ControlFlow<(Transaction<Buf::Output, Svc::Target, Svc::Future>, usize)>,
     ServiceError,
 >
 where
@@ -436,16 +437,7 @@ where
     Svc: Service<Buf::Output> + Send + Sync,
     Svc::Future: Send,
     Svc::Target: Send + Composer + Default + 'static,
-    Server: CommonMessageFlow<Buf, Svc> + ?Sized,
 {
-    let message = Message::from_octets(buf).map_err(|err| {
-        warn!("Failed while parsing request message: {err}");
-        ServiceError::InternalError
-    })?;
-
-    let mut request =
-        server.add_context_to_request(message, received_at, addr);
-
     let span = info_span!("pre-process",
         msg_id = request.message().header().id(),
         client = %request.client_addr(),
@@ -456,9 +448,9 @@ where
         .num_inflight_requests
         .fetch_add(1, Ordering::Relaxed);
 
-    let pp_res = middleware_chain.preprocess(&mut request);
+    let pp_res = middleware_chain.preprocess(request);
 
-    Ok((request, pp_res))
+    Ok(pp_res)
 }
 
 /// Post-process a response in the context of its originating request.
