@@ -5,10 +5,11 @@
 use super::super::cmp::CanonicalOrd;
 use super::super::scan::{Scanner, Symbol, SymbolCharsError, Symbols};
 use super::super::wire::{FormError, ParseError};
-use super::builder::{DnameBuilder, FromStrError};
+use super::builder::{DnameBuilder, FromStrError, PushError};
 use super::label::{Label, LabelTypeError, SplitLabelError};
 use super::relative::{DnameIter, RelativeDname};
 use super::traits::{FlattenInto, ToDname, ToLabelIter};
+use crate::base::net::IpAddr;
 #[cfg(feature = "bytes")]
 use bytes::Bytes;
 use core::ops::{Bound, RangeBounds};
@@ -180,6 +181,42 @@ impl<Octs> Dname<Octs> {
         Octs: From<&'static [u8]>,
     {
         unsafe { Self::from_octets_unchecked(b"\0".as_ref().into()) }
+    }
+
+    /// Creates a domain name for reverse IP address lookup.
+    ///
+    /// The returned name will use the standard suffixes of `in-addr.arpa.`
+    /// for IPv4 addresses and `ip6.arpa.` for IPv6.
+    pub fn from_addr(addr: IpAddr) -> Result<Self, PushError>
+    where
+        Octs: FromBuilder,
+        <Octs as FromBuilder>::Builder: EmptyBuilder
+            + FreezeBuilder<Octets = Octs>
+            + AsRef<[u8]>
+            + AsMut<[u8]>,
+    {
+        let mut builder =
+            DnameBuilder::<<Octs as FromBuilder>::Builder>::new();
+        match addr {
+            IpAddr::V4(addr) => {
+                let [a, b, c, d] = addr.octets();
+                builder.append_dec_u8_label(d)?;
+                builder.append_dec_u8_label(c)?;
+                builder.append_dec_u8_label(b)?;
+                builder.append_dec_u8_label(a)?;
+                builder.append_label(b"in-addr")?;
+                builder.append_label(b"arpa")?;
+            }
+            IpAddr::V6(addr) => {
+                for &item in addr.octets().iter().rev() {
+                    builder.append_hex_digit_label(item)?;
+                    builder.append_hex_digit_label(item >> 4)?;
+                }
+                builder.append_label(b"ip6")?;
+                builder.append_label(b"arpa")?;
+            }
+        }
+        builder.into_dname()
     }
 }
 
@@ -1321,6 +1358,29 @@ pub(crate) mod test {
         assert_eq!(
             Dname::from_slice(b""),
             Err(DnameError(DnameErrorEnum::ShortInput))
+        );
+    }
+
+    #[test]
+    fn test_dname_from_addr() {
+        type TestDname = Dname<octseq::array::Array<128>>;
+
+        assert_eq!(
+            TestDname::from_addr([192, 0, 2, 12].into()).unwrap(),
+            TestDname::from_str("12.2.0.192.in-addr.arpa").unwrap()
+        );
+        assert_eq!(
+            TestDname::from_addr(
+                [0x2001, 0xdb8, 0x1234, 0x0, 0x5678, 0x1, 0x9abc, 0xdef]
+                    .into()
+            )
+            .unwrap(),
+            TestDname::from_str(
+                "f.e.d.0.c.b.a.9.1.0.0.0.8.7.6.5.\
+                 0.0.0.0.4.3.2.1.8.b.d.0.1.0.0.2.\
+                 ip6.arpa"
+            )
+            .unwrap()
         );
     }
 

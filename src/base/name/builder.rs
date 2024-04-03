@@ -266,6 +266,70 @@ where
         Ok(())
     }
 
+    /// Appends a label with the decimal representation of `u8`.
+    ///
+    /// If there currently is a label under construction, it will be ended
+    /// before appending `label`.
+    ///
+    /// Returns an error if appending would result in a name longer than 254
+    /// bytes.
+    pub fn append_dec_u8_label(
+        &mut self,
+        value: u8,
+    ) -> Result<(), PushError> {
+        self.end_label();
+        let hecto = value / 100;
+        if hecto > 0 {
+            self.push(hecto + b'0')?;
+        }
+        let deka = (value / 10) % 10;
+        if hecto > 0 || deka > 0 {
+            self.push(deka + b'0')?;
+        }
+        self.push(value % 10 + b'0')?;
+        self.end_label();
+        Ok(())
+    }
+
+    /// Appends a label with the hex digit.
+    ///
+    /// If there currently is a label under construction, it will be ended
+    /// before appending `label`.
+    ///
+    /// Returns an error if appending would result in a name longer than 254
+    /// bytes.
+    pub fn append_hex_digit_label(
+        &mut self,
+        nibble: u8,
+    ) -> Result<(), PushError> {
+        fn hex_digit(nibble: u8) -> u8 {
+            match nibble & 0x0F {
+                0 => b'0',
+                1 => b'1',
+                2 => b'2',
+                3 => b'3',
+                4 => b'4',
+                5 => b'5',
+                6 => b'6',
+                7 => b'7',
+                8 => b'8',
+                9 => b'9',
+                10 => b'A',
+                11 => b'B',
+                12 => b'C',
+                13 => b'D',
+                14 => b'E',
+                15 => b'F',
+                _ => unreachable!(),
+            }
+        }
+
+        self.end_label();
+        self.push(hex_digit(nibble))?;
+        self.end_label();
+        Ok(())
+    }
+
     /// Appends a relative domain name.
     ///
     /// If there currently is a label under construction, it will be ended

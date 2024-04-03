@@ -2,13 +2,12 @@
 
 use crate::base::iana::Rtype;
 use crate::base::message::RecordIter;
-use crate::base::name::{Dname, DnameBuilder, ParsedDname};
+use crate::base::name::{Dname, ParsedDname};
 use crate::rdata::Ptr;
 use crate::resolv::resolver::Resolver;
 use octseq::octets::Octets;
 use std::io;
 use std::net::IpAddr;
-use std::str::FromStr;
 
 //------------ Octets128 -----------------------------------------------------
 
@@ -28,7 +27,8 @@ pub async fn lookup_addr<R: Resolver>(
     resolv: &R,
     addr: IpAddr,
 ) -> Result<FoundAddrs<R>, io::Error> {
-    let name = dname_from_addr(addr);
+    let name = Dname::<Octets128>::from_addr(addr)
+        .expect("address domain name too long");
     resolv.query((name, Rtype::Ptr)).await.map(FoundAddrs)
 }
 
@@ -92,80 +92,5 @@ impl<'a, Octs: Octets> Iterator for FoundAddrsIter<'a, Octs> {
             }
         }
         None
-    }
-}
-
-//------------ Helper Functions ---------------------------------------------
-
-/// Translates an IP address into a domain name.
-fn dname_from_addr(addr: IpAddr) -> Dname<Octets128> {
-    match addr {
-        IpAddr::V4(addr) => {
-            let octets = addr.octets();
-            Dname::from_str(&format!(
-                "{}.{}.{}.{}.in-addr.arpa.",
-                octets[3], octets[2], octets[1], octets[0]
-            ))
-            .unwrap()
-        }
-        IpAddr::V6(addr) => {
-            let mut res = DnameBuilder::<Octets128>::new();
-            for &item in addr.octets().iter().rev() {
-                res.append_label(&[hexdigit(item)]).unwrap();
-                res.append_label(&[hexdigit(item >> 4)]).unwrap();
-            }
-            res.append_label(b"ip6").unwrap();
-            res.append_label(b"arpa").unwrap();
-            res.into_dname().unwrap()
-        }
-    }
-}
-
-fn hexdigit(nibble: u8) -> u8 {
-    match nibble & 0x0F {
-        0 => b'0',
-        1 => b'1',
-        2 => b'2',
-        3 => b'3',
-        4 => b'4',
-        5 => b'5',
-        6 => b'6',
-        7 => b'7',
-        8 => b'8',
-        9 => b'9',
-        10 => b'A',
-        11 => b'B',
-        12 => b'C',
-        13 => b'D',
-        14 => b'E',
-        15 => b'F',
-        _ => unreachable!(),
-    }
-}
-
-//============ Tests =========================================================
-
-#[cfg(test)]
-mod test {
-    use super::*;
-
-    #[test]
-    fn test_dname_from_addr() {
-        assert_eq!(
-            dname_from_addr([192, 0, 2, 12].into()),
-            Dname::<Octets128>::from_str("12.2.0.192.in-addr.arpa").unwrap()
-        );
-        assert_eq!(
-            dname_from_addr(
-                [0x2001, 0xdb8, 0x1234, 0x0, 0x5678, 0x1, 0x9abc, 0xdef]
-                    .into()
-            ),
-            Dname::<Octets128>::from_str(
-                "f.e.d.0.c.b.a.9.1.0.0.0.8.7.6.5.\
-                 0.0.0.0.4.3.2.1.8.b.d.0.1.0.0.2.\
-                 ip6.arpa"
-            )
-            .unwrap()
-        );
     }
 }
