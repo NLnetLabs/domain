@@ -206,10 +206,6 @@ impl CookiesMiddlewareProcessor {
         //    Cookie it has generated, and it will add this COOKIE option to
         //    the response's OPT record.
 
-        // TODO: Do we need a configuration option to choose to generate RFC
-        // 7873 cookies instead of RFC 9018 interoperable cookies? For now err
-        // on the side of robustness and go with RFC 9018 interoperable
-        // cookies.
         self.response_with_cookie(request, OptRcode::BadCookie)
     }
 
