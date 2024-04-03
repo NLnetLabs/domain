@@ -15,10 +15,12 @@ use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio::sync::mpsc;
 use tracing::trace;
 
+use core::future::pending;
 use domain::net::client::protocol::{
     AsyncConnect, AsyncDgramRecv, AsyncDgramSend,
 };
 use domain::net::server::sock::{AsyncAccept, AsyncDgramSock};
+use tokio::sync::mpsc::error::TryRecvError;
 
 // If MSRV gets bumped to 1.69.0 we can replace these with a const SocketAddr.
 pub const DEF_CLIENT_ADDR: IpAddr = IpAddr::V4(Ipv4Addr::LOCALHOST);
@@ -394,39 +396,42 @@ impl AsyncDgramSock for ClientServerChannel {
         }
     }
 
-    fn poll_recv_from(
+    fn readable(
         &self,
-        cx: &mut Context,
-        buf: &mut ReadBuf<'_>,
-    ) -> Poll<io::Result<SocketAddr>> {
-        let mut server_socket = self.server.lock().unwrap();
-        let rx = &mut server_socket.rx;
-        match rx.poll_recv(cx) {
-            Poll::Ready(Some(Data::DgramRequest(data))) => {
-                // TODO: use unread buf here to prevent overflow of given buf.
-                trace!("Reading {} bytes into buffer of len {} in dgram server channel", data.len(), buf.remaining());
-                buf.put_slice(&data);
-                Poll::Ready(Ok(SocketAddr::new("::".parse().unwrap(), 0)))
-            }
-            Poll::Ready(Some(Data::StreamAccept(..))) => unreachable!(),
-            Poll::Ready(Some(Data::StreamRequest(..))) => unreachable!(),
-            Poll::Ready(None) => {
-                trace!("Broken pipe while reading in dgram server channel");
-                Poll::Ready(Err(io::Error::from(io::ErrorKind::BrokenPipe)))
-            }
-            Poll::Pending => {
-                trace!("Pending read in dgram server channel");
-                Poll::Pending
-            }
+    ) -> Pin<Box<dyn Future<Output = io::Result<()>> + '_ + Send>> {
+        let server_socket = self.server.lock().unwrap();
+        let rx = &server_socket.rx;
+        match !rx.is_empty() {
+            true => Box::pin(ready(Ok(()))),
+            false => Box::pin(pending()),
         }
     }
 
-    fn poll_peek_from(
+    fn try_recv_buf_from(
         &self,
-        _cx: &mut Context,
-        _buf: &mut ReadBuf<'_>,
-    ) -> Poll<io::Result<std::net::SocketAddr>> {
-        todo!()
+        buf: &mut ReadBuf<'_>,
+    ) -> io::Result<(usize, SocketAddr)> {
+        let mut server_socket = self.server.lock().unwrap();
+        let rx = &mut server_socket.rx;
+        match rx.try_recv() {
+            Ok(Data::DgramRequest(data)) => {
+                // TODO: use unread buf here to prevent overflow of given buf.
+                trace!("Reading {} bytes into buffer of len {} in dgram server channel", data.len(), buf.remaining());
+                buf.put_slice(&data);
+                let socket_addr = SocketAddr::new("::".parse().unwrap(), 0);
+                Ok((data.len(), socket_addr))
+            }
+            Ok(Data::StreamAccept(..)) => unreachable!(),
+            Ok(Data::StreamRequest(..)) => unreachable!(),
+            Err(TryRecvError::Disconnected) => {
+                trace!("Broken pipe while reading in dgram server channel");
+                Err(io::ErrorKind::BrokenPipe.into())
+            }
+            Err(TryRecvError::Empty) => {
+                trace!("Pending read in dgram server channel");
+                Err(io::ErrorKind::WouldBlock.into())
+            }
+        }
     }
 }
 

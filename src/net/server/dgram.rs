@@ -222,7 +222,9 @@ type CommandReceiver<Buf, Svc> = watch::Receiver<ServerCommandType<Buf, Svc>>;
 /// messages for [`DgramServer`] to deliver to the client.
 ///
 /// A socket is anything that implements the [`AsyncDgramSock`] trait. This
-/// crate provides an implementation for [`tokio::net::UdpSocket`].
+/// crate provides an implementation for [`tokio::net::UdpSocket`]. When
+/// wrapped inside an [`Arc`] the same `UdpSocket` can be [`Arc::clone()`]d to
+/// multiple instances of [`DgramServdr`] potentially increasing throughput.
 ///
 /// # Examples
 ///
@@ -523,11 +525,12 @@ where
                     self.process_server_command(res, &mut command_rx)?;
                 }
 
-                recv_res = self.recv_from() => {
-                    let (msg, addr, bytes_read) = recv_res
-                        .map_err(|err|
-                            format!("Error while receiving message: {err}")
-                        )?;
+                _ = self.sock.readable() => {
+                    let (msg, addr, bytes_read) = match self.recv_from() {
+                        Ok(res) => res,
+                        Err(err) if err.kind() == io::ErrorKind::WouldBlock => continue,
+                        Err(err) => return Err(format!("Error while receiving message: {err}")),
+                    };
 
                     let received_at = Instant::now();
                     self.metrics.num_received_requests.fetch_add(1, Ordering::Relaxed);
@@ -606,17 +609,14 @@ where
     }
 
     /// Receive a single datagram using the user supplied network socket.
-    async fn recv_from(
+    fn recv_from(
         &self,
     ) -> Result<(Buf::Output, SocketAddr, usize), io::Error> {
-        let mut res = self.buf.create_buf();
-        let (addr, bytes_read) = {
-            let mut buf = ReadBuf::new(res.as_mut());
-            let addr = poll_fn(|ctx| self.sock.poll_recv_from(ctx, &mut buf))
-                .await?;
-            (addr, buf.filled().len())
-        };
-        Ok((res, addr, bytes_read))
+        let mut msg = self.buf.create_buf();
+        let mut buf = ReadBuf::new(msg.as_mut());
+        self.sock
+            .try_recv_buf_from(&mut buf)
+            .map(|(bytes_read, addr)| (msg, addr, bytes_read))
     }
 
     /// Send a single datagram using the user supplied network socket.

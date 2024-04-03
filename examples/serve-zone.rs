@@ -34,6 +34,7 @@ use octseq::OctetsBuilder;
 use std::future::{pending, ready, Future};
 use std::io::BufReader;
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 use tokio::net::{TcpListener, UdpSocket};
 use tracing_subscriber::EnvFilter;
 
@@ -65,13 +66,46 @@ async fn main() {
     let svc = Arc::new(service_fn(my_service, zones));
 
     let sock = UdpSocket::bind(addr).await.unwrap();
-    let udp_srv = DgramServer::new(sock, VecBufSource, svc.clone());
+    let sock = Arc::new(sock);
+    let mut udp_metrics = vec![];
+    let num_cores = std::thread::available_parallelism().unwrap().get();
+    for _i in 0..num_cores {
+        let udp_srv =
+            DgramServer::new(sock.clone(), VecBufSource, svc.clone());
+        let metrics = udp_srv.metrics();
+        udp_metrics.push(metrics);
+        tokio::spawn(async move { udp_srv.run().await });
+    }
 
     let sock = TcpListener::bind(addr).await.unwrap();
     let tcp_srv = StreamServer::new(sock, VecBufSource, svc);
+    let tcp_metrics = tcp_srv.metrics();
 
-    tokio::spawn(async move { udp_srv.run().await });
     tokio::spawn(async move { tcp_srv.run().await });
+
+    tokio::spawn(async move {
+        loop {
+            tokio::time::sleep(Duration::from_millis(5000)).await;
+            for (i, metrics) in udp_metrics.iter().enumerate() {
+                eprintln!(
+                    "Server status: UDP[{i}]: #conn={:?}, #in-flight={}, #pending-writes={}, #msgs-recvd={}, #msgs-sent={}",
+                    metrics.num_connections(),
+                    metrics.num_inflight_requests(),
+                    metrics.num_pending_writes(),
+                    metrics.num_received_requests(),
+                    metrics.num_sent_responses(),
+                );
+            }
+            eprintln!(
+                "Server status: TCP: #conn={:?}, #in-flight={}, #pending-writes={}, #msgs-recvd={}, #msgs-sent={}",
+                tcp_metrics.num_connections(),
+                tcp_metrics.num_inflight_requests(),
+                tcp_metrics.num_pending_writes(),
+                tcp_metrics.num_received_requests(),
+                tcp_metrics.num_sent_responses(),
+            );
+        }
+    });
 
     pending::<()>().await;
 }
