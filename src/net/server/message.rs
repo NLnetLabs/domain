@@ -144,9 +144,14 @@ impl<T> Request<T> {
         self.received_at
     }
 
-    /// Get the transport specific context
+    /// Get a reference to the transport specific context
     pub fn transport(&self) -> &TransportSpecificContext {
         &self.transport_specific
+    }
+
+    /// Get a mutable reference to the transport specific context
+    pub fn transport_mut(&mut self) -> &mut TransportSpecificContext {
+        &mut self.transport_specific
     }
 
     /// From which IP address and port number was this message received?
@@ -155,7 +160,7 @@ impl<T> Request<T> {
     }
 
     /// Read access to the inner message
-    pub fn message(&self) -> &T {
+    pub fn message(&self) -> &Arc<T> {
         &self.message
     }
 }

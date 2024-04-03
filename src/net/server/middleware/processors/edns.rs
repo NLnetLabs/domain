@@ -12,6 +12,7 @@ use crate::base::wire::Composer;
 use crate::base::{Message, StreamTarget};
 use crate::net::server::message::{Request, TransportSpecificContext};
 use crate::net::server::middleware::processor::MiddlewareProcessor;
+use crate::net::server::middleware::processors::mandatory::MINIMUM_RESPONSE_BYTE_LEN;
 use crate::net::server::util::add_edns_options;
 use crate::net::server::util::start_reply;
 
@@ -113,7 +114,8 @@ where
         // ...
         // "If a query message with more than one OPT RR is received, a
         //  FORMERR (RCODE=1) MUST be returned"
-        if let Ok(additional) = request.message().additional() {
+        let msg = request.message().clone();
+        if let Ok(additional) = msg.additional() {
             let mut iter = additional.limit_to::<Opt<_>>();
             if let Some(opt) = iter.next() {
                 if iter.next().is_some() {
@@ -141,8 +143,8 @@ where
                         ));
                     }
 
-                    match request.transport() {
-                        TransportSpecificContext::Udp(mut ctx) => {
+                    match request.transport_mut() {
+                        TransportSpecificContext::Udp(ctx) => {
                             // https://datatracker.ietf.org/doc/html/rfc7828#section-3.2.1
                             // 3.2.1. Sending Queries
                             //   "DNS clients MUST NOT include the
@@ -178,18 +180,43 @@ where
                             let requestors_udp_payload_size =
                                 opt_rec.udp_payload_size();
 
-                            if requestors_udp_payload_size < 512 {
-                                debug!("RFC 6891 6.2.3 violation: OPT RR class (requestor's UDP payload size) < 512");
+                            if requestors_udp_payload_size
+                                < MINIMUM_RESPONSE_BYTE_LEN
+                            {
+                                debug!("RFC 6891 6.2.3 violation: OPT RR class (requestor's UDP payload size) < {MINIMUM_RESPONSE_BYTE_LEN}");
                             }
 
-                            if ctx.max_response_size_hint.is_none() {
-                                let size = u16::max(
-                                    512,
-                                    requestors_udp_payload_size,
-                                );
-                                trace!("Setting max response size hint from EDNS(0) requestor's UDP payload size ({})", requestors_udp_payload_size);
-                                ctx.max_response_size_hint = Some(size);
-                            }
+                            // Clamp the lower bound of the size limit
+                            // requested by the client:
+                            let clamped_requestors_udp_payload_size =
+                                u16::max(512, requestors_udp_payload_size);
+
+                            // Clamp the upper bound of the size limit
+                            // requested by the server:
+                            let clamped_server_hint =
+                                ctx.max_response_size_hint.map(|v| {
+                                    v.clamp(
+                                        MINIMUM_RESPONSE_BYTE_LEN,
+                                        clamped_requestors_udp_payload_size,
+                                    )
+                                });
+
+                            // Use the clamped client size limit if no server hint exists,
+                            // otherwise use the smallest of the client and server limits
+                            // while not going lower than 512 bytes.
+                            let negotiated_hint = match clamped_server_hint {
+                                Some(clamped_server_hint) => u16::min(
+                                    clamped_requestors_udp_payload_size,
+                                    clamped_server_hint,
+                                ),
+
+                                None => clamped_requestors_udp_payload_size,
+                            };
+
+                            trace!("EDNS(0) response size negotation concluded: client requested={}, server requested={:?}, chosen value={}",
+                            opt_rec.udp_payload_size(), ctx.max_response_size_hint, negotiated_hint);
+                            ctx.max_response_size_hint =
+                                Some(negotiated_hint);
                         }
 
                         TransportSpecificContext::NonUdp(_) => {
@@ -291,5 +318,133 @@ where
 
         // TODO: How can we strip off the OPT record in the response if no OPT
         // record is present in the request?
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use core::net::{IpAddr, Ipv4Addr, SocketAddr};
+    use core::ops::ControlFlow;
+
+    use std::vec::Vec;
+
+    use bytes::Bytes;
+    use tokio::time::Instant;
+
+    use crate::base::{Dname, Message, MessageBuilder, Rtype};
+    use crate::net::server::message::{
+        Request, TransportSpecificContext, UdpTransportContext,
+    };
+
+    use super::EdnsMiddlewareProcessor;
+    use crate::net::server::middleware::processor::MiddlewareProcessor;
+    use crate::net::server::middleware::processors::mandatory::MINIMUM_RESPONSE_BYTE_LEN;
+
+    //------------ Constants -------------------------------------------------
+
+    const DUMMY_ADDR: SocketAddr =
+        SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 12345);
+    const MIN_ALLOWED: Option<u16> = Some(MINIMUM_RESPONSE_BYTE_LEN);
+    const TOO_SMALL: Option<u16> = Some(511);
+    const JUST_RIGHT: Option<u16> = MIN_ALLOWED;
+    const HUGE: Option<u16> = Some(u16::MAX);
+
+    //------------ Tests -----------------------------------------------------
+
+    #[test]
+    fn clamp_max_response_size_correctly() {
+        // Neither client or server specified a max UDP response size.
+        assert_eq!(process(None, None), None);
+
+        // --- Only server specified max UDP response sizes
+        //
+        // The EdnsMiddlewareProcessor should leave these untouched as no EDNS
+        // option was present in the request, only the server hint exists, and
+        // EdnsMiddlewareProcessor only acts if the client EDNS option is
+        // present.
+        assert_eq!(process(None, TOO_SMALL), TOO_SMALL);
+        assert_eq!(process(None, JUST_RIGHT), JUST_RIGHT);
+        assert_eq!(process(None, HUGE), HUGE);
+
+        // --- Only client specified max UDP response sizes
+        //
+        // The EdnsMiddlewareProcessor should adopt these, after clamping
+        // them.
+        assert_eq!(process(TOO_SMALL, None), JUST_RIGHT);
+        assert_eq!(process(JUST_RIGHT, None), JUST_RIGHT);
+        assert_eq!(process(HUGE, None), HUGE);
+
+        // --- Both client and server specified max UDP response sizes
+        //
+        // The EdnsMiddlewareProcessor should negotiate the largest size
+        // acceptable to both sides.
+        assert_eq!(process(TOO_SMALL, TOO_SMALL), MIN_ALLOWED);
+        assert_eq!(process(TOO_SMALL, JUST_RIGHT), JUST_RIGHT);
+        assert_eq!(process(TOO_SMALL, HUGE), MIN_ALLOWED);
+        assert_eq!(process(JUST_RIGHT, TOO_SMALL), JUST_RIGHT);
+        assert_eq!(process(JUST_RIGHT, JUST_RIGHT), JUST_RIGHT);
+        assert_eq!(process(JUST_RIGHT, HUGE), JUST_RIGHT);
+        assert_eq!(process(HUGE, TOO_SMALL), MIN_ALLOWED);
+        assert_eq!(process(HUGE, JUST_RIGHT), JUST_RIGHT);
+        assert_eq!(process(HUGE, HUGE), HUGE);
+    }
+
+    //------------ Helper functions ------------------------------------------
+
+    fn process(
+        client_value: Option<u16>,
+        server_value: Option<u16>,
+    ) -> Option<u16> {
+        // Build a dummy DNS query.
+        let query = MessageBuilder::new_vec();
+
+        // With a dummy question.
+        let mut query = query.question();
+        query.push((Dname::<Bytes>::root(), Rtype::A)).unwrap();
+
+        // And if requested, a requestor's UDP payload size:
+        let message: Message<_> = if let Some(v) = client_value {
+            let mut additional = query.additional();
+            additional
+                .opt(|builder| {
+                    builder.set_udp_payload_size(v);
+                    Ok(())
+                })
+                .unwrap();
+            additional.into_message()
+        } else {
+            query.into_message()
+        };
+
+        // Package the query into a context aware request to make it look
+        // as if it came from a UDP server.
+        let udp_context = UdpTransportContext {
+            max_response_size_hint: server_value,
+        };
+        let mut request = Request::new(
+            DUMMY_ADDR,
+            Instant::now(),
+            message,
+            TransportSpecificContext::Udp(udp_context),
+        );
+
+        // And pass the query through the middleware processor
+        let processor = EdnsMiddlewareProcessor::default();
+        let processor: &dyn MiddlewareProcessor<Vec<u8>, Vec<u8>> =
+            &processor;
+        let mut response = MessageBuilder::new_stream_vec().additional();
+        if let ControlFlow::Continue(()) = processor.preprocess(&mut request)
+        {
+            processor.postprocess(&request, &mut response);
+        }
+
+        // Get the modified response size hint.
+        let TransportSpecificContext::Udp(modified_udp_context) =
+            request.transport()
+        else {
+            unreachable!()
+        };
+
+        modified_udp_context.max_response_size_hint
     }
 }
