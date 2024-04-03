@@ -353,7 +353,6 @@ impl From<PushError> for TruncateError {
 
 #[cfg(test)]
 mod tests {
-    use core::net::{IpAddr, Ipv4Addr, SocketAddr};
     use core::ops::ControlFlow;
 
     use std::vec::Vec;
@@ -374,8 +373,6 @@ mod tests {
 
     //------------ Constants -------------------------------------------------
 
-    const DUMMY_ADDR: SocketAddr =
-        SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 12345);
     const MIN_ALLOWED: u16 = MINIMUM_RESPONSE_BYTE_LEN;
     const TOO_SMALL: u16 = 511;
     const JUST_RIGHT: u16 = MIN_ALLOWED;
@@ -432,7 +429,7 @@ mod tests {
             max_response_size_hint,
         };
         let mut request = Request::new(
-            DUMMY_ADDR,
+            "127.0.0.1:12345".parse().unwrap(),
             Instant::now(),
             message,
             TransportSpecificContext::Udp(udp_context),

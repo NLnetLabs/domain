@@ -265,10 +265,10 @@ where
         //   "... DNS clients and servers SHOULD signal their timeout values
         //   using the edns-tcp-keepalive EDNS(0) option [RFC7828]."
         if let TransportSpecificContext::NonUdp(ctx) = request.transport() {
-            if let Ok(additional) = request.message().additional() {
-                let mut iter = additional.limit_to::<Opt<_>>();
-                if iter.next().is_some() {
-                    if let Some(idle_timeout) = ctx.idle_timeout {
+            if let Some(idle_timeout) = ctx.idle_timeout {
+                if let Ok(additional) = request.message().additional() {
+                    let mut iter = additional.limit_to::<Opt<_>>();
+                    if iter.next().is_some() {
                         match IdleTimeout::try_from(idle_timeout) {
                             Ok(timeout) => {
                                 // Request has an OPT RR and server idle
@@ -323,7 +323,6 @@ where
 
 #[cfg(test)]
 mod tests {
-    use core::net::{IpAddr, Ipv4Addr, SocketAddr};
     use core::ops::ControlFlow;
 
     use std::vec::Vec;
@@ -342,8 +341,6 @@ mod tests {
 
     //------------ Constants -------------------------------------------------
 
-    const DUMMY_ADDR: SocketAddr =
-        SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 12345);
     const MIN_ALLOWED: Option<u16> = Some(MINIMUM_RESPONSE_BYTE_LEN);
     const TOO_SMALL: Option<u16> = Some(511);
     const JUST_RIGHT: Option<u16> = MIN_ALLOWED;
@@ -422,7 +419,7 @@ mod tests {
             max_response_size_hint: server_value,
         };
         let mut request = Request::new(
-            DUMMY_ADDR,
+            "127.0.0.1:12345".parse().unwrap(),
             Instant::now(),
             message,
             TransportSpecificContext::Udp(udp_context),
