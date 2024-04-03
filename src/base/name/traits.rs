@@ -115,9 +115,7 @@ pub trait ToDname: ToLabelIter {
     /// labels of the name and adds them one by one to [`Dname`]. This will
     /// work for any name but an optimized implementation can be provided for
     /// some types of names.
-    ///
-    /// [`Dname`]: struct.Dname.html
-    fn to_dname<Octets>(
+    fn try_to_dname<Octets>(
         &self,
     ) -> Result<Dname<Octets>, BuilderAppendError<Octets>>
     where
@@ -131,8 +129,22 @@ pub trait ToDname: ToLabelIter {
         Ok(unsafe { Dname::from_octets_unchecked(builder.freeze()) })
     }
 
+    /// Converts the name into a single, uncompressed name.
+    ///
+    /// This is the same as [`try_to_dname`][ToDname::try_to_dname] but for
+    /// builder types with an unrestricted buffer.
+    fn to_dname<Octets>(&self) -> Dname<Octets>
+    where
+        Octets: FromBuilder,
+        <Octets as FromBuilder>::Builder:
+            OctetsBuilder<AppendError = Infallible>,
+        <Octets as FromBuilder>::Builder: EmptyBuilder,
+    {
+        infallible(self.try_to_dname())
+    }
+
     /// Converts the name into a single name in canonical form.
-    fn to_canonical_dname<Octets>(
+    fn try_to_canonical_dname<Octets>(
         &self,
     ) -> Result<Dname<Octets>, BuilderAppendError<Octets>>
     where
@@ -144,6 +156,21 @@ pub trait ToDname: ToLabelIter {
         self.iter_labels()
             .try_for_each(|label| label.compose_canonical(&mut builder))?;
         Ok(unsafe { Dname::from_octets_unchecked(builder.freeze()) })
+    }
+
+    /// Converts the name into a single name in canonical form.
+    ///
+    /// This is the same as
+    /// [`try_to_canonical_dname`][ToDname::try_to_canonical_dname] but for
+    /// builder types with an unrestricted buffer.
+    fn to_canonical_dname<Octets>(&self) -> Dname<Octets>
+    where
+        Octets: FromBuilder,
+        <Octets as FromBuilder>::Builder:
+            OctetsBuilder<AppendError = Infallible>,
+        <Octets as FromBuilder>::Builder: EmptyBuilder,
+    {
+        infallible(self.try_to_canonical_dname())
     }
 
     /// Returns an octets slice of the content if possible.
@@ -202,13 +229,13 @@ pub trait ToDname: ToLabelIter {
     /// Returns the domain name assembled into a `Vec<u8>`.
     #[cfg(feature = "std")]
     fn to_vec(&self) -> Dname<std::vec::Vec<u8>> {
-        infallible(self.to_dname())
+        self.to_dname()
     }
 
     /// Returns the domain name assembled into a bytes value.
     #[cfg(feature = "bytes")]
     fn to_bytes(&self) -> Dname<Bytes> {
-        infallible(self.to_dname())
+        self.to_dname()
     }
 
     /// Tests whether `self` and `other` are equal.
@@ -353,7 +380,7 @@ pub trait ToRelativeDname: ToLabelIter {
     /// some types of names.
     ///
     /// [`RelativeDname`]: struct.RelativeDname.html
-    fn to_relative_dname<Octets>(
+    fn try_to_relative_dname<Octets>(
         &self,
     ) -> Result<RelativeDname<Octets>, BuilderAppendError<Octets>>
     where
@@ -367,8 +394,23 @@ pub trait ToRelativeDname: ToLabelIter {
         Ok(unsafe { RelativeDname::from_octets_unchecked(builder.freeze()) })
     }
 
+    /// Converts the name into a single, continous name.
+    ///
+    /// This is the same as
+    /// [`try_to_relative_dname`][ToRelativeDname::try_to_relative_dname]
+    /// but for builder types with an unrestricted buffer.
+    fn to_relative_dname<Octets>(&self) -> RelativeDname<Octets>
+    where
+        Octets: FromBuilder,
+        <Octets as FromBuilder>::Builder:
+            OctetsBuilder<AppendError = Infallible>,
+        <Octets as FromBuilder>::Builder: EmptyBuilder,
+    {
+        infallible(self.try_to_relative_dname())
+    }
+
     /// Converts the name into a single name in canonical form.
-    fn to_canonical_relative_dname<Octets>(
+    fn try_to_canonical_relative_dname<Octets>(
         &self,
     ) -> Result<RelativeDname<Octets>, BuilderAppendError<Octets>>
     where
@@ -380,6 +422,21 @@ pub trait ToRelativeDname: ToLabelIter {
         self.iter_labels()
             .try_for_each(|label| label.compose_canonical(&mut builder))?;
         Ok(unsafe { RelativeDname::from_octets_unchecked(builder.freeze()) })
+    }
+
+    /// Converts the name into a single name in canonical form.
+    ///
+    /// This is the same as
+    /// [`try_to_canonical_relative_dname`][ToRelativeDname::try_to_canonical_relative_dname]
+    /// but for builder types with an unrestricted buffer.
+    fn to_canonical_relative_dname<Octets>(&self) -> RelativeDname<Octets>
+    where
+        Octets: FromBuilder,
+        <Octets as FromBuilder>::Builder:
+            OctetsBuilder<AppendError = Infallible>,
+        <Octets as FromBuilder>::Builder: EmptyBuilder,
+    {
+        infallible(self.try_to_canonical_relative_dname())
     }
 
     /// Returns a byte slice of the content if possible.
@@ -434,13 +491,13 @@ pub trait ToRelativeDname: ToLabelIter {
     /// Returns the domain name assembled into a `Vec<u8>`.
     #[cfg(feature = "std")]
     fn to_vec(&self) -> RelativeDname<std::vec::Vec<u8>> {
-        infallible(self.to_relative_dname())
+        self.to_relative_dname()
     }
 
     /// Returns the domain name assembled into a bytes value.
     #[cfg(feature = "bytes")]
     fn to_bytes(&self) -> RelativeDname<Bytes> {
-        infallible(self.to_relative_dname())
+        self.to_relative_dname()
     }
 
     /// Returns whether the name is empty.
