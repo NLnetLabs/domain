@@ -79,7 +79,7 @@ where
         builder
     }
 
-    /// Creates a new builder pre-populated with "modern" middleware
+    /// Creates a new builder pre-populated with "standard" middleware
     /// processors.
     ///
     /// The constructed builder will be pre-populated with the following
@@ -90,7 +90,7 @@ where
     /// - [`CookiesMiddlewareProcessor`] _(only if crate feature [`siphasher"]
     ///   is enabled)_
     #[must_use]
-    pub fn modern() -> Self {
+    pub fn standard() -> Self {
         let mut builder = Self::new();
         builder.push(MandatoryMiddlewareProcessor::default().into());
         builder.push(EdnsMiddlewareProcessor::default().into());
@@ -140,6 +140,6 @@ where
     ///
     /// See [`Self::modern()`].
     fn default() -> Self {
-        Self::modern()
+        Self::standard()
     }
 }
