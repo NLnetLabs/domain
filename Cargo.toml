@@ -82,7 +82,7 @@ rustls       = { version = "0.21.9" }
 serde_test   = "1.0.130"
 serde_json   = "1.0.113"
 serde_yaml   = "0.9"
-tokio        = { version = "1", features = ["rt-multi-thread", "io-util", "net", "test-util"] }
+tokio        = { version = "1.37", features = ["rt-multi-thread", "io-util", "net", "test-util"] }
 tokio-test	 = "0.4"
 webpki-roots = { version = "0.25" }
 

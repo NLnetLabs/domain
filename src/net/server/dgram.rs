@@ -224,7 +224,7 @@ type CommandReceiver<Buf, Svc> = watch::Receiver<ServerCommandType<Buf, Svc>>;
 /// A socket is anything that implements the [`AsyncDgramSock`] trait. This
 /// crate provides an implementation for [`tokio::net::UdpSocket`]. When
 /// wrapped inside an [`Arc`] the same `UdpSocket` can be [`Arc::clone()`]d to
-/// multiple instances of [`DgramServdr`] potentially increasing throughput.
+/// multiple instances of [`DgramServer`] potentially increasing throughput.
 ///
 /// # Examples
 ///
