@@ -1,6 +1,5 @@
 //! Support for working with DNS messages in servers.
 use core::ops::ControlFlow;
-use core::sync::atomic::Ordering;
 use core::time::Duration;
 
 use std::net::SocketAddr;
@@ -457,9 +456,7 @@ where
     );
     let _guard = span.enter();
 
-    metrics
-        .num_inflight_requests
-        .fetch_add(1, Ordering::Relaxed);
+    metrics.inc_num_inflight_requests();
 
     let pp_res = middleware_chain.preprocess(&mut request);
 
@@ -520,8 +517,6 @@ fn do_middleware_postprocessing<Buf, Svc, Server>(
             );
         }
 
-        metrics
-            .num_inflight_requests
-            .fetch_sub(1, Ordering::Relaxed);
+        metrics.dec_num_inflight_requests();
     });
 }

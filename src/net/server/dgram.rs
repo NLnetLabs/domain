@@ -12,7 +12,6 @@
 use core::fmt::Debug;
 use core::future::poll_fn;
 use core::ops::Deref;
-use core::sync::atomic::Ordering;
 use core::time::Duration;
 
 use std::io;
@@ -534,7 +533,7 @@ where
                     };
 
                     let received_at = Instant::now();
-                    self.metrics.num_received_requests.fetch_add(1, Ordering::Relaxed);
+                    self.metrics.inc_num_received_requests();
 
                     if enabled!(Level::TRACE) {
                         let pcap_text = to_pcap_text(&msg, bytes_read);
@@ -693,7 +692,7 @@ where
         state: RequestState<Sock, Buf::Output, Svc::Target>,
         metrics: Arc<ServerMetrics>,
     ) {
-        metrics.num_pending_writes.fetch_add(1, Ordering::Relaxed);
+        metrics.inc_num_pending_writes();
 
         tokio::spawn(async move {
             let (_request, response, feedback) = call_result.into_inner();
@@ -734,8 +733,8 @@ where
                 )
                 .await;
 
-                metrics.num_pending_writes.fetch_sub(1, Ordering::Relaxed);
-                metrics.num_sent_responses.fetch_add(1, Ordering::Relaxed);
+                metrics.dec_num_pending_writes();
+                metrics.inc_num_sent_responses();
             }
         });
     }

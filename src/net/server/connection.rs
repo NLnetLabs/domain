@@ -1,6 +1,5 @@
 //! Support for stream based connections.
 use core::ops::{ControlFlow, Deref};
-use core::sync::atomic::Ordering;
 use core::time::Duration;
 
 use std::io;
@@ -418,15 +417,7 @@ where
     ) where
         Svc::Future: Send,
     {
-        // SAFETY: It is always safe to unwrap `num_connections` because our
-        // parent code in `stream.rs` constructs the `metrics` type using the
-        // [`ServerMetrics::connection_oriented()`] constructor which ensures
-        // there is a `Some` value in the `num_connections` field.
-        self.metrics
-            .num_connections
-            .as_ref()
-            .unwrap()
-            .fetch_add(1, Ordering::Relaxed);
+        self.metrics.inc_num_connections();
 
         // Flag that we have to decrease the metric count on Drop.
         self.active = true;
@@ -685,15 +676,11 @@ where
                 error!("Write error: {err}");
             }
             Ok(Ok(_)) => {
-                self.metrics
-                    .num_sent_responses
-                    .fetch_add(1, Ordering::Relaxed);
+                self.metrics.inc_num_sent_responses();
             }
         }
 
-        self.metrics
-            .num_pending_writes
-            .fetch_sub(1, Ordering::Relaxed);
+        self.metrics.dec_num_pending_writes();
 
         if self.result_q_tx.capacity() == self.result_q_tx.max_capacity() {
             self.idle_timer.response_queue_emptied();
@@ -749,9 +736,7 @@ where
                 trace!(addr = %self.addr, pcap_text, "Received message");
             }
 
-            self.metrics
-                .num_received_requests
-                .fetch_add(1, Ordering::Relaxed);
+            self.metrics.inc_num_received_requests();
 
             // Message received, reset the DNS idle timer
             self.idle_timer.full_msg_received();
@@ -783,16 +768,7 @@ where
     fn drop(&mut self) {
         if self.active {
             self.active = false;
-            // SAFETY: It is always safe to unwrap `num_connections` because
-            // our parent code in `stream.rs` constructs the `metrics` type
-            // using the [`ServerMetrics::connection_oriented()`] constructor
-            // which ensures there is a `Some` value in the `num_connections`
-            // field.
-            self.metrics
-                .num_connections
-                .as_ref()
-                .unwrap()
-                .fetch_sub(1, Ordering::Relaxed);
+            self.metrics.dec_num_connections();
         }
     }
 }
@@ -838,9 +814,8 @@ where
         // then we abort.
         match tx.try_send(call_result) {
             Ok(()) => {
-                metrics.num_pending_writes.store(
+                metrics.set_num_pending_writes(
                     tx.max_capacity() - tx.capacity(),
-                    Ordering::Relaxed,
                 );
             }
 
