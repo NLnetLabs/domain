@@ -244,6 +244,14 @@ impl<N, D> From<(N, u32, D)> for Record<N, D> {
     }
 }
 
+//--- AsRef
+
+impl<N, D> AsRef<Record<N, D>> for Record<N, D> {
+    fn as_ref(&self) -> &Record<N, D> {
+        self
+    }
+}
+
 //--- OctetsFrom and FlattenInto
 //
 // XXX We don’t have blanket FromOctets for a type T into itself, so this may
