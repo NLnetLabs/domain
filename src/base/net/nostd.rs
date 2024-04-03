@@ -261,6 +261,12 @@ impl From<[u8; 16]> for IpAddr {
     }
 }
 
+impl From<[u16; 8]> for IpAddr {
+    fn from(src: [u16; 8]) -> Self {
+        IpAddr::V6(src.into())
+    }
+}
+
 impl From<Ipv4Addr> for IpAddr {
     fn from(addr: Ipv4Addr) -> Self {
         IpAddr::V4(addr)
