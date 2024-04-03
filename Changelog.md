@@ -4,6 +4,10 @@
 
 Breaking changes
 
+* The `ToDname` and `ToRelativeDname` traits have been changed to have a
+  pair of methods a la `try_to_dname` and `to_dname` for octets builders
+  with limited and unlimited buffers, reflecting the pattern used
+  elsewhere. ([#285])
 * The `Txt` record data type now rejects empty record data as invalid. As
   a consequence `TxtBuilder` converts an empty builder into TXT record
   data consisting of one empty character string which requires
@@ -74,6 +78,7 @@ Other changes
 [#275]: https://github.com/NLnetLabs/domain/pull/275
 [#277]: https://github.com/NLnetLabs/domain/pull/277
 [#284]: https://github.com/NLnetLabs/domain/pull/284
+[#285]: https://github.com/NLnetLabs/domain/pull/285
 [#288]: https://github.com/NLnetLabs/domain/pull/288
 [@torin-carey]: https://github.com/torin-carey
 [@hunts]: https://github.com/hunts
