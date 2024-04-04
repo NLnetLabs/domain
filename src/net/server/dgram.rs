@@ -253,7 +253,7 @@ type CommandReceiver<Buf, Svc> = watch::Receiver<ServerCommandType<Buf, Svc>>;
 /// use domain::net::server::stream::StreamServer;
 /// use domain::net::server::util::service_fn;
 ///
-/// fn my_service(msg: Request<Message<Vec<u8>>>, _meta: ())
+/// fn my_service(msg: Request<Vec<u8>>, _meta: ())
 /// -> Result<
 ///     Transaction<
 ///         Result<CallResult<Vec<u8>>, ServiceError>,
@@ -674,17 +674,17 @@ where
         request: Message<Buf::Output>,
         received_at: Instant,
         addr: SocketAddr,
-    ) -> Request<Message<Buf::Output>> {
-        let ctx = TransportSpecificContext::Udp(UdpTransportContext {
-            max_response_size_hint: self.config.load().max_response_size,
-        });
+    ) -> Request<Buf::Output> {
+        let ctx =
+            UdpTransportContext::new(self.config.load().max_response_size);
+        let ctx = TransportSpecificContext::Udp(ctx);
         Request::new(addr, received_at, request, ctx)
     }
 
     /// Process the result from the middleware -> service -> middleware call
     /// tree.
     fn process_call_result(
-        request: &Request<Message<Buf::Output>>,
+        request: &Request<Buf::Output>,
         call_result: CallResult<Svc::Target>,
         state: RequestState<Sock, Buf::Output, Svc::Target>,
         metrics: Arc<ServerMetrics>,

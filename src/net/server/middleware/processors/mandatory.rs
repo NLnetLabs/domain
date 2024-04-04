@@ -8,10 +8,8 @@ use crate::base::iana::{Opcode, Rcode};
 use crate::base::message_builder::{AdditionalBuilder, PushError};
 use crate::base::opt::Opt;
 use crate::base::wire::{Composer, ParseError};
-use crate::base::{Message, StreamTarget};
-use crate::net::server::message::{
-    Request, TransportSpecificContext, UdpTransportContext,
-};
+use crate::base::StreamTarget;
+use crate::net::server::message::{Request, TransportSpecificContext};
 use crate::net::server::middleware::processor::MiddlewareProcessor;
 use crate::net::server::util::{mk_builder_for_target, start_reply};
 use std::fmt::Display;
@@ -66,7 +64,7 @@ impl MandatoryMiddlewareProcessor {
     /// Create a DNS error response to the given request with the given RCODE.
     fn error_response<RequestOctets, Target>(
         &self,
-        request: &Request<Message<RequestOctets>>,
+        request: &Request<RequestOctets>,
         rcode: Rcode,
     ) -> AdditionalBuilder<StreamTarget<Target>>
     where
@@ -93,23 +91,21 @@ impl MandatoryMiddlewareProcessor {
     /// any OPT record present which will be preserved, then truncates to the
     /// specified byte length.
     fn truncate<RequestOctets, Target>(
-        request: &Request<Message<RequestOctets>>,
+        request: &Request<RequestOctets>,
         response: &mut AdditionalBuilder<StreamTarget<Target>>,
     ) -> Result<(), TruncateError>
     where
         RequestOctets: Octets,
         Target: Composer + Default,
     {
-        if let TransportSpecificContext::Udp(UdpTransportContext {
-            max_response_size_hint,
-        }) = request.transport()
-        {
+        if let TransportSpecificContext::Udp(ctx) = request.transport_ctx() {
             // https://datatracker.ietf.org/doc/html/rfc1035#section-4.2.1
             //   "Messages carried by UDP are restricted to 512 bytes (not
             //    counting the IP or UDP headers).  Longer messages are
             //    truncated and the TC bit is set in the header."
-            let max_response_size =
-                max_response_size_hint.unwrap_or(MINIMUM_RESPONSE_BYTE_LEN);
+            let max_response_size = ctx
+                .max_response_size_hint()
+                .unwrap_or(MINIMUM_RESPONSE_BYTE_LEN);
             let max_response_size = max_response_size as usize;
             let response_len = response.as_slice().len();
 
@@ -193,7 +189,7 @@ where
 {
     fn preprocess(
         &self,
-        request: &mut Request<Message<RequestOctets>>,
+        request: &Request<RequestOctets>,
     ) -> ControlFlow<AdditionalBuilder<StreamTarget<Target>>> {
         // https://www.rfc-editor.org/rfc/rfc3425.html
         // 3 - Effect on RFC 1035
@@ -232,7 +228,7 @@ where
 
     fn postprocess(
         &self,
-        request: &Request<Message<RequestOctets>>,
+        request: &Request<RequestOctets>,
         response: &mut AdditionalBuilder<StreamTarget<Target>>,
     ) {
         if let Err(err) = Self::truncate(request, response) {
@@ -426,14 +422,12 @@ mod tests {
 
         // Package the query into a context aware request to make it look
         // as if it came from a UDP server.
-        let udp_context = UdpTransportContext {
-            max_response_size_hint,
-        };
-        let mut request = Request::new(
+        let ctx = UdpTransportContext::new(max_response_size_hint);
+        let request = Request::new(
             "127.0.0.1:12345".parse().unwrap(),
             Instant::now(),
             message,
-            TransportSpecificContext::Udp(udp_context),
+            TransportSpecificContext::Udp(ctx),
         );
 
         // And pass the query through the middleware processor
@@ -441,8 +435,7 @@ mod tests {
         let processor: &dyn MiddlewareProcessor<Vec<u8>, Vec<u8>> =
             &processor;
         let mut response = MessageBuilder::new_stream_vec().additional();
-        if let ControlFlow::Continue(()) = processor.preprocess(&mut request)
-        {
+        if let ControlFlow::Continue(()) = processor.preprocess(&request) {
             processor.postprocess(&request, &mut response);
         }
 

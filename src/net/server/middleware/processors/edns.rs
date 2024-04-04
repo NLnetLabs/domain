@@ -2,14 +2,14 @@
 use core::ops::ControlFlow;
 
 use octseq::Octets;
-use tracing::{debug, trace, warn};
+use tracing::{debug, enabled, trace, warn, Level};
 
 use crate::base::iana::OptRcode;
 use crate::base::message_builder::AdditionalBuilder;
 use crate::base::opt::keepalive::IdleTimeout;
 use crate::base::opt::{Opt, OptRecord, TcpKeepalive};
 use crate::base::wire::Composer;
-use crate::base::{Message, StreamTarget};
+use crate::base::StreamTarget;
 use crate::net::server::message::{Request, TransportSpecificContext};
 use crate::net::server::middleware::processor::MiddlewareProcessor;
 use crate::net::server::middleware::processors::mandatory::MINIMUM_RESPONSE_BYTE_LEN;
@@ -52,7 +52,7 @@ impl EdnsMiddlewareProcessor {
 impl EdnsMiddlewareProcessor {
     /// Create a DNS error response to the given request with the given RCODE.
     fn error_response<RequestOctets, Target>(
-        request: &Request<Message<RequestOctets>>,
+        request: &Request<RequestOctets>,
         rcode: OptRcode,
     ) -> AdditionalBuilder<StreamTarget<Target>>
     where
@@ -86,7 +86,7 @@ where
 {
     fn preprocess(
         &self,
-        request: &mut Request<Message<RequestOctets>>,
+        request: &Request<RequestOctets>,
     ) -> ControlFlow<AdditionalBuilder<StreamTarget<Target>>> {
         // https://www.rfc-editor.org/rfc/rfc6891.html#section-6.1.1
         // 6.1.1: Basic Elements
@@ -122,7 +122,7 @@ where
                         ));
                     }
 
-                    match request.transport_mut() {
+                    match request.transport_ctx() {
                         TransportSpecificContext::Udp(ctx) => {
                             // https://datatracker.ietf.org/doc/html/rfc7828#section-3.2.1
                             // 3.2.1. Sending Queries
@@ -172,8 +172,10 @@ where
 
                             // Clamp the upper bound of the size limit
                             // requested by the server:
+                            let server_max_response_size_hint =
+                                ctx.max_response_size_hint();
                             let clamped_server_hint =
-                                ctx.max_response_size_hint.map(|v| {
+                                server_max_response_size_hint.map(|v| {
                                     v.clamp(
                                         MINIMUM_RESPONSE_BYTE_LEN,
                                         clamped_requestors_udp_payload_size,
@@ -192,10 +194,14 @@ where
                                 None => clamped_requestors_udp_payload_size,
                             };
 
-                            trace!("EDNS(0) response size negotation concluded: client requested={}, server requested={:?}, chosen value={}",
-                            opt_rec.udp_payload_size(), ctx.max_response_size_hint, negotiated_hint);
-                            ctx.max_response_size_hint =
-                                Some(negotiated_hint);
+                            if enabled!(Level::TRACE) {
+                                trace!("EDNS(0) response size negotation concluded: client requested={}, server requested={:?}, chosen value={}",
+                                    opt_rec.udp_payload_size(), server_max_response_size_hint, negotiated_hint);
+                            }
+
+                            ctx.set_max_response_size_hint(Some(
+                                negotiated_hint,
+                            ));
                         }
 
                         TransportSpecificContext::NonUdp(_) => {
@@ -227,7 +233,7 @@ where
 
     fn postprocess(
         &self,
-        request: &Request<Message<RequestOctets>>,
+        request: &Request<RequestOctets>,
         response: &mut AdditionalBuilder<StreamTarget<Target>>,
     ) {
         // https://datatracker.ietf.org/doc/html/rfc7828#section-3.3.2
@@ -243,11 +249,12 @@ where
         // 4.2. Connection Management
         //   "... DNS clients and servers SHOULD signal their timeout values
         //   using the edns-tcp-keepalive EDNS(0) option [RFC7828]."
-        if let TransportSpecificContext::NonUdp(ctx) = request.transport() {
+        if let TransportSpecificContext::NonUdp(ctx) = request.transport_ctx()
+        {
             if let Ok(additional) = request.message().additional() {
                 let mut iter = additional.limit_to::<Opt<_>>();
                 if iter.next().is_some() {
-                    if let Some(idle_timeout) = ctx.idle_timeout {
+                    if let Some(idle_timeout) = ctx.idle_timeout() {
                         match IdleTimeout::try_from(idle_timeout) {
                             Ok(timeout) => {
                                 // Request has an OPT RR and server idle
@@ -394,14 +401,12 @@ mod tests {
 
         // Package the query into a context aware request to make it look
         // as if it came from a UDP server.
-        let udp_context = UdpTransportContext {
-            max_response_size_hint: server_value,
-        };
-        let mut request = Request::new(
+        let ctx = UdpTransportContext::new(server_value);
+        let request = Request::new(
             "127.0.0.1:12345".parse().unwrap(),
             Instant::now(),
             message,
-            TransportSpecificContext::Udp(udp_context),
+            TransportSpecificContext::Udp(ctx),
         );
 
         // And pass the query through the middleware processor
@@ -409,18 +414,17 @@ mod tests {
         let processor: &dyn MiddlewareProcessor<Vec<u8>, Vec<u8>> =
             &processor;
         let mut response = MessageBuilder::new_stream_vec().additional();
-        if let ControlFlow::Continue(()) = processor.preprocess(&mut request)
-        {
+        if let ControlFlow::Continue(()) = processor.preprocess(&request) {
             processor.postprocess(&request, &mut response);
         }
 
         // Get the modified response size hint.
         let TransportSpecificContext::Udp(modified_udp_context) =
-            request.transport()
+            request.transport_ctx()
         else {
             unreachable!()
         };
 
-        modified_udp_context.max_response_size_hint
+        modified_udp_context.max_response_size_hint()
     }
 }

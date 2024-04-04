@@ -13,7 +13,7 @@ use crate::base::message_builder::AdditionalBuilder;
 use crate::base::opt;
 use crate::base::opt::Cookie;
 use crate::base::wire::{Composer, ParseError};
-use crate::base::{Message, Serial, StreamTarget};
+use crate::base::{Serial, StreamTarget};
 use crate::net::server::message::Request;
 use crate::net::server::middleware::processor::MiddlewareProcessor;
 use crate::net::server::util::add_edns_options;
@@ -115,7 +115,7 @@ impl CookiesMiddlewareProcessor {
     ///     parse.
     #[must_use]
     fn cookie<RequestOctets: Octets>(
-        request: &Request<Message<RequestOctets>>,
+        request: &Request<RequestOctets>,
     ) -> Option<Result<opt::Cookie, ParseError>> {
         // Note: We don't use `opt::Opt::first()` because that will silently
         // ignore an unparseable COOKIE option but we need to detect and
@@ -152,7 +152,7 @@ impl CookiesMiddlewareProcessor {
     /// Create a DNS response message for the given request, including cookie.
     fn response_with_cookie<RequestOctets, Target>(
         &self,
-        request: &Request<Message<RequestOctets>>,
+        request: &Request<RequestOctets>,
         rcode: OptRcode,
     ) -> AdditionalBuilder<StreamTarget<Target>>
     where
@@ -193,7 +193,7 @@ impl CookiesMiddlewareProcessor {
     #[must_use]
     fn bad_cookie_response<RequestOctets, Target>(
         &self,
-        request: &Request<Message<RequestOctets>>,
+        request: &Request<RequestOctets>,
     ) -> AdditionalBuilder<StreamTarget<Target>>
     where
         RequestOctets: Octets,
@@ -213,7 +213,7 @@ impl CookiesMiddlewareProcessor {
     #[must_use]
     fn prefetch_cookie_response<RequestOctets, Target>(
         &self,
-        request: &Request<Message<RequestOctets>>,
+        request: &Request<RequestOctets>,
     ) -> AdditionalBuilder<StreamTarget<Target>>
     where
         RequestOctets: Octets,
@@ -238,7 +238,7 @@ impl CookiesMiddlewareProcessor {
     #[must_use]
     fn ensure_cookie_is_complete<Target: Octets>(
         &self,
-        request: &Request<Message<Target>>,
+        request: &Request<Target>,
     ) -> Option<Cookie> {
         if let Some(Ok(cookie)) = Self::cookie(request) {
             let cookie = if cookie.server().is_some() {
@@ -286,7 +286,7 @@ where
 {
     fn preprocess(
         &self,
-        request: &mut Request<Message<RequestOctets>>,
+        request: &Request<RequestOctets>,
     ) -> ControlFlow<AdditionalBuilder<StreamTarget<Target>>> {
         if self.ip_allow_list.contains(&request.client_addr().ip()) {
             trace!("Permitting request to flow due to matching IP allow list entry");
@@ -308,7 +308,7 @@ where
                 // themselves to the server, either with a cookie or by
                 // re-connecting over TCP, so we REFUSE them and reply with
                 // TC=1 to prompt them to reconnect via TCP.
-                if request.transport().is_udp()
+                if request.transport_ctx().is_udp()
                     && self.ip_deny_list.contains(&request.client_addr().ip())
                 {
                     debug!(
@@ -438,7 +438,7 @@ where
                             self.bad_cookie_response(request)
                         };
                         return ControlFlow::Break(additional);
-                    } else if request.transport().is_udp() {
+                    } else if request.transport_ctx().is_udp() {
                         let additional = self.bad_cookie_response(request);
                         debug!(
                                 "Rejecting non-TCP request due to invalid server cookie");
@@ -474,7 +474,7 @@ where
 
     fn postprocess(
         &self,
-        request: &Request<Message<RequestOctets>>,
+        request: &Request<RequestOctets>,
         response: &mut AdditionalBuilder<StreamTarget<Target>>,
     ) {
         // https://datatracker.ietf.org/doc/html/rfc7873#section-5.2.1

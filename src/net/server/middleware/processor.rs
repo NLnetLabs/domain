@@ -3,7 +3,7 @@ use core::ops::ControlFlow;
 
 use crate::base::message_builder::AdditionalBuilder;
 use crate::base::wire::Composer;
-use crate::base::{Message, StreamTarget};
+use crate::base::StreamTarget;
 use crate::net::server::message::Request;
 
 /// A processing stage applied to incoming and outgoing messages.
@@ -23,7 +23,7 @@ where
     /// [`MiddlewareChain::preprocess()`]: crate::net::server::middleware::chain::MiddlewareChain::preprocess()
     fn preprocess(
         &self,
-        request: &mut Request<Message<RequestOctets>>,
+        request: &Request<RequestOctets>,
     ) -> ControlFlow<AdditionalBuilder<StreamTarget<Target>>>;
 
     /// Apply middleware post-processing rules to a response.
@@ -33,7 +33,7 @@ where
     /// [`MiddlewareChain::postprocess()`]: crate::net::server::middleware::chain::MiddlewareChain::postprocess()
     fn postprocess(
         &self,
-        request: &Request<Message<RequestOctets>>,
+        request: &Request<RequestOctets>,
         response: &mut AdditionalBuilder<StreamTarget<Target>>,
     );
 }

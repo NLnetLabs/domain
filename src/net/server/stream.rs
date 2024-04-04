@@ -249,7 +249,7 @@ type CommandReceiver<RequestOctets, Target> =
 /// use domain::net::server::stream::StreamServer;
 /// use domain::net::server::util::service_fn;
 ///
-/// fn my_service(msg: Request<Message<Vec<u8>>>, _meta: ())
+/// fn my_service(msg: Request<Vec<u8>>, _meta: ())
 /// -> Result<
 ///        Transaction<
 ///           Result<CallResult<Vec<u8>>, ServiceError>,

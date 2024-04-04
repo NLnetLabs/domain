@@ -28,7 +28,7 @@ use domain::base::iana::{Class, Rcode};
 use domain::base::message_builder::{AdditionalBuilder, PushError};
 use domain::base::name::ToLabelIter;
 use domain::base::wire::Composer;
-use domain::base::{Dname, Message, MessageBuilder, StreamTarget};
+use domain::base::{Dname, MessageBuilder, StreamTarget};
 use domain::net::server::buf::VecBufSource;
 use domain::net::server::dgram;
 use domain::net::server::dgram::DgramServer;
@@ -52,7 +52,7 @@ use domain::rdata::A;
 
 // Helper fn to create a dummy response to send back to the client
 fn mk_answer<Target>(
-    msg: &Request<Message<Vec<u8>>>,
+    msg: &Request<Vec<u8>>,
     builder: MessageBuilder<StreamTarget<Target>>,
 ) -> Result<AdditionalBuilder<StreamTarget<Target>>, PushError>
 where
@@ -86,7 +86,7 @@ impl Service<Vec<u8>> for MyService {
 
     fn call(
         &self,
-        request: Request<Message<Vec<u8>>>,
+        request: Request<Vec<u8>>,
     ) -> Result<
         Transaction<
             Result<CallResult<Self::Target>, ServiceError>,
@@ -111,7 +111,7 @@ impl Service<Vec<u8>> for MyService {
 /// [`service_fn()`] (see the [`query()`] example below).
 #[allow(clippy::type_complexity)]
 fn name_to_ip<Target>(
-    request: Request<Message<Vec<u8>>>,
+    request: Request<Vec<u8>>,
 ) -> Result<
     Transaction<
         Result<CallResult<Target>, ServiceError>,
@@ -173,7 +173,7 @@ where
 /// boilerplate.
 #[allow(clippy::type_complexity)]
 fn query(
-    request: Request<Message<Vec<u8>>>,
+    request: Request<Vec<u8>>,
     count: Arc<AtomicU8>,
 ) -> Result<
     Transaction<
@@ -408,14 +408,14 @@ where
 {
     fn preprocess(
         &self,
-        _request: &mut Request<Message<RequestOctets>>,
+        _request: &Request<RequestOctets>,
     ) -> ControlFlow<AdditionalBuilder<StreamTarget<Target>>> {
         ControlFlow::Continue(())
     }
 
     fn postprocess(
         &self,
-        request: &Request<Message<RequestOctets>>,
+        request: &Request<RequestOctets>,
         _response: &mut AdditionalBuilder<StreamTarget<Target>>,
     ) {
         let duration = Instant::now().duration_since(request.received_at());
@@ -425,7 +425,7 @@ where
         stats.num_req_bytes += request.message().as_slice().len() as u32;
         stats.num_resp_bytes += _response.as_slice().len() as u32;
 
-        if request.transport().is_udp() {
+        if request.transport_ctx().is_udp() {
             stats.num_udp += 1;
         }
 

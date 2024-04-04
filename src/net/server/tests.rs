@@ -19,7 +19,7 @@ use crate::base::Dname;
 use crate::base::MessageBuilder;
 use crate::base::Rtype;
 use crate::base::StaticCompressor;
-use crate::base::{Message, StreamTarget};
+use crate::base::StreamTarget;
 
 use super::buf::BufSource;
 use super::message::Request;
@@ -303,7 +303,7 @@ impl Service<Vec<u8>> for MyService {
 
     fn call(
         &self,
-        _request: Request<Message<Vec<u8>>>,
+        _request: Request<Vec<u8>>,
     ) -> Result<
         Transaction<
             Result<CallResult<Self::Target>, ServiceError>,

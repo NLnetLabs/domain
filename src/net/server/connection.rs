@@ -792,17 +792,16 @@ where
         request: Message<Buf::Output>,
         received_at: Instant,
         addr: SocketAddr,
-    ) -> Request<Message<Buf::Output>> {
-        let ctx = TransportSpecificContext::NonUdp(NonUdpTransportContext {
-            idle_timeout: Some(self.config.idle_timeout),
-        });
+    ) -> Request<Buf::Output> {
+        let ctx = NonUdpTransportContext::new(Some(self.config.idle_timeout));
+        let ctx = TransportSpecificContext::NonUdp(ctx);
         Request::new(addr, received_at, request, ctx)
     }
 
     /// Process the result from the middleware -> service -> middleware call
     /// tree.
     fn process_call_result(
-        _request: &Request<Message<Buf::Output>>,
+        _request: &Request<Buf::Output>,
         call_result: CallResult<Svc::Target>,
         tx: Self::Meta,
         metrics: Arc<ServerMetrics>,

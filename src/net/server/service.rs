@@ -21,7 +21,7 @@ use octseq::{OctetsBuilder, ShortBuf};
 use crate::base::iana::Rcode;
 use crate::base::message_builder::{AdditionalBuilder, PushError};
 use crate::base::wire::{Composer, ParseError};
-use crate::base::{Message, StreamTarget};
+use crate::base::StreamTarget;
 
 use super::message::Request;
 
@@ -80,7 +80,7 @@ use super::message::Request;
 /// use domain::rdata::A;
 ///
 /// fn mk_answer(
-///     msg: &Request<Message<Vec<u8>>>,
+///     msg: &Request<Vec<u8>>,
 ///     builder: MessageBuilder<StreamTarget<Vec<u8>>>,
 /// ) -> Result<AdditionalBuilder<StreamTarget<Vec<u8>>>, ServiceError> {
 ///     let mut answer = builder.start_answer(msg.message(), Rcode::NoError)?;
@@ -101,7 +101,7 @@ use super::message::Request;
 ///
 ///     fn call(
 ///         &self,
-///         msg: Request<Message<Vec<u8>>>,
+///         msg: Request<Vec<u8>>,
 ///     ) -> Result<
 ///             Transaction<
 ///             Result<CallResult<Self::Target>, ServiceError>,
@@ -136,7 +136,7 @@ use super::message::Request;
 /// use domain::rdata::A;
 ///
 /// fn name_to_ip<Target>(
-///     msg: Request<Message<Vec<u8>>>,
+///     msg: Request<Vec<u8>>,
 /// ) -> Result<
 ///     Transaction<
 ///         Result<CallResult<Target>, ServiceError>,
@@ -220,7 +220,7 @@ pub trait Service<RequestOctets: AsRef<[u8]> = Vec<u8>> {
     #[allow(clippy::type_complexity)]
     fn call(
         &self,
-        request: Request<Message<RequestOctets>>,
+        request: Request<RequestOctets>,
     ) -> Result<
         Transaction<
             Result<CallResult<Self::Target>, ServiceError>,
@@ -239,7 +239,7 @@ impl<RequestOctets: AsRef<[u8]>, T: Service<RequestOctets>>
 
     fn call(
         &self,
-        request: Request<Message<RequestOctets>>,
+        request: Request<RequestOctets>,
     ) -> Result<
         Transaction<
             Result<CallResult<Self::Target>, ServiceError>,
@@ -255,7 +255,7 @@ impl<RequestOctets: AsRef<[u8]>, T: Service<RequestOctets>>
 impl<RequestOctets, Target, Future, F> Service<RequestOctets> for F
 where
     F: Fn(
-        Request<Message<RequestOctets>>,
+        Request<RequestOctets>,
     ) -> Result<
         Transaction<Result<CallResult<Target>, ServiceError>, Future>,
         ServiceError,
@@ -270,7 +270,7 @@ where
 
     fn call(
         &self,
-        request: Request<Message<RequestOctets>>,
+        request: Request<RequestOctets>,
     ) -> Result<
         Transaction<
             Result<CallResult<Self::Target>, ServiceError>,

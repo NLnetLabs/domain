@@ -16,7 +16,7 @@ use tracing::{trace, warn};
 
 use domain::base::iana::Rcode;
 use domain::base::wire::Composer;
-use domain::base::{Dname, Message, ToDname};
+use domain::base::{Dname, ToDname};
 use domain::net::client::{dgram, stream};
 use domain::net::server::buf::VecBufSource;
 use domain::net::server::dgram::DgramServer;
@@ -245,7 +245,7 @@ where
 //     this `Service` impl.
 #[allow(clippy::type_complexity)]
 fn test_service(
-    request: Request<Message<Vec<u8>>>,
+    request: Request<Vec<u8>>,
     zonefile: Zonefile,
 ) -> Result<
     Transaction<

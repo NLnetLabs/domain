@@ -68,7 +68,7 @@ where
 /// // Takes the received DNS request and any additional meta data you wish to
 /// // provide, and returns one or more future DNS responses.
 /// fn my_service(
-///     req: Request<Message<Vec<u8>>>,
+///     req: Request<Vec<u8>>,
 ///     _meta: MyMeta,
 /// ) -> Result<
 ///     Transaction<
@@ -110,7 +110,7 @@ where
         + Send,
     Metadata: Clone,
     T: Fn(
-            Request<Message<RequestOctets>>,
+            Request<RequestOctets>,
             Metadata,
         ) -> Result<
             Transaction<Result<CallResult<Target>, ServiceError>, Future>,
@@ -161,7 +161,7 @@ pub(crate) fn to_pcap_text<T: AsRef<[u8]>>(
 /// On internal error this function will attempt to set RCODE ServFail in the
 /// returned message.
 pub fn start_reply<RequestOctets, Target>(
-    request: &Request<Message<RequestOctets>>,
+    request: &Request<RequestOctets>,
 ) -> QuestionBuilder<StreamTarget<Target>>
 where
     RequestOctets: Octets,
