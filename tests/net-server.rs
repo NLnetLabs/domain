@@ -246,10 +246,8 @@ fn test_service(
     zonefile: Zonefile,
 ) -> Result<
     Transaction<
-        Result<CallResult<Vec<u8>, Vec<u8>>, ServiceError>,
-        impl Future<
-                Output = Result<CallResult<Vec<u8>, Vec<u8>>, ServiceError>,
-            > + Send,
+        Result<CallResult<Vec<u8>>, ServiceError>,
+        impl Future<Output = Result<CallResult<Vec<u8>>, ServiceError>> + Send,
     >,
     ServiceError,
 > {

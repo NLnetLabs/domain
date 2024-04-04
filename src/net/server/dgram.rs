@@ -256,12 +256,9 @@ type CommandReceiver<Buf, Svc> = watch::Receiver<ServerCommandType<Buf, Svc>>;
 /// fn my_service(msg: Request<Message<Vec<u8>>>, _meta: ())
 /// -> Result<
 ///     Transaction<
-///         Result<CallResult<Vec<u8>, Vec<u8>>, ServiceError>,
+///         Result<CallResult<Vec<u8>>, ServiceError>,
 ///         Pin<Box<dyn Future<
-///             Output = Result<
-///                 CallResult<Vec<u8>, Vec<u8>>,
-///                 ServiceError,
-///             >,
+///             Output = Result<CallResult<Vec<u8>>, ServiceError>
 ///         > + Send>>,
 ///     >,
 ///     ServiceError,
@@ -687,15 +684,16 @@ where
     /// Process the result from the middleware -> service -> middleware call
     /// tree.
     fn process_call_result(
-        call_result: CallResult<Buf::Output, Svc::Target>,
-        addr: SocketAddr,
+        request: &Request<Message<Buf::Output>>,
+        call_result: CallResult<Svc::Target>,
         state: RequestState<Sock, Buf::Output, Svc::Target>,
         metrics: Arc<ServerMetrics>,
     ) {
         metrics.inc_num_pending_writes();
+        let client_addr = request.client_addr();
 
         tokio::spawn(async move {
-            let (_request, response, feedback) = call_result.into_inner();
+            let (response, feedback) = call_result.into_inner();
 
             if let Some(feedback) = feedback {
                 match feedback {
@@ -720,7 +718,7 @@ where
                 // Logging
                 if enabled!(Level::TRACE) {
                     let pcap_text = to_pcap_text(bytes, bytes.len());
-                    trace!(%addr, pcap_text, "Sending response");
+                    trace!(%client_addr, pcap_text, "Sending response");
                 }
 
                 // Actually write the DNS response message bytes to the UDP
@@ -728,7 +726,7 @@ where
                 let _ = Self::send_to(
                     &state.sock,
                     bytes,
-                    &addr,
+                    &client_addr,
                     state.write_timeout,
                 )
                 .await;

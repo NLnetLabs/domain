@@ -82,21 +82,20 @@ struct MyService;
 /// [`Service`] trait for a function instead of a struct.
 impl Service<Vec<u8>> for MyService {
     type Target = Vec<u8>;
-    type Future =
-        Ready<Result<CallResult<Vec<u8>, Self::Target>, ServiceError>>;
+    type Future = Ready<Result<CallResult<Self::Target>, ServiceError>>;
 
     fn call(
         &self,
-        msg: Request<Message<Vec<u8>>>,
+        request: Request<Message<Vec<u8>>>,
     ) -> Result<
         Transaction<
-            Result<CallResult<Vec<u8>, Self::Target>, ServiceError>,
+            Result<CallResult<Self::Target>, ServiceError>,
             Self::Future,
         >,
         ServiceError,
     > {
         let builder = mk_builder_for_target();
-        let additional = mk_answer(&msg, builder)?;
+        let additional = mk_answer(&request, builder)?;
         let item = ready(Ok(CallResult::new(additional)));
         let txn = Transaction::single(item);
         Ok(txn)
@@ -112,12 +111,11 @@ impl Service<Vec<u8>> for MyService {
 /// [`service_fn()`] (see the [`query()`] example below).
 #[allow(clippy::type_complexity)]
 fn name_to_ip<Target>(
-    msg: Request<Message<Vec<u8>>>,
+    request: Request<Message<Vec<u8>>>,
 ) -> Result<
     Transaction<
-        Result<CallResult<Vec<u8>, Target>, ServiceError>,
-        impl Future<Output = Result<CallResult<Vec<u8>, Target>, ServiceError>>
-            + Send,
+        Result<CallResult<Target>, ServiceError>,
+        impl Future<Output = Result<CallResult<Target>, ServiceError>> + Send,
     >,
     ServiceError,
 >
@@ -127,7 +125,7 @@ where
     <Target as octseq::OctetsBuilder>::AppendError: Debug,
 {
     let mut out_answer = None;
-    if let Ok(question) = msg.message().sole_question() {
+    if let Ok(question) = request.message().sole_question() {
         let qname = question.qname();
         let num_labels = qname.label_count();
         if num_labels >= 5 {
@@ -140,7 +138,7 @@ where
             if let Ok(a_rec) = a_rec {
                 let builder = mk_builder_for_target();
                 let mut answer = builder
-                    .start_answer(msg.message(), Rcode::NoError)
+                    .start_answer(request.message(), Rcode::NoError)
                     .unwrap();
                 answer
                     .push((Dname::root_ref(), Class::In, 86400, a_rec))
@@ -154,7 +152,9 @@ where
         let builder = mk_builder_for_target();
         eprintln!("Refusing request, only requests for A records in IPv4 dotted quad format are accepted by this service.");
         out_answer = Some(
-            builder.start_answer(msg.message(), Rcode::Refused).unwrap(),
+            builder
+                .start_answer(request.message(), Rcode::Refused)
+                .unwrap(),
         );
     }
 
@@ -173,14 +173,12 @@ where
 /// boilerplate.
 #[allow(clippy::type_complexity)]
 fn query(
-    msg: Request<Message<Vec<u8>>>,
+    request: Request<Message<Vec<u8>>>,
     count: Arc<AtomicU8>,
 ) -> Result<
     Transaction<
-        Result<CallResult<Vec<u8>, Vec<u8>>, ServiceError>,
-        impl Future<
-                Output = Result<CallResult<Vec<u8>, Vec<u8>>, ServiceError>,
-            > + Send,
+        Result<CallResult<Vec<u8>>, ServiceError>,
+        impl Future<Output = Result<CallResult<Vec<u8>>, ServiceError>> + Send,
     >,
     ServiceError,
 > {
@@ -207,7 +205,7 @@ fn query(
         eprintln!("Setting idle timeout to {idle_timeout:?}");
 
         let builder = mk_builder_for_target();
-        let answer = mk_answer(&msg, builder)?;
+        let answer = mk_answer(&request, builder)?;
         let res = CallResult::new(answer).with_feedback(cmd);
         Ok(res)
     };

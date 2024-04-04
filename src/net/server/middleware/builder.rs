@@ -141,9 +141,9 @@ where
     RequestOctets: AsRef<[u8]> + Octets,
     Target: Composer + Default,
 {
-    /// Create a middleware builder with default, aka "modern", processors.
+    /// Create a middleware builder with default, aka "standard", processors.
     ///
-    /// See [`Self::modern()`].
+    /// See [`Self::standard()`].
     fn default() -> Self {
         Self::standard()
     }

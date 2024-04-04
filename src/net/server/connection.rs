@@ -304,11 +304,11 @@ where
 
     /// The reader for consuming from the queue of responses waiting to be
     /// written back to the client.
-    result_q_rx: mpsc::Receiver<CallResult<Buf::Output, Svc::Target>>,
+    result_q_rx: mpsc::Receiver<CallResult<Svc::Target>>,
 
     /// The writer for pushing ready responses onto the queue waiting
     /// to be written back the client.
-    result_q_tx: mpsc::Sender<CallResult<Buf::Output, Svc::Target>>,
+    result_q_tx: mpsc::Sender<CallResult<Svc::Target>>,
 
     /// A [`Service`] for handling received requests and generating responses.
     service: Svc,
@@ -623,7 +623,7 @@ where
     /// Process a single queued response.
     async fn process_queued_result(
         &mut self,
-        call_result: Option<CallResult<Buf::Output, Svc::Target>>,
+        call_result: Option<CallResult<Svc::Target>>,
     ) -> Result<(), ConnectionEvent> {
         // If we failed to read the results of requests processed by the
         // service because the queue holding those results is empty and can no
@@ -635,7 +635,7 @@ where
             return Err(ConnectionEvent::DisconnectWithFlush);
         };
 
-        let (_request, response, feedback) = call_result.into_inner();
+        let (response, feedback) = call_result.into_inner();
 
         if let Some(feedback) = feedback {
             self.process_service_feedback(feedback).await;
@@ -783,7 +783,7 @@ where
     Buf::Output: Octets + Send + Sync,
     Svc: Service<Buf::Output> + Send + Sync + Clone,
 {
-    type Meta = Sender<CallResult<Buf::Output, Svc::Target>>;
+    type Meta = Sender<CallResult<Svc::Target>>;
 
     /// Add information to the request that relates to the type of server we
     /// are and our state where relevant.
@@ -802,8 +802,8 @@ where
     /// Process the result from the middleware -> service -> middleware call
     /// tree.
     fn process_call_result(
-        call_result: CallResult<Buf::Output, Svc::Target>,
-        _addr: SocketAddr,
+        _request: &Request<Message<Buf::Output>>,
+        call_result: CallResult<Svc::Target>,
         tx: Self::Meta,
         metrics: Arc<ServerMetrics>,
     ) {

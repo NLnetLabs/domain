@@ -268,7 +268,7 @@ impl BufSource for MockBufSource {
 struct MySingle;
 
 impl Future for MySingle {
-    type Output = Result<CallResult<Vec<u8>, Vec<u8>>, ServiceError>;
+    type Output = Result<CallResult<Vec<u8>>, ServiceError>;
 
     fn poll(
         self: Pin<&mut Self>,
@@ -303,10 +303,10 @@ impl Service<Vec<u8>> for MyService {
 
     fn call(
         &self,
-        _msg: Request<Message<Vec<u8>>>,
+        _request: Request<Message<Vec<u8>>>,
     ) -> Result<
         Transaction<
-            Result<CallResult<Vec<u8>, Self::Target>, ServiceError>,
+            Result<CallResult<Self::Target>, ServiceError>,
             Self::Future,
         >,
         ServiceError,

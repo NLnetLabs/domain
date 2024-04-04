@@ -283,8 +283,8 @@ where
     ///
     /// The response is the form of a [`CallResult`].
     fn process_call_result(
-        call_result: CallResult<Buf::Output, Svc::Target>,
-        addr: SocketAddr,
+        request: &Request<Message<Buf::Output>>,
+        call_result: CallResult<Svc::Target>,
         state: Self::Meta,
         metrics: Arc<ServerMetrics>,
     );
@@ -346,7 +346,7 @@ where
 fn do_service_call<Buf, Svc>(
     preprocessing_result: ControlFlow<(
         Transaction<
-            Result<CallResult<Buf::Output, Svc::Target>, ServiceError>,
+            Result<CallResult<Svc::Target>, ServiceError>,
             Svc::Future,
         >,
         usize,
@@ -354,10 +354,7 @@ fn do_service_call<Buf, Svc>(
     request: &Request<Message<<Buf as BufSource>::Output>>,
     svc: &Svc,
 ) -> (
-    Transaction<
-        Result<CallResult<Buf::Output, Svc::Target>, ServiceError>,
-        Svc::Future,
-    >,
+    Transaction<Result<CallResult<Svc::Target>, ServiceError>, Svc::Future>,
     Option<usize>,
 )
 where
@@ -367,27 +364,24 @@ where
 {
     match preprocessing_result {
         ControlFlow::Continue(()) => {
-            let request_for_svc = request.clone();
-
             let res = if enabled!(Level::INFO) {
                 let span = info_span!("svc-call",
-                    msg_id = request_for_svc.message().header().id(),
-                    client = %request_for_svc.client_addr(),
+                    msg_id = request.message().header().id(),
+                    client = %request.client_addr(),
                 );
                 let _guard = span.enter();
-                svc.call(request_for_svc)
+                svc.call(request.clone())
             } else {
-                svc.call(request_for_svc)
+                svc.call(request.clone())
             };
 
             // Handle any error returned by the service.
-            let request_for_error = request;
             let txn = res.unwrap_or_else(|err| {
                 if matches!(err, ServiceError::InternalError) {
                     error!("Service error while processing request: {err}");
                 }
 
-                let mut response = start_reply(request_for_error);
+                let mut response = start_reply(request);
                 response.header_mut().set_rcode(err.rcode());
                 let call_result = CallResult::new(response.additional());
                 Transaction::immediate(Ok(call_result))
@@ -428,7 +422,7 @@ fn do_middleware_preprocessing<Buf, Svc, Server>(
         Request<Message<Buf::Output>>,
         ControlFlow<(
             Transaction<
-                Result<CallResult<Buf::Output, Svc::Target>, ServiceError>,
+                Result<CallResult<Svc::Target>, ServiceError>,
                 Svc::Future,
             >,
             usize,
@@ -480,7 +474,7 @@ fn do_middleware_postprocessing<Buf, Svc, Server>(
     meta: Server::Meta,
     middleware_chain: MiddlewareChain<Buf::Output, Svc::Target>,
     mut response_txn: Transaction<
-        Result<CallResult<Buf::Output, Svc::Target>, ServiceError>,
+        Result<CallResult<Svc::Target>, ServiceError>,
         Svc::Future,
     >,
     last_processor_id: Option<usize>,
@@ -507,11 +501,9 @@ fn do_middleware_postprocessing<Buf, Svc, Server>(
                 );
             }
 
-            let call_result = call_result.with_request(request.clone());
-
             Server::process_call_result(
+                &request,
                 call_result,
-                request.client_addr(),
                 meta.clone(),
                 metrics.clone(),
             );

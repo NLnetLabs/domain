@@ -107,18 +107,12 @@ where
         &self,
         request: &mut Request<Message<RequestOctets>>,
     ) -> ControlFlow<(
-        Transaction<
-            Result<CallResult<RequestOctets, Target>, ServiceError>,
-            Future,
-        >,
+        Transaction<Result<CallResult<Target>, ServiceError>, Future>,
         usize,
     )>
     where
         Future: std::future::Future<
-                Output = Result<
-                    CallResult<RequestOctets, Target>,
-                    ServiceError,
-                >,
+                Output = Result<CallResult<Target>, ServiceError>,
             > + Send,
     {
         for (i, p) in self.processors.iter().enumerate() {

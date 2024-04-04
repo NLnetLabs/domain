@@ -97,14 +97,14 @@ use super::message::Request;
 ///
 /// impl Service<Vec<u8>> for MyService {
 ///     type Target = Vec<u8>;
-///     type Future = Ready<Result<CallResult<Vec<u8>, Self::Target>, ServiceError>>;
+///     type Future = Ready<Result<CallResult<Self::Target>, ServiceError>>;
 ///
 ///     fn call(
 ///         &self,
 ///         msg: Request<Message<Vec<u8>>>,
 ///     ) -> Result<
 ///             Transaction<
-///             Result<CallResult<Vec<u8>, Self::Target>, ServiceError>,
+///             Result<CallResult<Self::Target>, ServiceError>,
 ///             Self::Future,
 ///         >,
 ///         ServiceError,
@@ -139,12 +139,9 @@ use super::message::Request;
 ///     msg: Request<Message<Vec<u8>>>,
 /// ) -> Result<
 ///     Transaction<
-///         Result<CallResult<Vec<u8>, Target>, ServiceError>,
+///         Result<CallResult<Target>, ServiceError>,
 ///         impl Future<
-///             Output = Result<
-///                 CallResult<Vec<u8>, Target>,
-///                 ServiceError,
-///             >,
+///             Output = Result<CallResult<Target>, ServiceError>
 ///         > + Send,
 ///     >,
 ///     ServiceError,
@@ -216,20 +213,17 @@ pub trait Service<RequestOctets: AsRef<[u8]> = Vec<u8>> {
     /// The type of future returned by [`Service::call()`] via
     /// [`Transaction::single()`].
     type Future: std::future::Future<
-            Output = Result<
-                CallResult<RequestOctets, Self::Target>,
-                ServiceError,
-            >,
+            Output = Result<CallResult<Self::Target>, ServiceError>,
         > + Send;
 
     /// Generate a response to a fully pre-processed request.
     #[allow(clippy::type_complexity)]
     fn call(
         &self,
-        message: Request<Message<RequestOctets>>,
+        request: Request<Message<RequestOctets>>,
     ) -> Result<
         Transaction<
-            Result<CallResult<RequestOctets, Self::Target>, ServiceError>,
+            Result<CallResult<Self::Target>, ServiceError>,
             Self::Future,
         >,
         ServiceError,
@@ -245,15 +239,15 @@ impl<RequestOctets: AsRef<[u8]>, T: Service<RequestOctets>>
 
     fn call(
         &self,
-        message: Request<Message<RequestOctets>>,
+        request: Request<Message<RequestOctets>>,
     ) -> Result<
         Transaction<
-            Result<CallResult<RequestOctets, Self::Target>, ServiceError>,
+            Result<CallResult<Self::Target>, ServiceError>,
             Self::Future,
         >,
         ServiceError,
     > {
-        Arc::deref(self).call(message)
+        Arc::deref(self).call(request)
     }
 }
 
@@ -263,32 +257,28 @@ where
     F: Fn(
         Request<Message<RequestOctets>>,
     ) -> Result<
-        Transaction<
-            Result<CallResult<RequestOctets, Target>, ServiceError>,
-            Future,
-        >,
+        Transaction<Result<CallResult<Target>, ServiceError>, Future>,
         ServiceError,
     >,
     RequestOctets: AsRef<[u8]>,
     Target: Composer + Default + Send + Sync + 'static,
-    Future: std::future::Future<
-            Output = Result<CallResult<RequestOctets, Target>, ServiceError>,
-        > + Send,
+    Future: std::future::Future<Output = Result<CallResult<Target>, ServiceError>>
+        + Send,
 {
     type Target = Target;
     type Future = Future;
 
     fn call(
         &self,
-        message: Request<Message<RequestOctets>>,
+        request: Request<Message<RequestOctets>>,
     ) -> Result<
         Transaction<
-            Result<CallResult<RequestOctets, Self::Target>, ServiceError>,
+            Result<CallResult<Self::Target>, ServiceError>,
             Self::Future,
         >,
         ServiceError,
     > {
-        (*self)(message)
+        (*self)(request)
     }
 }
 
@@ -384,13 +374,7 @@ pub enum ServiceFeedback {
 /// request to adjust its own configuration, or even to terminate the
 /// connection.
 #[derive(Clone, Debug)]
-pub struct CallResult<RequestOctets, Target>
-where
-    RequestOctets: AsRef<[u8]>,
-{
-    /// The request that this result relates to, if any.
-    request: Option<Request<Message<RequestOctets>>>,
-
+pub struct CallResult<Target> {
     /// Optional response to send back to the client.
     response: Option<AdditionalBuilder<StreamTarget<Target>>>,
 
@@ -398,9 +382,8 @@ where
     feedback: Option<ServiceFeedback>,
 }
 
-impl<RequestOctets, Target> CallResult<RequestOctets, Target>
+impl<Target> CallResult<Target>
 where
-    RequestOctets: AsRef<[u8]>,
     Target: OctetsBuilder + AsRef<[u8]> + AsMut<[u8]>,
     Target::AppendError: Into<ShortBuf>,
 {
@@ -408,7 +391,6 @@ where
     #[must_use]
     pub fn new(response: AdditionalBuilder<StreamTarget<Target>>) -> Self {
         Self {
-            request: None,
             response: Some(response),
             feedback: None,
         }
@@ -418,20 +400,9 @@ where
     #[must_use]
     pub fn feedback_only(command: ServiceFeedback) -> Self {
         Self {
-            request: None,
             response: None,
             feedback: Some(command),
         }
-    }
-
-    /// Add an [`Request<_>`] to an existing [`CallResult`].
-    #[must_use]
-    pub fn with_request(
-        mut self,
-        request: Request<Message<RequestOctets>>,
-    ) -> Self {
-        self.request = Some(request);
-        self
     }
 
     /// Add a [`ServiceFeedback`] to an existing [`CallResult`].
@@ -461,16 +432,11 @@ where
     pub fn into_inner(
         self,
     ) -> (
-        Option<Request<Message<RequestOctets>>>,
         Option<AdditionalBuilder<StreamTarget<Target>>>,
         Option<ServiceFeedback>,
     ) {
-        let CallResult {
-            request,
-            response,
-            feedback,
-        } = self;
-        (request, response, feedback)
+        let CallResult { response, feedback } = self;
+        (response, feedback)
     }
 }
 

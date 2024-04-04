@@ -72,12 +72,9 @@ where
 ///     _meta: MyMeta,
 /// ) -> Result<
 ///     Transaction<
-///         Result<CallResult<Vec<u8>, Vec<u8>>, ServiceError>,
+///         Result<CallResult<Vec<u8>>, ServiceError>,
 ///         Pin<Box<dyn Future<
-///             Output = Result<
-///                 CallResult<Vec<u8>, Vec<u8>>,
-///                 ServiceError,
-///             >,
+///             Output = Result<CallResult<Vec<u8>>, ServiceError>
 ///         > + Send>>,
 ///     >,
 ///     ServiceError,
@@ -103,28 +100,24 @@ where
 /// [`CallResult`]: crate::net::server::service::CallResult
 /// [`Result::Ok()`]: std::result::Result::Ok
 pub fn service_fn<RequestOctets, Target, Future, T, Metadata>(
-    msg_handler: T,
+    request_handler: T,
     metadata: Metadata,
 ) -> impl Service<RequestOctets, Target = Target, Future = Future> + Clone
 where
     RequestOctets: AsRef<[u8]>,
     Target: Composer + Default + Send + Sync + 'static,
-    Future: std::future::Future<
-            Output = Result<CallResult<RequestOctets, Target>, ServiceError>,
-        > + Send,
+    Future: std::future::Future<Output = Result<CallResult<Target>, ServiceError>>
+        + Send,
     Metadata: Clone,
     T: Fn(
             Request<Message<RequestOctets>>,
             Metadata,
         ) -> Result<
-            Transaction<
-                Result<CallResult<RequestOctets, Target>, ServiceError>,
-                Future,
-            >,
+            Transaction<Result<CallResult<Target>, ServiceError>, Future>,
             ServiceError,
         > + Clone,
 {
-    move |msg| msg_handler(msg, metadata.clone())
+    move |request| request_handler(request, metadata.clone())
 }
 
 //----------- to_pcap_text() -------------------------------------------------
