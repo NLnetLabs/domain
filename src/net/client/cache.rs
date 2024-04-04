@@ -35,7 +35,7 @@ use crate::base::{
     Dname, Header, Message, MessageBuilder, ParsedDname, StaticCompressor,
     Ttl,
 };
-use crate::dep::octseq::{octets::OctetsInto, Octets};
+use crate::dep::octseq::Octets;
 // use crate::net::client::clock::{Clock, Elapsed, SystemClock};
 use crate::net::client::request::{
     ComposeRequest, Error, GetResponse, SendRequest,
@@ -805,15 +805,8 @@ impl Key {
     where
         TDN: ToDname,
     {
-        let mut qname: Dname<Vec<u8>> =
-            qname.to_dname().expect("to_dname should not fail");
-
-        // Make sure qname is canonical.
-        qname.make_canonical();
-        let qname: Dname<Bytes> = qname.octets_into();
-
         Self {
-            qname,
+            qname: qname.to_canonical_dname(),
             qclass,
             qtype,
             addo: AdDo::new(ad, dnssec_ok),

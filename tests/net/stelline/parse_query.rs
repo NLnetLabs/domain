@@ -374,13 +374,13 @@ impl<'a> EntryScanner<'a> {
     fn scan_control(&mut self) -> Result<ScannedEntry, EntryError> {
         let ctrl = self.scan_string()?;
         if ctrl.eq_ignore_ascii_case("$ORIGIN") {
-            let origin = self.scan_dname()?.to_dname().unwrap();
+            let origin = self.scan_dname()?.to_dname();
             self.zonefile.buf.require_line_feed()?;
             Ok(ScannedEntry::Origin(origin))
         } else if ctrl.eq_ignore_ascii_case("$INCLUDE") {
             let path = self.scan_string()?;
             let origin = if !self.zonefile.buf.is_line_feed() {
-                Some(self.scan_dname()?.to_dname().unwrap())
+                Some(self.scan_dname()?.to_dname())
             } else {
                 None
             };

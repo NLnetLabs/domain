@@ -257,7 +257,8 @@ fn test_service(
     fn as_record_and_dname(
         r: ScannedRecord,
     ) -> Option<(ScannedRecord, Dname<Vec<u8>>)> {
-        r.owner().to_dname::<Vec<u8>>().map(|dname| (r, dname)).ok()
+        let dname = r.owner().to_dname();
+        Some((r, dname))
     }
 
     fn as_records(

@@ -4,6 +4,10 @@
 
 Breaking changes
 
+* The `ToDname` and `ToRelativeDname` traits have been changed to have a
+  pair of methods a la `try_to_dname` and `to_dname` for octets builders
+  with limited and unlimited buffers, reflecting the pattern used
+  elsewhere. ([#285])
 * The `Txt` record data type now rejects empty record data as invalid. As
   a consequence `TxtBuilder` converts an empty builder into TXT record
   data consisting of one empty character string which requires
@@ -17,6 +21,9 @@ Breaking changes
   doesn’t escape white space but also doesn’t enclose the string in
   quotes. Methods for explicitly formatting in quoted and unquoted
   presentation format are provided. ([#270])
+* The `validate::RrsigExt` trait now accepts anything that impls
+  `AsRef<Record<..>>` to allow the use of smart pointers. ([#288] by
+  [@hunts])
 * The stub resolver now uses the new client transports. This doesn’t change
   how it is used but does change how it queries the configured servers.
   ([#215])
@@ -71,7 +78,10 @@ Other changes
 [#275]: https://github.com/NLnetLabs/domain/pull/275
 [#277]: https://github.com/NLnetLabs/domain/pull/277
 [#284]: https://github.com/NLnetLabs/domain/pull/284
+[#285]: https://github.com/NLnetLabs/domain/pull/285
+[#288]: https://github.com/NLnetLabs/domain/pull/288
 [@torin-carey]: https://github.com/torin-carey
+[@hunts]: https://github.com/hunts
 
 
 ## 0.9.3
