@@ -22,7 +22,7 @@ use crate::net::server::util::start_reply;
 /// registry] at the time of writing.
 ///
 /// [IANA registry]: https://www.iana.org/assignments/dns-parameters/dns-parameters.xhtml#dns-parameters-14
-pub const EDNS_VERSION_ZERO: u8 = 0;
+const EDNS_VERSION_ZERO: u8 = 0;
 
 /// A [`MiddlewareProcessor`] for adding EDNS(0) related functionality.
 ///
