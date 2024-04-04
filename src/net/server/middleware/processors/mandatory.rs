@@ -30,13 +30,11 @@ pub const MINIMUM_RESPONSE_BYTE_LEN: u16 = 512;
 /// |--------|---------|
 /// | [1035] | TBD     |
 /// | [2181] | TBD     |
-/// | [6891] | TBD     |
 ///
 /// [`MiddlewareProcessor`]:
 ///     crate::net::server::middleware::processor::MiddlewareProcessor
 /// [1035]: https://datatracker.ietf.org/doc/html/rfc1035
 /// [2181]: https://datatracker.ietf.org/doc/html/rfc2181
-/// [6891]: https://datatracker.ietf.org/doc/html/rfc6891
 #[derive(Debug)]
 pub struct MandatoryMiddlewareProcessor {
     /// In strict mode the processor does more checks on requests and
@@ -260,32 +258,6 @@ where
             .header_mut()
             .set_rd(request.message().header().rd());
 
-        // https://www.rfc-editor.org/rfc/rfc6891.html#section-6.1.1
-        // 6.1.1: Basic Elements
-        // ...
-        // "If an OPT record is present in a received request, compliant
-        //  responders MUST include an OPT record in their respective
-        //  responses."
-        //
-        // TODO: What if anything should we do if we detect a request with an
-        // OPT record but a response that lacks an OPT record?
-
-        // https://www.rfc-editor.org/rfc/rfc6891.html#section-7
-        // 7: Transport considerations
-        // ...
-        // "Lack of presence of an OPT record in a request MUST be taken as an
-        //  indication that the requestor does not implement any part of this
-        //  specification and that the responder MUST NOT include an OPT
-        //  record in its response."
-        //
-        // So strip off any OPT record present if the query lacked an OPT
-        // record.
-
-        // TODO: How can we strip off the OPT record in the response if no OPT
-        // record is present in the request?
-        //
-        // if request.opt().is_none() && response.opt().is_some() {
-        // }
 
         // https://www.rfc-editor.org/rfc/rfc1035.html
         // https://www.rfc-editor.org/rfc/rfc3425.html
