@@ -199,8 +199,7 @@ where
             let secret = <[u8; 16]>::try_from(secret).unwrap();
             let processor = CookiesMiddlewareProcessor::new(secret);
             let processor = processor
-                .with_denied_ips(config.cookies.ip_deny_list.clone())
-                .with_allowed_ips(config.cookies.ip_allow_list.clone());
+                .with_denied_ips(config.cookies.ip_deny_list.clone());
             middleware.push(processor.into());
         }
 
@@ -327,7 +326,6 @@ struct ServerConfig<'a> {
 struct CookieConfig<'a> {
     enabled: bool,
     secret: Option<&'a str>,
-    ip_allow_list: Vec<IpAddr>,
     ip_deny_list: Vec<IpAddr>,
 }
 
@@ -374,17 +372,6 @@ fn parse_server_config(config: &Config) -> ServerConfig {
                                         parsed_config
                                             .cookies
                                             .ip_deny_list
-                                            .push(ip);
-                                    } else {
-                                        eprintln!("Ignoring malformed IP address '{ip}' in 'access-control' setting");
-                                    }
-                                }
-
-                                "allow" => {
-                                    if let Ok(ip) = ip.parse() {
-                                        parsed_config
-                                            .cookies
-                                            .ip_allow_list
                                             .push(ip);
                                     } else {
                                         eprintln!("Ignoring malformed IP address '{ip}' in 'access-control' setting");

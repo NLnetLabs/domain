@@ -44,10 +44,6 @@ pub struct CookiesMiddlewareProcessor {
     /// A user supplied secret used in making the cookie value.
     server_secret: [u8; 16],
 
-    /// Clients connecting from these IP addresses are exempted from the
-    /// requirement to provide valid cookies.
-    ip_allow_list: Vec<IpAddr>,
-
     /// Clients connecting from these IP addresses will be required to provide
     /// a cookie otherwise they will receive REFUSED with TC=1 prompting them
     /// to reconnect with TCP in order to "authenticate" themselves.
@@ -60,35 +56,11 @@ impl CookiesMiddlewareProcessor {
     pub fn new(server_secret: [u8; 16]) -> Self {
         Self {
             server_secret,
-            ip_allow_list: vec![],
             ip_deny_list: vec![],
         }
     }
 
-    /// Define IP addresses allowed to bypass cookie restrictions.
-    ///
-    /// Similar to the Unbound [`access-control: allow`] server option IP
-    /// addresses on the allow list are permitted to bypass cookie
-    /// pre-processing checks.
-    ///
-    /// [`access-control: allow`]: https://unbound.docs.nlnetlabs.nl/en/latest/manpages/unbound.conf.html#unbound-conf-access-control-action-allow
-    #[must_use]
-    pub fn with_allowed_ips<T: Into<Vec<IpAddr>>>(
-        mut self,
-        ip_allow_list: T,
-    ) -> Self {
-        self.ip_allow_list = ip_allow_list.into();
-        self
-    }
-
     /// Define IP addresses required to supply DNS cookies if using UDP.
-    ///
-    /// Similar to the Unbound [`access-control: allow_cookie`] server option
-    /// IP addresses on the deny list are required to supply a valid DNS
-    /// cookie unless the request was sent via TCP.
-    ///
-    /// [`access-control: allow_cookie`]:
-    ///     https://unbound.docs.nlnetlabs.nl/en/latest/manpages/unbound.conf.html#unbound-conf-access-control-action-allow-cookie
     #[must_use]
     pub fn with_denied_ips<T: Into<Vec<IpAddr>>>(
         mut self,
@@ -270,7 +242,6 @@ impl Default for CookiesMiddlewareProcessor {
 
         Self {
             server_secret,
-            ip_allow_list: Default::default(),
             ip_deny_list: Default::default(),
         }
     }
@@ -288,11 +259,6 @@ where
         &self,
         request: &Request<RequestOctets>,
     ) -> ControlFlow<AdditionalBuilder<StreamTarget<Target>>> {
-        if self.ip_allow_list.contains(&request.client_addr().ip()) {
-            trace!("Permitting request to flow due to matching IP allow list entry");
-            return ControlFlow::Continue(());
-        }
-
         match Self::cookie(request) {
             None => {
                 trace!("Request does not include DNS cookies");
