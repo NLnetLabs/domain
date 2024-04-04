@@ -6,7 +6,6 @@ use tracing::{debug, error, trace, warn};
 
 use crate::base::iana::{Opcode, Rcode};
 use crate::base::message_builder::{AdditionalBuilder, PushError};
-use crate::base::opt::Opt;
 use crate::base::wire::{Composer, ParseError};
 use crate::base::StreamTarget;
 use crate::net::server::message::{Request, TransportSpecificContext};
@@ -205,22 +204,6 @@ where
             );
         }
 
-        // https://www.rfc-editor.org/rfc/rfc6891.html#section-6.1.1
-        // 6.1.1: Basic Elements
-        // ...
-        // "If a query message with more than one OPT RR is received, a
-        //  FORMERR (RCODE=1) MUST be returned"
-        if let Ok(additional) = request.message().additional() {
-            let iter = additional.limit_to::<Opt<_>>();
-            if iter.count() > 1 {
-                // More than one OPT RR received.
-                debug!("RFC 6891 6.1.1 violation: request contains more than one OPT RR.");
-                return ControlFlow::Break(
-                    self.error_response(request, Rcode::FormErr),
-                );
-            }
-        }
-
         ControlFlow::Continue(())
     }
 
@@ -257,7 +240,6 @@ where
         response
             .header_mut()
             .set_rd(request.message().header().rd());
-
 
         // https://www.rfc-editor.org/rfc/rfc1035.html
         // https://www.rfc-editor.org/rfc/rfc3425.html
