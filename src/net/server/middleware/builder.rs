@@ -92,10 +92,15 @@ where
     #[must_use]
     pub fn standard() -> Self {
         let mut builder = Self::new();
+
         builder.push(MandatoryMiddlewareProcessor::default().into());
+
+        #[allow(clippy::default_constructed_unit_structs)]
         builder.push(EdnsMiddlewareProcessor::default().into());
+
         #[cfg(feature = "siphasher")]
         builder.push(CookiesMiddlewareProcessor::default().into());
+
         builder
     }
 
