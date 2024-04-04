@@ -28,7 +28,6 @@ use super::service::{
 };
 use super::sock::AsyncAccept;
 use super::stream::StreamServer;
-use crate::net::server::stream::Config;
 
 /// Mock I/O which supplies a sequence of mock messages to the server at a
 /// defined rate.
