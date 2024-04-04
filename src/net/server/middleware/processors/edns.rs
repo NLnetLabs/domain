@@ -288,8 +288,7 @@ where
         //  responders MUST include an OPT record in their respective
         //  responses."
         //
-        // TODO: What if anything should we do if we detect a request with an
-        // OPT record but a response that lacks an OPT record?
+        // We don't do anything about this scenario at present.
 
         // https://www.rfc-editor.org/rfc/rfc6891.html#section-7
         // 7: Transport considerations
