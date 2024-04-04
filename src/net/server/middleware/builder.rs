@@ -8,8 +8,6 @@ use crate::base::wire::Composer;
 
 use super::chain::MiddlewareChain;
 use super::processor::MiddlewareProcessor;
-#[cfg(feature = "siphasher")]
-use super::processors::cookies::CookiesMiddlewareProcessor;
 use super::processors::edns::EdnsMiddlewareProcessor;
 use super::processors::mandatory::MandatoryMiddlewareProcessor;
 
@@ -87,8 +85,6 @@ where
     ///
     /// - [`MandatoryMiddlewareProcessor`]
     /// - [`EdnsMiddlewareProcessor`]
-    /// - [`CookiesMiddlewareProcessor`] _(only if crate feature [`siphasher"]
-    ///   is enabled)_
     #[must_use]
     pub fn standard() -> Self {
         let mut builder = Self::new();
@@ -97,9 +93,6 @@ where
 
         #[allow(clippy::default_constructed_unit_structs)]
         builder.push(EdnsMiddlewareProcessor::default().into());
-
-        #[cfg(feature = "siphasher")]
-        builder.push(CookiesMiddlewareProcessor::default().into());
 
         builder
     }
