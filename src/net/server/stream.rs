@@ -523,10 +523,7 @@ where
                 accept_res = self.accept() => {
                     match accept_res {
                         Ok((stream, addr)) => {
-                            // SAFETY: This is a connection-oriented server so there
-                            // must always be a connection count metric avasilable to
-                            // unwrap.
-                            let num_conn = self.metrics.num_connections().unwrap();
+                            let num_conn = self.metrics.num_connections();
                             if num_conn < self.config.load().max_concurrent_connections {
                                 self.spawn_connection_handler(stream, addr);
                             }

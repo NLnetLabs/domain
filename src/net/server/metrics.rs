@@ -49,13 +49,14 @@ impl ServerMetrics {
 impl ServerMetrics {
     /// The number of current connections, if applicable.
     ///
-    /// This will be None for connection-less servers such as [`DgramServer`].
+    /// This will be zero for connection-less servers such as [`DgramServer`].
     ///
     /// [`DgramServer`]: crate::net::server::dgram::DgramServer
-    pub fn num_connections(&self) -> Option<usize> {
+    pub fn num_connections(&self) -> usize {
         self.num_connections
             .as_ref()
             .map(|atomic| atomic.load(Ordering::Relaxed))
+            .unwrap_or_default()
     }
 
     /// Set the number of current connections metric.

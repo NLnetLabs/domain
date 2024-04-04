@@ -414,7 +414,7 @@ async fn service_test() {
 
         // Verify that no requests or responses are in progress still in
         // the server.
-        assert_eq!(srv.metrics().num_connections(), Some(0));
+        assert_eq!(srv.metrics().num_connections(), 0);
         assert_eq!(srv.metrics().num_inflight_requests(), 0);
         assert_eq!(srv.metrics().num_pending_writes(), 0);
         assert_eq!(srv.metrics().num_received_requests(), num_messages);
