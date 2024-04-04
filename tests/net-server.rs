@@ -192,8 +192,8 @@ where
 {
     let mut middleware = MiddlewareBuilder::minimal();
 
-    #[cfg(feature = "siphasher")]
     if config.cookies.enabled {
+        #[cfg(feature = "siphasher")]
         if let Some(secret) = config.cookies.secret {
             let secret = hex::decode(secret).unwrap();
             let secret = <[u8; 16]>::try_from(secret).unwrap();
@@ -203,6 +203,9 @@ where
                 .with_allowed_ips(config.cookies.ip_allow_list.clone());
             middleware.push(processor.into());
         }
+
+        #[cfg(not(feature = "siphasher"))]
+        panic!("The test uses cookies but the required 'siphasher' feature is not enabled.");
     }
 
     if config.edns_tcp_keepalive {
