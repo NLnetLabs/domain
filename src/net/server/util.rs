@@ -200,7 +200,10 @@ where
 
 //----------- add_edns_option ------------------------------------------------
 
-/// Add an EDNS OPT option to a response.
+/// Adds one or more EDNS OPT options to a response.
+///
+/// If the response already has an OPT record the options will be added to
+/// that. Otherwise an OPT record will be created to hold the new options.
 pub fn add_edns_options<F, Target>(
     response: &mut AdditionalBuilder<StreamTarget<Target>>,
     op: F,
@@ -222,7 +225,7 @@ where
     // response are known. Or a completely different builder approach that can
     // edit a partially built message.
     if response.counts().arcount() > 0 {
-        // Make a copy of the response
+        // Make a copy of the response.
         let copied_response = response.as_slice().to_vec();
         let Ok(copied_response) = Message::from_octets(&copied_response)
         else {

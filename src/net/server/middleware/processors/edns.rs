@@ -63,7 +63,7 @@ impl EdnsMiddlewareProcessor {
 
         // Note: if rcode is non-extended this will also correctly handle
         // setting the rcode in the main message header.
-        if let Err(err) = additional.opt(|opt| {
+        if let Err(err) = add_edns_options(&mut additional, |opt| {
             opt.set_rcode(rcode);
             Ok(())
         }) {
