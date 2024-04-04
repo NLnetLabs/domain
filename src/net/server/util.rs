@@ -224,7 +224,9 @@ where
     // delay response building until the complete set of differences to a base
     // response are known. Or a completely different builder approach that can
     // edit a partially built message.
-    if response.counts().arcount() > 0 {
+    if response.counts().arcount() > 0
+        && response.as_message().opt().is_some()
+    {
         // Make a copy of the response.
         let copied_response = response.as_slice().to_vec();
         let Ok(copied_response) = Message::from_octets(&copied_response)
@@ -270,4 +272,49 @@ where
 
     // No existing OPT record in the additional section so build a new one.
     response.opt(op)
+}
+
+/// Removes any OPT records present in the response.
+pub fn remove_edns_opt_record<Target>(
+    response: &mut AdditionalBuilder<StreamTarget<Target>>,
+) -> Result<(), PushError>
+where
+    Target: Composer,
+{
+    // TODO: This function has the same less than ideal properties as the
+    // add_edns_options() function above that it is similar to, ideally we can
+    // avoid the need to copy the response.
+    if response.counts().arcount() > 0
+        && response.as_message().opt().is_some()
+    {
+        // Make a copy of the response.
+        let copied_response = response.as_slice().to_vec();
+        let Ok(copied_response) = Message::from_octets(&copied_response)
+        else {
+            warn!("Internal error: Unable to create message from octets while adding EDNS option");
+            return Ok(());
+        };
+
+        if copied_response.opt().is_some() {
+            // Discard the current records in the additional section of the
+            // response.
+            response.rewind();
+
+            // Copy the non-OPT records from the copied response to the
+            // current response.
+            if let Ok(current_additional) = copied_response.additional() {
+                for rr in current_additional.flatten() {
+                    if rr.rtype() != Rtype::Opt {
+                        if let Ok(Some(rr)) = rr
+                            .into_record::<AllRecordData<_, ParsedDname<_>>>()
+                        {
+                            response.push(rr)?;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(())
 }

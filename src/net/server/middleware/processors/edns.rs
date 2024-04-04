@@ -2,7 +2,7 @@
 use core::ops::ControlFlow;
 
 use octseq::Octets;
-use tracing::{debug, enabled, trace, warn, Level};
+use tracing::{debug, enabled, error, trace, warn, Level};
 
 use crate::base::iana::OptRcode;
 use crate::base::message_builder::AdditionalBuilder;
@@ -13,8 +13,8 @@ use crate::base::StreamTarget;
 use crate::net::server::message::{Request, TransportSpecificContext};
 use crate::net::server::middleware::processor::MiddlewareProcessor;
 use crate::net::server::middleware::processors::mandatory::MINIMUM_RESPONSE_BYTE_LEN;
-use crate::net::server::util::add_edns_options;
 use crate::net::server::util::start_reply;
+use crate::net::server::util::{add_edns_options, remove_edns_opt_record};
 
 /// EDNS version 0.
 ///
@@ -52,6 +52,7 @@ impl EdnsMiddlewareProcessor {
 impl EdnsMiddlewareProcessor {
     /// Create a DNS error response to the given request with the given RCODE.
     fn error_response<RequestOctets, Target>(
+        &self,
         request: &Request<RequestOctets>,
         rcode: OptRcode,
     ) -> AdditionalBuilder<StreamTarget<Target>>
@@ -72,6 +73,7 @@ impl EdnsMiddlewareProcessor {
             );
         }
 
+        self.postprocess(request, &mut additional);
         additional
     }
 }
@@ -100,10 +102,9 @@ where
                 if iter.next().is_some() {
                     // More than one OPT RR received.
                     debug!("RFC 6891 6.1.1 violation: request contains more than one OPT RR.");
-                    return ControlFlow::Break(Self::error_response(
-                        request,
-                        OptRcode::FormErr,
-                    ));
+                    return ControlFlow::Break(
+                        self.error_response(request, OptRcode::FormErr),
+                    );
                 }
 
                 if let Ok(opt) = opt {
@@ -116,10 +117,9 @@ where
                     //    RCODE=BADVERS."
                     if opt_rec.version() > EDNS_VERSION_ZERO {
                         debug!("RFC 6891 6.1.3 violation: request EDNS version {} > 0", opt_rec.version());
-                        return ControlFlow::Break(Self::error_response(
-                            request,
-                            OptRcode::BadVers,
-                        ));
+                        return ControlFlow::Break(
+                            self.error_response(request, OptRcode::BadVers),
+                        );
                     }
 
                     match request.transport_ctx() {
@@ -137,7 +137,7 @@ where
                             if opt_rec.opt().tcp_keepalive().is_some() {
                                 debug!("RFC 7828 3.2.1 violation: edns-tcp-keepalive option received via UDP");
                                 return ControlFlow::Break(
-                                    Self::error_response(
+                                    self.error_response(
                                         request,
                                         OptRcode::FormErr,
                                     ),
@@ -215,7 +215,7 @@ where
                                 if keep_alive.timeout().is_some() {
                                     debug!("RFC 7828 3.2.1 violation: edns-tcp-keepalive option received via TCP contains timeout");
                                     return ControlFlow::Break(
-                                        Self::error_response(
+                                        self.error_response(
                                             request,
                                             OptRcode::FormErr,
                                         ),
@@ -236,6 +236,35 @@ where
         request: &Request<RequestOctets>,
         response: &mut AdditionalBuilder<StreamTarget<Target>>,
     ) {
+        // https://www.rfc-editor.org/rfc/rfc6891.html#section-6.1.1
+        // 6.1.1: Basic Elements
+        // ...
+        // "If an OPT record is present in a received request, compliant
+        //  responders MUST include an OPT record in their respective
+        //  responses."
+        //
+        // We don't do anything about this scenario at present.
+
+        // https://www.rfc-editor.org/rfc/rfc6891.html#section-7
+        // 7: Transport considerations
+        // ...
+        // "Lack of presence of an OPT record in a request MUST be taken as an
+        //  indication that the requestor does not implement any part of this
+        //  specification and that the responder MUST NOT include an OPT
+        //  record in its response."
+        //
+        // So strip off any OPT record present if the query lacked an OPT
+        // record.
+        if request.message().opt().is_none() {
+            if let Err(err) = remove_edns_opt_record(response) {
+                error!(
+                    "Error while stripping OPT record from response: {err}"
+                );
+                *response = self.error_response(request, OptRcode::ServFail);
+                return;
+            }
+        }
+
         // https://datatracker.ietf.org/doc/html/rfc7828#section-3.3.2
         // 3.3.2.  Sending Responses
         //   "A DNS server that receives a query sent using TCP transport that
@@ -280,29 +309,6 @@ where
                 }
             }
         }
-
-        // https://www.rfc-editor.org/rfc/rfc6891.html#section-6.1.1
-        // 6.1.1: Basic Elements
-        // ...
-        // "If an OPT record is present in a received request, compliant
-        //  responders MUST include an OPT record in their respective
-        //  responses."
-        //
-        // We don't do anything about this scenario at present.
-
-        // https://www.rfc-editor.org/rfc/rfc6891.html#section-7
-        // 7: Transport considerations
-        // ...
-        // "Lack of presence of an OPT record in a request MUST be taken as an
-        //  indication that the requestor does not implement any part of this
-        //  specification and that the responder MUST NOT include an OPT
-        //  record in its response."
-        //
-        // So strip off any OPT record present if the query lacked an OPT
-        // record.
-
-        // TODO: How can we strip off the OPT record in the response if no OPT
-        // record is present in the request?
     }
 }
 
