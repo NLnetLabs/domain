@@ -25,7 +25,6 @@ use domain::net::server::middleware::builder::MiddlewareBuilder;
 #[cfg(feature = "siphasher")]
 use domain::net::server::middleware::processors::cookies::CookiesMiddlewareProcessor;
 use domain::net::server::middleware::processors::edns::EdnsMiddlewareProcessor;
-use domain::net::server::middleware::processors::edns::EDNS_VERSION_ZERO;
 use domain::net::server::service::{
     CallResult, Service, ServiceError, Transaction,
 };
