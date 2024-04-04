@@ -27,7 +27,7 @@ use std::sync::{Arc, Mutex};
 use tokio::net::TcpListener;
 use tokio::sync::watch;
 use tokio::time::{interval, timeout, MissedTickBehavior};
-use tracing::{error, trace, trace_span};
+use tracing::{error, trace, trace_span, warn};
 
 use crate::net::server::buf::BufSource;
 use crate::net::server::error::Error;
@@ -79,7 +79,10 @@ where
 {
     /// Limit on the number of concurrent TCP connections that can be handled
     /// by the server.
-    pub(super) max_concurrent_connections: usize,
+    max_concurrent_connections: usize,
+
+    /// Whether to accept new connections or not when at the configured limit.
+    accept_connections_at_max: bool,
 
     /// Connection specific configuration.
     pub(super) connection_config: connection::Config<RequestOctets, Target>,
@@ -95,17 +98,36 @@ where
         Default::default()
     }
 
-    /// Set the limit on the number of concurrent TCP connections that can be
+    /// Set whether to accept new connections or not when at the configured
+    /// limit.
+    ///
+    /// The value has to be true or false. The default value is true.
+    ///
+    /// See [`set_max_concurrent_connections()`].
+    pub fn set_accept_connections_at_max(&mut self, value: bool) {
+        self.accept_connections_at_max = value;
+    }
+
+    /// Whether to accept new connections or not when at the configured limit.
+    pub fn accept_connections_at_max(&self) -> bool {
+        self.accept_connections_at_max
+    }
+
+    /// Sets the limit on the number of concurrent TCP connections that can be
     /// handled by the server.
     ///
     /// The value has to be between one and 100,000. The default value is 100.
     /// The default value is based on the default value of the NSD 4.8.0 `-n
     /// number` configuration setting .
     ///
-    /// If the limit is hit, further connections will be accepted but closed
-    /// immediately.
-    /// Limit on the number of concurrent TCP connections that can be handled
-    /// by the server.
+    /// If the limit is reached and [`accept_connections_at_max`] is true,
+    /// further connections will be accepted but closed immediately. Limit on
+    /// the number of concurrent TCP connections that can be handled by the
+    /// server.
+    ///
+    /// If the limit is reached and [`accept_connections_at_max`] is false,
+    /// no new connections will be accepted unitl the number of concurrent
+    /// connections falls below the limit.
     ///
     /// # Reconfigure
     ///
@@ -116,7 +138,12 @@ where
         self.max_concurrent_connections = value;
     }
 
-    /// Connection specific configuration.
+    /// Gets the configured maximum number of concurrent connections.
+    pub fn max_concurrent_connections(&self) -> usize {
+        self.max_concurrent_connections
+    }
+
+    /// Sets the connection specific configuration.
     ///
     /// See [`connection::Config`] for more information.
     pub fn set_connection_config(
@@ -124,6 +151,13 @@ where
         connection_config: connection::Config<RequestOctets, Target>,
     ) {
         self.connection_config = connection_config;
+    }
+
+    /// Gets the connection specific configuration.
+    pub fn connection_config(
+        &self,
+    ) -> &connection::Config<RequestOctets, Target> {
+        &self.connection_config
     }
 }
 
@@ -136,6 +170,7 @@ where
 {
     fn default() -> Self {
         Self {
+            accept_connections_at_max: true,
             max_concurrent_connections: MAX_CONCURRENT_TCP_CONNECTIONS
                 .default(),
             connection_config: connection::Config::default(),
@@ -152,6 +187,7 @@ where
 {
     fn clone(&self) -> Self {
         Self {
+            accept_connections_at_max: self.accept_connections_at_max,
             max_concurrent_connections: self.max_concurrent_connections,
             connection_config: self.connection_config.clone(),
         }
@@ -520,13 +556,14 @@ where
                 }
 
                 // Next, handle a connection that has been accepted, if any.
-                accept_res = self.accept() => {
+                accept_res = self.accept(), if self.accepting_connections() => {
                     match accept_res {
-                        Ok((stream, addr)) => {
-                            let num_conn = self.metrics.num_connections();
-                            if num_conn < self.config.load().max_concurrent_connections {
-                                self.spawn_connection_handler(stream, addr);
-                            }
+                        Ok((stream, addr)) if !self.at_connection_limit() => {
+                            self.spawn_connection_handler(stream, addr);
+                        }
+
+                        Ok(_) => {
+                            warn!("Connection limit reached: dropping accepted connection");
                         }
 
                         Err(err) => {
@@ -535,6 +572,29 @@ where
                     }
                 }
             }
+        }
+    }
+
+    /// Returns true if the server is at its connection limit.
+    ///
+    /// See [`Config::max_concurrent_connections`].
+    fn at_connection_limit(&self) -> bool {
+        let config = ArcSwap::load(&self.config);
+        let num_conn = self.metrics.num_connections();
+        num_conn >= config.max_concurrent_connections()
+    }
+
+    /// Returns true if the server can accept new connections.
+    ///
+    /// The server will not accept new connections if it is:
+    ///   - At the connection limit, AND
+    ///   - Configured to stop accepting new connections when at the limit.
+    fn accepting_connections(&self) -> bool {
+        if self.at_connection_limit() {
+            let config = ArcSwap::load(&self.config);
+            config.accept_connections_at_max
+        } else {
+            true
         }
     }
 
@@ -602,7 +662,8 @@ where
         // Work around the compiler wanting to move self to the async block by
         // preparing only those pieces of information from self for the new
         // connection handler that it actually needs.
-        let conn_config = self.config.load().connection_config.clone();
+        let config = ArcSwap::load(&self.config);
+        let conn_config = config.connection_config.clone();
         let conn_command_rx = self.command_rx.clone();
         let conn_service = self.service.clone();
         let conn_buf = self.buf.clone();
