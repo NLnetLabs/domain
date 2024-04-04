@@ -49,12 +49,12 @@ where
     /// <div class="warning">Warning:
     ///
     /// When building a standards compliant DNS server you should probably use
-    /// [`MiddlewareBuilder::minimal()`] or [`MiddlewareBuilder::modern()`]
+    /// [`MiddlewareBuilder::minimal()`] or [`MiddlewareBuilder::standard()`]
     /// instead.
     /// </div>
     ///
     /// [`MiddlewareBuilder::minimal()`]: Self::minimal()
-    /// [`MiddlewareBuilder::modern()`]: Self::modern()
+    /// [`MiddlewareBuilder::standard()`]: Self::standard()
     #[must_use]
     pub fn new() -> Self {
         Self { processors: vec![] }

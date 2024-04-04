@@ -103,7 +103,7 @@ where
     ///
     /// The value has to be true or false. The default value is true.
     ///
-    /// See [`set_max_concurrent_connections()`].
+    /// See [`Self::set_max_concurrent_connections()`].
     pub fn set_accept_connections_at_max(&mut self, value: bool) {
         self.accept_connections_at_max = value;
     }
@@ -120,14 +120,14 @@ where
     /// The default value is based on the default value of the NSD 4.8.0 `-n
     /// number` configuration setting .
     ///
-    /// If the limit is reached and [`accept_connections_at_max`] is true,
-    /// further connections will be accepted but closed immediately. Limit on
-    /// the number of concurrent TCP connections that can be handled by the
-    /// server.
+    /// If the limit is reached and [`Self::accept_connections_at_max()`] is
+    /// true, further connections will be accepted but closed immediately.
+    /// Limit on the number of concurrent TCP connections that can be handled
+    /// by the server.
     ///
-    /// If the limit is reached and [`accept_connections_at_max`] is false,
-    /// no new connections will be accepted unitl the number of concurrent
-    /// connections falls below the limit.
+    /// If the limit is reached and [`Self::accept_connections_at_max()`] is
+    /// false, no new connections will be accepted unitl the number of
+    /// concurrent connections falls below the limit.
     ///
     /// # Reconfigure
     ///
