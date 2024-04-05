@@ -481,7 +481,8 @@ async fn main() {
     // that receive the requests and send the responses).
     let mut middleware = MiddlewareBuilder::default();
     let stats = Arc::new(StatsMiddlewareProcessor::new());
-    let rate_limiter = Arc::new(RateLimitingMiddlewareProcessor::with_config(2));
+    let rate_limiter =
+        Arc::new(RateLimitingMiddlewareProcessor::with_config(2));
     middleware.push_front(stats.clone());
     middleware.push(rate_limiter);
     let middleware = middleware.build();
