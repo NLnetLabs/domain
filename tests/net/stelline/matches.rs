@@ -194,9 +194,9 @@ where
     }
     if matches.opcode {
         let expected_opcode = if reply.notify {
-            Opcode::Notify
+            Opcode::NOTIFY
         } else {
-            Opcode::Query
+            Opcode::QUERY
         };
         if msg.header().opcode() != expected_opcode {
             if verbose {
@@ -226,7 +226,7 @@ where
         let msg_rcode =
             get_opt_rcode(&Message::from_octets(msg.as_slice()).unwrap());
         if reply.noerror {
-            if let OptRcode::NoError = msg_rcode {
+            if let OptRcode::NOERROR = msg_rcode {
                 // Okay
             } else {
                 if verbose {
@@ -237,7 +237,7 @@ where
                 return false;
             }
         } else if reply.formerr {
-            if let OptRcode::FormErr = msg_rcode {
+            if let OptRcode::FORMERR = msg_rcode {
                 // Okay
             } else {
                 if verbose {
@@ -248,7 +248,7 @@ where
                 return false;
             }
         } else if reply.notimp {
-            if let OptRcode::NotImp = msg_rcode {
+            if let OptRcode::NOTIMP = msg_rcode {
                 // Okay
             } else {
                 if verbose {
@@ -257,7 +257,7 @@ where
                 return false;
             }
         } else if reply.nxdomain {
-            if let OptRcode::NXDomain = msg_rcode {
+            if let OptRcode::NXDOMAIN = msg_rcode {
                 // Okay
             } else {
                 if verbose {
@@ -268,7 +268,7 @@ where
                 return false;
             }
         } else if reply.refused {
-            if let OptRcode::Refused = msg_rcode {
+            if let OptRcode::REFUSED = msg_rcode {
                 // Okay
             } else {
                 if verbose {
@@ -323,7 +323,7 @@ fn match_section<
     }
     'outer: for msg_rr in msg_section {
         let msg_rr = msg_rr.unwrap();
-        if msg_rr.rtype() == Rtype::Opt {
+        if msg_rr.rtype() == Rtype::OPT {
             continue;
         }
         for (index, mat_rr) in match_section.iter().enumerate() {
@@ -433,10 +433,6 @@ fn get_opt_rcode<Octs: Octets>(msg: &Message<Octs>) -> OptRcode {
     let opt = msg.opt();
     match opt {
         Some(opt) => opt.rcode(msg.header()),
-        None => {
-            // Convert Rcode to OptRcode, this should be part of
-            // OptRcode
-            OptRcode::from_int(msg.header().rcode().to_int() as u16)
-        }
+        None => OptRcode::from_rcode(msg.header().rcode()),
     }
 }

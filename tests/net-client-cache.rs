@@ -5,7 +5,7 @@ use crate::net::stelline::client::do_client;
 use crate::net::stelline::client::CurrStepValue;
 use crate::net::stelline::connect::Connect;
 use crate::net::stelline::parse_stelline::parse_file;
-use domain::base::{Dname, MessageBuilder, Rtype::Aaaa};
+use domain::base::{Dname, MessageBuilder, Rtype};
 use domain::net::client::cache;
 use domain::net::client::clock::{Clock, FakeClock};
 use domain::net::client::multi_stream;
@@ -83,7 +83,7 @@ async fn test_transport_error() {
     let mut msg = MessageBuilder::new_vec();
     msg.header_mut().set_rd(true);
     let mut msg = msg.question();
-    msg.push((Dname::vec_from_str("example.com").unwrap(), Aaaa))
+    msg.push((Dname::vec_from_str("example.com").unwrap(), Rtype::AAAA))
         .unwrap();
     let req = RequestMessage::new(msg);
 

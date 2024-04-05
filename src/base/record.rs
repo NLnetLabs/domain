@@ -240,7 +240,7 @@ impl<N, D> From<(N, Class, Ttl, D)> for Record<N, D> {
 
 impl<N, D> From<(N, u32, D)> for Record<N, D> {
     fn from((owner, ttl, data): (N, u32, D)) -> Self {
-        Self::new(owner, Class::In, Ttl::from_secs(ttl), data)
+        Self::new(owner, Class::IN, Ttl::from_secs(ttl), data)
     }
 }
 
@@ -512,7 +512,7 @@ where
         &self,
         target: &mut Target,
     ) -> Result<(), Target::AppendError> {
-        Record::new(&self.0, Class::In, Ttl::from_secs(self.1), &self.2)
+        Record::new(&self.0, Class::IN, Ttl::from_secs(self.1), &self.2)
             .compose(target)
     }
 }
@@ -526,7 +526,7 @@ where
         &self,
         target: &mut Target,
     ) -> Result<(), Target::AppendError> {
-        Record::new(&self.0, Class::In, self.1, &self.2).compose(target)
+        Record::new(&self.0, Class::IN, self.1, &self.2).compose(target)
     }
 }
 
@@ -1593,12 +1593,12 @@ mod test {
 
         let ds: Record<Dname<&[u8]>, Ds<&[u8]>> = Record::new(
             Dname::from_octets(b"\x01a\x07example\0".as_ref()).unwrap(),
-            Class::In,
+            Class::IN,
             Ttl::from_secs(86400),
             Ds::new(
                 12,
-                SecAlg::RsaSha256,
-                DigestAlg::Sha256,
+                SecAlg::RSASHA256,
+                DigestAlg::SHA256,
                 b"something".as_ref(),
             )
             .unwrap(),

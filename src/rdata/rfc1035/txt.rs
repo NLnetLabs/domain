@@ -82,6 +82,11 @@ use octseq::serde::{DeserializeOctets, SerializeOctets};
 #[derive(Clone)]
 pub struct Txt<Octs: ?Sized>(Octs);
 
+impl Txt<()> {
+    /// The rtype of this record data type.
+    pub(crate) const RTYPE: Rtype = Rtype::TXT;
+}
+
 impl<Octs: FromBuilder> Txt<Octs> {
     /// Creates a new Txt record from a single slice.
     ///
@@ -389,7 +394,7 @@ impl<Octs: AsRef<[u8]>> hash::Hash for Txt<Octs> {
 
 impl<Octs> RecordData for Txt<Octs> {
     fn rtype(&self) -> Rtype {
-        Rtype::Txt
+        Txt::RTYPE
     }
 }
 
@@ -401,7 +406,7 @@ where
         rtype: Rtype,
         parser: &mut Parser<'a, Octs>,
     ) -> Result<Option<Self>, ParseError> {
-        if rtype == Rtype::Txt {
+        if rtype == Txt::RTYPE {
             Self::parse(parser).map(Some)
         } else {
             Ok(None)

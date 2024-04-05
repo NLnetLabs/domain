@@ -166,7 +166,7 @@ impl<Octs: AsRef<[u8]> + Debug + Octets> RequestMessage<Octs> {
         let mut target = target.additional();
         for rr in source {
             let rr = rr?;
-            if rr.rtype() != Rtype::Opt {
+            if rr.rtype() != Rtype::OPT {
                 let rr = rr
                     .into_record::<AllRecordData<_, ParsedDname<_>>>()?
                     .expect("record expected");
@@ -252,7 +252,7 @@ impl<Octs: AsRef<[u8]> + Clone + Debug + Octets + Send + Sync + 'static>
 
         // If the result is an error, then the question section can be empty.
         // In that case we require all other sections to be empty as well.
-        if answer_header.rcode() != Rcode::NoError
+        if answer_header.rcode() != Rcode::NOERROR
             && answer_hcounts.qdcount() == 0
             && answer_hcounts.ancount() == 0
             && answer_hcounts.nscount() == 0

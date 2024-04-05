@@ -515,7 +515,7 @@ where
                     let qclass = question.qclass();
                     let qtype = question.qtype();
 
-                    if !(opcode == Opcode::Query && qclass == Class::In) {
+                    if !(opcode == Opcode::QUERY && qclass == Class::IN) {
                         // Anything other than a query on the Internet class
                         // should not be cached.
                         let request = self
@@ -949,7 +949,7 @@ fn validity(
     let mut min_val = config.max_validity;
 
     match msg.opt_rcode() {
-        OptRcode::NoError => {
+        OptRcode::NOERROR => {
             match classify_no_error(msg)? {
                 NoErrorType::Answer => (),
                 NoErrorType::NoData => {
@@ -965,7 +965,7 @@ fn validity(
                 }
             }
         }
-        OptRcode::NXDomain => {
+        OptRcode::NXDOMAIN => {
             min_val = min(min_val, config.max_nxdomain_validity);
         }
 
@@ -992,7 +992,7 @@ fn validity(
     let msg = msg.next_section()?.expect("section should be present");
     for rr in msg {
         let rr = rr?;
-        if rr.rtype() != Rtype::Opt {
+        if rr.rtype() != Rtype::OPT {
             min_val =
                 min(min_val, Duration::from_secs(rr.ttl().as_secs() as u64));
         }
@@ -1061,7 +1061,7 @@ where
         let mut rr = rr
             .into_record::<AllRecordData<_, ParsedDname<_>>>()?
             .expect("record expected");
-        if rr.rtype() != Rtype::Opt {
+        if rr.rtype() != Rtype::OPT {
             rr.set_ttl(rr.ttl() - amount);
         }
         target.push(rr).expect("push failed");
@@ -1148,7 +1148,7 @@ fn remove_dnssec(
 
 /// Check if a type is a DNSSEC type that needs to be removed.
 fn is_dnssec(rtype: Rtype) -> bool {
-    rtype == Rtype::Rrsig || rtype == Rtype::Nsec || rtype == Rtype::Nsec3
+    rtype == Rtype::RRSIG || rtype == Rtype::NSEC || rtype == Rtype::NSEC3
 }
 
 /// This type represents that various subtypes of a NOERROR result.
@@ -1198,10 +1198,10 @@ where
     let mut msg = msg.next_section()?.expect("section should be present");
     for rr in &mut msg {
         let rr = rr?;
-        if rr.class() == qclass && rr.rtype() == Rtype::Soa {
+        if rr.class() == qclass && rr.rtype() == Rtype::SOA {
             return Ok(NoErrorType::NoData);
         }
-        if rr.class() == qclass && rr.rtype() == Rtype::Ns {
+        if rr.class() == qclass && rr.rtype() == Rtype::NS {
             found_ns = true;
         }
     }

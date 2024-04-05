@@ -88,7 +88,7 @@ fn entry2reqmsg(entry: &Entry) -> RequestMessage<Vec<u8>> {
     let mut msg = RequestMessage::new(msg);
     msg.set_dnssec_ok(reply.fl_do);
     if reply.notify {
-        msg.header_mut().set_opcode(Opcode::Notify);
+        msg.header_mut().set_opcode(Opcode::NOTIFY);
     }
     msg
 }

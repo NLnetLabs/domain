@@ -33,6 +33,11 @@ pub struct Minfo<N> {
     emailbx: N,
 }
 
+impl Minfo<()> {
+    /// The rtype of this record data type.
+    pub(crate) const RTYPE: Rtype = Rtype::MINFO;
+}
+
 impl<N> Minfo<N> {
     /// Creates a new Minfo record data from the components.
     pub fn new(rmailbx: N, emailbx: N) -> Self {
@@ -177,7 +182,7 @@ impl<N: ToDname, NN: ToDname> CanonicalOrd<Minfo<NN>> for Minfo<N> {
 
 impl<N> RecordData for Minfo<N> {
     fn rtype(&self) -> Rtype {
-        Rtype::Minfo
+        Minfo::RTYPE
     }
 }
 
@@ -188,7 +193,7 @@ impl<'a, Octs: Octets + ?Sized> ParseRecordData<'a, Octs>
         rtype: Rtype,
         parser: &mut Parser<'a, Octs>,
     ) -> Result<Option<Self>, ParseError> {
-        if rtype == Rtype::Minfo {
+        if rtype == Minfo::RTYPE {
             Self::parse(parser).map(Some)
         } else {
             Ok(None)

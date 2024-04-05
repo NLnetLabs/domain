@@ -97,22 +97,22 @@ fn do_adjust<Octs: Octets>(
         todo!()
     }
     if reply.formerr {
-        header.set_rcode(Rcode::FormErr);
+        header.set_rcode(Rcode::FORMERR);
     }
     if reply.noerror {
-        header.set_rcode(Rcode::NoError);
+        header.set_rcode(Rcode::NOERROR);
     }
     if reply.notimp {
-        header.set_rcode(Rcode::NotImp);
+        header.set_rcode(Rcode::NOTIMP);
     }
     if reply.nxdomain {
-        header.set_rcode(Rcode::NXDomain);
+        header.set_rcode(Rcode::NXDOMAIN);
     }
     header.set_qr(reply.qr);
     header.set_ra(reply.ra);
     header.set_rd(reply.rd);
     if reply.refused {
-        header.set_rcode(Rcode::Refused);
+        header.set_rcode(Rcode::REFUSED);
     }
     if reply.servfail {
         todo!()
@@ -124,7 +124,7 @@ fn do_adjust<Octs: Octets>(
         todo!()
     }
     if reply.notify {
-        header.set_opcode(Opcode::Notify);
+        header.set_opcode(Opcode::NOTIFY);
     }
     if adjust.copy_id {
         header.set_id(reqmsg.header().id());

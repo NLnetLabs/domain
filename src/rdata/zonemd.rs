@@ -40,6 +40,11 @@ pub struct Zonemd<Octs: ?Sized> {
     digest: Octs,
 }
 
+impl Zonemd<()> {
+    /// The rtype of this record data type.
+    pub(crate) const RTYPE: Rtype = Rtype::ZONEMD;
+}
+
 impl<Octs> Zonemd<Octs> {
     /// Create a Zonemd record data from provided parameters.
     pub fn new(
@@ -140,7 +145,7 @@ impl<Octs> Zonemd<Octs> {
 
 impl<Octs> RecordData for Zonemd<Octs> {
     fn rtype(&self) -> Rtype {
-        Rtype::Zonemd
+        Zonemd::RTYPE
     }
 }
 
@@ -417,7 +422,7 @@ ns2           3600   IN  AAAA    2001:db8::63
         while let Some(entry) = zone.next_entry().unwrap() {
             match entry {
                 Entry::Record(record) => {
-                    if record.rtype() != Rtype::Zonemd {
+                    if record.rtype() != Rtype::ZONEMD {
                         continue;
                     }
                     match record.into_data() {
