@@ -194,13 +194,13 @@ where
         //   "Therefore IQUERY is now obsolete, and name servers SHOULD return
         //    a "Not Implemented" error when an IQUERY request is received."
         if self.strict
-            && request.message().header().opcode() == Opcode::IQuery
+            && request.message().header().opcode() == Opcode::IQUERY
         {
             debug!(
                 "RFC 3425 3 violation: request opcode IQUERY is obsolete."
             );
             return ControlFlow::Break(
-                self.error_response(request, Rcode::NotImp),
+                self.error_response(request, Rcode::NOTIMP),
             );
         }
 
@@ -214,7 +214,7 @@ where
     ) {
         if let Err(err) = Self::truncate(request, response) {
             error!("Error while truncating response: {err}");
-            *response = self.error_response(request, Rcode::ServFail);
+            *response = self.error_response(request, Rcode::SERVFAIL);
             return;
         }
 
@@ -359,7 +359,7 @@ mod tests {
         additional
             .opt(|builder| {
                 builder.push_raw_option(
-                    OptionCode::Padding,
+                    OptionCode::PADDING,
                     extra_bytes.len() as u16,
                     |target| {
                         target.append_slice(&extra_bytes).unwrap();

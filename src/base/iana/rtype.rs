@@ -27,71 +27,71 @@ int_enum! {
     (A => 1, b"A")
 
     /// An authoritative name server.
-    (Ns => 2, b"NS")
+    (NS => 2, b"NS")
 
     /// A mail destination.
     ///
     /// (Obsolete – use MX)
-    (Md => 3, b"MD")
+    (MD => 3, b"MD")
 
     /// A mail forwarder.
     ///
     /// (Obsolete – use MX)
-    (Mf => 4, b"MF")
+    (MF => 4, b"MF")
 
     /// The canonical name for an alias
-    (Cname => 5, b"CNAME")
+    (CNAME => 5, b"CNAME")
 
     /// Marks the start of a zone of authority.
-    (Soa => 6, b"SOA")
+    (SOA => 6, b"SOA")
 
     /// A mailbox domain name.
     ///
     /// (Experimental.)
-    (Mb =>  7, b"MB")
+    (MB =>  7, b"MB")
 
     /// A mail group member
     ///
     /// (Experimental.)
-    (Mg => 8, b"MG")
+    (MG => 8, b"MG")
 
     /// A mail rename domain name.
     ///
     /// (Experimental.)
-    (Mr => 9, b"MR")
+    (MR => 9, b"MR")
 
     /// A null resource record.
     ///
     /// (Experimental.)
-    (Null =>  10, b"NULL")
+    (NULL =>  10, b"NULL")
 
     /// A well known service description.
-    (Wks => 11, b"WKS")
+    (WKS => 11, b"WKS")
 
     /// A domain name pointer.
-    (Ptr => 12, b"PTR")
+    (PTR => 12, b"PTR")
 
     /// Host information.
-    (Hinfo => 13, b"HINFO")
+    (HINFO => 13, b"HINFO")
 
     /// Mailbox or mail list information.
-    (Minfo => 14, b"MINFO")
+    (MINFO => 14, b"MINFO")
 
     /// Mail exchange.
-    (Mx => 15, b"MX")
+    (MX => 15, b"MX")
 
     /// Text strings.
-    (Txt => 16, b"TXT")
+    (TXT => 16, b"TXT")
 
     /// For Responsible Person.
     ///
     /// See RFC 1183
-    (Rp => 17, b"RP")
+    (RP => 17, b"RP")
 
     /// For AFS Data Base location.
     ///
     /// See RFC 1183 and RFC 5864.
-    (Afsdb => 18, b"AFSDB")
+    (AFSDB => 18, b"AFSDB")
 
     /// For X.25 PSDN address.
     ///
@@ -101,84 +101,84 @@ int_enum! {
     /// For ISDN address.
     ///
     /// See RFC 1183.
-    (Isdn => 20, b"ISDN")
+    (ISDN => 20, b"ISDN")
 
     /// For Route Through.
     ///
     /// See RFC 1183
-    (Rt => 21, b"RT")
+    (RT => 21, b"RT")
 
     /// For SNAP address, NSAP style A record.
     ///
     /// See RFC 1706.
-    (Nsap => 22, b"NSAP")
+    (NSAP => 22, b"NSAP")
 
     /// For domain name pointer, NSAP style.
     ///
     /// See RFC 1348, RFC 1637, RFC 1706.
-    (Nsapptr => 23, b"NSAPPTR")
+    (NSAPPTR => 23, b"NSAPPTR")
 
     /// For security signature.
-    (Sig => 24, b"SIG")
+    (SIG => 24, b"SIG")
 
     /// For security key.
-    (Key => 25, b"KEY")
+    (KEY => 25, b"KEY")
 
     /// X.400 mail mapping information.
     ///
     /// See RFC 2163.
-    (Px => 26, b"PX")
+    (PX => 26, b"PX")
 
     /// Geographical position.
     ///
     /// See RFC 1712
-    (Gpos => 27, b"GPOS")
+    (GPOS => 27, b"GPOS")
 
     /// IPv6 address.
     ///
     /// See RFC 3596.
-    (Aaaa =>  28, b"AAAA")
+    (AAAA =>  28, b"AAAA")
 
     /// Location information.
     ///
     /// See RFC 1876.
-    (Loc => 29, b"LOC")
+    (LOC => 29, b"LOC")
 
     /// Next domain.
     ///
     /// (Obsolete.)
     ///
     /// See RFC 3755 and RFC 2535.
-    (Nxt => 30, b"NXT")
+    (NXT => 30, b"NXT")
 
     /// Endpoint identifier.
-    (Eid => 31, b"EID")
+    (EID => 31, b"EID")
 
     /// Nimrod locator.
-    (Nimloc => 32, b"NIMLOC")
+    (NIMLOC => 32, b"NIMLOC")
 
     /// Server selection.
     ///
     /// See RFC 2782.
-    (Srv => 33, b"SRV")
+    (SRV => 33, b"SRV")
 
     /// ATM address.
-    (Atma => 34, b"ATMA")
+    (ATMA => 34, b"ATMA")
 
     /// Naming authority pointer.
     ///
     /// See RFC 2915, RFC 2168, and RFC 3403.
-    (Naptr => 35, b"NAPTR")
+    (NAPTR => 35, b"NAPTR")
 
     /// Key exchanger.
     ///
     /// See RFC 2230.
-    (Kx => 36, b"KX")
+    (KX => 36, b"KX")
 
     /// CERT
     ///
     /// See RFC 4398.
-    (Cert => 37, b"CERT")
+    (CERT => 37, b"CERT")
 
     /// A6.
     ///
@@ -190,154 +190,154 @@ int_enum! {
     /// DNAME.
     ///
     /// See RFC 6672.
-    (Dname => 39, b"DNAME")
+    (DNAME => 39, b"DNAME")
 
     /// SINK.
-    (Sink => 40, b"SINK")
+    (SINK => 40, b"SINK")
 
     /// OPT.
     ///
     /// See RFC 6891 and RFC 3225.
-    (Opt => 41, b"OPT")
+    (OPT => 41, b"OPT")
 
     /// APL.
     ///
     /// See RFC 3123.
-    (Apl => 42, b"APL")
+    (APL => 42, b"APL")
 
     /// Delegation signer.
     ///
     /// See RFC 4034 and RFC 3658.
-    (Ds => 43, b"DS")
+    (DS => 43, b"DS")
 
     /// SSH key fingerprint.
     ///
     /// See RFC 4255.
-    (Sshfp => 44, b"SSHFP")
+    (SSHFP => 44, b"SSHFP")
 
     /// IPSECKEY
     ///
     /// See RFC 4255.
-    (Ipseckey => 45, b"IPSECKEY")
+    (IPSECKEY => 45, b"IPSECKEY")
 
     /// RRSIG.
     ///
     /// See RFC 4034 and RFC 3755.
-    (Rrsig => 46, b"RRSIG")
+    (RRSIG => 46, b"RRSIG")
 
     /// NSEC.
     ///
     /// See RFC 4034 and RFC 3755.
-    (Nsec => 47, b"NSEC")
+    (NSEC => 47, b"NSEC")
 
     /// DNSKEY.
     ///
     /// See RFC 4034 and RFC 3755.
-    (Dnskey => 48, b"DNSKEY")
+    (DNSKEY => 48, b"DNSKEY")
 
     /// DHCID.
     ///
     /// See RFC 4701.
-    (Dhcid => 49, b"DHCID")
+    (DHCID => 49, b"DHCID")
 
     /// NSEC3
     ///
     /// See RFC 5155.
-    (Nsec3 => 50, b"NSEC3")
+    (NSEC3 => 50, b"NSEC3")
 
     /// NSEC3PARAM.
     ///
     /// See RFC 5155.
-    (Nsec3param => 51, b"NSEC3PARAM")
+    (NSEC3PARAM => 51, b"NSEC3PARAM")
 
     /// TLSA.
     ///
     /// See RFC 6698.
-    (Tlsa => 52, b"TLSA")
+    (TLSA => 52, b"TLSA")
 
     /// S/MIME cert association.
     ///
     /// See draft-ietf-dane-smime.
-    (Smimea => 53, b"SMIMEA")
+    (SMIMEA => 53, b"SMIMEA")
 
     /// Host Identity Protocol.
     ///
     /// See RFC 5205.
-    (Hip => 55, b"HIP")
+    (HIP => 55, b"HIP")
 
     /// NINFO.
-    (Ninfo => 56, b"NINFO")
+    (NINFO => 56, b"NINFO")
 
     /// RKEY.
-    (Rkey => 57, b"RKEY")
+    (RKEY => 57, b"RKEY")
 
     /// Trust Anchor Link
-    (Talink => 58, b"TALINK")
+    (TALINK => 58, b"TALINK")
 
     /// Child DS.
     ///
     /// See RFC 7344.
-    (Cds => 59, b"CDS")
+    (CDS => 59, b"CDS")
 
     /// DNSKEY(s) the child wants reflected in DS.
     ///
     /// See RFC 7344.
-    (Cdnskey => 60, b"CDNSKEY")
+    (CDNSKEY => 60, b"CDNSKEY")
 
     /// OpenPGP key.
     ///
     /// See draft-ietf-dane-openpgpkey.
-    (Openpgpkey => 61, b"OPENPGPKEY")
+    (OPENPGPKEY => 61, b"OPENPGPKEY")
 
     /// Child-to-parent synchronization.
     ///
     /// See RFC 7477.
-    (Csync => 62, b"CSYNC")
+    (CSYNC => 62, b"CSYNC")
 
     /// Message digest for DNS zone.
     ///
     /// See draft-wessels-dns-zone-digest.
-    (Zonemd => 63, b"ZONEMD")
+    (ZONEMD => 63, b"ZONEMD")
 
     /// General Purpose Service Endpoints.
     ///
     /// See draft-ietf-dnsop-svcb-httpssvc
-    (Svcb => 64, b"SVCB")
+    (SVCB => 64, b"SVCB")
 
     /// HTTPS Specific Service Endpoints.
     ///
     /// See draft-ietf-dnsop-svcb-httpssvc
-    (Https => 65, b"HTTPS")
+    (HTTPS => 65, b"HTTPS")
 
     /// SPF.
     ///
     /// RFC 7208.
-    (Spf => 99, b"SPF")
+    (SPF => 99, b"SPF")
 
     /// UINFO.
     ///
     /// IANA-Reserved.
-    (Uinfo => 100, b"UINFO")
+    (UINFO => 100, b"UINFO")
 
     /// UID.
     ///
     /// IANA-Reserved.
-    (Uid => 101, b"UID")
+    (UID => 101, b"UID")
 
     /// GID.
     ///
     /// IANA-Reserved.
-    (Gid => 102, b"GID")
+    (GID => 102, b"GID")
 
     /// UNSPEC.
     ///
     /// IANA-Reserved.
-    (Unspec => 103, b"UNSPEC")
+    (UNSPEC => 103, b"UNSPEC")
 
     /// NID.
     ///
     /// See RFC 6742.
-    (Nid => 104, b"NID")
+    (NID => 104, b"NID")
 
     /// L32.
     ///
@@ -352,76 +352,76 @@ int_enum! {
     /// LP.
     ///
     /// See RFC 6742.
-    (Lp => 107, b"LP")
+    (LP => 107, b"LP")
 
     /// An EUI-48 address.
     ///
     /// See RFC 7043.
-    (Eui48 => 108, b"EUI48")
+    (EUI48 => 108, b"EUI48")
 
     /// An EUI-64 address.
     ///
     /// See RFC 7043.
-    (Eui64 => 109, b"EUI64")
+    (EUI64 => 109, b"EUI64")
 
     /// Transaction key.
     ///
     /// See RFC 2930.
-    (Tkey => 249, b"TKEY")
+    (TKEY => 249, b"TKEY")
 
     /// Transaction signature.
     ///
     /// See RFC 2845.
-    (Tsig => 250, b"TSIG")
+    (TSIG => 250, b"TSIG")
 
     /// Incremental transfer.
     ///
     /// See RFC 1995.
-    (Ixfr => 251, b"IXFR")
+    (IXFR => 251, b"IXFR")
 
     /// Transfer of entire zone.
     ///
     /// See RFC 1035 and RFC 5936.
-    (Axfr => 252, b"AXFR")
+    (AXFR => 252, b"AXFR")
 
     /// Mailbox-related RRs (MB, MG, or MR).
-    (Mailb => 253, b"MAILB")
+    (MAILB => 253, b"MAILB")
 
     /// Mail agent RRS.
     ///
     /// (Obsolete – see MX.)
-    (Maila => 254, b"MAILA")
+    (MAILA => 254, b"MAILA")
 
     /// A request for all records the server/cache has available.
     ///
     /// See RFC 1035 and RFC 6895.
-    (Any => 255, b"ANY")
+    (ANY => 255, b"ANY")
 
     /// URI.
     ///
     /// See RFC 7553.
-    (Uri => 256, b"URI")
+    (URI => 256, b"URI")
 
     /// Certification Authority Restriction.
     ///
     /// See RFC 6844.
-    (Caa => 257, b"CAA")
+    (CAA => 257, b"CAA")
 
     /// Application visibility and control.
-    (Avc => 258, b"AVC")
+    (AVC => 258, b"AVC")
 
     /// Digital Object Architecture
     ///
     /// See draft-durand-doa-over-dns.
-    (Doa => 259, b"DOA")
+    (DOA => 259, b"DOA")
 
     /// DNSSEC trust authorities.
-    (Ta => 32768, b"TA")
+    (TA => 32768, b"TA")
 
     /// DNSSEC lookaside validation.
     ///
     /// See RFC 4431
-    (Dlv => 32769, b"DLV")
+    (DLV => 32769, b"DLV")
 }
 
 int_enum_str_with_prefix!(Rtype, "TYPE", b"TYPE", u16, "unknown record type");

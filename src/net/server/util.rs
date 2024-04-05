@@ -82,7 +82,7 @@ where
 ///     // For each request create a single response:
 ///     Ok(Transaction::single(Box::pin(async move {
 ///         let builder = mk_builder_for_target();
-///         let answer = builder.start_answer(req.message(), Rcode::NXDomain)?;
+///         let answer = builder.start_answer(req.message(), Rcode::NXDOMAIN)?;
 ///         Ok(CallResult::new(answer.additional()))
 ///     })))
 /// }
@@ -192,7 +192,7 @@ where
     }
 
     if abort {
-        builder.header_mut().set_rcode(Rcode::ServFail);
+        builder.header_mut().set_rcode(Rcode::SERVFAIL);
     }
 
     builder
@@ -244,7 +244,7 @@ where
             // current response.
             if let Ok(current_additional) = copied_response.additional() {
                 for rr in current_additional.flatten() {
-                    if rr.rtype() != Rtype::Opt {
+                    if rr.rtype() != Rtype::OPT {
                         if let Ok(Some(rr)) = rr
                             .into_record::<AllRecordData<_, ParsedDname<_>>>()
                         {
@@ -304,7 +304,7 @@ where
             // current response.
             if let Ok(current_additional) = copied_response.additional() {
                 for rr in current_additional.flatten() {
-                    if rr.rtype() != Rtype::Opt {
+                    if rr.rtype() != Rtype::OPT {
                         if let Ok(Some(rr)) = rr
                             .into_record::<AllRecordData<_, ParsedDname<_>>>()
                         {

@@ -103,7 +103,7 @@ where
                     // More than one OPT RR received.
                     debug!("RFC 6891 6.1.1 violation: request contains more than one OPT RR.");
                     return ControlFlow::Break(
-                        self.error_response(request, OptRcode::FormErr),
+                        self.error_response(request, OptRcode::FORMERR),
                     );
                 }
 
@@ -118,7 +118,7 @@ where
                     if opt_rec.version() > EDNS_VERSION_ZERO {
                         debug!("RFC 6891 6.1.3 violation: request EDNS version {} > 0", opt_rec.version());
                         return ControlFlow::Break(
-                            self.error_response(request, OptRcode::BadVers),
+                            self.error_response(request, OptRcode::BADVERS),
                         );
                     }
 
@@ -139,7 +139,7 @@ where
                                 return ControlFlow::Break(
                                     self.error_response(
                                         request,
-                                        OptRcode::FormErr,
+                                        OptRcode::FORMERR,
                                     ),
                                 );
                             }
@@ -217,7 +217,7 @@ where
                                     return ControlFlow::Break(
                                         self.error_response(
                                             request,
-                                            OptRcode::FormErr,
+                                            OptRcode::FORMERR,
                                         ),
                                     );
                                 }
@@ -260,7 +260,7 @@ where
                 error!(
                     "Error while stripping OPT record from response: {err}"
                 );
-                *response = self.error_response(request, OptRcode::ServFail);
+                *response = self.error_response(request, OptRcode::SERVFAIL);
                 return;
             }
         }

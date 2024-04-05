@@ -60,10 +60,10 @@ where
     <Target as octseq::OctetsBuilder>::AppendError: fmt::Debug,
 {
     let mut answer =
-        builder.start_answer(msg.message(), Rcode::NoError).unwrap();
+        builder.start_answer(msg.message(), Rcode::NOERROR).unwrap();
     answer.push((
         Dname::root_ref(),
-        Class::In,
+        Class::IN,
         86400,
         A::from_octets(192, 0, 2, 1),
     ))?;
@@ -138,10 +138,10 @@ where
             if let Ok(a_rec) = a_rec {
                 let builder = mk_builder_for_target();
                 let mut answer = builder
-                    .start_answer(request.message(), Rcode::NoError)
+                    .start_answer(request.message(), Rcode::NOERROR)
                     .unwrap();
                 answer
-                    .push((Dname::root_ref(), Class::In, 86400, a_rec))
+                    .push((Dname::root_ref(), Class::IN, 86400, a_rec))
                     .unwrap();
                 out_answer = Some(answer);
             }
@@ -153,7 +153,7 @@ where
         eprintln!("Refusing request, only requests for A records in IPv4 dotted quad format are accepted by this service.");
         out_answer = Some(
             builder
-                .start_answer(request.message(), Rcode::Refused)
+                .start_answer(request.message(), Rcode::REFUSED)
                 .unwrap(),
         );
     }

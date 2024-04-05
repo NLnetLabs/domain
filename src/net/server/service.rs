@@ -83,10 +83,10 @@ use super::message::Request;
 ///     msg: &Request<Vec<u8>>,
 ///     builder: MessageBuilder<StreamTarget<Vec<u8>>>,
 /// ) -> Result<AdditionalBuilder<StreamTarget<Vec<u8>>>, ServiceError> {
-///     let mut answer = builder.start_answer(msg.message(), Rcode::NoError)?;
+///     let mut answer = builder.start_answer(msg.message(), Rcode::NOERROR)?;
 ///     answer.push((
 ///         Dname::root_ref(),
-///         Class::In,
+///         Class::IN,
 ///         86400,
 ///         A::from_octets(192, 0, 2, 1),
 ///     ))?;
@@ -165,10 +165,10 @@ use super::message::Request;
 ///                 let builder = mk_builder_for_target();
 ///                 let mut answer =
 ///                     builder
-///                         .start_answer(msg.message(), Rcode::NoError)
+///                         .start_answer(msg.message(), Rcode::NOERROR)
 ///                         .unwrap();
 ///                 answer
-///                     .push((Dname::root_ref(), Class::In, 86400, a_rec))
+///                     .push((Dname::root_ref(), Class::IN, 86400, a_rec))
 ///                     .unwrap();
 ///                 out_answer = Some(answer);
 ///             }
@@ -178,7 +178,7 @@ use super::message::Request;
 ///     if out_answer.is_none() {
 ///         let builder = mk_builder_for_target();
 ///         let answer = builder
-///             .start_answer(msg.message(), Rcode::Refused)
+///             .start_answer(msg.message(), Rcode::REFUSED)
 ///             .unwrap();
 ///         out_answer = Some(answer);
 ///     }
@@ -304,10 +304,10 @@ impl ServiceError {
     /// The DNS RCODE to send back to the client for this error.
     pub fn rcode(&self) -> Rcode {
         match self {
-            Self::FormatError => Rcode::FormErr,
-            Self::InternalError => Rcode::ServFail,
-            Self::NotImplemented => Rcode::NotImp,
-            Self::Refused => Rcode::Refused,
+            Self::FormatError => Rcode::FORMERR,
+            Self::InternalError => Rcode::SERVFAIL,
+            Self::NotImplemented => Rcode::NOTIMP,
+            Self::Refused => Rcode::REFUSED,
         }
     }
 }

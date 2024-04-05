@@ -292,13 +292,13 @@ fn test_service(
                 || {
                     // The Qname was not found in the zone:
                     mk_builder_for_target()
-                        .start_answer(request.message(), Rcode::NXDomain)
+                        .start_answer(request.message(), Rcode::NXDOMAIN)
                         .unwrap()
                 },
                 |(record, _)| {
                     // Respond with the found record:
                     let mut answer = mk_builder_for_target()
-                        .start_answer(request.message(), Rcode::NoError)
+                        .start_answer(request.message(), Rcode::NOERROR)
                         .unwrap();
                     // As we serve all answers from our own zones we are the
                     // authority for the domain in question.

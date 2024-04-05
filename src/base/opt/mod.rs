@@ -75,6 +75,11 @@ pub struct Opt<Octs: ?Sized> {
     octets: Octs,
 }
 
+impl Opt<()> {
+    /// The rtype of this record data type.
+    pub(crate) const RTYPE: Rtype = Rtype::OPT;
+}
+
 impl<Octs: EmptyBuilder> Opt<Octs> {
     /// Creates empty OPT record data.
     pub fn empty() -> Self {
@@ -283,7 +288,7 @@ impl<Octs: AsRef<[u8]> + ?Sized> hash::Hash for Opt<Octs> {
 
 impl<Octs: ?Sized> RecordData for Opt<Octs> {
     fn rtype(&self) -> Rtype {
-        Rtype::Opt
+        Rtype::OPT
     }
 }
 
@@ -295,7 +300,7 @@ where
         rtype: Rtype,
         parser: &mut Parser<'a, Octs>,
     ) -> Result<Option<Self>, ParseError> {
-        if rtype == Rtype::Opt {
+        if rtype == Rtype::OPT {
             Self::parse(parser).map(Some)
         } else {
             Ok(None)
@@ -511,7 +516,7 @@ impl<Octs> OptRecord<Octs> {
     {
         Record::new(
             Dname::root_slice(),
-            Class::Int(self.udp_payload_size),
+            Class::from_int(self.udp_payload_size),
             Ttl::from_secs(
                 u32::from(self.ext_rcode) << 24
                     | u32::from(self.version) << 16
@@ -1104,7 +1109,7 @@ pub(super) mod test {
     fn opt_record_header() {
         let mut header = OptHeader::default();
         header.set_udp_payload_size(0x1234);
-        header.set_rcode(OptRcode::BadVers);
+        header.set_rcode(OptRcode::BADVERS);
         header.set_version(0xbd);
         header.set_dnssec_ok(true);
         let mut buf = Vec::with_capacity(11);
@@ -1118,7 +1123,7 @@ pub(super) mod test {
             .unwrap();
         let record = OptRecord::from_record(record);
         assert_eq!(record.udp_payload_size(), 0x1234);
-        assert_eq!(record.ext_rcode, OptRcode::BadVers.ext());
+        assert_eq!(record.ext_rcode, OptRcode::BADVERS.ext());
         assert_eq!(record.version(), 0xbd);
         assert!(record.dnssec_ok());
     }

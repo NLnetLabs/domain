@@ -178,7 +178,7 @@ impl CookiesMiddlewareProcessor {
         //    Cookie it has generated, and it will add this COOKIE option to
         //    the response's OPT record.
 
-        self.response_with_cookie(request, OptRcode::BadCookie)
+        self.response_with_cookie(request, OptRcode::BADCOOKIE)
     }
 
     /// Create a DNS response to a client cookie prefetch request.
@@ -202,7 +202,7 @@ impl CookiesMiddlewareProcessor {
         //
         //   If such a query provided just a Client Cookie and no Server
         //   Cookie, the response SHALL have the RCODE NOERROR."
-        self.response_with_cookie(request, Rcode::NoError.into())
+        self.response_with_cookie(request, Rcode::NOERROR.into())
     }
 
     /// Check the cookie contained in the request to make sure that it is
@@ -282,7 +282,7 @@ where
                     );
                     let builder = mk_builder_for_target();
                     let mut additional = builder.additional();
-                    additional.header_mut().set_rcode(Rcode::Refused);
+                    additional.header_mut().set_rcode(Rcode::REFUSED);
                     additional.header_mut().set_tc(true);
                     return ControlFlow::Break(additional);
                 } else {
@@ -311,7 +311,7 @@ where
                 // unlike in the other cases where we respond early.
                 debug!("Received malformed DNS cookie: {err}");
                 let mut builder = mk_builder_for_target();
-                builder.header_mut().set_rcode(Rcode::FormErr);
+                builder.header_mut().set_rcode(Rcode::FORMERR);
                 return ControlFlow::Break(builder.additional());
             }
 

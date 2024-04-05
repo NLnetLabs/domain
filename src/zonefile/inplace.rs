@@ -96,7 +96,7 @@ impl Zonefile {
             origin: None,
             last_owner: None,
             last_ttl: Ttl::from_secs(3600),
-            last_class: Class::In,
+            last_class: Class::IN,
         }
     }
 

@@ -4,6 +4,10 @@
 
 Breaking changes
 
+* The types for IANA-registered parameters in `base::iana` have been
+  changed from enums to a newtypes around their underlying integer type
+  and associated constants for the registered values. (This was really
+  always the better way to structure this.) ([#276])
 * The `ToDname` and `ToRelativeDname` traits have been changed to have a
   pair of methods a la `try_to_dname` and `to_dname` for octets builders
   with limited and unlimited buffers, reflecting the pattern used
@@ -76,6 +80,7 @@ Other changes
 [#268]: https://github.com/NLnetLabs/domain/pull/268
 [#270]: https://github.com/NLnetLabs/domain/pull/270
 [#275]: https://github.com/NLnetLabs/domain/pull/275
+[#276]: https://github.com/NLnetLabs/domain/pull/276
 [#277]: https://github.com/NLnetLabs/domain/pull/277
 [#284]: https://github.com/NLnetLabs/domain/pull/284
 [#285]: https://github.com/NLnetLabs/domain/pull/285

@@ -32,6 +32,11 @@ pub struct KeyTag<Octs: ?Sized> {
     octets: Octs,
 }
 
+impl KeyTag<()> {
+    /// The option code for this option.
+    pub(super) const CODE: OptionCode = OptionCode::KEY_TAG;
+}
+    
 impl<Octs> KeyTag<Octs> {
     /// Creates a new value from its content in wire format.
     ///
@@ -195,7 +200,7 @@ where
 
 impl<Octs: ?Sized> OptData for KeyTag<Octs> {
     fn code(&self) -> OptionCode {
-        OptionCode::KeyTag
+        OptionCode::KEY_TAG
     }
 }
 
@@ -204,7 +209,7 @@ impl<'a, Octs: Octets> ParseOptData<'a, Octs> for KeyTag<Octs::Range<'a>> {
         code: OptionCode,
         parser: &mut Parser<'a, Octs>,
     ) -> Result<Option<Self>, ParseError> {
-        if code == OptionCode::KeyTag {
+        if code == OptionCode::KEY_TAG {
             Self::parse(parser).map(Some)
         }
         else {
