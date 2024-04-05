@@ -18,7 +18,7 @@ use core::str::FromStr;
 use core::{fmt, str};
 use domain::base::charstr::CharStr;
 use domain::base::iana::{Class, Rtype};
-use domain::base::name::{Chain, Dname, RelativeDname, ToDname};
+use domain::base::name::{Chain, Name, RelativeName, ToName};
 use domain::base::scan::{
     BadSymbol, ConvertSymbols, EntrySymbol, Scan, Scanner, ScannerError,
     Symbol, SymbolOctetsError,
@@ -30,7 +30,7 @@ use domain::dep::octseq::str::Str;
 //------------ Type Aliases --------------------------------------------------
 
 /// The type used for scanned domain names.
-pub type ScannedDname = Chain<RelativeDname<Bytes>, Dname<Bytes>>;
+pub type ScannedDname = Chain<RelativeName<Bytes>, Name<Bytes>>;
 
 /// The type used for scanned records.
 
@@ -59,7 +59,7 @@ pub struct Zonefile {
     buf: SourceBuf,
 
     /// The current origin.
-    origin: Option<Dname<Bytes>>,
+    origin: Option<Name<Bytes>>,
 
     /// The last owner.
     last_owner: Option<ScannedDname>,
@@ -88,7 +88,7 @@ impl Zonefile {
     fn with_buf(buf: SourceBuf) -> Self {
         Zonefile {
             buf,
-            origin: Some(Dname::root_bytes()),
+            origin: Some(Name::root_bytes()),
             last_owner: None,
             last_ttl: Some(Ttl::ZERO),
             last_class: None,
@@ -159,7 +159,7 @@ impl Zonefile {
     }
 
     /// Returns the origin name of the zonefile.
-    fn get_origin(&self) -> Result<Dname<Bytes>, EntryError> {
+    fn get_origin(&self) -> Result<Name<Bytes>, EntryError> {
         self.origin
             .as_ref()
             .cloned()
@@ -194,7 +194,7 @@ pub enum Entry {
         path: ScannedString,
 
         /// The initial origin name of the included file, if provided.
-        origin: Option<Dname<Bytes>>,
+        origin: Option<Name<Bytes>>,
     },
 }
 
@@ -211,7 +211,7 @@ enum ScannedEntry {
     Entry(Entry),
 
     /// An `$ORIGIN` directive changing the origin name.
-    Origin(Dname<Bytes>),
+    Origin(Name<Bytes>),
 
     /// A `$TTL` directive changing the default TTL if it isn’t given.
     Ttl(Ttl),
@@ -290,7 +290,7 @@ impl<'a> EntryScanner<'a> {
 
     /// Scans a regular record with an owner name of `@`.
     fn scan_at_record(&mut self) -> Result<ScannedEntry, EntryError> {
-        let owner = RelativeDname::empty_bytes()
+        let owner = RelativeName::empty_bytes()
             .chain(match self.zonefile.origin.as_ref().cloned() {
                 Some(origin) => origin,
                 None => return Err(EntryError::missing_origin()),
@@ -372,13 +372,13 @@ impl<'a> EntryScanner<'a> {
     fn scan_control(&mut self) -> Result<ScannedEntry, EntryError> {
         let ctrl = self.scan_string()?;
         if ctrl.eq_ignore_ascii_case("$ORIGIN") {
-            let origin = self.scan_dname()?.to_dname();
+            let origin = self.scan_name()?.to_name();
             self.zonefile.buf.require_line_feed()?;
             Ok(ScannedEntry::Origin(origin))
         } else if ctrl.eq_ignore_ascii_case("$INCLUDE") {
             let path = self.scan_string()?;
             let origin = if !self.zonefile.buf.is_line_feed() {
-                Some(self.scan_dname()?.to_dname())
+                Some(self.scan_name()?.to_name())
             } else {
                 None
             };
@@ -397,7 +397,7 @@ impl<'a> EntryScanner<'a> {
 impl<'a> Scanner for EntryScanner<'a> {
     type Octets = Bytes;
     type OctetsBuilder = BytesMut;
-    type Dname = ScannedDname;
+    type Name = ScannedDname;
     type Error = EntryError;
 
     fn has_space(&self) -> bool {
@@ -529,7 +529,7 @@ impl<'a> Scanner for EntryScanner<'a> {
         Ok(res)
     }
 
-    fn scan_dname(&mut self) -> Result<Self::Dname, Self::Error> {
+    fn scan_name(&mut self) -> Result<Self::Name, Self::Error> {
         // Because the labels in a domain name have their content preceeded
         // by the length octet, an unescaped domain name can be almost as is
         // if we have one extra octet to the left. Luckily, we always do
@@ -555,15 +555,15 @@ impl<'a> Scanner for EntryScanner<'a> {
                     // have an empty domain name which is just the origin.
                     self.zonefile.buf.next_item()?;
                     if start == 0 {
-                        return RelativeDname::empty_bytes()
+                        return RelativeName::empty_bytes()
                             .chain(self.zonefile.get_origin()?)
                             .map_err(|_| EntryError::bad_dname());
                     } else {
                         return unsafe {
-                            RelativeDname::from_octets_unchecked(
+                            RelativeName::from_octets_unchecked(
                                 self.zonefile.buf.split_to(write).freeze(),
                             )
-                            .chain(Dname::root())
+                            .chain(Name::root())
                             .map_err(|_| EntryError::bad_dname())
                         };
                     }
@@ -579,7 +579,7 @@ impl<'a> Scanner for EntryScanner<'a> {
                     // dname.
                     self.zonefile.buf.next_item()?;
                     return unsafe {
-                        RelativeDname::from_octets_unchecked(
+                        RelativeName::from_octets_unchecked(
                             self.zonefile.buf.split_to(write).freeze(),
                         )
                         .chain(self.zonefile.get_origin()?)
@@ -1467,9 +1467,9 @@ mod test {
     #[derive(serde::Deserialize)]
     #[allow(clippy::type_complexity)]
     struct TestCase {
-        origin: Dname<Bytes>,
+        origin: Name<Bytes>,
         zonefile: std::string::String,
-        result: Vec<Record<Dname<Bytes>, ZoneRecordData<Bytes, Dname<Bytes>>>>,
+        result: Vec<Record<Name<Bytes>, ZoneRecordData<Bytes, Name<Bytes>>>>,
     }
 
     impl TestCase {

@@ -6,7 +6,7 @@
 
 use crate::base::cmp::CanonicalOrd;
 use crate::base::iana::{DigestAlg, SecAlg};
-use crate::base::name::ToDname;
+use crate::base::name::ToName;
 use crate::base::rdata::{ComposeRecordData, RecordData};
 use crate::base::record::Record;
 use crate::base::wire::{Compose, Composer};
@@ -38,9 +38,9 @@ pub trait DnskeyExt {
     /// ```
     ///
     /// [RFC 4034, Section 5.1.4]: https://tools.ietf.org/html/rfc4034#section-5.1.4
-    fn digest<N: ToDname>(
+    fn digest<N: ToName>(
         &self,
-        dname: &N,
+        name: &N,
         algorithm: DigestAlg,
     ) -> Result<digest::Digest, AlgorithmError>;
 }
@@ -67,14 +67,14 @@ where
     /// ```
     ///
     /// [RFC 4034, Section 5.1.4]: https://tools.ietf.org/html/rfc4034#section-5.1.4
-    fn digest<N: ToDname>(
+    fn digest<N: ToName>(
         &self,
-        dname: &N,
+        name: &N,
         algorithm: DigestAlg,
     ) -> Result<digest::Digest, AlgorithmError> {
         let mut buf: Vec<u8> = Vec::new();
         with_infallible(|| {
-            dname.compose_canonical(&mut buf)?;
+            name.compose_canonical(&mut buf)?;
             self.compose_canonical_rdata(&mut buf)
         });
 
@@ -109,13 +109,13 @@ pub trait RrsigExt {
     ///    the received RRset due to DNS name compression, decremented TTLs, or
     ///    wildcard expansion.
     /// ```
-    fn signed_data<N: ToDname, D: RecordData, B: Composer>(
+    fn signed_data<N: ToName, D, B: Composer>(
         &self,
         buf: &mut B,
         records: &mut [impl AsRef<Record<N, D>>],
     ) -> Result<(), B::AppendError>
     where
-        D: CanonicalOrd + ComposeRecordData + Sized;
+        D: RecordData + CanonicalOrd + ComposeRecordData + Sized;
 
     /// Attempt to use the cryptographic signature to authenticate the signed data, and thus authenticate the RRSET.
     /// The signed data is expected to be calculated as per [RFC4035, Section 5.3.2](https://tools.ietf.org/html/rfc4035#section-5.3.2).
@@ -145,14 +145,14 @@ pub trait RrsigExt {
     ) -> Result<(), AlgorithmError>;
 }
 
-impl<Octets: AsRef<[u8]>, Name: ToDname> RrsigExt for Rrsig<Octets, Name> {
-    fn signed_data<N: ToDname, D: RecordData, B: Composer>(
+impl<Octets: AsRef<[u8]>, Name: ToName> RrsigExt for Rrsig<Octets, Name> {
+    fn signed_data<N: ToName, D, B: Composer>(
         &self,
         buf: &mut B,
         records: &mut [impl AsRef<Record<N, D>>],
     ) -> Result<(), B::AppendError>
     where
-        D: CanonicalOrd + ComposeRecordData + Sized,
+        D: RecordData + CanonicalOrd + ComposeRecordData + Sized,
     {
         // signed_data = RRSIG_RDATA | RR(1) | RR(2)...  where
         //    "|" denotes concatenation
@@ -356,10 +356,10 @@ mod test {
     use bytes::Bytes;
     use std::str::FromStr;
 
-    type Dname = crate::base::name::Dname<Vec<u8>>;
+    type Name = crate::base::name::Name<Vec<u8>>;
     type Ds = crate::rdata::Ds<Vec<u8>>;
     type Dnskey = crate::rdata::Dnskey<Vec<u8>>;
-    type Rrsig = crate::rdata::Rrsig<Vec<u8>, Dname>;
+    type Rrsig = crate::rdata::Rrsig<Vec<u8>, Name>;
 
     // Returns current root KSK/ZSK for testing (2048b)
     fn root_pubkey() -> (Dnskey, Dnskey) {
@@ -408,7 +408,7 @@ mod test {
     #[test]
     fn dnskey_digest() {
         let (dnskey, _) = root_pubkey();
-        let owner = Dname::root();
+        let owner = Name::root();
         let expected = Ds::new(
             20326,
             SecAlg::RSASHA256,
@@ -428,7 +428,7 @@ mod test {
     #[test]
     fn dnskey_digest_unsupported() {
         let (dnskey, _) = root_pubkey();
-        let owner = Dname::root();
+        let owner = Name::root();
         assert!(dnskey.digest(&owner, DigestAlg::GOST).is_err());
     }
 
@@ -472,7 +472,7 @@ mod test {
             1560211200.into(),
             1558396800.into(),
             20326,
-            Dname::root(),
+            Name::root(),
             base64::decode::<Vec<u8>>(
                 "otBkINZAQu7AvPKjr/xWIEE7+SoZtKgF8bzVynX6bfJMJuPay8jPvNmwXkZOdSoYlvFp0bk9JWJKCh8y5uoNfMFkN6OSrDkr3t0E+c8c0Mnmwkk5CETH3Gqxthi0yyRX5T4VlHU06/Ks4zI+XAgl3FBpOc554ivdzez8YCjAIGx7XgzzooEb7heMSlLc7S7/HNjw51TPRs4RxrAVcezieKCzPPpeWBhjE6R3oiSwrl0SBD4/yplrDlr7UHs/Atcm3MSgemdyr2sOoOUkVQCVpcj3SQQezoD2tCM7861CXEQdg5fjeHDtz285xHt5HJpA5cOcctRo4ihybfow/+V7AQ==",
             )
@@ -490,7 +490,7 @@ mod test {
             Serial::rrsig_from_str("20210921162830").unwrap(),
             Serial::rrsig_from_str("20210906162330").unwrap(),
             35886,
-            "net.".parse::<Dname>().unwrap(),
+            "net.".parse::<Name>().unwrap(),
             base64::decode::<Vec<u8>>(
                 "j1s1IPMoZd0mbmelNVvcbYNe2tFCdLsLpNCnQ8xW6d91ujwPZ2yDlc3lU3hb+Jq3sPoj+5lVgB7fZzXQUQTPFWLF7zvW49da8pWuqzxFtg6EjXRBIWH5rpEhOcr+y3QolJcPOTx+/utCqt2tBKUUy3LfM6WgvopdSGaryWdwFJPW7qKHjyyLYxIGx5AEuLfzsA5XZf8CmpUheSRH99GRZoIB+sQzHuelWGMQ5A42DPvOVZFmTpIwiT2QaIpid4nJ7jNfahfwFrCoS+hvqjK9vktc5/6E/Mt7DwCQDaPt5cqDfYltUitQy+YA5YP5sOhINChYadZe+2N80OA+RKz0mA==",
             )
@@ -538,7 +538,7 @@ mod test {
             .unwrap(),
         );
 
-        let owner = Dname::from_str("cloudflare.com.").unwrap();
+        let owner = Name::from_str("cloudflare.com.").unwrap();
         let rrsig = Rrsig::new(
             Rtype::DNSKEY,
             SecAlg::ECDSAP256SHA256,
@@ -584,7 +584,7 @@ mod test {
         );
 
         let owner =
-            Dname::from_octets(Vec::from(b"\x07ED25519\x02nl\x00".as_ref()))
+            Name::from_octets(Vec::from(b"\x07ED25519\x02nl\x00".as_ref()))
                 .unwrap();
         let rrsig = Rrsig::new(
             Rtype::DNSKEY,
@@ -616,7 +616,7 @@ mod test {
             1560211200.into(),
             1558396800.into(),
             20326,
-            Dname::root(),
+            Name::root(),
             base64::decode::<Vec<u8>>(
                 "otBkINZAQu7AvPKjr/xWIEE7+SoZtKgF8bzVynX6bfJMJuPay8jPvNmwXkZ\
                 OdSoYlvFp0bk9JWJKCh8y5uoNfMFkN6OSrDkr3t0E+c8c0Mnmwkk5CETH3Gq\
@@ -629,7 +629,7 @@ mod test {
         )
         .unwrap();
 
-        let mut records: Vec<Record<Dname, ZoneRecordData<Vec<u8>, Dname>>> =
+        let mut records: Vec<Record<Name, ZoneRecordData<Vec<u8>, Name>>> =
             [&ksk, &zsk]
                 .iter()
                 .cloned()
@@ -676,7 +676,7 @@ mod test {
             Serial::rrsig_from_str("20040509183619").unwrap(),
             Serial::rrsig_from_str("20040409183619").unwrap(),
             38519,
-            Dname::from_str("example.").unwrap(),
+            Name::from_str("example.").unwrap(),
             base64::decode::<Vec<u8>>(
                 "OMK8rAZlepfzLWW75Dxd63jy2wswESzxDKG2f9AMN1CytCd10cYI\
                  SAxfAdvXSZ7xujKAtPbctvOQ2ofO7AZJ+d01EeeQTVBPq4/6KCWhq\
@@ -687,10 +687,10 @@ mod test {
         )
         .unwrap();
         let record = Record::new(
-            Dname::from_str("a.z.w.example.").unwrap(),
+            Name::from_str("a.z.w.example.").unwrap(),
             Class::IN,
             Ttl::from_secs(3600),
-            Mx::new(1, Dname::from_str("ai.example.").unwrap()),
+            Mx::new(1, Name::from_str("ai.example.").unwrap()),
         );
         let signed_data = {
             let mut buf = Vec::new();

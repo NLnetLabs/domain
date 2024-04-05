@@ -4,7 +4,7 @@ use domain::base::iana::Opcode;
 use domain::base::iana::OptRcode;
 use domain::base::iana::Rtype;
 use domain::base::Message;
-use domain::base::ParsedDname;
+use domain::base::ParsedName;
 use domain::base::QuestionSection;
 use domain::base::RecordSection;
 use domain::dep::octseq::Octets;
@@ -359,7 +359,7 @@ fn match_section<
             }
             let msg_rdata = msg_rr
                 .clone()
-                .into_record::<ZoneRecordData<Octs2, ParsedDname<Octs2>>>()
+                .into_record::<ZoneRecordData<Octs2, ParsedName<Octs2>>>()
                 .unwrap()
                 .unwrap();
             println!(

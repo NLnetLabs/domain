@@ -4,11 +4,11 @@
 
 use super::super::scan::Scanner;
 use super::super::wire::ParseError;
-use super::builder::{DnameBuilder, FromStrError, PushError};
+use super::absolute::Name;
+use super::builder::{FromStrError, NameBuilder, PushError};
 use super::chain::{Chain, LongChainError};
-use super::dname::Dname;
 use super::label::{Label, LabelTypeError, SplitLabelError};
-use super::relative::{DnameIter, RelativeDname};
+use super::relative::{NameIter, RelativeName};
 use super::traits::ToLabelIter;
 #[cfg(feature = "bytes")]
 use bytes::Bytes;
@@ -21,27 +21,27 @@ use octseq::serde::{DeserializeOctets, SerializeOctets};
 #[cfg(feature = "std")]
 use std::vec::Vec;
 
-//------------ UncertainDname ------------------------------------------------
+//------------ UncertainName ------------------------------------------------
 
 /// A domain name that may be absolute or relative.
 ///
 /// This type is helpful when reading a domain name from some source where it
 /// may end up being absolute or not.
 #[derive(Clone)]
-pub enum UncertainDname<Octets> {
-    Absolute(Dname<Octets>),
-    Relative(RelativeDname<Octets>),
+pub enum UncertainName<Octets> {
+    Absolute(Name<Octets>),
+    Relative(RelativeName<Octets>),
 }
 
-impl<Octets> UncertainDname<Octets> {
+impl<Octets> UncertainName<Octets> {
     /// Creates a new uncertain domain name from an absolute domain name.
-    pub fn absolute(name: Dname<Octets>) -> Self {
-        UncertainDname::Absolute(name)
+    pub fn absolute(name: Name<Octets>) -> Self {
+        UncertainName::Absolute(name)
     }
 
     /// Creates a new uncertain domain name from a relative domain name.
-    pub fn relative(name: RelativeDname<Octets>) -> Self {
-        UncertainDname::Relative(name)
+    pub fn relative(name: RelativeName<Octets>) -> Self {
+        UncertainName::Relative(name)
     }
 
     /// Creates a new uncertain domain name containing the root label only.
@@ -50,7 +50,7 @@ impl<Octets> UncertainDname<Octets> {
     where
         Octets: From<&'static [u8]>,
     {
-        UncertainDname::Absolute(Dname::root())
+        UncertainName::Absolute(Name::root())
     }
 
     /// Creates a new uncertain yet empty domain name.
@@ -59,7 +59,7 @@ impl<Octets> UncertainDname<Octets> {
     where
         Octets: From<&'static [u8]>,
     {
-        UncertainDname::Relative(RelativeDname::empty())
+        UncertainName::Relative(RelativeName::empty())
     }
 
     /// Creates a new domain name from its wire format representation.
@@ -71,12 +71,12 @@ impl<Octets> UncertainDname<Octets> {
         Octets: AsRef<[u8]>,
     {
         if Self::is_slice_absolute(octets.as_ref())? {
-            Ok(UncertainDname::Absolute(unsafe {
-                Dname::from_octets_unchecked(octets)
+            Ok(UncertainName::Absolute(unsafe {
+                Name::from_octets_unchecked(octets)
             }))
         } else {
-            Ok(UncertainDname::Relative(unsafe {
-                RelativeDname::from_octets_unchecked(octets)
+            Ok(UncertainName::Relative(unsafe {
+                RelativeName::from_octets_unchecked(octets)
             }))
         }
     }
@@ -85,7 +85,7 @@ impl<Octets> UncertainDname<Octets> {
     fn is_slice_absolute(
         mut slice: &[u8],
     ) -> Result<bool, UncertainDnameError> {
-        if slice.len() > Dname::MAX_LEN {
+        if slice.len() > Name::MAX_LEN {
             return Err(UncertainDnameErrorEnum::LongName.into());
         }
         loop {
@@ -131,23 +131,23 @@ impl<Octets> UncertainDname<Octets> {
         C: IntoIterator<Item = char>,
     {
         let mut builder =
-            DnameBuilder::<<Octets as FromBuilder>::Builder>::new();
+            NameBuilder::<<Octets as FromBuilder>::Builder>::new();
         builder.append_chars(chars)?;
         if builder.in_label() || builder.is_empty() {
             Ok(builder.finish().into())
         } else {
-            Ok(builder.into_dname()?.into())
+            Ok(builder.into_name()?.into())
         }
     }
 
-    pub fn scan<S: Scanner<Dname = Dname<Octets>>>(
+    pub fn scan<S: Scanner<Name = Name<Octets>>>(
         scanner: &mut S,
     ) -> Result<Self, S::Error> {
-        scanner.scan_dname().map(UncertainDname::Absolute)
+        scanner.scan_name().map(UncertainName::Absolute)
     }
 }
 
-impl UncertainDname<&'static [u8]> {
+impl UncertainName<&'static [u8]> {
     /// Creates an empty relative name atop a slice reference.
     #[must_use]
     pub fn empty_ref() -> Self {
@@ -162,7 +162,7 @@ impl UncertainDname<&'static [u8]> {
 }
 
 #[cfg(feature = "std")]
-impl UncertainDname<Vec<u8>> {
+impl UncertainName<Vec<u8>> {
     /// Creates an empty relative name atop a `Vec<u8>`.
     #[must_use]
     pub fn empty_vec() -> Self {
@@ -177,7 +177,7 @@ impl UncertainDname<Vec<u8>> {
 }
 
 #[cfg(feature = "bytes")]
-impl UncertainDname<Bytes> {
+impl UncertainName<Bytes> {
     /// Creates an empty relative name atop a bytes value.
     pub fn empty_bytes() -> Self {
         Self::empty()
@@ -189,12 +189,12 @@ impl UncertainDname<Bytes> {
     }
 }
 
-impl<Octets> UncertainDname<Octets> {
+impl<Octets> UncertainName<Octets> {
     /// Returns whether the name is absolute.
     pub fn is_absolute(&self) -> bool {
         match *self {
-            UncertainDname::Absolute(_) => true,
-            UncertainDname::Relative(_) => false,
+            UncertainName::Absolute(_) => true,
+            UncertainName::Relative(_) => false,
         }
     }
 
@@ -204,17 +204,17 @@ impl<Octets> UncertainDname<Octets> {
     }
 
     /// Returns a reference to an absolute name, if this name is absolute.
-    pub fn as_absolute(&self) -> Option<&Dname<Octets>> {
+    pub fn as_absolute(&self) -> Option<&Name<Octets>> {
         match *self {
-            UncertainDname::Absolute(ref name) => Some(name),
+            UncertainName::Absolute(ref name) => Some(name),
             _ => None,
         }
     }
 
     /// Returns a reference to a relative name, if the name is relative.
-    pub fn as_relative(&self) -> Option<&RelativeDname<Octets>> {
+    pub fn as_relative(&self) -> Option<&RelativeName<Octets>> {
         match *self {
-            UncertainDname::Relative(ref name) => Some(name),
+            UncertainName::Relative(ref name) => Some(name),
             _ => None,
         }
     }
@@ -222,27 +222,27 @@ impl<Octets> UncertainDname<Octets> {
     /// Converts the name into an absolute name.
     ///
     /// If the name is relative, appends the root label to it using
-    /// [`RelativeDname::into_absolute`].
+    /// [`RelativeName::into_absolute`].
     ///
-    /// [`RelativeDname::into_absolute`]:
-    ///     struct.RelativeDname.html#method.into_absolute
-    pub fn into_absolute(self) -> Result<Dname<Octets>, PushError>
+    /// [`RelativeName::into_absolute`]:
+    ///     struct.RelativeName.html#method.into_absolute
+    pub fn into_absolute(self) -> Result<Name<Octets>, PushError>
     where
         Octets: AsRef<[u8]> + IntoBuilder,
         <Octets as IntoBuilder>::Builder:
             FreezeBuilder<Octets = Octets> + AsRef<[u8]> + AsMut<[u8]>,
     {
         match self {
-            UncertainDname::Absolute(name) => Ok(name),
-            UncertainDname::Relative(name) => name.into_absolute(),
+            UncertainName::Absolute(name) => Ok(name),
+            UncertainName::Relative(name) => name.into_absolute(),
         }
     }
 
     /// Converts the name into an absolute name if it is absolute.
     ///
     /// Otherwise, returns itself as the error.
-    pub fn try_into_absolute(self) -> Result<Dname<Octets>, Self> {
-        if let UncertainDname::Absolute(name) = self {
+    pub fn try_into_absolute(self) -> Result<Name<Octets>, Self> {
+        if let UncertainName::Absolute(name) = self {
             Ok(name)
         } else {
             Err(self)
@@ -252,8 +252,8 @@ impl<Octets> UncertainDname<Octets> {
     /// Converts the name into a relative name if it is relative.
     ///
     /// Otherwise just returns itself as the error.
-    pub fn try_into_relative(self) -> Result<RelativeDname<Octets>, Self> {
-        if let UncertainDname::Relative(name) = self {
+    pub fn try_into_relative(self) -> Result<RelativeName<Octets>, Self> {
+        if let UncertainName::Relative(name) = self {
             Ok(name)
         } else {
             Err(self)
@@ -263,8 +263,8 @@ impl<Octets> UncertainDname<Octets> {
     /// Returns a reference to the underlying octets sequence.
     pub fn as_octets(&self) -> &Octets {
         match *self {
-            UncertainDname::Absolute(ref name) => name.as_octets(),
-            UncertainDname::Relative(ref name) => name.as_octets(),
+            UncertainName::Absolute(ref name) => name.as_octets(),
+            UncertainName::Relative(ref name) => name.as_octets(),
         }
     }
 
@@ -274,8 +274,8 @@ impl<Octets> UncertainDname<Octets> {
         Octets: AsRef<[u8]>,
     {
         match *self {
-            UncertainDname::Absolute(ref name) => name.as_slice(),
-            UncertainDname::Relative(ref name) => name.as_slice(),
+            UncertainName::Absolute(ref name) => name.as_slice(),
+            UncertainName::Relative(ref name) => name.as_slice(),
         }
     }
 
@@ -298,21 +298,21 @@ impl<Octets> UncertainDname<Octets> {
 
 //--- From
 
-impl<Octets> From<Dname<Octets>> for UncertainDname<Octets> {
-    fn from(src: Dname<Octets>) -> Self {
-        UncertainDname::Absolute(src)
+impl<Octets> From<Name<Octets>> for UncertainName<Octets> {
+    fn from(src: Name<Octets>) -> Self {
+        UncertainName::Absolute(src)
     }
 }
 
-impl<Octets> From<RelativeDname<Octets>> for UncertainDname<Octets> {
-    fn from(src: RelativeDname<Octets>) -> Self {
-        UncertainDname::Relative(src)
+impl<Octets> From<RelativeName<Octets>> for UncertainName<Octets> {
+    fn from(src: RelativeName<Octets>) -> Self {
+        UncertainName::Relative(src)
     }
 }
 
 //--- FromStr
 
-impl<Octets> str::FromStr for UncertainDname<Octets>
+impl<Octets> str::FromStr for UncertainName<Octets>
 where
     Octets: FromBuilder,
     <Octets as FromBuilder>::Builder: EmptyBuilder
@@ -329,34 +329,33 @@ where
 
 //--- AsRef
 
-impl<Octs> AsRef<Octs> for UncertainDname<Octs> {
+impl<Octs> AsRef<Octs> for UncertainName<Octs> {
     fn as_ref(&self) -> &Octs {
         match *self {
-            UncertainDname::Absolute(ref name) => name.as_ref(),
-            UncertainDname::Relative(ref name) => name.as_ref(),
+            UncertainName::Absolute(ref name) => name.as_ref(),
+            UncertainName::Relative(ref name) => name.as_ref(),
         }
     }
 }
 
-impl<Octs: AsRef<[u8]>> AsRef<[u8]> for UncertainDname<Octs> {
+impl<Octs: AsRef<[u8]>> AsRef<[u8]> for UncertainName<Octs> {
     fn as_ref(&self) -> &[u8] {
         match *self {
-            UncertainDname::Absolute(ref name) => name.as_ref(),
-            UncertainDname::Relative(ref name) => name.as_ref(),
+            UncertainName::Absolute(ref name) => name.as_ref(),
+            UncertainName::Relative(ref name) => name.as_ref(),
         }
     }
 }
 
 //--- PartialEq, and Eq
 
-impl<Octets, Other> PartialEq<UncertainDname<Other>>
-    for UncertainDname<Octets>
+impl<Octets, Other> PartialEq<UncertainName<Other>> for UncertainName<Octets>
 where
     Octets: AsRef<[u8]>,
     Other: AsRef<[u8]>,
 {
-    fn eq(&self, other: &UncertainDname<Other>) -> bool {
-        use UncertainDname::*;
+    fn eq(&self, other: &UncertainName<Other>) -> bool {
+        use UncertainName::*;
 
         match (self, other) {
             (Absolute(l), Absolute(r)) => l.eq(r),
@@ -366,11 +365,11 @@ where
     }
 }
 
-impl<Octets: AsRef<[u8]>> Eq for UncertainDname<Octets> {}
+impl<Octets: AsRef<[u8]>> Eq for UncertainName<Octets> {}
 
 //--- Hash
 
-impl<Octets: AsRef<[u8]>> hash::Hash for UncertainDname<Octets> {
+impl<Octets: AsRef<[u8]>> hash::Hash for UncertainName<Octets> {
     fn hash<H: hash::Hasher>(&self, state: &mut H) {
         for item in self.iter_labels() {
             item.hash(state)
@@ -380,29 +379,29 @@ impl<Octets: AsRef<[u8]>> hash::Hash for UncertainDname<Octets> {
 
 //--- ToLabelIter
 
-impl<Octs: AsRef<[u8]>> ToLabelIter for UncertainDname<Octs> {
-    type LabelIter<'a> = DnameIter<'a> where Octs: 'a;
+impl<Octs: AsRef<[u8]>> ToLabelIter for UncertainName<Octs> {
+    type LabelIter<'a> = NameIter<'a> where Octs: 'a;
 
     fn iter_labels(&self) -> Self::LabelIter<'_> {
         match *self {
-            UncertainDname::Absolute(ref name) => name.iter_labels(),
-            UncertainDname::Relative(ref name) => name.iter_labels(),
+            UncertainName::Absolute(ref name) => name.iter_labels(),
+            UncertainName::Relative(ref name) => name.iter_labels(),
         }
     }
 
     fn compose_len(&self) -> u16 {
         match *self {
-            UncertainDname::Absolute(ref name) => name.compose_len(),
-            UncertainDname::Relative(ref name) => name.compose_len(),
+            UncertainName::Absolute(ref name) => name.compose_len(),
+            UncertainName::Relative(ref name) => name.compose_len(),
         }
     }
 }
 
 //--- IntoIterator
 
-impl<'a, Octets: AsRef<[u8]>> IntoIterator for &'a UncertainDname<Octets> {
+impl<'a, Octets: AsRef<[u8]>> IntoIterator for &'a UncertainName<Octets> {
     type Item = &'a Label;
-    type IntoIter = DnameIter<'a>;
+    type IntoIter = NameIter<'a>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.iter_labels()
@@ -411,25 +410,25 @@ impl<'a, Octets: AsRef<[u8]>> IntoIterator for &'a UncertainDname<Octets> {
 
 //--- Display and Debug
 
-impl<Octets: AsRef<[u8]>> fmt::Display for UncertainDname<Octets> {
+impl<Octets: AsRef<[u8]>> fmt::Display for UncertainName<Octets> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
-            UncertainDname::Absolute(ref name) => {
+            UncertainName::Absolute(ref name) => {
                 write!(f, "{}.", name)
             }
-            UncertainDname::Relative(ref name) => name.fmt(f),
+            UncertainName::Relative(ref name) => name.fmt(f),
         }
     }
 }
 
-impl<Octets: AsRef<[u8]>> fmt::Debug for UncertainDname<Octets> {
+impl<Octets: AsRef<[u8]>> fmt::Debug for UncertainName<Octets> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
-            UncertainDname::Absolute(ref name) => {
-                write!(f, "UncertainDname::Absolute({})", name)
+            UncertainName::Absolute(ref name) => {
+                write!(f, "UncertainName::Absolute({})", name)
             }
-            UncertainDname::Relative(ref name) => {
-                write!(f, "UncertainDname::Relative({})", name)
+            UncertainName::Relative(ref name) => {
+                write!(f, "UncertainName::Relative({})", name)
             }
         }
     }
@@ -438,7 +437,7 @@ impl<Octets: AsRef<[u8]>> fmt::Debug for UncertainDname<Octets> {
 //--- Serialize and Deserialize
 
 #[cfg(feature = "serde")]
-impl<Octets> serde::Serialize for UncertainDname<Octets>
+impl<Octets> serde::Serialize for UncertainName<Octets>
 where
     Octets: AsRef<[u8]> + SerializeOctets,
 {
@@ -448,12 +447,12 @@ where
     ) -> Result<S::Ok, S::Error> {
         if serializer.is_human_readable() {
             serializer.serialize_newtype_struct(
-                "UncertainDname",
+                "UncertainName",
                 &format_args!("{}", self),
             )
         } else {
             serializer.serialize_newtype_struct(
-                "UncertainDname",
+                "UncertainName",
                 &self.as_octets().as_serialized_octets(),
             )
         }
@@ -461,7 +460,7 @@ where
 }
 
 #[cfg(feature = "serde")]
-impl<'de, Octets> serde::Deserialize<'de> for UncertainDname<Octets>
+impl<'de, Octets> serde::Deserialize<'de> for UncertainName<Octets>
 where
     Octets: FromBuilder + DeserializeOctets<'de>,
     <Octets as FromBuilder>::Builder: EmptyBuilder
@@ -484,7 +483,7 @@ where
                 + AsRef<[u8]>
                 + AsMut<[u8]>,
         {
-            type Value = UncertainDname<Octets>;
+            type Value = UncertainName<Octets>;
 
             fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
                 f.write_str("a domain name")
@@ -496,7 +495,7 @@ where
             ) -> Result<Self::Value, E> {
                 use core::str::FromStr;
 
-                UncertainDname::from_str(v).map_err(E::custom)
+                UncertainName::from_str(v).map_err(E::custom)
             }
 
             fn visit_borrowed_bytes<E: serde::de::Error>(
@@ -504,7 +503,7 @@ where
                 value: &'de [u8],
             ) -> Result<Self::Value, E> {
                 self.0.visit_borrowed_bytes(value).and_then(|octets| {
-                    UncertainDname::from_octets(octets).map_err(E::custom)
+                    UncertainName::from_octets(octets).map_err(E::custom)
                 })
             }
 
@@ -514,7 +513,7 @@ where
                 value: std::vec::Vec<u8>,
             ) -> Result<Self::Value, E> {
                 self.0.visit_byte_buf(value).and_then(|octets| {
-                    UncertainDname::from_octets(octets).map_err(E::custom)
+                    UncertainName::from_octets(octets).map_err(E::custom)
                 })
             }
         }
@@ -529,7 +528,7 @@ where
                 + AsRef<[u8]>
                 + AsMut<[u8]>,
         {
-            type Value = UncertainDname<Octets>;
+            type Value = UncertainName<Octets>;
 
             fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
                 f.write_str("a domain name")
@@ -552,7 +551,7 @@ where
         }
 
         deserializer.deserialize_newtype_struct(
-            "UncertainDname",
+            "UncertainName",
             NewtypeVisitor(PhantomData),
         )
     }
@@ -650,7 +649,7 @@ mod test {
 
     #[test]
     fn from_str() {
-        type U = UncertainDname<Vec<u8>>;
+        type U = UncertainName<Vec<u8>>;
 
         fn name(s: &str) -> U {
             U::from_str(s).unwrap()
@@ -730,14 +729,14 @@ mod test {
         use serde_test::{assert_tokens, Configure, Token};
 
         let abs_name =
-            UncertainDname::<Vec<u8>>::from_str("www.example.com.").unwrap();
+            UncertainName::<Vec<u8>>::from_str("www.example.com.").unwrap();
         assert!(abs_name.is_absolute());
 
         assert_tokens(
             &abs_name.clone().compact(),
             &[
                 Token::NewtypeStruct {
-                    name: "UncertainDname",
+                    name: "UncertainName",
                 },
                 Token::ByteBuf(b"\x03www\x07example\x03com\0"),
             ],
@@ -746,21 +745,21 @@ mod test {
             &abs_name.readable(),
             &[
                 Token::NewtypeStruct {
-                    name: "UncertainDname",
+                    name: "UncertainName",
                 },
                 Token::Str("www.example.com."),
             ],
         );
 
         let rel_name =
-            UncertainDname::<Vec<u8>>::from_str("www.example.com").unwrap();
+            UncertainName::<Vec<u8>>::from_str("www.example.com").unwrap();
         assert!(rel_name.is_relative());
 
         assert_tokens(
             &rel_name.clone().compact(),
             &[
                 Token::NewtypeStruct {
-                    name: "UncertainDname",
+                    name: "UncertainName",
                 },
                 Token::ByteBuf(b"\x03www\x07example\x03com"),
             ],
@@ -769,7 +768,7 @@ mod test {
             &rel_name.readable(),
             &[
                 Token::NewtypeStruct {
-                    name: "UncertainDname",
+                    name: "UncertainName",
                 },
                 Token::Str("www.example.com"),
             ],

@@ -15,7 +15,7 @@ use self::conf::{
 use crate::base::iana::Rcode;
 use crate::base::message::Message;
 use crate::base::message_builder::{AdditionalBuilder, MessageBuilder};
-use crate::base::name::{ToDname, ToRelativeDname};
+use crate::base::name::{ToName, ToRelativeName};
 use crate::base::question::Question;
 use crate::net::client::dgram_stream;
 use crate::net::client::multi_stream;
@@ -103,7 +103,7 @@ impl StubResolver {
         &self.options
     }
 
-    pub async fn query<N: ToDname, Q: Into<Question<N>>>(
+    pub async fn query<N: ToName, Q: Into<Question<N>>>(
         &self,
         question: Q,
     ) -> Result<Answer, io::Error> {
@@ -232,14 +232,14 @@ impl StubResolver {
 
     pub async fn lookup_host(
         &self,
-        qname: impl ToDname,
+        qname: impl ToName,
     ) -> Result<FoundHosts<&Self>, io::Error> {
         lookup_host(&self, qname).await
     }
 
     pub async fn search_host(
         &self,
-        qname: impl ToRelativeDname,
+        qname: impl ToRelativeName,
     ) -> Result<FoundHosts<&Self>, io::Error> {
         search_host(&self, qname).await
     }
@@ -249,8 +249,8 @@ impl StubResolver {
     /// See the documentation for the [`lookup_srv`] function for details.
     pub async fn lookup_srv(
         &self,
-        service: impl ToRelativeDname,
-        name: impl ToDname,
+        service: impl ToRelativeName,
+        name: impl ToName,
         fallback_port: u16,
     ) -> Result<Option<FoundSrvs>, SrvError> {
         lookup_srv(&self, service, name, fallback_port).await
@@ -313,7 +313,7 @@ impl<'a> Resolver for &'a StubResolver {
 
     fn query<N, Q>(&self, question: Q) -> Self::Query
     where
-        N: ToDname,
+        N: ToName,
         Q: Into<Question<N>>,
     {
         let message = Query::create_message(question.into());
@@ -390,7 +390,7 @@ impl<'a> Query<'a> {
         }
     }
 
-    fn create_message(question: Question<impl ToDname>) -> QueryMessage {
+    fn create_message(question: Question<impl ToName>) -> QueryMessage {
         let mut message = MessageBuilder::from_target(Default::default())
             .expect("MessageBuilder should not fail");
         message.header_mut().set_rd(true);

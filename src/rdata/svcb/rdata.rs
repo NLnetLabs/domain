@@ -4,7 +4,7 @@
 //! parent.
 use super::SvcParams;
 use crate::base::iana::Rtype;
-use crate::base::name::{FlattenInto, ParsedDname, ToDname};
+use crate::base::name::{FlattenInto, ParsedName, ToName};
 use crate::base::rdata::{
     ComposeRecordData, LongRecordData, ParseRecordData, RecordData,
 };
@@ -133,7 +133,7 @@ impl<Variant, Octs, Name> SvcbRdata<Variant, Octs, Name> {
     pub fn new(
         priority: u16, target: Name, params: SvcParams<Octs>
     ) -> Result<Self, LongRecordData>
-    where Octs: AsRef<[u8]>, Name: ToDname {
+    where Octs: AsRef<[u8]>, Name: ToName {
         LongRecordData::check_len(
             usize::from(
                 u16::COMPOSE_LEN + target.compose_len()
@@ -155,13 +155,13 @@ impl<Variant, Octs, Name> SvcbRdata<Variant, Octs, Name> {
     }
 }
 
-impl<Variant, Octs: AsRef<[u8]>> SvcbRdata<Variant, Octs, ParsedDname<Octs>> {
+impl<Variant, Octs: AsRef<[u8]>> SvcbRdata<Variant, Octs, ParsedName<Octs>> {
     /// Parses service bindings record data from its wire format.
     pub fn parse<'a, Src: Octets<Range<'a> = Octs> + ?Sized + 'a>(
         parser: &mut Parser<'a, Src>
     ) -> Result<Self, ParseError> {
         let priority = u16::parse(parser)?;
-        let target = ParsedDname::parse(parser)?;
+        let target = ParsedName::parse(parser)?;
         let params = SvcParams::parse(parser)?;
         Ok(unsafe {
             Self::new_unchecked(priority, target, params)
@@ -278,8 +278,8 @@ for SvcbRdata<Variant, Octs, Name>
 where
     Octs: AsRef<[u8]>,
     OtherOcts: AsRef<[u8]>,
-    Name: ToDname,
-    OtherName: ToDname,
+    Name: ToName,
+    OtherName: ToName,
 {
     fn eq(
         &self, other: &SvcbRdata<OtherVariant, OtherOcts, OtherName>
@@ -290,7 +290,7 @@ where
     }
 }
 
-impl<Variant, Octs: AsRef<[u8]>, Name: ToDname> Eq
+impl<Variant, Octs: AsRef<[u8]>, Name: ToName> Eq
 for SvcbRdata<Variant, Octs, Name> { }
 
 //--- Hash
@@ -312,8 +312,8 @@ for SvcbRdata<Variant, Octs, Name>
 where
     Octs: AsRef<[u8]>,
     OtherOcts: AsRef<[u8]>,
-    Name: ToDname,
-    OtherName: ToDname,
+    Name: ToName,
+    OtherName: ToName,
 {
     fn partial_cmp(
         &self, other: &SvcbRdata<OtherVariant, OtherOcts, OtherName>
@@ -330,7 +330,7 @@ where
     }
 }
 
-impl<Variant, Octs: AsRef<[u8]>, Name: ToDname> Ord
+impl<Variant, Octs: AsRef<[u8]>, Name: ToName> Ord
 for SvcbRdata<Variant, Octs, Name> {
     fn cmp(&self, other: &Self) -> cmp::Ordering {
         match self.priority.cmp(&other.priority) {
@@ -360,7 +360,7 @@ impl<Octs, Name> RecordData for SvcbRdata<HttpsVariant, Octs, Name> {
 }
 
 impl<'a, Octs: Octets + ?Sized> ParseRecordData<'a, Octs>
-for SvcbRdata<SvcbVariant, Octs::Range<'a>, ParsedDname<Octs::Range<'a>>> {
+for SvcbRdata<SvcbVariant, Octs::Range<'a>, ParsedName<Octs::Range<'a>>> {
     fn parse_rdata(
         rtype: Rtype, parser: &mut Parser<'a, Octs>
     ) -> Result<Option<Self>, ParseError> {
@@ -374,7 +374,7 @@ for SvcbRdata<SvcbVariant, Octs::Range<'a>, ParsedDname<Octs::Range<'a>>> {
 }
 
 impl<'a, Octs: Octets + ?Sized> ParseRecordData<'a, Octs>
-for SvcbRdata<HttpsVariant, Octs::Range<'a>, ParsedDname<Octs::Range<'a>>> {
+for SvcbRdata<HttpsVariant, Octs::Range<'a>, ParsedName<Octs::Range<'a>>> {
     fn parse_rdata(
         rtype: Rtype, parser: &mut Parser<'a, Octs>
     ) -> Result<Option<Self>, ParseError> {
@@ -388,7 +388,7 @@ for SvcbRdata<HttpsVariant, Octs::Range<'a>, ParsedDname<Octs::Range<'a>>> {
 }
 
 impl<Variant, Octs, Name> ComposeRecordData for SvcbRdata<Variant, Octs, Name>
-where Self: RecordData, Octs: AsRef<[u8]>, Name: ToDname {
+where Self: RecordData, Octs: AsRef<[u8]>, Name: ToName {
     fn rdlen(&self, _compress: bool) -> Option<u16> {
         Some(
             u16::checked_add(
@@ -446,12 +446,12 @@ mod test {
     use super::*;
     use super::super::UnknownSvcParam;
     use super::super::value::AllValues;
-    use crate::base::Dname;
+    use crate::base::Name;
     use octseq::array::Array;
     use core::str::FromStr;
 
     type Octets512 = Array<512>;
-    type Dname512 = Dname<Array<512>>;
+    type Dname512 = Name<Array<512>>;
     type Params512 = SvcParams<Array<512>>;
 
     // We only do two tests here to see if the SvcbRdata type itself is

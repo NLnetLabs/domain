@@ -22,7 +22,7 @@
 #![allow(unused_imports)] // XXX
 
 use crate::base::charstr::{CharStr, CharStrBuilder};
-use crate::base::name::{Dname, ToDname};
+use crate::base::name::{Name, ToName};
 use crate::base::wire::{Compose, Composer};
 use core::convert::{TryFrom, TryInto};
 use core::iter::Peekable;
@@ -153,7 +153,7 @@ pub trait Scanner {
         + FreezeBuilder<Octets = Self::Octets>;
 
     /// The type of a domain name returned by the scanner.
-    type Dname: ToDname;
+    type Name: ToName;
 
     /// The error type of the scanner.
     type Error: ScannerError;
@@ -220,7 +220,7 @@ pub trait Scanner {
         F: FnOnce(&str) -> Result<T, Self::Error>;
 
     /// Scans a token into a domain name.
-    fn scan_dname(&mut self) -> Result<Self::Dname, Self::Error>;
+    fn scan_name(&mut self) -> Result<Self::Name, Self::Error>;
 
     /// Scans a token into a character string.
     ///
@@ -850,7 +850,7 @@ where
 {
     type Octets = Octets;
     type OctetsBuilder = <Octets as FromBuilder>::Builder;
-    type Dname = Dname<Octets>;
+    type Name = Name<Octets>;
     type Error = StrError;
 
     fn has_space(&self) -> bool {
@@ -956,12 +956,12 @@ where
         }
     }
 
-    fn scan_dname(&mut self) -> Result<Self::Dname, Self::Error> {
+    fn scan_name(&mut self) -> Result<Self::Name, Self::Error> {
         let token = match self.iter.next() {
             Some(token) => token,
             None => return Err(StrError::end_of_entry()),
         };
-        Dname::from_symbols(Symbols::new(token.as_ref().chars()))
+        Name::from_symbols(Symbols::new(token.as_ref().chars()))
             .map_err(|_| StrError::custom("invalid domain name"))
     }
 

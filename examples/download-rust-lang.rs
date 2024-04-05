@@ -1,6 +1,6 @@
 use std::str::FromStr;
 
-use domain::base::name::Dname;
+use domain::base::name::Name;
 use domain::resolv::StubResolver;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
@@ -9,9 +9,7 @@ use tokio::net::TcpStream;
 async fn main() {
     let resolver = StubResolver::new();
     let addr = match resolver
-        .lookup_host(
-            &Dname::<Vec<u8>>::from_str("www.rust-lang.org").unwrap(),
-        )
+        .lookup_host(&Name::<Vec<u8>>::from_str("www.rust-lang.org").unwrap())
         .await
     {
         Ok(addr) => addr,

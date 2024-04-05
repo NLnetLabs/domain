@@ -6,7 +6,7 @@
 
 use crate::base::cmp::CanonicalOrd;
 use crate::base::iana::{DigestAlg, Rtype, SecAlg};
-use crate::base::name::{FlattenInto, ParsedDname, ToDname};
+use crate::base::name::{FlattenInto, ParsedName, ToName};
 use crate::base::rdata::{
     ComposeRecordData, LongRecordData, ParseRecordData, RecordData,
 };
@@ -471,7 +471,7 @@ impl<Name> ProtoRrsig<Name> {
         signature: Octs,
     ) -> Result<Rrsig<Octs, Name>, LongRecordData>
     where
-        Name: ToDname,
+        Name: ToName,
     {
         Rrsig::new(
             self.type_covered,
@@ -487,7 +487,7 @@ impl<Name> ProtoRrsig<Name> {
     }
 }
 
-impl<Name: ToDname> ProtoRrsig<Name> {
+impl<Name: ToName> ProtoRrsig<Name> {
     pub fn compose<Target: Composer + ?Sized>(
         &self,
         target: &mut Target,
@@ -631,7 +631,7 @@ impl<Octs, Name> Rrsig<Octs, Name> {
     ) -> Result<Self, LongRecordData>
     where
         Octs: AsRef<[u8]>,
-        Name: ToDname,
+        Name: ToName,
     {
         LongRecordData::check_len(
             usize::from(
@@ -777,12 +777,12 @@ impl<Octs, Name> Rrsig<Octs, Name> {
         })
     }
 
-    pub fn scan<S: Scanner<Octets = Octs, Dname = Name>>(
+    pub fn scan<S: Scanner<Octets = Octs, Name = Name>>(
         scanner: &mut S,
     ) -> Result<Self, S::Error>
     where
         Octs: AsRef<[u8]>,
-        Name: ToDname,
+        Name: ToName,
     {
         Self::new(
             Rtype::scan(scanner)?,
@@ -792,14 +792,14 @@ impl<Octs, Name> Rrsig<Octs, Name> {
             Serial::scan_rrsig(scanner)?,
             Serial::scan_rrsig(scanner)?,
             u16::scan(scanner)?,
-            scanner.scan_dname()?,
+            scanner.scan_name()?,
             scanner.convert_entry(base64::SymbolConverter::new())?,
         )
         .map_err(|err| S::Error::custom(err.as_str()))
     }
 }
 
-impl<Octs> Rrsig<Octs, ParsedDname<Octs>> {
+impl<Octs> Rrsig<Octs, ParsedName<Octs>> {
     pub fn parse<'a, Src: Octets<Range<'a> = Octs> + ?Sized + 'a>(
         parser: &mut Parser<'a, Src>,
     ) -> Result<Self, ParseError> {
@@ -810,7 +810,7 @@ impl<Octs> Rrsig<Octs, ParsedDname<Octs>> {
         let expiration = Serial::parse(parser)?;
         let inception = Serial::parse(parser)?;
         let key_tag = u16::parse(parser)?;
-        let signer_name = ParsedDname::parse(parser)?;
+        let signer_name = ParsedName::parse(parser)?;
         let len = parser.remaining();
         let signature = parser.parse_octets(len)?;
         Ok(unsafe {
@@ -876,8 +876,8 @@ where
 
 impl<N, NN, O, OO> PartialEq<Rrsig<OO, NN>> for Rrsig<O, N>
 where
-    N: ToDname,
-    NN: ToDname,
+    N: ToName,
+    NN: ToName,
     O: AsRef<[u8]>,
     OO: AsRef<[u8]>,
 {
@@ -897,7 +897,7 @@ where
 impl<Octs, Name> Eq for Rrsig<Octs, Name>
 where
     Octs: AsRef<[u8]>,
-    Name: ToDname,
+    Name: ToName,
 {
 }
 
@@ -905,8 +905,8 @@ where
 
 impl<N, NN, O, OO> PartialOrd<Rrsig<OO, NN>> for Rrsig<O, N>
 where
-    N: ToDname,
-    NN: ToDname,
+    N: ToName,
+    NN: ToName,
     O: AsRef<[u8]>,
     OO: AsRef<[u8]>,
 {
@@ -951,8 +951,8 @@ where
 
 impl<N, NN, O, OO> CanonicalOrd<Rrsig<OO, NN>> for Rrsig<O, N>
 where
-    N: ToDname,
-    NN: ToDname,
+    N: ToName,
+    NN: ToName,
     O: AsRef<[u8]>,
     OO: AsRef<[u8]>,
 {
@@ -993,7 +993,7 @@ where
     }
 }
 
-impl<O: AsRef<[u8]>, N: ToDname> Ord for Rrsig<O, N> {
+impl<O: AsRef<[u8]>, N: ToName> Ord for Rrsig<O, N> {
     fn cmp(&self, other: &Self) -> Ordering {
         self.canonical_cmp(other)
     }
@@ -1024,7 +1024,7 @@ impl<Octs, Name> RecordData for Rrsig<Octs, Name> {
 }
 
 impl<'a, Octs: Octets + ?Sized> ParseRecordData<'a, Octs>
-    for Rrsig<Octs::Range<'a>, ParsedDname<Octs::Range<'a>>>
+    for Rrsig<Octs::Range<'a>, ParsedName<Octs::Range<'a>>>
 {
     fn parse_rdata(
         rtype: Rtype,
@@ -1041,7 +1041,7 @@ impl<'a, Octs: Octets + ?Sized> ParseRecordData<'a, Octs>
 impl<Octs, Name> ComposeRecordData for Rrsig<Octs, Name>
 where
     Octs: AsRef<[u8]>,
-    Name: ToDname,
+    Name: ToName,
 {
     fn rdlen(&self, _compress: bool) -> Option<u16> {
         Some(
@@ -1080,7 +1080,7 @@ where
     }
 }
 
-impl<Octs: AsRef<[u8]>, Name: ToDname> Rrsig<Octs, Name> {
+impl<Octs: AsRef<[u8]>, Name: ToName> Rrsig<Octs, Name> {
     fn compose_head<Target: Composer + ?Sized>(
         &self,
         target: &mut Target,
@@ -1214,22 +1214,22 @@ impl<Octs, Name> Nsec<Octs, Name> {
         ))
     }
 
-    pub fn scan<S: Scanner<Octets = Octs, Dname = Name>>(
+    pub fn scan<S: Scanner<Octets = Octs, Name = Name>>(
         scanner: &mut S,
     ) -> Result<Self, S::Error> {
         Ok(Self::new(
-            scanner.scan_dname()?,
+            scanner.scan_name()?,
             RtypeBitmap::scan(scanner)?,
         ))
     }
 }
 
-impl<Octs: AsRef<[u8]>> Nsec<Octs, ParsedDname<Octs>> {
+impl<Octs: AsRef<[u8]>> Nsec<Octs, ParsedName<Octs>> {
     pub fn parse<'a, Src: Octets<Range<'a> = Octs> + ?Sized + 'a>(
         parser: &mut Parser<'a, Src>,
     ) -> Result<Self, ParseError> {
         Ok(Nsec::new(
-            ParsedDname::parse(parser)?,
+            ParsedName::parse(parser)?,
             RtypeBitmap::parse(parser)?,
         ))
     }
@@ -1274,15 +1274,15 @@ impl<O, OO, N, NN> PartialEq<Nsec<OO, NN>> for Nsec<O, N>
 where
     O: AsRef<[u8]>,
     OO: AsRef<[u8]>,
-    N: ToDname,
-    NN: ToDname,
+    N: ToName,
+    NN: ToName,
 {
     fn eq(&self, other: &Nsec<OO, NN>) -> bool {
         self.next_name.name_eq(&other.next_name) && self.types == other.types
     }
 }
 
-impl<O: AsRef<[u8]>, N: ToDname> Eq for Nsec<O, N> {}
+impl<O: AsRef<[u8]>, N: ToName> Eq for Nsec<O, N> {}
 
 //--- PartialOrd, Ord, and CanonicalOrd
 
@@ -1290,8 +1290,8 @@ impl<O, OO, N, NN> PartialOrd<Nsec<OO, NN>> for Nsec<O, N>
 where
     O: AsRef<[u8]>,
     OO: AsRef<[u8]>,
-    N: ToDname,
-    NN: ToDname,
+    N: ToName,
+    NN: ToName,
 {
     fn partial_cmp(&self, other: &Nsec<OO, NN>) -> Option<Ordering> {
         match self.next_name.name_cmp(&other.next_name) {
@@ -1306,8 +1306,8 @@ impl<O, OO, N, NN> CanonicalOrd<Nsec<OO, NN>> for Nsec<O, N>
 where
     O: AsRef<[u8]>,
     OO: AsRef<[u8]>,
-    N: ToDname,
-    NN: ToDname,
+    N: ToName,
+    NN: ToName,
 {
     fn canonical_cmp(&self, other: &Nsec<OO, NN>) -> Ordering {
         // RFC 6840 says that Nsec::next_name is not converted to lower case.
@@ -1322,7 +1322,7 @@ where
 impl<O, N> Ord for Nsec<O, N>
 where
     O: AsRef<[u8]>,
-    N: ToDname,
+    N: ToName,
 {
     fn cmp(&self, other: &Self) -> Ordering {
         match self.next_name.name_cmp(&other.next_name) {
@@ -1351,7 +1351,7 @@ impl<Octs, Name> RecordData for Nsec<Octs, Name> {
 }
 
 impl<'a, Octs: Octets + ?Sized> ParseRecordData<'a, Octs>
-    for Nsec<Octs::Range<'a>, ParsedDname<Octs::Range<'a>>>
+    for Nsec<Octs::Range<'a>, ParsedName<Octs::Range<'a>>>
 {
     fn parse_rdata(
         rtype: Rtype,
@@ -1368,7 +1368,7 @@ impl<'a, Octs: Octets + ?Sized> ParseRecordData<'a, Octs>
 impl<Octs, Name> ComposeRecordData for Nsec<Octs, Name>
 where
     Octs: AsRef<[u8]>,
-    Name: ToDname,
+    Name: ToName,
 {
     fn rdlen(&self, _compress: bool) -> Option<u16> {
         Some(
@@ -2420,7 +2420,7 @@ fn read_window(data: &[u8]) -> Option<((u8, &[u8]), &[u8])> {
 mod test {
     use super::*;
     use crate::base::iana::Rtype;
-    use crate::base::name::Dname;
+    use crate::base::name::Name;
     use crate::base::rdata::test::{
         test_compose_parse, test_rdlen, test_scan,
     };
@@ -2451,7 +2451,7 @@ mod test {
             Serial::from(13),
             Serial::from(14),
             15,
-            Dname::<Vec<u8>>::from_str("example.com.").unwrap(),
+            Name::<Vec<u8>>::from_str("example.com.").unwrap(),
             b"key",
         )
         .unwrap();
@@ -2483,7 +2483,7 @@ mod test {
         rtype.add(Rtype::A).unwrap();
         rtype.add(Rtype::SRV).unwrap();
         let rdata = Nsec::new(
-            Dname::<Vec<u8>>::from_str("example.com.").unwrap(),
+            Name::<Vec<u8>>::from_str("example.com.").unwrap(),
             rtype.finalize(),
         );
         test_rdlen(&rdata);

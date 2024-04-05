@@ -2,7 +2,7 @@
 
 use crate::base::iana::Rtype;
 use crate::base::message::RecordIter;
-use crate::base::name::{Dname, DnameBuilder, ParsedDname};
+use crate::base::name::{Name, NameBuilder, ParsedName};
 use crate::rdata::Ptr;
 use crate::resolv::resolver::Resolver;
 use octseq::octets::Octets;
@@ -28,7 +28,7 @@ pub async fn lookup_addr<R: Resolver>(
     resolv: &R,
     addr: IpAddr,
 ) -> Result<FoundAddrs<R>, io::Error> {
-    let name = dname_from_addr(addr);
+    let name = name_from_addr(addr);
     resolv.query((name, Rtype::PTR)).await.map(FoundAddrs)
 }
 
@@ -63,7 +63,7 @@ impl<'a, R: Resolver> IntoIterator for &'a FoundAddrs<R>
 where
     R::Octets: Octets,
 {
-    type Item = ParsedDname<<<R as Resolver>::Octets as Octets>::Range<'a>>;
+    type Item = ParsedName<<<R as Resolver>::Octets as Octets>::Range<'a>>;
     type IntoIter = FoundAddrsIter<'a, R::Octets>;
 
     fn into_iter(self) -> Self::IntoIter {
@@ -75,12 +75,12 @@ where
 
 /// An iterator over host names returned by address lookup.
 pub struct FoundAddrsIter<'a, Octs: Octets> {
-    name: Option<ParsedDname<Octs::Range<'a>>>,
-    answer: Option<RecordIter<'a, Octs, Ptr<ParsedDname<Octs::Range<'a>>>>>,
+    name: Option<ParsedName<Octs::Range<'a>>>,
+    answer: Option<RecordIter<'a, Octs, Ptr<ParsedName<Octs::Range<'a>>>>>,
 }
 
 impl<'a, Octs: Octets> Iterator for FoundAddrsIter<'a, Octs> {
-    type Item = ParsedDname<Octs::Range<'a>>;
+    type Item = ParsedName<Octs::Range<'a>>;
 
     #[allow(clippy::while_let_on_iterator)]
     fn next(&mut self) -> Option<Self::Item> {
@@ -98,25 +98,25 @@ impl<'a, Octs: Octets> Iterator for FoundAddrsIter<'a, Octs> {
 //------------ Helper Functions ---------------------------------------------
 
 /// Translates an IP address into a domain name.
-fn dname_from_addr(addr: IpAddr) -> Dname<Octets128> {
+fn name_from_addr(addr: IpAddr) -> Name<Octets128> {
     match addr {
         IpAddr::V4(addr) => {
             let octets = addr.octets();
-            Dname::from_str(&format!(
+            Name::from_str(&format!(
                 "{}.{}.{}.{}.in-addr.arpa.",
                 octets[3], octets[2], octets[1], octets[0]
             ))
             .unwrap()
         }
         IpAddr::V6(addr) => {
-            let mut res = DnameBuilder::<Octets128>::new();
+            let mut res = NameBuilder::<Octets128>::new();
             for &item in addr.octets().iter().rev() {
                 res.append_label(&[hexdigit(item)]).unwrap();
                 res.append_label(&[hexdigit(item >> 4)]).unwrap();
             }
             res.append_label(b"ip6").unwrap();
             res.append_label(b"arpa").unwrap();
-            res.into_dname().unwrap()
+            res.into_name().unwrap()
         }
     }
 }
@@ -150,17 +150,17 @@ mod test {
     use super::*;
 
     #[test]
-    fn test_dname_from_addr() {
+    fn test_name_from_addr() {
         assert_eq!(
-            dname_from_addr([192, 0, 2, 12].into()),
-            Dname::<Octets128>::from_str("12.2.0.192.in-addr.arpa").unwrap()
+            name_from_addr([192, 0, 2, 12].into()),
+            Name::<Octets128>::from_str("12.2.0.192.in-addr.arpa").unwrap()
         );
         assert_eq!(
-            dname_from_addr(
+            name_from_addr(
                 [0x2001, 0xdb8, 0x1234, 0x0, 0x5678, 0x1, 0x9abc, 0xdef]
                     .into()
             ),
-            Dname::<Octets128>::from_str(
+            Name::<Octets128>::from_str(
                 "f.e.d.0.c.b.a.9.1.0.0.0.8.7.6.5.\
                  0.0.0.0.4.3.2.1.8.b.d.0.1.0.0.2.\
                  ip6.arpa"

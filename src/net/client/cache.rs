@@ -30,10 +30,9 @@
 #![warn(clippy::missing_docs_in_private_items)]
 
 use crate::base::iana::{Class, Opcode, OptRcode, Rtype};
-use crate::base::name::ToDname;
+use crate::base::name::ToName;
 use crate::base::{
-    Dname, Header, Message, MessageBuilder, ParsedDname, StaticCompressor,
-    Ttl,
+    Header, Message, MessageBuilder, Name, ParsedName, StaticCompressor, Ttl,
 };
 use crate::dep::octseq::Octets;
 use crate::net::client::clock::{Clock, Elapsed, SystemClock};
@@ -771,7 +770,7 @@ enum RequestState {
 /// Note that the AD and DO flags are combined into a single enum.
 struct Key {
     /// DNS name in the request.
-    qname: Dname<Bytes>,
+    qname: Name<Bytes>,
 
     /// The request class. Always IN at the moment.
     qclass: Class,
@@ -801,10 +800,10 @@ impl Key {
         rd: bool,
     ) -> Key
     where
-        TDN: ToDname,
+        TDN: ToName,
     {
         Self {
-            qname: qname.to_canonical_dname(),
+            qname: qname.to_canonical_name(),
             qclass,
             qtype,
             addo: AdDo::new(ad, dnssec_ok),
@@ -916,7 +915,7 @@ where
         orig_qname: TDN,
     ) -> Option<Result<Message<Bytes>, Error>>
     where
-        TDN: ToDname + Clone,
+        TDN: ToName + Clone,
         C: Clock + Send + Sync,
     {
         let elapsed = self.created_at.elapsed();
@@ -1008,7 +1007,7 @@ fn decrement_ttl<TDN>(
     amount: u32,
 ) -> Result<Message<Bytes>, Error>
 where
-    TDN: ToDname + Clone,
+    TDN: ToName + Clone,
 {
     let msg = match response {
         Err(err) => return Err(err.clone()),
@@ -1037,7 +1036,7 @@ where
     let mut target = target.answer();
     for rr in &mut source {
         let mut rr = rr?
-            .into_record::<AllRecordData<_, ParsedDname<_>>>()?
+            .into_record::<AllRecordData<_, ParsedName<_>>>()?
             .expect("record expected");
         rr.set_ttl(rr.ttl() - amount);
         target.push(rr).expect("push failed");
@@ -1048,7 +1047,7 @@ where
     let mut target = target.authority();
     for rr in &mut source {
         let mut rr = rr?
-            .into_record::<AllRecordData<_, ParsedDname<_>>>()?
+            .into_record::<AllRecordData<_, ParsedName<_>>>()?
             .expect("record expected");
         rr.set_ttl(rr.ttl() - amount);
         target.push(rr).expect("push failed");
@@ -1059,7 +1058,7 @@ where
     for rr in source {
         let rr = rr?;
         let mut rr = rr
-            .into_record::<AllRecordData<_, ParsedDname<_>>>()?
+            .into_record::<AllRecordData<_, ParsedName<_>>>()?
             .expect("record expected");
         if rr.rtype() != Rtype::OPT {
             rr.set_ttl(rr.ttl() - amount);
@@ -1103,7 +1102,7 @@ fn remove_dnssec(
     let mut target = target.answer();
     for rr in &mut source {
         let rr = rr?
-            .into_record::<AllRecordData<_, ParsedDname<_>>>()?
+            .into_record::<AllRecordData<_, ParsedName<_>>>()?
             .expect("record expected");
         if is_dnssec(rr.rtype()) {
             continue;
@@ -1116,7 +1115,7 @@ fn remove_dnssec(
     let mut target = target.authority();
     for rr in &mut source {
         let rr = rr?
-            .into_record::<AllRecordData<_, ParsedDname<_>>>()?
+            .into_record::<AllRecordData<_, ParsedName<_>>>()?
             .expect("record expected");
         if is_dnssec(rr.rtype()) {
             continue;
@@ -1129,7 +1128,7 @@ fn remove_dnssec(
     for rr in source {
         let rr = rr?;
         let rr = rr
-            .into_record::<AllRecordData<_, ParsedDname<_>>>()?
+            .into_record::<AllRecordData<_, ParsedName<_>>>()?
             .expect("record expected");
         if is_dnssec(rr.rtype()) {
             continue;

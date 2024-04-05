@@ -2,9 +2,9 @@
 //!
 //! This module provides various types for working with domain names.
 //!
-//! Main types: [`Dname`], [`RelativeDname`], [`ParsedDname`],
+//! Main types: [`Name`], [`RelativeDname`], [`ParsedDname`],
 //! [`UncertainDname`], [`DnameBuilder`].<br/>
-//! Main traits: [`ToDname`], [`ToRelativeDname`].
+//! Main traits: [`ToName`], [`ToRelativeName`].
 //!
 //! Domain names are a hierarchical description of the location of
 //! records in a tree. They are formed from a sequence of *labels* that
@@ -51,7 +51,7 @@
 //! conversely, a name that does end with the root label is called an
 //! *abolute name*. Because these behave slightly differently, for instance,
 //! you can’t include a relative name in a message, there are different
-//! types for those two cases, [`Dname`] for absolute names and
+//! types for those two cases, [`Name`] for absolute names and
 //! [`RelativeDname`] for relative names.
 //!
 //! Sometimes, it isn’t quite clear if a domain name is absolute or relative.
@@ -76,8 +76,8 @@
 //! When making a relative name absolute to be included in a message, you
 //! often append a suffix to it. In order to avoid having to copy octets
 //! around and make this cheap, the [`Chain`] type allows combining two
-//! other name values. To make this work, the two traits [`ToDname`]
-//! and [`ToRelativeDname`] allow writing code that is generic over any kind
+//! other name values. To make this work, the two traits [`ToName`]
+//! and [`ToRelativeName`] allow writing code that is generic over any kind
 //! of either absolute or relative domain name.
 //!
 //!
@@ -88,26 +88,26 @@
 //! to construct a name from scratch by appending octets, slices, or complete
 //! labels.
 
+pub use self::absolute::{Name, NameError};
 pub use self::builder::{
-    DnameBuilder, FromStrError, PushError, PushNameError,
+    FromStrError, NameBuilder, PushError, PushNameError,
 };
 pub use self::chain::{Chain, ChainIter, LongChainError, UncertainChainIter};
-pub use self::dname::{Dname, DnameError};
 pub use self::label::{
     Label, LabelTypeError, LongLabelError, OwnedLabel, SliceLabelsIter,
     SplitLabelError,
 };
-pub use self::parsed::{ParsedDname, ParsedDnameIter, ParsedSuffixIter};
+pub use self::parsed::{ParsedName, ParsedNameIter, ParsedSuffixIter};
 pub use self::relative::{
-    DnameIter, RelativeDname, RelativeDnameError, RelativeFromStrError,
+    NameIter, RelativeFromStrError, RelativeName, RelativeNameError,
     StripSuffixError,
 };
-pub use self::traits::{FlattenInto, ToDname, ToLabelIter, ToRelativeDname};
-pub use self::uncertain::UncertainDname;
+pub use self::traits::{FlattenInto, ToLabelIter, ToName, ToRelativeName};
+pub use self::uncertain::UncertainName;
 
+mod absolute;
 mod builder;
 mod chain;
-mod dname;
 mod label;
 mod parsed;
 mod relative;

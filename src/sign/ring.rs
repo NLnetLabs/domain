@@ -4,7 +4,7 @@
 
 use super::key::SigningKey;
 use crate::base::iana::{DigestAlg, SecAlg};
-use crate::base::name::ToDname;
+use crate::base::name::ToName;
 use crate::base::rdata::ComposeRecordData;
 use crate::rdata::{Dnskey, Ds};
 #[cfg(feature = "bytes")]
@@ -70,7 +70,7 @@ impl<'a> SigningKey for Key<'a> {
         Ok(self.dnskey.clone())
     }
 
-    fn ds<N: ToDname>(
+    fn ds<N: ToName>(
         &self,
         owner: N,
     ) -> Result<Ds<Self::Octets>, Self::Error> {

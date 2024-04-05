@@ -62,7 +62,7 @@ use crate::base::message::Message;
 use crate::base::message_builder::{
     AdditionalBuilder, MessageBuilder, PushError,
 };
-use crate::base::name::{Dname, Label, ParsedDname, ToDname, ToLabelIter};
+use crate::base::name::{Label, Name, ParsedName, ToLabelIter, ToName};
 use crate::base::record::Record;
 use crate::base::wire::{Composer, ParseError};
 use crate::rdata::tsig::{Time48, Tsig};
@@ -75,7 +75,7 @@ use std::collections::HashMap;
 
 //------------ KeyName -------------------------------------------------------
 
-pub type KeyName = Dname<octseq::array::Array<255>>;
+pub type KeyName = Name<octseq::array::Array<255>>;
 
 //------------ Key -----------------------------------------------------------
 
@@ -267,7 +267,7 @@ impl Key {
         tsig: &MessageTsig<Octs>,
     ) -> Result<(), ValidationError> {
         if *tsig.record.owner() != self.name
-            || *tsig.record.data().algorithm() != self.algorithm().to_dname()
+            || *tsig.record.data().algorithm() != self.algorithm().to_name()
         {
             Err(ValidationError::BadKey)
         } else {
@@ -352,7 +352,7 @@ pub trait KeyStore {
     ///
     /// The method looks up a key based on a pair of name and algorithm. If
     /// the key can be found, it is returned. Otherwise, `None` is returned.
-    fn get_key<N: ToDname>(
+    fn get_key<N: ToName>(
         &self,
         name: &N,
         algorithm: Algorithm,
@@ -362,7 +362,7 @@ pub trait KeyStore {
 impl<K: AsRef<Key> + Clone> KeyStore for K {
     type Key = Self;
 
-    fn get_key<N: ToDname>(
+    fn get_key<N: ToName>(
         &self,
         name: &N,
         algorithm: Algorithm,
@@ -385,13 +385,13 @@ where
 {
     type Key = K;
 
-    fn get_key<N: ToDname>(
+    fn get_key<N: ToName>(
         &self,
         name: &N,
         algorithm: Algorithm,
     ) -> Option<Self::Key> {
         // XXX This seems a bit wasteful.
-        let name = name.try_to_dname().ok()?;
+        let name = name.try_to_name().ok()?;
         self.get(&(name, algorithm)).cloned()
     }
 }
@@ -1011,7 +1011,7 @@ impl<K: AsRef<Key>> SigningContext<K> {
 
         // 4.5.1. KEY check and error handling
         let algorithm =
-            match Algorithm::from_dname(tsig.record.data().algorithm()) {
+            match Algorithm::from_name(tsig.record.data().algorithm()) {
                 Some(algorithm) => algorithm,
                 None => return Err(ServerError::unsigned(TsigRcode::BADKEY)),
             };
@@ -1297,8 +1297,8 @@ struct MessageTsig<'a, Octs: Octets + ?Sized + 'a> {
     /// The actual record.
     #[allow(clippy::type_complexity)]
     record: Record<
-        ParsedDname<Octs::Range<'a>>,
-        Tsig<Octs::Range<'a>, ParsedDname<Octs::Range<'a>>>,
+        ParsedName<Octs::Range<'a>>,
+        Tsig<Octs::Range<'a>, ParsedName<Octs::Range<'a>>>,
     >,
 
     /// The index of the start of the record.
@@ -1405,7 +1405,7 @@ impl Variables {
             // that the hmac is unreasonable large. Since we control its
             // creation, panicing in this case is fine.
             Tsig::new(
-                key.algorithm().to_dname(),
+                key.algorithm().to_name(),
                 self.time_signed,
                 self.fudge,
                 hmac,
@@ -1474,7 +1474,7 @@ impl Algorithm {
     /// Creates a value from its domain name representation.
     ///
     /// Returns `None` if the name doesn’t represent a known algorithm.
-    pub fn from_dname<N: ToDname>(name: &N) -> Option<Self> {
+    pub fn from_name<N: ToName>(name: &N) -> Option<Self> {
         let mut labels = name.iter_labels();
         let first = match labels.next() {
             Some(label) => label,
@@ -1531,8 +1531,8 @@ impl Algorithm {
     }
 
     /// Returns a domain name for this value.
-    pub fn to_dname(self) -> Dname<&'static [u8]> {
-        unsafe { Dname::from_octets_unchecked(self.into_wire_slice()) }
+    pub fn to_name(self) -> Name<&'static [u8]> {
+        unsafe { Name::from_octets_unchecked(self.into_wire_slice()) }
     }
 
     /// Returns the native length of a signature created with this algorithm.
