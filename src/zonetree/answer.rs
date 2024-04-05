@@ -84,8 +84,7 @@ impl Answer {
         self.authority = Some(authority)
     }
 
-    /// Prepares a response to the given request based on the properties of
-    /// this answer.
+    /// Generate a DNS response [`Message`] for this answer.
     ///
     /// The response [Rcode], question, answer and authority sections of the
     /// produced [`AdditionalBuilder`] will be populated based on the
