@@ -133,9 +133,9 @@ impl MandatoryMiddlewareProcessor {
                 //
                 // https://datatracker.ietf.org/doc/html/rfc6891#section-7
                 //   "The minimal response MUST be the DNS header, question
-                //     section, and an OPT record.  This MUST also occur when
-                //     a truncated response (using the DNS header's TC bit) is
-                //     returned."
+                //    section, and an OPT record.  This MUST also occur when
+                //    a truncated response (using the DNS header's TC bit) is
+                //    returned."
 
                 // Tell the client that we are truncating the response.
                 response.header_mut().set_tc(true);
@@ -158,7 +158,23 @@ impl MandatoryMiddlewareProcessor {
 
                 let mut target = target.additional();
                 if let Some(opt) = source.opt() {
-                    target.push(opt.as_record())?;
+                    if let Err(err) = target.push(opt.as_record()) {
+                        warn!("Error while truncating response: unable to push OPT record: {err}");
+                        // As the client had an OPT record and RFC 6891 says
+                        // when truncating that there MUST be an OPT record,
+                        // attempt to push just the empty OPT record (as the
+                        // OPT record header still has value, e.g. the
+                        // requestors payload size field and extended rcode).
+                        if let Err(err) = target.opt(|builder| {
+                            builder.set_version(opt.version());
+                            builder.set_rcode(opt.rcode(response.header()));
+                            builder
+                                .set_udp_payload_size(opt.udp_payload_size());
+                            Ok(())
+                        }) {
+                            error!("Error while truncating response: unable to add minimal OPT record: {err}");
+                        }
+                    }
                 }
 
                 let new_len = target.as_slice().len();
