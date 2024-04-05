@@ -135,11 +135,11 @@ mod tests {
     //------------ Tests -----------------------------------------------------
 
     #[test]
-    fn rate_limit_requests() {}
+    fn _rate_limit_requests() {}
 
     //------------ Helper functions ------------------------------------------
 
-    fn process() -> Rcode {
+    fn _process() -> Rcode {
         // Build a dummy DNS query.
         let query = MessageBuilder::new_vec();
 
