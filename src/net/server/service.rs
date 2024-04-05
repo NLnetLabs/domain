@@ -1,8 +1,8 @@
 //! The application logic of a DNS server.
 //!
-//! The [`Service::call()`] function defines how the service should respond to
-//! a given DNS request. resulting in a [`Transaction`] containing a
-//! transaction that yields one or more future DNS responses, and/or a
+//! The [`Service::call`] function defines how the service should respond to a
+//! given DNS request. resulting in a [`Transaction`] containing a transaction
+//! that yields one or more future DNS responses, and/or a
 //! [`ServiceFeedback`].
 use core::fmt::Display;
 use core::ops::Deref;
@@ -36,9 +36,9 @@ use super::message::Request;
 /// For an overview of how services fit into the total flow of request and
 /// response handling see the [net::server module documentation].
 ///
-/// Each [`Service`] implementation defines a [`call()`] function which takes
-/// a [`Request`] DNS request as input and returns either a
-/// [`Transaction`] on success, or a [`ServiceError`] on failure, as output.
+/// Each [`Service`] implementation defines a [`call`] function which takes a
+/// [`Request`] DNS request as input and returns either a [`Transaction`] on
+/// success, or a [`ServiceError`] on failure, as output.
 ///
 /// Each [`Transaction`] contains either a single DNS response message, or a
 /// stream of DNS response messages (e.g. for a zone transfer). Each response
@@ -51,12 +51,12 @@ use super::message::Request;
 ///
 ///   1. Implement the [`Service`] trait on a struct.
 ///   2. Define a function compatible with the [`Service`] trait.
-///   3. Define a function compatible with [`service_fn()`].
+///   3. Define a function compatible with [`service_fn`].
 ///
 /// <div class="warning">
 ///
 /// Whichever approach you choose it is important to minimize the work done
-/// before returning from [`Service::call()`], as time spent here blocks the
+/// before returning from [`Service::call`], as time spent here blocks the
 /// caller. Instead as much work as possible should be delegated to the
 /// futures returned as a [`Transaction`].
 ///
@@ -193,23 +193,24 @@ use super::message::Request;
 /// let srv = DgramServer::new(sock, buf, name_to_ip);
 /// ```
 ///
-/// # Define a function compatible with [`service_fn()`]
+/// # Define a function compatible with [`service_fn`]
 ///
-/// See [`service_fn()`] for an example of how to use it to create a
-/// [`Service`] impl from a funciton.
+/// See [`service_fn`] for an example of how to use it to create a [`Service`]
+/// impl from a funciton.
 ///
-/// [`MiddlewareChain`]: crate::net::server::middleware::chain::MiddlewareChain
+/// [`MiddlewareChain`]:
+///     crate::net::server::middleware::chain::MiddlewareChain
 /// [`DgramServer`]: crate::net::server::dgram::DgramServer
 /// [`StreamServer`]: crate::net::server::stream::StreamServer
 /// [net::server module documentation]: crate::net::server
-/// [`call()`]: Self::call()
-/// [`service_fn()`]: crate::net::server::util::service_fn()
+/// [`call`]: Self::call()
+/// [`service_fn`]: crate::net::server::util::service_fn()
 pub trait Service<RequestOctets: AsRef<[u8]> = Vec<u8>> {
     /// The type of buffer in which response messages are stored.
     type Target;
 
-    /// The type of future returned by [`Service::call()`] via
-    /// [`Transaction::single()`].
+    /// The type of future returned by [`Service::call`] via
+    /// [`Transaction::single`].
     type Future: std::future::Future<
         Output = Result<
             CallResult<RequestOctets, Self::Target>,
@@ -353,15 +354,15 @@ pub enum ServiceFeedback {
 
 //------------ CallResult ----------------------------------------------------
 
-/// The result of processing a DNS request via [`Service::call()`].
+/// The result of processing a DNS request via [`Service::call`].
 ///
 /// Directions to a server on how to respond to a request.
 ///
 /// In most cases a [`CallResult`] will be a DNS response message.
 ///
 /// If needed a [`CallResult`] can instead, or additionally, contain a
-/// [`ServiceFeedback`] directing the server or connection handler handling the
-/// request to adjust its own configuration, or even to terminate the
+/// [`ServiceFeedback`] directing the server or connection handler handling
+/// the request to adjust its own configuration, or even to terminate the
 /// connection.
 #[derive(Clone, Debug)]
 pub struct CallResult<RequestOctets, Target>
@@ -462,16 +463,16 @@ where
 /// # Usage
 ///
 /// Either:
-///   - Construct a transaction for a [`single()`] response future, OR
-///   - Construct a transaction [`stream()`] and [`push()`] response futures
-///     into it.
+///   - Construct a transaction for a [`single`] response future, OR
+///   - Construct a transaction [`stream`] and [`push`] response futures into
+///     it.
 ///
-/// Then iterate over the response futures one at a time using [`next()`].
+/// Then iterate over the response futures one at a time using [`next`].
 ///
-/// [`single()`]: Self::single()
-/// [`stream()`]: Self::stream()
-/// [`push()`]: TransactionStream::push()
-/// [`next()`]: Self::next()
+/// [`single`]: Self::single()
+/// [`stream`]: Self::stream()
+/// [`push`]: TransactionStream::push()
+/// [`next`]: Self::next()
 pub struct Transaction<RequestOctets, Target, Future>(
     TransactionInner<RequestOctets, Target, Future>,
 )
@@ -508,7 +509,7 @@ where
     /// Construct a transaction for a future stream of response futures.
     ///
     /// The given future should build the stream of response futures that will
-    /// eventually be resolved by [`Self::next()`].
+    /// eventually be resolved by [`Self::next`].
     ///
     /// This takes a future instead of a [`TransactionStream`] because the
     /// caller may not yet know how many futures they need to push into the

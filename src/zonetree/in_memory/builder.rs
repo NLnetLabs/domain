@@ -39,16 +39,16 @@ use super::versioned::Version;
 ///
 /// `ZoneBuilder` has dedicated functions for inserting certain kinds of
 /// resource record properly into the zone in order to cater to RR types that
-/// require or benefit from special handling when [`ReadableZone::query()`] is
+/// require or benefit from special handling when [`ReadableZone::query`] is
 /// invoked for the zone.
 ///
 /// # Usage
 ///
 /// To use `ZoneBuilder`:
-/// - Call [`ZoneBuilder::new()`] to create a new builder.
+/// - Call [`ZoneBuilder::new`] to create a new builder.
 /// - Call the various `insert_()` functions to add as many resource records
 /// as needed.
-/// - Call [`ZoneBuilder::build()`] to exchange the builder for a populated
+/// - Call [`ZoneBuilder::build`] to exchange the builder for a populated
 ///   [`Zone`].
 ///
 /// [module docs]: crate::zonetree
@@ -56,7 +56,7 @@ use super::versioned::Version;
 /// [`parsed::Zonefile`]: crate::zonefile::parsed::Zonefile
 /// [presentation format]:
 ///     https://datatracker.ietf.org/doc/html/rfc9499#section-2-1.16.1.6.1.3
-/// [`ReadableZone::query()`]: crate::zonetree::ReadableZone::query()
+/// [`ReadableZone::query`]: crate::zonetree::ReadableZone::query()
 pub struct ZoneBuilder {
     apex: ZoneApex,
 }

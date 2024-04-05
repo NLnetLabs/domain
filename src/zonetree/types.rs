@@ -148,7 +148,7 @@ impl Rrset {
     /// Adds a resource record to the RRset, limiting the TTL to that of the
     /// new record.
     ///
-    /// See [`Self::limit_ttl()`] and [`Self::push_data()`].
+    /// See [`Self::limit_ttl`] and [`Self::push_data`].
     pub fn push_record(&mut self, record: StoredRecord) {
         self.limit_ttl(record.ttl());
         self.push_data(record.into_data());

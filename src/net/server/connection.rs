@@ -152,15 +152,15 @@ where
     ///
     /// # Reconfigure
     ///
-    /// On [`StreamServer::reconfigure()`] the current idle period will NOT
-    /// be affected. Subsequent idle periods (after the next message is
-    /// received or response is sent, assuming that happens within the current
-    /// idle period) will use the new timeout value.
+    /// On [`StreamServer::reconfigure`] the current idle period will NOT be
+    /// affected. Subsequent idle periods (after the next message is received
+    /// or response is sent, assuming that happens within the current idle
+    /// period) will use the new timeout value.
     ///
     /// [RFC 7766]:
     ///     https://datatracker.ietf.org/doc/html/rfc7766#section-6.2.3
     ///
-    /// [`StreamServer::reconfigure()`]:
+    /// [`StreamServer::reconfigure`]:
     ///     super::stream::StreamServer::reconfigure()
     #[allow(dead_code)]
     pub fn set_idle_timeout(&mut self, value: Duration) {
@@ -177,11 +177,11 @@ where
     ///
     /// # Reconfigure
     ///
-    /// On [`StreamServer::reconfigure()`] any responses currently being
+    /// On [`StreamServer::reconfigure`] any responses currently being
     /// written will NOT use the new timeout, it will only apply to responses
     /// that start being sent after the timeout is changed.
     ///
-    /// [`StreamServer::reconfigure()`]:
+    /// [`StreamServer::reconfigure`]:
     ///     super::stream::StreamServer::reconfigure()
     #[allow(dead_code)]
     pub fn set_response_write_timeout(&mut self, value: Duration) {
@@ -199,11 +199,11 @@ where
     ///
     /// # Reconfigure
     ///
-    /// On [`StreamServer::reconfigure()`] only new connections created after
+    /// On [`StreamServer::reconfigure`] only new connections created after
     /// this setting is changed will use the new value, existing connections
     /// will continue to use their exisitng queue at its existing size.
     ///
-    /// [`StreamServer::reconfigure()`]:
+    /// [`StreamServer::reconfigure`]:
     ///     super::stream::StreamServer::reconfigure()
     #[allow(dead_code)]
     pub fn set_max_queued_responses(&mut self, value: usize) {
@@ -215,12 +215,12 @@ where
     ///
     /// # Reconfigure
     ///
-    /// On [`StreamServer::reconfigure()`] only new connections created after
+    /// On [`StreamServer::reconfigure`] only new connections created after
     /// this setting is changed will use the new value, existing connections
     /// and in-flight requests (and their responses) will continue to use
     /// their current middleware chain.
     ///
-    /// [`StreamServer::reconfigure()`]:
+    /// [`StreamServer::reconfigure`]:
     ///     super::stream::StreamServer::reconfigure()
     pub fn set_middleware_chain(
         &mut self,
@@ -412,7 +412,7 @@ where
     {
         // SAFETY: It is always safe to unwrap `num_connections` because our
         // parent code in `stream.rs` constructs the `metrics` type using the
-        // [`ServerMetrics::connection_oriented()`] constructor which ensures
+        // [`ServerMetrics::connection_oriented`] constructor which ensures
         // there is a `Some` value in the `num_connections` field.
         self.metrics
             .num_connections
@@ -446,8 +446,8 @@ where
         >,
     ) {
         // SAFETY: This unwrap is safe because we always put a Some value into
-        // self.stream_rx in [`Self::with_config()`] above (and thus also in
-        // [`Self::new()`] which calls [`Self::with_config()`]).
+        // self.stream_rx in [`Self::with_config`] above (and thus also in
+        // [`Self::new`] which calls [`Self::with_config`]).
         let stream_rx = self.stream_rx.take().unwrap();
 
         let mut dns_msg_receiver =
@@ -778,7 +778,7 @@ where
             self.active = false;
             // SAFETY: It is always safe to unwrap `num_connections` because
             // our parent code in `stream.rs` constructs the `metrics` type
-            // using the [`ServerMetrics::connection_oriented()`] constructor
+            // using the [`ServerMetrics::connection_oriented`] constructor
             // which ensures there is a `Some` value in the `num_connections`
             // field.
             self.metrics

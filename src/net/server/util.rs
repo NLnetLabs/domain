@@ -96,11 +96,11 @@ where
 /// Above we see the outline of what we need to do:
 /// - Define a function that implements our request handling logic for our
 ///   service.
-/// - Call [`service_fn()`] to wrap it in an actual [`Service`] impl.
+/// - Call [`service_fn`] to wrap it in an actual [`Service`] impl.
 ///
 /// [`Vec<u8>`]: std::vec::Vec<u8>
 /// [`CallResult`]: crate::net::server::service::CallResult
-/// [`Result::Ok()`]: std::result::Result::Ok
+/// [`Result::Ok`]: std::result::Result::Ok
 pub fn service_fn<RequestOctets, Target, Future, T, Metadata>(
     msg_handler: T,
     metadata: Metadata,

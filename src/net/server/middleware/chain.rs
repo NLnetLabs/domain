@@ -48,11 +48,11 @@ impl<RequestOctets, Target> MiddlewareChain<RequestOctets, Target> {
     /// perform such processing yourself.
     ///
     /// Most users should **NOT** use this function but should instead use
-    /// [`MiddlewareBuilder::default()`] which constructs a chain that starts
+    /// [`MiddlewareBuilder::default`] which constructs a chain that starts
     /// with [`MandatoryMiddlewareProcessor`].
     /// </div>
     ///
-    /// [`MiddlewareBuilder::default()`]:
+    /// [`MiddlewareBuilder::default`]:
     ///     super::builder::MiddlewareBuilder::default()
     /// [`MandatoryMiddlewareProcessor`]:
     ///     super::processors::mandatory::MandatoryMiddlewareProcessor
@@ -83,9 +83,9 @@ where
     /// a pre-processor decided to terminate processing of the request.
     ///
     /// On [`ControlFlow::Break`] the caller should pass the given result to
-    /// [`postprocess()`][Self::postprocess]. If processing terminated early
-    /// the result includes the index of the pre-processor which terminated
-    /// the processing.
+    /// [`postprocess`][Self::postprocess]. If processing terminated early the
+    /// result includes the index of the pre-processor which terminated the
+    /// processing.
     ///
     /// # Performance
     ///
@@ -139,7 +139,7 @@ where
     /// was recieved.
     ///
     /// The optional `last_processor_idx` value should come from an earlier
-    /// call to [`preprocess()`][Self::preprocess]. Post-processing will start
+    /// call to [`preprocess`][Self::preprocess]. Post-processing will start
     /// with this processor and walk backward from there, post-processors
     /// further down the chain will not be invoked.
     pub fn postprocess(

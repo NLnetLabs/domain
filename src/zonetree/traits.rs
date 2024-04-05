@@ -120,12 +120,12 @@ pub trait WritableZone {
 
     /// Complete a write operation for the zone.
     ///
-    /// This function commits the changes accumulated since [`open()`] was
+    /// This function commits the changes accumulated since [`open`] was
     /// invoked. Clients who obtain a [`ReadableZone`] interface to this zone
     /// _before_ this function has been called will not see any of the changes
     /// made since the last commit. Only clients who obtain a [`ReadableZone`]
     /// _after_ invoking this function will be able to see the changes made
-    /// since [`open()`] was called. called.
+    /// since [`open`] was called. called.
     fn commit(
         &mut self,
     ) -> Pin<Box<dyn Future<Output = Result<(), io::Error>>>>;

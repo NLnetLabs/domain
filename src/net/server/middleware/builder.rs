@@ -19,11 +19,11 @@ use super::processors::mandatory::MandatoryMiddlewareProcessor;
 /// [`MiddlewareProcessor`] at a time.
 ///
 /// This builder allows you to add [`MiddlewareProcessor`]s sequentially using
-/// [`push()`] before finally calling [`build()`] to turn the builder into an
+/// [`push`] before finally calling [`build`] to turn the builder into an
 /// immutable [`MiddlewareChain`].
 ///
-/// [`push()`]: Self::push()
-/// [`build()`]: Self::build()
+/// [`push`]: Self::push()
+/// [`build`]: Self::build()
 pub struct MiddlewareBuilder<RequestOctets = Vec<u8>, Target = Vec<u8>> {
     /// The ordered set of processors which will pre-process requests and then
     /// in reverse order will post-process responses.
@@ -47,12 +47,12 @@ where
     /// <div class="warning">Warning:
     ///
     /// When building a standards compliant DNS server you should probably use
-    /// [`MiddlewareBuilder::minimal()`] or [`MiddlewareBuilder::modern()`]
+    /// [`MiddlewareBuilder::minimal`] or [`MiddlewareBuilder::modern`]
     /// instead.
     /// </div>
     ///
-    /// [`MiddlewareBuilder::minimal()`]: Self::minimal()
-    /// [`MiddlewareBuilder::modern()`]: Self::modern()
+    /// [`MiddlewareBuilder::minimal`]: Self::minimal()
+    /// [`MiddlewareBuilder::modern`]: Self::modern()
     #[must_use]
     pub fn new() -> Self {
         Self { processors: vec![] }
@@ -134,7 +134,7 @@ where
 {
     /// Create a middleware builder with default, aka "modern", processors.
     ///
-    /// See [`Self::modern()`].
+    /// See [`Self::modern`].
     fn default() -> Self {
         Self::modern()
     }

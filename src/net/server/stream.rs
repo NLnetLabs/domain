@@ -100,13 +100,12 @@ where
     /// number` configuration setting .
     ///
     /// If the limit is hit, further connections will be accepted but closed
-    /// immediately.
-    /// Limit on the number of concurrent TCP connections that can be handled
-    /// by the server.
+    /// immediately. Limit on the number of concurrent TCP connections that
+    /// can be handled by the server.
     ///
     /// # Reconfigure
     ///
-    /// On [`StreamServer::reconfigure()`] if there are more connections
+    /// On [`StreamServer::reconfigure`] if there are more connections
     /// currently than the new limit the exceess connections will be allowed
     /// to complete normally, connections will NOT be terminated.
     pub fn set_max_concurrent_connections(&mut self, value: usize) {
@@ -417,9 +416,9 @@ where
     ///
     /// # Drop behaviour
     ///
-    /// When dropped [`shutdown()`] will be invoked.
+    /// When dropped [`shutdown`] will be invoked.
     ///
-    /// [`shutdown()`]: Self::shutdown
+    /// [`shutdown`]: Self::shutdown
     pub async fn run(&self)
     where
         Buf: 'static,
@@ -459,11 +458,10 @@ where
     /// be written as long as the client side of connection remains remains
     /// operational.
     ///
-    /// [`Self::is_shutdown()`] can be used to dertermine if shutdown is
+    /// [`Self::is_shutdown`] can be used to dertermine if shutdown is
     /// complete.
     ///
-    /// [`Self::await_shutdown()`] can be used to wait for shutdown to
-    /// complete.
+    /// [`Self::await_shutdown`] can be used to wait for shutdown to complete.
     pub fn shutdown(&self) -> Result<(), Error> {
         self.command_tx
             .lock()
@@ -486,7 +484,7 @@ where
     /// Returns true if the server shutdown in the given time period, false
     /// otherwise.
     ///
-    /// To start the shutdown process first call [`Self::shutdown()`] then use
+    /// To start the shutdown process first call [`Self::shutdown`] then use
     /// this method to wait for the shutdown process to complete.
     pub async fn await_shutdown(&self, duration: Duration) -> bool {
         timeout(duration, async {

@@ -31,8 +31,8 @@ use crate::zonetree::{Rrset, SharedRr, StoredDname, StoredRecord};
 ///
 /// Getter functions provide insight into the classification results.
 ///
-/// When ready the [`ZoneBuilder::try_from()`] function can be used to
-/// convert the parsed zonefile into a pre-populated [`ZoneBuilder`].
+/// When ready the [`ZoneBuilder::try_from`] function can be used to convert
+/// the parsed zonefile into a pre-populated [`ZoneBuilder`].
 ///
 /// # Usage
 ///
@@ -82,10 +82,10 @@ impl Zonefile {
         &mut self,
         record: StoredRecord,
     ) -> Result<(), RecordError> {
-        // If a zone apex and class were not provided via [`Self::new()`],
-        // i.e. we were created by [`Self::default()`], require the first
-        // record to be a SOA record and use its owner name and class as the
-        // zone apex name and class.
+        // If a zone apex and class were not provided via [`Self::new`], i.e.
+        // we were created by [`Self::default`], require the first record to
+        // be a SOA record and use its owner name and class as the zone apex
+        // name and class.
         if self.origin.is_none() {
             if record.rtype() != Rtype::Soa {
                 return Err(RecordError::MissingSoa(record));

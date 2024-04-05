@@ -199,7 +199,7 @@ impl<T> Clone for Request<T> {
 /// Servers implement this trait to benefit from the common processing
 /// required while still handling aspects specific to the server themselves.
 ///
-/// Processing starts at [`process_request()`].
+/// Processing starts at [`process_request`].
 ///
 /// <div class="warning">
 ///
@@ -210,7 +210,7 @@ impl<T> Clone for Request<T> {
 ///
 /// </div>
 ///
-/// [`process_request()`]: Self::process_request()
+/// [`process_request`]: Self::process_request()
 pub trait CommonMessageFlow<Buf, Svc>
 where
     Buf: BufSource,
@@ -226,7 +226,7 @@ where
     ///
     /// This function consumes the given message buffer and processes the
     /// contained message, if any, to completion, possibly resulting in a
-    /// response being passed to [`Self::process_call_result()`].
+    /// response being passed to [`Self::process_call_result`].
     ///
     /// The request message is a given as a seqeuence of bytes in `buf`
     /// originating from client address `addr`.
@@ -351,7 +351,7 @@ where
 
 /// Pass a pre-processed request to the [`Service`] to handle.
 ///
-/// If [`Service::call()`] returns an error this function will produce a DNS
+/// If [`Service::call`] returns an error this function will produce a DNS
 /// ServFail error response. If the returned error is
 /// [`ServiceError::InternalError`] it will also be logged.
 #[allow(clippy::type_complexity)]
@@ -416,12 +416,12 @@ where
 /// pre-processing it via any supplied [`MiddlewareChain`].
 ///
 /// On success the result is an immutable request message and a
-/// [`ControlFlow`] decision about whether to continue with further
-/// processing or to break early with a possible response. If processing
-/// failed the result will be a [`ServiceError`].
+/// [`ControlFlow`] decision about whether to continue with further processing
+/// or to break early with a possible response. If processing failed the
+/// result will be a [`ServiceError`].
 ///
-/// On break the result will be one ([`Transaction::single()`]) or more
-/// ([`Transaction::stream()`]) to post-process.
+/// On break the result will be one ([`Transaction::single`]) or more
+/// ([`Transaction::stream`]) to post-process.
 #[allow(clippy::type_complexity)]
 fn do_middleware_preprocessing<Buf, Svc>(
     request: &mut Request<Message<Buf::Output>>,
@@ -455,15 +455,13 @@ where
 
 /// Post-process a response in the context of its originating request.
 ///
-/// Each response is post-processed in its own Tokio task. Note that there
-/// is no guarantee about the order in which responses will be
-/// post-processed. If the order of a seqence of responses is important it
-/// should be provided as a [`Transaction::stream()`] rather than
-/// [`Transaction::single()`].
+/// Each response is post-processed in its own Tokio task. Note that there is
+/// no guarantee about the order in which responses will be post-processed. If
+/// the order of a seqence of responses is important it should be provided as
+/// a [`Transaction::stream`] rather than [`Transaction::single`].
 ///
-/// Responses are first post-processed by the [`MiddlewareChain`]
-/// provided, if any, then passed to [`Self::process_call_result()`] for
-/// final processing.
+/// Responses are first post-processed by the [`MiddlewareChain`] provided, if
+/// any, then passed to [`Self::process_call_result`] for final processing.
 #[allow(clippy::type_complexity)]
 fn do_middleware_postprocessing<Buf, Svc, Server>(
     request: Request<Message<Buf::Output>>,

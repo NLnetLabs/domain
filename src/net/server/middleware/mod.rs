@@ -13,16 +13,16 @@
 //!
 //! Mandatory functionality and logic required by all standards compliant DNS
 //! servers can be incorporated into your server by building a middleware
-//! chain starting from [`MiddlewareBuilder::default()`].
+//! chain starting from [`MiddlewareBuilder::default`].
 //!
 //! A selection of additional functionality relating to server behaviour and
 //! DNS standards (as opposed to your own application logic) is provided which
-//! you can incorporate into your DNS server via
-//! [`MiddlewareBuilder::push()`]. See the various implementations of
-//! [`MiddlewareProcessor`] for more information.
+//! you can incorporate into your DNS server via [`MiddlewareBuilder::push`].
+//! See the various implementations of [`MiddlewareProcessor`] for more
+//! information.
 //!
-//! [`MiddlewareBuilder::default()`]: builder::MiddlewareBuilder::default()
-//! [`MiddlewareBuilder::push()`]: builder::MiddlewareBuilder::push()
+//! [`MiddlewareBuilder::default`]: builder::MiddlewareBuilder::default()
+//! [`MiddlewareBuilder::push`]: builder::MiddlewareBuilder::push()
 //! [`MiddlewareChain`]: chain::MiddlewareChain
 //! [`MiddlewareProcessor`]: processor::MiddlewareProcessor
 //! [`Service`]: crate::net::server::service::Service

@@ -12,21 +12,21 @@ use octseq::Octets;
 
 /// A DNS answer to a query against a [`Zone`].
 ///
-/// [`Answer`] is the type returned by [`ReadableZone::query()`].
+/// [`Answer`] is the type returned by [`ReadableZone::query`].
 ///
-/// Callers of [`ReadableZone::query()`] will likely only ever need to use the
-/// [`Self::to_message()`] function. Alternatively, for complete control use
-/// the getter functions on [`Answer`] instead and construct a response
-/// message yourself using [`MessageBuilder`].
+/// Callers of [`ReadableZone::query`] will likely only ever need to use the
+/// [`Self::to_message`] function. Alternatively, for complete control use the
+/// getter functions on [`Answer`] instead and construct a response message
+/// yourself using [`MessageBuilder`].
 ///
 /// Implementers of alternate backing stores for [`Zone`]s will need to use
 /// one of the various `Answer` constructor functions when
-/// [`ReadableZone::query()`] is invoked for your zone content in order to
-/// tailor the DNS message produced by [`Self::to_message()`] based on the
+/// [`ReadableZone::query`] is invoked for your zone content in order to
+/// tailor the DNS message produced by [`Self::to_message`] based on the
 /// outcome of the query.
 ///
 /// [`Zone`]: crate::zonetree::Zone
-/// [`ReadableZone::query()`]: crate::zonetree::traits::ReadableZone::query()
+/// [`ReadableZone::query`]: crate::zonetree::traits::ReadableZone::query()
 #[derive(Clone)]
 pub struct Answer {
     /// The response code of the answer.
@@ -92,7 +92,7 @@ impl Answer {
     /// properties of this [`Answer`] as determined by the constructor and
     /// add/set functions called prior to calling this function.
     ///
-    /// See also: [`MessageBuilder::start_answer()`]
+    /// See also: [`MessageBuilder::start_answer`]
     pub fn to_message<RequestOctets: Octets, Target: Composer>(
         &self,
         message: &Message<RequestOctets>,

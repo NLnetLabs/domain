@@ -19,7 +19,7 @@
 //!
 //! By default `Zone`s are stored in memory only. Zones with other types of
 //! backing store can be created by implementing the [`ZoneStore`] trait and
-//! passing an instance of the implementing struct to [`Zone::new()`]. Zones
+//! passing an instance of the implementing struct to [`Zone::new`]. Zones
 //! with different backing store types can be mixed and matched within the
 //! same tree.
 //!
