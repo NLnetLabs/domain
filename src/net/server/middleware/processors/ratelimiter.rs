@@ -1,7 +1,8 @@
 //! Rate limiting middleware
-use core::net::IpAddr;
 use core::num::NonZeroU32;
 use core::ops::ControlFlow;
+
+use std::net::IpAddr;
 
 use governor::{DefaultKeyedRateLimiter, Quota};
 use octseq::Octets;
