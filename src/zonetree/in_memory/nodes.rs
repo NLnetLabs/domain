@@ -69,14 +69,6 @@ impl ZoneApex {
         }
     }
 
-    /// Returns the class name.
-    pub fn display_class(&self) -> Cow<str> {
-        match self.class() {
-            Class::In => Cow::Borrowed("IN"),
-            class => Cow::Owned(class.to_string()),
-        }
-    }
-
     pub fn prepare_name<'l>(
         &self,
         qname: &'l impl ToDname,
