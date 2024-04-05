@@ -13,6 +13,7 @@ use crate::zonetree::{
 
 use super::nodes::{Special, ZoneApex, ZoneNode};
 use super::versioned::Version;
+use std::fmt::Debug;
 
 //------------ ZoneBuilder ---------------------------------------------------
 
@@ -57,11 +58,11 @@ use super::versioned::Version;
 /// [presentation format]:
 ///     https://datatracker.ietf.org/doc/html/rfc9499#section-2-1.16.1.6.1.3
 /// [`ReadableZone::query()`]: crate::zonetree::ReadableZone::query()
-pub struct ZoneBuilder {
-    apex: ZoneApex,
+pub struct ZoneBuilder<T> {
+    apex: ZoneApex<T>,
 }
 
-impl ZoneBuilder {
+impl<T: Clone + Debug + Sync + Send + 'static> ZoneBuilder<T> {
     /// Creates a new builder for the specified apex name and class.
     ///
     /// All resource records in the zone will be considered to have the
@@ -79,7 +80,7 @@ impl ZoneBuilder {
     /// `Zone` will be populated with the resource records that were inserted
     /// into the builder.
     #[must_use]
-    pub fn build(self) -> Zone {
+    pub fn build(self) -> Zone<T> {
         Zone::new(self.apex)
     }
 
@@ -153,7 +154,7 @@ impl ZoneBuilder {
     fn get_node<'l>(
         &self,
         mut name: impl Iterator<Item = &'l Label>,
-    ) -> Result<Arc<ZoneNode>, &ZoneApex> {
+    ) -> Result<Arc<ZoneNode>, &ZoneApex<T>> {
         let label = match name.next() {
             Some(label) => label,
             None => return Err(&self.apex),

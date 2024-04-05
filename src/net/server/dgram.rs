@@ -664,7 +664,7 @@ impl<Sock, Buf, Svc> CommonMessageFlow<Buf, Svc>
     for DgramServer<Sock, Buf, Svc>
 where
     Sock: AsyncDgramSock + Send + Sync + 'static,
-    Buf: BufSource + Send + Sync + 'static,
+    Buf: BufSource + Send + Sync,
     Buf::Output: Octets + Send + Sync + 'static,
     Svc: Service<Buf::Output> + Send + Sync + 'static,
     Svc::Target: Send + Composer + Default,
@@ -688,6 +688,7 @@ where
     /// Process the result from the middleware -> service -> middleware call
     /// tree.
     fn process_call_result(
+        _is_stream: bool,
         call_result: CallResult<Buf::Output, Svc::Target>,
         addr: SocketAddr,
         state: RequestState<Sock, Buf::Output, Svc::Target>,

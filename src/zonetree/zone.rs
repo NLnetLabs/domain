@@ -16,13 +16,13 @@ use super::{ReadableZone, StoredDname, ZoneStore};
 
 /// A single DNS zone.
 #[derive(Debug)]
-pub struct Zone {
-    store: Arc<dyn ZoneStore>,
+pub struct Zone<T> {
+    store: Arc<dyn ZoneStore<Meta = T>>,
 }
 
-impl Zone {
+impl<T> Zone<T> {
     /// Creates a new [`Zone`] instance with the given data.
-    pub fn new(data: impl ZoneStore + 'static) -> Self {
+    pub fn new(data: impl ZoneStore<Meta = T> + 'static) -> Self {
         Zone {
             store: Arc::new(data),
         }
@@ -39,7 +39,7 @@ impl Zone {
     }
 
     /// Gets a read interface to this zone.
-    pub fn read(&self) -> Box<dyn ReadableZone> {
+    pub fn read(&self) -> Box<dyn ReadableZone<Meta = T>> {
         self.store.clone().read()
     }
 
@@ -53,7 +53,7 @@ impl Zone {
 
 //--- TryFrom<inplace::Zonefile>
 
-impl TryFrom<inplace::Zonefile> for Zone {
+impl<T: Clone + Debug + Sync + Send + 'static> TryFrom<inplace::Zonefile> for Zone<T> {
     type Error = RecordError;
 
     fn try_from(source: inplace::Zonefile) -> Result<Self, Self::Error> {
@@ -65,15 +65,15 @@ impl TryFrom<inplace::Zonefile> for Zone {
 
 //--- TryFrom<ZoneBuilder>
 
-impl From<ZoneBuilder> for Zone {
-    fn from(builder: ZoneBuilder) -> Self {
+impl<T: Clone + Debug + Sync + Send + 'static> From<ZoneBuilder<T>> for Zone<T> {
+    fn from(builder: ZoneBuilder<T>) -> Self {
         builder.build()
     }
 }
 
 //--- TryFrom<parsed::Zonefile>
 
-impl TryFrom<parsed::Zonefile> for Zone {
+impl<T: Clone + Debug + Sync + Send + 'static> TryFrom<parsed::Zonefile> for Zone<T> {
     type Error = ZoneErrors;
 
     fn try_from(source: parsed::Zonefile) -> Result<Self, Self::Error> {

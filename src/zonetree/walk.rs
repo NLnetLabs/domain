@@ -4,21 +4,33 @@ use std::vec::Vec;
 
 use bytes::Bytes;
 
-use super::Rrset;
+use super::SharedRrset;
 use crate::base::name::OwnedLabel;
 use crate::base::{Dname, DnameBuilder};
+use std::future::Future;
+use std::pin::Pin;
 
 /// A callback function invoked for each leaf node visited while walking a
 /// [`Zone`].
-pub type WalkOp = Box<dyn Fn(Dname<Bytes>, &Rrset) + Send + Sync>;
+pub type WalkOp<T> = Pin<
+    Box<
+        dyn (Fn(
+                Dname<Bytes>,
+                SharedRrset,
+                Option<T>,
+            ) -> Pin<Box<dyn Future<Output = ()> + Send + Sync>>)
+            + Send
+            + Sync,
+    >,
+>;
 
-struct WalkStateInner {
-    op: WalkOp,
+struct WalkStateInner<T> {
+    op: WalkOp<T>,
     label_stack: Mutex<Vec<OwnedLabel>>,
 }
 
-impl WalkStateInner {
-    fn new(op: WalkOp) -> Self {
+impl<T> WalkStateInner<T> {
+    fn new(op: WalkOp<T>) -> Self {
         Self {
             op,
             label_stack: Default::default(),
@@ -27,16 +39,21 @@ impl WalkStateInner {
 }
 
 #[derive(Clone)]
-pub(super) struct WalkState {
-    inner: Option<Arc<WalkStateInner>>,
+pub(super) struct WalkState<T> {
+    inner: Option<Arc<WalkStateInner<T>>>,
+    meta: Option<T>,
 }
 
-impl WalkState {
-    pub(super) const DISABLED: WalkState = WalkState { inner: None };
+impl<T: Clone> WalkState<T> {
+    pub(super) const DISABLED: WalkState<T> = WalkState {
+        inner: None,
+        meta: None,
+    };
 
-    pub(super) fn new(op: WalkOp) -> Self {
+    pub(super) fn new(op: WalkOp<T>, meta: T) -> Self {
         Self {
             inner: Some(Arc::new(WalkStateInner::new(op))),
+            meta: Some(meta),
         }
     }
 
@@ -44,7 +61,7 @@ impl WalkState {
         self.inner.is_some()
     }
 
-    pub(super) fn op(&self, rrset: &Rrset) {
+    pub(super) fn op(&self, rrset: &SharedRrset) {
         if let Some(inner) = &self.inner {
             let labels = inner.label_stack.lock().unwrap();
             let mut dname = DnameBuilder::new_bytes();
@@ -52,7 +69,7 @@ impl WalkState {
                 dname.append_label(label.as_slice()).unwrap();
             }
             let owner = dname.into_dname().unwrap();
-            (inner.op)(owner, rrset);
+            tokio::spawn((inner.op)(owner, rrset.clone(), self.meta.clone()));
         }
     }
 

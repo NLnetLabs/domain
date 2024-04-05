@@ -5,6 +5,7 @@ use crate::base::{iana::Rtype, Ttl};
 use crate::rdata::ZoneRecordData;
 use bytes::Bytes;
 use serde::{Deserialize, Serialize};
+use smallvec::SmallVec;
 use std::ops;
 use std::sync::Arc;
 use std::vec::Vec;
@@ -78,7 +79,7 @@ impl From<StoredRecord> for SharedRr {
 pub struct Rrset {
     rtype: Rtype,
     ttl: Ttl,
-    data: Vec<StoredRecordData>,
+    data: SmallVec<[StoredRecordData; 1]>,
 }
 
 impl Rrset {
@@ -87,7 +88,7 @@ impl Rrset {
         Rrset {
             rtype,
             ttl,
-            data: Vec::new(),
+            data: Default::default(),
         }
     }
 
@@ -165,7 +166,7 @@ impl From<StoredRecord> for Rrset {
         Rrset {
             rtype: record.rtype(),
             ttl: record.ttl(),
-            data: vec![record.into_data()],
+            data: smallvec::smallvec![record.into_data()],
         }
     }
 }

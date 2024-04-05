@@ -6,7 +6,7 @@ use std::sync::Arc;
 use bytes::Bytes;
 
 use crate::base::iana::{Rcode, Rtype};
-use crate::base::name::Label;
+use crate::base::name::{Label, OwnedLabel};
 use crate::base::Dname;
 use crate::zonefile::error::OutOfZone;
 use crate::zonetree::answer::{Answer, AnswerAuthority};
@@ -17,19 +17,20 @@ use crate::zonetree::{ReadableZone, Rrset, SharedRr, SharedRrset, WalkOp};
 use super::nodes::{NodeChildren, NodeRrsets, Special, ZoneApex, ZoneNode};
 use super::versioned::Version;
 use super::versioned::VersionMarker;
+use std::fmt::Debug;
 
 //------------ ReadZone ------------------------------------------------------
 
 #[derive(Clone)]
-pub struct ReadZone {
-    apex: Arc<ZoneApex>,
+pub struct ReadZone<T> {
+    apex: Arc<ZoneApex<T>>,
     version: Version,
     _version_marker: Arc<VersionMarker>,
 }
 
-impl ReadZone {
+impl<T> ReadZone<T> {
     pub(super) fn new(
-        apex: Arc<ZoneApex>,
+        apex: Arc<ZoneApex<T>>,
         version: Version,
         _version_marker: Arc<VersionMarker>,
     ) -> Self {
@@ -41,13 +42,13 @@ impl ReadZone {
     }
 }
 
-impl ReadZone {
+impl<T: Clone + Debug + Send + Sync + 'static> ReadZone<T> {
     fn query_below_apex<'l>(
         &self,
         label: &Label,
         qname: impl Iterator<Item = &'l Label> + Clone,
         qtype: Rtype,
-        walk: WalkState,
+        walk: WalkState<T>,
     ) -> NodeAnswer {
         self.query_children(self.apex.children(), label, qname, qtype, walk)
     }
@@ -57,7 +58,7 @@ impl ReadZone {
         node: &ZoneNode,
         mut qname: impl Iterator<Item = &'l Label> + Clone,
         qtype: Rtype,
-        walk: WalkState,
+        walk: WalkState<T>,
     ) -> NodeAnswer {
         if walk.enabled() {
             // Make sure we visit everything when walking the tree.
@@ -82,7 +83,7 @@ impl ReadZone {
         label: &Label,
         qname: impl Iterator<Item = &'l Label> + Clone,
         qtype: Rtype,
-        walk: WalkState,
+        walk: WalkState<T>,
     ) -> NodeAnswer {
         node.with_special(self.version, |special| match special {
             Some(Special::Cut(ref cut)) => {
@@ -115,7 +116,7 @@ impl ReadZone {
         &self,
         node: &ZoneNode,
         qtype: Rtype,
-        walk: WalkState,
+        walk: WalkState<T>,
     ) -> NodeAnswer {
         node.with_special(self.version, |special| match special {
             Some(Special::Cut(cut)) => {
@@ -133,6 +134,7 @@ impl ReadZone {
                 if walk.enabled() {
                     let mut rrset = Rrset::new(Rtype::Cname, cname.ttl());
                     rrset.push_data(cname.data().clone());
+                    let rrset = SharedRrset::new(rrset);
                     walk.op(&rrset);
                 }
                 answer
@@ -146,7 +148,7 @@ impl ReadZone {
         &self,
         rrsets: &NodeRrsets,
         qtype: Rtype,
-        walk: WalkState,
+        walk: WalkState<T>,
     ) -> NodeAnswer {
         if walk.enabled() {
             // Walk the zone, don't match by qtype.
@@ -189,10 +191,10 @@ impl ReadZone {
         label: &Label,
         qname: impl Iterator<Item = &'l Label> + Clone,
         qtype: Rtype,
-        walk: WalkState,
+        walk: WalkState<T>,
     ) -> NodeAnswer {
         if walk.enabled() {
-            children.walk(walk, |walk, (label, node)| {
+            children.walk(walk, |walk: WalkState<T>, (label, node): (&OwnedLabel, _)| {
                 walk.push(*label);
                 self.query_node(
                     node,
@@ -227,7 +229,9 @@ impl ReadZone {
 
 //--- impl ReadableZone
 
-impl ReadableZone for ReadZone {
+impl<T: Clone + Debug + Send + Sync + 'static> ReadableZone for ReadZone<T> {
+    type Meta = T;
+
     fn is_async(&self) -> bool {
         false
     }
@@ -248,7 +252,7 @@ impl ReadableZone for ReadZone {
         Ok(answer.into_answer(self))
     }
 
-    fn walk(&self, op: WalkOp) {
+    fn walk(&self, op: WalkOp<T>, meta: Self::Meta) {
         // https://datatracker.ietf.org/doc/html/rfc8482 notes that the ANY
         // query type is problematic and should be answered as minimally as
         // possible. Rather than use ANY internally here to achieve a walk, as
@@ -257,7 +261,7 @@ impl ReadableZone for ReadZone {
         // requested. We still have to pass an Rtype but it won't be used for
         // matching when in walk mode, so we set it to Any as it most closely
         // matches our intent and will be ignored anyway.
-        let walk = WalkState::new(op);
+        let walk = WalkState::new(op, meta);
         self.query_rrsets(self.apex.rrsets(), Rtype::Any, walk.clone());
         self.query_below_apex(Label::root(), iter::empty(), Rtype::Any, walk);
     }
@@ -315,7 +319,7 @@ impl NodeAnswer {
         }
     }
 
-    fn into_answer(mut self, zone: &ReadZone) -> Answer {
+    fn into_answer<T: Clone + Debug + Sync + Send + 'static>(mut self, zone: &ReadZone<T>) -> Answer {
         if self.add_soa {
             if let Some(soa) = zone.apex.get_soa(zone.version) {
                 self.answer.set_authority(AnswerAuthority::new(

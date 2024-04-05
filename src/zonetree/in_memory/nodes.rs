@@ -25,20 +25,23 @@ use crate::zonetree::{
 use super::read::ReadZone;
 use super::versioned::{Version, Versioned};
 use super::write::{WriteZone, ZoneVersions};
+use std::fmt::Debug;
+use core::marker::PhantomData;
 
 //------------ ZoneApex ------------------------------------------------------
 
 #[derive(Debug)]
-pub struct ZoneApex {
+pub struct ZoneApex<T> {
     apex_name: StoredDname,
     class: Class,
     rrsets: NodeRrsets,
     children: NodeChildren,
     update_lock: Arc<Mutex<()>>,
     versions: Arc<RwLock<ZoneVersions>>,
+    _phantom_data: PhantomData<T>,
 }
 
-impl ZoneApex {
+impl<T: Clone + Debug + Send + Sync + 'static> ZoneApex<T> {
     /// Creates a new apex.
     pub fn new(apex_name: StoredDname, class: Class) -> Self {
         ZoneApex {
@@ -48,6 +51,7 @@ impl ZoneApex {
             children: Default::default(),
             update_lock: Default::default(),
             versions: Default::default(),
+            _phantom_data: PhantomData,
         }
     }
 
@@ -66,6 +70,7 @@ impl ZoneApex {
             children,
             update_lock: Default::default(),
             versions: Arc::new(RwLock::new(versions)),
+            _phantom_data: PhantomData,
         }
     }
 
@@ -121,7 +126,9 @@ impl ZoneApex {
 
 //--- impl ZoneStore
 
-impl ZoneStore for ZoneApex {
+impl<T: Clone + Debug + Send + Sync + 'static> ZoneStore for ZoneApex<T> {
+    type Meta = T;
+
     fn class(&self) -> Class {
         self.class
     }
@@ -130,7 +137,7 @@ impl ZoneStore for ZoneApex {
         &self.apex_name
     }
 
-    fn read(self: Arc<Self>) -> Box<dyn ReadableZone> {
+    fn read(self: Arc<Self>) -> Box<dyn ReadableZone<Meta = T>> {
         let (version, marker) = self.versions().read().current().clone();
         Box::new(ReadZone::new(self, version, marker))
     }
@@ -150,16 +157,16 @@ impl ZoneStore for ZoneApex {
 
 //--- impl From<&'a ZoneApex>
 
-impl<'a> From<&'a ZoneApex> for CnameError {
-    fn from(_: &'a ZoneApex) -> CnameError {
+impl<'a, T> From<&'a ZoneApex<T>> for CnameError {
+    fn from(_: &'a ZoneApex<T>) -> CnameError {
         CnameError::CnameAtApex
     }
 }
 
 //--- impl From<&'a ZoneApex>
 
-impl<'a> From<&'a ZoneApex> for ZoneCutError {
-    fn from(_: &'a ZoneApex) -> ZoneCutError {
+impl<'a, T> From<&'a ZoneApex<T>> for ZoneCutError {
+    fn from(_: &'a ZoneApex<T>) -> ZoneCutError {
         ZoneCutError::ZoneCutAtApex
     }
 }
@@ -394,10 +401,10 @@ impl NodeChildren {
             .for_each(|item| item.clean(version))
     }
 
-    pub(super) fn walk(
+    pub(super) fn walk<T: Clone>(
         &self,
-        walk: WalkState,
-        op: impl Fn(WalkState, (&OwnedLabel, &Arc<ZoneNode>)),
+        walk: WalkState<T>,
+        op: impl Fn(WalkState<T>, (&OwnedLabel, &Arc<ZoneNode>)),
     ) {
         for child in self.children.read().iter() {
             (op)(walk.clone(), child)

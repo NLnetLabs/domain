@@ -23,6 +23,14 @@ use crate::base::wire::ParseError;
 use crate::base::{Message, StreamTarget};
 
 use super::message::Request;
+use core::sync::atomic::AtomicBool;
+use core::sync::atomic::Ordering::SeqCst;
+use tokio::sync::watch::{Receiver, Sender};
+use tokio::sync::{
+    watch, AcquireError, Mutex, OwnedMutexGuard, OwnedSemaphorePermit,
+    Semaphore, SemaphorePermit,
+};
+use tracing::debug;
 
 //------------ Service -------------------------------------------------------
 
@@ -525,6 +533,15 @@ where
         Self(TransactionInner::PendingStream(fut))
     }
 
+    pub fn is_stream(&self) -> bool {
+        match self.0 {
+            TransactionInner::Immediate(_) => false,
+            TransactionInner::Single(_) => false,
+            TransactionInner::PendingStream(_) => true,
+            TransactionInner::Stream(_) => true,
+        }
+    }
+
     /// Take the next response from the transaction, if any.
     ///
     /// This function provides a single way to take futures from the
@@ -544,13 +561,18 @@ where
             },
 
             TransactionInner::PendingStream(stream_fut) => {
-                let mut stream = stream_fut.await;
+                let stream = stream_fut.await;
                 let next = stream.next().await;
                 self.0 = TransactionInner::Stream(stream);
                 next
             }
 
-            TransactionInner::Stream(stream) => stream.next().await,
+            TransactionInner::Stream(stream) => {
+                stream.release_rate_permit_issuance();
+                let res = stream.next().await;
+                stream.hold_rate_permit_issuance().await;
+                res
+            }
         }
     }
 }
@@ -608,27 +630,123 @@ type Stream<RequestOctets, Target> = TransactionStream<
 pub struct TransactionStream<Item> {
     /// An ordered sequence of futures that will resolve to responses to be
     /// sent back to the client.
-    stream: FuturesOrdered<Pin<Box<dyn Future<Output = Item> + Send>>>,
+    rate_permits_issuance_hold_lock: Option<OwnedMutexGuard<Arc<Semaphore>>>,
+    rate_permits: Arc<Mutex<Arc<Semaphore>>>,
+    must_wait: Arc<AtomicBool>,
+    waiting: Arc<AtomicBool>,
+    watch_rx: Arc<Mutex<Receiver<()>>>,
+    watch_tx: Sender<()>,
+    stream: Arc<
+        Mutex<FuturesOrdered<Pin<Box<dyn Future<Output = Item> + Send>>>>,
+    >,
+}
+
+impl<Item> Clone for TransactionStream<Item> {
+    fn clone(&self) -> Self {
+        Self {
+            rate_permits_issuance_hold_lock: None,
+            rate_permits: self.rate_permits.clone(),
+            must_wait: self.must_wait.clone(),
+            waiting: self.waiting.clone(),
+            watch_rx: self.watch_rx.clone(),
+            watch_tx: self.watch_tx.clone(),
+            stream: self.stream.clone(),
+        }
+    }
 }
 
 impl<Item> TransactionStream<Item> {
+    pub async fn wait(&mut self, new_rate_permits: usize) {
+        debug!("Wait mode enabled");
+        self.rate_permits.lock().await.add_permits(new_rate_permits);
+        self.must_wait.store(true, SeqCst);
+    }
+
+    pub async fn acquire_rate_permit(
+        &self,
+    ) -> Result<OwnedSemaphorePermit, AcquireError> {
+        // TODO: Don't leak semaphore types here
+        debug!("Producer waiting for permit.");
+        let lock = &self.rate_permits.lock().await;
+        let semaphore_arc = lock.deref();
+        let owned_permit_res = semaphore_arc.clone().acquire_owned().await;
+        debug!("  Producer acquired permit.");
+        owned_permit_res
+    }
+
+    pub fn done(&self) {
+        debug!("Wait mode cleared");
+        self.must_wait.store(false, SeqCst);
+        self.watch_tx.send(()).unwrap();
+    }
+
     /// Add a response future to a transaction stream.
-    pub fn push<T: Future<Output = Item> + Send + 'static>(
-        &mut self,
+    pub async fn push<T: Future<Output = Item> + Send + 'static>(
+        &self,
         fut: T,
     ) {
-        self.stream.push_back(fut.boxed());
+        debug!(
+            "Pushing item: wait mode={}, waiting={}, len={}",
+            self.must_wait.load(SeqCst),
+            self.waiting.load(SeqCst),
+            self.stream.lock().await.len()
+        );
+        self.stream.lock().await.push_back(fut.boxed());
+        if self.waiting.load(SeqCst) {
+            self.watch_tx.send(()).unwrap();
+        }
+    }
+
+    async fn hold_rate_permit_issuance(&mut self) {
+        debug!("Server waiting for hold rate permit issuance lock");
+        self.rate_permits_issuance_hold_lock =
+            Some(self.rate_permits.clone().lock_owned().await);
+        debug!("Server acquired hold rate permit issuance lock");
+    }
+
+    fn release_rate_permit_issuance(&mut self) {
+        debug!("Server released hold rate permit issuance lock");
+        self.rate_permits_issuance_hold_lock = None;
     }
 
     /// Fetch the next message from the stream, if any.
-    async fn next(&mut self) -> Option<Item> {
-        self.stream.next().await
+    async fn next(&self) -> Option<Item> {
+        if !self.must_wait.load(SeqCst) {
+            debug!("Disabling wait mode");
+            self.watch_tx.send(()).unwrap();
+        }
+        debug!(
+            "Fetching next stream item: len={}",
+            self.stream.lock().await.len()
+        );
+        let res = self.stream.lock().await.next().await;
+        if res.is_none() && self.must_wait.load(SeqCst) {
+            debug!("  No next item, but wait mode enabled. Waiting.");
+            self.waiting.store(true, SeqCst);
+            self.watch_rx.lock().await.changed().await.unwrap();
+            self.waiting.store(false, SeqCst);
+            debug!("  Waiting complete");
+            let res = self.stream.lock().await.next().await;
+            debug!("  Post wait item is Some: {}", res.is_some());
+            res
+        } else {
+            debug!("  Fetched item is Some: {}", res.is_some());
+            res
+        }
     }
 }
 
 impl<Item> Default for TransactionStream<Item> {
     fn default() -> Self {
+        let (watch_tx, mut watch_rx) = watch::channel(());
+        watch_rx.mark_unchanged();
         Self {
+            rate_permits_issuance_hold_lock: Default::default(),
+            rate_permits: Arc::new(Mutex::new(Arc::new(Semaphore::new(0)))),
+            must_wait: Default::default(),
+            waiting: Default::default(),
+            watch_rx: Arc::new(Mutex::new(watch_rx)),
+            watch_tx,
             stream: Default::default(),
         }
     }

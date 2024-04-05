@@ -21,20 +21,23 @@ use crate::zonetree::{SharedRrset, WritableZone, WritableZoneNode};
 
 use super::nodes::{Special, ZoneApex, ZoneNode};
 use super::versioned::{Version, VersionMarker};
+use core::marker::PhantomData;
+use std::fmt::Debug;
 
 //------------ WriteZone -----------------------------------------------------
 
-pub struct WriteZone {
-    apex: Arc<ZoneApex>,
+pub struct WriteZone<T: Clone + Debug + Sync + Send + 'static> {
+    apex: Arc<ZoneApex<T>>,
     _lock: Option<OwnedMutexGuard<()>>,
     version: Version,
     dirty: bool,
     zone_versions: Arc<RwLock<ZoneVersions>>,
+    _phantom_data: PhantomData<T>,
 }
 
-impl WriteZone {
+impl<T: Clone + Debug + Sync + Send> WriteZone<T> {
     pub(super) fn new(
-        apex: Arc<ZoneApex>,
+        apex: Arc<ZoneApex<T>>,
         _lock: OwnedMutexGuard<()>,
         version: Version,
         zone_versions: Arc<RwLock<ZoneVersions>>,
@@ -45,13 +48,14 @@ impl WriteZone {
             version,
             dirty: false,
             zone_versions,
+            _phantom_data: PhantomData,
         }
     }
 }
 
 //--- impl Clone
 
-impl Clone for WriteZone {
+impl<T: Clone + Debug + Sync + Send> Clone for WriteZone<T> {
     fn clone(&self) -> Self {
         Self {
             apex: self.apex.clone(),
@@ -59,13 +63,14 @@ impl Clone for WriteZone {
             version: self.version,
             dirty: self.dirty,
             zone_versions: self.zone_versions.clone(),
+            _phantom_data: PhantomData,
         }
     }
 }
 
 //--- impl Drop
 
-impl Drop for WriteZone {
+impl<T: Clone + Debug + Sync + Send + 'static> Drop for WriteZone<T> {
     fn drop(&mut self) {
         if self.dirty {
             self.apex.rollback(self.version);
@@ -76,7 +81,7 @@ impl Drop for WriteZone {
 
 //--- impl WritableZone
 
-impl WritableZone for WriteZone {
+impl<T: Clone + Debug + Sync + Send + 'static> WritableZone for WriteZone<T> {
     #[allow(clippy::type_complexity)]
     fn open(
         &self,
@@ -114,23 +119,23 @@ impl WritableZone for WriteZone {
 
 //------------ WriteNode ------------------------------------------------------
 
-pub struct WriteNode {
+pub struct WriteNode<T: Clone + Debug + Sync + Send + 'static> {
     /// The writer for the zone we are working with.
-    zone: WriteZone,
+    zone: WriteZone<T>,
 
     /// The node we are updating.
-    node: Either<Arc<ZoneApex>, Arc<ZoneNode>>,
+    node: Either<Arc<ZoneApex<T>>, Arc<ZoneNode>>,
 }
 
-impl WriteNode {
-    fn new_apex(zone: WriteZone) -> Result<Self, io::Error> {
+impl<T: Clone + Debug + Sync + Send> WriteNode<T> {
+    fn new_apex(zone: WriteZone<T>) -> Result<Self, io::Error> {
         let apex = zone.apex.clone();
         Ok(WriteNode {
             zone,
             node: Either::Left(apex),
         })
     }
-    fn update_child(&self, label: &Label) -> Result<WriteNode, io::Error> {
+    fn update_child(&self, label: &Label) -> Result<WriteNode<T>, io::Error> {
         let children = match self.node {
             Either::Left(ref apex) => apex.children(),
             Either::Right(ref node) => node.children(),
@@ -254,7 +259,7 @@ impl WriteNode {
 
 //--- impl WritableZoneNode
 
-impl WritableZoneNode for WriteNode {
+impl<T: Clone + Debug + Sync + Send + 'static> WritableZoneNode for WriteNode<T> {
     #[allow(clippy::type_complexity)]
     fn update_child(
         &self,
@@ -341,7 +346,7 @@ impl fmt::Display for WriteApexError {
             WriteApexError::NotAllowed => {
                 f.write_str("operation not allowed")
             }
-            WriteApexError::Io(ref err) => err.fmt(f),
+            WriteApexError::Io(ref err) => std::fmt::Display::fmt(err, f),
         }
     }
 }

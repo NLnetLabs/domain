@@ -30,6 +30,8 @@ use super::{SharedRr, SharedRrset, StoredDname, WalkOp};
 /// A [`ZoneStore`] provides a way to read [`Zone`]s from and write `Zone`s to
 /// a particular backing store implementation
 pub trait ZoneStore: Debug + Sync + Send {
+    type Meta;
+
     /// Returns the class of the zone.
     fn class(&self) -> Class;
 
@@ -37,7 +39,7 @@ pub trait ZoneStore: Debug + Sync + Send {
     fn apex_name(&self) -> &StoredDname;
 
     /// Get a read interface to this store.
-    fn read(self: Arc<Self>) -> Box<dyn ReadableZone>;
+    fn read(self: Arc<Self>) -> Box<dyn ReadableZone<Meta = Self::Meta>>;
 
     /// Get a write interface to this store.
     fn write(
@@ -52,6 +54,8 @@ pub trait ZoneStore: Debug + Sync + Send {
 /// A `[ReadableZone]` mplementation provides (a)synchronous read access to
 /// the [`ZoneStore`] backing storage for a [`Zone`].
 pub trait ReadableZone: Send {
+    type Meta;
+
     /// Returns true if ths `_async` variants of the functions offered by this
     /// trait should be used by callers instead of the non-`_async`
     /// equivalents.
@@ -81,7 +85,7 @@ pub trait ReadableZone: Send {
     ///
     /// This function visits every node in the tree, synchronously, invoking
     /// the given callback function at every leaf node found.
-    fn walk(&self, _op: WalkOp);
+    fn walk(&self, _op: WalkOp<Self::Meta>, meta: Self::Meta);
 
     //--- Async variants
 
@@ -97,9 +101,10 @@ pub trait ReadableZone: Send {
     /// Asynchronous variant of `walk()`.
     fn walk_async(
         &self,
-        op: WalkOp,
+        op: WalkOp<Self::Meta>,
+        meta: Self::Meta
     ) -> Pin<Box<dyn Future<Output = ()> + Send>> {
-        self.walk(op);
+        self.walk(op, meta);
         Box::pin(ready(()))
     }
 }

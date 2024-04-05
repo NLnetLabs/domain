@@ -36,7 +36,7 @@ proc-macro2    = { version = "1.0.69", optional = true } # Force proc-macro2 to 
 ring           = { version = "0.17", optional = true }
 serde          = { version = "1.0.130", optional = true, features = ["derive"] }
 siphasher      = { version = "1", optional = true }
-smallvec       = { version = "1.3", optional = true }
+smallvec       = { version = "1.3", optional = true, features = ["union", "serde"] }
 tokio          = { version = "1.33", optional = true, features = ["io-util", "macros", "net", "time", "sync", "rt-multi-thread" ] }
 tokio-rustls   = { version = "0.24", optional = true, features = [] }
 tracing        = { version = "0.1.40", optional = true }

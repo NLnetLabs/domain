@@ -15,6 +15,7 @@ use crate::base::ToDname;
 use crate::rdata::ZoneRecordData;
 use crate::zonetree::ZoneBuilder;
 use crate::zonetree::{Rrset, SharedRr, StoredDname, StoredRecord};
+use std::fmt::Debug;
 
 //------------ Zonefile ------------------------------------------------------
 
@@ -183,11 +184,11 @@ impl Zonefile {
     }
 }
 
-impl TryFrom<Zonefile> for ZoneBuilder {
+impl<T: Clone + Debug + Sync + Send + 'static> TryFrom<Zonefile> for ZoneBuilder<T> {
     type Error = ZoneErrors;
 
     fn try_from(mut zonefile: Zonefile) -> Result<Self, Self::Error> {
-        let mut builder = ZoneBuilder::new(
+        let mut builder = ZoneBuilder::<T>::new(
             zonefile.origin.unwrap(),
             zonefile.class.unwrap(),
         );

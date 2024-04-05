@@ -819,11 +819,49 @@ where
     /// Process the result from the middleware -> service -> middleware call
     /// tree.
     fn process_call_result(
+        is_stream: bool,
         call_result: CallResult<Buf::Output, Svc::Target>,
         _addr: SocketAddr,
         tx: Self::Meta,
         metrics: Arc<ServerMetrics>,
     ) {
+        if is_stream {
+            // Don't abort if the queue is full, streams should be allowed to
+            // complete, but also don't return immediately, only return when
+            // the queue has space, so that we apply back pressure to the
+            // transaction stream producer. Use block_in_place() so that we
+            // don't interfere with Tokio task scheduling if we wait here for
+            // a while.
+            return tokio::task::block_in_place(move || {
+                let mut call_result = call_result;
+                loop {
+                    match tx.try_send(call_result) {
+                        Ok(()) => {
+                            debug!("Message enqueued");
+                            metrics.num_pending_writes.store(
+                                tx.max_capacity() - tx.capacity(),
+                                Ordering::Relaxed,
+                            );
+                            break;
+                        }
+            
+                        Err(TrySendError::Closed(_msg)) => {
+                            // TODO: How should we properly communicate this to the operator?
+                            error!("Unable to queue message for sending: server is shutting down.");
+                            break;
+                        }
+            
+                        Err(TrySendError::Full(msg)) => {
+                            // Wait until there is space.
+                            debug!("Queue full, sleeping...");
+                            std::thread::yield_now();
+                            call_result = msg;
+                        }
+                    }
+                }
+            });
+        }
+
         // We can't send in a spawned async task as then we would just
         // accumlate tasks even if the target queue is full. We can't call
         // `tx.blocking_send()` as that would block the Tokio runtime. So

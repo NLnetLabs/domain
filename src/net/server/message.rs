@@ -288,6 +288,7 @@ where
     ///
     /// The response is the form of a [`CallResult`].
     fn process_call_result(
+        is_stream: bool,
         call_result: CallResult<Buf::Output, Svc::Target>,
         addr: SocketAddr,
         state: Self::Meta,
@@ -486,6 +487,7 @@ fn do_middleware_postprocessing<Buf, Svc, Server>(
             client = %request.client_addr(),
         );
         let _guard = span.enter();
+        let is_stream = response_txn.is_stream();
 
         while let Some(Ok(mut call_result)) = response_txn.next().await {
             if let Some(response) = call_result.get_response_mut() {
@@ -499,6 +501,7 @@ fn do_middleware_postprocessing<Buf, Svc, Server>(
             let call_result = call_result.with_request(request.clone());
 
             Server::process_call_result(
+                is_stream,
                 call_result,
                 request.client_addr(),
                 meta.clone(),
