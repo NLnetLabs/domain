@@ -71,8 +71,8 @@ impl Header {
     /// Creates a new header.
     ///
     /// The new header has all fields as either zero or false. Thus, the
-    /// opcode will be [`Opcode::Query`] and the response code will be
-    /// [`Rcode::NoError`].
+    /// opcode will be [`Opcode::QUERY`] and the response code will be
+    /// [`Rcode::NOERROR`].
     #[must_use]
     pub fn new() -> Self {
         Self::default()
@@ -155,7 +155,7 @@ impl Header {
     ///
     /// This field specifies the kind of query a message contains. See
     /// the [`Opcode`] type for more information on the possible values and
-    /// their meaning. Normal queries have the variant [`Opcode::Query`]
+    /// their meaning. Normal queries have the variant [`Opcode::QUERY`]
     /// which is also the default value when creating a new header.
     #[must_use]
     pub fn opcode(self) -> Opcode {

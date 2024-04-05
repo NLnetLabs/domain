@@ -28,7 +28,9 @@ use super::{SharedRr, SharedRrset, StoredDname, WalkOp};
 /// A [`Zone`] storage interface.
 ///
 /// A [`ZoneStore`] provides a way to read [`Zone`]s from and write `Zone`s to
-/// a particular backing store implementation
+/// a particular backing store implementation.
+/// 
+/// [`Zone`]: super::Zone
 pub trait ZoneStore: Debug + Sync + Send {
     /// Returns the class of the zone.
     fn class(&self) -> Class;
@@ -49,8 +51,10 @@ pub trait ZoneStore: Debug + Sync + Send {
 
 /// A read interface to a [`Zone`].
 ///
-/// A `[ReadableZone]` mplementation provides (a)synchronous read access to
+/// A [`ReadableZone`] mplementation provides (a)synchronous read access to
 /// the [`ZoneStore`] backing storage for a [`Zone`].
+/// 
+/// [`Zone`]: super::Zone
 pub trait ReadableZone: Send {
     /// Returns true if ths `_async` variants of the functions offered by this
     /// trait should be used by callers instead of the non-`_async`
@@ -107,6 +111,8 @@ pub trait ReadableZone: Send {
 //------------ WritableZone --------------------------------------------------
 
 /// An asynchronous write interface to a [`Zone`].
+/// 
+/// [`Zone`]: super::Zone
 pub trait WritableZone {
     /// Start a write operation for the zone.
     #[allow(clippy::type_complexity)]
@@ -134,6 +140,8 @@ pub trait WritableZone {
 //------------ WritableZoneNode ----------------------------------------------
 
 /// Am asynchronous write interface to a particular node in a [`ZoneTree`].
+/// 
+/// [`ZoneTree`]: super::ZoneTree
 pub trait WritableZoneNode {
     /// Get a write interface to a child node of this node.
     #[allow(clippy::type_complexity)]
