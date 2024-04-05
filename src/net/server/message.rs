@@ -1,10 +1,9 @@
 //! Support for working with DNS messages in servers.
 use core::ops::ControlFlow;
-use core::sync::atomic::Ordering;
 use core::time::Duration;
 
 use std::net::SocketAddr;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use octseq::Octets;
 use tokio::time::Instant;
@@ -23,9 +22,26 @@ use crate::base::wire::Composer;
 //------------ UdpTransportContext -------------------------------------------
 
 /// Request context for a UDP transport.
-#[derive(Debug, Copy, Clone)]
+#[derive(Clone, Debug)]
 pub struct UdpTransportContext {
-    /// Optional maximum response size.
+    /// Optional maximum response size hint.
+    max_response_size_hint: Arc<Mutex<Option<u16>>>,
+}
+
+impl UdpTransportContext {
+    /// Creates a new UDP specific transport context.
+    pub fn new(max_response_size_hint: Option<u16>) -> Self {
+        let max_response_size_hint =
+            Arc::new(Mutex::new(max_response_size_hint));
+
+        Self {
+            max_response_size_hint,
+        }
+    }
+}
+
+impl UdpTransportContext {
+    /// Optional maximum response size hint.
     ///
     /// `None` if the server had no specific configuration regarding maximum
     /// allowed response size, `Some(n)` otherwise where `n` is the maximum
@@ -39,14 +55,36 @@ pub struct UdpTransportContext {
     ///     crate::net::server::middleware::processors::edns::EdnsMiddlewareProcessor
     /// [`MandatoryMiddlewareProcessor`]:
     ///     crate::net::server::middleware::processors::mandatory::MandatoryMiddlewareProcessor
-    pub max_response_size_hint: Option<u16>,
+    pub fn max_response_size_hint(&self) -> Option<u16> {
+        *self.max_response_size_hint.lock().unwrap()
+    }
+
+    /// Sets the maximum response hint.
+    pub fn set_max_response_size_hint(
+        &self,
+        max_response_size_hint: Option<u16>,
+    ) {
+        *self.max_response_size_hint.lock().unwrap() = max_response_size_hint;
+    }
 }
 
 //------------ NonUdpTransportContext ----------------------------------------
 
 /// Request context for a non-UDP transport.
-#[derive(Debug, Copy, Clone)]
+#[derive(Clone, Copy, Debug)]
 pub struct NonUdpTransportContext {
+    /// Optional indication of any idle timeout relevant to the request.
+    idle_timeout: Option<Duration>,
+}
+
+impl NonUdpTransportContext {
+    /// Creates a new non-UDP specific transport context.
+    pub fn new(idle_timeout: Option<Duration>) -> Self {
+        Self { idle_timeout }
+    }
+}
+
+impl NonUdpTransportContext {
     /// Optional indication of any idle timeout relevant to the request.
     ///
     /// A connection idle timeout such as the [RFC 7766 section 6.2.3] TCP
@@ -64,7 +102,9 @@ pub struct NonUdpTransportContext {
     ///
     /// [`EdnsMiddlewareProcessor`]:
     ///     crate::net::server::middleware::processors::edns::EdnsMiddlewareProcessor
-    pub idle_timeout: Option<Duration>,
+    pub fn idle_timeout(&self) -> Option<Duration> {
+        self.idle_timeout
+    }
 }
 
 //------------ TransportSpecificContext --------------------------------------
@@ -78,7 +118,7 @@ pub struct NonUdpTransportContext {
 /// Context values may be adjusted by processors in the [`MiddlewareChain`]
 /// and/or by the [`Service`] that receives the request, in order to influence
 /// the behaviour of other processors, the service or the server.
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Clone)]
 pub enum TransportSpecificContext {
     /// Context for a UDP transport.
     Udp(UdpTransportContext),
@@ -109,7 +149,7 @@ impl TransportSpecificContext {
 /// message itself but also on the circumstances surrounding its creation and
 /// delivery.
 #[derive(Debug)]
-pub struct Request<T> {
+pub struct Request<Octs: AsRef<[u8]>> {
     /// The network address of the connected client.
     client_addr: std::net::SocketAddr,
 
@@ -117,19 +157,19 @@ pub struct Request<T> {
     received_at: Instant,
 
     /// The message that was received.
-    message: Arc<T>,
+    message: Arc<Message<Octs>>,
 
     /// Properties of the request specific to the server and transport
     /// protocol via which it was received.
     transport_specific: TransportSpecificContext,
 }
 
-impl<T> Request<T> {
+impl<Octs: AsRef<[u8]>> Request<Octs> {
     /// Creates a new request wrapper around a message along with its context.
     pub fn new(
         client_addr: std::net::SocketAddr,
         received_at: Instant,
-        message: T,
+        message: Message<Octs>,
         transport_specific: TransportSpecificContext,
     ) -> Self {
         Self {
@@ -146,13 +186,8 @@ impl<T> Request<T> {
     }
 
     /// Get a reference to the transport specific context
-    pub fn transport(&self) -> &TransportSpecificContext {
+    pub fn transport_ctx(&self) -> &TransportSpecificContext {
         &self.transport_specific
-    }
-
-    /// Get a mutable reference to the transport specific context
-    pub fn transport_mut(&mut self) -> &mut TransportSpecificContext {
-        &mut self.transport_specific
     }
 
     /// From which IP address and port number was this message received?
@@ -161,20 +196,20 @@ impl<T> Request<T> {
     }
 
     /// Read access to the inner message
-    pub fn message(&self) -> &Arc<T> {
+    pub fn message(&self) -> &Arc<Message<Octs>> {
         &self.message
     }
 }
 
 //--- Clone
 
-impl<T> Clone for Request<T> {
+impl<Octs: AsRef<[u8]>> Clone for Request<Octs> {
     fn clone(&self) -> Self {
         Self {
             client_addr: self.client_addr,
             received_at: self.received_at,
             message: Arc::clone(&self.message),
-            transport_specific: self.transport_specific,
+            transport_specific: self.transport_specific.clone(),
         }
     }
 }
@@ -278,7 +313,7 @@ where
         request: Message<Buf::Output>,
         received_at: Instant,
         addr: SocketAddr,
-    ) -> Request<Message<Buf::Output>>;
+    ) -> Request<Buf::Output>;
 
     /// Finalize a response.
     ///
@@ -288,8 +323,8 @@ where
     ///
     /// The response is the form of a [`CallResult`].
     fn process_call_result(
-        call_result: CallResult<Buf::Output, Svc::Target>,
-        addr: SocketAddr,
+        request: &Request<Buf::Output>,
+        call_result: CallResult<Svc::Target>,
         state: Self::Meta,
         metrics: Arc<ServerMetrics>,
     );
@@ -325,11 +360,10 @@ where
         ServiceError::InternalError
     })?;
 
-    let mut request =
-        server.add_context_to_request(message, received_at, addr);
+    let request = server.add_context_to_request(message, received_at, addr);
 
     let preprocessing_result = do_middleware_preprocessing::<Buf, Svc>(
-        &mut request,
+        &request,
         &middleware_chain,
         &metrics,
     )?;
@@ -357,15 +391,12 @@ where
 #[allow(clippy::type_complexity)]
 fn do_service_call<Buf, Svc>(
     preprocessing_result: ControlFlow<(
-        Transaction<Buf::Output, Svc::Target, Svc::Future>,
+        Transaction<Svc::Target, Svc::Future>,
         usize,
     )>,
-    request: &Request<Message<<Buf as BufSource>::Output>>,
+    request: &Request<<Buf as BufSource>::Output>,
     svc: &Svc,
-) -> (
-    Transaction<Buf::Output, Svc::Target, Svc::Future>,
-    Option<usize>,
-)
+) -> (Transaction<Svc::Target, Svc::Future>, Option<usize>)
 where
     Buf: BufSource,
     Buf::Output: Octets,
@@ -374,27 +405,24 @@ where
 {
     match preprocessing_result {
         ControlFlow::Continue(()) => {
-            let request_for_svc = request.clone();
-
             let res = if enabled!(Level::INFO) {
                 let span = info_span!("svc-call",
-                    msg_id = request_for_svc.message().header().id(),
-                    client = %request_for_svc.client_addr(),
+                    msg_id = request.message().header().id(),
+                    client = %request.client_addr(),
                 );
                 let _guard = span.enter();
-                svc.call(request_for_svc)
+                svc.call(request.clone())
             } else {
-                svc.call(request_for_svc)
+                svc.call(request.clone())
             };
 
             // Handle any error returned by the service.
-            let request_for_error = request;
             let txn = res.unwrap_or_else(|err| {
                 if matches!(err, ServiceError::InternalError) {
                     error!("Service error while processing request: {err}");
                 }
 
-                let mut response = start_reply(request_for_error);
+                let mut response = start_reply(request);
                 response.header_mut().set_rcode(err.rcode());
                 let call_result = CallResult::new(response.additional());
                 Transaction::immediate(Ok(call_result))
@@ -424,11 +452,11 @@ where
 /// ([`Transaction::stream`]) to post-process.
 #[allow(clippy::type_complexity)]
 fn do_middleware_preprocessing<Buf, Svc>(
-    request: &mut Request<Message<Buf::Output>>,
+    request: &Request<Buf::Output>,
     middleware_chain: &MiddlewareChain<Buf::Output, Svc::Target>,
     metrics: &Arc<ServerMetrics>,
 ) -> Result<
-    ControlFlow<(Transaction<Buf::Output, Svc::Target, Svc::Future>, usize)>,
+    ControlFlow<(Transaction<Svc::Target, Svc::Future>, usize)>,
     ServiceError,
 >
 where
@@ -444,9 +472,7 @@ where
     );
     let _guard = span.enter();
 
-    metrics
-        .num_inflight_requests
-        .fetch_add(1, Ordering::Relaxed);
+    metrics.inc_num_inflight_requests();
 
     let pp_res = middleware_chain.preprocess(request);
 
@@ -464,10 +490,10 @@ where
 /// any, then passed to [`Self::process_call_result`] for final processing.
 #[allow(clippy::type_complexity)]
 fn do_middleware_postprocessing<Buf, Svc, Server>(
-    request: Request<Message<Buf::Output>>,
+    request: Request<Buf::Output>,
     meta: Server::Meta,
     middleware_chain: MiddlewareChain<Buf::Output, Svc::Target>,
-    mut response_txn: Transaction<Buf::Output, Svc::Target, Svc::Future>,
+    mut response_txn: Transaction<Svc::Target, Svc::Future>,
     last_processor_id: Option<usize>,
     metrics: Arc<ServerMetrics>,
 ) where
@@ -494,18 +520,14 @@ fn do_middleware_postprocessing<Buf, Svc, Server>(
                 );
             }
 
-            let call_result = call_result.with_request(request.clone());
-
             Server::process_call_result(
+                &request,
                 call_result,
-                request.client_addr(),
                 meta.clone(),
                 metrics.clone(),
             );
         }
 
-        metrics
-            .num_inflight_requests
-            .fetch_sub(1, Ordering::Relaxed);
+        metrics.dec_num_inflight_requests();
     });
 }

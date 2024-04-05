@@ -265,7 +265,7 @@ impl<Target: Composer> MessageBuilder<Target> {
     ) -> Result<AnswerBuilder<Target>, PushError> {
         self.header_mut().set_random_id();
         let mut builder = self.question();
-        builder.push((apex, Rtype::Axfr))?;
+        builder.push((apex, Rtype::AXFR))?;
         Ok(builder.answer())
     }
 }
@@ -526,7 +526,7 @@ impl<Target: Composer> QuestionBuilder<Target> {
     /// let mut msg = MessageBuilder::new_vec().question();
     /// msg.push(Question::new_in(Dname::root_ref(), Rtype::A)).unwrap();
     /// msg.push(&Question::new_in(Dname::root_ref(), Rtype::A)).unwrap();
-    /// msg.push((Dname::root_ref(), Rtype::A, Class::In)).unwrap();
+    /// msg.push((Dname::root_ref(), Rtype::A, Class::IN)).unwrap();
     /// msg.push((Dname::root_ref(), Rtype::A)).unwrap();
     /// ```
     pub fn push(
@@ -778,12 +778,12 @@ impl<Target: Composer> AnswerBuilder<Target> {
     ///
     /// let mut msg = MessageBuilder::new_vec().answer();
     /// let record = Record::new(
-    ///     Dname::root_ref(), Class::In, Ttl::from_secs(86400), A::from_octets(192, 0, 2, 1)
+    ///     Dname::root_ref(), Class::IN, Ttl::from_secs(86400), A::from_octets(192, 0, 2, 1)
     /// );
     /// msg.push(&record).unwrap();
     /// msg.push(record).unwrap();
     /// msg.push(
-    ///     (Dname::root_ref(), Class::In, 86400, A::from_octets(192, 0, 2, 1))
+    ///     (Dname::root_ref(), Class::IN, 86400, A::from_octets(192, 0, 2, 1))
     /// ).unwrap();
     /// msg.push(
     ///     (Dname::root_ref(), 86400, A::from_octets(192, 0, 2, 1))
@@ -1030,12 +1030,13 @@ impl<Target: Composer> AuthorityBuilder<Target> {
     ///
     /// let mut msg = MessageBuilder::new_vec().authority();
     /// let record = Record::new(
-    ///     Dname::root_ref(), Class::In, Ttl::from_secs(86400), A::from_octets(192, 0, 2, 1)
+    ///     Dname::root_ref(), Class::IN, Ttl::from_secs(86400),
+    ///     A::from_octets(192, 0, 2, 1)
     /// );
     /// msg.push(&record).unwrap();
     /// msg.push(record).unwrap();
     /// msg.push(
-    ///     (Dname::root_ref(), Class::In, 86400, A::from_octets(192, 0, 2, 1))
+    ///     (Dname::root_ref(), Class::IN, 86400, A::from_octets(192, 0, 2, 1))
     /// ).unwrap();
     /// msg.push(
     ///     (Dname::root_ref(), 86400, A::from_octets(192, 0, 2, 1))
@@ -1287,12 +1288,12 @@ impl<Target: Composer> AdditionalBuilder<Target> {
     ///
     /// let mut msg = MessageBuilder::new_vec().additional();
     /// let record = Record::new(
-    ///     Dname::root_ref(), Class::In, Ttl::from_secs(86400), A::from_octets(192, 0, 2, 1)
+    ///     Dname::root_ref(), Class::IN, Ttl::from_secs(86400), A::from_octets(192, 0, 2, 1)
     /// );
     /// msg.push(&record).unwrap();
     /// msg.push(record).unwrap();
     /// msg.push(
-    ///     (Dname::root_ref(), Class::In, 86400, A::from_octets(192, 0, 2, 1))
+    ///     (Dname::root_ref(), Class::IN, 86400, A::from_octets(192, 0, 2, 1))
     /// ).unwrap();
     /// msg.push(
     ///     (Dname::root_ref(), 86400, A::from_octets(192, 0, 2, 1))
@@ -2384,12 +2385,12 @@ mod test {
         T::AppendError: fmt::Debug,
     {
         let mut msg = MessageBuilder::from_target(target).unwrap().question();
-        msg.header_mut().set_rcode(Rcode::NXDomain);
+        msg.header_mut().set_rcode(Rcode::NXDOMAIN);
         msg.header_mut().set_rd(true);
         msg.header_mut().set_ra(true);
         msg.header_mut().set_qr(true);
 
-        msg.push((&"example".parse::<Dname<Vec<u8>>>().unwrap(), Rtype::Ns))
+        msg.push((&"example".parse::<Dname<Vec<u8>>>().unwrap(), Rtype::NS))
             .unwrap();
         let mut msg = msg.authority();
 

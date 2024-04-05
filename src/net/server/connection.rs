@@ -1,6 +1,5 @@
 //! Support for stream based connections.
 use core::ops::{ControlFlow, Deref};
-use core::sync::atomic::Ordering;
 use core::time::Duration;
 
 use std::io;
@@ -295,11 +294,11 @@ where
 
     /// The reader for consuming from the queue of responses waiting to be
     /// written back to the client.
-    result_q_rx: mpsc::Receiver<CallResult<Buf::Output, Svc::Target>>,
+    result_q_rx: mpsc::Receiver<CallResult<Svc::Target>>,
 
     /// The writer for pushing ready responses onto the queue waiting
     /// to be written back the client.
-    result_q_tx: mpsc::Sender<CallResult<Buf::Output, Svc::Target>>,
+    result_q_tx: mpsc::Sender<CallResult<Svc::Target>>,
 
     /// A [`Service`] for handling received requests and generating responses.
     service: Svc,
@@ -410,15 +409,7 @@ where
     ) where
         Svc::Future: Send,
     {
-        // SAFETY: It is always safe to unwrap `num_connections` because our
-        // parent code in `stream.rs` constructs the `metrics` type using the
-        // [`ServerMetrics::connection_oriented`] constructor which ensures
-        // there is a `Some` value in the `num_connections` field.
-        self.metrics
-            .num_connections
-            .as_ref()
-            .unwrap()
-            .fetch_add(1, Ordering::Relaxed);
+        self.metrics.inc_num_connections();
 
         // Flag that we have to decrease the metric count on Drop.
         self.active = true;
@@ -624,7 +615,7 @@ where
     /// Process a single queued response.
     async fn process_queued_result(
         &mut self,
-        call_result: Option<CallResult<Buf::Output, Svc::Target>>,
+        call_result: Option<CallResult<Svc::Target>>,
     ) -> Result<(), ConnectionEvent> {
         // If we failed to read the results of requests processed by the
         // service because the queue holding those results is empty and can no
@@ -636,7 +627,7 @@ where
             return Err(ConnectionEvent::DisconnectWithFlush);
         };
 
-        let (_request, response, feedback) = call_result.into_inner();
+        let (response, feedback) = call_result.into_inner();
 
         if let Some(feedback) = feedback {
             self.process_service_feedback(feedback).await;
@@ -677,15 +668,11 @@ where
                 error!("Write error: {err}");
             }
             Ok(Ok(_)) => {
-                self.metrics
-                    .num_sent_responses
-                    .fetch_add(1, Ordering::Relaxed);
+                self.metrics.inc_num_sent_responses();
             }
         }
 
-        self.metrics
-            .num_pending_writes
-            .fetch_sub(1, Ordering::Relaxed);
+        self.metrics.dec_num_pending_writes();
 
         if self.result_q_tx.capacity() == self.result_q_tx.max_capacity() {
             self.idle_timer.response_queue_emptied();
@@ -744,9 +731,7 @@ where
                 trace!(addr = %self.addr, pcap_text, "Received message");
             }
 
-            self.metrics
-                .num_received_requests
-                .fetch_add(1, Ordering::Relaxed);
+            self.metrics.inc_num_received_requests();
 
             // Message received, reset the DNS idle timer
             self.idle_timer.full_msg_received();
@@ -776,16 +761,7 @@ where
     fn drop(&mut self) {
         if self.active {
             self.active = false;
-            // SAFETY: It is always safe to unwrap `num_connections` because
-            // our parent code in `stream.rs` constructs the `metrics` type
-            // using the [`ServerMetrics::connection_oriented`] constructor
-            // which ensures there is a `Some` value in the `num_connections`
-            // field.
-            self.metrics
-                .num_connections
-                .as_ref()
-                .unwrap()
-                .fetch_sub(1, Ordering::Relaxed);
+            self.metrics.dec_num_connections();
         }
     }
 }
@@ -800,7 +776,7 @@ where
     Svc: Service<Buf::Output> + Send + Sync + 'static,
     Svc::Target: Send,
 {
-    type Meta = Sender<CallResult<Buf::Output, Svc::Target>>;
+    type Meta = Sender<CallResult<Svc::Target>>;
 
     /// Add information to the request that relates to the type of server we
     /// are and our state where relevant.
@@ -809,18 +785,17 @@ where
         request: Message<Buf::Output>,
         received_at: Instant,
         addr: SocketAddr,
-    ) -> Request<Message<Buf::Output>> {
-        let ctx = TransportSpecificContext::NonUdp(NonUdpTransportContext {
-            idle_timeout: Some(self.config.idle_timeout),
-        });
+    ) -> Request<Buf::Output> {
+        let ctx = NonUdpTransportContext::new(Some(self.config.idle_timeout));
+        let ctx = TransportSpecificContext::NonUdp(ctx);
         Request::new(addr, received_at, request, ctx)
     }
 
     /// Process the result from the middleware -> service -> middleware call
     /// tree.
     fn process_call_result(
-        call_result: CallResult<Buf::Output, Svc::Target>,
-        _addr: SocketAddr,
+        _request: &Request<Buf::Output>,
+        call_result: CallResult<Svc::Target>,
         tx: Self::Meta,
         metrics: Arc<ServerMetrics>,
     ) {
@@ -831,9 +806,8 @@ where
         // then we abort.
         match tx.try_send(call_result) {
             Ok(()) => {
-                metrics.num_pending_writes.store(
+                metrics.set_num_pending_writes(
                     tx.max_capacity() - tx.capacity(),
-                    Ordering::Relaxed,
                 );
             }
 

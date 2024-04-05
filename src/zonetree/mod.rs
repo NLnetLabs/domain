@@ -64,19 +64,19 @@
 //! // Query the zone tree.
 //! let qname = Dname::bytes_from_str("example.com").unwrap();
 //! let qtype = Rtype::A;
-//! let found_zone = tree.find_zone(&qname, Class::In).unwrap();
+//! let found_zone = tree.find_zone(&qname, Class::IN).unwrap();
 //! let res: Answer = found_zone.read().query(qname, qtype).unwrap();
 //!
 //! // Verify that we found a result.
-//! assert_eq!(res.rcode(), Rcode::NoError);
+//! assert_eq!(res.rcode(), Rcode::NOERROR);
 //! ```
 //!
 //! [`Class`]: crate::base::iana::Class
 //! [`Rtype`]: crate::base::iana::Rtype
 //! [`Dname`]: crate::base::name::Dname
 //! [`Message`]: crate::base::Message
-//! [`NoError`]: crate::base::iana::code::Rcode::NoError
-//! [`NxDomain`]: crate::base::iana::code::Rcode::NxDomain
+//! [`NoError`]: crate::base::iana::code::Rcode::NOERROR
+//! [`NxDomain`]: crate::base::iana::code::Rcode::NXDOMAIN
 //! [`ZoneBuilder`]: in_memory::ZoneBuilder
 
 mod answer;

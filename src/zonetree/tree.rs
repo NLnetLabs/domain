@@ -89,7 +89,7 @@ struct Roots {
 
 impl Roots {
     pub fn get(&self, class: Class) -> Option<&ZoneSetNode> {
-        if class == Class::In {
+        if class == Class::IN {
             Some(&self.in_)
         } else {
             self.others.get(&class)
@@ -97,7 +97,7 @@ impl Roots {
     }
 
     pub fn get_mut(&mut self, class: Class) -> Option<&mut ZoneSetNode> {
-        if class == Class::In {
+        if class == Class::IN {
             Some(&mut self.in_)
         } else {
             self.others.get_mut(&class)
@@ -105,7 +105,7 @@ impl Roots {
     }
 
     pub fn get_or_insert(&mut self, class: Class) -> &mut ZoneSetNode {
-        if class == Class::In {
+        if class == Class::IN {
             &mut self.in_
         } else {
             self.others.entry(class).or_default()

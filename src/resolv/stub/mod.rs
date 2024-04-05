@@ -370,13 +370,13 @@ impl<'a> Query<'a> {
         loop {
             match self.run_query(&mut message).await {
                 Ok(answer) => {
-                    if answer.header().rcode() == Rcode::FormErr
+                    if answer.header().rcode() == Rcode::FORMERR
                         && self.does_edns()
                     {
                         // FORMERR with EDNS: turn off EDNS and try again.
                         self.disable_edns();
                         continue;
-                    } else if answer.header().rcode() == Rcode::ServFail {
+                    } else if answer.header().rcode() == Rcode::SERVFAIL {
                         // SERVFAIL: go to next server.
                         self.update_error_servfail(answer);
                     } else {
@@ -462,8 +462,8 @@ pub struct Answer {
 impl Answer {
     /// Returns whether the answer is a final answer to be returned.
     pub fn is_final(&self) -> bool {
-        (self.message.header().rcode() == Rcode::NoError
-            || self.message.header().rcode() == Rcode::NXDomain)
+        (self.message.header().rcode() == Rcode::NOERROR
+            || self.message.header().rcode() == Rcode::NXDOMAIN)
             && !self.message.header().tc()
     }
 

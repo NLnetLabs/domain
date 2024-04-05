@@ -16,7 +16,7 @@ use tracing::{trace, warn};
 
 use domain::base::iana::Rcode;
 use domain::base::wire::Composer;
-use domain::base::{Dname, Message, ToDname};
+use domain::base::{Dname, ToDname};
 use domain::net::client::{dgram, stream};
 use domain::net::server::buf::VecBufSource;
 use domain::net::server::dgram::DgramServer;
@@ -25,7 +25,6 @@ use domain::net::server::middleware::builder::MiddlewareBuilder;
 #[cfg(feature = "siphasher")]
 use domain::net::server::middleware::processors::cookies::CookiesMiddlewareProcessor;
 use domain::net::server::middleware::processors::edns::EdnsMiddlewareProcessor;
-use domain::net::server::middleware::processors::edns::EDNS_VERSION_ZERO;
 use domain::net::server::service::{
     CallResult, Service, ServiceError, Transaction,
 };
@@ -195,21 +194,23 @@ where
 {
     let mut middleware = MiddlewareBuilder::minimal();
 
-    #[cfg(feature = "siphasher")]
     if config.cookies.enabled {
+        #[cfg(feature = "siphasher")]
         if let Some(secret) = config.cookies.secret {
             let secret = hex::decode(secret).unwrap();
             let secret = <[u8; 16]>::try_from(secret).unwrap();
             let processor = CookiesMiddlewareProcessor::new(secret);
             let processor = processor
-                .with_denied_ips(config.cookies.ip_deny_list.clone())
-                .with_allowed_ips(config.cookies.ip_allow_list.clone());
+                .with_denied_ips(config.cookies.ip_deny_list.clone());
             middleware.push(processor.into());
         }
+
+        #[cfg(not(feature = "siphasher"))]
+        panic!("The test uses cookies but the required 'siphasher' feature is not enabled.");
     }
 
     if config.edns_tcp_keepalive {
-        let processor = EdnsMiddlewareProcessor::new(EDNS_VERSION_ZERO);
+        let processor = EdnsMiddlewareProcessor::new();
         middleware.push(processor.into());
     }
 
@@ -245,22 +246,20 @@ where
 //     this `Service` impl.
 #[allow(clippy::type_complexity)]
 fn test_service(
-    request: Request<Message<Vec<u8>>>,
+    request: Request<Vec<u8>>,
     zonefile: Zonefile,
 ) -> Result<
     Transaction<
         Vec<u8>,
-        Vec<u8>,
-        impl Future<
-                Output = Result<CallResult<Vec<u8>, Vec<u8>>, ServiceError>,
-            > + Send,
+        impl Future<Output = Result<CallResult<Vec<u8>>, ServiceError>> + Send,
     >,
     ServiceError,
 > {
     fn as_record_and_dname(
         r: ScannedRecord,
     ) -> Option<(ScannedRecord, Dname<Vec<u8>>)> {
-        r.owner().to_dname::<Vec<u8>>().map(|dname| (r, dname)).ok()
+        let dname = r.owner().to_dname();
+        Some((r, dname))
     }
 
     fn as_records(
@@ -295,13 +294,13 @@ fn test_service(
                 || {
                     // The Qname was not found in the zone:
                     mk_builder_for_target()
-                        .start_answer(request.message(), Rcode::NXDomain)
+                        .start_answer(request.message(), Rcode::NXDOMAIN)
                         .unwrap()
                 },
                 |(record, _)| {
                     // Respond with the found record:
                     let mut answer = mk_builder_for_target()
-                        .start_answer(request.message(), Rcode::NoError)
+                        .start_answer(request.message(), Rcode::NOERROR)
                         .unwrap();
                     // As we serve all answers from our own zones we are the
                     // authority for the domain in question.
@@ -329,7 +328,6 @@ struct ServerConfig<'a> {
 struct CookieConfig<'a> {
     enabled: bool,
     secret: Option<&'a str>,
-    ip_allow_list: Vec<IpAddr>,
     ip_deny_list: Vec<IpAddr>,
 }
 
@@ -376,17 +374,6 @@ fn parse_server_config(config: &Config) -> ServerConfig {
                                         parsed_config
                                             .cookies
                                             .ip_deny_list
-                                            .push(ip);
-                                    } else {
-                                        eprintln!("Ignoring malformed IP address '{ip}' in 'access-control' setting");
-                                    }
-                                }
-
-                                "allow" => {
-                                    if let Ok(ip) = ip.parse() {
-                                        parsed_config
-                                            .cookies
-                                            .ip_allow_list
                                             .push(ip);
                                     } else {
                                         eprintln!("Ignoring malformed IP address '{ip}' in 'access-control' setting");

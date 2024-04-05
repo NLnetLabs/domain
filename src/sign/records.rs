@@ -59,7 +59,7 @@ impl<N, D> SortedRecords<N, D> {
         N: ToDname,
         D: RecordData,
     {
-        self.rrsets().find(|rrset| rrset.rtype() == Rtype::Soa)
+        self.rrsets().find(|rrset| rrset.rtype() == Rtype::SOA)
     }
 
     #[allow(clippy::type_complexity)]
@@ -120,14 +120,14 @@ impl<N, D> SortedRecords<N, D> {
                     // If we are at a zone cut, we only sign DS and NSEC
                     // records. NS records we must not sign and everything
                     // else shouldn’t be here, really.
-                    if rrset.rtype() != Rtype::Ds
-                        && rrset.rtype() != Rtype::Nsec
+                    if rrset.rtype() != Rtype::DS
+                        && rrset.rtype() != Rtype::NSEC
                     {
                         continue;
                     }
                 } else {
                     // Otherwise we only ignore RRSIGs.
-                    if rrset.rtype() == Rtype::Rrsig {
+                    if rrset.rtype() == Rtype::RRSIG {
                         continue;
                     }
                 }
@@ -229,7 +229,7 @@ impl<N, D> SortedRecords<N, D> {
 
             let mut bitmap = RtypeBitmap::<Octets>::builder();
             // Assume there’s gonna be an RRSIG.
-            bitmap.add(Rtype::Rrsig).unwrap();
+            bitmap.add(Rtype::RRSIG).unwrap();
             for rrset in family.rrsets() {
                 bitmap.add(rrset.rtype()).unwrap()
             }
@@ -339,7 +339,7 @@ impl<'a, N, D> Family<'a, N, D> {
         D: RecordData,
     {
         self.family_name().ne(apex)
-            && self.records().any(|record| record.rtype() == Rtype::Ns)
+            && self.records().any(|record| record.rtype() == Rtype::NS)
     }
 
     pub fn is_in_zone<NN: ToDname>(&self, apex: &FamilyName<NN>) -> bool

@@ -101,7 +101,7 @@ fn main() {
     }
 
     // Find the zone to query
-    let qclass = Class::In;
+    let qclass = Class::IN;
     if verbosity != Verbosity::Quiet {
         println!("Finding zone for qname {qname} class {qclass}...");
     }
@@ -112,7 +112,7 @@ fn main() {
         }
         zone.read().query(qname.clone(), qtype).unwrap()
     } else {
-        Answer::new(Rcode::NXDomain)
+        Answer::new(Rcode::NXDOMAIN)
     };
 
     // Emulate a DIG style response by generating a complete DNS wire response
@@ -195,7 +195,7 @@ fn dump_rrset(owner: Dname<Bytes>, rrset: &Rrset) {
     //
     let mut target = Vec::<u8>::new();
     for item in rrset.data() {
-        let record = Record::new(owner.clone(), Class::In, rrset.ttl(), item);
+        let record = Record::new(owner.clone(), Class::IN, rrset.ttl(), item);
         if record.compose_record(&mut target).is_ok() {
             let mut parser = Parser::from_ref(&target);
             if let Ok(parsed_record) = ParsedRecord::parse(&mut parser) {

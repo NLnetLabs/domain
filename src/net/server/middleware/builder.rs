@@ -8,8 +8,6 @@ use crate::base::wire::Composer;
 
 use super::chain::MiddlewareChain;
 use super::processor::MiddlewareProcessor;
-#[cfg(feature = "siphasher")]
-use super::processors::cookies::CookiesMiddlewareProcessor;
 use super::processors::edns::EdnsMiddlewareProcessor;
 use super::processors::mandatory::MandatoryMiddlewareProcessor;
 
@@ -47,12 +45,12 @@ where
     /// <div class="warning">Warning:
     ///
     /// When building a standards compliant DNS server you should probably use
-    /// [`MiddlewareBuilder::minimal`] or [`MiddlewareBuilder::modern`]
+    /// [`MiddlewareBuilder::minimal`] or [`MiddlewareBuilder::standard`]
     /// instead.
     /// </div>
     ///
     /// [`MiddlewareBuilder::minimal`]: Self::minimal()
-    /// [`MiddlewareBuilder::modern`]: Self::modern()
+    /// [`MiddlewareBuilder::standard`]: Self::standard()
     #[must_use]
     pub fn new() -> Self {
         Self { processors: vec![] }
@@ -75,7 +73,7 @@ where
         builder
     }
 
-    /// Creates a new builder pre-populated with "modern" middleware
+    /// Creates a new builder pre-populated with "standard" middleware
     /// processors.
     ///
     /// The constructed builder will be pre-populated with the following
@@ -83,15 +81,15 @@ where
     ///
     /// - [`MandatoryMiddlewareProcessor`]
     /// - [`EdnsMiddlewareProcessor`]
-    /// - [`CookiesMiddlewareProcessor`] _(only if crate feature [`siphasher"]
-    ///   is enabled)_
     #[must_use]
-    pub fn modern() -> Self {
+    pub fn standard() -> Self {
         let mut builder = Self::new();
+
         builder.push(MandatoryMiddlewareProcessor::default().into());
+
+        #[allow(clippy::default_constructed_unit_structs)]
         builder.push(EdnsMiddlewareProcessor::default().into());
-        #[cfg(feature = "siphasher")]
-        builder.push(CookiesMiddlewareProcessor::default().into());
+
         builder
     }
 
@@ -132,10 +130,10 @@ where
     RequestOctets: Octets,
     Target: Composer + Default,
 {
-    /// Create a middleware builder with default, aka "modern", processors.
+    /// Create a middleware builder with default, aka "standard", processors.
     ///
-    /// See [`Self::modern`].
+    /// See [`Self::standard`].
     fn default() -> Self {
-        Self::modern()
+        Self::standard()
     }
 }

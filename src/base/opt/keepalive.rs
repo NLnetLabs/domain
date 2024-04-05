@@ -33,6 +33,9 @@ use octseq::parse::Parser;
 pub struct TcpKeepalive(Option<IdleTimeout>);
 
 impl TcpKeepalive {
+    /// The option code for this option.
+    pub(super) const CODE: OptionCode = OptionCode::TCP_KEEPALIVE;
+    
     /// Creates a new value from an optional idle timeout.
     #[must_use]
     pub fn new(timeout: Option<IdleTimeout>) -> Self {
@@ -68,7 +71,7 @@ impl TcpKeepalive {
 
 impl OptData for TcpKeepalive {
     fn code(&self) -> OptionCode {
-        OptionCode::TcpKeepalive
+        OptionCode::TCP_KEEPALIVE
     }
 }
 
@@ -77,7 +80,7 @@ impl<'a, Octs: AsRef<[u8]>> ParseOptData<'a, Octs> for TcpKeepalive {
         code: OptionCode,
         parser: &mut Parser<'a, Octs>,
     ) -> Result<Option<Self>, ParseError> {
-        if code == OptionCode::TcpKeepalive {
+        if code == OptionCode::TCP_KEEPALIVE {
             Self::parse(parser).map(Some)
         }
         else {

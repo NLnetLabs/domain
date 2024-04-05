@@ -28,7 +28,7 @@ use domain::base::iana::{Class, Rcode};
 use domain::base::message_builder::{AdditionalBuilder, PushError};
 use domain::base::name::ToLabelIter;
 use domain::base::wire::Composer;
-use domain::base::{Dname, Message, MessageBuilder, StreamTarget};
+use domain::base::{Dname, MessageBuilder, StreamTarget};
 use domain::net::server::buf::VecBufSource;
 use domain::net::server::dgram;
 use domain::net::server::dgram::DgramServer;
@@ -52,7 +52,7 @@ use domain::rdata::A;
 
 // Helper fn to create a dummy response to send back to the client
 fn mk_answer<Target>(
-    msg: &Request<Message<Vec<u8>>>,
+    msg: &Request<Vec<u8>>,
     builder: MessageBuilder<StreamTarget<Target>>,
 ) -> Result<AdditionalBuilder<StreamTarget<Target>>, PushError>
 where
@@ -60,10 +60,10 @@ where
     <Target as octseq::OctetsBuilder>::AppendError: fmt::Debug,
 {
     let mut answer =
-        builder.start_answer(msg.message(), Rcode::NoError).unwrap();
+        builder.start_answer(msg.message(), Rcode::NOERROR).unwrap();
     answer.push((
         Dname::root_ref(),
-        Class::In,
+        Class::IN,
         86400,
         A::from_octets(192, 0, 2, 1),
     ))?;
@@ -82,16 +82,14 @@ struct MyService;
 /// trait for a function instead of a struct.
 impl Service<Vec<u8>> for MyService {
     type Target = Vec<u8>;
-    type Future =
-        Ready<Result<CallResult<Vec<u8>, Self::Target>, ServiceError>>;
+    type Future = Ready<Result<CallResult<Self::Target>, ServiceError>>;
 
     fn call(
         &self,
-        msg: Request<Message<Vec<u8>>>,
-    ) -> Result<Transaction<Vec<u8>, Self::Target, Self::Future>, ServiceError>
-    {
+        request: Request<Vec<u8>>,
+    ) -> Result<Transaction<Self::Target, Self::Future>, ServiceError> {
         let builder = mk_builder_for_target();
-        let additional = mk_answer(&msg, builder)?;
+        let additional = mk_answer(&request, builder)?;
         let item = ready(Ok(CallResult::new(additional)));
         let txn = Transaction::single(item);
         Ok(txn)
@@ -107,13 +105,11 @@ impl Service<Vec<u8>> for MyService {
 /// [`service_fn`] (see the [`query`] example below).
 #[allow(clippy::type_complexity)]
 fn name_to_ip<Target>(
-    msg: Request<Message<Vec<u8>>>,
+    request: Request<Vec<u8>>,
 ) -> Result<
     Transaction<
-        Vec<u8>,
         Target,
-        impl Future<Output = Result<CallResult<Vec<u8>, Target>, ServiceError>>
-            + Send,
+        impl Future<Output = Result<CallResult<Target>, ServiceError>> + Send,
     >,
     ServiceError,
 >
@@ -123,7 +119,7 @@ where
     <Target as octseq::OctetsBuilder>::AppendError: Debug,
 {
     let mut out_answer = None;
-    if let Ok(question) = msg.message().sole_question() {
+    if let Ok(question) = request.message().sole_question() {
         let qname = question.qname();
         let num_labels = qname.label_count();
         if num_labels >= 5 {
@@ -136,10 +132,10 @@ where
             if let Ok(a_rec) = a_rec {
                 let builder = mk_builder_for_target();
                 let mut answer = builder
-                    .start_answer(msg.message(), Rcode::NoError)
+                    .start_answer(request.message(), Rcode::NOERROR)
                     .unwrap();
                 answer
-                    .push((Dname::root_ref(), Class::In, 86400, a_rec))
+                    .push((Dname::root_ref(), Class::IN, 86400, a_rec))
                     .unwrap();
                 out_answer = Some(answer);
             }
@@ -150,7 +146,9 @@ where
         let builder = mk_builder_for_target();
         eprintln!("Refusing request, only requests for A records in IPv4 dotted quad format are accepted by this service.");
         out_answer = Some(
-            builder.start_answer(msg.message(), Rcode::Refused).unwrap(),
+            builder
+                .start_answer(request.message(), Rcode::REFUSED)
+                .unwrap(),
         );
     }
 
@@ -169,15 +167,12 @@ where
 /// boilerplate.
 #[allow(clippy::type_complexity)]
 fn query(
-    msg: Request<Message<Vec<u8>>>,
+    request: Request<Vec<u8>>,
     count: Arc<AtomicU8>,
 ) -> Result<
     Transaction<
         Vec<u8>,
-        Vec<u8>,
-        impl Future<
-                Output = Result<CallResult<Vec<u8>, Vec<u8>>, ServiceError>,
-            > + Send,
+        impl Future<Output = Result<CallResult<Vec<u8>>, ServiceError>> + Send,
     >,
     ServiceError,
 > {
@@ -204,7 +199,7 @@ fn query(
         eprintln!("Setting idle timeout to {idle_timeout:?}");
 
         let builder = mk_builder_for_target();
-        let answer = mk_answer(&msg, builder)?;
+        let answer = mk_answer(&request, builder)?;
         let res = CallResult::new(answer).with_feedback(cmd);
         Ok(res)
     };
@@ -408,14 +403,14 @@ where
 {
     fn preprocess(
         &self,
-        _request: &mut Request<Message<RequestOctets>>,
+        _request: &Request<RequestOctets>,
     ) -> ControlFlow<AdditionalBuilder<StreamTarget<Target>>> {
         ControlFlow::Continue(())
     }
 
     fn postprocess(
         &self,
-        request: &Request<Message<RequestOctets>>,
+        request: &Request<RequestOctets>,
         _response: &mut AdditionalBuilder<StreamTarget<Target>>,
     ) {
         let duration = Instant::now().duration_since(request.received_at());
@@ -425,7 +420,7 @@ where
         stats.num_req_bytes += request.message().as_slice().len() as u32;
         stats.num_resp_bytes += _response.as_slice().len() as u32;
 
-        if request.transport().is_udp() {
+        if request.transport_ctx().is_udp() {
             stats.num_udp += 1;
         }
 

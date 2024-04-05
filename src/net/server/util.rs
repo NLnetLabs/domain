@@ -68,15 +68,12 @@ where
 /// // Takes the received DNS request and any additional meta data you wish to
 /// // provide, and returns one or more future DNS responses.
 /// fn my_service(
-///     req: Request<Message<Vec<u8>>>,
+///     req: Request<Vec<u8>>,
 ///     _meta: MyMeta,
 /// ) -> Result<
-///     Transaction<Vec<u8>, Vec<u8>,
+///     Transaction<Vec<u8>,
 ///         Pin<Box<dyn Future<
-///             Output = Result<
-///                 CallResult<Vec<u8>, Vec<u8>>,
-///                 ServiceError,
-///             >,
+///             Output = Result<CallResult<Vec<u8>>, ServiceError>
 ///         >>>,
 ///     >,
 ///     ServiceError,
@@ -84,7 +81,7 @@ where
 ///     // For each request create a single response:
 ///     Ok(Transaction::single(Box::pin(async move {
 ///         let builder = mk_builder_for_target();
-///         let answer = builder.start_answer(req.message(), Rcode::NXDomain)?;
+///         let answer = builder.start_answer(req.message(), Rcode::NXDOMAIN)?;
 ///         Ok(CallResult::new(answer.additional()))
 ///     })))
 /// }
@@ -102,23 +99,22 @@ where
 /// [`CallResult`]: crate::net::server::service::CallResult
 /// [`Result::Ok`]: std::result::Result::Ok
 pub fn service_fn<RequestOctets, Target, Future, T, Metadata>(
-    msg_handler: T,
+    request_handler: T,
     metadata: Metadata,
 ) -> impl Service<RequestOctets, Target = Target, Future = Future> + Clone
 where
     RequestOctets: AsRef<[u8]>,
     Future: std::future::Future<
-        Output = Result<CallResult<RequestOctets, Target>, ServiceError>,
+        Output = Result<CallResult<Target>, ServiceError>,
     >,
     Metadata: Clone,
     T: Fn(
-            Request<Message<RequestOctets>>,
+            Request<RequestOctets>,
             Metadata,
-        )
-            -> Result<Transaction<RequestOctets, Target, Future>, ServiceError>
+        ) -> Result<Transaction<Target, Future>, ServiceError>
         + Clone,
 {
-    move |msg| msg_handler(msg, metadata.clone())
+    move |request| request_handler(request, metadata.clone())
 }
 
 //----------- to_pcap_text() -------------------------------------------------
@@ -162,7 +158,7 @@ pub(crate) fn to_pcap_text<T: AsRef<[u8]>>(
 /// On internal error this function will attempt to set RCODE ServFail in the
 /// returned message.
 pub fn start_reply<RequestOctets, Target>(
-    request: &Request<Message<RequestOctets>>,
+    request: &Request<RequestOctets>,
 ) -> QuestionBuilder<StreamTarget<Target>>
 where
     RequestOctets: Octets,
@@ -193,7 +189,7 @@ where
     }
 
     if abort {
-        builder.header_mut().set_rcode(Rcode::ServFail);
+        builder.header_mut().set_rcode(Rcode::SERVFAIL);
     }
 
     builder
@@ -201,7 +197,10 @@ where
 
 //----------- add_edns_option ------------------------------------------------
 
-/// Add an EDNS OPT option to a response.
+/// Adds one or more EDNS OPT options to a response.
+///
+/// If the response already has an OPT record the options will be added to
+/// that. Otherwise an OPT record will be created to hold the new options.
 pub fn add_edns_options<F, Target>(
     response: &mut AdditionalBuilder<StreamTarget<Target>>,
     op: F,
@@ -222,8 +221,10 @@ where
     // delay response building until the complete set of differences to a base
     // response are known. Or a completely different builder approach that can
     // edit a partially built message.
-    if response.counts().arcount() > 0 {
-        // Make a copy of the response
+    if response.counts().arcount() > 0
+        && response.as_message().opt().is_some()
+    {
+        // Make a copy of the response.
         let copied_response = response.as_slice().to_vec();
         let Ok(copied_response) = Message::from_octets(&copied_response)
         else {
@@ -240,7 +241,7 @@ where
             // current response.
             if let Ok(current_additional) = copied_response.additional() {
                 for rr in current_additional.flatten() {
-                    if rr.rtype() != Rtype::Opt {
+                    if rr.rtype() != Rtype::OPT {
                         if let Ok(Some(rr)) = rr
                             .into_record::<AllRecordData<_, ParsedDname<_>>>()
                         {
@@ -268,4 +269,49 @@ where
 
     // No existing OPT record in the additional section so build a new one.
     response.opt(op)
+}
+
+/// Removes any OPT records present in the response.
+pub fn remove_edns_opt_record<Target>(
+    response: &mut AdditionalBuilder<StreamTarget<Target>>,
+) -> Result<(), PushError>
+where
+    Target: Composer,
+{
+    // TODO: This function has the same less than ideal properties as the
+    // add_edns_options() function above that it is similar to, ideally we can
+    // avoid the need to copy the response.
+    if response.counts().arcount() > 0
+        && response.as_message().opt().is_some()
+    {
+        // Make a copy of the response.
+        let copied_response = response.as_slice().to_vec();
+        let Ok(copied_response) = Message::from_octets(&copied_response)
+        else {
+            warn!("Internal error: Unable to create message from octets while adding EDNS option");
+            return Ok(());
+        };
+
+        if copied_response.opt().is_some() {
+            // Discard the current records in the additional section of the
+            // response.
+            response.rewind();
+
+            // Copy the non-OPT records from the copied response to the
+            // current response.
+            if let Ok(current_additional) = copied_response.additional() {
+                for rr in current_additional.flatten() {
+                    if rr.rtype() != Rtype::OPT {
+                        if let Ok(Some(rr)) = rr
+                            .into_record::<AllRecordData<_, ParsedDname<_>>>()
+                        {
+                            response.push(rr)?;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(())
 }

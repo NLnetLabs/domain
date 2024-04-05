@@ -1,11 +1,9 @@
 //! The nodes in a zone tree.
 
-use std::borrow::Cow;
 use std::boxed::Box;
 use std::collections::{hash_map, HashMap};
 use std::future::Future;
 use std::pin::Pin;
-use std::string::ToString;
 use std::sync::Arc;
 
 use parking_lot::{
@@ -91,7 +89,7 @@ impl ZoneApex {
     /// Returns the SOA record for the given version if available.
     pub fn get_soa(&self, version: Version) -> Option<SharedRr> {
         self.rrsets()
-            .get(Rtype::Soa, version)
+            .get(Rtype::SOA, version)
             .and_then(|rrset| rrset.first())
     }
 

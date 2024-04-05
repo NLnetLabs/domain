@@ -71,7 +71,7 @@ pub async fn lookup_srv(
         Ok(name) => name,
         Err(_) => return Err(SrvError::LongName),
     };
-    let answer = resolver.query((full_name, Rtype::Srv)).await?;
+    let answer = resolver.query((full_name, Rtype::SRV)).await?;
     FoundSrvs::new(answer.as_ref().for_slice(), name, fallback_port)
 }
 
@@ -211,7 +211,7 @@ impl FoundSrvs {
                     Ok(record) => record,
                     Err(_) => continue,
                 };
-                if record.class() != Class::In
+                if record.class() != Class::IN
                     || record.owner() != item.target()
                 {
                     continue;
@@ -297,7 +297,7 @@ impl SrvItem {
                 srv.priority(),
                 srv.weight(),
                 srv.port(),
-                srv.target().to_dname().unwrap(),
+                srv.target().to_dname(),
             ),
             fallback: false,
             resolved: None,
@@ -306,7 +306,7 @@ impl SrvItem {
 
     fn fallback(name: impl ToDname, fallback_port: u16) -> Self {
         SrvItem {
-            srv: Srv::new(0, 0, fallback_port, name.to_dname().unwrap()),
+            srv: Srv::new(0, 0, fallback_port, name.to_dname()),
             fallback: true,
             resolved: None,
         }

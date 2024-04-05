@@ -13,7 +13,7 @@ use crate::base::message_builder::AdditionalBuilder;
 use crate::base::opt;
 use crate::base::opt::Cookie;
 use crate::base::wire::{Composer, ParseError};
-use crate::base::{Message, Serial, StreamTarget};
+use crate::base::{Serial, StreamTarget};
 use crate::net::server::message::Request;
 use crate::net::server::middleware::processor::MiddlewareProcessor;
 use crate::net::server::util::add_edns_options;
@@ -44,10 +44,6 @@ pub struct CookiesMiddlewareProcessor {
     /// A user supplied secret used in making the cookie value.
     server_secret: [u8; 16],
 
-    /// Clients connecting from these IP addresses are exempted from the
-    /// requirement to provide valid cookies.
-    ip_allow_list: Vec<IpAddr>,
-
     /// Clients connecting from these IP addresses will be required to provide
     /// a cookie otherwise they will receive REFUSED with TC=1 prompting them
     /// to reconnect with TCP in order to "authenticate" themselves.
@@ -60,35 +56,11 @@ impl CookiesMiddlewareProcessor {
     pub fn new(server_secret: [u8; 16]) -> Self {
         Self {
             server_secret,
-            ip_allow_list: vec![],
             ip_deny_list: vec![],
         }
     }
 
-    /// Define IP addresses allowed to bypass cookie restrictions.
-    ///
-    /// Similar to the Unbound [`access-control: allow`] server option IP
-    /// addresses on the allow list are permitted to bypass cookie
-    /// pre-processing checks.
-    ///
-    /// [`access-control: allow`]: https://unbound.docs.nlnetlabs.nl/en/latest/manpages/unbound.conf.html#unbound-conf-access-control-action-allow
-    #[must_use]
-    pub fn with_allowed_ips<T: Into<Vec<IpAddr>>>(
-        mut self,
-        ip_allow_list: T,
-    ) -> Self {
-        self.ip_allow_list = ip_allow_list.into();
-        self
-    }
-
     /// Define IP addresses required to supply DNS cookies if using UDP.
-    ///
-    /// Similar to the Unbound [`access-control: allow_cookie`] server option
-    /// IP addresses on the deny list are required to supply a valid DNS
-    /// cookie unless the request was sent via TCP.
-    ///
-    /// [`access-control: allow_cookie`]:
-    ///     https://unbound.docs.nlnetlabs.nl/en/latest/manpages/unbound.conf.html#unbound-conf-access-control-action-allow-cookie
     #[must_use]
     pub fn with_denied_ips<T: Into<Vec<IpAddr>>>(
         mut self,
@@ -115,7 +87,7 @@ impl CookiesMiddlewareProcessor {
     ///     parse.
     #[must_use]
     fn cookie<RequestOctets: Octets>(
-        request: &Request<Message<RequestOctets>>,
+        request: &Request<RequestOctets>,
     ) -> Option<Result<opt::Cookie, ParseError>> {
         // Note: We don't use `opt::Opt::first()` because that will silently
         // ignore an unparseable COOKIE option but we need to detect and
@@ -152,7 +124,7 @@ impl CookiesMiddlewareProcessor {
     /// Create a DNS response message for the given request, including cookie.
     fn response_with_cookie<RequestOctets, Target>(
         &self,
-        request: &Request<Message<RequestOctets>>,
+        request: &Request<RequestOctets>,
         rcode: OptRcode,
     ) -> AdditionalBuilder<StreamTarget<Target>>
     where
@@ -170,7 +142,7 @@ impl CookiesMiddlewareProcessor {
 
             // Note: if rcode is non-extended this will also correctly handle
             // setting the rcode in the main message header.
-            if let Err(err) = additional.opt(|opt| {
+            if let Err(err) = add_edns_options(&mut additional, |opt| {
                 opt.cookie(response_cookie)?;
                 opt.set_rcode(rcode);
                 Ok(())
@@ -193,7 +165,7 @@ impl CookiesMiddlewareProcessor {
     #[must_use]
     fn bad_cookie_response<RequestOctets, Target>(
         &self,
-        request: &Request<Message<RequestOctets>>,
+        request: &Request<RequestOctets>,
     ) -> AdditionalBuilder<StreamTarget<Target>>
     where
         RequestOctets: Octets,
@@ -206,18 +178,14 @@ impl CookiesMiddlewareProcessor {
         //    Cookie it has generated, and it will add this COOKIE option to
         //    the response's OPT record.
 
-        // TODO: Do we need a configuration option to choose to generate RFC
-        // 7873 cookies instead of RFC 9018 interoperable cookies? For now err
-        // on the side of robustness and go with RFC 9018 interoperable
-        // cookies.
-        self.response_with_cookie(request, OptRcode::BadCookie)
+        self.response_with_cookie(request, OptRcode::BADCOOKIE)
     }
 
     /// Create a DNS response to a client cookie prefetch request.
     #[must_use]
     fn prefetch_cookie_response<RequestOctets, Target>(
         &self,
-        request: &Request<Message<RequestOctets>>,
+        request: &Request<RequestOctets>,
     ) -> AdditionalBuilder<StreamTarget<Target>>
     where
         RequestOctets: Octets,
@@ -234,7 +202,7 @@ impl CookiesMiddlewareProcessor {
         //
         //   If such a query provided just a Client Cookie and no Server
         //   Cookie, the response SHALL have the RCODE NOERROR."
-        self.response_with_cookie(request, Rcode::NoError.into())
+        self.response_with_cookie(request, Rcode::NOERROR.into())
     }
 
     /// Check the cookie contained in the request to make sure that it is
@@ -242,7 +210,7 @@ impl CookiesMiddlewareProcessor {
     #[must_use]
     fn ensure_cookie_is_complete<Target: Octets>(
         &self,
-        request: &Request<Message<Target>>,
+        request: &Request<Target>,
     ) -> Option<Cookie> {
         if let Some(Ok(cookie)) = Self::cookie(request) {
             let cookie = if cookie.server().is_some() {
@@ -274,7 +242,6 @@ impl Default for CookiesMiddlewareProcessor {
 
         Self {
             server_secret,
-            ip_allow_list: Default::default(),
             ip_deny_list: Default::default(),
         }
     }
@@ -290,13 +257,8 @@ where
 {
     fn preprocess(
         &self,
-        request: &mut Request<Message<RequestOctets>>,
+        request: &Request<RequestOctets>,
     ) -> ControlFlow<AdditionalBuilder<StreamTarget<Target>>> {
-        if self.ip_allow_list.contains(&request.client_addr().ip()) {
-            trace!("Permitting request to flow due to matching IP allow list entry");
-            return ControlFlow::Continue(());
-        }
-
         match Self::cookie(request) {
             None => {
                 trace!("Request does not include DNS cookies");
@@ -312,7 +274,7 @@ where
                 // themselves to the server, either with a cookie or by
                 // re-connecting over TCP, so we REFUSE them and reply with
                 // TC=1 to prompt them to reconnect via TCP.
-                if request.transport().is_udp()
+                if request.transport_ctx().is_udp()
                     && self.ip_deny_list.contains(&request.client_addr().ip())
                 {
                     debug!(
@@ -320,7 +282,7 @@ where
                     );
                     let builder = mk_builder_for_target();
                     let mut additional = builder.additional();
-                    additional.header_mut().set_rcode(Rcode::Refused);
+                    additional.header_mut().set_rcode(Rcode::REFUSED);
                     additional.header_mut().set_tc(true);
                     return ControlFlow::Break(additional);
                 } else {
@@ -349,7 +311,7 @@ where
                 // unlike in the other cases where we respond early.
                 debug!("Received malformed DNS cookie: {err}");
                 let mut builder = mk_builder_for_target();
-                builder.header_mut().set_rcode(Rcode::FormErr);
+                builder.header_mut().set_rcode(Rcode::FORMERR);
                 return ControlFlow::Break(builder.additional());
             }
 
@@ -442,7 +404,7 @@ where
                             self.bad_cookie_response(request)
                         };
                         return ControlFlow::Break(additional);
-                    } else if request.transport().is_udp() {
+                    } else if request.transport_ctx().is_udp() {
                         let additional = self.bad_cookie_response(request);
                         debug!(
                                 "Rejecting non-TCP request due to invalid server cookie");
@@ -478,7 +440,7 @@ where
 
     fn postprocess(
         &self,
-        request: &Request<Message<RequestOctets>>,
+        request: &Request<RequestOctets>,
         response: &mut AdditionalBuilder<StreamTarget<Target>>,
     ) {
         // https://datatracker.ietf.org/doc/html/rfc7873#section-5.2.1

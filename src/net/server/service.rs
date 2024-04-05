@@ -17,12 +17,12 @@ use std::vec::Vec;
 use futures_util::stream::FuturesOrdered;
 use futures_util::{FutureExt, StreamExt};
 
+use super::message::Request;
 use crate::base::iana::Rcode;
 use crate::base::message_builder::{AdditionalBuilder, PushError};
 use crate::base::wire::ParseError;
-use crate::base::{Message, StreamTarget};
-
-use super::message::Request;
+use crate::base::StreamTarget;
+use octseq::{OctetsBuilder, ShortBuf};
 
 //------------ Service -------------------------------------------------------
 
@@ -79,13 +79,13 @@ use super::message::Request;
 /// use domain::rdata::A;
 ///
 /// fn mk_answer(
-///     msg: &Request<Message<Vec<u8>>>,
+///     msg: &Request<Vec<u8>>,
 ///     builder: MessageBuilder<StreamTarget<Vec<u8>>>,
 /// ) -> Result<AdditionalBuilder<StreamTarget<Vec<u8>>>, ServiceError> {
-///     let mut answer = builder.start_answer(msg.message(), Rcode::NoError)?;
+///     let mut answer = builder.start_answer(msg.message(), Rcode::NOERROR)?;
 ///     answer.push((
 ///         Dname::root_ref(),
-///         Class::In,
+///         Class::IN,
 ///         86400,
 ///         A::from_octets(192, 0, 2, 1),
 ///     ))?;
@@ -96,15 +96,12 @@ use super::message::Request;
 ///
 /// impl Service<Vec<u8>> for MyService {
 ///     type Target = Vec<u8>;
-///     type Future = Ready<Result<CallResult<Vec<u8>, Self::Target>, ServiceError>>;
+///     type Future = Ready<Result<CallResult<Self::Target>, ServiceError>>;
 ///
 ///     fn call(
 ///         &self,
-///         msg: Request<Message<Vec<u8>>>,
-///     ) -> Result<
-///         Transaction<Vec<u8>, Self::Target, Self::Future>,
-///         ServiceError,
-///     > {
+///         msg: Request<Vec<u8>>,
+///     ) -> Result<Transaction<Self::Target, Self::Future>, ServiceError> {
 ///         let builder = mk_builder_for_target();
 ///         let additional = mk_answer(&msg, builder)?;
 ///         let item = ready(Ok(CallResult::new(additional)));
@@ -132,14 +129,11 @@ use super::message::Request;
 /// use domain::rdata::A;
 ///
 /// fn name_to_ip<Target>(
-///     msg: Request<Message<Vec<u8>>>,
+///     msg: Request<Vec<u8>>,
 /// ) -> Result<
-///     Transaction<Vec<u8>, Target,
+///     Transaction<Target,
 ///         impl Future<
-///             Output = Result<
-///                 CallResult<Vec<u8>, Target>,
-///                 ServiceError,
-///             >,
+///             Output = Result<CallResult<Target>, ServiceError>
 ///         > + Send,
 ///     >,
 ///     ServiceError,
@@ -163,10 +157,10 @@ use super::message::Request;
 ///                 let builder = mk_builder_for_target();
 ///                 let mut answer =
 ///                     builder
-///                         .start_answer(msg.message(), Rcode::NoError)
+///                         .start_answer(msg.message(), Rcode::NOERROR)
 ///                         .unwrap();
 ///                 answer
-///                     .push((Dname::root_ref(), Class::In, 86400, a_rec))
+///                     .push((Dname::root_ref(), Class::IN, 86400, a_rec))
 ///                     .unwrap();
 ///                 out_answer = Some(answer);
 ///             }
@@ -176,7 +170,7 @@ use super::message::Request;
 ///     if out_answer.is_none() {
 ///         let builder = mk_builder_for_target();
 ///         let answer = builder
-///             .start_answer(msg.message(), Rcode::Refused)
+///             .start_answer(msg.message(), Rcode::REFUSED)
 ///             .unwrap();
 ///         out_answer = Some(answer);
 ///     }
@@ -212,21 +206,15 @@ pub trait Service<RequestOctets: AsRef<[u8]> = Vec<u8>> {
     /// The type of future returned by [`Service::call`] via
     /// [`Transaction::single`].
     type Future: std::future::Future<
-        Output = Result<
-            CallResult<RequestOctets, Self::Target>,
-            ServiceError,
-        >,
+        Output = Result<CallResult<Self::Target>, ServiceError>,
     >;
 
     /// Generate a response to a fully pre-processed request.
     #[allow(clippy::type_complexity)]
     fn call(
         &self,
-        message: Request<Message<RequestOctets>>,
-    ) -> Result<
-        Transaction<RequestOctets, Self::Target, Self::Future>,
-        ServiceError,
-    >;
+        request: Request<RequestOctets>,
+    ) -> Result<Transaction<Self::Target, Self::Future>, ServiceError>;
 }
 
 /// Helper trait impl to treat an [`Arc<impl Service>`] as a [`Service`].
@@ -238,12 +226,9 @@ impl<RequestOctets: AsRef<[u8]>, T: Service<RequestOctets>>
 
     fn call(
         &self,
-        message: Request<Message<RequestOctets>>,
-    ) -> Result<
-        Transaction<RequestOctets, Self::Target, Self::Future>,
-        ServiceError,
-    > {
-        Arc::deref(self).call(message)
+        request: Request<RequestOctets>,
+    ) -> Result<Transaction<Self::Target, Self::Future>, ServiceError> {
+        Arc::deref(self).call(request)
     }
 }
 
@@ -251,12 +236,11 @@ impl<RequestOctets: AsRef<[u8]>, T: Service<RequestOctets>>
 impl<RequestOctets, Target, Future, F> Service<RequestOctets> for F
 where
     F: Fn(
-        Request<Message<RequestOctets>>,
-    )
-        -> Result<Transaction<RequestOctets, Target, Future>, ServiceError>,
+        Request<RequestOctets>,
+    ) -> Result<Transaction<Target, Future>, ServiceError>,
     RequestOctets: AsRef<[u8]>,
     Future: std::future::Future<
-        Output = Result<CallResult<RequestOctets, Target>, ServiceError>,
+        Output = Result<CallResult<Target>, ServiceError>,
     >,
 {
     type Target = Target;
@@ -264,12 +248,9 @@ where
 
     fn call(
         &self,
-        message: Request<Message<RequestOctets>>,
-    ) -> Result<
-        Transaction<RequestOctets, Self::Target, Self::Future>,
-        ServiceError,
-    > {
-        (*self)(message)
+        request: Request<RequestOctets>,
+    ) -> Result<Transaction<Self::Target, Self::Future>, ServiceError> {
+        (*self)(request)
     }
 }
 
@@ -295,10 +276,10 @@ impl ServiceError {
     /// The DNS RCODE to send back to the client for this error.
     pub fn rcode(&self) -> Rcode {
         match self {
-            Self::FormatError => Rcode::FormErr,
-            Self::InternalError => Rcode::ServFail,
-            Self::NotImplemented => Rcode::NotImp,
-            Self::Refused => Rcode::Refused,
+            Self::FormatError => Rcode::FORMERR,
+            Self::InternalError => Rcode::SERVFAIL,
+            Self::NotImplemented => Rcode::NOTIMP,
+            Self::Refused => Rcode::REFUSED,
         }
     }
 }
@@ -365,13 +346,7 @@ pub enum ServiceFeedback {
 /// the request to adjust its own configuration, or even to terminate the
 /// connection.
 #[derive(Clone, Debug)]
-pub struct CallResult<RequestOctets, Target>
-where
-    RequestOctets: AsRef<[u8]>,
-{
-    /// The request that this result relates to, if any.
-    request: Option<Request<Message<RequestOctets>>>,
-
+pub struct CallResult<Target> {
     /// Optional response to send back to the client.
     response: Option<AdditionalBuilder<StreamTarget<Target>>>,
 
@@ -379,15 +354,15 @@ where
     feedback: Option<ServiceFeedback>,
 }
 
-impl<RequestOctets, Target> CallResult<RequestOctets, Target>
+impl<Target> CallResult<Target>
 where
-    RequestOctets: AsRef<[u8]>,
+    Target: OctetsBuilder + AsRef<[u8]> + AsMut<[u8]>,
+    Target::AppendError: Into<ShortBuf>,
 {
     /// Construct a [`CallResult`] from a DNS response message.
     #[must_use]
     pub fn new(response: AdditionalBuilder<StreamTarget<Target>>) -> Self {
         Self {
-            request: None,
             response: Some(response),
             feedback: None,
         }
@@ -397,20 +372,9 @@ where
     #[must_use]
     pub fn feedback_only(command: ServiceFeedback) -> Self {
         Self {
-            request: None,
             response: None,
             feedback: Some(command),
         }
-    }
-
-    /// Add an [`Request<_>`] to an existing [`CallResult`].
-    #[must_use]
-    pub fn with_request(
-        mut self,
-        request: Request<Message<RequestOctets>>,
-    ) -> Self {
-        self.request = Some(request);
-        self
     }
 
     /// Add a [`ServiceFeedback`] to an existing [`CallResult`].
@@ -440,16 +404,11 @@ where
     pub fn into_inner(
         self,
     ) -> (
-        Option<Request<Message<RequestOctets>>>,
         Option<AdditionalBuilder<StreamTarget<Target>>>,
         Option<ServiceFeedback>,
     ) {
-        let CallResult {
-            request,
-            response,
-            feedback,
-        } = self;
-        (request, response, feedback)
+        let CallResult { response, feedback } = self;
+        (response, feedback)
     }
 }
 
@@ -473,25 +432,21 @@ where
 /// [`stream`]: Self::stream()
 /// [`push`]: TransactionStream::push()
 /// [`next`]: Self::next()
-pub struct Transaction<RequestOctets, Target, Future>(
-    TransactionInner<RequestOctets, Target, Future>,
-)
+pub struct Transaction<Target, Future>(TransactionInner<Target, Future>)
 where
-    RequestOctets: AsRef<[u8]>,
     Future: std::future::Future<
-        Output = Result<CallResult<RequestOctets, Target>, ServiceError>,
+        Output = Result<CallResult<Target>, ServiceError>,
     >;
 
-impl<RequestOctets, Target, Future> Transaction<RequestOctets, Target, Future>
+impl<Target, Future> Transaction<Target, Future>
 where
-    RequestOctets: AsRef<[u8]>,
     Future: std::future::Future<
-        Output = Result<CallResult<RequestOctets, Target>, ServiceError>,
+        Output = Result<CallResult<Target>, ServiceError>,
     >,
 {
     /// Construct a transaction for a single immediate response.
     pub(crate) fn immediate(
-        item: Result<CallResult<RequestOctets, Target>, ServiceError>,
+        item: Result<CallResult<Target>, ServiceError>,
     ) -> Self {
         Self(TransactionInner::Immediate(Some(item)))
     }
@@ -516,11 +471,7 @@ where
     /// stream and we don't want them to block us while they work that out.
     pub fn stream(
         fut: Pin<
-            Box<
-                dyn std::future::Future<
-                        Output = Stream<RequestOctets, Target>,
-                    > + Send,
-            >,
+            Box<dyn std::future::Future<Output = Stream<Target>> + Send>,
         >,
     ) -> Self {
         Self(TransactionInner::PendingStream(fut))
@@ -535,7 +486,7 @@ where
     /// otherwise.
     pub async fn next(
         &mut self,
-    ) -> Option<Result<CallResult<RequestOctets, Target>, ServiceError>> {
+    ) -> Option<Result<CallResult<Target>, ServiceError>> {
         match &mut self.0 {
             TransactionInner::Immediate(item) => item.take(),
 
@@ -565,45 +516,35 @@ where
 /// [`Service`] impl should return, and (b) to control the interface offered
 /// to consumers of this type and avoid them having to work with the enum
 /// variants directly.
-enum TransactionInner<RequestOctets, Target, Future>
+enum TransactionInner<Target, Future>
 where
-    RequestOctets: AsRef<[u8]>,
     Future: std::future::Future<
-        Output = Result<CallResult<RequestOctets, Target>, ServiceError>,
+        Output = Result<CallResult<Target>, ServiceError>,
     >,
 {
     /// The transaction will result in a single immediate response.
     ///
     /// This variant is for internal use only when aborting Middleware
     /// processing early.
-    Immediate(
-        Option<Result<CallResult<RequestOctets, Target>, ServiceError>>,
-    ),
+    Immediate(Option<Result<CallResult<Target>, ServiceError>>),
 
     /// The transaction will result in at most a single response future.
     Single(Option<Future>),
 
     /// The transaction will result in stream of multiple response futures.
     PendingStream(
-        Pin<
-            Box<
-                dyn std::future::Future<
-                        Output = Stream<RequestOctets, Target>,
-                    > + Send,
-            >,
-        >,
+        Pin<Box<dyn std::future::Future<Output = Stream<Target>> + Send>>,
     ),
 
     /// The transaction is a stream of multiple response futures.
-    Stream(Stream<RequestOctets, Target>),
+    Stream(Stream<Target>),
 }
 
 //------------ TransacationStream --------------------------------------------
 
 /// A [`TransactionStream`] of [`Service`] results.
-type Stream<RequestOctets, Target> = TransactionStream<
-    Result<CallResult<RequestOctets, Target>, ServiceError>,
->;
+type Stream<Target> =
+    TransactionStream<Result<CallResult<Target>, ServiceError>>;
 
 /// A stream of zero or more DNS response futures relating to a single DNS request.
 pub struct TransactionStream<Item> {

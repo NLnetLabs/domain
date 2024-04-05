@@ -104,7 +104,7 @@ macro_rules! rdata_types {
                 else {
                     match rtype {
                         $( $( $(
-                            Rtype::$mtype => {
+                            $mtype::RTYPE => {
                                 $mtype::scan(
                                     scanner
                                 ).map(ZoneRecordData::$mtype)
@@ -331,7 +331,7 @@ macro_rules! rdata_types {
                 match *self {
                     $( $( $(
                         ZoneRecordData::$mtype(ref inner) => {
-                            Rtype::$mtype.hash(state);
+                            $mtype::RTYPE.hash(state);
                             inner.hash(state)
                         }
                     )* )* )*
@@ -360,7 +360,7 @@ macro_rules! rdata_types {
             ) -> Result<Option<Self>, ParseError> {
                 match rtype {
                     $( $( $(
-                        Rtype::$mtype => {
+                        $mtype::RTYPE => {
                             Ok(Some(ZoneRecordData::$mtype(
                                 $mtype::parse(parser)?
                             )))
@@ -505,7 +505,7 @@ macro_rules! rdata_types {
                         }
                     )* )* )*
 
-                    AllRecordData::Opt(_) => Rtype::Opt,
+                    AllRecordData::Opt(_) => Rtype::OPT,
                     AllRecordData::Unknown(ref inner) => inner.rtype(),
                 }
             }
@@ -753,20 +753,20 @@ macro_rules! rdata_types {
             ) -> Result<Self, ParseError> {
                 match rtype {
                     $( $( $(
-                        Rtype::$mtype => {
+                        $mtype::RTYPE => {
                             Ok(AllRecordData::$mtype(
                                 $mtype::parse(parser)?
                             ))
                         }
                     )* )* )*
                     $( $( $(
-                        Rtype::$ptype => {
+                        $ptype::RTYPE => {
                             Ok(AllRecordData::$ptype(
                                 $ptype::parse(parser)?
                             ))
                         }
                     )* )* )*
-                    $crate::base::iana::Rtype::Opt => {
+                    Opt::RTYPE => {
                         Ok(AllRecordData::Opt(
                             Opt::parse(parser)?
                         ))
@@ -957,6 +957,12 @@ macro_rules! dname_type_base {
             $field: N
         }
 
+        impl $target<()> {
+            /// The rtype of this record data type.
+            pub(crate) const RTYPE: $crate::base::iana::Rtype
+                = $crate::base::iana::Rtype::$rtype;
+        }
+
         impl<N> $target<N> {
             pub fn new($field: N) -> Self {
                 $target { $field }
@@ -1088,7 +1094,7 @@ macro_rules! dname_type_base {
 
         impl<N> $crate::base::rdata::RecordData for $target<N> {
             fn rtype(&self) -> $crate::base::iana::Rtype {
-                $crate::base::iana::Rtype::$rtype
+                $target::RTYPE
             }
         }
 
@@ -1099,7 +1105,7 @@ macro_rules! dname_type_base {
                 rtype: $crate::base::iana::Rtype,
                 parser: &mut octseq::parse::Parser<'a, Octs>,
             ) -> Result<Option<Self>, $crate::base::wire::ParseError> {
-                if rtype == $crate::base::iana::Rtype::$rtype {
+                if rtype == $target::RTYPE {
                     Self::parse(parser).map(Some)
                 }
                 else {

@@ -7,7 +7,7 @@ use std::vec::Vec;
 
 use crate::base::message_builder::AdditionalBuilder;
 use crate::base::wire::Composer;
-use crate::base::{Message, StreamTarget};
+use crate::base::StreamTarget;
 use crate::net::server::message::Request;
 use crate::net::server::service::{CallResult, ServiceError, Transaction};
 
@@ -75,8 +75,10 @@ where
 {
     /// Walks the chain forward invoking pre-processors one by one.
     ///
-    /// Pre-processors either inspect the given request, or may also
-    /// optionally modify it.
+    /// Pre-processors may inspect the given [`Request`] but may not generally
+    /// edit the request. There is some very limited support for editing the
+    /// context of the request but not the original DNS message contained
+    /// within it.
     ///
     /// Returns either [`ControlFlow::Continue`] indicating that processing of
     /// the request should continue, or [`ControlFlow::Break`] indicating that
@@ -97,14 +99,11 @@ where
     #[allow(clippy::type_complexity)]
     pub fn preprocess<Future>(
         &self,
-        request: &mut Request<Message<RequestOctets>>,
-    ) -> ControlFlow<(Transaction<RequestOctets, Target, Future>, usize)>
+        request: &Request<RequestOctets>,
+    ) -> ControlFlow<(Transaction<Target, Future>, usize)>
     where
         Future: std::future::Future<
-                Output = Result<
-                    CallResult<RequestOctets, Target>,
-                    ServiceError,
-                >,
+                Output = Result<CallResult<Target>, ServiceError>,
             > + Send,
     {
         for (i, p) in self.processors.iter().enumerate() {
@@ -144,7 +143,7 @@ where
     /// further down the chain will not be invoked.
     pub fn postprocess(
         &self,
-        request: &Request<Message<RequestOctets>>,
+        request: &Request<RequestOctets>,
         response: &mut AdditionalBuilder<StreamTarget<Target>>,
         last_processor_idx: Option<usize>,
     ) {

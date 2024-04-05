@@ -17,8 +17,7 @@
 
 use domain::base::iana::{Opcode, Rcode};
 use domain::base::message_builder::AdditionalBuilder;
-use domain::base::Rtype::{self, Axfr};
-use domain::base::{Dname, Message, ToDname};
+use domain::base::{Dname, Message, Rtype, ToDname};
 use domain::net::server::buf::VecBufSource;
 use domain::net::server::dgram::DgramServer;
 use domain::net::server::message::Request;
@@ -112,36 +111,33 @@ async fn main() {
 
 #[allow(clippy::type_complexity)]
 fn my_service(
-    msg: Request<Message<Vec<u8>>>,
+    request: Request<Vec<u8>>,
     zones: Arc<ZoneTree>,
 ) -> Result<
     Transaction<
         Vec<u8>,
-        Vec<u8>,
-        impl Future<
-                Output = Result<CallResult<Vec<u8>, Vec<u8>>, ServiceError>,
-            > + Send,
+        impl Future<Output = Result<CallResult<Vec<u8>>, ServiceError>> + Send,
     >,
     ServiceError,
 > {
-    let qtype = msg.message().sole_question().unwrap().qtype();
+    let qtype = request.message().sole_question().unwrap().qtype();
     match qtype {
-        Axfr => {
-            let fut = handle_axfr_request(msg, zones);
+        Rtype::AXFR => {
+            let fut = handle_axfr_request(request, zones);
             Ok(Transaction::stream(Box::pin(fut)))
         }
         _ => {
-            let fut = handle_non_axfr_request(msg, zones);
+            let fut = handle_non_axfr_request(request, zones);
             Ok(Transaction::single(fut))
         }
     }
 }
 
 async fn handle_non_axfr_request(
-    msg: Request<Message<Vec<u8>>>,
+    request: Request<Vec<u8>>,
     zones: Arc<ZoneTree>,
-) -> Result<CallResult<Vec<u8>, Vec<u8>>, ServiceError> {
-    let question = msg.message().sole_question().unwrap();
+) -> Result<CallResult<Vec<u8>>, ServiceError> {
+    let question = request.message().sole_question().unwrap();
     let zone = zones
         .find_zone(question.qname(), question.qclass())
         .map(|zone| zone.read());
@@ -151,30 +147,30 @@ async fn handle_non_axfr_request(
             let qtype = question.qtype();
             zone.query(qname, qtype).unwrap()
         }
-        None => Answer::new(Rcode::NXDomain),
+        None => Answer::new(Rcode::NXDOMAIN),
     };
 
     let builder = mk_builder_for_target();
-    let additional = answer.to_message(msg.message(), builder);
+    let additional = answer.to_message(request.message(), builder);
     Ok(CallResult::new(additional))
 }
 
 async fn handle_axfr_request(
-    msg: Request<Message<Vec<u8>>>,
+    request: Request<Vec<u8>>,
     zones: Arc<ZoneTree>,
-) -> TransactionStream<Result<CallResult<Vec<u8>, Vec<u8>>, ServiceError>> {
+) -> TransactionStream<Result<CallResult<Vec<u8>>, ServiceError>> {
     let mut stream = TransactionStream::default();
 
     // Look up the zone for the queried name.
-    let question = msg.message().sole_question().unwrap();
+    let question = request.message().sole_question().unwrap();
     let zone = zones
         .find_zone(question.qname(), question.qclass())
         .map(|zone| zone.read());
 
     // If not found, return an NXDOMAIN error response.
     let Some(zone) = zone else {
-        let answer = Answer::new(Rcode::NXDomain);
-        add_to_stream(answer, msg.message(), &mut stream);
+        let answer = Answer::new(Rcode::NXDOMAIN);
+        add_to_stream(answer, request.message(), &mut stream);
         return stream;
     };
 
@@ -196,14 +192,14 @@ async fn handle_axfr_request(
     // Get the SOA record as AXFR transfers must start and end with the SOA
     // record. If not found, return a SERVFAIL error response.
     let qname = question.qname().to_bytes();
-    let Ok(soa_answer) = zone.query(qname, Rtype::Soa) else {
-        let answer = Answer::new(Rcode::ServFail);
-        add_to_stream(answer, msg.message(), &mut stream);
+    let Ok(soa_answer) = zone.query(qname, Rtype::SOA) else {
+        let answer = Answer::new(Rcode::SERVFAIL);
+        add_to_stream(answer, request.message(), &mut stream);
         return stream;
     };
 
     // Push the begin SOA response message into the stream
-    add_to_stream(soa_answer.clone(), msg.message(), &mut stream);
+    add_to_stream(soa_answer.clone(), request.message(), &mut stream);
 
     // "The AXFR protocol treats the zone contents as an unordered
     //  collection (or to use the mathematical term, a "set") of
@@ -234,13 +230,13 @@ async fn handle_axfr_request(
 
     let stream = Arc::new(Mutex::new(stream));
     let cloned_stream = stream.clone();
-    let cloned_msg = msg.message().clone();
+    let cloned_msg = request.message().clone();
 
     let op = Box::new(move |owner: Dname<_>, rrset: &Rrset| {
-        if rrset.rtype() != Rtype::Soa {
+        if rrset.rtype() != Rtype::SOA {
             let builder = mk_builder_for_target();
             let mut answer =
-                builder.start_answer(&cloned_msg, Rcode::NoError).unwrap();
+                builder.start_answer(&cloned_msg, Rcode::NOERROR).unwrap();
             for item in rrset.data() {
                 answer.push((owner.clone(), rrset.ttl(), item)).unwrap();
             }
@@ -256,7 +252,7 @@ async fn handle_axfr_request(
     let mut stream = mutex.into_inner().unwrap();
 
     // Push the end SOA response message into the stream
-    add_to_stream(soa_answer, msg.message(), &mut stream);
+    add_to_stream(soa_answer, request.message(), &mut stream);
 
     stream
 }
@@ -265,9 +261,7 @@ async fn handle_axfr_request(
 fn add_to_stream(
     answer: Answer,
     msg: &Message<Vec<u8>>,
-    stream: &mut TransactionStream<
-        Result<CallResult<Vec<u8>, Vec<u8>>, ServiceError>,
-    >,
+    stream: &mut TransactionStream<Result<CallResult<Vec<u8>>, ServiceError>>,
 ) {
     let builder = mk_builder_for_target();
     let additional = answer.to_message(msg, builder);
@@ -278,9 +272,7 @@ fn add_to_stream(
 fn add_additional_to_stream(
     mut additional: AdditionalBuilder<domain::base::StreamTarget<Vec<u8>>>,
     msg: &Message<Vec<u8>>,
-    stream: &mut TransactionStream<
-        Result<CallResult<Vec<u8>, Vec<u8>>, ServiceError>,
-    >,
+    stream: &mut TransactionStream<Result<CallResult<Vec<u8>>, ServiceError>>,
 ) {
     set_axfr_header(msg, &mut additional);
     stream.push(ready(Ok(CallResult::new(additional))));
@@ -315,7 +307,7 @@ fn set_axfr_header<Target>(
     let header = additional.header_mut();
     header.set_id(msg.header().id());
     header.set_qr(true);
-    header.set_opcode(Opcode::Query);
+    header.set_opcode(Opcode::QUERY);
     header.set_aa(true);
     header.set_tc(false);
     header.set_rd(msg.header().rd());

@@ -1,6 +1,5 @@
 //! Importing from and (in future) exporting to a zonefiles.
 
-use core::convert::Infallible;
 use std::collections::{BTreeMap, HashMap};
 use std::vec::Vec;
 
@@ -87,13 +86,10 @@ impl Zonefile {
         // be a SOA record and use its owner name and class as the zone apex
         // name and class.
         if self.origin.is_none() {
-            if record.rtype() != Rtype::Soa {
+            if record.rtype() != Rtype::SOA {
                 return Err(RecordError::MissingSoa(record));
             } else {
-                let apex = record
-                    .owner()
-                    .to_dname()
-                    .map_err(|_: Infallible| unreachable!())?;
+                let apex = record.owner().to_dname();
                 self.class = Some(record.class());
                 self.origin = Some(apex);
             }
@@ -120,7 +116,7 @@ impl Zonefile {
                 // A Delegation Signer (DS) record can only appear within the
                 // parent zone and refer to a child zone, a DS record cannot
                 // therefore appear at the apex.
-                Rtype::Ns | Rtype::Ds if record.owner() != zone_apex => {
+                Rtype::NS | Rtype::DS if record.owner() != zone_apex => {
                     if self.normal.contains(record.owner())
                         || self.cnames.contains(record.owner())
                     {
@@ -131,7 +127,7 @@ impl Zonefile {
                         .insert(record);
                     Ok(())
                 }
-                Rtype::Cname => {
+                Rtype::CNAME => {
                     if self.normal.contains(record.owner())
                         || self.zone_cuts.contains(record.owner())
                     {
@@ -323,13 +319,13 @@ impl Owners<Normal> {
             // this zone.
             for (_rtype, rrset) in
                 normal.records.iter().filter(|(&rtype, _)| {
-                    rtype == Rtype::A || rtype == Rtype::Aaaa
+                    rtype == Rtype::A || rtype == Rtype::AAAA
                 })
             {
                 for rdata in rrset.data() {
                     let glue_record = StoredRecord::new(
                         name.clone(),
-                        Class::In,
+                        Class::IN,
                         rrset.ttl(),
                         rdata.clone(),
                     );
@@ -387,14 +383,14 @@ pub struct ZoneCut {
 impl ZoneCut {
     fn insert(&mut self, record: StoredRecord) {
         match record.rtype() {
-            Rtype::Ns => {
+            Rtype::NS => {
                 if let Some(ns) = self.ns.as_mut() {
                     ns.push_record(record)
                 } else {
                     self.ns = Some(record.into())
                 }
             }
-            Rtype::Ds => {
+            Rtype::DS => {
                 if let Some(ds) = self.ds.as_mut() {
                     ds.push_record(record)
                 } else {

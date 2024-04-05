@@ -19,7 +19,7 @@ use crate::base::Dname;
 use crate::base::MessageBuilder;
 use crate::base::Rtype;
 use crate::base::StaticCompressor;
-use crate::base::{Message, StreamTarget};
+use crate::base::StreamTarget;
 
 use super::buf::BufSource;
 use super::message::Request;
@@ -268,7 +268,7 @@ impl BufSource for MockBufSource {
 struct MySingle;
 
 impl Future for MySingle {
-    type Output = Result<CallResult<Vec<u8>, Vec<u8>>, ServiceError>;
+    type Output = Result<CallResult<Vec<u8>>, ServiceError>;
 
     fn poll(
         self: Pin<&mut Self>,
@@ -303,11 +303,9 @@ impl Service<Vec<u8>> for MyService {
 
     fn call(
         &self,
-        _msg: Request<Message<Vec<u8>>>,
-    ) -> Result<Transaction<Vec<u8>, Self::Target, Self::Future>, ServiceError>
-    {
+        _msg: Request<Vec<u8>>,
+    ) -> Result<Transaction<Self::Target, Self::Future>, ServiceError> {
         Ok(Transaction::single(MySingle))
-        // Err(ServiceError::ShuttingDown)
     }
 }
 
@@ -409,7 +407,7 @@ async fn service_test() {
 
         // Verify that no requests or responses are in progress still in
         // the server.
-        assert_eq!(srv.metrics().num_connections(), Some(0));
+        assert_eq!(srv.metrics().num_connections(), 0);
         assert_eq!(srv.metrics().num_inflight_requests(), 0);
         assert_eq!(srv.metrics().num_pending_writes(), 0);
         assert_eq!(srv.metrics().num_received_requests(), num_messages);

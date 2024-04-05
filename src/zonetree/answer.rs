@@ -66,7 +66,7 @@ impl Answer {
     ///
     /// This is equivalent to calling [`Answer::new(Rcode::Refused)`].
     pub fn refused() -> Self {
-        Answer::new(Rcode::Refused)
+        Answer::new(Rcode::REFUSED)
     }
 
     /// Adds a CNAME to the answer section.

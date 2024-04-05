@@ -2,19 +2,19 @@
 use core::ops::ControlFlow;
 
 use octseq::Octets;
-use tracing::{debug, trace, warn};
+use tracing::{debug, enabled, error, trace, warn, Level};
 
 use crate::base::iana::OptRcode;
 use crate::base::message_builder::AdditionalBuilder;
 use crate::base::opt::keepalive::IdleTimeout;
 use crate::base::opt::{Opt, OptRecord, TcpKeepalive};
 use crate::base::wire::Composer;
-use crate::base::{Message, StreamTarget};
+use crate::base::StreamTarget;
 use crate::net::server::message::{Request, TransportSpecificContext};
 use crate::net::server::middleware::processor::MiddlewareProcessor;
 use crate::net::server::middleware::processors::mandatory::MINIMUM_RESPONSE_BYTE_LEN;
-use crate::net::server::util::add_edns_options;
 use crate::net::server::util::start_reply;
+use crate::net::server::util::{add_edns_options, remove_edns_opt_record};
 
 /// EDNS version 0.
 ///
@@ -22,7 +22,7 @@ use crate::net::server::util::start_reply;
 /// registry] at the time of writing.
 ///
 /// [IANA registry]: https://www.iana.org/assignments/dns-parameters/dns-parameters.xhtml#dns-parameters-14
-pub const EDNS_VERSION_ZERO: u8 = 0;
+const EDNS_VERSION_ZERO: u8 = 0;
 
 /// A [`MiddlewareProcessor`] for adding EDNS(0) related functionality.
 ///
@@ -38,24 +38,22 @@ pub const EDNS_VERSION_ZERO: u8 = 0;
 /// [7828]: https://datatracker.ietf.org/doc/html/rfc7828
 /// [9210]: https://datatracker.ietf.org/doc/html/rfc9210
 /// [`MiddlewareProcessor`]: crate::net::server::middleware::processor::MiddlewareProcessor
-#[derive(Debug)]
-pub struct EdnsMiddlewareProcessor {
-    /// Don't accept messages that advertize a higher EDNS version than this.
-    max_version: u8,
-}
+#[derive(Debug, Default)]
+pub struct EdnsMiddlewareProcessor;
 
 impl EdnsMiddlewareProcessor {
     /// Creates an instance of this processor.
     #[must_use]
-    pub fn new(max_version: u8) -> Self {
-        Self { max_version }
+    pub fn new() -> Self {
+        Self
     }
 }
 
 impl EdnsMiddlewareProcessor {
     /// Create a DNS error response to the given request with the given RCODE.
     fn error_response<RequestOctets, Target>(
-        request: &Request<Message<RequestOctets>>,
+        &self,
+        request: &Request<RequestOctets>,
         rcode: OptRcode,
     ) -> AdditionalBuilder<StreamTarget<Target>>
     where
@@ -66,7 +64,7 @@ impl EdnsMiddlewareProcessor {
 
         // Note: if rcode is non-extended this will also correctly handle
         // setting the rcode in the main message header.
-        if let Err(err) = additional.opt(|opt| {
+        if let Err(err) = add_edns_options(&mut additional, |opt| {
             opt.set_rcode(rcode);
             Ok(())
         }) {
@@ -75,25 +73,8 @@ impl EdnsMiddlewareProcessor {
             );
         }
 
+        self.postprocess(request, &mut additional);
         additional
-    }
-}
-
-//--- Default
-
-impl Default for EdnsMiddlewareProcessor {
-    /// Creates an instance of this processor with default configuration.
-    ///
-    /// The processor will only accept EDNS version 0 OPT records from
-    /// clients. EDNS version 0 is the highest EDNS version number recoded in
-    /// the [IANA registry] at the time of writing.
-    ///
-    /// [IANA registry]:
-    ///     https://www.iana.org/assignments/dns-parameters/dns-parameters.xhtml#dns-parameters-14
-    fn default() -> Self {
-        Self {
-            max_version: EDNS_VERSION_ZERO,
-        }
     }
 }
 
@@ -107,7 +88,7 @@ where
 {
     fn preprocess(
         &self,
-        request: &mut Request<Message<RequestOctets>>,
+        request: &Request<RequestOctets>,
     ) -> ControlFlow<AdditionalBuilder<StreamTarget<Target>>> {
         // https://www.rfc-editor.org/rfc/rfc6891.html#section-6.1.1
         // 6.1.1: Basic Elements
@@ -121,10 +102,9 @@ where
                 if iter.next().is_some() {
                     // More than one OPT RR received.
                     debug!("RFC 6891 6.1.1 violation: request contains more than one OPT RR.");
-                    return ControlFlow::Break(Self::error_response(
-                        request,
-                        OptRcode::FormErr,
-                    ));
+                    return ControlFlow::Break(
+                        self.error_response(request, OptRcode::FORMERR),
+                    );
                 }
 
                 if let Ok(opt) = opt {
@@ -135,15 +115,14 @@ where
                     //   "If a responder does not implement the VERSION level
                     //    of the request, then it MUST respond with
                     //    RCODE=BADVERS."
-                    if opt_rec.version() > self.max_version {
-                        debug!("RFC 6891 6.1.3 violation: request EDNS version {} > {}", opt_rec.version(), self.max_version);
-                        return ControlFlow::Break(Self::error_response(
-                            request,
-                            OptRcode::BadVers,
-                        ));
+                    if opt_rec.version() > EDNS_VERSION_ZERO {
+                        debug!("RFC 6891 6.1.3 violation: request EDNS version {} > 0", opt_rec.version());
+                        return ControlFlow::Break(
+                            self.error_response(request, OptRcode::BADVERS),
+                        );
                     }
 
-                    match request.transport_mut() {
+                    match request.transport_ctx() {
                         TransportSpecificContext::Udp(ctx) => {
                             // https://datatracker.ietf.org/doc/html/rfc7828#section-3.2.1
                             // 3.2.1. Sending Queries
@@ -158,9 +137,9 @@ where
                             if opt_rec.opt().tcp_keepalive().is_some() {
                                 debug!("RFC 7828 3.2.1 violation: edns-tcp-keepalive option received via UDP");
                                 return ControlFlow::Break(
-                                    Self::error_response(
+                                    self.error_response(
                                         request,
-                                        OptRcode::FormErr,
+                                        OptRcode::FORMERR,
                                     ),
                                 );
                             }
@@ -193,8 +172,10 @@ where
 
                             // Clamp the upper bound of the size limit
                             // requested by the server:
+                            let server_max_response_size_hint =
+                                ctx.max_response_size_hint();
                             let clamped_server_hint =
-                                ctx.max_response_size_hint.map(|v| {
+                                server_max_response_size_hint.map(|v| {
                                     v.clamp(
                                         MINIMUM_RESPONSE_BYTE_LEN,
                                         clamped_requestors_udp_payload_size,
@@ -213,10 +194,14 @@ where
                                 None => clamped_requestors_udp_payload_size,
                             };
 
-                            trace!("EDNS(0) response size negotation concluded: client requested={}, server requested={:?}, chosen value={}",
-                            opt_rec.udp_payload_size(), ctx.max_response_size_hint, negotiated_hint);
-                            ctx.max_response_size_hint =
-                                Some(negotiated_hint);
+                            if enabled!(Level::TRACE) {
+                                trace!("EDNS(0) response size negotation concluded: client requested={}, server requested={:?}, chosen value={}",
+                                    opt_rec.udp_payload_size(), server_max_response_size_hint, negotiated_hint);
+                            }
+
+                            ctx.set_max_response_size_hint(Some(
+                                negotiated_hint,
+                            ));
                         }
 
                         TransportSpecificContext::NonUdp(_) => {
@@ -230,9 +215,9 @@ where
                                 if keep_alive.timeout().is_some() {
                                     debug!("RFC 7828 3.2.1 violation: edns-tcp-keepalive option received via TCP contains timeout");
                                     return ControlFlow::Break(
-                                        Self::error_response(
+                                        self.error_response(
                                             request,
-                                            OptRcode::FormErr,
+                                            OptRcode::FORMERR,
                                         ),
                                     );
                                 }
@@ -248,9 +233,38 @@ where
 
     fn postprocess(
         &self,
-        request: &Request<Message<RequestOctets>>,
+        request: &Request<RequestOctets>,
         response: &mut AdditionalBuilder<StreamTarget<Target>>,
     ) {
+        // https://www.rfc-editor.org/rfc/rfc6891.html#section-6.1.1
+        // 6.1.1: Basic Elements
+        // ...
+        // "If an OPT record is present in a received request, compliant
+        //  responders MUST include an OPT record in their respective
+        //  responses."
+        //
+        // We don't do anything about this scenario at present.
+
+        // https://www.rfc-editor.org/rfc/rfc6891.html#section-7
+        // 7: Transport considerations
+        // ...
+        // "Lack of presence of an OPT record in a request MUST be taken as an
+        //  indication that the requestor does not implement any part of this
+        //  specification and that the responder MUST NOT include an OPT
+        //  record in its response."
+        //
+        // So strip off any OPT record present if the query lacked an OPT
+        // record.
+        if request.message().opt().is_none() {
+            if let Err(err) = remove_edns_opt_record(response) {
+                error!(
+                    "Error while stripping OPT record from response: {err}"
+                );
+                *response = self.error_response(request, OptRcode::SERVFAIL);
+                return;
+            }
+        }
+
         // https://datatracker.ietf.org/doc/html/rfc7828#section-3.3.2
         // 3.3.2.  Sending Responses
         //   "A DNS server that receives a query sent using TCP transport that
@@ -264,8 +278,9 @@ where
         // 4.2. Connection Management
         //   "... DNS clients and servers SHOULD signal their timeout values
         //   using the edns-tcp-keepalive EDNS(0) option [RFC7828]."
-        if let TransportSpecificContext::NonUdp(ctx) = request.transport() {
-            if let Some(idle_timeout) = ctx.idle_timeout {
+        if let TransportSpecificContext::NonUdp(ctx) = request.transport_ctx()
+        {
+            if let Some(idle_timeout) = ctx.idle_timeout() {
                 if let Ok(additional) = request.message().additional() {
                     let mut iter = additional.limit_to::<Opt<_>>();
                     if iter.next().is_some() {
@@ -294,30 +309,6 @@ where
                 }
             }
         }
-
-        // https://www.rfc-editor.org/rfc/rfc6891.html#section-6.1.1
-        // 6.1.1: Basic Elements
-        // ...
-        // "If an OPT record is present in a received request, compliant
-        //  responders MUST include an OPT record in their respective
-        //  responses."
-        //
-        // TODO: What if anything should we do if we detect a request with an
-        // OPT record but a response that lacks an OPT record?
-
-        // https://www.rfc-editor.org/rfc/rfc6891.html#section-7
-        // 7: Transport considerations
-        // ...
-        // "Lack of presence of an OPT record in a request MUST be taken as an
-        //  indication that the requestor does not implement any part of this
-        //  specification and that the responder MUST NOT include an OPT
-        //  record in its response."
-        //
-        // So strip off any OPT record present if the query lacked an OPT
-        // record.
-
-        // TODO: How can we strip off the OPT record in the response if no OPT
-        // record is present in the request?
     }
 }
 
@@ -415,33 +406,30 @@ mod tests {
 
         // Package the query into a context aware request to make it look
         // as if it came from a UDP server.
-        let udp_context = UdpTransportContext {
-            max_response_size_hint: server_value,
-        };
-        let mut request = Request::new(
+        let ctx = UdpTransportContext::new(server_value);
+        let request = Request::new(
             "127.0.0.1:12345".parse().unwrap(),
             Instant::now(),
             message,
-            TransportSpecificContext::Udp(udp_context),
+            TransportSpecificContext::Udp(ctx),
         );
 
         // And pass the query through the middleware processor
-        let processor = EdnsMiddlewareProcessor::default();
+        let processor = EdnsMiddlewareProcessor::new();
         let processor: &dyn MiddlewareProcessor<Vec<u8>, Vec<u8>> =
             &processor;
         let mut response = MessageBuilder::new_stream_vec().additional();
-        if let ControlFlow::Continue(()) = processor.preprocess(&mut request)
-        {
+        if let ControlFlow::Continue(()) = processor.preprocess(&request) {
             processor.postprocess(&request, &mut response);
         }
 
         // Get the modified response size hint.
         let TransportSpecificContext::Udp(modified_udp_context) =
-            request.transport()
+            request.transport_ctx()
         else {
             unreachable!()
         };
 
-        modified_udp_context.max_response_size_hint
+        modified_udp_context.max_response_size_hint()
     }
 }

@@ -12,7 +12,6 @@
 use core::fmt::Debug;
 use core::future::poll_fn;
 use core::ops::Deref;
-use core::sync::atomic::Ordering;
 use core::time::Duration;
 
 use std::io;
@@ -251,14 +250,11 @@ type CommandReceiver<Buf, Svc> = watch::Receiver<ServerCommandType<Buf, Svc>>;
 /// use domain::net::server::stream::StreamServer;
 /// use domain::net::server::util::service_fn;
 ///
-/// fn my_service(msg: Request<Message<Vec<u8>>>, _meta: ())
+/// fn my_service(msg: Request<Vec<u8>>, _meta: ())
 /// -> Result<
-///     Transaction<Vec<u8>, Vec<u8>,
+///     Transaction<Vec<u8>,
 ///         Pin<Box<dyn Future<
-///             Output = Result<
-///                 CallResult<Vec<u8>, Vec<u8>>,
-///                 ServiceError,
-///             >,
+///             Output = Result<CallResult<Vec<u8>>, ServiceError>
 ///         > + Send>>,
 ///     >,
 ///     ServiceError,
@@ -534,7 +530,7 @@ where
                     };
 
                     let received_at = Instant::now();
-                    self.metrics.num_received_requests.fetch_add(1, Ordering::Relaxed);
+                    self.metrics.inc_num_received_requests();
 
                     if enabled!(Level::TRACE) {
                         let pcap_text = to_pcap_text(&msg, bytes_read);
@@ -679,25 +675,26 @@ where
         request: Message<Buf::Output>,
         received_at: Instant,
         addr: SocketAddr,
-    ) -> Request<Message<Buf::Output>> {
-        let ctx = TransportSpecificContext::Udp(UdpTransportContext {
-            max_response_size_hint: self.config.load().max_response_size,
-        });
+    ) -> Request<Buf::Output> {
+        let ctx =
+            UdpTransportContext::new(self.config.load().max_response_size);
+        let ctx = TransportSpecificContext::Udp(ctx);
         Request::new(addr, received_at, request, ctx)
     }
 
     /// Process the result from the middleware -> service -> middleware call
     /// tree.
     fn process_call_result(
-        call_result: CallResult<Buf::Output, Svc::Target>,
-        addr: SocketAddr,
+        request: &Request<Buf::Output>,
+        call_result: CallResult<Svc::Target>,
         state: RequestState<Sock, Buf::Output, Svc::Target>,
         metrics: Arc<ServerMetrics>,
     ) {
-        metrics.num_pending_writes.fetch_add(1, Ordering::Relaxed);
+        metrics.inc_num_pending_writes();
+        let client_addr = request.client_addr();
 
         tokio::spawn(async move {
-            let (_request, response, feedback) = call_result.into_inner();
+            let (response, feedback) = call_result.into_inner();
 
             if let Some(feedback) = feedback {
                 match feedback {
@@ -722,7 +719,7 @@ where
                 // Logging
                 if enabled!(Level::TRACE) {
                     let pcap_text = to_pcap_text(bytes, bytes.len());
-                    trace!(%addr, pcap_text, "Sending response");
+                    trace!(%client_addr, pcap_text, "Sending response");
                 }
 
                 // Actually write the DNS response message bytes to the UDP
@@ -730,13 +727,13 @@ where
                 let _ = Self::send_to(
                     &state.sock,
                     bytes,
-                    &addr,
+                    &client_addr,
                     state.write_timeout,
                 )
                 .await;
 
-                metrics.num_pending_writes.fetch_sub(1, Ordering::Relaxed);
-                metrics.num_sent_responses.fetch_add(1, Ordering::Relaxed);
+                metrics.dec_num_pending_writes();
+                metrics.inc_num_sent_responses();
             }
         });
     }

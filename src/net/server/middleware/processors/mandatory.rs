@@ -6,12 +6,9 @@ use tracing::{debug, error, trace, warn};
 
 use crate::base::iana::{Opcode, Rcode};
 use crate::base::message_builder::{AdditionalBuilder, PushError};
-use crate::base::opt::Opt;
 use crate::base::wire::{Composer, ParseError};
-use crate::base::{Message, StreamTarget};
-use crate::net::server::message::{
-    Request, TransportSpecificContext, UdpTransportContext,
-};
+use crate::base::StreamTarget;
+use crate::net::server::message::{Request, TransportSpecificContext};
 use crate::net::server::middleware::processor::MiddlewareProcessor;
 use crate::net::server::util::{mk_builder_for_target, start_reply};
 use std::fmt::Display;
@@ -32,13 +29,11 @@ pub const MINIMUM_RESPONSE_BYTE_LEN: u16 = 512;
 /// |--------|---------|
 /// | [1035] | TBD     |
 /// | [2181] | TBD     |
-/// | [6891] | TBD     |
 ///
 /// [`MiddlewareProcessor`]:
 ///     crate::net::server::middleware::processor::MiddlewareProcessor
 /// [1035]: https://datatracker.ietf.org/doc/html/rfc1035
 /// [2181]: https://datatracker.ietf.org/doc/html/rfc2181
-/// [6891]: https://datatracker.ietf.org/doc/html/rfc6891
 #[derive(Debug)]
 pub struct MandatoryMiddlewareProcessor {
     /// In strict mode the processor does more checks on requests and
@@ -66,7 +61,7 @@ impl MandatoryMiddlewareProcessor {
     /// Create a DNS error response to the given request with the given RCODE.
     fn error_response<RequestOctets, Target>(
         &self,
-        request: &Request<Message<RequestOctets>>,
+        request: &Request<RequestOctets>,
         rcode: Rcode,
     ) -> AdditionalBuilder<StreamTarget<Target>>
     where
@@ -93,22 +88,21 @@ impl MandatoryMiddlewareProcessor {
     /// any OPT record present which will be preserved, then truncates to the
     /// specified byte length.
     fn truncate<RequestOctets, Target>(
-        request: &Request<Message<RequestOctets>>,
+        request: &Request<RequestOctets>,
         response: &mut AdditionalBuilder<StreamTarget<Target>>,
     ) -> Result<(), TruncateError>
     where
         Target: Composer + Default,
+        RequestOctets: AsRef<[u8]>,
     {
-        if let TransportSpecificContext::Udp(UdpTransportContext {
-            max_response_size_hint,
-        }) = request.transport()
-        {
+        if let TransportSpecificContext::Udp(ctx) = request.transport_ctx() {
             // https://datatracker.ietf.org/doc/html/rfc1035#section-4.2.1
             //   "Messages carried by UDP are restricted to 512 bytes (not
             //    counting the IP or UDP headers).  Longer messages are
             //    truncated and the TC bit is set in the header."
-            let max_response_size =
-                max_response_size_hint.unwrap_or(MINIMUM_RESPONSE_BYTE_LEN);
+            let max_response_size = ctx
+                .max_response_size_hint()
+                .unwrap_or(MINIMUM_RESPONSE_BYTE_LEN);
             let max_response_size = max_response_size as usize;
             let response_len = response.as_slice().len();
 
@@ -192,7 +186,7 @@ where
 {
     fn preprocess(
         &self,
-        request: &mut Request<Message<RequestOctets>>,
+        request: &Request<RequestOctets>,
     ) -> ControlFlow<AdditionalBuilder<StreamTarget<Target>>> {
         // https://www.rfc-editor.org/rfc/rfc3425.html
         // 3 - Effect on RFC 1035
@@ -200,30 +194,14 @@ where
         //   "Therefore IQUERY is now obsolete, and name servers SHOULD return
         //    a "Not Implemented" error when an IQUERY request is received."
         if self.strict
-            && request.message().header().opcode() == Opcode::IQuery
+            && request.message().header().opcode() == Opcode::IQUERY
         {
             debug!(
                 "RFC 3425 3 violation: request opcode IQUERY is obsolete."
             );
             return ControlFlow::Break(
-                self.error_response(request, Rcode::NotImp),
+                self.error_response(request, Rcode::NOTIMP),
             );
-        }
-
-        // https://www.rfc-editor.org/rfc/rfc6891.html#section-6.1.1
-        // 6.1.1: Basic Elements
-        // ...
-        // "If a query message with more than one OPT RR is received, a
-        //  FORMERR (RCODE=1) MUST be returned"
-        if let Ok(additional) = request.message().additional() {
-            let iter = additional.limit_to::<Opt<_>>();
-            if iter.count() > 1 {
-                // More than one OPT RR received.
-                debug!("RFC 6891 6.1.1 violation: request contains more than one OPT RR.");
-                return ControlFlow::Break(
-                    self.error_response(request, Rcode::FormErr),
-                );
-            }
         }
 
         ControlFlow::Continue(())
@@ -231,12 +209,12 @@ where
 
     fn postprocess(
         &self,
-        request: &Request<Message<RequestOctets>>,
+        request: &Request<RequestOctets>,
         response: &mut AdditionalBuilder<StreamTarget<Target>>,
     ) {
         if let Err(err) = Self::truncate(request, response) {
             error!("Error while truncating response: {err}");
-            *response = self.error_response(request, Rcode::ServFail);
+            *response = self.error_response(request, Rcode::SERVFAIL);
             return;
         }
 
@@ -262,33 +240,6 @@ where
         response
             .header_mut()
             .set_rd(request.message().header().rd());
-
-        // https://www.rfc-editor.org/rfc/rfc6891.html#section-6.1.1
-        // 6.1.1: Basic Elements
-        // ...
-        // "If an OPT record is present in a received request, compliant
-        //  responders MUST include an OPT record in their respective
-        //  responses."
-        //
-        // TODO: What if anything should we do if we detect a request with an
-        // OPT record but a response that lacks an OPT record?
-
-        // https://www.rfc-editor.org/rfc/rfc6891.html#section-7
-        // 7: Transport considerations
-        // ...
-        // "Lack of presence of an OPT record in a request MUST be taken as an
-        //  indication that the requestor does not implement any part of this
-        //  specification and that the responder MUST NOT include an OPT
-        //  record in its response."
-        //
-        // So strip off any OPT record present if the query lacked an OPT
-        // record.
-
-        // TODO: How can we strip off the OPT record in the response if no OPT
-        // record is present in the request?
-        //
-        // if request.opt().is_none() && response.opt().is_some() {
-        // }
 
         // https://www.rfc-editor.org/rfc/rfc1035.html
         // https://www.rfc-editor.org/rfc/rfc3425.html
@@ -408,7 +359,7 @@ mod tests {
         additional
             .opt(|builder| {
                 builder.push_raw_option(
-                    OptionCode::Padding,
+                    OptionCode::PADDING,
                     extra_bytes.len() as u16,
                     |target| {
                         target.append_slice(&extra_bytes).unwrap();
@@ -425,14 +376,12 @@ mod tests {
 
         // Package the query into a context aware request to make it look
         // as if it came from a UDP server.
-        let udp_context = UdpTransportContext {
-            max_response_size_hint,
-        };
-        let mut request = Request::new(
+        let ctx = UdpTransportContext::new(max_response_size_hint);
+        let request = Request::new(
             "127.0.0.1:12345".parse().unwrap(),
             Instant::now(),
             message,
-            TransportSpecificContext::Udp(udp_context),
+            TransportSpecificContext::Udp(ctx),
         );
 
         // And pass the query through the middleware processor
@@ -440,8 +389,7 @@ mod tests {
         let processor: &dyn MiddlewareProcessor<Vec<u8>, Vec<u8>> =
             &processor;
         let mut response = MessageBuilder::new_stream_vec().additional();
-        if let ControlFlow::Continue(()) = processor.preprocess(&mut request)
-        {
+        if let ControlFlow::Continue(()) = processor.preprocess(&request) {
             processor.postprocess(&request, &mut response);
         }
 

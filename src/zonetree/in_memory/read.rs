@@ -131,7 +131,7 @@ impl ReadZone {
             Some(Special::Cname(cname)) => {
                 let answer = NodeAnswer::cname(cname.clone());
                 if walk.enabled() {
-                    let mut rrset = Rrset::new(Rtype::Cname, cname.ttl());
+                    let mut rrset = Rrset::new(Rtype::CNAME, cname.ttl());
                     rrset.push_data(cname.data().clone());
                     walk.op(&rrset);
                 }
@@ -167,7 +167,7 @@ impl ReadZone {
 
     fn query_at_cut(&self, cut: &ZoneCut, qtype: Rtype) -> NodeAnswer {
         match qtype {
-            Rtype::Ds => {
+            Rtype::DS => {
                 if let Some(rrset) = cut.ds.as_ref() {
                     NodeAnswer::data(rrset.clone())
                 } else {
@@ -258,8 +258,8 @@ impl ReadableZone for ReadZone {
         // matching when in walk mode, so we set it to Any as it most closely
         // matches our intent and will be ignored anyway.
         let walk = WalkState::new(op);
-        self.query_rrsets(self.apex.rrsets(), Rtype::Any, walk.clone());
-        self.query_below_apex(Label::root(), iter::empty(), Rtype::Any, walk);
+        self.query_rrsets(self.apex.rrsets(), Rtype::ANY, walk.clone());
+        self.query_below_apex(Label::root(), iter::empty(), Rtype::ANY, walk);
     }
 }
 
@@ -277,7 +277,7 @@ struct NodeAnswer {
 
 impl NodeAnswer {
     fn data(rrset: SharedRrset) -> Self {
-        let mut answer = Answer::new(Rcode::NoError);
+        let mut answer = Answer::new(Rcode::NOERROR);
         answer.add_answer(rrset);
         NodeAnswer {
             answer,
@@ -287,13 +287,13 @@ impl NodeAnswer {
 
     fn no_data() -> Self {
         NodeAnswer {
-            answer: Answer::new(Rcode::NoError),
+            answer: Answer::new(Rcode::NOERROR),
             add_soa: true,
         }
     }
 
     fn cname(rr: SharedRr) -> Self {
-        let mut answer = Answer::new(Rcode::NoError);
+        let mut answer = Answer::new(Rcode::NOERROR);
         answer.add_cname(rr);
         NodeAnswer {
             answer,
@@ -303,14 +303,14 @@ impl NodeAnswer {
 
     fn nx_domain() -> Self {
         NodeAnswer {
-            answer: Answer::new(Rcode::NXDomain),
+            answer: Answer::new(Rcode::NXDOMAIN),
             add_soa: true,
         }
     }
 
     fn authority(authority: AnswerAuthority) -> Self {
         NodeAnswer {
-            answer: Answer::with_authority(Rcode::NoError, authority),
+            answer: Answer::with_authority(Rcode::NOERROR, authority),
             add_soa: false,
         }
     }

@@ -79,11 +79,11 @@ where
         });
 
         let mut ctx = match algorithm {
-            DigestAlg::Sha1 => {
+            DigestAlg::SHA1 => {
                 digest::Context::new(&digest::SHA1_FOR_LEGACY_USE_ONLY)
             }
-            DigestAlg::Sha256 => digest::Context::new(&digest::SHA256),
-            DigestAlg::Sha384 => digest::Context::new(&digest::SHA384),
+            DigestAlg::SHA256 => digest::Context::new(&digest::SHA256),
+            DigestAlg::SHA384 => digest::Context::new(&digest::SHA384),
             _ => {
                 return Err(AlgorithmError::Unsupported);
             }
@@ -112,7 +112,7 @@ pub trait RrsigExt {
     fn signed_data<N: ToDname, D: RecordData, B: Composer>(
         &self,
         buf: &mut B,
-        records: &mut [Record<N, D>],
+        records: &mut [impl AsRef<Record<N, D>>],
     ) -> Result<(), B::AppendError>
     where
         D: CanonicalOrd + ComposeRecordData + Sized;
@@ -149,7 +149,7 @@ impl<Octets: AsRef<[u8]>, Name: ToDname> RrsigExt for Rrsig<Octets, Name> {
     fn signed_data<N: ToDname, D: RecordData, B: Composer>(
         &self,
         buf: &mut B,
-        records: &mut [Record<N, D>],
+        records: &mut [impl AsRef<Record<N, D>>],
     ) -> Result<(), B::AppendError>
     where
         D: CanonicalOrd + ComposeRecordData + Sized,
@@ -170,10 +170,12 @@ impl<Octets: AsRef<[u8]>, Name: ToDname> RrsigExt for Rrsig<Octets, Name> {
 
         // The set of all RR(i) is sorted into canonical order.
         // See https://tools.ietf.org/html/rfc4034#section-6.3
-        records.sort_by(|a, b| a.data().canonical_cmp(b.data()));
+        records.sort_by(|a, b| {
+            a.as_ref().data().canonical_cmp(b.as_ref().data())
+        });
 
         // RR(i) = name | type | class | OrigTTL | RDATA length | RDATA
-        for rr in records {
+        for rr in records.iter().map(|r| r.as_ref()) {
             // Handle expanded wildcards as per [RFC4035, Section 5.3.2]
             // (https://tools.ietf.org/html/rfc4035#section-5.3.2).
             let rrsig_labels = usize::from(self.labels());
@@ -220,20 +222,20 @@ impl<Octets: AsRef<[u8]>, Name: ToDname> RrsigExt for Rrsig<Octets, Name> {
         // Note: Canonicalize the algorithm, otherwise matching named variants against Int(_) is not going to work
         let sec_alg = SecAlg::from_int(self.algorithm().to_int());
         match sec_alg {
-            SecAlg::RsaSha1
-            | SecAlg::RsaSha1Nsec3Sha1
-            | SecAlg::RsaSha256
-            | SecAlg::RsaSha512 => {
+            SecAlg::RSASHA1
+            | SecAlg::RSASHA1_NSEC3_SHA1
+            | SecAlg::RSASHA256
+            | SecAlg::RSASHA512 => {
                 let (algorithm, min_bytes) = match sec_alg {
-                    SecAlg::RsaSha1 | SecAlg::RsaSha1Nsec3Sha1 => (
+                    SecAlg::RSASHA1 | SecAlg::RSASHA1_NSEC3_SHA1 => (
                         &signature::RSA_PKCS1_1024_8192_SHA1_FOR_LEGACY_USE_ONLY,
                         1024 / 8,
                     ),
-                    SecAlg::RsaSha256 => (
+                    SecAlg::RSASHA256 => (
                         &signature::RSA_PKCS1_1024_8192_SHA256_FOR_LEGACY_USE_ONLY,
                         1024 / 8,
                     ),
-                    SecAlg::RsaSha512 => (
+                    SecAlg::RSASHA512 => (
                         &signature::RSA_PKCS1_1024_8192_SHA512_FOR_LEGACY_USE_ONLY,
                         1024 / 8,
                     ),
@@ -249,12 +251,12 @@ impl<Octets: AsRef<[u8]>, Name: ToDname> RrsigExt for Rrsig<Octets, Name> {
                     .verify(algorithm, signed_data, signature)
                     .map_err(|_| AlgorithmError::BadSig)
             }
-            SecAlg::EcdsaP256Sha256 | SecAlg::EcdsaP384Sha384 => {
+            SecAlg::ECDSAP256SHA256 | SecAlg::ECDSAP384SHA384 => {
                 let algorithm = match sec_alg {
-                    SecAlg::EcdsaP256Sha256 => {
+                    SecAlg::ECDSAP256SHA256 => {
                         &signature::ECDSA_P256_SHA256_FIXED
                     }
-                    SecAlg::EcdsaP384Sha384 => {
+                    SecAlg::ECDSAP384SHA384 => {
                         &signature::ECDSA_P384_SHA384_FIXED
                     }
                     _ => unreachable!(),
@@ -270,7 +272,7 @@ impl<Octets: AsRef<[u8]>, Name: ToDname> RrsigExt for Rrsig<Octets, Name> {
                     .verify(signed_data, signature)
                     .map_err(|_| AlgorithmError::BadSig)
             }
-            SecAlg::Ed25519 => {
+            SecAlg::ED25519 => {
                 let key = dnskey.public_key();
                 signature::UnparsedPublicKey::new(&signature::ED25519, &key)
                     .verify(signed_data, signature)
@@ -382,8 +384,8 @@ mod test {
         )
         .unwrap();
         (
-            Dnskey::new(257, 3, SecAlg::RsaSha256, ksk).unwrap(),
-            Dnskey::new(256, 3, SecAlg::RsaSha256, zsk).unwrap(),
+            Dnskey::new(257, 3, SecAlg::RSASHA256, ksk).unwrap(),
+            Dnskey::new(256, 3, SecAlg::RSASHA256, zsk).unwrap(),
         )
     }
 
@@ -398,8 +400,8 @@ mod test {
         )
         .unwrap();
         (
-            Dnskey::new(257, 3, SecAlg::RsaSha256, ksk).unwrap(),
-            Dnskey::new(256, 3, SecAlg::RsaSha256, zsk).unwrap(),
+            Dnskey::new(257, 3, SecAlg::RSASHA256, ksk).unwrap(),
+            Dnskey::new(256, 3, SecAlg::RSASHA256, zsk).unwrap(),
         )
     }
 
@@ -409,8 +411,8 @@ mod test {
         let owner = Dname::root();
         let expected = Ds::new(
             20326,
-            SecAlg::RsaSha256,
-            DigestAlg::Sha256,
+            SecAlg::RSASHA256,
+            DigestAlg::SHA256,
             base64::decode::<Vec<u8>>(
                 "4G1EuAuPHTmpXAsNfGXQhFjogECbvGg0VxBCN8f47I0=",
             )
@@ -418,7 +420,7 @@ mod test {
         )
         .unwrap();
         assert_eq!(
-            dnskey.digest(&owner, DigestAlg::Sha256).unwrap().as_ref(),
+            dnskey.digest(&owner, DigestAlg::SHA256).unwrap().as_ref(),
             expected.digest()
         );
     }
@@ -427,7 +429,7 @@ mod test {
     fn dnskey_digest_unsupported() {
         let (dnskey, _) = root_pubkey();
         let owner = Dname::root();
-        assert!(dnskey.digest(&owner, DigestAlg::Gost).is_err());
+        assert!(dnskey.digest(&owner, DigestAlg::GOST).is_err());
     }
 
     fn rrsig_verify_dnskey(ksk: Dnskey, zsk: Dnskey, rrsig: Rrsig) {
@@ -437,7 +439,7 @@ mod test {
             .map(|x| {
                 Record::new(
                     rrsig.signer_name().clone(),
-                    Class::In,
+                    Class::IN,
                     Ttl::from_secs(0),
                     x.clone(),
                 )
@@ -463,8 +465,8 @@ mod test {
         // Test 2048b long key
         let (ksk, zsk) = root_pubkey();
         let rrsig = Rrsig::new(
-            Rtype::Dnskey,
-            SecAlg::RsaSha256,
+            Rtype::DNSKEY,
+            SecAlg::RSASHA256,
             0,
             Ttl::from_secs(172800),
             1560211200.into(),
@@ -481,8 +483,8 @@ mod test {
         // Test 1024b long key
         let (ksk, zsk) = net_pubkey();
         let rrsig = Rrsig::new(
-            Rtype::Dnskey,
-            SecAlg::RsaSha256,
+            Rtype::DNSKEY,
+            SecAlg::RSASHA256,
             1,
             Ttl::from_secs(86400),
             Serial::rrsig_from_str("20210921162830").unwrap(),
@@ -502,7 +504,7 @@ mod test {
         )
         .unwrap();
 
-        let short_key = Dnskey::new(256, 3, SecAlg::RsaSha256, data).unwrap();
+        let short_key = Dnskey::new(256, 3, SecAlg::RSASHA256, data).unwrap();
         let err = rrsig
             .verify_signed_data(&short_key, &vec![0; 100])
             .unwrap_err();
@@ -515,7 +517,7 @@ mod test {
             Dnskey::new(
                 257,
                 3,
-                SecAlg::EcdsaP256Sha256,
+                SecAlg::ECDSAP256SHA256,
                 base64::decode::<Vec<u8>>(
                     "mdsswUyr3DPW132mOi8V9xESWE8jTo0dxCjjnopKl+GqJxpVXckHAe\
                     F+KkxLbxILfDLUT0rAK9iUzy1L53eKGQ==",
@@ -526,7 +528,7 @@ mod test {
             Dnskey::new(
                 256,
                 3,
-                SecAlg::EcdsaP256Sha256,
+                SecAlg::ECDSAP256SHA256,
                 base64::decode::<Vec<u8>>(
                     "oJMRESz5E4gYzS/q6XDrvU1qMPYIjCWzJaOau8XNEZeqCYKD5ar0IR\
                     d8KqXXFJkqmVfRvMGPmM1x8fGAa2XhSA==",
@@ -538,8 +540,8 @@ mod test {
 
         let owner = Dname::from_str("cloudflare.com.").unwrap();
         let rrsig = Rrsig::new(
-            Rtype::Dnskey,
-            SecAlg::EcdsaP256Sha256,
+            Rtype::DNSKEY,
+            SecAlg::ECDSAP256SHA256,
             2,
             Ttl::from_secs(3600),
             1560314494.into(),
@@ -562,7 +564,7 @@ mod test {
             Dnskey::new(
                 257,
                 3,
-                SecAlg::Ed25519,
+                SecAlg::ED25519,
                 base64::decode::<Vec<u8>>(
                     "m1NELLVVQKl4fHVn/KKdeNO0PrYKGT3IGbYseT8XcKo=",
                 )
@@ -572,7 +574,7 @@ mod test {
             Dnskey::new(
                 256,
                 3,
-                SecAlg::Ed25519,
+                SecAlg::ED25519,
                 base64::decode::<Vec<u8>>(
                     "2tstZAjgmlDTePn0NVXrAHBJmg84LoaFVxzLl1anjGI=",
                 )
@@ -585,8 +587,8 @@ mod test {
             Dname::from_octets(Vec::from(b"\x07ED25519\x02nl\x00".as_ref()))
                 .unwrap();
         let rrsig = Rrsig::new(
-            Rtype::Dnskey,
-            SecAlg::Ed25519,
+            Rtype::DNSKEY,
+            SecAlg::ED25519,
             2,
             Ttl::from_secs(3600),
             1559174400.into(),
@@ -607,8 +609,8 @@ mod test {
     fn rrsig_verify_generic_type() {
         let (ksk, zsk) = root_pubkey();
         let rrsig = Rrsig::new(
-            Rtype::Dnskey,
-            SecAlg::RsaSha256,
+            Rtype::DNSKEY,
+            SecAlg::RSASHA256,
             0,
             Ttl::from_secs(172800),
             1560211200.into(),
@@ -635,7 +637,7 @@ mod test {
                     let data = ZoneRecordData::from(x.clone());
                     Record::new(
                         rrsig.signer_name().clone(),
-                        Class::In,
+                        Class::IN,
                         Ttl::from_secs(0),
                         data,
                     )
@@ -656,7 +658,7 @@ mod test {
         let key = Dnskey::new(
             256,
             3,
-            SecAlg::RsaSha1,
+            SecAlg::RSASHA1,
             base64::decode::<Vec<u8>>(
                 "AQOy1bZVvpPqhg4j7EJoM9rI3ZmyEx2OzDBVrZy/lvI5CQePxX\
                 HZS4i8dANH4DX3tbHol61ek8EFMcsGXxKciJFHyhl94C+NwILQd\
@@ -667,8 +669,8 @@ mod test {
         )
         .unwrap();
         let rrsig = Rrsig::new(
-            Rtype::Mx,
-            SecAlg::RsaSha1,
+            Rtype::MX,
+            SecAlg::RSASHA1,
             2,
             Ttl::from_secs(3600),
             Serial::rrsig_from_str("20040509183619").unwrap(),
@@ -686,7 +688,7 @@ mod test {
         .unwrap();
         let record = Record::new(
             Dname::from_str("a.z.w.example.").unwrap(),
-            Class::In,
+            Class::IN,
             Ttl::from_secs(3600),
             Mx::new(1, Dname::from_str("ai.example.").unwrap()),
         );
