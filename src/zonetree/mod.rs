@@ -87,7 +87,7 @@ mod types;
 mod walk;
 mod zone;
 
-pub use self::answer::Answer;
+pub use self::answer::{Answer, AnswerAuthority, AnswerContent};
 pub use self::in_memory::ZoneBuilder;
 pub use self::traits::{
     ReadableZone, WritableZone, WritableZoneNode, ZoneStore,
