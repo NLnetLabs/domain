@@ -1,7 +1,7 @@
 //! A zonefile scanner keeping data in place.
 //!
 //! The zonefile scanner provided by this module reads the entire zonefile
-//! into memory and tries as much as possible to modify re-use this memory
+//! into memory and tries as much as possible to modify/re-use this memory
 //! when scanning data. It uses the `Bytes` family of types for safely
 //! storing, manipulating, and returning the data and thus requires the
 //! `bytes` feature to be enabled.
@@ -161,9 +161,12 @@ unsafe impl BufMut for Zonefile {
 impl Zonefile {
     /// Sets the origin of the zonefile.
     ///
-    /// The origin is append to relative domain names encountered in the
-    /// data. Ininitally, there is no origin set. If relative names are
-    /// encountered, an error happenes.
+    /// The origin is append to relative domain names encountered in the data.
+    /// Ininitally, there is no origin set. It will be set if an $ORIGIN
+    /// directive is encountered while iterating over the zone. If a zone name
+    /// is not provided via this function or via an $ORIGIN directive, then
+    /// any relative names encountered will cause iteration to terminate with
+    /// a missing origin error.
     pub fn set_origin(&mut self, origin: Dname<Bytes>) {
         self.origin = Some(origin)
     }
