@@ -122,7 +122,7 @@ fn my_service(
 > {
     let qtype = request.message().sole_question().unwrap().qtype();
     match qtype {
-        Rtype::AXFR => {
+        Rtype::AXFR if request.transport_ctx().is_non_udp() => {
             let fut = handle_axfr_request(request, zones);
             Ok(Transaction::stream(Box::pin(fut)))
         }
