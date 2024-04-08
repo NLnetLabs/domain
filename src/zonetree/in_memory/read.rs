@@ -150,13 +150,48 @@ impl ReadZone {
     ) -> NodeAnswer {
         if walk.enabled() {
             // Walk the zone, don't match by qtype.
-            let node_rrsets_iter = rrsets.iter();
-            for (_rtype, rrset) in node_rrsets_iter.iter() {
+            let guard = rrsets.iter();
+            for (_rtype, rrset) in guard.iter() {
                 if let Some(shared_rrset) = rrset.get(self.version) {
                     walk.op(shared_rrset);
                 }
             }
             NodeAnswer::no_data()
+        } else if qtype == Rtype::ANY {
+            // https://datatracker.ietf.org/doc/html/rfc8482#section-4.2
+            // 4. Behavior of DNS Responders
+            //
+            //   "Below are the three different modes of behavior by DNS
+            //    responders when processing queries with QNAMEs that exist,
+            //    QCLASS=IN, and QTYPE=ANY.  Operators and implementers are
+            //    free to choose whichever mechanism best suits their
+            //    environment.
+            //
+            //    1.  A DNS responder can choose to select one or a larger
+            //    subset of the available RRsets at the QNAME.
+            //
+            //    2.  A DNS responder can return a synthesized HINFO resource
+            //    record. See Section 6 for discussion of the use of HINFO.
+            //
+            //    3.  A resolver can try to give out the most likely records
+            //    the requester wants.  This is not always possible, and the
+            //    result might well be a large response.
+            //
+            //    Except as described below in this section, the DNS responder
+            //    MUST follow the standard algorithms when constructing a
+            //    response."
+            //
+            // We choose for option 1 because option 2 would create lots of
+            // extra work in the offline signing case (because lots of HFINO
+            // records would need to be synthesized prior to signing) and
+            // option 3 as stated may still result in a large response.
+            let guard = rrsets.iter();
+            guard
+                .iter()
+                .next()
+                .and_then(|(_rtype, rrset)| rrset.get(self.version))
+                .map(|rrset| NodeAnswer::data(rrset.clone()))
+                .unwrap_or_else(|| NodeAnswer::no_data())
         } else {
             match rrsets.get(qtype, self.version) {
                 Some(rrset) => NodeAnswer::data(rrset),
