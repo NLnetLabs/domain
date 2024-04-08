@@ -191,7 +191,7 @@ impl ReadZone {
                 .next()
                 .and_then(|(_rtype, rrset)| rrset.get(self.version))
                 .map(|rrset| NodeAnswer::data(rrset.clone()))
-                .unwrap_or_else(|| NodeAnswer::no_data())
+                .unwrap_or_else(NodeAnswer::no_data)
         } else {
             match rrsets.get(qtype, self.version) {
                 Some(rrset) => NodeAnswer::data(rrset),
