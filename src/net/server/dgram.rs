@@ -703,10 +703,6 @@ where
                     } => {
                         // Nothing to do.
                     }
-
-                    ServiceFeedback::CloseConnection => {
-                        // N/A - only applies to connection-oriented transports
-                    }
                 }
             }
 

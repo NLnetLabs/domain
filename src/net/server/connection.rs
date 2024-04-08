@@ -682,12 +682,6 @@ where
     /// Decide what to do with received [`ServiceFeedback`].
     async fn process_service_feedback(&mut self, cmd: ServiceFeedback) {
         match cmd {
-            ServiceFeedback::CloseConnection => {
-                if let Err(err) = self.stream_tx.shutdown().await {
-                    warn!("Error while shutting down response stream while closing connection: {err}");
-                }
-            }
-
             ServiceFeedback::Reconfigure { idle_timeout } => {
                 if let Some(idle_timeout) = idle_timeout {
                     debug!(

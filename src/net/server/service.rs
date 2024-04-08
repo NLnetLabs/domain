@@ -325,12 +325,6 @@ pub enum ServiceFeedback {
         /// server to use.
         idle_timeout: Option<Duration>,
     },
-
-    /// Ask the connection handler to terminate.
-    ///
-    /// This command is only applicable to connection-oriented
-    /// transport protocols.
-    CloseConnection,
 }
 
 //------------ CallResult ----------------------------------------------------
