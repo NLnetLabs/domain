@@ -2645,7 +2645,7 @@ mod test {
         let dnskey =
             Dnskey::new(257, 3, SecAlg::RSASHA256, bytes::Bytes::new())
                 .unwrap();
-        assert!(dnskey.is_zsk());
+        assert!(dnskey.is_zone_key());
         assert!(dnskey.is_secure_entry_point());
         assert!(!dnskey.is_revoked());
     }
