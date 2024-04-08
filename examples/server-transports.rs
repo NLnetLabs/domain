@@ -15,7 +15,9 @@ use std::path::Path;
 use std::sync::Arc;
 use std::sync::RwLock;
 
-use domain::net::server::middleware::processors::ratelimiter::RateLimitingMiddlewareProcessor;
+use domain::net::server::middleware::processors::ratelimiter::{
+    self, RateLimitingMiddlewareProcessor,
+};
 use octseq::{FreezeBuilder, Octets};
 use rustls_pemfile::{certs, rsa_private_keys};
 use tokio::net::{TcpListener, TcpSocket, TcpStream, UdpSocket};
@@ -481,8 +483,11 @@ async fn main() {
     // that receive the requests and send the responses).
     let mut middleware = MiddlewareBuilder::default();
     let stats = Arc::new(StatsMiddlewareProcessor::new());
+    let mut rate_config = ratelimiter::Config::default();
+    rate_config.set_per_ip(false);
+    rate_config.set_qps_limit(2);
     let rate_limiter =
-        Arc::new(RateLimitingMiddlewareProcessor::with_config(2));
+        Arc::new(RateLimitingMiddlewareProcessor::with_config(rate_config));
     middleware.push_front(stats.clone());
     middleware.push(rate_limiter);
     let middleware = middleware.build();

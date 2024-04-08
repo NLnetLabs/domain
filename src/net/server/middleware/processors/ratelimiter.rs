@@ -4,7 +4,7 @@ use core::ops::ControlFlow;
 
 use std::net::IpAddr;
 
-use governor::{DefaultKeyedRateLimiter, Quota};
+use governor::{DefaultDirectRateLimiter, DefaultKeyedRateLimiter, Quota};
 use octseq::Octets;
 use tracing::{info, warn};
 
@@ -20,8 +20,83 @@ use crate::net::server::util::{add_edns_options, start_reply};
 
 //------------ Constants -----------------------------------------------------
 
-/// The default maximum number of requests/second/client IP address.
-const DEFAULT_QPS_LIMIT: u32 = 200;
+/// The default maximum number of requests/second.
+const DEFAULT_QPS_LIMIT: u32 = 2000;
+
+//------------ RateLimiter ---------------------------------------------------
+
+#[derive(Debug)]
+enum RateLimiter {
+    PerRequest(DefaultDirectRateLimiter),
+    PerRequestPerIp(DefaultKeyedRateLimiter<IpAddr>),
+}
+
+impl RateLimiter {
+    pub fn per_request(qps_limit: u32) -> Self {
+        let limiter = DefaultDirectRateLimiter::direct(Quota::per_second(
+            NonZeroU32::new(qps_limit).unwrap(),
+        ));
+        Self::PerRequest(limiter)
+    }
+
+    pub fn per_request_per_ip(qps_limit: u32) -> Self {
+        let limiter = DefaultKeyedRateLimiter::keyed(Quota::per_second(
+            NonZeroU32::new(qps_limit).unwrap(),
+        ));
+        Self::PerRequestPerIp(limiter)
+    }
+}
+
+//------------ Config --------------------------------------------------------
+
+/// Configuration for rate limiting middleware.
+#[derive(Debug)]
+pub struct Config {
+    /// Whether to limit per client IP address or across all requests
+    /// irrespective of client IP address.
+    per_ip: bool,
+
+    /// The maximum number requests per second to limit to.
+    qps_limit: u32,
+}
+
+impl Config {
+    /// Sets whether to limit per per client IP address or across all requests
+    /// irrespective of client IP address.
+    pub fn set_per_ip(&mut self, per_ip: bool) {
+        self.per_ip = per_ip;
+    }
+
+    /// Is this a per IP rate limiter?
+    pub fn per_ip(&self) -> bool {
+        self.per_ip
+    }
+
+    /// Sets the maximum number of requests per second to limit to.
+    /// 
+    /// In the context of the rate limiter configuration, i.e. maximum
+    /// requests per second per client IP address, or maximum requests per
+    /// second irrespective of client IP address.
+    pub fn set_qps_limit(&mut self, qps_limit: u32) {
+        self.qps_limit = qps_limit;
+    }
+
+    /// Gets the maximum number of requests per second to limit to.
+    pub fn qps_limit(&self) -> u32 {
+        self.qps_limit
+    }
+}
+
+//--- Default
+
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            per_ip: false,
+            qps_limit: DEFAULT_QPS_LIMIT,
+        }
+    }
+}
 
 //------------ RateLimitingMiddlewareProcessor -------------------------------
 
@@ -29,7 +104,7 @@ const DEFAULT_QPS_LIMIT: u32 = 200;
 #[derive(Debug)]
 pub struct RateLimitingMiddlewareProcessor {
     /// A per client IP address rate limiter.
-    limiter: DefaultKeyedRateLimiter<IpAddr>,
+    limiter: RateLimiter,
 }
 
 impl Default for RateLimitingMiddlewareProcessor {
@@ -42,15 +117,16 @@ impl RateLimitingMiddlewareProcessor {
     /// Creates an instance of this processor.
     #[must_use]
     pub fn new() -> Self {
-        Self::with_config(DEFAULT_QPS_LIMIT)
+        Self::with_config(Config::default())
     }
 
     /// Creates an instance of this processor with the given configuration.
     #[must_use]
-    pub fn with_config(qps_limit: u32) -> Self {
-        let limiter = DefaultKeyedRateLimiter::keyed(Quota::per_second(
-            NonZeroU32::new(qps_limit).unwrap(),
-        ));
+    pub fn with_config(config: Config) -> Self {
+        let limiter = match config.per_ip {
+            true => RateLimiter::per_request_per_ip(config.qps_limit),
+            false => RateLimiter::per_request(config.qps_limit),
+        };
         Self { limiter }
     }
 }
@@ -96,11 +172,25 @@ where
         &self,
         request: &Request<RequestOctets>,
     ) -> ControlFlow<AdditionalBuilder<StreamTarget<Target>>> {
-        let client_ip = &request.client_addr().ip();
-        match self.limiter.check_key(client_ip) {
+        let res = match &self.limiter {
+            RateLimiter::PerRequest(limiter) => {
+                limiter.check().inspect_err(|_| {
+                    info!("Refusing to serve: rate limit exceeded")
+                })
+            }
+            RateLimiter::PerRequestPerIp(limiter) => {
+                let client_ip = &request.client_addr().ip();
+                limiter.check_key(client_ip).inspect_err(|_| {
+                    info!(
+                        "Refusing to serve {client_ip}: rate limit exceeded"
+                    )
+                })
+            }
+        };
+
+        match res {
             Ok(_) => ControlFlow::Continue(()),
             Err(_) => {
-                info!("Refusing to serve {client_ip}: rate limit exceeded");
                 let res = self.error_response(request, OptRcode::REFUSED);
                 ControlFlow::Break(res)
             }
