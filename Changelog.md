@@ -35,6 +35,7 @@ Breaking changes
   internal error details. Enums have been kept for errors where
   distinguishing variants might be meaningful for dealing with the error.
   ([#277])
+* Dnskey::is_zsk is renamed to is_zone_key. ([#292])
 * Upgraded `octseq` to 0.5. ([#257])
 
 New
@@ -85,6 +86,7 @@ Other changes
 [#284]: https://github.com/NLnetLabs/domain/pull/284
 [#285]: https://github.com/NLnetLabs/domain/pull/285
 [#288]: https://github.com/NLnetLabs/domain/pull/288
+[#292]: https://github.com/NLnetLabs/domain/pull/292
 [@torin-carey]: https://github.com/torin-carey
 [@hunts]: https://github.com/hunts
 
