@@ -70,7 +70,7 @@ pub trait ReadableZone: Send {
     /// This function performs a synchronous query against the zone it
     /// provides access to, for a given QNAME and QTYPE. In combination with
     /// having first looked the zone up by CLASS this function enables a
-    /// caller to obtain an [`Answer`]` for an [RFC 1034 section 3.7.1]
+    /// caller to obtain an [`Answer`] for an [RFC 1034 section 3.7.1]
     /// "Standard query".
     ///
     /// [RFC 1034 section 3.7.1]:

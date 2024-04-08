@@ -7,7 +7,7 @@
 //! the apex of a subtree for a distinct [`Class`].
 //!
 //! Individual `Zone`s within the tree can be looked up by containing or exact
-//! name, and then the found `Zone` can be queried by [`Class`], [`Rtype`] and
+//! name, and then one can [`query`] the found `Zone` by [`Class`], [`Rtype`] and
 //! [`Dname`] to produce an [`Answer`], which in turn can be used to produce a
 //! response [`Message`] for serving to a DNS client.
 //!
@@ -71,6 +71,7 @@
 //! assert_eq!(res.rcode(), Rcode::NOERROR);
 //! ```
 //!
+//! [`query`]: crate::zonetree::ReadableZone::query
 //! [`Class`]: crate::base::iana::Class
 //! [`Rtype`]: crate::base::iana::Rtype
 //! [`Dname`]: crate::base::name::Dname
