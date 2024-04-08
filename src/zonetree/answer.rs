@@ -90,7 +90,7 @@ impl Answer {
     /// produced [`AdditionalBuilder`] will be populated based on the
     /// properties of this [`Answer`] as determined by the constructor and
     /// add/set functions called prior to calling this function.
-    /// 
+    ///
     /// <div class="warning">
     /// This function does <b>NOT</b> currently set the
     /// <a href="https://datatracker.ietf.org/doc/html/rfc1035#section-4.1.1"><code>AA</code></a>
