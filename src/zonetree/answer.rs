@@ -181,8 +181,13 @@ impl Answer {
 /// The content of the answer.
 #[derive(Clone)]
 pub enum AnswerContent {
+    /// An answer consisting of an RRSET.
     Data(SharedRrset),
+
+    /// An answer consisting of a CNAME RR.
     Cname(SharedRr),
+
+    /// An empty answer.
     NoData,
 }
 
@@ -205,6 +210,7 @@ pub struct AnswerAuthority {
 }
 
 impl AnswerAuthority {
+    /// Creates a new representation of an authority section.
     pub fn new(
         owner: StoredDname,
         soa: Option<SharedRr>,
