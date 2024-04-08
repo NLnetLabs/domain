@@ -164,7 +164,7 @@ impl<Octs> Dnskey<Octs> {
     /// cover RRSETs. See [RFC 4034, Section 2.1.1].
     ///
     /// [RFC 4034, Section 2.1.1]: https://tools.ietf.org/html/rfc4034#section-2.1.1
-    pub fn is_zsk(&self) -> bool {
+    pub fn is_zone_key(&self) -> bool {
         self.flags() & 0b0000_0001_0000_0000 != 0
     }
 
@@ -2645,7 +2645,7 @@ mod test {
         let dnskey =
             Dnskey::new(257, 3, SecAlg::RSASHA256, bytes::Bytes::new())
                 .unwrap();
-        assert!(dnskey.is_zsk());
+        assert!(dnskey.is_zone_key());
         assert!(dnskey.is_secure_entry_point());
         assert!(!dnskey.is_revoked());
     }
