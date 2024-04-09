@@ -181,7 +181,34 @@ where
             }
             Ok(state) => {
                 match state {
-                    ValidationState::Secure => todo!(),
+                    ValidationState::Secure => {
+                        // Check the state of the DO flag to see if we have to
+                        // strip DNSSEC records. Set the AD flag if it is
+                        // not set and either AD or DO is set in the request.
+                        let dnssec_ok = self.request_msg.dnssec_ok();
+                        if dnssec_ok {
+                            // Set AD if it is not set.
+                            if !response_msg.header().ad() {
+                                let mut response_msg = Message::from_octets(
+                                    response_msg.as_slice().to_vec(),
+                                )
+                                .unwrap();
+                                response_msg.header_mut().set_ad(true);
+                                let response_msg =
+                                    Message::<Bytes>::from_octets(
+                                        response_msg
+                                            .into_octets()
+                                            .octets_into(),
+                                    )
+                                    .unwrap();
+                                return Ok(response_msg);
+                            }
+                            return Ok(response_msg);
+                        } else {
+                            let msg = remove_dnssec(&response_msg, true);
+                            return msg;
+                        }
+		    }
                     ValidationState::Insecure => todo!(),
                     ValidationState::Bogus => todo!(),
                     ValidationState::Indeterminate => {

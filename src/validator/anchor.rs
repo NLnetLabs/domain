@@ -11,6 +11,7 @@ use crate::zonefile::inplace::Zonefile;
 use bytes::Bytes;
 use std::fmt::Debug;
 use std::io::Read;
+use std::slice::Iter;
 use std::vec::Vec;
 
 // Type of Record we get from Zonefile.
@@ -20,7 +21,7 @@ type RrType = Record<
     ZoneRecordData<Bytes, Chain<RelativeDname<Bytes>, Dname<Bytes>>>,
 >;
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct TrustAnchor {
     rrs: Vec<RrType>,
     owner: Dname<Bytes>,
@@ -51,6 +52,10 @@ impl TrustAnchor {
 
     pub fn owner(&self) -> Dname<Bytes> {
         self.owner.clone()
+    }
+
+    pub fn iter(&mut self) -> Iter<RrType> {
+        self.rrs.iter()
     }
 }
 

@@ -8,6 +8,7 @@ use crate::base::ParsedDname;
 use crate::base::ParsedRecord;
 use bytes::Bytes;
 //use crate::base::ParseRecordData;
+use crate::base::cmp::CanonicalOrd;
 use crate::base::iana::class::Class;
 use crate::base::name::ToDname;
 use crate::base::Record;
@@ -18,22 +19,27 @@ use crate::base::Rtype;
 //use crate::dep::octseq::OctetsInto;
 use crate::net::client::request::RequestMessage;
 use crate::net::client::request::SendRequest;
+use crate::rdata::dnssec::Timestamp;
 use crate::rdata::AllRecordData;
+use crate::rdata::Dnskey;
 use crate::rdata::Rrsig;
+use crate::validate::RrsigExt;
 use std::fmt::Debug;
 //use std::marker::PhantomData;
 use std::slice::Iter;
 //use std::slice::IterMut;
+use super::context::Node;
 use super::context::ValidationContext;
 use super::types::ValidationState;
 use std::sync::Mutex;
 use std::vec::Vec;
 
+type RrType = Record<Dname<Bytes>, AllRecordData<Bytes, ParsedDname<Bytes>>>;
+type SigType = Record<Dname<Bytes>, Rrsig<Bytes, Dname<Bytes>>>;
 #[derive(Debug)]
 pub struct Group {
-    rr_set:
-        Vec<Record<Dname<Bytes>, AllRecordData<Bytes, ParsedDname<Bytes>>>>,
-    sig_set: Vec<Record<Dname<Bytes>, Rrsig<Bytes, Dname<Bytes>>>>,
+    rr_set: Vec<RrType>,
+    sig_set: Vec<SigType>,
     state: Mutex<Option<ValidationState>>,
 }
 
@@ -128,7 +134,7 @@ impl Group {
         *m_state
     }
 
-    pub fn name(&self) -> Dname<Bytes> {
+    pub fn owner(&self) -> Dname<Bytes> {
         if !self.rr_set.is_empty() {
             return self.rr_set[0].owner().to_bytes();
         }
@@ -155,6 +161,18 @@ impl Group {
 
         // The type in sig_set is always Rrsig
         return Rtype::Rrsig;
+    }
+
+    pub fn rr_set(&self) -> Vec<RrType> {
+        self.rr_set.clone()
+    }
+
+    pub fn rr_iter(&mut self) -> Iter<RrType> {
+        self.rr_set.iter()
+    }
+
+    pub fn sig_iter(&mut self) -> Iter<SigType> {
+        self.sig_set.iter()
     }
 
     pub async fn validate_with_vc<Upstream>(
@@ -186,7 +204,7 @@ impl Group {
         }
 
         let target = if !self.sig_set.is_empty() {
-            self.sig_set[0].owner()
+            self.sig_set[0].data().signer_name()
         } else {
             self.rr_set[0].owner()
         };
@@ -198,7 +216,207 @@ impl Group {
             | ValidationState::Bogus
             | ValidationState::Indeterminate => return state,
         }
-        todo!();
+	self.validate_with_node(&node)
+    }
+
+    pub fn validate_with_node(&self, node: &Node) -> ValidationState {
+        // Check the validation state of node. We can return directly if the
+        // state is anything other than Secure.
+        let state = node.validation_state();
+        match state {
+            ValidationState::Insecure
+            | ValidationState::Bogus
+            | ValidationState::Indeterminate => return state,
+            ValidationState::Secure => (),
+        }
+        let keys = node.keys();
+        let mut secure = false;
+        for sig_rec in self.clone().sig_iter() {
+            let sig = sig_rec.data();
+            for key in keys {
+                // See if this key matches the sig.
+                if key.algorithm() != sig.algorithm() {
+                    continue;
+                }
+                let key_tag = key.key_tag();
+                if key_tag != sig.key_tag() {
+                    continue;
+                }
+                if self.check_sig(
+                    sig_rec,
+                    node.signer_name(),
+                    key,
+                    node.signer_name(),
+                    key_tag,
+                ) {
+                    secure = true;
+                    break;
+                } else {
+                    // To avoid CPU exhaustion attacks such as KeyTrap
+                    // (CVE-2023-50387) it is good to limit signature
+                    // validation as much as possible. To be as strict as
+                    // possible, we can make the following assumptions:
+                    // 1) A trust anchor contains at least one key with a
+                    // supported algorithm, so at least one signature is
+                    // expected to be verifiable.
+                    // 2) A DNSKEY RRset plus associated RRSIG is self-
+                    // contained. Every signature is made with a key in the
+                    // RRset and it is the current contents of the RRset
+                    // that is signed. So we expect that signature
+                    // verification cannot fail.
+                    // 3) With one exception: keytag collisions could create
+                    // confusion about which key was used. Collisions are
+                    // rare so we assume at most two keys in the RRset to be
+                    // involved in a collision.
+                    // For these reasons we can limit the number of failures
+                    // we tolerate to one. And declare the DNSKEY RRset
+                    // bogus if we get two failures.
+                    todo!();
+                }
+            }
+            if secure {
+                break;
+            }
+        }
+        if secure {
+            return ValidationState::Secure;
+        } else {
+            return ValidationState::Bogus;
+        }
+    }
+
+    // Follow RFC 4035, Section 5.3.
+    pub fn check_sig(
+        &self,
+        sig: &Record<Dname<Bytes>, Rrsig<Bytes, Dname<Bytes>>>,
+        signer_name: &Dname<Bytes>,
+        key: &Dnskey<Bytes>,
+        key_name: &Dname<Bytes>,
+        key_tag: u16,
+    ) -> bool {
+        let ts_now = Timestamp::now();
+        let rtype = self.rtype();
+        let owner = self.owner();
+        let labels = owner.iter().count() - 1;
+        let rrsig = sig.data();
+
+        println!("check_sig for {rrsig:?} and {key:?}");
+
+        println!("{:?} and {:?}", rrsig.type_covered(), rtype);
+        println!(
+            "{:?} and {:?}: {:?}",
+            rrsig.expiration(),
+            ts_now,
+            rrsig.expiration().canonical_lt(&ts_now)
+        );
+        println!(
+            "{:?} and {:?}: {:?}",
+            rrsig.inception(),
+            ts_now,
+            rrsig.inception().canonical_gt(&ts_now)
+        );
+        println!("{:?} and {:?}", rrsig.algorithm(), key.algorithm());
+        println!("{:?} and {:?}", rrsig.key_tag(), key_tag);
+
+        // RFC 4035, Section 5.3.1:
+        // - The RRSIG RR and the RRset MUST have the same owner name and the same
+        //   class.
+        if !sig.owner().name_eq(&owner) || sig.class() != self.class() {
+            println!("failed at line {}", line!());
+            return false;
+        }
+
+        // RFC 4035, Section 5.3.1:
+        // - The RRSIG RR's Signer's Name field MUST be the name of the zone that
+        //   contains the RRset.
+
+        // We don't really know the name of the zone that contains an RRset. What
+        // we can do is that the signer's name is a prefix of the owner name.
+        // We assume that a zone will not sign things in space that is delegated
+        // (except for the parent side of the delegation)
+        if !owner.ends_with(&signer_name) {
+            println!("failed at line {}", line!());
+            println!(
+                "check_sig: {:?} does not end with {signer_name:?}",
+                owner
+            );
+            return false;
+        }
+
+        // RFC 4035, Section 5.3.1:
+        // - The RRSIG RR's Type Covered field MUST equal the RRset's type.
+        if rrsig.type_covered() != rtype {
+            println!("failed at line {}", line!());
+            return false;
+        }
+
+        // RFC 4035, Section 5.3.1:
+        // - The number of labels in the RRset owner name MUST be greater than
+        //   or equal to the value in the RRSIG RR's Labels field.
+        if labels < rrsig.labels() as usize {
+            println!("failed at line {}", line!());
+            return false;
+        }
+
+        // RFC 4035, Section 5.3.1:
+        // - The validator's notion of the current time MUST be less than or
+        //   equal to the time listed in the RRSIG RR's Expiration field.
+        // - The validator's notion of the current time MUST be greater than or
+        //   equal to the time listed in the RRSIG RR's Inception field.
+        if ts_now.canonical_gt(&rrsig.expiration())
+            || ts_now.canonical_lt(&rrsig.inception())
+        {
+            println!("failed at line {}", line!());
+            return false;
+        }
+
+        // RFC 4035, Section 5.3.1:
+        // - The RRSIG RR's Signer's Name, Algorithm, and Key Tag fields MUST
+        //   match the owner name, algorithm, and key tag for some DNSKEY RR in
+        //   the zone's apex DNSKEY RRset.
+        if signer_name != key_name
+            || rrsig.algorithm() != key.algorithm()
+            || rrsig.key_tag() != key_tag
+        {
+            println!("failed at line {}", line!());
+            return false;
+        }
+
+        // RFC 4035, Section 5.3.1:
+        // - The matching DNSKEY RR MUST be present in the zone's apex DNSKEY
+        //   RRset, and MUST have the Zone Flag bit (DNSKEY RDATA Flag bit 7)
+        //   set.
+
+        // We cannot check here if the key is in the zone's apex, that is up to
+        // the caller. Just check the Zone Flag bit.
+        // XXX is_zsk is the wrong name for this function.
+        if !key.is_zsk() {
+            println!("failed at line {}", line!());
+            return false;
+        }
+
+        //signature
+        let mut signed_data = Vec::<u8>::new();
+        rrsig
+            .signed_data(&mut signed_data, &mut self.rr_set())
+            .unwrap();
+        let res = rrsig.verify_signed_data(key, &signed_data);
+
+        match res {
+            Ok(_) => true,
+            Err(_) => false,
+        }
+    }
+}
+
+impl Clone for Group {
+    fn clone(&self) -> Self {
+        let m_state = self.state.lock().unwrap();
+        Self {
+            rr_set: self.rr_set.clone(),
+            sig_set: self.sig_set.clone(),
+            state: Mutex::new(*m_state),
+        }
     }
 }
 

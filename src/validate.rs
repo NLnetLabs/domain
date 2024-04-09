@@ -94,6 +94,17 @@ where
     }
 }
 
+// This needs to match the digests supported in digest.
+pub fn supported_digest(d: &DigestAlg) -> bool {
+    match d {
+        DigestAlg::Sha256 => true,
+        _ => {
+            println!("supported_digest: failed for {d:?}");
+            false
+        }
+    }
+}
+
 //------------ Rrsig ---------------------------------------------------------
 
 /// Extensions for DNSKEY record type.
@@ -279,6 +290,17 @@ impl<Octets: AsRef<[u8]>, Name: ToName> RrsigExt for Rrsig<Octets, Name> {
                     .map_err(|_| AlgorithmError::BadSig)
             }
             _ => Err(AlgorithmError::Unsupported),
+        }
+    }
+}
+
+// This needs to match the algorithms supported in signed_data.
+pub fn supported_algorithm(a: &SecAlg) -> bool {
+    match a {
+        SecAlg::RsaSha256 | SecAlg::EcdsaP256Sha256 => true,
+        _ => {
+            println!("supported_digest: failed for {a:?}");
+            false
         }
     }
 }

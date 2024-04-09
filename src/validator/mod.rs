@@ -148,7 +148,7 @@ fn get_answer_state(
         if g.rtype() != qtype {
             continue;
         }
-        if g.name() != qname {
+        if g.owner() != qname {
             continue;
         }
         return Some(g.get_state().unwrap());
@@ -171,22 +171,22 @@ fn get_soa_state(
             println!("get_soa_state: wrong type");
             continue;
         }
-        if !qname.ends_with(&g.name()) {
+        if !qname.ends_with(&g.owner()) {
             println!(
                 "get_soa_state: wrong name {qname:?} should end with {:?}",
-                g.name()
+                g.owner()
             );
             println!(
                 "{:?}.ends_with({:?}): {:?}",
                 qname,
-                g.name(),
-                qname.ends_with(&g.name())
+                g.owner(),
+                qname.ends_with(&g.owner())
             );
             println!(
                 "{:?}.ends_with({:?}): {:?}",
-                g.name(),
+                g.owner(),
                 qname,
-                g.name().ends_with(&qname)
+                g.owner().ends_with(&qname)
             );
             continue;
         }
@@ -217,3 +217,4 @@ pub mod anchor;
 pub mod context;
 mod group;
 pub mod types;
+mod utilities;
