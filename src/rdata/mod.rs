@@ -133,25 +133,3 @@ rdata_types! {
         }
     }
 }
-
-use core::cmp::Ordering;
-use std::vec::Vec;
-impl<O, N> CanonicalOrd for AllRecordData<O, N>
-where
-    O: AsRef<[u8]>,
-    N: ToDname,
-{
-    fn canonical_cmp(&self, other: &Self) -> Ordering {
-        // Just quick hack. Use compose_canonical and compare the
-        // result. Better would be match on the enum variant and
-        // call the underlying canonical_cmp if the variants match.
-        // What do we do if there is no match? For DNSSEC there should
-        // always be a match (RFC 4034 Section 6.3). Can we compare
-        // based on rtype?
-        let mut self_bytes = Vec::<u8>::new();
-        let mut other_bytes = Vec::<u8>::new();
-        self.compose_canonical_rdata(&mut self_bytes).unwrap();
-        other.compose_canonical_rdata(&mut other_bytes).unwrap();
-        self_bytes.cmp(&other_bytes)
-    }
-}

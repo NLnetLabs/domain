@@ -1,5 +1,7 @@
 // Validator
 
+#![cfg(feature = "net")]
+
 use crate::base::Dname;
 use crate::base::Message;
 use bytes::Bytes;
