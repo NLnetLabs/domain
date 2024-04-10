@@ -47,7 +47,7 @@ pub struct Group {
 }
 
 impl Group {
-    fn new<'a>(rr: ParsedRecord<'a, Bytes>) -> Self {
+    fn new(rr: ParsedRecord<'_, Bytes>) -> Self {
         if rr.rtype() != Rtype::RRSIG {
             return Self {
                 rr_set: vec![to_bytes_record(&rr)],
@@ -58,21 +58,15 @@ impl Group {
         todo!();
     }
 
-    fn add<'a>(&mut self, rr: &ParsedRecord<'a, Bytes>) -> Result<(), ()> {
-        // First check owner. That is easier to do with a separate if
-        // statement.
-        if !self.rr_set.is_empty() {
-            if self.rr_set[0].owner()
-                != &rr.owner().try_to_dname::<Bytes>().unwrap()
-            {
-                return Err(());
-            }
-        } else {
-            if self.sig_set[0].owner().try_to_dname::<Bytes>()
+    fn add(&mut self, rr: &ParsedRecord<'_, Bytes>) -> Result<(), ()> {
+        // First check owner.
+        if (!self.rr_set.is_empty()
+            && self.rr_set[0].owner()
+                != &rr.owner().try_to_dname::<Bytes>().unwrap())
+            || self.sig_set[0].owner().try_to_dname::<Bytes>()
                 != rr.owner().try_to_dname()
-            {
-                return Err(());
-            }
+        {
+            return Err(());
         }
 
         let (curr_class, curr_rtype) = if !self.rr_set.is_empty() {
@@ -154,7 +148,7 @@ impl Group {
 
         // This may fail if sig_set is empty. But either rr_set or
         // sig_set is not empty.
-        return self.sig_set[0].class();
+        self.sig_set[0].class()
     }
 
     pub fn rtype(&self) -> Rtype {
@@ -163,7 +157,7 @@ impl Group {
         }
 
         // The type in sig_set is always Rrsig
-        return Rtype::RRSIG;
+        Rtype::RRSIG
     }
 
     pub fn rr_set(&self) -> Vec<RrType> {
@@ -282,9 +276,9 @@ impl Group {
             }
         }
         if secure {
-            return ValidationState::Secure;
+            ValidationState::Secure
         } else {
-            return ValidationState::Bogus;
+            ValidationState::Bogus
         }
     }
 
@@ -404,10 +398,7 @@ impl Group {
             .unwrap();
         let res = rrsig.verify_signed_data(key, &signed_data);
 
-        match res {
-            Ok(_) => true,
-            Err(_) => false,
-        }
+        res.is_ok()
     }
 }
 
@@ -430,7 +421,7 @@ impl GroupList {
         Self(Vec::new())
     }
 
-    pub fn add<'a>(&mut self, rr: ParsedRecord<'a, Bytes>) {
+    pub fn add(&mut self, rr: ParsedRecord<'_, Bytes>) {
         // Very simplistic implementation of add. Assume resource records
         // are mostly in order. If this O(n^2) algorithm is not enough,
         // then we should use a small hash table or sort first.
@@ -465,8 +456,8 @@ impl GroupList {
     }
 }
 
-fn to_bytes_record<'a>(
-    rr: &ParsedRecord<'a, Bytes>,
+fn to_bytes_record(
+    rr: &ParsedRecord<'_, Bytes>,
 ) -> Record<Dname<Bytes>, AllRecordData<Bytes, ParsedDname<Bytes>>> {
     let record = rr.to_record::<AllRecordData<_, _>>().unwrap().unwrap();
     Record::<Dname<Bytes>, AllRecordData<Bytes, ParsedDname<Bytes>>>::new(

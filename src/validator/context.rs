@@ -113,7 +113,7 @@ impl<Upstream> ValidationContext<Upstream> {
             }
 
             // Try to find the node in the cache.
-            if let Some(node) = self.cache_lookup(&curr) {
+            if let Some(_node) = self.cache_lookup(&curr) {
                 todo!();
             }
 

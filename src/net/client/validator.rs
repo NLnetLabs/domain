@@ -131,7 +131,7 @@ where
     vc: Arc<ValidationContext<VCUpstream>>,
 
     /// The configuration of the connection.
-    config: Config,
+    _config: Config,
 }
 
 impl<CR, Upstream, VCUpstream> Request<CR, Upstream, VCUpstream>
@@ -176,7 +176,7 @@ where
         let res = validator::validate_msg(&response_msg, &self.vc).await;
         println!("get_response_impl: {res:?}");
         match res {
-            Err(err) => {
+            Err(_err) => {
                 todo!();
             }
             Ok(state) => {
@@ -242,10 +242,6 @@ where
                 }
             }
         }
-
-        todo!();
-
-        Ok(response_msg)
     }
 }
 
