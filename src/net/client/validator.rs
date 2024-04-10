@@ -149,7 +149,7 @@ where
             request_msg,
             upstream,
             vc,
-            config,
+            _config: config,
         }
     }
 
