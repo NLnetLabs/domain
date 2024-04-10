@@ -3,6 +3,9 @@
 // For lack of a better term we call this a group. RR set refers to just
 // the resource records without the signatures.
 
+// Name suggested by Yorgos: SignedRrset. Problem, sometimes there are no
+// signatures, sometimes there is a signature but no RRset.
+
 use crate::base::Dname;
 use crate::base::ParsedDname;
 use crate::base::ParsedRecord;
