@@ -30,7 +30,7 @@ pub struct TrustAnchor {
 
 impl TrustAnchor {
     fn new<'a>(rr: RrType) -> Self {
-        let owner = rr.owner().to_dname::<Bytes>().unwrap();
+        let owner = rr.owner().try_to_dname::<Bytes>().unwrap();
         let label_count = owner.label_count();
         Self {
             rrs: vec![rr],

@@ -208,7 +208,7 @@ where
                             let msg = remove_dnssec(&response_msg, true);
                             return msg;
                         }
-		    }
+                    }
                     ValidationState::Insecure => todo!(),
                     ValidationState::Bogus => todo!(),
                     ValidationState::Indeterminate => {
@@ -354,5 +354,5 @@ fn remove_dnssec(
 
 /// Check if a type is a DNSSEC type that needs to be removed.
 fn is_dnssec(rtype: Rtype) -> bool {
-    rtype == Rtype::Rrsig || rtype == Rtype::Nsec || rtype == Rtype::Nsec3
+    rtype == Rtype::RRSIG || rtype == Rtype::NSEC || rtype == Rtype::NSEC3
 }

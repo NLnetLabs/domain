@@ -96,13 +96,7 @@ where
 
 // This needs to match the digests supported in digest.
 pub fn supported_digest(d: &DigestAlg) -> bool {
-    match d {
-        DigestAlg::Sha256 => true,
-        _ => {
-            println!("supported_digest: failed for {d:?}");
-            false
-        }
-    }
+    *d == DigestAlg::SHA256
 }
 
 //------------ Rrsig ---------------------------------------------------------
@@ -296,13 +290,7 @@ impl<Octets: AsRef<[u8]>, Name: ToName> RrsigExt for Rrsig<Octets, Name> {
 
 // This needs to match the algorithms supported in signed_data.
 pub fn supported_algorithm(a: &SecAlg) -> bool {
-    match a {
-        SecAlg::RsaSha256 | SecAlg::EcdsaP256Sha256 => true,
-        _ => {
-            println!("supported_digest: failed for {a:?}");
-            false
-        }
-    }
+    *a == SecAlg::RSASHA256 || *a == SecAlg::ECDSAP256SHA256
 }
 
 /// Return the RSA exponent and modulus components from DNSKEY record data.

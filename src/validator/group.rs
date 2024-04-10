@@ -48,7 +48,7 @@ pub struct Group {
 
 impl Group {
     fn new<'a>(rr: ParsedRecord<'a, Bytes>) -> Self {
-        if rr.rtype() != Rtype::Rrsig {
+        if rr.rtype() != Rtype::RRSIG {
             return Self {
                 rr_set: vec![to_bytes_record(&rr)],
                 sig_set: Vec::new(),
@@ -63,13 +63,13 @@ impl Group {
         // statement.
         if !self.rr_set.is_empty() {
             if self.rr_set[0].owner()
-                != &rr.owner().to_dname::<Bytes>().unwrap()
+                != &rr.owner().try_to_dname::<Bytes>().unwrap()
             {
                 return Err(());
             }
         } else {
-            if self.sig_set[0].owner().to_dname::<Bytes>()
-                != rr.owner().to_dname()
+            if self.sig_set[0].owner().try_to_dname::<Bytes>()
+                != rr.owner().try_to_dname()
             {
                 return Err(());
             }
@@ -84,7 +84,7 @@ impl Group {
             )
         };
 
-        if rr.rtype() == Rtype::Rrsig {
+        if rr.rtype() == Rtype::RRSIG {
             let record = rr.to_record::<Rrsig<_, _>>().unwrap().unwrap();
             let rrsig = record.data();
 
@@ -99,13 +99,13 @@ impl Group {
                         rrsig.expiration(),
                         rrsig.inception(),
                         rrsig.key_tag(),
-                        rrsig.signer_name().to_dname::<Bytes>().unwrap(),
+                        rrsig.signer_name().try_to_dname::<Bytes>().unwrap(),
                         Bytes::copy_from_slice(rrsig.signature().as_ref()),
                     )
                     .unwrap();
 
                 let record: Record<Dname<Bytes>, _> = Record::new(
-                    record.owner().to_dname::<Bytes>().unwrap(),
+                    record.owner().try_to_dname::<Bytes>().unwrap(),
                     curr_class,
                     record.ttl(),
                     rrsig,
@@ -163,7 +163,7 @@ impl Group {
         }
 
         // The type in sig_set is always Rrsig
-        return Rtype::Rrsig;
+        return Rtype::RRSIG;
     }
 
     pub fn rr_set(&self) -> Vec<RrType> {
@@ -219,7 +219,7 @@ impl Group {
             | ValidationState::Bogus
             | ValidationState::Indeterminate => return state,
         }
-	self.validate_with_node(&node)
+        self.validate_with_node(&node)
     }
 
     pub fn validate_with_node(&self, node: &Node) -> ValidationState {
@@ -392,8 +392,7 @@ impl Group {
 
         // We cannot check here if the key is in the zone's apex, that is up to
         // the caller. Just check the Zone Flag bit.
-        // XXX is_zsk is the wrong name for this function.
-        if !key.is_zsk() {
+        if !key.is_zone_key() {
             println!("failed at line {}", line!());
             return false;
         }
@@ -471,7 +470,7 @@ fn to_bytes_record<'a>(
 ) -> Record<Dname<Bytes>, AllRecordData<Bytes, ParsedDname<Bytes>>> {
     let record = rr.to_record::<AllRecordData<_, _>>().unwrap().unwrap();
     Record::<Dname<Bytes>, AllRecordData<Bytes, ParsedDname<Bytes>>>::new(
-        rr.owner().to_dname::<Bytes>().unwrap(),
+        rr.owner().try_to_dname::<Bytes>().unwrap(),
         rr.class(),
         rr.ttl(),
         record.data().clone(),

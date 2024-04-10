@@ -40,7 +40,7 @@ async fn main() {
     let mut msg = msg.question();
     msg.push((
         Dname::vec_from_str("www.nlnetlabs.nl").unwrap(),
-        Rtype::Aaaa,
+        Rtype::AAAA,
     ))
     .unwrap();
     let mut req = RequestMessage::new(msg);

@@ -22,12 +22,12 @@ use crate::net::client::request::ComposeRequest;
 use crate::net::client::request::RequestMessage;
 use crate::net::client::request::SendRequest;
 use crate::rdata::AllRecordData;
-use crate::rdata::Ds;
 use crate::rdata::Dnskey;
+use crate::rdata::Ds;
 use crate::rdata::ZoneRecordData;
-use crate::validate::DnskeyExt;
 use crate::validate::supported_algorithm;
 use crate::validate::supported_digest;
+use crate::validate::DnskeyExt;
 use std::collections::VecDeque;
 use std::vec::Vec;
 
@@ -45,7 +45,7 @@ impl<Upstream> ValidationContext<Upstream> {
     where
         Upstream: Clone + SendRequest<RequestMessage<Bytes>>,
     {
-	println!("get_node: for {name:?}");
+        println!("get_node: for {name:?}");
 
         // Check the cache first
         if let Some(node) = self.cache_lookup(name) {
@@ -85,7 +85,9 @@ impl<Upstream> ValidationContext<Upstream> {
             // Create the child node
             let child_name = names.pop_front().unwrap();
             node = self.create_child_node(child_name, &node).await;
-	    if names.is_empty() { return node; }
+            if names.is_empty() {
+                return node;
+            }
         }
     }
 
@@ -129,7 +131,7 @@ impl<Upstream> ValidationContext<Upstream> {
         let mut msg = MessageBuilder::new_bytes();
         msg.header_mut().set_rd(true);
         let mut msg = msg.question();
-        msg.push((&name, Rtype::Ds)).unwrap();
+        msg.push((&name, Rtype::DS)).unwrap();
         let mut req = RequestMessage::new(msg);
         req.set_dnssec_ok(true);
 
@@ -150,7 +152,7 @@ impl<Upstream> ValidationContext<Upstream> {
         }
 
         let ds_group =
-            match answers.iter().filter(|g| g.rtype() == Rtype::Ds).next() {
+            match answers.iter().filter(|g| g.rtype() == Rtype::DS).next() {
                 Some(g) => g,
                 None => {
                     // Verify proof that DS doesn't exist for this name.
@@ -192,7 +194,7 @@ impl<Upstream> ValidationContext<Upstream> {
         // This document modifies the above text to additionally disregard
         // authenticated DS records using unknown or unsupported message
         // digest algorithms.
-	let mut tmp_group = ds_group.clone();
+        let mut tmp_group = ds_group.clone();
         let valid_algs = tmp_group
             .rr_iter()
             .map(|r| {
@@ -213,11 +215,11 @@ impl<Upstream> ValidationContext<Upstream> {
             todo!();
         }
 
-	// Get the DNSKEY RRset.
+        // Get the DNSKEY RRset.
         let mut msg = MessageBuilder::new_bytes();
         msg.header_mut().set_rd(true);
         let mut msg = msg.question();
-        msg.push((&name, Rtype::Dnskey)).unwrap();
+        msg.push((&name, Rtype::DNSKEY)).unwrap();
         let mut req = RequestMessage::new(msg);
         req.set_dnssec_ok(true);
 
@@ -227,43 +229,47 @@ impl<Upstream> ValidationContext<Upstream> {
         let reply = reply.unwrap();
         println!("got reply {reply:?}");
 
-	// We need the DNSKEY RRset. Group only the answer section.
+        // We need the DNSKEY RRset. Group only the answer section.
         let mut answers = GroupList::new();
         for rr in reply.answer().unwrap() {
             answers.add(rr.unwrap());
         }
 
-        let dnskey_group =
-            match answers.iter().filter(|g| g.rtype() == Rtype::Dnskey).next() {
-                Some(g) => g,
-                None => {
-		    // No DNSKEY RRset, set validation state to bogus.
-                    todo!();
-                }
-            };
+        let dnskey_group = match answers
+            .iter()
+            .filter(|g| g.rtype() == Rtype::DNSKEY)
+            .next()
+        {
+            Some(g) => g,
+            None => {
+                // No DNSKEY RRset, set validation state to bogus.
+                todo!();
+            }
+        };
 
         // TODO: Limit the size of the DNSKEY RRset.
 
         // Try to find one DNSKEY record that matches a DS record and that
-	// can be used to validate the DNSKEY RRset.
+        // can be used to validate the DNSKEY RRset.
 
-	for ds in tmp_group
+        for ds in tmp_group
             .rr_iter()
             .map(|r| {
                 if let AllRecordData::Ds(ds) = r.data() {
-		    ds
+                    ds
                 } else {
                     panic!("DS record expected");
                 }
             })
             .filter(|ds| {
-                supported_algorithm(&ds.algorithm()) && supported_digest(&ds.digest_type())
+                supported_algorithm(&ds.algorithm())
+                    && supported_digest(&ds.digest_type())
             })
-	{
-	    let r_dnskey = match find_key_for_ds(ds, dnskey_group) {
-		None => continue,
-		Some(r) => r
-	    };
+        {
+            let r_dnskey = match find_key_for_ds(ds, dnskey_group) {
+                None => continue,
+                Some(r) => r,
+            };
             let dnskey =
                 if let AllRecordData::Dnskey(dnskey) = r_dnskey.data() {
                     dnskey
@@ -271,34 +277,41 @@ impl<Upstream> ValidationContext<Upstream> {
                     panic!("expected DNSKEY");
                 };
             let key_tag = dnskey.key_tag();
-            let key_name = r_dnskey.owner().to_dname().unwrap();
+            let key_name = r_dnskey.owner().try_to_dname().unwrap();
             for sig in (*dnskey_group).clone().sig_iter() {
-                if dnskey_group.check_sig(
-                    sig,
-                    &key_name,
-                    dnskey,
-                    &key_name,
-                    key_tag,
-                ) {
-                    let dnskey_vec: Vec<_> = dnskey_group.clone().rr_iter()
-			.map(|r| if let AllRecordData::Dnskey(key) = r.data() { key } else { panic!("Dnskey expected"); })
-			.cloned()
-			.collect();
-		    return Node::new_delegation(key_name, ValidationState::Secure,
-			dnskey_vec);
-/*
-			 {
-                        if let AllRecordData::Dnskey(key) = key_rec.data() {
-                            new_node.keys.push(key.clone());
-                        }
-                    }
-                    let mut new_node = Self {
-                        state: ValidationState::Secure,
-                        keys: Vec::new(),
-                        signer_name: key_name,
-                    };
-                    return new_node;
-*/
+                if dnskey_group
+                    .check_sig(sig, &key_name, dnskey, &key_name, key_tag)
+                {
+                    let dnskey_vec: Vec<_> = dnskey_group
+                        .clone()
+                        .rr_iter()
+                        .map(|r| {
+                            if let AllRecordData::Dnskey(key) = r.data() {
+                                key
+                            } else {
+                                panic!("Dnskey expected");
+                            }
+                        })
+                        .cloned()
+                        .collect();
+                    return Node::new_delegation(
+                        key_name,
+                        ValidationState::Secure,
+                        dnskey_vec,
+                    );
+                /*
+                             {
+                                        if let AllRecordData::Dnskey(key) = key_rec.data() {
+                                            new_node.keys.push(key.clone());
+                                        }
+                                    }
+                                    let mut new_node = Self {
+                                        state: ValidationState::Secure,
+                                        keys: Vec::new(),
+                                        signer_name: key_name,
+                                    };
+                                    return new_node;
+                */
                 } else {
                     // To avoid CPU exhaustion attacks such as KeyTrap
                     // (CVE-2023-50387) it is good to limit signature
@@ -363,7 +376,7 @@ impl Node {
         let mut msg = MessageBuilder::new_bytes();
         msg.header_mut().set_rd(true);
         let mut msg = msg.question();
-        msg.push((&ta_owner, Rtype::Dnskey)).unwrap();
+        msg.push((&ta_owner, Rtype::DNSKEY)).unwrap();
         let mut req = RequestMessage::new(msg);
         req.set_dnssec_ok(true);
 
@@ -383,7 +396,7 @@ impl Node {
         // Get the DNSKEY group. We expect exactly one.
         let dnskeys = answers
             .iter()
-            .filter(|g| g.rtype() == Rtype::Dnskey)
+            .filter(|g| g.rtype() == Rtype::DNSKEY)
             .next()
             .unwrap();
         println!("dnskeys = {dnskeys:?}");
@@ -401,7 +414,7 @@ impl Node {
                     continue;
                 };
             let key_tag = tkey_dnskey.key_tag();
-            let key_name = tkey.owner().to_dname().unwrap();
+            let key_name = tkey.owner().try_to_dname().unwrap();
             for sig in (*dnskeys).clone().sig_iter() {
                 if dnskeys.check_sig(
                     sig,
@@ -449,9 +462,16 @@ impl Node {
         todo!();
     }
 
-    pub fn new_delegation(signer_name: Dname<Bytes>, state: ValidationState,
-	keys: Vec<Dnskey<Bytes>>) -> Self {
-	Self { state, signer_name, keys }
+    pub fn new_delegation(
+        signer_name: Dname<Bytes>,
+        state: ValidationState,
+        keys: Vec<Dnskey<Bytes>>,
+    ) -> Self {
+        Self {
+            state,
+            signer_name,
+            keys,
+        }
     }
 
     pub fn validation_state(&self) -> ValidationState {
@@ -484,7 +504,7 @@ fn has_key(
         let AllRecordData::Dnskey(key_dnskey) = key.data() else {
             continue;
         };
-        if tkey.owner().to_dname::<Bytes>().unwrap() != key.owner() {
+        if tkey.owner().try_to_dname::<Bytes>().unwrap() != key.owner() {
             continue;
         }
         if tkey.class() != key.class() {
@@ -501,20 +521,27 @@ fn has_key(
     false
 }
 
-fn find_key_for_ds(ds: &Ds<Bytes>, dnskey_group: &Group) -> Option<Record<Dname<Bytes>, AllRecordData<Bytes, ParsedDname<Bytes>>>> {
+fn find_key_for_ds(
+    ds: &Ds<Bytes>,
+    dnskey_group: &Group,
+) -> Option<Record<Dname<Bytes>, AllRecordData<Bytes, ParsedDname<Bytes>>>> {
     let ds_alg = ds.algorithm();
     let ds_tag = ds.key_tag();
     let digest_type = ds.digest_type();
     for key in dnskey_group.clone().rr_iter() {
-	let AllRecordData::Dnskey(dnskey) = key.data() else {
+        let AllRecordData::Dnskey(dnskey) = key.data() else {
 	    panic!("Dnskey expected");
 	};
-	if dnskey.algorithm() != ds_alg { continue; }
-	if dnskey.key_tag() != ds_tag { continue; }
-	let digest = dnskey.digest(key.owner(), digest_type).unwrap();
-	if ds.digest() == digest.as_ref() {
-	    return Some(key.clone());
-	}
+        if dnskey.algorithm() != ds_alg {
+            continue;
+        }
+        if dnskey.key_tag() != ds_tag {
+            continue;
+        }
+        let digest = dnskey.digest(key.owner(), digest_type).unwrap();
+        if ds.digest() == digest.as_ref() {
+            return Some(key.clone());
+        }
     }
     None
 }

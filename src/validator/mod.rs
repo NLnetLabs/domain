@@ -6,7 +6,7 @@ use bytes::Bytes;
 //use crate::base::ParseRecordData;
 //use crate::base::ParsedDname;
 use crate::base::iana::Class;
-use crate::base::iana::OptRcode::NoError;
+use crate::base::iana::OptRcode;
 use crate::base::name::ToDname;
 use crate::base::Rtype;
 use crate::dep::octseq::Octets;
@@ -81,7 +81,7 @@ where
     if question_section.next().is_some() {
         return Err(Error::FormError);
     }
-    let qname: Dname<Bytes> = question.qname().to_dname().unwrap();
+    let qname: Dname<Bytes> = question.qname().try_to_dname().unwrap();
     let qclass = question.qclass();
     let qtype = question.qtype();
 
@@ -91,7 +91,7 @@ where
     // of the group and be done.
     // For NODATA first get the SOA, this determines if the proof of a
     // negative result is signed or not.
-    if let NoError = msg.opt_rcode() {
+    if msg.opt_rcode() == OptRcode::NOERROR {
         let opt_state = get_answer_state(&sname, qclass, qtype, &mut answers);
         if let Some(state) = opt_state {
             return Ok(state);
@@ -126,7 +126,7 @@ fn do_cname_dname(
             continue;
         }
         let rtype = g.rtype();
-        if rtype != Rtype::Cname && rtype != Rtype::Dname {
+        if rtype != Rtype::CNAME && rtype != Rtype::DNAME {
             continue;
         }
         todo!();
@@ -167,7 +167,7 @@ fn get_soa_state(
             println!("get_soa_state: wrong class");
             continue;
         }
-        if g.rtype() != Rtype::Soa {
+        if g.rtype() != Rtype::SOA {
             println!("get_soa_state: wrong type");
             continue;
         }
