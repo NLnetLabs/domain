@@ -123,12 +123,12 @@ use domain::base::scan::IterScanner;
 use domain::base::{Dname, Rtype, Ttl};
 use domain::rdata::ZoneRecordData;
 use domain::zonetree::{
-    Answer, OutOfZone, ReadableZone, Rrset, SharedRrset, StoredDname, WalkOp,
-    WritableZone, Zone, ZoneSet, ZoneStore,
+    Answer, ReadableZone, Rrset, SharedRrset, StoredDname, WalkOp,
+    WritableZone, Zone, ZoneStore, ZoneTree,
 };
-use parking_lot::RwLock;
 use sqlx::Row;
 use sqlx::{mysql::MySqlConnectOptions, MySqlPool};
+use domain::zonefile::error::OutOfZone;
 
 #[path = "../common/serve-utils.rs"]
 mod common;
@@ -137,13 +137,13 @@ mod common;
 async fn main() {
     // Create a zone whose queries will be satisfied by querying the database
     // defined by the DATABASE_URL environment variable.
-    let mut zones = ZoneSet::new();
+    let mut zones = ZoneTree::new();
     let db_zone = DatabaseZoneBuilder::mk_test_zone("example.com").await;
     zones.insert_zone(db_zone).unwrap();
 
     // Setup a mock query.
     let qname = Dname::bytes_from_str("example.com").unwrap();
-    let qclass = Class::In;
+    let qclass = Class::IN;
     let qtype = Rtype::A;
 
     // Execute the query. The steps we take are:
@@ -199,7 +199,7 @@ impl DatabaseNode {
 
 impl ZoneStore for DatabaseNode {
     fn class(&self) -> Class {
-        Class::In
+        Class::IN
     }
 
     fn apex_name(&self) -> &StoredDname {
@@ -256,7 +256,7 @@ impl ReadableZone for DatabaseReadZone {
             .fetch_one(&db_pool)
             .await
             {
-                let mut answer = Answer::new(Rcode::NoError);
+                let mut answer = Answer::new(Rcode::NOERROR);
                 let ttl = row.try_get("ttl").unwrap();
                 let mut rrset = Rrset::new(qtype, Ttl::from_secs(ttl));
                 let content: String = row.try_get("content").unwrap();
@@ -271,11 +271,11 @@ impl ReadableZone for DatabaseReadZone {
                     }
                     Err(err) => {
                         eprintln!("Unable to parse DB record of type {qtype}: {err}");
-                        Answer::new(Rcode::ServFail)
+                        Answer::new(Rcode::SERVFAIL)
                     }
                 }
             } else {
-                Answer::new(Rcode::NXDomain)
+                Answer::new(Rcode::NXDOMAIN)
             };
             Ok(answer)
         };
