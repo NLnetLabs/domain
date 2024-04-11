@@ -139,7 +139,7 @@ pub trait WritableZone {
 
 //------------ WritableZoneNode ----------------------------------------------
 
-/// Am asynchronous write interface to a particular node in a [`ZoneTree`].
+/// An asynchronous write interface to a particular node in a [`ZoneTree`].
 ///
 /// [`ZoneTree`]: super::ZoneTree
 pub trait WritableZoneNode {
