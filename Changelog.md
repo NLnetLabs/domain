@@ -68,6 +68,10 @@ Unstable features
   message transport, i.e., sending of requests and receiving responses
   as well as caching of responses.
   This is gated by the `unstable-client-transport` feature. ([#215],[#275])
+* Add the module `net::server` with experimental support for server
+  transports, processing requests through a middleware chain and a service
+  trait.
+  This is gated by the `unstable-server-transport` feature. ([#274])
 
 Other changes
 
@@ -82,6 +86,7 @@ Other changes
 [#267]: https://github.com/NLnetLabs/domain/pull/267
 [#268]: https://github.com/NLnetLabs/domain/pull/268
 [#270]: https://github.com/NLnetLabs/domain/pull/270
+[#274]: https://github.com/NLnetLabs/domain/pull/274
 [#275]: https://github.com/NLnetLabs/domain/pull/275
 [#276]: https://github.com/NLnetLabs/domain/pull/276
 [#277]: https://github.com/NLnetLabs/domain/pull/277
