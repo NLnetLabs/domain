@@ -359,10 +359,10 @@ impl NodeChildren {
         op(self.children.read().get(label))
     }
 
-    /// Executes a closure for a child, creating a new one of necessary.
+    /// Executes a closure for a child, creating a new child if necessary.
     ///
-    /// The closure receives a references to the node and a boolean
-    /// expressing whether the child was created.
+    /// The closure receives a reference to the node and a boolean expressing
+    /// whether the child was created.
     pub fn with_or_default<R>(
         &self,
         label: &Label,
