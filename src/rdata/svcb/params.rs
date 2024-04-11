@@ -3,6 +3,7 @@
 //! This is a private module. It’s public types are re-exported by the
 //! parent.
 use super::value::AllValues;
+use crate::base::cmp::CanonicalOrd;
 use crate::base::iana::SvcParamKey;
 use crate::base::scan::Symbol;
 use crate::base::wire::{Compose, Parse, ParseError};
@@ -290,7 +291,7 @@ impl<Octs: AsRef<[u8]> + ?Sized> hash::Hash for SvcParams<Octs> {
     }
 }
 
-//--- PartialOrd and Ord
+//--- PartialOrd Ord, and CanonicalOrd
 
 impl<Octs, OtherOcts> PartialOrd<SvcParams<OtherOcts>> for SvcParams<Octs>
 where
@@ -306,6 +307,18 @@ where
 
 impl<Octs: AsRef<[u8]> + ?Sized> Ord for SvcParams<Octs> {
     fn cmp(&self, other: &Self) -> cmp::Ordering {
+        self.as_slice().cmp(other.as_slice())
+    }
+}
+
+impl<Octs, OtherOcts> CanonicalOrd<SvcParams<OtherOcts>> for SvcParams<Octs>
+where
+    Octs: AsRef<[u8]> + ?Sized,
+    OtherOcts: AsRef<[u8]> + ?Sized,
+{
+    fn canonical_cmp(
+        &self, other: &SvcParams<OtherOcts>
+    ) -> cmp::Ordering {
         self.as_slice().cmp(other.as_slice())
     }
 }
