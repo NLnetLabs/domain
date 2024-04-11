@@ -3,6 +3,7 @@
 //! This is a private module. It’s public types are re-exported by the
 //! parent.
 use super::SvcParams;
+use crate::base::cmp::CanonicalOrd;
 use crate::base::iana::Rtype;
 use crate::base::name::{FlattenInto, ParsedDname, ToDname};
 use crate::base::rdata::{
@@ -342,6 +343,30 @@ for SvcbRdata<Variant, Octs, Name> {
             other => return other
         }
         self.params.cmp(&other.params)
+    }
+}
+
+impl<Variant, OtherVariant, Octs, OtherOcts, Name, OtherName>
+    CanonicalOrd<SvcbRdata<OtherVariant, OtherOcts, OtherName>>
+for SvcbRdata<Variant, Octs, Name>
+where
+    Octs: AsRef<[u8]>,
+    OtherOcts: AsRef<[u8]>,
+    Name: ToDname,
+    OtherName: ToDname,
+{
+    fn canonical_cmp(
+        &self, other: &SvcbRdata<OtherVariant, OtherOcts, OtherName>
+    ) -> cmp::Ordering {
+        match self.priority.cmp(&other.priority) {
+            cmp::Ordering::Equal => { }
+            other => return other
+        }
+        match self.target.name_cmp(&other.target) {
+            cmp::Ordering::Equal => { }
+            other => return other
+        }
+        self.params.partial_cmp(&other.params).expect("partial_cmp should not fail")
     }
 }
 
