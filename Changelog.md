@@ -36,6 +36,8 @@ Breaking changes
   distinguishing variants might be meaningful for dealing with the error.
   ([#277])
 * Renamed `Dnskey::is_zsk` to `is_zone_key`. ([#292])
+* Split RRSIG timestamp handling from `Serial` into a new type
+  `rdata::dnssec::Timestamp`. ([#294])
 * Upgraded `octseq` to 0.5. ([#257])
 
 New
