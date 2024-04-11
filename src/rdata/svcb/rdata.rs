@@ -366,7 +366,7 @@ where
             cmp::Ordering::Equal => { }
             other => return other
         }
-        self.params.partial_cmp(&other.params).expect("partial_cmp should not fail")
+        self.params.canonical_cmp(&other.params)
     }
 }
 

@@ -39,6 +39,7 @@ opt_types! {
 
 //============ Module Content ================================================
 
+use super::cmp::CanonicalOrd;
 use super::header::Header;
 use super::iana::{Class, OptRcode, OptionCode, Rtype};
 use super::name::{Dname, ToDname};
@@ -258,7 +259,7 @@ where
 
 impl<Octs: AsRef<[u8]> + ?Sized> Eq for Opt<Octs> {}
 
-//--- PartialOrd and Ord
+//--- PartialOrd, Ord, and CanonicalOrd
 
 impl<Octs, Other> PartialOrd<Opt<Other>> for Opt<Octs>
 where
@@ -272,6 +273,16 @@ where
 
 impl<Octs: AsRef<[u8]> + ?Sized> Ord for Opt<Octs> {
     fn cmp(&self, other: &Self) -> Ordering {
+        self.octets.as_ref().cmp(other.octets.as_ref())
+    }
+}
+
+impl<Octs, Other> CanonicalOrd<Opt<Other>> for Opt<Octs>
+where
+    Octs: AsRef<[u8]> + ?Sized,
+    Other: AsRef<[u8]> + ?Sized,
+{
+    fn canonical_cmp(&self, other: &Opt<Other>) -> Ordering {
         self.octets.as_ref().cmp(other.octets.as_ref())
     }
 }

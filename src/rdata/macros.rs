@@ -850,7 +850,7 @@ macro_rules! rdata_types {
                         &AllRecordData::Opt(ref self_inner),
                         &AllRecordData::Opt(ref other_inner)
                     ) => {
-                        self_inner.partial_cmp(other_inner).expect("partial_cmp should not fail")
+                        self_inner.canonical_cmp(other_inner)
                     }
                     (
                         &AllRecordData::Unknown(ref self_inner),
