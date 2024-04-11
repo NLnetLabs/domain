@@ -487,8 +487,8 @@ mod test {
             SecAlg::RSASHA256,
             1,
             Ttl::from_secs(86400),
-            Timestamp::rrsig_from_str("20210921162830").unwrap(),
-            Timestamp::rrsig_from_str("20210906162330").unwrap(),
+            Timestamp::from_str("20210921162830").unwrap(),
+            Timestamp::from_str("20210906162330").unwrap(),
             35886,
             "net.".parse::<Dname>().unwrap(),
             base64::decode::<Vec<u8>>(
@@ -673,8 +673,8 @@ mod test {
             SecAlg::RSASHA1,
             2,
             Ttl::from_secs(3600),
-            Timestamp::rrsig_from_str("20040509183619").unwrap(),
-            Timestamp::rrsig_from_str("20040409183619").unwrap(),
+            Timestamp::from_str("20040509183619").unwrap(),
+            Timestamp::from_str("20040409183619").unwrap(),
             38519,
             Dname::from_str("example.").unwrap(),
             base64::decode::<Vec<u8>>(

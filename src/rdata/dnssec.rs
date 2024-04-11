@@ -17,7 +17,6 @@ use crate::base::wire::{Compose, Composer, FormError, Parse, ParseError};
 use crate::utils::{base16, base64};
 use core::cmp::Ordering;
 use core::convert::TryInto;
-use core::str::FromStr;
 use core::{cmp, fmt, hash, ptr, str};
 use octseq::builder::{
     EmptyBuilder, FreezeBuilder, FromBuilder, OctetsBuilder, Truncate,
@@ -618,7 +617,7 @@ impl Timestamp {
     #[cfg(feature = "std")]
     #[must_use]
     pub fn now() -> Self {
-	Self(Serial::now())
+        Self(Serial::now())
     }
 
     /// Scan a serial represention signature time value.
@@ -628,7 +627,7 @@ impl Timestamp {
     /// value or a specific date in `YYYYMMDDHHmmSS` format.
     ///
     /// [RRSIG]: ../../rdata/rfc4034/struct.Rrsig.html
-    pub fn scan_rrsig<S: Scanner>(scanner: &mut S) -> Result<Self, S::Error> {
+    pub fn scan<S: Scanner>(scanner: &mut S) -> Result<Self, S::Error> {
         let mut pos = 0;
         let mut buf = [0u8; 14];
         scanner.scan_symbols(|symbol| {
@@ -679,14 +678,50 @@ impl Timestamp {
         }
     }
 
-    /// Parses a serial representing a time value from a string.
+    /// Returns the timestamp as a raw integer.
+    #[must_use]
+    pub fn into_int(self) -> u32 {
+        self.0.into_int()
+    }
+
+}
+
+/// # Parsing and Composing
+///
+impl Timestamp {
+    pub const COMPOSE_LEN: u16 = Serial::COMPOSE_LEN;
+
+    pub fn parse<Octs: AsRef<[u8]> + ?Sized>(
+        parser: &mut Parser<Octs>,
+    ) -> Result<Self, ParseError> {
+        Serial::parse(parser).map(Self)
+    }
+
+    pub fn compose<Target: Composer + ?Sized>(
+        &self,
+        target: &mut Target,
+    ) -> Result<(), Target::AppendError> {
+        self.0.compose(target)
+    }
+}
+
+
+//--- From and FromStr
+
+impl From<u32> for Timestamp {
+    fn from(item: u32) -> Self {
+        Self(Serial::from(item))
+    }
+}
+
+impl str::FromStr for Timestamp {
+    type Err = IllegalSignatureTime;
+
+    /// Parses a timestamp value from a string.
     ///
-    /// In [RRSIG] records, the expiration and inception times are given as
-    /// serial values. Their representation format can either be the
-    /// value or a specific date in `YYYYMMDDHHmmSS` format.
-    ///
-    /// [RRSIG]: ../../rdata/rfc4034/struct.Rrsig.html
-    pub fn rrsig_from_str(src: &str) -> Result<Self, IllegalSignatureTime> {
+    /// The presentation format can either be their integer value or a
+    /// specific date in `YYYYMMDDHHmmSS` format.
+    fn from_str(src: &str) -> Result<Self, Self::Err> {
         if !src.is_ascii() {
             return Err(IllegalSignatureTime(()));
         }
@@ -718,49 +753,10 @@ impl Timestamp {
                 .unix_timestamp() as u32,
             )))
         } else {
-            Timestamp::from_str(src).map_err(|_| IllegalSignatureTime(()))
+            Serial::from_str(src).map(Timestamp).map_err(|_| {
+                IllegalSignatureTime(())
+            })
         }
-    }
-
-    /// Returns the serial number as a raw integer.
-    #[must_use]
-    pub fn into_int(self) -> u32 {
-        self.0.into_int()
-    }
-
-}
-
-/// # Parsing and Composing
-///
-impl Timestamp {
-	pub const COMPOSE_LEN: u16 = Serial::COMPOSE_LEN;
-
-    pub fn parse<Octs: AsRef<[u8]> + ?Sized>(
-        parser: &mut Parser<Octs>,
-    ) -> Result<Self, ParseError> {
-        Serial::parse(parser).map(Self)
-    }
-
-	pub fn compose<Target: Composer + ?Sized>(
-        &self,
-        target: &mut Target,
-    ) -> Result<(), Target::AppendError> {
-        self.0.compose(target)
-    }
-
-}
-
-impl From<u32> for Timestamp {
-	fn from(item: u32) -> Self {
-		Self(Serial::from(item))
-	}
-}
-
-impl str::FromStr for Timestamp {
-    type Err = <u32 as str::FromStr>::Err;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Ok(Timestamp(Serial::from_str(s).map(Into::into)?))
     }
 }
 
@@ -772,7 +768,7 @@ impl fmt::Display for Timestamp {
     }
 }
 
-//--- PartialOrd
+//--- PartialOrd and CanonicalOrd
 
 impl cmp::PartialOrd for Timestamp {
     fn partial_cmp(&self, other: &Self) -> Option<cmp::Ordering> {
@@ -788,6 +784,7 @@ impl CanonicalOrd for Timestamp {
 
 
 //------------ Helper Functions ----------------------------------------------
+
 fn u8_from_buf(buf: &[u8]) -> u8 {
     let mut res = 0;
     for ch in buf {
@@ -1017,8 +1014,8 @@ impl<Octs, Name> Rrsig<Octs, Name> {
             SecAlg::scan(scanner)?,
             u8::scan(scanner)?,
             Ttl::scan(scanner)?,
-            Timestamp::scan_rrsig(scanner)?,
-            Timestamp::scan_rrsig(scanner)?,
+            Timestamp::scan(scanner)?,
+            Timestamp::scan(scanner)?,
             u16::scan(scanner)?,
             scanner.scan_dname()?,
             scanner.convert_entry(base64::SymbolConverter::new())?,
