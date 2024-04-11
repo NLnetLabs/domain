@@ -12,7 +12,7 @@ use crate::base::rdata::{
 };
 use crate::base::Ttl;
 use crate::base::scan::{Scan, Scanner, ScannerError};
-use crate::base::serial::Serial as SerialForTimestamp;
+use crate::base::serial::Serial;
 use crate::base::wire::{Compose, Composer, FormError, Parse, ParseError};
 use crate::utils::{base16, base64};
 use core::cmp::Ordering;
@@ -611,14 +611,14 @@ where
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-pub struct Timestamp(SerialForTimestamp);
+pub struct Timestamp(Serial);
 
 impl Timestamp {
     /// Returns a serial number for the current Unix time.
     #[cfg(feature = "std")]
     #[must_use]
     pub fn now() -> Self {
-	Self(SerialForTimestamp::now())
+	Self(Serial::now())
     }
 
     /// Scan a serial represention signature time value.
@@ -652,7 +652,7 @@ impl Timestamp {
             if res > u64::from(u32::MAX) {
                 Err(S::Error::custom("illegal signature time"))
             } else {
-                Ok(Self(SerialForTimestamp(res as u32)))
+                Ok(Self(Serial(res as u32)))
             }
         } else if pos == 14 {
             let year = u32_from_buf(&buf[0..4]) as i32;
@@ -662,7 +662,7 @@ impl Timestamp {
             let hour = u8_from_buf(&buf[8..10]);
             let minute = u8_from_buf(&buf[10..12]);
             let second = u8_from_buf(&buf[12..14]);
-            Ok(Self(SerialForTimestamp(
+            Ok(Self(Serial(
                 PrimitiveDateTime::new(
                     Date::from_calendar_date(year, month, day).map_err(
                         |_| S::Error::custom("illegal signature time"),
@@ -707,7 +707,7 @@ impl Timestamp {
                 .map_err(|_| IllegalSignatureTime(()))?;
             let second = u8::from_str(&src[12..14])
                 .map_err(|_| IllegalSignatureTime(()))?;
-            Ok(Timestamp(SerialForTimestamp(
+            Ok(Timestamp(Serial(
                 PrimitiveDateTime::new(
                     Date::from_calendar_date(year, month, day)
                         .map_err(|_| IllegalSignatureTime(()))?,
@@ -733,12 +733,12 @@ impl Timestamp {
 /// # Parsing and Composing
 ///
 impl Timestamp {
-	pub const COMPOSE_LEN: u16 = SerialForTimestamp::COMPOSE_LEN;
+	pub const COMPOSE_LEN: u16 = Serial::COMPOSE_LEN;
 
     pub fn parse<Octs: AsRef<[u8]> + ?Sized>(
         parser: &mut Parser<Octs>,
     ) -> Result<Self, ParseError> {
-        SerialForTimestamp::parse(parser).map(Self)
+        Serial::parse(parser).map(Self)
     }
 
 	pub fn compose<Target: Composer + ?Sized>(
@@ -752,7 +752,7 @@ impl Timestamp {
 
 impl From<u32> for Timestamp {
 	fn from(item: u32) -> Self {
-		Self(SerialForTimestamp::from(item))
+		Self(Serial::from(item))
 	}
 }
 
@@ -760,7 +760,7 @@ impl str::FromStr for Timestamp {
     type Err = <u32 as str::FromStr>::Err;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Ok(Timestamp(SerialForTimestamp::from_str(s).map(Into::into)?))
+        Ok(Timestamp(Serial::from_str(s).map(Into::into)?))
     }
 }
 
