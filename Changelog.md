@@ -35,7 +35,7 @@ Breaking changes
   internal error details. Enums have been kept for errors where
   distinguishing variants might be meaningful for dealing with the error.
   ([#277])
-* Dnskey::is_zsk is renamed to is_zone_key. ([#292])
+* Renamed `Dnskey::is_zsk` to `is_zone_key`. ([#292])
 * Upgraded `octseq` to 0.5. ([#257])
 
 New
@@ -48,6 +48,8 @@ New
   parse any type of record data. ([#256])
 * Added implementations of `OctetsFrom` and `Debug` to `AllOptData` and
   the specific options types that didn’t have them yet. ([#257])
+* Added missing ordering impls to `ZoneRecordData`, `AllRecordData`,
+  `Opt`, and `SvcbRdata`. ([#293])
 
 Bug fixes
 
@@ -87,6 +89,7 @@ Other changes
 [#285]: https://github.com/NLnetLabs/domain/pull/285
 [#288]: https://github.com/NLnetLabs/domain/pull/288
 [#292]: https://github.com/NLnetLabs/domain/pull/292
+[#293]: https://github.com/NLnetLabs/domain/pull/293
 [@torin-carey]: https://github.com/torin-carey
 [@hunts]: https://github.com/hunts
 
