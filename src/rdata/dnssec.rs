@@ -597,7 +597,7 @@ impl Timestamp {
     pub fn parse<Octs: AsRef<[u8]> + ?Sized>(
         parser: &mut Parser<Octs>,
     ) -> Result<Self, ParseError> {
-        SerialForTimestamp::parse(parser).map(|s| Self(s))
+        SerialForTimestamp::parse(parser).map(Self)
     }
 
 	pub fn compose<Target: Composer + ?Sized>(
