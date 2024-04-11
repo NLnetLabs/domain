@@ -3,10 +3,11 @@ use std::fmt::Debug;
 use std::io::{self, BufRead, Read};
 use std::net::IpAddr;
 
-use crate::net::stelline::parse_query;
-use crate::net::stelline::parse_query::Zonefile as QueryZonefile;
 use domain::zonefile::inplace::Entry as ZonefileEntry;
 use domain::zonefile::inplace::Zonefile;
+
+use crate::net::stelline::parse_query;
+use crate::net::stelline::parse_query::Zonefile as QueryZonefile;
 
 const CONFIG_END: &str = "CONFIG_END";
 const SCENARIO_BEGIN: &str = "SCENARIO_BEGIN";
@@ -32,6 +33,8 @@ const STEP_TYPE_TIME_PASSES_ELAPSE: &str = "ELAPSE";
 const STEP_TYPE_TRAFFIC: &str = "TRAFFIC";
 const STEP_TYPE_CHECK_TEMPFILE: &str = "CHECK_TEMPFILE";
 const STEP_TYPE_ASSIGN: &str = "ASSIGN";
+const HEX_EDNSDATA_BEGIN: &str = "HEX_EDNSDATA_BEGIN";
+const HEX_EDNSDATA_END: &str = "HEX_EDNSDATA_END";
 
 enum Section {
     Question,
@@ -50,21 +53,46 @@ pub enum StepType {
     Assign,
 }
 
+impl std::fmt::Display for StepType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            StepType::Query => f.write_str("Query"),
+            StepType::CheckAnswer => f.write_str("CheckAnswer"),
+            StepType::TimePasses => f.write_str("TimePasses"),
+            StepType::Traffic => f.write_str("Traffic"),
+            StepType::CheckTempfile => f.write_str("CheckTempfile"),
+            StepType::Assign => f.write_str("Assign"),
+        }
+    }
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct Config {
     lines: Vec<String>,
 }
 
+impl Config {
+    #[allow(dead_code)]
+    pub fn lines(&self) -> &[String] {
+        self.lines.as_ref()
+    }
+}
+
 #[derive(Clone, Debug)]
 #[allow(dead_code)]
 pub struct Stelline {
+    pub name: String,
+    #[allow(dead_code)]
     pub config: Config,
     pub scenario: Scenario,
 }
-
-pub fn parse_file<F: Debug + Read>(file: F) -> Stelline {
+pub fn parse_file<F: Debug + Read, T: ToString>(
+    file: F,
+    name: T,
+) -> Stelline {
     let mut lines = io::BufReader::new(file).lines();
     Stelline {
+        name: name.to_string(),
         config: parse_config(&mut lines),
         scenario: parse_scenario(&mut lines),
     }
@@ -84,7 +112,7 @@ fn parse_config<Lines: Iterator<Item = Result<String, std::io::Error>>>(
         if clean_line == CONFIG_END {
             break;
         }
-        config.lines.push(clean_line.to_string());
+        config.lines.push(line.to_string());
     }
     config
 }
@@ -192,14 +220,15 @@ fn parse_range<Lines: Iterator<Item = Result<String, std::io::Error>>>(
 pub struct Step {
     pub step_value: u64,
     pub step_type: StepType,
-    pub time_passes: Option<u64>,
     pub entry: Option<Entry>,
+    pub time_passes: Option<u64>,
 }
 
 fn parse_step<Lines: Iterator<Item = Result<String, std::io::Error>>>(
     mut tokens: LineTokens<'_>,
     l: &mut Lines,
 ) -> Step {
+    let mut step_client_address = None;
     let step_value = tokens.next().unwrap().parse::<u64>().unwrap();
     let step_type_str = tokens.next().unwrap();
     let step_type = if step_type_str == STEP_TYPE_QUERY {
@@ -220,12 +249,36 @@ fn parse_step<Lines: Iterator<Item = Result<String, std::io::Error>>>(
     let mut step = Step {
         step_value,
         step_type,
-        time_passes: None,
         entry: None,
+        time_passes: None,
     };
 
     match step.step_type {
-        StepType::Query => (),       // Continue with entry
+        StepType::Query => {
+            // Extract possible query settings
+            loop {
+                let (param, value) = (tokens.next(), tokens.next());
+                match (param, value) {
+                    (Some(ADDRESS), Some(addr)) => {
+                        step_client_address = Some(addr.parse().unwrap());
+                    }
+                    (Some(param), Some(value)) => {
+                        eprintln!("Ignoring unknown query parameter '{param}' with value '{value}'");
+                    }
+                    (Some(param), None) => {
+                        eprintln!(
+                            "Ignoring unknown query parameter '{param}'"
+                        );
+                    }
+                    (None, _) => {
+                        // No additional settings specified
+                        break;
+                    }
+                }
+            }
+
+            // Continue with entry
+        }
         StepType::CheckAnswer => (), // Continue with entry
         StepType::TimePasses => {
             // The next token needs to be ELAPSE. Later we can add EVAL as
@@ -265,6 +318,7 @@ fn parse_step<Lines: Iterator<Item = Result<String, std::io::Error>>>(
         let token = tokens.next().unwrap();
         if token == ENTRY_BEGIN {
             step.entry = Some(parse_entry(l));
+            step.entry.as_mut().unwrap().client_addr = step_client_address;
             //println!("parse_step: {:?}", step);
             return step;
         }
@@ -274,6 +328,7 @@ fn parse_step<Lines: Iterator<Item = Result<String, std::io::Error>>>(
 
 #[derive(Clone, Debug, Default)]
 pub struct Entry {
+    pub client_addr: Option<IpAddr>,
     pub matches: Option<Matches>,
     pub adjust: Option<Adjust>,
     pub reply: Option<Reply>,
@@ -284,6 +339,7 @@ fn parse_entry<Lines: Iterator<Item = Result<String, std::io::Error>>>(
     l: &mut Lines,
 ) -> Entry {
     let mut entry = Entry {
+        client_addr: None,
         matches: None,
         adjust: None,
         reply: None,
@@ -331,24 +387,25 @@ fn parse_entry<Lines: Iterator<Item = Result<String, std::io::Error>>>(
     entry
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
+pub struct AdditionalSection {
+    pub zone_entries: Vec<ZonefileEntry>,
+    pub edns_bytes: Vec<u8>,
+}
+
+#[derive(Clone, Debug, Default)]
 pub struct Sections {
     pub question: Vec<parse_query::Entry>,
     pub answer: Vec<ZonefileEntry>,
     pub authority: Vec<ZonefileEntry>,
-    pub additional: Vec<ZonefileEntry>,
+    pub additional: AdditionalSection,
 }
 
 fn parse_section<Lines: Iterator<Item = Result<String, std::io::Error>>>(
     mut tokens: LineTokens<'_>,
     l: &mut Lines,
 ) -> (Sections, String) {
-    let mut sections = Sections {
-        question: Vec::new(),
-        answer: Vec::new(),
-        authority: Vec::new(),
-        additional: Vec::new(),
-    };
+    let mut sections = Sections::default();
     let next = tokens.next().unwrap();
     let mut section = if next == QUESTION {
         Section::Question
@@ -393,20 +450,47 @@ fn parse_section<Lines: Iterator<Item = Result<String, std::io::Error>>>(
                 sections.question.push(e.unwrap());
             }
             Section::Answer | Section::Authority | Section::Additional => {
-                let mut zonefile = Zonefile::new();
-                zonefile.extend_from_slice(b"$ORIGIN .\n");
-                zonefile.extend_from_slice(b"ignore 3600 in ns ignore\n");
-                zonefile.extend_from_slice(clean_line.as_ref());
-                zonefile.extend_from_slice(b"\n");
-                let _e = zonefile.next_entry().unwrap();
-                let e = zonefile.next_entry().unwrap();
+                if matches!(section, Section::Additional)
+                    && clean_line == HEX_EDNSDATA_BEGIN
+                {
+                    loop {
+                        let line = l.next().unwrap().unwrap();
+                        let clean_line = get_clean_line(line.as_ref());
+                        if clean_line.is_none() {
+                            continue;
+                        }
+                        let clean_line = clean_line.unwrap();
+                        if clean_line == HEX_EDNSDATA_END {
+                            break;
+                        }
+                        let clean_line = clean_line
+                            .replace(|c: char| c.is_whitespace(), "");
+                        let edns_line_bytes = hex::decode(&clean_line)
+                            .map_err(|err| format!("Hex decoding failure of HEX_EDNSDATA line '{clean_line}': {err}"))
+                            .unwrap();
+                        sections
+                            .additional
+                            .edns_bytes
+                            .extend(edns_line_bytes);
+                    }
+                } else {
+                    let mut zonefile = Zonefile::new();
+                    zonefile.extend_from_slice(b"$ORIGIN .\n");
+                    zonefile.extend_from_slice(b"ignore 3600 in ns ignore\n");
+                    zonefile.extend_from_slice(clean_line.as_ref());
+                    zonefile.extend_from_slice(b"\n");
+                    let _e = zonefile.next_entry().unwrap();
+                    let e = zonefile.next_entry().unwrap();
 
-                let e = e.unwrap();
-                match section {
-                    Section::Question => panic!("should not be here"),
-                    Section::Answer => sections.answer.push(e),
-                    Section::Authority => sections.authority.push(e),
-                    Section::Additional => sections.additional.push(e),
+                    let e = e.unwrap();
+                    match section {
+                        Section::Question => unreachable!(),
+                        Section::Answer => sections.answer.push(e),
+                        Section::Authority => sections.authority.push(e),
+                        Section::Additional => {
+                            sections.additional.zone_entries.push(e)
+                        }
+                    }
                 }
             }
         }
@@ -433,6 +517,8 @@ pub struct Matches {
     pub tcp: bool,
     pub ttl: bool,
     pub udp: bool,
+    pub server_cookie: bool,
+    pub edns_data: bool,
 }
 
 fn parse_match(mut tokens: LineTokens<'_>) -> Matches {
@@ -472,6 +558,10 @@ fn parse_match(mut tokens: LineTokens<'_>) -> Matches {
             matches.ttl = true;
         } else if token == "UDP" {
             matches.tcp = true;
+        } else if token == "server_cookie" {
+            matches.server_cookie = true;
+        } else if token == "ednsdata" {
+            matches.edns_data = true;
         } else {
             println!("should handle match {token:?}");
             todo!();
@@ -522,6 +612,7 @@ pub struct Reply {
     pub refused: bool,
     pub servfail: bool,
     pub yxdomain: bool,
+    pub yxrrset: String,
     pub notify: bool,
 }
 
@@ -564,6 +655,8 @@ fn parse_reply(mut tokens: LineTokens<'_>) -> Reply {
             reply.servfail = true;
         } else if token == "YXDOMAIN" {
             reply.yxdomain = true;
+        } else if token.starts_with("YXRRSET=") {
+            reply.yxrrset = token.split_once('=').unwrap().1.to_string();
         } else if token == "NOTIFY" {
             reply.notify = true;
         } else {

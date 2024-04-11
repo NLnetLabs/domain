@@ -28,6 +28,7 @@ use std::sync::Arc;
 use std::{error, io};
 use tokio::sync::Semaphore;
 use tokio::time::{timeout_at, Duration, Instant};
+use tracing::trace;
 
 //------------ Configuration Constants ----------------------------------------
 
@@ -177,7 +178,7 @@ impl Default for Config {
 ///
 /// Because it owns the connection’s resources, this type is not `Clone`.
 /// However, it is entirely safe to share it by sticking it into e.g. an arc.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Connection<S> {
     state: Arc<ConnectionState<S>>,
 }
@@ -278,9 +279,12 @@ where
                         }
                         Err(_) => {
                             // Timeout.
+                            trace!("Receive timed out");
                             break;
                         }
                     };
+
+                trace!("Received {len} bytes of message");
                 buf.truncate(len);
 
                 // We ignore garbage since there is a timer on this whole
@@ -289,6 +293,7 @@ where
                     Ok(answer) => answer,
                     Err(buf) => {
                         // Just go back to receiving.
+                        trace!("Received bytes were garbage, reading more");
                         reuse_buf = Some(buf);
                         continue;
                     }
@@ -296,23 +301,16 @@ where
 
                 if !request.is_answer(answer.for_slice()) {
                     // Wrong answer, go back to receiving
+                    trace!("Received message is not the answer we were waiting for, reading more");
                     reuse_buf = Some(answer.into_octets());
                     continue;
                 }
+
+                trace!("Received message is accepted");
                 return Ok(answer.octets_into());
             }
         }
         Err(QueryError::timeout().into())
-    }
-}
-
-//--- Clone
-
-impl<S> Clone for Connection<S> {
-    fn clone(&self) -> Self {
-        Self {
-            state: self.state.clone(),
-        }
     }
 }
 

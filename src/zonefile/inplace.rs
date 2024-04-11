@@ -12,6 +12,13 @@
 #![cfg(feature = "bytes")]
 #![cfg_attr(docsrs, doc(cfg(feature = "bytes")))]
 
+use core::str::FromStr;
+use core::{fmt, str};
+
+use bytes::buf::UninitSlice;
+use bytes::{Buf, BufMut, Bytes, BytesMut};
+use octseq::str::Str;
+
 use crate::base::charstr::CharStr;
 use crate::base::iana::{Class, Rtype};
 use crate::base::name::{Chain, Dname, RelativeDname, ToDname};
@@ -22,11 +29,6 @@ use crate::base::scan::{
 };
 use crate::base::Ttl;
 use crate::rdata::ZoneRecordData;
-use bytes::buf::UninitSlice;
-use bytes::{Buf, BufMut, Bytes, BytesMut};
-use core::str::FromStr;
-use core::{fmt, str};
-use octseq::str::Str;
 
 //------------ Type Aliases --------------------------------------------------
 
@@ -68,10 +70,10 @@ pub struct Zonefile {
     last_owner: Option<ScannedDname>,
 
     /// The last TTL.
-    last_ttl: Option<Ttl>,
+    last_ttl: Ttl,
 
     /// The last class.
-    last_class: Option<Class>,
+    last_class: Class,
 }
 
 impl Zonefile {
@@ -93,8 +95,8 @@ impl Zonefile {
             buf,
             origin: None,
             last_owner: None,
-            last_ttl: None,
-            last_class: None,
+            last_ttl: Ttl::from_secs(3600),
+            last_class: Class::IN,
         }
     }
 
@@ -179,7 +181,7 @@ impl Zonefile {
             match EntryScanner::new(self)?.scan_entry()? {
                 ScannedEntry::Entry(entry) => return Ok(Some(entry)),
                 ScannedEntry::Origin(origin) => self.origin = Some(origin),
-                ScannedEntry::Ttl(ttl) => self.last_ttl = Some(ttl),
+                ScannedEntry::Ttl(ttl) => self.last_ttl = ttl,
                 ScannedEntry::Empty => {}
                 ScannedEntry::Eof => return Ok(None),
             }
@@ -340,24 +342,18 @@ impl<'a> EntryScanner<'a> {
 
         let class = match class {
             Some(class) => {
-                self.zonefile.last_class = Some(class);
+                self.zonefile.last_class = class;
                 class
             }
-            None => match self.zonefile.last_class {
-                Some(class) => class,
-                None => return Err(EntryError::missing_last_class()),
-            },
+            None => self.zonefile.last_class,
         };
 
         let ttl = match ttl {
             Some(ttl) => {
-                self.zonefile.last_ttl = Some(ttl);
+                self.zonefile.last_ttl = ttl;
                 ttl
             }
-            None => match self.zonefile.last_ttl {
-                Some(ttl) => ttl,
-                None => return Err(EntryError::missing_last_ttl()),
-            },
+            None => self.zonefile.last_ttl,
         };
 
         let data = ZoneRecordData::scan(rtype, self)?;
@@ -1446,14 +1442,6 @@ impl EntryError {
 
     fn missing_last_owner() -> Self {
         EntryError("missing last owner")
-    }
-
-    fn missing_last_class() -> Self {
-        EntryError("missing last class")
-    }
-
-    fn missing_last_ttl() -> Self {
-        EntryError("missing last ttl")
     }
 
     fn missing_origin() -> Self {
