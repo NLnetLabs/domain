@@ -579,32 +579,46 @@ where
 }
 
 //------------ Timestamp ------------------------------------------------------
+
+/// A Timestamp for RRSIG Records.
+///
+/// DNS uses 32 bit timestamps that are conceptionally
+/// viewed as the 32 bit modulus of a larger number space. Because of that,
+/// special rules apply when processing these values.
+
+/// [RFC 4034] defines Timestamps as the number of seconds elepased since
+/// since 1 January 1970 00:00:00 UTC, ignoring leap seconds. Timestamps
+/// are compared using so-called "Serial number arithmetic", as defined in
+/// [RFC 1982].
+
+/// The RFC defines the semantics for doing arithmetics in the
+/// face of these wrap-arounds. This type implements these semantics atop a
+/// native `u32`. The RFC defines two operations: addition and comparison.
+///
+/// For addition, the amount added can only be a positive number of up to
+/// `2^31 - 1`. Because of this, we decided to not implement the
+/// `Add` trait but rather have a dedicated method `add` so as to not cause
+/// surprise panics.
+///
+/// Timestamps only implement a partial ordering. That is, there are
+/// pairs of values that are not equal but there still isn’t one value larger
+/// than the other. Since this is neatly implemented by the `PartialOrd`
+/// trait, the type implements that.
+
+///
+/// [RFC 1982]: https://tools.ietf.org/html/rfc1982
+/// [RFC 4034]: https://tools.ietf.org/html/rfc4034
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Timestamp(SerialForTimestamp);
 
 impl Timestamp {
+    /// Returns a serial number for the current Unix time.
     #[cfg(feature = "std")]
     #[must_use]
     pub fn now() -> Self {
 	Self(SerialForTimestamp::now())
-    }
-}
-
-impl Timestamp {
-	pub const COMPOSE_LEN: u16 = SerialForTimestamp::COMPOSE_LEN;
-
-    pub fn parse<Octs: AsRef<[u8]> + ?Sized>(
-        parser: &mut Parser<Octs>,
-    ) -> Result<Self, ParseError> {
-        SerialForTimestamp::parse(parser).map(Self)
-    }
-
-	pub fn compose<Target: Composer + ?Sized>(
-        &self,
-        target: &mut Target,
-    ) -> Result<(), Target::AppendError> {
-        self.0.compose(target)
     }
 
     /// Scan a serial represention signature time value.
@@ -712,6 +726,26 @@ impl Timestamp {
     #[must_use]
     pub fn into_int(self) -> u32 {
         self.0.into_int()
+    }
+
+}
+
+/// # Parsing and Composing
+///
+impl Timestamp {
+	pub const COMPOSE_LEN: u16 = SerialForTimestamp::COMPOSE_LEN;
+
+    pub fn parse<Octs: AsRef<[u8]> + ?Sized>(
+        parser: &mut Parser<Octs>,
+    ) -> Result<Self, ParseError> {
+        SerialForTimestamp::parse(parser).map(Self)
+    }
+
+	pub fn compose<Target: Composer + ?Sized>(
+        &self,
+        target: &mut Target,
+    ) -> Result<(), Target::AppendError> {
+        self.0.compose(target)
     }
 
 }
