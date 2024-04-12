@@ -92,8 +92,8 @@ impl MandatoryMiddlewareProcessor {
         response: &mut AdditionalBuilder<StreamTarget<Target>>,
     ) -> Result<(), TruncateError>
     where
-        RequestOctets: Octets,
         Target: Composer + Default,
+        RequestOctets: AsRef<[u8]>,
     {
         if let TransportSpecificContext::Udp(ctx) = request.transport_ctx() {
             // https://datatracker.ietf.org/doc/html/rfc1035#section-4.2.1

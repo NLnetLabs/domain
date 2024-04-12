@@ -58,21 +58,21 @@ pub mod conf;
 ///
 /// This type collects all information making it possible to start DNS
 /// queries. You can create a new resolver using the system’s configuration
-/// using the [`new()`] associate function or using your own configuration
-/// with [`from_conf()`].
+/// using the [`new`] associate function or using your own configuration with
+/// [`from_conf`].
 ///
 /// Stub resolver values can be cloned relatively cheaply as they keep all
 /// information behind an arc.
 ///
 /// If you want to run a single query or lookup on a resolver synchronously,
-/// you can do so simply by using the [`run()`] or [`run_with_conf()`]
-/// associated functions.
+/// you can do so simply by using the [`run`] or [`run_with_conf`] associated
+/// functions.
 ///
-/// [`new()`]: #method.new
-/// [`from_conf()`]: #method.from_conf
-/// [`query()`]: #method.query
-/// [`run()`]: #method.run
-/// [`run_with_conf()`]: #method.run_with_conf
+/// [`new`]: #method.new
+/// [`from_conf`]: #method.from_conf
+/// [`query`]: #method.query
+/// [`run`]: #method.run
+/// [`run_with_conf`]: #method.run_with_conf
 #[derive(Debug)]
 pub struct StubResolver {
     transport: Mutex<Option<redundant::Connection<RequestMessage<Vec<u8>>>>>,
@@ -281,10 +281,10 @@ impl StubResolver {
 
     /// Synchronously perform a DNS operation atop a configured resolver.
     ///
-    /// This is like [`run()`] but also takes a resolver configuration for
+    /// This is like [`run`] but also takes a resolver configuration for
     /// tailor-making your own resolver.
     ///
-    /// [`run()`]: #method.run
+    /// [`run`]: #method.run
     pub fn run_with_conf<R, T, E, F>(conf: ResolvConf, op: F) -> R::Output
     where
         R: Future<Output = Result<T, E>> + Send + 'static,

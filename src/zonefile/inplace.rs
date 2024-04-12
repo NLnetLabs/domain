@@ -1,7 +1,7 @@
 //! A zonefile scanner keeping data in place.
 //!
 //! The zonefile scanner provided by this module reads the entire zonefile
-//! into memory and tries as much as possible to modify re-use this memory
+//! into memory and tries as much as possible to modify/re-use this memory
 //! when scanning data. It uses the `Bytes` family of types for safely
 //! storing, manipulating, and returning the data and thus requires the
 //! `bytes` feature to be enabled.
@@ -161,9 +161,12 @@ unsafe impl BufMut for Zonefile {
 impl Zonefile {
     /// Sets the origin of the zonefile.
     ///
-    /// The origin is append to relative domain names encountered in the
-    /// data. Ininitally, there is no origin set. If relative names are
-    /// encountered, an error happenes.
+    /// The origin is append to relative domain names encountered in the data.
+    /// Ininitally, there is no origin set. It will be set if an $ORIGIN
+    /// directive is encountered while iterating over the zone. If a zone name
+    /// is not provided via this function or via an $ORIGIN directive, then
+    /// any relative names encountered will cause iteration to terminate with
+    /// a missing origin error.
     pub fn set_origin(&mut self, origin: Dname<Bytes>) {
         self.origin = Some(origin)
     }
@@ -189,7 +192,7 @@ impl Zonefile {
     }
 
     /// Returns the origin name of the zonefile.
-    fn get_origin(&self) -> Result<Dname<Bytes>, EntryError> {
+    pub fn origin(&self) -> Result<Dname<Bytes>, EntryError> {
         self.origin
             .as_ref()
             .cloned()
@@ -637,7 +640,7 @@ impl<'a> Scanner for EntryScanner<'a> {
                     self.zonefile.buf.next_item()?;
                     if start == 0 {
                         return RelativeDname::empty_bytes()
-                            .chain(self.zonefile.get_origin()?)
+                            .chain(self.zonefile.origin()?)
                             .map_err(|_| EntryError::bad_dname());
                     } else {
                         return unsafe {
@@ -676,7 +679,7 @@ impl<'a> Scanner for EntryScanner<'a> {
                         RelativeDname::from_octets_unchecked(
                             self.zonefile.buf.split_to(write).freeze(),
                         )
-                        .chain(self.zonefile.get_origin()?)
+                        .chain(self.zonefile.origin()?)
                         .map_err(|_| EntryError::bad_dname())
                     };
                 }
@@ -1420,8 +1423,8 @@ enum ItemCat {
 //------------ EntryError ----------------------------------------------------
 
 /// An error returned by the entry scanner.
-#[derive(Debug)]
-struct EntryError(&'static str);
+#[derive(Clone, Debug)]
+pub struct EntryError(&'static str);
 
 impl EntryError {
     fn bad_symbol(_err: SymbolOctetsError) -> Self {
@@ -1498,7 +1501,7 @@ impl std::error::Error for EntryError {}
 
 //------------ Error ---------------------------------------------------------
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Error {
     err: EntryError,
     line: usize,
@@ -1548,7 +1551,7 @@ mod test {
             });
         }
 
-        test(" unquoted\n", b"unquoted");
+        test(" unquoted\r\n", b"unquoted");
         test(" unquoted  ", b"unquoted");
         test("unquoted ", b"unquoted");
         test("unqu\\oted ", b"unquoted");

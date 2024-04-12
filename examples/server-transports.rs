@@ -78,8 +78,8 @@ struct MyService;
 
 /// This example shows how to implement the [`Service`] trait directly.
 ///
-/// See [`query()`] and [`name_to_ip()`] for ways of implementing the
-/// [`Service`] trait for a function instead of a struct.
+/// See [`query`] and [`name_to_ip`] for ways of implementing the [`Service`]
+/// trait for a function instead of a struct.
 impl Service<Vec<u8>> for MyService {
     type Target = Vec<u8>;
     type Future = Ready<Result<CallResult<Self::Target>, ServiceError>>;
@@ -87,13 +87,7 @@ impl Service<Vec<u8>> for MyService {
     fn call(
         &self,
         request: Request<Vec<u8>>,
-    ) -> Result<
-        Transaction<
-            Result<CallResult<Self::Target>, ServiceError>,
-            Self::Future,
-        >,
-        ServiceError,
-    > {
+    ) -> Result<Transaction<Self::Target, Self::Future>, ServiceError> {
         let builder = mk_builder_for_target();
         let additional = mk_answer(&request, builder)?;
         let item = ready(Ok(CallResult::new(additional)));
@@ -108,13 +102,13 @@ impl Service<Vec<u8>> for MyService {
 /// function signature required by the [`Service`] trait.
 ///
 /// The function signature is slightly more complex than when using
-/// [`service_fn()`] (see the [`query()`] example below).
+/// [`service_fn`] (see the [`query`] example below).
 #[allow(clippy::type_complexity)]
 fn name_to_ip<Target>(
     request: Request<Vec<u8>>,
 ) -> Result<
     Transaction<
-        Result<CallResult<Target>, ServiceError>,
+        Target,
         impl Future<Output = Result<CallResult<Target>, ServiceError>> + Send,
     >,
     ServiceError,
@@ -166,10 +160,10 @@ where
 //--- query()
 
 /// This function shows how to implement [`Service`] logic by matching the
-/// function signature required by [`service_fn()`].
+/// function signature required by [`service_fn`].
 ///
 /// The function signature is slightly simpler to write than when not using
-/// [`service_fn()`] and supports passing in meta data without any extra
+/// [`service_fn`] and supports passing in meta data without any extra
 /// boilerplate.
 #[allow(clippy::type_complexity)]
 fn query(
@@ -177,7 +171,7 @@ fn query(
     count: Arc<AtomicU8>,
 ) -> Result<
     Transaction<
-        Result<CallResult<Vec<u8>>, ServiceError>,
+        Vec<u8>,
         impl Future<Output = Result<CallResult<Vec<u8>>, ServiceError>> + Send,
     >,
     ServiceError,
@@ -188,9 +182,9 @@ fn query(
         })
         .unwrap();
 
-    // This fn blocks the server until it returns. By returning a future
-    // that handles the request we allow the server to execute the future
-    // in the background without blocking the server.
+    // This fn blocks the server until it returns. By returning a future that
+    // handles the request we allow the server to execute the future in the
+    // background without blocking the server.
     let fut = async move {
         eprintln!("Sleeping for 100ms");
         tokio::time::sleep(Duration::from_millis(100)).await;
@@ -229,7 +223,8 @@ impl DoubleListener {
     }
 }
 
-/// Combine two streams into one by interleaving the output of both as it is produced.
+/// Combine two streams into one by interleaving the output of both as it is
+/// produced.
 impl AsyncAccept for DoubleListener {
     type Error = io::Error;
     type StreamType = TcpStream;
@@ -684,8 +679,8 @@ async fn main() {
     let listener = BufferedTcpListener(listener);
     let count = Arc::new(AtomicU8::new(5));
 
-    // Make our service from the `query()` function with the help of the
-    // `service_fn()` function.
+    // Make our service from the `query` function with the help of the
+    // `service_fn` function.
     let fn_svc = service_fn(query, count);
 
     // Show that we don't have to use the same middleware with every server by
@@ -760,7 +755,7 @@ async fn main() {
         let mut interval = tokio::time::interval(Duration::from_secs(15));
         loop {
             interval.tick().await;
-            println!("Statistics report: {}", stats);
+            println!("Statistics report: {stats}");
         }
     });
 

@@ -22,7 +22,7 @@ use crate::base::iana::Rcode;
 /// Helper for creating a [`MessageBuilder`] for a `Target`.
 pub fn mk_builder_for_target<Target>() -> MessageBuilder<StreamTarget<Target>>
 where
-    Target: Composer + OctetsBuilder + Default,
+    Target: Composer + Default,
 {
     let target = StreamTarget::new(Target::default())
         .map_err(|_| ())
@@ -71,11 +71,10 @@ where
 ///     req: Request<Vec<u8>>,
 ///     _meta: MyMeta,
 /// ) -> Result<
-///     Transaction<
-///         Result<CallResult<Vec<u8>>, ServiceError>,
+///     Transaction<Vec<u8>,
 ///         Pin<Box<dyn Future<
 ///             Output = Result<CallResult<Vec<u8>>, ServiceError>
-///         > + Send>>,
+///         >>>,
 ///     >,
 ///     ServiceError,
 /// > {
@@ -94,28 +93,26 @@ where
 /// Above we see the outline of what we need to do:
 /// - Define a function that implements our request handling logic for our
 ///   service.
-/// - Call [`service_fn()`] to wrap it in an actual [`Service`] impl.
+/// - Call [`service_fn`] to wrap it in an actual [`Service`] impl.
 ///
 /// [`Vec<u8>`]: std::vec::Vec<u8>
 /// [`CallResult`]: crate::net::server::service::CallResult
-/// [`Result::Ok()`]: std::result::Result::Ok
+/// [`Result::Ok`]: std::result::Result::Ok
 pub fn service_fn<RequestOctets, Target, Future, T, Metadata>(
     request_handler: T,
     metadata: Metadata,
 ) -> impl Service<RequestOctets, Target = Target, Future = Future> + Clone
 where
     RequestOctets: AsRef<[u8]>,
-    Target: Composer + Default + Send + Sync + 'static,
-    Future: std::future::Future<Output = Result<CallResult<Target>, ServiceError>>
-        + Send,
+    Future: std::future::Future<
+        Output = Result<CallResult<Target>, ServiceError>,
+    >,
     Metadata: Clone,
     T: Fn(
             Request<RequestOctets>,
             Metadata,
-        ) -> Result<
-            Transaction<Result<CallResult<Target>, ServiceError>, Future>,
-            ServiceError,
-        > + Clone,
+        ) -> Result<Transaction<Target, Future>, ServiceError>
+        + Clone,
 {
     move |request| request_handler(request, metadata.clone())
 }
@@ -165,7 +162,7 @@ pub fn start_reply<RequestOctets, Target>(
 ) -> QuestionBuilder<StreamTarget<Target>>
 where
     RequestOctets: Octets,
-    Target: Composer + OctetsBuilder + Default,
+    Target: Composer + Default,
 {
     let builder = mk_builder_for_target();
 

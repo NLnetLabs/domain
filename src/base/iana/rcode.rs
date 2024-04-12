@@ -301,10 +301,10 @@ impl<'de> serde::Deserialize<'de> for Rcode {
 /// This type offers several functions to ease working with the separate parts
 /// and the combined value of an extended RCODE:
 ///
-/// - [`OptRcode::rcode()`]: the RFC 1035 header RCODE part.
-/// - [`OptRcode::ext()`]`: the RFC 6891 ENDS OPT extended RCODE part.
-/// - [`OptRcode::to_parts()`]`: to access both parts at once.
-/// - [`OptRcode::to_int()`]`: the IANA number for the RCODE combining both
+/// - [`OptRcode::rcode`]: the RFC 1035 header RCODE part.
+/// - [`OptRcode::ext`]`: the RFC 6891 ENDS OPT extended RCODE part.
+/// - [`OptRcode::to_parts`]`: to access both parts at once.
+/// - [`OptRcode::to_int`]`: the IANA number for the RCODE combining both
 ///   parts.
 ///
 /// [Rcode]: enum.Rcode.html

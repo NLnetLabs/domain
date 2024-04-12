@@ -193,9 +193,11 @@ pub enum Entry {
     #[allow(dead_code)]
     Include {
         /// The path to the file to be included.
+        #[allow(dead_code)]
         path: ScannedString,
 
         /// The initial origin name of the included file, if provided.
+        #[allow(dead_code)]
         origin: Option<Dname<Bytes>>,
     },
 }

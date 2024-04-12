@@ -7,7 +7,7 @@ use std::boxed::Box;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
-use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
+use tokio::io::ReadBuf;
 use tokio::net::{TcpListener, TcpStream, UdpSocket};
 
 //------------ AsyncDgramSock ------------------------------------------------
@@ -17,7 +17,7 @@ use tokio::net::{TcpListener, TcpStream, UdpSocket};
 /// Must be implemented by "network source"s to be used with a
 /// [`DgramServer`].
 ///
-/// When reading the server will wait until [`Self::readable()`] succeeds and
+/// When reading the server will wait until [`Self::readable`] succeeds and
 /// then call `try_recv_buf_from()`.
 ///
 /// # Design notes
@@ -25,10 +25,10 @@ use tokio::net::{TcpListener, TcpStream, UdpSocket};
 /// When the underlying socket implementation is [`tokio::net::UdpSocket`]
 /// this pattern scales better than using `poll_recv_from()` as the latter
 /// causes the socket to be locked for exclusive access even if it was
-/// [`Arc::clone()`]d.
+/// [`Arc::clone`]d.
 ///
 /// With the `readable()` then `try_recv_buf_from()` pattern one can
-/// [`Arc::clone()`] the socket and use it with multiple server instances at
+/// [`Arc::clone`] the socket and use it with multiple server instances at
 /// once for greater throughput without any such locking occurring.
 ///
 /// [`DgramServer`]: crate::net::server::stream::DgramServer.
@@ -122,14 +122,15 @@ impl AsyncDgramSock for Arc<UdpSocket> {
 /// [`StreamServer`]: crate::net::server::stream::StreamServer.
 pub trait AsyncAccept {
     /// The type of error that the trait impl produces.
-    type Error: Send;
+    type Error;
 
     /// The type of stream that the trait impl consumes.
-    type StreamType: AsyncRead + AsyncWrite + Send + Sync + 'static;
+    type StreamType;
 
     /// The type of [`std::future::Future`] that the trait impl returns.
-    type Future: std::future::Future<Output = Result<Self::StreamType, Self::Error>>
-        + Send;
+    type Future: std::future::Future<
+        Output = Result<Self::StreamType, Self::Error>,
+    >;
 
     /// Polls to accept a new incoming connection to this listener.
     ///

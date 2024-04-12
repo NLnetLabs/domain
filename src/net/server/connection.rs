@@ -90,11 +90,7 @@ const MAX_QUEUED_RESPONSES: DefMinMax<usize> = DefMinMax::new(10, 0, 1024);
 //----------- Config ---------------------------------------------------------
 
 /// Configuration for a stream server connection.
-pub struct Config<RequestOctets, Target>
-where
-    RequestOctets: Octets,
-    Target: Composer + Default,
-{
+pub struct Config<RequestOctets, Target> {
     /// Limit on the amount of time to allow between client requests.
     ///
     /// This setting can be overridden on a per connection basis by a
@@ -155,15 +151,15 @@ where
     ///
     /// # Reconfigure
     ///
-    /// On [`StreamServer::reconfigure()`] the current idle period will NOT
-    /// be affected. Subsequent idle periods (after the next message is
-    /// received or response is sent, assuming that happens within the current
-    /// idle period) will use the new timeout value.
+    /// On [`StreamServer::reconfigure`] the current idle period will NOT be
+    /// affected. Subsequent idle periods (after the next message is received
+    /// or response is sent, assuming that happens within the current idle
+    /// period) will use the new timeout value.
     ///
     /// [RFC 7766]:
     ///     https://datatracker.ietf.org/doc/html/rfc7766#section-6.2.3
     ///
-    /// [`StreamServer::reconfigure()`]:
+    /// [`StreamServer::reconfigure`]:
     ///     super::stream::StreamServer::reconfigure()
     #[allow(dead_code)]
     pub fn set_idle_timeout(&mut self, value: Duration) {
@@ -180,11 +176,11 @@ where
     ///
     /// # Reconfigure
     ///
-    /// On [`StreamServer::reconfigure()`] any responses currently being
+    /// On [`StreamServer::reconfigure`] any responses currently being
     /// written will NOT use the new timeout, it will only apply to responses
     /// that start being sent after the timeout is changed.
     ///
-    /// [`StreamServer::reconfigure()`]:
+    /// [`StreamServer::reconfigure`]:
     ///     super::stream::StreamServer::reconfigure()
     #[allow(dead_code)]
     pub fn set_response_write_timeout(&mut self, value: Duration) {
@@ -202,11 +198,11 @@ where
     ///
     /// # Reconfigure
     ///
-    /// On [`StreamServer::reconfigure()`] only new connections created after
+    /// On [`StreamServer::reconfigure`] only new connections created after
     /// this setting is changed will use the new value, existing connections
     /// will continue to use their exisitng queue at its existing size.
     ///
-    /// [`StreamServer::reconfigure()`]:
+    /// [`StreamServer::reconfigure`]:
     ///     super::stream::StreamServer::reconfigure()
     #[allow(dead_code)]
     pub fn set_max_queued_responses(&mut self, value: usize) {
@@ -218,12 +214,12 @@ where
     ///
     /// # Reconfigure
     ///
-    /// On [`StreamServer::reconfigure()`] only new connections created after
+    /// On [`StreamServer::reconfigure`] only new connections created after
     /// this setting is changed will use the new value, existing connections
     /// and in-flight requests (and their responses) will continue to use
     /// their current middleware chain.
     ///
-    /// [`StreamServer::reconfigure()`]:
+    /// [`StreamServer::reconfigure`]:
     ///     super::stream::StreamServer::reconfigure()
     pub fn set_middleware_chain(
         &mut self,
@@ -252,11 +248,7 @@ where
 
 //--- Clone
 
-impl<RequestOctets, Target> Clone for Config<RequestOctets, Target>
-where
-    RequestOctets: Octets,
-    Target: Composer + Default,
-{
+impl<RequestOctets, Target> Clone for Config<RequestOctets, Target> {
     fn clone(&self) -> Self {
         Self {
             idle_timeout: self.idle_timeout,
@@ -272,10 +264,8 @@ where
 /// A handler for a single stream connection between client and server.
 pub struct Connection<Stream, Buf, Svc>
 where
-    Stream: AsyncRead + AsyncWrite + Send + Sync + 'static,
-    Buf: BufSource + Send + Sync + Clone + 'static,
-    Buf::Output: Octets + Send + Sync,
-    Svc: Service<Buf::Output> + Send + Sync + Clone + 'static,
+    Buf: BufSource,
+    Svc: Service<Buf::Output>,
 {
     /// Flag used by the Drop impl to track if the metric count has to be
     /// decreased or not.
@@ -324,10 +314,11 @@ where
 ///
 impl<Stream, Buf, Svc> Connection<Stream, Buf, Svc>
 where
-    Stream: AsyncRead + AsyncWrite + Send + Sync + 'static,
-    Buf: BufSource + Send + Sync + Clone + 'static,
-    Buf::Output: Octets + Send + Sync,
-    Svc: Service<Buf::Output> + Send + Sync + Clone + 'static,
+    Stream: AsyncRead + AsyncWrite,
+    Buf: BufSource,
+    Buf::Output: Octets,
+    Svc: Service<Buf::Output>,
+    Svc::Target: Composer + Default,
 {
     /// Creates a new handler for an accepted stream connection.
     #[must_use]
@@ -394,9 +385,10 @@ where
 impl<Stream, Buf, Svc> Connection<Stream, Buf, Svc>
 where
     Stream: AsyncRead + AsyncWrite + Send + Sync + 'static,
-    Buf: BufSource + Send + Sync + 'static + Clone,
-    Buf::Output: Octets + Send + Sync + 'static,
-    Svc: Service<Buf::Output> + Send + Sync + 'static + Clone,
+    Buf: BufSource + Send + Sync + Clone + 'static,
+    Buf::Output: Octets + Send + Sync,
+    Svc: Service<Buf::Output> + Send + Sync + 'static,
+    Svc::Target: Send + Composer + Default,
 {
     /// Start reading requests and writing responses to the stream.
     ///
@@ -431,9 +423,11 @@ where
 impl<Stream, Buf, Svc> Connection<Stream, Buf, Svc>
 where
     Stream: AsyncRead + AsyncWrite + Send + Sync + 'static,
-    Buf: BufSource + Send + Sync + 'static + Clone,
-    Buf::Output: Octets + Send + Sync + 'static,
-    Svc: Service<Buf::Output> + Send + Sync + 'static + Clone,
+    Buf: BufSource + Send + Sync + Clone + 'static,
+    Buf::Output: Octets + Send + Sync,
+    Svc: Service<Buf::Output> + Send + Sync + 'static,
+    Svc::Future: Send,
+    Svc::Target: Send + Composer + Default,
 {
     /// Connection handler main loop.
     async fn run_until_error(
@@ -441,12 +435,10 @@ where
         mut command_rx: watch::Receiver<
             ServerCommand<ServerConfig<Buf::Output, Svc::Target>>,
         >,
-    ) where
-        Svc::Future: Send,
-    {
+    ) {
         // SAFETY: This unwrap is safe because we always put a Some value into
-        // self.stream_rx in [`Self::with_config()`] above (and thus also in
-        // [`Self::new()`] which calls [`Self::with_config()`]).
+        // self.stream_rx in [`Self::with_config`] above (and thus also in
+        // [`Self::new`] which calls [`Self::with_config`]).
         let stream_rx = self.stream_rx.take().unwrap();
 
         let mut dns_msg_receiver =
@@ -721,7 +713,10 @@ where
     async fn process_read_request(
         &mut self,
         res: Result<Buf::Output, ConnectionEvent>,
-    ) -> Result<(), ConnectionEvent> {
+    ) -> Result<(), ConnectionEvent>
+    where
+        Svc::Future: Send,
+    {
         res.and_then(|msg| {
             let received_at = Instant::now();
 
@@ -754,10 +749,8 @@ where
 
 impl<Stream, Buf, Svc> Drop for Connection<Stream, Buf, Svc>
 where
-    Stream: AsyncRead + AsyncWrite + Send + Sync,
-    Buf: BufSource + Send + Sync + Clone,
-    Buf::Output: Octets + Send + Sync,
-    Svc: Service<Buf::Output> + Send + Sync + Clone,
+    Buf: BufSource,
+    Svc: Service<Buf::Output>,
 {
     fn drop(&mut self) {
         if self.active {
@@ -772,10 +765,10 @@ where
 impl<Stream, Buf, Svc> CommonMessageFlow<Buf, Svc>
     for Connection<Stream, Buf, Svc>
 where
-    Stream: AsyncRead + AsyncWrite + Send + Sync,
-    Buf: BufSource + Send + Sync + Clone,
-    Buf::Output: Octets + Send + Sync,
-    Svc: Service<Buf::Output> + Send + Sync + Clone,
+    Buf: BufSource,
+    Buf::Output: Octets + Send + Sync + 'static,
+    Svc: Service<Buf::Output> + Send + Sync + 'static,
+    Svc::Target: Send,
 {
     type Meta = Sender<CallResult<Svc::Target>>;
 
@@ -814,12 +807,12 @@ where
 
             Err(TrySendError::Closed(_msg)) => {
                 // TODO: How should we properly communicate this to the operator?
-                error!("StreamServer: Unable to queue message for sending: server is shutting down.");
+                error!("Unable to queue message for sending: server is shutting down.");
             }
 
             Err(TrySendError::Full(_msg)) => {
                 // TODO: How should we properly communicate this to the operator?
-                error!("StreamServer: Unable to queue message for sending: queue is full.");
+                error!("Unable to queue message for sending: queue is full.");
             }
         }
     }
@@ -849,11 +842,7 @@ enum Status {
 /// ensures that any part of the request already received is not lost if the
 /// read operation is cancelled by Tokio and then a new read operation is
 /// started.
-struct DnsMessageReceiver<Stream, Buf>
-where
-    Stream: AsyncRead + AsyncWrite + Send + Sync + 'static,
-    Buf: BufSource + Send + Sync + 'static + Clone,
-{
+struct DnsMessageReceiver<Stream, Buf> {
     /// A buffer to record the total expected size of the message currently
     /// being received. DNS TCP streams preceed the DNS message by bytes
     /// indicating the length of the message that follows.
@@ -957,7 +946,6 @@ where
             io::ErrorKind::UnexpectedEof => {
                 // The client disconnected. Per RFC 7766 6.2.4 pending
                 // responses MUST NOT be sent to the client.
-                error!("I/O error: {}", err);
                 ControlFlow::Break(ConnectionEvent::DisconnectWithoutFlush)
             }
             io::ErrorKind::TimedOut | io::ErrorKind::Interrupted => {

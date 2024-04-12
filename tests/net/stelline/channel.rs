@@ -1,8 +1,6 @@
 // Using tokio::io::duplex() seems appealing but it can only create a channel
 // between two ends, it isn't possible to create additional client ends for a
 // single server end for example.
-use core::future::pending;
-
 use std::collections::HashMap;
 use std::future::ready;
 use std::future::Future;
@@ -400,12 +398,7 @@ impl AsyncDgramSock for ClientServerChannel {
     fn readable(
         &self,
     ) -> Pin<Box<dyn Future<Output = io::Result<()>> + '_ + Send>> {
-        let server_socket = self.server.lock().unwrap();
-        let rx = &server_socket.rx;
-        match !rx.is_empty() {
-            true => Box::pin(ready(Ok(()))),
-            false => Box::pin(pending()),
-        }
+        Box::pin(ClientServerChannelReadableFut(self.server.clone()))
     }
 
     fn try_recv_buf_from(
@@ -431,6 +424,32 @@ impl AsyncDgramSock for ClientServerChannel {
             Err(TryRecvError::Empty) => {
                 trace!("Pending read in dgram server channel");
                 Err(io::ErrorKind::WouldBlock.into())
+            }
+        }
+    }
+}
+
+pub struct ClientServerChannelReadableFut(Arc<Mutex<ServerSocket>>);
+
+impl Future for ClientServerChannelReadableFut {
+    type Output = io::Result<()>;
+
+    fn poll(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+    ) -> Poll<Self::Output> {
+        let server_socket = self.0.lock().unwrap();
+        let rx = &server_socket.rx;
+        trace!("ReadableFut {} in dgram server channel", !rx.is_empty());
+        match !rx.is_empty() {
+            true => Poll::Ready(Ok(())),
+            false => {
+                let waker = cx.waker().clone();
+                std::thread::spawn(move || {
+                    std::thread::yield_now();
+                    waker.wake();
+                });
+                Poll::Pending
             }
         }
     }

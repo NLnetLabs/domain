@@ -44,7 +44,7 @@
 //!   - Tune the server behaviour via builder functions such as
 //!     `with_middleware()`.
 //!   - `run()` the server.
-//!   - `shutdown()` the server, explicitly or on [`drop()`].
+//!   - `shutdown()` the server, explicitly or on [`drop`].
 //!
 //! See [`DgramServer`] and [`StreamServer`] for example code to help you get
 //! started.
@@ -95,11 +95,11 @@
 //! With Middleware mandatory functionality and logic required by all
 //! standards compliant DNS servers can be incorporated into your server by
 //! building a [`MiddlewareChain`] starting from
-//! [`MiddlewareBuilder::default()`].
+//! [`MiddlewareBuilder::default`].
 //!
 //! You can also opt to incorporate additional behaviours into your DNS server
 //! from a selection of pre-supplied implementations via
-//! [`MiddlewareBuilder::push()`]. See the various implementations of
+//! [`MiddlewareBuilder::push`]. See the various implementations of
 //! [`MiddlewareProcessor`] for more information.
 //!
 //! And if the existing middleware processors don't meet your needs, maybe you
@@ -132,18 +132,18 @@
 //! ## Performance
 //!
 //! Both [`DgramServer`] and [`StreamServer`] use [`CommonMessageFlow`] to
-//! pre-process the request, invoke [`Service::call()`], and post-process the
+//! pre-process the request, invoke [`Service::call`], and post-process the
 //! response.
 //!
-//!   - Pre-processing and [`Service::call()`] invocation are done from the
+//!   - Pre-processing and [`Service::call`] invocation are done from the
 //!     Tokio task handling the request. For [`DgramServer`] this is the main
 //!     task that receives incoming messages. For [`StreamServer`] this is a
 //!     dedicated task per accepted connection.
 //!   - Post-processing is done in a new task request within which each future
-//!     resulting from invoking [`Service::call()`] is awaited and the
-//!     resulting response is post-processed.
+//!     resulting from invoking [`Service::call`] is awaited and the resulting
+//!     response is post-processed.
 //!
-//! The initial work done by [`Service::call()`] should therefore complete as
+//! The initial work done by [`Service::call`] should therefore complete as
 //! quickly as possible, delegating as much of the work as it can to the
 //! future(s) it returns. Until then it blocks the server from receiving new
 //! messages, or in the case of [`StreamServer`], new messages for the
@@ -173,25 +173,25 @@
 //! | # | Difficulty | Summary | Description |
 //! |---|------------|---------|-------------|
 //! | 1 | Easy | `#[derive(Clone)]` | Add `#[derive(Clone)]` to your [`Service`] impl. If your [`Service`] impl has no state that needs to be shared amongst instances of itself then this may be good enough for you. |
-//! | 2 | Medium | [`Arc`] wrapper | Wrap your [`Service`] impl instance inside an [`Arc`] via [`Arc::new()`]. This crate implements the [`Service`] trait for `Arc<Service>` so you can pass an `Arc<Service>` to both [`DgramServer`] and [`StreamServer`] and they will [`Clone`] the [`Arc`] rather than the [`Service`] instance itself. |
+//! | 2 | Medium | [`Arc`] wrapper | Wrap your [`Service`] impl instance inside an [`Arc`] via [`Arc::new`]. This crate implements the [`Service`] trait for `Arc<Service>` so you can pass an `Arc<Service>` to both [`DgramServer`] and [`StreamServer`] and they will [`Clone`] the [`Arc`] rather than the [`Service`] instance itself. |
 //! | 3 | Hard | Do it yourself | Manually implement [`Clone`] and/or your own locking and interior mutability strategy for your [`Service`] impl, giving you complete control over how state is shared by your server instances. |
 //!
 //! [`Arc`]: std::sync::Arc
-//! [`Arc::new()`]: std::sync::Arc::new()
+//! [`Arc::new`]: std::sync::Arc::new()
 //! [`AsyncAccept`]: sock::AsyncAccept
 //! [`AsyncDgramSock`]: sock::AsyncDgramSock
 //! [`BufSource`]: buf::BufSource
 //! [`DgramServer`]: dgram::DgramServer
 //! [`CommonMessageFlow`]: message::CommonMessageFlow
 //! [Middleware]: middleware
-//! [`MiddlewareBuilder::default()`]:
+//! [`MiddlewareBuilder::default`]:
 //!     middleware::builder::MiddlewareBuilder::default()
-//! [`MiddlewareBuilder::push()`]:
+//! [`MiddlewareBuilder::push`]:
 //!     middleware::builder::MiddlewareBuilder::push()
 //! [`MiddlewareChain`]: middleware::chain::MiddlewareChain
 //! [`MiddlewareProcessor`]: middleware::processor::MiddlewareProcessor
 //! [`Service`]: service::Service
-//! [`Service::call()`]: service::Service::call()
+//! [`Service::call`]: service::Service::call()
 //! [`StreamServer`]: stream::StreamServer
 //! [`TcpServer`]: stream::TcpServer
 //! [`UdpServer`]: dgram::UdpServer

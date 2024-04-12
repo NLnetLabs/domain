@@ -280,10 +280,10 @@ where
         //   using the edns-tcp-keepalive EDNS(0) option [RFC7828]."
         if let TransportSpecificContext::NonUdp(ctx) = request.transport_ctx()
         {
-            if let Ok(additional) = request.message().additional() {
-                let mut iter = additional.limit_to::<Opt<_>>();
-                if iter.next().is_some() {
-                    if let Some(idle_timeout) = ctx.idle_timeout() {
+            if let Some(idle_timeout) = ctx.idle_timeout() {
+                if let Ok(additional) = request.message().additional() {
+                    let mut iter = additional.limit_to::<Opt<_>>();
+                    if iter.next().is_some() {
                         match IdleTimeout::try_from(idle_timeout) {
                             Ok(timeout) => {
                                 // Request has an OPT RR and server idle

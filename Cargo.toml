@@ -29,7 +29,8 @@ futures        = { version = "0.3.22", optional = true } # Force futures to at l
 futures-util   = { version = "0.3", optional = true }
 heapless       = { version = "0.8", optional = true }
 hex            = { version = "0.4", optional = true }
-libc           = { version = "0.2.79", default-features = false, optional = true } # 0.2.79 is the first version that has IP_PMTUDISC_OMIT
+libc           = { version = "0.2.153", default-features = false, optional = true } # 0.2.79 is the first version that has IP_PMTUDISC_OMIT
+parking_lot    = { version = "0.11.2", optional = true }
 moka           = { version = "0.12.3", optional = true, features = ["future"] }
 proc-macro2    = { version = "1.0.69", optional = true } # Force proc-macro2 to at least 1.0.69 for minimal-version build
 ring           = { version = "0.17", optional = true }
@@ -45,7 +46,7 @@ mock_instant = { version = "0.3.2", optional = true, features = ["sync"] }
 
 [target.'cfg(macos)'.dependencies]
 # specifying this overrides minimum-version mio's 0.2.69 libc dependency, which allows the build to work
-libc = { version = "0.2.71", default-features = false, optional = true }
+libc = { version = "0.2.153", default-features = false, optional = true }
 
 [features]
 default     = ["std", "rand"]
@@ -65,6 +66,7 @@ zonefile    = ["bytes", "serde", "std"]
 # Unstable features
 unstable-client-transport = [ "moka", "tracing" ]
 unstable-server-transport = ["arc-swap", "chrono/clock", "hex", "libc", "tracing"]
+unstable-zonetree = ["futures", "parking_lot", "serde", "tokio", "tracing"]
 
 # Test features
 # Commented out as using --all-features to build would cause mock time to also
@@ -92,13 +94,12 @@ tokio-tfo      = { version = "0.2.0" }
 lazy_static        = { version = "1.4.0" } # Force lazy_static to > 1.0.0 for https://github.com/rust-lang-nursery/lazy-static.rs/pull/107
 tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
 
+# For the "mysql-zone" example
+#sqlx = { version = "0.6", features = [ "runtime-tokio-native-tls", "mysql" ] }
+
 [package.metadata.docs.rs]
 all-features = true
 rustdoc-args = ["--cfg", "docsrs"]
-
-[[example]]
-name = "readzone"
-required-features = ["zonefile"]
 
 [[example]]
 name = "download-rust-lang"
@@ -123,3 +124,26 @@ required-features = ["net", "unstable-client-transport"]
 [[example]]
 name = "server-transports"
 required-features = ["net", "unstable-server-transport"]
+
+[[example]]
+name = "read-zone"
+required-features = ["zonefile"]
+
+[[example]]
+name = "query-zone"
+required-features = ["zonefile", "unstable-zonetree"]
+
+[[example]]
+name = "serve-zone"
+required-features = ["zonefile", "net", "unstable-server-transport", "unstable-zonetree"]
+
+# This example is commented out because it is difficult, if not impossible,
+# when including the sqlx dependency, to make the dependency tree compatible
+# with both `cargo +nightly update -Z minimal versions` and the crate minimum
+# supported Rust version (1.67 at the time of writing), both of which are
+# tested by our CI setup. To try this example, uncomment the lines below and
+# the sqlx dependency above, then run `cargo run --example mysql-zone`.
+#[[example]]
+#name = "mysql-zone"
+#path = "examples/other/mysql-zone.rs"
+#required-features = ["zonefile", "net", "unstable-server-transport", "unstable-zonetree"]

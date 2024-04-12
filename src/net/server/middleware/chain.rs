@@ -25,11 +25,7 @@ use super::processor::MiddlewareProcessor;
 /// A [`MiddlewareChain`] is immutable. Requests should not be post-processed
 /// by a different or modified chain than they were pre-processed by.
 #[derive(Default)]
-pub struct MiddlewareChain<RequestOctets, Target>
-where
-    RequestOctets: AsRef<[u8]>,
-    Target: Composer + Default,
-{
+pub struct MiddlewareChain<RequestOctets, Target> {
     /// The ordered set of processors which will pre-process requests and then
     /// in reverse order will post-process responses.
     processors: Arc<
@@ -39,11 +35,7 @@ where
     >,
 }
 
-impl<RequestOctets, Target> MiddlewareChain<RequestOctets, Target>
-where
-    RequestOctets: AsRef<[u8]>,
-    Target: Composer + Default,
-{
+impl<RequestOctets, Target> MiddlewareChain<RequestOctets, Target> {
     /// Create a new _empty_ chain of processors.
     ///
     /// <div class="warning">Warning:
@@ -56,11 +48,11 @@ where
     /// perform such processing yourself.
     ///
     /// Most users should **NOT** use this function but should instead use
-    /// [`MiddlewareBuilder::default()`] which constructs a chain that starts
+    /// [`MiddlewareBuilder::default`] which constructs a chain that starts
     /// with [`MandatoryMiddlewareProcessor`].
     /// </div>
     ///
-    /// [`MiddlewareBuilder::default()`]:
+    /// [`MiddlewareBuilder::default`]:
     ///     super::builder::MiddlewareBuilder::default()
     /// [`MandatoryMiddlewareProcessor`]:
     ///     super::processors::mandatory::MandatoryMiddlewareProcessor
@@ -93,9 +85,9 @@ where
     /// a pre-processor decided to terminate processing of the request.
     ///
     /// On [`ControlFlow::Break`] the caller should pass the given result to
-    /// [`postprocess()`][Self::postprocess]. If processing terminated early
-    /// the result includes the index of the pre-processor which terminated
-    /// the processing.
+    /// [`postprocess`][Self::postprocess]. If processing terminated early the
+    /// result includes the index of the pre-processor which terminated the
+    /// processing.
     ///
     /// # Performance
     ///
@@ -107,11 +99,8 @@ where
     #[allow(clippy::type_complexity)]
     pub fn preprocess<Future>(
         &self,
-        request: &mut Request<RequestOctets>,
-    ) -> ControlFlow<(
-        Transaction<Result<CallResult<Target>, ServiceError>, Future>,
-        usize,
-    )>
+        request: &Request<RequestOctets>,
+    ) -> ControlFlow<(Transaction<Target, Future>, usize)>
     where
         Future: std::future::Future<
                 Output = Result<CallResult<Target>, ServiceError>,
@@ -149,7 +138,7 @@ where
     /// was recieved.
     ///
     /// The optional `last_processor_idx` value should come from an earlier
-    /// call to [`preprocess()`][Self::preprocess]. Post-processing will start
+    /// call to [`preprocess`][Self::preprocess]. Post-processing will start
     /// with this processor and walk backward from there, post-processors
     /// further down the chain will not be invoked.
     pub fn postprocess(
@@ -172,11 +161,7 @@ where
 
 //--- Clone
 
-impl<RequestOctets, Target> Clone for MiddlewareChain<RequestOctets, Target>
-where
-    RequestOctets: AsRef<[u8]>,
-    Target: Composer + Default,
-{
+impl<RequestOctets, Target> Clone for MiddlewareChain<RequestOctets, Target> {
     fn clone(&self) -> Self {
         Self {
             processors: self.processors.clone(),
@@ -186,11 +171,7 @@ where
 
 //--- Debug
 
-impl<RequestOctets, Target> Debug for MiddlewareChain<RequestOctets, Target>
-where
-    RequestOctets: AsRef<[u8]>,
-    Target: Composer + Default,
-{
+impl<RequestOctets, Target> Debug for MiddlewareChain<RequestOctets, Target> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("MiddlewareChain")
             .field("processors", &self.processors.len())

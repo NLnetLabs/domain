@@ -102,6 +102,8 @@ fn mk_servers<Svc>(
 )
 where
     Svc: Service + Send + Sync + 'static,
+    Svc::Future: Send,
+    Svc::Target: Composer + Default + Send + Sync,
 {
     // Prepare middleware to be used by the DNS servers to pre-process
     // received requests and post-process created responses.
@@ -248,7 +250,7 @@ fn test_service(
     zonefile: Zonefile,
 ) -> Result<
     Transaction<
-        Result<CallResult<Vec<u8>>, ServiceError>,
+        Vec<u8>,
         impl Future<Output = Result<CallResult<Vec<u8>>, ServiceError>> + Send,
     >,
     ServiceError,

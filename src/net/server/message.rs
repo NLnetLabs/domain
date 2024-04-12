@@ -17,6 +17,7 @@ use crate::net::server::middleware::chain::MiddlewareChain;
 
 use super::service::{CallResult, Service, ServiceError, Transaction};
 use super::util::start_reply;
+use crate::base::wire::Composer;
 
 //------------ UdpTransportContext -------------------------------------------
 
@@ -233,7 +234,7 @@ impl<Octs: AsRef<[u8]>> Clone for Request<Octs> {
 /// Servers implement this trait to benefit from the common processing
 /// required while still handling aspects specific to the server themselves.
 ///
-/// Processing starts at [`process_request()`].
+/// Processing starts at [`process_request`].
 ///
 /// <div class="warning">
 ///
@@ -244,12 +245,12 @@ impl<Octs: AsRef<[u8]>> Clone for Request<Octs> {
 ///
 /// </div>
 ///
-/// [`process_request()`]: Self::process_request()
+/// [`process_request`]: Self::process_request()
 pub trait CommonMessageFlow<Buf, Svc>
 where
-    Buf: BufSource + Send + Sync + 'static,
-    Buf::Output: Octets + Send + Sync + 'static,
-    Svc: Service<Buf::Output> + Send + Sync + 'static,
+    Buf: BufSource,
+    Buf::Output: Octets + Send + Sync,
+    Svc: Service<Buf::Output> + Send + Sync,
 {
     /// Server-specific data that it chooses to pass along with the request in
     /// order that it may receive it when `process_call_result()` is
@@ -260,7 +261,7 @@ where
     ///
     /// This function consumes the given message buffer and processes the
     /// contained message, if any, to completion, possibly resulting in a
-    /// response being passed to [`Self::process_call_result()`].
+    /// response being passed to [`Self::process_call_result`].
     ///
     /// The request message is a given as a seqeuence of bytes in `buf`
     /// originating from client address `addr`.
@@ -286,7 +287,10 @@ where
         meta: Self::Meta,
     ) -> Result<(), ServiceError>
     where
+        Svc: 'static,
+        Svc::Target: Send + Composer + Default,
         Svc::Future: Send,
+        Buf::Output: 'static,
     {
         boomerang(
             self,
@@ -344,16 +348,22 @@ fn boomerang<Buf, Svc, Server>(
     meta: Server::Meta,
 ) -> Result<(), ServiceError>
 where
-    Buf: BufSource + Send + Sync + 'static,
+    Buf: BufSource,
     Buf::Output: Octets + Send + Sync + 'static,
     Svc: Service<Buf::Output> + Send + Sync + 'static,
+    Svc::Future: Send,
+    Svc::Target: Send + Composer + Default,
     Server: CommonMessageFlow<Buf, Svc> + ?Sized,
 {
-    let (request, preprocessing_result) = do_middleware_preprocessing(
-        server,
-        buf,
-        received_at,
-        addr,
+    let message = Message::from_octets(buf).map_err(|err| {
+        warn!("Failed while parsing request message: {err}");
+        ServiceError::InternalError
+    })?;
+
+    let request = server.add_context_to_request(message, received_at, addr);
+
+    let preprocessing_result = do_middleware_preprocessing::<Buf, Svc>(
+        &request,
         &middleware_chain,
         &metrics,
     )?;
@@ -375,28 +385,23 @@ where
 
 /// Pass a pre-processed request to the [`Service`] to handle.
 ///
-/// If [`Service::call()`] returns an error this function will produce a DNS
+/// If [`Service::call`] returns an error this function will produce a DNS
 /// ServFail error response. If the returned error is
 /// [`ServiceError::InternalError`] it will also be logged.
 #[allow(clippy::type_complexity)]
 fn do_service_call<Buf, Svc>(
     preprocessing_result: ControlFlow<(
-        Transaction<
-            Result<CallResult<Svc::Target>, ServiceError>,
-            Svc::Future,
-        >,
+        Transaction<Svc::Target, Svc::Future>,
         usize,
     )>,
     request: &Request<<Buf as BufSource>::Output>,
     svc: &Svc,
-) -> (
-    Transaction<Result<CallResult<Svc::Target>, ServiceError>, Svc::Future>,
-    Option<usize>,
-)
+) -> (Transaction<Svc::Target, Svc::Future>, Option<usize>)
 where
-    Buf: BufSource + Send + Sync + 'static,
-    Buf::Output: Octets + Send + Sync + 'static,
-    Svc: Service<Buf::Output> + Send + Sync + 'static,
+    Buf: BufSource,
+    Buf::Output: Octets,
+    Svc: Service<Buf::Output>,
+    Svc::Target: Composer + Default,
 {
     match preprocessing_result {
         ControlFlow::Continue(()) => {
@@ -439,47 +444,28 @@ where
 /// pre-processing it via any supplied [`MiddlewareChain`].
 ///
 /// On success the result is an immutable request message and a
-/// [`ControlFlow`] decision about whether to continue with further
-/// processing or to break early with a possible response. If processing
-/// failed the result will be a [`ServiceError`].
+/// [`ControlFlow`] decision about whether to continue with further processing
+/// or to break early with a possible response. If processing failed the
+/// result will be a [`ServiceError`].
 ///
-/// On break the result will be one ([`Transaction::single()`]) or more
-/// ([`Transaction::stream()`]) to post-process.
+/// On break the result will be one ([`Transaction::single`]) or more
+/// ([`Transaction::stream`]) to post-process.
 #[allow(clippy::type_complexity)]
-fn do_middleware_preprocessing<Buf, Svc, Server>(
-    server: &Server,
-    buf: Buf::Output,
-    received_at: Instant,
-    addr: SocketAddr,
+fn do_middleware_preprocessing<Buf, Svc>(
+    request: &Request<Buf::Output>,
     middleware_chain: &MiddlewareChain<Buf::Output, Svc::Target>,
     metrics: &Arc<ServerMetrics>,
 ) -> Result<
-    (
-        Request<Buf::Output>,
-        ControlFlow<(
-            Transaction<
-                Result<CallResult<Svc::Target>, ServiceError>,
-                Svc::Future,
-            >,
-            usize,
-        )>,
-    ),
+    ControlFlow<(Transaction<Svc::Target, Svc::Future>, usize)>,
     ServiceError,
 >
 where
-    Buf: BufSource + Send + Sync + 'static,
+    Buf: BufSource,
     Buf::Output: Octets + Send + Sync + 'static,
-    Svc: Service<Buf::Output> + Send + Sync + 'static,
-    Server: CommonMessageFlow<Buf, Svc> + ?Sized,
+    Svc: Service<Buf::Output> + Send + Sync,
+    Svc::Future: Send,
+    Svc::Target: Send + Composer + Default + 'static,
 {
-    let message = Message::from_octets(buf).map_err(|err| {
-        warn!("Failed while parsing request message: {err}");
-        ServiceError::InternalError
-    })?;
-
-    let mut request =
-        server.add_context_to_request(message, received_at, addr);
-
     let span = info_span!("pre-process",
         msg_id = request.message().header().id(),
         client = %request.client_addr(),
@@ -488,37 +474,34 @@ where
 
     metrics.inc_num_inflight_requests();
 
-    let pp_res = middleware_chain.preprocess(&mut request);
+    let pp_res = middleware_chain.preprocess(request);
 
-    Ok((request, pp_res))
+    Ok(pp_res)
 }
 
 /// Post-process a response in the context of its originating request.
 ///
-/// Each response is post-processed in its own Tokio task. Note that there
-/// is no guarantee about the order in which responses will be
-/// post-processed. If the order of a seqence of responses is important it
-/// should be provided as a [`Transaction::stream()`] rather than
-/// [`Transaction::single()`].
+/// Each response is post-processed in its own Tokio task. Note that there is
+/// no guarantee about the order in which responses will be post-processed. If
+/// the order of a seqence of responses is important it should be provided as
+/// a [`Transaction::stream`] rather than [`Transaction::single`].
 ///
-/// Responses are first post-processed by the [`MiddlewareChain`]
-/// provided, if any, then passed to [`Self::process_call_result()`] for
-/// final processing.
+/// Responses are first post-processed by the [`MiddlewareChain`] provided, if
+/// any, then passed to [`Self::process_call_result`] for final processing.
 #[allow(clippy::type_complexity)]
 fn do_middleware_postprocessing<Buf, Svc, Server>(
     request: Request<Buf::Output>,
     meta: Server::Meta,
     middleware_chain: MiddlewareChain<Buf::Output, Svc::Target>,
-    mut response_txn: Transaction<
-        Result<CallResult<Svc::Target>, ServiceError>,
-        Svc::Future,
-    >,
+    mut response_txn: Transaction<Svc::Target, Svc::Future>,
     last_processor_id: Option<usize>,
     metrics: Arc<ServerMetrics>,
 ) where
-    Buf: BufSource + Send + Sync + 'static,
+    Buf: BufSource,
     Buf::Output: Octets + Send + Sync + 'static,
     Svc: Service<Buf::Output> + Send + Sync + 'static,
+    Svc::Future: Send,
+    Svc::Target: Send + Composer + Default,
     Server: CommonMessageFlow<Buf, Svc> + ?Sized,
 {
     tokio::spawn(async move {

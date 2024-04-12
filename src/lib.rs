@@ -45,8 +45,11 @@
 //!   Experimental support for DNSSEC validation.
 #![cfg_attr(feature = "zonefile", doc = "* [zonefile]:")]
 #![cfg_attr(not(feature = "zonefile"), doc = "* zonefile:")]
-//!   Experimental reading and writing of zone files, i.e., the textual
+//!   Experimental reading and writing of zone files, i.e. the textual
 //!   representation of DNS data.
+#![cfg_attr(feature = "unstable-zonetree", doc = "* [zonetree]:")]
+#![cfg_attr(not(feature = "unstable-zonetree"), doc = "* zonetree:")]
+//!   Experimental storing and querying of zone trees.
 //!
 //! Finally, the [dep] module contains re-exports of some important
 //! dependencies to help avoid issues with multiple versions of a crate.
@@ -129,6 +132,8 @@
 //!   a client perspective; primarily the `net::client` module.
 //! * `unstable-server-transport`: receiving and sending DNS messages from
 //!   a server perspective; primarily the `net::server` module.
+//! * `unstable-zonetree`: building & querying zone trees; primarily the
+//!   `zonetree` module.
 //!
 //! Note: Some functionality is currently informally marked as
 //! “experimental” since it was introduced before adoption of the concept
@@ -160,3 +165,4 @@ pub mod tsig;
 pub mod utils;
 pub mod validate;
 pub mod zonefile;
+pub mod zonetree;

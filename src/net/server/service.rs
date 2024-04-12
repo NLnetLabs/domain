@@ -1,8 +1,8 @@
 //! The application logic of a DNS server.
 //!
-//! The [`Service::call()`] function defines how the service should respond to
-//! a given DNS request. resulting in a [`Transaction`] containing a
-//! transaction that yields one or more future DNS responses, and/or a
+//! The [`Service::call`] function defines how the service should respond to a
+//! given DNS request. resulting in a [`Transaction`] containing a transaction
+//! that yields one or more future DNS responses, and/or a
 //! [`ServiceFeedback`].
 use core::fmt::Display;
 use core::ops::Deref;
@@ -16,14 +16,13 @@ use std::vec::Vec;
 
 use futures_util::stream::FuturesOrdered;
 use futures_util::{FutureExt, StreamExt};
-use octseq::{OctetsBuilder, ShortBuf};
-
-use crate::base::iana::Rcode;
-use crate::base::message_builder::{AdditionalBuilder, PushError};
-use crate::base::wire::{Composer, ParseError};
-use crate::base::StreamTarget;
 
 use super::message::Request;
+use crate::base::iana::Rcode;
+use crate::base::message_builder::{AdditionalBuilder, PushError};
+use crate::base::wire::ParseError;
+use crate::base::StreamTarget;
+use octseq::{OctetsBuilder, ShortBuf};
 
 //------------ Service -------------------------------------------------------
 
@@ -37,9 +36,9 @@ use super::message::Request;
 /// For an overview of how services fit into the total flow of request and
 /// response handling see the [net::server module documentation].
 ///
-/// Each [`Service`] implementation defines a [`call()`] function which takes
-/// a [`Request`] DNS request as input and returns either a
-/// [`Transaction`] on success, or a [`ServiceError`] on failure, as output.
+/// Each [`Service`] implementation defines a [`call`] function which takes a
+/// [`Request`] DNS request as input and returns either a [`Transaction`] on
+/// success, or a [`ServiceError`] on failure, as output.
 ///
 /// Each [`Transaction`] contains either a single DNS response message, or a
 /// stream of DNS response messages (e.g. for a zone transfer). Each response
@@ -52,12 +51,12 @@ use super::message::Request;
 ///
 ///   1. Implement the [`Service`] trait on a struct.
 ///   2. Define a function compatible with the [`Service`] trait.
-///   3. Define a function compatible with [`service_fn()`].
+///   3. Define a function compatible with [`service_fn`].
 ///
 /// <div class="warning">
 ///
 /// Whichever approach you choose it is important to minimize the work done
-/// before returning from [`Service::call()`], as time spent here blocks the
+/// before returning from [`Service::call`], as time spent here blocks the
 /// caller. Instead as much work as possible should be delegated to the
 /// futures returned as a [`Transaction`].
 ///
@@ -102,13 +101,7 @@ use super::message::Request;
 ///     fn call(
 ///         &self,
 ///         msg: Request<Vec<u8>>,
-///     ) -> Result<
-///             Transaction<
-///             Result<CallResult<Self::Target>, ServiceError>,
-///             Self::Future,
-///         >,
-///         ServiceError,
-///     > {
+///     ) -> Result<Transaction<Self::Target, Self::Future>, ServiceError> {
 ///         let builder = mk_builder_for_target();
 ///         let additional = mk_answer(&msg, builder)?;
 ///         let item = ready(Ok(CallResult::new(additional)));
@@ -138,8 +131,7 @@ use super::message::Request;
 /// fn name_to_ip<Target>(
 ///     msg: Request<Vec<u8>>,
 /// ) -> Result<
-///     Transaction<
-///         Result<CallResult<Target>, ServiceError>,
+///     Transaction<Target,
 ///         impl Future<
 ///             Output = Result<CallResult<Target>, ServiceError>
 ///         > + Send,
@@ -195,39 +187,34 @@ use super::message::Request;
 /// let srv = DgramServer::new(sock, buf, name_to_ip);
 /// ```
 ///
-/// # Define a function compatible with [`service_fn()`]
+/// # Define a function compatible with [`service_fn`]
 ///
-/// See [`service_fn()`] for an example of how to use it to create a
-/// [`Service`] impl from a funciton.
+/// See [`service_fn`] for an example of how to use it to create a [`Service`]
+/// impl from a funciton.
 ///
-/// [`MiddlewareChain`]: crate::net::server::middleware::chain::MiddlewareChain
+/// [`MiddlewareChain`]:
+///     crate::net::server::middleware::chain::MiddlewareChain
 /// [`DgramServer`]: crate::net::server::dgram::DgramServer
 /// [`StreamServer`]: crate::net::server::stream::StreamServer
 /// [net::server module documentation]: crate::net::server
-/// [`call()`]: Self::call()
-/// [`service_fn()`]: crate::net::server::util::service_fn()
+/// [`call`]: Self::call()
+/// [`service_fn`]: crate::net::server::util::service_fn()
 pub trait Service<RequestOctets: AsRef<[u8]> = Vec<u8>> {
     /// The type of buffer in which response messages are stored.
-    type Target: Composer + Default + Send + Sync + 'static;
+    type Target;
 
-    /// The type of future returned by [`Service::call()`] via
-    /// [`Transaction::single()`].
+    /// The type of future returned by [`Service::call`] via
+    /// [`Transaction::single`].
     type Future: std::future::Future<
-            Output = Result<CallResult<Self::Target>, ServiceError>,
-        > + Send;
+        Output = Result<CallResult<Self::Target>, ServiceError>,
+    >;
 
     /// Generate a response to a fully pre-processed request.
     #[allow(clippy::type_complexity)]
     fn call(
         &self,
         request: Request<RequestOctets>,
-    ) -> Result<
-        Transaction<
-            Result<CallResult<Self::Target>, ServiceError>,
-            Self::Future,
-        >,
-        ServiceError,
-    >;
+    ) -> Result<Transaction<Self::Target, Self::Future>, ServiceError>;
 }
 
 /// Helper trait impl to treat an [`Arc<impl Service>`] as a [`Service`].
@@ -240,13 +227,7 @@ impl<RequestOctets: AsRef<[u8]>, T: Service<RequestOctets>>
     fn call(
         &self,
         request: Request<RequestOctets>,
-    ) -> Result<
-        Transaction<
-            Result<CallResult<Self::Target>, ServiceError>,
-            Self::Future,
-        >,
-        ServiceError,
-    > {
+    ) -> Result<Transaction<Self::Target, Self::Future>, ServiceError> {
         Arc::deref(self).call(request)
     }
 }
@@ -256,14 +237,11 @@ impl<RequestOctets, Target, Future, F> Service<RequestOctets> for F
 where
     F: Fn(
         Request<RequestOctets>,
-    ) -> Result<
-        Transaction<Result<CallResult<Target>, ServiceError>, Future>,
-        ServiceError,
-    >,
+    ) -> Result<Transaction<Target, Future>, ServiceError>,
     RequestOctets: AsRef<[u8]>,
-    Target: Composer + Default + Send + Sync + 'static,
-    Future: std::future::Future<Output = Result<CallResult<Target>, ServiceError>>
-        + Send,
+    Future: std::future::Future<
+        Output = Result<CallResult<Target>, ServiceError>,
+    >,
 {
     type Target = Target;
     type Future = Future;
@@ -271,13 +249,7 @@ where
     fn call(
         &self,
         request: Request<RequestOctets>,
-    ) -> Result<
-        Transaction<
-            Result<CallResult<Self::Target>, ServiceError>,
-            Self::Future,
-        >,
-        ServiceError,
-    > {
+    ) -> Result<Transaction<Self::Target, Self::Future>, ServiceError> {
         (*self)(request)
     }
 }
@@ -357,15 +329,15 @@ pub enum ServiceFeedback {
 
 //------------ CallResult ----------------------------------------------------
 
-/// The result of processing a DNS request via [`Service::call()`].
+/// The result of processing a DNS request via [`Service::call`].
 ///
 /// Directions to a server on how to respond to a request.
 ///
 /// In most cases a [`CallResult`] will be a DNS response message.
 ///
 /// If needed a [`CallResult`] can instead, or additionally, contain a
-/// [`ServiceFeedback`] directing the server or connection handler handling the
-/// request to adjust its own configuration, or even to terminate the
+/// [`ServiceFeedback`] directing the server or connection handler handling
+/// the request to adjust its own configuration, or even to terminate the
 /// connection.
 #[derive(Clone, Debug)]
 pub struct CallResult<Target> {
@@ -444,26 +416,32 @@ where
 /// # Usage
 ///
 /// Either:
-///   - Construct a transaction for a [`single()`] response future, OR
-///   - Construct a transaction [`stream()`] and [`push()`] response futures
-///     into it.
+///   - Construct a transaction for a [`single`] response future, OR
+///   - Construct a transaction [`stream`] and [`push`] response futures into
+///     it.
 ///
-/// Then iterate over the response futures one at a time using [`next()`].
+/// Then iterate over the response futures one at a time using [`next`].
 ///
-/// [`single()`]: Self::single()
-/// [`stream()`]: Self::stream()
-/// [`push()`]: TransactionStream::push()
-/// [`next()`]: Self::next()
-pub struct Transaction<Item, Future>(TransactionInner<Item, Future>)
+/// [`single`]: Self::single()
+/// [`stream`]: Self::stream()
+/// [`push`]: TransactionStream::push()
+/// [`next`]: Self::next()
+pub struct Transaction<Target, Future>(TransactionInner<Target, Future>)
 where
-    Future: std::future::Future<Output = Item> + Send;
+    Future: std::future::Future<
+        Output = Result<CallResult<Target>, ServiceError>,
+    >;
 
-impl<Item, Future> Transaction<Item, Future>
+impl<Target, Future> Transaction<Target, Future>
 where
-    Future: std::future::Future<Output = Item> + Send,
+    Future: std::future::Future<
+        Output = Result<CallResult<Target>, ServiceError>,
+    >,
 {
     /// Construct a transaction for a single immediate response.
-    pub(crate) fn immediate(item: Item) -> Self {
+    pub(crate) fn immediate(
+        item: Result<CallResult<Target>, ServiceError>,
+    ) -> Self {
         Self(TransactionInner::Immediate(Some(item)))
     }
 
@@ -480,17 +458,14 @@ where
     /// Construct a transaction for a future stream of response futures.
     ///
     /// The given future should build the stream of response futures that will
-    /// eventually be resolved by [`Self::next()`].
+    /// eventually be resolved by [`Self::next`].
     ///
     /// This takes a future instead of a [`TransactionStream`] because the
     /// caller may not yet know how many futures they need to push into the
     /// stream and we don't want them to block us while they work that out.
     pub fn stream(
         fut: Pin<
-            Box<
-                dyn std::future::Future<Output = TransactionStream<Item>>
-                    + Send,
-            >,
+            Box<dyn std::future::Future<Output = Stream<Target>> + Send>,
         >,
     ) -> Self {
         Self(TransactionInner::PendingStream(fut))
@@ -503,7 +478,9 @@ where
     ///
     /// Returns None if there are no (more) responses to take, Some(future)
     /// otherwise.
-    pub async fn next(&mut self) -> Option<Item> {
+    pub async fn next(
+        &mut self,
+    ) -> Option<Result<CallResult<Target>, ServiceError>> {
         match &mut self.0 {
             TransactionInner::Immediate(item) => item.take(),
 
@@ -533,34 +510,35 @@ where
 /// [`Service`] impl should return, and (b) to control the interface offered
 /// to consumers of this type and avoid them having to work with the enum
 /// variants directly.
-enum TransactionInner<Item, Future>
+enum TransactionInner<Target, Future>
 where
-    Future: std::future::Future<Output = Item> + Send,
+    Future: std::future::Future<
+        Output = Result<CallResult<Target>, ServiceError>,
+    >,
 {
     /// The transaction will result in a single immediate response.
     ///
     /// This variant is for internal use only when aborting Middleware
     /// processing early.
-    Immediate(Option<Item>),
+    Immediate(Option<Result<CallResult<Target>, ServiceError>>),
 
     /// The transaction will result in at most a single response future.
     Single(Option<Future>),
 
     /// The transaction will result in stream of multiple response futures.
     PendingStream(
-        Pin<
-            Box<
-                dyn std::future::Future<Output = TransactionStream<Item>>
-                    + Send,
-            >,
-        >,
+        Pin<Box<dyn std::future::Future<Output = Stream<Target>> + Send>>,
     ),
 
     /// The transaction is a stream of multiple response futures.
-    Stream(TransactionStream<Item>),
+    Stream(Stream<Target>),
 }
 
 //------------ TransacationStream --------------------------------------------
+
+/// A [`TransactionStream`] of [`Service`] results.
+type Stream<Target> =
+    TransactionStream<Result<CallResult<Target>, ServiceError>>;
 
 /// A stream of zero or more DNS response futures relating to a single DNS request.
 pub struct TransactionStream<Item> {
@@ -589,5 +567,11 @@ impl<Item> Default for TransactionStream<Item> {
         Self {
             stream: Default::default(),
         }
+    }
+}
+
+impl<Item> std::fmt::Debug for TransactionStream<Item> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("TransactionStream").finish()
     }
 }
