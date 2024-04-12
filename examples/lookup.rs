@@ -16,14 +16,14 @@ async fn forward(resolver: &StubResolver, name: UncertainName<Vec<u8>>) {
             }
             let canon = answer.canonical_name();
             if canon != answer.qname() {
-                println!("{} is an alias for {}", answer.qname(), canon);
+                println!("{} is an alias for {canon}", answer.qname());
             }
             for addr in answer.iter() {
-                println!("{} has address {}", canon, addr);
+                println!("{canon} has address {addr}");
             }
         }
         Err(err) => {
-            println!("Query failed: {}", err);
+            println!("Query failed: {err}");
         }
     }
 }
@@ -32,10 +32,10 @@ async fn reverse(resolver: &StubResolver, addr: IpAddr) {
     match resolver.lookup_addr(addr).await {
         Ok(answer) => {
             for name in answer.iter() {
-                println!("Host {} has domain name pointer {}", addr, name);
+                println!("Host {addr} has domain name pointer {name}");
             }
         }
-        Err(err) => println!("Query failed: {}", err),
+        Err(err) => println!("Query failed: {err}"),
     }
 }
 
@@ -54,7 +54,7 @@ async fn main() {
         } else if let Ok(name) = UncertainName::from_str(&name) {
             forward(&resolver, name).await;
         } else {
-            println!("Not a domain name: {}", name);
+            println!("Not a domain name: {name}");
         }
     }
 }

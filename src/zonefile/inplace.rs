@@ -1,7 +1,7 @@
 //! A zonefile scanner keeping data in place.
 //!
 //! The zonefile scanner provided by this module reads the entire zonefile
-//! into memory and tries as much as possible to modify re-use this memory
+//! into memory and tries as much as possible to modify/re-use this memory
 //! when scanning data. It uses the `Bytes` family of types for safely
 //! storing, manipulating, and returning the data and thus requires the
 //! `bytes` feature to be enabled.
@@ -11,6 +11,13 @@
 //! implementation.
 #![cfg(feature = "bytes")]
 #![cfg_attr(docsrs, doc(cfg(feature = "bytes")))]
+
+use core::str::FromStr;
+use core::{fmt, str};
+
+use bytes::buf::UninitSlice;
+use bytes::{Buf, BufMut, Bytes, BytesMut};
+use octseq::str::Str;
 
 use crate::base::charstr::CharStr;
 use crate::base::iana::{Class, Rtype};
@@ -22,11 +29,6 @@ use crate::base::scan::{
 };
 use crate::base::Ttl;
 use crate::rdata::ZoneRecordData;
-use bytes::buf::UninitSlice;
-use bytes::{Buf, BufMut, Bytes, BytesMut};
-use core::str::FromStr;
-use core::{fmt, str};
-use octseq::str::Str;
 
 //------------ Type Aliases --------------------------------------------------
 
@@ -68,10 +70,10 @@ pub struct Zonefile {
     last_owner: Option<ScannedDname>,
 
     /// The last TTL.
-    last_ttl: Option<Ttl>,
+    last_ttl: Ttl,
 
     /// The last class.
-    last_class: Option<Class>,
+    last_class: Class,
 }
 
 impl Zonefile {
@@ -93,8 +95,8 @@ impl Zonefile {
             buf,
             origin: None,
             last_owner: None,
-            last_ttl: None,
-            last_class: None,
+            last_ttl: Ttl::from_secs(3600),
+            last_class: Class::IN,
         }
     }
 
@@ -159,9 +161,12 @@ unsafe impl BufMut for Zonefile {
 impl Zonefile {
     /// Sets the origin of the zonefile.
     ///
-    /// The origin is append to relative domain names encountered in the
-    /// data. Ininitally, there is no origin set. If relative names are
-    /// encountered, an error happenes.
+    /// The origin is append to relative domain names encountered in the data.
+    /// Ininitally, there is no origin set. It will be set if an $ORIGIN
+    /// directive is encountered while iterating over the zone. If a zone name
+    /// is not provided via this function or via an $ORIGIN directive, then
+    /// any relative names encountered will cause iteration to terminate with
+    /// a missing origin error.
     pub fn set_origin(&mut self, origin: Name<Bytes>) {
         self.origin = Some(origin)
     }
@@ -179,7 +184,7 @@ impl Zonefile {
             match EntryScanner::new(self)?.scan_entry()? {
                 ScannedEntry::Entry(entry) => return Ok(Some(entry)),
                 ScannedEntry::Origin(origin) => self.origin = Some(origin),
-                ScannedEntry::Ttl(ttl) => self.last_ttl = Some(ttl),
+                ScannedEntry::Ttl(ttl) => self.last_ttl = ttl,
                 ScannedEntry::Empty => {}
                 ScannedEntry::Eof => return Ok(None),
             }
@@ -187,7 +192,7 @@ impl Zonefile {
     }
 
     /// Returns the origin name of the zonefile.
-    fn get_origin(&self) -> Result<Name<Bytes>, EntryError> {
+    pub fn origin(&self) -> Result<Name<Bytes>, EntryError> {
         self.origin
             .as_ref()
             .cloned()
@@ -340,24 +345,18 @@ impl<'a> EntryScanner<'a> {
 
         let class = match class {
             Some(class) => {
-                self.zonefile.last_class = Some(class);
+                self.zonefile.last_class = class;
                 class
             }
-            None => match self.zonefile.last_class {
-                Some(class) => class,
-                None => return Err(EntryError::missing_last_class()),
-            },
+            None => self.zonefile.last_class,
         };
 
         let ttl = match ttl {
             Some(ttl) => {
-                self.zonefile.last_ttl = Some(ttl);
+                self.zonefile.last_ttl = ttl;
                 ttl
             }
-            None => match self.zonefile.last_ttl {
-                Some(ttl) => ttl,
-                None => return Err(EntryError::missing_last_ttl()),
-            },
+            None => self.zonefile.last_ttl,
         };
 
         let data = ZoneRecordData::scan(rtype, self)?;
@@ -641,7 +640,7 @@ impl<'a> Scanner for EntryScanner<'a> {
                     self.zonefile.buf.next_item()?;
                     if start == 0 {
                         return RelativeName::empty_bytes()
-                            .chain(self.zonefile.get_origin()?)
+                            .chain(self.zonefile.origin()?)
                             .map_err(|_| EntryError::bad_name());
                     } else {
                         return unsafe {
@@ -680,7 +679,7 @@ impl<'a> Scanner for EntryScanner<'a> {
                         RelativeName::from_octets_unchecked(
                             self.zonefile.buf.split_to(write).freeze(),
                         )
-                        .chain(self.zonefile.get_origin()?)
+                        .chain(self.zonefile.origin()?)
                         .map_err(|_| EntryError::bad_name())
                     };
                 }
@@ -1424,8 +1423,8 @@ enum ItemCat {
 //------------ EntryError ----------------------------------------------------
 
 /// An error returned by the entry scanner.
-#[derive(Debug)]
-struct EntryError(&'static str);
+#[derive(Clone, Debug)]
+pub struct EntryError(&'static str);
 
 impl EntryError {
     fn bad_symbol(_err: SymbolOctetsError) -> Self {
@@ -1446,14 +1445,6 @@ impl EntryError {
 
     fn missing_last_owner() -> Self {
         EntryError("missing last owner")
-    }
-
-    fn missing_last_class() -> Self {
-        EntryError("missing last class")
-    }
-
-    fn missing_last_ttl() -> Self {
-        EntryError("missing last ttl")
     }
 
     fn missing_origin() -> Self {
@@ -1510,7 +1501,7 @@ impl std::error::Error for EntryError {}
 
 //------------ Error ---------------------------------------------------------
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Error {
     err: EntryError,
     line: usize,
@@ -1560,7 +1551,7 @@ mod test {
             });
         }
 
-        test(" unquoted\n", b"unquoted");
+        test(" unquoted\r\n", b"unquoted");
         test(" unquoted  ", b"unquoted");
         test("unquoted ", b"unquoted");
         test("unqu\\oted ", b"unquoted");

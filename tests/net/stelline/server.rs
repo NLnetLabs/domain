@@ -1,21 +1,31 @@
+use std::fmt::Debug;
+
+use octseq::{OctetsBuilder, Truncate};
+
+use domain::base::iana::rcode::Rcode;
+use domain::base::iana::Opcode;
+use domain::base::message_builder::AdditionalBuilder;
+use domain::base::wire::Composer;
+use domain::base::{Message, MessageBuilder};
+use domain::dep::octseq::Octets;
+use domain::zonefile::inplace::Entry as ZonefileEntry;
+
 use crate::net::stelline::client::CurrStepValue;
 use crate::net::stelline::matches::match_msg;
 use crate::net::stelline::parse_query;
 use crate::net::stelline::parse_stelline;
 use crate::net::stelline::parse_stelline::{Adjust, Reply, Stelline};
-use domain::base::iana::rcode::Rcode;
-use domain::base::iana::Opcode;
-use domain::base::{Message, MessageBuilder};
-use domain::dep::octseq::Octets;
-use domain::zonefile::inplace::Entry as ZonefileEntry;
 
-pub fn do_server<'a, Oct: Clone + Octets + 'a>(
+pub fn do_server<'a, Oct, Target>(
     msg: &'a Message<Oct>,
     stelline: &Stelline,
     step_value: &CurrStepValue,
-) -> Option<Message<Vec<u8>>>
+) -> Option<AdditionalBuilder<Target>>
 where
     <Oct as Octets>::Range<'a>: Clone,
+    Oct: Clone + Octets + 'a,
+    Target: Composer + Default + OctetsBuilder + Truncate,
+    <Target as OctetsBuilder>::AppendError: Debug,
 {
     let ranges = &stelline.scenario.ranges;
     let step = step_value.get();
@@ -35,16 +45,23 @@ where
     todo!();
 }
 
-fn do_adjust<Octs: Octets>(
+fn do_adjust<Octs, Target>(
     entry: &parse_stelline::Entry,
     reqmsg: &Message<Octs>,
-) -> Message<Vec<u8>> {
+) -> AdditionalBuilder<Target>
+where
+    Octs: Octets,
+    Target: Composer + Default + OctetsBuilder + Truncate,
+    <Target as OctetsBuilder>::AppendError: Debug,
+{
     let sections = entry.sections.as_ref().unwrap();
     let adjust: Adjust = match &entry.adjust {
         Some(adjust) => adjust.clone(),
         None => Default::default(),
     };
-    let mut msg = MessageBuilder::new_vec().question();
+    let mut msg = MessageBuilder::from_target(Target::default())
+        .unwrap()
+        .question();
     if adjust.copy_query {
         for q in reqmsg.question() {
             msg.push(q.unwrap()).unwrap();
@@ -77,7 +94,7 @@ fn do_adjust<Octs: Octets>(
         msg.push(rec).unwrap();
     }
     let mut msg = msg.additional();
-    for a in &sections.additional {
+    for a in &sections.additional.zone_entries {
         let rec = if let ZonefileEntry::Record(record) = a {
             record
         } else {
@@ -131,5 +148,5 @@ fn do_adjust<Octs: Octets>(
     } else {
         todo!();
     }
-    msg.into_message()
+    msg
 }

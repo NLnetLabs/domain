@@ -274,7 +274,7 @@ impl<'a, Target: Composer> OptBuilder<'a, Target> {
 /// [`from_octets`][ClientCookie::from_octets]. Similarly, the `Default`
 /// implementation will create a random cookie and is thus only available if
 /// the `rand` feature is enabled.
-#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
 pub struct ClientCookie([u8; 8]);
 
 impl ClientCookie {

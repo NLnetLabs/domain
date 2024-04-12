@@ -21,6 +21,7 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::vec::Vec;
 use std::{error, fmt};
+use tracing::trace;
 
 //------------ ComposeRequest ------------------------------------------------
 
@@ -247,6 +248,12 @@ impl<Octs: AsRef<[u8]> + Clone + Debug + Octets + Send + Sync + 'static>
 
         // First check qr is set and IDs match.
         if !answer_header.qr() || answer_header.id() != self.header.id() {
+            trace!(
+                "Wrong QR or ID: QR={}, answer ID={}, self ID={}",
+                answer_header.qr(),
+                answer_header.id(),
+                self.header.id()
+            );
             return false;
         }
 
@@ -265,9 +272,14 @@ impl<Octs: AsRef<[u8]> + Clone + Debug + Octets + Send + Sync + 'static>
         // Now the question section in the reply has to be the same as in the
         // query.
         if answer_hcounts.qdcount() != self.msg.header_counts().qdcount() {
+            trace!("Wrong QD count");
             false
         } else {
-            answer.question() == self.msg.for_slice().question()
+            let res = answer.question() == self.msg.for_slice().question();
+            if !res {
+                trace!("Wrong question");
+            }
+            res
         }
     }
 }

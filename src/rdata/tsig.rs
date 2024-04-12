@@ -33,7 +33,7 @@ pub struct Tsig<Octs, Name> {
     /// Note that this is an unsigned 48 bit value in wire format.
     time_signed: Time48,
 
-    /// Seconds of error perimitted in time signed.
+    /// Seconds of error permitted in time signed.
     fudge: u16,
 
     /// MAC.

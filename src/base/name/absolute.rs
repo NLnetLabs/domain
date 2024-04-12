@@ -472,16 +472,16 @@ impl<Octs: AsRef<[u8]> + ?Sized> Name<Octs> {
     ///
     /// # Panics
     ///
-    /// The method panics if either position is not the start of a label or
-    /// is out of bounds.
+    /// The method panics if either position is not the start of a label or is
+    /// out of bounds.
     ///
     /// Because the returned domain name is relative, the method will also
-    /// panic if the end is equal to the length of the name. If you
-    /// want to slice the entire end of the name including the final root
-    /// label, you can use [`slice_from()`] instead.
+    /// panic if the end is equal to the length of the name. If you want to
+    /// slice the entire end of the name including the final root label, you
+    /// can use [`slice_from`] instead.
     ///
     /// [`range`]: #method.range
-    /// [`slice_from()`]: #method.slice_from
+    /// [`slice_from`]: #method.slice_from
     pub fn slice(
         &self,
         range: impl RangeBounds<usize>,
@@ -528,9 +528,9 @@ impl<Octs: AsRef<[u8]> + ?Sized> Name<Octs> {
     /// Because the returned domain name is relative, the method will also
     /// panic if the end is equal to the length of the name. If you
     /// want to slice the entire end of the name including the final root
-    /// label, you can use [`range_from()`] instead.
+    /// label, you can use [`range_from`] instead.
     ///
-    /// [`range_from()`]: #method.range_from
+    /// [`range_from`]: #method.range_from
     pub fn range(
         &self,
         range: impl RangeBounds<usize>,

@@ -35,6 +35,9 @@ Breaking changes
   internal error details. Enums have been kept for errors where
   distinguishing variants might be meaningful for dealing with the error.
   ([#277])
+* Renamed `Dnskey::is_zsk` to `is_zone_key`. ([#292])
+* Split RRSIG timestamp handling from `Serial` into a new type
+  `rdata::dnssec::Timestamp`. ([#294])
 * Upgraded `octseq` to 0.5. ([#257])
 
 New
@@ -47,6 +50,8 @@ New
   parse any type of record data. ([#256])
 * Added implementations of `OctetsFrom` and `Debug` to `AllOptData` and
   the specific options types that didn’t have them yet. ([#257])
+* Added missing ordering impls to `ZoneRecordData`, `AllRecordData`,
+  `Opt`, and `SvcbRdata`. ([#293])
 
 Bug fixes
 
@@ -65,6 +70,16 @@ Unstable features
   message transport, i.e., sending of requests and receiving responses
   as well as caching of responses.
   This is gated by the `unstable-client-transport` feature. ([#215],[#275])
+* Add the module `net::server` with experimental support for server
+  transports, processing requests through a middleware chain and a service
+  trait.
+  This is gated by the `unstable-server-transport` feature. ([#274])
+* Add the modules `zonetree` providing basic traits representing a
+  collecting of zones and their data. The `zonetree::in_memory` module 
+  provides an in-memory implementation. The `zonefile::parsed` module
+  provides a way to classify RRsets before inserting them into a tree.
+  This is gated by the `unstable-zonetree` feature. ([#286])
+  
 
 Other changes
 
@@ -79,12 +94,16 @@ Other changes
 [#267]: https://github.com/NLnetLabs/domain/pull/267
 [#268]: https://github.com/NLnetLabs/domain/pull/268
 [#270]: https://github.com/NLnetLabs/domain/pull/270
+[#274]: https://github.com/NLnetLabs/domain/pull/274
 [#275]: https://github.com/NLnetLabs/domain/pull/275
 [#276]: https://github.com/NLnetLabs/domain/pull/276
 [#277]: https://github.com/NLnetLabs/domain/pull/277
 [#284]: https://github.com/NLnetLabs/domain/pull/284
 [#285]: https://github.com/NLnetLabs/domain/pull/285
+[#286]: https://github.com/NLnetLabs/domain/pull/286
 [#288]: https://github.com/NLnetLabs/domain/pull/288
+[#292]: https://github.com/NLnetLabs/domain/pull/292
+[#293]: https://github.com/NLnetLabs/domain/pull/293
 [@torin-carey]: https://github.com/torin-carey
 [@hunts]: https://github.com/hunts
 

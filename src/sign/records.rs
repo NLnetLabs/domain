@@ -6,9 +6,8 @@ use crate::base::iana::{Class, Rtype};
 use crate::base::name::ToName;
 use crate::base::rdata::{ComposeRecordData, RecordData};
 use crate::base::record::Record;
-use crate::base::serial::Serial;
 use crate::base::Ttl;
-use crate::rdata::dnssec::{ProtoRrsig, RtypeBitmap};
+use crate::rdata::dnssec::{ProtoRrsig, RtypeBitmap, Timestamp};
 use crate::rdata::{Dnskey, Ds, Nsec, Rrsig};
 use octseq::builder::{EmptyBuilder, FromBuilder, OctetsBuilder, Truncate};
 use std::vec::Vec;
@@ -66,8 +65,8 @@ impl<N, D> SortedRecords<N, D> {
     pub fn sign<Octets, Key, ApexName>(
         &self,
         apex: &FamilyName<ApexName>,
-        expiration: Serial,
-        inception: Serial,
+        expiration: Timestamp,
+        inception: Timestamp,
         key: Key,
     ) -> Result<Vec<Record<N, Rrsig<Octets, ApexName>>>, Key::Error>
     where

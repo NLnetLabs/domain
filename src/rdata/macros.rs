@@ -259,6 +259,33 @@ macro_rules! rdata_types {
 
         //--- PartialOrd, Ord, and CanonicalOrd
 
+	impl<O, N> Ord for ZoneRecordData<O, N>
+	where
+		O: AsRef<[u8]>,
+		N: ToName,
+	{
+            fn cmp(&self, other: &Self) -> core::cmp::Ordering {
+                match (self, other) {
+                    $( $( $(
+                        (
+                            &ZoneRecordData::$mtype(ref self_inner),
+                            &ZoneRecordData::$mtype(ref other_inner)
+                        )
+                        => {
+                            self_inner.cmp(other_inner)
+                        }
+                    )* )* )*
+                    (
+                        &ZoneRecordData::Unknown(ref self_inner),
+                        &ZoneRecordData::Unknown(ref other_inner)
+                    ) => {
+                        self_inner.cmp(other_inner)
+                    }
+                    _ => self.rtype().cmp(&other.rtype())
+                }
+            }
+	}
+
         impl<O, OO, N, NN> PartialOrd<ZoneRecordData<OO, NN>>
         for ZoneRecordData<O, N>
         where
@@ -694,6 +721,147 @@ macro_rules! rdata_types {
 
         impl<O, N> Eq for AllRecordData<O, N>
         where O: AsRef<[u8]>, N: ToName { }
+
+        //--- PartialOrd, Ord, and CanonicalOrd
+
+        impl<O, N> Ord for AllRecordData<O, N>
+        where
+            O: AsRef<[u8]>,
+            N: ToName,
+        {
+            fn cmp(
+                &self,
+                other: &Self
+            ) -> core::cmp::Ordering {
+                match (self, other) {
+                    $( $( $(
+                        (
+                            &AllRecordData::$mtype(ref self_inner),
+                            &AllRecordData::$mtype(ref other_inner)
+                        )
+                        => {
+                            self_inner.cmp(other_inner)
+                        }
+                    )* )* )*
+                    $( $( $(
+                        (
+                            &AllRecordData::$ptype(ref self_inner),
+                            &AllRecordData::$ptype(ref other_inner)
+                        )
+                        => {
+                            self_inner.cmp(other_inner)
+                        }
+                    )* )* )*
+                    (
+                        &AllRecordData::Opt(ref self_inner),
+                        &AllRecordData::Opt(ref other_inner)
+                    ) => {
+                        self_inner.cmp(other_inner)
+                    }
+                    (
+                        &AllRecordData::Unknown(ref self_inner),
+                        &AllRecordData::Unknown(ref other_inner)
+                    ) => {
+                        self_inner.cmp(other_inner)
+                    }
+                    _ => self.rtype().cmp(&other.rtype())
+                }
+            }
+        }
+
+        impl<O, OO, N, NN> PartialOrd<AllRecordData<OO, NN>>
+        for AllRecordData<O, N>
+        where
+            O: AsRef<[u8]>, OO: AsRef<[u8]>,
+            N: ToName, NN: ToName,
+        {
+            fn partial_cmp(
+                &self,
+                other: &AllRecordData<OO, NN>
+            ) -> Option<core::cmp::Ordering> {
+                match (self, other) {
+                    $( $( $(
+                        (
+                            &AllRecordData::$mtype(ref self_inner),
+                            &AllRecordData::$mtype(ref other_inner)
+                        )
+                        => {
+                            self_inner.partial_cmp(other_inner)
+                        }
+                    )* )* )*
+                    $( $( $(
+                        (
+                            &AllRecordData::$ptype(ref self_inner),
+                            &AllRecordData::$ptype(ref other_inner)
+                        )
+                        => {
+                            self_inner.partial_cmp(other_inner)
+                        }
+                    )* )* )*
+                    (
+                        &AllRecordData::Opt(ref self_inner),
+                        &AllRecordData::Opt(ref other_inner)
+                    ) => {
+                        self_inner.partial_cmp(other_inner)
+                    }
+                    (
+                        &AllRecordData::Unknown(ref self_inner),
+                        &AllRecordData::Unknown(ref other_inner)
+                    ) => {
+                        self_inner.partial_cmp(other_inner)
+                    }
+                    _ => self.rtype().partial_cmp(&other.rtype())
+                }
+            }
+        }
+
+        impl<O, OO, N, NN>
+        CanonicalOrd<AllRecordData<OO, NN>>
+        for AllRecordData<O, N>
+        where
+            O: AsRef<[u8]>, OO: AsRef<[u8]>,
+            N: CanonicalOrd<NN> + ToName,
+            NN: ToName,
+        {
+            fn canonical_cmp(
+                &self,
+                other: &AllRecordData<OO, NN>
+            ) -> core::cmp::Ordering {
+                match (self, other) {
+                    $( $( $(
+                        (
+                            &AllRecordData::$mtype(ref self_inner),
+                            &AllRecordData::$mtype(ref other_inner)
+                        )
+                        => {
+                            self_inner.canonical_cmp(other_inner)
+                        }
+                    )* )* )*
+                    $( $( $(
+                        (
+                            &AllRecordData::$ptype(ref self_inner),
+                            &AllRecordData::$ptype(ref other_inner)
+                        )
+                        => {
+                            self_inner.canonical_cmp(other_inner)
+                        }
+                    )* )* )*
+                    (
+                        &AllRecordData::Opt(ref self_inner),
+                        &AllRecordData::Opt(ref other_inner)
+                    ) => {
+                        self_inner.canonical_cmp(other_inner)
+                    }
+                    (
+                        &AllRecordData::Unknown(ref self_inner),
+                        &AllRecordData::Unknown(ref other_inner)
+                    ) => {
+                        self_inner.canonical_cmp(other_inner)
+                    }
+                    _ => self.rtype().cmp(&other.rtype())
+                }
+            }
+        }
 
 
         //--- Hash

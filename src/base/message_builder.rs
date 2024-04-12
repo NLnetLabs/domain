@@ -744,11 +744,19 @@ impl<Target: Composer> AnswerBuilder<Target> {
     /// Creates a new answer builder from an underlying message builder.
     ///
     /// Assumes that all three record sections are empty.
+    #[must_use]
     fn new(builder: MessageBuilder<Target>) -> Self {
         AnswerBuilder {
             start: builder.target.as_ref().len(),
             builder,
         }
+    }
+}
+
+impl<Target> AnswerBuilder<Target> {
+    #[must_use]
+    pub fn into_target(self) -> Target {
+        self.builder.target
     }
 }
 
@@ -1694,17 +1702,21 @@ impl<'a, Target: Composer + ?Sized> OptBuilder<'a, Target> {
 
 /// A builder target for sending messages on stream transports.
 ///
+/// TODO: Rename this type and adjust the doc comments as it is usable both
+/// for datagram AND stream transports via [`as_dgram_slice`] and
+/// [`as_stream_slice`].
+///
 /// When messages are sent over stream-oriented transports such as TCP, a DNS
-/// message is preceded by a 16 bit length value in order to determine the
-/// end of a message. This type transparently adds this length value as the
-/// first two octets of an octets builder and itself presents an octets
-/// builder interface for building the actual message. Whenever data is pushed
-/// to that builder interface, the type will update the length value.
+/// message is preceded by a 16 bit length value in order to determine the end
+/// of a message. This type transparently adds this length value as the first
+/// two octets of an octets builder and itself presents an octets builder
+/// interface for building the actual message. Whenever data is pushed to that
+/// builder interface, the type will update the length value.
 ///
 /// Because the length is 16 bits long, the assembled message can be at most
 /// 65536 octets long, independently of the maximum length the underlying
 /// builder allows.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct StreamTarget<Target> {
     /// The underlying octets builder.
     target: Target,

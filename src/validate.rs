@@ -349,8 +349,8 @@ impl error::Error for AlgorithmError {}
 mod test {
     use super::*;
     use crate::base::iana::{Class, Rtype};
-    use crate::base::serial::Serial;
     use crate::base::Ttl;
+    use crate::rdata::dnssec::Timestamp;
     use crate::rdata::{Mx, ZoneRecordData};
     use crate::utils::base64;
     use bytes::Bytes;
@@ -487,8 +487,8 @@ mod test {
             SecAlg::RSASHA256,
             1,
             Ttl::from_secs(86400),
-            Serial::rrsig_from_str("20210921162830").unwrap(),
-            Serial::rrsig_from_str("20210906162330").unwrap(),
+            Timestamp::from_str("20210921162830").unwrap(),
+            Timestamp::from_str("20210906162330").unwrap(),
             35886,
             "net.".parse::<Name>().unwrap(),
             base64::decode::<Vec<u8>>(
@@ -673,8 +673,8 @@ mod test {
             SecAlg::RSASHA1,
             2,
             Ttl::from_secs(3600),
-            Serial::rrsig_from_str("20040509183619").unwrap(),
-            Serial::rrsig_from_str("20040409183619").unwrap(),
+            Timestamp::from_str("20040509183619").unwrap(),
+            Timestamp::from_str("20040409183619").unwrap(),
             38519,
             Name::from_str("example.").unwrap(),
             base64::decode::<Vec<u8>>(

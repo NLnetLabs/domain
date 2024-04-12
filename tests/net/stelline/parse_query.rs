@@ -12,10 +12,12 @@
 // #![cfg(feature = "bytes")]
 // #![cfg_attr(docsrs, doc(cfg(feature = "bytes")))]
 
-use bytes::buf::UninitSlice;
-use bytes::{Buf, BufMut, Bytes, BytesMut};
 use core::str::FromStr;
 use core::{fmt, str};
+
+use bytes::buf::UninitSlice;
+use bytes::{Buf, BufMut, Bytes, BytesMut};
+
 use domain::base::charstr::CharStr;
 use domain::base::iana::{Class, Rtype};
 use domain::base::name::{Chain, Name, RelativeName, ToName};
@@ -23,8 +25,7 @@ use domain::base::scan::{
     BadSymbol, ConvertSymbols, EntrySymbol, Scan, Scanner, ScannerError,
     Symbol, SymbolOctetsError,
 };
-use domain::base::Question;
-use domain::base::Ttl;
+use domain::base::{Question, Ttl};
 use domain::dep::octseq::str::Str;
 
 //------------ Type Aliases --------------------------------------------------
@@ -189,11 +190,14 @@ pub enum Entry {
     /// When this entry is encountered, the referenced file should be scanned
     /// next. If `origin` is given, this file should be scanned with it as the
     /// initial origin name,
+    #[allow(dead_code)]
     Include {
         /// The path to the file to be included.
+        #[allow(dead_code)]
         path: ScannedString,
 
         /// The initial origin name of the included file, if provided.
+        #[allow(dead_code)]
         origin: Option<Name<Bytes>>,
     },
 }

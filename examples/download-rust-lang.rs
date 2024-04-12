@@ -14,7 +14,7 @@ async fn main() {
     {
         Ok(addr) => addr,
         Err(err) => {
-            eprintln!("DNS query failed: {}", err);
+            eprintln!("DNS query failed: {err}");
             return;
         }
     };
@@ -28,7 +28,7 @@ async fn main() {
     let mut socket = match TcpStream::connect(&addr).await {
         Ok(socket) => socket,
         Err(err) => {
-            eprintln!("Failed to connect to {}: {}", addr, err);
+            eprintln!("Failed to connect to {addr}: {err}");
             return;
         }
     };
@@ -43,12 +43,12 @@ async fn main() {
         )
         .await
     {
-        eprintln!("Failed to send request: {}", err);
+        eprintln!("Failed to send request: {err}");
         return;
     };
     let mut response = Vec::new();
     if let Err(err) = socket.read_to_end(&mut response).await {
-        eprintln!("Failed to read response: {}", err);
+        eprintln!("Failed to read response: {err}");
         return;
     }
 
