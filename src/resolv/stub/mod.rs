@@ -154,10 +154,7 @@ impl StubResolver {
                 let (conn, tran) =
                     multi_stream::Connection::new(TcpConnect::new(s.addr));
                 // Start the run function on a separate task.
-                let run_fut = tran.run();
-                fut_list_tcp.push(async move {
-                    run_fut.await;
-                });
+                fut_list_tcp.push(tran.run());
                 redun.add(Box::new(conn)).await?;
             } else {
                 let udp_connect = UdpConnect::new(s.addr);
@@ -165,9 +162,7 @@ impl StubResolver {
                 let (conn, tran) =
                     dgram_stream::Connection::new(udp_connect, tcp_connect);
                 // Start the run function on a separate task.
-                fut_list_udp_tcp.push(async move {
-                    tran.run().await;
-                });
+                fut_list_udp_tcp.push(tran.run());
                 redun.add(Box::new(conn)).await?;
             }
         }
