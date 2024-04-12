@@ -74,6 +74,12 @@ Unstable features
   transports, processing requests through a middleware chain and a service
   trait.
   This is gated by the `unstable-server-transport` feature. ([#274])
+* Add the modules `zonetree` providing basic traits representing a
+  collecting of zones and their data. The `zonetree::in_memory` module 
+  provides an in-memory implementation. The `zonefile::parsed` module
+  provides a way to classify RRsets before inserting them into a tree.
+  This is gated by the `unstable-zonetree` feature. ([#286])
+  
 
 Other changes
 
@@ -94,6 +100,7 @@ Other changes
 [#277]: https://github.com/NLnetLabs/domain/pull/277
 [#284]: https://github.com/NLnetLabs/domain/pull/284
 [#285]: https://github.com/NLnetLabs/domain/pull/285
+[#286]: https://github.com/NLnetLabs/domain/pull/286
 [#288]: https://github.com/NLnetLabs/domain/pull/288
 [#292]: https://github.com/NLnetLabs/domain/pull/292
 [#293]: https://github.com/NLnetLabs/domain/pull/293
