@@ -146,35 +146,29 @@ impl StubResolver {
 
         // We have 3 modes of operation: use_vc: only use TCP, ign_tc: only
         // UDP no fallback to TCP, and normal with is UDP falling back to TCP.
-        if self.options.use_vc {
-            for s in &self.servers {
-                if let Transport::Tcp = s.transport {
-                    let (conn, tran) = multi_stream::Connection::new(
-                        TcpConnect::new(s.addr),
-                    );
-                    // Start the run function on a separate task.
-                    let run_fut = tran.run();
-                    fut_list_tcp.push(async move {
-                        run_fut.await;
-                    });
-                    redun.add(Box::new(conn)).await?;
-                }
-            }
-        } else {
-            for s in &self.servers {
-                if let Transport::Udp = s.transport {
-                    let udp_connect = UdpConnect::new(s.addr);
-                    let tcp_connect = TcpConnect::new(s.addr);
-                    let (conn, tran) = dgram_stream::Connection::new(
-                        udp_connect,
-                        tcp_connect,
-                    );
-                    // Start the run function on a separate task.
-                    fut_list_udp_tcp.push(async move {
-                        tran.run().await;
-                    });
-                    redun.add(Box::new(conn)).await?;
-                }
+
+        for s in &self.servers {
+            // This assumes that Transport only has UdpTcp and Tcp. Sadly, a
+            // match doesn’t work here because of the use_cv flag.
+            if self.options.use_vc || matches!(s.transport, Transport::Tcp) {
+                let (conn, tran) =
+                    multi_stream::Connection::new(TcpConnect::new(s.addr));
+                // Start the run function on a separate task.
+                let run_fut = tran.run();
+                fut_list_tcp.push(async move {
+                    run_fut.await;
+                });
+                redun.add(Box::new(conn)).await?;
+            } else {
+                let udp_connect = UdpConnect::new(s.addr);
+                let tcp_connect = TcpConnect::new(s.addr);
+                let (conn, tran) =
+                    dgram_stream::Connection::new(udp_connect, tcp_connect);
+                // Start the run function on a separate task.
+                fut_list_udp_tcp.push(async move {
+                    tran.run().await;
+                });
+                redun.add(Box::new(conn)).await?;
             }
         }
 
