@@ -12,7 +12,7 @@ use crate::base::rdata::{
 };
 use crate::base::Ttl;
 use crate::base::scan::{Scan, Scanner, ScannerError};
-use crate::base::serial::Serial as SerialForTimestamp;
+use crate::base::serial::Serial;
 use crate::base::wire::{Compose, Composer, FormError, Parse, ParseError};
 use crate::utils::{base16, base64};
 use core::cmp::Ordering;
