@@ -75,7 +75,7 @@ Unstable features
   trait.
   This is gated by the `unstable-server-transport` feature. ([#274])
 * Add the module `zonetree` providing basic traits representing a
-  collecting of zones and their data. The `zonetree::in_memory` module 
+  collection of zones and their data. The `zonetree::in_memory` module 
   provides an in-memory implementation. The `zonefile::parsed` module
   provides a way to classify RRsets before inserting them into a tree.
   This is gated by the `unstable-zonetree` feature. ([#286])
