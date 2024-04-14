@@ -203,18 +203,18 @@ pub trait Service<RequestOctets: AsRef<[u8]> = Vec<u8>> {
     /// The type of buffer in which response messages are stored.
     type Target;
 
-    /// The type of future returned by [`Service::call`] via
-    /// [`Transaction::single`].
-    type Future: std::future::Future<
-        Output = Result<CallResult<Self::Target>, ServiceError>,
-    >;
+    /// The type of future returned by [`Service::call()`] via
+    /// [`Transaction::single()`].
+    // type Item: ;
 
     /// Generate a response to a fully pre-processed request.
     #[allow(clippy::type_complexity)]
     fn call(
         &self,
         request: Request<RequestOctets>,
-    ) -> Result<Transaction<Self::Target, Self::Future>, ServiceError>;
+    ) -> impl futures::stream::Stream<
+        Item = Result<CallResult<Self::Target>, ServiceError>,
+    > + Send + Unpin;
 }
 
 /// Helper trait impl to treat an [`Arc<impl Service>`] as a [`Service`].
@@ -222,34 +222,36 @@ impl<RequestOctets: AsRef<[u8]>, T: Service<RequestOctets>>
     Service<RequestOctets> for Arc<T>
 {
     type Target = T::Target;
-    type Future = T::Future;
 
     fn call(
         &self,
         request: Request<RequestOctets>,
-    ) -> Result<Transaction<Self::Target, Self::Future>, ServiceError> {
+    ) -> impl futures::stream::Stream<
+        Item = Result<CallResult<Self::Target>, ServiceError>,
+    > {
         Arc::deref(self).call(request)
     }
 }
 
 /// Helper trait impl to treat a function as a [`Service`].
-impl<RequestOctets, Target, Future, F> Service<RequestOctets> for F
+impl<RequestOctets, Stream, Target, F> Service<RequestOctets> for F
 where
+    RequestOctets: AsRef<[u8]>,
     F: Fn(
         Request<RequestOctets>,
-    ) -> Result<Transaction<Target, Future>, ServiceError>,
-    RequestOctets: AsRef<[u8]>,
-    Future: std::future::Future<
-        Output = Result<CallResult<Target>, ServiceError>,
-    >,
+    ) -> Stream,
+    Stream: futures::stream::Stream<
+        Item = Result<CallResult<Target>, ServiceError>,
+    > + Send + Unpin
 {
     type Target = Target;
-    type Future = Future;
 
     fn call(
         &self,
         request: Request<RequestOctets>,
-    ) -> Result<Transaction<Self::Target, Self::Future>, ServiceError> {
+    ) -> impl futures::stream::Stream<
+        Item = Result<CallResult<Self::Target>, ServiceError>,
+    > + Send + Unpin {
         (*self)(request)
     }
 }

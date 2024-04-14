@@ -209,18 +209,18 @@
 #![cfg(feature = "unstable-server-transport")]
 #![cfg_attr(docsrs, doc(cfg(feature = "unstable-server-transport")))]
 
-mod connection;
-pub use connection::Config as ConnectionConfig;
+// mod connection;
+// pub use connection::Config as ConnectionConfig;
 
 pub mod buf;
 pub mod dgram;
 pub mod error;
 pub mod message;
 pub mod metrics;
-pub mod middleware;
+// pub mod middleware;
 pub mod service;
 pub mod sock;
-pub mod stream;
+// pub mod stream;
 pub mod util;
 
 #[cfg(test)]

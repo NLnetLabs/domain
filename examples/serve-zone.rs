@@ -21,17 +21,17 @@ use domain::base::{Dname, Message, Rtype, ToDname};
 use domain::net::server::buf::VecBufSource;
 use domain::net::server::dgram::DgramServer;
 use domain::net::server::message::Request;
-use domain::net::server::service::{
-    CallResult, ServiceError, Transaction, TransactionStream,
-};
-use domain::net::server::stream::StreamServer;
+use domain::net::server::service::{CallResult, ServiceError};
+// use domain::net::server::stream::StreamServer;
 use domain::net::server::util::{mk_builder_for_target, service_fn};
 use domain::zonefile::inplace;
 use domain::zonetree::{Answer, Rrset};
 use domain::zonetree::{Zone, ZoneTree};
+use futures::stream::{once, FuturesOrdered};
 use octseq::OctetsBuilder;
 use std::future::{pending, ready, Future};
 use std::io::BufReader;
+use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio::net::{TcpListener, UdpSocket};
@@ -76,11 +76,11 @@ async fn main() {
         tokio::spawn(async move { udp_srv.run().await });
     }
 
-    let sock = TcpListener::bind(addr).await.unwrap();
-    let tcp_srv = StreamServer::new(sock, VecBufSource, svc);
-    let tcp_metrics = tcp_srv.metrics();
+    // let sock = TcpListener::bind(addr).await.unwrap();
+    // let tcp_srv = StreamServer::new(sock, VecBufSource, svc);
+    // let tcp_metrics = tcp_srv.metrics();
 
-    tokio::spawn(async move { tcp_srv.run().await });
+    // tokio::spawn(async move { tcp_srv.run().await });
 
     tokio::spawn(async move {
         loop {
@@ -95,14 +95,14 @@ async fn main() {
                     metrics.num_sent_responses(),
                 );
             }
-            eprintln!(
-                "Server status: TCP: #conn={:?}, #in-flight={}, #pending-writes={}, #msgs-recvd={}, #msgs-sent={}",
-                tcp_metrics.num_connections(),
-                tcp_metrics.num_inflight_requests(),
-                tcp_metrics.num_pending_writes(),
-                tcp_metrics.num_received_requests(),
-                tcp_metrics.num_sent_responses(),
-            );
+            // eprintln!(
+            //     "Server status: TCP: #conn={:?}, #in-flight={}, #pending-writes={}, #msgs-recvd={}, #msgs-sent={}",
+            //     tcp_metrics.num_connections(),
+            //     tcp_metrics.num_inflight_requests(),
+            //     tcp_metrics.num_pending_writes(),
+            //     tcp_metrics.num_received_requests(),
+            //     tcp_metrics.num_sent_responses(),
+            // );
         }
     });
 
@@ -113,22 +113,22 @@ async fn main() {
 fn my_service(
     request: Request<Vec<u8>>,
     zones: Arc<ZoneTree>,
-) -> Result<
-    Transaction<
-        Vec<u8>,
-        impl Future<Output = Result<CallResult<Vec<u8>>, ServiceError>> + Send,
-    >,
-    ServiceError,
-> {
+) -> 
+    Box<
+        dyn futures::stream::Stream<
+                Item = Result<CallResult<Vec<u8>>, ServiceError>,
+            > + Send
+            + Unpin,
+    >
+ {
     let qtype = request.message().sole_question().unwrap().qtype();
     match qtype {
         Rtype::AXFR if request.transport_ctx().is_non_udp() => {
-            let fut = handle_axfr_request(request, zones);
-            Ok(Transaction::stream(Box::pin(fut)))
+            Box::new(handle_axfr_request(request, zones))
         }
         _ => {
-            let fut = handle_non_axfr_request(request, zones);
-            Ok(Transaction::single(fut))
+            let fut = Box::pin(handle_non_axfr_request(request, zones));
+            Box::new(once(fut))
         }
     }
 }
@@ -155,11 +155,22 @@ async fn handle_non_axfr_request(
     Ok(CallResult::new(additional))
 }
 
-async fn handle_axfr_request(
+fn handle_axfr_request(
     request: Request<Vec<u8>>,
     zones: Arc<ZoneTree>,
-) -> TransactionStream<Result<CallResult<Vec<u8>>, ServiceError>> {
-    let mut stream = TransactionStream::default();
+) -> FuturesOrdered<
+    Pin<Box<dyn Future<Output = Result<CallResult<Vec<u8>>, ServiceError>> + Send>>,
+> {
+    // let mut stream = TransactionStream::default();
+    let mut stream = FuturesOrdered::<
+        Pin<
+            Box<
+                dyn Future<
+                    Output = Result<CallResult<Vec<u8>>, ServiceError>,
+                > + Send,
+            >,
+        >,
+    >::new();
 
     // Look up the zone for the queried name.
     let question = request.message().sole_question().unwrap();
@@ -261,7 +272,15 @@ async fn handle_axfr_request(
 fn add_to_stream(
     answer: Answer,
     msg: &Message<Vec<u8>>,
-    stream: &mut TransactionStream<Result<CallResult<Vec<u8>>, ServiceError>>,
+    stream: &mut FuturesOrdered<
+        Pin<
+            Box<
+                dyn Future<
+                    Output = Result<CallResult<Vec<u8>>, ServiceError>,
+                > + Send,
+            >,
+        >,
+    >,
 ) {
     let builder = mk_builder_for_target();
     let additional = answer.to_message(msg, builder);
@@ -272,10 +291,18 @@ fn add_to_stream(
 fn add_additional_to_stream(
     mut additional: AdditionalBuilder<domain::base::StreamTarget<Vec<u8>>>,
     msg: &Message<Vec<u8>>,
-    stream: &mut TransactionStream<Result<CallResult<Vec<u8>>, ServiceError>>,
+    stream: &mut FuturesOrdered<
+        Pin<
+            Box<
+                dyn Future<
+                    Output = Result<CallResult<Vec<u8>>, ServiceError>,
+                > + Send,
+            >,
+        >,
+    >,
 ) {
     set_axfr_header(msg, &mut additional);
-    stream.push(ready(Ok(CallResult::new(additional))));
+    stream.push_back(Box::pin(ready(Ok(CallResult::new(additional)))));
 }
 
 fn set_axfr_header<Target>(

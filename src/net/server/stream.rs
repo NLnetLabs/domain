@@ -462,7 +462,7 @@ where
         Listener::StreamType: AsyncRead + AsyncWrite + Send + Sync + 'static,
         Svc: 'static,
         Svc::Target: Send + Sync,
-        Svc::Future: Send,
+        Svc::Stream: Send,
     {
         if let Err(err) = self.run_until_error().await {
             error!("Server stopped due to error: {err}");
@@ -552,7 +552,7 @@ where
         Listener::Future: Send + 'static,
         Listener::StreamType: AsyncRead + AsyncWrite + Send + Sync + 'static,
         Svc: 'static,
-        Svc::Future: Send,
+        Svc::Stream: Send,
         Svc::Target: Send + Sync + 'static,
     {
         let mut command_rx = self.command_rx.clone();
@@ -675,7 +675,7 @@ where
         Listener::Future: Send + 'static,
         Listener::StreamType: AsyncRead + AsyncWrite + Send + Sync + 'static,
         Svc: 'static,
-        Svc::Future: Send,
+        Svc::Stream: Send,
         Svc::Target: Send + Sync + 'static,
     {
         // Work around the compiler wanting to move self to the async block by

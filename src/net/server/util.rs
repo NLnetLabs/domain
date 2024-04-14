@@ -98,21 +98,17 @@ where
 /// [`Vec<u8>`]: std::vec::Vec<u8>
 /// [`CallResult`]: crate::net::server::service::CallResult
 /// [`Result::Ok`]: std::result::Result::Ok
-pub fn service_fn<RequestOctets, Target, Future, T, Metadata>(
+pub fn service_fn<RequestOctets, Target, Stream, T, Metadata>(
     request_handler: T,
     metadata: Metadata,
-) -> impl Service<RequestOctets, Target = Target, Future = Future> + Clone
+) -> impl Service<RequestOctets, Target = Target/*, Stream = Stream */> + Clone
 where
     RequestOctets: AsRef<[u8]>,
-    Future: std::future::Future<
-        Output = Result<CallResult<Target>, ServiceError>,
-    >,
+    Stream: futures::stream::Stream<
+        Item = Result<CallResult<Target>, ServiceError>,
+    > + Send + Unpin,
     Metadata: Clone,
-    T: Fn(
-            Request<RequestOctets>,
-            Metadata,
-        ) -> Result<Transaction<Target, Future>, ServiceError>
-        + Clone,
+    T: Fn(Request<RequestOctets>, Metadata) -> Stream + Clone,
 {
     move |request| request_handler(request, metadata.clone())
 }

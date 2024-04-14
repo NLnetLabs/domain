@@ -1,9 +1,12 @@
 //! Chaining [`MiddlewareProcessor`]s together.
+use core::future::ready;
 use core::ops::{ControlFlow, RangeTo};
 
 use std::fmt::Debug;
 use std::sync::Arc;
 use std::vec::Vec;
+
+use futures::stream::once;
 
 use crate::base::message_builder::AdditionalBuilder;
 use crate::base::wire::Composer;
@@ -97,15 +100,15 @@ where
     /// put pre-processors which protect the server against doing too much
     /// work as early in the chain as possible.
     #[allow(clippy::type_complexity)]
-    pub fn preprocess<Future>(
+    pub fn preprocess(
         &self,
         request: &Request<RequestOctets>,
-    ) -> ControlFlow<(Transaction<Target, Future>, usize)>
-    where
-        Future: std::future::Future<
-                Output = Result<CallResult<Target>, ServiceError>,
+    ) -> ControlFlow<(
+        impl futures::stream::Stream<
+                Item = Result<CallResult<Target>, ServiceError>,
             > + Send,
-    {
+        usize,
+    )> {
         for (i, p) in self.processors.iter().enumerate() {
             match p.preprocess(request) {
                 ControlFlow::Continue(()) => {
@@ -115,11 +118,8 @@ where
                 ControlFlow::Break(response) => {
                     // Stop pre-processing, return the produced response
                     // (after first applying post-processors to it).
-                    let item = Ok(CallResult::new(response));
-                    return ControlFlow::Break((
-                        Transaction::immediate(item),
-                        i,
-                    ));
+                    let item = ready(Ok(CallResult::new(response)));
+                    return ControlFlow::Break((once(item), i));
                 }
             }
         }
