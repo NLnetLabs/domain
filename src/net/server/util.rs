@@ -106,7 +106,8 @@ where
     RequestOctets: AsRef<[u8]>,
     Stream: futures::stream::Stream<
             Item = Result<CallResult<Target>, ServiceError>,
-        > + Send + 'static,
+        > + Send
+        + 'static,
     Metadata: Clone,
     T: Fn(Request<RequestOctets>, Metadata) -> Stream + Clone,
 {

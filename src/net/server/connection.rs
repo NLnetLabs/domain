@@ -6,6 +6,7 @@ use std::io;
 use std::net::SocketAddr;
 use std::sync::Arc;
 
+use futures::StreamExt;
 use octseq::Octets;
 use tokio::io::{
     AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, ReadHalf, WriteHalf,
@@ -21,10 +22,8 @@ use tracing::{debug, enabled, error, trace, warn};
 use crate::base::wire::Composer;
 use crate::base::{Message, StreamTarget};
 use crate::net::server::buf::BufSource;
-// use crate::net::server::message::CommonMessageFlow;
 use crate::net::server::message::Request;
 use crate::net::server::metrics::ServerMetrics;
-// use crate::net::server::middleware::chain::MiddlewareChain;
 use crate::net::server::service::{
     CallResult, Service, ServiceError, ServiceFeedback,
 };
@@ -32,7 +31,6 @@ use crate::net::server::util::to_pcap_text;
 use crate::utils::config::DefMinMax;
 
 use super::message::{NonUdpTransportContext, TransportSpecificContext};
-// use super::middleware::builder::MiddlewareBuilder;
 use super::stream::Config as ServerConfig;
 use super::ServerCommand;
 use std::fmt::Display;
@@ -90,7 +88,7 @@ const MAX_QUEUED_RESPONSES: DefMinMax<usize> = DefMinMax::new(10, 0, 1024);
 //----------- Config ---------------------------------------------------------
 
 /// Configuration for a stream server connection.
-pub struct Config<RequestOctets, Target> {
+pub struct Config {
     /// Limit on the amount of time to allow between client requests.
     ///
     /// This setting can be overridden on a per connection basis by a
@@ -117,17 +115,12 @@ pub struct Config<RequestOctets, Target> {
 
     /// Limit on the number of DNS responses queued for wriing to the client.
     max_queued_responses: usize,
-
     // /// The middleware chain used to pre-process requests and post-process
     // /// responses.
     // middleware_chain: MiddlewareChain<RequestOctets, Target>,
 }
 
-impl<RequestOctets, Target> Config<RequestOctets, Target>
-where
-    RequestOctets: Octets,
-    Target: Composer + Default,
-{
+impl Config {
     /// Creates a new, default config.
     #[allow(dead_code)]
     pub fn new() -> Self {
@@ -231,30 +224,24 @@ where
 
 //--- Default
 
-impl<RequestOctets, Target> Default for Config<RequestOctets, Target>
-where
-    RequestOctets: Octets,
-    Target: Composer + Default,
-{
+impl Default for Config {
     fn default() -> Self {
         Self {
             idle_timeout: IDLE_TIMEOUT.default(),
             response_write_timeout: RESPONSE_WRITE_TIMEOUT.default(),
             max_queued_responses: MAX_QUEUED_RESPONSES.default(),
-            // middleware_chain: MiddlewareBuilder::default().build(),
         }
     }
 }
 
 //--- Clone
 
-impl<RequestOctets, Target> Clone for Config<RequestOctets, Target> {
+impl Clone for Config {
     fn clone(&self) -> Self {
         Self {
             idle_timeout: self.idle_timeout,
             response_write_timeout: self.response_write_timeout,
             max_queued_responses: self.max_queued_responses,
-            // middleware_chain: self.middleware_chain.clone(),
         }
     }
 }
@@ -279,7 +266,7 @@ where
     ///
     /// Note: Some reconfiguration is possible at runtime via
     /// [`ServerCommand::Reconfigure`] and [`ServiceFeedback::Reconfigure`].
-    config: Config<Buf::Output, Svc::Target>,
+    config: Config,
 
     /// The address of the connected client.
     addr: SocketAddr,
@@ -348,7 +335,7 @@ where
         metrics: Arc<ServerMetrics>,
         stream: Stream,
         addr: SocketAddr,
-        config: Config<Buf::Output, Svc::Target>,
+        config: Config,
     ) -> Self {
         let (stream_rx, stream_tx) = tokio::io::split(stream);
         let (result_q_tx, result_q_rx) =
@@ -388,6 +375,10 @@ where
     Buf: BufSource + Send + Sync + Clone + 'static,
     Buf::Output: Octets + Send + Sync,
     Svc: Service<Buf::Output> + Send + Sync + 'static,
+    Svc::Stream: futures::stream::Stream<
+            Item = Result<CallResult<Svc::Target>, ServiceError>,
+        > + Send
+        + Unpin,
     Svc::Target: Send + Composer + Default,
 {
     /// Start reading requests and writing responses to the stream.
@@ -403,9 +394,7 @@ where
     /// for writing.
     pub async fn run(
         mut self,
-        command_rx: watch::Receiver<
-            ServerCommand<ServerConfig<Buf::Output, Svc::Target>>,
-        >,
+        command_rx: watch::Receiver<ServerCommand<ServerConfig>>,
     ) where
         Svc::Stream: Send,
     {
@@ -426,15 +415,16 @@ where
     Buf: BufSource + Send + Sync + Clone + 'static,
     Buf::Output: Octets + Send + Sync,
     Svc: Service<Buf::Output> + Send + Sync + 'static,
-    Svc::Stream: Send,
+    Svc::Stream: futures::stream::Stream<
+            Item = Result<CallResult<Svc::Target>, ServiceError>,
+        > + Send
+        + Unpin,
     Svc::Target: Send + Composer + Default,
 {
     /// Connection handler main loop.
     async fn run_until_error(
         mut self,
-        mut command_rx: watch::Receiver<
-            ServerCommand<ServerConfig<Buf::Output, Svc::Target>>,
-        >,
+        mut command_rx: watch::Receiver<ServerCommand<ServerConfig>>,
     ) {
         // SAFETY: This unwrap is safe because we always put a Some value into
         // self.stream_rx in [`Self::with_config`] above (and thus also in
@@ -514,9 +504,7 @@ where
     fn process_server_command(
         &mut self,
         res: Result<(), watch::error::RecvError>,
-        command_rx: &mut watch::Receiver<
-            ServerCommand<ServerConfig<Buf::Output, Svc::Target>>,
-        >,
+        command_rx: &mut watch::Receiver<ServerCommand<ServerConfig>>,
     ) -> Result<(), ConnectionEvent> {
         // If the parent server no longer exists but was not cleanly shutdown
         // then the command channel will be closed and attempting to check for
@@ -552,7 +540,6 @@ where
                         idle_timeout,
                         response_write_timeout,
                         max_queued_responses: _,
-                        // middleware_chain: _,
                     },
                 .. // Ignore the Server specific configuration settings
             }) => {
@@ -715,13 +702,17 @@ where
         res: Result<Buf::Output, ConnectionEvent>,
     ) -> Result<(), ConnectionEvent>
     where
-        Svc::Stream: Send,
+        Svc::Stream: futures::stream::Stream<
+                Item = Result<CallResult<Svc::Target>, ServiceError>,
+            > + Send
+            + Unpin
+            + Send,
     {
-        res.and_then(|msg| {
+        if let Ok(buf) = res {
             let received_at = Instant::now();
 
             if enabled!(Level::TRACE) {
-                let pcap_text = to_pcap_text(&msg, msg.as_ref().len());
+                let pcap_text = to_pcap_text(&buf, buf.as_ref().len());
                 trace!(addr = %self.addr, pcap_text, "Received message");
             }
 
@@ -730,20 +721,49 @@ where
             // Message received, reset the DNS idle timer
             self.idle_timer.full_msg_received();
 
-            // Process the received message
-            // self.process_request(
-            //     msg,
-            //     received_at,
-            //     self.addr,
-            //     self.config.middleware_chain.clone(),
-            //     &self.service,
-            //     self.metrics.clone(),
-            //     self.result_q_tx.clone(),
-            // )
-            // .map_err(ConnectionEvent::ServiceError)
+            match Message::from_octets(buf) {
+                Err(err) => {
+                    tracing::warn!(
+                        "Failed while parsing request message: {err}"
+                    );
+                    return Err(ConnectionEvent::ServiceError(
+                        ServiceError::FormatError,
+                    ));
+                }
 
-            todo!()
-        })
+                Ok(msg) => {
+                    let ctx = NonUdpTransportContext::new(Some(
+                        self.config.idle_timeout,
+                    ));
+                    let ctx = TransportSpecificContext::NonUdp(ctx);
+                    let request =
+                        Request::new(self.addr, received_at, msg, ctx);
+                    let mut stream = self.service.call(request);
+                    while let Some(Ok(call_result)) = stream.next().await {
+                        match self.result_q_tx.try_send(call_result) {
+                            Ok(()) => {
+                                self.metrics.set_num_pending_writes(
+                                    self.result_q_tx.max_capacity()
+                                        - self.result_q_tx.capacity(),
+                                );
+                            }
+
+                            Err(TrySendError::Closed(_msg)) => {
+                                // TODO: How should we properly communicate this to the operator?
+                                error!("Unable to queue message for sending: server is shutting down.");
+                            }
+
+                            Err(TrySendError::Full(_msg)) => {
+                                // TODO: How should we properly communicate this to the operator?
+                                error!("Unable to queue message for sending: queue is full.");
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(())
     }
 }
 
@@ -761,64 +781,6 @@ where
         }
     }
 }
-
-// //--- CommonMessageFlow
-
-// impl<Stream, Buf, Svc> CommonMessageFlow<Buf, Svc>
-//     for Connection<Stream, Buf, Svc>
-// where
-//     Buf: BufSource,
-//     Buf::Output: Octets + Send + Sync + 'static,
-//     Svc: Service<Buf::Output> + Send + Sync + 'static,
-//     Svc::Target: Send,
-// {
-//     type Meta = Sender<CallResult<Svc::Target>>;
-
-//     /// Add information to the request that relates to the type of server we
-//     /// are and our state where relevant.
-//     fn add_context_to_request(
-//         &self,
-//         request: Message<Buf::Output>,
-//         received_at: Instant,
-//         addr: SocketAddr,
-//     ) -> Request<Buf::Output> {
-//         let ctx = NonUdpTransportContext::new(Some(self.config.idle_timeout));
-//         let ctx = TransportSpecificContext::NonUdp(ctx);
-//         Request::new(addr, received_at, request, ctx)
-//     }
-
-//     /// Process the result from the middleware -> service -> middleware call
-//     /// tree.
-//     fn process_call_result(
-//         _request: &Request<Buf::Output>,
-//         call_result: CallResult<Svc::Target>,
-//         tx: Self::Meta,
-//         metrics: Arc<ServerMetrics>,
-//     ) {
-//         // We can't send in a spawned async task as then we would just
-//         // accumlate tasks even if the target queue is full. We can't call
-//         // `tx.blocking_send()` as that would block the Tokio runtime. So
-//         // instead we try and send and if that fails because the queue is full
-//         // then we abort.
-//         match tx.try_send(call_result) {
-//             Ok(()) => {
-//                 metrics.set_num_pending_writes(
-//                     tx.max_capacity() - tx.capacity(),
-//                 );
-//             }
-
-//             Err(TrySendError::Closed(_msg)) => {
-//                 // TODO: How should we properly communicate this to the operator?
-//                 error!("Unable to queue message for sending: server is shutting down.");
-//             }
-
-//             Err(TrySendError::Full(_msg)) => {
-//                 // TODO: How should we properly communicate this to the operator?
-//                 error!("Unable to queue message for sending: queue is full.");
-//             }
-//         }
-//     }
-// }
 
 //----------- DnsMessageReceiver ---------------------------------------------
 

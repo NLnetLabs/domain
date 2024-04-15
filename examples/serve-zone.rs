@@ -22,7 +22,7 @@ use domain::net::server::buf::VecBufSource;
 use domain::net::server::dgram::DgramServer;
 use domain::net::server::message::Request;
 use domain::net::server::service::{CallResult, ServiceError};
-// use domain::net::server::stream::StreamServer;
+use domain::net::server::stream::StreamServer;
 use domain::net::server::util::{mk_builder_for_target, service_fn};
 use domain::zonefile::inplace;
 use domain::zonetree::{Answer, Rrset};
@@ -75,14 +75,14 @@ async fn main() {
             DgramServer::new(sock.clone(), VecBufSource, svc.clone());
         let metrics = udp_srv.metrics();
         udp_metrics.push(metrics);
-        tokio::spawn(async move { udp_srv.run().await });
+        tokio::spawn(udp_srv.run());
     }
 
-    // let sock = TcpListener::bind(addr).await.unwrap();
-    // let tcp_srv = StreamServer::new(sock, VecBufSource, svc);
-    // let tcp_metrics = tcp_srv.metrics();
+    let sock = TcpListener::bind(addr).await.unwrap();
+    let tcp_srv = StreamServer::new(sock, VecBufSource, svc);
+    let tcp_metrics = tcp_srv.metrics();
 
-    // tokio::spawn(async move { tcp_srv.run().await });
+    tokio::spawn(tcp_srv.run());
 
     tokio::spawn(async move {
         loop {
@@ -97,14 +97,14 @@ async fn main() {
                     metrics.num_sent_responses(),
                 );
             }
-            // eprintln!(
-            //     "Server status: TCP: #conn={:?}, #in-flight={}, #pending-writes={}, #msgs-recvd={}, #msgs-sent={}",
-            //     tcp_metrics.num_connections(),
-            //     tcp_metrics.num_inflight_requests(),
-            //     tcp_metrics.num_pending_writes(),
-            //     tcp_metrics.num_received_requests(),
-            //     tcp_metrics.num_sent_responses(),
-            // );
+            eprintln!(
+                "Server status: TCP: #conn={:?}, #in-flight={}, #pending-writes={}, #msgs-recvd={}, #msgs-sent={}",
+                tcp_metrics.num_connections(),
+                tcp_metrics.num_inflight_requests(),
+                tcp_metrics.num_pending_writes(),
+                tcp_metrics.num_received_requests(),
+                tcp_metrics.num_sent_responses(),
+            );
         }
     });
 
@@ -131,7 +131,8 @@ enum SingleOrStream {
         Box<
             dyn futures::stream::Stream<
                     Item = Result<CallResult<Vec<u8>>, ServiceError>,
-                > + Unpin + Send,
+                > + Unpin
+                + Send,
         >,
     ),
 }
@@ -201,7 +202,6 @@ fn handle_axfr_request(
         >,
     >,
 > {
-    // let mut stream = TransactionStream::default();
     let mut stream = FuturesOrdered::<
         Pin<
             Box<
