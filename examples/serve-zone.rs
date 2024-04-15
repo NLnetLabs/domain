@@ -75,14 +75,14 @@ async fn main() {
             DgramServer::new(sock.clone(), VecBufSource, svc.clone());
         let metrics = udp_srv.metrics();
         udp_metrics.push(metrics);
-        tokio::spawn(udp_srv.run());
+        tokio::spawn(async move { udp_srv.run().await });
     }
 
     let sock = TcpListener::bind(addr).await.unwrap();
     let tcp_srv = StreamServer::new(sock, VecBufSource, svc);
     let tcp_metrics = tcp_srv.metrics();
 
-    tokio::spawn(tcp_srv.run());
+    tokio::spawn(async move { tcp_srv.run().await });
 
     tokio::spawn(async move {
         loop {
