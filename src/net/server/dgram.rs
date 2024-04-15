@@ -46,6 +46,7 @@ use crate::utils::config::DefMinMax;
 
 use super::buf::VecBufSource;
 use super::message::{TransportSpecificContext, UdpTransportContext};
+use super::service::ServiceError;
 // use super::middleware::builder::MiddlewareBuilder;
 use super::ServerCommand;
 use crate::base::wire::Composer;
@@ -302,6 +303,10 @@ where
     Buf::Output: Octets + Send + Sync,
     Svc: Service<Buf::Output> + Send + Sync + 'static + Clone,
     Svc::Target: Send + Composer + Default,
+    Svc::Stream: futures::stream::Stream<
+            Item = Result<CallResult<Svc::Target>, ServiceError>,
+        > + Send
+        + Unpin,
 {
     /// The configuration of the server.
     config: Arc<ArcSwap<Config /*<Buf::Output, Svc::Target>*/>>,
@@ -340,6 +345,10 @@ where
     Buf::Output: Octets + Send + Sync,
     Svc: Service<Buf::Output> + Send + Sync + Clone,
     Svc::Target: Send + Composer + Default,
+    Svc::Stream: futures::stream::Stream<
+            Item = Result<CallResult<Svc::Target>, ServiceError>,
+        > + Send
+        + Unpin,
 {
     /// Constructs a new [`DgramServer`] with default configuration.
     ///
@@ -395,6 +404,10 @@ where
     Buf::Output: Octets + Send + Sync + 'static + Debug,
     Svc: Service<Buf::Output> + Send + Sync + 'static + Clone,
     Svc::Target: Send + Composer + Debug + Default,
+    Svc::Stream: futures::stream::Stream<
+            Item = Result<CallResult<Svc::Target>, ServiceError>,
+        > + Send
+        + Unpin,
 {
     /// Get a reference to the network source being used to receive messages.
     #[must_use]
@@ -418,6 +431,10 @@ where
     Buf::Output: Octets + Send + Sync + 'static,
     Svc: Service<Buf::Output> + Send + Sync + 'static + Clone,
     Svc::Target: Send + Composer + Default,
+    Svc::Stream: futures::stream::Stream<
+            Item = Result<CallResult<Svc::Target>, ServiceError>,
+        > + Send
+        + Unpin,
 {
     /// Start the server.
     ///
@@ -506,6 +523,10 @@ where
     Buf::Output: Octets + Send + Sync + 'static,
     Svc: Service<Buf::Output> + Send + Sync + 'static + Clone,
     Svc::Target: Send + Composer + Default,
+    Svc::Stream: futures::stream::Stream<
+            Item = Result<CallResult<Svc::Target>, ServiceError>,
+        > + Send
+        + Unpin,
 {
     /// Receive incoming messages until shutdown or fatal error.
     async fn run_until_error(&self) -> Result<(), String>
@@ -592,6 +613,8 @@ where
                                             let pcap_text = to_pcap_text(bytes, bytes.len());
                                             trace!(%addr, pcap_text, "Sending response");
                                         }
+
+                                        metrics.inc_num_pending_writes();
 
                                         // Actually write the DNS response message bytes to the UDP
                                         // socket.
@@ -804,6 +827,10 @@ where
     Buf::Output: Octets + Send + Sync,
     Svc: Service<Buf::Output> + Send + Sync + 'static + Clone,
     Svc::Target: Send + Composer + Default,
+    Svc::Stream: futures::stream::Stream<
+            Item = Result<CallResult<Svc::Target>, ServiceError>,
+        > + Send
+        + Unpin,
 {
     fn drop(&mut self) {
         // Shutdown the DgramServer. Don't handle the failure case here as

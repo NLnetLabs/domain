@@ -14,7 +14,7 @@ use crate::base::{MessageBuilder, ParsedDname, Rtype, StreamTarget};
 use crate::rdata::AllRecordData;
 
 use super::message::Request;
-use super::service::{CallResult, Service, ServiceError, Transaction};
+use super::service::{CallResult, Service, ServiceError};
 use crate::base::iana::Rcode;
 
 //----------- mk_builder_for_target() ----------------------------------------
@@ -101,12 +101,12 @@ where
 pub fn service_fn<RequestOctets, Target, Stream, T, Metadata>(
     request_handler: T,
     metadata: Metadata,
-) -> impl Service<RequestOctets, Target = Target/*, Stream = Stream */> + Clone
+) -> impl Service<RequestOctets, Target = Target, Stream = Stream> + Clone
 where
     RequestOctets: AsRef<[u8]>,
     Stream: futures::stream::Stream<
-        Item = Result<CallResult<Target>, ServiceError>,
-    > + Send + Unpin,
+            Item = Result<CallResult<Target>, ServiceError>,
+        > + Send + 'static,
     Metadata: Clone,
     T: Fn(Request<RequestOctets>, Metadata) -> Stream + Clone,
 {

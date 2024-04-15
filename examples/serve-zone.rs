@@ -27,10 +27,12 @@ use domain::net::server::util::{mk_builder_for_target, service_fn};
 use domain::zonefile::inplace;
 use domain::zonetree::{Answer, Rrset};
 use domain::zonetree::{Zone, ZoneTree};
-use futures::stream::{once, FuturesOrdered};
+use futures::stream::{once, FuturesOrdered, Once};
+use futures::StreamExt;
 use octseq::OctetsBuilder;
 use std::future::{pending, ready, Future};
 use std::io::BufReader;
+use std::ops::DerefMut;
 use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -109,27 +111,60 @@ async fn main() {
     pending::<()>().await;
 }
 
+enum SingleOrStream {
+    Single(
+        Once<
+            Pin<
+                Box<
+                    dyn std::future::Future<
+                            Output = Result<
+                                CallResult<Vec<u8>>,
+                                ServiceError,
+                            >,
+                        > + Send,
+                >,
+            >,
+        >,
+    ),
+
+    Stream(
+        Box<
+            dyn futures::stream::Stream<
+                    Item = Result<CallResult<Vec<u8>>, ServiceError>,
+                > + Unpin + Send,
+        >,
+    ),
+}
+
+impl futures::stream::Stream for SingleOrStream {
+    type Item = Result<CallResult<Vec<u8>>, ServiceError>;
+
+    fn poll_next(
+        mut self: Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Option<Self::Item>> {
+        match self.deref_mut() {
+            SingleOrStream::Single(s) => s.poll_next_unpin(cx),
+            SingleOrStream::Stream(s) => s.poll_next_unpin(cx),
+        }
+    }
+}
+
 #[allow(clippy::type_complexity)]
 fn my_service(
     request: Request<Vec<u8>>,
     zones: Arc<ZoneTree>,
-) -> 
-    Box<
-        dyn futures::stream::Stream<
-                Item = Result<CallResult<Vec<u8>>, ServiceError>,
-            > + Send
-            + Unpin,
-    >
- {
+) -> SingleOrStream {
     let qtype = request.message().sole_question().unwrap().qtype();
     match qtype {
         Rtype::AXFR if request.transport_ctx().is_non_udp() => {
-            Box::new(handle_axfr_request(request, zones))
+            SingleOrStream::Stream(Box::new(handle_axfr_request(
+                request, zones,
+            )))
         }
-        _ => {
-            let fut = Box::pin(handle_non_axfr_request(request, zones));
-            Box::new(once(fut))
-        }
+        _ => SingleOrStream::Single(once(Box::pin(handle_non_axfr_request(
+            request, zones,
+        )))),
     }
 }
 
@@ -159,15 +194,19 @@ fn handle_axfr_request(
     request: Request<Vec<u8>>,
     zones: Arc<ZoneTree>,
 ) -> FuturesOrdered<
-    Pin<Box<dyn Future<Output = Result<CallResult<Vec<u8>>, ServiceError>> + Send>>,
+    Pin<
+        Box<
+            dyn Future<Output = Result<CallResult<Vec<u8>>, ServiceError>>
+                + Send,
+        >,
+    >,
 > {
     // let mut stream = TransactionStream::default();
     let mut stream = FuturesOrdered::<
         Pin<
             Box<
-                dyn Future<
-                    Output = Result<CallResult<Vec<u8>>, ServiceError>,
-                > + Send,
+                dyn Future<Output = Result<CallResult<Vec<u8>>, ServiceError>>
+                    + Send,
             >,
         >,
     >::new();
@@ -275,9 +314,8 @@ fn add_to_stream(
     stream: &mut FuturesOrdered<
         Pin<
             Box<
-                dyn Future<
-                    Output = Result<CallResult<Vec<u8>>, ServiceError>,
-                > + Send,
+                dyn Future<Output = Result<CallResult<Vec<u8>>, ServiceError>>
+                    + Send,
             >,
         >,
     >,
@@ -294,9 +332,8 @@ fn add_additional_to_stream(
     stream: &mut FuturesOrdered<
         Pin<
             Box<
-                dyn Future<
-                    Output = Result<CallResult<Vec<u8>>, ServiceError>,
-                > + Send,
+                dyn Future<Output = Result<CallResult<Vec<u8>>, ServiceError>>
+                    + Send,
             >,
         >,
     >,

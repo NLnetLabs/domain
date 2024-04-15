@@ -296,7 +296,7 @@ impl MyService {
 
 impl Service<Vec<u8>> for MyService {
     type Target = Vec<u8>;
-    // type Stream = MySingle;
+    type Stream = MySingle;
 
     fn call(&self, _msg: Request<Vec<u8>>) -> MySingle {
         MySingle

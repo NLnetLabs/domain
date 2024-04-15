@@ -203,18 +203,15 @@ pub trait Service<RequestOctets: AsRef<[u8]> = Vec<u8>> {
     /// The type of buffer in which response messages are stored.
     type Target;
 
+    type Stream;
+
     /// The type of future returned by [`Service::call()`] via
     /// [`Transaction::single()`].
     // type Item: ;
 
     /// Generate a response to a fully pre-processed request.
     #[allow(clippy::type_complexity)]
-    fn call(
-        &self,
-        request: Request<RequestOctets>,
-    ) -> impl futures::stream::Stream<
-        Item = Result<CallResult<Self::Target>, ServiceError>,
-    > + Send + Unpin;
+    fn call(&self, request: Request<RequestOctets>) -> Self::Stream;
 }
 
 /// Helper trait impl to treat an [`Arc<impl Service>`] as a [`Service`].
@@ -222,13 +219,9 @@ impl<RequestOctets: AsRef<[u8]>, T: Service<RequestOctets>>
     Service<RequestOctets> for Arc<T>
 {
     type Target = T::Target;
+    type Stream = T::Stream;
 
-    fn call(
-        &self,
-        request: Request<RequestOctets>,
-    ) -> impl futures::stream::Stream<
-        Item = Result<CallResult<Self::Target>, ServiceError>,
-    > {
+    fn call(&self, request: Request<RequestOctets>) -> Self::Stream {
         Arc::deref(self).call(request)
     }
 }
@@ -237,21 +230,16 @@ impl<RequestOctets: AsRef<[u8]>, T: Service<RequestOctets>>
 impl<RequestOctets, Stream, Target, F> Service<RequestOctets> for F
 where
     RequestOctets: AsRef<[u8]>,
-    F: Fn(
-        Request<RequestOctets>,
-    ) -> Stream,
+    F: Fn(Request<RequestOctets>) -> Stream,
     Stream: futures::stream::Stream<
-        Item = Result<CallResult<Target>, ServiceError>,
-    > + Send + Unpin
+            Item = Result<CallResult<Target>, ServiceError>,
+        > + Send
+        + 'static,
 {
     type Target = Target;
+    type Stream = Stream;
 
-    fn call(
-        &self,
-        request: Request<RequestOctets>,
-    ) -> impl futures::stream::Stream<
-        Item = Result<CallResult<Self::Target>, ServiceError>,
-    > + Send + Unpin {
+    fn call(&self, request: Request<RequestOctets>) -> Self::Stream {
         (*self)(request)
     }
 }

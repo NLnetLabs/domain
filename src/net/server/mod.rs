@@ -217,7 +217,7 @@ pub mod dgram;
 pub mod error;
 pub mod message;
 pub mod metrics;
-// pub mod middleware;
+pub mod middleware;
 pub mod service;
 pub mod sock;
 // pub mod stream;
