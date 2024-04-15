@@ -12,7 +12,7 @@ use crate::base::message_builder::AdditionalBuilder;
 use crate::base::wire::Composer;
 use crate::base::StreamTarget;
 use crate::net::server::message::Request;
-use crate::net::server::service::{CallResult, ServiceError, Transaction};
+use crate::net::server::service::{CallResult, ServiceError};
 
 use super::processor::MiddlewareProcessor;
 

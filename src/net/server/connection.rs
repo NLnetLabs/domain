@@ -12,7 +12,6 @@ use tokio::io::{
     AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, ReadHalf, WriteHalf,
 };
 use tokio::sync::mpsc::error::TrySendError;
-use tokio::sync::mpsc::Sender;
 use tokio::sync::{mpsc, watch};
 use tokio::time::Instant;
 use tokio::time::{sleep_until, timeout};
