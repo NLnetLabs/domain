@@ -6,3 +6,4 @@ pub mod error;
 pub mod inplace;
 #[cfg(feature = "unstable-zonetree")]
 pub mod parsed;
+pub mod types;

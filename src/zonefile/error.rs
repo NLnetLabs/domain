@@ -6,7 +6,7 @@ use std::fmt::Display;
 use std::vec::Vec;
 
 use crate::base::Rtype;
-use crate::zonetree::{StoredDname, StoredRecord};
+use crate::zonefile::types::{StoredDname, StoredRecord};
 
 use super::inplace;
 

@@ -1,24 +1,12 @@
-use crate::base::name::Dname;
-use crate::base::rdata::RecordData;
-use crate::base::record::Record;
-use crate::base::{iana::Rtype, Ttl};
-use crate::rdata::ZoneRecordData;
-use bytes::Bytes;
-use serde::{Deserialize, Serialize};
 use std::ops;
 use std::sync::Arc;
 use std::vec::Vec;
 
-//------------ Type Aliases --------------------------------------------------
+use serde::{Deserialize, Serialize};
 
-/// A [`Bytes`] backed [`Dname`].
-pub type StoredDname = Dname<Bytes>;
-
-/// A [`Bytes`] backed [`ZoneRecordData`].
-pub type StoredRecordData = ZoneRecordData<Bytes, StoredDname>;
-
-/// A [`Bytes`] backed [`Record`].`
-pub type StoredRecord = Record<StoredDname, StoredRecordData>;
+use crate::base::rdata::RecordData;
+use crate::base::{iana::Rtype, Ttl};
+use crate::zonefile::types::{StoredDname, StoredRecord, StoredRecordData};
 
 //------------ SharedRr ------------------------------------------------------
 

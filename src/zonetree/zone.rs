@@ -6,11 +6,12 @@ use std::sync::Arc;
 
 use crate::base::iana::Class;
 use crate::zonefile::error::{RecordError, ZoneErrors};
+use crate::zonefile::types::StoredDname;
 use crate::zonefile::{inplace, parsed};
 
 use super::in_memory::ZoneBuilder;
 use super::traits::WritableZone;
-use super::{ReadableZone, StoredDname, ZoneStore};
+use super::{ReadableZone, ZoneStore};
 
 //------------ Zone ----------------------------------------------------------
 

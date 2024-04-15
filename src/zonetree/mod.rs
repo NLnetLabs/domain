@@ -94,8 +94,6 @@ pub use self::traits::{
     ReadableZone, WritableZone, WritableZoneNode, ZoneStore,
 };
 pub use self::tree::ZoneTree;
-pub use self::types::{
-    Rrset, SharedRr, SharedRrset, StoredDname, StoredRecord,
-};
+pub use self::types::{Rrset, SharedRr, SharedRrset};
 pub use self::walk::WalkOp;
 pub use self::zone::Zone;

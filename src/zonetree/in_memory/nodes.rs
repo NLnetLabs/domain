@@ -14,10 +14,11 @@ use tokio::sync::Mutex;
 use crate::base::iana::{Class, Rtype};
 use crate::base::name::{Label, OwnedLabel, ToDname, ToLabelIter};
 use crate::zonefile::error::{CnameError, OutOfZone, ZoneCutError};
+use crate::zonefile::types::StoredDname;
 use crate::zonetree::types::ZoneCut;
 use crate::zonetree::walk::WalkState;
 use crate::zonetree::{
-    ReadableZone, SharedRr, SharedRrset, StoredDname, WritableZone, ZoneStore,
+    ReadableZone, SharedRr, SharedRrset, WritableZone, ZoneStore,
 };
 
 use super::read::ReadZone;

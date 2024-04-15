@@ -1,14 +1,17 @@
 //! Answers to zone tree queries.
 
-//------------ Answer --------------------------------------------------------
+use octseq::Octets;
 
-use super::{SharedRr, SharedRrset, StoredDname};
 use crate::base::iana::Rcode;
 use crate::base::message_builder::AdditionalBuilder;
 use crate::base::wire::Composer;
 use crate::base::Message;
 use crate::base::MessageBuilder;
-use octseq::Octets;
+use crate::zonefile::types::StoredDname;
+
+use super::{SharedRr, SharedRrset};
+
+//------------ Answer --------------------------------------------------------
 
 /// A DNS answer to a query against a [`Zone`].
 ///
