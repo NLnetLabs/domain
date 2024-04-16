@@ -12,6 +12,7 @@ use futures_util::StreamExt;
 use octseq::Octets;
 use tracing::{debug, enabled, error, trace, warn, Level};
 
+use super::mandatory::MINIMUM_RESPONSE_BYTE_LEN;
 use crate::base::iana::{OptRcode, OptionCode};
 use crate::base::message_builder::AdditionalBuilder;
 use crate::base::opt::keepalive::IdleTimeout;
@@ -19,7 +20,6 @@ use crate::base::opt::{Opt, OptRecord, TcpKeepalive};
 use crate::base::wire::Composer;
 use crate::base::StreamTarget;
 use crate::net::server::message::{Request, TransportSpecificContext};
-use crate::net::server::middleware::processors::mandatory::MINIMUM_RESPONSE_BYTE_LEN;
 use crate::net::server::middleware::util::MiddlewareStream;
 use crate::net::server::service::{CallResult, Service, ServiceError};
 use crate::net::server::util::start_reply;
@@ -461,7 +461,7 @@ mod tests {
     };
 
     use crate::base::iana::Rcode;
-    use crate::net::server::middleware::processors::mandatory::MINIMUM_RESPONSE_BYTE_LEN;
+    use crate::net::server::middleware::mandatory::MINIMUM_RESPONSE_BYTE_LEN;
     use crate::net::server::service::{CallResult, Service, ServiceError};
     use crate::net::server::util::{mk_builder_for_target, service_fn};
 

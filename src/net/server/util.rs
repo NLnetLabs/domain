@@ -199,11 +199,11 @@ where
 ///
 /// If the response already has an OPT record the options will be added to
 /// that. Otherwise an OPT record will be created to hold the new options.
-/// 
+///
 /// Similar to [`AdditionalBuilder::opt`] a caller supplied closure is passed
 /// an [`OptBuilder`] which can be used to add EDNS options and set EDNS
 /// header fields.
-/// 
+///
 /// However, unlike [`AdditionalBuilder::opt`], the closure is also passed a
 /// collection of option codes for the options that already exist so that the
 /// caller can avoid adding the same type of option more than once if that is
@@ -268,7 +268,8 @@ where
                 // Copy the header fields
                 builder.set_version(current_opt.version());
                 builder.set_dnssec_ok(current_opt.dnssec_ok());
-                builder.set_rcode(current_opt.rcode(copied_response.header()));
+                builder
+                    .set_rcode(current_opt.rcode(copied_response.header()));
                 builder.set_udp_payload_size(current_opt.udp_payload_size());
 
                 // Copy the options

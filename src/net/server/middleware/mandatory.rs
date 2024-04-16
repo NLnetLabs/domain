@@ -1,17 +1,25 @@
 //! Core DNS RFC standards based message processing for MUST requirements.
+use core::future::ready;
+use core::marker::PhantomData;
 use core::ops::ControlFlow;
+use core::pin::Pin;
+use core::task::{Context, Poll};
 
+use std::fmt::Display;
+
+use futures::stream::once;
+use futures::{Stream, StreamExt};
 use octseq::Octets;
 use tracing::{debug, error, trace, warn};
 
+use super::util::MiddlewareStream;
 use crate::base::iana::{Opcode, Rcode};
 use crate::base::message_builder::{AdditionalBuilder, PushError};
 use crate::base::wire::{Composer, ParseError};
 use crate::base::StreamTarget;
 use crate::net::server::message::{Request, TransportSpecificContext};
-use crate::net::server::middleware::processor::MiddlewareProcessor;
+use crate::net::server::service::{CallResult, Service, ServiceError};
 use crate::net::server::util::{mk_builder_for_target, start_reply};
-use std::fmt::Display;
 
 /// The minimum legal UDP response size in bytes.
 ///
@@ -35,34 +43,48 @@ pub const MINIMUM_RESPONSE_BYTE_LEN: u16 = 512;
 /// [1035]: https://datatracker.ietf.org/doc/html/rfc1035
 /// [2181]: https://datatracker.ietf.org/doc/html/rfc2181
 #[derive(Debug)]
-pub struct MandatoryMiddlewareProcessor {
+pub struct MandatoryMiddlewareSvc<RequestOctets, S, Target> {
     /// In strict mode the processor does more checks on requests and
     /// responses.
     strict: bool,
+
+    inner: S,
+
+    _phantom: PhantomData<(RequestOctets, Target)>,
 }
 
-impl MandatoryMiddlewareProcessor {
+impl<RequestOctets, S, Target>
+    MandatoryMiddlewareSvc<RequestOctets, S, Target>
+{
     /// Creates a new processor instance.
     ///
     /// The processor will operate in strict mode.
     #[must_use]
-    pub fn new() -> Self {
-        Self { strict: true }
+    pub fn new(inner: S) -> Self {
+        Self {
+            strict: true,
+            inner,
+            _phantom: PhantomData,
+        }
     }
 
     /// Creates a new processor instance.
     ///
     /// The processor will operate in relaxed mode.
     #[must_use]
-    pub fn relaxed() -> Self {
-        Self { strict: false }
+    pub fn relaxed(inner: S) -> Self {
+        Self {
+            strict: false,
+            inner,
+            _phantom: PhantomData,
+        }
     }
 
     /// Create a DNS error response to the given request with the given RCODE.
-    fn error_response<RequestOctets, Target>(
-        &self,
+    fn error_response(
         request: &Request<RequestOctets>,
         rcode: Rcode,
+        strict: bool,
     ) -> AdditionalBuilder<StreamTarget<Target>>
     where
         RequestOctets: Octets,
@@ -71,12 +93,14 @@ impl MandatoryMiddlewareProcessor {
         let mut response = start_reply(request);
         response.header_mut().set_rcode(rcode);
         let mut additional = response.additional();
-        self.postprocess(request, &mut additional);
+        Self::postprocess(request, &mut additional, strict);
         additional
     }
 }
 
-impl MandatoryMiddlewareProcessor {
+impl<RequestOctets, S, Target>
+    MandatoryMiddlewareSvc<RequestOctets, S, Target>
+{
     /// Truncate the given response message if it is too large.
     ///
     /// Honours either a transport supplied hint, if present in the given
@@ -87,13 +111,13 @@ impl MandatoryMiddlewareProcessor {
     /// Truncation discards the authority and additional sections, except for
     /// any OPT record present which will be preserved, then truncates to the
     /// specified byte length.
-    fn truncate<RequestOctets, Target>(
+    fn truncate(
         request: &Request<RequestOctets>,
         response: &mut AdditionalBuilder<StreamTarget<Target>>,
     ) -> Result<(), TruncateError>
     where
+        RequestOctets: Octets,
         Target: Composer + Default,
-        RequestOctets: AsRef<[u8]>,
     {
         if let TransportSpecificContext::Udp(ctx) = request.transport_ctx() {
             // https://datatracker.ietf.org/doc/html/rfc1035#section-4.2.1
@@ -186,24 +210,15 @@ impl MandatoryMiddlewareProcessor {
 
         Ok(())
     }
-}
 
-//--- MiddlewareProcessor
-
-// TODO: If we extend this later to do a lot more than setting a couple of
-// header flags, and if we think that there may be a need for alternate
-// truncation strategies, then it might make sense to factor out truncation to
-// make it "pluggable" by the user.
-impl<RequestOctets, Target> MiddlewareProcessor<RequestOctets, Target>
-    for MandatoryMiddlewareProcessor
-where
-    RequestOctets: AsRef<[u8]> + Octets,
-    Target: Composer + Default,
-{
     fn preprocess(
         &self,
         request: &Request<RequestOctets>,
-    ) -> ControlFlow<AdditionalBuilder<StreamTarget<Target>>> {
+    ) -> ControlFlow<AdditionalBuilder<StreamTarget<Target>>>
+    where
+        RequestOctets: Octets,
+        Target: Composer + Default,
+    {
         // https://www.rfc-editor.org/rfc/rfc3425.html
         // 3 - Effect on RFC 1035
         //   ..
@@ -215,22 +230,28 @@ where
             debug!(
                 "RFC 3425 3 violation: request opcode IQUERY is obsolete."
             );
-            return ControlFlow::Break(
-                self.error_response(request, Rcode::NOTIMP),
-            );
+            return ControlFlow::Break(Self::error_response(
+                request,
+                Rcode::NOTIMP,
+                self.strict,
+            ));
         }
 
         ControlFlow::Continue(())
     }
 
     fn postprocess(
-        &self,
         request: &Request<RequestOctets>,
         response: &mut AdditionalBuilder<StreamTarget<Target>>,
-    ) {
+        strict: bool,
+    ) where
+        RequestOctets: Octets,
+        Target: Composer + Default,
+    {
         if let Err(err) = Self::truncate(request, response) {
             error!("Error while truncating response: {err}");
-            *response = self.error_response(request, Rcode::SERVFAIL);
+            *response =
+                Self::error_response(request, Rcode::SERVFAIL, strict);
             return;
         }
 
@@ -264,7 +285,7 @@ where
         // opcode 1, which was obsoleted by RFC 4325) contain the question
         // from the request. So we would expect the number of questions in the
         // response to match the number of questions in the request.
-        if self.strict
+        if strict
             && !request.message().header_counts().qdcount()
                 == response.counts().qdcount()
         {
@@ -273,11 +294,121 @@ where
     }
 }
 
-//--- Default
+//--- Service
 
-impl Default for MandatoryMiddlewareProcessor {
-    fn default() -> Self {
-        Self::new()
+impl<RequestOctets, S, Target> Service<RequestOctets>
+    for MandatoryMiddlewareSvc<RequestOctets, S, Target>
+where
+    RequestOctets: Octets + 'static,
+    S: Service<RequestOctets>,
+    S::Stream: futures::stream::Stream<
+            Item = Result<CallResult<Target>, ServiceError>,
+        > + Unpin
+        + 'static,
+    Target: Composer + Default + 'static + Unpin,
+{
+    type Target = Target;
+    type Stream = MiddlewareStream<
+        S::Stream,
+        PostprocessingStream<RequestOctets, Target, S::Stream>,
+        Target,
+    >;
+
+    fn call(&self, request: Request<RequestOctets>) -> Self::Stream {
+        match self.preprocess(&request) {
+            ControlFlow::Continue(()) => {
+                let st = self.inner.call(request.clone());
+                let map = PostprocessingStream::new(st, request, self.strict);
+                MiddlewareStream::Postprocess(map)
+            }
+            ControlFlow::Break(mut response) => {
+                Self::postprocess(&request, &mut response, self.strict);
+                MiddlewareStream::HandledOne(once(ready(Ok(
+                    CallResult::new(response),
+                ))))
+            }
+        }
+    }
+}
+
+pub struct PostprocessingStream<
+    RequestOctets,
+    Target,
+    InnerServiceResponseStream,
+> where
+    RequestOctets: Octets,
+    InnerServiceResponseStream: futures::stream::Stream<
+        Item = Result<CallResult<Target>, ServiceError>,
+    >,
+{
+    request: Request<RequestOctets>,
+    strict: bool,
+    _phantom: PhantomData<Target>,
+    stream: InnerServiceResponseStream,
+}
+
+impl<RequestOctets, Target, InnerServiceResponseStream>
+    PostprocessingStream<RequestOctets, Target, InnerServiceResponseStream>
+where
+    RequestOctets: Octets,
+    InnerServiceResponseStream: futures::stream::Stream<
+        Item = Result<CallResult<Target>, ServiceError>,
+    >,
+{
+    pub(crate) fn new(
+        stream: InnerServiceResponseStream,
+        request: Request<RequestOctets>,
+        strict: bool,
+    ) -> Self {
+        Self {
+            stream,
+            request,
+            strict,
+            _phantom: PhantomData,
+        }
+    }
+}
+
+impl<RequestOctets, Target, InnerServiceResponseStream> Stream
+    for PostprocessingStream<
+        RequestOctets,
+        Target,
+        InnerServiceResponseStream,
+    >
+where
+    RequestOctets: Octets,
+    InnerServiceResponseStream: futures::stream::Stream<
+            Item = Result<CallResult<Target>, ServiceError>,
+        > + Unpin,
+    Target: Composer + Default + Unpin,
+{
+    type Item = Result<CallResult<Target>, ServiceError>;
+
+    fn poll_next(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+    ) -> Poll<Option<Self::Item>> {
+        let res = futures::ready!(self.stream.poll_next_unpin(cx));
+        let request = self.request.clone();
+        let strict = self.strict;
+        Poll::Ready(res.map(|mut res| {
+            if let Ok(cr) = &mut res {
+                if let Some(response) = cr.get_response_mut() {
+                    MandatoryMiddlewareSvc::<
+                        RequestOctets,
+                        InnerServiceResponseStream,
+                        Target,
+                    >::postprocess(
+                        &request, response, strict
+                    );
+                }
+            }
+            res
+        }))
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.stream.size_hint()
     }
 }
 
@@ -320,23 +451,26 @@ impl From<PushError> for TruncateError {
 
 #[cfg(test)]
 mod tests {
-    use core::ops::ControlFlow;
+    use core::pin::Pin;
 
+    use std::boxed::Box;
     use std::vec::Vec;
 
     use bytes::Bytes;
+    use futures::stream::Once;
+    use futures::StreamExt;
+    use octseq::OctetsBuilder;
     use tokio::time::Instant;
 
+    use crate::base::iana::{OptionCode, Rcode};
     use crate::base::{Dname, MessageBuilder, Rtype};
     use crate::net::server::message::{
         Request, TransportSpecificContext, UdpTransportContext,
     };
+    use crate::net::server::service::{CallResult, Service, ServiceError};
+    use crate::net::server::util::{mk_builder_for_target, service_fn};
 
-    use super::MandatoryMiddlewareProcessor;
-    use crate::base::iana::OptionCode;
-    use crate::net::server::middleware::processor::MiddlewareProcessor;
-    use crate::net::server::middleware::processors::mandatory::MINIMUM_RESPONSE_BYTE_LEN;
-    use octseq::OctetsBuilder;
+    use super::{MandatoryMiddlewareSvc, MINIMUM_RESPONSE_BYTE_LEN};
 
     //------------ Constants -------------------------------------------------
 
@@ -347,25 +481,25 @@ mod tests {
 
     //------------ Tests -----------------------------------------------------
 
-    #[test]
-    fn clamp_max_response_size_correctly() {
-        assert!(process(None) <= Some(MIN_ALLOWED as usize));
-        assert!(process(Some(TOO_SMALL)) <= Some(MIN_ALLOWED as usize));
-        assert!(process(Some(TOO_SMALL)) <= Some(MIN_ALLOWED as usize));
-        assert!(process(Some(TOO_SMALL)) <= Some(MIN_ALLOWED as usize));
-        assert!(process(Some(JUST_RIGHT)) <= Some(JUST_RIGHT as usize));
-        assert!(process(Some(JUST_RIGHT)) <= Some(JUST_RIGHT as usize));
-        assert!(process(Some(JUST_RIGHT)) <= Some(JUST_RIGHT as usize));
-        assert!(process(Some(HUGE)) <= Some(HUGE as usize));
-        assert!(process(Some(HUGE)) <= Some(HUGE as usize));
-        assert!(process(Some(HUGE)) <= Some(HUGE as usize));
+    #[tokio::test]
+    async fn clamp_max_response_size_correctly() {
+        assert!(process(None).await <= Some(MIN_ALLOWED as usize));
+        assert!(process(Some(TOO_SMALL)).await <= Some(MIN_ALLOWED as usize));
+        assert!(process(Some(TOO_SMALL)).await <= Some(MIN_ALLOWED as usize));
+        assert!(process(Some(TOO_SMALL)).await <= Some(MIN_ALLOWED as usize));
+        assert!(process(Some(JUST_RIGHT)).await <= Some(JUST_RIGHT as usize));
+        assert!(process(Some(JUST_RIGHT)).await <= Some(JUST_RIGHT as usize));
+        assert!(process(Some(JUST_RIGHT)).await <= Some(JUST_RIGHT as usize));
+        assert!(process(Some(HUGE)).await <= Some(HUGE as usize));
+        assert!(process(Some(HUGE)).await <= Some(HUGE as usize));
+        assert!(process(Some(HUGE)).await <= Some(HUGE as usize));
     }
 
     //------------ Helper functions ------------------------------------------
 
     // Returns Some(n) if truncation occurred where n is the size after
     // truncation.
-    fn process(max_response_size_hint: Option<u16>) -> Option<usize> {
+    async fn process(max_response_size_hint: Option<u16>) -> Option<usize> {
         // Build a dummy DNS query.
         let query = MessageBuilder::new_vec();
         let mut query = query.question();
@@ -400,14 +534,42 @@ mod tests {
             TransportSpecificContext::Udp(ctx),
         );
 
-        // And pass the query through the middleware processor
-        let processor = MandatoryMiddlewareProcessor::default();
-        let processor: &dyn MiddlewareProcessor<Vec<u8>, Vec<u8>> =
-            &processor;
-        let mut response = MessageBuilder::new_stream_vec().additional();
-        if let ControlFlow::Continue(()) = processor.preprocess(&request) {
-            processor.postprocess(&request, &mut response);
+        fn my_service(
+            req: Request<Vec<u8>>,
+            _meta: (),
+        ) -> Once<
+            Pin<
+                Box<
+                    dyn std::future::Future<
+                            Output = Result<
+                                CallResult<Vec<u8>>,
+                                ServiceError,
+                            >,
+                        > + Send,
+                >,
+            >,
+        > {
+            // For each request create a single response:
+            let msg = req.message().clone();
+            futures::stream::once(Box::pin(async move {
+                let builder = mk_builder_for_target();
+                let answer = builder.start_answer(&msg, Rcode::NXDOMAIN)?;
+                Ok(CallResult::new(answer.additional()))
+            }))
         }
+
+        // Either call the service directly.
+        let my_svc = service_fn(my_service, ());
+        let mut stream = my_svc.call(request.clone());
+        let _call_result: CallResult<Vec<u8>> =
+            stream.next().await.unwrap().unwrap();
+
+        // Or pass the query through the middleware processor
+        let processor_svc = MandatoryMiddlewareSvc::new(my_svc);
+        let mut stream = processor_svc.call(request);
+        let call_result: CallResult<Vec<u8>> =
+            stream.next().await.unwrap().unwrap();
+        let (response, _feedback) = call_result.into_inner();
 
         // Get the response length
         let new_size = response.as_slice().len();

@@ -7,7 +7,6 @@ use tokio::time::Instant;
 
 use crate::base::Message;
 
-
 //------------ UdpTransportContext -------------------------------------------
 
 /// Request context for a UDP transport.
