@@ -1,12 +1,19 @@
 //! DNS Cookies related message processing.
+use core::future::ready;
+use core::marker::PhantomData;
 use core::ops::ControlFlow;
+use core::pin::Pin;
+use core::task::{Context, Poll};
 
 use std::net::IpAddr;
 use std::vec::Vec;
 
+use futures::stream::once;
+use futures::Stream;
+use futures_util::StreamExt;
 use octseq::Octets;
 use rand::RngCore;
-use tracing::{debug, trace, warn};
+use tracing::{debug, enabled, trace, warn, Level};
 
 use crate::base::iana::{OptRcode, OptionCode, Rcode};
 use crate::base::message_builder::AdditionalBuilder;
@@ -15,9 +22,11 @@ use crate::base::opt::Cookie;
 use crate::base::wire::{Composer, ParseError};
 use crate::base::{Serial, StreamTarget};
 use crate::net::server::message::Request;
-use crate::net::server::middleware::processor::MiddlewareProcessor;
-use crate::net::server::util::add_edns_options;
+use crate::net::server::middleware::util::MiddlewareStream;
+use crate::net::server::service::{CallResult, Service, ServiceError};
+use crate::net::server::util::{add_edns_options, to_pcap_text};
 use crate::net::server::util::{mk_builder_for_target, start_reply};
+use std::sync::Arc;
 
 /// The five minute period referred to by
 /// https://www.rfc-editor.org/rfc/rfc9018.html#section-4.3.
@@ -40,9 +49,11 @@ const ONE_HOUR_AS_SECS: u32 = 60 * 60;
 /// [9018]: https://datatracker.ietf.org/doc/html/rfc7873
 /// [`MiddlewareProcessor`]: crate::net::server::middleware::processor::MiddlewareProcessor
 #[derive(Debug)]
-pub struct CookiesMiddlewareProcessor {
+pub struct CookiesMiddlewareSvc<S> {
+    inner: S,
+
     /// A user supplied secret used in making the cookie value.
-    server_secret: [u8; 16],
+    server_secret: Arc<[u8; 16]>,
 
     /// Clients connecting from these IP addresses will be required to provide
     /// a cookie otherwise they will receive REFUSED with TC=1 prompting them
@@ -50,14 +61,21 @@ pub struct CookiesMiddlewareProcessor {
     ip_deny_list: Vec<IpAddr>,
 }
 
-impl CookiesMiddlewareProcessor {
+impl<S> CookiesMiddlewareSvc<S> {
     /// Creates an instance of this processor.
     #[must_use]
-    pub fn new(server_secret: [u8; 16]) -> Self {
+    pub fn new(inner: S, server_secret: [u8; 16]) -> Self {
         Self {
-            server_secret,
+            inner,
+            server_secret: Arc::new(server_secret),
             ip_deny_list: vec![],
         }
+    }
+
+    pub fn with_random_secret(inner: S) -> Self {
+        let mut server_secret = [0u8; 16];
+        rand::thread_rng().fill_bytes(&mut server_secret);
+        Self::new(inner, server_secret)
     }
 
     /// Define IP addresses required to supply DNS cookies if using UDP.
@@ -71,7 +89,7 @@ impl CookiesMiddlewareProcessor {
     }
 }
 
-impl CookiesMiddlewareProcessor {
+impl<S> CookiesMiddlewareSvc<S> {
     /// Get the DNS COOKIE, if any, for the given message.
     ///
     /// https://datatracker.ietf.org/doc/html/rfc7873#section-5.2: Responding
@@ -209,8 +227,8 @@ impl CookiesMiddlewareProcessor {
     /// complete, and if so return the cookie to the caller.
     #[must_use]
     fn ensure_cookie_is_complete<Target: Octets>(
-        &self,
         request: &Request<Target>,
+        server_secret: &[u8; 16],
     ) -> Option<Cookie> {
         if let Some(Ok(cookie)) = Self::cookie(request) {
             let cookie = if cookie.server().is_some() {
@@ -219,7 +237,7 @@ impl CookiesMiddlewareProcessor {
                 cookie.create_response(
                     Serial::now(),
                     request.client_addr().ip(),
-                    &self.server_secret,
+                    server_secret,
                 )
             };
 
@@ -230,35 +248,17 @@ impl CookiesMiddlewareProcessor {
     }
 }
 
-//--- Default
-
-impl Default for CookiesMiddlewareProcessor {
-    /// Creates an instance of this processor with default configuration.
-    ///
-    /// The processor will use a randomly generated server secret.
-    fn default() -> Self {
-        let mut server_secret = [0u8; 16];
-        rand::thread_rng().fill_bytes(&mut server_secret);
-
-        Self {
-            server_secret,
-            ip_deny_list: Default::default(),
-        }
-    }
-}
-
 //--- MiddlewareProcessor
 
-impl<RequestOctets, Target> MiddlewareProcessor<RequestOctets, Target>
-    for CookiesMiddlewareProcessor
-where
-    RequestOctets: Octets,
-    Target: Composer + Default,
-{
-    fn preprocess(
+impl<S> CookiesMiddlewareSvc<S> {
+    fn preprocess<RequestOctets, Target>(
         &self,
         request: &Request<RequestOctets>,
-    ) -> ControlFlow<AdditionalBuilder<StreamTarget<Target>>> {
+    ) -> ControlFlow<AdditionalBuilder<StreamTarget<Target>>>
+    where
+        RequestOctets: Octets,
+        Target: Composer + Default,
+    {
         match Self::cookie(request) {
             None => {
                 trace!("Request does not include DNS cookies");
@@ -438,11 +438,15 @@ where
         ControlFlow::Continue(())
     }
 
-    fn postprocess(
-        &self,
+    fn postprocess<RequestOctets, Target>(
         request: &Request<RequestOctets>,
         response: &mut AdditionalBuilder<StreamTarget<Target>>,
-    ) {
+        server_secret: &[u8; 16],
+    ) where
+        RequestOctets: Octets,
+        Target: Composer + Default,
+    {
+        trace!("4");
         // https://datatracker.ietf.org/doc/html/rfc7873#section-5.2.1
         // No OPT RR or No COOKIE Option:
         //   If the request lacked a client cookie we don't need to do
@@ -468,7 +472,9 @@ where
         //   Any server cookie will already have been validated during
         //   pre-processing, we don't need to check it again here.
 
-        if let Some(filled_cookie) = self.ensure_cookie_is_complete(request) {
+        if let Some(filled_cookie) =
+            Self::ensure_cookie_is_complete(request, server_secret)
+        {
             // https://datatracker.ietf.org/doc/html/rfc7873#section-5.2.5
             //   "The server SHALL process the request and include a COOKIE
             //   option in the response by (a) copying the complete COOKIE
@@ -488,5 +494,132 @@ where
                 warn!("Cannot add RFC 7873 DNS Cookie option to response: {err}");
             }
         }
+
+        if enabled!(Level::TRACE) {
+            let bytes = response.as_slice();
+            let pcap_text = to_pcap_text(bytes, bytes.len());
+            trace!(pcap_text, "post-processing complete");
+        }
+    }
+}
+
+//--- Service
+
+impl<RequestOctets, S, Target> Service<RequestOctets>
+    for CookiesMiddlewareSvc<S>
+where
+    RequestOctets: Octets + 'static,
+    S: Service<RequestOctets>,
+    S::Stream: futures::stream::Stream<
+            Item = Result<CallResult<Target>, ServiceError>,
+        > + Unpin
+        + 'static,
+    Target: Composer + Default + 'static + Unpin,
+{
+    type Target = Target;
+    type Stream = MiddlewareStream<
+        S::Stream,
+        PostprocessingStream<RequestOctets, Target, S::Stream>,
+        Target,
+    >;
+
+    fn call(&self, request: Request<RequestOctets>) -> Self::Stream {
+        match self.preprocess(&request) {
+            ControlFlow::Continue(()) => {
+                let st = self.inner.call(request.clone());
+                let map = PostprocessingStream::new(
+                    st,
+                    request,
+                    self.server_secret.clone(),
+                );
+                MiddlewareStream::Postprocess(map)
+            }
+            ControlFlow::Break(mut response) => {
+                Self::postprocess(
+                    &request,
+                    &mut response,
+                    &self.server_secret,
+                );
+
+                MiddlewareStream::HandledOne(once(ready(Ok(
+                    CallResult::new(response),
+                ))))
+            }
+        }
+    }
+}
+
+pub struct PostprocessingStream<
+    RequestOctets,
+    Target,
+    InnerServiceResponseStream,
+> where
+    RequestOctets: Octets,
+    InnerServiceResponseStream: futures::stream::Stream<
+        Item = Result<CallResult<Target>, ServiceError>,
+    >,
+{
+    request: Request<RequestOctets>,
+    server_secret: Arc<[u8; 16]>,
+    stream: InnerServiceResponseStream,
+    _phantom: PhantomData<Target>,
+}
+
+impl<'a, RequestOctets, Target, InnerServiceResponseStream>
+    PostprocessingStream<RequestOctets, Target, InnerServiceResponseStream>
+where
+    RequestOctets: Octets,
+    InnerServiceResponseStream: futures::stream::Stream<
+        Item = Result<CallResult<Target>, ServiceError>,
+    >,
+{
+    pub(crate) fn new(
+        stream: InnerServiceResponseStream,
+        request: Request<RequestOctets>,
+        server_secret: Arc<[u8; 16]>,
+    ) -> Self {
+        Self {
+            stream,
+            request,
+            server_secret,
+            _phantom: PhantomData,
+        }
+    }
+}
+
+impl<RequestOctets, Target, InnerServiceResponseStream> Stream
+    for PostprocessingStream<
+        RequestOctets,
+        Target,
+        InnerServiceResponseStream,
+    >
+where
+    RequestOctets: Octets,
+    InnerServiceResponseStream: futures::stream::Stream<
+            Item = Result<CallResult<Target>, ServiceError>,
+        > + Unpin,
+    Target: Composer + Default + Unpin,
+{
+    type Item = Result<CallResult<Target>, ServiceError>;
+
+    fn poll_next(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+    ) -> Poll<Option<Self::Item>> {
+        let res = futures::ready!(self.stream.poll_next_unpin(cx));
+        let request = self.request.clone();
+        let server_secret = self.server_secret.clone();
+        Poll::Ready(res.map(|mut res| {
+            if let Ok(cr) = &mut res {
+                if let Some(response) = cr.get_response_mut() {
+                    CookiesMiddlewareSvc::<InnerServiceResponseStream>::postprocess(&request, response, &server_secret);
+                }
+            }
+            res
+        }))
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.stream.size_hint()
     }
 }

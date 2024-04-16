@@ -21,6 +21,8 @@ use domain::base::{Dname, Message, Rtype, ToDname};
 use domain::net::server::buf::VecBufSource;
 use domain::net::server::dgram::DgramServer;
 use domain::net::server::message::Request;
+use domain::net::server::middleware::processors::cookies_svc::CookiesMiddlewareSvc;
+use domain::net::server::middleware::processors::edns_svc::EdnsMiddlewareSvc;
 use domain::net::server::middleware::processors::mandatory_svc::MandatoryMiddlewareSvc;
 use domain::net::server::service::{CallResult, ServiceError};
 use domain::net::server::stream::StreamServer;
@@ -66,8 +68,10 @@ async fn main() {
 
     let addr = "127.0.0.1:8053";
     let business_svc = service_fn(my_service, zones);
-    let mandatory_svc = MandatoryMiddlewareSvc::new(business_svc);
-    let svc = Arc::new(mandatory_svc);
+
+    let svc = Arc::new(MandatoryMiddlewareSvc::new(EdnsMiddlewareSvc::new(
+        CookiesMiddlewareSvc::with_random_secret(business_svc),
+    )));
 
     let sock = UdpSocket::bind(addr).await.unwrap();
     let sock = Arc::new(sock);

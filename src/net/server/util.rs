@@ -15,7 +15,8 @@ use crate::rdata::AllRecordData;
 
 use super::message::Request;
 use super::service::{CallResult, Service, ServiceError};
-use crate::base::iana::Rcode;
+use crate::base::iana::{OptionCode, Rcode};
+use smallvec::SmallVec;
 
 //----------- mk_builder_for_target() ----------------------------------------
 
@@ -198,12 +199,22 @@ where
 ///
 /// If the response already has an OPT record the options will be added to
 /// that. Otherwise an OPT record will be created to hold the new options.
+/// 
+/// Similar to [`AdditionalBuilder::opt`] a caller supplied closure is passed
+/// an [`OptBuilder`] which can be used to add EDNS options and set EDNS
+/// header fields.
+/// 
+/// However, unlike [`AdditionalBuilder::opt`], the closure is also passed a
+/// collection of option codes for the options that already exist so that the
+/// caller can avoid adding the same type of option more than once if that is
+/// important to them.
 pub fn add_edns_options<F, Target>(
     response: &mut AdditionalBuilder<StreamTarget<Target>>,
     op: F,
 ) -> Result<(), PushError>
 where
     F: FnOnce(
+        &[OptionCode],
         &mut OptBuilder<StreamTarget<Target>>,
     ) -> Result<
         (),
@@ -252,12 +263,24 @@ where
             // the options within the existing OPT record plus the new options
             // that we want to add.
             let res = response.opt(|builder| {
+                let mut existing_option_codes =
+                    SmallVec::<[OptionCode; 4]>::new();
+                // Copy the header fields
+                builder.set_version(current_opt.version());
+                builder.set_dnssec_ok(current_opt.dnssec_ok());
+                builder.set_rcode(current_opt.rcode(copied_response.header()));
+                builder.set_udp_payload_size(current_opt.udp_payload_size());
+
+                // Copy the options
                 for opt in
                     current_opt.opt().iter::<UnknownOptData<_>>().flatten()
                 {
+                    existing_option_codes.push(opt.code());
                     builder.push(&opt)?;
                 }
-                op(builder)
+
+                // Invoking the user supplied callback
+                op(&existing_option_codes, builder)
             });
 
             return res;
@@ -265,7 +288,7 @@ where
     }
 
     // No existing OPT record in the additional section so build a new one.
-    response.opt(op)
+    response.opt(|builder| op(&[], builder))
 }
 
 /// Removes any OPT records present in the response.

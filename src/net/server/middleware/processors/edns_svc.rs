@@ -1,6 +1,14 @@
 //! RFC 6891 and related EDNS message processing.
+use core::future::ready;
+use core::marker::PhantomData;
 use core::ops::ControlFlow;
+use core::task::{Context, Poll};
 
+use std::pin::Pin;
+
+use futures::stream::once;
+use futures::Stream;
+use futures_util::StreamExt;
 use octseq::Octets;
 use tracing::{debug, enabled, error, trace, warn, Level};
 
@@ -11,8 +19,9 @@ use crate::base::opt::{Opt, OptRecord, TcpKeepalive};
 use crate::base::wire::Composer;
 use crate::base::StreamTarget;
 use crate::net::server::message::{Request, TransportSpecificContext};
-use crate::net::server::middleware::processor::MiddlewareProcessor;
 use crate::net::server::middleware::processors::mandatory::MINIMUM_RESPONSE_BYTE_LEN;
+use crate::net::server::middleware::util::MiddlewareStream;
+use crate::net::server::service::{CallResult, Service, ServiceError};
 use crate::net::server::util::start_reply;
 use crate::net::server::util::{add_edns_options, remove_edns_opt_record};
 
@@ -39,20 +48,21 @@ const EDNS_VERSION_ZERO: u8 = 0;
 /// [9210]: https://datatracker.ietf.org/doc/html/rfc9210
 /// [`MiddlewareProcessor`]: crate::net::server::middleware::processor::MiddlewareProcessor
 #[derive(Debug, Default)]
-pub struct EdnsMiddlewareProcessor;
+pub struct EdnsMiddlewareSvc<S> {
+    inner: S,
+}
 
-impl EdnsMiddlewareProcessor {
+impl<S> EdnsMiddlewareSvc<S> {
     /// Creates an instance of this processor.
     #[must_use]
-    pub fn new() -> Self {
-        Self
+    pub fn new(inner: S) -> Self {
+        Self { inner }
     }
 }
 
-impl EdnsMiddlewareProcessor {
+impl<S> EdnsMiddlewareSvc<S> {
     /// Create a DNS error response to the given request with the given RCODE.
     fn error_response<RequestOctets, Target>(
-        &self,
         request: &Request<RequestOctets>,
         rcode: OptRcode,
     ) -> AdditionalBuilder<StreamTarget<Target>>
@@ -73,23 +83,22 @@ impl EdnsMiddlewareProcessor {
             );
         }
 
-        self.postprocess(request, &mut additional);
+        Self::postprocess(request, &mut additional);
         additional
     }
 }
 
 //--- MiddlewareProcessor
 
-impl<RequestOctets, Target> MiddlewareProcessor<RequestOctets, Target>
-    for EdnsMiddlewareProcessor
-where
-    RequestOctets: Octets,
-    Target: Composer + Default,
-{
-    fn preprocess(
+impl<S> EdnsMiddlewareSvc<S> {
+    fn preprocess<RequestOctets, Target>(
         &self,
         request: &Request<RequestOctets>,
-    ) -> ControlFlow<AdditionalBuilder<StreamTarget<Target>>> {
+    ) -> ControlFlow<AdditionalBuilder<StreamTarget<Target>>>
+    where
+        RequestOctets: Octets,
+        Target: Composer + Default,
+    {
         // https://www.rfc-editor.org/rfc/rfc6891.html#section-6.1.1
         // 6.1.1: Basic Elements
         // ...
@@ -102,9 +111,10 @@ where
                 if iter.next().is_some() {
                     // More than one OPT RR received.
                     debug!("RFC 6891 6.1.1 violation: request contains more than one OPT RR.");
-                    return ControlFlow::Break(
-                        self.error_response(request, OptRcode::FORMERR),
-                    );
+                    return ControlFlow::Break(Self::error_response(
+                        request,
+                        OptRcode::FORMERR,
+                    ));
                 }
 
                 if let Ok(opt) = opt {
@@ -117,9 +127,10 @@ where
                     //    RCODE=BADVERS."
                     if opt_rec.version() > EDNS_VERSION_ZERO {
                         debug!("RFC 6891 6.1.3 violation: request EDNS version {} > 0", opt_rec.version());
-                        return ControlFlow::Break(
-                            self.error_response(request, OptRcode::BADVERS),
-                        );
+                        return ControlFlow::Break(Self::error_response(
+                            request,
+                            OptRcode::BADVERS,
+                        ));
                     }
 
                     match request.transport_ctx() {
@@ -137,7 +148,7 @@ where
                             if opt_rec.opt().tcp_keepalive().is_some() {
                                 debug!("RFC 7828 3.2.1 violation: edns-tcp-keepalive option received via UDP");
                                 return ControlFlow::Break(
-                                    self.error_response(
+                                    Self::error_response(
                                         request,
                                         OptRcode::FORMERR,
                                     ),
@@ -215,7 +226,7 @@ where
                                 if keep_alive.timeout().is_some() {
                                     debug!("RFC 7828 3.2.1 violation: edns-tcp-keepalive option received via TCP contains timeout");
                                     return ControlFlow::Break(
-                                        self.error_response(
+                                        Self::error_response(
                                             request,
                                             OptRcode::FORMERR,
                                         ),
@@ -231,11 +242,13 @@ where
         ControlFlow::Continue(())
     }
 
-    fn postprocess(
-        &self,
+    fn postprocess<RequestOctets, Target>(
         request: &Request<RequestOctets>,
         response: &mut AdditionalBuilder<StreamTarget<Target>>,
-    ) {
+    ) where
+        RequestOctets: Octets,
+        Target: Composer + Default,
+    {
         // https://www.rfc-editor.org/rfc/rfc6891.html#section-6.1.1
         // 6.1.1: Basic Elements
         // ...
@@ -260,7 +273,7 @@ where
                 error!(
                     "Error while stripping OPT record from response: {err}"
                 );
-                *response = self.error_response(request, OptRcode::SERVFAIL);
+                *response = Self::error_response(request, OptRcode::SERVFAIL);
                 return;
             }
         }
@@ -290,17 +303,20 @@ where
                                 // timeout is known: "Signal the timeout value
                                 // using the edns-tcp-keepalive EDNS(0) option
                                 // [RFC7828]".
-                                if let Err(err) =
-                                    add_edns_options(response, |existing_option_codes, builder| {
-                                        if !existing_option_codes.contains(&OptionCode::TCP_KEEPALIVE) {
+                                if let Err(err) = add_edns_options(
+                                    response,
+                                    |existing_option_codes, builder| {
+                                        if !existing_option_codes.contains(
+                                            &OptionCode::TCP_KEEPALIVE,
+                                        ) {
                                             builder.push(&TcpKeepalive::new(
                                                 Some(timeout),
                                             ))
                                         } else {
                                             Ok(())
                                         }
-                                    })
-                                {
+                                    },
+                                ) {
                                     warn!("Cannot add RFC 7828 edns-tcp-keepalive option to response: {err}");
                                 }
                             }
@@ -313,16 +329,130 @@ where
                 }
             }
         }
+
+        // TODO: For UDP EDNS capable clients (those that included an OPT
+        // record in the request) should we set the Requestor's Payload Size
+        // field to some value?
+    }
+}
+
+//--- Service
+
+impl<RequestOctets, S, Target> Service<RequestOctets> for EdnsMiddlewareSvc<S>
+where
+    RequestOctets: Octets + 'static,
+    S: Service<RequestOctets>,
+    S::Stream: futures::stream::Stream<
+            Item = Result<CallResult<Target>, ServiceError>,
+        > + Unpin
+        + 'static,
+    Target: Composer + Default + 'static + Unpin,
+{
+    type Target = Target;
+    type Stream = MiddlewareStream<
+        S::Stream,
+        PostprocessingStream<RequestOctets, Target, S::Stream>,
+        Target,
+    >;
+
+    fn call(&self, request: Request<RequestOctets>) -> Self::Stream {
+        match self.preprocess(&request) {
+            ControlFlow::Continue(()) => {
+                let st = self.inner.call(request.clone());
+                let map = PostprocessingStream::new(st, request);
+                MiddlewareStream::Postprocess(map)
+            }
+            ControlFlow::Break(mut response) => {
+                Self::postprocess(&request, &mut response);
+                MiddlewareStream::HandledOne(once(ready(Ok(
+                    CallResult::new(response),
+                ))))
+            }
+        }
+    }
+}
+
+pub struct PostprocessingStream<
+    RequestOctets,
+    Target,
+    InnerServiceResponseStream,
+> where
+    RequestOctets: Octets,
+    InnerServiceResponseStream: futures::stream::Stream<
+        Item = Result<CallResult<Target>, ServiceError>,
+    >,
+{
+    request: Request<RequestOctets>,
+    _phantom: PhantomData<Target>,
+    stream: InnerServiceResponseStream,
+}
+
+impl<RequestOctets, Target, InnerServiceResponseStream>
+    PostprocessingStream<RequestOctets, Target, InnerServiceResponseStream>
+where
+    RequestOctets: Octets,
+    InnerServiceResponseStream: futures::stream::Stream<
+        Item = Result<CallResult<Target>, ServiceError>,
+    >,
+{
+    pub(crate) fn new(
+        stream: InnerServiceResponseStream,
+        request: Request<RequestOctets>,
+    ) -> Self {
+        Self {
+            stream,
+            request,
+            _phantom: PhantomData,
+        }
+    }
+}
+
+impl<RequestOctets, Target, InnerServiceResponseStream> Stream
+    for PostprocessingStream<
+        RequestOctets,
+        Target,
+        InnerServiceResponseStream,
+    >
+where
+    RequestOctets: Octets,
+    InnerServiceResponseStream: futures::stream::Stream<
+            Item = Result<CallResult<Target>, ServiceError>,
+        > + Unpin,
+    Target: Composer + Default + Unpin,
+{
+    type Item = Result<CallResult<Target>, ServiceError>;
+
+    fn poll_next(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+    ) -> Poll<Option<Self::Item>> {
+        let res = futures::ready!(self.stream.poll_next_unpin(cx));
+        let request = self.request.clone();
+        Poll::Ready(res.map(|mut res| {
+            if let Ok(cr) = &mut res {
+                if let Some(response) = cr.get_response_mut() {
+                    EdnsMiddlewareSvc::<InnerServiceResponseStream>::postprocess(&request, response);
+                }
+            }
+            res
+        }))
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.stream.size_hint()
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use core::ops::ControlFlow;
+    use core::pin::Pin;
 
+    use std::boxed::Box;
     use std::vec::Vec;
 
     use bytes::Bytes;
+    use futures::stream::Once;
+    use futures::stream::StreamExt;
     use tokio::time::Instant;
 
     use crate::base::{Dname, Message, MessageBuilder, Rtype};
@@ -330,9 +460,12 @@ mod tests {
         Request, TransportSpecificContext, UdpTransportContext,
     };
 
-    use super::EdnsMiddlewareProcessor;
-    use crate::net::server::middleware::processor::MiddlewareProcessor;
+    use crate::base::iana::Rcode;
     use crate::net::server::middleware::processors::mandatory::MINIMUM_RESPONSE_BYTE_LEN;
+    use crate::net::server::service::{CallResult, Service, ServiceError};
+    use crate::net::server::util::{mk_builder_for_target, service_fn};
+
+    use super::EdnsMiddlewareSvc;
 
     //------------ Constants -------------------------------------------------
 
@@ -343,10 +476,10 @@ mod tests {
 
     //------------ Tests -----------------------------------------------------
 
-    #[test]
-    fn clamp_max_response_size_correctly() {
+    #[tokio::test]
+    async fn clamp_max_response_size_correctly() {
         // Neither client or server specified a max UDP response size.
-        assert_eq!(process(None, None), None);
+        assert_eq!(process(None, None).await, None);
 
         // --- Only server specified max UDP response sizes
         //
@@ -354,36 +487,36 @@ mod tests {
         // option was present in the request, only the server hint exists, and
         // EdnsMiddlewareProcessor only acts if the client EDNS option is
         // present.
-        assert_eq!(process(None, TOO_SMALL), TOO_SMALL);
-        assert_eq!(process(None, JUST_RIGHT), JUST_RIGHT);
-        assert_eq!(process(None, HUGE), HUGE);
+        assert_eq!(process(None, TOO_SMALL).await, TOO_SMALL);
+        assert_eq!(process(None, JUST_RIGHT).await, JUST_RIGHT);
+        assert_eq!(process(None, HUGE).await, HUGE);
 
         // --- Only client specified max UDP response sizes
         //
         // The EdnsMiddlewareProcessor should adopt these, after clamping
         // them.
-        assert_eq!(process(TOO_SMALL, None), JUST_RIGHT);
-        assert_eq!(process(JUST_RIGHT, None), JUST_RIGHT);
-        assert_eq!(process(HUGE, None), HUGE);
+        assert_eq!(process(TOO_SMALL, None).await, JUST_RIGHT);
+        assert_eq!(process(JUST_RIGHT, None).await, JUST_RIGHT);
+        assert_eq!(process(HUGE, None).await, HUGE);
 
         // --- Both client and server specified max UDP response sizes
         //
         // The EdnsMiddlewareProcessor should negotiate the largest size
         // acceptable to both sides.
-        assert_eq!(process(TOO_SMALL, TOO_SMALL), MIN_ALLOWED);
-        assert_eq!(process(TOO_SMALL, JUST_RIGHT), JUST_RIGHT);
-        assert_eq!(process(TOO_SMALL, HUGE), MIN_ALLOWED);
-        assert_eq!(process(JUST_RIGHT, TOO_SMALL), JUST_RIGHT);
-        assert_eq!(process(JUST_RIGHT, JUST_RIGHT), JUST_RIGHT);
-        assert_eq!(process(JUST_RIGHT, HUGE), JUST_RIGHT);
-        assert_eq!(process(HUGE, TOO_SMALL), MIN_ALLOWED);
-        assert_eq!(process(HUGE, JUST_RIGHT), JUST_RIGHT);
-        assert_eq!(process(HUGE, HUGE), HUGE);
+        assert_eq!(process(TOO_SMALL, TOO_SMALL).await, MIN_ALLOWED);
+        assert_eq!(process(TOO_SMALL, JUST_RIGHT).await, JUST_RIGHT);
+        assert_eq!(process(TOO_SMALL, HUGE).await, MIN_ALLOWED);
+        assert_eq!(process(JUST_RIGHT, TOO_SMALL).await, JUST_RIGHT);
+        assert_eq!(process(JUST_RIGHT, JUST_RIGHT).await, JUST_RIGHT);
+        assert_eq!(process(JUST_RIGHT, HUGE).await, JUST_RIGHT);
+        assert_eq!(process(HUGE, TOO_SMALL).await, MIN_ALLOWED);
+        assert_eq!(process(HUGE, JUST_RIGHT).await, JUST_RIGHT);
+        assert_eq!(process(HUGE, HUGE).await, HUGE);
     }
 
     //------------ Helper functions ------------------------------------------
 
-    fn process(
+    async fn process(
         client_value: Option<u16>,
         server_value: Option<u16>,
     ) -> Option<u16> {
@@ -418,14 +551,42 @@ mod tests {
             TransportSpecificContext::Udp(ctx),
         );
 
-        // And pass the query through the middleware processor
-        let processor = EdnsMiddlewareProcessor::new();
-        let processor: &dyn MiddlewareProcessor<Vec<u8>, Vec<u8>> =
-            &processor;
-        let mut response = MessageBuilder::new_stream_vec().additional();
-        if let ControlFlow::Continue(()) = processor.preprocess(&request) {
-            processor.postprocess(&request, &mut response);
+        fn my_service(
+            req: Request<Vec<u8>>,
+            _meta: (),
+        ) -> Once<
+            Pin<
+                Box<
+                    dyn std::future::Future<
+                            Output = Result<
+                                CallResult<Vec<u8>>,
+                                ServiceError,
+                            >,
+                        > + Send,
+                >,
+            >,
+        > {
+            // For each request create a single response:
+            let msg = req.message().clone();
+            futures::stream::once(Box::pin(async move {
+                let builder = mk_builder_for_target();
+                let answer = builder.start_answer(&msg, Rcode::NXDOMAIN)?;
+                Ok(CallResult::new(answer.additional()))
+            }))
         }
+
+        // Either call the service directly.
+        let my_svc = service_fn(my_service, ());
+        let mut stream = my_svc.call(request.clone());
+        let _call_result: CallResult<Vec<u8>> =
+            stream.next().await.unwrap().unwrap();
+
+        // Or pass the query through the middleware processor
+        let processor_svc = EdnsMiddlewareSvc::new(my_svc);
+        let mut stream = processor_svc.call(request.clone());
+        let call_result: CallResult<Vec<u8>> =
+            stream.next().await.unwrap().unwrap();
+        let (_response, _feedback) = call_result.into_inner();
 
         // Get the modified response size hint.
         let TransportSpecificContext::Udp(modified_udp_context) =
