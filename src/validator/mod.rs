@@ -66,6 +66,8 @@ where
         None => (),
     }
 
+    // We may need to update TTLs of signed RRsets
+
     // Go through the answers and use CNAME and DNAME records to update 'SNAME'
     // (see RFC 1034, Section 5.3.2) to the final name that results in an
     // answer, NODATA, or NXDOMAIN. First extract QNAME/QCLASS/QTYPE. Require

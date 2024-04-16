@@ -40,6 +40,9 @@ pub trait ComposeRequest: Debug + Send + Sync {
     /// a Vec.
     fn to_vec(&self) -> Result<Vec<u8>, Error>;
 
+    /// Return a reference to the current Header.
+    fn header(&self) -> &Header;
+
     /// Return a reference to a mutable Header to record changes to the header.
     fn header_mut(&mut self) -> &mut Header;
 
@@ -225,6 +228,10 @@ impl<Octs: AsRef<[u8]> + Clone + Debug + Octets + Send + Sync + 'static>
         self.to_message_impl()
     }
 
+    fn header(&self) -> &Header {
+        &self.header
+    }
+
     fn header_mut(&mut self) -> &mut Header {
         &mut self.header
     }
@@ -286,7 +293,10 @@ impl<Octs: AsRef<[u8]> + Clone + Debug + Octets + Send + Sync + 'static>
     }
 
     fn dnssec_ok(&self) -> bool {
-        self.opt.as_ref().unwrap().dnssec_ok()
+        match &self.opt {
+            None => false,
+            Some(opt) => opt.dnssec_ok(),
+        }
     }
 }
 

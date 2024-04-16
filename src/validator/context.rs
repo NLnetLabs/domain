@@ -28,6 +28,7 @@ use crate::rdata::ZoneRecordData;
 use crate::validate::supported_algorithm;
 use crate::validate::supported_digest;
 use crate::validate::DnskeyExt;
+use std::cmp::Ordering;
 use std::collections::VecDeque;
 use std::vec::Vec;
 
@@ -62,13 +63,17 @@ impl<Upstream> ValidationContext<Upstream> {
         if ta_owner.name_eq(name) {
             // The trust anchor is the same node we are looking for. Create
             // a node for the trust anchor.
-            todo!();
+            return Node::trust_anchor(ta, self.upstream.clone()).await;
         }
 
         // Walk from the parent of name back to trust anchor.
         // Keep a list of names we need to walk in the other direction.
         let (mut node, mut names) =
             self.find_closest_node(name, ta, ta_owner).await;
+
+	// Assume that node is not an intermediate node. We have to make sure
+	// in find_closest_node.
+	let mut signer_node = node.clone();
 
         // Walk from the closest node to name.
         println!("got names {names:?}");
@@ -84,7 +89,12 @@ impl<Upstream> ValidationContext<Upstream> {
 
             // Create the child node
             let child_name = names.pop_front().unwrap();
-            node = self.create_child_node(child_name, &node).await;
+
+	    // If this node is an intermediate node then get the node for
+	    // signer name. 
+	    node = self.create_child_node(child_name, &signer_node).await;
+	    if !node.intermediate() { signer_node = node.clone(); }
+
             if names.is_empty() {
                 return node;
             }
@@ -127,6 +137,7 @@ impl<Upstream> ValidationContext<Upstream> {
     where
         Upstream: SendRequest<RequestMessage<Bytes>>,
     {
+
         // Start with a DS lookup.
         let mut msg = MessageBuilder::new_bytes();
         msg.header_mut().set_rd(true);
@@ -156,13 +167,24 @@ impl<Upstream> ValidationContext<Upstream> {
                 Some(g) => g,
                 None => {
                     // Verify proof that DS doesn't exist for this name.
-                    todo!();
+                    let state = nsec_for_ds(&name, &mut authorities, node);
+                    return match state {
+                        NsecState::InsecureDelegation =>
+                            Node::new_delegation(
+                                name,
+                                ValidationState::Insecure,
+                                Vec::new(),
+                            ),
+			NsecState::SecureIntermediate =>
+			    Node::new_intermediate(name, ValidationState::Secure, node.signer_name().clone()),
+                    };
                 }
             };
 
         // TODO: Limit the size of the DS RRset.
 
-        match ds_group.validate_with_node(node) {
+        let (state, _wildcard) = ds_group.validate_with_node(node);
+        match state {
             ValidationState::Secure => (),
             ValidationState::Insecure
             | ValidationState::Bogus
@@ -170,6 +192,8 @@ impl<Upstream> ValidationContext<Upstream> {
                 todo!();
             }
         }
+
+        // Do we need to check if the DS record is a wildcard?
 
         // We got valid DS records.
 
@@ -346,12 +370,14 @@ impl<Upstream> ValidationContext<Upstream> {
     }
 }
 
+#[derive(Clone)]
 pub struct Node {
     state: ValidationState,
 
     // This should be part of the state of the node
     keys: Vec<Dnskey<Bytes>>,
     signer_name: Dname<Bytes>,
+    intermediate: bool,
 }
 
 impl Node {
@@ -360,6 +386,7 @@ impl Node {
             state: ValidationState::Indeterminate,
             keys: Vec::new(),
             signer_name: name,
+	    intermediate: false,
         }
     }
 
@@ -427,6 +454,7 @@ impl Node {
                         state: ValidationState::Secure,
                         keys: Vec::new(),
                         signer_name: ta_owner,
+			intermediate: false,
                     };
                     for key_rec in dnskeys.clone().rr_iter() {
                         if let AllRecordData::Dnskey(key) = key_rec.data() {
@@ -471,6 +499,21 @@ impl Node {
             state,
             signer_name,
             keys,
+	    intermediate: false,
+        }
+    }
+
+    pub fn new_intermediate(
+        name: Dname<Bytes>,
+        state: ValidationState,
+        signer_name: Dname<Bytes>,
+    ) -> Self {
+	println!("new_intermediate: for {name:?} signer {signer_name:?}");
+        Self {
+            state,
+            signer_name,
+            keys: Vec::new(),
+	    intermediate: true,
         }
     }
 
@@ -485,6 +528,8 @@ impl Node {
     pub fn signer_name(&self) -> &Dname<Bytes> {
         &self.signer_name
     }
+
+    pub fn intermediate(&self) -> bool { self.intermediate }
 }
 
 fn has_key(
@@ -530,8 +575,8 @@ fn find_key_for_ds(
     let digest_type = ds.digest_type();
     for key in dnskey_group.clone().rr_iter() {
         let AllRecordData::Dnskey(dnskey) = key.data() else {
-	    panic!("Dnskey expected");
-	};
+            panic!("Dnskey expected");
+        };
         if dnskey.algorithm() != ds_alg {
             continue;
         }
@@ -544,4 +589,86 @@ fn find_key_for_ds(
         }
     }
     None
+}
+
+enum NsecState {
+    InsecureDelegation,
+    SecureIntermediate,
+}
+
+// Find an NSEC that proves that a DS record does not exist and return the
+// delegation status based on the rtypes present. The NSEC processing is
+// simplified compared to normal NSEC processing for three reasons:
+// 1) We do not accept wildcards. We do not support wildcard delegations,
+//    so if we find one, we return a bogus status.
+// 2) The name exists, otherwise we wouldn't be here.
+// 3) The parent exists and is secure, otherwise we wouldn't be here.
+//
+// So we have two possibilities: we find an exact match for the name and
+// check the bitmap or we find the name as an empty non-terminal.
+fn nsec_for_ds(
+    target: &Dname<Bytes>,
+    groups: &mut GroupList,
+    node: &Node,
+) -> NsecState {
+    for g in groups.iter() {
+        if g.rtype() != Rtype::NSEC {
+            continue;
+        }
+        println!("nsec_for_ds: trying group {g:?}");
+        let owner = g.owner();
+        let rrs = g.rr_set();
+        let AllRecordData::Nsec(nsec) = rrs[0].data() else {
+            panic!("NSEC expected");
+        };
+        println!("nsec = {nsec:?}");
+        if target.name_eq(&owner) {
+            // Validate the signature
+            let (state, wildcard) = g.validate_with_node(node);
+            match state {
+                ValidationState::Insecure
+                | ValidationState::Bogus
+                | ValidationState::Indeterminate => todo!(),
+                ValidationState::Secure => (),
+            }
+
+            // Rule out wildcard
+            if wildcard {
+                todo!();
+            }
+
+            // Check the bitmap.
+            let types = nsec.types();
+
+            // Check for DS.
+            if types.contains(Rtype::DS) {
+                // We didn't get a DS RRset but the NSEC record proves there
+                // is one. Complain.
+                todo!();
+            }
+
+            // Check for SOA.
+            if types.contains(Rtype::SOA) {
+                // This is an NSEC record from the APEX. Complain.
+                todo!();
+            }
+
+            // Check for NS.
+            if types.contains(Rtype::NS) {
+                // We found NS and ruled out DS. This in an insecure delegation.
+                return NsecState::InsecureDelegation;
+            }
+
+            // Anything else is a secure intermediate node.
+            return NsecState::SecureIntermediate;
+        }
+
+	// Check that target is in the range of the NSEC and that owner is a
+	// prefix of the next_name.
+	if target.name_cmp(&owner) == Ordering::Greater && target.name_cmp(nsec.next_name()) == Ordering::Less && nsec.next_name().ends_with(target) {
+            return NsecState::SecureIntermediate;
+	}
+        todo!();
+    }
+    todo!();
 }

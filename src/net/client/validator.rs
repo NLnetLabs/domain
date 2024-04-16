@@ -165,7 +165,12 @@ where
         // We should check for the CD flag. If set then just perform the
         // request without validating.
 
-        // We should make sure the DO is set, otherwise we can't validate.
+        // Store the DO flag of the request.
+        let dnssec_ok = self.request_msg.dnssec_ok();
+        if !dnssec_ok {
+            // Set the DO flag, otherwise we can't validate.
+            self.request_msg.set_dnssec_ok(true);
+        }
 
         let mut request =
             self.upstream.send_request(self.request_msg.clone());
@@ -185,7 +190,6 @@ where
                         // Check the state of the DO flag to see if we have to
                         // strip DNSSEC records. Set the AD flag if it is
                         // not set and either AD or DO is set in the request.
-                        let dnssec_ok = self.request_msg.dnssec_ok();
                         if dnssec_ok {
                             // Set AD if it is not set.
                             if !response_msg.header().ad() {
@@ -205,13 +209,16 @@ where
                             }
                             return Ok(response_msg);
                         } else {
-                            let msg = remove_dnssec(&response_msg, true);
+                            let msg = remove_dnssec(
+                                &response_msg,
+                                self.request_msg.header().ad(),
+                            );
                             return msg;
                         }
                     }
-                    ValidationState::Insecure => todo!(),
                     ValidationState::Bogus => todo!(),
-                    ValidationState::Indeterminate => {
+                    ValidationState::Insecure
+                    | ValidationState::Indeterminate => {
                         // Check the state of the DO flag to see if we have to
                         // strip DNSSEC records. Clear the AD flag if it is
                         // set.

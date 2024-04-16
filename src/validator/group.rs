@@ -60,13 +60,18 @@ impl Group {
 
     fn add(&mut self, rr: &ParsedRecord<'_, Bytes>) -> Result<(), ()> {
         // First check owner.
-        if (!self.rr_set.is_empty()
-            && self.rr_set[0].owner()
-                != &rr.owner().try_to_dname::<Bytes>().unwrap())
-            || self.sig_set[0].owner().try_to_dname::<Bytes>()
+        if !self.rr_set.is_empty() {
+            if self.rr_set[0].owner()
+                != &rr.owner().try_to_dname::<Bytes>().unwrap()
+            {
+                return Err(());
+            }
+        } else {
+            if self.sig_set[0].owner().try_to_dname::<Bytes>()
                 != rr.owner().try_to_dname()
-        {
-            return Err(());
+            {
+                return Err(());
+            }
         }
 
         let (curr_class, curr_rtype) = if !self.rr_set.is_empty() {
@@ -213,21 +218,26 @@ impl Group {
             | ValidationState::Bogus
             | ValidationState::Indeterminate => return state,
         }
-        self.validate_with_node(&node)
+        let (state, _wildcard) = self.validate_with_node(&node);
+        state
     }
 
-    pub fn validate_with_node(&self, node: &Node) -> ValidationState {
+    // Try to validate the signature using a node. Return the validation
+    // state. Also return if the signature was expanded from a wildcard.
+    // This is valid only if the validation state is secure.
+    pub fn validate_with_node(&self, node: &Node) -> (ValidationState, bool) {
         // Check the validation state of node. We can return directly if the
         // state is anything other than Secure.
         let state = node.validation_state();
         match state {
             ValidationState::Insecure
             | ValidationState::Bogus
-            | ValidationState::Indeterminate => return state,
+            | ValidationState::Indeterminate => return (state, false),
             ValidationState::Secure => (),
         }
         let keys = node.keys();
         let mut secure = false;
+        let mut wildcard = false;
         for sig_rec in self.clone().sig_iter() {
             let sig = sig_rec.data();
             for key in keys {
@@ -247,6 +257,7 @@ impl Group {
                     key_tag,
                 ) {
                     secure = true;
+                    wildcard = sig.is_wildcard(&self.rr_set[0]);
                     break;
                 } else {
                     // To avoid CPU exhaustion attacks such as KeyTrap
@@ -276,9 +287,9 @@ impl Group {
             }
         }
         if secure {
-            ValidationState::Secure
+            (ValidationState::Secure, wildcard)
         } else {
-            ValidationState::Bogus
+            (ValidationState::Bogus, false)
         }
     }
 

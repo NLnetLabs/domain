@@ -122,6 +122,12 @@ pub trait RrsigExt {
     where
         D: RecordData + CanonicalOrd + ComposeRecordData + Sized;
 
+    /// Return if records are expanded for a wildcard according to the
+    /// information in this signature.
+    fn is_wildcard<N, D>(&self, rr: &Record<N, D>) -> bool
+    where
+        N: ToDname;
+
     /// Attempt to use the cryptographic signature to authenticate the signed data, and thus authenticate the RRSET.
     /// The signed data is expected to be calculated as per [RFC4035, Section 5.3.2](https://tools.ietf.org/html/rfc4035#section-5.3.2).
     ///
@@ -209,6 +215,24 @@ impl<Octets: AsRef<[u8]>, Name: ToName> RrsigExt for Rrsig<Octets, Name> {
             rr.data().compose_canonical_len_rdata(buf)?;
         }
         Ok(())
+    }
+
+    fn is_wildcard<N, D>(&self, rr: &Record<N, D>) -> bool
+    where
+        N: ToDname,
+    {
+        // Handle expanded wildcards as per [RFC4035, Section 5.3.2]
+        // (https://tools.ietf.org/html/rfc4035#section-5.3.2).
+        let rrsig_labels = usize::from(self.labels());
+        let fqdn = rr.owner();
+        // Subtract the root label from count as the algorithm doesn't
+        // accomodate that.
+        let fqdn_labels = fqdn.iter_labels().count() - 1;
+        if rrsig_labels < fqdn_labels {
+            return true;
+        } else {
+            return false;
+        }
     }
 
     fn verify_signed_data(
