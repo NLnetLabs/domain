@@ -2,11 +2,12 @@
 use core::future::{ready, Ready};
 use core::marker::PhantomData;
 use core::ops::{ControlFlow, DerefMut};
+use core::pin::Pin;
+use core::task::{Context, Poll};
 
-use std::boxed::Box;
 use std::fmt::Display;
 
-use futures::stream::{once, Once};
+use futures::stream::{once, FuturesOrdered, Once};
 use futures::{Stream, StreamExt};
 use octseq::Octets;
 use tracing::{debug, error, trace, warn};
@@ -294,28 +295,42 @@ impl<RequestOctets, S, Target>
 
 //--- Service
 
-pub enum MiddlewareStream<S, Target>
+pub enum MiddlewareStream<RequestOctets, InnerServiceResponseStream, Target>
 where
-    S: futures::stream::Stream<
+    RequestOctets: Octets,
+    InnerServiceResponseStream: futures::stream::Stream<
             Item = Result<CallResult<Target>, ServiceError>,
         > + Unpin,
+    Self: Unpin,
+    Target: Unpin,
 {
-    Continue(S),
-    Map(
-        Box<
-            dyn futures::stream::Stream<
-                    Item = Result<CallResult<Target>, ServiceError>,
-                > + Unpin,
-        >,
+    /// The inner service response will be passed through this service without
+    /// modification.
+    Passthru(InnerServiceResponseStream),
+
+    /// The inner service response will be post-processed by this service.
+    Postprocess(
+        PostprocessingMap<RequestOctets, Target, InnerServiceResponseStream>,
     ),
-    BreakOne(Once<Ready<Result<CallResult<Target>, ServiceError>>>),
+
+    /// A single response has been created without invoking the inner service.
+    HandledOne(Once<Ready<Result<CallResult<Target>, ServiceError>>>),
+
+    /// Multiple responses have been created without invoking the inner
+    /// service.
+    HandledMany(
+        FuturesOrdered<Ready<Result<CallResult<Target>, ServiceError>>>,
+    ),
 }
 
-impl<S, Target> Stream for MiddlewareStream<S, Target>
+impl<RequestOctets, S, Target> Stream
+    for MiddlewareStream<RequestOctets, S, Target>
 where
+    RequestOctets: Octets,
     S: futures::stream::Stream<
             Item = Result<CallResult<Target>, ServiceError>,
         > + Unpin,
+    Target: Composer + Default + Unpin,
 {
     type Item = Result<CallResult<Target>, ServiceError>;
 
@@ -324,9 +339,19 @@ where
         cx: &mut core::task::Context<'_>,
     ) -> core::task::Poll<Option<Self::Item>> {
         match self.deref_mut() {
-            MiddlewareStream::Continue(s) => s.poll_next_unpin(cx),
-            MiddlewareStream::Map(s) => s.poll_next_unpin(cx),
-            MiddlewareStream::BreakOne(s) => s.poll_next_unpin(cx),
+            MiddlewareStream::Passthru(s) => s.poll_next_unpin(cx),
+            MiddlewareStream::Postprocess(s) => s.poll_next_unpin(cx),
+            MiddlewareStream::HandledOne(s) => s.poll_next_unpin(cx),
+            MiddlewareStream::HandledMany(s) => s.poll_next_unpin(cx),
+        }
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        match self {
+            MiddlewareStream::Passthru(s) => s.size_hint(),
+            MiddlewareStream::Postprocess(s) => s.size_hint(),
+            MiddlewareStream::HandledOne(s) => s.size_hint(),
+            MiddlewareStream::HandledMany(s) => s.size_hint(),
         }
     }
 }
@@ -340,62 +365,94 @@ where
             Item = Result<CallResult<Target>, ServiceError>,
         > + Unpin
         + 'static,
-    Target: Composer + Default + 'static,
+    Target: Composer + Default + 'static + Unpin,
 {
     type Target = Target;
-    type Stream = MiddlewareStream<S::Stream, Target>;
+    type Stream = MiddlewareStream<RequestOctets, S::Stream, Target>;
 
     fn call(&self, request: Request<RequestOctets>) -> Self::Stream {
         match self.preprocess(&request) {
             ControlFlow::Continue(()) => {
-                let strict = self.strict;
-                let cloned_request = request.clone();
-                let map = self.inner.call(request).map(move |mut res| {
-                    if let Ok(cr) = &mut res {
-                        if let Some(response) = cr.get_response_mut() {
-                            Self::postprocess(
-                                &cloned_request,
-                                response,
-                                strict,
-                            );
-                        }
-                    }
-                    res
-                });
-                MiddlewareStream::Map(Box::new(map))
+                let st = self.inner.call(request.clone());
+                let map = PostprocessingMap::new(st, request, self.strict);
+                MiddlewareStream::Postprocess(map)
             }
             ControlFlow::Break(mut response) => {
                 Self::postprocess(&request, &mut response, self.strict);
-                MiddlewareStream::BreakOne(once(ready(Ok(CallResult::new(
-                    response,
-                )))))
+                MiddlewareStream::HandledOne(once(ready(Ok(
+                    CallResult::new(response),
+                ))))
             }
         }
     }
 }
 
-// impl<RequestOctets, S> MiddlewareProcessor<RequestOctets, S::Target>
-//     for MandatoryMiddlewareSvc<S>
-// where
-//     RequestOctets: Octets,
-//     S: Service,
-//     S::Target: Composer + Default,
-// {
-//     fn preprocess(
-//         &self,
-//         request: &Request<RequestOctets>,
-//     ) -> ControlFlow<AdditionalBuilder<StreamTarget<S::Target>>> {
-//         self.p
-//     }
+pub struct PostprocessingMap<RequestOctets, Target, St>
+where
+    RequestOctets: Octets,
+    St: futures::stream::Stream<
+        Item = Result<CallResult<Target>, ServiceError>,
+    >,
+{
+    request: Request<RequestOctets>,
+    strict: bool,
+    _phantom: PhantomData<Target>,
+    stream: St,
+}
 
-//     fn postprocess(
-//         &self,
-//         request: &Request<RequestOctets>,
-//         response: &mut AdditionalBuilder<StreamTarget<S::Target>>,
-//     ) {
-//         todo!()
-//     }
-// }
+impl<RequestOctets, Target, St> PostprocessingMap<RequestOctets, Target, St>
+where
+    RequestOctets: Octets,
+    St: futures::stream::Stream<
+        Item = Result<CallResult<Target>, ServiceError>,
+    >,
+{
+    pub(crate) fn new(
+        stream: St,
+        request: Request<RequestOctets>,
+        strict: bool,
+    ) -> Self {
+        Self {
+            stream,
+            request,
+            strict,
+            _phantom: PhantomData,
+        }
+    }
+}
+
+impl<RequestOctets, Target, St> Stream
+    for PostprocessingMap<RequestOctets, Target, St>
+where
+    RequestOctets: Octets,
+    St: futures::stream::Stream<
+            Item = Result<CallResult<Target>, ServiceError>,
+        > + Unpin,
+    Target: Composer + Default + Unpin,
+{
+    type Item = Result<CallResult<Target>, ServiceError>;
+
+    fn poll_next(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+    ) -> Poll<Option<Self::Item>> {
+        let res = futures::ready!(self.stream.poll_next_unpin(cx));
+        let request = self.request.clone();
+        let strict = self.strict;
+        Poll::Ready(res.map(|mut res| {
+            if let Ok(cr) = &mut res {
+                if let Some(response) = cr.get_response_mut() {
+                    MandatoryMiddlewareSvc::<RequestOctets, St, Target>::postprocess(&request, response, strict);
+                }
+            }
+            res
+        }))
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.stream.size_hint()
+    }
+}
 
 //------------ TruncateError -------------------------------------------------
 

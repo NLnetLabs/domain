@@ -21,6 +21,7 @@ use domain::base::{Dname, Message, Rtype, ToDname};
 use domain::net::server::buf::VecBufSource;
 use domain::net::server::dgram::DgramServer;
 use domain::net::server::message::Request;
+use domain::net::server::middleware::processors::mandatory_svc::MandatoryMiddlewareSvc;
 use domain::net::server::service::{CallResult, ServiceError};
 use domain::net::server::stream::StreamServer;
 use domain::net::server::util::{mk_builder_for_target, service_fn};
@@ -64,7 +65,9 @@ async fn main() {
     let zones = Arc::new(zones);
 
     let addr = "127.0.0.1:8053";
-    let svc = Arc::new(service_fn(my_service, zones));
+    let business_svc = service_fn(my_service, zones);
+    let mandatory_svc = MandatoryMiddlewareSvc::new(business_svc);
+    let svc = Arc::new(mandatory_svc);
 
     let sock = UdpSocket::bind(addr).await.unwrap();
     let sock = Arc::new(sock);
