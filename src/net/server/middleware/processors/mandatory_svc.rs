@@ -1,13 +1,13 @@
 //! Core DNS RFC standards based message processing for MUST requirements.
-use core::future::{ready, Ready};
+use core::future::ready;
 use core::marker::PhantomData;
-use core::ops::{ControlFlow, DerefMut};
+use core::ops::ControlFlow;
 use core::pin::Pin;
 use core::task::{Context, Poll};
 
 use std::fmt::Display;
 
-use futures::stream::{once, FuturesOrdered, Once};
+use futures::stream::once;
 use futures::{Stream, StreamExt};
 use octseq::Octets;
 use tracing::{debug, error, trace, warn};
@@ -17,6 +17,7 @@ use crate::base::message_builder::{AdditionalBuilder, PushError};
 use crate::base::wire::{Composer, ParseError};
 use crate::base::StreamTarget;
 use crate::net::server::message::{Request, TransportSpecificContext};
+use crate::net::server::middleware::util::MiddlewareStream;
 use crate::net::server::service::{CallResult, Service, ServiceError};
 use crate::net::server::util::{mk_builder_for_target, start_reply};
 
@@ -295,67 +296,6 @@ impl<RequestOctets, S, Target>
 
 //--- Service
 
-pub enum MiddlewareStream<RequestOctets, InnerServiceResponseStream, Target>
-where
-    RequestOctets: Octets,
-    InnerServiceResponseStream: futures::stream::Stream<
-            Item = Result<CallResult<Target>, ServiceError>,
-        > + Unpin,
-    Self: Unpin,
-    Target: Unpin,
-{
-    /// The inner service response will be passed through this service without
-    /// modification.
-    Passthru(InnerServiceResponseStream),
-
-    /// The inner service response will be post-processed by this service.
-    Postprocess(
-        PostprocessingMap<RequestOctets, Target, InnerServiceResponseStream>,
-    ),
-
-    /// A single response has been created without invoking the inner service.
-    HandledOne(Once<Ready<Result<CallResult<Target>, ServiceError>>>),
-
-    /// Multiple responses have been created without invoking the inner
-    /// service.
-    HandledMany(
-        FuturesOrdered<Ready<Result<CallResult<Target>, ServiceError>>>,
-    ),
-}
-
-impl<RequestOctets, S, Target> Stream
-    for MiddlewareStream<RequestOctets, S, Target>
-where
-    RequestOctets: Octets,
-    S: futures::stream::Stream<
-            Item = Result<CallResult<Target>, ServiceError>,
-        > + Unpin,
-    Target: Composer + Default + Unpin,
-{
-    type Item = Result<CallResult<Target>, ServiceError>;
-
-    fn poll_next(
-        mut self: core::pin::Pin<&mut Self>,
-        cx: &mut core::task::Context<'_>,
-    ) -> core::task::Poll<Option<Self::Item>> {
-        match self.deref_mut() {
-            MiddlewareStream::Passthru(s) => s.poll_next_unpin(cx),
-            MiddlewareStream::Postprocess(s) => s.poll_next_unpin(cx),
-            MiddlewareStream::HandledOne(s) => s.poll_next_unpin(cx),
-            MiddlewareStream::HandledMany(s) => s.poll_next_unpin(cx),
-        }
-    }
-
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        match self {
-            MiddlewareStream::Passthru(s) => s.size_hint(),
-            MiddlewareStream::Postprocess(s) => s.size_hint(),
-            MiddlewareStream::HandledOne(s) => s.size_hint(),
-            MiddlewareStream::HandledMany(s) => s.size_hint(),
-        }
-    }
-}
-
 impl<RequestOctets, S, Target> Service<RequestOctets>
     for MandatoryMiddlewareSvc<RequestOctets, S, Target>
 where
@@ -368,13 +308,17 @@ where
     Target: Composer + Default + 'static + Unpin,
 {
     type Target = Target;
-    type Stream = MiddlewareStream<RequestOctets, S::Stream, Target>;
+    type Stream = MiddlewareStream<
+        S::Stream,
+        PostprocessingStream<RequestOctets, Target, S::Stream>,
+        Target,
+    >;
 
     fn call(&self, request: Request<RequestOctets>) -> Self::Stream {
         match self.preprocess(&request) {
             ControlFlow::Continue(()) => {
                 let st = self.inner.call(request.clone());
-                let map = PostprocessingMap::new(st, request, self.strict);
+                let map = PostprocessingStream::new(st, request, self.strict);
                 MiddlewareStream::Postprocess(map)
             }
             ControlFlow::Break(mut response) => {
@@ -387,28 +331,32 @@ where
     }
 }
 
-pub struct PostprocessingMap<RequestOctets, Target, St>
-where
+pub struct PostprocessingStream<
+    RequestOctets,
+    Target,
+    InnerServiceResponseStream,
+> where
     RequestOctets: Octets,
-    St: futures::stream::Stream<
+    InnerServiceResponseStream: futures::stream::Stream<
         Item = Result<CallResult<Target>, ServiceError>,
     >,
 {
     request: Request<RequestOctets>,
     strict: bool,
     _phantom: PhantomData<Target>,
-    stream: St,
+    stream: InnerServiceResponseStream,
 }
 
-impl<RequestOctets, Target, St> PostprocessingMap<RequestOctets, Target, St>
+impl<RequestOctets, Target, InnerServiceResponseStream>
+    PostprocessingStream<RequestOctets, Target, InnerServiceResponseStream>
 where
     RequestOctets: Octets,
-    St: futures::stream::Stream<
+    InnerServiceResponseStream: futures::stream::Stream<
         Item = Result<CallResult<Target>, ServiceError>,
     >,
 {
     pub(crate) fn new(
-        stream: St,
+        stream: InnerServiceResponseStream,
         request: Request<RequestOctets>,
         strict: bool,
     ) -> Self {
@@ -421,11 +369,15 @@ where
     }
 }
 
-impl<RequestOctets, Target, St> Stream
-    for PostprocessingMap<RequestOctets, Target, St>
+impl<RequestOctets, Target, InnerServiceResponseStream> Stream
+    for PostprocessingStream<
+        RequestOctets,
+        Target,
+        InnerServiceResponseStream,
+    >
 where
     RequestOctets: Octets,
-    St: futures::stream::Stream<
+    InnerServiceResponseStream: futures::stream::Stream<
             Item = Result<CallResult<Target>, ServiceError>,
         > + Unpin,
     Target: Composer + Default + Unpin,
@@ -442,7 +394,13 @@ where
         Poll::Ready(res.map(|mut res| {
             if let Ok(cr) = &mut res {
                 if let Some(response) = cr.get_response_mut() {
-                    MandatoryMiddlewareSvc::<RequestOctets, St, Target>::postprocess(&request, response, strict);
+                    MandatoryMiddlewareSvc::<
+                        RequestOctets,
+                        InnerServiceResponseStream,
+                        Target,
+                    >::postprocess(
+                        &request, response, strict
+                    );
                 }
             }
             res
