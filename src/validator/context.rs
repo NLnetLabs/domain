@@ -7,7 +7,9 @@ use super::anchor::TrustAnchors;
 use super::group::Group;
 use super::group::GroupList;
 use super::types::ValidationState;
+use super::utilities::nsec3_hash;
 use crate::base::name::Chain;
+use crate::base::name::Label;
 use crate::base::Dname;
 use crate::base::MessageBuilder;
 use crate::base::ParsedDname;
@@ -30,7 +32,12 @@ use crate::validate::supported_digest;
 use crate::validate::DnskeyExt;
 use std::cmp::Ordering;
 use std::collections::VecDeque;
+use std::string::ToString;
 use std::vec::Vec;
+
+// These need to be config variables.
+const NSEC3_ITER_INSECURE: u16 = 100;
+const NSEC3_ITER_BOGUS: u16 = 500;
 
 pub struct ValidationContext<Upstream> {
     ta: TrustAnchors,
@@ -71,18 +78,17 @@ impl<Upstream> ValidationContext<Upstream> {
         let (mut node, mut names) =
             self.find_closest_node(name, ta, ta_owner).await;
 
-	// Assume that node is not an intermediate node. We have to make sure
-	// in find_closest_node.
-	let mut signer_node = node.clone();
+        // Assume that node is not an intermediate node. We have to make sure
+        // in find_closest_node.
+        let mut signer_node = node.clone();
 
         // Walk from the closest node to name.
         println!("got names {names:?}");
         loop {
             match node.validation_state() {
                 ValidationState::Secure => (), // continue
-                ValidationState::Insecure
-                | ValidationState::Bogus
-                | ValidationState::Indeterminate => {
+                ValidationState::Insecure => return node,
+                ValidationState::Bogus | ValidationState::Indeterminate => {
                     todo!();
                 }
             }
@@ -90,10 +96,12 @@ impl<Upstream> ValidationContext<Upstream> {
             // Create the child node
             let child_name = names.pop_front().unwrap();
 
-	    // If this node is an intermediate node then get the node for
-	    // signer name. 
-	    node = self.create_child_node(child_name, &signer_node).await;
-	    if !node.intermediate() { signer_node = node.clone(); }
+            // If this node is an intermediate node then get the node for
+            // signer name.
+            node = self.create_child_node(child_name, &signer_node).await;
+            if !node.intermediate() {
+                signer_node = node.clone();
+            }
 
             if names.is_empty() {
                 return node;
@@ -137,7 +145,6 @@ impl<Upstream> ValidationContext<Upstream> {
     where
         Upstream: SendRequest<RequestMessage<Bytes>>,
     {
-
         // Start with a DS lookup.
         let mut msg = MessageBuilder::new_bytes();
         msg.header_mut().set_rd(true);
@@ -168,16 +175,46 @@ impl<Upstream> ValidationContext<Upstream> {
                 None => {
                     // Verify proof that DS doesn't exist for this name.
                     let state = nsec_for_ds(&name, &mut authorities, node);
-                    return match state {
-                        NsecState::InsecureDelegation =>
-                            Node::new_delegation(
+                    match state {
+                        NsecState::InsecureDelegation => {
+                            return Node::new_delegation(
                                 name,
                                 ValidationState::Insecure,
                                 Vec::new(),
-                            ),
-			NsecState::SecureIntermediate =>
-			    Node::new_intermediate(name, ValidationState::Secure, node.signer_name().clone()),
-                    };
+                            )
+                        }
+                        NsecState::SecureIntermediate => {
+                            return Node::new_intermediate(
+                                name,
+                                ValidationState::Secure,
+                                node.signer_name().clone(),
+                            )
+                        }
+                        NsecState::Nothing => (), // Try NSEC3 next.
+                    }
+
+                    let state = nsec3_for_ds(&name, &mut authorities, node);
+                    match state {
+                        NsecState::InsecureDelegation => {
+                            return Node::new_delegation(
+                                name,
+                                ValidationState::Insecure,
+                                Vec::new(),
+                            )
+                        }
+                        NsecState::SecureIntermediate => {
+                            return Node::new_intermediate(
+                                name,
+                                ValidationState::Secure,
+                                node.signer_name().clone(),
+                            )
+                        }
+                        NsecState::Nothing => (),
+                    }
+
+                    // Both NSEC and NSEC3 failed. Create a new node with
+                    // bogus state.
+                    todo!();
                 }
             };
 
@@ -386,7 +423,7 @@ impl Node {
             state: ValidationState::Indeterminate,
             keys: Vec::new(),
             signer_name: name,
-	    intermediate: false,
+            intermediate: false,
         }
     }
 
@@ -454,7 +491,7 @@ impl Node {
                         state: ValidationState::Secure,
                         keys: Vec::new(),
                         signer_name: ta_owner,
-			intermediate: false,
+                        intermediate: false,
                     };
                     for key_rec in dnskeys.clone().rr_iter() {
                         if let AllRecordData::Dnskey(key) = key_rec.data() {
@@ -499,7 +536,7 @@ impl Node {
             state,
             signer_name,
             keys,
-	    intermediate: false,
+            intermediate: false,
         }
     }
 
@@ -508,12 +545,12 @@ impl Node {
         state: ValidationState,
         signer_name: Dname<Bytes>,
     ) -> Self {
-	println!("new_intermediate: for {name:?} signer {signer_name:?}");
+        println!("new_intermediate: for {name:?} signer {signer_name:?}");
         Self {
             state,
             signer_name,
             keys: Vec::new(),
-	    intermediate: true,
+            intermediate: true,
         }
     }
 
@@ -529,7 +566,9 @@ impl Node {
         &self.signer_name
     }
 
-    pub fn intermediate(&self) -> bool { self.intermediate }
+    pub fn intermediate(&self) -> bool {
+        self.intermediate
+    }
 }
 
 fn has_key(
@@ -594,11 +633,13 @@ fn find_key_for_ds(
 enum NsecState {
     InsecureDelegation,
     SecureIntermediate,
+    Nothing,
 }
 
-// Find an NSEC that proves that a DS record does not exist and return the
-// delegation status based on the rtypes present. The NSEC processing is
-// simplified compared to normal NSEC processing for three reasons:
+// Find an NSEC record that proves that a DS record does not exist and
+// return the delegation status based on the rtypes present. The NSEC
+// processing is simplified compared to normal NSEC processing for three
+// reasons:
 // 1) We do not accept wildcards. We do not support wildcard delegations,
 //    so if we find one, we return a bogus status.
 // 2) The name exists, otherwise we wouldn't be here.
@@ -663,12 +704,143 @@ fn nsec_for_ds(
             return NsecState::SecureIntermediate;
         }
 
-	// Check that target is in the range of the NSEC and that owner is a
-	// prefix of the next_name.
-	if target.name_cmp(&owner) == Ordering::Greater && target.name_cmp(nsec.next_name()) == Ordering::Less && nsec.next_name().ends_with(target) {
+        // Check that if the owner is a prefix:
+        // - that the nsec does not have DNAME
+        // - that if the nsec has NS, it also has SOA
+        todo!();
+
+        // Check that target is in the range of the NSEC and that owner is a
+        // prefix of the next_name.
+        if target.name_cmp(&owner) == Ordering::Greater
+            && target.name_cmp(nsec.next_name()) == Ordering::Less
+            && nsec.next_name().ends_with(target)
+        {
             return NsecState::SecureIntermediate;
-	}
+        }
         todo!();
     }
-    todo!();
+    NsecState::Nothing
+}
+
+// Find an NSEC3 record hat proves that a DS record does not exist and return
+// the delegation status based on the rtypes present. The NSEC3 processing is
+// simplified compared to normal NSEC3 processing for three reasons:
+// 1) We do not accept wildcards. We do not support wildcard delegations,
+//    so we don't look for wildcards.
+// 2) The name exists, otherwise we wouldn't be here.
+// 3) The parent exists and is secure, otherwise we wouldn't be here.
+//
+// So we have two possibilities: we find an exact match for the hash of the
+// name and check the bitmap or we find that the name does not exist, but
+// the NSEC3 record uses opt-out.
+fn nsec3_for_ds(
+    target: &Dname<Bytes>,
+    groups: &mut GroupList,
+    node: &Node,
+) -> NsecState {
+    for g in groups.iter() {
+        if g.rtype() != Rtype::NSEC3 {
+            continue;
+        }
+        println!("nsec3_for_ds: trying group {g:?}");
+
+        let rrs = g.rr_set();
+        let AllRecordData::Nsec3(nsec3) = rrs[0].data() else {
+            panic!("NSEC3 expected");
+        };
+
+        let iterations = nsec3.iterations();
+
+        // See RFC 9276, Appendix A for a recommendation on the maximum number
+        // of iterations.
+        if iterations > NSEC3_ITER_INSECURE || iterations > NSEC3_ITER_BOGUS {
+            // High iteration count, verify the signature and abort.
+            todo!();
+        }
+
+        // Create the hash with the parameters in this record. We should cache
+        // the hash.
+        let hash = nsec3_hash(
+            target,
+            nsec3.hash_algorithm(),
+            iterations,
+            nsec3.salt(),
+        );
+
+        let owner = g.owner();
+        let first = owner.first();
+
+        println!("got hash {hash:?} and first {first:?}");
+
+        // Make sure the NSEC3 record is from an appropriate zone.
+        if !target.ends_with(&owner.parent().unwrap_or_else(|| Dname::root()))
+        {
+            // Matching hash but wrong zone. Skip.
+            todo!();
+        }
+
+        // if first.to_canonical() == Label::from_slice(hash.to_string().as_ref()).unwrap().to_canonical() {
+        if first == Label::from_slice(hash.to_string().as_ref()).unwrap() {
+            // We found an exact match.
+
+            // Validate the signature
+            let (state, _) = g.validate_with_node(node);
+            match state {
+                ValidationState::Insecure
+                | ValidationState::Bogus
+                | ValidationState::Indeterminate => todo!(),
+                ValidationState::Secure => (),
+            }
+
+            // Check the bitmap.
+            let types = nsec3.types();
+
+            // Check for DS.
+            if types.contains(Rtype::DS) {
+                // We didn't get a DS RRset but the NSEC3 record proves there
+                // is one. Complain.
+                todo!();
+            }
+
+            // Check for SOA.
+            if types.contains(Rtype::SOA) {
+                // This is an NSEC3 record from the APEX. Complain.
+                todo!();
+            }
+
+            // Check for NS.
+            if types.contains(Rtype::NS) {
+                // We found NS and ruled out DS. This in an insecure delegation.
+                return NsecState::InsecureDelegation;
+            }
+
+            // Anything else is a secure intermediate node.
+            return NsecState::SecureIntermediate;
+        }
+
+        // Check if target is between the hash in the first label and the
+        // next_owner field.
+        if first < Label::from_slice(hash.to_string().as_ref()).unwrap()
+            && hash < nsec3.next_owner()
+        {
+            // target does not exist. However, if the opt-out flag is set,
+            // we are allowed to assume an insecure delegation (RFC 5155,
+            // Section 6). First check the signature.
+            let (state, _) = g.validate_with_node(node);
+            match state {
+                ValidationState::Insecure
+                | ValidationState::Bogus
+                | ValidationState::Indeterminate => todo!(),
+                ValidationState::Secure => (),
+            }
+
+            if !nsec3.opt_out() {
+                // Weird, target does not exist. Complain.
+                todo!();
+            }
+
+            return NsecState::InsecureDelegation;
+        }
+    }
+    NsecState::Nothing
 }
