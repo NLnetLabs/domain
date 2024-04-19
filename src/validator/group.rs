@@ -44,6 +44,8 @@ pub struct Group {
     rr_set: Vec<RrType>,
     sig_set: Vec<SigType>,
     state: Mutex<Option<ValidationState>>,
+    wildcard: Mutex<Option<Dname<Bytes>>>,
+    signer_name: Mutex<Option<Dname<Bytes>>>,
 }
 
 impl Group {
@@ -53,6 +55,8 @@ impl Group {
                 rr_set: vec![to_bytes_record(&rr)],
                 sig_set: Vec::new(),
                 state: Mutex::new(None),
+                wildcard: Mutex::new(None),
+                signer_name: Mutex::new(None),
             };
         }
         todo!();
@@ -126,14 +130,36 @@ impl Group {
         Err(())
     }
 
-    pub fn set_state(&self, state: ValidationState) {
+    pub fn set_state_wildcard_signer_name(
+        &self,
+        state: ValidationState,
+        wildcard: Option<Dname<Bytes>>,
+        signer_name: Dname<Bytes>,
+    ) {
         let mut m_state = self.state.lock().unwrap();
-        *m_state = Some(state)
+        *m_state = Some(state);
+        drop(m_state);
+        let mut m_wildcard = self.wildcard.lock().unwrap();
+        *m_wildcard = wildcard;
+        drop(m_wildcard);
+        let mut m_signer_name = self.signer_name.lock().unwrap();
+        *m_signer_name = Some(signer_name);
+        drop(m_signer_name);
     }
 
     pub fn get_state(&self) -> Option<ValidationState> {
         let m_state = self.state.lock().unwrap();
         *m_state
+    }
+
+    pub fn wildcard(&self) -> Option<Dname<Bytes>> {
+        let m_wildcard = self.wildcard.lock().unwrap();
+        (*m_wildcard).clone()
+    }
+
+    pub fn signer_name(&self) -> Dname<Bytes> {
+        let m_signer_name = self.signer_name.lock().unwrap();
+        (*m_signer_name).clone().unwrap()
     }
 
     pub fn owner(&self) -> Dname<Bytes> {
@@ -180,7 +206,7 @@ impl Group {
     pub async fn validate_with_vc<Upstream>(
         &self,
         vc: &ValidationContext<Upstream>,
-    ) -> ValidationState
+    ) -> (ValidationState, Option<Dname<Bytes>>, Dname<Bytes>)
     where
         Upstream: Clone + SendRequest<RequestMessage<Bytes>>,
     {
@@ -202,7 +228,7 @@ impl Group {
         // then the status is insecure, because we cannot validate RRSIGs.
         // Is there an RFC that descibes this?
         if self.rr_set.is_empty() {
-            return ValidationState::Insecure;
+            return (ValidationState::Insecure, None, Dname::root());
         }
 
         let target = if !self.sig_set.is_empty() {
@@ -216,28 +242,33 @@ impl Group {
             ValidationState::Secure => (), // Continue validating
             ValidationState::Insecure
             | ValidationState::Bogus
-            | ValidationState::Indeterminate => return state,
+            | ValidationState::Indeterminate => {
+                return (state, None, target.clone())
+            }
         }
-        let (state, _wildcard) = self.validate_with_node(&node);
-        state
+        let (state, wildcard) = self.validate_with_node(&node);
+        (state, wildcard, target.clone())
     }
 
     // Try to validate the signature using a node. Return the validation
     // state. Also return if the signature was expanded from a wildcard.
     // This is valid only if the validation state is secure.
-    pub fn validate_with_node(&self, node: &Node) -> (ValidationState, bool) {
+    pub fn validate_with_node(
+        &self,
+        node: &Node,
+    ) -> (ValidationState, Option<Dname<Bytes>>) {
         // Check the validation state of node. We can return directly if the
         // state is anything other than Secure.
         let state = node.validation_state();
         match state {
             ValidationState::Insecure
             | ValidationState::Bogus
-            | ValidationState::Indeterminate => return (state, false),
+            | ValidationState::Indeterminate => return (state, None),
             ValidationState::Secure => (),
         }
         let keys = node.keys();
         let mut secure = false;
-        let mut wildcard = false;
+        let mut wildcard = None;
         for sig_rec in self.clone().sig_iter() {
             let sig = sig_rec.data();
             for key in keys {
@@ -257,7 +288,7 @@ impl Group {
                     key_tag,
                 ) {
                     secure = true;
-                    wildcard = sig.is_wildcard(&self.rr_set[0]);
+                    wildcard = sig.wildcard_closest_encloser(&self.rr_set[0]);
                     break;
                 } else {
                     // To avoid CPU exhaustion attacks such as KeyTrap
@@ -289,7 +320,7 @@ impl Group {
         if secure {
             (ValidationState::Secure, wildcard)
         } else {
-            (ValidationState::Bogus, false)
+            (ValidationState::Bogus, None)
         }
     }
 
@@ -416,10 +447,20 @@ impl Group {
 impl Clone for Group {
     fn clone(&self) -> Self {
         let m_state = self.state.lock().unwrap();
+        let state = *m_state;
+        drop(m_state);
+        let m_wildcard = self.wildcard.lock().unwrap();
+        let wildcard = (*m_wildcard).clone();
+        drop(m_wildcard);
+        let m_signer_name = self.signer_name.lock().unwrap();
+        let signer_name = (*m_signer_name).clone();
+        drop(m_signer_name);
         Self {
             rr_set: self.rr_set.clone(),
             sig_set: self.sig_set.clone(),
-            state: Mutex::new(*m_state),
+            state: Mutex::new(state),
+            wildcard: Mutex::new(wildcard),
+            signer_name: Mutex::new(signer_name),
         }
     }
 }

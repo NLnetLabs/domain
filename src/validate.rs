@@ -6,11 +6,13 @@
 
 use crate::base::cmp::CanonicalOrd;
 use crate::base::iana::{DigestAlg, SecAlg};
+use crate::base::name::Name;
 use crate::base::name::ToName;
 use crate::base::rdata::{ComposeRecordData, RecordData};
 use crate::base::record::Record;
 use crate::base::wire::{Compose, Composer};
 use crate::rdata::{Dnskey, Rrsig};
+use bytes::Bytes;
 use octseq::builder::with_infallible;
 use ring::{digest, signature};
 use std::vec::Vec;
@@ -124,7 +126,10 @@ pub trait RrsigExt {
 
     /// Return if records are expanded for a wildcard according to the
     /// information in this signature.
-    fn is_wildcard<N, D>(&self, rr: &Record<N, D>) -> bool
+    fn wildcard_closest_encloser<N, D>(
+        &self,
+        rr: &Record<N, D>,
+    ) -> Option<Dname<Bytes>>
     where
         N: ToDname;
 
@@ -217,7 +222,10 @@ impl<Octets: AsRef<[u8]>, Name: ToName> RrsigExt for Rrsig<Octets, Name> {
         Ok(())
     }
 
-    fn is_wildcard<N, D>(&self, rr: &Record<N, D>) -> bool
+    fn wildcard_closest_encloser<N, D>(
+        &self,
+        rr: &Record<N, D>,
+    ) -> Option<Dname<Bytes>>
     where
         N: ToDname,
     {
@@ -229,9 +237,22 @@ impl<Octets: AsRef<[u8]>, Name: ToName> RrsigExt for Rrsig<Octets, Name> {
         // accomodate that.
         let fqdn_labels = fqdn.iter_labels().count() - 1;
         if rrsig_labels < fqdn_labels {
-            return true;
+            // name = "*." | the rightmost rrsig_label labels of the fqdn
+            Some(
+                match fqdn
+                    .to_cow()
+                    .iter_suffixes()
+                    .nth(fqdn_labels - rrsig_labels)
+                {
+                    Some(name) => Dname::from_octets(Bytes::copy_from_slice(
+                        name.as_octets(),
+                    ))
+                    .unwrap(),
+                    None => Dname::from(fqdn.to_bytes()),
+                },
+            )
         } else {
-            return false;
+            None
         }
     }
 

@@ -674,7 +674,7 @@ fn nsec_for_ds(
             }
 
             // Rule out wildcard
-            if wildcard {
+            if wildcard.is_some() {
                 todo!();
             }
 
