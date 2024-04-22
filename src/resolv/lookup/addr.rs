@@ -94,4 +94,3 @@ impl<'a, Octs: Octets> Iterator for FoundAddrsIter<'a, Octs> {
         None
     }
 }
-
