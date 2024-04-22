@@ -162,9 +162,6 @@ where
         Upstream: Clone + SendRequest<CR>,
         VCUpstream: Clone + SendRequest<RequestMessage<Bytes>>,
     {
-        // We should check for the CD flag. If set then just perform the
-        // request without validating.
-
         // Store the DO flag of the request.
         let dnssec_ok = self.request_msg.dnssec_ok();
         if !dnssec_ok {
@@ -172,10 +169,36 @@ where
             self.request_msg.set_dnssec_ok(true);
         }
 
+        // Store the CD flag of the request.
+        let cd = self.request_msg.header().cd();
+        if !cd {
+            // Set the CD flag to get all results even if they fail to validate
+            // upstream.
+            self.request_msg.header_mut().set_cd(true);
+        }
+
         let mut request =
             self.upstream.send_request(self.request_msg.clone());
 
         let response_msg = request.get_response().await?;
+        println!("get_response_impl: response {response_msg:?}");
+
+        if cd {
+            // Clear the AD flag if it is set. Return the response without
+            // checking.
+            if response_msg.header().ad() {
+                let mut response_msg =
+                    Message::from_octets(response_msg.as_slice().to_vec())
+                        .unwrap();
+                response_msg.header_mut().set_ad(false);
+                let response_msg = Message::<Bytes>::from_octets(
+                    response_msg.into_octets().octets_into(),
+                )
+                .unwrap();
+                return Ok(response_msg);
+            }
+            return Ok(response_msg);
+        }
 
         // We should validate.
         let res = validator::validate_msg(&response_msg, &self.vc).await;
@@ -190,23 +213,19 @@ where
                         // Check the state of the DO flag to see if we have to
                         // strip DNSSEC records. Set the AD flag if it is
                         // not set and either AD or DO is set in the request.
+                        // We always have to clear CD.
                         if dnssec_ok {
-                            // Set AD if it is not set.
-                            if !response_msg.header().ad() {
-                                let mut response_msg = Message::from_octets(
-                                    response_msg.as_slice().to_vec(),
-                                )
-                                .unwrap();
-                                response_msg.header_mut().set_ad(true);
-                                let response_msg =
-                                    Message::<Bytes>::from_octets(
-                                        response_msg
-                                            .into_octets()
-                                            .octets_into(),
-                                    )
-                                    .unwrap();
-                                return Ok(response_msg);
-                            }
+                            // Set AD and clear CD.
+                            let mut response_msg = Message::from_octets(
+                                response_msg.as_slice().to_vec(),
+                            )
+                            .unwrap();
+                            response_msg.header_mut().set_ad(true);
+                            response_msg.header_mut().set_cd(false);
+                            let response_msg = Message::<Bytes>::from_octets(
+                                response_msg.into_octets().octets_into(),
+                            )
+                            .unwrap();
                             return Ok(response_msg);
                         } else {
                             let msg = remove_dnssec(
@@ -221,25 +240,20 @@ where
                     | ValidationState::Indeterminate => {
                         // Check the state of the DO flag to see if we have to
                         // strip DNSSEC records. Clear the AD flag if it is
-                        // set.
+                        // set. Always clear CD.
                         let dnssec_ok = self.request_msg.dnssec_ok();
                         if dnssec_ok {
-                            // Clear AD if it is set.
-                            if response_msg.header().ad() {
-                                let mut response_msg = Message::from_octets(
-                                    response_msg.as_slice().to_vec(),
-                                )
-                                .unwrap();
-                                response_msg.header_mut().set_ad(false);
-                                let response_msg =
-                                    Message::<Bytes>::from_octets(
-                                        response_msg
-                                            .into_octets()
-                                            .octets_into(),
-                                    )
-                                    .unwrap();
-                                return Ok(response_msg);
-                            }
+                            // Clear AD if it is set. Clear CD.
+                            let mut response_msg = Message::from_octets(
+                                response_msg.as_slice().to_vec(),
+                            )
+                            .unwrap();
+                            response_msg.header_mut().set_ad(false);
+                            response_msg.header_mut().set_cd(false);
+                            let response_msg = Message::<Bytes>::from_octets(
+                                response_msg.into_octets().octets_into(),
+                            )
+                            .unwrap();
                             return Ok(response_msg);
                         } else {
                             let msg = remove_dnssec(&response_msg, false);
@@ -286,6 +300,7 @@ where
 }
 
 /// Return a new message without the DNSSEC type RRSIG, NSEC, and NSEC3.
+/// Assume that it is safe to clear CD.
 fn remove_dnssec(
     msg: &Message<Bytes>,
     ad: bool,
@@ -302,6 +317,7 @@ fn remove_dnssec(
         // Clear ad
         target.header_mut().set_ad(false);
     }
+    target.header_mut().set_cd(false);
 
     let source = source.question();
     let mut target = target.question();

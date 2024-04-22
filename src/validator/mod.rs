@@ -8,9 +8,10 @@ use bytes::Bytes;
 //use crate::base::ParseRecordData;
 use crate::base::iana::Class;
 use crate::base::iana::OptRcode;
-use crate::base::name::Label;
+//use crate::base::name::Label;
 use crate::base::name::ToDname;
-use crate::base::DnameBuilder;
+//use crate::base::scan::IterScanner;
+//use crate::base::DnameBuilder;
 use crate::base::ParsedDname;
 use crate::base::Rtype;
 use crate::dep::octseq::Octets;
@@ -19,14 +20,27 @@ use crate::dep::octseq::Octets;
 //use crate::dep::octseq::OctetsInto;
 use crate::net::client::request::RequestMessage;
 use crate::net::client::request::SendRequest;
+use crate::rdata::nsec3::OwnerHash;
 use crate::rdata::AllRecordData;
 use crate::rdata::Nsec;
+use crate::rdata::Nsec3;
 use context::ValidationContext;
 //use group::Group;
 use group::Group;
 use group::GroupList;
+use nsec::nsec3_hash;
+use nsec::nsec3_in_range;
+use nsec::nsec3_label_to_hash;
+use nsec::star_closest_encloser;
+use nsec::NSEC3_ITER_BOGUS;
+use nsec::NSEC3_ITER_INSECURE;
 use std::cmp::Ordering;
+use std::collections::VecDeque;
 use std::fmt::Debug;
+//use std::str;
+//use std::str::FromStr;
+//use std::string::ToString;
+use std::vec::Vec;
 use types::Error;
 use types::ValidationState;
 
@@ -126,6 +140,7 @@ where
         },
     };
 
+    println!("rcode = {:?}", msg.opt_rcode());
     if msg.opt_rcode() == OptRcode::NOERROR {
         // Try to prove that the name exists but the qtype doesn't. Start
         // with NSEC and assume the name exists.
@@ -154,6 +169,58 @@ where
                 ))
             }
             NsecState::Nothing => (), // Try something else.
+        }
+
+        // Try to prove that the name exists but the qtype doesn't. Continue
+        // with NSEC3 and assume the name exists.
+        match nsec3_for_nodata(&sname, &mut authorities, qtype, &signer_name)
+        {
+            NsecState::NoData => {
+                return Ok(map_maybe_secure(
+                    ValidationState::Secure,
+                    maybe_secure,
+                ))
+            }
+            NsecState::Nothing => (), // Try something else.
+        }
+
+        if qtype == Rtype::DS {
+            // RFC 5155, Section 8.6. If there is a closest encloser and
+            // the NSEC3 RR that covers the "next closer" name has the Opt-Out
+            // bit set then we have an insecure proof that the DS record does
+            // not exist.
+            match nsec3_for_not_exists(
+                &sname,
+                &mut authorities,
+                qtype,
+                &signer_name,
+            ) {
+                Nsec3NXState::DoesNotExist(_) => (),
+                Nsec3NXState::DoesNotExistInsecure(_) => {
+                    return Ok(ValidationState::Insecure)
+                }
+                Nsec3NXState::Nothing => (),
+            };
+        }
+
+        // Try to prove that the name does not exist and that a wildcard
+        // exists but does not have the requested qtype.
+        match nsec3_for_nodata_wildcard(
+            &sname,
+            &mut authorities,
+            qtype,
+            &signer_name,
+        ) {
+            Nsec3State::NoData => {
+                return Ok(map_maybe_secure(
+                    ValidationState::Secure,
+                    maybe_secure,
+                ))
+            }
+            Nsec3State::NoDataInsecure => {
+                return Ok(ValidationState::Insecure)
+            }
+            Nsec3State::Nothing => (), // Try something else.
         }
 
         todo!();
@@ -343,14 +410,12 @@ fn nsec_for_nodata_wildcard(
     rtype: Rtype,
     signer_name: &Dname<Bytes>,
 ) -> NsecState {
-    let ce = match nsec_for_not_exists(target, groups, rtype, signer_name) {
+    let ce = match nsec_for_not_exists(target, groups, signer_name) {
         NsecNXState::DoesNotExist(ce) => ce,
         NsecNXState::Nothing => return NsecState::Nothing,
     };
 
-    let mut star_name = DnameBuilder::new_bytes();
-    star_name.append_label(Label::wildcard().as_ref());
-    let star_name = star_name.append_origin(&ce).unwrap();
+    let star_name = star_closest_encloser(ce);
     nsec_for_nodata(&star_name, groups, rtype, signer_name)
 }
 
@@ -365,7 +430,6 @@ enum NsecNXState {
 fn nsec_for_not_exists(
     target: &Dname<Bytes>,
     groups: &mut GroupList,
-    rtype: Rtype,
     signer_name: &Dname<Bytes>,
 ) -> NsecNXState {
     for g in groups.iter() {
@@ -409,6 +473,227 @@ fn nsec_for_not_exists(
         return NsecNXState::DoesNotExist(ce);
     }
     NsecNXState::Nothing
+}
+
+// Find an NSEC3 record for target that proves that no record that matches
+// rtype exist. There is only one option: find an NSEC3 record that has an
+// owner name where the first label match the NSEC3 hash of target and then
+// check the bitmap.
+fn nsec3_for_nodata(
+    target: &Dname<Bytes>,
+    groups: &mut GroupList,
+    rtype: Rtype,
+    signer_name: &Dname<Bytes>,
+) -> NsecState {
+    for g in groups.iter() {
+        let opt_nsec3_hash = get_checked_nsec3(g, signer_name);
+        let (nsec3, ownerhash) = if let Some(nsec3_hash) = opt_nsec3_hash {
+            nsec3_hash
+        } else {
+            continue;
+        };
+
+        // Create the hash with the parameters in this record. We should cache
+        // the hash.
+        let hash = nsec3_hash(
+            target,
+            nsec3.hash_algorithm(),
+            nsec3.iterations(),
+            nsec3.salt(),
+        );
+
+        println!("got hash {hash:?} and ownerhash {ownerhash:?}");
+
+        if ownerhash == hash {
+            // We found an exact match.
+
+            // Check the bitmap.
+            let types = nsec3.types();
+
+            // Check for QTYPE.
+            if types.contains(rtype) {
+                // We didn't get a rtype RRset but the NSEC3 record proves
+                // there is one. Complain.
+                todo!();
+            }
+
+            // Avoid parent-side NSEC3 records. The parent-side record has NS
+            // set but not SOA. With one exception, the DS record lives on the
+            // parent side so there the check needs to be reversed.
+            if rtype == Rtype::DS {
+                if types.contains(Rtype::NS) && types.contains(Rtype::SOA) {
+                    // This is an NSEC3 record from the child. Complain.
+                    todo!();
+                }
+            } else {
+                if types.contains(Rtype::NS) && !types.contains(Rtype::SOA) {
+                    // This is an NSEC3 record from the parent. Complain.
+                    todo!();
+                }
+            }
+
+            return NsecState::NoData;
+        }
+
+        // No match, try the next one.
+    }
+    NsecState::Nothing
+}
+
+#[derive(Debug)]
+enum Nsec3State {
+    NoData,
+    NoDataInsecure,
+    Nothing,
+}
+
+// Find a closest encloser target and then find an NSEC3 record for the
+// wildcard that proves that no record that matches
+// rtype exist.
+fn nsec3_for_nodata_wildcard(
+    target: &Dname<Bytes>,
+    groups: &mut GroupList,
+    rtype: Rtype,
+    signer_name: &Dname<Bytes>,
+) -> Nsec3State {
+    let (ce, secure) =
+        match nsec3_for_not_exists(target, groups, rtype, signer_name) {
+            Nsec3NXState::DoesNotExist(ce) => (ce, true),
+            Nsec3NXState::DoesNotExistInsecure(ce) => (ce, false),
+            Nsec3NXState::Nothing => return Nsec3State::Nothing,
+        };
+
+    let star_name = star_closest_encloser(ce);
+    match nsec3_for_nodata(&star_name, groups, rtype, signer_name) {
+        NsecState::NoData => {
+            if secure {
+                Nsec3State::NoData
+            } else {
+                Nsec3State::NoDataInsecure
+            }
+        }
+        NsecState::Nothing => Nsec3State::Nothing,
+    }
+}
+
+#[derive(Debug)]
+enum Nsec3NXState {
+    DoesNotExist(Dname<Bytes>),
+    DoesNotExistInsecure(Dname<Bytes>),
+    Nothing,
+}
+
+// Prove that target does not exist using NSEC3 records. Return the status
+// and the closest encloser.
+fn nsec3_for_not_exists(
+    target: &Dname<Bytes>,
+    groups: &mut GroupList,
+    rtype: Rtype,
+    signer_name: &Dname<Bytes>,
+) -> Nsec3NXState {
+    println!("nsec3_for_not_exists: proving {target:?} does not exist");
+
+    // We assume the target does not exist and the signer_name does exist.
+    // Starting from signer_name and going towards target we check if a name
+    // exists or not. We assume signer_name exists. If we find a name that
+    // does not exist but the parent name does, then the name that does
+    // exist is the closes encloser.
+    let mut names = VecDeque::new();
+    for n in target.iter_suffixes() {
+        if !n.ends_with(signer_name) {
+            break;
+        }
+        names.push_front(n);
+    }
+
+    let mut maybe_ce = signer_name.clone();
+    let mut maybe_ce_exists = false;
+    'next_name: for n in names {
+        println!("nsec3_for_not_exists: trying name {n:?}");
+        if n == signer_name {
+            println!("nsec3_for_not_exists: signer_name");
+            maybe_ce = n;
+            maybe_ce_exists = true;
+            continue;
+        }
+
+        // Check whether the name exists, or is proven to not exist.
+        for g in groups.iter() {
+            let opt_nsec3_hash = get_checked_nsec3(g, signer_name);
+            let (nsec3, ownerhash) = if let Some(nsec3_hash) = opt_nsec3_hash
+            {
+                nsec3_hash
+            } else {
+                continue;
+            };
+
+            // Create the hash with the parameters in this record. We should
+            // cache the hash.
+            let hash = nsec3_hash(
+                &n,
+                nsec3.hash_algorithm(),
+                nsec3.iterations(),
+                nsec3.salt(),
+            );
+
+            println!("got hash {hash:?} and ownerhash {ownerhash:?}");
+
+            if ownerhash == hash {
+                // We found an exact match.
+
+                // RFC 5155, Section 8.3, Point 3: the DNAME type bit
+                // must not be set and the NS type bit may only be set if the
+                // SOA type bit is set.
+                let types = nsec3.types();
+                if types.contains(Rtype::DNAME)
+                    || (types.contains(Rtype::NS)
+                        && !types.contains(Rtype::SOA))
+                {
+                    // Dname or delegation. What do we do?
+                    todo!();
+                }
+                println!("nsec3_for_not_exists: found match");
+                maybe_ce = n;
+                maybe_ce_exists = true;
+                continue 'next_name;
+            }
+
+            // Check if target is between the hash in the first label and the
+            // next_owner field.
+            println!(
+                "nsec3_for_not_exists: range {ownerhash:?}..{:?}",
+                nsec3.next_owner()
+            );
+            if nsec3_in_range(hash, ownerhash, nsec3.next_owner()) {
+                println!("nsec3_for_not_exists: found not exist");
+
+                // We found a name that does not exist. Do we have a candidate
+                // closest encloser?
+                if maybe_ce_exists {
+                    // Yes.
+
+                    if nsec3.opt_out() {
+                        // Results based on an opt_out record are insecure.
+                        return Nsec3NXState::DoesNotExistInsecure(maybe_ce);
+                    }
+
+                    return Nsec3NXState::DoesNotExist(maybe_ce);
+                }
+
+                // No. And this one doesn't exist either.
+                maybe_ce_exists = false;
+                continue 'next_name;
+            }
+
+            // No match, try the next one.
+        }
+
+        // We didn't find a match. Clear maybe_ce_exists and move on with the
+        // next name.
+        maybe_ce_exists = false;
+    }
+
+    todo!();
 }
 
 fn map_maybe_secure(
@@ -495,9 +780,7 @@ fn get_checked_nsec(
     if let Some(closest_encloser) = opt_wildcard {
         // The signature is for a wildcard. Make sure that the owner name is
         // equal to the unexpanded wildcard.
-        let mut star_name = DnameBuilder::new_bytes();
-        star_name.append_label(Label::wildcard().as_ref());
-        let star_name = star_name.append_origin(&closest_encloser).unwrap();
+        let star_name = star_closest_encloser(closest_encloser);
         println!("got star_name {star_name:?}");
         if owner != star_name {
             // The nsec is an expanded wildcard. Ignore.
@@ -512,8 +795,58 @@ fn get_checked_nsec(
     Some(nsec.clone())
 }
 
+fn get_checked_nsec3(
+    group: &Group,
+    signer_name: &Dname<Bytes>,
+) -> Option<(Nsec3<Bytes>, OwnerHash<Vec<u8>>)> {
+    let rrs = group.rr_set();
+    if rrs.len() != 1 {
+        // There should be at most one NSEC3 record for a given owner name.
+        // Ignore the entire RRset.
+        println!("get_checked_nsec3: line {}", line!());
+        return None;
+    }
+    let AllRecordData::Nsec3(nsec3) = rrs[0].data() else {
+        return None;
+    };
+
+    // Check if this group is secure.
+    if let ValidationState::Secure = group.get_state().unwrap() {
+    } else {
+        return None;
+    };
+
+    // Check if the signer name matches the expected signer name.
+    if group.signer_name() != signer_name {
+        println!("get_checked_nsec3: line {}", line!());
+        return None;
+    }
+
+    let iterations = nsec3.iterations();
+
+    // See RFC 9276, Appendix A for a recommendation on the maximum number
+    // of iterations.
+    if iterations > NSEC3_ITER_INSECURE || iterations > NSEC3_ITER_BOGUS {
+        // High iteration count, abort.
+        todo!();
+    }
+
+    // Convert first label to hash. Skip this NSEC3 record if that fails.
+    let ownerhash = nsec3_label_to_hash(group.owner().first());
+
+    // Check if the length of ownerhash matches to length in next_hash.
+    // Otherwise, skip the NSEC3 record.
+    if ownerhash.as_slice().len() != nsec3.next_owner().as_slice().len() {
+        return None;
+    }
+
+    // All check pass, return the NSEC3 record and the owner hash.
+    Some((nsec3.clone(), ownerhash))
+}
+
 pub mod anchor;
 pub mod context;
 mod group;
+mod nsec;
 pub mod types;
 mod utilities;

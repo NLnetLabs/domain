@@ -6,8 +6,10 @@ use super::anchor::TrustAnchor;
 use super::anchor::TrustAnchors;
 use super::group::Group;
 use super::group::GroupList;
+use super::nsec::nsec3_hash;
+use super::nsec::NSEC3_ITER_BOGUS;
+use super::nsec::NSEC3_ITER_INSECURE;
 use super::types::ValidationState;
-use super::utilities::nsec3_hash;
 use crate::base::name::Chain;
 use crate::base::name::Label;
 use crate::base::Dname;
@@ -34,10 +36,6 @@ use std::cmp::Ordering;
 use std::collections::VecDeque;
 use std::string::ToString;
 use std::vec::Vec;
-
-// These need to be config variables.
-const NSEC3_ITER_INSECURE: u16 = 100;
-const NSEC3_ITER_BOGUS: u16 = 500;
 
 pub struct ValidationContext<Upstream> {
     ta: TrustAnchors,
@@ -779,7 +777,6 @@ fn nsec3_for_ds(
             todo!();
         }
 
-        // if first.to_canonical() == Label::from_slice(hash.to_string().as_ref()).unwrap().to_canonical() {
         if first == Label::from_slice(hash.to_string().as_ref()).unwrap() {
             // We found an exact match.
 
