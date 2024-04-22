@@ -187,7 +187,7 @@ impl<Octs> Name<Octs> {
     ///
     /// The returned name will use the standard suffixes of `in-addr.arpa.`
     /// for IPv4 addresses and `ip6.arpa.` for IPv6.
-    pub fn from_addr(addr: IpAddr) -> Result<Self, PushError>
+    pub fn reverse_from_addr(addr: IpAddr) -> Result<Self, PushError>
     where
         Octs: FromBuilder,
         <Octs as FromBuilder>::Builder: EmptyBuilder
@@ -1366,11 +1366,11 @@ pub(crate) mod test {
         type TestName = Name<octseq::array::Array<128>>;
 
         assert_eq!(
-            TestName::from_addr([192, 0, 2, 12].into()).unwrap(),
+            TestName::reverse_from_addr([192, 0, 2, 12].into()).unwrap(),
             TestName::from_str("12.2.0.192.in-addr.arpa").unwrap()
         );
         assert_eq!(
-            TestName::from_addr(
+            TestName::reverse_from_addr(
                 [0x2001, 0xdb8, 0x1234, 0x0, 0x5678, 0x1, 0x9abc, 0xdef]
                     .into()
             )

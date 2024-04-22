@@ -27,7 +27,7 @@ pub async fn lookup_addr<R: Resolver>(
     resolv: &R,
     addr: IpAddr,
 ) -> Result<FoundAddrs<R>, io::Error> {
-    let name = Name::<Octets128>::from_addr(addr)
+    let name = Name::<Octets128>::reverse_from_addr(addr)
         .expect("address domain name too long");
     resolv.query((name, Rtype::PTR)).await.map(FoundAddrs)
 }
