@@ -77,13 +77,7 @@ mod test {
 
     #[test]
     fn debug() {
-        assert_eq!(
-            format!("{:?}", Class::IN),
-            "Class::IN"
-        );
-        assert_eq!(
-            format!("{:?}", Class(69)),
-            "Class(69)"
-        );
+        assert_eq!(format!("{:?}", Class::IN), "Class::IN");
+        assert_eq!(format!("{:?}", Class(69)), "Class(69)");
     }
 }
