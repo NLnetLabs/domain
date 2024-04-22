@@ -202,33 +202,11 @@ impl Default for ResolvOptions {
 /// The transport protocol to be used for a server.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum Transport {
-    /// Unencrypted UDP transport.
-    Udp,
+    /// Unencrypted UDP transport, switch to TCP for truncated responses.
+    UdpTcp,
 
     /// Unencrypted TCP transport.
     Tcp,
-}
-
-impl Transport {
-    /// Returns whether the transport is a preferred transport.
-    ///
-    /// Only preferred transports are considered initially. Only if a
-    /// truncated answer comes back will we consider streaming protocols
-    /// instead.
-    pub fn is_preferred(self) -> bool {
-        match self {
-            Transport::Udp => true,
-            Transport::Tcp => false,
-        }
-    }
-
-    /// Returns whether the transport is a streaming protocol.
-    pub fn is_stream(self) -> bool {
-        match self {
-            Transport::Udp => false,
-            Transport::Tcp => true,
-        }
-    }
 }
 
 //------------ ServerConf ----------------------------------------------------
@@ -344,10 +322,10 @@ impl ResolvConf {
         if self.servers.is_empty() {
             // glibc just simply uses 127.0.0.1:53. Let's do that, too,
             // and claim it is for compatibility.
-            let addr =
-                SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 53);
-            self.servers.push(ServerConf::new(addr, Transport::Udp));
-            self.servers.push(ServerConf::new(addr, Transport::Tcp));
+            self.servers.push(ServerConf::new(
+                SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 53),
+                Transport::UdpTcp,
+            ));
         }
         if self.options.search.is_empty() {
             self.options.search.push(Name::root())
@@ -409,8 +387,7 @@ impl ResolvConf {
         use std::net::ToSocketAddrs;
 
         for addr in (next_word(&mut words)?, 53).to_socket_addrs()? {
-            self.servers.push(ServerConf::new(addr, Transport::Udp));
-            self.servers.push(ServerConf::new(addr, Transport::Tcp));
+            self.servers.push(ServerConf::new(addr, Transport::UdpTcp));
         }
         no_more_words(words)
     }
