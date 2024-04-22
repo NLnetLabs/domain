@@ -15,7 +15,7 @@ use self::conf::{
 use crate::base::iana::Rcode;
 use crate::base::message::Message;
 use crate::base::message_builder::{AdditionalBuilder, MessageBuilder};
-use crate::base::name::{ToDname, ToRelativeDname};
+use crate::base::name::{ToName, ToRelativeName};
 use crate::base::question::Question;
 use crate::net::client::dgram_stream;
 use crate::net::client::multi_stream;
@@ -58,21 +58,21 @@ pub mod conf;
 ///
 /// This type collects all information making it possible to start DNS
 /// queries. You can create a new resolver using the system’s configuration
-/// using the [`new()`] associate function or using your own configuration
-/// with [`from_conf()`].
+/// using the [`new`] associate function or using your own configuration with
+/// [`from_conf`].
 ///
 /// Stub resolver values can be cloned relatively cheaply as they keep all
 /// information behind an arc.
 ///
 /// If you want to run a single query or lookup on a resolver synchronously,
-/// you can do so simply by using the [`run()`] or [`run_with_conf()`]
-/// associated functions.
+/// you can do so simply by using the [`run`] or [`run_with_conf`] associated
+/// functions.
 ///
-/// [`new()`]: #method.new
-/// [`from_conf()`]: #method.from_conf
-/// [`query()`]: #method.query
-/// [`run()`]: #method.run
-/// [`run_with_conf()`]: #method.run_with_conf
+/// [`new`]: #method.new
+/// [`from_conf`]: #method.from_conf
+/// [`query`]: #method.query
+/// [`run`]: #method.run
+/// [`run_with_conf`]: #method.run_with_conf
 #[derive(Debug)]
 pub struct StubResolver {
     transport: Mutex<Option<redundant::Connection<RequestMessage<Vec<u8>>>>>,
@@ -103,7 +103,7 @@ impl StubResolver {
         &self.options
     }
 
-    pub async fn query<N: ToDname, Q: Into<Question<N>>>(
+    pub async fn query<N: ToName, Q: Into<Question<N>>>(
         &self,
         question: Q,
     ) -> Result<Answer, io::Error> {
@@ -146,35 +146,24 @@ impl StubResolver {
 
         // We have 3 modes of operation: use_vc: only use TCP, ign_tc: only
         // UDP no fallback to TCP, and normal with is UDP falling back to TCP.
-        if self.options.use_vc {
-            for s in &self.servers {
-                if let Transport::Tcp = s.transport {
-                    let (conn, tran) = multi_stream::Connection::new(
-                        TcpConnect::new(s.addr),
-                    );
-                    // Start the run function on a separate task.
-                    let run_fut = tran.run();
-                    fut_list_tcp.push(async move {
-                        run_fut.await;
-                    });
-                    redun.add(Box::new(conn)).await?;
-                }
-            }
-        } else {
-            for s in &self.servers {
-                if let Transport::Udp = s.transport {
-                    let udp_connect = UdpConnect::new(s.addr);
-                    let tcp_connect = TcpConnect::new(s.addr);
-                    let (conn, tran) = dgram_stream::Connection::new(
-                        udp_connect,
-                        tcp_connect,
-                    );
-                    // Start the run function on a separate task.
-                    fut_list_udp_tcp.push(async move {
-                        tran.run().await;
-                    });
-                    redun.add(Box::new(conn)).await?;
-                }
+
+        for s in &self.servers {
+            // This assumes that Transport only has UdpTcp and Tcp. Sadly, a
+            // match doesn’t work here because of the use_cv flag.
+            if self.options.use_vc || matches!(s.transport, Transport::Tcp) {
+                let (conn, tran) =
+                    multi_stream::Connection::new(TcpConnect::new(s.addr));
+                // Start the run function on a separate task.
+                fut_list_tcp.push(tran.run());
+                redun.add(Box::new(conn)).await?;
+            } else {
+                let udp_connect = UdpConnect::new(s.addr);
+                let tcp_connect = TcpConnect::new(s.addr);
+                let (conn, tran) =
+                    dgram_stream::Connection::new(udp_connect, tcp_connect);
+                // Start the run function on a separate task.
+                fut_list_udp_tcp.push(tran.run());
+                redun.add(Box::new(conn)).await?;
             }
         }
 
@@ -232,14 +221,14 @@ impl StubResolver {
 
     pub async fn lookup_host(
         &self,
-        qname: impl ToDname,
+        qname: impl ToName,
     ) -> Result<FoundHosts<&Self>, io::Error> {
         lookup_host(&self, qname).await
     }
 
     pub async fn search_host(
         &self,
-        qname: impl ToRelativeDname,
+        qname: impl ToRelativeName,
     ) -> Result<FoundHosts<&Self>, io::Error> {
         search_host(&self, qname).await
     }
@@ -249,8 +238,8 @@ impl StubResolver {
     /// See the documentation for the [`lookup_srv`] function for details.
     pub async fn lookup_srv(
         &self,
-        service: impl ToRelativeDname,
-        name: impl ToDname,
+        service: impl ToRelativeName,
+        name: impl ToName,
         fallback_port: u16,
     ) -> Result<Option<FoundSrvs>, SrvError> {
         lookup_srv(&self, service, name, fallback_port).await
@@ -281,10 +270,10 @@ impl StubResolver {
 
     /// Synchronously perform a DNS operation atop a configured resolver.
     ///
-    /// This is like [`run()`] but also takes a resolver configuration for
+    /// This is like [`run`] but also takes a resolver configuration for
     /// tailor-making your own resolver.
     ///
-    /// [`run()`]: #method.run
+    /// [`run`]: #method.run
     pub fn run_with_conf<R, T, E, F>(conf: ResolvConf, op: F) -> R::Output
     where
         R: Future<Output = Result<T, E>> + Send + 'static,
@@ -313,7 +302,7 @@ impl<'a> Resolver for &'a StubResolver {
 
     fn query<N, Q>(&self, question: Q) -> Self::Query
     where
-        N: ToDname,
+        N: ToName,
         Q: Into<Question<N>>,
     {
         let message = Query::create_message(question.into());
@@ -370,13 +359,13 @@ impl<'a> Query<'a> {
         loop {
             match self.run_query(&mut message).await {
                 Ok(answer) => {
-                    if answer.header().rcode() == Rcode::FormErr
+                    if answer.header().rcode() == Rcode::FORMERR
                         && self.does_edns()
                     {
                         // FORMERR with EDNS: turn off EDNS and try again.
                         self.disable_edns();
                         continue;
-                    } else if answer.header().rcode() == Rcode::ServFail {
+                    } else if answer.header().rcode() == Rcode::SERVFAIL {
                         // SERVFAIL: go to next server.
                         self.update_error_servfail(answer);
                     } else {
@@ -390,7 +379,7 @@ impl<'a> Query<'a> {
         }
     }
 
-    fn create_message(question: Question<impl ToDname>) -> QueryMessage {
+    fn create_message(question: Question<impl ToName>) -> QueryMessage {
         let mut message = MessageBuilder::from_target(Default::default())
             .expect("MessageBuilder should not fail");
         message.header_mut().set_rd(true);
@@ -462,8 +451,8 @@ pub struct Answer {
 impl Answer {
     /// Returns whether the answer is a final answer to be returned.
     pub fn is_final(&self) -> bool {
-        (self.message.header().rcode() == Rcode::NoError
-            || self.message.header().rcode() == Rcode::NXDomain)
+        (self.message.header().rcode() == Rcode::NOERROR
+            || self.message.header().rcode() == Rcode::NXDOMAIN)
             && !self.message.header().tc()
     }
 

@@ -6,7 +6,7 @@
 
 use crate::base::cmp::CanonicalOrd;
 use crate::base::iana::{DigestAlg, Rtype, SecAlg};
-use crate::base::name::{FlattenInto, ParsedDname, ToDname};
+use crate::base::name::{FlattenInto, ParsedName, ToName};
 use crate::base::rdata::{
     ComposeRecordData, LongRecordData, ParseRecordData, RecordData,
 };
@@ -17,7 +17,7 @@ use crate::base::wire::{Compose, Composer, FormError, Parse, ParseError};
 use crate::utils::{base16, base64};
 use core::cmp::Ordering;
 use core::convert::TryInto;
-use core::{fmt, hash, ptr};
+use core::{cmp, fmt, hash, ptr, str};
 use octseq::builder::{
     EmptyBuilder, FreezeBuilder, FromBuilder, OctetsBuilder, Truncate,
 };
@@ -27,6 +27,7 @@ use octseq::parse::Parser;
 use octseq::serde::{DeserializeOctets, SerializeOctets};
 #[cfg(feature = "std")]
 use std::vec::Vec;
+use time::{Date, Month, PrimitiveDateTime, Time};
 
 //------------ Dnskey --------------------------------------------------------
 
@@ -54,6 +55,11 @@ pub struct Dnskey<Octs> {
         serde(with = "crate::utils::base64::serde")
     )]
     public_key: Octs,
+}
+
+impl Dnskey<()> {
+    /// The rtype of this record data type.
+    pub(crate) const RTYPE: Rtype = Rtype::DNSKEY;
 }
 
 impl<Octs> Dnskey<Octs> {
@@ -159,7 +165,7 @@ impl<Octs> Dnskey<Octs> {
     /// cover RRSETs. See [RFC 4034, Section 2.1.1].
     ///
     /// [RFC 4034, Section 2.1.1]: https://tools.ietf.org/html/rfc4034#section-2.1.1
-    pub fn is_zsk(&self) -> bool {
+    pub fn is_zone_key(&self) -> bool {
         self.flags() & 0b0000_0001_0000_0000 != 0
     }
 
@@ -169,7 +175,7 @@ impl<Octs> Dnskey<Octs> {
     where
         Octs: AsRef<[u8]>,
     {
-        if self.algorithm == SecAlg::RsaMd5 {
+        if self.algorithm == SecAlg::RSAMD5 {
             // The key tag is third-to-last and second-to-last octets of the
             // key as a big-endian u16. If we don’t have enough octets in the
             // key, we return 0.
@@ -350,7 +356,7 @@ impl<Octs: AsRef<[u8]>> hash::Hash for Dnskey<Octs> {
 
 impl<Octs> RecordData for Dnskey<Octs> {
     fn rtype(&self) -> Rtype {
-        Rtype::Dnskey
+        Dnskey::RTYPE
     }
 }
 
@@ -362,7 +368,7 @@ where
         rtype: Rtype,
         parser: &mut Parser<'a, Octs>,
     ) -> Result<Option<Self>, ParseError> {
-        if rtype == Rtype::Dnskey {
+        if rtype == Dnskey::RTYPE {
             Self::parse(parser).map(Some)
         } else {
             Ok(None)
@@ -431,8 +437,8 @@ pub struct ProtoRrsig<Name> {
     algorithm: SecAlg,
     labels: u8,
     original_ttl: Ttl,
-    expiration: Serial,
-    inception: Serial,
+    expiration: Timestamp,
+    inception: Timestamp,
     key_tag: u16,
     signer_name: Name,
 }
@@ -444,8 +450,8 @@ impl<Name> ProtoRrsig<Name> {
         algorithm: SecAlg,
         labels: u8,
         original_ttl: Ttl,
-        expiration: Serial,
-        inception: Serial,
+        expiration: Timestamp,
+        inception: Timestamp,
         key_tag: u16,
         signer_name: Name,
     ) -> Self {
@@ -466,7 +472,7 @@ impl<Name> ProtoRrsig<Name> {
         signature: Octs,
     ) -> Result<Rrsig<Octs, Name>, LongRecordData>
     where
-        Name: ToDname,
+        Name: ToName,
     {
         Rrsig::new(
             self.type_covered,
@@ -482,7 +488,7 @@ impl<Name> ProtoRrsig<Name> {
     }
 }
 
-impl<Name: ToDname> ProtoRrsig<Name> {
+impl<Name: ToName> ProtoRrsig<Name> {
     pub fn compose<Target: Composer + ?Sized>(
         &self,
         target: &mut Target,
@@ -504,8 +510,8 @@ impl<Name: ToDname> ProtoRrsig<Name> {
             + SecAlg::COMPOSE_LEN
             + u8::COMPOSE_LEN
             + u32::COMPOSE_LEN
-            + Serial::COMPOSE_LEN
-            + Serial::COMPOSE_LEN
+            + Timestamp::COMPOSE_LEN
+            + Timestamp::COMPOSE_LEN
             + u16::COMPOSE_LEN
             + self.signer_name.compose_len()
     }
@@ -571,6 +577,230 @@ where
     }
 }
 
+//------------ Timestamp ------------------------------------------------------
+
+/// A Timestamp for RRSIG Records.
+///
+/// DNS uses 32 bit timestamps that are conceptionally
+/// viewed as the 32 bit modulus of a larger number space. Because of that,
+/// special rules apply when processing these values.
+
+/// [RFC 4034] defines Timestamps as the number of seconds elepased since
+/// since 1 January 1970 00:00:00 UTC, ignoring leap seconds. Timestamps
+/// are compared using so-called "Serial number arithmetic", as defined in
+/// [RFC 1982].
+
+/// The RFC defines the semantics for doing arithmetics in the
+/// face of these wrap-arounds. This type implements these semantics atop a
+/// native `u32`. The RFC defines two operations: addition and comparison.
+///
+/// For addition, the amount added can only be a positive number of up to
+/// `2^31 - 1`. Because of this, we decided to not implement the
+/// `Add` trait but rather have a dedicated method `add` so as to not cause
+/// surprise panics.
+///
+/// Timestamps only implement a partial ordering. That is, there are
+/// pairs of values that are not equal but there still isn’t one value larger
+/// than the other. Since this is neatly implemented by the `PartialOrd`
+/// trait, the type implements that.
+
+///
+/// [RFC 1982]: https://tools.ietf.org/html/rfc1982
+/// [RFC 4034]: https://tools.ietf.org/html/rfc4034
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct Timestamp(Serial);
+
+impl Timestamp {
+    /// Returns a serial number for the current Unix time.
+    #[cfg(feature = "std")]
+    #[must_use]
+    pub fn now() -> Self {
+        Self(Serial::now())
+    }
+
+    /// Scan a serial represention signature time value.
+    ///
+    /// In [RRSIG] records, the expiration and inception times are given as
+    /// serial values. Their representation format can either be the
+    /// value or a specific date in `YYYYMMDDHHmmSS` format.
+    ///
+    /// [RRSIG]: ../../rdata/rfc4034/struct.Rrsig.html
+    pub fn scan<S: Scanner>(scanner: &mut S) -> Result<Self, S::Error> {
+        let mut pos = 0;
+        let mut buf = [0u8; 14];
+        scanner.scan_symbols(|symbol| {
+            if pos >= 14 {
+                return Err(S::Error::custom("illegal signature time"));
+            }
+            buf[pos] = symbol
+                .into_digit(10)
+                .map_err(|_| S::Error::custom("illegal signature time"))?
+                as u8;
+            pos += 1;
+            Ok(())
+        })?;
+        if pos <= 10 {
+            // We have an integer. We generate it into a u64 to deal
+            // with possible overflows.
+            let mut res = 0u64;
+            for ch in &buf[..pos] {
+                res = res * 10 + (u64::from(*ch));
+            }
+            if res > u64::from(u32::MAX) {
+                Err(S::Error::custom("illegal signature time"))
+            } else {
+                Ok(Self(Serial(res as u32)))
+            }
+        } else if pos == 14 {
+            let year = u32_from_buf(&buf[0..4]) as i32;
+            let month = Month::try_from(u8_from_buf(&buf[4..6]))
+                .map_err(|_| S::Error::custom("illegal signature time"))?;
+            let day = u8_from_buf(&buf[6..8]);
+            let hour = u8_from_buf(&buf[8..10]);
+            let minute = u8_from_buf(&buf[10..12]);
+            let second = u8_from_buf(&buf[12..14]);
+            Ok(Self(Serial(
+                PrimitiveDateTime::new(
+                    Date::from_calendar_date(year, month, day).map_err(
+                        |_| S::Error::custom("illegal signature time"),
+                    )?,
+                    Time::from_hms(hour, minute, second).map_err(|_| {
+                        S::Error::custom("illegal signature time")
+                    })?,
+                )
+                .assume_utc()
+                .unix_timestamp() as u32,
+            )))
+        } else {
+            Err(S::Error::custom("illegal signature time"))
+        }
+    }
+
+    /// Returns the timestamp as a raw integer.
+    #[must_use]
+    pub fn into_int(self) -> u32 {
+        self.0.into_int()
+    }
+
+}
+
+/// # Parsing and Composing
+///
+impl Timestamp {
+    pub const COMPOSE_LEN: u16 = Serial::COMPOSE_LEN;
+
+    pub fn parse<Octs: AsRef<[u8]> + ?Sized>(
+        parser: &mut Parser<Octs>,
+    ) -> Result<Self, ParseError> {
+        Serial::parse(parser).map(Self)
+    }
+
+    pub fn compose<Target: Composer + ?Sized>(
+        &self,
+        target: &mut Target,
+    ) -> Result<(), Target::AppendError> {
+        self.0.compose(target)
+    }
+}
+
+
+//--- From and FromStr
+
+impl From<u32> for Timestamp {
+    fn from(item: u32) -> Self {
+        Self(Serial::from(item))
+    }
+}
+
+impl str::FromStr for Timestamp {
+    type Err = IllegalSignatureTime;
+
+    /// Parses a timestamp value from a string.
+    ///
+    /// The presentation format can either be their integer value or a
+    /// specific date in `YYYYMMDDHHmmSS` format.
+    fn from_str(src: &str) -> Result<Self, Self::Err> {
+        if !src.is_ascii() {
+            return Err(IllegalSignatureTime(()));
+        }
+        if src.len() == 14 {
+            let year = u32::from_str(&src[0..4])
+                .map_err(|_| IllegalSignatureTime(()))?
+                as i32;
+            let month = Month::try_from(
+                u8::from_str(&src[4..6])
+                    .map_err(|_| IllegalSignatureTime(()))?,
+            )
+            .map_err(|_| IllegalSignatureTime(()))?;
+            let day = u8::from_str(&src[6..8])
+                .map_err(|_| IllegalSignatureTime(()))?;
+            let hour = u8::from_str(&src[8..10])
+                .map_err(|_| IllegalSignatureTime(()))?;
+            let minute = u8::from_str(&src[10..12])
+                .map_err(|_| IllegalSignatureTime(()))?;
+            let second = u8::from_str(&src[12..14])
+                .map_err(|_| IllegalSignatureTime(()))?;
+            Ok(Timestamp(Serial(
+                PrimitiveDateTime::new(
+                    Date::from_calendar_date(year, month, day)
+                        .map_err(|_| IllegalSignatureTime(()))?,
+                    Time::from_hms(hour, minute, second)
+                        .map_err(|_| IllegalSignatureTime(()))?,
+                )
+                .assume_utc()
+                .unix_timestamp() as u32,
+            )))
+        } else {
+            Serial::from_str(src).map(Timestamp).map_err(|_| {
+                IllegalSignatureTime(())
+            })
+        }
+    }
+}
+
+//--- Display
+
+impl fmt::Display for Timestamp {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+//--- PartialOrd and CanonicalOrd
+
+impl cmp::PartialOrd for Timestamp {
+    fn partial_cmp(&self, other: &Self) -> Option<cmp::Ordering> {
+        self.0.partial_cmp(&other.0)
+    }
+}
+
+impl CanonicalOrd for Timestamp {
+    fn canonical_cmp(&self, other: &Self) -> cmp::Ordering {
+        self.0.canonical_cmp(&other.0)
+    }
+}
+
+
+//------------ Helper Functions ----------------------------------------------
+
+fn u8_from_buf(buf: &[u8]) -> u8 {
+    let mut res = 0;
+    for ch in buf {
+        res = res * 10 + *ch;
+    }
+    res
+}
+
+fn u32_from_buf(buf: &[u8]) -> u32 {
+    let mut res = 0;
+    for ch in buf {
+        res = res * 10 + (u32::from(*ch));
+    }
+    res
+}
+
 //------------ Rrsig ---------------------------------------------------------
 
 #[derive(Clone)]
@@ -595,8 +825,8 @@ pub struct Rrsig<Octs, Name> {
     algorithm: SecAlg,
     labels: u8,
     original_ttl: Ttl,
-    expiration: Serial,
-    inception: Serial,
+    expiration: Timestamp,
+    inception: Timestamp,
     key_tag: u16,
     signer_name: Name,
     #[cfg_attr(
@@ -606,6 +836,11 @@ pub struct Rrsig<Octs, Name> {
     signature: Octs,
 }
 
+impl Rrsig<(), ()> {
+    /// The rtype of this record data type.
+    pub(crate) const RTYPE: Rtype = Rtype::RRSIG;
+}
+
 impl<Octs, Name> Rrsig<Octs, Name> {
     #[allow(clippy::too_many_arguments)] // XXX Consider changing.
     pub fn new(
@@ -613,15 +848,15 @@ impl<Octs, Name> Rrsig<Octs, Name> {
         algorithm: SecAlg,
         labels: u8,
         original_ttl: Ttl,
-        expiration: Serial,
-        inception: Serial,
+        expiration: Timestamp,
+        inception: Timestamp,
         key_tag: u16,
         signer_name: Name,
         signature: Octs,
     ) -> Result<Self, LongRecordData>
     where
         Octs: AsRef<[u8]>,
-        Name: ToDname,
+        Name: ToName,
     {
         LongRecordData::check_len(
             usize::from(
@@ -629,8 +864,8 @@ impl<Octs, Name> Rrsig<Octs, Name> {
                     + SecAlg::COMPOSE_LEN
                     + u8::COMPOSE_LEN
                     + u32::COMPOSE_LEN
-                    + Serial::COMPOSE_LEN
-                    + Serial::COMPOSE_LEN
+                    + Timestamp::COMPOSE_LEN
+                    + Timestamp::COMPOSE_LEN
                     + u16::COMPOSE_LEN
                     + signer_name.compose_len(),
             )
@@ -664,8 +899,8 @@ impl<Octs, Name> Rrsig<Octs, Name> {
         algorithm: SecAlg,
         labels: u8,
         original_ttl: Ttl,
-        expiration: Serial,
-        inception: Serial,
+        expiration: Timestamp,
+        inception: Timestamp,
         key_tag: u16,
         signer_name: Name,
         signature: Octs,
@@ -699,11 +934,11 @@ impl<Octs, Name> Rrsig<Octs, Name> {
         self.original_ttl
     }
 
-    pub fn expiration(&self) -> Serial {
+    pub fn expiration(&self) -> Timestamp {
         self.expiration
     }
 
-    pub fn inception(&self) -> Serial {
+    pub fn inception(&self) -> Timestamp {
         self.inception
     }
 
@@ -767,29 +1002,29 @@ impl<Octs, Name> Rrsig<Octs, Name> {
         })
     }
 
-    pub fn scan<S: Scanner<Octets = Octs, Dname = Name>>(
+    pub fn scan<S: Scanner<Octets = Octs, Name = Name>>(
         scanner: &mut S,
     ) -> Result<Self, S::Error>
     where
         Octs: AsRef<[u8]>,
-        Name: ToDname,
+        Name: ToName,
     {
         Self::new(
             Rtype::scan(scanner)?,
             SecAlg::scan(scanner)?,
             u8::scan(scanner)?,
             Ttl::scan(scanner)?,
-            Serial::scan_rrsig(scanner)?,
-            Serial::scan_rrsig(scanner)?,
+            Timestamp::scan(scanner)?,
+            Timestamp::scan(scanner)?,
             u16::scan(scanner)?,
-            scanner.scan_dname()?,
+            scanner.scan_name()?,
             scanner.convert_entry(base64::SymbolConverter::new())?,
         )
         .map_err(|err| S::Error::custom(err.as_str()))
     }
 }
 
-impl<Octs> Rrsig<Octs, ParsedDname<Octs>> {
+impl<Octs> Rrsig<Octs, ParsedName<Octs>> {
     pub fn parse<'a, Src: Octets<Range<'a> = Octs> + ?Sized + 'a>(
         parser: &mut Parser<'a, Src>,
     ) -> Result<Self, ParseError> {
@@ -797,10 +1032,10 @@ impl<Octs> Rrsig<Octs, ParsedDname<Octs>> {
         let algorithm = SecAlg::parse(parser)?;
         let labels = u8::parse(parser)?;
         let original_ttl = Ttl::parse(parser)?;
-        let expiration = Serial::parse(parser)?;
-        let inception = Serial::parse(parser)?;
+        let expiration = Timestamp::parse(parser)?;
+        let inception = Timestamp::parse(parser)?;
         let key_tag = u16::parse(parser)?;
-        let signer_name = ParsedDname::parse(parser)?;
+        let signer_name = ParsedName::parse(parser)?;
         let len = parser.remaining();
         let signature = parser.parse_octets(len)?;
         Ok(unsafe {
@@ -866,8 +1101,8 @@ where
 
 impl<N, NN, O, OO> PartialEq<Rrsig<OO, NN>> for Rrsig<O, N>
 where
-    N: ToDname,
-    NN: ToDname,
+    N: ToName,
+    NN: ToName,
     O: AsRef<[u8]>,
     OO: AsRef<[u8]>,
 {
@@ -887,7 +1122,7 @@ where
 impl<Octs, Name> Eq for Rrsig<Octs, Name>
 where
     Octs: AsRef<[u8]>,
-    Name: ToDname,
+    Name: ToName,
 {
 }
 
@@ -895,8 +1130,8 @@ where
 
 impl<N, NN, O, OO> PartialOrd<Rrsig<OO, NN>> for Rrsig<O, N>
 where
-    N: ToDname,
-    NN: ToDname,
+    N: ToName,
+    NN: ToName,
     O: AsRef<[u8]>,
     OO: AsRef<[u8]>,
 {
@@ -941,8 +1176,8 @@ where
 
 impl<N, NN, O, OO> CanonicalOrd<Rrsig<OO, NN>> for Rrsig<O, N>
 where
-    N: ToDname,
-    NN: ToDname,
+    N: ToName,
+    NN: ToName,
     O: AsRef<[u8]>,
     OO: AsRef<[u8]>,
 {
@@ -983,7 +1218,7 @@ where
     }
 }
 
-impl<O: AsRef<[u8]>, N: ToDname> Ord for Rrsig<O, N> {
+impl<O: AsRef<[u8]>, N: ToName> Ord for Rrsig<O, N> {
     fn cmp(&self, other: &Self) -> Ordering {
         self.canonical_cmp(other)
     }
@@ -1009,18 +1244,18 @@ impl<O: AsRef<[u8]>, N: hash::Hash> hash::Hash for Rrsig<O, N> {
 
 impl<Octs, Name> RecordData for Rrsig<Octs, Name> {
     fn rtype(&self) -> Rtype {
-        Rtype::Rrsig
+        Rrsig::RTYPE
     }
 }
 
 impl<'a, Octs: Octets + ?Sized> ParseRecordData<'a, Octs>
-    for Rrsig<Octs::Range<'a>, ParsedDname<Octs::Range<'a>>>
+    for Rrsig<Octs::Range<'a>, ParsedName<Octs::Range<'a>>>
 {
     fn parse_rdata(
         rtype: Rtype,
         parser: &mut Parser<'a, Octs>,
     ) -> Result<Option<Self>, ParseError> {
-        if rtype == Rtype::Rrsig {
+        if rtype == Rrsig::RTYPE {
             Self::parse(parser).map(Some)
         } else {
             Ok(None)
@@ -1031,7 +1266,7 @@ impl<'a, Octs: Octets + ?Sized> ParseRecordData<'a, Octs>
 impl<Octs, Name> ComposeRecordData for Rrsig<Octs, Name>
 where
     Octs: AsRef<[u8]>,
-    Name: ToDname,
+    Name: ToName,
 {
     fn rdlen(&self, _compress: bool) -> Option<u16> {
         Some(
@@ -1039,8 +1274,8 @@ where
                 + SecAlg::COMPOSE_LEN
                 + u8::COMPOSE_LEN
                 + u32::COMPOSE_LEN
-                + Serial::COMPOSE_LEN
-                + Serial::COMPOSE_LEN
+                + Timestamp::COMPOSE_LEN
+                + Timestamp::COMPOSE_LEN
                 + u16::COMPOSE_LEN
                 + self.signer_name.compose_len())
             .checked_add(
@@ -1070,7 +1305,7 @@ where
     }
 }
 
-impl<Octs: AsRef<[u8]>, Name: ToDname> Rrsig<Octs, Name> {
+impl<Octs: AsRef<[u8]>, Name: ToName> Rrsig<Octs, Name> {
     fn compose_head<Target: Composer + ?Sized>(
         &self,
         target: &mut Target,
@@ -1156,6 +1391,11 @@ pub struct Nsec<Octs, Name> {
     types: RtypeBitmap<Octs>,
 }
 
+impl Nsec<(), ()> {
+    /// The rtype of this record data type.
+    pub(crate) const RTYPE: Rtype = Rtype::NSEC;
+}
+
 impl<Octs, Name> Nsec<Octs, Name> {
     pub fn new(next_name: Name, types: RtypeBitmap<Octs>) -> Self {
         Nsec { next_name, types }
@@ -1199,22 +1439,22 @@ impl<Octs, Name> Nsec<Octs, Name> {
         ))
     }
 
-    pub fn scan<S: Scanner<Octets = Octs, Dname = Name>>(
+    pub fn scan<S: Scanner<Octets = Octs, Name = Name>>(
         scanner: &mut S,
     ) -> Result<Self, S::Error> {
         Ok(Self::new(
-            scanner.scan_dname()?,
+            scanner.scan_name()?,
             RtypeBitmap::scan(scanner)?,
         ))
     }
 }
 
-impl<Octs: AsRef<[u8]>> Nsec<Octs, ParsedDname<Octs>> {
+impl<Octs: AsRef<[u8]>> Nsec<Octs, ParsedName<Octs>> {
     pub fn parse<'a, Src: Octets<Range<'a> = Octs> + ?Sized + 'a>(
         parser: &mut Parser<'a, Src>,
     ) -> Result<Self, ParseError> {
         Ok(Nsec::new(
-            ParsedDname::parse(parser)?,
+            ParsedName::parse(parser)?,
             RtypeBitmap::parse(parser)?,
         ))
     }
@@ -1259,15 +1499,15 @@ impl<O, OO, N, NN> PartialEq<Nsec<OO, NN>> for Nsec<O, N>
 where
     O: AsRef<[u8]>,
     OO: AsRef<[u8]>,
-    N: ToDname,
-    NN: ToDname,
+    N: ToName,
+    NN: ToName,
 {
     fn eq(&self, other: &Nsec<OO, NN>) -> bool {
         self.next_name.name_eq(&other.next_name) && self.types == other.types
     }
 }
 
-impl<O: AsRef<[u8]>, N: ToDname> Eq for Nsec<O, N> {}
+impl<O: AsRef<[u8]>, N: ToName> Eq for Nsec<O, N> {}
 
 //--- PartialOrd, Ord, and CanonicalOrd
 
@@ -1275,8 +1515,8 @@ impl<O, OO, N, NN> PartialOrd<Nsec<OO, NN>> for Nsec<O, N>
 where
     O: AsRef<[u8]>,
     OO: AsRef<[u8]>,
-    N: ToDname,
-    NN: ToDname,
+    N: ToName,
+    NN: ToName,
 {
     fn partial_cmp(&self, other: &Nsec<OO, NN>) -> Option<Ordering> {
         match self.next_name.name_cmp(&other.next_name) {
@@ -1291,8 +1531,8 @@ impl<O, OO, N, NN> CanonicalOrd<Nsec<OO, NN>> for Nsec<O, N>
 where
     O: AsRef<[u8]>,
     OO: AsRef<[u8]>,
-    N: ToDname,
-    NN: ToDname,
+    N: ToName,
+    NN: ToName,
 {
     fn canonical_cmp(&self, other: &Nsec<OO, NN>) -> Ordering {
         // RFC 6840 says that Nsec::next_name is not converted to lower case.
@@ -1307,7 +1547,7 @@ where
 impl<O, N> Ord for Nsec<O, N>
 where
     O: AsRef<[u8]>,
-    N: ToDname,
+    N: ToName,
 {
     fn cmp(&self, other: &Self) -> Ordering {
         match self.next_name.name_cmp(&other.next_name) {
@@ -1331,18 +1571,18 @@ impl<Octs: AsRef<[u8]>, Name: hash::Hash> hash::Hash for Nsec<Octs, Name> {
 
 impl<Octs, Name> RecordData for Nsec<Octs, Name> {
     fn rtype(&self) -> Rtype {
-        Rtype::Nsec
+        Nsec::RTYPE
     }
 }
 
 impl<'a, Octs: Octets + ?Sized> ParseRecordData<'a, Octs>
-    for Nsec<Octs::Range<'a>, ParsedDname<Octs::Range<'a>>>
+    for Nsec<Octs::Range<'a>, ParsedName<Octs::Range<'a>>>
 {
     fn parse_rdata(
         rtype: Rtype,
         parser: &mut Parser<'a, Octs>,
     ) -> Result<Option<Self>, ParseError> {
-        if rtype == Rtype::Nsec {
+        if rtype == Nsec::RTYPE {
             Self::parse(parser).map(Some)
         } else {
             Ok(None)
@@ -1353,7 +1593,7 @@ impl<'a, Octs: Octets + ?Sized> ParseRecordData<'a, Octs>
 impl<Octs, Name> ComposeRecordData for Nsec<Octs, Name>
 where
     Octs: AsRef<[u8]>,
-    Name: ToDname,
+    Name: ToName,
 {
     fn rdlen(&self, _compress: bool) -> Option<u16> {
         Some(
@@ -1435,6 +1675,11 @@ pub struct Ds<Octs> {
         serde(with = "crate::utils::base64::serde")
     )]
     digest: Octs,
+}
+
+impl Ds<()> {
+    /// The rtype of this record data type.
+    pub(crate) const RTYPE: Rtype = Rtype::DS;
 }
 
 impl<Octs> Ds<Octs> {
@@ -1657,7 +1902,7 @@ impl<Octs: AsRef<[u8]>> hash::Hash for Ds<Octs> {
 
 impl<Octs> RecordData for Ds<Octs> {
     fn rtype(&self) -> Rtype {
-        Rtype::Ds
+        Ds::RTYPE
     }
 }
 
@@ -1669,7 +1914,7 @@ where
         rtype: Rtype,
         parser: &mut Parser<'a, Octs>,
     ) -> Result<Option<Self>, ParseError> {
-        if rtype == Rtype::Ds {
+        if rtype == Ds::RTYPE {
             Self::parse(parser).map(Some)
         } else {
             Ok(None)
@@ -2393,6 +2638,20 @@ fn read_window(data: &[u8]) -> Option<((u8, &[u8]), &[u8])> {
     })
 }
 
+//============ Errors ========================================================
+
+#[derive(Clone, Copy, Debug)]
+pub struct IllegalSignatureTime(());
+
+impl fmt::Display for IllegalSignatureTime {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.write_str("illegal signature time")
+    }
+}
+
+#[cfg(feature = "std")]
+impl std::error::Error for IllegalSignatureTime {}
+
 //============ Test ==========================================================
 
 #[cfg(test)]
@@ -2400,7 +2659,7 @@ fn read_window(data: &[u8]) -> Option<((u8, &[u8]), &[u8])> {
 mod test {
     use super::*;
     use crate::base::iana::Rtype;
-    use crate::base::name::Dname;
+    use crate::base::name::Name;
     use crate::base::rdata::test::{
         test_compose_parse, test_rdlen, test_scan,
     };
@@ -2412,7 +2671,7 @@ mod test {
     #[test]
     #[allow(clippy::redundant_closure)] // lifetimes ...
     fn dnskey_compose_parse_scan() {
-        let rdata = Dnskey::new(10, 11, SecAlg::RsaSha1, b"key0").unwrap();
+        let rdata = Dnskey::new(10, 11, SecAlg::RSASHA1, b"key0").unwrap();
         test_rdlen(&rdata);
         test_compose_parse(&rdata, |parser| Dnskey::parse(parser));
         test_scan(&["10", "11", "RSASHA1", "a2V5MA=="], Dnskey::scan, &rdata);
@@ -2425,13 +2684,13 @@ mod test {
     fn rrsig_compose_parse_scan() {
         let rdata = Rrsig::new(
             Rtype::A,
-            SecAlg::RsaSha1,
+            SecAlg::RSASHA1,
             3,
             Ttl::from_secs(12),
-            Serial::from(13),
-            Serial::from(14),
+            Timestamp::from(13),
+            Timestamp::from(14),
             15,
-            Dname::<Vec<u8>>::from_str("example.com.").unwrap(),
+            Name::<Vec<u8>>::from_str("example.com.").unwrap(),
             b"key",
         )
         .unwrap();
@@ -2461,9 +2720,9 @@ mod test {
     fn nsec_compose_parse_scan() {
         let mut rtype = RtypeBitmapBuilder::new_vec();
         rtype.add(Rtype::A).unwrap();
-        rtype.add(Rtype::Srv).unwrap();
+        rtype.add(Rtype::SRV).unwrap();
         let rdata = Nsec::new(
-            Dname::<Vec<u8>>::from_str("example.com.").unwrap(),
+            Name::<Vec<u8>>::from_str("example.com.").unwrap(),
             rtype.finalize(),
         );
         test_rdlen(&rdata);
@@ -2477,7 +2736,7 @@ mod test {
     #[allow(clippy::redundant_closure)] // lifetimes ...
     fn ds_compose_parse_scan() {
         let rdata =
-            Ds::new(10, SecAlg::RsaSha1, DigestAlg::Sha256, b"key").unwrap();
+            Ds::new(10, SecAlg::RSASHA1, DigestAlg::SHA256, b"key").unwrap();
         test_rdlen(&rdata);
         test_compose_parse(&rdata, |parser| Ds::parse(parser));
         test_scan(&["10", "RSASHA1", "2", "6b6579"], Ds::scan, &rdata);
@@ -2488,15 +2747,15 @@ mod test {
     #[test]
     fn rtype_split() {
         assert_eq!(split_rtype(Rtype::A), (0, 0, 0b01000000));
-        assert_eq!(split_rtype(Rtype::Ns), (0, 0, 0b00100000));
-        assert_eq!(split_rtype(Rtype::Caa), (1, 0, 0b01000000));
+        assert_eq!(split_rtype(Rtype::NS), (0, 0, 0b00100000));
+        assert_eq!(split_rtype(Rtype::CAA), (1, 0, 0b01000000));
     }
 
     #[test]
     fn rtype_bitmap_read_window() {
         let mut builder = RtypeBitmapBuilder::new_vec();
         builder.add(Rtype::A).unwrap();
-        builder.add(Rtype::Caa).unwrap();
+        builder.add(Rtype::CAA).unwrap();
         let bitmap = builder.finalize();
 
         let ((n, window), data) = read_window(bitmap.as_slice()).unwrap();
@@ -2510,11 +2769,11 @@ mod test {
     #[test]
     fn rtype_bitmap_builder() {
         let mut builder = RtypeBitmapBuilder::new_vec();
-        builder.add(Rtype::Int(1234)).unwrap(); // 0x04D2
+        builder.add(Rtype::from_int(1234)).unwrap(); // 0x04D2
         builder.add(Rtype::A).unwrap(); // 0x0001
-        builder.add(Rtype::Mx).unwrap(); // 0x000F
-        builder.add(Rtype::Rrsig).unwrap(); // 0x002E
-        builder.add(Rtype::Nsec).unwrap(); // 0x002F
+        builder.add(Rtype::MX).unwrap(); // 0x000F
+        builder.add(Rtype::RRSIG).unwrap(); // 0x002E
+        builder.add(Rtype::NSEC).unwrap(); // 0x002F
         let bitmap = builder.finalize();
         assert_eq!(
             bitmap.as_slice(),
@@ -2526,12 +2785,12 @@ mod test {
         );
 
         assert!(bitmap.contains(Rtype::A));
-        assert!(bitmap.contains(Rtype::Mx));
-        assert!(bitmap.contains(Rtype::Rrsig));
-        assert!(bitmap.contains(Rtype::Nsec));
-        assert!(bitmap.contains(Rtype::Int(1234)));
-        assert!(!bitmap.contains(Rtype::Int(1235)));
-        assert!(!bitmap.contains(Rtype::Ns));
+        assert!(bitmap.contains(Rtype::MX));
+        assert!(bitmap.contains(Rtype::RRSIG));
+        assert!(bitmap.contains(Rtype::NSEC));
+        assert!(bitmap.contains(Rtype::from(1234)));
+        assert!(!bitmap.contains(Rtype::from(1235)));
+        assert!(!bitmap.contains(Rtype::NS));
     }
 
     #[test]
@@ -2540,15 +2799,15 @@ mod test {
 
         let mut builder = RtypeBitmapBuilder::new_vec();
         let types = vec![
-            Rtype::Ns,
-            Rtype::Soa,
-            Rtype::Mx,
-            Rtype::Txt,
-            Rtype::Rrsig,
-            Rtype::Dnskey,
-            Rtype::Nsec3param,
-            Rtype::Spf,
-            Rtype::Caa,
+            Rtype::NS,
+            Rtype::SOA,
+            Rtype::MX,
+            Rtype::TXT,
+            Rtype::RRSIG,
+            Rtype::DNSKEY,
+            Rtype::NSEC3PARAM,
+            Rtype::SPF,
+            Rtype::CAA,
         ];
         for t in types.iter() {
             builder.add(*t).unwrap();
@@ -2565,7 +2824,7 @@ mod test {
             Dnskey::new(
                 256,
                 3,
-                SecAlg::RsaSha256,
+                SecAlg::RSASHA256,
                 base64::decode::<Vec<u8>>(
                     "AwEAAcTQyaIe6nt3xSPOG2L/YfwBkOVTJN6mlnZ249O5Rtt3ZSRQHxQS\
                      W61AODYw6bvgxrrGq8eeOuenFjcSYgNAMcBYoEYYmKDW6e9EryW4ZaT/\
@@ -2584,7 +2843,7 @@ mod test {
             Dnskey::new(
                 257,
                 3,
-                SecAlg::RsaSha256,
+                SecAlg::RSASHA256,
                 base64::decode::<Vec<u8>>(
                     "AwEAAaz/tAm8yTn4Mfeh5eyI96WSVexTBAvkMgJzkKTO\
                     iW1vkIbzxeF3+/4RgWOq7HrxRixHlFlExOLAJr5emLvN\
@@ -2605,7 +2864,7 @@ mod test {
             Dnskey::new(
                 257,
                 3,
-                SecAlg::RsaMd5,
+                SecAlg::RSAMD5,
                 base64::decode::<Vec<u8>>(
                     "AwEAAcVaA4jSBIGRrSzpecoJELvKE9+OMuFnL8mmUBsY\
                     lB6epN1CqX7NzwjDpi6VySiEXr0C4uTYkU/L1uMv2mHE\
@@ -2623,9 +2882,9 @@ mod test {
     #[test]
     fn dnskey_flags() {
         let dnskey =
-            Dnskey::new(257, 3, SecAlg::RsaSha256, bytes::Bytes::new())
+            Dnskey::new(257, 3, SecAlg::RSASHA256, bytes::Bytes::new())
                 .unwrap();
-        assert!(dnskey.is_zsk());
+        assert!(dnskey.is_zone_key());
         assert!(dnskey.is_secure_entry_point());
         assert!(!dnskey.is_revoked());
     }

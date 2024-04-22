@@ -2,7 +2,7 @@
 
 use crate::base::iana::Rtype;
 use crate::base::message::RecordIter;
-use crate::base::name::{ParsedDname, ToDname, ToRelativeDname};
+use crate::base::name::{ParsedName, ToName, ToRelativeName};
 use crate::rdata::{Aaaa, A};
 use crate::resolv::resolver::{Resolver, SearchNames};
 use octseq::octets::Octets;
@@ -22,11 +22,11 @@ use std::net::{IpAddr, SocketAddr, ToSocketAddrs};
 /// return the canonical name.
 pub async fn lookup_host<R: Resolver>(
     resolver: &R,
-    qname: impl ToDname,
+    qname: impl ToName,
 ) -> Result<FoundHosts<R>, io::Error> {
     let (a, aaaa) = tokio::join!(
         resolver.query((&qname, Rtype::A)),
-        resolver.query((&qname, Rtype::Aaaa)),
+        resolver.query((&qname, Rtype::AAAA)),
     );
     FoundHosts::new(aaaa, a)
 }
@@ -35,7 +35,7 @@ pub async fn lookup_host<R: Resolver>(
 
 pub async fn search_host<R: Resolver + SearchNames>(
     resolver: &R,
-    qname: impl ToRelativeDname,
+    qname: impl ToRelativeName,
 ) -> Result<FoundHosts<R>, io::Error> {
     for suffix in resolver.search_iter() {
         if let Ok(name) = (&qname).chain(suffix) {
@@ -110,7 +110,7 @@ impl<R: Resolver> FoundHosts<R>
 where
     R::Octets: Octets,
 {
-    pub fn qname(&self) -> ParsedDname<<R::Octets as Octets>::Range<'_>> {
+    pub fn qname(&self) -> ParsedName<<R::Octets as Octets>::Range<'_>> {
         self.answer()
             .as_ref()
             .first_question()
@@ -127,7 +127,7 @@ where
     /// one of them.
     pub fn canonical_name(
         &self,
-    ) -> ParsedDname<<R::Octets as Octets>::Range<'_>> {
+    ) -> ParsedName<<R::Octets as Octets>::Range<'_>> {
         self.answer().as_ref().canonical_name().unwrap()
     }
 
@@ -179,8 +179,8 @@ where
 /// An iterator over the IP addresses returned by a host lookup.
 #[derive(Clone)]
 pub struct FoundHostsIter<'a> {
-    aaaa_name: Option<ParsedDname<&'a [u8]>>,
-    a_name: Option<ParsedDname<&'a [u8]>>,
+    aaaa_name: Option<ParsedName<&'a [u8]>>,
+    a_name: Option<ParsedName<&'a [u8]>>,
     aaaa: Option<RecordIter<'a, [u8], Aaaa>>,
     a: Option<RecordIter<'a, [u8], A>>,
 }

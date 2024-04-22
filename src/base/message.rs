@@ -13,7 +13,7 @@
 use super::header::{Header, HeaderCounts, HeaderSection};
 use super::iana::{Class, OptRcode, Rcode, Rtype};
 use super::message_builder::{AdditionalBuilder, AnswerBuilder, PushError};
-use super::name::ParsedDname;
+use super::name::ParsedName;
 use super::opt::{Opt, OptRecord};
 use super::question::Question;
 use super::rdata::{ParseAnyRecordData, ParseRecordData};
@@ -298,12 +298,12 @@ impl<Octs: AsRef<[u8]> + ?Sized> Message<Octs> {
 
     /// Returns whether the rcode of the header is NoError.
     pub fn no_error(&self) -> bool {
-        self.header().rcode() == Rcode::NoError
+        self.header().rcode() == Rcode::NOERROR
     }
 
     /// Returns whether the rcode of the header is one of the error values.
     pub fn is_error(&self) -> bool {
-        self.header().rcode() != Rcode::NoError
+        self.header().rcode() != Rcode::NOERROR
     }
 }
 
@@ -432,7 +432,7 @@ impl<Octs: Octets + ?Sized> Message<Octs> {
     /// parsing fails.
     pub fn first_question(
         &self,
-    ) -> Option<Question<ParsedDname<Octs::Range<'_>>>> {
+    ) -> Option<Question<ParsedName<Octs::Range<'_>>>> {
         match self.question().next() {
             None | Some(Err(..)) => None,
             Some(Ok(question)) => Some(question),
@@ -447,7 +447,7 @@ impl<Octs: Octets + ?Sized> Message<Octs> {
     /// [`first_question`]: #method.first_question
     pub fn sole_question(
         &self,
-    ) -> Result<Question<ParsedDname<Octs::Range<'_>>>, ParseError> {
+    ) -> Result<Question<ParsedName<Octs::Range<'_>>>, ParseError> {
         match self.header_counts().qdcount() {
             0 => return Err(ParseError::form_error("no question")),
             1 => {}
@@ -494,7 +494,7 @@ impl<Octs: Octets + ?Sized> Message<Octs> {
     //  must have a loop. While the ANCOUNT could be unreasonably large, the
     //  iterator would break off in this case and we break out with a None
     //  right away.
-    pub fn canonical_name(&self) -> Option<ParsedDname<Octs::Range<'_>>> {
+    pub fn canonical_name(&self) -> Option<ParsedName<Octs::Range<'_>>> {
         let question = match self.first_question() {
             None => return None,
             Some(question) => question,
@@ -547,7 +547,7 @@ impl<Octs: Octets + ?Sized> Message<Octs> {
     /// `None`.
     pub fn get_last_additional<'s, Data: ParseRecordData<'s, Octs>>(
         &'s self,
-    ) -> Option<Record<ParsedDname<Octs::Range<'s>>, Data>> {
+    ) -> Option<Record<ParsedName<Octs::Range<'s>>, Data>> {
         let mut section = match self.additional() {
             Ok(section) => section,
             Err(_) => return None,
@@ -794,7 +794,7 @@ impl<'a, Octs: ?Sized> Copy for QuestionSection<'a, Octs> {}
 //--- Iterator
 
 impl<'a, Octs: Octets + ?Sized> Iterator for QuestionSection<'a, Octs> {
-    type Item = Result<Question<ParsedDname<Octs::Range<'a>>>, ParseError>;
+    type Item = Result<Question<ParsedName<Octs::Range<'a>>>, ParseError>;
 
     fn next(&mut self) -> Option<Self::Item> {
         match self.count {
@@ -946,7 +946,7 @@ impl<'a, Octs: Octets + ?Sized> RecordSection<'a, Octs> {
     /// The record type is given through its record data type. Since the data
     /// is being parsed, this type must implement [`ParseRecordData`]. For
     /// record data types that are generic over domain name types, this is
-    /// normally achieved by giving them a [`ParsedDname`]. As a convenience,
+    /// normally achieved by giving them a [`ParsedName`]. As a convenience,
     /// type aliases for all the fundamental record data types exist in the
     /// [domain::rdata::parsed] module.
     ///
@@ -954,7 +954,7 @@ impl<'a, Octs: Octets + ?Sized> RecordSection<'a, Octs> {
     /// of `self`. It will *not* start from the beginning of the section.
     ///
     /// [`ParseRecordData`]: ../rdata/trait.ParseRecordData.html
-    /// [`ParsedDname`]: ../name/struct.ParsedDname.html
+    /// [`ParsedName`]: ../name/struct.ParsedName.html
     /// [domain::rdata::parsed]: ../../rdata/parsed/index.html
     #[must_use]
     pub fn limit_to<Data: ParseRecordData<'a, Octs>>(
@@ -1163,8 +1163,7 @@ where
     Octs: Octets + ?Sized,
     Data: ParseRecordData<'a, Octs>,
 {
-    type Item =
-        Result<Record<ParsedDname<Octs::Range<'a>>, Data>, ParseError>;
+    type Item = Result<Record<ParsedName<Octs::Range<'a>>, Data>, ParseError>;
 
     fn next(&mut self) -> Option<Self::Item> {
         loop {
@@ -1173,7 +1172,7 @@ where
                 Some(Err(err)) => return Some(Err(err)),
                 None => return None,
             };
-            if self.in_only && record.class() != Class::In {
+            if self.in_only && record.class() != Class::IN {
                 continue;
             }
             match record.into_record() {
@@ -1252,8 +1251,7 @@ where
     Octs: Octets + ?Sized,
     Data: ParseAnyRecordData<'a, Octs>,
 {
-    type Item =
-        Result<Record<ParsedDname<Octs::Range<'a>>, Data>, ParseError>;
+    type Item = Result<Record<ParsedName<Octs::Range<'a>>, Data>, ParseError>;
 
     fn next(&mut self) -> Option<Self::Item> {
         let record = match self.section.next() {
@@ -1329,7 +1327,7 @@ mod test {
     #[cfg(feature = "std")]
     use crate::base::message_builder::MessageBuilder;
     #[cfg(feature = "std")]
-    use crate::base::name::Dname;
+    use crate::base::name::Name;
     #[cfg(feature = "std")]
     use crate::rdata::{AllRecordData, Ns};
     #[cfg(feature = "std")]
@@ -1341,16 +1339,16 @@ mod test {
         let msg = MessageBuilder::new_vec();
         let mut msg = msg.answer();
         msg.push((
-            Dname::vec_from_str("foo.example.com.").unwrap(),
+            Name::vec_from_str("foo.example.com.").unwrap(),
             86000,
-            Cname::new(Dname::vec_from_str("baz.example.com.").unwrap()),
+            Cname::new(Name::vec_from_str("baz.example.com.").unwrap()),
         ))
         .unwrap();
         let mut msg = msg.authority();
         msg.push((
-            Dname::vec_from_str("bar.example.com.").unwrap(),
+            Name::vec_from_str("bar.example.com.").unwrap(),
             86000,
-            Ns::new(Dname::vec_from_str("baz.example.com.").unwrap()),
+            Ns::new(Name::vec_from_str("baz.example.com.").unwrap()),
         ))
         .unwrap();
         msg.into_message()
@@ -1369,50 +1367,50 @@ mod test {
 
         // Message without CNAMEs.
         let mut msg = MessageBuilder::new_vec().question();
-        msg.push((Dname::vec_from_str("example.com.").unwrap(), Rtype::A))
+        msg.push((Name::vec_from_str("example.com.").unwrap(), Rtype::A))
             .unwrap();
         let msg_ref = msg.as_message();
         assert_eq!(
-            Dname::vec_from_str("example.com.").unwrap(),
+            Name::vec_from_str("example.com.").unwrap(),
             msg_ref.canonical_name().unwrap()
         );
 
         // Message with CNAMEs.
         let mut msg = msg.answer();
         msg.push((
-            Dname::vec_from_str("bar.example.com.").unwrap(),
+            Name::vec_from_str("bar.example.com.").unwrap(),
             86000,
-            Cname::new(Dname::vec_from_str("baz.example.com.").unwrap()),
+            Cname::new(Name::vec_from_str("baz.example.com.").unwrap()),
         ))
         .unwrap();
         msg.push((
-            Dname::vec_from_str("example.com.").unwrap(),
+            Name::vec_from_str("example.com.").unwrap(),
             86000,
-            Cname::new(Dname::vec_from_str("foo.example.com.").unwrap()),
+            Cname::new(Name::vec_from_str("foo.example.com.").unwrap()),
         ))
         .unwrap();
         msg.push((
-            Dname::vec_from_str("foo.example.com.").unwrap(),
+            Name::vec_from_str("foo.example.com.").unwrap(),
             86000,
-            Cname::new(Dname::vec_from_str("bar.example.com.").unwrap()),
+            Cname::new(Name::vec_from_str("bar.example.com.").unwrap()),
         ))
         .unwrap();
         let msg_ref = msg.as_message();
         assert_eq!(
-            Dname::vec_from_str("baz.example.com.").unwrap(),
+            Name::vec_from_str("baz.example.com.").unwrap(),
             msg_ref.canonical_name().unwrap()
         );
 
         // CNAME loop.
         msg.push((
-            Dname::vec_from_str("baz.example.com").unwrap(),
+            Name::vec_from_str("baz.example.com").unwrap(),
             86000,
-            Cname::new(Dname::vec_from_str("foo.example.com").unwrap()),
+            Cname::new(Name::vec_from_str("foo.example.com").unwrap()),
         ))
         .unwrap();
         assert!(msg.as_message().canonical_name().is_none());
         msg.push((
-            Dname::vec_from_str("baz.example.com").unwrap(),
+            Name::vec_from_str("baz.example.com").unwrap(),
             86000,
             A::from_octets(127, 0, 0, 1),
         ))
@@ -1442,9 +1440,9 @@ mod test {
         let target = MessageBuilder::new_vec().question();
         let res = msg.copy_records(target.answer(), |rr| {
             if let Ok(Some(rr)) =
-                rr.into_record::<AllRecordData<_, ParsedDname<_>>>()
+                rr.into_record::<AllRecordData<_, ParsedName<_>>>()
             {
-                if rr.rtype() == Rtype::Cname {
+                if rr.rtype() == Rtype::CNAME {
                     return Some(rr);
                 }
             }

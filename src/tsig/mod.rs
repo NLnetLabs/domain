@@ -62,7 +62,7 @@ use crate::base::message::Message;
 use crate::base::message_builder::{
     AdditionalBuilder, MessageBuilder, PushError,
 };
-use crate::base::name::{Dname, Label, ParsedDname, ToDname, ToLabelIter};
+use crate::base::name::{Label, Name, ParsedName, ToLabelIter, ToName};
 use crate::base::record::Record;
 use crate::base::wire::{Composer, ParseError};
 use crate::rdata::tsig::{Time48, Tsig};
@@ -75,7 +75,7 @@ use std::collections::HashMap;
 
 //------------ KeyName -------------------------------------------------------
 
-pub type KeyName = Dname<octseq::array::Array<255>>;
+pub type KeyName = Name<octseq::array::Array<255>>;
 
 //------------ Key -----------------------------------------------------------
 
@@ -267,7 +267,7 @@ impl Key {
         tsig: &MessageTsig<Octs>,
     ) -> Result<(), ValidationError> {
         if *tsig.record.owner() != self.name
-            || *tsig.record.data().algorithm() != self.algorithm().to_dname()
+            || *tsig.record.data().algorithm() != self.algorithm().to_name()
         {
             Err(ValidationError::BadKey)
         } else {
@@ -352,7 +352,7 @@ pub trait KeyStore {
     ///
     /// The method looks up a key based on a pair of name and algorithm. If
     /// the key can be found, it is returned. Otherwise, `None` is returned.
-    fn get_key<N: ToDname>(
+    fn get_key<N: ToName>(
         &self,
         name: &N,
         algorithm: Algorithm,
@@ -362,7 +362,7 @@ pub trait KeyStore {
 impl<K: AsRef<Key> + Clone> KeyStore for K {
     type Key = Self;
 
-    fn get_key<N: ToDname>(
+    fn get_key<N: ToName>(
         &self,
         name: &N,
         algorithm: Algorithm,
@@ -385,13 +385,13 @@ where
 {
     type Key = K;
 
-    fn get_key<N: ToDname>(
+    fn get_key<N: ToName>(
         &self,
         name: &N,
         algorithm: Algorithm,
     ) -> Option<Self::Key> {
         // XXX This seems a bit wasteful.
-        let name = name.try_to_dname().ok()?;
+        let name = name.try_to_name().ok()?;
         self.get(&(name, algorithm)).cloned()
     }
 }
@@ -471,7 +471,7 @@ impl<K: AsRef<Key>> ClientTransaction<K> {
     where
         Target: Composer,
     {
-        let variables = Variables::new(now, fudge, TsigRcode::NoError, None);
+        let variables = Variables::new(now, fudge, TsigRcode::NOERROR, None);
         let (mut context, mac) = SigningContext::request(
             key,
             message.as_slice(),
@@ -613,7 +613,7 @@ impl<K: AsRef<Key>> ServerTransaction<K> {
     where
         Target: Composer,
     {
-        let variables = Variables::new(now, fudge, TsigRcode::NoError, None);
+        let variables = Variables::new(now, fudge, TsigRcode::NOERROR, None);
         let (mac, key) =
             self.context
                 .final_answer(message.as_slice(), None, &variables);
@@ -698,7 +698,7 @@ impl<K: AsRef<Key>> ClientSequence<K> {
     where
         Target: Composer,
     {
-        let variables = Variables::new(now, fudge, TsigRcode::NoError, None);
+        let variables = Variables::new(now, fudge, TsigRcode::NOERROR, None);
         let (mut context, mac) = SigningContext::request(
             key,
             message.as_slice(),
@@ -931,7 +931,7 @@ impl<K: AsRef<Key>> ServerSequence<K> {
     where
         Target: Composer,
     {
-        let variables = Variables::new(now, fudge, TsigRcode::NoError, None);
+        let variables = Variables::new(now, fudge, TsigRcode::NOERROR, None);
         let mac = if self.first {
             self.first = false;
             self.context
@@ -1011,13 +1011,13 @@ impl<K: AsRef<Key>> SigningContext<K> {
 
         // 4.5.1. KEY check and error handling
         let algorithm =
-            match Algorithm::from_dname(tsig.record.data().algorithm()) {
+            match Algorithm::from_name(tsig.record.data().algorithm()) {
                 Some(algorithm) => algorithm,
-                None => return Err(ServerError::unsigned(TsigRcode::BadKey)),
+                None => return Err(ServerError::unsigned(TsigRcode::BADKEY)),
             };
         let key = match store.get_key(tsig.record.owner(), algorithm) {
             Some(key) => key,
-            None => return Err(ServerError::unsigned(TsigRcode::BadKey)),
+            None => return Err(ServerError::unsigned(TsigRcode::BADKEY)),
         };
         let variables = tsig.variables();
 
@@ -1042,9 +1042,9 @@ impl<K: AsRef<Key>> SigningContext<K> {
         );
         if let Err(err) = res {
             return Err(ServerError::unsigned(match err {
-                ValidationError::BadTrunc => TsigRcode::BadTrunc,
-                ValidationError::BadKey => TsigRcode::BadKey,
-                _ => TsigRcode::FormErr,
+                ValidationError::BadTrunc => TsigRcode::BADTRUNC,
+                ValidationError::BadKey => TsigRcode::BADKEY,
+                _ => TsigRcode::FORMERR,
             }));
         }
 
@@ -1061,7 +1061,7 @@ impl<K: AsRef<Key>> SigningContext<K> {
                 Variables::new(
                     variables.time_signed,
                     variables.fudge,
-                    TsigRcode::BadTime,
+                    TsigRcode::BADTIME,
                     Some(now),
                 ),
             ));
@@ -1099,11 +1099,11 @@ impl<K: AsRef<Key>> SigningContext<K> {
         };
 
         // Check for unsigned errors.
-        if message.header().rcode() == Rcode::NotAuth {
-            if tsig.record.data().error() == TsigRcode::BadKey {
+        if message.header().rcode() == Rcode::NOTAUTH {
+            if tsig.record.data().error() == TsigRcode::BADKEY {
                 return Err(ValidationError::ServerBadKey);
             }
-            if tsig.record.data().error() == TsigRcode::BadSig {
+            if tsig.record.data().error() == TsigRcode::BADSIG {
                 return Err(ValidationError::ServerBadSig);
             }
         }
@@ -1129,8 +1129,8 @@ impl<K: AsRef<Key>> SigningContext<K> {
     where
         Octs: Octets + ?Sized,
     {
-        if message.header().rcode() == Rcode::NotAuth
-            && tsig.record.data().error() == TsigRcode::BadTime
+        if message.header().rcode() == Rcode::NOTAUTH
+            && tsig.record.data().error() == TsigRcode::BADTIME
         {
             let server = match tsig.record.data().other_time() {
                 Some(time) => time,
@@ -1297,8 +1297,8 @@ struct MessageTsig<'a, Octs: Octets + ?Sized + 'a> {
     /// The actual record.
     #[allow(clippy::type_complexity)]
     record: Record<
-        ParsedDname<Octs::Range<'a>>,
-        Tsig<Octs::Range<'a>, ParsedDname<Octs::Range<'a>>>,
+        ParsedName<Octs::Range<'a>>,
+        Tsig<Octs::Range<'a>, ParsedName<Octs::Range<'a>>>,
     >,
 
     /// The index of the start of the record.
@@ -1399,13 +1399,13 @@ impl Variables {
         };
         builder.push((
             key.name.clone(),
-            Class::Any,
+            Class::ANY,
             0,
             // The only reason creating TSIG record data can fail here is
             // that the hmac is unreasonable large. Since we control its
             // creation, panicing in this case is fine.
             Tsig::new(
-                key.algorithm().to_dname(),
+                key.algorithm().to_name(),
                 self.time_signed,
                 self.fudge,
                 hmac,
@@ -1426,7 +1426,7 @@ impl Variables {
             context.update(label.as_wire_slice());
         }
         // CLASS (Always ANY in the current specification)
-        context.update(&Class::Any.to_int().to_be_bytes());
+        context.update(&Class::ANY.to_int().to_be_bytes());
         // TTL (Always 0 in the current specification)
         context.update(&0u32.to_be_bytes());
         // Algorithm Name (in canonical wire format)
@@ -1474,7 +1474,7 @@ impl Algorithm {
     /// Creates a value from its domain name representation.
     ///
     /// Returns `None` if the name doesn’t represent a known algorithm.
-    pub fn from_dname<N: ToDname>(name: &N) -> Option<Self> {
+    pub fn from_name<N: ToName>(name: &N) -> Option<Self> {
         let mut labels = name.iter_labels();
         let first = match labels.next() {
             Some(label) => label,
@@ -1531,8 +1531,8 @@ impl Algorithm {
     }
 
     /// Returns a domain name for this value.
-    pub fn to_dname(self) -> Dname<&'static [u8]> {
-        unsafe { Dname::from_octets_unchecked(self.into_wire_slice()) }
+    pub fn to_name(self) -> Name<&'static [u8]> {
+        unsafe { Name::from_octets_unchecked(self.into_wire_slice()) }
     }
 
     /// Returns the native length of a signature created with this algorithm.
@@ -1643,7 +1643,7 @@ impl<K: AsRef<Key>> ServerError<K> {
         Octs: Octets + ?Sized,
         Target: Composer,
     {
-        let builder = builder.start_answer(msg, Rcode::NotAuth)?;
+        let builder = builder.start_answer(msg, Rcode::NOTAUTH)?;
         let mut builder = builder.additional();
         match self.0 {
             ServerErrorInner::Unsigned { error } => {

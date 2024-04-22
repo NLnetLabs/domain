@@ -5,7 +5,7 @@
 //! [RFC 1035]: https://tools.ietf.org/html/rfc1035
 
 pub use self::a::A;
-pub use self::dname::{Cname, Mb, Md, Mf, Mg, Mr, Ns, Ptr};
+pub use self::name::{Cname, Mb, Md, Mf, Mg, Mr, Ns, Ptr};
 pub use self::hinfo::Hinfo;
 pub use self::minfo::Minfo;
 pub use self::mx::Mx;
@@ -16,7 +16,7 @@ pub use self::txt::{
 };
 
 mod a;
-mod dname;
+mod name;
 mod hinfo;
 mod minfo;
 mod mx;

@@ -10,7 +10,7 @@ use crate::base::message_builder::{
 };
 use crate::base::opt::{ComposeOptData, LongOptData, OptRecord};
 use crate::base::wire::{Composer, ParseError};
-use crate::base::{Header, Message, ParsedDname, Rtype};
+use crate::base::{Header, Message, ParsedName, Rtype};
 use crate::rdata::AllRecordData;
 use bytes::Bytes;
 use octseq::Octets;
@@ -21,6 +21,7 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::vec::Vec;
 use std::{error, fmt};
+use tracing::trace;
 
 //------------ ComposeRequest ------------------------------------------------
 
@@ -146,7 +147,7 @@ impl<Octs: AsRef<[u8]> + Debug + Octets> RequestMessage<Octs> {
         let mut target = target.answer();
         for rr in &mut source {
             let rr = rr?
-                .into_record::<AllRecordData<_, ParsedDname<_>>>()?
+                .into_record::<AllRecordData<_, ParsedName<_>>>()?
                 .expect("record expected");
             target.push(rr)?;
         }
@@ -156,7 +157,7 @@ impl<Octs: AsRef<[u8]> + Debug + Octets> RequestMessage<Octs> {
         let mut target = target.authority();
         for rr in &mut source {
             let rr = rr?
-                .into_record::<AllRecordData<_, ParsedDname<_>>>()?
+                .into_record::<AllRecordData<_, ParsedName<_>>>()?
                 .expect("record expected");
             target.push(rr)?;
         }
@@ -166,9 +167,9 @@ impl<Octs: AsRef<[u8]> + Debug + Octets> RequestMessage<Octs> {
         let mut target = target.additional();
         for rr in source {
             let rr = rr?;
-            if rr.rtype() != Rtype::Opt {
+            if rr.rtype() != Rtype::OPT {
                 let rr = rr
-                    .into_record::<AllRecordData<_, ParsedDname<_>>>()?
+                    .into_record::<AllRecordData<_, ParsedName<_>>>()?
                     .expect("record expected");
                 target.push(rr)?;
             }
@@ -247,12 +248,18 @@ impl<Octs: AsRef<[u8]> + Clone + Debug + Octets + Send + Sync + 'static>
 
         // First check qr is set and IDs match.
         if !answer_header.qr() || answer_header.id() != self.header.id() {
+            trace!(
+                "Wrong QR or ID: QR={}, answer ID={}, self ID={}",
+                answer_header.qr(),
+                answer_header.id(),
+                self.header.id()
+            );
             return false;
         }
 
         // If the result is an error, then the question section can be empty.
         // In that case we require all other sections to be empty as well.
-        if answer_header.rcode() != Rcode::NoError
+        if answer_header.rcode() != Rcode::NOERROR
             && answer_hcounts.qdcount() == 0
             && answer_hcounts.ancount() == 0
             && answer_hcounts.nscount() == 0
@@ -265,9 +272,14 @@ impl<Octs: AsRef<[u8]> + Clone + Debug + Octets + Send + Sync + 'static>
         // Now the question section in the reply has to be the same as in the
         // query.
         if answer_hcounts.qdcount() != self.msg.header_counts().qdcount() {
+            trace!("Wrong QD count");
             false
         } else {
-            answer.question() == self.msg.for_slice().question()
+            let res = answer.question() == self.msg.for_slice().question();
+            if !res {
+                trace!("Wrong question");
+            }
+            res
         }
     }
 }

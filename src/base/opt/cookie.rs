@@ -66,6 +66,9 @@ pub struct Cookie {
 }
 
 impl Cookie {
+    /// The option code for this option.
+    pub(super) const CODE: OptionCode = OptionCode::COOKIE;
+
     /// Creates a new cookie from client and optional server cookie.
     #[must_use]
     pub fn new(
@@ -170,7 +173,7 @@ impl Cookie {
 
 impl OptData for Cookie {
     fn code(&self) -> OptionCode {
-        OptionCode::Cookie
+        OptionCode::COOKIE
     }
 }
 
@@ -179,7 +182,7 @@ impl<'a, Octs: AsRef<[u8]> + ?Sized> ParseOptData<'a, Octs> for Cookie {
         code: OptionCode,
         parser: &mut Parser<'a, Octs>,
     ) -> Result<Option<Self>, ParseError> {
-        if code == OptionCode::Cookie {
+        if code == OptionCode::COOKIE {
             Self::parse(parser).map(Some)
         }
         else {
@@ -271,7 +274,7 @@ impl<'a, Target: Composer> OptBuilder<'a, Target> {
 /// [`from_octets`][ClientCookie::from_octets]. Similarly, the `Default`
 /// implementation will create a random cookie and is thus only available if
 /// the `rand` feature is enabled.
-#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
 pub struct ClientCookie([u8; 8]);
 
 impl ClientCookie {

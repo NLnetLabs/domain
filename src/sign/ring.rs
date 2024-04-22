@@ -4,7 +4,7 @@
 
 use super::key::SigningKey;
 use crate::base::iana::{DigestAlg, SecAlg};
-use crate::base::name::ToDname;
+use crate::base::name::ToName;
 use crate::base::rdata::ComposeRecordData;
 use crate::rdata::{Dnskey, Ds};
 #[cfg(feature = "bytes")]
@@ -51,7 +51,7 @@ impl<'a> Key<'a> {
             dnskey: Dnskey::new(
                 flags,
                 3,
-                SecAlg::EcdsaP256Sha256,
+                SecAlg::ECDSAP256SHA256,
                 public_key,
             )
             .expect("long key"),
@@ -70,7 +70,7 @@ impl<'a> SigningKey for Key<'a> {
         Ok(self.dnskey.clone())
     }
 
-    fn ds<N: ToDname>(
+    fn ds<N: ToName>(
         &self,
         owner: N,
     ) -> Result<Ds<Self::Octets>, Self::Error> {
@@ -82,7 +82,7 @@ impl<'a> SigningKey for Key<'a> {
         Ok(Ds::new(
             self.key_tag()?,
             self.dnskey.algorithm(),
-            DigestAlg::Sha256,
+            DigestAlg::SHA256,
             digest,
         )
         .expect("long digest"))

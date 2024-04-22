@@ -46,13 +46,13 @@
 //!
 //! For example:
 //! ```rust
-//! # use domain::base::{Dname, MessageBuilder, Rtype};
+//! # use domain::base::{Name, MessageBuilder, Rtype};
 //! # use domain::net::client::request::RequestMessage;
 //! let mut msg = MessageBuilder::new_vec();
 //! msg.header_mut().set_rd(true);
 //! let mut msg = msg.question();
 //! msg.push(
-//!     (Dname::vec_from_str("example.com").unwrap(), Rtype::Aaaa)
+//!     (Name::vec_from_str("example.com").unwrap(), Rtype::AAAA)
 //! ).unwrap();
 //! let req = RequestMessage::new(msg);
 //! ```
@@ -170,7 +170,6 @@
 #![warn(missing_docs)]
 
 pub mod cache;
-pub mod clock;
 pub mod dgram;
 pub mod dgram_stream;
 pub mod multi_stream;

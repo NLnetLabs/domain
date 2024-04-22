@@ -3,13 +3,13 @@
 //! This is a private module. Its public types are re-exported by the parent.
 
 use super::super::cmp::CanonicalOrd;
+use super::super::net::IpAddr;
 use super::super::scan::{Scanner, Symbol, SymbolCharsError, Symbols};
 use super::super::wire::{FormError, ParseError};
-use super::builder::{DnameBuilder, FromStrError, PushError};
+use super::builder::{FromStrError, NameBuilder, PushError};
 use super::label::{Label, LabelTypeError, SplitLabelError};
-use super::relative::{DnameIter, RelativeDname};
-use super::traits::{FlattenInto, ToDname, ToLabelIter};
-use crate::base::net::IpAddr;
+use super::relative::{NameIter, RelativeName};
+use super::traits::{FlattenInto, ToLabelIter, ToName};
 #[cfg(feature = "bytes")]
 use bytes::Bytes;
 use core::ops::{Bound, RangeBounds};
@@ -25,7 +25,7 @@ use octseq::serde::{DeserializeOctets, SerializeOctets};
 #[cfg(feature = "std")]
 use std::vec::Vec;
 
-//------------ Dname ---------------------------------------------------------
+//------------ Name ----------------------------------------------------------
 
 /// An uncompressed, absolute domain name.
 ///
@@ -35,32 +35,32 @@ use std::vec::Vec;
 /// etc.
 ///
 /// You can construct a domain name from a string via the `FromStr` trait or
-/// manually via a [`DnameBuilder`]. In addition, you can also parse it from
+/// manually via a [`NameBuilder`]. In addition, you can also parse it from
 /// a message. This will, however, require the name to be uncompressed.
 /// Otherwise, you would receive a [`ParsedDname`] which can be converted into
-/// `Dname` via [`ToDname::to_dname`].
+/// `Name` via [`ToName::to_name`].
 ///
 /// The canonical way to convert a domain name into its presentation format is
 /// using [`to_string`] or by using its [`Display`] implementation (which
 /// performs no allocations).
 ///
-/// [`DnameBuilder`]: struct.DnameBuilder.html
+/// [`NameBuilder`]: struct.NameBuilder.html
 /// [`ParsedDname`]: struct.ParsedDname.html
-/// [`RelativeDname`]: struct.RelativeDname.html
-/// [`ToDname::to_dname`]: trait.ToDname.html#method.to_dname
+/// [`RelativeName`]: struct.RelativeName.html
+/// [`ToName::to_name`]: trait.ToName.html#method.to_name
 /// [`to_string`]: `std::string::ToString::to_string`
 /// [`Display`]: `std::fmt::Display`
 #[derive(Clone)]
-pub struct Dname<Octs: ?Sized>(Octs);
+pub struct Name<Octs: ?Sized>(Octs);
 
-impl Dname<()> {
+impl Name<()> {
     /// Domain names have a maximum length of 255 octets.
     pub const MAX_LEN: usize = 255;
 }
 
 /// # Creating Values
 ///
-impl<Octs> Dname<Octs> {
+impl<Octs> Name<Octs> {
     /// Creates a domain name from the underlying octets without any check.
     ///
     /// Since this will allow to actually construct an incorrectly encoded
@@ -72,7 +72,7 @@ impl<Octs> Dname<Octs> {
     /// encoded absolute domain name. It must be at most 255 octets long.
     /// It must contain the root label exactly once as its last label.
     pub const unsafe fn from_octets_unchecked(octets: Octs) -> Self {
-        Dname(octets)
+        Self(octets)
     }
 
     /// Creates a domain name from an octet sequence.
@@ -80,12 +80,12 @@ impl<Octs> Dname<Octs> {
     /// This will only succeed if `octets` contains a properly encoded
     /// absolute domain name in wire format. Because the function checks for
     /// correctness, this will take a wee bit of time.
-    pub fn from_octets(octets: Octs) -> Result<Self, DnameError>
+    pub fn from_octets(octets: Octs) -> Result<Self, NameError>
     where
         Octs: AsRef<[u8]>,
     {
-        Dname::check_slice(octets.as_ref())?;
-        Ok(unsafe { Dname::from_octets_unchecked(octets) })
+        Name::check_slice(octets.as_ref())?;
+        Ok(unsafe { Self::from_octets_unchecked(octets) })
     }
 
     pub fn from_symbols<Sym>(symbols: Sym) -> Result<Self, FromStrError>
@@ -97,7 +97,7 @@ impl<Octs> Dname<Octs> {
             + AsMut<[u8]>,
         Sym: IntoIterator<Item = Symbol>,
     {
-        // DnameBuilder can’t deal with a single dot, so we need to special
+        // NameBuilder can’t deal with a single dot, so we need to special
         // case that.
         let mut symbols = symbols.into_iter();
         let first = match symbols.next() {
@@ -120,10 +120,10 @@ impl<Octs> Dname<Octs> {
             }
         }
 
-        let mut builder = DnameBuilder::<Octs::Builder>::new();
+        let mut builder = NameBuilder::<Octs::Builder>::new();
         builder.push_symbol(first)?;
         builder.append_symbols(symbols)?;
-        builder.into_dname().map_err(Into::into)
+        builder.into_name().map_err(Into::into)
     }
 
     /// Creates a domain name from a sequence of characters.
@@ -159,10 +159,10 @@ impl<Octs> Dname<Octs> {
     }
 
     /// Reads a name in presentation format from the beginning of a scanner.
-    pub fn scan<S: Scanner<Dname = Self>>(
+    pub fn scan<S: Scanner<Name = Self>>(
         scanner: &mut S,
     ) -> Result<Self, S::Error> {
-        scanner.scan_dname()
+        scanner.scan_name()
     }
 
     /// Returns a domain name consisting of the root label only.
@@ -196,7 +196,7 @@ impl<Octs> Dname<Octs> {
             + AsMut<[u8]>,
     {
         let mut builder =
-            DnameBuilder::<<Octs as FromBuilder>::Builder>::new();
+            NameBuilder::<<Octs as FromBuilder>::Builder>::new();
         match addr {
             IpAddr::V4(addr) => {
                 let [a, b, c, d] = addr.octets();
@@ -216,14 +216,14 @@ impl<Octs> Dname<Octs> {
                 builder.append_label(b"arpa")?;
             }
         }
-        builder.into_dname()
+        builder.into_name()
     }
 }
 
-impl Dname<[u8]> {
+impl Name<[u8]> {
     /// Creates a domain name from an octet slice without checking,
     unsafe fn from_slice_unchecked(slice: &[u8]) -> &Self {
-        &*(slice as *const [u8] as *const Dname<[u8]>)
+        &*(slice as *const [u8] as *const Name<[u8]>)
     }
 
     /// Creates a domain name from an octets slice.
@@ -233,15 +233,15 @@ impl Dname<[u8]> {
     /// # Examples
     ///
     /// ```
-    /// use domain::base::name::Dname;
-    /// Dname::from_slice(b"\x07example\x03com\x00");
+    /// use domain::base::name::Name;
+    /// Name::from_slice(b"\x07example\x03com\x00");
     /// ```
     ///
     /// # Errors
     ///
     /// This will only succeed if `slice` contains a properly encoded
     /// absolute domain name.
-    pub fn from_slice(slice: &[u8]) -> Result<&Self, DnameError> {
+    pub fn from_slice(slice: &[u8]) -> Result<&Self, NameError> {
         Self::check_slice(slice)?;
         Ok(unsafe { Self::from_slice_unchecked(slice) })
     }
@@ -253,9 +253,9 @@ impl Dname<[u8]> {
     }
 
     /// Checks whether an octet slice contains a correctly encoded name.
-    fn check_slice(mut slice: &[u8]) -> Result<(), DnameError> {
-        if slice.len() > Dname::MAX_LEN {
-            return Err(DnameError(DnameErrorEnum::LongName));
+    fn check_slice(mut slice: &[u8]) -> Result<(), NameError> {
+        if slice.len() > Name::MAX_LEN {
+            return Err(NameError(DnameErrorEnum::LongName));
         }
         loop {
             let (label, tail) = Label::split_from(slice)?;
@@ -263,11 +263,11 @@ impl Dname<[u8]> {
                 if tail.is_empty() {
                     break;
                 } else {
-                    return Err(DnameError(DnameErrorEnum::TrailingData));
+                    return Err(NameError(DnameErrorEnum::TrailingData));
                 }
             }
             if tail.is_empty() {
-                return Err(DnameError(DnameErrorEnum::RelativeName));
+                return Err(NameError(DnameErrorEnum::RelativeName));
             }
             slice = tail;
         }
@@ -275,7 +275,7 @@ impl Dname<[u8]> {
     }
 }
 
-impl Dname<&'static [u8]> {
+impl Name<&'static [u8]> {
     /// Creates a domain name for the root label only atop a slice reference.
     #[must_use]
     pub fn root_ref() -> Self {
@@ -284,7 +284,7 @@ impl Dname<&'static [u8]> {
 }
 
 #[cfg(feature = "std")]
-impl Dname<Vec<u8>> {
+impl Name<Vec<u8>> {
     /// Creates a domain name for the root label only atop a `Vec<u8>`.
     #[must_use]
     pub fn root_vec() -> Self {
@@ -298,7 +298,7 @@ impl Dname<Vec<u8>> {
 }
 
 #[cfg(feature = "bytes")]
-impl Dname<Bytes> {
+impl Name<Bytes> {
     /// Creates a domain name for the root label only atop a bytes values.
     pub fn root_bytes() -> Self {
         Self::root()
@@ -312,7 +312,7 @@ impl Dname<Bytes> {
 
 /// # Conversions
 ///
-impl<Octs: ?Sized> Dname<Octs> {
+impl<Octs: ?Sized> Name<Octs> {
     /// Returns a reference to the underlying octets sequence.
     ///
     /// These octets contain the domain name in wire format.
@@ -329,18 +329,18 @@ impl<Octs: ?Sized> Dname<Octs> {
     }
 
     /// Converts the name into a relative name by dropping the root label.
-    pub fn into_relative(mut self) -> RelativeDname<Octs>
+    pub fn into_relative(mut self) -> RelativeName<Octs>
     where
         Octs: Sized + AsRef<[u8]> + Truncate,
     {
         let len = self.0.as_ref().len() - 1;
         self.0.truncate(len);
-        unsafe { RelativeDname::from_octets_unchecked(self.0) }
+        unsafe { RelativeName::from_octets_unchecked(self.0) }
     }
 
     /// Returns a domain name using a reference to the octets.
-    pub fn for_ref(&self) -> Dname<&Octs> {
-        unsafe { Dname::from_octets_unchecked(&self.0) }
+    pub fn for_ref(&self) -> Name<&Octs> {
+        unsafe { Name::from_octets_unchecked(&self.0) }
     }
 
     /// Returns a reference to the underlying octets slice.
@@ -354,11 +354,11 @@ impl<Octs: ?Sized> Dname<Octs> {
     }
 
     /// Returns a domain name for the octets slice of the content.
-    pub fn for_slice(&self) -> &Dname<[u8]>
+    pub fn for_slice(&self) -> &Name<[u8]>
     where
         Octs: AsRef<[u8]>,
     {
-        unsafe { Dname::from_slice_unchecked(self.0.as_ref()) }
+        unsafe { Name::from_slice_unchecked(self.0.as_ref()) }
     }
 
     /// Converts the domain name into its canonical form.
@@ -375,7 +375,7 @@ impl<Octs: ?Sized> Dname<Octs> {
 
 /// # Properties
 ///
-impl<Octs: AsRef<[u8]> + ?Sized> Dname<Octs> {
+impl<Octs: AsRef<[u8]> + ?Sized> Name<Octs> {
     /// Returns whether the name is the root label only.
     pub fn is_root(&self) -> bool {
         self.0.as_ref().len() == 1
@@ -400,10 +400,10 @@ impl<Octs: AsRef<[u8]> + ?Sized> Dname<Octs> {
 
 /// # Working with Labels
 ///
-impl<Octs: AsRef<[u8]> + ?Sized> Dname<Octs> {
+impl<Octs: AsRef<[u8]> + ?Sized> Name<Octs> {
     /// Returns an iterator over the labels of the domain name.
-    pub fn iter(&self) -> DnameIter {
-        DnameIter::new(self.0.as_ref())
+    pub fn iter(&self) -> NameIter {
+        NameIter::new(self.0.as_ref())
     }
 
     /// Returns an iterator over the suffixes of the name.
@@ -509,23 +509,23 @@ impl<Octs: AsRef<[u8]> + ?Sized> Dname<Octs> {
     ///
     /// # Panics
     ///
-    /// The method panics if either position is not the start of a label or
-    /// is out of bounds.
+    /// The method panics if either position is not the start of a label or is
+    /// out of bounds.
     ///
     /// Because the returned domain name is relative, the method will also
-    /// panic if the end is equal to the length of the name. If you
-    /// want to slice the entire end of the name including the final root
-    /// label, you can use [`slice_from()`] instead.
+    /// panic if the end is equal to the length of the name. If you want to
+    /// slice the entire end of the name including the final root label, you
+    /// can use [`slice_from`] instead.
     ///
     /// [`range`]: #method.range
-    /// [`slice_from()`]: #method.slice_from
+    /// [`slice_from`]: #method.slice_from
     pub fn slice(
         &self,
         range: impl RangeBounds<usize>,
-    ) -> &RelativeDname<[u8]> {
+    ) -> &RelativeName<[u8]> {
         self.check_bounds(&range);
         unsafe {
-            RelativeDname::from_slice_unchecked(self.0.as_ref().range(range))
+            RelativeName::from_slice_unchecked(self.0.as_ref().range(range))
         }
     }
 
@@ -546,9 +546,9 @@ impl<Octs: AsRef<[u8]> + ?Sized> Dname<Octs> {
     /// label or is out of bounds.
     ///
     /// [`range_from`]: #method.range_from
-    pub fn slice_from(&self, begin: usize) -> &Dname<[u8]> {
+    pub fn slice_from(&self, begin: usize) -> &Name<[u8]> {
         self.check_index(begin);
-        unsafe { Dname::from_slice_unchecked(&self.0.as_ref()[begin..]) }
+        unsafe { Name::from_slice_unchecked(&self.0.as_ref()[begin..]) }
     }
 
     /// Returns the part of the name indicated by start and end positions.
@@ -565,18 +565,18 @@ impl<Octs: AsRef<[u8]> + ?Sized> Dname<Octs> {
     /// Because the returned domain name is relative, the method will also
     /// panic if the end is equal to the length of the name. If you
     /// want to slice the entire end of the name including the final root
-    /// label, you can use [`range_from()`] instead.
+    /// label, you can use [`range_from`] instead.
     ///
-    /// [`range_from()`]: #method.range_from
+    /// [`range_from`]: #method.range_from
     pub fn range(
         &self,
         range: impl RangeBounds<usize>,
-    ) -> RelativeDname<<Octs as Octets>::Range<'_>>
+    ) -> RelativeName<<Octs as Octets>::Range<'_>>
     where
         Octs: Octets,
     {
         self.check_bounds(&range);
-        unsafe { RelativeDname::from_octets_unchecked(self.0.range(range)) }
+        unsafe { RelativeName::from_octets_unchecked(self.0.range(range)) }
     }
 
     /// Returns the part of the name starting at the given position.
@@ -593,7 +593,7 @@ impl<Octs: AsRef<[u8]> + ?Sized> Dname<Octs> {
     pub fn range_from(
         &self,
         begin: usize,
-    ) -> Dname<<Octs as Octets>::Range<'_>>
+    ) -> Name<<Octs as Octets>::Range<'_>>
     where
         Octs: Octets,
     {
@@ -605,15 +605,15 @@ impl<Octs: AsRef<[u8]> + ?Sized> Dname<Octs> {
     unsafe fn range_from_unchecked(
         &self,
         begin: usize,
-    ) -> Dname<<Octs as Octets>::Range<'_>>
+    ) -> Name<<Octs as Octets>::Range<'_>>
     where
         Octs: Octets,
     {
-        Dname::from_octets_unchecked(self.0.range(begin..))
+        Name::from_octets_unchecked(self.0.range(begin..))
     }
 }
 
-impl<Octs: AsRef<[u8]> + ?Sized> Dname<Octs> {
+impl<Octs: AsRef<[u8]> + ?Sized> Name<Octs> {
     /// Splits the name into two at the given position.
     ///
     /// Returns a pair of the left and right part of the split name.
@@ -625,15 +625,15 @@ impl<Octs: AsRef<[u8]> + ?Sized> Dname<Octs> {
     pub fn split(
         &self,
         mid: usize,
-    ) -> (RelativeDname<Octs::Range<'_>>, Dname<Octs::Range<'_>>)
+    ) -> (RelativeName<Octs::Range<'_>>, Name<Octs::Range<'_>>)
     where
         Octs: Octets,
     {
         self.check_index(mid);
         unsafe {
             (
-                RelativeDname::from_octets_unchecked(self.0.range(..mid)),
-                Dname::from_octets_unchecked(self.0.range(mid..)),
+                RelativeName::from_octets_unchecked(self.0.range(..mid)),
+                Name::from_octets_unchecked(self.0.range(mid..)),
             )
         }
     }
@@ -647,13 +647,13 @@ impl<Octs: AsRef<[u8]> + ?Sized> Dname<Octs> {
     ///
     /// The method will panic if `len` is not the index of a new label or if
     /// it is out of bounds.
-    pub fn truncate(mut self, len: usize) -> RelativeDname<Octs>
+    pub fn truncate(mut self, len: usize) -> RelativeName<Octs>
     where
         Octs: Truncate + Sized,
     {
         self.check_index(len);
         self.0.truncate(len);
-        unsafe { RelativeDname::from_octets_unchecked(self.0) }
+        unsafe { RelativeName::from_octets_unchecked(self.0) }
     }
 
     /// Splits off the first label.
@@ -661,7 +661,7 @@ impl<Octs: AsRef<[u8]> + ?Sized> Dname<Octs> {
     /// If this name is longer than just the root label, returns a pair
     /// of that label and the remaining name. If the name is only the root
     /// label, returns `None`.
-    pub fn split_first(&self) -> Option<(&Label, Dname<Octs::Range<'_>>)>
+    pub fn split_first(&self) -> Option<(&Label, Name<Octs::Range<'_>>)>
     where
         Octs: Octets,
     {
@@ -675,7 +675,7 @@ impl<Octs: AsRef<[u8]> + ?Sized> Dname<Octs> {
     /// Returns the parent of the current name.
     ///
     /// If the name consists of the root label only, returns `None`.
-    pub fn parent(&self) -> Option<Dname<Octs::Range<'_>>>
+    pub fn parent(&self) -> Option<Name<Octs::Range<'_>>>
     where
         Octs: Octets,
     {
@@ -687,10 +687,10 @@ impl<Octs: AsRef<[u8]> + ?Sized> Dname<Octs> {
     /// If `base` is indeed a suffix, returns a relative domain name with the
     /// remainder of the name. Otherwise, returns an error with an unmodified
     /// `self`.
-    pub fn strip_suffix<N: ToDname + ?Sized>(
+    pub fn strip_suffix<N: ToName + ?Sized>(
         self,
         base: &N,
-    ) -> Result<RelativeDname<Octs>, Self>
+    ) -> Result<RelativeName<Octs>, Self>
     where
         Octs: Truncate + Sized,
     {
@@ -703,7 +703,7 @@ impl<Octs: AsRef<[u8]> + ?Sized> Dname<Octs> {
     }
 }
 
-impl<Octs> Dname<Octs> {
+impl<Octs> Name<Octs> {
     /// Reads a name in wire format from the beginning of a parser.
     pub fn parse<'a, Src: Octets<Range<'a> = Octs> + ?Sized>(
         parser: &mut Parser<'a, Src>,
@@ -730,8 +730,8 @@ impl<Octs> Dname<Octs> {
             }
             parser.remaining() - tmp.len()
         };
-        if len > Dname::MAX_LEN {
-            Err(DnameError(DnameErrorEnum::LongName).into())
+        if len > Name::MAX_LEN {
+            Err(NameError(DnameErrorEnum::LongName).into())
         } else {
             Ok(len)
         }
@@ -740,13 +740,13 @@ impl<Octs> Dname<Octs> {
 
 //--- AsRef
 
-impl<Octs> AsRef<Octs> for Dname<Octs> {
+impl<Octs> AsRef<Octs> for Name<Octs> {
     fn as_ref(&self) -> &Octs {
         &self.0
     }
 }
 
-impl<Octs: AsRef<[u8]> + ?Sized> AsRef<[u8]> for Dname<Octs> {
+impl<Octs: AsRef<[u8]> + ?Sized> AsRef<[u8]> for Name<Octs> {
     fn as_ref(&self) -> &[u8] {
         self.0.as_ref()
     }
@@ -754,13 +754,13 @@ impl<Octs: AsRef<[u8]> + ?Sized> AsRef<[u8]> for Dname<Octs> {
 
 //--- OctetsFrom
 
-impl<Octs, SrcOcts> OctetsFrom<Dname<SrcOcts>> for Dname<Octs>
+impl<Octs, SrcOcts> OctetsFrom<Name<SrcOcts>> for Name<Octs>
 where
     Octs: OctetsFrom<SrcOcts>,
 {
     type Error = Octs::Error;
 
-    fn try_octets_from(source: Dname<SrcOcts>) -> Result<Self, Self::Error> {
+    fn try_octets_from(source: Name<SrcOcts>) -> Result<Self, Self::Error> {
         Octs::try_octets_from(source.0)
             .map(|octets| unsafe { Self::from_octets_unchecked(octets) })
     }
@@ -768,7 +768,7 @@ where
 
 //--- FromStr
 
-impl<Octs> FromStr for Dname<Octs>
+impl<Octs> FromStr for Name<Octs>
 where
     Octs: FromBuilder,
     <Octs as FromBuilder>::Builder: EmptyBuilder
@@ -797,38 +797,38 @@ where
 
 //--- FlattenInto
 
-impl<Octs, Target> FlattenInto<Dname<Target>> for Dname<Octs>
+impl<Octs, Target> FlattenInto<Name<Target>> for Name<Octs>
 where
     Target: OctetsFrom<Octs>,
 {
     type AppendError = Target::Error;
 
-    fn try_flatten_into(self) -> Result<Dname<Target>, Self::AppendError> {
+    fn try_flatten_into(self) -> Result<Name<Target>, Self::AppendError> {
         Target::try_octets_from(self.0)
-            .map(|octets| unsafe { Dname::from_octets_unchecked(octets) })
+            .map(|octets| unsafe { Name::from_octets_unchecked(octets) })
     }
 }
 
 //--- PartialEq, and Eq
 
-impl<Octs, N> PartialEq<N> for Dname<Octs>
+impl<Octs, N> PartialEq<N> for Name<Octs>
 where
     Octs: AsRef<[u8]> + ?Sized,
-    N: ToDname + ?Sized,
+    N: ToName + ?Sized,
 {
     fn eq(&self, other: &N) -> bool {
         self.name_eq(other)
     }
 }
 
-impl<Octs: AsRef<[u8]> + ?Sized> Eq for Dname<Octs> {}
+impl<Octs: AsRef<[u8]> + ?Sized> Eq for Name<Octs> {}
 
 //--- PartialOrd, Ord, and CanonicalOrd
 
-impl<Octs, N> PartialOrd<N> for Dname<Octs>
+impl<Octs, N> PartialOrd<N> for Name<Octs>
 where
     Octs: AsRef<[u8]> + ?Sized,
-    N: ToDname + ?Sized,
+    N: ToName + ?Sized,
 {
     /// Returns the ordering between `self` and `other`.
     ///
@@ -841,7 +841,7 @@ where
     }
 }
 
-impl<Octs: AsRef<[u8]> + ?Sized> Ord for Dname<Octs> {
+impl<Octs: AsRef<[u8]> + ?Sized> Ord for Name<Octs> {
     /// Returns the ordering between `self` and `other`.
     ///
     /// Domain name order is determined according to the ‘canonical DNS
@@ -853,10 +853,10 @@ impl<Octs: AsRef<[u8]> + ?Sized> Ord for Dname<Octs> {
     }
 }
 
-impl<Octs, N> CanonicalOrd<N> for Dname<Octs>
+impl<Octs, N> CanonicalOrd<N> for Name<Octs>
 where
     Octs: AsRef<[u8]> + ?Sized,
-    N: ToDname + ?Sized,
+    N: ToName + ?Sized,
 {
     fn canonical_cmp(&self, other: &N) -> cmp::Ordering {
         self.name_cmp(other)
@@ -865,7 +865,7 @@ where
 
 //--- Hash
 
-impl<Octs: AsRef<[u8]> + ?Sized> hash::Hash for Dname<Octs> {
+impl<Octs: AsRef<[u8]> + ?Sized> hash::Hash for Name<Octs> {
     fn hash<H: hash::Hasher>(&self, state: &mut H) {
         for item in self.iter() {
             item.hash(state)
@@ -873,13 +873,13 @@ impl<Octs: AsRef<[u8]> + ?Sized> hash::Hash for Dname<Octs> {
     }
 }
 
-//--- ToLabelIter and ToDname
+//--- ToLabelIter and ToName
 
-impl<Octs> ToLabelIter for Dname<Octs>
+impl<Octs> ToLabelIter for Name<Octs>
 where
     Octs: AsRef<[u8]> + ?Sized,
 {
-    type LabelIter<'a> = DnameIter<'a> where Octs: 'a;
+    type LabelIter<'a> = NameIter<'a> where Octs: 'a;
 
     fn iter_labels(&self) -> Self::LabelIter<'_> {
         self.iter()
@@ -890,7 +890,7 @@ where
     }
 }
 
-impl<Octs: AsRef<[u8]> + ?Sized> ToDname for Dname<Octs> {
+impl<Octs: AsRef<[u8]> + ?Sized> ToName for Name<Octs> {
     fn as_flat_slice(&self) -> Option<&[u8]> {
         Some(self.0.as_ref())
     }
@@ -898,12 +898,12 @@ impl<Octs: AsRef<[u8]> + ?Sized> ToDname for Dname<Octs> {
 
 //--- IntoIterator
 
-impl<'a, Octs> IntoIterator for &'a Dname<Octs>
+impl<'a, Octs> IntoIterator for &'a Name<Octs>
 where
     Octs: AsRef<[u8]> + ?Sized,
 {
     type Item = &'a Label;
-    type IntoIter = DnameIter<'a>;
+    type IntoIter = NameIter<'a>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.iter()
@@ -912,7 +912,7 @@ where
 
 //--- Display
 
-impl<Octs: AsRef<[u8]> + ?Sized> fmt::Display for Dname<Octs> {
+impl<Octs: AsRef<[u8]> + ?Sized> fmt::Display for Name<Octs> {
     /// Formats the domain name.
     ///
     /// This will produce the domain name in ‘common display format’ without
@@ -936,41 +936,41 @@ impl<Octs: AsRef<[u8]> + ?Sized> fmt::Display for Dname<Octs> {
 
 //--- Debug
 
-impl<Octs: AsRef<[u8]> + ?Sized> fmt::Debug for Dname<Octs> {
+impl<Octs: AsRef<[u8]> + ?Sized> fmt::Debug for Name<Octs> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "Dname({})", self.fmt_with_dot())
+        write!(f, "Name({})", self.fmt_with_dot())
     }
 }
 
 //--- AsRef and Borrow
 
-impl<Octs: AsRef<[u8]>> AsRef<Dname<[u8]>> for Dname<Octs> {
-    fn as_ref(&self) -> &Dname<[u8]> {
+impl<Octs: AsRef<[u8]>> AsRef<Name<[u8]>> for Name<Octs> {
+    fn as_ref(&self) -> &Name<[u8]> {
         self.for_slice()
     }
 }
 
 /// Borrow a domain name.
 ///
-/// Containers holding an owned `Dname<_>` may be queried with name over a
+/// Containers holding an owned `Name<_>` may be queried with name over a
 /// slice. This `Borrow<_>` impl supports user code querying containers with
 /// compatible-but-different types like the following example:
 ///
 /// ```
 /// use std::collections::HashMap;
 ///
-/// use domain::base::Dname;
+/// use domain::base::Name;
 ///
 /// fn get_description(
-///     hash: &HashMap<Dname<Vec<u8>>, String>
+///     hash: &HashMap<Name<Vec<u8>>, String>
 /// ) -> Option<&str> {
-///     let lookup_name: &Dname<[u8]> =
-///         Dname::from_slice(b"\x03www\x07example\x03com\0").unwrap();
+///     let lookup_name: &Name<[u8]> =
+///         Name::from_slice(b"\x03www\x07example\x03com\0").unwrap();
 ///     hash.get(lookup_name).map(|x| x.as_ref())
 /// }
 /// ```
-impl<Octs: AsRef<[u8]>> borrow::Borrow<Dname<[u8]>> for Dname<Octs> {
-    fn borrow(&self) -> &Dname<[u8]> {
+impl<Octs: AsRef<[u8]>> borrow::Borrow<Name<[u8]>> for Name<Octs> {
+    fn borrow(&self) -> &Name<[u8]> {
         self.for_slice()
     }
 }
@@ -978,7 +978,7 @@ impl<Octs: AsRef<[u8]>> borrow::Borrow<Dname<[u8]>> for Dname<Octs> {
 //--- Serialize and Deserialize
 
 #[cfg(feature = "serde")]
-impl<Octs> serde::Serialize for Dname<Octs>
+impl<Octs> serde::Serialize for Name<Octs>
 where
     Octs: AsRef<[u8]> + SerializeOctets + ?Sized,
 {
@@ -988,10 +988,10 @@ where
     ) -> Result<S::Ok, S::Error> {
         if serializer.is_human_readable() {
             serializer
-                .serialize_newtype_struct("Dname", &format_args!("{}", self))
+                .serialize_newtype_struct("Name", &format_args!("{}", self))
         } else {
             serializer.serialize_newtype_struct(
-                "Dname",
+                "Name",
                 &self.0.as_serialized_octets(),
             )
         }
@@ -999,7 +999,7 @@ where
 }
 
 #[cfg(feature = "serde")]
-impl<'de, Octs> serde::Deserialize<'de> for Dname<Octs>
+impl<'de, Octs> serde::Deserialize<'de> for Name<Octs>
 where
     Octs: FromBuilder + DeserializeOctets<'de>,
     <Octs as FromBuilder>::Builder: FreezeBuilder<Octets = Octs>
@@ -1022,7 +1022,7 @@ where
                 + AsRef<[u8]>
                 + AsMut<[u8]>,
         {
-            type Value = Dname<Octs>;
+            type Value = Name<Octs>;
 
             fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
                 f.write_str("an absolute domain name")
@@ -1032,7 +1032,7 @@ where
                 self,
                 v: &str,
             ) -> Result<Self::Value, E> {
-                Dname::from_str(v).map_err(E::custom)
+                Name::from_str(v).map_err(E::custom)
             }
 
             fn visit_borrowed_bytes<E: serde::de::Error>(
@@ -1040,7 +1040,7 @@ where
                 value: &'de [u8],
             ) -> Result<Self::Value, E> {
                 self.0.visit_borrowed_bytes(value).and_then(|octets| {
-                    Dname::from_octets(octets).map_err(E::custom)
+                    Name::from_octets(octets).map_err(E::custom)
                 })
             }
 
@@ -1050,7 +1050,7 @@ where
                 value: std::vec::Vec<u8>,
             ) -> Result<Self::Value, E> {
                 self.0.visit_byte_buf(value).and_then(|octets| {
-                    Dname::from_octets(octets).map_err(E::custom)
+                    Name::from_octets(octets).map_err(E::custom)
                 })
             }
         }
@@ -1065,7 +1065,7 @@ where
                 + AsRef<[u8]>
                 + AsMut<[u8]>,
         {
-            type Value = Dname<Octs>;
+            type Value = Name<Octs>;
 
             fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
                 f.write_str("an absolute domain name")
@@ -1088,7 +1088,7 @@ where
         }
 
         deserializer
-            .deserialize_newtype_struct("Dname", NewtypeVisitor(PhantomData))
+            .deserialize_newtype_struct("Name", NewtypeVisitor(PhantomData))
     }
 }
 
@@ -1097,13 +1097,13 @@ where
 /// An iterator over ever shorter suffixes of a domain name.
 #[derive(Clone)]
 pub struct SuffixIter<'a, Octs: ?Sized> {
-    name: &'a Dname<Octs>,
+    name: &'a Name<Octs>,
     start: Option<usize>,
 }
 
 impl<'a, Octs: ?Sized> SuffixIter<'a, Octs> {
     /// Creates a new iterator cloning `name`.
-    fn new(name: &'a Dname<Octs>) -> Self {
+    fn new(name: &'a Name<Octs>) -> Self {
         SuffixIter {
             name,
             start: Some(0),
@@ -1112,7 +1112,7 @@ impl<'a, Octs: ?Sized> SuffixIter<'a, Octs> {
 }
 
 impl<'a, Octs: Octets + ?Sized> Iterator for SuffixIter<'a, Octs> {
-    type Item = Dname<Octs::Range<'a>>;
+    type Item = Name<Octs::Range<'a>>;
 
     fn next(&mut self) -> Option<Self::Item> {
         let start = self.start?;
@@ -1129,7 +1129,7 @@ impl<'a, Octs: Octets + ?Sized> Iterator for SuffixIter<'a, Octs> {
 
 //------------ DisplayWithDot ------------------------------------------------
 
-struct DisplayWithDot<'a>(&'a Dname<[u8]>);
+struct DisplayWithDot<'a>(&'a Name<[u8]>);
 
 impl<'a> fmt::Display for DisplayWithDot<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -1148,11 +1148,11 @@ impl<'a> fmt::Display for DisplayWithDot<'a> {
 
 //============ Error Types ===================================================
 
-//------------ DnameError ----------------------------------------------------
+//------------ NameError -----------------------------------------------------
 
 /// A domain name wasn’t encoded correctly.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct DnameError(DnameErrorEnum);
+pub struct NameError(DnameErrorEnum);
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum DnameErrorEnum {
@@ -1177,13 +1177,13 @@ enum DnameErrorEnum {
 
 //--- From
 
-impl From<LabelTypeError> for DnameError {
+impl From<LabelTypeError> for NameError {
     fn from(err: LabelTypeError) -> Self {
         Self(DnameErrorEnum::BadLabel(err))
     }
 }
 
-impl From<SplitLabelError> for DnameError {
+impl From<SplitLabelError> for NameError {
     fn from(err: SplitLabelError) -> Self {
         Self(match err {
             SplitLabelError::Pointer(_) => DnameErrorEnum::CompressedName,
@@ -1193,8 +1193,8 @@ impl From<SplitLabelError> for DnameError {
     }
 }
 
-impl From<DnameError> for FormError {
-    fn from(err: DnameError) -> FormError {
+impl From<NameError> for FormError {
+    fn from(err: NameError) -> FormError {
         FormError::new(match err.0 {
             DnameErrorEnum::BadLabel(_) => "unknown label type",
             DnameErrorEnum::CompressedName => "compressed domain name",
@@ -1206,8 +1206,8 @@ impl From<DnameError> for FormError {
     }
 }
 
-impl From<DnameError> for ParseError {
-    fn from(err: DnameError) -> ParseError {
+impl From<NameError> for ParseError {
+    fn from(err: NameError) -> ParseError {
         match err.0 {
             DnameErrorEnum::ShortInput => ParseError::ShortInput,
             _ => ParseError::Form(err.into()),
@@ -1217,7 +1217,7 @@ impl From<DnameError> for ParseError {
 
 //--- Display and Error
 
-impl fmt::Display for DnameError {
+impl fmt::Display for NameError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self.0 {
             DnameErrorEnum::BadLabel(ref err) => err.fmt(f),
@@ -1233,7 +1233,7 @@ impl fmt::Display for DnameError {
 }
 
 #[cfg(feature = "std")]
-impl std::error::Error for DnameError {}
+impl std::error::Error for NameError {}
 
 //============ Testing =======================================================
 //
@@ -1254,16 +1254,16 @@ pub(crate) mod test {
 
     #[test]
     fn impls() {
-        fn assert_to_dname<T: ToDname + ?Sized>(_: &T) {}
+        fn assert_to_name<T: ToName + ?Sized>(_: &T) {}
 
-        assert_to_dname(Dname::from_slice(b"\0".as_ref()).unwrap());
-        assert_to_dname(&Dname::from_octets(b"\0").unwrap());
-        assert_to_dname(&Dname::from_octets(b"\0".as_ref()).unwrap());
+        assert_to_name(Name::from_slice(b"\0".as_ref()).unwrap());
+        assert_to_name(&Name::from_octets(b"\0").unwrap());
+        assert_to_name(&Name::from_octets(b"\0".as_ref()).unwrap());
 
         #[cfg(feature = "std")]
         {
-            assert_to_dname(
-                &Dname::from_octets(Vec::from(b"\0".as_ref())).unwrap(),
+            assert_to_name(
+                &Name::from_octets(Vec::from(b"\0".as_ref())).unwrap(),
             );
         }
     }
@@ -1271,27 +1271,27 @@ pub(crate) mod test {
     #[cfg(feature = "bytes")]
     #[test]
     fn impls_bytes() {
-        fn assert_to_dname<T: ToDname + ?Sized>(_: &T) {}
+        fn assert_to_name<T: ToName + ?Sized>(_: &T) {}
 
-        assert_to_dname(
-            &Dname::from_octets(Bytes::from(b"\0".as_ref())).unwrap(),
+        assert_to_name(
+            &Name::from_octets(Bytes::from(b"\0".as_ref())).unwrap(),
         );
     }
 
     #[test]
     fn root() {
-        assert_eq!(Dname::root_ref().as_slice(), b"\0");
+        assert_eq!(Name::root_ref().as_slice(), b"\0");
         #[cfg(feature = "std")]
         {
-            assert_eq!(Dname::root_vec().as_slice(), b"\0");
+            assert_eq!(Name::root_vec().as_slice(), b"\0");
         }
-        assert_eq!(Dname::root_slice().as_slice(), b"\0");
+        assert_eq!(Name::root_slice().as_slice(), b"\0");
     }
 
     #[cfg(feature = "bytes")]
     #[test]
     fn root_bytes() {
-        assert_eq!(Dname::root_bytes().as_slice(), b"\0");
+        assert_eq!(Name::root_bytes().as_slice(), b"\0");
     }
 
     #[test]
@@ -1299,7 +1299,7 @@ pub(crate) mod test {
     fn from_slice() {
         // a simple good name
         assert_eq!(
-            Dname::from_slice(b"\x03www\x07example\x03com\0")
+            Name::from_slice(b"\x03www\x07example\x03com\0")
                 .unwrap()
                 .as_slice(),
             b"\x03www\x07example\x03com\0"
@@ -1307,23 +1307,23 @@ pub(crate) mod test {
 
         // relative name
         assert_eq!(
-            Dname::from_slice(b"\x03www\x07example\x03com"),
-            Err(DnameError(DnameErrorEnum::RelativeName))
+            Name::from_slice(b"\x03www\x07example\x03com"),
+            Err(NameError(DnameErrorEnum::RelativeName))
         );
 
         // bytes shorter than what label length says.
         assert_eq!(
-            Dname::from_slice(b"\x03www\x07exa"),
-            Err(DnameError(DnameErrorEnum::ShortInput))
+            Name::from_slice(b"\x03www\x07exa"),
+            Err(NameError(DnameErrorEnum::ShortInput))
         );
 
         // label 63 long ok, 64 bad.
         let mut slice = [0u8; 65];
         slice[0] = 63;
-        assert!(Dname::from_slice(&slice[..]).is_ok());
+        assert!(Name::from_slice(&slice[..]).is_ok());
         let mut slice = [0u8; 66];
         slice[0] = 64;
-        assert!(Dname::from_slice(&slice[..]).is_err());
+        assert!(Name::from_slice(&slice[..]).is_err());
 
         // name 255 long ok, 256 bad.
         let mut buf = std::vec::Vec::new();
@@ -1333,49 +1333,49 @@ pub(crate) mod test {
         assert_eq!(buf.len(), 250);
         let mut tmp = buf.clone();
         tmp.extend_from_slice(b"\x03123\0");
-        assert_eq!(Dname::from_slice(&tmp).map(|_| ()), Ok(()));
+        assert_eq!(Name::from_slice(&tmp).map(|_| ()), Ok(()));
         buf.extend_from_slice(b"\x041234\0");
-        assert!(Dname::from_slice(&buf).is_err());
+        assert!(Name::from_slice(&buf).is_err());
 
         // trailing data
-        assert!(Dname::from_slice(b"\x03com\0\x03www\0").is_err());
+        assert!(Name::from_slice(b"\x03com\0\x03www\0").is_err());
 
         // bad label heads: compressed, other types.
         assert_eq!(
-            Dname::from_slice(b"\xa2asdasds"),
+            Name::from_slice(b"\xa2asdasds"),
             Err(LabelTypeError::Undefined.into())
         );
         assert_eq!(
-            Dname::from_slice(b"\x62asdasds"),
+            Name::from_slice(b"\x62asdasds"),
             Err(LabelTypeError::Extended(0x62).into())
         );
         assert_eq!(
-            Dname::from_slice(b"\xccasdasds"),
-            Err(DnameError(DnameErrorEnum::CompressedName))
+            Name::from_slice(b"\xccasdasds"),
+            Err(NameError(DnameErrorEnum::CompressedName))
         );
 
         // empty input
         assert_eq!(
-            Dname::from_slice(b""),
-            Err(DnameError(DnameErrorEnum::ShortInput))
+            Name::from_slice(b""),
+            Err(NameError(DnameErrorEnum::ShortInput))
         );
     }
 
     #[test]
     fn test_dname_from_addr() {
-        type TestDname = Dname<octseq::array::Array<128>>;
+        type TestName = Name<octseq::array::Array<128>>;
 
         assert_eq!(
-            TestDname::from_addr([192, 0, 2, 12].into()).unwrap(),
-            TestDname::from_str("12.2.0.192.in-addr.arpa").unwrap()
+            TestName::from_addr([192, 0, 2, 12].into()).unwrap(),
+            TestName::from_str("12.2.0.192.in-addr.arpa").unwrap()
         );
         assert_eq!(
-            TestDname::from_addr(
+            TestName::from_addr(
                 [0x2001, 0xdb8, 0x1234, 0x0, 0x5678, 0x1, 0x9abc, 0xdef]
                     .into()
             )
             .unwrap(),
-            TestDname::from_str(
+            TestName::from_str(
                 "f.e.d.0.c.b.a.9.1.0.0.0.8.7.6.5.\
                  0.0.0.0.4.3.2.1.8.b.d.0.1.0.0.2.\
                  ip6.arpa"
@@ -1383,15 +1383,14 @@ pub(crate) mod test {
             .unwrap()
         );
     }
-
-    // `Dname::from_chars` is covered in the `FromStr` test.
+    // `Name::from_chars` is covered in the `FromStr` test.
     //
     // No tests for the simple conversion methods because, well, simple.
 
     #[test]
     fn into_relative() {
         assert_eq!(
-            Dname::from_octets(b"\x03www\0".as_ref())
+            Name::from_octets(b"\x03www\0".as_ref())
                 .unwrap()
                 .into_relative()
                 .as_slice(),
@@ -1402,20 +1401,19 @@ pub(crate) mod test {
     #[test]
     #[cfg(feature = "std")]
     fn make_canonical() {
-        let mut name =
-            RelativeDname::vec_from_str("wWw.exAmpLE.coM").unwrap();
+        let mut name = RelativeName::vec_from_str("wWw.exAmpLE.coM").unwrap();
         name.make_canonical();
         assert_eq!(
             name,
-            RelativeDname::from_octets(b"\x03www\x07example\x03com").unwrap()
+            RelativeName::from_octets(b"\x03www\x07example\x03com").unwrap()
         );
     }
 
     #[test]
     fn is_root() {
-        assert!(Dname::from_slice(b"\0").unwrap().is_root());
-        assert!(!Dname::from_slice(b"\x03www\0").unwrap().is_root());
-        assert!(Dname::root_ref().is_root());
+        assert!(Name::from_slice(b"\0").unwrap().is_root());
+        assert!(!Name::from_slice(b"\x03www\0").unwrap().is_root());
+        assert!(Name::root_ref().is_root());
     }
 
     pub fn cmp_iter<I>(mut iter: I, labels: &[&[u8]])
@@ -1438,9 +1436,9 @@ pub(crate) mod test {
 
     #[test]
     fn iter() {
-        cmp_iter(Dname::root_ref().iter(), &[b""]);
+        cmp_iter(Name::root_ref().iter(), &[b""]);
         cmp_iter(
-            Dname::from_slice(b"\x03www\x07example\x03com\0")
+            Name::from_slice(b"\x03www\x07example\x03com\0")
                 .unwrap()
                 .iter(),
             &[b"www", b"example", b"com", b""],
@@ -1467,9 +1465,9 @@ pub(crate) mod test {
 
     #[test]
     fn iter_back() {
-        cmp_iter_back(Dname::root_ref().iter(), &[b""]);
+        cmp_iter_back(Name::root_ref().iter(), &[b""]);
         cmp_iter_back(
-            Dname::from_slice(b"\x03www\x07example\x03com\0")
+            Name::from_slice(b"\x03www\x07example\x03com\0")
                 .unwrap()
                 .iter(),
             &[b"", b"com", b"example", b"www"],
@@ -1478,9 +1476,9 @@ pub(crate) mod test {
 
     #[test]
     fn iter_suffixes() {
-        cmp_iter(Dname::root_ref().iter_suffixes(), &[b"\0"]);
+        cmp_iter(Name::root_ref().iter_suffixes(), &[b"\0"]);
         cmp_iter(
-            Dname::from_octets(b"\x03www\x07example\x03com\0".as_ref())
+            Name::from_octets(b"\x03www\x07example\x03com\0".as_ref())
                 .unwrap()
                 .iter_suffixes(),
             &[
@@ -1494,9 +1492,9 @@ pub(crate) mod test {
 
     #[test]
     fn label_count() {
-        assert_eq!(Dname::root_ref().label_count(), 1);
+        assert_eq!(Name::root_ref().label_count(), 1);
         assert_eq!(
-            Dname::from_slice(b"\x03www\x07example\x03com\0")
+            Name::from_slice(b"\x03www\x07example\x03com\0")
                 .unwrap()
                 .label_count(),
             4
@@ -1505,9 +1503,9 @@ pub(crate) mod test {
 
     #[test]
     fn first() {
-        assert_eq!(Dname::root_ref().first().as_slice(), b"");
+        assert_eq!(Name::root_ref().first().as_slice(), b"");
         assert_eq!(
-            Dname::from_slice(b"\x03www\x07example\x03com\0")
+            Name::from_slice(b"\x03www\x07example\x03com\0")
                 .unwrap()
                 .first()
                 .as_slice(),
@@ -1517,9 +1515,9 @@ pub(crate) mod test {
 
     #[test]
     fn last() {
-        assert_eq!(Dname::root_ref().last().as_slice(), b"");
+        assert_eq!(Name::root_ref().last().as_slice(), b"");
         assert_eq!(
-            Dname::from_slice(b"\x03www\x07example\x03com\0")
+            Name::from_slice(b"\x03www\x07example\x03com\0")
                 .unwrap()
                 .last()
                 .as_slice(),
@@ -1529,45 +1527,44 @@ pub(crate) mod test {
 
     #[test]
     fn starts_with() {
-        let root = Dname::root_ref();
-        let wecr =
-            Dname::from_octets(b"\x03www\x07example\x03com\0".as_ref())
-                .unwrap();
+        let root = Name::root_ref();
+        let wecr = Name::from_octets(b"\x03www\x07example\x03com\0".as_ref())
+            .unwrap();
 
         assert!(root.starts_with(&root));
         assert!(wecr.starts_with(&wecr));
 
-        assert!(root.starts_with(&RelativeDname::empty_ref()));
-        assert!(wecr.starts_with(&RelativeDname::empty_ref()));
+        assert!(root.starts_with(&RelativeName::empty_ref()));
+        assert!(wecr.starts_with(&RelativeName::empty_ref()));
 
-        let test = RelativeDname::from_slice(b"\x03www").unwrap();
+        let test = RelativeName::from_slice(b"\x03www").unwrap();
         assert!(!root.starts_with(&test));
         assert!(wecr.starts_with(&test));
 
-        let test = RelativeDname::from_slice(b"\x03www\x07example").unwrap();
+        let test = RelativeName::from_slice(b"\x03www\x07example").unwrap();
         assert!(!root.starts_with(&test));
         assert!(wecr.starts_with(&test));
 
         let test =
-            RelativeDname::from_slice(b"\x03www\x07example\x03com").unwrap();
+            RelativeName::from_slice(b"\x03www\x07example\x03com").unwrap();
         assert!(!root.starts_with(&test));
         assert!(wecr.starts_with(&test));
 
-        let test = RelativeDname::from_slice(b"\x07example\x03com").unwrap();
+        let test = RelativeName::from_slice(b"\x07example\x03com").unwrap();
         assert!(!root.starts_with(&test));
         assert!(!wecr.starts_with(&test));
 
-        let test = RelativeDname::from_octets(b"\x03www".as_ref())
+        let test = RelativeName::from_octets(b"\x03www".as_ref())
             .unwrap()
             .chain(
-                RelativeDname::from_octets(b"\x07example".as_ref()).unwrap(),
+                RelativeName::from_octets(b"\x07example".as_ref()).unwrap(),
             )
             .unwrap();
         assert!(!root.starts_with(&test));
         assert!(wecr.starts_with(&test));
 
         let test = test
-            .chain(RelativeDname::from_octets(b"\x03com".as_ref()).unwrap())
+            .chain(RelativeName::from_octets(b"\x03com".as_ref()).unwrap())
             .unwrap();
         assert!(!root.starts_with(&test));
         assert!(wecr.starts_with(&test));
@@ -1575,10 +1572,9 @@ pub(crate) mod test {
 
     #[test]
     fn ends_with() {
-        let root = Dname::root_ref();
-        let wecr =
-            Dname::from_octets(b"\x03www\x07example\x03com\0".as_ref())
-                .unwrap();
+        let root = Name::root_ref();
+        let wecr = Name::from_octets(b"\x03www\x07example\x03com\0".as_ref())
+            .unwrap();
 
         for name in wecr.iter_suffixes() {
             if name.is_root() {
@@ -1592,7 +1588,7 @@ pub(crate) mod test {
 
     #[test]
     fn is_label_start() {
-        let wecr = Dname::from_slice(b"\x03www\x07example\x03com\0").unwrap();
+        let wecr = Name::from_slice(b"\x03www\x07example\x03com\0").unwrap();
 
         assert!(wecr.is_label_start(0)); // \x03
         assert!(!wecr.is_label_start(1)); // w
@@ -1618,7 +1614,7 @@ pub(crate) mod test {
     #[test]
     #[cfg(feature = "std")]
     fn slice() {
-        let wecr = Dname::from_slice(b"\x03www\x07example\x03com\0").unwrap();
+        let wecr = Name::from_slice(b"\x03www\x07example\x03com\0").unwrap();
 
         assert_eq!(wecr.slice(..4).as_slice(), b"\x03www");
         assert_eq!(wecr.slice(..12).as_slice(), b"\x03www\x07example");
@@ -1637,7 +1633,7 @@ pub(crate) mod test {
     #[test]
     #[cfg(feature = "std")]
     fn slice_from() {
-        let wecr = Dname::from_slice(b"\x03www\x07example\x03com\0").unwrap();
+        let wecr = Name::from_slice(b"\x03www\x07example\x03com\0").unwrap();
 
         assert_eq!(
             wecr.slice_from(0).as_slice(),
@@ -1654,9 +1650,8 @@ pub(crate) mod test {
     #[test]
     #[cfg(feature = "std")]
     fn range() {
-        let wecr =
-            Dname::from_octets(b"\x03www\x07example\x03com\0".as_ref())
-                .unwrap();
+        let wecr = Name::from_octets(b"\x03www\x07example\x03com\0".as_ref())
+            .unwrap();
 
         assert_eq!(wecr.range(0..4).as_slice(), b"\x03www");
         assert_eq!(wecr.range(0..12).as_slice(), b"\x03www\x07example");
@@ -1675,9 +1670,8 @@ pub(crate) mod test {
     #[test]
     #[cfg(feature = "std")]
     fn range_from() {
-        let wecr =
-            Dname::from_octets(b"\x03www\x07example\x03com\0".as_ref())
-                .unwrap();
+        let wecr = Name::from_octets(b"\x03www\x07example\x03com\0".as_ref())
+            .unwrap();
 
         assert_eq!(
             wecr.range_from(0).as_slice(),
@@ -1694,9 +1688,8 @@ pub(crate) mod test {
     #[test]
     #[cfg(feature = "std")]
     fn split() {
-        let wecr =
-            Dname::from_octets(b"\x03www\x07example\x03com\0".as_ref())
-                .unwrap();
+        let wecr = Name::from_octets(b"\x03www\x07example\x03com\0".as_ref())
+            .unwrap();
 
         let (left, right) = wecr.split(0);
         assert_eq!(left.as_slice(), b"");
@@ -1723,9 +1716,8 @@ pub(crate) mod test {
     #[test]
     #[cfg(feature = "std")]
     fn truncate() {
-        let wecr =
-            Dname::from_octets(b"\x03www\x07example\x03com\0".as_ref())
-                .unwrap();
+        let wecr = Name::from_octets(b"\x03www\x07example\x03com\0".as_ref())
+            .unwrap();
 
         assert_eq!(wecr.clone().truncate(0).as_slice(), b"");
         assert_eq!(wecr.clone().truncate(4).as_slice(), b"\x03www");
@@ -1746,9 +1738,8 @@ pub(crate) mod test {
 
     #[test]
     fn split_first() {
-        let wecr =
-            Dname::from_octets(b"\x03www\x07example\x03com\0".as_ref())
-                .unwrap();
+        let wecr = Name::from_octets(b"\x03www\x07example\x03com\0".as_ref())
+            .unwrap();
 
         let (label, wecr) = wecr.split_first().unwrap();
         assert_eq!(label, b"www".as_ref());
@@ -1766,9 +1757,8 @@ pub(crate) mod test {
 
     #[test]
     fn parent() {
-        let wecr =
-            Dname::from_octets(b"\x03www\x07example\x03com\0".as_ref())
-                .unwrap();
+        let wecr = Name::from_octets(b"\x03www\x07example\x03com\0".as_ref())
+            .unwrap();
 
         let wecr = wecr.parent().unwrap();
         assert_eq!(wecr.as_slice(), b"\x07example\x03com\0");
@@ -1781,18 +1771,16 @@ pub(crate) mod test {
 
     #[test]
     fn strip_suffix() {
-        let wecr =
-            Dname::from_octets(b"\x03www\x07example\x03com\0".as_ref())
-                .unwrap();
+        let wecr = Name::from_octets(b"\x03www\x07example\x03com\0".as_ref())
+            .unwrap();
         let ecr =
-            Dname::from_octets(b"\x07example\x03com\0".as_ref()).unwrap();
-        let cr = Dname::from_octets(b"\x03com\0".as_ref()).unwrap();
-        let wenr =
-            Dname::from_octets(b"\x03www\x07example\x03net\0".as_ref())
-                .unwrap();
+            Name::from_octets(b"\x07example\x03com\0".as_ref()).unwrap();
+        let cr = Name::from_octets(b"\x03com\0".as_ref()).unwrap();
+        let wenr = Name::from_octets(b"\x03www\x07example\x03net\0".as_ref())
+            .unwrap();
         let enr =
-            Dname::from_octets(b"\x07example\x03net\0".as_ref()).unwrap();
-        let nr = Dname::from_octets(b"\x03net\0".as_ref()).unwrap();
+            Name::from_octets(b"\x07example\x03net\0".as_ref()).unwrap();
+        let nr = Name::from_octets(b"\x03net\0".as_ref()).unwrap();
 
         assert_eq!(wecr.clone().strip_suffix(&wecr).unwrap().as_slice(), b"");
         assert_eq!(
@@ -1805,7 +1793,7 @@ pub(crate) mod test {
         );
         assert_eq!(
             wecr.clone()
-                .strip_suffix(&Dname::root_slice())
+                .strip_suffix(&Name::root_slice())
                 .unwrap()
                 .as_slice(),
             b"\x03www\x07example\x03com"
@@ -1831,30 +1819,30 @@ pub(crate) mod test {
         // Parse a correctly formatted name.
         let mut p = Parser::from_static(b"\x03www\x07example\x03com\0af");
         assert_eq!(
-            Dname::parse(&mut p).unwrap().as_slice(),
+            Name::parse(&mut p).unwrap().as_slice(),
             b"\x03www\x07example\x03com\0"
         );
         assert_eq!(p.peek_all(), b"af");
 
         // Short buffer in middle of label.
         let mut p = Parser::from_static(b"\x03www\x07exam");
-        assert_eq!(Dname::parse(&mut p), Err(ParseError::ShortInput));
+        assert_eq!(Name::parse(&mut p), Err(ParseError::ShortInput));
 
         // Short buffer at end of label.
         let mut p = Parser::from_static(b"\x03www\x07example");
-        assert_eq!(Dname::parse(&mut p), Err(ParseError::ShortInput));
+        assert_eq!(Name::parse(&mut p), Err(ParseError::ShortInput));
 
         // Compressed name.
         let mut p = Parser::from_static(b"\x03com\x03www\x07example\xc0\0");
         p.advance(4).unwrap();
         assert_eq!(
-            Dname::parse(&mut p),
-            Err(DnameError(DnameErrorEnum::CompressedName).into())
+            Name::parse(&mut p),
+            Err(NameError(DnameErrorEnum::CompressedName).into())
         );
 
         // Bad label header.
         let mut p = Parser::from_static(b"\x03www\x07example\xbffoo");
-        assert!(Dname::parse(&mut p).is_err());
+        assert!(Name::parse(&mut p).is_err());
 
         // Long name: 255 bytes is fine.
         let mut buf = Vec::new();
@@ -1864,7 +1852,7 @@ pub(crate) mod test {
         buf.extend_from_slice(b"\x03123\0");
         assert_eq!(buf.len(), 255);
         let mut p = Parser::from_ref(buf.as_slice());
-        assert!(Dname::parse(&mut p).is_ok());
+        assert!(Name::parse(&mut p).is_ok());
         assert_eq!(p.peek_all(), b"");
 
         // Long name: 256 bytes are bad.
@@ -1876,8 +1864,8 @@ pub(crate) mod test {
         assert_eq!(buf.len(), 256);
         let mut p = Parser::from_ref(buf.as_slice());
         assert_eq!(
-            Dname::parse(&mut p),
-            Err(DnameError(DnameErrorEnum::LongName).into())
+            Name::parse(&mut p),
+            Err(NameError(DnameErrorEnum::LongName).into())
         );
     }
 
@@ -1891,7 +1879,7 @@ pub(crate) mod test {
 
         let mut buf = Vec::new();
         infallible(
-            Dname::from_slice(b"\x03wWw\x07exaMPle\x03com\0")
+            Name::from_slice(b"\x03wWw\x07exaMPle\x03com\0")
                 .unwrap()
                 .compose_canonical(&mut buf),
         );
@@ -1901,25 +1889,22 @@ pub(crate) mod test {
     #[test]
     #[cfg(feature = "std")]
     fn from_str() {
-        // Another simple test. `DnameBuilder` does all the heavy lifting,
+        // Another simple test. `NameBuilder` does all the heavy lifting,
         // so we don’t need to test all the escape sequence shenanigans here.
         // Just check that we’ll always get a name, final dot or not, unless
         // the string is empty.
         use core::str::FromStr;
         use std::vec::Vec;
 
+        assert_eq!(Name::<Vec<u8>>::from_str(".").unwrap().as_slice(), b"\0");
         assert_eq!(
-            Dname::<Vec<u8>>::from_str(".").unwrap().as_slice(),
-            b"\0"
-        );
-        assert_eq!(
-            Dname::<Vec<u8>>::from_str("www.example.com")
+            Name::<Vec<u8>>::from_str("www.example.com")
                 .unwrap()
                 .as_slice(),
             b"\x03www\x07example\x03com\0"
         );
         assert_eq!(
-            Dname::<Vec<u8>>::from_str("www.example.com.")
+            Name::<Vec<u8>>::from_str("www.example.com.")
                 .unwrap()
                 .as_slice(),
             b"\x03www\x07example\x03com\0"
@@ -1929,57 +1914,51 @@ pub(crate) mod test {
     #[test]
     fn eq() {
         assert_eq!(
-            Dname::from_slice(b"\x03www\x07example\x03com\0").unwrap(),
-            Dname::from_slice(b"\x03www\x07example\x03com\0").unwrap()
+            Name::from_slice(b"\x03www\x07example\x03com\0").unwrap(),
+            Name::from_slice(b"\x03www\x07example\x03com\0").unwrap()
         );
         assert_eq!(
-            Dname::from_slice(b"\x03www\x07example\x03com\0").unwrap(),
-            Dname::from_slice(b"\x03wWw\x07eXAMple\x03Com\0").unwrap()
+            Name::from_slice(b"\x03www\x07example\x03com\0").unwrap(),
+            Name::from_slice(b"\x03wWw\x07eXAMple\x03Com\0").unwrap()
         );
         assert_eq!(
-            Dname::from_slice(b"\x03www\x07example\x03com\0").unwrap(),
-            &RelativeDname::from_octets(b"\x03www".as_ref())
+            Name::from_slice(b"\x03www\x07example\x03com\0").unwrap(),
+            &RelativeName::from_octets(b"\x03www".as_ref())
                 .unwrap()
                 .chain(
-                    RelativeDname::from_octets(
-                        b"\x07example\x03com".as_ref()
-                    )
-                    .unwrap()
+                    RelativeName::from_octets(b"\x07example\x03com".as_ref())
+                        .unwrap()
                 )
                 .unwrap()
-                .chain(Dname::root_ref())
+                .chain(Name::root_ref())
                 .unwrap()
         );
         assert_eq!(
-            Dname::from_slice(b"\x03www\x07example\x03com\0").unwrap(),
-            &RelativeDname::from_octets(b"\x03wWw".as_ref())
+            Name::from_slice(b"\x03www\x07example\x03com\0").unwrap(),
+            &RelativeName::from_octets(b"\x03wWw".as_ref())
                 .unwrap()
                 .chain(
-                    RelativeDname::from_octets(
-                        b"\x07eXAMple\x03coM".as_ref()
-                    )
-                    .unwrap()
+                    RelativeName::from_octets(b"\x07eXAMple\x03coM".as_ref())
+                        .unwrap()
                 )
                 .unwrap()
-                .chain(Dname::root_ref())
+                .chain(Name::root_ref())
                 .unwrap()
         );
         assert_ne!(
-            Dname::from_slice(b"\x03www\x07example\x03com\0").unwrap(),
-            Dname::from_slice(b"\x03ww4\x07example\x03com\0").unwrap()
+            Name::from_slice(b"\x03www\x07example\x03com\0").unwrap(),
+            Name::from_slice(b"\x03ww4\x07example\x03com\0").unwrap()
         );
         assert_ne!(
-            Dname::from_slice(b"\x03www\x07example\x03com\0").unwrap(),
-            &RelativeDname::from_octets(b"\x03www".as_ref())
+            Name::from_slice(b"\x03www\x07example\x03com\0").unwrap(),
+            &RelativeName::from_octets(b"\x03www".as_ref())
                 .unwrap()
                 .chain(
-                    RelativeDname::from_octets(
-                        b"\x073xample\x03com".as_ref()
-                    )
-                    .unwrap()
+                    RelativeName::from_octets(b"\x073xample\x03com".as_ref())
+                        .unwrap()
                 )
                 .unwrap()
-                .chain(Dname::root_ref())
+                .chain(Name::root_ref())
                 .unwrap()
         );
     }
@@ -1990,15 +1969,15 @@ pub(crate) mod test {
 
         // The following is taken from section 6.1 of RFC 4034.
         let names = [
-            Dname::from_slice(b"\x07example\0").unwrap(),
-            Dname::from_slice(b"\x01a\x07example\0").unwrap(),
-            Dname::from_slice(b"\x08yljkjljk\x01a\x07example\0").unwrap(),
-            Dname::from_slice(b"\x01Z\x01a\x07example\0").unwrap(),
-            Dname::from_slice(b"\x04zABC\x01a\x07example\0").unwrap(),
-            Dname::from_slice(b"\x01z\x07example\0").unwrap(),
-            Dname::from_slice(b"\x01\x01\x01z\x07example\0").unwrap(),
-            Dname::from_slice(b"\x01*\x01z\x07example\0").unwrap(),
-            Dname::from_slice(b"\x01\xc8\x01z\x07example\0").unwrap(),
+            Name::from_slice(b"\x07example\0").unwrap(),
+            Name::from_slice(b"\x01a\x07example\0").unwrap(),
+            Name::from_slice(b"\x08yljkjljk\x01a\x07example\0").unwrap(),
+            Name::from_slice(b"\x01Z\x01a\x07example\0").unwrap(),
+            Name::from_slice(b"\x04zABC\x01a\x07example\0").unwrap(),
+            Name::from_slice(b"\x01z\x07example\0").unwrap(),
+            Name::from_slice(b"\x01\x01\x01z\x07example\0").unwrap(),
+            Name::from_slice(b"\x01*\x01z\x07example\0").unwrap(),
+            Name::from_slice(b"\x01\xc8\x01z\x07example\0").unwrap(),
         ];
         for i in 0..names.len() {
             for j in 0..names.len() {
@@ -2008,8 +1987,8 @@ pub(crate) mod test {
             }
         }
 
-        let n1 = Dname::from_slice(b"\x03www\x07example\x03com\0").unwrap();
-        let n2 = Dname::from_slice(b"\x03wWw\x07eXAMple\x03Com\0").unwrap();
+        let n1 = Name::from_slice(b"\x03www\x07example\x03com\0").unwrap();
+        let n2 = Name::from_slice(b"\x03wWw\x07eXAMple\x03Com\0").unwrap();
         assert_eq!(n1.partial_cmp(n2), Some(Ordering::Equal));
         assert_eq!(n1.cmp(n2), Ordering::Equal);
     }
@@ -2022,10 +2001,10 @@ pub(crate) mod test {
 
         let mut s1 = DefaultHasher::new();
         let mut s2 = DefaultHasher::new();
-        Dname::from_slice(b"\x03www\x07example\x03com\0")
+        Name::from_slice(b"\x03www\x07example\x03com\0")
             .unwrap()
             .hash(&mut s1);
-        Dname::from_slice(b"\x03wWw\x07eXAMple\x03Com\0")
+        Name::from_slice(b"\x03wWw\x07eXAMple\x03Com\0")
             .unwrap()
             .hash(&mut s2);
         assert_eq!(s1.finish(), s2.finish());
@@ -2039,7 +2018,7 @@ pub(crate) mod test {
         use std::string::ToString;
 
         fn cmp(bytes: &[u8], fmt: &str, fmt_with_dot: &str) {
-            let name = Dname::from_octets(bytes).unwrap();
+            let name = Name::from_octets(bytes).unwrap();
             assert_eq!(name.to_string(), fmt);
             assert_eq!(format!("{}", name.fmt_with_dot()), fmt_with_dot);
         }
@@ -2054,24 +2033,24 @@ pub(crate) mod test {
     fn ser_de() {
         use serde_test::{assert_tokens, Configure, Token};
 
-        let name = Dname::<Vec<u8>>::from_str("www.example.com.").unwrap();
+        let name = Name::<Vec<u8>>::from_str("www.example.com.").unwrap();
         assert_tokens(
             &name.clone().compact(),
             &[
-                Token::NewtypeStruct { name: "Dname" },
+                Token::NewtypeStruct { name: "Name" },
                 Token::ByteBuf(b"\x03www\x07example\x03com\0"),
             ],
         );
         assert_tokens(
             &name.readable(),
             &[
-                Token::NewtypeStruct { name: "Dname" },
+                Token::NewtypeStruct { name: "Name" },
                 Token::Str("www.example.com"),
             ],
         );
         assert_tokens(
-            &Dname::root_vec().readable(),
-            &[Token::NewtypeStruct { name: "Dname" }, Token::Str(".")],
+            &Name::root_vec().readable(),
+            &[Token::NewtypeStruct { name: "Name" }, Token::Str(".")],
         );
     }
 }

@@ -71,8 +71,8 @@ impl Header {
     /// Creates a new header.
     ///
     /// The new header has all fields as either zero or false. Thus, the
-    /// opcode will be [`Opcode::Query`] and the response code will be
-    /// [`Rcode::NoError`].
+    /// opcode will be [`Opcode::QUERY`] and the response code will be
+    /// [`Rcode::NOERROR`].
     #[must_use]
     pub fn new() -> Self {
         Self::default()
@@ -155,7 +155,7 @@ impl Header {
     ///
     /// This field specifies the kind of query a message contains. See
     /// the [`Opcode`] type for more information on the possible values and
-    /// their meaning. Normal queries have the variant [`Opcode::Query`]
+    /// their meaning. Normal queries have the variant [`Opcode::QUERY`]
     /// which is also the default value when creating a new header.
     #[must_use]
     pub fn opcode(self) -> Opcode {
@@ -285,7 +285,7 @@ impl Header {
     /// [`Rcode`]: ../../iana/rcode/enum.Rcode.html
     #[must_use]
     pub fn rcode(self) -> Rcode {
-        Rcode::from_int(self.inner[3] & 0x0F)
+        Rcode::masked_from_int(self.inner[3])
     }
 
     /// Sets the value of the RCODE field.
@@ -1008,7 +1008,7 @@ mod test {
     fn header() {
         test_field!(id, set_id, 0, 0x1234);
         test_field!(qr, set_qr, false, true, false);
-        test_field!(opcode, set_opcode, Opcode::Query, Opcode::Notify);
+        test_field!(opcode, set_opcode, Opcode::QUERY, Opcode::NOTIFY);
         test_field!(
             flags,
             set_flags,
@@ -1025,7 +1025,7 @@ mod test {
         test_field!(z, set_z, false, true, false);
         test_field!(ad, set_ad, false, true, false);
         test_field!(cd, set_cd, false, true, false);
-        test_field!(rcode, set_rcode, Rcode::NoError, Rcode::Refused);
+        test_field!(rcode, set_rcode, Rcode::NOERROR, Rcode::REFUSED);
     }
 
     #[test]

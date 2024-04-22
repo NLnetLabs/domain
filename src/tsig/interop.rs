@@ -6,7 +6,7 @@ use crate::base::message::Message;
 use crate::base::message_builder::{
     AdditionalBuilder, AnswerBuilder, MessageBuilder, StreamTarget,
 };
-use crate::base::name::Dname;
+use crate::base::name::Name;
 use crate::base::record::Ttl;
 use crate::rdata::tsig::Time48;
 use crate::rdata::{Soa, A};
@@ -48,7 +48,7 @@ fn tsig_client_nsd() {
     let (key, secret) = tsig::Key::generate(
         tsig::Algorithm::Sha1,
         &rng,
-        Dname::from_str("test.key.").unwrap(),
+        Name::from_str("test.key.").unwrap(),
         None,
         None,
     )
@@ -84,7 +84,7 @@ fn tsig_client_nsd() {
         // Create an AXFR request and send it to NSD.
         let request = TestBuilder::new_stream_vec();
         let mut request = request
-            .request_axfr(Dname::<Vec<u8>>::from_str("example.com.").unwrap())
+            .request_axfr(Name::<Vec<u8>>::from_str("example.com.").unwrap())
             .unwrap()
             .additional();
         let tran = tsig::ClientTransaction::request(
@@ -127,7 +127,7 @@ fn tsig_server_drill() {
     let (key, secret) = tsig::Key::generate(
         tsig::Algorithm::Sha1,
         &rng,
-        Dname::from_str("test.key.").unwrap(),
+        Name::from_str("test.key.").unwrap(),
         None,
         None,
     )
@@ -147,7 +147,7 @@ fn tsig_server_drill() {
             };
             let answer = TestBuilder::new_stream_vec();
             let answer =
-                answer.start_answer(&request, Rcode::NoError).unwrap();
+                answer.start_answer(&request, Rcode::NOERROR).unwrap();
             let tran = match tsig::ServerTransaction::request(
                 &&key,
                 &mut request,
@@ -199,7 +199,7 @@ fn tsig_client_sequence_nsd() {
     let (key, secret) = tsig::Key::generate(
         tsig::Algorithm::Sha1,
         &rng,
-        Dname::from_str("test.key.").unwrap(),
+        Name::from_str("test.key.").unwrap(),
         None,
         None,
     )
@@ -235,7 +235,7 @@ fn tsig_client_sequence_nsd() {
         let mut sock = TcpStream::connect("127.0.0.1:54323").unwrap();
         let request = TestBuilder::new_stream_vec();
         let mut request = request
-            .request_axfr(Dname::<Vec<u8>>::from_str("example.com.").unwrap())
+            .request_axfr(Name::<Vec<u8>>::from_str("example.com.").unwrap())
             .unwrap()
             .additional();
         let mut tran =
@@ -255,7 +255,7 @@ fn tsig_client_sequence_nsd() {
             // Last message has SOA as last record in answer section.
             // We don’t care about details.
             if answer.answer().unwrap().last().unwrap().unwrap().rtype()
-                == Rtype::Soa
+                == Rtype::SOA
             {
                 break;
             }
@@ -277,7 +277,7 @@ fn tsig_server_sequence_drill() {
     let (key, secret) = tsig::Key::generate(
         tsig::Algorithm::Sha1,
         &rng,
-        Dname::from_str("test.key.").unwrap(),
+        Name::from_str("test.key.").unwrap(),
         None,
         None,
     )
@@ -348,7 +348,7 @@ fn send_tcp(sock: &mut TcpStream, msg: &[u8]) -> Result<(), io::Error> {
 
 fn make_first_axfr(request: &TestMessage) -> TestAdditional {
     let msg = TestBuilder::new_stream_vec();
-    let mut msg = msg.start_answer(request, Rcode::NoError).unwrap();
+    let mut msg = msg.start_answer(request, Rcode::NOERROR).unwrap();
     push_soa(&mut msg);
     push_a(&mut msg, 0, 0, 0);
     msg.additional()
@@ -360,14 +360,14 @@ fn make_middle_axfr(
     two: u8,
 ) -> TestAdditional {
     let msg = TestBuilder::new_stream_vec();
-    let mut msg = msg.start_answer(request, Rcode::NoError).unwrap();
+    let mut msg = msg.start_answer(request, Rcode::NOERROR).unwrap();
     push_a(&mut msg, 1, one, two);
     msg.additional()
 }
 
 fn make_last_axfr(request: &TestMessage) -> TestAdditional {
     let msg = TestBuilder::new_stream_vec();
-    let mut msg = msg.start_answer(request, Rcode::NoError).unwrap();
+    let mut msg = msg.start_answer(request, Rcode::NOERROR).unwrap();
     push_a(&mut msg, 2, 0, 0);
     push_soa(&mut msg);
     msg.additional()
@@ -376,11 +376,11 @@ fn make_last_axfr(request: &TestMessage) -> TestAdditional {
 fn push_soa(builder: &mut TestAnswer) {
     builder
         .push((
-            Dname::<Vec<u8>>::from_str("example.com.").unwrap(),
+            Name::<Vec<u8>>::from_str("example.com.").unwrap(),
             3600,
             Soa::new(
-                Dname::<Vec<u8>>::from_str("mname.example.com.").unwrap(),
-                Dname::<Vec<u8>>::from_str("rname.example.com.").unwrap(),
+                Name::<Vec<u8>>::from_str("mname.example.com.").unwrap(),
+                Name::<Vec<u8>>::from_str("rname.example.com.").unwrap(),
                 12.into(),
                 Ttl::from_secs(3600),
                 Ttl::from_secs(3600),
@@ -394,7 +394,7 @@ fn push_soa(builder: &mut TestAnswer) {
 fn push_a(builder: &mut TestAnswer, zero: u8, one: u8, two: u8) {
     builder
         .push((
-            Dname::<Vec<u8>>::from_str("example.com.").unwrap(),
+            Name::<Vec<u8>>::from_str("example.com.").unwrap(),
             3600,
             A::from_octets(10, zero, one, two),
         ))

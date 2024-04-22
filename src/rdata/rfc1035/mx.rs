@@ -4,7 +4,7 @@
 
 use crate::base::cmp::CanonicalOrd;
 use crate::base::iana::Rtype;
-use crate::base::name::{FlattenInto, ParsedDname, ToDname};
+use crate::base::name::{FlattenInto, ParsedName, ToName};
 use crate::base::rdata::{
     ComposeRecordData, ParseRecordData, RecordData,
 };
@@ -28,6 +28,11 @@ use octseq::parse::Parser;
 pub struct Mx<N> {
     preference: u16,
     exchange: N,
+}
+
+impl Mx<()> {
+    /// The rtype of this record data type.
+    pub(crate) const RTYPE: Rtype = Rtype::MX;
 }
 
 impl<N> Mx<N> {
@@ -65,18 +70,18 @@ impl<N> Mx<N> {
         Ok(Mx::new(self.preference, self.exchange.try_flatten_into()?))
     }
 
-    pub fn scan<S: Scanner<Dname = N>>(
+    pub fn scan<S: Scanner<Name = N>>(
         scanner: &mut S,
     ) -> Result<Self, S::Error> {
-        Ok(Self::new(u16::scan(scanner)?, scanner.scan_dname()?))
+        Ok(Self::new(u16::scan(scanner)?, scanner.scan_name()?))
     }
 }
 
-impl<Octs> Mx<ParsedDname<Octs>> {
+impl<Octs> Mx<ParsedName<Octs>> {
     pub fn parse<'a, Src: Octets<Range<'a> = Octs> + ?Sized + 'a>(
         parser: &mut Parser<'a, Src>,
     ) -> Result<Self, ParseError> {
-        Ok(Self::new(u16::parse(parser)?, ParsedDname::parse(parser)?))
+        Ok(Self::new(u16::parse(parser)?, ParsedName::parse(parser)?))
     }
 }
 
@@ -111,8 +116,8 @@ where
 
 impl<N, NN> PartialEq<Mx<NN>> for Mx<N>
 where
-    N: ToDname,
-    NN: ToDname,
+    N: ToName,
+    NN: ToName,
 {
     fn eq(&self, other: &Mx<NN>) -> bool {
         self.preference == other.preference
@@ -120,14 +125,14 @@ where
     }
 }
 
-impl<N: ToDname> Eq for Mx<N> {}
+impl<N: ToName> Eq for Mx<N> {}
 
 //--- PartialOrd, Ord, and CanonicalOrd
 
 impl<N, NN> PartialOrd<Mx<NN>> for Mx<N>
 where
-    N: ToDname,
-    NN: ToDname,
+    N: ToName,
+    NN: ToName,
 {
     fn partial_cmp(&self, other: &Mx<NN>) -> Option<Ordering> {
         match self.preference.partial_cmp(&other.preference) {
@@ -138,7 +143,7 @@ where
     }
 }
 
-impl<N: ToDname> Ord for Mx<N> {
+impl<N: ToName> Ord for Mx<N> {
     fn cmp(&self, other: &Self) -> Ordering {
         match self.preference.cmp(&other.preference) {
             Ordering::Equal => {}
@@ -148,7 +153,7 @@ impl<N: ToDname> Ord for Mx<N> {
     }
 }
 
-impl<N: ToDname, NN: ToDname> CanonicalOrd<Mx<NN>> for Mx<N> {
+impl<N: ToName, NN: ToName> CanonicalOrd<Mx<NN>> for Mx<N> {
     fn canonical_cmp(&self, other: &Mx<NN>) -> Ordering {
         match self.preference.cmp(&other.preference) {
             Ordering::Equal => {}
@@ -162,18 +167,18 @@ impl<N: ToDname, NN: ToDname> CanonicalOrd<Mx<NN>> for Mx<N> {
 
 impl<N> RecordData for Mx<N> {
     fn rtype(&self) -> Rtype {
-        Rtype::Mx
+        Mx::RTYPE
     }
 }
 
 impl<'a, Octs: Octets + ?Sized> ParseRecordData<'a, Octs>
-    for Mx<ParsedDname<Octs::Range<'a>>>
+    for Mx<ParsedName<Octs::Range<'a>>>
 {
     fn parse_rdata(
         rtype: Rtype,
         parser: &mut Parser<'a, Octs>,
     ) -> Result<Option<Self>, ParseError> {
-        if rtype == Rtype::Mx {
+        if rtype == Mx::RTYPE {
             Self::parse(parser).map(Some)
         } else {
             Ok(None)
@@ -181,7 +186,7 @@ impl<'a, Octs: Octets + ?Sized> ParseRecordData<'a, Octs>
     }
 }
 
-impl<Name: ToDname> ComposeRecordData for Mx<Name> {
+impl<Name: ToName> ComposeRecordData for Mx<Name> {
     fn rdlen(&self, compress: bool) -> Option<u16> {
         if compress {
             None
@@ -196,7 +201,7 @@ impl<Name: ToDname> ComposeRecordData for Mx<Name> {
     ) -> Result<(), Target::AppendError> {
         if target.can_compress() {
             self.preference.compose(target)?;
-            target.append_compressed_dname(&self.exchange)
+            target.append_compressed_name(&self.exchange)
         } else {
             self.preference.compose(target)?;
             self.exchange.compose(target)
@@ -226,7 +231,7 @@ impl<N: fmt::Display> fmt::Display for Mx<N> {
 #[cfg(all(feature = "std", feature = "bytes"))]
 mod test {
     use super::*;
-    use crate::base::name::Dname;
+    use crate::base::name::Name;
     use crate::base::rdata::test::{
         test_compose_parse, test_rdlen, test_scan,
     };
@@ -236,9 +241,9 @@ mod test {
     #[test]
     #[allow(clippy::redundant_closure)] // lifetimes ...
     fn mx_compose_parse_scan() {
-        let rdata = Mx::<Dname<Vec<u8>>>::new(
+        let rdata = Mx::<Name<Vec<u8>>>::new(
             12,
-            Dname::from_str("mail.example.com").unwrap(),
+            Name::from_str("mail.example.com").unwrap(),
         );
         test_rdlen(&rdata);
         test_compose_parse(&rdata, |parser| Mx::parse(parser));

@@ -1,5 +1,5 @@
 use crate::base::cmp::CanonicalOrd;
-use crate::base::name::{ParsedDname, ToDname};
+use crate::base::name::{ParsedName, ToName};
 use crate::base::wire::ParseError;
 use core::cmp::Ordering;
 use core::str::FromStr;
@@ -9,14 +9,14 @@ use octseq::parse::Parser;
 
 //------------ Dname --------------------------------------------------------
 
-dname_type_canonical! {
+name_type_canonical! {
     /// DNAME record data.
     ///
     /// The DNAME record provides redirection for a subtree of the domain
     /// name tree in the DNS.
     ///
     /// The DNAME type is defined in RFC 6672.
-    (Dname, Dname, dname, into_dname)
+    (Dname, DNAME, dname, into_dname)
 }
 
 //============ Testing ======================================================
@@ -25,7 +25,7 @@ dname_type_canonical! {
 #[cfg(all(feature = "std", feature = "bytes"))]
 mod test {
     use super::*;
-    use crate::base::name::Dname as Name;
+    use crate::base::name::Name;
     use crate::base::rdata::test::{
         test_compose_parse, test_rdlen, test_scan,
     };

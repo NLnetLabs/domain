@@ -9,7 +9,7 @@
 use core::fmt;
 use super::super::iana::OptionCode;
 use super::super::message_builder::OptBuilder;
-use super::super::name::{Dname, ToDname};
+use super::super::name::{Name, ToName};
 use super::super::wire::{Composer, ParseError};
 use super::{Opt, OptData, ComposeOptData, ParseOptData};
 use octseq::builder::OctetsBuilder;
@@ -35,7 +35,13 @@ pub struct Chain<Name: ?Sized> {
     start: Name
 }
 
+impl Chain<()> {
+    /// The option code for this option.
+    pub(super) const CODE: OptionCode = OptionCode::CHAIN;
+}
+
 impl<Name: ?Sized> Chain<Name> {
+    
     /// Creates new CHAIN option data using the given name as the start.
     pub fn new(start: Name) -> Self
     where
@@ -68,12 +74,12 @@ impl<Name: ?Sized> Chain<Name> {
     }
 }
 
-impl<Octs> Chain<Dname<Octs>> {
+impl<Octs> Chain<Name<Octs>> {
     /// Parses CHAIN option data from its wire format.
     pub fn parse<'a, Src: Octets<Range<'a> = Octs> + ?Sized>(
         parser: &mut Parser<'a, Src>
     ) -> Result<Self, ParseError> {
-        Dname::parse(parser).map(Self::new)
+        Name::parse(parser).map(Self::new)
     }
 }
 
@@ -92,29 +98,29 @@ where Name: OctetsFrom<SrcName> {
 
 impl<Name, OtherName> PartialEq<Chain<OtherName>> for Chain<Name>
 where
-    Name: ToDname,
-    OtherName: ToDname
+    Name: ToName,
+    OtherName: ToName
 {
     fn eq(&self, other: &Chain<OtherName>) -> bool {
         self.start().name_eq(other.start())
     }
 }
 
-impl<Name: ToDname> Eq for Chain<Name> { }
+impl<Name: ToName> Eq for Chain<Name> { }
 
 //--- PartialOrd and Ord
 
 impl<Name, OtherName> PartialOrd<Chain<OtherName>> for Chain<Name>
 where
-    Name: ToDname,
-    OtherName: ToDname
+    Name: ToName,
+    OtherName: ToName
 {
     fn partial_cmp(&self, other: &Chain<OtherName>) -> Option<Ordering> {
         Some(self.start().name_cmp(other.start()))
     }
 }
 
-impl<Name: ToDname> Ord for Chain<Name> {
+impl<Name: ToName> Ord for Chain<Name> {
     fn cmp(&self, other: &Self) -> Ordering {
         self.start().name_cmp(other.start())
     }
@@ -132,17 +138,17 @@ impl<Name: hash::Hash> hash::Hash for Chain<Name> {
 
 impl<Name> OptData for Chain<Name> {
     fn code(&self) -> OptionCode {
-        OptionCode::Chain
+        OptionCode::CHAIN
     }
 }
 
-impl<'a, Octs> ParseOptData<'a, Octs> for Chain<Dname<Octs::Range<'a>>>
+impl<'a, Octs> ParseOptData<'a, Octs> for Chain<Name<Octs::Range<'a>>>
 where Octs: Octets {
     fn parse_option(
         code: OptionCode,
         parser: &mut Parser<'a, Octs>,
     ) -> Result<Option<Self>, ParseError> {
-        if code == OptionCode::Chain {
+        if code == OptionCode::CHAIN {
             Self::parse(parser).map(Some)
         }
         else {
@@ -151,7 +157,7 @@ where Octs: Octets {
     }
 }
 
-impl<Name: ToDname> ComposeOptData for Chain<Name> {
+impl<Name: ToName> ComposeOptData for Chain<Name> {
     fn compose_len(&self) -> u16 {
         self.start.compose_len()
     }
@@ -186,7 +192,7 @@ impl<Octs: Octets> Opt<Octs> {
     ///
     /// The CHAIN option allows a client to request that all records that
     /// are necessary for DNSSEC validation are included in the response.
-    pub fn chain(&self) -> Option<Chain<Dname<Octs::Range<'_>>>> {
+    pub fn chain(&self) -> Option<Chain<Name<Octs::Range<'_>>>> {
         self.first()
     }
 }
@@ -199,7 +205,7 @@ impl<'a, Target: Composer> OptBuilder<'a, Target> {
     /// The `start` name is the longest suffix of the queried owner name
     /// for which the client already has all necessary records.
     pub fn chain(
-        &mut self, start: impl ToDname
+        &mut self, start: impl ToName
     ) -> Result<(), Target::AppendError> {
         self.push(&Chain::new(start))
     }
@@ -219,7 +225,7 @@ mod test {
     #[allow(clippy::redundant_closure)] // lifetimes ...
     fn chain_compose_parse() {
         test_option_compose_parse(
-            &Chain::new(Dname::<Vec<u8>>::from_str("example.com").unwrap()),
+            &Chain::new(Name::<Vec<u8>>::from_str("example.com").unwrap()),
             |parser| Chain::parse(parser)
         );
     }

@@ -1,16 +1,11 @@
 use crate::net::stelline::parse_query;
 use crate::net::stelline::parse_stelline::{Entry, Matches, Reply};
-use domain::base::iana::Opcode;
-use domain::base::iana::OptRcode;
-use domain::base::iana::Rtype;
-use domain::base::Message;
-use domain::base::ParsedDname;
-use domain::base::QuestionSection;
-use domain::base::RecordSection;
+use domain::base::iana::{Opcode, OptRcode, Rtype};
+use domain::base::opt::{Opt, OptRecord};
+use domain::base::{Message, ParsedName, QuestionSection, RecordSection};
 use domain::dep::octseq::Octets;
 use domain::rdata::ZoneRecordData;
 use domain::zonefile::inplace::Entry as ZonefileEntry;
-//use std::fmt::Debug;
 
 pub fn match_msg<'a, Octs: AsRef<[u8]> + Clone + Octets + 'a>(
     entry: &Entry,
@@ -48,13 +43,23 @@ where
         matches.qname = true;
     }
 
+    if matches.edns_data {
+        matches.additional = true;
+    }
+
     if matches.additional {
         let mut arcount = msg.header_counts().arcount();
         if msg.opt().is_some() {
             arcount -= 1;
         }
+        let match_edns_bytes = if matches.edns_data {
+            Some(sections.additional.edns_bytes.as_ref())
+        } else {
+            None
+        };
         if !match_section(
-            sections.additional.clone(),
+            sections.additional.zone_entries.clone(),
+            match_edns_bytes,
             msg.additional().unwrap(),
             arcount,
             matches.ttl,
@@ -69,6 +74,7 @@ where
     if matches.answer
         && !match_section(
             sections.answer.clone(),
+            None,
             msg.answer().unwrap(),
             msg.header_counts().ancount(),
             matches.ttl,
@@ -83,6 +89,7 @@ where
     if matches.authority
         && !match_section(
             sections.authority.clone(),
+            None,
             msg.authority().unwrap(),
             msg.header_counts().nscount(),
             matches.ttl,
@@ -94,6 +101,7 @@ where
         }
         return false;
     }
+
     if matches.ad && !msg.header().ad() {
         if verbose {
             println!("match_msg: AD not in message",);
@@ -147,7 +155,11 @@ where
         }
         if reply.tc != header.tc() {
             if verbose {
-                todo!();
+                println!(
+                    "match_msg: TC does not match, got {}, expected {}",
+                    header.tc(),
+                    reply.tc
+                );
             }
             return false;
         }
@@ -194,9 +206,9 @@ where
     }
     if matches.opcode {
         let expected_opcode = if reply.notify {
-            Opcode::Notify
+            Opcode::NOTIFY
         } else {
-            Opcode::Query
+            Opcode::QUERY
         };
         if msg.header().opcode() != expected_opcode {
             if verbose {
@@ -226,7 +238,7 @@ where
         let msg_rcode =
             get_opt_rcode(&Message::from_octets(msg.as_slice()).unwrap());
         if reply.noerror {
-            if let OptRcode::NoError = msg_rcode {
+            if let OptRcode::NOERROR = msg_rcode {
                 // Okay
             } else {
                 if verbose {
@@ -237,7 +249,7 @@ where
                 return false;
             }
         } else if reply.formerr {
-            if let OptRcode::FormErr = msg_rcode {
+            if let OptRcode::FORMERR = msg_rcode {
                 // Okay
             } else {
                 if verbose {
@@ -248,7 +260,7 @@ where
                 return false;
             }
         } else if reply.notimp {
-            if let OptRcode::NotImp = msg_rcode {
+            if let OptRcode::NOTIMP = msg_rcode {
                 // Okay
             } else {
                 if verbose {
@@ -257,7 +269,7 @@ where
                 return false;
             }
         } else if reply.nxdomain {
-            if let OptRcode::NXDomain = msg_rcode {
+            if let OptRcode::NXDOMAIN = msg_rcode {
                 // Okay
             } else {
                 if verbose {
@@ -268,7 +280,7 @@ where
                 return false;
             }
         } else if reply.refused {
-            if let OptRcode::Refused = msg_rcode {
+            if let OptRcode::REFUSED = msg_rcode {
                 // Okay
             } else {
                 if verbose {
@@ -278,22 +290,35 @@ where
                 }
                 return false;
             }
+        } else if "BADCOOKIE" == reply.yxrrset.as_str() {
+            if !matches!(msg_rcode, OptRcode::BADCOOKIE) {
+                if verbose {
+                    println!(
+                        "Wrong Rcode, expected BADCOOKIE, got {msg_rcode}"
+                    );
+                }
+                return false;
+            }
         } else {
-            println!("reply {reply:?}");
-            panic!("no rcode to match?");
+            if verbose {
+                println!("Unexpected Rcode: {msg_rcode}");
+            }
+            return false;
         }
     }
     if matches.subdomain {
         todo!()
     }
     if matches.tcp {
-        todo!()
+        // Note: Creation of a TCP client is handled by the client factory passed to do_client().
+        // TODO: Verify that the client is actually a TCP client.
     }
     if matches.ttl {
         // Nothing to do. TTLs are checked in the relevant sections.
     }
     if matches.udp {
-        todo!()
+        // Note: Creation of a UDP client is handled by the client factory passed to do_client().
+        // TODO: Verify that the client is actually a UDP client.
     }
 
     // All checks passed!
@@ -306,25 +331,41 @@ fn match_section<
     Octs2: AsRef<[u8]> + Clone,
 >(
     mut match_section: Vec<ZonefileEntry>,
+    match_edns_bytes: Option<&[u8]>,
     msg_section: RecordSection<'a, Octs>,
     msg_count: u16,
     match_ttl: bool,
     verbose: bool,
 ) -> bool {
+    let mat_opt =
+        match_edns_bytes.map(|bytes| Opt::from_slice(bytes).unwrap());
+
     if match_section.len() != msg_count.into() {
         if verbose {
-            println!(
-                "Expected {} entries, got {}",
-                match_section.len(),
-                msg_count
-            );
+            println!("match_section: expected section length {} doesn't match message count {}", match_section.len(), msg_count);
+            if !match_section.is_empty() {
+                println!("expected sections:");
+                for section in match_section {
+                    println!("  {section:?}");
+                }
+            }
         }
         return false;
     }
     'outer: for msg_rr in msg_section {
         let msg_rr = msg_rr.unwrap();
-        if msg_rr.rtype() == Rtype::Opt {
-            continue;
+        if msg_rr.rtype() == Rtype::OPT {
+            if let Some(mat_opt) = mat_opt {
+                let record =
+                    msg_rr.clone().into_record::<Opt<_>>().unwrap().unwrap();
+                let record = OptRecord::from_record(record);
+                println!("matching {:?} with {:?}", record.opt(), mat_opt);
+                if record.opt() == mat_opt {
+                    continue;
+                }
+            } else {
+                continue;
+            }
         }
         for (index, mat_rr) in match_section.iter().enumerate() {
             // Remove outer Record
@@ -359,7 +400,7 @@ fn match_section<
             }
             let msg_rdata = msg_rr
                 .clone()
-                .into_record::<ZoneRecordData<Octs2, ParsedDname<Octs2>>>()
+                .into_record::<ZoneRecordData<Octs2, ParsedName<Octs2>>>()
                 .unwrap()
                 .unwrap();
             println!(
@@ -395,6 +436,7 @@ fn match_section<
         }
         return false;
     }
+
     // All entries in the reply were matched.
     true
 }
@@ -433,10 +475,6 @@ fn get_opt_rcode<Octs: Octets>(msg: &Message<Octs>) -> OptRcode {
     let opt = msg.opt();
     match opt {
         Some(opt) => opt.rcode(msg.header()),
-        None => {
-            // Convert Rcode to OptRcode, this should be part of
-            // OptRcode
-            OptRcode::from_int(msg.header().rcode().to_int() as u16)
-        }
+        None => OptRcode::from_rcode(msg.header().rcode()),
     }
 }

@@ -4,7 +4,7 @@
 
 use crate::base::cmp::CanonicalOrd;
 use crate::base::iana::Rtype;
-use crate::base::name::{FlattenInto, ParsedDname, ToDname};
+use crate::base::name::{FlattenInto, ParsedName, ToName};
 use crate::base::rdata::{
     ComposeRecordData, ParseRecordData, RecordData,
 };
@@ -31,6 +31,11 @@ use octseq::parse::Parser;
 pub struct Minfo<N> {
     rmailbx: N,
     emailbx: N,
+}
+
+impl Minfo<()> {
+    /// The rtype of this record data type.
+    pub(crate) const RTYPE: Rtype = Rtype::MINFO;
 }
 
 impl<N> Minfo<N> {
@@ -77,20 +82,20 @@ impl<N> Minfo<N> {
         ))
     }
 
-    pub fn scan<S: Scanner<Dname = N>>(
+    pub fn scan<S: Scanner<Name = N>>(
         scanner: &mut S,
     ) -> Result<Self, S::Error> {
-        Ok(Self::new(scanner.scan_dname()?, scanner.scan_dname()?))
+        Ok(Self::new(scanner.scan_name()?, scanner.scan_name()?))
     }
 }
 
-impl<Octs> Minfo<ParsedDname<Octs>> {
+impl<Octs> Minfo<ParsedName<Octs>> {
     pub fn parse<'a, Src: Octets<Range<'a> = Octs> + ?Sized>(
         parser: &mut Parser<'a, Src>,
     ) -> Result<Self, ParseError> {
         Ok(Self::new(
-            ParsedDname::parse(parser)?,
-            ParsedDname::parse(parser)?,
+            ParsedName::parse(parser)?,
+            ParsedName::parse(parser)?,
         ))
     }
 }
@@ -126,8 +131,8 @@ where
 
 impl<N, NN> PartialEq<Minfo<NN>> for Minfo<N>
 where
-    N: ToDname,
-    NN: ToDname,
+    N: ToName,
+    NN: ToName,
 {
     fn eq(&self, other: &Minfo<NN>) -> bool {
         self.rmailbx.name_eq(&other.rmailbx)
@@ -135,14 +140,14 @@ where
     }
 }
 
-impl<N: ToDname> Eq for Minfo<N> {}
+impl<N: ToName> Eq for Minfo<N> {}
 
 //--- PartialOrd, Ord, and CanonicalOrd
 
 impl<N, NN> PartialOrd<Minfo<NN>> for Minfo<N>
 where
-    N: ToDname,
-    NN: ToDname,
+    N: ToName,
+    NN: ToName,
 {
     fn partial_cmp(&self, other: &Minfo<NN>) -> Option<Ordering> {
         match self.rmailbx.name_cmp(&other.rmailbx) {
@@ -153,7 +158,7 @@ where
     }
 }
 
-impl<N: ToDname> Ord for Minfo<N> {
+impl<N: ToName> Ord for Minfo<N> {
     fn cmp(&self, other: &Self) -> Ordering {
         match self.rmailbx.name_cmp(&other.rmailbx) {
             Ordering::Equal => {}
@@ -163,7 +168,7 @@ impl<N: ToDname> Ord for Minfo<N> {
     }
 }
 
-impl<N: ToDname, NN: ToDname> CanonicalOrd<Minfo<NN>> for Minfo<N> {
+impl<N: ToName, NN: ToName> CanonicalOrd<Minfo<NN>> for Minfo<N> {
     fn canonical_cmp(&self, other: &Minfo<NN>) -> Ordering {
         match self.rmailbx.lowercase_composed_cmp(&other.rmailbx) {
             Ordering::Equal => {}
@@ -177,18 +182,18 @@ impl<N: ToDname, NN: ToDname> CanonicalOrd<Minfo<NN>> for Minfo<N> {
 
 impl<N> RecordData for Minfo<N> {
     fn rtype(&self) -> Rtype {
-        Rtype::Minfo
+        Minfo::RTYPE
     }
 }
 
 impl<'a, Octs: Octets + ?Sized> ParseRecordData<'a, Octs>
-    for Minfo<ParsedDname<Octs::Range<'a>>>
+    for Minfo<ParsedName<Octs::Range<'a>>>
 {
     fn parse_rdata(
         rtype: Rtype,
         parser: &mut Parser<'a, Octs>,
     ) -> Result<Option<Self>, ParseError> {
-        if rtype == Rtype::Minfo {
+        if rtype == Minfo::RTYPE {
             Self::parse(parser).map(Some)
         } else {
             Ok(None)
@@ -196,7 +201,7 @@ impl<'a, Octs: Octets + ?Sized> ParseRecordData<'a, Octs>
     }
 }
 
-impl<Name: ToDname> ComposeRecordData for Minfo<Name> {
+impl<Name: ToName> ComposeRecordData for Minfo<Name> {
     fn rdlen(&self, compress: bool) -> Option<u16> {
         if compress {
             None
@@ -210,8 +215,8 @@ impl<Name: ToDname> ComposeRecordData for Minfo<Name> {
         target: &mut Target,
     ) -> Result<(), Target::AppendError> {
         if target.can_compress() {
-            target.append_compressed_dname(&self.rmailbx)?;
-            target.append_compressed_dname(&self.emailbx)
+            target.append_compressed_name(&self.rmailbx)?;
+            target.append_compressed_name(&self.emailbx)
         } else {
             self.rmailbx.compose(target)?;
             self.emailbx.compose(target)
@@ -241,7 +246,7 @@ impl<N: fmt::Display> fmt::Display for Minfo<N> {
 #[cfg(all(feature = "std", feature = "bytes"))]
 mod test {
     use super::*;
-    use crate::base::name::Dname;
+    use crate::base::name::Name;
     use crate::base::rdata::test::{
         test_compose_parse, test_rdlen, test_scan,
     };
@@ -251,9 +256,9 @@ mod test {
     #[test]
     #[allow(clippy::redundant_closure)] // lifetimes ...
     fn minfo_compose_parse_scan() {
-        let rdata = Minfo::<Dname<Vec<u8>>>::new(
-            Dname::from_str("r.example.com").unwrap(),
-            Dname::from_str("e.example.com").unwrap(),
+        let rdata = Minfo::<Name<Vec<u8>>>::new(
+            Name::from_str("r.example.com").unwrap(),
+            Name::from_str("e.example.com").unwrap(),
         );
         test_rdlen(&rdata);
         test_compose_parse(&rdata, |parser| Minfo::parse(parser));
@@ -262,11 +267,11 @@ mod test {
 
     #[test]
     fn minfo_octets_into() {
-        let minfo: Minfo<Dname<Vec<u8>>> = Minfo::new(
+        let minfo: Minfo<Name<Vec<u8>>> = Minfo::new(
             "a.example".parse().unwrap(),
             "b.example".parse().unwrap(),
         );
-        let minfo_bytes: Minfo<Dname<bytes::Bytes>> =
+        let minfo_bytes: Minfo<Name<bytes::Bytes>> =
             minfo.clone().octets_into();
         assert_eq!(minfo.rmailbx(), minfo_bytes.rmailbx());
         assert_eq!(minfo.emailbx(), minfo_bytes.emailbx());

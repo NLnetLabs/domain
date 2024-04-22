@@ -2,7 +2,7 @@
 
 use crate::base::iana::Rtype;
 use crate::base::message::RecordIter;
-use crate::base::name::{Dname, ParsedDname};
+use crate::base::name::{Name, ParsedName};
 use crate::rdata::Ptr;
 use crate::resolv::resolver::Resolver;
 use octseq::octets::Octets;
@@ -27,9 +27,9 @@ pub async fn lookup_addr<R: Resolver>(
     resolv: &R,
     addr: IpAddr,
 ) -> Result<FoundAddrs<R>, io::Error> {
-    let name = Dname::<Octets128>::from_addr(addr)
+    let name = Name::<Octets128>::from_addr(addr)
         .expect("address domain name too long");
-    resolv.query((name, Rtype::Ptr)).await.map(FoundAddrs)
+    resolv.query((name, Rtype::PTR)).await.map(FoundAddrs)
 }
 
 //------------ FoundAddrs ----------------------------------------------------
@@ -63,7 +63,7 @@ impl<'a, R: Resolver> IntoIterator for &'a FoundAddrs<R>
 where
     R::Octets: Octets,
 {
-    type Item = ParsedDname<<<R as Resolver>::Octets as Octets>::Range<'a>>;
+    type Item = ParsedName<<<R as Resolver>::Octets as Octets>::Range<'a>>;
     type IntoIter = FoundAddrsIter<'a, R::Octets>;
 
     fn into_iter(self) -> Self::IntoIter {
@@ -75,12 +75,12 @@ where
 
 /// An iterator over host names returned by address lookup.
 pub struct FoundAddrsIter<'a, Octs: Octets> {
-    name: Option<ParsedDname<Octs::Range<'a>>>,
-    answer: Option<RecordIter<'a, Octs, Ptr<ParsedDname<Octs::Range<'a>>>>>,
+    name: Option<ParsedName<Octs::Range<'a>>>,
+    answer: Option<RecordIter<'a, Octs, Ptr<ParsedName<Octs::Range<'a>>>>>,
 }
 
 impl<'a, Octs: Octets> Iterator for FoundAddrsIter<'a, Octs> {
-    type Item = ParsedDname<Octs::Range<'a>>;
+    type Item = ParsedName<Octs::Range<'a>>;
 
     #[allow(clippy::while_let_on_iterator)]
     fn next(&mut self) -> Option<Self::Item> {
@@ -94,3 +94,4 @@ impl<'a, Octs: Octets> Iterator for FoundAddrsIter<'a, Octs> {
         None
     }
 }
+

@@ -6,7 +6,7 @@
 
 use crate::base::cmp::CanonicalOrd;
 use crate::base::iana::{Rtype, TsigRcode};
-use crate::base::name::{FlattenInto, ParsedDname, ToDname};
+use crate::base::name::{FlattenInto, ParsedName, ToName};
 use crate::base::rdata::{
     ComposeRecordData, LongRecordData, ParseRecordData, RecordData
 };
@@ -33,7 +33,7 @@ pub struct Tsig<Octs, Name> {
     /// Note that this is an unsigned 48 bit value in wire format.
     time_signed: Time48,
 
-    /// Seconds of error perimitted in time signed.
+    /// Seconds of error permitted in time signed.
     fudge: u16,
 
     /// MAC.
@@ -78,6 +78,11 @@ pub struct Tsig<Octs, Name> {
     other: Octs,
 }
 
+impl Tsig<(), ()> {
+    /// The rtype of this record data type.
+    pub(crate) const RTYPE: Rtype = Rtype::TSIG;
+}
+
 impl<O, N> Tsig<O, N> {
     /// Creates new TSIG record data from its components.
     ///
@@ -93,7 +98,7 @@ impl<O, N> Tsig<O, N> {
         error: TsigRcode,
         other: O,
     ) -> Result<Self, LongRecordData>
-    where O: AsRef<[u8]>, N: ToDname {
+    where O: AsRef<[u8]>, N: ToName {
         LongRecordData::check_len(
             6 // time_signed
             + 2 // fudge
@@ -283,11 +288,11 @@ impl<O, N> Tsig<O, N> {
     }
 }
 
-impl<Octs> Tsig<Octs, ParsedDname<Octs>> {
+impl<Octs> Tsig<Octs, ParsedName<Octs>> {
     pub fn parse<'a, Src: Octets<Range<'a> = Octs> + ?Sized + 'a>(
         parser: &mut Parser<'a, Src>,
     ) -> Result<Self, ParseError> {
-        let algorithm = ParsedDname::parse(parser)?;
+        let algorithm = ParsedName::parse(parser)?;
         let time_signed = Time48::parse(parser)?;
         let fudge = u16::parse(parser)?;
         let mac_size = u16::parse(parser)?;
@@ -354,8 +359,8 @@ impl<O, OO, N, NN> PartialEq<Tsig<OO, NN>> for Tsig<O, N>
 where
     O: AsRef<[u8]>,
     OO: AsRef<[u8]>,
-    N: ToDname,
-    NN: ToDname,
+    N: ToName,
+    NN: ToName,
 {
     fn eq(&self, other: &Tsig<OO, NN>) -> bool {
         self.algorithm.name_eq(&other.algorithm)
@@ -368,7 +373,7 @@ where
     }
 }
 
-impl<O: AsRef<[u8]>, N: ToDname> Eq for Tsig<O, N> {}
+impl<O: AsRef<[u8]>, N: ToName> Eq for Tsig<O, N> {}
 
 //--- PartialOrd, Ord, and CanonicalOrd
 
@@ -376,8 +381,8 @@ impl<O, OO, N, NN> PartialOrd<Tsig<OO, NN>> for Tsig<O, N>
 where
     O: AsRef<[u8]>,
     OO: AsRef<[u8]>,
-    N: ToDname,
-    NN: ToDname,
+    N: ToName,
+    NN: ToName,
 {
     fn partial_cmp(&self, other: &Tsig<OO, NN>) -> Option<Ordering> {
         match self.algorithm.name_cmp(&other.algorithm) {
@@ -408,7 +413,7 @@ where
     }
 }
 
-impl<O: AsRef<[u8]>, N: ToDname> Ord for Tsig<O, N> {
+impl<O: AsRef<[u8]>, N: ToName> Ord for Tsig<O, N> {
     fn cmp(&self, other: &Self) -> Ordering {
         match self.algorithm.name_cmp(&other.algorithm) {
             Ordering::Equal => {}
@@ -442,8 +447,8 @@ impl<O, OO, N, NN> CanonicalOrd<Tsig<OO, NN>> for Tsig<O, N>
 where
     O: AsRef<[u8]>,
     OO: AsRef<[u8]>,
-    N: ToDname,
-    NN: ToDname,
+    N: ToName,
+    NN: ToName,
 {
     fn canonical_cmp(&self, other: &Tsig<OO, NN>) -> Ordering {
         match self.algorithm.composed_cmp(&other.algorithm) {
@@ -500,18 +505,18 @@ impl<O: AsRef<[u8]>, N: hash::Hash> hash::Hash for Tsig<O, N> {
 
 impl<O, N> RecordData for Tsig<O, N> {
     fn rtype(&self) -> Rtype {
-        Rtype::Tsig
+        Tsig::RTYPE
     }
 }
 
 impl<'a, Octs: Octets + ?Sized> ParseRecordData<'a, Octs>
-    for Tsig<Octs::Range<'a>, ParsedDname<Octs::Range<'a>>>
+    for Tsig<Octs::Range<'a>, ParsedName<Octs::Range<'a>>>
 {
     fn parse_rdata(
         rtype: Rtype,
         parser: &mut Parser<'a, Octs>,
     ) -> Result<Option<Self>, ParseError> {
-        if rtype == Rtype::Tsig {
+        if rtype == Tsig::RTYPE {
             Self::parse(parser).map(Some)
         } else {
             Ok(None)
@@ -519,7 +524,7 @@ impl<'a, Octs: Octets + ?Sized> ParseRecordData<'a, Octs>
     }
 }
 
-impl<Octs: AsRef<[u8]>, Name: ToDname> ComposeRecordData
+impl<Octs: AsRef<[u8]>, Name: ToName> ComposeRecordData
     for Tsig<Octs, Name>
 {
     fn rdlen(&self, _compress: bool) -> Option<u16> {
@@ -711,7 +716,7 @@ impl fmt::Display for Time48 {
 #[cfg(all(feature = "std", feature = "bytes"))]
 mod test {
     use super::*;
-    use crate::base::name::Dname;
+    use crate::base::name::Name;
     use crate::base::rdata::test::{test_compose_parse, test_rdlen};
     use core::str::FromStr;
     use std::vec::Vec;
@@ -720,12 +725,12 @@ mod test {
     #[allow(clippy::redundant_closure)] // lifetimes ...
     fn tsig_compose_parse_scan() {
         let rdata = Tsig::new(
-            Dname::<Vec<u8>>::from_str("key.example.com.").unwrap(),
+            Name::<Vec<u8>>::from_str("key.example.com.").unwrap(),
             Time48::now(),
             12,
             "foo",
             13,
-            TsigRcode::BadCookie,
+            TsigRcode::BADCOOKIE,
             "",
         ).unwrap();
         test_rdlen(&rdata);

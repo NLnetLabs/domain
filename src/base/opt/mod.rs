@@ -39,9 +39,10 @@ opt_types! {
 
 //============ Module Content ================================================
 
+use super::cmp::CanonicalOrd;
 use super::header::Header;
 use super::iana::{Class, OptRcode, OptionCode, Rtype};
-use super::name::{Dname, ToDname};
+use super::name::{Name, ToName};
 use super::rdata::{ComposeRecordData, ParseRecordData, RecordData};
 use super::record::{Record, Ttl};
 use super::wire::{Compose, Composer, FormError, ParseError};
@@ -73,6 +74,11 @@ use octseq::parse::Parser;
 #[derive(Clone)]
 pub struct Opt<Octs: ?Sized> {
     octets: Octs,
+}
+
+impl Opt<()> {
+    /// The rtype of this record data type.
+    pub(crate) const RTYPE: Rtype = Rtype::OPT;
 }
 
 impl<Octs: EmptyBuilder> Opt<Octs> {
@@ -253,7 +259,7 @@ where
 
 impl<Octs: AsRef<[u8]> + ?Sized> Eq for Opt<Octs> {}
 
-//--- PartialOrd and Ord
+//--- PartialOrd, Ord, and CanonicalOrd
 
 impl<Octs, Other> PartialOrd<Opt<Other>> for Opt<Octs>
 where
@@ -271,6 +277,16 @@ impl<Octs: AsRef<[u8]> + ?Sized> Ord for Opt<Octs> {
     }
 }
 
+impl<Octs, Other> CanonicalOrd<Opt<Other>> for Opt<Octs>
+where
+    Octs: AsRef<[u8]> + ?Sized,
+    Other: AsRef<[u8]> + ?Sized,
+{
+    fn canonical_cmp(&self, other: &Opt<Other>) -> Ordering {
+        self.octets.as_ref().cmp(other.octets.as_ref())
+    }
+}
+
 //--- Hash
 
 impl<Octs: AsRef<[u8]> + ?Sized> hash::Hash for Opt<Octs> {
@@ -283,7 +299,7 @@ impl<Octs: AsRef<[u8]> + ?Sized> hash::Hash for Opt<Octs> {
 
 impl<Octs: ?Sized> RecordData for Opt<Octs> {
     fn rtype(&self) -> Rtype {
-        Rtype::Opt
+        Rtype::OPT
     }
 }
 
@@ -295,7 +311,7 @@ where
         rtype: Rtype,
         parser: &mut Parser<'a, Octs>,
     ) -> Result<Option<Self>, ParseError> {
-        if rtype == Rtype::Opt {
+        if rtype == Rtype::OPT {
             Self::parse(parser).map(Some)
         } else {
             Ok(None)
@@ -494,7 +510,7 @@ pub struct OptRecord<Octs> {
 
 impl<Octs> OptRecord<Octs> {
     /// Converts a regular record into an OPT record
-    pub fn from_record<N: ToDname>(record: Record<N, Opt<Octs>>) -> Self {
+    pub fn from_record<N: ToName>(record: Record<N, Opt<Octs>>) -> Self {
         OptRecord {
             udp_payload_size: record.class().to_int(),
             ext_rcode: (record.ttl().as_secs() >> 24) as u8,
@@ -505,13 +521,13 @@ impl<Octs> OptRecord<Octs> {
     }
 
     /// Converts the OPT record into a regular record.
-    pub fn as_record(&self) -> Record<&'static Dname<[u8]>, Opt<&[u8]>>
+    pub fn as_record(&self) -> Record<&'static Name<[u8]>, Opt<&[u8]>>
     where
         Octs: AsRef<[u8]>,
     {
         Record::new(
-            Dname::root_slice(),
-            Class::Int(self.udp_payload_size),
+            Name::root_slice(),
+            Class::from_int(self.udp_payload_size),
             Ttl::from_secs(
                 u32::from(self.ext_rcode) << 24
                     | u32::from(self.version) << 16
@@ -618,7 +634,7 @@ impl<Octs: EmptyBuilder> Default for OptRecord<Octs> {
 
 //--- From
 
-impl<Octs, N: ToDname> From<Record<N, Opt<Octs>>> for OptRecord<Octs> {
+impl<Octs, N: ToName> From<Record<N, Opt<Octs>>> for OptRecord<Octs> {
     fn from(record: Record<N, Opt<Octs>>) -> Self {
         Self::from_record(record)
     }
@@ -1104,7 +1120,7 @@ pub(super) mod test {
     fn opt_record_header() {
         let mut header = OptHeader::default();
         header.set_udp_payload_size(0x1234);
-        header.set_rcode(OptRcode::BadVers);
+        header.set_rcode(OptRcode::BADVERS);
         header.set_version(0xbd);
         header.set_dnssec_ok(true);
         let mut buf = Vec::with_capacity(11);
@@ -1118,7 +1134,7 @@ pub(super) mod test {
             .unwrap();
         let record = OptRecord::from_record(record);
         assert_eq!(record.udp_payload_size(), 0x1234);
-        assert_eq!(record.ext_rcode, OptRcode::BadVers.ext());
+        assert_eq!(record.ext_rcode, OptRcode::BADVERS.ext());
         assert_eq!(record.version(), 0xbd);
         assert!(record.dnssec_ok());
     }

@@ -6,7 +6,7 @@
 
 use super::cmp::CanonicalOrd;
 use super::iana::{Class, Rtype};
-use super::name::{ParsedDname, ToDname};
+use super::name::{ParsedName, ToName};
 use super::wire::{Composer, ParseError};
 use core::cmp::Ordering;
 use core::{fmt, hash};
@@ -22,10 +22,10 @@ use octseq::parse::Parser;
 /// represents such a question.
 ///
 /// Questions are generic over the domain name type. When read from an
-/// actual message, a [`ParsedDname`] has to be used because the name part
+/// actual message, a [`ParsedName`] has to be used because the name part
 /// may be compressed.
 ///
-/// [`ParsedDname`]: ../name/struct.ParsedDname.html
+/// [`ParsedName`]: ../name/struct.ParsedName.html
 /// [`MessageBuilder`]: ../message_builder/struct.MessageBuilder.html
 #[derive(Clone, Copy)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -57,7 +57,7 @@ impl<N> Question<N> {
         Question {
             qname,
             qtype,
-            qclass: Class::In,
+            qclass: Class::IN,
         }
     }
 
@@ -69,7 +69,7 @@ impl<N> Question<N> {
 
 /// # Field Access
 ///
-impl<N: ToDname> Question<N> {
+impl<N: ToName> Question<N> {
     /// Returns a reference to the domain nmae in the question,
     pub fn qname(&self) -> &N {
         &self.qname
@@ -88,24 +88,24 @@ impl<N: ToDname> Question<N> {
 
 /// # Parsing and Composing
 ///
-impl<Octs> Question<ParsedDname<Octs>> {
+impl<Octs> Question<ParsedName<Octs>> {
     pub fn parse<'a, Src: Octets<Range<'a> = Octs> + ?Sized + 'a>(
         parser: &mut Parser<'a, Src>,
     ) -> Result<Self, ParseError> {
         Ok(Question::new(
-            ParsedDname::parse(parser)?,
+            ParsedName::parse(parser)?,
             Rtype::parse(parser)?,
             Class::parse(parser)?,
         ))
     }
 }
 
-impl<N: ToDname> Question<N> {
+impl<N: ToName> Question<N> {
     pub fn compose<Target: Composer + ?Sized>(
         &self,
         target: &mut Target,
     ) -> Result<(), Target::AppendError> {
-        target.append_compressed_dname(&self.qname)?;
+        target.append_compressed_name(&self.qname)?;
         self.qtype.compose(target)?;
         self.qclass.compose(target)
     }
@@ -113,15 +113,15 @@ impl<N: ToDname> Question<N> {
 
 //--- From
 
-impl<N: ToDname> From<(N, Rtype, Class)> for Question<N> {
+impl<N: ToName> From<(N, Rtype, Class)> for Question<N> {
     fn from((name, rtype, class): (N, Rtype, Class)) -> Self {
         Question::new(name, rtype, class)
     }
 }
 
-impl<N: ToDname> From<(N, Rtype)> for Question<N> {
+impl<N: ToName> From<(N, Rtype)> for Question<N> {
     fn from((name, rtype): (N, Rtype)) -> Self {
-        Question::new(name, rtype, Class::In)
+        Question::new(name, rtype, Class::IN)
     }
 }
 
@@ -148,8 +148,8 @@ where
 
 impl<N, NN> PartialEq<Question<NN>> for Question<N>
 where
-    N: ToDname,
-    NN: ToDname,
+    N: ToName,
+    NN: ToName,
 {
     fn eq(&self, other: &Question<NN>) -> bool {
         self.qname.name_eq(&other.qname)
@@ -158,14 +158,14 @@ where
     }
 }
 
-impl<N: ToDname> Eq for Question<N> {}
+impl<N: ToName> Eq for Question<N> {}
 
 //--- PartialOrd, CanonicalOrd, and Ord
 
 impl<N, NN> PartialOrd<Question<NN>> for Question<N>
 where
-    N: ToDname,
-    NN: ToDname,
+    N: ToName,
+    NN: ToName,
 {
     fn partial_cmp(&self, other: &Question<NN>) -> Option<Ordering> {
         match self.qname.name_cmp(&other.qname) {
@@ -182,8 +182,8 @@ where
 
 impl<N, NN> CanonicalOrd<Question<NN>> for Question<N>
 where
-    N: ToDname,
-    NN: ToDname,
+    N: ToName,
+    NN: ToName,
 {
     fn canonical_cmp(&self, other: &Question<NN>) -> Ordering {
         match self.qname.lowercase_composed_cmp(&other.qname) {
@@ -198,7 +198,7 @@ where
     }
 }
 
-impl<N: ToDname> Ord for Question<N> {
+impl<N: ToName> Ord for Question<N> {
     fn cmp(&self, other: &Self) -> Ordering {
         match self.qname.name_cmp(&other.qname) {
             Ordering::Equal => {}
@@ -274,7 +274,7 @@ impl<'a, Q: ComposeQuestion> ComposeQuestion for &'a Q {
     }
 }
 
-impl<Name: ToDname> ComposeQuestion for Question<Name> {
+impl<Name: ToName> ComposeQuestion for Question<Name> {
     fn compose_question<Target: Composer + ?Sized>(
         &self,
         target: &mut Target,
@@ -283,7 +283,7 @@ impl<Name: ToDname> ComposeQuestion for Question<Name> {
     }
 }
 
-impl<Name: ToDname> ComposeQuestion for (Name, Rtype, Class) {
+impl<Name: ToName> ComposeQuestion for (Name, Rtype, Class) {
     fn compose_question<Target: Composer + ?Sized>(
         &self,
         target: &mut Target,
@@ -292,11 +292,11 @@ impl<Name: ToDname> ComposeQuestion for (Name, Rtype, Class) {
     }
 }
 
-impl<Name: ToDname> ComposeQuestion for (Name, Rtype) {
+impl<Name: ToName> ComposeQuestion for (Name, Rtype) {
     fn compose_question<Target: Composer + ?Sized>(
         &self,
         target: &mut Target,
     ) -> Result<(), Target::AppendError> {
-        Question::new(&self.0, self.1, Class::In).compose(target)
+        Question::new(&self.0, self.1, Class::IN).compose(target)
     }
 }

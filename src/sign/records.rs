@@ -3,12 +3,11 @@
 use super::key::SigningKey;
 use crate::base::cmp::CanonicalOrd;
 use crate::base::iana::{Class, Rtype};
-use crate::base::name::ToDname;
+use crate::base::name::ToName;
 use crate::base::rdata::{ComposeRecordData, RecordData};
 use crate::base::record::Record;
-use crate::base::serial::Serial;
 use crate::base::Ttl;
-use crate::rdata::dnssec::{ProtoRrsig, RtypeBitmap};
+use crate::rdata::dnssec::{ProtoRrsig, RtypeBitmap, Timestamp};
 use crate::rdata::{Dnskey, Ds, Nsec, Rrsig};
 use octseq::builder::{EmptyBuilder, FromBuilder, OctetsBuilder, Truncate};
 use std::vec::Vec;
@@ -31,7 +30,7 @@ impl<N, D> SortedRecords<N, D> {
 
     pub fn insert(&mut self, record: Record<N, D>) -> Result<(), Record<N, D>>
     where
-        N: ToDname,
+        N: ToName,
         D: RecordData + CanonicalOrd,
     {
         let idx = self
@@ -56,26 +55,26 @@ impl<N, D> SortedRecords<N, D> {
 
     pub fn find_soa(&self) -> Option<Rrset<N, D>>
     where
-        N: ToDname,
+        N: ToName,
         D: RecordData,
     {
-        self.rrsets().find(|rrset| rrset.rtype() == Rtype::Soa)
+        self.rrsets().find(|rrset| rrset.rtype() == Rtype::SOA)
     }
 
     #[allow(clippy::type_complexity)]
     pub fn sign<Octets, Key, ApexName>(
         &self,
         apex: &FamilyName<ApexName>,
-        expiration: Serial,
-        inception: Serial,
+        expiration: Timestamp,
+        inception: Timestamp,
         key: Key,
     ) -> Result<Vec<Record<N, Rrsig<Octets, ApexName>>>, Key::Error>
     where
-        N: ToDname + Clone,
+        N: ToName + Clone,
         D: RecordData + ComposeRecordData,
         Key: SigningKey,
         Octets: From<Key::Signature> + AsRef<[u8]>,
-        ApexName: ToDname + Clone,
+        ApexName: ToName + Clone,
     {
         let mut res = Vec::new();
         let mut buf = Vec::new();
@@ -120,14 +119,14 @@ impl<N, D> SortedRecords<N, D> {
                     // If we are at a zone cut, we only sign DS and NSEC
                     // records. NS records we must not sign and everything
                     // else shouldn’t be here, really.
-                    if rrset.rtype() != Rtype::Ds
-                        && rrset.rtype() != Rtype::Nsec
+                    if rrset.rtype() != Rtype::DS
+                        && rrset.rtype() != Rtype::NSEC
                     {
                         continue;
                     }
                 } else {
                     // Otherwise we only ignore RRSIGs.
-                    if rrset.rtype() == Rtype::Rrsig {
+                    if rrset.rtype() == Rtype::RRSIG {
                         continue;
                     }
                 }
@@ -169,12 +168,12 @@ impl<N, D> SortedRecords<N, D> {
         ttl: Ttl,
     ) -> Vec<Record<N, Nsec<Octets, N>>>
     where
-        N: ToDname + Clone,
+        N: ToName + Clone,
         D: RecordData,
         Octets: FromBuilder,
         Octets::Builder: EmptyBuilder + Truncate + AsRef<[u8]> + AsMut<[u8]>,
         <Octets::Builder as OctetsBuilder>::AppendError: fmt::Debug,
-        ApexName: ToDname,
+        ApexName: ToName,
     {
         let mut res = Vec::new();
 
@@ -229,7 +228,7 @@ impl<N, D> SortedRecords<N, D> {
 
             let mut bitmap = RtypeBitmap::<Octets>::builder();
             // Assume there’s gonna be an RRSIG.
-            bitmap.add(Rtype::Rrsig).unwrap();
+            bitmap.add(Rtype::RRSIG).unwrap();
             for rrset in family.rrsets() {
                 bitmap.add(rrset.rtype()).unwrap()
             }
@@ -265,7 +264,7 @@ impl<N, D> Default for SortedRecords<N, D> {
 
 impl<N, D> From<Vec<Record<N, D>>> for SortedRecords<N, D>
 where
-    N: ToDname,
+    N: ToName,
     D: RecordData + CanonicalOrd,
 {
     fn from(mut src: Vec<Record<N, D>>) -> Self {
@@ -276,7 +275,7 @@ where
 
 impl<N, D> FromIterator<Record<N, D>> for SortedRecords<N, D>
 where
-    N: ToDname,
+    N: ToName,
     D: RecordData + CanonicalOrd,
 {
     fn from_iter<T: IntoIterator<Item = Record<N, D>>>(iter: T) -> Self {
@@ -290,7 +289,7 @@ where
 
 impl<N, D> Extend<Record<N, D>> for SortedRecords<N, D>
 where
-    N: ToDname,
+    N: ToName,
     D: RecordData + CanonicalOrd,
 {
     fn extend<T: IntoIterator<Item = Record<N, D>>>(&mut self, iter: T) {
@@ -334,17 +333,17 @@ impl<'a, N, D> Family<'a, N, D> {
 
     pub fn is_zone_cut<NN>(&self, apex: &FamilyName<NN>) -> bool
     where
-        N: ToDname,
-        NN: ToDname,
+        N: ToName,
+        NN: ToName,
         D: RecordData,
     {
         self.family_name().ne(apex)
-            && self.records().any(|record| record.rtype() == Rtype::Ns)
+            && self.records().any(|record| record.rtype() == Rtype::NS)
     }
 
-    pub fn is_in_zone<NN: ToDname>(&self, apex: &FamilyName<NN>) -> bool
+    pub fn is_in_zone<NN: ToName>(&self, apex: &FamilyName<NN>) -> bool
     where
-        N: ToDname,
+        N: ToName,
     {
         self.owner().ends_with(&apex.owner) && self.class() == apex.class
     }
@@ -397,7 +396,7 @@ impl<N> FamilyName<N> {
         key: K,
     ) -> Result<Record<N, Ds<K::Octets>>, K::Error>
     where
-        N: ToDname + Clone,
+        N: ToName + Clone,
     {
         key.ds(&self.owner)
             .map(|ds| self.clone().into_record(ttl, ds))
@@ -413,13 +412,13 @@ impl<'a, N: Clone> FamilyName<&'a N> {
     }
 }
 
-impl<N: ToDname, NN: ToDname> PartialEq<FamilyName<NN>> for FamilyName<N> {
+impl<N: ToName, NN: ToName> PartialEq<FamilyName<NN>> for FamilyName<N> {
     fn eq(&self, other: &FamilyName<NN>) -> bool {
         self.owner.name_eq(&other.owner) && self.class == other.class
     }
 }
 
-impl<N: ToDname, NN: ToDname, D> PartialEq<Record<NN, D>> for FamilyName<N> {
+impl<N: ToName, NN: ToName, D> PartialEq<Record<NN, D>> for FamilyName<N> {
     fn eq(&self, other: &Record<NN, D>) -> bool {
         self.owner.name_eq(other.owner()) && self.class == other.class()
     }
@@ -485,9 +484,9 @@ impl<'a, N, D> RecordsIter<'a, N, D> {
         self.slice[0].owner()
     }
 
-    pub fn skip_before<NN: ToDname>(&mut self, apex: &FamilyName<NN>)
+    pub fn skip_before<NN: ToName>(&mut self, apex: &FamilyName<NN>)
     where
-        N: ToDname,
+        N: ToName,
     {
         while let Some(first) = self.slice.first() {
             if apex == first {
@@ -500,7 +499,7 @@ impl<'a, N, D> RecordsIter<'a, N, D> {
 
 impl<'a, N, D> Iterator for RecordsIter<'a, N, D>
 where
-    N: ToDname + 'a,
+    N: ToName + 'a,
     D: RecordData + 'a,
 {
     type Item = Family<'a, N, D>;
@@ -540,7 +539,7 @@ impl<'a, N, D> RrsetIter<'a, N, D> {
 
 impl<'a, N, D> Iterator for RrsetIter<'a, N, D>
 where
-    N: ToDname + 'a,
+    N: ToName + 'a,
     D: RecordData + 'a,
 {
     type Item = Rrset<'a, N, D>;
@@ -581,7 +580,7 @@ impl<'a, N, D> FamilyIter<'a, N, D> {
 
 impl<'a, N, D> Iterator for FamilyIter<'a, N, D>
 where
-    N: ToDname + 'a,
+    N: ToName + 'a,
     D: RecordData + 'a,
 {
     type Item = Rrset<'a, N, D>;
