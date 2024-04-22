@@ -62,15 +62,28 @@ int_enum_str_with_prefix!(Class, "CLASS", b"CLASS", u16, "unknown class");
 
 #[cfg(test)]
 mod test {
+    use super::*;
+
     #[cfg(feature = "serde")]
     #[test]
     fn ser_de() {
-        use super::Class;
         use serde_test::{assert_tokens, Configure, Token};
 
         assert_tokens(&Class::IN.readable(), &[Token::Str("IN")]);
         assert_tokens(&Class(5).readable(), &[Token::Str("CLASS5")]);
         assert_tokens(&Class::IN.compact(), &[Token::U16(1)]);
         assert_tokens(&Class(5).compact(), &[Token::U16(5)]);
+    }
+
+    #[test]
+    fn debug() {
+        assert_eq!(
+            format!("{:?}", Class::IN),
+            "Class::IN"
+        );
+        assert_eq!(
+            format!("{:?}", Class(69)),
+            "Class(69)"
+        );
     }
 }
