@@ -12,7 +12,7 @@ use parking_lot::{
 use tokio::sync::Mutex;
 
 use crate::base::iana::{Class, Rtype};
-use crate::base::name::{Label, OwnedLabel, ToDname, ToLabelIter};
+use crate::base::name::{Label, OwnedLabel, ToLabelIter, ToName};
 use crate::zonefile::error::{CnameError, OutOfZone, ZoneCutError};
 use crate::zonetree::types::ZoneCut;
 use crate::zonetree::walk::WalkState;
@@ -69,7 +69,7 @@ impl ZoneApex {
 
     pub fn prepare_name<'l>(
         &self,
-        qname: &'l impl ToDname,
+        qname: &'l impl ToName,
     ) -> Result<impl Iterator<Item = &'l Label> + Clone, OutOfZone> {
         let mut qname = qname.iter_labels().rev();
         for apex_label in self.name().iter_labels().rev() {

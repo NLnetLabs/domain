@@ -10,7 +10,7 @@ use crate::base::message_builder::{
 use crate::base::opt::UnknownOptData;
 use crate::base::wire::Composer;
 use crate::base::Message;
-use crate::base::{MessageBuilder, ParsedDname, Rtype, StreamTarget};
+use crate::base::{MessageBuilder, ParsedName, Rtype, StreamTarget};
 use crate::rdata::AllRecordData;
 
 use super::message::Request;
@@ -243,7 +243,7 @@ where
                 for rr in current_additional.flatten() {
                     if rr.rtype() != Rtype::OPT {
                         if let Ok(Some(rr)) = rr
-                            .into_record::<AllRecordData<_, ParsedDname<_>>>()
+                            .into_record::<AllRecordData<_, ParsedName<_>>>()
                         {
                             response.push(rr)?;
                         }
@@ -303,7 +303,7 @@ where
                 for rr in current_additional.flatten() {
                     if rr.rtype() != Rtype::OPT {
                         if let Ok(Some(rr)) = rr
-                            .into_record::<AllRecordData<_, ParsedDname<_>>>()
+                            .into_record::<AllRecordData<_, ParsedName<_>>>()
                         {
                             response.push(rr)?;
                         }

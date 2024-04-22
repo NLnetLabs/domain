@@ -42,7 +42,7 @@ opt_types! {
 use super::cmp::CanonicalOrd;
 use super::header::Header;
 use super::iana::{Class, OptRcode, OptionCode, Rtype};
-use super::name::{Dname, ToDname};
+use super::name::{Name, ToName};
 use super::rdata::{ComposeRecordData, ParseRecordData, RecordData};
 use super::record::{Record, Ttl};
 use super::wire::{Compose, Composer, FormError, ParseError};
@@ -510,7 +510,7 @@ pub struct OptRecord<Octs> {
 
 impl<Octs> OptRecord<Octs> {
     /// Converts a regular record into an OPT record
-    pub fn from_record<N: ToDname>(record: Record<N, Opt<Octs>>) -> Self {
+    pub fn from_record<N: ToName>(record: Record<N, Opt<Octs>>) -> Self {
         OptRecord {
             udp_payload_size: record.class().to_int(),
             ext_rcode: (record.ttl().as_secs() >> 24) as u8,
@@ -521,12 +521,12 @@ impl<Octs> OptRecord<Octs> {
     }
 
     /// Converts the OPT record into a regular record.
-    pub fn as_record(&self) -> Record<&'static Dname<[u8]>, Opt<&[u8]>>
+    pub fn as_record(&self) -> Record<&'static Name<[u8]>, Opt<&[u8]>>
     where
         Octs: AsRef<[u8]>,
     {
         Record::new(
-            Dname::root_slice(),
+            Name::root_slice(),
             Class::from_int(self.udp_payload_size),
             Ttl::from_secs(
                 u32::from(self.ext_rcode) << 24
@@ -634,7 +634,7 @@ impl<Octs: EmptyBuilder> Default for OptRecord<Octs> {
 
 //--- From
 
-impl<Octs, N: ToDname> From<Record<N, Opt<Octs>>> for OptRecord<Octs> {
+impl<Octs, N: ToName> From<Record<N, Opt<Octs>>> for OptRecord<Octs> {
     fn from(record: Record<N, Opt<Octs>>) -> Self {
         Self::from_record(record)
     }

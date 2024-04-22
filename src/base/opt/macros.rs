@@ -83,7 +83,7 @@ macro_rules! opt_types {
         }
 
         impl<'a, Octs: Octets> ParseOptData<'a, Octs>
-        for AllOptData<Octs::Range<'a>, Dname<Octs::Range<'a>>> {
+        for AllOptData<Octs::Range<'a>, Name<Octs::Range<'a>>> {
             fn parse_option(
                 code: OptionCode,
                 parser: &mut Parser<'a, Octs>,
@@ -106,7 +106,7 @@ macro_rules! opt_types {
         }
 
         impl<Octs, Name> ComposeOptData for AllOptData<Octs, Name>
-        where Octs: AsRef<[u8]>, Name: ToDname {
+        where Octs: AsRef<[u8]>, Name: ToName {
             fn compose_len(&self) -> u16 {
                 match *self {
                     $( $(

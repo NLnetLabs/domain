@@ -321,7 +321,7 @@ mod tests {
     use bytes::Bytes;
     use tokio::time::Instant;
 
-    use crate::base::{Dname, Message, MessageBuilder, Rtype};
+    use crate::base::{Message, MessageBuilder, Name, Rtype};
     use crate::net::server::message::{
         Request, TransportSpecificContext, UdpTransportContext,
     };
@@ -388,7 +388,7 @@ mod tests {
 
         // With a dummy question.
         let mut query = query.question();
-        query.push((Dname::<Bytes>::root(), Rtype::A)).unwrap();
+        query.push((Name::<Bytes>::root(), Rtype::A)).unwrap();
 
         // And if requested, a requestor's UDP payload size:
         let message: Message<_> = if let Some(v) = client_value {

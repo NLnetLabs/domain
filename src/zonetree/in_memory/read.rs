@@ -7,7 +7,7 @@ use bytes::Bytes;
 
 use crate::base::iana::{Rcode, Rtype};
 use crate::base::name::Label;
-use crate::base::Dname;
+use crate::base::Name;
 use crate::zonefile::error::OutOfZone;
 use crate::zonetree::answer::{Answer, AnswerAuthority};
 use crate::zonetree::types::ZoneCut;
@@ -269,7 +269,7 @@ impl ReadableZone for ReadZone {
 
     fn query(
         &self,
-        qname: Dname<Bytes>,
+        qname: Name<Bytes>,
         qtype: Rtype,
     ) -> Result<Answer, OutOfZone> {
         let mut qname = self.apex.prepare_name(&qname)?;

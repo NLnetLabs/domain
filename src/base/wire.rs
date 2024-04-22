@@ -1,6 +1,6 @@
 //! Creating and consuming data in wire format.
 
-use super::name::ToDname;
+use super::name::ToName;
 use super::net::{Ipv4Addr, Ipv6Addr};
 use core::fmt;
 use octseq::builder::{OctetsBuilder, Truncate};
@@ -23,7 +23,7 @@ pub trait Composer:
     ///
     /// The trait provides a default implementation which simply appends the
     /// name uncompressed.
-    fn append_compressed_dname<N: ToDname + ?Sized>(
+    fn append_compressed_name<N: ToName + ?Sized>(
         &mut self,
         name: &N,
     ) -> Result<(), Self::AppendError> {
@@ -50,11 +50,11 @@ impl<A: smallvec::Array<Item = u8>> Composer for smallvec::SmallVec<A> {}
 impl<const N: usize> Composer for heapless::Vec<u8, N> {}
 
 impl<T: Composer> Composer for &mut T {
-    fn append_compressed_dname<N: ToDname + ?Sized>(
+    fn append_compressed_name<N: ToName + ?Sized>(
         &mut self,
         name: &N,
     ) -> Result<(), Self::AppendError> {
-        Composer::append_compressed_dname(*self, name)
+        Composer::append_compressed_name(*self, name)
     }
 
     fn can_compress(&self) -> bool {

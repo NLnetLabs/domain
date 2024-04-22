@@ -2,10 +2,10 @@
 //!
 //! This is a private module. Its public traits are re-exported by the parent.
 
+use super::absolute::Name;
 use super::chain::{Chain, LongChainError};
-use super::dname::Dname;
 use super::label::Label;
-use super::relative::RelativeDname;
+use super::relative::RelativeName;
 #[cfg(feature = "bytes")]
 use bytes::Bytes;
 use core::cmp;
@@ -21,13 +21,13 @@ use std::borrow::Cow;
 
 /// A type that can produce an iterator over its labels.
 ///
-/// This trait is used as a trait bound for both [`ToDname`] and
-/// [`ToRelativeDname`]. It is separate since it has to be generic over the
+/// This trait is used as a trait bound for both [`ToName`] and
+/// [`ToRelativeName`]. It is separate since it has to be generic over the
 /// lifetime of the label reference but we don’t want to have this lifetime
 /// parameter pollute those traits.
 ///
-/// [`ToDname`]: trait.ToDname.html
-/// [`ToRelativeDname`]: trait ToRelativeDname.html
+/// [`ToName`]: trait.ToName.html
+/// [`ToRelativeName`]: trait ToRelativeName.html
 #[allow(clippy::len_without_is_empty)]
 pub trait ToLabelIter {
     /// The type of the iterator over the labels.
@@ -92,7 +92,7 @@ impl<'r, N: ToLabelIter + ?Sized> ToLabelIter for &'r N {
     }
 }
 
-//------------ ToDname -------------------------------------------------------
+//------------ ToName -------------------------------------------------------
 
 /// A type that represents an absolute domain name.
 ///
@@ -102,22 +102,22 @@ impl<'r, N: ToLabelIter + ?Sized> ToLabelIter for &'r N {
 /// label sequence via an iterator and know how to compose the wire-format
 /// representation into a buffer.
 ///
-/// The most common types implementing this trait are [`Dname`],
-/// [`ParsedDname`], and [`Chain<L, R>`] where `R` is `ToDname` itself.
+/// The most common types implementing this trait are [`Name`],
+/// [`ParsedDname`], and [`Chain<L, R>`] where `R` is `ToName` itself.
 ///
 /// [`Chain<L, R>`]: struct.Chain.html
-/// [`Dname`]: struct.Dname.html
+/// [`Name`]: struct.Name.html
 /// [`ParsedDname`]: struct.ParsedDname.html
-pub trait ToDname: ToLabelIter {
+pub trait ToName: ToLabelIter {
     /// Converts the name into a single, uncompressed name.
     ///
     /// The default implementation provided by the trait iterates over the
-    /// labels of the name and adds them one by one to [`Dname`]. This will
+    /// labels of the name and adds them one by one to [`Name`]. This will
     /// work for any name but an optimized implementation can be provided for
     /// some types of names.
-    fn try_to_dname<Octets>(
+    fn try_to_name<Octets>(
         &self,
-    ) -> Result<Dname<Octets>, BuilderAppendError<Octets>>
+    ) -> Result<Name<Octets>, BuilderAppendError<Octets>>
     where
         Octets: FromBuilder,
         <Octets as FromBuilder>::Builder: EmptyBuilder,
@@ -126,27 +126,27 @@ pub trait ToDname: ToLabelIter {
             Octets::Builder::with_capacity(self.compose_len().into());
         self.iter_labels()
             .try_for_each(|label| label.compose(&mut builder))?;
-        Ok(unsafe { Dname::from_octets_unchecked(builder.freeze()) })
+        Ok(unsafe { Name::from_octets_unchecked(builder.freeze()) })
     }
 
     /// Converts the name into a single, uncompressed name.
     ///
-    /// This is the same as [`try_to_dname`][ToDname::try_to_dname] but for
+    /// This is the same as [`try_to_name`][ToName::try_to_name] but for
     /// builder types with an unrestricted buffer.
-    fn to_dname<Octets>(&self) -> Dname<Octets>
+    fn to_name<Octets>(&self) -> Name<Octets>
     where
         Octets: FromBuilder,
         <Octets as FromBuilder>::Builder:
             OctetsBuilder<AppendError = Infallible>,
         <Octets as FromBuilder>::Builder: EmptyBuilder,
     {
-        infallible(self.try_to_dname())
+        infallible(self.try_to_name())
     }
 
     /// Converts the name into a single name in canonical form.
-    fn try_to_canonical_dname<Octets>(
+    fn try_to_canonical_name<Octets>(
         &self,
-    ) -> Result<Dname<Octets>, BuilderAppendError<Octets>>
+    ) -> Result<Name<Octets>, BuilderAppendError<Octets>>
     where
         Octets: FromBuilder,
         <Octets as FromBuilder>::Builder: EmptyBuilder,
@@ -155,22 +155,22 @@ pub trait ToDname: ToLabelIter {
             Octets::Builder::with_capacity(self.compose_len().into());
         self.iter_labels()
             .try_for_each(|label| label.compose_canonical(&mut builder))?;
-        Ok(unsafe { Dname::from_octets_unchecked(builder.freeze()) })
+        Ok(unsafe { Name::from_octets_unchecked(builder.freeze()) })
     }
 
     /// Converts the name into a single name in canonical form.
     ///
     /// This is the same as
-    /// [`try_to_canonical_dname`][ToDname::try_to_canonical_dname] but for
+    /// [`try_to_canonical_name`][ToName::try_to_canonical_name] but for
     /// builder types with an unrestricted buffer.
-    fn to_canonical_dname<Octets>(&self) -> Dname<Octets>
+    fn to_canonical_name<Octets>(&self) -> Name<Octets>
     where
         Octets: FromBuilder,
         <Octets as FromBuilder>::Builder:
             OctetsBuilder<AppendError = Infallible>,
         <Octets as FromBuilder>::Builder: EmptyBuilder,
     {
-        infallible(self.try_to_canonical_dname())
+        infallible(self.try_to_canonical_name())
     }
 
     /// Returns an octets slice of the content if possible.
@@ -213,39 +213,39 @@ pub trait ToDname: ToLabelIter {
     ///
     /// If the name is available as one single slice – i.e.,
     /// [`as_flat_slice`] returns ‘some,’ creates the borrowed variant from
-    /// that slice. Otherwise assembles an owned variant via [`to_dname`].
+    /// that slice. Otherwise assembles an owned variant via [`to_name`].
     ///
     /// [`as_flat_slice`]: #method.as_flat_slice
-    /// [`to_dname`]: #method.to_dname
+    /// [`to_name`]: #method.to_name
     #[cfg(feature = "std")]
-    fn to_cow(&self) -> Dname<std::borrow::Cow<[u8]>> {
+    fn to_cow(&self) -> Name<std::borrow::Cow<[u8]>> {
         let octets = self
             .as_flat_slice()
             .map(Cow::Borrowed)
             .unwrap_or_else(|| Cow::Owned(self.to_vec().into_octets()));
-        unsafe { Dname::from_octets_unchecked(octets) }
+        unsafe { Name::from_octets_unchecked(octets) }
     }
 
     /// Returns the domain name assembled into a `Vec<u8>`.
     #[cfg(feature = "std")]
-    fn to_vec(&self) -> Dname<std::vec::Vec<u8>> {
-        self.to_dname()
+    fn to_vec(&self) -> Name<std::vec::Vec<u8>> {
+        self.to_name()
     }
 
     /// Returns the domain name assembled into a bytes value.
     #[cfg(feature = "bytes")]
-    fn to_bytes(&self) -> Dname<Bytes> {
-        self.to_dname()
+    fn to_bytes(&self) -> Name<Bytes> {
+        self.to_name()
     }
 
     /// Tests whether `self` and `other` are equal.
     ///
     /// This method can be used to implement `PartialEq` on types implementing
-    /// `ToDname` since a blanket implementation for all pairs of `ToDname`
+    /// `ToName` since a blanket implementation for all pairs of `ToName`
     /// is currently impossible.
     ///
     /// Domain names are compared ignoring ASCII case.
-    fn name_eq<N: ToDname + ?Sized>(&self, other: &N) -> bool {
+    fn name_eq<N: ToName + ?Sized>(&self, other: &N) -> bool {
         if let (Some(left), Some(right)) =
             (self.as_flat_slice(), other.as_flat_slice())
         {
@@ -260,14 +260,14 @@ pub trait ToDname: ToLabelIter {
     /// Returns the ordering between `self` and `other`.
     ///
     /// This method can be used to implement both `PartialOrd` and `Ord` on
-    /// types implementing `ToDname` since a blanket implementation for all
-    /// pairs of `ToDname`s is currently not possible.
+    /// types implementing `ToName` since a blanket implementation for all
+    /// pairs of `ToName`s is currently not possible.
     ///
     /// Domain name order is determined according to the ‘canonical DNS
     /// name order’ as defined in [section 6.1 of RFC 4034][RFC4034-6.1].
     ///
     /// [RFC4034-6.1]: https://tools.ietf.org/html/rfc4034#section-6.1
-    fn name_cmp<N: ToDname + ?Sized>(&self, other: &N) -> cmp::Ordering {
+    fn name_cmp<N: ToName + ?Sized>(&self, other: &N) -> cmp::Ordering {
         let mut self_iter = self.iter_labels();
         let mut other_iter = other.iter_labels();
         loop {
@@ -284,7 +284,7 @@ pub trait ToDname: ToLabelIter {
     }
 
     /// Returns the composed name ordering.
-    fn composed_cmp<N: ToDname + ?Sized>(&self, other: &N) -> cmp::Ordering {
+    fn composed_cmp<N: ToName + ?Sized>(&self, other: &N) -> cmp::Ordering {
         if let (Some(left), Some(right)) =
             (self.as_flat_slice(), other.as_flat_slice())
         {
@@ -310,7 +310,7 @@ pub trait ToDname: ToLabelIter {
     }
 
     /// Returns the lowercase composed ordering.
-    fn lowercase_composed_cmp<N: ToDname + ?Sized>(
+    fn lowercase_composed_cmp<N: ToName + ?Sized>(
         &self,
         other: &N,
     ) -> cmp::Ordering {
@@ -351,9 +351,9 @@ pub trait ToDname: ToLabelIter {
     }
 }
 
-impl<'a, N: ToDname + ?Sized + 'a> ToDname for &'a N {}
+impl<'a, N: ToName + ?Sized + 'a> ToName for &'a N {}
 
-//------------ ToRelativeDname -----------------------------------------------
+//------------ ToRelativeName ------------------------------------------------
 
 /// A type that represents a relative domain name.
 ///
@@ -365,24 +365,24 @@ impl<'a, N: ToDname + ?Sized + 'a> ToDname for &'a N {}
 /// one character long root label, a valid absolute name can be constructed
 /// from the relative name.
 ///
-/// The most important types implementing this trait are [`RelativeDname`]
-/// and [`Chain<L,R>`] where `R` is a `ToRelativeDname` itself.
+/// The most important types implementing this trait are [`RelativeName`]
+/// and [`Chain<L,R>`] where `R` is a `ToRelativeName` itself.
 ///
 /// [`Chain<L, R>`]: struct.Chain.html
-/// [`RelativeDname`]: struct.RelativeDname.html
-pub trait ToRelativeDname: ToLabelIter {
+/// [`RelativeName`]: struct.RelativeName.html
+pub trait ToRelativeName: ToLabelIter {
     /// Converts the name into a single, continous name.
     ///
     /// The canonical implementation provided by the trait iterates over the
-    /// labels of the name and adds them one by one to [`RelativeDname`].
+    /// labels of the name and adds them one by one to [`RelativeName`].
     /// This will work for any name but an optimized implementation can be
     /// provided for
     /// some types of names.
     ///
-    /// [`RelativeDname`]: struct.RelativeDname.html
-    fn try_to_relative_dname<Octets>(
+    /// [`RelativeName`]: struct.RelativeName.html
+    fn try_to_relative_name<Octets>(
         &self,
-    ) -> Result<RelativeDname<Octets>, BuilderAppendError<Octets>>
+    ) -> Result<RelativeName<Octets>, BuilderAppendError<Octets>>
     where
         Octets: FromBuilder,
         <Octets as FromBuilder>::Builder: EmptyBuilder,
@@ -391,28 +391,28 @@ pub trait ToRelativeDname: ToLabelIter {
             Octets::Builder::with_capacity(self.compose_len().into());
         self.iter_labels()
             .try_for_each(|label| label.compose(&mut builder))?;
-        Ok(unsafe { RelativeDname::from_octets_unchecked(builder.freeze()) })
+        Ok(unsafe { RelativeName::from_octets_unchecked(builder.freeze()) })
     }
 
     /// Converts the name into a single, continous name.
     ///
     /// This is the same as
-    /// [`try_to_relative_dname`][ToRelativeDname::try_to_relative_dname]
+    /// [`try_to_relative_name`][ToRelativeName::try_to_relative_name]
     /// but for builder types with an unrestricted buffer.
-    fn to_relative_dname<Octets>(&self) -> RelativeDname<Octets>
+    fn to_relative_name<Octets>(&self) -> RelativeName<Octets>
     where
         Octets: FromBuilder,
         <Octets as FromBuilder>::Builder:
             OctetsBuilder<AppendError = Infallible>,
         <Octets as FromBuilder>::Builder: EmptyBuilder,
     {
-        infallible(self.try_to_relative_dname())
+        infallible(self.try_to_relative_name())
     }
 
     /// Converts the name into a single name in canonical form.
-    fn try_to_canonical_relative_dname<Octets>(
+    fn try_to_canonical_relative_name<Octets>(
         &self,
-    ) -> Result<RelativeDname<Octets>, BuilderAppendError<Octets>>
+    ) -> Result<RelativeName<Octets>, BuilderAppendError<Octets>>
     where
         Octets: FromBuilder,
         <Octets as FromBuilder>::Builder: EmptyBuilder,
@@ -421,22 +421,22 @@ pub trait ToRelativeDname: ToLabelIter {
             Octets::Builder::with_capacity(self.compose_len().into());
         self.iter_labels()
             .try_for_each(|label| label.compose_canonical(&mut builder))?;
-        Ok(unsafe { RelativeDname::from_octets_unchecked(builder.freeze()) })
+        Ok(unsafe { RelativeName::from_octets_unchecked(builder.freeze()) })
     }
 
     /// Converts the name into a single name in canonical form.
     ///
     /// This is the same as
-    /// [`try_to_canonical_relative_dname`][ToRelativeDname::try_to_canonical_relative_dname]
+    /// [`try_to_canonical_relative_name`][ToRelativeName::try_to_canonical_relative_name]
     /// but for builder types with an unrestricted buffer.
-    fn to_canonical_relative_dname<Octets>(&self) -> RelativeDname<Octets>
+    fn to_canonical_relative_name<Octets>(&self) -> RelativeName<Octets>
     where
         Octets: FromBuilder,
         <Octets as FromBuilder>::Builder:
             OctetsBuilder<AppendError = Infallible>,
         <Octets as FromBuilder>::Builder: EmptyBuilder,
     {
-        infallible(self.try_to_canonical_relative_dname())
+        infallible(self.try_to_canonical_relative_name())
     }
 
     /// Returns a byte slice of the content if possible.
@@ -475,29 +475,30 @@ pub trait ToRelativeDname: ToLabelIter {
     ///
     /// If the name is available as one single slice – i.e.,
     /// [`as_flat_slice`] returns ‘some,’ creates the borrowed variant from
-    /// that slice. Otherwise assembles an owned variant via [`to_dname`].
+    /// that slice. Otherwise assembles an owned variant via
+    /// [`to_relative_name`].
     ///
     /// [`as_flat_slice`]: #method.as_flat_slice
-    /// [`to_dname`]: #method.to_dname
+    /// [`to_relatove_name`]: #method.to_relative_name
     #[cfg(feature = "std")]
-    fn to_cow(&self) -> RelativeDname<std::borrow::Cow<[u8]>> {
+    fn to_cow(&self) -> RelativeName<std::borrow::Cow<[u8]>> {
         let octets = self
             .as_flat_slice()
             .map(Cow::Borrowed)
             .unwrap_or_else(|| Cow::Owned(self.to_vec().into_octets()));
-        unsafe { RelativeDname::from_octets_unchecked(octets) }
+        unsafe { RelativeName::from_octets_unchecked(octets) }
     }
 
     /// Returns the domain name assembled into a `Vec<u8>`.
     #[cfg(feature = "std")]
-    fn to_vec(&self) -> RelativeDname<std::vec::Vec<u8>> {
-        self.to_relative_dname()
+    fn to_vec(&self) -> RelativeName<std::vec::Vec<u8>> {
+        self.to_relative_name()
     }
 
     /// Returns the domain name assembled into a bytes value.
     #[cfg(feature = "bytes")]
-    fn to_bytes(&self) -> RelativeDname<Bytes> {
-        self.to_relative_dname()
+    fn to_bytes(&self) -> RelativeName<Bytes> {
+        self.to_relative_name()
     }
 
     /// Returns whether the name is empty.
@@ -517,22 +518,22 @@ pub trait ToRelativeDname: ToLabelIter {
     }
 
     /// Returns the absolute name by chaining it with the root label.
-    fn chain_root(self) -> Chain<Self, Dname<&'static [u8]>>
+    fn chain_root(self) -> Chain<Self, Name<&'static [u8]>>
     where
         Self: Sized,
     {
         // Appending the root label will always work.
-        Chain::new(self, Dname::root()).unwrap()
+        Chain::new(self, Name::root()).unwrap()
     }
 
     /// Tests whether `self` and `other` are equal.
     ///
     /// This method can be used to implement `PartialEq` on types implementing
-    /// `ToDname` since a blanket implementation for all pairs of `ToDname`
+    /// `ToName` since a blanket implementation for all pairs of `ToName`
     /// is currently impossible.
     ///
     /// Domain names are compared ignoring ASCII case.
-    fn name_eq<N: ToRelativeDname + ?Sized>(&self, other: &N) -> bool {
+    fn name_eq<N: ToRelativeName + ?Sized>(&self, other: &N) -> bool {
         if let (Some(left), Some(right)) =
             (self.as_flat_slice(), other.as_flat_slice())
         {
@@ -545,8 +546,8 @@ pub trait ToRelativeDname: ToLabelIter {
     /// Returns the ordering between `self` and `other`.
     ///
     /// This method can be used to implement both `PartialOrd` and `Ord` on
-    /// types implementing `ToDname` since a blanket implementation for all
-    /// pairs of `ToDname`s is currently not possible.
+    /// types implementing `ToName` since a blanket implementation for all
+    /// pairs of `ToName`s is currently not possible.
     ///
     /// Domain name order is determined according to the ‘canonical DNS
     /// name order’ as defined in [section 6.1 of RFC 4034][RFC4034-6.1].
@@ -556,7 +557,7 @@ pub trait ToRelativeDname: ToLabelIter {
     /// same name.
     ///
     /// [RFC4034-6.1]: https://tools.ietf.org/html/rfc4034#section-6.1
-    fn name_cmp<N: ToRelativeDname + ?Sized>(
+    fn name_cmp<N: ToRelativeName + ?Sized>(
         &self,
         other: &N,
     ) -> cmp::Ordering {
@@ -576,7 +577,7 @@ pub trait ToRelativeDname: ToLabelIter {
     }
 }
 
-impl<'a, N: ToRelativeDname + ?Sized + 'a> ToRelativeDname for &'a N {}
+impl<'a, N: ToRelativeName + ?Sized + 'a> ToRelativeName for &'a N {}
 
 //------------ FlattenInto ---------------------------------------------------
 

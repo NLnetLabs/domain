@@ -1,6 +1,6 @@
-/// Using the `domain::net::client` module for sending a query.
-use domain::base::Dname;
 use domain::base::MessageBuilder;
+/// Using the `domain::net::client` module for sending a query.
+use domain::base::Name;
 use domain::base::Rtype;
 use domain::net::client::cache;
 use domain::net::client::dgram;
@@ -30,7 +30,7 @@ async fn main() {
     let mut msg = MessageBuilder::new_vec();
     msg.header_mut().set_rd(true);
     let mut msg = msg.question();
-    msg.push((Dname::vec_from_str("example.com").unwrap(), Rtype::AAAA))
+    msg.push((Name::vec_from_str("example.com").unwrap(), Rtype::AAAA))
         .unwrap();
     let req = RequestMessage::new(msg);
 

@@ -15,8 +15,8 @@ use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::time::sleep;
 use tokio::time::Instant;
 
-use crate::base::Dname;
 use crate::base::MessageBuilder;
+use crate::base::Name;
 use crate::base::Rtype;
 use crate::base::StaticCompressor;
 use crate::base::StreamTarget;
@@ -319,11 +319,8 @@ fn mk_query() -> StreamTarget<Vec<u8>> {
     msg.header_mut().set_random_id();
 
     let mut msg = msg.question();
-    msg.push((
-        Dname::<Vec<u8>>::from_str("example.com.").unwrap(),
-        Rtype::A,
-    ))
-    .unwrap();
+    msg.push((Name::<Vec<u8>>::from_str("example.com.").unwrap(), Rtype::A))
+        .unwrap();
 
     let mut msg = msg.additional();
     msg.opt(|opt| {

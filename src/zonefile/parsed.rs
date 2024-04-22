@@ -1,19 +1,15 @@
 //! Importing from and (in future) exporting to a zonefiles.
 
-use std::collections::{BTreeMap, HashMap};
-use std::vec::Vec;
-
-use tracing::trace;
-
 use super::error::{OwnerError, RecordError, ZoneErrors};
 use super::inplace::{self, Entry};
-
 use crate::base::iana::{Class, Rtype};
-use crate::base::name::FlattenInto;
-use crate::base::ToDname;
+use crate::base::name::{FlattenInto, ToName};
 use crate::rdata::ZoneRecordData;
 use crate::zonetree::ZoneBuilder;
 use crate::zonetree::{Rrset, SharedRr, StoredDname, StoredRecord};
+use std::collections::{BTreeMap, HashMap};
+use std::vec::Vec;
+use tracing::trace;
 
 //------------ Zonefile ------------------------------------------------------
 
@@ -89,7 +85,7 @@ impl Zonefile {
             if record.rtype() != Rtype::SOA {
                 return Err(RecordError::MissingSoa(record));
             } else {
-                let apex = record.owner().to_dname();
+                let apex = record.owner().to_name();
                 self.class = Some(record.class());
                 self.origin = Some(apex);
             }

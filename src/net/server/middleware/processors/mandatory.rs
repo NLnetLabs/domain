@@ -327,7 +327,7 @@ mod tests {
     use bytes::Bytes;
     use tokio::time::Instant;
 
-    use crate::base::{Dname, MessageBuilder, Rtype};
+    use crate::base::{MessageBuilder, Name, Rtype};
     use crate::net::server::message::{
         Request, TransportSpecificContext, UdpTransportContext,
     };
@@ -369,7 +369,7 @@ mod tests {
         // Build a dummy DNS query.
         let query = MessageBuilder::new_vec();
         let mut query = query.question();
-        query.push((Dname::<Bytes>::root(), Rtype::A)).unwrap();
+        query.push((Name::<Bytes>::root(), Rtype::A)).unwrap();
         let extra_bytes = vec![0; (MIN_ALLOWED as usize) * 2];
         let mut additional = query.additional();
         additional

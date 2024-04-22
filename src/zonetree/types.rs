@@ -1,4 +1,4 @@
-use crate::base::name::Dname;
+use crate::base::name::Name;
 use crate::base::rdata::RecordData;
 use crate::base::record::Record;
 use crate::base::{iana::Rtype, Ttl};
@@ -11,8 +11,8 @@ use std::vec::Vec;
 
 //------------ Type Aliases --------------------------------------------------
 
-/// A [`Bytes`] backed [`Dname`].
-pub type StoredDname = Dname<Bytes>;
+/// A [`Bytes`] backed [`Name`].
+pub type StoredDname = Name<Bytes>;
 
 /// A [`Bytes`] backed [`ZoneRecordData`].
 pub type StoredRecordData = ZoneRecordData<Bytes, StoredDname>;

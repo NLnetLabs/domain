@@ -17,7 +17,7 @@
 
 use domain::base::iana::{Opcode, Rcode};
 use domain::base::message_builder::AdditionalBuilder;
-use domain::base::{Dname, Message, Rtype, ToDname};
+use domain::base::{Message, Name, Rtype, ToName};
 use domain::net::server::buf::VecBufSource;
 use domain::net::server::dgram::DgramServer;
 use domain::net::server::message::Request;
@@ -232,7 +232,7 @@ async fn handle_axfr_request(
     let cloned_stream = stream.clone();
     let cloned_msg = request.message().clone();
 
-    let op = Box::new(move |owner: Dname<_>, rrset: &Rrset| {
+    let op = Box::new(move |owner: Name<_>, rrset: &Rrset| {
         if rrset.rtype() != Rtype::SOA {
             let builder = mk_builder_for_target();
             let mut answer =

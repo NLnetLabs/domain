@@ -15,8 +15,8 @@ use tracing::instrument;
 use tracing::{trace, warn};
 
 use domain::base::iana::Rcode;
+use domain::base::name::{Name, ToName};
 use domain::base::wire::Composer;
-use domain::base::{Dname, ToDname};
 use domain::net::client::{dgram, stream};
 use domain::net::server::buf::VecBufSource;
 use domain::net::server::dgram::DgramServer;
@@ -257,8 +257,8 @@ fn test_service(
 > {
     fn as_record_and_dname(
         r: ScannedRecord,
-    ) -> Option<(ScannedRecord, Dname<Vec<u8>>)> {
-        let dname = r.owner().to_dname();
+    ) -> Option<(ScannedRecord, Name<Vec<u8>>)> {
+        let dname = r.owner().to_name();
         Some((r, dname))
     }
 

@@ -1,12 +1,11 @@
+use crate::net::stelline::parse_query;
+use crate::net::stelline::parse_stelline::{Entry, Matches, Reply};
 use domain::base::iana::{Opcode, OptRcode, Rtype};
 use domain::base::opt::{Opt, OptRecord};
-use domain::base::{Message, ParsedDname, QuestionSection, RecordSection};
+use domain::base::{Message, ParsedName, QuestionSection, RecordSection};
 use domain::dep::octseq::Octets;
 use domain::rdata::ZoneRecordData;
 use domain::zonefile::inplace::Entry as ZonefileEntry;
-
-use crate::net::stelline::parse_query;
-use crate::net::stelline::parse_stelline::{Entry, Matches, Reply};
 
 pub fn match_msg<'a, Octs: AsRef<[u8]> + Clone + Octets + 'a>(
     entry: &Entry,
@@ -401,7 +400,7 @@ fn match_section<
             }
             let msg_rdata = msg_rr
                 .clone()
-                .into_record::<ZoneRecordData<Octs2, ParsedDname<Octs2>>>()
+                .into_record::<ZoneRecordData<Octs2, ParsedName<Octs2>>>()
                 .unwrap()
                 .unwrap();
             println!(

@@ -2,7 +2,7 @@
 
 use super::zone::Zone;
 use crate::base::iana::Class;
-use crate::base::name::{Label, OwnedLabel, ToDname, ToLabelIter};
+use crate::base::name::{Label, OwnedLabel, ToLabelIter, ToName};
 use std::collections::hash_map;
 use std::collections::HashMap;
 use std::fmt::Display;
@@ -28,7 +28,7 @@ impl ZoneTree {
     /// Gets a [`Zone`] for the given apex name and CLASS, if any.
     pub fn get_zone(
         &self,
-        apex_name: &impl ToDname,
+        apex_name: &impl ToName,
         class: Class,
     ) -> Option<&Zone> {
         self.roots
@@ -54,7 +54,7 @@ impl ZoneTree {
     /// any.
     pub fn find_zone(
         &self,
-        qname: &impl ToDname,
+        qname: &impl ToName,
         class: Class,
     ) -> Option<&Zone> {
         self.roots.get(class)?.find_zone(qname.iter_labels().rev())
@@ -68,7 +68,7 @@ impl ZoneTree {
     /// Removes the specified [`Zone`], if any.
     pub fn remove_zone(
         &mut self,
-        apex_name: &impl ToDname,
+        apex_name: &impl ToName,
         class: Class,
     ) -> Result<(), ZoneTreeModificationError> {
         if let Some(root) = self.roots.get_mut(class) {

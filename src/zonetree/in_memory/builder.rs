@@ -4,7 +4,7 @@ use std::sync::Arc;
 use std::vec::Vec;
 
 use crate::base::iana::Class;
-use crate::base::name::{Label, ToDname};
+use crate::base::name::{Label, ToName};
 use crate::zonefile::error::{CnameError, OutOfZone, ZoneCutError};
 use crate::zonetree::types::ZoneCut;
 use crate::zonetree::{
@@ -88,7 +88,7 @@ impl ZoneBuilder {
     /// Inserts a [`SharedRrset`] for the given owner name.
     pub fn insert_rrset(
         &mut self,
-        name: &impl ToDname,
+        name: &impl ToName,
         rrset: SharedRrset,
     ) -> Result<(), OutOfZone> {
         match self.get_node(self.apex.prepare_name(name)?) {
@@ -119,7 +119,7 @@ impl ZoneBuilder {
     ///     https://datatracker.ietf.org/doc/html/rfc4033#section-2
     pub fn insert_zone_cut(
         &mut self,
-        name: &impl ToDname,
+        name: &impl ToName,
         ns: SharedRrset,
         ds: Option<SharedRrset>,
         glue: Vec<StoredRecord>,
@@ -142,7 +142,7 @@ impl ZoneBuilder {
     /// [`Cname`]: crate::rdata::rfc1035::Cname
     pub fn insert_cname(
         &mut self,
-        name: &impl ToDname,
+        name: &impl ToName,
         cname: SharedRr,
     ) -> Result<(), CnameError> {
         let node = self.get_node(self.apex.prepare_name(name)?)?;

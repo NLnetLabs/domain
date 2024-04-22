@@ -1,12 +1,12 @@
 //! Building a domain name.
 //!
-//! This is a private module for tidiness. `DnameBuilder` and `PushError`
+//! This is a private module for tidiness. `NameBuilder` and `PushError`
 //! are re-exported by the parent module.
 
 use super::super::scan::{BadSymbol, Symbol, SymbolCharsError, Symbols};
-use super::dname::Dname;
-use super::relative::{RelativeDname, RelativeDnameError};
-use super::traits::{ToDname, ToRelativeDname};
+use super::absolute::Name;
+use super::relative::{RelativeName, RelativeNameError};
+use super::traits::{ToName, ToRelativeName};
 use super::Label;
 #[cfg(feature = "bytes")]
 use bytes::BytesMut;
@@ -15,7 +15,7 @@ use octseq::builder::{EmptyBuilder, FreezeBuilder, OctetsBuilder, ShortBuf};
 #[cfg(feature = "std")]
 use std::vec::Vec;
 
-//------------ DnameBuilder --------------------------------------------------
+//------------ NameBuilder --------------------------------------------------
 
 /// Builds a domain name step by step by appending data.
 ///
@@ -34,7 +34,7 @@ use std::vec::Vec;
 /// The name builder currently is not aware of internationalized domain
 /// names. The octets passed to it are used as is and are not converted.
 #[derive(Clone)]
-pub struct DnameBuilder<Builder> {
+pub struct NameBuilder<Builder> {
     /// The buffer to build the name in.
     builder: Builder,
 
@@ -44,14 +44,14 @@ pub struct DnameBuilder<Builder> {
     head: Option<usize>,
 }
 
-impl<Builder> DnameBuilder<Builder> {
+impl<Builder> NameBuilder<Builder> {
     /// Creates a new domain name builder from an octets builder.
     ///
     /// Whatever is in the buffer already is considered to be a relative
     /// domain name. Since that may not be the case, this function is
     /// unsafe.
     pub(super) unsafe fn from_builder_unchecked(builder: Builder) -> Self {
-        DnameBuilder {
+        NameBuilder {
             builder,
             head: None,
         }
@@ -63,7 +63,7 @@ impl<Builder> DnameBuilder<Builder> {
     where
         Builder: EmptyBuilder,
     {
-        unsafe { DnameBuilder::from_builder_unchecked(Builder::empty()) }
+        unsafe { NameBuilder::from_builder_unchecked(Builder::empty()) }
     }
 
     /// Creates a new, empty builder with a given capacity.
@@ -73,7 +73,7 @@ impl<Builder> DnameBuilder<Builder> {
         Builder: EmptyBuilder,
     {
         unsafe {
-            DnameBuilder::from_builder_unchecked(Builder::with_capacity(
+            NameBuilder::from_builder_unchecked(Builder::with_capacity(
                 capacity,
             ))
         }
@@ -83,17 +83,17 @@ impl<Builder> DnameBuilder<Builder> {
     ///
     /// The function checks that whatever is in the builder already
     /// consititutes a correctly encoded relative domain name.
-    pub fn from_builder(builder: Builder) -> Result<Self, RelativeDnameError>
+    pub fn from_builder(builder: Builder) -> Result<Self, RelativeNameError>
     where
         Builder: OctetsBuilder + AsRef<[u8]>,
     {
-        RelativeDname::check_slice(builder.as_ref())?;
-        Ok(unsafe { DnameBuilder::from_builder_unchecked(builder) })
+        RelativeName::check_slice(builder.as_ref())?;
+        Ok(unsafe { NameBuilder::from_builder_unchecked(builder) })
     }
 }
 
 #[cfg(feature = "std")]
-impl DnameBuilder<Vec<u8>> {
+impl NameBuilder<Vec<u8>> {
     /// Creates an empty domain name builder atop a `Vec<u8>`.
     #[must_use]
     pub fn new_vec() -> Self {
@@ -111,7 +111,7 @@ impl DnameBuilder<Vec<u8>> {
 }
 
 #[cfg(feature = "bytes")]
-impl DnameBuilder<BytesMut> {
+impl NameBuilder<BytesMut> {
     /// Creates an empty domain name bulider atop a bytes value.
     pub fn new_bytes() -> Self {
         Self::new()
@@ -126,7 +126,7 @@ impl DnameBuilder<BytesMut> {
     }
 }
 
-impl<Builder: AsRef<[u8]>> DnameBuilder<Builder> {
+impl<Builder: AsRef<[u8]>> NameBuilder<Builder> {
     /// Returns the already assembled domain name as an octets slice.
     pub fn as_slice(&self) -> &[u8] {
         self.builder.as_ref()
@@ -143,7 +143,7 @@ impl<Builder: AsRef<[u8]>> DnameBuilder<Builder> {
     }
 }
 
-impl<Builder> DnameBuilder<Builder>
+impl<Builder> NameBuilder<Builder>
 where
     Builder: OctetsBuilder + AsRef<[u8]> + AsMut<[u8]>,
 {
@@ -275,7 +275,7 @@ where
     /// bytes.
     //
     //  XXX NEEDS TESTS
-    pub fn append_name<N: ToRelativeDname>(
+    pub fn append_name<N: ToRelativeName>(
         &mut self,
         name: &N,
     ) -> Result<(), PushNameError> {
@@ -346,48 +346,48 @@ where
     /// explicitely.
     ///
     /// This method converts the builder into a relative name. If you would
-    /// like to turn it into an absolute name, use [`into_dname`] which
+    /// like to turn it into an absolute name, use [`into_name`] which
     /// appends the root label before finishing.
     ///
     /// [`end_label`]: #method.end_label
-    /// [`into_dname`]: #method.into_dname
-    pub fn finish(mut self) -> RelativeDname<Builder::Octets>
+    /// [`into_name`]: #method.into_name
+    pub fn finish(mut self) -> RelativeName<Builder::Octets>
     where
         Builder: FreezeBuilder,
     {
         self.end_label();
-        unsafe { RelativeDname::from_octets_unchecked(self.builder.freeze()) }
+        unsafe { RelativeName::from_octets_unchecked(self.builder.freeze()) }
     }
 
-    /// Appends the root label to the name and returns it as a `Dname`.
+    /// Appends the root label to the name and returns it as a `Name`.
     ///
     /// If there currently is a label under construction, ends the label.
     /// Then adds the empty root label and transforms the name into a
-    /// `Dname`.
-    pub fn into_dname(mut self) -> Result<Dname<Builder::Octets>, PushError>
+    /// `Name`.
+    pub fn into_name(mut self) -> Result<Name<Builder::Octets>, PushError>
     where
         Builder: FreezeBuilder,
     {
         self.end_label();
         self._append_slice(&[0])?;
-        Ok(unsafe { Dname::from_octets_unchecked(self.builder.freeze()) })
+        Ok(unsafe { Name::from_octets_unchecked(self.builder.freeze()) })
     }
 
-    /// Appends an origin and returns the resulting `Dname`.
+    /// Appends an origin and returns the resulting `Name`.
     /// If there currently is a label under construction, ends the label.
     /// Then adds the `origin` and transforms the name into a
-    /// `Dname`.
+    /// `Name`.
     //
     //  XXX NEEDS TESTS
-    pub fn append_origin<N: ToDname>(
+    pub fn append_origin<N: ToName>(
         mut self,
         origin: &N,
-    ) -> Result<Dname<Builder::Octets>, PushNameError>
+    ) -> Result<Name<Builder::Octets>, PushNameError>
     where
         Builder: FreezeBuilder,
     {
         self.end_label();
-        if self.len() + usize::from(origin.compose_len()) > Dname::MAX_LEN {
+        if self.len() + usize::from(origin.compose_len()) > Name::MAX_LEN {
             return Err(PushNameError::LongName);
         }
         for label in origin.iter_labels() {
@@ -395,13 +395,13 @@ where
                 .compose(&mut self.builder)
                 .map_err(|_| PushNameError::ShortBuf)?;
         }
-        Ok(unsafe { Dname::from_octets_unchecked(self.builder.freeze()) })
+        Ok(unsafe { Name::from_octets_unchecked(self.builder.freeze()) })
     }
 }
 
 //--- Default
 
-impl<Builder: EmptyBuilder> Default for DnameBuilder<Builder> {
+impl<Builder: EmptyBuilder> Default for NameBuilder<Builder> {
     fn default() -> Self {
         Self::new()
     }
@@ -409,7 +409,7 @@ impl<Builder: EmptyBuilder> Default for DnameBuilder<Builder> {
 
 //--- AsRef
 
-impl<Builder: AsRef<[u8]>> AsRef<[u8]> for DnameBuilder<Builder> {
+impl<Builder: AsRef<[u8]>> AsRef<[u8]> for NameBuilder<Builder> {
     fn as_ref(&self) -> &[u8] {
         self.builder.as_ref()
     }
@@ -708,7 +708,7 @@ mod test {
 
     #[test]
     fn compose() {
-        let mut builder = DnameBuilder::new_vec();
+        let mut builder = NameBuilder::new_vec();
         builder.push(b'w').unwrap();
         builder.append_slice(b"ww").unwrap();
         builder.end_label();
@@ -723,7 +723,7 @@ mod test {
 
     #[test]
     fn build_by_label() {
-        let mut builder = DnameBuilder::new_vec();
+        let mut builder = NameBuilder::new_vec();
         builder.append_label(b"www").unwrap();
         builder.append_label(b"example").unwrap();
         builder.append_label(b"com").unwrap();
@@ -732,7 +732,7 @@ mod test {
 
     #[test]
     fn build_mixed() {
-        let mut builder = DnameBuilder::new_vec();
+        let mut builder = NameBuilder::new_vec();
         builder.push(b'w').unwrap();
         builder.append_slice(b"ww").unwrap();
         builder.append_label(b"example").unwrap();
@@ -742,7 +742,7 @@ mod test {
 
     #[test]
     fn name_limit() {
-        let mut builder = DnameBuilder::new_vec();
+        let mut builder = NameBuilder::new_vec();
         for _ in 0..25 {
             // 9 bytes label is 10 bytes in total
             builder.append_label(b"123456789").unwrap();
@@ -761,7 +761,7 @@ mod test {
 
     #[test]
     fn label_limit() {
-        let mut builder = DnameBuilder::new_vec();
+        let mut builder = NameBuilder::new_vec();
         builder.append_label(&[0u8; 63][..]).unwrap();
         assert_eq!(
             builder.append_label(&[0u8; 64][..]),
@@ -782,7 +782,7 @@ mod test {
 
     #[test]
     fn finish() {
-        let mut builder = DnameBuilder::new_vec();
+        let mut builder = NameBuilder::new_vec();
         builder.append_label(b"www").unwrap();
         builder.append_label(b"example").unwrap();
         builder.append_slice(b"com").unwrap();
@@ -790,13 +790,13 @@ mod test {
     }
 
     #[test]
-    fn into_dname() {
-        let mut builder = DnameBuilder::new_vec();
+    fn into_name() {
+        let mut builder = NameBuilder::new_vec();
         builder.append_label(b"www").unwrap();
         builder.append_label(b"example").unwrap();
         builder.append_slice(b"com").unwrap();
         assert_eq!(
-            builder.into_dname().unwrap().as_slice(),
+            builder.into_name().unwrap().as_slice(),
             b"\x03www\x07example\x03com\x00"
         );
     }
