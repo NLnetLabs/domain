@@ -4,6 +4,10 @@
 
 Breaking changes
 
+* All types and functions referring to dmian names have been changed from
+  using the term “dname” to just “name.” For instance, `Dname` has become
+  `Name`, `ToDname` has become `ToName`, and `ToDname::to_dname` has become
+  `ToName::to_name`. ([#290])
 * The types for IANA-registered parameters in `base::iana` have been
   changed from enums to a newtypes around their underlying integer type
   and associated constants for the registered values. (This was really
@@ -102,6 +106,7 @@ Other changes
 [#285]: https://github.com/NLnetLabs/domain/pull/285
 [#286]: https://github.com/NLnetLabs/domain/pull/286
 [#288]: https://github.com/NLnetLabs/domain/pull/288
+[#290]: https://github.com/NLnetLabs/domain/pull/290
 [#292]: https://github.com/NLnetLabs/domain/pull/292
 [#293]: https://github.com/NLnetLabs/domain/pull/293
 [@torin-carey]: https://github.com/torin-carey
