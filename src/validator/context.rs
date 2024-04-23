@@ -145,6 +145,7 @@ impl<Upstream> ValidationContext<Upstream> {
     {
         // Start with a DS lookup.
         let mut msg = MessageBuilder::new_bytes();
+        msg.header_mut().set_cd(true);
         msg.header_mut().set_rd(true);
         let mut msg = msg.question();
         msg.push((&name, Rtype::DS)).unwrap();
@@ -276,6 +277,7 @@ impl<Upstream> ValidationContext<Upstream> {
 
         // Get the DNSKEY RRset.
         let mut msg = MessageBuilder::new_bytes();
+        msg.header_mut().set_cd(true);
         msg.header_mut().set_rd(true);
         let mut msg = msg.question();
         msg.push((&name, Rtype::DNSKEY)).unwrap();

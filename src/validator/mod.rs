@@ -184,46 +184,69 @@ where
             NsecState::Nothing => (), // Try something else.
         }
 
-        if qtype == Rtype::DS {
-            // RFC 5155, Section 8.6. If there is a closest encloser and
-            // the NSEC3 RR that covers the "next closer" name has the Opt-Out
-            // bit set then we have an insecure proof that the DS record does
-            // not exist.
-            match nsec3_for_not_exists(
-                &sname,
-                &mut authorities,
-                qtype,
-                &signer_name,
-            ) {
-                Nsec3NXState::DoesNotExist(_) => (),
-                Nsec3NXState::DoesNotExistInsecure(_) => {
-                    return Ok(ValidationState::Insecure)
-                }
-                Nsec3NXState::Nothing => (),
-            };
-        }
-
-        // Try to prove that the name does not exist and that a wildcard
-        // exists but does not have the requested qtype.
-        match nsec3_for_nodata_wildcard(
+        // RFC 5155, Section 8.6. If there is a closest encloser and
+        // the NSEC3 RR that covers the "next closer" name has the Opt-Out
+        // bit set then we have an insecure proof that the DS record does
+        // not exist.
+        // Then Errata 3441 says that we need to do the same thing for other
+        // types.
+        let ce = match nsec3_for_not_exists(
             &sname,
             &mut authorities,
             qtype,
             &signer_name,
         ) {
-            Nsec3State::NoData => {
+            Nsec3NXState::DoesNotExist(ce) => ce, // Continue with wildcard.
+            Nsec3NXState::DoesNotExistInsecure(_) => {
+                // Something might exists. Just return insecure here.
+                return Ok(ValidationState::Insecure);
+            }
+            Nsec3NXState::Nothing => todo!(), // We reached the end, return bogus.
+        };
+
+        let star_name = star_closest_encloser(&ce);
+        match nsec3_for_nodata(
+            &star_name,
+            &mut authorities,
+            qtype,
+            &signer_name,
+        ) {
+            NsecState::NoData => {
                 return Ok(map_maybe_secure(
                     ValidationState::Secure,
                     maybe_secure,
-                ))
+                ));
             }
-            Nsec3State::NoDataInsecure => {
-                return Ok(ValidationState::Insecure)
-            }
-            Nsec3State::Nothing => (), // Try something else.
+            NsecState::Nothing => todo!(), // We reached the end, return bogus.
         }
 
         todo!();
+    }
+
+    // Prove NXDOMAIN.
+    // Try to prove that the name does not exist using NSEC.
+    match nsec_for_nxdomain(&sname, &mut authorities, qtype, &signer_name) {
+        NsecNXState::DoesNotExist(_) => {
+            return Ok(map_maybe_secure(
+                ValidationState::Secure,
+                maybe_secure,
+            ))
+        }
+        NsecNXState::Nothing => (), // Try something else.
+    }
+
+    // Try to prove that the name does not exist using NSEC3.
+    match nsec3_for_nxdomain(&sname, &mut authorities, qtype, &signer_name) {
+        Nsec3NXState::DoesNotExist(_) => {
+            return Ok(map_maybe_secure(
+                ValidationState::Secure,
+                maybe_secure,
+            ))
+        }
+        Nsec3NXState::DoesNotExistInsecure(_) => {
+            return Ok(ValidationState::Insecure);
+        }
+        Nsec3NXState::Nothing => (), // Try something else.
     }
 
     todo!();
@@ -415,7 +438,7 @@ fn nsec_for_nodata_wildcard(
         NsecNXState::Nothing => return NsecState::Nothing,
     };
 
-    let star_name = star_closest_encloser(ce);
+    let star_name = star_closest_encloser(&ce);
     nsec_for_nodata(&star_name, groups, rtype, signer_name)
 }
 
@@ -464,7 +487,13 @@ fn nsec_for_not_exists(
         if target.ends_with(&owner) {
             // The owner name of this NSEC is a prefix of target. We need to
             // rule out delegations and DNAME.
-            todo!();
+            let types = nsec.types();
+            if types.contains(Rtype::DNAME)
+                || (types.contains(Rtype::NS) && !types.contains(Rtype::SOA))
+            {
+                // This NSEC record cannot prove non-existance.
+                todo!();
+            }
         }
 
         // Get closest encloser.
@@ -473,6 +502,24 @@ fn nsec_for_not_exists(
         return NsecNXState::DoesNotExist(ce);
     }
     NsecNXState::Nothing
+}
+
+// Find an NSEC record for target that proves that the target does not
+// exist. Then find an NSEC record that proves that the wildcard also does
+// not exist.
+fn nsec_for_nxdomain(
+    target: &Dname<Bytes>,
+    groups: &mut GroupList,
+    rtype: Rtype,
+    signer_name: &Dname<Bytes>,
+) -> NsecNXState {
+    let ce = match nsec_for_not_exists(target, groups, signer_name) {
+        NsecNXState::DoesNotExist(ce) => ce,
+        NsecNXState::Nothing => return NsecNXState::Nothing,
+    };
+
+    let star_name = star_closest_encloser(&ce);
+    nsec_for_not_exists(&star_name, groups, signer_name)
 }
 
 // Find an NSEC3 record for target that proves that no record that matches
@@ -563,7 +610,7 @@ fn nsec3_for_nodata_wildcard(
             Nsec3NXState::Nothing => return Nsec3State::Nothing,
         };
 
-    let star_name = star_closest_encloser(ce);
+    let star_name = star_closest_encloser(&ce);
     match nsec3_for_nodata(&star_name, groups, rtype, signer_name) {
         NsecState::NoData => {
             if secure {
@@ -696,6 +743,101 @@ fn nsec3_for_not_exists(
     todo!();
 }
 
+#[derive(Debug)]
+enum Nsec3NXStateNoCE {
+    DoesNotExist,
+    DoesNotExistInsecure,
+    Nothing,
+}
+
+// Prove that target does not exist using NSEC3 records. Assume that
+// the closest encloser is already know and that we only have to check
+// this specific name. This is typically used to prove that a wildcard does
+// not exist.
+fn nsec3_for_not_exists_no_ce(
+    target: &Dname<Bytes>,
+    groups: &mut GroupList,
+    rtype: Rtype,
+    signer_name: &Dname<Bytes>,
+) -> Nsec3NXStateNoCE {
+    println!("nsec3_for_not_exists_no_ce: proving {target:?} does not exist");
+
+    // Check whether the name exists, or is proven to not exist.
+    for g in groups.iter() {
+        let opt_nsec3_hash = get_checked_nsec3(g, signer_name);
+        let (nsec3, ownerhash) = if let Some(nsec3_hash) = opt_nsec3_hash {
+            nsec3_hash
+        } else {
+            continue;
+        };
+
+        // Create the hash with the parameters in this record. We should
+        // cache the hash.
+        let hash = nsec3_hash(
+            target,
+            nsec3.hash_algorithm(),
+            nsec3.iterations(),
+            nsec3.salt(),
+        );
+
+        println!("got hash {hash:?} and ownerhash {ownerhash:?}");
+
+        // Check if target is between the hash in the first label and the
+        // next_owner field.
+        println!(
+            "nsec3_for_not_exists_no_ce: range {ownerhash:?}..{:?}",
+            nsec3.next_owner()
+        );
+        if nsec3_in_range(hash, ownerhash, nsec3.next_owner()) {
+            println!("nsec3_for_not_exists: found not exist");
+
+            // We found a name that does not exist.
+            if nsec3.opt_out() {
+                // Results based on an opt_out record are insecure.
+                return Nsec3NXStateNoCE::DoesNotExistInsecure;
+            }
+
+            return Nsec3NXStateNoCE::DoesNotExist;
+        }
+
+        // No match, try the next one.
+    }
+
+    todo!();
+}
+
+// Find a closest encloser for target and then find an NSEC3 record that proves
+// that tthe wildcard does not exist.
+// rtype exist.
+fn nsec3_for_nxdomain(
+    target: &Dname<Bytes>,
+    groups: &mut GroupList,
+    rtype: Rtype,
+    signer_name: &Dname<Bytes>,
+) -> Nsec3NXState {
+    let (ce, secure) =
+        match nsec3_for_not_exists(target, groups, rtype, signer_name) {
+            Nsec3NXState::DoesNotExist(ce) => (ce, true),
+            Nsec3NXState::DoesNotExistInsecure(ce) => (ce, false),
+            Nsec3NXState::Nothing => return Nsec3NXState::Nothing,
+        };
+
+    let star_name = star_closest_encloser(&ce);
+    match nsec3_for_not_exists_no_ce(&star_name, groups, rtype, signer_name) {
+        Nsec3NXStateNoCE::DoesNotExist => {
+            if secure {
+                Nsec3NXState::DoesNotExist(ce)
+            } else {
+                Nsec3NXState::DoesNotExistInsecure(ce)
+            }
+        }
+        Nsec3NXStateNoCE::DoesNotExistInsecure => {
+            Nsec3NXState::DoesNotExistInsecure(ce)
+        }
+        Nsec3NXStateNoCE::Nothing => return Nsec3NXState::Nothing,
+    }
+}
+
 fn map_maybe_secure(
     result: ValidationState,
     maybe_secure: ValidationState,
@@ -780,7 +922,7 @@ fn get_checked_nsec(
     if let Some(closest_encloser) = opt_wildcard {
         // The signature is for a wildcard. Make sure that the owner name is
         // equal to the unexpanded wildcard.
-        let star_name = star_closest_encloser(closest_encloser);
+        let star_name = star_closest_encloser(&closest_encloser);
         println!("got star_name {star_name:?}");
         if owner != star_name {
             // The nsec is an expanded wildcard. Ignore.

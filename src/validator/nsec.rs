@@ -93,7 +93,7 @@ where
     }
 }
 
-pub fn star_closest_encloser(ce: Dname<Bytes>) -> Dname<Bytes> {
+pub fn star_closest_encloser(ce: &Dname<Bytes>) -> Dname<Bytes> {
     let mut star_name = DnameBuilder::new_bytes();
     star_name.append_label(Label::wildcard().as_ref()).unwrap();
     let star_name = star_name.append_origin(&ce).unwrap();
