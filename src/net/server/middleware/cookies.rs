@@ -446,7 +446,6 @@ impl<S> CookiesMiddlewareSvc<S> {
         RequestOctets: Octets,
         Target: Composer + Default,
     {
-        trace!("4");
         // https://datatracker.ietf.org/doc/html/rfc7873#section-5.2.1
         // No OPT RR or No COOKIE Option:
         //   If the request lacked a client cookie we don't need to do
