@@ -39,6 +39,7 @@ use std::vec::Vec;
 
 type RrType = Record<Dname<Bytes>, AllRecordData<Bytes, ParsedDname<Bytes>>>;
 type SigType = Record<Dname<Bytes>, Rrsig<Bytes, Dname<Bytes>>>;
+
 #[derive(Debug)]
 pub struct Group {
     rr_set: Vec<RrType>,
@@ -145,6 +146,21 @@ impl Group {
         let mut m_signer_name = self.signer_name.lock().unwrap();
         *m_signer_name = Some(signer_name);
         drop(m_signer_name);
+    }
+
+    pub fn validated(
+        &self,
+        state: ValidationState,
+        signer_name: Dname<Bytes>,
+        wildcard: Option<Dname<Bytes>>,
+    ) -> ValidatedGroup {
+        ValidatedGroup::new(
+            self.rr_set.clone(),
+            self.sig_set.clone(),
+            state,
+            signer_name,
+            wildcard,
+        )
     }
 
     pub fn get_state(&self) -> Option<ValidationState> {
@@ -505,6 +521,78 @@ impl GroupList {
 
     pub fn iter(&mut self) -> Iter<Group> {
         self.0.iter()
+    }
+}
+
+#[derive(Debug)]
+pub struct ValidatedGroup {
+    rr_set: Vec<RrType>,
+    sig_set: Vec<SigType>,
+    state: ValidationState,
+    signer_name: Dname<Bytes>,
+    wildcard: Option<Dname<Bytes>>,
+}
+
+impl ValidatedGroup {
+    fn new(
+        rr_set: Vec<RrType>,
+        sig_set: Vec<SigType>,
+        state: ValidationState,
+        signer_name: Dname<Bytes>,
+        wildcard: Option<Dname<Bytes>>,
+    ) -> ValidatedGroup {
+        ValidatedGroup {
+            rr_set,
+            sig_set,
+            state,
+            signer_name,
+            wildcard,
+        }
+    }
+
+    pub fn class(&self) -> Class {
+        if !self.rr_set.is_empty() {
+            return self.rr_set[0].class();
+        }
+
+        // This may fail if sig_set is empty. But either rr_set or
+        // sig_set is not empty.
+        self.sig_set[0].class()
+    }
+
+    pub fn rtype(&self) -> Rtype {
+        if !self.rr_set.is_empty() {
+            return self.rr_set[0].rtype();
+        }
+
+        // The type in sig_set is always Rrsig
+        Rtype::RRSIG
+    }
+
+    pub fn owner(&self) -> Dname<Bytes> {
+        if !self.rr_set.is_empty() {
+            return self.rr_set[0].owner().to_bytes();
+        }
+
+        // This may fail if sig_set is empty. But either rr_set or
+        // sig_set is not empty.
+        return self.sig_set[0].owner().to_bytes();
+    }
+
+    pub fn state(&self) -> ValidationState {
+        self.state
+    }
+
+    pub fn signer_name(&self) -> Dname<Bytes> {
+        self.signer_name.clone()
+    }
+
+    pub fn wildcard(&self) -> Option<Dname<Bytes>> {
+        self.wildcard.clone()
+    }
+
+    pub fn rr_set(&self) -> Vec<RrType> {
+        self.rr_set.clone()
     }
 }
 

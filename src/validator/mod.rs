@@ -26,8 +26,8 @@ use crate::rdata::Nsec;
 use crate::rdata::Nsec3;
 use context::ValidationContext;
 //use group::Group;
-use group::Group;
 use group::GroupList;
+use group::ValidatedGroup;
 use nsec::nsec3_hash;
 use nsec::nsec3_in_range;
 use nsec::nsec3_label_to_hash;
@@ -76,14 +76,17 @@ where
     // Validate each group. We cannot use iter_mut because it requires a
     // reference with a lifetime that is too long.
     // Group can handle this by hiding the state behind a Mutex.
-    match validate_groups(&mut answers, vc).await {
-        Some(state) => return Ok(state),
-        None => (),
-    }
-    match validate_groups(&mut authorities, vc).await {
-        Some(state) => return Ok(state),
-        None => (),
-    }
+    let mut answers = match validate_groups(&mut answers, vc).await {
+        Ok(vgs) => vgs,
+        Err(ValidationState::Bogus) => return Ok(ValidationState::Bogus),
+        Err(_) => panic!("Invalid ValidationState"),
+    };
+
+    let mut authorities = match validate_groups(&mut authorities, vc).await {
+        Ok(vgs) => vgs,
+        Err(ValidationState::Bogus) => return Ok(ValidationState::Bogus),
+        Err(_) => panic!("Invalid ValidationState"),
+    };
 
     // We may need to update TTLs of signed RRsets
 
@@ -256,7 +259,7 @@ fn do_cname_dname(
     qname: Dname<Bytes>,
     qclass: Class,
     _qtype: Rtype,
-    groups: &mut GroupList,
+    groups: &mut Vec<ValidatedGroup>,
 ) -> Dname<Bytes> {
     for g in groups.iter() {
         if g.class() != qclass {
@@ -276,7 +279,7 @@ fn get_answer_state(
     qname: &Dname<Bytes>,
     qclass: Class,
     qtype: Rtype,
-    groups: &mut GroupList,
+    groups: &mut Vec<ValidatedGroup>,
 ) -> Option<ValidationState> {
     for g in groups.iter() {
         if g.class() != qclass {
@@ -288,7 +291,7 @@ fn get_answer_state(
         if g.owner() != qname {
             continue;
         }
-        return Some(g.get_state().unwrap());
+        return Some(g.state());
     }
     None
 }
@@ -296,7 +299,7 @@ fn get_answer_state(
 fn get_soa_state(
     qname: &Dname<Bytes>,
     qclass: Class,
-    groups: &mut GroupList,
+    groups: &mut Vec<ValidatedGroup>,
 ) -> Option<(ValidationState, Dname<Bytes>)> {
     for g in groups.iter() {
         println!("get_soa_state: trying {g:?} for {qname:?}");
@@ -327,7 +330,7 @@ fn get_soa_state(
             );
             continue;
         }
-        return Some((g.get_state().unwrap(), g.signer_name()));
+        return Some((g.state(), g.signer_name()));
     }
     None
 }
@@ -335,19 +338,20 @@ fn get_soa_state(
 async fn validate_groups<Upstream>(
     groups: &mut GroupList,
     vc: &ValidationContext<Upstream>,
-) -> Option<ValidationState>
+) -> Result<Vec<ValidatedGroup>, ValidationState>
 where
     Upstream: Clone + SendRequest<RequestMessage<Bytes>>,
 {
+    let mut vgs = Vec::new();
     for g in groups.iter() {
         //println!("Validating group {g:?}");
         let (state, wildcard, signer_name) = g.validate_with_vc(vc).await;
         if let ValidationState::Bogus = state {
-            return Some(state);
+            return Err(state);
         }
-        g.set_state_wildcard_signer_name(state, wildcard, signer_name);
+        vgs.push(g.validated(state, signer_name, wildcard));
     }
-    None
+    Ok(vgs)
 }
 
 #[derive(Debug)]
@@ -363,7 +367,7 @@ enum NsecState {
 // check the bitmap or we find target as an empty non-terminal.
 fn nsec_for_nodata(
     target: &Dname<Bytes>,
-    groups: &mut GroupList,
+    groups: &mut Vec<ValidatedGroup>,
     rtype: Rtype,
     signer_name: &Dname<Bytes>,
 ) -> NsecState {
@@ -429,7 +433,7 @@ fn nsec_for_nodata(
 // check the bitmap or we find the wildcard as an empty non-terminal.
 fn nsec_for_nodata_wildcard(
     target: &Dname<Bytes>,
-    groups: &mut GroupList,
+    groups: &mut Vec<ValidatedGroup>,
     rtype: Rtype,
     signer_name: &Dname<Bytes>,
 ) -> NsecState {
@@ -452,7 +456,7 @@ enum NsecNXState {
 // exist. Return the status and the closest encloser.
 fn nsec_for_not_exists(
     target: &Dname<Bytes>,
-    groups: &mut GroupList,
+    groups: &mut Vec<ValidatedGroup>,
     signer_name: &Dname<Bytes>,
 ) -> NsecNXState {
     for g in groups.iter() {
@@ -509,7 +513,7 @@ fn nsec_for_not_exists(
 // not exist.
 fn nsec_for_nxdomain(
     target: &Dname<Bytes>,
-    groups: &mut GroupList,
+    groups: &mut Vec<ValidatedGroup>,
     rtype: Rtype,
     signer_name: &Dname<Bytes>,
 ) -> NsecNXState {
@@ -528,7 +532,7 @@ fn nsec_for_nxdomain(
 // check the bitmap.
 fn nsec3_for_nodata(
     target: &Dname<Bytes>,
-    groups: &mut GroupList,
+    groups: &mut Vec<ValidatedGroup>,
     rtype: Rtype,
     signer_name: &Dname<Bytes>,
 ) -> NsecState {
@@ -599,7 +603,7 @@ enum Nsec3State {
 // rtype exist.
 fn nsec3_for_nodata_wildcard(
     target: &Dname<Bytes>,
-    groups: &mut GroupList,
+    groups: &mut Vec<ValidatedGroup>,
     rtype: Rtype,
     signer_name: &Dname<Bytes>,
 ) -> Nsec3State {
@@ -634,7 +638,7 @@ enum Nsec3NXState {
 // and the closest encloser.
 fn nsec3_for_not_exists(
     target: &Dname<Bytes>,
-    groups: &mut GroupList,
+    groups: &mut Vec<ValidatedGroup>,
     rtype: Rtype,
     signer_name: &Dname<Bytes>,
 ) -> Nsec3NXState {
@@ -756,7 +760,7 @@ enum Nsec3NXStateNoCE {
 // not exist.
 fn nsec3_for_not_exists_no_ce(
     target: &Dname<Bytes>,
-    groups: &mut GroupList,
+    groups: &mut Vec<ValidatedGroup>,
     rtype: Rtype,
     signer_name: &Dname<Bytes>,
 ) -> Nsec3NXStateNoCE {
@@ -811,7 +815,7 @@ fn nsec3_for_not_exists_no_ce(
 // rtype exist.
 fn nsec3_for_nxdomain(
     target: &Dname<Bytes>,
-    groups: &mut GroupList,
+    groups: &mut Vec<ValidatedGroup>,
     rtype: Rtype,
     signer_name: &Dname<Bytes>,
 ) -> Nsec3NXState {
@@ -886,7 +890,7 @@ fn closest_encloser(
 }
 
 fn get_checked_nsec(
-    group: &Group,
+    group: &ValidatedGroup,
     signer_name: &Dname<Bytes>,
 ) -> Option<Nsec<Bytes, ParsedDname<Bytes>>> {
     if group.rtype() != Rtype::NSEC {
@@ -906,7 +910,7 @@ fn get_checked_nsec(
     };
 
     // Check if this group is secure.
-    if let ValidationState::Secure = group.get_state().unwrap() {
+    if let ValidationState::Secure = group.state() {
     } else {
         return None;
     };
@@ -938,7 +942,7 @@ fn get_checked_nsec(
 }
 
 fn get_checked_nsec3(
-    group: &Group,
+    group: &ValidatedGroup,
     signer_name: &Dname<Bytes>,
 ) -> Option<(Nsec3<Bytes>, OwnerHash<Vec<u8>>)> {
     let rrs = group.rr_set();
@@ -953,7 +957,7 @@ fn get_checked_nsec3(
     };
 
     // Check if this group is secure.
-    if let ValidationState::Secure = group.get_state().unwrap() {
+    if let ValidationState::Secure = group.state() {
     } else {
         return None;
     };
