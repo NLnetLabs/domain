@@ -255,21 +255,7 @@ where
             // the options within the existing OPT record plus the new options
             // that we want to add.
             let res = response.opt(|builder| {
-                // Copy the header fields
-                builder.set_version(current_opt.version());
-                builder.set_dnssec_ok(current_opt.dnssec_ok());
-                builder
-                    .set_rcode(current_opt.rcode(copied_response.header()));
-                builder.set_udp_payload_size(current_opt.udp_payload_size());
-
-                // Copy the options
-                for opt in
-                    current_opt.opt().iter::<UnknownOptData<_>>().flatten()
-                {
-                    builder.push(&opt)?;
-                }
-
-                // Invoking the user supplied callback
+                builder.clone_from(&current_opt)?;
                 op(builder)
             });
 
