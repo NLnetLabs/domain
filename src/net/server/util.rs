@@ -7,7 +7,6 @@ use tracing::warn;
 use crate::base::message_builder::{
     AdditionalBuilder, OptBuilder, PushError, QuestionBuilder,
 };
-use crate::base::opt::UnknownOptData;
 use crate::base::wire::Composer;
 use crate::base::Message;
 use crate::base::{MessageBuilder, ParsedName, Rtype, StreamTarget};
