@@ -1,19 +1,23 @@
 //! Zone related errors.
 
-//------------ ZoneCutError --------------------------------------------------
-
 use std::fmt::Display;
+use std::io;
 use std::vec::Vec;
 
 use crate::base::Rtype;
-use crate::zonetree::{StoredDname, StoredRecord};
+use crate::zonefile::inplace;
 
-use super::inplace;
+use super::types::{StoredDname, StoredRecord};
+
+//------------ ZoneCutError --------------------------------------------------
 
 /// A zone cut is not valid with respect to the zone's apex.
 #[derive(Clone, Copy, Debug)]
 pub enum ZoneCutError {
+    /// A zone cut cannot exist outside of the zone.
     OutOfZone,
+
+    /// A zone cut cannot exist at the apex of a zone.
     ZoneCutAtApex,
 }
 
@@ -37,7 +41,10 @@ impl Display for ZoneCutError {
 /// A CNAME is not valid with respect to the zone's apex.
 #[derive(Clone, Copy, Debug)]
 pub enum CnameError {
+    /// A CNAME cannot exist outside of the zone.
     OutOfZone,
+
+    /// A CNAME cannot exist at the apex of a zone.
     CnameAtApex,
 }
 
@@ -64,6 +71,7 @@ pub struct OutOfZone;
 
 //------------ RecordError ---------------------------------------------------
 
+/// A zone file record is invalid.
 #[derive(Clone, Debug)]
 pub enum RecordError {
     /// The class of the record does not match the class of the zone.
@@ -125,15 +133,20 @@ impl Display for RecordError {
 /// A set of problems relating to a zone.
 #[derive(Clone, Debug, Default)]
 pub struct ZoneErrors {
-    errors: Vec<(StoredDname, OwnerError)>,
+    errors: Vec<(StoredDname, ContextError)>,
 }
 
 impl ZoneErrors {
-    pub fn add_error(&mut self, name: StoredDname, error: OwnerError) {
+    /// Add an error to the set.
+    pub fn add_error(&mut self, name: StoredDname, error: ContextError) {
         self.errors.push((name, error))
     }
 
-    pub fn into_result(self) -> Result<(), Self> {
+    /// Unwrap the set of errors.
+    ///
+    /// Returns the set of errors as [Result::Err(ZonErrors)] or [Result::Ok]
+    /// if the set is empty.
+    pub fn unwrap(self) -> Result<(), Self> {
         if self.errors.is_empty() {
             Ok(())
         } else {
@@ -152,10 +165,11 @@ impl Display for ZoneErrors {
     }
 }
 
-//------------ OwnerError ---------------------------------------------------
+//------------ ContextError --------------------------------------------------
 
+/// A zone file record is not correct for its context.
 #[derive(Clone, Debug)]
-pub enum OwnerError {
+pub enum ContextError {
     /// A NS RRset is missing at a zone cut.
     ///
     /// (This happens if there is only a DS RRset.)
@@ -171,17 +185,70 @@ pub enum OwnerError {
     OutOfZone(Rtype),
 }
 
-impl Display for OwnerError {
+impl Display for ContextError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            OwnerError::MissingNs => write!(f, "Missing NS"),
-            OwnerError::InvalidZonecut(err) => {
+            ContextError::MissingNs => write!(f, "Missing NS"),
+            ContextError::InvalidZonecut(err) => {
                 write!(f, "Invalid zone cut: {err}")
             }
-            OwnerError::InvalidCname(err) => {
+            ContextError::InvalidCname(err) => {
                 write!(f, "Invalid CNAME: {err}")
             }
-            OwnerError::OutOfZone(err) => write!(f, "Out of zone: {err}"),
+            ContextError::OutOfZone(err) => write!(f, "Out of zone: {err}"),
+        }
+    }
+}
+
+//------------ ZoneTreeModificationError -------------------------------------
+
+/// An attempt to modify a [`ZoneTree`] failed.
+///
+/// [`ZoneTree`]: crate::zonetree::ZoneTree
+#[derive(Debug)]
+pub enum ZoneTreeModificationError {
+    /// The specified zone already exists.
+    ZoneExists,
+
+    /// The specified zone does not exist.
+    ZoneDoesNotExist,
+
+    /// The operation failed due to an I/O error.
+    Io(io::Error),
+}
+
+impl From<io::Error> for ZoneTreeModificationError {
+    fn from(src: io::Error) -> Self {
+        ZoneTreeModificationError::Io(src)
+    }
+}
+
+impl From<ZoneTreeModificationError> for io::Error {
+    fn from(src: ZoneTreeModificationError) -> Self {
+        match src {
+            ZoneTreeModificationError::Io(err) => err,
+            ZoneTreeModificationError::ZoneDoesNotExist => {
+                io::Error::new(io::ErrorKind::Other, "zone does not exist")
+            }
+            ZoneTreeModificationError::ZoneExists => {
+                io::Error::new(io::ErrorKind::Other, "zone exists")
+            }
+        }
+    }
+}
+
+impl Display for ZoneTreeModificationError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            ZoneTreeModificationError::ZoneExists => {
+                write!(f, "Zone already exists")
+            }
+            ZoneTreeModificationError::ZoneDoesNotExist => {
+                write!(f, "Zone does not exist")
+            }
+            ZoneTreeModificationError::Io(err) => {
+                write!(f, "Io error: {err}")
+            }
         }
     }
 }

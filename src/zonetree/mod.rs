@@ -37,7 +37,8 @@
 //! ```
 //! use domain::base::iana::{Class, Rcode, Rtype};
 //! use domain::base::name::Name;
-//! use domain::zonefile::{inplace, parsed};
+//! use domain::zonefile::inplace;
+//! use domain::zonetree::parsed;
 //! use domain::zonetree::{Answer, Zone, ZoneBuilder, ZoneTree};
 //!
 //! // Prepare some zone file bytes to demonstrate with.
@@ -81,10 +82,12 @@
 //! [`ZoneBuilder`]: in_memory::ZoneBuilder
 
 mod answer;
+pub mod error;
 mod in_memory;
+pub mod parsed;
 mod traits;
 mod tree;
-mod types;
+pub mod types;
 mod walk;
 mod zone;
 
@@ -94,8 +97,6 @@ pub use self::traits::{
     ReadableZone, WritableZone, WritableZoneNode, ZoneStore,
 };
 pub use self::tree::ZoneTree;
-pub use self::types::{
-    Rrset, SharedRr, SharedRrset, StoredDname, StoredRecord,
-};
+pub use self::types::{Rrset, SharedRr, SharedRrset};
 pub use self::walk::WalkOp;
 pub use self::zone::Zone;

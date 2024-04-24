@@ -3,9 +3,10 @@
 //! This is a private module. Its public types are re-exported by the parent.
 
 use super::super::cmp::CanonicalOrd;
+use super::super::net::IpAddr;
 use super::super::scan::{Scanner, Symbol, SymbolCharsError, Symbols};
 use super::super::wire::{FormError, ParseError};
-use super::builder::{FromStrError, NameBuilder};
+use super::builder::{FromStrError, NameBuilder, PushError};
 use super::label::{Label, LabelTypeError, SplitLabelError};
 use super::relative::{NameIter, RelativeName};
 use super::traits::{FlattenInto, ToLabelIter, ToName};
@@ -180,6 +181,42 @@ impl<Octs> Name<Octs> {
         Octs: From<&'static [u8]>,
     {
         unsafe { Self::from_octets_unchecked(b"\0".as_ref().into()) }
+    }
+
+    /// Creates a domain name for reverse IP address lookup.
+    ///
+    /// The returned name will use the standard suffixes of `in-addr.arpa.`
+    /// for IPv4 addresses and `ip6.arpa.` for IPv6.
+    pub fn reverse_from_addr(addr: IpAddr) -> Result<Self, PushError>
+    where
+        Octs: FromBuilder,
+        <Octs as FromBuilder>::Builder: EmptyBuilder
+            + FreezeBuilder<Octets = Octs>
+            + AsRef<[u8]>
+            + AsMut<[u8]>,
+    {
+        let mut builder =
+            NameBuilder::<<Octs as FromBuilder>::Builder>::new();
+        match addr {
+            IpAddr::V4(addr) => {
+                let [a, b, c, d] = addr.octets();
+                builder.append_dec_u8_label(d)?;
+                builder.append_dec_u8_label(c)?;
+                builder.append_dec_u8_label(b)?;
+                builder.append_dec_u8_label(a)?;
+                builder.append_label(b"in-addr")?;
+                builder.append_label(b"arpa")?;
+            }
+            IpAddr::V6(addr) => {
+                for &item in addr.octets().iter().rev() {
+                    builder.append_hex_digit_label(item)?;
+                    builder.append_hex_digit_label(item >> 4)?;
+                }
+                builder.append_label(b"ip6")?;
+                builder.append_label(b"arpa")?;
+            }
+        }
+        builder.into_name()
     }
 }
 
@@ -1324,6 +1361,28 @@ pub(crate) mod test {
         );
     }
 
+    #[test]
+    fn test_dname_from_addr() {
+        type TestName = Name<octseq::array::Array<128>>;
+
+        assert_eq!(
+            TestName::reverse_from_addr([192, 0, 2, 12].into()).unwrap(),
+            TestName::from_str("12.2.0.192.in-addr.arpa").unwrap()
+        );
+        assert_eq!(
+            TestName::reverse_from_addr(
+                [0x2001, 0xdb8, 0x1234, 0x0, 0x5678, 0x1, 0x9abc, 0xdef]
+                    .into()
+            )
+            .unwrap(),
+            TestName::from_str(
+                "f.e.d.0.c.b.a.9.1.0.0.0.8.7.6.5.\
+                 0.0.0.0.4.3.2.1.8.b.d.0.1.0.0.2.\
+                 ip6.arpa"
+            )
+            .unwrap()
+        );
+    }
     // `Name::from_chars` is covered in the `FromStr` test.
     //
     // No tests for the simple conversion methods because, well, simple.
