@@ -2,7 +2,7 @@
 
 #![cfg(feature = "net")]
 
-use crate::base::Dname;
+use crate::base::Name;
 use crate::base::Message;
 use bytes::Bytes;
 //use crate::base::ParseRecordData;
@@ -10,10 +10,10 @@ use crate::base::iana::Class;
 use crate::base::iana::OptRcode;
 use crate::base::opt::ExtendedError;
 //use crate::base::name::Label;
-use crate::base::name::ToDname;
+use crate::base::name::ToName;
 //use crate::base::scan::IterScanner;
-//use crate::base::DnameBuilder;
-use crate::base::ParsedDname;
+//use crate::base::NameBuilder;
+use crate::base::ParsedName;
 use crate::base::Rtype;
 use crate::dep::octseq::Octets;
 //use crate::dep::octseq::OctetsInto;
@@ -116,7 +116,7 @@ where
     if question_section.next().is_some() {
         return Err(Error::FormError);
     }
-    let qname: Dname<Bytes> = question.qname().try_to_dname().unwrap();
+    let qname: Name<Bytes> = question.qname().try_to_name().unwrap();
     let qclass = question.qclass();
     let qtype = question.qtype();
 
@@ -278,11 +278,11 @@ where
 }
 
 fn do_cname_dname(
-    qname: Dname<Bytes>,
+    qname: Name<Bytes>,
     qclass: Class,
     _qtype: Rtype,
     groups: &mut Vec<ValidatedGroup>,
-) -> Dname<Bytes> {
+) -> Name<Bytes> {
     for g in groups.iter() {
         if g.class() != qclass {
             continue;
@@ -298,13 +298,13 @@ fn do_cname_dname(
 }
 
 fn get_answer_state(
-    qname: &Dname<Bytes>,
+    qname: &Name<Bytes>,
     qclass: Class,
     qtype: Rtype,
     groups: &mut Vec<ValidatedGroup>,
 ) -> Option<(
     ValidationState,
-    Option<Dname<Bytes>>,
+    Option<Name<Bytes>>,
     Option<ExtendedError<Bytes>>,
 )> {
     for g in groups.iter() {
@@ -323,10 +323,10 @@ fn get_answer_state(
 }
 
 fn get_soa_state(
-    qname: &Dname<Bytes>,
+    qname: &Name<Bytes>,
     qclass: Class,
     groups: &mut Vec<ValidatedGroup>,
-) -> Option<(ValidationState, Dname<Bytes>)> {
+) -> Option<(ValidationState, Name<Bytes>)> {
     for g in groups.iter() {
         println!("get_soa_state: trying {g:?} for {qname:?}");
         if g.class() != qclass {
@@ -393,10 +393,10 @@ enum NsecState {
 // So we have two possibilities: we find an exact match for target and
 // check the bitmap or we find target as an empty non-terminal.
 fn nsec_for_nodata(
-    target: &Dname<Bytes>,
+    target: &Name<Bytes>,
     groups: &mut Vec<ValidatedGroup>,
     rtype: Rtype,
-    signer_name: &Dname<Bytes>,
+    signer_name: &Name<Bytes>,
 ) -> NsecState {
     for g in groups.iter() {
         let opt_nsec = get_checked_nsec(g, signer_name);
@@ -459,10 +459,10 @@ fn nsec_for_nodata(
 // So we have two possibilities: we find an exact match for the wildcard and
 // check the bitmap or we find the wildcard as an empty non-terminal.
 fn nsec_for_nodata_wildcard(
-    target: &Dname<Bytes>,
+    target: &Name<Bytes>,
     groups: &mut Vec<ValidatedGroup>,
     rtype: Rtype,
-    signer_name: &Dname<Bytes>,
+    signer_name: &Name<Bytes>,
 ) -> NsecState {
     let ce = match nsec_for_not_exists(target, groups, signer_name) {
         NsecNXState::DoesNotExist(ce) => ce,
@@ -475,16 +475,16 @@ fn nsec_for_nodata_wildcard(
 
 #[derive(Debug)]
 enum NsecNXState {
-    DoesNotExist(Dname<Bytes>),
+    DoesNotExist(Name<Bytes>),
     Nothing,
 }
 
 // Find an NSEC record for target that proves that the target does not
 // exist. Return the status and the closest encloser.
 fn nsec_for_not_exists(
-    target: &Dname<Bytes>,
+    target: &Name<Bytes>,
     groups: &mut Vec<ValidatedGroup>,
-    signer_name: &Dname<Bytes>,
+    signer_name: &Name<Bytes>,
 ) -> NsecNXState {
     for g in groups.iter() {
         let opt_nsec = get_checked_nsec(g, signer_name);
@@ -539,10 +539,10 @@ fn nsec_for_not_exists(
 // exist. Then find an NSEC record that proves that the wildcard also does
 // not exist.
 fn nsec_for_nxdomain(
-    target: &Dname<Bytes>,
+    target: &Name<Bytes>,
     groups: &mut Vec<ValidatedGroup>,
     rtype: Rtype,
-    signer_name: &Dname<Bytes>,
+    signer_name: &Name<Bytes>,
 ) -> NsecNXState {
     let ce = match nsec_for_not_exists(target, groups, signer_name) {
         NsecNXState::DoesNotExist(ce) => ce,
@@ -558,10 +558,10 @@ fn nsec_for_nxdomain(
 // owner name where the first label match the NSEC3 hash of target and then
 // check the bitmap.
 fn nsec3_for_nodata(
-    target: &Dname<Bytes>,
+    target: &Name<Bytes>,
     groups: &mut Vec<ValidatedGroup>,
     rtype: Rtype,
-    signer_name: &Dname<Bytes>,
+    signer_name: &Name<Bytes>,
 ) -> NsecState {
     for g in groups.iter() {
         let opt_nsec3_hash = get_checked_nsec3(g, signer_name);
@@ -629,10 +629,10 @@ enum Nsec3State {
 // wildcard that proves that no record that matches
 // rtype exist.
 fn nsec3_for_nodata_wildcard(
-    target: &Dname<Bytes>,
+    target: &Name<Bytes>,
     groups: &mut Vec<ValidatedGroup>,
     rtype: Rtype,
-    signer_name: &Dname<Bytes>,
+    signer_name: &Name<Bytes>,
 ) -> Nsec3State {
     let (ce, secure) =
         match nsec3_for_not_exists(target, groups, rtype, signer_name) {
@@ -656,18 +656,18 @@ fn nsec3_for_nodata_wildcard(
 
 #[derive(Debug)]
 enum Nsec3NXState {
-    DoesNotExist(Dname<Bytes>),
-    DoesNotExistInsecure(Dname<Bytes>),
+    DoesNotExist(Name<Bytes>),
+    DoesNotExistInsecure(Name<Bytes>),
     Nothing,
 }
 
 // Prove that target does not exist using NSEC3 records. Return the status
 // and the closest encloser.
 fn nsec3_for_not_exists(
-    target: &Dname<Bytes>,
+    target: &Name<Bytes>,
     groups: &mut Vec<ValidatedGroup>,
     rtype: Rtype,
-    signer_name: &Dname<Bytes>,
+    signer_name: &Name<Bytes>,
 ) -> Nsec3NXState {
     println!("nsec3_for_not_exists: proving {target:?} does not exist");
 
@@ -727,7 +727,7 @@ fn nsec3_for_not_exists(
                     || (types.contains(Rtype::NS)
                         && !types.contains(Rtype::SOA))
                 {
-                    // Dname or delegation. What do we do?
+                    // Name or delegation. What do we do?
                     todo!();
                 }
                 println!("nsec3_for_not_exists: found match");
@@ -786,10 +786,10 @@ enum Nsec3NXStateNoCE {
 // this specific name. This is typically used to prove that a wildcard does
 // not exist.
 fn nsec3_for_not_exists_no_ce(
-    target: &Dname<Bytes>,
+    target: &Name<Bytes>,
     groups: &mut Vec<ValidatedGroup>,
     rtype: Rtype,
-    signer_name: &Dname<Bytes>,
+    signer_name: &Name<Bytes>,
 ) -> Nsec3NXStateNoCE {
     println!("nsec3_for_not_exists_no_ce: proving {target:?} does not exist");
 
@@ -841,10 +841,10 @@ fn nsec3_for_not_exists_no_ce(
 // that tthe wildcard does not exist.
 // rtype exist.
 fn nsec3_for_nxdomain(
-    target: &Dname<Bytes>,
+    target: &Name<Bytes>,
     groups: &mut Vec<ValidatedGroup>,
     rtype: Rtype,
-    signer_name: &Dname<Bytes>,
+    signer_name: &Name<Bytes>,
 ) -> Nsec3NXState {
     let (ce, secure) =
         match nsec3_for_not_exists(target, groups, rtype, signer_name) {
@@ -881,15 +881,15 @@ fn map_maybe_secure(
 }
 
 fn closest_encloser(
-    target: &Dname<Bytes>,
-    nsec_owner: &Dname<Bytes>,
-    nsec: &Nsec<Bytes, ParsedDname<Bytes>>,
-) -> Dname<Bytes> {
+    target: &Name<Bytes>,
+    nsec_owner: &Name<Bytes>,
+    nsec: &Nsec<Bytes, ParsedName<Bytes>>,
+) -> Name<Bytes> {
     // The closest encloser is the longer suffix of target that exists.
     // Both the owner and the nsec next_name exist. So we compute the
     // longest common suffix for target and each of them and return the longest
     // result.
-    let mut owner_encloser = Dname::root(); // Assume the root if we can't find
+    let mut owner_encloser = Name::root(); // Assume the root if we can't find
                                             // anything.
     for n in nsec_owner.iter_suffixes() {
         if target.ends_with(&n) {
@@ -899,11 +899,11 @@ fn closest_encloser(
     }
     println!("found {owner_encloser:?}");
 
-    let mut next_encloser: Dname<Bytes> = Dname::root(); // Assume the root if we can't find
+    let mut next_encloser: Name<Bytes> = Name::root(); // Assume the root if we can't find
                                                          // anything.
     for n in nsec.next_name().iter_suffixes() {
         if target.ends_with(&n) {
-            next_encloser = n.to_dname();
+            next_encloser = n.to_name();
             break;
         }
     }
@@ -918,8 +918,8 @@ fn closest_encloser(
 
 fn get_checked_nsec(
     group: &ValidatedGroup,
-    signer_name: &Dname<Bytes>,
-) -> Option<Nsec<Bytes, ParsedDname<Bytes>>> {
+    signer_name: &Name<Bytes>,
+) -> Option<Nsec<Bytes, ParsedName<Bytes>>> {
     if group.rtype() != Rtype::NSEC {
         return None;
     }
@@ -970,7 +970,7 @@ fn get_checked_nsec(
 
 fn get_checked_nsec3(
     group: &ValidatedGroup,
-    signer_name: &Dname<Bytes>,
+    signer_name: &Name<Bytes>,
 ) -> Option<(Nsec3<Bytes>, OwnerHash<Vec<u8>>)> {
     let rrs = group.rr_set();
     if rrs.len() != 1 {

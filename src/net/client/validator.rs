@@ -4,7 +4,7 @@ use crate::base::opt::AllOptData;
 use crate::base::opt::ExtendedError;
 use crate::base::Message;
 use crate::base::MessageBuilder;
-use crate::base::ParsedDname;
+use crate::base::ParsedName;
 use crate::base::Rtype;
 use crate::base::StaticCompressor;
 use crate::dep::octseq::OctetsInto;
@@ -335,7 +335,7 @@ fn remove_dnssec(
     let mut target = target.answer();
     for rr in &mut source {
         let rr = rr?
-            .into_record::<AllRecordData<_, ParsedDname<_>>>()?
+            .into_record::<AllRecordData<_, ParsedName<_>>>()?
             .expect("record expected");
         if is_dnssec(rr.rtype()) {
             continue;
@@ -348,7 +348,7 @@ fn remove_dnssec(
     let mut target = target.authority();
     for rr in &mut source {
         let rr = rr?
-            .into_record::<AllRecordData<_, ParsedDname<_>>>()?
+            .into_record::<AllRecordData<_, ParsedName<_>>>()?
             .expect("record expected");
         if is_dnssec(rr.rtype()) {
             continue;
@@ -361,7 +361,7 @@ fn remove_dnssec(
     for rr in source {
         let rr = rr?;
         let rr = rr
-            .into_record::<AllRecordData<_, ParsedDname<_>>>()?
+            .into_record::<AllRecordData<_, ParsedName<_>>>()?
             .expect("record expected");
         if rr.rtype() == Rtype::OPT {
             continue;
@@ -423,7 +423,7 @@ fn add_opt(
     let mut target = target.answer();
     for rr in &mut source {
         let rr = rr?
-            .into_record::<AllRecordData<_, ParsedDname<_>>>()?
+            .into_record::<AllRecordData<_, ParsedName<_>>>()?
             .expect("record expected");
         target.push(rr).unwrap();
     }
@@ -433,7 +433,7 @@ fn add_opt(
     let mut target = target.authority();
     for rr in &mut source {
         let rr = rr?
-            .into_record::<AllRecordData<_, ParsedDname<_>>>()?
+            .into_record::<AllRecordData<_, ParsedName<_>>>()?
             .expect("record expected");
         target.push(rr).unwrap();
     }
@@ -444,7 +444,7 @@ fn add_opt(
         let rr = rr?;
         if rr.rtype() != Rtype::OPT {
             let rr = rr
-                .into_record::<AllRecordData<_, ParsedDname<_>>>()?
+                .into_record::<AllRecordData<_, ParsedName<_>>>()?
                 .expect("record expected");
             target.push(rr).unwrap();
         }

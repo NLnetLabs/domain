@@ -129,9 +129,9 @@ pub trait RrsigExt {
     fn wildcard_closest_encloser<N, D>(
         &self,
         rr: &Record<N, D>,
-    ) -> Option<Dname<Bytes>>
+    ) -> Option<Name<Bytes>>
     where
-        N: ToDname;
+        N: ToName;
 
     /// Attempt to use the cryptographic signature to authenticate the signed data, and thus authenticate the RRSET.
     /// The signed data is expected to be calculated as per [RFC4035, Section 5.3.2](https://tools.ietf.org/html/rfc4035#section-5.3.2).
@@ -161,7 +161,7 @@ pub trait RrsigExt {
     ) -> Result<(), AlgorithmError>;
 }
 
-impl<Octets: AsRef<[u8]>, Name: ToName> RrsigExt for Rrsig<Octets, Name> {
+impl<Octets: AsRef<[u8]>, TN: ToName> RrsigExt for Rrsig<Octets, TN> {
     fn signed_data<N: ToName, D, B: Composer>(
         &self,
         buf: &mut B,
@@ -225,9 +225,9 @@ impl<Octets: AsRef<[u8]>, Name: ToName> RrsigExt for Rrsig<Octets, Name> {
     fn wildcard_closest_encloser<N, D>(
         &self,
         rr: &Record<N, D>,
-    ) -> Option<Dname<Bytes>>
+    ) -> Option<Name<Bytes>>
     where
-        N: ToDname,
+        N: ToName,
     {
         // Handle expanded wildcards as per [RFC4035, Section 5.3.2]
         // (https://tools.ietf.org/html/rfc4035#section-5.3.2).
@@ -244,11 +244,11 @@ impl<Octets: AsRef<[u8]>, Name: ToName> RrsigExt for Rrsig<Octets, Name> {
                     .iter_suffixes()
                     .nth(fqdn_labels - rrsig_labels)
                 {
-                    Some(name) => Dname::from_octets(Bytes::copy_from_slice(
+                    Some(name) => Name::from_octets(Bytes::copy_from_slice(
                         name.as_octets(),
                     ))
                     .unwrap(),
-                    None => Dname::from(fqdn.to_bytes()),
+                    None => Name::from(fqdn.to_bytes()),
                 },
             )
         } else {

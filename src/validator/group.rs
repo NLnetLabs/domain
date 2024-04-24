@@ -6,15 +6,15 @@
 // Name suggested by Yorgos: SignedRrset. Problem, sometimes there are no
 // signatures, sometimes there is a signature but no RRset.
 
-use crate::base::Dname;
-use crate::base::ParsedDname;
+use crate::base::Name;
+use crate::base::ParsedName;
 use crate::base::ParsedRecord;
 use bytes::Bytes;
 //use crate::base::ParseRecordData;
 use crate::base::cmp::CanonicalOrd;
 use crate::base::iana::class::Class;
 use crate::base::iana::ExtendedErrorCode;
-use crate::base::name::ToDname;
+use crate::base::name::ToName;
 use crate::base::opt::exterr::ExtendedError;
 use crate::base::Record;
 use crate::base::Rtype;
@@ -38,16 +38,16 @@ use super::types::ValidationState;
 use std::sync::Mutex;
 use std::vec::Vec;
 
-type RrType = Record<Dname<Bytes>, AllRecordData<Bytes, ParsedDname<Bytes>>>;
-type SigType = Record<Dname<Bytes>, Rrsig<Bytes, Dname<Bytes>>>;
+type RrType = Record<Name<Bytes>, AllRecordData<Bytes, ParsedName<Bytes>>>;
+type SigType = Record<Name<Bytes>, Rrsig<Bytes, Name<Bytes>>>;
 
 #[derive(Debug)]
 pub struct Group {
     rr_set: Vec<RrType>,
     sig_set: Vec<SigType>,
     state: Mutex<Option<ValidationState>>,
-    wildcard: Mutex<Option<Dname<Bytes>>>,
-    signer_name: Mutex<Option<Dname<Bytes>>>,
+    wildcard: Mutex<Option<Name<Bytes>>>,
+    signer_name: Mutex<Option<Name<Bytes>>>,
 }
 
 impl Group {
@@ -68,13 +68,13 @@ impl Group {
         // First check owner.
         if !self.rr_set.is_empty() {
             if self.rr_set[0].owner()
-                != &rr.owner().try_to_dname::<Bytes>().unwrap()
+                != &rr.owner().try_to_name::<Bytes>().unwrap()
             {
                 return Err(());
             }
         } else {
-            if self.sig_set[0].owner().try_to_dname::<Bytes>()
-                != rr.owner().try_to_dname()
+            if self.sig_set[0].owner().try_to_name::<Bytes>()
+                != rr.owner().try_to_name()
             {
                 return Err(());
             }
@@ -95,8 +95,8 @@ impl Group {
 
             if curr_class == rr.class() && curr_rtype == rrsig.type_covered()
             {
-                let rrsig: Rrsig<Bytes, Dname<Bytes>> =
-                    Rrsig::<Bytes, Dname<Bytes>>::new(
+                let rrsig: Rrsig<Bytes, Name<Bytes>> =
+                    Rrsig::<Bytes, Name<Bytes>>::new(
                         rrsig.type_covered(),
                         rrsig.algorithm(),
                         rrsig.labels(),
@@ -104,13 +104,13 @@ impl Group {
                         rrsig.expiration(),
                         rrsig.inception(),
                         rrsig.key_tag(),
-                        rrsig.signer_name().try_to_dname::<Bytes>().unwrap(),
+                        rrsig.signer_name().try_to_name::<Bytes>().unwrap(),
                         Bytes::copy_from_slice(rrsig.signature().as_ref()),
                     )
                     .unwrap();
 
-                let record: Record<Dname<Bytes>, _> = Record::new(
-                    record.owner().try_to_dname::<Bytes>().unwrap(),
+                let record: Record<Name<Bytes>, _> = Record::new(
+                    record.owner().try_to_name::<Bytes>().unwrap(),
                     curr_class,
                     record.ttl(),
                     rrsig,
@@ -135,8 +135,8 @@ impl Group {
     pub fn set_state_wildcard_signer_name(
         &self,
         state: ValidationState,
-        wildcard: Option<Dname<Bytes>>,
-        signer_name: Dname<Bytes>,
+        wildcard: Option<Name<Bytes>>,
+        signer_name: Name<Bytes>,
     ) {
         let mut m_state = self.state.lock().unwrap();
         *m_state = Some(state);
@@ -152,8 +152,8 @@ impl Group {
     pub fn validated(
         &self,
         state: ValidationState,
-        signer_name: Dname<Bytes>,
-        wildcard: Option<Dname<Bytes>>,
+        signer_name: Name<Bytes>,
+        wildcard: Option<Name<Bytes>>,
         ede: Option<ExtendedError<Bytes>>,
     ) -> ValidatedGroup {
         ValidatedGroup::new(
@@ -171,17 +171,17 @@ impl Group {
         *m_state
     }
 
-    pub fn wildcard(&self) -> Option<Dname<Bytes>> {
+    pub fn wildcard(&self) -> Option<Name<Bytes>> {
         let m_wildcard = self.wildcard.lock().unwrap();
         (*m_wildcard).clone()
     }
 
-    pub fn signer_name(&self) -> Dname<Bytes> {
+    pub fn signer_name(&self) -> Name<Bytes> {
         let m_signer_name = self.signer_name.lock().unwrap();
         (*m_signer_name).clone().unwrap()
     }
 
-    pub fn owner(&self) -> Dname<Bytes> {
+    pub fn owner(&self) -> Name<Bytes> {
         if !self.rr_set.is_empty() {
             return self.rr_set[0].owner().to_bytes();
         }
@@ -227,8 +227,8 @@ impl Group {
         vc: &ValidationContext<Upstream>,
     ) -> (
         ValidationState,
-        Dname<Bytes>,
-        Option<Dname<Bytes>>,
+        Name<Bytes>,
+        Option<Name<Bytes>>,
         Option<ExtendedError<Bytes>>,
     )
     where
@@ -254,7 +254,7 @@ impl Group {
         if self.rr_set.is_empty() {
             return (
                 ValidationState::Insecure,
-                Dname::root(),
+                Name::root(),
                 None,
                 Some(
                     ExtendedError::new_with_str(
@@ -293,7 +293,7 @@ impl Group {
         node: &Node,
     ) -> (
         ValidationState,
-        Option<Dname<Bytes>>,
+        Option<Name<Bytes>>,
         Option<ExtendedError<Bytes>>,
     ) {
         // Check the validation state of node. We can return directly if the
@@ -369,10 +369,10 @@ impl Group {
     // Follow RFC 4035, Section 5.3.
     pub fn check_sig(
         &self,
-        sig: &Record<Dname<Bytes>, Rrsig<Bytes, Dname<Bytes>>>,
-        signer_name: &Dname<Bytes>,
+        sig: &Record<Name<Bytes>, Rrsig<Bytes, Name<Bytes>>>,
+        signer_name: &Name<Bytes>,
         key: &Dnskey<Bytes>,
-        key_name: &Dname<Bytes>,
+        key_name: &Name<Bytes>,
         key_tag: u16,
     ) -> bool {
         let ts_now = Timestamp::now();
@@ -555,8 +555,8 @@ pub struct ValidatedGroup {
     rr_set: Vec<RrType>,
     sig_set: Vec<SigType>,
     state: ValidationState,
-    signer_name: Dname<Bytes>,
-    wildcard: Option<Dname<Bytes>>,
+    signer_name: Name<Bytes>,
+    wildcard: Option<Name<Bytes>>,
     ede: Option<ExtendedError<Bytes>>,
 }
 
@@ -565,8 +565,8 @@ impl ValidatedGroup {
         rr_set: Vec<RrType>,
         sig_set: Vec<SigType>,
         state: ValidationState,
-        signer_name: Dname<Bytes>,
-        wildcard: Option<Dname<Bytes>>,
+        signer_name: Name<Bytes>,
+        wildcard: Option<Name<Bytes>>,
         ede: Option<ExtendedError<Bytes>>,
     ) -> ValidatedGroup {
         ValidatedGroup {
@@ -598,7 +598,7 @@ impl ValidatedGroup {
         Rtype::RRSIG
     }
 
-    pub fn owner(&self) -> Dname<Bytes> {
+    pub fn owner(&self) -> Name<Bytes> {
         if !self.rr_set.is_empty() {
             return self.rr_set[0].owner().to_bytes();
         }
@@ -612,11 +612,11 @@ impl ValidatedGroup {
         self.state
     }
 
-    pub fn signer_name(&self) -> Dname<Bytes> {
+    pub fn signer_name(&self) -> Name<Bytes> {
         self.signer_name.clone()
     }
 
-    pub fn wildcard(&self) -> Option<Dname<Bytes>> {
+    pub fn wildcard(&self) -> Option<Name<Bytes>> {
         self.wildcard.clone()
     }
 
@@ -631,10 +631,10 @@ impl ValidatedGroup {
 
 fn to_bytes_record(
     rr: &ParsedRecord<'_, Bytes>,
-) -> Record<Dname<Bytes>, AllRecordData<Bytes, ParsedDname<Bytes>>> {
+) -> Record<Name<Bytes>, AllRecordData<Bytes, ParsedName<Bytes>>> {
     let record = rr.to_record::<AllRecordData<_, _>>().unwrap().unwrap();
-    Record::<Dname<Bytes>, AllRecordData<Bytes, ParsedDname<Bytes>>>::new(
-        rr.owner().try_to_dname::<Bytes>().unwrap(),
+    Record::<Name<Bytes>, AllRecordData<Bytes, ParsedName<Bytes>>>::new(
+        rr.owner().try_to_name::<Bytes>().unwrap(),
         rr.class(),
         rr.ttl(),
         record.data().clone(),

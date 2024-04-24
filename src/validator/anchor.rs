@@ -1,10 +1,10 @@
 // Trust anchor
 
 use crate::base::name::Chain;
-use crate::base::name::Dname;
-use crate::base::name::ToDname;
+use crate::base::name::Name;
+use crate::base::name::ToName;
 use crate::base::Record;
-use crate::base::RelativeDname;
+use crate::base::RelativeName;
 use crate::rdata::ZoneRecordData;
 use crate::zonefile::inplace::Entry;
 use crate::zonefile::inplace::Zonefile;
@@ -17,20 +17,20 @@ use std::vec::Vec;
 // Type of Record we get from Zonefile.
 
 type RrType = Record<
-    Chain<RelativeDname<Bytes>, Dname<Bytes>>,
-    ZoneRecordData<Bytes, Chain<RelativeDname<Bytes>, Dname<Bytes>>>,
+    Chain<RelativeName<Bytes>, Name<Bytes>>,
+    ZoneRecordData<Bytes, Chain<RelativeName<Bytes>, Name<Bytes>>>,
 >;
 
 #[derive(Clone, Debug)]
 pub struct TrustAnchor {
     rrs: Vec<RrType>,
-    owner: Dname<Bytes>,
+    owner: Name<Bytes>,
     label_count: usize,
 }
 
 impl TrustAnchor {
     fn new<'a>(rr: RrType) -> Self {
-        let owner = rr.owner().try_to_dname::<Bytes>().unwrap();
+        let owner = rr.owner().try_to_name::<Bytes>().unwrap();
         let label_count = owner.label_count();
         Self {
             rrs: vec![rr],
@@ -50,7 +50,7 @@ impl TrustAnchor {
         Err(())
     }
 
-    pub fn owner(&self) -> Dname<Bytes> {
+    pub fn owner(&self) -> Name<Bytes> {
         self.owner.clone()
     }
 
@@ -111,7 +111,7 @@ impl TrustAnchors {
         self.0.push(TrustAnchor::new(rr));
     }
 
-    pub fn find<TDN: Debug + ToDname>(
+    pub fn find<TDN: Debug + ToName>(
         &self,
         name: TDN,
     ) -> Option<&TrustAnchor> {

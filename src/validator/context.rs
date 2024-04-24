@@ -14,16 +14,16 @@ use crate::base::iana::ExtendedErrorCode;
 use crate::base::name::Chain;
 use crate::base::name::Label;
 use crate::base::opt::ExtendedError;
-use crate::base::Dname;
+use crate::base::Name;
 use crate::base::MessageBuilder;
-use crate::base::ParsedDname;
+use crate::base::ParsedName;
 use crate::base::Record;
-use crate::base::RelativeDname;
+use crate::base::RelativeName;
 use crate::base::Rtype;
-use crate::base::ToDname;
+use crate::base::ToName;
 use bytes::Bytes;
 //use crate::dep::octseq::Octets;
-//use crate::base::ParsedDname;
+//use crate::base::ParsedName;
 use crate::net::client::request::ComposeRequest;
 use crate::net::client::request::RequestMessage;
 use crate::net::client::request::SendRequest;
@@ -49,7 +49,7 @@ impl<Upstream> ValidationContext<Upstream> {
         Self { ta, upstream }
     }
 
-    pub async fn get_node(&self, name: &Dname<Bytes>) -> Node
+    pub async fn get_node(&self, name: &Name<Bytes>) -> Node
     where
         Upstream: Clone + SendRequest<RequestMessage<Bytes>>,
     {
@@ -64,7 +64,7 @@ impl<Upstream> ValidationContext<Upstream> {
         let Some(ta) = self.ta.find(name) else {
             // Try to get an indeterminate node for the root
             return Node::indeterminate(
-                Dname::root(),
+                Name::root(),
                 Some(
                     ExtendedError::new_with_str(
                         ExtendedErrorCode::DNSSEC_INDETERMINATE,
@@ -120,10 +120,10 @@ impl<Upstream> ValidationContext<Upstream> {
 
     async fn find_closest_node(
         &self,
-        name: &Dname<Bytes>,
+        name: &Name<Bytes>,
         ta: &TrustAnchor,
-        ta_owner: Dname<Bytes>,
-    ) -> (Node, VecDeque<Dname<Bytes>>)
+        ta_owner: Name<Bytes>,
+    ) -> (Node, VecDeque<Name<Bytes>>)
     where
         Upstream: Clone + SendRequest<RequestMessage<Bytes>>,
     {
@@ -150,7 +150,7 @@ impl<Upstream> ValidationContext<Upstream> {
         }
     }
 
-    async fn create_child_node(&self, name: Dname<Bytes>, node: &Node) -> Node
+    async fn create_child_node(&self, name: Name<Bytes>, node: &Node) -> Node
     where
         Upstream: SendRequest<RequestMessage<Bytes>>,
     {
@@ -357,7 +357,7 @@ impl<Upstream> ValidationContext<Upstream> {
                     panic!("expected DNSKEY");
                 };
             let key_tag = dnskey.key_tag();
-            let key_name = r_dnskey.owner().try_to_dname().unwrap();
+            let key_name = r_dnskey.owner().try_to_name().unwrap();
             for sig in (*dnskey_group).clone().sig_iter() {
                 if dnskey_group
                     .check_sig(sig, &key_name, dnskey, &key_name, key_tag)
@@ -409,7 +409,7 @@ impl<Upstream> ValidationContext<Upstream> {
         todo!();
     }
 
-    fn cache_lookup<Octs>(&self, _name: &Dname<Octs>) -> Option<Node> {
+    fn cache_lookup<Octs>(&self, _name: &Name<Octs>) -> Option<Node> {
         None
     }
 }
@@ -420,14 +420,14 @@ pub struct Node {
 
     // This should be part of the state of the node
     keys: Vec<Dnskey<Bytes>>,
-    signer_name: Dname<Bytes>,
+    signer_name: Name<Bytes>,
     intermediate: bool,
     ede: Option<ExtendedError<Bytes>>,
 }
 
 impl Node {
     fn indeterminate(
-        name: Dname<Bytes>,
+        name: Name<Bytes>,
         ede: Option<ExtendedError<Bytes>>,
     ) -> Self {
         Self {
@@ -490,7 +490,7 @@ impl Node {
                     continue;
                 };
             let key_tag = tkey_dnskey.key_tag();
-            let key_name = tkey.owner().try_to_dname().unwrap();
+            let key_name = tkey.owner().try_to_name().unwrap();
             for sig in (*dnskeys).clone().sig_iter() {
                 if dnskeys.check_sig(
                     sig,
@@ -541,7 +541,7 @@ impl Node {
     }
 
     pub fn new_delegation(
-        signer_name: Dname<Bytes>,
+        signer_name: Name<Bytes>,
         state: ValidationState,
         keys: Vec<Dnskey<Bytes>>,
         ede: Option<ExtendedError<Bytes>>,
@@ -556,9 +556,9 @@ impl Node {
     }
 
     pub fn new_intermediate(
-        name: Dname<Bytes>,
+        name: Name<Bytes>,
         state: ValidationState,
-        signer_name: Dname<Bytes>,
+        signer_name: Name<Bytes>,
         ede: Option<ExtendedError<Bytes>>,
     ) -> Self {
         println!("new_intermediate: for {name:?} signer {signer_name:?}");
@@ -583,7 +583,7 @@ impl Node {
         &self.keys
     }
 
-    pub fn signer_name(&self) -> &Dname<Bytes> {
+    pub fn signer_name(&self) -> &Name<Bytes> {
         &self.signer_name
     }
 
@@ -595,8 +595,8 @@ impl Node {
 fn has_key(
     dnskeys: &Group,
     tkey: &Record<
-        Chain<RelativeDname<Bytes>, Dname<Bytes>>,
-        ZoneRecordData<Bytes, Chain<RelativeDname<Bytes>, Dname<Bytes>>>,
+        Chain<RelativeName<Bytes>, Name<Bytes>>,
+        ZoneRecordData<Bytes, Chain<RelativeName<Bytes>, Name<Bytes>>>,
     >,
 ) -> bool {
     let tkey_dnskey = if let ZoneRecordData::Dnskey(dnskey) = tkey.data() {
@@ -609,7 +609,7 @@ fn has_key(
         let AllRecordData::Dnskey(key_dnskey) = key.data() else {
             continue;
         };
-        if tkey.owner().try_to_dname::<Bytes>().unwrap() != key.owner() {
+        if tkey.owner().try_to_name::<Bytes>().unwrap() != key.owner() {
             continue;
         }
         if tkey.class() != key.class() {
@@ -629,7 +629,7 @@ fn has_key(
 fn find_key_for_ds(
     ds: &Ds<Bytes>,
     dnskey_group: &Group,
-) -> Option<Record<Dname<Bytes>, AllRecordData<Bytes, ParsedDname<Bytes>>>> {
+) -> Option<Record<Name<Bytes>, AllRecordData<Bytes, ParsedName<Bytes>>>> {
     let ds_alg = ds.algorithm();
     let ds_tag = ds.key_tag();
     let digest_type = ds.digest_type();
@@ -669,7 +669,7 @@ enum NsecState {
 // So we have two possibilities: we find an exact match for the name and
 // check the bitmap or we find the name as an empty non-terminal.
 fn nsec_for_ds(
-    target: &Dname<Bytes>,
+    target: &Name<Bytes>,
     groups: &mut GroupList,
     node: &Node,
 ) -> NsecState {
@@ -755,7 +755,7 @@ fn nsec_for_ds(
 // name and check the bitmap or we find that the name does not exist, but
 // the NSEC3 record uses opt-out.
 fn nsec3_for_ds(
-    target: &Dname<Bytes>,
+    target: &Name<Bytes>,
     groups: &mut GroupList,
     node: &Node,
 ) -> NsecState {
@@ -794,7 +794,7 @@ fn nsec3_for_ds(
         println!("got hash {hash:?} and first {first:?}");
 
         // Make sure the NSEC3 record is from an appropriate zone.
-        if !target.ends_with(&owner.parent().unwrap_or_else(|| Dname::root()))
+        if !target.ends_with(&owner.parent().unwrap_or_else(|| Name::root()))
         {
             // Matching hash but wrong zone. Skip.
             todo!();

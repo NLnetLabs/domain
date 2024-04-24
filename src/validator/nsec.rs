@@ -2,9 +2,9 @@
 
 use crate::base::iana::Nsec3HashAlg;
 use crate::base::name::Label;
-use crate::base::name::ToDname;
-use crate::base::Dname;
-use crate::base::DnameBuilder;
+use crate::base::name::ToName;
+use crate::base::Name;
+use crate::base::NameBuilder;
 use crate::dep::octseq::Octets;
 use crate::dep::octseq::OctetsBuilder;
 use crate::rdata::nsec3::Nsec3Salt;
@@ -32,7 +32,7 @@ pub fn nsec3_hash<N, HashOcts>(
     salt: &Nsec3Salt<HashOcts>,
 ) -> OwnerHash<Vec<u8>>
 where
-    N: ToDname,
+    N: ToName,
     HashOcts: AsRef<[u8]>,
 {
     let mut buf = Vec::new();
@@ -93,8 +93,8 @@ where
     }
 }
 
-pub fn star_closest_encloser(ce: &Dname<Bytes>) -> Dname<Bytes> {
-    let mut star_name = DnameBuilder::new_bytes();
+pub fn star_closest_encloser(ce: &Name<Bytes>) -> Name<Bytes> {
+    let mut star_name = NameBuilder::new_bytes();
     star_name.append_label(Label::wildcard().as_ref()).unwrap();
     let star_name = star_name.append_origin(&ce).unwrap();
     star_name
