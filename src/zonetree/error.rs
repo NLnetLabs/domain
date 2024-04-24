@@ -1,6 +1,7 @@
 //! Zone related errors.
 
 use std::fmt::Display;
+use std::io;
 use std::vec::Vec;
 
 use crate::base::Rtype;
@@ -182,6 +183,51 @@ impl Display for OwnerError {
                 write!(f, "Invalid CNAME: {err}")
             }
             OwnerError::OutOfZone(err) => write!(f, "Out of zone: {err}"),
+        }
+    }
+}
+
+//------------ ZoneTreeModificationError -------------------------------------
+
+#[derive(Debug)]
+pub enum ZoneTreeModificationError {
+    ZoneExists,
+    ZoneDoesNotExist,
+    Io(io::Error),
+}
+
+impl From<io::Error> for ZoneTreeModificationError {
+    fn from(src: io::Error) -> Self {
+        ZoneTreeModificationError::Io(src)
+    }
+}
+
+impl From<ZoneTreeModificationError> for io::Error {
+    fn from(src: ZoneTreeModificationError) -> Self {
+        match src {
+            ZoneTreeModificationError::Io(err) => err,
+            ZoneTreeModificationError::ZoneDoesNotExist => {
+                io::Error::new(io::ErrorKind::Other, "zone does not exist")
+            }
+            ZoneTreeModificationError::ZoneExists => {
+                io::Error::new(io::ErrorKind::Other, "zone exists")
+            }
+        }
+    }
+}
+
+impl Display for ZoneTreeModificationError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            ZoneTreeModificationError::ZoneExists => {
+                write!(f, "Zone already exists")
+            }
+            ZoneTreeModificationError::ZoneDoesNotExist => {
+                write!(f, "Zone does not exist")
+            }
+            ZoneTreeModificationError::Io(err) => {
+                write!(f, "Io error: {err}")
+            }
         }
     }
 }
