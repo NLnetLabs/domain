@@ -22,7 +22,7 @@ use crate::base::wire::Composer;
 //------------ UdpTransportContext -------------------------------------------
 
 /// Request context for a UDP transport.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct UdpTransportContext {
     /// Optional maximum response size hint.
     max_response_size_hint: Arc<Mutex<Option<u16>>>,
@@ -136,6 +136,22 @@ impl TransportSpecificContext {
     /// Was the message received over a non-UDP transport?
     pub fn is_non_udp(&self) -> bool {
         matches!(self, Self::NonUdp(_))
+    }
+}
+
+//--- impl From<UdpTransportContext>
+
+impl From<UdpTransportContext> for TransportSpecificContext {
+    fn from(ctx: UdpTransportContext) -> Self {
+        Self::Udp(ctx)
+    }
+}
+
+//--- impl From<NonUdpTransportContext>
+
+impl From<NonUdpTransportContext> for TransportSpecificContext {
+    fn from(ctx: NonUdpTransportContext) -> Self {
+        Self::NonUdp(ctx)
     }
 }
 

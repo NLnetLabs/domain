@@ -315,3 +315,176 @@ where
 
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use bytes::Bytes;
+    use tokio::time::Instant;
+
+    use crate::base::{Message, MessageBuilder, Name, Rtype, StreamTarget};
+    use crate::net::server::message::{Request, UdpTransportContext};
+
+    use super::start_reply;
+    use crate::base::iana::{OptRcode, Rcode};
+    use crate::base::message_builder::AdditionalBuilder;
+    use crate::base::wire::Composer;
+    use crate::net::server::util::{
+        add_edns_options, remove_edns_opt_record,
+    };
+    use std::vec::Vec;
+
+    #[test]
+    fn test_add_edns_option() {
+        // Given a dummy DNS query.
+        let query = MessageBuilder::new_vec();
+        let mut query = query.question();
+        query.push((Name::<Bytes>::root(), Rtype::A)).unwrap();
+        let msg = query.into_message();
+
+        // Package it into a received request.
+        let client_ip = "127.0.0.1:12345".parse().unwrap();
+        let sent_at = Instant::now();
+        let ctx = UdpTransportContext::default();
+        let request = Request::new(client_ip, sent_at, msg, ctx.into());
+
+        // Create a dummy DNS reply which does not yet have an OPT record.
+        let reply = start_reply::<_, Vec<u8>>(&request);
+        assert_eq!(reply.counts().arcount(), 0);
+        assert_eq!(reply.header().rcode(), Rcode::NOERROR);
+
+        // Add an OPT record to the reply.
+        let mut reply = reply.additional();
+        reply
+            .opt(|builder| {
+                builder.set_rcode(OptRcode::BADCOOKIE);
+                builder.set_udp_payload_size(123);
+                Ok(())
+            })
+            .unwrap();
+        assert_eq!(reply.counts().arcount(), 1);
+
+        // When an OPT record exists the RCODE of the DNS message is extended
+        // from 4-bits to 12-bits, combining the original 4-bit RCODE in the
+        // DNS message header with an additional 8-bits in the OPT record
+        // header. This causes the main DNS header RCODE value to seem wrong
+        // if inspected in isolation. We set the RCODE to BADCOOKIE but that
+        // has value 23 which exceeds the 4-bit range maximum value and so is
+        // encoded as a full 12-bit RCODE. 23 in binary is 0001_0111 which as
+        // you can see causes the lower 4-bits to have value 0111 which is 7.
+        let expected_rcode = Rcode::checked_from_int(0b0111).unwrap();
+        assert_eq!(reply.header().rcode(), expected_rcode);
+
+        // Note: We can't test the upper 8-bits of the extended RCODE as there
+        // is no way to access the OPT record header via a message builder. We
+        // can however serialize the message and deserialize it again and
+        // check it via the Message interface.
+        let response = assert_opt(
+            reply.clone(),
+            expected_rcode,
+            Some(OptRcode::BADCOOKIE),
+        );
+
+        // And that it has no EDNS options.
+        let opt = response.opt().unwrap();
+        let options = opt.opt();
+        assert_eq!(options.len(), 0);
+
+        // Now add an EDNS option to the OPT record.
+        add_edns_options(&mut reply, |builder| builder.padding(123)).unwrap();
+
+        // And verify that the OPT record still exists as expected.
+        let response = assert_opt(
+            reply.clone(),
+            expected_rcode,
+            Some(OptRcode::BADCOOKIE),
+        );
+
+        // And that it has a single EDNS option.
+        let opt = response.opt().unwrap();
+        let options = opt.opt();
+        assert_eq!(options.len(), 1);
+
+        // Now add another EDNS option to the OPT record (duplicates are allowed
+        // by RFC 6891).
+        add_edns_options(&mut reply, |builder| builder.padding(123)).unwrap();
+
+        // And verify that the OPT record still exists as expected.
+        let response = assert_opt(
+            reply.clone(),
+            expected_rcode,
+            Some(OptRcode::BADCOOKIE),
+        );
+
+        // And that it has a single EDNS option.
+        let opt = response.opt().unwrap();
+        let options = opt.opt();
+        assert_eq!(options.len(), 2);
+    }
+
+    #[test]
+    fn test_remove_edns_opt_record() {
+        // Given a dummy DNS query.
+        let query = MessageBuilder::new_vec();
+        let mut query = query.question();
+        query.push((Name::<Bytes>::root(), Rtype::A)).unwrap();
+        let msg = query.into_message();
+
+        // Package it into a received request.
+        let client_ip = "127.0.0.1:12345".parse().unwrap();
+        let sent_at = Instant::now();
+        let ctx = UdpTransportContext::default();
+        let request = Request::new(client_ip, sent_at, msg, ctx.into());
+
+        // Create a dummy DNS reply which does not yet have an OPT record.
+        let reply = start_reply::<_, Vec<u8>>(&request);
+        assert_eq!(reply.counts().arcount(), 0);
+
+        // Add an OPT record to the reply.
+        let mut reply = reply.additional();
+        reply.opt(|builder| builder.padding(32)).unwrap();
+        assert_eq!(reply.counts().arcount(), 1);
+
+        // Note: We can't test that the OPT record exists or inspect its properties
+        // when using a MessageBuilder, but we can if we serialize it and deserialize
+        // it again as a Message.
+        assert_opt(reply.clone(), Rcode::NOERROR, Some(OptRcode::NOERROR));
+
+        // Now remove the OPT record from the saved reply.
+        remove_edns_opt_record(&mut reply).unwrap();
+
+        // And verify that the OPT record no longer exists when serialized and
+        // deserialized again.
+        assert_opt(reply.clone(), Rcode::NOERROR, None);
+    }
+
+    //------------ Helper functions ------------------------------------------
+
+    fn assert_opt<Target: Composer>(
+        reply: AdditionalBuilder<StreamTarget<Target>>,
+        expected_rcode: Rcode,
+        expected_opt_rcode: Option<OptRcode>,
+    ) -> Message<Vec<u8>> {
+        // Serialize the reply to wire format so that we can test that the OPT
+        // record was really added to a finally constructed DNS message and
+        // has the expected RCODE and OPT extended RCODE values.
+        let response = reply.finish();
+        let response_bytes = response.as_dgram_slice().to_vec();
+        let response = Message::from_octets(response_bytes).unwrap();
+
+        assert_eq!(response.header().rcode(), expected_rcode);
+        match expected_opt_rcode {
+            Some(opt_rcode) => {
+                assert_eq!(response.header_counts().arcount(), 1);
+                assert!(response.opt().is_some());
+                assert_eq!(response.opt_rcode(), opt_rcode);
+            }
+
+            None => {
+                assert_eq!(response.header_counts().arcount(), 0);
+                assert!(response.opt().is_none());
+            }
+        }
+
+        response
+    }
+}
