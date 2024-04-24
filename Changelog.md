@@ -62,6 +62,9 @@ New
   `Opt`, and `SvcbRdata`. ([#293])
 * Added `Name::reverse_from_addr` that creates a domain name for the
   reverse lookup of an IP address. ([#289])
+* Added `OptBuilder::clone_from` to replace the OPT record with the
+  content of another OPT record. ([#299])
+* Added `Message::for_slice_ref` that returns a `Message<&[u8]>`. ([#300])
 
 Bug fixes
 
@@ -117,6 +120,8 @@ Other changes
 [#292]: https://github.com/NLnetLabs/domain/pull/292
 [#293]: https://github.com/NLnetLabs/domain/pull/293
 [#296]: https://github.com/NLnetLabs/domain/pull/296
+[#299]: https://github.com/NLnetLabs/domain/pull/299
+[#300]: https://github.com/NLnetLabs/domain/pull/300
 [@torin-carey]: https://github.com/torin-carey
 [@hunts]: https://github.com/hunts
 
