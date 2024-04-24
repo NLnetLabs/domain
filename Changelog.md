@@ -4,7 +4,7 @@
 
 Breaking changes
 
-* All types and functions referring to dmian names have been changed from
+* All types and functions referring to domain names have been changed from
   using the term “dname” to just “name.” For instance, `Dname` has become
   `Name`, `ToDname` has become `ToName`, and `ToDname::to_dname` has become
   `ToName::to_name`. ([#290])
@@ -15,7 +15,7 @@ Breaking changes
 * The types for IANA-registered parameters in `base::iana` have been
   changed from enums to a newtypes around their underlying integer type
   and associated constants for the registered values. (This was really
-  always the better way to structure this.) ([#276])
+  always the better way to structure this.) ([#276], [#298])
 * The `Txt` record data type now rejects empty record data as invalid. As
   a consequence `TxtBuilder` converts an empty builder into TXT record
   data consisting of one empty character string which requires
@@ -120,6 +120,7 @@ Other changes
 [#292]: https://github.com/NLnetLabs/domain/pull/292
 [#293]: https://github.com/NLnetLabs/domain/pull/293
 [#296]: https://github.com/NLnetLabs/domain/pull/296
+[#298]: https://github.com/NLnetLabs/domain/pull/298
 [#299]: https://github.com/NLnetLabs/domain/pull/299
 [#300]: https://github.com/NLnetLabs/domain/pull/300
 [@torin-carey]: https://github.com/torin-carey
