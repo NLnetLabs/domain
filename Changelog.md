@@ -8,14 +8,14 @@ Breaking changes
   using the term “dname” to just “name.” For instance, `Dname` has become
   `Name`, `ToDname` has become `ToName`, and `ToDname::to_dname` has become
   `ToName::to_name`. ([#290])
+* The `ToDname` and `ToRelativeDname` traits have been changed to have a
+  pair of methods a la `try_to_name` and `to_name` for octets builders
+  with limited and unlimited buffers, reflecting the pattern used
+  elsewhere. ([#285])
 * The types for IANA-registered parameters in `base::iana` have been
   changed from enums to a newtypes around their underlying integer type
   and associated constants for the registered values. (This was really
   always the better way to structure this.) ([#276])
-* The `ToDname` and `ToRelativeDname` traits have been changed to have a
-  pair of methods a la `try_to_dname` and `to_dname` for octets builders
-  with limited and unlimited buffers, reflecting the pattern used
-  elsewhere. ([#285])
 * The `Txt` record data type now rejects empty record data as invalid. As
   a consequence `TxtBuilder` converts an empty builder into TXT record
   data consisting of one empty character string which requires
@@ -35,6 +35,10 @@ Breaking changes
 * The stub resolver now uses the new client transports. This doesn’t change
   how it is used but does change how it queries the configured servers.
   ([#215])
+* The sub resolver’s server configuration `Transport` type has been
+  changed to be either `Transport::UdpTcp` for trying UDP and if that
+  leads to a truncated answer try TCP and `Transport::Tcp` for only trying
+  TCP. The stub resolver uses these accordingly now ([#296])
 * Many error types have been changed from enums to structs that hide
   internal error details. Enums have been kept for errors where
   distinguishing variants might be meaningful for dealing with the error.
@@ -56,6 +60,8 @@ New
   the specific options types that didn’t have them yet. ([#257])
 * Added missing ordering impls to `ZoneRecordData`, `AllRecordData`,
   `Opt`, and `SvcbRdata`. ([#293])
+* Added `Name::reverse_from_addr` that creates a domain name for the
+  reverse lookup of an IP address. ([#289])
 
 Bug fixes
 
@@ -106,9 +112,11 @@ Other changes
 [#285]: https://github.com/NLnetLabs/domain/pull/285
 [#286]: https://github.com/NLnetLabs/domain/pull/286
 [#288]: https://github.com/NLnetLabs/domain/pull/288
+[#289]: https://github.com/NLnetLabs/domain/pull/289
 [#290]: https://github.com/NLnetLabs/domain/pull/290
 [#292]: https://github.com/NLnetLabs/domain/pull/292
 [#293]: https://github.com/NLnetLabs/domain/pull/293
+[#296]: https://github.com/NLnetLabs/domain/pull/296
 [@torin-carey]: https://github.com/torin-carey
 [@hunts]: https://github.com/hunts
 
