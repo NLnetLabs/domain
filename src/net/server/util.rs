@@ -4,6 +4,7 @@ use std::string::{String, ToString};
 use octseq::{Octets, OctetsBuilder};
 use tracing::warn;
 
+use crate::base::iana::Rcode;
 use crate::base::message_builder::{
     AdditionalBuilder, OptBuilder, PushError, QuestionBuilder,
 };
@@ -14,7 +15,6 @@ use crate::rdata::AllRecordData;
 
 use super::message::Request;
 use super::service::{CallResult, Service, ServiceError, Transaction};
-use crate::base::iana::Rcode;
 
 //----------- mk_builder_for_target() ----------------------------------------
 
