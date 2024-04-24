@@ -268,6 +268,14 @@ impl<Octs: ?Sized> Message<Octs> {
     {
         unsafe { Message::from_slice_unchecked(self.octets.as_ref()) }
     }
+
+    /// Returns a message for a slice reference.
+    pub fn for_slice_ref(&self) -> Message<&[u8]>
+    where
+        Octs: AsRef<[u8]>,
+    {
+        unsafe { Message::from_octets_unchecked(self.octets.as_ref()) }
+    }
 }
 
 /// # Header Section
