@@ -135,7 +135,7 @@ use super::iana::Rtype;
 use super::iana::{OptRcode, OptionCode, Rcode};
 use super::message::Message;
 use super::name::{Label, ToName};
-use super::opt::{ComposeOptData, OptHeader};
+use super::opt::{ComposeOptData, OptHeader, OptRecord};
 use super::question::ComposeQuestion;
 use super::record::ComposeRecord;
 use super::wire::{Compose, Composer};
@@ -1591,6 +1591,16 @@ impl<'a, Target: Composer + ?Sized> OptBuilder<'a, Target> {
                 Err(ShortBuf)
             }
         }
+    }
+
+    /// Replaces the contents of this [`OptBuilder`] with the given
+    /// [`OptRecord`]`.
+    pub fn clone_from<T: AsRef<[u8]>>(
+        &mut self,
+        source: &OptRecord<T>,
+    ) -> Result<(), Target::AppendError> {
+        self.target.truncate(self.start);
+        source.as_record().compose(self.target)
     }
 
     /// Appends an option to the OPT record.
