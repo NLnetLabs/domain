@@ -87,7 +87,7 @@ mod in_memory;
 pub mod parsed;
 mod traits;
 mod tree;
-mod types;
+pub mod types;
 mod walk;
 mod zone;
 

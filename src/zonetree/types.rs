@@ -1,3 +1,4 @@
+//! Zone tree related types.
 use std::ops;
 use std::sync::Arc;
 use std::vec::Vec;
@@ -230,10 +231,18 @@ impl Serialize for SharedRrset {
 
 //------------ ZoneCut -------------------------------------------------------
 
+/// The representation of a zone cut within a zone tree.
 #[derive(Clone, Debug)]
 pub struct ZoneCut {
+    /// The owner name where the zone cut occurs.
     pub name: StoredDname,
+
+    /// The NS record at the zone cut.
     pub ns: SharedRrset,
+
+    /// The DS record at the zone cut (optional).
     pub ds: Option<SharedRrset>,
+
+    /// Zero or more glue records at the zone cut.
     pub glue: Vec<StoredRecord>,
 }
