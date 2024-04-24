@@ -6,7 +6,7 @@ use crate::base::message::Message;
 use crate::base::message_builder::{
     AdditionalBuilder, AnswerBuilder, MessageBuilder, StreamTarget,
 };
-use crate::base::name::Dname;
+use crate::base::name::Name;
 use crate::base::record::Ttl;
 use crate::rdata::tsig::Time48;
 use crate::rdata::{Soa, A};
@@ -48,7 +48,7 @@ fn tsig_client_nsd() {
     let (key, secret) = tsig::Key::generate(
         tsig::Algorithm::Sha1,
         &rng,
-        Dname::from_str("test.key.").unwrap(),
+        Name::from_str("test.key.").unwrap(),
         None,
         None,
     )
@@ -84,7 +84,7 @@ fn tsig_client_nsd() {
         // Create an AXFR request and send it to NSD.
         let request = TestBuilder::new_stream_vec();
         let mut request = request
-            .request_axfr(Dname::<Vec<u8>>::from_str("example.com.").unwrap())
+            .request_axfr(Name::<Vec<u8>>::from_str("example.com.").unwrap())
             .unwrap()
             .additional();
         let tran = tsig::ClientTransaction::request(
@@ -127,7 +127,7 @@ fn tsig_server_drill() {
     let (key, secret) = tsig::Key::generate(
         tsig::Algorithm::Sha1,
         &rng,
-        Dname::from_str("test.key.").unwrap(),
+        Name::from_str("test.key.").unwrap(),
         None,
         None,
     )
@@ -199,7 +199,7 @@ fn tsig_client_sequence_nsd() {
     let (key, secret) = tsig::Key::generate(
         tsig::Algorithm::Sha1,
         &rng,
-        Dname::from_str("test.key.").unwrap(),
+        Name::from_str("test.key.").unwrap(),
         None,
         None,
     )
@@ -235,7 +235,7 @@ fn tsig_client_sequence_nsd() {
         let mut sock = TcpStream::connect("127.0.0.1:54323").unwrap();
         let request = TestBuilder::new_stream_vec();
         let mut request = request
-            .request_axfr(Dname::<Vec<u8>>::from_str("example.com.").unwrap())
+            .request_axfr(Name::<Vec<u8>>::from_str("example.com.").unwrap())
             .unwrap()
             .additional();
         let mut tran =
@@ -277,7 +277,7 @@ fn tsig_server_sequence_drill() {
     let (key, secret) = tsig::Key::generate(
         tsig::Algorithm::Sha1,
         &rng,
-        Dname::from_str("test.key.").unwrap(),
+        Name::from_str("test.key.").unwrap(),
         None,
         None,
     )
@@ -376,11 +376,11 @@ fn make_last_axfr(request: &TestMessage) -> TestAdditional {
 fn push_soa(builder: &mut TestAnswer) {
     builder
         .push((
-            Dname::<Vec<u8>>::from_str("example.com.").unwrap(),
+            Name::<Vec<u8>>::from_str("example.com.").unwrap(),
             3600,
             Soa::new(
-                Dname::<Vec<u8>>::from_str("mname.example.com.").unwrap(),
-                Dname::<Vec<u8>>::from_str("rname.example.com.").unwrap(),
+                Name::<Vec<u8>>::from_str("mname.example.com.").unwrap(),
+                Name::<Vec<u8>>::from_str("rname.example.com.").unwrap(),
                 12.into(),
                 Ttl::from_secs(3600),
                 Ttl::from_secs(3600),
@@ -394,7 +394,7 @@ fn push_soa(builder: &mut TestAnswer) {
 fn push_a(builder: &mut TestAnswer, zero: u8, one: u8, two: u8) {
     builder
         .push((
-            Dname::<Vec<u8>>::from_str("example.com.").unwrap(),
+            Name::<Vec<u8>>::from_str("example.com.").unwrap(),
             3600,
             A::from_octets(10, zero, one, two),
         ))

@@ -10,7 +10,7 @@ use crate::base::message_builder::{
 };
 use crate::base::opt::{ComposeOptData, LongOptData, OptRecord};
 use crate::base::wire::{Composer, ParseError};
-use crate::base::{Header, Message, ParsedDname, Rtype};
+use crate::base::{Header, Message, ParsedName, Rtype};
 use crate::rdata::AllRecordData;
 use bytes::Bytes;
 use octseq::Octets;
@@ -147,7 +147,7 @@ impl<Octs: AsRef<[u8]> + Debug + Octets> RequestMessage<Octs> {
         let mut target = target.answer();
         for rr in &mut source {
             let rr = rr?
-                .into_record::<AllRecordData<_, ParsedDname<_>>>()?
+                .into_record::<AllRecordData<_, ParsedName<_>>>()?
                 .expect("record expected");
             target.push(rr)?;
         }
@@ -157,7 +157,7 @@ impl<Octs: AsRef<[u8]> + Debug + Octets> RequestMessage<Octs> {
         let mut target = target.authority();
         for rr in &mut source {
             let rr = rr?
-                .into_record::<AllRecordData<_, ParsedDname<_>>>()?
+                .into_record::<AllRecordData<_, ParsedName<_>>>()?
                 .expect("record expected");
             target.push(rr)?;
         }
@@ -169,7 +169,7 @@ impl<Octs: AsRef<[u8]> + Debug + Octets> RequestMessage<Octs> {
             let rr = rr?;
             if rr.rtype() != Rtype::OPT {
                 let rr = rr
-                    .into_record::<AllRecordData<_, ParsedDname<_>>>()?
+                    .into_record::<AllRecordData<_, ParsedName<_>>>()?
                     .expect("record expected");
                 target.push(rr)?;
             }

@@ -2,13 +2,13 @@
 //!
 //! This module provides various types for working with domain names.
 //!
-//! Main types: [`Dname`], [`RelativeDname`], [`ParsedDname`],
-//! [`UncertainDname`], [`DnameBuilder`].<br/>
-//! Main traits: [`ToDname`], [`ToRelativeDname`].
+//! Main types: [`Name`], [`RelativeName`], [`ParsedName`], [`UncertainName`],
+//! [`NameBuilder`].<br/>
+//! Main traits: [`ToName`], [`ToRelativeName`].
 //!
-//! Domain names are a hierarchical description of the location of
-//! records in a tree. They are formed from a sequence of *labels* that
-//! describe the path through the tree upward from the leaf node to the root.
+//! Domain names are a hierarchical description of the location of records in
+//! a tree. They are formed from a sequence of *labels* that describe the path
+//! through the tree upward from the leaf node to the root.
 //!
 //! ## Domain name representations
 //!
@@ -30,8 +30,8 @@
 //! name. In it, the octets of each label are interpreted as ASCII characters
 //! or, if there isn’t a printable one, as an escape sequence formed by a
 //! backslash followed by the three-digit decimal value of the octet. Labels
-//! are separated by dots. If a dot (or a backslash) appears as an octet in
-//! a label, they can be escaped by preceding them with a backslash.
+//! are separated by dots. If a dot (or a backslash) appears as an octet in a
+//! label, they can be escaped by preceding them with a backslash.
 //!
 //! This crate uses the presentation format when converting domain names from
 //! and to strings.
@@ -48,18 +48,18 @@
 //!
 //! In some cases, it is useful to have a domain name that doesn’t end with
 //! the root label. Such a name is called a *relative domain name* and,
-//! conversely, a name that does end with the root label is called an
-//! *abolute name*. Because these behave slightly differently, for instance,
-//! you can’t include a relative name in a message, there are different
-//! types for those two cases, [`Dname`] for absolute names and
-//! [`RelativeDname`] for relative names.
+//! conversely, a name that does end with the root label is called an *abolute
+//! name*. Because these behave slightly differently, for instance, you can’t
+//! include a relative name in a message, there are different types for those
+//! two cases, [`Name`] for absolute names and [`RelativeName`] for relative
+//! names.
 //!
 //! Sometimes, it isn’t quite clear if a domain name is absolute or relative.
 //! This happens in presentation format where the final dot at the end
 //! separating the empty and thus invisible root label is often omitted. For
 //! instance, instead of the strictly correct `www.example.com.` the slightly
 //! shorter `www.example.com` is accepted as an absolute name if it is clear
-//! from context that the name is absolute. The [`UncertainDname`] type
+//! from context that the name is absolute. The [`UncertainName`] type
 //! provides a means to keep such a name that may be absolute or relative.
 //!
 //! ## Name compression and parsed names.
@@ -75,39 +75,39 @@
 //!
 //! When making a relative name absolute to be included in a message, you
 //! often append a suffix to it. In order to avoid having to copy octets
-//! around and make this cheap, the [`Chain`] type allows combining two
-//! other name values. To make this work, the two traits [`ToDname`]
-//! and [`ToRelativeDname`] allow writing code that is generic over any kind
-//! of either absolute or relative domain name.
+//! around and make this cheap, the [`Chain`] type allows combining two other
+//! name values. To make this work, the two traits [`ToName`] and
+//! [`ToRelativeName`] allow writing code that is generic over any kind of
+//! either absolute or relative domain name.
 //!
 //!
 //! ## Building domain names
 //!
-//! You can create a domain name value from its presentation format using
-//! the `FromStr` trait. Alternatively, the [`DnameBuilder`] type allows you
-//! to construct a name from scratch by appending octets, slices, or complete
+//! You can create a domain name value from its presentation format using the
+//! `FromStr` trait. Alternatively, the [`NameBuilder`] type allows you to
+//! construct a name from scratch by appending octets, slices, or complete
 //! labels.
 
+pub use self::absolute::{Name, NameError};
 pub use self::builder::{
-    DnameBuilder, FromStrError, PushError, PushNameError,
+    FromStrError, NameBuilder, PushError, PushNameError,
 };
 pub use self::chain::{Chain, ChainIter, LongChainError, UncertainChainIter};
-pub use self::dname::{Dname, DnameError};
 pub use self::label::{
     Label, LabelTypeError, LongLabelError, OwnedLabel, SliceLabelsIter,
     SplitLabelError,
 };
-pub use self::parsed::{ParsedDname, ParsedDnameIter, ParsedSuffixIter};
+pub use self::parsed::{ParsedName, ParsedNameIter, ParsedSuffixIter};
 pub use self::relative::{
-    DnameIter, RelativeDname, RelativeDnameError, RelativeFromStrError,
+    NameIter, RelativeFromStrError, RelativeName, RelativeNameError,
     StripSuffixError,
 };
-pub use self::traits::{FlattenInto, ToDname, ToLabelIter, ToRelativeDname};
-pub use self::uncertain::UncertainDname;
+pub use self::traits::{FlattenInto, ToLabelIter, ToName, ToRelativeName};
+pub use self::uncertain::UncertainName;
 
+mod absolute;
 mod builder;
 mod chain;
-mod dname;
 mod label;
 mod parsed;
 mod relative;

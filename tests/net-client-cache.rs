@@ -14,7 +14,7 @@ use rstest::rstest;
 use tracing::instrument;
 
 // use domain::net::client::clock::{Clock, FakeClock};
-use domain::base::{Dname, MessageBuilder, Rtype};
+use domain::base::{MessageBuilder, Name, Rtype};
 use domain::net::client::request::Error::NoTransportAvailable;
 use domain::net::client::request::{RequestMessage, SendRequest};
 use domain::net::client::{cache, multi_stream, redundant};
@@ -83,7 +83,7 @@ async fn test_transport_error() {
     let mut msg = MessageBuilder::new_vec();
     msg.header_mut().set_rd(true);
     let mut msg = msg.question();
-    msg.push((Dname::vec_from_str("example.com").unwrap(), Rtype::AAAA))
+    msg.push((Name::vec_from_str("example.com").unwrap(), Rtype::AAAA))
         .unwrap();
     let req = RequestMessage::new(msg);
 

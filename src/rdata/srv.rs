@@ -6,7 +6,7 @@
 
 use crate::base::cmp::CanonicalOrd;
 use crate::base::iana::Rtype;
-use crate::base::name::{FlattenInto, ParsedDname, ToDname};
+use crate::base::name::{FlattenInto, ParsedName, ToName};
 use crate::base::rdata::{ComposeRecordData, ParseRecordData, RecordData};
 use crate::base::scan::{Scan, Scanner};
 use crate::base::wire::{Compose, Composer, Parse, ParseError};
@@ -85,19 +85,19 @@ impl<N> Srv<N> {
         ))
     }
 
-    pub fn scan<S: Scanner<Dname = N>>(
+    pub fn scan<S: Scanner<Name = N>>(
         scanner: &mut S,
     ) -> Result<Self, S::Error> {
         Ok(Self::new(
             u16::scan(scanner)?,
             u16::scan(scanner)?,
             u16::scan(scanner)?,
-            scanner.scan_dname()?,
+            scanner.scan_name()?,
         ))
     }
 }
 
-impl<Octs> Srv<ParsedDname<Octs>> {
+impl<Octs> Srv<ParsedName<Octs>> {
     pub fn parse<'a, Src: Octets<Range<'a> = Octs> + ?Sized + 'a>(
         parser: &mut Parser<'a, Src>,
     ) -> Result<Self, ParseError> {
@@ -105,7 +105,7 @@ impl<Octs> Srv<ParsedDname<Octs>> {
             u16::parse(parser)?,
             u16::parse(parser)?,
             u16::parse(parser)?,
-            ParsedDname::parse(parser)?,
+            ParsedName::parse(parser)?,
         ))
     }
 }
@@ -140,8 +140,8 @@ impl<Name: FlattenInto<TName>, TName> FlattenInto<Srv<TName>> for Srv<Name> {
 
 impl<N, NN> PartialEq<Srv<NN>> for Srv<N>
 where
-    N: ToDname,
-    NN: ToDname,
+    N: ToName,
+    NN: ToName,
 {
     fn eq(&self, other: &Srv<NN>) -> bool {
         self.priority == other.priority
@@ -151,14 +151,14 @@ where
     }
 }
 
-impl<N: ToDname> Eq for Srv<N> {}
+impl<N: ToName> Eq for Srv<N> {}
 
 //--- PartialOrd, Ord, and CanonicalOrd
 
 impl<N, NN> PartialOrd<Srv<NN>> for Srv<N>
 where
-    N: ToDname,
-    NN: ToDname,
+    N: ToName,
+    NN: ToName,
 {
     fn partial_cmp(&self, other: &Srv<NN>) -> Option<Ordering> {
         match self.priority.partial_cmp(&other.priority) {
@@ -177,7 +177,7 @@ where
     }
 }
 
-impl<N: ToDname> Ord for Srv<N> {
+impl<N: ToName> Ord for Srv<N> {
     fn cmp(&self, other: &Self) -> Ordering {
         match self.priority.cmp(&other.priority) {
             Ordering::Equal => {}
@@ -195,7 +195,7 @@ impl<N: ToDname> Ord for Srv<N> {
     }
 }
 
-impl<N: ToDname, NN: ToDname> CanonicalOrd<Srv<NN>> for Srv<N> {
+impl<N: ToName, NN: ToName> CanonicalOrd<Srv<NN>> for Srv<N> {
     fn canonical_cmp(&self, other: &Srv<NN>) -> Ordering {
         match self.priority.cmp(&other.priority) {
             Ordering::Equal => {}
@@ -222,7 +222,7 @@ impl<N> RecordData for Srv<N> {
 }
 
 impl<'a, Octs: Octets + ?Sized> ParseRecordData<'a, Octs>
-    for Srv<ParsedDname<Octs::Range<'a>>>
+    for Srv<ParsedName<Octs::Range<'a>>>
 {
     fn parse_rdata(
         rtype: Rtype,
@@ -236,7 +236,7 @@ impl<'a, Octs: Octets + ?Sized> ParseRecordData<'a, Octs>
     }
 }
 
-impl<Name: ToDname> ComposeRecordData for Srv<Name> {
+impl<Name: ToName> ComposeRecordData for Srv<Name> {
     fn rdlen(&self, _compress: bool) -> Option<u16> {
         // SRV records are not compressed.
         Some(self.target.compose_len() + 6)
@@ -259,7 +259,7 @@ impl<Name: ToDname> ComposeRecordData for Srv<Name> {
     }
 }
 
-impl<Name: ToDname> Srv<Name> {
+impl<Name: ToName> Srv<Name> {
     fn compose_head<Target: Composer + ?Sized>(
         &self,
         target: &mut Target,
@@ -288,7 +288,7 @@ impl<N: fmt::Display> fmt::Display for Srv<N> {
 #[cfg(all(feature = "std", feature = "bytes"))]
 mod test {
     use super::*;
-    use crate::base::name::Dname;
+    use crate::base::name::Name;
     use crate::base::rdata::test::{
         test_compose_parse, test_rdlen, test_scan,
     };
@@ -302,7 +302,7 @@ mod test {
             10,
             11,
             12,
-            Dname::<Vec<u8>>::from_str("example.com.").unwrap(),
+            Name::<Vec<u8>>::from_str("example.com.").unwrap(),
         );
         test_rdlen(&rdata);
         test_compose_parse(&rdata, |parser| Srv::parse(parser));

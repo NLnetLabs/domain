@@ -1,20 +1,21 @@
 //! Zone tree related types.
+
 use std::ops;
 use std::sync::Arc;
 use std::vec::Vec;
 
+use bytes::Bytes;
 use serde::{Deserialize, Serialize};
 
 use crate::base::rdata::RecordData;
 use crate::base::{iana::Rtype, Ttl};
-use crate::base::{Dname, Record};
+use crate::base::{Name, Record};
 use crate::rdata::ZoneRecordData;
-use bytes::Bytes;
 
 //------------ Type Aliases --------------------------------------------------
 
-/// A [`Bytes`] backed [`Dname`].
-pub type StoredDname = Dname<Bytes>;
+/// A [`Bytes`] backed [`Name`].
+pub type StoredDname = Name<Bytes>;
 
 /// A [`Bytes`] backed [`ZoneRecordData`].
 pub type StoredRecordData = ZoneRecordData<Bytes, StoredDname>;

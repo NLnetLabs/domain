@@ -4,7 +4,7 @@
 
 use crate::base::cmp::CanonicalOrd;
 use crate::base::iana::Rtype;
-use crate::base::name::{FlattenInto, ParsedDname, ToDname};
+use crate::base::name::{FlattenInto, ParsedName, ToName};
 use crate::base::rdata::{
     ComposeRecordData, ParseRecordData, RecordData,
 };
@@ -128,12 +128,12 @@ impl<N> Soa<N> {
         ))
     }
 
-    pub fn scan<S: Scanner<Dname = N>>(
+    pub fn scan<S: Scanner<Name = N>>(
         scanner: &mut S,
     ) -> Result<Self, S::Error> {
         Ok(Self::new(
-            scanner.scan_dname()?,
-            scanner.scan_dname()?,
+            scanner.scan_name()?,
+            scanner.scan_name()?,
             Serial::scan(scanner)?,
             Ttl::scan(scanner)?,
             Ttl::scan(scanner)?,
@@ -143,13 +143,13 @@ impl<N> Soa<N> {
     }
 }
 
-impl<Octs> Soa<ParsedDname<Octs>> {
+impl<Octs> Soa<ParsedName<Octs>> {
     pub fn parse<'a, Src: Octets<Range<'a> = Octs> + ?Sized + 'a>(
         parser: &mut Parser<'a, Src>,
     ) -> Result<Self, ParseError> {
         Ok(Self::new(
-            ParsedDname::parse(parser)?,
-            ParsedDname::parse(parser)?,
+            ParsedName::parse(parser)?,
+            ParsedName::parse(parser)?,
             Serial::parse(parser)?,
             Ttl::parse(parser)?,
             Ttl::parse(parser)?,
@@ -195,8 +195,8 @@ where
 
 impl<N, NN> PartialEq<Soa<NN>> for Soa<N>
 where
-    N: ToDname,
-    NN: ToDname,
+    N: ToName,
+    NN: ToName,
 {
     fn eq(&self, other: &Soa<NN>) -> bool {
         self.mname.name_eq(&other.mname)
@@ -209,14 +209,14 @@ where
     }
 }
 
-impl<N: ToDname> Eq for Soa<N> {}
+impl<N: ToName> Eq for Soa<N> {}
 
 //--- PartialOrd, Ord, and CanonicalOrd
 
 impl<N, NN> PartialOrd<Soa<NN>> for Soa<N>
 where
-    N: ToDname,
-    NN: ToDname,
+    N: ToName,
+    NN: ToName,
 {
     fn partial_cmp(&self, other: &Soa<NN>) -> Option<Ordering> {
         match self.mname.name_cmp(&other.mname) {
@@ -247,7 +247,7 @@ where
     }
 }
 
-impl<N: ToDname> Ord for Soa<N> {
+impl<N: ToName> Ord for Soa<N> {
     fn cmp(&self, other: &Self) -> Ordering {
         match self.mname.name_cmp(&other.mname) {
             Ordering::Equal => {}
@@ -277,7 +277,7 @@ impl<N: ToDname> Ord for Soa<N> {
     }
 }
 
-impl<N: ToDname, NN: ToDname> CanonicalOrd<Soa<NN>> for Soa<N> {
+impl<N: ToName, NN: ToName> CanonicalOrd<Soa<NN>> for Soa<N> {
     fn canonical_cmp(&self, other: &Soa<NN>) -> Ordering {
         match self.mname.lowercase_composed_cmp(&other.mname) {
             Ordering::Equal => {}
@@ -316,7 +316,7 @@ impl<N> RecordData for Soa<N> {
 }
 
 impl<'a, Octs: Octets + ?Sized> ParseRecordData<'a, Octs>
-    for Soa<ParsedDname<Octs::Range<'a>>>
+    for Soa<ParsedName<Octs::Range<'a>>>
 {
     fn parse_rdata(
         rtype: Rtype,
@@ -330,7 +330,7 @@ impl<'a, Octs: Octets + ?Sized> ParseRecordData<'a, Octs>
     }
 }
 
-impl<Name: ToDname> ComposeRecordData for Soa<Name> {
+impl<Name: ToName> ComposeRecordData for Soa<Name> {
     fn rdlen(&self, compress: bool) -> Option<u16> {
         if compress {
             None
@@ -349,8 +349,8 @@ impl<Name: ToDname> ComposeRecordData for Soa<Name> {
         target: &mut Target,
     ) -> Result<(), Target::AppendError> {
         if target.can_compress() {
-            target.append_compressed_dname(&self.mname)?;
-            target.append_compressed_dname(&self.rname)?;
+            target.append_compressed_name(&self.mname)?;
+            target.append_compressed_name(&self.rname)?;
         } else {
             self.mname.compose(target)?;
             self.rname.compose(target)?;
@@ -368,7 +368,7 @@ impl<Name: ToDname> ComposeRecordData for Soa<Name> {
     }
 }
 
-impl<Name: ToDname> Soa<Name> {
+impl<Name: ToName> Soa<Name> {
     fn compose_fixed<Target: Composer + ?Sized>(
         &self,
         target: &mut Target,
@@ -405,7 +405,7 @@ impl<N: fmt::Display> fmt::Display for Soa<N> {
 #[cfg(all(feature = "std", feature = "bytes"))]
 mod test {
     use super::*;
-    use crate::base::name::Dname;
+    use crate::base::name::Name;
     use crate::base::rdata::test::{
         test_compose_parse, test_rdlen, test_scan,
     };
@@ -415,9 +415,9 @@ mod test {
     #[test]
     #[allow(clippy::redundant_closure)] // lifetimes ...
     fn soa_compose_parse_scan() {
-        let rdata = Soa::<Dname<Vec<u8>>>::new(
-            Dname::from_str("m.example.com").unwrap(),
-            Dname::from_str("r.example.com").unwrap(),
+        let rdata = Soa::<Name<Vec<u8>>>::new(
+            Name::from_str("m.example.com").unwrap(),
+            Name::from_str("r.example.com").unwrap(),
             Serial(11),
             Ttl::from_secs(12),
             Ttl::from_secs(13),

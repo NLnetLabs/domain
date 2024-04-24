@@ -396,7 +396,7 @@ mod test {
     #[cfg(feature = "zonefile")]
     #[test]
     fn zonemd_parse_zonefile() {
-        use crate::base::Dname;
+        use crate::base::Name;
         use crate::rdata::ZoneRecordData;
         use crate::zonefile::inplace::{Entry, Zonefile};
 
@@ -418,7 +418,7 @@ ns2           3600   IN  AAAA    2001:db8::63
 "#;
 
         let mut zone = Zonefile::load(&mut content.as_bytes()).unwrap();
-        zone.set_origin(Dname::root());
+        zone.set_origin(Name::root());
         while let Some(entry) = zone.next_entry().unwrap() {
             match entry {
                 Entry::Record(record) => {

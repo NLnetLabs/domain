@@ -104,7 +104,7 @@ pub use self::message_builder::{
     MessageBuilder, RecordSectionBuilder, StaticCompressor, StreamTarget,
 };
 pub use self::name::{
-    Dname, DnameBuilder, ParsedDname, RelativeDname, ToDname, ToRelativeDname,
+    Name, NameBuilder, ParsedName, RelativeName, ToName, ToRelativeName,
 };
 pub use self::question::Question;
 pub use self::rdata::{ParseRecordData, RecordData, UnknownRecordData};

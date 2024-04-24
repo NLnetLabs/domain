@@ -29,7 +29,7 @@
 //
 // RFC 3597 stipulates that only record data of record types defined in RFC
 // 1035 is allowed to be compressed. (These are called “well-known record
-// types.”) For all other types, `CompressDname::append_compressed_dname`
+// types.”) For all other types, `CompressDname::append_compressed_name`
 // must not be used and the names be composed with `ToDname::compose`.
 //
 // RFC 4034 defines the canonical form of record data. For this form, domain
@@ -40,9 +40,9 @@
 // `ToDname::compose`.
 //
 // The macros module contains three macros for generating name-only record
-// types in these three categories: `dname_type_well_known!` for types from
-// RFC 1035, `dname_type_canonical!` for non-RFC 1035 types that need to be
-// lowercased, and `dname_type!` for everything else.
+// types in these three categories: `name_type_well_known!` for types from
+// RFC 1035, `name_type_canonical!` for non-RFC 1035 types that need to be
+// lowercased, and `name_type!` for everything else.
 
 #[macro_use]
 mod macros;

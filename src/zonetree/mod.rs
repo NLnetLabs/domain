@@ -8,7 +8,7 @@
 //!
 //! Individual `Zone`s within the tree can be looked up by containing or exact
 //! name, and then one can [`query`] the found `Zone` by [`Class`], [`Rtype`] and
-//! [`Dname`] to produce an [`Answer`], which in turn can be used to produce a
+//! [`Name`] to produce an [`Answer`], which in turn can be used to produce a
 //! response [`Message`] for serving to a DNS client.
 //!
 //! Trees can also be iterated over to inspect or export their content.
@@ -36,7 +36,7 @@
 //!
 //! ```
 //! use domain::base::iana::{Class, Rcode, Rtype};
-//! use domain::base::name::Dname;
+//! use domain::base::name::Name;
 //! use domain::zonefile::inplace;
 //! use domain::zonetree::parsed;
 //! use domain::zonetree::{Answer, Zone, ZoneBuilder, ZoneTree};
@@ -63,7 +63,7 @@
 //! tree.insert_zone(zone).unwrap();
 //!
 //! // Query the zone tree.
-//! let qname = Dname::bytes_from_str("example.com").unwrap();
+//! let qname = Name::bytes_from_str("example.com").unwrap();
 //! let qtype = Rtype::A;
 //! let found_zone = tree.find_zone(&qname, Class::IN).unwrap();
 //! let res: Answer = found_zone.read().query(qname, qtype).unwrap();
@@ -75,7 +75,7 @@
 //! [`query`]: crate::zonetree::ReadableZone::query
 //! [`Class`]: crate::base::iana::Class
 //! [`Rtype`]: crate::base::iana::Rtype
-//! [`Dname`]: crate::base::name::Dname
+//! [`Name`]: crate::base::name::Name
 //! [`Message`]: crate::base::Message
 //! [`NoError`]: crate::base::iana::code::Rcode::NOERROR
 //! [`NxDomain`]: crate::base::iana::code::Rcode::NXDOMAIN

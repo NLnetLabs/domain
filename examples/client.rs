@@ -3,7 +3,7 @@ use std::str::FromStr;
 
 use domain::base::opt::AllOptData;
 use domain::base::{
-    Dname, Message, MessageBuilder, Rtype, StaticCompressor, StreamTarget,
+    Message, MessageBuilder, Name, Rtype, StaticCompressor, StreamTarget,
 };
 use domain::rdata::AllRecordData;
 
@@ -22,11 +22,8 @@ fn create_message() -> StreamTarget<Vec<u8>> {
     let mut msg = msg.question();
 
     // Add a hard-coded question and proceed to the answer section.
-    msg.push((
-        Dname::<Vec<u8>>::from_str("example.com.").unwrap(),
-        Rtype::A,
-    ))
-    .unwrap();
+    msg.push((Name::<Vec<u8>>::from_str("example.com.").unwrap(), Rtype::A))
+        .unwrap();
 
     // Skip to the additional section
     let mut msg = msg.additional();

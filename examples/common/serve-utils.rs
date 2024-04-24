@@ -1,10 +1,10 @@
 use bytes::Bytes;
-use domain::base::{Dname, Message, MessageBuilder, ParsedDname, Rtype};
+use domain::base::{Message, MessageBuilder, Name, ParsedName, Rtype};
 use domain::rdata::ZoneRecordData;
 use domain::zonetree::Answer;
 
 pub fn generate_wire_query(
-    qname: &Dname<Bytes>,
+    qname: &Name<Bytes>,
     qtype: Rtype,
 ) -> Message<Vec<u8>> {
     let query = MessageBuilder::new_vec();
@@ -99,7 +99,7 @@ pub fn print_dig_style_response(
                 for record in section {
                     let record = record
                         .unwrap()
-                        .into_record::<ZoneRecordData<_, ParsedDname<_>>>()
+                        .into_record::<ZoneRecordData<_, ParsedName<_>>>()
                         .unwrap()
                         .unwrap();
 

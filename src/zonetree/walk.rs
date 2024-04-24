@@ -6,13 +6,13 @@ use bytes::Bytes;
 
 use super::Rrset;
 use crate::base::name::OwnedLabel;
-use crate::base::{Dname, DnameBuilder};
+use crate::base::{Name, NameBuilder};
 
 /// A callback function invoked for each leaf node visited while walking a
 /// [`Zone`].
 ///
 /// [`Zone`]: super::Zone
-pub type WalkOp = Box<dyn Fn(Dname<Bytes>, &Rrset) + Send + Sync>;
+pub type WalkOp = Box<dyn Fn(Name<Bytes>, &Rrset) + Send + Sync>;
 
 struct WalkStateInner {
     op: WalkOp,
@@ -49,11 +49,11 @@ impl WalkState {
     pub(super) fn op(&self, rrset: &Rrset) {
         if let Some(inner) = &self.inner {
             let labels = inner.label_stack.lock().unwrap();
-            let mut dname = DnameBuilder::new_bytes();
+            let mut dname = NameBuilder::new_bytes();
             for label in labels.iter().rev() {
                 dname.append_label(label.as_slice()).unwrap();
             }
-            let owner = dname.into_dname().unwrap();
+            let owner = dname.into_name().unwrap();
             (inner.op)(owner, rrset);
         }
     }

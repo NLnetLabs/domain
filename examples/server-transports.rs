@@ -28,7 +28,7 @@ use domain::base::iana::{Class, Rcode};
 use domain::base::message_builder::{AdditionalBuilder, PushError};
 use domain::base::name::ToLabelIter;
 use domain::base::wire::Composer;
-use domain::base::{Dname, MessageBuilder, StreamTarget};
+use domain::base::{MessageBuilder, Name, StreamTarget};
 use domain::net::server::buf::VecBufSource;
 use domain::net::server::dgram;
 use domain::net::server::dgram::DgramServer;
@@ -62,7 +62,7 @@ where
     let mut answer =
         builder.start_answer(msg.message(), Rcode::NOERROR).unwrap();
     answer.push((
-        Dname::root_ref(),
+        Name::root_ref(),
         Class::IN,
         86400,
         A::from_octets(192, 0, 2, 1),
@@ -135,7 +135,7 @@ where
                     .start_answer(request.message(), Rcode::NOERROR)
                     .unwrap();
                 answer
-                    .push((Dname::root_ref(), Class::IN, 86400, a_rec))
+                    .push((Name::root_ref(), Class::IN, 86400, a_rec))
                     .unwrap();
                 out_answer = Some(answer);
             }

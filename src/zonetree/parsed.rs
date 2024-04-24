@@ -5,15 +5,14 @@ use std::vec::Vec;
 
 use tracing::trace;
 
+use super::error::{ContextError, RecordError, ZoneErrors};
 use crate::base::iana::{Class, Rtype};
-use crate::base::name::FlattenInto;
-use crate::base::ToDname;
+use crate::base::name::{FlattenInto, ToName};
 use crate::rdata::ZoneRecordData;
 use crate::zonefile::inplace::{self, Entry};
 use crate::zonetree::ZoneBuilder;
 use crate::zonetree::{Rrset, SharedRr};
 
-use super::error::{ContextError, RecordError, ZoneErrors};
 use super::types::{StoredDname, StoredRecord};
 
 //------------ Zonefile ------------------------------------------------------
@@ -96,7 +95,7 @@ impl Zonefile {
             if record.rtype() != Rtype::SOA {
                 return Err(RecordError::MissingSoa(record));
             } else {
-                let apex = record.owner().to_dname();
+                let apex = record.owner().to_name();
                 self.class = Some(record.class());
                 self.origin = Some(apex);
             }
