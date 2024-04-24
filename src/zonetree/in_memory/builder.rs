@@ -5,11 +5,9 @@ use std::vec::Vec;
 
 use crate::base::iana::Class;
 use crate::base::name::{Label, ToName};
-use crate::zonefile::error::{CnameError, OutOfZone, ZoneCutError};
-use crate::zonetree::types::ZoneCut;
-use crate::zonetree::{
-    SharedRr, SharedRrset, StoredDname, StoredRecord, Zone,
-};
+use crate::zonetree::error::{CnameError, OutOfZone, ZoneCutError};
+use crate::zonetree::types::{StoredDname, StoredRecord, ZoneCut};
+use crate::zonetree::{SharedRr, SharedRrset, Zone};
 
 use super::nodes::{Special, ZoneApex, ZoneNode};
 use super::versioned::Version;
@@ -53,7 +51,7 @@ use super::versioned::Version;
 ///
 /// [module docs]: crate::zonetree
 /// [`inplace::Zonefile`]: crate::zonefile::inplace::Zonefile
-/// [`parsed::Zonefile`]: crate::zonefile::parsed::Zonefile
+/// [`parsed::Zonefile`]: crate::zonetree::parsed::Zonefile
 /// [presentation format]:
 ///     https://datatracker.ietf.org/doc/html/rfc9499#section-2-1.16.1.6.1.3
 /// [`ReadableZone::query`]: crate::zonetree::ReadableZone::query()

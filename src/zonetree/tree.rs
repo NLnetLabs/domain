@@ -1,13 +1,14 @@
 //! The known set of zones.
 
-use super::zone::Zone;
-use crate::base::iana::Class;
-use crate::base::name::{Label, OwnedLabel, ToLabelIter, ToName};
 use std::collections::hash_map;
 use std::collections::HashMap;
-use std::fmt::Display;
-use std::io;
 use std::vec::Vec;
+
+use crate::base::iana::Class;
+use crate::base::name::{Label, OwnedLabel, ToLabelIter, ToName};
+
+use super::error::ZoneTreeModificationError;
+use super::zone::Zone;
 
 //------------ ZoneTree ------------------------------------------------------
 
@@ -254,50 +255,5 @@ impl<'a> Iterator for NodesIter<'a> {
         let node = self.next_node()?;
         self.stack.push(node.children.values());
         Some(node)
-    }
-}
-
-//============ Error Types ===================================================
-
-#[derive(Debug)]
-pub enum ZoneTreeModificationError {
-    ZoneExists,
-    ZoneDoesNotExist,
-    Io(io::Error),
-}
-
-impl From<io::Error> for ZoneTreeModificationError {
-    fn from(src: io::Error) -> Self {
-        ZoneTreeModificationError::Io(src)
-    }
-}
-
-impl From<ZoneTreeModificationError> for io::Error {
-    fn from(src: ZoneTreeModificationError) -> Self {
-        match src {
-            ZoneTreeModificationError::Io(err) => err,
-            ZoneTreeModificationError::ZoneDoesNotExist => {
-                io::Error::new(io::ErrorKind::Other, "zone does not exist")
-            }
-            ZoneTreeModificationError::ZoneExists => {
-                io::Error::new(io::ErrorKind::Other, "zone exists")
-            }
-        }
-    }
-}
-
-impl Display for ZoneTreeModificationError {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        match self {
-            ZoneTreeModificationError::ZoneExists => {
-                write!(f, "Zone already exists")
-            }
-            ZoneTreeModificationError::ZoneDoesNotExist => {
-                write!(f, "Zone does not exist")
-            }
-            ZoneTreeModificationError::Io(err) => {
-                write!(f, "Io error: {err}")
-            }
-        }
     }
 }

@@ -1,19 +1,23 @@
-//! Importing from and (in future) exporting to a zonefiles.
+//! Importing from and (in future) exporting to a zone files.
 
-use super::error::{OwnerError, RecordError, ZoneErrors};
-use super::inplace::{self, Entry};
+use std::collections::{BTreeMap, HashMap};
+use std::vec::Vec;
+
+use tracing::trace;
+
+use super::error::{ContextError, RecordError, ZoneErrors};
 use crate::base::iana::{Class, Rtype};
 use crate::base::name::{FlattenInto, ToName};
 use crate::rdata::ZoneRecordData;
+use crate::zonefile::inplace::{self, Entry};
 use crate::zonetree::ZoneBuilder;
-use crate::zonetree::{Rrset, SharedRr, StoredDname, StoredRecord};
-use std::collections::{BTreeMap, HashMap};
-use std::vec::Vec;
-use tracing::trace;
+use crate::zonetree::{Rrset, SharedRr};
+
+use super::types::{StoredDname, StoredRecord};
 
 //------------ Zonefile ------------------------------------------------------
 
-/// A parsed sanity checked representation of a zonefile.
+/// A parsed sanity checked representation of a zone file.
 ///
 /// This type eases creation of a [`ZoneBuilder`] from a collection of
 /// [`StoredRecord`]s, e.g.  and accepts only records that are valid within
@@ -27,7 +31,7 @@ use tracing::trace;
 /// Getter functions provide insight into the classification results.
 ///
 /// When ready the [`ZoneBuilder::try_from`] function can be used to convert
-/// the parsed zonefile into a pre-populated [`ZoneBuilder`].
+/// the parsed zone file into a pre-populated [`ZoneBuilder`].
 ///
 /// # Usage
 ///
@@ -58,6 +62,8 @@ pub struct Zonefile {
 }
 
 impl Zonefile {
+    /// Creates an empty in-memory zone file representation for the given apex
+    /// and class.
     pub fn new(apex: StoredDname, class: Class) -> Self {
         Zonefile {
             origin: Some(apex),
@@ -68,11 +74,15 @@ impl Zonefile {
 }
 
 impl Zonefile {
+    /// Sets the origin of the zone.
+    ///
+    /// If parsing a zone file one might call this method on encoutering an
+    /// `$ORIGIN` directive.
     pub fn set_origin(&mut self, origin: StoredDname) {
         self.origin = Some(origin)
     }
 
-    /// Inserts the record into the zone file.
+    /// Inserts the given record into the zone file.
     pub fn insert(
         &mut self,
         record: StoredRecord,
@@ -150,26 +160,45 @@ impl Zonefile {
 }
 
 impl Zonefile {
+    /// The [origin] of the zone.
+    ///
+    /// [origin]: https://datatracker.ietf.org/doc/html/rfc9499#section-7-2.8
     pub fn origin(&self) -> Option<&StoredDname> {
         self.origin.as_ref()
     }
 
+    /// The [class] of the zone.
+    ///
+    /// [class]: https://datatracker.ietf.org/doc/html/rfc9499#section-4-2.2
     pub fn class(&self) -> Option<Class> {
         self.class
     }
 
+    /// The collection of normal records in the zone.
+    ///
+    /// Normal records are all records in the zone that are neither top of
+    /// zone administrative records, zone cuts nor glue records.
     pub fn normal(&self) -> &Owners<Normal> {
         &self.normal
     }
 
+    /// The collection of [zone cut] records in the zone.
+    ///
+    /// [zone cut]: https://datatracker.ietf.org/doc/html/rfc9499#section-7-2.16
     pub fn zone_cuts(&self) -> &Owners<ZoneCut> {
         &self.zone_cuts
     }
 
+    /// The collection of [CNAME] records in the zone.
+    ///
+    /// [CNAME]: https://datatracker.ietf.org/doc/html/rfc9499#section-7-2.16
     pub fn cnames(&self) -> &Owners<SharedRr> {
         &self.cnames
     }
 
+    /// The collection of records that lie outside the zone.
+    ///
+    /// In a valid zone this collection will be empty.
     pub fn out_of_zone(&self) -> &Owners<Normal> {
         &self.out_of_zone
     }
@@ -191,7 +220,7 @@ impl TryFrom<Zonefile> for ZoneBuilder {
             let ns = match cut.ns {
                 Some(ns) => ns.into_shared(),
                 None => {
-                    zone_err.add_error(name, OwnerError::MissingNs);
+                    zone_err.add_error(name, ContextError::MissingNs);
                     continue;
                 }
             };
@@ -206,14 +235,14 @@ impl TryFrom<Zonefile> for ZoneBuilder {
             }
 
             if let Err(err) = builder.insert_zone_cut(&name, ns, ds, glue) {
-                zone_err.add_error(name, OwnerError::InvalidZonecut(err))
+                zone_err.add_error(name, ContextError::InvalidZonecut(err))
             }
         }
 
         // Now insert all the CNAMEs.
         for (name, rrset) in zonefile.cnames.into_iter() {
             if let Err(err) = builder.insert_cname(&name, rrset) {
-                zone_err.add_error(name, OwnerError::InvalidCname(err))
+                zone_err.add_error(name, ContextError::InvalidCname(err))
             }
         }
 
@@ -223,7 +252,7 @@ impl TryFrom<Zonefile> for ZoneBuilder {
                 if builder.insert_rrset(&name, rrset.into_shared()).is_err() {
                     zone_err.add_error(
                         name.clone(),
-                        OwnerError::OutOfZone(rtype),
+                        ContextError::OutOfZone(rtype),
                     );
                 }
             }
@@ -234,11 +263,11 @@ impl TryFrom<Zonefile> for ZoneBuilder {
         for (name, rrsets) in zonefile.out_of_zone.into_iter() {
             for (rtype, _) in rrsets.into_iter() {
                 zone_err
-                    .add_error(name.clone(), OwnerError::OutOfZone(rtype));
+                    .add_error(name.clone(), ContextError::OutOfZone(rtype));
             }
         }
 
-        zone_err.into_result().map(|_| builder)
+        zone_err.unwrap().map(|_| builder)
     }
 }
 
@@ -265,6 +294,7 @@ impl TryFrom<inplace::Zonefile> for Zonefile {
 
 //------------ Owners --------------------------------------------------------
 
+/// A set of records of a common type within a zone file.
 #[derive(Clone)]
 pub struct Owners<Content> {
     owners: BTreeMap<StoredDname, Content>,
@@ -344,6 +374,9 @@ impl<Content> Default for Owners<Content> {
 
 //------------ Normal --------------------------------------------------------
 
+/// A collection of "normal" zone file records.
+///
+/// I.e. zone file records that are not CNAMEs or zone cuts.
 #[derive(Clone, Default)]
 pub struct Normal {
     records: HashMap<Rtype, Rrset>,
@@ -370,6 +403,7 @@ impl Normal {
 
 //------------ ZoneCut -------------------------------------------------------
 
+/// The set of records that comprise a zone cut within a zone file.
 #[derive(Clone, Default)]
 pub struct ZoneCut {
     ns: Option<Rrset>,
