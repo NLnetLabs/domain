@@ -1,5 +1,7 @@
 // DNSSEC validator transport
 
+use crate::base::opt::AllOptData;
+use crate::base::opt::ExtendedError;
 use crate::base::Message;
 use crate::base::MessageBuilder;
 use crate::base::ParsedDname;
@@ -207,7 +209,7 @@ where
             Err(_err) => {
                 todo!();
             }
-            Ok(state) => {
+            Ok((state, opt_ede)) => {
                 match state {
                     ValidationState::Secure => {
                         // Check the state of the DO flag to see if we have to
@@ -238,6 +240,10 @@ where
                     ValidationState::Bogus => todo!(),
                     ValidationState::Insecure
                     | ValidationState::Indeterminate => {
+                        let response_msg = match opt_ede {
+                            Some(ede) => add_opt(&response_msg, ede).unwrap(),
+                            None => response_msg,
+                        };
                         // Check the state of the DO flag to see if we have to
                         // strip DNSSEC records. Clear the AD flag if it is
                         // set. Always clear CD.
@@ -310,6 +316,7 @@ fn remove_dnssec(
             .expect("Vec is expected to have enough space");
 
     let source = msg;
+    let opt = source.opt();
 
     *target.header_mut() = source.header();
 
@@ -356,10 +363,28 @@ fn remove_dnssec(
         let rr = rr
             .into_record::<AllRecordData<_, ParsedDname<_>>>()?
             .expect("record expected");
+        if rr.rtype() == Rtype::OPT {
+            continue;
+        }
         if is_dnssec(rr.rtype()) {
             continue;
         }
         target.push(rr).expect("push error");
+    }
+    if let Some(opt) = opt {
+        target
+            .opt(|ob| {
+                ob.set_dnssec_ok(false);
+                // XXX something is missing ob.set_rcode(opt.rcode());
+                ob.set_udp_payload_size(opt.udp_payload_size());
+                ob.set_version(opt.version());
+                for o in opt.opt().iter() {
+                    let x: AllOptData<_, _> = o.unwrap();
+                    ob.push(&x).unwrap();
+                }
+                Ok(())
+            })
+            .unwrap();
     }
 
     let result = target.as_builder().clone();
@@ -374,4 +399,78 @@ fn remove_dnssec(
 /// Check if a type is a DNSSEC type that needs to be removed.
 fn is_dnssec(rtype: Rtype) -> bool {
     rtype == Rtype::RRSIG || rtype == Rtype::NSEC || rtype == Rtype::NSEC3
+}
+
+// Add an option
+fn add_opt(
+    msg: &Message<Bytes>,
+    ede: ExtendedError<Bytes>,
+) -> Result<Message<Bytes>, Error> {
+    let mut target =
+        MessageBuilder::from_target(StaticCompressor::new(Vec::new()))
+            .expect("Vec is expected to have enough space");
+
+    let source = msg;
+
+    *target.header_mut() = msg.header();
+
+    let source = source.question();
+    let mut target = target.question();
+    for rr in source {
+        target.push(rr?).unwrap();
+    }
+    let mut source = source.answer()?;
+    let mut target = target.answer();
+    for rr in &mut source {
+        let rr = rr?
+            .into_record::<AllRecordData<_, ParsedDname<_>>>()?
+            .expect("record expected");
+        target.push(rr).unwrap();
+    }
+
+    let mut source =
+        source.next_section()?.expect("section should be present");
+    let mut target = target.authority();
+    for rr in &mut source {
+        let rr = rr?
+            .into_record::<AllRecordData<_, ParsedDname<_>>>()?
+            .expect("record expected");
+        target.push(rr).unwrap();
+    }
+
+    let source = source.next_section()?.expect("section should be present");
+    let mut target = target.additional();
+    for rr in source {
+        let rr = rr?;
+        if rr.rtype() != Rtype::OPT {
+            let rr = rr
+                .into_record::<AllRecordData<_, ParsedDname<_>>>()?
+                .expect("record expected");
+            target.push(rr).unwrap();
+        }
+    }
+
+    if let Some(opt) = msg.opt() {
+        target
+            .opt(|ob| {
+                ob.set_dnssec_ok(opt.dnssec_ok());
+                // XXX something is missing ob.set_rcode(opt.rcode());
+                ob.set_udp_payload_size(opt.udp_payload_size());
+                ob.set_version(opt.version());
+                for o in opt.opt().iter() {
+                    let x: AllOptData<_, _> = o.unwrap();
+                    ob.push(&x).unwrap();
+                }
+                ob.push(&ede).unwrap();
+                Ok(())
+            })
+            .unwrap();
+    }
+
+    let result = target.as_builder().clone();
+    let msg = Message::<Bytes>::from_octets(
+        result.finish().into_target().octets_into(),
+    )
+    .expect("Message should be able to parse output from MessageBuilder");
+    Ok(msg)
 }

@@ -3,7 +3,7 @@
 use crate::base::wire;
 
 // RFC 4033, Section 5 defines the security states of data:
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum ValidationState {
     Secure,
     Insecure,

@@ -10,8 +10,10 @@ use super::nsec::nsec3_hash;
 use super::nsec::NSEC3_ITER_BOGUS;
 use super::nsec::NSEC3_ITER_INSECURE;
 use super::types::ValidationState;
+use crate::base::iana::ExtendedErrorCode;
 use crate::base::name::Chain;
 use crate::base::name::Label;
+use crate::base::opt::ExtendedError;
 use crate::base::Dname;
 use crate::base::MessageBuilder;
 use crate::base::ParsedDname;
@@ -61,7 +63,16 @@ impl<Upstream> ValidationContext<Upstream> {
         // Find a trust anchor.
         let Some(ta) = self.ta.find(name) else {
             // Try to get an indeterminate node for the root
-            return Node::indeterminate(Dname::root());
+            return Node::indeterminate(
+                Dname::root(),
+                Some(
+                    ExtendedError::new_with_str(
+                        ExtendedErrorCode::DNSSEC_INDETERMINATE,
+                        "No trust anchor for root.",
+                    )
+                    .unwrap(),
+                ),
+            );
         };
 
         let ta_owner = ta.owner();
@@ -176,17 +187,21 @@ impl<Upstream> ValidationContext<Upstream> {
                     let state = nsec_for_ds(&name, &mut authorities, node);
                     match state {
                         NsecState::InsecureDelegation => {
+                            // An insecure delegation is normal enough that
+                            // it needs an EDE.
                             return Node::new_delegation(
                                 name,
                                 ValidationState::Insecure,
                                 Vec::new(),
-                            )
+                                None,
+                            );
                         }
                         NsecState::SecureIntermediate => {
                             return Node::new_intermediate(
                                 name,
                                 ValidationState::Secure,
                                 node.signer_name().clone(),
+                                None,
                             )
                         }
                         NsecState::Nothing => (), // Try NSEC3 next.
@@ -195,17 +210,21 @@ impl<Upstream> ValidationContext<Upstream> {
                     let state = nsec3_for_ds(&name, &mut authorities, node);
                     match state {
                         NsecState::InsecureDelegation => {
-                            return Node::new_delegation(
-                                name,
-                                ValidationState::Insecure,
-                                Vec::new(),
-                            )
+                            todo!(); // EDE
+                                     /*
+                                                                 return Node::new_delegation(
+                                                                     name,
+                                                                     ValidationState::Insecure,
+                                                                     Vec::new(),
+                                                                 )
+                                     */
                         }
                         NsecState::SecureIntermediate => {
                             return Node::new_intermediate(
                                 name,
                                 ValidationState::Secure,
                                 node.signer_name().clone(),
+                                None,
                             )
                         }
                         NsecState::Nothing => (),
@@ -219,7 +238,7 @@ impl<Upstream> ValidationContext<Upstream> {
 
         // TODO: Limit the size of the DS RRset.
 
-        let (state, _wildcard) = ds_group.validate_with_node(node);
+        let (state, _wildcard, _ede) = ds_group.validate_with_node(node);
         match state {
             ValidationState::Secure => (),
             ValidationState::Insecure
@@ -359,20 +378,8 @@ impl<Upstream> ValidationContext<Upstream> {
                         key_name,
                         ValidationState::Secure,
                         dnskey_vec,
+                        None,
                     );
-                /*
-                             {
-                                        if let AllRecordData::Dnskey(key) = key_rec.data() {
-                                            new_node.keys.push(key.clone());
-                                        }
-                                    }
-                                    let mut new_node = Self {
-                                        state: ValidationState::Secure,
-                                        keys: Vec::new(),
-                                        signer_name: key_name,
-                                    };
-                                    return new_node;
-                */
                 } else {
                     // To avoid CPU exhaustion attacks such as KeyTrap
                     // (CVE-2023-50387) it is good to limit signature
@@ -415,15 +422,20 @@ pub struct Node {
     keys: Vec<Dnskey<Bytes>>,
     signer_name: Dname<Bytes>,
     intermediate: bool,
+    ede: Option<ExtendedError<Bytes>>,
 }
 
 impl Node {
-    fn indeterminate(name: Dname<Bytes>) -> Self {
+    fn indeterminate(
+        name: Dname<Bytes>,
+        ede: Option<ExtendedError<Bytes>>,
+    ) -> Self {
         Self {
             state: ValidationState::Indeterminate,
             keys: Vec::new(),
             signer_name: name,
             intermediate: false,
+            ede,
         }
     }
 
@@ -492,6 +504,7 @@ impl Node {
                         keys: Vec::new(),
                         signer_name: ta_owner,
                         intermediate: false,
+                        ede: None,
                     };
                     for key_rec in dnskeys.clone().rr_iter() {
                         if let AllRecordData::Dnskey(key) = key_rec.data() {
@@ -531,12 +544,14 @@ impl Node {
         signer_name: Dname<Bytes>,
         state: ValidationState,
         keys: Vec<Dnskey<Bytes>>,
+        ede: Option<ExtendedError<Bytes>>,
     ) -> Self {
         Self {
             state,
             signer_name,
             keys,
             intermediate: false,
+            ede,
         }
     }
 
@@ -544,6 +559,7 @@ impl Node {
         name: Dname<Bytes>,
         state: ValidationState,
         signer_name: Dname<Bytes>,
+        ede: Option<ExtendedError<Bytes>>,
     ) -> Self {
         println!("new_intermediate: for {name:?} signer {signer_name:?}");
         Self {
@@ -551,11 +567,16 @@ impl Node {
             signer_name,
             keys: Vec::new(),
             intermediate: true,
+            ede,
         }
     }
 
     pub fn validation_state(&self) -> ValidationState {
         self.state
+    }
+
+    pub fn extended_error(&self) -> Option<ExtendedError<Bytes>> {
+        self.ede.clone()
     }
 
     pub fn keys(&self) -> &[Dnskey<Bytes>] {
@@ -665,7 +686,7 @@ fn nsec_for_ds(
         println!("nsec = {nsec:?}");
         if target.name_eq(&owner) {
             // Validate the signature
-            let (state, wildcard) = g.validate_with_node(node);
+            let (state, wildcard, ede) = g.validate_with_node(node);
             match state {
                 ValidationState::Insecure
                 | ValidationState::Bogus
@@ -783,7 +804,7 @@ fn nsec3_for_ds(
             // We found an exact match.
 
             // Validate the signature
-            let (state, _) = g.validate_with_node(node);
+            let (state, _, _) = g.validate_with_node(node);
             match state {
                 ValidationState::Insecure
                 | ValidationState::Bogus
@@ -825,7 +846,7 @@ fn nsec3_for_ds(
             // target does not exist. However, if the opt-out flag is set,
             // we are allowed to assume an insecure delegation (RFC 5155,
             // Section 6). First check the signature.
-            let (state, _) = g.validate_with_node(node);
+            let (state, _, _) = g.validate_with_node(node);
             match state {
                 ValidationState::Insecure
                 | ValidationState::Bogus

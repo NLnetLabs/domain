@@ -8,6 +8,7 @@ use bytes::Bytes;
 //use crate::base::ParseRecordData;
 use crate::base::iana::Class;
 use crate::base::iana::OptRcode;
+use crate::base::opt::ExtendedError;
 //use crate::base::name::Label;
 use crate::base::name::ToDname;
 //use crate::base::scan::IterScanner;
@@ -44,10 +45,12 @@ use std::vec::Vec;
 use types::Error;
 use types::ValidationState;
 
+// On success, return the validation state and an optionally an extended DNS
+// error.
 pub async fn validate_msg<'a, Octs, Upstream>(
     msg: &'a Message<Octs>,
     vc: &ValidationContext<Upstream>,
-) -> Result<ValidationState, Error>
+) -> Result<(ValidationState, Option<ExtendedError<Bytes>>), Error>
 where
     Octs: Clone + Debug + Octets + 'a,
     <Octs as Octets>::Range<'a>: Debug,
@@ -78,13 +81,19 @@ where
     // Group can handle this by hiding the state behind a Mutex.
     let mut answers = match validate_groups(&mut answers, vc).await {
         Ok(vgs) => vgs,
-        Err(ValidationState::Bogus) => return Ok(ValidationState::Bogus),
+        Err(ValidationState::Bogus) => {
+            todo!(); // Handle EDE
+                     // return Ok(ValidationState::Bogus),
+        }
         Err(_) => panic!("Invalid ValidationState"),
     };
 
     let mut authorities = match validate_groups(&mut authorities, vc).await {
         Ok(vgs) => vgs,
-        Err(ValidationState::Bogus) => return Ok(ValidationState::Bogus),
+        Err(ValidationState::Bogus) => {
+            todo!(); // Handle EDE
+                     // return Ok(ValidationState::Bogus),
+        }
         Err(_) => panic!("Invalid ValidationState"),
     };
 
@@ -124,8 +133,13 @@ where
     // negative result is signed or not.
     if msg.opt_rcode() == OptRcode::NOERROR {
         let opt_state = get_answer_state(&sname, qclass, qtype, &mut answers);
-        if let Some(state) = opt_state {
-            return Ok(map_maybe_secure(state, maybe_secure));
+        if let Some((state, wildcard, ede)) = opt_state {
+            if state != ValidationState::Secure || wildcard.is_none() {
+                // No need to check the wildcard, either because the state is
+                // not secure or because there is no wildcard.
+                return Ok((map_maybe_secure(state, maybe_secure), ede));
+            }
+            todo!(); // wildcard
         }
     }
 
@@ -134,12 +148,18 @@ where
     // there is one and the state is not secure, then return the state of the
     // SOA record.
     let signer_name = match get_soa_state(&sname, qclass, &mut authorities) {
-        None => return Ok(ValidationState::Bogus), // No SOA, assume the worst.
+        None => {
+            todo!(); // EDE
+                     // return Ok(ValidationState::Bogus), // No SOA, assume the worst.
+        }
         Some((state, signer_name)) => match state {
             ValidationState::Secure => signer_name, // Continue validation.
             ValidationState::Insecure
             | ValidationState::Bogus
-            | ValidationState::Indeterminate => return Ok(state),
+            | ValidationState::Indeterminate => {
+                todo!(); // EDE
+                         // return Ok(state),
+            }
         },
     };
 
@@ -149,9 +169,9 @@ where
         // with NSEC and assume the name exists.
         match nsec_for_nodata(&sname, &mut authorities, qtype, &signer_name) {
             NsecState::NoData => {
-                return Ok(map_maybe_secure(
-                    ValidationState::Secure,
-                    maybe_secure,
+                return Ok((
+                    map_maybe_secure(ValidationState::Secure, maybe_secure),
+                    None,
                 ))
             }
             NsecState::Nothing => (), // Try something else.
@@ -166,9 +186,9 @@ where
             &signer_name,
         ) {
             NsecState::NoData => {
-                return Ok(map_maybe_secure(
-                    ValidationState::Secure,
-                    maybe_secure,
+                return Ok((
+                    map_maybe_secure(ValidationState::Secure, maybe_secure),
+                    None,
                 ))
             }
             NsecState::Nothing => (), // Try something else.
@@ -179,9 +199,9 @@ where
         match nsec3_for_nodata(&sname, &mut authorities, qtype, &signer_name)
         {
             NsecState::NoData => {
-                return Ok(map_maybe_secure(
-                    ValidationState::Secure,
-                    maybe_secure,
+                return Ok((
+                    map_maybe_secure(ValidationState::Secure, maybe_secure),
+                    None,
                 ))
             }
             NsecState::Nothing => (), // Try something else.
@@ -201,8 +221,9 @@ where
         ) {
             Nsec3NXState::DoesNotExist(ce) => ce, // Continue with wildcard.
             Nsec3NXState::DoesNotExistInsecure(_) => {
-                // Something might exists. Just return insecure here.
-                return Ok(ValidationState::Insecure);
+                // Something might exist. Just return insecure here.
+                todo!(); // EDE
+                         // return Ok(ValidationState::Insecure);
             }
             Nsec3NXState::Nothing => todo!(), // We reached the end, return bogus.
         };
@@ -215,9 +236,9 @@ where
             &signer_name,
         ) {
             NsecState::NoData => {
-                return Ok(map_maybe_secure(
-                    ValidationState::Secure,
-                    maybe_secure,
+                return Ok((
+                    map_maybe_secure(ValidationState::Secure, maybe_secure),
+                    None,
                 ));
             }
             NsecState::Nothing => todo!(), // We reached the end, return bogus.
@@ -230,9 +251,9 @@ where
     // Try to prove that the name does not exist using NSEC.
     match nsec_for_nxdomain(&sname, &mut authorities, qtype, &signer_name) {
         NsecNXState::DoesNotExist(_) => {
-            return Ok(map_maybe_secure(
-                ValidationState::Secure,
-                maybe_secure,
+            return Ok((
+                map_maybe_secure(ValidationState::Secure, maybe_secure),
+                None,
             ))
         }
         NsecNXState::Nothing => (), // Try something else.
@@ -241,13 +262,14 @@ where
     // Try to prove that the name does not exist using NSEC3.
     match nsec3_for_nxdomain(&sname, &mut authorities, qtype, &signer_name) {
         Nsec3NXState::DoesNotExist(_) => {
-            return Ok(map_maybe_secure(
-                ValidationState::Secure,
-                maybe_secure,
+            return Ok((
+                map_maybe_secure(ValidationState::Secure, maybe_secure),
+                None,
             ))
         }
         Nsec3NXState::DoesNotExistInsecure(_) => {
-            return Ok(ValidationState::Insecure);
+            todo!(); // EDE
+                     // return Ok(ValidationState::Insecure);
         }
         Nsec3NXState::Nothing => (), // Try something else.
     }
@@ -280,7 +302,11 @@ fn get_answer_state(
     qclass: Class,
     qtype: Rtype,
     groups: &mut Vec<ValidatedGroup>,
-) -> Option<ValidationState> {
+) -> Option<(
+    ValidationState,
+    Option<Dname<Bytes>>,
+    Option<ExtendedError<Bytes>>,
+)> {
     for g in groups.iter() {
         if g.class() != qclass {
             continue;
@@ -291,7 +317,7 @@ fn get_answer_state(
         if g.owner() != qname {
             continue;
         }
-        return Some(g.state());
+        return Some((g.state(), g.wildcard(), g.ede()));
     }
     None
 }
@@ -345,11 +371,12 @@ where
     let mut vgs = Vec::new();
     for g in groups.iter() {
         //println!("Validating group {g:?}");
-        let (state, wildcard, signer_name) = g.validate_with_vc(vc).await;
+        let (state, signer_name, wildcard, ede) =
+            g.validate_with_vc(vc).await;
         if let ValidationState::Bogus = state {
             return Err(state);
         }
-        vgs.push(g.validated(state, signer_name, wildcard));
+        vgs.push(g.validated(state, signer_name, wildcard, ede));
     }
     Ok(vgs)
 }

@@ -13,11 +13,12 @@ use bytes::Bytes;
 //use crate::base::ParseRecordData;
 use crate::base::cmp::CanonicalOrd;
 use crate::base::iana::class::Class;
+use crate::base::iana::ExtendedErrorCode;
 use crate::base::name::ToDname;
+use crate::base::opt::exterr::ExtendedError;
 use crate::base::Record;
 use crate::base::Rtype;
 //use crate::base::UnknownRecordData;
-//use crate::dep::octseq::Octets;
 //use crate::dep::octseq::OctetsFrom;
 //use crate::dep::octseq::OctetsInto;
 use crate::net::client::request::RequestMessage;
@@ -153,6 +154,7 @@ impl Group {
         state: ValidationState,
         signer_name: Dname<Bytes>,
         wildcard: Option<Dname<Bytes>>,
+        ede: Option<ExtendedError<Bytes>>,
     ) -> ValidatedGroup {
         ValidatedGroup::new(
             self.rr_set.clone(),
@@ -160,6 +162,7 @@ impl Group {
             state,
             signer_name,
             wildcard,
+            ede,
         )
     }
 
@@ -222,7 +225,12 @@ impl Group {
     pub async fn validate_with_vc<Upstream>(
         &self,
         vc: &ValidationContext<Upstream>,
-    ) -> (ValidationState, Option<Dname<Bytes>>, Dname<Bytes>)
+    ) -> (
+        ValidationState,
+        Dname<Bytes>,
+        Option<Dname<Bytes>>,
+        Option<ExtendedError<Bytes>>,
+    )
     where
         Upstream: Clone + SendRequest<RequestMessage<Bytes>>,
     {
@@ -244,7 +252,18 @@ impl Group {
         // then the status is insecure, because we cannot validate RRSIGs.
         // Is there an RFC that descibes this?
         if self.rr_set.is_empty() {
-            return (ValidationState::Insecure, None, Dname::root());
+            return (
+                ValidationState::Insecure,
+                Dname::root(),
+                None,
+                Some(
+                    ExtendedError::new_with_str(
+                        ExtendedErrorCode::DNSSEC_INDETERMINATE,
+                        "RRSIG without RRset",
+                    )
+                    .unwrap(),
+                ),
+            );
         }
 
         let target = if !self.sig_set.is_empty() {
@@ -259,11 +278,11 @@ impl Group {
             ValidationState::Insecure
             | ValidationState::Bogus
             | ValidationState::Indeterminate => {
-                return (state, None, target.clone())
+                return (state, target.clone(), None, node.extended_error())
             }
         }
-        let (state, wildcard) = self.validate_with_node(&node);
-        (state, wildcard, target.clone())
+        let (state, wildcard, ede) = self.validate_with_node(&node);
+        (state, target.clone(), wildcard, ede)
     }
 
     // Try to validate the signature using a node. Return the validation
@@ -272,14 +291,20 @@ impl Group {
     pub fn validate_with_node(
         &self,
         node: &Node,
-    ) -> (ValidationState, Option<Dname<Bytes>>) {
+    ) -> (
+        ValidationState,
+        Option<Dname<Bytes>>,
+        Option<ExtendedError<Bytes>>,
+    ) {
         // Check the validation state of node. We can return directly if the
         // state is anything other than Secure.
         let state = node.validation_state();
         match state {
             ValidationState::Insecure
             | ValidationState::Bogus
-            | ValidationState::Indeterminate => return (state, None),
+            | ValidationState::Indeterminate => {
+                return (state, None, node.extended_error())
+            }
             ValidationState::Secure => (),
         }
         let keys = node.keys();
@@ -334,9 +359,10 @@ impl Group {
             }
         }
         if secure {
-            (ValidationState::Secure, wildcard)
+            (ValidationState::Secure, wildcard, None)
         } else {
-            (ValidationState::Bogus, None)
+            todo!(); // EDE
+                     // (ValidationState::Bogus, None)
         }
     }
 
@@ -531,6 +557,7 @@ pub struct ValidatedGroup {
     state: ValidationState,
     signer_name: Dname<Bytes>,
     wildcard: Option<Dname<Bytes>>,
+    ede: Option<ExtendedError<Bytes>>,
 }
 
 impl ValidatedGroup {
@@ -540,6 +567,7 @@ impl ValidatedGroup {
         state: ValidationState,
         signer_name: Dname<Bytes>,
         wildcard: Option<Dname<Bytes>>,
+        ede: Option<ExtendedError<Bytes>>,
     ) -> ValidatedGroup {
         ValidatedGroup {
             rr_set,
@@ -547,6 +575,7 @@ impl ValidatedGroup {
             state,
             signer_name,
             wildcard,
+            ede,
         }
     }
 
@@ -589,6 +618,10 @@ impl ValidatedGroup {
 
     pub fn wildcard(&self) -> Option<Dname<Bytes>> {
         self.wildcard.clone()
+    }
+
+    pub fn ede(&self) -> Option<ExtendedError<Bytes>> {
+        self.ede.clone()
     }
 
     pub fn rr_set(&self) -> Vec<RrType> {
