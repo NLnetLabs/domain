@@ -499,17 +499,27 @@ mod tests {
         let response_bytes = response.as_dgram_slice().to_vec();
         let response = Message::from_octets(response_bytes).unwrap();
 
-        assert!(response.opt().is_some());
-        let opt_record = response.opt().unwrap();
+        let Some(opt_record) = response.opt() else {
+            panic!("Missing OPT record")
+        };
+
         let mut cookie_iter = opt_record.opt().iter::<Cookie>();
-        let cookie = cookie_iter.next();
-        assert!(cookie.as_ref().is_some_and(|v| v.is_ok()));
-        let cookie = cookie.unwrap().unwrap();
-        assert!(cookie.check_server_hash(
-            client_addr.ip(),
-            &server_secret,
-            |_| true
-        ));
-        assert!(cookie_iter.next().is_none());
+        let Some(Ok(cookie)) = cookie_iter.next() else {
+            panic!("Invalid or missing cookie")
+        };
+
+        assert!(
+            cookie.check_server_hash(
+                client_addr.ip(),
+                &server_secret,
+                |_| true
+            ),
+            "The cookie is incomplete or invalid"
+        );
+
+        assert!(
+            cookie_iter.next().is_none(),
+            "There should only be one COOKIE option"
+        );
     }
 }
