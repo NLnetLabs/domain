@@ -11,7 +11,6 @@ use tracing::{debug, trace, warn};
 use crate::base::iana::{OptRcode, Rcode};
 use crate::base::message_builder::AdditionalBuilder;
 use crate::base::opt;
-use crate::base::opt::Cookie;
 use crate::base::wire::{Composer, ParseError};
 use crate::base::{Serial, StreamTarget};
 use crate::net::server::message::Request;
@@ -204,30 +203,6 @@ impl CookiesMiddlewareProcessor {
         //   Cookie, the response SHALL have the RCODE NOERROR."
         self.response_with_cookie(request, Rcode::NOERROR.into())
     }
-
-    /// Check the cookie contained in the request to make sure that it is
-    /// complete, and if so return the cookie to the caller.
-    #[must_use]
-    fn ensure_cookie_is_complete<Target: Octets>(
-        &self,
-        request: &Request<Target>,
-    ) -> Option<Cookie> {
-        if let Some(Ok(cookie)) = Self::cookie(request) {
-            let cookie = if cookie.server().is_some() {
-                cookie
-            } else {
-                cookie.create_response(
-                    Serial::now(),
-                    request.client_addr().ip(),
-                    &self.server_secret,
-                )
-            };
-
-            Some(cookie)
-        } else {
-            None
-        }
-    }
 }
 
 //--- Default
@@ -261,7 +236,7 @@ where
     ) -> ControlFlow<AdditionalBuilder<StreamTarget<Target>>> {
         match Self::cookie(request) {
             None => {
-                trace!("Request does not include DNS cookies");
+                trace!("Request does not contain a DNS cookie");
 
                 // https://datatracker.ietf.org/doc/html/rfc7873#section-5.2.1
                 // No OPT RR or No COOKIE Option:
@@ -440,8 +415,8 @@ where
 
     fn postprocess(
         &self,
-        request: &Request<RequestOctets>,
-        response: &mut AdditionalBuilder<StreamTarget<Target>>,
+        _request: &Request<RequestOctets>,
+        _response: &mut AdditionalBuilder<StreamTarget<Target>>,
     ) {
         // https://datatracker.ietf.org/doc/html/rfc7873#section-5.2.1
         // No OPT RR or No COOKIE Option:
@@ -467,19 +442,74 @@ where
         // A Client Cookie and a Valid Server Cookie
         //   Any server cookie will already have been validated during
         //   pre-processing, we don't need to check it again here.
+    }
+}
 
-        if let Some(filled_cookie) = self.ensure_cookie_is_complete(request) {
-            // https://datatracker.ietf.org/doc/html/rfc7873#section-5.2.5
-            //   "The server SHALL process the request and include a COOKIE
-            //   option in the response by (a) copying the complete COOKIE
-            //   option from the request or (b) generating a new COOKIE option
-            //   containing both the Client Cookie copied from the request and
-            //   a valid Server Cookie it has generated."
-            if let Err(err) = add_edns_options(response, |builder| {
-                builder.push(&filled_cookie)
-            }) {
-                warn!("Cannot add RFC 7873 DNS Cookie option to response: {err}");
-            }
-        }
+#[cfg(test)]
+mod tests {
+    use core::ops::ControlFlow;
+
+    use bytes::Bytes;
+    use std::vec::Vec;
+    use tokio::time::Instant;
+
+    use crate::base::opt::cookie::ClientCookie;
+    use crate::base::opt::Cookie;
+    use crate::base::{Message, MessageBuilder, Name, Rtype};
+    use crate::net::server::message::{Request, UdpTransportContext};
+    use crate::net::server::middleware::processor::MiddlewareProcessor;
+
+    use super::CookiesMiddlewareProcessor;
+
+    #[test]
+    fn dont_add_cookie_twice() {
+        // Build a dummy DNS query containing a client cookie.
+        let query = MessageBuilder::new_vec();
+        let mut query = query.question();
+        query.push((Name::<Bytes>::root(), Rtype::A)).unwrap();
+        let mut additional = query.additional();
+        let client_cookie = ClientCookie::new_random();
+        let cookie = Cookie::new(client_cookie, None);
+        additional.opt(|builder| builder.cookie(cookie)).unwrap();
+        let message = additional.into_message();
+
+        // Package the query into a context aware request to make it look
+        // as if it came from a UDP server.
+        let ctx = UdpTransportContext::default();
+        let client_addr = "127.0.0.1:12345".parse().unwrap();
+        let request =
+            Request::new(client_addr, Instant::now(), message, ctx.into());
+
+        // And pass the query through the middleware processor
+        let server_secret: [u8; 16] =
+            [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15];
+        let processor = CookiesMiddlewareProcessor::new(server_secret);
+        let processor: &dyn MiddlewareProcessor<Vec<u8>, Vec<u8>> =
+            &processor;
+
+        let ControlFlow::Break(mut response) = processor.preprocess(&request)
+        else {
+            unreachable!()
+        };
+        processor.postprocess(&request, &mut response);
+
+        // Expect the response to contain a single cookie option containing
+        // both a client cookie and a server cookie.
+        let response = response.finish();
+        let response_bytes = response.as_dgram_slice().to_vec();
+        let response = Message::from_octets(response_bytes).unwrap();
+
+        assert!(response.opt().is_some());
+        let opt_record = response.opt().unwrap();
+        let mut cookie_iter = opt_record.opt().iter::<Cookie>();
+        let cookie = cookie_iter.next();
+        assert!(cookie.as_ref().is_some_and(|v| v.is_ok()));
+        let cookie = cookie.unwrap().unwrap();
+        assert!(cookie.check_server_hash(
+            client_addr.ip(),
+            &server_secret,
+            |_| true
+        ));
+        assert!(cookie_iter.next().is_none());
     }
 }

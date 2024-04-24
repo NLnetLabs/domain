@@ -411,7 +411,7 @@ mod tests {
             "127.0.0.1:12345".parse().unwrap(),
             Instant::now(),
             message,
-            TransportSpecificContext::Udp(ctx),
+            ctx.into(),
         );
 
         // And pass the query through the middleware processor
