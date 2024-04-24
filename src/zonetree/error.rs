@@ -203,7 +203,7 @@ impl Display for ContextError {
 //------------ ZoneTreeModificationError -------------------------------------
 
 /// An attempt to modify a [`ZoneTree`] failed.
-/// 
+///
 /// [`ZoneTree`]: crate::zonetree::ZoneTree
 #[derive(Debug)]
 pub enum ZoneTreeModificationError {
