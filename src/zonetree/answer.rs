@@ -7,8 +7,8 @@ use crate::base::message_builder::AdditionalBuilder;
 use crate::base::wire::Composer;
 use crate::base::Message;
 use crate::base::MessageBuilder;
-use crate::zonefile::types::StoredDname;
 
+use super::types::StoredDname;
 use super::{SharedRr, SharedRrset};
 
 //------------ Answer --------------------------------------------------------

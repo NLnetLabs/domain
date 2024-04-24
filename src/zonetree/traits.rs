@@ -17,11 +17,10 @@ use std::sync::Arc;
 use crate::base::iana::Class;
 use crate::base::name::Label;
 use crate::base::{Dname, Rtype};
-use crate::zonefile::error::OutOfZone;
-use crate::zonefile::types::StoredDname;
 
 use super::answer::Answer;
-use super::types::ZoneCut;
+use super::error::OutOfZone;
+use super::types::{StoredDname, ZoneCut};
 use super::{SharedRr, SharedRrset, WalkOp};
 
 //------------ ZoneStore -----------------------------------------------------

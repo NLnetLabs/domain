@@ -5,9 +5,8 @@ use std::vec::Vec;
 
 use crate::base::iana::Class;
 use crate::base::name::{Label, ToDname};
-use crate::zonefile::error::{CnameError, OutOfZone, ZoneCutError};
-use crate::zonefile::types::{StoredDname, StoredRecord};
-use crate::zonetree::types::ZoneCut;
+use crate::zonetree::error::{CnameError, OutOfZone, ZoneCutError};
+use crate::zonetree::types::{StoredDname, StoredRecord, ZoneCut};
 use crate::zonetree::{SharedRr, SharedRrset, Zone};
 
 use super::nodes::{Special, ZoneApex, ZoneNode};

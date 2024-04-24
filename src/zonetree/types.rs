@@ -6,7 +6,20 @@ use serde::{Deserialize, Serialize};
 
 use crate::base::rdata::RecordData;
 use crate::base::{iana::Rtype, Ttl};
-use crate::zonefile::types::{StoredDname, StoredRecord, StoredRecordData};
+use crate::base::{Dname, Record};
+use crate::rdata::ZoneRecordData;
+use bytes::Bytes;
+
+//------------ Type Aliases --------------------------------------------------
+
+/// A [`Bytes`] backed [`Dname`].
+pub type StoredDname = Dname<Bytes>;
+
+/// A [`Bytes`] backed [`ZoneRecordData`].
+pub type StoredRecordData = ZoneRecordData<Bytes, StoredDname>;
+
+/// A [`Bytes`] backed [`Record`].`
+pub type StoredRecord = Record<StoredDname, StoredRecordData>;
 
 //------------ SharedRr ------------------------------------------------------
 

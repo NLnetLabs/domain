@@ -5,13 +5,13 @@ use std::pin::Pin;
 use std::sync::Arc;
 
 use crate::base::iana::Class;
-use crate::zonefile::error::{RecordError, ZoneErrors};
-use crate::zonefile::types::StoredDname;
-use crate::zonefile::{inplace, parsed};
+use crate::zonefile::inplace;
 
+use super::error::{RecordError, ZoneErrors};
 use super::in_memory::ZoneBuilder;
 use super::traits::WritableZone;
-use super::{ReadableZone, ZoneStore};
+use super::types::StoredDname;
+use super::{parsed, ReadableZone, ZoneStore};
 
 //------------ Zone ----------------------------------------------------------
 

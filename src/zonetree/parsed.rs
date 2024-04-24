@@ -9,11 +9,11 @@ use crate::base::iana::{Class, Rtype};
 use crate::base::name::FlattenInto;
 use crate::base::ToDname;
 use crate::rdata::ZoneRecordData;
+use crate::zonefile::inplace::{self, Entry};
 use crate::zonetree::ZoneBuilder;
 use crate::zonetree::{Rrset, SharedRr};
 
 use super::error::{OwnerError, RecordError, ZoneErrors};
-use super::inplace::{self, Entry};
 use super::types::{StoredDname, StoredRecord};
 
 //------------ Zonefile ------------------------------------------------------

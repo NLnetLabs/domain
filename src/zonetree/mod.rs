@@ -37,7 +37,8 @@
 //! ```
 //! use domain::base::iana::{Class, Rcode, Rtype};
 //! use domain::base::name::Dname;
-//! use domain::zonefile::{inplace, parsed};
+//! use domain::zonefile::inplace;
+//! use domain::zonetree::parsed;
 //! use domain::zonetree::{Answer, Zone, ZoneBuilder, ZoneTree};
 //!
 //! // Prepare some zone file bytes to demonstrate with.
@@ -81,7 +82,9 @@
 //! [`ZoneBuilder`]: in_memory::ZoneBuilder
 
 mod answer;
+pub mod error;
 mod in_memory;
+pub mod parsed;
 mod traits;
 mod tree;
 mod types;

@@ -1,14 +1,14 @@
 //! Zone related errors.
 
-//------------ ZoneCutError --------------------------------------------------
-
 use std::fmt::Display;
 use std::vec::Vec;
 
 use crate::base::Rtype;
-use crate::zonefile::types::{StoredDname, StoredRecord};
+use crate::zonefile::inplace;
 
-use super::inplace;
+use super::types::{StoredDname, StoredRecord};
+
+//------------ ZoneCutError --------------------------------------------------
 
 /// A zone cut is not valid with respect to the zone's apex.
 #[derive(Clone, Copy, Debug)]
