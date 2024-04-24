@@ -327,6 +327,7 @@ mod tests {
     use super::start_reply;
     use crate::base::iana::{OptRcode, Rcode};
     use crate::base::message_builder::AdditionalBuilder;
+    use crate::base::opt::UnknownOptData;
     use crate::base::wire::Composer;
     use crate::net::server::util::{
         add_edns_options, remove_edns_opt_record,
@@ -402,7 +403,7 @@ mod tests {
         // And that it has a single EDNS option.
         let opt = response.opt().unwrap();
         let options = opt.opt();
-        assert_eq!(options.len(), 1);
+        assert_eq!(options.iter::<UnknownOptData<_>>().count(), 1);
 
         // Now add another EDNS option to the OPT record (duplicates are allowed
         // by RFC 6891).
@@ -418,7 +419,7 @@ mod tests {
         // And that it has a single EDNS option.
         let opt = response.opt().unwrap();
         let options = opt.opt();
-        assert_eq!(options.len(), 2);
+        assert_eq!(options.iter::<UnknownOptData<_>>().count(), 2);
     }
 
     #[test]
