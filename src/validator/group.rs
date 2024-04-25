@@ -35,7 +35,7 @@ use std::slice::Iter;
 use super::context::Node;
 use super::context::ValidationContext;
 use super::types::ValidationState;
-use std::sync::Mutex;
+//use std::sync::Mutex;
 use std::vec::Vec;
 
 type RrType = Record<Name<Bytes>, AllRecordData<Bytes, ParsedName<Bytes>>>;
@@ -45,9 +45,6 @@ type SigType = Record<Name<Bytes>, Rrsig<Bytes, Name<Bytes>>>;
 pub struct Group {
     rr_set: Vec<RrType>,
     sig_set: Vec<SigType>,
-    state: Mutex<Option<ValidationState>>,
-    wildcard: Mutex<Option<Name<Bytes>>>,
-    signer_name: Mutex<Option<Name<Bytes>>>,
 }
 
 impl Group {
@@ -56,9 +53,6 @@ impl Group {
             return Self {
                 rr_set: vec![to_bytes_record(&rr)],
                 sig_set: Vec::new(),
-                state: Mutex::new(None),
-                wildcard: Mutex::new(None),
-                signer_name: Mutex::new(None),
             };
         }
         todo!();
@@ -132,23 +126,6 @@ impl Group {
         Err(())
     }
 
-    pub fn set_state_wildcard_signer_name(
-        &self,
-        state: ValidationState,
-        wildcard: Option<Name<Bytes>>,
-        signer_name: Name<Bytes>,
-    ) {
-        let mut m_state = self.state.lock().unwrap();
-        *m_state = Some(state);
-        drop(m_state);
-        let mut m_wildcard = self.wildcard.lock().unwrap();
-        *m_wildcard = wildcard;
-        drop(m_wildcard);
-        let mut m_signer_name = self.signer_name.lock().unwrap();
-        *m_signer_name = Some(signer_name);
-        drop(m_signer_name);
-    }
-
     pub fn validated(
         &self,
         state: ValidationState,
@@ -164,21 +141,6 @@ impl Group {
             wildcard,
             ede,
         )
-    }
-
-    pub fn get_state(&self) -> Option<ValidationState> {
-        let m_state = self.state.lock().unwrap();
-        *m_state
-    }
-
-    pub fn wildcard(&self) -> Option<Name<Bytes>> {
-        let m_wildcard = self.wildcard.lock().unwrap();
-        (*m_wildcard).clone()
-    }
-
-    pub fn signer_name(&self) -> Name<Bytes> {
-        let m_signer_name = self.signer_name.lock().unwrap();
-        (*m_signer_name).clone().unwrap()
     }
 
     pub fn owner(&self) -> Name<Bytes> {
@@ -488,21 +450,9 @@ impl Group {
 
 impl Clone for Group {
     fn clone(&self) -> Self {
-        let m_state = self.state.lock().unwrap();
-        let state = *m_state;
-        drop(m_state);
-        let m_wildcard = self.wildcard.lock().unwrap();
-        let wildcard = (*m_wildcard).clone();
-        drop(m_wildcard);
-        let m_signer_name = self.signer_name.lock().unwrap();
-        let signer_name = (*m_signer_name).clone();
-        drop(m_signer_name);
         Self {
             rr_set: self.rr_set.clone(),
             sig_set: self.sig_set.clone(),
-            state: Mutex::new(state),
-            wildcard: Mutex::new(wildcard),
-            signer_name: Mutex::new(signer_name),
         }
     }
 }
@@ -556,7 +506,7 @@ pub struct ValidatedGroup {
     sig_set: Vec<SigType>,
     state: ValidationState,
     signer_name: Name<Bytes>,
-    wildcard: Option<Name<Bytes>>,
+    closest_encloser: Option<Name<Bytes>>,
     ede: Option<ExtendedError<Bytes>>,
 }
 
@@ -566,7 +516,7 @@ impl ValidatedGroup {
         sig_set: Vec<SigType>,
         state: ValidationState,
         signer_name: Name<Bytes>,
-        wildcard: Option<Name<Bytes>>,
+        closest_encloser: Option<Name<Bytes>>,
         ede: Option<ExtendedError<Bytes>>,
     ) -> ValidatedGroup {
         ValidatedGroup {
@@ -574,7 +524,7 @@ impl ValidatedGroup {
             sig_set,
             state,
             signer_name,
-            wildcard,
+            closest_encloser,
             ede,
         }
     }
@@ -616,8 +566,8 @@ impl ValidatedGroup {
         self.signer_name.clone()
     }
 
-    pub fn wildcard(&self) -> Option<Name<Bytes>> {
-        self.wildcard.clone()
+    pub fn closest_encloser(&self) -> Option<Name<Bytes>> {
+        self.closest_encloser.clone()
     }
 
     pub fn ede(&self) -> Option<ExtendedError<Bytes>> {

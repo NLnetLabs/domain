@@ -2,11 +2,12 @@
 
 #![cfg(feature = "net")]
 
-use crate::base::Name;
 use crate::base::Message;
+use crate::base::Name;
 use bytes::Bytes;
 //use crate::base::ParseRecordData;
 use crate::base::iana::Class;
+use crate::base::iana::ExtendedErrorCode;
 use crate::base::iana::OptRcode;
 use crate::base::opt::ExtendedError;
 //use crate::base::name::Label;
@@ -133,12 +134,59 @@ where
     // negative result is signed or not.
     if msg.opt_rcode() == OptRcode::NOERROR {
         let opt_state = get_answer_state(&sname, qclass, qtype, &mut answers);
-        if let Some((state, wildcard, ede)) = opt_state {
-            if state != ValidationState::Secure || wildcard.is_none() {
+        if let Some((state, signer_name, closest_encloser, ede)) = opt_state {
+            if state != ValidationState::Secure || closest_encloser.is_none()
+            {
                 // No need to check the wildcard, either because the state is
                 // not secure or because there is no wildcard.
                 return Ok((map_maybe_secure(state, maybe_secure), ede));
             }
+
+            let closest_encloser = closest_encloser.unwrap();
+
+            match nsec_for_not_exists(&sname, &mut authorities, &signer_name)
+            {
+                NsecNXState::DoesNotExist(ce) => {
+                    // Make sure that the wildcard that was used for the
+                    // answer matches the closest encloser we got from the NSEC.
+                    if closest_encloser == ce {
+                        // It checks out, we have a secure wildcard.
+                        return Ok((
+                            map_maybe_secure(state, maybe_secure),
+                            ede,
+                        ));
+                    }
+
+                    // Failure.
+                    todo!();
+                }
+                NsecNXState::Nothing => (), // Continue with NSEC3
+            }
+
+            println!(
+                "compute the child for {sname:?} and {closest_encloser:?}"
+            );
+            let child_of_ce = get_child_of_ce(sname, closest_encloser);
+            println!("got child {child_of_ce:?}");
+
+            match nsec3_for_not_exists_no_ce(
+                &child_of_ce,
+                &mut authorities,
+                qtype,
+                &signer_name,
+            ) {
+                Nsec3NXStateNoCE::DoesNotExist => {
+                    // It checks out, we have a secure wildcard.
+                    return Ok((map_maybe_secure(state, maybe_secure), ede));
+                }
+                Nsec3NXStateNoCE::DoesNotExistInsecure => {
+                    // Non-existance proof is insecure.
+                    return Ok((ValidationState::Insecure, ede));
+                }
+                Nsec3NXStateNoCE::Nothing => (), // Continue.
+            }
+
+            // Failure, no suitable NSEC or NSEC3 record found.
             todo!(); // wildcard
         }
     }
@@ -213,17 +261,17 @@ where
         // not exist.
         // Then Errata 3441 says that we need to do the same thing for other
         // types.
-        let ce = match nsec3_for_not_exists(
+        let (state, ede) = nsec3_for_not_exists(
             &sname,
             &mut authorities,
             qtype,
             &signer_name,
-        ) {
+        );
+        let ce = match state {
             Nsec3NXState::DoesNotExist(ce) => ce, // Continue with wildcard.
             Nsec3NXState::DoesNotExistInsecure(_) => {
                 // Something might exist. Just return insecure here.
-                todo!(); // EDE
-                         // return Ok(ValidationState::Insecure);
+                return Ok((ValidationState::Insecure, ede));
             }
             Nsec3NXState::Nothing => todo!(), // We reached the end, return bogus.
         };
@@ -304,6 +352,7 @@ fn get_answer_state(
     groups: &mut Vec<ValidatedGroup>,
 ) -> Option<(
     ValidationState,
+    Name<Bytes>,
     Option<Name<Bytes>>,
     Option<ExtendedError<Bytes>>,
 )> {
@@ -317,7 +366,12 @@ fn get_answer_state(
         if g.owner() != qname {
             continue;
         }
-        return Some((g.state(), g.wildcard(), g.ede()));
+        return Some((
+            g.state(),
+            g.signer_name(),
+            g.closest_encloser(),
+            g.ede(),
+        ));
     }
     None
 }
@@ -634,12 +688,13 @@ fn nsec3_for_nodata_wildcard(
     rtype: Rtype,
     signer_name: &Name<Bytes>,
 ) -> Nsec3State {
-    let (ce, secure) =
-        match nsec3_for_not_exists(target, groups, rtype, signer_name) {
-            Nsec3NXState::DoesNotExist(ce) => (ce, true),
-            Nsec3NXState::DoesNotExistInsecure(ce) => (ce, false),
-            Nsec3NXState::Nothing => return Nsec3State::Nothing,
-        };
+    let (state, ede) =
+        nsec3_for_not_exists(target, groups, rtype, signer_name);
+    let (ce, secure) = match state {
+        Nsec3NXState::DoesNotExist(ce) => (ce, true),
+        Nsec3NXState::DoesNotExistInsecure(ce) => (ce, false),
+        Nsec3NXState::Nothing => return Nsec3State::Nothing,
+    };
 
     let star_name = star_closest_encloser(&ce);
     match nsec3_for_nodata(&star_name, groups, rtype, signer_name) {
@@ -668,7 +723,7 @@ fn nsec3_for_not_exists(
     groups: &mut Vec<ValidatedGroup>,
     rtype: Rtype,
     signer_name: &Name<Bytes>,
-) -> Nsec3NXState {
+) -> (Nsec3NXState, Option<ExtendedError<Bytes>>) {
     println!("nsec3_for_not_exists: proving {target:?} does not exist");
 
     // We assume the target does not exist and the signer_name does exist.
@@ -752,10 +807,19 @@ fn nsec3_for_not_exists(
 
                     if nsec3.opt_out() {
                         // Results based on an opt_out record are insecure.
-                        return Nsec3NXState::DoesNotExistInsecure(maybe_ce);
+                        return (
+                            Nsec3NXState::DoesNotExistInsecure(maybe_ce),
+                            Some(
+                                ExtendedError::new_with_str(
+                                    ExtendedErrorCode::OTHER,
+                                    "NSEC3 with Opt-Out",
+                                )
+                                .unwrap(),
+                            ),
+                        );
                     }
 
-                    return Nsec3NXState::DoesNotExist(maybe_ce);
+                    return (Nsec3NXState::DoesNotExist(maybe_ce), None);
                 }
 
                 // No. And this one doesn't exist either.
@@ -782,7 +846,7 @@ enum Nsec3NXStateNoCE {
 }
 
 // Prove that target does not exist using NSEC3 records. Assume that
-// the closest encloser is already know and that we only have to check
+// the closest encloser is already known and that we only have to check
 // this specific name. This is typically used to prove that a wildcard does
 // not exist.
 fn nsec3_for_not_exists_no_ce(
@@ -846,12 +910,13 @@ fn nsec3_for_nxdomain(
     rtype: Rtype,
     signer_name: &Name<Bytes>,
 ) -> Nsec3NXState {
-    let (ce, secure) =
-        match nsec3_for_not_exists(target, groups, rtype, signer_name) {
-            Nsec3NXState::DoesNotExist(ce) => (ce, true),
-            Nsec3NXState::DoesNotExistInsecure(ce) => (ce, false),
-            Nsec3NXState::Nothing => return Nsec3NXState::Nothing,
-        };
+    let (state, ede) =
+        nsec3_for_not_exists(target, groups, rtype, signer_name);
+    let (ce, secure) = match state {
+        Nsec3NXState::DoesNotExist(ce) => (ce, true),
+        Nsec3NXState::DoesNotExistInsecure(ce) => (ce, false),
+        Nsec3NXState::Nothing => return Nsec3NXState::Nothing,
+    };
 
     let star_name = star_closest_encloser(&ce);
     match nsec3_for_not_exists_no_ce(&star_name, groups, rtype, signer_name) {
@@ -890,7 +955,7 @@ fn closest_encloser(
     // longest common suffix for target and each of them and return the longest
     // result.
     let mut owner_encloser = Name::root(); // Assume the root if we can't find
-                                            // anything.
+                                           // anything.
     for n in nsec_owner.iter_suffixes() {
         if target.ends_with(&n) {
             owner_encloser = n;
@@ -900,7 +965,7 @@ fn closest_encloser(
     println!("found {owner_encloser:?}");
 
     let mut next_encloser: Name<Bytes> = Name::root(); // Assume the root if we can't find
-                                                         // anything.
+                                                       // anything.
     for n in nsec.next_name().iter_suffixes() {
         if target.ends_with(&n) {
             next_encloser = n.to_name();
@@ -949,8 +1014,8 @@ fn get_checked_nsec(
     }
 
     // Rule out wildcard
-    let opt_wildcard = group.wildcard();
-    if let Some(closest_encloser) = opt_wildcard {
+    let opt_closest_encloser = group.closest_encloser();
+    if let Some(closest_encloser) = opt_closest_encloser {
         // The signature is for a wildcard. Make sure that the owner name is
         // equal to the unexpanded wildcard.
         let star_name = star_closest_encloser(&closest_encloser);
@@ -1015,6 +1080,21 @@ fn get_checked_nsec3(
 
     // All check pass, return the NSEC3 record and the owner hash.
     Some((nsec3.clone(), ownerhash))
+}
+
+fn get_child_of_ce(target: Name<Bytes>, ce: Name<Bytes>) -> Name<Bytes> {
+    let ce_label_count = ce.label_count();
+    let mut name = target;
+    while name.label_count() > ce_label_count + 1 {
+        name = name.parent().unwrap();
+    }
+    if name.label_count() == ce_label_count + 1 {
+        // name is the child we are looking for.
+        return name;
+    }
+
+    // Something weird.
+    todo!();
 }
 
 pub mod anchor;

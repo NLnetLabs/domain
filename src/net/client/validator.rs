@@ -202,7 +202,6 @@ where
             return Ok(response_msg);
         }
 
-        // We should validate.
         let res = validator::validate_msg(&response_msg, &self.vc).await;
         println!("get_response_impl: {res:?}");
         match res {
@@ -230,6 +229,7 @@ where
                             .unwrap();
                             return Ok(response_msg);
                         } else {
+                            // Set AD if it was set in the request.
                             let msg = remove_dnssec(
                                 &response_msg,
                                 self.request_msg.header().ad(),
@@ -247,7 +247,6 @@ where
                         // Check the state of the DO flag to see if we have to
                         // strip DNSSEC records. Clear the AD flag if it is
                         // set. Always clear CD.
-                        let dnssec_ok = self.request_msg.dnssec_ok();
                         if dnssec_ok {
                             // Clear AD if it is set. Clear CD.
                             let mut response_msg = Message::from_octets(
@@ -311,6 +310,7 @@ fn remove_dnssec(
     msg: &Message<Bytes>,
     ad: bool,
 ) -> Result<Message<Bytes>, Error> {
+    println!("remove_dnssec: ad {ad:?}");
     let mut target =
         MessageBuilder::from_target(StaticCompressor::new(Vec::new()))
             .expect("Vec is expected to have enough space");
@@ -320,9 +320,9 @@ fn remove_dnssec(
 
     *target.header_mut() = source.header();
 
-    if !ad {
-        // Clear ad
-        target.header_mut().set_ad(false);
+    if ad != source.header().ad() {
+        // Change AD.
+        target.header_mut().set_ad(ad);
     }
     target.header_mut().set_cd(false);
 

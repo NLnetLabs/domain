@@ -14,8 +14,8 @@ use crate::base::iana::ExtendedErrorCode;
 use crate::base::name::Chain;
 use crate::base::name::Label;
 use crate::base::opt::ExtendedError;
-use crate::base::Name;
 use crate::base::MessageBuilder;
+use crate::base::Name;
 use crate::base::ParsedName;
 use crate::base::Record;
 use crate::base::RelativeName;
@@ -208,6 +208,9 @@ impl<Upstream> ValidationContext<Upstream> {
                     }
 
                     let state = nsec3_for_ds(&name, &mut authorities, node);
+                    println!(
+                        "create_child_node: got state {state:?} for {name:?}"
+                    );
                     match state {
                         NsecState::InsecureDelegation => {
                             todo!(); // EDE
@@ -651,6 +654,7 @@ fn find_key_for_ds(
     None
 }
 
+#[derive(Debug)]
 enum NsecState {
     InsecureDelegation,
     SecureIntermediate,
