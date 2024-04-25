@@ -328,15 +328,11 @@ mod tests {
     use tokio::time::Instant;
 
     use crate::base::{MessageBuilder, Name, Rtype};
-    use crate::net::server::message::{
-        Request, TransportSpecificContext, UdpTransportContext,
-    };
-
-    use super::MandatoryMiddlewareProcessor;
-    use crate::base::iana::OptionCode;
+    use crate::net::server::message::{Request, UdpTransportContext};
     use crate::net::server::middleware::processor::MiddlewareProcessor;
     use crate::net::server::middleware::processors::mandatory::MINIMUM_RESPONSE_BYTE_LEN;
-    use octseq::OctetsBuilder;
+
+    use super::MandatoryMiddlewareProcessor;
 
     //------------ Constants -------------------------------------------------
 
@@ -370,19 +366,9 @@ mod tests {
         let query = MessageBuilder::new_vec();
         let mut query = query.question();
         query.push((Name::<Bytes>::root(), Rtype::A)).unwrap();
-        let extra_bytes = vec![0; (MIN_ALLOWED as usize) * 2];
         let mut additional = query.additional();
         additional
-            .opt(|builder| {
-                builder.push_raw_option(
-                    OptionCode::PADDING,
-                    extra_bytes.len() as u16,
-                    |target| {
-                        target.append_slice(&extra_bytes).unwrap();
-                        Ok(())
-                    },
-                )
-            })
+            .opt(|builder| builder.padding(MIN_ALLOWED * 2))
             .unwrap();
         let old_size = additional.as_slice().len();
         let message = additional.into_message();
@@ -397,7 +383,7 @@ mod tests {
             "127.0.0.1:12345".parse().unwrap(),
             Instant::now(),
             message,
-            TransportSpecificContext::Udp(ctx),
+            ctx.into(),
         );
 
         // And pass the query through the middleware processor
