@@ -81,7 +81,7 @@ serde_json         = "1.0.113"
 serde_yaml         = "0.9"
 socket2            = { version = "0.5.5" }
 tokio              = { version = "1.37", features = ["rt-multi-thread", "io-util", "net", "test-util"] }
-tokio-rustls       = { version = "0.26", features = [ "ring", "logging", "tls12" ] }
+tokio-rustls       = { version = "0.26", default-features = false, features = [ "ring", "logging", "tls12" ] }
 tokio-test         = "0.4"
 tokio-tfo          = { version = "0.2.0" }
 tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
