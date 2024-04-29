@@ -47,6 +47,7 @@ Breaking changes
 * Split RRSIG timestamp handling from `Serial` into a new type
   `rdata::dnssec::Timestamp`. ([#294])
 * Upgraded `octseq` to 0.5. ([#257])
+* The minimum Rust version is now 1.70. ([#304])
 
 New
 
@@ -123,6 +124,7 @@ Other changes
 [#298]: https://github.com/NLnetLabs/domain/pull/298
 [#299]: https://github.com/NLnetLabs/domain/pull/299
 [#300]: https://github.com/NLnetLabs/domain/pull/300
+[#304]: https://github.com/NLnetLabs/domain/pull/304
 [@torin-carey]: https://github.com/torin-carey
 [@hunts]: https://github.com/hunts
 
