@@ -111,9 +111,8 @@ impl AsyncConnect for TlsConnect {
     >;
 
     fn connect(&self) -> Self::Fut {
-        let tls_connection = tokio_rustls::TlsConnector::from(
-            self.client_config.clone()
-        );
+        let tls_connection =
+            tokio_rustls::TlsConnector::from(self.client_config.clone());
         let server_name = self.server_name.clone();
         let addr = self.addr;
         Box::pin(async move {
