@@ -11,7 +11,8 @@ use std::task::{Context, Poll};
 use tokio::io::ReadBuf;
 use tokio::net::{TcpStream, UdpSocket};
 use tokio_rustls::client::TlsStream;
-use tokio_rustls::rustls::{ClientConfig, ServerName};
+use tokio_rustls::rustls::pki_types::ServerName;
+use tokio_rustls::rustls::ClientConfig;
 use tokio_rustls::TlsConnector;
 
 /// How many times do we try a new random port if we get ‘address in use.’
@@ -77,7 +78,7 @@ pub struct TlsConnect {
     client_config: Arc<ClientConfig>,
 
     /// Server name for certificate verification.
-    server_name: ServerName,
+    server_name: ServerName<'static>,
 
     /// Remote address to connect to.
     addr: SocketAddr,
@@ -87,7 +88,7 @@ impl TlsConnect {
     /// Function to create a new TLS connection stream
     pub fn new(
         client_config: impl Into<Arc<ClientConfig>>,
-        server_name: ServerName,
+        server_name: ServerName<'static>,
         addr: SocketAddr,
     ) -> Self {
         Self {

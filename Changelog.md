@@ -8,7 +8,7 @@ Breaking changes
   using the term “dname” to just “name.” For instance, `Dname` has become
   `Name`, `ToDname` has become `ToName`, and `ToDname::to_dname` has become
   `ToName::to_name`. ([#290])
-* The `ToDname` and `ToRelativeDname` traits have been changed to have a
+* The `ToName` and `ToRelativeName` traits have been changed to have a
   pair of methods a la `try_to_name` and `to_name` for octets builders
   with limited and unlimited buffers, reflecting the pattern used
   elsewhere. ([#285])
@@ -79,17 +79,17 @@ Bug fixes
 
 Unstable features
 
-* Add the module `net::client` with experimental support for client
+* Added the module `net::client` with experimental support for client
   message transport, i.e., sending of requests and receiving responses
   as well as caching of responses.
   This is gated by the `unstable-client-transport` feature. ([#215],[#275])
-* Add the module `net::server` with experimental support for server
+* Added the module `net::server` with experimental support for server
   transports, processing requests through a middleware chain and a service
   trait.
   This is gated by the `unstable-server-transport` feature. ([#274])
-* Add the module `zonetree` providing basic traits representing a
+* Added the module `zonetree` providing basic traits representing a
   collection of zones and their data. The `zonetree::in_memory` module 
-  provides an in-memory implementation. The `zonefile::parsed` module
+  provides an in-memory implementation. The `zonetree::parsed` module
   provides a way to classify RRsets before inserting them into a tree.
   This is gated by the `unstable-zonetree` feature. ([#286])
   
