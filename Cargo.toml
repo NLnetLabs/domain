@@ -54,14 +54,14 @@ serde       = ["dep:serde", "octseq/serde"]
 sign        = ["std"]
 smallvec    = ["dep:smallvec", "octseq/smallvec"]
 std         = ["bytes?/std", "octseq/std", "time/std"]
-net         = ["bytes", "futures-util", "rand", "std", "tokio", "tokio-rustls"]
+net         = ["bytes", "futures-util", "rand", "std", "tokio"]
 tsig        = ["bytes", "ring", "smallvec"]
 validate    = ["std", "ring"]
 zonefile    = ["bytes", "serde", "std"]
 
 # Unstable features
-unstable-client-transport = [ "moka", "tracing" ]
-unstable-server-transport = ["arc-swap", "chrono/clock", "hex", "libc", "tracing"]
+unstable-client-transport = [ "moka", "net", "tracing" ]
+unstable-server-transport = ["arc-swap", "chrono/clock", "hex", "libc", "net", "tracing"]
 unstable-zonetree = ["futures", "parking_lot", "serde", "tokio", "tracing"]
 
 # Test features
