@@ -35,6 +35,7 @@ use std::slice::Iter;
 use super::context::Node;
 use super::context::ValidationContext;
 use super::types::ValidationState;
+use super::utilities::map_dname;
 //use std::sync::Mutex;
 use std::vec::Vec;
 
@@ -214,6 +215,10 @@ impl Group {
 
     pub fn rr_iter(&mut self) -> Iter<RrType> {
         self.rr_set.iter()
+    }
+
+    pub fn sig_set_len(&self) -> usize {
+        self.sig_set.len()
     }
 
     pub fn sig_iter(&mut self) -> Iter<SigType> {
@@ -499,7 +504,7 @@ impl Clone for Group {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct GroupList(Vec<Group>);
 
 impl GroupList {
@@ -534,7 +539,71 @@ impl GroupList {
     }
 
     pub fn remove_redundant_cnames(&mut self) {
-        // todo!();
+        let self_clone = self.clone();
+        self.0.retain(|g| {
+            if g.rtype() != Rtype::CNAME {
+                return true;
+            }
+            let rr_set = g.rr_set();
+            if rr_set.len() != 1 {
+                return true; // Let it fail if it is in secure zone.
+            }
+            if g.sig_set_len() != 0 {
+                // Signed CNAME, no need to check.
+                return true;
+            }
+
+            if self_clone.matches_dname(&rr_set[0]) {
+                // Courtesy CNAME, remove.
+                return false;
+            }
+
+            // No match.
+            return true;
+        });
+    }
+
+    fn matches_dname(
+        &self,
+        cname_rr: &Record<
+            Name<Bytes>,
+            AllRecordData<Bytes, ParsedName<Bytes>>,
+        >,
+    ) -> bool {
+        let cname_name = cname_rr.owner();
+        for g in &self.0 {
+            if g.rtype() != Rtype::DNAME {
+                continue;
+            }
+            let rr_set = g.rr_set();
+            for rr in rr_set {
+                let owner = rr.owner();
+                if !cname_name.ends_with(owner) {
+                    continue;
+                }
+                if cname_name == owner {
+                    // Weird, both a CNAME and a DNAME at the same name.
+                    continue;
+                }
+
+                // Now check the target of the CNAME.
+                let result_name =
+                    if let AllRecordData::Dname(dname) = rr.data() {
+                        map_dname(owner, dname, cname_name)
+                    } else {
+                        panic!("DNAME expected");
+                    };
+                println!("after applying DNAME: {result_name:?}");
+                if let AllRecordData::Cname(cname) = cname_rr.data() {
+                    if cname.cname().to_name::<Bytes>() == result_name {
+                        println!("got match");
+                        return true;
+                    }
+                }
+            }
+        }
+
+        false
     }
 
     pub fn iter(&mut self) -> Iter<Group> {

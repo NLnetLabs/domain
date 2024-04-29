@@ -45,6 +45,7 @@ use std::fmt::Debug;
 use std::vec::Vec;
 use types::Error;
 use types::ValidationState;
+use utilities::map_dname;
 
 // Maximum number of CNAME or DNAME records used for in answer.
 const MAX_CNAME_DNAME: u8 = 12;
@@ -347,6 +348,31 @@ fn do_cname_dname(
                     }
                 }
                 name = cname.cname().to_name();
+                maybe_secure = map_maybe_secure(g.state(), maybe_secure);
+                count += 1;
+                if count > MAX_CNAME_DNAME {
+                    todo!();
+                }
+                continue 'name_loop;
+            }
+
+            if let AllRecordData::Dname(dname) = rr_set[0].data() {
+                let owner = g.owner();
+                if !name.ends_with(&owner) {
+                    // This DNAME record is not suitable for the current name.
+                    continue;
+                }
+                if owner == name {
+                    // It cannot be an exact match.
+                    continue;
+                }
+
+                if let Some(ce) = g.closest_encloser() {
+                    // wildcard DNAMEs are undefined.
+                    todo!();
+                }
+
+                name = map_dname(&owner, dname, &name);
                 maybe_secure = map_maybe_secure(g.state(), maybe_secure);
                 count += 1;
                 if count > MAX_CNAME_DNAME {
