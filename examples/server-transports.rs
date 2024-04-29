@@ -11,15 +11,13 @@ use std::fs::File;
 use std::io;
 use std::io::BufReader;
 use std::net::SocketAddr;
-use std::path::Path;
 use std::sync::Arc;
 use std::sync::RwLock;
 
 use octseq::{FreezeBuilder, Octets};
-use rustls_pemfile::{certs, rsa_private_keys};
 use tokio::net::{TcpListener, TcpSocket, TcpStream, UdpSocket};
 use tokio::time::Instant;
-use tokio_rustls::rustls::{Certificate, PrivateKey};
+use tokio_rustls::rustls;
 use tokio_rustls::TlsAcceptor;
 use tokio_tfo::{TfoListener, TfoStream};
 use tracing_subscriber::EnvFilter;
@@ -710,31 +708,22 @@ async fn main() {
     // -----------------------------------------------------------------------
     // Demonstrate using a TLS secured TCP DNS server.
 
-    fn load_certs(path: &Path) -> io::Result<Vec<Certificate>> {
-        certs(&mut BufReader::new(File::open(path)?))
-            .map_err(|_| {
-                io::Error::new(io::ErrorKind::InvalidInput, "invalid cert")
-            })
-            .map(|mut certs| certs.drain(..).map(Certificate).collect())
-    }
-
-    fn load_keys(path: &Path) -> io::Result<Vec<PrivateKey>> {
-        rsa_private_keys(&mut BufReader::new(File::open(path)?))
-            .map_err(|_| {
-                io::Error::new(io::ErrorKind::InvalidInput, "invalid key")
-            })
-            .map(|mut keys| keys.drain(..).map(PrivateKey).collect())
-    }
-
     // Credit: The sample.(pem|rsa) files used here were taken from
     // https://github.com/rustls/hyper-rustls/blob/main/examples/
-    let certs = load_certs(Path::new("examples/sample.pem")).unwrap();
-    let mut keys = load_keys(Path::new("examples/sample.rsa")).unwrap();
+    let certs = rustls_pemfile::certs(&mut BufReader::new(
+        File::open("examples/sample.pem").unwrap(),
+    ))
+    .collect::<Result<Vec<_>, _>>()
+    .unwrap();
+    let key = rustls_pemfile::private_key(&mut BufReader::new(
+        File::open("examples/sample.rsa").unwrap(),
+    ))
+    .unwrap()
+    .unwrap();
 
     let config = rustls::ServerConfig::builder()
-        .with_safe_defaults()
         .with_no_client_auth()
-        .with_single_cert(certs, keys.remove(0))
+        .with_single_cert(certs, key)
         .unwrap();
     let acceptor = TlsAcceptor::from(Arc::new(config));
     let listener = TcpListener::bind("127.0.0.1:8443").await.unwrap();

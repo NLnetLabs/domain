@@ -15,7 +15,7 @@ use std::str::FromStr;
 use std::time::Duration;
 use tokio::net::TcpStream;
 use tokio::time::timeout;
-use tokio_rustls::rustls::{ClientConfig, OwnedTrustAnchor, RootCertStore};
+use tokio_rustls::rustls::{ClientConfig, RootCertStore};
 
 #[tokio::main]
 async fn main() {
@@ -135,20 +135,12 @@ async fn main() {
     drop(request);
 
     // Some TLS boiler plate for the root certificates.
-    let mut root_store = RootCertStore::empty();
-    root_store.add_trust_anchors(webpki_roots::TLS_SERVER_ROOTS.iter().map(
-        |ta| {
-            OwnedTrustAnchor::from_subject_spki_name_constraints(
-                ta.subject,
-                ta.spki,
-                ta.name_constraints,
-            )
-        },
-    ));
+    let root_store = RootCertStore {
+        roots: webpki_roots::TLS_SERVER_ROOTS.into(),
+    };
 
     // TLS config
     let client_config = ClientConfig::builder()
-        .with_safe_defaults()
         .with_root_certificates(root_store)
         .with_no_client_auth();
 
