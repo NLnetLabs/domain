@@ -207,20 +207,19 @@ impl<Upstream> ValidationContext<Upstream> {
                         NsecState::Nothing => (), // Try NSEC3 next.
                     }
 
-                    let state = nsec3_for_ds(&name, &mut authorities, node);
+                    let (state, ede) =
+                        nsec3_for_ds(&name, &mut authorities, node);
                     println!(
                         "create_child_node: got state {state:?} for {name:?}"
                     );
                     match state {
                         NsecState::InsecureDelegation => {
-                            todo!(); // EDE
-                                     /*
-                                                                 return Node::new_delegation(
-                                                                     name,
-                                                                     ValidationState::Insecure,
-                                                                     Vec::new(),
-                                                                 )
-                                     */
+                            return Node::new_delegation(
+                                name,
+                                ValidationState::Insecure,
+                                Vec::new(),
+                                ede,
+                            )
                         }
                         NsecState::SecureIntermediate => {
                             return Node::new_intermediate(
@@ -762,7 +761,7 @@ fn nsec3_for_ds(
     target: &Name<Bytes>,
     groups: &mut GroupList,
     node: &Node,
-) -> NsecState {
+) -> (NsecState, Option<ExtendedError<Bytes>>) {
     for g in groups.iter() {
         if g.rtype() != Rtype::NSEC3 {
             continue;
@@ -835,11 +834,11 @@ fn nsec3_for_ds(
             // Check for NS.
             if types.contains(Rtype::NS) {
                 // We found NS and ruled out DS. This in an insecure delegation.
-                return NsecState::InsecureDelegation;
+                return (NsecState::InsecureDelegation, None);
             }
 
             // Anything else is a secure intermediate node.
-            return NsecState::SecureIntermediate;
+            return (NsecState::SecureIntermediate, None);
         }
 
         // Check if target is between the hash in the first label and the
@@ -863,8 +862,8 @@ fn nsec3_for_ds(
                 todo!();
             }
 
-            return NsecState::InsecureDelegation;
+            return (NsecState::InsecureDelegation, None);
         }
     }
-    NsecState::Nothing
+    (NsecState::Nothing, None)
 }

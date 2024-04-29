@@ -46,6 +46,9 @@ use std::vec::Vec;
 use types::Error;
 use types::ValidationState;
 
+// Maximum number of CNAME or DNAME records used for in answer.
+const MAX_CNAME_DNAME: u8 = 12;
+
 // On success, return the validation state and an optionally an extended DNS
 // error.
 pub async fn validate_msg<'a, Octs, Upstream>(
@@ -126,7 +129,10 @@ where
     // and downgrade if required.
     let maybe_secure = ValidationState::Secure;
 
-    let sname = do_cname_dname(qname, qclass, qtype, &mut answers);
+    let (sname, state) =
+        do_cname_dname(qname, qclass, qtype, &mut answers, &mut authorities);
+
+    let maybe_secure = map_maybe_secure(state, maybe_secure);
 
     // For NOERROR, check if the answer is positive. Then extract the status
     // of the group and be done.
@@ -144,50 +150,20 @@ where
 
             let closest_encloser = closest_encloser.unwrap();
 
-            match nsec_for_not_exists(&sname, &mut authorities, &signer_name)
-            {
-                NsecNXState::DoesNotExist(ce) => {
-                    // Make sure that the wildcard that was used for the
-                    // answer matches the closest encloser we got from the NSEC.
-                    if closest_encloser == ce {
-                        // It checks out, we have a secure wildcard.
-                        return Ok((
-                            map_maybe_secure(state, maybe_secure),
-                            ede,
-                        ));
-                    }
-
-                    // Failure.
-                    todo!();
-                }
-                NsecNXState::Nothing => (), // Continue with NSEC3
-            }
-
-            println!(
-                "compute the child for {sname:?} and {closest_encloser:?}"
-            );
-            let child_of_ce = get_child_of_ce(sname, closest_encloser);
-            println!("got child {child_of_ce:?}");
-
-            match nsec3_for_not_exists_no_ce(
-                &child_of_ce,
-                &mut authorities,
+            let (check, state, ede) = check_not_exists_for_wildcard(
+                &sname,
                 qtype,
+                &mut authorities,
                 &signer_name,
-            ) {
-                Nsec3NXStateNoCE::DoesNotExist => {
-                    // It checks out, we have a secure wildcard.
-                    return Ok((map_maybe_secure(state, maybe_secure), ede));
-                }
-                Nsec3NXStateNoCE::DoesNotExistInsecure => {
-                    // Non-existance proof is insecure.
-                    return Ok((ValidationState::Insecure, ede));
-                }
-                Nsec3NXStateNoCE::Nothing => (), // Continue.
+                &closest_encloser,
+            );
+
+            if check {
+                return Ok((map_maybe_secure(state, maybe_secure), ede));
             }
 
-            // Failure, no suitable NSEC or NSEC3 record found.
-            todo!(); // wildcard
+            // Report failure
+            todo!();
         }
     }
 
@@ -328,21 +304,65 @@ where
 fn do_cname_dname(
     qname: Name<Bytes>,
     qclass: Class,
-    _qtype: Rtype,
-    groups: &mut Vec<ValidatedGroup>,
-) -> Name<Bytes> {
-    for g in groups.iter() {
-        if g.class() != qclass {
-            continue;
+    qtype: Rtype,
+    answers: &mut Vec<ValidatedGroup>,
+    authorities: &mut Vec<ValidatedGroup>,
+) -> (Name<Bytes>, ValidationState) {
+    let mut name = qname;
+    let mut count = 0;
+    let mut maybe_secure = ValidationState::Secure;
+    'name_loop: loop {
+        for g in answers.iter() {
+            if g.class() != qclass {
+                continue;
+            }
+            let rtype = g.rtype();
+            if rtype != Rtype::CNAME && rtype != Rtype::DNAME {
+                continue;
+            }
+
+            let rr_set = g.rr_set();
+            if rr_set.len() != 1 {
+                todo!(); // Just return bogus?
+            }
+
+            if let AllRecordData::Cname(cname) = rr_set[0].data() {
+                if g.owner() != name {
+                    continue;
+                }
+                if let Some(ce) = g.closest_encloser() {
+                    let (check, state, _ede) = check_not_exists_for_wildcard(
+                        &name,
+                        qtype,
+                        authorities,
+                        &g.signer_name(),
+                        &ce,
+                    );
+                    if check {
+                        maybe_secure = map_maybe_secure(state, maybe_secure);
+                    // Just continue.
+                    } else {
+                        // Report failure
+                        todo!();
+                    }
+                }
+                name = cname.cname().to_name();
+                maybe_secure = map_maybe_secure(g.state(), maybe_secure);
+                count += 1;
+                if count > MAX_CNAME_DNAME {
+                    todo!();
+                }
+                continue 'name_loop;
+            }
+
+            todo!();
         }
-        let rtype = g.rtype();
-        if rtype != Rtype::CNAME && rtype != Rtype::DNAME {
-            continue;
-        }
-        todo!();
+
+        // No match CNAME or DNAME found.
+        break;
     }
 
-    qname
+    (name, maybe_secure)
 }
 
 fn get_answer_state(
@@ -467,7 +487,7 @@ fn nsec_for_nodata(
             let types = nsec.types();
 
             // Check for QTYPE.
-            if types.contains(rtype) {
+            if types.contains(rtype) || types.contains(Rtype::CNAME) {
                 // We didn't get a rtype RRset but the NSEC record proves
                 // there is one. Complain.
                 todo!();
@@ -1082,9 +1102,9 @@ fn get_checked_nsec3(
     Some((nsec3.clone(), ownerhash))
 }
 
-fn get_child_of_ce(target: Name<Bytes>, ce: Name<Bytes>) -> Name<Bytes> {
+fn get_child_of_ce(target: &Name<Bytes>, ce: &Name<Bytes>) -> Name<Bytes> {
     let ce_label_count = ce.label_count();
-    let mut name = target;
+    let mut name = target.clone();
     while name.label_count() > ce_label_count + 1 {
         name = name.parent().unwrap();
     }
@@ -1095,6 +1115,51 @@ fn get_child_of_ce(target: Name<Bytes>, ce: Name<Bytes>) -> Name<Bytes> {
 
     // Something weird.
     todo!();
+}
+
+fn check_not_exists_for_wildcard(
+    name: &Name<Bytes>,
+    qtype: Rtype,
+    group: &mut Vec<ValidatedGroup>,
+    signer_name: &Name<Bytes>,
+    closest_encloser: &Name<Bytes>,
+) -> (bool, ValidationState, Option<ExtendedError<Bytes>>) {
+    let maybe_secure = ValidationState::Secure;
+
+    match nsec_for_not_exists(name, group, &signer_name) {
+        NsecNXState::DoesNotExist(ce) => {
+            // Make sure that the wildcard that was used for the
+            // answer matches the closest encloser we got from the NSEC.
+            if *closest_encloser == ce {
+                // It checks out, we have a secure wildcard.
+                return (true, ValidationState::Secure, None);
+            }
+
+            // Failure.
+            todo!();
+        }
+        NsecNXState::Nothing => (), // Continue with NSEC3
+    }
+
+    println!("compute the child for {name:?} and {closest_encloser:?}");
+    let child_of_ce = get_child_of_ce(name, closest_encloser);
+    println!("got child {child_of_ce:?}");
+
+    match nsec3_for_not_exists_no_ce(&child_of_ce, group, qtype, &signer_name)
+    {
+        Nsec3NXStateNoCE::DoesNotExist => {
+            // It checks out, we have a secure wildcard.
+            return (true, ValidationState::Secure, None);
+        }
+        Nsec3NXStateNoCE::DoesNotExistInsecure => {
+            // Non-existance proof is insecure.
+            return (true, ValidationState::Insecure, None);
+        }
+        Nsec3NXStateNoCE::Nothing => (), // Continue.
+    }
+
+    // Failure, no suitable NSEC or NSEC3 record found.
+    todo!(); // wildcard
 }
 
 pub mod anchor;

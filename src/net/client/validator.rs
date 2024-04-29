@@ -304,8 +304,10 @@ where
     }
 }
 
-/// Return a new message without the DNSSEC type RRSIG, NSEC, and NSEC3.
-/// Assume that it is safe to clear CD.
+/// Return a new message without the DNSSEC type DNSKEY, RRSIG, NSEC, and NSEC3.
+/// Assume that it is safe to clear CD. Only RRSIG needs to be removed
+/// from the answer section unless the qtype is RRSIG. Remove all
+/// DNSSEC records from the authority and additional sections.
 fn remove_dnssec(
     msg: &Message<Bytes>,
     ad: bool,
@@ -328,7 +330,9 @@ fn remove_dnssec(
 
     let source = source.question();
     let mut target = target.question();
+    let mut qtype = Rtype::ANY;
     for rr in source {
+        qtype = rr.clone()?.qtype();
         target.push(rr?).expect("push failed");
     }
     let mut source = source.answer()?;
@@ -337,7 +341,9 @@ fn remove_dnssec(
         let rr = rr?
             .into_record::<AllRecordData<_, ParsedName<_>>>()?
             .expect("record expected");
-        if is_dnssec(rr.rtype()) {
+        if is_dnssec(rr.rtype()) && rr.rtype() != qtype {
+            println!("remove_dnssec: skipping {rr:?}");
+            println!("rtype: {:?}, qtype: {qtype:?}", rr.rtype());
             continue;
         }
         target.push(rr).expect("push error");
@@ -398,7 +404,10 @@ fn remove_dnssec(
 
 /// Check if a type is a DNSSEC type that needs to be removed.
 fn is_dnssec(rtype: Rtype) -> bool {
-    rtype == Rtype::RRSIG || rtype == Rtype::NSEC || rtype == Rtype::NSEC3
+    rtype == Rtype::DNSKEY
+        || rtype == Rtype::RRSIG
+        || rtype == Rtype::NSEC
+        || rtype == Rtype::NSEC3
 }
 
 // Add an option

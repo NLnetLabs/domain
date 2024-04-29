@@ -55,7 +55,34 @@ impl Group {
                 sig_set: Vec::new(),
             };
         }
-        todo!();
+        let record = rr.to_record::<Rrsig<_, _>>().unwrap().unwrap();
+        let rrsig = record.data();
+
+        let rrsig: Rrsig<Bytes, Name<Bytes>> =
+            Rrsig::<Bytes, Name<Bytes>>::new(
+                rrsig.type_covered(),
+                rrsig.algorithm(),
+                rrsig.labels(),
+                rrsig.original_ttl(),
+                rrsig.expiration(),
+                rrsig.inception(),
+                rrsig.key_tag(),
+                rrsig.signer_name().try_to_name::<Bytes>().unwrap(),
+                Bytes::copy_from_slice(rrsig.signature().as_ref()),
+            )
+            .unwrap();
+
+        let record: Record<Name<Bytes>, _> = Record::new(
+            record.owner().try_to_name::<Bytes>().unwrap(),
+            record.class(),
+            record.ttl(),
+            rrsig,
+        );
+
+        return Self {
+            rr_set: Vec::new(),
+            sig_set: vec![record],
+        };
     }
 
     fn add(&mut self, rr: &ParsedRecord<'_, Bytes>) -> Result<(), ()> {
@@ -118,6 +145,15 @@ impl Group {
         // We can add rr if owner, class and rtype match.
         if curr_class == rr.class() && curr_rtype == rr.rtype() {
             let rr = to_bytes_record(rr);
+
+            // Some recursors return deplicate records. Check.
+            for r in &self.rr_set {
+                if *r == rr {
+                    // We already have this record.
+                    return Ok(());
+                }
+            }
+
             self.rr_set.push(rr);
             return Ok(());
         }
@@ -283,6 +319,8 @@ impl Group {
                 if key_tag != sig.key_tag() {
                     continue;
                 }
+
+                println!("validate_with_node: sig {sig_rec:?}");
                 if self.check_sig(
                     sig_rec,
                     node.signer_name(),
@@ -443,6 +481,10 @@ impl Group {
             .signed_data(&mut signed_data, &mut self.rr_set())
             .unwrap();
         let res = rrsig.verify_signed_data(key, &signed_data);
+
+        if !res.is_ok() {
+            println!("failed at line {} with {res:?}", line!());
+        }
 
         res.is_ok()
     }
