@@ -262,25 +262,38 @@ impl BufSource for MockBufSource {
 
 /// A mock single result to be returned by a mock service, just to show that
 /// it is possible to define your own.
-struct MySingle;
+struct MySingle {
+    done: bool,
+}
+
+impl MySingle {
+    fn new() -> MySingle {
+        Self { done: false }
+    }
+}
 
 impl futures::stream::Stream for MySingle {
     type Item = Result<CallResult<Vec<u8>>, ServiceError>;
 
     fn poll_next(
-        self: Pin<&mut Self>,
+        mut self: Pin<&mut Self>,
         _cx: &mut Context<'_>,
     ) -> Poll<Option<Self::Item>> {
-        let builder = MessageBuilder::new_stream_vec();
-        let response = builder.additional();
+        if self.done {
+            Poll::Ready(None)
+        } else {
+            let builder = MessageBuilder::new_stream_vec();
+            let response = builder.additional();
 
-        let command = ServiceFeedback::Reconfigure {
-            idle_timeout: Some(Duration::from_millis(5000)),
-        };
+            let command = ServiceFeedback::Reconfigure {
+                idle_timeout: Some(Duration::from_millis(5000)),
+            };
 
-        let call_result = CallResult::new(response).with_feedback(command);
+            let call_result = CallResult::new(response).with_feedback(command);
+            self.done = true;
 
-        Poll::Ready(Some(Ok(call_result)))
+            Poll::Ready(Some(Ok(call_result)))
+        }
     }
 }
 
@@ -299,7 +312,7 @@ impl Service<Vec<u8>> for MyService {
     type Stream = MySingle;
 
     fn call(&self, _msg: Request<Vec<u8>>) -> MySingle {
-        MySingle
+        MySingle::new()
     }
 }
 
@@ -334,39 +347,15 @@ fn mk_query() -> StreamTarget<Vec<u8>> {
 // signal that time has passed when in fact it actually hasn't, allowing a
 // time dependent test to run much faster without actual periods of
 // waiting to allow time to elapse.
-// #[tokio::test(flavor = "current_thread", start_paused = true)]
-// async fn service_test() {
-//     let (srv_handle, server_status_printer_handle) = {
-//         let fast_client = MockClientConfig {
-//             new_message_every: Duration::from_millis(100),
-//             messages: VecDeque::from([
-//                 mk_query().as_stream_slice().to_vec(),
-//                 mk_query().as_stream_slice().to_vec(),
-//                 mk_query().as_stream_slice().to_vec(),
-//                 mk_query().as_stream_slice().to_vec(),
-//                 mk_query().as_stream_slice().to_vec(),
-//             ]),
-//             client_port: 1,
-//         };
-//         let slow_client = MockClientConfig {
-//             new_message_every: Duration::from_millis(3000),
-//             messages: VecDeque::from([
-//                 mk_query().as_stream_slice().to_vec(),
-//                 mk_query().as_stream_slice().to_vec(),
-//             ]),
-//             client_port: 2,
-//         };
-//         let num_messages =
-//             fast_client.messages.len() + slow_client.messages.len();
-//         let streams_to_read = VecDeque::from([fast_client, slow_client]);
-//         let new_client_every = Duration::from_millis(2000);
-//         let listener = MockListener::new(streams_to_read, new_client_every);
-//         let ready_flag = listener.get_ready_flag();
-
-//         let buf = MockBufSource;
-//         let my_service = Arc::new(MyService::new());
-//         let srv =
-//             Arc::new(StreamServer::new(listener, buf, my_service.clone()));
+//              mk_query().as_dgram_slice().to_vec(),
+//              mk_query().as_dgram_slice().to_vec(),
+//              mk_query().as_dgram_slice().to_vec(),
+//              mk_query().as_dgram_slice().to_vec(),
+//              mk_query().as_dgram_slice().to_vec(),
+            ]),
+//              mk_query().as_dgram_slice().to_vec(),
+//              mk_query().as_dgram_slice().to_vec(),
+            ]),
 
 //         let metrics = srv.metrics();
 //         let server_status_printer_handle = tokio::spawn(async move {
