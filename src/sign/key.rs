@@ -1,5 +1,5 @@
 use crate::base::iana::SecAlg;
-use crate::base::name::ToDname;
+use crate::base::name::ToName;
 use crate::rdata::{Dnskey, Ds};
 
 pub trait SigningKey {
@@ -8,7 +8,7 @@ pub trait SigningKey {
     type Error;
 
     fn dnskey(&self) -> Result<Dnskey<Self::Octets>, Self::Error>;
-    fn ds<N: ToDname>(
+    fn ds<N: ToName>(
         &self,
         owner: N,
     ) -> Result<Ds<Self::Octets>, Self::Error>;
@@ -32,7 +32,7 @@ impl<'a, K: SigningKey> SigningKey for &'a K {
     fn dnskey(&self) -> Result<Dnskey<Self::Octets>, Self::Error> {
         (*self).dnskey()
     }
-    fn ds<N: ToDname>(
+    fn ds<N: ToName>(
         &self,
         owner: N,
     ) -> Result<Ds<Self::Octets>, Self::Error> {

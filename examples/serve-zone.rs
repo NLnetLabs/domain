@@ -24,7 +24,7 @@ use tokio::net::{TcpListener, UdpSocket};
 use tracing_subscriber::EnvFilter;
 
 use domain::base::iana::Rcode;
-use domain::base::ToDname;
+use domain::base::ToName;
 use domain::net::server::buf::VecBufSource;
 use domain::net::server::dgram::DgramServer;
 use domain::net::server::message::Request;

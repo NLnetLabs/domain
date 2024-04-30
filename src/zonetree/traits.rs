@@ -16,12 +16,12 @@ use std::sync::Arc;
 
 use crate::base::iana::Class;
 use crate::base::name::Label;
-use crate::base::{Dname, Rtype};
-use crate::zonefile::error::OutOfZone;
+use crate::base::{Name, Rtype};
 
 use super::answer::Answer;
-use super::types::ZoneCut;
-use super::{SharedRr, SharedRrset, StoredDname, WalkOp};
+use super::error::OutOfZone;
+use super::types::{StoredDname, ZoneCut};
+use super::{SharedRr, SharedRrset, WalkOp};
 
 //------------ ZoneStore -----------------------------------------------------
 
@@ -77,7 +77,7 @@ pub trait ReadableZone: Send {
     ///     https://www.rfc-editor.org/rfc/rfc1034#section-3.7.1
     fn query(
         &self,
-        _qname: Dname<Bytes>,
+        _qname: Name<Bytes>,
         _qtype: Rtype,
     ) -> Result<Answer, OutOfZone>;
 
@@ -92,7 +92,7 @@ pub trait ReadableZone: Send {
     /// Asynchronous variant of `query()`.
     fn query_async(
         &self,
-        qname: Dname<Bytes>,
+        qname: Name<Bytes>,
         qtype: Rtype,
     ) -> Pin<Box<dyn Future<Output = Result<Answer, OutOfZone>> + Send>> {
         Box::pin(ready(self.query(qname, qtype)))
@@ -126,12 +126,13 @@ pub trait WritableZone {
 
     /// Complete a write operation for the zone.
     ///
-    /// This function commits the changes accumulated since [`open`] was
-    /// invoked. Clients who obtain a [`ReadableZone`] interface to this zone
-    /// _before_ this function has been called will not see any of the changes
-    /// made since the last commit. Only clients who obtain a [`ReadableZone`]
-    /// _after_ invoking this function will be able to see the changes made
-    /// since [`open`] was called. called.
+    /// This function commits the changes accumulated since
+    /// [`WritableZone::open`] was invoked. Clients who obtain a
+    /// [`ReadableZone`] interface to this zone _before_ this function has
+    /// been called will not see any of the changes made since the last
+    /// commit. Only clients who obtain a [`ReadableZone`] _after_ invoking
+    /// this function will be able to see the changes made since
+    /// [`WritableZone::open`] was called. called.
     fn commit(
         &mut self,
     ) -> Pin<Box<dyn Future<Output = Result<(), io::Error>>>>;

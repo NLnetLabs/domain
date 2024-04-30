@@ -3,7 +3,7 @@
 use super::host::lookup_host;
 use crate::base::iana::{Class, Rtype};
 use crate::base::message::Message;
-use crate::base::name::{Dname, ToDname, ToRelativeDname};
+use crate::base::name::{Name, ToName, ToRelativeName};
 use crate::base::wire::ParseError;
 use crate::rdata::{Aaaa, Srv, A};
 use crate::resolv::resolver::Resolver;
@@ -63,8 +63,8 @@ type OctetsVec = Vec<u8>;
 ///[`TcpStream::connect`]: tokio::net::TcpStream::connect
 pub async fn lookup_srv(
     resolver: &impl Resolver,
-    service: impl ToRelativeDname,
-    name: impl ToDname,
+    service: impl ToRelativeName,
+    name: impl ToName,
     fallback_port: u16,
 ) -> Result<Option<FoundSrvs>, SrvError> {
     let full_name = match (&service).chain(&name) {
@@ -126,7 +126,7 @@ impl FoundSrvs {
     ///
     /// If not results were found, the iterator will yield a single entry
     /// with the bare host and the default fallback port.
-    pub fn into_srvs(self) -> impl Iterator<Item = Srv<Dname<OctetsVec>>> {
+    pub fn into_srvs(self) -> impl Iterator<Item = Srv<Name<OctetsVec>>> {
         let (left, right) = match self.items {
             Ok(ok) => (Some(ok.into_iter()), None),
             Err(err) => (None, Some(std::iter::once(err))),
@@ -162,7 +162,7 @@ impl FoundSrvs {
 impl FoundSrvs {
     fn new(
         answer: &Message<[u8]>,
-        fallback_name: impl ToDname,
+        fallback_name: impl ToName,
         fallback_port: u16,
     ) -> Result<Option<Self>, SrvError> {
         let name =
@@ -187,7 +187,7 @@ impl FoundSrvs {
 
     fn process_records(
         answer: &Message<[u8]>,
-        name: &impl ToDname,
+        name: &impl ToName,
     ) -> Result<Vec<SrvItem>, SrvError> {
         let mut res = Vec::new();
         // XXX We could also error out if any SRV error is broken?
@@ -280,7 +280,7 @@ impl FoundSrvs {
 #[derive(Clone, Debug)]
 pub struct SrvItem {
     /// The SRV record.
-    srv: Srv<Dname<OctetsVec>>,
+    srv: Srv<Name<OctetsVec>>,
 
     /// Fall back?
     #[allow(dead_code)] // XXX Check if we can actually remove it.
@@ -291,22 +291,22 @@ pub struct SrvItem {
 }
 
 impl SrvItem {
-    fn from_rdata(srv: &Srv<impl ToDname>) -> Self {
+    fn from_rdata(srv: &Srv<impl ToName>) -> Self {
         SrvItem {
             srv: Srv::new(
                 srv.priority(),
                 srv.weight(),
                 srv.port(),
-                srv.target().to_dname(),
+                srv.target().to_name(),
             ),
             fallback: false,
             resolved: None,
         }
     }
 
-    fn fallback(name: impl ToDname, fallback_port: u16) -> Self {
+    fn fallback(name: impl ToName, fallback_port: u16) -> Self {
         SrvItem {
-            srv: Srv::new(0, 0, fallback_port, name.to_dname()),
+            srv: Srv::new(0, 0, fallback_port, name.to_name()),
             fallback: true,
             resolved: None,
         }
@@ -345,14 +345,14 @@ impl SrvItem {
     }
 }
 
-impl AsRef<Srv<Dname<OctetsVec>>> for SrvItem {
-    fn as_ref(&self) -> &Srv<Dname<OctetsVec>> {
+impl AsRef<Srv<Name<OctetsVec>>> for SrvItem {
+    fn as_ref(&self) -> &Srv<Name<OctetsVec>> {
         &self.srv
     }
 }
 
 impl ops::Deref for SrvItem {
-    type Target = Srv<Dname<OctetsVec>>;
+    type Target = Srv<Name<OctetsVec>>;
 
     fn deref(&self) -> &Self::Target {
         self.as_ref()
@@ -364,7 +364,7 @@ impl ops::Deref for SrvItem {
 /// An SRV record which has itself been resolved into a [`SocketAddr`].
 #[derive(Clone, Debug)]
 pub struct ResolvedSrvItem {
-    srv: Srv<Dname<OctetsVec>>,
+    srv: Srv<Name<OctetsVec>>,
     resolved: Vec<SocketAddr>,
 }
 
@@ -375,14 +375,14 @@ impl ResolvedSrvItem {
     }
 }
 
-impl AsRef<Srv<Dname<OctetsVec>>> for ResolvedSrvItem {
-    fn as_ref(&self) -> &Srv<Dname<OctetsVec>> {
+impl AsRef<Srv<Name<OctetsVec>>> for ResolvedSrvItem {
+    fn as_ref(&self) -> &Srv<Name<OctetsVec>> {
         &self.srv
     }
 }
 
 impl ops::Deref for ResolvedSrvItem {
-    type Target = Srv<Dname<OctetsVec>>;
+    type Target = Srv<Name<OctetsVec>>;
 
     fn deref(&self) -> &Self::Target {
         self.as_ref()

@@ -15,8 +15,8 @@ use tokio::time::sleep;
 use tokio::time::Instant;
 use tracing::trace;
 
-use crate::base::Dname;
 use crate::base::MessageBuilder;
+use crate::base::Name;
 use crate::base::Rtype;
 use crate::base::StaticCompressor;
 use crate::base::StreamTarget;
@@ -42,6 +42,8 @@ struct MockStream {
 
     /// The rate at which messages should be made available to the server.
     new_message_every: Duration,
+
+    pending_responses: usize,
 }
 
 impl MockStream {
@@ -49,10 +51,12 @@ impl MockStream {
         messages_to_read: VecDeque<Vec<u8>>,
         new_message_every: Duration,
     ) -> Self {
+        let pending_responses = messages_to_read.len();
         Self {
             last_ready: Mutex::new(Option::None),
             messages_to_read: Mutex::new(messages_to_read),
             new_message_every,
+            pending_responses,
         }
     }
 }
@@ -81,11 +85,13 @@ impl AsyncRead for MockStream {
                         last_ready.replace(Instant::now());
                         return Poll::Ready(Ok(()));
                     } else {
-                        // End of stream
-                        /*return Poll::Ready(Err(io::Error::new(
-                            io::ErrorKind::ConnectionAborted,
-                            "mock connection disconnect",
-                        )));*/
+                        // Disconnect once we've sent all of the requests AND received all of the responses.
+                        if self.pending_responses == 0 {
+                            return Poll::Ready(Err(io::Error::new(
+                                io::ErrorKind::ConnectionAborted,
+                                "mock connection disconnect",
+                            )));
+                        }
                     }
                 }
                 _ => {
@@ -110,10 +116,14 @@ impl AsyncRead for MockStream {
 
 impl AsyncWrite for MockStream {
     fn poll_write(
-        self: Pin<&mut Self>,
+        mut self: Pin<&mut Self>,
         _cx: &mut Context<'_>,
         buf: &[u8],
     ) -> Poll<Result<usize, io::Error>> {
+        // Assume a single write is an entire response.
+        if self.pending_responses > 0 {
+            self.pending_responses -= 1;
+        }
         Poll::Ready(Ok(buf.len()))
     }
 
@@ -333,11 +343,8 @@ fn mk_query() -> StreamTarget<Vec<u8>> {
     msg.header_mut().set_random_id();
 
     let mut msg = msg.question();
-    msg.push((
-        Dname::<Vec<u8>>::from_str("example.com.").unwrap(),
-        Rtype::A,
-    ))
-    .unwrap();
+    msg.push((Name::<Vec<u8>>::from_str("example.com.").unwrap(), Rtype::A))
+        .unwrap();
 
     let mut msg = msg.additional();
     msg.opt(|opt| {

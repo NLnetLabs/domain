@@ -8,7 +8,6 @@ use std::fs::File;
 use std::io;
 use std::io::BufReader;
 use std::net::SocketAddr;
-use std::path::Path;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::sync::RwLock;
@@ -16,10 +15,9 @@ use std::sync::RwLock;
 use futures::channel::mpsc::unbounded;
 use futures::stream::{once, Empty, Once, Stream};
 use octseq::{FreezeBuilder, Octets};
-use rustls_pemfile::{certs, rsa_private_keys};
 use tokio::net::{TcpListener, TcpSocket, TcpStream, UdpSocket};
 use tokio::time::Instant;
-use tokio_rustls::rustls::{Certificate, PrivateKey};
+use tokio_rustls::rustls;
 use tokio_rustls::TlsAcceptor;
 use tokio_tfo::{TfoListener, TfoStream};
 use tracing_subscriber::EnvFilter;
@@ -28,7 +26,7 @@ use domain::base::iana::{Class, Rcode};
 use domain::base::message_builder::{AdditionalBuilder, PushError};
 use domain::base::name::ToLabelIter;
 use domain::base::wire::Composer;
-use domain::base::{Dname, MessageBuilder, Rtype, Serial, StreamTarget, Ttl};
+use domain::base::{MessageBuilder, Name, Rtype, Serial, StreamTarget, Ttl};
 use domain::net::server::buf::VecBufSource;
 use domain::net::server::dgram::DgramServer;
 use domain::net::server::message::Request;
@@ -62,7 +60,7 @@ where
     let mut answer =
         builder.start_answer(msg.message(), Rcode::NOERROR).unwrap();
     answer.push((
-        Dname::root_ref(),
+        Name::root_ref(),
         Class::IN,
         86400,
         A::from_octets(192, 0, 2, 1),
@@ -78,12 +76,12 @@ where
     Target: Octets + Composer + FreezeBuilder<Octets = Target>,
     <Target as octseq::OctetsBuilder>::AppendError: fmt::Debug,
 {
-    let mname: Dname<Vec<u8>> = "a.root-servers.net".parse().unwrap();
+    let mname: Name<Vec<u8>> = "a.root-servers.net".parse().unwrap();
     let rname = "nstld.verisign-grs.com".parse().unwrap();
     let mut answer =
         builder.start_answer(msg.message(), Rcode::NOERROR).unwrap();
     answer.push((
-        Dname::root_slice(),
+        Name::root_slice(),
         86390,
         Soa::new(
             mname,
@@ -229,7 +227,7 @@ fn name_to_ip(request: Request<Vec<u8>>) -> ServiceResult<Vec<u8>> {
                     .start_answer(request.message(), Rcode::NOERROR)
                     .unwrap();
                 answer
-                    .push((Dname::root_ref(), Class::IN, 86400, a_rec))
+                    .push((Name::root_ref(), Class::IN, 86400, a_rec))
                     .unwrap();
                 out_answer = Some(answer);
             }
@@ -833,31 +831,22 @@ async fn main() {
     // -----------------------------------------------------------------------
     // Demonstrate using a TLS secured TCP DNS server.
 
-    fn load_certs(path: &Path) -> io::Result<Vec<Certificate>> {
-        certs(&mut BufReader::new(File::open(path)?))
-            .map_err(|_| {
-                io::Error::new(io::ErrorKind::InvalidInput, "invalid cert")
-            })
-            .map(|mut certs| certs.drain(..).map(Certificate).collect())
-    }
-
-    fn load_keys(path: &Path) -> io::Result<Vec<PrivateKey>> {
-        rsa_private_keys(&mut BufReader::new(File::open(path)?))
-            .map_err(|_| {
-                io::Error::new(io::ErrorKind::InvalidInput, "invalid key")
-            })
-            .map(|mut keys| keys.drain(..).map(PrivateKey).collect())
-    }
-
     // Credit: The sample.(pem|rsa) files used here were taken from
     // https://github.com/rustls/hyper-rustls/blob/main/examples/
-    let certs = load_certs(Path::new("examples/sample.pem")).unwrap();
-    let mut keys = load_keys(Path::new("examples/sample.rsa")).unwrap();
+    let certs = rustls_pemfile::certs(&mut BufReader::new(
+        File::open("examples/sample.pem").unwrap(),
+    ))
+    .collect::<Result<Vec<_>, _>>()
+    .unwrap();
+    let key = rustls_pemfile::private_key(&mut BufReader::new(
+        File::open("examples/sample.rsa").unwrap(),
+    ))
+    .unwrap()
+    .unwrap();
 
     let config = rustls::ServerConfig::builder()
-        .with_safe_defaults()
         .with_no_client_auth()
-        .with_single_cert(certs, keys.remove(0))
+        .with_single_cert(certs, key)
         .unwrap();
     let acceptor = TlsAcceptor::from(Arc::new(config));
     let listener = TcpListener::bind("127.0.0.1:8443").await.unwrap();

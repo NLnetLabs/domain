@@ -3,7 +3,7 @@
 //! This is a private module. It’s content is re-exported by the parent.
 
 use crate::base::cmp::CanonicalOrd;
-use crate::base::name::{ParsedDname, ToDname};
+use crate::base::name::{ParsedName, ToName};
 use crate::base::wire::ParseError;
 use core::{fmt, hash, str};
 use core::cmp::Ordering;
@@ -13,7 +13,7 @@ use octseq::parse::Parser;
 
 //------------ Cname --------------------------------------------------------
 
-dname_type_well_known! {
+name_type_well_known! {
     /// CNAME record data.
     ///
     /// The CNAME record specifies the canonical or primary name for domain
@@ -25,7 +25,7 @@ dname_type_well_known! {
 
 //------------ Mb -----------------------------------------------------------
 
-dname_type_well_known! {
+name_type_well_known! {
     /// MB record data.
     ///
     /// The experimental MB record specifies a host that serves a mailbox.
@@ -36,7 +36,7 @@ dname_type_well_known! {
 
 //------------ Md -----------------------------------------------------------
 
-dname_type_well_known! {
+name_type_well_known! {
     /// MD record data.
     ///
     /// The MD record specifices a host which has a mail agent for
@@ -51,7 +51,7 @@ dname_type_well_known! {
 
 //------------ Mf -----------------------------------------------------------
 
-dname_type_well_known! {
+name_type_well_known! {
     /// MF record data.
     ///
     /// The MF record specifices a host which has a mail agent for
@@ -66,7 +66,7 @@ dname_type_well_known! {
 
 //------------ Mg -----------------------------------------------------------
 
-dname_type_well_known! {
+name_type_well_known! {
     /// MG record data.
     ///
     /// The MG record specifices a mailbox which is a member of the mail group
@@ -80,7 +80,7 @@ dname_type_well_known! {
 
 //------------ Mr -----------------------------------------------------------
 
-dname_type_well_known! {
+name_type_well_known! {
     /// MR record data.
     ///
     /// The MR record specifices a mailbox which is the proper rename of the
@@ -94,7 +94,7 @@ dname_type_well_known! {
 
 //------------ Ns -----------------------------------------------------------
 
-dname_type_well_known! {
+name_type_well_known! {
     /// NS record data.
     ///
     /// NS records specify hosts that are authoritative for a class and domain.
@@ -105,7 +105,7 @@ dname_type_well_known! {
 
 //------------ Ptr ----------------------------------------------------------
 
-dname_type_well_known! {
+name_type_well_known! {
     /// PTR record data.
     ///
     /// PRT records are used in special domains to point to some other location
@@ -121,7 +121,7 @@ dname_type_well_known! {
 #[cfg(all(feature = "std", feature = "bytes"))]
 mod test {
     use super::*;
-    use crate::base::name::Dname;
+    use crate::base::name::Name;
     use crate::base::rdata::test::{
         test_compose_parse, test_rdlen, test_scan,
     };
@@ -133,7 +133,7 @@ mod test {
     #[allow(clippy::redundant_closure)] // lifetimes ...
     fn cname_compose_parse_scan() {
         let rdata =
-            Cname::<Dname<Vec<u8>>>::from_str("www.example.com").unwrap();
+            Cname::<Name<Vec<u8>>>::from_str("www.example.com").unwrap();
         test_rdlen(&rdata);
         test_compose_parse(&rdata, |parser| Cname::parse(parser));
         test_scan(&["www.example.com"], Cname::scan, &rdata);

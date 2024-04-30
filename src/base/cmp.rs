@@ -32,8 +32,8 @@ use core::cmp::Ordering;
 /// from right to left (i.e, starting from the root label) with each pair of
 /// labels compared as octet sequences with ASCII letters lowercased
 /// before comparison.  The `name_cmp` methods of the
-/// [`ToDname`][crate::base::name::ToDname::name_cmp] and
-/// [`ToRelativeDname`][crate::base::name::ToRelativeDname::name_cmp]
+/// [`ToDname`][crate::base::name::ToName::name_cmp] and
+/// [`ToRelativeDname`][crate::base::name::ToRelativeName::name_cmp]
 /// traits can be used to implement this canonical order for name types.
 ///
 /// Resource records within an RR set are ordered by comparing the canonical

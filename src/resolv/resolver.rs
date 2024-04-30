@@ -1,7 +1,7 @@
 //! The trait defining an abstract resolver.
 
 use crate::base::message::Message;
-use crate::base::name::ToDname;
+use crate::base::name::ToName;
 use crate::base::question::Question;
 use std::future::Future;
 use std::io;
@@ -33,7 +33,7 @@ pub trait Resolver {
     /// produces a future trying to answer the question.
     fn query<N, Q>(&self, question: Q) -> Self::Query
     where
-        N: ToDname,
+        N: ToName,
         Q: Into<Question<N>>;
 }
 
@@ -48,7 +48,7 @@ pub trait Resolver {
 /// A search resolver is a resolver that provides such a list. This is
 /// implemented via an iterator over domain names.
 pub trait SearchNames {
-    type Name: ToDname;
+    type Name: ToName;
     type Iter: Iterator<Item = Self::Name>;
 
     /// Returns an iterator over the search suffixes.

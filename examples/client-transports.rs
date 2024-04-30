@@ -1,6 +1,6 @@
-/// Using the `domain::net::client` module for sending a query.
-use domain::base::Dname;
 use domain::base::MessageBuilder;
+/// Using the `domain::net::client` module for sending a query.
+use domain::base::Name;
 use domain::base::Rtype;
 use domain::net::client::cache;
 use domain::net::client::dgram;
@@ -15,7 +15,7 @@ use std::str::FromStr;
 use std::time::Duration;
 use tokio::net::TcpStream;
 use tokio::time::timeout;
-use tokio_rustls::rustls::{ClientConfig, OwnedTrustAnchor, RootCertStore};
+use tokio_rustls::rustls::{ClientConfig, RootCertStore};
 
 #[tokio::main]
 async fn main() {
@@ -30,7 +30,7 @@ async fn main() {
     let mut msg = MessageBuilder::new_vec();
     msg.header_mut().set_rd(true);
     let mut msg = msg.question();
-    msg.push((Dname::vec_from_str("example.com").unwrap(), Rtype::AAAA))
+    msg.push((Name::vec_from_str("example.com").unwrap(), Rtype::AAAA))
         .unwrap();
     let req = RequestMessage::new(msg);
 
@@ -135,20 +135,12 @@ async fn main() {
     drop(request);
 
     // Some TLS boiler plate for the root certificates.
-    let mut root_store = RootCertStore::empty();
-    root_store.add_trust_anchors(webpki_roots::TLS_SERVER_ROOTS.iter().map(
-        |ta| {
-            OwnedTrustAnchor::from_subject_spki_name_constraints(
-                ta.subject,
-                ta.spki,
-                ta.name_constraints,
-            )
-        },
-    ));
+    let root_store = RootCertStore {
+        roots: webpki_roots::TLS_SERVER_ROOTS.into(),
+    };
 
     // TLS config
     let client_config = ClientConfig::builder()
-        .with_safe_defaults()
         .with_root_certificates(root_store)
         .with_no_client_auth();
 

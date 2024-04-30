@@ -9,18 +9,17 @@ use std::vec::Vec;
 use futures::stream::{once, Once};
 use octseq::Octets;
 use rand::RngCore;
-use tracing::{debug, enabled, trace, warn, Level};
+use tracing::{debug, trace, warn};
 
-use crate::base::iana::{OptRcode, OptionCode, Rcode};
+use crate::base::iana::{OptRcode, Rcode};
 use crate::base::message_builder::AdditionalBuilder;
 use crate::base::opt;
-use crate::base::opt::Cookie;
 use crate::base::wire::{Composer, ParseError};
 use crate::base::{Serial, StreamTarget};
 use crate::net::server::message::Request;
 use crate::net::server::middleware::stream::MiddlewareStream;
 use crate::net::server::service::{CallResult, Service, ServiceResult};
-use crate::net::server::util::{add_edns_options, to_pcap_text};
+use crate::net::server::util::add_edns_options;
 use crate::net::server::util::{mk_builder_for_target, start_reply};
 
 use super::stream::PostprocessingStream;
@@ -161,7 +160,7 @@ where
 
             // Note: if rcode is non-extended this will also correctly handle
             // setting the rcode in the main message header.
-            if let Err(err) = add_edns_options(&mut additional, |_, opt| {
+            if let Err(err) = add_edns_options(&mut additional, |opt| {
                 opt.cookie(response_cookie)?;
                 opt.set_rcode(rcode);
                 Ok(())
@@ -216,37 +215,13 @@ where
         self.response_with_cookie(request, Rcode::NOERROR.into())
     }
 
-    /// Check the cookie contained in the request to make sure that it is
-    /// complete, and if so return the cookie to the caller.
-    #[must_use]
-    fn ensure_cookie_is_complete(
-        request: &Request<RequestOctets>,
-        server_secret: &[u8; 16],
-    ) -> Option<Cookie> {
-        if let Some(Ok(cookie)) = Self::cookie(request) {
-            let cookie = if cookie.server().is_some() {
-                cookie
-            } else {
-                cookie.create_response(
-                    Serial::now(),
-                    request.client_addr().ip(),
-                    server_secret,
-                )
-            };
-
-            Some(cookie)
-        } else {
-            None
-        }
-    }
-
     fn preprocess(
         &self,
         request: &Request<RequestOctets>,
     ) -> ControlFlow<AdditionalBuilder<StreamTarget<Svc::Target>>> {
         match Self::cookie(request) {
             None => {
-                trace!("Request does not include DNS cookies");
+                trace!("Request does not contain a DNS cookie");
 
                 // https://datatracker.ietf.org/doc/html/rfc7873#section-5.2.1
                 // No OPT RR or No COOKIE Option:
@@ -424,9 +399,9 @@ where
     }
 
     fn postprocess(
-        request: &Request<RequestOctets>,
-        response: &mut AdditionalBuilder<StreamTarget<Svc::Target>>,
-        server_secret: [u8; 16],
+        _request: &Request<RequestOctets>,
+        _response: &mut AdditionalBuilder<StreamTarget<Svc::Target>>,
+        _server_secret: [u8; 16],
     ) where
         RequestOctets: Octets,
     {
@@ -454,35 +429,6 @@ where
         // A Client Cookie and a Valid Server Cookie
         //   Any server cookie will already have been validated during
         //   pre-processing, we don't need to check it again here.
-
-        if let Some(filled_cookie) =
-            Self::ensure_cookie_is_complete(request, &server_secret)
-        {
-            // https://datatracker.ietf.org/doc/html/rfc7873#section-5.2.5
-            //   "The server SHALL process the request and include a COOKIE
-            //   option in the response by (a) copying the complete COOKIE
-            //   option from the request or (b) generating a new COOKIE option
-            //   containing both the Client Cookie copied from the request and
-            //   a valid Server Cookie it has generated."
-            if let Err(err) = add_edns_options(
-                response,
-                |existing_option_codes, builder| {
-                    if !existing_option_codes.contains(&OptionCode::COOKIE) {
-                        builder.push(&filled_cookie)
-                    } else {
-                        Ok(())
-                    }
-                },
-            ) {
-                warn!("Cannot add RFC 7873 DNS Cookie option to response: {err}");
-            }
-        }
-
-        if enabled!(Level::TRACE) {
-            let bytes = response.as_slice();
-            let pcap_text = to_pcap_text(bytes, bytes.len());
-            trace!(pcap_text, "post-processing complete");
-        }
     }
 
     fn map_stream_item(
@@ -547,5 +493,89 @@ where
                 )))))
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use bytes::Bytes;
+    use std::vec::Vec;
+    use tokio::time::Instant;
+
+    use crate::base::opt::cookie::ClientCookie;
+    use crate::base::opt::Cookie;
+    use crate::base::{Message, MessageBuilder, Name, Rtype};
+    use crate::net::server::message::{Request, UdpTransportContext};
+    use crate::net::server::middleware::cookies::CookiesMiddlewareSvc;
+    use crate::net::server::service::{CallResult, Service, ServiceResult};
+    use crate::net::server::util::service_fn;
+    use futures::prelude::stream::StreamExt;
+
+    #[tokio::test]
+    async fn dont_add_cookie_twice() {
+        // Build a dummy DNS query containing a client cookie.
+        let query = MessageBuilder::new_vec();
+        let mut query = query.question();
+        query.push((Name::<Bytes>::root(), Rtype::A)).unwrap();
+        let mut additional = query.additional();
+        let client_cookie = ClientCookie::new_random();
+        let cookie = Cookie::new(client_cookie, None);
+        additional.opt(|builder| builder.cookie(cookie)).unwrap();
+        let message = additional.into_message();
+
+        // Package the query into a context aware request to make it look
+        // as if it came from a UDP server.
+        let ctx = UdpTransportContext::default();
+        let client_addr = "127.0.0.1:12345".parse().unwrap();
+        let request =
+            Request::new(client_addr, Instant::now(), message, ctx.into());
+
+        fn my_service(
+            _req: Request<Vec<u8>>,
+            _meta: (),
+        ) -> ServiceResult<Vec<u8>> {
+            // For each request create a single response:
+            todo!()
+        }
+
+        // And pass the query through the middleware processor
+        let my_svc = service_fn(my_service, ());
+        let server_secret: [u8; 16] =
+            [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15];
+        let processor_svc = CookiesMiddlewareSvc::new(my_svc, server_secret);
+
+        let mut stream = processor_svc.call(request).await;
+        let call_result: CallResult<Vec<u8>> =
+            stream.next().await.unwrap().unwrap();
+        let (response, _feedback) = call_result.into_inner();
+
+        // Expect the response to contain a single cookie option containing
+        // both a client cookie and a server cookie.
+        let response = response.unwrap().finish();
+        let response_bytes = response.as_dgram_slice().to_vec();
+        let response = Message::from_octets(response_bytes).unwrap();
+
+        let Some(opt_record) = response.opt() else {
+            panic!("Missing OPT record")
+        };
+
+        let mut cookie_iter = opt_record.opt().iter::<Cookie>();
+        let Some(Ok(cookie)) = cookie_iter.next() else {
+            panic!("Invalid or missing cookie")
+        };
+
+        assert!(
+            cookie.check_server_hash(
+                client_addr.ip(),
+                &server_secret,
+                |_| true
+            ),
+            "The cookie is incomplete or invalid"
+        );
+
+        assert!(
+            cookie_iter.next().is_none(),
+            "There should only be one COOKIE option"
+        );
     }
 }

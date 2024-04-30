@@ -8,7 +8,7 @@ use std::{process::exit, str::FromStr};
 use bytes::Bytes;
 use domain::base::iana::{Class, Rcode};
 use domain::base::record::ComposeRecord;
-use domain::base::{Dname, ParsedDname, Rtype};
+use domain::base::{Name, ParsedName, Rtype};
 use domain::base::{ParsedRecord, Record};
 use domain::rdata::ZoneRecordData;
 use domain::zonefile::inplace;
@@ -130,7 +130,7 @@ fn main() {
 #[allow(clippy::type_complexity)]
 fn process_dig_style_args(
     args: env::Args,
-) -> Result<(Verbosity, Vec<(String, File)>, Rtype, Dname<Bytes>, bool), String>
+) -> Result<(Verbosity, Vec<(String, File)>, Rtype, Name<Bytes>, bool), String>
 {
     let mut abort_with_usage = false;
     let mut verbosity = Verbosity::Normal;
@@ -178,7 +178,7 @@ fn process_dig_style_args(
             .map_err(|err| format!("Cannot parse qtype: {err}"))?;
         i += 1;
 
-        let qname = Dname::<Bytes>::from_str(&args[i])
+        let qname = Name::<Bytes>::from_str(&args[i])
             .map_err(|err| format!("Cannot parse qname: {err}"))?;
 
         Ok((verbosity, zone_files, qtype, qname, short))
@@ -187,7 +187,7 @@ fn process_dig_style_args(
     }
 }
 
-fn dump_rrset(owner: Dname<Bytes>, rrset: &Rrset) {
+fn dump_rrset(owner: Name<Bytes>, rrset: &Rrset) {
     //
     // The following code renders an owner + rrset (IN class, TTL, RDATA)
     // into zone presentation format. This can be used for diagnostic
@@ -200,7 +200,7 @@ fn dump_rrset(owner: Dname<Bytes>, rrset: &Rrset) {
             let mut parser = Parser::from_ref(&target);
             if let Ok(parsed_record) = ParsedRecord::parse(&mut parser) {
                 if let Ok(Some(record)) = parsed_record
-                    .into_record::<ZoneRecordData<_, ParsedDname<_>>>()
+                    .into_record::<ZoneRecordData<_, ParsedName<_>>>()
                 {
                     println!("> {record}");
                 }

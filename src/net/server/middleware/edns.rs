@@ -7,7 +7,7 @@ use futures::stream::{once, Once};
 use octseq::Octets;
 use tracing::{debug, enabled, error, trace, warn, Level};
 
-use crate::base::iana::{OptRcode, OptionCode};
+use crate::base::iana::OptRcode;
 use crate::base::message_builder::AdditionalBuilder;
 use crate::base::opt::keepalive::IdleTimeout;
 use crate::base::opt::{Opt, OptRecord, TcpKeepalive};
@@ -275,20 +275,18 @@ where
                                 // timeout is known: "Signal the timeout value
                                 // using the edns-tcp-keepalive EDNS(0) option
                                 // [RFC7828]".
-                                if let Err(err) = add_edns_options(
-                                    response,
-                                    |existing_option_codes, builder| {
-                                        if !existing_option_codes.contains(
-                                            &OptionCode::TCP_KEEPALIVE,
-                                        ) {
+                                if let Err(err) =
+                                    // TODO: Don't add the option if it
+                                    // already exists?
+                                    add_edns_options(
+                                        response,
+                                        |builder| {
                                             builder.push(&TcpKeepalive::new(
                                                 Some(timeout),
                                             ))
-                                        } else {
-                                            Ok(())
-                                        }
-                                    },
-                                ) {
+                                        },
+                                    )
+                                {
                                     warn!("Cannot add RFC 7828 edns-tcp-keepalive option to response: {err}");
                                 }
                             }
@@ -370,7 +368,7 @@ mod tests {
     use futures::stream::StreamExt;
     use tokio::time::Instant;
 
-    use crate::base::{Dname, Message, MessageBuilder, Rtype};
+    use crate::base::{Message, MessageBuilder, Name, Rtype};
     use crate::net::server::message::{
         Request, TransportSpecificContext, UdpTransportContext,
     };
@@ -440,7 +438,7 @@ mod tests {
 
         // With a dummy question.
         let mut query = query.question();
-        query.push((Dname::<Bytes>::root(), Rtype::A)).unwrap();
+        query.push((Name::<Bytes>::root(), Rtype::A)).unwrap();
 
         // And if requested, a requestor's UDP payload size:
         let message: Message<_> = if let Some(v) = client_value {
@@ -463,7 +461,7 @@ mod tests {
             "127.0.0.1:12345".parse().unwrap(),
             Instant::now(),
             message,
-            TransportSpecificContext::Udp(ctx),
+            ctx.into(),
         );
 
         fn my_service(

@@ -45,7 +45,7 @@ use core::fmt;
 /// [IANA DNS RCODEs]: http://www.iana.org/assignments/dns-parameters/dns-parameters.xhtml#dns-parameters-6
 /// [RFC 1035]: https://tools.ietf.org/html/rfc1035
 /// [RFC 2671]: https://tools.ietf.org/html/rfc2671
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Copy, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct Rcode(u8);
 
 impl Rcode {
@@ -193,6 +193,25 @@ impl Rcode {
     pub const fn to_int(self) -> u8 {
         self.0
     }
+
+    /// Returns the mnemonic for this value if there is one.
+    #[must_use]
+    pub const fn to_mnemonic(self) -> Option<&'static [u8]> {
+        match self {
+            Rcode::NOERROR => Some(b"NOERROR"),
+            Rcode::FORMERR => Some(b"FORMERR"),
+            Rcode::SERVFAIL => Some(b"SERVFAIL"),
+            Rcode::NXDOMAIN => Some(b"NXDOMAIN"),
+            Rcode::NOTIMP => Some(b"NOTIMP"),
+            Rcode::REFUSED => Some(b"REFUSED"),
+            Rcode::YXDOMAIN => Some(b"YXDOMAIN"),
+            Rcode::YXRRSET => Some(b"YXRRSET"),
+            Rcode::NXRRSET => Some(b"NXRRSET"),
+            Rcode::NOTAUTH => Some(b"NOAUTH"),
+            Rcode::NOTZONE => Some(b"NOTZONE"),
+            _ => None,
+        }
+    }
 }
 
 //--- TryFrom and From
@@ -211,23 +230,28 @@ impl From<Rcode> for u8 {
     }
 }
 
-//--- Display
+//--- Display and Debug
 
 impl fmt::Display for Rcode {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match *self {
-            Rcode::NOERROR => "NOERROR".fmt(f),
-            Rcode::FORMERR => "FORMERR".fmt(f),
-            Rcode::SERVFAIL => "SERVFAIL".fmt(f),
-            Rcode::NXDOMAIN => "NXDOMAIN".fmt(f),
-            Rcode::NOTIMP => "NOTIMP".fmt(f),
-            Rcode::REFUSED => "REFUSED".fmt(f),
-            Rcode::YXDOMAIN => "YXDOMAIN".fmt(f),
-            Rcode::YXRRSET => "YXRRSET".fmt(f),
-            Rcode::NXRRSET => "NXRRSET".fmt(f),
-            Rcode::NOTAUTH => "NOAUTH".fmt(f),
-            Rcode::NOTZONE => "NOTZONE".fmt(f),
-            _ => self.0.fmt(f),
+        match self
+            .to_mnemonic()
+            .and_then(|bytes| core::str::from_utf8(bytes).ok())
+        {
+            Some(mnemonic) => f.write_str(mnemonic),
+            None => self.0.fmt(f),
+        }
+    }
+}
+
+impl fmt::Debug for Rcode {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self
+            .to_mnemonic()
+            .and_then(|bytes| core::str::from_utf8(bytes).ok())
+        {
+            Some(mnemonic) => write!(f, "Rcode::{}", mnemonic),
+            None => f.debug_tuple("Rcode").field(&self.0).finish(),
         }
     }
 }
@@ -314,7 +338,7 @@ impl<'de> serde::Deserialize<'de> for Rcode {
 /// [RFC 2845]: https://tools.ietf.org/html/rfc2845
 /// [RFC 2930]: https://tools.ietf.org/html/rfc2930
 /// [RFC 6891]: https://tools.ietf.org/html/rfc6891
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Copy, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct OptRcode(u16);
 
 impl OptRcode {
@@ -514,6 +538,27 @@ impl OptRcode {
     pub fn ext(self) -> u8 {
         self.to_parts().1
     }
+
+    /// Returns the mnemonic for this value if there is one.
+    #[must_use]
+    pub const fn to_mnemonic(self) -> Option<&'static [u8]> {
+        match self {
+            OptRcode::NOERROR => Some(b"NOERROR"),
+            OptRcode::FORMERR => Some(b"FORMERR"),
+            OptRcode::SERVFAIL => Some(b"SERVFAIL"),
+            OptRcode::NXDOMAIN => Some(b"NXDOMAIN"),
+            OptRcode::NOTIMP => Some(b"NOTIMP"),
+            OptRcode::REFUSED => Some(b"REFUSED"),
+            OptRcode::YXDOMAIN => Some(b"YXDOMAIN"),
+            OptRcode::YXRRSET => Some(b"YXRRSET"),
+            OptRcode::NXRRSET => Some(b"NXRRSET"),
+            OptRcode::NOTAUTH => Some(b"NOAUTH"),
+            OptRcode::NOTZONE => Some(b"NOTZONE"),
+            OptRcode::BADVERS => Some(b"BADVERS"),
+            OptRcode::BADCOOKIE => Some(b"BADCOOKIE"),
+            _ => None,
+        }
+    }
 }
 
 //--- TryFrom and From
@@ -538,25 +583,28 @@ impl From<Rcode> for OptRcode {
     }
 }
 
-//--- Display
+//--- Display and Debug
 
 impl fmt::Display for OptRcode {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match *self {
-            OptRcode::NOERROR => "NOERROR".fmt(f),
-            OptRcode::FORMERR => "FORMERR".fmt(f),
-            OptRcode::SERVFAIL => "SERVFAIL".fmt(f),
-            OptRcode::NXDOMAIN => "NXDOMAIN".fmt(f),
-            OptRcode::NOTIMP => "NOTIMP".fmt(f),
-            OptRcode::REFUSED => "REFUSED".fmt(f),
-            OptRcode::YXDOMAIN => "YXDOMAIN".fmt(f),
-            OptRcode::YXRRSET => "YXRRSET".fmt(f),
-            OptRcode::NXRRSET => "NXRRSET".fmt(f),
-            OptRcode::NOTAUTH => "NOAUTH".fmt(f),
-            OptRcode::NOTZONE => "NOTZONE".fmt(f),
-            OptRcode::BADVERS => "BADVER".fmt(f),
-            OptRcode::BADCOOKIE => "BADCOOKIE".fmt(f),
-            _ => self.0.fmt(f),
+        match self
+            .to_mnemonic()
+            .and_then(|bytes| core::str::from_utf8(bytes).ok())
+        {
+            Some(mnemonic) => f.write_str(mnemonic),
+            None => self.0.fmt(f),
+        }
+    }
+}
+
+impl fmt::Debug for OptRcode {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self
+            .to_mnemonic()
+            .and_then(|bytes| core::str::from_utf8(bytes).ok())
+        {
+            Some(mnemonic) => write!(f, "Rcode::{}", mnemonic),
+            None => f.debug_tuple("Rcode").field(&self.0).finish(),
         }
     }
 }

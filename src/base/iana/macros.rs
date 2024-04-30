@@ -12,7 +12,7 @@ macro_rules! int_enum {
       $( $(#[$variant_attr:meta])* ( $variant:ident =>
                                         $value:expr, $mnemonic:expr) )* ) => {
         $(#[$attr])*
-        #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+        #[derive(Clone, Copy, Eq, Hash, Ord, PartialEq, PartialOrd)]
         pub struct $ianatype($inttype);
 
         impl $ianatype {
@@ -99,6 +99,29 @@ macro_rules! int_enum {
         impl<'a> From<&'a $ianatype> for $inttype {
             fn from(value: &'a $ianatype) -> Self {
                 value.to_int()
+            }
+        }
+
+        //--- Debug
+
+        impl core::fmt::Debug for $ianatype {
+            fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+                match self.to_mnemonic().and_then(|bytes| {
+                    core::str::from_utf8(bytes).ok()
+                }) {
+                    Some(mnemonic) => {
+                        write!(
+                            f,
+                            concat!(stringify!($ianatype), "::{}"),
+                            mnemonic
+                        )
+                    }
+                    None => {
+                        f.debug_tuple(stringify!($ianatype))
+                            .field(&self.0)
+                            .finish()
+                    }
+                }
             }
         }
     }

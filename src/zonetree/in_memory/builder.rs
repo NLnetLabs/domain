@@ -4,12 +4,10 @@ use std::sync::Arc;
 use std::vec::Vec;
 
 use crate::base::iana::Class;
-use crate::base::name::{Label, ToDname};
-use crate::zonefile::error::{CnameError, OutOfZone, ZoneCutError};
-use crate::zonetree::types::ZoneCut;
-use crate::zonetree::{
-    SharedRr, SharedRrset, StoredDname, StoredRecord, Zone,
-};
+use crate::base::name::{Label, ToName};
+use crate::zonetree::error::{CnameError, OutOfZone, ZoneCutError};
+use crate::zonetree::types::{StoredDname, StoredRecord, ZoneCut};
+use crate::zonetree::{SharedRr, SharedRrset, Zone};
 
 use super::nodes::{Special, ZoneApex, ZoneNode};
 use super::versioned::Version;
@@ -53,7 +51,7 @@ use super::versioned::Version;
 ///
 /// [module docs]: crate::zonetree
 /// [`inplace::Zonefile`]: crate::zonefile::inplace::Zonefile
-/// [`parsed::Zonefile`]: crate::zonefile::parsed::Zonefile
+/// [`parsed::Zonefile`]: crate::zonetree::parsed::Zonefile
 /// [presentation format]:
 ///     https://datatracker.ietf.org/doc/html/rfc9499#section-2-1.16.1.6.1.3
 /// [`ReadableZone::query`]: crate::zonetree::ReadableZone::query()
@@ -88,7 +86,7 @@ impl ZoneBuilder {
     /// Inserts a [`SharedRrset`] for the given owner name.
     pub fn insert_rrset(
         &mut self,
-        name: &impl ToDname,
+        name: &impl ToName,
         rrset: SharedRrset,
     ) -> Result<(), OutOfZone> {
         match self.get_node(self.apex.prepare_name(name)?) {
@@ -119,7 +117,7 @@ impl ZoneBuilder {
     ///     https://datatracker.ietf.org/doc/html/rfc4033#section-2
     pub fn insert_zone_cut(
         &mut self,
-        name: &impl ToDname,
+        name: &impl ToName,
         ns: SharedRrset,
         ds: Option<SharedRrset>,
         glue: Vec<StoredRecord>,
@@ -142,7 +140,7 @@ impl ZoneBuilder {
     /// [`Cname`]: crate::rdata::rfc1035::Cname
     pub fn insert_cname(
         &mut self,
-        name: &impl ToDname,
+        name: &impl ToName,
         cname: SharedRr,
     ) -> Result<(), CnameError> {
         let node = self.get_node(self.apex.prepare_name(name)?)?;

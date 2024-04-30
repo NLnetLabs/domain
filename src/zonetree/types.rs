@@ -1,18 +1,21 @@
-use crate::base::name::Dname;
-use crate::base::rdata::RecordData;
-use crate::base::record::Record;
-use crate::base::{iana::Rtype, Ttl};
-use crate::rdata::ZoneRecordData;
-use bytes::Bytes;
-use serde::{Deserialize, Serialize};
+//! Zone tree related types.
+
 use std::ops;
 use std::sync::Arc;
 use std::vec::Vec;
 
+use bytes::Bytes;
+use serde::{Deserialize, Serialize};
+
+use crate::base::rdata::RecordData;
+use crate::base::{iana::Rtype, Ttl};
+use crate::base::{Name, Record};
+use crate::rdata::ZoneRecordData;
+
 //------------ Type Aliases --------------------------------------------------
 
-/// A [`Bytes`] backed [`Dname`].
-pub type StoredDname = Dname<Bytes>;
+/// A [`Bytes`] backed [`Name`].
+pub type StoredDname = Name<Bytes>;
 
 /// A [`Bytes`] backed [`ZoneRecordData`].
 pub type StoredRecordData = ZoneRecordData<Bytes, StoredDname>;
@@ -229,10 +232,18 @@ impl Serialize for SharedRrset {
 
 //------------ ZoneCut -------------------------------------------------------
 
+/// The representation of a zone cut within a zone tree.
 #[derive(Clone, Debug)]
 pub struct ZoneCut {
+    /// The owner name where the zone cut occurs.
     pub name: StoredDname,
+
+    /// The NS record at the zone cut.
     pub ns: SharedRrset,
+
+    /// The DS record at the zone cut (optional).
     pub ds: Option<SharedRrset>,
+
+    /// Zero or more glue records at the zone cut.
     pub glue: Vec<StoredRecord>,
 }

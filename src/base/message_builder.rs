@@ -71,12 +71,12 @@
 #![cfg_attr(not(feature = "std"), doc = "```ignore")]
 //! use std::str::FromStr;
 //! use domain::base::{
-//!     Dname, MessageBuilder, Rtype, StaticCompressor, StreamTarget
+//!     Name, MessageBuilder, Rtype, StaticCompressor, StreamTarget
 //! };
 //! use domain::rdata::A;
 //!
 //! // Make a domain name we can use later on.
-//! let name = Dname::<Vec<u8>>::from_str("example.com").unwrap();
+//! let name = Name::<Vec<u8>>::from_str("example.com").unwrap();
 //!
 //! // Create a message builder wrapping a compressor wrapping a stream
 //! // target.
@@ -134,8 +134,8 @@ use super::header::{CountOverflow, Header, HeaderCounts, HeaderSection};
 use super::iana::Rtype;
 use super::iana::{OptRcode, OptionCode, Rcode};
 use super::message::Message;
-use super::name::{Label, ToDname};
-use super::opt::{ComposeOptData, OptHeader};
+use super::name::{Label, ToName};
+use super::opt::{ComposeOptData, OptHeader, OptRecord};
 use super::question::ComposeQuestion;
 use super::record::ComposeRecord;
 use super::wire::{Compose, Composer};
@@ -259,7 +259,7 @@ impl<Target: Composer> MessageBuilder<Target> {
     /// Sets a random ID, pushes the domain and the AXFR record type into
     /// the question section, and converts the builder into an answer builder.
     #[cfg(feature = "rand")]
-    pub fn request_axfr<N: ToDname>(
+    pub fn request_axfr<N: ToName>(
         mut self,
         apex: N,
     ) -> Result<AnswerBuilder<Target>, PushError> {
@@ -520,14 +520,14 @@ impl<Target: Composer> QuestionBuilder<Target> {
     ///
     #[cfg_attr(feature = "std", doc = "```")]
     #[cfg_attr(not(feature = "std"), doc = "```ignore")]
-    /// use domain::base::{Dname, MessageBuilder, Question, Rtype};
+    /// use domain::base::{Name, MessageBuilder, Question, Rtype};
     /// use domain::base::iana::Class;
     ///
     /// let mut msg = MessageBuilder::new_vec().question();
-    /// msg.push(Question::new_in(Dname::root_ref(), Rtype::A)).unwrap();
-    /// msg.push(&Question::new_in(Dname::root_ref(), Rtype::A)).unwrap();
-    /// msg.push((Dname::root_ref(), Rtype::A, Class::IN)).unwrap();
-    /// msg.push((Dname::root_ref(), Rtype::A)).unwrap();
+    /// msg.push(Question::new_in(Name::root_ref(), Rtype::A)).unwrap();
+    /// msg.push(&Question::new_in(Name::root_ref(), Rtype::A)).unwrap();
+    /// msg.push((Name::root_ref(), Rtype::A, Class::IN)).unwrap();
+    /// msg.push((Name::root_ref(), Rtype::A)).unwrap();
     /// ```
     pub fn push(
         &mut self,
@@ -772,21 +772,21 @@ impl<Target: Composer> AnswerBuilder<Target> {
     ///
     #[cfg_attr(feature = "std", doc = "```")]
     #[cfg_attr(not(feature = "std"), doc = "```ignore")]
-    /// use domain::base::{Dname, MessageBuilder, Record, Rtype, Ttl};
+    /// use domain::base::{Name, MessageBuilder, Record, Rtype, Ttl};
     /// use domain::base::iana::Class;
     /// use domain::rdata::A;
     ///
     /// let mut msg = MessageBuilder::new_vec().answer();
     /// let record = Record::new(
-    ///     Dname::root_ref(), Class::IN, Ttl::from_secs(86400), A::from_octets(192, 0, 2, 1)
+    ///     Name::root_ref(), Class::IN, Ttl::from_secs(86400), A::from_octets(192, 0, 2, 1)
     /// );
     /// msg.push(&record).unwrap();
     /// msg.push(record).unwrap();
     /// msg.push(
-    ///     (Dname::root_ref(), Class::IN, 86400, A::from_octets(192, 0, 2, 1))
+    ///     (Name::root_ref(), Class::IN, 86400, A::from_octets(192, 0, 2, 1))
     /// ).unwrap();
     /// msg.push(
-    ///     (Dname::root_ref(), 86400, A::from_octets(192, 0, 2, 1))
+    ///     (Name::root_ref(), 86400, A::from_octets(192, 0, 2, 1))
     /// ).unwrap();
     /// ```
     ///
@@ -1024,22 +1024,22 @@ impl<Target: Composer> AuthorityBuilder<Target> {
     ///
     #[cfg_attr(feature = "std", doc = "```")]
     #[cfg_attr(not(feature = "std"), doc = "```ignore")]
-    /// use domain::base::{Dname, MessageBuilder, Record, Rtype, Ttl};
+    /// use domain::base::{Name, MessageBuilder, Record, Rtype, Ttl};
     /// use domain::base::iana::Class;
     /// use domain::rdata::A;
     ///
     /// let mut msg = MessageBuilder::new_vec().authority();
     /// let record = Record::new(
-    ///     Dname::root_ref(), Class::IN, Ttl::from_secs(86400),
+    ///     Name::root_ref(), Class::IN, Ttl::from_secs(86400),
     ///     A::from_octets(192, 0, 2, 1)
     /// );
     /// msg.push(&record).unwrap();
     /// msg.push(record).unwrap();
     /// msg.push(
-    ///     (Dname::root_ref(), Class::IN, 86400, A::from_octets(192, 0, 2, 1))
+    ///     (Name::root_ref(), Class::IN, 86400, A::from_octets(192, 0, 2, 1))
     /// ).unwrap();
     /// msg.push(
-    ///     (Dname::root_ref(), 86400, A::from_octets(192, 0, 2, 1))
+    ///     (Name::root_ref(), 86400, A::from_octets(192, 0, 2, 1))
     /// ).unwrap();
     /// ```
     pub fn push(
@@ -1282,21 +1282,21 @@ impl<Target: Composer> AdditionalBuilder<Target> {
     ///
     #[cfg_attr(feature = "std", doc = "```")]
     #[cfg_attr(not(feature = "std"), doc = "```ignore")]
-    /// use domain::base::{Dname, MessageBuilder, Record, Rtype, Ttl};
+    /// use domain::base::{Name, MessageBuilder, Record, Rtype, Ttl};
     /// use domain::base::iana::Class;
     /// use domain::rdata::A;
     ///
     /// let mut msg = MessageBuilder::new_vec().additional();
     /// let record = Record::new(
-    ///     Dname::root_ref(), Class::IN, Ttl::from_secs(86400), A::from_octets(192, 0, 2, 1)
+    ///     Name::root_ref(), Class::IN, Ttl::from_secs(86400), A::from_octets(192, 0, 2, 1)
     /// );
     /// msg.push(&record).unwrap();
     /// msg.push(record).unwrap();
     /// msg.push(
-    ///     (Dname::root_ref(), Class::IN, 86400, A::from_octets(192, 0, 2, 1))
+    ///     (Name::root_ref(), Class::IN, 86400, A::from_octets(192, 0, 2, 1))
     /// ).unwrap();
     /// msg.push(
-    ///     (Dname::root_ref(), 86400, A::from_octets(192, 0, 2, 1))
+    ///     (Name::root_ref(), 86400, A::from_octets(192, 0, 2, 1))
     /// ).unwrap();
     /// ```
     pub fn push(
@@ -1593,6 +1593,16 @@ impl<'a, Target: Composer + ?Sized> OptBuilder<'a, Target> {
         }
     }
 
+    /// Replaces the contents of this [`OptBuilder`] with the given
+    /// [`OptRecord`]`.
+    pub fn clone_from<T: AsRef<[u8]>>(
+        &mut self,
+        source: &OptRecord<T>,
+    ) -> Result<(), Target::AppendError> {
+        self.target.truncate(self.start);
+        source.as_record().compose(self.target)
+    }
+
     /// Appends an option to the OPT record.
     pub fn push<Opt: ComposeOptData + ?Sized>(
         &mut self,
@@ -1844,12 +1854,12 @@ where
     Target: Composer,
     Target::AppendError: Into<ShortBuf>,
 {
-    fn append_compressed_dname<N: ToDname + ?Sized>(
+    fn append_compressed_name<N: ToName + ?Sized>(
         &mut self,
         name: &N,
     ) -> Result<(), Self::AppendError> {
         self.target
-            .append_compressed_dname(name)
+            .append_compressed_name(name)
             .map_err(Into::into)?;
         self.update_shim()
     }
@@ -1980,7 +1990,7 @@ impl<Target: OctetsBuilder> OctetsBuilder for StaticCompressor<Target> {
 }
 
 impl<Target: Composer> Composer for StaticCompressor<Target> {
-    fn append_compressed_dname<N: ToDname + ?Sized>(
+    fn append_compressed_name<N: ToName + ?Sized>(
         &mut self,
         name: &N,
     ) -> Result<(), Self::AppendError> {
@@ -2197,7 +2207,7 @@ impl<Target: OctetsBuilder> OctetsBuilder for TreeCompressor<Target> {
 
 #[cfg(feature = "std")]
 impl<Target: Composer> Composer for TreeCompressor<Target> {
-    fn append_compressed_dname<N: ToDname + ?Sized>(
+    fn append_compressed_name<N: ToName + ?Sized>(
         &mut self,
         name: &N,
     ) -> Result<(), Self::AppendError> {
@@ -2284,14 +2294,14 @@ impl std::error::Error for PushError {}
 mod test {
     use super::*;
     use crate::base::opt;
-    use crate::base::{Dname, Serial, Ttl};
+    use crate::base::{Name, Serial, Ttl};
     use crate::rdata::{Ns, Soa, A};
     use core::str::FromStr;
 
     #[test]
     fn message_builder() {
         // Make a domain name we can use later on.
-        let name = Dname::<Vec<u8>>::from_str("example.com").unwrap();
+        let name = Name::<Vec<u8>>::from_str("example.com").unwrap();
 
         // Create a message builder wrapping a compressor wrapping a stream
         // target.
@@ -2390,14 +2400,14 @@ mod test {
         msg.header_mut().set_ra(true);
         msg.header_mut().set_qr(true);
 
-        msg.push((&"example".parse::<Dname<Vec<u8>>>().unwrap(), Rtype::NS))
+        msg.push((&"example".parse::<Name<Vec<u8>>>().unwrap(), Rtype::NS))
             .unwrap();
         let mut msg = msg.authority();
 
-        let mname: Dname<Vec<u8>> = "a.root-servers.net".parse().unwrap();
+        let mname: Name<Vec<u8>> = "a.root-servers.net".parse().unwrap();
         let rname = "nstld.verisign-grs.com".parse().unwrap();
         msg.push((
-            Dname::root_slice(),
+            Name::root_slice(),
             86390,
             Soa::new(
                 mname,

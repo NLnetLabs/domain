@@ -4,14 +4,31 @@
 
 Breaking changes
 
+New
+
+Bug fixes
+
+Other changes
+
+
+## 0.10.0
+
+Released 2024-04-30.
+
+Breaking changes
+
+* All types and functions referring to domain names have been changed from
+  using the term “dname” to just “name.” For instance, `Dname` has become
+  `Name`, `ToDname` has become `ToName`, and `ToDname::to_dname` has become
+  `ToName::to_name`. ([#290])
+* The `ToName` and `ToRelativeName` traits have been changed to have a
+  pair of methods a la `try_to_name` and `to_name` for octets builders
+  with limited and unlimited buffers, reflecting the pattern used
+  elsewhere. ([#285])
 * The types for IANA-registered parameters in `base::iana` have been
   changed from enums to a newtypes around their underlying integer type
   and associated constants for the registered values. (This was really
-  always the better way to structure this.) ([#276])
-* The `ToDname` and `ToRelativeDname` traits have been changed to have a
-  pair of methods a la `try_to_dname` and `to_dname` for octets builders
-  with limited and unlimited buffers, reflecting the pattern used
-  elsewhere. ([#285])
+  always the better way to structure this.) ([#276], [#298])
 * The `Txt` record data type now rejects empty record data as invalid. As
   a consequence `TxtBuilder` converts an empty builder into TXT record
   data consisting of one empty character string which requires
@@ -31,6 +48,10 @@ Breaking changes
 * The stub resolver now uses the new client transports. This doesn’t change
   how it is used but does change how it queries the configured servers.
   ([#215])
+* The sub resolver’s server configuration `Transport` type has been
+  changed to be either `Transport::UdpTcp` for trying UDP and if that
+  leads to a truncated answer try TCP and `Transport::Tcp` for only trying
+  TCP. The stub resolver uses these accordingly now ([#296])
 * Many error types have been changed from enums to structs that hide
   internal error details. Enums have been kept for errors where
   distinguishing variants might be meaningful for dealing with the error.
@@ -39,6 +60,7 @@ Breaking changes
 * Split RRSIG timestamp handling from `Serial` into a new type
   `rdata::dnssec::Timestamp`. ([#294])
 * Upgraded `octseq` to 0.5. ([#257])
+* The minimum Rust version is now 1.70. ([#304])
 
 New
 
@@ -52,6 +74,11 @@ New
   the specific options types that didn’t have them yet. ([#257])
 * Added missing ordering impls to `ZoneRecordData`, `AllRecordData`,
   `Opt`, and `SvcbRdata`. ([#293])
+* Added `Name::reverse_from_addr` that creates a domain name for the
+  reverse lookup of an IP address. ([#289])
+* Added `OptBuilder::clone_from` to replace the OPT record with the
+  content of another OPT record. ([#299])
+* Added `Message::for_slice_ref` that returns a `Message<&[u8]>`. ([#300])
 
 Bug fixes
 
@@ -66,22 +93,19 @@ Bug fixes
 
 Unstable features
 
-* Add the module `net::client` with experimental support for client
+* Added the module `net::client` with experimental support for client
   message transport, i.e., sending of requests and receiving responses
   as well as caching of responses.
   This is gated by the `unstable-client-transport` feature. ([#215],[#275])
-* Add the module `net::server` with experimental support for server
+* Added the module `net::server` with experimental support for server
   transports, processing requests through a middleware chain and a service
   trait.
   This is gated by the `unstable-server-transport` feature. ([#274])
-* Add the module `zonetree` providing basic traits representing a
+* Added the module `zonetree` providing basic traits representing a
   collection of zones and their data. The `zonetree::in_memory` module 
-  provides an in-memory implementation. The `zonefile::parsed` module
+  provides an in-memory implementation. The `zonetree::parsed` module
   provides a way to classify RRsets before inserting them into a tree.
   This is gated by the `unstable-zonetree` feature. ([#286])
-  
-
-Other changes
 
 
 [#215]: https://github.com/NLnetLabs/domain/pull/215
@@ -102,8 +126,15 @@ Other changes
 [#285]: https://github.com/NLnetLabs/domain/pull/285
 [#286]: https://github.com/NLnetLabs/domain/pull/286
 [#288]: https://github.com/NLnetLabs/domain/pull/288
+[#289]: https://github.com/NLnetLabs/domain/pull/289
+[#290]: https://github.com/NLnetLabs/domain/pull/290
 [#292]: https://github.com/NLnetLabs/domain/pull/292
 [#293]: https://github.com/NLnetLabs/domain/pull/293
+[#296]: https://github.com/NLnetLabs/domain/pull/296
+[#298]: https://github.com/NLnetLabs/domain/pull/298
+[#299]: https://github.com/NLnetLabs/domain/pull/299
+[#300]: https://github.com/NLnetLabs/domain/pull/300
+[#304]: https://github.com/NLnetLabs/domain/pull/304
 [@torin-carey]: https://github.com/torin-carey
 [@hunts]: https://github.com/hunts
 

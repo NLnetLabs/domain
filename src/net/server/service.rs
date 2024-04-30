@@ -69,7 +69,7 @@ pub type ServiceResult<Target> = Result<CallResult<Target>, ServiceError>;
 ///
 /// use domain::base::iana::{Class, Rcode};
 /// use domain::base::message_builder::AdditionalBuilder;
-/// use domain::base::{Dname, Message, MessageBuilder, StreamTarget};
+/// use domain::base::{Name, Message, MessageBuilder, StreamTarget};
 /// use domain::net::server::message::Request;
 /// use domain::net::server::service::{
 ///     CallResult, Service, ServiceError, Transaction
@@ -83,7 +83,7 @@ pub type ServiceResult<Target> = Result<CallResult<Target>, ServiceError>;
 /// ) -> Result<AdditionalBuilder<StreamTarget<Vec<u8>>>, ServiceError> {
 ///     let mut answer = builder.start_answer(msg.message(), Rcode::NOERROR)?;
 ///     answer.push((
-///         Dname::root_ref(),
+///         Name::root_ref(),
 ///         Class::IN,
 ///         86400,
 ///         A::from_octets(192, 0, 2, 1),
@@ -117,7 +117,7 @@ pub type ServiceResult<Target> = Result<CallResult<Target>, ServiceError>;
 /// use core::future::ready;
 /// use core::future::Future;
 ///
-/// use domain::base::{Dname, Message};
+/// use domain::base::{Name, Message};
 /// use domain::base::iana::{Class, Rcode};
 /// use domain::base::name::ToLabelIter;
 /// use domain::base::wire::Composer;
@@ -159,7 +159,7 @@ pub type ServiceResult<Target> = Result<CallResult<Target>, ServiceError>;
 ///                         .start_answer(msg.message(), Rcode::NOERROR)
 ///                         .unwrap();
 ///                 answer
-///                     .push((Dname::root_ref(), Class::IN, 86400, a_rec))
+///                     .push((Name::root_ref(), Class::IN, 86400, a_rec))
 ///                     .unwrap();
 ///                 out_answer = Some(answer);
 ///             }

@@ -359,14 +359,11 @@ mod tests {
 
     use bytes::Bytes;
     use futures::StreamExt;
-    use octseq::OctetsBuilder;
     use tokio::time::Instant;
 
-    use crate::base::iana::{OptionCode, Rcode};
-    use crate::base::{Dname, MessageBuilder, Rtype};
-    use crate::net::server::message::{
-        Request, TransportSpecificContext, UdpTransportContext,
-    };
+    use crate::base::iana::Rcode;
+    use crate::base::{MessageBuilder, Name, Rtype};
+    use crate::net::server::message::{Request, UdpTransportContext};
     use crate::net::server::service::{CallResult, Service, ServiceResult};
     use crate::net::server::util::{mk_builder_for_target, service_fn};
 
@@ -403,20 +400,10 @@ mod tests {
         // Build a dummy DNS query.
         let query = MessageBuilder::new_vec();
         let mut query = query.question();
-        query.push((Dname::<Bytes>::root(), Rtype::A)).unwrap();
-        let extra_bytes = vec![0; (MIN_ALLOWED as usize) * 2];
+        query.push((Name::<Bytes>::root(), Rtype::A)).unwrap();
         let mut additional = query.additional();
         additional
-            .opt(|builder| {
-                builder.push_raw_option(
-                    OptionCode::PADDING,
-                    extra_bytes.len() as u16,
-                    |target| {
-                        target.append_slice(&extra_bytes).unwrap();
-                        Ok(())
-                    },
-                )
-            })
+            .opt(|builder| builder.padding(MIN_ALLOWED * 2))
             .unwrap();
         let old_size = additional.as_slice().len();
         let message = additional.into_message();
@@ -431,7 +418,7 @@ mod tests {
             "127.0.0.1:12345".parse().unwrap(),
             Instant::now(),
             message,
-            TransportSpecificContext::Udp(ctx),
+            ctx.into(),
         );
 
         fn my_service(
