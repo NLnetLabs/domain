@@ -658,131 +658,144 @@ where
     where
         Svc::Stream: Send,
     {
-        if let Ok(buf) = res {
-            let received_at = Instant::now();
+        match res {
+            Ok(buf) => {
+                let received_at = Instant::now();
 
-            if enabled!(Level::TRACE) {
-                let pcap_text = to_pcap_text(&buf, buf.as_ref().len());
-                trace!(addr = %self.addr, pcap_text, "Received message");
-            }
-
-            self.metrics.inc_num_received_requests();
-
-            // Message received, reset the DNS idle timer
-            self.idle_timer.full_msg_received();
-
-            match Message::from_octets(buf) {
-                Err(err) => {
-                    tracing::warn!(
-                        "Failed while parsing request message: {err}"
-                    );
-                    return Err(ConnectionEvent::ServiceError(
-                        ServiceError::FormatError,
-                    ));
+                if enabled!(Level::TRACE) {
+                    let pcap_text = to_pcap_text(&buf, buf.as_ref().len());
+                    trace!(addr = %self.addr, pcap_text, "Received message");
                 }
 
-                Ok(msg) => {
-                    let ctx = NonUdpTransportContext::new(Some(
-                        self.config.load().idle_timeout,
-                    ));
-                    let ctx = TransportSpecificContext::NonUdp(ctx);
-                    let request =
-                        Request::new(self.addr, received_at, msg, ctx);
+                self.metrics.inc_num_received_requests();
 
-                    let svc = self.service.clone();
-                    let result_q_tx = self.result_q_tx.clone();
-                    let metrics = self.metrics.clone();
-                    let config = self.config.clone();
+                // Message received, reset the DNS idle timer
+                self.idle_timer.full_msg_received();
 
-                    trace!(
-                        "Spawning task to handle new message with id {}",
-                        request.message().header().id()
-                    );
-                    tokio::spawn(async move {
-                        let request_id = request.message().header().id();
-                        trace!("Calling service for request id {request_id}");
-                        let mut stream = svc.call(request).await;
-                        let mut in_transaction = false;
+                match Message::from_octets(buf) {
+                    Err(err) => {
+                        tracing::warn!(
+                            "Failed while parsing request message: {err}"
+                        );
+                        return Err(ConnectionEvent::ServiceError(
+                            ServiceError::FormatError,
+                        ));
+                    }
 
-                        trace!("Awaiting service call results for request id {request_id}");
-                        while let Some(Ok(call_result)) = stream.next().await
-                        {
-                            trace!("Processing service call result for request id {request_id}");
-                            let (response, feedback) =
-                                call_result.into_inner();
+                    Ok(msg) => {
+                        let ctx = NonUdpTransportContext::new(Some(
+                            self.config.load().idle_timeout,
+                        ));
+                        let ctx = TransportSpecificContext::NonUdp(ctx);
+                        let request =
+                            Request::new(self.addr, received_at, msg, ctx);
 
-                            if let Some(feedback) = feedback {
-                                match feedback {
-                                    ServiceFeedback::Reconfigure {
-                                        idle_timeout,
-                                    } => {
-                                        if let Some(idle_timeout) =
-                                            idle_timeout
-                                        {
-                                            debug!(
-                                                "Reconfigured connection timeout to {idle_timeout:?}"
-                                            );
-                                            let guard = config.load();
-                                            let mut new_config = **guard;
-                                            new_config.idle_timeout =
-                                                idle_timeout;
-                                            config
-                                                .store(Arc::new(new_config));
+                        let svc = self.service.clone();
+                        let result_q_tx = self.result_q_tx.clone();
+                        let metrics = self.metrics.clone();
+                        let config = self.config.clone();
+
+                        trace!(
+                            "Spawning task to handle new message with id {}",
+                            request.message().header().id()
+                        );
+                        tokio::spawn(async move {
+                            let request_id = request.message().header().id();
+                            trace!(
+                                "Calling service for request id {request_id}"
+                            );
+                            let mut stream = svc.call(request).await;
+                            let mut in_transaction = false;
+
+                            trace!("Awaiting service call results for request id {request_id}");
+                            while let Some(Ok(call_result)) =
+                                stream.next().await
+                            {
+                                trace!("Processing service call result for request id {request_id}");
+                                let (response, feedback) =
+                                    call_result.into_inner();
+
+                                if let Some(feedback) = feedback {
+                                    match feedback {
+                                        ServiceFeedback::Reconfigure {
+                                            idle_timeout,
+                                        } => {
+                                            if let Some(idle_timeout) =
+                                                idle_timeout
+                                            {
+                                                debug!(
+                                                    "Reconfigured connection timeout to {idle_timeout:?}"
+                                                );
+                                                let guard = config.load();
+                                                let mut new_config = **guard;
+                                                new_config.idle_timeout =
+                                                    idle_timeout;
+                                                config.store(Arc::new(
+                                                    new_config,
+                                                ));
+                                            }
                                         }
-                                    }
 
-                                    ServiceFeedback::BeginTransaction => {
-                                        in_transaction = true;
-                                    }
+                                        ServiceFeedback::BeginTransaction => {
+                                            in_transaction = true;
+                                        }
 
-                                    ServiceFeedback::EndTransaction => {
-                                        in_transaction = false;
+                                        ServiceFeedback::EndTransaction => {
+                                            in_transaction = false;
+                                        }
                                     }
                                 }
-                            }
 
-                            if let Some(mut response) = response {
-                                loop {
-                                    match result_q_tx.try_send(response) {
-                                        Ok(()) => {
-                                            trace!("Queued message for sending: # pending writes={}", result_q_tx.max_capacity()
-                                            - result_q_tx.capacity());
-                                            metrics.set_num_pending_writes(
-                                                result_q_tx.max_capacity()
-                                                    - result_q_tx.capacity(),
-                                            );
-                                            break;
-                                        }
-
-                                        Err(TrySendError::Closed(_)) => {
-                                            error!("Unable to queue message for sending: server is shutting down.");
-                                            break;
-                                        }
-
-                                        Err(TrySendError::Full(
-                                            unused_response,
-                                        )) => {
-                                            if in_transaction {
-                                                // Wait until there is space in the message queue.
-                                                tokio::task::yield_now()
-                                                    .await;
-                                                response = unused_response;
-                                            } else {
-                                                error!("Unable to queue message for sending: queue is full.");
+                                if let Some(mut response) = response {
+                                    loop {
+                                        match result_q_tx.try_send(response) {
+                                            Ok(()) => {
+                                                let pending_writes =
+                                                    result_q_tx
+                                                        .max_capacity()
+                                                        - result_q_tx
+                                                            .capacity();
+                                                trace!("Queued message for sending: # pending writes={pending_writes}");
+                                                metrics
+                                                    .set_num_pending_writes(
+                                                        pending_writes,
+                                                    );
                                                 break;
+                                            }
+
+                                            Err(TrySendError::Closed(_)) => {
+                                                error!("Unable to queue message for sending: server is shutting down.");
+                                                break;
+                                            }
+
+                                            Err(TrySendError::Full(
+                                                unused_response,
+                                            )) => {
+                                                if in_transaction {
+                                                    // Wait until there is space in the message queue.
+                                                    tokio::task::yield_now()
+                                                        .await;
+                                                    response =
+                                                        unused_response;
+                                                } else {
+                                                    error!("Unable to queue message for sending: queue is full.");
+                                                    break;
+                                                }
                                             }
                                         }
                                     }
                                 }
                             }
-                        }
-                        trace!("Finished processing service call results for request id {request_id}");
-                    });
+                            trace!("Finished processing service call results for request id {request_id}");
+                        });
+                    }
                 }
-            }
-        }
 
-        Ok(())
+                Ok(())
+            }
+
+            Err(err) => Err(err),
+        }
     }
 }
 
