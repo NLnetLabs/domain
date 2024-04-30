@@ -537,6 +537,7 @@ where
 {
     type Target = Svc::Target;
     type Stream = MiddlewareStream<
+        Svc::Future,
         Svc::Stream,
         PostprocessingStream<
             RequestOctets,
