@@ -7,24 +7,23 @@
 use core::fmt::Display;
 use core::ops::Deref;
 
-use std::boxed::Box;
-use std::future::Future;
-use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Duration;
 use std::vec::Vec;
 
-use futures_util::stream::FuturesOrdered;
-use futures_util::{FutureExt, StreamExt};
-
-use super::message::Request;
 use crate::base::iana::Rcode;
 use crate::base::message_builder::{AdditionalBuilder, PushError};
 use crate::base::wire::ParseError;
 use crate::base::StreamTarget;
-use octseq::{OctetsBuilder, ShortBuf};
+
+use super::message::Request;
+use core::future::ready;
+use futures::stream::once;
 
 //------------ Service -------------------------------------------------------
+
+/// The type of item that `Service` implementations stream as output.
+pub type ServiceResult<Target> = Result<CallResult<Target>, ServiceError>;
 
 /// [`Service`]s are responsible for determining how to respond to valid DNS
 /// requests.
@@ -199,48 +198,53 @@ use octseq::{OctetsBuilder, ShortBuf};
 /// [net::server module documentation]: crate::net::server
 /// [`call`]: Self::call()
 /// [`service_fn`]: crate::net::server::util::service_fn()
-pub trait Service<RequestOctets: AsRef<[u8]> = Vec<u8>> {
-    /// The type of buffer in which response messages are stored.
+pub trait Service<RequestOctets: AsRef<[u8]> + Send + Sync + Unpin = Vec<u8>>
+{
+    /// The underlying byte storage type used to hold generated responses.
     type Target;
 
-    type Stream;
+    /// The type of stream that the service produces.
+    type Stream: futures::stream::Stream<Item = ServiceResult<Self::Target>>
+        + Unpin;
 
-    /// The type of future returned by [`Service::call()`] via
-    /// [`Transaction::single()`].
-    // type Item: ;
+    /// The type of future that will yield the service result stream.
+    type Future: core::future::Future<Output = Self::Stream>;
 
     /// Generate a response to a fully pre-processed request.
-    #[allow(clippy::type_complexity)]
-    fn call(&self, request: Request<RequestOctets>) -> Self::Stream;
+    fn call(&self, request: Request<RequestOctets>) -> Self::Future;
 }
 
+//--- impl Service for Arc
+
 /// Helper trait impl to treat an [`Arc<impl Service>`] as a [`Service`].
-impl<RequestOctets: AsRef<[u8]>, T: Service<RequestOctets>>
-    Service<RequestOctets> for Arc<T>
+impl<RequestOctets, T> Service<RequestOctets> for Arc<T>
+where
+    RequestOctets: Unpin + Send + Sync + AsRef<[u8]>,
+    T: ?Sized + Service<RequestOctets>,
 {
     type Target = T::Target;
     type Stream = T::Stream;
+    type Future = T::Future;
 
-    fn call(&self, request: Request<RequestOctets>) -> Self::Stream {
+    fn call(&self, request: Request<RequestOctets>) -> Self::Future {
         Arc::deref(self).call(request)
     }
 }
 
+//--- impl Service for functions with matching signature
+
 /// Helper trait impl to treat a function as a [`Service`].
-impl<RequestOctets, Stream, Target, F> Service<RequestOctets> for F
+impl<RequestOctets, Target, F> Service<RequestOctets> for F
 where
-    RequestOctets: AsRef<[u8]>,
-    F: Fn(Request<RequestOctets>) -> Stream,
-    Stream: futures::stream::Stream<
-            Item = Result<CallResult<Target>, ServiceError>,
-        > + Send
-        + 'static,
+    RequestOctets: AsRef<[u8]> + Send + Sync + Unpin,
+    F: Fn(Request<RequestOctets>) -> ServiceResult<Target>,
 {
     type Target = Target;
-    type Stream = Stream;
+    type Stream = futures::stream::Once<core::future::Ready<ServiceResult<Self::Target>>>;
+    type Future = core::future::Ready<Self::Stream>;
 
-    fn call(&self, request: Request<RequestOctets>) -> Self::Stream {
-        (*self)(request)
+    fn call(&self, request: Request<RequestOctets>) -> Self::Future {
+        ready(once(ready((*self)(request))))
     }
 }
 
@@ -315,6 +319,12 @@ pub enum ServiceFeedback {
         /// server to use.
         idle_timeout: Option<Duration>,
     },
+
+    /// Ensure that messages from this stream are all enqueued, don't drop
+    /// messages if the outgoing queue is full.
+    BeginTransaction,
+
+    EndTransaction,
 }
 
 //------------ CallResult ----------------------------------------------------
@@ -334,14 +344,14 @@ pub struct CallResult<Target> {
     /// Optional response to send back to the client.
     response: Option<AdditionalBuilder<StreamTarget<Target>>>,
 
-    /// Optioanl feedback from the [`Service`] to the server.
+    /// Optional feedback from the [`Service`] to the server.
     feedback: Option<ServiceFeedback>,
 }
 
 impl<Target> CallResult<Target>
-where
-    Target: OctetsBuilder + AsRef<[u8]> + AsMut<[u8]>,
-    Target::AppendError: Into<ShortBuf>,
+// where
+//     Target: OctetsBuilder + AsRef<[u8]> + AsMut<[u8]>,
+//     Target::AppendError: Into<ShortBuf>,
 {
     /// Construct a [`CallResult`] from a DNS response message.
     #[must_use]
@@ -376,7 +386,15 @@ where
 
     /// Get a mutable reference to the contained DNS response message, if any.
     #[must_use]
-    pub fn get_response_mut(
+    pub fn response(
+        &self,
+    ) -> Option<&AdditionalBuilder<StreamTarget<Target>>> {
+        self.response.as_ref()
+    }
+
+    /// Get a mutable reference to the contained DNS response message, if any.
+    #[must_use]
+    pub fn response_mut(
         &mut self,
     ) -> Option<&mut AdditionalBuilder<StreamTarget<Target>>> {
         self.response.as_mut()
@@ -393,175 +411,5 @@ where
     ) {
         let CallResult { response, feedback } = self;
         (response, feedback)
-    }
-}
-
-//------------ Transaction ---------------------------------------------------
-
-/// Zero or more DNS response futures relating to a single DNS request.
-///
-/// A transaction is either empty, a single DNS response future, or a stream
-/// of DNS response futures.
-///
-/// # Usage
-///
-/// Either:
-///   - Construct a transaction for a [`single`] response future, OR
-///   - Construct a transaction [`stream`] and [`push`] response futures into
-///     it.
-///
-/// Then iterate over the response futures one at a time using [`next`].
-///
-/// [`single`]: Self::single()
-/// [`stream`]: Self::stream()
-/// [`push`]: TransactionStream::push()
-/// [`next`]: Self::next()
-pub struct Transaction<Target, Future>(TransactionInner<Target, Future>)
-where
-    Future: std::future::Future<
-        Output = Result<CallResult<Target>, ServiceError>,
-    >;
-
-impl<Target, Future> Transaction<Target, Future>
-where
-    Future: std::future::Future<
-        Output = Result<CallResult<Target>, ServiceError>,
-    >,
-{
-    /// Construct a transaction for a single immediate response.
-    pub(crate) fn immediate(
-        item: Result<CallResult<Target>, ServiceError>,
-    ) -> Self {
-        Self(TransactionInner::Immediate(Some(item)))
-    }
-
-    /// Construct an empty transaction.
-    pub fn empty() -> Self {
-        Self(TransactionInner::Single(None))
-    }
-
-    /// Construct a transaction for a single response future.
-    pub fn single(fut: Future) -> Self {
-        Self(TransactionInner::Single(Some(fut)))
-    }
-
-    /// Construct a transaction for a future stream of response futures.
-    ///
-    /// The given future should build the stream of response futures that will
-    /// eventually be resolved by [`Self::next`].
-    ///
-    /// This takes a future instead of a [`TransactionStream`] because the
-    /// caller may not yet know how many futures they need to push into the
-    /// stream and we don't want them to block us while they work that out.
-    pub fn stream(
-        fut: Pin<
-            Box<dyn std::future::Future<Output = Stream<Target>> + Send>,
-        >,
-    ) -> Self {
-        Self(TransactionInner::PendingStream(fut))
-    }
-
-    /// Take the next response from the transaction, if any.
-    ///
-    /// This function provides a single way to take futures from the
-    /// transaction without needing to handle which type of transaction it is.
-    ///
-    /// Returns None if there are no (more) responses to take, Some(future)
-    /// otherwise.
-    pub async fn next(
-        &mut self,
-    ) -> Option<Result<CallResult<Target>, ServiceError>> {
-        match &mut self.0 {
-            TransactionInner::Immediate(item) => item.take(),
-
-            TransactionInner::Single(opt_fut) => match opt_fut.take() {
-                Some(fut) => Some(fut.await),
-                None => None,
-            },
-
-            TransactionInner::PendingStream(stream_fut) => {
-                let mut stream = stream_fut.await;
-                let next = stream.next().await;
-                self.0 = TransactionInner::Stream(stream);
-                next
-            }
-
-            TransactionInner::Stream(stream) => stream.next().await,
-        }
-    }
-}
-
-//------------ TransactionInner ----------------------------------------------
-
-/// Private inner details of the [`Transaction`] type.
-///
-/// This type exists to (a) hide the `Immediate` variant from the consumer of
-/// this library as it is for internal use only and not something a
-/// [`Service`] impl should return, and (b) to control the interface offered
-/// to consumers of this type and avoid them having to work with the enum
-/// variants directly.
-enum TransactionInner<Target, Future>
-where
-    Future: std::future::Future<
-        Output = Result<CallResult<Target>, ServiceError>,
-    >,
-{
-    /// The transaction will result in a single immediate response.
-    ///
-    /// This variant is for internal use only when aborting Middleware
-    /// processing early.
-    Immediate(Option<Result<CallResult<Target>, ServiceError>>),
-
-    /// The transaction will result in at most a single response future.
-    Single(Option<Future>),
-
-    /// The transaction will result in stream of multiple response futures.
-    PendingStream(
-        Pin<Box<dyn std::future::Future<Output = Stream<Target>> + Send>>,
-    ),
-
-    /// The transaction is a stream of multiple response futures.
-    Stream(Stream<Target>),
-}
-
-//------------ TransacationStream --------------------------------------------
-
-/// A [`TransactionStream`] of [`Service`] results.
-type Stream<Target> =
-    TransactionStream<Result<CallResult<Target>, ServiceError>>;
-
-/// A stream of zero or more DNS response futures relating to a single DNS request.
-pub struct TransactionStream<Item> {
-    /// An ordered sequence of futures that will resolve to responses to be
-    /// sent back to the client.
-    stream: FuturesOrdered<Pin<Box<dyn Future<Output = Item> + Send>>>,
-}
-
-impl<Item> TransactionStream<Item> {
-    /// Add a response future to a transaction stream.
-    pub fn push<T: Future<Output = Item> + Send + 'static>(
-        &mut self,
-        fut: T,
-    ) {
-        self.stream.push_back(fut.boxed());
-    }
-
-    /// Fetch the next message from the stream, if any.
-    async fn next(&mut self) -> Option<Item> {
-        self.stream.next().await
-    }
-}
-
-impl<Item> Default for TransactionStream<Item> {
-    fn default() -> Self {
-        Self {
-            stream: Default::default(),
-        }
-    }
-}
-
-impl<Item> std::fmt::Debug for TransactionStream<Item> {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.debug_struct("TransactionStream").finish()
     }
 }

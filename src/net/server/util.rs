@@ -1,9 +1,14 @@
 //! Small utilities for building and working with servers.
+use core::future::Ready;
+
 use std::string::{String, ToString};
 
+use futures::stream::Once;
 use octseq::{Octets, OctetsBuilder};
+use smallvec::SmallVec;
 use tracing::warn;
 
+use crate::base::iana::{OptRcode, OptionCode, Rcode};
 use crate::base::message_builder::{
     AdditionalBuilder, OptBuilder, PushError, QuestionBuilder,
 };
@@ -14,9 +19,7 @@ use crate::base::{MessageBuilder, ParsedDname, Rtype, StreamTarget};
 use crate::rdata::AllRecordData;
 
 use super::message::Request;
-use super::service::{CallResult, Service, ServiceError};
-use crate::base::iana::{OptionCode, Rcode};
-use smallvec::SmallVec;
+use super::service::{Service, ServiceResult};
 
 //----------- mk_builder_for_target() ----------------------------------------
 
@@ -33,7 +36,7 @@ where
     )
 }
 
-//------------ service_fn() --------------------------------------------------
+//------------ streaming_service_fn() ----------------------------------------
 
 /// Helper to simplify making a [`Service`] impl.
 ///
@@ -41,9 +44,17 @@ where
 /// those of its associated types, but this makes implementing it for simple
 /// cases quite verbose.
 ///
-/// `service_fn()` enables you to write a slightly simpler function definition
-/// that implements the [`Service`] trait than implementing [`Service`]
-/// directly.
+/// `streaming_service_fn()` enables you to write a slightly simpler function
+/// definition that implements the [`Service`] trait than implementing
+/// [`Service`] directly.
+///
+/// The provided function must produce a future that results in a stream of
+/// futures. The envisaged use case for producing a stream of results in the
+/// context of DNS is zone transfers. If you need to implement zone transfer
+/// or other streaming support yourself then you should implement [`Service`]
+/// directly or via `streaming_service_fn`.
+///
+/// Most users should probably use `service_fn` instead.
 ///
 /// # Example
 ///
@@ -99,18 +110,19 @@ where
 /// [`Vec<u8>`]: std::vec::Vec<u8>
 /// [`CallResult`]: crate::net::server::service::CallResult
 /// [`Result::Ok`]: std::result::Result::Ok
-pub fn service_fn<RequestOctets, Target, Stream, T, Metadata>(
+pub fn service_fn<RequestOctets, Target, T, Metadata>(
     request_handler: T,
     metadata: Metadata,
-) -> impl Service<RequestOctets, Target = Target, Stream = Stream> + Clone
+) -> impl Service<
+    RequestOctets,
+    Target = Target,
+    Stream = Once<Ready<ServiceResult<Target>>>,
+    Future = Ready<Once<Ready<ServiceResult<Target>>>>,
+> + Clone
 where
-    RequestOctets: AsRef<[u8]>,
-    Stream: futures::stream::Stream<
-            Item = Result<CallResult<Target>, ServiceError>,
-        > + Send
-        + 'static,
+    RequestOctets: AsRef<[u8]> + Send + Sync + Unpin,
     Metadata: Clone,
-    T: Fn(Request<RequestOctets>, Metadata) -> Stream + Clone,
+    T: Fn(Request<RequestOctets>, Metadata) -> ServiceResult<Target> + Clone,
 {
     move |request| request_handler(request, metadata.clone())
 }
@@ -156,7 +168,7 @@ pub(crate) fn to_pcap_text<T: AsRef<[u8]>>(
 /// On internal error this function will attempt to set RCODE ServFail in the
 /// returned message.
 pub fn start_reply<RequestOctets, Target>(
-    request: &Request<RequestOctets>,
+    msg: &Message<RequestOctets>,
 ) -> QuestionBuilder<StreamTarget<Target>>
 where
     RequestOctets: Octets,
@@ -167,7 +179,7 @@ where
     // RFC (1035?) compliance - copy question from request to response.
     let mut abort = false;
     let mut builder = builder.question();
-    for rr in request.message().question() {
+    for rr in msg.question() {
         match rr {
             Ok(rr) => {
                 if let Err(err) = builder.push(rr) {
@@ -191,6 +203,30 @@ where
     }
 
     builder
+}
+
+//------------ mk_error_response ---------------------------------------------
+
+pub fn mk_error_response<RequestOctets, Target>(
+    msg: &Message<RequestOctets>,
+    rcode: OptRcode,
+) -> AdditionalBuilder<StreamTarget<Target>>
+where
+    RequestOctets: Octets,
+    Target: Composer + Default,
+{
+    let mut additional = start_reply(msg).additional();
+
+    // Note: if rcode is non-extended this will also correctly handle
+    // setting the rcode in the main message header.
+    if let Err(err) = add_edns_options(&mut additional, |_, opt| {
+        opt.set_rcode(rcode);
+        Ok(())
+    }) {
+        warn!("Failed to set (extended) error '{rcode}' in response: {err}");
+    }
+
+    additional
 }
 
 //----------- add_edns_option ------------------------------------------------

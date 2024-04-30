@@ -1,20 +1,20 @@
-use core::future::ready;
-
 use core::fmt;
-use core::fmt::Debug;
-use core::future::{Future, Ready};
-use core::ops::ControlFlow;
+use core::future::{ready, Future, Ready};
 use core::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use core::task::{Context, Poll};
 use core::time::Duration;
+
 use std::fs::File;
 use std::io;
 use std::io::BufReader;
 use std::net::SocketAddr;
 use std::path::Path;
+use std::pin::Pin;
 use std::sync::Arc;
 use std::sync::RwLock;
 
+use futures::channel::mpsc::unbounded;
+use futures::stream::{once, Empty, Once, Stream};
 use octseq::{FreezeBuilder, Octets};
 use rustls_pemfile::{certs, rsa_private_keys};
 use tokio::net::{TcpListener, TcpSocket, TcpStream, UdpSocket};
@@ -28,25 +28,25 @@ use domain::base::iana::{Class, Rcode};
 use domain::base::message_builder::{AdditionalBuilder, PushError};
 use domain::base::name::ToLabelIter;
 use domain::base::wire::Composer;
-use domain::base::{Dname, MessageBuilder, StreamTarget};
+use domain::base::{Dname, MessageBuilder, Rtype, Serial, StreamTarget, Ttl};
 use domain::net::server::buf::VecBufSource;
-use domain::net::server::dgram;
 use domain::net::server::dgram::DgramServer;
 use domain::net::server::message::Request;
-use domain::net::server::middleware::builder::MiddlewareBuilder;
-use domain::net::server::middleware::processor::MiddlewareProcessor;
 #[cfg(feature = "siphasher")]
-use domain::net::server::middleware::processors::cookies::CookiesMiddlewareProcessor;
-use domain::net::server::middleware::processors::mandatory::MandatoryMiddlewareProcessor;
+use domain::net::server::middleware::cookies::CookiesMiddlewareSvc;
+use domain::net::server::middleware::edns::EdnsMiddlewareSvc;
+use domain::net::server::middleware::mandatory::MandatoryMiddlewareSvc;
+use domain::net::server::middleware::stream::{
+    MiddlewareStream, PostprocessingStream,
+};
 use domain::net::server::service::{
-    CallResult, Service, ServiceError, ServiceFeedback, Transaction,
+    CallResult, Service, ServiceFeedback, ServiceResult,
 };
 use domain::net::server::sock::AsyncAccept;
-use domain::net::server::stream;
 use domain::net::server::stream::StreamServer;
 use domain::net::server::util::{mk_builder_for_target, service_fn};
-use domain::net::server::ConnectionConfig;
-use domain::rdata::A;
+use domain::rdata::{Soa, A};
+use std::vec::Vec;
 
 //----------- mk_answer() ----------------------------------------------------
 
@@ -70,29 +70,136 @@ where
     Ok(answer.additional())
 }
 
+fn mk_soa_answer<Target>(
+    msg: &Request<Vec<u8>>,
+    builder: MessageBuilder<StreamTarget<Target>>,
+) -> Result<AdditionalBuilder<StreamTarget<Target>>, PushError>
+where
+    Target: Octets + Composer + FreezeBuilder<Octets = Target>,
+    <Target as octseq::OctetsBuilder>::AppendError: fmt::Debug,
+{
+    let mname: Dname<Vec<u8>> = "a.root-servers.net".parse().unwrap();
+    let rname = "nstld.verisign-grs.com".parse().unwrap();
+    let mut answer =
+        builder.start_answer(msg.message(), Rcode::NOERROR).unwrap();
+    answer.push((
+        Dname::root_slice(),
+        86390,
+        Soa::new(
+            mname,
+            rname,
+            Serial(2020081701),
+            Ttl::from_secs(1800),
+            Ttl::from_secs(900),
+            Ttl::from_secs(604800),
+            Ttl::from_secs(86400),
+        ),
+    ))?;
+    Ok(answer.additional())
+}
+
 //----------- Example Service trait implementations --------------------------
 
-//--- MyService
+//--- MySingleResultService
 
-struct MyService;
+struct MySingleResultService;
 
 /// This example shows how to implement the [`Service`] trait directly.
 ///
+/// By implementing the trait directly you can do async calls with .await by
+/// returning an async block, and can control the type of stream used and how
+/// and when it gets populated. Neither are possible if implementing a service
+/// via a simple compatible function signature or via service_fn, examples of
+/// which can be seen below.
+///
+/// For readability this example uses nonsensical future and stream types,
+/// nonsensical because the future doesn't do any waiting and the stream
+/// doesn't do any streaming. See the example below for a more complex case.
+///
 /// See [`query`] and [`name_to_ip`] for ways of implementing the [`Service`]
 /// trait for a function instead of a struct.
-impl Service<Vec<u8>> for MyService {
+impl Service<Vec<u8>> for MySingleResultService {
     type Target = Vec<u8>;
-    type Future = Ready<Result<CallResult<Self::Target>, ServiceError>>;
+    type Stream = Once<Ready<ServiceResult<Self::Target>>>;
+    type Future = Ready<Self::Stream>;
 
-    fn call(
-        &self,
-        request: Request<Vec<u8>>,
-    ) -> Result<Transaction<Self::Target, Self::Future>, ServiceError> {
+    fn call(&self, request: Request<Vec<u8>>) -> Self::Future {
         let builder = mk_builder_for_target();
-        let additional = mk_answer(&request, builder)?;
-        let item = ready(Ok(CallResult::new(additional)));
-        let txn = Transaction::single(item);
-        Ok(txn)
+        let additional = mk_answer(&request, builder).unwrap();
+        let item = Ok(CallResult::new(additional));
+        ready(once(ready(item)))
+    }
+}
+
+//--- MyAsyncStreamingService
+
+struct MyAsyncStreamingService;
+
+/// This example also shows how to implement the [`Service`] trait directly.
+///
+/// It implements a very simplistic dummy AXFR responder which can be tested
+/// using `dig AXFR <any domain name>`.
+///
+/// Unlike the simpler example above which returns a fixed type of future and
+/// stream which are neither waiting nor streaming, this example goes to the
+/// other extreme of returning future and stream types which are determined at
+/// runtime (and thus involve Box'ing).
+///
+/// There is a middle ground not shown here whereby you return concrete Future
+/// and/or Stream implementations that actually wait and/or stream, e.g.
+/// making the Stream type be UnboundedReceiver instead of Pin<Box<dyn
+/// Stream...>>.
+impl Service<Vec<u8>> for MyAsyncStreamingService {
+    type Target = Vec<u8>;
+    type Stream =
+        Pin<Box<dyn Stream<Item = ServiceResult<Self::Target>> + Send>>;
+    type Future = Pin<Box<dyn Future<Output = Self::Stream> + Send>>;
+
+    fn call(&self, request: Request<Vec<u8>>) -> Self::Future {
+        Box::pin(async move {
+            if !matches!(
+                request
+                    .message()
+                    .sole_question()
+                    .map(|q| q.qtype() == Rtype::AXFR),
+                Ok(true)
+            ) {
+                let builder = mk_builder_for_target();
+                let additional = builder
+                    .start_answer(request.message(), Rcode::NOTIMP)
+                    .unwrap()
+                    .additional();
+                let item = Ok(CallResult::new(additional));
+                let immediate_result = once(ready(item));
+                return Box::pin(immediate_result) as Self::Stream;
+            }
+
+            let (sender, receiver) = unbounded();
+            let cloned_sender = sender.clone();
+
+            tokio::spawn(async move {
+                // Dummy AXFR response: SOA, record, SOA
+                tokio::time::sleep(Duration::from_millis(100)).await;
+                let builder = mk_builder_for_target();
+                let additional = mk_soa_answer(&request, builder).unwrap();
+                let item = Ok(CallResult::new(additional));
+                cloned_sender.unbounded_send(item).unwrap();
+
+                tokio::time::sleep(Duration::from_millis(100)).await;
+                let builder = mk_builder_for_target();
+                let additional = mk_answer(&request, builder).unwrap();
+                let item = Ok(CallResult::new(additional));
+                cloned_sender.unbounded_send(item).unwrap();
+
+                tokio::time::sleep(Duration::from_millis(100)).await;
+                let builder = mk_builder_for_target();
+                let additional = mk_soa_answer(&request, builder).unwrap();
+                let item = Ok(CallResult::new(additional));
+                cloned_sender.unbounded_send(item).unwrap();
+            });
+
+            Box::pin(receiver) as Self::Stream
+        })
     }
 }
 
@@ -104,20 +211,7 @@ impl Service<Vec<u8>> for MyService {
 /// The function signature is slightly more complex than when using
 /// [`service_fn`] (see the [`query`] example below).
 #[allow(clippy::type_complexity)]
-fn name_to_ip<Target>(
-    request: Request<Vec<u8>>,
-) -> Result<
-    Transaction<
-        Target,
-        impl Future<Output = Result<CallResult<Target>, ServiceError>> + Send,
-    >,
-    ServiceError,
->
-where
-    Target:
-        Composer + Octets + FreezeBuilder<Octets = Target> + Default + Send,
-    <Target as octseq::OctetsBuilder>::AppendError: Debug,
-{
+fn name_to_ip(request: Request<Vec<u8>>) -> ServiceResult<Vec<u8>> {
     let mut out_answer = None;
     if let Ok(question) = request.message().sole_question() {
         let qname = question.qname();
@@ -153,8 +247,7 @@ where
     }
 
     let additional = out_answer.unwrap().additional();
-    let item = Ok(CallResult::new(additional));
-    Ok(Transaction::single(ready(item)))
+    Ok(CallResult::new(additional))
 }
 
 //--- query()
@@ -165,45 +258,28 @@ where
 /// The function signature is slightly simpler to write than when not using
 /// [`service_fn`] and supports passing in meta data without any extra
 /// boilerplate.
-#[allow(clippy::type_complexity)]
 fn query(
     request: Request<Vec<u8>>,
     count: Arc<AtomicU8>,
-) -> Result<
-    Transaction<
-        Vec<u8>,
-        impl Future<Output = Result<CallResult<Vec<u8>>, ServiceError>> + Send,
-    >,
-    ServiceError,
-> {
+) -> ServiceResult<Vec<u8>> {
     let cnt = count
         .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |x| {
             Some(if x > 0 { x - 1 } else { 0 })
         })
         .unwrap();
 
-    // This fn blocks the server until it returns. By returning a future that
-    // handles the request we allow the server to execute the future in the
-    // background without blocking the server.
-    let fut = async move {
-        eprintln!("Sleeping for 100ms");
-        tokio::time::sleep(Duration::from_millis(100)).await;
+    // Note: A real service would have application logic here to process
+    // the request and generate an response.
 
-        // Note: A real service would have application logic here to process
-        // the request and generate an response.
-
-        let idle_timeout = Duration::from_millis((50 * cnt).into());
-        let cmd = ServiceFeedback::Reconfigure {
-            idle_timeout: Some(idle_timeout),
-        };
-        eprintln!("Setting idle timeout to {idle_timeout:?}");
-
-        let builder = mk_builder_for_target();
-        let answer = mk_answer(&request, builder)?;
-        let res = CallResult::new(answer).with_feedback(cmd);
-        Ok(res)
+    let idle_timeout = Duration::from_millis((50 * cnt).into());
+    let cmd = ServiceFeedback::Reconfigure {
+        idle_timeout: Some(idle_timeout),
     };
-    Ok(Transaction::single(fut))
+    eprintln!("Setting idle timeout to {idle_timeout:?}");
+
+    let builder = mk_builder_for_target();
+    let answer = mk_answer(&request, builder).unwrap();
+    Ok(CallResult::new(answer).with_feedback(cmd))
 }
 
 //----------- Example socket trait implementations ---------------------------
@@ -355,9 +431,9 @@ impl AsyncAccept for RustlsTcpListener {
 //----------- CustomMiddleware -----------------------------------------------
 
 #[derive(Default)]
-struct Stats {
-    slowest_req: Duration,
-    fastest_req: Duration,
+pub struct Stats {
+    slowest_req: Option<Duration>,
+    fastest_req: Option<Duration>,
     num_req_bytes: u32,
     num_resp_bytes: u32,
     num_reqs: u32,
@@ -366,59 +442,41 @@ struct Stats {
     num_udp: u32,
 }
 
-#[derive(Default)]
-pub struct StatsMiddlewareProcessor {
-    stats: RwLock<Stats>,
+impl std::fmt::Display for Stats {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "# Reqs={} [UDP={}, IPv4={}, IPv6={}] Bytes [rx={}, tx={}] Speed [fastest={}, slowest={}]",
+            self.num_reqs,
+            self.num_udp,
+            self.num_ipv4,
+            self.num_ipv6,
+            self.num_req_bytes,
+            self.num_resp_bytes,
+            self.fastest_req.map(|v| format!("{}μs", v.as_micros())).unwrap_or_else(|| "-".to_string()),
+            self.slowest_req.map(|v| format!("{}ms", v.as_millis())).unwrap_or_else(|| "-".to_string()),
+    )
+    }
 }
 
-impl StatsMiddlewareProcessor {
+pub struct StatsMiddlewareSvc<Svc> {
+    svc: Svc,
+    stats: Arc<RwLock<Stats>>,
+}
+
+impl<Svc> StatsMiddlewareSvc<Svc> {
     /// Creates an instance of this processor.
     #[must_use]
-    pub fn new() -> Self {
-        Default::default()
-    }
-}
-
-impl std::fmt::Display for StatsMiddlewareProcessor {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let stats = self.stats.read().unwrap();
-        write!(f, "# Reqs={} [UDP={}, IPv4={}, IPv6={}] Bytes [rx={}, tx={}] Speed [fastest={}μs, slowest={}μs]",
-            stats.num_reqs,
-            stats.num_udp,
-            stats.num_ipv4,
-            stats.num_ipv6,
-            stats.num_req_bytes,
-            stats.num_resp_bytes,
-            stats.fastest_req.as_micros(),
-            stats.slowest_req.as_micros())?;
-        Ok(())
-    }
-}
-
-impl<RequestOctets, Target> MiddlewareProcessor<RequestOctets, Target>
-    for StatsMiddlewareProcessor
-where
-    RequestOctets: AsRef<[u8]> + Octets,
-    Target: Composer + Default,
-{
-    fn preprocess(
-        &self,
-        _request: &Request<RequestOctets>,
-    ) -> ControlFlow<AdditionalBuilder<StreamTarget<Target>>> {
-        ControlFlow::Continue(())
+    pub fn new(svc: Svc, stats: Arc<RwLock<Stats>>) -> Self {
+        Self { svc, stats }
     }
 
-    fn postprocess(
-        &self,
-        request: &Request<RequestOctets>,
-        _response: &mut AdditionalBuilder<StreamTarget<Target>>,
-    ) {
-        let duration = Instant::now().duration_since(request.received_at());
+    fn preprocess<RequestOctets>(&self, request: &Request<RequestOctets>)
+    where
+        RequestOctets: Octets + Send + Sync + Unpin,
+    {
         let mut stats = self.stats.write().unwrap();
 
         stats.num_reqs += 1;
         stats.num_req_bytes += request.message().as_slice().len() as u32;
-        stats.num_resp_bytes += _response.as_slice().len() as u32;
 
         if request.transport_ctx().is_udp() {
             stats.num_udp += 1;
@@ -429,14 +487,100 @@ where
         } else {
             stats.num_ipv6 += 1;
         }
+    }
 
-        if duration < stats.fastest_req {
-            stats.fastest_req = duration;
+    fn postprocess<RequestOctets>(
+        request: &Request<RequestOctets>,
+        response: &AdditionalBuilder<StreamTarget<Svc::Target>>,
+        stats: Arc<RwLock<Stats>>,
+    ) where
+        RequestOctets: Octets + Send + Sync + Unpin,
+        Svc: Service<RequestOctets>,
+        Svc::Target: AsRef<[u8]>,
+    {
+        let duration = Instant::now().duration_since(request.received_at());
+        let mut stats = stats.write().unwrap();
+
+        stats.num_resp_bytes += response.as_slice().len() as u32;
+
+        if duration < stats.fastest_req.unwrap_or(Duration::MAX) {
+            stats.fastest_req = Some(duration);
         }
-        if duration > stats.slowest_req {
-            stats.slowest_req = duration;
+        if duration > stats.slowest_req.unwrap_or(Duration::ZERO) {
+            stats.slowest_req = Some(duration);
         }
     }
+
+    fn map_stream_item<RequestOctets>(
+        request: Request<RequestOctets>,
+        stream_item: ServiceResult<Svc::Target>,
+        stats: Arc<RwLock<Stats>>,
+    ) -> ServiceResult<Svc::Target>
+    where
+        RequestOctets: Octets + Send + Sync + Unpin,
+        Svc: Service<RequestOctets>,
+        Svc::Target: AsRef<[u8]>,
+    {
+        if let Ok(cr) = &stream_item {
+            if let Some(response) = cr.response() {
+                Self::postprocess(&request, response, stats);
+            }
+        }
+        stream_item
+    }
+}
+
+impl<RequestOctets, Svc> Service<RequestOctets> for StatsMiddlewareSvc<Svc>
+where
+    RequestOctets: Octets + Send + Sync + 'static + Unpin,
+    Svc: Service<RequestOctets>,
+    Svc::Target: AsRef<[u8]>,
+    Svc::Future: Unpin,
+{
+    type Target = Svc::Target;
+    type Stream = MiddlewareStream<
+        Svc::Stream,
+        PostprocessingStream<
+            RequestOctets,
+            Svc::Future,
+            Svc::Stream,
+            Arc<RwLock<Stats>>,
+        >,
+        Empty<ServiceResult<Self::Target>>,
+        ServiceResult<Self::Target>,
+    >;
+    type Future = Ready<Self::Stream>;
+
+    fn call(&self, request: Request<RequestOctets>) -> Self::Future {
+        self.preprocess(&request);
+        let svc_call_fut = self.svc.call(request.clone());
+        let map = PostprocessingStream::new(
+            svc_call_fut,
+            request,
+            self.stats.clone(),
+            Self::map_stream_item,
+        );
+        ready(MiddlewareStream::Map(map))
+    }
+}
+
+//------------ build_middleware_chain() --------------------------------------
+
+#[allow(clippy::type_complexity)]
+fn build_middleware_chain<Svc>(
+    svc: Svc,
+    stats: Arc<RwLock<Stats>>,
+) -> StatsMiddlewareSvc<
+    MandatoryMiddlewareSvc<
+        Vec<u8>,
+        EdnsMiddlewareSvc<Vec<u8>, CookiesMiddlewareSvc<Vec<u8>, Svc>>,
+    >,
+> {
+    #[cfg(feature = "siphasher")]
+    let svc = CookiesMiddlewareSvc::<Vec<u8>, _>::with_random_secret(svc);
+    let svc = EdnsMiddlewareSvc::<Vec<u8>, _>::new(svc);
+    let svc = MandatoryMiddlewareSvc::<Vec<u8>, _>::new(svc);
+    StatsMiddlewareSvc::new(svc, stats.clone())
 }
 
 //----------- main() ---------------------------------------------------------
@@ -447,8 +591,8 @@ async fn main() {
     eprintln!("  dig +short -4 @127.0.0.1 -p 8053 A 1.2.3.4");
     eprintln!("  dig +short -4 @127.0.0.1 +tcp -p 8053 A google.com");
     eprintln!("  dig +short -4 @127.0.0.1 -p 8054 A google.com");
-    eprintln!("  dig +short -4 @127.0.0.1 +tcp -p 8080 A google.com");
-    eprintln!("  dig +short -6 @::1 +tcp -p 8080 A google.com");
+    eprintln!("  dig +short -4 @127.0.0.1 +tcp -p 8080 AXFR google.com");
+    eprintln!("  dig +short -6 @::1 +tcp -p 8080 AXFR google.com");
     eprintln!("  dig +short -4 @127.0.0.1 +tcp -p 8081 A google.com");
     eprintln!("  dig +short -4 @127.0.0.1 +tls -p 8443 A google.com");
 
@@ -463,32 +607,65 @@ async fn main() {
         .ok();
 
     // -----------------------------------------------------------------------
-    // Wrap `MyService` in an `Arc` so that it can be used by multiple servers
-    // at once.
-    let svc = Arc::new(MyService);
+    // Inject a custom statistics middleware service (defined above) at the
+    // start of each middleware chain constructed below so that it can time
+    // the request processing time from as early till as late as possible
+    // (excluding time spent in the servers that receive the requests and send
+    // the responses). Each chain needs its own copy of the stats middleware
+    // but they can share a single set of statistic counters.
+    let stats = Arc::new(RwLock::new(Stats::default()));
 
     // -----------------------------------------------------------------------
-    // Prepare a modern middleware chain for use by servers defined below.
-    // Inject a custom statistics middleware processor (defined above) at the
-    // start of the chain so that it can time the request processing time from
-    // as early till as late as possible (excluding time spent in the servers
-    // that receive the requests and send the responses).
-    let mut middleware = MiddlewareBuilder::default();
-    let stats = Arc::new(StatsMiddlewareProcessor::new());
-    middleware.push_front(stats.clone());
-    let middleware = middleware.build();
+    // Create services with accompanying middleware chains to answer incoming
+    // requests.
+
+    // 1. MySingleResultService: a struct that implements the `Service` trait
+    //    directly.
+    let my_svc = Arc::new(build_middleware_chain(
+        MySingleResultService,
+        stats.clone(),
+    ));
+
+    // 2. MyAsyncStreamingService: another struct that implements the
+    //    `Service` trait directly.
+    let my_async_svc = Arc::new(build_middleware_chain(
+        MyAsyncStreamingService,
+        stats.clone(),
+    ));
+
+    // 2. name_to_ip: a service impl defined as a function compatible with the
+    //               `Service` trait.
+    let name_into_ip_svc =
+        Arc::new(build_middleware_chain(name_to_ip, stats.clone()));
+
+    // 3. query: a service impl defined as a function converted to a `Service`
+    //           impl via the `service_fn()` helper function.
+    // Show that we don't have to use the same middleware with every server by
+    // creating a separate middleware chain for use just by this server.
+    let count = Arc::new(AtomicU8::new(5));
+    let svc = service_fn(query, count);
+    let svc = MandatoryMiddlewareSvc::<Vec<u8>, _>::new(svc);
+    #[cfg(feature = "siphasher")]
+    let svc = {
+        let server_secret = "server12secret34".as_bytes().try_into().unwrap();
+        CookiesMiddlewareSvc::<Vec<u8>, _>::new(svc, server_secret)
+    };
+    let svc = StatsMiddlewareSvc::new(svc, stats.clone());
+    let query_svc = Arc::new(svc);
 
     // -----------------------------------------------------------------------
-    // Run a DNS server on UDP port 8053 on 127.0.0.1. Test it like so:
+    // Run a DNS server on UDP port 8053 on 127.0.0.1 using the name_to_ip
+    // service defined above and accompanying middleware. Test it like so:
     //    dig +short -4 @127.0.0.1 -p 8053 A google.com
+
     let udpsocket = UdpSocket::bind("127.0.0.1:8053").await.unwrap();
     let buf = Arc::new(VecBufSource);
-    let mut config = dgram::Config::default();
-    config.set_middleware_chain(middleware.clone());
-    let srv =
-        DgramServer::with_config(udpsocket, buf.clone(), name_to_ip, config);
-
+    let srv = DgramServer::new(udpsocket, buf.clone(), name_into_ip_svc);
     let udp_join_handle = tokio::spawn(async move { srv.run().await });
+
+    // -----------------------------------------------------------------------
+    // Create an instance of our MyService `Service` impl with accompanying
+    // middleware.
 
     // -----------------------------------------------------------------------
     // Run a DNS server on TCP port 8053 on 127.0.0.1. Test it like so:
@@ -498,16 +675,7 @@ async fn main() {
     v4socket.bind("127.0.0.1:8053".parse().unwrap()).unwrap();
     let v4listener = v4socket.listen(1024).unwrap();
     let buf = Arc::new(VecBufSource);
-    let mut conn_config = ConnectionConfig::default();
-    conn_config.set_middleware_chain(middleware.clone());
-    let mut config = stream::Config::default();
-    config.set_connection_config(conn_config);
-    let srv = StreamServer::with_config(
-        v4listener,
-        buf.clone(),
-        svc.clone(),
-        config,
-    );
+    let srv = StreamServer::new(v4listener, buf.clone(), query_svc.clone());
     let srv = srv.with_pre_connect_hook(|stream| {
         // Demonstrate one way without having access to the code that creates
         // the socket initially to enable TCP keep alive,
@@ -531,42 +699,41 @@ async fn main() {
 
     let tcp_join_handle = tokio::spawn(async move { srv.run().await });
 
+    // -----------------------------------------------------------------------
+    // This UDP example sets IP_MTU_DISCOVER via setsockopt(), using the libc
+    // crate (as the nix crate doesn't support IP_MTU_DISCOVER at the time of
+    // writing). This example is inspired by:
+    //
+    // - https://www.ietf.org/archive/id/draft-ietf-dnsop-avoid-fragmentation-17.html#name-recommendations-for-udp-res
+    // - https://mailarchive.ietf.org/arch/msg/dnsop/Zy3wbhHephubsy2uJesGeDst4F4/
+    // - https://man7.org/linux/man-pages/man7/ip.7.html
+    //
+    // Some other good reading on sending faster via UDP with Rust:
+    // - https://devork.be/blog/2023/11/modern-linux-sockets/
+    //
+    // We could also try the following settings that the Unbound man page
+    // mentions:
+    //  - SO_RCVBUF      - Unbound advises setting so-rcvbuf to 4m on busy
+    //                     servers to prevent short request spikes causing
+    //                     packet drops,
+    //  - SO_SNDBUF      - Unbound advises setting so-sndbuf to 4m on busy
+    //                     servers to avoid resource temporarily unavailable
+    //                     errors,
+    //  - SO_REUSEPORT   - Unbound advises to turn it off at extreme load to
+    //                     distribute queries evenly,
+    //  - IP_TRANSPARENT - Allows to bind to non-existent IP addresses that
+    //                     are going to exist later on. Unbound uses
+    //                     IP_BINDANY on FreeBSD and SO_BINDANY on OpenBSD.
+    //  - IP_FREEBIND    - Linux only, similar to IP_TRANSPARENT. Allows to
+    //                     bind to IP addresses that are nonlocal or do not
+    //                     exist, like when the network interface is down.
+    //  - TCP_MAXSEG     - Value lower than common MSS on Ethernet (1220 for
+    //                     example) will address path MTU problem.
+    //  - A means to control the value of the Differentiated Services
+    //    Codepoint (DSCP) in the differentiated services field (DS) of the
+    //    outgoing IP packet headers.
     #[cfg(target_os = "linux")]
     let udp_mtu_join_handle = {
-        // This UDP example sets IP_MTU_DISCOVER via setsockopt(), using the
-        // libc crate (as the nix crate doesn't support IP_MTU_DISCOVER at the
-        // time of writing). This example is inspired by:
-        //
-        // - https://www.ietf.org/archive/id/draft-ietf-dnsop-avoid-fragmentation-17.html#name-recommendations-for-udp-res
-        // - https://mailarchive.ietf.org/arch/msg/dnsop/Zy3wbhHephubsy2uJesGeDst4F4/
-        // - https://man7.org/linux/man-pages/man7/ip.7.html
-        //
-        // Some other good reading on sending faster via UDP with Rust:
-        // - https://devork.be/blog/2023/11/modern-linux-sockets/
-        //
-        // We could also try the following settings that the Unbound man page
-        // mentions:
-        //  - SO_RCVBUF      - Unbound advises setting so-rcvbuf to 4m on busy
-        //                     servers to prevent short request spikes causing
-        //                     packet drops,
-        //  - SO_SNDBUF      - Unbound advises setting so-sndbuf to 4m on busy
-        //                     servers to avoid resource temporarily
-        //                     unavailable errors,
-        //  - SO_REUSEPORT   - Unbound advises to turn it off at extreme load
-        //                     to distribute queries evenly,
-        //  - IP_TRANSPARENT - Allows to bind to non-existent IP addresses
-        //                     that are going to exist later on. Unbound uses
-        //                     IP_BINDANY on FreeBSD and SO_BINDANY on
-        //                     OpenBSD.
-        //  - IP_FREEBIND    - Linux only, similar to IP_TRANSPARENT. Allows
-        //                     to bind to IP addresses that are nonlocal or do
-        //                     not exist, like when the network interface is
-        //                     down.
-        //  - TCP_MAXSEG     - Value lower than common MSS on Ethernet (1220
-        //                     for example) will address path MTU problem.
-        //  - A means to control the value of the Differentiated Services
-        //    Codepoint (DSCP) in the differentiated services field (DS) of
-        //    the  outgoing IP packet headers.
         fn setsockopt(socket: libc::c_int, flag: libc::c_int) -> libc::c_int {
             unsafe {
                 libc::setsockopt(
@@ -595,14 +762,7 @@ async fn main() {
             }
         }
 
-        let mut config = dgram::Config::default();
-        config.set_middleware_chain(middleware.clone());
-        let srv = DgramServer::with_config(
-            udpsocket,
-            buf.clone(),
-            svc.clone(),
-            config,
-        );
+        let srv = DgramServer::new(udpsocket, buf.clone(), my_svc.clone());
 
         tokio::spawn(async move { srv.run().await })
     };
@@ -623,38 +783,28 @@ async fn main() {
     let v6listener = v6socket.listen(1024).unwrap();
 
     let listener = DoubleListener::new(v4listener, v6listener);
-    let mut conn_config = ConnectionConfig::new();
-    conn_config.set_middleware_chain(middleware.clone());
-    let mut config = stream::Config::new();
-    config.set_connection_config(conn_config);
-    let srv =
-        StreamServer::with_config(listener, buf.clone(), svc.clone(), config);
+    let srv = StreamServer::new(listener, buf.clone(), my_async_svc);
     let double_tcp_join_handle = tokio::spawn(async move { srv.run().await });
 
     // -----------------------------------------------------------------------
-    // Demonstrate listening with TCP Fast Open enabled (via the tokio-tfo crate).
-    // On Linux strace can be used to show that the socket options are indeed
-    // set as expected, e.g.:
+    // Demonstrate listening with TCP Fast Open enabled (via the tokio-tfo
+    // crate). On Linux strace can be used to show that the socket options are
+    // indeed set as expected, e.g.:
     //
     //  > strace -e trace=setsockopt cargo run --example serve \
     //      --features serve,tokio-tfo --release
     //     Finished release [optimized] target(s) in 0.12s
     //      Running `target/release/examples/serve`
-    //   setsockopt(6, SOL_SOCKET, SO_REUSEADDR, [1], 4) = 0
-    //   setsockopt(7, SOL_SOCKET, SO_REUSEADDR, [1], 4) = 0
-    //   setsockopt(8, SOL_SOCKET, SO_REUSEADDR, [1], 4) = 0
-    //   setsockopt(8, SOL_TCP, TCP_FASTOPEN, [1024], 4) = 0
+    //   setsockopt(6, SOL_SOCKET, SO_REUSEADDR, [1], 4) = 0 setsockopt(7,
+    //   SOL_SOCKET, SO_REUSEADDR, [1], 4) = 0 setsockopt(8, SOL_SOCKET,
+    //   SO_REUSEADDR, [1], 4) = 0 setsockopt(8, SOL_TCP, TCP_FASTOPEN,
+    //   [1024], 4) = 0
 
     let listener = TfoListener::bind("127.0.0.1:8081".parse().unwrap())
         .await
         .unwrap();
     let listener = LocalTfoListener(listener);
-    let mut conn_config = ConnectionConfig::new();
-    conn_config.set_middleware_chain(middleware.clone());
-    let mut config = stream::Config::new();
-    config.set_connection_config(conn_config);
-    let srv =
-        StreamServer::with_config(listener, buf.clone(), svc.clone(), config);
+    let srv = StreamServer::new(listener, buf.clone(), my_svc.clone());
     let tfo_join_handle = tokio::spawn(async move { srv.run().await });
 
     // -----------------------------------------------------------------------
@@ -677,34 +827,7 @@ async fn main() {
 
     let listener = TcpListener::bind("127.0.0.1:8082").await.unwrap();
     let listener = BufferedTcpListener(listener);
-    let count = Arc::new(AtomicU8::new(5));
-
-    // Make our service from the `query` function with the help of the
-    // `service_fn` function.
-    let fn_svc = service_fn(query, count);
-
-    // Show that we don't have to use the same middleware with every server by
-    // creating a separate middleware chain for use just by this server, and
-    // also show that by creating the individual middleware processors
-    // ourselves we can override their default configuration.
-    let mut fn_svc_middleware = MiddlewareBuilder::new();
-    fn_svc_middleware.push(MandatoryMiddlewareProcessor::new().into());
-
-    #[cfg(feature = "siphasher")]
-    {
-        let server_secret = "server12secret34".as_bytes().try_into().unwrap();
-        fn_svc_middleware
-            .push(CookiesMiddlewareProcessor::new(server_secret).into());
-    }
-
-    let fn_svc_middleware = fn_svc_middleware.build();
-
-    let mut conn_config = ConnectionConfig::new();
-    conn_config.set_middleware_chain(fn_svc_middleware);
-    let mut config = stream::Config::new();
-    config.set_connection_config(conn_config);
-    let srv =
-        StreamServer::with_config(listener, buf.clone(), fn_svc, config);
+    let srv = StreamServer::new(listener, buf.clone(), query_svc);
     let fn_join_handle = tokio::spawn(async move { srv.run().await });
 
     // -----------------------------------------------------------------------
@@ -739,23 +862,17 @@ async fn main() {
     let acceptor = TlsAcceptor::from(Arc::new(config));
     let listener = TcpListener::bind("127.0.0.1:8443").await.unwrap();
     let listener = RustlsTcpListener::new(listener, acceptor);
-
-    let mut conn_config = ConnectionConfig::new();
-    conn_config.set_middleware_chain(middleware.clone());
-    let mut config = stream::Config::new();
-    config.set_connection_config(conn_config);
-    let srv =
-        StreamServer::with_config(listener, buf.clone(), svc.clone(), config);
+    let srv = StreamServer::new(listener, buf.clone(), my_svc.clone());
 
     let tls_join_handle = tokio::spawn(async move { srv.run().await });
 
     // -----------------------------------------------------------------------
     // Print statistics periodically
     tokio::spawn(async move {
-        let mut interval = tokio::time::interval(Duration::from_secs(15));
+        let mut interval = tokio::time::interval(Duration::from_secs(5));
         loop {
             interval.tick().await;
-            println!("Statistics report: {stats}");
+            println!("Statistics report: {}", stats.read().unwrap());
         }
     });
 

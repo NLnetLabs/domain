@@ -13,17 +13,21 @@ use std::vec::Vec;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::time::sleep;
 use tokio::time::Instant;
+use tracing::trace;
 
 use crate::base::Dname;
 use crate::base::MessageBuilder;
 use crate::base::Rtype;
 use crate::base::StaticCompressor;
 use crate::base::StreamTarget;
+use crate::net::server::middleware::mandatory::MandatoryMiddlewareSvc;
+use crate::net::server::stream::StreamServer;
 
 use super::buf::BufSource;
 use super::message::Request;
 use super::service::{CallResult, Service, ServiceError, ServiceFeedback};
 use super::sock::AsyncAccept;
+use core::future::{ready, Ready};
 // use super::stream::StreamServer;
 
 /// Mock I/O which supplies a sequence of mock messages to the server at a
@@ -310,9 +314,11 @@ impl MyService {
 impl Service<Vec<u8>> for MyService {
     type Target = Vec<u8>;
     type Stream = MySingle;
+    type Future = Ready<Self::Stream>;
 
-    fn call(&self, _msg: Request<Vec<u8>>) -> MySingle {
-        MySingle::new()
+    fn call(&self, request: Request<Vec<u8>>) -> Self::Future {
+        trace!("Processing request id {}", request.message().header().id());
+        ready(MySingle::new())
     }
 }
 
@@ -347,65 +353,99 @@ fn mk_query() -> StreamTarget<Vec<u8>> {
 // signal that time has passed when in fact it actually hasn't, allowing a
 // time dependent test to run much faster without actual periods of
 // waiting to allow time to elapse.
-//              mk_query().as_dgram_slice().to_vec(),
-//              mk_query().as_dgram_slice().to_vec(),
-//              mk_query().as_dgram_slice().to_vec(),
-//              mk_query().as_dgram_slice().to_vec(),
-//              mk_query().as_dgram_slice().to_vec(),
+#[tokio::test(flavor = "current_thread", start_paused = true)]
+async fn service_test() {
+    // Initialize tracing based logging. Override with env var RUST_LOG, e.g.
+    // RUST_LOG=trace.
+    tracing_subscriber::fmt()
+        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+        .with_thread_ids(true)
+        .without_time()
+        .try_init()
+        .ok();
+
+    let (srv_handle, server_status_printer_handle) = {
+        let fast_client = MockClientConfig {
+            new_message_every: Duration::from_millis(100),
+            messages: VecDeque::from([
+                mk_query().as_dgram_slice().to_vec(),
+                mk_query().as_dgram_slice().to_vec(),
+                mk_query().as_dgram_slice().to_vec(),
+                mk_query().as_dgram_slice().to_vec(),
+                mk_query().as_dgram_slice().to_vec(),
             ]),
-//              mk_query().as_dgram_slice().to_vec(),
-//              mk_query().as_dgram_slice().to_vec(),
+            client_port: 1,
+        };
+        let slow_client = MockClientConfig {
+            new_message_every: Duration::from_millis(3000),
+            messages: VecDeque::from([
+                mk_query().as_dgram_slice().to_vec(),
+                mk_query().as_dgram_slice().to_vec(),
             ]),
+            client_port: 2,
+        };
+        let num_messages =
+            fast_client.messages.len() + slow_client.messages.len();
+        let streams_to_read = VecDeque::from([fast_client, slow_client]);
+        let new_client_every = Duration::from_millis(2000);
+        let listener = MockListener::new(streams_to_read, new_client_every);
+        let ready_flag = listener.get_ready_flag();
 
-//         let metrics = srv.metrics();
-//         let server_status_printer_handle = tokio::spawn(async move {
-//             loop {
-//                 sleep(Duration::from_millis(250)).await;
-//                 eprintln!(
-//                     "Server status: #conn={:?}, #in-flight={}, #pending-writes={}, #msgs-recvd={}, #msgs-sent={}",
-//                     metrics.num_connections(),
-//                     metrics.num_inflight_requests(),
-//                     metrics.num_pending_writes(),
-//                     metrics.num_received_requests(),
-//                     metrics.num_sent_responses(),
-//                 );
-//             }
-//         });
+        let buf = MockBufSource;
+        let my_service = Arc::new(MandatoryMiddlewareSvc::new(MyService::new()));
+        // let my_service = Arc::new(MyService::new());
+        let srv =
+            Arc::new(StreamServer::new(listener, buf, my_service.clone()));
 
-//         let spawned_srv = srv.clone();
-//         let srv_handle = tokio::spawn(async move { spawned_srv.run().await });
+        let metrics = srv.metrics();
+        let server_status_printer_handle = tokio::spawn(async move {
+            loop {
+                sleep(Duration::from_millis(250)).await;
+                eprintln!(
+                    "Server status: #conn={:?}, #in-flight={}, #pending-writes={}, #msgs-recvd={}, #msgs-sent={}",
+                    metrics.num_connections(),
+                    metrics.num_inflight_requests(),
+                    metrics.num_pending_writes(),
+                    metrics.num_received_requests(),
+                    metrics.num_sent_responses(),
+                );
+            }
+        });
 
-//         eprintln!("Clients sleeping");
-//         sleep(Duration::from_secs(1)).await;
+        let spawned_srv = srv.clone();
+        let srv_handle = tokio::spawn(async move { spawned_srv.run().await });
 
-//         eprintln!("Clients connecting");
-//         ready_flag.store(true, Ordering::Relaxed);
+        eprintln!("Clients sleeping");
+        sleep(Duration::from_secs(1)).await;
 
-//         // Simulate a wait long enough that all simulated clients had time
-//         // to connect, communicate and disconnect.
-//         sleep(Duration::from_secs(20)).await;
+        eprintln!("Clients connecting");
+        ready_flag.store(true, Ordering::Relaxed);
 
-//         // Verify that all simulated clients connected.
-//         assert_eq!(0, srv.source().streams_remaining());
+        // Simulate a wait long enough that all simulated clients had time
+        // to connect, communicate and disconnect.
+        sleep(Duration::from_secs(20)).await;
 
-//         // Verify that no requests or responses are in progress still in
-//         // the server.
-//         assert_eq!(srv.metrics().num_connections(), 0);
-//         assert_eq!(srv.metrics().num_inflight_requests(), 0);
-//         assert_eq!(srv.metrics().num_pending_writes(), 0);
-//         assert_eq!(srv.metrics().num_received_requests(), num_messages);
-//         assert_eq!(srv.metrics().num_sent_responses(), num_messages);
+        // Verify that all simulated clients connected.
+        assert_eq!(0, srv.source().streams_remaining());
 
-//         eprintln!("Shutting down");
-//         srv.shutdown().unwrap();
-//         eprintln!("Shutdown command sent");
+        // Verify that no requests or responses are in progress still in
+        // the server.
+        assert_eq!(srv.metrics().num_connections(), 0);
+        assert_eq!(srv.metrics().num_inflight_requests(), 0);
+        assert_eq!(srv.metrics().num_pending_writes(), 0);
+        assert_eq!(srv.metrics().num_received_requests(), num_messages);
+        assert_eq!(srv.metrics().num_sent_responses(), num_messages);
 
-//         (srv_handle, server_status_printer_handle)
-//     };
+        eprintln!("Shutting down");
+        srv.shutdown().unwrap();
+        eprintln!("Shutdown command sent");
 
-//     eprintln!("Waiting for service to shutdown");
-//     let _ = srv_handle.await;
+        (srv_handle, server_status_printer_handle)
+    };
 
-//     // Terminate the task that periodically prints the server status
-//     server_status_printer_handle.abort();
-// }
+    eprintln!("Waiting for service to shutdown");
+    let _ = srv_handle.await;
+
+    // Terminate the task that periodically prints the server status
+    server_status_printer_handle.abort();
+}

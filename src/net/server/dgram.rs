@@ -20,7 +20,6 @@ use std::string::String;
 use std::string::ToString;
 use std::sync::{Arc, Mutex};
 
-use futures::StreamExt;
 use octseq::Octets;
 use tokio::io::ReadBuf;
 use tokio::net::UdpSocket;
@@ -35,22 +34,19 @@ use tracing::{enabled, error, trace};
 use crate::base::Message;
 use crate::net::server::buf::BufSource;
 use crate::net::server::error::Error;
-// use crate::net::server::message::CommonMessageFlow;
 use crate::net::server::message::Request;
 use crate::net::server::metrics::ServerMetrics;
-// use crate::net::server::middleware::chain::MiddlewareChain;
-use crate::net::server::service::{CallResult, Service, ServiceFeedback};
+use crate::net::server::service::{Service, ServiceFeedback};
 use crate::net::server::sock::AsyncDgramSock;
 use crate::net::server::util::to_pcap_text;
 use crate::utils::config::DefMinMax;
 
 use super::buf::VecBufSource;
 use super::message::{TransportSpecificContext, UdpTransportContext};
-use super::service::ServiceError;
-// use super::middleware::builder::MiddlewareBuilder;
 use super::ServerCommand;
 use crate::base::wire::Composer;
 use arc_swap::ArcSwap;
+use futures::prelude::stream::StreamExt;
 
 /// A UDP transport based DNS server transport.
 ///
@@ -86,21 +82,14 @@ const MAX_RESPONSE_SIZE: DefMinMax<u16> = DefMinMax::new(1232, 512, 4096);
 
 /// Configuration for a datagram server.
 #[derive(Debug)]
-pub struct Config /*<RequestOctets, Target>*/ {
+pub struct Config {
     /// Limit suggested to [`Service`] on maximum response size to create.
     max_response_size: Option<u16>,
 
     /// Limit the time to wait for a complete message to be written to the client.
     write_timeout: Duration,
-    // /// The middleware chain used to pre-process requests and post-process
-    // /// responses.
-    // middleware_chain: MiddlewareChain<RequestOctets, Target>,
 }
 
-// impl<RequestOctets, Target> Config<RequestOctets, Target>
-// where
-//     RequestOctets: Octets,
-//     Target: Composer + Default,
 impl Config {
     /// Creates a new, default config.
     pub fn new() -> Self {
@@ -145,51 +134,26 @@ impl Config {
     pub fn set_write_timeout(&mut self, value: Duration) {
         self.write_timeout = value;
     }
-
-    // /// Set the middleware chain used to pre-process requests and post-process
-    // /// responses.
-    // ///
-    // /// # Reconfigure
-    // ///
-    // /// On [`DgramServer::reconfigure`]` any change to this setting will only
-    // /// affect requests (and their responses) received after the setting is
-    // /// changed, in progress requests will be unaffected.
-    // pub fn set_middleware_chain(
-    //     &mut self,
-    //     value: MiddlewareChain<RequestOctets, Target>,
-    // ) {
-    //     self.middleware_chain = value;
-    // }
 }
 
 //--- Default
 
-// impl<RequestOctets, Target> Default for Config<RequestOctets, Target>
-// where
-//     RequestOctets: Octets,
-//     Target: Composer + Default,
 impl Default for Config {
     fn default() -> Self {
         Self {
             max_response_size: Some(MAX_RESPONSE_SIZE.default()),
             write_timeout: WRITE_TIMEOUT.default(),
-            // middleware_chain: MiddlewareBuilder::default().build(),
         }
     }
 }
 
 //--- Clone
 
-// impl<RequestOctets, Target> Clone for Config<RequestOctets, Target>
-// where
-//     RequestOctets: Octets,
-//     Target: Composer + Default,
 impl Clone for Config {
     fn clone(&self) -> Self {
         Self {
             max_response_size: self.max_response_size,
             write_timeout: self.write_timeout,
-            // middleware_chain: self.middleware_chain.clone(),
         }
     }
 }
@@ -197,16 +161,12 @@ impl Clone for Config {
 //------------ DgramServer ---------------------------------------------------
 
 /// A [`ServerCommand`] capable of propagating a DgramServer [`Config`] value.
-// type ServerCommandType<Buf, Svc> = ServerCommand<Config<Buf, Svc>>;
 type ServerCommandType = ServerCommand<Config>;
 
 /// A thread safe sender of [`ServerCommand`]s.
-// type CommandSender<Buf, Svc> =
-// Arc<Mutex<watch::Sender<ServerCommandType<Buf, Svc>>>>;
 type CommandSender = Arc<Mutex<watch::Sender<ServerCommandType>>>;
 
 /// A thread safe receiver of [`ServerCommand`]s.
-// type CommandReceiver<Buf, Svc> = watch::Receiver<ServerCommandType<Buf, Svc>>;
 type CommandReceiver = watch::Receiver<ServerCommandType>;
 
 /// A server for connecting clients via a datagram based network transport to
@@ -300,27 +260,25 @@ pub struct DgramServer<Sock, Buf, Svc>
 where
     Sock: AsyncDgramSock + Send + Sync + 'static,
     Buf: BufSource + Send + Sync + 'static,
-    Buf::Output: Octets + Send + Sync,
+    Buf::Output: Octets + Send + Sync + Unpin,
     Svc: Service<Buf::Output> + Send + Sync + 'static + Clone,
-    Svc::Target: Send + Composer + Default,
-    Svc::Stream: futures::stream::Stream<
-            Item = Result<CallResult<Svc::Target>, ServiceError>,
-        > + Send
-        + Unpin,
+    Svc::Target: Composer + Send,
+    Svc::Stream: Send,
+    Svc::Future: Send,
 {
     /// The configuration of the server.
-    config: Arc<ArcSwap<Config /*<Buf::Output, Svc::Target>*/>>,
+    config: Arc<ArcSwap<Config>>,
 
     /// A receiver for receiving [`ServerCommand`]s.
     ///
     /// Used by both the server and spawned connections to react to sent
     /// commands.
-    command_rx: CommandReceiver, //<Buf::Output, Svc::Target>,
+    command_rx: CommandReceiver,
 
     /// A sender for sending [`ServerCommand`]s.
     ///
     /// Used to signal the server to stop, reconfigure, etc.
-    command_tx: CommandSender, //<Buf::Output, Svc::Target>,
+    command_tx: CommandSender,
 
     /// The network socket over which client requests will be received
     /// and responses sent.
@@ -342,13 +300,11 @@ impl<Sock, Buf, Svc> DgramServer<Sock, Buf, Svc>
 where
     Sock: AsyncDgramSock + Send + Sync,
     Buf: BufSource + Send + Sync,
-    Buf::Output: Octets + Send + Sync,
+    Buf::Output: Octets + Send + Sync + Unpin,
     Svc: Service<Buf::Output> + Send + Sync + Clone,
-    Svc::Target: Send + Composer + Default,
-    Svc::Stream: futures::stream::Stream<
-            Item = Result<CallResult<Svc::Target>, ServiceError>,
-        > + Send
-        + Unpin,
+    Svc::Target: Composer + Send,
+    Svc::Stream: Send,
+    Svc::Future: Send,
 {
     /// Constructs a new [`DgramServer`] with default configuration.
     ///
@@ -376,7 +332,7 @@ where
         sock: Sock,
         buf: Buf,
         service: Svc,
-        config: Config, //<Buf::Output, Svc::Target>,
+        config: Config,
     ) -> Self {
         let (command_tx, command_rx) = watch::channel(ServerCommand::Init);
         let command_tx = Arc::new(Mutex::new(command_tx));
@@ -401,13 +357,11 @@ impl<Sock, Buf, Svc> DgramServer<Sock, Buf, Svc>
 where
     Sock: AsyncDgramSock + Send + Sync + 'static,
     Buf: BufSource + Send + Sync + 'static,
-    Buf::Output: Octets + Send + Sync + 'static + Debug,
+    Buf::Output: Octets + Send + Sync + 'static + Debug + Unpin,
     Svc: Service<Buf::Output> + Send + Sync + 'static + Clone,
-    Svc::Target: Send + Composer + Debug + Default,
-    Svc::Stream: futures::stream::Stream<
-            Item = Result<CallResult<Svc::Target>, ServiceError>,
-        > + Send
-        + Unpin,
+    Svc::Target: Composer + Send,
+    Svc::Stream: Send,
+    Svc::Future: Send,
 {
     /// Get a reference to the network source being used to receive messages.
     #[must_use]
@@ -428,13 +382,11 @@ impl<Sock, Buf, Svc> DgramServer<Sock, Buf, Svc>
 where
     Sock: AsyncDgramSock + Send + Sync + 'static,
     Buf: BufSource + Send + Sync,
-    Buf::Output: Octets + Send + Sync + 'static,
+    Buf::Output: Octets + Send + Sync + 'static + Unpin,
     Svc: Service<Buf::Output> + Send + Sync + 'static + Clone,
-    Svc::Target: Send + Composer + Default,
-    Svc::Stream: futures::stream::Stream<
-            Item = Result<CallResult<Svc::Target>, ServiceError>,
-        > + Send
-        + Unpin,
+    Svc::Target: Composer + Send,
+    Svc::Stream: Send,
+    Svc::Future: Send,
 {
     /// Start the server.
     ///
@@ -443,10 +395,7 @@ where
     /// When dropped [`shutdown`] will be invoked.
     ///
     /// [`shutdown`]: Self::shutdown
-    pub async fn run(&self)
-    // where
-    //     Svc::Stream: Send,
-    {
+    pub async fn run(&self) {
         if let Err(err) = self.run_until_error().await {
             error!("Server stopped due to error: {err}");
         }
@@ -455,10 +404,7 @@ where
     /// Reconfigure the server while running.
     ///
     ///
-    pub fn reconfigure(
-        &self,
-        config: Config, //,<Buf::Output, Svc::Target>,
-    ) -> Result<(), Error> {
+    pub fn reconfigure(&self, config: Config) -> Result<(), Error> {
         self.command_tx
             .lock()
             .map_err(|_| Error::CommandCouldNotBeSent)?
@@ -520,19 +466,14 @@ impl<Sock, Buf, Svc> DgramServer<Sock, Buf, Svc>
 where
     Sock: AsyncDgramSock + Send + Sync + 'static,
     Buf: BufSource + Send + Sync,
-    Buf::Output: Octets + Send + Sync + 'static,
+    Buf::Output: Octets + Send + Sync + 'static + Unpin,
     Svc: Service<Buf::Output> + Send + Sync + 'static + Clone,
-    Svc::Target: Send + Composer + Default,
-    Svc::Stream: futures::stream::Stream<
-            Item = Result<CallResult<Svc::Target>, ServiceError>,
-        > + Send
-        + Unpin,
+    Svc::Target: Composer + Send,
+    Svc::Stream: Send,
+    Svc::Future: Send,
 {
     /// Receive incoming messages until shutdown or fatal error.
-    async fn run_until_error(&self) -> Result<(), String>
-// where
-    //     Svc::Stream: Send,
-    {
+    async fn run_until_error(&self) -> Result<(), String> {
         let mut command_rx = self.command_rx.clone();
 
         loop {
@@ -563,17 +504,6 @@ where
 
                     let state = self.mk_state_for_request();
 
-                    // self.process_request(
-                    //     msg, received_at, addr,
-                    //     self.config.load().middleware_chain.clone(),
-                    //     &self.service,
-                    //     self.metrics.clone(),
-                    //     state,
-                    // )
-                    //     .map_err(|err|
-                    //         format!("Error while processing message: {err}")
-                    //     )?;
-
                     let svc = self.service.clone();
                     let cfg = self.config.clone();
                     let metrics = self.metrics.clone();
@@ -588,7 +518,7 @@ where
                                 let ctx = UdpTransportContext::new(cfg.load().max_response_size);
                                 let ctx = TransportSpecificContext::Udp(ctx);
                                 let request = Request::new(addr, received_at, msg, ctx);
-                                let mut stream = svc.call(request);
+                                let mut stream = svc.call(request).await;
                                 while let Some(Ok(call_result)) = stream.next().await {
                                     let (response, feedback) = call_result.into_inner();
 
@@ -597,6 +527,10 @@ where
                                             ServiceFeedback::Reconfigure {
                                                 idle_timeout: _, // N/A - only applies to connection-oriented transports
                                             } => {
+                                                // Nothing to do.
+                                            }
+
+                                            ServiceFeedback::BeginTransaction|ServiceFeedback::EndTransaction => {
                                                 // Nothing to do.
                                             }
                                         }
@@ -642,7 +576,7 @@ where
     fn process_server_command(
         &self,
         res: Result<(), watch::error::RecvError>,
-        command_rx: &mut CommandReceiver, //<Buf::Output, Svc::Target>,
+        command_rx: &mut CommandReceiver,
     ) -> Result<(), String> {
         // If the parent server no longer exists but was not cleanly shutdown
         // then the command channel will be closed and attempting to check for
@@ -729,7 +663,6 @@ where
     /// [`CommonMessageFlow`] call chain and ultimately back to ourselves at
     /// [`process_call_reusult`].
     fn mk_state_for_request(&self) -> RequestState<Sock> {
-        //}, Buf::Output, Svc::Target> {
         RequestState::new(
             self.sock.clone(),
             self.command_tx.clone(),
@@ -738,99 +671,17 @@ where
     }
 }
 
-// //--- CommonMessageFlow
-
-// impl<Sock, Buf, Svc> CommonMessageFlow<Buf, Svc>
-//     for DgramServer<Sock, Buf, Svc>
-// where
-//     Sock: AsyncDgramSock + Send + Sync + 'static,
-//     Buf: BufSource + Send + Sync + 'static,
-//     Buf::Output: Octets + Send + Sync + 'static,
-//     Svc: Service<Buf::Output> + Send + Sync + 'static,
-//     Svc::Target: Send + Composer + Default,
-// {
-//     type Meta = RequestState<Sock, Buf::Output, Svc::Target>;
-
-//     /// Add information to the request that relates to the type of server we
-//     /// are and our state where relevant.
-//     fn add_context_to_request(
-//         &self,
-//         request: Message<Buf::Output>,
-//         received_at: Instant,
-//         addr: SocketAddr,
-//     ) -> Request<Buf::Output> {
-//         let ctx =
-//             UdpTransportContext::new(self.config.load().max_response_size);
-//         let ctx = TransportSpecificContext::Udp(ctx);
-//         Request::new(addr, received_at, request, ctx)
-//     }
-
-//     /// Process the result from the middleware -> service -> middleware call
-//     /// tree.
-//     fn process_call_result(
-//         request: &Request<Buf::Output>,
-//         call_result: CallResult<Svc::Target>,
-//         state: RequestState<Sock, Buf::Output, Svc::Target>,
-//         metrics: Arc<ServerMetrics>,
-//     ) {
-//         metrics.inc_num_pending_writes();
-//         let client_addr = request.client_addr();
-
-//         tokio::spawn(async move {
-//             let (response, feedback) = call_result.into_inner();
-
-//             if let Some(feedback) = feedback {
-//                 match feedback {
-//                     ServiceFeedback::Reconfigure {
-//                         idle_timeout: _, // N/A - only applies to connection-oriented transports
-//                     } => {
-//                         // Nothing to do.
-//                     }
-//                 }
-//             }
-
-//             // Process the DNS response message, if any.
-//             if let Some(response) = response {
-//                 // Convert the DNS response message into bytes.
-//                 let target = response.finish();
-//                 let bytes = target.as_dgram_slice();
-
-//                 // Logging
-//                 if enabled!(Level::TRACE) {
-//                     let pcap_text = to_pcap_text(bytes, bytes.len());
-//                     trace!(%client_addr, pcap_text, "Sending response");
-//                 }
-
-//                 // Actually write the DNS response message bytes to the UDP
-//                 // socket.
-//                 let _ = Self::send_to(
-//                     &state.sock,
-//                     bytes,
-//                     &client_addr,
-//                     state.write_timeout,
-//                 )
-//                 .await;
-
-//                 metrics.dec_num_pending_writes();
-//                 metrics.inc_num_sent_responses();
-//             }
-//         });
-//     }
-// }
-
 //--- Drop
 
 impl<Sock, Buf, Svc> Drop for DgramServer<Sock, Buf, Svc>
 where
     Sock: AsyncDgramSock + Send + Sync + 'static,
     Buf: BufSource + Send + Sync + 'static,
-    Buf::Output: Octets + Send + Sync,
+    Buf::Output: Octets + Send + Sync + Unpin,
     Svc: Service<Buf::Output> + Send + Sync + 'static + Clone,
-    Svc::Target: Send + Composer + Default,
-    Svc::Stream: futures::stream::Stream<
-            Item = Result<CallResult<Svc::Target>, ServiceError>,
-        > + Send
-        + Unpin,
+    Svc::Target: Composer + Send,
+    Svc::Stream: Send,
+    Svc::Future: Send,
 {
     fn drop(&mut self) {
         // Shutdown the DgramServer. Don't handle the failure case here as
@@ -845,7 +696,6 @@ where
 /// Data needed by [`DgramServer::process_call_result`] which needs to be
 /// passed through the [`CommonMessageFlow`] call chain.
 pub struct RequestState<Sock> {
-    //, RequestOctets, Target> {
     /// The network socket over which this request was received and over which
     /// the response should be sent.
     sock: Arc<Sock>,
@@ -853,19 +703,18 @@ pub struct RequestState<Sock> {
     /// A sender for sending [`ServerCommand`]s.
     ///
     /// Used to signal the server to stop, reconfigure, etc.
-    command_tx: CommandSender, //<RequestOctets, Target>,
+    command_tx: CommandSender,
 
     /// The maximum amount of time to wait for a response datagram to be
     /// accepted by the operating system for writing back to the client.
     write_timeout: Duration,
 }
 
-impl<Sock /*, RequestOctets, Target */> RequestState<Sock> {
-    //, RequestOctets, Target> {
+impl<Sock> RequestState<Sock> {
     /// Creates a new instance of [`RequestState`].
     fn new(
         sock: Arc<Sock>,
-        command_tx: CommandSender, //<RequestOctets, Target>,
+        command_tx: CommandSender,
         write_timeout: Duration,
     ) -> Self {
         Self {
@@ -878,9 +727,7 @@ impl<Sock /*, RequestOctets, Target */> RequestState<Sock> {
 
 //--- Clone
 
-impl<Sock /*, RequestOctets, Target */> Clone
-    for RequestState<Sock /*, RequestOctets, Target */>
-{
+impl<Sock> Clone for RequestState<Sock> {
     fn clone(&self) -> Self {
         Self {
             sock: self.sock.clone(),

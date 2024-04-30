@@ -1,18 +1,12 @@
 //! RFC 6891 and related EDNS message processing.
-use core::future::ready;
+use core::future::{ready, Ready};
 use core::marker::PhantomData;
 use core::ops::ControlFlow;
-use core::task::{Context, Poll};
 
-use std::pin::Pin;
-
-use futures::stream::once;
-use futures::Stream;
-use futures_util::StreamExt;
+use futures::stream::{once, Once};
 use octseq::Octets;
 use tracing::{debug, enabled, error, trace, warn, Level};
 
-use super::mandatory::MINIMUM_RESPONSE_BYTE_LEN;
 use crate::base::iana::{OptRcode, OptionCode};
 use crate::base::message_builder::AdditionalBuilder;
 use crate::base::opt::keepalive::IdleTimeout;
@@ -20,10 +14,14 @@ use crate::base::opt::{Opt, OptRecord, TcpKeepalive};
 use crate::base::wire::Composer;
 use crate::base::StreamTarget;
 use crate::net::server::message::{Request, TransportSpecificContext};
-use crate::net::server::middleware::util::MiddlewareStream;
-use crate::net::server::service::{CallResult, Service, ServiceError};
-use crate::net::server::util::start_reply;
-use crate::net::server::util::{add_edns_options, remove_edns_opt_record};
+use crate::net::server::middleware::stream::MiddlewareStream;
+use crate::net::server::service::{CallResult, Service, ServiceResult};
+use crate::net::server::util::{
+    add_edns_options, mk_error_response, remove_edns_opt_record,
+};
+
+use super::mandatory::MINIMUM_RESPONSE_BYTE_LEN;
+use super::stream::PostprocessingStream;
 
 /// EDNS version 0.
 ///
@@ -47,58 +45,34 @@ const EDNS_VERSION_ZERO: u8 = 0;
 /// [7828]: https://datatracker.ietf.org/doc/html/rfc7828
 /// [9210]: https://datatracker.ietf.org/doc/html/rfc9210
 /// [`MiddlewareProcessor`]: crate::net::server::middleware::processor::MiddlewareProcessor
-#[derive(Debug, Default)]
-pub struct EdnsMiddlewareSvc<S> {
-    inner: S,
+#[derive(Clone, Debug, Default)]
+pub struct EdnsMiddlewareSvc<RequestOctets, Svc> {
+    svc: Svc,
+
+    _phantom: PhantomData<RequestOctets>,
 }
 
-impl<S> EdnsMiddlewareSvc<S> {
+impl<RequestOctets, Svc> EdnsMiddlewareSvc<RequestOctets, Svc> {
     /// Creates an instance of this processor.
     #[must_use]
-    pub fn new(inner: S) -> Self {
-        Self { inner }
-    }
-}
-
-impl<S> EdnsMiddlewareSvc<S> {
-    /// Create a DNS error response to the given request with the given RCODE.
-    fn error_response<RequestOctets, Target>(
-        request: &Request<RequestOctets>,
-        rcode: OptRcode,
-    ) -> AdditionalBuilder<StreamTarget<Target>>
-    where
-        RequestOctets: Octets,
-        Target: Composer + Default,
-    {
-        let mut additional = start_reply(request).additional();
-
-        // Note: if rcode is non-extended this will also correctly handle
-        // setting the rcode in the main message header.
-        if let Err(err) = add_edns_options(&mut additional, |_, opt| {
-            opt.set_rcode(rcode);
-            Ok(())
-        }) {
-            warn!(
-                "Failed to set (extended) error '{rcode}' in response: {err}"
-            );
+    pub fn new(svc: Svc) -> Self {
+        Self {
+            svc,
+            _phantom: PhantomData,
         }
-
-        Self::postprocess(request, &mut additional);
-        additional
     }
 }
 
-//--- MiddlewareProcessor
-
-impl<S> EdnsMiddlewareSvc<S> {
-    fn preprocess<RequestOctets, Target>(
+impl<RequestOctets, Svc> EdnsMiddlewareSvc<RequestOctets, Svc>
+where
+    RequestOctets: Octets + Send + Sync + Unpin,
+    Svc: Service<RequestOctets>,
+    Svc::Target: Composer + Default,
+{
+    fn preprocess(
         &self,
         request: &Request<RequestOctets>,
-    ) -> ControlFlow<AdditionalBuilder<StreamTarget<Target>>>
-    where
-        RequestOctets: Octets,
-        Target: Composer + Default,
-    {
+    ) -> ControlFlow<AdditionalBuilder<StreamTarget<Svc::Target>>> {
         // https://www.rfc-editor.org/rfc/rfc6891.html#section-6.1.1
         // 6.1.1: Basic Elements
         // ...
@@ -111,8 +85,8 @@ impl<S> EdnsMiddlewareSvc<S> {
                 if iter.next().is_some() {
                     // More than one OPT RR received.
                     debug!("RFC 6891 6.1.1 violation: request contains more than one OPT RR.");
-                    return ControlFlow::Break(Self::error_response(
-                        request,
+                    return ControlFlow::Break(mk_error_response(
+                        request.message(),
                         OptRcode::FORMERR,
                     ));
                 }
@@ -127,8 +101,8 @@ impl<S> EdnsMiddlewareSvc<S> {
                     //    RCODE=BADVERS."
                     if opt_rec.version() > EDNS_VERSION_ZERO {
                         debug!("RFC 6891 6.1.3 violation: request EDNS version {} > 0", opt_rec.version());
-                        return ControlFlow::Break(Self::error_response(
-                            request,
+                        return ControlFlow::Break(mk_error_response(
+                            request.message(),
                             OptRcode::BADVERS,
                         ));
                     }
@@ -148,8 +122,8 @@ impl<S> EdnsMiddlewareSvc<S> {
                             if opt_rec.opt().tcp_keepalive().is_some() {
                                 debug!("RFC 7828 3.2.1 violation: edns-tcp-keepalive option received via UDP");
                                 return ControlFlow::Break(
-                                    Self::error_response(
-                                        request,
+                                    mk_error_response(
+                                        request.message(),
                                         OptRcode::FORMERR,
                                     ),
                                 );
@@ -226,8 +200,8 @@ impl<S> EdnsMiddlewareSvc<S> {
                                 if keep_alive.timeout().is_some() {
                                     debug!("RFC 7828 3.2.1 violation: edns-tcp-keepalive option received via TCP contains timeout");
                                     return ControlFlow::Break(
-                                        Self::error_response(
-                                            request,
+                                        mk_error_response(
+                                            request.message(),
                                             OptRcode::FORMERR,
                                         ),
                                     );
@@ -242,13 +216,10 @@ impl<S> EdnsMiddlewareSvc<S> {
         ControlFlow::Continue(())
     }
 
-    fn postprocess<RequestOctets, Target>(
+    fn postprocess(
         request: &Request<RequestOctets>,
-        response: &mut AdditionalBuilder<StreamTarget<Target>>,
-    ) where
-        RequestOctets: Octets,
-        Target: Composer + Default,
-    {
+        response: &mut AdditionalBuilder<StreamTarget<Svc::Target>>,
+    ) {
         // https://www.rfc-editor.org/rfc/rfc6891.html#section-6.1.1
         // 6.1.1: Basic Elements
         // ...
@@ -273,7 +244,8 @@ impl<S> EdnsMiddlewareSvc<S> {
                 error!(
                     "Error while stripping OPT record from response: {err}"
                 );
-                *response = Self::error_response(request, OptRcode::SERVFAIL);
+                *response =
+                    mk_error_response(request.message(), OptRcode::SERVFAIL);
                 return;
             }
         }
@@ -334,124 +306,67 @@ impl<S> EdnsMiddlewareSvc<S> {
         // record in the request) should we set the Requestor's Payload Size
         // field to some value?
     }
+
+    fn map_stream_item(
+        request: Request<RequestOctets>,
+        mut stream_item: ServiceResult<Svc::Target>,
+        _metadata: (),
+    ) -> ServiceResult<Svc::Target> {
+        if let Ok(cr) = &mut stream_item {
+            if let Some(response) = cr.response_mut() {
+                Self::postprocess(&request, response);
+            }
+        }
+        stream_item
+    }
 }
 
 //--- Service
 
-impl<RequestOctets, S, Target> Service<RequestOctets> for EdnsMiddlewareSvc<S>
+impl<RequestOctets, Svc> Service<RequestOctets>
+    for EdnsMiddlewareSvc<RequestOctets, Svc>
 where
-    RequestOctets: Octets + 'static,
-    S: Service<RequestOctets>,
-    S::Stream: futures::stream::Stream<
-            Item = Result<CallResult<Target>, ServiceError>,
-        > + Unpin
-        + 'static,
-    Target: Composer + Default + 'static + Unpin,
+    RequestOctets: Octets + Send + Sync + 'static + Unpin,
+    Svc: Service<RequestOctets>,
+    Svc::Target: Composer + Default,
+    Svc::Future: Unpin,
 {
-    type Target = Target;
+    type Target = Svc::Target;
     type Stream = MiddlewareStream<
-        S::Stream,
-        PostprocessingStream<RequestOctets, Target, S::Stream>,
-        Target,
+        Svc::Stream,
+        PostprocessingStream<RequestOctets, Svc::Future, Svc::Stream, ()>,
+        Once<Ready<<Svc::Stream as futures::stream::Stream>::Item>>,
+        <Svc::Stream as futures::stream::Stream>::Item,
     >;
+    type Future = core::future::Ready<Self::Stream>;
 
-    fn call(&self, request: Request<RequestOctets>) -> Self::Stream {
+    fn call(&self, request: Request<RequestOctets>) -> Self::Future {
         match self.preprocess(&request) {
             ControlFlow::Continue(()) => {
-                let st = self.inner.call(request.clone());
-                let map = PostprocessingStream::new(st, request);
-                MiddlewareStream::Postprocess(map)
+                let svc_call_fut = self.svc.call(request.clone());
+                let map = PostprocessingStream::new(
+                    svc_call_fut,
+                    request,
+                    (),
+                    Self::map_stream_item,
+                );
+                ready(MiddlewareStream::Map(map))
             }
             ControlFlow::Break(mut response) => {
                 Self::postprocess(&request, &mut response);
-                MiddlewareStream::HandledOne(once(ready(Ok(
+                ready(MiddlewareStream::Result(once(ready(Ok(
                     CallResult::new(response),
-                ))))
+                )))))
             }
         }
-    }
-}
-
-pub struct PostprocessingStream<
-    RequestOctets,
-    Target,
-    InnerServiceResponseStream,
-> where
-    RequestOctets: Octets,
-    InnerServiceResponseStream: futures::stream::Stream<
-        Item = Result<CallResult<Target>, ServiceError>,
-    >,
-{
-    request: Request<RequestOctets>,
-    _phantom: PhantomData<Target>,
-    stream: InnerServiceResponseStream,
-}
-
-impl<RequestOctets, Target, InnerServiceResponseStream>
-    PostprocessingStream<RequestOctets, Target, InnerServiceResponseStream>
-where
-    RequestOctets: Octets,
-    InnerServiceResponseStream: futures::stream::Stream<
-        Item = Result<CallResult<Target>, ServiceError>,
-    >,
-{
-    pub(crate) fn new(
-        stream: InnerServiceResponseStream,
-        request: Request<RequestOctets>,
-    ) -> Self {
-        Self {
-            stream,
-            request,
-            _phantom: PhantomData,
-        }
-    }
-}
-
-impl<RequestOctets, Target, InnerServiceResponseStream> Stream
-    for PostprocessingStream<
-        RequestOctets,
-        Target,
-        InnerServiceResponseStream,
-    >
-where
-    RequestOctets: Octets,
-    InnerServiceResponseStream: futures::stream::Stream<
-            Item = Result<CallResult<Target>, ServiceError>,
-        > + Unpin,
-    Target: Composer + Default + Unpin,
-{
-    type Item = Result<CallResult<Target>, ServiceError>;
-
-    fn poll_next(
-        mut self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-    ) -> Poll<Option<Self::Item>> {
-        let res = futures::ready!(self.stream.poll_next_unpin(cx));
-        let request = self.request.clone();
-        Poll::Ready(res.map(|mut res| {
-            if let Ok(cr) = &mut res {
-                if let Some(response) = cr.get_response_mut() {
-                    EdnsMiddlewareSvc::<InnerServiceResponseStream>::postprocess(&request, response);
-                }
-            }
-            res
-        }))
-    }
-
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        self.stream.size_hint()
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use core::pin::Pin;
-
-    use std::boxed::Box;
     use std::vec::Vec;
 
     use bytes::Bytes;
-    use futures::stream::Once;
     use futures::stream::StreamExt;
     use tokio::time::Instant;
 
@@ -462,7 +377,7 @@ mod tests {
 
     use crate::base::iana::Rcode;
     use crate::net::server::middleware::mandatory::MINIMUM_RESPONSE_BYTE_LEN;
-    use crate::net::server::service::{CallResult, Service, ServiceError};
+    use crate::net::server::service::{CallResult, Service, ServiceResult};
     use crate::net::server::util::{mk_builder_for_target, service_fn};
 
     use super::EdnsMiddlewareSvc;
@@ -554,36 +469,23 @@ mod tests {
         fn my_service(
             req: Request<Vec<u8>>,
             _meta: (),
-        ) -> Once<
-            Pin<
-                Box<
-                    dyn std::future::Future<
-                            Output = Result<
-                                CallResult<Vec<u8>>,
-                                ServiceError,
-                            >,
-                        > + Send,
-                >,
-            >,
-        > {
+        ) -> ServiceResult<Vec<u8>> {
             // For each request create a single response:
-            let msg = req.message().clone();
-            futures::stream::once(Box::pin(async move {
-                let builder = mk_builder_for_target();
-                let answer = builder.start_answer(&msg, Rcode::NXDOMAIN)?;
-                Ok(CallResult::new(answer.additional()))
-            }))
+            let builder = mk_builder_for_target();
+            let answer =
+                builder.start_answer(req.message(), Rcode::NXDOMAIN)?;
+            Ok(CallResult::new(answer.additional()))
         }
 
         // Either call the service directly.
         let my_svc = service_fn(my_service, ());
-        let mut stream = my_svc.call(request.clone());
+        let mut stream = my_svc.call(request.clone()).await;
         let _call_result: CallResult<Vec<u8>> =
             stream.next().await.unwrap().unwrap();
 
         // Or pass the query through the middleware processor
         let processor_svc = EdnsMiddlewareSvc::new(my_svc);
-        let mut stream = processor_svc.call(request.clone());
+        let mut stream = processor_svc.call(request.clone()).await;
         let call_result: CallResult<Vec<u8>> =
             stream.next().await.unwrap().unwrap();
         let (_response, _feedback) = call_result.into_inner();

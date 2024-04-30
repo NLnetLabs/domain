@@ -137,7 +137,7 @@ impl TransportSpecificContext {
 /// message itself but also on the circumstances surrounding its creation and
 /// delivery.
 #[derive(Debug)]
-pub struct Request<Octs: AsRef<[u8]>> {
+pub struct Request<Octs: AsRef<[u8]> + Send + Sync + Unpin> {
     /// The network address of the connected client.
     client_addr: std::net::SocketAddr,
 
@@ -152,7 +152,7 @@ pub struct Request<Octs: AsRef<[u8]>> {
     transport_specific: TransportSpecificContext,
 }
 
-impl<Octs: AsRef<[u8]>> Request<Octs> {
+impl<Octs: AsRef<[u8]> + Send + Sync + Unpin> Request<Octs> {
     /// Creates a new request wrapper around a message along with its context.
     pub fn new(
         client_addr: std::net::SocketAddr,
@@ -191,7 +191,7 @@ impl<Octs: AsRef<[u8]>> Request<Octs> {
 
 //--- Clone
 
-impl<Octs: AsRef<[u8]>> Clone for Request<Octs> {
+impl<Octs: AsRef<[u8]> + Send + Sync + Unpin> Clone for Request<Octs> {
     fn clone(&self) -> Self {
         Self {
             client_addr: self.client_addr,

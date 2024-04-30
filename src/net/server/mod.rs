@@ -2,8 +2,8 @@
     not(feature = "unstable-server-transport"),
     doc = " The `unstable-server-transport` feature is necessary to enable this module."
 )]
-#![warn(missing_docs)]
-#![warn(clippy::missing_docs_in_private_items)]
+// #![warn(missing_docs)]
+// #![warn(clippy::missing_docs_in_private_items)]
 //! Receiving requests and sending responses.
 //!
 //! This module provides skeleton asynchronous server implementations based on

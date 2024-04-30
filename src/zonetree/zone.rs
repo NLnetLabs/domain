@@ -15,7 +15,7 @@ use super::{ReadableZone, StoredDname, ZoneStore};
 //------------ Zone ----------------------------------------------------------
 
 /// A single DNS zone.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Zone {
     store: Arc<dyn ZoneStore>,
 }

@@ -23,15 +23,15 @@ use crate::base::{Message, StreamTarget};
 use crate::net::server::buf::BufSource;
 use crate::net::server::message::Request;
 use crate::net::server::metrics::ServerMetrics;
-use crate::net::server::service::{
-    CallResult, Service, ServiceError, ServiceFeedback,
-};
+use crate::net::server::service::{Service, ServiceError, ServiceFeedback};
 use crate::net::server::util::to_pcap_text;
 use crate::utils::config::DefMinMax;
 
 use super::message::{NonUdpTransportContext, TransportSpecificContext};
 use super::stream::Config as ServerConfig;
 use super::ServerCommand;
+use crate::base::message_builder::AdditionalBuilder;
+use arc_swap::ArcSwap;
 use std::fmt::Display;
 
 /// Limit on the amount of time to allow between client requests.
@@ -87,6 +87,7 @@ const MAX_QUEUED_RESPONSES: DefMinMax<usize> = DefMinMax::new(10, 0, 1024);
 //----------- Config ---------------------------------------------------------
 
 /// Configuration for a stream server connection.
+#[derive(Copy, Debug)]
 pub struct Config {
     /// Limit on the amount of time to allow between client requests.
     ///
@@ -114,9 +115,6 @@ pub struct Config {
 
     /// Limit on the number of DNS responses queued for wriing to the client.
     max_queued_responses: usize,
-    // /// The middleware chain used to pre-process requests and post-process
-    // /// responses.
-    // middleware_chain: MiddlewareChain<RequestOctets, Target>,
 }
 
 impl Config {
@@ -200,25 +198,6 @@ impl Config {
     pub fn set_max_queued_responses(&mut self, value: usize) {
         self.max_queued_responses = value;
     }
-
-    // /// Set the middleware chain used to pre-process requests and post-process
-    // /// responses.
-    // ///
-    // /// # Reconfigure
-    // ///
-    // /// On [`StreamServer::reconfigure`] only new connections created after
-    // /// this setting is changed will use the new value, existing connections
-    // /// and in-flight requests (and their responses) will continue to use
-    // /// their current middleware chain.
-    // ///
-    // /// [`StreamServer::reconfigure`]:
-    // ///     super::stream::StreamServer::reconfigure()
-    // pub fn set_middleware_chain(
-    //     &mut self,
-    //     value: MiddlewareChain<RequestOctets, Target>,
-    // ) {
-    //     self.middleware_chain = value;
-    // }
 }
 
 //--- Default
@@ -237,11 +216,7 @@ impl Default for Config {
 
 impl Clone for Config {
     fn clone(&self) -> Self {
-        Self {
-            idle_timeout: self.idle_timeout,
-            response_write_timeout: self.response_write_timeout,
-            max_queued_responses: self.max_queued_responses,
-        }
+        *self
     }
 }
 
@@ -251,7 +226,8 @@ impl Clone for Config {
 pub struct Connection<Stream, Buf, Svc>
 where
     Buf: BufSource,
-    Svc: Service<Buf::Output>,
+    Buf::Output: Send + Sync + Unpin,
+    Svc: Service<Buf::Output> + Clone,
 {
     /// Flag used by the Drop impl to track if the metric count has to be
     /// decreased or not.
@@ -265,7 +241,7 @@ where
     ///
     /// Note: Some reconfiguration is possible at runtime via
     /// [`ServerCommand::Reconfigure`] and [`ServiceFeedback::Reconfigure`].
-    config: Config,
+    config: Arc<ArcSwap<Config>>,
 
     /// The address of the connected client.
     addr: SocketAddr,
@@ -280,11 +256,11 @@ where
 
     /// The reader for consuming from the queue of responses waiting to be
     /// written back to the client.
-    result_q_rx: mpsc::Receiver<CallResult<Svc::Target>>,
+    result_q_rx: mpsc::Receiver<AdditionalBuilder<StreamTarget<Svc::Target>>>,
 
     /// The writer for pushing ready responses onto the queue waiting
     /// to be written back the client.
-    result_q_tx: mpsc::Sender<CallResult<Svc::Target>>,
+    result_q_tx: mpsc::Sender<AdditionalBuilder<StreamTarget<Svc::Target>>>,
 
     /// A [`Service`] for handling received requests and generating responses.
     service: Svc,
@@ -302,9 +278,8 @@ impl<Stream, Buf, Svc> Connection<Stream, Buf, Svc>
 where
     Stream: AsyncRead + AsyncWrite,
     Buf: BufSource,
-    Buf::Output: Octets,
-    Svc: Service<Buf::Output>,
-    Svc::Target: Composer + Default,
+    Buf::Output: Octets + Send + Sync + Unpin,
+    Svc: Service<Buf::Output> + Clone,
 {
     /// Creates a new handler for an accepted stream connection.
     #[must_use]
@@ -339,6 +314,7 @@ where
         let (stream_rx, stream_tx) = tokio::io::split(stream);
         let (result_q_tx, result_q_rx) =
             mpsc::channel(config.max_queued_responses);
+        let config = Arc::new(ArcSwap::from_pointee(config));
         let idle_timer = IdleTimer::new();
 
         // Place the ReadHalf of the stream into an Option so that we can take
@@ -372,13 +348,10 @@ impl<Stream, Buf, Svc> Connection<Stream, Buf, Svc>
 where
     Stream: AsyncRead + AsyncWrite + Send + Sync + 'static,
     Buf: BufSource + Send + Sync + Clone + 'static,
-    Buf::Output: Octets + Send + Sync,
-    Svc: Service<Buf::Output> + Send + Sync + 'static,
-    Svc::Stream: futures::stream::Stream<
-            Item = Result<CallResult<Svc::Target>, ServiceError>,
-        > + Send
-        + Unpin,
-    Svc::Target: Send + Composer + Default,
+    Buf::Output: Octets + Send + Sync + Unpin,
+    Svc: Service<Buf::Output> + Clone + Send + Sync + 'static,
+    Svc::Target: Composer + Send,
+    Svc::Stream: Send,
 {
     /// Start reading requests and writing responses to the stream.
     ///
@@ -395,7 +368,7 @@ where
         mut self,
         command_rx: watch::Receiver<ServerCommand<ServerConfig>>,
     ) where
-        Svc::Stream: Send,
+        Svc::Future: Send,
     {
         self.metrics.inc_num_connections();
 
@@ -412,13 +385,11 @@ impl<Stream, Buf, Svc> Connection<Stream, Buf, Svc>
 where
     Stream: AsyncRead + AsyncWrite + Send + Sync + 'static,
     Buf: BufSource + Send + Sync + Clone + 'static,
-    Buf::Output: Octets + Send + Sync,
-    Svc: Service<Buf::Output> + Send + Sync + 'static,
-    Svc::Stream: futures::stream::Stream<
-            Item = Result<CallResult<Svc::Target>, ServiceError>,
-        > + Send
-        + Unpin,
-    Svc::Target: Send + Composer + Default,
+    Buf::Output: Octets + Send + Sync + Unpin,
+    Svc: Service<Buf::Output> + Clone + Send + Sync + 'static,
+    Svc::Target: Composer + Send,
+    Svc::Future: Send,
+    Svc::Stream: Send,
 {
     /// Connection handler main loop.
     async fn run_until_error(
@@ -455,7 +426,7 @@ where
                         self.process_queued_result(res).await
                     }
 
-                    _ = sleep_until(self.idle_timer.idle_timeout_deadline(self.config.idle_timeout)) => {
+                    _ = sleep_until(self.idle_timer.idle_timeout_deadline(self.config.load().idle_timeout)) => {
                         self.process_dns_idle_timeout()
                     }
 
@@ -534,12 +505,7 @@ where
             }
 
             ServerCommand::Reconfigure(ServerConfig {
-                connection_config:
-                    Config {
-                        idle_timeout,
-                        response_write_timeout,
-                        max_queued_responses: _,
-                    },
+                connection_config,
                 .. // Ignore the Server specific configuration settings
             }) => {
                 // Support RFC 7828 "The edns-tcp-keepalive EDNS0 Option".
@@ -554,9 +520,7 @@ where
                 // mechanism to signal to us that we should adjust the point
                 // at which we will consider the connectin to be idle and thus
                 // potentially worthy of timing out.
-                debug!("Server connection timeout reconfigured to {idle_timeout:?}");
-                self.config.idle_timeout = *idle_timeout;
-                self.config.response_write_timeout = *response_write_timeout;
+                self.config.store(Arc::new(*connection_config));
             }
 
             ServerCommand::Shutdown => {
@@ -576,7 +540,10 @@ where
     }
 
     /// Stop queueing new responses and process those already in the queue.
-    async fn flush_write_queue(&mut self) {
+    async fn flush_write_queue(&mut self)
+    // where
+    // Target: Composer,
+    {
         debug!("Flushing connection write queue.");
         // Stop accepting new response messages (should we check for in-flight
         // messages that haven't generated a response yet but should be
@@ -585,10 +552,9 @@ where
         trace!("Stop queueing up new results.");
         self.result_q_rx.close();
         trace!("Process already queued results.");
-        while let Some(call_result) = self.result_q_rx.recv().await {
+        while let Some(response) = self.result_q_rx.recv().await {
             trace!("Processing queued result.");
-            if let Err(err) =
-                self.process_queued_result(Some(call_result)).await
+            if let Err(err) = self.process_queued_result(Some(response)).await
             {
                 warn!("Error while processing queued result: {err}");
             } else {
@@ -601,27 +567,27 @@ where
     /// Process a single queued response.
     async fn process_queued_result(
         &mut self,
-        call_result: Option<CallResult<Svc::Target>>,
-    ) -> Result<(), ConnectionEvent> {
+        response: Option<AdditionalBuilder<StreamTarget<Svc::Target>>>,
+    ) -> Result<(), ConnectionEvent>
+// where
+    //     Target: Composer,
+    {
         // If we failed to read the results of requests processed by the
         // service because the queue holding those results is empty and can no
         // longer be read from, then there is no point continuing to read from
         // the input stream because we will not be able to access the result
         // of processing the request. I'm not sure when this could happen,
         // perhaps if we were dropped?
-        let Some(call_result) = call_result else {
+        let Some(response) = response else {
+            trace!("Disconnecting due to failed response queue read.");
             return Err(ConnectionEvent::DisconnectWithFlush);
         };
 
-        let (response, feedback) = call_result.into_inner();
-
-        if let Some(feedback) = feedback {
-            self.process_service_feedback(feedback).await;
-        }
-
-        if let Some(response) = response {
-            self.write_response_to_stream(response.finish()).await;
-        }
+        trace!(
+            "Writing queued response with id {} to stream",
+            response.header().id()
+        );
+        self.write_response_to_stream(response.finish()).await;
 
         Ok(())
     }
@@ -630,7 +596,10 @@ where
     async fn write_response_to_stream(
         &mut self,
         msg: StreamTarget<Svc::Target>,
-    ) {
+    )
+    // where
+    //     Target: AsRef<[u8]>,
+    {
         if enabled!(Level::TRACE) {
             let bytes = msg.as_dgram_slice();
             let pcap_text = to_pcap_text(bytes, bytes.len());
@@ -638,7 +607,7 @@ where
         }
 
         match timeout(
-            self.config.response_write_timeout,
+            self.config.load().response_write_timeout,
             self.stream_tx.write_all(msg.as_stream_slice()),
         )
         .await
@@ -646,7 +615,7 @@ where
             Err(_) => {
                 error!(
                     "Write timed out (>{:?})",
-                    self.config.response_write_timeout
+                    self.config.load().response_write_timeout
                 );
                 // TODO: Push it to the back of the queue to retry it?
             }
@@ -665,20 +634,6 @@ where
         }
     }
 
-    /// Decide what to do with received [`ServiceFeedback`].
-    async fn process_service_feedback(&mut self, cmd: ServiceFeedback) {
-        match cmd {
-            ServiceFeedback::Reconfigure { idle_timeout } => {
-                if let Some(idle_timeout) = idle_timeout {
-                    debug!(
-                        "Reconfigured connection timeout to {idle_timeout:?}"
-                    );
-                    self.config.idle_timeout = idle_timeout;
-                }
-            }
-        }
-    }
-
     /// Implemnt DNS rules regarding timing out of idle connections.
     ///
     /// Disconnects the current connection of the timer is expired, flushing
@@ -687,7 +642,7 @@ where
         // DNS idle timeout elapsed, or was it reset?
         if self
             .idle_timer
-            .idle_timeout_expired(self.config.idle_timeout)
+            .idle_timeout_expired(self.config.load().idle_timeout)
         {
             Err(ConnectionEvent::DisconnectWithoutFlush)
         } else {
@@ -701,11 +656,7 @@ where
         res: Result<Buf::Output, ConnectionEvent>,
     ) -> Result<(), ConnectionEvent>
     where
-        Svc::Stream: futures::stream::Stream<
-                Item = Result<CallResult<Svc::Target>, ServiceError>,
-            > + Send
-            + Unpin
-            + Send,
+        Svc::Stream: Send,
     {
         if let Ok(buf) = res {
             let received_at = Instant::now();
@@ -732,32 +683,101 @@ where
 
                 Ok(msg) => {
                     let ctx = NonUdpTransportContext::new(Some(
-                        self.config.idle_timeout,
+                        self.config.load().idle_timeout,
                     ));
                     let ctx = TransportSpecificContext::NonUdp(ctx);
                     let request =
                         Request::new(self.addr, received_at, msg, ctx);
-                    let mut stream = self.service.call(request);
-                    while let Some(Ok(call_result)) = stream.next().await {
-                        match self.result_q_tx.try_send(call_result) {
-                            Ok(()) => {
-                                self.metrics.set_num_pending_writes(
-                                    self.result_q_tx.max_capacity()
-                                        - self.result_q_tx.capacity(),
-                                );
+
+                    let svc = self.service.clone();
+                    let result_q_tx = self.result_q_tx.clone();
+                    let metrics = self.metrics.clone();
+                    let config = self.config.clone();
+
+                    trace!(
+                        "Spawning task to handle new message with id {}",
+                        request.message().header().id()
+                    );
+                    tokio::spawn(async move {
+                        let request_id = request.message().header().id();
+                        trace!("Calling service for request id {request_id}");
+                        let mut stream = svc.call(request).await;
+                        let mut in_transaction = false;
+
+                        trace!("Awaiting service call results for request id {request_id}");
+                        while let Some(Ok(call_result)) = stream.next().await
+                        {
+                            trace!("Processing service call result for request id {request_id}");
+                            let (response, feedback) =
+                                call_result.into_inner();
+
+                            if let Some(feedback) = feedback {
+                                match feedback {
+                                    ServiceFeedback::Reconfigure {
+                                        idle_timeout,
+                                    } => {
+                                        if let Some(idle_timeout) =
+                                            idle_timeout
+                                        {
+                                            debug!(
+                                                "Reconfigured connection timeout to {idle_timeout:?}"
+                                            );
+                                            let guard = config.load();
+                                            let mut new_config = **guard;
+                                            new_config.idle_timeout =
+                                                idle_timeout;
+                                            config
+                                                .store(Arc::new(new_config));
+                                        }
+                                    }
+
+                                    ServiceFeedback::BeginTransaction => {
+                                        in_transaction = true;
+                                    }
+
+                                    ServiceFeedback::EndTransaction => {
+                                        in_transaction = false;
+                                    }
+                                }
                             }
 
-                            Err(TrySendError::Closed(_msg)) => {
-                                // TODO: How should we properly communicate this to the operator?
-                                error!("Unable to queue message for sending: server is shutting down.");
-                            }
+                            if let Some(mut response) = response {
+                                loop {
+                                    match result_q_tx.try_send(response) {
+                                        Ok(()) => {
+                                            trace!("Queued message for sending: # pending writes={}", result_q_tx.max_capacity()
+                                            - result_q_tx.capacity());
+                                            metrics.set_num_pending_writes(
+                                                result_q_tx.max_capacity()
+                                                    - result_q_tx.capacity(),
+                                            );
+                                            break;
+                                        }
 
-                            Err(TrySendError::Full(_msg)) => {
-                                // TODO: How should we properly communicate this to the operator?
-                                error!("Unable to queue message for sending: queue is full.");
+                                        Err(TrySendError::Closed(_)) => {
+                                            error!("Unable to queue message for sending: server is shutting down.");
+                                            break;
+                                        }
+
+                                        Err(TrySendError::Full(
+                                            unused_response,
+                                        )) => {
+                                            if in_transaction {
+                                                // Wait until there is space in the message queue.
+                                                tokio::task::yield_now()
+                                                    .await;
+                                                response = unused_response;
+                                            } else {
+                                                error!("Unable to queue message for sending: queue is full.");
+                                                break;
+                                            }
+                                        }
+                                    }
+                                }
                             }
                         }
-                    }
+                        trace!("Finished processing service call results for request id {request_id}");
+                    });
                 }
             }
         }
@@ -771,7 +791,8 @@ where
 impl<Stream, Buf, Svc> Drop for Connection<Stream, Buf, Svc>
 where
     Buf: BufSource,
-    Svc: Service<Buf::Output>,
+    Buf::Output: Send + Sync + Unpin,
+    Svc: Service<Buf::Output> + Clone,
 {
     fn drop(&mut self) {
         if self.active {

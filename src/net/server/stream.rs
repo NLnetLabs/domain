@@ -38,7 +38,6 @@ use crate::utils::config::DefMinMax;
 
 use super::buf::VecBufSource;
 use super::connection::{self, Connection};
-use super::service::{CallResult, ServiceError};
 use super::ServerCommand;
 use crate::base::wire::Composer;
 use tokio::io::{AsyncRead, AsyncWrite};
@@ -173,7 +172,7 @@ impl Clone for Config {
         Self {
             accept_connections_at_max: self.accept_connections_at_max,
             max_concurrent_connections: self.max_concurrent_connections,
-            connection_config: self.connection_config.clone(),
+            connection_config: self.connection_config,
         }
     }
 }
@@ -278,13 +277,9 @@ pub struct StreamServer<Listener, Buf, Svc>
 where
     Listener: AsyncAccept + Send + Sync,
     Buf: BufSource + Send + Sync + Clone,
-    Buf::Output: Octets + Send + Sync,
+    Buf::Output: Octets + Send + Sync + Unpin,
     Svc: Service<Buf::Output> + Send + Sync + Clone,
-    Svc::Stream: futures::stream::Stream<
-            Item = Result<CallResult<Svc::Target>, ServiceError>,
-        > + Send
-        + Unpin,
-    Svc::Target: Composer + Default + 'static,
+    Svc::Target: Composer + Default, // + 'static,
 {
     /// The configuration of the server.
     config: Arc<ArcSwap<Config>>,
@@ -327,12 +322,8 @@ impl<Listener, Buf, Svc> StreamServer<Listener, Buf, Svc>
 where
     Listener: AsyncAccept + Send + Sync,
     Buf: BufSource + Send + Sync + Clone,
-    Buf::Output: Octets + Send + Sync,
+    Buf::Output: Octets + Send + Sync + Unpin,
     Svc: Service<Buf::Output> + Send + Sync + Clone,
-    Svc::Stream: futures::stream::Stream<
-            Item = Result<CallResult<Svc::Target>, ServiceError>,
-        > + Send
-        + Unpin,
     Svc::Target: Composer + Default,
 {
     /// Creates a new [`StreamServer`] instance.
@@ -411,12 +402,8 @@ impl<Listener, Buf, Svc> StreamServer<Listener, Buf, Svc>
 where
     Listener: AsyncAccept + Send + Sync,
     Buf: BufSource + Send + Sync + Clone,
-    Buf::Output: Octets + Debug + Send + Sync,
+    Buf::Output: Octets + Debug + Send + Sync + Unpin,
     Svc: Service<Buf::Output> + Send + Sync + Clone,
-    Svc::Stream: futures::stream::Stream<
-            Item = Result<CallResult<Svc::Target>, ServiceError>,
-        > + Send
-        + Unpin,
     Svc::Target: Composer + Default,
 {
     /// Get a reference to the source for this server.
@@ -438,13 +425,9 @@ impl<Listener, Buf, Svc> StreamServer<Listener, Buf, Svc>
 where
     Listener: AsyncAccept + Send + Sync,
     Buf: BufSource + Send + Sync + Clone,
-    Buf::Output: Octets + Send + Sync,
+    Buf::Output: Octets + Send + Sync + Unpin,
     Svc: Service<Buf::Output> + Send + Sync + Clone,
-    Svc::Stream: futures::stream::Stream<
-            Item = Result<CallResult<Svc::Target>, ServiceError>,
-        > + Send
-        + Unpin,
-    Svc::Target: Composer + Default + 'static,
+    Svc::Target: Composer + Default,
 {
     /// Start the server.
     ///
@@ -463,6 +446,7 @@ where
         Svc: 'static,
         Svc::Target: Send + Sync,
         Svc::Stream: Send,
+        Svc::Future: Send,
     {
         if let Err(err) = self.run_until_error().await {
             error!("Server stopped due to error: {err}");
@@ -536,12 +520,8 @@ impl<Listener, Buf, Svc> StreamServer<Listener, Buf, Svc>
 where
     Listener: AsyncAccept + Send + Sync,
     Buf: BufSource + Send + Sync + Clone,
-    Buf::Output: Octets + Send + Sync,
+    Buf::Output: Octets + Send + Sync + Unpin,
     Svc: Service<Buf::Output> + Send + Sync + Clone,
-    Svc::Stream: futures::stream::Stream<
-            Item = Result<CallResult<Svc::Target>, ServiceError>,
-        > + Send
-        + Unpin,
     Svc::Target: Composer + Default,
 {
     /// Accept stream connections until shutdown or fatal error.
@@ -553,11 +533,9 @@ where
         Listener::Future: Send + 'static,
         Listener::StreamType: AsyncRead + AsyncWrite + Send + Sync + 'static,
         Svc: 'static,
-        Svc::Stream: futures::stream::Stream<
-                Item = Result<CallResult<Svc::Target>, ServiceError>,
-            > + Send
-            + Unpin,
-        Svc::Target: Send + Sync + 'static,
+        Svc::Target: Send + Sync,
+        Svc::Stream: Send,
+        Svc::Future: Send,
     {
         let mut command_rx = self.command_rx.clone();
 
@@ -677,17 +655,15 @@ where
         Listener::Future: Send + 'static,
         Listener::StreamType: AsyncRead + AsyncWrite + Send + Sync + 'static,
         Svc: 'static,
-        Svc::Stream: futures::stream::Stream<
-                Item = Result<CallResult<Svc::Target>, ServiceError>,
-            > + Send
-            + Unpin,
-        Svc::Target: Send + Sync + 'static,
+        Svc::Target: Composer + Send + Sync,
+        Svc::Stream: Send,
+        Svc::Future: Send,
     {
         // Work around the compiler wanting to move self to the async block by
         // preparing only those pieces of information from self for the new
         // connection handler that it actually needs.
         let config = ArcSwap::load(&self.config);
-        let conn_config = config.connection_config.clone();
+        let conn_config = config.connection_config;
         let conn_command_rx = self.command_rx.clone();
         let conn_service = self.service.clone();
         let conn_buf = self.buf.clone();
@@ -744,13 +720,9 @@ impl<Listener, Buf, Svc> Drop for StreamServer<Listener, Buf, Svc>
 where
     Listener: AsyncAccept + Send + Sync,
     Buf: BufSource + Send + Sync + Clone,
-    Buf::Output: Octets + Send + Sync,
+    Buf::Output: Octets + Send + Sync + Unpin,
     Svc: Service<Buf::Output> + Send + Sync + Clone,
-    Svc::Stream: futures::stream::Stream<
-            Item = Result<CallResult<Svc::Target>, ServiceError>,
-        > + Send
-        + Unpin,
-    Svc::Target: Composer + Default + 'static,
+    Svc::Target: Composer + Default,
 {
     fn drop(&mut self) {
         // Shutdown the StreamServer. Don't handle the failure case here as
