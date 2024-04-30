@@ -240,7 +240,9 @@ where
     F: Fn(Request<RequestOctets>) -> ServiceResult<Target>,
 {
     type Target = Target;
-    type Stream = futures::stream::Once<core::future::Ready<ServiceResult<Self::Target>>>;
+    type Stream = futures::stream::Once<
+        core::future::Ready<ServiceResult<Self::Target>>,
+    >;
     type Future = core::future::Ready<Self::Stream>;
 
     fn call(&self, request: Request<RequestOctets>) -> Self::Future {

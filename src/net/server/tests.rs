@@ -293,7 +293,8 @@ impl futures::stream::Stream for MySingle {
                 idle_timeout: Some(Duration::from_millis(5000)),
             };
 
-            let call_result = CallResult::new(response).with_feedback(command);
+            let call_result =
+                CallResult::new(response).with_feedback(command);
             self.done = true;
 
             Poll::Ready(Some(Ok(call_result)))
@@ -392,7 +393,8 @@ async fn service_test() {
         let ready_flag = listener.get_ready_flag();
 
         let buf = MockBufSource;
-        let my_service = Arc::new(MandatoryMiddlewareSvc::new(MyService::new()));
+        let my_service =
+            Arc::new(MandatoryMiddlewareSvc::new(MyService::new()));
         // let my_service = Arc::new(MyService::new());
         let srv =
             Arc::new(StreamServer::new(listener, buf, my_service.clone()));
