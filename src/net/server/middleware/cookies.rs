@@ -213,7 +213,6 @@ where
         //   Cookie, the response SHALL have the RCODE NOERROR."
         self.response_with_cookie(request, Rcode::NOERROR.into())
     }
-
     fn preprocess(
         &self,
         request: &Request<RequestOctets>,
