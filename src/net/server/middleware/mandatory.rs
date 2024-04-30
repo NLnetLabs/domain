@@ -444,7 +444,7 @@ mod tests {
         let (response, _feedback) = call_result.into_inner();
 
         // Get the response length
-        let new_size = response.as_slice().len();
+        let new_size = response.unwrap().as_slice().len();
 
         if new_size < old_size {
             Some(new_size)
