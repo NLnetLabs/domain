@@ -68,7 +68,7 @@ where
 /// use domain::base::iana::Rcode;
 /// use domain::base::Message;
 /// use domain::net::server::message::Request;
-/// use domain::net::server::service::{CallResult, ServiceError, Transaction};
+/// use domain::net::server::service::{CallResult, ServiceError, ServiceResult};
 /// use domain::net::server::util::{mk_builder_for_target, service_fn};
 ///
 /// // Define some types to make the example easier to read.
@@ -77,23 +77,12 @@ where
 /// // Implement the application logic of our service.
 /// // Takes the received DNS request and any additional meta data you wish to
 /// // provide, and returns one or more future DNS responses.
-/// fn my_service(
-///     req: Request<Vec<u8>>,
-///     _meta: MyMeta,
-/// ) -> Result<
-///     Transaction<Vec<u8>,
-///         Pin<Box<dyn Future<
-///             Output = Result<CallResult<Vec<u8>>, ServiceError>
-///         >>>,
-///     >,
-///     ServiceError,
-/// > {
-///     // For each request create a single response:
-///     Ok(Transaction::single(Box::pin(async move {
-///         let builder = mk_builder_for_target();
-///         let answer = builder.start_answer(req.message(), Rcode::NXDOMAIN)?;
-///         Ok(CallResult::new(answer.additional()))
-///     })))
+/// fn my_service(req: Request<Vec<u8>>, _meta: MyMeta)
+///     -> ServiceResult<Vec<u8>>
+/// {
+///     let builder = mk_builder_for_target();
+///     let answer = builder.start_answer(req.message(), Rcode::NXDOMAIN)?;
+///     Ok(CallResult::new(answer.additional()))
 /// }
 ///
 /// // Turn my_service() into an actual Service trait impl.

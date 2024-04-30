@@ -225,19 +225,11 @@ type CommandReceiver = watch::Receiver<ServerCommandType>;
 /// use domain::base::Message;
 /// use domain::net::server::buf::VecBufSource;
 /// use domain::net::server::message::Request;
-/// use domain::net::server::service::{CallResult, ServiceError, Transaction};
+/// use domain::net::server::service::{CallResult, ServiceError, ServiceResult};
 /// use domain::net::server::stream::StreamServer;
 /// use domain::net::server::util::service_fn;
 ///
-/// fn my_service(msg: Request<Vec<u8>>, _meta: ())
-/// -> Result<
-///        Transaction<Vec<u8>,
-///           Pin<Box<dyn Future<
-///               Output = Result<CallResult<Vec<u8>>, ServiceError>
-///           > + Send>>,
-///       >,
-///       ServiceError,
-///    >
+/// fn my_service(msg: Request<Vec<u8>>, _meta: ()) -> ServiceResult<Vec<u8>>
 /// {
 ///     todo!()
 /// }

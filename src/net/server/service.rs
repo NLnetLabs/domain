@@ -67,45 +67,47 @@ pub type ServiceResult<Target> = Result<CallResult<Target>, ServiceError>;
 /// use core::future::ready;
 /// use core::future::Ready;
 ///
+/// use futures::stream::{once, Once, Stream};
+///
 /// use domain::base::iana::{Class, Rcode};
 /// use domain::base::message_builder::AdditionalBuilder;
 /// use domain::base::{Name, Message, MessageBuilder, StreamTarget};
 /// use domain::net::server::message::Request;
-/// use domain::net::server::service::{
-///     CallResult, Service, ServiceError, Transaction
-/// };
+/// use domain::net::server::service::{CallResult, Service, ServiceResult};
 /// use domain::net::server::util::mk_builder_for_target;
 /// use domain::rdata::A;
 ///
 /// fn mk_answer(
 ///     msg: &Request<Vec<u8>>,
 ///     builder: MessageBuilder<StreamTarget<Vec<u8>>>,
-/// ) -> Result<AdditionalBuilder<StreamTarget<Vec<u8>>>, ServiceError> {
-///     let mut answer = builder.start_answer(msg.message(), Rcode::NOERROR)?;
+/// ) -> AdditionalBuilder<StreamTarget<Vec<u8>>> {
+///     let mut answer = builder
+///         .start_answer(msg.message(), Rcode::NOERROR)
+///         .unwrap();
 ///     answer.push((
 ///         Name::root_ref(),
 ///         Class::IN,
 ///         86400,
 ///         A::from_octets(192, 0, 2, 1),
-///     ))?;
-///     Ok(answer.additional())
+///     )).unwrap();
+///     answer.additional()
 /// }
 ///
 /// struct MyService;
 ///
 /// impl Service<Vec<u8>> for MyService {
 ///     type Target = Vec<u8>;
-///     type Future = Ready<Result<CallResult<Self::Target>, ServiceError>>;
+///     type Stream = Once<Ready<ServiceResult<Self::Target>>>;
+///     type Future = Ready<Self::Stream>;
 ///
 ///     fn call(
 ///         &self,
 ///         msg: Request<Vec<u8>>,
-///     ) -> Result<Transaction<Self::Target, Self::Future>, ServiceError> {
+///     ) -> Self::Future {
 ///         let builder = mk_builder_for_target();
-///         let additional = mk_answer(&msg, builder)?;
-///         let item = ready(Ok(CallResult::new(additional)));
-///         let txn = Transaction::single(item);
-///         Ok(txn)
+///         let additional = mk_answer(&msg, builder);
+///         let item = Ok(CallResult::new(additional));
+///         ready(once(ready(item)))
 ///     }
 /// }
 /// ```
@@ -123,26 +125,13 @@ pub type ServiceResult<Target> = Result<CallResult<Target>, ServiceError>;
 /// use domain::base::wire::Composer;
 /// use domain::dep::octseq::{OctetsBuilder, FreezeBuilder, Octets};
 /// use domain::net::server::message::Request;
-/// use domain::net::server::service::{CallResult, ServiceError, Transaction};
+/// use domain::net::server::service::{CallResult, ServiceError, ServiceResult};
 /// use domain::net::server::util::mk_builder_for_target;
 /// use domain::rdata::A;
 ///
-/// fn name_to_ip<Target>(
-///     msg: Request<Vec<u8>>,
-/// ) -> Result<
-///     Transaction<Target,
-///         impl Future<
-///             Output = Result<CallResult<Target>, ServiceError>
-///         > + Send,
-///     >,
-///     ServiceError,
-/// >
-/// where
-///     Target: Composer + Octets + FreezeBuilder<Octets = Target> + Default + Send,
-///     <Target as OctetsBuilder>::AppendError: Debug,
-/// {
+/// fn name_to_ip(request: Request<Vec<u8>>) -> ServiceResult<Vec<u8>> {
 ///     let mut out_answer = None;
-///     if let Ok(question) = msg.message().sole_question() {
+///     if let Ok(question) = request.message().sole_question() {
 ///         let qname = question.qname();
 ///         let num_labels = qname.label_count();
 ///         if num_labels >= 5 {
@@ -156,7 +145,7 @@ pub type ServiceResult<Target> = Result<CallResult<Target>, ServiceError>;
 ///                 let builder = mk_builder_for_target();
 ///                 let mut answer =
 ///                     builder
-///                         .start_answer(msg.message(), Rcode::NOERROR)
+///                         .start_answer(request.message(), Rcode::NOERROR)
 ///                         .unwrap();
 ///                 answer
 ///                     .push((Name::root_ref(), Class::IN, 86400, a_rec))
@@ -169,14 +158,13 @@ pub type ServiceResult<Target> = Result<CallResult<Target>, ServiceError>;
 ///     if out_answer.is_none() {
 ///         let builder = mk_builder_for_target();
 ///         let answer = builder
-///             .start_answer(msg.message(), Rcode::REFUSED)
+///             .start_answer(request.message(), Rcode::REFUSED)
 ///             .unwrap();
 ///         out_answer = Some(answer);
 ///     }
 ///
 ///     let additional = out_answer.unwrap().additional();
-///     let item = Ok(CallResult::new(additional));
-///     Ok(Transaction::single(ready(item)))
+///     Ok(CallResult::new(additional))
 /// }
 /// ```
 ///
