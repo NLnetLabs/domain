@@ -1,5 +1,5 @@
 use core::ops::DerefMut;
-use core::task::{Context, Poll};
+use core::task::{ready, Context, Poll};
 
 use std::pin::Pin;
 
@@ -8,19 +8,31 @@ use futures::stream::{Stream, StreamExt};
 use octseq::Octets;
 
 use crate::net::server::message::Request;
+use core::future::Future;
 use tracing::trace;
 
 //------------ MiddlewareStream ----------------------------------------------
 
-pub enum MiddlewareStream<IdentityStream, MapStream, ResultStream, StreamItem>
-where
+pub enum MiddlewareStream<
+    IdentityFuture,
+    IdentityStream,
+    MapStream,
+    ResultStream,
+    StreamItem,
+> where
+    IdentityFuture: Future<Output = IdentityStream>,
     IdentityStream: Stream<Item = StreamItem>,
     MapStream: Stream<Item = StreamItem>,
     ResultStream: Stream<Item = StreamItem>,
 {
-    /// The inner service response will be passed through this service without
-    /// modification.
-    Identity(IdentityStream),
+    /// The inner service response future will be passed through this service
+    /// without modification, resolving the future first and then the
+    /// resulting IdentityStream next.
+    IdentityFuture(IdentityFuture),
+
+    /// The inner service response stream will be passed through this service
+    /// without modification.
+    IdentityStream(IdentityStream),
 
     /// Either a single response has been created without invoking the innter
     /// service, or the inner service response will be post-processed by this
@@ -33,9 +45,17 @@ where
 
 //--- impl Stream
 
-impl<IdentityStream, MapStream, ResultStream, StreamItem> Stream
-    for MiddlewareStream<IdentityStream, MapStream, ResultStream, StreamItem>
+impl<IdentityFuture, IdentityStream, MapStream, ResultStream, StreamItem>
+    Stream
+    for MiddlewareStream<
+        IdentityFuture,
+        IdentityStream,
+        MapStream,
+        ResultStream,
+        StreamItem,
+    >
 where
+    IdentityFuture: Future<Output = IdentityStream> + Unpin,
     IdentityStream: Stream<Item = StreamItem> + Unpin,
     MapStream: Stream<Item = StreamItem> + Unpin,
     ResultStream: Stream<Item = StreamItem> + Unpin,
@@ -48,7 +68,12 @@ where
         cx: &mut core::task::Context<'_>,
     ) -> Poll<Option<Self::Item>> {
         match self.deref_mut() {
-            MiddlewareStream::Identity(s) => s.poll_next_unpin(cx),
+            MiddlewareStream::IdentityFuture(f) => {
+                let stream = ready!(f.poll_unpin(cx));
+                *self = MiddlewareStream::IdentityStream(stream);
+                self.poll_next(cx)
+            }
+            MiddlewareStream::IdentityStream(s) => s.poll_next_unpin(cx),
             MiddlewareStream::Map(s) => s.poll_next_unpin(cx),
             MiddlewareStream::Result(s) => s.poll_next_unpin(cx),
         }
@@ -56,7 +81,8 @@ where
 
     fn size_hint(&self) -> (usize, Option<usize>) {
         match self {
-            MiddlewareStream::Identity(s) => s.size_hint(),
+            MiddlewareStream::IdentityFuture(_) => (0, None),
+            MiddlewareStream::IdentityStream(s) => s.size_hint(),
             MiddlewareStream::Map(s) => s.size_hint(),
             MiddlewareStream::Result(s) => s.size_hint(),
         }

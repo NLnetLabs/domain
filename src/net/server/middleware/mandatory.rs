@@ -285,6 +285,7 @@ where
 {
     type Target = Svc::Target;
     type Stream = MiddlewareStream<
+        Svc::Future,
         Svc::Stream,
         PostprocessingStream<RequestOctets, Svc::Future, Svc::Stream, bool>,
         Once<Ready<<Svc::Stream as futures::stream::Stream>::Item>>,

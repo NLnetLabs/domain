@@ -18,11 +18,9 @@ use crate::base::wire::{Composer, ParseError};
 use crate::base::{Serial, StreamTarget};
 use crate::net::server::message::Request;
 use crate::net::server::middleware::stream::MiddlewareStream;
-use crate::net::server::service::{CallResult, Service, ServiceResult};
+use crate::net::server::service::{CallResult, Service};
 use crate::net::server::util::add_edns_options;
 use crate::net::server::util::{mk_builder_for_target, start_reply};
-
-use super::stream::PostprocessingStream;
 
 /// The five minute period referred to by
 /// https://www.rfc-editor.org/rfc/rfc9018.html#section-4.3.
@@ -396,51 +394,38 @@ where
         ControlFlow::Continue(())
     }
 
-    fn postprocess(
-        _request: &Request<RequestOctets>,
-        _response: &mut AdditionalBuilder<StreamTarget<Svc::Target>>,
-        _server_secret: [u8; 16],
-    ) where
-        RequestOctets: Octets,
-    {
-        // https://datatracker.ietf.org/doc/html/rfc7873#section-5.2.1
-        // No OPT RR or No COOKIE Option:
-        //   If the request lacked a client cookie we don't need to do
-        //   anything.
-        //
-        // https://datatracker.ietf.org/doc/html/rfc7873#section-5.2.2
-        // Malformed COOKIE Option:
-        //   If the request COOKIE option was malformed we would have already
-        //   rejected it during pre-processing so again nothing to do here.
-        //
-        // https://datatracker.ietf.org/doc/html/rfc7873#section-5.2.3
-        // Only a Client Cookie:
-        //   If the request had a client cookie but no server cookie and
-        //   we didn't already reject the request during pre-processing.
-        //
-        // https://datatracker.ietf.org/doc/html/rfc7873#section-5.2.4
-        // A Client Cookie and an Invalid Server Cookie:
-        //   Per RFC 7873 this is handled the same way as the "Only a Client
-        //   Cookie" case.
-        //
-        // https://datatracker.ietf.org/doc/html/rfc7873#section-5.2.5
-        // A Client Cookie and a Valid Server Cookie
-        //   Any server cookie will already have been validated during
-        //   pre-processing, we don't need to check it again here.
-    }
-
-    fn map_stream_item(
-        request: Request<RequestOctets>,
-        mut stream_item: ServiceResult<Svc::Target>,
-        server_secret: [u8; 16],
-    ) -> ServiceResult<Svc::Target> {
-        if let Ok(cr) = &mut stream_item {
-            if let Some(response) = cr.response_mut() {
-                Self::postprocess(&request, response, server_secret);
-            }
-        }
-        stream_item
-    }
+    // fn postprocess(
+    //     _request: &Request<RequestOctets>,
+    //     _response: &mut AdditionalBuilder<StreamTarget<Svc::Target>>,
+    //     _server_secret: [u8; 16],
+    // ) where
+    //     RequestOctets: Octets,
+    // {
+    //     // https://datatracker.ietf.org/doc/html/rfc7873#section-5.2.1
+    //     // No OPT RR or No COOKIE Option:
+    //     //   If the request lacked a client cookie we don't need to do
+    //     //   anything.
+    //     //
+    //     // https://datatracker.ietf.org/doc/html/rfc7873#section-5.2.2
+    //     // Malformed COOKIE Option:
+    //     //   If the request COOKIE option was malformed we would have already
+    //     //   rejected it during pre-processing so again nothing to do here.
+    //     //
+    //     // https://datatracker.ietf.org/doc/html/rfc7873#section-5.2.3
+    //     // Only a Client Cookie:
+    //     //   If the request had a client cookie but no server cookie and
+    //     //   we didn't already reject the request during pre-processing.
+    //     //
+    //     // https://datatracker.ietf.org/doc/html/rfc7873#section-5.2.4
+    //     // A Client Cookie and an Invalid Server Cookie:
+    //     //   Per RFC 7873 this is handled the same way as the "Only a Client
+    //     //   Cookie" case.
+    //     //
+    //     // https://datatracker.ietf.org/doc/html/rfc7873#section-5.2.5
+    //     // A Client Cookie and a Valid Server Cookie
+    //     //   Any server cookie will already have been validated during
+    //     //   pre-processing, we don't need to check it again here.
+    // }
 }
 
 //--- Service
@@ -456,13 +441,9 @@ where
 {
     type Target = Svc::Target;
     type Stream = MiddlewareStream<
+        Svc::Future,
         Svc::Stream,
-        PostprocessingStream<
-            RequestOctets,
-            Svc::Future,
-            Svc::Stream,
-            [u8; 16],
-        >,
+        Svc::Stream,
         Once<Ready<<Svc::Stream as futures::stream::Stream>::Item>>,
         <Svc::Stream as futures::stream::Stream>::Item,
     >;
@@ -472,24 +453,11 @@ where
         match self.preprocess(&request) {
             ControlFlow::Continue(()) => {
                 let svc_call_fut = self.svc.call(request.clone());
-                let map = PostprocessingStream::new(
-                    svc_call_fut,
-                    request,
-                    self.server_secret,
-                    Self::map_stream_item,
-                );
-                ready(MiddlewareStream::Map(map))
+                ready(MiddlewareStream::IdentityFuture(svc_call_fut))
             }
-            ControlFlow::Break(mut response) => {
-                Self::postprocess(
-                    &request,
-                    &mut response,
-                    self.server_secret,
-                );
-                ready(MiddlewareStream::Result(once(ready(Ok(
-                    CallResult::new(response),
-                )))))
-            }
+            ControlFlow::Break(response) => ready(MiddlewareStream::Result(
+                once(ready(Ok(CallResult::new(response)))),
+            )),
         }
     }
 }
