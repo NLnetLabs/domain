@@ -1,6 +1,8 @@
 # Change Log
 
-## Unreleased next version
+## 0.10.0
+
+Released 2024-04-30.
 
 Breaking changes
 
@@ -93,9 +95,6 @@ Unstable features
   provides an in-memory implementation. The `zonetree::parsed` module
   provides a way to classify RRsets before inserting them into a tree.
   This is gated by the `unstable-zonetree` feature. ([#286])
-  
-
-Other changes
 
 
 [#215]: https://github.com/NLnetLabs/domain/pull/215
