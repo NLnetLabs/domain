@@ -1,3 +1,4 @@
+use core::future::Future;
 use core::ops::DerefMut;
 use core::task::{ready, Context, Poll};
 
@@ -6,10 +7,9 @@ use std::pin::Pin;
 use futures::prelude::future::FutureExt;
 use futures::stream::{Stream, StreamExt};
 use octseq::Octets;
+use tracing::trace;
 
 use crate::net::server::message::Request;
-use core::future::Future;
-use tracing::trace;
 
 //------------ MiddlewareStream ----------------------------------------------
 
@@ -34,7 +34,7 @@ pub enum MiddlewareStream<
     /// without modification.
     IdentityStream(IdentityStream),
 
-    /// Either a single response has been created without invoking the innter
+    /// Either a single response has been created without invoking the inner
     /// service, or the inner service response will be post-processed by this
     /// service.
     Map(MapStream),
@@ -164,13 +164,13 @@ where
     ) -> Poll<Option<Self::Item>> {
         match &mut self.state {
             PostprocessingStreamState::Pending(svc_call_fut) => {
-                let stream = futures::ready!(svc_call_fut.poll_unpin(cx));
+                let stream = ready!(svc_call_fut.poll_unpin(cx));
                 trace!("Stream has become available");
                 self.state = PostprocessingStreamState::Streaming(stream);
                 self.poll_next(cx)
             }
             PostprocessingStreamState::Streaming(stream) => {
-                let stream_item = futures::ready!(stream.poll_next_unpin(cx));
+                let stream_item = ready!(stream.poll_next_unpin(cx));
                 trace!("Stream item retrieved, mapping to downstream type");
                 let request = self.request.clone();
                 let metadata = self.metadata.clone();
