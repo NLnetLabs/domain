@@ -32,7 +32,7 @@ const FIVE_MINUTES_AS_SECS: u32 = 5 * 60;
 /// https://www.rfc-editor.org/rfc/rfc9018.html#section-4.3.
 const ONE_HOUR_AS_SECS: u32 = 60 * 60;
 
-/// A DNS Cookies [`MiddlewareProcessor`].
+/// A DNS Cookies middleware service
 ///
 /// Standards covered by ths implementation:
 ///
@@ -43,7 +43,6 @@ const ONE_HOUR_AS_SECS: u32 = 60 * 60;
 ///
 /// [7873]: https://datatracker.ietf.org/doc/html/rfc7873
 /// [9018]: https://datatracker.ietf.org/doc/html/rfc7873
-/// [`MiddlewareProcessor`]: crate::net::server::middleware::processor::MiddlewareProcessor
 #[derive(Clone, Debug)]
 pub struct CookiesMiddlewareSvc<RequestOctets, Svc> {
     svc: Svc,

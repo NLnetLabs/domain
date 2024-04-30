@@ -31,7 +31,7 @@ use super::stream::PostprocessingStream;
 /// [IANA registry]: https://www.iana.org/assignments/dns-parameters/dns-parameters.xhtml#dns-parameters-14
 const EDNS_VERSION_ZERO: u8 = 0;
 
-/// A [`MiddlewareProcessor`] for adding EDNS(0) related functionality.
+/// A middleware service for adding EDNS(0) related functionality.
 ///
 /// Standards covered by ths implementation:
 ///
@@ -44,7 +44,6 @@ const EDNS_VERSION_ZERO: u8 = 0;
 /// [6891]: https://datatracker.ietf.org/doc/html/rfc6891
 /// [7828]: https://datatracker.ietf.org/doc/html/rfc7828
 /// [9210]: https://datatracker.ietf.org/doc/html/rfc9210
-/// [`MiddlewareProcessor`]: crate::net::server::middleware::processor::MiddlewareProcessor
 #[derive(Clone, Debug, Default)]
 pub struct EdnsMiddlewareSvc<RequestOctets, Svc> {
     svc: Svc,

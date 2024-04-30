@@ -1,9 +1,8 @@
 //! The application logic of a DNS server.
 //!
 //! The [`Service::call`] function defines how the service should respond to a
-//! given DNS request. resulting in a [`Transaction`] containing a transaction
-//! that yields one or more future DNS responses, and/or a
-//! [`ServiceFeedback`].
+//! given DNS request. resulting in a future that yields a stream of one or
+//! more future DNS responses, and/or [`ServiceFeedback`].
 use core::fmt::Display;
 use core::ops::Deref;
 
@@ -29,20 +28,19 @@ pub type ServiceResult<Target> = Result<CallResult<Target>, ServiceError>;
 /// requests.
 ///
 /// A request is "valid" if it passed successfully through the underlying
-/// server (e.g. [`DgramServer`] or [`StreamServer`]) and [`MiddlewareChain`]
+/// server (e.g. [`DgramServer`] or [`StreamServer`]) and middleware
 /// stages.
 ///
 /// For an overview of how services fit into the total flow of request and
 /// response handling see the [net::server module documentation].
 ///
 /// Each [`Service`] implementation defines a [`call`] function which takes a
-/// [`Request`] DNS request as input and returns either a [`Transaction`] on
-/// success, or a [`ServiceError`] on failure, as output.
+/// [`Request`] DNS request as input and returns a future that yields a stream
+/// of one or more items each of which is either a [`CallResult`] or
+/// [`ServiceError`].
 ///
-/// Each [`Transaction`] contains either a single DNS response message, or a
-/// stream of DNS response messages (e.g. for a zone transfer). Each response
-/// message is returned as a [`Future`] which the underlying server will
-/// resolve to a [`CallResult`].
+/// Most DNS requests result in a single response, with the exception of AXFR
+/// and IXFR requests which can result in a stream of responses.
 ///
 /// # Usage
 ///
@@ -57,7 +55,7 @@ pub type ServiceResult<Target> = Result<CallResult<Target>, ServiceError>;
 /// Whichever approach you choose it is important to minimize the work done
 /// before returning from [`Service::call`], as time spent here blocks the
 /// caller. Instead as much work as possible should be delegated to the
-/// futures returned as a [`Transaction`].
+/// future returned.
 ///
 /// </div>
 ///
@@ -179,8 +177,6 @@ pub type ServiceResult<Target> = Result<CallResult<Target>, ServiceError>;
 /// See [`service_fn`] for an example of how to use it to create a [`Service`]
 /// impl from a funciton.
 ///
-/// [`MiddlewareChain`]:
-///     crate::net::server::middleware::chain::MiddlewareChain
 /// [`DgramServer`]: crate::net::server::dgram::DgramServer
 /// [`StreamServer`]: crate::net::server::stream::StreamServer
 /// [net::server module documentation]: crate::net::server

@@ -8,7 +8,7 @@
 //!
 //! This module provides skeleton asynchronous server implementations based on
 //! the [Tokio](https://tokio.rs/) async runtime. In combination with an
-//! appropriate network source, optional [`MiddlewareChain`] and your own
+//! appropriate network source, optional middleware chain and your own
 //! [`Service`] implementation they can be used to run a standards compliant
 //! DNS server that answers requests based on the application logic you
 //! specify.
@@ -32,7 +32,7 @@
 //! # Getting started
 //!
 //! Servers are implemented by combining a server transport (see [dgram] and
-//! [stream]), [`BufSource`], (optional) [`MiddlewareChain`] and [`Service`]
+//! [stream]), [`BufSource`], (optional) MiddlewareChain and [`Service`]
 //! together.
 //!
 //! Whether using [`DgramServer`] or [`StreamServer`] the required steps are
@@ -42,7 +42,7 @@
 //!   - Construct a server transport with `new()` passing in the network
 //!     source as an argument.
 //!   - Tune the server behaviour via builder functions such as
-//!     `with_middleware()`.
+//!     `with_config()`.
 //!   - `run()` the server.
 //!   - `shutdown()` the server, explicitly or on [`drop`].
 //!
@@ -92,20 +92,17 @@
 //! specific layer of a server nor does it constitute part of the core
 //! application logic.
 //!
-//! With Middleware mandatory functionality and logic required by all
+//! With Middleware, mandatory functionality and logic required by all
 //! standards compliant DNS servers can be incorporated into your server by
-//! building a [`MiddlewareChain`] starting from
-//! [`MiddlewareBuilder::default`].
+//! layering your service on top of the [`MandatoryMiddlewareSvc`].
 //!
 //! You can also opt to incorporate additional behaviours into your DNS server
-//! from a selection of pre-supplied implementations via
-//! [`MiddlewareBuilder::push`]. See the various implementations of
-//! [`MiddlewareProcessor`] for more information.
+//! from a selection of [pre-supplied middleware].
 //!
-//! And if the existing middleware processors don't meet your needs, maybe you
+//! And if the existing middleware services don't meet your needs, maybe you
 //! have specific access control or rate limiting requirements for example,
-//! you can implement [`MiddlewareProcessor`] yourself to add your own pre-
-//! and post- processing stages into your DNS server.
+//! you can implement your own middleware service to add your own pre- and
+//! post- processing stages into your DNS server.
 //!
 //! ## Application logic
 //!
@@ -131,7 +128,9 @@
 //!
 //! ## Performance
 //!
-//! Both [`DgramServer`] and [`StreamServer`] use [`CommonMessageFlow`] to
+//! <div class="warning">TODO: This section is outdated!</div>
+//!
+//! Both [`DgramServer`] and [`StreamServer`] use `CommonMessageFlow` to
 //! pre-process the request, invoke [`Service::call`], and post-process the
 //! response.
 //!
@@ -182,14 +181,9 @@
 //! [`AsyncDgramSock`]: sock::AsyncDgramSock
 //! [`BufSource`]: buf::BufSource
 //! [`DgramServer`]: dgram::DgramServer
-//! [`CommonMessageFlow`]: message::CommonMessageFlow
 //! [Middleware]: middleware
-//! [`MiddlewareBuilder::default`]:
-//!     middleware::builder::MiddlewareBuilder::default()
-//! [`MiddlewareBuilder::push`]:
-//!     middleware::builder::MiddlewareBuilder::push()
-//! [`MiddlewareChain`]: middleware::chain::MiddlewareChain
-//! [`MiddlewareProcessor`]: middleware::processor::MiddlewareProcessor
+//! [`MandatoryMiddlewareSvc`]: middleware::mandatory::MandatoryMiddlewareSvc
+//! [pre-supplied middleware]: middleware
 //! [`Service`]: service::Service
 //! [`Service::call`]: service::Service::call()
 //! [`StreamServer`]: stream::StreamServer

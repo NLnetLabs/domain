@@ -71,7 +71,7 @@ const WRITE_TIMEOUT: DefMinMax<Duration> = DefMinMax::new(
 /// The value has to be between 512 and 4,096 per [RFC 6891]. The default
 /// value is 1232 per the [2020 DNS Flag Day].
 ///
-/// The [`Service`] and [`MiddlewareChain`] (if any) are responsible for
+/// The [`Service`] and middleware chain (if any) are responsible for
 /// enforcing this limit.
 ///
 /// [2020 DNS Flag Day]: http://www.dnsflagday.net/2020/
@@ -104,7 +104,7 @@ impl Config {
     /// Pass `None` to prevent sending a limit suggestion to the middleware
     /// (if any) and service.
     ///
-    /// The [`Service`] and [`MiddlewareChain`] (if any) are response for
+    /// The [`Service`] and middleware chain (if any) are responsible for
     /// enforcing the suggested limit, or deciding what to do if this is None.
     ///
     /// # Reconfigure
@@ -493,11 +493,11 @@ where
                         trace!(%addr, pcap_text, "Received message");
                     }
 
-                    let state = self.mk_state_for_request();
-
                     let svc = self.service.clone();
                     let cfg = self.config.clone();
                     let metrics = self.metrics.clone();
+                    let cloned_sock = self.sock.clone();
+                    let write_timeout = self.config.load().write_timeout;
 
                     tokio::spawn(async move {
                         match Message::from_octets(buf) {
@@ -544,10 +544,10 @@ where
                                         // Actually write the DNS response message bytes to the UDP
                                         // socket.
                                         let _ = Self::send_to(
-                                            &state.sock,
+                                            &cloned_sock,
                                             bytes,
                                             &addr,
-                                            state.write_timeout,
+                                            write_timeout,
                                         )
                                         .await;
 
@@ -648,18 +648,6 @@ where
             Ok(())
         }
     }
-
-    /// Helper function to package references to key parts of our server state
-    /// into a [`RequestState`] ready for passing through the
-    /// [`CommonMessageFlow`] call chain and ultimately back to ourselves at
-    /// [`process_call_reusult`].
-    fn mk_state_for_request(&self) -> RequestState<Sock> {
-        RequestState::new(
-            self.sock.clone(),
-            self.command_tx.clone(),
-            self.config.load().write_timeout,
-        )
-    }
 }
 
 //--- Drop
@@ -679,51 +667,5 @@ where
         // I'm not sure if it's safe to log or write to stderr from a Drop
         // impl.
         let _ = self.shutdown();
-    }
-}
-
-//----------- RequestState ---------------------------------------------------
-
-/// Data needed by [`DgramServer::process_call_result`] which needs to be
-/// passed through the [`CommonMessageFlow`] call chain.
-pub struct RequestState<Sock> {
-    /// The network socket over which this request was received and over which
-    /// the response should be sent.
-    sock: Arc<Sock>,
-
-    /// A sender for sending [`ServerCommand`]s.
-    ///
-    /// Used to signal the server to stop, reconfigure, etc.
-    command_tx: CommandSender,
-
-    /// The maximum amount of time to wait for a response datagram to be
-    /// accepted by the operating system for writing back to the client.
-    write_timeout: Duration,
-}
-
-impl<Sock> RequestState<Sock> {
-    /// Creates a new instance of [`RequestState`].
-    fn new(
-        sock: Arc<Sock>,
-        command_tx: CommandSender,
-        write_timeout: Duration,
-    ) -> Self {
-        Self {
-            sock,
-            command_tx,
-            write_timeout,
-        }
-    }
-}
-
-//--- Clone
-
-impl<Sock> Clone for RequestState<Sock> {
-    fn clone(&self) -> Self {
-        Self {
-            sock: self.sock.clone(),
-            command_tx: self.command_tx.clone(),
-            write_timeout: self.write_timeout,
-        }
     }
 }

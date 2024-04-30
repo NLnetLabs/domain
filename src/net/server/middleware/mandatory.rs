@@ -26,8 +26,8 @@ use super::stream::{MiddlewareStream, PostprocessingStream};
 /// [RFC 1035 section 4.2.1]: https://datatracker.ietf.org/doc/html/rfc1035#section-4.2.1
 pub const MINIMUM_RESPONSE_BYTE_LEN: u16 = 512;
 
-/// A [`MiddlewareProcessor`] for enforcing core RFC MUST requirements on
-/// processed messages.
+/// A middleware service for enforcing core RFC MUST requirements on processed
+/// messages.
 ///
 /// Standards covered by ths implementation:
 ///
@@ -36,8 +36,6 @@ pub const MINIMUM_RESPONSE_BYTE_LEN: u16 = 512;
 /// | [1035] | TBD     |
 /// | [2181] | TBD     |
 ///
-/// [`MiddlewareProcessor`]:
-///     crate::net::server::middleware::processor::MiddlewareProcessor
 /// [1035]: https://datatracker.ietf.org/doc/html/rfc1035
 /// [2181]: https://datatracker.ietf.org/doc/html/rfc2181
 #[derive(Clone, Debug)]

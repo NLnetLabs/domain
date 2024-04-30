@@ -35,14 +35,14 @@ impl UdpTransportContext {
     /// allowed response size, `Some(n)` otherwise where `n` is the maximum
     /// number of bytes allowed for the response message.
     ///
-    /// The [`EdnsMiddlewareProcessor`] may adjust this limit.
+    /// The [`EdnsMiddlewareSvc`] may adjust this limit.
     ///
-    /// The [`MandatoryMiddlewareProcessor`] enforces this limit.
+    /// The [`MandatoryMiddlewareSvc`] enforces this limit.
     ///
-    /// [`EdnsMiddlewareProcessor`]:
-    ///     crate::net::server::middleware::processors::edns::EdnsMiddlewareProcessor
-    /// [`MandatoryMiddlewareProcessor`]:
-    ///     crate::net::server::middleware::processors::mandatory::MandatoryMiddlewareProcessor
+    /// [`EdnsMiddlewareSvc`]:
+    ///     crate::net::server::middleware::edns::EdnsMiddlewareSvc
+    /// [`MandatoryMiddlewareSvc`]:
+    ///     crate::net::server::middleware::mandatory::MandatoryMiddlewareSvc
     pub fn max_response_size_hint(&self) -> Option<u16> {
         *self.max_response_size_hint.lock().unwrap()
     }
@@ -81,15 +81,15 @@ impl NonUdpTransportContext {
     /// This is provided by the server to indicate what the current timeout
     /// setting in effect is.
     ///
-    /// The [`EdnsMiddlewareProcessor`] may report this timeout value back to
+    /// The [`EdnsMiddlewareSvc`] may report this timeout value back to
     /// clients capable of interpreting it.
     ///
     /// [RFC 7766 section 6.2.3]:
     ///     https://datatracker.ietf.org/doc/html/rfc7766#section-6.2.3
     /// [RFC 78828]: https://www.rfc-editor.org/rfc/rfc7828
     ///
-    /// [`EdnsMiddlewareProcessor`]:
-    ///     crate::net::server::middleware::processors::edns::EdnsMiddlewareProcessor
+    /// [`EdnsMiddlewareSvc`]:
+    ///     crate::net::server::middleware::edns::EdnsMiddlewareSvc
     pub fn idle_timeout(&self) -> Option<Duration> {
         self.idle_timeout
     }
@@ -103,9 +103,11 @@ impl NonUdpTransportContext {
 /// correctly. Some kinds of contextual information are only available for
 /// certain transport types.
 ///
-/// Context values may be adjusted by processors in the [`MiddlewareChain`]
+/// Context values may be adjusted by processors in the middleware chain
 /// and/or by the [`Service`] that receives the request, in order to influence
 /// the behaviour of other processors, the service or the server.
+///
+/// [`Service`]: crate::net::server::service::Service
 #[derive(Debug, Clone)]
 pub enum TransportSpecificContext {
     /// Context for a UDP transport.
