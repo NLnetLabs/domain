@@ -14,7 +14,7 @@ use tokio::sync::Mutex;
 use crate::base::iana::{Class, Rtype};
 use crate::base::name::{Label, OwnedLabel, ToLabelIter, ToName};
 use crate::zonetree::error::{CnameError, OutOfZone, ZoneCutError};
-use crate::zonetree::types::{StoredDname, ZoneCut};
+use crate::zonetree::types::{StoredName, ZoneCut};
 use crate::zonetree::walk::WalkState;
 use crate::zonetree::{
     ReadableZone, SharedRr, SharedRrset, WritableZone, ZoneStore,
@@ -28,7 +28,7 @@ use super::write::{WriteZone, ZoneVersions};
 
 #[derive(Debug)]
 pub struct ZoneApex {
-    apex_name: StoredDname,
+    apex_name: StoredName,
     class: Class,
     rrsets: NodeRrsets,
     children: NodeChildren,
@@ -38,7 +38,7 @@ pub struct ZoneApex {
 
 impl ZoneApex {
     /// Creates a new apex.
-    pub fn new(apex_name: StoredDname, class: Class) -> Self {
+    pub fn new(apex_name: StoredName, class: Class) -> Self {
         ZoneApex {
             apex_name,
             class,
@@ -51,7 +51,7 @@ impl ZoneApex {
 
     /// Creates a new apex.
     pub fn from_parts(
-        apex_name: StoredDname,
+        apex_name: StoredName,
         class: Class,
         rrsets: NodeRrsets,
         children: NodeChildren,
@@ -112,7 +112,7 @@ impl ZoneApex {
         &self.versions
     }
 
-    pub fn name(&self) -> &StoredDname {
+    pub fn name(&self) -> &StoredName {
         &self.apex_name
     }
 }
@@ -124,7 +124,7 @@ impl ZoneStore for ZoneApex {
         self.class
     }
 
-    fn apex_name(&self) -> &StoredDname {
+    fn apex_name(&self) -> &StoredName {
         &self.apex_name
     }
 

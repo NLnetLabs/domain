@@ -5,6 +5,7 @@ use std::boxed::Box;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
+use std::sync::Mutex;
 use std::sync::Weak;
 use std::vec::Vec;
 use std::{fmt, io};
@@ -15,12 +16,15 @@ use tokio::sync::OwnedMutexGuard;
 
 use crate::base::iana::Rtype;
 use crate::base::name::Label;
-use crate::zonetree::types::ZoneCut;
-use crate::zonetree::SharedRr;
+use crate::base::NameBuilder;
+use crate::zonetree::types::{ZoneCut, ZoneDiff};
+use crate::zonetree::StoredName;
+use crate::zonetree::{Rrset, SharedRr};
 use crate::zonetree::{SharedRrset, WritableZone, WritableZoneNode};
 
 use super::nodes::{Special, ZoneApex, ZoneNode};
 use super::versioned::{Version, VersionMarker};
+use crate::rdata::ZoneRecordData;
 
 //------------ WriteZone -----------------------------------------------------
 
@@ -30,6 +34,7 @@ pub struct WriteZone {
     version: Version,
     dirty: bool,
     zone_versions: Arc<RwLock<ZoneVersions>>,
+    diff: Arc<Mutex<Option<Arc<Mutex<ZoneDiff>>>>>,
 }
 
 impl WriteZone {
@@ -45,6 +50,7 @@ impl WriteZone {
             version,
             dirty: false,
             zone_versions,
+            diff: Arc::new(Mutex::new(None)),
         }
     }
 }
@@ -59,6 +65,7 @@ impl Clone for WriteZone {
             version: self.version,
             dirty: self.dirty,
             zone_versions: self.zone_versions.clone(),
+            diff: self.diff.clone(),
         }
     }
 }
@@ -80,12 +87,21 @@ impl WritableZone for WriteZone {
     #[allow(clippy::type_complexity)]
     fn open(
         &self,
+        create_diff: bool,
     ) -> Pin<
         Box<
             dyn Future<Output = Result<Box<dyn WritableZoneNode>, io::Error>>,
         >,
     > {
-        let res = WriteNode::new_apex(self.clone())
+        let new_apex = WriteNode::new_apex(self.clone(), create_diff);
+
+        if let Ok(write_node) = &new_apex {
+            // Note: the start and end serial of the diff will be filled in
+            // when commit() is invoked.
+            *self.diff.lock().unwrap() = write_node.diff();
+        }
+
+        let res = new_apex
             .map(|node| Box::new(node) as Box<dyn WritableZoneNode>)
             .map_err(|err| {
                 io::Error::new(
@@ -93,22 +109,70 @@ impl WritableZone for WriteZone {
                     format!("Open error: {err}"),
                 )
             });
+
         Box::pin(ready(res))
     }
 
     fn commit(
         &mut self,
-    ) -> Pin<Box<dyn Future<Output = Result<(), io::Error>>>> {
+    ) -> Pin<Box<dyn Future<Output = Result<Option<ZoneDiff>, io::Error>>>>
+    {
+        // Ensure that the SOA record in the zone is updated.
+        let soa_rr = self.apex.get_soa(self.version).unwrap();
+        let ZoneRecordData::Soa(soa) = soa_rr.data() else {
+            unreachable!()
+        };
+        let mut new_soa_rrset = Rrset::new(Rtype::SOA, soa_rr.ttl());
+        let new_soa_serial = soa.serial().add(1);
+        let new_soa_data = crate::rdata::Soa::new(
+            soa.mname().clone(),
+            soa.rname().clone(),
+            new_soa_serial,
+            soa.refresh(),
+            soa.retry(),
+            soa.expire(),
+            soa.minimum(),
+        );
+        new_soa_rrset.push_data(new_soa_data.into());
+        let new_soa_shared_rrset = SharedRrset::new(new_soa_rrset);
+        self.apex
+            .rrsets()
+            .update(new_soa_shared_rrset.clone(), self.version);
+
+        // Make the new version visible.
         let marker = self.zone_versions.write().update_current(self.version);
         self.zone_versions
             .write()
             .push_version(self.version, marker);
 
+        // Extract the created diff, if any.
+        let diff = if let Some(diff) = self.diff.lock().unwrap().take() {
+            let mut removed_soa_rrset = Rrset::new(Rtype::SOA, soa_rr.ttl());
+            removed_soa_rrset.push_data(soa_rr.data().clone());
+            let removed_soa_rrset = SharedRrset::new(removed_soa_rrset);
+
+            let diff = Arc::into_inner(diff).unwrap();
+            let mut diff = Mutex::into_inner(diff).unwrap();
+            diff.start_serial = Some(soa.serial());
+            diff.end_serial = Some(new_soa_serial);
+            diff.removed
+                .entry(self.apex.name().clone())
+                .or_default()
+                .push(removed_soa_rrset);
+            diff.added
+                .entry(self.apex.name().clone())
+                .or_default()
+                .push(new_soa_shared_rrset);
+            Some(diff)
+        } else {
+            None
+        };
+
         // Start the next version.
         self.version = self.version.next();
         self.dirty = false;
 
-        Box::pin(ready(Ok(())))
+        Box::pin(ready(Ok(diff)))
     }
 }
 
@@ -120,27 +184,56 @@ pub struct WriteNode {
 
     /// The node we are updating.
     node: Either<Arc<ZoneApex>, Arc<ZoneNode>>,
+
+    /// The diff we are building, if enabled.
+    diff: Option<(StoredName, Arc<Mutex<ZoneDiff>>)>,
 }
 
 impl WriteNode {
-    fn new_apex(zone: WriteZone) -> Result<Self, io::Error> {
+    fn new_apex(
+        zone: WriteZone,
+        create_diff: bool,
+    ) -> Result<Self, io::Error> {
         let apex = zone.apex.clone();
+
+        let diff = if create_diff {
+            Some((
+                zone.apex.name().clone(),
+                Arc::new(Mutex::new(ZoneDiff::new())),
+            ))
+        } else {
+            None
+        };
+
         Ok(WriteNode {
             zone,
             node: Either::Left(apex),
+            diff,
         })
     }
+
     fn update_child(&self, label: &Label) -> Result<WriteNode, io::Error> {
         let children = match self.node {
             Either::Left(ref apex) => apex.children(),
             Either::Right(ref node) => node.children(),
         };
+
         let (node, created) = children
             .with_or_default(label, |node, created| (node.clone(), created));
+
+        let diff = self.diff.as_ref().map(|(owner, diff)| {
+            let mut builder = NameBuilder::new_bytes();
+            builder.append_label(label.as_slice()).unwrap();
+            let new_owner = builder.append_origin(&owner).unwrap();
+            (new_owner, diff.clone())
+        });
+
         let node = WriteNode {
             zone: self.zone.clone(),
             node: Either::Right(node),
+            diff,
         };
+
         if created {
             node.make_regular()?;
         }
@@ -153,6 +246,27 @@ impl WriteNode {
             Either::Right(ref apex) => apex.rrsets(),
             Either::Left(ref node) => node.rrsets(),
         };
+
+        if let Some((owner, diff)) = &self.diff {
+            if let Some(removed_rrset) =
+                rrsets.get(rrset.rtype(), self.zone.version)
+            {
+                diff.lock()
+                    .unwrap()
+                    .removed
+                    .entry(owner.clone())
+                    .or_default()
+                    .push(removed_rrset.clone());
+            }
+
+            diff.lock()
+                .unwrap()
+                .added
+                .entry(owner.clone())
+                .or_default()
+                .push(rrset.clone());
+        }
+
         rrsets.update(rrset, self.zone.version);
         self.check_nx_domain()?;
         Ok(())
@@ -163,8 +277,21 @@ impl WriteNode {
             Either::Left(ref apex) => apex.rrsets(),
             Either::Right(ref node) => node.rrsets(),
         };
+
+        if let Some((owner, diff)) = &self.diff {
+            if let Some(removed) = rrsets.get(rtype, self.zone.version) {
+                diff.lock()
+                    .unwrap()
+                    .removed
+                    .entry(owner.clone())
+                    .or_default()
+                    .push(removed.clone());
+            }
+        }
+
         rrsets.remove(rtype, self.zone.version);
         self.check_nx_domain()?;
+
         Ok(())
     }
 
@@ -249,6 +376,10 @@ impl WriteNode {
             }
         }
         Ok(())
+    }
+
+    fn diff(&self) -> Option<Arc<Mutex<ZoneDiff>>> {
+        self.diff.as_ref().map(|(_, diff)| diff.clone())
     }
 }
 

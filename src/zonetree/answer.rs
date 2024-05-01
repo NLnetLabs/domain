@@ -8,7 +8,7 @@ use crate::base::wire::Composer;
 use crate::base::Message;
 use crate::base::MessageBuilder;
 
-use super::types::StoredDname;
+use super::types::StoredName;
 use super::{SharedRr, SharedRrset};
 
 //------------ Answer --------------------------------------------------------
@@ -206,7 +206,7 @@ pub enum AnswerContent {
 #[derive(Clone)]
 pub struct AnswerAuthority {
     /// The owner name of the record sets in the authority section.
-    owner: StoredDname,
+    owner: StoredName,
 
     /// The SOA record if it should be included.
     soa: Option<SharedRr>,
@@ -221,7 +221,7 @@ pub struct AnswerAuthority {
 impl AnswerAuthority {
     /// Creates a new representation of an authority section.
     pub fn new(
-        owner: StoredDname,
+        owner: StoredName,
         soa: Option<SharedRr>,
         ns: Option<SharedRrset>,
         ds: Option<SharedRrset>,

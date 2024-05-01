@@ -5,23 +5,25 @@
 //! These interfaces are unstable and are likely to change in future.
 //!
 //! </div>
-use bytes::Bytes;
 use core::future::ready;
 use core::pin::Pin;
+
 use std::boxed::Box;
 use std::fmt::Debug;
 use std::future::Future;
 use std::io;
 use std::sync::Arc;
 
+use bytes::Bytes;
+
 use crate::base::iana::Class;
 use crate::base::name::Label;
 use crate::base::{Name, Rtype};
 
 use super::answer::Answer;
+use super::types::{ZoneCut, ZoneDiff};
+use super::{SharedRr, SharedRrset, StoredName, WalkOp};
 use super::error::OutOfZone;
-use super::types::{StoredDname, ZoneCut};
-use super::{SharedRr, SharedRrset, WalkOp};
 
 //------------ ZoneStore -----------------------------------------------------
 
@@ -36,7 +38,7 @@ pub trait ZoneStore: Debug + Sync + Send {
     fn class(&self) -> Class;
 
     /// Returns the apex name of the zone.
-    fn apex_name(&self) -> &StoredDname;
+    fn apex_name(&self) -> &StoredName;
 
     /// Get a read interface to this store.
     fn read(self: Arc<Self>) -> Box<dyn ReadableZone>;
@@ -55,7 +57,7 @@ pub trait ZoneStore: Debug + Sync + Send {
 /// the [`ZoneStore`] backing storage for a [`Zone`].
 ///
 /// [`Zone`]: super::Zone
-pub trait ReadableZone: Send {
+pub trait ReadableZone: Send + Sync {
     /// Returns true if ths `_async` variants of the functions offered by this
     /// trait should be used by callers instead of the non-`_async`
     /// equivalents.
@@ -94,7 +96,8 @@ pub trait ReadableZone: Send {
         &self,
         qname: Name<Bytes>,
         qtype: Rtype,
-    ) -> Pin<Box<dyn Future<Output = Result<Answer, OutOfZone>> + Send>> {
+    ) -> Pin<Box<dyn Future<Output = Result<Answer, OutOfZone>> + Send + Sync>>
+    {
         Box::pin(ready(self.query(qname, qtype)))
     }
 
@@ -102,7 +105,7 @@ pub trait ReadableZone: Send {
     fn walk_async(
         &self,
         op: WalkOp,
-    ) -> Pin<Box<dyn Future<Output = ()> + Send>> {
+    ) -> Pin<Box<dyn Future<Output = ()> + Send + Sync>> {
         self.walk(op);
         Box::pin(ready(()))
     }
@@ -118,6 +121,7 @@ pub trait WritableZone {
     #[allow(clippy::type_complexity)]
     fn open(
         &self,
+        create_diff: bool,
     ) -> Pin<
         Box<
             dyn Future<Output = Result<Box<dyn WritableZoneNode>, io::Error>>,
@@ -126,16 +130,15 @@ pub trait WritableZone {
 
     /// Complete a write operation for the zone.
     ///
-    /// This function commits the changes accumulated since
-    /// [`WritableZone::open`] was invoked. Clients who obtain a
-    /// [`ReadableZone`] interface to this zone _before_ this function has
-    /// been called will not see any of the changes made since the last
-    /// commit. Only clients who obtain a [`ReadableZone`] _after_ invoking
-    /// this function will be able to see the changes made since
-    /// [`WritableZone::open`] was called. called.
+    /// This function commits the changes accumulated since [`open`] was
+    /// invoked. Clients who obtain a [`ReadableZone`] interface to this zone
+    /// _before_ this function has been called will not see any of the changes
+    /// made since the last commit. Only clients who obtain a [`ReadableZone`]
+    /// _after_ invoking this function will be able to see the changes made
+    /// since [`open`] was called.
     fn commit(
         &mut self,
-    ) -> Pin<Box<dyn Future<Output = Result<(), io::Error>>>>;
+    ) -> Pin<Box<dyn Future<Output = Result<Option<ZoneDiff>, io::Error>>>>;
 }
 
 //------------ WritableZoneNode ----------------------------------------------

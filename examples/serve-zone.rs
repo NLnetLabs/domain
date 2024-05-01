@@ -15,6 +15,8 @@
 //!
 //!   dig @127.0.0.1 -p 8053 AXFR example.com
 
+use core::str::FromStr;
+
 use std::future::pending;
 use std::io::BufReader;
 use std::sync::Arc;
@@ -24,7 +26,7 @@ use tokio::net::{TcpListener, UdpSocket};
 use tracing_subscriber::EnvFilter;
 
 use domain::base::iana::Rcode;
-use domain::base::ToName;
+use domain::base::{Name, Rtype, ToName, Ttl};
 use domain::net::server::buf::VecBufSource;
 use domain::net::server::dgram::DgramServer;
 use domain::net::server::message::Request;
@@ -32,11 +34,12 @@ use domain::net::server::message::Request;
 use domain::net::server::middleware::cookies::CookiesMiddlewareSvc;
 use domain::net::server::middleware::edns::EdnsMiddlewareSvc;
 use domain::net::server::middleware::mandatory::MandatoryMiddlewareSvc;
+use domain::net::server::middleware::xfr::XfrMiddlewareSvc;
 use domain::net::server::service::{CallResult, ServiceResult};
 use domain::net::server::stream::StreamServer;
 use domain::net::server::util::{mk_builder_for_target, service_fn};
 use domain::zonefile::inplace;
-use domain::zonetree::Answer;
+use domain::zonetree::{Answer, Rrset, SharedRrset};
 use domain::zonetree::{Zone, ZoneTree};
 
 #[tokio::main()]
@@ -62,18 +65,18 @@ async fn main() {
     let reader = inplace::Zonefile::load(&mut zone_bytes).unwrap();
     let zone = Zone::try_from(reader).unwrap();
 
-    // TODO: Make changes to a zone to create a diff for IXFR use.
-    // let mut writer = zone.write().await;
-    // {
-    //     let node = writer.open(true).await.unwrap();
-    //     let mut new_ns = Rrset::new(Rtype::NS, Ttl::from_secs(60));
-    //     let ns_rec = domain::rdata::Ns::new(
-    //         Dname::from_str("write-test.example.com").unwrap(),
-    //     );
-    //     new_ns.push_data(ns_rec.into());
-    //     node.update_rrset(SharedRrset::new(new_ns)).await.unwrap();
-    // }
-    // let diff = writer.commit().await.unwrap();
+    // Make changes to a zone to create a diff for IXFR use.
+    let mut writer = zone.write().await;
+    {
+        let node = writer.open(true).await.unwrap();
+        let mut new_ns = Rrset::new(Rtype::NS, Ttl::from_secs(60));
+        let ns_rec = domain::rdata::Ns::new(
+            Name::from_str("write-test.example.com").unwrap(),
+        );
+        new_ns.push_data(ns_rec.into());
+        node.update_rrset(SharedRrset::new(new_ns)).await.unwrap();
+    }
+    let diff = writer.commit().await.unwrap();
 
     let mut zones = ZoneTree::new();
     zones.insert_zone(zone.clone()).unwrap();
@@ -82,13 +85,12 @@ async fn main() {
     let addr = "127.0.0.1:8053";
     let svc = service_fn(my_service, zones);
 
-    // TODO: Insert XFR middleware to automagically handle AXFR and IXFR
-    // requests.
-    // let mut svc = XfrMiddlewareSvc::<Vec<u8>, _>::new(svc);
-    // svc.add_zone(zone.clone());
-    // if let Some(diff) = diff {
-    //     svc.add_diff(&zone, diff);
-    // }
+    // Insert XFR middleware to automagically handle AXFR and IXFR requests.
+    let mut svc = XfrMiddlewareSvc::<Vec<u8>, _>::new(svc);
+    svc.add_zone(zone.clone());
+    if let Some(diff) = diff {
+        svc.add_diff(&zone, diff);
+    }
 
     #[cfg(feature = "siphasher")]
     let svc = CookiesMiddlewareSvc::<Vec<u8>, _>::with_random_secret(svc);

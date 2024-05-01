@@ -7,7 +7,7 @@ use std::vec::Vec;
 use crate::base::Rtype;
 use crate::zonefile::inplace;
 
-use super::types::{StoredDname, StoredRecord};
+use super::types::{StoredName, StoredRecord};
 
 //------------ ZoneCutError --------------------------------------------------
 
@@ -133,12 +133,12 @@ impl Display for RecordError {
 /// A set of problems relating to a zone.
 #[derive(Clone, Debug, Default)]
 pub struct ZoneErrors {
-    errors: Vec<(StoredDname, ContextError)>,
+    errors: Vec<(StoredName, ContextError)>,
 }
 
 impl ZoneErrors {
     /// Add an error to the set.
-    pub fn add_error(&mut self, name: StoredDname, error: ContextError) {
+    pub fn add_error(&mut self, name: StoredName, error: ContextError) {
         self.errors.push((name, error))
     }
 
