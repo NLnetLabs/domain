@@ -695,9 +695,9 @@ where
                     // Retry
                 }
                 Ok(Err(err)) => {
-                    if let ControlFlow::Break(err) = process_io_error(err) {
+                    if let ControlFlow::Break(_err) = process_io_error(err) {
                         // Fatal error, abort.
-                        return Err(err);
+                        break;
                     } else {
                         // Retry
                     }
