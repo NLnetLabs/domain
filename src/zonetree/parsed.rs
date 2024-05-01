@@ -13,7 +13,7 @@ use crate::zonefile::inplace::{self, Entry};
 use crate::zonetree::ZoneBuilder;
 use crate::zonetree::{Rrset, SharedRr};
 
-use super::types::{StoredDname, StoredRecord};
+use super::types::{StoredName, StoredRecord};
 
 //------------ Zonefile ------------------------------------------------------
 
@@ -43,7 +43,7 @@ use super::types::{StoredDname, StoredRecord};
 #[derive(Clone, Default)]
 pub struct Zonefile {
     /// The name of the apex of the zone.
-    origin: Option<StoredDname>,
+    origin: Option<StoredName>,
 
     /// The class of the zone.
     class: Option<Class>,
@@ -64,7 +64,7 @@ pub struct Zonefile {
 impl Zonefile {
     /// Creates an empty in-memory zone file representation for the given apex
     /// and class.
-    pub fn new(apex: StoredDname, class: Class) -> Self {
+    pub fn new(apex: StoredName, class: Class) -> Self {
         Zonefile {
             origin: Some(apex),
             class: Some(class),
@@ -78,7 +78,7 @@ impl Zonefile {
     ///
     /// If parsing a zone file one might call this method on encoutering an
     /// `$ORIGIN` directive.
-    pub fn set_origin(&mut self, origin: StoredDname) {
+    pub fn set_origin(&mut self, origin: StoredName) {
         self.origin = Some(origin)
     }
 
@@ -163,7 +163,7 @@ impl Zonefile {
     /// The [origin] of the zone.
     ///
     /// [origin]: https://datatracker.ietf.org/doc/html/rfc9499#section-7-2.8
-    pub fn origin(&self) -> Option<&StoredDname> {
+    pub fn origin(&self) -> Option<&StoredName> {
         self.origin.as_ref()
     }
 
@@ -297,15 +297,15 @@ impl TryFrom<inplace::Zonefile> for Zonefile {
 /// A set of records of a common type within a zone file.
 #[derive(Clone)]
 pub struct Owners<Content> {
-    owners: BTreeMap<StoredDname, Content>,
+    owners: BTreeMap<StoredName, Content>,
 }
 
 impl<Content> Owners<Content> {
-    fn contains(&self, name: &StoredDname) -> bool {
+    fn contains(&self, name: &StoredName) -> bool {
         self.owners.contains_key(name)
     }
 
-    fn insert(&mut self, name: StoredDname, content: Content) -> bool {
+    fn insert(&mut self, name: StoredName, content: Content) -> bool {
         use std::collections::btree_map::Entry;
 
         match self.owners.entry(name) {
@@ -317,20 +317,20 @@ impl<Content> Owners<Content> {
         }
     }
 
-    fn entry(&mut self, name: StoredDname) -> &mut Content
+    fn entry(&mut self, name: StoredName) -> &mut Content
     where
         Content: Default,
     {
         self.owners.entry(name).or_default()
     }
 
-    fn into_iter(self) -> impl Iterator<Item = (StoredDname, Content)> {
+    fn into_iter(self) -> impl Iterator<Item = (StoredName, Content)> {
         self.owners.into_iter()
     }
 }
 
 impl Owners<Normal> {
-    fn collect_glue(&mut self, name: &StoredDname) -> Vec<StoredRecord> {
+    fn collect_glue(&mut self, name: &StoredName) -> Vec<StoredRecord> {
         let mut glue_records = vec![];
 
         // https://www.rfc-editor.org/rfc/rfc9471.html

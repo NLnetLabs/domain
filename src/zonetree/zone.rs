@@ -10,7 +10,7 @@ use crate::zonefile::inplace;
 use super::error::{RecordError, ZoneErrors};
 use super::in_memory::ZoneBuilder;
 use super::traits::WritableZone;
-use super::types::StoredDname;
+use super::types::StoredName;
 use super::{parsed, ReadableZone, ZoneStore};
 
 //------------ Zone ----------------------------------------------------------
@@ -35,7 +35,7 @@ impl Zone {
     }
 
     /// Gets the apex name of this zone.
-    pub fn apex_name(&self) -> &StoredDname {
+    pub fn apex_name(&self) -> &StoredName {
         self.store.apex_name()
     }
 

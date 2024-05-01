@@ -115,20 +115,26 @@
 // prepare``) and so compilation fails, but sqlx >= 7.0 has a Rust MSRV of
 // 1.75.0 which exceeds our Rust MSRV of 1.67.0.
 
-use std::{future::Future, pin::Pin, str::FromStr, sync::Arc};
+use std::future::Future;
+use std::pin::Pin;
+use std::str::FromStr;
+use std::sync::Arc;
 
 use bytes::Bytes;
+use sqlx::mysql::MySqlConnectOptions;
+use sqlx::MySqlPool;
+use sqlx::Row;
+
 use domain::base::iana::{Class, Rcode};
 use domain::base::scan::IterScanner;
-use domain::base::{Dname, Rtype, Ttl};
+use domain::base::{Name, Rtype, Ttl};
 use domain::rdata::ZoneRecordData;
+use domain::zonetree::error::OutOfZone;
+use domain::zonetree::types::StoredName;
 use domain::zonetree::{
-    Answer, ReadableZone, Rrset, SharedRrset, StoredDname, WalkOp,
-    WritableZone, Zone, ZoneStore, ZoneTree,
+    Answer, ReadableZone, Rrset, SharedRrset, WalkOp, WritableZone, Zone,
+    ZoneStore, ZoneTree,
 };
-use sqlx::Row;
-use sqlx::{mysql::MySqlConnectOptions, MySqlPool};
-use domain::zonefile::error::OutOfZone;
 
 #[path = "../common/serve-utils.rs"]
 mod common;
@@ -142,7 +148,7 @@ async fn main() {
     zones.insert_zone(db_zone).unwrap();
 
     // Setup a mock query.
-    let qname = Dname::bytes_from_str("example.com").unwrap();
+    let qname = Name::bytes_from_str("example.com").unwrap();
     let qclass = Class::IN;
     let qtype = Rtype::A;
 
@@ -175,7 +181,7 @@ impl DatabaseZoneBuilder {
         let opts: MySqlConnectOptions =
             std::env::var("DATABASE_URL").unwrap().parse().unwrap();
         let pool = MySqlPool::connect_with(opts).await.unwrap();
-        let apex_name = StoredDname::from_str(apex_name).unwrap();
+        let apex_name = StoredName::from_str(apex_name).unwrap();
         let node = DatabaseNode::new(pool, apex_name);
         Zone::new(node)
     }
@@ -186,11 +192,11 @@ impl DatabaseZoneBuilder {
 #[derive(Debug)]
 struct DatabaseNode {
     db_pool: sqlx::MySqlPool,
-    apex_name: StoredDname,
+    apex_name: StoredName,
 }
 
 impl DatabaseNode {
-    fn new(db_pool: sqlx::MySqlPool, apex_name: StoredDname) -> Self {
+    fn new(db_pool: sqlx::MySqlPool, apex_name: StoredName) -> Self {
         Self { db_pool, apex_name }
     }
 }
@@ -202,7 +208,7 @@ impl ZoneStore for DatabaseNode {
         Class::IN
     }
 
-    fn apex_name(&self) -> &StoredDname {
+    fn apex_name(&self) -> &StoredName {
         &self.apex_name
     }
 
@@ -224,11 +230,11 @@ impl ZoneStore for DatabaseNode {
 
 struct DatabaseReadZone {
     db_pool: sqlx::MySqlPool,
-    apex_name: StoredDname,
+    apex_name: StoredName,
 }
 
 impl DatabaseReadZone {
-    fn new(db_pool: sqlx::MySqlPool, apex_name: StoredDname) -> Self {
+    fn new(db_pool: sqlx::MySqlPool, apex_name: StoredName) -> Self {
         Self { db_pool, apex_name }
     }
 }
@@ -242,7 +248,7 @@ impl ReadableZone for DatabaseReadZone {
 
     fn query_async(
         &self,
-        qname: Dname<Bytes>,
+        qname: Name<Bytes>,
         qtype: Rtype,
     ) -> Pin<Box<dyn Future<Output = Result<Answer, OutOfZone>> + Send>> {
         let db_pool = self.db_pool.clone();
@@ -296,7 +302,7 @@ impl ReadableZone for DatabaseReadZone {
             .await
             .unwrap() {
                 let owner: String = row.try_get("name").unwrap();
-                let owner = Dname::bytes_from_str(&owner).unwrap();
+                let owner = Name::bytes_from_str(&owner).unwrap();
                 let rtype: String = row.try_get("rtype").unwrap();
                 let rtype = Rtype::from_str(&rtype).unwrap();
                 let ttl = row.try_get("ttl").unwrap();
@@ -320,7 +326,7 @@ impl ReadableZone for DatabaseReadZone {
 
     fn query(
         &self,
-        _qname: Dname<Bytes>,
+        _qname: Name<Bytes>,
         _qtype: Rtype,
     ) -> Result<Answer, OutOfZone> {
         unimplemented!()
