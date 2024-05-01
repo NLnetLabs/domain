@@ -37,8 +37,10 @@ ring           = { version = "0.17", optional = true }
 serde          = { version = "1.0.130", optional = true, features = ["derive"] }
 siphasher      = { version = "1", optional = true }
 smallvec       = { version = "1.3", optional = true }
+threadpool     = { version = "1.8", optional = true }
 tokio          = { version = "1.33", optional = true, features = ["io-util", "macros", "net", "time", "sync", "rt-multi-thread" ] }
 tokio-rustls   = { version = "0.26", optional = true, default-features = false }
+tokio-stream   = { version = "0.1", optional = true }
 tracing        = { version = "0.1.40", optional = true }
 
 # For testing in integration tests:
@@ -61,7 +63,7 @@ zonefile    = ["bytes", "serde", "std"]
 
 # Unstable features
 unstable-client-transport = [ "moka", "net", "tracing" ]
-unstable-server-transport = ["arc-swap", "chrono/clock", "hex", "libc", "net", "tracing"]
+unstable-server-transport = ["arc-swap", "chrono/clock", "hex", "libc", "net", "threadpool", "tokio-stream", "tracing"]
 unstable-zonetree = ["futures", "parking_lot", "serde", "tokio", "tracing"]
 
 # Test features

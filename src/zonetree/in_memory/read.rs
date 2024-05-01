@@ -9,6 +9,7 @@ use crate::base::iana::{Rcode, Rtype};
 use crate::base::name::Label;
 use crate::base::Name;
 use crate::zonetree::answer::{Answer, AnswerAuthority};
+use crate::zonetree::error::OutOfZone;
 use crate::zonetree::types::ZoneCut;
 use crate::zonetree::walk::WalkState;
 use crate::zonetree::{ReadableZone, Rrset, SharedRr, SharedRrset, WalkOp};
@@ -16,7 +17,6 @@ use crate::zonetree::{ReadableZone, Rrset, SharedRr, SharedRrset, WalkOp};
 use super::nodes::{NodeChildren, NodeRrsets, Special, ZoneApex, ZoneNode};
 use super::versioned::Version;
 use super::versioned::VersionMarker;
-use crate::zonetree::error::OutOfZone;
 
 //------------ ReadZone ------------------------------------------------------
 
@@ -133,7 +133,7 @@ impl ReadZone {
                 if walk.enabled() {
                     let mut rrset = Rrset::new(Rtype::CNAME, cname.ttl());
                     rrset.push_data(cname.data().clone());
-                    walk.op(&rrset);
+                    walk.op(&SharedRrset::new(rrset));
                 }
                 answer
             }

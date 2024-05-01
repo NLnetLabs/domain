@@ -3,7 +3,7 @@
 // TODO: Add IXFR diff purging.
 // TODO: Add IXFR diff condensation.
 // TODO: Add RRset combining in single responses.
-use core::future::{ready, Future, Ready};
+use core::future::{ready, Ready};
 use core::marker::PhantomData;
 use core::ops::ControlFlow;
 use core::pin::Pin;
@@ -11,12 +11,16 @@ use core::pin::Pin;
 use std::boxed::Box;
 use std::collections::BTreeMap;
 use std::collections::HashMap;
+use std::string::ToString;
 use std::sync::{Arc, Mutex};
 use std::vec::Vec;
 
 use bytes::Bytes;
-use futures::stream::{once, FuturesOrdered, Once};
+use futures::stream::{once, Once};
 use octseq::Octets;
+use threadpool::ThreadPool;
+use tokio::sync::mpsc::{unbounded_channel, UnboundedSender};
+use tokio_stream::wrappers::UnboundedReceiverStream;
 
 use crate::base::iana::{Class, Opcode, OptRcode, Rcode};
 use crate::base::message_builder::AdditionalBuilder;
@@ -32,16 +36,15 @@ use crate::net::server::service::{
 use crate::net::server::util::{mk_builder_for_target, mk_error_response};
 use crate::rdata::ZoneRecordData;
 use crate::zonetree::{
-    Answer, AnswerContent, ReadableZone, Rrset, StoredName, Zone, ZoneDiff,
-    ZoneSetIter,
+    Answer, AnswerContent, ReadableZone, SharedRrset, StoredName, Zone,
+    ZoneDiff, ZoneSetIter,
 };
 
 use super::stream::MiddlewareStream;
 
 //------------ XfrMapStream --------------------------------------------------
 
-type XfrResultStream<StreamItem> =
-    FuturesOrdered<Pin<Box<dyn Future<Output = StreamItem> + Send + Sync>>>;
+type XfrResultStream<StreamItem> = UnboundedReceiverStream<StreamItem>;
 
 //------------ XfrMiddlewareStream -------------------------------------------
 
@@ -180,6 +183,8 @@ pub struct XfrMiddlewareSvc<RequestOctets, Svc> {
     /// The set of zones to answer XFR requests for.
     zones: Arc<Mutex<HashMap<(Class, StoredName), ZoneInfo>>>,
 
+    pool: ThreadPool,
+
     _phantom: PhantomData<RequestOctets>,
 }
 
@@ -189,10 +194,16 @@ impl<RequestOctets, Svc> XfrMiddlewareSvc<RequestOctets, Svc> {
     /// The processor will not respond to XFR requests until you add at least
     /// one zone to it.
     #[must_use]
-    pub fn new(svc: Svc) -> Self {
+    pub fn new(svc: Svc, num_threads: usize) -> Self {
+        let pool = threadpool::Builder::new()
+            .num_threads(num_threads)
+            .thread_name("xfr".to_string())
+            .build();
+
         Self {
             svc,
             zones: Arc::new(Mutex::new(HashMap::new())),
+            pool,
             _phantom: PhantomData,
         }
     }
@@ -237,6 +248,7 @@ where
     async fn preprocess(
         msg: Arc<Message<RequestOctets>>,
         zones: Arc<Mutex<HashMap<(Class, StoredName), ZoneInfo>>>,
+        pool: ThreadPool,
     ) -> ControlFlow<
         XfrMiddlewareStream<
             Svc::Future,
@@ -298,8 +310,13 @@ where
                     }
 
                     Rtype::AXFR => {
-                        return Self::do_axfr(&msg, &zone_soa_answer, read)
-                            .await;
+                        return Self::do_axfr(
+                            &msg,
+                            &zone_soa_answer,
+                            read,
+                            pool,
+                        )
+                        .await;
                     }
 
                     Rtype::IXFR => {
@@ -325,6 +342,7 @@ where
                                     &msg,
                                     &zone_soa_answer,
                                     read,
+                                    pool,
                                 )
                                 .await;
                             }
@@ -343,6 +361,7 @@ where
         msg: &Arc<Message<RequestOctets>>,
         zone_soa_answer: &Answer,
         read: Box<dyn ReadableZone>,
+        pool: ThreadPool,
     ) -> ControlFlow<
         XfrMiddlewareStream<
             Svc::Future,
@@ -355,63 +374,98 @@ where
         //   - RRSETs, one or more per response message
         //   - SOA
 
-        let mut stream = FuturesOrdered::new();
+        let (sender, receiver) = unbounded_channel();
+        let stream = UnboundedReceiverStream::new(receiver);
 
         Self::add_to_stream(
             CallResult::feedback_only(ServiceFeedback::BeginTransaction),
-            &mut stream,
+            &sender,
         );
 
-        Self::add_msg_to_stream(zone_soa_answer, msg, &mut stream);
+        Self::add_msg_to_stream(zone_soa_answer, msg, &sender);
 
-        let stream = Arc::new(Mutex::new(stream));
-        let cloned_stream = stream.clone();
         let cloned_msg = msg.clone();
+        let zone_soa_answer = zone_soa_answer.clone();
+        tokio::spawn(async move {
+            let cloned_sender = sender.clone();
+            let cloned_msg2 = cloned_msg.clone();
 
-        // TODO: Add batching of RRsets into single DNS responses instead
-        // of one response per RRset. Perhaps via a response combining
-        // middleware service?
+            // TODO: Add batching of RRsets into single DNS responses instead
+            // of one response per RRset. Perhaps via a response combining
+            // middleware service?
 
-        let op = Box::new(move |owner: Name<_>, rrset: &Rrset| {
-            let cloned_msg = cloned_msg.clone();
-            let cloned_rrset = rrset.clone();
-            if rrset.rtype() != Rtype::SOA {
-                let fut = async move {
-                    let builder = mk_builder_for_target();
-                    let mut answer = builder
-                        .start_answer(&cloned_msg, Rcode::NOERROR)
-                        .unwrap();
-                    for item in cloned_rrset.data() {
-                        answer
-                            .push((owner.clone(), cloned_rrset.ttl(), item))
-                            .unwrap();
+            let op =
+                Box::new(move |owner: StoredName, rrset: &SharedRrset| {
+                    if rrset.rtype() != Rtype::SOA {
+                        let cloned_owner = owner.clone();
+                        let cloned_rrset = rrset.clone();
+                        let cloned_msg2 = cloned_msg2.clone();
+                        let cloned_sender = cloned_sender.clone();
+
+                        // In manual testing the same kind of performance can
+                        // be achieved by using:
+                        //
+                        //     tokio::task::spawn_blocking()
+                        //
+                        // here instead of pool.execute(), but we get much
+                        // less control over how many threads are going to be
+                        // used. It would use threads from the Tokio blocking
+                        // thread pool which by default allows up to 512
+                        // threads, but those threads are also used for any
+                        // other calls to spawn_blocking() within the
+                        // application.
+                        pool.execute(move || {
+                            if !cloned_sender.is_closed() {
+                                let builder = mk_builder_for_target();
+                                let mut answer = builder
+                                    .start_answer(
+                                        &cloned_msg2,
+                                        Rcode::NOERROR,
+                                    )
+                                    .unwrap();
+                                for item in cloned_rrset.data() {
+                                    answer
+                                        .push((
+                                            cloned_owner.clone(),
+                                            cloned_rrset.ttl(),
+                                            item,
+                                        ))
+                                        .unwrap();
+                                }
+
+                                let mut additional = answer.additional();
+                                Self::set_axfr_header(
+                                    &cloned_msg2,
+                                    &mut additional,
+                                );
+                                let call_result =
+                                    Ok(CallResult::new(additional));
+
+                                let _ = cloned_sender.send(call_result);
+                            }
+                        });
                     }
+                });
 
-                    let mut additional = answer.additional();
-                    Self::set_axfr_header(&cloned_msg, &mut additional);
-                    Ok(CallResult::new(additional))
-                };
-
-                let mut stream = cloned_stream.lock().unwrap();
-
-                stream.push_back(Box::pin(fut));
+            match read.is_async() {
+                true => {
+                    read.walk_async(op).await;
+                }
+                false => {
+                    let _ = tokio::task::spawn_blocking(move || {
+                        read.walk(op);
+                    })
+                    .await;
+                }
             }
+
+            Self::add_msg_to_stream(&zone_soa_answer, &cloned_msg, &sender);
+
+            Self::add_to_stream(
+                CallResult::feedback_only(ServiceFeedback::EndTransaction),
+                &sender,
+            );
         });
-
-        match read.is_async() {
-            true => read.walk_async(op).await,
-            false => read.walk(op),
-        }
-
-        let mutex = Arc::try_unwrap(stream).unwrap();
-        let mut stream = mutex.into_inner().unwrap();
-
-        Self::add_msg_to_stream(zone_soa_answer, msg, &mut stream);
-
-        Self::add_to_stream(
-            CallResult::feedback_only(ServiceFeedback::EndTransaction),
-            &mut stream,
-        );
 
         ControlFlow::Break(MiddlewareStream::Result(stream))
     }
@@ -531,11 +585,12 @@ where
         // Errata https://www.rfc-editor.org/errata/eid3196 points out that
         // this is NOT "just as in AXFR" as AXFR does not do that.
         if query_serial >= zone_serial {
-            let mut stream = FuturesOrdered::new();
+            let (sender, receiver) = unbounded_channel();
+            let stream = UnboundedReceiverStream::new(receiver);
 
             Self::add_to_stream(
                 CallResult::feedback_only(ServiceFeedback::BeginTransaction),
-                &mut stream,
+                &sender,
             );
 
             // https://datatracker.ietf.org/doc/html/rfc1995#section-4
@@ -544,11 +599,11 @@ where
             //    difference sequences is returned.  The list of difference
             //    sequences is preceded and followed by a copy of the server's
             //    current version of the SOA."
-            Self::add_msg_to_stream(zone_soa_answer, msg, &mut stream);
+            Self::add_msg_to_stream(zone_soa_answer, msg, &sender);
 
             Self::add_to_stream(
                 CallResult::feedback_only(ServiceFeedback::EndTransaction),
-                &mut stream,
+                &sender,
             );
 
             return Some(ControlFlow::Break(MiddlewareStream::Result(
@@ -564,11 +619,13 @@ where
             return None;
         };
 
-        let mut stream = FuturesOrdered::new();
+        // let mut stream = FuturesOrdered::new();
+        let (sender, receiver) = unbounded_channel();
+        let stream = UnboundedReceiverStream::new(receiver);
 
         Self::add_to_stream(
             CallResult::feedback_only(ServiceFeedback::BeginTransaction),
-            &mut stream,
+            &sender,
         );
 
         // https://datatracker.ietf.org/doc/html/rfc1995#section-4
@@ -577,7 +634,7 @@ where
         //    difference sequences is returned.  The list of difference
         //    sequences is preceded and followed by a copy of the server's
         //    current version of the SOA."
-        Self::add_msg_to_stream(zone_soa_answer, msg, &mut stream);
+        Self::add_msg_to_stream(zone_soa_answer, msg, &sender);
 
         // https://datatracker.ietf.org/doc/html/rfc1995#section-4
         // 4. Response Format
@@ -613,11 +670,7 @@ where
             let mut old_soa_version_answer = Answer::new(Rcode::NOERROR);
             old_soa_version_answer.add_answer(non_soa.clone());
 
-            Self::add_msg_to_stream(
-                &old_soa_version_answer,
-                msg,
-                &mut stream,
-            );
+            Self::add_msg_to_stream(&old_soa_version_answer, msg, &sender);
 
             for non_soa_rr in removed_top_node_rrsets
                 .iter()
@@ -625,7 +678,7 @@ where
             {
                 let mut answer = Answer::new(Rcode::NOERROR);
                 answer.add_answer(non_soa_rr.clone());
-                Self::add_msg_to_stream(&answer, msg, &mut stream);
+                Self::add_msg_to_stream(&answer, msg, &sender);
             }
 
             // Emit added RRs.
@@ -644,11 +697,7 @@ where
             let mut old_soa_version_answer = Answer::new(Rcode::NOERROR);
             old_soa_version_answer.add_answer(non_soa.clone());
 
-            Self::add_msg_to_stream(
-                &old_soa_version_answer,
-                msg,
-                &mut stream,
-            );
+            Self::add_msg_to_stream(&old_soa_version_answer, msg, &sender);
 
             for non_soa_rr in added_top_node_rrsets
                 .iter()
@@ -656,7 +705,7 @@ where
             {
                 let mut answer = Answer::new(Rcode::NOERROR);
                 answer.add_answer(non_soa_rr.clone());
-                Self::add_msg_to_stream(&answer, msg, &mut stream);
+                Self::add_msg_to_stream(&answer, msg, &sender);
             }
         }
 
@@ -666,11 +715,11 @@ where
         //    difference sequences is returned.  The list of difference
         //    sequences is preceded and followed by a copy of the server's
         //    current version of the SOA."
-        Self::add_msg_to_stream(zone_soa_answer, msg, &mut stream);
+        Self::add_msg_to_stream(zone_soa_answer, msg, &sender);
 
         Self::add_to_stream(
             CallResult::feedback_only(ServiceFeedback::EndTransaction),
-            &mut stream,
+            &sender,
         );
 
         Some(ControlFlow::Break(MiddlewareStream::Result(stream)))
@@ -679,21 +728,21 @@ where
     fn add_msg_to_stream(
         answer: &Answer,
         msg: &Message<RequestOctets>,
-        stream: &mut XfrResultStream<ServiceResult<Svc::Target>>,
+        sender: &UnboundedSender<ServiceResult<Svc::Target>>,
     ) {
         let builder = mk_builder_for_target();
         let mut additional = answer.to_message(msg, builder);
         Self::set_axfr_header(msg, &mut additional);
         let call_result = CallResult::new(additional);
-        Self::add_to_stream(call_result, stream);
+        Self::add_to_stream(call_result, sender);
     }
 
     #[allow(clippy::type_complexity)]
     fn add_to_stream(
         call_result: CallResult<Svc::Target>,
-        stream: &mut XfrResultStream<ServiceResult<Svc::Target>>,
+        sender: &UnboundedSender<ServiceResult<Svc::Target>>,
     ) {
-        stream.push_back(Box::pin(ready(Ok(call_result))));
+        sender.send(Ok(call_result)).unwrap();
     }
 
     fn set_axfr_header(
@@ -762,8 +811,9 @@ where
                 let msg = request.message().clone();
                 let svc = self.svc.clone();
                 let zones = self.zones.clone();
+                let pool = self.pool.clone();
                 let fut = async move {
-                    match Self::preprocess(msg, zones).await {
+                    match Self::preprocess(msg, zones, pool).await {
                         ControlFlow::Continue(()) => {
                             let stream = svc.call(request).await;
                             MiddlewareStream::IdentityStream(stream)

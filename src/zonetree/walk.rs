@@ -2,17 +2,15 @@ use std::boxed::Box;
 use std::sync::{Arc, Mutex};
 use std::vec::Vec;
 
-use bytes::Bytes;
-
-use super::Rrset;
+use super::{SharedRrset, StoredName};
 use crate::base::name::OwnedLabel;
-use crate::base::{Name, NameBuilder};
+use crate::base::NameBuilder;
 
 /// A callback function invoked for each leaf node visited while walking a
 /// [`Zone`].
 ///
 /// [`Zone`]: super::Zone
-pub type WalkOp = Box<dyn Fn(Name<Bytes>, &Rrset) + Send + Sync>;
+pub type WalkOp = Box<dyn Fn(StoredName, &SharedRrset) + Send + Sync>;
 
 struct WalkStateInner {
     op: WalkOp,
@@ -46,7 +44,7 @@ impl WalkState {
         self.inner.is_some()
     }
 
-    pub(super) fn op(&self, rrset: &Rrset) {
+    pub(super) fn op(&self, rrset: &SharedRrset) {
         if let Some(inner) = &self.inner {
             let labels = inner.label_stack.lock().unwrap();
             let mut dname = NameBuilder::new_bytes();

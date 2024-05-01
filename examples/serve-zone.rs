@@ -2,10 +2,9 @@
 //!
 //! Try queries such as:
 //!
-//!   dig @127.0.0.1 -p 8053 NS example.com
-//!   dig @127.0.0.1 -p 8053 A example.com
-//!   dig @127.0.0.1 -p 8053 AAAA example.com
-//!   dig @127.0.0.1 -p 8053 CNAME example.com
+//!   dig @127.0.0.1 -p 8053 NS example.com dig @127.0.0.1 -p 8053 A
+//!   example.com dig @127.0.0.1 -p 8053 AAAA example.com dig @127.0.0.1 -p
+//!   8053 CNAME example.com
 //!
 //! Also try with TCP, e.g.:
 //!
@@ -14,6 +13,18 @@
 //! Also try AXFR, e.g.:
 //!
 //!   dig @127.0.0.1 -p 8053 AXFR example.com
+//!
+//! With a large zone and the following dig options and an XFR thread pool of
+//! size 16 a peak rate of 110MB/s (localhost only) was recorded:
+//!
+//!   $ dig -4 @127.0.0.1 -p 8053 +noanswer +tries=1 +noidnout AXFR de.
+//!   ; <<>> DiG 9.18.24 <<>> +noanswer -4 @127.0.0.1 -p 8053 +tries +noidnout AXFR de.
+//!   ; (1 server found)
+//!   ;; global options: +cmd
+//!   ;; Query time: 47669 msec
+//!   ;; SERVER: 127.0.0.1#8053(127.0.0.1) (TCP)
+//!   ;; WHEN: Thu May 02 00:14:04 CEST 2024
+//!   ;; XFR size: 43347447 records (messages 16393621, bytes 2557835040)
 
 use core::str::FromStr;
 
@@ -36,8 +47,9 @@ use domain::net::server::middleware::edns::EdnsMiddlewareSvc;
 use domain::net::server::middleware::mandatory::MandatoryMiddlewareSvc;
 use domain::net::server::middleware::xfr::XfrMiddlewareSvc;
 use domain::net::server::service::{CallResult, ServiceResult};
-use domain::net::server::stream::StreamServer;
+use domain::net::server::stream::{self, StreamServer};
 use domain::net::server::util::{mk_builder_for_target, service_fn};
+use domain::net::server::ConnectionConfig;
 use domain::zonefile::inplace;
 use domain::zonetree::{Answer, Rrset, SharedRrset};
 use domain::zonetree::{Zone, ZoneTree};
@@ -86,7 +98,10 @@ async fn main() {
     let svc = service_fn(my_service, zones);
 
     // Insert XFR middleware to automagically handle AXFR and IXFR requests.
-    let mut svc = XfrMiddlewareSvc::<Vec<u8>, _>::new(svc);
+    let num_xfr_threads =
+        std::thread::available_parallelism().unwrap().get() / 2;
+    println!("Using {num_xfr_threads} threads for XFR");
+    let mut svc = XfrMiddlewareSvc::<Vec<u8>, _>::new(svc, num_xfr_threads);
     svc.add_zone(zone.clone());
     if let Some(diff) = diff {
         svc.add_diff(&zone, diff);
@@ -111,7 +126,11 @@ async fn main() {
     }
 
     let sock = TcpListener::bind(addr).await.unwrap();
-    let tcp_srv = StreamServer::new(sock, VecBufSource, svc);
+    let mut conn_config = ConnectionConfig::new();
+    conn_config.set_max_queued_responses(1024);
+    let mut config = stream::Config::new();
+    config.set_connection_config(conn_config);
+    let tcp_srv = StreamServer::with_config(sock, VecBufSource, svc, config);
     let tcp_metrics = tcp_srv.metrics();
 
     tokio::spawn(async move { tcp_srv.run().await });

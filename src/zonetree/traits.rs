@@ -21,9 +21,9 @@ use crate::base::name::Label;
 use crate::base::{Name, Rtype};
 
 use super::answer::Answer;
+use super::error::OutOfZone;
 use super::types::{ZoneCut, ZoneDiff};
 use super::{SharedRr, SharedRrset, StoredName, WalkOp};
-use super::error::OutOfZone;
 
 //------------ ZoneStore -----------------------------------------------------
 
