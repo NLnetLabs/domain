@@ -544,9 +544,13 @@ fn do_middleware_postprocessing<Buf, Svc, Server>(
             )
             .is_break()
             {
-                if response_txn.next().await.is_some() {
-                    error!("Discarding remaining response stream items due to underlying transport error.");
+                metrics.inc_num_aborted_writes();
+                error!("Discarding remaining response stream items due to underlying transport error.");
+
+                while response_txn.next().await.is_some() {
+                    metrics.inc_num_aborted_writes();
                 }
+
                 break;
             }
         }

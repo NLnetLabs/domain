@@ -21,6 +21,9 @@ pub struct ServerMetrics {
     /// The number of responses waiting to be written back to the client.
     num_pending_writes: AtomicUsize,
 
+    /// The number of responses that could not be written back to the client.
+    num_aborted_writes: AtomicUsize,
+
     /// The total number of requests received since this metric collection was created.
     num_received_requests: AtomicUsize,
 
@@ -110,7 +113,7 @@ impl ServerMetrics {
         self.num_pending_writes.load(Ordering::Relaxed)
     }
 
-    /// Set the number of inflight requests metric.
+    /// Set the number of pending writes metric.
     pub fn set_num_pending_writes(&self, new_value: usize) {
         self.num_pending_writes.store(new_value, Ordering::Relaxed);
     }
@@ -123,6 +126,28 @@ impl ServerMetrics {
     /// Decrement the number of pending writes metric.
     pub fn dec_num_pending_writes(&self) {
         self.num_pending_writes.fetch_sub(1, Ordering::Relaxed);
+    }
+}
+
+impl ServerMetrics {
+    /// The number of responses generated but not yet sent back to the client.
+    pub fn num_aborted_writes(&self) -> usize {
+        self.num_aborted_writes.load(Ordering::Relaxed)
+    }
+
+    /// Set the number of aborted writes metric.
+    pub fn set_num_aborted_writes(&self, new_value: usize) {
+        self.num_aborted_writes.store(new_value, Ordering::Relaxed);
+    }
+
+    /// Increment the number of aborted writes metric.
+    pub fn inc_num_aborted_writes(&self) {
+        self.num_aborted_writes.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// Decrement the number of aborted writes metric.
+    pub fn dec_num_aborted_writes(&self) {
+        self.num_aborted_writes.fetch_sub(1, Ordering::Relaxed);
     }
 }
 
@@ -155,7 +180,7 @@ impl ServerMetrics {
         self.num_sent_responses.load(Ordering::Relaxed)
     }
 
-    /// Set the number of sent resposnes metric.
+    /// Set the number of sent responses metric.
     pub fn set_num_sent_responses(&self, new_value: usize) {
         self.num_sent_responses.store(new_value, Ordering::Relaxed);
     }
