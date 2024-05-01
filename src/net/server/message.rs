@@ -343,7 +343,7 @@ where
         call_result: CallResult<Svc::Target>,
         state: Self::Meta,
         metrics: Arc<ServerMetrics>,
-    );
+    ) -> ControlFlow<()>;
 }
 
 /// Propogate a message through the [`MiddlewareChain`] to the [`Service`] and
@@ -536,12 +536,19 @@ fn do_middleware_postprocessing<Buf, Svc, Server>(
                 );
             }
 
-            Server::process_call_result(
+            if Server::process_call_result(
                 &request,
                 call_result,
                 meta.clone(),
                 metrics.clone(),
-            );
+            )
+            .is_break()
+            {
+                if response_txn.next().await.is_some() {
+                    error!("Discarding remaining response stream items due to underlying transport error.");
+                }
+                break;
+            }
         }
 
         metrics.dec_num_inflight_requests();
