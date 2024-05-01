@@ -414,6 +414,14 @@ where
                         // threads, but those threads are also used for any
                         // other calls to spawn_blocking() within the
                         // application.
+                        //
+                        // Note: While it's also possible to just run the zone
+                        // walk in a single spawned thread, that prevents
+                        // scaling across more threads if it becomes useful,
+                        // and allows an unbounded number of simultaneous XFR
+                        // transfers to occur in parallel, while using a
+                        // thread pool puts an upper limit on the number of
+                        // threads concurrently performing XFR.
                         pool.execute(move || {
                             if !cloned_sender.is_closed() {
                                 let builder = mk_builder_for_target();
