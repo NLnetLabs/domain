@@ -284,14 +284,18 @@ impl ReadableZone for ReadZone {
     }
 
     fn walk(&self, op: WalkOp) {
-        // https://datatracker.ietf.org/doc/html/rfc8482 notes that the ANY
-        // query type is problematic and should be answered as minimally as
-        // possible. Rather than use ANY internally here to achieve a walk, as
-        // specific behaviour may actually be wanted for ANY we instead use
-        // the presence of a callback `op` to indicate that walking mode is
+        // The presence of a callback `op` indicates that walking mode is
         // requested. We still have to pass an Rtype but it won't be used for
         // matching when in walk mode, so we set it to Any as it most closely
         // matches our intent and will be ignored anyway.
+        //
+        // The walk is single threaded. With an empty callback function on a
+        // "13th Gen Intel(R) Core(TM) i9-13900K" over 43,347,447 resource
+        // records the walk took ~6 seconds, compared to 47 seconds for the
+        // callback function to emit the same records as DNS messages and for
+        // dig to receive the entire zone via AXFR:
+        //
+        //   dig -4 @127.0.0.1 -p 8053 +noanswer +tries=1 +noidnout AXFR de.
         let walk = WalkState::new(op);
         self.query_rrsets(self.apex.rrsets(), Rtype::ANY, walk.clone());
         self.query_below_apex(Label::root(), iter::empty(), Rtype::ANY, walk);
