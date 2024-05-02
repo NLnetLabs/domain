@@ -11,14 +11,12 @@ use core::pin::Pin;
 use std::boxed::Box;
 use std::collections::BTreeMap;
 use std::collections::HashMap;
-use std::string::ToString;
 use std::sync::{Arc, Mutex};
 use std::vec::Vec;
 
 use bytes::Bytes;
 use futures::stream::{once, Once};
 use octseq::Octets;
-use threadpool::ThreadPool;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedSender};
 use tokio_stream::wrappers::UnboundedReceiverStream;
 
@@ -41,6 +39,32 @@ use crate::zonetree::{
 };
 
 use super::stream::MiddlewareStream;
+
+//------------ ThreadPool ----------------------------------------------------
+
+#[rustversion::since(1.72)]
+use threadpool::ThreadPool;
+
+#[rustversion::before(1.72)]
+#[derive(Clone, Debug)]
+struct ThreadPool;
+
+#[rustversion::before(1.72)]
+impl ThreadPool {
+    pub fn execute<F>(&self, job: F)
+    where
+        F: FnOnce() + Send + 'static,
+    {
+        // Less constrained (by default spawns up to 512 threads) and more
+        // impacting (the thread pool is shared by the rest of the application
+        // so filling it with XFR threads can starve uses of the pool by other
+        // parts of the application) than threadpool::ThreadPool, but pre 1.72
+        // std::sync::mpsc::Sender is not Sync, which is required for code
+        // using threadpool::ThreadPool to compile, so we fall back to this
+        // instead.
+        tokio::task::spawn_blocking(job);
+    }
+}
 
 //------------ XfrMapStream --------------------------------------------------
 
@@ -195,10 +219,7 @@ impl<RequestOctets, Svc> XfrMiddlewareSvc<RequestOctets, Svc> {
     /// one zone to it.
     #[must_use]
     pub fn new(svc: Svc, num_threads: usize) -> Self {
-        let pool = threadpool::Builder::new()
-            .num_threads(num_threads)
-            .thread_name("xfr".to_string())
-            .build();
+        let pool = Self::mk_thread_pool(num_threads);
 
         Self {
             svc,
@@ -206,6 +227,20 @@ impl<RequestOctets, Svc> XfrMiddlewareSvc<RequestOctets, Svc> {
             pool,
             _phantom: PhantomData,
         }
+    }
+
+    #[rustversion::since(1.72)]
+    fn mk_thread_pool(num_threads: usize) -> ThreadPool {
+        use std::string::ToString;
+        threadpool::Builder::new()
+            .num_threads(num_threads)
+            .thread_name("xfr".to_string())
+            .build()
+    }
+
+    #[rustversion::before(1.72)]
+    fn mk_thread_pool(_num_threads: usize) -> ThreadPool {
+        ThreadPool
     }
 
     pub fn add_zoneset(&mut self, iter: &mut ZoneSetIter<'_>) {
