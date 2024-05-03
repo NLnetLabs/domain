@@ -6,7 +6,9 @@ use super::anchor::TrustAnchor;
 use super::anchor::TrustAnchors;
 use super::group::Group;
 use super::group::GroupList;
-use super::nsec::nsec3_hash;
+//use super::nsec::nsec3_hash;
+use super::nsec::cached_nsec3_hash;
+use super::nsec::Nsec3Cache;
 use super::nsec::NSEC3_ITER_BOGUS;
 use super::nsec::NSEC3_ITER_INSECURE;
 use super::types::ValidationState;
@@ -46,7 +48,8 @@ use std::time::Duration;
 use std::time::Instant;
 use std::vec::Vec;
 
-const MAX_CACHE: u64 = 100;
+const MAX_NODE_CACHE: u64 = 100;
+const MAX_NSEC3_CACHE: u64 = 100;
 
 const MAX_NODE_VALID: Duration = Duration::from_secs(600);
 
@@ -54,7 +57,8 @@ pub struct ValidationContext<Upstream> {
     ta: TrustAnchors,
     upstream: Upstream,
 
-    cache: Cache<Name<Bytes>, Arc<Node>>,
+    node_cache: Cache<Name<Bytes>, Arc<Node>>,
+    nsec3_cache: Nsec3Cache,
 }
 
 impl<Upstream> ValidationContext<Upstream> {
@@ -62,7 +66,8 @@ impl<Upstream> ValidationContext<Upstream> {
         Self {
             ta,
             upstream,
-            cache: Cache::new(MAX_CACHE),
+            node_cache: Cache::new(MAX_NODE_CACHE),
+            nsec3_cache: Nsec3Cache::new(MAX_NSEC3_CACHE),
         }
     }
 
@@ -132,7 +137,7 @@ impl<Upstream> ValidationContext<Upstream> {
                 self.create_child_node(child_name.clone(), &signer_node)
                     .await,
             );
-            self.cache.insert(child_name, node.clone()).await;
+            self.node_cache.insert(child_name, node.clone()).await;
             if !node.intermediate() {
                 signer_node = node.clone();
             }
@@ -162,7 +167,7 @@ impl<Upstream> ValidationContext<Upstream> {
                 let node =
                     Node::trust_anchor(ta, self.upstream.clone()).await;
                 let node = Arc::new(node);
-                self.cache.insert(curr, node.clone()).await;
+                self.node_cache.insert(curr, node.clone()).await;
                 return (node, names);
             }
 
@@ -241,8 +246,13 @@ impl<Upstream> ValidationContext<Upstream> {
                         NsecState::Nothing => (), // Try NSEC3 next.
                     }
 
-                    let (state, ede, ttl) =
-                        nsec3_for_ds(&name, &mut authorities, node);
+                    let (state, ede, ttl) = nsec3_for_ds(
+                        &name,
+                        &mut authorities,
+                        node,
+                        self.nsec3_cache(),
+                    )
+                    .await;
                     println!(
                         "create_child_node: got state {state:?} for {name:?}"
                     );
@@ -481,12 +491,16 @@ impl<Upstream> ValidationContext<Upstream> {
     }
 
     async fn cache_lookup(&self, name: &Name<Bytes>) -> Option<Arc<Node>> {
-        let ce = self.cache.get(name).await?;
+        let ce = self.node_cache.get(name).await?;
         if ce.expired() {
             println!("cache_lookup: cache entry for {name:?} has expired");
             return None;
         }
         Some(ce)
+    }
+
+    pub fn nsec3_cache(&self) -> &Nsec3Cache {
+        &self.nsec3_cache
     }
 }
 
@@ -871,10 +885,11 @@ fn nsec_for_ds(
 // So we have two possibilities: we find an exact match for the hash of the
 // name and check the bitmap or we find that the name does not exist, but
 // the NSEC3 record uses opt-out.
-fn nsec3_for_ds(
+async fn nsec3_for_ds(
     target: &Name<Bytes>,
     groups: &mut GroupList,
     node: &Node,
+    nsec3_cache: &Nsec3Cache,
 ) -> (NsecState, Option<ExtendedError<Bytes>>, Duration) {
     for g in groups.iter() {
         if g.rtype() != Rtype::NSEC3 {
@@ -898,12 +913,14 @@ fn nsec3_for_ds(
 
         // Create the hash with the parameters in this record. We should cache
         // the hash.
-        let hash = nsec3_hash(
+        let hash = cached_nsec3_hash(
             target,
             nsec3.hash_algorithm(),
             iterations,
             nsec3.salt(),
-        );
+            nsec3_cache,
+        )
+        .await;
 
         let owner = g.owner();
         let first = owner.first();
@@ -960,7 +977,7 @@ fn nsec3_for_ds(
         // Check if target is between the hash in the first label and the
         // next_owner field.
         if first < Label::from_slice(hash.to_string().as_ref()).unwrap()
-            && hash < nsec3.next_owner()
+            && hash.as_ref() < nsec3.next_owner()
         {
             // target does not exist. However, if the opt-out flag is set,
             // we are allowed to assume an insecure delegation (RFC 5155,

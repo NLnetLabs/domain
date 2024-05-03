@@ -10,13 +10,30 @@ use crate::dep::octseq::OctetsBuilder;
 use crate::rdata::nsec3::Nsec3Salt;
 use crate::rdata::nsec3::OwnerHash;
 use bytes::Bytes;
+use moka::future::Cache;
 use ring::digest;
 use std::str::FromStr;
+use std::sync::Arc;
 use std::vec::Vec;
 
 // These need to be config variables.
 pub const NSEC3_ITER_INSECURE: u16 = 100;
 pub const NSEC3_ITER_BOGUS: u16 = 500;
+
+pub struct Nsec3Cache {
+    cache: Cache<
+        (Name<Bytes>, Nsec3HashAlg, u16, Nsec3Salt<Bytes>),
+        Arc<OwnerHash<Vec<u8>>>,
+    >,
+}
+
+impl Nsec3Cache {
+    pub fn new(size: u64) -> Self {
+        Self {
+            cache: Cache::new(size),
+        }
+    }
+}
 
 /// Compute the NSEC3 hash according to Section 5 of RFC 5155:
 ///
@@ -25,7 +42,7 @@ pub const NSEC3_ITER_BOGUS: u16 = 500;
 ///
 /// Then the calculated hash of an owner name is
 ///    IH(salt, owner name, iterations),
-pub fn nsec3_hash<N, HashOcts>(
+fn nsec3_hash<N, HashOcts>(
     owner: N,
     algorithm: Nsec3HashAlg,
     iterations: u16,
@@ -69,14 +86,33 @@ where
     OwnerHash::from_octets(h.as_ref().to_vec()).unwrap()
 }
 
+pub async fn cached_nsec3_hash(
+    owner: &Name<Bytes>,
+    algorithm: Nsec3HashAlg,
+    iterations: u16,
+    salt: &Nsec3Salt<Bytes>,
+    cache: &Nsec3Cache,
+) -> Arc<OwnerHash<Vec<u8>>> {
+    let key = (owner.clone(), algorithm, iterations, salt.clone());
+    if let Some(ce) = cache.cache.get(&key).await {
+        println!("cached_nsec3_hash: existing hash for {owner:?}, {algorithm:?}, {iterations:?}, {salt:?}");
+        return ce;
+    }
+    println!("cached_nsec3_hash: new hash for {owner:?}, {algorithm:?}, {iterations:?}, {salt:?}");
+    let hash = nsec3_hash(owner, algorithm, iterations, salt);
+    let hash = Arc::new(hash);
+    cache.cache.insert(key, hash.clone()).await;
+    hash
+}
+
 pub fn nsec3_label_to_hash(label: &Label) -> OwnerHash<Vec<u8>> {
     let label_str = std::str::from_utf8(label.as_ref()).unwrap();
     OwnerHash::<Vec<u8>>::from_str(&label_str).unwrap()
 }
 
 pub fn nsec3_in_range<O1, O2, O3>(
-    targethash: OwnerHash<O1>,
-    ownerhash: OwnerHash<O2>,
+    targethash: &OwnerHash<O1>,
+    ownerhash: &OwnerHash<O2>,
     nexthash: &OwnerHash<O3>,
 ) -> bool
 where

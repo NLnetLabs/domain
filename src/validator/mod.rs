@@ -30,10 +30,11 @@ use context::ValidationContext;
 //use group::Group;
 use group::GroupList;
 use group::ValidatedGroup;
-use nsec::nsec3_hash;
+use nsec::cached_nsec3_hash;
 use nsec::nsec3_in_range;
 use nsec::nsec3_label_to_hash;
 use nsec::star_closest_encloser;
+use nsec::Nsec3Cache;
 use nsec::NSEC3_ITER_BOGUS;
 use nsec::NSEC3_ITER_INSECURE;
 use std::cmp::Ordering;
@@ -130,8 +131,15 @@ where
     // and downgrade if required.
     let maybe_secure = ValidationState::Secure;
 
-    let (sname, state) =
-        do_cname_dname(qname, qclass, qtype, &mut answers, &mut authorities);
+    let (sname, state) = do_cname_dname(
+        qname,
+        qclass,
+        qtype,
+        &mut answers,
+        &mut authorities,
+        vc.nsec3_cache(),
+    )
+    .await;
 
     let maybe_secure = map_maybe_secure(state, maybe_secure);
 
@@ -157,7 +165,9 @@ where
                 &mut authorities,
                 &signer_name,
                 &closest_encloser,
-            );
+                vc.nsec3_cache(),
+            )
+            .await;
 
             if check {
                 return Ok((map_maybe_secure(state, maybe_secure), ede));
@@ -221,7 +231,14 @@ where
 
         // Try to prove that the name exists but the qtype doesn't. Continue
         // with NSEC3 and assume the name exists.
-        match nsec3_for_nodata(&sname, &mut authorities, qtype, &signer_name)
+        match nsec3_for_nodata(
+            &sname,
+            &mut authorities,
+            qtype,
+            &signer_name,
+            vc.nsec3_cache(),
+        )
+        .await
         {
             NsecState::NoData => {
                 return Ok((
@@ -243,7 +260,9 @@ where
             &mut authorities,
             qtype,
             &signer_name,
-        );
+            vc.nsec3_cache(),
+        )
+        .await;
         let ce = match state {
             Nsec3NXState::DoesNotExist(ce) => ce, // Continue with wildcard.
             Nsec3NXState::DoesNotExistInsecure(_) => {
@@ -259,7 +278,10 @@ where
             &mut authorities,
             qtype,
             &signer_name,
-        ) {
+            vc.nsec3_cache(),
+        )
+        .await
+        {
             NsecState::NoData => {
                 return Ok((
                     map_maybe_secure(ValidationState::Secure, maybe_secure),
@@ -285,7 +307,15 @@ where
     }
 
     // Try to prove that the name does not exist using NSEC3.
-    match nsec3_for_nxdomain(&sname, &mut authorities, qtype, &signer_name) {
+    match nsec3_for_nxdomain(
+        &sname,
+        &mut authorities,
+        qtype,
+        &signer_name,
+        vc.nsec3_cache(),
+    )
+    .await
+    {
         Nsec3NXState::DoesNotExist(_) => {
             return Ok((
                 map_maybe_secure(ValidationState::Secure, maybe_secure),
@@ -302,12 +332,13 @@ where
     todo!();
 }
 
-fn do_cname_dname(
+async fn do_cname_dname(
     qname: Name<Bytes>,
     qclass: Class,
     qtype: Rtype,
     answers: &mut Vec<ValidatedGroup>,
     authorities: &mut Vec<ValidatedGroup>,
+    nsec3_cache: &Nsec3Cache,
 ) -> (Name<Bytes>, ValidationState) {
     let mut name = qname;
     let mut count = 0;
@@ -338,7 +369,9 @@ fn do_cname_dname(
                         authorities,
                         &g.signer_name(),
                         &ce,
-                    );
+                        nsec3_cache,
+                    )
+                    .await;
                     if check {
                         maybe_secure = map_maybe_secure(state, maybe_secure);
                     // Just continue.
@@ -657,11 +690,12 @@ fn nsec_for_nxdomain(
 // rtype exist. There is only one option: find an NSEC3 record that has an
 // owner name where the first label match the NSEC3 hash of target and then
 // check the bitmap.
-fn nsec3_for_nodata(
+async fn nsec3_for_nodata(
     target: &Name<Bytes>,
     groups: &mut Vec<ValidatedGroup>,
     rtype: Rtype,
     signer_name: &Name<Bytes>,
+    nsec3_cache: &Nsec3Cache,
 ) -> NsecState {
     for g in groups.iter() {
         let opt_nsec3_hash = get_checked_nsec3(g, signer_name);
@@ -673,16 +707,18 @@ fn nsec3_for_nodata(
 
         // Create the hash with the parameters in this record. We should cache
         // the hash.
-        let hash = nsec3_hash(
+        let hash = cached_nsec3_hash(
             target,
             nsec3.hash_algorithm(),
             nsec3.iterations(),
             nsec3.salt(),
-        );
+            nsec3_cache,
+        )
+        .await;
 
         println!("got hash {hash:?} and ownerhash {ownerhash:?}");
 
-        if ownerhash == hash {
+        if ownerhash == hash.as_ref() {
             // We found an exact match.
 
             // Check the bitmap.
@@ -728,14 +764,16 @@ enum Nsec3State {
 // Find a closest encloser target and then find an NSEC3 record for the
 // wildcard that proves that no record that matches
 // rtype exist.
-fn nsec3_for_nodata_wildcard(
+async fn nsec3_for_nodata_wildcard(
     target: &Name<Bytes>,
     groups: &mut Vec<ValidatedGroup>,
     rtype: Rtype,
     signer_name: &Name<Bytes>,
+    nsec3_cache: &Nsec3Cache,
 ) -> Nsec3State {
     let (state, ede) =
-        nsec3_for_not_exists(target, groups, rtype, signer_name);
+        nsec3_for_not_exists(target, groups, rtype, signer_name, nsec3_cache)
+            .await;
     let (ce, secure) = match state {
         Nsec3NXState::DoesNotExist(ce) => (ce, true),
         Nsec3NXState::DoesNotExistInsecure(ce) => (ce, false),
@@ -743,7 +781,15 @@ fn nsec3_for_nodata_wildcard(
     };
 
     let star_name = star_closest_encloser(&ce);
-    match nsec3_for_nodata(&star_name, groups, rtype, signer_name) {
+    match nsec3_for_nodata(
+        &star_name,
+        groups,
+        rtype,
+        signer_name,
+        nsec3_cache,
+    )
+    .await
+    {
         NsecState::NoData => {
             if secure {
                 Nsec3State::NoData
@@ -764,11 +810,12 @@ enum Nsec3NXState {
 
 // Prove that target does not exist using NSEC3 records. Return the status
 // and the closest encloser.
-fn nsec3_for_not_exists(
+async fn nsec3_for_not_exists(
     target: &Name<Bytes>,
     groups: &mut Vec<ValidatedGroup>,
     rtype: Rtype,
     signer_name: &Name<Bytes>,
+    nsec3_cache: &Nsec3Cache,
 ) -> (Nsec3NXState, Option<ExtendedError<Bytes>>) {
     println!("nsec3_for_not_exists: proving {target:?} does not exist");
 
@@ -808,16 +855,18 @@ fn nsec3_for_not_exists(
 
             // Create the hash with the parameters in this record. We should
             // cache the hash.
-            let hash = nsec3_hash(
+            let hash = cached_nsec3_hash(
                 &n,
                 nsec3.hash_algorithm(),
                 nsec3.iterations(),
                 nsec3.salt(),
-            );
+                nsec3_cache,
+            )
+            .await;
 
             println!("got hash {hash:?} and ownerhash {ownerhash:?}");
 
-            if ownerhash == hash {
+            if ownerhash == hash.as_ref() {
                 // We found an exact match.
 
                 // RFC 5155, Section 8.3, Point 3: the DNAME type bit
@@ -843,7 +892,7 @@ fn nsec3_for_not_exists(
                 "nsec3_for_not_exists: range {ownerhash:?}..{:?}",
                 nsec3.next_owner()
             );
-            if nsec3_in_range(hash, ownerhash, nsec3.next_owner()) {
+            if nsec3_in_range(hash.as_ref(), &ownerhash, nsec3.next_owner()) {
                 println!("nsec3_for_not_exists: found not exist");
 
                 // We found a name that does not exist. Do we have a candidate
@@ -895,11 +944,12 @@ enum Nsec3NXStateNoCE {
 // the closest encloser is already known and that we only have to check
 // this specific name. This is typically used to prove that a wildcard does
 // not exist.
-fn nsec3_for_not_exists_no_ce(
+async fn nsec3_for_not_exists_no_ce(
     target: &Name<Bytes>,
     groups: &mut Vec<ValidatedGroup>,
     rtype: Rtype,
     signer_name: &Name<Bytes>,
+    nsec3_cache: &Nsec3Cache,
 ) -> Nsec3NXStateNoCE {
     println!("nsec3_for_not_exists_no_ce: proving {target:?} does not exist");
 
@@ -914,12 +964,14 @@ fn nsec3_for_not_exists_no_ce(
 
         // Create the hash with the parameters in this record. We should
         // cache the hash.
-        let hash = nsec3_hash(
+        let hash = cached_nsec3_hash(
             target,
             nsec3.hash_algorithm(),
             nsec3.iterations(),
             nsec3.salt(),
-        );
+            nsec3_cache,
+        )
+        .await;
 
         println!("got hash {hash:?} and ownerhash {ownerhash:?}");
 
@@ -929,7 +981,7 @@ fn nsec3_for_not_exists_no_ce(
             "nsec3_for_not_exists_no_ce: range {ownerhash:?}..{:?}",
             nsec3.next_owner()
         );
-        if nsec3_in_range(hash, ownerhash, nsec3.next_owner()) {
+        if nsec3_in_range(hash.as_ref(), &ownerhash, nsec3.next_owner()) {
             println!("nsec3_for_not_exists: found not exist");
 
             // We found a name that does not exist.
@@ -950,14 +1002,16 @@ fn nsec3_for_not_exists_no_ce(
 // Find a closest encloser for target and then find an NSEC3 record that proves
 // that tthe wildcard does not exist.
 // rtype exist.
-fn nsec3_for_nxdomain(
+async fn nsec3_for_nxdomain(
     target: &Name<Bytes>,
     groups: &mut Vec<ValidatedGroup>,
     rtype: Rtype,
     signer_name: &Name<Bytes>,
+    nsec3_cache: &Nsec3Cache,
 ) -> Nsec3NXState {
     let (state, ede) =
-        nsec3_for_not_exists(target, groups, rtype, signer_name);
+        nsec3_for_not_exists(target, groups, rtype, signer_name, nsec3_cache)
+            .await;
     let (ce, secure) = match state {
         Nsec3NXState::DoesNotExist(ce) => (ce, true),
         Nsec3NXState::DoesNotExistInsecure(ce) => (ce, false),
@@ -965,7 +1019,15 @@ fn nsec3_for_nxdomain(
     };
 
     let star_name = star_closest_encloser(&ce);
-    match nsec3_for_not_exists_no_ce(&star_name, groups, rtype, signer_name) {
+    match nsec3_for_not_exists_no_ce(
+        &star_name,
+        groups,
+        rtype,
+        signer_name,
+        nsec3_cache,
+    )
+    .await
+    {
         Nsec3NXStateNoCE::DoesNotExist => {
             if secure {
                 Nsec3NXState::DoesNotExist(ce)
@@ -1143,12 +1205,13 @@ fn get_child_of_ce(target: &Name<Bytes>, ce: &Name<Bytes>) -> Name<Bytes> {
     todo!();
 }
 
-fn check_not_exists_for_wildcard(
+async fn check_not_exists_for_wildcard(
     name: &Name<Bytes>,
     qtype: Rtype,
     group: &mut Vec<ValidatedGroup>,
     signer_name: &Name<Bytes>,
     closest_encloser: &Name<Bytes>,
+    nsec3_cache: &Nsec3Cache,
 ) -> (bool, ValidationState, Option<ExtendedError<Bytes>>) {
     let maybe_secure = ValidationState::Secure;
 
@@ -1171,7 +1234,14 @@ fn check_not_exists_for_wildcard(
     let child_of_ce = get_child_of_ce(name, closest_encloser);
     println!("got child {child_of_ce:?}");
 
-    match nsec3_for_not_exists_no_ce(&child_of_ce, group, qtype, &signer_name)
+    match nsec3_for_not_exists_no_ce(
+        &child_of_ce,
+        group,
+        qtype,
+        &signer_name,
+        nsec3_cache,
+    )
+    .await
     {
         Nsec3NXStateNoCE::DoesNotExist => {
             // It checks out, we have a secure wildcard.
