@@ -9,6 +9,7 @@
 use crate::base::Name;
 use crate::base::ParsedName;
 use crate::base::ParsedRecord;
+use crate::base::Ttl;
 use bytes::Bytes;
 //use crate::base::ParseRecordData;
 use crate::base::cmp::CanonicalOrd;
@@ -36,7 +37,10 @@ use super::context::Node;
 use super::context::ValidationContext;
 use super::types::ValidationState;
 use super::utilities::map_dname;
+use super::utilities::ttl_for_sig;
 //use std::sync::Mutex;
+use std::cmp::min;
+use std::time::Duration;
 use std::vec::Vec;
 
 type RrType = Record<Name<Bytes>, AllRecordData<Bytes, ParsedName<Bytes>>>;
@@ -284,7 +288,7 @@ impl Group {
                 return (state, target.clone(), None, node.extended_error())
             }
         }
-        let (state, wildcard, ede) = self.validate_with_node(&node);
+        let (state, wildcard, ede, _ttl) = self.validate_with_node(&node);
         (state, target.clone(), wildcard, ede)
     }
 
@@ -298,6 +302,7 @@ impl Group {
         ValidationState,
         Option<Name<Bytes>>,
         Option<ExtendedError<Bytes>>,
+        Duration,
     ) {
         // Check the validation state of node. We can return directly if the
         // state is anything other than Secure.
@@ -306,13 +311,17 @@ impl Group {
             ValidationState::Insecure
             | ValidationState::Bogus
             | ValidationState::Indeterminate => {
-                return (state, None, node.extended_error())
+                return (state, None, node.extended_error(), node.ttl())
             }
             ValidationState::Secure => (),
         }
         let keys = node.keys();
-        let mut secure = false;
-        let mut wildcard = None;
+        let ttl = node.ttl();
+        println!("validate_with_node: node ttl {ttl:?}");
+        let group_ttl = self.min_ttl().into_duration();
+        let ttl = min(ttl, group_ttl);
+        println!("with group_ttl {group_ttl:?}, new ttl {ttl:?}");
+
         for sig_rec in self.clone().sig_iter() {
             let sig = sig_rec.data();
             for key in keys {
@@ -333,9 +342,13 @@ impl Group {
                     node.signer_name(),
                     key_tag,
                 ) {
-                    secure = true;
-                    wildcard = sig.wildcard_closest_encloser(&self.rr_set[0]);
-                    break;
+                    let wildcard =
+                        sig.wildcard_closest_encloser(&self.rr_set[0]);
+
+                    let sig_ttl = ttl_for_sig(sig_rec);
+                    let ttl = min(ttl, sig_ttl);
+                    println!("with sig_ttl {sig_ttl:?}, new ttl {ttl:?}");
+                    return (ValidationState::Secure, wildcard, None, ttl);
                 } else {
                     // To avoid CPU exhaustion attacks such as KeyTrap
                     // (CVE-2023-50387) it is good to limit signature
@@ -359,16 +372,9 @@ impl Group {
                     todo!();
                 }
             }
-            if secure {
-                break;
-            }
         }
-        if secure {
-            (ValidationState::Secure, wildcard, None)
-        } else {
-            todo!(); // EDE
-                     // (ValidationState::Bogus, None)
-        }
+        todo!(); // EDE
+                 // (ValidationState::Bogus, None)
     }
 
     // Follow RFC 4035, Section 5.3.
@@ -492,6 +498,17 @@ impl Group {
         }
 
         res.is_ok()
+    }
+
+    pub fn min_ttl(&self) -> Ttl {
+        if self.rr_set.is_empty() {
+            return Ttl::ZERO;
+        }
+        let mut ttl = self.rr_set[0].ttl();
+        for rr in &self.rr_set[1..] {
+            ttl = min(ttl, rr.ttl());
+        }
+        ttl
     }
 }
 

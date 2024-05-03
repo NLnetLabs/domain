@@ -10,6 +10,7 @@ use super::nsec::nsec3_hash;
 use super::nsec::NSEC3_ITER_BOGUS;
 use super::nsec::NSEC3_ITER_INSECURE;
 use super::types::ValidationState;
+use super::utilities::ttl_for_sig;
 use crate::base::iana::ExtendedErrorCode;
 use crate::base::name::Chain;
 use crate::base::name::Label;
@@ -31,39 +32,55 @@ use crate::rdata::AllRecordData;
 use crate::rdata::Dnskey;
 use crate::rdata::Ds;
 use crate::rdata::ZoneRecordData;
+//use crate::rdata::dnssec::Timestamp;
 use crate::validate::supported_algorithm;
 use crate::validate::supported_digest;
 use crate::validate::DnskeyExt;
+use moka::future::Cache;
+use std::cmp::min;
 use std::cmp::Ordering;
 use std::collections::VecDeque;
 use std::string::ToString;
+use std::sync::Arc;
+use std::time::Duration;
+use std::time::Instant;
 use std::vec::Vec;
+
+const MAX_CACHE: u64 = 100;
+
+const MAX_NODE_VALID: Duration = Duration::from_secs(600);
 
 pub struct ValidationContext<Upstream> {
     ta: TrustAnchors,
     upstream: Upstream,
+
+    cache: Cache<Name<Bytes>, Arc<Node>>,
 }
 
 impl<Upstream> ValidationContext<Upstream> {
     pub fn new(ta: TrustAnchors, upstream: Upstream) -> Self {
-        Self { ta, upstream }
+        Self {
+            ta,
+            upstream,
+            cache: Cache::new(MAX_CACHE),
+        }
     }
 
-    pub async fn get_node(&self, name: &Name<Bytes>) -> Node
+    pub async fn get_node(&self, name: &Name<Bytes>) -> Arc<Node>
     where
         Upstream: Clone + SendRequest<RequestMessage<Bytes>>,
     {
         println!("get_node: for {name:?}");
 
         // Check the cache first
-        if let Some(node) = self.cache_lookup(name) {
+        if let Some(node) = self.cache_lookup(name).await {
             return node;
         }
 
         // Find a trust anchor.
         let Some(ta) = self.ta.find(name) else {
             // Try to get an indeterminate node for the root
-            return Node::indeterminate(
+            let node = Node::indeterminate(
                 Name::root(),
                 Some(
                     ExtendedError::new_with_str(
@@ -73,13 +90,17 @@ impl<Upstream> ValidationContext<Upstream> {
                     .unwrap(),
                 ),
             );
+            let node = Arc::new(node);
+            todo!(); // Cache
         };
 
         let ta_owner = ta.owner();
         if ta_owner.name_eq(name) {
             // The trust anchor is the same node we are looking for. Create
             // a node for the trust anchor.
-            return Node::trust_anchor(ta, self.upstream.clone()).await;
+            let node = Node::trust_anchor(ta, self.upstream.clone()).await;
+            let node = Arc::new(node);
+            todo!(); // Cache
         }
 
         // Walk from the parent of name back to trust anchor.
@@ -107,7 +128,11 @@ impl<Upstream> ValidationContext<Upstream> {
 
             // If this node is an intermediate node then get the node for
             // signer name.
-            node = self.create_child_node(child_name, &signer_node).await;
+            node = Arc::new(
+                self.create_child_node(child_name.clone(), &signer_node)
+                    .await,
+            );
+            self.cache.insert(child_name, node.clone()).await;
             if !node.intermediate() {
                 signer_node = node.clone();
             }
@@ -123,7 +148,7 @@ impl<Upstream> ValidationContext<Upstream> {
         name: &Name<Bytes>,
         ta: &TrustAnchor,
         ta_owner: Name<Bytes>,
-    ) -> (Node, VecDeque<Name<Bytes>>)
+    ) -> (Arc<Node>, VecDeque<Name<Bytes>>)
     where
         Upstream: Clone + SendRequest<RequestMessage<Bytes>>,
     {
@@ -136,12 +161,14 @@ impl<Upstream> ValidationContext<Upstream> {
                 // We ended up at the trust anchor.
                 let node =
                     Node::trust_anchor(ta, self.upstream.clone()).await;
+                let node = Arc::new(node);
+                self.cache.insert(curr, node.clone()).await;
                 return (node, names);
             }
 
             // Try to find the node in the cache.
-            if let Some(_node) = self.cache_lookup(&curr) {
-                todo!();
+            if let Some(node) = self.cache_lookup(&curr).await {
+                return (node, names);
             }
 
             names.push_front(curr.clone());
@@ -179,6 +206,10 @@ impl<Upstream> ValidationContext<Upstream> {
             authorities.add(rr.unwrap());
         }
 
+        // Limit the validity of the child node to the one of the parent.
+        let parent_ttl = node.ttl();
+        println!("create_child_node: parent_ttl {parent_ttl:?}");
+
         let ds_group =
             match answers.iter().filter(|g| g.rtype() == Rtype::DS).next() {
                 Some(g) => g,
@@ -189,12 +220,15 @@ impl<Upstream> ValidationContext<Upstream> {
                         NsecState::InsecureDelegation => {
                             // An insecure delegation is normal enough that
                             // it needs an EDE.
-                            return Node::new_delegation(
-                                name,
-                                ValidationState::Insecure,
-                                Vec::new(),
-                                None,
-                            );
+                            todo!();
+                            /*
+                                                        return Node::new_delegation(
+                                                            name,
+                                                            ValidationState::Insecure,
+                                                            Vec::new(),
+                                                            None,
+                                                        );
+                            */
                         }
                         NsecState::SecureIntermediate => {
                             return Node::new_intermediate(
@@ -207,7 +241,7 @@ impl<Upstream> ValidationContext<Upstream> {
                         NsecState::Nothing => (), // Try NSEC3 next.
                     }
 
-                    let (state, ede) =
+                    let (state, ede, ttl) =
                         nsec3_for_ds(&name, &mut authorities, node);
                     println!(
                         "create_child_node: got state {state:?} for {name:?}"
@@ -219,6 +253,7 @@ impl<Upstream> ValidationContext<Upstream> {
                                 ValidationState::Insecure,
                                 Vec::new(),
                                 ede,
+                                ttl,
                             )
                         }
                         NsecState::SecureIntermediate => {
@@ -239,8 +274,12 @@ impl<Upstream> ValidationContext<Upstream> {
             };
 
         // TODO: Limit the size of the DS RRset.
+        let ds_ttl = ds_group.min_ttl().into_duration();
+        let ttl = min(parent_ttl, ds_ttl);
+        println!("with ds_ttl {ds_ttl:?}, new ttl {ttl:?}");
 
-        let (state, _wildcard, _ede) = ds_group.validate_with_node(node);
+        let (state, _wildcard, _ede, sig_ttl) =
+            ds_group.validate_with_node(node);
         match state {
             ValidationState::Secure => (),
             ValidationState::Insecure
@@ -249,6 +288,9 @@ impl<Upstream> ValidationContext<Upstream> {
                 todo!();
             }
         }
+
+        let ttl = min(ttl, sig_ttl);
+        println!("with sig_ttl {sig_ttl:?}, new ttl {ttl:?}");
 
         // Do we need to check if the DS record is a wildcard?
 
@@ -329,6 +371,10 @@ impl<Upstream> ValidationContext<Upstream> {
             }
         };
 
+        let dnskey_ttl = dnskey_group.min_ttl().into_duration();
+        let ttl = min(ttl, dnskey_ttl);
+        println!("with dnskey_ttl {dnskey_ttl:?}, new ttl {ttl:?}");
+
         // TODO: Limit the size of the DNSKEY RRset.
 
         // Try to find one DNSKEY record that matches a DS record and that
@@ -376,11 +422,34 @@ impl<Upstream> ValidationContext<Upstream> {
                         })
                         .cloned()
                         .collect();
+
+                    let sig_ttl = ttl_for_sig(sig);
+                    let ttl = min(ttl, sig_ttl);
+                    println!("with sig_ttl {sig_ttl:?}, new ttl {ttl:?}");
+
+                    /*
+                                let sig_ttl = sig.ttl().into_duration();
+                                let ttl = min(ttl, sig_ttl);
+                                println!("with sig_ttl {sig_ttl:?}, new ttl {ttl:?}");
+                                let orig_ttl = sig.data().original_ttl().into_duration();
+                                let ttl = min(ttl, orig_ttl);
+                                println!("with orig_ttl {orig_ttl:?}, new ttl {ttl:?}");
+
+                                let until_expired = sig.data().expiration().into_int() -
+                                    Timestamp::now().into_int();
+
+                                let expire_duration = Duration::from_secs(until_expired
+                                    as u64);
+                                let ttl = min(ttl, expire_duration);
+
+                                println!("with until_expired {until_expired:?}, ttl {ttl:?}");
+                    */
                     return Node::new_delegation(
                         key_name,
                         ValidationState::Secure,
                         dnskey_vec,
                         None,
+                        ttl,
                     );
                 } else {
                     // To avoid CPU exhaustion attacks such as KeyTrap
@@ -411,8 +480,13 @@ impl<Upstream> ValidationContext<Upstream> {
         todo!();
     }
 
-    fn cache_lookup<Octs>(&self, _name: &Name<Octs>) -> Option<Node> {
-        None
+    async fn cache_lookup(&self, name: &Name<Bytes>) -> Option<Arc<Node>> {
+        let ce = self.cache.get(name).await?;
+        if ce.expired() {
+            println!("cache_lookup: cache entry for {name:?} has expired");
+            return None;
+        }
+        Some(ce)
     }
 }
 
@@ -425,6 +499,10 @@ pub struct Node {
     signer_name: Name<Bytes>,
     intermediate: bool,
     ede: Option<ExtendedError<Bytes>>,
+
+    // Time to live
+    created_at: Instant,
+    valid_for: Duration,
 }
 
 impl Node {
@@ -432,13 +510,16 @@ impl Node {
         name: Name<Bytes>,
         ede: Option<ExtendedError<Bytes>>,
     ) -> Self {
-        Self {
-            state: ValidationState::Indeterminate,
-            keys: Vec::new(),
-            signer_name: name,
-            intermediate: false,
-            ede,
-        }
+        todo!();
+        /*
+                Self {
+                    state: ValidationState::Indeterminate,
+                    keys: Vec::new(),
+                    signer_name: name,
+                    intermediate: false,
+                    ede,
+                }
+        */
     }
 
     async fn trust_anchor<Upstream>(
@@ -485,6 +566,14 @@ impl Node {
             if !has_key(dnskeys, tkey) {
                 continue;
             }
+
+            let ttl = MAX_NODE_VALID;
+            println!("trust_anchor: max node cache: {ttl:?}");
+
+            let dnskey_ttl = dnskeys.min_ttl().into_duration();
+            let ttl = min(ttl, dnskey_ttl);
+            println!("with dnskey_ttl {dnskey_ttl:?}, new ttl {ttl:?}");
+
             let tkey_dnskey =
                 if let ZoneRecordData::Dnskey(dnskey) = tkey.data() {
                     dnskey
@@ -501,12 +590,18 @@ impl Node {
                     &key_name,
                     key_tag,
                 ) {
+                    let sig_ttl = ttl_for_sig(sig);
+                    let ttl = min(ttl, sig_ttl);
+                    println!("with sig_ttl {sig_ttl:?}, new ttl {ttl:?}");
+
                     let mut new_node = Self {
                         state: ValidationState::Secure,
                         keys: Vec::new(),
                         signer_name: ta_owner,
                         intermediate: false,
                         ede: None,
+                        created_at: Instant::now(),
+                        valid_for: ttl,
                     };
                     for key_rec in dnskeys.clone().rr_iter() {
                         if let AllRecordData::Dnskey(key) = key_rec.data() {
@@ -547,6 +642,7 @@ impl Node {
         state: ValidationState,
         keys: Vec<Dnskey<Bytes>>,
         ede: Option<ExtendedError<Bytes>>,
+        valid_for: Duration,
     ) -> Self {
         Self {
             state,
@@ -554,6 +650,8 @@ impl Node {
             keys,
             intermediate: false,
             ede,
+            created_at: Instant::now(),
+            valid_for,
         }
     }
 
@@ -564,13 +662,16 @@ impl Node {
         ede: Option<ExtendedError<Bytes>>,
     ) -> Self {
         println!("new_intermediate: for {name:?} signer {signer_name:?}");
-        Self {
-            state,
-            signer_name,
-            keys: Vec::new(),
-            intermediate: true,
-            ede,
-        }
+        todo!();
+        /*
+                Self {
+                    state,
+                    signer_name,
+                    keys: Vec::new(),
+                    intermediate: true,
+                    ede,
+                }
+        */
     }
 
     pub fn validation_state(&self) -> ValidationState {
@@ -591,6 +692,19 @@ impl Node {
 
     pub fn intermediate(&self) -> bool {
         self.intermediate
+    }
+
+    pub fn expired(&self) -> bool {
+        let elapsed = self.created_at.elapsed();
+        println!(
+            "expired: elapsed {elapsed:?}, valid for {:?}",
+            self.valid_for
+        );
+        elapsed > self.valid_for
+    }
+
+    pub fn ttl(&self) -> Duration {
+        self.valid_for - self.created_at.elapsed()
     }
 }
 
@@ -689,7 +803,7 @@ fn nsec_for_ds(
         println!("nsec = {nsec:?}");
         if target.name_eq(&owner) {
             // Validate the signature
-            let (state, wildcard, ede) = g.validate_with_node(node);
+            let (state, wildcard, ede, _ttl) = g.validate_with_node(node);
             match state {
                 ValidationState::Insecure
                 | ValidationState::Bogus
@@ -761,7 +875,7 @@ fn nsec3_for_ds(
     target: &Name<Bytes>,
     groups: &mut GroupList,
     node: &Node,
-) -> (NsecState, Option<ExtendedError<Bytes>>) {
+) -> (NsecState, Option<ExtendedError<Bytes>>, Duration) {
     for g in groups.iter() {
         if g.rtype() != Rtype::NSEC3 {
             continue;
@@ -807,13 +921,15 @@ fn nsec3_for_ds(
             // We found an exact match.
 
             // Validate the signature
-            let (state, _, _) = g.validate_with_node(node);
+            let (state, _, _, ttl) = g.validate_with_node(node);
             match state {
                 ValidationState::Insecure
                 | ValidationState::Bogus
                 | ValidationState::Indeterminate => todo!(),
                 ValidationState::Secure => (),
             }
+
+            println!("nsec3_for_ds: ttl {ttl:?}");
 
             // Check the bitmap.
             let types = nsec3.types();
@@ -834,11 +950,11 @@ fn nsec3_for_ds(
             // Check for NS.
             if types.contains(Rtype::NS) {
                 // We found NS and ruled out DS. This in an insecure delegation.
-                return (NsecState::InsecureDelegation, None);
+                return (NsecState::InsecureDelegation, None, ttl);
             }
 
             // Anything else is a secure intermediate node.
-            return (NsecState::SecureIntermediate, None);
+            return (NsecState::SecureIntermediate, None, ttl);
         }
 
         // Check if target is between the hash in the first label and the
@@ -849,7 +965,7 @@ fn nsec3_for_ds(
             // target does not exist. However, if the opt-out flag is set,
             // we are allowed to assume an insecure delegation (RFC 5155,
             // Section 6). First check the signature.
-            let (state, _, _) = g.validate_with_node(node);
+            let (state, _, _, ttl) = g.validate_with_node(node);
             match state {
                 ValidationState::Insecure
                 | ValidationState::Bogus
@@ -862,8 +978,9 @@ fn nsec3_for_ds(
                 todo!();
             }
 
-            return (NsecState::InsecureDelegation, None);
+            return (NsecState::InsecureDelegation, None, ttl);
         }
     }
-    (NsecState::Nothing, None)
+    todo!(); // TTL
+             // (NsecState::Nothing, None)
 }
