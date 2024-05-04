@@ -359,7 +359,7 @@ pub struct FamilyName<N> {
 }
 
 impl<N> FamilyName<N> {
-    fn new(owner: N, class: Class) -> Self {
+    pub fn new(owner: N, class: Class) -> Self {
         FamilyName { owner, class }
     }
 
