@@ -505,22 +505,10 @@ impl<Name: ToName> ProtoRrsig<Name> {
         self.signer_name.compose_canonical(target)
     }
 
-    fn compose_len(&self) -> u16 {
-        Rtype::COMPOSE_LEN
-            + SecAlg::COMPOSE_LEN
-            + u8::COMPOSE_LEN
-            + u32::COMPOSE_LEN
-            + Timestamp::COMPOSE_LEN
-            + Timestamp::COMPOSE_LEN
-            + u16::COMPOSE_LEN
-            + self.signer_name.compose_len()
-    }
-
     fn compose_head<Target: Composer + ?Sized>(
         &self,
         target: &mut Target,
     ) -> Result<(), Target::AppendError> {
-        self.compose_len().compose(target)?;
         self.type_covered.compose(target)?;
         self.algorithm.compose(target)?;
         self.labels.compose(target)?;
