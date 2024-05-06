@@ -15,8 +15,14 @@ Bug fixes
 * Accept an empty record type bitmap when scanning NSEC/NSEC3 data.
   ([#310] by [@xofyarg])
 
+Unstable features
+
+* Renamed the domain name types in `zonetree` from `Dname` to `Name`.
+  ([#308])
+
 Other changes
 
+[#308]: https://github.com/NLnetLabs/domain/pull/308
 [#310]: https://github.com/NLnetLabs/domain/pull/310
 [#312]: https://github.com/NLnetLabs/domain/pull/312
 [@achow101]: https://github.com/achow101
