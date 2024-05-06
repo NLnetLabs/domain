@@ -20,7 +20,7 @@ use crate::base::{Name, Rtype};
 
 use super::answer::Answer;
 use super::error::OutOfZone;
-use super::types::{StoredDname, ZoneCut};
+use super::types::{StoredName, ZoneCut};
 use super::{SharedRr, SharedRrset, WalkOp};
 
 //------------ ZoneStore -----------------------------------------------------
@@ -36,7 +36,7 @@ pub trait ZoneStore: Debug + Sync + Send {
     fn class(&self) -> Class;
 
     /// Returns the apex name of the zone.
-    fn apex_name(&self) -> &StoredDname;
+    fn apex_name(&self) -> &StoredName;
 
     /// Get a read interface to this store.
     fn read(self: Arc<Self>) -> Box<dyn ReadableZone>;
