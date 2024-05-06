@@ -2030,10 +2030,8 @@ impl<Octs> RtypeBitmap<Octs> {
     pub fn scan<S: Scanner<Octets = Octs>>(
         scanner: &mut S,
     ) -> Result<Self, S::Error> {
-        let first = Rtype::scan(scanner)?;
         let mut builder =
             RtypeBitmapBuilder::with_builder(scanner.octets_builder()?);
-        builder.add(first).map_err(|_| S::Error::short_buf())?;
         while scanner.continues() {
             builder
                 .add(Rtype::scan(scanner)?)
@@ -2728,6 +2726,13 @@ mod test {
         test_rdlen(&rdata);
         test_compose_parse(&rdata, |parser| Nsec::parse(parser));
         test_scan(&["example.com.", "A", "SRV"], Nsec::scan, &rdata);
+
+        // scan empty rtype bitmap
+        let rdata = Nsec::new(
+            Name::<Vec<u8>>::from_str("example.com.").unwrap(),
+            RtypeBitmapBuilder::new_vec().finalize(),
+        );
+        test_scan(&["example.com."], Nsec::scan, &rdata);
     }
 
     //--- Ds

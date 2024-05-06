@@ -912,7 +912,7 @@ macro_rules! rdata_types {
             }
         }
 
-        impl<'a, Octs: Octets>
+        impl<'a, Octs: Octets + ?Sized>
         ParseAnyRecordData<'a, Octs>
         for AllRecordData<Octs::Range<'a>, ParsedName<Octs::Range<'a>>> {
             fn parse_any_rdata(
@@ -950,7 +950,7 @@ macro_rules! rdata_types {
             }
         }
 
-        impl<'a, Octs: Octets>
+        impl<'a, Octs: Octets + ?Sized>
         ParseRecordData<'a, Octs>
         for AllRecordData<Octs::Range<'a>, ParsedName<Octs::Range<'a>>> {
             fn parse_rdata(
