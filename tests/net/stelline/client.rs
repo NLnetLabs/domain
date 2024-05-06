@@ -8,8 +8,10 @@ use std::sync::Mutex;
 use std::time::Duration;
 
 use bytes::Bytes;
+/*
 #[cfg(feature = "mock-time")]
 use mock_instant::MockClock;
+*/
 use tracing::{debug, info_span, trace};
 use tracing_subscriber::EnvFilter;
 
@@ -155,8 +157,10 @@ pub async fn do_client_simple<R: SendRequest<RequestMessage<Vec<u8>>>>(
                     let duration =
                         Duration::from_secs(step.time_passes.unwrap());
                     tokio::time::advance(duration).await;
+                    /*
                     #[cfg(feature = "mock-time")]
                     MockClock::advance_system_time(duration);
+                    */
                 }
                 StepType::Traffic
                 | StepType::CheckTempfile
@@ -436,8 +440,10 @@ pub async fn do_client<'a, T: ClientFactory>(
                     let duration =
                         Duration::from_secs(step.time_passes.unwrap());
                     tokio::time::advance(duration).await;
+                    /*
                     #[cfg(feature = "mock-time")]
                     MockClock::advance_system_time(duration);
+                    */
                 }
                 StepType::Traffic
                 | StepType::CheckTempfile
