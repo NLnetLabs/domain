@@ -6,10 +6,21 @@ Breaking changes
 
 New
 
+* Allow AllRecordData’s parsing impls to accept an unsized [u8] as the
+  source octets. ([#310] by [@xofyarg])
+* Made `sign::records::FamilyName` public. ([#312] by [@achow101])
+
 Bug fixes
+
+* Accept an empty record type bitmap when scanning NSEC/NSEC3 data.
+  ([#310] by [@xofyarg])
 
 Other changes
 
+[#310]: https://github.com/NLnetLabs/domain/pull/310
+[#312]: https://github.com/NLnetLabs/domain/pull/312
+[@achow101]: https://github.com/achow101
+[@xofyarg]: https://github.com/xofyarg
 
 ## 0.10.0
 
