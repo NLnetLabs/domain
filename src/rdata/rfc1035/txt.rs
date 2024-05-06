@@ -986,13 +986,13 @@ mod test {
         // Too long
         let mut builder: TxtBuilder<Vec<u8>> = TxtBuilder::new();
         assert!(builder
-            .append_slice(&b"\x00".repeat(std::u16::MAX as usize))
+            .append_slice(&b"\x00".repeat(u16::MAX as usize))
             .is_err());
 
         // Incremental, reserve space for offsets
         let mut builder: TxtBuilder<Vec<u8>> = TxtBuilder::new();
         assert!(builder
-            .append_slice(&b"\x00".repeat(std::u16::MAX as usize - 512))
+            .append_slice(&b"\x00".repeat(u16::MAX as usize - 512))
             .is_ok());
         assert!(builder.append_slice(&b"\x00".repeat(512)).is_err());
     }

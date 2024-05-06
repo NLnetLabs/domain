@@ -735,7 +735,7 @@ pub struct SliceLabelsIter<'a> {
 
     /// The position in `slice` where the next label start.
     ///
-    /// As a life hack, we use `usize::max_value` to fuse the iterator.
+    /// As a life hack, we use `usize::MAX` to fuse the iterator.
     start: usize,
 }
 
@@ -743,14 +743,14 @@ impl<'a> Iterator for SliceLabelsIter<'a> {
     type Item = &'a Label;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.start == usize::max_value() {
+        if self.start == usize::MAX {
             return None;
         }
         loop {
             match Label::split_from(&self.slice[self.start..]) {
                 Ok((label, _)) => {
                     if label.is_root() {
-                        self.start = usize::max_value();
+                        self.start = usize::MAX;
                     } else {
                         self.start += label.len();
                     }
@@ -761,14 +761,14 @@ impl<'a> Iterator for SliceLabelsIter<'a> {
                     if pos > self.start {
                         // Incidentally, this also covers the case where
                         // pos points past the end of the message.
-                        self.start = usize::max_value();
+                        self.start = usize::MAX;
                         return None;
                     }
                     self.start = pos;
                     continue;
                 }
                 Err(_) => {
-                    self.start = usize::max_value();
+                    self.start = usize::MAX;
                     return None;
                 }
             }
