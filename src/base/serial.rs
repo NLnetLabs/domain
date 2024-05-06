@@ -18,6 +18,7 @@ use core::{cmp, fmt, str};
 //use mock_instant::{SystemTime, UNIX_EPOCH};
 use octseq::parse::Parser;
 //#[cfg(all(feature = "std", not(feature = "mock-time")))]
+#[cfg(feature = "std")]
 use std::time::{SystemTime, UNIX_EPOCH};
 
 //------------ Serial --------------------------------------------------------
