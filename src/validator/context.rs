@@ -6,7 +6,7 @@ use super::anchor::TrustAnchor;
 use super::anchor::TrustAnchors;
 use super::group::Group;
 use super::group::GroupList;
-//use super::nsec::nsec3_hash;
+use super::group::SigCache;
 use super::nsec::cached_nsec3_hash;
 use super::nsec::Nsec3Cache;
 use super::nsec::NSEC3_ITER_BOGUS;
@@ -50,6 +50,8 @@ use std::vec::Vec;
 
 const MAX_NODE_CACHE: u64 = 100;
 const MAX_NSEC3_CACHE: u64 = 100;
+const MAX_ISIG_CACHE: u64 = 1000;
+const MAX_USIG_CACHE: u64 = 1000;
 
 const MAX_NODE_VALID: Duration = Duration::from_secs(600);
 
@@ -59,6 +61,8 @@ pub struct ValidationContext<Upstream> {
 
     node_cache: Cache<Name<Bytes>, Arc<Node>>,
     nsec3_cache: Nsec3Cache,
+    isig_cache: SigCache, // Signature cache for infrastructure.
+    usig_cache: SigCache, // Signature cache for user requests.
 }
 
 impl<Upstream> ValidationContext<Upstream> {
@@ -68,6 +72,8 @@ impl<Upstream> ValidationContext<Upstream> {
             upstream,
             node_cache: Cache::new(MAX_NODE_CACHE),
             nsec3_cache: Nsec3Cache::new(MAX_NSEC3_CACHE),
+            isig_cache: SigCache::new(MAX_ISIG_CACHE),
+            usig_cache: SigCache::new(MAX_USIG_CACHE),
         }
     }
 
@@ -103,7 +109,12 @@ impl<Upstream> ValidationContext<Upstream> {
         if ta_owner.name_eq(name) {
             // The trust anchor is the same node we are looking for. Create
             // a node for the trust anchor.
-            let node = Node::trust_anchor(ta, self.upstream.clone()).await;
+            let node = Node::trust_anchor(
+                ta,
+                self.upstream.clone(),
+                &self.isig_cache,
+            )
+            .await;
             let node = Arc::new(node);
             todo!(); // Cache
         }
@@ -164,8 +175,12 @@ impl<Upstream> ValidationContext<Upstream> {
         loop {
             if ta_owner.name_eq(&curr) {
                 // We ended up at the trust anchor.
-                let node =
-                    Node::trust_anchor(ta, self.upstream.clone()).await;
+                let node = Node::trust_anchor(
+                    ta,
+                    self.upstream.clone(),
+                    &self.isig_cache,
+                )
+                .await;
                 let node = Arc::new(node);
                 self.node_cache.insert(curr, node.clone()).await;
                 return (node, names);
@@ -220,7 +235,13 @@ impl<Upstream> ValidationContext<Upstream> {
                 Some(g) => g,
                 None => {
                     // Verify proof that DS doesn't exist for this name.
-                    let state = nsec_for_ds(&name, &mut authorities, node);
+                    let state = nsec_for_ds(
+                        &name,
+                        &mut authorities,
+                        node,
+                        &self.isig_cache,
+                    )
+                    .await;
                     match state {
                         NsecState::InsecureDelegation => {
                             // An insecure delegation is normal enough that
@@ -251,6 +272,7 @@ impl<Upstream> ValidationContext<Upstream> {
                         &mut authorities,
                         node,
                         self.nsec3_cache(),
+                        &self.isig_cache,
                     )
                     .await;
                     println!(
@@ -289,7 +311,7 @@ impl<Upstream> ValidationContext<Upstream> {
         println!("with ds_ttl {ds_ttl:?}, new ttl {ttl:?}");
 
         let (state, _wildcard, _ede, sig_ttl) =
-            ds_group.validate_with_node(node);
+            ds_group.validate_with_node(node, &self.isig_cache).await;
         match state {
             ValidationState::Secure => (),
             ValidationState::Insecure
@@ -418,7 +440,15 @@ impl<Upstream> ValidationContext<Upstream> {
             let key_name = r_dnskey.owner().try_to_name().unwrap();
             for sig in (*dnskey_group).clone().sig_iter() {
                 if dnskey_group
-                    .check_sig(sig, &key_name, dnskey, &key_name, key_tag)
+                    .check_sig_cached(
+                        sig,
+                        &key_name,
+                        dnskey,
+                        &key_name,
+                        key_tag,
+                        &self.isig_cache,
+                    )
+                    .await
                 {
                     let dnskey_vec: Vec<_> = dnskey_group
                         .clone()
@@ -502,6 +532,10 @@ impl<Upstream> ValidationContext<Upstream> {
     pub fn nsec3_cache(&self) -> &Nsec3Cache {
         &self.nsec3_cache
     }
+
+    pub fn usig_cache(&self) -> &SigCache {
+        &self.usig_cache
+    }
 }
 
 #[derive(Clone)]
@@ -539,6 +573,7 @@ impl Node {
     async fn trust_anchor<Upstream>(
         ta: &TrustAnchor,
         upstream: Upstream,
+        sig_cache: &SigCache,
     ) -> Self
     where
         Upstream: SendRequest<RequestMessage<Bytes>>,
@@ -597,13 +632,17 @@ impl Node {
             let key_tag = tkey_dnskey.key_tag();
             let key_name = tkey.owner().try_to_name().unwrap();
             for sig in (*dnskeys).clone().sig_iter() {
-                if dnskeys.check_sig(
-                    sig,
-                    &ta_owner,
-                    tkey_dnskey,
-                    &key_name,
-                    key_tag,
-                ) {
+                if dnskeys
+                    .check_sig_cached(
+                        sig,
+                        &ta_owner,
+                        tkey_dnskey,
+                        &key_name,
+                        key_tag,
+                        sig_cache,
+                    )
+                    .await
+                {
                     let sig_ttl = ttl_for_sig(sig);
                     let ttl = min(ttl, sig_ttl);
                     println!("with sig_ttl {sig_ttl:?}, new ttl {ttl:?}");
@@ -799,10 +838,11 @@ enum NsecState {
 //
 // So we have two possibilities: we find an exact match for the name and
 // check the bitmap or we find the name as an empty non-terminal.
-fn nsec_for_ds(
+async fn nsec_for_ds(
     target: &Name<Bytes>,
     groups: &mut GroupList,
     node: &Node,
+    sig_cache: &SigCache,
 ) -> NsecState {
     for g in groups.iter() {
         if g.rtype() != Rtype::NSEC {
@@ -817,7 +857,8 @@ fn nsec_for_ds(
         println!("nsec = {nsec:?}");
         if target.name_eq(&owner) {
             // Validate the signature
-            let (state, wildcard, ede, _ttl) = g.validate_with_node(node);
+            let (state, wildcard, ede, _ttl) =
+                g.validate_with_node(node, sig_cache).await;
             match state {
                 ValidationState::Insecure
                 | ValidationState::Bogus
@@ -890,6 +931,7 @@ async fn nsec3_for_ds(
     groups: &mut GroupList,
     node: &Node,
     nsec3_cache: &Nsec3Cache,
+    sig_cache: &SigCache,
 ) -> (NsecState, Option<ExtendedError<Bytes>>, Duration) {
     for g in groups.iter() {
         if g.rtype() != Rtype::NSEC3 {
@@ -938,7 +980,8 @@ async fn nsec3_for_ds(
             // We found an exact match.
 
             // Validate the signature
-            let (state, _, _, ttl) = g.validate_with_node(node);
+            let (state, _, _, ttl) =
+                g.validate_with_node(node, sig_cache).await;
             match state {
                 ValidationState::Insecure
                 | ValidationState::Bogus
@@ -982,7 +1025,8 @@ async fn nsec3_for_ds(
             // target does not exist. However, if the opt-out flag is set,
             // we are allowed to assume an insecure delegation (RFC 5155,
             // Section 6). First check the signature.
-            let (state, _, _, ttl) = g.validate_with_node(node);
+            let (state, _, _, ttl) =
+                g.validate_with_node(node, sig_cache).await;
             match state {
                 ValidationState::Insecure
                 | ValidationState::Bogus

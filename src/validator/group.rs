@@ -17,11 +17,13 @@ use crate::base::iana::class::Class;
 use crate::base::iana::ExtendedErrorCode;
 use crate::base::name::ToName;
 use crate::base::opt::exterr::ExtendedError;
+use crate::base::rdata::ComposeRecordData;
 use crate::base::Record;
 use crate::base::Rtype;
 //use crate::base::UnknownRecordData;
 //use crate::dep::octseq::OctetsFrom;
 //use crate::dep::octseq::OctetsInto;
+use crate::dep::octseq::builder::with_infallible;
 use crate::net::client::request::RequestMessage;
 use crate::net::client::request::SendRequest;
 use crate::rdata::dnssec::Timestamp;
@@ -29,6 +31,8 @@ use crate::rdata::AllRecordData;
 use crate::rdata::Dnskey;
 use crate::rdata::Rrsig;
 use crate::validate::RrsigExt;
+use moka::future::Cache;
+use ring::digest;
 use std::fmt::Debug;
 //use std::marker::PhantomData;
 use std::slice::Iter;
@@ -40,6 +44,7 @@ use super::utilities::map_dname;
 use super::utilities::ttl_for_sig;
 //use std::sync::Mutex;
 use std::cmp::min;
+//use std::sync::Arc;
 use std::time::Duration;
 use std::vec::Vec;
 
@@ -288,16 +293,18 @@ impl Group {
                 return (state, target.clone(), None, node.extended_error())
             }
         }
-        let (state, wildcard, ede, _ttl) = self.validate_with_node(&node);
+        let (state, wildcard, ede, _ttl) =
+            self.validate_with_node(&node, &vc.usig_cache()).await;
         (state, target.clone(), wildcard, ede)
     }
 
     // Try to validate the signature using a node. Return the validation
     // state. Also return if the signature was expanded from a wildcard.
     // This is valid only if the validation state is secure.
-    pub fn validate_with_node(
+    pub async fn validate_with_node(
         &self,
         node: &Node,
+        sig_cache: &SigCache,
     ) -> (
         ValidationState,
         Option<Name<Bytes>>,
@@ -335,13 +342,17 @@ impl Group {
                 }
 
                 println!("validate_with_node: sig {sig_rec:?}");
-                if self.check_sig(
-                    sig_rec,
-                    node.signer_name(),
-                    key,
-                    node.signer_name(),
-                    key_tag,
-                ) {
+                if self
+                    .check_sig_cached(
+                        sig_rec,
+                        node.signer_name(),
+                        key,
+                        node.signer_name(),
+                        key_tag,
+                        sig_cache,
+                    )
+                    .await
+                {
                     let wildcard =
                         sig.wildcard_closest_encloser(&self.rr_set[0]);
 
@@ -378,7 +389,7 @@ impl Group {
     }
 
     // Follow RFC 4035, Section 5.3.
-    pub fn check_sig(
+    fn check_sig(
         &self,
         sig: &Record<Name<Bytes>, Rrsig<Bytes, Name<Bytes>>>,
         signer_name: &Name<Bytes>,
@@ -498,6 +509,49 @@ impl Group {
         }
 
         res.is_ok()
+    }
+
+    pub async fn check_sig_cached(
+        &self,
+        sig: &Record<Name<Bytes>, Rrsig<Bytes, Name<Bytes>>>,
+        signer_name: &Name<Bytes>,
+        key: &Dnskey<Bytes>,
+        key_name: &Name<Bytes>,
+        key_tag: u16,
+        cache: &SigCache,
+    ) -> bool {
+        let mut signed_data = Vec::<u8>::new();
+        sig.data()
+            .signed_data(&mut signed_data, &mut self.rr_set())
+            .unwrap();
+
+        let mut buf: Vec<u8> = Vec::new();
+        with_infallible(|| key.compose_canonical_rdata(&mut buf));
+        let mut ctx = digest::Context::new(&digest::SHA256);
+        ctx.update(&buf);
+        let key_hash = ctx.finish();
+
+        let mut buf: Vec<u8> = Vec::new();
+        with_infallible(|| sig.data().compose_canonical_rdata(&mut buf));
+        let mut ctx = digest::Context::new(&digest::SHA256);
+        ctx.update(&buf);
+        let sig_hash = ctx.finish();
+
+        let cache_key = (
+            signed_data,
+            sig_hash.as_ref().to_vec(),
+            key_hash.as_ref().to_vec(),
+        );
+
+        if let Some(ce) = cache.cache.get(&cache_key).await {
+            println!("check_sig_cached: existing result");
+            return ce;
+        }
+        println!("check_sig_cached: checking");
+        let res = self.check_sig(sig, signer_name, key, key_name, key_tag);
+        println!("check_sig_cached: inserting {res:?}");
+        cache.cache.insert(cache_key, res).await;
+        res
     }
 
     pub fn min_ttl(&self) -> Ttl {
@@ -717,4 +771,16 @@ fn to_bytes_record(
         rr.ttl(),
         record.data().clone(),
     )
+}
+
+pub struct SigCache {
+    cache: Cache<(Vec<u8>, Vec<u8>, Vec<u8>), bool>,
+}
+
+impl SigCache {
+    pub fn new(size: u64) -> Self {
+        Self {
+            cache: Cache::new(size),
+        }
+    }
 }
