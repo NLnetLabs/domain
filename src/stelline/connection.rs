@@ -2,15 +2,16 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::task::Waker;
 use std::task::{Context, Poll};
+use std::vec::Vec;
 
-use crate::net::stelline::client::CurrStepValue;
-use crate::net::stelline::parse_stelline::Stelline;
-use crate::net::stelline::server::do_server;
+use super::client::CurrStepValue;
+use super::parse_stelline::Stelline;
+use super::server::do_server;
 
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 
-use domain::base::message_builder::AdditionalBuilder;
-use domain::base::Message;
+use crate::base::message_builder::AdditionalBuilder;
+use crate::base::Message;
 
 #[derive(Debug)]
 pub struct Connection {

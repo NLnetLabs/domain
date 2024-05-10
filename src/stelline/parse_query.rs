@@ -18,15 +18,15 @@ use core::{fmt, str};
 use bytes::buf::UninitSlice;
 use bytes::{Buf, BufMut, Bytes, BytesMut};
 
-use domain::base::charstr::CharStr;
-use domain::base::iana::{Class, Rtype};
-use domain::base::name::{Chain, Name, RelativeName, ToName};
-use domain::base::scan::{
+use crate::base::charstr::CharStr;
+use crate::base::iana::{Class, Rtype};
+use crate::base::name::{Chain, Name, RelativeName, ToName};
+use crate::base::scan::{
     BadSymbol, ConvertSymbols, EntrySymbol, Scan, Scanner, ScannerError,
     Symbol, SymbolOctetsError,
 };
-use domain::base::{Question, Ttl};
-use domain::dep::octseq::str::Str;
+use crate::base::{Question, Ttl};
+use crate::dep::octseq::str::Str;
 
 //------------ Type Aliases --------------------------------------------------
 

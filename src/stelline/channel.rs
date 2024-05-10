@@ -9,6 +9,8 @@ use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};
 use std::{cmp, io};
+use std::vec::Vec;
+use std::boxed::Box;
 
 use futures_util::FutureExt;
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
@@ -16,10 +18,10 @@ use tokio::sync::mpsc;
 use tokio::sync::mpsc::error::TryRecvError;
 use tracing::trace;
 
-use domain::net::client::protocol::{
+use crate::net::client::protocol::{
     AsyncConnect, AsyncDgramRecv, AsyncDgramSend,
 };
-use domain::net::server::sock::{AsyncAccept, AsyncDgramSock};
+use crate::net::server::sock::{AsyncAccept, AsyncDgramSock};
 
 // If MSRV gets bumped to 1.69.0 we can replace these with a const SocketAddr.
 pub const DEF_CLIENT_ADDR: IpAddr = IpAddr::V4(Ipv4Addr::LOCALHOST);

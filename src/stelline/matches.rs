@@ -1,11 +1,12 @@
-use crate::net::stelline::parse_query;
-use crate::net::stelline::parse_stelline::{Entry, Matches, Reply};
-use domain::base::iana::{Opcode, OptRcode, Rtype};
-use domain::base::opt::{Opt, OptRecord};
-use domain::base::{Message, ParsedName, QuestionSection, RecordSection};
-use domain::dep::octseq::Octets;
-use domain::rdata::ZoneRecordData;
-use domain::zonefile::inplace::Entry as ZonefileEntry;
+use super::parse_query;
+use super::parse_stelline::{Entry, Matches, Reply};
+use crate::base::iana::{Opcode, OptRcode, Rtype};
+use crate::base::opt::{Opt, OptRecord};
+use crate::base::{Message, ParsedName, QuestionSection, RecordSection};
+use crate::dep::octseq::Octets;
+use crate::rdata::ZoneRecordData;
+use crate::zonefile::inplace::Entry as ZonefileEntry;
+use std::vec::Vec;
 
 pub fn match_msg<'a, Octs: AsRef<[u8]> + Clone + Octets + 'a>(
     entry: &Entry,
@@ -340,7 +341,7 @@ fn match_section<
     let mat_opt =
         match_edns_bytes.map(|bytes| Opt::from_slice(bytes).unwrap());
 
-    if match_section.len() != msg_count.into() {
+    if match_section.len() != <u16 as Into<usize>>::into(msg_count) {
         if verbose {
             println!("match_section: expected section length {} doesn't match message count {}", match_section.len(), msg_count);
             if !match_section.is_empty() {

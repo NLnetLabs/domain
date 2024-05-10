@@ -4,18 +4,20 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::sync::Mutex as SyncMutex;
 use std::task::{Context, Poll, Waker};
+use std::boxed::Box;
+use std::vec::Vec;
 
 use tokio::io::ReadBuf;
 
-use domain::base::message_builder::AdditionalBuilder;
-use domain::base::Message;
-use domain::net::client::protocol::{
+use crate::base::message_builder::AdditionalBuilder;
+use crate::base::Message;
+use crate::net::client::protocol::{
     AsyncConnect, AsyncDgramRecv, AsyncDgramSend,
 };
 
-use crate::net::stelline::client::CurrStepValue;
-use crate::net::stelline::parse_stelline::Stelline;
-use crate::net::stelline::server::do_server;
+use super::client::CurrStepValue;
+use super::parse_stelline::Stelline;
+use super::server::do_server;
 
 #[derive(Clone, Debug)]
 pub struct Dgram {
