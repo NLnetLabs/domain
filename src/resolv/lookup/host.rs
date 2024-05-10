@@ -97,6 +97,20 @@ impl<R: Resolver> FoundHosts<R> {
         true
     }
 
+    pub fn len(&self) -> usize {
+        let aaaa = self
+            .aaaa
+            .as_ref()
+            .map_or(0, |m| m.as_ref().header_counts().ancount());
+
+        let a = self
+            .a
+            .as_ref()
+            .map_or(0, |m| m.as_ref().header_counts().ancount());
+
+        (aaaa + a) as usize
+    }
+
     /// Returns a reference to one of the answers.
     fn answer(&self) -> &R::Answer {
         match self.aaaa.as_ref() {

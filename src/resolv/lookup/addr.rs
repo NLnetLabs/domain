@@ -41,6 +41,14 @@ pub async fn lookup_addr<R: Resolver>(
 pub struct FoundAddrs<R: Resolver>(R::Answer);
 
 impl<R: Resolver> FoundAddrs<R> {
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    pub fn len(&self) -> usize {
+        self.0.as_ref().header_counts().ancount() as usize
+    }
+
     /// Returns an iterator over the host names.
     pub fn iter(&self) -> FoundAddrsIter<'_, R::Octets>
     where
