@@ -14,6 +14,8 @@ Bug fixes
 
 * Accept an empty record type bitmap when scanning NSEC/NSEC3 data.
   ([#310] by [@xofyarg])
+* Fix serialization of ProtoRrsig to conform with RFC 4034. ([#313 by
+  [@achow101])
 
 Unstable features
 
