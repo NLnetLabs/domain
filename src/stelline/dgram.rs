@@ -1,10 +1,10 @@
 //! Provide server-side of datagram protocols
+use std::boxed::Box;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::sync::Mutex as SyncMutex;
 use std::task::{Context, Poll, Waker};
-use std::boxed::Box;
 use std::vec::Vec;
 
 use tokio::io::ReadBuf;

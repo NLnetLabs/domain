@@ -2,8 +2,8 @@ use std::default::Default;
 use std::fmt::Debug;
 use std::io::{self, BufRead, Read};
 use std::net::IpAddr;
-use std::vec::Vec;
 use std::string::{String, ToString};
+use std::vec::Vec;
 
 use crate::zonefile::inplace::Entry as ZonefileEntry;
 use crate::zonefile::inplace::Zonefile;

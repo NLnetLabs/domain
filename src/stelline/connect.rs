@@ -1,7 +1,7 @@
+use std::boxed::Box;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
-use std::boxed::Box;
 
 use crate::net::client::protocol::AsyncConnect;
 

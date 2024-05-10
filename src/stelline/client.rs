@@ -1,4 +1,5 @@
 #![allow(clippy::type_complexity)]
+use std::boxed::Box;
 use std::collections::HashMap;
 use std::future::{ready, Future};
 use std::net::IpAddr;
@@ -7,7 +8,6 @@ use std::rc::Rc;
 use std::sync::Mutex;
 use std::time::Duration;
 use std::vec::Vec;
-use std::boxed::Box;
 
 use bytes::Bytes;
 /*
@@ -26,9 +26,7 @@ use crate::net::client::request::{
 
 use super::matches::match_msg;
 use super::parse_query;
-use super::parse_stelline::{
-    Entry, Reply, Stelline, StepType,
-};
+use super::parse_stelline::{Entry, Reply, Stelline, StepType};
 
 use super::channel::DEF_CLIENT_ADDR;
 
