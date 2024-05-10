@@ -554,6 +554,12 @@ impl CurrStepValue {
     }
 }
 
+impl Default for CurrStepValue {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl std::fmt::Display for CurrStepValue {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_fmt(format_args!("{}", self.get()))
