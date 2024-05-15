@@ -1,7 +1,7 @@
 //! A zonefile scanner keeping data in place.
 //!
 //! The zonefile scanner provided by this module reads the entire zonefile
-//! into memory and tries as much as possible to modify re-use this memory
+//! into memory and tries as much as possible to modify/re-use this memory
 //! when scanning data. It uses the `Bytes` family of types for safely
 //! storing, manipulating, and returning the data and thus requires the
 //! `bytes` feature to be enabled.
@@ -15,7 +15,6 @@
 use core::str::FromStr;
 use core::{fmt, str};
 
-use bytes::buf::UninitSlice;
 use bytes::{Buf, BufMut, Bytes, BytesMut};
 
 use crate::base::charstr::CharStr;
@@ -92,7 +91,7 @@ impl Zonefile {
             origin: Some(Name::root_bytes()),
             last_owner: None,
             last_ttl: Some(Ttl::ZERO),
-            last_class: None,
+            last_class: Some(Class::IN),
         }
     }
 }
@@ -121,20 +120,6 @@ impl Zonefile {
     /// Appends the given slice to the end of the buffer.
     pub fn extend_from_slice(&mut self, slice: &[u8]) {
         self.buf.buf.extend_from_slice(slice)
-    }
-}
-
-unsafe impl BufMut for Zonefile {
-    fn remaining_mut(&self) -> usize {
-        self.buf.buf.remaining_mut()
-    }
-
-    unsafe fn advance_mut(&mut self, cnt: usize) {
-        self.buf.buf.advance_mut(cnt);
-    }
-
-    fn chunk_mut(&mut self) -> &mut UninitSlice {
-        self.buf.buf.chunk_mut()
     }
 }
 
@@ -526,9 +511,8 @@ impl<'a> Scanner for EntryScanner<'a> {
         }
 
         // Done. `write` marks the end. Process via op and return.
-        let res = op(unsafe {
-            str::from_utf8_unchecked(&self.zonefile.buf.buf[..write])
-        })?;
+        let res =
+            op(str::from_utf8(&self.zonefile.buf.buf[..write]).unwrap())?;
         self.zonefile.buf.next_item()?;
         Ok(res)
     }
@@ -561,34 +545,45 @@ impl<'a> Scanner for EntryScanner<'a> {
                     if start == 0 {
                         return RelativeName::empty_bytes()
                             .chain(self.zonefile.get_origin()?)
-                            .map_err(|_| EntryError::bad_dname());
+                            .map_err(|_| EntryError::bad_name());
                     } else {
-                        return unsafe {
-                            RelativeName::from_octets_unchecked(
-                                self.zonefile.buf.split_to(write).freeze(),
-                            )
-                            .chain(Name::root())
-                            .map_err(|_| EntryError::bad_dname())
-                        };
+                        return RelativeName::from_octets(
+                            self.zonefile.buf.split_to(write).freeze(),
+                        )
+                        .unwrap()
+                        .chain(Name::root())
+                        .map_err(|_| EntryError::bad_name());
                     }
                 }
                 Some(true) => {
-                    // Last symbol was a dot: check length and continue.
+                    // Last symbol was a dot. If it is was the very first
+                    // symbol, this can only be the root name. Check for that
+                    // and, if so, return. Otherwise, check length and
+                    // continue to the next label.
+                    if write == 1 {
+                        if self.zonefile.buf.next_symbol()?.is_some() {
+                            return Err(EntryError::bad_name());
+                        } else {
+                            self.zonefile.buf.next_item()?;
+                            return Ok(RelativeName::empty()
+                                .chain(Name::root())
+                                .expect("failed to make root name"));
+                        }
+                    }
                     if write > 254 {
-                        return Err(EntryError::bad_dname());
+                        return Err(EntryError::bad_name());
                     }
                 }
                 Some(false) => {
                     // Reached end of token. This means we have a relative
                     // dname.
                     self.zonefile.buf.next_item()?;
-                    return unsafe {
-                        RelativeName::from_octets_unchecked(
-                            self.zonefile.buf.split_to(write).freeze(),
-                        )
-                        .chain(self.zonefile.get_origin()?)
-                        .map_err(|_| EntryError::bad_dname())
-                    };
+                    return RelativeName::from_octets(
+                        self.zonefile.buf.split_to(write).freeze(),
+                    )
+                    .unwrap()
+                    .chain(self.zonefile.get_origin()?)
+                    .map_err(|_| EntryError::bad_name());
                 }
             }
         }
@@ -625,11 +620,8 @@ impl<'a> Scanner for EntryScanner<'a> {
 
         // Done. `write` marks the end.
         self.zonefile.buf.next_item()?;
-        Ok(unsafe {
-            Str::from_utf8_unchecked(
-                self.zonefile.buf.split_to(write).freeze(),
-            )
-        })
+        Ok(Str::from_utf8(self.zonefile.buf.split_to(write).freeze())
+            .unwrap())
     }
 
     fn scan_charstr_entry(&mut self) -> Result<Self::Octets, Self::Error> {
@@ -757,7 +749,7 @@ impl<'a> EntryScanner<'a> {
                         // A char symbol. Just increase the write index.
                         *write += 1;
                         if *write >= latest {
-                            return Err(EntryError::bad_dname());
+                            return Err(EntryError::bad_name());
                         }
                     }
                     None => {
@@ -780,6 +772,9 @@ impl<'a> EntryScanner<'a> {
                             (*write - start - 1) as u8;
                         return Ok(Some(false));
                     } else {
+                        // There’s been nothing. Reset the write position
+                        // and return.
+                        *write = start;
                         return Ok(None);
                     }
                 }
@@ -795,7 +790,7 @@ impl<'a> EntryScanner<'a> {
                     self.zonefile.buf.buf[*write] = sym.into_octet()?;
                     *write += 1;
                     if *write >= latest {
-                        return Err(EntryError::bad_dname());
+                        return Err(EntryError::bad_name());
                     }
                 }
             }
@@ -816,7 +811,7 @@ impl<'a> EntryScanner<'a> {
             // or an escape sequence.
             while self.zonefile.buf.next_ascii_symbol()?.is_some() {
                 *write += 1;
-                if *write >= latest {
+                if *write > latest {
                     return Err(EntryError::bad_charstr());
                 }
             }
@@ -833,7 +828,7 @@ impl<'a> EntryScanner<'a> {
                 Some(sym) => {
                     self.zonefile.buf.buf[*write] = sym.into_octet()?;
                     *write += 1;
-                    if *write >= latest {
+                    if *write > latest {
                         return Err(EntryError::bad_charstr());
                     }
                 }
@@ -1339,8 +1334,8 @@ impl EntryError {
         EntryError("bad charstr")
     }
 
-    fn bad_dname() -> Self {
-        EntryError("bad dname")
+    fn bad_name() -> Self {
+        EntryError("bad name")
     }
 
     fn unbalanced_parens() -> Self {
