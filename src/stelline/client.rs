@@ -1,4 +1,5 @@
 #![allow(clippy::type_complexity)]
+use std::boxed::Box;
 use std::collections::HashMap;
 use std::future::{ready, Future};
 use std::net::IpAddr;
@@ -6,6 +7,7 @@ use std::pin::Pin;
 use std::rc::Rc;
 use std::sync::Mutex;
 use std::time::Duration;
+use std::vec::Vec;
 
 use bytes::Bytes;
 /*
@@ -15,18 +17,16 @@ use mock_instant::MockClock;
 use tracing::{debug, info_span, trace};
 use tracing_subscriber::EnvFilter;
 
-use domain::base::iana::Opcode;
-use domain::base::opt::{ComposeOptData, OptData};
-use domain::base::{Message, MessageBuilder};
-use domain::net::client::request::{
+use crate::base::iana::{Opcode, OptionCode};
+use crate::base::opt::{ComposeOptData, OptData};
+use crate::base::{Message, MessageBuilder};
+use crate::net::client::request::{
     ComposeRequest, Error, RequestMessage, SendRequest,
 };
 
-use crate::net::stelline::matches::match_msg;
-use crate::net::stelline::parse_query;
-use crate::net::stelline::parse_stelline::{
-    Entry, Reply, Stelline, StepType,
-};
+use super::matches::match_msg;
+use super::parse_query;
+use super::parse_stelline::{Entry, Reply, Stelline, StepType};
 
 use super::channel::DEF_CLIENT_ADDR;
 
@@ -66,7 +66,7 @@ impl<'a> StellineError<'a> {
 
 #[derive(Debug)]
 pub enum StellineErrorCause {
-    ClientError(domain::net::client::request::Error),
+    ClientError(Error),
     MismatchedAnswer,
     MissingResponse,
     MissingStepEntry,
@@ -75,8 +75,8 @@ pub enum StellineErrorCause {
     MissingClient,
 }
 
-impl From<domain::net::client::request::Error> for StellineErrorCause {
-    fn from(err: domain::net::client::request::Error) -> Self {
+impl From<Error> for StellineErrorCause {
+    fn from(err: Error) -> Self {
         Self::ClientError(err)
     }
 }
@@ -554,6 +554,12 @@ impl CurrStepValue {
     }
 }
 
+impl Default for CurrStepValue {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl std::fmt::Display for CurrStepValue {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_fmt(format_args!("{}", self.get()))
@@ -567,7 +573,7 @@ struct RawOptData<'a> {
 }
 
 impl<'a> OptData for RawOptData<'a> {
-    fn code(&self) -> domain::base::iana::OptionCode {
+    fn code(&self) -> OptionCode {
         u16::from_be_bytes(self.bytes[0..2].try_into().unwrap()).into()
     }
 }

@@ -1,3 +1,4 @@
+#![cfg(feature = "unstable-stelline")]
 pub mod channel;
 pub mod client;
 pub mod connect;

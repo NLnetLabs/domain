@@ -2,12 +2,14 @@ use std::default::Default;
 use std::fmt::Debug;
 use std::io::{self, BufRead, Read};
 use std::net::IpAddr;
+use std::string::{String, ToString};
+use std::vec::Vec;
 
-use domain::zonefile::inplace::Entry as ZonefileEntry;
-use domain::zonefile::inplace::Zonefile;
+use crate::zonefile::inplace::Entry as ZonefileEntry;
+use crate::zonefile::inplace::Zonefile;
 
-use crate::net::stelline::parse_query;
-use crate::net::stelline::parse_query::Zonefile as QueryZonefile;
+use super::parse_query;
+use super::parse_query::Zonefile as QueryZonefile;
 
 const CONFIG_END: &str = "CONFIG_END";
 const SCENARIO_BEGIN: &str = "SCENARIO_BEGIN";

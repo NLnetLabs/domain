@@ -1,6 +1,7 @@
 // Using tokio::io::duplex() seems appealing but it can only create a channel
 // between two ends, it isn't possible to create additional client ends for a
 // single server end for example.
+use std::boxed::Box;
 use std::collections::HashMap;
 use std::future::ready;
 use std::future::Future;
@@ -8,6 +9,7 @@ use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};
+use std::vec::Vec;
 use std::{cmp, io};
 
 use futures_util::FutureExt;
@@ -16,10 +18,10 @@ use tokio::sync::mpsc;
 use tokio::sync::mpsc::error::TryRecvError;
 use tracing::trace;
 
-use domain::net::client::protocol::{
+use crate::net::client::protocol::{
     AsyncConnect, AsyncDgramRecv, AsyncDgramSend,
 };
-use domain::net::server::sock::{AsyncAccept, AsyncDgramSock};
+use crate::net::server::sock::{AsyncAccept, AsyncDgramSock};
 
 // If MSRV gets bumped to 1.69.0 we can replace these with a const SocketAddr.
 pub const DEF_CLIENT_ADDR: IpAddr = IpAddr::V4(Ipv4Addr::LOCALHOST);

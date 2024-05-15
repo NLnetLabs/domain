@@ -2,19 +2,19 @@ use std::fmt::Debug;
 
 use octseq::{OctetsBuilder, Truncate};
 
-use domain::base::iana::rcode::Rcode;
-use domain::base::iana::Opcode;
-use domain::base::message_builder::AdditionalBuilder;
-use domain::base::wire::Composer;
-use domain::base::{Message, MessageBuilder};
-use domain::dep::octseq::Octets;
-use domain::zonefile::inplace::Entry as ZonefileEntry;
+use crate::base::iana::rcode::Rcode;
+use crate::base::iana::Opcode;
+use crate::base::message_builder::AdditionalBuilder;
+use crate::base::wire::Composer;
+use crate::base::{Message, MessageBuilder};
+use crate::dep::octseq::Octets;
+use crate::zonefile::inplace::Entry as ZonefileEntry;
 
-use crate::net::stelline::client::CurrStepValue;
-use crate::net::stelline::matches::match_msg;
-use crate::net::stelline::parse_query;
-use crate::net::stelline::parse_stelline;
-use crate::net::stelline::parse_stelline::{Adjust, Reply, Stelline};
+use super::client::CurrStepValue;
+use super::matches::match_msg;
+use super::parse_query;
+use super::parse_stelline;
+use super::parse_stelline::{Adjust, Reply, Stelline};
 
 pub fn do_server<'a, Oct, Target>(
     msg: &'a Message<Oct>,
