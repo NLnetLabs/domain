@@ -1,5 +1,4 @@
-use super::parse_query;
-use super::parse_stelline::{Entry, Matches, Reply};
+use super::parse_stelline::{Entry, Matches, Question, Reply};
 use crate::base::iana::{Opcode, OptRcode, Rtype};
 use crate::base::opt::{Opt, OptRecord};
 use crate::base::{Message, ParsedName, QuestionSection, RecordSection};
@@ -443,7 +442,7 @@ fn match_section<
 }
 
 fn match_question<Octs: Octets>(
-    match_section: Vec<parse_query::Entry>,
+    match_section: Vec<Question>,
     msg_section: QuestionSection<'_, Octs>,
     match_qname: bool,
     match_qtype: bool,
@@ -454,13 +453,7 @@ fn match_question<Octs: Octets>(
     }
     for msg_rr in msg_section {
         let msg_rr = msg_rr.unwrap();
-        let mat_rr = if let parse_query::Entry::QueryRecord(record) =
-            &match_section[0]
-        {
-            record
-        } else {
-            panic!("include not expected");
-        };
+        let mat_rr = &match_section[0];
         if match_qname && msg_rr.qname() != mat_rr.qname() {
             return false;
         }

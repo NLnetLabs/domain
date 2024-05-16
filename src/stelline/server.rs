@@ -12,7 +12,6 @@ use crate::zonefile::inplace::Entry as ZonefileEntry;
 
 use super::client::CurrStepValue;
 use super::matches::match_msg;
-use super::parse_query;
 use super::parse_stelline;
 use super::parse_stelline::{Adjust, Reply, Stelline};
 
@@ -68,11 +67,7 @@ where
         }
     } else {
         for q in &sections.question {
-            let question = match q {
-                parse_query::Entry::QueryRecord(question) => question,
-                _ => todo!(),
-            };
-            msg.push(question).unwrap();
+            msg.push(q).unwrap();
         }
     }
     let mut msg = msg.answer();

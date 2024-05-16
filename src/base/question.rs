@@ -6,10 +6,13 @@
 
 use super::cmp::CanonicalOrd;
 use super::iana::{Class, Rtype};
+use super::name;
 use super::name::{ParsedName, ToName};
 use super::wire::{Composer, ParseError};
 use core::cmp::Ordering;
+use core::str::FromStr;
 use core::{fmt, hash};
+use octseq::builder::ShortBuf;
 use octseq::octets::{Octets, OctetsFrom};
 use octseq::parse::Parser;
 
@@ -111,7 +114,7 @@ impl<N: ToName> Question<N> {
     }
 }
 
-//--- From
+//--- From and FromStr
 
 impl<N: ToName> From<(N, Rtype, Class)> for Question<N> {
     fn from((name, rtype, class): (N, Rtype, Class)) -> Self {
@@ -122,6 +125,66 @@ impl<N: ToName> From<(N, Rtype, Class)> for Question<N> {
 impl<N: ToName> From<(N, Rtype)> for Question<N> {
     fn from((name, rtype): (N, Rtype)) -> Self {
         Question::new(name, rtype, Class::IN)
+    }
+}
+
+impl<N: FromStr<Err = name::FromStrError>> FromStr for Question<N> {
+    type Err = FromStrError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let mut s = s.split_whitespace();
+
+        let qname = match s.next() {
+            Some(qname) => qname,
+            None => return Err(PresentationErrorEnum::MissingQname.into()),
+        };
+        let qname = N::from_str(qname)?;
+        let class_or_qtype = match s.next() {
+            Some(value) => value,
+            None => {
+                return Err(PresentationErrorEnum::MissingClassAndQtype.into())
+            }
+        };
+        let res = match Class::from_str(class_or_qtype) {
+            Ok(class) => {
+                let qtype = match s.next() {
+                    Some(qtype) => qtype,
+                    None => {
+                        return Err(PresentationErrorEnum::MissingQtype.into())
+                    }
+                };
+                match Rtype::from_str(qtype) {
+                    Ok(qtype) => Self::new(qname, qtype, class),
+                    Err(_) => {
+                        return Err(PresentationErrorEnum::BadQtype.into())
+                    }
+                }
+            }
+            Err(_) => {
+                let qtype = match Rtype::from_str(class_or_qtype) {
+                    Ok(qtype) => qtype,
+                    Err(_) => {
+                        return Err(PresentationErrorEnum::BadQtype.into())
+                    }
+                };
+                let class = match s.next() {
+                    Some(class) => class,
+                    None => {
+                        return Err(PresentationErrorEnum::MissingClass.into())
+                    }
+                };
+                match Class::from_str(class) {
+                    Ok(class) => Self::new(qname, qtype, class),
+                    Err(_) => {
+                        return Err(PresentationErrorEnum::BadClass.into())
+                    }
+                }
+            }
+        };
+        if s.next().is_some() {
+            return Err(PresentationErrorEnum::TrailingData.into());
+        }
+        Ok(res)
     }
 }
 
@@ -300,3 +363,109 @@ impl<Name: ToName> ComposeQuestion for (Name, Rtype) {
         Question::new(&self.0, self.1, Class::IN).compose(target)
     }
 }
+
+//------------ FromStrError --------------------------------------------------
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum FromStrError {
+    /// The string content was wrongly formatted.
+    Presentation(PresentationError),
+
+    /// The buffer is too short to contain the name.
+    ShortBuf,
+}
+
+//--- From
+
+impl From<name::FromStrError> for FromStrError {
+    fn from(err: name::FromStrError) -> FromStrError {
+        match err {
+            name::FromStrError::Presentation(err) => {
+                Self::Presentation(err.into())
+            }
+            name::FromStrError::ShortBuf => Self::ShortBuf,
+        }
+    }
+}
+
+impl From<PresentationErrorEnum> for FromStrError {
+    fn from(err: PresentationErrorEnum) -> Self {
+        Self::Presentation(err.into())
+    }
+}
+
+//--- Display and Error
+
+impl fmt::Display for FromStrError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            FromStrError::Presentation(err) => err.fmt(f),
+            FromStrError::ShortBuf => ShortBuf.fmt(f),
+        }
+    }
+}
+
+#[cfg(feature = "std")]
+impl std::error::Error for FromStrError {}
+
+//------------ PresentationError ---------------------------------------------
+
+/// An illegal presentation format was encountered.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct PresentationError(PresentationErrorEnum);
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum PresentationErrorEnum {
+    BadName(name::PresentationError),
+    MissingQname,
+    MissingClassAndQtype,
+    MissingClass,
+    MissingQtype,
+    BadClass,
+    BadQtype,
+    TrailingData,
+}
+
+//--- From
+
+impl From<PresentationErrorEnum> for PresentationError {
+    fn from(err: PresentationErrorEnum) -> Self {
+        Self(err)
+    }
+}
+
+impl From<name::PresentationError> for PresentationError {
+    fn from(err: name::PresentationError) -> Self {
+        Self(PresentationErrorEnum::BadName(err))
+    }
+}
+
+//--- Display and Error
+
+impl fmt::Display for PresentationError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self.0 {
+            PresentationErrorEnum::BadName(err) => err.fmt(f),
+            PresentationErrorEnum::MissingQname => {
+                f.write_str("missing qname")
+            }
+            PresentationErrorEnum::MissingClassAndQtype => {
+                f.write_str("missing class and qtype")
+            }
+            PresentationErrorEnum::MissingClass => {
+                f.write_str("missing class")
+            }
+            PresentationErrorEnum::MissingQtype => {
+                f.write_str("missing qtype")
+            }
+            PresentationErrorEnum::BadClass => f.write_str("invalid class"),
+            PresentationErrorEnum::BadQtype => f.write_str("invalid qtype"),
+            PresentationErrorEnum::TrailingData => {
+                f.write_str("trailing data")
+            }
+        }
+    }
+}
+
+#[cfg(feature = "std")]
+impl std::error::Error for PresentationError {}

@@ -90,7 +90,7 @@
 
 pub use self::absolute::{Name, NameError};
 pub use self::builder::{
-    FromStrError, NameBuilder, PushError, PushNameError,
+    FromStrError, NameBuilder, PresentationError, PushError, PushNameError,
 };
 pub use self::chain::{Chain, ChainIter, LongChainError, UncertainChainIter};
 pub use self::label::{
