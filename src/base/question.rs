@@ -131,6 +131,13 @@ impl<N: ToName> From<(N, Rtype)> for Question<N> {
 impl<N: FromStr<Err = name::FromStrError>> FromStr for Question<N> {
     type Err = FromStrError;
 
+    /// Parses a question from a string.
+    ///
+    /// The string should contain a question as the query name, class, and
+    /// query type separated by white space. The query name should be first
+    /// and in the same form as `Name::from_str` requires. The class and
+    /// query type follow the name in either order. If the class is left out,
+    /// it is assumed to be IN.
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let mut s = s.split_whitespace();
 
@@ -169,9 +176,7 @@ impl<N: FromStr<Err = name::FromStrError>> FromStr for Question<N> {
                 };
                 let class = match s.next() {
                     Some(class) => class,
-                    None => {
-                        return Err(PresentationErrorEnum::MissingClass.into())
-                    }
+                    None => return Ok(Self::new(qname, qtype, Class::IN)),
                 };
                 match Class::from_str(class) {
                     Ok(class) => Self::new(qname, qtype, class),
@@ -419,7 +424,6 @@ enum PresentationErrorEnum {
     BadName(name::PresentationError),
     MissingQname,
     MissingClassAndQtype,
-    MissingClass,
     MissingQtype,
     BadClass,
     BadQtype,
@@ -451,9 +455,6 @@ impl fmt::Display for PresentationError {
             }
             PresentationErrorEnum::MissingClassAndQtype => {
                 f.write_str("missing class and qtype")
-            }
-            PresentationErrorEnum::MissingClass => {
-                f.write_str("missing class")
             }
             PresentationErrorEnum::MissingQtype => {
                 f.write_str("missing qtype")
