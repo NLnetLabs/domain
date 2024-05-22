@@ -1706,6 +1706,11 @@ impl<'a, Target: Composer + ?Sized> OptBuilder<'a, Target> {
         let start = self.start;
         OptHeader::for_record_slice_mut(&mut self.target.as_mut()[start..])
     }
+
+    /// Returns a reference to the underlying octets builder.
+    pub fn as_target(&self) -> &Target {
+        self.target
+    }
 }
 
 //------------ StreamTarget --------------------------------------------------
@@ -2044,6 +2049,14 @@ impl<Target: Truncate> Truncate for StaticCompressor<Target> {
                 }
             }
         }
+    }
+}
+
+impl<Target: FreezeBuilder> FreezeBuilder for StaticCompressor<Target> {
+    type Octets = Target::Octets;
+
+    fn freeze(self) -> Self::Octets {
+        self.target.freeze()
     }
 }
 
