@@ -722,6 +722,48 @@ impl<Octs: AsRef<[u8]> + ?Sized> fmt::Debug for Message<Octs> {
     }
 }
 
+//--- Serialize
+
+#[cfg(feature = "serde")]
+impl<Octs: Octets + ?Sized> serde::Serialize for Message<Octs>
+where
+    for<'a> Octs::Range<'a>: octseq::serde::SerializeOctets,
+{
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+
+        let mut state = serializer.serialize_struct("Message", 3)?;
+        state.serialize_field("id", &self.header().id())?;
+        state.serialize_field("qr", &self.header().qr())?;
+        state.serialize_field("opcode", &self.header().opcode())?;
+        state.serialize_field("qdcount", &self.header_counts().qdcount())?;
+        state.serialize_field("ancount", &self.header_counts().ancount())?;
+        state.serialize_field("nscount", &self.header_counts().nscount())?;
+        state.serialize_field("arcount", &self.header_counts().arcount())?;
+
+        let question = self.question();
+        state.serialize_field("question", &question)?;
+        'outer: {
+            let Ok(section) = self.answer() else {
+                break 'outer;
+            };
+            state.serialize_field("answer", &section)?;
+            let Ok(Some(section)) = section.next_section() else {
+                break 'outer;
+            };
+            state.serialize_field("authority", &section)?;
+            let Ok(Some(section)) = section.next_section() else {
+                break 'outer;
+            };
+            state.serialize_field("additional", &section)?;
+        }
+        state.end()
+    }
+}
+
 //------------ QuestionSection ----------------------------------------------
 
 /// An iterator over the question section of a DNS message.
@@ -844,6 +886,29 @@ where
                 _ => return false,
             }
         }
+    }
+}
+
+//--- Serialize
+
+#[cfg(feature = "serde")]
+impl<'a, Octs: Octets + ?Sized> serde::Serialize
+    for QuestionSection<'a, Octs>
+{
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeSeq;
+
+        let mut seq = serializer.serialize_seq(None)?;
+        for item in self.clone() {
+            let Ok(item) = item else {
+                break;
+            };
+            seq.serialize_element(&item)?;
+        }
+        seq.end()
     }
 }
 
@@ -1057,6 +1122,32 @@ impl<'a, Octs: Octets + ?Sized> Iterator for RecordSection<'a, Octs> {
             }
             _ => None,
         }
+    }
+}
+
+//--- Serialize
+
+#[cfg(feature = "serde")]
+impl<'a, Octs: Octets + ?Sized> serde::Serialize for RecordSection<'a, Octs>
+where
+    Octs::Range<'a>: octseq::serde::SerializeOctets,
+{
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use crate::rdata::AllRecordData;
+        use serde::ser::SerializeSeq;
+        let mut seq = serializer.serialize_seq(None)?;
+        for item in self.clone() {
+            let Ok(item) =
+                item.and_then(|i| i.into_any_record::<AllRecordData<_, _>>())
+            else {
+                break;
+            };
+            seq.serialize_element(&item)?;
+        }
+        seq.end()
     }
 }
 

@@ -28,7 +28,11 @@ pub async fn lookup_host<R: Resolver>(
         resolver.query((&qname, Rtype::A)),
         resolver.query((&qname, Rtype::AAAA)),
     );
-    FoundHosts::new(aaaa, a)
+
+    Ok(FoundHosts {
+        a: Some(a?),
+        aaaa: Some(aaaa?),
+    })
 }
 
 //------------ search_host ---------------------------------------------------
@@ -36,7 +40,10 @@ pub async fn lookup_host<R: Resolver>(
 pub async fn search_host<R: Resolver + SearchNames>(
     resolver: &R,
     qname: impl ToRelativeName,
-) -> Result<FoundHosts<R>, io::Error> {
+) -> Result<FoundHosts<R>, io::Error>
+where
+    R::Octets: Octets,
+{
     for suffix in resolver.search_iter() {
         if let Ok(name) = (&qname).chain(suffix) {
             if let Ok(answer) = lookup_host(resolver, name).await {
@@ -62,34 +69,20 @@ pub async fn search_host<R: Resolver + SearchNames>(
 #[derive(Debug)]
 pub struct FoundHosts<R: Resolver> {
     /// The answer to the AAAA query.
-    aaaa: Result<R::Answer, io::Error>,
+    aaaa: Option<R::Answer>,
 
     /// The answer to the A query.
-    a: Result<R::Answer, io::Error>,
+    a: Option<R::Answer>,
 }
 
 impl<R: Resolver> FoundHosts<R> {
-    pub fn new(
-        aaaa: Result<R::Answer, io::Error>,
-        a: Result<R::Answer, io::Error>,
-    ) -> Result<Self, io::Error> {
-        if aaaa.is_err() && a.is_err() {
-            match aaaa {
-                Err(err) => return Err(err),
-                _ => unreachable!(),
-            }
-        }
-
-        Ok(FoundHosts { aaaa, a })
-    }
-
     pub fn is_empty(&self) -> bool {
-        if let Ok(ref aaaa) = self.aaaa {
+        if let Some(ref aaaa) = self.aaaa {
             if aaaa.as_ref().header_counts().ancount() > 0 {
                 return false;
             }
         }
-        if let Ok(ref a) = self.a {
+        if let Some(ref a) = self.a {
             if a.as_ref().header_counts().ancount() > 0 {
                 return false;
             }
@@ -100,8 +93,8 @@ impl<R: Resolver> FoundHosts<R> {
     /// Returns a reference to one of the answers.
     fn answer(&self) -> &R::Answer {
         match self.aaaa.as_ref() {
-            Ok(answer) => answer,
-            Err(_) => self.a.as_ref().unwrap(),
+            Some(answer) => answer,
+            None => self.a.as_ref().unwrap(),
         }
     }
 }
@@ -137,24 +130,20 @@ where
             aaaa_name: self
                 .aaaa
                 .as_ref()
-                .ok()
                 .and_then(|msg| msg.as_ref().for_slice().canonical_name()),
             a_name: self
                 .a
                 .as_ref()
-                .ok()
                 .and_then(|msg| msg.as_ref().for_slice().canonical_name()),
             aaaa: {
                 self.aaaa
                     .as_ref()
-                    .ok()
                     .and_then(|msg| msg.as_ref().for_slice().answer().ok())
                     .map(|answer| answer.limit_to::<Aaaa>())
             },
             a: {
                 self.a
                     .as_ref()
-                    .ok()
                     .and_then(|msg| msg.as_ref().for_slice().answer().ok())
                     .map(|answer| answer.limit_to::<A>())
             },

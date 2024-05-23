@@ -84,7 +84,10 @@ use octseq::OctetsBuilder;
 /// [`MessageBuilder`]: ../message_builder/struct.MessageBuilder.html
 /// [`Rtype`]: ../../iana/enum.Rtype.html
 #[derive(Clone)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(
+    feature = "serde",
+    derive(serde::Serialize, serde::Deserialize)
+)]
 pub struct Record<Name, Data> {
     /// The owner of the record.
     owner: Name,
@@ -96,6 +99,7 @@ pub struct Record<Name, Data> {
     ttl: Ttl,
 
     /// The record data. The value also specifies the record’s type.
+    #[cfg_attr(feature = "serde", serde(flatten))]
     data: Data,
 }
 

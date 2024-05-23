@@ -506,6 +506,15 @@ macro_rules! rdata_types {
         /// This enum collects the record data types for all currently
         /// implemented record types.
         #[derive(Clone)]
+        #[cfg_attr(
+            feature = "serde",
+            derive(serde::Serialize),
+            serde(
+                bound = "O: AsRef<[u8]> + octseq::serde::SerializeOctets, N: serde::Serialize",
+                tag = "rtype",
+                content = "data",
+            ),
+        )]
         #[non_exhaustive]
         pub enum AllRecordData<O, N> {
             $( $( $(

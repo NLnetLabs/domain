@@ -356,6 +356,17 @@ impl<Octs: AsRef<[u8]> + ?Sized> fmt::Debug for Opt<Octs> {
     }
 }
 
+//--- Serialize
+
+#[cfg(feature = "serde")]
+impl<O> serde::Serialize for Opt<O> {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer {
+        serializer.serialize_str("OPT ...")
+    }
+}
+
 //------------ OptHeader -----------------------------------------------------
 
 /// The header of an OPT record.
@@ -854,6 +865,7 @@ pub trait ComposeOptData: OptData {
 ///
 /// This type accepts any option type via its option code and raw data.
 #[derive(Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct UnknownOptData<Octs> {
     /// The option code for the option.
     code: OptionCode,
