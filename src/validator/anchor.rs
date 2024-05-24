@@ -91,6 +91,45 @@ impl TrustAnchors {
         new_self
     }
 
+    pub fn from_u8(str: &[u8]) -> Self {
+        let mut new_self = Self(Vec::new());
+
+        let mut zonefile = Zonefile::new();
+        zonefile.extend_from_slice(str);
+        zonefile.extend_from_slice("\n".as_bytes());
+        println!("from_u8: {:?}", zonefile);
+        for e in zonefile {
+            let e = e.unwrap();
+            println!("from_u8: {e:?}");
+            match e {
+                Entry::Record(r) => {
+                    println!("r {r:?}");
+                    new_self.add(r);
+                }
+                Entry::Include { path: _, origin: _ } => continue, // Just ignore include
+            }
+        }
+        new_self
+    }
+
+    pub fn add_u8(&mut self, str: &[u8]) {
+        let mut zonefile = Zonefile::new();
+        zonefile.extend_from_slice(str);
+        zonefile.extend_from_slice("\n".as_bytes());
+        println!("add_u8: {:?}", zonefile);
+        for e in zonefile {
+            let e = e.unwrap();
+            println!("add_u8: {e:?}");
+            match e {
+                Entry::Record(r) => {
+                    println!("r {r:?}");
+                    self.add(r);
+                }
+                Entry::Include { path: _, origin: _ } => continue, // Just ignore include
+            }
+        }
+    }
+
     fn add(&mut self, rr: RrType) {
         // Very simplistic implementation of add. If this O(n^2) algorithm is
         // not enough, then we should use a small hash table or sort first.

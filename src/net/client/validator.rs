@@ -1,5 +1,6 @@
 // DNSSEC validator transport
 
+use crate::base::iana::Rcode;
 use crate::base::opt::AllOptData;
 use crate::base::opt::ExtendedError;
 use crate::base::Message;
@@ -14,7 +15,6 @@ use crate::net::client::request::GetResponse;
 use crate::net::client::request::RequestMessage;
 use crate::net::client::request::SendRequest;
 use crate::rdata::AllRecordData;
-use crate::validator;
 use crate::validator::context::ValidationContext;
 use crate::validator::types::ValidationState;
 use bytes::Bytes;
@@ -179,6 +179,12 @@ where
             self.request_msg.header_mut().set_cd(true);
         }
 
+        println!(
+            "validator get_response_impl: request {:?}",
+            self.request_msg
+        );
+        self.request_msg.print();
+
         let mut request =
             self.upstream.send_request(self.request_msg.clone());
 
@@ -186,23 +192,30 @@ where
         println!("get_response_impl: response {response_msg:?}");
 
         if cd {
-            // Clear the AD flag if it is set. Return the response without
-            // checking.
-            if response_msg.header().ad() {
-                let mut response_msg =
-                    Message::from_octets(response_msg.as_slice().to_vec())
-                        .unwrap();
-                response_msg.header_mut().set_ad(false);
-                let response_msg = Message::<Bytes>::from_octets(
-                    response_msg.into_octets().octets_into(),
-                )
-                .unwrap();
+            if dnssec_ok {
+                // Clear the AD flag if it is clear. Check if CD is set. If
+                // either AD is set or CD is clear then correct he message.
+                if response_msg.header().ad() || !response_msg.header().cd() {
+                    let mut response_msg = Message::from_octets(
+                        response_msg.as_slice().to_vec(),
+                    )
+                    .unwrap();
+                    response_msg.header_mut().set_ad(false);
+                    response_msg.header_mut().set_cd(true);
+                    let response_msg = Message::<Bytes>::from_octets(
+                        response_msg.into_octets().octets_into(),
+                    )
+                    .unwrap();
+                    return Ok(response_msg);
+                }
                 return Ok(response_msg);
+            } else {
+                let msg = remove_dnssec(&response_msg, false, cd);
+                return msg;
             }
-            return Ok(response_msg);
         }
 
-        let res = validator::validate_msg(&response_msg, &self.vc).await;
+        let res = self.vc.validate_msg(&response_msg).await;
         println!("get_response_impl: {res:?}");
         match res {
             Err(_err) => {
@@ -233,11 +246,16 @@ where
                             let msg = remove_dnssec(
                                 &response_msg,
                                 self.request_msg.header().ad(),
+                                false,
                             );
                             return msg;
                         }
                     }
-                    ValidationState::Bogus => todo!(),
+                    ValidationState::Bogus => {
+                        return Ok(
+                            serve_fail(&response_msg, opt_ede).unwrap()
+                        );
+                    }
                     ValidationState::Insecure
                     | ValidationState::Indeterminate => {
                         let response_msg = match opt_ede {
@@ -261,7 +279,8 @@ where
                             .unwrap();
                             return Ok(response_msg);
                         } else {
-                            let msg = remove_dnssec(&response_msg, false);
+                            let msg =
+                                remove_dnssec(&response_msg, false, false);
                             return msg;
                         }
                     }
@@ -305,12 +324,13 @@ where
 }
 
 /// Return a new message without the DNSSEC type DNSKEY, RRSIG, NSEC, and NSEC3.
-/// Assume that it is safe to clear CD. Only RRSIG needs to be removed
+/// Only RRSIG needs to be removed
 /// from the answer section unless the qtype is RRSIG. Remove all
 /// DNSSEC records from the authority and additional sections.
 fn remove_dnssec(
     msg: &Message<Bytes>,
     ad: bool,
+    cd: bool,
 ) -> Result<Message<Bytes>, Error> {
     println!("remove_dnssec: ad {ad:?}");
     let mut target =
@@ -326,7 +346,10 @@ fn remove_dnssec(
         // Change AD.
         target.header_mut().set_ad(ad);
     }
-    target.header_mut().set_cd(false);
+    if cd != source.header().cd() {
+        // Change CD.
+        target.header_mut().set_cd(cd);
+    }
 
     let source = source.question();
     let mut target = target.question();
@@ -471,6 +494,55 @@ fn add_opt(
                     ob.push(&x).unwrap();
                 }
                 ob.push(&ede).unwrap();
+                Ok(())
+            })
+            .unwrap();
+    }
+
+    let result = target.as_builder().clone();
+    let msg = Message::<Bytes>::from_octets(
+        result.finish().into_target().octets_into(),
+    )
+    .expect("Message should be able to parse output from MessageBuilder");
+    Ok(msg)
+}
+
+// Generate a SERVFAIL reply.
+fn serve_fail(
+    msg: &Message<Bytes>,
+    opt_ede: Option<ExtendedError<Bytes>>,
+) -> Result<Message<Bytes>, Error> {
+    let mut target =
+        MessageBuilder::from_target(StaticCompressor::new(Vec::new()))
+            .expect("Vec is expected to have enough space");
+
+    let source = msg;
+
+    *target.header_mut() = msg.header();
+    target.header_mut().set_rcode(Rcode::SERVFAIL);
+    target.header_mut().set_ad(false);
+
+    let source = source.question();
+    let mut target = target.question();
+    for rr in source {
+        target.push(rr?).unwrap();
+    }
+    let mut target = target.additional();
+
+    if let Some(opt) = msg.opt() {
+        target
+            .opt(|ob| {
+                ob.set_dnssec_ok(opt.dnssec_ok());
+                // XXX something is missing ob.set_rcode(opt.rcode());
+                ob.set_udp_payload_size(opt.udp_payload_size());
+                ob.set_version(opt.version());
+                for o in opt.opt().iter() {
+                    let x: AllOptData<_, _> = o.unwrap();
+                    ob.push(&x).unwrap();
+                }
+                if let Some(ede) = opt_ede {
+                    ob.push(&ede).unwrap();
+                }
                 Ok(())
             })
             .unwrap();

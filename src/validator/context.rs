@@ -7,16 +7,37 @@ use super::anchor::TrustAnchors;
 use super::group::Group;
 use super::group::GroupList;
 use super::group::SigCache;
+use super::group::BOGUS_TTL;
+use super::group::MAX_BAD_SIGS;
+use super::group::ValidatedGroup;
 use super::nsec::cached_nsec3_hash;
+use super::nsec::nsec_for_nodata;
+use super::nsec::nsec_for_nodata_wildcard;
+use super::nsec::nsec_for_nxdomain;
+use super::nsec::NsecState;
+use super::nsec::NsecNXState;
+use super::nsec::nsec3_for_nodata;
+use super::nsec::nsec3_for_not_exists;
+use super::nsec::nsec3_for_nxdomain;
 use super::nsec::Nsec3Cache;
+use super::nsec::Nsec3NXState;
 use super::nsec::NSEC3_ITER_BOGUS;
 use super::nsec::NSEC3_ITER_INSECURE;
+use super::types::Error;
 use super::types::ValidationState;
+use super::utilities::check_not_exists_for_wildcard;
+use super::utilities::do_cname_dname;
+use super::utilities::get_answer_state;
+use super::utilities::get_soa_state;
+use super::utilities::map_maybe_secure;
+use super::utilities::star_closest_encloser;
 use super::utilities::ttl_for_sig;
 use crate::base::iana::ExtendedErrorCode;
+use crate::base::iana::OptRcode;
 use crate::base::name::Chain;
 use crate::base::name::Label;
 use crate::base::opt::ExtendedError;
+use crate::base::Message;
 use crate::base::MessageBuilder;
 use crate::base::Name;
 use crate::base::ParsedName;
@@ -25,7 +46,7 @@ use crate::base::RelativeName;
 use crate::base::Rtype;
 use crate::base::ToName;
 use bytes::Bytes;
-//use crate::dep::octseq::Octets;
+use crate::dep::octseq::Octets;
 //use crate::base::ParsedName;
 use crate::net::client::request::ComposeRequest;
 use crate::net::client::request::RequestMessage;
@@ -42,6 +63,7 @@ use moka::future::Cache;
 use std::cmp::min;
 use std::cmp::Ordering;
 use std::collections::VecDeque;
+use std::fmt::Debug;
 use std::string::ToString;
 use std::sync::Arc;
 use std::time::Duration;
@@ -77,6 +99,321 @@ impl<Upstream> ValidationContext<Upstream> {
         }
     }
 
+    // On success, return the validation state and an optionally an extended DNS
+    // error.
+    pub async fn validate_msg<'a, Octs>(
+	&self,
+	msg: &'a Message<Octs>,
+    ) -> Result<(ValidationState, Option<ExtendedError<Bytes>>), Error>
+    where
+	Octs: Clone + Debug + Octets + 'a,
+	<Octs as Octets>::Range<'a>: Debug,
+	Upstream: Clone + SendRequest<RequestMessage<Bytes>>,
+    {
+	// Convert to Bytes.
+	let bytes = Bytes::copy_from_slice(msg.as_slice());
+	let msg = Message::from_octets(bytes).unwrap();
+
+	// First convert the Answer and Authority sections to lists of RR groups
+	let mut answers = GroupList::new();
+	for rr in msg.answer().unwrap() {
+	    answers.add(rr.unwrap());
+	}
+	let mut authorities = GroupList::new();
+	for rr in msg.authority().unwrap() {
+	    authorities.add(rr.unwrap());
+	}
+
+	//println!("Answer groups: {answers:?}");
+	//println!("Authority groups: {authorities:?}");
+
+	// Get rid of redundant unsigned CNAMEs
+	answers.remove_redundant_cnames();
+
+	// Validate each group. We cannot use iter_mut because it requires a
+	// reference with a lifetime that is too long.
+	// Group can handle this by hiding the state behind a Mutex.
+	let mut answers = match self.validate_groups(&mut answers).await {
+	    Ok(vgs) => vgs,
+	    Err((ValidationState::Bogus, ede)) => {
+		return Ok((ValidationState::Bogus, ede));
+	    }
+	    Err(_) => panic!("Invalid ValidationState"),
+	};
+
+	let mut authorities = match self.validate_groups(&mut authorities).await {
+	    Ok(vgs) => vgs,
+	    Err((ValidationState::Bogus, ede)) => {
+		return Ok((ValidationState::Bogus, ede));
+	    }
+	    Err(_) => panic!("Invalid ValidationState"),
+	};
+
+	// We may need to update TTLs of signed RRsets
+
+	// Go through the answers and use CNAME and DNAME records to update 'SNAME'
+	// (see RFC 1034, Section 5.3.2) to the final name that results in an
+	// answer, NODATA, or NXDOMAIN. First extract QNAME/QCLASS/QTYPE. Require
+	// that the question section has only one entry. Return FormError if that
+	// is not the case (following draft-bellis-dnsop-qdcount-is-one-00)
+
+	// Extract Qname, Qclass, Qtype
+	let mut question_section = msg.question();
+	let question = match question_section.next() {
+	    None => {
+		return Err(Error::FormError);
+	    }
+	    Some(question) => question?,
+	};
+	if question_section.next().is_some() {
+	    return Err(Error::FormError);
+	}
+	let qname: Name<Bytes> = question.qname().try_to_name().unwrap();
+	let qclass = question.qclass();
+	let qtype = question.qtype();
+
+	// A secure answer may actually be insecure if there is an insecure
+	// CNAME or DNAME in the chain. Start by assume that secure is secure
+	// and downgrade if required.
+	let maybe_secure = ValidationState::Secure;
+
+	let (sname, state, ede) = do_cname_dname(
+	    qname,
+	    qclass,
+	    qtype,
+	    &mut answers,
+	    &mut authorities,
+	    self.nsec3_cache(),
+	)
+	.await;
+
+	let maybe_secure = map_maybe_secure(state, maybe_secure);
+	if maybe_secure == ValidationState::Bogus {
+	    return Ok((maybe_secure, ede));
+	}
+
+	// For NOERROR, check if the answer is positive. Then extract the status
+	// of the group and be done.
+	// For NODATA first get the SOA, this determines if the proof of a
+	// negative result is signed or not.
+	if msg.opt_rcode() == OptRcode::NOERROR {
+	    let opt_state = get_answer_state(&sname, qclass, qtype, &mut answers);
+	    if let Some((state, signer_name, closest_encloser, ede)) = opt_state {
+		if state != ValidationState::Secure || closest_encloser.is_none()
+		{
+		    // No need to check the wildcard, either because the state is
+		    // not secure or because there is no wildcard.
+		    return Ok((map_maybe_secure(state, maybe_secure), ede));
+		}
+
+		let closest_encloser = closest_encloser.unwrap();
+
+		// It is possible that the request was for the actualy wildcard.
+		// In that we we do not need to prove that sname does not exist.
+		let star_name = star_closest_encloser(&closest_encloser);
+		if sname == star_name {
+		    // We are done.
+		    return Ok((map_maybe_secure(state, maybe_secure), ede));
+		}
+
+		let (check, state, ede) = check_not_exists_for_wildcard(
+		    &sname,
+		    qtype,
+		    &mut authorities,
+		    &signer_name,
+		    &closest_encloser,
+		    self.nsec3_cache(),
+		)
+		.await;
+
+		if check {
+		    return Ok((map_maybe_secure(state, maybe_secure), ede));
+		}
+
+		// Report failure
+		return Ok((ValidationState::Bogus, ede));
+	    }
+	}
+
+	// For both NOERROR/NODATA and for NXDOMAIN we can first look at the SOA
+	// record in the authority section. If there is no SOA, return bogus. If
+	// there is one and the state is not secure, then return the state of the
+	// SOA record.
+	let signer_name = match get_soa_state(&sname, qclass, &mut authorities) {
+	    (None, ede) => {
+		let ede = match ede {
+		    Some(ede) => Some(ede),
+		    None => Some(
+			ExtendedError::new_with_str(
+			    ExtendedErrorCode::DNSSEC_BOGUS,
+			    "Missing SOA record for NODATA or NXDOMAIN",
+			)
+			.unwrap(),
+		    ),
+		};
+		return Ok((ValidationState::Bogus, ede)); // No SOA, assume the worst.
+	    }
+	    (Some((state, signer_name)), ede) => match state {
+		ValidationState::Secure => signer_name, // Continue validation.
+		ValidationState::Insecure
+		| ValidationState::Bogus
+		| ValidationState::Indeterminate => {
+		    return Ok((state, ede));
+		}
+	    },
+	};
+
+	println!("rcode = {:?}", msg.opt_rcode());
+	if msg.opt_rcode() == OptRcode::NOERROR {
+	    // Try to prove that the name exists but the qtype doesn't. Start
+	    // with NSEC and assume the name exists.
+	    match nsec_for_nodata(&sname, &mut authorities, qtype, &signer_name) {
+		NsecState::NoData => {
+		    return Ok((
+			map_maybe_secure(ValidationState::Secure, maybe_secure),
+			None,
+		    ))
+		}
+		NsecState::Nothing => (), // Try something else.
+	    }
+
+	    // Try to prove that the name does not exist and that a wildcard
+	    // exists but does not have the requested qtype.
+	    let (state, ede) = nsec_for_nodata_wildcard(
+		&sname,
+		&mut authorities,
+		qtype,
+		&signer_name,
+	    );
+	    match state {
+		NsecState::NoData => {
+		    return Ok((
+			map_maybe_secure(ValidationState::Secure, maybe_secure),
+			ede,
+		    ))
+		}
+		NsecState::Nothing => (), // Try something else.
+	    }
+
+	    // Try to prove that the name exists but the qtype doesn't. Continue
+	    // with NSEC3 and assume the name exists.
+	    match nsec3_for_nodata(
+		&sname,
+		&mut authorities,
+		qtype,
+		&signer_name,
+		self.nsec3_cache(),
+	    )
+	    .await
+	    {
+		NsecState::NoData => {
+		    return Ok((
+			map_maybe_secure(ValidationState::Secure, maybe_secure),
+			None,
+		    ))
+		}
+		NsecState::Nothing => (), // Try something else.
+	    }
+
+	    // RFC 5155, Section 8.6. If there is a closest encloser and
+	    // the NSEC3 RR that covers the "next closer" name has the Opt-Out
+	    // bit set then we have an insecure proof that the DS record does
+	    // not exist.
+	    // Then Errata 3441 says that we need to do the same thing for other
+	    // types.
+	    let (state, ede) = nsec3_for_not_exists(
+		&sname,
+		&mut authorities,
+		qtype,
+		&signer_name,
+		self.nsec3_cache(),
+	    )
+	    .await;
+	    let ce = match state {
+		Nsec3NXState::DoesNotExist(ce) => ce, // Continue with wildcard.
+		Nsec3NXState::DoesNotExistInsecure(_) => {
+		    // Something might exist. Just return insecure here.
+		    return Ok((ValidationState::Insecure, ede));
+		}
+		Nsec3NXState::Bogus => return Ok((ValidationState::Bogus, ede)),
+		Nsec3NXState::Nothing => todo!(), // We reached the end, return bogus.
+	    };
+
+	    let star_name = star_closest_encloser(&ce);
+	    match nsec3_for_nodata(
+		&star_name,
+		&mut authorities,
+		qtype,
+		&signer_name,
+		self.nsec3_cache(),
+	    )
+	    .await
+	    {
+		NsecState::NoData => {
+		    return Ok((
+			map_maybe_secure(ValidationState::Secure, maybe_secure),
+			None,
+		    ));
+		}
+		NsecState::Nothing => todo!(), // We reached the end, return bogus.
+	    }
+
+	    todo!();
+	}
+
+	// Prove NXDOMAIN.
+	// Try to prove that the name does not exist using NSEC.
+	let state =
+	    nsec_for_nxdomain(&sname, &mut authorities, qtype, &signer_name);
+	match state {
+	    NsecNXState::Exists => {
+		return Ok((ValidationState::Bogus, None));
+	    }
+	    NsecNXState::DoesNotExist(_) => {
+		return Ok((
+		    map_maybe_secure(ValidationState::Secure, maybe_secure),
+		    None,
+		))
+	    }
+	    NsecNXState::Nothing => (), // Try something else.
+	}
+
+	// Try to prove that the name does not exist using NSEC3.
+	let (state, mut ede) = nsec3_for_nxdomain(
+	    &sname,
+	    &mut authorities,
+	    qtype,
+	    &signer_name,
+	    self.nsec3_cache(),
+	)
+	.await;
+	match state {
+	    Nsec3NXState::DoesNotExist(_) => {
+		return Ok((
+		    map_maybe_secure(ValidationState::Secure, maybe_secure),
+		    None,
+		))
+	    }
+	    Nsec3NXState::DoesNotExistInsecure(_) => {
+		return Ok((ValidationState::Insecure, ede));
+	    }
+	    Nsec3NXState::Bogus => return Ok((ValidationState::Bogus, ede)),
+	    Nsec3NXState::Nothing => (), // Try something else.
+	}
+
+	if ede.is_none() {
+	    ede = Some(
+		ExtendedError::new_with_str(
+		    ExtendedErrorCode::DNSSEC_BOGUS,
+		    "No NEC/NSEC3 proof for non-existance",
+		)
+		.unwrap(),
+	    );
+	}
+	Ok((ValidationState::Bogus, ede))
+    }
+
+
     pub async fn get_node(&self, name: &Name<Bytes>) -> Arc<Node>
     where
         Upstream: Clone + SendRequest<RequestMessage<Bytes>>,
@@ -100,9 +437,11 @@ impl<Upstream> ValidationContext<Upstream> {
                     )
                     .unwrap(),
                 ),
+                MAX_NODE_VALID,
             );
             let node = Arc::new(node);
-            todo!(); // Cache
+            self.node_cache.insert(Name::root(), node.clone()).await;
+            return node;
         };
 
         let ta_owner = ta.owner();
@@ -116,7 +455,8 @@ impl<Upstream> ValidationContext<Upstream> {
             )
             .await;
             let node = Arc::new(node);
-            todo!(); // Cache
+            self.node_cache.insert(name.clone(), node.clone()).await;
+            return node;
         }
 
         // Walk from the parent of name back to trust anchor.
@@ -133,8 +473,10 @@ impl<Upstream> ValidationContext<Upstream> {
         loop {
             match node.validation_state() {
                 ValidationState::Secure => (), // continue
-                ValidationState::Insecure => return node,
-                ValidationState::Bogus | ValidationState::Indeterminate => {
+                ValidationState::Insecure | ValidationState::Bogus => {
+                    return node
+                }
+                ValidationState::Indeterminate => {
                     todo!();
                 }
             }
@@ -234,8 +576,57 @@ impl<Upstream> ValidationContext<Upstream> {
             match answers.iter().filter(|g| g.rtype() == Rtype::DS).next() {
                 Some(g) => g,
                 None => {
+                    // It is possible that we asked for a non-terminal that
+                    // contains a CNAME. In that case the answer section should
+                    // contain a signed CNAME and we can conclude a
+                    // secure intermediate node.
+                    for g in
+                        answers.iter().filter(|g| g.rtype() == Rtype::CNAME)
+                    {
+                        if g.owner() != name {
+                            continue;
+                        }
+                        // Found matching CNAME.
+                        let g_ttl = g.min_ttl().into_duration();
+                        let ttl = min(parent_ttl, g_ttl);
+                        println!("with g_ttl {g_ttl:?}, new ttl {ttl:?}");
+
+                        let (state, _wildcard, ede, sig_ttl) = g
+                            .validate_with_node(node, &self.isig_cache)
+                            .await;
+
+                        let ttl = min(ttl, sig_ttl);
+                        println!("with sig_ttl {sig_ttl:?}, new ttl {ttl:?}");
+
+                        match state {
+                            ValidationState::Secure => (),
+                            ValidationState::Insecure
+                            | ValidationState::Indeterminate => {
+                                todo!();
+                            }
+                            ValidationState::Bogus => {
+                                return Node::new_delegation(
+                                    name,
+                                    ValidationState::Bogus,
+                                    Vec::new(),
+                                    ede,
+                                    ttl,
+                                );
+                            }
+                        }
+
+                        // Do we need to check if the CNAME record is a wildcard?
+                        return Node::new_intermediate(
+                            name,
+                            ValidationState::Secure,
+                            node.signer_name().clone(),
+                            ede,
+                            ttl,
+                        );
+                    }
+
                     // Verify proof that DS doesn't exist for this name.
-                    let state = nsec_for_ds(
+                    let (state, ttl, ede) = nsec_for_ds(
                         &name,
                         &mut authorities,
                         node,
@@ -243,28 +634,37 @@ impl<Upstream> ValidationContext<Upstream> {
                     )
                     .await;
                     match state {
-                        NsecState::InsecureDelegation => {
+                        CNsecState::InsecureDelegation => {
                             // An insecure delegation is normal enough that
-                            // it needs an EDE.
-                            todo!();
-                            /*
-                                                        return Node::new_delegation(
-                                                            name,
-                                                            ValidationState::Insecure,
-                                                            Vec::new(),
-                                                            None,
-                                                        );
-                            */
+                            // it does not need an EDE.
+                            let ttl = min(parent_ttl, ttl);
+                            return Node::new_delegation(
+                                name,
+                                ValidationState::Insecure,
+                                Vec::new(),
+                                ede,
+                                ttl,
+                            );
                         }
-                        NsecState::SecureIntermediate => {
+                        CNsecState::SecureIntermediate => {
                             return Node::new_intermediate(
                                 name,
                                 ValidationState::Secure,
                                 node.signer_name().clone(),
-                                None,
+                                ede,
+                                ttl,
                             )
                         }
-                        NsecState::Nothing => (), // Try NSEC3 next.
+                        CNsecState::Bogus => {
+                            return Node::new_delegation(
+                                name,
+                                ValidationState::Bogus,
+                                Vec::new(),
+                                ede,
+                                ttl,
+                            )
+                        }
+                        CNsecState::Nothing => (), // Try NSEC3 next.
                     }
 
                     let (state, ede, ttl) = nsec3_for_ds(
@@ -279,7 +679,7 @@ impl<Upstream> ValidationContext<Upstream> {
                         "create_child_node: got state {state:?} for {name:?}"
                     );
                     match state {
-                        NsecState::InsecureDelegation => {
+                        CNsecState::InsecureDelegation => {
                             return Node::new_delegation(
                                 name,
                                 ValidationState::Insecure,
@@ -288,41 +688,69 @@ impl<Upstream> ValidationContext<Upstream> {
                                 ttl,
                             )
                         }
-                        NsecState::SecureIntermediate => {
+                        CNsecState::SecureIntermediate => {
                             return Node::new_intermediate(
                                 name,
                                 ValidationState::Secure,
                                 node.signer_name().clone(),
-                                None,
+                                ede,
+                                ttl,
                             )
                         }
-                        NsecState::Nothing => (),
+                        CNsecState::Bogus => {
+                            return Node::new_delegation(
+                                name,
+                                ValidationState::Bogus,
+                                Vec::new(),
+                                ede,
+                                ttl,
+                            )
+                        }
+                        CNsecState::Nothing => (),
                     }
 
                     // Both NSEC and NSEC3 failed. Create a new node with
                     // bogus state.
-                    todo!();
+                    return Node::new_delegation(
+                        name,
+                        ValidationState::Bogus,
+                        Vec::new(),
+                        ede,
+                        ttl,
+                    );
                 }
             };
+
+        if ds_group.owner() != name {
+            todo!();
+        }
 
         // TODO: Limit the size of the DS RRset.
         let ds_ttl = ds_group.min_ttl().into_duration();
         let ttl = min(parent_ttl, ds_ttl);
         println!("with ds_ttl {ds_ttl:?}, new ttl {ttl:?}");
 
-        let (state, _wildcard, _ede, sig_ttl) =
+        let (state, _wildcard, ede, sig_ttl) =
             ds_group.validate_with_node(node, &self.isig_cache).await;
-        match state {
-            ValidationState::Secure => (),
-            ValidationState::Insecure
-            | ValidationState::Bogus
-            | ValidationState::Indeterminate => {
-                todo!();
-            }
-        }
 
         let ttl = min(ttl, sig_ttl);
         println!("with sig_ttl {sig_ttl:?}, new ttl {ttl:?}");
+
+        match state {
+            ValidationState::Secure => (),
+            ValidationState::Insecure | ValidationState::Indeterminate => {
+                todo!();
+            }
+            ValidationState::Bogus => {
+                return Node::new_delegation(
+                    name,
+                    ValidationState::Bogus,
+                    Vec::new(),
+                    ede,
+                    ttl,
+                );
+            }
+        }
 
         // Do we need to check if the DS record is a wildcard?
 
@@ -350,6 +778,7 @@ impl<Upstream> ValidationContext<Upstream> {
         // authenticated DS records using unknown or unsupported message
         // digest algorithms.
         let mut tmp_group = ds_group.clone();
+        println!("create_child_node: ds group: {ds_group:?}");
         let valid_algs = tmp_group
             .rr_iter()
             .map(|r| {
@@ -367,7 +796,20 @@ impl<Upstream> ValidationContext<Upstream> {
 
         if !valid_algs {
             // Delegation is insecure
-            todo!();
+            let ede = Some(
+                ExtendedError::new_with_str(
+                    ExtendedErrorCode::OTHER,
+                    "No supported algorithm in DS RRset",
+                )
+                .unwrap(),
+            );
+            return Node::new_delegation(
+                name,
+                ValidationState::Insecure,
+                Vec::new(),
+                ede,
+                ttl,
+            );
         }
 
         // Get the DNSKEY RRset.
@@ -439,6 +881,9 @@ impl<Upstream> ValidationContext<Upstream> {
             let key_tag = dnskey.key_tag();
             let key_name = r_dnskey.owner().try_to_name().unwrap();
             for sig in (*dnskey_group).clone().sig_iter() {
+                if sig.data().key_tag() != key_tag {
+                    continue; // Signature from wrong key
+                }
                 if dnskey_group
                     .check_sig_cached(
                         sig,
@@ -467,23 +912,6 @@ impl<Upstream> ValidationContext<Upstream> {
                     let ttl = min(ttl, sig_ttl);
                     println!("with sig_ttl {sig_ttl:?}, new ttl {ttl:?}");
 
-                    /*
-                                let sig_ttl = sig.ttl().into_duration();
-                                let ttl = min(ttl, sig_ttl);
-                                println!("with sig_ttl {sig_ttl:?}, new ttl {ttl:?}");
-                                let orig_ttl = sig.data().original_ttl().into_duration();
-                                let ttl = min(ttl, orig_ttl);
-                                println!("with orig_ttl {orig_ttl:?}, new ttl {ttl:?}");
-
-                                let until_expired = sig.data().expiration().into_int() -
-                                    Timestamp::now().into_int();
-
-                                let expire_duration = Duration::from_secs(until_expired
-                                    as u64);
-                                let ttl = min(ttl, expire_duration);
-
-                                println!("with until_expired {until_expired:?}, ttl {ttl:?}");
-                    */
                     return Node::new_delegation(
                         key_name,
                         ValidationState::Secure,
@@ -536,6 +964,30 @@ impl<Upstream> ValidationContext<Upstream> {
     pub fn usig_cache(&self) -> &SigCache {
         &self.usig_cache
     }
+
+    async fn validate_groups(
+	&self,
+	groups: &mut GroupList,
+    ) -> Result<
+	Vec<ValidatedGroup>,
+	(ValidationState, Option<ExtendedError<Bytes>>),
+    >
+    where
+	Upstream: Clone + SendRequest<RequestMessage<Bytes>>,
+    {
+	let mut vgs = Vec::new();
+	for g in groups.iter() {
+	    //println!("Validating group {g:?}");
+	    let (state, signer_name, wildcard, ede) =
+		g.validate_with_vc(self).await;
+	    if let ValidationState::Bogus = state {
+		return Err((state, ede));
+	    }
+	    vgs.push(g.validated(state, signer_name, wildcard, ede));
+	}
+	Ok(vgs)
+    }
+
 }
 
 #[derive(Clone)]
@@ -557,17 +1009,17 @@ impl Node {
     fn indeterminate(
         name: Name<Bytes>,
         ede: Option<ExtendedError<Bytes>>,
+        valid_for: Duration,
     ) -> Self {
-        todo!();
-        /*
-                Self {
-                    state: ValidationState::Indeterminate,
-                    keys: Vec::new(),
-                    signer_name: name,
-                    intermediate: false,
-                    ede,
-                }
-        */
+        Self {
+            state: ValidationState::Indeterminate,
+            keys: Vec::new(),
+            signer_name: name,
+            intermediate: false,
+            ede,
+            created_at: Instant::now(),
+            valid_for,
+        }
     }
 
     async fn trust_anchor<Upstream>(
@@ -601,20 +1053,55 @@ impl Node {
             answers.add(rr.unwrap());
         }
 
+        println!("trust_anchor:");
+        for rr in reply.authority().unwrap() {
+            println!("Authority {rr:?}");
+        }
+
         // Get the DNSKEY group. We expect exactly one.
-        let dnskeys = answers
+        let dnskeys = match answers
             .iter()
             .filter(|g| g.rtype() == Rtype::DNSKEY)
             .next()
-            .unwrap();
+        {
+            Some(dnskeys) => dnskeys,
+            None => {
+                let ede = Some(
+                    ExtendedError::new_with_str(
+                        ExtendedErrorCode::DNSSEC_BOGUS,
+                        "No DNSKEY RRset for trust anchor",
+                    )
+                    .unwrap(),
+                );
+                return Node::new_delegation(
+                    ta_owner,
+                    ValidationState::Bogus,
+                    Vec::new(),
+                    ede,
+                    BOGUS_TTL,
+                );
+            }
+        };
         println!("dnskeys = {dnskeys:?}");
+
+        let mut bad_sigs = 0;
+        let mut opt_ede: Option<ExtendedError<Bytes>> = None;
 
         // Try to find one trust anchor key that can be used to validate
         // the DNSKEY RRset.
-        for tkey in (*ta).clone().iter() {
-            if !has_key(dnskeys, tkey) {
+        for ta_rr in (*ta).clone().iter() {
+            let opt_dnskey_rr = if ta_rr.rtype() == Rtype::DNSKEY {
+                has_key(dnskeys, ta_rr)
+            } else if ta_rr.rtype() == Rtype::DS {
+                has_ds(dnskeys, ta_rr)
+            } else {
+                None
+            };
+            let dnskey_rr = if let Some(dnskey_rr) = opt_dnskey_rr {
+                dnskey_rr
+            } else {
                 continue;
-            }
+            };
 
             let ttl = MAX_NODE_VALID;
             println!("trust_anchor: max node cache: {ttl:?}");
@@ -623,23 +1110,21 @@ impl Node {
             let ttl = min(ttl, dnskey_ttl);
             println!("with dnskey_ttl {dnskey_ttl:?}, new ttl {ttl:?}");
 
-            let tkey_dnskey =
-                if let ZoneRecordData::Dnskey(dnskey) = tkey.data() {
+            let dnskey =
+                if let AllRecordData::Dnskey(dnskey) = dnskey_rr.data() {
                     dnskey
                 } else {
                     continue;
                 };
-            let key_tag = tkey_dnskey.key_tag();
-            let key_name = tkey.owner().try_to_name().unwrap();
+            let key_tag = dnskey.key_tag();
+            let key_name = dnskey_rr.owner().try_to_name().unwrap();
             for sig in (*dnskeys).clone().sig_iter() {
+                if sig.data().key_tag() != key_tag {
+                    continue; // Signature from wrong key
+                }
                 if dnskeys
                     .check_sig_cached(
-                        sig,
-                        &ta_owner,
-                        tkey_dnskey,
-                        &key_name,
-                        key_tag,
-                        sig_cache,
+                        sig, &ta_owner, dnskey, &key_name, key_tag, sig_cache,
                     )
                     .await
                 {
@@ -682,12 +1167,38 @@ impl Node {
                     // For these reasons we can limit the number of failures
                     // we tolerate to one. And declare the DNSKEY RRset
                     // bogus if we get two failures.
-                    todo!();
+                    bad_sigs += 1;
+                    if bad_sigs > MAX_BAD_SIGS {
+                        todo!();
+                    }
+                    if opt_ede.is_none() {
+                        opt_ede = Some(
+                            ExtendedError::new_with_str(
+                                ExtendedErrorCode::DNSSEC_BOGUS,
+                                "Bad signature",
+                            )
+                            .unwrap(),
+                        );
+                    }
                 }
             }
-            todo!();
         }
-        todo!();
+        if opt_ede.is_none() {
+            opt_ede = Some(
+                ExtendedError::new_with_str(
+                    ExtendedErrorCode::DNSSEC_BOGUS,
+                    "No signature",
+                )
+                .unwrap(),
+            );
+        }
+        Node::new_delegation(
+            ta_owner,
+            ValidationState::Bogus,
+            Vec::new(),
+            opt_ede,
+            BOGUS_TTL,
+        )
     }
 
     pub fn new_delegation(
@@ -713,18 +1224,18 @@ impl Node {
         state: ValidationState,
         signer_name: Name<Bytes>,
         ede: Option<ExtendedError<Bytes>>,
+        valid_for: Duration,
     ) -> Self {
         println!("new_intermediate: for {name:?} signer {signer_name:?}");
-        todo!();
-        /*
-                Self {
-                    state,
-                    signer_name,
-                    keys: Vec::new(),
-                    intermediate: true,
-                    ede,
-                }
-        */
+        Self {
+            state,
+            signer_name,
+            keys: Vec::new(),
+            intermediate: true,
+            ede,
+            created_at: Instant::now(),
+            valid_for,
+        }
     }
 
     pub fn validation_state(&self) -> ValidationState {
@@ -767,11 +1278,11 @@ fn has_key(
         Chain<RelativeName<Bytes>, Name<Bytes>>,
         ZoneRecordData<Bytes, Chain<RelativeName<Bytes>, Name<Bytes>>>,
     >,
-) -> bool {
+) -> Option<Record<Name<Bytes>, AllRecordData<Bytes, ParsedName<Bytes>>>> {
     let tkey_dnskey = if let ZoneRecordData::Dnskey(dnskey) = tkey.data() {
         dnskey
     } else {
-        return false;
+        return None;
     };
 
     for key in (*dnskeys).clone().rr_iter() {
@@ -790,9 +1301,54 @@ fn has_key(
         if tkey_dnskey != key_dnskey {
             continue;
         }
-        return true;
+        return Some(key.clone());
     }
-    false
+    None
+}
+
+fn has_ds(
+    dnskeys: &Group,
+    ta_rr: &Record<
+        Chain<RelativeName<Bytes>, Name<Bytes>>,
+        ZoneRecordData<Bytes, Chain<RelativeName<Bytes>, Name<Bytes>>>,
+    >,
+) -> Option<Record<Name<Bytes>, AllRecordData<Bytes, ParsedName<Bytes>>>> {
+    let ds = if let ZoneRecordData::Ds(ds) = ta_rr.data() {
+        ds
+    } else {
+        return None;
+    };
+
+    for key in (*dnskeys).clone().rr_iter() {
+        let AllRecordData::Dnskey(key_dnskey) = key.data() else {
+            continue;
+        };
+        if ta_rr.owner().try_to_name::<Bytes>().unwrap() != key.owner() {
+            continue;
+        }
+        if ta_rr.class() != key.class() {
+            continue;
+        }
+        if ds.algorithm() != key_dnskey.algorithm() {
+            continue;
+        }
+        if ds.key_tag() != key_dnskey.key_tag() {
+            continue;
+        }
+
+        // No need to check key.rtype(). We know it is DNSKEY
+
+        if key_dnskey
+            .digest(key.owner(), ds.digest_type())
+            .unwrap()
+            .as_ref()
+            != ds.digest()
+        {
+            continue;
+        }
+        return Some(key.clone());
+    }
+    None
 }
 
 fn find_key_for_ds(
@@ -821,10 +1377,11 @@ fn find_key_for_ds(
 }
 
 #[derive(Debug)]
-enum NsecState {
+enum CNsecState {
     InsecureDelegation,
     SecureIntermediate,
     Nothing,
+    Bogus,
 }
 
 // Find an NSEC record that proves that a DS record does not exist and
@@ -843,7 +1400,7 @@ async fn nsec_for_ds(
     groups: &mut GroupList,
     node: &Node,
     sig_cache: &SigCache,
-) -> NsecState {
+) -> (CNsecState, Duration, Option<ExtendedError<Bytes>>) {
     for g in groups.iter() {
         if g.rtype() != Rtype::NSEC {
             continue;
@@ -857,7 +1414,7 @@ async fn nsec_for_ds(
         println!("nsec = {nsec:?}");
         if target.name_eq(&owner) {
             // Validate the signature
-            let (state, wildcard, ede, _ttl) =
+            let (state, wildcard, _ede, ttl) =
                 g.validate_with_node(node, sig_cache).await;
             match state {
                 ValidationState::Insecure
@@ -890,17 +1447,46 @@ async fn nsec_for_ds(
             // Check for NS.
             if types.contains(Rtype::NS) {
                 // We found NS and ruled out DS. This in an insecure delegation.
-                return NsecState::InsecureDelegation;
+                return (CNsecState::InsecureDelegation, ttl, None);
             }
 
             // Anything else is a secure intermediate node.
-            return NsecState::SecureIntermediate;
+            return (CNsecState::SecureIntermediate, ttl, None);
         }
 
-        // Check that if the owner is a prefix:
-        // - that the nsec does not have DNAME
-        // - that if the nsec has NS, it also has SOA
-        todo!();
+        if target.ends_with(&owner) {
+            // Validate the signature
+            let (state, wildcard, ede, ttl) =
+                g.validate_with_node(node, sig_cache).await;
+            match state {
+                ValidationState::Insecure
+                | ValidationState::Indeterminate => todo!(),
+                ValidationState::Bogus => {
+                    return (CNsecState::Bogus, ttl, ede);
+                }
+                ValidationState::Secure => (),
+            }
+
+            // Rule out wildcard
+            if wildcard.is_some() {
+                todo!();
+            }
+
+            // Check the bitmap.
+            let types = nsec.types();
+
+            // The owner is a prefix, check that
+            // - that the nsec does not have DNAME
+            // - that if the nsec has NS, it also has SOA
+            if types.contains(Rtype::DNAME) {
+                // We should not be here. Return failure.
+                todo!();
+            }
+            if types.contains(Rtype::NS) && !types.contains(Rtype::SOA) {
+                // We got a delegation NSEC. Return failure.
+                todo!();
+            }
+        }
 
         // Check that target is in the range of the NSEC and that owner is a
         // prefix of the next_name.
@@ -908,11 +1494,26 @@ async fn nsec_for_ds(
             && target.name_cmp(nsec.next_name()) == Ordering::Less
             && nsec.next_name().ends_with(target)
         {
-            return NsecState::SecureIntermediate;
+            // Validate the signature
+            let (state, wildcard, _ede, ttl) =
+                g.validate_with_node(node, sig_cache).await;
+            match state {
+                ValidationState::Insecure
+                | ValidationState::Bogus
+                | ValidationState::Indeterminate => todo!(),
+                ValidationState::Secure => (),
+            }
+
+            // Rule out wildcard
+            if wildcard.is_some() {
+                todo!();
+            }
+
+            return (CNsecState::SecureIntermediate, ttl, None);
         }
         todo!();
     }
-    NsecState::Nothing
+    (CNsecState::Nothing, MAX_NODE_VALID, None)
 }
 
 // Find an NSEC3 record hat proves that a DS record does not exist and return
@@ -932,7 +1533,8 @@ async fn nsec3_for_ds(
     node: &Node,
     nsec3_cache: &Nsec3Cache,
     sig_cache: &SigCache,
-) -> (NsecState, Option<ExtendedError<Bytes>>, Duration) {
+) -> (CNsecState, Option<ExtendedError<Bytes>>, Duration) {
+    let ede = None;
     for g in groups.iter() {
         if g.rtype() != Rtype::NSEC3 {
             continue;
@@ -1010,11 +1612,11 @@ async fn nsec3_for_ds(
             // Check for NS.
             if types.contains(Rtype::NS) {
                 // We found NS and ruled out DS. This in an insecure delegation.
-                return (NsecState::InsecureDelegation, None, ttl);
+                return (CNsecState::InsecureDelegation, None, ttl);
             }
 
             // Anything else is a secure intermediate node.
-            return (NsecState::SecureIntermediate, None, ttl);
+            return (CNsecState::SecureIntermediate, None, ttl);
         }
 
         // Check if target is between the hash in the first label and the
@@ -1039,9 +1641,8 @@ async fn nsec3_for_ds(
                 todo!();
             }
 
-            return (NsecState::InsecureDelegation, None, ttl);
+            return (CNsecState::InsecureDelegation, None, ttl);
         }
     }
-    todo!(); // TTL
-             // (NsecState::Nothing, None)
+    (CNsecState::Nothing, ede, MAX_NODE_VALID)
 }

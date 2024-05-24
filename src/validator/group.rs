@@ -51,6 +51,13 @@ use std::vec::Vec;
 type RrType = Record<Name<Bytes>, AllRecordData<Bytes, ParsedName<Bytes>>>;
 type SigType = Record<Name<Bytes>, Rrsig<Bytes, Name<Bytes>>>;
 
+// Is there any recommendation on how long to cache bad data?
+// This const should not be here.
+pub const BOGUS_TTL: Duration = Duration::from_secs(5 * 60);
+
+// This const should not be here.
+pub const MAX_BAD_SIGS: usize = 1; // Allow one bad signature before bailing.
+
 #[derive(Debug)]
 pub struct Group {
     rr_set: Vec<RrType>,
@@ -97,16 +104,24 @@ impl Group {
 
     fn add(&mut self, rr: &ParsedRecord<'_, Bytes>) -> Result<(), ()> {
         // First check owner.
+        println!("adding {rr:?}");
         if !self.rr_set.is_empty() {
             if self.rr_set[0].owner()
                 != &rr.owner().try_to_name::<Bytes>().unwrap()
             {
+                println!("add: return at line {}", line!());
+                println!(
+                    "add: curr owner {:?}, record {:?}",
+                    self.rr_set[0].owner(),
+                    rr.owner().try_to_name::<Bytes>()
+                );
                 return Err(());
             }
         } else {
             if self.sig_set[0].owner().try_to_name::<Bytes>()
                 != rr.owner().try_to_name()
             {
+                println!("add: return at line {}", line!());
                 return Err(());
             }
         }
@@ -147,8 +162,11 @@ impl Group {
                     rrsig,
                 );
                 self.sig_set.push(record);
+                println!("after adding {self:?}");
+                println!("add: return at line {}", line!());
                 return Ok(());
             }
+            println!("add: return at line {}", line!());
             return Err(());
         }
 
@@ -160,15 +178,20 @@ impl Group {
             for r in &self.rr_set {
                 if *r == rr {
                     // We already have this record.
+                    println!("after adding {self:?}");
+                    println!("add: return at line {}", line!());
                     return Ok(());
                 }
             }
 
             self.rr_set.push(rr);
+            println!("after adding {self:?}");
+            println!("add: return at line {}", line!());
             return Ok(());
         }
 
         // No match.
+        println!("add: return at line {}", line!());
         Err(())
     }
 
@@ -246,6 +269,7 @@ impl Group {
     where
         Upstream: Clone + SendRequest<RequestMessage<Bytes>>,
     {
+        println!("validate_with_vc: for group {self:?}");
         // We have two cases, with an without RRSIGs. With RRSIGs we can
         // look at the signer_name. We need to find the DNSSEC status
         // of signer_name. If the status is secure, we can validate
@@ -311,6 +335,8 @@ impl Group {
         Option<ExtendedError<Bytes>>,
         Duration,
     ) {
+        let mut opt_ede = None;
+
         // Check the validation state of node. We can return directly if the
         // state is anything other than Secure.
         let state = node.validation_state();
@@ -329,6 +355,7 @@ impl Group {
         let ttl = min(ttl, group_ttl);
         println!("with group_ttl {group_ttl:?}, new ttl {ttl:?}");
 
+        let mut bad_sigs = 0;
         for sig_rec in self.clone().sig_iter() {
             let sig = sig_rec.data();
             for key in keys {
@@ -380,12 +407,33 @@ impl Group {
                     // For these reasons we can limit the number of failures
                     // we tolerate to one. And declare the DNSKEY RRset
                     // bogus if we get two failures.
-                    todo!();
+                    bad_sigs += 1;
+                    if bad_sigs > MAX_BAD_SIGS {
+                        todo!();
+                    }
+                    if opt_ede.is_none() {
+                        opt_ede = Some(
+                            ExtendedError::new_with_str(
+                                ExtendedErrorCode::DNSSEC_BOGUS,
+                                "Bad signature",
+                            )
+                            .unwrap(),
+                        );
+                    }
                 }
             }
         }
-        todo!(); // EDE
-                 // (ValidationState::Bogus, None)
+
+        if opt_ede.is_none() {
+            opt_ede = Some(
+                ExtendedError::new_with_str(
+                    ExtendedErrorCode::DNSSEC_BOGUS,
+                    "No signature",
+                )
+                .unwrap(),
+            );
+        }
+        (ValidationState::Bogus, None, opt_ede, BOGUS_TTL)
     }
 
     // Follow RFC 4035, Section 5.3.
@@ -589,11 +637,13 @@ impl GroupList {
         // then we should use a small hash table or sort first.
         if self.0.is_empty() {
             self.0.push(Group::new(rr));
+            println!("after adding {self:?}");
             return;
         }
         let len = self.0.len();
         let res = self.0[len - 1].add(&rr);
         if res.is_ok() {
+            println!("after adding {self:?}");
             return;
         }
 
@@ -601,12 +651,14 @@ impl GroupList {
         for g in &mut self.0[..len - 1] {
             let res = g.add(&rr);
             if res.is_ok() {
+                println!("after adding {self:?}");
                 return;
             }
         }
 
         // Add a new group.
         self.0.push(Group::new(rr));
+        println!("after adding {self:?}");
     }
 
     pub fn remove_redundant_cnames(&mut self) {
