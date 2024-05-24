@@ -221,12 +221,13 @@ where
             return false;
         }
     }
-    if (matches.qname || matches.qtype)
+    if (matches.qname || matches.qtype || matches.subdomain)
         && !match_question(
             sections.question.clone(),
             msg.question(),
             matches.qname,
             matches.qtype,
+            matches.subdomain,
         )
     {
         if verbose {
@@ -290,6 +291,17 @@ where
                 }
                 return false;
             }
+        } else if reply.servfail {
+            if let OptRcode::SERVFAIL = msg_rcode {
+                // Okay
+            } else {
+                if verbose {
+                    println!(
+                        "Wrong Rcode, expected SERVFAIL, got {msg_rcode}"
+                    );
+                }
+                return false;
+            }
         } else if "BADCOOKIE" == reply.yxrrset.as_str() {
             if !matches!(msg_rcode, OptRcode::BADCOOKIE) {
                 if verbose {
@@ -305,9 +317,6 @@ where
             }
             return false;
         }
-    }
-    if matches.subdomain {
-        todo!()
     }
     if matches.tcp {
         // Note: Creation of a TCP client is handled by the client factory passed to do_client().
@@ -446,6 +455,7 @@ fn match_question<Octs: Octets>(
     msg_section: QuestionSection<'_, Octs>,
     match_qname: bool,
     match_qtype: bool,
+    match_subdomain: bool,
 ) -> bool {
     if match_section.is_empty() {
         // Nothing to match.
@@ -455,6 +465,9 @@ fn match_question<Octs: Octets>(
         let msg_rr = msg_rr.unwrap();
         let mat_rr = &match_section[0];
         if match_qname && msg_rr.qname() != mat_rr.qname() {
+            return false;
+        }
+        if match_subdomain && !msg_rr.qname().ends_with(mat_rr.qname()) {
             return false;
         }
         if match_qtype && msg_rr.qtype() != mat_rr.qtype() {
