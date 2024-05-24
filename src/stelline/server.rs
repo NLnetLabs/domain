@@ -28,20 +28,31 @@ where
 {
     let ranges = &stelline.scenario.ranges;
     let step = step_value.get();
+    let mut opt_entry = None;
+
+    // Take the last entry. That works better if the RPL is written with
+    // a recursive resolver in mind.
     for range in ranges {
         if step < range.start_value || step > range.end_value {
             continue;
         }
         for entry in &range.entry {
-            if !match_msg(entry, msg, false) {
-                continue;
+            if match_msg(entry, msg, false) {
+                opt_entry = Some(entry);
             }
+        }
+    }
+
+    match opt_entry {
+        Some(entry) => {
             let reply = do_adjust(entry, msg);
             return Some(reply);
         }
+        None => {
+            println!("do_server: no reply at step value {step}");
+            todo!();
+        }
     }
-    println!("do_server: no reply at step value {step}");
-    todo!();
 }
 
 fn do_adjust<Octs, Target>(
@@ -105,9 +116,6 @@ where
     header.set_aa(reply.aa);
     header.set_ad(reply.ad);
     header.set_cd(reply.cd);
-    if reply.fl_do {
-        todo!()
-    }
     if reply.formerr {
         header.set_rcode(Rcode::FORMERR);
     }
@@ -127,7 +135,7 @@ where
         header.set_rcode(Rcode::REFUSED);
     }
     if reply.servfail {
-        todo!()
+        header.set_rcode(Rcode::SERVFAIL);
     }
     if reply.tc {
         todo!()
@@ -142,6 +150,11 @@ where
         header.set_id(reqmsg.header().id());
     } else {
         todo!();
+    }
+
+    // Assume there is no existing Opt record.
+    if reply.fl_do {
+        msg.opt(|o| Ok(o.set_dnssec_ok(reply.fl_do))).unwrap()
     }
     msg
 }
