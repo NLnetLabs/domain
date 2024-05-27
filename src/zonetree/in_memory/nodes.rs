@@ -10,6 +10,7 @@ use parking_lot::{
     RwLock, RwLockReadGuard, RwLockUpgradableReadGuard, RwLockWriteGuard,
 };
 use tokio::sync::Mutex;
+use tracing::trace;
 
 use crate::base::iana::{Class, Rtype};
 use crate::base::name::{Label, OwnedLabel, ToLabelIter, ToName};
@@ -23,6 +24,7 @@ use crate::zonetree::{
 use super::read::ReadZone;
 use super::versioned::{Version, Versioned};
 use super::write::{WriteZone, ZoneVersions};
+use core::any::Any;
 
 //------------ ZoneApex ------------------------------------------------------
 
@@ -130,12 +132,13 @@ impl ZoneStore for ZoneApex {
 
     fn read(self: Arc<Self>) -> Box<dyn ReadableZone> {
         let (version, marker) = self.versions().read().current().clone();
+        trace!("ZoneApex::read(): Reading version {version:?}");
         Box::new(ReadZone::new(self, version, marker))
     }
 
     fn write(
         self: Arc<Self>,
-    ) -> Pin<Box<dyn Future<Output = Box<dyn WritableZone>>>> {
+    ) -> Pin<Box<dyn Future<Output = Box<dyn WritableZone>> + Send>> {
         Box::pin(async move {
             let lock = self.update_lock.clone().lock_owned().await;
             let version = self.versions().read().current().0.next();
@@ -143,6 +146,10 @@ impl ZoneStore for ZoneApex {
             Box::new(WriteZone::new(self, lock, version, zone_versions))
                 as Box<dyn WritableZone>
         })
+    }
+    
+    fn as_any(&self) -> &dyn Any {
+        self as &dyn Any
     }
 }
 
@@ -244,20 +251,26 @@ impl NodeRrsets {
 
     /// Returns the RRset for a given record type.
     pub fn get(&self, rtype: Rtype, version: Version) -> Option<SharedRrset> {
-        self.rrsets
+        let res = self.rrsets
             .read()
             .get(&rtype)
             .and_then(|rrsets| rrsets.get(version))
-            .cloned()
+            .cloned();
+
+        trace!("Get RRset (rtype {rtype}, version {version:?}): {res:?}");
+        res
     }
 
     /// Updates an RRset.
     pub fn update(&self, rrset: SharedRrset, version: Version) {
+        let rtype = rrset.rtype();
+        trace!("Pre RRset update (rtype {rtype}, version {version:?}): {:?}", self.get(rtype, version));
         self.rrsets
             .write()
             .entry(rrset.rtype())
             .or_default()
-            .update(rrset, version)
+            .update(rrset, version);
+        trace!("Post RRset update (rtype {rtype}, version {version:?}): {:?}", self.get(rtype, version));
     }
 
     /// Removes the RRset for the given type.

@@ -21,6 +21,12 @@ pub struct Zone {
     store: Arc<dyn ZoneStore>,
 }
 
+impl AsRef<dyn ZoneStore> for Zone {
+    fn as_ref(&self) -> &dyn ZoneStore {
+        self.store.as_ref()
+    }
+}
+
 impl Zone {
     /// Creates a new [`Zone`] instance with the given data.
     pub fn new(data: impl ZoneStore + 'static) -> Self {
@@ -29,6 +35,12 @@ impl Zone {
         }
     }
 
+    pub fn into_inner(self) -> Arc<dyn ZoneStore> {
+        self.store
+    }
+}
+
+impl Zone {
     /// Gets the CLASS of this zone.
     pub fn class(&self) -> Class {
         self.store.class()
@@ -47,7 +59,7 @@ impl Zone {
     /// Gets a write interface to this zone.
     pub fn write(
         &self,
-    ) -> Pin<Box<dyn Future<Output = Box<dyn WritableZone>>>> {
+    ) -> Pin<Box<dyn Future<Output = Box<dyn WritableZone>> + Send>> {
         self.store.clone().write()
     }
 }

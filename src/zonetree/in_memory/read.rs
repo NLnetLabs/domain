@@ -4,6 +4,7 @@ use core::iter;
 use std::sync::Arc;
 
 use bytes::Bytes;
+use tracing::trace;
 
 use crate::base::iana::{Rcode, Rtype};
 use crate::base::name::Label;
@@ -296,7 +297,7 @@ impl ReadableZone for ReadZone {
         // dig to receive the entire zone via AXFR:
         //
         //   dig -4 @127.0.0.1 -p 8053 +noanswer +tries=1 +noidnout AXFR de.
-        let walk = WalkState::new(op);
+        let walk = WalkState::new(op, self.apex.name().clone());
         self.query_rrsets(self.apex.rrsets(), Rtype::ANY, walk.clone());
         self.query_below_apex(Label::root(), iter::empty(), Rtype::ANY, walk);
     }

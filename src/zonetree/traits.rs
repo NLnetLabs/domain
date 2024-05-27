@@ -24,6 +24,7 @@ use super::answer::Answer;
 use super::error::OutOfZone;
 use super::types::{ZoneCut, ZoneDiff};
 use super::{SharedRr, SharedRrset, StoredName, WalkOp};
+use core::any::Any;
 
 //------------ ZoneStore -----------------------------------------------------
 
@@ -33,7 +34,7 @@ use super::{SharedRr, SharedRrset, StoredName, WalkOp};
 /// a particular backing store implementation.
 ///
 /// [`Zone`]: super::Zone
-pub trait ZoneStore: Debug + Sync + Send {
+pub trait ZoneStore: Debug + Sync + Send + Any {
     /// Returns the class of the zone.
     fn class(&self) -> Class;
 
@@ -46,7 +47,9 @@ pub trait ZoneStore: Debug + Sync + Send {
     /// Get a write interface to this store.
     fn write(
         self: Arc<Self>,
-    ) -> Pin<Box<dyn Future<Output = Box<dyn WritableZone>>>>;
+    ) -> Pin<Box<dyn Future<Output = Box<dyn WritableZone>> + Send>>;
+
+    fn as_any(&self) -> &dyn Any;
 }
 
 //------------ ReadableZone --------------------------------------------------
@@ -116,7 +119,7 @@ pub trait ReadableZone: Send + Sync {
 /// An asynchronous write interface to a [`Zone`].
 ///
 /// [`Zone`]: super::Zone
-pub trait WritableZone {
+pub trait WritableZone: Send {
     /// Start a write operation for the zone.
     #[allow(clippy::type_complexity)]
     fn open(
@@ -124,7 +127,7 @@ pub trait WritableZone {
         create_diff: bool,
     ) -> Pin<
         Box<
-            dyn Future<Output = Result<Box<dyn WritableZoneNode>, io::Error>>,
+            dyn Future<Output = Result<Box<dyn WritableZoneNode>, io::Error>> + Send,
         >,
     >;
 
@@ -138,7 +141,8 @@ pub trait WritableZone {
     /// since [`open`] was called.
     fn commit(
         &mut self,
-    ) -> Pin<Box<dyn Future<Output = Result<Option<ZoneDiff>, io::Error>>>>;
+        bump_soa_serial: bool,
+    ) -> Pin<Box<dyn Future<Output = Result<Option<ZoneDiff>, io::Error>> + Send>>;
 }
 
 //------------ WritableZoneNode ----------------------------------------------
@@ -146,7 +150,7 @@ pub trait WritableZone {
 /// An asynchronous write interface to a particular node in a [`ZoneTree`].
 ///
 /// [`ZoneTree`]: super::ZoneTree
-pub trait WritableZoneNode {
+pub trait WritableZoneNode: Send {
     /// Get a write interface to a child node of this node.
     #[allow(clippy::type_complexity)]
     fn update_child(
@@ -154,7 +158,7 @@ pub trait WritableZoneNode {
         label: &Label,
     ) -> Pin<
         Box<
-            dyn Future<Output = Result<Box<dyn WritableZoneNode>, io::Error>>,
+            dyn Future<Output = Result<Box<dyn WritableZoneNode>, io::Error>> + Send,
         >,
     >;
 
@@ -162,13 +166,13 @@ pub trait WritableZoneNode {
     fn update_rrset(
         &self,
         rrset: SharedRrset,
-    ) -> Pin<Box<dyn Future<Output = Result<(), io::Error>>>>;
+    ) -> Pin<Box<dyn Future<Output = Result<(), io::Error>> + Send>>;
 
     /// Remove an RRset of the given type at this node, if any.
     fn remove_rrset(
         &self,
         rtype: Rtype,
-    ) -> Pin<Box<dyn Future<Output = Result<(), io::Error>>>>;
+    ) -> Pin<Box<dyn Future<Output = Result<(), io::Error>> + Send>>;
 
     /// Mark this node as a regular node.
     ///
@@ -176,7 +180,7 @@ pub trait WritableZoneNode {
     /// function will erase that data.
     fn make_regular(
         &self,
-    ) -> Pin<Box<dyn Future<Output = Result<(), io::Error>>>>;
+    ) -> Pin<Box<dyn Future<Output = Result<(), io::Error>> + Send>>;
 
     /// Mark this node as a zone cut.
     ///
@@ -184,7 +188,7 @@ pub trait WritableZoneNode {
     fn make_zone_cut(
         &self,
         cut: ZoneCut,
-    ) -> Pin<Box<dyn Future<Output = Result<(), io::Error>>>>;
+    ) -> Pin<Box<dyn Future<Output = Result<(), io::Error>> + Send>>;
 
     /// Mark this node as a CNAME.
     ///
@@ -192,5 +196,5 @@ pub trait WritableZoneNode {
     fn make_cname(
         &self,
         cname: SharedRr,
-    ) -> Pin<Box<dyn Future<Output = Result<(), io::Error>>>>;
+    ) -> Pin<Box<dyn Future<Output = Result<(), io::Error>> + Send>>;
 }

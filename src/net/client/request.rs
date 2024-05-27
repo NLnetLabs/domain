@@ -71,6 +71,13 @@ pub trait SendRequest<CR> {
         &self,
         request_msg: CR,
     ) -> Box<dyn GetResponse + Send + Sync>;
+
+    fn send_streaming_request(
+        &self,
+        _request_msg: CR,
+    ) -> Box<dyn GetResponse + Send + Sync> {
+        unimplemented!()
+    }
 }
 
 //------------ GetResponse ---------------------------------------------------
@@ -93,6 +100,10 @@ pub trait GetResponse: Debug {
                 + '_,
         >,
     >;
+
+    fn stream_complete(&mut self) {
+        unimplemented!();
+    }
 }
 
 //------------ RequestMessage ------------------------------------------------

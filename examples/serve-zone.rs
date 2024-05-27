@@ -28,16 +28,22 @@
 
 use core::str::FromStr;
 
+use std::env::args;
 use std::future::pending;
 use std::io::BufReader;
 use std::sync::Arc;
 use std::time::Duration;
 
+use domain::net::client::protocol::UdpConnect;
+use domain::net::client::request::{RequestMessage, SendRequest};
+use domain::net::server::middleware::notify::NotifyMiddlewareSvc;
 use tokio::net::{TcpListener, UdpSocket};
+use tracing::trace;
 use tracing_subscriber::EnvFilter;
 
-use domain::base::iana::Rcode;
-use domain::base::{Name, Rtype, ToName, Ttl};
+use domain::base::iana::{Class, Opcode, Rcode};
+use domain::base::{MessageBuilder, Name, Rtype, ToName, Ttl};
+use domain::net::client::dgram::{Config, Connection};
 use domain::net::server::buf::VecBufSource;
 use domain::net::server::dgram::DgramServer;
 use domain::net::server::message::Request;
@@ -50,9 +56,12 @@ use domain::net::server::service::{CallResult, ServiceResult};
 use domain::net::server::stream::{self, StreamServer};
 use domain::net::server::util::{mk_builder_for_target, service_fn};
 use domain::net::server::ConnectionConfig;
+use domain::zonecatalog::catalog::{
+    Acl, Catalog, PrimaryInfo, XfrMode, ZoneType,
+};
 use domain::zonefile::inplace;
-use domain::zonetree::{Answer, Rrset, SharedRrset};
-use domain::zonetree::{Zone, ZoneTree};
+use domain::zonetree::Zone;
+use domain::zonetree::{Answer, Rrset, SharedRrset, ZoneBuilder};
 
 #[tokio::main()]
 async fn main() {
@@ -61,51 +70,95 @@ async fn main() {
     tracing_subscriber::fmt()
         .with_env_filter(EnvFilter::from_default_env())
         .with_thread_ids(true)
-        .without_time()
         .try_init()
         .ok();
+
+    let mut args = args();
+    let _bin_name = args.next();
+    let primary = args.next().is_some();
+
+    let addr = match primary {
+        true => {
+            eprintln!("Acting as primary");
+            "127.0.0.1:8053"
+        }
+        false => {
+            eprintln!("Acting as secondary");
+            "127.0.0.1:8054"
+        }
+    };
+
+    eprintln!("Will listen on {addr}.");
 
     // Populate a zone tree with test data
     let zone_bytes = include_bytes!("../test-data/zonefiles/nsd-example.txt");
     let mut zone_bytes = BufReader::new(&zone_bytes[..]);
-    // let zone_bytes = std::fs::File::open("/etc/nsd/zones/de-zone").unwrap();
-    // let mut zone_bytes = BufReader::new(zone_bytes);
 
     // We're reading from static data so this cannot fail due to I/O error.
     // Don't handle errors that shouldn't happen, keep the example focused
     // on what we want to demonstrate.
     let reader = inplace::Zonefile::load(&mut zone_bytes).unwrap();
-    let zone = Zone::try_from(reader).unwrap();
+    let zone = match primary {
+        true => Zone::try_from(reader).unwrap(),
+        false => {
+            let builder = ZoneBuilder::new(
+                Name::from_str("example.com").unwrap(),
+                Class::IN,
+            );
+            builder.build()
+        }
+    };
+    let z_apex_name = zone.apex_name().clone();
+    let z_class = zone.class();
+    // let mut zones = ZoneTree::new();
+    // zones.insert_zone(zone).unwrap();
 
-    // Make changes to a zone to create a diff for IXFR use.
-    let mut writer = zone.write().await;
-    {
-        let node = writer.open(true).await.unwrap();
-        let mut new_ns = Rrset::new(Rtype::NS, Ttl::from_secs(60));
-        let ns_rec = domain::rdata::Ns::new(
-            Name::from_str("write-test.example.com").unwrap(),
-        );
-        new_ns.push_data(ns_rec.into());
-        node.update_rrset(SharedRrset::new(new_ns)).await.unwrap();
+    // Create a catalog that will handle outbound XFR for zones
+    let catalog = Catalog::new().unwrap();
+    let acl = Acl::new();
+    let zone_type = match primary {
+        true => ZoneType::Primary(acl),
+        false => {
+            let primary_addr = "127.0.0.1:8053".parse().unwrap();
+            let mut primary_info = PrimaryInfo::new(primary_addr);
+            primary_info.xfr_mode = XfrMode::AxfrOnly;
+            ZoneType::Secondary(primary_info, acl)
+        }
+    };
+    catalog.insert_zone(zone, zone_type).unwrap();
+    let catalog = Arc::new(catalog);
+    let cloned_catalog = catalog.clone();
+    tokio::spawn(async move { cloned_catalog.run().await });
+
+    if primary {
+        // Make changes to a zone to create a diff for IXFR use.
+        let c_zones = catalog.zones();
+        let zone = c_zones.get_zone(&z_apex_name, z_class).unwrap();
+        let mut writer = zone.write().await;
+        {
+            let node = writer.open(true).await.unwrap();
+            let mut new_ns = Rrset::new(Rtype::NS, Ttl::from_secs(60));
+            let ns_rec = domain::rdata::Ns::new(
+                Name::from_str("write-test.example.com").unwrap(),
+            );
+            new_ns.push_data(ns_rec.into());
+            node.update_rrset(SharedRrset::new(new_ns)).await.unwrap();
+        }
+        let _diff = writer.commit(true).await.unwrap();
     }
-    let diff = writer.commit().await.unwrap();
 
-    let mut zones = ZoneTree::new();
-    zones.insert_zone(zone.clone()).unwrap();
-    let zones = Arc::new(zones);
-
-    let addr = "127.0.0.1:8053";
-    let svc = service_fn(my_service, zones);
+    let svc = service_fn(my_service, catalog.clone());
 
     // Insert XFR middleware to automagically handle AXFR and IXFR requests.
     let num_xfr_threads =
         std::thread::available_parallelism().unwrap().get() / 2;
     println!("Using {num_xfr_threads} threads for XFR");
-    let mut svc = XfrMiddlewareSvc::<Vec<u8>, _>::new(svc, num_xfr_threads);
-    svc.add_zone(zone.clone());
-    if let Some(diff) = diff {
-        svc.add_diff(&zone, diff);
-    }
+    let svc = XfrMiddlewareSvc::<Vec<u8>, _>::new(
+        svc,
+        catalog.clone(),
+        num_xfr_threads,
+    );
+    let svc = NotifyMiddlewareSvc::<Vec<u8>, _>::new(svc, catalog);
 
     #[cfg(feature = "siphasher")]
     let svc = CookiesMiddlewareSvc::<Vec<u8>, _>::with_random_secret(svc);
@@ -170,15 +223,41 @@ async fn main() {
         }
     });
 
+    if primary {
+        tokio::time::sleep(Duration::from_secs(5)).await;
+
+        let secondary_addr = "127.0.0.1:8054";
+        eprintln!("Sending NOTIFY to secondary at {secondary_addr}...");
+
+        let mut msg = MessageBuilder::new_vec();
+        msg.header_mut().set_opcode(Opcode::NOTIFY);
+        let mut msg = msg.question();
+        msg.push((Name::vec_from_str("example.com").unwrap(), Rtype::SOA))
+            .unwrap();
+        let req = RequestMessage::new(msg);
+
+        let server_addr = secondary_addr.parse().unwrap();
+        let udp_connect = UdpConnect::new(server_addr);
+        let mut dgram_config = Config::new();
+        dgram_config.set_max_parallel(1);
+        dgram_config.set_read_timeout(Duration::from_millis(1000));
+        dgram_config.set_max_retries(1);
+        dgram_config.set_udp_payload_size(Some(1400));
+        let dgram_conn = Connection::with_config(udp_connect, dgram_config);
+        dgram_conn.send_request(req).get_response().await.unwrap();
+    }
+
     pending::<()>().await;
 }
 
 #[allow(clippy::type_complexity)]
 fn my_service(
     request: Request<Vec<u8>>,
-    zones: Arc<ZoneTree>,
+    catalog: Arc<Catalog>,
 ) -> ServiceResult<Vec<u8>> {
     let question = request.message().sole_question().unwrap();
+    let zones = catalog.zones();
+    trace!("my_service: zones dump: {zones:#?}");
     let zone = zones
         .find_zone(question.qname(), question.qclass())
         .map(|zone| zone.read());

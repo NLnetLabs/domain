@@ -24,7 +24,9 @@ use crate::net::client::request::{
     ComposeRequest, Error, GetResponse, SendRequest,
 };
 use bytes::{Bytes, BytesMut};
+use tracing::trace;
 use core::cmp;
+use core::future::ready;
 use octseq::Octets;
 use std::boxed::Box;
 use std::fmt::Debug;
@@ -34,6 +36,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use std::vec::Vec;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
+use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use tokio::sync::{mpsc, oneshot};
 use tokio::time::sleep;
 
@@ -145,6 +148,7 @@ impl<Req: ComposeRequest + 'static> Connection<Req> {
         msg: Req,
     ) -> Result<Message<Bytes>, Error> {
         let (sender, receiver) = oneshot::channel();
+        let sender = ReplySender::Single(Some(sender));
         let req = ChanReq { sender, msg };
         self.sender.send(req).await.map_err(|_| {
             // Send error. The receiver is gone, this means that the
@@ -154,10 +158,38 @@ impl<Req: ComposeRequest + 'static> Connection<Req> {
         receiver.await.map_err(|_| Error::StreamReceiveError)?
     }
 
+    /// TODO: Document me.
+    async fn handle_streaming_request_impl(
+        self,
+        msg: Req,
+        sender: UnboundedSender<Result<Message<Bytes>, Error>>,
+    ) -> Result<Message<Bytes>, Error> {
+        let sender = ReplySender::Stream(sender);
+        let req = ChanReq { sender, msg };
+        self.sender.send(req).await.map_err(|_| {
+            // Send error. The receiver is gone, this means that the
+            // connection is closed.
+            Error::ConnectionClosed
+        })?;
+        Err(Error::ConnectionClosed) // TODO: Use different err code here
+    }
+
     /// Returns a request handler for this connection.
     pub fn get_request(&self, request_msg: Req) -> Request {
         Request {
+            stream: None,
             fut: Box::pin(self.clone().handle_request_impl(request_msg)),
+        }
+    }
+
+    pub fn get_streaming_request(&self, request_msg: Req) -> Request {
+        let (sender, receiver) = mpsc::unbounded_channel();
+        Request {
+            stream: Some(receiver),
+            fut: Box::pin(
+                self.clone()
+                    .handle_streaming_request_impl(request_msg, sender),
+            ),
         }
     }
 }
@@ -179,12 +211,21 @@ impl<Req: ComposeRequest + Clone + 'static> SendRequest<Req>
     ) -> Box<dyn GetResponse + Send + Sync> {
         Box::new(self.get_request(request_msg))
     }
+
+    fn send_streaming_request(
+        &self,
+        request_msg: Req,
+    ) -> Box<dyn GetResponse + Send + Sync> {
+        Box::new(self.get_streaming_request(request_msg))
+    }
 }
 
 //------------ Request -------------------------------------------------------
 
 /// An active request.
 pub struct Request {
+    stream: Option<UnboundedReceiver<Result<Message<Bytes>, Error>>>,
+
     /// The underlying future.
     fut: Pin<
         Box<dyn Future<Output = Result<Message<Bytes>, Error>> + Send + Sync>,
@@ -194,7 +235,26 @@ pub struct Request {
 impl Request {
     /// Async function that waits for the future stored in Request to complete.
     async fn get_response_impl(&mut self) -> Result<Message<Bytes>, Error> {
-        (&mut self.fut).await
+        let mut res = (&mut self.fut).await;
+
+        match &mut self.stream {
+            Some(stream) => {
+                // Fetch from the stream
+                res = stream
+                    .recv()
+                    .await
+                    .ok_or(Error::ConnectionClosed)
+                    .map_err(|_| Error::ConnectionClosed)?;
+
+                // Setup the next future
+                self.fut = Box::pin(ready(Err(Error::ConnectionClosed)));
+            }
+            None => {
+                // Nothing to do
+            }
+        }
+
+        res
     }
 }
 
@@ -210,6 +270,13 @@ impl GetResponse for Request {
         >,
     > {
         Box::pin(self.get_response_impl())
+    }
+    
+    fn stream_complete(&mut self) {
+        if let Some(mut stream) = self.stream.take() {
+            trace!("Closing response stream");
+            stream.close();
+        }
     }
 }
 
@@ -236,6 +303,31 @@ pub struct Transport<Stream, Req> {
     receiver: mpsc::Receiver<ChanReq<Req>>,
 }
 
+/// This is the type of sender in [ChanReq].
+#[derive(Debug)]
+pub enum ReplySender {
+    Single(Option<oneshot::Sender<ChanResp>>),
+    Stream(mpsc::UnboundedSender<ChanResp>),
+}
+
+impl ReplySender {
+    pub fn send(&mut self, resp: ChanResp) -> Result<(), ChanResp> {
+        match self {
+            ReplySender::Single(sender) => match sender.take() {
+                Some(sender) => sender.send(resp),
+                None => Err(resp),
+            },
+            ReplySender::Stream(sender) => {
+                sender.send(resp).map_err(|err| err.0)
+            }
+        }
+    }
+
+    pub fn is_stream(&self) -> bool {
+        matches!(self, Self::Stream(_))
+    }
+}
+
 /// A message from a `Request` to start a new request.
 #[derive(Debug)]
 struct ChanReq<Req> {
@@ -245,9 +337,6 @@ struct ChanReq<Req> {
     /// Sender to send result back to [Request]
     sender: ReplySender,
 }
-
-/// This is the type of sender in [ChanReq].
-type ReplySender = oneshot::Sender<ChanResp>;
 
 /// A message back to `Request` returning a response.
 type ChanResp = Result<Message<Bytes>, Error>;
@@ -569,7 +658,7 @@ where
     fn error(error: Error, query_vec: &mut Queries<ChanReq<Req>>) {
         // Update all requests that are in progress. Don't wait for
         // any reply that may be on its way.
-        for item in query_vec.drain() {
+        for mut item in query_vec.drain() {
             _ = item.sender.send(Err(error.clone()));
         }
     }
@@ -604,7 +693,7 @@ where
         status.state = ConnState::Active(Some(Instant::now()));
 
         // Get the correct query and send it the reply.
-        let req = match query_vec.try_remove(answer.header().id()) {
+        let mut req = match query_vec.try_remove(answer.header().id()) {
             Some(req) => req,
             None => {
                 // No query with this ID. We should
@@ -618,6 +707,9 @@ where
             Err(Error::WrongReplyForQuery)
         };
         _ = req.sender.send(answer);
+        if req.sender.is_stream() {
+            query_vec.insert(req).unwrap();
+        }
 
         if query_vec.is_empty() {
             // Clear the activity timer. There is no need to do
@@ -643,7 +735,7 @@ where
     /// idle. Addend a edns-tcp-keepalive option if needed.
     // Note: maybe reqmsg should be a return value.
     fn insert_req(
-        req: ChanReq<Req>,
+        mut req: ChanReq<Req>,
         status: &mut Status,
         reqmsg: &mut Option<Vec<u8>>,
         query_vec: &mut Queries<ChanReq<Req>>,
@@ -683,7 +775,7 @@ where
         // send_keepalive.
         let (index, req) = match query_vec.insert(req) {
             Ok(res) => res,
-            Err(req) => {
+            Err(mut req) => {
                 // Send an appropriate error and return.
                 _ = req
                     .sender
@@ -715,7 +807,7 @@ where
             }
             Err(err) => {
                 // Take the sender out again and return the error.
-                if let Some(req) = query_vec.try_remove(index) {
+                if let Some(mut req) = query_vec.try_remove(index) {
                     _ = req.sender.send(Err(err));
                 }
             }

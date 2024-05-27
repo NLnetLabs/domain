@@ -1,12 +1,12 @@
 //! DNS Cookies related message processing.
-use core::future::{ready, Ready};
+use core::future::{ready, Future, Ready};
 use core::marker::PhantomData;
 use core::ops::ControlFlow;
 
 use std::net::IpAddr;
 use std::vec::Vec;
 
-use futures::stream::{once, Once};
+use futures::stream::{once, Once, Stream};
 use octseq::Octets;
 use rand::RngCore;
 use tracing::{debug, trace, warn};
@@ -435,8 +435,8 @@ impl<RequestOctets, Svc> Service<RequestOctets>
 where
     RequestOctets: Octets + Send + Sync + 'static + Unpin,
     Svc: Service<RequestOctets>,
-    Svc::Future: core::future::Future + Unpin,
-    <Svc::Future as core::future::Future>::Output: Unpin,
+    Svc::Future: Future + Unpin,
+    <Svc::Future as Future>::Output: Unpin,
     Svc::Target: Composer + Default,
 {
     type Target = Svc::Target;
@@ -444,8 +444,8 @@ where
         Svc::Future,
         Svc::Stream,
         Svc::Stream,
-        Once<Ready<<Svc::Stream as futures::stream::Stream>::Item>>,
-        <Svc::Stream as futures::stream::Stream>::Item,
+        Once<Ready<<Svc::Stream as Stream>::Item>>,
+        <Svc::Stream as Stream>::Item,
     >;
     type Future = core::future::Ready<Self::Stream>;
 

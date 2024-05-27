@@ -3,7 +3,7 @@ $TTL 86400 ; default time-to-live for this zone
 
 example.com.   IN  SOA     ns.example.com. noc.dns.icann.org. (
         2020080302  ;Serial
-        7200        ;Refresh
+        5        ;Refresh
         3600        ;Retry
         1209600     ;Expire
         3600        ;Negative response caching TTL
@@ -14,7 +14,7 @@ example.com.   IN  SOA     ns.example.com. noc.dns.icann.org. (
 
 ; these A records below are equivalent
 example.com.    A       192.0.2.1
-@                               A       192.0.2.1
+@                               A       127.0.0.1
                                 A       192.0.2.1
 
 @                               AAAA 2001:db8::3

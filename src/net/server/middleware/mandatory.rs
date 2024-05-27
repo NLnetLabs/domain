@@ -5,7 +5,7 @@ use core::ops::ControlFlow;
 
 use std::fmt::Display;
 
-use futures::stream::{once, Once};
+use futures::stream::{once, Once, Stream};
 use octseq::Octets;
 use tracing::{debug, error, trace, warn};
 
@@ -288,8 +288,8 @@ where
         Svc::Future,
         Svc::Stream,
         PostprocessingStream<RequestOctets, Svc::Future, Svc::Stream, bool>,
-        Once<Ready<<Svc::Stream as futures::stream::Stream>::Item>>,
-        <Svc::Stream as futures::stream::Stream>::Item,
+        Once<Ready<<Svc::Stream as Stream>::Item>>,
+        <Svc::Stream as Stream>::Item,
     >;
     type Future = Ready<Self::Stream>;
 

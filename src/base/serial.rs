@@ -91,6 +91,13 @@ impl Serial {
         Serial(self.0.wrapping_add(other))
     }
 
+    #[allow(clippy::should_implement_trait)]
+    #[must_use]
+    pub fn sub(self, other: u32) -> Self {
+        assert!(other <= 0x7FFF_FFFF);
+        Serial(self.0.wrapping_sub(other))
+    }
+
     pub fn scan<S: Scanner>(scanner: &mut S) -> Result<Self, S::Error> {
         u32::scan(scanner).map(Into::into)
     }

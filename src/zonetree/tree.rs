@@ -15,7 +15,7 @@ use super::zone::Zone;
 /// A multi-rooted [`Zone`] hierarchy.
 ///
 /// [`Zone`]: crate::zonetree::Zone.
-#[derive(Default)]
+#[derive(Clone, Debug, Default)]
 pub struct ZoneTree {
     roots: Roots,
 }
@@ -82,7 +82,7 @@ impl ZoneTree {
 
 //------------ Roots ---------------------------------------------------------
 
-#[derive(Default)]
+#[derive(Clone, Debug, Default)]
 struct Roots {
     in_: ZoneSetNode,
     others: HashMap<Class, ZoneSetNode>,
@@ -116,7 +116,7 @@ impl Roots {
 
 //------------ ZoneSetNode ---------------------------------------------------
 
-#[derive(Default)]
+#[derive(Clone, Debug, Default)]
 struct ZoneSetNode {
     zone: Option<Zone>,
     children: HashMap<OwnedLabel, ZoneSetNode>,

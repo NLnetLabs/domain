@@ -3,7 +3,7 @@ use core::future::{ready, Ready};
 use core::marker::PhantomData;
 use core::ops::ControlFlow;
 
-use futures::stream::{once, Once};
+use futures::stream::{once, Once, Stream};
 use octseq::Octets;
 use tracing::{debug, enabled, error, trace, warn, Level};
 
@@ -333,8 +333,8 @@ where
         Svc::Future,
         Svc::Stream,
         PostprocessingStream<RequestOctets, Svc::Future, Svc::Stream, ()>,
-        Once<Ready<<Svc::Stream as futures::stream::Stream>::Item>>,
-        <Svc::Stream as futures::stream::Stream>::Item,
+        Once<Ready<<Svc::Stream as Stream>::Item>>,
+        <Svc::Stream as Stream>::Item,
     >;
     type Future = core::future::Ready<Self::Stream>;
 

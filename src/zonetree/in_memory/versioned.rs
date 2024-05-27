@@ -21,6 +21,9 @@ impl Version {
     pub fn next(self) -> Version {
         Version(self.0.add(1))
     }
+    pub fn prev(self) -> Version {
+        Version(self.0.sub(1))
+    }
 }
 
 impl Default for Version {
