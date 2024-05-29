@@ -5,7 +5,7 @@
 use super::anchor::TrustAnchor;
 use super::anchor::TrustAnchors;
 use super::group::Group;
-use super::group::GroupList;
+use super::group::GroupSet;
 use super::group::SigCache;
 use super::group::ValidatedGroup;
 use super::group::BOGUS_TTL;
@@ -29,6 +29,7 @@ use super::utilities::check_not_exists_for_wildcard;
 use super::utilities::do_cname_dname;
 use super::utilities::get_answer_state;
 use super::utilities::get_soa_state;
+use super::utilities::make_ede;
 use super::utilities::map_maybe_secure;
 use super::utilities::star_closest_encloser;
 use super::utilities::ttl_for_sig;
@@ -106,7 +107,7 @@ impl<Upstream> ValidationContext<Upstream> {
     pub async fn validate_msg<'a, MsgOcts, USOcts>(
         &self,
         msg: &'a Message<MsgOcts>,
-    ) -> Result<(ValidationState, Option<ExtendedError<Bytes>>), Error>
+    ) -> Result<(ValidationState, Option<ExtendedError<Vec<u8>>>), Error>
     where
         MsgOcts: Clone + Debug + Octets + 'a,
         <MsgOcts as Octets>::Range<'a>: Debug,
@@ -123,16 +124,16 @@ impl<Upstream> ValidationContext<Upstream> {
     {
         // Convert to Bytes.
         let bytes = Bytes::copy_from_slice(msg.as_slice());
-        let msg = Message::from_octets(bytes).unwrap();
+        let msg = Message::from_octets(bytes)?;
 
         // First convert the Answer and Authority sections to lists of RR groups
-        let mut answers = GroupList::new();
-        for rr in msg.answer().unwrap() {
-            answers.add(rr.unwrap());
+        let mut answers = GroupSet::new();
+        for rr in msg.answer()? {
+            answers.add(rr?)?;
         }
-        let mut authorities = GroupList::new();
-        for rr in msg.authority().unwrap() {
-            authorities.add(rr.unwrap());
+        let mut authorities = GroupSet::new();
+        for rr in msg.authority()? {
+            authorities.add(rr?)?;
         }
 
         //println!("Answer groups: {answers:?}");
@@ -180,7 +181,7 @@ impl<Upstream> ValidationContext<Upstream> {
         if question_section.next().is_some() {
             return Err(Error::FormError);
         }
-        let qname: Name<Bytes> = question.qname().try_to_name().unwrap();
+        let qname: Name<Bytes> = question.qname().to_name();
         let qclass = question.qclass();
         let qtype = question.qtype();
 
@@ -214,19 +215,37 @@ impl<Upstream> ValidationContext<Upstream> {
             if let Some((state, signer_name, closest_encloser, ede)) =
                 opt_state
             {
-                if state != ValidationState::Secure
-                    || closest_encloser.is_none()
-                {
-                    // No need to check the wildcard, either because the state is
-                    // not secure or because there is no wildcard.
+                if state != ValidationState::Secure {
+                    // No need to check the wildcard, either because the state
+                    // is not secure.
                     return Ok((map_maybe_secure(state, maybe_secure), ede));
                 }
-
-                let closest_encloser = closest_encloser.unwrap();
+                let closest_encloser = match closest_encloser {
+                    None => {
+                        // There is no wildcard.
+                        return Ok((
+                            map_maybe_secure(state, maybe_secure),
+                            ede,
+                        ));
+                    }
+                    Some(ce) => ce,
+                };
 
                 // It is possible that the request was for the actualy wildcard.
                 // In that we we do not need to prove that sname does not exist.
-                let star_name = star_closest_encloser(&closest_encloser);
+                let star_name = match star_closest_encloser(&closest_encloser)
+                {
+                    Ok(name) => name,
+                    Err(_) => {
+                        // We cannot create the wildcard name.
+                        let ede = make_ede(
+                            ExtendedErrorCode::DNSSEC_BOGUS,
+                            "cannot create wildcard record",
+                        );
+                        return Ok((ValidationState::Bogus, ede));
+                    }
+                };
+
                 if sname == star_name {
                     // We are done.
                     return Ok((map_maybe_secure(state, maybe_secure), ede));
@@ -259,12 +278,9 @@ impl<Upstream> ValidationContext<Upstream> {
                 (None, ede) => {
                     let ede = match ede {
                         Some(ede) => Some(ede),
-                        None => Some(
-                            ExtendedError::new_with_str(
-                                ExtendedErrorCode::DNSSEC_BOGUS,
-                                "Missing SOA record for NODATA or NXDOMAIN",
-                            )
-                            .unwrap(),
+                        None => make_ede(
+                            ExtendedErrorCode::DNSSEC_BOGUS,
+                            "Missing SOA record for NODATA or NXDOMAIN",
                         ),
                     };
                     return Ok((ValidationState::Bogus, ede)); // No SOA, assume the worst.
@@ -370,7 +386,17 @@ impl<Upstream> ValidationContext<Upstream> {
                 Nsec3NXState::Nothing => todo!(), // We reached the end, return bogus.
             };
 
-            let star_name = star_closest_encloser(&ce);
+            let star_name = match star_closest_encloser(&ce) {
+                Ok(name) => name,
+                Err(_) => {
+                    // The wildcard cannot be constructed. Just return bogus.
+                    let ede = make_ede(
+                        ExtendedErrorCode::DNSSEC_BOGUS,
+                        "cannot create wildcard record",
+                    );
+                    return Ok((ValidationState::Bogus, ede));
+                }
+            };
             match nsec3_for_nodata(
                 &star_name,
                 &mut authorities,
@@ -397,15 +423,16 @@ impl<Upstream> ValidationContext<Upstream> {
 
         // Prove NXDOMAIN.
         // Try to prove that the name does not exist using NSEC.
-        let state = nsec_for_nxdomain(&sname, &mut authorities, &signer_name);
+        let (state, ede) =
+            nsec_for_nxdomain(&sname, &mut authorities, &signer_name);
         match state {
             NsecNXState::Exists => {
-                return Ok((ValidationState::Bogus, None));
+                return Ok((ValidationState::Bogus, ede));
             }
             NsecNXState::DoesNotExist(_) => {
                 return Ok((
                     map_maybe_secure(ValidationState::Secure, maybe_secure),
-                    None,
+                    ede,
                 ))
             }
             NsecNXState::Nothing => (), // Try something else.
@@ -434,18 +461,18 @@ impl<Upstream> ValidationContext<Upstream> {
         }
 
         if ede.is_none() {
-            ede = Some(
-                ExtendedError::new_with_str(
-                    ExtendedErrorCode::DNSSEC_BOGUS,
-                    "No NEC/NSEC3 proof for non-existance",
-                )
-                .unwrap(),
+            ede = make_ede(
+                ExtendedErrorCode::DNSSEC_BOGUS,
+                "No NEC/NSEC3 proof for non-existance",
             );
         }
         Ok((ValidationState::Bogus, ede))
     }
 
-    pub async fn get_node<Octs>(&self, name: &Name<Bytes>) -> Arc<Node>
+    pub async fn get_node<Octs>(
+        &self,
+        name: &Name<Bytes>,
+    ) -> Result<Arc<Node>, Error>
     where
         Octs: AsRef<[u8]>
             + Clone
@@ -462,7 +489,7 @@ impl<Upstream> ValidationContext<Upstream> {
 
         // Check the cache first
         if let Some(node) = self.cache_lookup(name).await {
-            return node;
+            return Ok(node);
         }
 
         // Find a trust anchor.
@@ -470,18 +497,15 @@ impl<Upstream> ValidationContext<Upstream> {
             // Try to get an indeterminate node for the root
             let node = Node::indeterminate(
                 Name::root(),
-                Some(
-                    ExtendedError::new_with_str(
-                        ExtendedErrorCode::DNSSEC_INDETERMINATE,
-                        "No trust anchor for root.",
-                    )
-                    .unwrap(),
+                make_ede(
+                    ExtendedErrorCode::DNSSEC_INDETERMINATE,
+                    "No trust anchor for root.",
                 ),
                 MAX_NODE_VALID,
             );
             let node = Arc::new(node);
             self.node_cache.insert(Name::root(), node.clone()).await;
-            return node;
+            return Ok(node);
         };
 
         let ta_owner = ta.owner();
@@ -493,16 +517,16 @@ impl<Upstream> ValidationContext<Upstream> {
                 self.upstream.clone(),
                 &self.isig_cache,
             )
-            .await;
+            .await?;
             let node = Arc::new(node);
             self.node_cache.insert(name.clone(), node.clone()).await;
-            return node;
+            return Ok(node);
         }
 
         // Walk from the parent of name back to trust anchor.
         // Keep a list of names we need to walk in the other direction.
         let (mut node, mut names) =
-            self.find_closest_node(name, ta, ta_owner).await;
+            self.find_closest_node(name, ta, ta_owner).await?;
 
         // Assume that node is not an intermediate node. We have to make sure
         // in find_closest_node.
@@ -514,7 +538,7 @@ impl<Upstream> ValidationContext<Upstream> {
             match node.validation_state() {
                 ValidationState::Secure => (), // continue
                 ValidationState::Insecure | ValidationState::Bogus => {
-                    return node
+                    return Ok(node)
                 }
                 ValidationState::Indeterminate => {
                     todo!();
@@ -522,13 +546,20 @@ impl<Upstream> ValidationContext<Upstream> {
             }
 
             // Create the child node
-            let child_name = names.pop_front().unwrap();
+            let child_name = match names.pop_front() {
+                Some(name) => name,
+                None => {
+                    // This should not happen. But the easy way out is to
+                    // just return node.
+                    return Ok(node);
+                }
+            };
 
             // If this node is an intermediate node then get the node for
             // signer name.
             node = Arc::new(
                 self.create_child_node(child_name.clone(), &signer_node)
-                    .await,
+                    .await?,
             );
             self.node_cache.insert(child_name, node.clone()).await;
             if !node.intermediate() {
@@ -536,7 +567,7 @@ impl<Upstream> ValidationContext<Upstream> {
             }
 
             if names.is_empty() {
-                return node;
+                return Ok(node);
             }
         }
     }
@@ -546,7 +577,7 @@ impl<Upstream> ValidationContext<Upstream> {
         name: &Name<Bytes>,
         ta: &TrustAnchor,
         ta_owner: Name<Bytes>,
-    ) -> (Arc<Node>, VecDeque<Name<Bytes>>)
+    ) -> Result<(Arc<Node>, VecDeque<Name<Bytes>>), Error>
     where
         Octs: AsRef<[u8]>
             + Clone
@@ -562,7 +593,9 @@ impl<Upstream> ValidationContext<Upstream> {
         println!("find_closest_node for {name:?}");
         let mut names = VecDeque::new();
         names.push_front(name.clone());
-        let mut curr = name.parent().unwrap();
+        let mut curr = name
+            .parent()
+            .expect("name has to be a decendent of ta_owner");
         loop {
             if ta_owner.name_eq(&curr) {
                 // We ended up at the trust anchor.
@@ -571,20 +604,22 @@ impl<Upstream> ValidationContext<Upstream> {
                     self.upstream.clone(),
                     &self.isig_cache,
                 )
-                .await;
+                .await?;
                 let node = Arc::new(node);
                 self.node_cache.insert(curr, node.clone()).await;
-                return (node, names);
+                return Ok((node, names));
             }
 
             // Try to find the node in the cache.
             if let Some(node) = self.cache_lookup(&curr).await {
-                return (node, names);
+                return Ok((node, names));
             }
 
             names.push_front(curr.clone());
 
-            curr = curr.parent().unwrap();
+            curr = curr
+                .parent()
+                .expect("curr has to be a decendent of ta_owner");
         }
     }
 
@@ -592,7 +627,7 @@ impl<Upstream> ValidationContext<Upstream> {
         &self,
         name: Name<Bytes>,
         node: &Node,
-    ) -> Node
+    ) -> Result<Node, Error>
     where
         Octs: AsRef<[u8]>
             + Clone
@@ -606,31 +641,19 @@ impl<Upstream> ValidationContext<Upstream> {
         Upstream: Clone + SendRequest<RequestMessage<Octs>>,
     {
         // Start with a DS lookup.
-        let mut msg = MessageBuilder::new_vec();
-        msg.header_mut().set_cd(true);
-        msg.header_mut().set_rd(true);
-        let mut msg = msg.question();
-        msg.push((&name, Rtype::DS)).unwrap();
-        let msg_as_octets = msg.into_message().into_octets();
-        let octs: Octs = msg_as_octets.try_octets_into().unwrap();
-        let msg_octs = Message::from_octets(octs).unwrap();
-        let mut req = RequestMessage::new(msg_octs);
-        req.set_dnssec_ok(true);
+        let (mut answers, mut authorities, ede) =
+            request_as_groups(&self.upstream, &name, Rtype::DS).await?;
 
-        let mut request = self.upstream.send_request(req);
-        let reply = request.get_response().await;
-
-        let reply = reply.unwrap();
-        println!("got reply for {name:?}/DS {reply:?}");
-
-        // Group the answer and authority sections.
-        let mut answers = GroupList::new();
-        for rr in reply.answer().unwrap() {
-            answers.add(rr.unwrap());
-        }
-        let mut authorities = GroupList::new();
-        for rr in reply.authority().unwrap() {
-            authorities.add(rr.unwrap());
+        if ede.is_some() {
+            // We cannot continue if we need a reply to DS query but didn't
+            // get one.
+            return Ok(Node::new_delegation(
+                name,
+                ValidationState::Bogus,
+                Vec::new(),
+                ede,
+                BOGUS_TTL,
+            ));
         }
 
         // Limit the validity of the child node to the one of the parent.
@@ -670,24 +693,25 @@ impl<Upstream> ValidationContext<Upstream> {
                                 todo!();
                             }
                             ValidationState::Bogus => {
-                                return Node::new_delegation(
+                                return Ok(Node::new_delegation(
                                     name,
                                     ValidationState::Bogus,
                                     Vec::new(),
                                     ede,
                                     ttl,
-                                );
+                                ));
                             }
                         }
 
-                        // Do we need to check if the CNAME record is a wildcard?
-                        return Node::new_intermediate(
+                        // Do we need to check if the CNAME record is a
+                        // wildcard?
+                        return Ok(Node::new_intermediate(
                             name,
                             ValidationState::Secure,
                             node.signer_name().clone(),
                             ede,
                             ttl,
-                        );
+                        ));
                     }
 
                     // Verify proof that DS doesn't exist for this name.
@@ -703,31 +727,31 @@ impl<Upstream> ValidationContext<Upstream> {
                             // An insecure delegation is normal enough that
                             // it does not need an EDE.
                             let ttl = min(parent_ttl, ttl);
-                            return Node::new_delegation(
+                            return Ok(Node::new_delegation(
                                 name,
                                 ValidationState::Insecure,
                                 Vec::new(),
                                 ede,
                                 ttl,
-                            );
+                            ));
                         }
                         CNsecState::SecureIntermediate => {
-                            return Node::new_intermediate(
+                            return Ok(Node::new_intermediate(
                                 name,
                                 ValidationState::Secure,
                                 node.signer_name().clone(),
                                 ede,
                                 ttl,
-                            )
+                            ))
                         }
                         CNsecState::Bogus => {
-                            return Node::new_delegation(
+                            return Ok(Node::new_delegation(
                                 name,
                                 ValidationState::Bogus,
                                 Vec::new(),
                                 ede,
                                 ttl,
-                            )
+                            ))
                         }
                         CNsecState::Nothing => (), // Try NSEC3 next.
                     }
@@ -745,44 +769,44 @@ impl<Upstream> ValidationContext<Upstream> {
                     );
                     match state {
                         CNsecState::InsecureDelegation => {
-                            return Node::new_delegation(
+                            return Ok(Node::new_delegation(
                                 name,
                                 ValidationState::Insecure,
                                 Vec::new(),
                                 ede,
                                 ttl,
-                            )
+                            ))
                         }
                         CNsecState::SecureIntermediate => {
-                            return Node::new_intermediate(
+                            return Ok(Node::new_intermediate(
                                 name,
                                 ValidationState::Secure,
                                 node.signer_name().clone(),
                                 ede,
                                 ttl,
-                            )
+                            ))
                         }
                         CNsecState::Bogus => {
-                            return Node::new_delegation(
+                            return Ok(Node::new_delegation(
                                 name,
                                 ValidationState::Bogus,
                                 Vec::new(),
                                 ede,
                                 ttl,
-                            )
+                            ))
                         }
                         CNsecState::Nothing => (),
                     }
 
                     // Both NSEC and NSEC3 failed. Create a new node with
                     // bogus state.
-                    return Node::new_delegation(
+                    return Ok(Node::new_delegation(
                         name,
                         ValidationState::Bogus,
                         Vec::new(),
                         ede,
                         ttl,
-                    );
+                    ));
                 }
             };
 
@@ -807,13 +831,13 @@ impl<Upstream> ValidationContext<Upstream> {
                 todo!();
             }
             ValidationState::Bogus => {
-                return Node::new_delegation(
+                return Ok(Node::new_delegation(
                     name,
                     ValidationState::Bogus,
                     Vec::new(),
                     ede,
                     ttl,
-                );
+                ));
             }
         }
 
@@ -861,44 +885,33 @@ impl<Upstream> ValidationContext<Upstream> {
 
         if !valid_algs {
             // Delegation is insecure
-            let ede = Some(
-                ExtendedError::new_with_str(
-                    ExtendedErrorCode::OTHER,
-                    "No supported algorithm in DS RRset",
-                )
-                .unwrap(),
+            let ede = make_ede(
+                ExtendedErrorCode::OTHER,
+                "No supported algorithm in DS RRset",
             );
-            return Node::new_delegation(
+            return Ok(Node::new_delegation(
                 name,
                 ValidationState::Insecure,
                 Vec::new(),
                 ede,
                 ttl,
-            );
+            ));
         }
 
         // Get the DNSKEY RRset.
-        let mut msg = MessageBuilder::new_vec();
-        msg.header_mut().set_cd(true);
-        msg.header_mut().set_rd(true);
-        let mut msg = msg.question();
-        msg.push((&name, Rtype::DNSKEY)).unwrap();
-        let msg_as_octets = msg.into_message().into_octets();
-        let octs = Octs::try_octets_from(msg_as_octets).unwrap();
-        let msg_octs = Message::from_octets(octs).unwrap();
-        let mut req = RequestMessage::new(msg_octs);
-        req.set_dnssec_ok(true);
+        let (mut answers, _, ede) =
+            request_as_groups(&self.upstream, &name, Rtype::DNSKEY).await?;
 
-        let mut request = self.upstream.send_request(req);
-        let reply = request.get_response().await;
-
-        let reply = reply.unwrap();
-        println!("got reply {reply:?}");
-
-        // We need the DNSKEY RRset. Group only the answer section.
-        let mut answers = GroupList::new();
-        for rr in reply.answer().unwrap() {
-            answers.add(rr.unwrap());
+        if ede.is_some() {
+            // We cannot continue if we need a reply to DNSKEY query but didn't
+            // get one.
+            return Ok(Node::new_delegation(
+                name,
+                ValidationState::Bogus,
+                Vec::new(),
+                ede,
+                BOGUS_TTL,
+            ));
         }
 
         let dnskey_group = match answers
@@ -947,7 +960,7 @@ impl<Upstream> ValidationContext<Upstream> {
                     panic!("expected DNSKEY");
                 };
             let key_tag = dnskey.key_tag();
-            let key_name = r_dnskey.owner().try_to_name().unwrap();
+            let key_name = r_dnskey.owner().to_name();
             for sig in (*dnskey_group).clone().sig_iter() {
                 if sig.data().key_tag() != key_tag {
                     continue; // Signature from wrong key
@@ -980,13 +993,13 @@ impl<Upstream> ValidationContext<Upstream> {
                     let ttl = min(ttl, sig_ttl);
                     println!("with sig_ttl {sig_ttl:?}, new ttl {ttl:?}");
 
-                    return Node::new_delegation(
+                    return Ok(Node::new_delegation(
                         key_name,
                         ValidationState::Secure,
                         dnskey_vec,
                         None,
                         ttl,
-                    );
+                    ));
                 } else {
                     // To avoid CPU exhaustion attacks such as KeyTrap
                     // (CVE-2023-50387) it is good to limit signature
@@ -1035,10 +1048,10 @@ impl<Upstream> ValidationContext<Upstream> {
 
     async fn validate_groups<Octs>(
         &self,
-        groups: &mut GroupList,
+        groups: &mut GroupSet,
     ) -> Result<
         Vec<ValidatedGroup>,
-        (ValidationState, Option<ExtendedError<Bytes>>),
+        (ValidationState, Option<ExtendedError<Vec<u8>>>),
     >
     where
         Octs: AsRef<[u8]>
@@ -1056,7 +1069,7 @@ impl<Upstream> ValidationContext<Upstream> {
         for g in groups.iter() {
             //println!("Validating group {g:?}");
             let (state, signer_name, wildcard, ede) =
-                g.validate_with_vc(self).await;
+                g.validate_with_vc(self).await.unwrap();
             if let ValidationState::Bogus = state {
                 return Err((state, ede));
             }
@@ -1074,7 +1087,7 @@ pub struct Node {
     keys: Vec<Dnskey<Bytes>>,
     signer_name: Name<Bytes>,
     intermediate: bool,
-    ede: Option<ExtendedError<Bytes>>,
+    ede: Option<ExtendedError<Vec<u8>>>,
 
     // Time to live
     created_at: Instant,
@@ -1084,7 +1097,7 @@ pub struct Node {
 impl Node {
     fn indeterminate(
         name: Name<Bytes>,
-        ede: Option<ExtendedError<Bytes>>,
+        ede: Option<ExtendedError<Vec<u8>>>,
         valid_for: Duration,
     ) -> Self {
         Self {
@@ -1102,7 +1115,7 @@ impl Node {
         ta: &TrustAnchor,
         upstream: Upstream,
         sig_cache: &SigCache,
-    ) -> Self
+    ) -> Result<Self, Error>
     where
         Octs: AsRef<[u8]>
             + Clone
@@ -1118,34 +1131,9 @@ impl Node {
         // Get the DNSKEY RRset for the trust anchor.
         let ta_owner = ta.owner();
 
-        let mut msg = MessageBuilder::new_vec();
-        msg.header_mut().set_rd(true);
-        let mut msg = msg.question();
-        msg.push((&ta_owner, Rtype::DNSKEY)).unwrap();
-        let msg_as_octets = msg.into_message().into_octets();
-        let octs = Octs::try_octets_from(msg_as_octets).unwrap();
-        let msg_octs = Message::from_octets(octs).unwrap();
-        let mut req = RequestMessage::new(msg_octs);
-        req.set_dnssec_ok(true);
-
-        let mut request = upstream.send_request(req);
-        let reply = request.get_response().await;
-
-        let reply = reply.unwrap();
-        println!("got reply {reply:?}");
-
-        // Turn answer section into a GroupList. We expect a positive reply
-        // so the authority section can be ignored.
-        let mut answers = GroupList::new();
-        for rr in reply.answer().unwrap() {
-            answers.add(rr.unwrap());
-        }
-
-        println!("trust_anchor:");
-        for rr in reply.authority().unwrap() {
-            println!("Authority {rr:?}");
-        }
-
+        // We expect a positive reply so the authority section can be ignored.
+        let (mut answers, _, ede) =
+            request_as_groups(&upstream, &ta_owner, Rtype::DNSKEY).await?;
         // Get the DNSKEY group. We expect exactly one.
         let dnskeys = match answers
             .iter()
@@ -1154,26 +1142,23 @@ impl Node {
         {
             Some(dnskeys) => dnskeys,
             None => {
-                let ede = Some(
-                    ExtendedError::new_with_str(
-                        ExtendedErrorCode::DNSSEC_BOGUS,
-                        "No DNSKEY RRset for trust anchor",
-                    )
-                    .unwrap(),
+                let ede = make_ede(
+                    ExtendedErrorCode::DNSSEC_BOGUS,
+                    "No DNSKEY RRset for trust anchor",
                 );
-                return Node::new_delegation(
+                return Ok(Node::new_delegation(
                     ta_owner,
                     ValidationState::Bogus,
                     Vec::new(),
                     ede,
                     BOGUS_TTL,
-                );
+                ));
             }
         };
         println!("dnskeys = {dnskeys:?}");
 
         let mut bad_sigs = 0;
-        let mut opt_ede: Option<ExtendedError<Bytes>> = None;
+        let mut opt_ede: Option<ExtendedError<Vec<u8>>> = None;
 
         // Try to find one trust anchor key that can be used to validate
         // the DNSKEY RRset.
@@ -1205,7 +1190,7 @@ impl Node {
                     continue;
                 };
             let key_tag = dnskey.key_tag();
-            let key_name = dnskey_rr.owner().try_to_name().unwrap();
+            let key_name = dnskey_rr.owner().to_name();
             for sig in (*dnskeys).clone().sig_iter() {
                 if sig.data().key_tag() != key_tag {
                     continue; // Signature from wrong key
@@ -1234,7 +1219,7 @@ impl Node {
                             new_node.keys.push(key.clone());
                         }
                     }
-                    return new_node;
+                    return Ok(new_node);
                 } else {
                     // To avoid CPU exhaustion attacks such as KeyTrap
                     // (CVE-2023-50387) it is good to limit signature
@@ -1260,40 +1245,32 @@ impl Node {
                         todo!();
                     }
                     if opt_ede.is_none() {
-                        opt_ede = Some(
-                            ExtendedError::new_with_str(
-                                ExtendedErrorCode::DNSSEC_BOGUS,
-                                "Bad signature",
-                            )
-                            .unwrap(),
+                        opt_ede = make_ede(
+                            ExtendedErrorCode::DNSSEC_BOGUS,
+                            "Bad signature",
                         );
                     }
                 }
             }
         }
         if opt_ede.is_none() {
-            opt_ede = Some(
-                ExtendedError::new_with_str(
-                    ExtendedErrorCode::DNSSEC_BOGUS,
-                    "No signature",
-                )
-                .unwrap(),
-            );
+            opt_ede =
+                make_ede(ExtendedErrorCode::DNSSEC_BOGUS, "No signature");
         }
-        Node::new_delegation(
+        Ok(Node::new_delegation(
             ta_owner,
             ValidationState::Bogus,
             Vec::new(),
             opt_ede,
             BOGUS_TTL,
-        )
+        ))
     }
 
     pub fn new_delegation(
         signer_name: Name<Bytes>,
         state: ValidationState,
         keys: Vec<Dnskey<Bytes>>,
-        ede: Option<ExtendedError<Bytes>>,
+        ede: Option<ExtendedError<Vec<u8>>>,
         valid_for: Duration,
     ) -> Self {
         Self {
@@ -1311,7 +1288,7 @@ impl Node {
         name: Name<Bytes>,
         state: ValidationState,
         signer_name: Name<Bytes>,
-        ede: Option<ExtendedError<Bytes>>,
+        ede: Option<ExtendedError<Vec<u8>>>,
         valid_for: Duration,
     ) -> Self {
         println!("new_intermediate: for {name:?} signer {signer_name:?}");
@@ -1330,7 +1307,7 @@ impl Node {
         self.state
     }
 
-    pub fn extended_error(&self) -> Option<ExtendedError<Bytes>> {
+    pub fn extended_error(&self) -> Option<ExtendedError<Vec<u8>>> {
         self.ede.clone()
     }
 
@@ -1377,7 +1354,7 @@ fn has_key(
         let AllRecordData::Dnskey(key_dnskey) = key.data() else {
             continue;
         };
-        if tkey.owner().try_to_name::<Bytes>().unwrap() != key.owner() {
+        if tkey.owner().to_name::<Bytes>() != key.owner() {
             continue;
         }
         if tkey.class() != key.class() {
@@ -1411,7 +1388,7 @@ fn has_ds(
         let AllRecordData::Dnskey(key_dnskey) = key.data() else {
             continue;
         };
-        if ta_rr.owner().try_to_name::<Bytes>().unwrap() != key.owner() {
+        if ta_rr.owner().to_name::<Bytes>() != key.owner() {
             continue;
         }
         if ta_rr.class() != key.class() {
@@ -1426,12 +1403,14 @@ fn has_ds(
 
         // No need to check key.rtype(). We know it is DNSKEY
 
-        if key_dnskey
-            .digest(key.owner(), ds.digest_type())
-            .unwrap()
-            .as_ref()
-            != ds.digest()
-        {
+        let digest = match key_dnskey.digest(key.owner(), ds.digest_type()) {
+            Ok(d) => d,
+            Err(_) => {
+                // Skip key if we get an error.
+                continue;
+            }
+        };
+        if digest.as_ref() != ds.digest() {
             continue;
         }
         return Some(key.clone());
@@ -1456,7 +1435,13 @@ fn find_key_for_ds(
         if dnskey.key_tag() != ds_tag {
             continue;
         }
-        let digest = dnskey.digest(key.owner(), digest_type).unwrap();
+        let digest = match dnskey.digest(key.owner(), digest_type) {
+            Ok(d) => d,
+            Err(_) => {
+                // Digest error, skip key.
+                continue;
+            }
+        };
         if ds.digest() == digest.as_ref() {
             return Some(key.clone());
         }
@@ -1485,10 +1470,10 @@ enum CNsecState {
 // check the bitmap or we find the name as an empty non-terminal.
 async fn nsec_for_ds(
     target: &Name<Bytes>,
-    groups: &mut GroupList,
+    groups: &mut GroupSet,
     node: &Node,
     sig_cache: &SigCache,
-) -> (CNsecState, Duration, Option<ExtendedError<Bytes>>) {
+) -> (CNsecState, Duration, Option<ExtendedError<Vec<u8>>>) {
     for g in groups.iter() {
         if g.rtype() != Rtype::NSEC {
             continue;
@@ -1617,11 +1602,11 @@ async fn nsec_for_ds(
 // the NSEC3 record uses opt-out.
 async fn nsec3_for_ds(
     target: &Name<Bytes>,
-    groups: &mut GroupList,
+    groups: &mut GroupSet,
     node: &Node,
     nsec3_cache: &Nsec3Cache,
     sig_cache: &SigCache,
-) -> (CNsecState, Option<ExtendedError<Bytes>>, Duration) {
+) -> (CNsecState, Option<ExtendedError<Vec<u8>>>, Duration) {
     let ede = None;
     for g in groups.iter() {
         if g.rtype() != Rtype::NSEC3 {
@@ -1666,7 +1651,10 @@ async fn nsec3_for_ds(
             todo!();
         }
 
-        if first == Label::from_slice(hash.to_string().as_ref()).unwrap() {
+        if first
+            == Label::from_slice(hash.to_string().as_ref())
+                .expect("hash is expected to fit in a label")
+        {
             // We found an exact match.
 
             // Validate the signature
@@ -1709,7 +1697,9 @@ async fn nsec3_for_ds(
 
         // Check if target is between the hash in the first label and the
         // next_owner field.
-        if first < Label::from_slice(hash.to_string().as_ref()).unwrap()
+        if first
+            < Label::from_slice(hash.to_string().as_ref())
+                .expect("hash is expected to fit in a label")
             && hash.as_ref() < nsec3.next_owner()
         {
             // target does not exist. However, if the opt-out flag is set,
@@ -1733,4 +1723,105 @@ async fn nsec3_for_ds(
         }
     }
     (CNsecState::Nothing, ede, MAX_NODE_VALID)
+}
+
+async fn request_as_groups<Octs, Upstream>(
+    upstream: &Upstream,
+    name: &Name<Bytes>,
+    rtype: Rtype,
+) -> Result<(GroupSet, GroupSet, Option<ExtendedError<Vec<u8>>>), Error>
+where
+    Octs: AsRef<[u8]>
+        + Clone
+        + Debug
+        + Octets
+        + OctetsFrom<Vec<u8>>
+        + Send
+        + Sync
+        + 'static,
+    Upstream: SendRequest<RequestMessage<Octs>>,
+{
+    let mut msg = MessageBuilder::new_vec();
+    msg.header_mut().set_cd(true);
+    msg.header_mut().set_rd(true);
+    let mut msg = msg.question();
+    msg.push((&name, rtype)).expect("should not fail");
+    let msg_as_octets = msg.into_message().into_octets();
+    let octs: Octs = match msg_as_octets.try_octets_into() {
+        Ok(octs) => octs,
+        Err(_) => {
+            // The error is an associated type of Octs. Just return that
+            // octets conversion failed.
+            return Err(Error::OctetsConversion);
+        }
+    };
+    let msg = Message::from_octets(octs).expect("should not fail");
+    let mut req = RequestMessage::new(msg);
+    req.set_dnssec_ok(true);
+
+    let mut request = upstream.send_request(req);
+    let reply = request.get_response().await;
+
+    // If there is anything wrong with the reply then pretend that we
+    // didn't get anything. Try to keep an ede around with the reason.
+    let mut ede = None;
+    let mut answers = GroupSet::new();
+    let mut authorities = GroupSet::new();
+    let parse_error_ede = make_ede(
+        ExtendedErrorCode::DNSSEC_BOGUS,
+        "request for DS or DNSKEY failed, parse error",
+    );
+    if let Ok(reply) = reply {
+        println!("got reply for {name:?}/{rtype:?} {reply:?}");
+
+        // Group the answer and authority sections.
+        // Rewrite using an iterator.
+        if let Ok(answer) = reply.answer() {
+            for rr in answer {
+                match rr.map_or_else(
+                    |_e| parse_error_ede.clone(),
+                    |rr| {
+                        answers.add(rr).map_or_else(
+                            |_e| parse_error_ede.clone(),
+                            |_| None,
+                        )
+                    },
+                ) {
+                    Some(e) => {
+                        ede = Some(e);
+                    }
+                    None => (),
+                }
+            }
+        } else {
+            ede = parse_error_ede.clone();
+        }
+
+        if let Ok(authority) = reply.authority() {
+            for rr in authority {
+                match rr.map_or_else(
+                    |_e| parse_error_ede.clone(),
+                    |rr| {
+                        authorities.add(rr).map_or_else(
+                            |_e| parse_error_ede.clone(),
+                            |_| None,
+                        )
+                    },
+                ) {
+                    Some(e) => {
+                        ede = Some(e);
+                    }
+                    None => (),
+                }
+            }
+        } else {
+            ede = parse_error_ede.clone();
+        }
+    } else {
+        ede = make_ede(
+            ExtendedErrorCode::DNSSEC_BOGUS,
+            "request for DS or DNSKEY failed",
+        );
+    }
+    Ok((answers, authorities, ede))
 }

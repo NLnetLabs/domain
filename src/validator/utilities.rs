@@ -4,6 +4,7 @@ use super::nsec::nsec_for_not_exists;
 use super::nsec::Nsec3Cache;
 use super::nsec::Nsec3NXStateNoCE;
 use super::nsec::NsecNXState;
+use super::types::Error;
 use super::types::ValidationState;
 use crate::base::iana::Class;
 use crate::base::iana::ExtendedErrorCode;
@@ -34,7 +35,7 @@ pub async fn do_cname_dname(
     answers: &mut Vec<ValidatedGroup>,
     authorities: &mut Vec<ValidatedGroup>,
     nsec3_cache: &Nsec3Cache,
-) -> (Name<Bytes>, ValidationState, Option<ExtendedError<Bytes>>) {
+) -> (Name<Bytes>, ValidationState, Option<ExtendedError<Vec<u8>>>) {
     let mut name = qname;
     let mut count = 0;
     let mut maybe_secure = ValidationState::Secure;
@@ -87,7 +88,7 @@ pub async fn do_cname_dname(
                             ExtendedErrorCode::DNSSEC_BOGUS,
                             "CNAME loop",
                         )
-                        .unwrap(),
+                        .expect("should not fail"),
                     );
                     return (name, ValidationState::Bogus, ede);
                 }
@@ -110,7 +111,19 @@ pub async fn do_cname_dname(
                     todo!();
                 }
 
-                name = map_dname(&owner, dname, &name);
+                name = match map_dname(&owner, dname, &name) {
+                    Ok(name) => name,
+                    Err(_) => {
+                        let ede = Some(
+                            ExtendedError::new_with_str(
+                                ExtendedErrorCode::DNSSEC_BOGUS,
+                                "Failed to expand DNAME",
+                            )
+                            .expect("should not fail"),
+                        );
+                        return (owner, ValidationState::Bogus, ede);
+                    }
+                };
                 maybe_secure = map_maybe_secure(g.state(), maybe_secure);
                 count += 1;
                 if count > MAX_CNAME_DNAME {
@@ -133,19 +146,19 @@ pub fn map_dname(
     owner: &Name<Bytes>,
     dname: &Dname<ParsedName<Bytes>>,
     name: &Name<Bytes>,
-) -> Name<Bytes> {
+) -> Result<Name<Bytes>, Error> {
     println!("map_dname: for name {name:?}, dname owner {owner:?}");
     let mut tmp_name = name.clone();
     let mut new_name = NameBuilder::new_bytes();
     let owner_labels = owner.label_count();
     while tmp_name.label_count() > owner_labels {
         println!("adding label {:?}", tmp_name.first());
-        new_name.append_label(tmp_name.first().as_slice()).unwrap();
-        tmp_name = tmp_name.parent().unwrap();
+        new_name.append_label(tmp_name.first().as_slice())?;
+        tmp_name = tmp_name.parent().expect("should not fail");
     }
-    let name = new_name.append_origin(dname.dname()).unwrap();
+    let name = new_name.append_origin(dname.dname())?;
     println!("Now at {:?}", name);
-    name
+    Ok(name)
 }
 
 pub fn ttl_for_sig(
@@ -176,7 +189,7 @@ pub fn get_answer_state(
     ValidationState,
     Name<Bytes>,
     Option<Name<Bytes>>,
-    Option<ExtendedError<Bytes>>,
+    Option<ExtendedError<Vec<u8>>>,
 )> {
     for g in groups.iter() {
         if g.class() != qclass {
@@ -204,7 +217,7 @@ pub fn get_soa_state(
     groups: &mut Vec<ValidatedGroup>,
 ) -> (
     Option<(ValidationState, Name<Bytes>)>,
-    Option<ExtendedError<bytes::Bytes>>,
+    Option<ExtendedError<Vec<u8>>>,
 ) {
     let ede = None;
     for g in groups.iter() {
@@ -258,7 +271,7 @@ fn get_child_of_ce(target: &Name<Bytes>, ce: &Name<Bytes>) -> Name<Bytes> {
     let ce_label_count = ce.label_count();
     let mut name = target.clone();
     while name.label_count() > ce_label_count + 1 {
-        name = name.parent().unwrap();
+        name = name.parent().expect("should not fail");
     }
     if name.label_count() == ce_label_count + 1 {
         // name is the child we are looking for.
@@ -275,7 +288,7 @@ pub async fn check_not_exists_for_wildcard(
     signer_name: &Name<Bytes>,
     closest_encloser: &Name<Bytes>,
     nsec3_cache: &Nsec3Cache,
-) -> (bool, ValidationState, Option<ExtendedError<Bytes>>) {
+) -> (bool, ValidationState, Option<ExtendedError<Vec<u8>>>) {
     let (state, ede) = nsec_for_not_exists(name, group, &signer_name);
     match state {
         NsecNXState::Exists => {
@@ -323,9 +336,23 @@ pub async fn check_not_exists_for_wildcard(
     (false, ValidationState::Bogus, ede)
 }
 
-pub fn star_closest_encloser(ce: &Name<Bytes>) -> Name<Bytes> {
+pub fn star_closest_encloser(ce: &Name<Bytes>) -> Result<Name<Bytes>, Error> {
     let mut star_name = NameBuilder::new_bytes();
-    star_name.append_label(Label::wildcard().as_ref()).unwrap();
-    let star_name = star_name.append_origin(&ce).unwrap();
-    star_name
+    star_name.append_label(Label::wildcard().as_ref())?;
+    let star_name = star_name.append_origin(&ce)?;
+    Ok(star_name)
+}
+
+pub fn make_ede(
+    code: ExtendedErrorCode,
+    reason: &str,
+) -> Option<ExtendedError<Vec<u8>>> {
+    match ExtendedError::new_with_str(code, reason) {
+        Ok(ede) => Some(ede),
+        Err(_) => {
+            // Assume that the only reason this case fail is a string that
+            // is way too long. Just return None.
+            None
+        }
+    }
 }

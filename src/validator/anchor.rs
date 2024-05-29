@@ -1,5 +1,6 @@
 // Trust anchor
 
+use super::types::Error;
 use crate::base::name::Chain;
 use crate::base::name::Name;
 use crate::base::name::ToName;
@@ -12,6 +13,7 @@ use bytes::Bytes;
 use std::fmt::Debug;
 use std::io::Read;
 use std::slice::Iter;
+use std::sync::Arc;
 use std::vec::Vec;
 
 // Type of Record we get from Zonefile.
@@ -30,7 +32,7 @@ pub struct TrustAnchor {
 
 impl TrustAnchor {
     fn new<'a>(rr: RrType) -> Self {
-        let owner = rr.owner().try_to_name::<Bytes>().unwrap();
+        let owner = rr.owner().to_name::<Bytes>();
         let label_count = owner.label_count();
         Self {
             rrs: vec![rr],
@@ -66,20 +68,23 @@ impl TrustAnchors {
         Self(Vec::new())
     }
 
-    pub fn from_file<F>(mut file: F) -> Self
+    pub fn from_reader<R>(mut reader: R) -> Result<Self, Error>
     where
-        F: Read,
+        R: Read,
     {
         let mut new_self = Self(Vec::new());
 
         let mut buf = Vec::new();
-        file.read_to_end(&mut buf).unwrap();
+        match reader.read_to_end(&mut buf) {
+            Ok(_) => (), // continue,
+            Err(error) => return Err(Error::ReadError(Arc::new(error))),
+        }
         let mut zonefile = Zonefile::new();
         zonefile.extend_from_slice(&buf);
-        println!("from_file: {:?}", zonefile);
+        println!("from_reader: {:?}", zonefile);
         for e in zonefile {
-            let e = e.unwrap();
-            println!("from_file: {e:?}");
+            let e = e?;
+            println!("from_reader: {e:?}");
             match e {
                 Entry::Record(r) => {
                     println!("r {r:?}");
@@ -88,10 +93,10 @@ impl TrustAnchors {
                 Entry::Include { path: _, origin: _ } => continue, // Just ignore include
             }
         }
-        new_self
+        Ok(new_self)
     }
 
-    pub fn from_u8(str: &[u8]) -> Self {
+    pub fn from_u8(str: &[u8]) -> Result<Self, Error> {
         let mut new_self = Self(Vec::new());
 
         let mut zonefile = Zonefile::new();
@@ -99,7 +104,7 @@ impl TrustAnchors {
         zonefile.extend_from_slice("\n".as_bytes());
         println!("from_u8: {:?}", zonefile);
         for e in zonefile {
-            let e = e.unwrap();
+            let e = e?;
             println!("from_u8: {e:?}");
             match e {
                 Entry::Record(r) => {
@@ -109,16 +114,17 @@ impl TrustAnchors {
                 Entry::Include { path: _, origin: _ } => continue, // Just ignore include
             }
         }
-        new_self
+        Ok(new_self)
     }
 
-    pub fn add_u8(&mut self, str: &[u8]) {
+    #[must_use]
+    pub fn add_u8(&mut self, str: &[u8]) -> Result<(), Error> {
         let mut zonefile = Zonefile::new();
         zonefile.extend_from_slice(str);
         zonefile.extend_from_slice("\n".as_bytes());
         println!("add_u8: {:?}", zonefile);
         for e in zonefile {
-            let e = e.unwrap();
+            let e = e?;
             println!("add_u8: {e:?}");
             match e {
                 Entry::Record(r) => {
@@ -128,6 +134,7 @@ impl TrustAnchors {
                 Entry::Include { path: _, origin: _ } => continue, // Just ignore include
             }
         }
+        Ok(())
     }
 
     fn add(&mut self, rr: RrType) {

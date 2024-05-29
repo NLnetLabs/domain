@@ -2,6 +2,7 @@
 
 use super::group::ValidatedGroup;
 use super::types::ValidationState;
+use super::utilities::make_ede;
 use super::utilities::star_closest_encloser;
 use crate::base::iana::ExtendedErrorCode;
 use crate::base::iana::Nsec3HashAlg;
@@ -24,6 +25,7 @@ use ring::digest;
 use std::cmp::Ordering;
 use std::collections::VecDeque;
 use std::str::FromStr;
+use std::str::Utf8Error;
 use std::sync::Arc;
 use std::vec::Vec;
 
@@ -115,7 +117,7 @@ pub fn nsec_for_nodata_wildcard(
     groups: &mut Vec<ValidatedGroup>,
     rtype: Rtype,
     signer_name: &Name<Bytes>,
-) -> (NsecState, Option<ExtendedError<Bytes>>) {
+) -> (NsecState, Option<ExtendedError<Vec<u8>>>) {
     let (state, ede) = nsec_for_not_exists(target, groups, signer_name);
     let ce = match state {
         NsecNXState::DoesNotExist(ce) => ce,
@@ -128,7 +130,18 @@ pub fn nsec_for_nodata_wildcard(
         }
     };
 
-    let star_name = star_closest_encloser(&ce);
+    let star_name = match star_closest_encloser(&ce) {
+        Ok(name) => name,
+        Err(_) => {
+            // We cannot create the wildcard name. Pretend that we didn't
+            // find anything and return a suitable ExtendedError.
+            let ede = make_ede(
+                ExtendedErrorCode::DNSSEC_BOGUS,
+                "cannot create wildcard record",
+            );
+            return (NsecState::Nothing, ede);
+        }
+    };
     (
         nsec_for_nodata(&star_name, groups, rtype, signer_name),
         None,
@@ -148,7 +161,7 @@ pub fn nsec_for_not_exists(
     target: &Name<Bytes>,
     groups: &mut Vec<ValidatedGroup>,
     signer_name: &Name<Bytes>,
-) -> (NsecNXState, Option<ExtendedError<Bytes>>) {
+) -> (NsecNXState, Option<ExtendedError<Vec<u8>>>) {
     for g in groups.iter() {
         let opt_nsec = get_checked_nsec(g, signer_name);
         let nsec = if let Some(nsec) = opt_nsec {
@@ -162,12 +175,13 @@ pub fn nsec_for_not_exists(
 
         if target.name_eq(&owner) {
             // We found an exact match. No need to keep looking.
-            return (NsecNXState::Exists, Some(ExtendedError::new_with_str(
-		ExtendedErrorCode::DNSSEC_BOGUS,
-		"Found matching NSEC while trying to proof non-existance",
-                                )
-                                .unwrap(),
-                            ),);
+            return (
+                NsecNXState::Exists,
+                make_ede(
+                    ExtendedErrorCode::DNSSEC_BOGUS,
+                    "Found matching NSEC while trying to proof non-existance",
+                ),
+            );
         }
 
         // Check that target is in the range of the NSEC.
@@ -209,20 +223,30 @@ pub fn nsec_for_nxdomain(
     target: &Name<Bytes>,
     groups: &mut Vec<ValidatedGroup>,
     signer_name: &Name<Bytes>,
-) -> NsecNXState {
-    let (state, _ede) = nsec_for_not_exists(target, groups, signer_name);
+) -> (NsecNXState, Option<ExtendedError<Vec<u8>>>) {
+    let (state, ede) = nsec_for_not_exists(target, groups, signer_name);
     let ce = match state {
         NsecNXState::Exists => {
             // We have proof that target exists, just pretend we found nothing.
-            return NsecNXState::Nothing;
+            return (NsecNXState::Nothing, ede);
         }
         NsecNXState::DoesNotExist(ce) => ce,
-        NsecNXState::Nothing => return NsecNXState::Nothing,
+        NsecNXState::Nothing => return (NsecNXState::Nothing, ede),
     };
 
-    let star_name = star_closest_encloser(&ce);
-    let (state, _ede) = nsec_for_not_exists(&star_name, groups, signer_name);
-    state
+    let star_name = match star_closest_encloser(&ce) {
+        Ok(name) => name,
+        Err(_) => {
+            // We cannot create the wildcard name. Pretend that we didn't
+            // find anything and return a suitable ExtendedError.
+            let ede = make_ede(
+                ExtendedErrorCode::DNSSEC_BOGUS,
+                "cannot create wildcard record",
+            );
+            return (NsecNXState::Nothing, ede);
+        }
+    };
+    nsec_for_not_exists(&star_name, groups, signer_name)
 }
 
 // Check if a name is covered by an NSEC record.
@@ -279,7 +303,14 @@ fn get_checked_nsec(
     if let Some(closest_encloser) = opt_closest_encloser {
         // The signature is for a wildcard. Make sure that the owner name is
         // equal to the unexpanded wildcard.
-        let star_name = star_closest_encloser(&closest_encloser);
+        let star_name = match star_closest_encloser(&closest_encloser) {
+            Ok(name) => name,
+            Err(_) => {
+                // Error constructing wildcard. Just assume that this NSEC
+                // record is invalid.
+                return None;
+            }
+        };
         println!("got star_name {star_name:?}");
         if owner != star_name {
             // The nsec is an expanded wildcard. Ignore.
@@ -420,7 +451,7 @@ async fn nsec3_for_nodata_wildcard(
     rtype: Rtype,
     signer_name: &Name<Bytes>,
     nsec3_cache: &Nsec3Cache,
-) -> (Nsec3State, Option<ExtendedError<Bytes>>) {
+) -> (Nsec3State, Option<ExtendedError<Vec<u8>>>) {
     let (state, ede) =
         nsec3_for_not_exists(target, groups, signer_name, nsec3_cache).await;
     let (ce, secure) = match state {
@@ -430,7 +461,17 @@ async fn nsec3_for_nodata_wildcard(
         Nsec3NXState::Nothing => return (Nsec3State::Nothing, ede),
     };
 
-    let star_name = star_closest_encloser(&ce);
+    let star_name = match star_closest_encloser(&ce) {
+        Ok(name) => name,
+        Err(_) => {
+            // We cannot create the wildcard name. Just return bogus.
+            let ede = make_ede(
+                ExtendedErrorCode::DNSSEC_BOGUS,
+                "cannot create wildcard record",
+            );
+            return (Nsec3State::Bogus, ede);
+        }
+    };
     match nsec3_for_nodata(
         &star_name,
         groups,
@@ -466,7 +507,7 @@ pub async fn nsec3_for_not_exists(
     groups: &mut Vec<ValidatedGroup>,
     signer_name: &Name<Bytes>,
     nsec3_cache: &Nsec3Cache,
-) -> (Nsec3NXState, Option<ExtendedError<Bytes>>) {
+) -> (Nsec3NXState, Option<ExtendedError<Vec<u8>>>) {
     println!("nsec3_for_not_exists: proving {target:?} does not exist");
 
     // We assume the target does not exist and the signer_name does exist.
@@ -561,12 +602,9 @@ pub async fn nsec3_for_not_exists(
                         // Results based on an opt_out record are insecure.
                         return (
                             Nsec3NXState::DoesNotExistInsecure(maybe_ce),
-                            Some(
-                                ExtendedError::new_with_str(
-                                    ExtendedErrorCode::OTHER,
-                                    "NSEC3 with Opt-Out",
-                                )
-                                .unwrap(),
+                            make_ede(
+                                ExtendedErrorCode::OTHER,
+                                "NSEC3 with Opt-Out",
                             ),
                         );
                     }
@@ -589,13 +627,7 @@ pub async fn nsec3_for_not_exists(
 
     (
         Nsec3NXState::Nothing,
-        Some(
-            ExtendedError::new_with_str(
-                ExtendedErrorCode::OTHER,
-                "No NSEC3 proves non-existance",
-            )
-            .unwrap(),
-        ),
+        make_ede(ExtendedErrorCode::OTHER, "No NSEC3 proves non-existance"),
     )
 }
 
@@ -615,7 +647,7 @@ pub async fn nsec3_for_not_exists_no_ce(
     groups: &mut Vec<ValidatedGroup>,
     signer_name: &Name<Bytes>,
     nsec3_cache: &Nsec3Cache,
-) -> (Nsec3NXStateNoCE, Option<ExtendedError<Bytes>>) {
+) -> (Nsec3NXStateNoCE, Option<ExtendedError<Vec<u8>>>) {
     println!("nsec3_for_not_exists_no_ce: proving {target:?} does not exist");
 
     // Check whether the name exists, or is proven to not exist.
@@ -678,7 +710,7 @@ pub async fn nsec3_for_nxdomain(
     groups: &mut Vec<ValidatedGroup>,
     signer_name: &Name<Bytes>,
     nsec3_cache: &Nsec3Cache,
-) -> (Nsec3NXState, Option<ExtendedError<Bytes>>) {
+) -> (Nsec3NXState, Option<ExtendedError<Vec<u8>>>) {
     let (state, ede) =
         nsec3_for_not_exists(target, groups, signer_name, nsec3_cache).await;
     let (ce, secure) = match state {
@@ -688,7 +720,17 @@ pub async fn nsec3_for_nxdomain(
         Nsec3NXState::Nothing => return (Nsec3NXState::Nothing, ede),
     };
 
-    let star_name = star_closest_encloser(&ce);
+    let star_name = match star_closest_encloser(&ce) {
+        Ok(name) => name,
+        Err(_) => {
+            // We cannot create the wildcard name. Just return bogus.
+            let ede = make_ede(
+                ExtendedErrorCode::DNSSEC_BOGUS,
+                "cannot create wildcard record",
+            );
+            return (Nsec3NXState::Bogus, ede);
+        }
+    };
     let (state, ede) = nsec3_for_not_exists_no_ce(
         &star_name,
         groups,
@@ -749,8 +791,8 @@ where
 {
     let mut buf = Vec::new();
 
-    owner.compose_canonical(&mut buf).unwrap();
-    buf.append_slice(salt.as_slice()).unwrap();
+    owner.compose_canonical(&mut buf).expect("infallible");
+    buf.append_slice(salt.as_slice()).expect("infallible");
 
     let mut ctx = if algorithm == Nsec3HashAlg::SHA1 {
         digest::Context::new(&digest::SHA1_FOR_LEGACY_USE_ONLY)
@@ -764,8 +806,8 @@ where
 
     for _ in 0..iterations {
         buf.truncate(0);
-        buf.append_slice(h.as_ref()).unwrap();
-        buf.append_slice(salt.as_slice()).unwrap();
+        buf.append_slice(h.as_ref()).expect("infallible");
+        buf.append_slice(salt.as_slice()).expect("infallible");
 
         let mut ctx = if algorithm == Nsec3HashAlg::SHA1 {
             digest::Context::new(&digest::SHA1_FOR_LEGACY_USE_ONLY)
@@ -778,7 +820,8 @@ where
         h = ctx.finish();
     }
 
-    OwnerHash::from_octets(h.as_ref().to_vec()).unwrap()
+    // For normal hash algorithms this should not fail.
+    OwnerHash::from_octets(h.as_ref().to_vec()).expect("should not fail")
 }
 
 pub async fn cached_nsec3_hash(
@@ -800,9 +843,11 @@ pub async fn cached_nsec3_hash(
     hash
 }
 
-pub fn nsec3_label_to_hash(label: &Label) -> OwnerHash<Vec<u8>> {
-    let label_str = std::str::from_utf8(label.as_ref()).unwrap();
-    OwnerHash::<Vec<u8>>::from_str(&label_str).unwrap()
+pub fn nsec3_label_to_hash(
+    label: &Label,
+) -> Result<OwnerHash<Vec<u8>>, Utf8Error> {
+    let label_str = std::str::from_utf8(label.as_ref())?;
+    Ok(OwnerHash::<Vec<u8>>::from_str(&label_str).expect("should not fail"))
 }
 
 pub fn nsec3_in_range<O1, O2, O3>(
@@ -829,7 +874,7 @@ fn get_checked_nsec3(
     signer_name: &Name<Bytes>,
 ) -> Result<
     Option<(Nsec3<Bytes>, OwnerHash<Vec<u8>>)>,
-    (ValidationState, Option<ExtendedError<Bytes>>),
+    (ValidationState, Option<ExtendedError<Vec<u8>>>),
 > {
     let rrs = group.rr_set();
     if rrs.len() != 1 {
@@ -863,12 +908,9 @@ fn get_checked_nsec3(
         if iterations > NSEC3_ITER_BOGUS {
             return Err((
                 ValidationState::Bogus,
-                Some(
-                    ExtendedError::new_with_str(
-                        ExtendedErrorCode::DNSSEC_BOGUS,
-                        "NSEC3 with too high iteration count",
-                    )
-                    .unwrap(),
+                make_ede(
+                    ExtendedErrorCode::DNSSEC_BOGUS,
+                    "NSEC3 with too high iteration count",
                 ),
             ));
         }
@@ -876,7 +918,18 @@ fn get_checked_nsec3(
     }
 
     // Convert first label to hash. Skip this NSEC3 record if that fails.
-    let ownerhash = nsec3_label_to_hash(group.owner().first());
+    let ownerhash = match nsec3_label_to_hash(group.owner().first()) {
+        Ok(hash) => hash,
+        Err(_) => {
+            return Err((
+                ValidationState::Bogus,
+                make_ede(
+                    ExtendedErrorCode::DNSSEC_BOGUS,
+                    "NSEC3 with bad owner hash",
+                ),
+            ))
+        }
+    };
 
     // Check if the length of ownerhash matches to length in next_hash.
     // Otherwise, skip the NSEC3 record.

@@ -40,6 +40,7 @@ use std::slice::Iter;
 //use std::slice::IterMut;
 use super::context::Node;
 use super::context::ValidationContext;
+use super::types::Error;
 use super::types::ValidationState;
 use super::utilities::map_dname;
 use super::utilities::ttl_for_sig;
@@ -66,15 +67,17 @@ pub struct Group {
 }
 
 impl Group {
-    fn new(rr: ParsedRecord<'_, Bytes>) -> Self {
-        if rr.rtype() != Rtype::RRSIG {
-            return Self {
-                rr_set: vec![to_bytes_record(&rr)],
-                sig_set: Vec::new(),
-            };
-        }
-        let record = rr.to_record::<Rrsig<_, _>>().unwrap().unwrap();
-        let rrsig = record.data();
+    fn new(rr: ParsedRecord<'_, Bytes>) -> Result<Self, Error> {
+        let sig_record = match rr.to_record::<Rrsig<_, _>>()? {
+            None => {
+                return Ok(Self {
+                    rr_set: vec![to_bytes_record(&rr)?],
+                    sig_set: Vec::new(),
+                });
+            }
+            Some(record) => record,
+        };
+        let rrsig = sig_record.data();
 
         let rrsig: Rrsig<Bytes, Name<Bytes>> =
             Rrsig::<Bytes, Name<Bytes>>::new(
@@ -85,31 +88,29 @@ impl Group {
                 rrsig.expiration(),
                 rrsig.inception(),
                 rrsig.key_tag(),
-                rrsig.signer_name().try_to_name::<Bytes>().unwrap(),
+                rrsig.signer_name().to_name::<Bytes>(),
                 Bytes::copy_from_slice(rrsig.signature().as_ref()),
             )
-            .unwrap();
+            .expect("should not fail");
 
         let record: Record<Name<Bytes>, _> = Record::new(
-            record.owner().try_to_name::<Bytes>().unwrap(),
-            record.class(),
-            record.ttl(),
+            sig_record.owner().to_name::<Bytes>(),
+            sig_record.class(),
+            sig_record.ttl(),
             rrsig,
         );
 
-        return Self {
+        return Ok(Self {
             rr_set: Vec::new(),
             sig_set: vec![record],
-        };
+        });
     }
 
     fn add(&mut self, rr: &ParsedRecord<'_, Bytes>) -> Result<(), ()> {
         // First check owner.
         println!("adding {rr:?}");
         if !self.rr_set.is_empty() {
-            if self.rr_set[0].owner()
-                != &rr.owner().try_to_name::<Bytes>().unwrap()
-            {
+            if self.rr_set[0].owner() != &rr.owner().to_name::<Bytes>() {
                 println!("add: return at line {}", line!());
                 println!(
                     "add: curr owner {:?}, record {:?}",
@@ -136,8 +137,15 @@ impl Group {
             )
         };
 
-        if rr.rtype() == Rtype::RRSIG {
-            let record = rr.to_record::<Rrsig<_, _>>().unwrap().unwrap();
+        let opt_record = match rr.to_record::<Rrsig<_, _>>() {
+            Ok(opt_record) => opt_record,
+            Err(_) => {
+                // Ignore parse errors and return failure. Later new will
+                // report the error.
+                return Err(());
+            }
+        };
+        if let Some(record) = opt_record {
             let rrsig = record.data();
 
             if curr_class == rr.class() && curr_rtype == rrsig.type_covered()
@@ -151,13 +159,13 @@ impl Group {
                         rrsig.expiration(),
                         rrsig.inception(),
                         rrsig.key_tag(),
-                        rrsig.signer_name().try_to_name::<Bytes>().unwrap(),
+                        rrsig.signer_name().to_name::<Bytes>(),
                         Bytes::copy_from_slice(rrsig.signature().as_ref()),
                     )
-                    .unwrap();
+                    .expect("should not fail");
 
                 let record: Record<Name<Bytes>, _> = Record::new(
-                    record.owner().try_to_name::<Bytes>().unwrap(),
+                    record.owner().to_name::<Bytes>(),
                     curr_class,
                     record.ttl(),
                     rrsig,
@@ -173,7 +181,14 @@ impl Group {
 
         // We can add rr if owner, class and rtype match.
         if curr_class == rr.class() && curr_rtype == rr.rtype() {
-            let rr = to_bytes_record(rr);
+            let rr = match to_bytes_record(rr) {
+                Ok(rr) => rr,
+                Err(_) => {
+                    // Ignore parse errors and return failure. Later new will
+                    // report the error.
+                    return Err(());
+                }
+            };
 
             // Some recursors return deplicate records. Check.
             for r in &self.rr_set {
@@ -201,7 +216,7 @@ impl Group {
         state: ValidationState,
         signer_name: Name<Bytes>,
         wildcard: Option<Name<Bytes>>,
-        ede: Option<ExtendedError<Bytes>>,
+        ede: Option<ExtendedError<Vec<u8>>>,
     ) -> ValidatedGroup {
         ValidatedGroup::new(
             self.rr_set.clone(),
@@ -261,12 +276,15 @@ impl Group {
     pub async fn validate_with_vc<Octs, Upstream>(
         &self,
         vc: &ValidationContext<Upstream>,
-    ) -> (
-        ValidationState,
-        Name<Bytes>,
-        Option<Name<Bytes>>,
-        Option<ExtendedError<Bytes>>,
-    )
+    ) -> Result<
+        (
+            ValidationState,
+            Name<Bytes>,
+            Option<Name<Bytes>>,
+            Option<ExtendedError<Vec<u8>>>,
+        ),
+        Error,
+    >
     where
         Octs: AsRef<[u8]>
             + Clone
@@ -298,7 +316,7 @@ impl Group {
         // then the status is insecure, because we cannot validate RRSIGs.
         // Is there an RFC that descibes this?
         if self.rr_set.is_empty() {
-            return (
+            return Ok((
                 ValidationState::Insecure,
                 Name::root(),
                 None,
@@ -307,9 +325,9 @@ impl Group {
                         ExtendedErrorCode::DNSSEC_INDETERMINATE,
                         "RRSIG without RRset",
                     )
-                    .unwrap(),
+                    .expect("should not fail"),
                 ),
-            );
+            ));
         }
 
         let target = if !self.sig_set.is_empty() {
@@ -317,19 +335,24 @@ impl Group {
         } else {
             self.rr_set[0].owner()
         };
-        let node = vc.get_node(target).await;
+        let node = vc.get_node(target).await?;
         let state = node.validation_state();
         match state {
             ValidationState::Secure => (), // Continue validating
             ValidationState::Insecure
             | ValidationState::Bogus
             | ValidationState::Indeterminate => {
-                return (state, target.clone(), None, node.extended_error())
+                return Ok((
+                    state,
+                    target.clone(),
+                    None,
+                    node.extended_error(),
+                ))
             }
         }
         let (state, wildcard, ede, _ttl) =
             self.validate_with_node(&node, &vc.usig_cache()).await;
-        (state, target.clone(), wildcard, ede)
+        Ok((state, target.clone(), wildcard, ede))
     }
 
     // Try to validate the signature using a node. Return the validation
@@ -342,7 +365,7 @@ impl Group {
     ) -> (
         ValidationState,
         Option<Name<Bytes>>,
-        Option<ExtendedError<Bytes>>,
+        Option<ExtendedError<Vec<u8>>>,
         Duration,
     ) {
         let mut opt_ede = None;
@@ -427,7 +450,7 @@ impl Group {
                                 ExtendedErrorCode::DNSSEC_BOGUS,
                                 "Bad signature",
                             )
-                            .unwrap(),
+                            .expect("should not fail"),
                         );
                     }
                 }
@@ -440,7 +463,7 @@ impl Group {
                     ExtendedErrorCode::DNSSEC_BOGUS,
                     "No signature",
                 )
-                .unwrap(),
+                .expect("should not fail"),
             );
         }
         (ValidationState::Bogus, None, opt_ede, BOGUS_TTL)
@@ -559,7 +582,7 @@ impl Group {
         let mut signed_data = Vec::<u8>::new();
         rrsig
             .signed_data(&mut signed_data, &mut self.rr_set())
-            .unwrap();
+            .expect("infallible");
         let res = rrsig.verify_signed_data(key, &signed_data);
 
         if !res.is_ok() {
@@ -581,7 +604,7 @@ impl Group {
         let mut signed_data = Vec::<u8>::new();
         sig.data()
             .signed_data(&mut signed_data, &mut self.rr_set())
-            .unwrap();
+            .expect("infallible");
 
         let mut buf: Vec<u8> = Vec::new();
         with_infallible(|| key.compose_canonical_rdata(&mut buf));
@@ -634,27 +657,27 @@ impl Clone for Group {
 }
 
 #[derive(Clone, Debug)]
-pub struct GroupList(Vec<Group>);
+pub struct GroupSet(Vec<Group>);
 
-impl GroupList {
+impl GroupSet {
     pub fn new() -> Self {
         Self(Vec::new())
     }
 
-    pub fn add(&mut self, rr: ParsedRecord<'_, Bytes>) {
+    pub fn add(&mut self, rr: ParsedRecord<'_, Bytes>) -> Result<(), Error> {
         // Very simplistic implementation of add. Assume resource records
         // are mostly in order. If this O(n^2) algorithm is not enough,
         // then we should use a small hash table or sort first.
         if self.0.is_empty() {
-            self.0.push(Group::new(rr));
+            self.0.push(Group::new(rr)?);
             println!("after adding {self:?}");
-            return;
+            return Ok(());
         }
         let len = self.0.len();
         let res = self.0[len - 1].add(&rr);
         if res.is_ok() {
             println!("after adding {self:?}");
-            return;
+            return Ok(());
         }
 
         // Try all existing groups except the last one
@@ -662,13 +685,14 @@ impl GroupList {
             let res = g.add(&rr);
             if res.is_ok() {
                 println!("after adding {self:?}");
-                return;
+                return Ok(());
             }
         }
 
         // Add a new group.
-        self.0.push(Group::new(rr));
+        self.0.push(Group::new(rr)?);
         println!("after adding {self:?}");
+        Ok(())
     }
 
     pub fn remove_redundant_cnames(&mut self) {
@@ -722,7 +746,15 @@ impl GroupList {
                 // Now check the target of the CNAME.
                 let result_name =
                     if let AllRecordData::Dname(dname) = rr.data() {
-                        map_dname(owner, dname, cname_name)
+                        match map_dname(owner, dname, cname_name) {
+                            Ok(name) => name,
+                            Err(_) => {
+                                // Expanding the DNAME failed. This CNAME
+                                // cannot be the result of expanding the
+                                // DNAME.
+                                return false;
+                            }
+                        }
                     } else {
                         panic!("DNAME expected");
                     };
@@ -751,7 +783,7 @@ pub struct ValidatedGroup {
     state: ValidationState,
     signer_name: Name<Bytes>,
     closest_encloser: Option<Name<Bytes>>,
-    ede: Option<ExtendedError<Bytes>>,
+    ede: Option<ExtendedError<Vec<u8>>>,
 }
 
 impl ValidatedGroup {
@@ -761,7 +793,7 @@ impl ValidatedGroup {
         state: ValidationState,
         signer_name: Name<Bytes>,
         closest_encloser: Option<Name<Bytes>>,
-        ede: Option<ExtendedError<Bytes>>,
+        ede: Option<ExtendedError<Vec<u8>>>,
     ) -> ValidatedGroup {
         ValidatedGroup {
             rr_set,
@@ -814,7 +846,7 @@ impl ValidatedGroup {
         self.closest_encloser.clone()
     }
 
-    pub fn ede(&self) -> Option<ExtendedError<Bytes>> {
+    pub fn ede(&self) -> Option<ExtendedError<Vec<u8>>> {
         self.ede.clone()
     }
 
@@ -825,13 +857,18 @@ impl ValidatedGroup {
 
 fn to_bytes_record(
     rr: &ParsedRecord<'_, Bytes>,
-) -> Record<Name<Bytes>, AllRecordData<Bytes, ParsedName<Bytes>>> {
-    let record = rr.to_record::<AllRecordData<_, _>>().unwrap().unwrap();
-    Record::<Name<Bytes>, AllRecordData<Bytes, ParsedName<Bytes>>>::new(
-        rr.owner().try_to_name::<Bytes>().unwrap(),
-        rr.class(),
-        rr.ttl(),
-        record.data().clone(),
+) -> Result<Record<Name<Bytes>, AllRecordData<Bytes, ParsedName<Bytes>>>, Error>
+{
+    let record = rr
+        .to_record::<AllRecordData<_, _>>()?
+        .expect("should not fail");
+    Ok(
+        Record::<Name<Bytes>, AllRecordData<Bytes, ParsedName<Bytes>>>::new(
+            rr.owner().to_name::<Bytes>(),
+            rr.class(),
+            rr.ttl(),
+            record.data().clone(),
+        ),
     )
 }
 
