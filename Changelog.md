@@ -26,10 +26,13 @@ Unstable features
 
 Other changes
 
+* The minimum Rust version is now 1.78. ([#320])
+
 [#308]: https://github.com/NLnetLabs/domain/pull/308
 [#310]: https://github.com/NLnetLabs/domain/pull/310
 [#312]: https://github.com/NLnetLabs/domain/pull/312
 [#315]: https://github.com/NLnetLabs/domain/pull/315
+[#320]: https://github.com/NLnetLabs/domain/pull/320
 [@achow101]: https://github.com/achow101
 [@xofyarg]: https://github.com/xofyarg
 
