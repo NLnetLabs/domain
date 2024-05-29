@@ -110,8 +110,6 @@ async fn main() {
     };
     let z_apex_name = zone.apex_name().clone();
     let z_class = zone.class();
-    // let mut zones = ZoneTree::new();
-    // zones.insert_zone(zone).unwrap();
 
     // Create a catalog that will handle outbound XFR for zones
     let catalog = Catalog::new().unwrap();
@@ -125,27 +123,10 @@ async fn main() {
             ZoneType::Secondary(primary_info, acl)
         }
     };
-    catalog.insert_zone(zone, zone_type).unwrap();
+    catalog.insert_zone(zone, zone_type).await.unwrap();
     let catalog = Arc::new(catalog);
     let cloned_catalog = catalog.clone();
     tokio::spawn(async move { cloned_catalog.run().await });
-
-    if primary {
-        // Make changes to a zone to create a diff for IXFR use.
-        let c_zones = catalog.zones();
-        let zone = c_zones.get_zone(&z_apex_name, z_class).unwrap();
-        let mut writer = zone.write().await;
-        {
-            let node = writer.open(true).await.unwrap();
-            let mut new_ns = Rrset::new(Rtype::NS, Ttl::from_secs(60));
-            let ns_rec = domain::rdata::Ns::new(
-                Name::from_str("write-test.example.com").unwrap(),
-            );
-            new_ns.push_data(ns_rec.into());
-            node.update_rrset(SharedRrset::new(new_ns)).await.unwrap();
-        }
-        let _diff = writer.commit(true).await.unwrap();
-    }
 
     let svc = service_fn(my_service, catalog.clone());
 
@@ -158,7 +139,7 @@ async fn main() {
         catalog.clone(),
         num_xfr_threads,
     );
-    let svc = NotifyMiddlewareSvc::<Vec<u8>, _>::new(svc, catalog);
+    let svc = NotifyMiddlewareSvc::<Vec<u8>, _>::new(svc, catalog.clone());
 
     #[cfg(feature = "siphasher")]
     let svc = CookiesMiddlewareSvc::<Vec<u8>, _>::with_random_secret(svc);
@@ -190,6 +171,7 @@ async fn main() {
 
     eprintln!("Ready");
 
+    let catalog_clone = catalog.clone();
     tokio::spawn(async move {
         loop {
             tokio::time::sleep(Duration::from_millis(5000)).await;
@@ -220,32 +202,60 @@ async fn main() {
                 tcp_metrics.num_received_requests(),
                 tcp_metrics.num_sent_responses(),
             );
+
+            let report = catalog_clone
+                .zone_status(
+                    &Name::from_str("example.com").unwrap(),
+                    Class::IN,
+                )
+                .await
+                .unwrap();
+            eprintln!("{report}");
         }
     });
 
+    tokio::time::sleep(Duration::from_secs(15)).await;
+
+    // Modify zone
     if primary {
-        tokio::time::sleep(Duration::from_secs(5)).await;
-
-        let secondary_addr = "127.0.0.1:8054";
-        eprintln!("Sending NOTIFY to secondary at {secondary_addr}...");
-
-        let mut msg = MessageBuilder::new_vec();
-        msg.header_mut().set_opcode(Opcode::NOTIFY);
-        let mut msg = msg.question();
-        msg.push((Name::vec_from_str("example.com").unwrap(), Rtype::SOA))
-            .unwrap();
-        let req = RequestMessage::new(msg);
-
-        let server_addr = secondary_addr.parse().unwrap();
-        let udp_connect = UdpConnect::new(server_addr);
-        let mut dgram_config = Config::new();
-        dgram_config.set_max_parallel(1);
-        dgram_config.set_read_timeout(Duration::from_millis(1000));
-        dgram_config.set_max_retries(1);
-        dgram_config.set_udp_payload_size(Some(1400));
-        let dgram_conn = Connection::with_config(udp_connect, dgram_config);
-        dgram_conn.send_request(req).get_response().await.unwrap();
+        // Make changes to a zone to create a diff for IXFR use.
+        let c_zones = catalog.zones();
+        let zone = c_zones.get_zone(&z_apex_name, z_class).unwrap();
+        let mut writer = zone.write().await;
+        {
+            let node = writer.open(true).await.unwrap();
+            let mut new_ns = Rrset::new(Rtype::NS, Ttl::from_secs(60));
+            let ns_rec = domain::rdata::Ns::new(
+                Name::from_str("write-test.example.com").unwrap(),
+            );
+            new_ns.push_data(ns_rec.into());
+            node.update_rrset(SharedRrset::new(new_ns)).await.unwrap();
+        }
+        let _diff = writer.commit(true).await.unwrap();
     }
+
+    // // Send NOTIFY
+    // if primary {
+    //     let secondary_addr = "127.0.0.1:8054";
+    //     eprintln!("Sending NOTIFY to secondary at {secondary_addr}...");
+
+    //     let mut msg = MessageBuilder::new_vec();
+    //     msg.header_mut().set_opcode(Opcode::NOTIFY);
+    //     let mut msg = msg.question();
+    //     msg.push((Name::vec_from_str("example.com").unwrap(), Rtype::SOA))
+    //         .unwrap();
+    //     let req = RequestMessage::new(msg);
+
+    //     let server_addr = secondary_addr.parse().unwrap();
+    //     let udp_connect = UdpConnect::new(server_addr);
+    //     let mut dgram_config = Config::new();
+    //     dgram_config.set_max_parallel(1);
+    //     dgram_config.set_read_timeout(Duration::from_millis(1000));
+    //     dgram_config.set_max_retries(1);
+    //     dgram_config.set_udp_payload_size(Some(1400));
+    //     let dgram_conn = Connection::with_config(udp_connect, dgram_config);
+    //     dgram_conn.send_request(req).get_response().await.unwrap();
+    // }
 
     pending::<()>().await;
 }

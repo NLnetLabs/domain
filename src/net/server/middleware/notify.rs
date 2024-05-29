@@ -126,9 +126,10 @@ where
                 //
                 // We pass the source to the Catalog to compare against the
                 // set of known masters for the zone.
-                let _ = catalog
-                    .notify_zone_changed(class, &apex_name, Some(source))
-                    .await;
+                catalog
+                    .notify_zone_changed(class, &apex_name, source)
+                    .await
+                    .unwrap();
 
                 // https://datatracker.ietf.org/doc/html/rfc1996#section-4
                 //   "4.7 Slave Receives a NOTIFY Request from a Master

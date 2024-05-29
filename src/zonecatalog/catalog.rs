@@ -1,31 +1,52 @@
-use core::fmt::Debug;
-/// Note to self: This design ties XFR and catalogs together, but really they
-/// are separate things. Maybe better have triggers/callbacks or something for
-/// joining separate pieces together, including the XFR-in
-/// XfrMiddlewareService functionality?
+// Note to self: This design ties XFR and catalogs together, but really they
+// are separate things. Maybe better have triggers/callbacks or something for
+// joining separate pieces together, including the XFR-in XfrMiddlewareService
+// functionality?
 // TODO: Add IXFR diff purging.
 // TODO: Add IXFR diff condensation.
+// TODO: Add NOTIFY sending based on configured "stealth" nameservers per
+// zone.
+// TODO: Add NOTIFY set discovery.
+// TODO: Add NOTIFY sending to the discovered NOTIFY set.
+// TODO: Add lifecycle hooks for callers, e.g. zone added, zone removed, zone
+// expired, zone refreshed.
+use core::any::Any;
+use core::fmt::Debug;
 use core::net::{IpAddr, SocketAddr};
-
+use core::ops::{Deref, DerefMut};
+use core::pin::Pin;
+use core::sync::atomic::{AtomicBool, Ordering};
+use core::task::{Context, Poll};
 use core::time::Duration;
+
 use std::borrow::Cow;
+use std::boxed::Box;
 use std::collections::hash_map::Entry::{Occupied, Vacant};
 use std::collections::{BTreeMap, HashMap};
+use std::future::Future;
+use std::io;
 use std::string::String;
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
+use std::vec::Vec;
 
 use arc_swap::ArcSwap;
 use bytes::Bytes;
 use futures::stream::FuturesUnordered;
+use futures::FutureExt;
 use tokio::net::TcpStream;
 use tokio::sync::mpsc::error::SendError;
 use tokio::sync::mpsc::{self, Receiver, Sender};
-use tracing::{error, info, trace, warn};
+use tokio::sync::RwLock;
+use tokio::sync::{oneshot, Mutex};
+use tokio::time::{sleep_until, Instant, Sleep};
+use tokio_stream::StreamExt;
+use tracing::{debug, error, info, trace, warn};
 
 use crate::base::iana::Class;
 use crate::base::name::{Label, ToLabelIter};
 use crate::base::{
-    CanonicalOrd, MessageBuilder, Name, Rtype, Serial, ToName, Ttl,
+    CanonicalOrd, MessageBuilder, Name, ParsedName, Rtype, Serial, ToName,
+    Ttl,
 };
 use crate::net::client::protocol::UdpConnect;
 use crate::net::client::request::{RequestMessage, SendRequest};
@@ -37,26 +58,16 @@ use crate::rdata::{
 use crate::zonetree::error::{OutOfZone, ZoneTreeModificationError};
 use crate::zonetree::{
     AnswerContent, ReadableZone, Rrset, SharedRrset, StoredName,
-    WritableZone, WritableZoneNode, Zone, ZoneDiff, ZoneStore, ZoneTree,
+    WritableZone, WritableZoneNode, Zone, ZoneDiff, ZoneKey, ZoneStore,
+    ZoneTree,
 };
-use core::any::Any;
-use core::ops::{Deref, DerefMut};
-use core::pin::Pin;
-use core::sync::atomic::{AtomicBool, Ordering};
-use core::task::{Context, Poll};
-use futures::future::Map;
-use futures::FutureExt;
-use std::boxed::Box;
-use std::future::Future;
-use std::io;
-use std::vec::Vec;
-use tokio::sync::Mutex;
-use tokio::time::{sleep_until, Instant, Sleep};
-use tokio_stream::StreamExt;
+use std::prelude::v1::ToString;
 
 //------------ Constants -----------------------------------------------------
 
 const DEF_PRIMARY_PORT: u16 = 53;
+
+// TODO: This should be configurable.
 const MIN_DURATION_BETWEEN_ZONE_REFRESHES: tokio::time::Duration =
     tokio::time::Duration::new(60, 0);
 
@@ -142,14 +153,25 @@ impl PrimaryInfo {
 
 #[derive(Clone, Debug)]
 pub enum ZoneType {
-    /// We are primary for the zone and allow the specified clients to request
-    /// the zone via XFR.
+    /// We are primary for the zone and allow the specified (secondary?)
+    /// servers to request the zone via XFR. NOTIFY messages will be sent to
+    /// zone nameservers on changes to zone content.
     Primary(Acl),
 
     /// We are secondary for the zone and will request the zone via XFR from
     /// the specified primary, and allow the specified (primary?) servers to
     /// notify us of an update to the zone.
     Secondary(PrimaryInfo, Acl),
+}
+
+impl ZoneType {
+    pub fn is_primary(&self) -> bool {
+        matches!(self, Self::Primary(..))
+    }
+
+    pub fn is_secondary(&self) -> bool {
+        matches!(self, Self::Secondary(..))
+    }
 }
 
 //------------ ZoneDiffKey ---------------------------------------------------
@@ -193,74 +215,228 @@ impl ZoneDiffKey {
 
 pub type ZoneDiffs = BTreeMap<ZoneDiffKey, Arc<ZoneDiff>>;
 
-//------------ Timers --------------------------------------------------------
+//------------ ZoneStatus ----------------------------------------------------
 
-#[derive(Debug)]
-pub struct Timers {
-    refresh: Ttl,
-    // None means never refreshed
-    last_refreshed: Arc<std::sync::Mutex<Option<Instant>>>,
-    retry: Ttl,
-    expire: Ttl,
+#[derive(Copy, Clone, Debug, Default, PartialEq)]
+pub enum SecondaryZoneStatus {
+    /// Empty secondary pending initial refresh,
+    #[default]
+    New,
+
+    /// Refresh triggered by NOTIFY currently in progress.
+    Notified,
+
+    /// Refreshing according to the SOA REFRESH interval.
+    Refreshing,
+
+    /// Periodically retrying according to the SOA RETRY interval.
+    Retrying,
+
+    /// EXPIRE interval exceeded without successful refresh.
+    Expired,
 }
 
-impl Timers {
-    pub fn new(soa: &Soa<Name<Bytes>>) -> Self {
-        let last_refreshed = Arc::new(std::sync::Mutex::new(None));
-        Timers {
-            refresh: soa.refresh(),
-            last_refreshed,
-            retry: soa.retry(),
-            expire: soa.expire(),
+//--- Display
+
+impl std::fmt::Display for SecondaryZoneStatus {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            SecondaryZoneStatus::New => f.write_str("new"),
+            SecondaryZoneStatus::Notified => f.write_str("notified"),
+            SecondaryZoneStatus::Refreshing => f.write_str("refreshing"),
+            SecondaryZoneStatus::Retrying => f.write_str("retrying"),
+            SecondaryZoneStatus::Expired => f.write_str("expired"),
         }
     }
 }
 
-//------------ TimerInfo -----------------------------------------------------
+//------------ ZoneRefreshMetrics --------------------------------------------
+
+#[derive(Clone, Copy, Debug)]
+pub struct ZoneRefreshMetrics {
+    zone_created_at: Instant,
+
+    /// None means never checked
+    last_refresh_phase_started_at: Option<Instant>,
+
+    /// None means never checked
+    last_refresh_attempted_at: Option<Instant>,
+
+    /// None means never checked
+    last_soa_serial_check_succeeded_at: Option<Instant>,
+
+    /// None means never checked
+    ///
+    /// The SOA SERIAL received for the last successful SOA query sent to a
+    /// primary for this zone.
+    last_soa_serial_check_serial: Option<Serial>,
+
+    /// None means never refreshed
+    last_refreshed_at: Option<Instant>,
+
+    /// None means never refreshed
+    ///
+    /// The SOA SERIAL of the last commit made to this zone.
+    last_refresh_succeeded_serial: Option<Serial>,
+}
+
+impl Default for ZoneRefreshMetrics {
+    fn default() -> Self {
+        Self {
+            zone_created_at: Instant::now(),
+            last_refresh_phase_started_at: Default::default(),
+            last_refresh_attempted_at: Default::default(),
+            last_soa_serial_check_succeeded_at: Default::default(),
+            last_soa_serial_check_serial: Default::default(),
+            last_refreshed_at: Default::default(),
+            last_refresh_succeeded_serial: Default::default(),
+        }
+    }
+}
+
+//------------ ZoneRefreshState ----------------------------------------------
+
+#[derive(Clone, Copy, Debug)]
+pub struct ZoneRefreshState {
+    /// SOA REFRESH
+    refresh: Ttl,
+
+    /// SOA RETRY
+    retry: Ttl,
+
+    /// SOA EXPIRE
+    expire: Ttl,
+
+    /// Refresh status
+    status: SecondaryZoneStatus,
+
+    /// Refresh metrics
+    metrics: ZoneRefreshMetrics,
+}
+
+impl ZoneRefreshState {
+    pub fn new(soa: &Soa<Name<Bytes>>) -> Self {
+        ZoneRefreshState {
+            refresh: soa.refresh(),
+            retry: soa.retry(),
+            expire: soa.expire(),
+            metrics: Default::default(),
+            status: Default::default(),
+        }
+    }
+}
+
+impl Default for ZoneRefreshState {
+    fn default() -> Self {
+        // These values affect how hard and fast we try to provision a
+        // secondary zone on startup.
+        // TODO: These values should be configurable.
+        Self {
+            refresh: Ttl::ZERO,
+            retry: Ttl::from_mins(5),
+            expire: Ttl::from_hours(1),
+            status: Default::default(),
+            metrics: Default::default(),
+        }
+    }
+}
+
+//------------ ZoneRefreshInstant --------------------------------------------
 
 #[derive(Clone, Debug)]
-struct TimerInfo {
-    key: (StoredName, Class),
+struct ZoneRefreshInstant {
+    cause: ZoneRefreshCause,
+    key: ZoneKey,
     end_instant: Instant,
 }
-impl TimerInfo {
-    fn new(key: (Name<Bytes>, Class), refresh: Ttl) -> Self {
+
+impl ZoneRefreshInstant {
+    fn new(
+        key: (Name<Bytes>, Class),
+        refresh: Ttl,
+        cause: ZoneRefreshCause,
+    ) -> Self {
         trace!(
-            "Creating TimerInfo for zone {} with refresh duration {} seconds",
+            "Creating ZoneRefreshInstant for zone {} with refresh duration {} seconds and cause {cause}",
             key.0,
             refresh.into_duration().as_secs()
         );
         let end_instant =
             Instant::now().checked_add(refresh.into_duration()).unwrap();
-        Self { key, end_instant }
+        Self {
+            cause,
+            key,
+            end_instant,
+        }
     }
 }
 
-//------------ TimerInfoFuture -----------------------------------------------
+//------------ ZoneRefreshCause ----------------------------------------------
 
-struct TimerInfoFuture {
-    timer_info: TimerInfo,
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum ZoneRefreshCause {
+    ManualTrigger,
+
+    NotifyFromPrimary,
+
+    SoaRefreshTimer,
+
+    SoaRefreshTimerAfterStartup,
+
+    SoaRefreshTimerAfterZoneAdded,
+
+    SoaRetryTimer,
+}
+
+impl std::fmt::Display for ZoneRefreshCause {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            ZoneRefreshCause::ManualTrigger => f.write_str("manual trigger"),
+            ZoneRefreshCause::NotifyFromPrimary => {
+                f.write_str("NOTIFY from primary")
+            }
+            ZoneRefreshCause::SoaRefreshTimer => {
+                f.write_str("SOA REFRESH periodic timer expired")
+            }
+            ZoneRefreshCause::SoaRefreshTimerAfterStartup => f.write_str(
+                "SOA REFRESH timer (scheduled at startup) expired",
+            ),
+            ZoneRefreshCause::SoaRefreshTimerAfterZoneAdded => f.write_str(
+                "SOA REFRESH timer (scheduled at zone addition) expired",
+            ),
+            ZoneRefreshCause::SoaRetryTimer => {
+                f.write_str("SOA RETRY timer expired")
+            }
+        }
+    }
+}
+
+//------------ ZoneRefreshTimer ----------------------------------------------
+
+struct ZoneRefreshTimer {
+    refresh_instant: ZoneRefreshInstant,
     sleep_fut: Pin<Box<Sleep>>,
 }
-impl TimerInfoFuture {
-    fn new(timer_info: TimerInfo) -> Self {
-        let sleep_fut = Box::pin(sleep_until(timer_info.end_instant));
+
+impl ZoneRefreshTimer {
+    fn new(refresh_instant: ZoneRefreshInstant) -> Self {
+        let sleep_fut = Box::pin(sleep_until(refresh_instant.end_instant));
         Self {
-            timer_info,
+            refresh_instant,
             sleep_fut,
         }
     }
 }
 
-impl Future for TimerInfoFuture {
-    type Output = TimerInfo;
+impl Future for ZoneRefreshTimer {
+    type Output = ZoneRefreshInstant;
 
     fn poll(
         mut self: Pin<&mut Self>,
         cx: &mut Context<'_>,
     ) -> Poll<Self::Output> {
         match self.sleep_fut.poll_unpin(cx) {
-            Poll::Ready(()) => Poll::Ready(self.timer_info.clone()),
+            Poll::Ready(()) => Poll::Ready(self.refresh_instant.clone()),
             Poll::Pending => Poll::Pending,
         }
     }
@@ -273,6 +449,7 @@ pub struct ZoneInfo {
     _catalog_member_id: Option<StoredName>,
     zone_type: ZoneType,
     diffs: Arc<Mutex<ZoneDiffs>>,
+    expired: AtomicBool,
 }
 
 impl ZoneInfo {
@@ -329,11 +506,202 @@ impl ZoneInfo {
 #[derive(Debug)]
 struct ZoneChangedMsg {
     class: Class,
+
     apex_name: StoredName,
 
     // The RFC 1996 section 3.11 known master that was the source of the
     // NOTIFY, if the zone change was learned via an RFC 1996 NOTIFY query.
     source: Option<IpAddr>,
+}
+
+//------------ ZoneReport ----------------------------------------------------
+
+#[derive(Debug)]
+pub struct ZoneReport {
+    key: ZoneKey,
+    details: ZoneReportDetails,
+    timers: Vec<ZoneRefreshInstant>,
+}
+
+//--- Display
+
+impl std::fmt::Display for ZoneReport {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_fmt(format_args!("zone:   {}\n", self.key.0))?;
+        f.write_fmt(format_args!("{}", self.details))?;
+        if !self.timers.is_empty() {
+            f.write_str("        timers: ")?;
+            let now = Instant::now();
+            for timer in &self.timers {
+                let cause = timer.cause;
+                let at = timer
+                    .end_instant
+                    .checked_duration_since(now)
+                    .map(|d| format!("          wait {}s", d.as_secs()))
+                    .unwrap_or_else(|| "          wait ?s".to_string());
+
+                f.write_fmt(format_args!("{at} (until {cause})n"))?;
+            }
+            f.write_str("\n")?;
+        }
+        Ok(())
+    }
+}
+
+//------------ ZoneReportDetails ---------------------------------------------
+
+#[derive(Debug)]
+pub enum ZoneReportDetails {
+    Primary,
+
+    PendingSecondary,
+
+    Secondary(ZoneRefreshState),
+}
+
+//--- Display
+
+impl std::fmt::Display for ZoneReportDetails {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            ZoneReportDetails::Primary => {
+                f.write_str("        type: primary\n")?;
+                f.write_str("        state: ok\n")
+            }
+            ZoneReportDetails::PendingSecondary => {
+                f.write_str("        type: secondary\n")?;
+                f.write_str("        state: pending initial refresh\n")
+            }
+            ZoneReportDetails::Secondary(state) => {
+                let now = Instant::now();
+                f.write_str("        type: secondary\n")?;
+                let at = match now
+                    .checked_duration_since(state.metrics.zone_created_at)
+                {
+                    Some(duration) => {
+                        format!("{}s ago", duration.as_secs())
+                    }
+                    None => "unknown".to_string(),
+                };
+                f.write_fmt(format_args!("        created at: {at}\n"))?;
+                f.write_fmt(format_args!(
+                    "        state: {}\n",
+                    state.status
+                ))?;
+
+                if state.metrics.last_refreshed_at.is_some() {
+                    let last_refreshed_at =
+                        state.metrics.last_refreshed_at.unwrap();
+                    let serial =
+                        state.metrics.last_refresh_succeeded_serial.unwrap();
+                    let at =
+                        match now.checked_duration_since(last_refreshed_at) {
+                            Some(duration) => {
+                                format!("{}s ago", duration.as_secs())
+                            }
+                            None => "unknown".to_string(),
+                        };
+
+                    f.write_fmt(format_args!(
+                        "        serial: {serial} ({at})\n",
+                    ))?;
+                }
+
+                let at = match state.metrics.last_refresh_phase_started_at {
+                    Some(at) => match now.checked_duration_since(at) {
+                        Some(duration) => {
+                            format!("{}s ago", duration.as_secs())
+                        }
+                        None => "unknown".to_string(),
+                    },
+                    None => "never".to_string(),
+                };
+                f.write_fmt(format_args!(
+                    "        last refresh phase started at: {at}\n"
+                ))?;
+
+                let at = match state.metrics.last_refresh_attempted_at {
+                    Some(at) => match now.checked_duration_since(at) {
+                        Some(duration) => {
+                            format!("{}s ago", duration.as_secs())
+                        }
+                        None => "unknown".to_string(),
+                    },
+                    None => "never".to_string(),
+                };
+                f.write_fmt(format_args!(
+                    "        last refresh attempted at: {at}\n"
+                ))?;
+
+                let at =
+                    match state.metrics.last_soa_serial_check_succeeded_at {
+                        Some(at) => match now.checked_duration_since(at) {
+                            Some(duration) => {
+                                format!(
+                                    "{}s ago (serial: {})",
+                                    duration.as_secs(),
+                                    state
+                                        .metrics
+                                        .last_soa_serial_check_serial
+                                        .unwrap()
+                                )
+                            }
+                            None => "unknown".to_string(),
+                        },
+                        None => "never".to_string(),
+                    };
+                f.write_fmt(format_args!(
+                    "        last successful soa check at: {at}\n"
+                ))?;
+
+                let at =
+                    match state.metrics.last_soa_serial_check_succeeded_at {
+                        Some(at) => match now.checked_duration_since(at) {
+                            Some(duration) => {
+                                format!(
+                                    "{}s ago (serial: {})",
+                                    duration.as_secs(),
+                                    state
+                                        .metrics
+                                        .last_soa_serial_check_serial
+                                        .unwrap()
+                                )
+                            }
+                            None => "unknown".to_string(),
+                        },
+                        None => "never".to_string(),
+                    };
+                f.write_fmt(format_args!(
+                    "        last soa check attempted at: {at}\n"
+                ))?;
+
+                Ok(())
+            }
+        }
+    }
+}
+
+//------------ Event ---------------------------------------------------------
+
+#[allow(clippy::enum_variant_names)]
+#[derive(Debug)]
+enum Event {
+    ZoneRefreshRequested {
+        cause: ZoneRefreshCause,
+        key: ZoneKey,
+        at: Option<Ttl>,
+    },
+
+    ZoneStatusRequested {
+        key: ZoneKey,
+        tx: oneshot::Sender<ZoneReport>,
+    },
+
+    ZoneChanged(ZoneChangedMsg),
+
+    ZoneAdded(ZoneKey),
+
+    ZoneRemoved(ZoneKey),
 }
 
 //------------ Catalog -------------------------------------------------------
@@ -344,10 +712,11 @@ struct ZoneChangedMsg {
 #[derive(Debug)]
 pub struct Catalog {
     // cat_zone: Zone, // TODO
+    pending_zones: Arc<RwLock<HashMap<ZoneKey, Zone>>>,
     member_zones: Arc<ArcSwap<ZoneTree>>,
-    loaded_arc: RwLock<Arc<ZoneTree>>,
-    notify_rx: tokio::sync::Mutex<Receiver<ZoneChangedMsg>>,
-    notify_tx: Sender<ZoneChangedMsg>,
+    loaded_arc: std::sync::RwLock<Arc<ZoneTree>>,
+    event_rx: Mutex<Receiver<Event>>,
+    event_tx: Sender<Event>,
     running: AtomicBool,
 }
 
@@ -395,29 +764,31 @@ impl Catalog {
 
         // let cat_zone = cat_zone.build();
 
+        let pending_zones = Default::default();
         let mut member_zones = ZoneTree::new();
-        let (notify_tx, notify_rx) = mpsc::channel(10);
+        let (event_tx, event_rx) = mpsc::channel(10);
         let zone_type = ZoneType::Primary(Acl::new());
 
         for zone in zones.iter_zones() {
             let wrapped_zone = Self::wrap_zone(
                 zone.clone(),
                 zone_type.clone(),
-                notify_tx.clone(),
+                event_tx.clone(),
             );
             member_zones.insert_zone(wrapped_zone)?;
         }
 
         let member_zones = Arc::new(ArcSwap::from_pointee(member_zones));
-        let loaded_arc = RwLock::new(member_zones.load_full());
-        let notify_rx = tokio::sync::Mutex::new(notify_rx);
+        let loaded_arc = std::sync::RwLock::new(member_zones.load_full());
+        let event_rx = Mutex::new(event_rx);
 
         let catalog = Catalog {
             // cat_zone,
+            pending_zones,
             member_zones,
             loaded_arc,
-            notify_rx,
-            notify_tx,
+            event_rx,
+            event_tx,
             running: AtomicBool::new(false),
         };
 
@@ -426,15 +797,41 @@ impl Catalog {
 }
 
 impl Catalog {
-    pub fn insert_zone(
+    pub async fn insert_zone(
         &self,
         zone: Zone,
         zone_type: ZoneType,
     ) -> Result<(), ZoneTreeModificationError> {
+        let zone = Self::wrap_zone(
+            zone.clone(),
+            zone_type.clone(),
+            self.event_tx.clone(),
+        );
+
+        let key = zone.key();
+
+        if zone_type.is_primary() {
+            self.insert_active_zone(zone)?;
+        } else {
+            // Don't add secondary zones immediately as they may be empty
+            // until refreshed. Instead add them in run() once it has been
+            // determined if they are empty or that the initial refresh has
+            // been performed successfully. This prevents callers of get_zone()
+            // or find_zone() attempting
+            self.pending_zones.write().await.insert(zone.key(), zone);
+        }
+
+        self.event_tx.send(Event::ZoneAdded(key)).await.unwrap();
+
+        Ok(())
+    }
+
+    fn insert_active_zone(
+        &self,
+        zone: Zone,
+    ) -> Result<(), ZoneTreeModificationError> {
         let mut new_zones = self.zones().deref().clone();
-        let wrapped_zone =
-            Self::wrap_zone(zone, zone_type, self.notify_tx.clone());
-        new_zones.insert_zone(wrapped_zone)?;
+        new_zones.insert_zone(zone)?;
         self.member_zones.store(Arc::new(new_zones));
         self.update_lodaded_arc();
         Ok(())
@@ -444,15 +841,18 @@ impl Catalog {
         &self,
         class: Class,
         apex_name: &StoredName,
-        source: Option<IpAddr>,
+        source: IpAddr,
     ) -> Result<(), CatalogError> {
         if !self.running.load(Ordering::SeqCst) {
             return Err(CatalogError::NotRunning);
         }
 
         if self.zones().get_zone(apex_name, class).is_none() {
-            return Err(CatalogError::UnknownZone);
-        };
+            let key = (apex_name.clone(), class);
+            if !self.pending_zones.read().await.contains_key(&key) {
+                return Err(CatalogError::UnknownZone);
+            }
+        }
 
         // https://datatracker.ietf.org/doc/html/rfc1996#section-2
         //   "2.1. The following definitions are used in this document:
@@ -492,10 +892,10 @@ impl Catalog {
         let msg = ZoneChangedMsg {
             class,
             apex_name: apex_name.clone(),
-            source,
+            source: Some(source),
         };
 
-        send_zone_changed_msg(&self.notify_tx, msg)
+        send_zone_changed_msg(&self.event_tx, msg)
             .await
             .map_err(|_| CatalogError::InternalError)?;
 
@@ -524,13 +924,14 @@ impl Catalog {
     fn wrap_zone(
         zone: Zone,
         zone_type: ZoneType,
-        notify_tx: Sender<ZoneChangedMsg>,
+        notify_tx: Sender<Event>,
     ) -> Zone {
         let diffs = Arc::new(Mutex::new(ZoneDiffs::new()));
         let zone_info = ZoneInfo {
             _catalog_member_id: None, // TODO
             zone_type,
             diffs,
+            expired: AtomicBool::new(false),
         };
 
         let store = zone.into_inner();
@@ -538,17 +939,53 @@ impl Catalog {
         Zone::new(new_store)
     }
 
+    pub async fn zone_status(
+        &self,
+        apex_name: &StoredName,
+        class: Class,
+    ) -> Result<ZoneReport, ()> {
+        let (tx, rx) = tokio::sync::oneshot::channel();
+
+        self.event_tx
+            .send(Event::ZoneStatusRequested {
+                key: (apex_name.clone(), class),
+                tx,
+            })
+            .await
+            .unwrap();
+
+        rx.await.map_err(|err| {
+            error!("Status err: {err}");
+        })
+    }
+
+    pub async fn force_zone_refresh(
+        &self,
+        apex_name: &StoredName,
+        class: Class,
+    ) {
+        self.event_tx
+            .send(Event::ZoneRefreshRequested {
+                cause: ZoneRefreshCause::ManualTrigger,
+                key: (apex_name.clone(), class),
+                at: None,
+            })
+            .await
+            .unwrap();
+    }
+
     pub async fn run(&self) {
         self.running.store(true, Ordering::SeqCst);
-        let lock = &mut self.notify_rx.lock().await;
-        let notify_rx = lock.deref_mut();
+        let lock = &mut self.event_rx.lock().await;
+        let event_rx = lock.deref_mut();
         let mut refresh_timers = FuturesUnordered::new();
 
         // Clippy sees that StoredName uses interior mutability, but does not
         // know that the Hash impl for StoredName hashes only over the u8
         // label slice values which are fixed for a given StoredName.
         #[allow(clippy::mutable_key_type)]
-        let mut time_tracking = HashMap::<(StoredName, Class), Timers>::new();
+        let time_tracking = HashMap::<ZoneKey, ZoneRefreshState>::new();
+        let time_tracking = Arc::new(RwLock::new(time_tracking));
 
         for zone in self.zones().iter_zones() {
             let cat_zone = zone
@@ -557,33 +994,45 @@ impl Catalog {
                 .downcast_ref::<CatalogZone>()
                 .unwrap();
 
-            if matches!(cat_zone.info().zone_type, ZoneType::Secondary(..)) {
-                let apex_name = zone.apex_name().clone();
-                let class = zone.class();
-                let key = (apex_name.clone(), class);
-                if let Vacant(e) = time_tracking.entry(key.clone()) {
-                    let read = zone.read();
-                    if let Ok(Some(soa)) =
-                        Self::read_soa(&read, apex_name).await
-                    {
-                        trace!(
-                            "Creating REFRESH timer for zone {}",
-                            zone.apex_name()
-                        );
-                        e.insert(Timers::new(&soa));
-                    }
+            match &cat_zone.info().zone_type {
+                ZoneType::Primary(_) => {
+                    // 4. Details and Examples
+                    //   "4.1. Retaining query state information across host
+                    //    reboots is optional, but it is reasonable to simply
+                    //    execute an SOA NOTIFY transaction on each authority
+                    //    zone when a server first starts."
+                    // Send NOTIFY
+                    error!("Sending NOTIFY is not implemented yet");
                 }
 
-                // On startup refresh all zones immediately.
-                // TODO: Maybe add some fuzzyness to spread syncing of zones
-                // out a bit.
+                ZoneType::Secondary(_, _) => {
+                    match Self::track_zone_freshness(
+                        zone,
+                        time_tracking.clone(),
+                    )
+                    .await
+                    {
+                        Ok(soa_refresh) => {
+                            // https://datatracker.ietf.org/doc/html/rfc1034#section-4.3.5
+                            // 4.3.5. Zone maintenance and transfers
+                            //   ..
+                            //   "Whenever a new zone is loaded in a
+                            //    secondary, the secondary waits REFRESH
+                            //    seconds before checking with the primary for
+                            //    a new serial."
+                            Self::refresh_zone_at(
+                                ZoneRefreshCause::SoaRefreshTimerAfterStartup,
+                                zone.key(),
+                                soa_refresh,
+                                &mut refresh_timers,
+                            );
+                        }
 
-                // Create a Tokio sleep future that will awaken when the
-                // REFRESH interval expires, yielding the key of the zone
-                // which is ready to be refreshed.
-                let timer_info = TimerInfo::new(key, Ttl::ZERO);
-                let fut = TimerInfoFuture::new(timer_info);
-                refresh_timers.push(fut);
+                        Err(_) => {
+                            todo!();
+                        }
+                    }
+                }
             }
         }
 
@@ -591,58 +1040,167 @@ impl Catalog {
             tokio::select! {
                 biased;
 
-                msg = notify_rx.recv() => {
-                    let Some(msg) = msg else {
+                msg = event_rx.recv() => {
+                    let Some(event) = msg else {
                         // The channel has been closed, i.e. the Catalog
                         // instance has been dropped. Stop performing
                         // background activiities for this catalog.
                         break;
                     };
 
-                    trace!("Notify message received: {msg:?}");
-                    self.handle_refresh(msg, &mut time_tracking, &refresh_timers).await;
-                }
+                    match event {
+                        Event::ZoneChanged(msg) => {
+                            trace!("Notify message received: {msg:?}");
+                            let zones = self.zones();
+                            let time_tracking = time_tracking.clone();
+                            let event_tx = self.event_tx.clone();
+                            let pending_zones = self.pending_zones.clone();
+                            tokio::spawn(async move {
+                                Self::handle_notify(
+                                    zones, pending_zones, msg, time_tracking, event_tx,
+                                ).await
+                            });
+                        }
 
-                Some(timer_info) = refresh_timers.next() => {
-                    trace!("REFRESH timer expired: {timer_info:?}");
+                        Event::ZoneAdded(key) => {
+                            // https://datatracker.ietf.org/doc/html/rfc1034#section-4.3.5
+                            // 4.3.5. Zone maintenance and transfers
+                            //   ..
+                            //   "Whenever a new zone is loaded in a secondary, the secondary
+                            //    waits REFRESH seconds before checking with the primary for a
+                            //    new serial."
 
-                    // Are we actively managing refreshing of this zone?
-                    if let Some(tt) = time_tracking.get(&timer_info.key) {
-                        // Was this zone already refreshed by a NOTIFY?
-                        if let Ok(guard) = tt.last_refreshed.lock() {
-                            if let Some(last_refreshed) = *guard {
-                                if let Some(elapsed) = timer_info.end_instant.checked_duration_since(last_refreshed) {
-                                    if elapsed < MIN_DURATION_BETWEEN_ZONE_REFRESHES {
-                                        // Ignore this expired timer, the handling of the NOTIFY will have set a new one.
-                                        continue;
+                            let mut pending_zones = self.pending_zones.write().await;
+                            if let Some(zone) = pending_zones.get(&key) {
+                                if let Ok(soa_refresh) = Self::track_zone_freshness(zone, time_tracking.clone()).await {
+                                    // If the zone already has a SOA REFRESH
+                                    // it is not empty and we can make it
+                                    // active immediately.
+                                    if soa_refresh.is_some() {
+                                        let zone = pending_zones.remove(&key).unwrap();
+                                        self.insert_active_zone(zone).unwrap();
                                     }
+                                    Self::refresh_zone_at(
+                                        ZoneRefreshCause::SoaRefreshTimerAfterZoneAdded,
+                                        key,
+                                        soa_refresh,
+                                        &mut refresh_timers);
                                 }
                             }
                         }
+
+                        Event::ZoneRemoved(_key) => {
+                            // TODO
+                        }
+
+                        Event::ZoneRefreshRequested { key, at, cause } => {
+                            Self::refresh_zone_at(cause, key, at, &mut refresh_timers);
+                        }
+
+                        Event::ZoneStatusRequested { key, tx } => {
+                            let details = if let Some(zone_refresh_info) = time_tracking.read().await.get(&key) {
+                                ZoneReportDetails::Secondary(*zone_refresh_info)
+                            } else if self.pending_zones.read().await.contains_key(&key) {
+                                ZoneReportDetails::PendingSecondary
+                            } else {
+                                ZoneReportDetails::Primary
+                            };
+
+                            let timers = refresh_timers
+                                .iter()
+                                .filter_map(|timer| {
+                                    if timer.refresh_instant.key == key {
+                                        Some(timer.refresh_instant.clone())
+                                    } else {
+                                        None
+                                    }
+                                })
+                                .collect();
+
+                            let report = ZoneReport { key, details, timers };
+
+                            if let Err(_err) = tx.send(report) {
+                                // TODO
+                            }
+                        }
                     }
+                }
 
-                    let (apex_name, class) = timer_info.key;
+                Some(timer_info) = refresh_timers.next() => {
+                    // https://datatracker.ietf.org/doc/html/rfc1034#section-4.3.5
+                    // 4.3.5. Zone maintenance and transfers
+                    //   ..
+                    //   "To detect changes, secondaries just check the SERIAL
+                    //    field of the SOA for the zone."
+                    //   ..
+                    //   "The periodic polling of the secondary servers is
+                    //    controlled by parameters in the SOA RR for the zone,
+                    //    which set the minimum acceptable polling intervals.
+                    //    The parameters are called REFRESH, RETRY, and
+                    //    EXPIRE.  Whenever a new zone is loaded in a
+                    //    secondary, the secondary waits REFRESH seconds
+                    //    before checking with the primary for a new serial."
+                    trace!("REFRESH timer fired: {timer_info:?}");
 
-                    // Do we have the zone that is being updated?
-                    let zones = self.zones();
-                    let Some(zone) = zones.get_zone(&apex_name, class) else {
-                        // The zone no longer exists, ignore.
-                        continue;
-                    };
+                    // Are we actively managing refreshing of this zone?
+                    let mut tt = time_tracking.write().await;
+                    if let Some(zone_refresh_info) = tt.get_mut(&timer_info.key) {
+                        // Do we have the zone that is being updated?
+                        let pending_zones = self.pending_zones.read().await;
+                        let zones = self.zones();
+                        let key = timer_info.key;
 
-                    // Make sure it's still a secondary and hasn't been
-                    // deleted and re-added as a primary.
-                    let cat_zone = zone
-                        .as_ref()
-                        .as_any()
-                        .downcast_ref::<CatalogZone>()
-                        .unwrap();
+                        let (is_pending_zone, zone) = {
+                            // Is the zone pending?
+                            if let Some(zone) = pending_zones.get(&key) {
+                                (true, zone)
+                            } else {
+                                let (apex_name, class) = key.clone();
+                                let Some(zone) = zones.get_zone(&apex_name, class) else {
+                                    // The zone no longer exists, ignore.
+                                    continue;
+                                };
+                                (false, zone)
+                            }
+                        };
 
-                    if let ZoneType::Secondary(primary_info, _) = &cat_zone.info().zone_type {
-                        // If successfuly this will commit changes to the zone
-                        // causing a notify event message to be sent which
-                        // will be handled above.
-                        self.sync_zone_if_outdated(zone, primary_info, &refresh_timers).await;
+                        // Make sure it's still a secondary and hasn't been
+                        // deleted and re-added as a primary.
+                        let cat_zone = zone
+                            .as_ref()
+                            .as_any()
+                            .downcast_ref::<CatalogZone>()
+                            .unwrap();
+
+                        if let ZoneType::Secondary(primary_info, _) =
+                        &cat_zone.info().zone_type
+                        {
+                            // If successful this will commit changes to the
+                            // zone causing a notify event message to be sent
+                            // which will be handled above.
+                            match Self::refresh_zone_and_update_state(
+                                    timer_info.cause,
+                                    zone,
+                                    primary_info,
+                                    zone_refresh_info,
+                                    self.event_tx.clone(),
+                                )
+                                .await
+                            {
+                                Ok(()) => {
+                                    if is_pending_zone {
+                                        drop(pending_zones);
+                                        let mut pending_zones = self.pending_zones.write().await;
+                                        let zone = pending_zones.remove(&key).unwrap();
+                                        self.insert_active_zone(zone).unwrap();
+                                    }
+                                }
+
+                                Err(_) => {
+                                    // TODO
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -651,22 +1209,95 @@ impl Catalog {
         self.running.store(false, Ordering::SeqCst);
     }
 
+    // Returns the SOA refresh value for the zone, unless the zone is empty.
+    // Returns an error if the zone is not a secondary.
+    async fn track_zone_freshness(
+        zone: &Zone,
+        time_tracking: Arc<RwLock<HashMap<ZoneKey, ZoneRefreshState>>>,
+    ) -> Result<Option<Ttl>, ()> {
+        let cat_zone = zone
+            .as_ref()
+            .as_any()
+            .downcast_ref::<CatalogZone>()
+            .unwrap();
+
+        if !matches!(cat_zone.info().zone_type, ZoneType::Secondary(..)) {
+            // TODO: log this? dbg_assert()?
+            return Err(());
+        }
+
+        let apex_name = zone.apex_name().clone();
+        let class = zone.class();
+        let key = (apex_name.clone(), class);
+        match time_tracking.write().await.entry(key.clone()) {
+            Vacant(e) => {
+                let read = zone.read();
+                if let Ok(Some(soa)) = Self::read_soa(&read, apex_name).await
+                {
+                    e.insert(ZoneRefreshState::new(&soa));
+                    Ok(Some(soa.refresh()))
+                } else {
+                    e.insert(ZoneRefreshState::default());
+                    Ok(None)
+                }
+            }
+
+            Occupied(e) => {
+                // Zone is already managed, just return the recorded SOA
+                // REFRESH value.
+                Ok(Some(e.get().refresh))
+            }
+        }
+    }
+
+    fn refresh_zone_at(
+        cause: ZoneRefreshCause,
+        key: ZoneKey,
+        at: Option<Ttl>,
+        refresh_timers: &mut FuturesUnordered<ZoneRefreshTimer>,
+    ) {
+        // https://datatracker.ietf.org/doc/html/rfc1996#section-4
+        // "4.3. If a master server seeks to avoid causing a large
+        //  number of simultaneous outbound zone transfers, it may
+        //  delay for an arbitrary length of time before sending a
+        //  NOTIFY message to any given slave. It is expected that the
+        //  time will be chosen at random, so that each slave will
+        //  begin its transfer at a unique time.  The delay shall not
+        //  in any case be longer than the SOA REFRESH time."
+        //
+        // TODO: Maybe add some fuzzyness to spread syncing of zones
+        // out a bit.
+
+        let timer_info =
+            ZoneRefreshInstant::new(key, at.unwrap_or(Ttl::ZERO), cause);
+        let fut = ZoneRefreshTimer::new(timer_info);
+        refresh_timers.push(fut);
+    }
+
     #[allow(clippy::mutable_key_type)]
-    async fn handle_refresh(
-        &self,
+    async fn handle_notify(
+        zones: Arc<ZoneTree>,
+        pending_zones: Arc<RwLock<HashMap<ZoneKey, Zone>>>,
         msg: ZoneChangedMsg,
-        time_tracking: &mut HashMap<(StoredName, Class), Timers>,
-        refresh_timers: &FuturesUnordered<TimerInfoFuture>,
+        time_tracking: Arc<RwLock<HashMap<ZoneKey, ZoneRefreshState>>>,
+        event_tx: Sender<Event>,
     ) {
         // Do we have the zone that is being updated?
-        let zones = self.zones();
-        let Some(zone) = zones.get_zone(&msg.apex_name, msg.class) else {
-            warn!(
-                "Ignoring change notification for unknown zone '{}'.",
-                msg.apex_name
-            );
-            return;
-        };
+        let pending_zones = pending_zones.read().await;
+        let zone =
+            if let Some(zone) = zones.get_zone(&msg.apex_name, msg.class) {
+                zone
+            } else if let Some(zone) =
+                pending_zones.get(&(msg.apex_name.clone(), msg.class))
+            {
+                zone
+            } else {
+                warn!(
+                    "Ignoring change notification for unknown zone '{}'.",
+                    msg.apex_name
+                );
+                return;
+            };
 
         let cat_zone = zone
             .as_ref()
@@ -684,63 +1315,33 @@ impl Catalog {
         ) {
             (None, ZoneType::Primary(_)) => {
                 // A local notification that a zone that we are primary for
-                // has been changed locally. We don't do anything with this at
-                // the moment.
+                // has been changed locally.
                 trace!(
                     "Local change occurred in primary zone '{}'",
                     msg.apex_name
                 );
+
+                // Send NOTIFY
+                // todo!();
+
                 return;
             }
-            (None, ZoneType::Secondary(_, _)) => {
+
+            (None, ZoneType::Secondary(..)) => {
                 // A local notification that a zone we are secondary for has
-                // been changed locally. This happens when we apply changes
+                // been changed locally. This happens when we applied changes
                 // received via XFR from a remote primary to a local secondary
-                // zone. Reset the REFRESH timer.
+                // zone. The REFRESH timer will have already been reset by
+                // [`refresh_zone_and_update_state()`] which fetched and
+                // applied the remote changes.
                 trace!(
                     "Local change occurred in secondary zone '{}'",
                     msg.apex_name
                 );
 
-                let key = (zone.apex_name().clone(), zone.class());
-
-                match time_tracking.entry(key.clone()) {
-                    Occupied(e) => {
-                        trace!(
-                            "Resetting REFRESH timer for zone {}",
-                            zone.apex_name()
-                        );
-                        let tt = e.get();
-                        let timer_info = TimerInfo::new(key, tt.refresh);
-                        let fut = TimerInfoFuture::new(timer_info);
-                        refresh_timers.push(fut);
-                    }
-                    Vacant(e) => {
-                        // An empty zone became non-empty so now we know the
-                        // SOA timers to use to update it going forward.
-                        let read = zone.read();
-                        if let Ok(Some(soa)) =
-                            Self::read_soa(&read, zone.apex_name().clone())
-                                .await
-                        {
-                            trace!("Creating REFRESH timer for previously empty zone {}", zone.apex_name());
-                            e.insert(Timers::new(&soa));
-
-                            // Create a Tokio sleep future that will awaken when the
-                            // REFRESH interval expires, yielding the key of the zone
-                            // which is ready to be refreshed.
-                            let timer_info =
-                                TimerInfo::new(key, soa.refresh());
-                            let fut = TimerInfoFuture::new(timer_info);
-                            refresh_timers.push(fut);
-                        } else {
-                            trace!("Skipping creation of REFRESH timer for empty zone {}", zone.apex_name());
-                        }
-                    }
-                }
-
                 return;
             }
+
             (Some(source), ZoneType::Secondary(primary_info, acl)) => {
                 // A remote notification that a zone that we are secondary for
                 // has been updated on the remote server. If the notification
@@ -750,6 +1351,7 @@ impl Catalog {
                 trace!("Remote change notification received for secondary zone '{}'", msg.apex_name);
                 (source, primary_info, acl)
             }
+
             (Some(_), ZoneType::Primary(_)) => {
                 // An attempt by a remote entity to notify us of a change to a
                 // zone that we are primary for. As only we can update a zone
@@ -803,6 +1405,17 @@ impl Catalog {
         };
 
         // https://datatracker.ietf.org/doc/html/rfc1996#section-4
+        // "4.3. If a master server seeks to avoid causing a large number of
+        //  simultaneous outbound zone transfers, it may delay for an
+        //  arbitrary length of time before sending a NOTIFY message to any
+        //  given slave. It is expected that the time will be chosen at
+        //  random, so that each slave will begin its transfer at a unique
+        //  time.  The delay shall not in any case be longer than the SOA
+        //  REFRESH time."
+        //
+        // TODO
+
+        // https://datatracker.ietf.org/doc/html/rfc1996#section-4
         //   "4.7 Slave Receives a NOTIFY Request from a Master
         //
         //    When a slave server receives a NOTIFY request from one of
@@ -810,25 +1423,207 @@ impl Catalog {
         //    given QNAME, with QTYPE=SOA and QR=0, it should enter the
         //    state it would if the zone's refresh timer had expired."
 
-        self.sync_zone_if_outdated(zone, &primary_info, refresh_timers)
-            .await;
+        let apex_name = zone.apex_name().clone();
+        let class = zone.class();
+        let key = (apex_name, class);
+        let tt = &mut time_tracking.write().await;
+        let Some(zone_refresh_info) = tt.get_mut(&key) else {
+            // TODO
+            warn!(
+                "NOTIFY for {}, from {source}: refused, missing internal state",
+                msg.apex_name
+            );
+            return;
+        };
+
+        // https://datatracker.ietf.org/doc/html/rfc1996#section-4
+        // "4.4. A slave which receives a valid NOTIFY should defer action on
+        //  any subsequent NOTIFY with the same <QNAME,QCLASS,QTYPE> until it
+        //  has completed the transaction begun by the first NOTIFY.  This
+        //  duplicate rejection is necessary to avoid having multiple
+        //  notifications lead to pummeling the master server."
+        //
+        // TODO: For now ignore duplicate NOTIFY's.
+        if matches!(
+            zone_refresh_info.status,
+            SecondaryZoneStatus::Expired | SecondaryZoneStatus::Notified
+        ) {
+            // TODO
+            warn!(
+                "NOTIFY for {}, from {source}: refused, expired or notify in progress",
+                msg.apex_name
+            );
+            return;
+        }
+
+        zone_refresh_info.status = SecondaryZoneStatus::Notified;
+
+        if let Err(()) = Self::refresh_zone_and_update_state(
+            ZoneRefreshCause::NotifyFromPrimary,
+            zone,
+            &primary_info,
+            zone_refresh_info,
+            event_tx,
+        )
+        .await
+        {
+            // TODO
+        }
     }
 
-    async fn sync_zone_if_outdated(
-        &self,
+    #[allow(clippy::mutable_key_type)]
+    async fn refresh_zone_and_update_state(
+        cause: ZoneRefreshCause,
         zone: &Zone,
         primary_info: &PrimaryInfo,
-        refresh_timers: &FuturesUnordered<TimerInfoFuture>,
-    ) {
+        zone_refresh_info: &mut ZoneRefreshState,
+        event_tx: Sender<Event>,
+    ) -> Result<(), ()> {
+        match cause {
+            ZoneRefreshCause::ManualTrigger
+            | ZoneRefreshCause::NotifyFromPrimary
+            | ZoneRefreshCause::SoaRefreshTimer
+            | ZoneRefreshCause::SoaRefreshTimerAfterStartup
+            | ZoneRefreshCause::SoaRefreshTimerAfterZoneAdded => {
+                zone_refresh_info.metrics.last_refresh_phase_started_at =
+                    Some(Instant::now());
+                zone_refresh_info.metrics.last_refresh_attempted_at =
+                    Some(Instant::now());
+            }
+            ZoneRefreshCause::SoaRetryTimer => {
+                zone_refresh_info.metrics.last_refresh_attempted_at =
+                    Some(Instant::now());
+            }
+        }
+
+        let apex_name = zone.apex_name().clone();
+        let class = zone.class();
+        let key = (apex_name, class);
+
+        info!("Refreshing zone '{}' due to {cause}", zone.apex_name());
+
+        let res =
+            Self::refresh_zone(zone, primary_info, zone_refresh_info).await;
+
+        match res {
+            Err(_) => {
+                // https://datatracker.ietf.org/doc/html/rfc1034#section-4.3.5
+                // 4.3.5. Zone maintenance and transfers
+                //   ..
+                //   "Whenever a new zone is loaded in a secondary, the
+                //    secondary waits REFRESH seconds before checking with the
+                //    primary for a new serial. If this check cannot be
+                //    completed, new checks are started every RETRY seconds."
+                //   ..
+                //   "If the secondary finds it impossible to perform a serial
+                //    check for the EXPIRE interval, it must assume that its
+                //    copy of the zone is obsolete an discard it."
+
+                if zone_refresh_info.status == SecondaryZoneStatus::Retrying {
+                    let time_of_last_soa_check = zone_refresh_info
+                        .metrics
+                        .last_soa_serial_check_succeeded_at
+                        .unwrap_or(zone_refresh_info.metrics.zone_created_at);
+
+                    if let Some(duration) = Instant::now()
+                        .checked_duration_since(time_of_last_soa_check)
+                    {
+                        if duration > zone_refresh_info.expire.into_duration()
+                        {
+                            zone_refresh_info.status =
+                                SecondaryZoneStatus::Expired;
+
+                            let cat_zone = zone
+                                .as_ref()
+                                .as_any()
+                                .downcast_ref::<CatalogZone>()
+                                .unwrap();
+
+                            cat_zone.mark_expired();
+
+                            // TODO: Should we keep trying to refresh an
+                            // expired zone so that we can bring it back to
+                            // life if we are able to connect to the primary?
+
+                            return Err(());
+                        }
+                    }
+                }
+
+                zone_refresh_info.status = SecondaryZoneStatus::Retrying;
+
+                // Schedule a zone refresh according to the SOA RETRY timer value.
+                Self::schedule_zone_refresh(
+                    ZoneRefreshCause::SoaRetryTimer,
+                    &event_tx,
+                    key,
+                    zone_refresh_info.retry,
+                )
+                .await;
+
+                Err(())
+            }
+
+            Ok(new_soa) => {
+                if let Some(new_soa) = new_soa {
+                    // Refresh succeeded:
+                    zone_refresh_info.refresh = new_soa.refresh();
+                    zone_refresh_info.retry = new_soa.retry();
+                    zone_refresh_info.expire = new_soa.expire();
+                    zone_refresh_info.metrics.last_refreshed_at =
+                        Some(Instant::now());
+                } else {
+                    // No transfer was required, either because transfer is not
+                    // enabled for the zone or the zone is up-to-date.
+                }
+
+                zone_refresh_info.status = SecondaryZoneStatus::Refreshing;
+
+                // Schedule a zone refresh according to the SOA REFRESH timer value.
+                Self::schedule_zone_refresh(
+                    ZoneRefreshCause::SoaRefreshTimer,
+                    &event_tx,
+                    key,
+                    zone_refresh_info.refresh,
+                )
+                .await;
+
+                Ok(())
+            }
+        }
+    }
+
+    #[allow(clippy::mutable_key_type)]
+    async fn refresh_zone(
+        zone: &Zone,
+        primary_info: &PrimaryInfo,
+        zone_refresh_info: &mut ZoneRefreshState,
+    ) -> Result<Option<Soa<ParsedName<Bytes>>>, ()> {
         // Determine the kind of transfer to use if the zone is outdated
         let rtype = match primary_info.xfr_mode {
             XfrMode::None => {
                 warn!("Transfer not enabled for possibly outdated secondary zone '{}'", zone.apex_name());
-                return;
+                return Ok(None);
             }
             XfrMode::AxfrOnly => Rtype::AXFR,
             XfrMode::AxfrAndIxfr => Rtype::IXFR,
         };
+
+        // Was this zone already refreshed recently?
+        if let Some(last_refreshed) =
+            zone_refresh_info.metrics.last_refreshed_at
+        {
+            if let Some(elapsed) =
+                Instant::now().checked_duration_since(last_refreshed)
+            {
+                if elapsed < MIN_DURATION_BETWEEN_ZONE_REFRESHES {
+                    // Don't refresh, we refreshed very recently
+                    debug!("Skipping refresh of zone '{}' as it was refreshed less than {}s ago ({}s)",
+                        zone.apex_name(), MIN_DURATION_BETWEEN_ZONE_REFRESHES.as_secs(), elapsed.as_secs());
+                    return Ok(None);
+                }
+            }
+        }
 
         // Query the SOA serial of the primary
         let udp_connect = UdpConnect::new(primary_info.addr);
@@ -846,41 +1641,64 @@ impl Catalog {
         let msg = msg.into_message();
         let req = RequestMessage::new(msg);
 
-        if let Ok(Some(soa)) =
-            Self::read_soa(&zone.read(), zone.apex_name().clone()).await
-        {
-            let mut zone_is_outdated = false;
-            let res = soa_query_client.send_request(req).get_response().await;
-            if let Ok(msg) = res {
-                if msg.no_error() {
-                    if let Ok(answer) = msg.answer() {
-                        let mut records = answer.limit_to::<Soa<_>>();
-                        let record = records.next();
-                        if let Some(Ok(record)) = record {
-                            let serial_at_primary = record.data().serial();
-                            {
-                                zone_is_outdated =
-                                    serial_at_primary > soa.serial();
-                            }
+        let mut immediate_refresh_needed = false;
+        let res = soa_query_client.send_request(req).get_response().await;
+        if let Ok(msg) = res {
+            if msg.no_error() {
+                if let Ok(answer) = msg.answer() {
+                    let mut records = answer.limit_to::<Soa<_>>();
+                    let record = records.next();
+                    if let Some(Ok(record)) = record {
+                        let serial_at_primary = record.data().serial();
+
+                        zone_refresh_info
+                            .metrics
+                            .last_soa_serial_check_succeeded_at =
+                            Some(Instant::now());
+
+                        zone_refresh_info
+                            .metrics
+                            .last_soa_serial_check_serial =
+                            Some(serial_at_primary);
+
+                        if let Ok(Some(soa)) = Self::read_soa(
+                            &zone.read(),
+                            zone.apex_name().clone(),
+                        )
+                        .await
+                        {
+                            immediate_refresh_needed =
+                                serial_at_primary > soa.serial();
+                        } else {
+                            // Zone has no SOA, zone has never been populated
+                            // from the primary. Attempt to refresh it now.
+                            immediate_refresh_needed = true;
                         }
                     }
+                } else {
+                    return Err(());
                 }
-            }
-
-            if !zone_is_outdated {
-                // Create a Tokio sleep future that will awaken when the REFRESH
-                // interval expires, yielding the key of the zone which is ready
-                // to be refreshed.
-                let key = (zone.apex_name().clone(), zone.class());
-                let timer_info = TimerInfo::new(key, soa.refresh());
-                let fut = TimerInfoFuture::new(timer_info);
-                refresh_timers.push(fut);
-
-                trace!("Zone {} is up-to-date", zone.apex_name());
-                return;
+            } else {
+                return Err(());
             }
         } else {
-            // Zone has no SOA, zone has never been populated from the primary.
+            return Err(());
+        }
+
+        if !immediate_refresh_needed {
+            // https://datatracker.ietf.org/doc/html/rfc1034#section-4.3.5
+            // 4.3.5. Zone maintenance and transfers
+            //   ..
+            //   "If the serial field in the secondary's zone copy is
+            //    equal to the serial returned by the primary, then no
+            //    changes have occurred, and the REFRESH interval wait is
+            //    restarted."
+            //
+            // Create a Tokio sleep future that will awaken when the REFRESH
+            // interval expires, yielding the key of the zone which is ready
+            // to be refreshed.
+            trace!("Zone {} is up-to-date", zone.apex_name());
+            return Ok(None);
         }
 
         // Update the zone from the primary using XFR.
@@ -903,7 +1721,7 @@ impl Catalog {
                     zone.apex_name(),
                     primary_info.addr,
                 );
-                return;
+                return Err(());
             }
         };
 
@@ -923,10 +1741,11 @@ impl Catalog {
         let msg = if rtype == Rtype::IXFR {
             let mut msg = msg.authority();
             let read = zone.read();
-            let soa = Self::read_soa(&read, zone.apex_name().clone())
-                .await
-                .unwrap()
-                .unwrap();
+            let Ok(Some(soa)) =
+                Self::read_soa(&read, zone.apex_name().clone()).await
+            else {
+                return Err(());
+            };
             msg.push((zone.apex_name(), 86400, soa)).unwrap();
             msg
         } else {
@@ -966,13 +1785,15 @@ impl Catalog {
         }
 
         let mut write = zone.write().await;
+        let mut initial_soa = None;
+
         // TODO: Handle the Err case when open() fails.
         if let Ok(writable) = write.open(true).await {
             let mut req = xfr_client.send_streaming_request(req);
             let mut i = 0;
             let mut initial_soa_serial = None;
             let mut initial_soa_serial_seen_count = 0;
-            loop {
+            'outer: loop {
                 i += 1;
                 let res = req.get_response().await;
                 if let Ok(msg) = res {
@@ -992,7 +1813,7 @@ impl Catalog {
                                     zone.apex_name(),
                                     record.owner(),
                                 )
-                                .unwrap();
+                                .map_err(|_| ())?;
 
                                 for label in name {
                                     trace!("Relativised label: {label}");
@@ -1005,7 +1826,7 @@ impl Catalog {
                                                     .update_child(label),
                                             }
                                             .await
-                                            .unwrap(),
+                                            .map_err(|_| ())?,
                                         );
                                 }
                                 let rtype = record.rtype();
@@ -1064,6 +1885,17 @@ impl Catalog {
                                         )),
                                     ),
                                     AllRecordData::Soa(v) => {
+                                        let new_v =
+                                            ZoneRecordData::Soa(Soa::new(
+                                                v.mname().to_name(),
+                                                v.rname().to_name(),
+                                                v.serial(),
+                                                v.refresh(),
+                                                v.retry(),
+                                                v.expire(),
+                                                v.minimum(),
+                                            ));
+
                                         if let Some(initial_soa_serial) =
                                             initial_soa_serial
                                         {
@@ -1078,25 +1910,17 @@ impl Catalog {
                                                 if initial_soa_serial_seen_count == expected_initial_soa_seen_count {
                                                     trace!("Closing response stream at record nr {i} (soa seen count = {initial_soa_serial_seen_count})");
                                                     req.stream_complete();
+                                                    break 'outer;
                                                 }
                                             }
                                         } else {
                                             initial_soa_serial =
                                                 Some(v.serial());
+                                            initial_soa = Some(v);
                                             initial_soa_serial_seen_count = 1;
                                         }
 
-                                        rrset.push_data(ZoneRecordData::Soa(
-                                            Soa::new(
-                                                v.mname().to_name(),
-                                                v.rname().to_name(),
-                                                v.serial(),
-                                                v.refresh(),
-                                                v.retry(),
-                                                v.expire(),
-                                                v.minimum(),
-                                            ),
-                                        ))
+                                        rrset.push_data(new_v)
                                     }
                                     AllRecordData::Txt(v) => rrset
                                         .push_data(ZoneRecordData::Txt(v)),
@@ -1151,34 +1975,47 @@ impl Catalog {
                                 match end_node {
                                     Some(n) => {
                                         trace!("Adding RRset at end_node");
-                                        n.update_rrset(rrset).await.unwrap()
+                                        n.update_rrset(rrset)
+                                            .await
+                                            .map_err(|_| ())?;
                                     }
                                     None => {
                                         trace!("Adding RRset at root");
                                         writable
                                             .update_rrset(rrset)
                                             .await
-                                            .unwrap();
+                                            .map_err(|_| ())?;
                                     }
                                 }
                             }
+                        } else {
+                            return Err(());
                         }
                     } else {
-                        break;
+                        return Err(());
                     }
                 } else {
-                    break;
+                    return Err(());
                 }
             }
+        } else {
+            return Err(());
         }
 
-        write.commit(false).await.unwrap();
+        write.commit(false).await.map_err(|_| ())?;
+
+        let new_serial = initial_soa.as_ref().unwrap().serial();
+        zone_refresh_info.metrics.last_refresh_succeeded_serial =
+            Some(new_serial);
 
         info!(
-            "Zone '{}' has been updated by {rtype} from {}",
+            "Zone '{}' has been updated to serial {} by {rtype} from {}",
             zone.apex_name(),
+            new_serial,
             primary_info.addr,
         );
+
+        Ok(initial_soa)
     }
 
     #[allow(clippy::borrowed_box)]
@@ -1411,11 +2248,83 @@ impl Catalog {
             *out_addr = Some(IpAddr::V6(aaaa.addr()));
         }
     }
+
+    async fn schedule_zone_refresh(
+        cause: ZoneRefreshCause,
+        event_tx: &Sender<Event>,
+        key: ZoneKey,
+        at: Ttl,
+    ) {
+        event_tx
+            .send(Event::ZoneRefreshRequested {
+                cause,
+                key,
+                at: Some(at),
+            })
+            .await
+            .unwrap();
+    }
 }
 
 impl Catalog {
+    /// The entire tree of zones managed by this [`Catalog`] instance.
     pub fn zones(&self) -> Arc<ZoneTree> {
         self.loaded_arc.read().unwrap().clone()
+    }
+
+    /// The set of "active" zones managed by this [`Catalog`] instance.
+    ///
+    /// Excludes:
+    ///   - Newly added empty secondary zones still pending initial refresh.
+    ///   - Expired zones.
+    pub fn get_zone(
+        &self,
+        apex_name: &impl ToName,
+        class: Class,
+    ) -> Option<Zone> {
+        let zones = self.zones();
+
+        if let Some(zone) = zones.get_zone(apex_name, class) {
+            let cat_zone = zone
+                .as_ref()
+                .as_any()
+                .downcast_ref::<CatalogZone>()
+                .unwrap();
+
+            if cat_zone.is_active() {
+                return Some(zone.clone());
+            }
+        }
+
+        None
+    }
+
+    /// Gets the closest matching "active" [`Zone`] for the given QNAME and
+    /// CLASS, if any.
+    ///
+    /// Excludes:
+    ///   - Newly added empty secondary zones still pending initial refresh.
+    ///   - Expired zones.
+    pub fn find_zone(
+        &self,
+        qname: &impl ToName,
+        class: Class,
+    ) -> Option<Zone> {
+        let zones = self.zones();
+
+        if let Some(zone) = zones.find_zone(qname, class) {
+            let cat_zone = zone
+                .as_ref()
+                .as_any()
+                .downcast_ref::<CatalogZone>()
+                .unwrap();
+
+            if cat_zone.is_active() {
+                return Some(zone.clone());
+            }
+        }
+
+        None
     }
 }
 
@@ -1426,10 +2335,10 @@ impl Catalog {
 }
 
 async fn send_zone_changed_msg(
-    tx: &Sender<ZoneChangedMsg>,
+    tx: &Sender<Event>,
     msg: ZoneChangedMsg,
-) -> Result<(), SendError<ZoneChangedMsg>> {
-    tx.send(msg).await
+) -> Result<(), SendError<Event>> {
+    tx.send(Event::ZoneChanged(msg)).await
 }
 
 /// Create a [`Catalog`] from an RFC 9432 catalog zone.
@@ -1457,14 +2366,14 @@ async fn send_zone_changed_msg(
 
 #[derive(Debug)]
 pub struct CatalogZone {
-    notify_tx: Sender<ZoneChangedMsg>,
+    notify_tx: Sender<Event>,
     store: Arc<dyn ZoneStore>,
     info: ZoneInfo,
 }
 
 impl CatalogZone {
     fn new(
-        notify_tx: Sender<ZoneChangedMsg>,
+        notify_tx: Sender<Event>,
         store: Arc<dyn ZoneStore>,
         info: ZoneInfo,
     ) -> Self {
@@ -1473,6 +2382,14 @@ impl CatalogZone {
             store,
             info,
         }
+    }
+
+    fn is_active(&self) -> bool {
+        !self.info.expired.load(Ordering::Relaxed)
+    }
+
+    fn mark_expired(&self) {
+        self.info.expired.store(true, Ordering::SeqCst);
     }
 }
 
@@ -1524,7 +2441,7 @@ impl ZoneStore for CatalogZone {
 
 struct WritableCatalogZone {
     catalog_zone: Arc<CatalogZone>,
-    notify_tx: Sender<ZoneChangedMsg>,
+    notify_tx: Sender<Event>,
     writable_zone: Box<dyn WritableZone>,
 }
 

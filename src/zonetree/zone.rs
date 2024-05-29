@@ -13,6 +13,10 @@ use super::traits::WritableZone;
 use super::types::StoredName;
 use super::{parsed, ReadableZone, ZoneStore};
 
+//------------ ZoneKey -------------------------------------------------------
+
+pub type ZoneKey = (StoredName, Class);
+
 //------------ Zone ----------------------------------------------------------
 
 /// A single DNS zone.
@@ -61,6 +65,14 @@ impl Zone {
         &self,
     ) -> Pin<Box<dyn Future<Output = Box<dyn WritableZone>> + Send>> {
         self.store.clone().write()
+    }
+
+    /// Gets a key that uniquely identifies this zone.
+    /// 
+    /// Note: Assumes that there is only ever one instance of a zone with a
+    /// given apex name and class in a set of zones.
+    pub fn key(&self) -> ZoneKey {
+        (self.apex_name().clone(), self.class())
     }
 }
 
