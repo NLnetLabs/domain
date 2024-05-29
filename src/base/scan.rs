@@ -309,9 +309,10 @@ impl ScannerError for std::io::Error {
 /// This trait is used by [`Scanner::convert_token`] with [`Symbol`]s and
 /// [`Scanner::convert_entry`] with [`EntrySymbol]`s.
 ///
-/// For each symbol, [`process_symbol`][Self::process_symbol] is called. When
-/// the end of token or entry is reached, [`process_tail`][Self::process_tail]
-/// is called, giving the implementer a chance to return any remaining data.
+/// For each symbol, [`process_symbol`][ConvertSymbols::process_symbol] is
+/// called. When the end of token or entry is reached,
+/// [`process_tail`][ConvertSymbols::process_tail] is called, giving the
+/// implementer a chance to return any remaining data.
 pub trait ConvertSymbols<Sym, Error> {
     /// Processes the next symbol.
     ///

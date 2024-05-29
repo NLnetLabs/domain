@@ -2,7 +2,7 @@
 //!
 //! These traits exist because there are several ways of compare domain
 //! names included in composite structures. Normally, names are compared
-//! ignoring ASCII case. This is what `PartialEq` and `PartialOrd` do for
+//! ignoring ASCII case. This is what [`PartialEq`] and [`PartialOrd`] do for
 //! domain names. Consequently, when comparing resource records and record
 //! data that contain domain names, ASCII case should also be ignored.
 //!
@@ -28,13 +28,12 @@ use core::cmp::Ordering;
 /// a set of records with the same owner name, class, and type).
 ///
 /// For domain names, canonical order is the same as the ‘normal’ order as
-/// implemented through the `PartialOrd` and `Ord` traits: Labels are compared
-/// from right to left (i.e, starting from the root label) with each pair of
-/// labels compared as octet sequences with ASCII letters lowercased
-/// before comparison.  The `name_cmp` methods of the
-/// [`ToDname`][crate::base::name::ToName::name_cmp] and
-/// [`ToRelativeDname`][crate::base::name::ToRelativeName::name_cmp]
-/// traits can be used to implement this canonical order for name types.
+/// implemented through the [`PartialOrd`] and [`Ord`] traits: labels are
+/// compared from right to left (i.e, starting from the root label) with each
+/// pair of labels compared as octet sequences with ASCII letters lowercased
+/// before comparison.  The [`ToName::name_cmp`] and
+/// [`ToRelativeName::name_cmp`] methods of the can be used to implement this
+/// canonical order for name types.
 ///
 /// Resource records within an RR set are ordered by comparing the canonical
 /// wire-format representation of their record data as octet sequences. The
@@ -42,15 +41,15 @@ use core::cmp::Ordering;
 /// included in the record data for the record types NS, MD, MF, CNAME, SOA,
 /// MB, MG, MR, PTR, MINFO, MX, RP, AFSDB, RT, SIG, PX, NXT, NAPTR, KX, SRV,
 /// DNAME, A6, and RRSIG. (NSEC is listed in [RFC 4034] but has been withdrawn
-/// by [RFC 6840]). This canonical representation is provided via the
-/// `Compose::compose_canonical` method.
+/// by [RFC 6840]). This canonical representation is provided via their
+/// respective `compose_canonical` methods.
 ///
 /// In order to help implementing this trait for record data types, there are
 /// implementations of it for some types that can appear in record data that
 /// sort differently in their composed representation than normally.
 ///
-/// Apart from these explicit use cases, the `CanonicalOrd` trait is also
-/// implemented for the `Record` type to allow ordering records of a zone into
+/// Apart from these explicit use cases, the [`CanonicalOrd`] trait is also
+/// implemented for the [`Record`] type to allow ordering records of a zone into
 /// RRsets. It does so by ordering by class first, then canonical owner,
 /// record type, and finally canonical record data. The reason for this
 /// somewhat odd ordering is that in this way not only are all records
@@ -58,6 +57,9 @@ use core::cmp::Ordering;
 /// subordinate to a owner name and class pair (i.e., the records for a zone)
 /// will sort together.
 ///
+/// [`ToName::name_cmp`]: crate::base::name::ToName::name_cmp
+/// [`ToRelativeName::name_cmp`]: crate::base::name::ToRelativeName::name_cmp
+/// [`Record`]: crate::base::record::Record
 /// [RFC 4034]: https://tools.ietf.org/html/rfc4034
 /// [RFC 6840]: https://tools.ietf.org/html/rfc6840
 pub trait CanonicalOrd<Rhs: ?Sized = Self> {

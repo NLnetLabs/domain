@@ -4,8 +4,6 @@
 //! viewed as the 32 bit modulus of a larger number space. Because of that,
 //! special rules apply when processing these values. This module provides
 //! the type [`Serial`] that implements these rules.
-//!
-//! [`Serial`]: struct.Serial.html
 
 use super::cmp::CanonicalOrd;
 use super::scan::{Scan, Scanner};
@@ -14,10 +12,7 @@ use super::wire::{Compose, Composer, Parse, ParseError};
 use chrono::{DateTime, TimeZone};
 use core::cmp::Ordering;
 use core::{cmp, fmt, str};
-//#[cfg(all(feature = "std", feature = "mock-time"))]
-//use mock_instant::{SystemTime, UNIX_EPOCH};
 use octseq::parse::Parser;
-//#[cfg(all(feature = "std", not(feature = "mock-time")))]
 #[cfg(feature = "std")]
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -37,14 +32,15 @@ use std::time::{SystemTime, UNIX_EPOCH};
 ///
 /// For addition, the amount added can only be a positive number of up to
 /// `2^31 - 1`. Because of this, we decided to not implement the
-/// `Add` trait but rather have a dedicated method `add` so as to not cause
+/// [`Add`] trait but rather have a dedicated method `add` so as to not cause
 /// surprise panics.
 ///
 /// Serial numbers only implement a partial ordering. That is, there are
 /// pairs of values that are not equal but there still isn’t one value larger
-/// than the other. Since this is neatly implemented by the `PartialOrd`
+/// than the other. Since this is neatly implemented by the [`PartialOrd`]
 /// trait, the type implements that.
 ///
+/// [`Add`]: std::ops::Add
 /// [RFC 1982]: https://tools.ietf.org/html/rfc1982
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]

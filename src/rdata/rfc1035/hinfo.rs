@@ -24,7 +24,9 @@ use octseq::parse::Parser;
 /// Hinfo records are used to acquire general information about a host,
 /// specifically the CPU type and operating system type.
 ///
-/// The Hinfo type is defined in RFC 1035, section 3.3.2.
+/// The Hinfo type is defined in [RFC 1035, section 3.3.2][1].
+///
+/// [1]: https://tools.ietf.org/html/rfc1035#section-3.3.2
 #[derive(Clone)]
 #[cfg_attr(
     feature = "serde",

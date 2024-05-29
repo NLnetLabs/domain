@@ -362,11 +362,12 @@ impl<Octs: AsRef<[u8]> + ?Sized> fmt::Debug for Opt<Octs> {
 ///
 /// The OPT record reappropriates the record header for encoding some
 /// basic information. This type provides access to this information. It
-/// consists of the record header with the exception of the fiinal `rdlen`
+/// consists of the record header with the exception of the final `rdlen`
 /// field.
 ///
-/// This is so that `OptBuilder` can safely deref to this type.
+/// This is so that [`OptBuilder`] can safely deref to this type.
 ///
+/// [`OptBuilder`]: crate::base::message_builder::OptBuilder
 //    +------------+--------------+------------------------------+
 //    | Field Name | Field Type   | Description                  |
 //    +------------+--------------+------------------------------+
