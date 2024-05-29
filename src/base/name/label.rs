@@ -741,16 +741,17 @@ impl<'a> Iterator for SliceLabelsIter<'a> {
     type Item = &'a Label;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.start == usize::MAX {
+        if self.start >= self.slice.len() {
             return None;
         }
+
         loop {
             match Label::split_from(&self.slice[self.start..]) {
                 Ok((label, _)) => {
                     if label.is_root() {
                         self.start = usize::MAX;
                     } else {
-                        self.start += label.len();
+                        self.start += label.len() + 1;
                     }
                     return Some(label);
                 }
@@ -1032,6 +1033,38 @@ mod test {
                 Token::NewtypeStruct { name: "OwnedLabel" },
                 Token::Str("fo\\."),
             ],
+        );
+    }
+
+    #[test]
+    fn iter_slice() {
+        assert_eq!(None, Label::iter_slice(&[], 0).next());
+        assert_eq!(None, Label::iter_slice(&[], 1).next());
+
+        // example.com.
+        let buf = [
+            0x07, 0x65, 0x78, 0x61, 0x6d, 0x70, 0x6c, 0x65, 0x03, 0x63, 0x6f,
+            0x6d, 0x00,
+        ];
+
+        let mut it = Label::iter_slice(&buf, 0);
+        assert_eq!(Label::from_slice(b"example").ok(), it.next());
+        assert_eq!(Label::from_slice(b"com").ok(), it.next());
+        assert_eq!(Some(Label::root()), it.next());
+        assert_eq!(None, it.next());
+
+        let mut it = Label::iter_slice(&buf, b"example".len() + 1);
+        assert_eq!(
+            Label::from_slice(b"com").ok(),
+            it.next(),
+            "should jump to 2nd label"
+        );
+
+        let mut it = Label::iter_slice(&buf, buf.len() - 1);
+        assert_eq!(
+            Some(Label::root()),
+            it.next(),
+            "should jump to last/root label"
         );
     }
 }
