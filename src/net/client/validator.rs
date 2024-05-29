@@ -31,7 +31,7 @@ use std::vec::Vec;
 
 //------------ Config ---------------------------------------------------------
 
-/// Configuration of a cache.
+/// Configuration of a validator.
 #[derive(Clone, Debug)]
 pub struct Config {}
 
@@ -53,7 +53,7 @@ impl Default for Config {
 //------------ Connection -----------------------------------------------------
 
 #[derive(Clone)]
-/// A connection that caches responses from an upstream connection.
+/// A connection that DNSSEC validates responses from an upstream connection.
 pub struct Connection<Upstream, VCOcts, VCUpstream> {
     /// Upstream transport to use for requests.
     upstream: Upstream,
@@ -213,7 +213,6 @@ where
             "validator get_response_impl: request {:?}",
             self.request_msg
         );
-        self.request_msg.print();
 
         let mut request =
             self.upstream.send_request(self.request_msg.clone());
@@ -228,14 +227,12 @@ where
                 if response_msg.header().ad() || !response_msg.header().cd() {
                     let mut response_msg = Message::from_octets(
                         response_msg.as_slice().to_vec(),
-                    )
-                    .unwrap();
+                    )?;
                     response_msg.header_mut().set_ad(false);
                     response_msg.header_mut().set_cd(true);
                     let response_msg = Message::<Bytes>::from_octets(
                         response_msg.into_octets().octets_into(),
-                    )
-                    .unwrap();
+                    )?;
                     return Ok(response_msg);
                 }
                 return Ok(response_msg);
@@ -262,14 +259,12 @@ where
                             // Set AD and clear CD.
                             let mut response_msg = Message::from_octets(
                                 response_msg.as_slice().to_vec(),
-                            )
-                            .unwrap();
+                            )?;
                             response_msg.header_mut().set_ad(true);
                             response_msg.header_mut().set_cd(false);
                             let response_msg = Message::<Bytes>::from_octets(
                                 response_msg.into_octets().octets_into(),
-                            )
-                            .unwrap();
+                            )?;
                             return Ok(response_msg);
                         } else {
                             // Set AD if it was set in the request.
@@ -282,14 +277,12 @@ where
                         }
                     }
                     ValidationState::Bogus => {
-                        return Ok(
-                            serve_fail(&response_msg, opt_ede).unwrap()
-                        );
+                        return serve_fail(&response_msg, opt_ede);
                     }
                     ValidationState::Insecure
                     | ValidationState::Indeterminate => {
                         let response_msg = match opt_ede {
-                            Some(ede) => add_opt(&response_msg, ede).unwrap(),
+                            Some(ede) => add_opt(&response_msg, ede)?,
                             None => response_msg,
                         };
                         // Check the state of the DO flag to see if we have to
@@ -299,14 +292,12 @@ where
                             // Clear AD if it is set. Clear CD.
                             let mut response_msg = Message::from_octets(
                                 response_msg.as_slice().to_vec(),
-                            )
-                            .unwrap();
+                            )?;
                             response_msg.header_mut().set_ad(false);
                             response_msg.header_mut().set_cd(false);
                             let response_msg = Message::<Bytes>::from_octets(
                                 response_msg.into_octets().octets_into(),
-                            )
-                            .unwrap();
+                            )?;
                             return Ok(response_msg);
                         } else {
                             let msg =
@@ -447,12 +438,12 @@ fn remove_dnssec(
                 ob.set_udp_payload_size(opt.udp_payload_size());
                 ob.set_version(opt.version());
                 for o in opt.opt().iter() {
-                    let x: AllOptData<_, _> = o.unwrap();
-                    ob.push(&x).unwrap();
+                    let x: AllOptData<_, _> = o.expect("should not fail");
+                    ob.push(&x)?;
                 }
                 Ok(())
             })
-            .unwrap();
+            .expect("should not fail");
     }
 
     let result = target.as_builder().clone();
@@ -475,7 +466,7 @@ fn is_dnssec(rtype: Rtype) -> bool {
 // Add an option
 fn add_opt(
     msg: &Message<Bytes>,
-    ede: ExtendedError<Bytes>,
+    ede: ExtendedError<Vec<u8>>,
 ) -> Result<Message<Bytes>, Error> {
     let mut target =
         MessageBuilder::from_target(StaticCompressor::new(Vec::new()))
@@ -488,7 +479,7 @@ fn add_opt(
     let source = source.question();
     let mut target = target.question();
     for rr in source {
-        target.push(rr?).unwrap();
+        target.push(rr?).expect("should not fail");
     }
     let mut source = source.answer()?;
     let mut target = target.answer();
@@ -496,7 +487,7 @@ fn add_opt(
         let rr = rr?
             .into_record::<AllRecordData<_, ParsedName<_>>>()?
             .expect("record expected");
-        target.push(rr).unwrap();
+        target.push(rr).expect("should not fail");
     }
 
     let mut source =
@@ -506,7 +497,7 @@ fn add_opt(
         let rr = rr?
             .into_record::<AllRecordData<_, ParsedName<_>>>()?
             .expect("record expected");
-        target.push(rr).unwrap();
+        target.push(rr).expect("should not fail");
     }
 
     let source = source.next_section()?.expect("section should be present");
@@ -517,7 +508,7 @@ fn add_opt(
             let rr = rr
                 .into_record::<AllRecordData<_, ParsedName<_>>>()?
                 .expect("record expected");
-            target.push(rr).unwrap();
+            target.push(rr).expect("should not fail");
         }
     }
 
@@ -529,13 +520,13 @@ fn add_opt(
                 ob.set_udp_payload_size(opt.udp_payload_size());
                 ob.set_version(opt.version());
                 for o in opt.opt().iter() {
-                    let x: AllOptData<_, _> = o.unwrap();
-                    ob.push(&x).unwrap();
+                    let x: AllOptData<_, _> = o.expect("should not fail");
+                    ob.push(&x).expect("should not fail");
                 }
-                ob.push(&ede).unwrap();
+                ob.push(&ede).expect("should not fail");
                 Ok(())
             })
-            .unwrap();
+            .expect("should not fail");
     }
 
     let result = target.as_builder().clone();
@@ -549,7 +540,7 @@ fn add_opt(
 // Generate a SERVFAIL reply.
 fn serve_fail(
     msg: &Message<Bytes>,
-    opt_ede: Option<ExtendedError<Bytes>>,
+    opt_ede: Option<ExtendedError<Vec<u8>>>,
 ) -> Result<Message<Bytes>, Error> {
     let mut target =
         MessageBuilder::from_target(StaticCompressor::new(Vec::new()))
@@ -564,7 +555,7 @@ fn serve_fail(
     let source = source.question();
     let mut target = target.question();
     for rr in source {
-        target.push(rr?).unwrap();
+        target.push(rr?).expect("should not fail");
     }
     let mut target = target.additional();
 
@@ -576,15 +567,15 @@ fn serve_fail(
                 ob.set_udp_payload_size(opt.udp_payload_size());
                 ob.set_version(opt.version());
                 for o in opt.opt().iter() {
-                    let x: AllOptData<_, _> = o.unwrap();
-                    ob.push(&x).unwrap();
+                    let x: AllOptData<_, _> = o.expect("should not fail");
+                    ob.push(&x).expect("should not fail");
                 }
                 if let Some(ede) = opt_ede {
-                    ob.push(&ede).unwrap();
+                    ob.push(&ede).expect("should not fail");
                 }
                 Ok(())
             })
-            .unwrap();
+            .expect("should not fail");
     }
 
     let result = target.as_builder().clone();

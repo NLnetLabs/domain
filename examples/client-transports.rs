@@ -8,9 +8,7 @@ use domain::net::client::dgram_stream;
 use domain::net::client::multi_stream;
 use domain::net::client::protocol::{TcpConnect, TlsConnect, UdpConnect};
 use domain::net::client::redundant;
-use domain::net::client::request::{
-    ComposeRequest, RequestMessage, SendRequest,
-};
+use domain::net::client::request::{RequestMessage, SendRequest};
 use domain::net::client::stream;
 use domain::net::client::validator;
 use domain::validator::anchor::TrustAnchors;
@@ -40,8 +38,7 @@ async fn main() {
     let mut msg = msg.question();
     msg.push((Name::vec_from_str("www.nlnetlabs.nl").unwrap(), Rtype::AAAA))
         .unwrap();
-    let mut req = RequestMessage::new(msg);
-    req.set_dnssec_ok(true);
+    let req = RequestMessage::new(msg);
 
     // Destination for UDP and TCP
     let server_addr =
@@ -116,7 +113,7 @@ async fn main() {
 
     // Create a validating transport
     let anchor_file = File::open("examples/root.key").unwrap();
-    let ta = TrustAnchors::from_file(anchor_file);
+    let ta = TrustAnchors::from_reader(anchor_file).unwrap();
     let vc = Arc::new(ValidationContext::new(ta, udptcp_conn.clone()));
     let val_conn = validator::Connection::new(udptcp_conn.clone(), vc);
 

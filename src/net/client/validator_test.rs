@@ -38,14 +38,8 @@ async fn async_test_validator(filename: &str) {
         ms_tran.run().await;
         println!("multi conn run terminated");
     });
-    let multi_conn2 = Connect::new(stelline.clone(), step_value.clone());
-    let (ms2, ms_tran) = multi_stream::Connection::new(multi_conn2);
-    tokio::spawn(async move {
-        ms_tran.run().await;
-        println!("multi conn run terminated");
-    });
 
-    let vc = Arc::new(ValidationContext::new(ta, ms2));
+    let vc = Arc::new(ValidationContext::new(ta, ms.clone()));
 
     // let clock = FakeClock::new();
     let validator = validator::Connection::new(ms, vc); //_with_time(ms, clock.clone());
@@ -112,7 +106,7 @@ fn parse_server_config(config: &Config) -> TrustAnchors {
                         );
                     }
                     ("trust-anchor", a) => {
-                        ta.add_u8(a.trim_matches('"').as_bytes());
+                        ta.add_u8(a.trim_matches('"').as_bytes()).unwrap();
                     }
                     _ => {
                         eprintln!("Ignoring unknown server setting '{setting}' with value: {value}");
