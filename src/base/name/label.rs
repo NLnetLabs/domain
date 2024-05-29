@@ -29,12 +29,12 @@ use octseq::builder::OctetsBuilder;
 /// experience with binary labels, it is very unlikely that there ever will
 /// be any.
 ///
-/// Consequently, `Label` will only ever contain an octets slice of up to 63
+/// Consequently, [`Label`] will only ever contain an octets slice of up to 63
 /// octets. It only contains the label’s content, not the length octet it is
 /// preceded by in wire format. As an unsized type, it needs to be
 /// used behind some kind of pointer, most likely a reference.
 ///
-/// `Label` differs from an octets slice in how it compares: as labels are to
+/// [`Label`] differs from an octets slice in how it compares: as labels are to
 /// be case-insensitive, all the comparison traits as well as `Hash` are
 /// implemented ignoring ASCII-case.
 pub struct Label([u8]);
@@ -727,8 +727,6 @@ impl<'de> serde::Deserialize<'de> for OwnedLabel {
 /// This keeps returning [`Label`]s until it encounters the root label. If
 /// the slice ends before a root label is seen, returns the last label seen
 /// and then stops.
-///
-/// [`Label`]: struct.Label.html
 pub struct SliceLabelsIter<'a> {
     /// The message slice to work on.
     slice: &'a [u8],

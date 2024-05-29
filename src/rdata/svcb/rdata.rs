@@ -22,8 +22,8 @@ use core::marker::PhantomData;
 /// This type provides the record data for the various service binding record
 /// types. The particular record type is encoded via the `Variant` type
 /// argument with marker types representing the concrete types. Currently
-/// these are `ScvbVariant` for the SVCB record type and `HttpsVariant` for
-/// HTTPS. The aliases `Svcb<..>` and `Https<..>` are available for less
+/// these are [`SvcbVariant`] for the SVCB record type and [`HttpsVariant`] for
+/// HTTPS. The aliases [`Svcb<..>`] and [`Https<..>`] are available for less
 /// typing.
 ///
 /// The service binding record data contains three fields: a integer
@@ -90,14 +90,14 @@ pub struct SvcbRdata<Variant, Octs, Name> {
 /// The marker type for the SVCB record type.
 ///
 /// Use this as the `Variant` type argument of the
-/// [`SvcbRdata<..>`][SvcbRdata] type to select an SVCB record.
+/// [`SvcbRdata<..>`] type to select an SVCB record.
 #[derive(Clone, Copy, Debug)]
 pub struct SvcbVariant;
 
 /// The marker type for the HTTPS record type.
 ///
 /// Use this as the `Variant` type argument of the
-/// [`SvcbRdata<..>`][SvcbRdata] type to select an HTTPS record.
+/// [`SvcbRdata<..>`] type to select an HTTPS record.
 #[derive(Clone, Copy, Debug)]
 pub struct HttpsVariant;
 
@@ -106,14 +106,14 @@ pub struct HttpsVariant;
 /// The SVCB record type is the generic type for service bindings of any
 /// service for which no special record type exists.
 ///
-/// See [`SvcbRdata<..>`][SvcbRdata] for details.
+/// See [`SvcbRdata<..>`] for details.
 pub type Svcb<Octs, Name> = SvcbRdata<SvcbVariant, Octs, Name>;
 
 /// A type alias for record data of the HTTPS record type.
 ///
 /// The HTTPS record type is the service binding type for the HTTPS service.
 ///
-/// See [`SvcbRdata<..>`][SvcbRdata] for details.
+/// See [`SvcbRdata<..>`] for details.
 pub type Https<Octs, Name> = SvcbRdata<HttpsVariant, Octs, Name>;
 
 impl SvcbRdata<SvcbVariant, (), ()> {

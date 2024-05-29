@@ -5,6 +5,8 @@
 //! These interfaces are unstable and are likely to change in future.
 //!
 //! </div>
+//!
+//! [`ZoneTree`]: super::ZoneTree
 use bytes::Bytes;
 use core::future::ready;
 use core::pin::Pin;
@@ -89,7 +91,7 @@ pub trait ReadableZone: Send {
 
     //--- Async variants
 
-    /// Asynchronous variant of `query()`.
+    /// Asynchronous variant of [`query`][ReadableZone::query].
     fn query_async(
         &self,
         qname: Name<Bytes>,
@@ -98,7 +100,7 @@ pub trait ReadableZone: Send {
         Box::pin(ready(self.query(qname, qtype)))
     }
 
-    /// Asynchronous variant of `walk()`.
+    /// Asynchronous variant of [`walk`][ReadableZone::walk].
     fn walk_async(
         &self,
         op: WalkOp,

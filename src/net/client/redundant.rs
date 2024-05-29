@@ -213,7 +213,7 @@ where
     /// The state of the query
     state: QueryState,
 
-    /// The reuqest message
+    /// The request message
     request_msg: Req,
 
     /// List of connections identifiers and estimated response times.

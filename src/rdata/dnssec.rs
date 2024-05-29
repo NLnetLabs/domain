@@ -614,7 +614,7 @@ impl Timestamp {
     /// serial values. Their representation format can either be the
     /// value or a specific date in `YYYYMMDDHHmmSS` format.
     ///
-    /// [RRSIG]: ../../rdata/rfc4034/struct.Rrsig.html
+    /// [RRSIG]: Rrsig
     pub fn scan<S: Scanner>(scanner: &mut S) -> Result<Self, S::Error> {
         let mut pos = 0;
         let mut buf = [0u8; 14];

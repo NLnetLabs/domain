@@ -25,9 +25,6 @@ use std::borrow::Cow;
 /// [`ToRelativeName`]. It is separate since it has to be generic over the
 /// lifetime of the label reference but we don’t want to have this lifetime
 /// parameter pollute those traits.
-///
-/// [`ToName`]: trait.ToName.html
-/// [`ToRelativeName`]: trait ToRelativeName.html
 #[allow(clippy::len_without_is_empty)]
 pub trait ToLabelIter {
     /// The type of the iterator over the labels.
@@ -103,11 +100,9 @@ impl<'r, N: ToLabelIter + ?Sized> ToLabelIter for &'r N {
 /// representation into a buffer.
 ///
 /// The most common types implementing this trait are [`Name`],
-/// [`ParsedDname`], and [`Chain<L, R>`] where `R` is `ToName` itself.
+/// [`ParsedName`], and [`Chain<L, R>`] where `R` is [`ToName`] itself.
 ///
-/// [`Chain<L, R>`]: struct.Chain.html
-/// [`Name`]: struct.Name.html
-/// [`ParsedDname`]: struct.ParsedDname.html
+/// [`ParsedName`]: crate::base::name::ParsedName
 pub trait ToName: ToLabelIter {
     /// Converts the name into a single, uncompressed name.
     ///
@@ -215,8 +210,8 @@ pub trait ToName: ToLabelIter {
     /// [`as_flat_slice`] returns ‘some,’ creates the borrowed variant from
     /// that slice. Otherwise assembles an owned variant via [`to_name`].
     ///
-    /// [`as_flat_slice`]: #method.as_flat_slice
-    /// [`to_name`]: #method.to_name
+    /// [`as_flat_slice`]: ToName::as_flat_slice
+    /// [`to_name`]: ToName::to_name
     #[cfg(feature = "std")]
     fn to_cow(&self) -> Name<std::borrow::Cow<[u8]>> {
         let octets = self
@@ -240,8 +235,8 @@ pub trait ToName: ToLabelIter {
 
     /// Tests whether `self` and `other` are equal.
     ///
-    /// This method can be used to implement `PartialEq` on types implementing
-    /// `ToName` since a blanket implementation for all pairs of `ToName`
+    /// This method can be used to implement [`PartialEq`] on types implementing
+    /// [`ToName`] since a blanket implementation for all pairs of `ToName`
     /// is currently impossible.
     ///
     /// Domain names are compared ignoring ASCII case.
@@ -259,9 +254,9 @@ pub trait ToName: ToLabelIter {
 
     /// Returns the ordering between `self` and `other`.
     ///
-    /// This method can be used to implement both `PartialOrd` and `Ord` on
-    /// types implementing `ToName` since a blanket implementation for all
-    /// pairs of `ToName`s is currently not possible.
+    /// This method can be used to implement both [`PartialOrd`] and [`Ord`] on
+    /// types implementing [`ToName`] since a blanket implementation for all
+    /// pairs of [`ToName`]s is currently not possible.
     ///
     /// Domain name order is determined according to the ‘canonical DNS
     /// name order’ as defined in [section 6.1 of RFC 4034][RFC4034-6.1].
@@ -366,20 +361,14 @@ impl<'a, N: ToName + ?Sized + 'a> ToName for &'a N {}
 /// from the relative name.
 ///
 /// The most important types implementing this trait are [`RelativeName`]
-/// and [`Chain<L,R>`] where `R` is a `ToRelativeName` itself.
-///
-/// [`Chain<L, R>`]: struct.Chain.html
-/// [`RelativeName`]: struct.RelativeName.html
+/// and [`Chain<L,R>`] where `R` is a [`ToRelativeName`] itself.
 pub trait ToRelativeName: ToLabelIter {
     /// Converts the name into a single, continous name.
     ///
     /// The canonical implementation provided by the trait iterates over the
     /// labels of the name and adds them one by one to [`RelativeName`].
     /// This will work for any name but an optimized implementation can be
-    /// provided for
-    /// some types of names.
-    ///
-    /// [`RelativeName`]: struct.RelativeName.html
+    /// provided for some types of names.
     fn try_to_relative_name<Octets>(
         &self,
     ) -> Result<RelativeName<Octets>, BuilderAppendError<Octets>>
@@ -478,8 +467,8 @@ pub trait ToRelativeName: ToLabelIter {
     /// that slice. Otherwise assembles an owned variant via
     /// [`to_relative_name`].
     ///
-    /// [`as_flat_slice`]: #method.as_flat_slice
-    /// [`to_relatove_name`]: #method.to_relative_name
+    /// [`as_flat_slice`]: ToRelativeName::as_flat_slice
+    /// [`to_relative_name`]: ToRelativeName::to_relative_name
     #[cfg(feature = "std")]
     fn to_cow(&self) -> RelativeName<std::borrow::Cow<[u8]>> {
         let octets = self
@@ -528,8 +517,8 @@ pub trait ToRelativeName: ToLabelIter {
 
     /// Tests whether `self` and `other` are equal.
     ///
-    /// This method can be used to implement `PartialEq` on types implementing
-    /// `ToName` since a blanket implementation for all pairs of `ToName`
+    /// This method can be used to implement [`PartialEq`] on types implementing
+    /// [`ToName`] since a blanket implementation for all pairs of [`ToName`]
     /// is currently impossible.
     ///
     /// Domain names are compared ignoring ASCII case.

@@ -859,10 +859,8 @@ impl<Name: fmt::Debug> fmt::Debug for RecordHeader<Name> {
 /// how to parse record data) via the [`to_record`] and [`into_record`]
 /// methods.
 ///
-/// [`Record`]: struct.Record.html
-/// [`ParseRecordData`]: trait.ParseRecordData.html
-/// [`to_record`]: #method.to_record
-/// [`into_record`]: #method.into_record
+/// [`to_record`]: ParsedRecord::to_record
+/// [`into_record`]: ParsedRecord::into_record
 #[derive(Clone)]
 pub struct ParsedRecord<'a, Octs: Octets + ?Sized> {
     /// The record’s header.
@@ -977,7 +975,7 @@ impl<'a, Octs: Octets + ?Sized> ParsedRecord<'a, Octs> {
     ///
     /// The method is generic over a type that knows how to parse record
     /// data via the [`ParseAnyRecordData`] trait. The record data is given to
-    /// this trait for parsing.    #[allow(clippy::type_complexity)]
+    /// this trait for parsing.
     pub fn into_any_record<Data>(
         mut self,
     ) -> Result<Record<ParsedName<Octs::Range<'a>>, Data>, ParseError>

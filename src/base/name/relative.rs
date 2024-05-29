@@ -35,11 +35,8 @@ use std::vec::Vec;
 ///
 /// `RelativeName` guarantees that the name is at most 254 bytes long. As the
 /// length limit for a domain name is actually 255 bytes, this means that you
-/// can always safely turn a `RelativeName` into a `Name` by adding the root
+/// can always safely turn a [`RelativeName`] into a [`Name`] by adding the root
 /// label (which is exactly one byte long).
-///
-/// [`Bytes`]: ../../../bytes/struct.Bytes.html
-/// [`Name`]: struct.Name.html
 #[derive(Clone)]
 pub struct RelativeName<Octs: ?Sized>(Octs);
 
@@ -132,7 +129,9 @@ impl RelativeName<[u8]> {
     ///
     /// # Safety
     ///
-    /// The same rules as for `from_octets_unchecked` apply.
+    /// The same rules as for [`from_octets_unchecked`] apply.
+    ///
+    /// [`from_octets_unchecked`]: RelativeName::from_octets_unchecked
     pub(super) unsafe fn from_slice_unchecked(slice: &[u8]) -> &Self {
         &*(slice as *const [u8] as *const RelativeName<[u8]>)
     }
@@ -296,8 +295,6 @@ impl<Octs> RelativeName<Octs> {
     /// This manipulates the name itself and thus is only available for
     /// octets sequences that can be converted into an octets builder and back
     /// such as `Vec<u8>`.
-    ///
-    /// [`chain_root`]: #method.chain_root
     pub fn into_absolute(self) -> Result<Name<Octs>, PushError>
     where
         Octs: IntoBuilder,
@@ -452,7 +449,7 @@ impl<Octs: AsRef<[u8]> + ?Sized> RelativeName<Octs> {
     /// The method panics if either position is not the beginning of a label
     /// or is out of bounds.
     ///
-    /// [`range`]: #method.range
+    /// [`range`]: RelativeName::range
     pub fn slice(
         &self,
         range: impl RangeBounds<usize>,
@@ -558,7 +555,7 @@ impl<Octs: AsRef<[u8]> + ?Sized> RelativeName<Octs> {
     /// This will fail if `base` isn’t actually a suffix, i.e., if
     /// [`ends_with`] doesn’t return `true`.
     ///
-    /// [`ends_with`]: #method.ends_with
+    /// [`ends_with`]: RelativeName::ends_with
     pub fn strip_suffix<N: ToRelativeName>(
         &mut self,
         base: &N,

@@ -6,7 +6,7 @@
 //!
 //! There are three options for three different purposes. However, the data
 //! for each of them is a sequence of security algorithms. The module only
-//! defines one type [`Understood<Variant, Octs>`][Understood] which carries
+//! defines one type [`Understood<Variant, Octs>`] which carries
 //! the specific variant as its first type parameter. Marker types and
 //! type aliases are defined for the three options [Dau], [Dhu], and [N3u]
 //! which specific the DNSSEC signature algorithms, DS hash algorithm, and
@@ -44,7 +44,7 @@ use core::marker::PhantomData;
 /// iterator over [`SecAlg`] via the
 /// [`from_sec_algs`][Understood::from_sec_algs] associated function.
 /// Once you have a value, you can iterate over the algorithms via the
-/// [`iter`][Understood::iter] method or use the `IntoIterator` implementation
+/// [`iter`][Understood::iter] method or use the [`IntoIterator`] implementation
 /// for a reference.
 #[derive(Clone, Copy)]
 pub struct Understood<Variant, Octs: ?Sized> {
