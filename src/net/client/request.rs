@@ -356,6 +356,9 @@ pub enum Error {
 
     /// An error happened in the datagram transport.
     Dgram(Arc<super::dgram::QueryError>),
+
+    /// An error happened during DNSSEC validation.
+    Validation(crate::validator::types::Error),
 }
 
 impl From<LongOptData> for Error {
@@ -379,6 +382,12 @@ impl From<ShortMessage> for Error {
 impl From<super::dgram::QueryError> for Error {
     fn from(err: super::dgram::QueryError) -> Self {
         Self::Dgram(err.into())
+    }
+}
+
+impl From<crate::validator::types::Error> for Error {
+    fn from(err: crate::validator::types::Error) -> Self {
+        Self::Validation(err)
     }
 }
 
@@ -427,6 +436,9 @@ impl fmt::Display for Error {
                 write!(f, "no transport available")
             }
             Error::Dgram(err) => fmt::Display::fmt(err, f),
+            Error::Validation(_) => {
+                write!(f, "error validating response")
+            }
         }
     }
 }
@@ -460,6 +472,7 @@ impl error::Error for Error {
             Error::WrongReplyForQuery => None,
             Error::NoTransportAvailable => None,
             Error::Dgram(err) => Some(err),
+            Error::Validation(err) => Some(err),
         }
     }
 }

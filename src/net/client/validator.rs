@@ -245,8 +245,8 @@ where
         let res = self.vc.validate_msg(&response_msg).await;
         println!("get_response_impl: {res:?}");
         match res {
-            Err(_err) => {
-                todo!();
+            Err(err) => {
+                return Err(Error::Validation(err));
             }
             Ok((state, opt_ede)) => {
                 match state {

@@ -332,7 +332,9 @@ pub async fn check_not_exists_for_wildcard(
             // Non-existance proof is insecure.
             return (true, ValidationState::Insecure, None);
         }
-        Nsec3NXStateNoCE::Bogus => todo!(),
+        Nsec3NXStateNoCE::Bogus => {
+            return (false, ValidationState::Bogus, ede)
+        }
         Nsec3NXStateNoCE::Nothing => (), // Continue.
     }
 

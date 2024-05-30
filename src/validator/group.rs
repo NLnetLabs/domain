@@ -448,7 +448,7 @@ impl Group {
                         return (
                             ValidationState::Bogus,
                             None,
-                            opt_ede,
+                            ede,
                             BOGUS_TTL,
                         );
                     }

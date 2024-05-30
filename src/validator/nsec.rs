@@ -110,8 +110,7 @@ pub fn nsec_for_nodata(
 
         // Check that target is in the range of the NSEC and that owner is a
         // prefix of the next_name.
-        if target.name_cmp(&owner) == Ordering::Greater
-            && target.name_cmp(nsec.next_name()) == Ordering::Less
+        if nsec_in_range(target, &owner, &nsec.next_name())
             && nsec.next_name().ends_with(target)
         {
             return (NsecState::NoData, None);
@@ -279,7 +278,7 @@ pub fn nsec_for_nxdomain(
 }
 
 // Check if a name is covered by an NSEC record.
-fn nsec_in_range<TN>(
+pub fn nsec_in_range<TN>(
     target: &Name<Bytes>,
     owner: &Name<Bytes>,
     next_name: &TN,
@@ -874,6 +873,11 @@ impl Nsec3Cache {
     }
 }
 
+// This needs to match the algorithms supported in nsec3_hash.
+pub fn supported_nsec3_hash(h: Nsec3HashAlg) -> bool {
+    h == Nsec3HashAlg::SHA1
+}
+
 /// Compute the NSEC3 hash according to Section 5 of RFC 5155:
 ///
 /// IH(salt, x, 0) = H(x || salt)
@@ -886,7 +890,7 @@ fn nsec3_hash<N, HashOcts>(
     algorithm: Nsec3HashAlg,
     iterations: u16,
     salt: &Nsec3Salt<HashOcts>,
-) -> Option<OwnerHash<Vec<u8>>>
+) -> OwnerHash<Vec<u8>>
 where
     N: ToName,
     HashOcts: AsRef<[u8]>,
@@ -901,7 +905,7 @@ where
     } else {
         // totest, unsupported NSEC3 hash algorithm
         // Unsupported.
-        return None;
+        panic!("should not be called with an unsupported algorithm");
     };
 
     let mut ctx = digest::Context::new(digest_type);
@@ -919,9 +923,7 @@ where
     }
 
     // For normal hash algorithms this should not fail.
-    Some(
-        OwnerHash::from_octets(h.as_ref().to_vec()).expect("should not fail"),
-    )
+    OwnerHash::from_octets(h.as_ref().to_vec()).expect("should not fail")
 }
 
 pub async fn cached_nsec3_hash(
@@ -937,7 +939,7 @@ pub async fn cached_nsec3_hash(
         return ce;
     }
     println!("cached_nsec3_hash: new hash for {owner:?}, {algorithm:?}, {iterations:?}, {salt:?}");
-    let hash = nsec3_hash(owner, algorithm, iterations, salt).unwrap();
+    let hash = nsec3_hash(owner, algorithm, iterations, salt);
     let hash = Arc::new(hash);
     cache.cache.insert(key, hash.clone()).await;
     hash
@@ -996,6 +998,10 @@ fn get_checked_nsec3(
     // Check if the signer name matches the expected signer name.
     if group.signer_name() != signer_name {
         println!("get_checked_nsec3: line {}", line!());
+        return Ok(None);
+    }
+
+    if !supported_nsec3_hash(nsec3.hash_algorithm()) {
         return Ok(None);
     }
 
