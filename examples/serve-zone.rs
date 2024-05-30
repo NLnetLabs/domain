@@ -34,16 +34,13 @@ use std::io::BufReader;
 use std::sync::Arc;
 use std::time::Duration;
 
-use domain::net::client::protocol::UdpConnect;
-use domain::net::client::request::{RequestMessage, SendRequest};
 use domain::net::server::middleware::notify::NotifyMiddlewareSvc;
 use tokio::net::{TcpListener, UdpSocket};
 use tracing::trace;
 use tracing_subscriber::EnvFilter;
 
-use domain::base::iana::{Class, Opcode, Rcode};
-use domain::base::{MessageBuilder, Name, Rtype, ToName, Ttl};
-use domain::net::client::dgram::{Config, Connection};
+use domain::base::iana::{Class, Rcode};
+use domain::base::{Name, Rtype, ToName, Ttl};
 use domain::net::server::buf::VecBufSource;
 use domain::net::server::dgram::DgramServer;
 use domain::net::server::message::Request;
@@ -57,7 +54,7 @@ use domain::net::server::stream::{self, StreamServer};
 use domain::net::server::util::{mk_builder_for_target, service_fn};
 use domain::net::server::ConnectionConfig;
 use domain::zonecatalog::catalog::{
-    Acl, Catalog, PrimaryInfo, XfrMode, ZoneType,
+    Acl, Catalog, PrimaryInfo, TypedZone, XfrMode, ZoneType,
 };
 use domain::zonefile::inplace;
 use domain::zonetree::Zone;
@@ -111,19 +108,25 @@ async fn main() {
     let z_apex_name = zone.apex_name().clone();
     let z_class = zone.class();
 
-    // Create a catalog that will handle outbound XFR for zones
-    let catalog = Catalog::new().unwrap();
-    let acl = Acl::new();
     let zone_type = match primary {
-        true => ZoneType::Primary(acl),
+        true => {
+            let mut notify = Acl::new();
+            notify.allow_to("127.0.0.1:8054".parse().unwrap());
+            ZoneType::new_primary(Acl::new(), notify)
+        }
         false => {
             let primary_addr = "127.0.0.1:8053".parse().unwrap();
             let mut primary_info = PrimaryInfo::new(primary_addr);
             primary_info.xfr_mode = XfrMode::AxfrOnly;
-            ZoneType::Secondary(primary_info, acl)
+            ZoneType::new_secondary(primary_info, Acl::new())
         }
     };
-    catalog.insert_zone(zone, zone_type).await.unwrap();
+    let zone = TypedZone::new(zone, zone_type);
+
+    // Create a catalog that will handle outbound XFR for zones
+    let catalog = Catalog::new_with_zones([zone]).unwrap();
+    // let catalog = Catalog::new().;
+    // catalog.insert_zone(zone).await.unwrap();
     let catalog = Arc::new(catalog);
     let cloned_catalog = catalog.clone();
     tokio::spawn(async move { cloned_catalog.run().await });
@@ -203,14 +206,15 @@ async fn main() {
                 tcp_metrics.num_sent_responses(),
             );
 
-            let report = catalog_clone
+            if let Ok(report) = catalog_clone
                 .zone_status(
                     &Name::from_str("example.com").unwrap(),
                     Class::IN,
                 )
                 .await
-                .unwrap();
-            eprintln!("{report}");
+            {
+                eprintln!("{report}");
+            }
         }
     });
 
