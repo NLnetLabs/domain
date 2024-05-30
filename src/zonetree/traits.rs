@@ -127,7 +127,8 @@ pub trait WritableZone: Send {
         create_diff: bool,
     ) -> Pin<
         Box<
-            dyn Future<Output = Result<Box<dyn WritableZoneNode>, io::Error>> + Send,
+            dyn Future<Output = Result<Box<dyn WritableZoneNode>, io::Error>>
+                + Send,
         >,
     >;
 
@@ -142,7 +143,9 @@ pub trait WritableZone: Send {
     fn commit(
         &mut self,
         bump_soa_serial: bool,
-    ) -> Pin<Box<dyn Future<Output = Result<Option<ZoneDiff>, io::Error>> + Send>>;
+    ) -> Pin<
+        Box<dyn Future<Output = Result<Option<ZoneDiff>, io::Error>> + Send>,
+    >;
 }
 
 //------------ WritableZoneNode ----------------------------------------------
@@ -158,7 +161,8 @@ pub trait WritableZoneNode: Send {
         label: &Label,
     ) -> Pin<
         Box<
-            dyn Future<Output = Result<Box<dyn WritableZoneNode>, io::Error>> + Send,
+            dyn Future<Output = Result<Box<dyn WritableZoneNode>, io::Error>>
+                + Send,
         >,
     >;
 

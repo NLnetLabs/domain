@@ -147,7 +147,7 @@ impl ZoneStore for ZoneApex {
                 as Box<dyn WritableZone>
         })
     }
-    
+
     fn as_any(&self) -> &dyn Any {
         self as &dyn Any
     }
@@ -251,7 +251,8 @@ impl NodeRrsets {
 
     /// Returns the RRset for a given record type.
     pub fn get(&self, rtype: Rtype, version: Version) -> Option<SharedRrset> {
-        let res = self.rrsets
+        let res = self
+            .rrsets
             .read()
             .get(&rtype)
             .and_then(|rrsets| rrsets.get(version))
@@ -264,13 +265,19 @@ impl NodeRrsets {
     /// Updates an RRset.
     pub fn update(&self, rrset: SharedRrset, version: Version) {
         let rtype = rrset.rtype();
-        trace!("Pre RRset update (rtype {rtype}, version {version:?}): {:?}", self.get(rtype, version));
+        trace!(
+            "Pre RRset update (rtype {rtype}, version {version:?}): {:?}",
+            self.get(rtype, version)
+        );
         self.rrsets
             .write()
             .entry(rrset.rtype())
             .or_default()
             .update(rrset, version);
-        trace!("Post RRset update (rtype {rtype}, version {version:?}): {:?}", self.get(rtype, version));
+        trace!(
+            "Post RRset update (rtype {rtype}, version {version:?}): {:?}",
+            self.get(rtype, version)
+        );
     }
 
     /// Removes the RRset for the given type.

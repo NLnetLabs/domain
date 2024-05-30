@@ -68,7 +68,7 @@ impl Zone {
     }
 
     /// Gets a key that uniquely identifies this zone.
-    /// 
+    ///
     /// Note: Assumes that there is only ever one instance of a zone with a
     /// given apex name and class in a set of zones.
     pub fn key(&self) -> ZoneKey {

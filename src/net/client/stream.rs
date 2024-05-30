@@ -24,7 +24,6 @@ use crate::net::client::request::{
     ComposeRequest, Error, GetResponse, SendRequest,
 };
 use bytes::{Bytes, BytesMut};
-use tracing::trace;
 use core::cmp;
 use core::future::ready;
 use octseq::Octets;
@@ -39,6 +38,7 @@ use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use tokio::sync::{mpsc, oneshot};
 use tokio::time::sleep;
+use tracing::trace;
 
 //------------ Configuration Constants ----------------------------------------
 
@@ -271,7 +271,7 @@ impl GetResponse for Request {
     > {
         Box::pin(self.get_response_impl())
     }
-    
+
     fn stream_complete(&mut self) {
         if let Some(mut stream) = self.stream.take() {
             trace!("Closing response stream");
