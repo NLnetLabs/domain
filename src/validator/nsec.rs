@@ -49,9 +49,10 @@ pub fn nsec_for_nodata(
     groups: &mut Vec<ValidatedGroup>,
     rtype: Rtype,
     signer_name: &Name<Bytes>,
-) -> NsecState {
+) -> (NsecState, Option<ExtendedError<Vec<u8>>>) {
+    let mut ede = None;
     for g in groups.iter() {
-        let opt_nsec = get_checked_nsec(g, signer_name);
+        let (opt_nsec, ede) = get_checked_nsec(g, signer_name);
         let nsec = if let Some(nsec) = opt_nsec {
             nsec
         } else {
@@ -66,9 +67,14 @@ pub fn nsec_for_nodata(
 
             // Check for QTYPE.
             if types.contains(rtype) || types.contains(Rtype::CNAME) {
+                // totest, NODATA but Rtype or CNAME is listed in NSEC
                 // We didn't get a rtype RRset but the NSEC record proves
                 // there is one. Complain.
-                todo!();
+                let ede = make_ede(
+                    ExtendedErrorCode::DNSSEC_BOGUS,
+                    "NSEC for NODATA proves requested Rtype or CNAME",
+                );
+                return (NsecState::Nothing, ede);
             }
 
             // Avoid parent-side NSEC records. The parent-side record has NS
@@ -78,18 +84,28 @@ pub fn nsec_for_nodata(
             // of a DS query for the root, we accept the record at apex.
             if rtype == Rtype::DS && *target != Name::<Vec<u8>>::root() {
                 if types.contains(Rtype::NS) && types.contains(Rtype::SOA) {
+                    // totest, non-root DS and NSEC from apex
                     // This is an NSEC record from the child. Complain.
-                    todo!();
+                    let ede = make_ede(
+                        ExtendedErrorCode::DNSSEC_BOGUS,
+                        "NSEC from apex for DS",
+                    );
+                    return (NsecState::Nothing, ede);
                 }
             } else {
                 if types.contains(Rtype::NS) && !types.contains(Rtype::SOA) {
+                    // totest, non-DS Rtype and NSEC from parent
                     // This is an NSEC record from the parent. Complain.
-                    todo!();
+                    let ede = make_ede(
+                        ExtendedErrorCode::DNSSEC_BOGUS,
+                        "NSEC from parent for non-DS rtype",
+                    );
+                    return (NsecState::Nothing, ede);
                 }
             }
 
             // Anything else is a secure intermediate node.
-            return NsecState::NoData;
+            return (NsecState::NoData, None);
         }
 
         // Check that target is in the range of the NSEC and that owner is a
@@ -98,12 +114,12 @@ pub fn nsec_for_nodata(
             && target.name_cmp(nsec.next_name()) == Ordering::Less
             && nsec.next_name().ends_with(target)
         {
-            return NsecState::NoData;
+            return (NsecState::NoData, None);
         }
 
         // No match, try the next one.
     }
-    NsecState::Nothing
+    (NsecState::Nothing, ede)
 }
 
 // Find an NSEC record for target that proves that the target does not
@@ -142,10 +158,7 @@ pub fn nsec_for_nodata_wildcard(
             return (NsecState::Nothing, ede);
         }
     };
-    (
-        nsec_for_nodata(&star_name, groups, rtype, signer_name),
-        None,
-    )
+    nsec_for_nodata(&star_name, groups, rtype, signer_name)
 }
 
 #[derive(Debug)]
@@ -162,8 +175,9 @@ pub fn nsec_for_not_exists(
     groups: &mut Vec<ValidatedGroup>,
     signer_name: &Name<Bytes>,
 ) -> (NsecNXState, Option<ExtendedError<Vec<u8>>>) {
+    let mut ede = None;
     for g in groups.iter() {
-        let opt_nsec = get_checked_nsec(g, signer_name);
+        let (opt_nsec, ede) = get_checked_nsec(g, signer_name);
         let nsec = if let Some(nsec) = opt_nsec {
             nsec
         } else {
@@ -192,8 +206,15 @@ pub fn nsec_for_not_exists(
         }
 
         if nsec.next_name().ends_with(target) {
+            // totest, proof non-existance, but empty non-terminal
             // We found an empty non-terminal. No need to keep looking.
-            todo!();
+            return (
+                NsecNXState::Exists,
+                make_ede(
+                    ExtendedErrorCode::DNSSEC_BOGUS,
+                    "Found ENT NSEC while trying to proof non-existance",
+                ),
+            );
         }
 
         if target.ends_with(&owner) {
@@ -203,8 +224,16 @@ pub fn nsec_for_not_exists(
             if types.contains(Rtype::DNAME)
                 || (types.contains(Rtype::NS) && !types.contains(Rtype::SOA))
             {
+                // totest, NSEC proves DNAME or delegation while trying to
+                // proof non-existance.
                 // This NSEC record cannot prove non-existance.
-                todo!();
+                return (
+		    NsecNXState::Exists,
+		    make_ede(
+			ExtendedErrorCode::DNSSEC_BOGUS,
+			"Found NSEC with DNAME or delegation while trying to proof non-existance",
+		    ),
+		);
             }
         }
 
@@ -213,7 +242,7 @@ pub fn nsec_for_not_exists(
 
         return (NsecNXState::DoesNotExist(ce), None);
     }
-    (NsecNXState::Nothing, None)
+    (NsecNXState::Nothing, ede)
 }
 
 // Find an NSEC record for target that proves that the target does not
@@ -269,9 +298,12 @@ where
 fn get_checked_nsec(
     group: &ValidatedGroup,
     signer_name: &Name<Bytes>,
-) -> Option<Nsec<Bytes, ParsedName<Bytes>>> {
+) -> (
+    Option<Nsec<Bytes, ParsedName<Bytes>>>,
+    Option<ExtendedError<Vec<u8>>>,
+) {
     if group.rtype() != Rtype::NSEC {
-        return None;
+        return (None, None);
     }
 
     let owner = group.owner();
@@ -280,7 +312,7 @@ fn get_checked_nsec(
         // There should be at most one NSEC record for a given owner name.
         // Ignore the entire RRset.
         println!("get_checked_nsec: line {}", line!());
-        return None;
+        return (None, None);
     }
     let AllRecordData::Nsec(nsec) = rrs[0].data() else {
         panic!("NSEC expected");
@@ -289,13 +321,13 @@ fn get_checked_nsec(
     // Check if this group is secure.
     if let ValidationState::Secure = group.state() {
     } else {
-        return None;
+        return (None, None);
     };
 
     // Check if the signer name matches the expected signer name.
     if group.signer_name() != signer_name {
         println!("get_checked_nsec: line {}", line!());
-        return None;
+        return (None, None);
     }
 
     // Rule out wildcard
@@ -308,21 +340,26 @@ fn get_checked_nsec(
             Err(_) => {
                 // Error constructing wildcard. Just assume that this NSEC
                 // record is invalid.
-                return None;
+                return (None, None);
             }
         };
         println!("got star_name {star_name:?}");
         if owner != star_name {
+            // totest, NSEC expanded from wildcard
             // The nsec is an expanded wildcard. Ignore.
             println!("get_checked_nsec: line {}", line!());
-            todo!();
+            let ede = make_ede(
+                ExtendedErrorCode::DNSSEC_BOGUS,
+                "NSEC is expanded from wildcard",
+            );
+            return (None, ede);
         }
 
         // Accept this nsec.
     }
 
     // All check pass, return NSEC record.
-    Some(nsec.clone())
+    (Some(nsec.clone()), None)
 }
 
 fn nsec_closest_encloser(
@@ -371,7 +408,7 @@ pub async fn nsec3_for_nodata(
     rtype: Rtype,
     signer_name: &Name<Bytes>,
     nsec3_cache: &Nsec3Cache,
-) -> NsecState {
+) -> (Nsec3State, Option<ExtendedError<Vec<u8>>>) {
     for g in groups.iter() {
         let res_opt_nsec3_hash = get_checked_nsec3(g, signer_name);
         let (nsec3, ownerhash) = match res_opt_nsec3_hash {
@@ -382,7 +419,23 @@ pub async fn nsec3_for_nodata(
                     continue;
                 }
             }
-            Err(_) => todo!(),
+            Err((state, ede)) => {
+                match state {
+		    ValidationState::Bogus => 
+			// totest, NSEC3 with very high iteration count
+			return (Nsec3State::Bogus, ede),
+		    ValidationState::Insecure =>
+			// totest, NSEC3 with medium high iteration count
+			// With a high iteration count we don't compute the
+			// hash, so we just assume that the NSEC3 record
+			// proves whatever we want to have. But the 
+			// result is insecure.
+			return (Nsec3State::NoDataInsecure, ede),
+		    ValidationState::Secure 
+		    | ValidationState::Indeterminate =>
+			panic!("get_checked_nsec3 should only return Bogus or Insecure"),
+		}
+            }
         };
 
         // Create the hash with the parameters in this record. We should cache
@@ -405,37 +458,52 @@ pub async fn nsec3_for_nodata(
             let types = nsec3.types();
 
             // Check for QTYPE.
-            if types.contains(rtype) {
+            if types.contains(rtype) || types.contains(Rtype::CNAME) {
+                // totest, NODATA but Rtype or CNAME is listed in NSEC3
                 // We didn't get a rtype RRset but the NSEC3 record proves
                 // there is one. Complain.
-                todo!();
+                let ede = make_ede(
+                    ExtendedErrorCode::DNSSEC_BOGUS,
+                    "NSEC3 for NODATA proves requested Rtype or CNAME",
+                );
+                return (Nsec3State::Nothing, ede);
             }
 
+            // totest, query for . DS in a root zone that uses NSEC3.
             // Avoid parent-side NSEC3 records. The parent-side record has NS
             // set but not SOA. With one exception, the DS record lives on the
             // parent side so there the check needs to be reversed.
             if rtype == Rtype::DS {
                 if types.contains(Rtype::NS) && types.contains(Rtype::SOA) {
+                    // totest, non-root DS and NSEC3 from apex
                     // This is an NSEC3 record from the child. Complain.
-                    todo!();
+                    let ede = make_ede(
+                        ExtendedErrorCode::DNSSEC_BOGUS,
+                        "NSEC3 from apex for DS",
+                    );
+                    return (Nsec3State::Nothing, ede);
                 }
             } else {
                 if types.contains(Rtype::NS) && !types.contains(Rtype::SOA) {
+                    // totest, non-DS Rtype and NSEC3 from parent
                     // This is an NSEC3 record from the parent. Complain.
-                    todo!();
+                    let ede = make_ede(
+                        ExtendedErrorCode::DNSSEC_BOGUS,
+                        "NSEC3 from parent for non-DS rtype",
+                    );
+                    return (Nsec3State::Nothing, ede);
                 }
             }
-
-            return NsecState::NoData;
+            return (Nsec3State::NoData, None);
         }
 
         // No match, try the next one.
     }
-    NsecState::Nothing
+    (Nsec3State::Nothing, None)
 }
 
 #[derive(Debug)]
-enum Nsec3State {
+pub enum Nsec3State {
     NoData,
     NoDataInsecure,
     Bogus,
@@ -452,12 +520,13 @@ async fn nsec3_for_nodata_wildcard(
     signer_name: &Name<Bytes>,
     nsec3_cache: &Nsec3Cache,
 ) -> (Nsec3State, Option<ExtendedError<Vec<u8>>>) {
-    let (state, ede) =
+    let (state, mut ede) =
         nsec3_for_not_exists(target, groups, signer_name, nsec3_cache).await;
     let (ce, secure) = match state {
         Nsec3NXState::DoesNotExist(ce) => (ce, true),
         Nsec3NXState::DoesNotExistInsecure(ce) => (ce, false),
         Nsec3NXState::Bogus => return (Nsec3State::Bogus, ede),
+        Nsec3NXState::Insecure => return (Nsec3State::NoDataInsecure, ede),
         Nsec3NXState::Nothing => return (Nsec3State::Nothing, ede),
     };
 
@@ -472,23 +541,23 @@ async fn nsec3_for_nodata_wildcard(
             return (Nsec3State::Bogus, ede);
         }
     };
-    match nsec3_for_nodata(
-        &star_name,
-        groups,
-        rtype,
-        signer_name,
-        nsec3_cache,
-    )
-    .await
-    {
-        NsecState::NoData => {
+    let (state, nodata_ede) =
+        nsec3_for_nodata(&star_name, groups, rtype, signer_name, nsec3_cache)
+            .await;
+    if ede.is_none() {
+        ede = nodata_ede;
+    }
+    match state {
+        Nsec3State::NoData => {
             if secure {
-                (Nsec3State::NoData, None)
+                (Nsec3State::NoData, ede)
             } else {
-                (Nsec3State::NoDataInsecure, None)
+                (Nsec3State::NoDataInsecure, ede)
             }
         }
-        NsecState::Nothing => (Nsec3State::Nothing, None),
+        Nsec3State::Nothing
+        | Nsec3State::Bogus
+        | Nsec3State::NoDataInsecure => (state, ede),
     }
 }
 
@@ -497,6 +566,7 @@ pub enum Nsec3NXState {
     DoesNotExist(Name<Bytes>),
     DoesNotExistInsecure(Name<Bytes>),
     Bogus,
+    Insecure,
     Nothing,
 }
 
@@ -548,7 +618,12 @@ pub async fn nsec3_for_not_exists(
                 Err((ValidationState::Bogus, ede)) => {
                     return (Nsec3NXState::Bogus, ede)
                 }
-                Err(_) => todo!(),
+                Err((ValidationState::Insecure, ede)) => {
+                    return (Nsec3NXState::Insecure, ede)
+                }
+                Err(_) => panic!(
+                    "get_checked_nsec3 should on return Bogus or Insecure"
+                ),
             };
 
             // Create the hash with the parameters in this record. We should
@@ -575,8 +650,16 @@ pub async fn nsec3_for_not_exists(
                     || (types.contains(Rtype::NS)
                         && !types.contains(Rtype::SOA))
                 {
-                    // Name or delegation. What do we do?
-                    todo!();
+                    // totest, NSEC3 proves DNAME or delegation while trying to
+                    // proof non-existance.
+                    // This NSEC3 record cannot prove non-existance.
+                    return (
+			Nsec3NXState::Nothing,
+			make_ede(
+			    ExtendedErrorCode::DNSSEC_BOGUS,
+			    "Found NSEC3 with DNAME or delegation while trying to proof non-existance",
+			),
+		    );
                 }
                 println!("nsec3_for_not_exists: found match");
                 maybe_ce = n;
@@ -636,6 +719,7 @@ pub enum Nsec3NXStateNoCE {
     DoesNotExist,
     DoesNotExistInsecure,
     Nothing,
+    Bogus,
 }
 
 // Prove that target does not exist using NSEC3 records. Assume that
@@ -661,7 +745,23 @@ pub async fn nsec3_for_not_exists_no_ce(
                     continue;
                 }
             }
-            Err(_) => todo!(),
+            Err((state, ede)) => {
+                match state {
+		    ValidationState::Bogus => 
+			// totest, NSEC3 with very high iteration count
+			return (Nsec3NXStateNoCE::Bogus, ede),
+		    ValidationState::Insecure =>
+			// totest, NSEC3 with medium high iteration count
+			// With a high iteration count we don't compute the
+			// hash, so we just assume that the NSEC3 record
+			// proves whatever we want to have. But the 
+			// result is insecure.
+			return (Nsec3NXStateNoCE::DoesNotExistInsecure, ede),
+		    ValidationState::Secure 
+		    | ValidationState::Indeterminate =>
+			panic!("get_checked_nsec3 should only return Bogus or Insecure"),
+		}
+            }
         };
 
         // Create the hash with the parameters in this record. We should
@@ -711,13 +811,14 @@ pub async fn nsec3_for_nxdomain(
     signer_name: &Name<Bytes>,
     nsec3_cache: &Nsec3Cache,
 ) -> (Nsec3NXState, Option<ExtendedError<Vec<u8>>>) {
-    let (state, ede) =
+    let (state, mut ede) =
         nsec3_for_not_exists(target, groups, signer_name, nsec3_cache).await;
     let (ce, secure) = match state {
         Nsec3NXState::DoesNotExist(ce) => (ce, true),
         Nsec3NXState::DoesNotExistInsecure(ce) => (ce, false),
-        Nsec3NXState::Bogus => return (Nsec3NXState::Bogus, ede),
-        Nsec3NXState::Nothing => return (Nsec3NXState::Nothing, ede),
+        Nsec3NXState::Bogus
+        | Nsec3NXState::Insecure
+        | Nsec3NXState::Nothing => return (state, ede),
     };
 
     let star_name = match star_closest_encloser(&ce) {
@@ -731,29 +832,30 @@ pub async fn nsec3_for_nxdomain(
             return (Nsec3NXState::Bogus, ede);
         }
     };
-    let (state, ede) = nsec3_for_not_exists_no_ce(
+    let (state, new_ede) = nsec3_for_not_exists_no_ce(
         &star_name,
         groups,
         signer_name,
         nsec3_cache,
     )
     .await;
+    if ede.is_none() {
+        ede = new_ede;
+    }
     match state {
         Nsec3NXStateNoCE::DoesNotExist => {
             if secure {
                 (Nsec3NXState::DoesNotExist(ce), None)
             } else {
-                todo!(); // EDE
-                         // Nsec3NXState::DoesNotExistInsecure(ce)
+                // totest, NSEC3 for NXDOMAIN with opt-out
+                (Nsec3NXState::DoesNotExistInsecure(ce), ede)
             }
         }
         Nsec3NXStateNoCE::DoesNotExistInsecure => {
             (Nsec3NXState::DoesNotExistInsecure(ce), ede)
         }
-        Nsec3NXStateNoCE::Nothing => {
-            todo!(); // EDE
-                     // return Nsec3NXState::Nothing,
-        }
+        Nsec3NXStateNoCE::Bogus => (Nsec3NXState::Bogus, ede),
+        Nsec3NXStateNoCE::Nothing => (Nsec3NXState::Nothing, ede),
     }
 }
 
@@ -784,7 +886,7 @@ fn nsec3_hash<N, HashOcts>(
     algorithm: Nsec3HashAlg,
     iterations: u16,
     salt: &Nsec3Salt<HashOcts>,
-) -> OwnerHash<Vec<u8>>
+) -> Option<OwnerHash<Vec<u8>>>
 where
     N: ToName,
     HashOcts: AsRef<[u8]>,
@@ -794,13 +896,15 @@ where
     owner.compose_canonical(&mut buf).expect("infallible");
     buf.append_slice(salt.as_slice()).expect("infallible");
 
-    let mut ctx = if algorithm == Nsec3HashAlg::SHA1 {
-        digest::Context::new(&digest::SHA1_FOR_LEGACY_USE_ONLY)
+    let digest_type = if algorithm == Nsec3HashAlg::SHA1 {
+        &digest::SHA1_FOR_LEGACY_USE_ONLY
     } else {
+        // totest, unsupported NSEC3 hash algorithm
         // Unsupported.
-        todo!();
+        return None;
     };
 
+    let mut ctx = digest::Context::new(digest_type);
     ctx.update(&buf);
     let mut h = ctx.finish();
 
@@ -809,19 +913,15 @@ where
         buf.append_slice(h.as_ref()).expect("infallible");
         buf.append_slice(salt.as_slice()).expect("infallible");
 
-        let mut ctx = if algorithm == Nsec3HashAlg::SHA1 {
-            digest::Context::new(&digest::SHA1_FOR_LEGACY_USE_ONLY)
-        } else {
-            // Unsupported.
-            todo!();
-        };
-
+        let mut ctx = digest::Context::new(digest_type);
         ctx.update(&buf);
         h = ctx.finish();
     }
 
     // For normal hash algorithms this should not fail.
-    OwnerHash::from_octets(h.as_ref().to_vec()).expect("should not fail")
+    Some(
+        OwnerHash::from_octets(h.as_ref().to_vec()).expect("should not fail"),
+    )
 }
 
 pub async fn cached_nsec3_hash(
@@ -837,7 +937,7 @@ pub async fn cached_nsec3_hash(
         return ce;
     }
     println!("cached_nsec3_hash: new hash for {owner:?}, {algorithm:?}, {iterations:?}, {salt:?}");
-    let hash = nsec3_hash(owner, algorithm, iterations, salt);
+    let hash = nsec3_hash(owner, algorithm, iterations, salt).unwrap();
     let hash = Arc::new(hash);
     cache.cache.insert(key, hash.clone()).await;
     hash
@@ -914,7 +1014,13 @@ fn get_checked_nsec3(
                 ),
             ));
         }
-        todo!();
+        return Err((
+            ValidationState::Insecure,
+            make_ede(
+                ExtendedErrorCode::OTHER,
+                "NSEC3 with too high iteration count",
+            ),
+        ));
     }
 
     // Convert first label to hash. Skip this NSEC3 record if that fails.

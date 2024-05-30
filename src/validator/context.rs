@@ -19,6 +19,7 @@ use super::nsec::nsec_for_nodata_wildcard;
 use super::nsec::nsec_for_nxdomain;
 use super::nsec::Nsec3Cache;
 use super::nsec::Nsec3NXState;
+use super::nsec::Nsec3State;
 use super::nsec::NsecNXState;
 use super::nsec::NsecState;
 use super::nsec::NSEC3_ITER_BOGUS;
@@ -299,12 +300,13 @@ impl<Upstream> ValidationContext<Upstream> {
         if msg.opt_rcode() == OptRcode::NOERROR {
             // Try to prove that the name exists but the qtype doesn't. Start
             // with NSEC and assume the name exists.
-            match nsec_for_nodata(
+            let (state, ede) = nsec_for_nodata(
                 &sname,
                 &mut authorities,
                 qtype,
                 &signer_name,
-            ) {
+            );
+            match state {
                 NsecState::NoData => {
                     return Ok((
                         map_maybe_secure(
@@ -340,16 +342,16 @@ impl<Upstream> ValidationContext<Upstream> {
 
             // Try to prove that the name exists but the qtype doesn't. Continue
             // with NSEC3 and assume the name exists.
-            match nsec3_for_nodata(
+            let (state, ede) = nsec3_for_nodata(
                 &sname,
                 &mut authorities,
                 qtype,
                 &signer_name,
                 self.nsec3_cache(),
             )
-            .await
-            {
-                NsecState::NoData => {
+            .await;
+            match state {
+                Nsec3State::NoData => {
                     return Ok((
                         map_maybe_secure(
                             ValidationState::Secure,
@@ -358,7 +360,9 @@ impl<Upstream> ValidationContext<Upstream> {
                         None,
                     ))
                 }
-                NsecState::Nothing => (), // Try something else.
+                Nsec3State::Nothing => (), // Try something else.
+                Nsec3State::NoDataInsecure => todo!(),
+                Nsec3State::Bogus => todo!(),
             }
 
             // RFC 5155, Section 8.6. If there is a closest encloser and
@@ -383,6 +387,7 @@ impl<Upstream> ValidationContext<Upstream> {
                 Nsec3NXState::Bogus => {
                     return Ok((ValidationState::Bogus, ede))
                 }
+                Nsec3NXState::Insecure => todo!(),
                 Nsec3NXState::Nothing => todo!(), // We reached the end, return bogus.
             };
 
@@ -397,16 +402,16 @@ impl<Upstream> ValidationContext<Upstream> {
                     return Ok((ValidationState::Bogus, ede));
                 }
             };
-            match nsec3_for_nodata(
+            let (state, ede) = nsec3_for_nodata(
                 &star_name,
                 &mut authorities,
                 qtype,
                 &signer_name,
                 self.nsec3_cache(),
             )
-            .await
-            {
-                NsecState::NoData => {
+            .await;
+            match state {
+                Nsec3State::NoData => {
                     return Ok((
                         map_maybe_secure(
                             ValidationState::Secure,
@@ -415,7 +420,9 @@ impl<Upstream> ValidationContext<Upstream> {
                         None,
                     ));
                 }
-                NsecState::Nothing => todo!(), // We reached the end, return bogus.
+                Nsec3State::Nothing => todo!(), // We reached the end, return bogus.
+                Nsec3State::NoDataInsecure => todo!(),
+                Nsec3State::Bogus => todo!(),
             }
 
             todo!();
@@ -457,6 +464,7 @@ impl<Upstream> ValidationContext<Upstream> {
                 return Ok((ValidationState::Insecure, ede));
             }
             Nsec3NXState::Bogus => return Ok((ValidationState::Bogus, ede)),
+            Nsec3NXState::Insecure => todo!(),
             Nsec3NXState::Nothing => (), // Try something else.
         }
 

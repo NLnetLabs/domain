@@ -42,6 +42,7 @@ use super::context::Node;
 use super::context::ValidationContext;
 use super::types::Error;
 use super::types::ValidationState;
+use super::utilities::make_ede;
 use super::utilities::map_dname;
 use super::utilities::ttl_for_sig;
 //use std::sync::Mutex;
@@ -320,12 +321,9 @@ impl Group {
                 ValidationState::Insecure,
                 Name::root(),
                 None,
-                Some(
-                    ExtendedError::new_with_str(
-                        ExtendedErrorCode::DNSSEC_INDETERMINATE,
-                        "RRSIG without RRset",
-                    )
-                    .expect("should not fail"),
+                make_ede(
+                    ExtendedErrorCode::DNSSEC_INDETERMINATE,
+                    "RRSIG without RRset",
                 ),
             ));
         }
@@ -442,15 +440,22 @@ impl Group {
                     // bogus if we get two failures.
                     bad_sigs += 1;
                     if bad_sigs > MAX_BAD_SIGS {
-                        todo!();
+                        // totest, too many bad signatures for rrset
+                        let ede = make_ede(
+                            ExtendedErrorCode::DNSSEC_BOGUS,
+                            "too many bad signatures",
+                        );
+                        return (
+                            ValidationState::Bogus,
+                            None,
+                            opt_ede,
+                            BOGUS_TTL,
+                        );
                     }
                     if opt_ede.is_none() {
-                        opt_ede = Some(
-                            ExtendedError::new_with_str(
-                                ExtendedErrorCode::DNSSEC_BOGUS,
-                                "Bad signature",
-                            )
-                            .expect("should not fail"),
+                        opt_ede = make_ede(
+                            ExtendedErrorCode::DNSSEC_BOGUS,
+                            "Bad signature",
                         );
                     }
                 }
@@ -458,13 +463,8 @@ impl Group {
         }
 
         if opt_ede.is_none() {
-            opt_ede = Some(
-                ExtendedError::new_with_str(
-                    ExtendedErrorCode::DNSSEC_BOGUS,
-                    "No signature",
-                )
-                .expect("should not fail"),
-            );
+            opt_ede =
+                make_ede(ExtendedErrorCode::DNSSEC_BOGUS, "No signature");
         }
         (ValidationState::Bogus, None, opt_ede, BOGUS_TTL)
     }

@@ -45,9 +45,6 @@ pub async fn do_cname_dname(
                 continue;
             }
             let rtype = g.rtype();
-            if rtype != Rtype::CNAME && rtype != Rtype::DNAME {
-                continue;
-            }
             if rtype == Rtype::CNAME && rtype == qtype {
                 // A CNAME requested, do not process them here.
                 continue;
@@ -55,7 +52,10 @@ pub async fn do_cname_dname(
 
             let rr_set = g.rr_set();
             if rr_set.len() != 1 {
-                todo!(); // Just return bogus?
+                // totest, RRset with more than one CNAME or DNAME.
+                // just skip this RRset. This is not an error because we
+                // don't know the type of the record yet.
+                continue;
             }
 
             if let AllRecordData::Cname(cname) = rr_set[0].data() {
@@ -63,7 +63,7 @@ pub async fn do_cname_dname(
                     continue;
                 }
                 if let Some(ce) = g.closest_encloser() {
-                    let (check, state, _ede) = check_not_exists_for_wildcard(
+                    let (check, state, ede) = check_not_exists_for_wildcard(
                         &name,
                         authorities,
                         &g.signer_name(),
@@ -75,20 +75,19 @@ pub async fn do_cname_dname(
                         maybe_secure = map_maybe_secure(state, maybe_secure);
                     // Just continue.
                     } else {
+                        // totest, CNAME from wildcard with bad non-existance
+                        // proof
                         // Report failure
-                        todo!();
+                        return (name, ValidationState::Bogus, ede);
                     }
                 }
                 name = cname.cname().to_name();
                 maybe_secure = map_maybe_secure(g.state(), maybe_secure);
                 count += 1;
                 if count > MAX_CNAME_DNAME {
-                    let ede = Some(
-                        ExtendedError::new_with_str(
-                            ExtendedErrorCode::DNSSEC_BOGUS,
-                            "CNAME loop",
-                        )
-                        .expect("should not fail"),
+                    let ede = make_ede(
+                        ExtendedErrorCode::DNSSEC_BOGUS,
+                        "too many DNAME/CNAME records in sequence",
                     );
                     return (name, ValidationState::Bogus, ede);
                 }
@@ -107,19 +106,21 @@ pub async fn do_cname_dname(
                 }
 
                 if let Some(_ce) = g.closest_encloser() {
+                    // totest, DNAME from wildcard
                     // wildcard DNAMEs are undefined.
-                    todo!();
+                    let ede = make_ede(
+                        ExtendedErrorCode::DNSSEC_BOGUS,
+                        "DNAME from wildcard",
+                    );
+                    return (owner, ValidationState::Bogus, ede);
                 }
 
                 name = match map_dname(&owner, dname, &name) {
                     Ok(name) => name,
                     Err(_) => {
-                        let ede = Some(
-                            ExtendedError::new_with_str(
-                                ExtendedErrorCode::DNSSEC_BOGUS,
-                                "Failed to expand DNAME",
-                            )
-                            .expect("should not fail"),
+                        let ede = make_ede(
+                            ExtendedErrorCode::DNSSEC_BOGUS,
+                            "Failed to expand DNAME",
                         );
                         return (owner, ValidationState::Bogus, ede);
                     }
@@ -127,12 +128,17 @@ pub async fn do_cname_dname(
                 maybe_secure = map_maybe_secure(g.state(), maybe_secure);
                 count += 1;
                 if count > MAX_CNAME_DNAME {
-                    todo!();
+                    // totest, loop with too many DNAME records
+                    let ede = make_ede(
+                        ExtendedErrorCode::DNSSEC_BOGUS,
+                        "too many DNAME/CNAME records in sequence",
+                    );
+                    return (owner, ValidationState::Bogus, ede);
                 }
                 continue 'name_loop;
             }
 
-            todo!();
+            // Just continue, not a CNAME or DNAME.
         }
 
         // No match CNAME or DNAME found.
@@ -219,36 +225,28 @@ pub fn get_soa_state(
     Option<(ValidationState, Name<Bytes>)>,
     Option<ExtendedError<Vec<u8>>>,
 ) {
-    let ede = None;
+    let mut ede = None;
     for g in groups.iter() {
         println!("get_soa_state: trying {g:?} for {qname:?}");
-        if g.class() != qclass {
-            println!("get_soa_state: wrong class");
-            todo!(); // EDE
+        if g.rtype() != Rtype::SOA {
             continue;
         }
-        if g.rtype() != Rtype::SOA {
-            println!("get_soa_state: wrong type");
+        if g.class() != qclass {
+            // totest, SOA with wrong class
+            if ede.is_none() {
+                ede = make_ede(
+                    ExtendedErrorCode::DNSSEC_BOGUS,
+                    "SOA with wrong class",
+                );
+            }
             continue;
         }
         if !qname.ends_with(&g.owner()) {
-            println!(
-                "get_soa_state: wrong name {qname:?} should end with {:?}",
-                g.owner()
+            // totest, SOA with wrong name
+            ede = make_ede(
+                ExtendedErrorCode::DNSSEC_BOGUS,
+                "SOA with wrong name",
             );
-            println!(
-                "{:?}.ends_with({:?}): {:?}",
-                qname,
-                g.owner(),
-                qname.ends_with(&g.owner())
-            );
-            println!(
-                "{:?}.ends_with({:?}): {:?}",
-                g.owner(),
-                qname,
-                g.owner().ends_with(&qname)
-            );
-            todo!(); // EDE
             continue;
         }
         return (Some((g.state(), g.signer_name())), g.ede());
@@ -279,7 +277,7 @@ fn get_child_of_ce(target: &Name<Bytes>, ce: &Name<Bytes>) -> Name<Bytes> {
     }
 
     // Something weird.
-    todo!();
+    panic!("Get child of closest encloser(ce), maybe target is not a decendent of ce?");
 }
 
 pub async fn check_not_exists_for_wildcard(
@@ -303,8 +301,13 @@ pub async fn check_not_exists_for_wildcard(
                 return (true, ValidationState::Secure, None);
             }
 
+            // totest, expanded wildcard does not match NSEC CE
             // Failure.
-            todo!();
+            let ede = make_ede(
+                ExtendedErrorCode::DNSSEC_BOGUS,
+                "wildcard does not match NSEC dereived closest encloser",
+            );
+            return (false, ValidationState::Bogus, ede);
         }
         NsecNXState::Nothing => (), // Continue with NSEC3
     }
@@ -329,6 +332,7 @@ pub async fn check_not_exists_for_wildcard(
             // Non-existance proof is insecure.
             return (true, ValidationState::Insecure, None);
         }
+        Nsec3NXStateNoCE::Bogus => todo!(),
         Nsec3NXStateNoCE::Nothing => (), // Continue.
     }
 

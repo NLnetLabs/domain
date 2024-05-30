@@ -162,7 +162,7 @@ impl TrustAnchors {
         name: TDN,
     ) -> Option<&TrustAnchor> {
         let mut best: Option<&TrustAnchor> = None;
-        let mut _best_labels = 0;
+        let mut best_labels = 0;
 
         for ta in &self.0 {
             if !name.ends_with(ta.rrs[0].owner()) {
@@ -170,11 +170,13 @@ impl TrustAnchors {
             }
             if best.is_none() {
                 best = Some(ta);
-                _best_labels = ta.label_count;
+                best_labels = ta.label_count;
                 continue;
             }
-            println!("found {:?} for {:?}", ta, name);
-            todo!();
+            if ta.label_count > best_labels {
+                best = Some(ta);
+                best_labels = ta.label_count;
+            }
         }
 
         best
