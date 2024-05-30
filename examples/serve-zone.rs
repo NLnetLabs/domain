@@ -125,7 +125,7 @@ async fn main() {
 
     // Create a catalog that will handle outbound XFR for zones
     let catalog = Catalog::new_with_zones([zone]).unwrap();
-    // let catalog = Catalog::new().;
+    // let catalog = Catalog::new();
     // catalog.insert_zone(zone).await.unwrap();
     let catalog = Arc::new(catalog);
     let cloned_catalog = catalog.clone();
