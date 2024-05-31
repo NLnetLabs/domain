@@ -101,10 +101,10 @@ impl Group {
             rrsig,
         );
 
-        return Ok(Self {
+        Ok(Self {
             rr_set: Vec::new(),
             sig_set: vec![record],
-        });
+        })
     }
 
     fn add(&mut self, rr: &ParsedRecord<'_, Bytes>) -> Result<(), ()> {
@@ -120,13 +120,11 @@ impl Group {
                 );
                 return Err(());
             }
-        } else {
-            if self.sig_set[0].owner().try_to_name::<Bytes>()
-                != rr.owner().try_to_name()
-            {
-                println!("add: return at line {}", line!());
-                return Err(());
-            }
+        } else if self.sig_set[0].owner().try_to_name::<Bytes>()
+            != rr.owner().try_to_name()
+        {
+            println!("add: return at line {}", line!());
+            return Err(());
         }
 
         let (curr_class, curr_rtype) = if !self.rr_set.is_empty() {
@@ -360,7 +358,7 @@ impl Group {
             }
         }
         let (state, wildcard, ede, _ttl) =
-            self.validate_with_node(&node, &vc.usig_cache()).await;
+            self.validate_with_node(&node, vc.usig_cache()).await;
         Ok((state, target.clone(), wildcard, ede))
     }
 
@@ -596,7 +594,7 @@ impl Group {
             .expect("infallible");
         let res = rrsig.verify_signed_data(key, &signed_data);
 
-        if !res.is_ok() {
+        if res.is_err() {
             println!("failed at line {} with {res:?}", line!());
         }
 
@@ -629,7 +627,7 @@ impl Group {
         ctx.update(&buf);
         let sig_hash = ctx.finish();
 
-        let cache_key = (
+        let cache_key = SigKey(
             signed_data,
             sig_hash.as_ref().to_vec(),
             key_hash.as_ref().to_vec(),
@@ -727,7 +725,7 @@ impl GroupSet {
             }
 
             // No match.
-            return true;
+            true
         });
     }
 
@@ -866,6 +864,7 @@ impl ValidatedGroup {
     }
 }
 
+#[allow(clippy::type_complexity)]
 fn to_bytes_record(
     rr: &ParsedRecord<'_, Bytes>,
 ) -> Result<Record<Name<Bytes>, AllRecordData<Bytes, ParsedName<Bytes>>>, Error>
@@ -883,8 +882,10 @@ fn to_bytes_record(
     )
 }
 
+#[derive(Eq, Hash, PartialEq)]
+struct SigKey(Vec<u8>, Vec<u8>, Vec<u8>);
 pub struct SigCache {
-    cache: Cache<(Vec<u8>, Vec<u8>, Vec<u8>), bool>,
+    cache: Cache<SigKey, bool>,
 }
 
 impl SigCache {

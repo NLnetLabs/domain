@@ -698,8 +698,7 @@ impl<Upstream> ValidationContext<Upstream> {
 
         let ds_group = match answers
             .iter()
-            .filter(|g| g.rtype() == Rtype::DS && g.owner() == name)
-            .next()
+            .find(|g| g.rtype() == Rtype::DS && g.owner() == name)
         {
             Some(g) => g,
             None => {
@@ -918,11 +917,9 @@ impl<Upstream> ValidationContext<Upstream> {
                     panic!("DS record expected");
                 }
             })
-            .filter(|(alg, dig)| {
-                supported_algorithm(alg) && supported_digest(dig)
-            })
-            .next()
-            .is_some();
+            .any(|(alg, dig)| {
+                supported_algorithm(&alg) && supported_digest(&dig)
+            });
 
         if !valid_algs {
             // Delegation is insecure
@@ -955,28 +952,25 @@ impl<Upstream> ValidationContext<Upstream> {
             ));
         }
 
-        let dnskey_group = match answers
-            .iter()
-            .filter(|g| g.rtype() == Rtype::DNSKEY)
-            .next()
-        {
-            Some(g) => g,
-            None => {
-                // totest, no DNSKEY in reply to DNSKEY request
-                // No DNSKEY RRset, set validation state to bogus.
-                let ede = make_ede(
-                    ExtendedErrorCode::DNSSEC_BOGUS,
-                    "No DNSKEY found",
-                );
-                return Ok(Node::new_delegation(
-                    name,
-                    ValidationState::Bogus,
-                    Vec::new(),
-                    ede,
-                    BOGUS_TTL,
-                ));
-            }
-        };
+        let dnskey_group =
+            match answers.iter().find(|g| g.rtype() == Rtype::DNSKEY) {
+                Some(g) => g,
+                None => {
+                    // totest, no DNSKEY in reply to DNSKEY request
+                    // No DNSKEY RRset, set validation state to bogus.
+                    let ede = make_ede(
+                        ExtendedErrorCode::DNSSEC_BOGUS,
+                        "No DNSKEY found",
+                    );
+                    return Ok(Node::new_delegation(
+                        name,
+                        ValidationState::Bogus,
+                        Vec::new(),
+                        ede,
+                        BOGUS_TTL,
+                    ));
+                }
+            };
 
         let dnskey_ttl = dnskey_group.min_ttl().into_duration();
         let ttl = min(ttl, dnskey_ttl);
@@ -1107,13 +1101,13 @@ impl<Upstream> ValidationContext<Upstream> {
         if ede.is_none() {
             ede = make_ede(ExtendedErrorCode::DNSSEC_BOGUS, "No signature");
         }
-        return Ok(Node::new_delegation(
+        Ok(Node::new_delegation(
             name,
             ValidationState::Bogus,
             Vec::new(),
             ede,
             BOGUS_TTL,
-        ));
+        ))
     }
 
     async fn cache_lookup(&self, name: &Name<Bytes>) -> Option<Arc<Node>> {
@@ -1217,26 +1211,23 @@ impl Node {
         let (mut answers, _, _ede) =
             request_as_groups(&upstream, &ta_owner, Rtype::DNSKEY).await?;
         // Get the DNSKEY group. We expect exactly one.
-        let dnskeys = match answers
-            .iter()
-            .filter(|g| g.rtype() == Rtype::DNSKEY)
-            .next()
-        {
-            Some(dnskeys) => dnskeys,
-            None => {
-                let ede = make_ede(
-                    ExtendedErrorCode::DNSSEC_BOGUS,
-                    "No DNSKEY RRset for trust anchor",
-                );
-                return Ok(Node::new_delegation(
-                    ta_owner,
-                    ValidationState::Bogus,
-                    Vec::new(),
-                    ede,
-                    BOGUS_TTL,
-                ));
-            }
-        };
+        let dnskeys =
+            match answers.iter().find(|g| g.rtype() == Rtype::DNSKEY) {
+                Some(dnskeys) => dnskeys,
+                None => {
+                    let ede = make_ede(
+                        ExtendedErrorCode::DNSSEC_BOGUS,
+                        "No DNSKEY RRset for trust anchor",
+                    );
+                    return Ok(Node::new_delegation(
+                        ta_owner,
+                        ValidationState::Bogus,
+                        Vec::new(),
+                        ede,
+                        BOGUS_TTL,
+                    ));
+                }
+            };
         println!("dnskeys = {dnskeys:?}");
 
         let mut bad_sigs = 0;
@@ -1432,6 +1423,7 @@ impl Node {
     }
 }
 
+#[allow(clippy::type_complexity)]
 fn has_key(
     dnskeys: &Group,
     tkey: &Record<
@@ -1466,6 +1458,7 @@ fn has_key(
     None
 }
 
+#[allow(clippy::type_complexity)]
 fn has_ds(
     dnskeys: &Group,
     ta_rr: &Record<
@@ -1513,6 +1506,7 @@ fn has_ds(
     None
 }
 
+#[allow(clippy::type_complexity)]
 fn find_key_for_ds(
     ds: &Ds<Bytes>,
     dnskey_group: &Group,
@@ -1826,7 +1820,7 @@ async fn nsec3_for_ds(
 
         let owner = g.owner();
         let first = owner.first();
-        let ownerhash = match nsec3_label_to_hash(&owner.first()) {
+        let ownerhash = match nsec3_label_to_hash(owner.first()) {
             Ok(hash) => hash,
             Err(_) => {
                 ede = make_ede(
@@ -1840,8 +1834,7 @@ async fn nsec3_for_ds(
         println!("got hash {hash:?} and first {first:?}");
 
         // Make sure the NSEC3 record is from an appropriate zone.
-        if !target.ends_with(&owner.parent().unwrap_or_else(|| Name::root()))
-        {
+        if !target.ends_with(&owner.parent().unwrap_or_else(Name::root)) {
             // totest, NSEC3 from wrong zone for DS
             // Matching hash but wrong zone. Skip.
             ede = make_ede(ExtendedErrorCode::OTHER, "NSEC3 from wrong zone");
@@ -1994,7 +1987,7 @@ where
         // Rewrite using an iterator.
         if let Ok(answer) = reply.answer() {
             for rr in answer {
-                match rr.map_or_else(
+                if let Some(e) = rr.map_or_else(
                     |_e| parse_error_ede.clone(),
                     |rr| {
                         answers.add(rr).map_or_else(
@@ -2003,10 +1996,7 @@ where
                         )
                     },
                 ) {
-                    Some(e) => {
-                        ede = Some(e);
-                    }
-                    None => (),
+                    ede = Some(e);
                 }
             }
         } else {
@@ -2015,7 +2005,7 @@ where
 
         if let Ok(authority) = reply.authority() {
             for rr in authority {
-                match rr.map_or_else(
+                if let Some(e) = rr.map_or_else(
                     |_e| parse_error_ede.clone(),
                     |rr| {
                         authorities.add(rr).map_or_else(
@@ -2024,14 +2014,11 @@ where
                         )
                     },
                 ) {
-                    Some(e) => {
-                        ede = Some(e);
-                    }
-                    None => (),
+                    ede = Some(e);
                 }
             }
         } else {
-            ede = parse_error_ede.clone();
+            ede = parse_error_ede;
         }
     } else {
         ede = make_ede(

@@ -32,7 +32,7 @@ use std::vec::Vec;
 //------------ Config ---------------------------------------------------------
 
 /// Configuration of a validator.
-#[derive(Clone, Debug)]
+#[derive(Clone, Default, Debug)]
 pub struct Config {}
 
 impl Config {
@@ -41,12 +41,6 @@ impl Config {
     /// The default values are documented at the relevant set_* methods.
     pub fn new() -> Self {
         Default::default()
-    }
-}
-
-impl Default for Config {
-    fn default() -> Self {
-        Self {}
     }
 }
 
@@ -245,9 +239,7 @@ where
         let res = self.vc.validate_msg(&response_msg).await;
         println!("get_response_impl: {res:?}");
         match res {
-            Err(err) => {
-                return Err(Error::Validation(err));
-            }
+            Err(err) => Err(Error::Validation(err)),
             Ok((state, opt_ede)) => {
                 match state {
                     ValidationState::Secure => {
@@ -265,7 +257,7 @@ where
                             let response_msg = Message::<Bytes>::from_octets(
                                 response_msg.into_octets().octets_into(),
                             )?;
-                            return Ok(response_msg);
+                            Ok(response_msg)
                         } else {
                             // Set AD if it was set in the request.
                             let msg = remove_dnssec(
@@ -273,11 +265,11 @@ where
                                 self.request_msg.header().ad(),
                                 false,
                             );
-                            return msg;
+                            msg
                         }
                     }
                     ValidationState::Bogus => {
-                        return serve_fail(&response_msg, opt_ede);
+                        serve_fail(&response_msg, opt_ede)
                     }
                     ValidationState::Insecure
                     | ValidationState::Indeterminate => {
@@ -298,11 +290,9 @@ where
                             let response_msg = Message::<Bytes>::from_octets(
                                 response_msg.into_octets().octets_into(),
                             )?;
-                            return Ok(response_msg);
+                            Ok(response_msg)
                         } else {
-                            let msg =
-                                remove_dnssec(&response_msg, false, false);
-                            return msg;
+                            remove_dnssec(&response_msg, false, false)
                         }
                     }
                 }

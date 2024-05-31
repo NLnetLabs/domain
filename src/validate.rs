@@ -250,7 +250,7 @@ impl<Octets: AsRef<[u8]>, TN: ToName> RrsigExt for Rrsig<Octets, TN> {
                         name.as_octets(),
                     ))
                     .unwrap(),
-                    None => Name::from(fqdn.to_bytes()),
+                    None => fqdn.to_bytes(),
                 },
             )
         } else {

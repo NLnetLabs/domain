@@ -31,7 +31,7 @@ pub struct TrustAnchor {
 }
 
 impl TrustAnchor {
-    fn new<'a>(rr: RrType) -> Self {
+    fn new(rr: RrType) -> Self {
         let owner = rr.owner().to_name::<Bytes>();
         let label_count = owner.label_count();
         Self {
@@ -41,7 +41,7 @@ impl TrustAnchor {
         }
     }
 
-    fn add<'a>(&mut self, rr: &RrType) -> Result<(), ()> {
+    fn add(&mut self, rr: &RrType) -> Result<(), ()> {
         // Only the owner names need to match. We assume !self.0.is_empty().
         if self.rrs[0].owner().name_eq(rr.owner()) {
             self.rrs.push(rr.clone());
@@ -117,7 +117,6 @@ impl TrustAnchors {
         Ok(new_self)
     }
 
-    #[must_use]
     pub fn add_u8(&mut self, str: &[u8]) -> Result<(), Error> {
         let mut zonefile = Zonefile::new();
         zonefile.extend_from_slice(str);

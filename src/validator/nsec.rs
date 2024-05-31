@@ -46,7 +46,7 @@ pub enum NsecState {
 // check the bitmap or we find target as an empty non-terminal.
 pub fn nsec_for_nodata(
     target: &Name<Bytes>,
-    groups: &mut Vec<ValidatedGroup>,
+    groups: &mut [ValidatedGroup],
     rtype: Rtype,
     signer_name: &Name<Bytes>,
 ) -> (NsecState, Option<ExtendedError<Vec<u8>>>) {
@@ -95,16 +95,15 @@ pub fn nsec_for_nodata(
                     );
                     return (NsecState::Nothing, ede);
                 }
-            } else {
-                if types.contains(Rtype::NS) && !types.contains(Rtype::SOA) {
-                    // totest, non-DS Rtype and NSEC from parent
-                    // This is an NSEC record from the parent. Complain.
-                    let ede = make_ede(
-                        ExtendedErrorCode::DNSSEC_BOGUS,
-                        "NSEC from parent for non-DS rtype",
-                    );
-                    return (NsecState::Nothing, ede);
-                }
+            } else if types.contains(Rtype::NS) && !types.contains(Rtype::SOA)
+            {
+                // totest, non-DS Rtype and NSEC from parent
+                // This is an NSEC record from the parent. Complain.
+                let ede = make_ede(
+                    ExtendedErrorCode::DNSSEC_BOGUS,
+                    "NSEC from parent for non-DS rtype",
+                );
+                return (NsecState::Nothing, ede);
             }
 
             // Anything else is a secure intermediate node.
@@ -132,7 +131,7 @@ pub fn nsec_for_nodata(
 // check the bitmap or we find the wildcard as an empty non-terminal.
 pub fn nsec_for_nodata_wildcard(
     target: &Name<Bytes>,
-    groups: &mut Vec<ValidatedGroup>,
+    groups: &mut [ValidatedGroup],
     rtype: Rtype,
     signer_name: &Name<Bytes>,
 ) -> (NsecState, Option<ExtendedError<Vec<u8>>>) {
@@ -174,7 +173,7 @@ pub enum NsecNXState {
 // exist. Return the status and the closest encloser.
 pub fn nsec_for_not_exists(
     target: &Name<Bytes>,
-    groups: &mut Vec<ValidatedGroup>,
+    groups: &mut [ValidatedGroup],
     signer_name: &Name<Bytes>,
 ) -> (NsecNXState, Option<ExtendedError<Vec<u8>>>) {
     let mut ede = None;
@@ -255,7 +254,7 @@ pub fn nsec_for_not_exists(
 // not exist.
 pub fn nsec_for_nxdomain(
     target: &Name<Bytes>,
-    groups: &mut Vec<ValidatedGroup>,
+    groups: &mut [ValidatedGroup],
     signer_name: &Name<Bytes>,
 ) -> (NsecNXState, Option<ExtendedError<Vec<u8>>>) {
     let (state, ede) = nsec_for_not_exists(target, groups, signer_name);
@@ -300,13 +299,11 @@ where
     }
 }
 
+type BytesNsec = Nsec<Bytes, ParsedName<Bytes>>;
 fn get_checked_nsec(
     group: &ValidatedGroup,
     signer_name: &Name<Bytes>,
-) -> (
-    Option<Nsec<Bytes, ParsedName<Bytes>>>,
-    Option<ExtendedError<Vec<u8>>>,
-) {
+) -> (Option<BytesNsec>, Option<ExtendedError<Vec<u8>>>) {
     if group.rtype() != Rtype::NSEC {
         return (None, None);
     }
@@ -409,7 +406,7 @@ fn nsec_closest_encloser(
 // check the bitmap.
 pub async fn nsec3_for_nodata(
     target: &Name<Bytes>,
-    groups: &mut Vec<ValidatedGroup>,
+    groups: &mut [ValidatedGroup],
     rtype: Rtype,
     signer_name: &Name<Bytes>,
     nsec3_cache: &Nsec3Cache,
@@ -488,16 +485,15 @@ pub async fn nsec3_for_nodata(
                     );
                     return (Nsec3State::Nothing, ede);
                 }
-            } else {
-                if types.contains(Rtype::NS) && !types.contains(Rtype::SOA) {
-                    // totest, non-DS Rtype and NSEC3 from parent
-                    // This is an NSEC3 record from the parent. Complain.
-                    let ede = make_ede(
-                        ExtendedErrorCode::DNSSEC_BOGUS,
-                        "NSEC3 from parent for non-DS rtype",
-                    );
-                    return (Nsec3State::Nothing, ede);
-                }
+            } else if types.contains(Rtype::NS) && !types.contains(Rtype::SOA)
+            {
+                // totest, non-DS Rtype and NSEC3 from parent
+                // This is an NSEC3 record from the parent. Complain.
+                let ede = make_ede(
+                    ExtendedErrorCode::DNSSEC_BOGUS,
+                    "NSEC3 from parent for non-DS rtype",
+                );
+                return (Nsec3State::Nothing, ede);
             }
             return (Nsec3State::NoData, None);
         }
@@ -582,7 +578,7 @@ pub enum Nsec3NXState {
 // and the closest encloser.
 pub async fn nsec3_for_not_exists(
     target: &Name<Bytes>,
-    groups: &mut Vec<ValidatedGroup>,
+    groups: &mut [ValidatedGroup],
     signer_name: &Name<Bytes>,
     nsec3_cache: &Nsec3Cache,
 ) -> (Nsec3NXState, Option<ExtendedError<Vec<u8>>>) {
@@ -736,7 +732,7 @@ pub enum Nsec3NXStateNoCE {
 // not exist.
 pub async fn nsec3_for_not_exists_no_ce(
     target: &Name<Bytes>,
-    groups: &mut Vec<ValidatedGroup>,
+    groups: &mut [ValidatedGroup],
     signer_name: &Name<Bytes>,
     nsec3_cache: &Nsec3Cache,
 ) -> (Nsec3NXStateNoCE, Option<ExtendedError<Vec<u8>>>) {
@@ -807,7 +803,7 @@ pub async fn nsec3_for_not_exists_no_ce(
         // No match, try the next one.
     }
 
-    return (Nsec3NXStateNoCE::Nothing, None);
+    (Nsec3NXStateNoCE::Nothing, None)
 }
 
 // Find a closest encloser for target and then find an NSEC3 record that proves
@@ -815,7 +811,7 @@ pub async fn nsec3_for_not_exists_no_ce(
 // rtype exist.
 pub async fn nsec3_for_nxdomain(
     target: &Name<Bytes>,
-    groups: &mut Vec<ValidatedGroup>,
+    groups: &mut [ValidatedGroup],
     signer_name: &Name<Bytes>,
     nsec3_cache: &Nsec3Cache,
 ) -> (Nsec3NXState, Option<ExtendedError<Vec<u8>>>) {
@@ -867,11 +863,10 @@ pub async fn nsec3_for_nxdomain(
     }
 }
 
+#[derive(Eq, Hash, PartialEq)]
+struct Nsec3CacheKey(Name<Bytes>, Nsec3HashAlg, u16, Nsec3Salt<Bytes>);
 pub struct Nsec3Cache {
-    cache: Cache<
-        (Name<Bytes>, Nsec3HashAlg, u16, Nsec3Salt<Bytes>),
-        Arc<OwnerHash<Vec<u8>>>,
-    >,
+    cache: Cache<Nsec3CacheKey, Arc<OwnerHash<Vec<u8>>>>,
 }
 
 impl Nsec3Cache {
@@ -942,7 +937,8 @@ pub async fn cached_nsec3_hash(
     salt: &Nsec3Salt<Bytes>,
     cache: &Nsec3Cache,
 ) -> Arc<OwnerHash<Vec<u8>>> {
-    let key = (owner.clone(), algorithm, iterations, salt.clone());
+    let key =
+        Nsec3CacheKey(owner.clone(), algorithm, iterations, salt.clone());
     if let Some(ce) = cache.cache.get(&key).await {
         println!("cached_nsec3_hash: existing hash for {owner:?}, {algorithm:?}, {iterations:?}, {salt:?}");
         return ce;
@@ -958,7 +954,7 @@ pub fn nsec3_label_to_hash(
     label: &Label,
 ) -> Result<OwnerHash<Vec<u8>>, Utf8Error> {
     let label_str = std::str::from_utf8(label.as_ref())?;
-    Ok(OwnerHash::<Vec<u8>>::from_str(&label_str).expect("should not fail"))
+    Ok(OwnerHash::<Vec<u8>>::from_str(label_str).expect("should not fail"))
 }
 
 pub fn nsec3_in_range<O1, O2, O3>(
@@ -980,6 +976,7 @@ where
     }
 }
 
+#[allow(clippy::type_complexity)]
 fn get_checked_nsec3(
     group: &ValidatedGroup,
     signer_name: &Name<Bytes>,

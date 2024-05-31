@@ -46,7 +46,7 @@ where
     match opt_entry {
         Some(entry) => {
             let reply = do_adjust(entry, msg);
-            return Some(reply);
+            Some(reply)
         }
         None => {
             println!("do_server: no reply at step value {step}");
@@ -154,7 +154,11 @@ where
 
     // Assume there is no existing Opt record.
     if reply.fl_do {
-        msg.opt(|o| Ok(o.set_dnssec_ok(reply.fl_do))).unwrap()
+        msg.opt(|o| {
+            o.set_dnssec_ok(reply.fl_do);
+            Ok(())
+        })
+        .unwrap()
     }
     msg
 }

@@ -32,8 +32,8 @@ pub async fn do_cname_dname(
     qname: Name<Bytes>,
     qclass: Class,
     qtype: Rtype,
-    answers: &mut Vec<ValidatedGroup>,
-    authorities: &mut Vec<ValidatedGroup>,
+    answers: &mut [ValidatedGroup],
+    authorities: &mut [ValidatedGroup],
     nsec3_cache: &Nsec3Cache,
 ) -> (Name<Bytes>, ValidationState, Option<ExtendedError<Vec<u8>>>) {
     let mut name = qname;
@@ -186,11 +186,12 @@ pub fn ttl_for_sig(
     ttl
 }
 
+#[allow(clippy::type_complexity)]
 pub fn get_answer_state(
     qname: &Name<Bytes>,
     qclass: Class,
     qtype: Rtype,
-    groups: &mut Vec<ValidatedGroup>,
+    groups: &mut [ValidatedGroup],
 ) -> Option<(
     ValidationState,
     Name<Bytes>,
@@ -217,10 +218,11 @@ pub fn get_answer_state(
     None
 }
 
+#[allow(clippy::type_complexity)]
 pub fn get_soa_state(
     qname: &Name<Bytes>,
     qclass: Class,
-    groups: &mut Vec<ValidatedGroup>,
+    groups: &mut [ValidatedGroup],
 ) -> (
     Option<(ValidationState, Name<Bytes>)>,
     Option<ExtendedError<Vec<u8>>>,
@@ -282,12 +284,12 @@ fn get_child_of_ce(target: &Name<Bytes>, ce: &Name<Bytes>) -> Name<Bytes> {
 
 pub async fn check_not_exists_for_wildcard(
     name: &Name<Bytes>,
-    group: &mut Vec<ValidatedGroup>,
+    group: &mut [ValidatedGroup],
     signer_name: &Name<Bytes>,
     closest_encloser: &Name<Bytes>,
     nsec3_cache: &Nsec3Cache,
 ) -> (bool, ValidationState, Option<ExtendedError<Vec<u8>>>) {
-    let (state, ede) = nsec_for_not_exists(name, group, &signer_name);
+    let (state, ede) = nsec_for_not_exists(name, group, signer_name);
     match state {
         NsecNXState::Exists => {
             // The name actually exists.
@@ -319,7 +321,7 @@ pub async fn check_not_exists_for_wildcard(
     let (state, ede) = nsec3_for_not_exists_no_ce(
         &child_of_ce,
         group,
-        &signer_name,
+        signer_name,
         nsec3_cache,
     )
     .await;
