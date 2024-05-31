@@ -61,6 +61,7 @@ pub trait ComposeRequest: Debug + Send + Sync {
     /// Returns whether a message is an answer to the request.
     fn is_answer(&self, answer: &Message<[u8]>) -> bool;
 
+    /// Return the status of the DNSSEC OK flag.
     fn dnssec_ok(&self) -> bool;
 }
 
@@ -196,7 +197,7 @@ impl<Octs: AsRef<[u8]> + Debug + Octets> RequestMessage<Octs> {
         let target = self.append_message_impl(target)?;
 
         // It would be nice to use .builder() here. But that one deletes all
-        // section. We have to resort to .as_builder() which gives a
+        // sections. We have to resort to .as_builder() which gives a
         // reference and then .clone()
         let result = target.as_builder().clone();
         let msg = Message::from_octets(result.finish().into_target()).expect(
