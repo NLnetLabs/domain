@@ -223,7 +223,7 @@ impl Name<[u8]> {
     /// Creates a domain name from an octet slice without checking,
     unsafe fn from_slice_unchecked(slice: &[u8]) -> &Self {
         // SAFETY: Name has repr(transparent)
-        std::mem::transmute(slice)
+        core::mem::transmute(slice)
     }
 
     /// Creates a domain name from an octets slice.

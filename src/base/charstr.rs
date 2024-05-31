@@ -184,7 +184,7 @@ impl CharStr<[u8]> {
     #[must_use]
     pub unsafe fn from_slice_unchecked(slice: &[u8]) -> &Self {
         // SAFETY: Charstr has repr(transparent)
-        std::mem::transmute(slice)
+        core::mem::transmute(slice)
     }
 
     /// Creates a character string from a mutable slice without checking.
@@ -195,7 +195,7 @@ impl CharStr<[u8]> {
     /// long. Otherwise, the behaviour is undefined.
     unsafe fn from_slice_mut_unchecked(slice: &mut [u8]) -> &mut Self {
         // SAFETY: Charstr has repr(transparent)
-        std::mem::transmute(slice)
+        core::mem::transmute(slice)
     }
 
     /// Checks whether an octets slice contains a correct character string.

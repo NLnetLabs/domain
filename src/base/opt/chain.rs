@@ -52,7 +52,7 @@ impl<Name: ?Sized> Chain<Name> {
     /// Creates a reference to CHAIN option data from a reference to the start.
     pub fn new_ref(start: &Name) -> &Self {
         // SAFETY: Chain has repr(transparent)
-        unsafe { std::mem::transmute(start) }
+        unsafe { core::mem::transmute(start) }
     }
 
     /// Returns a reference to the start point.

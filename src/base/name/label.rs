@@ -53,7 +53,7 @@ impl Label {
     /// The `slice` must be at most 63 octets long.
     pub(super) unsafe fn from_slice_unchecked(slice: &[u8]) -> &Self {
         // SAFETY: Label has repr(transparent)
-        std::mem::transmute(slice)
+        core::mem::transmute(slice)
     }
 
     /// Creates a mutable label from the underlying slice without checking.
@@ -65,7 +65,7 @@ impl Label {
         slice: &mut [u8],
     ) -> &mut Self {
         // SAFETY: Label has repr(transparent)
-        std::mem::transmute(slice)
+        core::mem::transmute(slice)
     }
 
     /// Returns a static reference to the root label.

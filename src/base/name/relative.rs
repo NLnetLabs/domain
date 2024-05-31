@@ -135,7 +135,7 @@ impl RelativeName<[u8]> {
     /// [`from_octets_unchecked`]: RelativeName::from_octets_unchecked
     pub(super) unsafe fn from_slice_unchecked(slice: &[u8]) -> &Self {
         // SAFETY: RelativeName has repr(transparent)
-        std::mem::transmute(slice)
+        core::mem::transmute(slice)
     }
 
     /// Creates a relative domain name from an octet slice.

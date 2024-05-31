@@ -95,7 +95,7 @@ impl Nsid<[u8]> {
     #[must_use]
     pub unsafe fn from_slice_unchecked(slice: &[u8]) -> &Self {
         // SAFETY: Nsid has repr(transparent)
-        std::mem::transmute(slice)
+        core::mem::transmute(slice)
     }
 
     /// Creates an empty NSID option value.

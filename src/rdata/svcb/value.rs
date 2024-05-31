@@ -256,7 +256,7 @@ macro_rules! octets_wrapper {
             #[must_use]
             pub unsafe fn from_slice_unchecked(slice: &[u8]) -> &Self {
                 // SAFETY: Self has repr(transparent)
-                std::mem::transmute(slice)
+                core::mem::transmute(slice)
             }
         }
 

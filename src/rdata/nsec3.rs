@@ -773,7 +773,7 @@ impl Nsec3Salt<[u8]> {
             Err(Nsec3SaltError(()))
         } else {
             // SAFETY: Nsec3Salt has repr(transparent)
-            Ok(unsafe { std::mem::transmute(slice) })
+            Ok(unsafe { core::mem::transmute(slice) })
         }
     }
 }
@@ -1183,7 +1183,7 @@ impl OwnerHash<[u8]> {
             Err(OwnerHashError(()))
         } else {
             // SAFETY: OwnerHash has repr(transparent)
-            Ok(unsafe { std::mem::transmute(slice) })
+            Ok(unsafe { core::mem::transmute(slice) })
         }
     }
 }

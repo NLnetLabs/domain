@@ -128,7 +128,7 @@ impl SvcParams<[u8]> {
     #[must_use]
     pub unsafe fn from_slice_unchecked(slice: &[u8]) -> &Self {
         // SAFETY: SvcParams has repr(transparent)
-        std::mem::transmute(slice)
+        core::mem::transmute(slice)
     }
 
     /// Checks that a slice contains a correctly encoded parameters sequence.

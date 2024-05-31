@@ -155,7 +155,7 @@ impl Txt<[u8]> {
     /// See [`from_octets][Self::from_octets] for the required content.
     unsafe fn from_slice_unchecked(slice: &[u8]) -> &Self {
         // SAFETY: Txt has repr(transparent)
-        std::mem::transmute(slice)
+        core::mem::transmute(slice)
     }
 
     /// Checks that a slice contains correctly encoded TXT data.
