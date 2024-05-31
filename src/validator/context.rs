@@ -320,7 +320,7 @@ impl<Upstream> ValidationContext<Upstream> {
                             ValidationState::Secure,
                             maybe_secure,
                         ),
-                        None,
+                        ede,
                     ))
                 }
                 NsecState::Nothing => (), // Try something else.
@@ -1214,7 +1214,7 @@ impl Node {
         let ta_owner = ta.owner();
 
         // We expect a positive reply so the authority section can be ignored.
-        let (mut answers, _, ede) =
+        let (mut answers, _, _ede) =
             request_as_groups(&upstream, &ta_owner, Rtype::DNSKEY).await?;
         // Get the DNSKEY group. We expect exactly one.
         let dnskeys = match answers

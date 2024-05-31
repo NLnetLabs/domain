@@ -52,10 +52,13 @@ pub fn nsec_for_nodata(
 ) -> (NsecState, Option<ExtendedError<Vec<u8>>>) {
     let mut ede = None;
     for g in groups.iter() {
-        let (opt_nsec, ede) = get_checked_nsec(g, signer_name);
+        let (opt_nsec, new_ede) = get_checked_nsec(g, signer_name);
         let nsec = if let Some(nsec) = opt_nsec {
             nsec
         } else {
+            if ede.is_none() {
+                ede = new_ede;
+            }
             continue;
         };
 
@@ -176,10 +179,13 @@ pub fn nsec_for_not_exists(
 ) -> (NsecNXState, Option<ExtendedError<Vec<u8>>>) {
     let mut ede = None;
     for g in groups.iter() {
-        let (opt_nsec, ede) = get_checked_nsec(g, signer_name);
+        let (opt_nsec, new_ede) = get_checked_nsec(g, signer_name);
         let nsec = if let Some(nsec) = opt_nsec {
             nsec
         } else {
+            if ede.is_none() {
+                ede = new_ede;
+            }
             continue;
         };
 
@@ -509,9 +515,11 @@ pub enum Nsec3State {
     Nothing,
 }
 
+/*
 // Find a closest encloser target and then find an NSEC3 record for the
 // wildcard that proves that no record that matches
 // rtype exist.
+// weird, this function is not needed.
 async fn nsec3_for_nodata_wildcard(
     target: &Name<Bytes>,
     groups: &mut Vec<ValidatedGroup>,
@@ -559,6 +567,7 @@ async fn nsec3_for_nodata_wildcard(
         | Nsec3State::NoDataInsecure => (state, ede),
     }
 }
+*/
 
 #[derive(Debug)]
 pub enum Nsec3NXState {
