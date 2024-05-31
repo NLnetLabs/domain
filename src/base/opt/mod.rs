@@ -381,6 +381,7 @@ impl<Octs: AsRef<[u8]> + ?Sized> fmt::Debug for Opt<Octs> {
 //    | RDATA      | octet stream | {attribute,value} pairs      |
 //    +------------+--------------+------------------------------+
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
+#[repr(transparent)]
 pub struct OptHeader {
     /// The bytes of the header.
     inner: [u8; 9],
