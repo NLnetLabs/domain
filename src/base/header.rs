@@ -58,6 +58,7 @@ use octseq::parse::Parser;
 /// [RFC 1035]: https://tools.ietf.org/html/rfc1035
 /// [RFC 4035]: https://tools.ietf.org/html/rfc4035
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[repr(transparent)]
 pub struct Header {
     /// The actual header in its wire format representation.
     ///
@@ -477,6 +478,7 @@ impl FromStr for Flags {
 /// [RFC 1035]: https://tools.ietf.org/html/rfc1035
 /// [RFC 2136]: https://tools.ietf.org/html/rfc2136
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[repr(transparent)]
 pub struct HeaderCounts {
     /// The actual headers in their wire-format representation.
     ///
@@ -788,6 +790,7 @@ impl HeaderCounts {
 /// [`for_message_slice_mut`][Self::for_message_slice_mut]
 /// functions.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[repr(transparent)]
 pub struct HeaderSection {
     inner: [u8; 12],
 }

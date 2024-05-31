@@ -64,6 +64,7 @@ use core::marker::PhantomData;
 /// in the record data, it is limited by the length of the record data only.
 #[derive(Clone, Default)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[repr(transparent)]
 pub struct SvcParams<Octs: ?Sized> {
     #[cfg_attr(
         feature = "serde",
@@ -126,7 +127,8 @@ impl SvcParams<[u8]> {
     /// parameter sequence.
     #[must_use]
     pub unsafe fn from_slice_unchecked(slice: &[u8]) -> &Self {
-        &*(slice as *const [u8] as *const Self)
+        // SAFETY: SvcParams has repr(transparent)
+        std::mem::transmute(slice)
     }
 
     /// Checks that a slice contains a correctly encoded parameters sequence.

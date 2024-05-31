@@ -226,6 +226,7 @@ macro_rules! octets_wrapper {
     ( $(#[$attr:meta])* $name:ident => $key:ident) => {
         $(#[$attr])*
         #[derive(Debug, Clone)]
+        #[repr(transparent)]
         pub struct $name<Octs: ?Sized>(Octs);
 
         impl $name<()> {
@@ -254,7 +255,8 @@ macro_rules! octets_wrapper {
             /// formated value of at most 65,535 octets.
             #[must_use]
             pub unsafe fn from_slice_unchecked(slice: &[u8]) -> &Self {
-                &*(slice as *const [u8] as *const Self)
+                // SAFETY: Self has repr(transparent)
+                std::mem::transmute(slice)
             }
         }
 

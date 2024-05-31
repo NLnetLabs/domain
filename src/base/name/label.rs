@@ -37,6 +37,7 @@ use octseq::builder::OctetsBuilder;
 /// [`Label`] differs from an octets slice in how it compares: as labels are to
 /// be case-insensitive, all the comparison traits as well as `Hash` are
 /// implemented ignoring ASCII-case.
+#[repr(transparent)]
 pub struct Label([u8]);
 
 /// # Creation
@@ -51,7 +52,8 @@ impl Label {
     ///
     /// The `slice` must be at most 63 octets long.
     pub(super) unsafe fn from_slice_unchecked(slice: &[u8]) -> &Self {
-        &*(slice as *const [u8] as *const Self)
+        // SAFETY: Label has repr(transparent)
+        std::mem::transmute(slice)
     }
 
     /// Creates a mutable label from the underlying slice without checking.
@@ -62,7 +64,8 @@ impl Label {
     pub(super) unsafe fn from_slice_mut_unchecked(
         slice: &mut [u8],
     ) -> &mut Self {
-        &mut *(slice as *mut [u8] as *mut Self)
+        // SAFETY: Label has repr(transparent)
+        std::mem::transmute(slice)
     }
 
     /// Returns a static reference to the root label.
@@ -209,12 +212,12 @@ impl Label {
     /// Returns a reference to the underlying octets slice.
     #[must_use]
     pub fn as_slice(&self) -> &[u8] {
-        unsafe { &*(self as *const Self as *const [u8]) }
+        &self.0
     }
 
     /// Returns a mutable reference to the underlying octets slice.
     pub fn as_slice_mut(&mut self) -> &mut [u8] {
-        unsafe { &mut *(self as *mut Label as *mut [u8]) }
+        &mut self.0
     }
 
     /// Converts the label into the canonical form.

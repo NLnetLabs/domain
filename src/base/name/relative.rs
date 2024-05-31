@@ -38,6 +38,7 @@ use std::vec::Vec;
 /// can always safely turn a [`RelativeName`] into a [`Name`] by adding the root
 /// label (which is exactly one byte long).
 #[derive(Clone)]
+#[repr(transparent)]
 pub struct RelativeName<Octs: ?Sized>(Octs);
 
 /// # Creating Values
@@ -133,7 +134,8 @@ impl RelativeName<[u8]> {
     ///
     /// [`from_octets_unchecked`]: RelativeName::from_octets_unchecked
     pub(super) unsafe fn from_slice_unchecked(slice: &[u8]) -> &Self {
-        &*(slice as *const [u8] as *const RelativeName<[u8]>)
+        // SAFETY: RelativeName has repr(transparent)
+        std::mem::transmute(slice)
     }
 
     /// Creates a relative domain name from an octet slice.

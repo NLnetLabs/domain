@@ -671,6 +671,7 @@ impl<Octs: AsRef<[u8]>> fmt::Debug for Nsec3param<Octs> {
 /// The salt uses Base 16 (i.e., hex digits) as its representation format with
 /// no whitespace allowed.
 #[derive(Clone)]
+#[repr(transparent)]
 pub struct Nsec3Salt<Octs: ?Sized>(Octs);
 
 impl Nsec3Salt<()> {
@@ -771,7 +772,8 @@ impl Nsec3Salt<[u8]> {
         if slice.len() > Nsec3Salt::MAX_LEN {
             Err(Nsec3SaltError(()))
         } else {
-            Ok(unsafe { &*(slice as *const [u8] as *const Nsec3Salt<[u8]>) })
+            // SAFETY: Nsec3Salt has repr(transparent)
+            Ok(unsafe { std::mem::transmute(slice) })
         }
     }
 }
@@ -1081,6 +1083,7 @@ where
 /// For its presentation format, the hash uses an unpadded Base 32 encoding
 /// with no whitespace allowed.
 #[derive(Clone)]
+#[repr(transparent)]
 pub struct OwnerHash<Octs: ?Sized>(Octs);
 
 impl OwnerHash<()> {
@@ -1179,7 +1182,8 @@ impl OwnerHash<[u8]> {
         if slice.len() > OwnerHash::MAX_LEN {
             Err(OwnerHashError(()))
         } else {
-            Ok(unsafe { &*(slice as *const [u8] as *const OwnerHash<[u8]>) })
+            // SAFETY: OwnerHash has repr(transparent)
+            Ok(unsafe { std::mem::transmute(slice) })
         }
     }
 }

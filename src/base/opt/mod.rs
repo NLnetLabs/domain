@@ -72,6 +72,7 @@ use octseq::parse::Parser;
 /// [`iter`]: #method.iter
 /// [`OptRecord`]: struct.OptRecord.html
 #[derive(Clone)]
+#[repr(transparent)]
 pub struct Opt<Octs: ?Sized> {
     octets: Octs,
 }
@@ -135,7 +136,8 @@ impl Opt<[u8]> {
     /// OPT record data. The data of the options themselves does not need to
     /// be correct.
     unsafe fn from_slice_unchecked(slice: &[u8]) -> &Self {
-        &*(slice as *const [u8] as *const Self)
+        // SAFETY: Opt has repr(transparent)
+        std::mem::transmute(slice)
     }
 
     /// Checks that the slice contains acceptable OPT record data.
@@ -1056,7 +1058,7 @@ pub enum BuildDataError {
 }
 
 impl BuildDataError {
-    /// Converts the error into a `LongOptData` error for ‘endless’ buffers.
+    /// Converts the error into a [`LongOptData`] error for ‘endless’ buffers.
     ///
     /// # Panics
     ///

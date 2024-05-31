@@ -6,18 +6,17 @@
 //!
 //! The option is defined in [RFC 7901](https://tools.ietf.org/html/rfc7901).
 
-use core::fmt;
 use super::super::iana::OptionCode;
 use super::super::message_builder::OptBuilder;
 use super::super::name::{Name, ToName};
 use super::super::wire::{Composer, ParseError};
-use super::{Opt, OptData, ComposeOptData, ParseOptData};
+use super::{ComposeOptData, Opt, OptData, ParseOptData};
+use core::cmp::Ordering;
+use core::fmt;
+use core::hash;
 use octseq::builder::OctetsBuilder;
 use octseq::octets::{Octets, OctetsFrom};
 use octseq::parse::Parser;
-use core::hash;
-use core::cmp::Ordering;
-
 
 //------------ Chain --------------------------------------------------------
 
@@ -30,9 +29,10 @@ use core::cmp::Ordering;
 /// furthest away from the root to which the requesting resolver already has
 /// all necessary records.
 #[derive(Clone, Copy)]
+#[repr(transparent)]
 pub struct Chain<Name: ?Sized> {
     /// The start name AKA ‘closest trust point.’
-    start: Name
+    start: Name,
 }
 
 impl Chain<()> {
@@ -41,20 +41,18 @@ impl Chain<()> {
 }
 
 impl<Name: ?Sized> Chain<Name> {
-    
     /// Creates new CHAIN option data using the given name as the start.
     pub fn new(start: Name) -> Self
     where
-        Name: Sized
+        Name: Sized,
     {
         Chain { start }
     }
 
     /// Creates a reference to CHAIN option data from a reference to the start.
     pub fn new_ref(start: &Name) -> &Self {
-        unsafe {
-            &*(start as *const Name as *const Self)
-        }
+        // SAFETY: Chain has repr(transparent)
+        unsafe { std::mem::transmute(start) }
     }
 
     /// Returns a reference to the start point.
@@ -68,7 +66,7 @@ impl<Name: ?Sized> Chain<Name> {
     /// Converts the value into the start point.
     pub fn into_start(self) -> Name
     where
-        Name: Sized
+        Name: Sized,
     {
         self.start
     }
@@ -77,7 +75,7 @@ impl<Name: ?Sized> Chain<Name> {
 impl<Octs> Chain<Name<Octs>> {
     /// Parses CHAIN option data from its wire format.
     pub fn parse<'a, Src: Octets<Range<'a> = Octs> + ?Sized>(
-        parser: &mut Parser<'a, Src>
+        parser: &mut Parser<'a, Src>,
     ) -> Result<Self, ParseError> {
         Name::parse(parser).map(Self::new)
     }
@@ -86,7 +84,9 @@ impl<Octs> Chain<Name<Octs>> {
 //--- OctetsFrom
 
 impl<Name, SrcName> OctetsFrom<Chain<SrcName>> for Chain<Name>
-where Name: OctetsFrom<SrcName> {
+where
+    Name: OctetsFrom<SrcName>,
+{
     type Error = Name::Error;
 
     fn try_octets_from(src: Chain<SrcName>) -> Result<Self, Self::Error> {
@@ -99,21 +99,21 @@ where Name: OctetsFrom<SrcName> {
 impl<Name, OtherName> PartialEq<Chain<OtherName>> for Chain<Name>
 where
     Name: ToName,
-    OtherName: ToName
+    OtherName: ToName,
 {
     fn eq(&self, other: &Chain<OtherName>) -> bool {
         self.start().name_eq(other.start())
     }
 }
 
-impl<Name: ToName> Eq for Chain<Name> { }
+impl<Name: ToName> Eq for Chain<Name> {}
 
 //--- PartialOrd and Ord
 
 impl<Name, OtherName> PartialOrd<Chain<OtherName>> for Chain<Name>
 where
     Name: ToName,
-    OtherName: ToName
+    OtherName: ToName,
 {
     fn partial_cmp(&self, other: &Chain<OtherName>) -> Option<Ordering> {
         Some(self.start().name_cmp(other.start()))
@@ -143,15 +143,16 @@ impl<Name> OptData for Chain<Name> {
 }
 
 impl<'a, Octs> ParseOptData<'a, Octs> for Chain<Name<Octs::Range<'a>>>
-where Octs: Octets {
+where
+    Octs: Octets,
+{
     fn parse_option(
         code: OptionCode,
         parser: &mut Parser<'a, Octs>,
     ) -> Result<Option<Self>, ParseError> {
         if code == OptionCode::CHAIN {
             Self::parse(parser).map(Some)
-        }
-        else {
+        } else {
             Ok(None)
         }
     }
@@ -163,7 +164,8 @@ impl<Name: ToName> ComposeOptData for Chain<Name> {
     }
 
     fn compose_option<Target: OctetsBuilder + ?Sized>(
-        &self, target: &mut Target
+        &self,
+        target: &mut Target,
     ) -> Result<(), Target::AppendError> {
         self.start.compose(target)
     }
@@ -205,7 +207,8 @@ impl<'a, Target: Composer> OptBuilder<'a, Target> {
     /// The `start` name is the longest suffix of the queried owner name
     /// for which the client already has all necessary records.
     pub fn chain(
-        &mut self, start: impl ToName
+        &mut self,
+        start: impl ToName,
     ) -> Result<(), Target::AppendError> {
         self.push(&Chain::new(start))
     }
@@ -216,18 +219,17 @@ impl<'a, Target: Composer> OptBuilder<'a, Target> {
 #[cfg(test)]
 #[cfg(all(feature = "std", feature = "bytes"))]
 mod test {
-    use super::*;
     use super::super::test::test_option_compose_parse;
-    use std::vec::Vec;
+    use super::*;
     use core::str::FromStr;
-    
+    use std::vec::Vec;
+
     #[test]
     #[allow(clippy::redundant_closure)] // lifetimes ...
     fn chain_compose_parse() {
         test_option_compose_parse(
             &Chain::new(Name::<Vec<u8>>::from_str("example.com").unwrap()),
-            |parser| Chain::parse(parser)
+            |parser| Chain::parse(parser),
         );
     }
 }
-

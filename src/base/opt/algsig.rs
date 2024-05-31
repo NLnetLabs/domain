@@ -47,6 +47,7 @@ use core::marker::PhantomData;
 /// [`iter`][Understood::iter] method or use the [`IntoIterator`] implementation
 /// for a reference.
 #[derive(Clone, Copy)]
+#[repr(transparent)]
 pub struct Understood<Variant, Octs: ?Sized> {
     /// A marker for the variant.
     marker: PhantomData<Variant>,
@@ -152,7 +153,8 @@ impl<Variant> Understood<Variant, [u8]> {
     /// 16 bit values that is no longer than 65,535 octets.
     #[must_use]
     pub unsafe fn from_slice_unchecked(slice: &[u8]) -> &Self {
-        &*(slice as *const [u8] as *const Self)
+        // SAFETY: Understood has repr(transparent)
+        std::mem::transmute(slice)
     }
 
     /// Checks that a slice contains a correctly encoded value.
