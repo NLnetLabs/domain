@@ -2274,7 +2274,7 @@ where
                 }
             }
         } else {
-            ede = parse_error_ede.clone();
+            ede.clone_from(&parse_error_ede);
         }
 
         if let Ok(authority) = reply.authority() {
