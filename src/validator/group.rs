@@ -212,21 +212,32 @@ impl Group {
         Err(())
     }
 
-    pub fn validated(
+    pub async fn validated<Octs, Upstream>(
         &self,
-        state: ValidationState,
-        signer_name: Name<Bytes>,
-        wildcard: Option<Name<Bytes>>,
-        ede: Option<ExtendedError<Vec<u8>>>,
-    ) -> ValidatedGroup {
-        ValidatedGroup::new(
+        vc: &ValidationContext<Upstream>,
+    ) -> Result<ValidatedGroup, Error>
+    where
+        Octs: AsRef<[u8]>
+            + Clone
+            + Debug
+            + Octets
+            + OctetsFrom<Vec<u8>>
+            + Send
+            + Sync
+            + 'static,
+        <Octs as OctetsFrom<Vec<u8>>>::Error: Debug,
+        Upstream: Clone + SendRequest<RequestMessage<Octs>>,
+    {
+        let (state, signer_name, wildcard, ede) =
+            self.validate_with_vc(vc).await?;
+        Ok(ValidatedGroup::new(
             self.rr_set.clone(),
             self.sig_set.clone(),
             state,
             signer_name,
             wildcard,
             ede,
-        )
+        ))
     }
 
     pub fn owner(&self) -> Name<Bytes> {

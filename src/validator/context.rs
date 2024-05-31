@@ -84,6 +84,12 @@ const MAX_USIG_CACHE: u64 = 1000;
 
 const MAX_NODE_VALID: Duration = Duration::from_secs(600);
 
+enum VGResult {
+    Groups(Vec<ValidatedGroup>),
+    Bogus(Option<ExtendedError<Vec<u8>>>),
+    Err(Error),
+}
+
 pub struct ValidationContext<Upstream> {
     ta: TrustAnchors,
     upstream: Upstream,
@@ -150,21 +156,19 @@ impl<Upstream> ValidationContext<Upstream> {
         // reference with a lifetime that is too long.
         // Group can handle this by hiding the state behind a Mutex.
         let mut answers = match self.validate_groups(&mut answers).await {
-            Ok(vgs) => vgs,
-            Err((ValidationState::Bogus, ede)) => {
-                return Ok((ValidationState::Bogus, ede));
-            }
-            Err(_) => panic!("Invalid ValidationState"),
+            VGResult::Groups(vgs) => vgs,
+            VGResult::Bogus(ede) => return Ok((ValidationState::Bogus, ede)),
+            VGResult::Err(err) => return Err(err),
         };
 
-        let mut authorities =
-            match self.validate_groups(&mut authorities).await {
-                Ok(vgs) => vgs,
-                Err((ValidationState::Bogus, ede)) => {
-                    return Ok((ValidationState::Bogus, ede));
-                }
-                Err(_) => panic!("Invalid ValidationState"),
-            };
+        let mut authorities = match self
+            .validate_groups(&mut authorities)
+            .await
+        {
+            VGResult::Groups(vgs) => vgs,
+            VGResult::Bogus(ede) => return Ok((ValidationState::Bogus, ede)),
+            VGResult::Err(err) => return Err(err),
+        };
 
         // We may need to update TTLs of signed RRsets
 
@@ -1129,13 +1133,7 @@ impl<Upstream> ValidationContext<Upstream> {
         &self.usig_cache
     }
 
-    async fn validate_groups<Octs>(
-        &self,
-        groups: &mut GroupSet,
-    ) -> Result<
-        Vec<ValidatedGroup>,
-        (ValidationState, Option<ExtendedError<Vec<u8>>>),
-    >
+    async fn validate_groups<Octs>(&self, groups: &mut GroupSet) -> VGResult
     where
         Octs: AsRef<[u8]>
             + Clone
@@ -1150,15 +1148,16 @@ impl<Upstream> ValidationContext<Upstream> {
     {
         let mut vgs = Vec::new();
         for g in groups.iter() {
-            //println!("Validating group {g:?}");
-            let (state, signer_name, wildcard, ede) =
-                g.validate_with_vc(self).await.unwrap();
-            if let ValidationState::Bogus = state {
-                return Err((state, ede));
+            let vg = match g.validated(self).await {
+                Ok(vg) => vg,
+                Err(err) => return VGResult::Err(err),
+            };
+            if let ValidationState::Bogus = vg.state() {
+                return VGResult::Bogus(vg.ede());
             }
-            vgs.push(g.validated(state, signer_name, wildcard, ede));
+            vgs.push(vg);
         }
-        Ok(vgs)
+        VGResult::Groups(vgs)
     }
 }
 
