@@ -38,11 +38,8 @@ async fn main() {
     msg.header_mut().set_rd(true);
     msg.header_mut().set_ad(true);
     let mut msg = msg.question();
-    msg.push((
-        Dname::vec_from_str("www.nlnetlabs.nl").unwrap(),
-        Rtype::AAAA,
-    ))
-    .unwrap();
+    msg.push((Name::vec_from_str("www.nlnetlabs.nl").unwrap(), Rtype::AAAA))
+        .unwrap();
     let mut req = RequestMessage::new(msg);
     req.set_dnssec_ok(true);
 
@@ -118,21 +115,9 @@ async fn main() {
     println!("Cached reply: {reply:?}");
 
     // Create a validating transport
-
-    // The validator only operates on RequestMessage<Bytes>. Get a new
-    // transport.
-    let (udptcp_conn2, transport) = dgram_stream::Connection::with_config(
-        udp_connect,
-        tcp_connect,
-        dgram_stream_config,
-    );
-    tokio::spawn(async move {
-        transport.run().await;
-        println!("UDP+TCP run exited");
-    });
-    let anchor_file = File::open("root.key").unwrap();
+    let anchor_file = File::open("examples/root.key").unwrap();
     let ta = TrustAnchors::from_file(anchor_file);
-    let vc = Arc::new(ValidationContext::new(ta, udptcp_conn2));
+    let vc = Arc::new(ValidationContext::new(ta, udptcp_conn.clone()));
     let val_conn = validator::Connection::new(udptcp_conn.clone(), vc);
 
     // Send a query message.

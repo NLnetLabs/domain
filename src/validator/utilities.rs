@@ -1,28 +1,28 @@
+use super::group::ValidatedGroup;
+use super::nsec::nsec3_for_not_exists_no_ce;
+use super::nsec::nsec_for_not_exists;
+use super::nsec::Nsec3Cache;
+use super::nsec::Nsec3NXStateNoCE;
+use super::nsec::NsecNXState;
+use super::types::ValidationState;
+use crate::base::iana::Class;
+use crate::base::iana::ExtendedErrorCode;
+use crate::base::name::Label;
+use crate::base::opt::ExtendedError;
 use crate::base::Name;
 use crate::base::NameBuilder;
 use crate::base::ParsedName;
 use crate::base::Record;
 use crate::base::Rtype;
 use crate::base::ToName;
-use crate::base::iana::Class;
-use crate::base::iana::ExtendedErrorCode;
-use crate::base::name::Label;
-use crate::base::opt::ExtendedError;
 use crate::rdata::dnssec::Timestamp;
+use crate::rdata::AllRecordData;
 use crate::rdata::Dname;
 use crate::rdata::Rrsig;
-use crate::rdata::AllRecordData;
 use bytes::Bytes;
 use std::cmp::min;
 use std::time::Duration;
 use std::vec::Vec;
-use super::group::ValidatedGroup;
-use super::nsec::nsec_for_not_exists;
-use super::nsec::NsecNXState;
-use super::nsec::nsec3_for_not_exists_no_ce;
-use super::nsec::Nsec3Cache;
-use super::nsec::Nsec3NXStateNoCE;
-use super::types::ValidationState;
 
 // Maximum number of CNAME or DNAME records used for in answer.
 const MAX_CNAME_DNAME: u8 = 12;
@@ -64,7 +64,6 @@ pub async fn do_cname_dname(
                 if let Some(ce) = g.closest_encloser() {
                     let (check, state, _ede) = check_not_exists_for_wildcard(
                         &name,
-                        qtype,
                         authorities,
                         &g.signer_name(),
                         &ce,
@@ -207,7 +206,7 @@ pub fn get_soa_state(
     Option<(ValidationState, Name<Bytes>)>,
     Option<ExtendedError<bytes::Bytes>>,
 ) {
-    let mut ede = None;
+    let ede = None;
     for g in groups.iter() {
         println!("get_soa_state: trying {g:?} for {qname:?}");
         if g.class() != qclass {
@@ -272,7 +271,6 @@ fn get_child_of_ce(target: &Name<Bytes>, ce: &Name<Bytes>) -> Name<Bytes> {
 
 pub async fn check_not_exists_for_wildcard(
     name: &Name<Bytes>,
-    qtype: Rtype,
     group: &mut Vec<ValidatedGroup>,
     signer_name: &Name<Bytes>,
     closest_encloser: &Name<Bytes>,
@@ -305,7 +303,6 @@ pub async fn check_not_exists_for_wildcard(
     let (state, ede) = nsec3_for_not_exists_no_ce(
         &child_of_ce,
         group,
-        qtype,
         &signer_name,
         nsec3_cache,
     )

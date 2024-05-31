@@ -1,23 +1,23 @@
 // Helper functions and constants for NSEC and NSEC3 validation.
 
+use super::group::ValidatedGroup;
+use super::types::ValidationState;
+use super::utilities::star_closest_encloser;
 use crate::base::iana::ExtendedErrorCode;
 use crate::base::iana::Nsec3HashAlg;
 use crate::base::name::Label;
 use crate::base::name::ToName;
+use crate::base::opt::ExtendedError;
 use crate::base::Name;
 use crate::base::ParsedName;
 use crate::base::Rtype;
-use crate::base::opt::ExtendedError;
 use crate::dep::octseq::Octets;
 use crate::dep::octseq::OctetsBuilder;
-use crate::rdata::Nsec;
-use crate::rdata::Nsec3;
 use crate::rdata::nsec3::Nsec3Salt;
 use crate::rdata::nsec3::OwnerHash;
 use crate::rdata::AllRecordData;
-use super::group::ValidatedGroup;
-use super::types::ValidationState;
-use super::utilities::star_closest_encloser;
+use crate::rdata::Nsec;
+use crate::rdata::Nsec3;
 use bytes::Bytes;
 use moka::future::Cache;
 use ring::digest;
@@ -208,10 +208,9 @@ pub fn nsec_for_not_exists(
 pub fn nsec_for_nxdomain(
     target: &Name<Bytes>,
     groups: &mut Vec<ValidatedGroup>,
-    rtype: Rtype,
     signer_name: &Name<Bytes>,
 ) -> NsecNXState {
-    let (state, ede) = nsec_for_not_exists(target, groups, signer_name);
+    let (state, _ede) = nsec_for_not_exists(target, groups, signer_name);
     let ce = match state {
         NsecNXState::Exists => {
             // We have proof that target exists, just pretend we found nothing.
@@ -423,8 +422,7 @@ async fn nsec3_for_nodata_wildcard(
     nsec3_cache: &Nsec3Cache,
 ) -> (Nsec3State, Option<ExtendedError<Bytes>>) {
     let (state, ede) =
-        nsec3_for_not_exists(target, groups, rtype, signer_name, nsec3_cache)
-            .await;
+        nsec3_for_not_exists(target, groups, signer_name, nsec3_cache).await;
     let (ce, secure) = match state {
         Nsec3NXState::DoesNotExist(ce) => (ce, true),
         Nsec3NXState::DoesNotExistInsecure(ce) => (ce, false),
@@ -466,7 +464,6 @@ pub enum Nsec3NXState {
 pub async fn nsec3_for_not_exists(
     target: &Name<Bytes>,
     groups: &mut Vec<ValidatedGroup>,
-    rtype: Rtype,
     signer_name: &Name<Bytes>,
     nsec3_cache: &Nsec3Cache,
 ) -> (Nsec3NXState, Option<ExtendedError<Bytes>>) {
@@ -616,7 +613,6 @@ pub enum Nsec3NXStateNoCE {
 pub async fn nsec3_for_not_exists_no_ce(
     target: &Name<Bytes>,
     groups: &mut Vec<ValidatedGroup>,
-    rtype: Rtype,
     signer_name: &Name<Bytes>,
     nsec3_cache: &Nsec3Cache,
 ) -> (Nsec3NXStateNoCE, Option<ExtendedError<Bytes>>) {
@@ -680,13 +676,11 @@ pub async fn nsec3_for_not_exists_no_ce(
 pub async fn nsec3_for_nxdomain(
     target: &Name<Bytes>,
     groups: &mut Vec<ValidatedGroup>,
-    rtype: Rtype,
     signer_name: &Name<Bytes>,
     nsec3_cache: &Nsec3Cache,
 ) -> (Nsec3NXState, Option<ExtendedError<Bytes>>) {
     let (state, ede) =
-        nsec3_for_not_exists(target, groups, rtype, signer_name, nsec3_cache)
-            .await;
+        nsec3_for_not_exists(target, groups, signer_name, nsec3_cache).await;
     let (ce, secure) = match state {
         Nsec3NXState::DoesNotExist(ce) => (ce, true),
         Nsec3NXState::DoesNotExistInsecure(ce) => (ce, false),
@@ -698,7 +692,6 @@ pub async fn nsec3_for_nxdomain(
     let (state, ede) = nsec3_for_not_exists_no_ce(
         &star_name,
         groups,
-        rtype,
         signer_name,
         nsec3_cache,
     )
@@ -894,4 +887,3 @@ fn get_checked_nsec3(
     // All check pass, return the NSEC3 record and the owner hash.
     Ok(Some((nsec3.clone(), ownerhash)))
 }
-

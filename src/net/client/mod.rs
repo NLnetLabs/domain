@@ -178,3 +178,4 @@ pub mod redundant;
 pub mod request;
 pub mod stream;
 pub mod validator;
+pub mod validator_test;

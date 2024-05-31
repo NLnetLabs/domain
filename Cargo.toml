@@ -41,7 +41,7 @@ tracing        = { version = "0.1.40", optional = true }
 tracing-subscriber = { version = "0.3.18", optional = true, features = ["env-filter"] }
 
 # For testing in integration tests:
-#mock_instant = { version = "0.4.0", optional = true }
+mock_instant = { version = "0.4.0", optional = true }
 
 [features]
 default     = ["std", "rand"]

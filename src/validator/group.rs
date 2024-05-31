@@ -21,7 +21,8 @@ use crate::base::rdata::ComposeRecordData;
 use crate::base::Record;
 use crate::base::Rtype;
 //use crate::base::UnknownRecordData;
-//use crate::dep::octseq::OctetsFrom;
+use crate::dep::octseq::Octets;
+use crate::dep::octseq::OctetsFrom;
 //use crate::dep::octseq::OctetsInto;
 use crate::dep::octseq::builder::with_infallible;
 use crate::net::client::request::RequestMessage;
@@ -257,7 +258,7 @@ impl Group {
         self.sig_set.iter()
     }
 
-    pub async fn validate_with_vc<Upstream>(
+    pub async fn validate_with_vc<Octs, Upstream>(
         &self,
         vc: &ValidationContext<Upstream>,
     ) -> (
@@ -267,7 +268,16 @@ impl Group {
         Option<ExtendedError<Bytes>>,
     )
     where
-        Upstream: Clone + SendRequest<RequestMessage<Bytes>>,
+        Octs: AsRef<[u8]>
+            + Clone
+            + Debug
+            + Octets
+            + OctetsFrom<Vec<u8>>
+            + Send
+            + Sync
+            + 'static,
+        <Octs as OctetsFrom<Vec<u8>>>::Error: Debug,
+        Upstream: Clone + SendRequest<RequestMessage<Octs>>,
     {
         println!("validate_with_vc: for group {self:?}");
         // We have two cases, with an without RRSIGs. With RRSIGs we can

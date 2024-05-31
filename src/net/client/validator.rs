@@ -8,6 +8,8 @@ use crate::base::MessageBuilder;
 use crate::base::ParsedName;
 use crate::base::Rtype;
 use crate::base::StaticCompressor;
+use crate::dep::octseq::Octets;
+use crate::dep::octseq::OctetsFrom;
 use crate::dep::octseq::OctetsInto;
 use crate::net::client::request::ComposeRequest;
 use crate::net::client::request::Error;
@@ -22,6 +24,7 @@ use std::boxed::Box;
 use std::fmt::Debug;
 use std::fmt::Formatter;
 use std::future::Future;
+use std::marker::PhantomData;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::vec::Vec;
@@ -51,7 +54,7 @@ impl Default for Config {
 
 #[derive(Clone)]
 /// A connection that caches responses from an upstream connection.
-pub struct Connection<Upstream, VCUpstream> {
+pub struct Connection<Upstream, VCOcts, VCUpstream> {
     /// Upstream transport to use for requests.
     upstream: Upstream,
 
@@ -59,9 +62,11 @@ pub struct Connection<Upstream, VCUpstream> {
 
     /// The configuration of this connection.
     config: Config,
+
+    _phantom: PhantomData<VCOcts>,
 }
 
-impl<Upstream, VCUpstream> Connection<Upstream, VCUpstream> {
+impl<Upstream, VCOcts, VCUpstream> Connection<Upstream, VCOcts, VCUpstream> {
     /// Create a new connection with default configuration parameters.
     ///
     /// Note that Upstream needs to implement [SendRequest]
@@ -86,25 +91,35 @@ impl<Upstream, VCUpstream> Connection<Upstream, VCUpstream> {
             upstream,
             vc,
             config,
+            _phantom: PhantomData,
         }
     }
 }
 
 //------------ SendRequest ----------------------------------------------------
 
-impl<CR, Upstream, VCUpstream> SendRequest<CR>
-    for Connection<Upstream, VCUpstream>
+impl<CR, Upstream, VCOcts, VCUpstream> SendRequest<CR>
+    for Connection<Upstream, VCOcts, VCUpstream>
 where
     CR: ComposeRequest + Clone + Send + Sync + 'static,
     Upstream: Clone + SendRequest<CR> + Send + Sync + 'static,
+    VCOcts: AsRef<[u8]>
+        + Clone
+        + Debug
+        + Octets
+        + OctetsFrom<Vec<u8>>
+        + Send
+        + Sync
+        + 'static,
+    <VCOcts as OctetsFrom<Vec<u8>>>::Error: Debug,
     VCUpstream:
-        Clone + SendRequest<RequestMessage<Bytes>> + Send + Sync + 'static,
+        Clone + SendRequest<RequestMessage<VCOcts>> + Send + Sync + 'static,
 {
     fn send_request(
         &self,
         request_msg: CR,
     ) -> Box<dyn GetResponse + Send + Sync> {
-        Box::new(Request::<CR, Upstream, VCUpstream>::new(
+        Box::new(Request::<CR, Upstream, VCOcts, VCUpstream>::new(
             request_msg,
             self.upstream.clone(),
             self.vc.clone(),
@@ -116,7 +131,7 @@ where
 //------------ Request --------------------------------------------------------
 
 /// The state of a request that is executed.
-pub struct Request<CR, Upstream, VCUpstream>
+pub struct Request<CR, Upstream, VCOcts, VCUpstream>
 where
     Upstream: Send + Sync,
 {
@@ -134,9 +149,12 @@ where
 
     /// The configuration of the connection.
     _config: Config,
+
+    _phantom: PhantomData<VCOcts>,
 }
 
-impl<CR, Upstream, VCUpstream> Request<CR, Upstream, VCUpstream>
+impl<CR, Upstream, VCOcts, VCUpstream>
+    Request<CR, Upstream, VCOcts, VCUpstream>
 where
     Upstream: SendRequest<CR> + Send + Sync,
 {
@@ -146,23 +164,35 @@ where
         upstream: Upstream,
         vc: Arc<ValidationContext<VCUpstream>>,
         config: Config,
-    ) -> Request<CR, Upstream, VCUpstream> {
+    ) -> Request<CR, Upstream, VCOcts, VCUpstream> {
         Self {
             request_msg,
             upstream,
             vc,
             _config: config,
+            _phantom: PhantomData,
         }
     }
 
     /// This is the implementation of the get_response method.
     ///
     /// This function is not cancel safe.
-    async fn get_response_impl(&mut self) -> Result<Message<Bytes>, Error>
+    async fn get_response_impl<Octs>(
+        &mut self,
+    ) -> Result<Message<Bytes>, Error>
     where
         CR: Clone + ComposeRequest,
         Upstream: Clone + SendRequest<CR>,
-        VCUpstream: Clone + SendRequest<RequestMessage<Bytes>>,
+        Octs: AsRef<[u8]>
+            + Clone
+            + Debug
+            + Octets
+            + OctetsFrom<Vec<u8>>
+            + Send
+            + Sync
+            + 'static,
+        <Octs as OctetsFrom<Vec<u8>>>::Error: Debug,
+        VCUpstream: Clone + SendRequest<RequestMessage<Octs>>,
     {
         // Store the DO flag of the request.
         let dnssec_ok = self.request_msg.dnssec_ok();
@@ -290,7 +320,8 @@ where
     }
 }
 
-impl<CR, Upstream, VCUpstream> Debug for Request<CR, Upstream, VCUpstream>
+impl<CR, Upstream, VCOcts, VCUpstream> Debug
+    for Request<CR, Upstream, VCOcts, VCUpstream>
 where
     Upstream: Send + Sync,
 {
@@ -301,13 +332,21 @@ where
     }
 }
 
-impl<CR, Upstream, VCUpstream> GetResponse
-    for Request<CR, Upstream, VCUpstream>
+impl<CR, Upstream, VCOcts, VCUpstream> GetResponse
+    for Request<CR, Upstream, VCOcts, VCUpstream>
 where
     CR: Clone + ComposeRequest,
     Upstream: Clone + SendRequest<CR> + Send + Sync + 'static,
-    VCUpstream:
-        Clone + SendRequest<RequestMessage<Bytes>> + Send + Sync + 'static,
+    VCOcts: AsRef<[u8]>
+        + Clone
+        + Debug
+        + Octets
+        + OctetsFrom<Vec<u8>>
+        + Send
+        + Sync
+        + 'static,
+    <VCOcts as OctetsFrom<Vec<u8>>>::Error: Debug,
+    VCUpstream: Clone + SendRequest<RequestMessage<VCOcts>> + Send + Sync,
 {
     fn get_response(
         &mut self,
