@@ -1,5 +1,6 @@
-// Helper functions and constants for NSEC and NSEC3 validation.
+// Helper functions for NSEC and NSEC3 validation.
 
+use super::context::Config;
 use super::group::ValidatedGroup;
 use super::types::ValidationState;
 use super::utilities::make_ede;
@@ -28,10 +29,6 @@ use std::str::FromStr;
 use std::str::Utf8Error;
 use std::sync::Arc;
 use std::vec::Vec;
-
-// These need to be config variables.
-pub const NSEC3_ITER_INSECURE: u16 = 100;
-pub const NSEC3_ITER_BOGUS: u16 = 500;
 
 #[derive(Debug)]
 pub enum NsecState {
@@ -410,9 +407,10 @@ pub async fn nsec3_for_nodata(
     rtype: Rtype,
     signer_name: &Name<Bytes>,
     nsec3_cache: &Nsec3Cache,
+    config: &Config,
 ) -> (Nsec3State, Option<ExtendedError<Vec<u8>>>) {
     for g in groups.iter() {
-        let res_opt_nsec3_hash = get_checked_nsec3(g, signer_name);
+        let res_opt_nsec3_hash = get_checked_nsec3(g, signer_name, config);
         let (nsec3, ownerhash) = match res_opt_nsec3_hash {
             Ok(opt_nsec3_hash) => {
                 if let Some(nsec3_hash) = opt_nsec3_hash {
@@ -581,6 +579,7 @@ pub async fn nsec3_for_not_exists(
     groups: &mut [ValidatedGroup],
     signer_name: &Name<Bytes>,
     nsec3_cache: &Nsec3Cache,
+    config: &Config,
 ) -> (Nsec3NXState, Option<ExtendedError<Vec<u8>>>) {
     println!("nsec3_for_not_exists: proving {target:?} does not exist");
 
@@ -610,7 +609,8 @@ pub async fn nsec3_for_not_exists(
 
         // Check whether the name exists, or is proven to not exist.
         for g in groups.iter() {
-            let res_opt_nsec3_hash = get_checked_nsec3(g, signer_name);
+            let res_opt_nsec3_hash =
+                get_checked_nsec3(g, signer_name, config);
             let (nsec3, ownerhash) = match res_opt_nsec3_hash {
                 Ok(opt_nsec3_hash) => {
                     if let Some(nsec3_hash) = opt_nsec3_hash {
@@ -735,12 +735,13 @@ pub async fn nsec3_for_not_exists_no_ce(
     groups: &mut [ValidatedGroup],
     signer_name: &Name<Bytes>,
     nsec3_cache: &Nsec3Cache,
+    config: &Config,
 ) -> (Nsec3NXStateNoCE, Option<ExtendedError<Vec<u8>>>) {
     println!("nsec3_for_not_exists_no_ce: proving {target:?} does not exist");
 
     // Check whether the name exists, or is proven to not exist.
     for g in groups.iter() {
-        let res_opt_nsec3_hash = get_checked_nsec3(g, signer_name);
+        let res_opt_nsec3_hash = get_checked_nsec3(g, signer_name, config);
         let (nsec3, ownerhash) = match res_opt_nsec3_hash {
             Ok(opt_nsec3_hash) => {
                 if let Some(nsec3_hash) = opt_nsec3_hash {
@@ -814,9 +815,16 @@ pub async fn nsec3_for_nxdomain(
     groups: &mut [ValidatedGroup],
     signer_name: &Name<Bytes>,
     nsec3_cache: &Nsec3Cache,
+    config: &Config,
 ) -> (Nsec3NXState, Option<ExtendedError<Vec<u8>>>) {
-    let (state, mut ede) =
-        nsec3_for_not_exists(target, groups, signer_name, nsec3_cache).await;
+    let (state, mut ede) = nsec3_for_not_exists(
+        target,
+        groups,
+        signer_name,
+        nsec3_cache,
+        config,
+    )
+    .await;
     let (ce, secure) = match state {
         Nsec3NXState::DoesNotExist(ce) => (ce, true),
         Nsec3NXState::DoesNotExistInsecure(ce) => (ce, false),
@@ -841,6 +849,7 @@ pub async fn nsec3_for_nxdomain(
         groups,
         signer_name,
         nsec3_cache,
+        config,
     )
     .await;
     if ede.is_none() {
@@ -980,6 +989,7 @@ where
 fn get_checked_nsec3(
     group: &ValidatedGroup,
     signer_name: &Name<Bytes>,
+    config: &Config,
 ) -> Result<
     Option<(Nsec3<Bytes>, OwnerHash<Vec<u8>>)>,
     (ValidationState, Option<ExtendedError<Vec<u8>>>),
@@ -1015,9 +1025,11 @@ fn get_checked_nsec3(
 
     // See RFC 9276, Appendix A for a recommendation on the maximum number
     // of iterations.
-    if iterations > NSEC3_ITER_INSECURE || iterations > NSEC3_ITER_BOGUS {
+    if iterations > config.nsec3_iter_insecure()
+        || iterations > config.nsec3_iter_bogus()
+    {
         // High iteration count, abort.
-        if iterations > NSEC3_ITER_BOGUS {
+        if iterations > config.nsec3_iter_bogus() {
             return Err((
                 ValidationState::Bogus,
                 make_ede(

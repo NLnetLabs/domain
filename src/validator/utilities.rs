@@ -1,3 +1,4 @@
+use super::context::Config;
 use super::group::ValidatedGroup;
 use super::nsec::nsec3_for_not_exists_no_ce;
 use super::nsec::nsec_for_not_exists;
@@ -25,9 +26,6 @@ use std::cmp::min;
 use std::time::Duration;
 use std::vec::Vec;
 
-// Maximum number of CNAME or DNAME records used for in answer.
-const MAX_CNAME_DNAME: u8 = 12;
-
 pub async fn do_cname_dname(
     qname: Name<Bytes>,
     qclass: Class,
@@ -35,6 +33,7 @@ pub async fn do_cname_dname(
     answers: &mut [ValidatedGroup],
     authorities: &mut [ValidatedGroup],
     nsec3_cache: &Nsec3Cache,
+    config: &Config,
 ) -> (Name<Bytes>, ValidationState, Option<ExtendedError<Vec<u8>>>) {
     let mut name = qname;
     let mut count = 0;
@@ -69,6 +68,7 @@ pub async fn do_cname_dname(
                         &g.signer_name(),
                         &ce,
                         nsec3_cache,
+                        config,
                     )
                     .await;
                     if check {
@@ -84,7 +84,7 @@ pub async fn do_cname_dname(
                 name = cname.cname().to_name();
                 maybe_secure = map_maybe_secure(g.state(), maybe_secure);
                 count += 1;
-                if count > MAX_CNAME_DNAME {
+                if count > config.max_cname_dname() {
                     let ede = make_ede(
                         ExtendedErrorCode::DNSSEC_BOGUS,
                         "too many DNAME/CNAME records in sequence",
@@ -127,7 +127,7 @@ pub async fn do_cname_dname(
                 };
                 maybe_secure = map_maybe_secure(g.state(), maybe_secure);
                 count += 1;
-                if count > MAX_CNAME_DNAME {
+                if count > config.max_cname_dname() {
                     // totest, loop with too many DNAME records
                     let ede = make_ede(
                         ExtendedErrorCode::DNSSEC_BOGUS,
@@ -288,6 +288,7 @@ pub async fn check_not_exists_for_wildcard(
     signer_name: &Name<Bytes>,
     closest_encloser: &Name<Bytes>,
     nsec3_cache: &Nsec3Cache,
+    config: &Config,
 ) -> (bool, ValidationState, Option<ExtendedError<Vec<u8>>>) {
     let (state, ede) = nsec_for_not_exists(name, group, signer_name);
     match state {
@@ -323,6 +324,7 @@ pub async fn check_not_exists_for_wildcard(
         group,
         signer_name,
         nsec3_cache,
+        config,
     )
     .await;
     match state {

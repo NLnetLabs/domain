@@ -6,38 +6,7 @@
 // Name suggested by Yorgos: SignedRrset. Problem, sometimes there are no
 // signatures, sometimes there is a signature but no RRset.
 
-use crate::base::Name;
-use crate::base::ParsedName;
-use crate::base::ParsedRecord;
-use crate::base::Ttl;
-use bytes::Bytes;
-//use crate::base::ParseRecordData;
-use crate::base::cmp::CanonicalOrd;
-use crate::base::iana::class::Class;
-use crate::base::iana::ExtendedErrorCode;
-use crate::base::name::ToName;
-use crate::base::opt::exterr::ExtendedError;
-use crate::base::rdata::ComposeRecordData;
-use crate::base::Record;
-use crate::base::Rtype;
-//use crate::base::UnknownRecordData;
-use crate::dep::octseq::Octets;
-use crate::dep::octseq::OctetsFrom;
-//use crate::dep::octseq::OctetsInto;
-use crate::dep::octseq::builder::with_infallible;
-use crate::net::client::request::RequestMessage;
-use crate::net::client::request::SendRequest;
-use crate::rdata::dnssec::Timestamp;
-use crate::rdata::AllRecordData;
-use crate::rdata::Dnskey;
-use crate::rdata::Rrsig;
-use crate::validate::RrsigExt;
-use moka::future::Cache;
-use ring::digest;
-use std::fmt::Debug;
-//use std::marker::PhantomData;
-use std::slice::Iter;
-//use std::slice::IterMut;
+use super::context::Config;
 use super::context::Node;
 use super::context::ValidationContext;
 use super::types::Error;
@@ -45,21 +14,39 @@ use super::types::ValidationState;
 use super::utilities::make_ede;
 use super::utilities::map_dname;
 use super::utilities::ttl_for_sig;
-//use std::sync::Mutex;
+use crate::base::cmp::CanonicalOrd;
+use crate::base::iana::class::Class;
+use crate::base::iana::ExtendedErrorCode;
+use crate::base::name::ToName;
+use crate::base::opt::exterr::ExtendedError;
+use crate::base::rdata::ComposeRecordData;
+use crate::base::Name;
+use crate::base::ParsedName;
+use crate::base::ParsedRecord;
+use crate::base::Record;
+use crate::base::Rtype;
+use crate::base::Ttl;
+use crate::dep::octseq::builder::with_infallible;
+use crate::dep::octseq::Octets;
+use crate::dep::octseq::OctetsFrom;
+use crate::net::client::request::RequestMessage;
+use crate::net::client::request::SendRequest;
+use crate::rdata::dnssec::Timestamp;
+use crate::rdata::AllRecordData;
+use crate::rdata::Dnskey;
+use crate::rdata::Rrsig;
+use crate::validate::RrsigExt;
+use bytes::Bytes;
+use moka::future::Cache;
+use ring::digest;
 use std::cmp::min;
-//use std::sync::Arc;
+use std::fmt::Debug;
+use std::slice::Iter;
 use std::time::Duration;
 use std::vec::Vec;
 
 type RrType = Record<Name<Bytes>, AllRecordData<Bytes, ParsedName<Bytes>>>;
 type SigType = Record<Name<Bytes>, Rrsig<Bytes, Name<Bytes>>>;
-
-// Is there any recommendation on how long to cache bad data?
-// This const should not be here.
-pub const BOGUS_TTL: Duration = Duration::from_secs(5 * 60);
-
-// This const should not be here.
-pub const MAX_BAD_SIGS: usize = 1; // Allow one bad signature before bailing.
 
 #[derive(Debug)]
 pub struct Group {
@@ -213,6 +200,7 @@ impl Group {
     pub async fn validated<Octs, Upstream>(
         &self,
         vc: &ValidationContext<Upstream>,
+        config: &Config,
     ) -> Result<ValidatedGroup, Error>
     where
         Octs: AsRef<[u8]>
@@ -227,7 +215,7 @@ impl Group {
         Upstream: Clone + SendRequest<RequestMessage<Octs>>,
     {
         let (state, signer_name, wildcard, ede) =
-            self.validate_with_vc(vc).await?;
+            self.validate_with_vc(vc, config).await?;
         Ok(ValidatedGroup::new(
             self.rr_set.clone(),
             self.sig_set.clone(),
@@ -286,6 +274,7 @@ impl Group {
     pub async fn validate_with_vc<Octs, Upstream>(
         &self,
         vc: &ValidationContext<Upstream>,
+        config: &Config,
     ) -> Result<
         (
             ValidationState,
@@ -357,8 +346,9 @@ impl Group {
                 ))
             }
         }
-        let (state, wildcard, ede, _ttl) =
-            self.validate_with_node(&node, vc.usig_cache()).await;
+        let (state, wildcard, ede, _ttl) = self
+            .validate_with_node(&node, vc.usig_cache(), config)
+            .await;
         Ok((state, target.clone(), wildcard, ede))
     }
 
@@ -369,6 +359,7 @@ impl Group {
         &self,
         node: &Node,
         sig_cache: &SigCache,
+        config: &Config,
     ) -> (
         ValidationState,
         Option<Name<Bytes>>,
@@ -448,7 +439,7 @@ impl Group {
                     // we tolerate to one. And declare the DNSKEY RRset
                     // bogus if we get two failures.
                     bad_sigs += 1;
-                    if bad_sigs > MAX_BAD_SIGS {
+                    if bad_sigs > config.max_bad_signatures() {
                         // totest, too many bad signatures for rrset
                         let ede = make_ede(
                             ExtendedErrorCode::DNSSEC_BOGUS,
@@ -458,7 +449,7 @@ impl Group {
                             ValidationState::Bogus,
                             None,
                             ede,
-                            BOGUS_TTL,
+                            config.max_bogus_validity(),
                         );
                     }
                     if opt_ede.is_none() {
@@ -475,7 +466,12 @@ impl Group {
             opt_ede =
                 make_ede(ExtendedErrorCode::DNSSEC_BOGUS, "No signature");
         }
-        (ValidationState::Bogus, None, opt_ede, BOGUS_TTL)
+        (
+            ValidationState::Bogus,
+            None,
+            opt_ede,
+            config.max_bogus_validity(),
+        )
     }
 
     // Follow RFC 4035, Section 5.3.

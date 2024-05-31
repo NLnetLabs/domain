@@ -8,8 +8,6 @@ use super::group::Group;
 use super::group::GroupSet;
 use super::group::SigCache;
 use super::group::ValidatedGroup;
-use super::group::BOGUS_TTL;
-use super::group::MAX_BAD_SIGS;
 use super::nsec::cached_nsec3_hash;
 use super::nsec::nsec3_for_nodata;
 use super::nsec::nsec3_for_not_exists;
@@ -26,8 +24,6 @@ use super::nsec::Nsec3NXState;
 use super::nsec::Nsec3State;
 use super::nsec::NsecNXState;
 use super::nsec::NsecState;
-use super::nsec::NSEC3_ITER_BOGUS;
-use super::nsec::NSEC3_ITER_INSECURE;
 use super::types::Error;
 use super::types::ValidationState;
 use super::utilities::check_not_exists_for_wildcard;
@@ -54,8 +50,6 @@ use crate::base::ToName;
 use crate::dep::octseq::Octets;
 use crate::dep::octseq::OctetsFrom;
 use crate::dep::octseq::OctetsInto;
-use bytes::Bytes;
-//use crate::base::ParsedName;
 use crate::net::client::request::ComposeRequest;
 use crate::net::client::request::RequestMessage;
 use crate::net::client::request::SendRequest;
@@ -63,10 +57,11 @@ use crate::rdata::AllRecordData;
 use crate::rdata::Dnskey;
 use crate::rdata::Ds;
 use crate::rdata::ZoneRecordData;
-//use crate::rdata::dnssec::Timestamp;
+use crate::utils::config::DefMinMax;
 use crate::validate::supported_algorithm;
 use crate::validate::supported_digest;
 use crate::validate::DnskeyExt;
+use bytes::Bytes;
 use moka::future::Cache;
 use std::cmp::min;
 use std::collections::VecDeque;
@@ -77,12 +72,256 @@ use std::time::Duration;
 use std::time::Instant;
 use std::vec::Vec;
 
-const MAX_NODE_CACHE: u64 = 100;
-const MAX_NSEC3_CACHE: u64 = 100;
-const MAX_ISIG_CACHE: u64 = 1000;
-const MAX_USIG_CACHE: u64 = 1000;
+/// Configuration limit for the maximum number of entries in the node cache.
+const MAX_NODE_CACHE: DefMinMax<u64> = DefMinMax::new(100, 1, 1_000_000_000);
 
-const MAX_NODE_VALID: Duration = Duration::from_secs(600);
+/// Configuration limit for the maximum number of entries in the NSEC3 hash
+/// cache.
+const MAX_NSEC3_CACHE: DefMinMax<u64> = DefMinMax::new(100, 1, 1_000_000_000);
+
+/// Configuration limit for the maximum number of entries in the internal
+/// signature cache.
+const MAX_ISIG_CACHE: DefMinMax<u64> = DefMinMax::new(1000, 1, 1_000_000_000);
+
+/// Configuration limit for the maximum number of entries in the user
+/// signature cache.
+const MAX_USIG_CACHE: DefMinMax<u64> = DefMinMax::new(1000, 1, 1_000_000_000);
+
+/// Limit on the maximum time a node cache entry is considered valid.
+///
+/// According to [RFC 8767](https://www.rfc-editor.org/info/rfc8767) the
+/// limit should be on the order of days to weeks with a recommended cap of
+/// 604800 seconds (7 days).
+const MAX_NODE_VALIDITY: DefMinMax<Duration> = DefMinMax::new(
+    Duration::from_secs(604800),
+    Duration::from_secs(60),
+    Duration::from_secs(6048000),
+);
+
+/// Limit on the maximum time a bogus node cache entry is considered valid.
+///
+/// According to [RFC 9520](https://www.rfc-editor.org/info/rfc9520)
+/// at least 1 second and at most 5 minutes.
+const MAX_BOGUS_VALIDITY: DefMinMax<Duration> = DefMinMax::new(
+    Duration::from_secs(30),
+    Duration::from_secs(1),
+    Duration::from_secs(5 * 60),
+);
+
+/// Limit on the number of signature validation errors during the validation
+/// of an RRset.
+///
+/// The minimum is 1 to support tag collisions, the maximum is 8, because
+/// this what unbound currently uses, the default is 1 because we expect at
+/// most 1 key tag collision and we expect signatures to be valid.
+const MAX_BAD_SIGNATURES: DefMinMax<u8> = DefMinMax::new(1, 1, 8);
+
+/// Number of NSEC3 iterations above which the result is insecure.
+///
+/// The minimum is 0, the maximum is 500, because
+/// this what [RFC 9276](https://www.rfc-editor.org/info/rfc9276) recommends
+/// for bogus, the default as recommended in RFC 9276 is 100.
+const NSEC3_ITER_INSECURE: DefMinMax<u16> = DefMinMax::new(100, 0, 500);
+
+/// Number of NSEC3 iterations above which the result is bogus.
+///
+/// The minimum is 0, the maximum is 500, because
+/// this what [RFC 9276](https://www.rfc-editor.org/info/rfc9276) recommends
+/// for bogus, the default as recommended in RFC 9276 is 500.
+const NSEC3_ITER_BOGUS: DefMinMax<u16> = DefMinMax::new(500, 0, 500);
+
+/// Maximum number of CNAME and DNAME records that are followed during
+/// validation.
+///
+/// The minimum is 0, the maximum is 100,
+/// the default as used in unbound is 11.
+const MAX_CNAME_DNAME: DefMinMax<u8> = DefMinMax::new(11, 0, 100);
+
+//------------ Config ---------------------------------------------------------
+
+/// Configuration of a validator.
+#[derive(Clone, Debug)]
+pub struct Config {
+    /// Maximum number of cache entries for the node cache.
+    max_node_cache: u64,
+
+    /// Maximum number of cache entries for the NSEC3 hash cache.
+    max_nsec3_cache: u64,
+
+    /// Maximum number of cache entries for the internal signature cache.
+    max_isig_cache: u64,
+
+    /// Maximum number of cache entries for the user signature cache.
+    max_usig_cache: u64,
+
+    /// Limit of the amount of time a node can be cached.
+    max_node_validity: Duration,
+
+    /// Limit of the amount of time a bogus node can be cached.
+    max_bogus_validity: Duration,
+
+    /// Limit on the number of signature validation failures
+    max_bad_signatures: u8,
+
+    /// NSEC3 interation count above which the NSEC3 hash is not checked
+    /// and the validation status is considered insecure.
+    nsec3_iter_insecure: u16,
+
+    /// NSEC3 interation count above which the NSEC3 hash is not checked
+    /// and the validation status is considered bogus.
+    nsec3_iter_bogus: u16,
+
+    /// Maximum number of CNAME and DNAME records that are followed
+    /// during validation.
+    max_cname_dname: u8,
+}
+
+impl Config {
+    /// Creates a new config with default values.
+    ///
+    /// The default values are documented at the relevant set_* methods.
+    pub fn new() -> Self {
+        Default::default()
+    }
+
+    /// Set the maximum number of node cache entries.
+    ///
+    /// The value has to be at least one, at most 1,000,000,000 and the
+    /// default is 100.
+    ///
+    /// The values are just best guesses at the moment. The upper limit is
+    /// set to be somewhat safe without being too limiting. The default is
+    /// meant to be reasonable for a small system.
+    pub fn set_max_node_cache(&mut self, value: u64) {
+        self.max_node_cache = MAX_NODE_CACHE.limit(value)
+    }
+
+    /// Set the maximum number of NSEC3 hash cache entries.
+    ///
+    /// The value has to be at least one, at most 1,000,000,000 and the
+    /// default is 100.
+    ///
+    /// The values are just best guesses at the moment. The upper limit is
+    /// set to be somewhat safe without being too limiting. The default is
+    /// meant to be reasonable for a small system.
+    pub fn set_max_nsec3_cache(&mut self, value: u64) {
+        self.max_node_cache = MAX_NSEC3_CACHE.limit(value)
+    }
+
+    /// Set the maximum number of internal signature cache entries.
+    ///
+    /// The value has to be at least one, at most 1,000,000,000 and the
+    /// default is 1000.
+    ///
+    /// The values are just best guesses at the moment. The upper limit is
+    /// set to be somewhat safe without being too limiting. The default is
+    /// meant to be reasonable for a small system.
+    pub fn set_max_isig_cache(&mut self, value: u64) {
+        self.max_isig_cache = MAX_ISIG_CACHE.limit(value)
+    }
+
+    /// Set the maximum number of user signature cache entries.
+    ///
+    /// The value has to be at least one, at most 1,000,000,000 and the
+    /// default is 1000.
+    ///
+    /// The values are just best guesses at the moment. The upper limit is
+    /// set to be somewhat safe without being too limiting. The default is
+    /// meant to be reasonable for a small system.
+    pub fn set_max_usig_cache(&mut self, value: u64) {
+        self.max_usig_cache = MAX_USIG_CACHE.limit(value)
+    }
+
+    /// Set the maximum validity of node cache entries.
+    ///
+    /// The value has to be at least 60 seconds, at most 6,048,000 seconds
+    /// (10 weeks) and the default is 604800 seconds (one week).
+    pub fn set_max_validity(&mut self, value: Duration) {
+        self.max_node_validity = MAX_NODE_VALIDITY.limit(value)
+    }
+
+    pub fn max_bogus_validity(&self) -> Duration {
+        self.max_bogus_validity
+    }
+
+    /// Set the maximum validity of bogus node cache entries.
+    ///
+    /// The value has to be at least one second, at most 300 seconds
+    /// (five minutes) and the default is 30 seconds.
+    pub fn set_max_bogus_validity(&mut self, value: Duration) {
+        self.max_bogus_validity = MAX_BOGUS_VALIDITY.limit(value)
+    }
+
+    pub fn max_bad_signatures(&self) -> u8 {
+        self.max_bad_signatures
+    }
+
+    /// Set the maximum number of signature validation errors for validating
+    /// a single RRset.
+    ///
+    /// The value has to be at least one, at most eight and the default is one.
+    pub fn set_bad_signatures(&mut self, value: u8) {
+        self.max_bad_signatures = MAX_BAD_SIGNATURES.limit(value)
+    }
+
+    pub fn nsec3_iter_insecure(&self) -> u16 {
+        self.nsec3_iter_insecure
+    }
+
+    /// Set the number of NSEC3 iterations above which the result is
+    /// considered insecure.
+    ///
+    /// The value has to be at least zero, at most five hundred and the
+    /// default is one hundred.
+    pub fn set_nsec3_iter_insecure(&mut self, value: u16) {
+        self.nsec3_iter_insecure = NSEC3_ITER_INSECURE.limit(value)
+    }
+
+    pub fn nsec3_iter_bogus(&self) -> u16 {
+        self.nsec3_iter_bogus
+    }
+
+    /// Set the number of NSEC3 iterations above which the result is
+    /// considered bogus.
+    ///
+    /// The value has to be at least zero, at most five hundred and the
+    /// default is one five hundred.
+    pub fn set_nsec3_iter_bogus(&mut self, value: u16) {
+        self.nsec3_iter_bogus = NSEC3_ITER_INSECURE.limit(value)
+    }
+
+    pub fn max_cname_dname(&self) -> u8 {
+        self.max_cname_dname
+    }
+
+    /// Set the maximum number of CNAME and DNAME records that are followed
+    /// during validation.
+    ///
+    /// The value has to be at least zero, at most one hundred and the
+    /// default is one eleven.
+    pub fn set_max_cname_dname(&mut self, value: u8) {
+        self.max_cname_dname = MAX_CNAME_DNAME.limit(value)
+    }
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            max_node_cache: MAX_NODE_CACHE.default(),
+            max_nsec3_cache: MAX_NSEC3_CACHE.default(),
+            max_isig_cache: MAX_ISIG_CACHE.default(),
+            max_usig_cache: MAX_USIG_CACHE.default(),
+            max_node_validity: MAX_NODE_VALIDITY.default(),
+            max_bogus_validity: MAX_BOGUS_VALIDITY.default(),
+            max_bad_signatures: MAX_BAD_SIGNATURES.default(),
+            nsec3_iter_insecure: NSEC3_ITER_INSECURE.default(),
+            nsec3_iter_bogus: NSEC3_ITER_BOGUS.default(),
+            max_cname_dname: MAX_CNAME_DNAME.default(),
+        }
+    }
+}
+
+//------------ ValidationContext ----------------------------------------------
 
 enum VGResult {
     Groups(Vec<ValidatedGroup>),
@@ -93,6 +332,7 @@ enum VGResult {
 pub struct ValidationContext<Upstream> {
     ta: TrustAnchors,
     upstream: Upstream,
+    config: Config,
 
     node_cache: Cache<Name<Bytes>, Arc<Node>>,
     nsec3_cache: Nsec3Cache,
@@ -102,13 +342,22 @@ pub struct ValidationContext<Upstream> {
 
 impl<Upstream> ValidationContext<Upstream> {
     pub fn new(ta: TrustAnchors, upstream: Upstream) -> Self {
+        Self::with_config(ta, upstream, Default::default())
+    }
+
+    pub fn with_config(
+        ta: TrustAnchors,
+        upstream: Upstream,
+        config: Config,
+    ) -> Self {
         Self {
             ta,
             upstream,
-            node_cache: Cache::new(MAX_NODE_CACHE),
-            nsec3_cache: Nsec3Cache::new(MAX_NSEC3_CACHE),
-            isig_cache: SigCache::new(MAX_ISIG_CACHE),
-            usig_cache: SigCache::new(MAX_USIG_CACHE),
+            node_cache: Cache::new(config.max_node_cache),
+            nsec3_cache: Nsec3Cache::new(config.max_nsec3_cache),
+            isig_cache: SigCache::new(config.max_isig_cache),
+            usig_cache: SigCache::new(config.max_usig_cache),
+            config,
         }
     }
 
@@ -205,6 +454,7 @@ impl<Upstream> ValidationContext<Upstream> {
             &mut answers,
             &mut authorities,
             self.nsec3_cache(),
+            &self.config,
         )
         .await;
 
@@ -265,6 +515,7 @@ impl<Upstream> ValidationContext<Upstream> {
                     &signer_name,
                     &closest_encloser,
                     self.nsec3_cache(),
+                    &self.config,
                 )
                 .await;
 
@@ -355,6 +606,7 @@ impl<Upstream> ValidationContext<Upstream> {
                 qtype,
                 &signer_name,
                 self.nsec3_cache(),
+                &self.config,
             )
             .await;
             match state {
@@ -389,6 +641,7 @@ impl<Upstream> ValidationContext<Upstream> {
                 &mut authorities,
                 &signer_name,
                 self.nsec3_cache(),
+                &self.config,
             )
             .await;
             let ce = match state {
@@ -427,6 +680,7 @@ impl<Upstream> ValidationContext<Upstream> {
                 qtype,
                 &signer_name,
                 self.nsec3_cache(),
+                &self.config,
             )
             .await;
             match state {
@@ -476,6 +730,7 @@ impl<Upstream> ValidationContext<Upstream> {
             &mut authorities,
             &signer_name,
             self.nsec3_cache(),
+            &self.config,
         )
         .await;
         match state {
@@ -536,7 +791,7 @@ impl<Upstream> ValidationContext<Upstream> {
                     ExtendedErrorCode::DNSSEC_INDETERMINATE,
                     "No trust anchor for root.",
                 ),
-                MAX_NODE_VALID,
+                self.config.max_node_validity,
             );
             let node = Arc::new(node);
             self.node_cache.insert(Name::root(), node.clone()).await;
@@ -551,6 +806,7 @@ impl<Upstream> ValidationContext<Upstream> {
                 ta,
                 self.upstream.clone(),
                 &self.isig_cache,
+                &self.config,
             )
             .await?;
             let node = Arc::new(node);
@@ -639,6 +895,7 @@ impl<Upstream> ValidationContext<Upstream> {
                     ta,
                     self.upstream.clone(),
                     &self.isig_cache,
+                    &self.config,
                 )
                 .await?;
                 let node = Arc::new(node);
@@ -688,7 +945,7 @@ impl<Upstream> ValidationContext<Upstream> {
                 ValidationState::Bogus,
                 Vec::new(),
                 ede,
-                BOGUS_TTL,
+                self.config.max_bogus_validity,
             ));
         }
 
@@ -716,8 +973,13 @@ impl<Upstream> ValidationContext<Upstream> {
                     let ttl = min(parent_ttl, g_ttl);
                     println!("with g_ttl {g_ttl:?}, new ttl {ttl:?}");
 
-                    let (state, _wildcard, ede, sig_ttl) =
-                        g.validate_with_node(node, &self.isig_cache).await;
+                    let (state, _wildcard, ede, sig_ttl) = g
+                        .validate_with_node(
+                            node,
+                            &self.isig_cache,
+                            &self.config,
+                        )
+                        .await;
 
                     let ttl = min(ttl, sig_ttl);
                     println!("with sig_ttl {sig_ttl:?}, new ttl {ttl:?}");
@@ -763,6 +1025,7 @@ impl<Upstream> ValidationContext<Upstream> {
                     &mut authorities,
                     node,
                     &self.isig_cache,
+                    &self.config,
                 )
                 .await;
                 match state {
@@ -805,6 +1068,7 @@ impl<Upstream> ValidationContext<Upstream> {
                     node,
                     self.nsec3_cache(),
                     &self.isig_cache,
+                    &self.config,
                 )
                 .await;
                 println!(
@@ -858,8 +1122,9 @@ impl<Upstream> ValidationContext<Upstream> {
         let ttl = min(parent_ttl, ds_ttl);
         println!("with ds_ttl {ds_ttl:?}, new ttl {ttl:?}");
 
-        let (state, _wildcard, ede, sig_ttl) =
-            ds_group.validate_with_node(node, &self.isig_cache).await;
+        let (state, _wildcard, ede, sig_ttl) = ds_group
+            .validate_with_node(node, &self.isig_cache, &self.config)
+            .await;
 
         let ttl = min(ttl, sig_ttl);
         println!("with sig_ttl {sig_ttl:?}, new ttl {ttl:?}");
@@ -948,7 +1213,7 @@ impl<Upstream> ValidationContext<Upstream> {
                 ValidationState::Bogus,
                 Vec::new(),
                 ede,
-                BOGUS_TTL,
+                self.config.max_bogus_validity,
             ));
         }
 
@@ -967,7 +1232,7 @@ impl<Upstream> ValidationContext<Upstream> {
                         ValidationState::Bogus,
                         Vec::new(),
                         ede,
-                        BOGUS_TTL,
+                        self.config.max_bogus_validity,
                     ));
                 }
             };
@@ -1069,7 +1334,7 @@ impl<Upstream> ValidationContext<Upstream> {
                     // we tolerate to one. And declare the DNSKEY RRset
                     // bogus if we get two failures.
                     bad_sigs += 1;
-                    if bad_sigs > MAX_BAD_SIGS {
+                    if bad_sigs > self.config.max_bad_signatures {
                         // totest, too many bad signatures for DNSKEY
                         let ede = make_ede(
                             ExtendedErrorCode::DNSSEC_BOGUS,
@@ -1080,7 +1345,7 @@ impl<Upstream> ValidationContext<Upstream> {
                             ValidationState::Bogus,
                             Vec::new(),
                             ede,
-                            BOGUS_TTL,
+                            self.config.max_bogus_validity,
                         ));
                     }
                     if ede.is_none() {
@@ -1106,7 +1371,7 @@ impl<Upstream> ValidationContext<Upstream> {
             ValidationState::Bogus,
             Vec::new(),
             ede,
-            BOGUS_TTL,
+            self.config.max_bogus_validity,
         ))
     }
 
@@ -1142,7 +1407,7 @@ impl<Upstream> ValidationContext<Upstream> {
     {
         let mut vgs = Vec::new();
         for g in groups.iter() {
-            let vg = match g.validated(self).await {
+            let vg = match g.validated(self, &self.config).await {
                 Ok(vg) => vg,
                 Err(err) => return VGResult::Err(err),
             };
@@ -1191,6 +1456,7 @@ impl Node {
         ta: &TrustAnchor,
         upstream: Upstream,
         sig_cache: &SigCache,
+        config: &Config,
     ) -> Result<Self, Error>
     where
         Octs: AsRef<[u8]>
@@ -1224,7 +1490,7 @@ impl Node {
                         ValidationState::Bogus,
                         Vec::new(),
                         ede,
-                        BOGUS_TTL,
+                        config.max_bogus_validity,
                     ));
                 }
             };
@@ -1249,7 +1515,7 @@ impl Node {
                 continue;
             };
 
-            let ttl = MAX_NODE_VALID;
+            let ttl = config.max_node_validity;
             println!("trust_anchor: max node cache: {ttl:?}");
 
             let dnskey_ttl = dnskeys.min_ttl().into_duration();
@@ -1314,7 +1580,7 @@ impl Node {
                     // we tolerate to one. And declare the DNSKEY RRset
                     // bogus if we get two failures.
                     bad_sigs += 1;
-                    if bad_sigs > MAX_BAD_SIGS {
+                    if bad_sigs > config.max_bad_signatures {
                         // totest, too many bad signatures for DNSKEY for trust anchor
                         let ede = make_ede(
                             ExtendedErrorCode::DNSSEC_BOGUS,
@@ -1325,7 +1591,7 @@ impl Node {
                             ValidationState::Bogus,
                             Vec::new(),
                             ede,
-                            BOGUS_TTL,
+                            config.max_bogus_validity,
                         ));
                     }
                     if opt_ede.is_none() {
@@ -1348,7 +1614,7 @@ impl Node {
             ValidationState::Bogus,
             Vec::new(),
             opt_ede,
-            BOGUS_TTL,
+            config.max_bogus_validity,
         ))
     }
 
@@ -1562,6 +1828,7 @@ async fn nsec_for_ds(
     groups: &mut GroupSet,
     node: &Node,
     sig_cache: &SigCache,
+    config: &Config,
 ) -> (CNsecState, Duration, Option<ExtendedError<Vec<u8>>>) {
     let mut ede = None;
     for g in groups.iter() {
@@ -1578,7 +1845,7 @@ async fn nsec_for_ds(
         if target.name_eq(&owner) {
             // Validate the signature
             let (state, wildcard, ede, ttl) =
-                g.validate_with_node(node, sig_cache).await;
+                g.validate_with_node(node, sig_cache, config).await;
             match state {
                 ValidationState::Insecure
                 | ValidationState::Bogus
@@ -1599,7 +1866,7 @@ async fn nsec_for_ds(
                     ExtendedErrorCode::DNSSEC_BOGUS,
                     "NSEC for DS is wildcard",
                 );
-                return (CNsecState::Bogus, BOGUS_TTL, ede);
+                return (CNsecState::Bogus, config.max_bogus_validity, ede);
             }
 
             // Check the bitmap.
@@ -1614,7 +1881,7 @@ async fn nsec_for_ds(
                     ExtendedErrorCode::DNSSEC_BOGUS,
                     "NSEC proves DS",
                 );
-                return (CNsecState::Bogus, BOGUS_TTL, ede);
+                return (CNsecState::Bogus, config.max_bogus_validity, ede);
             }
 
             // Check for SOA.
@@ -1625,7 +1892,7 @@ async fn nsec_for_ds(
                     ExtendedErrorCode::DNSSEC_BOGUS,
                     "NSEC for DS from apex",
                 );
-                return (CNsecState::Bogus, BOGUS_TTL, ede);
+                return (CNsecState::Bogus, config.max_bogus_validity, ede);
             }
 
             // Check for NS.
@@ -1641,7 +1908,7 @@ async fn nsec_for_ds(
         if target.ends_with(&owner) {
             // Validate the signature
             let (state, wildcard, ede, ttl) =
-                g.validate_with_node(node, sig_cache).await;
+                g.validate_with_node(node, sig_cache, config).await;
             match state {
                 ValidationState::Insecure
                 | ValidationState::Indeterminate
@@ -1661,7 +1928,7 @@ async fn nsec_for_ds(
                     ExtendedErrorCode::DNSSEC_BOGUS,
                     "prefix NSEC for DS is wildcard",
                 );
-                return (CNsecState::Bogus, BOGUS_TTL, ede);
+                return (CNsecState::Bogus, config.max_bogus_validity, ede);
             }
 
             // Check the bitmap.
@@ -1677,7 +1944,7 @@ async fn nsec_for_ds(
                     ExtendedErrorCode::DNSSEC_BOGUS,
                     "prefix NSEC for DS is DNAME",
                 );
-                return (CNsecState::Bogus, BOGUS_TTL, ede);
+                return (CNsecState::Bogus, config.max_bogus_validity, ede);
             }
             if types.contains(Rtype::NS) && !types.contains(Rtype::SOA) {
                 // totest, prefix NSEC for DS is delegation
@@ -1686,7 +1953,7 @@ async fn nsec_for_ds(
                     ExtendedErrorCode::DNSSEC_BOGUS,
                     "prefix NSEC for DS is delegation",
                 );
-                return (CNsecState::Bogus, BOGUS_TTL, ede);
+                return (CNsecState::Bogus, config.max_bogus_validity, ede);
             }
         }
 
@@ -1697,7 +1964,7 @@ async fn nsec_for_ds(
         {
             // Validate the signature
             let (state, wildcard, ede, ttl) =
-                g.validate_with_node(node, sig_cache).await;
+                g.validate_with_node(node, sig_cache, config).await;
             match state {
                 ValidationState::Insecure
                 | ValidationState::Indeterminate
@@ -1719,7 +1986,11 @@ async fn nsec_for_ds(
                         ExtendedErrorCode::DNSSEC_BOGUS,
                         "ENT NSEC for DS is expanded wildcard",
                     );
-                    return (CNsecState::Bogus, BOGUS_TTL, ede);
+                    return (
+                        CNsecState::Bogus,
+                        config.max_bogus_validity,
+                        ede,
+                    );
                 }
             }
 
@@ -1729,7 +2000,7 @@ async fn nsec_for_ds(
         // Just ignore this NSEC.
         ede = make_ede(ExtendedErrorCode::OTHER, "NSEC found but not usable");
     }
-    (CNsecState::Nothing, MAX_NODE_VALID, ede)
+    (CNsecState::Nothing, config.max_node_validity, ede)
 }
 
 // Find an NSEC3 record hat proves that a DS record does not exist and return
@@ -1749,6 +2020,7 @@ async fn nsec3_for_ds(
     node: &Node,
     nsec3_cache: &Nsec3Cache,
     sig_cache: &SigCache,
+    config: &Config,
 ) -> (CNsecState, Option<ExtendedError<Vec<u8>>>, Duration) {
     let mut ede = None;
     for g in groups.iter() {
@@ -1766,13 +2038,15 @@ async fn nsec3_for_ds(
 
         // See RFC 9276, Appendix A for a recommendation on the maximum number
         // of iterations.
-        if iterations > NSEC3_ITER_INSECURE || iterations > NSEC3_ITER_BOGUS {
+        if iterations > config.nsec3_iter_insecure
+            || iterations > config.nsec3_iter_bogus
+        {
             // totest, NSEC3 for DS with very high iteration count
             // totest, NSEC3 for DS with high iteration count
             // High iteration count, verify the signature and abort.
 
             let (state, _wildcard, ede, ttl) =
-                g.validate_with_node(node, sig_cache).await;
+                g.validate_with_node(node, sig_cache, config).await;
             match state {
                 ValidationState::Insecure
                 | ValidationState::Indeterminate
@@ -1785,7 +2059,7 @@ async fn nsec3_for_ds(
             }
 
             // High iteration count, abort.
-            if iterations > NSEC3_ITER_BOGUS {
+            if iterations > config.nsec3_iter_bogus {
                 let ede = make_ede(
                     ExtendedErrorCode::DNSSEC_BOGUS,
                     "NSEC3 with too high iteration count",
@@ -1849,7 +2123,7 @@ async fn nsec3_for_ds(
 
             // Validate the signature
             let (state, _, ede, ttl) =
-                g.validate_with_node(node, sig_cache).await;
+                g.validate_with_node(node, sig_cache, config).await;
             match state {
                 ValidationState::Insecure
                 | ValidationState::Indeterminate
@@ -1875,7 +2149,7 @@ async fn nsec3_for_ds(
                     ExtendedErrorCode::DNSSEC_BOGUS,
                     "NSEC3 proves DS",
                 );
-                return (CNsecState::Bogus, ede, BOGUS_TTL);
+                return (CNsecState::Bogus, ede, config.max_bogus_validity);
             }
 
             // Check for SOA.
@@ -1886,7 +2160,7 @@ async fn nsec3_for_ds(
                     ExtendedErrorCode::DNSSEC_BOGUS,
                     "NSEC3 for DS from apex",
                 );
-                return (CNsecState::Bogus, ede, BOGUS_TTL);
+                return (CNsecState::Bogus, ede, config.max_bogus_validity);
             }
 
             // Check for NS.
@@ -1906,7 +2180,7 @@ async fn nsec3_for_ds(
             // we are allowed to assume an insecure delegation (RFC 5155,
             // Section 6). First check the signature.
             let (state, _, ede, ttl) =
-                g.validate_with_node(node, sig_cache).await;
+                g.validate_with_node(node, sig_cache, config).await;
             match state {
                 ValidationState::Insecure
                 | ValidationState::Indeterminate
@@ -1925,13 +2199,13 @@ async fn nsec3_for_ds(
                     ExtendedErrorCode::DNSSEC_BOGUS,
                     "NSEC3 proves name does not exist for DS",
                 );
-                return (CNsecState::Bogus, ede, BOGUS_TTL);
+                return (CNsecState::Bogus, ede, config.max_bogus_validity);
             }
 
             return (CNsecState::InsecureDelegation, None, ttl);
         }
     }
-    (CNsecState::Nothing, ede, MAX_NODE_VALID)
+    (CNsecState::Nothing, ede, config.max_node_validity)
 }
 
 async fn request_as_groups<Octs, Upstream>(
