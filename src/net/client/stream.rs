@@ -64,8 +64,14 @@ const READ_REPLY_CHAN_CAP: usize = 8;
 /// Configuration for a stream transport connection.
 #[derive(Clone, Debug)]
 pub struct Config {
-    /// Response timeout.
+    /// Response timeout currently in effect.
     response_timeout: Duration,
+
+    /// Single response timeout.
+    single_response_timeout: Duration,
+
+    /// Streaming response timeout.
+    streaming_response_timeout: Duration,
 }
 
 impl Config {
@@ -91,7 +97,15 @@ impl Config {
         self.response_timeout = cmp::max(
             cmp::min(timeout, MAX_RESPONSE_TIMEOUT),
             MIN_RESPONSE_TIMEOUT,
-        )
+        );
+        self.streaming_response_timeout = self.response_timeout;
+    }
+
+    pub fn set_streaming_response_timeout(&mut self, timeout: Duration) {
+        self.streaming_response_timeout = cmp::max(
+            cmp::min(timeout, MAX_RESPONSE_TIMEOUT),
+            MIN_RESPONSE_TIMEOUT,
+        );
     }
 }
 
@@ -99,6 +113,8 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             response_timeout: DEF_RESPONSE_TIMEOUT,
+            single_response_timeout: DEF_RESPONSE_TIMEOUT,
+            streaming_response_timeout: DEF_RESPONSE_TIMEOUT,
         }
     }
 }
@@ -293,7 +309,7 @@ impl Debug for Request {
 /// The underlying machinery of a stream transport.
 #[derive(Debug)]
 pub struct Transport<Stream, Req> {
-    /// The stream socket towards the remove end.
+    /// The stream socket towards the remote end.
     stream: Stream,
 
     /// Transport configuration.
@@ -551,9 +567,16 @@ where
                 res = recv_fut, if !do_write => {
                     match res {
                         Some(req) => {
+                            if req.sender.is_stream() {
+                                self.config.response_timeout =
+                                    self.config.streaming_response_timeout;
+                            } else {
+                                self.config.response_timeout =
+                                    self.config.single_response_timeout;
+                            }
                             Self::insert_req(
                                 req, &mut status, &mut reqmsg, &mut query_vec
-                            )
+                            );
                         }
                         None => {
                             // All references to the connection object have
@@ -771,7 +794,7 @@ where
         }
 
         // Note that insert may fail if there are too many
-        // outstanding queires. First call insert before checking
+        // outstanding queries. First call insert before checking
         // send_keepalive.
         let (index, req) = match query_vec.insert(req) {
             Ok(res) => res,

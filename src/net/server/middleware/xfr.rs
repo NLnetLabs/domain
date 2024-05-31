@@ -77,6 +77,12 @@ type XfrMiddlewareStream<Future, Stream, StreamItem> = MiddlewareStream<
     StreamItem,
 >;
 
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub enum XfrMode {
+    AxfrAndIxfr,
+    AxfrOnly,
+}
+
 //------------ XfrMiddlewareSvc ----------------------------------------------
 
 /// A [`MiddlewareProcessor`] for responding to XFR requests.
@@ -104,6 +110,8 @@ pub struct XfrMiddlewareSvc<RequestOctets, Svc> {
 
     pool: ThreadPool,
 
+    xfr_mode: XfrMode,
+
     _phantom: PhantomData<RequestOctets>,
 }
 
@@ -112,14 +120,16 @@ impl<RequestOctets, Svc> XfrMiddlewareSvc<RequestOctets, Svc> {
     ///
     /// The processor will not respond to XFR requests until you add at least
     /// one zone to it.
+    // TODO: Move extra arguments into a Config object.
     #[must_use]
-    pub fn new(svc: Svc, catalog: Arc<Catalog>, num_threads: usize) -> Self {
+    pub fn new(svc: Svc, catalog: Arc<Catalog>, num_threads: usize, xfr_mode: XfrMode) -> Self {
         let pool = Self::mk_thread_pool(num_threads);
 
         Self {
             svc,
             catalog,
             pool,
+            xfr_mode,
             _phantom: PhantomData,
         }
     }
@@ -149,6 +159,7 @@ where
         req: &Request<RequestOctets>,
         catalog: Arc<Catalog>,
         pool: ThreadPool,
+        xfr_mode: XfrMode,
     ) -> ControlFlow<
         XfrMiddlewareStream<
             Svc::Future,
@@ -219,7 +230,7 @@ where
 
             info!("IXFR for {}, from {}", q.qname(), req.client_addr());
             if let Some(res) =
-                Self::do_ixfr(msg, qname, &zone_soa_answer, cat_zone.info())
+                Self::do_ixfr(msg, qname, &zone_soa_answer, cat_zone.info(), xfr_mode)
                     .await
             {
                 return res;
@@ -386,6 +397,7 @@ where
         qname: Name<Bytes>,
         zone_soa_answer: &Answer,
         zone_info: &catalog::ZoneInfo,
+        xfr_mode: XfrMode,
     ) -> Option<
         ControlFlow<
             XfrMiddlewareStream<
@@ -395,6 +407,10 @@ where
             >,
         >,
     > {
+        if xfr_mode == XfrMode::AxfrOnly {
+            return None;
+        }
+
         // https://datatracker.ietf.org/doc/html/rfc1995#section-2
         // 2. Brief Description of the Protocol
         //   "Transport of a query may be by either UDP or TCP.  If an IXFR
@@ -738,7 +754,7 @@ where
     Svc::Future: Send + Sync + Unpin,
     Svc::Target: Composer + Default + Send + Sync,
     Svc::Stream: Send + Sync,
-{
+    {
     type Target = Svc::Target;
     type Stream = XfrMiddlewareStream<
         Svc::Future,
@@ -752,8 +768,9 @@ where
         let svc = self.svc.clone();
         let catalog = self.catalog.clone();
         let pool = self.pool.clone();
+        let xfr_mode = self.xfr_mode;
         Box::pin(async move {
-            match Self::preprocess(&request, catalog, pool).await {
+            match Self::preprocess(&request, catalog, pool, xfr_mode).await {
                 ControlFlow::Continue(()) => {
                     let stream = svc.call(request).await;
                     MiddlewareStream::IdentityStream(stream)

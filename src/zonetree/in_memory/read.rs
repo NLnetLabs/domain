@@ -4,7 +4,6 @@ use core::iter;
 use std::sync::Arc;
 
 use bytes::Bytes;
-use tracing::trace;
 
 use crate::base::iana::{Rcode, Rtype};
 use crate::base::name::Label;

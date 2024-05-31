@@ -19,13 +19,12 @@ use core::sync::atomic::{AtomicBool, Ordering};
 use core::task::{Context, Poll};
 use core::time::Duration;
 
-use std::borrow::Cow;
 use std::boxed::Box;
 use std::collections::hash_map::Entry::{Occupied, Vacant};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::future::Future;
 use std::io;
-use std::string::{String, ToString};
+use std::string::ToString;
 use std::sync::Arc;
 use std::vec::Vec;
 
@@ -42,20 +41,21 @@ use tokio::time::{sleep_until, Instant, Sleep};
 use tokio_stream::StreamExt;
 use tracing::{debug, error, info, trace, warn};
 
-use crate::base::iana::{Class, Opcode};
+use crate::base::iana::{Class, Opcode, OptRcode};
 use crate::base::name::{Label, ToLabelIter};
 use crate::base::{
-    CanonicalOrd, MessageBuilder, Name, ParsedName, Rtype, Serial, ToName,
-    Ttl,
+    CanonicalOrd, Message, MessageBuilder, Name, ParsedName, Rtype, Serial,
+    ToName, Ttl,
 };
 use crate::net::client::dgram::{self, Connection};
 use crate::net::client::protocol::UdpConnect;
-use crate::net::client::request::{RequestMessage, SendRequest};
+use crate::net::client::request::{self, RequestMessage, SendRequest};
 use crate::net::client::stream;
 use crate::rdata::{
     AllRecordData, Cname, Dname, Mb, Md, Mf, Mg, Mx, Ns, Nsec, Ptr, Soa,
     ZoneRecordData,
 };
+use crate::tsig::{Algorithm, Key, KeyName};
 use crate::zonetree::error::{OutOfZone, ZoneTreeModificationError};
 use crate::zonetree::{
     AnswerContent, ReadableZone, Rrset, SharedRrset, StoredName,
@@ -69,37 +69,38 @@ const IANA_DNS_PORT_NUMBER: u16 = 53;
 
 // TODO: This should be configurable.
 const MIN_DURATION_BETWEEN_ZONE_REFRESHES: tokio::time::Duration =
-    tokio::time::Duration::new(60, 0);
+    tokio::time::Duration::new(0, 0);
+
+//------------ Type Aliases --------------------------------------------------
+
+pub type CatalogKeyStore = HashMap<(KeyName, Algorithm), Key>;
 
 //------------ Config --------------------------------------------------------
 
-pub struct Config {}
+#[derive(Debug, Default)]
+pub struct Config {
+    key_store: Arc<RwLock<CatalogKeyStore>>,
+}
 
 //------------ Acl -----------------------------------------------------------
 
-#[derive(Clone, Debug)]
-pub struct AclEntry {
-    // _key_name: Option<String>,
-}
-
 #[derive(Clone, Debug, Default)]
-pub struct Acl {
-    entries: HashMap<SocketAddr, AclEntry>,
+pub struct Acl<T: Clone + Debug + Default> {
+    entries: HashMap<SocketAddr, T>,
 }
 
-impl Acl {
+impl<T: Clone + Debug + Default> Acl<T> {
     pub fn new() -> Self {
         Default::default()
     }
 
-    pub fn allow_from(&mut self, addr: IpAddr) {
+    pub fn allow_from(&mut self, addr: IpAddr, v: T) {
         let k = SocketAddr::new(addr, IANA_DNS_PORT_NUMBER);
-        let v = AclEntry {};
         let _ = self.entries.insert(k, v);
     }
 
-    pub fn allow_to(&mut self, addr: SocketAddr) {
-        let _ = self.entries.insert(addr, AclEntry {});
+    pub fn allow_to(&mut self, addr: SocketAddr, v: T) {
+        let _ = self.entries.insert(addr, v);
     }
 
     pub fn addrs(&self) -> impl Iterator<Item = &SocketAddr> {
@@ -110,64 +111,61 @@ impl Acl {
         self.entries.is_empty()
     }
 
-    pub fn get(&self, key: &SocketAddr) -> Option<&AclEntry> {
-        self.entries.get(key)
+    pub fn get(&self, addr: &SocketAddr) -> Option<&T> {
+        self.entries.get(addr)
     }
 
-    pub fn contains(&self, key: &SocketAddr) -> bool {
-        self.entries.contains_key(key)
+    pub fn contains(&self, addr: &SocketAddr) -> bool {
+        self.entries.contains_key(addr)
     }
 }
 
-//------------ XfrMode -------------------------------------------------------
+//------------ XfrStrategy ---------------------------------------------------
 
 #[derive(Clone, Copy, Debug, Default)]
-pub enum XfrMode {
+pub enum XfrStrategy {
     #[default]
     None,
     AxfrOnly,
-    AxfrAndIxfr,
+    IxfrOnly,
+    IxfrWithAxfrFallback,
 }
 
-//------------ IxfrMode ------------------------------------------------------
+//------------ IxfrTransportStrategy -----------------------------------------
 
 #[derive(Clone, Copy, Debug, Default)]
-pub enum IxfrMode {
+pub enum TransportStrategy {
     #[default]
     None,
     Udp,
     Tcp,
 }
 
-//------------ TlsMode -------------------------------------------------------
+//------------ XfrSettings ---------------------------------------------------
 
 #[derive(Clone, Debug, Default)]
-pub enum TlsMode {
-    #[default]
-    None,
-    Authenticated(String),
+pub struct XfrSettings {
+    pub xfr: XfrStrategy,
+    pub ixfr_transport: TransportStrategy,
 }
 
-//------------ PrimaryInfo ---------------------------------------------------
+//------------ TsigKey -------------------------------------------------------
 
-/// Information about the primary server that owns a zone.
 #[derive(Clone, Debug)]
-pub struct PrimaryInfo {
-    pub addr: SocketAddr,
-    pub xfr_mode: XfrMode,
-    pub ixfr_mode: IxfrMode,
-    pub tls_mode: TlsMode,
+pub struct TsigKey {
+    name: StoredName,
 }
 
-impl PrimaryInfo {
-    pub fn new(addr: SocketAddr) -> Self {
-        Self {
-            addr,
-            xfr_mode: Default::default(),
-            ixfr_mode: Default::default(),
-            tls_mode: Default::default(),
-        }
-    }
+//------------ Type Aliases --------------------------------------------------
+
+pub type XfrAcl = Acl<(XfrSettings, Option<TsigKey>)>;
+pub type NotifyAcl = Acl<Option<TsigKey>>;
+
+//------------ MultiPrimaryXfrStrategy ---------------------------------------
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum MultiPrimaryXfrStrategy {
+    NotifySourceFirstThenSequentialStoppingAtFirstNewerSerial,
 }
 
 //------------ ZoneType ------------------------------------------------------
@@ -177,29 +175,34 @@ pub enum ZoneType {
     /// We are primary for the zone and allow the specified (secondary?)
     /// servers to request the zone via XFR. NOTIFY messages will be sent to
     /// zone nameservers on changes to zone content.
-    Primary { allow_xfr: Acl, notify: Acl },
+    Primary {
+        allow_xfr: XfrAcl,
+        notify: NotifyAcl,
+    },
 
     /// We are secondary for the zone and will request the zone via XFR from
-    /// the specified primary, and allow the specified (primary?) servers to
+    /// the specified nameservers, and allow the specified nameservers to
     /// notify us of an update to the zone.
     Secondary {
-        primary_info: PrimaryInfo,
-        allow_notify: Acl,
+        multi_primary_xfr_strategy: MultiPrimaryXfrStrategy,
+        allow_notify: NotifyAcl,
+        request_xfr: XfrAcl,
     },
 }
 
 impl ZoneType {
-    pub fn new_primary(allow_xfr: Acl, notify: Acl) -> Self {
+    pub fn new_primary(allow_xfr: XfrAcl, notify: NotifyAcl) -> Self {
         Self::Primary { allow_xfr, notify }
     }
 
     pub fn new_secondary(
-        primary_info: PrimaryInfo,
-        allow_notify: Acl,
+        allow_notify: NotifyAcl,
+        request_xfr: XfrAcl,
     ) -> Self {
         Self::Secondary {
-            primary_info,
             allow_notify,
+            request_xfr,
+            multi_primary_xfr_strategy: MultiPrimaryXfrStrategy::NotifySourceFirstThenSequentialStoppingAtFirstNewerSerial,
         }
     }
 }
@@ -258,34 +261,28 @@ pub type ZoneDiffs = BTreeMap<ZoneDiffKey, Arc<ZoneDiff>>;
 //------------ ZoneStatus ----------------------------------------------------
 
 #[derive(Copy, Clone, Debug, Default, PartialEq)]
-pub enum SecondaryZoneStatus {
-    /// Empty secondary pending initial refresh,
-    #[default]
-    New,
-
-    /// Refresh triggered by NOTIFY currently in progress.
-    Notified,
-
+pub enum ZoneRefreshStatus {
     /// Refreshing according to the SOA REFRESH interval.
+    #[default]
     Refreshing,
 
     /// Periodically retrying according to the SOA RETRY interval.
     Retrying,
 
-    /// EXPIRE interval exceeded without successful refresh.
-    Expired,
+    /// Refresh triggered by NOTIFY currently in progress.
+    NotifyInProgress,
 }
 
 //--- Display
 
-impl std::fmt::Display for SecondaryZoneStatus {
+impl std::fmt::Display for ZoneRefreshStatus {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            SecondaryZoneStatus::New => f.write_str("new"),
-            SecondaryZoneStatus::Notified => f.write_str("notified"),
-            SecondaryZoneStatus::Refreshing => f.write_str("refreshing"),
-            SecondaryZoneStatus::Retrying => f.write_str("retrying"),
-            SecondaryZoneStatus::Expired => f.write_str("expired"),
+            ZoneRefreshStatus::Refreshing => f.write_str("refreshing"),
+            ZoneRefreshStatus::Retrying => f.write_str("retrying"),
+            ZoneRefreshStatus::NotifyInProgress => {
+                f.write_str("notify in progress")
+            }
         }
     }
 }
@@ -348,7 +345,7 @@ pub struct ZoneRefreshState {
     expire: Ttl,
 
     /// Refresh status
-    status: SecondaryZoneStatus,
+    status: ZoneRefreshStatus,
 
     /// Refresh metrics
     metrics: ZoneRefreshMetrics,
@@ -465,6 +462,17 @@ impl ZoneRefreshTimer {
             refresh_instant,
             sleep_fut,
         }
+    }
+
+    fn deadline(&self) -> Instant {
+        self.sleep_fut.deadline()
+    }
+
+    fn replace(&mut self, new_timer: ZoneRefreshTimer) {
+        self.refresh_instant = new_timer.refresh_instant;
+        self.sleep_fut
+            .as_mut()
+            .reset(self.refresh_instant.end_instant);
     }
 }
 
@@ -844,6 +852,8 @@ enum Event {
 #[derive(Debug)]
 pub struct Catalog {
     // cat_zone: Zone, // TODO
+    config: Arc<ArcSwap<Config>>,
+    key_store: Arc<RwLock<CatalogKeyStore>>,
     pending_zones: Arc<RwLock<HashMap<ZoneKey, Zone>>>,
     member_zones: Arc<ArcSwap<ZoneTree>>,
     loaded_arc: std::sync::RwLock<Arc<ZoneTree>>,
@@ -860,75 +870,31 @@ impl Default for Catalog {
 
 impl Catalog {
     pub fn new() -> Catalog {
-        Self::new_with_zones(std::iter::empty()).expect("Internal error")
+        Self::new_with_config(Config::default())
     }
 
-    /// Construct a catalog from a collection of [`Zone`]s.
-    ///
-    /// Note: Each [`Zone`] must internally be convertible to [`TypedZone`]
-    /// via [`Zone::as_any()`].
-    pub fn new_with_zones<T: Iterator<Item = TypedZone>>(
-        zones: impl IntoIterator<Item = TypedZone, IntoIter = T>,
-    ) -> Result<Self, ZoneTreeModificationError> {
-        // TODO: Maintain an RFC 9432 catalog zone
-        // let apex_name = Name::from_str("catalog.invalid.").unwrap();
-        // let invalid_name = Name::from_str("invalid.").unwrap();
-        // let mut cat_zone = ZoneBuilder::new(apex_name.clone(), Class::IN);
-
-        // let mut soa_rrset = Rrset::new(Rtype::SOA, Ttl::from_hours(1));
-        // let soa_data = crate::rdata::Soa::new(
-        //     invalid_name.clone(),
-        //     invalid_name.clone(),
-        //     Serial::now(),
-        //     Ttl::from_hours(1), // refresh
-        //     Ttl::from_hours(1), // retry
-        //     Ttl::from_hours(1), // expire
-        //     Ttl::from_hours(1), // minimum
-        // );
-        // soa_rrset.push_data(soa_data.into());
-        // let soa_rrset = SharedRrset::new(soa_rrset);
-        // cat_zone.insert_rrset(&apex_name, soa_rrset).unwrap();
-
-        // let mut ns_rrset = Rrset::new(Rtype::NS, Ttl::from_hours(1));
-        // ns_rrset.push_data(crate::rdata::Ns::new(invalid_name).into());
-        // let ns_rrset = SharedRrset::new(ns_rrset);
-        // cat_zone.insert_rrset(&apex_name, ns_rrset).unwrap();
-
-        // let mut txt_rrset = Rrset::new(Rtype::TXT, Ttl::from_hours(1));
-        // let mut txt_builder = TxtBuilder::<Vec<u8>>::new();
-        // let txt = {
-        //     let cs = CharStr::<Vec<u8>>::from_str("2").unwrap();
-        //     txt_builder.append_charstr(&cs).unwrap();
-        //     txt_builder.finish().unwrap()
-        // };
-        // // txt_rrset.push_data(txt);
-
-        // let cat_zone = cat_zone.build();
+    pub fn new_with_config(config: Config) -> Self {
+        let key_store = config.key_store;
 
         let pending_zones = Default::default();
-        let mut member_zones = ZoneTree::new();
-        let (event_tx, event_rx) = mpsc::channel(10);
-
-        for zone in zones {
-            let wrapped_zone = Self::wrap_zone(zone, event_tx.clone());
-            member_zones.insert_zone(wrapped_zone)?;
-        }
-
+        let member_zones = ZoneTree::new();
         let member_zones = Arc::new(ArcSwap::from_pointee(member_zones));
         let loaded_arc = std::sync::RwLock::new(member_zones.load_full());
+        let (event_tx, event_rx) = mpsc::channel(10);
         let event_rx = Mutex::new(event_rx);
+        let config = Arc::new(ArcSwap::from_pointee(Config::default()));
 
-        let catalog = Catalog {
+        Catalog {
             // cat_zone,
+            config,
+            key_store,
             pending_zones,
             member_zones,
             loaded_arc,
             event_rx,
             event_tx,
             running: AtomicBool::new(false),
-        };
-
-        Ok(catalog)
+        }
     }
 }
 
@@ -961,7 +927,8 @@ impl Catalog {
                     //    reboots is optional, but it is reasonable to simply
                     //    execute an SOA NOTIFY transaction on each authority
                     //    zone when a server first starts."
-                    Self::send_notify(zone, notify).await;
+                    Self::send_notify(zone, notify, self.key_store.clone())
+                        .await;
                 }
 
                 ZoneType::Secondary { .. } => {
@@ -1014,9 +981,10 @@ impl Catalog {
                             let time_tracking = time_tracking.clone();
                             let event_tx = self.event_tx.clone();
                             let pending_zones = self.pending_zones.clone();
+                            let key_store = self.key_store.clone();
                             tokio::spawn(async move {
                                 Self::handle_notify(
-                                    zones, pending_zones, msg, time_tracking, event_tx,
+                                    zones, pending_zones, msg, time_tracking, event_tx, key_store,
                                 ).await
                             });
                         }
@@ -1077,7 +1045,7 @@ impl Catalog {
                                 .collect();
 
                             let zones = self.zones();
-                            if let Some(zone) = zones.get_zone(&key.0, key.1) {
+                            if let Some(zone) = self.pending_zones.read().await.get(&key).or_else(|| zones.get_zone(&key.0, key.1)) {
                                 let cat_zone = zone
                                 .as_ref()
                                 .as_any()
@@ -1092,7 +1060,7 @@ impl Catalog {
                                     // TODO
                                 }
                             } else {
-                                trace!("Zone '{}' not found for zone status request.", key.0);
+                                warn!("Zone '{}' not found for zone status request.", key.0);
                             };
                         }
                     }
@@ -1144,7 +1112,7 @@ impl Catalog {
                             .downcast_ref::<CatalogZone>()
                             .unwrap();
 
-                        if let ZoneType::Secondary{ primary_info, .. } =
+                        if let ZoneType::Secondary{ .. } =
                         &cat_zone.info().zone_type
                         {
                             // If successful this will commit changes to the
@@ -1153,9 +1121,10 @@ impl Catalog {
                             match Self::refresh_zone_and_update_state(
                                     timer_info.cause,
                                     zone,
-                                    primary_info,
+                                    None,
                                     zone_refresh_info,
                                     self.event_tx.clone(),
+                                    self.key_store.clone(),
                                 )
                                 .await
                             {
@@ -1172,6 +1141,8 @@ impl Catalog {
                                     // TODO
                                 }
                             }
+                        } else {
+                            // TODO
                         }
                     }
                 }
@@ -1185,22 +1156,37 @@ impl Catalog {
         &self,
         zone: TypedZone,
     ) -> Result<(), ZoneTreeModificationError> {
-        let is_primary = zone.zone_type().is_primary();
-        let zone = Self::wrap_zone(zone, self.event_tx.clone());
-        let key = zone.key();
+        self.insert_zones([zone]).await
+    }
 
-        if is_primary {
-            self.insert_active_zone(zone).await?;
-        } else {
-            // Don't add secondary zones immediately as they may be empty
-            // until refreshed. Instead add them in run() once it has been
-            // determined if they are empty or that the initial refresh has
-            // been performed successfully. This prevents callers of
-            // get_zone() or find_zone() attempting to use an empty zone.
-            self.pending_zones.write().await.insert(zone.key(), zone);
+    pub async fn insert_zones<T: Iterator<Item = TypedZone>>(
+        &self,
+        zones: impl IntoIterator<Item = TypedZone, IntoIter = T>,
+    ) -> Result<(), ZoneTreeModificationError> {
+        let mut new_zones = self.zones().deref().clone();
+
+        for zone in zones {
+            let is_primary = zone.zone_type().is_primary();
+            let zone = Self::wrap_zone(zone, self.event_tx.clone());
+            let key = zone.key();
+
+            if is_primary {
+                Self::update_known_nameservers_for_zone(&zone).await;
+                new_zones.insert_zone(zone)?;
+            } else {
+                // Don't add secondary zones immediately as they may be empty
+                // until refreshed. Instead add them in run() once it has been
+                // determined if they are empty or that the initial refresh
+                // has been performed successfully. This prevents callers of
+                // get_zone() or find_zone() attempting to use an empty zone.
+                self.pending_zones.write().await.insert(zone.key(), zone);
+            }
+
+            self.event_tx.send(Event::ZoneAdded(key)).await.unwrap();
         }
 
-        self.event_tx.send(Event::ZoneAdded(key)).await.unwrap();
+        self.member_zones.store(Arc::new(new_zones));
+        self.update_lodaded_arc();
 
         Ok(())
     }
@@ -1298,24 +1284,37 @@ impl Catalog {
 
         // TODO
     }
+
+    /// Get a status report for a zone.
+    ///
+    /// The Catalog must be [`run()`]ing for this to work.
+    ///
+    /// When unable to report the status for a zone the error will be one of
+    /// the following:
+    ///   - [`CatalogError::NotRunning`]
+    ///   - [`CatalogError::UnknownZone`]
     pub async fn zone_status(
         &self,
         apex_name: &StoredName,
         class: Class,
-    ) -> Result<ZoneReport, ()> {
+    ) -> Result<ZoneReport, CatalogError> {
         let (tx, rx) = tokio::sync::oneshot::channel();
 
+        // If we are unable to send it means that the Catalog is not running
+        // so cannot respond to the request.
         self.event_tx
             .send(Event::ZoneStatusRequested {
                 key: (apex_name.clone(), class),
                 tx,
             })
             .await
-            .unwrap();
+            .map_err(|_| CatalogError::NotRunning)?;
 
-        rx.await.map_err(|err| {
-            error!("Status err: {err}");
-        })
+        // If the zone is not known we get a RecvError as the Catalog will not
+        // send a status report back over the oneshot channel but will just
+        // drop the sending end causing the client end to see that the channel
+        // has been closed.
+        rx.await.map_err(|_| CatalogError::UnknownZone)
     }
 
     pub async fn force_zone_refresh(
@@ -1355,7 +1354,11 @@ impl Catalog {
         Zone::new(new_store)
     }
 
-    async fn send_notify(zone: &Zone, notify: &Acl) {
+    async fn send_notify(
+        zone: &Zone,
+        notify: &NotifyAcl,
+        key_store: Arc<RwLock<CatalogKeyStore>>,
+    ) {
         let cat_zone = zone
             .as_ref()
             .as_any()
@@ -1368,6 +1371,7 @@ impl Catalog {
             Self::send_notify_to_addrs(
                 cat_zone.apex_name().clone(),
                 nameservers.notify_set(),
+                key_store.clone(),
             )
             .await;
         }
@@ -1376,6 +1380,7 @@ impl Catalog {
             Self::send_notify_to_addrs(
                 cat_zone.apex_name().clone(),
                 notify.addrs(),
+                key_store,
             )
             .await;
         }
@@ -1384,6 +1389,7 @@ impl Catalog {
     async fn send_notify_to_addrs(
         apex_name: StoredName,
         notify_set: impl Iterator<Item = &SocketAddr>,
+        key_store: Arc<RwLock<CatalogKeyStore>>,
     ) {
         let mut dgram_config = dgram::Config::new();
         dgram_config.set_max_parallel(1);
@@ -1395,19 +1401,64 @@ impl Catalog {
         msg.header_mut().set_opcode(Opcode::NOTIFY);
         let mut msg = msg.question();
         msg.push((apex_name, Rtype::SOA)).unwrap();
-        let req = RequestMessage::new(msg);
+
+        // TSIG TODO: let key = key_store .read() .await
+        // .get_key(&Name::root_bytes(), Algorithm::Sha256) .unwrap(); let mut
+        // msg = msg.additional(); let txn = ClientTransaction::request(key,
+        //     &mut msg, Time48::now()).unwrap();
+        //
+        // TODO: TSIG cannot be done here, it must be done by RequestMessage,
+        // because RequestMessage can alter the message such as replacing any
+        // OPT records in the additional section, and TSIG needs to add its
+        // own RR to the additional section AFTER all other changes have been
+        // made to the message. It would also have to verify the response as
+        // it would own the TSIG ClientTransaction or ClientSequence object
+        // that is required in order to do response verification.
 
         for nameserver_addr in notify_set {
-            let udp_connect = UdpConnect::new(*nameserver_addr);
-            let dgram_conn =
-                Connection::with_config(udp_connect, dgram_config.clone());
+            let dgram_config = dgram_config.clone();
+            let req = RequestMessage::new(msg.clone());
+            let nameserver_addr = *nameserver_addr;
 
-            trace!("Sending NOTIFY to nameserver {nameserver_addr}");
-            if let Err(err) =
-                dgram_conn.send_request(req.clone()).get_response().await
-            {
-                warn!("Unable to send NOTIFY to nameserver {nameserver_addr}: {err}");
-            }
+            tokio::spawn(async move {
+                let udp_connect = UdpConnect::new(nameserver_addr);
+                let dgram_conn = Connection::with_config(
+                    udp_connect,
+                    dgram_config.clone(),
+                );
+
+                trace!("Sending NOTIFY to nameserver {nameserver_addr}");
+                match dgram_conn
+                    .send_request(req.clone())
+                    .get_response()
+                    .await
+                {
+                    Ok(_res) => {
+                        // TSIG: This seems wasteful that we have to make a
+                        // copy of the message bytes before we can do TSIG
+                        // validation but as the underlying message octets may
+                        // be stored as a type like Bytes that can be cloned
+                        // by reference counting or other such means of
+                        // sharing a single set of bytes we cannot modify
+                        // those bytes as required for TSIG validation because
+                        // that would modify the views of the same message
+                        // bytes visible to other parts of the program.
+                        // let mut bytes = Vec::with_capacity(res.as_slice().len());
+                        // bytes.extend_from_slice(res.as_slice());
+                        // let mut tsig_msg = Message::from_octets(bytes).unwrap();
+
+                        // if let Err(err) = txn.answer(&mut tsig_msg, Time48::now())
+                        // {
+                        //     error!("TSIG validation failed: {err}");
+                        // }
+                    }
+
+                    Err(err) => {
+                        // TODO: Add retry support.
+                        warn!("Unable to send NOTIFY to nameserver {nameserver_addr}: {err}");
+                    }
+                }
+            });
         }
     }
 
@@ -1434,7 +1485,8 @@ impl Catalog {
         match time_tracking.write().await.entry(key.clone()) {
             Vacant(e) => {
                 let read = zone.read();
-                if let Ok(Some(soa)) = Self::read_soa(&read, apex_name).await
+                if let Ok(Some((soa, _))) =
+                    Self::read_soa(&read, apex_name).await
                 {
                     e.insert(ZoneRefreshState::new(&soa));
                     Ok(Some(soa.refresh()))
@@ -1459,21 +1511,51 @@ impl Catalog {
         refresh_timers: &mut FuturesUnordered<ZoneRefreshTimer>,
     ) {
         // https://datatracker.ietf.org/doc/html/rfc1996#section-4
-        // "4.3. If a master server seeks to avoid causing a large
-        //  number of simultaneous outbound zone transfers, it may
-        //  delay for an arbitrary length of time before sending a
-        //  NOTIFY message to any given slave. It is expected that the
-        //  time will be chosen at random, so that each slave will
-        //  begin its transfer at a unique time.  The delay shall not
-        //  in any case be longer than the SOA REFRESH time."
+        // "4.3. If a master server seeks to avoid causing a large number of
+        //  simultaneous outbound zone transfers, it may delay for an
+        //  arbitrary length of time before sending a NOTIFY message to any
+        //  given slave. It is expected that the time will be chosen at
+        //  random, so that each slave will begin its transfer at a unique
+        //  time.  The delay shall not in any case be longer than the SOA
+        //  REFRESH time."
         //
-        // TODO: Maybe add some fuzzyness to spread syncing of zones
-        // out a bit.
+        // TODO: Maybe add some fuzzyness to spread syncing of zones out a
+        // bit.
 
-        let timer_info =
-            ZoneRefreshInstant::new(key, at.unwrap_or(Ttl::ZERO), cause);
-        let fut = ZoneRefreshTimer::new(timer_info);
-        refresh_timers.push(fut);
+        let new_refresh_instant = ZoneRefreshInstant::new(
+            key.clone(),
+            at.unwrap_or(Ttl::ZERO),
+            cause,
+        );
+
+        let new_timer = ZoneRefreshTimer::new(new_refresh_instant);
+
+        // Only add a new timer for a zone if one doesn't already exist for
+        // that zone that will fire sooner than the new one. If the new timer
+        // would fire earlier than the existing one, update the existing one.
+        let timer_for_this_zone = refresh_timers
+            .iter_mut()
+            .find(|timer| timer.refresh_instant.key == key);
+
+        if let Some(timer) = timer_for_this_zone {
+            if timer
+                .deadline()
+                .checked_duration_since(new_timer.deadline())
+                .is_none()
+            {
+                // This timer is earlier than the new timer, don't add the new
+                // one.
+                debug!("Skipping creation of later timer");
+                return;
+            } else {
+                // This timer is later or at the same time as the new one.
+                debug!("Replacing later timer with new timer");
+                timer.replace(new_timer);
+                return;
+            }
+        }
+
+        refresh_timers.push(new_timer);
     }
 
     #[allow(clippy::mutable_key_type)]
@@ -1483,6 +1565,7 @@ impl Catalog {
         msg: ZoneChangedMsg,
         time_tracking: Arc<RwLock<HashMap<ZoneKey, ZoneRefreshState>>>,
         event_tx: Sender<Event>,
+        key_store: Arc<RwLock<CatalogKeyStore>>,
     ) {
         // Do we have the zone that is being updated?
         let pending_zones = pending_zones.read().await;
@@ -1511,10 +1594,8 @@ impl Catalog {
         // notifications for updates to a zone that we are authoritative for.
         let zone_info = cat_zone.info();
 
-        let (source, primary_info, acl) = match (
-            msg.source,
-            &zone_info.zone_type,
-        ) {
+        let (source, allow_notify) = match (msg.source, &zone_info.zone_type)
+        {
             (None, ZoneType::Primary { notify, .. }) => {
                 // A local notification that a zone that we are primary for
                 // has been changed locally.
@@ -1524,7 +1605,7 @@ impl Catalog {
                 );
 
                 Self::update_known_nameservers_for_zone(zone).await;
-                Self::send_notify(zone, notify).await;
+                Self::send_notify(zone, notify, key_store).await;
                 return;
             }
 
@@ -1544,20 +1625,14 @@ impl Catalog {
                 return;
             }
 
-            (
-                Some(source),
-                ZoneType::Secondary {
-                    primary_info,
-                    allow_notify,
-                },
-            ) => {
+            (Some(source), ZoneType::Secondary { allow_notify, .. }) => {
                 // A remote notification that a zone that we are secondary for
                 // has been updated on the remote server. If the notification
                 // is legitimate we will want to check if the remote copy of
                 // the zone is indeed newer than our copy and then fetch the
                 // changes.
                 trace!("Remote change notification received for secondary zone '{}'", msg.apex_name);
-                (source, primary_info, allow_notify)
+                (source, allow_notify)
             }
 
             (Some(_), ZoneType::Primary { .. }) => {
@@ -1601,9 +1676,7 @@ impl Catalog {
         // address resolves to the SOA MNAME or an apex NS name for the
         // zone being updated. If not, ignore the notification.
 
-        let Some(primary_info) =
-            Self::identify_primary(primary_info, acl, &source, zone).await
-        else {
+        if !Self::is_known_primary(allow_notify, &source, zone).await {
             warn!(
                 "NOTIFY for {}, from {source}: refused, no acl matches",
                 msg.apex_name
@@ -1643,34 +1716,44 @@ impl Catalog {
             return;
         };
 
-        // https://datatracker.ietf.org/doc/html/rfc1996#section-4
-        // "4.4. A slave which receives a valid NOTIFY should defer action on
-        //  any subsequent NOTIFY with the same <QNAME,QCLASS,QTYPE> until it
-        //  has completed the transaction begun by the first NOTIFY.  This
+        // https://datatracker.ietf.org/doc/html/rfc1996#section-4 "4.4. A
+        // slave which receives a valid NOTIFY should defer action on any
+        //  subsequent NOTIFY with the same <QNAME,QCLASS,QTYPE> until it has
+        //  completed the transaction begun by the first NOTIFY.  This
         //  duplicate rejection is necessary to avoid having multiple
         //  notifications lead to pummeling the master server."
         //
-        // TODO: For now ignore duplicate NOTIFY's.
+        // We only support the original SOA qtype for NOTIFY. The unique tuple
+        // that identifies an in-progress NOTIFY is thus only <QNAME,QCLASS>.
+        // This is the same tuple as that of `ZoneKey`, thus we only have one
+        // zone for each unique tuple in our set of zones. Thus to avoid
+        // processing a NOTIFY when one is already in progress for a unique
+        // tuple we only have to look at the status of the zone for which the
+        // notify was received.
         if matches!(
             zone_refresh_info.status,
-            SecondaryZoneStatus::Expired | SecondaryZoneStatus::Notified
+            ZoneRefreshStatus::NotifyInProgress
         ) {
-            // TODO
+            // Note: Rather than defer the NOTIFY when one is already in
+            // progress we ignore the additional NOTIFY.
+            // TODO: Should this be WARN, or DEBUG? Or an incremented metric?
             warn!(
-                "NOTIFY for {}, from {source}: refused, expired or notify in progress",
+                "NOTIFY for {}, from {source}: refused, notify already in progress for this zone",
                 msg.apex_name
             );
             return;
         }
 
-        zone_refresh_info.status = SecondaryZoneStatus::Notified;
+        zone_refresh_info.status = ZoneRefreshStatus::NotifyInProgress;
 
+        let initial_xfr_addr = SocketAddr::new(source, IANA_DNS_PORT_NUMBER);
         if let Err(()) = Self::refresh_zone_and_update_state(
             ZoneRefreshCause::NotifyFromPrimary,
             zone,
-            &primary_info,
+            Some(initial_xfr_addr),
             zone_refresh_info,
             event_tx,
+            key_store,
         )
         .await
         {
@@ -1682,9 +1765,10 @@ impl Catalog {
     async fn refresh_zone_and_update_state(
         cause: ZoneRefreshCause,
         zone: &Zone,
-        primary_info: &PrimaryInfo,
+        initial_xfr_addr: Option<SocketAddr>,
         zone_refresh_info: &mut ZoneRefreshState,
         event_tx: Sender<Event>,
+        key_store: Arc<RwLock<CatalogKeyStore>>,
     ) -> Result<(), ()> {
         match cause {
             ZoneRefreshCause::ManualTrigger
@@ -1709,8 +1793,13 @@ impl Catalog {
 
         info!("Refreshing zone '{}' due to {cause}", zone.apex_name());
 
-        let res =
-            Self::refresh_zone(zone, primary_info, zone_refresh_info).await;
+        let res = Self::refresh_zone(
+            zone,
+            initial_xfr_addr,
+            zone_refresh_info,
+            key_store,
+        )
+        .await;
 
         match res {
             Err(_) => {
@@ -1726,7 +1815,7 @@ impl Catalog {
                 //    check for the EXPIRE interval, it must assume that its
                 //    copy of the zone is obsolete an discard it."
 
-                if zone_refresh_info.status == SecondaryZoneStatus::Retrying {
+                if zone_refresh_info.status == ZoneRefreshStatus::Retrying {
                     let time_of_last_soa_check = zone_refresh_info
                         .metrics
                         .last_soa_serial_check_succeeded_at
@@ -1737,9 +1826,6 @@ impl Catalog {
                     {
                         if duration > zone_refresh_info.expire.into_duration()
                         {
-                            zone_refresh_info.status =
-                                SecondaryZoneStatus::Expired;
-
                             let cat_zone = zone
                                 .as_ref()
                                 .as_any()
@@ -1757,7 +1843,7 @@ impl Catalog {
                     }
                 }
 
-                zone_refresh_info.status = SecondaryZoneStatus::Retrying;
+                zone_refresh_info.status = ZoneRefreshStatus::Retrying;
 
                 // Schedule a zone refresh according to the SOA RETRY timer value.
                 Self::schedule_zone_refresh(
@@ -1784,7 +1870,7 @@ impl Catalog {
                     // enabled for the zone or the zone is up-to-date.
                 }
 
-                zone_refresh_info.status = SecondaryZoneStatus::Refreshing;
+                zone_refresh_info.status = ZoneRefreshStatus::Refreshing;
 
                 // Schedule a zone refresh according to the SOA REFRESH timer value.
                 Self::schedule_zone_refresh(
@@ -1800,22 +1886,12 @@ impl Catalog {
         }
     }
 
-    #[allow(clippy::mutable_key_type)]
     async fn refresh_zone(
         zone: &Zone,
-        primary_info: &PrimaryInfo,
+        initial_xfr_addr: Option<SocketAddr>,
         zone_refresh_info: &mut ZoneRefreshState,
-    ) -> Result<Option<Soa<ParsedName<Bytes>>>, ()> {
-        // Determine the kind of transfer to use if the zone is outdated
-        let rtype = match primary_info.xfr_mode {
-            XfrMode::None => {
-                warn!("Transfer not enabled for possibly outdated secondary zone '{}'", zone.apex_name());
-                return Ok(None);
-            }
-            XfrMode::AxfrOnly => Rtype::AXFR,
-            XfrMode::AxfrAndIxfr => Rtype::IXFR,
-        };
-
+        key_store: Arc<RwLock<CatalogKeyStore>>,
+    ) -> Result<Option<Soa<ParsedName<Bytes>>>, CatalogError> {
         // Was this zone already refreshed recently?
         if let Some(last_refreshed) =
             zone_refresh_info.metrics.last_refreshed_at
@@ -1832,115 +1908,310 @@ impl Catalog {
             }
         }
 
-        // Query the SOA serial of the primary
-        let udp_connect = UdpConnect::new(primary_info.addr);
-        let mut dgram_config = dgram::Config::new();
-        dgram_config.set_max_parallel(1);
-        dgram_config.set_read_timeout(Duration::from_millis(1000));
-        dgram_config.set_max_retries(1);
-        dgram_config.set_udp_payload_size(Some(1400));
-        let soa_query_client =
-            dgram::Connection::with_config(udp_connect, dgram_config);
+        // Determine which strategy to use if the zone has multiple primaries
+        let cat_zone = zone
+            .as_ref()
+            .as_any()
+            .downcast_ref::<CatalogZone>()
+            .unwrap();
 
-        let msg = MessageBuilder::new_vec();
-        let mut msg = msg.question();
-        msg.push((zone.apex_name(), Rtype::SOA)).unwrap();
-        let msg = msg.into_message();
-        let req = RequestMessage::new(msg);
+        let ZoneType::Secondary {
+            multi_primary_xfr_strategy,
+            request_xfr,
+            ..
+        } = &cat_zone.info().zone_type
+        else {
+            unreachable!();
+        };
 
-        let mut immediate_refresh_needed = false;
-        let res = soa_query_client.send_request(req).get_response().await;
-        if let Ok(msg) = res {
-            if msg.no_error() {
-                if let Ok(answer) = msg.answer() {
-                    let mut records = answer.limit_to::<Soa<_>>();
-                    let record = records.next();
-                    if let Some(Ok(record)) = record {
-                        let serial_at_primary = record.data().serial();
+        // TODO: If we later have more than one MultiPrimaryXfrStrategy,
+        // adjust our behaviour to match the requested strategy.
+        // TODO: Factor out the multi-primary strategy to a generic type on
+        // Catalog that implements a trait to make it pluggable.
+        assert!(matches!(multi_primary_xfr_strategy, MultiPrimaryXfrStrategy::NotifySourceFirstThenSequentialStoppingAtFirstNewerSerial));
 
-                        zone_refresh_info
-                            .metrics
-                            .last_soa_serial_check_succeeded_at =
-                            Some(Instant::now());
+        // Determine our current SOA SERIAL value so that we can check that
+        // the primary is higher. If the zone is a new secondary it will not
+        // have a SOA RR and any available data for the zone available at a
+        // primary should be accepted.
+        let soa = Self::read_soa(&zone.read(), zone.apex_name().clone())
+            .await
+            .map_err(|_out_of_zone_err| CatalogError::InternalError)?;
 
-                        zone_refresh_info
-                            .metrics
-                            .last_soa_serial_check_serial =
-                            Some(serial_at_primary);
+        let current_serial = soa.map(|(soa, _)| soa.serial());
 
-                        if let Ok(Some(soa)) = Self::read_soa(
-                            &zone.read(),
-                            zone.apex_name().clone(),
-                        )
-                        .await
-                        {
-                            immediate_refresh_needed =
-                                serial_at_primary > soa.serial();
-                        } else {
-                            // Zone has no SOA, zone has never been populated
-                            // from the primary. Attempt to refresh it now.
-                            immediate_refresh_needed = true;
-                        }
+        // Determine the primary server addresses to visit and in which order.
+        let primary_addrs =
+            initial_xfr_addr.iter().chain(request_xfr.addrs());
+
+        let mut num_ok_primaries = 0;
+        let mut saved_err = None;
+
+        for primary_addr in primary_addrs {
+            if let Some((xfr_settings, tsig_key)) =
+                request_xfr.get(primary_addr)
+            {
+                let res = Self::refresh_zone_from_addr(
+                    zone,
+                    current_serial,
+                    *primary_addr,
+                    xfr_settings,
+                    tsig_key,
+                    zone_refresh_info,
+                    key_store.clone(),
+                )
+                .await;
+
+                match res {
+                    Ok(Some(_)) => {
+                        // Success!
+                        return res;
                     }
-                } else {
-                    return Err(());
+                    Ok(None) => {
+                        // No transfer supported to this primary or this
+                        // primary has equal or older data than we already
+                        // have. Try the next primary.
+                        num_ok_primaries += 1;
+                    }
+                    Err(err) => {
+                        // Transfer failed. This shuold already have been
+                        // logged along with more details about the transfer
+                        // than we have here. Try the next primary.
+                        saved_err = Some(err);
+                    }
                 }
-            } else {
-                return Err(());
             }
-        } else {
-            return Err(());
         }
 
-        if !immediate_refresh_needed {
-            // https://datatracker.ietf.org/doc/html/rfc1034#section-4.3.5
-            // 4.3.5. Zone maintenance and transfers
-            //   ..
-            //   "If the serial field in the secondary's zone copy is
-            //    equal to the serial returned by the primary, then no
-            //    changes have occurred, and the REFRESH interval wait is
-            //    restarted."
-            //
-            // Create a Tokio sleep future that will awaken when the REFRESH
-            // interval expires, yielding the key of the zone which is ready
-            // to be refreshed.
-            trace!("Zone {} is up-to-date", zone.apex_name());
-            return Ok(None);
+        if num_ok_primaries > 0 {
+            Ok(None)
+        } else {
+            Err(saved_err.unwrap())
         }
+    }
+
+    async fn refresh_zone_from_addr(
+        zone: &Zone,
+        current_serial: Option<Serial>,
+        primary_addr: SocketAddr,
+        xfr_settings: &XfrSettings,
+        tsig_key: &Option<TsigKey>,
+        zone_refresh_info: &mut ZoneRefreshState,
+        key_store: Arc<RwLock<CatalogKeyStore>>,
+    ) -> Result<Option<Soa<ParsedName<Bytes>>>, CatalogError> {
+        // Try at least once, at most twice (when using IXFR -> AXFR fallback)
+        for i in 0..=1 {
+            // Determine the kind of transfer to use if the zone is outdated
+            let rtype = match xfr_settings.xfr {
+                XfrStrategy::None => {
+                    warn!("Transfer not enabled for possibly outdated secondary zone '{}'", zone.apex_name());
+                    return Ok(None);
+                }
+                XfrStrategy::AxfrOnly => Rtype::AXFR,
+                XfrStrategy::IxfrOnly => Rtype::IXFR,
+                XfrStrategy::IxfrWithAxfrFallback if i == 0 => {
+                    // IXFR requires an initial serial number, if we don't
+                    // have one yet use AXFR instead.
+                    match current_serial {
+                        Some(_) => Rtype::IXFR,
+                        None => Rtype::AXFR,
+                    }
+                }
+                XfrStrategy::IxfrWithAxfrFallback if i == 1 => {
+                    trace!("Falling back to AXFR for primary {primary_addr}");
+                    Rtype::AXFR
+                }
+                _ => break,
+            };
+
+            // Build the SOA request message
+            let msg = MessageBuilder::new_vec();
+            let mut msg = msg.question();
+            msg.push((zone.apex_name(), Rtype::SOA)).unwrap();
+            let msg = msg.into_message();
+            let req = RequestMessage::new(msg);
+
+            // Fetch the SOA serial using the appropriate transport
+            let transport = match rtype {
+                Rtype::AXFR => TransportStrategy::Tcp,
+                Rtype::IXFR => xfr_settings.ixfr_transport,
+                _ => unreachable!(),
+            };
+
+            // Query the SOA serial of the primary via the chosen transport
+            let client = match transport {
+                TransportStrategy::None => return Ok(None),
+
+                TransportStrategy::Udp => {
+                    let udp_connect = UdpConnect::new(primary_addr);
+                    let mut dgram_config = dgram::Config::new();
+                    dgram_config.set_max_parallel(1);
+                    dgram_config
+                        .set_read_timeout(Duration::from_millis(1000));
+                    dgram_config.set_max_retries(1);
+                    dgram_config.set_udp_payload_size(Some(1400));
+                    let soa_query_client = dgram::Connection::with_config(
+                        udp_connect,
+                        dgram_config,
+                    );
+
+                    Box::new(soa_query_client)
+                        as Box<dyn SendRequest<_> + Send + Sync>
+                }
+
+                TransportStrategy::Tcp => {
+                    let res = TcpStream::connect(primary_addr).await;
+
+                    // TODO: Replace with inspect_err() if our MSRV increases to 1.76?
+                    if let Err(err) = &res {
+                        error!(
+                            "Unable to refresh zone '{}' by {rtype} from {primary_addr}: {err}",
+                            zone.apex_name(),
+                        );
+                    }
+
+                    let tcp_stream = res?;
+
+                    let mut stream_config = stream::Config::new();
+                    stream_config
+                        .set_response_timeout(Duration::from_secs(2));
+                    stream_config.set_streaming_response_timeout(
+                        Duration::from_secs(30),
+                    );
+                    let (soa_query_client, transport) =
+                        stream::Connection::with_config(
+                            tcp_stream,
+                            stream_config,
+                        );
+
+                    tokio::spawn(async move {
+                        transport.run().await;
+                        trace!("XFR TCP connection terminated");
+                    });
+
+                    Box::new(soa_query_client)
+                        as Box<dyn SendRequest<_> + Send + Sync>
+                }
+            };
+
+            trace!(
+                "Sending SOA query for zone '{}' to {primary_addr}",
+                zone.apex_name()
+            );
+            let msg = client.send_request(req).get_response().await?;
+
+            let newer_data_available = Self::check_primary_soa_serial(
+                msg,
+                zone_refresh_info,
+                current_serial,
+            )
+            .await?;
+
+            if !newer_data_available {
+                return Ok(None);
+            }
+
+            trace!(
+                "Refreshing zone '{}' by {rtype} from {primary_addr}",
+                zone.apex_name()
+            );
+            let res = Self::do_xfr(
+                client,
+                zone,
+                primary_addr,
+                rtype,
+                zone_refresh_info,
+                tsig_key,
+                key_store.clone(),
+            )
+            .await;
+
+            if rtype == Rtype::IXFR
+                && matches!(
+                    res,
+                    Err(CatalogError::ResponseError(OptRcode::NOTIMP))
+                )
+            {
+                trace!("Primary {primary_addr} doesn't support IXFR");
+                continue;
+            }
+
+            let soa = res?;
+            return Ok(soa);
+        }
+
+        Ok(None)
+    }
+
+    /// Does the primary have a newer serial than us?
+    ///
+    /// Returns Ok(true) if so, Ok(false) if its serial is equal or older, or
+    /// Err if the response message indicated an error.
+    async fn check_primary_soa_serial(
+        msg: Message<Bytes>,
+        zone_refresh_info: &mut ZoneRefreshState,
+        current_serial: Option<Serial>,
+    ) -> Result<bool, CatalogError> {
+        if msg.no_error() {
+            if let Ok(answer) = msg.answer() {
+                let mut records = answer.limit_to::<Soa<_>>();
+                let record = records.next();
+                if let Some(Ok(record)) = record {
+                    let serial_at_primary = record.data().serial();
+
+                    zone_refresh_info
+                        .metrics
+                        .last_soa_serial_check_succeeded_at =
+                        Some(Instant::now());
+
+                    zone_refresh_info.metrics.last_soa_serial_check_serial =
+                        Some(serial_at_primary);
+
+                    // The serial at the primary can't be stale
+                    // compared to ours if we don't have a serial yet.
+                    let newer_data_available = current_serial
+                        .map(|current| current < serial_at_primary)
+                        .unwrap_or(true);
+
+                    debug!("Current: {current_serial:?}");
+                    debug!("Primary: {serial_at_primary:?}");
+                    debug!("Newer data available: {newer_data_available}");
+
+                    return Ok(newer_data_available);
+                }
+            }
+        }
+
+        Err(CatalogError::ResponseError(msg.opt_rcode()))
+    }
+
+    async fn do_xfr(
+        client: Box<dyn SendRequest<RequestMessage<Vec<u8>>> + Send + Sync>,
+        zone: &Zone,
+        primary_addr: SocketAddr,
+        mut rtype: Rtype,
+        zone_refresh_info: &mut ZoneRefreshState,
+        tsig_key: &Option<TsigKey>,
+        key_store: Arc<RwLock<CatalogKeyStore>>,
+    ) -> Result<Option<Soa<ParsedName<Bytes>>>, CatalogError> {
+        // https://datatracker.ietf.org/doc/html/rfc1034#section-4.3.5
+        // 4.3.5. Zone maintenance and transfers
+        //   ..
+        //   "If the serial field in the secondary's zone copy is
+        //    equal to the serial returned by the primary, then no
+        //    changes have occurred, and the REFRESH interval wait is
+        //    restarted."
+        //
+        // Create a Tokio sleep future that will awaken when the REFRESH
+        // interval expires, yielding the key of the zone which is ready
+        // to be refreshed.
 
         // Update the zone from the primary using XFR.
-        // TODO: Honor and reset SOA timers, e.g. regarding retries.
-        // TODO: Use the appropriate client for XFR, e.g. UDP/TCP, re-use,
-        // etc.
-        // TODO: Extend the net-client code to handle multiple response
-        // messages for XFR.
         info!(
             "Zone '{}' is outdated, attempting to sync zone by {rtype} from {}",
             zone.apex_name(),
-            primary_info.addr,
+            primary_addr,
         );
-
-        let tcp_stream = match TcpStream::connect(primary_info.addr).await {
-            Ok(stream) => stream,
-            Err(err) => {
-                error!(
-                    "Unable to sync zone '{}' by {rtype} from {}: {err}",
-                    zone.apex_name(),
-                    primary_info.addr,
-                );
-                return Err(());
-            }
-        };
-
-        let mut stream_config = stream::Config::new();
-        stream_config.set_response_timeout(Duration::from_secs(30));
-        let (xfr_client, transport) =
-            stream::Connection::with_config(tcp_stream, stream_config);
-
-        tokio::spawn(async move {
-            transport.run().await;
-            trace!("XFR TCP connection terminated");
-        });
 
         let msg = MessageBuilder::new_vec();
         let mut msg = msg.question();
@@ -1948,20 +2219,37 @@ impl Catalog {
         let msg = if rtype == Rtype::IXFR {
             let mut msg = msg.authority();
             let read = zone.read();
-            let Ok(Some(soa)) =
+            let Ok(Some((soa, ttl))) =
                 Self::read_soa(&read, zone.apex_name().clone()).await
             else {
-                return Err(());
+                return Err(CatalogError::InternalError);
             };
-            msg.push((zone.apex_name(), 86400, soa)).unwrap();
+            msg.push((zone.apex_name(), ttl, soa)).unwrap();
             msg
         } else {
             msg.authority()
         };
+
+        // TSIG
+        // TODO: TSIG cannot be done here, it must be handled by RequestMessage.
+        // let mut msg = msg.additional();
+        // let (msg, mut seq) = if let Some(key) = tsig_key {
+        //     let key = key_store
+        //         .read()
+        //         .await
+        //         .get_key(&key.name, Algorithm::Sha256)
+        //         .unwrap();
+        //     let seq = ClientSequence::request(key, &mut msg, Time48::now())
+        //         .unwrap();
+        //     (msg, Some(seq))
+        // } else {
+        //     (msg, None)
+        // };
+
         let msg = msg.into_message();
         let req = RequestMessage::new(msg);
 
-        let expected_initial_soa_seen_count = match rtype {
+        let mut expected_initial_soa_seen_count = match rtype {
             Rtype::AXFR => 2,
             Rtype::IXFR => 3,
             _ => unreachable!(),
@@ -1994,222 +2282,260 @@ impl Catalog {
         let mut write = zone.write().await;
         let mut initial_soa = None;
 
-        // TODO: Handle the Err case when open() fails.
-        if let Ok(writable) = write.open(true).await {
-            let mut req = xfr_client.send_streaming_request(req);
-            let mut i = 0;
-            let mut initial_soa_serial = None;
-            let mut initial_soa_serial_seen_count = 0;
-            'outer: loop {
-                i += 1;
-                let res = req.get_response().await;
-                if let Ok(msg) = res {
-                    trace!("Received response {i}");
-                    if msg.no_error() {
-                        if let Ok(answer) = msg.answer() {
-                            let records =
-                                answer.limit_to::<AllRecordData<_, _>>();
-                            for record in records.flatten() {
-                                trace!("XFR record: {record:?}");
+        let writable = write.open(true).await?;
+        let mut req = client.send_streaming_request(req);
+        let mut i = 0;
+        let mut n = 0;
+        let mut initial_soa_serial = None;
+        let mut initial_soa_serial_seen_count = 0;
 
-                                let mut end_node: Option<
-                                    Box<dyn WritableZoneNode>,
-                                > = None;
+        'outer: loop {
+            let msg = req.get_response().await?;
+            trace!("Received response {i}");
+            i += 1;
 
-                                let name = mk_relative_name_iterator(
-                                    zone.apex_name(),
-                                    record.owner(),
-                                )
-                                .map_err(|_| ())?;
+            // TSIG: This seems wasteful that we have to make a copy
+            // of the message bytes before we can do TSIG validation
+            // but as the underlying message octets may be stored as a
+            // type like Bytes that can be cloned by reference
+            // counting or other such means of sharing a single set of
+            // bytes we cannot modify those bytes as required for TSIG
+            // validation because that would modify the views of the
+            // same message bytes visible to other parts of the
+            // program.
+            // if let Some(seq) = &mut seq {
+            //     let mut bytes =
+            //         Vec::with_capacity(msg.as_slice().len());
+            //     bytes.extend_from_slice(msg.as_slice());
+            //     let mut tsig_msg =
+            //         Message::from_octets(bytes).unwrap();
 
-                                for label in name {
-                                    trace!("Relativised label: {label}");
-                                    end_node =
-                                        Some(
-                                            match end_node {
-                                                Some(new_node) => new_node
-                                                    .update_child(label),
-                                                None => writable
-                                                    .update_child(label),
-                                            }
-                                            .await
-                                            .map_err(|_| ())?,
-                                        );
-                                }
-                                let rtype = record.rtype();
-                                let ttl = record.ttl();
-                                let data = record.into_data();
-                                let mut rrset = Rrset::new(rtype, ttl);
+            //     if let Err(err) =
+            //         seq.answer(&mut tsig_msg, Time48::now())
+            //     {
+            //         error!("TSIG validation failed: {err}");
+            //         return Err(());
+            //     }
+            // }
 
-                                match data {
-                                    AllRecordData::A(v) => {
-                                        rrset.push_data(ZoneRecordData::A(v))
-                                    }
-                                    AllRecordData::Cname(v) => rrset
-                                        .push_data(ZoneRecordData::Cname(
-                                            Cname::new(
-                                                v.into_cname().to_name(),
-                                            ),
-                                        )),
-                                    AllRecordData::Hinfo(v) => rrset
-                                        .push_data(ZoneRecordData::Hinfo(v)),
-                                    AllRecordData::Mb(v) => rrset.push_data(
-                                        ZoneRecordData::Mb(Mb::new(
-                                            v.into_madname().to_name(),
-                                        )),
-                                    ),
-                                    AllRecordData::Md(v) => rrset.push_data(
-                                        ZoneRecordData::Md(Md::new(
-                                            v.into_madname().to_name(),
-                                        )),
-                                    ),
-                                    AllRecordData::Mf(v) => rrset.push_data(
-                                        ZoneRecordData::Mf(Mf::new(
-                                            v.into_madname().to_name(),
-                                        )),
-                                    ),
-                                    AllRecordData::Mg(v) => rrset.push_data(
-                                        ZoneRecordData::Mg(Mg::new(
-                                            v.into_madname().to_name(),
-                                        )),
-                                    ),
-                                    // AllRecordData::Minfo(v) => rrset.push_data(ZoneRecordData::Minfo(Minfo::new(v))),
-                                    // AllRecordData::Mr(v) => rrset.push_data(ZoneRecordData::Mr(v)),
-                                    AllRecordData::Mx(v) => rrset.push_data(
-                                        ZoneRecordData::Mx(Mx::new(
-                                            v.preference(),
-                                            v.exchange().to_name(),
-                                        )),
-                                    ),
-                                    AllRecordData::Ns(v) => rrset.push_data(
-                                        ZoneRecordData::Ns(Ns::new(
-                                            v.into_nsdname().to_name(),
-                                        )),
-                                    ),
-                                    AllRecordData::Ptr(v) => rrset.push_data(
-                                        ZoneRecordData::Ptr(Ptr::new(
-                                            v.into_ptrdname().to_name(),
-                                        )),
-                                    ),
-                                    AllRecordData::Soa(v) => {
-                                        let new_v =
-                                            ZoneRecordData::Soa(Soa::new(
-                                                v.mname().to_name(),
-                                                v.rname().to_name(),
-                                                v.serial(),
-                                                v.refresh(),
-                                                v.retry(),
-                                                v.expire(),
-                                                v.minimum(),
-                                            ));
+            if msg.no_error() {
+                match msg.answer() {
+                    Ok(answer) => {
+                        let records =
+                            answer.limit_to::<AllRecordData<_, _>>();
+                        for record in records.flatten() {
+                            trace!("XFR record {n}: {record:?}");
 
-                                        if let Some(initial_soa_serial) =
-                                            initial_soa_serial
-                                        {
-                                            if initial_soa_serial
-                                                == v.serial()
-                                            {
-                                                // AXFR end SOA detected.
-                                                // Notify transport that no
-                                                // more responses are
-                                                // expected.
-                                                initial_soa_serial_seen_count += 1;
-                                                if initial_soa_serial_seen_count == expected_initial_soa_seen_count {
-                                                    trace!("Closing response stream at record nr {i} (soa seen count = {initial_soa_serial_seen_count})");
-                                                    req.stream_complete();
-                                                    break 'outer;
-                                                }
-                                            }
-                                        } else {
-                                            initial_soa_serial =
-                                                Some(v.serial());
-                                            initial_soa = Some(v);
-                                            initial_soa_serial_seen_count = 1;
+                            if rtype == Rtype::IXFR && n == 1 && initial_soa_serial_seen_count == 1 && record.rtype() != Rtype::SOA {
+                                // https://datatracker.ietf.org/doc/html/rfc1995#section-4
+                                // 4. Response Format
+                                //   "If incremental zone transfer is not available, the entire zone is
+                                //    returned.  The first and the last RR of the response is the SOA
+                                //    record of the zone.  I.e. the behavior is the same as an AXFR
+                                //    response except the query type is IXFR."
+                                debug!("IXFR response appears to be AXFR, switching...");
+                                rtype = Rtype::AXFR;
+                                expected_initial_soa_seen_count = 2;
+                            }
+                            
+                            n += 1;
+                            let mut end_node: Option<
+                                Box<dyn WritableZoneNode>,
+                            > = None;
+
+                            let name = mk_relative_name_iterator(
+                                zone.apex_name(),
+                                record.owner(),
+                            )
+                            .map_err(|_| CatalogError::InternalError)?;
+
+                            for label in name {
+                                trace!("Relativised label: {label}");
+                                end_node = Some(
+                                    match end_node {
+                                        Some(new_node) => {
+                                            new_node.update_child(label)
                                         }
+                                        None => writable.update_child(label),
+                                    }
+                                    .await
+                                    .map_err(|_| {
+                                        CatalogError::InternalError
+                                    })?,
+                                );
+                            }
+                            let rtype = record.rtype();
+                            let ttl = record.ttl();
+                            let data = record.into_data();
+                            let mut rrset = Rrset::new(rtype, ttl);
 
-                                        rrset.push_data(new_v)
-                                    }
-                                    AllRecordData::Txt(v) => rrset
-                                        .push_data(ZoneRecordData::Txt(v)),
-                                    AllRecordData::Aaaa(v) => rrset
-                                        .push_data(ZoneRecordData::Aaaa(v)),
-                                    AllRecordData::Cdnskey(v) => rrset
-                                        .push_data(ZoneRecordData::Cdnskey(
-                                            v,
-                                        )),
-                                    AllRecordData::Cds(v) => rrset
-                                        .push_data(ZoneRecordData::Cds(v)),
-                                    AllRecordData::Dname(v) => rrset
-                                        .push_data(ZoneRecordData::Dname(
-                                            Dname::new(
-                                                v.into_dname().to_name(),
-                                            ),
-                                        )),
-                                    // AllRecordData::Dnskey(v) => rrset.push_data(ZoneRecordData::Dnskey(v),
-                                    // AllRecordData::Rrsig(v) => rrset.push_data(ZoneRecordData::Rrsig(v)),
-                                    AllRecordData::Nsec(v) => rrset
-                                        .push_data(ZoneRecordData::Nsec(
-                                            Nsec::new(
-                                                v.next_name().to_name(),
-                                                v.types().clone(),
-                                            ),
-                                        )),
-                                    AllRecordData::Ds(v) => {
-                                        rrset.push_data(ZoneRecordData::Ds(v))
-                                    }
-                                    AllRecordData::Nsec3(v) => rrset
-                                        .push_data(ZoneRecordData::Nsec3(v)),
-                                    AllRecordData::Nsec3param(v) => rrset
-                                        .push_data(
-                                            ZoneRecordData::Nsec3param(v),
-                                        ),
-                                    // AllRecordData::Srv(v) => rrset.push_data(ZoneRecordData::Srv(v)),
-                                    AllRecordData::Zonemd(v) => rrset
-                                        .push_data(ZoneRecordData::Zonemd(v)),
-                                    // AllRecordData::Null(v) => rrset.push_data(ZoneRecordData::Null(v)),
-                                    // AllRecordData::Svcb(v) => rrset.push_data(ZoneRecordData::Svcb(v)),
-                                    // AllRecordData::Https(v) => rrset.push_data(ZoneRecordData::Https(v)),
-                                    // AllRecordData::Tsig(v) => rrset.push_data(ZoneRecordData::Tsig(v)),
-                                    // AllRecordData::Opt(v) => rrset.push_data(ZoneRecordData::Opt(v)),
-                                    AllRecordData::Unknown(v) => rrset
-                                        .push_data(ZoneRecordData::Unknown(
-                                            v,
-                                        )),
-                                    _ => todo!(),
+                            match data {
+                                AllRecordData::A(v) => {
+                                    rrset.push_data(ZoneRecordData::A(v))
                                 }
-                                trace!("Adding RRset: {rrset:?}");
-                                let rrset = SharedRrset::new(rrset);
-                                match end_node {
-                                    Some(n) => {
-                                        trace!("Adding RRset at end_node");
-                                        n.update_rrset(rrset)
-                                            .await
-                                            .map_err(|_| ())?;
+                                AllRecordData::Cname(v) => {
+                                    rrset.push_data(ZoneRecordData::Cname(
+                                        Cname::new(v.into_cname().to_name()),
+                                    ))
+                                }
+                                AllRecordData::Hinfo(v) => {
+                                    rrset.push_data(ZoneRecordData::Hinfo(v))
+                                }
+                                AllRecordData::Mb(v) => {
+                                    rrset.push_data(ZoneRecordData::Mb(
+                                        Mb::new(v.into_madname().to_name()),
+                                    ))
+                                }
+                                AllRecordData::Md(v) => {
+                                    rrset.push_data(ZoneRecordData::Md(
+                                        Md::new(v.into_madname().to_name()),
+                                    ))
+                                }
+                                AllRecordData::Mf(v) => {
+                                    rrset.push_data(ZoneRecordData::Mf(
+                                        Mf::new(v.into_madname().to_name()),
+                                    ))
+                                }
+                                AllRecordData::Mg(v) => {
+                                    rrset.push_data(ZoneRecordData::Mg(
+                                        Mg::new(v.into_madname().to_name()),
+                                    ))
+                                }
+                                // AllRecordData::Minfo(v) => rrset.push_data(ZoneRecordData::Minfo(Minfo::new(v))),
+                                // AllRecordData::Mr(v) => rrset.push_data(ZoneRecordData::Mr(v)),
+                                AllRecordData::Mx(v) => rrset.push_data(
+                                    ZoneRecordData::Mx(Mx::new(
+                                        v.preference(),
+                                        v.exchange().to_name(),
+                                    )),
+                                ),
+                                AllRecordData::Ns(v) => {
+                                    rrset.push_data(ZoneRecordData::Ns(
+                                        Ns::new(v.into_nsdname().to_name()),
+                                    ))
+                                }
+                                AllRecordData::Ptr(v) => {
+                                    rrset.push_data(ZoneRecordData::Ptr(
+                                        Ptr::new(v.into_ptrdname().to_name()),
+                                    ))
+                                }
+                                AllRecordData::Soa(v) => {
+                                    let new_v =
+                                        ZoneRecordData::Soa(Soa::new(
+                                            v.mname().to_name(),
+                                            v.rname().to_name(),
+                                            v.serial(),
+                                            v.refresh(),
+                                            v.retry(),
+                                            v.expire(),
+                                            v.minimum(),
+                                        ));
+
+                                    if let Some(initial_soa_serial) =
+                                        initial_soa_serial
+                                    {
+                                        if initial_soa_serial == v.serial() {
+                                            // AXFR end SOA detected.
+                                            // Notify transport that no
+                                            // more responses are
+                                            // expected.
+                                            initial_soa_serial_seen_count +=
+                                                1;
+                                            if initial_soa_serial_seen_count == expected_initial_soa_seen_count {
+                                                trace!("Closing response stream at record nr {i} (soa seen count = {initial_soa_serial_seen_count})");
+                                                req.stream_complete();
+                                                break 'outer;
+                                            }
+                                        }
+                                    } else {
+                                        initial_soa_serial = Some(v.serial());
+                                        initial_soa = Some(v);
+                                        initial_soa_serial_seen_count = 1;
                                     }
-                                    None => {
-                                        trace!("Adding RRset at root");
-                                        writable
-                                            .update_rrset(rrset)
-                                            .await
-                                            .map_err(|_| ())?;
-                                    }
+
+                                    rrset.push_data(new_v)
+                                }
+                                AllRecordData::Txt(v) => {
+                                    rrset.push_data(ZoneRecordData::Txt(v))
+                                }
+                                AllRecordData::Aaaa(v) => {
+                                    rrset.push_data(ZoneRecordData::Aaaa(v))
+                                }
+                                AllRecordData::Cdnskey(v) => rrset
+                                    .push_data(ZoneRecordData::Cdnskey(v)),
+                                AllRecordData::Cds(v) => {
+                                    rrset.push_data(ZoneRecordData::Cds(v))
+                                }
+                                AllRecordData::Dname(v) => {
+                                    rrset.push_data(ZoneRecordData::Dname(
+                                        Dname::new(v.into_dname().to_name()),
+                                    ))
+                                }
+                                // AllRecordData::Dnskey(v) => rrset.push_data(ZoneRecordData::Dnskey(v),
+                                // AllRecordData::Rrsig(v) => rrset.push_data(ZoneRecordData::Rrsig(v)),
+                                AllRecordData::Nsec(v) => rrset.push_data(
+                                    ZoneRecordData::Nsec(Nsec::new(
+                                        v.next_name().to_name(),
+                                        v.types().clone(),
+                                    )),
+                                ),
+                                AllRecordData::Ds(v) => {
+                                    rrset.push_data(ZoneRecordData::Ds(v))
+                                }
+                                AllRecordData::Nsec3(v) => {
+                                    rrset.push_data(ZoneRecordData::Nsec3(v))
+                                }
+                                AllRecordData::Nsec3param(v) => rrset
+                                    .push_data(ZoneRecordData::Nsec3param(v)),
+                                // AllRecordData::Srv(v) => rrset.push_data(ZoneRecordData::Srv(v)),
+                                AllRecordData::Zonemd(v) => {
+                                    rrset.push_data(ZoneRecordData::Zonemd(v))
+                                }
+                                // AllRecordData::Null(v) => rrset.push_data(ZoneRecordData::Null(v)),
+                                // AllRecordData::Svcb(v) => rrset.push_data(ZoneRecordData::Svcb(v)),
+                                // AllRecordData::Https(v) => rrset.push_data(ZoneRecordData::Https(v)),
+                                // AllRecordData::Tsig(v) => rrset.push_data(ZoneRecordData::Tsig(v)),
+                                // AllRecordData::Opt(v) => rrset.push_data(ZoneRecordData::Opt(v)),
+                                AllRecordData::Unknown(v) => rrset
+                                    .push_data(ZoneRecordData::Unknown(v)),
+                                _ => todo!(),
+                            }
+                            trace!("Adding RRset: {rrset:?}");
+                            let rrset = SharedRrset::new(rrset);
+                            match end_node {
+                                Some(n) => {
+                                    trace!("Adding RRset at end_node");
+                                    n.update_rrset(rrset).await.map_err(
+                                        |_| CatalogError::InternalError,
+                                    )?;
+                                }
+                                None => {
+                                    trace!("Adding RRset at root");
+                                    writable
+                                        .update_rrset(rrset)
+                                        .await
+                                        .map_err(|_| {
+                                            CatalogError::InternalError
+                                        })?;
                                 }
                             }
-                        } else {
-                            return Err(());
                         }
-                    } else {
-                        return Err(());
                     }
-                } else {
-                    return Err(());
+
+                    Err(err) => {
+                        error!("Error while parsing XFR ANSWER: {err}");
+                        return Err(CatalogError::RequestError(
+                            request::Error::MessageParseError,
+                        ));
+                    }
                 }
+            } else {
+                return Err(CatalogError::ResponseError(msg.opt_rcode()));
             }
-        } else {
-            return Err(());
         }
 
-        write.commit(false).await.map_err(|_| ())?;
+        drop(writable);
+        write.commit(false).await?;
 
         let new_serial = initial_soa.as_ref().unwrap().serial();
         zone_refresh_info.metrics.last_refresh_succeeded_serial =
@@ -2219,7 +2545,7 @@ impl Catalog {
             "Zone '{}' has been updated to serial {} by {rtype} from {}",
             zone.apex_name(),
             new_serial,
-            primary_info.addr,
+            primary_addr,
         );
 
         Ok(initial_soa)
@@ -2229,7 +2555,7 @@ impl Catalog {
     async fn read_soa(
         read: &Box<dyn ReadableZone>,
         qname: Name<Bytes>,
-    ) -> Result<Option<Soa<Name<Bytes>>>, OutOfZone> {
+    ) -> Result<Option<(Soa<Name<Bytes>>, Ttl)>, OutOfZone> {
         let answer = match read.is_async() {
             true => read.query_async(qname, Rtype::SOA).await,
             false => read.query(qname, Rtype::SOA),
@@ -2237,7 +2563,7 @@ impl Catalog {
 
         if let AnswerContent::Data(rrset) = answer.content() {
             if let ZoneRecordData::Soa(soa) = rrset.first().unwrap().data() {
-                return Ok(Some(soa.clone()));
+                return Ok(Some((soa.clone(), rrset.ttl())));
             }
         }
 
@@ -2272,7 +2598,7 @@ impl Catalog {
 
         let read = zone.read();
 
-        let Some(soa) = Self::read_soa(&read, zone.apex_name().clone())
+        let Some((soa, _)) = Self::read_soa(&read, zone.apex_name().clone())
             .await
             .map_err(|_| ())?
         else {
@@ -2354,26 +2680,15 @@ impl Catalog {
         Ok(nameservers)
     }
 
-    async fn identify_primary<'a>(
-        primary_info: &'a PrimaryInfo,
-        acl: &Acl,
+    async fn is_known_primary<'a>(
+        acl: &'a NotifyAcl,
         source: &IpAddr,
         zone: &Zone,
-    ) -> Option<Cow<'a, PrimaryInfo>> {
-        if primary_info.addr.ip() == *source {
-            trace!(
-                "Source IP {source} matches the primary info for the zone."
-            );
-            return Some(Cow::Borrowed(primary_info));
-        } else {
-            trace!("Source IP {source} does NOT match the primary info for the zone.");
-        }
-
+    ) -> bool {
         let source_addr = SocketAddr::new(*source, IANA_DNS_PORT_NUMBER);
         if acl.contains(&source_addr) {
             trace!("Source IP {source} is on the ACL for the zone.");
-            let primary_info = PrimaryInfo::new(source_addr);
-            return Some(Cow::Owned(primary_info));
+            return true;
         } else {
             trace!("Source IP {source} is NOT on the ACL for the zone.");
         }
@@ -2389,7 +2704,7 @@ impl Catalog {
             if let Ok(nameservers) = Self::identify_nameservers(zone).await {
                 *locked_nameservers = Some(nameservers);
             } else {
-                return None;
+                return false;
             }
         }
 
@@ -2398,11 +2713,7 @@ impl Catalog {
 
         if nameservers.primary.1.contains(&source_addr) {
             trace!("Source IP {source} matches primary nameserver '{}' ({source}) for zone '{}'.", nameservers.primary.0, zone.apex_name());
-            let socket_addr = SocketAddr::new(*source, IANA_DNS_PORT_NUMBER);
-            let primary_info = PrimaryInfo::new(socket_addr);
-            return Some(Cow::Owned(primary_info));
-        } else {
-            trace!("Source IP {source} does NOT match any primary name servers for zone '{}'.", zone.apex_name());
+            return true;
         }
 
         let res = nameservers
@@ -2412,12 +2723,10 @@ impl Catalog {
 
         if let Some((name, _)) = res {
             trace!("Source IP {source} matches nameserver '{name}' ({source}) for zone '{}'.", zone.apex_name());
-            let socket_addr = SocketAddr::new(*source, IANA_DNS_PORT_NUMBER);
-            let primary_info = PrimaryInfo::new(socket_addr);
-            return Some(Cow::Owned(primary_info));
+            true
         } else {
             trace!("Source IP {source} does NOT match any primary name servers for zone '{}'.", zone.apex_name());
-            None
+            false
         }
     }
 
@@ -2725,9 +3034,98 @@ impl WritableZone for WritableCatalogZone {
 
 //------------ CatalogError --------------------------------------------------
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Debug)]
 pub enum CatalogError {
     NotRunning,
     InternalError,
     UnknownZone,
+    RequestError(request::Error),
+    ResponseError(OptRcode),
+    IoError(io::Error),
 }
+
+//--- Display
+
+impl std::fmt::Display for CatalogError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            CatalogError::NotRunning => f.write_str("Catalog not running"),
+            CatalogError::InternalError => {
+                f.write_str("Internal Catalog error")
+            }
+            CatalogError::UnknownZone => f.write_str("Unknown zone"),
+            CatalogError::RequestError(err) => f.write_fmt(format_args!(
+                "Request sent by Catalog failed: {err}"
+            )),
+            CatalogError::ResponseError(err) => f.write_fmt(format_args!(
+                "Error response received by Catalog: {err}"
+            )),
+            CatalogError::IoError(err) => f.write_fmt(format_args!(
+                "I/O error during Catalog operation: {err}"
+            )),
+        }
+    }
+}
+
+//--- From request::Error
+
+impl From<request::Error> for CatalogError {
+    fn from(err: request::Error) -> Self {
+        Self::RequestError(err)
+    }
+}
+
+//--- From io::Error
+
+impl From<io::Error> for CatalogError {
+    fn from(err: io::Error) -> Self {
+        Self::IoError(err)
+    }
+}
+
+// TODO: Maintain an RFC 9432 catalog zone
+// let apex_name = Name::from_str("catalog.invalid.").unwrap();
+// let invalid_name = Name::from_str("invalid.").unwrap();
+// let mut cat_zone = ZoneBuilder::new(apex_name.clone(), Class::IN);
+
+// let mut soa_rrset = Rrset::new(Rtype::SOA, Ttl::from_hours(1));
+// let soa_data = crate::rdata::Soa::new(
+//     invalid_name.clone(),
+//     invalid_name.clone(),
+//     Serial::now(),
+//     Ttl::from_hours(1), // refresh
+//     Ttl::from_hours(1), // retry
+//     Ttl::from_hours(1), // expire
+//     Ttl::from_hours(1), // minimum
+// );
+// soa_rrset.push_data(soa_data.into());
+// let soa_rrset = SharedRrset::new(soa_rrset);
+// cat_zone.insert_rrset(&apex_name, soa_rrset).unwrap();
+
+// let mut ns_rrset = Rrset::new(Rtype::NS, Ttl::from_hours(1));
+// ns_rrset.push_data(crate::rdata::Ns::new(invalid_name).into());
+// let ns_rrset = SharedRrset::new(ns_rrset);
+// cat_zone.insert_rrset(&apex_name, ns_rrset).unwrap();
+
+// let mut txt_rrset = Rrset::new(Rtype::TXT, Ttl::from_hours(1));
+// let mut txt_builder = TxtBuilder::<Vec<u8>>::new();
+// let txt = {
+//     let cs = CharStr::<Vec<u8>>::from_str("2").unwrap();
+//     txt_builder.append_charstr(&cs).unwrap();
+//     txt_builder.finish().unwrap()
+// };
+// // txt_rrset.push_data(txt);
+
+// let cat_zone = cat_zone.build();
+
+//-----------------
+
+// if msg.header().rcode() == Rcode::NOTIMP
+// && matches!(
+//     xfr_settings.xfr,
+//     XfrStrategy::IxfrWithAxfrFallback
+// )
+// {
+// // Try to fallback.
+// continue;
+// }

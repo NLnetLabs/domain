@@ -34,7 +34,6 @@ use std::io::BufReader;
 use std::sync::Arc;
 use std::time::Duration;
 
-use domain::net::server::middleware::notify::NotifyMiddlewareSvc;
 use tokio::net::{TcpListener, UdpSocket};
 use tracing::trace;
 use tracing_subscriber::EnvFilter;
@@ -48,13 +47,15 @@ use domain::net::server::message::Request;
 use domain::net::server::middleware::cookies::CookiesMiddlewareSvc;
 use domain::net::server::middleware::edns::EdnsMiddlewareSvc;
 use domain::net::server::middleware::mandatory::MandatoryMiddlewareSvc;
-use domain::net::server::middleware::xfr::XfrMiddlewareSvc;
+use domain::net::server::middleware::notify::NotifyMiddlewareSvc;
+use domain::net::server::middleware::xfr::{XfrMiddlewareSvc, XfrMode};
 use domain::net::server::service::{CallResult, ServiceResult};
 use domain::net::server::stream::{self, StreamServer};
 use domain::net::server::util::{mk_builder_for_target, service_fn};
 use domain::net::server::ConnectionConfig;
 use domain::zonecatalog::catalog::{
-    Acl, Catalog, PrimaryInfo, TypedZone, XfrMode, ZoneType,
+    Acl, Catalog, NotifyAcl, TransportStrategy, TypedZone, XfrAcl,
+    XfrSettings, XfrStrategy, ZoneType,
 };
 use domain::zonefile::inplace;
 use domain::zonetree::Zone;
@@ -108,28 +109,48 @@ async fn main() {
     let z_apex_name = zone.apex_name().clone();
     let z_class = zone.class();
 
+    // let key_store = CatalogKeyStore::new();
+    // let key = Key::generate(Sha256, )
+
     let zone_type = match primary {
         true => {
             let mut notify = Acl::new();
-            notify.allow_to("127.0.0.1:8054".parse().unwrap());
-            ZoneType::new_primary(Acl::new(), notify)
+            notify.allow_to("127.0.0.1:8054".parse().unwrap(), None);
+
+            let mut allow_xfr = XfrAcl::new();
+            let xfr_settings = XfrSettings {
+                xfr: XfrStrategy::AxfrOnly,
+                ixfr_transport: TransportStrategy::Tcp,
+            };
+            allow_xfr.allow_from(
+                "127.0.0.1".parse().unwrap(),
+                (xfr_settings, None),
+            );
+
+            ZoneType::new_primary(allow_xfr, notify)
         }
         false => {
-            let primary_addr = "127.0.0.1:8053".parse().unwrap();
-            let mut primary_info = PrimaryInfo::new(primary_addr);
-            primary_info.xfr_mode = XfrMode::AxfrOnly;
-            ZoneType::new_secondary(primary_info, Acl::new())
+            let mut allow_notify = NotifyAcl::new();
+            allow_notify.allow_from("127.0.0.1".parse().unwrap(), None);
+
+            let mut request_xfr = XfrAcl::new();
+            let xfr_settings = XfrSettings {
+                xfr: XfrStrategy::IxfrWithAxfrFallback,
+                ixfr_transport: TransportStrategy::Tcp,
+            };
+            request_xfr.allow_to(
+                "127.0.0.1:8053".parse().unwrap(),
+                (xfr_settings, None),
+            );
+
+            ZoneType::new_secondary(allow_notify, request_xfr)
         }
     };
     let zone = TypedZone::new(zone, zone_type);
 
     // Create a catalog that will handle outbound XFR for zones
-    let catalog = Catalog::new_with_zones([zone]).unwrap();
-    // let catalog = Catalog::new();
-    // catalog.insert_zone(zone).await.unwrap();
-    let catalog = Arc::new(catalog);
-    let cloned_catalog = catalog.clone();
-    tokio::spawn(async move { cloned_catalog.run().await });
+    let catalog = Arc::new(Catalog::new());
+    catalog.insert_zone(zone).await.unwrap();
 
     let svc = service_fn(my_service, catalog.clone());
 
@@ -141,6 +162,7 @@ async fn main() {
         svc,
         catalog.clone(),
         num_xfr_threads,
+        XfrMode::AxfrAndIxfr,
     );
     let svc = NotifyMiddlewareSvc::<Vec<u8>, _>::new(svc, catalog.clone());
 
@@ -171,6 +193,9 @@ async fn main() {
     let tcp_metrics = tcp_srv.metrics();
 
     tokio::spawn(async move { tcp_srv.run().await });
+
+    let catalog_clone = catalog.clone();
+    tokio::spawn(async move { catalog_clone.run().await });
 
     eprintln!("Ready");
 
