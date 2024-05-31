@@ -24,7 +24,7 @@ type RrType = Record<
 >;
 
 #[derive(Clone, Debug)]
-pub struct TrustAnchor {
+pub(crate) struct TrustAnchor {
     rrs: Vec<RrType>,
     owner: Name<Bytes>,
     label_count: usize,
@@ -156,7 +156,7 @@ impl TrustAnchors {
         self.0.push(TrustAnchor::new(rr));
     }
 
-    pub fn find<TDN: Debug + ToName>(
+    pub(crate) fn find<TDN: Debug + ToName>(
         &self,
         name: TDN,
     ) -> Option<&TrustAnchor> {

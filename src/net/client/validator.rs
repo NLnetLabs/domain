@@ -1,7 +1,7 @@
 //! A DNSSEC validator.
 //!
 //! This module implements a DNSSEC validator provided as a pass through
-//! transport. For details of the validator see the `validator` module.
+//! transport. For details of the validator see the [crate::validator] module.
 
 use crate::base::iana::Rcode;
 use crate::base::opt::AllOptData;

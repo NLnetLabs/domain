@@ -55,7 +55,7 @@ smallvec    = ["dep:smallvec", "octseq/smallvec"]
 std         = ["bytes?/std", "octseq/std", "time/std"]
 net         = ["bytes", "futures-util", "rand", "std", "tokio"]
 tsig        = ["bytes", "ring", "smallvec"]
-validate    = ["std", "ring"]
+validate    = ["bytes", "std", "ring"]
 zonefile    = ["bytes", "serde", "std"]
 
 # Unstable features

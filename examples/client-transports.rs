@@ -10,13 +10,12 @@ use domain::net::client::protocol::{TcpConnect, TlsConnect, UdpConnect};
 use domain::net::client::redundant;
 use domain::net::client::request::{RequestMessage, SendRequest};
 use domain::net::client::stream;
-use domain::net::client::validator;
-use domain::validator::anchor::TrustAnchors;
-use domain::validator::context::ValidationContext;
-use std::fs::File;
+//#[cfg(feature = "validate")]
+//use domain::net::client::validator;
+//#[cfg(feature = "validate")]
+//use domain::validator;
 use std::net::{IpAddr, SocketAddr};
 use std::str::FromStr;
-use std::sync::Arc;
 use std::time::Duration;
 use tokio::net::TcpStream;
 use tokio::time::timeout;
@@ -111,19 +110,8 @@ async fn main() {
     let reply = request.get_response().await;
     println!("Cached reply: {reply:?}");
 
-    // Create a validating transport
-    let anchor_file = File::open("examples/root.key").unwrap();
-    let ta = TrustAnchors::from_reader(anchor_file).unwrap();
-    let vc = Arc::new(ValidationContext::new(ta, udptcp_conn.clone()));
-    let val_conn = validator::Connection::new(udptcp_conn.clone(), vc);
-
-    // Send a query message.
-    let mut request = val_conn.send_request(req.clone());
-
-    // Get the reply
-    println!("Wating for Validator reply");
-    let reply = request.get_response().await;
-    println!("Validator reply: {:?}", reply);
+    #[cfg(feature = "validate")]
+    do_validator(udptcp_conn.clone(), req.clone()).await;
 
     // Create a new TCP connections object. Pass the destination address and
     // port as parameter.
@@ -265,4 +253,38 @@ async fn main() {
     println!("TCP reply: {reply:?}");
 
     drop(tcp);
+}
+
+#[cfg(feature = "validate")]
+async fn do_validator<Octs, SR>(conn: SR, req: RequestMessage<Octs>)
+where
+    Octs: AsRef<[u8]>
+        + Clone
+        + std::fmt::Debug
+        + domain::dep::octseq::Octets
+        + domain::dep::octseq::OctetsFrom<Vec<u8>>
+        + Send
+        + Sync
+        + 'static,
+    <Octs as domain::dep::octseq::OctetsFrom<Vec<u8>>>::Error:
+        std::fmt::Debug,
+    SR: Clone + SendRequest<RequestMessage<Octs>> + Send + Sync + 'static,
+{
+    // Create a validating transport
+    let anchor_file = std::fs::File::open("examples/root.key").unwrap();
+    let ta =
+        domain::validator::anchor::TrustAnchors::from_reader(anchor_file)
+            .unwrap();
+    let vc = std::sync::Arc::new(
+        domain::validator::context::ValidationContext::new(ta, conn.clone()),
+    );
+    let val_conn = domain::net::client::validator::Connection::new(conn, vc);
+
+    // Send a query message.
+    let mut request = val_conn.send_request(req);
+
+    // Get the reply
+    println!("Wating for Validator reply");
+    let reply = request.get_response().await;
+    println!("Validator reply: {:?}", reply);
 }

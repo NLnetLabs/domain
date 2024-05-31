@@ -759,7 +759,7 @@ impl<Upstream> ValidationContext<Upstream> {
         Ok((ValidationState::Bogus, ede))
     }
 
-    pub async fn get_node<Octs>(
+    pub(crate) async fn get_node<Octs>(
         &self,
         name: &Name<Bytes>,
     ) -> Result<Arc<Node>, Error>
@@ -1384,11 +1384,11 @@ impl<Upstream> ValidationContext<Upstream> {
         Some(ce)
     }
 
-    pub fn nsec3_cache(&self) -> &Nsec3Cache {
+    pub(crate) fn nsec3_cache(&self) -> &Nsec3Cache {
         &self.nsec3_cache
     }
 
-    pub fn usig_cache(&self) -> &SigCache {
+    pub(crate) fn usig_cache(&self) -> &SigCache {
         &self.usig_cache
     }
 
@@ -1421,7 +1421,7 @@ impl<Upstream> ValidationContext<Upstream> {
 }
 
 #[derive(Clone)]
-pub struct Node {
+pub(crate) struct Node {
     state: ValidationState,
 
     // This should be part of the state of the node

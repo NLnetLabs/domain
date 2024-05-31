@@ -43,6 +43,15 @@
 #![cfg_attr(feature = "validate", doc = "* [validate]:")]
 #![cfg_attr(not(feature = "validate"), doc = "* validate:")]
 //!   Experimental support for DNSSEC validation.
+#![cfg_attr(
+    all(feature = "validate", feature = "unstable-client-transport"),
+    doc = "* [validator]:"
+)]
+#![cfg_attr(
+    not(all(feature = "validate", feature = "unstable-client-transport")),
+    doc = "* validator:"
+)]
+//!   A DNSSEC validator.
 #![cfg_attr(feature = "zonefile", doc = "* [zonefile]:")]
 #![cfg_attr(not(feature = "zonefile"), doc = "* zonefile:")]
 //!   Experimental reading and writing of zone files, i.e. the textual
