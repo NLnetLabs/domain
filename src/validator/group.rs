@@ -96,7 +96,6 @@ impl Group {
 
     fn add(&mut self, rr: &ParsedRecord<'_, Bytes>) -> Result<(), ()> {
         // First check owner.
-        println!("adding {rr:?}");
         if !self.rr_set.is_empty() {
             if self.rr_set[0].owner() != &rr.owner().to_name::<Bytes>() {
                 println!("add: return at line {}", line!());
