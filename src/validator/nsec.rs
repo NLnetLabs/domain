@@ -421,7 +421,7 @@ pub async fn nsec3_for_nodata(
             }
             Err((state, ede)) => {
                 match state {
-		    ValidationState::Bogus => 
+		    ValidationState::Bogus =>
 			// totest, NSEC3 with very high iteration count
 			return (Nsec3State::Bogus, ede),
 		    ValidationState::Insecure =>
@@ -431,7 +431,7 @@ pub async fn nsec3_for_nodata(
 			// proves whatever we want to have. But the 
 			// result is insecure.
 			return (Nsec3State::NoDataInsecure, ede),
-		    ValidationState::Secure 
+		    ValidationState::Secure
 		    | ValidationState::Indeterminate =>
 			panic!("get_checked_nsec3 should only return Bogus or Insecure"),
 		}
@@ -752,7 +752,7 @@ pub async fn nsec3_for_not_exists_no_ce(
             }
             Err((state, ede)) => {
                 match state {
-		    ValidationState::Bogus => 
+		    ValidationState::Bogus =>
 			// totest, NSEC3 with very high iteration count
 			return (Nsec3NXStateNoCE::Bogus, ede),
 		    ValidationState::Insecure =>
@@ -762,7 +762,7 @@ pub async fn nsec3_for_not_exists_no_ce(
 			// proves whatever we want to have. But the 
 			// result is insecure.
 			return (Nsec3NXStateNoCE::DoesNotExistInsecure, ede),
-		    ValidationState::Secure 
+		    ValidationState::Secure
 		    | ValidationState::Indeterminate =>
 			panic!("get_checked_nsec3 should only return Bogus or Insecure"),
 		}
