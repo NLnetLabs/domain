@@ -33,10 +33,10 @@ use octseq::serde::{DeserializeOctets, SerializeOctets};
 /// TXT record data.
 ///
 /// TXT records hold descriptive text. While it may appear as a single text,
-/// it internally consists of a sequence of one or more [character
-/// strings][CharStr]. The type holds this sequence in its encoded form, i.e.,
-/// each character string is at most 255 octets long and preceded by an
-/// octet with its length.
+/// it internally consists of a sequence of one or more
+/// [character strings][CharStr]. The type holds this sequence in its encoded
+/// form, i.e., each character string is at most 255 octets long and preceded
+/// by an octet with its length.
 ///
 /// The type provides means to iterate over these strings, either as
 /// [`CharStr`s][CharStr] via [`iter_charstrs`][Self::iter_charstrs] or
@@ -46,7 +46,7 @@ use octseq::serde::{DeserializeOctets, SerializeOctets};
 /// [`text`][Self::text] and [`try_text`][Self::try_text] allow combining the
 /// content into one single octets sequence.
 ///
-/// The TXT record type is defined in [RFC 1035], section 3.3.14.
+/// The TXT record type is defined in [RFC 1035, section 3.3.14].
 ///
 /// # Presentation format
 ///
@@ -78,7 +78,7 @@ use octseq::serde::{DeserializeOctets, SerializeOctets};
 /// For compact formats, the type serializes as a newtype `Txt` that contains
 /// a byte array of the wire format representation of the content.
 ///
-/// [RFC 1035]: https://tools.ietf.org/html/rfc1035
+/// [RFC 1035, section 3.3.14]: https://tools.ietf.org/html/rfc1035#section-3.3.14
 #[derive(Clone)]
 pub struct Txt<Octs: ?Sized>(Octs);
 

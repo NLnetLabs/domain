@@ -45,7 +45,7 @@ use octseq::parse::Parser;
 /// [Field Access] below.
 ///
 /// You can create owned values via the [`new`][Self::new] method or
-/// the `Default` trait.  However, more often the type will
+/// the [`Default`] trait.  However, more often the type will
 /// be used via a reference into the octets of an actual message. The
 /// functions [`for_message_slice`][Self::for_message_slice] and
 /// [`for_message_slice_mut`][Self::for_message_slice_mut] create such

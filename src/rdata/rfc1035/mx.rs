@@ -22,7 +22,9 @@ use octseq::parse::Parser;
 /// The Mx record specifies a host willing to serve as a mail exchange for
 /// the owner name.
 ///
-/// The Mx record type is defined in RFC 1035, section 3.3.9.
+/// The Mx record type is defined in [RFC 1035, section 3.3.9][1].
+/// 
+/// [1]: https://tools.ietf.org/html/rfc1035#section-3.3.9
 #[derive(Clone, Debug, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Mx<N> {

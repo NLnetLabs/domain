@@ -16,6 +16,11 @@ Bug fixes
   ([#310] by [@xofyarg])
 * Fix serialization of ProtoRrsig to conform with RFC 4034. ([#313 by
   [@achow101])
+* Add an `?Sized` bound to `Message::is_answer`. ([#318] by [@xofyarg])
+* Bring back `MessageBuilder::as_target`. ([#318] by [@xofyarg])
+* Bring back `impl FreezeBuilder for StaticCompressor`. ([#318] by [@xofyarg])
+* `sign::records::RecordsIter::skip_before` now stops at the first name in
+  zone even if the apex itself doesn’t appear. ([#314] by [@achow101])
 
 Unstable features
 
@@ -26,10 +31,15 @@ Unstable features
 
 Other changes
 
+* The minimum Rust version is now 1.78. ([#320])
+
 [#308]: https://github.com/NLnetLabs/domain/pull/308
 [#310]: https://github.com/NLnetLabs/domain/pull/310
 [#312]: https://github.com/NLnetLabs/domain/pull/312
+[#314]: https://github.com/NLnetLabs/domain/pull/314
 [#315]: https://github.com/NLnetLabs/domain/pull/315
+[#318]: https://github.com/NLnetLabs/domain/pull/318
+[#320]: https://github.com/NLnetLabs/domain/pull/320
 [@achow101]: https://github.com/achow101
 [@xofyarg]: https://github.com/xofyarg
 

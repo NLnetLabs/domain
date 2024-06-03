@@ -38,7 +38,7 @@
 //!
 //! Finally, *internationalized domain names* (or IDN) is a way to encode
 //! Unicode strings in labels using only ASCII characters. This encoding is
-//! called _punicode._
+//! called [_punycode_].
 //!
 //! This crate currently does not support conversion from and to IDN
 //! representations of domain names. This will be added in future versions.
@@ -68,7 +68,7 @@
 //! 512 bytes for most cases), a name can end in a pointer to another name
 //! stored elsewhere in the message. This makes lazy message parsing somewhat
 //! difficult since you need to carry around a reference to the original
-//! message until actual parsing happens. The type [`ParsedDname`] takes care
+//! message until actual parsing happens. The type [`ParsedName`] takes care
 //! of all that and will be returned when parsing a name from a message.
 //!
 //! ## Chained domain names and the name traits.
@@ -84,9 +84,12 @@
 //! ## Building domain names
 //!
 //! You can create a domain name value from its presentation format using the
-//! `FromStr` trait. Alternatively, the [`NameBuilder`] type allows you to
+//! [`FromStr`] trait. Alternatively, the [`NameBuilder`] type allows you to
 //! construct a name from scratch by appending octets, slices, or complete
 //! labels.
+//!
+//! [`FromStr`]: std::str::FromStr
+//! [_punycode_]: <https://datatracker.ietf.org/doc/html/rfc3492>
 
 pub use self::absolute::{Name, NameError};
 pub use self::builder::{

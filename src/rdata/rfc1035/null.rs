@@ -20,7 +20,9 @@ use octseq::parse::Parser;
 /// Null records can contain whatever data. They are experimental and not
 /// allowed in zone files.
 ///
-/// The Null record type is defined in RFC 1035, section 3.3.10.
+/// The Null record type is defined in [RFC 1035, section 3.3.10][1].
+/// 
+/// [1]: https://tools.ietf.org/html/rfc1035#section-3.3.10
 #[derive(Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Null<Octs: ?Sized> {

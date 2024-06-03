@@ -24,7 +24,9 @@ use octseq::parse::Parser;
 /// Soa records mark the top of a zone and contain information pertinent to
 /// name server maintenance operations.
 ///
-/// The Soa record type is defined in RFC 1035, section 3.3.13.
+/// The Soa record type is defined in [RFC 1035, section 3.3.13][1].
+/// 
+/// [1]: https://tools.ietf.org/html/rfc1035#section-3.3.13
 #[derive(Clone, Debug, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Soa<N> {

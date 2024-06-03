@@ -422,7 +422,10 @@ impl<Octs: Octets + ?Sized> Message<Octs> {
     /// The method checks whether the ID fields of the headers are the same,
     /// whether the QR flag is set in this message, and whether the questions
     /// are the same.
-    pub fn is_answer<Other: Octets>(&self, query: &Message<Other>) -> bool {
+    pub fn is_answer<Other: Octets + ?Sized>(
+        &self,
+        query: &Message<Other>,
+    ) -> bool {
         if !self.header().qr()
             || self.header().id() != query.header().id()
             || self.header_counts().qdcount()
@@ -1202,6 +1205,8 @@ where
 /// fails the item will be an error and subsequent attempts to continue will
 /// also produce errors. This case can be distinguished from an error while
 /// parsing the record data by [`next_section`] returning an error, too.
+///
+/// [`next_section`]: Self::next_section
 #[derive(Debug)]
 pub struct AnyRecordIter<'a, Octs: ?Sized, Data> {
     section: RecordSection<'a, Octs>,

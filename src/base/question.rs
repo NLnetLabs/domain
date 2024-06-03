@@ -319,13 +319,11 @@ impl<N: fmt::Debug> fmt::Debug for Question<N> {
 /// Implementations are provided for [`Question`] values and references. In
 /// addition, a tuple of a domain name, record type and class can be used as
 /// this trait, saving the detour of constructing a question first. Since
-/// the class is pretty much always `Class::In`, a tuple of just a domain
+/// the class is pretty much always [`Class::IN`], a tuple of just a domain
 /// name and record type works as well by assuming that class.
 ///
-/// [`Class::In`]: ../iana/class/enum.Class.html#variant.In
-/// [`Question`]: struct.Question.html
-/// [`QuestionBuilder`]: ../message_builder/struct.QuestionBuilder.html
-/// [`push`]: ../message_builder/struct.QuestionBuilder.html#method.push
+/// [`QuestionBuilder`]: super::message_builder::QuestionBuilder
+/// [`push`]: super::message_builder::QuestionBuilder::push
 pub trait ComposeQuestion {
     fn compose_question<Target: Composer + ?Sized>(
         &self,

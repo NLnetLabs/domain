@@ -276,19 +276,22 @@ impl ServerConf {
 /// resolver talks to its upstream resolvers.
 ///
 /// The type follows the builder pattern. After creating a value with
-/// `ResolvConf::new()` you can manipulate the members. Once you are happy
-/// with them, you call `finalize()` to make sure the configuration is valid.
+/// [`ResolvConf::new`] you can manipulate the members. Once you are happy
+/// with them, you call [`finalize`] to make sure the configuration is valid.
 /// It mostly just fixes the `servers`.
 ///
 /// Additionally, the type can parse a glibc-style configuration file,
-/// commonly known as `/etc/resolv.conf` through the `parse()` and
-/// `parse_file()` methods. You still need to call `finalize()` after
+/// commonly known as `/etc/resolv.conf` through the [`parse`] and
+/// [`parse_file`] methods. You still need to call [`finalize`] after
 /// parsing.
 ///
 /// The easiest way, however, to get the system resolver configuration is
-/// through `ResolvConf::system_default()`. This will parse the configuration
+/// through [`ResolvConf::default`]. This will parse the configuration
 /// file or return a default configuration if that fails.
 ///
+/// [`parse`]: Self::parse
+/// [`parse_file`]: Self::parse_file
+/// [`finalize`]: Self::finalize
 #[derive(Clone, Debug)]
 pub struct ResolvConf {
     /// Addresses of servers to query.
@@ -304,7 +307,7 @@ impl ResolvConf {
     /// Creates a new, empty configuration.
     ///
     /// Using an empty configuration will fail since it does not contain
-    /// any name servers. Call `self.finalize()` to make it usable.
+    /// any name servers. Call [`Self::finalize`] to make it usable.
     pub fn new() -> Self {
         ResolvConf {
             servers: Vec::new(),
@@ -350,7 +353,7 @@ impl ResolvConf {
 
     /// Parses the configuration from a reader.
     ///
-    /// The format is that of the /etc/resolv.conf file.
+    /// The format is that of the `/etc/resolv.conf`` file.
     pub fn parse<R: Read>(&mut self, reader: &mut R) -> Result<(), Error> {
         use std::io::BufRead;
 

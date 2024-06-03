@@ -29,6 +29,7 @@ use domain::net::server::service::{
 };
 use domain::net::server::stream::StreamServer;
 use domain::net::server::util::{mk_builder_for_target, service_fn};
+use domain::utils::base16;
 use domain::zonefile::inplace::{Entry, ScannedRecord, Zonefile};
 
 use domain::stelline::channel::ClientServerChannel;
@@ -196,7 +197,7 @@ where
     if config.cookies.enabled {
         #[cfg(feature = "siphasher")]
         if let Some(secret) = config.cookies.secret {
-            let secret = hex::decode(secret).unwrap();
+            let secret = base16::decode_vec(secret).unwrap();
             let secret = <[u8; 16]>::try_from(secret).unwrap();
             let processor = CookiesMiddlewareProcessor::new(secret);
             let processor = processor

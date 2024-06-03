@@ -9,6 +9,7 @@ use std::vec::Vec;
 use bytes::Bytes;
 
 use crate::base;
+use crate::utils::base16;
 use crate::zonefile::inplace::Entry as ZonefileEntry;
 use crate::zonefile::inplace::Zonefile;
 
@@ -469,7 +470,7 @@ fn parse_section<Lines: Iterator<Item = Result<String, std::io::Error>>>(
                         }
                         let clean_line = clean_line
                             .replace(|c: char| c.is_whitespace(), "");
-                        let edns_line_bytes = hex::decode(&clean_line)
+                        let edns_line_bytes = base16::decode_vec(&clean_line)
                             .map_err(|err| format!("Hex decoding failure of HEX_EDNSDATA line '{clean_line}': {err}"))
                             .unwrap();
                         sections
