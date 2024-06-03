@@ -240,7 +240,7 @@ impl Config {
         self.max_node_validity = MAX_NODE_VALIDITY.limit(value)
     }
 
-    pub fn max_bogus_validity(&self) -> Duration {
+    pub(crate) fn max_bogus_validity(&self) -> Duration {
         self.max_bogus_validity
     }
 
@@ -252,7 +252,7 @@ impl Config {
         self.max_bogus_validity = MAX_BOGUS_VALIDITY.limit(value)
     }
 
-    pub fn max_bad_signatures(&self) -> u8 {
+    pub(crate) fn max_bad_signatures(&self) -> u8 {
         self.max_bad_signatures
     }
 
@@ -264,7 +264,7 @@ impl Config {
         self.max_bad_signatures = MAX_BAD_SIGNATURES.limit(value)
     }
 
-    pub fn nsec3_iter_insecure(&self) -> u16 {
+    pub(crate) fn nsec3_iter_insecure(&self) -> u16 {
         self.nsec3_iter_insecure
     }
 
@@ -277,7 +277,7 @@ impl Config {
         self.nsec3_iter_insecure = NSEC3_ITER_INSECURE.limit(value)
     }
 
-    pub fn nsec3_iter_bogus(&self) -> u16 {
+    pub(crate) fn nsec3_iter_bogus(&self) -> u16 {
         self.nsec3_iter_bogus
     }
 
@@ -290,7 +290,7 @@ impl Config {
         self.nsec3_iter_bogus = NSEC3_ITER_INSECURE.limit(value)
     }
 
-    pub fn max_cname_dname(&self) -> u8 {
+    pub(crate) fn max_cname_dname(&self) -> u8 {
         self.max_cname_dname
     }
 

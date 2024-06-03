@@ -61,13 +61,17 @@ impl TrustAnchor {
     }
 }
 
+/// DNSSEC trust anchors.
 pub struct TrustAnchors(Vec<TrustAnchor>);
 
 impl TrustAnchors {
+    /// Create an empty set of trust anchors.
     pub fn empty() -> Self {
         Self(Vec::new())
     }
 
+    /// Read trust anchors from a file (or in general a `Read` trait). The
+    /// trust anchors are `DS` or `DNSKEY` records in zonefile format.
     pub fn from_reader<R>(mut reader: R) -> Result<Self, Error>
     where
         R: Read,
@@ -93,6 +97,8 @@ impl TrustAnchors {
         Ok(new_self)
     }
 
+    /// Read trust anchors from a byte string. The
+    /// trust anchors are `DS` or `DNSKEY` records in zonefile format.
     pub fn from_u8(str: &[u8]) -> Result<Self, Error> {
         let mut new_self = Self(Vec::new());
 
@@ -111,6 +117,9 @@ impl TrustAnchors {
         Ok(new_self)
     }
 
+    /// Add trust anchors from a byte string to an existing set of
+    /// trust anchors. The trust anchors are `DS` or `DNSKEY` records in
+    /// zonefile format.
     pub fn add_u8(&mut self, str: &[u8]) -> Result<(), Error> {
         let mut zonefile = Zonefile::new();
         zonefile.extend_from_slice(str);

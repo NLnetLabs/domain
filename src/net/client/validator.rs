@@ -2,6 +2,54 @@
 //!
 //! This module implements a DNSSEC validator provided as a pass through
 //! transport. For details of the validator see the [crate::validator] module.
+//!
+//! Example:
+//! ```no_run
+//! # use domain::base::{MessageBuilder, Name, Rtype};
+//! # use domain::net::client::dgram_stream;
+//! # use domain::net::client::protocol::{TcpConnect, UdpConnect};
+//! # use domain::net::client::request::{RequestMessage, SendRequest};
+//! # use domain::net::client::validator;
+//! # use domain::validator::anchor::TrustAnchors;
+//! # use domain::validator::context::ValidationContext;
+//! # use std::net::{IpAddr, SocketAddr};
+//! # use std::str::FromStr;
+//! # use std::sync::Arc;
+//! #
+//! # async fn g() {
+//! #     let server_addr = SocketAddr::new(IpAddr::from_str("::1").unwrap(), 53);
+//! #
+//! #     let udp_connect = UdpConnect::new(server_addr);
+//! #     let tcp_connect = TcpConnect::new(server_addr);
+//! #     let (udptcp_conn, transport) = dgram_stream::Connection::new(udp_connect, tcp_connect);
+//! #
+//! #     tokio::spawn(async move {
+//! #         transport.run().await;
+//! #         println!("UDP+TCP run exited");
+//! #     });
+//! #
+//! #     let mut msg = MessageBuilder::new_vec();
+//! #     msg.header_mut().set_rd(true);
+//! #     msg.header_mut().set_ad(true);
+//! #     let mut msg = msg.question();
+//! #     msg.push((Name::vec_from_str("example.com").unwrap(), Rtype::AAAA))
+//! #         .unwrap();
+//!     let req = RequestMessage::new(msg);
+//!
+//!     let ta = TrustAnchors::from_u8(b".	172800	IN	DNSKEY	257 3 8 AwEAAaz/tAm8yTn4Mfeh5eyI96WSVexTBAvkMgJzkKTOiW1vkIbzxeF3+/4RgWOq7HrxRixHlFlExOLAJr5emLvN7SWXgnLh4+B5xQlNVz8Og8kvArMtNROxVQuCaSnIDdD5LKyWbRd2n9WGe2R8PzgCmr3EgVLrjyBxWezF0jLHwVN8efS3rCj/EWgvIWgb9tarpVUDK/b58Da+sqqls3eNbuv7pr+eoZG+SrDK6nWeL3c6H5Apxz7LjVc1uTIdsIXxuOLYA4/ilBmSVIzuDWfdRUfhHdY6+cn8HFRm+2hM8AnXGXws9555KrUB5qihylGa8subX2Nn6UwNR1AkUTV74bU= ;{id = 20326 (ksk), size = 2048b} ;;state=2 [  VALID  ] ;;count=0 ;;lastchange=1683463064 ;;Sun May  7 12:37:44 2023").unwrap();
+//!     let vc = ValidationContext::new(ta, udptcp_conn.clone());
+//!
+//!     let vac_conn = validator::Connection::new(udptcp_conn, Arc::new(vc));
+//!
+//!     // Send a query message.
+//!     let mut request = vac_conn.send_request(req.clone());
+//!
+//!     // Get the reply
+//!     println!("Wating for validator reply");
+//!     let reply = request.get_response().await.unwrap();
+//!     println!("Validator reply: {reply:?}");
+//! }
+//! ```
 
 use crate::base::iana::Rcode;
 use crate::base::opt::AllOptData;
