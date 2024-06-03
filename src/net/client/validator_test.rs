@@ -32,6 +32,7 @@ lazy_static! {
 }
 
 async fn async_test_validator(filename: &str) {
+    #[allow(clippy::await_holding_lock)]
     let _locked = LOCK.lock().unwrap();
 
     let file = File::open(filename).unwrap();
