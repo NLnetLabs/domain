@@ -87,6 +87,10 @@ impl Header {
     #[must_use]
     pub fn for_message_slice(s: &[u8]) -> &Header {
         assert!(s.len() >= mem::size_of::<Header>());
+
+        // SAFETY: The pointer cast is sound because
+        //  - Header has repr(transparent) and
+        //  - the slice is large enough
         unsafe { &*(s.as_ptr() as *const Header) }
     }
 
@@ -97,6 +101,10 @@ impl Header {
     /// This function panics if the slice is less than four octets long.
     pub fn for_message_slice_mut(s: &mut [u8]) -> &mut Header {
         assert!(s.len() >= mem::size_of::<Header>());
+
+        // SAFETY: The pointer cast is sound because
+        //  - Header has repr(transparent) and
+        //  - the slice is large enough
         unsafe { &mut *(s.as_mut_ptr() as *mut Header) }
     }
 
@@ -506,6 +514,11 @@ impl HeaderCounts {
     #[must_use]
     pub fn for_message_slice(message: &[u8]) -> &Self {
         assert!(message.len() >= mem::size_of::<HeaderSection>());
+
+        // SAFETY: The pointer cast is sound because
+        //  - HeaderCounts has repr(transparent) and
+        //  - the slice is large enough for a HeaderSection, which contains
+        //    both a Header (which we trim) and a HeaderCounts.
         unsafe {
             &*((message[mem::size_of::<Header>()..].as_ptr())
                 as *const HeaderCounts)
@@ -522,6 +535,11 @@ impl HeaderCounts {
     /// This function panics if the octets slice is shorter than 24 octets.
     pub fn for_message_slice_mut(message: &mut [u8]) -> &mut Self {
         assert!(message.len() >= mem::size_of::<HeaderSection>());
+
+        // SAFETY: The pointer cast is sound because
+        //  - HeaderCounts has repr(transparent) and
+        //  - the slice is large enough for a HeaderSection, which contains
+        //    both a Header (which we trim) and a HeaderCounts.
         unsafe {
             &mut *((message[mem::size_of::<Header>()..].as_mut_ptr())
                 as *mut HeaderCounts)
