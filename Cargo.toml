@@ -62,6 +62,7 @@ zonefile    = ["bytes", "serde", "std"]
 unstable-client-transport = [ "moka", "net", "tracing" ]
 unstable-server-transport = ["arc-swap", "chrono/clock", "libc", "net", "tracing"]
 unstable-stelline = ["tokio/test-util", "tracing", "tracing-subscriber", "unstable-server-transport", "zonefile"]
+unstable-validator = ["validate", "zonefile", "unstable-client-transport"]
 unstable-zonetree = ["futures", "parking_lot", "serde", "tokio", "tracing"]
 
 # Test features

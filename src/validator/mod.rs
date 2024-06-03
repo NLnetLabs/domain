@@ -1,6 +1,6 @@
 // Validator
 
-#![cfg(all(feature = "validate", feature = "unstable-client-transport"))]
+#![cfg(feature = "unstable-validator")]
 
 //! This module provides a DNSSEC validator.
 //! DNSSEC validation requires a trust anchor. A trust anchor can be

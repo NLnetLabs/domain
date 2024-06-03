@@ -43,14 +43,8 @@
 #![cfg_attr(feature = "validate", doc = "* [validate]:")]
 #![cfg_attr(not(feature = "validate"), doc = "* validate:")]
 //!   Experimental support for DNSSEC validation.
-#![cfg_attr(
-    all(feature = "validate", feature = "unstable-client-transport"),
-    doc = "* [validator]:"
-)]
-#![cfg_attr(
-    not(all(feature = "validate", feature = "unstable-client-transport")),
-    doc = "* validator:"
-)]
+#![cfg_attr(feature = "unstable-validator", doc = "* [validator]:")]
+#![cfg_attr(not(feature = "unstable-validator"), doc = "* validator:")]
 //!   A DNSSEC validator.
 #![cfg_attr(feature = "zonefile", doc = "* [zonefile]:")]
 #![cfg_attr(not(feature = "zonefile"), doc = "* zonefile:")]
@@ -141,6 +135,8 @@
 //!   a client perspective; primarily the `net::client` module.
 //! * `unstable-server-transport`: receiving and sending DNS messages from
 //!   a server perspective; primarily the `net::server` module.
+//! * `unstable-validator`: a DNSSEC validator, primarily the `validator`
+//!   and the `net::client::validator` modules.
 //! * `unstable-zonetree`: building & querying zone trees; primarily the
 //!   `zonetree` module.
 //!

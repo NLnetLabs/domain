@@ -10,10 +10,6 @@ use domain::net::client::protocol::{TcpConnect, TlsConnect, UdpConnect};
 use domain::net::client::redundant;
 use domain::net::client::request::{RequestMessage, SendRequest};
 use domain::net::client::stream;
-//#[cfg(feature = "validate")]
-//use domain::net::client::validator;
-//#[cfg(feature = "validate")]
-//use domain::validator;
 use std::net::{IpAddr, SocketAddr};
 use std::str::FromStr;
 use std::time::Duration;
@@ -110,7 +106,7 @@ async fn main() {
     let reply = request.get_response().await;
     println!("Cached reply: {reply:?}");
 
-    #[cfg(feature = "validate")]
+    #[cfg(feature = "unstable-validator")]
     do_validator(udptcp_conn.clone(), req.clone()).await;
 
     // Create a new TCP connections object. Pass the destination address and
@@ -255,7 +251,7 @@ async fn main() {
     drop(tcp);
 }
 
-#[cfg(feature = "validate")]
+#[cfg(feature = "unstable-validator")]
 async fn do_validator<Octs, SR>(conn: SR, req: RequestMessage<Octs>)
 where
     Octs: AsRef<[u8]>

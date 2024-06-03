@@ -358,7 +358,7 @@ pub enum Error {
     /// An error happened in the datagram transport.
     Dgram(Arc<super::dgram::QueryError>),
 
-    #[cfg(feature = "validate")]
+    #[cfg(feature = "unstable-validator")]
     /// An error happened during DNSSEC validation.
     Validation(crate::validator::types::Error),
 }
@@ -387,7 +387,7 @@ impl From<super::dgram::QueryError> for Error {
     }
 }
 
-#[cfg(feature = "validate")]
+#[cfg(feature = "unstable-validator")]
 impl From<crate::validator::types::Error> for Error {
     fn from(err: crate::validator::types::Error) -> Self {
         Self::Validation(err)
@@ -439,7 +439,7 @@ impl fmt::Display for Error {
                 write!(f, "no transport available")
             }
             Error::Dgram(err) => fmt::Display::fmt(err, f),
-            #[cfg(feature = "validate")]
+            #[cfg(feature = "unstable-validator")]
             Error::Validation(_) => {
                 write!(f, "error validating response")
             }
@@ -476,7 +476,7 @@ impl error::Error for Error {
             Error::WrongReplyForQuery => None,
             Error::NoTransportAvailable => None,
             Error::Dgram(err) => Some(err),
-            #[cfg(feature = "validate")]
+            #[cfg(feature = "unstable-validator")]
             Error::Validation(err) => Some(err),
         }
     }
