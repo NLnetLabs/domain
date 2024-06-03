@@ -772,9 +772,18 @@ impl Nsec3Salt<[u8]> {
         if slice.len() > Nsec3Salt::MAX_LEN {
             Err(Nsec3SaltError(()))
         } else {
-            // SAFETY: Nsec3Salt has repr(transparent)
-            Ok(unsafe { core::mem::transmute(slice) })
+            Ok(unsafe { Self::from_slice_unchecked(slice) })
         }
+    }
+
+    /// Creates a new salt value from an octets slice without checking.
+    ///
+    /// # Safety
+    ///
+    /// The passed slice must be no longer than [`Nsec3Salt::MAX_LEN`].
+    unsafe fn from_slice_unchecked(slice: &[u8]) -> &Self {
+        // SAFETY: Nsec3Salt has repr(transparent)
+        core::mem::transmute(slice)
     }
 }
 
@@ -1182,9 +1191,18 @@ impl OwnerHash<[u8]> {
         if slice.len() > OwnerHash::MAX_LEN {
             Err(OwnerHashError(()))
         } else {
-            // SAFETY: OwnerHash has repr(transparent)
-            Ok(unsafe { core::mem::transmute(slice) })
+            Ok(unsafe { Self::from_slice_unchecked(slice) })
         }
+    }
+
+    /// Creates a new owner hash from an octet slice without checking.
+    ///
+    /// # Safety
+    ///
+    /// The passed slice must be no longer than [`OwnerHash::MAX_LEN`].
+    unsafe fn from_slice_unchecked(slice: &[u8]) -> &Self {
+        // SAFETY: OwnerHash has repr(transparent)
+        core::mem::transmute(slice)
     }
 }
 
