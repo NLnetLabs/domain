@@ -10,7 +10,7 @@ use crate::base::wire::{Compose, Parse, ParseError};
 use octseq::builder::{EmptyBuilder, FromBuilder, OctetsBuilder, ShortBuf};
 use octseq::octets::{Octets, OctetsFrom, OctetsInto};
 use octseq::parse::{Parser, ShortInput};
-use core::{cmp, fmt, hash};
+use core::{cmp, fmt, hash, mem};
 use core::cmp::Ordering;
 use core::marker::PhantomData;
 
@@ -128,7 +128,7 @@ impl SvcParams<[u8]> {
     #[must_use]
     pub unsafe fn from_slice_unchecked(slice: &[u8]) -> &Self {
         // SAFETY: SvcParams has repr(transparent)
-        core::mem::transmute(slice)
+        mem::transmute(slice)
     }
 
     /// Checks that a slice contains a correctly encoded parameters sequence.

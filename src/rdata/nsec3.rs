@@ -16,7 +16,7 @@ use crate::utils::{base16, base32};
 #[cfg(feature = "bytes")]
 use bytes::Bytes;
 use core::cmp::Ordering;
-use core::{fmt, hash, str};
+use core::{fmt, hash, mem, str};
 use octseq::builder::{
     EmptyBuilder, FreezeBuilder, FromBuilder, OctetsBuilder,
 };
@@ -783,7 +783,7 @@ impl Nsec3Salt<[u8]> {
     /// The passed slice must be no longer than [`Nsec3Salt::MAX_LEN`].
     unsafe fn from_slice_unchecked(slice: &[u8]) -> &Self {
         // SAFETY: Nsec3Salt has repr(transparent)
-        core::mem::transmute(slice)
+        mem::transmute(slice)
     }
 }
 
@@ -1202,7 +1202,7 @@ impl OwnerHash<[u8]> {
     /// The passed slice must be no longer than [`OwnerHash::MAX_LEN`].
     unsafe fn from_slice_unchecked(slice: &[u8]) -> &Self {
         // SAFETY: OwnerHash has repr(transparent)
-        core::mem::transmute(slice)
+        mem::transmute(slice)
     }
 }
 

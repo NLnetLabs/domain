@@ -11,9 +11,8 @@ use super::super::message_builder::OptBuilder;
 use super::super::name::{Name, ToName};
 use super::super::wire::{Composer, ParseError};
 use super::{ComposeOptData, Opt, OptData, ParseOptData};
+use core::{fmt, hash, mem};
 use core::cmp::Ordering;
-use core::fmt;
-use core::hash;
 use octseq::builder::OctetsBuilder;
 use octseq::octets::{Octets, OctetsFrom};
 use octseq::parse::Parser;
@@ -52,7 +51,7 @@ impl<Name: ?Sized> Chain<Name> {
     /// Creates a reference to CHAIN option data from a reference to the start.
     pub fn new_ref(start: &Name) -> &Self {
         // SAFETY: Chain has repr(transparent)
-        unsafe { core::mem::transmute(start) }
+        unsafe { mem::transmute(start) }
     }
 
     /// Returns a reference to the start point.

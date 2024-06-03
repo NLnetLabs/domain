@@ -15,7 +15,7 @@ use super::{Opt, OptData, ComposeOptData, ParseOptData};
 use octseq::builder::OctetsBuilder;
 use octseq::octets::{Octets, OctetsFrom};
 use octseq::parse::Parser;
-use core::{borrow, fmt, hash};
+use core::{borrow, fmt, hash, mem};
 use core::cmp::Ordering;
 use core::convert::TryInto;
 
@@ -90,7 +90,7 @@ impl KeyTag<[u8]> {
     #[must_use]
     pub unsafe fn from_slice_unchecked(slice: &[u8]) -> &Self {
         // SAFETY: KeyTag has repr(transparent)
-        core::mem::transmute(slice)
+        mem::transmute(slice)
     }
 
     /// Checkes that the length of an octets sequence is valid.

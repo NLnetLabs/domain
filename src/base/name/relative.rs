@@ -13,7 +13,7 @@ use bytes::Bytes;
 use core::cmp::Ordering;
 use core::ops::{Bound, RangeBounds};
 use core::str::FromStr;
-use core::{borrow, cmp, fmt, hash};
+use core::{borrow, cmp, fmt, hash, mem};
 use octseq::builder::{
     EmptyBuilder, FreezeBuilder, FromBuilder, IntoBuilder, Truncate,
 };
@@ -135,7 +135,7 @@ impl RelativeName<[u8]> {
     /// [`from_octets_unchecked`]: RelativeName::from_octets_unchecked
     pub(super) unsafe fn from_slice_unchecked(slice: &[u8]) -> &Self {
         // SAFETY: RelativeName has repr(transparent)
-        core::mem::transmute(slice)
+        mem::transmute(slice)
     }
 
     /// Creates a relative domain name from an octet slice.

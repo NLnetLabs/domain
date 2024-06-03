@@ -18,7 +18,7 @@ use crate::base::wire::{Composer, FormError, ParseError};
 use bytes::BytesMut;
 use core::cmp::Ordering;
 use core::convert::{Infallible, TryFrom};
-use core::{fmt, hash, str};
+use core::{fmt, hash, mem, str};
 use octseq::builder::{
     infallible, EmptyBuilder, FreezeBuilder, FromBuilder, OctetsBuilder,
     ShortBuf,
@@ -155,7 +155,7 @@ impl Txt<[u8]> {
     /// See [`from_octets][Self::from_octets] for the required content.
     unsafe fn from_slice_unchecked(slice: &[u8]) -> &Self {
         // SAFETY: Txt has repr(transparent)
-        core::mem::transmute(slice)
+        mem::transmute(slice)
     }
 
     /// Checks that a slice contains correctly encoded TXT data.

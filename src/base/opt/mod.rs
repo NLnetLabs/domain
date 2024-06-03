@@ -137,7 +137,7 @@ impl Opt<[u8]> {
     /// be correct.
     unsafe fn from_slice_unchecked(slice: &[u8]) -> &Self {
         // SAFETY: Opt has repr(transparent)
-        core::mem::transmute(slice)
+        mem::transmute(slice)
     }
 
     /// Checks that the slice contains acceptable OPT record data.

@@ -14,7 +14,7 @@ use super::traits::{FlattenInto, ToLabelIter, ToName};
 use bytes::Bytes;
 use core::ops::{Bound, RangeBounds};
 use core::str::FromStr;
-use core::{borrow, cmp, fmt, hash, str};
+use core::{borrow, cmp, fmt, hash, mem, str};
 use octseq::builder::{
     EmptyBuilder, FreezeBuilder, FromBuilder, OctetsBuilder, Truncate,
 };
@@ -223,7 +223,7 @@ impl Name<[u8]> {
     /// Creates a domain name from an octet slice without checking,
     unsafe fn from_slice_unchecked(slice: &[u8]) -> &Self {
         // SAFETY: Name has repr(transparent)
-        core::mem::transmute(slice)
+        mem::transmute(slice)
     }
 
     /// Creates a domain name from an octets slice.

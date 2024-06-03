@@ -23,7 +23,7 @@ use super::{
 use octseq::builder::{EmptyBuilder, FromBuilder, OctetsBuilder};
 use octseq::octets::{Octets, OctetsFrom};
 use octseq::parse::Parser;
-use core::{borrow, fmt, hash, slice};
+use core::{borrow, fmt, hash, mem, slice};
 use core::marker::PhantomData;
 
 
@@ -154,7 +154,7 @@ impl<Variant> Understood<Variant, [u8]> {
     #[must_use]
     pub unsafe fn from_slice_unchecked(slice: &[u8]) -> &Self {
         // SAFETY: Understood has repr(transparent)
-        core::mem::transmute(slice)
+        mem::transmute(slice)
     }
 
     /// Checks that a slice contains a correctly encoded value.

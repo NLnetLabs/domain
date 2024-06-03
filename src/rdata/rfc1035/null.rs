@@ -8,7 +8,7 @@ use crate::base::rdata::{
     ComposeRecordData, LongRecordData, ParseRecordData, RecordData,
 };
 use crate::base::wire::{Composer, ParseError};
-use core::{fmt, hash};
+use core::{fmt, hash, mem};
 use core::cmp::Ordering;
 use octseq::octets::{Octets, OctetsFrom, OctetsInto};
 use octseq::parse::Parser;
@@ -85,7 +85,7 @@ impl Null<[u8]> {
     #[must_use]
     pub unsafe fn from_slice_unchecked(data: &[u8]) -> &Self {
         // SAFETY: Null has repr(transparent)
-        core::mem::transmute(data)
+        mem::transmute(data)
     }
 
     /// Checks that a slice can be used for NULL record data.

@@ -16,7 +16,7 @@ use super::{
 use octseq::builder::OctetsBuilder;
 use octseq::octets::{Octets, OctetsFrom};
 use octseq::parse::Parser;
-use core::{borrow, fmt, hash, str};
+use core::{borrow, fmt, hash, mem, str};
 use core::cmp::Ordering;
 
 
@@ -95,7 +95,7 @@ impl Nsid<[u8]> {
     #[must_use]
     pub unsafe fn from_slice_unchecked(slice: &[u8]) -> &Self {
         // SAFETY: Nsid has repr(transparent)
-        core::mem::transmute(slice)
+        mem::transmute(slice)
     }
 
     /// Creates an empty NSID option value.

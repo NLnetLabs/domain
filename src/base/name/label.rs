@@ -9,7 +9,7 @@ use super::builder::{
     parse_escape, LabelFromStrError, LabelFromStrErrorEnum,
 };
 use core::str::FromStr;
-use core::{borrow, cmp, fmt, hash, iter, ops, slice};
+use core::{borrow, cmp, fmt, hash, iter, mem, ops, slice};
 use octseq::builder::OctetsBuilder;
 
 //------------ Label ---------------------------------------------------------
@@ -53,7 +53,7 @@ impl Label {
     /// The `slice` must be at most 63 octets long.
     pub(super) unsafe fn from_slice_unchecked(slice: &[u8]) -> &Self {
         // SAFETY: Label has repr(transparent)
-        core::mem::transmute(slice)
+        mem::transmute(slice)
     }
 
     /// Creates a mutable label from the underlying slice without checking.
@@ -65,7 +65,7 @@ impl Label {
         slice: &mut [u8],
     ) -> &mut Self {
         // SAFETY: Label has repr(transparent)
-        core::mem::transmute(slice)
+        mem::transmute(slice)
     }
 
     /// Returns a static reference to the root label.

@@ -12,7 +12,7 @@ use octseq::builder::{
 use octseq::octets::{Octets, OctetsFrom};
 use octseq::parse::Parser;
 use octseq::str::Str;
-use core::{fmt, hash, str};
+use core::{fmt, hash, mem, str};
 use core::fmt::Write as _;
 use core::str::FromStr;
 
@@ -256,7 +256,7 @@ macro_rules! octets_wrapper {
             #[must_use]
             pub unsafe fn from_slice_unchecked(slice: &[u8]) -> &Self {
                 // SAFETY: Self has repr(transparent)
-                core::mem::transmute(slice)
+                mem::transmute(slice)
             }
         }
 
