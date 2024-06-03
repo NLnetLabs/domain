@@ -165,7 +165,7 @@ pub trait ParseRecordData<'a, Octs: ?Sized>: RecordData + Sized {
     /// data remaining in the parser.
     ///
     /// If the function doesn’t want to process the data, it must not touch
-    /// the parser. In particual, it must not advance it.
+    /// the parser. In particular, it must not advance it.
     fn parse_rdata(
         rtype: Rtype,
         parser: &mut Parser<'a, Octs>,
