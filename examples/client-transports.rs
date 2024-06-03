@@ -31,13 +31,13 @@ async fn main() {
     msg.header_mut().set_rd(true);
     msg.header_mut().set_ad(true);
     let mut msg = msg.question();
-    msg.push((Name::vec_from_str("www.nlnetlabs.nl").unwrap(), Rtype::AAAA))
+    msg.push((Name::vec_from_str("example.com").unwrap(), Rtype::AAAA))
         .unwrap();
     let req = RequestMessage::new(msg);
 
     // Destination for UDP and TCP
     let server_addr =
-        SocketAddr::new(IpAddr::from_str("9.9.9.9").unwrap(), 53);
+        SocketAddr::new(IpAddr::from_str("::1").unwrap(), 53);
 
     let mut stream_config = stream::Config::new();
     stream_config.set_response_timeout(Duration::from_millis(100));
