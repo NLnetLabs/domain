@@ -31,8 +31,8 @@ lazy_static! {
     static ref LOCK: Mutex<()> = Mutex::new(());
 }
 
+#[allow(clippy::await_holding_lock)]
 async fn async_test_validator(filename: &str) {
-    #[allow(clippy::await_holding_lock)]
     let _locked = LOCK.lock().unwrap();
 
     let file = File::open(filename).unwrap();
