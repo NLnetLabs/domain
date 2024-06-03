@@ -81,13 +81,10 @@ impl TrustAnchors {
         }
         let mut zonefile = Zonefile::new();
         zonefile.extend_from_slice(&buf);
-        println!("from_reader: {:?}", zonefile);
         for e in zonefile {
             let e = e?;
-            println!("from_reader: {e:?}");
             match e {
                 Entry::Record(r) => {
-                    println!("r {r:?}");
                     new_self.add(r);
                 }
                 Entry::Include { path: _, origin: _ } => continue, // Just ignore include
@@ -102,13 +99,10 @@ impl TrustAnchors {
         let mut zonefile = Zonefile::new();
         zonefile.extend_from_slice(str);
         zonefile.extend_from_slice("\n".as_bytes());
-        println!("from_u8: {:?}", zonefile);
         for e in zonefile {
             let e = e?;
-            println!("from_u8: {e:?}");
             match e {
                 Entry::Record(r) => {
-                    println!("r {r:?}");
                     new_self.add(r);
                 }
                 Entry::Include { path: _, origin: _ } => continue, // Just ignore include
@@ -121,13 +115,10 @@ impl TrustAnchors {
         let mut zonefile = Zonefile::new();
         zonefile.extend_from_slice(str);
         zonefile.extend_from_slice("\n".as_bytes());
-        println!("add_u8: {:?}", zonefile);
         for e in zonefile {
             let e = e?;
-            println!("add_u8: {e:?}");
             match e {
                 Entry::Record(r) => {
-                    println!("r {r:?}");
                     self.add(r);
                 }
                 Entry::Include { path: _, origin: _ } => continue, // Just ignore include

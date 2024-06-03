@@ -28,7 +28,6 @@ async fn async_test_validator(filename: &str) {
     let file = File::open(filename).unwrap();
     let stelline = parse_file(&file, filename);
 
-    println!("calling parse_server_config");
     let ta = parse_server_config(&stelline.config);
 
     let step_value = Arc::new(CurrStepValue::new());
@@ -36,7 +35,6 @@ async fn async_test_validator(filename: &str) {
     let (ms, ms_tran) = multi_stream::Connection::new(multi_conn);
     tokio::spawn(async move {
         ms_tran.run().await;
-        println!("multi conn run terminated");
     });
 
     let vc = Arc::new(ValidationContext::new(ta, ms.clone()));
@@ -57,8 +55,6 @@ async fn validator_test_all(
 }
 
 fn parse_server_config(config: &Config) -> TrustAnchors {
-    println!("in parse_server_config");
-
     let mut in_server_block = false;
     let mut ta = TrustAnchors::empty();
 
@@ -80,7 +76,6 @@ fn parse_server_config(config: &Config) -> TrustAnchors {
                 match (setting, value) {
                     ("val-override-date", v) => {
                         let time = vec![v.trim_matches('"').to_string()];
-                        let time2 = time.clone();
                         type TestScanner = IterScanner<
                             std::vec::IntoIter<std::string::String>,
                             Vec<u8>,
@@ -90,20 +85,12 @@ fn parse_server_config(config: &Config) -> TrustAnchors {
                         MockClock::set_system_time(Duration::from_secs(
                             ts.into_int() as u64,
                         ));
-                        println!(
-                            "Got system {:?} for {time2:?}",
-                            MockClock::system_time()
-                        );
                     }
                     ("val-override-timestamp", v) => {
                         let time = v.trim_matches('"');
                         MockClock::set_system_time(Duration::from_secs(
                             time.parse::<u64>().unwrap(),
                         ));
-                        println!(
-                            "Got system {:?} for {time:?}",
-                            MockClock::system_time()
-                        );
                     }
                     ("trust-anchor", a) => {
                         ta.add_u8(a.trim_matches('"').as_bytes()).unwrap();

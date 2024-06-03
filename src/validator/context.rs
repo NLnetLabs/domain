@@ -395,9 +395,6 @@ impl<Upstream> ValidationContext<Upstream> {
             authorities.add(rr?)?;
         }
 
-        //println!("Answer groups: {answers:?}");
-        //println!("Authority groups: {authorities:?}");
-
         // Get rid of redundant unsigned CNAMEs
         answers.remove_redundant_cnames();
 
@@ -554,7 +551,6 @@ impl<Upstream> ValidationContext<Upstream> {
                 },
             };
 
-        println!("rcode = {:?}", msg.opt_rcode());
         if msg.opt_rcode() == OptRcode::NOERROR {
             // Try to prove that the name exists but the qtype doesn't. Start
             // with NSEC and assume the name exists.
@@ -775,8 +771,6 @@ impl<Upstream> ValidationContext<Upstream> {
         <Octs as OctetsFrom<Vec<u8>>>::Error: Debug,
         Upstream: Clone + SendRequest<RequestMessage<Octs>>,
     {
-        println!("get_node: for {name:?}");
-
         // Check the cache first
         if let Some(node) = self.cache_lookup(name).await {
             return Ok(node);
@@ -824,7 +818,6 @@ impl<Upstream> ValidationContext<Upstream> {
         let mut signer_node = node.clone();
 
         // Walk from the closest node to name.
-        println!("got names {names:?}");
         loop {
             match node.validation_state() {
                 ValidationState::Secure => (), // continue
@@ -882,7 +875,6 @@ impl<Upstream> ValidationContext<Upstream> {
         <Octs as OctetsFrom<Vec<u8>>>::Error: Debug,
         Upstream: Clone + SendRequest<RequestMessage<Octs>>,
     {
-        println!("find_closest_node for {name:?}");
         let mut names = VecDeque::new();
         names.push_front(name.clone());
         let mut curr = name
@@ -951,7 +943,6 @@ impl<Upstream> ValidationContext<Upstream> {
 
         // Limit the validity of the child node to the one of the parent.
         let parent_ttl = node.ttl();
-        println!("create_child_node: parent_ttl {parent_ttl:?}");
 
         let ds_group = match answers
             .iter()
@@ -971,7 +962,6 @@ impl<Upstream> ValidationContext<Upstream> {
                     // Found matching CNAME.
                     let g_ttl = g.min_ttl().into_duration();
                     let ttl = min(parent_ttl, g_ttl);
-                    println!("with g_ttl {g_ttl:?}, new ttl {ttl:?}");
 
                     let (state, _wildcard, ede, sig_ttl) = g
                         .validate_with_node(
@@ -982,7 +972,6 @@ impl<Upstream> ValidationContext<Upstream> {
                         .await;
 
                     let ttl = min(ttl, sig_ttl);
-                    println!("with sig_ttl {sig_ttl:?}, new ttl {ttl:?}");
 
                     match state {
                         ValidationState::Secure => (),
@@ -1071,9 +1060,6 @@ impl<Upstream> ValidationContext<Upstream> {
                     &self.config,
                 )
                 .await;
-                println!(
-                    "create_child_node: got state {state:?} for {name:?}"
-                );
                 match state {
                     CNsecState::InsecureDelegation => {
                         return Ok(Node::new_delegation(
@@ -1120,14 +1106,12 @@ impl<Upstream> ValidationContext<Upstream> {
         // TODO: Limit the size of the DS RRset.
         let ds_ttl = ds_group.min_ttl().into_duration();
         let ttl = min(parent_ttl, ds_ttl);
-        println!("with ds_ttl {ds_ttl:?}, new ttl {ttl:?}");
 
         let (state, _wildcard, ede, sig_ttl) = ds_group
             .validate_with_node(node, &self.isig_cache, &self.config)
             .await;
 
         let ttl = min(ttl, sig_ttl);
-        println!("with sig_ttl {sig_ttl:?}, new ttl {ttl:?}");
 
         match state {
             ValidationState::Secure => (),
@@ -1172,7 +1156,6 @@ impl<Upstream> ValidationContext<Upstream> {
         // authenticated DS records using unknown or unsupported message
         // digest algorithms.
         let mut tmp_group = ds_group.clone();
-        println!("create_child_node: ds group: {ds_group:?}");
         let valid_algs = tmp_group
             .rr_iter()
             .map(|r| {
@@ -1239,7 +1222,6 @@ impl<Upstream> ValidationContext<Upstream> {
 
         let dnskey_ttl = dnskey_group.min_ttl().into_duration();
         let ttl = min(ttl, dnskey_ttl);
-        println!("with dnskey_ttl {dnskey_ttl:?}, new ttl {ttl:?}");
 
         // TODO: Limit the size of the DNSKEY RRset.
 
@@ -1304,7 +1286,6 @@ impl<Upstream> ValidationContext<Upstream> {
 
                     let sig_ttl = ttl_for_sig(sig);
                     let ttl = min(ttl, sig_ttl);
-                    println!("with sig_ttl {sig_ttl:?}, new ttl {ttl:?}");
 
                     return Ok(Node::new_delegation(
                         key_name,
@@ -1378,7 +1359,6 @@ impl<Upstream> ValidationContext<Upstream> {
     async fn cache_lookup(&self, name: &Name<Bytes>) -> Option<Arc<Node>> {
         let ce = self.node_cache.get(name).await?;
         if ce.expired() {
-            println!("cache_lookup: cache entry for {name:?} has expired");
             return None;
         }
         Some(ce)
@@ -1494,7 +1474,6 @@ impl Node {
                     ));
                 }
             };
-        println!("dnskeys = {dnskeys:?}");
 
         let mut bad_sigs = 0;
         let mut opt_ede: Option<ExtendedError<Vec<u8>>> = None;
@@ -1516,11 +1495,9 @@ impl Node {
             };
 
             let ttl = config.max_node_validity;
-            println!("trust_anchor: max node cache: {ttl:?}");
 
             let dnskey_ttl = dnskeys.min_ttl().into_duration();
             let ttl = min(ttl, dnskey_ttl);
-            println!("with dnskey_ttl {dnskey_ttl:?}, new ttl {ttl:?}");
 
             let dnskey =
                 if let AllRecordData::Dnskey(dnskey) = dnskey_rr.data() {
@@ -1542,7 +1519,6 @@ impl Node {
                 {
                     let sig_ttl = ttl_for_sig(sig);
                     let ttl = min(ttl, sig_ttl);
-                    println!("with sig_ttl {sig_ttl:?}, new ttl {ttl:?}");
 
                     let mut new_node = Self {
                         state: ValidationState::Secure,
@@ -1637,13 +1613,12 @@ impl Node {
     }
 
     pub fn new_intermediate(
-        name: Name<Bytes>,
+        _name: Name<Bytes>,
         state: ValidationState,
         signer_name: Name<Bytes>,
         ede: Option<ExtendedError<Vec<u8>>>,
         valid_for: Duration,
     ) -> Self {
-        println!("new_intermediate: for {name:?} signer {signer_name:?}");
         Self {
             state,
             signer_name,
@@ -1677,10 +1652,6 @@ impl Node {
 
     pub fn expired(&self) -> bool {
         let elapsed = self.created_at.elapsed();
-        println!(
-            "expired: elapsed {elapsed:?}, valid for {:?}",
-            self.valid_for
-        );
         elapsed > self.valid_for
     }
 
@@ -1835,13 +1806,11 @@ async fn nsec_for_ds(
         if g.rtype() != Rtype::NSEC {
             continue;
         }
-        println!("nsec_for_ds: trying group {g:?}");
         let owner = g.owner();
         let rrs = g.rr_set();
         let AllRecordData::Nsec(nsec) = rrs[0].data() else {
             panic!("NSEC expected");
         };
-        println!("nsec = {nsec:?}");
         if target.name_eq(&owner) {
             // Validate the signature
             let (state, wildcard, ede, ttl) =
@@ -2027,7 +1996,6 @@ async fn nsec3_for_ds(
         if g.rtype() != Rtype::NSEC3 {
             continue;
         }
-        println!("nsec3_for_ds: trying group {g:?}");
 
         let rrs = g.rr_set();
         let AllRecordData::Nsec3(nsec3) = rrs[0].data() else {
@@ -2105,8 +2073,6 @@ async fn nsec3_for_ds(
             }
         };
 
-        println!("got hash {hash:?} and first {first:?}");
-
         // Make sure the NSEC3 record is from an appropriate zone.
         if !target.ends_with(&owner.parent().unwrap_or_else(Name::root)) {
             // totest, NSEC3 from wrong zone for DS
@@ -2134,8 +2100,6 @@ async fn nsec3_for_ds(
                 }
                 ValidationState::Secure => (),
             }
-
-            println!("nsec3_for_ds: ttl {ttl:?}");
 
             // Check the bitmap.
             let types = nsec3.types();
@@ -2255,8 +2219,6 @@ where
         "request for DS or DNSKEY failed, parse error",
     );
     if let Ok(reply) = reply {
-        println!("got reply for {name:?}/{rtype:?} {reply:?}");
-
         // Group the answer and authority sections.
         // Rewrite using an iterator.
         if let Ok(answer) = reply.answer() {

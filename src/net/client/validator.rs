@@ -206,16 +206,10 @@ where
             self.request_msg.header_mut().set_cd(true);
         }
 
-        println!(
-            "validator get_response_impl: request {:?}",
-            self.request_msg
-        );
-
         let mut request =
             self.upstream.send_request(self.request_msg.clone());
 
         let response_msg = request.get_response().await?;
-        println!("get_response_impl: response {response_msg:?}");
 
         if cd {
             if dnssec_ok {
@@ -240,7 +234,6 @@ where
         }
 
         let res = self.vc.validate_msg(&response_msg).await;
-        println!("get_response_impl: {res:?}");
         match res {
             Err(err) => Err(Error::Validation(err)),
             Ok((state, opt_ede)) => {
@@ -355,7 +348,6 @@ fn remove_dnssec(
     ad: bool,
     cd: bool,
 ) -> Result<Message<Bytes>, Error> {
-    println!("remove_dnssec: ad {ad:?}");
     let mut target =
         MessageBuilder::from_target(StaticCompressor::new(Vec::new()))
             .expect("Vec is expected to have enough space");
@@ -388,8 +380,6 @@ fn remove_dnssec(
             .into_record::<AllRecordData<_, ParsedName<_>>>()?
             .expect("record expected");
         if is_dnssec(rr.rtype()) && rr.rtype() != qtype {
-            println!("remove_dnssec: skipping {rr:?}");
-            println!("rtype: {:?}, qtype: {qtype:?}", rr.rtype());
             continue;
         }
         target.push(rr).expect("push error");

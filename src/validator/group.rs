@@ -98,18 +98,11 @@ impl Group {
         // First check owner.
         if !self.rr_set.is_empty() {
             if self.rr_set[0].owner() != &rr.owner().to_name::<Bytes>() {
-                println!("add: return at line {}", line!());
-                println!(
-                    "add: curr owner {:?}, record {:?}",
-                    self.rr_set[0].owner(),
-                    rr.owner().try_to_name::<Bytes>()
-                );
                 return Err(());
             }
         } else if self.sig_set[0].owner().try_to_name::<Bytes>()
             != rr.owner().try_to_name()
         {
-            println!("add: return at line {}", line!());
             return Err(());
         }
 
@@ -156,11 +149,8 @@ impl Group {
                     rrsig,
                 );
                 self.sig_set.push(record);
-                println!("after adding {self:?}");
-                println!("add: return at line {}", line!());
                 return Ok(());
             }
-            println!("add: return at line {}", line!());
             return Err(());
         }
 
@@ -179,20 +169,15 @@ impl Group {
             for r in &self.rr_set {
                 if *r == rr {
                     // We already have this record.
-                    println!("after adding {self:?}");
-                    println!("add: return at line {}", line!());
                     return Ok(());
                 }
             }
 
             self.rr_set.push(rr);
-            println!("after adding {self:?}");
-            println!("add: return at line {}", line!());
             return Ok(());
         }
 
         // No match.
-        println!("add: return at line {}", line!());
         Err(())
     }
 
@@ -295,7 +280,6 @@ impl Group {
         <Octs as OctetsFrom<Vec<u8>>>::Error: Debug,
         Upstream: Clone + SendRequest<RequestMessage<Octs>>,
     {
-        println!("validate_with_vc: for group {self:?}");
         // We have two cases, with an without RRSIGs. With RRSIGs we can
         // look at the signer_name. We need to find the DNSSEC status
         // of signer_name. If the status is secure, we can validate
@@ -380,10 +364,8 @@ impl Group {
         }
         let keys = node.keys();
         let ttl = node.ttl();
-        println!("validate_with_node: node ttl {ttl:?}");
         let group_ttl = self.min_ttl().into_duration();
         let ttl = min(ttl, group_ttl);
-        println!("with group_ttl {group_ttl:?}, new ttl {ttl:?}");
 
         let mut bad_sigs = 0;
         for sig_rec in self.clone().sig_iter() {
@@ -398,7 +380,6 @@ impl Group {
                     continue;
                 }
 
-                println!("validate_with_node: sig {sig_rec:?}");
                 if self
                     .check_sig_cached(
                         sig_rec,
@@ -415,7 +396,6 @@ impl Group {
 
                     let sig_ttl = ttl_for_sig(sig_rec);
                     let ttl = min(ttl, sig_ttl);
-                    println!("with sig_ttl {sig_ttl:?}, new ttl {ttl:?}");
                     return (ValidationState::Secure, wildcard, None, ttl);
                 } else {
                     // To avoid CPU exhaustion attacks such as KeyTrap
@@ -488,29 +468,10 @@ impl Group {
         let labels = owner.iter().count() - 1;
         let rrsig = sig.data();
 
-        println!("check_sig for {rrsig:?} and {key:?}");
-
-        println!("{:?} and {:?}", rrsig.type_covered(), rtype);
-        println!(
-            "{:?} and {:?}: {:?}",
-            rrsig.expiration(),
-            ts_now,
-            rrsig.expiration().canonical_lt(&ts_now)
-        );
-        println!(
-            "{:?} and {:?}: {:?}",
-            rrsig.inception(),
-            ts_now,
-            rrsig.inception().canonical_gt(&ts_now)
-        );
-        println!("{:?} and {:?}", rrsig.algorithm(), key.algorithm());
-        println!("{:?} and {:?}", rrsig.key_tag(), key_tag);
-
         // RFC 4035, Section 5.3.1:
         // - The RRSIG RR and the RRset MUST have the same owner name and the same
         //   class.
         if !sig.owner().name_eq(&owner) || sig.class() != self.class() {
-            println!("failed at line {}", line!());
             return false;
         }
 
@@ -523,18 +484,12 @@ impl Group {
         // We assume that a zone will not sign things in space that is delegated
         // (except for the parent side of the delegation)
         if !owner.ends_with(&signer_name) {
-            println!("failed at line {}", line!());
-            println!(
-                "check_sig: {:?} does not end with {signer_name:?}",
-                owner
-            );
             return false;
         }
 
         // RFC 4035, Section 5.3.1:
         // - The RRSIG RR's Type Covered field MUST equal the RRset's type.
         if rrsig.type_covered() != rtype {
-            println!("failed at line {}", line!());
             return false;
         }
 
@@ -542,7 +497,6 @@ impl Group {
         // - The number of labels in the RRset owner name MUST be greater than
         //   or equal to the value in the RRSIG RR's Labels field.
         if labels < rrsig.labels() as usize {
-            println!("failed at line {}", line!());
             return false;
         }
 
@@ -554,7 +508,6 @@ impl Group {
         if ts_now.canonical_gt(&rrsig.expiration())
             || ts_now.canonical_lt(&rrsig.inception())
         {
-            println!("failed at line {}", line!());
             return false;
         }
 
@@ -566,7 +519,6 @@ impl Group {
             || rrsig.algorithm() != key.algorithm()
             || rrsig.key_tag() != key_tag
         {
-            println!("failed at line {}", line!());
             return false;
         }
 
@@ -578,7 +530,6 @@ impl Group {
         // We cannot check here if the key is in the zone's apex, that is up to
         // the caller. Just check the Zone Flag bit.
         if !key.is_zone_key() {
-            println!("failed at line {}", line!());
             return false;
         }
 
@@ -588,10 +539,6 @@ impl Group {
             .signed_data(&mut signed_data, &mut self.rr_set())
             .expect("infallible");
         let res = rrsig.verify_signed_data(key, &signed_data);
-
-        if res.is_err() {
-            println!("failed at line {} with {res:?}", line!());
-        }
 
         res.is_ok()
     }
@@ -629,12 +576,9 @@ impl Group {
         );
 
         if let Some(ce) = cache.cache.get(&cache_key).await {
-            println!("check_sig_cached: existing result");
             return ce;
         }
-        println!("check_sig_cached: checking");
         let res = self.check_sig(sig, signer_name, key, key_name, key_tag);
-        println!("check_sig_cached: inserting {res:?}");
         cache.cache.insert(cache_key, res).await;
         res
     }
@@ -674,13 +618,11 @@ impl GroupSet {
         // then we should use a small hash table or sort first.
         if self.0.is_empty() {
             self.0.push(Group::new(rr)?);
-            println!("after adding {self:?}");
             return Ok(());
         }
         let len = self.0.len();
         let res = self.0[len - 1].add(&rr);
         if res.is_ok() {
-            println!("after adding {self:?}");
             return Ok(());
         }
 
@@ -688,14 +630,12 @@ impl GroupSet {
         for g in &mut self.0[..len - 1] {
             let res = g.add(&rr);
             if res.is_ok() {
-                println!("after adding {self:?}");
                 return Ok(());
             }
         }
 
         // Add a new group.
         self.0.push(Group::new(rr)?);
-        println!("after adding {self:?}");
         Ok(())
     }
 
@@ -762,10 +702,8 @@ impl GroupSet {
                     } else {
                         panic!("DNAME expected");
                     };
-                println!("after applying DNAME: {result_name:?}");
                 if let AllRecordData::Cname(cname) = cname_rr.data() {
                     if cname.cname().to_name::<Bytes>() == result_name {
-                        println!("got match");
                         return true;
                     }
                 }

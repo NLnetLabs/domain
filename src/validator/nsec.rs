@@ -60,7 +60,6 @@ pub fn nsec_for_nodata(
         };
 
         let owner = g.owner();
-        println!("nsec = {nsec:?}");
         if target.name_eq(&owner) {
             // Check the bitmap.
             let types = nsec.types();
@@ -185,7 +184,6 @@ pub fn nsec_for_not_exists(
             continue;
         };
 
-        println!("nsec_for_not_exists: trying group {g:?}");
         let owner = g.owner();
 
         if target.name_eq(&owner) {
@@ -202,7 +200,6 @@ pub fn nsec_for_not_exists(
         // Check that target is in the range of the NSEC.
         if !nsec_in_range(target, &owner, nsec.next_name()) {
             // Not in this range.
-            println!("nsec_for_not_exists: target {target:?} not in range <{owner:?}>..<{:?}>", nsec.next_name());
             continue;
         }
 
@@ -310,7 +307,6 @@ fn get_checked_nsec(
     if rrs.len() != 1 {
         // There should be at most one NSEC record for a given owner name.
         // Ignore the entire RRset.
-        println!("get_checked_nsec: line {}", line!());
         return (None, None);
     }
     let AllRecordData::Nsec(nsec) = rrs[0].data() else {
@@ -325,7 +321,6 @@ fn get_checked_nsec(
 
     // Check if the signer name matches the expected signer name.
     if group.signer_name() != signer_name {
-        println!("get_checked_nsec: line {}", line!());
         return (None, None);
     }
 
@@ -342,11 +337,9 @@ fn get_checked_nsec(
                 return (None, None);
             }
         };
-        println!("got star_name {star_name:?}");
         if owner != star_name {
             // totest, NSEC expanded from wildcard
             // The nsec is an expanded wildcard. Ignore.
-            println!("get_checked_nsec: line {}", line!());
             let ede = make_ede(
                 ExtendedErrorCode::DNSSEC_BOGUS,
                 "NSEC is expanded from wildcard",
@@ -378,7 +371,6 @@ fn nsec_closest_encloser(
             break;
         }
     }
-    println!("found {owner_encloser:?}");
 
     let mut next_encloser: Name<Bytes> = Name::root(); // Assume the root if we can't find
                                                        // anything.
@@ -388,7 +380,6 @@ fn nsec_closest_encloser(
             break;
         }
     }
-    println!("found {next_encloser:?}");
 
     if owner_encloser.label_count() > next_encloser.label_count() {
         owner_encloser
@@ -448,8 +439,6 @@ pub async fn nsec3_for_nodata(
             nsec3_cache,
         )
         .await;
-
-        println!("got hash {hash:?} and ownerhash {ownerhash:?}");
 
         if ownerhash == hash.as_ref() {
             // We found an exact match.
@@ -581,8 +570,6 @@ pub async fn nsec3_for_not_exists(
     nsec3_cache: &Nsec3Cache,
     config: &Config,
 ) -> (Nsec3NXState, Option<ExtendedError<Vec<u8>>>) {
-    println!("nsec3_for_not_exists: proving {target:?} does not exist");
-
     // We assume the target does not exist and the signer_name does exist.
     // Starting from signer_name and going towards target we check if a name
     // exists or not. We assume signer_name exists. If we find a name that
@@ -599,9 +586,7 @@ pub async fn nsec3_for_not_exists(
     let mut maybe_ce = signer_name.clone();
     let mut maybe_ce_exists = false;
     'next_name: for n in names {
-        println!("nsec3_for_not_exists: trying name {n:?}");
         if n == signer_name {
-            println!("nsec3_for_not_exists: signer_name");
             maybe_ce = n;
             maybe_ce_exists = true;
             continue;
@@ -641,8 +626,6 @@ pub async fn nsec3_for_not_exists(
             )
             .await;
 
-            println!("got hash {hash:?} and ownerhash {ownerhash:?}");
-
             if ownerhash == hash.as_ref() {
                 // We found an exact match.
 
@@ -665,7 +648,6 @@ pub async fn nsec3_for_not_exists(
 			),
 		    );
                 }
-                println!("nsec3_for_not_exists: found match");
                 maybe_ce = n;
                 maybe_ce_exists = true;
                 continue 'next_name;
@@ -673,13 +655,7 @@ pub async fn nsec3_for_not_exists(
 
             // Check if target is between the hash in the first label and the
             // next_owner field.
-            println!(
-                "nsec3_for_not_exists: range {ownerhash:?}..{:?}",
-                nsec3.next_owner()
-            );
             if nsec3_in_range(hash.as_ref(), &ownerhash, nsec3.next_owner()) {
-                println!("nsec3_for_not_exists: found not exist");
-
                 // We found a name that does not exist. Do we have a candidate
                 // closest encloser?
                 if maybe_ce_exists {
@@ -737,8 +713,6 @@ pub async fn nsec3_for_not_exists_no_ce(
     nsec3_cache: &Nsec3Cache,
     config: &Config,
 ) -> (Nsec3NXStateNoCE, Option<ExtendedError<Vec<u8>>>) {
-    println!("nsec3_for_not_exists_no_ce: proving {target:?} does not exist");
-
     // Check whether the name exists, or is proven to not exist.
     for g in groups.iter() {
         let res_opt_nsec3_hash = get_checked_nsec3(g, signer_name, config);
@@ -780,17 +754,9 @@ pub async fn nsec3_for_not_exists_no_ce(
         )
         .await;
 
-        println!("got hash {hash:?} and ownerhash {ownerhash:?}");
-
         // Check if target is between the hash in the first label and the
         // next_owner field.
-        println!(
-            "nsec3_for_not_exists_no_ce: range {ownerhash:?}..{:?}",
-            nsec3.next_owner()
-        );
         if nsec3_in_range(hash.as_ref(), &ownerhash, nsec3.next_owner()) {
-            println!("nsec3_for_not_exists: found not exist");
-
             // We found a name that does not exist.
             if nsec3.opt_out() {
                 // Results based on an opt_out record are insecure. Opt-out
@@ -949,10 +915,8 @@ pub async fn cached_nsec3_hash(
     let key =
         Nsec3CacheKey(owner.clone(), algorithm, iterations, salt.clone());
     if let Some(ce) = cache.cache.get(&key).await {
-        println!("cached_nsec3_hash: existing hash for {owner:?}, {algorithm:?}, {iterations:?}, {salt:?}");
         return ce;
     }
-    println!("cached_nsec3_hash: new hash for {owner:?}, {algorithm:?}, {iterations:?}, {salt:?}");
     let hash = nsec3_hash(owner, algorithm, iterations, salt);
     let hash = Arc::new(hash);
     cache.cache.insert(key, hash.clone()).await;
@@ -998,7 +962,6 @@ fn get_checked_nsec3(
     if rrs.len() != 1 {
         // There should be at most one NSEC3 record for a given owner name.
         // Ignore the entire RRset.
-        println!("get_checked_nsec3: line {}", line!());
         return Ok(None);
     }
     let AllRecordData::Nsec3(nsec3) = rrs[0].data() else {
@@ -1013,7 +976,6 @@ fn get_checked_nsec3(
 
     // Check if the signer name matches the expected signer name.
     if group.signer_name() != signer_name {
-        println!("get_checked_nsec3: line {}", line!());
         return Ok(None);
     }
 

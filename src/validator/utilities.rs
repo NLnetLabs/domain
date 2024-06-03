@@ -153,17 +153,14 @@ pub fn map_dname(
     dname: &Dname<ParsedName<Bytes>>,
     name: &Name<Bytes>,
 ) -> Result<Name<Bytes>, Error> {
-    println!("map_dname: for name {name:?}, dname owner {owner:?}");
     let mut tmp_name = name.clone();
     let mut new_name = NameBuilder::new_bytes();
     let owner_labels = owner.label_count();
     while tmp_name.label_count() > owner_labels {
-        println!("adding label {:?}", tmp_name.first());
         new_name.append_label(tmp_name.first().as_slice())?;
         tmp_name = tmp_name.parent().expect("should not fail");
     }
     let name = new_name.append_origin(dname.dname())?;
-    println!("Now at {:?}", name);
     Ok(name)
 }
 
@@ -171,19 +168,13 @@ pub fn ttl_for_sig(
     sig: &Record<Name<Bytes>, Rrsig<Bytes, Name<Bytes>>>,
 ) -> Duration {
     let ttl = sig.ttl().into_duration();
-    println!("ttl_for_sig: record ttl {ttl:?}");
     let orig_ttl = sig.data().original_ttl().into_duration();
     let ttl = min(ttl, orig_ttl);
-    println!("with orig_ttl {orig_ttl:?}, new ttl {ttl:?}");
 
     let until_expired =
         sig.data().expiration().into_int() - Timestamp::now().into_int();
     let expire_duration = Duration::from_secs(until_expired as u64);
-    let ttl = min(ttl, expire_duration);
-
-    println!("with until_expired {until_expired:?}, ttl {ttl:?}");
-
-    ttl
+    min(ttl, expire_duration)
 }
 
 #[allow(clippy::type_complexity)]
@@ -229,7 +220,6 @@ pub fn get_soa_state(
 ) {
     let mut ede = None;
     for g in groups.iter() {
-        println!("get_soa_state: trying {g:?} for {qname:?}");
         if g.rtype() != Rtype::SOA {
             continue;
         }
@@ -315,9 +305,7 @@ pub async fn check_not_exists_for_wildcard(
         NsecNXState::Nothing => (), // Continue with NSEC3
     }
 
-    println!("compute the child for {name:?} and {closest_encloser:?}");
     let child_of_ce = get_child_of_ce(name, closest_encloser);
-    println!("got child {child_of_ce:?}");
 
     let (state, ede) = nsec3_for_not_exists_no_ce(
         &child_of_ce,
