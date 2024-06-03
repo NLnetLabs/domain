@@ -13,9 +13,9 @@ Currently, these blocks include:
 
 * basic data structures and functionality for creating and parsing DNS
   data and messages,
+* experimental support for DNS client and server transports,
 * support for signing and verifying messages using the TSIG mechanism,
-* experimental support for reading data from DNS master files (also known
-  as zone files),
+* experimental support for reading data from DNS zone files,
 * experimental and as yet incomplete support for DNSSEC signing and
   validation,
 * a simple Tokio-based stub resolver.
