@@ -9,6 +9,7 @@ New
 * Allow AllRecordData’s parsing impls to accept an unsized [u8] as the
   source octets. ([#310] by [@xofyarg])
 * Made `sign::records::FamilyName` public. ([#312] by [@achow101])
+* Added an impl of `FromStr` for `Question`. ([#317])
 
 Bug fixes
 
@@ -16,11 +17,14 @@ Bug fixes
   ([#310] by [@xofyarg])
 * Fix serialization of ProtoRrsig to conform with RFC 4034. ([#313 by
   [@achow101])
-* Add an `?Sized` bound to `Message::is_answer`. ([#318] by [@xofyarg])
+* Add `?Sized` bounds to `Message::is_answer` and `ParsedRecord::to_record`.
+  ([#318] by [@xofyarg], [#325] by [@hunts])
 * Bring back `MessageBuilder::as_target`. ([#318] by [@xofyarg])
 * Bring back `impl FreezeBuilder for StaticCompressor`. ([#318] by [@xofyarg])
 * `sign::records::RecordsIter::skip_before` now stops at the first name in
   zone even if the apex itself doesn’t appear. ([#314] by [@achow101])
+* Fix a counting error in `SliceLabelsIter::next` that broke compression
+  via `StaticCompressor`. ([#321] by [@hunts])
 
 Unstable features
 
@@ -38,9 +42,13 @@ Other changes
 [#312]: https://github.com/NLnetLabs/domain/pull/312
 [#314]: https://github.com/NLnetLabs/domain/pull/314
 [#315]: https://github.com/NLnetLabs/domain/pull/315
+[#317]: https://github.com/NLnetLabs/domain/pull/317
 [#318]: https://github.com/NLnetLabs/domain/pull/318
 [#320]: https://github.com/NLnetLabs/domain/pull/320
+[#321]: https://github.com/NLnetLabs/domain/pull/321
+[#325]: https://github.com/NLnetLabs/domain/pull/325
 [@achow101]: https://github.com/achow101
+[@hunts]: https://github.com/hunts
 [@xofyarg]: https://github.com/xofyarg
 
 ## 0.10.0
