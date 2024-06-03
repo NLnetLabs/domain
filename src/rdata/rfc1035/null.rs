@@ -8,7 +8,7 @@ use crate::base::rdata::{
     ComposeRecordData, LongRecordData, ParseRecordData, RecordData,
 };
 use crate::base::wire::{Composer, ParseError};
-use core::{fmt, hash};
+use core::{fmt, hash, mem};
 use core::cmp::Ordering;
 use octseq::octets::{Octets, OctetsFrom, OctetsInto};
 use octseq::parse::Parser;
@@ -25,6 +25,7 @@ use octseq::parse::Parser;
 /// [1]: https://tools.ietf.org/html/rfc1035#section-3.3.10
 #[derive(Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[repr(transparent)]
 pub struct Null<Octs: ?Sized> {
     #[cfg_attr(
         feature = "serde",
@@ -83,7 +84,8 @@ impl Null<[u8]> {
     /// The caller has to ensure that `data` is at most 65,535 octets long.
     #[must_use]
     pub unsafe fn from_slice_unchecked(data: &[u8]) -> &Self {
-        &*(data as *const [u8] as *const Self)
+        // SAFETY: Null has repr(transparent)
+        mem::transmute(data)
     }
 
     /// Checks that a slice can be used for NULL record data.

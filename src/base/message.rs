@@ -150,6 +150,7 @@ use octseq::{Octets, OctetsFrom, Parser};
 /// [opcode]: ../iana/opcode/enum.Opcode.html
 /// [RFC 1035]: https://tools.ietf.org/html/rfc1035
 #[derive(Clone, Copy)]
+#[repr(transparent)]
 pub struct Message<Octs: ?Sized> {
     octets: Octs,
 }
@@ -215,7 +216,8 @@ impl Message<[u8]> {
     /// long as a header. If the sequence is shorter, the behavior is
     /// undefined.
     unsafe fn from_slice_unchecked(slice: &[u8]) -> &Self {
-        &*(slice as *const [u8] as *const Self)
+        // SAFETY: Message has repr(transparent)
+        mem::transmute(slice)
     }
 
     /// Checks that the slice can be used for a message.

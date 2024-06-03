@@ -28,7 +28,7 @@ use super::scan::{BadSymbol, Scanner, Symbol, SymbolCharsError};
 use super::wire::{Compose, ParseError};
 #[cfg(feature = "bytes")]
 use bytes::BytesMut;
-use core::{cmp, fmt, hash, str};
+use core::{cmp, fmt, hash, mem, str};
 use octseq::builder::FreezeBuilder;
 #[cfg(feature = "serde")]
 use octseq::serde::{DeserializeOctets, SerializeOctets};
@@ -118,6 +118,7 @@ use std::vec::Vec;
 ///
 /// [RFC 1035]: https://tools.ietf.org/html/rfc1035
 #[derive(Clone)]
+#[repr(transparent)]
 pub struct CharStr<Octs: ?Sized>(Octs);
 
 impl CharStr<()> {
@@ -182,7 +183,8 @@ impl CharStr<[u8]> {
     /// long. Otherwise, the behaviour is undefined.
     #[must_use]
     pub unsafe fn from_slice_unchecked(slice: &[u8]) -> &Self {
-        &*(slice as *const [u8] as *const Self)
+        // SAFETY: Charstr has repr(transparent)
+        mem::transmute(slice)
     }
 
     /// Creates a character string from a mutable slice without checking.
@@ -192,7 +194,8 @@ impl CharStr<[u8]> {
     /// The caller has to make sure that `octets` is at most 255 octets
     /// long. Otherwise, the behaviour is undefined.
     unsafe fn from_slice_mut_unchecked(slice: &mut [u8]) -> &mut Self {
-        &mut *(slice as *mut [u8] as *mut Self)
+        // SAFETY: Charstr has repr(transparent)
+        mem::transmute(slice)
     }
 
     /// Checks whether an octets slice contains a correct character string.

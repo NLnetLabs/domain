@@ -14,7 +14,7 @@ use super::traits::{FlattenInto, ToLabelIter, ToName};
 use bytes::Bytes;
 use core::ops::{Bound, RangeBounds};
 use core::str::FromStr;
-use core::{borrow, cmp, fmt, hash, str};
+use core::{borrow, cmp, fmt, hash, mem, str};
 use octseq::builder::{
     EmptyBuilder, FreezeBuilder, FromBuilder, OctetsBuilder, Truncate,
 };
@@ -49,6 +49,7 @@ use std::vec::Vec;
 /// [`ParsedName`]: crate::base::name::ParsedName
 /// [`Display`]: std::fmt::Display
 #[derive(Clone)]
+#[repr(transparent)]
 pub struct Name<Octs: ?Sized>(Octs);
 
 impl Name<()> {
@@ -221,7 +222,8 @@ impl<Octs> Name<Octs> {
 impl Name<[u8]> {
     /// Creates a domain name from an octet slice without checking,
     unsafe fn from_slice_unchecked(slice: &[u8]) -> &Self {
-        &*(slice as *const [u8] as *const Name<[u8]>)
+        // SAFETY: Name has repr(transparent)
+        mem::transmute(slice)
     }
 
     /// Creates a domain name from an octets slice.

@@ -72,6 +72,7 @@ use octseq::parse::Parser;
 /// [`iter`]: #method.iter
 /// [`OptRecord`]: struct.OptRecord.html
 #[derive(Clone)]
+#[repr(transparent)]
 pub struct Opt<Octs: ?Sized> {
     octets: Octs,
 }
@@ -135,7 +136,8 @@ impl Opt<[u8]> {
     /// OPT record data. The data of the options themselves does not need to
     /// be correct.
     unsafe fn from_slice_unchecked(slice: &[u8]) -> &Self {
-        &*(slice as *const [u8] as *const Self)
+        // SAFETY: Opt has repr(transparent)
+        mem::transmute(slice)
     }
 
     /// Checks that the slice contains acceptable OPT record data.
@@ -379,6 +381,7 @@ impl<Octs: AsRef<[u8]> + ?Sized> fmt::Debug for Opt<Octs> {
 //    | RDATA      | octet stream | {attribute,value} pairs      |
 //    +------------+--------------+------------------------------+
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
+#[repr(transparent)]
 pub struct OptHeader {
     /// The bytes of the header.
     inner: [u8; 9],
@@ -389,12 +392,20 @@ impl OptHeader {
     #[must_use]
     pub fn for_record_slice(slice: &[u8]) -> &OptHeader {
         assert!(slice.len() >= mem::size_of::<Self>());
+
+        // SAFETY: the pointer cast is sound because
+        //   - OptHeader has repr(transparent) and
+        //   - the size of the slice is large enough
         unsafe { &*(slice.as_ptr() as *const OptHeader) }
     }
 
     /// Returns a mutable reference pointing into a record’s octets.
     pub fn for_record_slice_mut(slice: &mut [u8]) -> &mut OptHeader {
         assert!(slice.len() >= mem::size_of::<Self>());
+
+        // SAFETY: the pointer cast is sound because
+        //   - OptHeader has repr(transparent) and
+        //   - the size of the slice is large enough
         unsafe { &mut *(slice.as_mut_ptr() as *mut OptHeader) }
     }
 
@@ -1056,7 +1067,7 @@ pub enum BuildDataError {
 }
 
 impl BuildDataError {
-    /// Converts the error into a `LongOptData` error for ‘endless’ buffers.
+    /// Converts the error into a [`LongOptData`] error for ‘endless’ buffers.
     ///
     /// # Panics
     ///

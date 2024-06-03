@@ -18,7 +18,7 @@ use crate::base::wire::{Composer, FormError, ParseError};
 use bytes::BytesMut;
 use core::cmp::Ordering;
 use core::convert::{Infallible, TryFrom};
-use core::{fmt, hash, str};
+use core::{fmt, hash, mem, str};
 use octseq::builder::{
     infallible, EmptyBuilder, FreezeBuilder, FromBuilder, OctetsBuilder,
     ShortBuf,
@@ -80,6 +80,7 @@ use octseq::serde::{DeserializeOctets, SerializeOctets};
 ///
 /// [RFC 1035, section 3.3.14]: https://tools.ietf.org/html/rfc1035#section-3.3.14
 #[derive(Clone)]
+#[repr(transparent)]
 pub struct Txt<Octs: ?Sized>(Octs);
 
 impl Txt<()> {
@@ -153,7 +154,8 @@ impl Txt<[u8]> {
     /// The passed octets must contain correctly encoded TXT record data.
     /// See [`from_octets][Self::from_octets] for the required content.
     unsafe fn from_slice_unchecked(slice: &[u8]) -> &Self {
-        unsafe { &*(slice as *const [u8] as *const Self) }
+        // SAFETY: Txt has repr(transparent)
+        mem::transmute(slice)
     }
 
     /// Checks that a slice contains correctly encoded TXT data.
