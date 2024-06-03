@@ -392,12 +392,20 @@ impl OptHeader {
     #[must_use]
     pub fn for_record_slice(slice: &[u8]) -> &OptHeader {
         assert!(slice.len() >= mem::size_of::<Self>());
+
+        // SAFETY: the pointer cast is sound because
+        //   - OptHeader has repr(transparent) and
+        //   - the size of the slice is large enough
         unsafe { &*(slice.as_ptr() as *const OptHeader) }
     }
 
     /// Returns a mutable reference pointing into a record’s octets.
     pub fn for_record_slice_mut(slice: &mut [u8]) -> &mut OptHeader {
         assert!(slice.len() >= mem::size_of::<Self>());
+
+        // SAFETY: the pointer cast is sound because
+        //   - OptHeader has repr(transparent) and
+        //   - the size of the slice is large enough
         unsafe { &mut *(slice.as_mut_ptr() as *mut OptHeader) }
     }
 
