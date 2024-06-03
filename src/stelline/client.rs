@@ -25,7 +25,6 @@ use crate::net::client::request::{
 };
 
 use super::matches::match_msg;
-use super::parse_query;
 use super::parse_stelline::{Entry, Reply, Stelline, StepType};
 
 use super::channel::DEF_CLIENT_ADDR;
@@ -493,11 +492,7 @@ fn entry2reqmsg(entry: &Entry) -> RequestMessage<Vec<u8>> {
     let sections = entry.sections.as_ref().unwrap();
     let mut msg = MessageBuilder::new_vec().question();
     for q in &sections.question {
-        let question = match q {
-            parse_query::Entry::QueryRecord(question) => question,
-            _ => todo!(),
-        };
-        msg.push(question).unwrap();
+        msg.push(q).unwrap();
     }
     let msg = msg.answer();
     for _a in &sections.answer {

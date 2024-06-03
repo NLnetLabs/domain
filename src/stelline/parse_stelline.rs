@@ -2,15 +2,16 @@ use std::default::Default;
 use std::fmt::Debug;
 use std::io::{self, BufRead, Read};
 use std::net::IpAddr;
+use std::str::FromStr;
 use std::string::{String, ToString};
 use std::vec::Vec;
 
+use bytes::Bytes;
+
+use crate::base;
 use crate::utils::base16;
 use crate::zonefile::inplace::Entry as ZonefileEntry;
 use crate::zonefile::inplace::Zonefile;
-
-use super::parse_query;
-use super::parse_query::Zonefile as QueryZonefile;
 
 const CONFIG_END: &str = "CONFIG_END";
 const SCENARIO_BEGIN: &str = "SCENARIO_BEGIN";
@@ -398,11 +399,14 @@ pub struct AdditionalSection {
 
 #[derive(Clone, Debug, Default)]
 pub struct Sections {
-    pub question: Vec<parse_query::Entry>,
+    pub question: Vec<Question>,
     pub answer: Vec<ZonefileEntry>,
     pub authority: Vec<ZonefileEntry>,
     pub additional: AdditionalSection,
 }
+
+pub type Name = base::Name<Bytes>;
+pub type Question = base::Question<Name>;
 
 fn parse_section<Lines: Iterator<Item = Result<String, std::io::Error>>>(
     mut tokens: LineTokens<'_>,
@@ -446,11 +450,9 @@ fn parse_section<Lines: Iterator<Item = Result<String, std::io::Error>>>(
 
         match section {
             Section::Question => {
-                let mut zonefile = QueryZonefile::new();
-                zonefile.extend_from_slice(clean_line.as_ref());
-                zonefile.extend_from_slice(b"\n");
-                let e = zonefile.next_entry().unwrap();
-                sections.question.push(e.unwrap());
+                sections
+                    .question
+                    .push(Question::from_str(clean_line).unwrap());
             }
             Section::Answer | Section::Authority | Section::Additional => {
                 if matches!(section, Section::Additional)
