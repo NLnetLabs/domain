@@ -4,6 +4,7 @@ use std::fs::File;
 use std::path::PathBuf;
 use std::string::ToString;
 use std::sync::Arc;
+use std::sync::Mutex;
 use std::time::Duration;
 use std::vec::Vec;
 
@@ -24,7 +25,15 @@ use crate::rdata::dnssec::Timestamp;
 use crate::validator::anchor::TrustAnchors;
 use crate::validator::context::ValidationContext;
 
+use lazy_static::lazy_static;
+
+lazy_static! {
+    static ref LOCK: Mutex<()> = Mutex::new(());
+}
+
 async fn async_test_validator(filename: &str) {
+    let _locked = LOCK.lock().unwrap();
+
     let file = File::open(filename).unwrap();
     let stelline = parse_file(&file, filename);
 
