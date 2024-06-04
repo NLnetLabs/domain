@@ -181,7 +181,7 @@ where
     Upstream: Send + Sync,
 {
     /// State of the request.
-    //state: RequestState,
+    state: RequestState,
 
     /// The request message.
     request_msg: CR,
@@ -194,6 +194,12 @@ where
 
     /// The configuration of the connection.
     _config: Config,
+
+    /// valid of the cd flag in the request.
+    cd: bool,
+
+    /// value of the dnssec_ok flag in the request.
+    dnssec_ok: bool,
 
     _phantom: PhantomData<VCOcts>,
 }
@@ -211,17 +217,18 @@ where
         config: Config,
     ) -> Request<CR, Upstream, VCOcts, VCUpstream> {
         Self {
+            state: RequestState::Init,
             request_msg,
             upstream,
             vc,
             _config: config,
+            cd: false,
+            dnssec_ok: false,
             _phantom: PhantomData,
         }
     }
 
     /// This is the implementation of the get_response method.
-    ///
-    /// This function is not cancel safe.
     async fn get_response_impl<Octs>(
         &mut self,
     ) -> Result<Message<Bytes>, Error>
@@ -239,106 +246,156 @@ where
         <Octs as OctetsFrom<Vec<u8>>>::Error: Debug,
         VCUpstream: Clone + SendRequest<RequestMessage<Octs>>,
     {
-        // Store the DO flag of the request.
-        let dnssec_ok = self.request_msg.dnssec_ok();
-        if !dnssec_ok {
-            // Set the DO flag, otherwise we can't validate.
-            self.request_msg.set_dnssec_ok(true);
-        }
+        loop {
+            match &mut self.state {
+                RequestState::Init => {
+                    // Store the DO flag of the request.
+                    self.dnssec_ok = self.request_msg.dnssec_ok();
+                    if !self.dnssec_ok {
+                        // Set the DO flag, otherwise we can't validate.
+                        self.request_msg.set_dnssec_ok(true);
+                    }
 
-        // Store the CD flag of the request.
-        let cd = self.request_msg.header().cd();
-        if !cd {
-            // Set the CD flag to get all results even if they fail to validate
-            // upstream.
-            self.request_msg.header_mut().set_cd(true);
-        }
+                    // Store the CD flag of the request.
+                    self.cd = self.request_msg.header().cd();
+                    if !self.cd {
+                        // Set the CD flag to get all results even if they
+                        // fail to validate upstream.
+                        self.request_msg.header_mut().set_cd(true);
+                    }
 
-        let mut request =
-            self.upstream.send_request(self.request_msg.clone());
-
-        let response_msg = request.get_response().await?;
-
-        if cd {
-            if dnssec_ok {
-                // Clear the AD flag if it is clear. Check if CD is set. If
-                // either AD is set or CD is clear then correct he message.
-                if response_msg.header().ad() || !response_msg.header().cd() {
-                    let mut response_msg = Message::from_octets(
-                        response_msg.as_slice().to_vec(),
-                    )?;
-                    response_msg.header_mut().set_ad(false);
-                    response_msg.header_mut().set_cd(true);
-                    let response_msg = Message::<Bytes>::from_octets(
-                        response_msg.into_octets().octets_into(),
-                    )?;
-                    return Ok(response_msg);
+                    let request =
+                        self.upstream.send_request(self.request_msg.clone());
+                    self.state = RequestState::GetResponse(request);
+                    continue;
                 }
-                return Ok(response_msg);
-            } else {
-                let msg = remove_dnssec(&response_msg, false, cd);
-                return msg;
-            }
-        }
 
-        let res = self.vc.validate_msg(&response_msg).await;
-        match res {
-            Err(err) => Err(Error::Validation(err)),
-            Ok((state, opt_ede)) => {
-                match state {
-                    ValidationState::Secure => {
-                        // Check the state of the DO flag to see if we have to
-                        // strip DNSSEC records. Set the AD flag if it is
-                        // not set and either AD or DO is set in the request.
-                        // We always have to clear CD.
-                        if dnssec_ok {
-                            // Set AD and clear CD.
-                            let mut response_msg = Message::from_octets(
-                                response_msg.as_slice().to_vec(),
-                            )?;
-                            response_msg.header_mut().set_ad(true);
-                            response_msg.header_mut().set_cd(false);
-                            let response_msg = Message::<Bytes>::from_octets(
-                                response_msg.into_octets().octets_into(),
-                            )?;
-                            Ok(response_msg)
+                RequestState::GetResponse(request) => {
+                    let response_msg = request.get_response().await?;
+
+                    if self.cd {
+                        if self.dnssec_ok {
+                            // Clear the AD flag if it is clear. Check if CD
+                            // is set. If either AD is set or CD is clear then
+                            // correct the message.
+                            if response_msg.header().ad()
+                                || !response_msg.header().cd()
+                            {
+                                let mut response_msg = Message::from_octets(
+                                    response_msg.as_slice().to_vec(),
+                                )?;
+                                response_msg.header_mut().set_ad(false);
+                                response_msg.header_mut().set_cd(true);
+                                let response_msg =
+                                    Message::<Bytes>::from_octets(
+                                        response_msg
+                                            .into_octets()
+                                            .octets_into(),
+                                    )?;
+                                return Ok(response_msg);
+                            }
+                            return Ok(response_msg);
                         } else {
-                            // Set AD if it was set in the request.
-                            let msg = remove_dnssec(
-                                &response_msg,
-                                self.request_msg.header().ad(),
-                                false,
-                            );
-                            msg
+                            let msg =
+                                remove_dnssec(&response_msg, false, self.cd);
+                            return msg;
                         }
                     }
-                    ValidationState::Bogus => {
-                        serve_fail(&response_msg, opt_ede)
-                    }
-                    ValidationState::Insecure
-                    | ValidationState::Indeterminate => {
-                        let response_msg = match opt_ede {
-                            Some(ede) => add_opt(&response_msg, ede)?,
-                            None => response_msg,
-                        };
-                        // Check the state of the DO flag to see if we have to
-                        // strip DNSSEC records. Clear the AD flag if it is
-                        // set. Always clear CD.
-                        if dnssec_ok {
-                            // Clear AD if it is set. Clear CD.
-                            let mut response_msg = Message::from_octets(
-                                response_msg.as_slice().to_vec(),
-                            )?;
-                            response_msg.header_mut().set_ad(false);
-                            response_msg.header_mut().set_cd(false);
-                            let response_msg = Message::<Bytes>::from_octets(
-                                response_msg.into_octets().octets_into(),
-                            )?;
-                            Ok(response_msg)
-                        } else {
-                            remove_dnssec(&response_msg, false, false)
+
+                    self.state = RequestState::Validate(response_msg);
+                    continue;
+                }
+
+                RequestState::Validate(response_msg) => {
+                    let res = self.vc.validate_msg(&response_msg).await;
+                    return match res {
+                        Err(err) => Err(Error::Validation(err)),
+                        Ok((state, opt_ede)) => {
+                            match state {
+                                ValidationState::Secure => {
+                                    // Check the state of the DO flag to see
+                                    // if we have to strip DNSSEC records. Set
+                                    // the AD flag if it is not set and either
+                                    // AD or DO is set in the request.
+                                    // We always have to clear CD.
+                                    if self.dnssec_ok {
+                                        // Set AD and clear CD.
+                                        let mut response_msg =
+                                            Message::from_octets(
+                                                response_msg
+                                                    .as_slice()
+                                                    .to_vec(),
+                                            )?;
+                                        response_msg
+                                            .header_mut()
+                                            .set_ad(true);
+                                        response_msg
+                                            .header_mut()
+                                            .set_cd(false);
+                                        let response_msg =
+                                            Message::<Bytes>::from_octets(
+                                                response_msg
+                                                    .into_octets()
+                                                    .octets_into(),
+                                            )?;
+                                        Ok(response_msg)
+                                    } else {
+                                        // Set AD if it was set in the request.
+                                        let msg = remove_dnssec(
+                                            &response_msg,
+                                            self.request_msg.header().ad(),
+                                            false,
+                                        );
+                                        msg
+                                    }
+                                }
+                                ValidationState::Bogus => {
+                                    serve_fail(&response_msg, opt_ede)
+                                }
+                                ValidationState::Insecure
+                                | ValidationState::Indeterminate => {
+                                    let response_msg = match opt_ede {
+                                        Some(ede) => {
+                                            add_opt(&response_msg, ede)?
+                                        }
+                                        None => response_msg.clone(),
+                                    };
+                                    // Check the state of the DO flag to see
+                                    // if we have to strip DNSSEC records.
+                                    // Clear the AD flag if it is set. Always
+                                    // clear CD.
+                                    if self.dnssec_ok {
+                                        // Clear AD if it is set. Clear CD.
+                                        let mut response_msg =
+                                            Message::from_octets(
+                                                response_msg
+                                                    .as_slice()
+                                                    .to_vec(),
+                                            )?;
+                                        response_msg
+                                            .header_mut()
+                                            .set_ad(false);
+                                        response_msg
+                                            .header_mut()
+                                            .set_cd(false);
+                                        let response_msg =
+                                            Message::<Bytes>::from_octets(
+                                                response_msg
+                                                    .into_octets()
+                                                    .octets_into(),
+                                            )?;
+                                        Ok(response_msg)
+                                    } else {
+                                        remove_dnssec(
+                                            &response_msg,
+                                            false,
+                                            false,
+                                        )
+                                    }
+                                }
+                            }
                         }
-                    }
+                    };
                 }
             }
         }
@@ -385,6 +442,19 @@ where
     > {
         Box::pin(self.get_response_impl())
     }
+}
+
+//------------ RequestState ---------------------------------------------------
+/// States of the state machine in get_response_impl
+enum RequestState {
+    /// Initial state.
+    Init,
+
+    /// Wait for a response.
+    GetResponse(Box<dyn GetResponse + Send + Sync>),
+
+    /// Wait for validation to complete.
+    Validate(Message<Bytes>),
 }
 
 /// Return a new message without the DNSSEC type DNSKEY, RRSIG, NSEC, and NSEC3.
