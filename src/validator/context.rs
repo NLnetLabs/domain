@@ -371,15 +371,12 @@ impl<Upstream> ValidationContext<Upstream> {
         MsgOcts: Clone + Debug + Octets + 'a,
         <MsgOcts as Octets>::Range<'a>: Debug,
         USOcts: AsRef<[u8]>
-            + Clone
             + Debug
             + Octets
             + OctetsFrom<Vec<u8>>
             + Send
-            + Sync
-            + 'static,
-        <USOcts as OctetsFrom<Vec<u8>>>::Error: Debug,
-        Upstream: Clone + SendRequest<RequestMessage<USOcts>>,
+            + Sync,
+        Upstream: SendRequest<RequestMessage<USOcts>>,
     {
         // Convert to Bytes.
         let bytes = Bytes::copy_from_slice(msg.as_slice());
@@ -761,15 +758,12 @@ impl<Upstream> ValidationContext<Upstream> {
     ) -> Result<Arc<Node>, Error>
     where
         Octs: AsRef<[u8]>
-            + Clone
             + Debug
             + Octets
             + OctetsFrom<Vec<u8>>
             + Send
-            + Sync
-            + 'static,
-        <Octs as OctetsFrom<Vec<u8>>>::Error: Debug,
-        Upstream: Clone + SendRequest<RequestMessage<Octs>>,
+            + Sync,
+        Upstream: SendRequest<RequestMessage<Octs>>,
     {
         // Check the cache first
         if let Some(node) = self.cache_lookup(name).await {
@@ -798,7 +792,7 @@ impl<Upstream> ValidationContext<Upstream> {
             // a node for the trust anchor.
             let node = Node::trust_anchor(
                 ta,
-                self.upstream.clone(),
+                &self.upstream,
                 &self.isig_cache,
                 &self.config,
             )
@@ -865,15 +859,12 @@ impl<Upstream> ValidationContext<Upstream> {
     ) -> Result<(Arc<Node>, VecDeque<Name<Bytes>>), Error>
     where
         Octs: AsRef<[u8]>
-            + Clone
             + Debug
             + Octets
             + OctetsFrom<Vec<u8>>
             + Send
-            + Sync
-            + 'static,
-        <Octs as OctetsFrom<Vec<u8>>>::Error: Debug,
-        Upstream: Clone + SendRequest<RequestMessage<Octs>>,
+            + Sync,
+        Upstream: SendRequest<RequestMessage<Octs>>,
     {
         let mut names = VecDeque::new();
         names.push_front(name.clone());
@@ -885,7 +876,7 @@ impl<Upstream> ValidationContext<Upstream> {
                 // We ended up at the trust anchor.
                 let node = Node::trust_anchor(
                     ta,
-                    self.upstream.clone(),
+                    &self.upstream,
                     &self.isig_cache,
                     &self.config,
                 )
@@ -915,15 +906,12 @@ impl<Upstream> ValidationContext<Upstream> {
     ) -> Result<Node, Error>
     where
         Octs: AsRef<[u8]>
-            + Clone
             + Debug
             + Octets
             + OctetsFrom<Vec<u8>>
             + Send
-            + Sync
-            + 'static,
-        <Octs as OctetsFrom<Vec<u8>>>::Error: Debug,
-        Upstream: Clone + SendRequest<RequestMessage<Octs>>,
+            + Sync,
+        Upstream: SendRequest<RequestMessage<Octs>>,
     {
         // Start with a DS lookup.
         let (mut answers, mut authorities, ede) =
@@ -1375,15 +1363,12 @@ impl<Upstream> ValidationContext<Upstream> {
     async fn validate_groups<Octs>(&self, groups: &mut GroupSet) -> VGResult
     where
         Octs: AsRef<[u8]>
-            + Clone
             + Debug
             + Octets
             + OctetsFrom<Vec<u8>>
             + Send
-            + Sync
-            + 'static,
-        <Octs as OctetsFrom<Vec<u8>>>::Error: Debug,
-        Upstream: Clone + SendRequest<RequestMessage<Octs>>,
+            + Sync,
+        Upstream: SendRequest<RequestMessage<Octs>>,
     {
         let mut vgs = Vec::new();
         for g in groups.iter() {
@@ -1434,20 +1419,17 @@ impl Node {
 
     async fn trust_anchor<Octs, Upstream>(
         ta: &TrustAnchor,
-        upstream: Upstream,
+        upstream: &Upstream,
         sig_cache: &SigCache,
         config: &Config,
     ) -> Result<Self, Error>
     where
         Octs: AsRef<[u8]>
-            + Clone
             + Debug
             + Octets
             + OctetsFrom<Vec<u8>>
             + Send
-            + Sync
-            + 'static,
-        <Octs as OctetsFrom<Vec<u8>>>::Error: Debug,
+            + Sync,
         Upstream: SendRequest<RequestMessage<Octs>>,
     {
         // Get the DNSKEY RRset for the trust anchor.
@@ -1455,7 +1437,7 @@ impl Node {
 
         // We expect a positive reply so the authority section can be ignored.
         let (mut answers, _, _ede) =
-            request_as_groups(&upstream, &ta_owner, Rtype::DNSKEY).await?;
+            request_as_groups(upstream, &ta_owner, Rtype::DNSKEY).await?;
         // Get the DNSKEY group. We expect exactly one.
         let dnskeys =
             match answers.iter().find(|g| g.rtype() == Rtype::DNSKEY) {
@@ -2179,13 +2161,11 @@ async fn request_as_groups<Octs, Upstream>(
 ) -> Result<(GroupSet, GroupSet, Option<ExtendedError<Vec<u8>>>), Error>
 where
     Octs: AsRef<[u8]>
-        + Clone
         + Debug
         + Octets
         + OctetsFrom<Vec<u8>>
         + Send
-        + Sync
-        + 'static,
+        + Sync,
     Upstream: SendRequest<RequestMessage<Octs>>,
 {
     let mut msg = MessageBuilder::new_vec();

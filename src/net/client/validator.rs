@@ -4,7 +4,7 @@
 //! transport. For details of the validator see the [crate::validator] module.
 //!
 //! Example:
-//! ```no_run
+//! ```rust,no_run
 //! # use domain::base::{MessageBuilder, Name, Rtype};
 //! # use domain::net::client::dgram_stream;
 //! # use domain::net::client::protocol::{TcpConnect, UdpConnect};
@@ -146,17 +146,15 @@ impl<Upstream, VCOcts, VCUpstream> Connection<Upstream, VCOcts, VCUpstream> {
 impl<CR, Upstream, VCOcts, VCUpstream> SendRequest<CR>
     for Connection<Upstream, VCOcts, VCUpstream>
 where
-    CR: ComposeRequest + Clone + Send + Sync + 'static,
+    CR: ComposeRequest + Clone + 'static,
     Upstream: Clone + SendRequest<CR> + Send + Sync + 'static,
     VCOcts: AsRef<[u8]>
-        + Clone
         + Debug
         + Octets
         + OctetsFrom<Vec<u8>>
         + Send
         + Sync
         + 'static,
-    <VCOcts as OctetsFrom<Vec<u8>>>::Error: Debug,
     VCUpstream:
         Clone + SendRequest<RequestMessage<VCOcts>> + Send + Sync + 'static,
 {
@@ -164,7 +162,7 @@ where
         &self,
         request_msg: CR,
     ) -> Box<dyn GetResponse + Send + Sync> {
-        Box::new(Request::<CR, Upstream, VCOcts, VCUpstream>::new(
+        Box::new(Request::new(
             request_msg,
             self.upstream.clone(),
             self.vc.clone(),
@@ -227,17 +225,14 @@ where
     ) -> Result<Message<Bytes>, Error>
     where
         CR: Clone + ComposeRequest,
-        Upstream: Clone + SendRequest<CR>,
+        Upstream: SendRequest<CR>,
         Octs: AsRef<[u8]>
-            + Clone
             + Debug
             + Octets
             + OctetsFrom<Vec<u8>>
             + Send
-            + Sync
-            + 'static,
-        <Octs as OctetsFrom<Vec<u8>>>::Error: Debug,
-        VCUpstream: Clone + SendRequest<RequestMessage<Octs>>,
+            + Sync,
+        VCUpstream: SendRequest<RequestMessage<Octs>>,
     {
         // Store the DO flag of the request.
         let dnssec_ok = self.request_msg.dnssec_ok();
@@ -361,16 +356,13 @@ impl<CR, Upstream, VCOcts, VCUpstream> GetResponse
     for Request<CR, Upstream, VCOcts, VCUpstream>
 where
     CR: Clone + ComposeRequest,
-    Upstream: Clone + SendRequest<CR> + Send + Sync + 'static,
+    Upstream: Clone + SendRequest<CR> + Send + Sync,
     VCOcts: AsRef<[u8]>
-        + Clone
         + Debug
         + Octets
         + OctetsFrom<Vec<u8>>
         + Send
-        + Sync
-        + 'static,
-    <VCOcts as OctetsFrom<Vec<u8>>>::Error: Debug,
+        + Sync,
     VCUpstream: Clone + SendRequest<RequestMessage<VCOcts>> + Send + Sync,
 {
     fn get_response(
