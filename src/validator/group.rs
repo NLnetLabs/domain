@@ -188,15 +188,12 @@ impl Group {
     ) -> Result<ValidatedGroup, Error>
     where
         Octs: AsRef<[u8]>
-            + Clone
             + Debug
             + Octets
             + OctetsFrom<Vec<u8>>
             + Send
-            + Sync
-            + 'static,
-        <Octs as OctetsFrom<Vec<u8>>>::Error: Debug,
-        Upstream: Clone + SendRequest<RequestMessage<Octs>>,
+            + Sync,
+        Upstream: SendRequest<RequestMessage<Octs>>,
     {
         let (state, signer_name, wildcard, ede) =
             self.validate_with_vc(vc, config).await?;
@@ -270,15 +267,12 @@ impl Group {
     >
     where
         Octs: AsRef<[u8]>
-            + Clone
             + Debug
             + Octets
             + OctetsFrom<Vec<u8>>
             + Send
-            + Sync
-            + 'static,
-        <Octs as OctetsFrom<Vec<u8>>>::Error: Debug,
-        Upstream: Clone + SendRequest<RequestMessage<Octs>>,
+            + Sync,
+        Upstream: SendRequest<RequestMessage<Octs>>,
     {
         // We have two cases, with an without RRSIGs. With RRSIGs we can
         // look at the signer_name. We need to find the DNSSEC status
