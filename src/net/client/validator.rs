@@ -307,7 +307,7 @@ where
                 }
 
                 RequestState::Validate(response_msg) => {
-                    let res = self.vc.validate_msg(&response_msg).await;
+                    let res = self.vc.validate_msg(response_msg).await;
                     return match res {
                         Err(err) => Err(Error::Validation(err)),
                         Ok((state, opt_ede)) => {
@@ -342,7 +342,7 @@ where
                                     } else {
                                         // Set AD if it was set in the request.
                                         let msg = remove_dnssec(
-                                            &response_msg,
+                                            response_msg,
                                             self.request_msg.header().ad(),
                                             false,
                                         );
@@ -350,13 +350,13 @@ where
                                     }
                                 }
                                 ValidationState::Bogus => {
-                                    serve_fail(&response_msg, opt_ede)
+                                    serve_fail(response_msg, opt_ede)
                                 }
                                 ValidationState::Insecure
                                 | ValidationState::Indeterminate => {
                                     let response_msg = match opt_ede {
                                         Some(ede) => {
-                                            add_opt(&response_msg, ede)?
+                                            add_opt(response_msg, ede)?
                                         }
                                         None => response_msg.clone(),
                                     };
