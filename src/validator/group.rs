@@ -52,6 +52,7 @@ type SigType = Record<Name<Bytes>, Rrsig<Bytes, Name<Bytes>>>;
 pub struct Group {
     rr_set: Vec<RrType>,
     sig_set: Vec<SigType>,
+    found_duplicate: bool,
     redundant: bool,
 }
 
@@ -62,6 +63,7 @@ impl Group {
                 return Ok(Self {
                     rr_set: vec![to_bytes_record(&rr)?],
                     sig_set: Vec::new(),
+                    found_duplicate: false,
                     redundant: false,
                 });
             }
@@ -93,6 +95,7 @@ impl Group {
         Ok(Self {
             rr_set: Vec::new(),
             sig_set: vec![record],
+            found_duplicate: false,
             redundant: false,
         })
     }
@@ -168,10 +171,11 @@ impl Group {
                 }
             };
 
-            // Some recursors return deplicate records. Check.
+            // Some recursors return duplicate records. Check.
             for r in &self.rr_set {
                 if *r == rr {
                     // We already have this record.
+                    self.found_duplicate = true;
                     return Ok(());
                 }
             }
@@ -204,6 +208,7 @@ impl Group {
                 None,
                 None,
                 None,
+                self.found_duplicate,
             ))
         } else {
             let (state, signer_name, wildcard, ede, adjust_ttl) =
@@ -216,6 +221,7 @@ impl Group {
                 wildcard,
                 ede,
                 adjust_ttl,
+                self.found_duplicate,
             ))
         }
     }
@@ -622,6 +628,7 @@ impl Clone for Group {
         Self {
             rr_set: self.rr_set.clone(),
             sig_set: self.sig_set.clone(),
+            found_duplicate: false,
             redundant: self.redundant,
         }
     }
@@ -748,6 +755,7 @@ pub struct ValidatedGroup {
     closest_encloser: Option<Name<Bytes>>,
     ede: Option<ExtendedError<Vec<u8>>>,
     adjust_ttl: Option<Ttl>,
+    found_duplicate: bool,
 }
 
 impl ValidatedGroup {
@@ -759,6 +767,7 @@ impl ValidatedGroup {
         closest_encloser: Option<Name<Bytes>>,
         ede: Option<ExtendedError<Vec<u8>>>,
         adjust_ttl: Option<Ttl>,
+        found_duplicate: bool,
     ) -> ValidatedGroup {
         ValidatedGroup {
             rr_set,
@@ -768,6 +777,7 @@ impl ValidatedGroup {
             closest_encloser,
             ede,
             adjust_ttl,
+            found_duplicate,
         }
     }
 
@@ -826,6 +836,10 @@ impl ValidatedGroup {
 
     pub fn adjust_ttl(&self) -> Option<Ttl> {
         self.adjust_ttl
+    }
+
+    pub fn found_duplicate(&self) -> bool {
+        self.found_duplicate
     }
 }
 

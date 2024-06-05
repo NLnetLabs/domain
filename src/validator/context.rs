@@ -1372,7 +1372,7 @@ impl<Upstream> ValidationContext<Upstream> {
             if let ValidationState::Bogus = vg.state() {
                 return VGResult::Bogus(vg.ede());
             }
-            if vg.adjust_ttl().is_some() {
+            if vg.adjust_ttl().is_some() || vg.found_duplicate() {
                 fix_reply = true;
             }
             vgs.push(vg);
