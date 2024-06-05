@@ -207,8 +207,8 @@ impl<Octs: AsRef<[u8]> + Debug + Octets> RequestMessage<Octs> {
     }
 }
 
-impl<Octs: AsRef<[u8]> + Debug + Octets + Send + Sync>
-    ComposeRequest for RequestMessage<Octs>
+impl<Octs: AsRef<[u8]> + Debug + Octets + Send + Sync> ComposeRequest
+    for RequestMessage<Octs>
 {
     fn append_message<Target: Composer>(
         &self,

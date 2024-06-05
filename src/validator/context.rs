@@ -371,12 +371,8 @@ impl<Upstream> ValidationContext<Upstream> {
     where
         MsgOcts: Clone + Debug + Octets + OctetsFrom<Vec<u8>> + 'a,
         <MsgOcts as Octets>::Range<'a>: Debug,
-        USOcts: AsRef<[u8]>
-            + Debug
-            + Octets
-            + OctetsFrom<Vec<u8>>
-            + Send
-            + Sync,
+        USOcts:
+            AsRef<[u8]> + Debug + Octets + OctetsFrom<Vec<u8>> + Send + Sync,
         Upstream: SendRequest<RequestMessage<USOcts>>,
     {
         // Convert to Bytes.
@@ -769,12 +765,8 @@ impl<Upstream> ValidationContext<Upstream> {
         name: &Name<Bytes>,
     ) -> Result<Arc<Node>, Error>
     where
-        Octs: AsRef<[u8]>
-            + Debug
-            + Octets
-            + OctetsFrom<Vec<u8>>
-            + Send
-            + Sync,
+        Octs:
+            AsRef<[u8]> + Debug + Octets + OctetsFrom<Vec<u8>> + Send + Sync,
         Upstream: SendRequest<RequestMessage<Octs>>,
     {
         // Check the cache first
@@ -870,12 +862,8 @@ impl<Upstream> ValidationContext<Upstream> {
         ta_owner: Name<Bytes>,
     ) -> Result<(Arc<Node>, VecDeque<Name<Bytes>>), Error>
     where
-        Octs: AsRef<[u8]>
-            + Debug
-            + Octets
-            + OctetsFrom<Vec<u8>>
-            + Send
-            + Sync,
+        Octs:
+            AsRef<[u8]> + Debug + Octets + OctetsFrom<Vec<u8>> + Send + Sync,
         Upstream: SendRequest<RequestMessage<Octs>>,
     {
         let mut names = VecDeque::new();
@@ -917,12 +905,8 @@ impl<Upstream> ValidationContext<Upstream> {
         node: &Node,
     ) -> Result<Node, Error>
     where
-        Octs: AsRef<[u8]>
-            + Debug
-            + Octets
-            + OctetsFrom<Vec<u8>>
-            + Send
-            + Sync,
+        Octs:
+            AsRef<[u8]> + Debug + Octets + OctetsFrom<Vec<u8>> + Send + Sync,
         Upstream: SendRequest<RequestMessage<Octs>>,
     {
         // Start with a DS lookup.
@@ -1374,12 +1358,8 @@ impl<Upstream> ValidationContext<Upstream> {
 
     async fn validate_groups<Octs>(&self, groups: &mut GroupSet) -> VGResult
     where
-        Octs: AsRef<[u8]>
-            + Debug
-            + Octets
-            + OctetsFrom<Vec<u8>>
-            + Send
-            + Sync,
+        Octs:
+            AsRef<[u8]> + Debug + Octets + OctetsFrom<Vec<u8>> + Send + Sync,
         Upstream: SendRequest<RequestMessage<Octs>>,
     {
         let mut fix_reply = false;
@@ -1440,12 +1420,8 @@ impl Node {
         config: &Config,
     ) -> Result<Self, Error>
     where
-        Octs: AsRef<[u8]>
-            + Debug
-            + Octets
-            + OctetsFrom<Vec<u8>>
-            + Send
-            + Sync,
+        Octs:
+            AsRef<[u8]> + Debug + Octets + OctetsFrom<Vec<u8>> + Send + Sync,
         Upstream: SendRequest<RequestMessage<Octs>>,
     {
         // Get the DNSKEY RRset for the trust anchor.
@@ -2176,12 +2152,7 @@ async fn request_as_groups<Octs, Upstream>(
     rtype: Rtype,
 ) -> Result<(GroupSet, GroupSet, Option<ExtendedError<Vec<u8>>>), Error>
 where
-    Octs: AsRef<[u8]>
-        + Debug
-        + Octets
-        + OctetsFrom<Vec<u8>>
-        + Send
-        + Sync,
+    Octs: AsRef<[u8]> + Debug + Octets + OctetsFrom<Vec<u8>> + Send + Sync,
     Upstream: SendRequest<RequestMessage<Octs>>,
 {
     let mut msg = MessageBuilder::new_vec();

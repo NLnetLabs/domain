@@ -190,12 +190,8 @@ impl Group {
         config: &Config,
     ) -> Result<ValidatedGroup, Error>
     where
-        Octs: AsRef<[u8]>
-            + Debug
-            + Octets
-            + OctetsFrom<Vec<u8>>
-            + Send
-            + Sync,
+        Octs:
+            AsRef<[u8]> + Debug + Octets + OctetsFrom<Vec<u8>> + Send + Sync,
         Upstream: SendRequest<RequestMessage<Octs>>,
     {
         if self.redundant {
@@ -284,12 +280,8 @@ impl Group {
         Error,
     >
     where
-        Octs: AsRef<[u8]>
-            + Debug
-            + Octets
-            + OctetsFrom<Vec<u8>>
-            + Send
-            + Sync,
+        Octs:
+            AsRef<[u8]> + Debug + Octets + OctetsFrom<Vec<u8>> + Send + Sync,
         Upstream: SendRequest<RequestMessage<Octs>>,
     {
         // We have two cases, with an without RRSIGs. With RRSIGs we can

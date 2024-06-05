@@ -233,12 +233,8 @@ where
     where
         CR: Clone + ComposeRequest,
         Upstream: SendRequest<CR>,
-        Octs: AsRef<[u8]>
-            + Debug
-            + Octets
-            + OctetsFrom<Vec<u8>>
-            + Send
-            + Sync,
+        Octs:
+            AsRef<[u8]> + Debug + Octets + OctetsFrom<Vec<u8>> + Send + Sync,
         VCUpstream: SendRequest<RequestMessage<Octs>>,
     {
         loop {
@@ -414,12 +410,7 @@ impl<CR, Upstream, VCOcts, VCUpstream> GetResponse
 where
     CR: Clone + ComposeRequest,
     Upstream: Clone + SendRequest<CR> + Send + Sync,
-    VCOcts: AsRef<[u8]>
-        + Debug
-        + Octets
-        + OctetsFrom<Vec<u8>>
-        + Send
-        + Sync,
+    VCOcts: AsRef<[u8]> + Debug + Octets + OctetsFrom<Vec<u8>> + Send + Sync,
     VCUpstream: Clone + SendRequest<RequestMessage<VCOcts>> + Send + Sync,
 {
     fn get_response(
