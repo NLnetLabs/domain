@@ -758,6 +758,7 @@ pub struct ValidatedGroup {
     found_duplicate: bool,
 }
 
+#[allow(clippy::too_many_arguments)]
 impl ValidatedGroup {
     fn new(
         rr_set: Vec<RrType>,
