@@ -11,19 +11,24 @@ use crate::base::iana::Class;
 use crate::base::iana::ExtendedErrorCode;
 use crate::base::name::Label;
 use crate::base::opt::ExtendedError;
+use crate::base::Message;
+use crate::base::MessageBuilder;
 use crate::base::Name;
 use crate::base::NameBuilder;
 use crate::base::ParsedName;
 use crate::base::Record;
 use crate::base::Rtype;
+use crate::base::StaticCompressor;
 use crate::base::ToName;
+use crate::base::Ttl;
+use crate::dep::octseq::OctetsFrom;
+use crate::dep::octseq::OctetsInto;
 use crate::rdata::dnssec::Timestamp;
 use crate::rdata::AllRecordData;
 use crate::rdata::Dname;
 use crate::rdata::Rrsig;
 use bytes::Bytes;
 use std::cmp::min;
-use std::time::Duration;
 use std::vec::Vec;
 
 pub async fn do_cname_dname(
@@ -166,15 +171,15 @@ pub fn map_dname(
 
 pub fn ttl_for_sig(
     sig: &Record<Name<Bytes>, Rrsig<Bytes, Name<Bytes>>>,
-) -> Duration {
-    let ttl = sig.ttl().into_duration();
-    let orig_ttl = sig.data().original_ttl().into_duration();
+) -> Ttl {
+    let ttl = sig.ttl();
+    let orig_ttl = sig.data().original_ttl();
     let ttl = min(ttl, orig_ttl);
 
     let until_expired =
         sig.data().expiration().into_int() - Timestamp::now().into_int();
-    let expire_duration = Duration::from_secs(until_expired as u64);
-    min(ttl, expire_duration)
+    let expire_ttl = Ttl::from_secs(until_expired);
+    min(ttl, expire_ttl)
 }
 
 #[allow(clippy::type_complexity)]
@@ -353,4 +358,92 @@ pub fn make_ede(
             None
         }
     }
+}
+
+pub fn rebuild_msg<OutOcts>(
+    msg: &Message<Bytes>,
+    answers: &[ValidatedGroup],
+    authorities: &[ValidatedGroup],
+) -> Result<Message<OutOcts>, Error>
+where
+    OutOcts: AsRef<[u8]> + OctetsFrom<Vec<u8>>,
+{
+    let mut target =
+        MessageBuilder::from_target(StaticCompressor::new(Vec::new()))
+            .expect("Vec is expected to have enough space");
+
+    let source = msg;
+
+    *target.header_mut() = msg.header();
+
+    let source = source.question();
+    let mut target = target.question();
+    for rr in source {
+        target.push(rr?).expect("should not fail");
+    }
+    let source = source.answer()?;
+    let mut target = target.answer();
+    for vg in answers {
+        if let Some(ttl) = vg.adjust_ttl() {
+            for mut rr in vg.rr_set() {
+                rr.set_ttl(min(rr.ttl(), ttl));
+                target.push(rr).expect("should not fail");
+            }
+            for mut rr in vg.sig_set() {
+                rr.set_ttl(min(rr.ttl(), ttl));
+                target.push(rr).expect("should not fail");
+            }
+        } else {
+            for rr in vg.rr_set() {
+                target.push(rr).expect("should not fail");
+            }
+            for rr in vg.sig_set() {
+                target.push(rr).expect("should not fail");
+            }
+        }
+    }
+
+    let source = source.next_section()?.expect("section should be present");
+    let mut target = target.authority();
+    for vg in authorities {
+        if let Some(ttl) = vg.adjust_ttl() {
+            for mut rr in vg.rr_set() {
+                rr.set_ttl(min(rr.ttl(), ttl));
+                target.push(rr).expect("should not fail");
+            }
+            for mut rr in vg.sig_set() {
+                rr.set_ttl(min(rr.ttl(), ttl));
+                target.push(rr).expect("should not fail");
+            }
+        } else {
+            for rr in vg.rr_set() {
+                target.push(rr).expect("should not fail");
+            }
+            for rr in vg.sig_set() {
+                target.push(rr).expect("should not fail");
+            }
+        }
+    }
+
+    let source = source.next_section()?.expect("section should be present");
+    let mut target = target.additional();
+    for rr in source {
+        let rr = rr?;
+        let rr = rr
+            .into_record::<AllRecordData<_, ParsedName<_>>>()?
+            .expect("record expected");
+        target.push(rr).expect("should not fail");
+    }
+
+    let result = target.as_builder().clone();
+    let msg = Message::<OutOcts>::from_octets(
+        match result.finish().into_target().try_octets_into() {
+            Ok(o) => o,
+            Err(_) => {
+                return Err(Error::OctetsConversion);
+            }
+        },
+    )
+    .expect("Message should be able to parse output from MessageBuilder");
+    Ok(msg)
 }

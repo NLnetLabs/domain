@@ -52,6 +52,7 @@ type SigType = Record<Name<Bytes>, Rrsig<Bytes, Name<Bytes>>>;
 pub struct Group {
     rr_set: Vec<RrType>,
     sig_set: Vec<SigType>,
+    redundant: bool,
 }
 
 impl Group {
@@ -61,6 +62,7 @@ impl Group {
                 return Ok(Self {
                     rr_set: vec![to_bytes_record(&rr)?],
                     sig_set: Vec::new(),
+                    redundant: false,
                 });
             }
             Some(record) => record,
@@ -91,6 +93,7 @@ impl Group {
         Ok(Self {
             rr_set: Vec::new(),
             sig_set: vec![record],
+            redundant: false,
         })
     }
 
@@ -195,16 +198,30 @@ impl Group {
             + Sync,
         Upstream: SendRequest<RequestMessage<Octs>>,
     {
-        let (state, signer_name, wildcard, ede) =
-            self.validate_with_vc(vc, config).await?;
-        Ok(ValidatedGroup::new(
-            self.rr_set.clone(),
-            self.sig_set.clone(),
-            state,
-            signer_name,
-            wildcard,
-            ede,
-        ))
+        if self.redundant {
+            // Redundant CNAME. Do not validate but just assume insecure.
+            Ok(ValidatedGroup::new(
+                self.rr_set.clone(),
+                self.sig_set.clone(),
+                ValidationState::Insecure,
+                Name::root(),
+                None,
+                None,
+                None,
+            ))
+        } else {
+            let (state, signer_name, wildcard, ede, adjust_ttl) =
+                self.validate_with_vc(vc, config).await?;
+            Ok(ValidatedGroup::new(
+                self.rr_set.clone(),
+                self.sig_set.clone(),
+                state,
+                signer_name,
+                wildcard,
+                ede,
+                adjust_ttl,
+            ))
+        }
     }
 
     pub fn owner(&self) -> Name<Bytes> {
@@ -262,6 +279,7 @@ impl Group {
             Name<Bytes>,
             Option<Name<Bytes>>,
             Option<ExtendedError<Vec<u8>>>,
+            Option<Ttl>,
         ),
         Error,
     >
@@ -300,6 +318,7 @@ impl Group {
                     ExtendedErrorCode::DNSSEC_INDETERMINATE,
                     "RRSIG without RRset",
                 ),
+                None,
             ));
         }
 
@@ -320,13 +339,15 @@ impl Group {
                     target.clone(),
                     None,
                     node.extended_error(),
+                    None,
                 ))
             }
         }
-        let (state, wildcard, ede, _ttl) = self
+        let (state, wildcard, ede, _ttl, adjust_ttl) = self
             .validate_with_node(&node, vc.usig_cache(), config)
             .await;
-        Ok((state, target.clone(), wildcard, ede))
+        println!("validate_with_vc: got adjust_ttl {adjust_ttl:?}");
+        Ok((state, target.clone(), wildcard, ede, adjust_ttl))
     }
 
     // Try to validate the signature using a node. Return the validation
@@ -342,6 +363,7 @@ impl Group {
         Option<Name<Bytes>>,
         Option<ExtendedError<Vec<u8>>>,
         Duration,
+        Option<Ttl>,
     ) {
         let mut opt_ede = None;
 
@@ -352,14 +374,15 @@ impl Group {
             ValidationState::Insecure
             | ValidationState::Bogus
             | ValidationState::Indeterminate => {
-                return (state, None, node.extended_error(), node.ttl())
+                return (state, None, node.extended_error(), node.ttl(), None)
             }
             ValidationState::Secure => (),
         }
         let keys = node.keys();
         let ttl = node.ttl();
-        let group_ttl = self.min_ttl().into_duration();
-        let ttl = min(ttl, group_ttl);
+        let group_ttl = self.min_ttl();
+        let group_dur = group_ttl.into_duration();
+        let ttl = min(ttl, group_dur);
 
         let mut bad_sigs = 0;
         for sig_rec in self.clone().sig_iter() {
@@ -387,10 +410,21 @@ impl Group {
                 {
                     let wildcard =
                         sig.wildcard_closest_encloser(&self.rr_set[0]);
-
                     let sig_ttl = ttl_for_sig(sig_rec);
-                    let ttl = min(ttl, sig_ttl);
-                    return (ValidationState::Secure, wildcard, None, ttl);
+                    let adjust_ttl = if sig_ttl < group_ttl {
+                        Some(sig_ttl)
+                    } else {
+                        None
+                    };
+                    let ttl = min(ttl, sig_ttl.into_duration());
+
+                    return (
+                        ValidationState::Secure,
+                        wildcard,
+                        None,
+                        ttl,
+                        adjust_ttl,
+                    );
                 } else {
                     // To avoid CPU exhaustion attacks such as KeyTrap
                     // (CVE-2023-50387) it is good to limit signature
@@ -423,6 +457,7 @@ impl Group {
                             None,
                             ede,
                             config.max_bogus_validity(),
+                            None,
                         );
                     }
                     if opt_ede.is_none() {
@@ -444,6 +479,7 @@ impl Group {
             None,
             opt_ede,
             config.max_bogus_validity(),
+            None,
         )
     }
 
@@ -594,6 +630,7 @@ impl Clone for Group {
         Self {
             rr_set: self.rr_set.clone(),
             sig_set: self.sig_set.clone(),
+            redundant: self.redundant,
         }
     }
 }
@@ -633,29 +670,27 @@ impl GroupSet {
         Ok(())
     }
 
-    pub fn remove_redundant_cnames(&mut self) {
+    pub fn mark_redundant_cnames(&mut self) {
         let self_clone = self.clone();
-        self.0.retain(|g| {
+        for g in &mut self.0 {
             if g.rtype() != Rtype::CNAME {
-                return true;
+                continue;
             }
             let rr_set = g.rr_set();
             if rr_set.len() != 1 {
-                return true; // Let it fail if it is in secure zone.
+                continue; // Let it fail if it is in secure zone.
             }
             if g.sig_set_len() != 0 {
                 // Signed CNAME, no need to check.
-                return true;
+                continue;
             }
 
             if self_clone.matches_dname(&rr_set[0]) {
-                // Courtesy CNAME, remove.
-                return false;
+                // Courtesy CNAME has been moved, mark this group as
+                // redundant.
+                g.redundant = true;
             }
-
-            // No match.
-            true
-        });
+        }
     }
 
     fn matches_dname(
@@ -720,6 +755,7 @@ pub struct ValidatedGroup {
     signer_name: Name<Bytes>,
     closest_encloser: Option<Name<Bytes>>,
     ede: Option<ExtendedError<Vec<u8>>>,
+    adjust_ttl: Option<Ttl>,
 }
 
 impl ValidatedGroup {
@@ -730,6 +766,7 @@ impl ValidatedGroup {
         signer_name: Name<Bytes>,
         closest_encloser: Option<Name<Bytes>>,
         ede: Option<ExtendedError<Vec<u8>>>,
+        adjust_ttl: Option<Ttl>,
     ) -> ValidatedGroup {
         ValidatedGroup {
             rr_set,
@@ -738,6 +775,7 @@ impl ValidatedGroup {
             signer_name,
             closest_encloser,
             ede,
+            adjust_ttl,
         }
     }
 
@@ -788,6 +826,14 @@ impl ValidatedGroup {
 
     pub fn rr_set(&self) -> Vec<RrType> {
         self.rr_set.clone()
+    }
+
+    pub fn sig_set(&self) -> Vec<SigType> {
+        self.sig_set.clone()
+    }
+
+    pub fn adjust_ttl(&self) -> Option<Ttl> {
+        self.adjust_ttl
     }
 }
 

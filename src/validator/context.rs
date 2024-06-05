@@ -32,6 +32,7 @@ use super::utilities::get_answer_state;
 use super::utilities::get_soa_state;
 use super::utilities::make_ede;
 use super::utilities::map_maybe_secure;
+use super::utilities::rebuild_msg;
 use super::utilities::star_closest_encloser;
 use super::utilities::ttl_for_sig;
 use crate::base::iana::ExtendedErrorCode;
@@ -324,7 +325,7 @@ impl Default for Config {
 //------------ ValidationContext ----------------------------------------------
 
 enum VGResult {
-    Groups(Vec<ValidatedGroup>),
+    Groups(Vec<ValidatedGroup>, bool),
     Bogus(Option<ExtendedError<Vec<u8>>>),
     Err(Error),
 }
@@ -365,10 +366,10 @@ impl<Upstream> ValidationContext<Upstream> {
     // error.
     pub async fn validate_msg<'a, MsgOcts, USOcts>(
         &self,
-        msg: &'a Message<MsgOcts>,
+        msg: &'a mut Message<MsgOcts>,
     ) -> Result<(ValidationState, Option<ExtendedError<Vec<u8>>>), Error>
     where
-        MsgOcts: Clone + Debug + Octets + 'a,
+        MsgOcts: Clone + Debug + Octets + OctetsFrom<Vec<u8>> + 'a,
         <MsgOcts as Octets>::Range<'a>: Debug,
         USOcts: AsRef<[u8]>
             + Debug
@@ -380,26 +381,31 @@ impl<Upstream> ValidationContext<Upstream> {
     {
         // Convert to Bytes.
         let bytes = Bytes::copy_from_slice(msg.as_slice());
-        let msg = Message::from_octets(bytes)?;
+        let bytes_msg = Message::from_octets(bytes)?;
 
         // First convert the Answer and Authority sections to lists of RR groups
         let mut answers = GroupSet::new();
-        for rr in msg.answer()? {
+        for rr in bytes_msg.answer()? {
             answers.add(rr?)?;
         }
         let mut authorities = GroupSet::new();
-        for rr in msg.authority()? {
+        for rr in bytes_msg.authority()? {
             authorities.add(rr?)?;
         }
 
-        // Get rid of redundant unsigned CNAMEs
-        answers.remove_redundant_cnames();
+        // Mark redundant unsigned CNAMEs.
+        answers.mark_redundant_cnames();
+
+        let mut fix_reply = false;
 
         // Validate each group. We cannot use iter_mut because it requires a
         // reference with a lifetime that is too long.
         // Group can handle this by hiding the state behind a Mutex.
         let mut answers = match self.validate_groups(&mut answers).await {
-            VGResult::Groups(vgs) => vgs,
+            VGResult::Groups(vgs, needs_fix) => {
+                fix_reply |= needs_fix;
+                vgs
+            }
             VGResult::Bogus(ede) => return Ok((ValidationState::Bogus, ede)),
             VGResult::Err(err) => return Err(err),
         };
@@ -408,12 +414,18 @@ impl<Upstream> ValidationContext<Upstream> {
             .validate_groups(&mut authorities)
             .await
         {
-            VGResult::Groups(vgs) => vgs,
+            VGResult::Groups(vgs, needs_fix) => {
+                fix_reply |= needs_fix;
+                vgs
+            }
             VGResult::Bogus(ede) => return Ok((ValidationState::Bogus, ede)),
             VGResult::Err(err) => return Err(err),
         };
 
         // We may need to update TTLs of signed RRsets
+        if fix_reply {
+            *msg = rebuild_msg(&bytes_msg, &answers, &authorities)?;
+        }
 
         // Go through the answers and use CNAME and DNAME records to update 'SNAME'
         // (see RFC 1034, Section 5.3.2) to the final name that results in an
@@ -422,7 +434,7 @@ impl<Upstream> ValidationContext<Upstream> {
         // is not the case (following draft-bellis-dnsop-qdcount-is-one-00)
 
         // Extract Qname, Qclass, Qtype
-        let mut question_section = msg.question();
+        let mut question_section = bytes_msg.question();
         let question = match question_section.next() {
             None => {
                 return Err(Error::FormError);
@@ -461,7 +473,7 @@ impl<Upstream> ValidationContext<Upstream> {
         // of the group and be done.
         // For NODATA first get the SOA, this determines if the proof of a
         // negative result is signed or not.
-        if msg.opt_rcode() == OptRcode::NOERROR {
+        if bytes_msg.opt_rcode() == OptRcode::NOERROR {
             let opt_state =
                 get_answer_state(&sname, qclass, qtype, &mut answers);
             if let Some((state, signer_name, closest_encloser, ede)) =
@@ -548,7 +560,7 @@ impl<Upstream> ValidationContext<Upstream> {
                 },
             };
 
-        if msg.opt_rcode() == OptRcode::NOERROR {
+        if bytes_msg.opt_rcode() == OptRcode::NOERROR {
             // Try to prove that the name exists but the qtype doesn't. Start
             // with NSEC and assume the name exists.
             let (state, ede) = nsec_for_nodata(
@@ -951,7 +963,7 @@ impl<Upstream> ValidationContext<Upstream> {
                     let g_ttl = g.min_ttl().into_duration();
                     let ttl = min(parent_ttl, g_ttl);
 
-                    let (state, _wildcard, ede, sig_ttl) = g
+                    let (state, _wildcard, ede, sig_ttl, _) = g
                         .validate_with_node(
                             node,
                             &self.isig_cache,
@@ -1095,7 +1107,7 @@ impl<Upstream> ValidationContext<Upstream> {
         let ds_ttl = ds_group.min_ttl().into_duration();
         let ttl = min(parent_ttl, ds_ttl);
 
-        let (state, _wildcard, ede, sig_ttl) = ds_group
+        let (state, _wildcard, ede, sig_ttl, _) = ds_group
             .validate_with_node(node, &self.isig_cache, &self.config)
             .await;
 
@@ -1272,7 +1284,7 @@ impl<Upstream> ValidationContext<Upstream> {
                         .cloned()
                         .collect();
 
-                    let sig_ttl = ttl_for_sig(sig);
+                    let sig_ttl = ttl_for_sig(sig).into_duration();
                     let ttl = min(ttl, sig_ttl);
 
                     return Ok(Node::new_delegation(
@@ -1370,6 +1382,7 @@ impl<Upstream> ValidationContext<Upstream> {
             + Sync,
         Upstream: SendRequest<RequestMessage<Octs>>,
     {
+        let mut fix_reply = false;
         let mut vgs = Vec::new();
         for g in groups.iter() {
             let vg = match g.validated(self, &self.config).await {
@@ -1379,9 +1392,12 @@ impl<Upstream> ValidationContext<Upstream> {
             if let ValidationState::Bogus = vg.state() {
                 return VGResult::Bogus(vg.ede());
             }
+            if vg.adjust_ttl().is_some() {
+                fix_reply = true;
+            }
             vgs.push(vg);
         }
-        VGResult::Groups(vgs)
+        VGResult::Groups(vgs, fix_reply)
     }
 }
 
@@ -1499,7 +1515,7 @@ impl Node {
                     )
                     .await
                 {
-                    let sig_ttl = ttl_for_sig(sig);
+                    let sig_ttl = ttl_for_sig(sig).into_duration();
                     let ttl = min(ttl, sig_ttl);
 
                     let mut new_node = Self {
@@ -1795,7 +1811,7 @@ async fn nsec_for_ds(
         };
         if target.name_eq(&owner) {
             // Validate the signature
-            let (state, wildcard, ede, ttl) =
+            let (state, wildcard, ede, ttl, _) =
                 g.validate_with_node(node, sig_cache, config).await;
             match state {
                 ValidationState::Insecure
@@ -1858,7 +1874,7 @@ async fn nsec_for_ds(
 
         if target.ends_with(&owner) {
             // Validate the signature
-            let (state, wildcard, ede, ttl) =
+            let (state, wildcard, ede, ttl, _) =
                 g.validate_with_node(node, sig_cache, config).await;
             match state {
                 ValidationState::Insecure
@@ -1914,7 +1930,7 @@ async fn nsec_for_ds(
             && nsec.next_name().ends_with(target)
         {
             // Validate the signature
-            let (state, wildcard, ede, ttl) =
+            let (state, wildcard, ede, ttl, _) =
                 g.validate_with_node(node, sig_cache, config).await;
             match state {
                 ValidationState::Insecure
@@ -1995,7 +2011,7 @@ async fn nsec3_for_ds(
             // totest, NSEC3 for DS with high iteration count
             // High iteration count, verify the signature and abort.
 
-            let (state, _wildcard, ede, ttl) =
+            let (state, _wildcard, ede, ttl, _) =
                 g.validate_with_node(node, sig_cache, config).await;
             match state {
                 ValidationState::Insecure
@@ -2070,7 +2086,7 @@ async fn nsec3_for_ds(
             // We found an exact match.
 
             // Validate the signature
-            let (state, _, ede, ttl) =
+            let (state, _, ede, ttl, _) =
                 g.validate_with_node(node, sig_cache, config).await;
             match state {
                 ValidationState::Insecure
@@ -2125,7 +2141,7 @@ async fn nsec3_for_ds(
             // target does not exist. However, if the opt-out flag is set,
             // we are allowed to assume an insecure delegation (RFC 5155,
             // Section 6). First check the signature.
-            let (state, _, ede, ttl) =
+            let (state, _, ede, ttl, _) =
                 g.validate_with_node(node, sig_cache, config).await;
             match state {
                 ValidationState::Insecure
