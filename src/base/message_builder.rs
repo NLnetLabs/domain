@@ -186,7 +186,7 @@ impl<Target: OctetsBuilder + Truncate> MessageBuilder<Target> {
         mut target: Target,
     ) -> Result<Self, Target::AppendError> {
         target.truncate(0);
-        target.append_slice(HeaderSection::new().as_slice())?;
+        target.append_slice(HeaderSection::new().as_array())?;
         Ok(MessageBuilder { target })
     }
 }
@@ -275,24 +275,42 @@ impl<Target: Composer> MessageBuilder<Target> {
 impl<Target: OctetsBuilder + AsRef<[u8]>> MessageBuilder<Target> {
     /// Return the current value of the message header.
     pub fn header(&self) -> Header {
-        *Header::for_message_slice(self.target.as_ref())
+        *self.header_section().header()
     }
 
     /// Return the current value of the message header counts.
     pub fn counts(&self) -> HeaderCounts {
-        *HeaderCounts::for_message_slice(self.target.as_ref())
+        *self.header_section().counts()
+    }
+
+    fn header_section(&self) -> &HeaderSection {
+        let chunk = self
+            .target
+            .as_ref()
+            .first_chunk()
+            .expect("target is not large enough");
+        HeaderSection::for_message_chunk(chunk)
     }
 }
 
 impl<Target: OctetsBuilder + AsMut<[u8]>> MessageBuilder<Target> {
     /// Returns a mutable reference to the message header for manipulations.
     pub fn header_mut(&mut self) -> &mut Header {
-        Header::for_message_slice_mut(self.target.as_mut())
+        self.header_section_mut().header_mut()
     }
 
     /// Returns a mutable reference to the message header counts.
     fn counts_mut(&mut self) -> &mut HeaderCounts {
-        HeaderCounts::for_message_slice_mut(self.target.as_mut())
+        self.header_section_mut().counts_mut()
+    }
+
+    fn header_section_mut(&mut self) -> &mut HeaderSection {
+        let chunk = self
+            .target
+            .as_mut()
+            .first_chunk_mut()
+            .expect("target is not large enough");
+        HeaderSection::for_message_chunk_mut(chunk)
     }
 }
 
@@ -1652,16 +1670,19 @@ impl<'a, Target: Composer + ?Sized> OptBuilder<'a, Target> {
     /// OPT header.
     #[must_use]
     pub fn rcode(&self) -> OptRcode {
-        self.opt_header()
-            .rcode(*Header::for_message_slice(self.target.as_ref()))
+        self.opt_header().rcode(*Header::for_message_chunk(
+            self.target.as_ref().first_chunk().unwrap(),
+        ))
     }
 
     /// Sets the extended rcode of the message.
     //
     /// The method will update both the message header and the OPT header.
     pub fn set_rcode(&mut self, rcode: OptRcode) {
-        Header::for_message_slice_mut(self.target.as_mut())
-            .set_rcode(rcode.rcode());
+        Header::for_message_chunk_mut(
+            self.target.as_mut().first_chunk_mut().unwrap(),
+        )
+        .set_rcode(rcode.rcode());
         self.opt_header_mut().set_rcode(rcode)
     }
 

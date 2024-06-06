@@ -507,7 +507,7 @@ impl<K: AsRef<Key>> ClientTransaction<K> {
         header.header_mut().set_id(tsig.record.data().original_id());
         header.counts_mut().dec_arcount();
         let signature = self.context.answer(
-            header.as_slice(),
+            header.as_array(),
             Some(
                 &message.as_slice()
                     [mem::size_of::<HeaderSection>()..tsig.start],
@@ -770,7 +770,7 @@ impl<K: AsRef<Key>> ClientSequence<K> {
         header.header_mut().set_id(tsig.record.data().original_id());
         header.counts_mut().dec_arcount();
         let signature = self.context.first_answer(
-            header.as_slice(),
+            header.as_array(),
             Some(
                 &message.as_slice()
                     [mem::size_of::<HeaderSection>()..tsig.start],
@@ -816,7 +816,7 @@ impl<K: AsRef<Key>> ClientSequence<K> {
         header.header_mut().set_id(tsig.record.data().original_id());
         header.counts_mut().dec_arcount();
         let signature = self.context.signed_subsequent(
-            header.as_slice(),
+            header.as_array(),
             Some(
                 &message.as_slice()
                     [mem::size_of::<HeaderSection>()..tsig.start],
@@ -1029,7 +1029,7 @@ impl<K: AsRef<Key>> SigningContext<K> {
         header.counts_mut().dec_arcount();
         let (mut context, signature) = Self::request(
             key,
-            header.as_slice(),
+            header.as_array(),
             Some(
                 &message.as_slice()
                     [mem::size_of::<HeaderSection>()..tsig.start],
