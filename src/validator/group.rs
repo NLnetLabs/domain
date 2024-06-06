@@ -39,7 +39,7 @@ use crate::validate::RrsigExt;
 use bytes::Bytes;
 use moka::future::Cache;
 use ring::digest;
-use std::cmp::min;
+use std::cmp::{max, min};
 use std::fmt::Debug;
 use std::slice::Iter;
 use std::time::Duration;
@@ -48,12 +48,12 @@ use std::vec::Vec;
 type RrType = Record<Name<Bytes>, AllRecordData<Bytes, ParsedName<Bytes>>>;
 type SigType = Record<Name<Bytes>, Rrsig<Bytes, Name<Bytes>>>;
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Group {
     rr_set: Vec<RrType>,
     sig_set: Vec<SigType>,
+    extra_set: Vec<RrType>,
     found_duplicate: bool,
-    redundant: bool,
 }
 
 impl Group {
@@ -63,8 +63,8 @@ impl Group {
                 return Ok(Self {
                     rr_set: vec![to_bytes_record(&rr)?],
                     sig_set: Vec::new(),
+                    extra_set: Vec::new(),
                     found_duplicate: false,
-                    redundant: false,
                 });
             }
             Some(record) => record,
@@ -95,8 +95,8 @@ impl Group {
         Ok(Self {
             rr_set: Vec::new(),
             sig_set: vec![record],
+            extra_set: Vec::new(),
             found_duplicate: false,
-            redundant: false,
         })
     }
 
@@ -154,6 +154,16 @@ impl Group {
                     record.ttl(),
                     rrsig,
                 );
+
+                // Some recursors return duplicate records. Check.
+                for r in &self.sig_set {
+                    if *r == record {
+                        // We already have this record.
+                        self.found_duplicate = true;
+                        return Ok(());
+                    }
+                }
+
                 self.sig_set.push(record);
                 return Ok(());
             }
@@ -188,6 +198,21 @@ impl Group {
         Err(())
     }
 
+    /// Add extra records that are associated with a group.
+    ///
+    /// The main use at the moment is to store the courtesy CNAME that comes
+    /// with a DNAME. We need to keep the CNAME around to be able to
+    /// regenerate the reply message with updated TTLs or other types of
+    /// sanitizing.
+    fn add_extra(
+        &mut self,
+        rr: &Record<Name<Bytes>, AllRecordData<Bytes, ParsedName<Bytes>>>,
+    ) {
+        // Assume we don't have to check for duplicates. The source of this
+        // record is a CNAME group. Duplicates have been removed already.
+        self.extra_set.push(rr.clone());
+    }
+
     pub async fn validated<Octs, Upstream>(
         &self,
         vc: &ValidationContext<Upstream>,
@@ -198,32 +223,19 @@ impl Group {
             AsRef<[u8]> + Debug + Octets + OctetsFrom<Vec<u8>> + Send + Sync,
         Upstream: SendRequest<RequestMessage<Octs>>,
     {
-        if self.redundant {
-            // Redundant CNAME. Do not validate but just assume insecure.
-            Ok(ValidatedGroup::new(
-                self.rr_set.clone(),
-                self.sig_set.clone(),
-                ValidationState::Insecure,
-                Name::root(),
-                None,
-                None,
-                None,
-                self.found_duplicate,
-            ))
-        } else {
-            let (state, signer_name, wildcard, ede, adjust_ttl) =
-                self.validate_with_vc(vc, config).await?;
-            Ok(ValidatedGroup::new(
-                self.rr_set.clone(),
-                self.sig_set.clone(),
-                state,
-                signer_name,
-                wildcard,
-                ede,
-                adjust_ttl,
-                self.found_duplicate,
-            ))
-        }
+        let (state, signer_name, wildcard, ede, adjust_ttl) =
+            self.validate_with_vc(vc, config).await?;
+        Ok(ValidatedGroup::new(
+            self.rr_set.clone(),
+            self.sig_set.clone(),
+            self.extra_set.clone(),
+            state,
+            signer_name,
+            wildcard,
+            ede,
+            adjust_ttl,
+            self.found_duplicate,
+        ))
     }
 
     pub fn owner(&self) -> Name<Bytes> {
@@ -344,7 +356,6 @@ impl Group {
         let (state, wildcard, ede, _ttl, adjust_ttl) = self
             .validate_with_node(&node, vc.usig_cache(), config)
             .await;
-        println!("validate_with_vc: got adjust_ttl {adjust_ttl:?}");
         Ok((state, target.clone(), wildcard, ede, adjust_ttl))
     }
 
@@ -379,6 +390,7 @@ impl Group {
         let keys = node.keys();
         let ttl = node.ttl();
         let group_ttl = self.min_ttl();
+        let group_max_ttl = self.max_ttl();
         let group_dur = group_ttl.into_duration();
         let ttl = min(ttl, group_dur);
 
@@ -409,7 +421,7 @@ impl Group {
                     let wildcard =
                         sig.wildcard_closest_encloser(&self.rr_set[0]);
                     let sig_ttl = ttl_for_sig(sig_rec);
-                    let adjust_ttl = if sig_ttl < group_ttl {
+                    let adjust_ttl = if sig_ttl < group_max_ttl {
                         Some(sig_ttl)
                     } else {
                         None
@@ -621,16 +633,19 @@ impl Group {
         }
         ttl
     }
-}
 
-impl Clone for Group {
-    fn clone(&self) -> Self {
-        Self {
-            rr_set: self.rr_set.clone(),
-            sig_set: self.sig_set.clone(),
-            found_duplicate: false,
-            redundant: self.redundant,
+    pub fn max_ttl(&self) -> Ttl {
+        let mut ttl = Ttl::ZERO;
+        for rr in &self.rr_set {
+            ttl = max(ttl, rr.ttl());
         }
+        for rr in &self.sig_set {
+            ttl = max(ttl, rr.ttl());
+        }
+        for rr in &self.extra_set {
+            ttl = max(ttl, rr.ttl());
+        }
+        ttl
     }
 }
 
@@ -669,38 +684,44 @@ impl GroupSet {
         Ok(())
     }
 
-    pub fn mark_redundant_cnames(&mut self) {
-        let self_clone = self.clone();
-        for g in &mut self.0 {
-            if g.rtype() != Rtype::CNAME {
+    pub fn move_redundant_cnames(&mut self) {
+        // Use indices to be able to mutate the array. Otherwise borrows
+        // will get in the way. Iterate high to low to find CNAME groups
+        // to be able to delete CNAME groups without affecting groups that
+        // still need to be checked.
+        for cname_ind in (0..self.0.len()).rev() {
+            if self.0[cname_ind].rtype() != Rtype::CNAME {
                 continue;
             }
-            let rr_set = g.rr_set();
+            let rr_set = self.0[cname_ind].rr_set();
             if rr_set.len() != 1 {
                 continue; // Let it fail if it is in secure zone.
             }
-            if g.sig_set_len() != 0 {
+            if self.0[cname_ind].sig_set_len() != 0 {
                 // Signed CNAME, no need to check.
                 continue;
             }
 
-            if self_clone.matches_dname(&rr_set[0]) {
+            if self
+                .moved_to_dname(&rr_set[0], self.0[cname_ind].found_duplicate)
+            {
                 // Courtesy CNAME has been moved, mark this group as
                 // redundant.
-                g.redundant = true;
+                let _ = self.0.remove(cname_ind);
             }
         }
     }
 
-    fn matches_dname(
-        &self,
+    fn moved_to_dname(
+        &mut self,
         cname_rr: &Record<
             Name<Bytes>,
             AllRecordData<Bytes, ParsedName<Bytes>>,
         >,
+        found_duplicate: bool,
     ) -> bool {
         let cname_name = cname_rr.owner();
-        for g in &self.0 {
+        for g in &mut self.0 {
             if g.rtype() != Rtype::DNAME {
                 continue;
             }
@@ -732,6 +753,8 @@ impl GroupSet {
                     };
                 if let AllRecordData::Cname(cname) = cname_rr.data() {
                     if cname.cname().to_name::<Bytes>() == result_name {
+                        g.add_extra(cname_rr);
+                        g.found_duplicate |= found_duplicate;
                         return true;
                     }
                 }
@@ -750,6 +773,7 @@ impl GroupSet {
 pub struct ValidatedGroup {
     rr_set: Vec<RrType>,
     sig_set: Vec<SigType>,
+    extra_set: Vec<RrType>,
     state: ValidationState,
     signer_name: Name<Bytes>,
     closest_encloser: Option<Name<Bytes>>,
@@ -763,6 +787,7 @@ impl ValidatedGroup {
     fn new(
         rr_set: Vec<RrType>,
         sig_set: Vec<SigType>,
+        extra_set: Vec<RrType>,
         state: ValidationState,
         signer_name: Name<Bytes>,
         closest_encloser: Option<Name<Bytes>>,
@@ -773,6 +798,7 @@ impl ValidatedGroup {
         ValidatedGroup {
             rr_set,
             sig_set,
+            extra_set,
             state,
             signer_name,
             closest_encloser,
@@ -833,6 +859,10 @@ impl ValidatedGroup {
 
     pub fn sig_set(&self) -> Vec<SigType> {
         self.sig_set.clone()
+    }
+
+    pub fn extra_set(&self) -> Vec<RrType> {
+        self.extra_set.clone()
     }
 
     pub fn adjust_ttl(&self) -> Option<Ttl> {

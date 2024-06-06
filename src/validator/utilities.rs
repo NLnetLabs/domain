@@ -11,12 +11,15 @@ use crate::base::iana::Class;
 use crate::base::iana::ExtendedErrorCode;
 use crate::base::name::Label;
 use crate::base::opt::ExtendedError;
+use crate::base::rdata::ComposeRecordData;
+use crate::base::wire::Composer;
 use crate::base::Message;
 use crate::base::MessageBuilder;
 use crate::base::Name;
 use crate::base::NameBuilder;
 use crate::base::ParsedName;
 use crate::base::Record;
+use crate::base::RecordSectionBuilder;
 use crate::base::Rtype;
 use crate::base::StaticCompressor;
 use crate::base::ToName;
@@ -383,47 +386,11 @@ where
     }
     let source = source.answer()?;
     let mut target = target.answer();
-    for vg in answers {
-        if let Some(ttl) = vg.adjust_ttl() {
-            for mut rr in vg.rr_set() {
-                rr.set_ttl(min(rr.ttl(), ttl));
-                target.push(rr).expect("should not fail");
-            }
-            for mut rr in vg.sig_set() {
-                rr.set_ttl(min(rr.ttl(), ttl));
-                target.push(rr).expect("should not fail");
-            }
-        } else {
-            for rr in vg.rr_set() {
-                target.push(rr).expect("should not fail");
-            }
-            for rr in vg.sig_set() {
-                target.push(rr).expect("should not fail");
-            }
-        }
-    }
+    add_list_to_section(answers, &mut target);
 
     let source = source.next_section()?.expect("section should be present");
     let mut target = target.authority();
-    for vg in authorities {
-        if let Some(ttl) = vg.adjust_ttl() {
-            for mut rr in vg.rr_set() {
-                rr.set_ttl(min(rr.ttl(), ttl));
-                target.push(rr).expect("should not fail");
-            }
-            for mut rr in vg.sig_set() {
-                rr.set_ttl(min(rr.ttl(), ttl));
-                target.push(rr).expect("should not fail");
-            }
-        } else {
-            for rr in vg.rr_set() {
-                target.push(rr).expect("should not fail");
-            }
-            for rr in vg.sig_set() {
-                target.push(rr).expect("should not fail");
-            }
-        }
-    }
+    add_list_to_section(authorities, &mut target);
 
     let source = source.next_section()?.expect("section should be present");
     let mut target = target.additional();
@@ -446,4 +413,43 @@ where
     )
     .expect("Message should be able to parse output from MessageBuilder");
     Ok(msg)
+}
+
+fn add_list_to_section<Section, Target>(
+    list: &[ValidatedGroup],
+    section: &mut Section,
+) where
+    Target: Composer,
+    Section: RecordSectionBuilder<Target>,
+{
+    for vg in list {
+        let adjust_ttl = vg.adjust_ttl();
+        for rr in vg.rr_set() {
+            add_rr_to_section(&rr, adjust_ttl, section);
+        }
+        for rr in vg.sig_set() {
+            add_rr_to_section(&rr, adjust_ttl, section);
+        }
+        for rr in vg.extra_set() {
+            add_rr_to_section(&rr, adjust_ttl, section);
+        }
+    }
+}
+
+fn add_rr_to_section<RecData, Section, Target>(
+    rr: &Record<Name<Bytes>, RecData>,
+    adjust_ttl: Option<Ttl>,
+    section: &mut Section,
+) where
+    RecData: Clone + ComposeRecordData,
+    Target: Composer,
+    Section: RecordSectionBuilder<Target>,
+{
+    if let Some(ttl) = adjust_ttl {
+        let mut rr = rr.clone();
+        rr.set_ttl(min(rr.ttl(), ttl));
+        section.push(rr).expect("should not fail");
+    } else {
+        section.push(rr).expect("should not fail");
+    }
 }

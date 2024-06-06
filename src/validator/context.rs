@@ -389,8 +389,8 @@ impl<Upstream> ValidationContext<Upstream> {
             authorities.add(rr?)?;
         }
 
-        // Mark redundant unsigned CNAMEs.
-        answers.mark_redundant_cnames();
+        // Move redundant unsigned CNAMEs to the corresponding DNAME group.
+        answers.move_redundant_cnames();
 
         let mut fix_reply = false;
 
