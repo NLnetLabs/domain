@@ -855,7 +855,7 @@ impl HeaderSection {
         const _: () = assert!(
             mem::size_of::<Chunk>() < mem::size_of::<HeaderSection>()
         );
-        let chunk: Chunk = self.inner[0..4].try_into().unwrap();
+        let chunk: Chunk = self.inner[4..12].try_into().unwrap();
         HeaderCounts::from_array(chunk)
     }
 

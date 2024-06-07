@@ -287,7 +287,8 @@ impl<Target: OctetsBuilder + AsRef<[u8]>> MessageBuilder<Target> {
         let chunk = self
             .target
             .as_ref()
-            .try_into()
+            .get(0..12)
+            .and_then(|a| a.try_into().ok())
             .expect("slice is not large enough");
         HeaderSection::from_array(chunk)
     }
