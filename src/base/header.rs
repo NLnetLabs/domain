@@ -792,7 +792,7 @@ impl HeaderSection {
     }
 
     /// Creates a mutable reference from an octets array.
-    pub fn for_message_chunk_mut(s: &mut [u8; 12]) -> &mut HeaderSection {
+    pub fn for_array_mut(s: &mut [u8; 12]) -> &mut HeaderSection {
         // SAFETY: The transmute is sound because
         //  - Header has #[repr(transparent)] and
         //  - we assert at compile time that the sizes are the same with this
@@ -938,34 +938,42 @@ mod test {
     fn for_slice() {
         use std::vec::Vec;
 
-        let header = b"\x01\x02\x00\x00\x12\x34\x56\x78\x9a\xbc\xde\xf0";
-        let mut vec = Vec::from(&header[..]);
+        let mut header =
+            Vec::from(b"\x01\x02\x00\x00\x12\x34\x56\x78\x9a\xbc\xde\xf0");
+
+        let chunk: &[u8; 4] = header[0..4].try_into().unwrap();
         assert_eq!(
-            Header::from_array(*header.first_chunk().unwrap()).as_array(),
+            Header::from_array(*chunk).as_array(),
             b"\x01\x02\x00\x00"
         );
+
+        let chunk: &mut [u8; 4] = header[0..4].as_mut().try_into().unwrap();
         assert_eq!(
-            Header::for_array_mut(vec.first_chunk_mut().unwrap()).as_array(),
+            Header::for_array_mut(chunk).as_array(),
             b"\x01\x02\x00\x00"
         );
+
+        let chunk: &[u8; 8] = header[4..12].try_into().unwrap();
         assert_eq!(
-            HeaderCounts::from_array(*header.last_chunk().unwrap())
-                .as_array(),
+            HeaderCounts::from_array(*chunk).as_array(),
             b"\x12\x34\x56\x78\x9a\xbc\xde\xf0"
         );
+
+        let chunk: &mut [u8; 8] = header[4..12].as_mut().try_into().unwrap();
         assert_eq!(
-            HeaderCounts::for_array_mut(vec.last_chunk_mut().unwrap())
-                .as_array(),
+            HeaderCounts::for_array_mut(chunk).as_array(),
             b"\x12\x34\x56\x78\x9a\xbc\xde\xf0"
         );
-        assert_eq!(HeaderSection::from_array(*header).as_array(), header);
+
+        let chunk: &[u8; 12] = header[..].try_into().unwrap();
         assert_eq!(
-            HeaderSection::for_message_chunk_mut(
-                std::ops::DerefMut::deref_mut(&mut vec).try_into().unwrap()
-            )
-            .as_array(),
+            HeaderSection::from_array(*chunk).as_array().as_slice(),
             header
         );
+
+        let chunk: &mut [u8; 12] = header[..].as_mut().try_into().unwrap();
+        let section = *HeaderSection::for_array_mut(chunk).as_array();
+        assert_eq!(&section[..], header);
     }
 
     macro_rules! test_field {

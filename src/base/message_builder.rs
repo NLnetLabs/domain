@@ -308,9 +308,10 @@ impl<Target: OctetsBuilder + AsMut<[u8]>> MessageBuilder<Target> {
         let chunk = self
             .target
             .as_mut()
-            .first_chunk_mut()
+            .get_mut(0..12)
+            .and_then(|a| a.try_into().ok())
             .expect("target is not large enough");
-        HeaderSection::for_message_chunk_mut(chunk)
+        HeaderSection::for_array_mut(chunk)
     }
 }
 
@@ -1671,7 +1672,7 @@ impl<'a, Target: Composer + ?Sized> OptBuilder<'a, Target> {
     #[must_use]
     pub fn rcode(&self) -> OptRcode {
         self.opt_header().rcode(Header::from_array(
-            *self.target.as_ref().first_chunk().unwrap(),
+            self.target.as_ref()[0..4].try_into().unwrap(),
         ))
     }
 
@@ -1680,7 +1681,7 @@ impl<'a, Target: Composer + ?Sized> OptBuilder<'a, Target> {
     /// The method will update both the message header and the OPT header.
     pub fn set_rcode(&mut self, rcode: OptRcode) {
         Header::for_array_mut(
-            self.target.as_mut().first_chunk_mut().unwrap(),
+            (&mut self.target.as_mut()[0..4]).try_into().unwrap(),
         )
         .set_rcode(rcode.rcode());
         self.opt_header_mut().set_rcode(rcode)

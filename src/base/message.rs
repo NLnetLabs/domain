@@ -320,8 +320,8 @@ impl<Octs: AsRef<[u8]> + ?Sized> Message<Octs> {
     where
         Octs: AsMut<[u8]>,
     {
-        HeaderSection::for_message_chunk_mut(
-            self.as_slice_mut().first_chunk_mut().unwrap(),
+        HeaderSection::for_array_mut(
+            (&mut self.as_slice_mut()[0..12]).try_into().unwrap(),
         )
     }
 
