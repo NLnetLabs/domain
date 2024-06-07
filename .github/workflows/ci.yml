@@ -7,14 +7,14 @@ jobs:
     strategy:
       matrix:
         os: [ubuntu-latest, windows-latest, macOS-latest]
-        rust: [1.78.0, stable, beta, nightly]
+        rust: [1.76.0, stable, beta, nightly]
     env:
         RUSTFLAGS: "-D warnings"
     steps:
     - name: Checkout repository
       uses: actions/checkout@v1
     - name: Install Rust
-      uses: hecrj/setup-rust-action@v1
+      uses: hecrj/setup-rust-action@v2
       with:
         rust-version: ${{ matrix.rust }}
     - if: matrix.rust == 'stable'
@@ -39,9 +39,9 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v1
     - name: Install Rust
-      uses: hecrj/setup-rust-action@v1
+      uses: hecrj/setup-rust-action@v2
       with:
-        rust-version: "1.76.0"
+        rust-version: "1.68.2"
     - name: Install nightly Rust
       run: rustup install nightly
     - name: Check with minimal-versions

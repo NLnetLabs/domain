@@ -24,6 +24,24 @@ If you have ideas, requests, or proposals for future features, please
 don’t hesitate to open Github issues.
 
 
+## Minimal Supported Rust Versions
+
+We are trying to maintain a decent balance between being able to use older
+compiler versions and using new features that improve safety and usability
+of the crate.
+
+### Minimum version: 1.68.2
+
+The `rust-version` given in `Cargo.toml` is the oldest version that can
+be used to compile the crate with the minimum versions of all dependencies
+selected.
+
+### Current version: 1.76.0
+
+This is the minimum Rust version required to build with latest version of
+all dependencies at time of release. `Cargo.lock` contains these versions
+for reference.
+
 ## Licensing
 
 The domain crate is distributed under the terms of the BSD-3-clause
