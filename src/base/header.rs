@@ -79,28 +79,19 @@ impl Header {
         Self::default()
     }
 
-    /// Creates a header reference from an octets array of a message.
+    /// Creates a header from an octets array of a message.
     #[must_use]
-    pub fn for_message_chunk(s: &[u8; 4]) -> &Header {
-        // SAFETY: The transmute is sound because
-        //  - Header has #[repr(transparent)] and
-        //  - the array has the correct size as evidenced by this (unused)
-        //    transmute, which does not compile if the sizes differ:
-        let _ = || {
-            unsafe { mem::transmute::<[u8; 4], Self>(*s) };
-        };
-        unsafe { mem::transmute(s) }
+    pub fn from_array(array: [u8; 4]) -> Header {
+        Header { inner: array }
     }
 
     /// Creates a mutable header reference from an octets array of a message.
-    pub fn for_message_chunk_mut(s: &mut [u8; 4]) -> &mut Header {
+    pub fn for_array_mut(s: &mut [u8; 4]) -> &mut Header {
         // SAFETY: The transmute is sound because
         //  - Header has #[repr(transparent)] and
-        //  - the array has the correct size as evidenced by this (unused)
-        //    transmute, which does not compile if the sizes differ:
-        let _ = || {
-            unsafe { mem::transmute::<[u8; 4], Self>(*s) };
-        };
+        //  - we assert at compile time that the sizes are the same with this
+        //    transmute which will get compiled away:
+        let _ = || unsafe { mem::transmute::<[u8; 4], Self>(*s) };
         unsafe { mem::transmute(s) }
     }
 
@@ -499,34 +490,19 @@ impl HeaderCounts {
         Self::default()
     }
 
-    /// Creates a header counts reference from the octets slice of a message.
-    ///
-    /// The slice `message` must be only the part of the message representing
-    /// the counts.
+    /// Creates a header counts from the octets array.
     #[must_use]
-    pub fn for_message_chunk(message: &[u8; 8]) -> &Self {
-        // SAFETY: The transmute is sound because
-        //  - HeaderCounts has #[repr(transparent)] and
-        //  - the array has the correct size as evidenced by this (unused)
-        //    transmute, which does not compile if the sizes differ:
-        let _ = || {
-            unsafe { mem::transmute::<[u8; 8], Self>(*message) };
-        };
-        unsafe { mem::transmute(message) }
+    pub fn from_array(array: [u8; 8]) -> Self {
+        Self { inner: array }
     }
 
-    /// Creates a mutable counts reference from the octets slice of a message.
-    ///
-    /// The slice `message` must be only the part of the message representing
-    /// the counts.
-    pub fn for_message_chunk_mut(message: &mut [u8; 8]) -> &mut Self {
+    /// Creates a mutable counts reference from an octets array.
+    pub fn for_array_mut(message: &mut [u8; 8]) -> &mut Self {
         // SAFETY: The transmute is sound because
-        //  - HeaderCounts has #[repr(transparent)] and
-        //  - the array has the correct size as evidenced by this (unused)
-        //    transmute, which does not compile if the sizes differ:
-        let _ = || {
-            unsafe { mem::transmute::<[u8; 8], Self>(*message) };
-        };
+        //  - Header has #[repr(transparent)] and
+        //  - we assert at compile time that the sizes are the same with this
+        //    transmute which will get compiled away:
+        let _ = || unsafe { mem::transmute::<[u8; 8], Self>(*message) };
         unsafe { mem::transmute(message) }
     }
 
@@ -809,28 +785,19 @@ impl HeaderSection {
         Self::default()
     }
 
-    /// Creates a reference from the octets slice of a message.
+    /// Creates a reference from an octets array.
     #[must_use]
-    pub fn for_message_chunk(s: &[u8; 12]) -> &HeaderSection {
-        // SAFETY: The transmute is sound because
-        //  - HeaderSection has #[repr(transparent)]
-        //  - the array has the right size, as evidenced by this (unused)
-        //    transmute, which does not compile if the sizes differ:
-        let _ = || {
-            unsafe { mem::transmute::<[u8; 12], Self>(*s) };
-        };
-        unsafe { mem::transmute(s) }
+    pub fn from_array(array: [u8; 12]) -> Self {
+        Self { inner: array }
     }
 
-    /// Creates a mutable reference from the octets slice of a message.
+    /// Creates a mutable reference from an octets array.
     pub fn for_message_chunk_mut(s: &mut [u8; 12]) -> &mut HeaderSection {
         // SAFETY: The transmute is sound because
-        //  - HeaderSection has #[repr(transparent)]
-        //  - the array has the right size, as evidenced by this (unused)
-        //    transmute, which does not compile if the sizes differ:
-        let _ = || {
-            unsafe { mem::transmute::<[u8; 12], Self>(*s) };
-        };
+        //  - Header has #[repr(transparent)] and
+        //  - we assert at compile time that the sizes are the same with this
+        //    transmute which will get compiled away:
+        let _ = || unsafe { mem::transmute::<[u8; 12], Self>(*s) };
         unsafe { mem::transmute(s) }
     }
 
@@ -846,47 +813,66 @@ impl HeaderSection {
 impl HeaderSection {
     /// Returns a reference to the header.
     #[must_use]
-    pub fn header(&self) -> &Header {
+    pub fn header(&self) -> Header {
         type Chunk = [u8; 4];
 
-        // SAFETY: `unwrap` is safe because of this condition:
-        assert!(mem::size_of::<Chunk>() < mem::size_of_val(&self.inner));
+        // SAFETY: `unwrap` is fine because HeaderSection has
+        // #[repr(transparent)] and the condition below, which will get
+        // compiled away, holds. If it doesn't hold, there will be a compile
+        // error.
+        const _: () = assert!(
+            mem::size_of::<Chunk>() < mem::size_of::<HeaderSection>()
+        );
 
-        // Note on performance: first_chunk gets compiled away completely, so
-        // there's no performance hit here, according to godbolt at least.
-        let chunk: &Chunk = self.inner.first_chunk().unwrap();
-        Header::for_message_chunk(chunk)
+        let chunk: Chunk = self.inner[0..4].try_into().unwrap();
+        Header::from_array(chunk)
     }
 
     /// Returns a mutable reference to the header.
-    pub fn header_mut(&mut self) -> &mut Header {
+    pub fn as_header_mut(&mut self) -> &mut Header {
         type Chunk = [u8; 4];
 
-        // SAFETY: `unwrap` is fine because of this condition:
-        assert!(mem::size_of::<Chunk>() < mem::size_of_val(&self.inner));
-        let chunk: &mut Chunk = self.inner.first_chunk_mut().unwrap();
-        Header::for_message_chunk_mut(chunk)
+        // SAFETY: `unwrap` is fine because HeaderSection has
+        // #[repr(transparent)] and the condition below, which will get
+        // compiled away, holds. If it doesn't hold, there will be a compile
+        // error.
+        const _: () = assert!(
+            mem::size_of::<Chunk>() < mem::size_of::<HeaderSection>()
+        );
+        let chunk: &mut Chunk = self.inner[0..4].as_mut().try_into().unwrap();
+        Header::for_array_mut(chunk)
     }
 
     /// Returns a reference to the header counts.
     #[must_use]
-    pub fn counts(&self) -> &HeaderCounts {
+    pub fn counts(&self) -> HeaderCounts {
         type Chunk = [u8; 8];
 
-        // SAFETY: `unwrap` is fine because of this condition:
-        assert!(mem::size_of::<Chunk>() < mem::size_of_val(&self.inner));
-        let chunk: &Chunk = self.inner.last_chunk().unwrap();
-        HeaderCounts::for_message_chunk(chunk)
+        // SAFETY: `unwrap` is fine because HeaderSection has
+        // #[repr(transparent)] and the condition below, which will get
+        // compiled away, holds. If it doesn't hold, there will be a compile
+        // error.
+        const _: () = assert!(
+            mem::size_of::<Chunk>() < mem::size_of::<HeaderSection>()
+        );
+        let chunk: Chunk = self.inner[0..4].try_into().unwrap();
+        HeaderCounts::from_array(chunk)
     }
 
     /// Returns a mutable reference to the header counts.
-    pub fn counts_mut(&mut self) -> &mut HeaderCounts {
+    pub fn as_counts_mut(&mut self) -> &mut HeaderCounts {
         type Chunk = [u8; 8];
 
-        // SAFETY: `unwrap` is fine because of this condition:
-        assert!(mem::size_of::<Chunk>() < mem::size_of_val(&self.inner));
-        let chunk: &mut Chunk = self.inner.last_chunk_mut().unwrap();
-        HeaderCounts::for_message_chunk_mut(chunk)
+        // SAFETY: `unwrap` is fine because HeaderSection has
+        // #[repr(transparent)] and the condition below, which will get
+        // compiled away, holds. If it doesn't hold, there will be a compile
+        // error.
+        const _: () = assert!(
+            mem::size_of::<Chunk>() < mem::size_of::<HeaderSection>()
+        );
+        let chunk: &mut Chunk =
+            self.inner[4..12].as_mut().try_into().unwrap();
+        HeaderCounts::for_array_mut(chunk)
     }
 }
 
@@ -906,32 +892,6 @@ impl HeaderSection {
         target: &mut Target,
     ) -> Result<(), Target::AppendError> {
         target.append_slice(&self.inner)
-    }
-}
-
-//--- AsRef and AsMut
-
-impl AsRef<Header> for HeaderSection {
-    fn as_ref(&self) -> &Header {
-        self.header()
-    }
-}
-
-impl AsMut<Header> for HeaderSection {
-    fn as_mut(&mut self) -> &mut Header {
-        self.header_mut()
-    }
-}
-
-impl AsRef<HeaderCounts> for HeaderSection {
-    fn as_ref(&self) -> &HeaderCounts {
-        self.counts()
-    }
-}
-
-impl AsMut<HeaderCounts> for HeaderSection {
-    fn as_mut(&mut self) -> &mut HeaderCounts {
-        self.counts_mut()
     }
 }
 
@@ -981,31 +941,24 @@ mod test {
         let header = b"\x01\x02\x00\x00\x12\x34\x56\x78\x9a\xbc\xde\xf0";
         let mut vec = Vec::from(&header[..]);
         assert_eq!(
-            Header::for_message_chunk(header.first_chunk().unwrap())
-                .as_array(),
+            Header::from_array(*header.first_chunk().unwrap()).as_array(),
             b"\x01\x02\x00\x00"
         );
         assert_eq!(
-            Header::for_message_chunk_mut(vec.first_chunk_mut().unwrap())
-                .as_array(),
+            Header::for_array_mut(vec.first_chunk_mut().unwrap()).as_array(),
             b"\x01\x02\x00\x00"
         );
         assert_eq!(
-            HeaderCounts::for_message_chunk(header.last_chunk().unwrap())
+            HeaderCounts::from_array(*header.last_chunk().unwrap())
                 .as_array(),
             b"\x12\x34\x56\x78\x9a\xbc\xde\xf0"
         );
         assert_eq!(
-            HeaderCounts::for_message_chunk_mut(
-                vec.last_chunk_mut().unwrap()
-            )
-            .as_array(),
+            HeaderCounts::for_array_mut(vec.last_chunk_mut().unwrap())
+                .as_array(),
             b"\x12\x34\x56\x78\x9a\xbc\xde\xf0"
         );
-        assert_eq!(
-            HeaderSection::for_message_chunk(header).as_array(),
-            header
-        );
+        assert_eq!(HeaderSection::from_array(*header).as_array(), header);
         assert_eq!(
             HeaderSection::for_message_chunk_mut(
                 std::ops::DerefMut::deref_mut(&mut vec).try_into().unwrap()

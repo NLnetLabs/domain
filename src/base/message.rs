@@ -285,7 +285,7 @@ impl<Octs: ?Sized> Message<Octs> {
 impl<Octs: AsRef<[u8]> + ?Sized> Message<Octs> {
     /// Returns the message header.
     pub fn header(&self) -> Header {
-        *self.header_section().header()
+        self.header_section().header()
     }
 
     /// Returns a mutable reference to the message header.
@@ -293,12 +293,12 @@ impl<Octs: AsRef<[u8]> + ?Sized> Message<Octs> {
     where
         Octs: AsMut<[u8]>,
     {
-        self.header_section_mut().header_mut()
+        self.header_section_mut().as_header_mut()
     }
 
     /// Returns the header counts of the message.
     pub fn header_counts(&self) -> HeaderCounts {
-        *self.header_section().counts()
+        self.header_section().counts()
     }
 
     /// Returns a mutable reference to the header counts of the message.
@@ -306,14 +306,13 @@ impl<Octs: AsRef<[u8]> + ?Sized> Message<Octs> {
     where
         Octs: AsMut<[u8]>,
     {
-        self.header_section_mut().counts_mut()
+        self.header_section_mut().as_counts_mut()
     }
 
     /// Returns the entire header section.
     pub fn header_section(&self) -> HeaderSection {
-        *HeaderSection::for_message_chunk(
-            self.as_slice().first_chunk().unwrap(),
-        )
+        let chunk: &[u8; 12] = self.as_slice()[0..12].try_into().unwrap();
+        HeaderSection::from_array(*chunk)
     }
 
     /// Returns a mutable reference to the entire header section.
@@ -778,12 +777,9 @@ impl<'a, Octs: Octets + ?Sized> QuestionSection<'a, Octs> {
     fn new(octets: &'a Octs) -> Self {
         let mut parser = Parser::from_ref(octets);
         parser.advance(mem::size_of::<HeaderSection>()).unwrap();
+        let chunk: &[u8; 12] = parser.as_slice()[0..12].try_into().unwrap();
         QuestionSection {
-            count: Ok(HeaderSection::for_message_chunk(
-                parser.as_slice().first_chunk().unwrap(),
-            )
-            .counts()
-            .qdcount()),
+            count: Ok(HeaderSection::from_array(*chunk).counts().qdcount()),
             parser,
         }
     }
@@ -961,13 +957,11 @@ impl<'a, Octs: Octets + ?Sized> RecordSection<'a, Octs> {
     ///
     /// The parser must be positioned at the beginning of this section.
     fn new(parser: Parser<'a, Octs>, section: Section) -> Self {
+        let chunk: &[u8; 12] = parser.as_slice()[0..12].try_into().unwrap();
         RecordSection {
-            count: Ok(section.count(
-                *HeaderSection::for_message_chunk(
-                    parser.as_slice().first_chunk().unwrap(),
-                )
-                .counts(),
-            )),
+            count: Ok(
+                section.count(HeaderSection::from_array(*chunk).counts())
+            ),
             section,
             parser,
         }
