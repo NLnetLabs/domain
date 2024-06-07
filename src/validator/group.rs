@@ -124,8 +124,8 @@ impl Group {
             return Err(());
         }
 
-        let (curr_class, curr_rtype) = if !self.rr_set.is_empty() {
-            (self.rr_set[0].class(), self.rr_set[0].rtype())
+        let (curr_class, curr_rtype) = if let Some(rr) = self.rr_set.first() {
+            (rr.class(), rr.rtype())
         } else {
             (
                 self.sig_set[0].class(),
