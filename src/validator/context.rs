@@ -340,8 +340,10 @@ pub struct ValidationContext<Upstream> {
 
     node_cache: Cache<Name<Bytes>, Arc<Node>>,
     nsec3_cache: Nsec3Cache,
-    isig_cache: SigCache, // Signature cache for infrastructure.
-    usig_cache: SigCache, // Signature cache for user requests.
+    /// Signature cache for infrastructure.
+    isig_cache: SigCache,
+    /// Signature cache for user requests.
+    usig_cache: SigCache,
 }
 
 impl<Upstream> ValidationContext<Upstream> {
