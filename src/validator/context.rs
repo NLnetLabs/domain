@@ -368,7 +368,8 @@ impl<Upstream> ValidationContext<Upstream> {
     }
 
     /// Validate a DNS reply message. An Error value will be returned if the
-    /// message cannot be parsed or if there is any other message-related.
+    /// message cannot be parsed or if there is any other message-related
+    /// error.
     /// Otherwise the function return the DNSSEC validation state together
     /// with an optional EDNS(0) ExtendError. The ExtendedError, if present
     /// provides additional information on the cause of the validation state.
