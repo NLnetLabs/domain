@@ -48,6 +48,18 @@ use std::vec::Vec;
 type RrType = Record<Name<Bytes>, AllRecordData<Bytes, ParsedName<Bytes>>>;
 type SigType = Record<Name<Bytes>, Rrsig<Bytes, Name<Bytes>>>;
 
+/// A collection of records (rr_set), associated signatures (sig_set) and
+/// space for extra records, currently only CNAME records that are associated
+/// with DNAME records in rr_set. Keep track if there were duplicate records
+/// in found_duplicate.
+///
+/// [Group::new] and [Group::add] maintain the following invariant: a
+/// [Group] instance
+/// has at least one record in rr_set or sig_set. Both cannot be empty
+/// at the same time. Records in rr_set and sig_set all have the same
+/// owner name. All signature records in sig_set cover the same rtype.
+/// If both rr_set and sig_set and non-empty the the type convered by the
+/// signatures in sig_set is equal to the type of the records in rr_set.
 #[derive(Clone, Debug)]
 pub struct Group {
     rr_set: Vec<RrType>,
