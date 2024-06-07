@@ -1,10 +1,10 @@
-// Group of resource records and associated signatures.
-
-// For lack of a better term we call this a group. RR set refers to just
-// the resource records without the signatures.
-
-// Name suggested by Yorgos: SignedRrset. Problem, sometimes there are no
-// signatures, sometimes there is a signature but no RRset.
+//! Group of resource records and associated signatures.
+//!
+//! For lack of a better term we call this a group. RR set refers to just
+//! the resource records without the signatures.
+//!
+//! Name suggested by Yorgos: SignedRrset. Problem, sometimes there are no
+//! signatures, sometimes there is a signature but no RRset.
 
 use super::context::Config;
 use super::context::Node;
