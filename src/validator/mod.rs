@@ -2,17 +2,54 @@
 
 #![cfg(feature = "unstable-validator")]
 
-//! This module provides a DNSSEC validator.
+//! This module provides a DNSSEC validator as described in RFCs
+//! [4033](https://www.rfc-editor.org/info/rfc4033),
+//! [4034](https://www.rfc-editor.org/info/rfc4034),
+//! [4035](https://www.rfc-editor.org/info/rfc4035),
+//! [5155](https://www.rfc-editor.org/info/rfc5155), and
+//! [6840](https://www.rfc-editor.org/info/rfc6840).
 //! DNSSEC validation requires a trust anchor. A trust anchor can be
 //! created using [anchor::TrustAnchors].
-//! The trust anchor is then used, together with a [crate::net::client]
+//! The trust anchor is then used, together with a
+//! [net::client](crate::net::client)
 //! transport and optionally a [context::Config] to create a DNSSEC
 //! validation [context::ValidationContext].
-//! The validation context then provides the
-//! method [context::ValidationContext::validate_msg()] to validate a
-//! reply message.
+//! The validation context provides the
+//! method [validate_msg()](context::ValidationContext::validate_msg()) to
+//! validate a reply message.
 //!
-//! Example:
+//! # Caching
+//! The validator has four caches:
+//! 1) A `node` cache that caches the DNSSEC status and (if needed) DNSKEY
+//!    records for a delegation.
+//! 2) An `NSEC3` hash cache. This caches `NSEC3` hashes for names for
+//!    specific parameters (algorithm and iteration count).
+//! 3) An internal signature cache. This caches the result of signature
+//!    verification for validating records need to determine the status of
+//!    nodes.
+//! 4) A user signature cache. This caches the result of signature
+//!    verification for validating user data.
+//!
+//! # Limitations
+//! * When invoked multiple times for the same name, for example a simulanous
+//!   `A` and `AAAA` query, the validator will fetch `DS` and `DNSKEY`
+//! record multiple times and will validate them in parallel.
+//! * There is no prefetching. An expired cached node will be regenerated at
+//!   next request that needs it.
+//! * There is currently no support for generating a validation chain
+//!   ([RFC 9102](https://www.rfc-editor.org/info/rfc9102)).
+//! * There is currently no support for validating a chain.
+//! * There is currently no support for the EDNS(0) CHAIN option
+//!   ([RFC 7901](https://www.rfc-editor.org/info/rfc7901)).
+//! * There is no support for fetch the IANA trust anchor over HTTP(S)
+//!   ([RFC 7958](https://www.rfc-editor.org/info/rfc7958)).
+//! * There is no support for automated updating of trust anchors
+//!   ([RFC 5011](https://www.rfc-editor.org/info/rfc5011)).
+//!
+//! # Bugs
+//! * The size of accepted `DS` and `DNSKEY` RRsets is not limited.
+//!
+//! # Example
 //! ```no_run
 //! # use domain::base::{MessageBuilder, Name, Rtype};
 //! # use domain::net::client::dgram_stream;

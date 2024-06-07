@@ -1,4 +1,4 @@
-// Trust anchor
+//! Create DNSSEC trust anchors.
 
 use super::types::Error;
 use crate::base::name::Chain;

@@ -362,7 +362,7 @@ impl Group {
     // Try to validate the signature using a node. Return the validation
     // state. Also return if the signature was expanded from a wildcard.
     // This is valid only if the validation state is secure.
-    pub async fn validate_with_node(
+    pub(crate) async fn validate_with_node(
         &self,
         node: &Node,
         sig_cache: &SigCache,

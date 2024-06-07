@@ -1,6 +1,8 @@
-// Validation context. The validation contains trust anchors, a transport
-// connection for issuing queries, and caches to store previously fetched
-// or evaluated results.
+//! Context for DNSSEC validation.
+//!
+//! The validation contains trust anchors, a transport
+//! connection for issuing queries, and caches to store previously fetched
+//! or evaluated results.
 
 use super::anchor::TrustAnchor;
 use super::anchor::TrustAnchors;
@@ -330,6 +332,7 @@ enum VGResult {
     Err(Error),
 }
 
+/// A DNSSEC validation context.
 pub struct ValidationContext<Upstream> {
     ta: TrustAnchors,
     upstream: Upstream,

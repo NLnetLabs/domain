@@ -1,9 +1,45 @@
 //! A DNSSEC validator.
 //!
 //! This module implements a DNSSEC validator provided as a pass through
-//! transport. For details of the validator see the [crate::validator] module.
+//! transport. It implements that parts of
+//! [RFC 4035](https://www.rfc-editor.org/info/rfc4035) related to converting
+//! a validation status to a result code (server failure) and setting or
+//! clearing the AD flag.
+//! For details of the validator see the
+//! [validator](crate::validator) module.
 //!
-//! Example:
+//! # Upstream transports
+//!
+//! When it comes to the upstream transport, this module is similar to
+//! other client transport modules in that it takes a transport that
+//! implements the [SendRequest] trait. However, the validator transport
+//! needs a [ValidationContext] which in turn also needs a client transport.
+//! The ValidationContext needs to generate DS and DNSKEY request and for
+//! it needs a client transport that allows the creation of new DNS
+//! request. Therefore the ValidationContext requires client tranport that
+//! provides `SendRequest<RequestMessage<Octs>>`. It is often convenient
+//! to use a single upstream client transport for both the validator transport
+//! and the ValidationContext. However, it is quite possible to use
+//! different transports.
+//!
+//! # Caching
+//!
+//! ideally caching should be done before (downstream of) the validator
+//! transport. This way validated results are cached. A cache that is
+//! upstream of the validator would avoid network traffic, but would require
+//! some amount of validating for each request.
+//!
+//! The validator has some internal caches (see the
+//! [validator](crate::validator) module) so
+//! there is no direct need for a cache upstream of the validator. Caching
+//! becomes more complex if there is validator that uses the validator.
+//! in that case, the downstream validator will likely issues requests for
+//! DS and DNSKEY records that the validator issues as well. Because there is
+//! no upstream cache, those requests will go over the upstream transport
+//! twice. One solution to that is to create a new type of cache that only
+//! caches DS and DNSKEY records and insert that upstream of the validator.
+
+//! # Example
 //! ```rust,no_run
 //! # use domain::base::{MessageBuilder, Name, Rtype};
 //! # use domain::net::client::dgram_stream;
