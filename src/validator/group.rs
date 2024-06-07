@@ -118,8 +118,7 @@ impl Group {
             if frr.owner() != &rr.owner().to_name::<Bytes>() {
                 return Err(());
             }
-        } else if self.sig_set[0].owner().to_name::<Bytes>()
-            != rr.owner().to_name::<Bytes>()
+	} else if *self.sig_set[0].owner() != rr.owner()
         {
             return Err(());
         }
