@@ -30,3 +30,22 @@ jobs:
         cargo +nightly update -Z minimal-versions
         cargo check --all-features --all-targets
       name: Check with minimal-versions
+  minimal-versions:
+    name: Check minimal versions
+    runs-on: ubuntu-latest
+    env:
+        RUSTFLAGS: "-D warnings"
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v1
+    - name: Install Rust
+      uses: hecrj/setup-rust-action@v1
+      with:
+        rust-version: "1.76.0"
+    - name: Install nightly Rust
+      run: rustup install nightly
+    - name: Check with minimal-versions
+      run: |
+        cargo +nightly update -Z minimal-versions
+        cargo check --all-features --all-targets --locked
+      
