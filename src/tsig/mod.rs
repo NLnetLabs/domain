@@ -504,7 +504,9 @@ impl<K: AsRef<Key>> ClientTransaction<K> {
             None => return Err(ValidationError::ServerUnsigned),
         };
         let mut header = message.header_section();
-        header.as_header_mut().set_id(tsig.record.data().original_id());
+        header
+            .as_header_mut()
+            .set_id(tsig.record.data().original_id());
         header.as_counts_mut().dec_arcount();
         let signature = self.context.answer(
             header.as_array(),
@@ -767,7 +769,9 @@ impl<K: AsRef<Key>> ClientSequence<K> {
             None => return Err(ValidationError::ServerUnsigned),
         };
         let mut header = message.header_section();
-        header.as_header_mut().set_id(tsig.record.data().original_id());
+        header
+            .as_header_mut()
+            .set_id(tsig.record.data().original_id());
         header.as_counts_mut().dec_arcount();
         let signature = self.context.first_answer(
             header.as_array(),
@@ -813,7 +817,9 @@ impl<K: AsRef<Key>> ClientSequence<K> {
 
         // Check the MAC.
         let mut header = message.header_section();
-        header.as_header_mut().set_id(tsig.record.data().original_id());
+        header
+            .as_header_mut()
+            .set_id(tsig.record.data().original_id());
         header.as_counts_mut().dec_arcount();
         let signature = self.context.signed_subsequent(
             header.as_array(),
@@ -1025,7 +1031,9 @@ impl<K: AsRef<Key>> SigningContext<K> {
         //
         // Contrary to RFC 2845, this must be done before the time check.
         let mut header = message.header_section();
-        header.as_header_mut().set_id(tsig.record.data().original_id());
+        header
+            .as_header_mut()
+            .set_id(tsig.record.data().original_id());
         header.as_counts_mut().dec_arcount();
         let (mut context, signature) = Self::request(
             key,
