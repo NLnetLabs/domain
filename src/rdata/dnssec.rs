@@ -10,10 +10,10 @@ use crate::base::name::{FlattenInto, ParsedName, ToName};
 use crate::base::rdata::{
     ComposeRecordData, LongRecordData, ParseRecordData, RecordData,
 };
-use crate::base::Ttl;
 use crate::base::scan::{Scan, Scanner, ScannerError};
 use crate::base::serial::Serial;
 use crate::base::wire::{Compose, Composer, FormError, Parse, ParseError};
+use crate::base::Ttl;
 use crate::utils::{base16, base64};
 use core::cmp::Ordering;
 use core::convert::TryInto;
@@ -170,7 +170,6 @@ impl<Octs> Dnskey<Octs> {
     }
 
     /// Returns the key tag for this DNSKEY data.
-    #[allow(clippy::while_let_loop)] // I find this clearer with a loop.
     pub fn key_tag(&self) -> u16
     where
         Octs: AsRef<[u8]>,
@@ -197,6 +196,9 @@ impl<Octs> Dnskey<Octs> {
             res += u32::from(self.protocol) << 8;
             res += u32::from(self.algorithm.to_int());
             let mut iter = self.public_key().as_ref().iter();
+
+            // I find this clearer with a loop.
+            #[allow(clippy::while_let_loop)]
             loop {
                 match iter.next() {
                     Some(&x) => res += u32::from(x) << 8,
@@ -207,6 +209,7 @@ impl<Octs> Dnskey<Octs> {
                     None => break,
                 }
             }
+
             res += (res >> 16) & 0xFFFF;
             (res & 0xFFFF) as u16
         }
@@ -550,7 +553,7 @@ where
     type AppendError = Name::AppendError;
 
     fn try_flatten_into(
-        self
+        self,
     ) -> Result<ProtoRrsig<TName>, Name::AppendError> {
         Ok(ProtoRrsig::new(
             self.type_covered,
@@ -671,7 +674,6 @@ impl Timestamp {
     pub fn into_int(self) -> u32 {
         self.0.into_int()
     }
-
 }
 
 /// # Parsing and Composing
@@ -692,7 +694,6 @@ impl Timestamp {
         self.0.compose(target)
     }
 }
-
 
 //--- From and FromStr
 
@@ -741,9 +742,9 @@ impl str::FromStr for Timestamp {
                 .unix_timestamp() as u32,
             )))
         } else {
-            Serial::from_str(src).map(Timestamp).map_err(|_| {
-                IllegalSignatureTime(())
-            })
+            Serial::from_str(src)
+                .map(Timestamp)
+                .map_err(|_| IllegalSignatureTime(()))
         }
     }
 }
@@ -769,7 +770,6 @@ impl CanonicalOrd for Timestamp {
         self.0.canonical_cmp(&other.0)
     }
 }
-
 
 //------------ Helper Functions ----------------------------------------------
 
@@ -1430,10 +1430,7 @@ impl<Octs, Name> Nsec<Octs, Name> {
     pub fn scan<S: Scanner<Octets = Octs, Name = Name>>(
         scanner: &mut S,
     ) -> Result<Self, S::Error> {
-        Ok(Self::new(
-            scanner.scan_name()?,
-            RtypeBitmap::scan(scanner)?,
-        ))
+        Ok(Self::new(scanner.scan_name()?, RtypeBitmap::scan(scanner)?))
     }
 }
 

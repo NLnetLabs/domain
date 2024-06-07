@@ -210,7 +210,6 @@ pub trait Service<RequestOctets: AsRef<[u8]> = Vec<u8>> {
     >;
 
     /// Generate a response to a fully pre-processed request.
-    #[allow(clippy::type_complexity)]
     fn call(
         &self,
         request: Request<RequestOctets>,
@@ -394,7 +393,6 @@ where
 
     /// Convert the [`CallResult`] into the contained DNS response message and command.
     #[must_use]
-    #[allow(clippy::type_complexity)]
     pub fn into_inner(
         self,
     ) -> (

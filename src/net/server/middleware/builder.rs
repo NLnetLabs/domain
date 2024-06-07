@@ -86,9 +86,7 @@ where
         let mut builder = Self::new();
 
         builder.push(MandatoryMiddlewareProcessor::default().into());
-
-        #[allow(clippy::default_constructed_unit_structs)]
-        builder.push(EdnsMiddlewareProcessor::default().into());
+        builder.push(EdnsMiddlewareProcessor.into());
 
         builder
     }

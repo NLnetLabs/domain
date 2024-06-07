@@ -15,7 +15,6 @@ impl Ipv4Addr {
         Self([a, b, c, d])
     }
 
-    #[allow(clippy::trivially_copy_pass_by_ref)]
     pub fn octets(&self) -> [u8; 4] {
         self.0
     }

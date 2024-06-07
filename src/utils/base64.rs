@@ -523,7 +523,6 @@ const EOF_MARKER: usize = 0xF0;
 mod test {
     use super::*;
 
-    #[allow(dead_code)]
     const HAPPY_CASES: &[(&[u8], &str)] = &[
         (b"", ""),
         (b"f", "Zg=="),

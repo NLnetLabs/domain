@@ -10,7 +10,7 @@ use crate::base::iana::Rtype;
 use crate::base::rdata::{
     ComposeRecordData, LongRecordData, ParseRecordData, RecordData,
 };
-use crate::base::scan::{Scanner};
+use crate::base::scan::Scanner;
 #[cfg(feature = "serde")]
 use crate::base::scan::Symbol;
 use crate::base::wire::{Composer, FormError, ParseError};

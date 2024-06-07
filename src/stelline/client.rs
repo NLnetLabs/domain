@@ -69,8 +69,6 @@ pub enum StellineErrorCause {
     MismatchedAnswer,
     MissingResponse,
     MissingStepEntry,
-
-    #[allow(dead_code)]
     MissingClient,
 }
 
@@ -107,7 +105,6 @@ impl std::fmt::Display for StellineErrorCause {
 // This function handles the client part of a Stelline script. If works only
 // with SendRequest and is use to test the various client transport
 // implementations. This frees do_client of supporting SendRequest.
-#[allow(dead_code)]
 pub async fn do_client_simple<R: SendRequest<RequestMessage<Vec<u8>>>>(
     stelline: &Stelline,
     step_value: &CurrStepValue,
@@ -191,7 +188,6 @@ pub struct Dispatcher(
 );
 
 impl Dispatcher {
-    #[allow(dead_code)]
     pub fn with_client<T>(client: T) -> Self
     where
         T: SendRequest<RequestMessage<Vec<u8>>> + 'static,
@@ -209,7 +205,6 @@ impl Dispatcher {
         Self(None)
     }
 
-    #[allow(dead_code)]
     pub async fn dispatch(
         &self,
         entry: &Entry,
@@ -247,7 +242,6 @@ pub struct SingleClientFactory(
 );
 
 impl SingleClientFactory {
-    #[allow(dead_code)]
     pub fn new(
         client: impl SendRequest<RequestMessage<Vec<u8>>> + 'static,
     ) -> Self {
@@ -286,7 +280,6 @@ where
     F: Fn(&IpAddr) -> Box<dyn SendRequest<RequestMessage<Vec<u8>>>>,
     S: Fn(&Entry) -> bool,
 {
-    #[allow(dead_code)]
     pub fn new(factory_func: F, is_suitable_func: S) -> Self {
         Self {
             clients_by_address: Default::default(),
@@ -335,7 +328,6 @@ pub struct QueryTailoredClientFactory {
 }
 
 impl QueryTailoredClientFactory {
-    #[allow(dead_code)]
     pub fn new(factories: Vec<Box<dyn ClientFactory>>) -> Self {
         Self { factories }
     }
@@ -373,7 +365,6 @@ impl ClientFactory for QueryTailoredClientFactory {
 // connection and associating a source address with every request. TCP
 // suport can be made simpler because the test code does not have to be
 // careful about the TcpKeepalive option and just keep the connection open.
-#[allow(dead_code)]
 pub async fn do_client<'a, T: ClientFactory>(
     stelline: &'a Stelline,
     step_value: &'a CurrStepValue,
