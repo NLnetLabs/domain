@@ -290,14 +290,12 @@ pub fn nsec_in_range<TN>(
 where
     TN: ToName,
 {
-    if owner.name_cmp(next_name) == Ordering::Less {
-        target.name_cmp(&owner) == Ordering::Greater
-            && target.name_cmp(next_name) == Ordering::Less
     if owner < next_name {
         target > owner && target < next_name
     } else {
         target > owner
     }
+}
 
 type BytesNsec = Nsec<Bytes, ParsedName<Bytes>>;
 fn get_checked_nsec(
