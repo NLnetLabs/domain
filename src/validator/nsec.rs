@@ -179,6 +179,11 @@ pub fn nsec_for_not_exists(
             nsec
         } else {
             if ede.is_none() {
+                // get_checked_nsec may have provided a reason it could not
+                // return an NSEC record. Typically this happens if there is
+                // an NSEC record but it fails some validation check. Store
+                // the first reason we got to (hopefully) provide a clue to the
+                // user if validation fails later on.
                 ede = new_ede;
             }
             continue;
