@@ -104,7 +104,7 @@ impl TrustAnchors {
 
         let mut zonefile = Zonefile::new();
         zonefile.extend_from_slice(str);
-        zonefile.extend_from_slice("\n".as_bytes());
+        zonefile.extend_from_slice(b"\n");
         for e in zonefile {
             let e = e?;
             match e {
