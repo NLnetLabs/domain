@@ -367,8 +367,13 @@ impl<Upstream> ValidationContext<Upstream> {
         }
     }
 
-    // On success, return the validation state and an optionally an extended DNS
-    // error.
+    /// Validate a DNS reply message. An Error value will be returned if the
+    /// message cannot be parsed or if there is any other message-related.
+    /// Otherwise the function return the DNSSEC validation state together
+    /// with an optional EDNS(0) ExtendError. The ExtendedError, if present
+    /// provides additional information on the cause of the validation state.
+    /// This ExtendError is added to the reply message by the
+    /// [validator](crate::net::client::validator) transport.
     pub async fn validate_msg<'a, MsgOcts, USOcts>(
         &self,
         msg: &'a mut Message<MsgOcts>,
