@@ -42,7 +42,7 @@ impl TrustAnchor {
     }
 
     fn add(&mut self, rr: &RrType) -> Result<(), ()> {
-        // Only the owner names need to match. We assume !self.0.is_empty().
+        // Only the owner names need to match. We assume !self.rrs.is_empty().
         if self.rrs[0].owner().name_eq(rr.owner()) {
             self.rrs.push(rr.clone());
             return Ok(());
