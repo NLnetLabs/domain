@@ -114,8 +114,8 @@ impl Group {
 
     fn add(&mut self, rr: &ParsedRecord<'_, Bytes>) -> Result<(), ()> {
         // First check owner.
-        if !self.rr_set.is_empty() {
-            if self.rr_set[0].owner() != &rr.owner().to_name::<Bytes>() {
+        if let Some(frr) = self.rr_set.first() {
+            if frr.owner() != &rr.owner().to_name::<Bytes>() {
                 return Err(());
             }
         } else if self.sig_set[0].owner().to_name::<Bytes>()
@@ -251,8 +251,8 @@ impl Group {
     }
 
     pub fn owner(&self) -> Name<Bytes> {
-        if !self.rr_set.is_empty() {
-            return self.rr_set[0].owner().to_bytes();
+        if let Some(rr) = self.rr_set.first() {
+            return rr.owner().to_bytes();
         }
 
         // This may fail if sig_set is empty. But either rr_set or
@@ -261,8 +261,8 @@ impl Group {
     }
 
     pub fn class(&self) -> Class {
-        if !self.rr_set.is_empty() {
-            return self.rr_set[0].class();
+        if let Some(rr) = self.rr_set.first() {
+            return rr.class();
         }
 
         // This may fail if sig_set is empty. But either rr_set or
@@ -271,8 +271,8 @@ impl Group {
     }
 
     pub fn rtype(&self) -> Rtype {
-        if !self.rr_set.is_empty() {
-            return self.rr_set[0].rtype();
+        if let Some(rr) = self.rr_set.first() {
+            return rr.rtype();
         }
 
         // The type in sig_set is always Rrsig
@@ -344,8 +344,8 @@ impl Group {
             ));
         }
 
-        let target = if !self.sig_set.is_empty() {
-            self.sig_set[0].data().signer_name()
+        let target = if let Some(sig_rr) = self.sig_set.first() {
+            sig_rr.data().signer_name()
         } else {
             self.rr_set[0].owner()
         };
@@ -821,8 +821,8 @@ impl ValidatedGroup {
     }
 
     pub fn class(&self) -> Class {
-        if !self.rr_set.is_empty() {
-            return self.rr_set[0].class();
+        if let Some(rr) = self.rr_set.first() {
+            return rr.class();
         }
 
         // This may fail if sig_set is empty. But either rr_set or
@@ -831,8 +831,8 @@ impl ValidatedGroup {
     }
 
     pub fn rtype(&self) -> Rtype {
-        if !self.rr_set.is_empty() {
-            return self.rr_set[0].rtype();
+        if let Some(rr) = self.rr_set.first() {
+            return rr.rtype();
         }
 
         // The type in sig_set is always Rrsig
@@ -840,8 +840,8 @@ impl ValidatedGroup {
     }
 
     pub fn owner(&self) -> Name<Bytes> {
-        if !self.rr_set.is_empty() {
-            return self.rr_set[0].owner().to_bytes();
+        if let Some(rr) = self.rr_set.first() {
+            return rr.owner().to_bytes();
         }
 
         // This may fail if sig_set is empty. But either rr_set or
