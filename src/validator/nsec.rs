@@ -23,7 +23,6 @@ use crate::rdata::Nsec3;
 use bytes::Bytes;
 use moka::future::Cache;
 use ring::digest;
-use std::cmp::Ordering;
 use std::collections::VecDeque;
 use std::str::FromStr;
 use std::str::Utf8Error;
