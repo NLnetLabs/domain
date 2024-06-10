@@ -36,6 +36,8 @@
 //! record multiple times and will validate them in parallel.
 //! * There is no prefetching. An expired cached node will be regenerated at
 //!   next request that needs it.
+//! * Currently `DS` and `DNSKEY` requests are issued sequentically. They
+//!   can be issued (optimistically) in parallel to lower latency.
 //! * There is currently no support for generating a validation chain
 //!   ([RFC 9102](https://www.rfc-editor.org/info/rfc9102)).
 //! * There is currently no support for validating a chain.
@@ -98,6 +100,9 @@
 //!     println!("Validation result: {res:?}");
 //! # }
 //! ```
+
+#![warn(missing_docs)]
+// #![warn(clippy::missing_docs_in_private_items)]
 
 pub mod anchor;
 pub mod context;

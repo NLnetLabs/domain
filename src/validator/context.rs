@@ -4,80 +4,52 @@
 //! connection for issuing queries, and caches to store previously fetched
 //! or evaluated results.
 
-use super::anchor::TrustAnchor;
-use super::anchor::TrustAnchors;
-use super::group::Group;
-use super::group::GroupSet;
-use super::group::SigCache;
-use super::group::ValidatedGroup;
-use super::nsec::cached_nsec3_hash;
-use super::nsec::nsec3_for_nodata;
-use super::nsec::nsec3_for_not_exists;
-use super::nsec::nsec3_for_nxdomain;
-use super::nsec::nsec3_in_range;
-use super::nsec::nsec3_label_to_hash;
-use super::nsec::nsec_for_nodata;
-use super::nsec::nsec_for_nodata_wildcard;
-use super::nsec::nsec_for_nxdomain;
-use super::nsec::nsec_in_range;
-use super::nsec::supported_nsec3_hash;
-use super::nsec::Nsec3Cache;
-use super::nsec::Nsec3NXState;
-use super::nsec::Nsec3State;
-use super::nsec::NsecNXState;
-use super::nsec::NsecState;
-use super::utilities::check_not_exists_for_wildcard;
-use super::utilities::do_cname_dname;
-use super::utilities::get_answer_state;
-use super::utilities::get_soa_state;
-use super::utilities::make_ede;
-use super::utilities::map_maybe_secure;
-use super::utilities::rebuild_msg;
-use super::utilities::star_closest_encloser;
-use super::utilities::ttl_for_sig;
-use crate::base::iana::ExtendedErrorCode;
-use crate::base::iana::OptRcode;
+use super::anchor::{TrustAnchor, TrustAnchors};
+use super::group::{Group, GroupSet, SigCache, ValidatedGroup};
+use super::nsec::{
+    cached_nsec3_hash, nsec3_for_nodata, nsec3_for_not_exists,
+    nsec3_for_nxdomain, nsec3_in_range, nsec3_label_to_hash, nsec_for_nodata,
+    nsec_for_nodata_wildcard, nsec_for_nxdomain, nsec_in_range,
+    supported_nsec3_hash,
+};
+use super::nsec::{
+    Nsec3Cache, Nsec3NXState, Nsec3State, NsecNXState, NsecState,
+};
+use super::utilities::{
+    check_not_exists_for_wildcard, do_cname_dname, get_answer_state,
+    get_soa_state, make_ede, map_maybe_secure, rebuild_msg,
+    star_closest_encloser, ttl_for_sig,
+};
+use crate::base::iana::{ExtendedErrorCode, OptRcode};
 use crate::base::message::ShortMessage;
-use crate::base::name;
-use crate::base::name::Chain;
-use crate::base::name::Label;
+use crate::base::name::{Chain, Label};
 use crate::base::opt::ExtendedError;
-use crate::base::wire;
-use crate::base::Message;
-use crate::base::MessageBuilder;
-use crate::base::Name;
-use crate::base::ParsedName;
-use crate::base::Record;
-use crate::base::RelativeName;
-use crate::base::Rtype;
-use crate::base::ToName;
-use crate::dep::octseq::Octets;
-use crate::dep::octseq::OctetsFrom;
-use crate::dep::octseq::OctetsInto;
-use crate::net::client::request::ComposeRequest;
-use crate::net::client::request::RequestMessage;
-use crate::net::client::request::SendRequest;
-use crate::rdata::AllRecordData;
-use crate::rdata::Dnskey;
-use crate::rdata::Ds;
-use crate::rdata::ZoneRecordData;
+use crate::base::{name, wire};
+use crate::base::{
+    Message, MessageBuilder, Name, ParsedName, Record, RelativeName, Rtype,
+    ToName,
+};
+use crate::dep::octseq::{Octets, OctetsFrom, OctetsInto};
+use crate::net::client::request::{
+    ComposeRequest, RequestMessage, SendRequest,
+};
+use crate::rdata::{AllRecordData, Dnskey, Ds, ZoneRecordData};
 use crate::utils::config::DefMinMax;
-use crate::validate::supported_algorithm;
-use crate::validate::supported_digest;
 use crate::validate::DnskeyExt;
+use crate::validate::{supported_algorithm, supported_digest};
 use crate::zonefile::inplace;
 use bytes::Bytes;
 use moka::future::Cache;
 use std::cmp::min;
 use std::collections::VecDeque;
-use std::error;
-use std::fmt;
 use std::fmt::Debug;
 use std::string::ToString;
 use std::sync::Arc;
-use std::time::Duration;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 use std::vec::Vec;
+use std::{error, fmt};
+
+//----------- Config ---------------------------------------------------------
 
 /// Configuration limit for the maximum number of entries in the node cache.
 const MAX_NODE_CACHE: DefMinMax<u64> = DefMinMax::new(100, 1, 1_000_000_000);
@@ -328,13 +300,7 @@ impl Default for Config {
     }
 }
 
-//------------ ValidationContext ----------------------------------------------
-
-enum VGResult {
-    Groups(Vec<ValidatedGroup>, bool),
-    Bogus(Option<ExtendedError<Vec<u8>>>),
-    Err(Error),
-}
+//------------ ValidationContext ---------------------------------------------
 
 /// A DNSSEC validation context.
 pub struct ValidationContext<Upstream> {
@@ -351,10 +317,12 @@ pub struct ValidationContext<Upstream> {
 }
 
 impl<Upstream> ValidationContext<Upstream> {
+    /// Create a new ValidationContext with default configuration.
     pub fn new(ta: TrustAnchors, upstream: Upstream) -> Self {
         Self::with_config(ta, upstream, Default::default())
     }
 
+    /// Create a new ValidationContext with specified configuration.
     pub fn with_config(
         ta: TrustAnchors,
         upstream: Upstream,
@@ -438,11 +406,12 @@ impl<Upstream> ValidationContext<Upstream> {
             *msg = rebuild_msg(&bytes_msg, &answers, &authorities)?;
         }
 
-        // Go through the answers and use CNAME and DNAME records to update 'SNAME'
-        // (see RFC 1034, Section 5.3.2) to the final name that results in an
-        // answer, NODATA, or NXDOMAIN. First extract QNAME/QCLASS/QTYPE. Require
-        // that the question section has only one entry. Return FormError if that
-        // is not the case (following draft-bellis-dnsop-qdcount-is-one-00)
+        // Go through the answers and use CNAME and DNAME records to update
+        // 'SNAME' (see RFC 1034, Section 5.3.2) to the final name that
+        // results in an answer, NODATA, or NXDOMAIN. First extract
+        // QNAME/QCLASS/QTYPE. Require that the question section has only
+        // one entry. Return FormError if that is not the case
+        // (following draft-bellis-dnsop-qdcount-is-one-00)
 
         // Extract Qname, Qclass, Qtype
         let mut question_section = bytes_msg.question();
@@ -1396,6 +1365,38 @@ impl<Upstream> ValidationContext<Upstream> {
     }
 }
 
+enum VGResult {
+    Groups(Vec<ValidatedGroup>, bool),
+    Bogus(Option<ExtendedError<Vec<u8>>>),
+    Err(Error),
+}
+
+//----------- ValidationState ------------------------------------------------
+
+/// State of DNSSEC valdation as described in
+/// [RFC 4033, Section 5](https://www.rfc-editor.org/rfc/rfc4033.html#section-5).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum ValidationState {
+    /// The validator has a trust anchor, has a chain if trust and is able
+    /// to verify all signatures.
+    Secure,
+
+    /// The validator has a trust anchor, a chain of trust, and, at some
+    /// delegation point, signed proof of the non-existence of a DS record.
+    Insecure,
+
+    /// The validator has a trust anchor and a secure delegation indicating
+    /// that data us signed, but the response fails to validate for some
+    /// reason.
+    Bogus,
+
+    /// There is no trust anchor that would indicate a specific portion
+    /// of the tree is secure.
+    Indeterminate,
+}
+
+//------------ Node ----------------------------------------------------------
+
 #[derive(Clone)]
 pub(crate) struct Node {
     state: ValidationState,
@@ -1648,6 +1649,8 @@ impl Node {
         self.valid_for - self.created_at.elapsed()
     }
 }
+
+//------------ Helper functions ----------------------------------------------
 
 #[allow(clippy::type_complexity)]
 fn has_key(
@@ -2247,24 +2250,37 @@ where
     Ok((answers, authorities, ede))
 }
 
-// RFC 4033, Section 5 defines the security states of data:
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub enum ValidationState {
-    Secure,
-    Insecure,
-    Bogus,
-    Indeterminate,
-}
+//----------- Error ----------------------------------------------------------
 
+/// Various errors that can be returned by function in the
+/// [validator](crate::validator) module.
 #[derive(Clone, Debug)]
 pub enum Error {
+    /// Badly formed DNS message.
+    ///
+    /// In particular, the number of query records in the Question section
+    /// is not equal to one.
     FormError,
+
+    /// Error parsing trust anchors.
     InplaceError(inplace::Error),
+
+    /// Cannot convert one type of octets into another.
     OctetsConversion,
+
+    /// Error parsing a DNS message.
     ParseError,
+
+    /// Error adding data while building a DNS message.
     PushError,
+
+    /// Error adding a label to a name.
     PushNameError,
+
+    /// Error reading from a file.
     ReadError(Arc<std::io::Error>),
+
+    /// DNS message is too short.
     ShortMessage,
 }
 

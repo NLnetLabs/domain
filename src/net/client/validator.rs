@@ -88,28 +88,19 @@
 //! ```
 
 use crate::base::iana::Rcode;
-use crate::base::opt::AllOptData;
-use crate::base::opt::ExtendedError;
-use crate::base::Message;
-use crate::base::MessageBuilder;
-use crate::base::ParsedName;
-use crate::base::Rtype;
-use crate::base::StaticCompressor;
-use crate::dep::octseq::Octets;
-use crate::dep::octseq::OctetsFrom;
-use crate::dep::octseq::OctetsInto;
-use crate::net::client::request::ComposeRequest;
-use crate::net::client::request::Error;
-use crate::net::client::request::GetResponse;
-use crate::net::client::request::RequestMessage;
-use crate::net::client::request::SendRequest;
+use crate::base::opt::{AllOptData, ExtendedError};
+use crate::base::{
+    Message, MessageBuilder, ParsedName, Rtype, StaticCompressor,
+};
+use crate::dep::octseq::{Octets, OctetsFrom, OctetsInto};
+use crate::net::client::request::{
+    ComposeRequest, Error, GetResponse, RequestMessage, SendRequest,
+};
 use crate::rdata::AllRecordData;
-use crate::validator::context::ValidationContext;
-use crate::validator::context::ValidationState;
+use crate::validator::context::{ValidationContext, ValidationState};
 use bytes::Bytes;
 use std::boxed::Box;
-use std::fmt::Debug;
-use std::fmt::Formatter;
+use std::fmt::{Debug, Formatter};
 use std::future::Future;
 use std::marker::PhantomData;
 use std::pin::Pin;

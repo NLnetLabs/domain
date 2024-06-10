@@ -6,35 +6,22 @@
 //! Name suggested by Yorgos: SignedRrset. Problem, sometimes there are no
 //! signatures, sometimes there is a signature but no RRset.
 
-use super::context::Config;
-use super::context::Error;
-use super::context::Node;
-use super::context::ValidationContext;
-use super::context::ValidationState;
-use super::utilities::make_ede;
-use super::utilities::map_dname;
-use super::utilities::ttl_for_sig;
+use super::context::{
+    Config, Error, Node, ValidationContext, ValidationState,
+};
+use super::utilities::{make_ede, map_dname, ttl_for_sig};
 use crate::base::cmp::CanonicalOrd;
 use crate::base::iana::class::Class;
 use crate::base::iana::ExtendedErrorCode;
 use crate::base::name::ToName;
 use crate::base::opt::exterr::ExtendedError;
 use crate::base::rdata::ComposeRecordData;
-use crate::base::Name;
-use crate::base::ParsedName;
-use crate::base::ParsedRecord;
-use crate::base::Record;
-use crate::base::Rtype;
-use crate::base::Ttl;
+use crate::base::{Name, ParsedName, ParsedRecord, Record, Rtype, Ttl};
 use crate::dep::octseq::builder::with_infallible;
-use crate::dep::octseq::Octets;
-use crate::dep::octseq::OctetsFrom;
-use crate::net::client::request::RequestMessage;
-use crate::net::client::request::SendRequest;
+use crate::dep::octseq::{Octets, OctetsFrom};
+use crate::net::client::request::{RequestMessage, SendRequest};
 use crate::rdata::dnssec::Timestamp;
-use crate::rdata::AllRecordData;
-use crate::rdata::Dnskey;
-use crate::rdata::Rrsig;
+use crate::rdata::{AllRecordData, Dnskey, Rrsig};
 use crate::validate::RrsigExt;
 use bytes::Bytes;
 use moka::future::Cache;
@@ -45,8 +32,7 @@ use std::slice::Iter;
 use std::time::Duration;
 use std::vec::Vec;
 
-type RrType = Record<Name<Bytes>, AllRecordData<Bytes, ParsedName<Bytes>>>;
-type SigType = Record<Name<Bytes>, Rrsig<Bytes, Name<Bytes>>>;
+//----------- Group ----------------------------------------------------------
 
 /// A collection of records (rr_set), associated signatures (sig_set) and
 /// space for extra records, currently only CNAME records that are associated
@@ -67,6 +53,9 @@ pub struct Group {
     extra_set: Vec<RrType>,
     found_duplicate: bool,
 }
+
+type RrType = Record<Name<Bytes>, AllRecordData<Bytes, ParsedName<Bytes>>>;
+type SigType = Record<Name<Bytes>, Rrsig<Bytes, Name<Bytes>>>;
 
 impl Group {
     fn new(rr: ParsedRecord<'_, Bytes>) -> Result<Self, Error> {
@@ -659,6 +648,8 @@ impl Group {
     }
 }
 
+//----------- GroupSet -------------------------------------------------------
+
 #[derive(Clone, Debug)]
 pub struct GroupSet(Vec<Group>);
 
@@ -779,6 +770,8 @@ impl GroupSet {
     }
 }
 
+//----------- ValidatedGroup -------------------------------------------------
+
 #[derive(Debug)]
 pub struct ValidatedGroup {
     rr_set: Vec<RrType>,
@@ -883,6 +876,8 @@ impl ValidatedGroup {
         self.found_duplicate
     }
 }
+
+//----------- Helper functions -----------------------------------------------
 
 #[allow(clippy::type_complexity)]
 fn to_bytes_record(

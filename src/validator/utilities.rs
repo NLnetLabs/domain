@@ -1,38 +1,24 @@
-use super::context::Config;
-use super::context::Error;
-use super::context::ValidationState;
+use super::context::{Config, Error, ValidationState};
 use super::group::ValidatedGroup;
-use super::nsec::nsec3_for_not_exists_no_ce;
-use super::nsec::nsec_for_not_exists;
-use super::nsec::Nsec3Cache;
-use super::nsec::Nsec3NXStateNoCE;
-use super::nsec::NsecNXState;
-use crate::base::iana::Class;
-use crate::base::iana::ExtendedErrorCode;
+use super::nsec::{nsec3_for_not_exists_no_ce, nsec_for_not_exists};
+use super::nsec::{Nsec3Cache, Nsec3NXStateNoCE, NsecNXState};
+use crate::base::iana::{Class, ExtendedErrorCode};
 use crate::base::name::Label;
 use crate::base::opt::ExtendedError;
 use crate::base::rdata::ComposeRecordData;
 use crate::base::wire::Composer;
-use crate::base::Message;
-use crate::base::MessageBuilder;
-use crate::base::Name;
-use crate::base::NameBuilder;
-use crate::base::ParsedName;
-use crate::base::Record;
-use crate::base::RecordSectionBuilder;
-use crate::base::Rtype;
-use crate::base::StaticCompressor;
-use crate::base::ToName;
-use crate::base::Ttl;
-use crate::dep::octseq::OctetsFrom;
-use crate::dep::octseq::OctetsInto;
+use crate::base::{
+    Message, MessageBuilder, Name, NameBuilder, ParsedName, Record,
+    RecordSectionBuilder, Rtype, StaticCompressor, ToName, Ttl,
+};
+use crate::dep::octseq::{OctetsFrom, OctetsInto};
 use crate::rdata::dnssec::Timestamp;
-use crate::rdata::AllRecordData;
-use crate::rdata::Dname;
-use crate::rdata::Rrsig;
+use crate::rdata::{AllRecordData, Dname, Rrsig};
 use bytes::Bytes;
 use std::cmp::min;
 use std::vec::Vec;
+
+//----------- Helper functions -----------------------------------------------
 
 pub async fn do_cname_dname(
     qname: Name<Bytes>,

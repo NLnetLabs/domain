@@ -1,33 +1,24 @@
 // Helper functions for NSEC and NSEC3 validation.
 
-use super::context::Config;
-use super::context::ValidationState;
+use super::context::{Config, ValidationState};
 use super::group::ValidatedGroup;
-use super::utilities::make_ede;
-use super::utilities::star_closest_encloser;
-use crate::base::iana::ExtendedErrorCode;
-use crate::base::iana::Nsec3HashAlg;
-use crate::base::name::Label;
-use crate::base::name::ToName;
+use super::utilities::{make_ede, star_closest_encloser};
+use crate::base::iana::{ExtendedErrorCode, Nsec3HashAlg};
+use crate::base::name::{Label, ToName};
 use crate::base::opt::ExtendedError;
-use crate::base::Name;
-use crate::base::ParsedName;
-use crate::base::Rtype;
-use crate::dep::octseq::Octets;
-use crate::dep::octseq::OctetsBuilder;
-use crate::rdata::nsec3::Nsec3Salt;
-use crate::rdata::nsec3::OwnerHash;
-use crate::rdata::AllRecordData;
-use crate::rdata::Nsec;
-use crate::rdata::Nsec3;
+use crate::base::{Name, ParsedName, Rtype};
+use crate::dep::octseq::{Octets, OctetsBuilder};
+use crate::rdata::nsec3::{Nsec3Salt, OwnerHash};
+use crate::rdata::{AllRecordData, Nsec, Nsec3};
 use bytes::Bytes;
 use moka::future::Cache;
 use ring::digest;
 use std::collections::VecDeque;
-use std::str::FromStr;
-use std::str::Utf8Error;
+use std::str::{FromStr, Utf8Error};
 use std::sync::Arc;
 use std::vec::Vec;
+
+//----------- Nsec functions -------------------------------------------------
 
 #[derive(Debug)]
 pub enum NsecState {
@@ -390,6 +381,8 @@ fn nsec_closest_encloser(
         next_encloser
     }
 }
+
+//----------- Nsec3 functions ------------------------------------------------
 
 // Find an NSEC3 record for target that proves that no record that matches
 // rtype exist. There is only one option: find an NSEC3 record that has an

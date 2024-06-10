@@ -1,14 +1,10 @@
 //! Create DNSSEC trust anchors.
 
 use super::context::Error;
-use crate::base::name::Chain;
-use crate::base::name::Name;
-use crate::base::name::ToName;
-use crate::base::Record;
-use crate::base::RelativeName;
+use crate::base::name::{Chain, Name, ToName};
+use crate::base::{Record, RelativeName};
 use crate::rdata::ZoneRecordData;
-use crate::zonefile::inplace::Entry;
-use crate::zonefile::inplace::Zonefile;
+use crate::zonefile::inplace::{Entry, Zonefile};
 use bytes::Bytes;
 use std::fmt::Debug;
 use std::io::Read;
@@ -16,12 +12,7 @@ use std::slice::Iter;
 use std::sync::Arc;
 use std::vec::Vec;
 
-// Type of Record we get from Zonefile.
-
-type RrType = Record<
-    Chain<RelativeName<Bytes>, Name<Bytes>>,
-    ZoneRecordData<Bytes, Chain<RelativeName<Bytes>, Name<Bytes>>>,
->;
+//----------- TrustAnchor ----------------------------------------------------
 
 #[derive(Clone, Debug)]
 pub(crate) struct TrustAnchor {
@@ -29,6 +20,12 @@ pub(crate) struct TrustAnchor {
     owner: Name<Bytes>,
     label_count: usize,
 }
+
+/// Type of Record we get from Zonefile.
+type RrType = Record<
+    Chain<RelativeName<Bytes>, Name<Bytes>>,
+    ZoneRecordData<Bytes, Chain<RelativeName<Bytes>, Name<Bytes>>>,
+>;
 
 impl TrustAnchor {
     fn new(rr: RrType) -> Self {
@@ -60,6 +57,8 @@ impl TrustAnchor {
         self.rrs.iter()
     }
 }
+
+//----------- TrustAnchors ---------------------------------------------------
 
 /// DNSSEC trust anchors.
 pub struct TrustAnchors(Vec<TrustAnchor>);
