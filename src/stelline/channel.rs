@@ -177,7 +177,6 @@ impl Clone for ClientServerChannel {
 }
 
 impl ClientServerChannel {
-    // #[allow(dead_code)]
     pub fn new_dgram() -> Self {
         Self {
             is_stream: false,
@@ -185,7 +184,6 @@ impl ClientServerChannel {
         }
     }
 
-    // #[allow(dead_code)]
     pub fn new_stream() -> Self {
         Self {
             is_stream: true,
