@@ -25,7 +25,6 @@ use crate::net::server::sock::{AsyncAccept, AsyncDgramSock};
 
 // If MSRV gets bumped to 1.69.0 we can replace these with a const SocketAddr.
 pub const DEF_CLIENT_ADDR: IpAddr = IpAddr::V4(Ipv4Addr::LOCALHOST);
-#[allow(dead_code)]
 pub const DEF_CLIENT_PORT: u16 = 0;
 
 enum Data {
@@ -178,7 +177,6 @@ impl Clone for ClientServerChannel {
 }
 
 impl ClientServerChannel {
-    #[allow(dead_code)]
     pub fn new_dgram() -> Self {
         Self {
             is_stream: false,
@@ -186,7 +184,6 @@ impl ClientServerChannel {
         }
     }
 
-    #[allow(dead_code)]
     pub fn new_stream() -> Self {
         Self {
             is_stream: true,

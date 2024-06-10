@@ -430,7 +430,6 @@ impl ResolvConf {
     }
     */
 
-    #[allow(clippy::match_same_arms)]
     fn parse_options(&mut self, words: SplitWhitespace) -> Result<(), Error> {
         for word in words {
             match split_arg(word)? {
@@ -480,7 +479,6 @@ impl Default for ResolvConf {
 //--- Display
 
 impl fmt::Display for ResolvConf {
-    #[allow(clippy::cognitive_complexity)]
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         for server in &self.servers {
             let server = server.addr;

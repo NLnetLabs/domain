@@ -504,7 +504,6 @@ where
 ///
 /// Responses are first post-processed by the [`MiddlewareChain`] provided, if
 /// any, then passed to [`Self::process_call_result`] for final processing.
-#[allow(clippy::type_complexity)]
 fn do_middleware_postprocessing<Buf, Svc, Server>(
     request: Request<Buf::Output>,
     meta: Server::Meta,

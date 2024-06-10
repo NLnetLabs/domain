@@ -25,7 +25,6 @@ use std::borrow::Cow;
 /// [`ToRelativeName`]. It is separate since it has to be generic over the
 /// lifetime of the label reference but we don’t want to have this lifetime
 /// parameter pollute those traits.
-#[allow(clippy::len_without_is_empty)]
 pub trait ToLabelIter {
     /// The type of the iterator over the labels.
     ///

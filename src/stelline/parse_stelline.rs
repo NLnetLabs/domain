@@ -76,17 +76,14 @@ pub struct Config {
 }
 
 impl Config {
-    #[allow(dead_code)]
     pub fn lines(&self) -> &[String] {
         self.lines.as_ref()
     }
 }
 
 #[derive(Clone, Debug)]
-#[allow(dead_code)]
 pub struct Stelline {
     pub name: String,
-    #[allow(dead_code)]
     pub config: Config,
     pub scenario: Scenario,
 }

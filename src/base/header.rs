@@ -1025,7 +1025,6 @@ mod test {
     }
 
     #[test]
-    #[allow(clippy::bool_assert_comparison)]
     fn header() {
         test_field!(id, set_id, 0, 0x1234);
         test_field!(qr, set_qr, false, true, false);
