@@ -1,6 +1,6 @@
 //! Create DNSSEC trust anchors.
 
-use super::types::Error;
+use super::context::Error;
 use crate::base::name::Chain;
 use crate::base::name::Name;
 use crate::base::name::ToName;

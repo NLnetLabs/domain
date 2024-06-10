@@ -105,7 +105,7 @@ use crate::net::client::request::RequestMessage;
 use crate::net::client::request::SendRequest;
 use crate::rdata::AllRecordData;
 use crate::validator::context::ValidationContext;
-use crate::validator::types::ValidationState;
+use crate::validator::context::ValidationState;
 use bytes::Bytes;
 use std::boxed::Box;
 use std::fmt::Debug;

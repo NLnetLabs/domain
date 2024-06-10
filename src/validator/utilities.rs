@@ -1,12 +1,12 @@
 use super::context::Config;
+use super::context::Error;
+use super::context::ValidationState;
 use super::group::ValidatedGroup;
 use super::nsec::nsec3_for_not_exists_no_ce;
 use super::nsec::nsec_for_not_exists;
 use super::nsec::Nsec3Cache;
 use super::nsec::Nsec3NXStateNoCE;
 use super::nsec::NsecNXState;
-use super::types::Error;
-use super::types::ValidationState;
 use crate::base::iana::Class;
 use crate::base::iana::ExtendedErrorCode;
 use crate::base::name::Label;

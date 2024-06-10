@@ -7,10 +7,10 @@
 //! signatures, sometimes there is a signature but no RRset.
 
 use super::context::Config;
+use super::context::Error;
 use super::context::Node;
 use super::context::ValidationContext;
-use super::types::Error;
-use super::types::ValidationState;
+use super::context::ValidationState;
 use super::utilities::make_ede;
 use super::utilities::map_dname;
 use super::utilities::ttl_for_sig;

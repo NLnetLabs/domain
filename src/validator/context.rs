@@ -26,8 +26,6 @@ use super::nsec::Nsec3NXState;
 use super::nsec::Nsec3State;
 use super::nsec::NsecNXState;
 use super::nsec::NsecState;
-use super::types::Error;
-use super::types::ValidationState;
 use super::utilities::check_not_exists_for_wildcard;
 use super::utilities::do_cname_dname;
 use super::utilities::get_answer_state;
@@ -39,9 +37,12 @@ use super::utilities::star_closest_encloser;
 use super::utilities::ttl_for_sig;
 use crate::base::iana::ExtendedErrorCode;
 use crate::base::iana::OptRcode;
+use crate::base::message::ShortMessage;
+use crate::base::name;
 use crate::base::name::Chain;
 use crate::base::name::Label;
 use crate::base::opt::ExtendedError;
+use crate::base::wire;
 use crate::base::Message;
 use crate::base::MessageBuilder;
 use crate::base::Name;
@@ -64,10 +65,13 @@ use crate::utils::config::DefMinMax;
 use crate::validate::supported_algorithm;
 use crate::validate::supported_digest;
 use crate::validate::DnskeyExt;
+use crate::zonefile::inplace;
 use bytes::Bytes;
 use moka::future::Cache;
 use std::cmp::min;
 use std::collections::VecDeque;
+use std::error;
+use std::fmt;
 use std::fmt::Debug;
 use std::string::ToString;
 use std::sync::Arc;
@@ -2241,4 +2245,85 @@ where
         );
     }
     Ok((answers, authorities, ede))
+}
+
+// RFC 4033, Section 5 defines the security states of data:
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum ValidationState {
+    Secure,
+    Insecure,
+    Bogus,
+    Indeterminate,
+}
+
+#[derive(Clone, Debug)]
+pub enum Error {
+    FormError,
+    InplaceError(inplace::Error),
+    OctetsConversion,
+    ParseError,
+    PushError,
+    PushNameError,
+    ReadError(Arc<std::io::Error>),
+    ShortMessage,
+}
+
+impl From<inplace::Error> for Error {
+    fn from(e: inplace::Error) -> Self {
+        Error::InplaceError(e)
+    }
+}
+
+impl From<name::PushError> for Error {
+    fn from(_: name::PushError) -> Self {
+        Error::PushError
+    }
+}
+
+impl From<name::PushNameError> for Error {
+    fn from(_: name::PushNameError) -> Self {
+        Error::PushNameError
+    }
+}
+
+impl From<wire::ParseError> for Error {
+    fn from(_: wire::ParseError) -> Self {
+        Error::ParseError
+    }
+}
+
+impl From<ShortMessage> for Error {
+    fn from(_: ShortMessage) -> Self {
+        Error::ShortMessage
+    }
+}
+
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Error::FormError => write!(f, "FormError"),
+            Error::InplaceError(_) => write!(f, "InplaceError"),
+            Error::OctetsConversion => write!(f, "OctetsConversion"),
+            Error::ParseError => write!(f, "ParseError"),
+            Error::PushError => write!(f, "PushError"),
+            Error::PushNameError => write!(f, "PushNameError"),
+            Error::ReadError(_) => write!(f, "FormError"),
+            Error::ShortMessage => write!(f, "ShortMEssage"),
+        }
+    }
+}
+
+impl error::Error for Error {
+    fn source(&self) -> Option<&(dyn error::Error + 'static)> {
+        match self {
+            Error::FormError => None,
+            Error::InplaceError(err) => Some(err),
+            Error::OctetsConversion => None,
+            Error::ParseError => None,
+            Error::PushError => None,
+            Error::PushNameError => None,
+            Error::ReadError(err) => Some(err),
+            Error::ShortMessage => None,
+        }
+    }
 }

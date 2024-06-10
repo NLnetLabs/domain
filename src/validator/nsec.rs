@@ -1,8 +1,8 @@
 // Helper functions for NSEC and NSEC3 validation.
 
 use super::context::Config;
+use super::context::ValidationState;
 use super::group::ValidatedGroup;
-use super::types::ValidationState;
 use super::utilities::make_ede;
 use super::utilities::star_closest_encloser;
 use crate::base::iana::ExtendedErrorCode;
