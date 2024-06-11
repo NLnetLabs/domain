@@ -2,11 +2,15 @@
 use core::future::{ready, Future, Ready};
 use core::marker::PhantomData;
 use core::ops::ControlFlow;
+use core::pin::Pin;
+
+use std::boxed::Box;
+use std::sync::Arc;
 
 use futures::stream::{once, Once, Stream};
 use octseq::Octets;
 
-use crate::base::iana::{Opcode, Rcode};
+use crate::base::iana::{Opcode, OptRcode, Rcode};
 use crate::base::message::CopyRecordsError;
 use crate::base::message_builder::AdditionalBuilder;
 use crate::base::wire::Composer;
@@ -16,13 +20,10 @@ use crate::base::{
 use crate::net::server::message::Request;
 use crate::net::server::middleware::stream::MiddlewareStream;
 use crate::net::server::service::{CallResult, Service};
-use crate::net::server::util::mk_builder_for_target;
+use crate::net::server::util::{mk_builder_for_target, mk_error_response};
 use crate::rdata::AllRecordData;
-use crate::zonecatalog::catalog::Catalog;
-use core::pin::Pin;
-use std::boxed::Box;
-use std::sync::Arc;
-use tracing::info;
+use crate::zonecatalog::catalog::{Catalog, CatalogError};
+use tracing::{debug, error, info, warn};
 
 /// A DNS NOTIFY middleware service
 ///
@@ -92,7 +93,11 @@ where
                 //
                 // So, we have received a notification from a server that an RR
                 // changed that we may be interested in.
-                info!("NOTIFY for {}, from {}", q.qname(), req.client_addr());
+                info!(
+                    "NOTIFY received from {} for zone '{}'",
+                    req.client_addr(),
+                    q.qname()
+                );
 
                 // https://datatracker.ietf.org/doc/html/rfc1996#section-3
                 //   "3.7. A NOTIFY request has QDCOUNT>0, ANCOUNT>=0,
@@ -126,10 +131,52 @@ where
                 //
                 // We pass the source to the Catalog to compare against the
                 // set of known masters for the zone.
-                catalog
+                if let Err(err) = catalog
                     .notify_zone_changed(class, &apex_name, source)
                     .await
-                    .unwrap();
+                {
+                    match err {
+                        CatalogError::UnknownZone => {
+                            warn!("Ignoring NOTIFY from {} for zone '{}': Zone not managed by the catalog",
+                                req.client_addr(),
+                                q.qname()
+                            );
+                            return ControlFlow::Break(
+                                Self::to_stream_compatible(
+                                    mk_error_response(msg, OptRcode::NOTAUTH),
+                                ),
+                            );
+                        }
+                        CatalogError::RequestError(_) => {
+                            debug!("Ignoring NOTIFY from {} for zone '{}': {err}",
+                                req.client_addr(),
+                                q.qname()
+                            );
+                            return ControlFlow::Break(
+                                Self::to_stream_compatible(
+                                    mk_error_response(msg, OptRcode::FORMERR),
+                                ),
+                            );
+                        }
+                        CatalogError::NotRunning
+                        | CatalogError::InternalError
+                        | CatalogError::ResponseError(_)
+                        | CatalogError::IoError(_) => {
+                            error!("Error while processing NOTIFY from {} for zone '{}': {err}",
+                            req.client_addr(),
+                            q.qname()
+                            );
+                            return ControlFlow::Break(
+                                Self::to_stream_compatible(
+                                    mk_error_response(
+                                        msg,
+                                        OptRcode::SERVFAIL,
+                                    ),
+                                ),
+                            );
+                        }
+                    }
+                }
 
                 // https://datatracker.ietf.org/doc/html/rfc1996#section-4
                 //   "4.7 Slave Receives a NOTIFY Request from a Master
@@ -182,6 +229,12 @@ where
         }
 
         ControlFlow::Continue(())
+    }
+
+    fn to_stream_compatible(
+        response: AdditionalBuilder<StreamTarget<Svc::Target>>,
+    ) -> Once<Ready<<Svc::Stream as Stream>::Item>> {
+        once(ready(Ok(CallResult::new(response))))
     }
 
     fn get_relevant_question(

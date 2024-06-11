@@ -15,6 +15,7 @@ use super::{parsed, ReadableZone, ZoneStore};
 
 //------------ ZoneKey -------------------------------------------------------
 
+/// TODO
 pub type ZoneKey = (StoredName, Class);
 
 //------------ Zone ----------------------------------------------------------
@@ -39,6 +40,7 @@ impl Zone {
         }
     }
 
+    /// TODO
     pub fn into_inner(self) -> Arc<dyn ZoneStore> {
         self.store
     }

@@ -169,6 +169,7 @@
 #![cfg_attr(docsrs, doc(cfg(feature = "unstable-client-transport")))]
 #![warn(missing_docs)]
 
+pub mod auth;
 pub mod cache;
 pub mod dgram;
 pub mod dgram_stream;

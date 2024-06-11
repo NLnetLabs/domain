@@ -1,19 +1,7 @@
 //! Constructing and sending requests.
-
 #![warn(missing_docs)]
 #![warn(clippy::missing_docs_in_private_items)]
 
-use crate::base::iana::Rcode;
-use crate::base::message::{CopyRecordsError, ShortMessage};
-use crate::base::message_builder::{
-    AdditionalBuilder, MessageBuilder, PushError, StaticCompressor,
-};
-use crate::base::opt::{ComposeOptData, LongOptData, OptRecord};
-use crate::base::wire::{Composer, ParseError};
-use crate::base::{Header, Message, ParsedName, Rtype};
-use crate::rdata::AllRecordData;
-use bytes::Bytes;
-use octseq::Octets;
 use std::boxed::Box;
 use std::fmt::Debug;
 use std::future::Future;
@@ -21,7 +9,21 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::vec::Vec;
 use std::{error, fmt};
+
+use bytes::Bytes;
+use octseq::Octets;
 use tracing::trace;
+
+use crate::base::iana::Rcode;
+use crate::base::message::{CopyRecordsError, ShortMessage};
+use crate::base::message_builder::{
+    AdditionalBuilder, MessageBuilder, PushError,
+};
+use crate::base::opt::{ComposeOptData, LongOptData, OptRecord};
+use crate::base::wire::{Composer, ParseError};
+use crate::base::{Header, Message, ParsedName, Rtype};
+use crate::rdata::AllRecordData;
+use crate::tsig;
 
 //------------ ComposeRequest ------------------------------------------------
 
@@ -30,15 +32,13 @@ pub trait ComposeRequest: Debug + Send + Sync {
     /// Appends the final message to a provided composer.
     fn append_message<Target: Composer>(
         &self,
-        target: &mut Target,
-    ) -> Result<(), CopyRecordsError>;
+        target: Target,
+    ) -> Result<AdditionalBuilder<Target>, CopyRecordsError>;
 
     /// Create a message that captures the recorded changes.
-    fn to_message(&self) -> Result<Message<Vec<u8>>, Error>;
 
     /// Create a message that captures the recorded changes and convert to
     /// a Vec.
-    fn to_vec(&self) -> Result<Vec<u8>, Error>;
 
     /// Return a reference to a mutable Header to record changes to the header.
     fn header_mut(&mut self) -> &mut Header;
@@ -57,6 +57,9 @@ pub trait ComposeRequest: Debug + Send + Sync {
 
     /// Returns whether a message is an answer to the request.
     fn is_answer(&self, answer: &Message<[u8]>) -> bool;
+
+    /// Returns whether a message results in a response stream or not.
+    fn is_streaming(&self) -> bool;
 }
 
 //------------ SendRequest ---------------------------------------------------
@@ -71,13 +74,6 @@ pub trait SendRequest<CR> {
         &self,
         request_msg: CR,
     ) -> Box<dyn GetResponse + Send + Sync>;
-
-    fn send_streaming_request(
-        &self,
-        _request_msg: CR,
-    ) -> Box<dyn GetResponse + Send + Sync> {
-        unimplemented!()
-    }
 }
 
 //------------ GetResponse ---------------------------------------------------
@@ -101,8 +97,14 @@ pub trait GetResponse: Debug {
         >,
     >;
 
-    fn stream_complete(&mut self) {
+    /// TODO
+    fn stream_complete(&mut self) -> Result<(), Error> {
         unimplemented!();
+    }
+
+    /// TODO
+    fn is_stream_complete(&self) -> bool {
+        false
     }
 }
 
@@ -110,7 +112,10 @@ pub trait GetResponse: Debug {
 
 /// Object that implements the ComposeRequest trait for a Message object.
 #[derive(Clone, Debug)]
-pub struct RequestMessage<Octs: AsRef<[u8]>> {
+pub struct RequestMessage<Octs>
+where
+    Octs: AsRef<[u8]>,
+{
     /// Base message.
     msg: Message<Octs>,
 
@@ -192,24 +197,6 @@ impl<Octs: AsRef<[u8]> + Debug + Octets> RequestMessage<Octs> {
 
         Ok(target)
     }
-
-    /// Create new message based on the changes to the base message.
-    fn to_message_impl(&self) -> Result<Message<Vec<u8>>, Error> {
-        let target =
-            MessageBuilder::from_target(StaticCompressor::new(Vec::new()))
-                .expect("Vec is expected to have enough space");
-
-        let target = self.append_message_impl(target)?;
-
-        // It would be nice to use .builder() here. But that one deletes all
-        // section. We have to resort to .as_builder() which gives a
-        // reference and then .clone()
-        let result = target.as_builder().clone();
-        let msg = Message::from_octets(result.finish().into_target()).expect(
-            "Message should be able to parse output from MessageBuilder",
-        );
-        Ok(msg)
-    }
 }
 
 impl<Octs: AsRef<[u8]> + Clone + Debug + Octets + Send + Sync + 'static>
@@ -217,22 +204,15 @@ impl<Octs: AsRef<[u8]> + Clone + Debug + Octets + Send + Sync + 'static>
 {
     fn append_message<Target: Composer>(
         &self,
-        target: &mut Target,
-    ) -> Result<(), CopyRecordsError> {
+        target: Target,
+    ) -> Result<AdditionalBuilder<Target>, CopyRecordsError> {
         let target = MessageBuilder::from_target(target)
             .map_err(|_| CopyRecordsError::Push(PushError::ShortBuf))?;
-        self.append_message_impl(target)?;
-        Ok(())
+        let builder = self.append_message_impl(target)?;
+        Ok(builder)
     }
 
-    fn to_vec(&self) -> Result<Vec<u8>, Error> {
-        let msg = self.to_message()?;
-        Ok(msg.as_octets().clone())
-    }
 
-    fn to_message(&self) -> Result<Message<Vec<u8>>, Error> {
-        self.to_message_impl()
-    }
 
     fn header_mut(&mut self) -> &mut Header {
         &mut self.header
@@ -281,8 +261,21 @@ impl<Octs: AsRef<[u8]> + Clone + Debug + Octets + Send + Sync + 'static>
         }
 
         // Now the question section in the reply has to be the same as in the
-        // query.
-        if answer_hcounts.qdcount() != self.msg.header_counts().qdcount() {
+        // query, except in the case of an AXFR subsequent response:
+        //
+        // https://datatracker.ietf.org/doc/html/rfc5936#section-2.2
+        // 2.2.  AXFR Response
+        //   "The AXFR server MUST copy the Question section from the
+        //    corresponding AXFR query message into the first response
+        //    message's Question section.  For subsequent messages, it MAY do
+        //    the same or leave the Question section empty."
+        if self.msg.qtype() == Some(Rtype::AXFR)
+            && answer_hcounts.qdcount() == 0
+        {
+            true
+        } else if answer_hcounts.qdcount()
+            != self.msg.header_counts().qdcount()
+        {
             trace!("Wrong QD count");
             false
         } else {
@@ -292,6 +285,10 @@ impl<Octs: AsRef<[u8]> + Clone + Debug + Octets + Send + Sync + 'static>
             }
             res
         }
+    }
+
+    fn is_streaming(&self) -> bool {
+        self.msg.is_streaming()
     }
 }
 
@@ -351,6 +348,9 @@ pub enum Error {
 
     /// An error happened in the datagram transport.
     Dgram(Arc<super::dgram::QueryError>),
+
+    /// TSIG validation failed
+    ValidationError(tsig::ValidationError),
 }
 
 impl From<LongOptData> for Error {
@@ -422,6 +422,7 @@ impl fmt::Display for Error {
                 write!(f, "no transport available")
             }
             Error::Dgram(err) => fmt::Display::fmt(err, f),
+            Error::ValidationError(err) => fmt::Display::fmt(err, f),
         }
     }
 }
@@ -455,6 +456,7 @@ impl error::Error for Error {
             Error::WrongReplyForQuery => None,
             Error::NoTransportAvailable => None,
             Error::Dgram(err) => Some(err),
+            Error::ValidationError(err) => Some(err),
         }
     }
 }

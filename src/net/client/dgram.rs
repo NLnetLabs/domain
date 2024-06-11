@@ -9,7 +9,7 @@
 // To do:
 // - cookies
 
-use crate::base::Message;
+use crate::base::{Message, StaticCompressor};
 use crate::net::client::protocol::{
     AsyncConnect, AsyncDgramRecv, AsyncDgramRecvEx, AsyncDgramSend,
     AsyncDgramSendEx,
@@ -29,6 +29,7 @@ use std::{error, io};
 use tokio::sync::Semaphore;
 use tokio::time::{timeout_at, Duration, Instant};
 use tracing::trace;
+use std::prelude::v1::Vec;
 
 //------------ Configuration Constants ----------------------------------------
 
@@ -256,7 +257,13 @@ where
             }
 
             // Create the message and send it out.
-            let request_msg = request.to_message()?;
+            let target = StaticCompressor::new(Vec::new());
+            let builder = request.append_message(target)?;
+            let request_msg = Message::from_octets(builder.finish().into_target()).expect(
+                "Message should be able to parse output from MessageBuilder",
+            );
+
+            // let request_msg = request.to_message()?;
             let dgram = request_msg.as_slice();
             let sent = sock.send(dgram).await.map_err(QueryError::send)?;
             if sent != dgram.len() {
@@ -321,7 +328,7 @@ where
     S: AsyncConnect + Clone + Send + Sync + 'static,
     S::Connection:
         AsyncDgramRecv + AsyncDgramSend + Send + Sync + Unpin + 'static,
-    Req: ComposeRequest + Clone + Send + Sync + 'static,
+    Req: ComposeRequest + Send + Sync + 'static,
 {
     fn send_request(
         &self,

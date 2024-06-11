@@ -1,5 +1,4 @@
 //! A client transport using a stream socket.
-
 #![warn(missing_docs)]
 #![warn(clippy::missing_docs_in_private_items)]
 
@@ -17,16 +16,9 @@
 //   - request timeout
 // - create new connection after end/failure of previous one
 
-use crate::base::message::Message;
-use crate::base::message_builder::StreamTarget;
-use crate::base::opt::{AllOptData, OptRecord, TcpKeepalive};
-use crate::net::client::request::{
-    ComposeRequest, Error, GetResponse, SendRequest,
-};
-use bytes::{Bytes, BytesMut};
 use core::cmp;
 use core::future::ready;
-use octseq::Octets;
+
 use std::boxed::Box;
 use std::fmt::Debug;
 use std::future::Future;
@@ -34,11 +26,21 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use std::vec::Vec;
+
+use bytes::{Bytes, BytesMut};
+use octseq::Octets;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use tokio::sync::{mpsc, oneshot};
 use tokio::time::sleep;
 use tracing::trace;
+
+use crate::base::message::Message;
+use crate::base::message_builder::StreamTarget;
+use crate::base::opt::{AllOptData, OptRecord, TcpKeepalive};
+use crate::net::client::request::{
+    ComposeRequest, Error, GetResponse, SendRequest,
+};
 
 //------------ Configuration Constants ----------------------------------------
 
@@ -72,6 +74,9 @@ pub struct Config {
 
     /// Streaming response timeout.
     streaming_response_timeout: Duration,
+
+    /// Initial idle timeout.
+    initial_idle_timeout: Option<Duration>,
 }
 
 impl Config {
@@ -90,6 +95,9 @@ impl Config {
 
     /// Sets the response timeout.
     ///
+    /// Forrequests where ComposeRequest::is_streaming() returns true see
+    /// set_streaming_response_timeout() instead.    
+    /// 
     /// Excessive values are quietly trimmed.
     //
     //  XXX Maybe that’s wrong and we should rather return an error?
@@ -101,11 +109,49 @@ impl Config {
         self.streaming_response_timeout = self.response_timeout;
     }
 
+    /// Returns the streaming response timeout.
+    pub fn streaming_response_timeout(&self) -> Duration {
+        self.streaming_response_timeout
+    }
+
+    /// Sets the streaming response timeout.
+    ///
+    /// Only used for requests where ComposeRequest::is_streaming() returns
+    /// true as it is typically desirable that such response streams be
+    /// allowed to complete even if the individual responses arrive very
+    /// slowly.
+    ///
+    /// Excessive values are quietly trimmed.
     pub fn set_streaming_response_timeout(&mut self, timeout: Duration) {
         self.streaming_response_timeout = cmp::max(
             cmp::min(timeout, MAX_RESPONSE_TIMEOUT),
             MIN_RESPONSE_TIMEOUT,
         );
+    }
+
+    /// Returns the initial idle timeout, if set.
+    pub fn initial_idle_timeout(&self) -> Option<Duration> {
+        self.initial_idle_timeout
+    }
+
+    /// Sets the initial idle timeout.
+    ///
+    /// By default the stream is immediately closed if there are no pending
+    /// requests or responses.
+    ///  
+    /// Set this to allow requests to be sent in sequence with delays between
+    /// such as a SOA query followed by AXFR for more efficient use of the
+    /// stream per RFC 9103.
+    ///
+    /// Note: May be overridden by an RFC 7828 edns-tcp-keepalive timeout
+    /// received from a server.
+    ///
+    /// Excessive values are quietly trimmed.
+    pub fn set_initial_idle_timeout(&mut self, timeout: Duration) {
+        self.initial_idle_timeout = Some(cmp::max(
+            cmp::min(timeout, MAX_RESPONSE_TIMEOUT),
+            MIN_RESPONSE_TIMEOUT,
+        ));
     }
 }
 
@@ -115,6 +161,7 @@ impl Default for Config {
             response_timeout: DEF_RESPONSE_TIMEOUT,
             single_response_timeout: DEF_RESPONSE_TIMEOUT,
             streaming_response_timeout: DEF_RESPONSE_TIMEOUT,
+            initial_idle_timeout: None,
         }
     }
 }
@@ -180,8 +227,11 @@ impl<Req: ComposeRequest + 'static> Connection<Req> {
         msg: Req,
         sender: UnboundedSender<Result<Message<Bytes>, Error>>,
     ) -> Result<Message<Bytes>, Error> {
-        let sender = ReplySender::Stream(sender);
-        let req = ChanReq { sender, msg };
+        let reply_sender = ReplySender::Stream(sender);
+        let req = ChanReq {
+            sender: reply_sender,
+            msg,
+        };
         self.sender.send(req).await.map_err(|_| {
             // Send error. The receiver is gone, this means that the
             // connection is closed.
@@ -195,9 +245,11 @@ impl<Req: ComposeRequest + 'static> Connection<Req> {
         Request {
             stream: None,
             fut: Box::pin(self.clone().handle_request_impl(request_msg)),
+            stream_complete: false,
         }
     }
 
+    /// TODO
     pub fn get_streaming_request(&self, request_msg: Req) -> Request {
         let (sender, receiver) = mpsc::unbounded_channel();
         Request {
@@ -206,6 +258,7 @@ impl<Req: ComposeRequest + 'static> Connection<Req> {
                 self.clone()
                     .handle_streaming_request_impl(request_msg, sender),
             ),
+            stream_complete: false,
         }
     }
 }
@@ -218,21 +271,16 @@ impl<Req> Clone for Connection<Req> {
     }
 }
 
-impl<Req: ComposeRequest + Clone + 'static> SendRequest<Req>
-    for Connection<Req>
-{
+impl<Req: ComposeRequest + 'static> SendRequest<Req> for Connection<Req> {
     fn send_request(
         &self,
         request_msg: Req,
     ) -> Box<dyn GetResponse + Send + Sync> {
-        Box::new(self.get_request(request_msg))
-    }
-
-    fn send_streaming_request(
-        &self,
-        request_msg: Req,
-    ) -> Box<dyn GetResponse + Send + Sync> {
-        Box::new(self.get_streaming_request(request_msg))
+        if request_msg.is_streaming() {
+            Box::new(self.get_streaming_request(request_msg))
+        } else {
+            Box::new(self.get_request(request_msg))
+        }
     }
 }
 
@@ -240,12 +288,16 @@ impl<Req: ComposeRequest + Clone + 'static> SendRequest<Req>
 
 /// An active request.
 pub struct Request {
+    /// TODO
     stream: Option<UnboundedReceiver<Result<Message<Bytes>, Error>>>,
 
     /// The underlying future.
     fut: Pin<
         Box<dyn Future<Output = Result<Message<Bytes>, Error>> + Send + Sync>,
     >,
+
+    /// TODO
+    stream_complete: bool,
 }
 
 impl Request {
@@ -288,11 +340,19 @@ impl GetResponse for Request {
         Box::pin(self.get_response_impl())
     }
 
-    fn stream_complete(&mut self) {
+    fn stream_complete(&mut self) -> Result<(), Error> {
         if let Some(mut stream) = self.stream.take() {
             trace!("Closing response stream");
             stream.close();
         }
+
+        self.stream_complete = true;
+
+        Ok(())
+    }
+
+    fn is_stream_complete(&self) -> bool {
+        self.stream_complete
     }
 }
 
@@ -322,11 +382,15 @@ pub struct Transport<Stream, Req> {
 /// This is the type of sender in [ChanReq].
 #[derive(Debug)]
 pub enum ReplySender {
+    /// TODO
     Single(Option<oneshot::Sender<ChanResp>>),
+
+    /// TODO
     Stream(mpsc::UnboundedSender<ChanResp>),
 }
 
 impl ReplySender {
+    /// TODO
     pub fn send(&mut self, resp: ChanResp) -> Result<(), ChanResp> {
         match self {
             ReplySender::Single(sender) => match sender.take() {
@@ -339,6 +403,7 @@ impl ReplySender {
         }
     }
 
+    /// TODO
     pub fn is_stream(&self) -> bool {
         matches!(self, Self::Stream(_))
     }
@@ -407,6 +472,32 @@ enum ConnState {
     WriteError(Error),
 }
 
+//--- Display
+impl std::fmt::Display for ConnState {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            ConnState::Active(instant) => f.write_fmt(format_args!(
+                "Active (since {}s ago)",
+                instant
+                    .map(|v| Instant::now().duration_since(v).as_secs())
+                    .unwrap_or_default()
+            )),
+            ConnState::Idle(instant) => f.write_fmt(format_args!(
+                "Idle (since {}s ago)",
+                Instant::now().duration_since(*instant).as_secs()
+            )),
+            ConnState::IdleTimeout => f.write_str("IdleTimeout"),
+            ConnState::ReadError(err) => {
+                f.write_fmt(format_args!("ReadError: {err}"))
+            }
+            ConnState::ReadTimeout => f.write_str("ReadTimeout"),
+            ConnState::WriteError(err) => {
+                f.write_fmt(format_args!("WriteError: {err}"))
+            }
+        }
+    }
+}
+
 impl<Stream, Req> Transport<Stream, Req> {
     /// Creates a new transport.
     fn new(
@@ -442,7 +533,7 @@ where
 
         let mut status = Status {
             state: ConnState::Active(None),
-            idle_timeout: None,
+            idle_timeout: self.config.initial_idle_timeout,
             send_keepalive: true,
         };
         let mut query_vec = Queries::new();
@@ -606,6 +697,8 @@ where
             }
         }
 
+        trace!("Closing TCP connecting in state: {}", status.state);
+
         // Send FIN
         _ = write_stream.shutdown().await;
     }
@@ -730,6 +823,8 @@ where
             Err(Error::WrongReplyForQuery)
         };
         _ = req.sender.send(answer);
+
+        // TODO: Discard streaming requests once the stream is complete.
         if req.sender.is_stream() {
             query_vec.insert(req).unwrap();
         }
@@ -847,10 +942,11 @@ where
 
     /// Convert the query message to a vector.
     fn convert_query(msg: &Req) -> Result<Vec<u8>, Error> {
-        let mut target = StreamTarget::new_vec();
-        msg.append_message(&mut target)
+        let target = StreamTarget::new_vec();
+        let target = msg
+            .append_message(target)
             .map_err(|_| Error::StreamLongMessage)?;
-        Ok(target.into_target())
+        Ok(target.finish().into_target())
     }
 }
 
