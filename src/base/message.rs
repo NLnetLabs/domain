@@ -288,41 +288,15 @@ impl<Octs: AsRef<[u8]> + ?Sized> Message<Octs> {
         self.header_section().header()
     }
 
-    /// Returns a mutable reference to the message header.
-    pub fn header_mut(&mut self) -> &mut Header
-    where
-        Octs: AsMut<[u8]>,
-    {
-        self.header_section_mut().as_header_mut()
-    }
-
     /// Returns the header counts of the message.
     pub fn header_counts(&self) -> HeaderCounts {
         self.header_section().counts()
-    }
-
-    /// Returns a mutable reference to the header counts of the message.
-    pub fn header_counts_mut(&mut self) -> &mut HeaderCounts
-    where
-        Octs: AsMut<[u8]>,
-    {
-        self.header_section_mut().as_counts_mut()
     }
 
     /// Returns the entire header section.
     pub fn header_section(&self) -> HeaderSection {
         let chunk: &[u8; 12] = self.as_slice()[0..12].try_into().unwrap();
         HeaderSection::from_array(*chunk)
-    }
-
-    /// Returns a mutable reference to the entire header section.
-    pub fn header_section_mut(&mut self) -> &mut HeaderSection
-    where
-        Octs: AsMut<[u8]>,
-    {
-        HeaderSection::for_array_mut(
-            (&mut self.as_slice_mut()[0..12]).try_into().unwrap(),
-        )
     }
 
     /// Returns whether the rcode of the header is NoError.
@@ -333,6 +307,27 @@ impl<Octs: AsRef<[u8]> + ?Sized> Message<Octs> {
     /// Returns whether the rcode of the header is one of the error values.
     pub fn is_error(&self) -> bool {
         self.header().rcode() != Rcode::NOERROR
+    }
+}
+
+/// # Mutable access to the header section
+///
+impl<Octs: AsMut<[u8]> + ?Sized> Message<Octs> {
+    /// Returns a mutable reference to the message header.
+    pub fn header_mut(&mut self) -> &mut Header {
+        self.header_section_mut().as_header_mut()
+    }
+
+    /// Returns a mutable reference to the header counts of the message.
+    pub fn header_counts_mut(&mut self) -> &mut HeaderCounts {
+        self.header_section_mut().as_counts_mut()
+    }
+
+    /// Returns a mutable reference to the entire header section.
+    pub fn header_section_mut(&mut self) -> &mut HeaderSection {
+        HeaderSection::for_array_mut(
+            (&mut self.as_slice_mut()[0..12]).try_into().unwrap(),
+        )
     }
 }
 
