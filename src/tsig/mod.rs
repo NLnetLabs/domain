@@ -1005,7 +1005,20 @@ impl<K: AsRef<Key>> SigningContext<K> {
         //
         // First, do we have a valid TSIG?
         let tsig = match MessageTsig::from_message(message) {
-            Some(tsig) => tsig,
+            Some(Ok(tsig)) => tsig,
+            // RFC 8945, section 5.2:
+            // > If multiple TSIG records are detected or a TSIG record is present
+            // > in any other position, the DNS message is dropped and a response
+            // > with RCODE 1 (FORMERR) MUST be returned.
+            Some(Err(TsigError::TsigAtIncorrectPosition)) => {
+                return Err(ServerError::unsigned(TsigRcode::FORMERR));
+            }
+            // RFC 8945, section 5.2:
+            // > If the TSIG RR cannot be interpreted, the server MUST regard
+            // > the message as corrupt and return a FORMERR to the server.
+            Some(Err(TsigError::InvalidTsig)) => {
+                return Err(ServerError::unsigned(TsigRcode::FORMERR))
+            }
             None => return Ok(None),
         };
 
@@ -1094,7 +1107,20 @@ impl<K: AsRef<Key>> SigningContext<K> {
     {
         // Extract TSIG or bail out.
         let tsig = match MessageTsig::from_message(message) {
-            Some(tsig) => tsig,
+            Some(Ok(tsig)) => tsig,
+            // RFC 8945, section 5.2:
+            // >  If multiple TSIG records are detected or a TSIG record is present
+            // > in any other position, the DNS message is dropped and a response
+            // > with RCODE 1 (FORMERR) MUST be returned.
+            Some(Err(TsigError::TsigAtIncorrectPosition)) => {
+                return Err(ValidationError::FormErr)
+            }
+            // RFC 8945, section 5.2:
+            // > If the TSIG RR cannot be interpreted, the server MUST regard
+            // > the message as corrupt and return a FORMERR to the server.
+            Some(Err(TsigError::InvalidTsig)) => {
+                return Err(ValidationError::FormErr)
+            }
             None => return Ok(None),
         };
 
@@ -1305,28 +1331,40 @@ struct MessageTsig<'a, Octs: Octets + ?Sized + 'a> {
     start: usize,
 }
 
+#[derive(Debug)]
+enum TsigError {
+    InvalidTsig,
+    TsigAtIncorrectPosition,
+}
+
 impl<'a, Octs: Octets + ?Sized> MessageTsig<'a, Octs> {
     /// Get the TSIG record from a message.
     ///
     /// Checks that there is exactly one TSIG record in the additional
     /// section, that it is the last record in this section. If that is true,
     /// returns the parsed TSIG records.
-    fn from_message(msg: &'a Message<Octs>) -> Option<Self> {
+    fn from_message(
+        msg: &'a Message<Octs>,
+    ) -> Option<Result<Self, TsigError>> {
         let mut section = msg.additional().ok()?;
+
+        // Find the first TSIG record, which we will assert to be the last
+        // one to verify that it is the only one.
         let mut start = section.pos();
-        let mut record = section.next()?;
-        loop {
-            record = match section.next() {
-                Some(record) => record,
-                None => break,
+        while let Some(record) = section.next() {
+            let Ok(record) = record.ok()?.into_record() else {
+                return Some(Err(TsigError::InvalidTsig));
             };
+            if let Some(record) = record {
+                if section.next().is_some() {
+                    return Some(Err(TsigError::TsigAtIncorrectPosition));
+                }
+                return Some(Ok(MessageTsig { record, start }));
+            }
             start = section.pos();
         }
-        record
-            .ok()?
-            .into_record::<Tsig<_, _>>()
-            .ok()?
-            .map(|record| MessageTsig { record, start })
+
+        None
     }
 
     fn variables(&self) -> Variables {
@@ -1649,13 +1687,14 @@ impl<K: AsRef<Key>> ServerError<K> {
             ServerErrorInner::Unsigned { error } => {
                 let tsig = {
                     MessageTsig::from_message(msg)
-                        .expect("missing or malformed TSIG record")
+                        .expect("missing TSIG record")
+                        .expect("malformed TSIG record")
                 };
                 builder.push((
                     tsig.record.owner(),
                     tsig.record.class(),
                     tsig.record.ttl(),
-                    // The TSIG record data can never ever be to long.
+                    // The TSIG record data can never ever be too long.
                     Tsig::new(
                         tsig.record.data().algorithm(),
                         tsig.record.data().time_signed(),
