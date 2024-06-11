@@ -7,6 +7,7 @@ use crate::base::message_builder::{
     AdditionalBuilder, AnswerBuilder, MessageBuilder, StreamTarget,
 };
 use crate::base::name::Name;
+use crate::base::opt::TcpKeepalive;
 use crate::base::record::Ttl;
 use crate::rdata::tsig::Time48;
 use crate::rdata::{Soa, A};
@@ -21,7 +22,6 @@ use std::str::FromStr;
 use std::time::Duration;
 use std::vec::Vec;
 use std::{env, fs, io, path::PathBuf, thread};
-use crate::base::opt::TcpKeepalive;
 
 type TestMessage = Message<Vec<u8>>;
 type TestBuilder = MessageBuilder<StreamTarget<Vec<u8>>>;
@@ -88,7 +88,9 @@ fn tsig_client_nsd() {
             .request_axfr(Name::<Vec<u8>>::from_str("example.com.").unwrap())
             .unwrap()
             .additional();
-        request.opt(|builder| builder.push(&TcpKeepalive::new(None))).unwrap();
+        request
+            .opt(|builder| builder.push(&TcpKeepalive::new(None)))
+            .unwrap();
         let tran = tsig::ClientTransaction::request(
             &key,
             &mut request,
