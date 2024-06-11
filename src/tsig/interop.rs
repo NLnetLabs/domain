@@ -112,7 +112,7 @@ fn tsig_client_nsd() {
                 break answer;
             }
         };
-        assert!(!answer.is_error());
+        assert_eq!(answer.header().rcode(), Rcode::NOTIMP);
         if let Err(err) = tran.answer(&mut answer, Time48::now()) {
             panic!("{:?}", err);
         }
