@@ -265,7 +265,7 @@ impl<Target: Composer> MessageBuilder<Target> {
     ) -> Result<AnswerBuilder<Target>, PushError> {
         self.header_mut().set_random_id();
         let mut builder = self.question();
-        builder.push((apex, Rtype::AXFR))?;
+        builder.push((apex, Rtype::SOA))?;
         Ok(builder.answer())
     }
 }
