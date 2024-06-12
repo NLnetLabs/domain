@@ -1327,13 +1327,6 @@ struct MessageTsig<'a, Octs: Octets + ?Sized + 'a> {
     start: usize,
 }
 
-#[derive(Debug)]
-enum TsigError {
-    Invalid,
-    Position,
-    Missing,
-}
-
 impl<'a, Octs: Octets + ?Sized> MessageTsig<'a, Octs> {
     /// Get the TSIG record from a message.
     ///
@@ -1905,3 +1898,16 @@ impl fmt::Display for ValidationError {
 
 #[cfg(feature = "std")]
 impl std::error::Error for ValidationError {}
+
+//------------ TsigError -----------------------------------------------------
+
+/// Error while retrieving a TSIG from a message
+#[derive(Debug)]
+enum TsigError {
+    /// The TSIG record was present but malformed
+    Invalid,
+    /// A TSIG record was found that was **not** the last record in the message
+    Position,
+    /// The TSIG record was missing
+    Missing,
+}
