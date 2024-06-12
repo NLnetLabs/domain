@@ -8,10 +8,15 @@ New
 
 Bug fixes
 
+* Fixed a mistake in the tsig module while calculating the start of
+  the TSIG record when there were other records in the additional section,
+  causing the TSIG code to fail if OPT records were in use. ([#333])
+
 Unstable features
 
 Other changes
 
+[#333]: https://github.com/NLnetLabs/domain/pull/333
 
 ## 0.10.1
 
