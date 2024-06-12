@@ -130,11 +130,13 @@ pub struct Connection<Upstream, VCOcts, VCUpstream> {
     /// Upstream transport to use for requests.
     upstream: Upstream,
 
+    /// The validation context for this connection.
     vc: Arc<ValidationContext<VCUpstream>>,
 
     /// The configuration of this connection.
     config: Config,
 
+    /// Phantom field to capture `VCOcts`.
     _phantom: PhantomData<VCOcts>,
 }
 
@@ -226,6 +228,7 @@ where
     /// value of the dnssec_ok flag in the request.
     dnssec_ok: bool,
 
+    /// Phantom field to capture `VCOcts`.
     _phantom: PhantomData<VCOcts>,
 }
 
@@ -574,7 +577,8 @@ fn is_dnssec(rtype: Rtype) -> bool {
         || rtype == Rtype::NSEC3
 }
 
-// Add an option
+/// Return a new message that adds an `ExtendedError` option to an existing
+/// message.
 fn add_opt(
     msg: &Message<Bytes>,
     ede: ExtendedError<Vec<u8>>,
@@ -648,7 +652,7 @@ fn add_opt(
     Ok(msg)
 }
 
-// Generate a SERVFAIL reply.
+/// Generate a SERVFAIL reply message.
 fn serve_fail(
     msg: &Message<Bytes>,
     opt_ede: Option<ExtendedError<Vec<u8>>>,
