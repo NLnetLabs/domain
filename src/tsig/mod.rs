@@ -1019,6 +1019,9 @@ impl<K: AsRef<Key>> SigningContext<K> {
             Err(TsigError::Invalid) => {
                 return Err(ServerError::unsigned(TsigRcode::FORMERR))
             }
+            Err(TsigError::ParseError) => {
+                return Err(ServerError::unsigned(TsigRcode::FORMERR))
+            }
             Err(TsigError::Missing) => return Ok(None),
         };
 
@@ -1117,6 +1120,7 @@ impl<K: AsRef<Key>> SigningContext<K> {
             // > If the TSIG RR cannot be interpreted, the server MUST regard
             // > the message as corrupt and return a FORMERR to the server.
             Err(TsigError::Invalid) => return Err(ValidationError::FormErr),
+            Err(TsigError::ParseError) => return Err(ValidationError::FormErr),
             Err(TsigError::Missing) => return Ok(None),
         };
 
@@ -1334,17 +1338,24 @@ impl<'a, Octs: Octets + ?Sized> MessageTsig<'a, Octs> {
     /// section, that it is the last record in this section. If that is true,
     /// returns the parsed TSIG records.
     fn from_message(msg: &'a Message<Octs>) -> Result<Self, TsigError> {
-        let mut section = msg.additional().map_err(|_| TsigError::Missing)?;
+        let mut section = msg.additional().map_err(|_| TsigError::ParseError)?;
 
         // Find the first TSIG record, which we will assert to be the last
         // one to verify that it is the only one.
-        let mut start = section.pos();
-        while let Some(record) = section.next() {
+        loop {
+            let start = section.pos();
+
+            let Some(record) = section.next() else {
+                return Err(TsigError::Missing);
+            };
+
             let record = record
-                .map_err(|_| TsigError::Missing)?
-                .into_record()
+                .map_err(|_| TsigError::ParseError)?
+                .into_record::<Tsig<_, _>>()
                 .map_err(|_| TsigError::Invalid)?;
 
+            // If it's None, then it's some other record type, and we just
+            // continue.
             if let Some(record) = record {
                 // We got a valid TSIG, now assert that it's the last record:
                 if section.next().is_some() {
@@ -1352,10 +1363,7 @@ impl<'a, Octs: Octets + ?Sized> MessageTsig<'a, Octs> {
                 }
                 return Ok(MessageTsig { record, start });
             }
-            start = section.pos();
         }
-
-        Err(TsigError::Missing)
     }
 
     fn variables(&self) -> Variables {
@@ -1906,8 +1914,13 @@ impl std::error::Error for ValidationError {}
 enum TsigError {
     /// The TSIG record was present but malformed
     Invalid,
+
     /// A TSIG record was found that was **not** the last record in the message
     Position,
+
     /// The TSIG record was missing
     Missing,
+
+    /// An error occurred while parsing the message
+    ParseError,
 }
