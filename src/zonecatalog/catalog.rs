@@ -4,10 +4,6 @@
 // functionality?
 // TODO: Add IXFR diff purging.
 // TODO: Add IXFR diff condensation.
-// TODO: Add NOTIFY sending based on configured "stealth" nameservers per
-// zone.
-// TODO: Add NOTIFY set discovery.
-// TODO: Add NOTIFY sending to the discovered NOTIFY set.
 // TODO: Add lifecycle hooks for callers, e.g. zone added, zone removed, zone
 // expired, zone refreshed.
 use core::any::Any;
