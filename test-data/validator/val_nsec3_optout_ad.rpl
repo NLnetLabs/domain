@@ -233,20 +233,23 @@ ENTRY_END
 
 ; recursion happens here.
 ; no AD flag on this because an optout NSEC3 is used.
+; The original test violates the RFC. NSEC3 opt-out cannot be used to
+; prove NODATA for any rtype other than DS. Change the test to expect bogus.
 STEP 10 CHECK_ANSWER
 ENTRY_BEGIN
 MATCH all
-REPLY QR DO NOERROR
+;REPLY QR DO NOERROR
+REPLY QR DO SERVFAIL
 SECTION QUESTION
 sub.example.com. IN MX
 SECTION ANSWER
 SECTION AUTHORITY
-example.com. IN SOA ns.example.com. noc.example.com. 2009310622 1800 900 604800 86400
-example.com.    3600    IN      RRSIG   SOA 7 2 3600 20070926134150 20070829134150 57024 example.com. HlyER7bYPiSJ9jdjjRBucQexYr932Oor1TvxSLPWw5fuWvr/fFitKVnLqC+lqBIeOby44KiDr0rIk+ZqYjWWKNjaLm5wMfhQzbsAgGTQxmO07jnYOGQG9SI6DSbR9GJdZ7imu5sx5oo5dze73MxgLMZIethGaFMkktYN53+AzG0= ;{id = 57024}
-onib9mgub9h0rml3cdf5bgrj59dkjhvk.example.com. NSEC3 1 1 0 - pnib9mgub9h0rml3cdf5bgrj59dkjhvk NS SOA RRSIG DNSKEY NSEC3PARAM
-onib9mgub9h0rml3cdf5bgrj59dkjhvk.example.com.   3600    IN      RRSIG   NSEC3 7 3 3600 20070926134150 20070829134150 57024 example.com. jHrF+lnyRL1LE/Bwz6C+jZg3E/2qQkVSboGxya6iX71v0zA3eUsob9m9l3gHNlhwhyahbamHUKx+OMvtYuzRa+RMv4ObuLRIt8StdixeXaUU+rx7C2qCKOFsa5q4HzK4bLYPfyb5T9w67HbzHPLEllXPA7tghzyzCM9qBtbvwK4= ;{id = 57024}
-jg19n32806c832kijdnglq8p9m2r5mdj.example.com. NSEC3 1 1 0 - lg19n32806c832kijdnglq8p9m2r5mdj NS DS RRSIG
-jg19n32806c832kijdnglq8p9m2r5mdj.example.com.   3600    IN      RRSIG   NSEC3 7 3 3600 20070926134150 20070829134150 57024 example.com. f7ZSCahAuKOLXquM0jpdU6I9AX31CgGicRiB3aU4jvqQp/EygbCNn5kfpyXY0FvZvzggpl8naXSStOPN9dy3bb0NwGQkJcYD94NEw307T8uEunOvx1ug5TuakBAwqjY8xKM3xab3LnWYRtx4zdln/3ZDHvBUwfzkxUZrzeKjpiI= ;{id = 57024}
+;example.com. IN SOA ns.example.com. noc.example.com. 2009310622 1800 900 604800 86400
+;example.com.    3600    IN      RRSIG   SOA 7 2 3600 20070926134150 20070829134150 57024 example.com. HlyER7bYPiSJ9jdjjRBucQexYr932Oor1TvxSLPWw5fuWvr/fFitKVnLqC+lqBIeOby44KiDr0rIk+ZqYjWWKNjaLm5wMfhQzbsAgGTQxmO07jnYOGQG9SI6DSbR9GJdZ7imu5sx5oo5dze73MxgLMZIethGaFMkktYN53+AzG0= ;{id = 57024}
+;onib9mgub9h0rml3cdf5bgrj59dkjhvk.example.com. NSEC3 1 1 0 - pnib9mgub9h0rml3cdf5bgrj59dkjhvk NS SOA RRSIG DNSKEY NSEC3PARAM
+;onib9mgub9h0rml3cdf5bgrj59dkjhvk.example.com.   3600    IN      RRSIG   NSEC3 7 3 3600 20070926134150 20070829134150 57024 example.com. jHrF+lnyRL1LE/Bwz6C+jZg3E/2qQkVSboGxya6iX71v0zA3eUsob9m9l3gHNlhwhyahbamHUKx+OMvtYuzRa+RMv4ObuLRIt8StdixeXaUU+rx7C2qCKOFsa5q4HzK4bLYPfyb5T9w67HbzHPLEllXPA7tghzyzCM9qBtbvwK4= ;{id = 57024}
+;jg19n32806c832kijdnglq8p9m2r5mdj.example.com. NSEC3 1 1 0 - lg19n32806c832kijdnglq8p9m2r5mdj NS DS RRSIG
+;jg19n32806c832kijdnglq8p9m2r5mdj.example.com.   3600    IN      RRSIG   NSEC3 7 3 3600 20070926134150 20070829134150 57024 example.com. f7ZSCahAuKOLXquM0jpdU6I9AX31CgGicRiB3aU4jvqQp/EygbCNn5kfpyXY0FvZvzggpl8naXSStOPN9dy3bb0NwGQkJcYD94NEw307T8uEunOvx1ug5TuakBAwqjY8xKM3xab3LnWYRtx4zdln/3ZDHvBUwfzkxUZrzeKjpiI= ;{id = 57024}
 SECTION ADDITIONAL
 ENTRY_END
 

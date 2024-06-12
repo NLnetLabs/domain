@@ -7,7 +7,7 @@
 use super::anchor::{TrustAnchor, TrustAnchors};
 use super::group::{Group, GroupSet, SigCache, ValidatedGroup};
 use super::nsec::{
-    cached_nsec3_hash, nsec3_for_nodata, nsec3_for_not_exists,
+    cached_nsec3_hash, nsec3_for_nodata, nsec3_for_nodata_wildcard,
     nsec3_for_nxdomain, nsec3_in_range, nsec3_label_to_hash, nsec_for_nodata,
     nsec_for_nodata_wildcard, nsec_for_nxdomain, nsec_in_range,
     supported_nsec3_hash,
@@ -621,46 +621,8 @@ impl<Upstream> ValidationContext<Upstream> {
             // not exist.
             // Then Errata 3441 says that we need to do the same thing for other
             // types.
-            let (state, ede) = nsec3_for_not_exists(
+            let (state, ede) = nsec3_for_nodata_wildcard(
                 &sname,
-                &mut authorities,
-                &signer_name,
-                self.nsec3_cache(),
-                &self.config,
-            )
-            .await;
-            let ce = match state {
-                Nsec3NXState::DoesNotExist(ce) => ce, // Continue with wildcard.
-                Nsec3NXState::DoesNotExistInsecure(_) => {
-                    // Something might exist. Just return insecure here.
-                    return Ok((ValidationState::Insecure, ede));
-                }
-                Nsec3NXState::Bogus => {
-                    return Ok((ValidationState::Bogus, ede))
-                }
-                Nsec3NXState::Insecure => {
-                    return Ok((ValidationState::Insecure, ede))
-                }
-                Nsec3NXState::Nothing =>
-                // totest, missing NSEC3 for not exist.
-                {
-                    return Ok((ValidationState::Bogus, ede))
-                }
-            };
-
-            let star_name = match star_closest_encloser(&ce) {
-                Ok(name) => name,
-                Err(_) => {
-                    // The wildcard cannot be constructed. Just return bogus.
-                    let ede = make_ede(
-                        ExtendedErrorCode::DNSSEC_BOGUS,
-                        "cannot create wildcard record",
-                    );
-                    return Ok((ValidationState::Bogus, ede));
-                }
-            };
-            let (state, ede) = nsec3_for_nodata(
-                &star_name,
                 &mut authorities,
                 qtype,
                 &signer_name,

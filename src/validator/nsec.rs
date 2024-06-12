@@ -384,10 +384,10 @@ fn nsec_closest_encloser(
 
 //----------- Nsec3 functions ------------------------------------------------
 
-// Find an NSEC3 record for target that proves that no record that matches
-// rtype exist. There is only one option: find an NSEC3 record that has an
-// owner name where the first label match the NSEC3 hash of target and then
-// check the bitmap.
+/// Find an NSEC3 record for the target name that proves that no record that
+/// matches rtype exist. There is only one option: find an NSEC3 record that
+/// has an owner name where the first label matches the NSEC3 hash of
+/// the target name and then check the bitmap.
 pub async fn nsec3_for_nodata(
     target: &Name<Bytes>,
     groups: &mut [ValidatedGroup],
@@ -396,6 +396,47 @@ pub async fn nsec3_for_nodata(
     nsec3_cache: &Nsec3Cache,
     config: &Config,
 ) -> (Nsec3State, Option<ExtendedError<Vec<u8>>>) {
+    if rtype == Rtype::DS {
+        // RFC 5155, Section 6 (Opt-Out):
+        // An Opt-Out NSEC3 RR does not assert the existence or non-existence
+        // of the insecure delegations that it may cover.  This allows for the
+        // addition or removal of these delegations without recalculating or
+        // re-signing RRs in the NSEC3 RR chain.  However, Opt-Out NSEC3 RRs
+        // do assert the (non)existence of other, authoritative RRSets
+
+        // if rtype is equal to DS then first try to prove non-existance and
+        // see if the result is opt-out. If so, we can assume an insecure
+        // proof of NODATA.
+        let (state, ede) = nsec3_for_not_exists(
+            target,
+            groups,
+            signer_name,
+            nsec3_cache,
+            config,
+        )
+        .await;
+        match state {
+            Nsec3NXState::DoesNotExist(_) => {
+                // Target does not exist. We cannot prove NODATA. Do we need
+                // to set ede?
+                return (Nsec3State::Nothing, ede);
+            }
+            Nsec3NXState::DoesNotExistInsecure(_) => {
+                // Target does not exist but the result is insecure. This
+                // is an opt-out. Return insecure proof of NODATA.
+                return (Nsec3State::NoDataInsecure, ede);
+            }
+            Nsec3NXState::Insecure => {
+                // High iteration count. Can prove anything, but insecure.
+                return (Nsec3State::NoDataInsecure, ede);
+            }
+            Nsec3NXState::Bogus => {
+                // Very high iteration count. Just return bogus.
+                return (Nsec3State::Bogus, ede);
+            }
+            Nsec3NXState::Nothing => (), // Just continue.
+        }
+    }
     for g in groups.iter() {
         let res_opt_nsec3_hash = get_checked_nsec3(g, signer_name, config);
         let (nsec3, ownerhash) = match res_opt_nsec3_hash {
@@ -494,20 +535,25 @@ pub enum Nsec3State {
     Nothing,
 }
 
-/*
-// Find a closest encloser target and then find an NSEC3 record for the
-// wildcard that proves that no record that matches
-// rtype exist.
-// weird, this function is not needed.
-async fn nsec3_for_nodata_wildcard(
+/// Find a closest encloser target and then find an NSEC3 record for the
+/// wildcard that proves that no record that matches
+/// rtype exist.
+pub async fn nsec3_for_nodata_wildcard(
     target: &Name<Bytes>,
-    groups: &mut Vec<ValidatedGroup>,
+    groups: &mut [ValidatedGroup],
     rtype: Rtype,
     signer_name: &Name<Bytes>,
     nsec3_cache: &Nsec3Cache,
+    config: &Config,
 ) -> (Nsec3State, Option<ExtendedError<Vec<u8>>>) {
-    let (state, mut ede) =
-        nsec3_for_not_exists(target, groups, signer_name, nsec3_cache).await;
+    let (state, mut ede) = nsec3_for_not_exists(
+        target,
+        groups,
+        signer_name,
+        nsec3_cache,
+        config,
+    )
+    .await;
     let (ce, secure) = match state {
         Nsec3NXState::DoesNotExist(ce) => (ce, true),
         Nsec3NXState::DoesNotExistInsecure(ce) => (ce, false),
@@ -527,9 +573,15 @@ async fn nsec3_for_nodata_wildcard(
             return (Nsec3State::Bogus, ede);
         }
     };
-    let (state, nodata_ede) =
-        nsec3_for_nodata(&star_name, groups, rtype, signer_name, nsec3_cache)
-            .await;
+    let (state, nodata_ede) = nsec3_for_nodata(
+        &star_name,
+        groups,
+        rtype,
+        signer_name,
+        nsec3_cache,
+        config,
+    )
+    .await;
     if ede.is_none() {
         ede = nodata_ede;
     }
@@ -546,7 +598,6 @@ async fn nsec3_for_nodata_wildcard(
         | Nsec3State::NoDataInsecure => (state, ede),
     }
 }
-*/
 
 #[derive(Debug)]
 pub enum Nsec3NXState {
@@ -557,8 +608,6 @@ pub enum Nsec3NXState {
     Nothing,
 }
 
-// Prove that target does not exist using NSEC3 records. Return the status
-// and the closest encloser.
 pub async fn nsec3_for_not_exists(
     target: &Name<Bytes>,
     groups: &mut [ValidatedGroup],
