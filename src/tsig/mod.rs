@@ -1005,21 +1005,21 @@ impl<K: AsRef<Key>> SigningContext<K> {
         //
         // First, do we have a valid TSIG?
         let tsig = match MessageTsig::from_message(message) {
-            Some(Ok(tsig)) => tsig,
+            Ok(tsig) => tsig,
             // RFC 8945, section 5.2:
             // > If multiple TSIG records are detected or a TSIG record is present
             // > in any other position, the DNS message is dropped and a response
             // > with RCODE 1 (FORMERR) MUST be returned.
-            Some(Err(TsigError::TsigAtIncorrectPosition)) => {
+            Err(TsigError::Position) => {
                 return Err(ServerError::unsigned(TsigRcode::FORMERR));
             }
             // RFC 8945, section 5.2:
             // > If the TSIG RR cannot be interpreted, the server MUST regard
             // > the message as corrupt and return a FORMERR to the server.
-            Some(Err(TsigError::InvalidTsig)) => {
+            Err(TsigError::Invalid) => {
                 return Err(ServerError::unsigned(TsigRcode::FORMERR))
             }
-            None => return Ok(None),
+            Err(TsigError::Missing) => return Ok(None),
         };
 
         // 4.5.1. KEY check and error handling
@@ -1107,21 +1107,17 @@ impl<K: AsRef<Key>> SigningContext<K> {
     {
         // Extract TSIG or bail out.
         let tsig = match MessageTsig::from_message(message) {
-            Some(Ok(tsig)) => tsig,
+            Ok(tsig) => tsig,
             // RFC 8945, section 5.2:
             // >  If multiple TSIG records are detected or a TSIG record is present
             // > in any other position, the DNS message is dropped and a response
             // > with RCODE 1 (FORMERR) MUST be returned.
-            Some(Err(TsigError::TsigAtIncorrectPosition)) => {
-                return Err(ValidationError::FormErr)
-            }
+            Err(TsigError::Position) => return Err(ValidationError::FormErr),
             // RFC 8945, section 5.2:
             // > If the TSIG RR cannot be interpreted, the server MUST regard
             // > the message as corrupt and return a FORMERR to the server.
-            Some(Err(TsigError::InvalidTsig)) => {
-                return Err(ValidationError::FormErr)
-            }
-            None => return Ok(None),
+            Err(TsigError::Invalid) => return Err(ValidationError::FormErr),
+            Err(TsigError::Missing) => return Ok(None),
         };
 
         // Check for unsigned errors.
@@ -1333,8 +1329,9 @@ struct MessageTsig<'a, Octs: Octets + ?Sized + 'a> {
 
 #[derive(Debug)]
 enum TsigError {
-    InvalidTsig,
-    TsigAtIncorrectPosition,
+    Invalid,
+    Position,
+    Missing,
 }
 
 impl<'a, Octs: Octets + ?Sized> MessageTsig<'a, Octs> {
@@ -1343,28 +1340,29 @@ impl<'a, Octs: Octets + ?Sized> MessageTsig<'a, Octs> {
     /// Checks that there is exactly one TSIG record in the additional
     /// section, that it is the last record in this section. If that is true,
     /// returns the parsed TSIG records.
-    fn from_message(
-        msg: &'a Message<Octs>,
-    ) -> Option<Result<Self, TsigError>> {
-        let mut section = msg.additional().ok()?;
+    fn from_message(msg: &'a Message<Octs>) -> Result<Self, TsigError> {
+        let mut section = msg.additional().map_err(|_| TsigError::Missing)?;
 
         // Find the first TSIG record, which we will assert to be the last
         // one to verify that it is the only one.
         let mut start = section.pos();
         while let Some(record) = section.next() {
-            let Ok(record) = record.ok()?.into_record() else {
-                return Some(Err(TsigError::InvalidTsig));
-            };
+            let record = record
+                .map_err(|_| TsigError::Missing)?
+                .into_record()
+                .map_err(|_| TsigError::Invalid)?;
+
             if let Some(record) = record {
+                // We got a valid TSIG, now assert that it's the last record:
                 if section.next().is_some() {
-                    return Some(Err(TsigError::TsigAtIncorrectPosition));
+                    return Err(TsigError::Position);
                 }
-                return Some(Ok(MessageTsig { record, start }));
+                return Ok(MessageTsig { record, start });
             }
             start = section.pos();
         }
 
-        None
+        Err(TsigError::Missing)
     }
 
     fn variables(&self) -> Variables {
@@ -1687,8 +1685,7 @@ impl<K: AsRef<Key>> ServerError<K> {
             ServerErrorInner::Unsigned { error } => {
                 let tsig = {
                     MessageTsig::from_message(msg)
-                        .expect("missing TSIG record")
-                        .expect("malformed TSIG record")
+                        .expect("missing or malformed TSIG record")
                 };
                 builder.push((
                     tsig.record.owner(),
