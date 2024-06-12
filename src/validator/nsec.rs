@@ -1,4 +1,4 @@
-// Helper functions for NSEC and NSEC3 validation.
+//! Helper functions for NSEC and NSEC3 validation.
 
 use super::context::{Config, ValidationState};
 use super::group::ValidatedGroup;
@@ -20,17 +20,21 @@ use std::vec::Vec;
 
 //----------- Nsec functions -------------------------------------------------
 
+/// The result of trying use NSEC records to prove NODATA.
 #[derive(Debug)]
 pub enum NsecState {
+    /// NSEC records prove that the name exists, but the request rtype doesn't.
     NoData,
+
+    /// NSEC records failed to prove NODATA.
     Nothing,
 }
 
-// Find an NSEC record for target that proves that no record that matches
-// rtype exist.
-//
-// So we have two possibilities: we find an exact match for target and
-// check the bitmap or we find target as an empty non-terminal.
+/// Find an NSEC record for the target name that proves that no record that
+/// matches rtype exist.
+///
+/// We have two possibilities: we find an exact match for the target name and
+/// check the bitmap or we find target as an empty non-terminal.
 pub fn nsec_for_nodata(
     target: &Name<Bytes>,
     groups: &mut [ValidatedGroup],
@@ -92,7 +96,7 @@ pub fn nsec_for_nodata(
                 return (NsecState::Nothing, ede);
             }
 
-            // Anything else is a secure intermediate node.
+            // Anything else indeed proves NODATA.
             return (NsecState::NoData, None);
         }
 
@@ -109,12 +113,12 @@ pub fn nsec_for_nodata(
     (NsecState::Nothing, ede)
 }
 
-// Find an NSEC record for target that proves that the target does not
-// exist. Then find an NSEC record for a wildcard that covers the target
-// and check that nothing for rtype exists.
-//
-// So we have two possibilities: we find an exact match for the wildcard and
-// check the bitmap or we find the wildcard as an empty non-terminal.
+/// Find an NSEC record for the target name that proves that the target name
+/// does not exist. Then find an NSEC record for a wildcard that covers the
+/// target name and check that nothing for rtype exists.
+///
+/// So we have two possibilities: we find an exact match for the wildcard and
+/// check the bitmap or we find the wildcard as an empty non-terminal.
 pub fn nsec_for_nodata_wildcard(
     target: &Name<Bytes>,
     groups: &mut [ValidatedGroup],
@@ -148,15 +152,22 @@ pub fn nsec_for_nodata_wildcard(
     nsec_for_nodata(&star_name, groups, rtype, signer_name)
 }
 
+/// Result of trying to prove that a name does not exist using NSEC.
 #[derive(Debug)]
 pub enum NsecNXState {
+    /// The name does exist.
     Exists,
+
+    /// The name does indeed not exist. This value also provides the name
+    /// of the closest encloser.
     DoesNotExist(Name<Bytes>),
+
+    /// There was no proof either way.
     Nothing,
 }
 
-// Find an NSEC record for target that proves that the target does not
-// exist. Return the status and the closest encloser.
+/// Find an NSEC record for the target name that proves that the target name
+/// does not exist.
 pub fn nsec_for_not_exists(
     target: &Name<Bytes>,
     groups: &mut [ValidatedGroup],
@@ -238,9 +249,9 @@ pub fn nsec_for_not_exists(
     (NsecNXState::Nothing, ede)
 }
 
-// Find an NSEC record for target that proves that the target does not
-// exist. Then find an NSEC record that proves that the wildcard also does
-// not exist.
+/// Find an NSEC record for the target name that proves that the target name
+///  does not exist. Then find an NSEC record that proves that the wildcard
+/// also does not exist.
 pub fn nsec_for_nxdomain(
     target: &Name<Bytes>,
     groups: &mut [ValidatedGroup],
@@ -271,7 +282,7 @@ pub fn nsec_for_nxdomain(
     nsec_for_not_exists(&star_name, groups, signer_name)
 }
 
-// Check if a name is covered by an NSEC record.
+/// Check if a name is covered by an NSEC record.
 pub fn nsec_in_range<TN>(
     target: &Name<Bytes>,
     owner: &Name<Bytes>,
@@ -287,7 +298,11 @@ where
     }
 }
 
+/// NSEC rdata with Bytes storage. This is returned by get_checked_nsec.
 type BytesNsec = Nsec<Bytes, ParsedName<Bytes>>;
+
+/// A group may contain an NSEC record. Check if there is a valid, secure
+/// NSEC record. And if so return it.
 fn get_checked_nsec(
     group: &ValidatedGroup,
     signer_name: &Name<Bytes>,
@@ -348,6 +363,8 @@ fn get_checked_nsec(
     (Some(nsec.clone()), None)
 }
 
+/// Return the name of the closest encloser for a target name and an
+/// NSEC record.
 fn nsec_closest_encloser(
     target: &Name<Bytes>,
     nsec_owner: &Name<Bytes>,
@@ -527,11 +544,20 @@ pub async fn nsec3_for_nodata(
     (Nsec3State::Nothing, None)
 }
 
+/// Result of trying for an NSEC3 proof for NODATA.
 #[derive(Debug)]
 pub enum Nsec3State {
+    /// Proof of a NODATA result was found.
     NoData,
+
+    /// Proof of a NODATA result was found, but the result is insecure.
     NoDataInsecure,
+
+    /// Due to a high iteration count, the NSEC3 records are considered
+    /// bogus.
     Bogus,
+
+    /// No proof was found.
     Nothing,
 }
 
@@ -599,15 +625,28 @@ pub async fn nsec3_for_nodata_wildcard(
     }
 }
 
+/// Result of trying to prove that a name does not exist using NSEC3
+/// records.
 #[derive(Debug)]
 pub enum Nsec3NXState {
+    /// The name does not exist. The value includes the closest encloser.
     DoesNotExist(Name<Bytes>),
+
+    /// The name does not exist, but the result is insecure due to opt-out.
+    /// The value includes the closest encloser.
     DoesNotExistInsecure(Name<Bytes>),
+
+    /// Due to a very high iteration count, the result is bogus.
     Bogus,
+
+    /// Due to a high iteration count, the result is insecure.
     Insecure,
+
+    /// No proof was found.
     Nothing,
 }
 
+/// Prove that target does not exist using NSEC3 records.
 pub async fn nsec3_for_not_exists(
     target: &Name<Bytes>,
     groups: &mut [ValidatedGroup],
@@ -739,18 +778,28 @@ pub async fn nsec3_for_not_exists(
     )
 }
 
+/// The result of providing that a name does not exist using NSEC3 where there
+/// is not need to return a closest encloser.
 #[derive(Debug)]
 pub enum Nsec3NXStateNoCE {
+    /// The name does not exist.
     DoesNotExist,
+
+    /// The name does not exist, but the result is considered insecure due to
+    /// opt-out.
     DoesNotExistInsecure,
+
+    /// Nothing was found.
     Nothing,
+
+    /// Due to a very high iteration count the result is bogus.
     Bogus,
 }
 
-// Prove that target does not exist using NSEC3 records. Assume that
-// the closest encloser is already known and that we only have to check
-// this specific name. This is typically used to prove that a wildcard does
-// not exist.
+/// Prove that target does not exist using NSEC3 records. Assume that
+/// the closest encloser is already known and that we only have to check
+/// this specific name. This is typically used to prove that a wildcard does
+/// not exist.
 pub async fn nsec3_for_not_exists_no_ce(
     target: &Name<Bytes>,
     groups: &mut [ValidatedGroup],
@@ -818,9 +867,8 @@ pub async fn nsec3_for_not_exists_no_ce(
     (Nsec3NXStateNoCE::Nothing, None)
 }
 
-// Find a closest encloser for target and then find an NSEC3 record that proves
-// that tthe wildcard does not exist.
-// rtype exist.
+/// Find a closest encloser for the target name and then find an NSEC3 record
+/// that proves that the wildcard does not exist.
 pub async fn nsec3_for_nxdomain(
     target: &Name<Bytes>,
     groups: &mut [ValidatedGroup],
@@ -883,13 +931,19 @@ pub async fn nsec3_for_nxdomain(
     }
 }
 
+/// The key of the NSEC3 cache. The name that needs to be hash, together
+/// with the hash algorithm, the number of iterations and the salt.
 #[derive(Eq, Hash, PartialEq)]
 struct Nsec3CacheKey(Name<Bytes>, Nsec3HashAlg, u16, Nsec3Salt<Bytes>);
+
+/// The NSEC3 hash cache.
 pub struct Nsec3Cache {
+    /// The actual cache.
     cache: Cache<Nsec3CacheKey, Arc<OwnerHash<Vec<u8>>>>,
 }
 
 impl Nsec3Cache {
+    /// Create a new NSEC3 cache.
     pub fn new(size: u64) -> Self {
         Self {
             cache: Cache::new(size),
@@ -897,7 +951,8 @@ impl Nsec3Cache {
     }
 }
 
-// This needs to match the algorithms supported in nsec3_hash.
+/// Return if the NSEC3 hash algorithm is supported by the nsec3_hash
+/// function.
 pub fn supported_nsec3_hash(h: Nsec3HashAlg) -> bool {
     h == Nsec3HashAlg::SHA1
 }
@@ -950,6 +1005,7 @@ where
     OwnerHash::from_octets(h.as_ref().to_vec()).expect("should not fail")
 }
 
+/// Return an NSEC3 hash using a cache.
 pub async fn cached_nsec3_hash(
     owner: &Name<Bytes>,
     algorithm: Nsec3HashAlg,
@@ -968,6 +1024,7 @@ pub async fn cached_nsec3_hash(
     hash
 }
 
+/// Convert a label to an NSEC3 hash value.
 pub fn nsec3_label_to_hash(
     label: &Label,
 ) -> Result<OwnerHash<Vec<u8>>, Utf8Error> {
@@ -975,6 +1032,7 @@ pub fn nsec3_label_to_hash(
     Ok(OwnerHash::<Vec<u8>>::from_str(label_str).expect("should not fail"))
 }
 
+/// Is targethash in the range between ownerhash and nexthash?
 pub fn nsec3_in_range<O1, O2, O3>(
     targethash: &OwnerHash<O1>,
     ownerhash: &OwnerHash<O2>,
@@ -994,6 +1052,10 @@ where
     }
 }
 
+/// Return an NSEC3 record from a group also with it's owner hash value.
+/// Check if the NSEC3 record is valid. Return None if the checks fail.
+/// Return the validation state and optional extended error if the number of
+/// iterations is too high.
 #[allow(clippy::type_complexity)]
 fn get_checked_nsec3(
     group: &ValidatedGroup,

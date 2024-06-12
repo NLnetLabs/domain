@@ -219,6 +219,7 @@ impl Config {
         self.max_node_validity = MAX_NODE_VALIDITY.limit(value)
     }
 
+    /// Return the value of max_bogus_validity.
     pub(crate) fn max_bogus_validity(&self) -> Duration {
         self.max_bogus_validity
     }
@@ -231,6 +232,7 @@ impl Config {
         self.max_bogus_validity = MAX_BOGUS_VALIDITY.limit(value)
     }
 
+    /// Return the value of max_bad_signatures.
     pub(crate) fn max_bad_signatures(&self) -> u8 {
         self.max_bad_signatures
     }
@@ -243,6 +245,7 @@ impl Config {
         self.max_bad_signatures = MAX_BAD_SIGNATURES.limit(value)
     }
 
+    /// Return the value of nsec3_iter_insecure.
     pub(crate) fn nsec3_iter_insecure(&self) -> u16 {
         self.nsec3_iter_insecure
     }
@@ -256,6 +259,7 @@ impl Config {
         self.nsec3_iter_insecure = NSEC3_ITER_INSECURE.limit(value)
     }
 
+    /// Return the value of nsec3_iter_bogus.
     pub(crate) fn nsec3_iter_bogus(&self) -> u16 {
         self.nsec3_iter_bogus
     }
@@ -269,6 +273,7 @@ impl Config {
         self.nsec3_iter_bogus = NSEC3_ITER_INSECURE.limit(value)
     }
 
+    /// Return the value of max_cname_dname.
     pub(crate) fn max_cname_dname(&self) -> u8 {
         self.max_cname_dname
     }
@@ -304,14 +309,24 @@ impl Default for Config {
 
 /// A DNSSEC validation context.
 pub struct ValidationContext<Upstream> {
+    /// DNSSEC trust anchors.
     ta: TrustAnchors,
+
+    /// Upstream client transport.
     upstream: Upstream,
+
+    /// Configuration varables.
     config: Config,
 
+    /// Cache of DNS delegations (with DNSSEC key material if required).
     node_cache: Cache<Name<Bytes>, Arc<Node>>,
+
+    /// Cache of NSEC3 hashes.
     nsec3_cache: Nsec3Cache,
+
     /// Signature cache for infrastructure.
     isig_cache: SigCache,
+
     /// Signature cache for user requests.
     usig_cache: SigCache,
 }
@@ -652,6 +667,16 @@ impl<Upstream> ValidationContext<Upstream> {
                     return Ok((ValidationState::Bogus, ede))
                 }
             }
+
+            /*
+                    async fn nsec3_for_nodata_wildcard(
+                target: &Name<Bytes>,
+                groups: &mut Vec<ValidatedGroup>,
+                rtype: Rtype,
+                signer_name: &Name<Bytes>,
+                nsec3_cache: &Nsec3Cache,
+            ) -> (Nsec3State, Option<ExtendedError<Vec<u8>>>) {
+            */
         }
 
         // Prove NXDOMAIN.
@@ -706,6 +731,7 @@ impl<Upstream> ValidationContext<Upstream> {
         Ok((ValidationState::Bogus, ede))
     }
 
+    /// Get the apprioprate node for validating `name`.
     pub(crate) async fn get_node<Octs>(
         &self,
         name: &Name<Bytes>,
@@ -801,6 +827,10 @@ impl<Upstream> ValidationContext<Upstream> {
         }
     }
 
+    /// Find the closest known node for `name`.
+    ///
+    /// This either be a node derived from a trust anchor or a node that is
+    /// in the cache.
     async fn find_closest_node<Octs>(
         &self,
         name: &Name<Bytes>,
@@ -845,6 +875,10 @@ impl<Upstream> ValidationContext<Upstream> {
         }
     }
 
+    /// Create a node for `name` that is a child node of `node`.
+    ///
+    /// Child nodes are only created for secure delegations. `Name` should
+    /// either be a delegation from `node` or a non-terminal in `node's` zone.
     async fn create_child_node<Octs>(
         &self,
         name: Name<Bytes>,
@@ -1286,6 +1320,7 @@ impl<Upstream> ValidationContext<Upstream> {
         ))
     }
 
+    /// Try to look up a name in the cache.
     async fn cache_lookup(&self, name: &Name<Bytes>) -> Option<Arc<Node>> {
         let ce = self.node_cache.get(name).await?;
         if ce.expired() {
@@ -1294,14 +1329,18 @@ impl<Upstream> ValidationContext<Upstream> {
         Some(ce)
     }
 
+    /// Return a reference to the NSEC3 cache.
     pub(crate) fn nsec3_cache(&self) -> &Nsec3Cache {
         &self.nsec3_cache
     }
 
+    /// Return a reference to the user signature cache.
     pub(crate) fn usig_cache(&self) -> &SigCache {
         &self.usig_cache
     }
 
+    /// Validate a GroupSet and return a list of ValidatedGroup objects
+    /// or Bougs, or an error.
     async fn validate_groups<Octs>(&self, groups: &mut GroupSet) -> VGResult
     where
         Octs:
@@ -1327,9 +1366,17 @@ impl<Upstream> ValidationContext<Upstream> {
     }
 }
 
+/// Enum that provides the return value of validate_groups.
 enum VGResult {
+    /// A list of validated groups and boolean if any of the group needs
+    /// to have the TTL adjusted or if a duplicate record was ignored.
     Groups(Vec<ValidatedGroup>, bool),
+
+    /// Validation result of at least one group is Bogus. An optional
+    /// extended error may provide the reason.
     Bogus(Option<ExtendedError<Vec<u8>>>),
+
+    /// There was an error that prevented validation.
     Err(Error),
 }
 
@@ -1359,22 +1406,44 @@ pub enum ValidationState {
 
 //------------ Node ----------------------------------------------------------
 
+/// Node represent the DNSSEC state of a DNS name.
+///
+/// A node can be a trust anchor, a secure or insecure delegation or
+/// an intermediate node.
 #[derive(Clone)]
 pub(crate) struct Node {
+    /// Validation state of the node.
     state: ValidationState,
 
-    // This should be part of the state of the node
+    // The following four fields should be part of the state of the node.
+    /// The DNSKEY rdata of the DNSKEY RRset of a secure delegation or
+    /// trust anchor.
     keys: Vec<Dnskey<Bytes>>,
+
+    /// The signer name of a node. This is the name of a node for secure
+    /// delegations. For secure intermediate nodes, it is the name of the
+    /// zone cut.
     signer_name: Name<Bytes>,
+
+    /// Whether this node is a delegation or an intermediate node.
     intermediate: bool,
+
+    /// An optional extended error. Mostly for the bogus state.
     ede: Option<ExtendedError<Vec<u8>>>,
 
-    // Time to live
+    // Fields for caching.
+    /// When the node was created.
     created_at: Instant,
+
+    /// How long the node can be cached.
     valid_for: Duration,
 }
 
 impl Node {
+    /// Create a new indeterminate node.
+    ///
+    /// This signals that there is no trust anchor for names below the name
+    /// of the node.
     fn indeterminate(
         name: Name<Bytes>,
         ede: Option<ExtendedError<Vec<u8>>>,
@@ -1391,6 +1460,7 @@ impl Node {
         }
     }
 
+    /// Create a new node for a trust anchor.
     async fn trust_anchor<Octs, Upstream>(
         ta: &TrustAnchor,
         upstream: &Upstream,
@@ -1546,6 +1616,7 @@ impl Node {
         ))
     }
 
+    /// Create a new delegation node.
     pub fn new_delegation(
         signer_name: Name<Bytes>,
         state: ValidationState,
@@ -1564,6 +1635,7 @@ impl Node {
         }
     }
 
+    /// Create a new intermediate node.
     pub fn new_intermediate(
         _name: Name<Bytes>,
         state: ValidationState,
@@ -1582,31 +1654,38 @@ impl Node {
         }
     }
 
+    /// Get the validation state.
     pub fn validation_state(&self) -> ValidationState {
         self.state
     }
 
+    /// Get the optional extended error.
     pub fn extended_error(&self) -> Option<ExtendedError<Vec<u8>>> {
         self.ede.clone()
     }
 
+    /// Get the DNSKEYs.
     pub fn keys(&self) -> &[Dnskey<Bytes>] {
         &self.keys
     }
 
+    /// Get the signer name.
     pub fn signer_name(&self) -> &Name<Bytes> {
         &self.signer_name
     }
 
+    /// Return whether the node is a delegation or an intermediate node.
     pub fn intermediate(&self) -> bool {
         self.intermediate
     }
 
+    /// Check if the node has expired.
     pub fn expired(&self) -> bool {
         let elapsed = self.created_at.elapsed();
         elapsed > self.valid_for
     }
 
+    /// Return the remaining time to live.
     pub fn ttl(&self) -> Duration {
         self.valid_for - self.created_at.elapsed()
     }
@@ -1614,6 +1693,8 @@ impl Node {
 
 //------------ Helper functions ----------------------------------------------
 
+/// Check if a DNSKEY for a trust anchor matches one of the DNSKEY records in
+/// a group and return the matching key.
 #[allow(clippy::type_complexity)]
 fn has_key(
     dnskeys: &Group,
@@ -1649,6 +1730,8 @@ fn has_key(
     None
 }
 
+/// Check if DS record from a trust anchor matches one of the DNSKEY record
+/// in a DNSKEY group. Return the matching DNSEY record.
 #[allow(clippy::type_complexity)]
 fn has_ds(
     dnskeys: &Group,
@@ -1666,6 +1749,8 @@ fn has_ds(
     find_key_for_ds(ds, dnskeys)
 }
 
+/// Find a match DNSKEY record for a given DS record. Return the record if it
+/// is found.
 #[allow(clippy::type_complexity)]
 fn find_key_for_ds(
     ds: &Ds<Bytes>,
@@ -1698,25 +1783,37 @@ fn find_key_for_ds(
     None
 }
 
+/// The result of trying to prove using NSEC or NSEC3 records that a DS
+/// record does not exist for a certain name.
 #[derive(Debug)]
 enum CNsecState {
+    /// The name does have an NS record but no DS record, this is an
+    /// insecure delegation.
     InsecureDelegation,
+
+    /// The name has neither NS nor DS records. This is an intermediate
+    /// in a secure zone.
     SecureIntermediate,
+
+    /// Nothing was found. This is also return for many errors.
     Nothing,
+
+    /// NSEC3 records with very high iteration count cause a Bogus result.
     Bogus,
 }
 
-// Find an NSEC record that proves that a DS record does not exist and
-// return the delegation status based on the rtypes present. The NSEC
-// processing is simplified compared to normal NSEC processing for three
-// reasons:
-// 1) We do not accept wildcards. We do not support wildcard delegations,
-//    so if we find one, we return a bogus status.
-// 2) The name exists, otherwise we wouldn't be here.
-// 3) The parent exists and is secure, otherwise we wouldn't be here.
-//
-// So we have two possibilities: we find an exact match for the name and
-// check the bitmap or we find the name as an empty non-terminal.
+/// Find an NSEC record that proves that a DS record does not exist and
+/// return the delegation status based on the rtypes present.
+///
+/// The NSEC processing is simplified compared to normal NSEC processing
+/// for three reasons:
+/// 1) We do not accept wildcards. We do not support wildcard delegations,
+///    so if we find one, we return a bogus status.
+/// 2) The name exists, otherwise we wouldn't be here.
+/// 3) The parent exists and is secure, otherwise we wouldn't be here.
+///
+/// So we have two possibilities: we find an exact match for the name and
+/// check the bitmap or we find the name as an empty non-terminal.
 async fn nsec_for_ds(
     target: &Name<Bytes>,
     groups: &mut GroupSet,
@@ -1895,17 +1992,19 @@ async fn nsec_for_ds(
     (CNsecState::Nothing, config.max_node_validity, ede)
 }
 
-// Find an NSEC3 record hat proves that a DS record does not exist and return
-// the delegation status based on the rtypes present. The NSEC3 processing is
-// simplified compared to normal NSEC3 processing for three reasons:
-// 1) We do not accept wildcards. We do not support wildcard delegations,
-//    so we don't look for wildcards.
-// 2) The name exists, otherwise we wouldn't be here.
-// 3) The parent exists and is secure, otherwise we wouldn't be here.
-//
-// So we have two possibilities: we find an exact match for the hash of the
-// name and check the bitmap or we find that the name does not exist, but
-// the NSEC3 record uses opt-out.
+/// Find an NSEC3 record hat proves that a DS record does not exist and return
+/// the delegation status based on the rtypes present.
+///
+/// NSEC3 processing is simplified compared to normal NSEC3 processing for
+/// three reasons:
+/// 1) We do not accept wildcards. We do not support wildcard delegations,
+///    so we don't look for wildcards.
+/// 2) The name exists, otherwise we wouldn't be here.
+/// 3) The parent exists and is secure, otherwise we wouldn't be here.
+///
+/// So we have two possibilities: we find an exact match for the hash of the
+/// name and check the bitmap or we find that the name does not exist, but
+/// the NSEC3 record uses opt-out.
 async fn nsec3_for_ds(
     target: &Name<Bytes>,
     groups: &mut GroupSet,
@@ -2095,6 +2194,9 @@ async fn nsec3_for_ds(
     (CNsecState::Nothing, ede, config.max_node_validity)
 }
 
+/// Issue a DNS request for DS or DNSKEY records and return the result as
+/// two group sets (one for the answer section and one for the authority
+/// section and optionally an extened error code.
 async fn request_as_groups<Octs, Upstream>(
     upstream: &Upstream,
     name: &Name<Bytes>,

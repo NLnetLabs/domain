@@ -48,16 +48,30 @@ use std::vec::Vec;
 /// signatures in sig_set is equal to the type of the records in rr_set.
 #[derive(Clone, Debug)]
 pub struct Group {
+    /// The RRset that this group captures.
     rr_set: Vec<RrType>,
+
+    /// The signatures associated with the RRset.
     sig_set: Vec<SigType>,
+
+    /// Any extra records we need to keep with this group.
+    ///
+    /// Typically these are CNAME records that supplement the DNAME record
+    /// in rr_set.
     extra_set: Vec<RrType>,
+
+    /// Whether a duplicate record was found and ignored.
     found_duplicate: bool,
 }
 
+/// The type of records stored in rr_set and extra_set.
 type RrType = Record<Name<Bytes>, AllRecordData<Bytes, ParsedName<Bytes>>>;
+
+/// The type of records stored in sig_set.
 type SigType = Record<Name<Bytes>, Rrsig<Bytes, Name<Bytes>>>;
 
 impl Group {
+    /// Create a new group with one record.
     fn new(rr: ParsedRecord<'_, Bytes>) -> Result<Self, Error> {
         let sig_record = match rr.to_record::<Rrsig<_, _>>()? {
             None => {
@@ -101,6 +115,10 @@ impl Group {
         })
     }
 
+    /// Try to add a record to a group.
+    ///
+    /// This function returns an error if it is not possible to add
+    /// the record to the current group.
     fn add(&mut self, rr: &ParsedRecord<'_, Bytes>) -> Result<(), ()> {
         // First check owner.
         if let Some(frr) = self.rr_set.first() {
@@ -212,6 +230,9 @@ impl Group {
         self.extra_set.push(rr.clone());
     }
 
+    /// DNSSEC validate a group and return a `ValidatedGroup` that contains
+    /// the records of the original group as well as the validation status.
+    /// Or return an error if something prevents validation.
     pub async fn validated<Octs, Upstream>(
         &self,
         vc: &ValidationContext<Upstream>,
@@ -237,6 +258,7 @@ impl Group {
         ))
     }
 
+    /// Return the owner name of a group.
     pub fn owner(&self) -> Name<Bytes> {
         if let Some(rr) = self.rr_set.first() {
             return rr.owner().to_bytes();
@@ -247,6 +269,7 @@ impl Group {
         return self.sig_set[0].owner().to_bytes();
     }
 
+    /// Return the class of a group.
     pub fn class(&self) -> Class {
         if let Some(rr) = self.rr_set.first() {
             return rr.class();
@@ -257,6 +280,7 @@ impl Group {
         self.sig_set[0].class()
     }
 
+    /// Return the rtype of a group.
     pub fn rtype(&self) -> Rtype {
         if let Some(rr) = self.rr_set.first() {
             return rr.rtype();
@@ -266,22 +290,38 @@ impl Group {
         Rtype::RRSIG
     }
 
+    /// Return a copy of the RRset in a group.
     pub fn rr_set(&self) -> Vec<RrType> {
         self.rr_set.clone()
     }
 
+    /// Return an iterator over the RRset in a group.
     pub fn rr_iter(&mut self) -> Iter<RrType> {
         self.rr_set.iter()
     }
 
+    /// Return the number of signature records in a group.
     pub fn sig_set_len(&self) -> usize {
         self.sig_set.len()
     }
 
+    /// Return an iterator over the signature records in a group.
     pub fn sig_iter(&mut self) -> Iter<SigType> {
         self.sig_set.iter()
     }
 
+    /// Validate a group with a validation context.
+    ///
+    /// A successfull result contists of
+    /// 1) The validation state.
+    /// 2) The signer name, the name of the secure zone that contains
+    ///    the name of the group.
+    /// 3) optionally the name of the closest encloser if the signature
+    ///    indicates a wildcard.
+    /// 4) optionally an extended error.
+    /// 5) optionally a TTL. A TTL is return if the TTL of one of the
+    ///    records in the group is too high.
+    /// An error is returned if validation was not possible.
     pub async fn validate_with_vc<Octs, Upstream>(
         &self,
         vc: &ValidationContext<Upstream>,
@@ -358,9 +398,17 @@ impl Group {
         Ok((state, target.clone(), wildcard, ede, adjust_ttl))
     }
 
-    // Try to validate the signature using a node. Return the validation
-    // state. Also return if the signature was expanded from a wildcard.
-    // This is valid only if the validation state is secure.
+    /// Try to validate the signature using a node.
+    ///
+    /// A successfull result contists of
+    /// 1) The validation state.
+    /// 2) optionally the name of the closest encloser if the signature
+    ///    indicates a wildcard.
+    /// 3) optionally an extended error.
+    /// 4) a duration how long the information can be cached.
+    /// 5) optionally a TTL. A TTL is return if the TTL of one of the
+    ///    records in the group is too high.
+    /// An error is returned if validation was not possible.
     pub(crate) async fn validate_with_node(
         &self,
         node: &Node,
@@ -492,7 +540,9 @@ impl Group {
         )
     }
 
-    // Follow RFC 4035, Section 5.3.
+    /// Check the signature on an RRset.
+    ///
+    /// Follow [RFC 4035, Section 5.3](https://www.rfc-editor.org/rfc/rfc4035.html#section-5.3).
     fn check_sig(
         &self,
         sig: &Record<Name<Bytes>, Rrsig<Bytes, Name<Bytes>>>,
@@ -582,6 +632,7 @@ impl Group {
         res.is_ok()
     }
 
+    /// Check a signature over an RRset using a cache.
     pub async fn check_sig_cached(
         &self,
         sig: &Record<Name<Bytes>, Rrsig<Bytes, Name<Bytes>>>,
@@ -622,6 +673,11 @@ impl Group {
         res
     }
 
+    /// Return the minimum TTL in the RRset of a group.
+    ///
+    /// This value is used to limit how long the RRset can be cached.
+    /// Al records should have the same TTL, but it is safer to take the
+    /// minimum.
     pub fn min_ttl(&self) -> Ttl {
         if self.rr_set.is_empty() {
             return Ttl::ZERO;
@@ -633,6 +689,11 @@ impl Group {
         ttl
     }
 
+    /// Return the maximum TTL in a group.
+    ///
+    /// Include not only the rr_set but also sig_set and extra.set.
+    /// This TTL is used to determine if the original message that is
+    /// validated needs to be regenerated with lower TTLs.
     pub fn max_ttl(&self) -> Ttl {
         let mut ttl = Ttl::ZERO;
         for rr in &self.rr_set {
@@ -650,14 +711,20 @@ impl Group {
 
 //----------- GroupSet -------------------------------------------------------
 
+/// Collection of `Group` objects.
+///
+/// The collection typically groups records from a single section such as the
+/// answer section or the authority section.
 #[derive(Clone, Debug)]
 pub struct GroupSet(Vec<Group>);
 
 impl GroupSet {
+    /// Create a new empty `GroupSet` object.
     pub fn new() -> Self {
         Self(Vec::new())
     }
 
+    /// Add a record to the group set.
     pub fn add(&mut self, rr: ParsedRecord<'_, Bytes>) -> Result<(), Error> {
         // Very simplistic implementation of add. Assume resource records
         // are mostly in order. If this O(n^2) algorithm is not enough,
@@ -685,6 +752,8 @@ impl GroupSet {
         Ok(())
     }
 
+    /// Move CNAMEs that are associated with a DNAME to the extra part of
+    /// the DNAME's group. Then remove the CNAME's group.
     pub fn move_redundant_cnames(&mut self) {
         // Use indices to be able to mutate the array. Otherwise borrows
         // will get in the way. Iterate high to low to find CNAME groups
@@ -713,6 +782,9 @@ impl GroupSet {
         }
     }
 
+    /// Try to move a CNAME record to a matching DNAME group in the group set.
+    ///
+    /// Return true if a matching DNAME was found and the move happened.
     fn moved_to_dname(
         &mut self,
         cname_rr: &Record<
@@ -765,6 +837,7 @@ impl GroupSet {
         false
     }
 
+    /// Return an iterator over the group set.
     pub fn iter(&mut self) -> Iter<Group> {
         self.0.iter()
     }
@@ -772,21 +845,49 @@ impl GroupSet {
 
 //----------- ValidatedGroup -------------------------------------------------
 
+/// A DNSSEC validated group.
+///
+/// This object cannot be changed after it is created and stores next to the
+/// contents of the original group, various pieces of data related to
+/// validation, including the validation state.
 #[derive(Debug)]
 pub struct ValidatedGroup {
+    /// RRset of the group.
     rr_set: Vec<RrType>,
+
+    /// Collection of signatures over the RRset.
     sig_set: Vec<SigType>,
+
+    /// Extra records associated with the group. Currently CNAMEs that are
+    /// associated with DNAMEs.
     extra_set: Vec<RrType>,
+
+    /// DNSSEC validation state.
     state: ValidationState,
+
+    /// The name of the secure zone that contains the group.
     signer_name: Name<Bytes>,
+
+    /// The closest encloser name if the RRset is the result of a wildcard
+    /// expansion.
     closest_encloser: Option<Name<Bytes>>,
+
+    /// An optional extended error that provides more information on how
+    /// the validation state was decided.
     ede: Option<ExtendedError<Vec<u8>>>,
+
+    /// An optional TTL value in case one or more records have a TTL higher
+    /// than what can be accepted.
     adjust_ttl: Option<Ttl>,
+
+    /// If there was a duplicate record related to some record in the group.
     found_duplicate: bool,
 }
 
 #[allow(clippy::too_many_arguments)]
 impl ValidatedGroup {
+    /// Create a new validated group. The contents of the group is passed
+    /// as arguments.
     fn new(
         rr_set: Vec<RrType>,
         sig_set: Vec<SigType>,
@@ -811,6 +912,7 @@ impl ValidatedGroup {
         }
     }
 
+    /// Return the class of the group.
     pub fn class(&self) -> Class {
         if let Some(rr) = self.rr_set.first() {
             return rr.class();
@@ -821,6 +923,7 @@ impl ValidatedGroup {
         self.sig_set[0].class()
     }
 
+    /// Return the rtype of the group.
     pub fn rtype(&self) -> Rtype {
         if let Some(rr) = self.rr_set.first() {
             return rr.rtype();
@@ -830,6 +933,7 @@ impl ValidatedGroup {
         Rtype::RRSIG
     }
 
+    /// Return the owner name of the group.
     pub fn owner(&self) -> Name<Bytes> {
         if let Some(rr) = self.rr_set.first() {
             return rr.owner().to_bytes();
@@ -840,38 +944,49 @@ impl ValidatedGroup {
         return self.sig_set[0].owner().to_bytes();
     }
 
+    /// Return the DNSSEC validation state of the group.
     pub fn state(&self) -> ValidationState {
         self.state
     }
 
+    /// Return the name of the secure zone that contains the group.
     pub fn signer_name(&self) -> Name<Bytes> {
         self.signer_name.clone()
     }
 
+    /// Return an optional name that is the closest encloser if the
+    /// RRset in the group was the result of wildcard expansion.
     pub fn closest_encloser(&self) -> Option<Name<Bytes>> {
         self.closest_encloser.clone()
     }
 
+    /// Return the optional extended error.
     pub fn ede(&self) -> Option<ExtendedError<Vec<u8>>> {
         self.ede.clone()
     }
 
+    /// Return a copy of the RRset of the group.
     pub fn rr_set(&self) -> Vec<RrType> {
         self.rr_set.clone()
     }
 
+    /// Return a copy of the associated signatures of the group.
     pub fn sig_set(&self) -> Vec<SigType> {
         self.sig_set.clone()
     }
 
+    /// Return a copy of the extra records in the group.
     pub fn extra_set(&self) -> Vec<RrType> {
         self.extra_set.clone()
     }
 
+    /// Return an optinal TTL. The TTL is used to adjust the TTLs of the
+    /// records in the group.
     pub fn adjust_ttl(&self) -> Option<Ttl> {
         self.adjust_ttl
     }
 
+    /// Return if any duplicate records were found.
     pub fn found_duplicate(&self) -> bool {
         self.found_duplicate
     }
@@ -879,6 +994,7 @@ impl ValidatedGroup {
 
 //----------- Helper functions -----------------------------------------------
 
+/// Convert a ParsedRecord to a Record that uses Bytes for storage.
 #[allow(clippy::type_complexity)]
 fn to_bytes_record(
     rr: &ParsedRecord<'_, Bytes>,
@@ -897,13 +1013,18 @@ fn to_bytes_record(
     )
 }
 
+/// Key for the signature cache. The key consists of 3 Vecs of u8.
 #[derive(Eq, Hash, PartialEq)]
 struct SigKey(Vec<u8>, Vec<u8>, Vec<u8>);
+
+/// A cache for signatures.
 pub struct SigCache {
+    /// The actual cache.
     cache: Cache<SigKey, bool>,
 }
 
 impl SigCache {
+    /// Create a new signature cache.
     pub fn new(size: u64) -> Self {
         Self {
             cache: Cache::new(size),

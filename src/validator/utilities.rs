@@ -1,3 +1,5 @@
+//! A collection of utility functions.
+
 use super::context::{Config, Error, ValidationState};
 use super::group::ValidatedGroup;
 use super::nsec::{nsec3_for_not_exists_no_ce, nsec_for_not_exists};
@@ -20,6 +22,9 @@ use std::vec::Vec;
 
 //----------- Helper functions -----------------------------------------------
 
+/// Go through the answer section and resolve qname as much as possible
+/// using the available CNAME and DNAME records. Return the final name
+/// and validation state and well as an optional extended error.
 pub async fn do_cname_dname(
     qname: Name<Bytes>,
     qclass: Class,
@@ -142,15 +147,16 @@ pub async fn do_cname_dname(
     (name, maybe_secure, None)
 }
 
+/// Apply a DNAME to a target name.
 pub fn map_dname(
-    owner: &Name<Bytes>,
+    target: &Name<Bytes>,
     dname: &Dname<ParsedName<Bytes>>,
     name: &Name<Bytes>,
 ) -> Result<Name<Bytes>, Error> {
     let mut tmp_name = name.clone();
     let mut new_name = NameBuilder::new_bytes();
-    let owner_labels = owner.label_count();
-    while tmp_name.label_count() > owner_labels {
+    let target_labels = target.label_count();
+    while tmp_name.label_count() > target_labels {
         new_name.append_label(tmp_name.first().as_slice())?;
         tmp_name = tmp_name.parent().expect("should not fail");
     }
@@ -158,6 +164,8 @@ pub fn map_dname(
     Ok(name)
 }
 
+/// Compute the TTL for a signature. Take the original_ttl and the
+/// remaining signature lifetime into account.
 pub fn ttl_for_sig(
     sig: &Record<Name<Bytes>, Rrsig<Bytes, Name<Bytes>>>,
 ) -> Ttl {
@@ -171,6 +179,10 @@ pub fn ttl_for_sig(
     min(ttl, expire_ttl)
 }
 
+/// Try to find an RRset that answers qname, qclass, qtype. Return None
+/// is nothing was found. Otherwise, return the validation state,
+/// the signer name, optionally the closest encloser if the answer came
+/// from an expanded wildcard and optionally an extended error.
 #[allow(clippy::type_complexity)]
 pub fn get_answer_state(
     qname: &Name<Bytes>,
@@ -203,6 +215,9 @@ pub fn get_answer_state(
     None
 }
 
+/// Try to find a SOA record that is a parent of  qname and qclass. Return None
+/// is nothing was found. Otherwise, return the validation state,
+/// and the signer name. Optionally return an extended error.
 #[allow(clippy::type_complexity)]
 pub fn get_soa_state(
     qname: &Name<Bytes>,
@@ -240,6 +255,8 @@ pub fn get_soa_state(
     (None, ede)
 }
 
+/// Keep track if the current validation result is still secure or if it
+/// has been downgraded to insecure or indeterminate.
 pub fn map_maybe_secure(
     result: ValidationState,
     maybe_secure: ValidationState,
@@ -251,6 +268,9 @@ pub fn map_maybe_secure(
     }
 }
 
+/// For a target name and a closest encloser get the name that is just one
+/// label longer than the closest encloser but still a suffix of the
+/// target name.
 fn get_child_of_ce(target: &Name<Bytes>, ce: &Name<Bytes>) -> Name<Bytes> {
     let ce_label_count = ce.label_count();
     let mut name = target.clone();
@@ -266,15 +286,19 @@ fn get_child_of_ce(target: &Name<Bytes>, ce: &Name<Bytes>) -> Name<Bytes> {
     panic!("Get child of closest encloser(ce), maybe target is not a decendent of ce?");
 }
 
+/// Check that target name does not exist. This typically happens if there
+/// is an answer but the answer is an expanded wildcard. In that case the
+/// closest encloser is know. What is needed is to check that target name does
+/// not exist using either NSEC or NSEC3 records.
 pub async fn check_not_exists_for_wildcard(
-    name: &Name<Bytes>,
+    target: &Name<Bytes>,
     group: &mut [ValidatedGroup],
     signer_name: &Name<Bytes>,
     closest_encloser: &Name<Bytes>,
     nsec3_cache: &Nsec3Cache,
     config: &Config,
 ) -> (bool, ValidationState, Option<ExtendedError<Vec<u8>>>) {
-    let (state, ede) = nsec_for_not_exists(name, group, signer_name);
+    let (state, ede) = nsec_for_not_exists(target, group, signer_name);
     match state {
         NsecNXState::Exists => {
             // The name actually exists.
@@ -299,7 +323,7 @@ pub async fn check_not_exists_for_wildcard(
         NsecNXState::Nothing => (), // Continue with NSEC3
     }
 
-    let child_of_ce = get_child_of_ce(name, closest_encloser);
+    let child_of_ce = get_child_of_ce(target, closest_encloser);
 
     let (state, ede) = nsec3_for_not_exists_no_ce(
         &child_of_ce,
@@ -328,6 +352,7 @@ pub async fn check_not_exists_for_wildcard(
     (false, ValidationState::Bogus, ede)
 }
 
+/// Prepend the wildcard label to a closest encloser.
 pub fn star_closest_encloser(ce: &Name<Bytes>) -> Result<Name<Bytes>, Error> {
     let mut star_name = NameBuilder::new_bytes();
     star_name.append_label(Label::wildcard().as_ref())?;
@@ -335,6 +360,7 @@ pub fn star_closest_encloser(ce: &Name<Bytes>) -> Result<Name<Bytes>, Error> {
     Ok(star_name)
 }
 
+/// Helper function to create an EDNS(0) extended error option.
 pub fn make_ede(
     code: ExtendedErrorCode,
     reason: &str,
@@ -349,6 +375,8 @@ pub fn make_ede(
     }
 }
 
+/// Create a new DNS message based on the original message that fixes any
+/// TTL issues and leaves out duplicate records.
 pub fn rebuild_msg<OutOcts>(
     msg: &Message<Bytes>,
     answers: &[ValidatedGroup],
@@ -401,6 +429,7 @@ where
     Ok(msg)
 }
 
+/// Add a list of `ValidatedGroup` objects to a section of a new DNS message.
 fn add_list_to_section<Section, Target>(
     list: &[ValidatedGroup],
     section: &mut Section,
@@ -422,6 +451,7 @@ fn add_list_to_section<Section, Target>(
     }
 }
 
+/// Add a record to a section of a new DNS message. If needed, adjust the TTL.
 fn add_rr_to_section<RecData, Section, Target>(
     rr: &Record<Name<Bytes>, RecData>,
     adjust_ttl: Option<Ttl>,

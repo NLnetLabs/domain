@@ -14,10 +14,22 @@ use std::vec::Vec;
 
 //----------- TrustAnchor ----------------------------------------------------
 
+/// A single DNSSEC trust anchor.
+///
+/// A trust anchor provides DS or DNSKEY records for a domain name, typically
+/// the root. This allows valdation of the DNSKEY RRset of the domain to be
+/// verified.
 #[derive(Clone, Debug)]
 pub(crate) struct TrustAnchor {
+    /// The DS or DNSKEY recrods of the anchor.
     rrs: Vec<RrType>,
+
+    /// The domain name of the anchor.
     owner: Name<Bytes>,
+
+    /// The number of labels in the name.
+    ///
+    /// This simplifies finding the longest matching anchor.
     label_count: usize,
 }
 
@@ -28,6 +40,7 @@ type RrType = Record<
 >;
 
 impl TrustAnchor {
+    /// Create a new anchor with one record.
     fn new(rr: RrType) -> Self {
         let owner = rr.owner().to_name::<Bytes>();
         let label_count = owner.label_count();
@@ -38,6 +51,7 @@ impl TrustAnchor {
         }
     }
 
+    /// Add a record to an anchor.
     fn add(&mut self, rr: &RrType) -> Result<(), ()> {
         // Only the owner names need to match. We assume !self.rrs.is_empty().
         if self.rrs[0].owner().name_eq(rr.owner()) {
@@ -49,10 +63,12 @@ impl TrustAnchor {
         Err(())
     }
 
+    /// The owner name of an anchor.
     pub fn owner(&self) -> Name<Bytes> {
         self.owner.clone()
     }
 
+    /// An iterator over the anchor's records.
     pub fn iter(&mut self) -> Iter<RrType> {
         self.rrs.iter()
     }
@@ -135,6 +151,9 @@ impl TrustAnchors {
         Ok(())
     }
 
+    /// Add a record to a collection of anchors. The record is either
+    /// add to an existing anchor, if there is one that matches, or a new
+    /// anchor is created.
     fn add(&mut self, rr: RrType) {
         // Very simplistic implementation of add. If this O(n^2) algorithm is
         // not enough, then we should use a small hash table or sort first.
@@ -155,6 +174,7 @@ impl TrustAnchors {
         self.0.push(TrustAnchor::new(rr));
     }
 
+    /// Find the longest matching anchor.
     pub(crate) fn find<TDN: Debug + ToName>(
         &self,
         name: TDN,
