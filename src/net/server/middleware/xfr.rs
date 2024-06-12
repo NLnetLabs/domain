@@ -122,7 +122,12 @@ impl<RequestOctets, Svc> XfrMiddlewareSvc<RequestOctets, Svc> {
     /// one zone to it.
     // TODO: Move extra arguments into a Config object.
     #[must_use]
-    pub fn new(svc: Svc, catalog: Arc<Catalog>, num_threads: usize, xfr_mode: XfrMode) -> Self {
+    pub fn new(
+        svc: Svc,
+        catalog: Arc<Catalog>,
+        num_threads: usize,
+        xfr_mode: XfrMode,
+    ) -> Self {
         let pool = Self::mk_thread_pool(num_threads);
 
         Self {
@@ -229,9 +234,14 @@ where
                 .unwrap();
 
             info!("IXFR for {}, from {}", q.qname(), req.client_addr());
-            if let Some(res) =
-                Self::do_ixfr(msg, qname, &zone_soa_answer, cat_zone.info(), xfr_mode)
-                    .await
+            if let Some(res) = Self::do_ixfr(
+                msg,
+                qname,
+                &zone_soa_answer,
+                cat_zone.info(),
+                xfr_mode,
+            )
+            .await
             {
                 return res;
             } else {
@@ -754,7 +764,7 @@ where
     Svc::Future: Send + Sync + Unpin,
     Svc::Target: Composer + Default + Send + Sync,
     Svc::Stream: Send + Sync,
-    {
+{
     type Target = Svc::Target;
     type Stream = XfrMiddlewareStream<
         Svc::Future,

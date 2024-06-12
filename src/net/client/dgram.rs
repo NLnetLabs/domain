@@ -8,6 +8,20 @@
 
 // To do:
 // - cookies
+use core::fmt;
+
+use std::boxed::Box;
+use std::future::Future;
+use std::pin::Pin;
+use std::prelude::v1::Vec;
+use std::sync::Arc;
+use std::{error, io};
+
+use bytes::Bytes;
+use octseq::OctetsInto;
+use tokio::sync::Semaphore;
+use tokio::time::{timeout_at, Duration, Instant};
+use tracing::trace;
 
 use crate::base::{Message, StaticCompressor};
 use crate::net::client::protocol::{
@@ -18,18 +32,6 @@ use crate::net::client::request::{
     ComposeRequest, Error, GetResponse, SendRequest,
 };
 use crate::utils::config::DefMinMax;
-use bytes::Bytes;
-use core::fmt;
-use octseq::OctetsInto;
-use std::boxed::Box;
-use std::future::Future;
-use std::pin::Pin;
-use std::sync::Arc;
-use std::{error, io};
-use tokio::sync::Semaphore;
-use tokio::time::{timeout_at, Duration, Instant};
-use tracing::trace;
-use std::prelude::v1::Vec;
 
 //------------ Configuration Constants ----------------------------------------
 
@@ -259,7 +261,10 @@ where
             // Create the message and send it out.
             let target = StaticCompressor::new(Vec::new());
             let builder = request.append_message(target)?;
-            let request_msg = Message::from_octets(builder.finish().into_target()).expect(
+            let request_msg = Message::from_octets(
+                builder.finish().into_target(),
+            )
+            .expect(
                 "Message should be able to parse output from MessageBuilder",
             );
 

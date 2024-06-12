@@ -97,7 +97,7 @@ impl Config {
     ///
     /// Forrequests where ComposeRequest::is_streaming() returns true see
     /// set_streaming_response_timeout() instead.    
-    /// 
+    ///
     /// Excessive values are quietly trimmed.
     //
     //  XXX Maybe that’s wrong and we should rather return an error?

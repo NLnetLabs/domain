@@ -212,8 +212,6 @@ impl<Octs: AsRef<[u8]> + Clone + Debug + Octets + Send + Sync + 'static>
         Ok(builder)
     }
 
-
-
     fn header_mut(&mut self) -> &mut Header {
         &mut self.header
     }
