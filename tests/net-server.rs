@@ -42,6 +42,7 @@ use domain::stelline::parse_stelline;
 use domain::stelline::parse_stelline::parse_file;
 use domain::stelline::parse_stelline::Config;
 use domain::stelline::parse_stelline::Matches;
+use domain::utils::base16;
 
 //----------- Tests ----------------------------------------------------------
 
@@ -62,6 +63,7 @@ async fn server_tests(#[files("test-data/server/*.rpl")] rpl_file: PathBuf) {
     // Initialize tracing based logging. Override with env var RUST_LOG, e.g.
     // RUST_LOG=trace. DEBUG level will show the .rpl file name, Stelline step
     // numbers and types as they are being executed.
+
     tracing_subscriber::fmt()
         .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
         .with_thread_ids(true)
@@ -128,7 +130,7 @@ async fn server_tests(#[files("test-data/server/*.rpl")] rpl_file: PathBuf) {
 
         #[cfg(feature = "siphasher")]
         let secret = server_config.cookies.secret.unwrap();
-        let secret = hex::decode(secret).unwrap();
+        let secret = base16::decode_vec(secret).unwrap();
         let secret = <[u8; 16]>::try_from(secret).unwrap();
         let svc = CookiesMiddlewareSvc::new(svc, secret)
             .with_denied_ips(server_config.cookies.ip_deny_list.clone());
