@@ -3,10 +3,8 @@
 // are separate things. Maybe better have triggers/callbacks or something for
 // joining separate pieces together, including the XFR-in XfrMiddlewareService
 // functionality?
-// TODO: Add IXFR diff purging.
-// TODO: Add IXFR diff condensation.
 // TODO: Add lifecycle hooks for callers, e.g. zone added, zone removed, zone
-// expired, zone refreshed.
+// expired, zone refreshed.?
 use core::any::Any;
 use core::fmt::Debug;
 use core::net::{IpAddr, SocketAddr};
