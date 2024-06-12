@@ -11,14 +11,16 @@ use std::io;
 /// A type that acts as a DNS resolver.
 ///
 /// A resolver is anything that tries to answer questions using the DNS. The
-/// `query` method takes a single question and returns a future that will
+/// [`query`] method takes a single question and returns a future that will
 /// eventually resolve into either an answer or an IO error.
+///
+/// [`query`]: Resolver::query
 pub trait Resolver {
     type Octets: AsRef<[u8]>;
 
     /// The answer returned by a query.
     ///
-    /// This isn’t `Message` directly as it may be useful for the resolver
+    /// This isn’t [`Message`] directly as it may be useful for the resolver
     /// to provide additional information. For instance, a validating
     /// resolver (a resolver that checks whether DNSSEC signatures are
     /// correct) can supply more information as to why validation failed.

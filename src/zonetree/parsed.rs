@@ -25,8 +25,8 @@ use super::types::{StoredName, StoredRecord};
 ///
 /// The zone origin and class may be specified explicitly or be derived from
 /// the SOA record when inserted. The relationship of each resource record
-/// with the zone is classified on insert, similar to that described by [RFC
-/// 1034 4.2.1].
+/// with the zone is classified on insert, similar to that described by
+/// [RFC 1034, section 4.2.1].
 ///
 /// Getter functions provide insight into the classification results.
 ///
@@ -37,7 +37,7 @@ use super::types::{StoredName, StoredRecord};
 ///
 /// See the [zonetree] module docs for example usage.
 ///
-/// [RFC 1034 4.2.1]:
+/// [RFC 1034, section 4.2.1]:
 ///     https://datatracker.ietf.org/doc/html/rfc1034#section-4.2.1
 /// [zonetree]: crate::zonetree
 #[derive(Clone, Default)]

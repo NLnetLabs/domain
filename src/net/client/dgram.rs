@@ -177,7 +177,7 @@ impl Default for Config {
 
 /// A datagram protocol connection.
 ///
-/// Because it owns the connection’s resources, this type is not `Clone`.
+/// Because it owns the connection’s resources, this type is not [`Clone`].
 /// However, it is entirely safe to share it by sticking it into e.g. an arc.
 #[derive(Clone, Debug)]
 pub struct Connection<S> {

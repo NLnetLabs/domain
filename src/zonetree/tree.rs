@@ -14,8 +14,8 @@ use super::zone::Zone;
 
 /// A multi-rooted [`Zone`] hierarchy.
 ///
-/// [`Zone`]: crate::zonetree::Zone.
-#[derive(Clone, Debug, Default)]
+/// [`Zone`]: crate::zonetree::Zone
+#[derive(Clone, Default, Debug)]
 pub struct ZoneTree {
     roots: Roots,
 }

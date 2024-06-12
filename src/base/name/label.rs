@@ -9,7 +9,7 @@ use super::builder::{
     parse_escape, LabelFromStrError, LabelFromStrErrorEnum,
 };
 use core::str::FromStr;
-use core::{borrow, cmp, fmt, hash, iter, ops, slice};
+use core::{borrow, cmp, fmt, hash, iter, mem, ops, slice};
 use octseq::builder::OctetsBuilder;
 
 //------------ Label ---------------------------------------------------------
@@ -29,14 +29,15 @@ use octseq::builder::OctetsBuilder;
 /// experience with binary labels, it is very unlikely that there ever will
 /// be any.
 ///
-/// Consequently, `Label` will only ever contain an octets slice of up to 63
+/// Consequently, [`Label`] will only ever contain an octets slice of up to 63
 /// octets. It only contains the label’s content, not the length octet it is
 /// preceded by in wire format. As an unsized type, it needs to be
 /// used behind some kind of pointer, most likely a reference.
 ///
-/// `Label` differs from an octets slice in how it compares: as labels are to
+/// [`Label`] differs from an octets slice in how it compares: as labels are to
 /// be case-insensitive, all the comparison traits as well as `Hash` are
 /// implemented ignoring ASCII-case.
+#[repr(transparent)]
 pub struct Label([u8]);
 
 /// # Creation
@@ -51,7 +52,8 @@ impl Label {
     ///
     /// The `slice` must be at most 63 octets long.
     pub(super) unsafe fn from_slice_unchecked(slice: &[u8]) -> &Self {
-        &*(slice as *const [u8] as *const Self)
+        // SAFETY: Label has repr(transparent)
+        mem::transmute(slice)
     }
 
     /// Creates a mutable label from the underlying slice without checking.
@@ -62,7 +64,8 @@ impl Label {
     pub(super) unsafe fn from_slice_mut_unchecked(
         slice: &mut [u8],
     ) -> &mut Self {
-        &mut *(slice as *mut [u8] as *mut Self)
+        // SAFETY: Label has repr(transparent)
+        mem::transmute(slice)
     }
 
     /// Returns a static reference to the root label.
@@ -209,12 +212,12 @@ impl Label {
     /// Returns a reference to the underlying octets slice.
     #[must_use]
     pub fn as_slice(&self) -> &[u8] {
-        unsafe { &*(self as *const Self as *const [u8]) }
+        &self.0
     }
 
     /// Returns a mutable reference to the underlying octets slice.
     pub fn as_slice_mut(&mut self) -> &mut [u8] {
-        unsafe { &mut *(self as *mut Label as *mut [u8]) }
+        &mut self.0
     }
 
     /// Converts the label into the canonical form.
@@ -727,15 +730,13 @@ impl<'de> serde::Deserialize<'de> for OwnedLabel {
 /// This keeps returning [`Label`]s until it encounters the root label. If
 /// the slice ends before a root label is seen, returns the last label seen
 /// and then stops.
-///
-/// [`Label`]: struct.Label.html
 pub struct SliceLabelsIter<'a> {
     /// The message slice to work on.
     slice: &'a [u8],
 
     /// The position in `slice` where the next label start.
     ///
-    /// As a life hack, we use `usize::max_value` to fuse the iterator.
+    /// As a life hack, we use `usize::MAX` to fuse the iterator.
     start: usize,
 }
 
@@ -743,16 +744,17 @@ impl<'a> Iterator for SliceLabelsIter<'a> {
     type Item = &'a Label;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.start == usize::max_value() {
+        if self.start >= self.slice.len() {
             return None;
         }
+
         loop {
             match Label::split_from(&self.slice[self.start..]) {
                 Ok((label, _)) => {
                     if label.is_root() {
-                        self.start = usize::max_value();
+                        self.start = usize::MAX;
                     } else {
-                        self.start += label.len();
+                        self.start += label.len() + 1;
                     }
                     return Some(label);
                 }
@@ -761,14 +763,14 @@ impl<'a> Iterator for SliceLabelsIter<'a> {
                     if pos > self.start {
                         // Incidentally, this also covers the case where
                         // pos points past the end of the message.
-                        self.start = usize::max_value();
+                        self.start = usize::MAX;
                         return None;
                     }
                     self.start = pos;
                     continue;
                 }
                 Err(_) => {
-                    self.start = usize::max_value();
+                    self.start = usize::MAX;
                     return None;
                 }
             }
@@ -1034,6 +1036,38 @@ mod test {
                 Token::NewtypeStruct { name: "OwnedLabel" },
                 Token::Str("fo\\."),
             ],
+        );
+    }
+
+    #[test]
+    fn iter_slice() {
+        assert_eq!(None, Label::iter_slice(&[], 0).next());
+        assert_eq!(None, Label::iter_slice(&[], 1).next());
+
+        // example.com.
+        let buf = [
+            0x07, 0x65, 0x78, 0x61, 0x6d, 0x70, 0x6c, 0x65, 0x03, 0x63, 0x6f,
+            0x6d, 0x00,
+        ];
+
+        let mut it = Label::iter_slice(&buf, 0);
+        assert_eq!(Label::from_slice(b"example").ok(), it.next());
+        assert_eq!(Label::from_slice(b"com").ok(), it.next());
+        assert_eq!(Some(Label::root()), it.next());
+        assert_eq!(None, it.next());
+
+        let mut it = Label::iter_slice(&buf, b"example".len() + 1);
+        assert_eq!(
+            Label::from_slice(b"com").ok(),
+            it.next(),
+            "should jump to 2nd label"
+        );
+
+        let mut it = Label::iter_slice(&buf, buf.len() - 1);
+        assert_eq!(
+            Some(Label::root()),
+            it.next(),
+            "should jump to last/root label"
         );
     }
 }

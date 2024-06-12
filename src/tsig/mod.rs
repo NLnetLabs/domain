@@ -1317,11 +1317,12 @@ impl<'a, Octs: Octets + ?Sized> MessageTsig<'a, Octs> {
         let mut start = section.pos();
         let mut record = section.next()?;
         loop {
+            let record_start = section.pos();
             record = match section.next() {
                 Some(record) => record,
                 None => break,
             };
-            start = section.pos();
+            start = record_start;
         }
         record
             .ok()?

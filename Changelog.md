@@ -8,8 +8,66 @@ New
 
 Bug fixes
 
+* Fixed a mistake in the tsig module while calculating the start of
+  the TSIG record when there were other records in the additional section,
+  causing the TSIG code to fail if OPT records were in use. ([#333])
+
+Unstable features
+
 Other changes
 
+[#333]: https://github.com/NLnetLabs/domain/pull/333
+
+## 0.10.1
+
+Release 2024-06-03.
+
+New
+
+* Allow AllRecordData’s parsing impls to accept an unsized [u8] as the
+  source octets. ([#310] by [@xofyarg])
+* Made `sign::records::FamilyName` public. ([#312] by [@achow101])
+* Added an impl of `FromStr` for `Question`. ([#317])
+
+Bug fixes
+
+* Accept an empty record type bitmap when scanning NSEC/NSEC3 data.
+  ([#310] by [@xofyarg])
+* Fix serialization of ProtoRrsig to conform with RFC 4034. ([#313 by
+  [@achow101])
+* Add `?Sized` bounds to `Message::is_answer` and `ParsedRecord::to_record`.
+  ([#318] by [@xofyarg], [#325] by [@hunts])
+* Bring back `MessageBuilder::as_target`. ([#318] by [@xofyarg])
+* Bring back `impl FreezeBuilder for StaticCompressor`. ([#318] by [@xofyarg])
+* `sign::records::RecordsIter::skip_before` now stops at the first name in
+  zone even if the apex itself doesn’t appear. ([#314] by [@achow101])
+* Fix a counting error in `SliceLabelsIter::next` that broke compression
+  via `StaticCompressor`. ([#321] by [@hunts])
+
+Unstable features
+
+* New unstable feature `unstable-stelline` for the Stelline testing
+  framework as a “normal” module of _domain._ ([#315])
+* Renamed the domain name types in `zonetree` from `Dname` to `Name`.
+  ([#308])
+
+Other changes
+
+* The minimum Rust version is now 1.78. ([#320])
+
+[#308]: https://github.com/NLnetLabs/domain/pull/308
+[#310]: https://github.com/NLnetLabs/domain/pull/310
+[#312]: https://github.com/NLnetLabs/domain/pull/312
+[#314]: https://github.com/NLnetLabs/domain/pull/314
+[#315]: https://github.com/NLnetLabs/domain/pull/315
+[#317]: https://github.com/NLnetLabs/domain/pull/317
+[#318]: https://github.com/NLnetLabs/domain/pull/318
+[#320]: https://github.com/NLnetLabs/domain/pull/320
+[#321]: https://github.com/NLnetLabs/domain/pull/321
+[#325]: https://github.com/NLnetLabs/domain/pull/325
+[@achow101]: https://github.com/achow101
+[@hunts]: https://github.com/hunts
+[@xofyarg]: https://github.com/xofyarg
 
 ## 0.10.0
 

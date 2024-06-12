@@ -5,6 +5,9 @@
 //! These interfaces are unstable and are likely to change in future.
 //!
 //! </div>
+//!
+//! [`ZoneTree`]: super::ZoneTree
+use core::any::Any;
 use core::future::ready;
 use core::pin::Pin;
 
@@ -24,7 +27,6 @@ use super::answer::Answer;
 use super::error::OutOfZone;
 use super::types::{ZoneCut, ZoneDiff};
 use super::{SharedRr, SharedRrset, StoredName, WalkOp};
-use core::any::Any;
 
 //------------ ZoneStore -----------------------------------------------------
 
@@ -95,7 +97,7 @@ pub trait ReadableZone: Send + Sync {
 
     //--- Async variants
 
-    /// Asynchronous variant of `query()`.
+    /// Asynchronous variant of [`query`][ReadableZone::query].
     fn query_async(
         &self,
         qname: Name<Bytes>,
@@ -105,7 +107,7 @@ pub trait ReadableZone: Send + Sync {
         Box::pin(ready(self.query(qname, qtype)))
     }
 
-    /// Asynchronous variant of `walk()`.
+    /// Asynchronous variant of [`walk`][ReadableZone::walk].
     fn walk_async(
         &self,
         op: WalkOp,

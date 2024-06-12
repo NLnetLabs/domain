@@ -16,7 +16,7 @@ use super::{
 use octseq::builder::OctetsBuilder;
 use octseq::octets::{Octets, OctetsFrom};
 use octseq::parse::Parser;
-use core::{borrow, fmt, hash, str};
+use core::{borrow, fmt, hash, mem, str};
 use core::cmp::Ordering;
 
 
@@ -32,6 +32,7 @@ use core::cmp::Ordering;
 /// The option and details about its use are defined in
 /// [RFC 5001](https://tools.ietf.org/html/rfc5001).
 #[derive(Clone, Copy)]
+#[repr(transparent)]
 pub struct Nsid<Octs: ?Sized> {
     /// The octets of the identifier.
     octets: Octs,
@@ -93,7 +94,8 @@ impl Nsid<[u8]> {
     /// octets.
     #[must_use]
     pub unsafe fn from_slice_unchecked(slice: &[u8]) -> &Self {
-        &*(slice as *const [u8] as *const Self)
+        // SAFETY: Nsid has repr(transparent)
+        mem::transmute(slice)
     }
 
     /// Creates an empty NSID option value.

@@ -15,6 +15,7 @@ use crate::base::wire::Composer;
 use crate::base::Message;
 use crate::base::{MessageBuilder, ParsedName, Rtype, StreamTarget};
 use crate::rdata::AllRecordData;
+use crate::utils::base16;
 
 use super::message::Request;
 use super::service::{Service, ServiceResult};
@@ -129,7 +130,7 @@ pub(crate) fn to_pcap_text<T: AsRef<[u8]>>(
     num_bytes: usize,
 ) -> String {
     let mut formatted = "000000".to_string();
-    let hex_encoded = hex::encode(&bytes.as_ref()[..num_bytes]);
+    let hex_encoded = base16::encode_string(&bytes.as_ref()[..num_bytes]);
     let mut chars = hex_encoded.chars();
     loop {
         match (chars.next(), chars.next()) {

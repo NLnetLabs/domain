@@ -29,7 +29,7 @@ use super::{SharedRr, SharedRrset};
 /// outcome of the query.
 ///
 /// [`Zone`]: crate::zonetree::Zone
-/// [`ReadableZone::query`]: crate::zonetree::traits::ReadableZone::query()
+/// [`ReadableZone::query`]: crate::zonetree::traits::ReadableZone::query
 #[derive(Clone)]
 pub struct Answer {
     /// The response code of the answer.
@@ -95,9 +95,11 @@ impl Answer {
     /// add/set functions called prior to calling this function.
     ///
     /// <div class="warning">
-    /// This function does <b>NOT</b> currently set the
-    /// <a href="https://datatracker.ietf.org/doc/html/rfc1035#section-4.1.1"><code>AA</code></a>
+    ///
+    /// This function does **NOT** currently set the
+    /// [AA](https://datatracker.ietf.org/doc/html/rfc1035#section-4.1.1)
     /// flag on the produced message.
+    ///
     /// </div>
     ///
     /// See also: [`MessageBuilder::start_answer`]

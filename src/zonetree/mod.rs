@@ -23,11 +23,10 @@
 //! with different backing store types can be mixed and matched within the
 //! same tree.
 //!
-//! The example below shows how to populate a `ZoneTree` from a zonefile. For
-//! more examples of using `Zone`s and `ZoneTree`s including implementing an
-//! alternate zone backing store for your `Zone`s, see the [examples in the
-//! GitHub
-//! repository](https://github.com/NLnetLabs/domain/tree/main/examples).
+//! The example below shows how to populate a [`ZoneTree`] from a zonefile. For
+//! more examples of using [`Zone`]s and [`ZoneTree`]s including implementing an
+//! alternate zone backing store for your [`Zone`]s, see the
+//! [examples in the GitHub repository](https://github.com/NLnetLabs/domain/tree/main/examples).
 //!
 //! # Usage
 //!

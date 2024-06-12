@@ -150,6 +150,7 @@ use octseq::{Octets, OctetsFrom, Parser};
 /// [opcode]: ../iana/opcode/enum.Opcode.html
 /// [RFC 1035]: https://tools.ietf.org/html/rfc1035
 #[derive(Clone, Copy)]
+#[repr(transparent)]
 pub struct Message<Octs: ?Sized> {
     octets: Octs,
 }
@@ -215,7 +216,8 @@ impl Message<[u8]> {
     /// long as a header. If the sequence is shorter, the behavior is
     /// undefined.
     unsafe fn from_slice_unchecked(slice: &[u8]) -> &Self {
-        &*(slice as *const [u8] as *const Self)
+        // SAFETY: Message has repr(transparent)
+        mem::transmute(slice)
     }
 
     /// Checks that the slice can be used for a message.
@@ -422,7 +424,10 @@ impl<Octs: Octets + ?Sized> Message<Octs> {
     /// The method checks whether the ID fields of the headers are the same,
     /// whether the QR flag is set in this message, and whether the questions
     /// are the same.
-    pub fn is_answer<Other: Octets>(&self, query: &Message<Other>) -> bool {
+    pub fn is_answer<Other: Octets + ?Sized>(
+        &self,
+        query: &Message<Other>,
+    ) -> bool {
         if !self.header().qr()
             || self.header().id() != query.header().id()
             || self.header_counts().qdcount()
@@ -1208,6 +1213,8 @@ where
 /// fails the item will be an error and subsequent attempts to continue will
 /// also produce errors. This case can be distinguished from an error while
 /// parsing the record data by [`next_section`] returning an error, too.
+///
+/// [`next_section`]: Self::next_section
 #[derive(Debug)]
 pub struct AnyRecordIter<'a, Octs: ?Sized, Data> {
     section: RecordSection<'a, Octs>,

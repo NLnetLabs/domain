@@ -6,7 +6,7 @@
 //!
 //! There are three options for three different purposes. However, the data
 //! for each of them is a sequence of security algorithms. The module only
-//! defines one type [`Understood<Variant, Octs>`][Understood] which carries
+//! defines one type [`Understood<Variant, Octs>`] which carries
 //! the specific variant as its first type parameter. Marker types and
 //! type aliases are defined for the three options [Dau], [Dhu], and [N3u]
 //! which specific the DNSSEC signature algorithms, DS hash algorithm, and
@@ -23,7 +23,7 @@ use super::{
 use octseq::builder::{EmptyBuilder, FromBuilder, OctetsBuilder};
 use octseq::octets::{Octets, OctetsFrom};
 use octseq::parse::Parser;
-use core::{borrow, fmt, hash, slice};
+use core::{borrow, fmt, hash, mem, slice};
 use core::marker::PhantomData;
 
 
@@ -44,9 +44,10 @@ use core::marker::PhantomData;
 /// iterator over [`SecAlg`] via the
 /// [`from_sec_algs`][Understood::from_sec_algs] associated function.
 /// Once you have a value, you can iterate over the algorithms via the
-/// [`iter`][Understood::iter] method or use the `IntoIterator` implementation
+/// [`iter`][Understood::iter] method or use the [`IntoIterator`] implementation
 /// for a reference.
 #[derive(Clone, Copy)]
+#[repr(transparent)]
 pub struct Understood<Variant, Octs: ?Sized> {
     /// A marker for the variant.
     marker: PhantomData<Variant>,
@@ -152,7 +153,8 @@ impl<Variant> Understood<Variant, [u8]> {
     /// 16 bit values that is no longer than 65,535 octets.
     #[must_use]
     pub unsafe fn from_slice_unchecked(slice: &[u8]) -> &Self {
-        &*(slice as *const [u8] as *const Self)
+        // SAFETY: Understood has repr(transparent)
+        mem::transmute(slice)
     }
 
     /// Checks that a slice contains a correctly encoded value.

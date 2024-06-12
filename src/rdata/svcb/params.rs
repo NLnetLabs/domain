@@ -10,7 +10,7 @@ use crate::base::wire::{Compose, Parse, ParseError};
 use octseq::builder::{EmptyBuilder, FromBuilder, OctetsBuilder, ShortBuf};
 use octseq::octets::{Octets, OctetsFrom, OctetsInto};
 use octseq::parse::{Parser, ShortInput};
-use core::{cmp, fmt, hash};
+use core::{cmp, fmt, hash, mem};
 use core::cmp::Ordering;
 use core::marker::PhantomData;
 
@@ -23,9 +23,8 @@ use core::marker::PhantomData;
 /// values. Each value has a type and some data specific to that type. The
 /// type is provided through a `u16` key with values assigned via an IANA
 /// registry. The key and registry are available through
-/// [`SvcParamKey`][crate::base::iana::SvcParamKey]. Each key is only allowed
-/// to appear at most once in the parameter sequence. Values need to be
-/// ordered by their key’s integer value.
+/// [`SvcParamKey`]. Each key is only allowed to appear at most once in the
+/// parameter sequence. Values need to be ordered by their key’s integer value.
 ///
 /// A value of the `SvcParams` type contains a sequence of values in their
 /// wire-format encoded form. It guarantees that this content is correctly
@@ -60,12 +59,12 @@ use core::marker::PhantomData;
 ///
 /// The wire format of a parameter sequence consists of a sequence of
 /// values. Each value is encoded as a 16 bit parameter key – represented
-/// by [`SvcParamKey`][crate::base::iana::SvcParamKey] in this crate –,
-/// followed by an unsigned 16 bit length value, followed by this many
-/// octets. Since the sequence is the last element in the record data, it
-/// is limited by the length of the record data only.
+/// by [`SvcParamKey`] in this crate –, followed by an unsigned 16 bit length
+/// value, followed by this many octets. Since the sequence is the last element
+/// in the record data, it is limited by the length of the record data only.
 #[derive(Clone, Default)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[repr(transparent)]
 pub struct SvcParams<Octs: ?Sized> {
     #[cfg_attr(
         feature = "serde",
@@ -128,7 +127,8 @@ impl SvcParams<[u8]> {
     /// parameter sequence.
     #[must_use]
     pub unsafe fn from_slice_unchecked(slice: &[u8]) -> &Self {
-        &*(slice as *const [u8] as *const Self)
+        // SAFETY: SvcParams has repr(transparent)
+        mem::transmute(slice)
     }
 
     /// Checks that a slice contains a correctly encoded parameters sequence.

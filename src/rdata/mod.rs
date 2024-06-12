@@ -7,7 +7,7 @@
 //! [`domain::base::iana::Rtype`][crate::base::iana::Rtype] variant they
 //! implement. They are grouped into submodules for the RFCs they are defined
 //! in. All types are also re-exported at the top level here. Ie., for the
-//! AAAA record type, you can simple `use domain::rdata::Aaaa` instead of
+//! AAAA record type, you can simply `use domain::rdata::Aaaa` instead of
 //! `use domain::rdata::rfc3596::Aaaa` which nobody could possibly
 //! remember. There are, however, some helper data types defined here and
 //! there which are not re-exported to keep things somewhat tidy.
@@ -18,11 +18,9 @@
 //!
 //! In addition, the module provides two enums combining the known types.
 //! [`AllRecordData`] indeed contains all record data types known plus
-//! [`UnknownRecordData`][crate::base::rdata::UnknownRecordData] for the
-//! rest, while [`ZoneRecordData`] only
+//! [`UnknownRecordData`] for the rest, while [`ZoneRecordData`] only
 //! contains those types that can appear in zone files plus, again,
-//! [`UnknownRecordData`][crate::base::rdata::UnknownRecordData] for
-//! everything else.
+//! [`UnknownRecordData`] for everything else.
 
 // A note on implementing record types with embedded domain names with regards
 // to compression and canonical representation:
@@ -34,10 +32,10 @@
 //
 // RFC 4034 defines the canonical form of record data. For this form, domain
 // names included in the record data of the following record types must be
-// composed canonically using `ToDname::compose_canonical`: All record types
+// composed canonically using `ToName::compose_canonical`: All record types
 // from RFC 1035 plus RP, AFSDB, RT, SIG, PX, NXT, NAPTR, KX, SRV, DNAME, A6,
 // RRSIG, NSEC. All other record types must be composed canonically using
-// `ToDname::compose`.
+// `ToName::compose`.
 //
 // The macros module contains three macros for generating name-only record
 // types in these three categories: `name_type_well_known!` for types from

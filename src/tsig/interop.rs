@@ -7,6 +7,7 @@ use crate::base::message_builder::{
     AdditionalBuilder, AnswerBuilder, MessageBuilder, StreamTarget,
 };
 use crate::base::name::Name;
+use crate::base::opt::TcpKeepalive;
 use crate::base::record::Ttl;
 use crate::rdata::tsig::Time48;
 use crate::rdata::{Soa, A};
@@ -87,6 +88,9 @@ fn tsig_client_nsd() {
             .request_axfr(Name::<Vec<u8>>::from_str("example.com.").unwrap())
             .unwrap()
             .additional();
+        request
+            .opt(|builder| builder.push(&TcpKeepalive::new(None)))
+            .unwrap();
         let tran = tsig::ClientTransaction::request(
             &key,
             &mut request,
@@ -108,6 +112,7 @@ fn tsig_client_nsd() {
                 break answer;
             }
         };
+        assert_eq!(answer.header().rcode(), Rcode::NOTIMP);
         if let Err(err) = tran.answer(&mut answer, Time48::now()) {
             panic!("{:?}", err);
         }
@@ -116,7 +121,7 @@ fn tsig_client_nsd() {
 
     // Shut down NSD just to be sure.
     let _ = nsd.kill();
-    res.unwrap(); // Panic if the thread paniced.
+    res.unwrap(); // Panic if the thread panicked.
 }
 
 /// Tests the TSIG server implementation against drill as a client.

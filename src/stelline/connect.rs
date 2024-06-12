@@ -1,12 +1,13 @@
+use std::boxed::Box;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 
-use domain::net::client::protocol::AsyncConnect;
+use crate::net::client::protocol::AsyncConnect;
 
-use crate::net::stelline::client::CurrStepValue;
-use crate::net::stelline::connection::Connection;
-use crate::net::stelline::parse_stelline::Stelline;
+use super::client::CurrStepValue;
+use super::connection::Connection;
+use super::parse_stelline::Stelline;
 
 pub struct Connect {
     stelline: Stelline,
@@ -14,7 +15,6 @@ pub struct Connect {
 }
 
 impl Connect {
-    #[allow(dead_code)]
     pub fn new(
         stelline: Stelline,
         step_value: Arc<CurrStepValue>,

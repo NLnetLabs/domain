@@ -26,6 +26,8 @@ use octseq::parse::Parser;
 /// The Minfo record is experimental.
 ///
 /// The Minfo record type is defined in RFC 1035, section 3.3.7.
+/// 
+/// [1]: https://tools.ietf.org/html/rfc1035#section-3.3.7
 #[derive(Clone, Debug, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Minfo<N> {

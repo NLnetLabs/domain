@@ -9,7 +9,6 @@
 //! All of these codes share the same definition space. Even so, we have
 //! separate types for each of these.
 //!
-//! [`Rcode`]: enum.Rcode.html
 //! [RFC 1035]: https://tools.ietf.org/html/rfc1035
 //! [RFC 2671]: https://tools.ietf.org/html/rfc2671
 //! [RFC 2845]: https://tools.ietf.org/html/rfc2845
@@ -40,8 +39,6 @@ use core::fmt;
 /// All three codes share the same name space. Their values are defined in
 /// one registry, [IANA DNS RCODEs]. This type is complete as of 2019-01-28.
 ///
-/// [OptRcode]: enum.OptRcode.html
-/// [TsigRcode]: enum.TsigRcode.html
 /// [IANA DNS RCODEs]: http://www.iana.org/assignments/dns-parameters/dns-parameters.xhtml#dns-parameters-6
 /// [RFC 1035]: https://tools.ietf.org/html/rfc1035
 /// [RFC 2671]: https://tools.ietf.org/html/rfc2671
@@ -331,8 +328,6 @@ impl<'de> serde::Deserialize<'de> for Rcode {
 /// - [`OptRcode::to_int`]`: the IANA number for the RCODE combining both
 ///   parts.
 ///
-/// [Rcode]: enum.Rcode.html
-/// [`TsigRcode`]: enum.TsigRcode.html
 /// [IANA DNS RCODEs]: http://www.iana.org/assignments/dns-parameters/dns-parameters.xhtml#dns-parameters-6
 /// [RFC 2671]: https://tools.ietf.org/html/rfc2671
 /// [RFC 2845]: https://tools.ietf.org/html/rfc2845

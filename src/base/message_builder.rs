@@ -1706,6 +1706,11 @@ impl<'a, Target: Composer + ?Sized> OptBuilder<'a, Target> {
         let start = self.start;
         OptHeader::for_record_slice_mut(&mut self.target.as_mut()[start..])
     }
+
+    /// Returns a reference to the underlying octets builder.
+    pub fn as_target(&self) -> &Target {
+        self.target
+    }
 }
 
 //------------ StreamTarget --------------------------------------------------
@@ -1726,6 +1731,9 @@ impl<'a, Target: Composer + ?Sized> OptBuilder<'a, Target> {
 /// Because the length is 16 bits long, the assembled message can be at most
 /// 65536 octets long, independently of the maximum length the underlying
 /// builder allows.
+///
+/// [`as_dgram_slice`]: Self::as_dgram_slice
+/// [`as_stream_slice`]: Self::as_stream_slice
 #[derive(Clone, Debug, Default)]
 pub struct StreamTarget<Target> {
     /// The underlying octets builder.
@@ -2052,6 +2060,14 @@ impl<Target: Truncate> Truncate for StaticCompressor<Target> {
                 }
             }
         }
+    }
+}
+
+impl<Target: FreezeBuilder> FreezeBuilder for StaticCompressor<Target> {
+    type Octets = Target::Octets;
+
+    fn freeze(self) -> Self::Octets {
+        self.target.freeze()
     }
 }
 
@@ -2453,5 +2469,51 @@ mod test {
 
         let msg = create_compressed(TreeCompressor::new(Vec::new()));
         assert_eq!(&expect[..], msg.as_ref());
+    }
+
+    #[test]
+    fn compress_positive_response() {
+        // An example positive response to `A example.com.` that is compressed
+        //
+        // ;; ->>HEADER<<- opcode: QUERY, status: NOERROR, id: 0
+        // ;; flags: qr rd ra ad; QUERY: 1, ANSWER: 1, AUTHORITY: 0, ADDITIONAL: 0
+        //
+        // ;; QUESTION SECTION:
+        // ;example.com.			IN	A
+        //
+        // ;; ANSWER SECTION:
+        // example.com.		3600	IN	A	203.0.113.1
+        //
+        // ;; MSG SIZE  rcvd: 45
+        let expect = &[
+            0x00, 0x00, 0x81, 0xa0, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x00,
+            0x00, 0x07, 0x65, 0x78, 0x61, 0x6d, 0x70, 0x6c, 0x65, 0x03, 0x63,
+            0x6f, 0x6d, 0x00, 0x00, 0x01, 0x00, 0x01, 0xc0, 0x0c, 0x00, 0x01,
+            0x00, 0x01, 0x00, 0x00, 0x0e, 0x10, 0x00, 0x04, 0xcb, 0x00, 0x71,
+            0x01,
+        ];
+
+        let name = "example.com.".parse::<Name<Vec<u8>>>().unwrap();
+        let mut msg =
+            MessageBuilder::from_target(StaticCompressor::new(Vec::new()))
+                .unwrap()
+                .question();
+        msg.header_mut().set_rcode(Rcode::NOERROR);
+        msg.header_mut().set_rd(true);
+        msg.header_mut().set_ra(true);
+        msg.header_mut().set_qr(true);
+        msg.header_mut().set_ad(true);
+
+        // Question
+        msg.push((name.clone(), Rtype::A)).unwrap();
+
+        // Answer
+        let mut msg = msg.answer();
+        msg.push((name.clone(), 3600, A::from_octets(203, 0, 113, 1)))
+            .unwrap();
+
+        let actual = msg.finish().into_target();
+        assert_eq!(45, actual.len(), "unexpected response size");
+        assert_eq!(expect[..], actual, "unexpected response data");
     }
 }

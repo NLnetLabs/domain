@@ -14,7 +14,7 @@ use super::traits::{FlattenInto, ToLabelIter, ToName};
 use bytes::Bytes;
 use core::ops::{Bound, RangeBounds};
 use core::str::FromStr;
-use core::{borrow, cmp, fmt, hash, str};
+use core::{borrow, cmp, fmt, hash, mem, str};
 use octseq::builder::{
     EmptyBuilder, FreezeBuilder, FromBuilder, OctetsBuilder, Truncate,
 };
@@ -34,23 +34,22 @@ use std::vec::Vec;
 /// labels of the name, i.e., you can iterate over the labels, split them off,
 /// etc.
 ///
-/// You can construct a domain name from a string via the `FromStr` trait or
+/// You can construct a domain name from a string via the [`FromStr`] trait or
 /// manually via a [`NameBuilder`]. In addition, you can also parse it from
 /// a message. This will, however, require the name to be uncompressed.
-/// Otherwise, you would receive a [`ParsedDname`] which can be converted into
-/// `Name` via [`ToName::to_name`].
+/// Otherwise, you would receive a [`ParsedName`] which can be converted into
+/// [`Name`] via [`ToName::to_name`].
 ///
 /// The canonical way to convert a domain name into its presentation format is
 /// using [`to_string`] or by using its [`Display`] implementation (which
 /// performs no allocations).
 ///
-/// [`NameBuilder`]: struct.NameBuilder.html
-/// [`ParsedDname`]: struct.ParsedDname.html
-/// [`RelativeName`]: struct.RelativeName.html
-/// [`ToName::to_name`]: trait.ToName.html#method.to_name
-/// [`to_string`]: `std::string::ToString::to_string`
-/// [`Display`]: `std::fmt::Display`
+/// [`FromStr`]: std::str::FromStr
+/// [`to_string`]: std::string::ToString::to_string
+/// [`ParsedName`]: crate::base::name::ParsedName
+/// [`Display`]: std::fmt::Display
 #[derive(Clone)]
+#[repr(transparent)]
 pub struct Name<Octs: ?Sized>(Octs);
 
 impl Name<()> {
@@ -141,9 +140,9 @@ impl<Octs> Name<Octs> {
     /// The name will always be an absolute name. If the last character in the
     /// sequence is not a dot, the function will quietly add a root label,
     /// anyway. In most cases, this is likely what you want. If it isn’t,
-    /// though, use [`UncertainDname`] instead to be able to check.
+    /// though, use [`UncertainName`] instead to be able to check.
     ///
-    /// [`UncertainDname`]: enum.UncertainDname.html
+    /// [`UncertainName`]: crate::base::name::UncertainName
     pub fn from_chars<C>(chars: C) -> Result<Self, FromStrError>
     where
         Octs: FromBuilder,
@@ -172,9 +171,9 @@ impl<Octs> Name<Octs> {
     /// type parameter in some cases, there are shortcuts methods for specific
     /// octets types: [`root_ref`], [`root_vec`], and [`root_bytes`].
     ///
-    /// [`root_ref`]: #method.root_ref
-    /// [`root_vec`]: #method.root_vec
-    /// [`root_bytes`]: #method.root_bytes
+    /// [`root_ref`]: Name::root_ref
+    /// [`root_vec`]: Name::root_vec
+    /// [`root_bytes`]: Name::root_bytes
     #[must_use]
     pub fn root() -> Self
     where
@@ -223,7 +222,8 @@ impl<Octs> Name<Octs> {
 impl Name<[u8]> {
     /// Creates a domain name from an octet slice without checking,
     unsafe fn from_slice_unchecked(slice: &[u8]) -> &Self {
-        &*(slice as *const [u8] as *const Name<[u8]>)
+        // SAFETY: Name has repr(transparent)
+        mem::transmute(slice)
     }
 
     /// Creates a domain name from an octets slice.
@@ -517,8 +517,8 @@ impl<Octs: AsRef<[u8]> + ?Sized> Name<Octs> {
     /// slice the entire end of the name including the final root label, you
     /// can use [`slice_from`] instead.
     ///
-    /// [`range`]: #method.range
-    /// [`slice_from`]: #method.slice_from
+    /// [`range`]: Name::range
+    /// [`slice_from`]: Name::slice_from
     pub fn slice(
         &self,
         range: impl RangeBounds<usize>,
@@ -545,7 +545,7 @@ impl<Octs: AsRef<[u8]> + ?Sized> Name<Octs> {
     /// The method panics if `begin` isn’t the index of the beginning of a
     /// label or is out of bounds.
     ///
-    /// [`range_from`]: #method.range_from
+    /// [`range_from`]: Name::range_from
     pub fn slice_from(&self, begin: usize) -> &Name<[u8]> {
         self.check_index(begin);
         unsafe { Name::from_slice_unchecked(&self.0.as_ref()[begin..]) }
@@ -567,7 +567,7 @@ impl<Octs: AsRef<[u8]> + ?Sized> Name<Octs> {
     /// want to slice the entire end of the name including the final root
     /// label, you can use [`range_from`] instead.
     ///
-    /// [`range_from`]: #method.range_from
+    /// [`range_from`]: Name::range_from
     pub fn range(
         &self,
         range: impl RangeBounds<usize>,

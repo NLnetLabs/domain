@@ -18,7 +18,6 @@
 //!
 //! [RFC 4648]: https://tools.ietf.org/html/rfc4648
 //! [NSEC3]: ../../rdata/rfc5155/index.html
-//! [`Decoder`]: struct.Decoder.html
 
 use crate::base::scan::{ConvertSymbols, EntrySymbol, ScannerError};
 use core::fmt;

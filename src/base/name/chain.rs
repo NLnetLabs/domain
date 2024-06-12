@@ -18,8 +18,8 @@ use octseq::builder::{
 
 /// Two domain names chained together.
 ///
-/// This type is the result of calling the `chain` method on
-/// [`RelativeName`], [`UncertainName`], or on [`Chain`] itself.
+/// This type is the result of calling [`RelativeName::chain`],
+/// [`UncertainName::chain`], or [`Chain::chain`].
 ///
 /// The chain can be both an absolute or relative domain name—and implements
 /// the respective traits [`ToName`] or [`ToRelativeName`]—, depending on
@@ -28,11 +28,7 @@ use octseq::builder::{
 /// A chain on an uncertain name is special in that the second name is only
 /// used if the uncertain name is relative.
 ///
-/// [`RelativeName`]: struct.RelativeName.html#method.chain
-/// [`Chain`]: #method.chain
-/// [`ToName`]: trait.ToName.html
-/// [`ToRelativeName`]: trait.ToRelativeName.html
-/// [`UncertainName`]: struct.UncertainName.html#method.chain
+/// [`RelativeName::chain`]: super::RelativeName::chain
 #[derive(Clone, Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Chain<L, R> {
@@ -96,9 +92,7 @@ impl<L: ToRelativeName, R: ToLabelIter> Chain<L, R> {
     /// The method will fail with an error if the chained name is longer than
     /// 255 bytes.
     ///
-    /// [`Compose`]: ../compose/trait.Compose.html
-    /// [`ToName`]: trait.ToName.html
-    /// [`ToRelativeName`]: trait.ToRelativeName.html
+    /// [`Compose`]: crate::base::wire::Compose
     pub fn chain<N: ToLabelIter>(
         self,
         other: N,

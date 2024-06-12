@@ -3,25 +3,18 @@
 //! Each resource record type has it’s own definition of the content and
 //! formatting of its data. This module provides the basics for implementing
 //! specific types for this record data. The concrete implementations for
-//! well-known record types live in the top-level [domain::rdata] module.
+//! well-known record types live in the top-level [`domain::rdata`] module.
 //!
 //! There are three traits herein: Any type that represents record data
 //! implements [`RecordData`]. Such a type can be added to a message. If
 //! the data can also be parsed from an existing message, the type in addition
-//! implements [`ParseRecordData`]. Because most types are implementations
-//! for exactly one record type, the [`RtypeRecordData`] trait simplifies
-//! implementations for such types.
+//! implements [`ParseRecordData`].
 //!
 //! The module also provides a type, [`UnknownRecordData`], that can be used
 //! to deal with record types whose specification is not known (or has not
 //! been implemented yet).
 //!
-//! [`RecordData`]: trait.RecordData.html
-//! [`ParseRecordData`]: trait.ParseRecordData.html
-//! [`RtypeRecordData`]: trait.RtypeRecordData.html
-//! [`UnknownRecorddata`]: struct.UnknownRecordData.html
-//! [domain::rdata]: ../../rdata/index.html
-
+//! [`domain::rdata`]: crate::rdata
 use super::cmp::CanonicalOrd;
 use super::iana::Rtype;
 use super::scan::{Scan, Scanner, ScannerError, Symbol};
@@ -37,7 +30,7 @@ use octseq::parse::Parser;
 /// A type that represents record data.
 ///
 /// The type needs to be able to to be able to provide the record type of a
-/// record with a value’s data via the [`rtype`][Self::rtype] method.
+/// record with a value’s data via the [`rtype`][RecordData::rtype] method.
 pub trait RecordData {
     /// Returns the record type associated with this record data instance.
     ///
@@ -172,7 +165,7 @@ pub trait ParseRecordData<'a, Octs: ?Sized>: RecordData + Sized {
     /// data remaining in the parser.
     ///
     /// If the function doesn’t want to process the data, it must not touch
-    /// the parser. In particual, it must not advance it.
+    /// the parser. In particular, it must not advance it.
     fn parse_rdata(
         rtype: Rtype,
         parser: &mut Parser<'a, Octs>,
@@ -223,11 +216,11 @@ pub trait ParseAnyRecordData<'a, Octs: ?Sized>: RecordData + Sized {
 ///
 /// Ultimately, you should only use this type for record types for which there
 /// is no implementation available in this crate. The two types
-/// [`AllRecordData`] and [`MasterRecordData`] provide a convenient way to
+/// [`AllRecordData`] and [`ZoneRecordData`] provide a convenient way to
 /// always use the correct record data type.
 ///
-/// [`AllRecordData`]: ../../rdata/enum.AllRecordData.html
-/// [`MasterRecordData`]: ../../rdata/enum.MasterRecordData.html
+/// [`AllRecordData`]: crate::rdata::AllRecordData
+/// [`ZoneRecordData`]: crate::rdata::ZoneRecordData
 /// [RFC 1035]: https://tools.ietf.org/html/rfc1035
 /// [RFC 3597]: https://tools.ietf.org/html/rfc3597
 /// [`domain::rdata::rfc1035]: ../../rdata/rfc1035/index.html
@@ -283,7 +276,7 @@ impl<Octs> UnknownRecordData<Octs> {
 
     /// Scans the record data.
     ///
-    /// This isn’t implemented via `Scan`, because we need the record type.
+    /// This isn’t implemented via [`Scan`], because we need the record type.
     pub fn scan<S: Scanner<Octets = Octs>>(
         rtype: Rtype,
         scanner: &mut S,
