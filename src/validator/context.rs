@@ -1663,38 +1663,7 @@ fn has_ds(
         return None;
     };
 
-    for key in (*dnskeys).clone().rr_iter() {
-        let AllRecordData::Dnskey(key_dnskey) = key.data() else {
-            continue;
-        };
-        if ta_rr.owner().to_name::<Bytes>() != key.owner() {
-            continue;
-        }
-        if ta_rr.class() != key.class() {
-            continue;
-        }
-        if ds.algorithm() != key_dnskey.algorithm() {
-            continue;
-        }
-        if ds.key_tag() != key_dnskey.key_tag() {
-            continue;
-        }
-
-        // No need to check key.rtype(). We know it is DNSKEY
-
-        let digest = match key_dnskey.digest(key.owner(), ds.digest_type()) {
-            Ok(d) => d,
-            Err(_) => {
-                // Skip key if we get an error.
-                continue;
-            }
-        };
-        if digest.as_ref() != ds.digest() {
-            continue;
-        }
-        return Some(key.clone());
-    }
-    None
+    find_key_for_ds(ds, dnskeys)
 }
 
 #[allow(clippy::type_complexity)]
