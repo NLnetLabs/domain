@@ -1120,7 +1120,9 @@ impl<K: AsRef<Key>> SigningContext<K> {
             // > If the TSIG RR cannot be interpreted, the server MUST regard
             // > the message as corrupt and return a FORMERR to the server.
             Err(TsigError::Invalid) => return Err(ValidationError::FormErr),
-            Err(TsigError::ParseError) => return Err(ValidationError::FormErr),
+            Err(TsigError::ParseError) => {
+                return Err(ValidationError::FormErr)
+            }
             Err(TsigError::Missing) => return Ok(None),
         };
 
@@ -1338,7 +1340,8 @@ impl<'a, Octs: Octets + ?Sized> MessageTsig<'a, Octs> {
     /// section, that it is the last record in this section. If that is true,
     /// returns the parsed TSIG records.
     fn from_message(msg: &'a Message<Octs>) -> Result<Self, TsigError> {
-        let mut section = msg.additional().map_err(|_| TsigError::ParseError)?;
+        let mut section =
+            msg.additional().map_err(|_| TsigError::ParseError)?;
 
         // Find the first TSIG record, which we will assert to be the last
         // one to verify that it is the only one.
