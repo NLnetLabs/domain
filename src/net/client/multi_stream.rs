@@ -29,7 +29,7 @@ use tokio::time::{sleep_until, Instant};
 
 //------------ Constants -----------------------------------------------------
 
-/// Capacity of the channel that transports `ChanReq`.
+/// Capacity of the channel that transports [`ChanReq`].
 const DEF_CHAN_CAP: usize = 8;
 
 /// Error messafe when the connection is closed.

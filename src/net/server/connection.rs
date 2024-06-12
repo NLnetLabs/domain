@@ -119,7 +119,6 @@ pub struct Config {
 
 impl Config {
     /// Creates a new, default config.
-    #[allow(dead_code)]
     pub fn new() -> Self {
         Default::default()
     }
@@ -151,7 +150,6 @@ impl Config {
     ///
     /// [`StreamServer::reconfigure`]:
     ///     super::stream::StreamServer::reconfigure()
-    #[allow(dead_code)]
     pub fn set_idle_timeout(&mut self, value: Duration) {
         self.idle_timeout = value;
     }
@@ -172,7 +170,6 @@ impl Config {
     ///
     /// [`StreamServer::reconfigure`]:
     ///     super::stream::StreamServer::reconfigure()
-    #[allow(dead_code)]
     pub fn set_response_write_timeout(&mut self, value: Duration) {
         self.response_write_timeout = value;
     }
@@ -194,7 +191,6 @@ impl Config {
     ///
     /// [`StreamServer::reconfigure`]:
     ///     super::stream::StreamServer::reconfigure()
-    #[allow(dead_code)]
     pub fn set_max_queued_responses(&mut self, value: usize) {
         self.max_queued_responses = value;
     }

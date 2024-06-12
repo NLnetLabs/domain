@@ -119,8 +119,10 @@ impl<Octets> UncertainName<Octets> {
     /// If the last character is a dot, the name will be absolute, otherwise
     /// it will be relative.
     ///
-    /// If you have a string, you can also use the `FromStr` trait, which
+    /// If you have a string, you can also use the [`FromStr`] trait, which
     /// really does the same thing.
+    ///
+    /// [`FromStr`]: std::str::FromStr
     pub fn from_chars<C>(chars: C) -> Result<Self, FromStrError>
     where
         Octets: FromBuilder,
@@ -223,9 +225,6 @@ impl<Octets> UncertainName<Octets> {
     ///
     /// If the name is relative, appends the root label to it using
     /// [`RelativeName::into_absolute`].
-    ///
-    /// [`RelativeName::into_absolute`]:
-    ///     struct.RelativeName.html#method.into_absolute
     pub fn into_absolute(self) -> Result<Name<Octets>, PushError>
     where
         Octets: AsRef<[u8]> + IntoBuilder,

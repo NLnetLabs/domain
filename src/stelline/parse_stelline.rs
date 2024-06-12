@@ -2,12 +2,16 @@ use std::default::Default;
 use std::fmt::Debug;
 use std::io::{self, BufRead, Read};
 use std::net::IpAddr;
+use std::str::FromStr;
+use std::string::{String, ToString};
+use std::vec::Vec;
 
-use domain::zonefile::inplace::Entry as ZonefileEntry;
-use domain::zonefile::inplace::Zonefile;
+use bytes::Bytes;
 
-use crate::net::stelline::parse_query;
-use crate::net::stelline::parse_query::Zonefile as QueryZonefile;
+use crate::base;
+use crate::utils::base16;
+use crate::zonefile::inplace::Entry as ZonefileEntry;
+use crate::zonefile::inplace::Zonefile;
 
 const CONFIG_END: &str = "CONFIG_END";
 const SCENARIO_BEGIN: &str = "SCENARIO_BEGIN";
@@ -72,17 +76,14 @@ pub struct Config {
 }
 
 impl Config {
-    #[allow(dead_code)]
     pub fn lines(&self) -> &[String] {
         self.lines.as_ref()
     }
 }
 
 #[derive(Clone, Debug)]
-#[allow(dead_code)]
 pub struct Stelline {
     pub name: String,
-    #[allow(dead_code)]
     pub config: Config,
     pub scenario: Scenario,
 }
@@ -395,11 +396,14 @@ pub struct AdditionalSection {
 
 #[derive(Clone, Debug, Default)]
 pub struct Sections {
-    pub question: Vec<parse_query::Entry>,
+    pub question: Vec<Question>,
     pub answer: Vec<ZonefileEntry>,
     pub authority: Vec<ZonefileEntry>,
     pub additional: AdditionalSection,
 }
+
+pub type Name = base::Name<Bytes>;
+pub type Question = base::Question<Name>;
 
 fn parse_section<Lines: Iterator<Item = Result<String, std::io::Error>>>(
     mut tokens: LineTokens<'_>,
@@ -443,11 +447,9 @@ fn parse_section<Lines: Iterator<Item = Result<String, std::io::Error>>>(
 
         match section {
             Section::Question => {
-                let mut zonefile = QueryZonefile::new();
-                zonefile.extend_from_slice(clean_line.as_ref());
-                zonefile.extend_from_slice(b"\n");
-                let e = zonefile.next_entry().unwrap();
-                sections.question.push(e.unwrap());
+                sections
+                    .question
+                    .push(Question::from_str(clean_line).unwrap());
             }
             Section::Answer | Section::Authority | Section::Additional => {
                 if matches!(section, Section::Additional)
@@ -465,7 +467,7 @@ fn parse_section<Lines: Iterator<Item = Result<String, std::io::Error>>>(
                         }
                         let clean_line = clean_line
                             .replace(|c: char| c.is_whitespace(), "");
-                        let edns_line_bytes = hex::decode(&clean_line)
+                        let edns_line_bytes = base16::decode_vec(&clean_line)
                             .map_err(|err| format!("Hex decoding failure of HEX_EDNSDATA line '{clean_line}': {err}"))
                             .unwrap();
                         sections

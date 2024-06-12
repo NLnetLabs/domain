@@ -15,13 +15,13 @@ use crate::rdata::ZoneRecordData;
 //------------ Type Aliases --------------------------------------------------
 
 /// A [`Bytes`] backed [`Name`].
-pub type StoredDname = Name<Bytes>;
+pub type StoredName = Name<Bytes>;
 
 /// A [`Bytes`] backed [`ZoneRecordData`].
-pub type StoredRecordData = ZoneRecordData<Bytes, StoredDname>;
+pub type StoredRecordData = ZoneRecordData<Bytes, StoredName>;
 
 /// A [`Bytes`] backed [`Record`].`
-pub type StoredRecord = Record<StoredDname, StoredRecordData>;
+pub type StoredRecord = Record<StoredName, StoredRecordData>;
 
 //------------ SharedRr ------------------------------------------------------
 
@@ -179,7 +179,7 @@ impl From<StoredRecord> for Rrset {
 ///
 /// See [`Rrset`] for more information.
 ///
-/// [`Zone`]: crate::zonetree::Zone.
+/// [`Zone`]: crate::zonetree::Zone
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct SharedRrset(Arc<Rrset>);
 
@@ -236,7 +236,7 @@ impl Serialize for SharedRrset {
 #[derive(Clone, Debug)]
 pub struct ZoneCut {
     /// The owner name where the zone cut occurs.
-    pub name: StoredDname,
+    pub name: StoredName,
 
     /// The NS record at the zone cut.
     pub ns: SharedRrset,

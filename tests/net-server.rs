@@ -1,5 +1,4 @@
 #![cfg(feature = "net")]
-mod net;
 
 use std::boxed::Box;
 use std::collections::VecDeque;
@@ -33,16 +32,16 @@ use domain::net::server::util::mk_builder_for_target;
 use domain::net::server::util::service_fn;
 use domain::zonefile::inplace::{Entry, ScannedRecord, Zonefile};
 
-use net::stelline::channel::ClientServerChannel;
-use net::stelline::client::do_client;
-use net::stelline::client::ClientFactory;
-use net::stelline::client::{
+use domain::stelline::channel::ClientServerChannel;
+use domain::stelline::client::do_client;
+use domain::stelline::client::ClientFactory;
+use domain::stelline::client::{
     CurrStepValue, PerClientAddressClientFactory, QueryTailoredClientFactory,
 };
-use net::stelline::parse_stelline;
-use net::stelline::parse_stelline::parse_file;
-use net::stelline::parse_stelline::Config;
-use net::stelline::parse_stelline::Matches;
+use domain::stelline::parse_stelline;
+use domain::stelline::parse_stelline::parse_file;
+use domain::stelline::parse_stelline::Config;
+use domain::stelline::parse_stelline::Matches;
 
 //----------- Tests ----------------------------------------------------------
 

@@ -9,11 +9,9 @@ pub struct DefMinMax<T> {
     def: T,
 
     /// The minimum value,
-    #[allow(dead_code)]
     min: T,
 
     /// The maximum value,
-    #[allow(dead_code)]
     max: T,
 }
 
@@ -29,7 +27,6 @@ impl<T> DefMinMax<T> {
     }
 
     /// Trims the given value to fit into the minimum/maximum range, inclusive.
-    #[allow(dead_code)]
     pub fn limit(self, value: T) -> T
     where
         T: Ord,

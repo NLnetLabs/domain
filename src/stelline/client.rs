@@ -1,4 +1,5 @@
 #![allow(clippy::type_complexity)]
+use std::boxed::Box;
 use std::collections::HashMap;
 use std::future::{ready, Future};
 use std::net::IpAddr;
@@ -6,25 +7,25 @@ use std::pin::Pin;
 use std::rc::Rc;
 use std::sync::Mutex;
 use std::time::Duration;
+use std::vec::Vec;
 
 use bytes::Bytes;
+/*
 #[cfg(feature = "mock-time")]
 use mock_instant::MockClock;
+*/
 use tracing::{debug, info_span, trace};
 use tracing_subscriber::EnvFilter;
 
-use domain::base::iana::Opcode;
-use domain::base::opt::{ComposeOptData, OptData};
-use domain::base::{Message, MessageBuilder};
-use domain::net::client::request::{
+use crate::base::iana::{Opcode, OptionCode};
+use crate::base::opt::{ComposeOptData, OptData};
+use crate::base::{Message, MessageBuilder};
+use crate::net::client::request::{
     ComposeRequest, Error, RequestMessage, SendRequest,
 };
 
-use crate::net::stelline::matches::match_msg;
-use crate::net::stelline::parse_query;
-use crate::net::stelline::parse_stelline::{
-    Entry, Reply, Stelline, StepType,
-};
+use super::matches::match_msg;
+use super::parse_stelline::{Entry, Reply, Stelline, StepType};
 
 use super::channel::DEF_CLIENT_ADDR;
 
@@ -64,17 +65,15 @@ impl<'a> StellineError<'a> {
 
 #[derive(Debug)]
 pub enum StellineErrorCause {
-    ClientError(domain::net::client::request::Error),
+    ClientError(Error),
     MismatchedAnswer,
     MissingResponse,
     MissingStepEntry,
-
-    #[allow(dead_code)]
     MissingClient,
 }
 
-impl From<domain::net::client::request::Error> for StellineErrorCause {
-    fn from(err: domain::net::client::request::Error) -> Self {
+impl From<Error> for StellineErrorCause {
+    fn from(err: Error) -> Self {
         Self::ClientError(err)
     }
 }
@@ -106,7 +105,6 @@ impl std::fmt::Display for StellineErrorCause {
 // This function handles the client part of a Stelline script. If works only
 // with SendRequest and is use to test the various client transport
 // implementations. This frees do_client of supporting SendRequest.
-#[allow(dead_code)]
 pub async fn do_client_simple<R: SendRequest<RequestMessage<Vec<u8>>>>(
     stelline: &Stelline,
     step_value: &CurrStepValue,
@@ -155,8 +153,10 @@ pub async fn do_client_simple<R: SendRequest<RequestMessage<Vec<u8>>>>(
                     let duration =
                         Duration::from_secs(step.time_passes.unwrap());
                     tokio::time::advance(duration).await;
+                    /*
                     #[cfg(feature = "mock-time")]
                     MockClock::advance_system_time(duration);
+                    */
                 }
                 StepType::Traffic
                 | StepType::CheckTempfile
@@ -188,7 +188,6 @@ pub struct Dispatcher(
 );
 
 impl Dispatcher {
-    #[allow(dead_code)]
     pub fn with_client<T>(client: T) -> Self
     where
         T: SendRequest<RequestMessage<Vec<u8>>> + 'static,
@@ -206,7 +205,6 @@ impl Dispatcher {
         Self(None)
     }
 
-    #[allow(dead_code)]
     pub async fn dispatch(
         &self,
         entry: &Entry,
@@ -244,7 +242,6 @@ pub struct SingleClientFactory(
 );
 
 impl SingleClientFactory {
-    #[allow(dead_code)]
     pub fn new(
         client: impl SendRequest<RequestMessage<Vec<u8>>> + 'static,
     ) -> Self {
@@ -283,7 +280,6 @@ where
     F: Fn(&IpAddr) -> Box<dyn SendRequest<RequestMessage<Vec<u8>>>>,
     S: Fn(&Entry) -> bool,
 {
-    #[allow(dead_code)]
     pub fn new(factory_func: F, is_suitable_func: S) -> Self {
         Self {
             clients_by_address: Default::default(),
@@ -332,7 +328,6 @@ pub struct QueryTailoredClientFactory {
 }
 
 impl QueryTailoredClientFactory {
-    #[allow(dead_code)]
     pub fn new(factories: Vec<Box<dyn ClientFactory>>) -> Self {
         Self { factories }
     }
@@ -370,7 +365,6 @@ impl ClientFactory for QueryTailoredClientFactory {
 // connection and associating a source address with every request. TCP
 // suport can be made simpler because the test code does not have to be
 // careful about the TcpKeepalive option and just keep the connection open.
-#[allow(dead_code)]
 pub async fn do_client<'a, T: ClientFactory>(
     stelline: &'a Stelline,
     step_value: &'a CurrStepValue,
@@ -436,8 +430,10 @@ pub async fn do_client<'a, T: ClientFactory>(
                     let duration =
                         Duration::from_secs(step.time_passes.unwrap());
                     tokio::time::advance(duration).await;
+                    /*
                     #[cfg(feature = "mock-time")]
                     MockClock::advance_system_time(duration);
+                    */
                 }
                 StepType::Traffic
                 | StepType::CheckTempfile
@@ -487,11 +483,7 @@ fn entry2reqmsg(entry: &Entry) -> RequestMessage<Vec<u8>> {
     let sections = entry.sections.as_ref().unwrap();
     let mut msg = MessageBuilder::new_vec().question();
     for q in &sections.question {
-        let question = match q {
-            parse_query::Entry::QueryRecord(question) => question,
-            _ => todo!(),
-        };
-        msg.push(question).unwrap();
+        msg.push(q).unwrap();
     }
     let msg = msg.answer();
     for _a in &sections.answer {
@@ -548,6 +540,12 @@ impl CurrStepValue {
     }
 }
 
+impl Default for CurrStepValue {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl std::fmt::Display for CurrStepValue {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_fmt(format_args!("{}", self.get()))
@@ -561,7 +559,7 @@ struct RawOptData<'a> {
 }
 
 impl<'a> OptData for RawOptData<'a> {
-    fn code(&self) -> domain::base::iana::OptionCode {
+    fn code(&self) -> OptionCode {
         u16::from_be_bytes(self.bytes[0..2].try_into().unwrap()).into()
     }
 }

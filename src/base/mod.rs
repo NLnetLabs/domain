@@ -13,11 +13,11 @@
 //! is no single best type to deal with such data – slices, vecs, or even
 //! byte arrays may all be prefered in certain cases –, the crate uses a set
 //! of traits to be able to be generic over bytes sequences. We call types
-//! that provide these traits ‘octet sequences’ or simple ‘octets.’
+//! that provide these traits ‘octet sequences’ or simply ‘octets.’
 //!
 //! Different traits exist for octet references, owned octets, and octet
 //! builder, that is types that allow constructing an octet stequence from
-//! indidivual bytes or slice. The [octets] module contains all traits and
+//! indidivual bytes or slice. The [`octseq`] crate contains all traits and
 //! trait implementations. It also contains a detailed descriptions of the
 //! traits, their purpose, and how it all fits together.
 //!
@@ -35,7 +35,7 @@
 //! size of DNS messages and the complexities introduced by compressing
 //! domain names in message by referencing other parts of the message.
 //! The fundamental types for parsing and composing are also part of the
-//! [octets] module. But unless you are implementing your own resource record
+//! [`octseq`] module. But unless you are implementing your own resource record
 //! types, you are unlikely to ever having to deal with parsing and composing
 //! directly.
 //!
@@ -54,15 +54,15 @@
 //! they are arranged in submodules. You will find detailed explanations for
 //! all of them in their module. These are:
 //!
-//! * [charstr](charstr/index.html) for DNS character strings,
-//! * [header](header/index.html) for the header of DNS messages,
-//! * [name](name/index.html) for domain names,
-//! * [opt](opt/index.html) for the record data of OPT records used in EDNS,
-//! * [question](question/index.html) for questions,
-//! * [serial](serial/index.html) for serial numbers of zones, and
-//! * [record](record/index.html) for DNS resource records including record
+//! * [charstr] for DNS character strings,
+//! * [header] for the header of DNS messages,
+//! * [name] for domain names,
+//! * [opt] for the record data of OPT records used in EDNS,
+//! * [question] for questions,
+//! * [serial] for serial numbers of zones, and
+//! * [record] for DNS resource records including record
 //!   data,
-//! * [rdata](rdata/index.html) for all the individual record types.
+//! * [rdata] for all the individual record types.
 //!
 //!
 //! # Zone File Processing
@@ -78,18 +78,12 @@
 //!
 //! The crate is capable of operating without the `std` crate. Obviously, the
 //! set of features is somewhat limited. Specifically, most owned octet
-//! sequence types require an allocator. The [octets] module thus defines a
+//! sequence types require an allocator. The [`octseq`] crate thus defines a
 //! set of types atop fixed size byte arrays that can be kept on the stack.
 //! Additional types can be created via the `octets_array` macro.
 //!
 //! Use of the `std` crate is selected via the `std` feature. This is part of
 //! the default set, so you will have to disable the default features.
-//!
-//! [iana]: iana/index.html
-//! [octets]: octets/index.html
-//! [rdata]: rdata/index.html
-//! [`Message`]: message/struct.Message.html
-//! [`MessageBuilder`]: message_builder/struct.MessageBuilder.html
 
 //--- Re-exports
 

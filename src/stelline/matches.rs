@@ -1,11 +1,11 @@
-use crate::net::stelline::parse_query;
-use crate::net::stelline::parse_stelline::{Entry, Matches, Reply};
-use domain::base::iana::{Opcode, OptRcode, Rtype};
-use domain::base::opt::{Opt, OptRecord};
-use domain::base::{Message, ParsedName, QuestionSection, RecordSection};
-use domain::dep::octseq::Octets;
-use domain::rdata::ZoneRecordData;
-use domain::zonefile::inplace::Entry as ZonefileEntry;
+use super::parse_stelline::{Entry, Matches, Question, Reply};
+use crate::base::iana::{Opcode, OptRcode, Rtype};
+use crate::base::opt::{Opt, OptRecord};
+use crate::base::{Message, ParsedName, QuestionSection, RecordSection};
+use crate::dep::octseq::Octets;
+use crate::rdata::ZoneRecordData;
+use crate::zonefile::inplace::Entry as ZonefileEntry;
+use std::vec::Vec;
 
 pub fn match_msg<'a, Octs: AsRef<[u8]> + Clone + Octets + 'a>(
     entry: &Entry,
@@ -340,7 +340,7 @@ fn match_section<
     let mat_opt =
         match_edns_bytes.map(|bytes| Opt::from_slice(bytes).unwrap());
 
-    if match_section.len() != msg_count.into() {
+    if match_section.len() != <u16 as Into<usize>>::into(msg_count) {
         if verbose {
             println!("match_section: expected section length {} doesn't match message count {}", match_section.len(), msg_count);
             if !match_section.is_empty() {
@@ -442,7 +442,7 @@ fn match_section<
 }
 
 fn match_question<Octs: Octets>(
-    match_section: Vec<parse_query::Entry>,
+    match_section: Vec<Question>,
     msg_section: QuestionSection<'_, Octs>,
     match_qname: bool,
     match_qtype: bool,
@@ -453,13 +453,7 @@ fn match_question<Octs: Octets>(
     }
     for msg_rr in msg_section {
         let msg_rr = msg_rr.unwrap();
-        let mat_rr = if let parse_query::Entry::QueryRecord(record) =
-            &match_section[0]
-        {
-            record
-        } else {
-            panic!("include not expected");
-        };
+        let mat_rr = &match_section[0];
         if match_qname && msg_rr.qname() != mat_rr.qname() {
             return false;
         }

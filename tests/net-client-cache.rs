@@ -1,14 +1,13 @@
 #![cfg(feature = "net")]
-mod net;
 
 use std::fs::File;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use net::stelline::client::do_client_simple;
-use net::stelline::client::CurrStepValue;
-use net::stelline::connect::Connect;
-use net::stelline::parse_stelline::parse_file;
+use domain::stelline::client::do_client_simple;
+use domain::stelline::client::CurrStepValue;
+use domain::stelline::connect::Connect;
+use domain::stelline::parse_stelline::parse_file;
 
 use rstest::rstest;
 use tracing::instrument;

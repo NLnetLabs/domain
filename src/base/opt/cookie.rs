@@ -50,10 +50,14 @@ use super::{Opt, OptData, ComposeOptData, ParseOptData};
 /// can be created via [`create_initial`][Self::create_initial]. As this will
 /// be a random client cookie, it needs the `rand` feature. The server can
 /// check whether a received cookie includes a server cookie created by it
-/// via the [`check_server_hash`][Self::check_server_hash] method. It needs
-/// the SipHash-2-4 algorithm and is thus available if the `siphasher` feature
-/// is enabled. The same feature also enables the
-/// [`create_response`][Self::create_response] method which creates the server
+/// via the
+#[cfg_attr(feature = "siphasher", doc = "[`check_server_hash`](Self::check_server_hash)")]
+#[cfg_attr(not(feature = "siphasher"), doc = "`check_server_hash`")]
+/// method. It needs the SipHash-2-4 algorithm and is thus available if the
+/// `siphasher` feature is enabled. The same feature also enables the
+#[cfg_attr(feature = "siphasher", doc = "[`create_response`](Self::create_response)")]
+#[cfg_attr(not(feature = "siphasher"), doc = "`create_response`")]
+/// method which creates the server
 /// cookie to be included in a response.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 #[cfg_attr(feature = "rand", derive(Default))]

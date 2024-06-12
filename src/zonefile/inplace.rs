@@ -237,7 +237,6 @@ pub enum Entry {
 /// This includes all the entry types that we can handle internally and don’t
 /// have to bubble up to the user.
 #[derive(Clone, Debug)]
-#[allow(clippy::large_enum_variant)]
 enum ScannedEntry {
     /// An entry that should be handed to the user.
     Entry(Entry),
@@ -1385,7 +1384,6 @@ impl SourceBuf {
 //------------ ItemCat -------------------------------------------------------
 
 /// The category of the current item in a source buffer.
-#[allow(dead_code)] // XXX
 #[derive(Clone, Copy, Debug)]
 enum ItemCat {
     /// We don’t currently have an item.

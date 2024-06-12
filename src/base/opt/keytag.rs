@@ -15,7 +15,7 @@ use super::{Opt, OptData, ComposeOptData, ParseOptData};
 use octseq::builder::OctetsBuilder;
 use octseq::octets::{Octets, OctetsFrom};
 use octseq::parse::Parser;
-use core::{borrow, fmt, hash};
+use core::{borrow, fmt, hash, mem};
 use core::cmp::Ordering;
 use core::convert::TryInto;
 
@@ -28,6 +28,7 @@ use core::convert::TryInto;
 /// keys they are using to validate responses. The option contains a sequence
 /// of key tags.
 #[derive(Clone)]
+#[repr(transparent)]
 pub struct KeyTag<Octs: ?Sized> {
     octets: Octs,
 }
@@ -88,7 +89,8 @@ impl KeyTag<[u8]> {
     /// 65,536 octets.
     #[must_use]
     pub unsafe fn from_slice_unchecked(slice: &[u8]) -> &Self {
-        &*(slice as *const [u8] as *const Self)
+        // SAFETY: KeyTag has repr(transparent)
+        mem::transmute(slice)
     }
 
     /// Checkes that the length of an octets sequence is valid.

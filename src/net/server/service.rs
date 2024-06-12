@@ -388,7 +388,6 @@ impl<Target> CallResult<Target>
 
     /// Convert the [`CallResult`] into the contained DNS response message and command.
     #[must_use]
-    #[allow(clippy::type_complexity)]
     pub fn into_inner(
         self,
     ) -> (
