@@ -103,7 +103,7 @@ pub type KeyName = Name<octseq::array::Array<255>>;
 /// [`new`]: #method.new
 /// [`min_mac_len`]: #method.min_mac_len
 /// [`signing_len`]: #method.signing_len
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Key {
     /// The key’s bits and algorithm.
     key: hmac::Key,
@@ -305,7 +305,7 @@ impl Key {
     /// if that is required.
     ///
     /// The method fails if the TSIG record doesn’t fit into the message
-    /// anymore, in which case the builder is returned unharmed.
+    /// anymore, in which case the builder is left unmodified.
     fn complete_message<Target: Composer>(
         &self,
         message: &mut AdditionalBuilder<Target>,
@@ -425,14 +425,15 @@ impl<K: AsRef<Key>> ClientTransaction<K> {
     /// builder and a key. It signs the message with the key and adds the
     /// signature as a TSIG record to the message’s additional section. It
     /// also creates a transaction value that can later be used to validate
-    /// the response. It returns both the message and the transaction.
+    /// the response. It modifies the given message and returns the created
+    /// transaction.
     ///
-    /// The function can fail if the TSIG record doesn’t actually fit into
-    /// the message anymore. In this case, the function returns an error and
-    /// the untouched message.
+    /// The function can fail if the TSIG record doesn’t fit into the message.
+    /// In this case, the function returns an error and leave the given
+    /// message unmodified.
     ///
-    /// Unlike [`request_with_fudge`], this function uses the
-    /// recommended default value for _fudge:_ 300 seconds.
+    /// Unlike [`request_with_fudge`], this function uses the recommended
+    /// default value for _fudge:_ 300 seconds.
     ///
     /// [`request_with_fudge`]: #method.request_with_fudge
     pub fn request<Target: Composer>(
@@ -1402,8 +1403,8 @@ impl Variables {
             Class::ANY,
             0,
             // The only reason creating TSIG record data can fail here is
-            // that the hmac is unreasonable large. Since we control its
-            // creation, panicing in this case is fine.
+            // that the hmac is unreasonably large. Since we control its
+            // creation, panicking in this case is fine.
             Tsig::new(
                 key.algorithm().to_name(),
                 self.time_signed,
