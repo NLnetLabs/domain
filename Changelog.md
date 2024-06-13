@@ -14,8 +14,12 @@ Bug fixes
 
 Unstable features
 
+* New unstable feature `unstable-validator` that adds a DNSSEC validator.
+  ([#328])
+
 Other changes
 
+[#328]: https://github.com/NLnetLabs/domain/pull/328
 [#333]: https://github.com/NLnetLabs/domain/pull/333
 
 ## 0.10.1
