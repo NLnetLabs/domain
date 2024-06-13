@@ -6,11 +6,13 @@
 
 use crate::base::cmp::CanonicalOrd;
 use crate::base::iana::{DigestAlg, SecAlg};
+use crate::base::name::Name;
 use crate::base::name::ToName;
 use crate::base::rdata::{ComposeRecordData, RecordData};
 use crate::base::record::Record;
 use crate::base::wire::{Compose, Composer};
 use crate::rdata::{Dnskey, Rrsig};
+use bytes::Bytes;
 use octseq::builder::with_infallible;
 use ring::{digest, signature};
 use std::vec::Vec;
@@ -94,6 +96,13 @@ where
     }
 }
 
+// This needs to match the digests supported in digest.
+pub fn supported_digest(d: &DigestAlg) -> bool {
+    *d == DigestAlg::SHA1
+        || *d == DigestAlg::SHA256
+        || *d == DigestAlg::SHA384
+}
+
 //------------ Rrsig ---------------------------------------------------------
 
 /// Extensions for DNSKEY record type.
@@ -116,6 +125,15 @@ pub trait RrsigExt {
     ) -> Result<(), B::AppendError>
     where
         D: RecordData + CanonicalOrd + ComposeRecordData + Sized;
+
+    /// Return if records are expanded for a wildcard according to the
+    /// information in this signature.
+    fn wildcard_closest_encloser<N, D>(
+        &self,
+        rr: &Record<N, D>,
+    ) -> Option<Name<Bytes>>
+    where
+        N: ToName;
 
     /// Attempt to use the cryptographic signature to authenticate the signed data, and thus authenticate the RRSET.
     /// The signed data is expected to be calculated as per [RFC4035, Section 5.3.2](https://tools.ietf.org/html/rfc4035#section-5.3.2).
@@ -145,7 +163,7 @@ pub trait RrsigExt {
     ) -> Result<(), AlgorithmError>;
 }
 
-impl<Octets: AsRef<[u8]>, Name: ToName> RrsigExt for Rrsig<Octets, Name> {
+impl<Octets: AsRef<[u8]>, TN: ToName> RrsigExt for Rrsig<Octets, TN> {
     fn signed_data<N: ToName, D, B: Composer>(
         &self,
         buf: &mut B,
@@ -204,6 +222,40 @@ impl<Octets: AsRef<[u8]>, Name: ToName> RrsigExt for Rrsig<Octets, Name> {
             rr.data().compose_canonical_len_rdata(buf)?;
         }
         Ok(())
+    }
+
+    fn wildcard_closest_encloser<N, D>(
+        &self,
+        rr: &Record<N, D>,
+    ) -> Option<Name<Bytes>>
+    where
+        N: ToName,
+    {
+        // Handle expanded wildcards as per [RFC4035, Section 5.3.2]
+        // (https://tools.ietf.org/html/rfc4035#section-5.3.2).
+        let rrsig_labels = usize::from(self.labels());
+        let fqdn = rr.owner();
+        // Subtract the root label from count as the algorithm doesn't
+        // accomodate that.
+        let fqdn_labels = fqdn.iter_labels().count() - 1;
+        if rrsig_labels < fqdn_labels {
+            // name = "*." | the rightmost rrsig_label labels of the fqdn
+            Some(
+                match fqdn
+                    .to_cow()
+                    .iter_suffixes()
+                    .nth(fqdn_labels - rrsig_labels)
+                {
+                    Some(name) => Name::from_octets(Bytes::copy_from_slice(
+                        name.as_octets(),
+                    ))
+                    .unwrap(),
+                    None => fqdn.to_bytes(),
+                },
+            )
+        } else {
+            None
+        }
     }
 
     fn verify_signed_data(
@@ -281,6 +333,15 @@ impl<Octets: AsRef<[u8]>, Name: ToName> RrsigExt for Rrsig<Octets, Name> {
             _ => Err(AlgorithmError::Unsupported),
         }
     }
+}
+
+// This needs to match the algorithms supported in signed_data.
+pub fn supported_algorithm(a: &SecAlg) -> bool {
+    *a == SecAlg::RSASHA1
+        || *a == SecAlg::RSASHA1_NSEC3_SHA1
+        || *a == SecAlg::RSASHA256
+        || *a == SecAlg::RSASHA512
+        || *a == SecAlg::ECDSAP256SHA256
 }
 
 /// Return the RSA exponent and modulus components from DNSKEY record data.

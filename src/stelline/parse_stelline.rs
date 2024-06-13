@@ -536,6 +536,12 @@ fn parse_match(mut tokens: LineTokens<'_>) -> Matches {
             matches.all = true;
         } else if token == "AD" {
             matches.ad = true;
+        } else if token == "additional" {
+            matches.additional = true;
+        } else if token == "answer" {
+            matches.answer = true;
+        } else if token == "authority" {
+            matches.authority = true;
         } else if token == "CD" {
             matches.cd = true;
         } else if token == "DO" {
@@ -552,6 +558,8 @@ fn parse_match(mut tokens: LineTokens<'_>) -> Matches {
             matches.question = true;
         } else if token == "qtype" {
             matches.qtype = true;
+        } else if token == "rcode" {
+            matches.rcode = true;
         } else if token == "subdomain" {
             matches.subdomain = true;
         } else if token == "TCP" {

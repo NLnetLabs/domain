@@ -17,7 +17,9 @@ use octseq::builder::OctetsBuilder;
 use octseq::octets::{Octets, OctetsFrom};
 use octseq::parse::Parser;
 use octseq::str::Str;
+use octseq::{EmptyBuilder, FromBuilder};
 use core::{fmt, hash, str};
+use core::convert::Infallible;
 
 //------------ ExtendedError -------------------------------------------------
 
@@ -58,6 +60,15 @@ impl<Octs> ExtendedError<Octs> {
             )?
         }
         Ok(unsafe { Self::new_unchecked(code, text.map(Ok)) })
+    }
+
+    pub fn new_with_str(code: ExtendedErrorCode, text: &str) ->
+	Result<Self, LongOptData>
+	where Octs: AsRef<[u8]> + FromBuilder,
+	<Octs as FromBuilder>::Builder: EmptyBuilder,
+	<<Octs as FromBuilder>::Builder as OctetsBuilder>::AppendError: Into<Infallible>,
+    {
+	Self::new(code, Some(Str::copy_from_str(text)))
     }
 
     /// Creates a new value without checking for the option length.
