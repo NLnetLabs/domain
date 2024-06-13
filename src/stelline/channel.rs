@@ -28,7 +28,7 @@ pub const DEF_CLIENT_ADDR: IpAddr = IpAddr::V4(Ipv4Addr::LOCALHOST);
 pub const DEF_CLIENT_PORT: u16 = 0;
 
 enum Data {
-    DgramRequest(Vec<u8>),
+    DgramRequest(SocketAddr, Vec<u8>),
     StreamAccept(ClientServerChannel),
     StreamRequest(Vec<u8>),
 }
@@ -152,7 +152,6 @@ impl ServerSocket {
     }
 }
 
-#[derive(Default)]
 pub struct ClientServerChannel {
     /// Details of the server end of the connection.
     server: Arc<Mutex<ServerSocket>>,
@@ -160,8 +159,24 @@ pub struct ClientServerChannel {
     /// Details of the client end of the connection, if connected.
     client: Option<ClientSocket>,
 
+    /// Simulated client address.
+    client_addr: SocketAddr,
+
     /// Type of connection.
     is_stream: bool,
+}
+
+impl Default for ClientServerChannel {
+    fn default() -> Self {
+        let client_addr = SocketAddr::new("::".parse().unwrap(), 0);
+
+        Self {
+            server: Default::default(),
+            client: Default::default(),
+            client_addr,
+            is_stream: Default::default(),
+        }
+    }
 }
 
 impl Clone for ClientServerChannel {
@@ -171,6 +186,7 @@ impl Clone for ClientServerChannel {
         Self {
             server: self.server.clone(),
             client: None,
+            client_addr: self.client_addr,
             is_stream: self.is_stream,
         }
     }
@@ -191,7 +207,18 @@ impl ClientServerChannel {
         }
     }
 
-    pub fn connect(&self) -> Self {
+    pub fn new_client(&self, client_addr: Option<SocketAddr>) -> Self {
+        let client_addr = client_addr
+            .unwrap_or_else(|| SocketAddr::new("::".parse().unwrap(), 0));
+        Self {
+            server: self.server.clone(),
+            client: None,
+            is_stream: self.is_stream,
+            client_addr,
+        }
+    }
+
+    pub fn connect(&self, client_addr: Option<SocketAddr>) -> Self {
         fn setup_client(server_socket: &mut ServerSocket) -> ClientSocket {
             // Create a client socket for sending requests to the server.
             let (client, response_tx) =
@@ -204,6 +231,9 @@ impl ClientServerChannel {
             client
         }
 
+        let client_addr = client_addr
+            .unwrap_or_else(|| SocketAddr::new("::".parse().unwrap(), 0));
+
         match self.is_stream {
             false => {
                 // For dgram connections all clients communicate with the same
@@ -215,6 +245,7 @@ impl ClientServerChannel {
                 Self {
                     server: self.server.clone(),
                     client: Some(client),
+                    client_addr: self.client_addr,
                     is_stream: false,
                 }
             }
@@ -229,6 +260,7 @@ impl ClientServerChannel {
                 let channel = Self {
                     server: Arc::new(Mutex::new(server_socket)),
                     client: Some(client),
+                    client_addr: self.client_addr,
                     is_stream: true,
                 };
 
@@ -236,9 +268,10 @@ impl ClientServerChannel {
                 // by unblocking AsyncAccept::poll_accept() which is being polled
                 // by the server.
                 let sender = self.server.lock().unwrap().tx.clone();
-                let cloned_channel = channel.clone();
+                let channel_for_client =
+                    channel.new_client(Some(client_addr));
                 tokio::spawn(async move {
-                    sender.send(Data::StreamAccept(cloned_channel)).await
+                    sender.send(Data::StreamAccept(channel_for_client)).await
                 });
 
                 channel
@@ -263,8 +296,7 @@ impl AsyncConnect for ClientServerChannel {
     >;
 
     fn connect(&self) -> Self::Fut {
-        let conn = self.connect();
-
+        let conn = self.connect(None);
         Box::pin(async move { Ok(conn) })
     }
 }
@@ -309,7 +341,7 @@ impl AsyncDgramSend for ClientServerChannel {
     ) -> Poll<Result<usize, io::Error>> {
         match &self.client {
             Some(client) => {
-                let msg = Data::DgramRequest(data.into());
+                let msg = Data::DgramRequest(self.client_addr, data.into());
 
                 // TODO: Can Stelline scripts mix and match fake responses with
                 // responses from a real server? Do we need to first try
@@ -407,12 +439,11 @@ impl AsyncDgramSock for ClientServerChannel {
         let mut server_socket = self.server.lock().unwrap();
         let rx = &mut server_socket.rx;
         match rx.try_recv() {
-            Ok(Data::DgramRequest(data)) => {
+            Ok(Data::DgramRequest(addr, data)) => {
                 // TODO: use unread buf here to prevent overflow of given buf.
-                trace!("Reading {} bytes into buffer of len {} in dgram server channel", data.len(), buf.remaining());
+                trace!("Reading {} bytes from {addr} into buffer of len {} in dgram server channel", data.len(), buf.remaining());
                 buf.put_slice(&data);
-                let socket_addr = SocketAddr::new("::".parse().unwrap(), 0);
-                Ok((data.len(), socket_addr))
+                Ok((data.len(), addr))
             }
             Ok(Data::StreamAccept(..)) => unreachable!(),
             Ok(Data::StreamRequest(..)) => unreachable!(),

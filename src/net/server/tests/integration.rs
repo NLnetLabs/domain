@@ -1,47 +1,48 @@
-#![cfg(feature = "net")]
+use core::net::SocketAddr;
 
+use std::boxed::Box;
 use std::collections::VecDeque;
 use std::fs::File;
 use std::future::Future;
-use std::net::IpAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
+use std::vec::Vec;
 
 use octseq::Octets;
 use rstest::rstest;
 use tracing::instrument;
 use tracing::{trace, warn};
 
-use domain::base::iana::Rcode;
-use domain::base::name::{Name, ToName};
-use domain::base::wire::Composer;
-use domain::net::client::{dgram, stream};
-use domain::net::server::buf::VecBufSource;
-use domain::net::server::dgram::DgramServer;
-use domain::net::server::message::Request;
-use domain::net::server::middleware::builder::MiddlewareBuilder;
-#[cfg(feature = "siphasher")]
-use domain::net::server::middleware::processors::cookies::CookiesMiddlewareProcessor;
-use domain::net::server::middleware::processors::edns::EdnsMiddlewareProcessor;
-use domain::net::server::service::{
+use crate::base::iana::Rcode;
+use crate::base::name::{Name, ToName};
+use crate::base::wire::Composer;
+use crate::net::client::{dgram, stream};
+use crate::net::server::buf::VecBufSource;
+use crate::net::server::dgram::DgramServer;
+use crate::net::server::message::Request;
+use crate::net::server::middleware::builder::MiddlewareBuilder;
+use crate::net::server::middleware::processors::cookies::{
+    CookiesMiddlewareProcessor, NetBlock,
+};
+use crate::net::server::middleware::processors::edns::EdnsMiddlewareProcessor;
+use crate::net::server::service::{
     CallResult, Service, ServiceError, Transaction,
 };
-use domain::net::server::stream::StreamServer;
-use domain::net::server::util::{mk_builder_for_target, service_fn};
-use domain::utils::base16;
-use domain::zonefile::inplace::{Entry, ScannedRecord, Zonefile};
-
-use domain::stelline::channel::ClientServerChannel;
-use domain::stelline::client::do_client;
-use domain::stelline::client::ClientFactory;
-use domain::stelline::client::{
+use crate::net::server::stream::StreamServer;
+use crate::net::server::util::{mk_builder_for_target, service_fn};
+use crate::stelline::channel::ClientServerChannel;
+use crate::stelline::client::do_client;
+use crate::stelline::client::ClientFactory;
+use crate::stelline::client::{
     CurrStepValue, PerClientAddressClientFactory, QueryTailoredClientFactory,
 };
-use domain::stelline::parse_stelline;
-use domain::stelline::parse_stelline::parse_file;
-use domain::stelline::parse_stelline::Config;
-use domain::stelline::parse_stelline::Matches;
+use crate::stelline::parse_stelline;
+use crate::stelline::parse_stelline::parse_file;
+use crate::stelline::parse_stelline::Config;
+use crate::stelline::parse_stelline::Matches;
+use crate::utils::base16;
+use crate::zonefile::inplace::{Entry, ScannedRecord, Zonefile};
 
 //----------- Tests ----------------------------------------------------------
 
@@ -58,6 +59,16 @@ async fn server_tests(#[files("test-data/server/*.rpl")] rpl_file: PathBuf) {
     // Load the test .rpl file that determines which queries will be sent
     // and which responses will be expected, and how the server that
     // answers them should be configured.
+
+    // Initialize tracing based logging. Override with env var RUST_LOG, e.g.
+    // RUST_LOG=trace. DEBUG level will show the .rpl file name, Stelline step
+    // numbers and types as they are being executed.
+    tracing_subscriber::fmt()
+        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+        .with_thread_ids(true)
+        .without_time()
+        .try_init()
+        .ok();
 
     let file = File::open(&rpl_file).unwrap();
     let stelline = parse_file(&file, rpl_file.to_str().unwrap());
@@ -155,8 +166,9 @@ fn mk_client_factory(
     };
 
     let tcp_client_factory = PerClientAddressClientFactory::new(
-        move |_source_addr| {
-            let stream = stream_server_conn.connect();
+        move |source_addr| {
+            let stream = stream_server_conn
+                .connect(Some(SocketAddr::new(*source_addr, 0)));
             let (conn, transport) = stream::Connection::new(stream);
             tokio::spawn(transport.run());
             Box::new(conn)
@@ -169,7 +181,12 @@ fn mk_client_factory(
     let for_all_other_queries = |_: &_| true;
 
     let udp_client_factory = PerClientAddressClientFactory::new(
-        move |_| Box::new(dgram::Connection::new(dgram_server_conn.clone())),
+        move |source_addr| {
+            Box::new(dgram::Connection::new(
+                dgram_server_conn
+                    .new_client(Some(SocketAddr::new(*source_addr, 0))),
+            ))
+        },
         for_all_other_queries,
     );
 
@@ -185,8 +202,8 @@ fn mk_client_factory(
 fn mk_server_configs<RequestOctets, Target>(
     config: &ServerConfig,
 ) -> (
-    domain::net::server::dgram::Config<RequestOctets, Target>,
-    domain::net::server::stream::Config<RequestOctets, Target>,
+    crate::net::server::dgram::Config<RequestOctets, Target>,
+    crate::net::server::stream::Config<RequestOctets, Target>,
 )
 where
     RequestOctets: Octets,
@@ -195,18 +212,14 @@ where
     let mut middleware = MiddlewareBuilder::minimal();
 
     if config.cookies.enabled {
-        #[cfg(feature = "siphasher")]
         if let Some(secret) = config.cookies.secret {
             let secret = base16::decode_vec(secret).unwrap();
             let secret = <[u8; 16]>::try_from(secret).unwrap();
             let processor = CookiesMiddlewareProcessor::new(secret);
             let processor = processor
-                .with_denied_ips(config.cookies.ip_deny_list.clone());
+                .with_denied_addresses(config.cookies.deny_list.clone());
             middleware.push(processor.into());
         }
-
-        #[cfg(not(feature = "siphasher"))]
-        panic!("The test uses cookies but the required 'siphasher' feature is not enabled.");
     }
 
     if config.edns_tcp_keepalive {
@@ -216,13 +229,13 @@ where
 
     let middleware = middleware.build();
 
-    let mut dgram_config = domain::net::server::dgram::Config::default();
+    let mut dgram_config = crate::net::server::dgram::Config::default();
     dgram_config.set_middleware_chain(middleware.clone());
 
-    let mut stream_config = domain::net::server::stream::Config::default();
+    let mut stream_config = crate::net::server::stream::Config::default();
     if let Some(idle_timeout) = config.idle_timeout {
         let mut connection_config =
-            domain::net::server::ConnectionConfig::default();
+            crate::net::server::ConnectionConfig::default();
         connection_config.set_idle_timeout(idle_timeout);
         connection_config.set_middleware_chain(middleware);
         stream_config.set_connection_config(connection_config);
@@ -263,7 +276,7 @@ fn test_service(
     }
 
     fn as_records(
-        e: Result<Entry, domain::zonefile::inplace::Error>,
+        e: Result<Entry, crate::zonefile::inplace::Error>,
     ) -> Option<ScannedRecord> {
         match e {
             Ok(Entry::Record(r)) => Some(r),
@@ -328,7 +341,7 @@ struct ServerConfig<'a> {
 struct CookieConfig<'a> {
     enabled: bool,
     secret: Option<&'a str>,
-    ip_deny_list: Vec<IpAddr>,
+    deny_list: Vec<NetBlock>,
 }
 
 fn parse_server_config(config: &Config) -> ServerConfig {
@@ -373,7 +386,7 @@ fn parse_server_config(config: &Config) -> ServerConfig {
                                     if let Ok(ip) = ip.parse() {
                                         parsed_config
                                             .cookies
-                                            .ip_deny_list
+                                            .deny_list
                                             .push(ip);
                                     } else {
                                         eprintln!("Ignoring malformed IP address '{ip}' in 'access-control' setting");
