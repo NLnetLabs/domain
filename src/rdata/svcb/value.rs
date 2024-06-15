@@ -709,7 +709,6 @@ impl<Target> AlpnBuilder<Target> {
     ///
     /// Returns an error if the name is too long or the ALPN value would
     /// become too long or the underlying octets builder runs out of space.
-    #[allow(dependency_on_unit_never_type_fallback)] // Temporary work around
     pub fn push(
         &mut self, protocol: impl AsRef<[u8]>
     ) -> Result<(), BuildAlpnError>
