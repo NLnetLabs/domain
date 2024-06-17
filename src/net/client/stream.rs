@@ -1,8 +1,5 @@
 //! A client transport using a stream socket.
 
-#![warn(missing_docs)]
-#![warn(clippy::missing_docs_in_private_items)]
-
 // RFC 7766 describes DNS over TCP
 // RFC 7828 describes the edns-tcp-keepalive option
 
