@@ -1,8 +1,5 @@
 //! A DNS over multiple octet streams transport
 
-#![warn(missing_docs)]
-#![warn(clippy::missing_docs_in_private_items)]
-
 // To do:
 // - too many connection errors
 

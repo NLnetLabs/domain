@@ -175,14 +175,14 @@ impl Default for Config {
 //------------ Connection -----------------------------------------------------
 
 /// A datagram protocol connection.
-///
-/// Because it owns the connection’s resources, this type is not [`Clone`].
-/// However, it is entirely safe to share it by sticking it into e.g. an arc.
 #[derive(Clone, Debug)]
 pub struct Connection<S> {
+    /// Actual state of the connection.
     state: Arc<ConnectionState<S>>,
 }
 
+/// Because it owns the connection’s resources, this type is not [`Clone`].
+/// However, it is entirely safe to share it by sticking it into e.g. an arc.
 #[derive(Debug)]
 struct ConnectionState<S> {
     /// User configuration variables.
@@ -386,18 +386,22 @@ pub struct QueryError {
 }
 
 impl QueryError {
+    /// Create a new `QueryError`.
     fn new(kind: QueryErrorKind, io: io::Error) -> Self {
         Self { kind, io }
     }
 
+    /// Create a new connect error.
     fn connect(io: io::Error) -> Self {
         Self::new(QueryErrorKind::Connect, io)
     }
 
+    /// Create a new send error.
     fn send(io: io::Error) -> Self {
         Self::new(QueryErrorKind::Send, io)
     }
 
+    /// Create a new short send error.
     fn short_send() -> Self {
         Self::new(
             QueryErrorKind::Send,
@@ -405,6 +409,7 @@ impl QueryError {
         )
     }
 
+    /// Create a new timeout error.
     fn timeout() -> Self {
         Self::new(
             QueryErrorKind::Timeout,
@@ -412,6 +417,7 @@ impl QueryError {
         )
     }
 
+    /// Create a new receive error.
     fn receive(io: io::Error) -> Self {
         Self::new(QueryErrorKind::Receive, io)
     }
