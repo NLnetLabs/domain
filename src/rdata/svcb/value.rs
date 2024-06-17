@@ -725,7 +725,7 @@ impl<Target> AlpnBuilder<Target> {
                 protocol.len() + 1
             ).expect("long Alpn value")
         ).map_err(|_| BuildAlpnError::LongSvcParam)?;
-        len.compose(&mut self.target).map(Into::into)?;
+        len.compose(&mut self.target)?;
         self.target.append_slice(
             protocol
         ).map_err(|_| BuildAlpnError::ShortBuf)
