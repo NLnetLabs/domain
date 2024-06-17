@@ -11,7 +11,7 @@
 //! [Datagram]: https://en.wikipedia.org/wiki/Datagram
 use core::fmt::Debug;
 use core::future::poll_fn;
-use core::ops::Deref;
+use core::ops::{ControlFlow, Deref};
 use core::time::Duration;
 
 use std::io;
@@ -689,7 +689,7 @@ where
         call_result: CallResult<Svc::Target>,
         state: RequestState<Sock, Buf::Output, Svc::Target>,
         metrics: Arc<ServerMetrics>,
-    ) {
+    ) -> ControlFlow<()> {
         metrics.inc_num_pending_writes();
         let client_addr = request.client_addr();
 
@@ -732,6 +732,8 @@ where
                 metrics.inc_num_sent_responses();
             }
         });
+
+        ControlFlow::Continue(())
     }
 }
 
