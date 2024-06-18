@@ -525,17 +525,9 @@ mod tests {
     use crate::net::server::middleware::processor::MiddlewareProcessor;
 
     use super::CookiesMiddlewareProcessor;
-    use tracing::Level;
 
     #[test]
     fn dont_add_cookie_twice() {
-        tracing_subscriber::fmt()
-            .with_max_level(Level::TRACE)
-            .with_thread_ids(true)
-            .without_time()
-            .try_init()
-            .ok();
-
         // Build a dummy DNS query containing a client cookie.
         let query = MessageBuilder::new_vec();
         let mut query = query.question();
