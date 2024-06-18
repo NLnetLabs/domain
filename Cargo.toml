@@ -17,9 +17,9 @@ name = "domain"
 path = "src/lib.rs"
 
 [dependencies]
-octseq         =  { version = "0.5.2-dev", git = "https://github.com/NLnetLabs/octseq.git", rev ="3f7797f4274af0a52e66105250ee1186ff2ab6ac", default-features = false }
-time           =  { version = "0.3.1", default-features = false }
-
+octseq         = { version = "0.5.2-dev", git = "https://github.com/NLnetLabs/octseq.git", rev ="3f7797f4274af0a52e66105250ee1186ff2ab6ac", default-features = false }
+time           = { version = "0.3.1", default-features = false }
+ipnetwork      = { version = "0.20.0", optional = true }
 rand           = { version = "0.8", optional = true }
 arc-swap       = { version = "1.7.0", optional = true }
 bytes          = { version = "1.0", optional = true, default-features = false }
