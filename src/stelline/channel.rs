@@ -22,6 +22,7 @@ use crate::net::client::protocol::{
     AsyncConnect, AsyncDgramRecv, AsyncDgramSend,
 };
 use crate::net::server::sock::{AsyncAccept, AsyncDgramSock};
+use core::sync::atomic::{AtomicU16, Ordering};
 
 // If MSRV gets bumped to 1.69.0 we can replace these with a const SocketAddr.
 pub const DEF_CLIENT_ADDR: IpAddr = IpAddr::V4(Ipv4Addr::LOCALHOST);
@@ -124,7 +125,7 @@ struct ServerSocket {
     /// Senders for the server to send responses to clients.
     ///
     /// One per client to which responses must be sent.
-    response_txs: HashMap<(), mpsc::Sender<Vec<u8>>>,
+    response_txs: HashMap<SocketAddr, mpsc::Sender<Vec<u8>>>,
 
     /// Buffer for received bytes that overflowed the server read buffer.
     unread_buf: ReadBufBuffer,
@@ -162,18 +163,22 @@ pub struct ClientServerChannel {
     /// Simulated client address.
     client_addr: SocketAddr,
 
+    /// Next mock client port number to use.
+    next_client_port: Arc<AtomicU16>,
+
     /// Type of connection.
     is_stream: bool,
 }
 
 impl Default for ClientServerChannel {
     fn default() -> Self {
-        let client_addr = SocketAddr::new("::".parse().unwrap(), 0);
+        let client_addr = SocketAddr::new("127.0.0.1".parse().unwrap(), 0);
 
         Self {
             server: Default::default(),
             client: Default::default(),
             client_addr,
+            next_client_port: Arc::new(AtomicU16::new(1)),
             is_stream: Default::default(),
         }
     }
@@ -187,6 +192,7 @@ impl Clone for ClientServerChannel {
             server: self.server.clone(),
             client: None,
             client_addr: self.client_addr,
+            next_client_port: self.next_client_port.clone(),
             is_stream: self.is_stream,
         }
     }
@@ -208,44 +214,60 @@ impl ClientServerChannel {
     }
 
     pub fn new_client(&self, client_addr: Option<SocketAddr>) -> Self {
-        let client_addr = client_addr
-            .unwrap_or_else(|| SocketAddr::new("::".parse().unwrap(), 0));
+        let mut client_addr = client_addr.unwrap_or_else(|| {
+            SocketAddr::new("127.0.0.1".parse().unwrap(), 0)
+        });
+
+        if client_addr.port() == 0 {
+            let client_port =
+                self.next_client_port.fetch_add(1, Ordering::SeqCst);
+            client_addr.set_port(client_port);
+        }
+
         Self {
             server: self.server.clone(),
             client: None,
-            is_stream: self.is_stream,
             client_addr,
+            next_client_port: self.next_client_port.clone(),
+            is_stream: self.is_stream,
         }
     }
 
     pub fn connect(&self, client_addr: Option<SocketAddr>) -> Self {
-        fn setup_client(server_socket: &mut ServerSocket) -> ClientSocket {
+        fn setup_client(
+            server_socket: &mut ServerSocket,
+            client_addr: SocketAddr,
+        ) -> ClientSocket {
             // Create a client socket for sending requests to the server.
             let (client, response_tx) =
                 ClientSocket::new(server_socket.sender());
 
             // Tell the server how to respond to the client.
-            server_socket.response_txs.insert((), response_tx);
+            server_socket.response_txs.insert(client_addr, response_tx);
 
             // Return the created client socket
             client
         }
 
-        let client_addr = client_addr
-            .unwrap_or_else(|| SocketAddr::new("::".parse().unwrap(), 0));
+        let client_addr = client_addr.unwrap_or_else(|| {
+            let client_port =
+                self.next_client_port.fetch_add(1, Ordering::SeqCst);
+            SocketAddr::new("127.0.0.1".parse().unwrap(), client_port)
+        });
 
         match self.is_stream {
             false => {
                 // For dgram connections all clients communicate with the same
                 // single server socket.
                 let server_socket = &mut self.server.lock().unwrap();
-                let client = setup_client(server_socket);
+                let client = setup_client(server_socket, client_addr);
 
                 // Tell the client how to contact the server.
                 Self {
                     server: self.server.clone(),
                     client: Some(client),
                     client_addr: self.client_addr,
+                    next_client_port: self.next_client_port.clone(),
                     is_stream: false,
                 }
             }
@@ -254,13 +276,14 @@ impl ClientServerChannel {
                 // But for stream connections each new client communicates
                 // with a new server-side connection handler socket.
                 let mut server_socket = ServerSocket::default();
-                let client = setup_client(&mut server_socket);
+                let client = setup_client(&mut server_socket, client_addr);
 
                 // Tell the client how to contact the new server connection handler.
                 let channel = Self {
                     server: Arc::new(Mutex::new(server_socket)),
                     client: Some(client),
                     client_addr: self.client_addr,
+                    next_client_port: self.next_client_port.clone(),
                     is_stream: true,
                 };
 
@@ -296,7 +319,7 @@ impl AsyncConnect for ClientServerChannel {
     >;
 
     fn connect(&self) -> Self::Fut {
-        let conn = self.connect(None);
+        let conn = self.connect(Some(self.client_addr));
         Box::pin(async move { Ok(conn) })
     }
 }
@@ -322,7 +345,7 @@ impl AsyncDgramRecv for ClientServerChannel {
                 Poll::Ready(Ok(()))
             }
             Poll::Ready(None) => {
-                trace!("Broken pipe while reading in dgram client channel");
+                trace!("Broken pipe while reading in dgram client channel (is_closed={})", rx.is_closed());
                 Poll::Ready(Err(io::Error::from(io::ErrorKind::BrokenPipe)))
             }
             Poll::Pending => {
@@ -390,10 +413,10 @@ impl AsyncDgramSock for ClientServerChannel {
         &self,
         cx: &mut Context,
         data: &[u8],
-        dest: &std::net::SocketAddr,
+        dest: &SocketAddr,
     ) -> Poll<io::Result<usize>> {
         let server_socket = self.server.lock().unwrap();
-        let tx = server_socket.response_txs.get(&());
+        let tx = server_socket.response_txs.get(dest);
         if let Some(server_tx) = tx {
             let mut fut = Box::pin(server_tx.send(data.to_vec()));
             match fut.poll_unpin(cx) {
@@ -470,17 +493,16 @@ impl Future for ClientServerChannelReadableFut {
     ) -> Poll<Self::Output> {
         let server_socket = self.0.lock().unwrap();
         let rx = &server_socket.rx;
-        trace!("ReadableFut {} in dgram server channel", !rx.is_empty());
-        match !rx.is_empty() {
-            true => Poll::Ready(Ok(())),
-            false => {
-                let waker = cx.waker().clone();
-                std::thread::spawn(move || {
-                    std::thread::yield_now();
-                    waker.wake();
-                });
-                Poll::Pending
-            }
+        if !rx.is_empty() {
+            trace!("Server socket is now readable");
+            Poll::Ready(Ok(()))
+        } else {
+            trace!("Server socket is not yet readable");
+            let waker = cx.waker().clone();
+            tokio::task::spawn(async move {
+                waker.wake();
+            });
+            Poll::Pending
         }
     }
 }

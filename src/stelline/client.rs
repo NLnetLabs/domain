@@ -414,6 +414,8 @@ pub async fn do_client<'a, T: ClientFactory>(
                             .await;
                     }
 
+                    trace!("Receive result: {res:?}");
+
                     resp = res?;
 
                     trace!(?resp);
