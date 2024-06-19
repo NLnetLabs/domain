@@ -6,7 +6,7 @@ use std::net::IpAddr;
 use std::string::{String, ToString};
 use std::vec::Vec;
 
-use ipnetwork::IpNetwork;
+use inetnum::addr::Prefix;
 use octseq::Octets;
 use rand::RngCore;
 use tracing::{debug, trace, warn};
@@ -39,7 +39,7 @@ const ONE_HOUR_AS_SECS: u32 = 60 * 60;
 // our public API so that we can swap it out later for an alternative if
 // needed without impacting the public API.
 #[derive(Clone, Debug)]
-pub struct NetBlock(IpNetwork);
+pub struct NetBlock(Prefix);
 
 impl NetBlock {
     /// Is the given IP address part of this network range?
@@ -55,8 +55,7 @@ impl FromStr for NetBlock {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         Ok(NetBlock(
-            IpNetwork::from_str(s)
-                .map_err(|err| ToString::to_string(&err))?,
+            Prefix::from_str(s).map_err(|err| ToString::to_string(&err))?,
         ))
     }
 }
@@ -549,7 +548,7 @@ mod tests {
         // the mock client to provide a valid cookie.
         let server_secret: [u8; 16] = [1u8; 16];
         let processor = CookiesMiddlewareProcessor::new(server_secret)
-            .with_denied_addresses(["127.0.0.1/24".parse().unwrap()]);
+            .with_denied_addresses(["127.0.0.0/24".parse().unwrap()]);
         let processor: &dyn MiddlewareProcessor<Vec<u8>, Vec<u8>> =
             &processor;
 
