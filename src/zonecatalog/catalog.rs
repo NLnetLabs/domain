@@ -57,17 +57,32 @@ use crate::zonetree::{
     WritableZone, WritableZoneNode, Zone, ZoneDiff, ZoneKey, ZoneStore,
     ZoneTree,
 };
+use core::marker::Send;
 
 //------------ Config --------------------------------------------------------
 
 #[derive(Debug, Default)]
-pub struct Config {
+pub struct Config<CF: ConnFactory = DefaultConnFactory> {
     key_store: Arc<RwLock<CatalogKeyStore>>,
+    conn_factory: CF,
 }
 
-impl Config {
+impl<CF: ConnFactory + Default> Config<CF> {
     pub fn new(key_store: Arc<RwLock<CatalogKeyStore>>) -> Self {
-        Self { key_store }
+        Self {
+            key_store,
+            conn_factory: CF::default(),
+        }
+    }
+
+    pub fn with_conn_factory(
+        key_store: Arc<RwLock<CatalogKeyStore>>,
+        conn_factory: CF,
+    ) -> Self {
+        Self {
+            key_store,
+            conn_factory,
+        }
     }
 }
 
@@ -849,10 +864,9 @@ enum Event {
 ///
 /// Also capable of acting as an RFC 9432 Catalog Zone producer/consumer.
 #[derive(Debug)]
-pub struct Catalog {
+pub struct Catalog<CF: ConnFactory = DefaultConnFactory> {
     // cat_zone: Zone, // TODO
-    config: Arc<ArcSwap<Config>>,
-    key_store: Arc<RwLock<CatalogKeyStore>>,
+    config: Arc<ArcSwap<Config<CF>>>,
     pending_zones: Arc<RwLock<HashMap<ZoneKey, Zone>>>,
     member_zones: Arc<ArcSwap<ZoneTree>>,
     loaded_arc: std::sync::RwLock<Arc<ZoneTree>>,
@@ -861,32 +875,29 @@ pub struct Catalog {
     running: AtomicBool,
 }
 
-impl Default for Catalog {
+impl<CF: ConnFactory + Default> Default for Catalog<CF> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl Catalog {
-    pub fn new() -> Catalog {
+impl<CF: ConnFactory + Default> Catalog<CF> {
+    pub fn new() -> Catalog<CF> {
         Self::new_with_config(Config::default())
     }
 
-    pub fn new_with_config(config: Config) -> Self {
-        let key_store = config.key_store;
-
+    pub fn new_with_config(config: Config<CF>) -> Self {
         let pending_zones = Default::default();
         let member_zones = ZoneTree::new();
         let member_zones = Arc::new(ArcSwap::from_pointee(member_zones));
         let loaded_arc = std::sync::RwLock::new(member_zones.load_full());
         let (event_tx, event_rx) = mpsc::channel(10);
         let event_rx = Mutex::new(event_rx);
-        let config = Arc::new(ArcSwap::from_pointee(Config::default()));
+        let config = Arc::new(ArcSwap::from_pointee(config));
 
         Catalog {
             // cat_zone,
             config,
-            key_store,
             pending_zones,
             member_zones,
             loaded_arc,
@@ -897,7 +908,7 @@ impl Catalog {
     }
 }
 
-impl Catalog {
+impl<CF: ConnFactory + Sync + Send + 'static> Catalog<CF> {
     pub async fn run(&self) {
         self.running.store(true, Ordering::SeqCst);
         let lock = &mut self.event_rx.lock().await;
@@ -926,7 +937,7 @@ impl Catalog {
                     //    reboots is optional, but it is reasonable to simply
                     //    execute an SOA NOTIFY transaction on each authority
                     //    zone when a server first starts."
-                    Self::send_notify(zone, notify, self.key_store.clone())
+                    Self::send_notify(zone, notify, self.config.clone())
                         .await;
                 }
 
@@ -980,10 +991,10 @@ impl Catalog {
                             let time_tracking = time_tracking.clone();
                             let event_tx = self.event_tx.clone();
                             let pending_zones = self.pending_zones.clone();
-                            let key_store = self.key_store.clone();
+                            let config = self.config.clone();
                             tokio::spawn(async move {
                                 Self::handle_notify(
-                                    zones, pending_zones, msg, time_tracking, event_tx, key_store,
+                                    zones, pending_zones, msg, time_tracking, event_tx, config,
                                 ).await
                             });
                         }
@@ -1123,7 +1134,7 @@ impl Catalog {
                                     None,
                                     zone_refresh_info,
                                     self.event_tx.clone(),
-                                    self.key_store.clone(),
+                                    self.config.clone(),
                                 )
                                 .await
                             {
@@ -1332,7 +1343,7 @@ impl Catalog {
     }
 }
 
-impl Catalog {
+impl<CF: ConnFactory> Catalog<CF> {
     /// Wrap a [`Zone`] so that we get notified when it is modified.
     fn wrap_zone(zone: TypedZone, notify_tx: Sender<Event>) -> Zone {
         let diffs = Arc::new(Mutex::new(ZoneDiffs::new()));
@@ -1356,7 +1367,7 @@ impl Catalog {
     async fn send_notify(
         zone: &Zone,
         notify: &NotifyAcl,
-        key_store: Arc<RwLock<CatalogKeyStore>>,
+        config: Arc<ArcSwap<Config<CF>>>,
     ) {
         let cat_zone = zone
             .as_ref()
@@ -1372,7 +1383,7 @@ impl Catalog {
             Self::send_notify_to_addrs(
                 cat_zone.apex_name().clone(),
                 nameservers.notify_set(),
-                key_store.clone(),
+                config.clone(),
                 zone_info,
             )
             .await;
@@ -1382,7 +1393,7 @@ impl Catalog {
             Self::send_notify_to_addrs(
                 cat_zone.apex_name().clone(),
                 notify.addrs(),
-                key_store,
+                config,
                 zone_info,
             )
             .await;
@@ -1392,7 +1403,7 @@ impl Catalog {
     async fn send_notify_to_addrs(
         apex_name: StoredName,
         notify_set: impl Iterator<Item = &SocketAddr>,
-        key_store: Arc<RwLock<CatalogKeyStore>>,
+        config: Arc<ArcSwap<Config<CF>>>,
         zone_info: &ZoneInfo,
     ) {
         let mut dgram_config = dgram::Config::new();
@@ -1418,7 +1429,8 @@ impl Catalog {
         // made to the message. It would also have to verify the response as
         // it would own the TSIG ClientTransaction or ClientSequence object
         // that is required in order to do response verification.
-        let readable_key_store = key_store.read().await;
+        let loaded_config = config.load();
+        let readable_key_store = loaded_config.key_store.read().await;
 
         for nameserver_addr in notify_set {
             let dgram_config = dgram_config.clone();
@@ -1566,7 +1578,7 @@ impl Catalog {
         msg: ZoneChangedMsg,
         time_tracking: Arc<RwLock<HashMap<ZoneKey, ZoneRefreshState>>>,
         event_tx: Sender<Event>,
-        key_store: Arc<RwLock<CatalogKeyStore>>,
+        config: Arc<ArcSwap<Config<CF>>>,
     ) {
         // Do we have the zone that is being updated?
         let pending_zones = pending_zones.read().await;
@@ -1606,7 +1618,7 @@ impl Catalog {
                 );
 
                 Self::update_known_nameservers_for_zone(zone).await;
-                Self::send_notify(zone, notify, key_store).await;
+                Self::send_notify(zone, notify, config).await;
                 return;
             }
 
@@ -1754,7 +1766,7 @@ impl Catalog {
             Some(initial_xfr_addr),
             zone_refresh_info,
             event_tx,
-            key_store,
+            config,
         )
         .await
         {
@@ -1769,7 +1781,7 @@ impl Catalog {
         initial_xfr_addr: Option<SocketAddr>,
         zone_refresh_info: &mut ZoneRefreshState,
         event_tx: Sender<Event>,
-        key_store: Arc<RwLock<CatalogKeyStore>>,
+        config: Arc<ArcSwap<Config<CF>>>,
     ) -> Result<(), ()> {
         match cause {
             ZoneRefreshCause::ManualTrigger
@@ -1798,7 +1810,7 @@ impl Catalog {
             zone,
             initial_xfr_addr,
             zone_refresh_info,
-            key_store,
+            config,
         )
         .await;
 
@@ -1842,6 +1854,21 @@ impl Catalog {
                             // TODO: Should we keep trying to refresh an
                             // expired zone so that we can bring it back to
                             // life if we are able to connect to the primary?
+                            //
+                            // https://unbound.docs.nlnetlabs.nl/en/latest/manpages/unbound.conf.html#authority-zone-options
+                            // Authority Zone Options
+                            //   ...
+                            //   "If the update fetch fails, the timers in the
+                            //   SOA record are used to time another fetch
+                            //   attempt. Until the SOA expiry timer is
+                            //   reached. Then the zone is expired. When a
+                            //   zone is expired, queries are SERVFAIL, and
+                            //   any new serial number is accepted from the
+                            //   primary (even if older), and if fallback is
+                            //   enabled, the fallback activates to fetch from
+                            //   the upstream instead of the SERVFAIL."
+                            //
+                            // ^^^ Maybe we should do the same as Unbound?
 
                             return Err(());
                         }
@@ -1895,7 +1922,7 @@ impl Catalog {
         zone: &Zone,
         initial_xfr_addr: Option<SocketAddr>,
         zone_refresh_info: &mut ZoneRefreshState,
-        key_store: Arc<RwLock<CatalogKeyStore>>,
+        config: Arc<ArcSwap<Config<CF>>>,
     ) -> Result<Option<Soa<Name<Bytes>>>, CatalogError> {
         // Was this zone already refreshed recently?
         if let Some(last_refreshed) =
@@ -1963,7 +1990,7 @@ impl Catalog {
                     xfr_settings,
                     tsig_key,
                     zone_refresh_info,
-                    key_store.clone(),
+                    config.clone(),
                 )
                 .await;
 
@@ -2002,7 +2029,7 @@ impl Catalog {
         xfr_settings: &XfrSettings,
         tsig_key: &Option<TsigKey>,
         zone_refresh_info: &mut ZoneRefreshState,
-        key_store: Arc<RwLock<CatalogKeyStore>>,
+        config: Arc<ArcSwap<Config<CF>>>,
     ) -> Result<Option<Soa<Name<Bytes>>>, CatalogError> {
         // TODO: Replace this loop with one, or two, calls to a helper fn.
         // Try at least once, at most twice (when using IXFR -> AXFR fallback)
@@ -2058,66 +2085,75 @@ impl Catalog {
             // SOA and to do XFR a TSIG signing/validating "auth" connection
             // is constructed if a key is specified and available.
 
-            let locked = key_store.read().await;
-            let key = tsig_key.as_ref().and_then(|v| locked.get(v));
+            let loaded_config = config.load();
+            let readable_key_store = loaded_config.key_store.read().await;
+            let key =
+                tsig_key.as_ref().and_then(|v| readable_key_store.get(v));
 
             // Query the SOA serial of the primary via the chosen transport.
-            let client = match transport {
-                TransportStrategy::None => return Ok(None),
-
-                TransportStrategy::Udp => {
-                    let udp_connect = UdpConnect::new(primary_addr);
-                    let mut dgram_config = dgram::Config::new();
-                    dgram_config.set_max_parallel(1);
-                    dgram_config
-                        .set_read_timeout(Duration::from_millis(1000));
-                    dgram_config.set_max_retries(1);
-                    dgram_config.set_udp_payload_size(Some(1400));
-                    let client = dgram::Connection::with_config(
-                        udp_connect,
-                        dgram_config,
-                    );
-
-                    Conn::Udp(auth::Connection::new(key.cloned(), client))
-                }
-
-                TransportStrategy::Tcp => {
-                    let res = TcpStream::connect(primary_addr).await;
-
-                    // TODO: Replace with inspect_err() if our MSRV increases to 1.76?
-                    if let Err(err) = &res {
-                        error!(
-                            "Unable to refresh zone '{}' by {rtype} from {primary_addr}: {err}",
-                            zone.apex_name(),
-                        );
-                    }
-
-                    let tcp_stream = res?;
-
-                    let mut stream_config = stream::Config::new();
-                    stream_config
-                        .set_response_timeout(Duration::from_secs(2));
-                    // Allow time between the SOA query response and sending
-                    // the AXFR/IXFR request.
-                    stream_config
-                        .set_initial_idle_timeout(Duration::from_secs(5));
-                    // Allow much more time
-                    stream_config.set_streaming_response_timeout(
-                        Duration::from_secs(30),
-                    );
-                    let (client, transport) = stream::Connection::with_config(
-                        tcp_stream,
-                        stream_config,
-                    );
-
-                    tokio::spawn(async move {
-                        transport.run().await;
-                        trace!("XFR TCP connection terminated");
-                    });
-
-                    Conn::Tcp(auth::Connection::new(key.cloned(), client))
-                }
+            let Some(client) = loaded_config
+                .conn_factory
+                .get(primary_addr, &transport, key)
+                .await?
+            else {
+                return Ok(None);
             };
+            // let client = match transport {
+            //     TransportStrategy::None => return Ok(None),
+
+            //     TransportStrategy::Udp => {
+            //         let udp_connect = UdpConnect::new(primary_addr);
+            //         let mut dgram_config = dgram::Config::new();
+            //         dgram_config.set_max_parallel(1);
+            //         dgram_config
+            //             .set_read_timeout(Duration::from_millis(1000));
+            //         dgram_config.set_max_retries(1);
+            //         dgram_config.set_udp_payload_size(Some(1400));
+            //         let client = dgram::Connection::with_config(
+            //             udp_connect,
+            //             dgram_config,
+            //         );
+
+            //         Conn::Udp(auth::Connection::new(key.cloned(), client))
+            //     }
+
+            //     TransportStrategy::Tcp => {
+            //         let res = TcpStream::connect(primary_addr).await;
+
+            //         // TODO: Replace with inspect_err() if our MSRV increases to 1.76?
+            //         if let Err(err) = &res {
+            //             error!(
+            //                 "Unable to refresh zone '{}' by {rtype} from {primary_addr}: {err}",
+            //                 zone.apex_name(),
+            //             );
+            //         }
+
+            //         let tcp_stream = res?;
+
+            //         let mut stream_config = stream::Config::new();
+            //         stream_config
+            //             .set_response_timeout(Duration::from_secs(2));
+            //         // Allow time between the SOA query response and sending
+            //         // the AXFR/IXFR request.
+            //         stream_config
+            //             .set_initial_idle_timeout(Duration::from_secs(5));
+            //         // Allow much more time
+            //         stream_config.set_streaming_response_timeout(
+            //             Duration::from_secs(30),
+            //         );
+            //         let (client, transport) = stream::Connection::with_config(
+            //             tcp_stream,
+            //             stream_config,
+            //         );
+
+            //         tokio::spawn(async move {
+            //             transport.run().await;
+            //             trace!("XFR TCP connection terminated");
+            //         });
+
+            //         Conn::Tcp(auth::Connection::new(key.cloned(), client))
+            //     }
+            // };
 
             trace!(
                 "Sending SOA query for zone '{}' to {primary_addr}",
@@ -2551,6 +2587,29 @@ impl Catalog {
     // TODO: Review feedback directed to remove this notify set discovery
     // logic entirely and only support a user configured "notify set" rather
     // than the set of servers discovered in the zone by this code.
+    //
+    // Possibly related:
+    //
+    // https://unbound.docs.nlnetlabs.nl/en/latest/manpages/unbound.conf.html#server-options
+    // Server Options
+    //   ...
+    //   "target-fetch-policy: <list of numbers>
+    //    Set the target fetch policy used by Unbound to determine if it
+    //    should fetch nameserver target addresses opportunistically. The
+    //    policy is described per dependency depth.
+    //
+    //    The number of values determines the maximum dependency depth that
+    //    Unbound will pursue in answering a query. A value of -1 means to
+    //    fetch all targets opportunistically for that dependency depth. A
+    //    value of 0 means to fetch on demand only. A positive value fetches
+    //    that many targets opportunistically.
+    //
+    //    Enclose the list between quotes ("") and put spaces between numbers.
+    //    Setting all zeroes, “0 0 0 0 0” gives behaviour closer to that of
+    //    BIND 9, while setting “-1 -1 -1 -1 -1” gives behaviour rumoured to
+    //    be closer to that of BIND 8.
+    //
+    //    Default: “3 2 1 0 0”
     async fn identify_nameservers(
         zone: &Zone,
     ) -> Result<ZoneNameServers, ()> {
@@ -2722,7 +2781,7 @@ impl Catalog {
     }
 }
 
-impl Catalog {
+impl<CF: ConnFactory> Catalog<CF> {
     /// The entire tree of zones managed by this [`Catalog`] instance.
     pub fn zones(&self) -> Arc<ZoneTree> {
         self.loaded_arc.read().unwrap().clone()
@@ -2784,7 +2843,7 @@ impl Catalog {
     }
 }
 
-impl Catalog {
+impl<CF: ConnFactory> Catalog<CF> {
     fn update_lodaded_arc(&self) {
         *self.loaded_arc.write().unwrap() = self.member_zones.load_full();
     }
@@ -3108,6 +3167,80 @@ impl<CR: ComposeRequest + Send + Sync + 'static> SendRequest<CR>
         match self {
             Conn::Udp(conn) => conn.send_request(request_msg),
             Conn::Tcp(conn) => conn.send_request(request_msg),
+        }
+    }
+}
+
+pub trait ConnFactory {
+    fn get(
+        &self,
+        dest: SocketAddr,
+        strategy: &TransportStrategy,
+        key: Option<&Arc<Key>>,
+    ) -> impl Future<
+        Output = Result<
+            Option<Conn<RequestMessage<Vec<u8>>>>,
+            std::io::Error,
+        >,
+    > + Send;
+}
+
+#[derive(Default, Debug)]
+pub struct DefaultConnFactory;
+
+impl ConnFactory for DefaultConnFactory {
+    async fn get(
+        &self,
+        dest: SocketAddr,
+        strategy: &TransportStrategy,
+        key: Option<&Arc<Key>>,
+    ) -> Result<Option<Conn<RequestMessage<Vec<u8>>>>, std::io::Error> {
+        match strategy {
+            TransportStrategy::None => Ok(None),
+
+            TransportStrategy::Udp => {
+                let udp_connect = UdpConnect::new(dest);
+                let mut dgram_config = dgram::Config::new();
+                dgram_config.set_max_parallel(1);
+                dgram_config.set_read_timeout(Duration::from_millis(1000));
+                dgram_config.set_max_retries(1);
+                dgram_config.set_udp_payload_size(Some(1400));
+                let client =
+                    dgram::Connection::with_config(udp_connect, dgram_config);
+
+                Ok(Some(Conn::Udp(auth::Connection::new(
+                    key.cloned(),
+                    client,
+                ))))
+            }
+
+            TransportStrategy::Tcp => {
+                let tcp_stream = TcpStream::connect(dest).await?;
+
+                let mut stream_config = stream::Config::new();
+                stream_config.set_response_timeout(Duration::from_secs(2));
+                // Allow time between the SOA query response and sending
+                // the AXFR/IXFR request.
+                stream_config
+                    .set_initial_idle_timeout(Duration::from_secs(5));
+                // Allow much more time
+                stream_config
+                    .set_streaming_response_timeout(Duration::from_secs(30));
+                let (client, transport) = stream::Connection::with_config(
+                    tcp_stream,
+                    stream_config,
+                );
+
+                tokio::spawn(async move {
+                    transport.run().await;
+                    trace!("TCP connection terminated");
+                });
+
+                Ok(Some(Conn::Tcp(auth::Connection::new(
+                    key.cloned(),
+                    client,
+                ))))
+            }
         }
     }
 }
