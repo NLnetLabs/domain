@@ -14,13 +14,13 @@
 //   - request timeout
 // - create new connection after end/failure of previous one
 
-use crate::utils::config::DefMinMax;
 use crate::base::message::Message;
 use crate::base::message_builder::StreamTarget;
 use crate::base::opt::{AllOptData, OptRecord, TcpKeepalive};
 use crate::net::client::request::{
     ComposeRequest, Error, GetResponse, SendRequest,
 };
+use crate::utils::config::DefMinMax;
 use bytes::{Bytes, BytesMut};
 use core::cmp;
 use octseq::Octets;
@@ -116,7 +116,7 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             response_timeout: RESPONSE_TIMEOUT.default(),
-	    idle_timeout: IDLE_TIMEOUT.default(),
+            idle_timeout: IDLE_TIMEOUT.default(),
         }
     }
 }
@@ -385,14 +385,14 @@ where
                     }
                 }
                 ConnState::Idle(instant) => {
-                        let elapsed = instant.elapsed();
-                        if elapsed >= status.idle_timeout {
-                            // Move to IdleTimeout and end
-                            // the loop
-                            status.state = ConnState::IdleTimeout;
-                            break;
-                        }
-                        Some(status.idle_timeout - elapsed)
+                    let elapsed = instant.elapsed();
+                    if elapsed >= status.idle_timeout {
+                        // Move to IdleTimeout and end
+                        // the loop
+                        status.state = ConnState::IdleTimeout;
+                        break;
+                    }
+                    Some(status.idle_timeout - elapsed)
                 }
                 ConnState::IdleTimeout
                 | ConnState::ReadError(_)
