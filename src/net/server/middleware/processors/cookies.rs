@@ -6,7 +6,7 @@ use std::net::IpAddr;
 use std::string::{String, ToString};
 use std::vec::Vec;
 
-use inetnum::addr::Prefix;
+use inetnum::addr::{ParsePrefixError, Prefix};
 use octseq::Octets;
 use rand::RngCore;
 use tracing::{debug, trace, warn};
@@ -54,9 +54,28 @@ impl FromStr for NetBlock {
     type Err = String;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Ok(NetBlock(
-            Prefix::from_str(s).map_err(|err| ToString::to_string(&err))?,
-        ))
+        let prefix = match Prefix::from_str(s) {
+            Ok(prefix) => Ok(prefix),
+            Err(ParsePrefixError::MissingLen) => prefix_from_addr_str(s),
+            other_err => other_err,
+        }
+        .map_err(|err| ToString::to_string(&err))?;
+
+        Ok(Self(prefix))
+    }
+}
+
+/// Construct a Prefix from an IP address string.
+fn prefix_from_addr_str(s: &str) -> Result<Prefix, ParsePrefixError> {
+    match IpAddr::from_str(s) {
+        // TODO: Use IpvNAddr::BITS rather than 32/128 if our MSRV rises to
+        // Rust >= 1.80.0.
+        Ok(addr) => match addr {
+            IpAddr::V4(addr) => Prefix::new_v4(addr, 32),
+            IpAddr::V6(addr) => Prefix::new_v6(addr, 128),
+        }
+        .map_err(ParsePrefixError::InvalidPrefix),
+        Err(err) => Err(ParsePrefixError::InvalidAddr(err)),
     }
 }
 
@@ -523,7 +542,27 @@ mod tests {
     use crate::net::server::message::{Request, UdpTransportContext};
     use crate::net::server::middleware::processor::MiddlewareProcessor;
 
-    use super::CookiesMiddlewareProcessor;
+    use super::{CookiesMiddlewareProcessor, NetBlock};
+    use core::str::FromStr;
+
+    #[test]
+    fn netblock_from_str() {
+        assert!(NetBlock::from_str("").is_err());
+        assert!(NetBlock::from_str("not-an-ip-address").is_err());
+        assert!(NetBlock::from_str("1-2-3-4").is_err());
+        assert!(NetBlock::from_str("1.2.3.4/").is_err());
+        assert!(NetBlock::from_str("::1/").is_err());
+        assert!(NetBlock::from_str("1-2-3-4/8").is_err());
+        assert!(NetBlock::from_str("::/").is_err());
+        assert!(NetBlock::from_str("1.2.3.4/not-a-prefix-length").is_err());
+        assert!(NetBlock::from_str("1.2.3.4-4.5.6.7").is_err());
+
+        assert!(NetBlock::from_str("1.2.3.4").is_ok());
+        assert!(NetBlock::from_str("::1").is_ok());
+        assert!(NetBlock::from_str("1.2.3.4/32").is_ok());
+        assert!(NetBlock::from_str("127.0.0.0/24").is_ok());
+        assert!(NetBlock::from_str("::1/128").is_ok());
+    }
 
     #[test]
     fn dont_add_cookie_twice() {
