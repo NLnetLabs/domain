@@ -378,18 +378,18 @@ fn parse_server_config(config: &Config) -> ServerConfig {
                         // for a classless network block", but we only handle
                         // an IP address here for now.
                         // See: https://unbound.docs.nlnetlabs.nl/en/latest/manpages/unbound.conf.html?highlight=edns-tcp-keepalive#unbound-conf-access-control
-                        if let Some((ip, action)) =
+                        if let Some((netblock, action)) =
                             v.split_once(|c: char| c.is_whitespace())
                         {
                             match action {
                                 "allow_cookie" => {
-                                    if let Ok(ip) = ip.parse() {
+                                    if let Ok(netblock) = netblock.parse() {
                                         parsed_config
                                             .cookies
                                             .deny_list
-                                            .push(ip);
+                                            .push(netblock);
                                     } else {
-                                        eprintln!("Ignoring malformed IP address '{ip}' in 'access-control' setting");
+                                        eprintln!("Ignoring malformed netblock '{netblock}' in 'access-control' setting");
                                     }
                                 }
 
