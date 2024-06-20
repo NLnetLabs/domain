@@ -33,8 +33,11 @@ of the crate.
 ### Minimum version: 1.68.2
 
 The `rust-version` given in `Cargo.toml` is the oldest version that can
-be used to compile the crate with the minimum versions of all dependencies
+be used to compile the crate with the minimal versions of all dependencies
 selected.
+
+You can run `cargo +nightly update -Z minimal-versions` to ask Cargo to
+select these minimal versions for all dependencies.
 
 ### Current version: 1.76.0
 
