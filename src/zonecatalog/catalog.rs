@@ -2093,7 +2093,7 @@ impl<CF: ConnFactory> Catalog<CF> {
             // Query the SOA serial of the primary via the chosen transport.
             let Some(client) = loaded_config
                 .conn_factory
-                .get(primary_addr, &transport, key)
+                .get(primary_addr, &transport, key.cloned())
                 .await?
             else {
                 return Ok(None);
@@ -3176,7 +3176,7 @@ pub trait ConnFactory {
         &self,
         dest: SocketAddr,
         strategy: &TransportStrategy,
-        key: Option<&Arc<Key>>,
+        key: Option<Arc<Key>>,
     ) -> impl Future<
         Output = Result<
             Option<Conn<RequestMessage<Vec<u8>>>>,
@@ -3193,7 +3193,7 @@ impl ConnFactory for DefaultConnFactory {
         &self,
         dest: SocketAddr,
         strategy: &TransportStrategy,
-        key: Option<&Arc<Key>>,
+        key: Option<Arc<Key>>,
     ) -> Result<Option<Conn<RequestMessage<Vec<u8>>>>, std::io::Error> {
         match strategy {
             TransportStrategy::None => Ok(None),
@@ -3208,10 +3208,7 @@ impl ConnFactory for DefaultConnFactory {
                 let client =
                     dgram::Connection::with_config(udp_connect, dgram_config);
 
-                Ok(Some(Conn::Udp(auth::Connection::new(
-                    key.cloned(),
-                    client,
-                ))))
+                Ok(Some(Conn::Udp(auth::Connection::new(key, client))))
             }
 
             TransportStrategy::Tcp => {
@@ -3219,11 +3216,11 @@ impl ConnFactory for DefaultConnFactory {
 
                 let mut stream_config = stream::Config::new();
                 stream_config.set_response_timeout(Duration::from_secs(2));
-                // Allow time between the SOA query response and sending
-                // the AXFR/IXFR request.
+                // Allow time between the SOA query response and sending the
+                // AXFR/IXFR request.
                 stream_config
                     .set_initial_idle_timeout(Duration::from_secs(5));
-                // Allow much more time
+                // Allow much more time for an XFR streaming response.
                 stream_config
                     .set_streaming_response_timeout(Duration::from_secs(30));
                 let (client, transport) = stream::Connection::with_config(
@@ -3236,10 +3233,7 @@ impl ConnFactory for DefaultConnFactory {
                     trace!("TCP connection terminated");
                 });
 
-                Ok(Some(Conn::Tcp(auth::Connection::new(
-                    key.cloned(),
-                    client,
-                ))))
+                Ok(Some(Conn::Tcp(auth::Connection::new(key, client))))
             }
         }
     }
