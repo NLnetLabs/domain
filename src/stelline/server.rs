@@ -71,7 +71,7 @@ where
         }
     }
     let mut msg = msg.answer();
-    for a in &sections.answer {
+    for a in &sections.answer[0] {
         let rec = if let ZonefileEntry::Record(record) = a {
             record
         } else {

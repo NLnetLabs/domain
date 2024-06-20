@@ -21,8 +21,9 @@ use crate::base::iana::{Opcode, OptionCode};
 use crate::base::opt::{ComposeOptData, OptData};
 use crate::base::{Message, MessageBuilder};
 use crate::net::client::request::{
-    ComposeRequest, Error, RequestMessage, SendRequest,
+    ComposeRequest, Error, GetResponse, RequestMessage, SendRequest,
 };
+use crate::stelline::matches::match_multi_msg;
 
 use super::matches::match_msg;
 use super::parse_stelline::{Entry, Reply, Stelline, StepType};
@@ -205,15 +206,14 @@ impl Dispatcher {
         Self(None)
     }
 
-    pub async fn dispatch(
+    pub fn dispatch(
         &self,
         entry: &Entry,
-    ) -> Result<Option<Message<Bytes>>, StellineErrorCause> {
+    ) -> Result<Box<dyn GetResponse + Send + Sync>, StellineErrorCause> {
         if let Some(dispatcher) = &self.0 {
             let reqmsg = entry2reqmsg(entry);
             trace!(?reqmsg);
-            let mut req = dispatcher.send_request(reqmsg);
-            return Ok(Some(req.get_response().await?));
+            return Ok(dispatcher.send_request(reqmsg));
         }
 
         Err(StellineErrorCause::MissingClient)
@@ -375,7 +375,9 @@ pub async fn do_client<'a, T: ClientFactory>(
         step_value: &CurrStepValue,
         mut client_factory: T,
     ) -> Result<(), StellineErrorCause> {
-        let mut resp: Option<Message<Bytes>> = None;
+        let mut last_sent_request: Option<
+            Box<dyn GetResponse + Sync + Send>,
+        > = None;
 
         // Assume steps are in order. Maybe we need to define that.
         for step in &stelline.scenario.steps {
@@ -393,38 +395,62 @@ pub async fn do_client<'a, T: ClientFactory>(
                         .ok_or(StellineErrorCause::MissingStepEntry)?;
 
                     // Dispatch the request to a suitable client.
-                    let mut res =
-                        client_factory.get(entry).await.dispatch(entry).await;
+                    let mut send_request =
+                        client_factory.get(entry).await.dispatch(entry);
 
                     // If the client is no longer connected, discard it and
                     // try again with a new client.
                     if let Err(StellineErrorCause::ClientError(
                         Error::ConnectionClosed,
-                    )) = res
+                    )) = send_request
                     {
                         client_factory.discard(entry);
-                        res = client_factory
-                            .get(entry)
-                            .await
-                            .dispatch(entry)
-                            .await;
+                        send_request =
+                            client_factory.get(entry).await.dispatch(entry);
                     }
 
-                    resp = res?;
-
-                    trace!(?resp);
+                    last_sent_request = Some(send_request?);
                 }
                 StepType::CheckAnswer => {
-                    let answer = resp
-                        .take()
-                        .ok_or(StellineErrorCause::MissingResponse)?;
                     let entry = step
                         .entry
                         .as_ref()
                         .ok_or(StellineErrorCause::MissingStepEntry)?;
-                    if !match_msg(entry, &answer, true) {
-                        return Err(StellineErrorCause::MismatchedAnswer);
+
+                    let Some(mut send_request) = last_sent_request else {
+                        return Err(StellineErrorCause::MissingResponse);
+                    };
+
+                    let num_expected_answers =
+                        entry.sections.as_ref().unwrap().answer.len();
+
+                    // NOTE: Calling .get_response() on a non-streaming
+                    // request will only work once at the time of writing, the
+                    // dgram client implementation will fail if called a
+                    // second time with error that the future has already been
+                    // awaited. Either the streaming response mechanism needs
+                    // to be implemented differently, or all client
+                    // implementations need to be safe to call for a
+                    // subsequent response.
+
+                    for idx in 0..num_expected_answers {
+                        trace!(
+                            "Awaiting answer {}/{num_expected_answers}...",
+                            idx + 1
+                        );
+                        let resp = send_request.get_response().await?;
+                        trace!("Received answer.");
+                        trace!(?resp);
+                        if !match_multi_msg(entry, idx, &resp, true) {
+                            return Err(StellineErrorCause::MismatchedAnswer);
+                        }
                     }
+
+                    if num_expected_answers > 1 {
+                        send_request.stream_complete().unwrap();
+                    }
+
+                    last_sent_request = None;
                 }
                 StepType::TimePasses => {
                     let duration =

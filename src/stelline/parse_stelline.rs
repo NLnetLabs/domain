@@ -29,6 +29,7 @@ const QUESTION: &str = "QUESTION";
 const ANSWER: &str = "ANSWER";
 const AUTHORITY: &str = "AUTHORITY";
 const ADDITIONAL: &str = "ADDITIONAL";
+const EXTRA_PACKET: &str = "EXTRA_PACKET";
 const STEP: &str = "STEP";
 const STEP_TYPE_QUERY: &str = "QUERY";
 const STEP_TYPE_CHECK_ANSWER: &str = "CHECK_ANSWER";
@@ -397,7 +398,7 @@ pub struct AdditionalSection {
 #[derive(Clone, Debug, Default)]
 pub struct Sections {
     pub question: Vec<Question>,
-    pub answer: Vec<ZonefileEntry>,
+    pub answer: Vec<Vec<ZonefileEntry>>,
     pub authority: Vec<ZonefileEntry>,
     pub additional: AdditionalSection,
 }
@@ -411,6 +412,7 @@ fn parse_section<Lines: Iterator<Item = Result<String, std::io::Error>>>(
 ) -> (Sections, String) {
     let mut sections = Sections::default();
     let next = tokens.next().unwrap();
+    let mut answer_idx = 0;
     let mut section = if next == QUESTION {
         Section::Question
     } else {
@@ -443,6 +445,10 @@ fn parse_section<Lines: Iterator<Item = Result<String, std::io::Error>>>(
         }
         if token == ENTRY_END {
             return (sections, line);
+        }
+        if token == EXTRA_PACKET {
+            answer_idx += 1;
+            continue;
         }
 
         match section {
@@ -487,7 +493,20 @@ fn parse_section<Lines: Iterator<Item = Result<String, std::io::Error>>>(
                     let e = e.unwrap();
                     match section {
                         Section::Question => unreachable!(),
-                        Section::Answer => sections.answer.push(e),
+                        Section::Answer => {
+                            let answer =
+                                match sections.answer.get_mut(answer_idx) {
+                                    Some(answer) => answer,
+                                    None => {
+                                        sections.answer.push(vec![]);
+                                        sections
+                                            .answer
+                                            .get_mut(answer_idx)
+                                            .unwrap()
+                                    }
+                                };
+                            answer.push(e);
+                        }
                         Section::Authority => sections.authority.push(e),
                         Section::Additional => {
                             sections.additional.zone_entries.push(e)

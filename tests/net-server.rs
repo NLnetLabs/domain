@@ -1,18 +1,18 @@
 #![cfg(feature = "net")]
+use core::str::FromStr;
 
 use std::boxed::Box;
 use std::collections::VecDeque;
 use std::fs::File;
 use std::net::IpAddr;
 use std::path::PathBuf;
-use std::result::Result;
 use std::sync::Arc;
 use std::time::Duration;
 
 use octseq::Octets;
 use rstest::rstest;
 use tracing::instrument;
-use tracing::{trace, warn};
+use tracing::warn;
 
 use domain::base::iana::Rcode;
 use domain::base::name::{Name, ToName};
@@ -30,8 +30,9 @@ use domain::net::server::service::{CallResult, Service, ServiceResult};
 use domain::net::server::stream::StreamServer;
 use domain::net::server::util::mk_builder_for_target;
 use domain::net::server::util::service_fn;
-use domain::zonefile::inplace::{Entry, ScannedRecord, Zonefile};
+use domain::zonefile::inplace::Zonefile;
 
+use domain::net::server::middleware::xfr::XfrMiddlewareSvc;
 use domain::stelline::channel::ClientServerChannel;
 use domain::stelline::client::do_client;
 use domain::stelline::client::ClientFactory;
@@ -42,7 +43,13 @@ use domain::stelline::parse_stelline;
 use domain::stelline::parse_stelline::parse_file;
 use domain::stelline::parse_stelline::Config;
 use domain::stelline::parse_stelline::Matches;
+use domain::tsig::{Algorithm, KeyName};
 use domain::utils::base16;
+use domain::zonecatalog::catalog::{
+    Acl, Catalog, DefaultConnFactory, TransportStrategy, XfrAcl, XfrSettings,
+    XfrStrategy, ZoneType,
+};
+use domain::zonetree::Answer;
 
 //----------- Tests ----------------------------------------------------------
 
@@ -64,6 +71,12 @@ async fn server_tests(#[files("test-data/server/*.rpl")] rpl_file: PathBuf) {
     // RUST_LOG=trace. DEBUG level will show the .rpl file name, Stelline step
     // numbers and types as they are being executed.
 
+    use core::str::FromStr;
+    use domain::base::iana::Class;
+    use domain::net::server::middleware::xfr::XfrMode;
+    use domain::zonecatalog::catalog::{self, TypedZone};
+    use domain::zonetree::{Zone, ZoneBuilder};
+
     tracing_subscriber::fmt()
         .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
         .with_thread_ids(true)
@@ -76,10 +89,68 @@ async fn server_tests(#[files("test-data/server/*.rpl")] rpl_file: PathBuf) {
     let server_config = parse_server_config(&stelline.config);
 
     // Create a service to answer queries received by the DNS servers.
-    let zonefile = server_config.zonefile.clone();
+    let key_store = Default::default();
+    let conn_factory = DefaultConnFactory;
+    let catalog_config =
+        catalog::Config::with_conn_factory(key_store, conn_factory);
+    let catalog = Catalog::new_with_config(catalog_config);
+    let catalog = Arc::new(catalog);
+
+    if let Some(zone_config) = &server_config.zone {
+        let zone = match &zone_config.zone_file {
+            Some(zone_file) => Zone::try_from(zone_file.clone()).unwrap(),
+            None => {
+                let builder = ZoneBuilder::new(
+                    Name::from_str("test").unwrap(),
+                    Class::IN,
+                );
+                builder.build()
+            }
+        };
+
+        let zone = TypedZone::new(zone, zone_config.zone_type.clone());
+        catalog.insert_zone(zone).await.unwrap();
+    }
 
     let with_cookies = server_config.cookies.enabled
         && server_config.cookies.secret.is_some();
+
+    let svc = service_fn(test_service, catalog.clone());
+
+    // Start the catalog background service so that incoming XFR/NOTIFY
+    // requests will be handled.
+    let catalog_clone = catalog.clone();
+    tokio::spawn(async move { catalog_clone.run().await });
+
+    // TODO: Cookies and keepalive shoulnd't be mutually exclusive. However,
+    // PR #336 already solves this issue so leave this as-is for now.
+    if with_cookies {
+        #[cfg(not(feature = "siphasher"))]
+        panic!("The test uses cookies but the required 'siphasher' feature is not enabled.");
+
+        #[cfg(feature = "siphasher")]
+        let secret = server_config.cookies.secret.unwrap();
+        let secret = base16::decode_vec(secret).unwrap();
+        let secret = <[u8; 16]>::try_from(secret).unwrap();
+        let svc = CookiesMiddlewareSvc::new(svc, secret)
+            .with_denied_ips(server_config.cookies.ip_deny_list.clone());
+        finish_svc(svc, server_config, &stelline).await;
+    } else if server_config.edns_tcp_keepalive {
+        let svc = EdnsMiddlewareSvc::new(svc);
+        finish_svc(svc, server_config, &stelline).await;
+    } else {
+        // TODO: It should be possible to use XFR/NOTIFY middleware also when
+        // using cookies or EDNS middleware.
+        const NUM_XFR_THREADS: usize = 1;
+        let svc = XfrMiddlewareSvc::<Vec<u8>, _>::new(
+            svc,
+            catalog,
+            NUM_XFR_THREADS,
+            XfrMode::AxfrAndIxfr,
+        );
+        // let svc = NotifyMiddlewareSvc::<Vec<u8>, _>::new(svc, catalog);
+        finish_svc(svc, server_config, &stelline).await;
+    }
 
     async fn finish_svc<'a, RequestOctets, Svc>(
         svc: Svc,
@@ -109,6 +180,8 @@ async fn server_tests(#[files("test-data/server/*.rpl")] rpl_file: PathBuf) {
         // Create a client factory for sending requests
         let client_factory = mk_client_factory(dgram_conn, stream_conn);
 
+        // Create Stelline "mock" UDP
+
         // Run the Stelline test!
         let step_value = Arc::new(CurrStepValue::new());
         do_client(stelline, &step_value, client_factory).await;
@@ -121,25 +194,6 @@ async fn server_tests(#[files("test-data/server/*.rpl")] rpl_file: PathBuf) {
         if !stream_srv.await_shutdown(Duration::from_secs(5)).await {
             warn!("Stream server did not shutdown on time.");
         }
-    }
-
-    let svc = service_fn(test_service, zonefile);
-    if with_cookies {
-        #[cfg(not(feature = "siphasher"))]
-        panic!("The test uses cookies but the required 'siphasher' feature is not enabled.");
-
-        #[cfg(feature = "siphasher")]
-        let secret = server_config.cookies.secret.unwrap();
-        let secret = base16::decode_vec(secret).unwrap();
-        let secret = <[u8; 16]>::try_from(secret).unwrap();
-        let svc = CookiesMiddlewareSvc::new(svc, secret)
-            .with_denied_ips(server_config.cookies.ip_deny_list.clone());
-        finish_svc(svc, server_config, &stelline).await;
-    } else if server_config.edns_tcp_keepalive {
-        let svc = EdnsMiddlewareSvc::new(svc);
-        finish_svc(svc, server_config, &stelline).await;
-    } else {
-        finish_svc(svc, server_config, &stelline).await;
     }
 }
 
@@ -269,73 +323,46 @@ fn mk_server_configs(
 #[allow(clippy::type_complexity)]
 fn test_service(
     request: Request<Vec<u8>>,
-    zonefile: Zonefile,
+    catalog: Arc<Catalog>,
 ) -> ServiceResult<Vec<u8>> {
-    fn as_record_and_dname(
-        r: ScannedRecord,
-    ) -> Option<(ScannedRecord, Name<Vec<u8>>)> {
-        let dname = r.owner().to_name();
-        Some((r, dname))
-    }
+    let question = request.message().sole_question().unwrap();
 
-    fn as_records(
-        e: Result<Entry, domain::zonefile::inplace::Error>,
-    ) -> Option<ScannedRecord> {
-        match e {
-            Ok(Entry::Record(r)) => Some(r),
-            Ok(_) => None,
-            Err(err) => panic!(
-                "Error while extracting records from the zonefile: {err}"
-            ),
+    let zone = catalog
+        .find_zone(question.qname(), question.qclass())
+        .map(|zone| zone.read());
+
+    let answer = match zone {
+        Some(zone) => {
+            let qname = question.qname().to_bytes();
+            let qtype = question.qtype();
+            zone.query(qname, qtype).unwrap()
         }
-    }
+        None => Answer::new(Rcode::NXDOMAIN),
+    };
 
-    trace!("Service received request");
-    trace!("Service is constructing a single response");
-    // If given a single question:
-    let answer = request
-        .message()
-        .sole_question()
-        .ok()
-        .and_then(|q| {
-            // Walk the zone to find the queried name
-            zonefile
-                .clone()
-                .filter_map(as_records)
-                .filter_map(as_record_and_dname)
-                .find(|(_record, dname)| dname == q.qname())
-        })
-        .map_or_else(
-            || {
-                // The Qname was not found in the zone:
-                mk_builder_for_target()
-                    .start_answer(request.message(), Rcode::NXDOMAIN)
-                    .unwrap()
-            },
-            |(record, _)| {
-                // Respond with the found record:
-                let mut answer = mk_builder_for_target()
-                    .start_answer(request.message(), Rcode::NOERROR)
-                    .unwrap();
-                // As we serve all answers from our own zones we are the
-                // authority for the domain in question.
-                answer.header_mut().set_aa(true);
-                answer.push(record).unwrap();
-                answer
-            },
-        );
-
-    Ok(CallResult::new(answer.additional()))
+    let builder = mk_builder_for_target();
+    let mut additional = answer.to_message(request.message(), builder);
+    // As we serve all answers from our own zones we are the
+    // authority for the domain in question.
+    additional.header_mut().set_aa(true);
+    Ok(CallResult::new(additional))
 }
 
 //----------- Stelline config block parsing -----------------------------------
+
+struct ServerZone {
+    /// None if we fetch it via XFR
+    zone_file: Option<Zonefile>,
+
+    zone_type: ZoneType,
+}
 
 #[derive(Default)]
 struct ServerConfig<'a> {
     cookies: CookieConfig<'a>,
     edns_tcp_keepalive: bool,
     idle_timeout: Option<Duration>,
-    zonefile: Zonefile,
+    zone: Option<ServerZone>,
 }
 
 #[derive(Default)]
@@ -349,6 +376,7 @@ fn parse_server_config(config: &Config) -> ServerConfig {
     let mut parsed_config = ServerConfig::default();
     let mut zone_file_bytes = VecDeque::<u8>::new();
     let mut in_server_block = false;
+    let mut zone_type = Option::<ZoneType>::None;
 
     for line in config.lines() {
         if line.starts_with("server:") {
@@ -418,6 +446,53 @@ fn parse_server_config(config: &Config) -> ServerConfig {
                             );
                         }
                     }
+                    ("provide-xfr", v) => {
+                        // provide-xfr: [AXFR|UDP] <ip-address> <key-name | NOKEY>
+                        let mut pieces = v.split(|c: char| c.is_whitespace());
+                        let flags_or_ip = pieces.next().unwrap();
+                        let strategy;
+                        let ixfr_transport;
+                        let ip = match flags_or_ip {
+                            "AXFR" => {
+                                strategy = XfrStrategy::AxfrOnly;
+                                ixfr_transport = TransportStrategy::Tcp;
+                                pieces.next().unwrap()
+                            }
+                            "UDP" => {
+                                strategy = XfrStrategy::IxfrWithAxfrFallback;
+                                ixfr_transport = TransportStrategy::Udp;
+                                pieces.next().unwrap()
+                            }
+                            ip => {
+                                strategy = XfrStrategy::IxfrWithAxfrFallback;
+                                ixfr_transport = TransportStrategy::Tcp;
+                                ip
+                            }
+                        };
+                        let xfr_settings = XfrSettings {
+                            strategy,
+                            ixfr_transport,
+                        };
+
+                        let ip = ip.parse().unwrap();
+                        let key_name = pieces.next().unwrap();
+                        let tsig_key = match key_name {
+                            "NOKEY" => None,
+                            "TEST" => Some((
+                                KeyName::from_str("test").unwrap(),
+                                Algorithm::Sha256,
+                            )),
+                            _ => panic!("Unsupported key name value '{key_name}' for 'provide-xfr' setting"),
+                        };
+
+                        let mut allow_xfr = XfrAcl::new();
+                        allow_xfr.allow_from(ip, (xfr_settings, tsig_key));
+
+                        let notify = Acl::new();
+
+                        zone_type =
+                            Some(ZoneType::new_primary(allow_xfr, notify));
+                    }
                     _ => {
                         eprintln!("Ignoring unknown server setting '{setting}' with value: {value}");
                     }
@@ -426,9 +501,18 @@ fn parse_server_config(config: &Config) -> ServerConfig {
         }
     }
 
-    if !zone_file_bytes.is_empty() {
-        parsed_config.zonefile =
-            Zonefile::load(&mut zone_file_bytes).unwrap();
+    if !zone_file_bytes.is_empty() || zone_type.is_some() {
+        let zone_file = (!zone_file_bytes.is_empty())
+            .then(|| Zonefile::load(&mut zone_file_bytes).unwrap());
+
+        let zone_type = zone_type.unwrap_or_else(|| {
+            ZoneType::new_primary(XfrAcl::new(), Acl::new())
+        });
+
+        parsed_config.zone = Some(ServerZone {
+            zone_file,
+            zone_type,
+        });
     }
 
     parsed_config

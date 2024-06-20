@@ -158,7 +158,7 @@ async fn main() {
 
             let mut allow_xfr = XfrAcl::new();
             let xfr_settings = XfrSettings {
-                xfr: XfrStrategy::AxfrOnly,
+                strategy: XfrStrategy::AxfrOnly,
                 ixfr_transport: TransportStrategy::Tcp,
             };
             allow_xfr.allow_from(
@@ -174,7 +174,7 @@ async fn main() {
 
             let mut request_xfr = XfrAcl::new();
             let xfr_settings = XfrSettings {
-                xfr: XfrStrategy::IxfrWithAxfrFallback,
+                strategy: XfrStrategy::IxfrWithAxfrFallback,
                 ixfr_transport: TransportStrategy::Tcp,
             };
             request_xfr.allow_to(

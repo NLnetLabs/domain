@@ -2,6 +2,7 @@
 server:
         edns-tcp-keepalive: yes
         edns-tcp-keepalive-timeout: 30000
+	local-data: "test.	3600	IN	SOA	ns.test. hostmaster.test. 1 3600 900 86400 3600"
         local-data: "test. TXT test"
 CONFIG_END
 

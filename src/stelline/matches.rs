@@ -15,6 +15,18 @@ pub fn match_msg<'a, Octs: AsRef<[u8]> + Clone + Octets + 'a>(
 where
     <Octs as Octets>::Range<'a>: Clone,
 {
+    match_multi_msg(entry, 0, msg, verbose)
+}
+
+pub fn match_multi_msg<'a, Octs: AsRef<[u8]> + Clone + Octets + 'a>(
+    entry: &Entry,
+    idx: usize,
+    msg: &'a Message<Octs>,
+    verbose: bool,
+) -> bool
+where
+    <Octs as Octets>::Range<'a>: Clone,
+{
     let sections = entry.sections.as_ref().unwrap();
 
     let mut matches: Matches = match &entry.matches {
@@ -71,20 +83,26 @@ where
             return false;
         }
     }
-    if matches.answer
-        && !match_section(
-            sections.answer.clone(),
+    if matches.answer {
+        let Some(answer) = sections.answer.get(idx) else {
+            if verbose {
+                println!("match_msg: answer section {idx} missing");
+            }
+            return false;
+        };
+        if !match_section(
+            answer.clone(),
             None,
             msg.answer().unwrap(),
             msg.header_counts().ancount(),
             matches.ttl,
             verbose,
-        )
-    {
-        if verbose {
-            println!("match_msg: answer section does not match");
+        ) {
+            if verbose {
+                println!("match_msg: answer section {idx} does not match");
+            }
+            return false;
         }
-        return false;
     }
     if matches.authority
         && !match_section(

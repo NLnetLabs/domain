@@ -161,7 +161,7 @@ pub enum TransportStrategy {
 
 #[derive(Clone, Debug, Default)]
 pub struct XfrSettings {
-    pub xfr: XfrStrategy,
+    pub strategy: XfrStrategy,
     pub ixfr_transport: TransportStrategy,
 }
 
@@ -2035,7 +2035,7 @@ impl<CF: ConnFactory> Catalog<CF> {
         // Try at least once, at most twice (when using IXFR -> AXFR fallback)
         for i in 0..=1 {
             // Determine the kind of transfer to use if the zone is outdated
-            let rtype = match xfr_settings.xfr {
+            let rtype = match xfr_settings.strategy {
                 XfrStrategy::None => {
                     warn!("Transfer not enabled for possibly outdated secondary zone '{}'", zone.apex_name());
                     return Ok(None);

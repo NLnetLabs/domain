@@ -1,0 +1,53 @@
+; Based on https://github.com/NLnetLabs/unbound/blob/172b84f7ce6507e96fe51bd94448222a5a47274b/testdata/auth_xfr.rpl
+
+; config options
+server:
+	local-data: "example.com.	3600	IN	SOA	ns.example.com. hostmaster.example.com. 1 3600 900 86400 3600"
+	local-data: "example.com.	3600	IN	NS	ns.example.net."
+	local-data: "www.example.com.	3600	IN	A	1.2.3.4"
+    provide-xfr: 127.0.0.1 NOKEY
+
+CONFIG_END
+
+SCENARIO_BEGIN Test authority zone with AXFR
+
+STEP 50 QUERY
+ENTRY_BEGIN
+SECTION QUESTION
+www.example.com. IN A
+ENTRY_END
+
+; recursion happens here.
+STEP 60 CHECK_ANSWER
+ENTRY_BEGIN
+MATCH all
+REPLY QR AA NOERROR
+SECTION QUESTION
+www.example.com. IN A
+SECTION ANSWER
+www.example.com. IN A	1.2.3.4
+ENTRY_END
+
+STEP 60 QUERY
+ENTRY_BEGIN
+MATCH TCP
+SECTION QUESTION
+example.com. IN AXFR
+ENTRY_END
+
+; recursion happens here.
+STEP 70 CHECK_ANSWER
+ENTRY_BEGIN
+MATCH all
+REPLY QR AA NOERROR
+SECTION QUESTION
+example.com. IN AXFR
+SECTION ANSWER
+example.com.	3600	IN	SOA	ns.example.com. hostmaster.example.com. 1 3600 900 86400 3600
+EXTRA_PACKET
+example.com.	3600	IN	NS	ns.example.net.
+EXTRA_PACKET
+www.example.com.	3600	IN	A	1.2.3.4
+ENTRY_END
+
+SCENARIO_END
