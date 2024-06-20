@@ -33,7 +33,7 @@ const ONE_HOUR_AS_SECS: u32 = 60 * 60;
 
 //----------- NetBlock --------------------------------------------------------
 
-/// An IPv4 or IPv6 network range.
+/// An IPv4 or IPv6 network block.
 ///
 // Note: Using a wrapper type avoids exposing the 3rd party IpNetwork type in
 // our public API so that we can swap it out later for an alternative if
@@ -42,7 +42,7 @@ const ONE_HOUR_AS_SECS: u32 = 60 * 60;
 pub struct NetBlock(Prefix);
 
 impl NetBlock {
-    /// Is the given IP address part of this network range?
+    /// Is the given IP address part of this network block?
     fn contains(&self, ip: IpAddr) -> bool {
         self.0.contains(ip)
     }
@@ -328,7 +328,7 @@ where
 
                 // While not required by RFC 7873, like Unbound the caller can
                 // configure this middleware processor to require clients
-                // contacting it from certain IP addresses or ranges to
+                // contacting it from certain IP addresses or blocks to
                 // authenticate themselves or be refused with TC=1 to signal
                 // that they should resubmit their request via TCP.
                 if request.transport_ctx().is_udp()
