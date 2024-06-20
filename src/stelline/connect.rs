@@ -15,7 +15,6 @@ pub struct Connect {
 }
 
 impl Connect {
-    #[allow(dead_code)]
     pub fn new(
         stelline: Stelline,
         step_value: Arc<CurrStepValue>,

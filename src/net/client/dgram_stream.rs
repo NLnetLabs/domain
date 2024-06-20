@@ -1,8 +1,5 @@
 //! A UDP transport that falls back to TCP if the reply is truncated
 
-#![warn(missing_docs)]
-#![warn(clippy::missing_docs_in_private_items)]
-
 // To do:
 // - handle shutdown
 

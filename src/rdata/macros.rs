@@ -1156,7 +1156,6 @@ macro_rules! name_type_base {
                 Target::try_octets_from(self.$field).map($target::new)
             }
 
-            #[allow(dead_code)] // XXX Remove
             pub(in crate::rdata) fn flatten<Target>(
                 self
             ) -> Result<$target<Target>, N::AppendError>

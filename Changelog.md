@@ -8,10 +8,23 @@ New
 
 Bug fixes
 
+* Fixed a mistake in the tsig module while calculating the start of
+  the TSIG record when there were other records in the additional section,
+  causing the TSIG code to fail if OPT records were in use. ([#333])
+
 Unstable features
+
+* `unstable-client-transport`: Fixed an issue with slow responses in the
+  `multi_stream` transport by not waiting in the first iteration if an
+  underlying stream reports its connection being closed. ([#338])
+* New unstable feature `unstable-validator` that adds a DNSSEC validator.
+  ([#328])
 
 Other changes
 
+[#328]: https://github.com/NLnetLabs/domain/pull/328
+[#333]: https://github.com/NLnetLabs/domain/pull/333
+[#338]: https://github.com/NLnetLabs/domain/pull/338
 
 ## 0.10.1
 

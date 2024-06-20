@@ -129,7 +129,6 @@ where
     Target: Composer + Default,
 {
     /// Creates a new, default config.
-    #[allow(dead_code)]
     pub fn new() -> Self {
         Default::default()
     }
@@ -161,7 +160,6 @@ where
     ///
     /// [`StreamServer::reconfigure`]:
     ///     super::stream::StreamServer::reconfigure()
-    #[allow(dead_code)]
     pub fn set_idle_timeout(&mut self, value: Duration) {
         self.idle_timeout = value;
     }
@@ -182,7 +180,6 @@ where
     ///
     /// [`StreamServer::reconfigure`]:
     ///     super::stream::StreamServer::reconfigure()
-    #[allow(dead_code)]
     pub fn set_response_write_timeout(&mut self, value: Duration) {
         self.response_write_timeout = value;
     }
@@ -204,7 +201,6 @@ where
     ///
     /// [`StreamServer::reconfigure`]:
     ///     super::stream::StreamServer::reconfigure()
-    #[allow(dead_code)]
     pub fn set_max_queued_responses(&mut self, value: usize) {
         self.max_queued_responses = value;
     }

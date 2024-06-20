@@ -1,0 +1,443 @@
+; test with real world Internet data
+; attempt to resolve www.nic.mx A leads to CNAME www.nicmexico.mx.
+; sub-tree nic.mx is not signed and nixmexico.mx is signed.
+; the answer must not have AD flag set!
+
+server:
+	val-override-date: 20170124180319
+	trust-anchor: ".	172800	IN	DS	19036 8 2 49aac11d7b6f6446702e54a1607371607a1a41855200fd2ce1cdde32f24e8fb5"
+	stub-addr: 2001:dc3::35
+	stub-name: m.root-servers.net
+; we have added missing A/AAAA records for NS names too late
+; when validity of original RRSIGs expired
+; => we disable validation for mx. NS names to avoid need to resign whole test
+	domain-insecure: mx-ns.mx.
+	do-ip4: false
+CONFIG_END
+
+SCENARIO_BEGIN www.nic.mx. CNAME kresd issue #144
+
+; DNS root ; M.ROOT-SERVERS.NET.
+RANGE_BEGIN 0 100
+	ADDRESS 2001:dc3::35
+
+ENTRY_BEGIN
+MATCH opcode qtype qname
+ADJUST copy_id
+REPLY QR AA NOERROR
+SECTION QUESTION
+m.root-servers.net. IN AAAA
+SECTION ANSWER
+m.root-servers.net. 3600 IN AAAA 2001:dc3::35
+ENTRY_END
+
+ENTRY_BEGIN
+MATCH opcode qtype qname
+ADJUST copy_id
+REPLY QR AA NOERROR
+SECTION QUESTION
+m.root-servers.net. IN A
+SECTION ANSWER
+ENTRY_END
+
+ENTRY_BEGIN
+MATCH opcode qtype qname
+ADJUST copy_id
+REPLY QR AA NOERROR
+SECTION QUESTION
+net. IN NS
+SECTION ANSWER
+net. 3600 IN NS m.root-servers.net.
+SECTION ADDITIONAL
+m.root-servers.net. 3600 IN AAAA 2001:dc3::35
+ENTRY_END
+
+ENTRY_BEGIN
+MATCH opcode qtype qname
+ADJUST copy_id
+REPLY QR AA NOERROR
+SECTION QUESTION
+root-servers.net. IN NS
+SECTION ANSWER
+root-servers.net. 3600 IN NS m.root-servers.net.
+SECTION ADDITIONAL
+m.root-servers.net. 3600 IN AAAA 2001:dc3::35
+ENTRY_END
+
+ENTRY_BEGIN
+MATCH opcode qtype qname
+ADJUST copy_id
+REPLY QR AA NOERROR
+SECTION QUESTION
+net. IN DS
+SECTION ANSWER
+ENTRY_END
+
+ENTRY_BEGIN
+MATCH opcode qtype qname
+ADJUST copy_id
+REPLY QR AA DO NOERROR
+SECTION QUESTION
+.		IN	DNSKEY
+SECTION ANSWER
+.	16567	IN	DNSKEY	257 3 8 AwEAAagAIKlVZrpC6Ia7gEzahOR+9W29euxhJhVVLOyQbSEW0O8gcCjF FVQUTf6v58fLjwBd0YI0EzrAcQqBGCzh/RStIoO8g0NfnfL2MTJRkxoX bfDaUeVPQuYEhg37NZWAJQ9VnMVDxP/VHL496M/QZxkjf5/Efucp2gaD X6RS6CXpoY68LsvPVjR0ZSwzz1apAzvN9dlzEheX7ICJBBtuA6G3LQpz W5hOA2hzCTMjJPJ8LbqF6dsV6DoBQzgul0sGIcGOYl7OyQdXfZ57relS Qageu+ipAdTTJ25AsRTAoub8ONGcLmqrAmRLKBP1dfwhYB4N7knNnulq QxA+Uk1ihz0=
+.	16567	IN	DNSKEY	256 3 8 AwEAAYvgWbYkpeGgdPKaKTJU3Us4YSTRgy7+dzvfArIhi2tKoZ/WR1Df w883SOU6Uw7tpVRkLarN0oIMK/xbOBD1DcXnyfElBwKsz4sVVWmfyr/x +igD/UjrcJ5zEBUrUmVtHyjar7ccaVc1/3ntkhZjI1hcungAlOhPhHlk MeX+5Azx6GdX//An5OgrdyH3o/JmOPMDX1mt806JI/hf0EwAp1pBwo5e 8SrSuR1tD3sgNjr6IzCdrKSgqi92z49zcdis3EaY199WFW60DCS7ydu+ +T5Xa+GyOw1quagwf/JUC/mEpeBQYWrnpkBbpDB3sy4+P2i8iCvavehb RyVm9U0MlIc=
+.	16567	IN	RRSIG	DNSKEY 8 0 172800 20170201000000 20170111000000 19036 . Sh+EpofvZgk3J9szMD2B94FxFgyIUKz3hkbCjgWSTqPQyhqNgqVU8QlS EtOo8YLmS4AX98eit5Gmmb2ObpkGoXBmAzu5w/Qt5WsGsWzLQhYrsy9s lDmFQ2JKUoCyfdwqhlJ8VxjzdFdMUiVl+/GPnv4yjxjM8Ke3VAtBkn6n BO7JkcxxOfcgZdZ4MuvSr40K/SenZE+JlLLL1LF4TMCGqaZTTdOx6kFF KSSgy2AS884htWcK0tnwRc630g6nAI2wdvjlRLBeisbfXanI4v8iiPyT FnMmnV7wJGWJ4gtRJ0UH3u5RWXUPZ+s1tKytk3slXbLyQ9xkEDveuD+h b659gQ==
+ENTRY_END
+
+ENTRY_BEGIN
+MATCH opcode subdomain
+ADJUST copy_id copy_query
+REPLY QR DO NOERROR
+SECTION QUESTION
+mx.			IN	NS
+SECTION AUTHORITY
+mx.		172800	IN	NS	c.mx-ns.mx.
+mx.		172800	IN	NS	m.mx-ns.mx.
+mx.		172800	IN	NS	e.mx-ns.mx.
+mx.		172800	IN	NS	i.mx-ns.mx.
+mx.		172800	IN	NS	o.mx-ns.mx.
+mx.		172800	IN	NS	x.mx-ns.mx.
+mx.		86400	IN	DS	55955 8 2 3d7f3313e86341ec23a02f8ed837572d62cf74bf175ac8b2f19b1e2b8930b0d5
+mx.		86400	IN	RRSIG	DS 8 1 86400 20170206050000 20170124040000 61045 . DYmv0z7EnlUOu081yDzeh3tourMFyYtBv7IKIiwPN5ZXuHmw0PvqT0oU//DomnA0NdfCRizOSmvDlZITNtlTffEA3mudnbPC+TEpdf1nffHLHQPnjcS0U+zfoBvRK0OHha3J7YgSXFQuCskJAg4P6ktPzgcd2ccv/FRlzzw4CrZOE3AtDWir31xt8c8DxZjysjIptblua7o9kwac+biWoszUl+sJBAXGbn0XXMloTAisYHyyZF9YeTRz3er8gyao8ynRe2KgUZPX4ieVQl+BsXDOmVRYLE8l4hLSRanjoWOR3gAqQUHJwn9xXxhGfApe5tUhaCE7v1EplCw9ykaKVA==
+SECTION ADDITIONAL
+c.mx-ns.mx.	172800	IN	A	192.100.224.1
+e.mx-ns.mx.	172800	IN	A	189.201.244.1
+i.mx-ns.mx.	172800	IN	A	207.248.68.1
+m.mx-ns.mx.	172800	IN	A	200.94.176.1
+o.mx-ns.mx.	172800	IN	A	200.23.1.1
+x.mx-ns.mx.	172800	IN	A	201.131.252.1
+c.mx-ns.mx.	172800	IN	AAAA	2001:1258::1
+m.mx-ns.mx.	172800	IN	AAAA	2001:13c7:7000::1
+; added AAAA records to stop resolver from asking for them later
+o.mx-ns.mx.	172800	IN	AAAA	2001:1258::1
+i.mx-ns.mx.	172800	IN	AAAA	2001:1258::1
+x.mx-ns.mx.	172800	IN	AAAA	2001:1258::1
+e.mx-ns.mx.	172800	IN	AAAA	2001:1258::1
+ENTRY_END
+; end of M.ROOT-SERVERS.NET.
+RANGE_END
+
+; ?.mx-ns.mx.
+RANGE_BEGIN 0 100
+	ADDRESS 192.100.224.1
+	ADDRESS 189.201.244.1
+	ADDRESS 207.248.68.1
+	ADDRESS 200.94.176.1
+	ADDRESS 200.23.1.1
+	ADDRESS 201.131.252.1
+	ADDRESS	2001:1258::1
+	ADDRESS	2001:13c7:7000::1
+
+ENTRY_BEGIN
+MATCH opcode qname qtype
+ADJUST copy_id
+REPLY QR NOERROR
+SECTION QUESTION
+mx-ns.mx.			IN	NS
+SECTION ANSWER
+mx-ns.mx.		172800	IN	NS	c.mx-ns.mx.
+mx-ns.mx.		172800	IN	NS	m.mx-ns.mx.
+mx-ns.mx.		172800	IN	NS	e.mx-ns.mx.
+mx-ns.mx.		172800	IN	NS	i.mx-ns.mx.
+mx-ns.mx.		172800	IN	NS	o.mx-ns.mx.
+mx-ns.mx.		172800	IN	NS	x.mx-ns.mx.
+SECTION ADDITIONAL
+c.mx-ns.mx.	172800	IN	A	192.100.224.1
+e.mx-ns.mx.	172800	IN	A	189.201.244.1
+i.mx-ns.mx.	172800	IN	A	207.248.68.1
+m.mx-ns.mx.	172800	IN	A	200.94.176.1
+o.mx-ns.mx.	172800	IN	A	200.23.1.1
+x.mx-ns.mx.	172800	IN	A	201.131.252.1
+o.mx-ns.mx.	172800	IN	AAAA	2001:1258::1
+i.mx-ns.mx.	172800	IN	AAAA	2001:1258::1
+x.mx-ns.mx.	172800	IN	AAAA	2001:1258::1
+e.mx-ns.mx.	172800	IN	AAAA	2001:1258::1
+c.mx-ns.mx.	172800	IN	AAAA	2001:1258::1
+m.mx-ns.mx.	172800	IN	AAAA	2001:13c7:7000::1
+ENTRY_END
+
+ENTRY_BEGIN
+MATCH opcode qname qtype
+ADJUST copy_id
+REPLY QR AA NOERROR
+SECTION QUESTION
+mx-ns.mx.			IN	DS
+SECTION ANSWER
+ENTRY_END
+
+ENTRY_BEGIN
+MATCH opcode qname qtype
+ADJUST copy_id
+REPLY QR AA NOERROR
+SECTION QUESTION
+i.mx-ns.mx. IN AAAA
+SECTION ANSWER
+ENTRY_END
+
+ENTRY_BEGIN
+MATCH opcode qname qtype
+ADJUST copy_id
+REPLY QR AA NOERROR
+SECTION QUESTION
+e.mx-ns.mx. IN AAAA
+SECTION ANSWER
+ENTRY_END
+
+ENTRY_BEGIN
+MATCH opcode qname qtype
+ADJUST copy_id
+REPLY QR AA NOERROR
+SECTION QUESTION
+x.mx-ns.mx. IN AAAA
+SECTION ANSWER
+ENTRY_END
+
+ENTRY_BEGIN
+MATCH opcode qname qtype
+ADJUST copy_id
+REPLY QR AA NOERROR
+SECTION QUESTION
+o.mx-ns.mx. IN AAAA
+SECTION ANSWER
+ENTRY_END
+
+ENTRY_BEGIN
+MATCH opcode qtype qname
+ADJUST copy_id
+REPLY QR AA RD NOERROR
+SECTION QUESTION
+mx.		IN	DNSKEY
+SECTION ANSWER
+mx.	86400	IN	DNSKEY	257 3 8 AwEAAcokawGJMW4OI1eas0vAtfl0etrPSlqkh7n/JPpdMt5fplkWI0oo YS3kYBXYzMxXnpNOK57jp5JodELeZKDrHCrUhAzZiy5iJQDy9Qi85mSC KTHg32+JKjXiMEkTZUlOzNRrXC7apWfZbzbx98CnzkWw0Xj2wDIniptM jnwAJeb8L+Mm5AzZSkUugga/eDvpVsT5MZZnT/DuJdxS5olx+HyTKLct m/LDljtQKJya0UtXUKkVc5cv8y+ja5AivjXXrUmDcgd1P6bntcbjpcFY UuLZMsmyOZ2uViXNEhIdBcP+davulxW++DawqOtvnpuRxfLFsuYw/vDC ilfIGEdgz20=
+mx.	86400	IN	DNSKEY	256 3 8 AwEAAcwqWcnh23qhQTbWsbOKbRI4btNQCYRa4ksadH8VjQ++VruqkhPu d7e/RsZMhevCWDJHrjfJ739NmiGIwS58uh1sVACfKRmxLP25/1V9frIi HBxkaVLXPAHm8+ApIhzUzaUTUrmSnDm0/wJryo34zETnA6J4czfzYDLX Vqh3KVtL
+mx.	86400	IN	RRSIG	DNSKEY 8 1 86400 20170223000000 20170124000000 48529 mx. BYGaUXiyB0vIi4sBwvUuL2Im+zcIpykZD96YdvA3Kpk7RlV3LcLD9L6B +HpwFWMRZ+vt09YW/jrzSR9mlXpZeWR6BhHoo9f2MGOO5dwejnUuipLD +t5wKi91XALmaRN4Z2ptdJ0wVMpfXlkfrNTB+RvYAqx/azDGw5Ewjh7C J5Y=
+mx.	86400	IN	RRSIG	DNSKEY 8 1 86400 20170303150000 20170102150000 55955 mx. SboaaGva7+GbfoNKa8Ov2GhSIvYStcBeudk0A0+53/LMs7sHuLegE9+P lTqih4sl/W1Yd4a4jWoVYGGYu8M4tb1fzaxvr5eTDwm3gKGirbTsQPFl Ih5gNnC6QJKYBhpN7w/Fn3JmJTBLwhd7tREygGqkNO/LdTwiHfbcIzkU 5UpD9A3/oeZoMQe71AvJstU5PIHxg3PU1CNU9YBcNhYzUfTfcr+hlbmA Nm6RaOBaWJwp4YzcS3uJcaXmpS1t/lbxWIgeOXRhql6ZHqCai0lSmNnm vAydmJI/cqXsJ23Pj22TD1QwDFKTp0u2oIiykeFzdbIG0s2thtmyY4km qh1Ulg==
+ENTRY_END
+
+; nix.mx
+ENTRY_BEGIN
+MATCH opcode qtype qname
+ADJUST copy_id
+REPLY QR AA DO NOERROR
+SECTION QUESTION
+nic.mx.				IN	NS
+SECTION ANSWER
+nic.mx.			172800	IN	NS	o.mx-ns.mx.
+nic.mx.			172800	IN	NS	m.mx-ns.mx.
+nic.mx.			172800	IN	NS	c.mx-ns.mx.
+nic.mx.			172800	IN	NS	x.mx-ns.mx.
+nic.mx.			172800	IN	NS	e.mx-ns.mx.
+nic.mx.			172800	IN	NS	i.mx-ns.mx.
+SECTION ADDITIONAL
+c.mx-ns.mx.		172800	IN	A	192.100.224.1
+c.mx-ns.mx.		172800	IN	AAAA	2001:1258::1
+e.mx-ns.mx.		172800	IN	A	189.201.244.1
+i.mx-ns.mx.		172800	IN	A	207.248.68.1
+m.mx-ns.mx.		172800	IN	A	200.94.176.1
+m.mx-ns.mx.		172800	IN	AAAA	2001:13c7:7000::1
+o.mx-ns.mx.		172800	IN	A	200.23.1.1
+x.mx-ns.mx.		172800	IN	A	201.131.252.1
+ENTRY_END
+
+ENTRY_BEGIN
+MATCH opcode qtype qname
+ADJUST copy_id
+REPLY QR AA DO NOERROR
+SECTION QUESTION
+nic.mx.				IN	DS
+SECTION AUTHORITY
+qpcf3eq45ur6ndho0ecuj1o25g7d48pi.mx. 1800 IN NSEC3 1 1 100 FBB1D947FF931FC5 QPDGRP34SI0F3CBG41HRN7G8TLFK6C7B  NS SOA RRSIG DNSKEY NSEC3PARAM
+qpcf3eq45ur6ndho0ecuj1o25g7d48pi.mx. 1800 IN RRSIG NSEC3 8 2 1800 20170223000000 20170124000000 48529 mx. RI7Ezya54VVVcCiyH2rHBjRwWzsoe2A1vBcwzFUeiKFPsoOsCkvAfpvU uZ96IEa0Ni7ZksS2XFuV9TeQotk/HirhRGq2AauGtF4RLExmZnZouAjz tLZYXhr7mZAqfKLzZV5qNzlYSia3wF9m4wkz4eSBfeJ/6u2AoQP81C3Y Dls=
+mx.			1800	IN	SOA	m.mx-ns.mx. hostmaster.nic.mx. 1485251802 900 900 604800 1800
+mx.			1800	IN	RRSIG	SOA 8 1 86400 20170223000000 20170124000000 48529 mx. Gwjg+/GJUJj32FMa9HKESM7zsPFdVVEotOIyXKhZjOX139PhfbcOdfJr bfhDvVV8weMoLHhM0rVko0Sr+H8S3+R8wNOkvoFPqd3G5YV2azS52qOQ xPq1gVT0g3bWtmgF0KV2fGQ2Lcw7ynksenBmpQCggjbh/O98zwfRJkcc Huk=
+1e790cnnc0n6fmd7hhf7o1baus5muq9l.mx. 1800 IN NSEC3 1 1 100 FBB1D947FF931FC5 1EDMBBOCRH8AB8GRQF55CMJV2IS3U6E7  NS DS RRSIG
+1e790cnnc0n6fmd7hhf7o1baus5muq9l.mx. 1800 IN RRSIG NSEC3 8 2 1800 20170223000000 20170124000000 48529 mx. xP9wMq871/wi0N99DkUhXHB1VjyjG5zds0CHIdrm1MC0JPl2atB1nliC tYC/nMC6vHGRk7bcX0kFNDgi0duGuNwKEHyTp2gHBSoMefUtDfJbOoq8 4VSQvS0WaJlK1H3eV21AdhmpZEAe0YB6e7lU5plhqNMX5mxDD5d0ZVD8 TWI=
+ENTRY_END
+
+; this entry is the one which caused kresd to return AD flag despite of missing RRSIGs
+ENTRY_BEGIN
+MATCH opcode qtype qname
+ADJUST copy_id
+REPLY QR AA DO NOERROR
+SECTION QUESTION
+www.nic.mx.			IN	A
+SECTION ANSWER
+www.nic.mx.		300	IN	CNAME	www.nicmexico.mx.
+ENTRY_END
+
+ENTRY_BEGIN
+MATCH opcode qname
+ADJUST copy_id copy_query
+REPLY QR AA DO NOERROR
+SECTION QUESTION
+www.nic.mx.			IN	RRSIG
+SECTION AUTHORITY
+nic.mx.			1800	IN	SOA	m.mx-ns.mx. hostmaster.nic.mx. 2016101701 3600 900 604800 1800
+ENTRY_END
+
+; nixmexico.mx
+ENTRY_BEGIN
+MATCH opcode qtype qname
+ADJUST copy_id
+REPLY QR AA RD NOERROR
+SECTION QUESTION
+nicmexico.mx.			IN	NS
+SECTION ANSWER
+nicmexico.mx.		172800	IN	NS	o.mx-ns.mx.
+nicmexico.mx.		172800	IN	NS	m.mx-ns.mx.
+nicmexico.mx.		172800	IN	NS	e.mx-ns.mx.
+nicmexico.mx.		172800	IN	NS	x.mx-ns.mx.
+nicmexico.mx.		172800	IN	NS	i.mx-ns.mx.
+nicmexico.mx.		172800	IN	NS	c.mx-ns.mx.
+nicmexico.mx.		172800	IN	RRSIG	NS 7 2 172800 20170221235959 20161221161902 14618 nicmexico.mx. MMPJ1lltyGLyE+s+V7mFb3iJzWkKgnCRtBGgVqynFaKJBgEX+0NFy8Iq o8CKWlXGXitDilaE3xy6ynYnb8CeQuEeaKVLzikUwxu+bTR/tcX1fECp 2i9uDFTl/wrYSyNU4gEy/4Ueev5GsM8XQmK5j8xgUmwc+258eRBZ129O K1E=
+SECTION ADDITIONAL
+c.mx-ns.mx.		172800	IN	A	192.100.224.1
+c.mx-ns.mx.		172800	IN	AAAA	2001:1258::1
+e.mx-ns.mx.		172800	IN	A	189.201.244.1
+i.mx-ns.mx.		172800	IN	A	207.248.68.1
+m.mx-ns.mx.		172800	IN	A	200.94.176.1
+m.mx-ns.mx.		172800	IN	AAAA	2001:13c7:7000::1
+o.mx-ns.mx.		172800	IN	A	200.23.1.1
+x.mx-ns.mx.		172800	IN	A	201.131.252.1
+ENTRY_END
+
+ENTRY_BEGIN
+MATCH opcode qtype qname
+ADJUST copy_id
+REPLY QR AA DO
+SECTION QUESTION
+nicmexico.mx.			IN	DS
+SECTION ANSWER
+nicmexico.mx.		86400	IN	DS	25953 7 1 3980E3CBB2DC1F0A39EE58454F218D695C6FCF2B
+nicmexico.mx.		86400	IN	DS	25953 7 2 E390593C68F6C5BD1A38E3CF7D9643235AC9C09A1023EBEA8E6D56FC 9EF2AAA6
+nicmexico.mx.		86400	IN	RRSIG	DS 8 2 86400 20170223000000 20170124000000 48529 mx. kwiqOPNYD6k+CPGGewQ7YWnJqomLkr4wrIT96qnb11l1m+BBtCZnxh1X 9u1I4nQsLC9/gJh1sytYkMogObxd6CsMUwAn8lA7Pnlbz1upINis7oE5 2MoHjYDhhJnfSryTtiw5Xak+Bup3GGmi4KgNsitQXUK8rFg5xAwyjtb6 udg=
+ENTRY_END
+
+ENTRY_BEGIN
+MATCH opcode qtype qname
+ADJUST copy_id
+REPLY QR AA DO
+SECTION QUESTION
+nicmexico.mx.			IN	DNSKEY
+SECTION ANSWER
+nicmexico.mx.		172800	IN	DNSKEY	257 3 7 AwEAAdU7ho1gF5Swo/P3EMrcm82fE3bSvXec/q4HvGndCS+iEhOVMQgx SmjhdnILgNE23x5v7iprrQdcrC6qG3h5pWromlJt4zqqWD91OuydXGpB vkx9o3gWo9wqr+2mX4cPKsKKhiyQ1EBEbaYZP1PqEWigdTuzVB2zGWAu yCNlbgHX8Q4pgU/P+jdTB0RFkQEa7BtIu/+7JYpB09REdjtn4AgdqaVK rq9gQRxAbpuQezw5vEnK/EFiH+FIa8FWctMhRkC2IdG5THpG8lzZry+Q 04Mih/r7tsY/RbA0asG4RVOFTtHCdjIZc4f4fxNIaR4B7IzBPIWN0d3/ ILI6sObAnJs=
+nicmexico.mx.		172800	IN	DNSKEY	256 3 7 AwEAAdlPfZYpM3PWP1ub8MDc4fSBVu3f+lS3ojPAaKNEgXu0mzGP9BtS Rj7kAIR2BQN61sb6b2QIT2QnGSkOjfho0TLm1UjcAMjRC6A4bwVmwYgj OMXd56jRi1zeus3nBz661inwqSOOs4+72SiVLqmbzDV0uFHAZFrSIrS0 Fp5vDTS/
+nicmexico.mx.		172800	IN	DNSKEY	256 3 7 AwEAAbmZ5YmUhQKofswApd84tnITiUqh8kyN609rOanl3ga7WEjGs2bD D8RU/oOj31OzfnEFLSLH0fpIWCPWT+lvZ9HFOxAMavXnwncKsAVLNrv+ CuBGTiQ4wa2C/vQ7i/D1SbnXAUs/17Pu9onlAGeDoolgsUAgldfRwEGp tVfY8r71
+nicmexico.mx.		172800	IN	RRSIG	DNSKEY 7 2 172800 20170221235959 20161221161902 14618 nicmexico.mx. BTeItGos/TVLbiYrisWuJCFmdnA+p3yBHOMfUsvPAOvs5trTincG5wkY EHsq13Dvk9JNjSYh4HPlmlnsXDmUPXm6Z4bd1BXFVPiK3r4I1YGwwP/M ATNjw5V8w+my3PvOQdwyhWiF8dnd0EfeK3t+b/prwZiWs64ezaNiMxUk i5s=
+nicmexico.mx.		172800	IN	RRSIG	DNSKEY 7 2 172800 20170221235959 20161221161902 25953 nicmexico.mx. NPVmWrmIeGHYOjrfonov29kFG5gP2vaP0qE8sZplYt44MzgBnhLt+cZS sk6NNEhLPgYe4fiPxj3xzT+BjxTUCCQo3CT1KR4uaEIbepBmxDx8dMv6 4c1AO2wNnt8x/OBG+Nwg3gLaf4UtdJvOQsdpOsTzqKKo7WPKxeb462gw 4aZzYh4uhEjTFil8eGLXOlGe8CYThAdwxKbA6tEZxE5UEa2mIb2orSbz ro+ehp6imnn3YWtLWBtkWQqsSaqLug4HUrXgjbqNSZ+FCdO4WIxLgDsz k+jlA7tdkZknE43AQX/md6orKDalCb4OtrC0yrgYDtwVsgP1qZVAjJWW 09nUIg==
+ENTRY_END
+
+ENTRY_BEGIN
+MATCH opcode qtype qname
+ADJUST copy_id
+REPLY QR AA DO
+SECTION QUESTION
+www.nicmexico.mx.		IN	A
+SECTION ANSWER
+www.nicmexico.mx.	172800	IN	A	200.94.180.55
+www.nicmexico.mx.	172800	IN	A	200.94.180.54
+www.nicmexico.mx.	172800	IN	A	200.94.180.57
+www.nicmexico.mx.	172800	IN	A	200.94.180.56
+www.nicmexico.mx.	172800	IN	RRSIG	A 7 3 172800 20170221235959 20161221161902 14618 nicmexico.mx. s3THv+Ay2WrcOTG6bo+54Zc/rff/jhzcJKZ3ZRYMXhw3FToSvTOSqsIG 1gzW/Sk6r2oikHH3nNluaMTAXfCULu2mHiQVAuFlnajFSMPcm8KvEyV0 cCT7knkAFqb+ODkimPMufRHiOLbnhQk9/A25qK7J8rCB76IUmzk41hYR NBU=
+SECTION AUTHORITY
+nicmexico.mx.		172800	IN	NS	m.mx-ns.mx.
+nicmexico.mx.		172800	IN	NS	c.mx-ns.mx.
+nicmexico.mx.		172800	IN	NS	i.mx-ns.mx.
+nicmexico.mx.		172800	IN	NS	o.mx-ns.mx.
+nicmexico.mx.		172800	IN	NS	x.mx-ns.mx.
+nicmexico.mx.		172800	IN	NS	e.mx-ns.mx.
+nicmexico.mx.		172800	IN	RRSIG	NS 7 2 172800 20170221235959 20161221161902 14618 nicmexico.mx. MMPJ1lltyGLyE+s+V7mFb3iJzWkKgnCRtBGgVqynFaKJBgEX+0NFy8Iq o8CKWlXGXitDilaE3xy6ynYnb8CeQuEeaKVLzikUwxu+bTR/tcX1fECp 2i9uDFTl/wrYSyNU4gEy/4Ueev5GsM8XQmK5j8xgUmwc+258eRBZ129O K1E=
+SECTION ADDITIONAL
+c.mx-ns.mx.		172800	IN	A	192.100.224.1
+e.mx-ns.mx.		172800	IN	A	189.201.244.1
+i.mx-ns.mx.		172800	IN	A	207.248.68.1
+m.mx-ns.mx.		172800	IN	A	200.94.176.1
+o.mx-ns.mx.		172800	IN	A	200.23.1.1
+x.mx-ns.mx.		172800	IN	A	201.131.252.1
+c.mx-ns.mx.		172800	IN	AAAA	2001:1258::1
+m.mx-ns.mx.		172800	IN	AAAA	2001:13c7:7000::1
+ENTRY_END
+
+; end ?.mx-ns.mx.
+RANGE_END
+
+; Extra entries for a validator that is not a recursive resolver.
+RANGE_BEGIN 0 100
+	ADDRESS 6.6.6.6
+
+ENTRY_BEGIN
+MATCH opcode qtype qname
+ADJUST copy_id copy_query
+REPLY QR DO NOERROR
+SECTION QUESTION
+mx.			IN	DS
+SECTION ANSWER
+mx.		86400	IN	DS	55955 8 2 3d7f3313e86341ec23a02f8ed837572d62cf74bf175ac8b2f19b1e2b8930b0d5
+mx.		86400	IN	RRSIG	DS 8 1 86400 20170206050000 20170124040000 61045 . DYmv0z7EnlUOu081yDzeh3tourMFyYtBv7IKIiwPN5ZXuHmw0PvqT0oU//DomnA0NdfCRizOSmvDlZITNtlTffEA3mudnbPC+TEpdf1nffHLHQPnjcS0U+zfoBvRK0OHha3J7YgSXFQuCskJAg4P6ktPzgcd2ccv/FRlzzw4CrZOE3AtDWir31xt8c8DxZjysjIptblua7o9kwac+biWoszUl+sJBAXGbn0XXMloTAisYHyyZF9YeTRz3er8gyao8ynRe2KgUZPX4ieVQl+BsXDOmVRYLE8l4hLSRanjoWOR3gAqQUHJwn9xXxhGfApe5tUhaCE7v1EplCw9ykaKVA==
+SECTION AUTHORITY
+SECTION ADDITIONAL
+ENTRY_END
+
+ENTRY_BEGIN
+MATCH opcode qtype qname
+ADJUST copy_id
+REPLY QR AA DO NOERROR
+SECTION QUESTION
+www.nic.mx.			IN	A
+SECTION ANSWER
+www.nic.mx.		300	IN	CNAME	www.nicmexico.mx.
+www.nicmexico.mx.	172800	IN	A	200.94.180.55
+www.nicmexico.mx.	172800	IN	A	200.94.180.54
+www.nicmexico.mx.	172800	IN	A	200.94.180.57
+www.nicmexico.mx.	172800	IN	A	200.94.180.56
+www.nicmexico.mx.	172800	IN	RRSIG	A 7 3 172800 20170221235959 20161221161902 14618 nicmexico.mx. s3THv+Ay2WrcOTG6bo+54Zc/rff/jhzcJKZ3ZRYMXhw3FToSvTOSqsIG 1gzW/Sk6r2oikHH3nNluaMTAXfCULu2mHiQVAuFlnajFSMPcm8KvEyV0 cCT7knkAFqb+ODkimPMufRHiOLbnhQk9/A25qK7J8rCB76IUmzk41hYR NBU=
+ENTRY_END
+
+; end of 6.6.6.6
+RANGE_END
+
+STEP 10 QUERY
+ENTRY_BEGIN
+REPLY RD DO
+SECTION QUESTION
+www.nic.mx.		IN	A
+ENTRY_END
+
+STEP 11 CHECK_ANSWER
+ENTRY_BEGIN
+MATCH rcode flags question answer
+REPLY QR AA DO NOERROR
+SECTION QUESTION
+www.nic.mx.			IN	A
+SECTION ANSWER
+www.nic.mx.		300	IN	CNAME	www.nicmexico.mx.
+www.nicmexico.mx.	171139	IN	A	200.94.180.57
+www.nicmexico.mx.	171139	IN	A	200.94.180.56
+www.nicmexico.mx.	171139	IN	A	200.94.180.54
+www.nicmexico.mx.	171139	IN	A	200.94.180.55
+www.nicmexico.mx.	171139	IN	RRSIG	A 7 3 172800 20170221235959 20161221161902 14618 nicmexico.mx. s3THv+Ay2WrcOTG6bo+54Zc/rff/jhzcJKZ3ZRYMXhw3FToSvTOSqsIG1gzW/Sk6r2oikHH3nNluaMTAXfCULu2mHiQVAuFlnajFSMPcm8KvEyV0cCT7knkAFqb+ODkimPMufRHiOLbnhQk9/A25qK7J8rCB76IUmzk41hYRNBU=
+ENTRY_END
+
+STEP 20 QUERY
+ENTRY_BEGIN
+REPLY RD DO
+SECTION QUESTION
+www.nicmexico.mx.		IN	A
+ENTRY_END
+
+STEP 21 CHECK_ANSWER
+ENTRY_BEGIN
+MATCH rcode flags question answer
+REPLY QR AA AD DO NOERROR
+SECTION QUESTION
+www.nicmexico.mx.		IN	A
+SECTION ANSWER
+www.nicmexico.mx.	170708	IN	A	200.94.180.55
+www.nicmexico.mx.	170708	IN	A	200.94.180.56
+www.nicmexico.mx.	170708	IN	A	200.94.180.54
+www.nicmexico.mx.	170708	IN	A	200.94.180.57
+www.nicmexico.mx.	172800	IN	RRSIG	A 7 3 172800 20170221235959 20161221161902 14618 nicmexico.mx. s3THv+Ay2WrcOTG6bo+54Zc/rff/jhzcJKZ3ZRYMXhw3FToSvTOSqsIG 1gzW/Sk6r2oikHH3nNluaMTAXfCULu2mHiQVAuFlnajFSMPcm8KvEyV0 cCT7knkAFqb+ODkimPMufRHiOLbnhQk9/A25qK7J8rCB76IUmzk41hYR NBU=
+ENTRY_END
+
+SCENARIO_END

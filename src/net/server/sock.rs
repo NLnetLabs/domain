@@ -135,7 +135,6 @@ pub trait AsyncAccept {
     /// Polls to accept a new incoming connection to this listener.
     ///
     /// If there is no connection to accept, Poll::Pending is returned.
-    #[allow(clippy::type_complexity)]
     fn poll_accept(
         &self,
         cx: &mut Context,
@@ -147,7 +146,6 @@ impl AsyncAccept for TcpListener {
     type StreamType = TcpStream;
     type Future = std::future::Ready<Result<Self::StreamType, io::Error>>;
 
-    #[allow(clippy::type_complexity)]
     fn poll_accept(
         &self,
         cx: &mut Context,
