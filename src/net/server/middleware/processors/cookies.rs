@@ -1,9 +1,12 @@
 //! DNS Cookies related message processing.
 use core::ops::ControlFlow;
+use core::str::FromStr;
 
 use std::net::IpAddr;
+use std::string::{String, ToString};
 use std::vec::Vec;
 
+use inetnum::addr::{ParsePrefixError, Prefix};
 use octseq::Octets;
 use rand::RngCore;
 use tracing::{debug, trace, warn};
@@ -28,6 +31,54 @@ const FIVE_MINUTES_AS_SECS: u32 = 5 * 60;
 /// https://www.rfc-editor.org/rfc/rfc9018.html#section-4.3.
 const ONE_HOUR_AS_SECS: u32 = 60 * 60;
 
+//----------- NetBlock --------------------------------------------------------
+
+/// An IPv4 or IPv6 network block.
+///
+// Note: Using a wrapper type avoids exposing the 3rd party IpNetwork type in
+// our public API so that we can swap it out later for an alternative if
+// needed without impacting the public API.
+#[derive(Clone, Debug)]
+pub struct NetBlock(Prefix);
+
+impl NetBlock {
+    /// Is the given IP address part of this network block?
+    fn contains(&self, ip: IpAddr) -> bool {
+        self.0.contains(ip)
+    }
+}
+
+//--- FromStr
+
+impl FromStr for NetBlock {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let prefix = match Prefix::from_str(s) {
+            Ok(prefix) => Ok(prefix),
+            Err(ParsePrefixError::MissingLen) => prefix_from_addr_str(s),
+            other_err => other_err,
+        }
+        .map_err(|err| ToString::to_string(&err))?;
+
+        Ok(Self(prefix))
+    }
+}
+
+/// Construct a Prefix from an IP address string.
+fn prefix_from_addr_str(s: &str) -> Result<Prefix, ParsePrefixError> {
+    match IpAddr::from_str(s) {
+        // TODO: Use IpvNAddr::BITS rather than 32/128 if our MSRV rises to
+        // Rust >= 1.80.0.
+        Ok(addr) => match addr {
+            IpAddr::V4(addr) => Prefix::new_v4(addr, 32),
+            IpAddr::V6(addr) => Prefix::new_v6(addr, 128),
+        }
+        .map_err(ParsePrefixError::InvalidPrefix),
+        Err(err) => Err(ParsePrefixError::InvalidAddr(err)),
+    }
+}
+
 //----------- CookiesMiddlewareProcessor --------------------------------------
 
 /// A DNS Cookies [`MiddlewareProcessor`].
@@ -50,7 +101,7 @@ pub struct CookiesMiddlewareProcessor {
     /// Clients connecting from these IP addresses will be required to provide
     /// a cookie otherwise they will receive REFUSED with TC=1 prompting them
     /// to reconnect with TCP in order to "authenticate" themselves.
-    ip_deny_list: Vec<IpAddr>,
+    deny_list: Vec<NetBlock>,
 }
 
 impl CookiesMiddlewareProcessor {
@@ -59,17 +110,17 @@ impl CookiesMiddlewareProcessor {
     pub fn new(server_secret: [u8; 16]) -> Self {
         Self {
             server_secret,
-            ip_deny_list: vec![],
+            deny_list: vec![],
         }
     }
 
     /// Define IP addresses required to supply DNS cookies if using UDP.
     #[must_use]
-    pub fn with_denied_ips<T: Into<Vec<IpAddr>>>(
+    pub fn with_denied_addresses<T: Into<Vec<NetBlock>>>(
         mut self,
-        ip_deny_list: T,
+        deny_list: T,
     ) -> Self {
-        self.ip_deny_list = ip_deny_list.into();
+        self.deny_list = deny_list.into();
         self
     }
 }
@@ -216,6 +267,14 @@ impl CookiesMiddlewareProcessor {
         //   Cookie, the response SHALL have the RCODE NOERROR."
         self.response_with_cookie(request, Rcode::NOERROR.into())
     }
+
+    /// Is the given IP address required to authenticate itself?
+    ///
+    /// If the given IP address is on our deny list it is required to
+    /// authenticate itself.
+    fn must_authenticate(&self, ip: IpAddr) -> bool {
+        self.deny_list.iter().any(|netblock| netblock.contains(ip))
+    }
 }
 
 //--- Default
@@ -230,7 +289,7 @@ impl Default for CookiesMiddlewareProcessor {
 
         Self {
             server_secret,
-            ip_deny_list: Default::default(),
+            deny_list: Default::default(),
         }
     }
 }
@@ -269,11 +328,11 @@ where
 
                 // While not required by RFC 7873, like Unbound the caller can
                 // configure this middleware processor to require clients
-                // contacting it from certain IP addresses to authenticate
-                // themselves or be refused with TC=1 to signal that they
-                // should resubmit their request via TCP.
+                // contacting it from certain IP addresses or blocks to
+                // authenticate themselves or be refused with TC=1 to signal
+                // that they should resubmit their request via TCP.
                 if request.transport_ctx().is_udp()
-                    && self.ip_deny_list.contains(&request.client_addr().ip())
+                    && self.must_authenticate(request.client_addr().ip())
                 {
                     debug!("Rejecting cookie-less non-TCP request due to matching deny list entry");
                     let builder = mk_builder_for_target();
@@ -403,9 +462,7 @@ where
                         };
                         return ControlFlow::Break(additional);
                     } else if request.transport_ctx().is_udp()
-                        && self
-                            .ip_deny_list
-                            .contains(&request.client_addr().ip())
+                        && self.must_authenticate(request.client_addr().ip())
                     {
                         let additional = self.bad_cookie_response(request);
                         debug!("Rejecting non-TCP request with invalid server cookie due to matching deny list entry");
@@ -485,7 +542,27 @@ mod tests {
     use crate::net::server::message::{Request, UdpTransportContext};
     use crate::net::server::middleware::processor::MiddlewareProcessor;
 
-    use super::CookiesMiddlewareProcessor;
+    use super::{CookiesMiddlewareProcessor, NetBlock};
+    use core::str::FromStr;
+
+    #[test]
+    fn netblock_from_str() {
+        assert!(NetBlock::from_str("").is_err());
+        assert!(NetBlock::from_str("not-an-ip-address").is_err());
+        assert!(NetBlock::from_str("1-2-3-4").is_err());
+        assert!(NetBlock::from_str("1.2.3.4/").is_err());
+        assert!(NetBlock::from_str("::1/").is_err());
+        assert!(NetBlock::from_str("1-2-3-4/8").is_err());
+        assert!(NetBlock::from_str("::/").is_err());
+        assert!(NetBlock::from_str("1.2.3.4/not-a-prefix-length").is_err());
+        assert!(NetBlock::from_str("1.2.3.4-4.5.6.7").is_err());
+
+        assert!(NetBlock::from_str("1.2.3.4").is_ok());
+        assert!(NetBlock::from_str("::1").is_ok());
+        assert!(NetBlock::from_str("1.2.3.4/32").is_ok());
+        assert!(NetBlock::from_str("127.0.0.0/24").is_ok());
+        assert!(NetBlock::from_str("::1/128").is_ok());
+    }
 
     #[test]
     fn dont_add_cookie_twice() {
@@ -502,7 +579,7 @@ mod tests {
         // Package the query into a context aware request to make it look
         // as if it came from a UDP server.
         let ctx = UdpTransportContext::default();
-        let client_addr = "127.0.0.1:12345".parse().unwrap();
+        let client_addr = "127.0.0.18:12345".parse().unwrap();
         let request =
             Request::new(client_addr, Instant::now(), message, ctx.into());
 
@@ -510,7 +587,7 @@ mod tests {
         // the mock client to provide a valid cookie.
         let server_secret: [u8; 16] = [1u8; 16];
         let processor = CookiesMiddlewareProcessor::new(server_secret)
-            .with_denied_ips(["127.0.0.1".parse().unwrap()]);
+            .with_denied_addresses(["127.0.0.0/24".parse().unwrap()]);
         let processor: &dyn MiddlewareProcessor<Vec<u8>, Vec<u8>> =
             &processor;
 

@@ -1,4 +1,4 @@
-use core::net::{IpAddr, SocketAddr};
+use core::net::SocketAddr;
 
 use std::boxed::Box;
 use std::collections::VecDeque;
@@ -22,7 +22,9 @@ use crate::net::server::buf::VecBufSource;
 use crate::net::server::dgram::DgramServer;
 use crate::net::server::message::Request;
 use crate::net::server::middleware::builder::MiddlewareBuilder;
-use crate::net::server::middleware::processors::cookies::CookiesMiddlewareProcessor;
+use crate::net::server::middleware::processors::cookies::{
+    CookiesMiddlewareProcessor, NetBlock,
+};
 use crate::net::server::middleware::processors::edns::EdnsMiddlewareProcessor;
 use crate::net::server::service::{
     CallResult, Service, ServiceError, Transaction,
@@ -215,7 +217,7 @@ where
             let secret = <[u8; 16]>::try_from(secret).unwrap();
             let processor = CookiesMiddlewareProcessor::new(secret);
             let processor = processor
-                .with_denied_ips(config.cookies.ip_deny_list.clone());
+                .with_denied_addresses(config.cookies.deny_list.clone());
             middleware.push(processor.into());
         }
     }
@@ -339,7 +341,7 @@ struct ServerConfig<'a> {
 struct CookieConfig<'a> {
     enabled: bool,
     secret: Option<&'a str>,
-    ip_deny_list: Vec<IpAddr>,
+    deny_list: Vec<NetBlock>,
 }
 
 fn parse_server_config(config: &Config) -> ServerConfig {
@@ -376,18 +378,18 @@ fn parse_server_config(config: &Config) -> ServerConfig {
                         // for a classless network block", but we only handle
                         // an IP address here for now.
                         // See: https://unbound.docs.nlnetlabs.nl/en/latest/manpages/unbound.conf.html?highlight=edns-tcp-keepalive#unbound-conf-access-control
-                        if let Some((ip, action)) =
+                        if let Some((netblock, action)) =
                             v.split_once(|c: char| c.is_whitespace())
                         {
                             match action {
                                 "allow_cookie" => {
-                                    if let Ok(ip) = ip.parse() {
+                                    if let Ok(netblock) = netblock.parse() {
                                         parsed_config
                                             .cookies
-                                            .ip_deny_list
-                                            .push(ip);
+                                            .deny_list
+                                            .push(netblock);
                                     } else {
-                                        eprintln!("Ignoring malformed IP address '{ip}' in 'access-control' setting");
+                                        eprintln!("Ignoring malformed netblock '{netblock}' in 'access-control' setting");
                                     }
                                 }
 
