@@ -10,7 +10,6 @@ use parking_lot::{
     RwLock, RwLockReadGuard, RwLockUpgradableReadGuard, RwLockWriteGuard,
 };
 use tokio::sync::Mutex;
-use tracing::trace;
 
 use crate::base::iana::{Class, Rtype};
 use crate::base::name::{Label, OwnedLabel, ToLabelIter, ToName};
@@ -132,7 +131,6 @@ impl ZoneStore for ZoneApex {
 
     fn read(self: Arc<Self>) -> Box<dyn ReadableZone> {
         let (version, marker) = self.versions().read().current().clone();
-        trace!("ZoneApex::read(): Reading version {version:?}");
         Box::new(ReadZone::new(self, version, marker))
     }
 
@@ -258,26 +256,17 @@ impl NodeRrsets {
             .and_then(|rrsets| rrsets.get(version))
             .cloned();
 
-        trace!("Get RRset (rtype {rtype}, version {version:?}): {res:?}");
         res
     }
 
     /// Updates an RRset.
     pub fn update(&self, rrset: SharedRrset, version: Version) {
         let rtype = rrset.rtype();
-        trace!(
-            "Pre RRset update (rtype {rtype}, version {version:?}): {:?}",
-            self.get(rtype, version)
-        );
         self.rrsets
             .write()
             .entry(rrset.rtype())
             .or_default()
             .update(rrset, version);
-        trace!(
-            "Post RRset update (rtype {rtype}, version {version:?}): {:?}",
-            self.get(rtype, version)
-        );
     }
 
     /// Removes the RRset for the given type.
