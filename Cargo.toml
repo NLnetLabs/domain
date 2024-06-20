@@ -1,7 +1,11 @@
 [package]
 name = "domain"
 version = "0.10.1"
-rust-version = "1.78.0"
+
+# This is the mimimal Rust version with minimal dependencies as specified
+# below. With latest dependency versions 1.76.0 is currently required.
+rust-version = "1.68.2"
+
 edition = "2021"
 authors = ["NLnet Labs <dns-team@nlnetlabs.nl>"]
 description = "A DNS library for Rust."
