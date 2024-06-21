@@ -160,19 +160,10 @@ int_enum! {
 /// ```
 pub const EDE_PRIVATE_RANGE_BEGIN: u16 = 49152;
 
-// Only implement `Display` for `ExtendedErrorCode`, as the `FromStr`
-// bundled by the `int_enum_*` macros is not very useful.
-impl core::fmt::Display for ExtendedErrorCode {
-    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
-        use core::fmt::Write;
-        match self.to_mnemonic() {
-            Some(m) => {
-                for ch in m {
-                    f.write_char(*ch as char)?
-                }
-                Ok(())
-            }
-            None => write!(f, "EDE{}", self.to_int()),
-        }
-    }
-}
+int_enum_str_with_prefix!(
+    ExtendedErrorCode,
+    "EDE",
+    b"EDE",
+    u16,
+    "unknown error code"
+);
