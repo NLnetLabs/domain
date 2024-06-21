@@ -44,9 +44,6 @@ tokio-rustls   = { version = "0.26", optional = true, default-features = false }
 tracing        = { version = "0.1.40", optional = true }
 tracing-subscriber = { version = "0.3.18", optional = true, features = ["env-filter"] }
 
-# For testing in integration tests:
-mock_instant = { version = "0.4.0", optional = true }
-
 [features]
 default     = ["std", "rand"]
 bytes       = ["dep:bytes", "octseq/bytes"]
@@ -69,14 +66,6 @@ unstable-stelline = ["tokio/test-util", "tracing", "tracing-subscriber", "unstab
 unstable-validator = ["validate", "zonefile", "unstable-client-transport"]
 unstable-zonetree = ["futures", "parking_lot", "serde", "tokio", "tracing"]
 
-# Test features
-# Commented out as using --all-features to build would cause mock time to also
-# be used. We plan to move the test code under src/ and then use #[cfg(test)]
-# and this will no longer be needed. The cookies test that depends on this is
-# currently also disabled by being renamed to .rpl.not so it is okay to comment
-# this out.
-#mock-time = ["mock_instant"]
-
 [dev-dependencies]
 lazy_static        = { version = "1.4.0" }
 rstest             = "0.19.0"
@@ -93,6 +82,9 @@ webpki-roots       = { version = "0.26" }
 
 # For the "mysql-zone" example
 #sqlx = { version = "0.6", features = [ "runtime-tokio-native-tls", "mysql" ] }
+
+# For testing in integration tests:
+mock_instant = { version = "0.4.0" }
 
 [package.metadata.docs.rs]
 all-features = true
