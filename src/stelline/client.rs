@@ -512,7 +512,7 @@ fn entry2reqmsg(entry: &Entry) -> RequestMessage<Vec<u8>> {
         msg.push(q).unwrap();
     }
     let msg = msg.answer();
-    for _a in &sections.answer {
+    for _a in &sections.answer[0] {
         todo!();
     }
     let msg = msg.authority();

@@ -395,12 +395,23 @@ pub struct AdditionalSection {
     pub edns_bytes: Vec<u8>,
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 pub struct Sections {
     pub question: Vec<Question>,
     pub answer: Vec<Vec<ZonefileEntry>>,
     pub authority: Vec<ZonefileEntry>,
     pub additional: AdditionalSection,
+}
+
+impl Default for Sections {
+    fn default() -> Self {
+        Self {
+            question: Default::default(),
+            answer: vec![vec![]],
+            authority: Default::default(),
+            additional: Default::default(),
+        }
+    }
 }
 
 pub type Name = base::Name<Bytes>;
