@@ -9,6 +9,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
+use domain::net::server::middleware::xfr::PerClientSettings;
 use octseq::Octets;
 use rstest::rstest;
 use tracing::instrument;
@@ -142,11 +143,17 @@ async fn server_tests(#[files("test-data/server/*.rpl")] rpl_file: PathBuf) {
         // TODO: It should be possible to use XFR/NOTIFY middleware also when
         // using cookies or EDNS middleware.
         const NUM_XFR_THREADS: usize = 1;
+        let /*mut*/ per_client_settings = PerClientSettings::new();
+        // per_client_settings.allow_from(
+        //     Ipv4Addr::LOCALHOST.into(),
+        //     CompatibilityMode::BackwardCompatible,
+        // );
         let svc = XfrMiddlewareSvc::<Vec<u8>, _>::new(
             svc,
             catalog,
             NUM_XFR_THREADS,
             XfrMode::AxfrAndIxfr,
+            per_client_settings,
         );
         // let svc = NotifyMiddlewareSvc::<Vec<u8>, _>::new(svc, catalog);
         finish_svc(svc, server_config, &stelline).await;

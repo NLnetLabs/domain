@@ -182,9 +182,9 @@ impl ReadZone {
             //    response."
             //
             // We choose for option 1 because option 2 would create lots of
-            // extra work in the offline signing case (because lots of HFINO
+            // extra work in the offline signing case (because lots of HINFO
             // records would need to be synthesized prior to signing) and
-            // option 3 as stated may still result in a large response.
+            // option 3, as stated, may still result in a large response.
             let guard = rrsets.iter();
             guard
                 .iter()

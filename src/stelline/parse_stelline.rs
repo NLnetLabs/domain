@@ -499,7 +499,7 @@ fn parse_section<Lines: Iterator<Item = Result<String, std::io::Error>>>(
                     zonefile.extend_from_slice(clean_line.as_ref());
                     zonefile.extend_from_slice(b"\n");
                     let _e = zonefile.next_entry().unwrap();
-                    let e = zonefile.next_entry().unwrap();
+                    let e = zonefile.next_entry().map_err(|err| format!("Failed to parse zone file line '{clean_line}': {err}")).unwrap();
 
                     let e = e.unwrap();
                     match section {

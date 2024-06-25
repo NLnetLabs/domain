@@ -6,7 +6,6 @@ use core::marker::PhantomData;
 use core::ops::ControlFlow;
 use core::pin::Pin;
 
-use core::sync::atomic::{AtomicUsize, Ordering};
 use std::boxed::Box;
 use std::sync::Arc;
 
@@ -15,7 +14,7 @@ use futures::stream::{once, Once, Stream};
 use octseq::Octets;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedSender};
 use tokio_stream::wrappers::UnboundedReceiverStream;
-use tracing::{info, trace, warn};
+use tracing::{error, info, trace, warn};
 
 use crate::base::iana::{Opcode, OptRcode, Rcode};
 use crate::base::message_builder::AdditionalBuilder;
@@ -25,7 +24,7 @@ use crate::base::{
 };
 use crate::net::server::message::Request;
 use crate::net::server::service::{
-    CallResult, Service, ServiceFeedback, ServiceResult,
+    CallResult, Service, ServiceError, ServiceFeedback, ServiceResult,
 };
 use crate::net::server::util::{mk_builder_for_target, mk_error_response};
 use crate::rdata::ZoneRecordData;
@@ -37,7 +36,7 @@ use super::stream::MiddlewareStream;
 
 //------------ ThreadPool ----------------------------------------------------
 
-use crate::zonecatalog::catalog::{self, Catalog, CatalogZone};
+use crate::zonecatalog::catalog::{self, Acl, Catalog, CatalogZone};
 use crate::zonetree::error::OutOfZone;
 #[rustversion::since(1.72)]
 use threadpool::ThreadPool;
@@ -83,6 +82,26 @@ pub enum XfrMode {
     AxfrOnly,
 }
 
+//------------ CompatibilityMode ---------------------------------------------
+
+/// https://datatracker.ietf.org/doc/html/rfc5936#section-7.1
+/// 7.1.  Server
+///   "An implementation of an AXFR server MAY permit configuring, on a per
+///    AXFR client basis, the necessity to revert to a single resource record
+///    per message; in that case, the default SHOULD be to use multiple
+///    records per message."
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
+pub enum CompatibilityMode {
+    #[default]
+    Default,
+
+    BackwardCompatible,
+}
+
+//------------ PerClientSettings ---------------------------------------------
+
+pub type PerClientSettings = Acl<CompatibilityMode>;
+
 //------------ XfrMiddlewareSvc ----------------------------------------------
 
 /// A [`MiddlewareProcessor`] for responding to XFR requests.
@@ -112,6 +131,8 @@ pub struct XfrMiddlewareSvc<RequestOctets, Svc> {
 
     xfr_mode: XfrMode,
 
+    per_client_settings: Arc<PerClientSettings>,
+
     _phantom: PhantomData<RequestOctets>,
 }
 
@@ -127,14 +148,17 @@ impl<RequestOctets, Svc> XfrMiddlewareSvc<RequestOctets, Svc> {
         catalog: Arc<Catalog>,
         num_threads: usize,
         xfr_mode: XfrMode,
+        per_client_settings: PerClientSettings,
     ) -> Self {
         let pool = Self::mk_thread_pool(num_threads);
+        let per_client_settings = Arc::new(per_client_settings);
 
         Self {
             svc,
             catalog,
             pool,
             xfr_mode,
+            per_client_settings,
             _phantom: PhantomData,
         }
     }
@@ -165,6 +189,7 @@ where
         catalog: Arc<Catalog>,
         pool: ThreadPool,
         xfr_mode: XfrMode,
+        per_client_settings: Arc<PerClientSettings>,
     ) -> ControlFlow<
         XfrMiddlewareStream<
             Svc::Future,
@@ -186,7 +211,7 @@ where
             //   "If a server is not authoritative for the queried zone, the
             //    server SHOULD set the value to NotAuth(9)"
             warn!(
-                "{} for {}, from {} refused: unknown zone",
+                "{} for {} from {} refused: unknown zone",
                 q.qtype(),
                 q.qname(),
                 req.client_addr()
@@ -207,7 +232,7 @@ where
         let Ok(zone_soa_answer) = Self::read_soa(&read, qname.clone()).await
         else {
             warn!(
-                "{} for {}, from {} refused: zone lacks SOA RR",
+                "{} for {} from {} refused: zone lacks SOA RR",
                 q.qtype(),
                 q.qname(),
                 req.client_addr()
@@ -218,52 +243,117 @@ where
             )));
         };
 
-        // Handle a SOA query
-        if Rtype::SOA == q.qtype() {
-            let builder = mk_builder_for_target();
-            let response = zone_soa_answer.to_message(msg, builder);
-            return ControlFlow::Break(Self::to_stream(response));
-        }
-
-        // Handle an IXFR query
-        if Rtype::IXFR == q.qtype() {
-            let cat_zone = zone
-                .as_ref()
-                .as_any()
-                .downcast_ref::<CatalogZone>()
-                .unwrap();
-
-            info!("IXFR for {}, from {}", q.qname(), req.client_addr());
-            if let Some(res) = Self::do_ixfr(
-                msg,
-                qname,
-                &zone_soa_answer,
-                cat_zone.info(),
-                xfr_mode,
-            )
-            .await
-            {
-                return res;
-            } else {
-                info!(
-                    "Falling back to AXFR for {}, from {}",
-                    q.qname(),
-                    req.client_addr()
-                );
+        match q.qtype() {
+            Rtype::SOA => {
+                let builder = mk_builder_for_target();
+                let response = zone_soa_answer.to_message(msg, builder);
+                ControlFlow::Break(Self::to_stream(response))
             }
-        }
 
-        // Handle an AXFR query, or fall back to AXFR from IXFR if IXFR is not
-        // available
-        info!("AXFR for {}, from {}", q.qname(), req.client_addr());
-        Self::do_axfr(msg, &zone_soa_answer, read, pool).await
+            Rtype::AXFR => {
+                // https://datatracker.ietf.org/doc/html/rfc5936#section-4.2
+                // 4.2.  UDP
+                //   "With the addition of EDNS0 and applications that require many
+                //    small zones, such as in web hosting and some ENUM scenarios,
+                //    AXFR sessions on UDP would now seem desirable.  However, there
+                //    are still some aspects of AXFR sessions that are not easily
+                //    translated to UDP.
+                //
+                //    Therefore, this document does not update RFC 1035 in this
+                //    respect: AXFR sessions over UDP transport are not defined."
+                if req.transport_ctx().is_udp() {
+                    info!(
+                        "AXFR for {} from {} refused: not supported over UDP",
+                        q.qname(),
+                        req.client_addr()
+                    );
+                    ControlFlow::Break(Self::to_stream(mk_error_response(
+                        msg,
+                        OptRcode::NOTIMP,
+                    )))
+                } else {
+                    info!(
+                        "AXFR for {} from {}",
+                        q.qname(),
+                        req.client_addr()
+                    );
+                    Self::do_axfr(
+                        req,
+                        &zone_soa_answer,
+                        read,
+                        pool,
+                        per_client_settings,
+                    )
+                    .await
+                }
+            }
+
+            Rtype::IXFR => {
+                let cat_zone = zone
+                    .as_ref()
+                    .as_any()
+                    .downcast_ref::<CatalogZone>()
+                    .unwrap();
+
+                info!("IXFR for {} from {}", q.qname(), req.client_addr());
+
+                // https://datatracker.ietf.org/doc/html/rfc1995#section-2
+                // 2. Brief Description of the Protocol
+                //   "Transport of a query may be by either UDP or TCP.  If an
+                //    IXFR query is via UDP, the IXFR server may attempt to reply
+                //    using UDP if the entire response can be contained in a
+                //    single DNS packet.  If the UDP reply does not fit, the query
+                //    is responded to with a single SOA record of the server's
+                //    current version to inform the client that a TCP query should
+                //    be initiated."
+
+                match Self::do_ixfr(
+                    req,
+                    qname,
+                    &zone_soa_answer,
+                    cat_zone.info(),
+                    xfr_mode,
+                    per_client_settings.clone(),
+                )
+                .await
+                {
+                    Some(res) => res,
+                    None => {
+                        info!(
+                            "IXFR for {} from {}: falling back to AXFR",
+                            q.qname(),
+                            req.client_addr()
+                        );
+
+                        // https://datatracker.ietf.org/doc/html/rfc1995#section-4
+                        // 4. Response Format
+                        //    "If incremental zone transfer is not available, the
+                        //     entire zone is returned.  The first and the last RR
+                        //     of the response is the SOA record of the zone.
+                        //     I.e. the behavior is the same as an AXFR response
+                        //     except the query type is IXFR."
+                        Self::do_axfr(
+                            req,
+                            &zone_soa_answer,
+                            read,
+                            pool,
+                            per_client_settings,
+                        )
+                        .await
+                    }
+                }
+            }
+
+            _ => ControlFlow::Continue(()),
+        }
     }
 
     async fn do_axfr(
-        msg: &Arc<Message<RequestOctets>>,
+        req: &Request<RequestOctets>,
         zone_soa_answer: &Answer,
         read: Box<dyn ReadableZone>,
         pool: ThreadPool,
+        per_client_settings: Arc<PerClientSettings>,
     ) -> ControlFlow<
         XfrMiddlewareStream<
             Svc::Future,
@@ -271,10 +361,26 @@ where
             <Svc::Stream as Stream>::Item,
         >,
     > {
+        let msg = req.message();
+
         // Return a stream of response messages containing:
         //   - SOA
         //   - RRSETs, one or more per response message
         //   - SOA
+        //
+        // Neither RFC 5936 nor RFC 1035 defined AXFR for UDP, only for TCP.
+        // However, RFC 1995 says that for IXFR if no diffs are available the
+        // full zone should be served just as with AXFR, and that UDP is
+        // supported as long as the entire XFR response fits in a single
+        // datagram. Thus we don't check for UDP or TCP here, except to abort
+        // if the response is too large to fit in a single UDP datagram,
+        // instead we let the caller that has the context decide whether AXFR
+        // is supported or not.
+        //
+        // References:
+        //   - https://datatracker.ietf.org/doc/html/rfc1995#section-2
+        //   - https://datatracker.ietf.org/doc/html/rfc1995#section-4
+        //   - https://datatracker.ietf.org/doc/html/rfc5936#section-4.2
 
         let (sender, receiver) = unbounded_channel();
         let stream = UnboundedReceiverStream::new(receiver);
@@ -284,118 +390,168 @@ where
             &sender,
         );
 
-        Self::add_msg_to_stream(zone_soa_answer, msg, &sender);
+        let (batcher_tx, mut batcher_rx) =
+            tokio::sync::mpsc::channel::<(StoredName, SharedRrset)>(100);
 
-        let msg = msg.clone();
-        let zone_soa_answer = zone_soa_answer.clone();
+        let qname: StoredName =
+            msg.sole_question().unwrap().qname().to_name();
+        let AnswerContent::Data(soa_rrset) =
+            zone_soa_answer.content().clone()
+        else {
+            unreachable!()
+        };
+        batcher_tx
+            .send((qname.clone(), soa_rrset.clone()))
+            .await
+            .unwrap();
 
-        // Stream the RRsets in the background
+        // Do we need to operate in backward compatibility mode for this client?
+        let compatibility_mode = per_client_settings
+            .get_ip(req.client_addr().ip())
+            .copied()
+            .unwrap_or_default();
+
+        if compatibility_mode == CompatibilityMode::BackwardCompatible {
+            trace!(
+                "Compatibility mode enabled for client with IP address {}",
+                req.client_addr().ip()
+            );
+        }
+
+        // Stream the RRsets in the background to the batcher.
         tokio::spawn(async move {
-            let cloned_sender = sender.clone();
-            let cloned_msg = msg.clone();
-
-            // TODO: Add batching of RRsets into single DNS responses instead
-            // of one response per RRset. Perhaps via a response combining
-            // middleware service?
-
             // Define a zone tree walking operation like a filter map that
-            // selects non-SOA RRsets and emits them to the output stream.
-            let num_writes_pending = Arc::new(AtomicUsize::new(0));
-            let num_writes_pending2 = num_writes_pending.clone();
+            // selects non-SOA RRsets and emits them to the batching stream.
+            let cloned_batcher_tx = batcher_tx.clone();
             let op =
                 Box::new(move |owner: StoredName, rrset: &SharedRrset| {
                     if rrset.rtype() != Rtype::SOA {
-                        let cloned_owner = owner.clone();
-                        let cloned_rrset = rrset.clone();
-                        let cloned_msg2 = cloned_msg.clone();
-                        let cloned_sender = cloned_sender.clone();
-                        let cloned_num_writes_pending2 =
-                            num_writes_pending2.clone();
-
-                        // In manual testing the same kind of performance can
-                        // be achieved by using:
-                        //
-                        //     tokio::task::spawn_blocking()
-                        //
-                        // here instead of pool.execute(), but we get much
-                        // less control over how many threads are going to be
-                        // used. It would use threads from the Tokio blocking
-                        // thread pool which by default allows up to 512
-                        // threads, but those threads are also used for any
-                        // other calls to spawn_blocking() within the
-                        // application.
-                        //
-                        // Note: While it's also possible to just run the zone
-                        // walk in a single spawned thread, that prevents
-                        // scaling across more threads if it becomes useful,
-                        // and allows an unbounded number of simultaneous XFR
-                        // transfers to occur in parallel, while using a
-                        // thread pool puts an upper limit on the number of
-                        // threads concurrently performing XFR.
-                        num_writes_pending2.fetch_add(1, Ordering::SeqCst);
-                        pool.execute(move || {
-                            if !cloned_sender.is_closed() {
-                                let builder = mk_builder_for_target();
-                                let mut answer = builder
-                                    .start_answer(
-                                        &cloned_msg2,
-                                        Rcode::NOERROR,
-                                    )
-                                    .unwrap();
-                                for item in cloned_rrset.data() {
-                                    answer
-                                        .push((
-                                            cloned_owner.clone(),
-                                            cloned_rrset.ttl(),
-                                            item,
-                                        ))
-                                        .unwrap();
-                                }
-
-                                let mut additional = answer.additional();
-                                Self::set_axfr_header(
-                                    &cloned_msg2,
-                                    &mut additional,
-                                );
-                                let call_result =
-                                    Ok(CallResult::new(additional));
-
-                                let _ = cloned_sender.send(call_result);
-                                cloned_num_writes_pending2
-                                    .fetch_sub(1, Ordering::SeqCst);
-                            }
-                        });
+                        cloned_batcher_tx
+                            .blocking_send((owner.clone(), rrset.clone()))
+                            .unwrap();
                     }
                 });
 
+            // Walk the zone tree, invoking our operation for each leaf.
             match read.is_async() {
                 true => {
                     read.walk_async(op).await;
+                    batcher_tx.send((qname, soa_rrset)).await.unwrap();
                 }
                 false => {
-                    let _ = tokio::task::spawn_blocking(move || {
+                    pool.execute(move || {
                         read.walk(op);
-                    })
-                    .await;
+                        if let Err(err) = batcher_tx.blocking_send((qname, soa_rrset)) {
+                            error!("Internal error: Failed to send final AXFR SOA to batcher: {err}");
+                        }
+                    });
                 }
             }
+        });
 
-            loop {
-                let n = num_writes_pending.load(Ordering::SeqCst);
-                if n == 0 {
+        // TODO: Extract this batcher and use it for IXFR too.
+
+        // Combine RRsets enumerated by zone walking as many as possible per
+        // DNS response message and pass the created messages downstream to
+        // the caller.
+        let msg = msg.clone();
+
+        // TODO: Shouldn't this be run on a pool thread? If so how do we do async there?
+        // Maybe don't use a thread pool but instead use a semaphore instead to limit
+        // concurrent XFR activity?
+        tokio::spawn(async move {
+            let qclass = msg.sole_question().unwrap().qclass();
+
+            let (mut owner, mut rrset) = batcher_rx.recv().await.unwrap();
+            assert_eq!(rrset.rtype(), Rtype::SOA);
+            let saved_soa_rrset = rrset.clone();
+            let mut soa_seen_count = 0;
+
+            let mut rrset_data = rrset.data();
+
+            // Loop until all of the RRsets sent by the zone walker have been
+            // pushed into DNS response messages and sent into the result
+            // stream.
+            'outer: loop {
+                // Build a DNS response that contains as many answers as
+                // possible.
+                let builder = mk_builder_for_target();
+                let mut answer =
+                    builder.start_answer(&msg, Rcode::NOERROR).unwrap();
+
+                // Loop over the RRset items being sent by the zone walker and
+                // add as many of them as possible to the response being
+                // built.
+
+                let mut num_rrs_added = 0;
+                'inner: loop {
+                    if rrset == saved_soa_rrset {
+                        soa_seen_count += 1;
+                    }
+
+                    for rr in rrset_data {
+                        let res = answer.push((
+                            owner.clone(),
+                            qclass,
+                            rrset.ttl(),
+                            rr,
+                        ));
+                        match res {
+                            Err(_) if num_rrs_added > 0 => {
+                                // Message is full, send what we have so far.
+                                break 'inner;
+                            }
+
+                            Err(err) => {
+                                error!("Internal error: Unable to add RR to AXFR response message: {err}");
+                                break 'outer;
+                            }
+
+                            Ok(()) => {
+                                num_rrs_added += 1;
+                                if compatibility_mode
+                                    == CompatibilityMode::BackwardCompatible
+                                {
+                                    break 'inner;
+                                }
+                            }
+                        }
+                    }
+
+                    if soa_seen_count == 2 {
+                        // No more RRsets to fetch.
+                        break;
+                    } else {
+                        // Fetch more RRsets to add to the message.
+                        (owner, rrset) = batcher_rx.recv().await.unwrap();
+                        rrset_data = rrset.data();
+                        num_rrs_added = 0;
+                    }
+                }
+
+                // Send the message.
+                let mut additional = answer.additional();
+                Self::set_axfr_header(&msg, &mut additional);
+                let call_result = Ok(CallResult::new(additional));
+                let _ = sender.send(call_result); // TODO: Handle this Result.
+
+                if num_rrs_added < rrset_data.len() {
+                    rrset_data = &rrset.data()[num_rrs_added..];
+                } else if soa_seen_count == 2 {
                     break;
+                } else {
+                    // Fetch more RRsets to add to the message.
+                    (owner, rrset) = batcher_rx.recv().await.unwrap();
+                    rrset_data = rrset.data();
                 }
-                trace!("Waiting for {n} stream writes to complete");
-                tokio::time::sleep(tokio::time::Duration::from_millis(100))
-                    .await;
             }
-
-            Self::add_msg_to_stream(&zone_soa_answer, &msg, &sender);
 
             Self::add_to_stream(
                 CallResult::feedback_only(ServiceFeedback::EndTransaction),
                 &sender,
             );
+
+            batcher_rx.close();
         });
 
         ControlFlow::Break(MiddlewareStream::Result(stream))
@@ -403,11 +559,12 @@ where
 
     // Returns None if fallback to AXFR should be done.
     async fn do_ixfr(
-        msg: &Arc<Message<RequestOctets>>,
+        req: &Request<RequestOctets>,
         qname: Name<Bytes>,
         zone_soa_answer: &Answer,
         zone_info: &catalog::ZoneInfo,
         xfr_mode: XfrMode,
+        per_client_settings: Arc<PerClientSettings>,
     ) -> Option<
         ControlFlow<
             XfrMiddlewareStream<
@@ -418,8 +575,11 @@ where
         >,
     > {
         if xfr_mode == XfrMode::AxfrOnly {
+            trace!("Not responding with IXFR as mode is set to AXFR only");
             return None;
         }
+
+        let msg = req.message();
 
         // https://datatracker.ietf.org/doc/html/rfc1995#section-2
         // 2. Brief Description of the Protocol
@@ -468,12 +628,13 @@ where
 
                                 // TODO: if cached then return cached IXFR response
                                 return Self::compute_ixfr(
-                                    msg,
+                                    req,
                                     qname,
                                     query_serial,
                                     zone_serial,
                                     zone_info,
                                     zone_soa_answer,
+                                    per_client_settings,
                                 )
                                 .await;
                             }
@@ -495,12 +656,13 @@ where
 
     // Returns None if fallback to AXFR should be done.
     async fn compute_ixfr(
-        msg: &Arc<Message<RequestOctets>>,
+        req: &Request<RequestOctets>,
         qname: Name<Bytes>,
         query_serial: Serial,
         zone_serial: Serial,
         zone_info: &catalog::ZoneInfo,
         zone_soa_answer: &Answer,
+        _per_client_settings: Arc<PerClientSettings>,
     ) -> Option<
         ControlFlow<
             XfrMiddlewareStream<
@@ -510,6 +672,8 @@ where
             >,
         >,
     > {
+        let msg = req.message();
+
         // https://datatracker.ietf.org/doc/html/rfc1995#section-2
         // 2. Brief Description of the Protocol
         //   "If an IXFR query with the same or newer version number than that
@@ -521,6 +685,7 @@ where
         if query_serial >= zone_serial {
             let builder = mk_builder_for_target();
             let response = zone_soa_answer.to_message(msg, builder);
+            trace!("IXFR finished because query_serial >= zone_serial");
             return Some(ControlFlow::Break(Self::to_stream(response)));
         }
 
@@ -530,6 +695,7 @@ where
         let diffs = zone_info.diffs_for_range(start_serial, end_serial).await;
         if diffs.is_empty() {
             // Fallback to AXFR
+            trace!("Fallback to AXFR because no IXFR diff is available");
             return None;
         };
 
@@ -553,7 +719,7 @@ where
         //    difference sequences is returned.  The list of difference
         //    sequences is preceded and followed by a copy of the server's
         //    current version of the SOA."
-        Self::add_msg_to_stream(zone_soa_answer, msg, &sender);
+        Self::add_answer_to_stream(zone_soa_answer, msg, &sender);
 
         let msg = msg.clone();
         let zone_soa_answer = zone_soa_answer.clone();
@@ -595,7 +761,10 @@ where
                 let mut old_soa_version_answer = Answer::new(Rcode::NOERROR);
                 old_soa_version_answer.add_answer(non_soa.clone());
 
-                Self::add_msg_to_stream(
+                // TODO: Accumulate RRsets in each message until it would
+                // overflow, and only then start a new message.
+
+                Self::add_answer_to_stream(
                     &old_soa_version_answer,
                     &msg,
                     &sender,
@@ -607,7 +776,7 @@ where
                 {
                     let mut answer = Answer::new(Rcode::NOERROR);
                     answer.add_answer(non_soa_rr.clone());
-                    Self::add_msg_to_stream(&answer, &msg, &sender);
+                    Self::add_answer_to_stream(&answer, &msg, &sender);
                 }
 
                 // Emit added RRs.
@@ -626,7 +795,7 @@ where
                 let mut old_soa_version_answer = Answer::new(Rcode::NOERROR);
                 old_soa_version_answer.add_answer(non_soa.clone());
 
-                Self::add_msg_to_stream(
+                Self::add_answer_to_stream(
                     &old_soa_version_answer,
                     &msg,
                     &sender,
@@ -638,7 +807,7 @@ where
                 {
                     let mut answer = Answer::new(Rcode::NOERROR);
                     answer.add_answer(non_soa_rr.clone());
-                    Self::add_msg_to_stream(&answer, &msg, &sender);
+                    Self::add_answer_to_stream(&answer, &msg, &sender);
                 }
             }
 
@@ -648,7 +817,7 @@ where
             //    difference sequences is returned.  The list of difference
             //    sequences is preceded and followed by a copy of the server's
             //    current version of the SOA."
-            Self::add_msg_to_stream(&zone_soa_answer, &msg, &sender);
+            Self::add_answer_to_stream(&zone_soa_answer, &msg, &sender);
 
             Self::add_to_stream(
                 CallResult::feedback_only(ServiceFeedback::EndTransaction),
@@ -659,10 +828,12 @@ where
         Some(ControlFlow::Break(MiddlewareStream::Result(stream)))
     }
 
-    fn add_msg_to_stream(
+    fn add_answer_to_stream(
         answer: &Answer,
         msg: &Message<RequestOctets>,
-        sender: &UnboundedSender<ServiceResult<Svc::Target>>,
+        sender: &UnboundedSender<
+            Result<CallResult<Svc::Target>, ServiceError>,
+        >,
     ) {
         let builder = mk_builder_for_target();
         let mut additional = answer.to_message(msg, builder);
@@ -671,7 +842,6 @@ where
         Self::add_to_stream(call_result, sender);
     }
 
-    #[allow(clippy::type_complexity)]
     fn add_to_stream(
         call_result: CallResult<Svc::Target>,
         sender: &UnboundedSender<ServiceResult<Svc::Target>>,
@@ -703,7 +873,11 @@ where
         //        AD       "mbz" -- see Note d)
         //        CD       "mbz" -- see Note d)"
         let header = additional.header_mut();
+
+        // Note: MandatoryMiddlewareSvc will also "fix" the response ID like
+        // is done here, so strictly speaking this isn't necessary.
         header.set_id(msg.header().id());
+
         header.set_qr(true);
         header.set_opcode(Opcode::QUERY);
         header.set_aa(true);
@@ -779,8 +953,17 @@ where
         let catalog = self.catalog.clone();
         let pool = self.pool.clone();
         let xfr_mode = self.xfr_mode;
+        let per_client_settings = self.per_client_settings.clone();
         Box::pin(async move {
-            match Self::preprocess(&request, catalog, pool, xfr_mode).await {
+            match Self::preprocess(
+                &request,
+                catalog,
+                pool,
+                xfr_mode,
+                per_client_settings,
+            )
+            .await
+            {
                 ControlFlow::Continue(()) => {
                     let stream = svc.call(request).await;
                     MiddlewareStream::IdentityStream(stream)

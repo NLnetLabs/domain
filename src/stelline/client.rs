@@ -24,6 +24,7 @@ use crate::net::client::request::{
     ComposeRequest, Error, GetResponse, RequestMessage, SendRequest,
 };
 use crate::stelline::matches::match_multi_msg;
+use crate::zonefile::inplace::Entry::Record;
 
 use super::matches::match_msg;
 use super::parse_stelline::{Entry, Reply, Stelline, StepType};
@@ -515,13 +516,17 @@ fn entry2reqmsg(entry: &Entry) -> RequestMessage<Vec<u8>> {
     for _a in &sections.answer[0] {
         todo!();
     }
-    let msg = msg.authority();
-    for _a in &sections.authority {
-        todo!();
+    let mut msg = msg.authority();
+    for zone_file_entry in &sections.authority {
+        if let Record(rec) = zone_file_entry {
+            msg.push(rec).unwrap();
+        }
     }
     let mut msg = msg.additional();
-    for _a in &sections.additional.zone_entries {
-        todo!();
+    for zone_file_entry in &sections.additional.zone_entries {
+        if let Record(rec) = zone_file_entry {
+            msg.push(rec).unwrap();
+        }
     }
     let reply: Reply = match &entry.reply {
         Some(reply) => reply.clone(),

@@ -53,7 +53,7 @@ use domain::net::server::middleware::cookies::CookiesMiddlewareSvc;
 use domain::net::server::middleware::edns::EdnsMiddlewareSvc;
 use domain::net::server::middleware::mandatory::MandatoryMiddlewareSvc;
 use domain::net::server::middleware::notify::NotifyMiddlewareSvc;
-use domain::net::server::middleware::xfr::{XfrMiddlewareSvc, XfrMode};
+use domain::net::server::middleware::xfr::{PerClientSettings, XfrMiddlewareSvc, XfrMode};
 use domain::net::server::service::{CallResult, ServiceResult};
 use domain::net::server::stream::{self, StreamServer};
 use domain::net::server::util::{mk_builder_for_target, service_fn};
@@ -205,6 +205,7 @@ async fn main() {
         catalog.clone(),
         num_xfr_threads,
         XfrMode::AxfrAndIxfr,
+        PerClientSettings::new(),
     );
     let svc = NotifyMiddlewareSvc::<Vec<u8>, _>::new(svc, catalog.clone());
 

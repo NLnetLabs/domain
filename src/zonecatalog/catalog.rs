@@ -126,13 +126,21 @@ impl<T: Clone + Debug + Default> Acl<T> {
     pub fn is_empty(&self) -> bool {
         self.entries.is_empty()
     }
-
+    
     pub fn get(&self, addr: &SocketAddr) -> Option<&T> {
         self.entries.get(addr)
     }
 
+    pub fn get_ip(&self, ip: IpAddr) -> Option<&T> {
+        self.entries.get(&SocketAddr::new(ip, IANA_DNS_PORT_NUMBER))
+    }
+
     pub fn contains(&self, addr: &SocketAddr) -> bool {
         self.entries.contains_key(addr)
+    }
+
+    pub fn contains_ip(&self, ip: IpAddr) -> bool {
+        self.entries.contains_key(&SocketAddr::new(ip, IANA_DNS_PORT_NUMBER))
     }
 }
 

@@ -1,0 +1,67 @@
+; Based https://datatracker.ietf.org/doc/html/rfc1995#section-7
+
+; config options
+server:
+	provide-xfr: 127.0.0.1 NOKEY
+    local-data: "JAIN.AD.JP.         IN SOA NS.JAIN.AD.JP. mohta.jain.ad.jp. (3 600 600 3600000 604800)"
+    local-data: "                    IN NS  NS.JAIN.AD.JP."
+    local-data: "NS.JAIN.AD.JP.      IN A   133.69.136.1"
+    local-data: "JAIN-BB.JAIN.AD.JP. IN A   133.69.136.3"
+    local-data: "                    IN A   192.41.197.2"
+
+CONFIG_END
+
+SCENARIO_BEGIN Test IXFR out
+
+; Request serial version 1 of the zone via IXFR from the server via TCP
+; The reply should be sent as a stream of responses.
+STEP 10 QUERY
+ENTRY_BEGIN
+MATCH TCP
+SECTION QUESTION
+    JAIN.AD.JP. IN IXFR
+SECTION AUTHORITY
+    JAIN.AD.JP.         IN SOA NS.JAIN.AD.JP. mohta.jain.ad.jp. (1 600 600 3600000 604800)
+ENTRY_END
+
+STEP 20 CHECK_ANSWER
+ENTRY_BEGIN
+MATCH all
+REPLY QR AA NOERROR
+SECTION QUESTION
+    JAIN.AD.JP. IN IXFR
+SECTION ANSWER
+    JAIN.AD.JP.         IN SOA NS.JAIN.AD.JP. mohta.jain.ad.jp. (3 600 600 3600000 604800)
+    JAIN.AD.JP.         IN NS  NS.JAIN.AD.JP.
+    NS.JAIN.AD.JP.      IN A   133.69.136.1
+    JAIN-BB.JAIN.AD.JP. IN A   133.69.136.3
+    JAIN-BB.JAIN.AD.JP. IN A   192.41.197.2
+    JAIN.AD.JP.         IN SOA NS.JAIN.AD.JP. mohta.jain.ad.jp. (3 600 600 3600000 604800)
+ENTRY_END
+
+; Request serial version 1 of the zone via IXFR from the server via UDP
+; The reply should fit in a single UDP packet.
+STEP 30 QUERY
+ENTRY_BEGIN
+SECTION QUESTION
+    JAIN.AD.JP. IN IXFR
+SECTION AUTHORITY
+    JAIN.AD.JP.         IN SOA NS.JAIN.AD.JP. mohta.jain.ad.jp. (1 600 600 3600000 604800)
+ENTRY_END
+
+STEP 40 CHECK_ANSWER
+ENTRY_BEGIN
+MATCH all
+REPLY QR AA NOERROR
+SECTION QUESTION
+    JAIN.AD.JP. IN IXFR
+SECTION ANSWER
+    JAIN.AD.JP.         IN SOA NS.JAIN.AD.JP. mohta.jain.ad.jp. (3 600 600 3600000 604800)
+    JAIN.AD.JP.         IN NS  NS.JAIN.AD.JP.
+    NS.JAIN.AD.JP.      IN A   133.69.136.1
+    JAIN-BB.JAIN.AD.JP. IN A   133.69.136.3
+    JAIN-BB.JAIN.AD.JP. IN A   192.41.197.2
+    JAIN.AD.JP.         IN SOA NS.JAIN.AD.JP. mohta.jain.ad.jp. (3 600 600 3600000 604800)
+ENTRY_END
+
+SCENARIO_END

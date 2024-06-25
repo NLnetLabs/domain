@@ -506,6 +506,7 @@ where
                             }
 
                             Ok(msg) => {
+                                trace!(addr = %addr, ?msg, "Parsed first question: {:?}", msg.first_question());
                                 let ctx = UdpTransportContext::new(cfg.load().max_response_size);
                                 let ctx = TransportSpecificContext::Udp(ctx);
                                 let request = Request::new(addr, received_at, msg, ctx);
