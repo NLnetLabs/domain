@@ -7,12 +7,12 @@ use crate::base::cmp::CanonicalOrd;
 use crate::base::iana::SvcParamKey;
 use crate::base::scan::Symbol;
 use crate::base::wire::{Compose, Parse, ParseError};
+use core::cmp::Ordering;
+use core::marker::PhantomData;
+use core::{cmp, fmt, hash, mem};
 use octseq::builder::{EmptyBuilder, FromBuilder, OctetsBuilder, ShortBuf};
 use octseq::octets::{Octets, OctetsFrom, OctetsInto};
 use octseq::parse::{Parser, ShortInput};
-use core::{cmp, fmt, hash, mem};
-use core::cmp::Ordering;
-use core::marker::PhantomData;
 
 //------------ SvcParams -----------------------------------------------------
 
@@ -69,14 +69,11 @@ pub struct SvcParams<Octs: ?Sized> {
     #[cfg_attr(
         feature = "serde",
         serde(
-            serialize_with =
-                "octseq::serde::SerializeOctets::serialize_octets",
-            deserialize_with =
-                "octseq::serde::DeserializeOctets::deserialize_octets",
+            serialize_with = "octseq::serde::serialize",
+            deserialize_with = "octseq::serde::DeserializeOctets::deserialize_octets",
             bound(
-                serialize = "Octs: octseq::serde::SerializeOctets",
-                deserialize =
-                    "Octs: octseq::serde::DeserializeOctets<'de> + Sized",
+                serialize = "Octs: AsRef<[u8]>",
+                deserialize = "Octs: octseq::serde::DeserializeOctets<'de> + Sized",
             )
         )
     )]
@@ -91,7 +88,9 @@ impl<Octs> SvcParams<Octs> {
     /// individual values are correctly encoded. It also does not check for
     /// any length limit.
     pub fn from_octets(octets: Octs) -> Result<Self, SvcParamsError>
-    where Octs: AsRef<[u8]> {
+    where
+        Octs: AsRef<[u8]>,
+    {
         SvcParams::check_slice(octets.as_ref())?;
         Ok(unsafe { Self::from_octets_unchecked(octets) })
     }
@@ -159,10 +158,10 @@ impl<Octs> SvcParams<Octs> {
     pub fn from_values<F>(op: F) -> Result<Self, PushError>
     where
         Octs: FromBuilder,
-        <Octs  as FromBuilder>::Builder:
+        <Octs as FromBuilder>::Builder:
             AsRef<[u8]> + OctetsBuilder + EmptyBuilder,
         F: FnOnce(
-            &mut SvcParamsBuilder<<Octs  as FromBuilder>::Builder>
+            &mut SvcParamsBuilder<<Octs as FromBuilder>::Builder>,
         ) -> Result<(), PushError>,
     {
         let mut res = SvcParamsBuilder::empty();
@@ -174,11 +173,10 @@ impl<Octs> SvcParams<Octs> {
 impl<Octs: AsRef<[u8]>> SvcParams<Octs> {
     /// Parses a parameter sequence from its wire format.
     pub fn parse<'a, Src: Octets<Range<'a> = Octs> + ?Sized + 'a>(
-        parser: &mut Parser<'a, Src>
+        parser: &mut Parser<'a, Src>,
     ) -> Result<Self, ParseError> {
-        Self::from_octets(
-            parser.parse_octets(parser.remaining())?
-        ).map_err(Into::into)
+        Self::from_octets(parser.parse_octets(parser.remaining())?)
+            .map_err(Into::into)
     }
 }
 
@@ -234,21 +232,27 @@ impl<Octs: AsRef<[u8]> + ?Sized> SvcParams<Octs> {
 
     /// Returns an iterator over all values.
     pub fn iter_all(&self) -> ValueIter<Octs, AllValues<Octs>>
-    where Octs: Sized {
+    where
+        Octs: Sized,
+    {
         self.iter()
     }
 
     /// Returns an iterator over all values in their raw form.
     pub fn iter_raw(
-        &self
+        &self,
     ) -> impl Iterator<Item = UnknownSvcParam<Octs::Range<'_>>>
-    where Octs: Octets + Sized {
-        self.iter().map(|item| item.expect("parsing cannot have failed"))
+    where
+        Octs: Octets + Sized,
+    {
+        self.iter()
+            .map(|item| item.expect("parsing cannot have failed"))
     }
 
     /// Composes the wire-format of the parameter sequence.
     pub fn compose<Target: OctetsBuilder + ?Sized>(
-        &self, target: &mut Target
+        &self,
+        target: &mut Target,
     ) -> Result<(), Target::AppendError> {
         target.append_slice(self.octets.as_ref())
     }
@@ -257,12 +261,12 @@ impl<Octs: AsRef<[u8]> + ?Sized> SvcParams<Octs> {
 //--- OctetsFrom
 
 impl<SrcOcts, Octs> OctetsFrom<SvcParams<SrcOcts>> for SvcParams<Octs>
-where Octs: OctetsFrom<SrcOcts> {
+where
+    Octs: OctetsFrom<SrcOcts>,
+{
     type Error = Octs::Error;
 
-    fn try_octets_from(
-        src: SvcParams<SrcOcts>
-    ) -> Result<Self, Self::Error> {
+    fn try_octets_from(src: SvcParams<SrcOcts>) -> Result<Self, Self::Error> {
         Ok(unsafe {
             SvcParams::from_octets_unchecked(src.octets.try_octets_into()?)
         })
@@ -281,7 +285,7 @@ where
     }
 }
 
-impl<Octs: AsRef<[u8]> + ?Sized> Eq for SvcParams<Octs> { }
+impl<Octs: AsRef<[u8]> + ?Sized> Eq for SvcParams<Octs> {}
 
 //--- Hash
 
@@ -299,7 +303,8 @@ where
     OtherOcts: AsRef<[u8]> + ?Sized,
 {
     fn partial_cmp(
-        &self, other: &SvcParams<OtherOcts>
+        &self,
+        other: &SvcParams<OtherOcts>,
     ) -> Option<cmp::Ordering> {
         self.as_slice().partial_cmp(other.as_slice())
     }
@@ -316,9 +321,7 @@ where
     Octs: AsRef<[u8]> + ?Sized,
     OtherOcts: AsRef<[u8]> + ?Sized,
 {
-    fn canonical_cmp(
-        &self, other: &SvcParams<OtherOcts>
-    ) -> cmp::Ordering {
+    fn canonical_cmp(&self, other: &SvcParams<OtherOcts>) -> cmp::Ordering {
         self.as_slice().cmp(other.as_slice())
     }
 }
@@ -330,37 +333,35 @@ impl<Octs: Octets + ?Sized> fmt::Display for SvcParams<Octs> {
         let mut parser = Parser::from_ref(self.as_slice());
         let mut first = true;
         while parser.remaining() > 0 {
-            let key = SvcParamKey::parse(
-                &mut parser
-            ).expect("invalid SvcbParam");
+            let key =
+                SvcParamKey::parse(&mut parser).expect("invalid SvcbParam");
             let len = usize::from(
-                u16::parse(&mut parser).expect("invalid SvcParam")
+                u16::parse(&mut parser).expect("invalid SvcParam"),
             );
-            let mut parser = parser.parse_parser(
-                len
-            ).expect("invalid SvcParam");
+            let mut parser =
+                parser.parse_parser(len).expect("invalid SvcParam");
             if first {
                 first = false;
-            }
-            else {
+            } else {
                 f.write_str(" ")?;
             }
             write!(
-                f, "{}", super::value::AllValues::parse_any(key, &mut parser)
+                f,
+                "{}",
+                super::value::AllValues::parse_any(key, &mut parser)
             )?;
-        };
+        }
         Ok(())
     }
 }
 
 impl<Octs: Octets + ?Sized> fmt::Debug for SvcParams<Octs> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        f.debug_tuple("SvcParams").field(
-            &format_args!("{}", self)
-        ).finish()
+        f.debug_tuple("SvcParams")
+            .field(&format_args!("{}", self))
+            .finish()
     }
 }
-
 
 //------------ ValueIter -----------------------------------------------------
 
@@ -411,7 +412,7 @@ where
         while self.parser.remaining() > 0 {
             match self.next_step() {
                 Ok(Some(res)) => return Some(Ok(res)),
-                Ok(None) => { }
+                Ok(None) => {}
                 Err(err) => {
                     // Advance to end so we’ll return None from now on.
                     self.parser.advance_to_end();
@@ -432,13 +433,16 @@ pub trait SvcParamValue {
 }
 
 /// A service binding parameter value that can be parse from wire format.
-pub trait ParseSvcParamValue<'a, Octs: ?Sized>: SvcParamValue + Sized {
+pub trait ParseSvcParamValue<'a, Octs: ?Sized>:
+    SvcParamValue + Sized
+{
     /// Parse a parameter value from wire format.
     ///
     /// The method should return `Ok(None)` if the type cannot parse values
     /// with `key`. It should return an error if parsing fails.
     fn parse_value(
-        key: SvcParamKey, parser: &mut Parser<'a, Octs>,
+        key: SvcParamKey,
+        parser: &mut Parser<'a, Octs>,
     ) -> Result<Option<Self>, ParseError>;
 }
 
@@ -454,7 +458,8 @@ pub trait ComposeSvcParamValue: SvcParamValue {
 
     /// Appends the wire format of the value to the end of `target`.
     fn compose_value<Target: OctetsBuilder + ?Sized>(
-        &self, target: &mut Target,
+        &self,
+        target: &mut Target,
     ) -> Result<(), Target::AppendError>;
 }
 
@@ -478,7 +483,9 @@ impl<Octs> UnknownSvcParam<Octs> {
     ///
     /// The function returns an error if `value` is longer than 65,535 octets.
     pub fn new(key: SvcParamKey, value: Octs) -> Result<Self, LongSvcParam>
-    where Octs: AsRef<[u8]> {
+    where
+        Octs: AsRef<[u8]>,
+    {
         LongSvcParam::check_len(value.as_ref().len())?;
         Ok(unsafe { Self::new_unchecked(key, value) })
     }
@@ -500,9 +507,8 @@ impl<Octs: AsRef<[u8]>> UnknownSvcParam<Octs> {
         key: SvcParamKey,
         parser: &mut Parser<'a, Src>,
     ) -> Result<Self, ParseError> {
-        Self::new(
-            key, parser.parse_octets(parser.remaining())?
-        ).map_err(Into::into)
+        Self::new(key, parser.parse_octets(parser.remaining())?)
+            .map_err(Into::into)
     }
 
     /// Parses a full parameter from the wire format.
@@ -521,7 +527,8 @@ impl<Octs: AsRef<[u8]>> UnknownSvcParam<Octs> {
     ///
     /// This includes the key and length of the parameter.
     pub fn compose_param<Target: OctetsBuilder + ?Sized>(
-        &self, target: &mut Target
+        &self,
+        target: &mut Target,
     ) -> Result<(), Target::AppendError> {
         self.key.compose(target)?;
         self.compose_len().compose(target)?;
@@ -539,16 +546,20 @@ impl<Octs> UnknownSvcParam<Octs> {
     pub fn value(&self) -> &Octs {
         &self.value
     }
- 
+
     /// Returns a slice of the value.
     pub fn as_slice(&self) -> &[u8]
-    where Octs: AsRef<[u8]> {
+    where
+        Octs: AsRef<[u8]>,
+    {
         self.value.as_ref()
     }
- 
+
     /// Returns a mutable slice of the value.
     pub fn as_slice_mut(&mut self) -> &mut [u8]
-    where Octs: AsMut<[u8]> {
+    where
+        Octs: AsMut<[u8]>,
+    {
         self.value.as_mut()
     }
 }
@@ -576,7 +587,7 @@ impl<Octs: AsMut<[u8]>> AsMut<[u8]> for UnknownSvcParam<Octs> {
 //--- PartialEq and Eq
 
 impl<Octs, OtherOcts> PartialEq<UnknownSvcParam<OtherOcts>>
-for UnknownSvcParam<Octs>
+    for UnknownSvcParam<Octs>
 where
     Octs: AsRef<[u8]>,
     OtherOcts: AsRef<[u8]>,
@@ -586,7 +597,7 @@ where
     }
 }
 
-impl<Octs: AsRef<[u8]>> Eq for UnknownSvcParam<Octs> { }
+impl<Octs: AsRef<[u8]>> Eq for UnknownSvcParam<Octs> {}
 
 //--- Hash
 
@@ -605,14 +616,15 @@ impl<Octs> SvcParamValue for UnknownSvcParam<Octs> {
 }
 
 impl<'a, Octs: Octets + ?Sized> ParseSvcParamValue<'a, Octs>
-for UnknownSvcParam<Octs::Range<'a>> {
+    for UnknownSvcParam<Octs::Range<'a>>
+{
     fn parse_value(
         key: SvcParamKey,
         parser: &mut Parser<'a, Octs>,
     ) -> Result<Option<Self>, ParseError> {
-        Self::new(
-            key, parser.parse_octets(parser.remaining())?
-        ).map(Some).map_err(Into::into)
+        Self::new(key, parser.parse_octets(parser.remaining())?)
+            .map(Some)
+            .map_err(Into::into)
     }
 }
 
@@ -622,7 +634,8 @@ impl<Octs: AsRef<[u8]>> ComposeSvcParamValue for UnknownSvcParam<Octs> {
     }
 
     fn compose_value<Target: OctetsBuilder + ?Sized>(
-        &self, target: &mut Target,
+        &self,
+        target: &mut Target,
     ) -> Result<(), Target::AppendError> {
         target.append_slice(self.as_slice())
     }
@@ -643,7 +656,6 @@ impl<Octs: AsRef<[u8]>> fmt::Display for UnknownSvcParam<Octs> {
         Ok(())
     }
 }
-
 
 //------------ SvcParamsBuilder ----------------------------------------------
 
@@ -674,8 +686,12 @@ impl<Octs> SvcParamsBuilder<Octs> {
     /// Creates an empty parameter builder.
     #[must_use]
     pub fn empty() -> Self
-    where Octs: EmptyBuilder {
-        Self { octets: Octs::empty() }
+    where
+        Octs: EmptyBuilder,
+    {
+        Self {
+            octets: Octs::empty(),
+        }
     }
 
     /// Creates a parameter builder from an existing parameter sequence.
@@ -684,25 +700,26 @@ impl<Octs> SvcParamsBuilder<Octs> {
     /// of `params`. It can fail if the octets builder is not capable of
     /// providing enough space to hold the content of `params`.
     pub fn from_params<Src: Octets + ?Sized>(
-        params: &SvcParams<Src>
+        params: &SvcParams<Src>,
     ) -> Result<Self, ShortBuf>
-    where Octs: AsRef<[u8]> + OctetsBuilder + EmptyBuilder {
+    where
+        Octs: AsRef<[u8]> + OctetsBuilder + EmptyBuilder,
+    {
         let mut octets = Octs::empty();
         for item in params.iter::<UnknownSvcParam<_>>() {
             let item = item.expect("invalid SvcParams");
-            let start = u32::try_from(
-                octets.as_ref().len()
-            ).map_err(|_| ShortBuf)?.checked_add(
-                u32::from(u32::COMPOSE_LEN)
-            ).ok_or(ShortBuf)?;
-            octets.append_slice(
-                start.to_ne_bytes().as_ref()
-            ).map_err(Into::into)?;
+            let start = u32::try_from(octets.as_ref().len())
+                .map_err(|_| ShortBuf)?
+                .checked_add(u32::from(u32::COMPOSE_LEN))
+                .ok_or(ShortBuf)?;
+            octets
+                .append_slice(start.to_ne_bytes().as_ref())
+                .map_err(Into::into)?;
             item.compose_param(&mut octets).map_err(Into::into)?;
         }
-        octets.append_slice(
-            u32::MAX.to_be_bytes().as_ref()
-        ).map_err(Into::into)?;
+        octets
+            .append_slice(u32::MAX.to_be_bytes().as_ref())
+            .map_err(Into::into)?;
         Ok(Self { octets })
     }
 
@@ -711,38 +728,41 @@ impl<Octs> SvcParamsBuilder<Octs> {
     /// The method will return an error if a value with this key is already
     /// present or if there isn’t enough space left in the builder’s buffer.
     pub fn push<Value: ComposeSvcParamValue + ?Sized>(
-        &mut self, value: &Value
+        &mut self,
+        value: &Value,
     ) -> Result<(), PushError>
-    where Octs: OctetsBuilder + AsRef<[u8]> + AsMut<[u8]> {
-        self.push_raw(
-            value.key(), value.compose_len(), |octs| value.compose_value(octs)
-        )
+    where
+        Octs: OctetsBuilder + AsRef<[u8]> + AsMut<[u8]>,
+    {
+        self.push_raw(value.key(), value.compose_len(), |octs| {
+            value.compose_value(octs)
+        })
     }
 
     pub(super) fn push_raw(
         &mut self,
         key: SvcParamKey,
         value_len: u16,
-        value: impl FnOnce(&mut Octs) -> Result<(), Octs::AppendError>
+        value: impl FnOnce(&mut Octs) -> Result<(), Octs::AppendError>,
     ) -> Result<(), PushError>
-    where Octs: OctetsBuilder + AsRef<[u8]> + AsMut<[u8]> {
+    where
+        Octs: OctetsBuilder + AsRef<[u8]> + AsMut<[u8]>,
+    {
         // If octets is emtpy, we can just append ourselves and be done.
         if self.octets.as_ref().is_empty() {
-            self.octets.append_slice(
-                &u32::from(u32::COMPOSE_LEN).to_ne_bytes()
-            )?;
+            self.octets
+                .append_slice(&u32::from(u32::COMPOSE_LEN).to_ne_bytes())?;
             key.compose(&mut self.octets)?;
             value_len.compose(&mut self.octets)?;
             (value)(&mut self.octets)?;
             u32::MAX.compose(&mut self.octets)?;
-            return Ok(())
+            return Ok(());
         }
 
         // Where will this value start? This also serves as a check whether
         // we have become too long.
-        let start = u32::try_from(self.octets.as_ref().len()).map_err(|_|
-            PushError::ShortBuf
-        )?;
+        let start = u32::try_from(self.octets.as_ref().len())
+            .map_err(|_| PushError::ShortBuf)?;
 
         // Go over the values and find the predecessor and successor.
         let mut pre = None;
@@ -759,30 +779,22 @@ impl<Octs> SvcParamsBuilder<Octs> {
             let tmp_key = tmp.key();
             match tmp_key.cmp(&key) {
                 Ordering::Equal => return Err(PushError::DuplicateKey),
-                Ordering::Less => {
-                    match pre {
-                        Some((key, _)) => {
-                            if tmp_key > key {
-                                pre = Some((tmp_key, tmp_end));
-                            }
-                        }
-                        None => {
-                            pre = Some((tmp_key, tmp_end))
+                Ordering::Less => match pre {
+                    Some((key, _)) => {
+                        if tmp_key > key {
+                            pre = Some((tmp_key, tmp_end));
                         }
                     }
-                }
-                Ordering::Greater => {
-                    match next {
-                        Some((key, _)) => {
-                            if tmp_key < key {
-                                next = Some((tmp_key, tmp_start));
-                            }
-                         }
-                        None => {
-                            next = Some((tmp_key, tmp_start))
+                    None => pre = Some((tmp_key, tmp_end)),
+                },
+                Ordering::Greater => match next {
+                    Some((key, _)) => {
+                        if tmp_key < key {
+                            next = Some((tmp_key, tmp_start));
                         }
                     }
-                }
+                    None => next = Some((tmp_key, tmp_start)),
+                },
             }
             parser.advance(u32::COMPOSE_LEN.into()).unwrap();
         }
@@ -794,21 +806,20 @@ impl<Octs> SvcParamsBuilder<Octs> {
 
         // Append the pointer to the next value. MAX means none.
         self.octets.append_slice(
-            &next.map(|(_, pos)| pos).unwrap_or(u32::MAX).to_ne_bytes()
+            &next.map(|(_, pos)| pos).unwrap_or(u32::MAX).to_ne_bytes(),
         )?;
 
         // Replace the predecessor’s point with our start. If there is no
         // predecessor, we are the first item.
-        let pos = pre.map(|(_, pos)| {
-            // The u32 here was made from a usize so converting it back has to
-            // work.
-            usize::try_from(pos).unwrap()
-        }).unwrap_or(0);
-        self.octets.as_mut()[
-            pos..pos + usize::from(u32::COMPOSE_LEN)
-        ].copy_from_slice(
-            &start.to_ne_bytes()
-        );
+        let pos = pre
+            .map(|(_, pos)| {
+                // The u32 here was made from a usize so converting it back has to
+                // work.
+                usize::try_from(pos).unwrap()
+            })
+            .unwrap_or(0);
+        self.octets.as_mut()[pos..pos + usize::from(u32::COMPOSE_LEN)]
+            .copy_from_slice(&start.to_ne_bytes());
 
         Ok(())
     }
@@ -820,36 +831,34 @@ impl<Octs> SvcParamsBuilder<Octs> {
     /// builder and may fail if the target octet’s builder can’t provide
     /// enough space.
     pub fn freeze<Target>(
-        &self
+        &self,
     ) -> Result<
         SvcParams<Target>,
-        <<Target as FromBuilder>::Builder as OctetsBuilder>::AppendError
+        <<Target as FromBuilder>::Builder as OctetsBuilder>::AppendError,
     >
     where
         Octs: AsRef<[u8]>,
         Target: FromBuilder,
-        <Target as FromBuilder>::Builder: OctetsBuilder + EmptyBuilder
+        <Target as FromBuilder>::Builder: OctetsBuilder + EmptyBuilder,
     {
         let mut target = <Target as FromBuilder>::Builder::empty();
         if !self.octets.as_ref().is_empty() {
             let mut parser = Parser::from_ref(self.octets.as_ref());
             loop {
-                let pos = u32::from_ne_bytes(
-                    Parse::parse(&mut parser).unwrap()
-                );
+                let pos =
+                    u32::from_ne_bytes(Parse::parse(&mut parser).unwrap());
                 if pos == u32::MAX {
                     break;
                 }
                 let pos = usize::try_from(pos).unwrap();
                 parser.seek(pos).unwrap();
-                let param = UnknownSvcParam::parse_param(&mut parser).unwrap();
+                let param =
+                    UnknownSvcParam::parse_param(&mut parser).unwrap();
                 param.compose_param(&mut target)?;
             }
         }
         Ok(unsafe {
-            SvcParams::from_octets_unchecked(
-                Target::from_builder(target)
-            )
+            SvcParams::from_octets_unchecked(Target::from_builder(target))
         })
     }
 }
@@ -866,7 +875,7 @@ impl From<ShortInput> for SvcParamsError {
         ParseError::from(err).into()
     }
 }
-    
+
 impl From<ParseError> for SvcParamsError {
     fn from(err: ParseError) -> Self {
         SvcParamsError(err)
@@ -915,7 +924,6 @@ impl fmt::Display for LongSvcParam {
 #[cfg(feature = "std")]
 impl std::error::Error for LongSvcParam {}
 
-
 //------------ PushError -----------------------------------------------------
 
 /// An error happened when pushing values to a parameters builder.
@@ -939,7 +947,7 @@ impl fmt::Display for PushError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             PushError::DuplicateKey => f.write_str("duplicate key"),
-            PushError::ShortBuf => ShortBuf.fmt(f)
+            PushError::ShortBuf => ShortBuf.fmt(f),
         }
     }
 }
@@ -947,13 +955,12 @@ impl fmt::Display for PushError {
 #[cfg(feature = "std")]
 impl std::error::Error for PushError {}
 
-
 //============ Tests =========================================================
 
 #[cfg(test)]
 mod test {
-    use super::*;
     use super::super::value;
+    use super::*;
     use octseq::array::Array;
 
     type Octets512 = Array<512>;
@@ -963,7 +970,6 @@ mod test {
     fn octets512(slice: impl AsRef<[u8]>) -> Octets512 {
         Octets512::try_from(slice.as_ref()).unwrap()
     }
-
 
     //--- Test vectors from the draft.
     //
@@ -1008,7 +1014,7 @@ mod test {
             b"\x00\x03\
               \x00\x02\
               \x00\x35",
-            [ value::Port::new(53) ]
+            [value::Port::new(53)]
         );
     }
 
@@ -1018,12 +1024,8 @@ mod test {
             b"\x02\x9b\
               \x00\x05\
               \x68\x65\x6c\x6c\x6f",
-            [
-                UnknownSvcParam::new(
-                    0x029b.into(),
-                    octets512(b"hello")
-                ).unwrap()
-            ]
+            [UnknownSvcParam::new(0x029b.into(), octets512(b"hello"))
+                .unwrap()]
         );
     }
 
@@ -1033,12 +1035,11 @@ mod test {
             b"\x02\x9b\
               \x00\x09\
               \x68\x65\x6c\x6c\x6f\xd2\x71\x6f\x6f",
-            [
-                UnknownSvcParam::new(
-                    0x029b.into(),
-                    octets512(b"\x68\x65\x6c\x6c\x6f\xd2\x71\x6f\x6f"),
-                ).unwrap()
-            ]
+            [UnknownSvcParam::new(
+                0x029b.into(),
+                octets512(b"\x68\x65\x6c\x6c\x6f\xd2\x71\x6f\x6f"),
+            )
+            .unwrap()]
         );
     }
 
@@ -1054,12 +1055,11 @@ mod test {
               \x00\x00\x00\x00\x00\x00\x00\x01\
               \x20\x01\x0d\xb8\x00\x00\x00\x00\
               \x00\x00\x00\x00\x00\x53\x00\x01",
-            [
-                value::Ipv6Hint::<Octets512>::from_addrs([
-                    Ipv6Addr::from_str("2001:db8::1").unwrap(),
-                    Ipv6Addr::from_str("2001:db8::53:1").unwrap(),
-                ]).unwrap()
-            ]
+            [value::Ipv6Hint::<Octets512>::from_addrs([
+                Ipv6Addr::from_str("2001:db8::1").unwrap(),
+                Ipv6Addr::from_str("2001:db8::53:1").unwrap(),
+            ])
+            .unwrap()]
         );
     }
 
@@ -1076,7 +1076,8 @@ mod test {
             [
                 value::Ipv6Hint::<Octets512>::from_addrs([
                     Ipv6Addr::from_str("::ffff:198.51.100.100").unwrap(),
-                ]).unwrap()
+                ])
+                .unwrap()
             ]
         );
     }
@@ -1091,9 +1092,11 @@ mod test {
             [
                 SvcParamKey::ALPN,
                 SvcParamKey::IPV4HINT,
-                SvcParamKey::PRIVATE_RANGE_BEGIN.into()
-            ].into_iter()
-        ).unwrap();
+                SvcParamKey::PRIVATE_RANGE_BEGIN.into(),
+            ]
+            .into_iter(),
+        )
+        .unwrap();
         assert_eq!(
             "mandatory=alpn,ipv4hint,key65280",
             format!("{}", mandatory)
@@ -1102,41 +1105,37 @@ mod test {
         let mut alpn_builder = value::AlpnBuilder::<Octets512>::empty();
         alpn_builder.push("h2").unwrap();
         alpn_builder.push("h3-19").unwrap();
-        assert_eq!(
-            "alpn=h2,h3-19",
-            format!("{}", alpn_builder.freeze())
-        );
+        assert_eq!("alpn=h2,h3-19", format!("{}", alpn_builder.freeze()));
 
         assert_eq!("nodefaultalpn", format!("{}", value::NoDefaultAlpn));
 
         assert_eq!(
             "ech",
-            format!(
-                "{}",
-                value::Ech::from_octets(Octets512::new()).unwrap()
-            )
+            format!("{}", value::Ech::from_octets(Octets512::new()).unwrap())
         );
 
         assert_eq!(
             "ipv4hint=192.0.2.1,192.0.2.2",
             format!(
                 "{}",
-                value::Ipv4Hint::<Octets512>::from_addrs(
-                    [
-                        [192, 0, 2, 1].into(), [192, 0, 2, 2].into()
-                    ]
-                ).unwrap()
+                value::Ipv4Hint::<Octets512>::from_addrs([
+                    [192, 0, 2, 1].into(),
+                    [192, 0, 2, 2].into()
+                ])
+                .unwrap()
             )
         );
     }
-
 
     //--- Builder
 
     #[test]
     fn empty_builder() {
         assert_eq!(
-            Builder512::empty().freeze::<Octets512>().unwrap().as_slice(),
+            Builder512::empty()
+                .freeze::<Octets512>()
+                .unwrap()
+                .as_slice(),
             b""
         );
     }
@@ -1154,15 +1153,15 @@ mod test {
     #[test]
     fn three_values_in_order() {
         let mut builder = Builder512::empty();
-        builder.push(
-            &UnknownSvcParam::new(1.into(), b"223").unwrap()
-        ).unwrap();
-        builder.push(
-            &UnknownSvcParam::new(2.into(), b"224").unwrap()
-        ).unwrap();
-        builder.push(
-            &UnknownSvcParam::new(8.into(), b"225").unwrap()
-        ).unwrap();
+        builder
+            .push(&UnknownSvcParam::new(1.into(), b"223").unwrap())
+            .unwrap();
+        builder
+            .push(&UnknownSvcParam::new(2.into(), b"224").unwrap())
+            .unwrap();
+        builder
+            .push(&UnknownSvcParam::new(8.into(), b"225").unwrap())
+            .unwrap();
         assert_eq!(
             builder.freeze::<Octets512>().unwrap().as_slice(),
             b"\x00\x01\x00\x03223\
@@ -1174,15 +1173,15 @@ mod test {
     #[test]
     fn three_values_out_of_order() {
         let mut builder = Builder512::empty();
-        builder.push(
-            &UnknownSvcParam::new(1.into(), b"223").unwrap()
-        ).unwrap();
-        builder.push(
-            &UnknownSvcParam::new(8.into(), b"225").unwrap()
-        ).unwrap();
-        builder.push(
-            &UnknownSvcParam::new(2.into(), b"224").unwrap()
-        ).unwrap();
+        builder
+            .push(&UnknownSvcParam::new(1.into(), b"223").unwrap())
+            .unwrap();
+        builder
+            .push(&UnknownSvcParam::new(8.into(), b"225").unwrap())
+            .unwrap();
+        builder
+            .push(&UnknownSvcParam::new(2.into(), b"224").unwrap())
+            .unwrap();
         assert_eq!(
             builder.freeze::<Octets512>().unwrap().as_slice(),
             b"\x00\x01\x00\x03223\
@@ -1194,17 +1193,14 @@ mod test {
     #[test]
     fn three_values_with_collision() {
         let mut builder = Builder512::empty();
-        builder.push(
-            &UnknownSvcParam::new(1.into(), b"223").unwrap()
-        ).unwrap();
-        builder.push(
-            &UnknownSvcParam::new(8.into(), b"225").unwrap()
-        ).unwrap();
-        assert!(
-            builder.push(
-                &UnknownSvcParam::new(8.into(), b"224").unwrap()
-            ).is_err()
-        );
+        builder
+            .push(&UnknownSvcParam::new(1.into(), b"223").unwrap())
+            .unwrap();
+        builder
+            .push(&UnknownSvcParam::new(8.into(), b"225").unwrap())
+            .unwrap();
+        assert!(builder
+            .push(&UnknownSvcParam::new(8.into(), b"224").unwrap())
+            .is_err());
     }
 }
-

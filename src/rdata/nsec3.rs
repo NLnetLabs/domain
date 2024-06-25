@@ -32,9 +32,7 @@ use octseq::serde::{DeserializeOctets, SerializeOctets};
     feature = "serde",
     derive(serde::Serialize, serde::Deserialize),
     serde(bound(
-        serialize = "
-            Octs: octseq::serde::SerializeOctets + AsRef<[u8]>,
-        ",
+        serialize = "Octs: AsRef<[u8]>",
         deserialize = "
             Octs: FromBuilder + octseq::serde::DeserializeOctets<'de>,
             <Octs as FromBuilder>::Builder:
@@ -376,9 +374,7 @@ impl<Octs: AsRef<[u8]>> fmt::Debug for Nsec3<Octs> {
     feature = "serde",
     derive(serde::Serialize, serde::Deserialize),
     serde(bound(
-        serialize = "
-            Octs: octseq::serde::SerializeOctets + AsRef<[u8]>,
-        ",
+        serialize = "Octs: AsRef<[u8]>",
         deserialize = "
             Octs: FromBuilder + octseq::serde::DeserializeOctets<'de>,
             <Octs as FromBuilder>::Builder: OctetsBuilder + EmptyBuilder,
@@ -973,7 +969,7 @@ impl<Octs: AsRef<[u8]> + ?Sized> fmt::Debug for Nsec3Salt<Octs> {
 //--- Serialize and Deserialize
 
 #[cfg(feature = "serde")]
-impl<T: AsRef<[u8]> + SerializeOctets> serde::Serialize for Nsec3Salt<T> {
+impl<T: AsRef<[u8]>> serde::Serialize for Nsec3Salt<T> {
     fn serialize<S: serde::Serializer>(
         &self,
         serializer: S,
@@ -986,7 +982,7 @@ impl<T: AsRef<[u8]> + SerializeOctets> serde::Serialize for Nsec3Salt<T> {
         } else {
             serializer.serialize_newtype_struct(
                 "Nsec3Salt",
-                &self.0.as_serialized_octets(),
+                &self.0.as_ref().as_serialized_octets(),
             )
         }
     }
@@ -1328,7 +1324,7 @@ impl<Octs: AsRef<[u8]> + ?Sized> fmt::Debug for OwnerHash<Octs> {
 //--- Serialize and Deserialize
 
 #[cfg(feature = "serde")]
-impl<T: AsRef<[u8]> + SerializeOctets> serde::Serialize for OwnerHash<T> {
+impl<T: AsRef<[u8]>> serde::Serialize for OwnerHash<T> {
     fn serialize<S: serde::Serializer>(
         &self,
         serializer: S,
@@ -1341,7 +1337,7 @@ impl<T: AsRef<[u8]> + SerializeOctets> serde::Serialize for OwnerHash<T> {
         } else {
             serializer.serialize_newtype_struct(
                 "OwnerHash",
-                &self.0.as_serialized_octets(),
+                &self.0.as_ref().as_serialized_octets(),
             )
         }
     }

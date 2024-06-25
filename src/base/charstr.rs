@@ -594,7 +594,7 @@ impl<'a, T: AsRef<[u8]> + ?Sized + 'a> IntoIterator for &'a CharStr<T> {
 #[cfg(feature = "serde")]
 impl<T> serde::Serialize for CharStr<T>
 where
-    T: AsRef<[u8]> + SerializeOctets + ?Sized,
+    T: AsRef<[u8]> + ?Sized,
 {
     fn serialize<S: serde::Serializer>(
         &self,
@@ -608,7 +608,7 @@ where
         } else {
             serializer.serialize_newtype_struct(
                 "CharStr",
-                &self.0.as_serialized_octets(),
+                &self.0.as_ref().as_serialized_octets(),
             )
         }
     }

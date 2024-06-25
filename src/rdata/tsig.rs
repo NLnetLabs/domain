@@ -8,7 +8,7 @@ use crate::base::cmp::CanonicalOrd;
 use crate::base::iana::{Rtype, TsigRcode};
 use crate::base::name::{FlattenInto, ParsedName, ToName};
 use crate::base::rdata::{
-    ComposeRecordData, LongRecordData, ParseRecordData, RecordData
+    ComposeRecordData, LongRecordData, ParseRecordData, RecordData,
 };
 use crate::base::wire::{Compose, Composer, Parse, ParseError};
 use crate::utils::base64;
@@ -43,10 +43,10 @@ pub struct Tsig<Octs, Name> {
     #[cfg_attr(
         feature = "serde",
         serde(
-            serialize_with = "octseq::serde::SerializeOctets::serialize_octets",
+            serialize_with = "octseq::serde::serialize",
             deserialize_with = "octseq::serde::DeserializeOctets::deserialize_octets",
             bound(
-                serialize = "Octs: octseq::serde::SerializeOctets",
+                serialize = "Octs: AsRef<[u8]>",
                 deserialize = "Octs: octseq::serde::DeserializeOctets<'de>",
             )
         )
@@ -67,10 +67,10 @@ pub struct Tsig<Octs, Name> {
     #[cfg_attr(
         feature = "serde",
         serde(
-            serialize_with = "octseq::serde::SerializeOctets::serialize_octets",
+            serialize_with = "octseq::serde::serialize",
             deserialize_with = "octseq::serde::DeserializeOctets::deserialize_octets",
             bound(
-                serialize = "Octs: octseq::serde::SerializeOctets",
+                serialize = "Octs: AsRef<[u8]>",
                 deserialize = "Octs: octseq::serde::DeserializeOctets<'de>",
             )
         )
@@ -98,7 +98,10 @@ impl<O, N> Tsig<O, N> {
         error: TsigRcode,
         other: O,
     ) -> Result<Self, LongRecordData>
-    where O: AsRef<[u8]>, N: ToName {
+    where
+        O: AsRef<[u8]>,
+        N: ToName,
+    {
         LongRecordData::check_len(
             6 // time_signed
             + 2 // fudge
@@ -110,11 +113,17 @@ impl<O, N> Tsig<O, N> {
                 mac.as_ref().len()
             ).expect("long MAC").checked_add(
                 other.as_ref().len()
-            ).expect("long TSIG")
+            ).expect("long TSIG"),
         )?;
         Ok(unsafe {
             Tsig::new_unchecked(
-                algorithm, time_signed, fudge, mac, original_id, error, other,
+                algorithm,
+                time_signed,
+                fudge,
+                mac,
+                original_id,
+                error,
+                other,
             )
         })
     }
@@ -303,7 +312,13 @@ impl<Octs> Tsig<Octs, ParsedName<Octs>> {
         let other = parser.parse_octets(other_len as usize)?;
         Ok(unsafe {
             Tsig::new_unchecked(
-                algorithm, time_signed, fudge, mac, original_id, error, other,
+                algorithm,
+                time_signed,
+                fudge,
+                mac,
+                original_id,
+                error,
+                other,
             )
         })
     }
@@ -341,17 +356,16 @@ impl<Octs, TOcts, Name, TName> FlattenInto<Tsig<TOcts, TName>>
     for Tsig<Octs, Name>
 where
     TOcts: OctetsFrom<Octs>,
-    Name: FlattenInto<TName, AppendError = TOcts::Error>
+    Name: FlattenInto<TName, AppendError = TOcts::Error>,
 {
     type AppendError = TOcts::Error;
 
     fn try_flatten_into(
-        self
-    ) -> Result<Tsig<TOcts, TName>, Self::AppendError > {
+        self,
+    ) -> Result<Tsig<TOcts, TName>, Self::AppendError> {
         self.flatten()
     }
 }
-
 
 //--- PartialEq and Eq
 
@@ -524,9 +538,7 @@ impl<'a, Octs: Octets + ?Sized> ParseRecordData<'a, Octs>
     }
 }
 
-impl<Octs: AsRef<[u8]>, Name: ToName> ComposeRecordData
-    for Tsig<Octs, Name>
-{
+impl<Octs: AsRef<[u8]>, Name: ToName> ComposeRecordData for Tsig<Octs, Name> {
     fn rdlen(&self, _compress: bool) -> Option<u16> {
         Some(
             6 // time_signed
@@ -732,7 +744,8 @@ mod test {
             13,
             TsigRcode::BADCOOKIE,
             "",
-        ).unwrap();
+        )
+        .unwrap();
         test_rdlen(&rdata);
         test_compose_parse(&rdata, |parser| Tsig::parse(parser));
     }

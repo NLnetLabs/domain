@@ -781,7 +781,7 @@ where
 #[cfg(feature = "serde")]
 impl<Octs> serde::Serialize for RelativeName<Octs>
 where
-    Octs: AsRef<[u8]> + SerializeOctets + ?Sized,
+    Octs: AsRef<[u8]> + ?Sized,
 {
     fn serialize<S: serde::Serializer>(
         &self,
@@ -795,7 +795,7 @@ where
         } else {
             serializer.serialize_newtype_struct(
                 "RelativeName",
-                &self.0.as_serialized_octets(),
+                &self.0.as_ref().as_serialized_octets(),
             )
         }
     }

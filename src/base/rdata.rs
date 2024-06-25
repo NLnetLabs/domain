@@ -237,7 +237,7 @@ pub struct UnknownRecordData<Octs> {
             serialize_with = "crate::utils::base16::serde::serialize",
             deserialize_with = "crate::utils::base16::serde::deserialize",
             bound(
-                serialize = "Octs: AsRef<[u8]> + octseq::serde::SerializeOctets",
+                serialize = "Octs: AsRef<[u8]>",
                 deserialize = "\
                     Octs: \
                         octseq::builder::FromBuilder + \

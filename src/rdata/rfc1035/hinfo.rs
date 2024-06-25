@@ -5,13 +5,11 @@
 use crate::base::charstr::CharStr;
 use crate::base::cmp::CanonicalOrd;
 use crate::base::iana::Rtype;
-use crate::base::rdata::{
-    ComposeRecordData, ParseRecordData, RecordData,
-};
+use crate::base::rdata::{ComposeRecordData, ParseRecordData, RecordData};
 use crate::base::scan::Scanner;
 use crate::base::wire::{Composer, ParseError};
-use core::{fmt, hash};
 use core::cmp::Ordering;
+use core::{fmt, hash};
 #[cfg(feature = "serde")]
 use octseq::builder::{EmptyBuilder, FromBuilder};
 use octseq::octets::{Octets, OctetsFrom, OctetsInto};
@@ -32,7 +30,7 @@ use octseq::parse::Parser;
     feature = "serde",
     derive(serde::Serialize, serde::Deserialize),
     serde(bound(
-        serialize = "Octs: AsRef<[u8]> + octseq::serde::SerializeOctets",
+        serialize = "Octs: AsRef<[u8]>",
         deserialize = "Octs: \
                 FromBuilder \
                 + octseq::serde::DeserializeOctets<'de>, \
@@ -268,4 +266,3 @@ mod test {
         assert_eq!(hinfo.os(), hinfo_bytes.os());
     }
 }
-

@@ -8,8 +8,8 @@ use crate::base::rdata::{
     ComposeRecordData, LongRecordData, ParseRecordData, RecordData,
 };
 use crate::base::wire::{Composer, ParseError};
-use core::{fmt, hash, mem};
 use core::cmp::Ordering;
+use core::{fmt, hash, mem};
 use octseq::octets::{Octets, OctetsFrom, OctetsInto};
 use octseq::parse::Parser;
 
@@ -21,7 +21,7 @@ use octseq::parse::Parser;
 /// allowed in zone files.
 ///
 /// The Null record type is defined in [RFC 1035, section 3.3.10][1].
-/// 
+///
 /// [1]: https://tools.ietf.org/html/rfc1035#section-3.3.10
 #[derive(Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -30,10 +30,10 @@ pub struct Null<Octs: ?Sized> {
     #[cfg_attr(
         feature = "serde",
         serde(
-            serialize_with = "octseq::serde::SerializeOctets::serialize_octets",
+            serialize_with = "octseq::serde::serialize",
             deserialize_with = "octseq::serde::DeserializeOctets::deserialize_octets",
             bound(
-                serialize = "Octs: octseq::serde::SerializeOctets",
+                serialize = "Octs: AsRef<[u8]>",
                 deserialize = "Octs: octseq::serde::DeserializeOctets<'de>",
             )
         )
@@ -293,4 +293,3 @@ mod test {
         test_compose_parse(&rdata, |parser| Null::parse(parser));
     }
 }
-

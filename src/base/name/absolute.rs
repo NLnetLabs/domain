@@ -980,7 +980,7 @@ impl<Octs: AsRef<[u8]>> borrow::Borrow<Name<[u8]>> for Name<Octs> {
 #[cfg(feature = "serde")]
 impl<Octs> serde::Serialize for Name<Octs>
 where
-    Octs: AsRef<[u8]> + SerializeOctets + ?Sized,
+    Octs: AsRef<[u8]> + ?Sized,
 {
     fn serialize<S: serde::Serializer>(
         &self,
@@ -992,7 +992,7 @@ where
         } else {
             serializer.serialize_newtype_struct(
                 "Name",
-                &self.0.as_serialized_octets(),
+                &self.0.as_ref().as_serialized_octets(),
             )
         }
     }

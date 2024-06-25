@@ -36,9 +36,7 @@ use time::{Date, Month, PrimitiveDateTime, Time};
     feature = "serde",
     derive(serde::Serialize, serde::Deserialize),
     serde(bound(
-        serialize = "
-            Octs: octseq::serde::SerializeOctets + AsRef<[u8]>
-        ",
+        serialize = "Octs: AsRef<[u8]>",
         deserialize = "
             Octs: FromBuilder + octseq::serde::DeserializeOctets<'de>,
             <Octs as FromBuilder>::Builder:
@@ -797,7 +795,7 @@ fn u32_from_buf(buf: &[u8]) -> u32 {
     derive(serde::Serialize, serde::Deserialize),
     serde(bound(
         serialize = "
-            Octs: octseq::serde::SerializeOctets + AsRef<[u8]>,
+            Octs: AsRef<[u8]>,
             Name: serde::Serialize,
         ",
         deserialize = "
@@ -1362,7 +1360,7 @@ where
     derive(serde::Serialize, serde::Deserialize),
     serde(bound(
         serialize = "
-            Octs: octseq::serde::SerializeOctets + AsRef<[u8]>,
+            Octs: AsRef<[u8]>,
             Name: serde::Serialize,
         ",
         deserialize = "
@@ -1641,9 +1639,7 @@ where
     feature = "serde",
     derive(serde::Serialize, serde::Deserialize),
     serde(bound(
-        serialize = "
-            Octs: octseq::serde::SerializeOctets + AsRef<[u8]>
-        ",
+        serialize = "Octs: AsRef<[u8]>",
         deserialize = "
             Octs: FromBuilder + octseq::serde::DeserializeOctets<'de>,
             <Octs as FromBuilder>::Builder:
@@ -2193,7 +2189,7 @@ impl<Octs: AsRef<[u8]>> fmt::Debug for RtypeBitmap<Octs> {
 #[cfg(feature = "serde")]
 impl<Octs> serde::Serialize for RtypeBitmap<Octs>
 where
-    Octs: AsRef<[u8]> + SerializeOctets,
+    Octs: AsRef<[u8]>,
 {
     fn serialize<S: serde::Serializer>(
         &self,
@@ -2224,7 +2220,7 @@ where
         } else {
             serializer.serialize_newtype_struct(
                 "RtypeBitmap",
-                &self.0.as_serialized_octets(),
+                &self.0.as_ref().as_serialized_octets(),
             )
         }
     }
@@ -2432,8 +2428,8 @@ where
         let buf_len = self.buf.as_ref().len();
         for src_pos in (0..buf_len).step_by(34) {
             let chunk_len = (self.buf.as_ref()[src_pos + 1] as usize) + 2;
-                let buf = self.buf.as_mut();
-            buf.copy_within(src_pos..src_pos+chunk_len, dst_pos);
+            let buf = self.buf.as_mut();
+            buf.copy_within(src_pos..src_pos + chunk_len, dst_pos);
             dst_pos += chunk_len;
         }
         self.buf.truncate(dst_pos);

@@ -438,7 +438,7 @@ impl<Octets: AsRef<[u8]>> fmt::Debug for UncertainName<Octets> {
 #[cfg(feature = "serde")]
 impl<Octets> serde::Serialize for UncertainName<Octets>
 where
-    Octets: AsRef<[u8]> + SerializeOctets,
+    Octets: AsRef<[u8]>,
 {
     fn serialize<S: serde::Serializer>(
         &self,
@@ -452,7 +452,7 @@ where
         } else {
             serializer.serialize_newtype_struct(
                 "UncertainName",
-                &self.as_octets().as_serialized_octets(),
+                &self.as_octets().as_ref().as_serialized_octets(),
             )
         }
     }

@@ -123,20 +123,20 @@ pub mod serde {
     use super::encode_display;
     use core::fmt;
     use octseq::builder::{EmptyBuilder, FromBuilder, OctetsBuilder};
-    use octseq::serde::{DeserializeOctets, SerializeOctets};
+    use octseq::serde::DeserializeOctets;
 
     pub fn serialize<Octets, S>(
         octets: &Octets,
         serializer: S,
     ) -> Result<S::Ok, S::Error>
     where
-        Octets: AsRef<[u8]> + SerializeOctets,
+        Octets: AsRef<[u8]>,
         S: serde::Serializer,
     {
         if serializer.is_human_readable() {
             serializer.collect_str(&encode_display(octets))
         } else {
-            octets.serialize_octets(serializer)
+            octseq::serde::serialize(octets, serializer)
         }
     }
 
