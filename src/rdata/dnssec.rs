@@ -24,7 +24,7 @@ use octseq::builder::{
 use octseq::octets::{Octets, OctetsFrom, OctetsInto};
 use octseq::parse::Parser;
 #[cfg(feature = "serde")]
-use octseq::serde::{DeserializeOctets, SerializeOctets};
+use octseq::serde::DeserializeOctets;
 #[cfg(feature = "std")]
 use std::vec::Vec;
 use time::{Date, Month, PrimitiveDateTime, Time};
@@ -2220,7 +2220,7 @@ where
         } else {
             serializer.serialize_newtype_struct(
                 "RtypeBitmap",
-                &self.0.as_ref().as_serialized_octets(),
+                &octseq::serde::AsSerializedOctets::from(&self.0),
             )
         }
     }

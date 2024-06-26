@@ -19,7 +19,7 @@ use octseq::builder::{
 };
 use octseq::octets::{Octets, OctetsFrom};
 #[cfg(feature = "serde")]
-use octseq::serde::{DeserializeOctets, SerializeOctets};
+use octseq::serde::DeserializeOctets;
 #[cfg(feature = "std")]
 use std::vec::Vec;
 
@@ -795,7 +795,7 @@ where
         } else {
             serializer.serialize_newtype_struct(
                 "RelativeName",
-                &self.0.as_ref().as_serialized_octets(),
+                &octseq::serde::AsSerializedOctets::from(&self.0.as_ref()),
             )
         }
     }

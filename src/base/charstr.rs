@@ -31,7 +31,7 @@ use bytes::BytesMut;
 use core::{cmp, fmt, hash, mem, str};
 use octseq::builder::FreezeBuilder;
 #[cfg(feature = "serde")]
-use octseq::serde::{DeserializeOctets, SerializeOctets};
+use octseq::serde::DeserializeOctets;
 use octseq::{
     EmptyBuilder, FromBuilder, IntoBuilder, Octets, OctetsBuilder,
     OctetsFrom, Parser, ShortBuf, Truncate,
@@ -608,7 +608,7 @@ where
         } else {
             serializer.serialize_newtype_struct(
                 "CharStr",
-                &self.0.as_ref().as_serialized_octets(),
+                &octseq::serde::AsSerializedOctets::from(&self.0),
             )
         }
     }

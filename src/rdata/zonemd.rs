@@ -29,8 +29,7 @@ pub struct Zonemd<Octs: ?Sized> {
     #[cfg_attr(
         feature = "serde",
         serde(
-            serialize_with = "octseq::serde::serialize",
-            deserialize_with = "octseq::serde::DeserializeOctets::deserialize_octets",
+            with = "octseq::serde",
             bound(
                 serialize = "Octs: AsRef<[u8]>",
                 deserialize = "Octs: octseq::serde::DeserializeOctets<'de>",

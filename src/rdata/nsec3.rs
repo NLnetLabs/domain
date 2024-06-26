@@ -23,7 +23,7 @@ use octseq::builder::{
 use octseq::octets::{Octets, OctetsFrom, OctetsInto};
 use octseq::parse::Parser;
 #[cfg(feature = "serde")]
-use octseq::serde::{DeserializeOctets, SerializeOctets};
+use octseq::serde::DeserializeOctets;
 
 //------------ Nsec3 ---------------------------------------------------------
 
@@ -982,7 +982,7 @@ impl<T: AsRef<[u8]>> serde::Serialize for Nsec3Salt<T> {
         } else {
             serializer.serialize_newtype_struct(
                 "Nsec3Salt",
-                &self.0.as_ref().as_serialized_octets(),
+                &octseq::serde::AsSerializedOctets::from(&self.0),
             )
         }
     }
@@ -1337,7 +1337,7 @@ impl<T: AsRef<[u8]>> serde::Serialize for OwnerHash<T> {
         } else {
             serializer.serialize_newtype_struct(
                 "OwnerHash",
-                &self.0.as_ref().as_serialized_octets(),
+                &octseq::serde::AsSerializedOctets::from(&self.0),
             )
         }
     }
