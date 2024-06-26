@@ -32,7 +32,9 @@ use crate::net::server::service::{
 };
 use crate::net::server::util::{mk_builder_for_target, mk_error_response};
 use crate::rdata::ZoneRecordData;
-use crate::zonecatalog::catalog::{Acl, Catalog, CatalogZone, ZoneInfo};
+use crate::zonecatalog::catalog::{
+    Catalog, CatalogZone, CompatibilityMode, XfrStrategy, ZoneInfo, ZoneType,
+};
 use crate::zonetree::error::OutOfZone;
 use crate::zonetree::{
     Answer, AnswerContent, ReadableZone, SharedRrset, StoredName,
@@ -59,26 +61,6 @@ pub enum XfrMode {
     AxfrAndIxfr,
     AxfrOnly,
 }
-
-//------------ CompatibilityMode ---------------------------------------------
-
-/// https://datatracker.ietf.org/doc/html/rfc5936#section-7.1
-/// 7.1.  Server
-///   "An implementation of an AXFR server MAY permit configuring, on a per
-///    AXFR client basis, the necessity to revert to a single resource record
-///    per message; in that case, the default SHOULD be to use multiple
-///    records per message."
-#[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
-pub enum CompatibilityMode {
-    #[default]
-    Default,
-
-    BackwardCompatible,
-}
-
-//------------ PerClientSettings ---------------------------------------------
-
-pub type PerClientSettings = Acl<CompatibilityMode>;
 
 //------------ XfrMiddlewareSvc ----------------------------------------------
 
@@ -111,8 +93,6 @@ pub struct XfrMiddlewareSvc<RequestOctets, Svc> {
 
     xfr_mode: XfrMode,
 
-    per_client_settings: Arc<PerClientSettings>,
-
     _phantom: PhantomData<RequestOctets>,
 }
 
@@ -128,12 +108,10 @@ impl<RequestOctets, Svc> XfrMiddlewareSvc<RequestOctets, Svc> {
         catalog: Arc<Catalog>,
         max_concurrency: usize,
         xfr_mode: XfrMode,
-        per_client_settings: PerClientSettings,
     ) -> Self {
         let zone_walking_semaphore =
             Arc::new(Semaphore::new(max_concurrency));
         let batcher_semaphore = Arc::new(Semaphore::new(max_concurrency));
-        let per_client_settings = Arc::new(per_client_settings);
 
         Self {
             svc,
@@ -141,7 +119,6 @@ impl<RequestOctets, Svc> XfrMiddlewareSvc<RequestOctets, Svc> {
             zone_walking_semaphore,
             batcher_semaphore,
             xfr_mode,
-            per_client_settings,
             _phantom: PhantomData,
         }
     }
@@ -159,7 +136,6 @@ where
         req: &Request<RequestOctets>,
         catalog: Arc<Catalog>,
         xfr_mode: XfrMode,
-        per_client_settings: Arc<PerClientSettings>,
     ) -> ControlFlow<
         XfrMiddlewareStream<
             Svc::Future,
@@ -212,6 +188,20 @@ where
             )));
         };
 
+        // Only provide XFR if allowed.
+        let cat_zone = zone
+            .as_ref()
+            .as_any()
+            .downcast_ref::<CatalogZone>()
+            .unwrap();
+
+        if !Self::is_allowed(req, &qname, q.qtype(), cat_zone.info()) {
+            return ControlFlow::Break(Self::to_stream(mk_error_response(
+                msg,
+                OptRcode::REFUSED,
+            )));
+        }
+
         match q.qtype() {
             Rtype::SOA => {
                 let builder = mk_builder_for_target();
@@ -247,20 +237,14 @@ where
                         req,
                         qname,
                         &zone_soa_answer,
+                        cat_zone.info(),
                         read,
-                        per_client_settings,
                     )
                     .await
                 }
             }
 
             Rtype::IXFR => {
-                let cat_zone = zone
-                    .as_ref()
-                    .as_any()
-                    .downcast_ref::<CatalogZone>()
-                    .unwrap();
-
                 info!("IXFR for {qname} from {}", req.client_addr());
 
                 // https://datatracker.ietf.org/doc/html/rfc1995#section-2
@@ -280,7 +264,6 @@ where
                     &zone_soa_answer,
                     cat_zone.info(),
                     xfr_mode,
-                    per_client_settings.clone(),
                 )
                 .await
                 {
@@ -304,8 +287,8 @@ where
                             req,
                             qname,
                             &zone_soa_answer,
+                            cat_zone.info(),
                             read,
-                            per_client_settings,
                         )
                         .await
                     }
@@ -316,14 +299,57 @@ where
         }
     }
 
+    fn is_allowed(
+        req: &Request<RequestOctets>,
+        qname: &Name<Bytes>,
+        qtype: Rtype,
+        zone_info: &ZoneInfo,
+    ) -> bool {
+        let client_ip = req.client_addr().ip();
+
+        if qtype == Rtype::SOA {
+            return true;
+        }
+
+        let ZoneType::Primary { allow_xfr, .. } = zone_info.zone_type()
+        else {
+            warn!(
+                "{qtype} for {qname} from {client_ip} refused: zone does not allow XFR",
+            );
+            return false;
+        };
+
+        let Some((xfr_settings, _tsig_key)) =
+            allow_xfr.get_ip(req.client_addr().ip())
+        else {
+            warn!(
+                "{qtype} for {qname} from {client_ip} refused: client is not permitted to transfer this zone",
+            );
+            return false;
+        };
+
+        if matches!(
+            (qtype, xfr_settings.strategy),
+            (Rtype::AXFR, XfrStrategy::IxfrOnly)
+                | (Rtype::IXFR, XfrStrategy::AxfrOnly)
+        ) {
+            warn!(
+                "{qtype} for {qname} from {client_ip} refused: zone does not allow {qtype}",
+            );
+            return false;
+        }
+
+        true
+    }
+
     async fn do_axfr(
         zone_walk_semaphore: Arc<Semaphore>,
         batcher_semaphore: Arc<Semaphore>,
         req: &Request<RequestOctets>,
         qname: Name<Bytes>,
         zone_soa_answer: &Answer,
+        zone_info: &ZoneInfo,
         read: Box<dyn ReadableZone>,
-        per_client_settings: Arc<PerClientSettings>,
     ) -> ControlFlow<
         XfrMiddlewareStream<
             Svc::Future,
@@ -339,13 +365,21 @@ where
             unreachable!()
         };
 
-        // Do we need to operate in backward compatibility mode for this client?
-        let compatibility_mode = per_client_settings
-            .get_ip(req.client_addr().ip())
-            .copied()
-            .unwrap_or_default();
+        let ZoneType::Primary { allow_xfr, .. } = zone_info.zone_type()
+        else {
+            unreachable!();
+        };
 
-        if compatibility_mode == CompatibilityMode::BackwardCompatible {
+        let Some((xfr_settings, _tsig_key)) =
+            allow_xfr.get_ip(req.client_addr().ip())
+        else {
+            unreachable!();
+        };
+
+        let compatibility_mode = xfr_settings.compatibility_mode
+            == CompatibilityMode::BackwardCompatible;
+
+        if compatibility_mode {
             trace!(
                 "Compatibility mode enabled for client with IP address {}",
                 req.client_addr().ip()
@@ -457,7 +491,7 @@ where
             let mut records_to_process = current_rrset.data();
 
             let mut batcher = RrBatcher::new(msg.clone());
-            if compatibility_mode == CompatibilityMode::BackwardCompatible {
+            if compatibility_mode {
                 batcher.set_limit(1);
             }
 
@@ -565,7 +599,6 @@ where
         zone_soa_answer: &Answer,
         zone_info: &ZoneInfo,
         xfr_mode: XfrMode,
-        per_client_settings: Arc<PerClientSettings>,
     ) -> Option<
         ControlFlow<
             XfrMiddlewareStream<
@@ -636,7 +669,6 @@ where
                                     zone_serial,
                                     zone_info,
                                     zone_soa_answer,
-                                    per_client_settings,
                                 )
                                 .await;
                             }
@@ -666,7 +698,6 @@ where
         zone_serial: Serial,
         zone_info: &ZoneInfo,
         zone_soa_answer: &Answer,
-        _per_client_settings: Arc<PerClientSettings>,
     ) -> Option<
         ControlFlow<
             XfrMiddlewareStream<
@@ -990,7 +1021,6 @@ where
         let zone_walking_semaphore = self.zone_walking_semaphore.clone();
         let batcher_semaphore = self.batcher_semaphore.clone();
         let xfr_mode = self.xfr_mode;
-        let per_client_settings = self.per_client_settings.clone();
         Box::pin(async move {
             match Self::preprocess(
                 zone_walking_semaphore,
@@ -998,7 +1028,6 @@ where
                 &request,
                 catalog,
                 xfr_mode,
-                per_client_settings,
             )
             .await
             {

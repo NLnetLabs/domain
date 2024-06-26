@@ -166,12 +166,29 @@ pub enum TransportStrategy {
     Tcp,
 }
 
+//------------ CompatibilityMode ---------------------------------------------
+
+/// https://datatracker.ietf.org/doc/html/rfc5936#section-7.1
+/// 7.1.  Server
+///   "An implementation of an AXFR server MAY permit configuring, on a per
+///    AXFR client basis, the necessity to revert to a single resource record
+///    per message; in that case, the default SHOULD be to use multiple
+///    records per message."
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
+pub enum CompatibilityMode {
+    #[default]
+    Default,
+
+    BackwardCompatible,
+}
+
 //------------ XfrSettings ---------------------------------------------------
 
 #[derive(Clone, Debug, Default)]
 pub struct XfrSettings {
     pub strategy: XfrStrategy,
     pub ixfr_transport: TransportStrategy,
+    pub compatibility_mode: CompatibilityMode,
 }
 
 //------------ TsigKey -------------------------------------------------------
@@ -633,6 +650,10 @@ impl ZoneInfo {
         }
 
         out_diffs
+    }
+
+    pub fn zone_type(&self) -> &ZoneType {
+        &self.zone_type
     }
 }
 

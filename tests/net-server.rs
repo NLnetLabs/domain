@@ -9,7 +9,6 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
-use domain::net::server::middleware::xfr::PerClientSettings;
 use octseq::Octets;
 use rstest::rstest;
 use tracing::instrument;
@@ -31,6 +30,7 @@ use domain::net::server::service::{CallResult, Service, ServiceResult};
 use domain::net::server::stream::StreamServer;
 use domain::net::server::util::mk_builder_for_target;
 use domain::net::server::util::service_fn;
+use domain::zonecatalog::catalog::CompatibilityMode;
 use domain::zonefile::inplace::Zonefile;
 
 use domain::net::server::middleware::xfr::XfrMiddlewareSvc;
@@ -142,18 +142,12 @@ async fn server_tests(#[files("test-data/server/*.rpl")] rpl_file: PathBuf) {
     } else {
         // TODO: It should be possible to use XFR/NOTIFY middleware also when
         // using cookies or EDNS middleware.
-        const NUM_XFR_THREADS: usize = 1;
-        let /*mut*/ per_client_settings = PerClientSettings::new();
-        // per_client_settings.allow_from(
-        //     Ipv4Addr::LOCALHOST.into(),
-        //     CompatibilityMode::BackwardCompatible,
-        // );
+        const MAX_XFR_CONCURRENCY: usize = 1;
         let svc = XfrMiddlewareSvc::<Vec<u8>, _>::new(
             svc,
             catalog,
-            NUM_XFR_THREADS,
+            MAX_XFR_CONCURRENCY,
             XfrMode::AxfrAndIxfr,
-            per_client_settings,
         );
         // let svc = NotifyMiddlewareSvc::<Vec<u8>, _>::new(svc, catalog);
         finish_svc(svc, server_config, &stelline).await;
@@ -383,7 +377,7 @@ fn parse_server_config(config: &Config) -> ServerConfig {
     let mut parsed_config = ServerConfig::default();
     let mut zone_file_bytes = VecDeque::<u8>::new();
     let mut in_server_block = false;
-    let mut zone_type = Option::<ZoneType>::None;
+    let mut allow_xfr = XfrAcl::new();
 
     for line in config.lines() {
         if line.starts_with("server:") {
@@ -454,7 +448,7 @@ fn parse_server_config(config: &Config) -> ServerConfig {
                         }
                     }
                     ("provide-xfr", v) => {
-                        // provide-xfr: [AXFR|UDP] <ip-address> <key-name | NOKEY>
+                        // provide-xfr: [AXFR|UDP] <ip-address> <key-name | NOKEY> [COMPATIBLE]
                         let mut pieces = v.split(|c: char| c.is_whitespace());
                         let flags_or_ip = pieces.next().unwrap();
                         let strategy;
@@ -476,10 +470,6 @@ fn parse_server_config(config: &Config) -> ServerConfig {
                                 ip
                             }
                         };
-                        let xfr_settings = XfrSettings {
-                            strategy,
-                            ixfr_transport,
-                        };
 
                         let ip = ip.parse().unwrap();
                         let key_name = pieces.next().unwrap();
@@ -491,14 +481,19 @@ fn parse_server_config(config: &Config) -> ServerConfig {
                             )),
                             _ => panic!("Unsupported key name value '{key_name}' for 'provide-xfr' setting"),
                         };
+                        let compatibility_mode = match pieces.next() {
+                            Some("COMPATIBLE") => CompatibilityMode::BackwardCompatible,
+                            Some(data) => panic!("Unsupported trailing data '{data}' for 'provide-xfr' setting"),
+                            None => CompatibilityMode::Default,
+                        };
 
-                        let mut allow_xfr = XfrAcl::new();
+                        let xfr_settings = XfrSettings {
+                            strategy,
+                            ixfr_transport,
+                            compatibility_mode,
+                        };
+
                         allow_xfr.allow_from(ip, (xfr_settings, tsig_key));
-
-                        let notify = Acl::new();
-
-                        zone_type =
-                            Some(ZoneType::new_primary(allow_xfr, notify));
                     }
                     _ => {
                         eprintln!("Ignoring unknown server setting '{setting}' with value: {value}");
@@ -508,13 +503,11 @@ fn parse_server_config(config: &Config) -> ServerConfig {
         }
     }
 
-    if !zone_file_bytes.is_empty() || zone_type.is_some() {
+    if !zone_file_bytes.is_empty() || !allow_xfr.is_empty() {
         let zone_file = (!zone_file_bytes.is_empty())
             .then(|| Zonefile::load(&mut zone_file_bytes).unwrap());
 
-        let zone_type = zone_type.unwrap_or_else(|| {
-            ZoneType::new_primary(XfrAcl::new(), Acl::new())
-        });
+        let zone_type = ZoneType::new_primary(allow_xfr, Acl::new());
 
         parsed_config.zone = Some(ServerZone {
             zone_file,

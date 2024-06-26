@@ -422,8 +422,11 @@ pub async fn do_client<'a, T: ClientFactory>(
                         return Err(StellineErrorCause::MissingResponse);
                     };
 
-                    let num_expected_answers =
-                        entry.sections.as_ref().unwrap().answer.len();
+                    let num_expected_answers = entry
+                        .sections
+                        .as_ref()
+                        .map(|section| section.answer.len())
+                        .unwrap_or_default();
 
                     // NOTE: Calling .get_response() on a non-streaming
                     // request will only work once at the time of writing, the
