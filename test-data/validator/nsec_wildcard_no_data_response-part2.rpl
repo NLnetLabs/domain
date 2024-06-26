@@ -1,0 +1,279 @@
+do-ip6: no
+
+; config options
+server:
+	trust-anchor: "nsec.example.           IN DS 41524 8 2 D6B102667845D6CDDC05B44466426D9CCC189989BF67ADB23605EED0 BFE2A443"
+	val-override-date: "20170401000000"
+
+;stub-zone:
+;	name: "."
+	stub-addr: 192.0.2.1 	# ns.
+CONFIG_END
+
+SCENARIO_BEGIN Test validation of NSEC name error responses.
+
+; ns.
+RANGE_BEGIN 0 100
+	ADDRESS 192.0.2.1
+
+ENTRY_BEGIN
+MATCH opcode qtype qname
+ADJUST copy_id
+REPLY QR AA NOERROR
+SECTION QUESTION
+. IN NS
+SECTION ANSWER
+.                       3600    IN      NS      ns.
+SECTION ADDITIONAL
+ns.                     3600    IN      A       192.0.2.1
+ENTRY_END
+
+ENTRY_BEGIN
+MATCH opcode qtype qname
+ADJUST copy_id
+REPLY QR AA NOERROR
+SECTION QUESTION
+ns. IN A
+SECTION ANSWER
+ns.                     3600    IN      A       192.0.2.1
+ENTRY_END
+
+ENTRY_BEGIN
+MATCH opcode qname qtype
+ADJUST copy_id
+REPLY QR AA NOERROR
+SECTION QUESTION
+ns. IN AAAA
+SECTION AUTHORITY
+.                       3600    IN      SOA      . . 0 0 0 0 0
+ENTRY_END
+
+ENTRY_BEGIN
+MATCH opcode subdomain
+ADJUST copy_id copy_query
+REPLY QR NOERROR
+SECTION QUESTION
+example. IN CNAME
+SECTION AUTHORITY
+example.                3600    IN      NS      ns.example.
+SECTION ADDITIONAL
+ns.example.             3600    IN      A       192.0.2.2
+ENTRY_END
+
+RANGE_END
+
+; ns.example.
+RANGE_BEGIN 0 100
+	ADDRESS 192.0.2.2
+
+ENTRY_BEGIN
+MATCH opcode qtype qname
+ADJUST copy_id
+REPLY QR AA NOERROR
+SECTION QUESTION
+example. IN NS
+SECTION ANSWER
+example.                3600    IN      NS      ns.example.
+SECTION ADDITIONAL
+ns.example.             3600    IN      A       192.0.2.2
+ENTRY_END
+
+ENTRY_BEGIN
+MATCH opcode qtype qname
+ADJUST copy_id
+REPLY QR AA NOERROR
+SECTION QUESTION
+ns.example. IN A
+SECTION ANSWER
+ns.example.             3600    IN      A       192.0.2.2
+ENTRY_END
+
+ENTRY_BEGIN
+MATCH opcode qtype qname
+ADJUST copy_id
+REPLY QR AA NOERROR
+SECTION QUESTION
+ns.example. IN AAAA
+SECTION AUTHORITY
+example.                3600    IN      SOA	. . 0 0 0 0 0
+ENTRY_END
+
+ENTRY_BEGIN
+MATCH opcode subdomain
+ADJUST copy_id copy_query
+REPLY QR NOERROR
+SECTION QUESTION
+nsec.example. IN CNAME
+SECTION AUTHORITY
+nsec.example.           3600    IN      NS      ns.nsec.example.
+SECTION ADDITIONAL
+ns.nsec.example.        3600    IN      A       192.0.2.3
+ENTRY_END
+
+RANGE_END
+
+; ns.nsec.example.
+RANGE_BEGIN 0 100
+	ADDRESS 192.0.2.3
+
+ENTRY_BEGIN
+MATCH opcode qtype qname
+ADJUST copy_id
+REPLY QR AA NOERROR
+SECTION QUESTION
+nsec.example. IN NS
+SECTION ANSWER
+nsec.example.		3600	IN	NS	ns.nsec.example.
+nsec.example.		3600	IN	RRSIG	NS 8 2 3600 20170419140236 20170320140236 41524 nsec.example. KECif/B3ckfo5d9Qd/5dtIDt/8nIpTfTMxeJU3qw1U8jzQ/+nQ6qZAvr GH4MeGwY0M9kj2Jj3h2tdI+uhfLaGC7LStXIG0Q+PfalGdddDQwwd/p0 oOQ6bt0eilZN5OKF7Frzn4jmV1x7R/iieWp65xB7OByvguYoXOlzuoU1 ikaL43rm/whxn6iHf0K7NfaVqQwO26N/P3EBFFZMwuhHOB2+bVXKoE7r O4bC04tF7wG7CRUlc44xNs08L512RXRuFIrkHg932BFVlEYmPwbflE6+ zfpZafFzYutEHx7XZw2+gAklynmcAXltPCOiqThkDJzw2rpyUmiH0ztm lG76Tg==
+SECTION ADDITIONAL
+ns.nsec.example.	3600	IN	A	192.0.2.3
+ns.nsec.example.	3600	IN	RRSIG	A 8 3 3600 20170419140236 20170320140236 41524 nsec.example. E6Cx+MIElwAbw4Hg48Ee4CC4pKSjPkW8fmcHVoTqNwMyRs4Jjyymf1tE mNdjYkoN0kxI8PEgbGxzuwlFLpGncQhuZ0dyTzCPvnYFPLIkDmdtyIcj 4MVZiJpdyc5yRTC+Aja1Ik9cQ25QsSGAg4z54Zv0o6uqodppCHILgBzm Q833AQFh6hOQE3BFM3c8h3PCsH6HJOOIlgqculfT5d0S1XPFGmtjVW4G gZNsNeBtLB/SkvYKzNS+Yw38J9VTtWMlgTUwkjVXzC+f83AgzXHM3neq QhRhf72VO/xP5sd33VXDVBtOqbFSDZHLpGLfaXJSrnzKX5H8nCMuIXbs kWK60w==
+ENTRY_END
+
+ENTRY_BEGIN
+MATCH opcode qtype qname
+ADJUST copy_id
+REPLY QR AA NOERROR
+SECTION QUESTION
+ns.nsec.example. IN A
+SECTION ANSWER
+ns.nsec.example.	3600	IN	A	192.0.2.3
+ns.nsec.example.	3600	IN	RRSIG	A 8 3 3600 20170419140236 20170320140236 41524 nsec.example. E6Cx+MIElwAbw4Hg48Ee4CC4pKSjPkW8fmcHVoTqNwMyRs4Jjyymf1tE mNdjYkoN0kxI8PEgbGxzuwlFLpGncQhuZ0dyTzCPvnYFPLIkDmdtyIcj 4MVZiJpdyc5yRTC+Aja1Ik9cQ25QsSGAg4z54Zv0o6uqodppCHILgBzm Q833AQFh6hOQE3BFM3c8h3PCsH6HJOOIlgqculfT5d0S1XPFGmtjVW4G gZNsNeBtLB/SkvYKzNS+Yw38J9VTtWMlgTUwkjVXzC+f83AgzXHM3neq QhRhf72VO/xP5sd33VXDVBtOqbFSDZHLpGLfaXJSrnzKX5H8nCMuIXbs kWK60w==
+ENTRY_END
+
+ENTRY_BEGIN
+MATCH opcode qtype qname
+ADJUST copy_id
+REPLY QR AA NOERROR
+SECTION QUESTION
+ns.nsec.example. IN AAAA
+SECTION AUTHORITY
+nsec.example.		3600	IN	SOA	ns.nsec.example. root.nsec.example. 6 60 60 120 3600
+ns.nsec.example.	3600	IN	NSEC	nsec.example. A RRSIG NSEC
+nsec.example.		3600	IN	RRSIG	SOA 8 2 3600 20170419140236 20170320140236 41524 nsec.example. gZCIxxFWL04vgzuNbZYq3Ghb7OZsZCp1WCcByM602yEgf0IUk8KSqkol pTem3IXQELhFTzbddGFV3Cis5MxZq8XjNbSwXelbUkOkKE4EzDcpldtR yqGnp+ZdZhBrymZvS8dOhwOGllF6AobXx7iFHaY7wtC17XvODduxOBdV mQ/t2QDUnl+Io3s1KfDRf4e22WvtatlQNr9NW+PueeGtGhEdDeyR7VMA fxEqL6Lds7NWN7DPKfsCVgUNkwHzy9opQ64AyVyQAmwRohuon652jKiu MbvJ1vaLxJLeDBnnT3hbMrI/CIfmjqucSOgM9JNXXggIcfBxok5Ze2R5 SL35VA==
+ns.nsec.example.	3600	IN	RRSIG	NSEC 8 3 3600 20170419140236 20170320140236 41524 nsec.example. iOfnQqIT9V87emJsd/Aym6JqU4H8bzjNq3cbWUmiohgdKr2pkqdt3RV1 r/LGbhSm+seWC/xWuBinEH2WAwXwQMUGrYi5htGazk9C97gkSvle/gXT NZweNC7SkrkBv1VXHG/PrinzFP/YWRn7zMn7fOj/uYWDaYAi0Fzh+Ctn fx2hsHIXC9LduIs+Uv9B58tr9tkF5JNYapoZO59Wtiz1GPaPnfUg9X2u 2T+J5rWpYHJkzKulW+yi0YpipfJY+9J9KWGr2PorChm/W1mc83MptyK2 Po+IbX/I0YStNv+nCLccBo94y/DGOLVnF0XpJZnR5ZDcb8ZmbZIP7uD3 GBFKMg==
+ENTRY_END
+
+ENTRY_BEGIN
+MATCH opcode qtype qname
+ADJUST copy_id
+REPLY QR AA NOERROR
+SECTION QUESTION
+nsec.example. IN DNSKEY
+SECTION ANSWER
+nsec.example.                                 3600 IN DNSKEY    257 3 8 AwEAAbgyvYQ2Vlff/inpv4NZLlIk2+l1sL0JoeOUlWHZ3eeWXZKxQJak QIXyGi8xsuANzu/YStLp31SfU/Fj4piUciqA+U74Lot1S/jcM7/1eczh 69YqGUAPZkreZ3z2DpWzBN4lgPR/w0OvTada3D42uV2bzuSK/nXMiMpZ vP1vZ1ykNRmbksTzA+HnrefRi2yuMSUqMHbtfbfFwqVTQ1ddVwSK7qIJ 02jo95YJUSZDPUUQlczIsFsa7Zxn6gQZl+iaRuDY6nLxxStYYlcqZhVA G5U8Dx4IznQ0FkEJp9RXtv5rmtClcQpudCl1gE0GC/W+TTUAa3hD597f onH+s/OfdCE=
+nsec.example.                                 3600 IN RRSIG     DNSKEY 8 2 3600 20170419140236 20170320140236 41524 nsec.example. Z1kUmre0LJX76zuKEYhCN5bNNPvXONZK8LElwgNqEQW4kPApz8+vfLmb 4Xlz6D9ChG6J0Pp/JHdKn+S+Le4B5dUOPzuOksfkHTmRsh9oN2ccSEq3 eJK1VhWwRN69xs1LZgXzVJk7DnDnPVUyIbDpb5piBCJHQVwkrIa1Ykeh hexHJb7YZBmF1B6GqTl7K9QwIvfnpKH+iM83QngepAJqpJuHSEPNWCbQ S9rfuP1SObyZD4L/Z3hBFpaZL9N25ThH7znfTc60xNCitmNMFfq68X2/ JoSrVrFLNv9nlneYNkihorhzDMlzN/i/EhrtBkdaSiRlEODnY7zN4Eax m3JkFQ==
+ENTRY_END
+
+ENTRY_BEGIN
+MATCH opcode qname qtype
+ADJUST copy_id
+REPLY QR AA NOERROR
+SECTION QUESTION
+local.nsec.example. IN A
+SECTION ANSWER
+local.nsec.example.	3600	IN	A	10.6.6.6
+local.nsec.example.	3600	IN	RRSIG	A 8 2 3600 20170419140236 20170320140236 41524 nsec.example. H6auzgGxcWIcfhki7px+Iza4QRw5V47GXpPFDofXoORBdGtVYOhx+ILM pYA8ng4rzYCRFh/g9j8lIzU9y9WDfJyy8CMAJUsjiin/b9iJ0heQQU9r GmV1v+MvNxlcfMdJrec2O31RKBt7bK/FFesD4l3c3+XauwsOIsry+4t6 48uzUO48QVsbuw0PPDH82fPpSNgWyiAIEVwzz/tgrekk4eDwTVUkle4A 9ntjr5CFyKuoeDVTr0rZdJ90W6j4KYRUuk3x1V5w8eil7pNIN3arBzEv OXg4Du3AYskQ98a1VWz7MO/MX9u5WciXSbpDdI/2VtxMeKzkPotDds65 zLIsTA==
+SECTION AUTHORITY
+*.nsec.example.		3600	IN	NSEC	ns.nsec.example. A RRSIG NSEC
+*.nsec.example.		3600	IN	RRSIG	NSEC 8 2 3600 20170419140236 20170320140236 41524 nsec.example. Hp/6sgDgYZuewpSkAugLRERgVAGgAIAN9vAqfuAGcqCxfQXLIXcXD8ji o4rjuSMmAaRw0AQ70pEWldc2Yqre+++/lnEJt5tpGrIhH2raJU9RS/Ix NaN40vwspRdN7tDNLH1T0oTDll76bVc/D4VFtnpGOlM3eIGjFVVdACvZ V0oVW8xp686xwB3uP2DqA0fxMjs4p9PC1FrnTAlGvTX0ThgZR6EmmWJH HCy4kpjfTFR93k/nuAendDVVZNkHL+EncojmUX+U0PRSZPXWBWXbb0kq h1OVaT4HpyWKet+PxKkTGaoNbXRk0BAKC/4Qg4A/+kRk+1OXG4dQMdsS zLnt/Q==
+ENTRY_END
+
+; missing NSEC proof
+ENTRY_BEGIN
+MATCH opcode qname qtype
+ADJUST copy_id
+REPLY QR AA NOERROR
+SECTION QUESTION
+missing-nsec-nodata.local.nsec.example. IN CNAME
+SECTION ANSWER
+nsec.example.		3600	IN	SOA	ns.nsec.example. root.nsec.example. 6 60 60 120 3600
+nsec.example.		3600	IN	RRSIG	SOA 8 2 3600 20170419140236 20170320140236 41524 nsec.example. gZCIxxFWL04vgzuNbZYq3Ghb7OZsZCp1WCcByM602yEgf0IUk8KSqkol pTem3IXQELhFTzbddGFV3Cis5MxZq8XjNbSwXelbUkOkKE4EzDcpldtR yqGnp+ZdZhBrymZvS8dOhwOGllF6AobXx7iFHaY7wtC17XvODduxOBdV mQ/t2QDUnl+Io3s1KfDRf4e22WvtatlQNr9NW+PueeGtGhEdDeyR7VMA fxEqL6Lds7NWN7DPKfsCVgUNkwHzy9opQ64AyVyQAmwRohuon652jKiu MbvJ1vaLxJLeDBnnT3hbMrI/CIfmjqucSOgM9JNXXggIcfBxok5Ze2R5 SL35VA==
+ENTRY_END
+
+ENTRY_BEGIN
+MATCH opcode qname qtype
+ADJUST copy_id
+REPLY QR AA NOERROR
+SECTION QUESTION
+missing-nsec-nodata.local.nsec.example. IN RRSIG
+SECTION ANSWER
+missing-nsec-nodata.local.nsec.example.	3600	IN	RRSIG	A 8 2 3600 20170419140236 20170320140236 41524 nsec.example. H6auzgGxcWIcfhki7px+Iza4QRw5V47GXpPFDofXoORBdGtVYOhx+ILM pYA8ng4rzYCRFh/g9j8lIzU9y9WDfJyy8CMAJUsjiin/b9iJ0heQQU9r GmV1v+MvNxlcfMdJrec2O31RKBt7bK/FFesD4l3c3+XauwsOIsry+4t6 48uzUO48QVsbuw0PPDH82fPpSNgWyiAIEVwzz/tgrekk4eDwTVUkle4A 9ntjr5CFyKuoeDVTr0rZdJ90W6j4KYRUuk3x1V5w8eil7pNIN3arBzEv OXg4Du3AYskQ98a1VWz7MO/MX9u5WciXSbpDdI/2VtxMeKzkPotDds65 zLIsTA==
+ENTRY_END
+
+; synthesized A record was removed and replaced with SOA but no NSEC
+ENTRY_BEGIN
+MATCH opcode qname qtype
+ADJUST copy_id
+REPLY QR AA NOERROR
+SECTION QUESTION
+missing-nsec-masked-data.local.nsec.example. IN A
+SECTION ANSWER
+nsec.example.		3600	IN	SOA	ns.nsec.example. root.nsec.example. 6 60 60 120 3600
+nsec.example.		3600	IN	RRSIG	SOA 8 2 3600 20170419140236 20170320140236 41524 nsec.example. gZCIxxFWL04vgzuNbZYq3Ghb7OZsZCp1WCcByM602yEgf0IUk8KSqkol pTem3IXQELhFTzbddGFV3Cis5MxZq8XjNbSwXelbUkOkKE4EzDcpldtR yqGnp+ZdZhBrymZvS8dOhwOGllF6AobXx7iFHaY7wtC17XvODduxOBdV mQ/t2QDUnl+Io3s1KfDRf4e22WvtatlQNr9NW+PueeGtGhEdDeyR7VMA fxEqL6Lds7NWN7DPKfsCVgUNkwHzy9opQ64AyVyQAmwRohuon652jKiu MbvJ1vaLxJLeDBnnT3hbMrI/CIfmjqucSOgM9JNXXggIcfBxok5Ze2R5 SL35VA==
+ENTRY_END
+
+ENTRY_BEGIN
+MATCH opcode qname qtype
+ADJUST copy_id
+REPLY QR AA NOERROR
+SECTION QUESTION
+missing-nsec-masked-data.local.nsec.example. IN RRSIG
+SECTION ANSWER
+missing-nsec-masked-data.local.nsec.example.	3600	IN	RRSIG	A 8 2 3600 20170419140236 20170320140236 41524 nsec.example. H6auzgGxcWIcfhki7px+Iza4QRw5V47GXpPFDofXoORBdGtVYOhx+ILM pYA8ng4rzYCRFh/g9j8lIzU9y9WDfJyy8CMAJUsjiin/b9iJ0heQQU9r GmV1v+MvNxlcfMdJrec2O31RKBt7bK/FFesD4l3c3+XauwsOIsry+4t6 48uzUO48QVsbuw0PPDH82fPpSNgWyiAIEVwzz/tgrekk4eDwTVUkle4A 9ntjr5CFyKuoeDVTr0rZdJ90W6j4KYRUuk3x1V5w8eil7pNIN3arBzEv OXg4Du3AYskQ98a1VWz7MO/MX9u5WciXSbpDdI/2VtxMeKzkPotDds65 zLIsTA==
+ENTRY_END
+
+ENTRY_BEGIN
+MATCH opcode subdomain
+ADJUST copy_id copy_query
+REPLY QR AA NOERROR
+SECTION QUESTION
+local.nsec.example. IN NS
+SECTION AUTHORITY
+nsec.example.		3600	IN	SOA	ns.nsec.example. root.nsec.example. 6 60 60 120 3600
+*.nsec.example.		3600	IN	NSEC	ns.nsec.example. A RRSIG NSEC
+nsec.example.		3600	IN	RRSIG	SOA 8 2 3600 20170419140236 20170320140236 41524 nsec.example. gZCIxxFWL04vgzuNbZYq3Ghb7OZsZCp1WCcByM602yEgf0IUk8KSqkol pTem3IXQELhFTzbddGFV3Cis5MxZq8XjNbSwXelbUkOkKE4EzDcpldtR yqGnp+ZdZhBrymZvS8dOhwOGllF6AobXx7iFHaY7wtC17XvODduxOBdV mQ/t2QDUnl+Io3s1KfDRf4e22WvtatlQNr9NW+PueeGtGhEdDeyR7VMA fxEqL6Lds7NWN7DPKfsCVgUNkwHzy9opQ64AyVyQAmwRohuon652jKiu MbvJ1vaLxJLeDBnnT3hbMrI/CIfmjqucSOgM9JNXXggIcfBxok5Ze2R5 SL35VA==
+*.nsec.example.		3600	IN	RRSIG	NSEC 8 2 3600 20170419140236 20170320140236 41524 nsec.example. Hp/6sgDgYZuewpSkAugLRERgVAGgAIAN9vAqfuAGcqCxfQXLIXcXD8ji o4rjuSMmAaRw0AQ70pEWldc2Yqre+++/lnEJt5tpGrIhH2raJU9RS/Ix NaN40vwspRdN7tDNLH1T0oTDll76bVc/D4VFtnpGOlM3eIGjFVVdACvZ V0oVW8xp686xwB3uP2DqA0fxMjs4p9PC1FrnTAlGvTX0ThgZR6EmmWJH HCy4kpjfTFR93k/nuAendDVVZNkHL+EncojmUX+U0PRSZPXWBWXbb0kq h1OVaT4HpyWKet+PxKkTGaoNbXRk0BAKC/4Qg4A/+kRk+1OXG4dQMdsS zLnt/Q==
+ENTRY_END
+
+RANGE_END
+
+; Extra entries for a validator that is not a recursive resolver.
+RANGE_BEGIN 0 100
+	ADDRESS 6.6.6.6
+
+; missing NSEC proof
+ENTRY_BEGIN
+MATCH opcode qname qtype
+ADJUST copy_id
+REPLY QR AA NOERROR
+SECTION QUESTION
+missing-nsec-nodata.local.nsec.example. IN CNAME
+SECTION ANSWER
+nsec.example.		3600	IN	SOA	ns.nsec.example. root.nsec.example. 6 60 60 120 3600
+nsec.example.		3600	IN	RRSIG	SOA 8 2 3600 20170419140236 20170320140236 41524 nsec.example. gZCIxxFWL04vgzuNbZYq3Ghb7OZsZCp1WCcByM602yEgf0IUk8KSqkol pTem3IXQELhFTzbddGFV3Cis5MxZq8XjNbSwXelbUkOkKE4EzDcpldtR yqGnp+ZdZhBrymZvS8dOhwOGllF6AobXx7iFHaY7wtC17XvODduxOBdV mQ/t2QDUnl+Io3s1KfDRf4e22WvtatlQNr9NW+PueeGtGhEdDeyR7VMA fxEqL6Lds7NWN7DPKfsCVgUNkwHzy9opQ64AyVyQAmwRohuon652jKiu MbvJ1vaLxJLeDBnnT3hbMrI/CIfmjqucSOgM9JNXXggIcfBxok5Ze2R5 SL35VA==
+ENTRY_END
+
+
+; end of 6.6.6.6
+RANGE_END
+
+
+STEP 20 QUERY
+ENTRY_BEGIN
+REPLY RD DO
+SECTION QUESTION
+missing-nsec-nodata.local.nsec.example. IN CNAME
+ENTRY_END
+
+STEP 21 CHECK_ANSWER
+ENTRY_BEGIN
+MATCH all
+ADJUST copy_id
+REPLY QR AA SERVFAIL
+SECTION QUESTION
+missing-nsec-nodata.local.nsec.example. IN CNAME
+ENTRY_END
+
+
+SCENARIO_END

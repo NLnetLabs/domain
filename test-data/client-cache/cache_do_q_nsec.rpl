@@ -169,16 +169,8 @@ RANGE_END
 RANGE_BEGIN 20 29
 	ADDRESS 192.5.6.30
 
-ENTRY_BEGIN
-MATCH opcode qtype qname AD
-ADJUST copy_id copy_query
-REPLY QR RD AD NOERROR
-SECTION QUESTION
-doesnotexist.example.com. IN NSEC
-SECTION ANSWER
-doesnotexist.example.com.	3600	IN	NSEC	aaa.example.com. TXT RRSIG NSEC 
-ENTRY_END
-
+; we need a way to match a flag being clear. Hack, stelline takes the last
+; entry that matches. First an entry with AD clear, then one with AD set.
 ENTRY_BEGIN
 MATCH opcode qtype qname
 ADJUST copy_id copy_query
@@ -187,6 +179,16 @@ SECTION QUESTION
 doesnotexist.example.com. IN NSEC
 SECTION ANSWER
 doesnotexist.example.com.	3600	IN	NSEC	aa.example.com. TXT RRSIG NSEC 
+ENTRY_END
+
+ENTRY_BEGIN
+MATCH opcode qtype qname AD
+ADJUST copy_id copy_query
+REPLY QR RD AD NOERROR
+SECTION QUESTION
+doesnotexist.example.com. IN NSEC
+SECTION ANSWER
+doesnotexist.example.com.	3600	IN	NSEC	aaa.example.com. TXT RRSIG NSEC 
 ENTRY_END
 
 RANGE_END

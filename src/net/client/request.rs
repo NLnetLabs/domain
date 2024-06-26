@@ -1,8 +1,5 @@
 //! Constructing and sending requests.
 
-#![warn(missing_docs)]
-#![warn(clippy::missing_docs_in_private_items)]
-
 use crate::base::iana::Rcode;
 use crate::base::message::{CopyRecordsError, ShortMessage};
 use crate::base::message_builder::{
@@ -40,6 +37,9 @@ pub trait ComposeRequest: Debug + Send + Sync {
     /// a Vec.
     fn to_vec(&self) -> Result<Vec<u8>, Error>;
 
+    /// Return a reference to the current Header.
+    fn header(&self) -> &Header;
+
     /// Return a reference to a mutable Header to record changes to the header.
     fn header_mut(&mut self) -> &mut Header;
 
@@ -57,6 +57,9 @@ pub trait ComposeRequest: Debug + Send + Sync {
 
     /// Returns whether a message is an answer to the request.
     fn is_answer(&self, answer: &Message<[u8]>) -> bool;
+
+    /// Return the status of the DNSSEC OK flag.
+    fn dnssec_ok(&self) -> bool;
 }
 
 //------------ SendRequest ---------------------------------------------------
@@ -191,7 +194,7 @@ impl<Octs: AsRef<[u8]> + Debug + Octets> RequestMessage<Octs> {
         let target = self.append_message_impl(target)?;
 
         // It would be nice to use .builder() here. But that one deletes all
-        // section. We have to resort to .as_builder() which gives a
+        // sections. We have to resort to .as_builder() which gives a
         // reference and then .clone()
         let result = target.as_builder().clone();
         let msg = Message::from_octets(result.finish().into_target()).expect(
@@ -201,8 +204,8 @@ impl<Octs: AsRef<[u8]> + Debug + Octets> RequestMessage<Octs> {
     }
 }
 
-impl<Octs: AsRef<[u8]> + Clone + Debug + Octets + Send + Sync + 'static>
-    ComposeRequest for RequestMessage<Octs>
+impl<Octs: AsRef<[u8]> + Debug + Octets + Send + Sync> ComposeRequest
+    for RequestMessage<Octs>
 {
     fn append_message<Target: Composer>(
         &self,
@@ -221,6 +224,10 @@ impl<Octs: AsRef<[u8]> + Clone + Debug + Octets + Send + Sync + 'static>
 
     fn to_message(&self) -> Result<Message<Vec<u8>>, Error> {
         self.to_message_impl()
+    }
+
+    fn header(&self) -> &Header {
+        &self.header
     }
 
     fn header_mut(&mut self) -> &mut Header {
@@ -282,6 +289,13 @@ impl<Octs: AsRef<[u8]> + Clone + Debug + Octets + Send + Sync + 'static>
             res
         }
     }
+
+    fn dnssec_ok(&self) -> bool {
+        match &self.opt {
+            None => false,
+            Some(opt) => opt.dnssec_ok(),
+        }
+    }
 }
 
 //------------ Error ---------------------------------------------------------
@@ -340,6 +354,10 @@ pub enum Error {
 
     /// An error happened in the datagram transport.
     Dgram(Arc<super::dgram::QueryError>),
+
+    #[cfg(feature = "unstable-validator")]
+    /// An error happened during DNSSEC validation.
+    Validation(crate::validator::context::Error),
 }
 
 impl From<LongOptData> for Error {
@@ -363,6 +381,13 @@ impl From<ShortMessage> for Error {
 impl From<super::dgram::QueryError> for Error {
     fn from(err: super::dgram::QueryError) -> Self {
         Self::Dgram(err.into())
+    }
+}
+
+#[cfg(feature = "unstable-validator")]
+impl From<crate::validator::context::Error> for Error {
+    fn from(err: crate::validator::context::Error) -> Self {
+        Self::Validation(err)
     }
 }
 
@@ -411,6 +436,10 @@ impl fmt::Display for Error {
                 write!(f, "no transport available")
             }
             Error::Dgram(err) => fmt::Display::fmt(err, f),
+            #[cfg(feature = "unstable-validator")]
+            Error::Validation(_) => {
+                write!(f, "error validating response")
+            }
         }
     }
 }
@@ -444,6 +473,8 @@ impl error::Error for Error {
             Error::WrongReplyForQuery => None,
             Error::NoTransportAvailable => None,
             Error::Dgram(err) => Some(err),
+            #[cfg(feature = "unstable-validator")]
+            Error::Validation(err) => Some(err),
         }
     }
 }

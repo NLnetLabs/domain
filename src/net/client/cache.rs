@@ -26,9 +26,6 @@
 //! responses should be cached and whether truncated responses should be cached
 //! or not.
 
-#![warn(missing_docs)]
-#![warn(clippy::missing_docs_in_private_items)]
-
 use crate::base::iana::{Class, Opcode, OptRcode, Rtype};
 use crate::base::name::ToName;
 use crate::base::{

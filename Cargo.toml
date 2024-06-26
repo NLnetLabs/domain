@@ -1,7 +1,11 @@
 [package]
 name = "domain"
 version = "0.10.1"
-rust-version = "1.78.0"
+
+# This is the mimimal Rust version with minimal dependencies as specified
+# below. With latest dependency versions 1.76.0 is currently required.
+rust-version = "1.68.2"
+
 edition = "2021"
 authors = ["NLnet Labs <dns-team@nlnetlabs.nl>"]
 description = "A DNS library for Rust."
@@ -17,7 +21,7 @@ name = "domain"
 path = "src/lib.rs"
 
 [dependencies]
-octseq         = { version = "0.5.1", default-features = false }
+octseq         = { version = "0.5.2-dev", git = "https://github.com/NLnetLabs/octseq.git", rev ="3f7797f4274af0a52e66105250ee1186ff2ab6ac", default-features = false }
 time           = { version = "0.3.1", default-features = false }
 rand           = { version = "0.8", optional = true }
 arc-swap       = { version = "1.7.0", optional = true }
@@ -27,7 +31,7 @@ futures        = { version = "0.3.22", optional = true } # Force futures to at l
 futures-util   = { version = "0.3", optional = true }
 heapless       = { version = "0.8", optional = true }
 libc           = { version = "0.2.153", default-features = false, optional = true } # 0.2.79 is the first version that has IP_PMTUDISC_OMIT
-parking_lot    = { version = "0.12.2", optional = true }
+parking_lot    = { version = "0.12", optional = true }
 moka           = { version = "0.12.3", optional = true, features = ["future"] }
 proc-macro2    = { version = "1.0.69", optional = true } # Force proc-macro2 to at least 1.0.69 for minimal-version build
 ring           = { version = "0.17", optional = true }
@@ -38,9 +42,6 @@ tokio          = { version = "1.33", optional = true, features = ["io-util", "ma
 tokio-rustls   = { version = "0.26", optional = true, default-features = false }
 tracing        = { version = "0.1.40", optional = true }
 tracing-subscriber = { version = "0.3.18", optional = true, features = ["env-filter"] }
-
-# For testing in integration tests:
-#mock_instant = { version = "0.4.0", optional = true }
 
 [features]
 default     = ["std", "rand"]
@@ -54,22 +55,15 @@ smallvec    = ["dep:smallvec", "octseq/smallvec"]
 std         = ["bytes?/std", "octseq/std", "time/std"]
 net         = ["bytes", "futures-util", "rand", "std", "tokio"]
 tsig        = ["bytes", "ring", "smallvec"]
-validate    = ["std", "ring"]
+validate    = ["bytes", "std", "ring"]
 zonefile    = ["bytes", "serde", "std"]
 
 # Unstable features
 unstable-client-transport = [ "moka", "net", "tracing" ]
 unstable-server-transport = ["arc-swap", "chrono/clock", "libc", "net", "tracing"]
 unstable-stelline = ["tokio/test-util", "tracing", "tracing-subscriber", "unstable-server-transport", "zonefile"]
+unstable-validator = ["validate", "zonefile", "unstable-client-transport"]
 unstable-zonetree = ["futures", "parking_lot", "serde", "tokio", "tracing"]
-
-# Test features
-# Commented out as using --all-features to build would cause mock time to also
-# be used. We plan to move the test code under src/ and then use #[cfg(test)]
-# and this will no longer be needed. The cookies test that depends on this is
-# currently also disabled by being renamed to .rpl.not so it is okay to comment
-# this out.
-#mock-time = ["mock_instant"]
 
 [dev-dependencies]
 lazy_static        = { version = "1.4.0" }
@@ -87,6 +81,9 @@ webpki-roots       = { version = "0.26" }
 
 # For the "mysql-zone" example
 #sqlx = { version = "0.6", features = [ "runtime-tokio-native-tls", "mysql" ] }
+
+# For testing in integration tests:
+mock_instant = { version = "0.4.0" }
 
 [package.metadata.docs.rs]
 all-features = true

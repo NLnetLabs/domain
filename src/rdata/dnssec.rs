@@ -17,7 +17,7 @@ use crate::base::Ttl;
 use crate::utils::{base16, base64};
 use core::cmp::Ordering;
 use core::convert::TryInto;
-use core::{cmp, fmt, hash, ptr, str};
+use core::{cmp, fmt, hash, str};
 use octseq::builder::{
     EmptyBuilder, FreezeBuilder, FromBuilder, OctetsBuilder, Truncate,
 };
@@ -2401,18 +2401,18 @@ where
                     return Ok(&mut self.buf.as_mut()[pos..pos + 34])
                 }
                 Ordering::Greater => {
-                    let len = self.buf.as_ref().len() - pos;
+                    // We need the length from before we add the new block
+                    let len = self.buf.as_ref().len();
+
+                    // Allocate space for the new block
                     self.buf.append_slice(&[0; 34])?;
+
+                    // Move everything after this block back by 34 bytes
                     let buf = self.buf.as_mut();
-                    unsafe {
-                        ptr::copy(
-                            buf.as_ptr().add(pos),
-                            buf.as_mut_ptr().add(pos + 34),
-                            len,
-                        );
-                        ptr::write_bytes(buf.as_mut_ptr().add(pos), 0, 34);
-                    }
+                    buf.copy_within(pos..len, pos + 34);
+                    buf[pos..pos + 34].fill(0);
                     buf[pos] = block;
+
                     return Ok(&mut buf[pos..pos + 34]);
                 }
                 Ordering::Less => pos += 34,
@@ -2428,22 +2428,13 @@ where
     where
         Builder: FreezeBuilder + Truncate,
     {
-        let mut src_pos = 0;
         let mut dst_pos = 0;
-        while src_pos < self.buf.as_ref().len() {
-            let len = (self.buf.as_ref()[src_pos + 1] as usize) + 2;
-            if src_pos != dst_pos {
+        let buf_len = self.buf.as_ref().len();
+        for src_pos in (0..buf_len).step_by(34) {
+            let chunk_len = (self.buf.as_ref()[src_pos + 1] as usize) + 2;
                 let buf = self.buf.as_mut();
-                unsafe {
-                    ptr::copy(
-                        buf.as_ptr().add(src_pos),
-                        buf.as_mut_ptr().add(dst_pos),
-                        len,
-                    )
-                }
-            }
-            dst_pos += len;
-            src_pos += 34;
+            buf.copy_within(src_pos..src_pos+chunk_len, dst_pos);
+            dst_pos += chunk_len;
         }
         self.buf.truncate(dst_pos);
         RtypeBitmap(self.buf.freeze())

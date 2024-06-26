@@ -223,7 +223,10 @@ impl<R: AsyncDgramRecv> AsyncDgramRecvEx for R {}
 
 /// Return value of recv. This captures the future for recv.
 pub struct DgramRecv<'a, R: ?Sized> {
+    /// The receiver of the datagram.
     receiver: &'a R,
+
+    /// Buffer to store the datagram.
     buf: &'a mut [u8],
 }
 

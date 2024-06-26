@@ -132,16 +132,8 @@ RANGE_END
 RANGE_BEGIN 0 9
 	ADDRESS 192.5.6.30
 
-ENTRY_BEGIN
-MATCH opcode qtype qname CD
-ADJUST copy_id copy_query
-REPLY QR RD CD NOERROR
-SECTION QUESTION
-example.com. IN AAAA
-SECTION ANSWER
-example.com. IN AAAA	2606:2800:220:1:248:1893:25c8:1946
-ENTRY_END
-
+; we need a way to match a flag being clear. Hack, stelline takes the last
+; entry that matches. First an entry with CD clear, then one with CD set.
 ENTRY_BEGIN
 MATCH opcode qtype qname
 ADJUST copy_id copy_query
@@ -150,6 +142,16 @@ SECTION QUESTION
 example.com. IN AAAA
 SECTION ANSWER
 example.com. IN AAAA	2001:DB8::2
+ENTRY_END
+
+ENTRY_BEGIN
+MATCH opcode qtype qname CD
+ADJUST copy_id copy_query
+REPLY QR RD CD NOERROR
+SECTION QUESTION
+example.com. IN AAAA
+SECTION ANSWER
+example.com. IN AAAA	2606:2800:220:1:248:1893:25c8:1946
 ENTRY_END
 
 RANGE_END
