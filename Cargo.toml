@@ -21,7 +21,7 @@ name = "domain"
 path = "src/lib.rs"
 
 [dependencies]
-octseq         =  { version = "0.5.2-dev", git = "https://github.com/NLnetLabs/octseq.git", default-features = false }
+octseq         =  { version = "0.5.2-dev", git = "https://github.com/NLnetLabs/octseq.git", branch = "remove-serialize-bounds", default-features = false }
 time           =  { version = "0.3.1", default-features = false }
 
 rand           = { version = "0.8", optional = true }
