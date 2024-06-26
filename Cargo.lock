@@ -226,6 +226,7 @@ dependencies = [
  "heapless",
  "lazy_static",
  "libc",
+ "mock_instant",
  "moka",
  "octseq",
  "parking_lot",
@@ -539,6 +540,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "mock_instant"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6c356644192565524790740e4075307c2cfc26d04d2543fb8e3ab9ef43a115ec"
+
+[[package]]
 name = "moka"
 version = "0.12.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -608,9 +615,8 @@ dependencies = [
 
 [[package]]
 name = "octseq"
-version = "0.5.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2ed2eaec452d98ccc1c615dd843fd039d9445f2fb4da114ee7e6af5fcb68be98"
+version = "0.5.2-dev"
+source = "git+https://github.com/NLnetLabs/octseq.git?rev=3f7797f4274af0a52e66105250ee1186ff2ab6ac#3f7797f4274af0a52e66105250ee1186ff2ab6ac"
 dependencies = [
  "bytes",
  "heapless",
