@@ -13,54 +13,32 @@ use bytes::Bytes;
 use futures::stream::{once, Once, Stream};
 use octseq::Octets;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedSender};
+use tokio::sync::Semaphore;
 use tokio_stream::wrappers::UnboundedReceiverStream;
 use tracing::{error, info, trace, warn};
 
 use crate::base::iana::{Opcode, OptRcode, Rcode};
-use crate::base::message_builder::AdditionalBuilder;
+use crate::base::message_builder::{
+    AdditionalBuilder, AnswerBuilder, PushError,
+};
+use crate::base::record::ComposeRecord;
 use crate::base::wire::Composer;
 use crate::base::{
     Message, Name, ParsedName, Question, Rtype, Serial, StreamTarget, ToName,
 };
 use crate::net::server::message::Request;
 use crate::net::server::service::{
-    CallResult, Service, ServiceError, ServiceFeedback, ServiceResult,
+    CallResult, Service, ServiceFeedback, ServiceResult,
 };
 use crate::net::server::util::{mk_builder_for_target, mk_error_response};
 use crate::rdata::ZoneRecordData;
+use crate::zonecatalog::catalog::{Acl, Catalog, CatalogZone, ZoneInfo};
+use crate::zonetree::error::OutOfZone;
 use crate::zonetree::{
     Answer, AnswerContent, ReadableZone, SharedRrset, StoredName,
 };
 
 use super::stream::MiddlewareStream;
-
-//------------ ThreadPool ----------------------------------------------------
-
-use crate::zonecatalog::catalog::{self, Acl, Catalog, CatalogZone};
-use crate::zonetree::error::OutOfZone;
-#[rustversion::since(1.72)]
-use threadpool::ThreadPool;
-
-#[rustversion::before(1.72)]
-#[derive(Clone, Debug)]
-struct ThreadPool;
-
-#[rustversion::before(1.72)]
-impl ThreadPool {
-    pub fn execute<F>(&self, job: F)
-    where
-        F: FnOnce() + Send + 'static,
-    {
-        // Less constrained (by default spawns up to 512 threads) and more
-        // impacting (the thread pool is shared by the rest of the application
-        // so filling it with XFR threads can starve uses of the pool by other
-        // parts of the application) than threadpool::ThreadPool, but pre 1.72
-        // std::sync::mpsc::Sender is not Sync, which is required for code
-        // using threadpool::ThreadPool to compile, so we fall back to this
-        // instead.
-        tokio::task::spawn_blocking(job);
-    }
-}
 
 //------------ XfrMapStream --------------------------------------------------
 
@@ -127,7 +105,9 @@ pub struct XfrMiddlewareSvc<RequestOctets, Svc> {
 
     catalog: Arc<Catalog>,
 
-    pool: ThreadPool,
+    zone_walking_semaphore: Arc<Semaphore>,
+
+    batcher_semaphore: Arc<Semaphore>,
 
     xfr_mode: XfrMode,
 
@@ -146,35 +126,24 @@ impl<RequestOctets, Svc> XfrMiddlewareSvc<RequestOctets, Svc> {
     pub fn new(
         svc: Svc,
         catalog: Arc<Catalog>,
-        num_threads: usize,
+        max_concurrency: usize,
         xfr_mode: XfrMode,
         per_client_settings: PerClientSettings,
     ) -> Self {
-        let pool = Self::mk_thread_pool(num_threads);
+        let zone_walking_semaphore =
+            Arc::new(Semaphore::new(max_concurrency));
+        let batcher_semaphore = Arc::new(Semaphore::new(max_concurrency));
         let per_client_settings = Arc::new(per_client_settings);
 
         Self {
             svc,
             catalog,
-            pool,
+            zone_walking_semaphore,
+            batcher_semaphore,
             xfr_mode,
             per_client_settings,
             _phantom: PhantomData,
         }
-    }
-
-    #[rustversion::since(1.72)]
-    fn mk_thread_pool(num_threads: usize) -> ThreadPool {
-        use std::string::ToString;
-        threadpool::Builder::new()
-            .num_threads(num_threads)
-            .thread_name("xfr".to_string())
-            .build()
-    }
-
-    #[rustversion::before(1.72)]
-    fn mk_thread_pool(_num_threads: usize) -> ThreadPool {
-        ThreadPool
     }
 }
 
@@ -185,9 +154,10 @@ where
     Svc::Target: Composer + Default + Send + Sync + 'static,
 {
     async fn preprocess(
+        zone_walking_semaphore: Arc<Semaphore>,
+        batcher_semaphore: Arc<Semaphore>,
         req: &Request<RequestOctets>,
         catalog: Arc<Catalog>,
-        pool: ThreadPool,
         xfr_mode: XfrMode,
         per_client_settings: Arc<PerClientSettings>,
     ) -> ControlFlow<
@@ -203,17 +173,18 @@ where
             return ControlFlow::Continue(());
         };
 
+        let qname: Name<Bytes> = q.qname().to_name();
+
         // Find the zone
         let zones = catalog.zones();
-        let Some(zone) = zones.get_zone(q.qname(), q.qclass()) else {
+        let Some(zone) = zones.get_zone(&qname, q.qclass()) else {
             // https://datatracker.ietf.org/doc/html/rfc5936#section-2.2.1
             // 2.2.1 Header Values
             //   "If a server is not authoritative for the queried zone, the
             //    server SHOULD set the value to NotAuth(9)"
             warn!(
-                "{} for {} from {} refused: unknown zone",
+                "{} for {qname} from {} refused: unknown zone",
                 q.qtype(),
-                q.qname(),
                 req.client_addr()
             );
 
@@ -228,13 +199,11 @@ where
 
         // Read the zone SOA RR
         let read = zone.read();
-        let qname: Name<Bytes> = q.qname().to_name();
         let Ok(zone_soa_answer) = Self::read_soa(&read, qname.clone()).await
         else {
             warn!(
-                "{} for {} from {} refused: zone lacks SOA RR",
+                "{} for {qname} from {} refused: zone lacks SOA RR",
                 q.qtype(),
-                q.qname(),
                 req.client_addr()
             );
             return ControlFlow::Break(Self::to_stream(mk_error_response(
@@ -263,8 +232,7 @@ where
                 //    respect: AXFR sessions over UDP transport are not defined."
                 if req.transport_ctx().is_udp() {
                     info!(
-                        "AXFR for {} from {} refused: not supported over UDP",
-                        q.qname(),
+                        "AXFR for {qname} from {} refused: not supported over UDP",
                         req.client_addr()
                     );
                     ControlFlow::Break(Self::to_stream(mk_error_response(
@@ -272,16 +240,14 @@ where
                         OptRcode::NOTIMP,
                     )))
                 } else {
-                    info!(
-                        "AXFR for {} from {}",
-                        q.qname(),
-                        req.client_addr()
-                    );
+                    info!("AXFR for {qname} from {}", req.client_addr());
                     Self::do_axfr(
+                        zone_walking_semaphore,
+                        batcher_semaphore,
                         req,
+                        qname,
                         &zone_soa_answer,
                         read,
-                        pool,
                         per_client_settings,
                     )
                     .await
@@ -295,7 +261,7 @@ where
                     .downcast_ref::<CatalogZone>()
                     .unwrap();
 
-                info!("IXFR for {} from {}", q.qname(), req.client_addr());
+                info!("IXFR for {qname} from {}", req.client_addr());
 
                 // https://datatracker.ietf.org/doc/html/rfc1995#section-2
                 // 2. Brief Description of the Protocol
@@ -308,8 +274,9 @@ where
                 //    be initiated."
 
                 match Self::do_ixfr(
+                    batcher_semaphore.clone(),
                     req,
-                    qname,
+                    qname.clone(),
                     &zone_soa_answer,
                     cat_zone.info(),
                     xfr_mode,
@@ -320,8 +287,7 @@ where
                     Some(res) => res,
                     None => {
                         info!(
-                            "IXFR for {} from {}: falling back to AXFR",
-                            q.qname(),
+                            "IXFR for {qname} from {}: falling back to AXFR",
                             req.client_addr()
                         );
 
@@ -333,10 +299,12 @@ where
                         //     I.e. the behavior is the same as an AXFR response
                         //     except the query type is IXFR."
                         Self::do_axfr(
+                            zone_walking_semaphore,
+                            batcher_semaphore,
                             req,
+                            qname,
                             &zone_soa_answer,
                             read,
-                            pool,
                             per_client_settings,
                         )
                         .await
@@ -349,10 +317,12 @@ where
     }
 
     async fn do_axfr(
+        zone_walk_semaphore: Arc<Semaphore>,
+        batcher_semaphore: Arc<Semaphore>,
         req: &Request<RequestOctets>,
+        qname: Name<Bytes>,
         zone_soa_answer: &Answer,
         read: Box<dyn ReadableZone>,
-        pool: ThreadPool,
         per_client_settings: Arc<PerClientSettings>,
     ) -> ControlFlow<
         XfrMiddlewareStream<
@@ -362,6 +332,25 @@ where
         >,
     > {
         let msg = req.message();
+
+        let AnswerContent::Data(zone_soa_rrset) =
+            zone_soa_answer.content().clone()
+        else {
+            unreachable!()
+        };
+
+        // Do we need to operate in backward compatibility mode for this client?
+        let compatibility_mode = per_client_settings
+            .get_ip(req.client_addr().ip())
+            .copied()
+            .unwrap_or_default();
+
+        if compatibility_mode == CompatibilityMode::BackwardCompatible {
+            trace!(
+                "Compatibility mode enabled for client with IP address {}",
+                req.client_addr().ip()
+            );
+        }
 
         // Return a stream of response messages containing:
         //   - SOA
@@ -382,46 +371,39 @@ where
         //   - https://datatracker.ietf.org/doc/html/rfc1995#section-4
         //   - https://datatracker.ietf.org/doc/html/rfc5936#section-4.2
 
+        // Create a stream that will be immediately returned to the caller.
+        // Async tasks will then push DNS response messages into the stream as
+        // they become available.
         let (sender, receiver) = unbounded_channel();
         let stream = UnboundedReceiverStream::new(receiver);
 
+        // Create a bounded queue for passing RRsets found during zone walking
+        // to a task which will batch the RRs together before pushing them
+        // into the result stream.
+        let (batcher_tx, mut batcher_rx) =
+            tokio::sync::mpsc::channel::<(StoredName, SharedRrset)>(100);
+
+        // Notify the underlying transport to expect a stream of related
+        // responses. The transport should modify its behaviour to account for
+        // the potentially slow and long running nature of a transaction.
         Self::add_to_stream(
             CallResult::feedback_only(ServiceFeedback::BeginTransaction),
             &sender,
         );
 
-        let (batcher_tx, mut batcher_rx) =
-            tokio::sync::mpsc::channel::<(StoredName, SharedRrset)>(100);
-
-        let qname: StoredName =
-            msg.sole_question().unwrap().qname().to_name();
-        let AnswerContent::Data(soa_rrset) =
-            zone_soa_answer.content().clone()
-        else {
-            unreachable!()
-        };
+        // Enqueue the zone SOA RRset for the batcher to process.
         batcher_tx
-            .send((qname.clone(), soa_rrset.clone()))
+            .send((qname.clone(), zone_soa_rrset.clone()))
             .await
             .unwrap();
 
-        // Do we need to operate in backward compatibility mode for this client?
-        let compatibility_mode = per_client_settings
-            .get_ip(req.client_addr().ip())
-            .copied()
-            .unwrap_or_default();
-
-        if compatibility_mode == CompatibilityMode::BackwardCompatible {
-            trace!(
-                "Compatibility mode enabled for client with IP address {}",
-                req.client_addr().ip()
-            );
-        }
-
-        // Stream the RRsets in the background to the batcher.
+        // Stream the remaining non-SOA zone RRsets in the background to the
+        // batcher.
         tokio::spawn(async move {
-            // Define a zone tree walking operation like a filter map that
-            // selects non-SOA RRsets and emits them to the batching stream.
+            // Limit the number of concurrently running XFR related zone
+            // walking operations.
+            let _ = zone_walk_semaphore.acquire().await.unwrap();
+
             let cloned_batcher_tx = batcher_tx.clone();
             let op =
                 Box::new(move |owner: StoredName, rrset: &SharedRrset| {
@@ -436,12 +418,14 @@ where
             match read.is_async() {
                 true => {
                     read.walk_async(op).await;
-                    batcher_tx.send((qname, soa_rrset)).await.unwrap();
+                    batcher_tx.send((qname, zone_soa_rrset)).await.unwrap();
                 }
                 false => {
-                    pool.execute(move || {
+                    tokio::task::spawn_blocking(move || {
                         read.walk(op);
-                        if let Err(err) = batcher_tx.blocking_send((qname, soa_rrset)) {
+                        if let Err(err) =
+                            batcher_tx.blocking_send((qname, zone_soa_rrset))
+                        {
                             error!("Internal error: Failed to send final AXFR SOA to batcher: {err}");
                         }
                     });
@@ -456,93 +440,108 @@ where
         // the caller.
         let msg = msg.clone();
 
-        // TODO: Shouldn't this be run on a pool thread? If so how do we do async there?
-        // Maybe don't use a thread pool but instead use a semaphore instead to limit
-        // concurrent XFR activity?
         tokio::spawn(async move {
+            // Limit the number of concurrently running XFR batching
+            // operations.
+            let _ = batcher_semaphore.acquire().await.unwrap();
+
             let qclass = msg.sole_question().unwrap().qclass();
 
-            let (mut owner, mut rrset) = batcher_rx.recv().await.unwrap();
-            assert_eq!(rrset.rtype(), Rtype::SOA);
-            let saved_soa_rrset = rrset.clone();
+            let (mut owner, mut zone_soa_rrset) =
+                batcher_rx.recv().await.unwrap();
+            assert_eq!(zone_soa_rrset.rtype(), Rtype::SOA);
+            let saved_soa_rrset = zone_soa_rrset.clone();
             let mut soa_seen_count = 0;
 
-            let mut rrset_data = rrset.data();
+            let mut current_rrset = zone_soa_rrset;
+            let mut records_to_process = current_rrset.data();
+
+            let mut batcher = RrBatcher::new(msg.clone());
+            if compatibility_mode == CompatibilityMode::BackwardCompatible {
+                batcher.set_limit(1);
+            }
 
             // Loop until all of the RRsets sent by the zone walker have been
             // pushed into DNS response messages and sent into the result
             // stream.
             'outer: loop {
-                // Build a DNS response that contains as many answers as
-                // possible.
-                let builder = mk_builder_for_target();
-                let mut answer =
-                    builder.start_answer(&msg, Rcode::NOERROR).unwrap();
-
                 // Loop over the RRset items being sent by the zone walker and
                 // add as many of them as possible to the response being
                 // built.
 
                 let mut num_rrs_added = 0;
-                'inner: loop {
-                    if rrset == saved_soa_rrset {
+                let builder = 'inner: loop {
+                    if records_to_process == saved_soa_rrset.data() {
                         soa_seen_count += 1;
                     }
 
-                    for rr in rrset_data {
-                        let res = answer.push((
+                    for rr in records_to_process {
+                        let res = batcher.push((
                             owner.clone(),
                             qclass,
-                            rrset.ttl(),
+                            current_rrset.ttl(),
                             rr,
                         ));
+
                         match res {
-                            Err(_) if num_rrs_added > 0 => {
+                            Ok(ControlFlow::Continue(())) => {
+                                // Message still has space, keep going.
+                                num_rrs_added += 1;
+                            }
+
+                            Ok(ControlFlow::Break(builder)) => {
                                 // Message is full, send what we have so far.
-                                break 'inner;
+                                break 'inner Some(builder);
                             }
 
                             Err(err) => {
                                 error!("Internal error: Unable to add RR to AXFR response message: {err}");
                                 break 'outer;
                             }
-
-                            Ok(()) => {
-                                num_rrs_added += 1;
-                                if compatibility_mode
-                                    == CompatibilityMode::BackwardCompatible
-                                {
-                                    break 'inner;
-                                }
-                            }
                         }
                     }
 
                     if soa_seen_count == 2 {
-                        // No more RRsets to fetch.
-                        break;
+                        // This is our signal to stop, as the AXFR message
+                        // starts and ends with the zone SOA.
+                        break 'inner batcher.take();
                     } else {
                         // Fetch more RRsets to add to the message.
-                        (owner, rrset) = batcher_rx.recv().await.unwrap();
-                        rrset_data = rrset.data();
-                        num_rrs_added = 0;
+                        (owner, current_rrset) =
+                            batcher_rx.recv().await.unwrap();
+                        records_to_process = current_rrset.data();
                     }
-                }
+                };
 
                 // Send the message.
-                let mut additional = answer.additional();
-                Self::set_axfr_header(&msg, &mut additional);
-                let call_result = Ok(CallResult::new(additional));
-                let _ = sender.send(call_result); // TODO: Handle this Result.
+                if let Some(builder) = builder {
+                    let mut additional = builder.additional();
+                    Self::set_axfr_header(&msg, &mut additional);
+                    let call_result = Ok(CallResult::new(additional));
+                    let _ = sender.send(call_result); // TODO: Handle this Result.
+                }
 
-                if num_rrs_added < rrset_data.len() {
-                    rrset_data = &rrset.data()[num_rrs_added..];
+                if num_rrs_added < records_to_process.len() {
+                    // Some RRs from the current RRset didn't fit in the last
+                    // message, process these before fetching another RRset
+                    // from the incoming queue.
+                    records_to_process =
+                        &current_rrset.data()[num_rrs_added..];
                 } else if soa_seen_count == 2 {
                     break;
                 } else {
-                    // Fetch more RRsets to add to the message.
-                    (owner, rrset) = batcher_rx.recv().await.unwrap();
-                    rrset_data = rrset.data();
+                    // Fetch more RRsets to add to the message from the incoming queue.
+                    let res = batcher_rx.recv().await;
+                    if res.is_none() {
+                        let mut additional =
+                            mk_error_response(&msg, OptRcode::SERVFAIL);
+                        Self::set_axfr_header(&msg, &mut additional);
+                        let call_result = Ok(CallResult::new(additional));
+                        let _ = sender.send(call_result); // TODO: Handle this Result.
+                        break 'outer;
+                    };
+                    (owner, zone_soa_rrset) = res.unwrap();
+                    records_to_process = zone_soa_rrset.data();
                 }
             }
 
@@ -558,11 +557,13 @@ where
     }
 
     // Returns None if fallback to AXFR should be done.
+    #[allow(clippy::too_many_arguments)]
     async fn do_ixfr(
+        batcher_semaphore: Arc<Semaphore>,
         req: &Request<RequestOctets>,
         qname: Name<Bytes>,
         zone_soa_answer: &Answer,
-        zone_info: &catalog::ZoneInfo,
+        zone_info: &ZoneInfo,
         xfr_mode: XfrMode,
         per_client_settings: Arc<PerClientSettings>,
     ) -> Option<
@@ -628,6 +629,7 @@ where
 
                                 // TODO: if cached then return cached IXFR response
                                 return Self::compute_ixfr(
+                                    batcher_semaphore,
                                     req,
                                     qname,
                                     query_serial,
@@ -655,12 +657,14 @@ where
     }
 
     // Returns None if fallback to AXFR should be done.
+    #[allow(clippy::too_many_arguments)]
     async fn compute_ixfr(
+        batcher_semaphore: Arc<Semaphore>,
         req: &Request<RequestOctets>,
         qname: Name<Bytes>,
         query_serial: Serial,
         zone_serial: Serial,
-        zone_info: &catalog::ZoneInfo,
+        zone_info: &ZoneInfo,
         zone_soa_answer: &Answer,
         _per_client_settings: Arc<PerClientSettings>,
     ) -> Option<
@@ -673,6 +677,20 @@ where
         >,
     > {
         let msg = req.message();
+
+        let AnswerContent::Data(zone_soa_rrset) =
+            zone_soa_answer.content().clone()
+        else {
+            unreachable!()
+        };
+
+        // Note: Unlike RFC 5936 for AXFR, neither RFC 1995 nor RFC 9103 say
+        // anything about whether an IXFR response can consist of more than
+        // one response message, but given the 2^16 byte maximum response size
+        // of a TCP DNS message and the 2^16 maximum number of ANSWER RRs
+        // allowed per DNS response, large zones may not fit in a single
+        // response message and will have to be split into multiple response
+        // messages.
 
         // https://datatracker.ietf.org/doc/html/rfc1995#section-2
         // 2. Brief Description of the Protocol
@@ -694,41 +712,46 @@ where
         let end_serial = zone_serial;
         let diffs = zone_info.diffs_for_range(start_serial, end_serial).await;
         if diffs.is_empty() {
-            // Fallback to AXFR
-            trace!("Fallback to AXFR because no IXFR diff is available");
+            // The caller should fallback to an AXFR style response at this
+            // point.
             return None;
         };
 
-        // https://datatracker.ietf.org/doc/html/rfc1995#section-4
-        // 4. Response Format
-        //   "If incremental zone transfer is available, one or more
-        //    difference sequences is returned.  The list of difference
-        //    sequences is preceded and followed by a copy of the server's
-        //    current version of the SOA."
+        // Create a stream that will be immediately returned to the caller.
+        // Async tasks will then push DNS response messages into the stream as
+        // they become available.
         let (sender, receiver) = unbounded_channel();
         let stream = UnboundedReceiverStream::new(receiver);
 
+        // Notify the underlying transport to expect a stream of related
+        // responses. The transport should modify its behaviour to account for
+        // the potentially slow and long running nature of a transaction.
         Self::add_to_stream(
             CallResult::feedback_only(ServiceFeedback::BeginTransaction),
             &sender,
         );
 
-        // https://datatracker.ietf.org/doc/html/rfc1995#section-4
-        // 4. Response Format
-        //   "If incremental zone transfer is available, one or more
-        //    difference sequences is returned.  The list of difference
-        //    sequences is preceded and followed by a copy of the server's
-        //    current version of the SOA."
-        Self::add_answer_to_stream(zone_soa_answer, msg, &sender);
-
-        let msg = msg.clone();
-        let zone_soa_answer = zone_soa_answer.clone();
-
         // Stream the IXFR diffs in the background
+        let msg = msg.clone();
         tokio::spawn(async move {
+            // Limit the number of concurrently running XFR batching
+            // operations.
+            let _ = batcher_semaphore.acquire().await.unwrap();
+
             // https://datatracker.ietf.org/doc/html/rfc1995#section-4
             // 4. Response Format
-            //   "Modification of an RR is performed first by removing the
+            //    ...
+            //   "If incremental zone transfer is available, one or more
+            //    difference sequences is returned.  The list of difference
+            //    sequences is preceded and followed by a copy of the server's
+            //    current version of the SOA.
+            //
+            //    Each difference sequence represents one update to the zone
+            //    (one SOA serial change) consisting of deleted RRs and added
+            //    RRs.  The first RR of the deleted RRs is the older SOA RR
+            //    and the first RR of the added RRs is the newer SOA RR.
+            //
+            //    Modification of an RR is performed first by removing the
             //    original RR and then adding the modified one.
             //
             //    The sequences of differential information are ordered oldest
@@ -740,84 +763,109 @@ where
             //    is, if a single RR of multiple RRs of the same RR type changes,
             //    only the changed RR is transferred."
 
-            // For each zone version:
-            for diff in diffs {
-                // Emit deleted RRs.
+            let (owner, qclass) = {
+                let q = msg.first_question().unwrap();
+                (q.qname().to_name::<Bytes>(), q.qclass())
+            };
 
-                // https://datatracker.ietf.org/doc/html/rfc1995#section-4
-                // 4. Response Format
-                //    "Each difference sequence represents one update to the zone
-                //    (one SOA serial change) consisting of deleted RRs and added
-                //    RRs.  The first RR of the deleted RRs is the older SOA RR
-                //    and the first RR of the added RRs is the newer SOA RR.
+            let diff_sequences = diffs
+                .iter()
+                .flat_map(|diff| {
+                    // https://datatracker.ietf.org/doc/html/rfc1995#section-4
+                    // 4. Response Format
+                    //    "Each difference sequence represents one update to the zone
+                    //    (one SOA serial change) consisting of deleted RRs and added
+                    //    RRs.  The first RR of the deleted RRs is the older SOA RR
+                    //    and the first RR of the added RRs is the newer SOA RR.
+                    let deleted = diff.removed.get(&qname).unwrap();
+                    let added = diff.added.get(&qname).unwrap();
 
-                // Emit the removed SOA.
-                let removed_top_node_rrsets =
-                    diff.removed.get(&qname).unwrap();
-                let non_soa = removed_top_node_rrsets
-                    .iter()
-                    .find(|rrset| rrset.rtype() == Rtype::SOA)
-                    .unwrap();
-                let mut old_soa_version_answer = Answer::new(Rcode::NOERROR);
-                old_soa_version_answer.add_answer(non_soa.clone());
+                    let mut rrset_iters: std::vec::Vec<
+                        Box<dyn Iterator<Item = SharedRrset>>,
+                    > = vec![];
 
-                // TODO: Accumulate RRsets in each message until it would
-                // overflow, and only then start a new message.
+                    for rrsets in [deleted, added] {
+                        rrset_iters.push(Box::new(std::iter::once(
+                            rrsets
+                                .iter()
+                                .find(|rrset| rrset.rtype() == Rtype::SOA)
+                                .unwrap()
+                                .clone(),
+                        )));
 
-                Self::add_answer_to_stream(
-                    &old_soa_version_answer,
-                    &msg,
-                    &sender,
-                );
+                        rrset_iters.push(Box::new(
+                            rrsets
+                                .iter()
+                                .filter(|rrset| rrset.rtype() != Rtype::SOA)
+                                .cloned(),
+                        ));
+                    }
 
-                for non_soa_rr in removed_top_node_rrsets
-                    .iter()
-                    .filter(|rrset| rrset.rtype() != Rtype::SOA)
-                {
-                    let mut answer = Answer::new(Rcode::NOERROR);
-                    answer.add_answer(non_soa_rr.clone());
-                    Self::add_answer_to_stream(&answer, &msg, &sender);
-                }
+                    rrset_iters
+                })
+                .flatten();
 
-                // Emit added RRs.
+            let rrsets = std::iter::once(zone_soa_rrset.clone())
+                .chain(diff_sequences)
+                .chain(std::iter::once(zone_soa_rrset.clone()));
 
-                // https://datatracker.ietf.org/doc/html/rfc1995#section-4
-                // 4. Response Format
-                //    "Each difference sequence represents one update to the zone
-                //    (one SOA serial change) consisting of deleted RRs and added
-                //    RRs.  The first RR of the deleted RRs is the older SOA RR
-                //    and the first RR of the added RRs is the newer SOA RR.
-                let added_top_node_rrsets = diff.added.get(&qname).unwrap();
-                let non_soa = added_top_node_rrsets
-                    .iter()
-                    .find(|rrset| rrset.rtype() == Rtype::SOA)
-                    .unwrap();
-                let mut old_soa_version_answer = Answer::new(Rcode::NOERROR);
-                old_soa_version_answer.add_answer(non_soa.clone());
+            let mut batcher = RrBatcher::new(msg.clone());
 
-                Self::add_answer_to_stream(
-                    &old_soa_version_answer,
-                    &msg,
-                    &sender,
-                );
+            // Loop until all of the RRsets in the diffs have been pushed into
+            // DNS response messages and sent into the result stream.
+            let mut records_to_process;
+            let mut num_rrs_added;
 
-                for non_soa_rr in added_top_node_rrsets
-                    .iter()
-                    .filter(|rrset| rrset.rtype() != Rtype::SOA)
-                {
-                    let mut answer = Answer::new(Rcode::NOERROR);
-                    answer.add_answer(non_soa_rr.clone());
-                    Self::add_answer_to_stream(&answer, &msg, &sender);
+            for rrset in rrsets {
+                records_to_process = rrset.data();
+                num_rrs_added = 0;
+
+                'outer: while !records_to_process.is_empty() {
+                    let builder = 'inner: loop {
+                        for rr in records_to_process {
+                            match batcher.push((
+                                owner.clone(),
+                                qclass,
+                                rrset.ttl(),
+                                rr,
+                            )) {
+                                Ok(ControlFlow::Continue(())) => {
+                                    // Message still has space, keep going.
+                                    num_rrs_added += 1;
+                                }
+
+                                Ok(ControlFlow::Break(builder)) => {
+                                    // Message is full, send what we have so far.
+                                    break 'inner builder;
+                                }
+
+                                Err(err) => {
+                                    error!("Internal error: Unable to add RR to AXFR response message: {err}");
+                                    let mut additional = mk_error_response(
+                                        &msg,
+                                        OptRcode::SERVFAIL,
+                                    );
+                                    Self::set_axfr_header(
+                                        &msg,
+                                        &mut additional,
+                                    );
+                                    let call_result =
+                                        Ok(CallResult::new(additional));
+                                    let _ = sender.send(call_result); // TODO: Handle this Result.
+                                    break 'outer;
+                                }
+                            }
+                        }
+                    };
+
+                    let mut additional = builder.additional();
+                    Self::set_axfr_header(&msg, &mut additional);
+                    let call_result = Ok(CallResult::new(additional));
+                    let _ = sender.send(call_result); // TODO: Handle this Result.
+
+                    records_to_process = &rrset.data()[num_rrs_added..];
                 }
             }
-
-            // https://datatracker.ietf.org/doc/html/rfc1995#section-4
-            // 4. Response Format
-            //   "If incremental zone transfer is available, one or more
-            //    difference sequences is returned.  The list of difference
-            //    sequences is preceded and followed by a copy of the server's
-            //    current version of the SOA."
-            Self::add_answer_to_stream(&zone_soa_answer, &msg, &sender);
 
             Self::add_to_stream(
                 CallResult::feedback_only(ServiceFeedback::EndTransaction),
@@ -826,20 +874,6 @@ where
         });
 
         Some(ControlFlow::Break(MiddlewareStream::Result(stream)))
-    }
-
-    fn add_answer_to_stream(
-        answer: &Answer,
-        msg: &Message<RequestOctets>,
-        sender: &UnboundedSender<
-            Result<CallResult<Svc::Target>, ServiceError>,
-        >,
-    ) {
-        let builder = mk_builder_for_target();
-        let mut additional = answer.to_message(msg, builder);
-        Self::set_axfr_header(msg, &mut additional);
-        let call_result = CallResult::new(additional);
-        Self::add_to_stream(call_result, sender);
     }
 
     fn add_to_stream(
@@ -874,11 +908,13 @@ where
         //        CD       "mbz" -- see Note d)"
         let header = additional.header_mut();
 
-        // Note: MandatoryMiddlewareSvc will also "fix" the response ID like
-        // is done here, so strictly speaking this isn't necessary.
+        // Note: MandatoryMiddlewareSvc will also "fix" ID and QR, so strictly
+        // speaking this isn't necessary, but as a caller might not use
+        // MandatoryMiddlewareSvc we do it anyway to try harder to conform to
+        // the RFC.
         header.set_id(msg.header().id());
-
         header.set_qr(true);
+
         header.set_opcode(Opcode::QUERY);
         header.set_aa(true);
         header.set_tc(false);
@@ -951,14 +987,16 @@ where
         let request = request.clone();
         let svc = self.svc.clone();
         let catalog = self.catalog.clone();
-        let pool = self.pool.clone();
+        let zone_walking_semaphore = self.zone_walking_semaphore.clone();
+        let batcher_semaphore = self.batcher_semaphore.clone();
         let xfr_mode = self.xfr_mode;
         let per_client_settings = self.per_client_settings.clone();
         Box::pin(async move {
             match Self::preprocess(
+                zone_walking_semaphore,
+                batcher_semaphore,
                 &request,
                 catalog,
-                pool,
                 xfr_mode,
                 per_client_settings,
             )
@@ -971,5 +1009,79 @@ where
                 ControlFlow::Break(stream) => stream,
             }
         })
+    }
+}
+
+//----------- RrBatcher -------------------------------------------------------
+
+// IDEA: Maybe this should act like an iterator and whenever it runs out of
+// items to process one should feed it more? And pass it RRsets instead of
+// Records.
+
+struct RrBatcher<RequestOctets, Target> {
+    req_msg: Arc<Message<RequestOctets>>,
+    limit: Option<u16>,
+    answer: Option<Result<AnswerBuilder<StreamTarget<Target>>, PushError>>,
+}
+
+impl<RequestOctets, Target> RrBatcher<RequestOctets, Target>
+where
+    RequestOctets: Octets,
+    Target: Composer + Default,
+{
+    pub fn new(req_msg: Arc<Message<RequestOctets>>) -> Self {
+        Self {
+            req_msg,
+            limit: None,
+            answer: None,
+        }
+    }
+
+    pub fn set_limit(&mut self, limit: u16) {
+        self.limit = Some(limit);
+    }
+
+    pub fn push(
+        &mut self,
+        record: impl ComposeRecord,
+    ) -> Result<ControlFlow<AnswerBuilder<StreamTarget<Target>>>, PushError>
+    {
+        self.answer.get_or_insert_with(|| {
+            let builder = mk_builder_for_target();
+            builder.start_answer(&self.req_msg, Rcode::NOERROR)
+        });
+
+        let mut answer = self.answer.take().unwrap()?;
+
+        let res = answer.push(record);
+        let arcount = answer.counts().arcount();
+
+        match res {
+            Ok(()) if Some(arcount) == self.limit => {
+                // Message is as full as the caller allows, pass it back to
+                // the caller to process.
+                Ok(ControlFlow::Break(answer))
+            }
+
+            Err(_) if arcount > 0 => {
+                // Message is full, pass it back to the caller to process.
+                Ok(ControlFlow::Break(answer))
+            }
+
+            Err(err) => {
+                // We expect to be able to add at least one answer to the message.
+                Err(err)
+            }
+
+            Ok(()) => {
+                // Record has been added, keep the answer builder for the next push.
+                self.answer = Some(Ok(answer));
+                Ok(ControlFlow::Continue(()))
+            }
+        }
+    }
+
+    pub fn take(&mut self) -> Option<AnswerBuilder<StreamTarget<Target>>> {
+        self.answer.take().and_then(|res| res.ok())
     }
 }
