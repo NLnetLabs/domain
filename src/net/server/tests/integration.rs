@@ -1,9 +1,9 @@
-use core::net::SocketAddr;
 
 use std::boxed::Box;
 use std::collections::VecDeque;
 use std::fs::File;
 use std::future::Future;
+use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
