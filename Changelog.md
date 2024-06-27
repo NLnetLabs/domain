@@ -14,16 +14,22 @@ Bug fixes
 
 Unstable features
 
-* `unstable-client-transport`: Fixed an issue with slow responses in the
-  `multi_stream` transport by not waiting in the first iteration if an
-  underlying stream reports its connection being closed. ([#338])
 * New unstable feature `unstable-validator` that adds a DNSSEC validator.
   ([#328])
+* `unstable-client-transport`:
+  * Fixed an issue with slow responses in the
+    `multi_stream` transport by not waiting in the first iteration if an
+    underlying stream reports its connection being closed. ([#338])
+* `unstable-server-transport`
+  * The `CookiesMiddlewareProcessor` now allows requests with invalid
+    cookies to proceed if they are authenticated or not required to
+    authenticate. ([#336])
 
 Other changes
 
 [#328]: https://github.com/NLnetLabs/domain/pull/328
 [#333]: https://github.com/NLnetLabs/domain/pull/333
+[#336]: https://github.com/NLnetLabs/domain/pull/336
 [#338]: https://github.com/NLnetLabs/domain/pull/338
 
 ## 0.10.1
