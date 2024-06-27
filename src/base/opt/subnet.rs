@@ -38,6 +38,7 @@ use octseq::parse::Parser;
 /// The option is defined in [RFC 7871](https://tools.ietf.org/html/rfc7871)
 /// which also includes some guidance on its use.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct ClientSubnet {
     /// The source prefix length.
     source_prefix_len: u8,

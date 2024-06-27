@@ -432,6 +432,22 @@ impl<Octs: AsRef<[u8]> + ?Sized> fmt::Debug for Understood<N3uVariant, Octs> {
     }
 }
 
+//--- Serialize
+
+#[cfg(feature = "serde")]
+impl<V, Octs: AsRef<[u8]>> serde::Serialize for Understood<V, Octs> {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer {
+        use serde::ser::SerializeSeq;
+        let mut list = serializer.serialize_seq(None)?;
+        for item in self.iter() {
+            list.serialize_element(&item)?;
+        }
+        list.end()
+    }
+}
+
 //--- Extended Opt and OptBuilder
 
 impl<Octs: Octets> Opt<Octs> {

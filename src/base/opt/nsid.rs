@@ -42,6 +42,15 @@ impl Nsid<()> {
     /// The option code for this option.
     pub(super) const CODE: OptionCode = OptionCode::NSID;
 }
+
+#[cfg(feature = "serde")]
+impl<Octs: octseq::serde::SerializeOctets> serde::Serialize for Nsid<Octs> {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer {
+        self.octets.serialize_octets(serializer)
+    }
+}
     
 impl<Octs> Nsid<Octs> {
     /// Creates a value from the ocets of the name server identifier.
