@@ -1,8 +1,4 @@
 //! Experimental storing, querying and syncing a catalog of zones.
-// Note to self: This design ties XFR and catalogs together, but really they
-// are separate things. Maybe better have triggers/callbacks or something for
-// joining separate pieces together, including the XFR-in XfrMiddlewareService
-// functionality?
 // TODO: Add lifecycle hooks for callers, e.g. zone added, zone removed, zone
 // expired, zone refreshed.?
 use core::any::Any;
