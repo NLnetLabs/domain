@@ -748,6 +748,11 @@ where
             return None;
         };
 
+        // TODO: Add something like the Bind `max-ixfr-ratio` option that
+        // "sets the size threshold (expressed as a percentage of the size of
+        // the full zone) beyond which named chooses to use an AXFR response
+        // rather than IXFR when answering zone transfer requests"?
+
         // Create a stream that will be immediately returned to the caller.
         // Async tasks will then push DNS response messages into the stream as
         // they become available.

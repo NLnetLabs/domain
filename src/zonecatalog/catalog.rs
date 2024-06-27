@@ -2128,62 +2128,6 @@ impl<CF: ConnFactory> Catalog<CF> {
             else {
                 return Ok(None);
             };
-            // let client = match transport {
-            //     TransportStrategy::None => return Ok(None),
-
-            //     TransportStrategy::Udp => {
-            //         let udp_connect = UdpConnect::new(primary_addr);
-            //         let mut dgram_config = dgram::Config::new();
-            //         dgram_config.set_max_parallel(1);
-            //         dgram_config
-            //             .set_read_timeout(Duration::from_millis(1000));
-            //         dgram_config.set_max_retries(1);
-            //         dgram_config.set_udp_payload_size(Some(1400));
-            //         let client = dgram::Connection::with_config(
-            //             udp_connect,
-            //             dgram_config,
-            //         );
-
-            //         Conn::Udp(auth::Connection::new(key.cloned(), client))
-            //     }
-
-            //     TransportStrategy::Tcp => {
-            //         let res = TcpStream::connect(primary_addr).await;
-
-            //         // TODO: Replace with inspect_err() if our MSRV increases to 1.76?
-            //         if let Err(err) = &res {
-            //             error!(
-            //                 "Unable to refresh zone '{}' by {rtype} from {primary_addr}: {err}",
-            //                 zone.apex_name(),
-            //             );
-            //         }
-
-            //         let tcp_stream = res?;
-
-            //         let mut stream_config = stream::Config::new();
-            //         stream_config
-            //             .set_response_timeout(Duration::from_secs(2));
-            //         // Allow time between the SOA query response and sending
-            //         // the AXFR/IXFR request.
-            //         stream_config
-            //             .set_initial_idle_timeout(Duration::from_secs(5));
-            //         // Allow much more time
-            //         stream_config.set_streaming_response_timeout(
-            //             Duration::from_secs(30),
-            //         );
-            //         let (client, transport) = stream::Connection::with_config(
-            //             tcp_stream,
-            //             stream_config,
-            //         );
-
-            //         tokio::spawn(async move {
-            //             transport.run().await;
-            //             trace!("XFR TCP connection terminated");
-            //         });
-
-            //         Conn::Tcp(auth::Connection::new(key.cloned(), client))
-            //     }
-            // };
 
             trace!(
                 "Sending SOA query for zone '{}' to {primary_addr}",
@@ -2326,30 +2270,6 @@ impl<CF: ConnFactory> Catalog<CF> {
             _ => unreachable!(),
         };
 
-        pub fn mk_relative_name_iterator<'l>(
-            apex_name: &Name<Bytes>,
-            qname: &'l impl ToName,
-        ) -> Result<impl Iterator<Item = &'l Label> + Clone, OutOfZone>
-        {
-            trace!("mk_relative_name_iterator({apex_name})`");
-            let mut qname = qname.iter_labels().rev();
-            // if let Some(qname_label) = qname_label {
-            //     if qname_label.is_root() {
-            //         trace!("mk_relative_name_iterator({apex_name}): Label is root '{qname_label}'");
-            //         return Ok(qname);
-            //     }
-            // }
-            for apex_label in apex_name.iter_labels().rev() {
-                let qname_label = qname.next();
-                trace!("mk_relative_name_iterator({apex_name}): Skipping label '{qname_label:?}'");
-                if Some(apex_label) != qname_label {
-                    error!("Qname is not in zone '{apex_name}'");
-                    return Err(OutOfZone);
-                }
-            }
-            Ok(qname)
-        }
-
         let mut write = zone.write().await;
         let mut initial_soa = None;
 
@@ -2390,34 +2310,14 @@ impl<CF: ConnFactory> Catalog<CF> {
         // and detect the call to commit() and at that point save the zone if
         // wanted. See `ArchiveZone` in examples/serve-zone.rs for an example.
 
+        // TODO: Add something like the NSD `size-limit-xfr` option that
+        // "specifies XFR temporary file size limit" which "can be used to
+        // stop very large zone retrieval, that could otherwise use up a lot
+        // of memory and disk space".
         'outer: loop {
             let msg = send_request.get_response().await?;
             trace!("Received response {i}");
             i += 1;
-
-            // TSIG: This seems wasteful that we have to make a copy
-            // of the message bytes before we can do TSIG validation
-            // but as the underlying message octets may be stored as a
-            // type like Bytes that can be cloned by reference
-            // counting or other such means of sharing a single set of
-            // bytes we cannot modify those bytes as required for TSIG
-            // validation because that would modify the views of the
-            // same message bytes visible to other parts of the
-            // program.
-            // if let Some(seq) = &mut seq {
-            //     let mut bytes =
-            //         Vec::with_capacity(msg.as_slice().len());
-            //     bytes.extend_from_slice(msg.as_slice());
-            //     let mut tsig_msg =
-            //         Message::from_octets(bytes).unwrap();
-
-            //     if let Err(err) =
-            //         seq.answer(&mut tsig_msg, Time48::now())
-            //     {
-            //         error!("TSIG validation failed: {err}");
-            //         return Err(());
-            //     }
-            // }
 
             if msg.no_error() {
                 match msg.answer() {
@@ -2495,7 +2395,7 @@ impl<CF: ConnFactory> Catalog<CF> {
                                 Box<dyn WritableZoneNode>,
                             > = None;
 
-                            let name = mk_relative_name_iterator(
+                            let name = Self::mk_relative_name_iterator(
                                 zone.apex_name(),
                                 &owner,
                             )
@@ -2575,6 +2475,21 @@ impl<CF: ConnFactory> Catalog<CF> {
         );
 
         Ok(initial_soa)
+    }
+
+    pub fn mk_relative_name_iterator<'l>(
+        apex_name: &Name<Bytes>,
+        qname: &'l impl ToName,
+    ) -> Result<impl Iterator<Item = &'l Label> + Clone, OutOfZone> {
+        let mut qname = qname.iter_labels().rev();
+        for apex_label in apex_name.iter_labels().rev() {
+            let qname_label = qname.next();
+            if Some(apex_label) != qname_label {
+                error!("Qname is not in zone '{apex_name}'");
+                return Err(OutOfZone);
+            }
+        }
+        Ok(qname)
     }
 
     #[allow(clippy::borrowed_box)]
