@@ -1,8 +1,5 @@
 //! A DNS over multiple octet streams transport
 
-#![warn(missing_docs)]
-#![warn(clippy::missing_docs_in_private_items)]
-
 // To do:
 // - too many connection errors
 
@@ -296,8 +293,11 @@ impl<Req: ComposeRequest + Clone + 'static> Request<Req> {
                     continue;
                 }
                 QueryState::GetResult(ref mut query) => {
-                    match query.get_response().await {
-                        Ok(reply) => return Ok(reply),
+                    let res = query.get_response().await;
+                    match res {
+                        Ok(reply) => {
+                            return Ok(reply);
+                        }
                         // XXX This replicates the previous behavior. But
                         //     maybe we should have a whole category of
                         //     fatal errors where retrying doesn’t make any
@@ -305,13 +305,28 @@ impl<Req: ComposeRequest + Clone + 'static> Request<Req> {
                         Err(Error::WrongReplyForQuery) => {
                             return Err(Error::WrongReplyForQuery)
                         }
+                        Err(Error::ConnectionClosed) => {
+                            // The stream may immedately return that the
+                            // connection was already closed. Do not delay
+                            // the first time.
+                            self.delayed_retry_count += 1;
+                            if self.delayed_retry_count == 1 {
+                                self.state = QueryState::RequestConn;
+                            } else {
+                                let retry_time =
+                                    retry_time(self.delayed_retry_count);
+                                self.state = QueryState::Delay(
+                                    Instant::now(),
+                                    retry_time,
+                                );
+                            }
+                        }
                         Err(_) => {
                             self.delayed_retry_count += 1;
                             let retry_time =
                                 retry_time(self.delayed_retry_count);
                             self.state =
                                 QueryState::Delay(Instant::now(), retry_time);
-                            continue;
                         }
                     }
                 }

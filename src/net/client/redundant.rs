@@ -1,8 +1,5 @@
 //! A transport that multiplexes requests over multiple redundant transports.
 
-#![warn(missing_docs)]
-#![warn(clippy::missing_docs_in_private_items)]
-
 use bytes::Bytes;
 
 use futures_util::stream::FuturesUnordered;

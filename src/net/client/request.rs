@@ -1,8 +1,5 @@
 //! Constructing and sending requests.
 
-#![warn(missing_docs)]
-#![warn(clippy::missing_docs_in_private_items)]
-
 use crate::base::iana::Rcode;
 use crate::base::message::{CopyRecordsError, ShortMessage};
 use crate::base::message_builder::{
