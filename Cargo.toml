@@ -59,8 +59,8 @@ validate    = ["bytes", "std", "ring"]
 zonefile    = ["bytes", "serde", "std"]
 
 # Unstable features
-unstable-client-transport = [ "moka", "net", "tracing" ]
-unstable-server-transport = ["arc-swap", "chrono/clock", "libc", "net", "tracing"]
+unstable-client-transport = ["moka", "net", "tracing"]
+unstable-server-transport = ["arc-swap", "chrono/clock", "libc", "net", "siphasher", "tracing"]
 unstable-stelline = ["tokio/test-util", "tracing", "tracing-subscriber", "unstable-server-transport", "zonefile"]
 unstable-validator = ["validate", "zonefile", "unstable-client-transport"]
 unstable-zonetree = ["futures", "parking_lot", "serde", "tokio", "tracing"]
@@ -83,7 +83,7 @@ webpki-roots       = { version = "0.26" }
 #sqlx = { version = "0.6", features = [ "runtime-tokio-native-tls", "mysql" ] }
 
 # For testing in integration tests:
-mock_instant = { version = "0.4.0" }
+mock_instant = { version = "0.5.1" }
 
 [package.metadata.docs.rs]
 all-features = true

@@ -28,6 +28,7 @@ use tokio::time::interval;
 use tokio::time::timeout;
 use tokio::time::Instant;
 use tokio::time::MissedTickBehavior;
+use tracing::warn;
 use tracing::Level;
 use tracing::{enabled, error, trace};
 
@@ -543,13 +544,16 @@ where
 
                                         // Actually write the DNS response message bytes to the UDP
                                         // socket.
-                                        let _ = Self::send_to(
+                                        if let Err(err) = Self::send_to(
                                             &cloned_sock,
                                             bytes,
                                             &addr,
                                             write_timeout,
                                         )
-                                        .await;
+                                        .await
+                                        {
+                                            warn!(%addr, "Failed to send response: {err}");
+                                        }
 
                                         metrics.dec_num_pending_writes();
                                         metrics.inc_num_sent_responses();

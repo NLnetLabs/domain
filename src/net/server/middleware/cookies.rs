@@ -3,7 +3,6 @@ use core::future::{ready, Ready};
 use core::marker::PhantomData;
 use core::ops::ControlFlow;
 
-use std::net::IpAddr;
 use std::vec::Vec;
 
 use futures::stream::{once, Once};
@@ -13,6 +12,7 @@ use tracing::{debug, trace, warn};
 
 use crate::base::iana::{OptRcode, Rcode};
 use crate::base::message_builder::AdditionalBuilder;
+use crate::base::net::IpAddr;
 use crate::base::opt;
 use crate::base::wire::{Composer, ParseError};
 use crate::base::{Serial, StreamTarget};
@@ -22,6 +22,8 @@ use crate::net::server::service::{CallResult, Service};
 use crate::net::server::util::add_edns_options;
 use crate::net::server::util::{mk_builder_for_target, start_reply};
 
+//----------- Constants -------------------------------------------------------
+
 /// The five minute period referred to by
 /// https://www.rfc-editor.org/rfc/rfc9018.html#section-4.3.
 const FIVE_MINUTES_AS_SECS: u32 = 5 * 60;
@@ -30,7 +32,9 @@ const FIVE_MINUTES_AS_SECS: u32 = 5 * 60;
 /// https://www.rfc-editor.org/rfc/rfc9018.html#section-4.3.
 const ONE_HOUR_AS_SECS: u32 = 60 * 60;
 
-/// A DNS Cookies middleware service
+//----------- CookiesMiddlewareProcessor --------------------------------------
+
+/// A DNS Cookies middleware service.
 ///
 /// Standards covered by ths implementation:
 ///
@@ -93,17 +97,18 @@ where
 {
     /// Get the DNS COOKIE, if any, for the given message.
     ///
-    /// https://datatracker.ietf.org/doc/html/rfc7873#section-5.2: Responding
-    /// to a Request: "In all cases of multiple COOKIE options in a request,
-    ///   only the first (the one closest to the DNS header) is considered.
-    ///   All others are ignored."
+    /// https://datatracker.ietf.org/doc/html/rfc7873#section-5.2
+    /// 5.2 Responding to a Request
+    ///   "In all cases of multiple COOKIE options in a request, only the
+    ///    first (the one closest to the DNS header) is considered. All others
+    ///    are ignored."
     ///
     /// Returns:
-    ///   - `None` if the request has no cookie,
-    ///   - Some(Ok(cookie)) if the request has a cookie in the correct
-    ///     format,
-    ///   - Some(Err(err)) if the request has a cookie that we could not
-    ///     parse.
+    ///   - None if the request has no cookie,
+    ///   - Some(Ok(cookie)) if the first cookie in the request could be
+    ///     parsed.
+    ///   - Some(Err(err)) if the first cookie in the request could not be
+    ///     parsed.
     #[must_use]
     fn cookie(
         request: &Request<RequestOctets>,
@@ -137,7 +142,15 @@ where
         let now = Serial::now();
         let too_new_at = now.add(FIVE_MINUTES_AS_SECS);
         let expires_at = serial.add(ONE_HOUR_AS_SECS);
-        now <= expires_at && serial <= too_new_at
+        if now > expires_at {
+            trace!("Invalid server cookie: cookie has expired ({now} > {expires_at})");
+            false
+        } else if serial > too_new_at {
+            trace!("Invalid server cookie: cookie is too new ({serial} > {too_new_at})");
+            false
+        } else {
+            true
+        }
     }
 
     /// Create a DNS response message for the given request, including cookie.
@@ -211,6 +224,8 @@ where
         //   Cookie, the response SHALL have the RCODE NOERROR."
         self.response_with_cookie(request, Rcode::NOERROR.into())
     }
+
+    #[tracing::instrument(skip_all, fields(request_ip = %request.client_addr().ip()))]
     fn preprocess(
         &self,
         request: &Request<RequestOctets>,
@@ -226,24 +241,31 @@ where
                 //   the request as if the server doesn't implement the
                 //   COOKIE option."
 
-                // For clients on the IP deny list they MUST authenticate
-                // themselves to the server, either with a cookie or by
-                // re-connecting over TCP, so we REFUSE them and reply with
-                // TC=1 to prompt them to reconnect via TCP.
+                // https://datatracker.ietf.org/doc/html/rfc7873#section-1
+                // 1. Introduction
+                //   "The protection provided by DNS Cookies is similar to
+                //    that provided by using TCP for DNS transactions.
+                //    ...
+                //    Where DNS Cookies are not available but TCP is, falling
+                //    back to using TCP is reasonable."
+
+                // While not required by RFC 7873, like Unbound the caller can
+                // configure this middleware processor to require clients
+                // contacting it from certain IP addresses to authenticate
+                // themselves or be refused with TC=1 to signal that they
+                // should resubmit their request via TCP.
                 if request.transport_ctx().is_udp()
                     && self.ip_deny_list.contains(&request.client_addr().ip())
                 {
-                    debug!(
-                        "Rejecting cookie-less non-TCP request due to matching IP deny list entry"
-                    );
+                    debug!("Rejecting cookie-less non-TCP request due to matching deny list entry");
                     let builder = mk_builder_for_target();
                     let mut additional = builder.additional();
                     additional.header_mut().set_rcode(Rcode::REFUSED);
                     additional.header_mut().set_tc(true);
                     return ControlFlow::Break(additional);
-                } else {
-                    trace!("Permitting cookie-less request to flow due to use of TCP transport");
                 }
+
+                // Continue as if we we don't implement the COOKIE option.
             }
 
             Some(Err(err)) => {
@@ -286,6 +308,8 @@ where
                 );
 
                 if !server_cookie_is_valid {
+                    trace!("Request has an invalid DNS server cookie");
+
                     // https://datatracker.ietf.org/doc/html/rfc7873#section-5.2.3
                     // Only a Client Cookie:
                     //   "Based on server policy, including rate limiting, the
@@ -360,10 +384,13 @@ where
                             self.bad_cookie_response(request)
                         };
                         return ControlFlow::Break(additional);
-                    } else if request.transport_ctx().is_udp() {
+                    } else if request.transport_ctx().is_udp()
+                        && self
+                            .ip_deny_list
+                            .contains(&request.client_addr().ip())
+                    {
                         let additional = self.bad_cookie_response(request);
-                        debug!(
-                                "Rejecting non-TCP request due to invalid server cookie");
+                        debug!("Rejecting non-TCP request with invalid server cookie due to matching deny list entry");
                         return ControlFlow::Break(additional);
                     }
                 } else if request.message().header_counts().qdcount() == 0 {
@@ -508,7 +535,8 @@ mod tests {
         let my_svc = service_fn(my_service, ());
         let server_secret: [u8; 16] =
             [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15];
-        let processor_svc = CookiesMiddlewareSvc::new(my_svc, server_secret);
+        let processor_svc = CookiesMiddlewareSvc::new(my_svc, server_secret)
+            .with_denied_ips(["127.0.0.1".parse().unwrap()]);
 
         let mut stream = processor_svc.call(request).await;
         let call_result: CallResult<Vec<u8>> =

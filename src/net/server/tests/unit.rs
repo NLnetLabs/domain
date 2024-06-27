@@ -1,3 +1,4 @@
+use core::future::{ready, Ready};
 use core::pin::Pin;
 use core::str::FromStr;
 use core::sync::atomic::{AtomicBool, Ordering};
@@ -20,15 +21,14 @@ use crate::base::Name;
 use crate::base::Rtype;
 use crate::base::StaticCompressor;
 use crate::base::StreamTarget;
+use crate::net::server::buf::BufSource;
+use crate::net::server::message::Request;
 use crate::net::server::middleware::mandatory::MandatoryMiddlewareSvc;
+use crate::net::server::service::{
+    CallResult, Service, ServiceError, ServiceFeedback,
+};
+use crate::net::server::sock::AsyncAccept;
 use crate::net::server::stream::StreamServer;
-
-use super::buf::BufSource;
-use super::message::Request;
-use super::service::{CallResult, Service, ServiceError, ServiceFeedback};
-use super::sock::AsyncAccept;
-use core::future::{ready, Ready};
-// use super::stream::StreamServer;
 
 /// Mock I/O which supplies a sequence of mock messages to the server at a
 /// defined rate.

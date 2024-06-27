@@ -14,7 +14,7 @@ use crate::stelline::connect::Connect;
 use crate::stelline::parse_stelline::parse_file;
 use crate::stelline::parse_stelline::Config;
 
-use mock_instant::MockClock;
+use mock_instant::thread_local::MockClock;
 use rstest::rstest;
 use tracing::instrument;
 
