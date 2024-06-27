@@ -1,4 +1,4 @@
-use core::net::{IpAddr, SocketAddr};
+use core::net::SocketAddr;
 
 use std::boxed::Box;
 use std::collections::VecDeque;
@@ -16,6 +16,7 @@ use tracing::{trace, warn};
 
 use crate::base::iana::Rcode;
 use crate::base::name::{Name, ToName};
+use crate::base::net::IpAddr;
 use crate::base::wire::Composer;
 use crate::net::client::{dgram, stream};
 use crate::net::server::buf::VecBufSource;

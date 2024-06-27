@@ -1,7 +1,6 @@
 //! DNS Cookies related message processing.
 use core::ops::ControlFlow;
 
-use std::net::IpAddr;
 use std::vec::Vec;
 
 use octseq::Octets;
@@ -10,6 +9,7 @@ use tracing::{debug, trace, warn};
 
 use crate::base::iana::{OptRcode, Rcode};
 use crate::base::message_builder::AdditionalBuilder;
+use crate::base::net::IpAddr;
 use crate::base::opt;
 use crate::base::wire::{Composer, ParseError};
 use crate::base::{Serial, StreamTarget};
