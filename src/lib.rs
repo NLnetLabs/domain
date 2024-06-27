@@ -43,6 +43,9 @@
 #![cfg_attr(feature = "validate", doc = "* [validate]:")]
 #![cfg_attr(not(feature = "validate"), doc = "* validate:")]
 //!   Experimental support for DNSSEC validation.
+#![cfg_attr(feature = "unstable-validator", doc = "* [validator]:")]
+#![cfg_attr(not(feature = "unstable-validator"), doc = "* validator:")]
+//!   A DNSSEC validator.
 #![cfg_attr(feature = "zonefile", doc = "* [zonefile]:")]
 #![cfg_attr(not(feature = "zonefile"), doc = "* zonefile:")]
 //!   Experimental reading and writing of zone files, i.e. the textual
@@ -132,6 +135,8 @@
 //!   a client perspective; primarily the `net::client` module.
 //! * `unstable-server-transport`: receiving and sending DNS messages from
 //!   a server perspective; primarily the `net::server` module.
+//! * `unstable-validator`: a DNSSEC validator, primarily the `validator`
+//!   and the `net::client::validator` modules.
 //! * `unstable-zonetree`: building & querying zone trees; primarily the
 //!   `zonetree` module.
 //!
@@ -165,6 +170,7 @@ pub mod test;
 pub mod tsig;
 pub mod utils;
 pub mod validate;
+pub mod validator;
 pub mod zonecatalog;
 pub mod zonefile;
 pub mod zonetree;

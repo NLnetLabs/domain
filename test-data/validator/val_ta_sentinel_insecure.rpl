@@ -1,0 +1,378 @@
+stub-addr: 2001:503:ba3e::2:30
+stub-name: rootns.
+server:
+	trust-anchor: . IN DS 48409 8 2 3D63A0C25BCE86621DE63636F11B35B908EFE8E9381E0E3E9DEFD89EA952C27D
+	val-override-date: 20180601000000
+; avoid the mess with one server for both "." and "unsigned."
+query-minimization: on
+CONFIG_END
+
+SCENARIO_BEGIN draft-ietf-dnsop-kskroll-sentinel-12 section 2 where root key matches but test domain is insecure
+
+
+RANGE_BEGIN 1 1000
+        ADDRESS 2001:503:ba3e::2:30
+        ADDRESS 198.41.0.4
+
+ENTRY_BEGIN
+MATCH opcode question
+ADJUST copy_id
+REPLY NOERROR QR AA DO
+SECTION QUESTION
+. IN SOA
+SECTION ANSWER
+.					      86400 IN SOA	rootns. you.test. 2017071101 1800 900 604800 86400
+.					      86400 IN RRSIG	SOA 8 0 86400 20180629135151 20180530135151 48409 . vb9XrP5h9Ojhqbs1Rbdiwxvje/TVFafSZlLf372zpYdtSBI6f7x++GYI WNiUG8EFtchEmL8KNsrWbujpa8tXeWXtatW92kG1qZAnOA40Zw1DjnI8 ZI7volYyq/TMmufKcoNAXU2knAmpZhHDZ+TBOc5HK6TwKeQaRQ6hPwxB JKOjXw2mVjQFP5lck2m2LU9a7iubYRvncRDHmqfjJ9XsSfWi1AU2fmk/ ei/bhKnFMWVH2PXtQlsbxRS8+8SaEL6f4rQC1JqwQ8E03SAZdK7oJKOf GRRFOfYOx7JucTwiV18LAa/j0owSMvuPwYjGnk6BY7e4LTMK2vPgJ3yY lqLmTw==
+ENTRY_END
+
+ENTRY_BEGIN
+MATCH opcode question
+ADJUST copy_id
+REPLY NOERROR QR AA DO
+SECTION QUESTION
+. IN DNSKEY
+SECTION ANSWER
+.					      1814400 IN DNSKEY	257 3 8 AwEAAcliJP8Jh/RjL3c8eaUj8dzVdEksENKubqVA5FdrDJ2rC0O/bGG/ MVZt+WacE1o1mRVwTT/TrhhZUAzZ+qOcpB+IWxURsR4vVqVwakHMny7D 2aLXKoVXwTo/VhAQtHDw5G9bxGgwybPUtd5Vz6EIenUsmNYZ+Spde4l8 vpw7UISVL6q0C1mwHMN18P/1yfHmbkS19b6B1S9Y2aputccF1lso3yiF Ig7UNqqD4PNxSo4jByDnajQSP3qg/LSJSOnzBIumb8wc6svxgugy/pxr BFKgGGk4/JdJCKufdfU5jFX4fJ3HM37G/RccrtGhIf2Z1utoOyaILoa9 wT3O1WaYG/U=
+.					      1814400 IN RRSIG	DNSKEY 8 0 1814400 20180629135151 20180530135151 48409 . HRj68PBD0cR2p1njZcMUBecR5DiBbueyhIX1oqc9K9Rig5i+ONuozacm 3F4kg9DhUYb/1W6+PSp9YLyrJtCZOFLqkTjPiOAyiE6zVAE/U5O5LRZ/ FjqRQoWuA1cFZtrLokaWmW9GS5Kb2+PUCJY5NRz27JFSvaRRkoHIFf4o mA6eQsuWt28Itx0VGPL9+mR+2B+IcnmN+DZb7mxoRknOh0WyNop4eiep oSZcCihYHOdesCtmrxoMkwGEHZpu8a6GN7jaeNXXNUulwQYfzUZJZQo1 Zr9cN7kzIZ5tAs9ffnPRcWVO61MQTxUtuGbipFpba6RhGmML8oO4JkOJ Itp6tg==
+ENTRY_END
+
+ENTRY_BEGIN
+MATCH opcode question
+ADJUST copy_id
+REPLY NOERROR QR AA DO
+SECTION QUESTION
+. IN NS
+SECTION ANSWER
+.					      518400 IN	NS	rootns.
+.					      518400 IN	RRSIG	NS 8 0 518400 20180629135151 20180530135151 48409 . ZBLk+sK9ky+YBmzceXbBqEUyBc6nWfAtF6vCK/6cCfL1AxBYOoxdwE/G m0oRAl5WHRrreDSM2t79jcyyUZyyOcee2j/mLPjLdJPQr0Dw9KY+843L o4VSWV0L9adSzgXgvQF/p4yW2zNbHia7doA9GTDjkQFj2+7HgdJdGk8S I2GCx822fqzMCdS3XerIZ4EMz8Lt1sWaexdCgi0sCn9SvqzNHTaIXirW /apL0ohiBNp23LGa7+/7UvNrv+Y/gHpKk2bUytnS7soOocd9XpTekBY7 jlRlmnHTAdn9b9Zj2PHn72v1RYIywP33Qb9ze7i2v7s12uUR3lJt9sd/ WVeuXQ==
+SECTION ADDITIONAL
+rootns.					      518400 IN	A	198.41.0.4
+rootns.					      518400 IN	AAAA	2001:503:ba3e::2:30
+rootns.					      518400 IN	RRSIG	A 8 1 518400 20180629135151 20180530135151 48409 . QtR9Z2uVwFVlLy5xQzMVmhqdzZw5cSFbq3xOzhr42gkoD9BYfNyTuhz9 57Sc7kvyJalBHaq3OKoYvE+4anjR8bXk20nGvVjzRdiiqavK41yUpbxC xvo5fWUMj5Bg860AcApn4OOLdFjyKOjJX7ro7QvFdA/adt9WEwhQ3AJ9 PN+SHqtx35F49OUbgiNUEbShJ2VyjOL5bt41LZgffkjim+VB2OtO1hDG CqrKyUlbZ0vxGJhtVflt1Jj3atArHfHz4cuFJHLtSu9PK9piYlSQ54XH vPk0YZ2iKK9sNrVF50Vb7NmLFBCVPn/op0Kmr+u6QVREP6uWayoPtqab /NKvwQ==
+rootns.					      518400 IN	RRSIG	AAAA 8 1 518400 20180629135151 20180530135151 48409 . bs+zTG/nH7uQrgW5qfY5p25uXNoPOsH94K/xNVSLm9h1165/AMekPPd8 KVPnCfyZLPhO+/XyZ5fDUd/2iMCT5m/HyjXR0+j92r6f9ePfAJVQX6U0 DJUa882LgYK7k4usmIIWpi66bpGDC1tlJF3WQ4G12Hc/cUmFTMDBTcM8 6CPPDoT00JZQL8u/66GwNYkWw4mmbiq9UAz03R7A983dUx2GLCAmXoGR Lr3hI3btZa5x+GdJhw5t6Mqi58tXSZfUmT7kpCw+K0H/RscQaVDaOLc6 kzBeVn/Lip60ZSd84kiNWKuSA56TfUbpk7VJclY8UI34COHQqNtD+lev wJ1WgQ==
+ENTRY_END
+
+ENTRY_BEGIN
+MATCH opcode question
+ADJUST copy_id
+REPLY NOERROR QR AA DO
+SECTION QUESTION
+rootns. IN NS
+SECTION AUTHORITY
+.					      86400 IN SOA	rootns. you.test. 2017071101 1800 900 604800 86400
+.					      86400 IN RRSIG	SOA 8 0 86400 20180629135151 20180530135151 48409 . vb9XrP5h9Ojhqbs1Rbdiwxvje/TVFafSZlLf372zpYdtSBI6f7x++GYI WNiUG8EFtchEmL8KNsrWbujpa8tXeWXtatW92kG1qZAnOA40Zw1DjnI8 ZI7volYyq/TMmufKcoNAXU2knAmpZhHDZ+TBOc5HK6TwKeQaRQ6hPwxB JKOjXw2mVjQFP5lck2m2LU9a7iubYRvncRDHmqfjJ9XsSfWi1AU2fmk/ ei/bhKnFMWVH2PXtQlsbxRS8+8SaEL6f4rQC1JqwQ8E03SAZdK7oJKOf GRRFOfYOx7JucTwiV18LAa/j0owSMvuPwYjGnk6BY7e4LTMK2vPgJ3yY lqLmTw==
+rootns.					      86400 IN NSEC	root-key-sentinel-is-ta-00000.test. A AAAA RRSIG NSEC
+rootns.					      86400 IN RRSIG	NSEC 8 1 86400 20180629135151 20180530135151 48409 . noqU9JO9z5QXcedzsm7E6RZ5aIIocIH/jSedo6Zy+GImRTeHpc0le399 DUOsqGlcagx7EWRerScB+xmpL7DxKl0FFyeG0ORvPjJ6IyCFTecWjaKW YVurQnzALW+LhfsPSTxBMnnRhxT5Qrw4dtO0gx7fWyssKUnsMcBdmESs tALFNSfJpiV7so9cK2ssHsC+jkM0AQoemSKJrTesxm8FP1BGT27tz/vx yWIlOUGc8/gBgHo4hoXH1oyCrw9KU9kczRqw4CoCGJtZ2/k15BfmbPlC kLrvLibEmp6OYPVWfJRG79uDHhT+Tul07j26WmA+A7IWXSye8W51WbdH 7gJTKQ==
+ENTRY_END
+
+ENTRY_BEGIN
+MATCH opcode question
+ADJUST copy_id
+REPLY NOERROR QR AA DO
+SECTION QUESTION
+rootns. IN A
+SECTION ANSWER
+rootns.					      518400 IN	A	198.41.0.4
+rootns.					      518400 IN	RRSIG	A 8 1 518400 20180629135151 20180530135151 48409 . QtR9Z2uVwFVlLy5xQzMVmhqdzZw5cSFbq3xOzhr42gkoD9BYfNyTuhz9 57Sc7kvyJalBHaq3OKoYvE+4anjR8bXk20nGvVjzRdiiqavK41yUpbxC xvo5fWUMj5Bg860AcApn4OOLdFjyKOjJX7ro7QvFdA/adt9WEwhQ3AJ9 PN+SHqtx35F49OUbgiNUEbShJ2VyjOL5bt41LZgffkjim+VB2OtO1hDG CqrKyUlbZ0vxGJhtVflt1Jj3atArHfHz4cuFJHLtSu9PK9piYlSQ54XH vPk0YZ2iKK9sNrVF50Vb7NmLFBCVPn/op0Kmr+u6QVREP6uWayoPtqab /NKvwQ==
+ENTRY_END
+
+ENTRY_BEGIN
+MATCH opcode question
+ADJUST copy_id
+REPLY NOERROR QR AA DO
+SECTION QUESTION
+rootns. IN AAAA
+SECTION ANSWER
+rootns.					      518400 IN	AAAA	2001:503:ba3e::2:30
+rootns.					      518400 IN	RRSIG	AAAA 8 1 518400 20180629135151 20180530135151 48409 . bs+zTG/nH7uQrgW5qfY5p25uXNoPOsH94K/xNVSLm9h1165/AMekPPd8 KVPnCfyZLPhO+/XyZ5fDUd/2iMCT5m/HyjXR0+j92r6f9ePfAJVQX6U0 DJUa882LgYK7k4usmIIWpi66bpGDC1tlJF3WQ4G12Hc/cUmFTMDBTcM8 6CPPDoT00JZQL8u/66GwNYkWw4mmbiq9UAz03R7A983dUx2GLCAmXoGR Lr3hI3btZa5x+GdJhw5t6Mqi58tXSZfUmT7kpCw+K0H/RscQaVDaOLc6 kzBeVn/Lip60ZSd84kiNWKuSA56TfUbpk7VJclY8UI34COHQqNtD+lev wJ1WgQ==
+ENTRY_END
+
+; The delegation here is slightly hacky
+ENTRY_BEGIN
+MATCH opcode question
+ADJUST copy_id
+REPLY NOERROR QR AA DO
+SECTION QUESTION
+unsigned. IN NS
+SECTION ANSWER
+unsigned.				      86400 IN NS	rootns.
+SECTION AUTHORITY
+unsigned.				      86400 IN NSEC	. NS RRSIG NSEC
+unsigned.				      86400 IN RRSIG	NSEC 8 1 86400 20180629135151 20180530135151 48409 . Di6tfHcpredaWGazWKUX26zYKQ+Yw34BCO2vtqufvcAZJN6PhyXct+Px cvfPN5WxTWlcXVbj6xJKYTOe/ItgV4TM1G2SzGrzTB4qs8ybSvECT59h FUUXTM5ZeXqQVIKKuhVJlmWYSneOiuQG0w6wWr/xE+sD+LE5xQ+hnWrp Z3YAbCmFdtCTwDVt8DkN3i30zExEWc/CnQj9gFYWIBPQ22OB1sfjbZSe 85ucMhUjTas7pZki7b716ZhokApLSf5mVjktjHVT+lPpivs/L2KaQKAe 2yKi05bInFJ+FHU29YoZ3zkBTd2+MeKOh9/1O+9O+hCA+yzLiSLG06Xa 1F7Pcg==
+ENTRY_END
+
+ENTRY_BEGIN
+MATCH opcode question
+ADJUST copy_id
+REPLY NOERROR QR AA DO
+SECTION QUESTION
+unsigned. IN DS
+SECTION ANSWER
+SECTION AUTHORITY
+unsigned.				      86400 IN NSEC	. NS RRSIG NSEC
+unsigned.				      86400 IN RRSIG	NSEC 8 1 86400 20180629135151 20180530135151 48409 . Di6tfHcpredaWGazWKUX26zYKQ+Yw34BCO2vtqufvcAZJN6PhyXct+Px cvfPN5WxTWlcXVbj6xJKYTOe/ItgV4TM1G2SzGrzTB4qs8ybSvECT59h FUUXTM5ZeXqQVIKKuhVJlmWYSneOiuQG0w6wWr/xE+sD+LE5xQ+hnWrp Z3YAbCmFdtCTwDVt8DkN3i30zExEWc/CnQj9gFYWIBPQ22OB1sfjbZSe 85ucMhUjTas7pZki7b716ZhokApLSf5mVjktjHVT+lPpivs/L2KaQKAe 2yKi05bInFJ+FHU29YoZ3zkBTd2+MeKOh9/1O+9O+hCA+yzLiSLG06Xa 1F7Pcg==
+ENTRY_END
+
+ENTRY_BEGIN
+MATCH opcode question
+ADJUST copy_id
+REPLY NOERROR QR AA DO
+SECTION QUESTION
+root-key-sentinel-is-ta-48409.unsigned. IN A
+SECTION ANSWER
+root-key-sentinel-is-ta-48409.unsigned.	      1	IN A		192.0.2.1
+ENTRY_END
+
+ENTRY_BEGIN
+MATCH opcode question
+ADJUST copy_id
+REPLY NOERROR QR AA DO
+SECTION QUESTION
+root-key-sentinel-is-ta-48409.unsigned. IN AAAA
+SECTION ANSWER
+root-key-sentinel-is-ta-48409.unsigned.	      1	IN AAAA		2001:db8::
+ENTRY_END
+
+ENTRY_BEGIN
+MATCH opcode question
+ADJUST copy_id
+REPLY NOERROR QR AA DO
+SECTION QUESTION
+root-key-sentinel-is-ta-48409.unsigned. IN TXT
+SECTION ANSWER
+root-key-sentinel-is-ta-48409.unsigned.	      1	IN TXT		"it works"
+ENTRY_END
+
+ENTRY_BEGIN
+MATCH opcode question
+ADJUST copy_id
+REPLY NOERROR QR AA DO
+SECTION QUESTION
+root-key-sentinel-not-ta-48409.unsigned. IN A
+SECTION ANSWER
+root-key-sentinel-not-ta-48409.unsigned.	      1	IN A		192.0.2.1
+ENTRY_END
+
+ENTRY_BEGIN
+MATCH opcode question
+ADJUST copy_id
+REPLY NOERROR QR AA DO
+SECTION QUESTION
+root-key-sentinel-not-ta-48409.unsigned. IN AAAA
+SECTION ANSWER
+root-key-sentinel-not-ta-48409.unsigned.	      1	IN AAAA		2001:db8::
+ENTRY_END
+
+ENTRY_BEGIN
+MATCH opcode question
+ADJUST copy_id
+REPLY NOERROR QR AA DO
+SECTION QUESTION
+root-key-sentinel-not-ta-48409.unsigned. IN TXT
+SECTION ANSWER
+root-key-sentinel-not-ta-48409.unsigned.	      1	IN TXT		"it works"
+ENTRY_END
+
+ENTRY_BEGIN
+MATCH opcode question
+ADJUST copy_id
+REPLY NOERROR QR AA DO
+SECTION QUESTION
+root-key-sentinel-is-ta-00000.unsigned. IN A
+SECTION ANSWER
+root-key-sentinel-is-ta-00000.unsigned.	      1	IN A		192.0.2.1
+ENTRY_END
+
+ENTRY_BEGIN
+MATCH opcode question
+ADJUST copy_id
+REPLY NOERROR QR AA DO
+SECTION QUESTION
+root-key-sentinel-is-ta-00000.unsigned. IN AAAA
+SECTION ANSWER
+root-key-sentinel-is-ta-00000.unsigned.	      1	IN AAAA		2001:db8::
+ENTRY_END
+
+ENTRY_BEGIN
+MATCH opcode question
+ADJUST copy_id
+REPLY NOERROR QR AA DO
+SECTION QUESTION
+root-key-sentinel-is-ta-00000.unsigned. IN TXT
+SECTION ANSWER
+root-key-sentinel-is-ta-00000.unsigned.	      1	IN TXT		"it works"
+ENTRY_END
+
+ENTRY_BEGIN
+MATCH opcode question
+ADJUST copy_id
+REPLY NOERROR QR AA DO
+SECTION QUESTION
+root-key-sentinel-not-ta-00000.unsigned. IN A
+SECTION ANSWER
+root-key-sentinel-not-ta-00000.unsigned.	      1	IN A		192.0.2.1
+ENTRY_END
+
+ENTRY_BEGIN
+MATCH opcode question
+ADJUST copy_id
+REPLY NOERROR QR AA DO
+SECTION QUESTION
+root-key-sentinel-not-ta-00000.unsigned. IN AAAA
+SECTION ANSWER
+root-key-sentinel-not-ta-00000.unsigned.	      1	IN AAAA		2001:db8::
+ENTRY_END
+
+ENTRY_BEGIN
+MATCH opcode question
+ADJUST copy_id
+REPLY NOERROR QR AA DO
+SECTION QUESTION
+root-key-sentinel-not-ta-00000.unsigned. IN TXT
+SECTION ANSWER
+root-key-sentinel-not-ta-00000.unsigned.	      1	IN TXT		"it works"
+ENTRY_END
+
+RANGE_END
+
+
+; sentinel does not affect qtypes different than A/AAAA
+STEP 111 QUERY
+ENTRY_BEGIN
+REPLY RD AD
+SECTION QUESTION
+root-key-sentinel-is-ta-48409.unsigned. IN TXT
+ENTRY_END
+
+STEP 112 CHECK_ANSWER
+ENTRY_BEGIN
+REPLY QR AA NOERROR
+MATCH opcode rcode flags question answer
+SECTION QUESTION
+root-key-sentinel-is-ta-48409.unsigned. IN TXT
+SECTION ANSWER
+root-key-sentinel-is-ta-48409.unsigned. IN TXT "it works"
+ENTRY_END
+
+STEP 121 QUERY
+ENTRY_BEGIN
+REPLY RD AD
+SECTION QUESTION
+root-key-sentinel-not-ta-48409.unsigned. IN TXT
+ENTRY_END
+
+STEP 122 CHECK_ANSWER
+ENTRY_BEGIN
+REPLY QR AA NOERROR
+MATCH opcode rcode flags question answer
+SECTION QUESTION
+root-key-sentinel-not-ta-48409.unsigned. IN TXT
+SECTION ANSWER
+root-key-sentinel-not-ta-48409.unsigned. IN TXT "it works"
+ENTRY_END
+
+STEP 131 QUERY
+ENTRY_BEGIN
+REPLY RD AD
+SECTION QUESTION
+root-key-sentinel-is-ta-00000.unsigned. IN TXT
+ENTRY_END
+
+STEP 132 CHECK_ANSWER
+ENTRY_BEGIN
+REPLY QR AA NOERROR
+MATCH opcode rcode flags question answer
+SECTION QUESTION
+root-key-sentinel-is-ta-00000.unsigned. IN TXT
+SECTION ANSWER
+root-key-sentinel-is-ta-00000.unsigned. IN TXT "it works"
+ENTRY_END
+
+STEP 141 QUERY
+ENTRY_BEGIN
+REPLY RD AD
+SECTION QUESTION
+root-key-sentinel-not-ta-00000.unsigned. IN TXT
+ENTRY_END
+
+STEP 142 CHECK_ANSWER
+ENTRY_BEGIN
+REPLY QR AA NOERROR
+MATCH opcode rcode flags question answer
+SECTION QUESTION
+root-key-sentinel-not-ta-00000.unsigned. IN TXT
+SECTION ANSWER
+root-key-sentinel-not-ta-00000.unsigned. IN TXT "it works"
+ENTRY_END
+
+; _is-ta does not affect queries when we do not have TA for root
+STEP 211 QUERY
+ENTRY_BEGIN
+REPLY RD AD
+SECTION QUESTION
+root-key-sentinel-is-ta-48409.unsigned. IN A
+ENTRY_END
+
+STEP 212 CHECK_ANSWER
+ENTRY_BEGIN
+REPLY QR AA NOERROR
+MATCH opcode rcode flags question answer
+SECTION QUESTION
+root-key-sentinel-is-ta-48409.unsigned. IN A
+SECTION ANSWER
+root-key-sentinel-is-ta-48409.unsigned. 1 IN A 192.0.2.1
+ENTRY_END
+
+STEP 221 QUERY
+ENTRY_BEGIN
+REPLY RD AD
+SECTION QUESTION
+root-key-sentinel-is-ta-48409.unsigned. IN AAAA
+ENTRY_END
+
+STEP 222 CHECK_ANSWER
+ENTRY_BEGIN
+REPLY QR AA NOERROR
+MATCH opcode rcode flags question answer
+SECTION QUESTION
+root-key-sentinel-is-ta-48409.unsigned. IN AAAA
+SECTION ANSWER
+root-key-sentinel-is-ta-48409.unsigned. 1 IN AAAA 2001:db8::
+ENTRY_END
+
+; _not-ta does not affect queries when we do not have TA for root
+STEP 311 QUERY
+ENTRY_BEGIN
+REPLY RD AD
+SECTION QUESTION
+root-key-sentinel-not-ta-48409.unsigned. IN A
+ENTRY_END
+
+STEP 312 CHECK_ANSWER
+ENTRY_BEGIN
+REPLY QR AA NOERROR
+MATCH opcode rcode flags question answer
+SECTION QUESTION
+root-key-sentinel-not-ta-48409.unsigned. IN A
+SECTION ANSWER
+root-key-sentinel-not-ta-48409.unsigned.	      1	IN A		192.0.2.1
+ENTRY_END
+
+STEP 322 QUERY
+ENTRY_BEGIN
+REPLY RD AD
+SECTION QUESTION
+root-key-sentinel-not-ta-48409.unsigned. IN AAAA
+ENTRY_END
+
+STEP 323 CHECK_ANSWER
+ENTRY_BEGIN
+REPLY QR AA NOERROR
+MATCH opcode rcode flags question answer
+SECTION QUESTION
+root-key-sentinel-not-ta-48409.unsigned. IN AAAA
+SECTION ANSWER
+root-key-sentinel-not-ta-48409.unsigned. IN AAAA 2001:db8::
+ENTRY_END
+
+SCENARIO_END

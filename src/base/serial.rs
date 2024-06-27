@@ -12,8 +12,10 @@ use super::wire::{Compose, Composer, Parse, ParseError};
 use chrono::{DateTime, TimeZone};
 use core::cmp::Ordering;
 use core::{cmp, fmt, str};
+#[cfg(all(feature = "std", test))]
+use mock_instant::thread_local::{SystemTime, UNIX_EPOCH};
 use octseq::parse::Parser;
-#[cfg(feature = "std")]
+#[cfg(all(feature = "std", not(test)))]
 use std::time::{SystemTime, UNIX_EPOCH};
 
 //------------ Serial --------------------------------------------------------

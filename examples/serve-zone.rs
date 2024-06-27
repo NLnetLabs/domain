@@ -48,14 +48,11 @@ use domain::base::{
 use domain::net::server::buf::VecBufSource;
 use domain::net::server::dgram::DgramServer;
 use domain::net::server::message::Request;
-#[cfg(feature = "siphasher")]
 use domain::net::server::middleware::cookies::CookiesMiddlewareSvc;
 use domain::net::server::middleware::edns::EdnsMiddlewareSvc;
 use domain::net::server::middleware::mandatory::MandatoryMiddlewareSvc;
 use domain::net::server::middleware::notify::NotifyMiddlewareSvc;
-use domain::net::server::middleware::xfr::{
-    PerClientSettings, XfrMiddlewareSvc, XfrMode,
-};
+use domain::net::server::middleware::xfr::{XfrMiddlewareSvc, XfrMode};
 use domain::net::server::service::{CallResult, ServiceResult};
 use domain::net::server::stream::{self, StreamServer};
 use domain::net::server::util::{mk_builder_for_target, service_fn};
@@ -162,6 +159,7 @@ async fn main() {
             let xfr_settings = XfrSettings {
                 strategy: XfrStrategy::AxfrOnly,
                 ixfr_transport: TransportStrategy::Tcp,
+                compatibility_mode: catalog::CompatibilityMode::Default,
             };
             allow_xfr.allow_from(
                 "127.0.0.1".parse().unwrap(),
@@ -178,6 +176,7 @@ async fn main() {
             let xfr_settings = XfrSettings {
                 strategy: XfrStrategy::IxfrWithAxfrFallback,
                 ixfr_transport: TransportStrategy::Tcp,
+                compatibility_mode: catalog::CompatibilityMode::Default,
             };
             request_xfr.allow_to(
                 "127.0.0.1:8055".parse().unwrap(),
@@ -207,7 +206,6 @@ async fn main() {
         catalog.clone(),
         num_xfr_threads,
         XfrMode::AxfrAndIxfr,
-        PerClientSettings::new(),
     );
     let svc = NotifyMiddlewareSvc::<Vec<u8>, _>::new(svc, catalog.clone());
 

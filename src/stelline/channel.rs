@@ -1,8 +1,8 @@
-use core::sync::atomic::AtomicBool;
-use core::sync::atomic::Ordering;
 // Using tokio::io::duplex() seems appealing but it can only create a channel
 // between two ends, it isn't possible to create additional client ends for a
 // single server end for example.
+use core::sync::atomic::{AtomicBool, AtomicU16, Ordering};
+
 use std::boxed::Box;
 use std::collections::HashMap;
 use std::future::ready;
@@ -30,7 +30,7 @@ pub const DEF_CLIENT_ADDR: IpAddr = IpAddr::V4(Ipv4Addr::LOCALHOST);
 pub const DEF_CLIENT_PORT: u16 = 0;
 
 enum Data {
-    DgramRequest(Vec<u8>),
+    DgramRequest(SocketAddr, Vec<u8>),
     StreamAccept(ClientServerChannel),
     StreamRequest(Vec<u8>),
 }
@@ -126,7 +126,7 @@ struct ServerSocket {
     /// Senders for the server to send responses to clients.
     ///
     /// One per client to which responses must be sent.
-    response_txs: HashMap<(), mpsc::Sender<Vec<u8>>>,
+    response_txs: HashMap<SocketAddr, mpsc::Sender<Vec<u8>>>,
 
     /// Buffer for received bytes that overflowed the server read buffer.
     unread_buf: ReadBufBuffer,
@@ -154,7 +154,6 @@ impl ServerSocket {
     }
 }
 
-#[derive(Default)]
 pub struct ClientServerChannel {
     /// Details of the server end of the connection.
     server: Arc<Mutex<ServerSocket>>,
@@ -162,11 +161,32 @@ pub struct ClientServerChannel {
     /// Details of the client end of the connection, if connected.
     client: Option<ClientSocket>,
 
+    /// Simulated client address.
+    client_addr: SocketAddr,
+
+    /// Next mock client port number to use.
+    next_client_port: Arc<AtomicU16>,
+
     /// Type of connection.
     is_stream: bool,
 
     /// Is connection terminated?
     is_shutdown: Arc<AtomicBool>,
+}
+
+impl Default for ClientServerChannel {
+    fn default() -> Self {
+        let client_addr = SocketAddr::new("127.0.0.1".parse().unwrap(), 0);
+
+        Self {
+            server: Default::default(),
+            client: Default::default(),
+            client_addr,
+            next_client_port: Arc::new(AtomicU16::new(1)),
+            is_stream: Default::default(),
+            is_shutdown: Default::default(),
+        }
+    }
 }
 
 impl Clone for ClientServerChannel {
@@ -176,6 +196,8 @@ impl Clone for ClientServerChannel {
         Self {
             server: self.server.clone(),
             client: None,
+            client_addr: self.client_addr,
+            next_client_port: self.next_client_port.clone(),
             is_stream: self.is_stream,
             is_shutdown: self.is_shutdown.clone(),
         }
@@ -197,30 +219,62 @@ impl ClientServerChannel {
         }
     }
 
-    pub fn connect(&self) -> Self {
-        fn setup_client(server_socket: &mut ServerSocket) -> ClientSocket {
+    pub fn new_client(&self, client_addr: Option<SocketAddr>) -> Self {
+        let mut client_addr = client_addr.unwrap_or_else(|| {
+            SocketAddr::new("127.0.0.1".parse().unwrap(), 0)
+        });
+
+        if client_addr.port() == 0 {
+            let client_port =
+                self.next_client_port.fetch_add(1, Ordering::SeqCst);
+            client_addr.set_port(client_port);
+        }
+
+        Self {
+            server: self.server.clone(),
+            client: None,
+            client_addr,
+            next_client_port: self.next_client_port.clone(),
+            is_stream: self.is_stream,
+            is_shutdown: self.is_shutdown.clone(),
+        }
+    }
+
+    pub fn connect(&self, client_addr: Option<SocketAddr>) -> Self {
+        fn setup_client(
+            server_socket: &mut ServerSocket,
+            client_addr: SocketAddr,
+        ) -> ClientSocket {
             // Create a client socket for sending requests to the server.
             let (client, response_tx) =
                 ClientSocket::new(server_socket.sender());
 
             // Tell the server how to respond to the client.
-            server_socket.response_txs.insert((), response_tx);
+            server_socket.response_txs.insert(client_addr, response_tx);
 
             // Return the created client socket
             client
         }
+
+        let client_addr = client_addr.unwrap_or_else(|| {
+            let client_port =
+                self.next_client_port.fetch_add(1, Ordering::SeqCst);
+            SocketAddr::new("127.0.0.1".parse().unwrap(), client_port)
+        });
 
         match self.is_stream {
             false => {
                 // For dgram connections all clients communicate with the same
                 // single server socket.
                 let server_socket = &mut self.server.lock().unwrap();
-                let client = setup_client(server_socket);
+                let client = setup_client(server_socket, client_addr);
 
                 // Tell the client how to contact the server.
                 Self {
                     server: self.server.clone(),
                     client: Some(client),
+                    client_addr: self.client_addr,
+                    next_client_port: self.next_client_port.clone(),
                     is_stream: false,
                     is_shutdown: Arc::new(AtomicBool::new(false)),
                 }
@@ -230,12 +284,14 @@ impl ClientServerChannel {
                 // But for stream connections each new client communicates
                 // with a new server-side connection handler socket.
                 let mut server_socket = ServerSocket::default();
-                let client = setup_client(&mut server_socket);
+                let client = setup_client(&mut server_socket, client_addr);
 
                 // Tell the client how to contact the new server connection handler.
                 let channel = Self {
                     server: Arc::new(Mutex::new(server_socket)),
                     client: Some(client),
+                    client_addr,
+                    next_client_port: self.next_client_port.clone(),
                     is_stream: true,
                     is_shutdown: Arc::new(AtomicBool::new(false)),
                 };
@@ -244,9 +300,10 @@ impl ClientServerChannel {
                 // by unblocking AsyncAccept::poll_accept() which is being polled
                 // by the server.
                 let sender = self.server.lock().unwrap().tx.clone();
-                let cloned_channel = channel.clone();
+                let channel_for_client =
+                    channel.new_client(Some(client_addr));
                 tokio::spawn(async move {
-                    sender.send(Data::StreamAccept(cloned_channel)).await
+                    sender.send(Data::StreamAccept(channel_for_client)).await
                 });
 
                 channel
@@ -271,8 +328,7 @@ impl AsyncConnect for ClientServerChannel {
     >;
 
     fn connect(&self) -> Self::Fut {
-        let conn = self.connect();
-
+        let conn = self.connect(Some(self.client_addr));
         Box::pin(async move { Ok(conn) })
     }
 }
@@ -298,7 +354,7 @@ impl AsyncDgramRecv for ClientServerChannel {
                 Poll::Ready(Ok(()))
             }
             Poll::Ready(None) => {
-                trace!("Broken pipe while reading in dgram client channel");
+                trace!("Broken pipe while reading in dgram client channel (is_closed={})", rx.is_closed());
                 Poll::Ready(Err(io::Error::from(io::ErrorKind::BrokenPipe)))
             }
             Poll::Pending => {
@@ -317,7 +373,7 @@ impl AsyncDgramSend for ClientServerChannel {
     ) -> Poll<Result<usize, io::Error>> {
         match &self.client {
             Some(client) => {
-                let msg = Data::DgramRequest(data.into());
+                let msg = Data::DgramRequest(self.client_addr, data.into());
 
                 // TODO: Can Stelline scripts mix and match fake responses with
                 // responses from a real server? Do we need to first try
@@ -366,10 +422,10 @@ impl AsyncDgramSock for ClientServerChannel {
         &self,
         cx: &mut Context,
         data: &[u8],
-        dest: &std::net::SocketAddr,
+        dest: &SocketAddr,
     ) -> Poll<io::Result<usize>> {
         let server_socket = self.server.lock().unwrap();
-        let tx = server_socket.response_txs.get(&());
+        let tx = server_socket.response_txs.get(dest);
         if let Some(server_tx) = tx {
             let mut fut = Box::pin(server_tx.send(data.to_vec()));
             match fut.poll_unpin(cx) {
@@ -415,13 +471,11 @@ impl AsyncDgramSock for ClientServerChannel {
         let mut server_socket = self.server.lock().unwrap();
         let rx = &mut server_socket.rx;
         match rx.try_recv() {
-            Ok(Data::DgramRequest(data)) => {
+            Ok(Data::DgramRequest(addr, data)) => {
                 // TODO: use unread buf here to prevent overflow of given buf.
-                trace!("Reading {} bytes into buffer of len {} in dgram server channel", data.len(), buf.remaining());
+                trace!("Reading {} bytes from {addr} into buffer of len {} in dgram server channel", data.len(), buf.remaining());
                 buf.put_slice(&data);
-                let socket_addr =
-                    SocketAddr::new(Ipv4Addr::LOCALHOST.into(), 0);
-                Ok((data.len(), socket_addr))
+                Ok((data.len(), addr))
             }
             Ok(Data::StreamAccept(..)) => unreachable!(),
             Ok(Data::StreamRequest(..)) => unreachable!(),
@@ -448,17 +502,16 @@ impl Future for ClientServerChannelReadableFut {
     ) -> Poll<Self::Output> {
         let server_socket = self.0.lock().unwrap();
         let rx = &server_socket.rx;
-        trace!("ReadableFut {} in dgram server channel", !rx.is_empty());
-        match !rx.is_empty() {
-            true => Poll::Ready(Ok(())),
-            false => {
-                let waker = cx.waker().clone();
-                std::thread::spawn(move || {
-                    std::thread::yield_now();
-                    waker.wake();
-                });
-                Poll::Pending
-            }
+        if !rx.is_empty() {
+            trace!("Server socket is now readable");
+            Poll::Ready(Ok(()))
+        } else {
+            trace!("Server socket is not yet readable");
+            let waker = cx.waker().clone();
+            tokio::task::spawn(async move {
+                waker.wake();
+            });
+            Poll::Pending
         }
     }
 }
@@ -483,10 +536,8 @@ impl AsyncAccept for ClientServerChannel {
             // sends the details of a new client connection to us.
             Poll::Ready(Some(Data::StreamAccept(channel))) => {
                 trace!("Accepted connection in stream channel",);
-                Poll::Ready(Ok((
-                    ready(Ok(channel)),
-                    SocketAddr::new(Ipv4Addr::LOCALHOST.into(), 0),
-                )))
+                let client_addr = channel.client_addr;
+                Poll::Ready(Ok((ready(Ok(channel)), client_addr)))
             }
             Poll::Ready(Some(Data::StreamRequest(..))) => unreachable!(),
             Poll::Ready(Some(Data::DgramRequest(..))) => unreachable!(),
@@ -674,7 +725,6 @@ impl AsyncWrite for ClientServerChannel {
         self: Pin<&mut Self>,
         _cx: &mut Context<'_>,
     ) -> Poll<Result<(), io::Error>> {
-        // Unsupported?
         self.is_shutdown.store(true, Ordering::SeqCst);
         Poll::Ready(Ok(()))
     }

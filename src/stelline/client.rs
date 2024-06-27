@@ -10,10 +10,8 @@ use std::time::Duration;
 use std::vec::Vec;
 
 use bytes::Bytes;
-/*
-#[cfg(feature = "mock-time")]
-use mock_instant::MockClock;
-*/
+#[cfg(all(feature = "std", test))]
+use mock_instant::thread_local::MockClock;
 use tracing::{debug, info_span, trace};
 use tracing_subscriber::EnvFilter;
 
@@ -380,6 +378,12 @@ pub async fn do_client<'a, T: ClientFactory>(
             Box<dyn GetResponse + Sync + Send>,
         > = None;
 
+        #[cfg(all(feature = "std", test))]
+        {
+            trace!("Setting mock system time to zero.");
+            MockClock::set_system_time(Duration::ZERO);
+        }
+
         // Assume steps are in order. Maybe we need to define that.
         for step in &stelline.scenario.steps {
             let span =
@@ -460,10 +464,14 @@ pub async fn do_client<'a, T: ClientFactory>(
                     let duration =
                         Duration::from_secs(step.time_passes.unwrap());
                     tokio::time::advance(duration).await;
-                    /*
-                    #[cfg(feature = "mock-time")]
-                    MockClock::advance_system_time(duration);
-                    */
+                    #[cfg(all(feature = "std", test))]
+                    {
+                        trace!(
+                            "Advancing mock system time by {} seconds...",
+                            duration.as_secs()
+                        );
+                        MockClock::advance_system_time(duration);
+                    }
                 }
                 StepType::Traffic
                 | StepType::CheckTempfile

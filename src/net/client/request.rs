@@ -1,7 +1,4 @@
 //! Constructing and sending requests.
-#![warn(missing_docs)]
-#![warn(clippy::missing_docs_in_private_items)]
-
 use std::boxed::Box;
 use std::fmt::Debug;
 use std::future::Future;
@@ -40,6 +37,9 @@ pub trait ComposeRequest: Debug + Send + Sync {
     /// Create a message that captures the recorded changes and convert to
     /// a Vec.
 
+    /// Return a reference to the current Header.
+    fn header(&self) -> &Header;
+
     /// Return a reference to a mutable Header to record changes to the header.
     fn header_mut(&mut self) -> &mut Header;
 
@@ -60,6 +60,9 @@ pub trait ComposeRequest: Debug + Send + Sync {
 
     /// Returns whether a message results in a response stream or not.
     fn is_streaming(&self) -> bool;
+
+    /// Return the status of the DNSSEC OK flag.
+    fn dnssec_ok(&self) -> bool;
 }
 
 //------------ SendRequest ---------------------------------------------------
@@ -199,8 +202,8 @@ impl<Octs: AsRef<[u8]> + Debug + Octets> RequestMessage<Octs> {
     }
 }
 
-impl<Octs: AsRef<[u8]> + Clone + Debug + Octets + Send + Sync + 'static>
-    ComposeRequest for RequestMessage<Octs>
+impl<Octs: AsRef<[u8]> + Debug + Octets + Send + Sync> ComposeRequest
+    for RequestMessage<Octs>
 {
     fn append_message<Target: Composer>(
         &self,
@@ -210,6 +213,10 @@ impl<Octs: AsRef<[u8]> + Clone + Debug + Octets + Send + Sync + 'static>
             .map_err(|_| CopyRecordsError::Push(PushError::ShortBuf))?;
         let builder = self.append_message_impl(target)?;
         Ok(builder)
+    }
+
+    fn header(&self) -> &Header {
+        &self.header
     }
 
     fn header_mut(&mut self) -> &mut Header {
@@ -288,6 +295,13 @@ impl<Octs: AsRef<[u8]> + Clone + Debug + Octets + Send + Sync + 'static>
     fn is_streaming(&self) -> bool {
         self.msg.is_streaming()
     }
+
+    fn dnssec_ok(&self) -> bool {
+        match &self.opt {
+            None => false,
+            Some(opt) => opt.dnssec_ok(),
+        }
+    }
 }
 
 //------------ Error ---------------------------------------------------------
@@ -347,8 +361,13 @@ pub enum Error {
     /// An error happened in the datagram transport.
     Dgram(Arc<super::dgram::QueryError>),
 
-    /// TSIG validation failed
-    ValidationError(tsig::ValidationError),
+    #[cfg(feature = "unstable-server-transport")]
+    /// TSIG authentication failed
+    Authentication(tsig::ValidationError),
+
+    #[cfg(feature = "unstable-validator")]
+    /// An error happened during DNSSEC validation.
+    Validation(crate::validator::context::Error),
 }
 
 impl From<LongOptData> for Error {
@@ -372,6 +391,13 @@ impl From<ShortMessage> for Error {
 impl From<super::dgram::QueryError> for Error {
     fn from(err: super::dgram::QueryError) -> Self {
         Self::Dgram(err.into())
+    }
+}
+
+#[cfg(feature = "unstable-validator")]
+impl From<crate::validator::context::Error> for Error {
+    fn from(err: crate::validator::context::Error) -> Self {
+        Self::Validation(err)
     }
 }
 
@@ -420,7 +446,14 @@ impl fmt::Display for Error {
                 write!(f, "no transport available")
             }
             Error::Dgram(err) => fmt::Display::fmt(err, f),
-            Error::ValidationError(err) => fmt::Display::fmt(err, f),
+
+            #[cfg(feature = "unstable-server-transport")]
+            Error::Authentication(err) => fmt::Display::fmt(err, f),
+
+            #[cfg(feature = "unstable-validator")]
+            Error::Validation(_) => {
+                write!(f, "error validating response")
+            }
         }
     }
 }
@@ -454,7 +487,12 @@ impl error::Error for Error {
             Error::WrongReplyForQuery => None,
             Error::NoTransportAvailable => None,
             Error::Dgram(err) => Some(err),
-            Error::ValidationError(err) => Some(err),
+
+            #[cfg(feature = "unstable-server-transport")]
+            Error::Authentication(err) => Some(err),
+
+            #[cfg(feature = "unstable-validator")]
+            Error::Validation(err) => Some(err),
         }
     }
 }

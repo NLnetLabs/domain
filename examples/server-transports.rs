@@ -30,7 +30,6 @@ use domain::base::{MessageBuilder, Name, Rtype, Serial, StreamTarget, Ttl};
 use domain::net::server::buf::VecBufSource;
 use domain::net::server::dgram::DgramServer;
 use domain::net::server::message::Request;
-#[cfg(feature = "siphasher")]
 use domain::net::server::middleware::cookies::CookiesMiddlewareSvc;
 use domain::net::server::middleware::edns::EdnsMiddlewareSvc;
 use domain::net::server::middleware::mandatory::MandatoryMiddlewareSvc;

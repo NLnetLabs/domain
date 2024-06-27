@@ -168,7 +168,7 @@ where
                                                 Time48::now(),
                                             )
                                             .map_err(|err| {
-                                                Error::ValidationError(err)
+                                                Error::Authentication(err)
                                             })?;
                                         mark_as_complete = true;
                                     }
@@ -180,7 +180,7 @@ where
                                                 Time48::now(),
                                             )
                                             .map_err(|err| {
-                                                Error::ValidationError(err)
+                                                Error::Authentication(err)
                                             })?;
                                     }
                                     _ => unreachable!(),
@@ -253,7 +253,7 @@ where
 
                 if let TsigClient::Sequence(client) = client {
                     trace!("Completing TSIG sequence");
-                    client.done().map_err(Error::ValidationError)?;
+                    client.done().map_err(Error::Authentication)?;
                     request.stream_complete()?;
                 }
 
@@ -346,17 +346,9 @@ impl<CR: ComposeRequest> ComposeRequest for AuthenticatedRequestMessage<CR> {
         Ok(target)
     }
 
-    // // Used by the dgram transport.
-    // fn to_message(&self) -> Result<Message<Vec<u8>>, Error> {
-    //     trace!("auth::to_message() -->");
-    //     let res = self.request.to_message()?;
-    //     trace!("auth::to_message() <--");
-    //     Ok(res)
-    // }
-
-    // fn to_vec(&self) -> Result<Vec<u8>, Error> {
-    //     self.request.to_vec()
-    // }
+    fn header(&self) -> &crate::base::Header {
+        self.request.header()
+    }
 
     fn header_mut(&mut self) -> &mut crate::base::Header {
         self.request.header_mut()
@@ -383,5 +375,9 @@ impl<CR: ComposeRequest> ComposeRequest for AuthenticatedRequestMessage<CR> {
 
     fn is_streaming(&self) -> bool {
         self.request.is_streaming()
+    }
+    
+    fn dnssec_ok(&self) -> bool {
+        self.request.dnssec_ok()
     }
 }

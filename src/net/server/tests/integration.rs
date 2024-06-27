@@ -1,56 +1,52 @@
-#![cfg(feature = "net")]
 use core::str::FromStr;
 
 use std::boxed::Box;
 use std::collections::VecDeque;
 use std::fs::File;
-use std::net::IpAddr;
+use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
+use std::vec::Vec;
 
 use octseq::Octets;
 use rstest::rstest;
 use tracing::instrument;
 use tracing::warn;
 
-use domain::base::iana::Rcode;
-use domain::base::name::{Name, ToName};
-use domain::base::wire::Composer;
-use domain::net::client::{dgram, stream};
-use domain::net::server;
-use domain::net::server::buf::VecBufSource;
-use domain::net::server::dgram::DgramServer;
-use domain::net::server::message::Request;
-#[cfg(feature = "siphasher")]
-use domain::net::server::middleware::cookies::CookiesMiddlewareSvc;
-use domain::net::server::middleware::edns::EdnsMiddlewareSvc;
-use domain::net::server::middleware::mandatory::MandatoryMiddlewareSvc;
-use domain::net::server::service::{CallResult, Service, ServiceResult};
-use domain::net::server::stream::StreamServer;
-use domain::net::server::util::mk_builder_for_target;
-use domain::net::server::util::service_fn;
-use domain::zonecatalog::catalog::CompatibilityMode;
-use domain::zonefile::inplace::Zonefile;
-
-use domain::net::server::middleware::xfr::XfrMiddlewareSvc;
-use domain::stelline::channel::ClientServerChannel;
-use domain::stelline::client::do_client;
-use domain::stelline::client::ClientFactory;
-use domain::stelline::client::{
-    CurrStepValue, PerClientAddressClientFactory, QueryTailoredClientFactory,
+use crate::base::iana::Class;
+use crate::base::iana::Rcode;
+use crate::base::name::{Name, ToName};
+use crate::base::net::IpAddr;
+use crate::base::wire::Composer;
+use crate::net::client::{dgram, stream};
+use crate::net::server;
+use crate::net::server::buf::VecBufSource;
+use crate::net::server::dgram::DgramServer;
+use crate::net::server::message::Request;
+use crate::net::server::middleware::cookies::CookiesMiddlewareSvc;
+use crate::net::server::middleware::edns::EdnsMiddlewareSvc;
+use crate::net::server::middleware::mandatory::MandatoryMiddlewareSvc;
+use crate::net::server::middleware::xfr::{XfrMiddlewareSvc, XfrMode};
+use crate::net::server::service::{CallResult, Service, ServiceResult};
+use crate::net::server::stream::StreamServer;
+use crate::net::server::util::{mk_builder_for_target, service_fn};
+use crate::stelline::channel::ClientServerChannel;
+use crate::stelline::client::{
+    do_client, ClientFactory, CurrStepValue, PerClientAddressClientFactory,
+    QueryTailoredClientFactory,
 };
-use domain::stelline::parse_stelline;
-use domain::stelline::parse_stelline::parse_file;
-use domain::stelline::parse_stelline::Config;
-use domain::stelline::parse_stelline::Matches;
-use domain::tsig::{Algorithm, KeyName};
-use domain::utils::base16;
-use domain::zonecatalog::catalog::{
-    Acl, Catalog, DefaultConnFactory, TransportStrategy, XfrAcl, XfrSettings,
+use crate::stelline::parse_stelline::{self, parse_file, Config, Matches};
+use crate::tsig::{Algorithm, KeyName};
+use crate::utils::base16;
+use crate::zonecatalog::catalog::{self, DefaultConnFactory, TypedZone};
+use crate::zonecatalog::catalog::{
+    Acl, Catalog, CompatibilityMode, TransportStrategy, XfrAcl, XfrSettings,
     XfrStrategy, ZoneType,
 };
-use domain::zonetree::Answer;
+use crate::zonefile::inplace::Zonefile;
+use crate::zonetree::Answer;
+use crate::zonetree::{Zone, ZoneBuilder};
 
 //----------- Tests ----------------------------------------------------------
 
@@ -71,12 +67,6 @@ async fn server_tests(#[files("test-data/server/*.rpl")] rpl_file: PathBuf) {
     // Initialize tracing based logging. Override with env var RUST_LOG, e.g.
     // RUST_LOG=trace. DEBUG level will show the .rpl file name, Stelline step
     // numbers and types as they are being executed.
-
-    use core::str::FromStr;
-    use domain::base::iana::Class;
-    use domain::net::server::middleware::xfr::XfrMode;
-    use domain::zonecatalog::catalog::{self, TypedZone};
-    use domain::zonetree::{Zone, ZoneBuilder};
 
     tracing_subscriber::fmt()
         .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
@@ -126,10 +116,6 @@ async fn server_tests(#[files("test-data/server/*.rpl")] rpl_file: PathBuf) {
     // TODO: Cookies and keepalive shoulnd't be mutually exclusive. However,
     // PR #336 already solves this issue so leave this as-is for now.
     if with_cookies {
-        #[cfg(not(feature = "siphasher"))]
-        panic!("The test uses cookies but the required 'siphasher' feature is not enabled.");
-
-        #[cfg(feature = "siphasher")]
         let secret = server_config.cookies.secret.unwrap();
         let secret = base16::decode_vec(secret).unwrap();
         let secret = <[u8; 16]>::try_from(secret).unwrap();
@@ -266,8 +252,9 @@ fn mk_client_factory(
     };
 
     let tcp_client_factory = PerClientAddressClientFactory::new(
-        move |_source_addr| {
-            let stream = stream_server_conn.connect();
+        move |source_addr| {
+            let stream = stream_server_conn
+                .connect(Some(SocketAddr::new(*source_addr, 0)));
             let (conn, transport) = stream::Connection::new(stream);
             tokio::spawn(transport.run());
             Box::new(conn)
@@ -280,7 +267,12 @@ fn mk_client_factory(
     let for_all_other_queries = |_: &_| true;
 
     let udp_client_factory = PerClientAddressClientFactory::new(
-        move |_| Box::new(dgram::Connection::new(dgram_server_conn.clone())),
+        move |source_addr| {
+            Box::new(dgram::Connection::new(
+                dgram_server_conn
+                    .new_client(Some(SocketAddr::new(*source_addr, 0))),
+            ))
+        },
         for_all_other_queries,
     );
 

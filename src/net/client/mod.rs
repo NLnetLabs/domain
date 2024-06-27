@@ -23,6 +23,10 @@
 //!   as upstream transports.
 //! * [cache] This is a simple message cache provided as a pass through
 //!   transport. The cache works with any of the other transports.
+#![cfg_attr(feature = "unstable-validator", doc = "* [validator]:")]
+#![cfg_attr(not(feature = "unstable-validator",), doc = "* validator:")]
+//!   This is a DNSSEC validator provided as a pass through transport.
+//!   The validator works with any of the other transports.
 //!
 //! Sending a request and receiving the reply consists of four steps:
 //! 1) Creating a request message,
@@ -168,6 +172,7 @@
 #![cfg(feature = "unstable-client-transport")]
 #![cfg_attr(docsrs, doc(cfg(feature = "unstable-client-transport")))]
 #![warn(missing_docs)]
+#![warn(clippy::missing_docs_in_private_items)]
 
 pub mod auth;
 pub mod cache;
@@ -178,3 +183,6 @@ pub mod protocol;
 pub mod redundant;
 pub mod request;
 pub mod stream;
+#[cfg(feature = "unstable-validator")]
+pub mod validator;
+pub mod validator_test;
