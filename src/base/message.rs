@@ -285,25 +285,18 @@ impl<Octs: ?Sized> Message<Octs> {
 impl<Octs: AsRef<[u8]> + ?Sized> Message<Octs> {
     /// Returns the message header.
     pub fn header(&self) -> Header {
-        *Header::for_message_slice(self.as_slice())
-    }
-
-    /// Returns a mutable reference to the message header.
-    pub fn header_mut(&mut self) -> &mut Header
-    where
-        Octs: AsMut<[u8]>,
-    {
-        Header::for_message_slice_mut(self.as_slice_mut())
+        self.header_section().header()
     }
 
     /// Returns the header counts of the message.
     pub fn header_counts(&self) -> HeaderCounts {
-        *HeaderCounts::for_message_slice(self.as_slice())
+        self.header_section().counts()
     }
 
     /// Returns the entire header section.
     pub fn header_section(&self) -> HeaderSection {
-        *HeaderSection::for_message_slice(self.as_slice())
+        let chunk: &[u8; 12] = self.as_slice()[0..12].try_into().unwrap();
+        HeaderSection::from_array(*chunk)
     }
 
     /// Returns whether the rcode of the header is NoError.
@@ -314,6 +307,27 @@ impl<Octs: AsRef<[u8]> + ?Sized> Message<Octs> {
     /// Returns whether the rcode of the header is one of the error values.
     pub fn is_error(&self) -> bool {
         self.header().rcode() != Rcode::NOERROR
+    }
+}
+
+/// # Mutable access to the header section
+///
+impl<Octs: AsMut<[u8]> + ?Sized> Message<Octs> {
+    /// Returns a mutable reference to the message header.
+    pub fn header_mut(&mut self) -> &mut Header {
+        self.header_section_mut().as_header_mut()
+    }
+
+    /// Returns a mutable reference to the header counts of the message.
+    pub fn header_counts_mut(&mut self) -> &mut HeaderCounts {
+        self.header_section_mut().as_counts_mut()
+    }
+
+    /// Returns a mutable reference to the entire header section.
+    pub fn header_section_mut(&mut self) -> &mut HeaderSection {
+        HeaderSection::for_array_mut(
+            (&mut self.as_slice_mut()[0..12]).try_into().unwrap(),
+        )
     }
 }
 
@@ -597,8 +611,7 @@ impl<Octs: Octets + ?Sized> Message<Octs> {
     where
         Octs: AsMut<[u8]>,
     {
-        HeaderCounts::for_message_slice_mut(self.octets.as_mut())
-            .dec_arcount();
+        self.header_counts_mut().dec_arcount();
     }
 
     /// Copy records from a message into the target message builder.
@@ -759,10 +772,9 @@ impl<'a, Octs: Octets + ?Sized> QuestionSection<'a, Octs> {
     fn new(octets: &'a Octs) -> Self {
         let mut parser = Parser::from_ref(octets);
         parser.advance(mem::size_of::<HeaderSection>()).unwrap();
+        let chunk: &[u8; 12] = parser.as_slice()[0..12].try_into().unwrap();
         QuestionSection {
-            count: Ok(
-                HeaderCounts::for_message_slice(parser.as_slice()).qdcount()
-            ),
+            count: Ok(HeaderSection::from_array(*chunk).counts().qdcount()),
             parser,
         }
     }
@@ -940,9 +952,11 @@ impl<'a, Octs: Octets + ?Sized> RecordSection<'a, Octs> {
     ///
     /// The parser must be positioned at the beginning of this section.
     fn new(parser: Parser<'a, Octs>, section: Section) -> Self {
+        let chunk: &[u8; 12] = parser.as_slice()[0..12].try_into().unwrap();
         RecordSection {
-            count: Ok(section
-                .count(*HeaderCounts::for_message_slice(parser.as_slice()))),
+            count: Ok(
+                section.count(HeaderSection::from_array(*chunk).counts())
+            ),
             section,
             parser,
         }
