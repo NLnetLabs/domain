@@ -20,14 +20,13 @@ use crate::base::Name;
 use crate::base::Rtype;
 use crate::base::StaticCompressor;
 use crate::base::StreamTarget;
-
-use super::buf::BufSource;
-use super::message::Request;
-use super::service::{
+use crate::net::server::buf::BufSource;
+use crate::net::server::message::Request;
+use crate::net::server::service::{
     CallResult, Service, ServiceError, ServiceFeedback, Transaction,
 };
-use super::sock::AsyncAccept;
-use super::stream::StreamServer;
+use crate::net::server::sock::AsyncAccept;
+use crate::net::server::stream::StreamServer;
 
 /// Mock I/O which supplies a sequence of mock messages to the server at a
 /// defined rate.

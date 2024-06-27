@@ -33,7 +33,6 @@ use domain::net::server::dgram::DgramServer;
 use domain::net::server::message::Request;
 use domain::net::server::middleware::builder::MiddlewareBuilder;
 use domain::net::server::middleware::processor::MiddlewareProcessor;
-#[cfg(feature = "siphasher")]
 use domain::net::server::middleware::processors::cookies::CookiesMiddlewareProcessor;
 use domain::net::server::middleware::processors::mandatory::MandatoryMiddlewareProcessor;
 use domain::net::server::service::{
@@ -688,12 +687,9 @@ async fn main() {
     let mut fn_svc_middleware = MiddlewareBuilder::new();
     fn_svc_middleware.push(MandatoryMiddlewareProcessor::new().into());
 
-    #[cfg(feature = "siphasher")]
-    {
-        let server_secret = "server12secret34".as_bytes().try_into().unwrap();
-        fn_svc_middleware
-            .push(CookiesMiddlewareProcessor::new(server_secret).into());
-    }
+    let server_secret = "server12secret34".as_bytes().try_into().unwrap();
+    fn_svc_middleware
+        .push(CookiesMiddlewareProcessor::new(server_secret).into());
 
     let fn_svc_middleware = fn_svc_middleware.build();
 
