@@ -523,8 +523,11 @@ where
                                 num_rrs_added += 1;
                             }
 
-                            Ok(ControlFlow::Break(builder)) => {
+                            Ok(ControlFlow::Break((pushed, builder))) => {
                                 // Message is full, send what we have so far.
+                                if pushed {
+                                    num_rrs_added += 1;
+                                }
                                 break 'inner Some(builder);
                             }
 
@@ -870,8 +873,11 @@ where
                                     num_rrs_added += 1;
                                 }
 
-                                Ok(ControlFlow::Break(builder)) => {
+                                Ok(ControlFlow::Break((pushed, builder))) => {
                                     // Message is full, send what we have so far.
+                                    if pushed {
+                                        num_rrs_added += 1;
+                                    }
                                     break 'inner builder;
                                 }
 
@@ -1075,10 +1081,15 @@ where
         self.limit = Some(limit);
     }
 
+    // TODO: Return own Enum that captures the possible return values:
+    //   - Pushed, not full, continue.
+    //   - Pushed, limit reached, caller should process the message.
+    //   - Not pushed, full, caller should process the message.
+    //   - Error pushing to empty message.
     pub fn push(
         &mut self,
         record: impl ComposeRecord,
-    ) -> Result<ControlFlow<AnswerBuilder<StreamTarget<Target>>>, PushError>
+    ) -> Result<ControlFlow<(bool, AnswerBuilder<StreamTarget<Target>>)>, PushError>
     {
         self.answer.get_or_insert_with(|| {
             let builder = mk_builder_for_target();
@@ -1088,18 +1099,19 @@ where
         let mut answer = self.answer.take().unwrap()?;
 
         let res = answer.push(record);
-        let arcount = answer.counts().arcount();
+        let ancount = answer.counts().ancount();
 
         match res {
-            Ok(()) if Some(arcount) == self.limit => {
-                // Message is as full as the caller allows, pass it back to
-                // the caller to process.
-                Ok(ControlFlow::Break(answer))
+            Ok(()) if Some(ancount) == self.limit => {
+                // Push succeeded but the message is as full as the caller
+                // allows, pass it back to the caller to process.
+                Ok(ControlFlow::Break((true, answer)))
             }
 
-            Err(_) if arcount > 0 => {
-                // Message is full, pass it back to the caller to process.
-                Ok(ControlFlow::Break(answer))
+            Err(_) if ancount > 0 => {
+                // Push failed because the message is full, pass it back to
+                // the caller to process.
+                Ok(ControlFlow::Break((false, answer)))
             }
 
             Err(err) => {
