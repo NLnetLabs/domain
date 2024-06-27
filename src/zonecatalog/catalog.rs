@@ -1,6 +1,8 @@
 //! Experimental storing, querying and syncing a catalog of zones.
 // TODO: Add lifecycle hooks for callers, e.g. zone added, zone removed, zone
 // expired, zone refreshed.?
+// TODO: Support RFC-1995 "condensation" (aka "delta compression")? Related
+// reading: https://kb.isc.org/docs/axfr-style-ixfr-explained
 use core::any::Any;
 use core::fmt::Debug;
 use core::net::{IpAddr, SocketAddr};
