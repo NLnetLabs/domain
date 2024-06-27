@@ -39,10 +39,9 @@ use crate::stelline::client::{
 use crate::stelline::parse_stelline::{self, parse_file, Config, Matches};
 use crate::tsig::{Algorithm, KeyName};
 use crate::utils::base16;
-use crate::zonecatalog::catalog::{self, DefaultConnFactory, TypedZone};
 use crate::zonecatalog::catalog::{
-    Acl, Catalog, CompatibilityMode, TransportStrategy, XfrAcl, XfrSettings,
-    XfrStrategy, ZoneType,
+    Acl, Catalog, CompatibilityMode, TransportStrategy, TypedZone, XfrAcl,
+    XfrSettings, XfrStrategy, ZoneType,
 };
 use crate::zonefile::inplace::Zonefile;
 use crate::zonetree::Answer;
@@ -68,6 +67,8 @@ async fn server_tests(#[files("test-data/server/*.rpl")] rpl_file: PathBuf) {
     // RUST_LOG=trace. DEBUG level will show the .rpl file name, Stelline step
     // numbers and types as they are being executed.
 
+    use crate::zonecatalog::catalog;
+
     tracing_subscriber::fmt()
         .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
         .with_thread_ids(true)
@@ -81,9 +82,7 @@ async fn server_tests(#[files("test-data/server/*.rpl")] rpl_file: PathBuf) {
 
     // Create a service to answer queries received by the DNS servers.
     let key_store = Default::default();
-    let conn_factory = DefaultConnFactory;
-    let catalog_config =
-        catalog::Config::with_conn_factory(key_store, conn_factory);
+    let catalog_config = catalog::Config::new(key_store);
     let catalog = Catalog::new_with_config(catalog_config);
     let catalog = Arc::new(catalog);
 

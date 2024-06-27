@@ -261,7 +261,6 @@ impl NodeRrsets {
 
     /// Updates an RRset.
     pub fn update(&self, rrset: SharedRrset, version: Version) {
-        let rtype = rrset.rtype();
         self.rrsets
             .write()
             .entry(rrset.rtype())

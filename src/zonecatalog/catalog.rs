@@ -5,7 +5,6 @@
 // reading: https://kb.isc.org/docs/axfr-style-ixfr-explained
 use core::any::Any;
 use core::fmt::Debug;
-use core::net::{IpAddr, SocketAddr};
 use core::ops::{Deref, DerefMut};
 use core::pin::Pin;
 use core::sync::atomic::{AtomicBool, Ordering};
@@ -18,6 +17,7 @@ use std::collections::hash_map::Entry::{Occupied, Vacant};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::future::Future;
 use std::io;
+use std::net::SocketAddr;
 use std::string::ToString;
 use std::sync::Arc;
 use std::vec::Vec;
@@ -26,6 +26,7 @@ use arc_swap::ArcSwap;
 use bytes::Bytes;
 use futures::stream::FuturesUnordered;
 use futures::FutureExt;
+#[cfg(not(test))]
 use tokio::net::TcpStream;
 use tokio::sync::mpsc::error::SendError;
 use tokio::sync::mpsc::{self, Receiver, Sender};
@@ -37,6 +38,7 @@ use tracing::{debug, error, info, trace, warn};
 
 use crate::base::iana::{Class, Opcode, OptRcode};
 use crate::base::name::{FlattenInto, Label, ToLabelIter};
+use crate::base::net::IpAddr;
 use crate::base::{
     CanonicalOrd, Message, MessageBuilder, Name, Rtype, Serial, ToName, Ttl,
 };
@@ -59,27 +61,24 @@ use core::marker::Send;
 
 //------------ Config --------------------------------------------------------
 
+/// Configuration for a Catalog.
 #[derive(Debug, Default)]
-pub struct Config<CF: ConnFactory = DefaultConnFactory> {
+pub struct Config {
+    /// A store of TSIG keys that can optionally be used to lookup keys when
+    /// TSIG signing/validating.
     key_store: Arc<RwLock<CatalogKeyStore>>,
-    conn_factory: CF,
+
+    /// A connection factory for making outbound requests to primary servers
+    /// to fetch remote zones. For internal use only.
+    conn_factory: ConnFactory,
 }
 
-impl<CF: ConnFactory + Default> Config<CF> {
+impl Config {
+    /// Creates a new config using the provided [`CatalogKeyStore`].
     pub fn new(key_store: Arc<RwLock<CatalogKeyStore>>) -> Self {
         Self {
             key_store,
-            conn_factory: CF::default(),
-        }
-    }
-
-    pub fn with_conn_factory(
-        key_store: Arc<RwLock<CatalogKeyStore>>,
-        conn_factory: CF,
-    ) -> Self {
-        Self {
-            key_store,
-            conn_factory,
+            conn_factory: ConnFactory,
         }
     }
 }
@@ -94,49 +93,68 @@ const MIN_DURATION_BETWEEN_ZONE_REFRESHES: tokio::time::Duration =
 
 //------------ Type Aliases --------------------------------------------------
 
+/// A store of TSIG keys index by key name and algorithm.
 pub type CatalogKeyStore = HashMap<(KeyName, Algorithm), Arc<Key>>;
 
 //------------ Acl -----------------------------------------------------------
 
+/// An access control list.
+/// 
+/// The `Acl` maps caller addresses (a `SocketAddress` with port 0, i.e. just
+/// an `IpAddr`, as we can't know in advance the port number a caller will
+/// use), or target addresses (a `SocketAddr` including port), to some user
+/// provided data.
 #[derive(Clone, Debug, Default)]
 pub struct Acl<T: Clone + Debug + Default> {
     entries: HashMap<SocketAddr, T>,
 }
 
 impl<T: Clone + Debug + Default> Acl<T> {
+    /// Creates a new empty access control list.
     pub fn new() -> Self {
         Default::default()
     }
 
+    /// Adds a rule allowing inbound access from the given IP address.
     pub fn allow_from(&mut self, addr: IpAddr, v: T) {
         let k = SocketAddr::new(addr, IANA_DNS_PORT_NUMBER);
         let _ = self.entries.insert(k, v);
     }
 
+    /// Adds a rule allowing outbound access to the given IP address and port
+    /// number.
     pub fn allow_to(&mut self, addr: SocketAddr, v: T) {
         let _ = self.entries.insert(addr, v);
     }
 
+    /// An iterator over the collection of `SocketAddr` in the ACL.
     pub fn addrs(&self) -> impl Iterator<Item = &SocketAddr> {
         self.entries.keys()
     }
 
+    /// Returns true if the ACL is empty, false otherwise.
     pub fn is_empty(&self) -> bool {
         self.entries.is_empty()
     }
 
-    pub fn get(&self, addr: &SocketAddr) -> Option<&T> {
+    /// Gets the user supplied data for the given target `SocketAddr`, if any.
+    pub fn get_target(&self, addr: &SocketAddr) -> Option<&T> {
         self.entries.get(addr)
     }
 
-    pub fn get_ip(&self, ip: IpAddr) -> Option<&T> {
+    /// Gets the user supplied data for the given caller `IpAddr`, if any.
+    pub fn get_caller(&self, ip: IpAddr) -> Option<&T> {
         self.entries.get(&SocketAddr::new(ip, IANA_DNS_PORT_NUMBER))
     }
 
-    pub fn contains(&self, addr: &SocketAddr) -> bool {
+    /// Returns true if the given target `SocketAddr`` exists in this ACL,
+    /// false otherwise.
+    pub fn contains_target(&self, addr: &SocketAddr) -> bool {
         self.entries.contains_key(addr)
     }
 
+    /// Returns true if the given caller `IpAddr` exists in this ACL, false
+    /// otherwise.
     pub fn contains_ip(&self, ip: IpAddr) -> bool {
         self.entries
             .contains_key(&SocketAddr::new(ip, IANA_DNS_PORT_NUMBER))
@@ -882,8 +900,8 @@ enum Event {
     ZoneChanged(ZoneChangedMsg),
 
     ZoneAdded(ZoneKey),
-
-    ZoneRemoved(ZoneKey),
+    // TODO?
+    //ZoneRemoved(ZoneKey),
 }
 
 //------------ Catalog -------------------------------------------------------
@@ -892,9 +910,9 @@ enum Event {
 ///
 /// Also capable of acting as an RFC 9432 Catalog Zone producer/consumer.
 #[derive(Debug)]
-pub struct Catalog<CF: ConnFactory = DefaultConnFactory> {
+pub struct Catalog {
     // cat_zone: Zone, // TODO
-    config: Arc<ArcSwap<Config<CF>>>,
+    config: Arc<ArcSwap<Config>>,
     pending_zones: Arc<RwLock<HashMap<ZoneKey, Zone>>>,
     member_zones: Arc<ArcSwap<ZoneTree>>,
     loaded_arc: std::sync::RwLock<Arc<ZoneTree>>,
@@ -903,18 +921,18 @@ pub struct Catalog<CF: ConnFactory = DefaultConnFactory> {
     running: AtomicBool,
 }
 
-impl<CF: ConnFactory + Default> Default for Catalog<CF> {
+impl Default for Catalog {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl<CF: ConnFactory + Default> Catalog<CF> {
-    pub fn new() -> Catalog<CF> {
+impl Catalog {
+    pub fn new() -> Self {
         Self::new_with_config(Config::default())
     }
 
-    pub fn new_with_config(config: Config<CF>) -> Self {
+    pub fn new_with_config(config: Config) -> Self {
         let pending_zones = Default::default();
         let member_zones = ZoneTree::new();
         let member_zones = Arc::new(ArcSwap::from_pointee(member_zones));
@@ -936,7 +954,7 @@ impl<CF: ConnFactory + Default> Catalog<CF> {
     }
 }
 
-impl<CF: ConnFactory + Sync + Send + 'static> Catalog<CF> {
+impl Catalog {
     pub async fn run(&self) {
         self.running.store(true, Ordering::SeqCst);
         let lock = &mut self.event_rx.lock().await;
@@ -1020,11 +1038,11 @@ impl<CF: ConnFactory + Sync + Send + 'static> Catalog<CF> {
                             let event_tx = self.event_tx.clone();
                             let pending_zones = self.pending_zones.clone();
                             let config = self.config.clone();
-                            tokio::spawn(async move {
+                            tokio::spawn(
                                 Self::handle_notify(
                                     zones, pending_zones, msg, time_tracking, event_tx, config,
-                                ).await
-                            });
+                                )
+                            );
                         }
 
                         Event::ZoneAdded(key) => {
@@ -1054,9 +1072,9 @@ impl<CF: ConnFactory + Sync + Send + 'static> Catalog<CF> {
                             }
                         }
 
-                        Event::ZoneRemoved(_key) => {
-                            // TODO
-                        }
+                        // TODO
+                        // Event::ZoneRemoved(_key) => {
+                        // }
 
                         Event::ZoneRefreshRequested { key, at, cause } => {
                             Self::refresh_zone_at(cause, key, at, &mut refresh_timers);
@@ -1371,7 +1389,7 @@ impl<CF: ConnFactory + Sync + Send + 'static> Catalog<CF> {
     }
 }
 
-impl<CF: ConnFactory> Catalog<CF> {
+impl Catalog {
     /// Wrap a [`Zone`] so that we get notified when it is modified.
     fn wrap_zone(zone: TypedZone, notify_tx: Sender<Event>) -> Zone {
         let diffs = Arc::new(Mutex::new(ZoneDiffs::new()));
@@ -1395,7 +1413,7 @@ impl<CF: ConnFactory> Catalog<CF> {
     async fn send_notify(
         zone: &Zone,
         notify: &NotifyAcl,
-        config: Arc<ArcSwap<Config<CF>>>,
+        config: Arc<ArcSwap<Config>>,
     ) {
         let cat_zone = zone
             .as_ref()
@@ -1431,7 +1449,7 @@ impl<CF: ConnFactory> Catalog<CF> {
     async fn send_notify_to_addrs(
         apex_name: StoredName,
         notify_set: impl Iterator<Item = &SocketAddr>,
-        config: Arc<ArcSwap<Config<CF>>>,
+        config: Arc<ArcSwap<Config>>,
         zone_info: &ZoneInfo,
     ) {
         let mut dgram_config = dgram::Config::new();
@@ -1468,7 +1486,7 @@ impl<CF: ConnFactory> Catalog<CF> {
             let tsig_key = if let ZoneType::Primary { notify, .. } =
                 &zone_info.zone_type
             {
-                if let Some(Some(key_info)) = notify.get(&nameserver_addr) {
+                if let Some(Some(key_info)) = notify.get_target(&nameserver_addr) {
                     let key = readable_key_store.get(key_info).cloned();
 
                     if key.is_some() {
@@ -1606,7 +1624,7 @@ impl<CF: ConnFactory> Catalog<CF> {
         msg: ZoneChangedMsg,
         time_tracking: Arc<RwLock<HashMap<ZoneKey, ZoneRefreshState>>>,
         event_tx: Sender<Event>,
-        config: Arc<ArcSwap<Config<CF>>>,
+        config: Arc<ArcSwap<Config>>,
     ) {
         // Do we have the zone that is being updated?
         let pending_zones = pending_zones.read().await;
@@ -1809,7 +1827,7 @@ impl<CF: ConnFactory> Catalog<CF> {
         initial_xfr_addr: Option<SocketAddr>,
         zone_refresh_info: &mut ZoneRefreshState,
         event_tx: Sender<Event>,
-        config: Arc<ArcSwap<Config<CF>>>,
+        config: Arc<ArcSwap<Config>>,
     ) -> Result<(), ()> {
         match cause {
             ZoneRefreshCause::ManualTrigger
@@ -1950,7 +1968,7 @@ impl<CF: ConnFactory> Catalog<CF> {
         zone: &Zone,
         initial_xfr_addr: Option<SocketAddr>,
         zone_refresh_info: &mut ZoneRefreshState,
-        config: Arc<ArcSwap<Config<CF>>>,
+        config: Arc<ArcSwap<Config>>,
     ) -> Result<Option<Soa<Name<Bytes>>>, CatalogError> {
         // Was this zone already refreshed recently?
         if let Some(last_refreshed) =
@@ -2009,7 +2027,7 @@ impl<CF: ConnFactory> Catalog<CF> {
 
         for primary_addr in primary_addrs {
             if let Some((xfr_settings, tsig_key)) =
-                request_xfr.get(primary_addr)
+                request_xfr.get_target(primary_addr)
             {
                 let res = Self::refresh_zone_from_addr(
                     zone,
@@ -2057,7 +2075,7 @@ impl<CF: ConnFactory> Catalog<CF> {
         xfr_settings: &XfrSettings,
         tsig_key: &Option<TsigKey>,
         zone_refresh_info: &mut ZoneRefreshState,
-        config: Arc<ArcSwap<Config<CF>>>,
+        config: Arc<ArcSwap<Config>>,
     ) -> Result<Option<Soa<Name<Bytes>>>, CatalogError> {
         // TODO: Replace this loop with one, or two, calls to a helper fn.
         // Try at least once, at most twice (when using IXFR -> AXFR fallback)
@@ -2651,7 +2669,7 @@ impl<CF: ConnFactory> Catalog<CF> {
         zone: &Zone,
     ) -> bool {
         let source_addr = SocketAddr::new(*source, IANA_DNS_PORT_NUMBER);
-        if acl.contains(&source_addr) {
+        if acl.contains_target(&source_addr) {
             trace!("Source IP {source} is on the ACL for the zone.");
             return true;
         } else {
@@ -2724,7 +2742,7 @@ impl<CF: ConnFactory> Catalog<CF> {
     }
 }
 
-impl<CF: ConnFactory> Catalog<CF> {
+impl Catalog {
     /// The entire tree of zones managed by this [`Catalog`] instance.
     pub fn zones(&self) -> Arc<ZoneTree> {
         self.loaded_arc.read().unwrap().clone()
@@ -2786,7 +2804,7 @@ impl<CF: ConnFactory> Catalog<CF> {
     }
 }
 
-impl<CF: ConnFactory> Catalog<CF> {
+impl Catalog {
     fn update_lodaded_arc(&self) {
         *self.loaded_arc.write().unwrap() = self.member_zones.load_full();
     }
@@ -3114,24 +3132,11 @@ impl<CR: ComposeRequest + Send + Sync + 'static> SendRequest<CR>
     }
 }
 
-pub trait ConnFactory {
-    fn get(
-        &self,
-        dest: SocketAddr,
-        strategy: &TransportStrategy,
-        key: Option<Arc<Key>>,
-    ) -> impl Future<
-        Output = Result<
-            Option<Conn<RequestMessage<Vec<u8>>>>,
-            std::io::Error,
-        >,
-    > + Send;
-}
-
 #[derive(Default, Debug)]
-pub struct DefaultConnFactory;
+pub struct ConnFactory;
 
-impl ConnFactory for DefaultConnFactory {
+#[cfg(not(test))]
+impl ConnFactory {
     async fn get(
         &self,
         dest: SocketAddr,
@@ -3179,5 +3184,17 @@ impl ConnFactory for DefaultConnFactory {
                 Ok(Some(Conn::Tcp(auth::Connection::new(key, client))))
             }
         }
+    }
+}
+
+#[cfg(test)]
+impl ConnFactory {
+    async fn get(
+        &self,
+        _primary_addr: SocketAddr,
+        _transport: &TransportStrategy,
+        _cloned: Option<Arc<Key>>,
+    ) -> Result<Option<Conn<RequestMessage<Vec<u8>>>>, std::io::Error> {
+        todo!()
     }
 }

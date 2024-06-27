@@ -320,7 +320,7 @@ where
         };
 
         let Some((xfr_settings, _tsig_key)) =
-            allow_xfr.get_ip(req.client_addr().ip())
+            allow_xfr.get_caller(req.client_addr().ip())
         else {
             warn!(
                 "{qtype} for {qname} from {client_ip} refused: client is not permitted to transfer this zone",
@@ -371,7 +371,7 @@ where
         };
 
         let Some((xfr_settings, _tsig_key)) =
-            allow_xfr.get_ip(req.client_addr().ip())
+            allow_xfr.get_caller(req.client_addr().ip())
         else {
             unreachable!();
         };
@@ -518,16 +518,21 @@ where
                         ));
 
                         match res {
-                            Ok(ControlFlow::Continue(())) => {
+                            Ok(PushResult::PushedAndReadyForMore) => {
                                 // Message still has space, keep going.
                                 num_rrs_added += 1;
                             }
 
-                            Ok(ControlFlow::Break((pushed, builder))) => {
+                            Ok(PushResult::PushedAndLimitReached(
+                                builder,
+                            )) => {
+                                // Pushed and configured limit reached, send it.
+                                num_rrs_added += 1;
+                                break 'inner Some(builder);
+                            }
+
+                            Ok(PushResult::NotPushedMessageFull(builder)) => {
                                 // Message is full, send what we have so far.
-                                if pushed {
-                                    num_rrs_added += 1;
-                                }
                                 break 'inner Some(builder);
                             }
 
@@ -868,16 +873,23 @@ where
                                 rrset.ttl(),
                                 rr,
                             )) {
-                                Ok(ControlFlow::Continue(())) => {
+                                Ok(PushResult::PushedAndReadyForMore) => {
                                     // Message still has space, keep going.
                                     num_rrs_added += 1;
                                 }
 
-                                Ok(ControlFlow::Break((pushed, builder))) => {
+                                Ok(PushResult::PushedAndLimitReached(
+                                    builder,
+                                )) => {
+                                    // Pushed and configured limit reached, send it.
+                                    num_rrs_added += 1;
+                                    break 'inner builder;
+                                }
+
+                                Ok(PushResult::NotPushedMessageFull(
+                                    builder,
+                                )) => {
                                     // Message is full, send what we have so far.
-                                    if pushed {
-                                        num_rrs_added += 1;
-                                    }
                                     break 'inner builder;
                                 }
 
@@ -1052,6 +1064,14 @@ where
     }
 }
 
+//----------- PushResult ------------------------------------------------------
+
+enum PushResult<Target> {
+    PushedAndReadyForMore,
+    PushedAndLimitReached(AnswerBuilder<StreamTarget<Target>>),
+    NotPushedMessageFull(AnswerBuilder<StreamTarget<Target>>),
+}
+
 //----------- RrBatcher -------------------------------------------------------
 
 // IDEA: Maybe this should act like an iterator and whenever it runs out of
@@ -1089,10 +1109,7 @@ where
     pub fn push(
         &mut self,
         record: impl ComposeRecord,
-    ) -> Result<
-        ControlFlow<(bool, AnswerBuilder<StreamTarget<Target>>)>,
-        PushError,
-    > {
+    ) -> Result<PushResult<Target>, PushError> {
         self.answer.get_or_insert_with(|| {
             let builder = mk_builder_for_target();
             builder.start_answer(&self.req_msg, Rcode::NOERROR)
@@ -1107,13 +1124,13 @@ where
             Ok(()) if Some(ancount) == self.limit => {
                 // Push succeeded but the message is as full as the caller
                 // allows, pass it back to the caller to process.
-                Ok(ControlFlow::Break((true, answer)))
+                Ok(PushResult::PushedAndLimitReached(answer))
             }
 
             Err(_) if ancount > 0 => {
                 // Push failed because the message is full, pass it back to
                 // the caller to process.
-                Ok(ControlFlow::Break((false, answer)))
+                Ok(PushResult::NotPushedMessageFull(answer))
             }
 
             Err(err) => {
@@ -1124,7 +1141,7 @@ where
             Ok(()) => {
                 // Record has been added, keep the answer builder for the next push.
                 self.answer = Some(Ok(answer));
-                Ok(ControlFlow::Continue(()))
+                Ok(PushResult::PushedAndReadyForMore)
             }
         }
     }

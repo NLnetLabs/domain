@@ -122,7 +122,7 @@ pub trait ReadableZone: Send + Sync {
 /// An asynchronous write interface to a [`Zone`].
 ///
 /// [`Zone`]: super::Zone
-pub trait WritableZone: Send {
+pub trait WritableZone: Send + Sync {
     /// Start a write operation for the zone.
     #[allow(clippy::type_complexity)]
     fn open(
@@ -156,7 +156,7 @@ pub trait WritableZone: Send {
 /// An asynchronous write interface to a particular node in a [`ZoneTree`].
 ///
 /// [`ZoneTree`]: super::ZoneTree
-pub trait WritableZoneNode: Send {
+pub trait WritableZoneNode: Send + Sync {
     /// Get a write interface to a child node of this node.
     #[allow(clippy::type_complexity)]
     fn update_child(
