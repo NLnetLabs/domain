@@ -1089,8 +1089,10 @@ where
     pub fn push(
         &mut self,
         record: impl ComposeRecord,
-    ) -> Result<ControlFlow<(bool, AnswerBuilder<StreamTarget<Target>>)>, PushError>
-    {
+    ) -> Result<
+        ControlFlow<(bool, AnswerBuilder<StreamTarget<Target>>)>,
+        PushError,
+    > {
         self.answer.get_or_insert_with(|| {
             let builder = mk_builder_for_target();
             builder.start_answer(&self.req_msg, Rcode::NOERROR)

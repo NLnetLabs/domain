@@ -376,7 +376,7 @@ impl<CR: ComposeRequest> ComposeRequest for AuthenticatedRequestMessage<CR> {
     fn is_streaming(&self) -> bool {
         self.request.is_streaming()
     }
-    
+
     fn dnssec_ok(&self) -> bool {
         self.request.dnssec_ok()
     }
