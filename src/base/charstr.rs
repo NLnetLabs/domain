@@ -31,7 +31,7 @@ use bytes::BytesMut;
 use core::{cmp, fmt, hash, mem, str};
 use octseq::builder::FreezeBuilder;
 #[cfg(feature = "serde")]
-use octseq::serde::{DeserializeOctets, SerializeOctets};
+use octseq::serde::DeserializeOctets;
 use octseq::{
     EmptyBuilder, FromBuilder, IntoBuilder, Octets, OctetsBuilder,
     OctetsFrom, Parser, ShortBuf, Truncate,
@@ -594,7 +594,7 @@ impl<'a, T: AsRef<[u8]> + ?Sized + 'a> IntoIterator for &'a CharStr<T> {
 #[cfg(feature = "serde")]
 impl<T> serde::Serialize for CharStr<T>
 where
-    T: AsRef<[u8]> + SerializeOctets + ?Sized,
+    T: AsRef<[u8]> + ?Sized,
 {
     fn serialize<S: serde::Serializer>(
         &self,
@@ -608,7 +608,7 @@ where
         } else {
             serializer.serialize_newtype_struct(
                 "CharStr",
-                &self.0.as_serialized_octets(),
+                &octseq::serde::AsSerializedOctets::from(&self.0),
             )
         }
     }

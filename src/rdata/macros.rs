@@ -61,7 +61,7 @@ macro_rules! rdata_types {
             feature = "serde",
             serde(bound(
                 serialize = "
-                    O: AsRef<[u8]> + octseq::serde::SerializeOctets,
+                    O: AsRef<[u8]>,
                     N: serde::Serialize,
                 ",
                 deserialize = "

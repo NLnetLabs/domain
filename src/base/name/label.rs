@@ -652,8 +652,6 @@ impl serde::Serialize for OwnedLabel {
         &self,
         serializer: S,
     ) -> Result<S::Ok, S::Error> {
-        use octseq::serde::SerializeOctets;
-
         if serializer.is_human_readable() {
             serializer.serialize_newtype_struct(
                 "OwnedLabel",
@@ -662,7 +660,9 @@ impl serde::Serialize for OwnedLabel {
         } else {
             serializer.serialize_newtype_struct(
                 "OwnedLabel",
-                &self.as_label().as_slice().as_serialized_octets(),
+                &octseq::serde::AsSerializedOctets::from(
+                    self.as_label().as_slice(),
+                ),
             )
         }
     }

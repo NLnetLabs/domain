@@ -4,7 +4,7 @@
 use crate::base::cmp::CanonicalOrd;
 use crate::base::iana::{DigestAlg, Rtype, SecAlg};
 use crate::base::rdata::{
-    ComposeRecordData, LongRecordData, ParseRecordData, RecordData
+    ComposeRecordData, LongRecordData, ParseRecordData, RecordData,
 };
 use crate::base::scan::{Scan, Scanner, ScannerError};
 use crate::base::wire::{Compose, Composer, Parse, ParseError};
@@ -21,9 +21,7 @@ use octseq::parse::Parser;
     feature = "serde",
     derive(serde::Serialize, serde::Deserialize),
     serde(bound(
-        serialize = "
-            Octs: octseq::serde::SerializeOctets + AsRef<[u8]>
-        ",
+        serialize = "Octs: AsRef<[u8]>",
         deserialize = "
             Octs:
                 octseq::builder::FromBuilder
@@ -57,11 +55,15 @@ impl<Octs> Cdnskey<Octs> {
         algorithm: SecAlg,
         public_key: Octs,
     ) -> Result<Self, LongRecordData>
-    where Octs: AsRef<[u8]> {
+    where
+        Octs: AsRef<[u8]>,
+    {
         LongRecordData::check_len(
             usize::from(
-                u16::COMPOSE_LEN + u8::COMPOSE_LEN + SecAlg::COMPOSE_LEN
-            ).checked_add(public_key.as_ref().len()).expect("long key")
+                u16::COMPOSE_LEN + u8::COMPOSE_LEN + SecAlg::COMPOSE_LEN,
+            )
+            .checked_add(public_key.as_ref().len())
+            .expect("long key"),
         )?;
         Ok(unsafe {
             Cdnskey::new_unchecked(flags, protocol, algorithm, public_key)
@@ -143,13 +145,16 @@ impl<Octs> Cdnskey<Octs> {
     pub fn scan<S: Scanner<Octets = Octs>>(
         scanner: &mut S,
     ) -> Result<Self, S::Error>
-    where Octs: AsRef<[u8]> {
+    where
+        Octs: AsRef<[u8]>,
+    {
         Self::new(
             u16::scan(scanner)?,
             u8::scan(scanner)?,
             SecAlg::scan(scanner)?,
             scanner.convert_entry(base64::SymbolConverter::new())?,
-        ).map_err(|err| S::Error::custom(err.as_str()))
+        )
+        .map_err(|err| S::Error::custom(err.as_str()))
     }
 }
 
@@ -326,9 +331,7 @@ impl<Octs: AsRef<[u8]>> fmt::Debug for Cdnskey<Octs> {
     feature = "serde",
     derive(serde::Serialize, serde::Deserialize),
     serde(bound(
-        serialize = "
-            Octs: octseq::serde::SerializeOctets + AsRef<[u8]>
-        ",
+        serialize = "Octs: AsRef<[u8]>",
         deserialize = "
             Octs:
                 octseq::builder::FromBuilder
@@ -362,11 +365,17 @@ impl<Octs> Cds<Octs> {
         digest_type: DigestAlg,
         digest: Octs,
     ) -> Result<Self, LongRecordData>
-    where Octs: AsRef<[u8]> {
+    where
+        Octs: AsRef<[u8]>,
+    {
         LongRecordData::check_len(
             usize::from(
-                u16::COMPOSE_LEN + SecAlg::COMPOSE_LEN + DigestAlg::COMPOSE_LEN
-            ).checked_add(digest.as_ref().len()).expect("long digest")
+                u16::COMPOSE_LEN
+                    + SecAlg::COMPOSE_LEN
+                    + DigestAlg::COMPOSE_LEN,
+            )
+            .checked_add(digest.as_ref().len())
+            .expect("long digest"),
         )?;
         Ok(unsafe {
             Cds::new_unchecked(key_tag, algorithm, digest_type, digest)
@@ -452,13 +461,16 @@ impl<Octs> Cds<Octs> {
     pub fn scan<S: Scanner<Octets = Octs>>(
         scanner: &mut S,
     ) -> Result<Self, S::Error>
-    where Octs: AsRef<[u8]> {
+    where
+        Octs: AsRef<[u8]>,
+    {
         Self::new(
             u16::scan(scanner)?,
             SecAlg::scan(scanner)?,
             DigestAlg::scan(scanner)?,
             scanner.convert_entry(base16::SymbolConverter::new())?,
-        ).map_err(|err| S::Error::custom(err.as_str()))
+        )
+        .map_err(|err| S::Error::custom(err.as_str()))
     }
 }
 
@@ -678,9 +690,8 @@ mod test {
     #[test]
     #[allow(clippy::redundant_closure)] // lifetimes ...
     fn cds_compose_parse_scan() {
-        let rdata = Cds::new(
-            10, SecAlg::RSASHA1, DigestAlg::SHA256, b"key"
-        ).unwrap();
+        let rdata =
+            Cds::new(10, SecAlg::RSASHA1, DigestAlg::SHA256, b"key").unwrap();
         test_rdlen(&rdata);
         test_compose_parse(&rdata, |parser| Cds::parse(parser));
         test_scan(&["10", "RSASHA1", "2", "6b6579"], Cds::scan, &rdata);
