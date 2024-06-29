@@ -11,7 +11,6 @@ use core::sync::atomic::{AtomicBool, Ordering};
 use core::task::{Context, Poll};
 use core::time::Duration;
 
-use std::borrow::ToOwned;
 use std::boxed::Box;
 use std::collections::hash_map::Entry::{Occupied, Vacant};
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -37,7 +36,7 @@ use tokio_stream::StreamExt;
 use tracing::{debug, error, info, trace, warn};
 
 use crate::base::iana::{Class, Opcode, OptRcode};
-use crate::base::name::{FlattenInto, Label, ToLabelIter};
+use crate::base::name::{Label, ToLabelIter};
 use crate::base::net::IpAddr;
 use crate::base::{
     CanonicalOrd, Message, MessageBuilder, Name, Rtype, Serial, ToName, Ttl,
@@ -48,14 +47,13 @@ use crate::net::client::protocol::UdpConnect;
 use crate::net::client::request::{
     self, ComposeRequest, RequestMessage, SendRequest,
 };
-use crate::net::client::{auth, stream};
+use crate::net::client::{auth, stream, xfr};
 use crate::rdata::{Soa, ZoneRecordData};
 use crate::tsig::{self, Algorithm, Key, KeyName};
 use crate::zonetree::error::{OutOfZone, ZoneTreeModificationError};
 use crate::zonetree::{
-    AnswerContent, ReadableZone, Rrset, SharedRrset, StoredName,
-    WritableZone, WritableZoneNode, Zone, ZoneDiff, ZoneKey, ZoneStore,
-    ZoneTree,
+    AnswerContent, ReadableZone, SharedRrset, StoredName, WritableZone,
+    WritableZoneNode, Zone, ZoneDiff, ZoneKey, ZoneStore, ZoneTree,
 };
 use core::marker::Send;
 
@@ -99,7 +97,7 @@ pub type CatalogKeyStore = HashMap<(KeyName, Algorithm), Arc<Key>>;
 //------------ Acl -----------------------------------------------------------
 
 /// An access control list.
-/// 
+///
 /// The `Acl` maps caller addresses (a `SocketAddress` with port 0, i.e. just
 /// an `IpAddr`, as we can't know in advance the port number a caller will
 /// use), or target addresses (a `SocketAddr` including port), to some user
@@ -163,18 +161,30 @@ impl<T: Clone + Debug + Default> Acl<T> {
 
 //------------ XfrStrategy ---------------------------------------------------
 
-#[derive(Clone, Copy, Debug, Default)]
+/// Which modes of XFR to support.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum XfrStrategy {
+    /// Do not support XFR at all.
     #[default]
     None,
+
+    /// Support only AXFR.
     AxfrOnly,
+
+    /// Support only IXFR.
     IxfrOnly,
+
+    /// Support IXFR with fallback to AXFR.
+    ///
+    /// If IXFR cannot be provided due to missing required incremental
+    /// difference data, fallback to full AXFR instead.
     IxfrWithAxfrFallback,
 }
 
 //------------ IxfrTransportStrategy -----------------------------------------
 
-#[derive(Clone, Copy, Debug, Default)]
+/// Which modes of transport to support.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum TransportStrategy {
     #[default]
     None,
@@ -1486,7 +1496,9 @@ impl Catalog {
             let tsig_key = if let ZoneType::Primary { notify, .. } =
                 &zone_info.zone_type
             {
-                if let Some(Some(key_info)) = notify.get_target(&nameserver_addr) {
+                if let Some(Some(key_info)) =
+                    notify.get_target(&nameserver_addr)
+                {
                     let key = readable_key_store.get(key_info).cloned();
 
                     if key.is_some() {
@@ -2238,21 +2250,9 @@ impl Catalog {
         client: Conn<RequestMessage<Vec<u8>>>,
         zone: &Zone,
         primary_addr: SocketAddr,
-        mut xfr_type: Rtype,
+        xfr_type: Rtype,
         zone_refresh_info: &mut ZoneRefreshState,
     ) -> Result<Option<Soa<Name<Bytes>>>, CatalogError> {
-        // https://datatracker.ietf.org/doc/html/rfc1034#section-4.3.5
-        // 4.3.5. Zone maintenance and transfers
-        //   ..
-        //   "If the serial field in the secondary's zone copy is
-        //    equal to the serial returned by the primary, then no
-        //    changes have occurred, and the REFRESH interval wait is
-        //    restarted."
-        //
-        // Create a Tokio sleep future that will awaken when the REFRESH
-        // interval expires, yielding the key of the zone which is ready
-        // to be refreshed.
-
         // Update the zone from the primary using XFR.
         info!(
             "Zone '{}' is outdated, attempting to sync zone by {xfr_type} from {}",
@@ -2280,217 +2280,25 @@ impl Catalog {
         let msg = msg.into_message();
         let req = RequestMessage::new(msg);
 
-        let mut expected_initial_soa_seen_count = match xfr_type {
-            Rtype::AXFR => 2,
-            Rtype::IXFR => 3,
-            _ => unreachable!(),
-        };
+        let client = xfr::Connection::new(zone.clone(), client);
+        let msg = client.send_request(req).get_response().await?;
 
-        let mut write = zone.write().await;
-        let mut initial_soa = None;
-
-        let writable = write.open(true).await?;
-        let mut send_request = client.send_request(req);
-        let mut i = 0;
-        let mut n = 0;
-        let mut initial_soa_serial = None;
-        let mut initial_soa_serial_seen_count = 0;
-        let start_time = Instant::now();
-        let mut last_progress_report = start_time;
-
-        // https://datatracker.ietf.org/doc/html/rfc5936#section-6
-        // 6.  Zone Integrity "An AXFR client MUST ensure that only a
-        //   successfully transferred copy of the zone data can be used to
-        //    serve this zone.  Previous description and implementation
-        //    practice has introduced a two-stage model of the whole zone
-        //    synchronization procedure: Upon a trigger event (e.g., when
-        //    polling of a SOA resource record detects a change in the SOA
-        //    serial number, or when a DNS NOTIFY request [RFC1996] is
-        //    received), the AXFR session is initiated, whereby the zone data
-        //    are saved in a zone file or database (this latter step is
-        //    necessary anyway to ensure proper restart of the server); upon
-        //    successful completion of the AXFR operation and some sanity
-        //    checks, this data set is "loaded" and made available for serving
-        //    the zone in an atomic operation, and flagged "valid" for use
-        //    during the next restart of the DNS server; if any error is
-        //    detected, this data set MUST be deleted, and the AXFR client
-        //    MUST continue to serve the previous version of the zone, if it
-        //    did before.  The externally visible behavior of an AXFR client
-        //    implementation MUST be equivalent to that of this two- stage
-        //    model."
-        //
-        // Regarding "whereby the zone data are saved in a zone file or
-        // database (this latter step is necessary anyway to ensure proper
-        // restart of the server)" and "- this is NOT done here. We only
-        // commit changes to memory. It is left for a client to wrap the zone
-        // and detect the call to commit() and at that point save the zone if
-        // wanted. See `ArchiveZone` in examples/serve-zone.rs for an example.
-
-        // TODO: Add something like the NSD `size-limit-xfr` option that
-        // "specifies XFR temporary file size limit" which "can be used to
-        // stop very large zone retrieval, that could otherwise use up a lot
-        // of memory and disk space".
-        'outer: loop {
-            let msg = send_request.get_response().await?;
-            trace!("Received response {i}");
-            i += 1;
-
-            if msg.no_error() {
-                match msg.answer() {
-                    Ok(answer) => {
-                        let records =
-                            answer.limit_to::<ZoneRecordData<_, _>>();
-                        for record in records.flatten() {
-                            trace!("XFR record {n}: {record:?}");
-
-                            if xfr_type == Rtype::IXFR
-                                && n == 1
-                                && initial_soa_serial_seen_count == 1
-                                && record.rtype() != Rtype::SOA
-                            {
-                                // https://datatracker.ietf.org/doc/html/rfc1995#section-4
-                                // 4. Response Format
-                                //   "If incremental zone transfer is not available, the entire zone is
-                                //    returned.  The first and the last RR of the response is the SOA
-                                //    record of the zone.  I.e. the behavior is the same as an AXFR
-                                //    response except the query type is IXFR."
-                                debug!("IXFR response appears to be AXFR, switching...");
-                                xfr_type = Rtype::AXFR;
-                                expected_initial_soa_seen_count = 2;
-                            }
-
-                            let owner = record.owner().to_owned();
-                            let ttl = record.ttl();
-                            let rtype = record.rtype();
-                            let data = record.into_data().flatten_into();
-
-                            if let ZoneRecordData::Soa(soa) = &data {
-                                if let Some(initial_soa_serial) =
-                                    initial_soa_serial
-                                {
-                                    if initial_soa_serial == soa.serial() {
-                                        // AXFR end SOA detected.
-                                        // Notify transport that no
-                                        // more responses are
-                                        // expected.
-                                        initial_soa_serial_seen_count += 1;
-                                        if initial_soa_serial_seen_count
-                                            == expected_initial_soa_seen_count
-                                        {
-                                            trace!("Closing response stream at record nr {i} (soa seen count = {initial_soa_serial_seen_count})");
-                                            send_request.stream_complete()?;
-                                            break 'outer;
-                                        }
-                                    }
-                                } else {
-                                    initial_soa_serial = Some(soa.serial());
-                                    initial_soa = Some(soa.clone());
-                                    initial_soa_serial_seen_count = 1;
-                                }
-                            }
-
-                            n += 1;
-
-                            let now = Instant::now();
-                            if now
-                                .duration_since(last_progress_report)
-                                .as_secs()
-                                > 10
-                            {
-                                let seconds_so_far =
-                                    now.duration_since(start_time).as_secs()
-                                        as f64;
-                                let records_per_second =
-                                    ((n as f64) / seconds_so_far).floor()
-                                        as i64;
-                                info!("XFR progress report for zone '{}': Received {n} records in {i} responses in {} seconds ({} records/second)", zone.apex_name(), seconds_so_far, records_per_second);
-                                last_progress_report = now;
-                            }
-
-                            let mut end_node: Option<
-                                Box<dyn WritableZoneNode>,
-                            > = None;
-
-                            let name = Self::mk_relative_name_iterator(
-                                zone.apex_name(),
-                                &owner,
-                            )
-                            .map_err(|_| CatalogError::InternalError)?;
-
-                            for label in name {
-                                trace!("Relativised label: {label}");
-                                end_node = Some(
-                                    match end_node {
-                                        Some(new_node) => {
-                                            new_node.update_child(label)
-                                        }
-                                        None => writable.update_child(label),
-                                    }
-                                    .await
-                                    .map_err(|_| {
-                                        CatalogError::InternalError
-                                    })?,
-                                );
-                            }
-
-                            let mut rrset = Rrset::new(rtype, ttl);
-                            rrset.push_data(data);
-
-                            trace!("Adding RRset: {rrset:?}");
-                            let rrset = SharedRrset::new(rrset);
-                            match end_node {
-                                Some(n) => {
-                                    trace!("Adding RRset at end_node");
-                                    n.update_rrset(rrset).await.map_err(
-                                        |_| CatalogError::InternalError,
-                                    )?;
-                                }
-                                None => {
-                                    trace!("Adding RRset at root");
-                                    writable
-                                        .update_rrset(rrset)
-                                        .await
-                                        .map_err(|_| {
-                                            CatalogError::InternalError
-                                        })?;
-                                }
-                            }
-                        }
-                    }
-
-                    Err(err) => {
-                        error!("Error while parsing XFR ANSWER: {err}");
-                        return Err(CatalogError::RequestError(
-                            request::Error::MessageParseError,
-                        ));
-                    }
-                }
-            } else {
-                return Err(CatalogError::ResponseError(msg.opt_rcode()));
-            }
+        if msg.is_error() {
+            return Err(CatalogError::ResponseError(msg.opt_rcode()));
         }
 
-        info!("XFR progress report for zone '{}': Transfer complete, commiting changes.", zone.apex_name());
+        let soa_and_ttl =
+            Self::read_soa(&zone.read(), zone.apex_name().clone())
+                .await
+                .map_err(|_out_of_zone_err| CatalogError::InternalError)?;
 
-        // Ensure that there are no dangling references to the created diff
-        // (otherwise commit() will panic).
-        drop(writable);
+        let Some((soa, _ttl)) = soa_and_ttl else {
+            return Err(CatalogError::InternalError);
+        };
 
-        // TODO
-        write.commit(false).await?;
-
-        let new_serial = initial_soa.as_ref().unwrap().serial();
         zone_refresh_info.metrics.last_refresh_succeeded_serial =
-            Some(new_serial);
-
-        info!(
-            "Zone '{}' has been updated to serial {} by {xfr_type} from {}",
-            zone.apex_name(),
-            new_serial,
-            primary_addr,
-        );
-
-        Ok(initial_soa)
+            Some(soa.serial());
+        Ok(Some(soa))
     }
 
     pub fn mk_relative_name_iterator<'l>(
@@ -2877,7 +2685,8 @@ impl ZoneStore for TypedZone {
 
     fn write(
         self: Arc<Self>,
-    ) -> Pin<Box<dyn Future<Output = Box<dyn WritableZone>> + Send>> {
+    ) -> Pin<Box<dyn Future<Output = Box<dyn WritableZone>> + Send + Sync>>
+    {
         self.store.clone().write()
     }
 
@@ -2942,7 +2751,8 @@ impl ZoneStore for CatalogZone {
     /// Gets a write interface to this zone.
     fn write(
         self: Arc<Self>,
-    ) -> Pin<Box<dyn Future<Output = Box<dyn WritableZone>> + Send>> {
+    ) -> Pin<Box<dyn Future<Output = Box<dyn WritableZone>> + Send + Sync>>
+    {
         let fut = self.store.clone().write();
         let notify_tx = self.notify_tx.clone();
         Box::pin(async move {
@@ -2976,7 +2786,8 @@ impl WritableZone for WritableCatalogZone {
     ) -> Pin<
         Box<
             dyn Future<Output = Result<Box<dyn WritableZoneNode>, io::Error>>
-                + Send,
+                + Send
+                + Sync,
         >,
     > {
         self.writable_zone.open(true)
@@ -2986,7 +2797,11 @@ impl WritableZone for WritableCatalogZone {
         &mut self,
         bump_soa_serial: bool,
     ) -> Pin<
-        Box<dyn Future<Output = Result<Option<ZoneDiff>, io::Error>> + Send>,
+        Box<
+            dyn Future<Output = Result<Option<ZoneDiff>, io::Error>>
+                + Send
+                + Sync,
+        >,
     > {
         let fut = self.writable_zone.commit(bump_soa_serial);
         let notify_tx = self.notify_tx.clone();

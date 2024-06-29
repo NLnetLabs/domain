@@ -21,6 +21,7 @@ use crate::base::iana::{Opcode, OptRcode, Rcode};
 use crate::base::message_builder::{
     AdditionalBuilder, AnswerBuilder, PushError,
 };
+use crate::base::net::IpAddr;
 use crate::base::record::ComposeRecord;
 use crate::base::wire::Composer;
 use crate::base::{
@@ -33,7 +34,8 @@ use crate::net::server::service::{
 use crate::net::server::util::{mk_builder_for_target, mk_error_response};
 use crate::rdata::ZoneRecordData;
 use crate::zonecatalog::catalog::{
-    Catalog, CatalogZone, CompatibilityMode, XfrStrategy, ZoneInfo, ZoneType,
+    Catalog, CatalogZone, CompatibilityMode, XfrSettings, XfrStrategy,
+    ZoneInfo, ZoneType,
 };
 use crate::zonetree::error::OutOfZone;
 use crate::zonetree::{
@@ -195,18 +197,25 @@ where
             .downcast_ref::<CatalogZone>()
             .unwrap();
 
-        if !Self::is_allowed(req, &qname, q.qtype(), cat_zone.info()) {
-            return ControlFlow::Break(Self::to_stream(mk_error_response(
-                msg,
-                OptRcode::REFUSED,
-            )));
-        }
+        let xfr_settings = Self::xfr_settings_for_client(
+            req.client_addr().ip(),
+            &qname,
+            q.qtype(),
+            cat_zone.info(),
+        );
 
         match q.qtype() {
             Rtype::SOA => {
                 let builder = mk_builder_for_target();
                 let response = zone_soa_answer.to_message(msg, builder);
                 ControlFlow::Break(Self::to_stream(response))
+            }
+
+            Rtype::AXFR | Rtype::IXFR if xfr_settings.is_none() => {
+                ControlFlow::Break(Self::to_stream(mk_error_response(
+                    msg,
+                    OptRcode::REFUSED,
+                )))
             }
 
             Rtype::AXFR => {
@@ -257,7 +266,7 @@ where
                 //    current version to inform the client that a TCP query should
                 //    be initiated."
 
-                match Self::do_ixfr(
+                if let Some(res) = Self::do_ixfr(
                     batcher_semaphore.clone(),
                     req,
                     qname.clone(),
@@ -267,31 +276,41 @@ where
                 )
                 .await
                 {
-                    Some(res) => res,
-                    None => {
-                        info!(
-                            "IXFR for {qname} from {}: falling back to AXFR",
-                            req.client_addr()
-                        );
+                    res
+                } else if xfr_settings.unwrap().strategy
+                    != XfrStrategy::IxfrWithAxfrFallback
+                {
+                    info!(
+                        "IXFR for {qname} from {} refused: client is not permitted to fallback to AXFR",
+                        req.client_addr()
+                    );
+                    ControlFlow::Break(Self::to_stream(mk_error_response(
+                        msg,
+                        OptRcode::REFUSED,
+                    )))
+                } else {
+                    info!(
+                        "IXFR for {qname} from {}: falling back to AXFR",
+                        req.client_addr()
+                    );
 
-                        // https://datatracker.ietf.org/doc/html/rfc1995#section-4
-                        // 4. Response Format
-                        //    "If incremental zone transfer is not available, the
-                        //     entire zone is returned.  The first and the last RR
-                        //     of the response is the SOA record of the zone.
-                        //     I.e. the behavior is the same as an AXFR response
-                        //     except the query type is IXFR."
-                        Self::do_axfr(
-                            zone_walking_semaphore,
-                            batcher_semaphore,
-                            req,
-                            qname,
-                            &zone_soa_answer,
-                            cat_zone.info(),
-                            read,
-                        )
-                        .await
-                    }
+                    // https://datatracker.ietf.org/doc/html/rfc1995#section-4
+                    // 4. Response Format
+                    //    "If incremental zone transfer is not available, the
+                    //     entire zone is returned.  The first and the last RR
+                    //     of the response is the SOA record of the zone.
+                    //     I.e. the behavior is the same as an AXFR response
+                    //     except the query type is IXFR."
+                    Self::do_axfr(
+                        zone_walking_semaphore,
+                        batcher_semaphore,
+                        req,
+                        qname,
+                        &zone_soa_answer,
+                        cat_zone.info(),
+                        read,
+                    )
+                    .await
                 }
             }
 
@@ -299,16 +318,14 @@ where
         }
     }
 
-    fn is_allowed(
-        req: &Request<RequestOctets>,
+    fn xfr_settings_for_client<'a>(
+        client_ip: IpAddr,
         qname: &Name<Bytes>,
         qtype: Rtype,
-        zone_info: &ZoneInfo,
-    ) -> bool {
-        let client_ip = req.client_addr().ip();
-
+        zone_info: &'a ZoneInfo,
+    ) -> Option<&'a XfrSettings> {
         if qtype == Rtype::SOA {
-            return true;
+            return None;
         }
 
         let ZoneType::Primary { allow_xfr, .. } = zone_info.zone_type()
@@ -316,16 +333,15 @@ where
             warn!(
                 "{qtype} for {qname} from {client_ip} refused: zone does not allow XFR",
             );
-            return false;
+            return None;
         };
 
-        let Some((xfr_settings, _tsig_key)) =
-            allow_xfr.get_caller(req.client_addr().ip())
+        let Some((xfr_settings, _tsig_key)) = allow_xfr.get_caller(client_ip)
         else {
             warn!(
                 "{qtype} for {qname} from {client_ip} refused: client is not permitted to transfer this zone",
             );
-            return false;
+            return None;
         };
 
         if matches!(
@@ -336,10 +352,10 @@ where
             warn!(
                 "{qtype} for {qname} from {client_ip} refused: zone does not allow {qtype}",
             );
-            return false;
+            return None;
         }
 
-        true
+        Some(xfr_settings)
     }
 
     async fn do_axfr(

@@ -93,7 +93,8 @@ impl WritableZone for WriteZone {
     ) -> Pin<
         Box<
             dyn Future<Output = Result<Box<dyn WritableZoneNode>, io::Error>>
-                + Send,
+                + Send
+                + Sync,
         >,
     > {
         let new_apex = WriteNode::new_apex(self.clone(), create_diff);
@@ -120,7 +121,11 @@ impl WritableZone for WriteZone {
         &mut self,
         bump_soa_serial: bool,
     ) -> Pin<
-        Box<dyn Future<Output = Result<Option<ZoneDiff>, io::Error>> + Send>,
+        Box<
+            dyn Future<Output = Result<Option<ZoneDiff>, io::Error>>
+                + Send
+                + Sync,
+        >,
     > {
         let mut out_diff = None;
 
@@ -228,7 +233,12 @@ fn arc_into_inner(this: Arc<Mutex<ZoneDiff>>) -> Option<Mutex<ZoneDiff>> {
     let mut this = std::mem::ManuallyDrop::new(this);
 
     // Following the implementation of `drop` and `drop_slow`
-    if this.inner().strong.fetch_sub(1, std::sync::atomic::Ordering::Release) != 1 {
+    if this
+        .inner()
+        .strong
+        .fetch_sub(1, std::sync::atomic::Ordering::Release)
+        != 1
+    {
         return None;
     }
 
@@ -245,7 +255,10 @@ fn arc_into_inner(this: Arc<Mutex<ZoneDiff>>) -> Option<Mutex<ZoneDiff>> {
     let inner = unsafe { ptr::read(Self::get_mut_unchecked(&mut this)) };
     let alloc = unsafe { ptr::read(&this.alloc) };
 
-    drop(Weak { ptr: this.ptr, alloc });
+    drop(Weak {
+        ptr: this.ptr,
+        alloc,
+    });
 
     Some(inner)
 }
@@ -483,7 +496,8 @@ impl WritableZoneNode for WriteNode {
     ) -> Pin<
         Box<
             dyn Future<Output = Result<Box<dyn WritableZoneNode>, io::Error>>
-                + Send,
+                + Send
+                + Sync,
         >,
     > {
         let node = self
@@ -495,34 +509,39 @@ impl WritableZoneNode for WriteNode {
     fn update_rrset(
         &self,
         rrset: SharedRrset,
-    ) -> Pin<Box<dyn Future<Output = Result<(), io::Error>> + Send>> {
+    ) -> Pin<Box<dyn Future<Output = Result<(), io::Error>> + Send + Sync>>
+    {
         Box::pin(ready(self.update_rrset(rrset)))
     }
 
     fn remove_rrset(
         &self,
         rtype: Rtype,
-    ) -> Pin<Box<dyn Future<Output = Result<(), io::Error>> + Send>> {
+    ) -> Pin<Box<dyn Future<Output = Result<(), io::Error>> + Send + Sync>>
+    {
         Box::pin(ready(self.remove_rrset(rtype)))
     }
 
     fn make_regular(
         &self,
-    ) -> Pin<Box<dyn Future<Output = Result<(), io::Error>> + Send>> {
+    ) -> Pin<Box<dyn Future<Output = Result<(), io::Error>> + Send + Sync>>
+    {
         Box::pin(ready(self.make_regular()))
     }
 
     fn make_zone_cut(
         &self,
         cut: ZoneCut,
-    ) -> Pin<Box<dyn Future<Output = Result<(), io::Error>> + Send>> {
+    ) -> Pin<Box<dyn Future<Output = Result<(), io::Error>> + Send + Sync>>
+    {
         Box::pin(ready(self.make_zone_cut(cut)))
     }
 
     fn make_cname(
         &self,
         cname: SharedRr,
-    ) -> Pin<Box<dyn Future<Output = Result<(), io::Error>> + Send>> {
+    ) -> Pin<Box<dyn Future<Output = Result<(), io::Error>> + Send + Sync>>
+    {
         Box::pin(ready(self.make_cname(cname)))
     }
 }

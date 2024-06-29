@@ -49,7 +49,7 @@ pub trait ZoneStore: Debug + Sync + Send + Any {
     /// Get a write interface to this store.
     fn write(
         self: Arc<Self>,
-    ) -> Pin<Box<dyn Future<Output = Box<dyn WritableZone>> + Send>>;
+    ) -> Pin<Box<dyn Future<Output = Box<dyn WritableZone>> + Send + Sync>>;
 
     /// TODO
     fn as_any(&self) -> &dyn Any;
@@ -131,7 +131,8 @@ pub trait WritableZone: Send + Sync {
     ) -> Pin<
         Box<
             dyn Future<Output = Result<Box<dyn WritableZoneNode>, io::Error>>
-                + Send,
+                + Send
+                + Sync,
         >,
     >;
 
@@ -147,7 +148,11 @@ pub trait WritableZone: Send + Sync {
         &mut self,
         bump_soa_serial: bool,
     ) -> Pin<
-        Box<dyn Future<Output = Result<Option<ZoneDiff>, io::Error>> + Send>,
+        Box<
+            dyn Future<Output = Result<Option<ZoneDiff>, io::Error>>
+                + Send
+                + Sync,
+        >,
     >;
 }
 
@@ -165,7 +170,8 @@ pub trait WritableZoneNode: Send + Sync {
     ) -> Pin<
         Box<
             dyn Future<Output = Result<Box<dyn WritableZoneNode>, io::Error>>
-                + Send,
+                + Send
+                + Sync,
         >,
     >;
 
@@ -173,13 +179,13 @@ pub trait WritableZoneNode: Send + Sync {
     fn update_rrset(
         &self,
         rrset: SharedRrset,
-    ) -> Pin<Box<dyn Future<Output = Result<(), io::Error>> + Send>>;
+    ) -> Pin<Box<dyn Future<Output = Result<(), io::Error>> + Send + Sync>>;
 
     /// Remove an RRset of the given type at this node, if any.
     fn remove_rrset(
         &self,
         rtype: Rtype,
-    ) -> Pin<Box<dyn Future<Output = Result<(), io::Error>> + Send>>;
+    ) -> Pin<Box<dyn Future<Output = Result<(), io::Error>> + Send + Sync>>;
 
     /// Mark this node as a regular node.
     ///
@@ -187,7 +193,7 @@ pub trait WritableZoneNode: Send + Sync {
     /// function will erase that data.
     fn make_regular(
         &self,
-    ) -> Pin<Box<dyn Future<Output = Result<(), io::Error>> + Send>>;
+    ) -> Pin<Box<dyn Future<Output = Result<(), io::Error>> + Send + Sync>>;
 
     /// Mark this node as a zone cut.
     ///
@@ -195,7 +201,7 @@ pub trait WritableZoneNode: Send + Sync {
     fn make_zone_cut(
         &self,
         cut: ZoneCut,
-    ) -> Pin<Box<dyn Future<Output = Result<(), io::Error>> + Send>>;
+    ) -> Pin<Box<dyn Future<Output = Result<(), io::Error>> + Send + Sync>>;
 
     /// Mark this node as a CNAME.
     ///
@@ -203,5 +209,5 @@ pub trait WritableZoneNode: Send + Sync {
     fn make_cname(
         &self,
         cname: SharedRr,
-    ) -> Pin<Box<dyn Future<Output = Result<(), io::Error>> + Send>>;
+    ) -> Pin<Box<dyn Future<Output = Result<(), io::Error>> + Send + Sync>>;
 }

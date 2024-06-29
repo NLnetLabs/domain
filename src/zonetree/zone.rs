@@ -65,7 +65,8 @@ impl Zone {
     /// Gets a write interface to this zone.
     pub fn write(
         &self,
-    ) -> Pin<Box<dyn Future<Output = Box<dyn WritableZone>> + Send>> {
+    ) -> Pin<Box<dyn Future<Output = Box<dyn WritableZone>> + Send + Sync>>
+    {
         self.store.clone().write()
     }
 

@@ -136,7 +136,8 @@ impl ZoneStore for ZoneApex {
 
     fn write(
         self: Arc<Self>,
-    ) -> Pin<Box<dyn Future<Output = Box<dyn WritableZone>> + Send>> {
+    ) -> Pin<Box<dyn Future<Output = Box<dyn WritableZone>> + Send + Sync>>
+    {
         Box::pin(async move {
             let lock = self.update_lock.clone().lock_owned().await;
             let version = self.versions().read().current().0.next();

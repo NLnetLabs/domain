@@ -404,7 +404,8 @@ impl ZoneStore for ArchiveZone {
         Box<
             dyn futures::prelude::Future<
                     Output = Box<dyn domain::zonetree::WritableZone>,
-                > + Send,
+                > + Send
+                + Sync,
         >,
     > {
         let fut = self.store.clone().write();
@@ -439,7 +440,8 @@ impl WritableZone for WritableArchiveZone {
                         Box<dyn domain::zonetree::WritableZoneNode>,
                         std::io::Error,
                     >,
-                > + Send,
+                > + Send
+                + Sync,
         >,
     > {
         self.writable_zone.open(create_diff)
@@ -455,7 +457,8 @@ impl WritableZone for WritableArchiveZone {
                         Option<domain::zonetree::ZoneDiff>,
                         std::io::Error,
                     >,
-                > + Send,
+                > + Send
+                + Sync,
         >,
     > {
         let fut = self.writable_zone.commit(bump_soa_serial);

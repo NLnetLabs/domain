@@ -362,7 +362,11 @@ pub enum Error {
     Dgram(Arc<super::dgram::QueryError>),
 
     #[cfg(feature = "unstable-server-transport")]
-    /// TSIG authentication failed
+    /// Zone write failed.
+    ZoneWrite,
+
+    #[cfg(feature = "unstable-server-transport")]
+    /// TSIG authentication failed.
     Authentication(tsig::ValidationError),
 
     #[cfg(feature = "unstable-validator")]
@@ -448,6 +452,9 @@ impl fmt::Display for Error {
             Error::Dgram(err) => fmt::Display::fmt(err, f),
 
             #[cfg(feature = "unstable-server-transport")]
+            Error::ZoneWrite => write!(f, "zone write error"),
+
+            #[cfg(feature = "unstable-server-transport")]
             Error::Authentication(err) => fmt::Display::fmt(err, f),
 
             #[cfg(feature = "unstable-validator")]
@@ -487,6 +494,9 @@ impl error::Error for Error {
             Error::WrongReplyForQuery => None,
             Error::NoTransportAvailable => None,
             Error::Dgram(err) => Some(err),
+
+            #[cfg(feature = "unstable-server-transport")]
+            Error::ZoneWrite => None,
 
             #[cfg(feature = "unstable-server-transport")]
             Error::Authentication(err) => Some(err),
