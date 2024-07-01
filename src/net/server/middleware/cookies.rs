@@ -34,7 +34,7 @@ const ONE_HOUR_AS_SECS: u32 = 60 * 60;
 
 //----------- CookiesMiddlewareProcessor --------------------------------------
 
-/// A DNS Cookies middleware service.
+/// A middleware service for enforcing the use of DNS Cookies.
 ///
 /// Standards covered by ths implementation:
 ///
