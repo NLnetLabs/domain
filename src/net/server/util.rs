@@ -1,6 +1,7 @@
 //! Small utilities for building and working with servers.
-use core::future::Ready;
+use core::future::{ready, Ready};
 
+use core::marker::PhantomData;
 use std::string::{String, ToString};
 
 use futures::stream::Once;
@@ -101,18 +102,45 @@ where
 pub fn service_fn<RequestOctets, Target, T, Metadata>(
     request_handler: T,
     metadata: Metadata,
-) -> impl Service<
-    RequestOctets,
-    Target = Target,
-    Stream = Once<Ready<ServiceResult<Target>>>,
-    Future = Ready<Once<Ready<ServiceResult<Target>>>>,
-> + Clone
+) -> ServiceFn<Target, T, Metadata>
 where
     RequestOctets: AsRef<[u8]> + Send + Sync + Unpin,
     Metadata: Clone,
     T: Fn(Request<RequestOctets>, Metadata) -> ServiceResult<Target> + Clone,
 {
-    move |request| request_handler(request, metadata.clone())
+    ServiceFn {
+        request_handler,
+        metadata,
+        _phantom: PhantomData,
+    }
+}
+
+//--- ServiceFn
+
+#[derive(Clone, Debug)]
+pub struct ServiceFn<Target, T, Metadata> {
+    request_handler: T,
+    metadata: Metadata,
+    _phantom: PhantomData<Target>,
+}
+
+impl<RequestOctets, Target, T, Metadata> Service<RequestOctets>
+    for ServiceFn<Target, T, Metadata>
+where
+    RequestOctets: AsRef<[u8]> + Send + Sync + Unpin,
+    Metadata: Clone,
+    T: Fn(Request<RequestOctets>, Metadata) -> ServiceResult<Target> + Clone,
+{
+    type Target = Target;
+    type Stream = Once<Ready<ServiceResult<Target>>>;
+    type Future = Ready<Once<Ready<ServiceResult<Target>>>>;
+
+    fn call(&self, request: Request<RequestOctets>) -> Self::Future {
+        ready(futures_util::stream::once(ready((self.request_handler)(
+            request,
+            self.metadata.clone(),
+        ))))
+    }
 }
 
 //----------- to_pcap_text() -------------------------------------------------

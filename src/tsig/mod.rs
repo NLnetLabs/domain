@@ -67,6 +67,7 @@ use crate::base::record::Record;
 use crate::base::wire::{Composer, ParseError};
 use crate::rdata::tsig::{Time48, Tsig};
 use bytes::{Bytes, BytesMut};
+use core::ops::Deref;
 use core::{cmp, fmt, mem, str};
 use octseq::octets::Octets;
 use ring::{constant_time, hkdf::KeyType, hmac, rand};
@@ -359,7 +360,7 @@ pub trait KeyStore {
     ) -> Option<Self::Key>;
 }
 
-impl<K: AsRef<Key> + Clone> KeyStore for K {
+impl KeyStore for Key {
     type Key = Self;
 
     fn get_key<N: ToName>(
@@ -371,6 +372,24 @@ impl<K: AsRef<Key> + Clone> KeyStore for K {
             && self.as_ref().algorithm() == algorithm
         {
             Some(self.clone())
+        } else {
+            None
+        }
+    }
+}
+
+impl KeyStore for &'_ Key {
+    type Key = Self;
+
+    fn get_key<N: ToName>(
+        &self,
+        name: &N,
+        algorithm: Algorithm,
+    ) -> Option<Self::Key> {
+        if self.as_ref().name() == name
+            && self.as_ref().algorithm() == algorithm
+        {
+            Some(self)
         } else {
             None
         }
@@ -393,6 +412,22 @@ where
         // XXX This seems a bit wasteful.
         let name = name.try_to_name().ok()?;
         self.get(&(name, algorithm)).cloned()
+    }
+}
+
+impl<K, U> KeyStore for std::sync::Arc<U>
+where
+    K: AsRef<Key> + Clone,
+    U: KeyStore<Key = K>,
+{
+    type Key = K;
+
+    fn get_key<N: ToName>(
+        &self,
+        name: &N,
+        algorithm: Algorithm,
+    ) -> Option<Self::Key> {
+        (**self).get_key(name, algorithm)
     }
 }
 
@@ -951,6 +986,17 @@ impl<K: AsRef<Key>> ServerSequence<K> {
     /// Returns a reference to the transaction’s key.
     pub fn key(&self) -> &Key {
         self.context.key()
+    }
+}
+
+//--- From
+
+impl<K> From<ServerTransaction<K>> for ServerSequence<K> {
+    fn from(txn: ServerTransaction<K>) -> Self {
+        Self {
+            context: txn.context,
+            first: true, // TODO: Why is this the only place the sets this to true?
+        }
     }
 }
 
@@ -1619,7 +1665,7 @@ enum ServerErrorInner<K> {
 }
 
 impl<K> ServerError<K> {
-    fn unsigned(error: TsigRcode) -> Self {
+    pub fn unsigned(error: TsigRcode) -> Self {
         ServerError(ServerErrorInner::Unsigned { error })
     }
 

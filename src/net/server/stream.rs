@@ -271,7 +271,7 @@ where
     Buf: BufSource + Send + Sync + Clone,
     Buf::Output: Octets + Send + Sync + Unpin,
     Svc: Service<Buf::Output> + Send + Sync + Clone,
-    Svc::Target: Composer + Default, // + 'static,
+    Svc::Target: Composer + Default,
 {
     /// The configuration of the server.
     config: Arc<ArcSwap<Config>>,

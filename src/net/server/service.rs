@@ -198,39 +198,21 @@ pub trait Service<RequestOctets: AsRef<[u8]> + Send + Sync + Unpin = Vec<u8>>
     fn call(&self, request: Request<RequestOctets>) -> Self::Future;
 }
 
-//--- impl Service for Arc
+//--- impl Service for Deref
 
-/// Helper trait impl to treat an [`Arc<impl Service>`] as a [`Service`].
-impl<RequestOctets, T> Service<RequestOctets> for Arc<T>
+/// Helper trait impl to treat an [`Deref<Target = impl Service>`] as a [`Service`].
+impl<RequestOctets, T, U> Service<RequestOctets> for U
 where
     RequestOctets: Unpin + Send + Sync + AsRef<[u8]>,
     T: ?Sized + Service<RequestOctets>,
+    U: Deref<Target = T> + Clone,
 {
     type Target = T::Target;
     type Stream = T::Stream;
     type Future = T::Future;
 
     fn call(&self, request: Request<RequestOctets>) -> Self::Future {
-        Arc::deref(self).call(request)
-    }
-}
-
-//--- impl Service for functions with matching signature
-
-/// Helper trait impl to treat a function as a [`Service`].
-impl<RequestOctets, Target, F> Service<RequestOctets> for F
-where
-    RequestOctets: AsRef<[u8]> + Send + Sync + Unpin,
-    F: Fn(Request<RequestOctets>) -> ServiceResult<Target>,
-{
-    type Target = Target;
-    type Stream = futures::stream::Once<
-        core::future::Ready<ServiceResult<Self::Target>>,
-    >;
-    type Future = core::future::Ready<Self::Stream>;
-
-    fn call(&self, request: Request<RequestOctets>) -> Self::Future {
-        ready(once(ready((*self)(request))))
+        (**self).call(request)
     }
 }
 

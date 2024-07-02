@@ -17,7 +17,7 @@ use tokio::sync::Semaphore;
 use tokio_stream::wrappers::UnboundedReceiverStream;
 use tracing::{error, info, trace, warn};
 
-use crate::base::iana::{Opcode, OptRcode, Rcode};
+use crate::base::iana::{Opcode, OptRcode, Rcode, TsigRcode};
 use crate::base::message_builder::{
     AdditionalBuilder, AnswerBuilder, PushError,
 };
@@ -32,10 +32,12 @@ use crate::net::server::service::{
     CallResult, Service, ServiceFeedback, ServiceResult,
 };
 use crate::net::server::util::{mk_builder_for_target, mk_error_response};
+use crate::rdata::tsig::Time48;
 use crate::rdata::ZoneRecordData;
+use crate::tsig::{self, KeyStore, ServerSequence, ServerTransaction};
 use crate::zonecatalog::catalog::{
-    Catalog, CatalogZone, CompatibilityMode, XfrSettings, XfrStrategy,
-    ZoneInfo, ZoneType,
+    Catalog, CatalogZone, CompatibilityMode, TsigKey, XfrSettings,
+    XfrStrategy, ZoneInfo, ZoneType,
 };
 use crate::zonetree::error::OutOfZone;
 use crate::zonetree::{
@@ -84,10 +86,20 @@ pub enum XfrMode {
 /// [1995]: https://datatracker.ietf.org/doc/html/rfc1995
 /// [5936]: https://datatracker.ietf.org/doc/html/rfc5936
 #[derive(Clone, Debug)]
-pub struct XfrMiddlewareSvc<RequestOctets, Svc> {
+pub struct XfrMiddlewareSvc<RequestOctets, Svc, KS>
+where
+    RequestOctets: Octets + Send + Sync + 'static + Unpin,
+    for<'a> <RequestOctets as octseq::Octets>::Range<'a>: Send + Sync,
+    Svc: Service<RequestOctets> + Clone + Send + Sync + 'static,
+    Svc::Future: Send + Sync + Unpin,
+    Svc::Target: Composer + Default + Send + Sync,
+    Svc::Stream: Send + Sync,
+    KS: KeyStore + Clone + Send + Sync + 'static,
+    KS::Key: Send + Sync + 'static,
+{
     svc: Svc,
 
-    catalog: Arc<Catalog>,
+    catalog: Arc<Catalog<KS>>,
 
     zone_walking_semaphore: Arc<Semaphore>,
 
@@ -98,7 +110,17 @@ pub struct XfrMiddlewareSvc<RequestOctets, Svc> {
     _phantom: PhantomData<RequestOctets>,
 }
 
-impl<RequestOctets, Svc> XfrMiddlewareSvc<RequestOctets, Svc> {
+impl<RequestOctets, Svc, KS> XfrMiddlewareSvc<RequestOctets, Svc, KS>
+where
+    RequestOctets: Octets + Send + Sync + 'static + Unpin,
+    for<'a> <RequestOctets as octseq::Octets>::Range<'a>: Send + Sync,
+    Svc: Service<RequestOctets> + Clone + Send + Sync + 'static,
+    Svc::Future: Send + Sync + Unpin,
+    Svc::Target: Composer + Default + Send + Sync,
+    Svc::Stream: Send + Sync,
+    KS: KeyStore + Clone + Send + Sync + 'static,
+    KS::Key: Send + Sync + 'static,
+{
     /// Creates an empty processor instance.
     ///
     /// The processor will not respond to XFR requests until you add at least
@@ -107,7 +129,7 @@ impl<RequestOctets, Svc> XfrMiddlewareSvc<RequestOctets, Svc> {
     #[must_use]
     pub fn new(
         svc: Svc,
-        catalog: Arc<Catalog>,
+        catalog: Arc<Catalog<KS>>,
         max_concurrency: usize,
         xfr_mode: XfrMode,
     ) -> Self {
@@ -126,17 +148,22 @@ impl<RequestOctets, Svc> XfrMiddlewareSvc<RequestOctets, Svc> {
     }
 }
 
-impl<RequestOctets, Svc> XfrMiddlewareSvc<RequestOctets, Svc>
+impl<RequestOctets, Svc, KS> XfrMiddlewareSvc<RequestOctets, Svc, KS>
 where
     RequestOctets: Octets + Send + Sync + 'static + Unpin,
-    Svc: Service<RequestOctets>,
-    Svc::Target: Composer + Default + Send + Sync + 'static,
+    for<'a> <RequestOctets as octseq::Octets>::Range<'a>: Send + Sync,
+    Svc: Service<RequestOctets> + Clone + Send + Sync + 'static,
+    Svc::Future: Send + Sync + Unpin,
+    Svc::Target: Composer + Default + Send + Sync,
+    Svc::Stream: Send + Sync,
+    KS: KeyStore + Clone + Send + Sync + 'static,
+    KS::Key: Send + Sync + 'static,
 {
     async fn preprocess(
         zone_walking_semaphore: Arc<Semaphore>,
         batcher_semaphore: Arc<Semaphore>,
         req: &Request<RequestOctets>,
-        catalog: Arc<Catalog>,
+        catalog: Arc<Catalog<KS>>,
         xfr_mode: XfrMode,
     ) -> ControlFlow<
         XfrMiddlewareStream<
@@ -169,10 +196,72 @@ where
             // Note: This may not be strictly true, we may be authoritative
             // for the zone but not willing to transfer it, but we can't know
             // here which is the case.
-            return ControlFlow::Break(Self::to_stream(mk_error_response(
-                msg,
-                OptRcode::NOTAUTH,
-            )));
+            return ControlFlow::Break(Self::to_stream(
+                None,
+                mk_error_response(msg, OptRcode::NOTAUTH),
+            ));
+        };
+
+        // Only provide XFR if allowed.
+        let cat_zone = zone
+            .as_ref()
+            .as_any()
+            .downcast_ref::<CatalogZone>()
+            .unwrap();
+
+        let (xfr_settings, tsig_key) = Self::settings_for_client(
+            req.client_addr().ip(),
+            &qname,
+            q.qtype(),
+            cat_zone.info(),
+        );
+
+        let tsig_opt = if tsig_key.is_some() {
+            let octets = req.message().as_slice().to_vec();
+            let mut mut_msg = Message::from_octets(octets).unwrap();
+            let tsig_opt = tsig::ServerTransaction::request(
+                &catalog.key_store(),
+                &mut mut_msg,
+                Time48::now(),
+            )
+            .unwrap();
+
+            if let (Some(tsig), Some((name, alg))) = (&tsig_opt, tsig_key) {
+                let mut bad = false;
+                if tsig.key().name() != name {
+                    warn!(
+                        "{} for {qname} from {} refused: wrong TSIG key name (expected={name}, actual={})",
+                        q.qtype(),
+                        req.client_addr(),
+                        tsig.key().name()
+                    );
+                    bad = true;
+                } else if tsig.key().algorithm() != *alg {
+                    warn!(
+                        "{} for {qname} from {} refused: wrong TSIG algorithm (expected={alg}, actual={})",
+                        q.qtype(),
+                        req.client_addr(),
+                        tsig.key().algorithm()
+                    );
+                    bad = true;
+                }
+
+                if bad {
+                    let builder = mk_builder_for_target();
+                    let response = tsig::ServerError::<KS::Key>::unsigned(
+                        TsigRcode::BADKEY,
+                    )
+                    .build_message(msg, builder)
+                    .unwrap();
+                    return ControlFlow::Break(Self::to_stream(
+                        tsig_opt, response,
+                    ));
+                }
+            }
+
+            tsig_opt
+        } else {
+            None
         };
 
         // Read the zone SOA RR
@@ -184,38 +273,24 @@ where
                 q.qtype(),
                 req.client_addr()
             );
-            return ControlFlow::Break(Self::to_stream(mk_error_response(
-                msg,
-                OptRcode::SERVFAIL,
-            )));
+            return ControlFlow::Break(Self::to_stream(
+                tsig_opt,
+                mk_error_response(msg, OptRcode::SERVFAIL),
+            ));
         };
-
-        // Only provide XFR if allowed.
-        let cat_zone = zone
-            .as_ref()
-            .as_any()
-            .downcast_ref::<CatalogZone>()
-            .unwrap();
-
-        let xfr_settings = Self::xfr_settings_for_client(
-            req.client_addr().ip(),
-            &qname,
-            q.qtype(),
-            cat_zone.info(),
-        );
 
         match q.qtype() {
             Rtype::SOA => {
                 let builder = mk_builder_for_target();
                 let response = zone_soa_answer.to_message(msg, builder);
-                ControlFlow::Break(Self::to_stream(response))
+                ControlFlow::Break(Self::to_stream(tsig_opt, response))
             }
 
             Rtype::AXFR | Rtype::IXFR if xfr_settings.is_none() => {
-                ControlFlow::Break(Self::to_stream(mk_error_response(
-                    msg,
-                    OptRcode::REFUSED,
-                )))
+                ControlFlow::Break(Self::to_stream(
+                    tsig_opt,
+                    mk_error_response(msg, OptRcode::REFUSED),
+                ))
             }
 
             Rtype::AXFR => {
@@ -234,10 +309,10 @@ where
                         "AXFR for {qname} from {} refused: not supported over UDP",
                         req.client_addr()
                     );
-                    ControlFlow::Break(Self::to_stream(mk_error_response(
-                        msg,
-                        OptRcode::NOTIMP,
-                    )))
+                    ControlFlow::Break(Self::to_stream(
+                        tsig_opt,
+                        mk_error_response(msg, OptRcode::NOTIMP),
+                    ))
                 } else {
                     info!("AXFR for {qname} from {}", req.client_addr());
                     Self::do_axfr(
@@ -248,6 +323,7 @@ where
                         &zone_soa_answer,
                         cat_zone.info(),
                         read,
+                        tsig_opt,
                     )
                     .await
                 }
@@ -266,51 +342,56 @@ where
                 //    current version to inform the client that a TCP query should
                 //    be initiated."
 
-                if let Some(res) = Self::do_ixfr(
+                match Self::do_ixfr(
                     batcher_semaphore.clone(),
                     req,
                     qname.clone(),
                     &zone_soa_answer,
                     cat_zone.info(),
                     xfr_mode,
+                    tsig_opt,
                 )
                 .await
                 {
-                    res
-                } else if xfr_settings.unwrap().strategy
-                    != XfrStrategy::IxfrWithAxfrFallback
-                {
-                    info!(
-                        "IXFR for {qname} from {} refused: client is not permitted to fallback to AXFR",
-                        req.client_addr()
-                    );
-                    ControlFlow::Break(Self::to_stream(mk_error_response(
-                        msg,
-                        OptRcode::REFUSED,
-                    )))
-                } else {
-                    info!(
-                        "IXFR for {qname} from {}: falling back to AXFR",
-                        req.client_addr()
-                    );
+                    Ok(res) => res,
+                    Err(tsig) => {
+                        if xfr_settings.unwrap().strategy
+                            != XfrStrategy::IxfrWithAxfrFallback
+                        {
+                            info!(
+                                "IXFR for {qname} from {} refused: client is not permitted to fallback to AXFR",
+                                req.client_addr()
+                            );
+                            ControlFlow::Break(Self::to_stream(
+                                tsig,
+                                mk_error_response(msg, OptRcode::REFUSED),
+                            ))
+                        } else {
+                            info!(
+                                "IXFR for {qname} from {}: falling back to AXFR",
+                                req.client_addr()
+                            );
 
-                    // https://datatracker.ietf.org/doc/html/rfc1995#section-4
-                    // 4. Response Format
-                    //    "If incremental zone transfer is not available, the
-                    //     entire zone is returned.  The first and the last RR
-                    //     of the response is the SOA record of the zone.
-                    //     I.e. the behavior is the same as an AXFR response
-                    //     except the query type is IXFR."
-                    Self::do_axfr(
-                        zone_walking_semaphore,
-                        batcher_semaphore,
-                        req,
-                        qname,
-                        &zone_soa_answer,
-                        cat_zone.info(),
-                        read,
-                    )
-                    .await
+                            // https://datatracker.ietf.org/doc/html/rfc1995#section-4
+                            // 4. Response Format
+                            //    "If incremental zone transfer is not available, the
+                            //     entire zone is returned.  The first and the last RR
+                            //     of the response is the SOA record of the zone.
+                            //     I.e. the behavior is the same as an AXFR response
+                            //     except the query type is IXFR."
+                            Self::do_axfr(
+                                zone_walking_semaphore,
+                                batcher_semaphore,
+                                req,
+                                qname,
+                                &zone_soa_answer,
+                                cat_zone.info(),
+                                read,
+                                tsig,
+                            )
+                            .await
+                        }
+                    }
                 }
             }
 
@@ -318,30 +399,30 @@ where
         }
     }
 
-    fn xfr_settings_for_client<'a>(
+    fn settings_for_client<'a>(
         client_ip: IpAddr,
         qname: &Name<Bytes>,
         qtype: Rtype,
         zone_info: &'a ZoneInfo,
-    ) -> Option<&'a XfrSettings> {
-        if qtype == Rtype::SOA {
-            return None;
-        }
-
+    ) -> (Option<&'a XfrSettings>, Option<&'a TsigKey>) {
         let ZoneType::Primary { allow_xfr, .. } = zone_info.zone_type()
         else {
-            warn!(
-                "{qtype} for {qname} from {client_ip} refused: zone does not allow XFR",
-            );
-            return None;
+            if qtype != Rtype::SOA {
+                warn!(
+                    "{qtype} for {qname} from {client_ip} refused: zone does not allow XFR",
+                );
+            }
+            return (None, None);
         };
 
-        let Some((xfr_settings, _tsig_key)) = allow_xfr.get_caller(client_ip)
+        let Some((xfr_settings, tsig_key)) = allow_xfr.get_caller(client_ip)
         else {
-            warn!(
-                "{qtype} for {qname} from {client_ip} refused: client is not permitted to transfer this zone",
-            );
-            return None;
+            if qtype != Rtype::SOA {
+                warn!(
+                    "{qtype} for {qname} from {client_ip} refused: client is not permitted to transfer this zone",
+                );
+            }
+            return (None, None);
         };
 
         if matches!(
@@ -349,15 +430,18 @@ where
             (Rtype::AXFR, XfrStrategy::IxfrOnly)
                 | (Rtype::IXFR, XfrStrategy::AxfrOnly)
         ) {
-            warn!(
-                "{qtype} for {qname} from {client_ip} refused: zone does not allow {qtype}",
-            );
-            return None;
+            if qtype != Rtype::SOA {
+                warn!(
+                    "{qtype} for {qname} from {client_ip} refused: zone does not allow {qtype}",
+                );
+            }
+            return (None, None);
         }
 
-        Some(xfr_settings)
+        (Some(xfr_settings), tsig_key.as_ref())
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn do_axfr(
         zone_walk_semaphore: Arc<Semaphore>,
         batcher_semaphore: Arc<Semaphore>,
@@ -366,6 +450,7 @@ where
         zone_soa_answer: &Answer,
         zone_info: &ZoneInfo,
         read: Box<dyn ReadableZone>,
+        tsig: Option<ServerTransaction<KS::Key>>,
     ) -> ControlFlow<
         XfrMiddlewareStream<
             Svc::Future,
@@ -401,6 +486,10 @@ where
                 req.client_addr().ip()
             );
         }
+
+        // Convert the TSIG state single response based to multiple response
+        // based.
+        let mut tsig = tsig.map(ServerSequence::from);
 
         // Return a stream of response messages containing:
         //   - SOA
@@ -575,6 +664,9 @@ where
                 if let Some(builder) = builder {
                     let mut additional = builder.additional();
                     Self::set_axfr_header(&msg, &mut additional);
+                    if let Some(tsig) = &mut tsig {
+                        tsig.answer(&mut additional, Time48::now()).unwrap();
+                    }
                     let call_result = Ok(CallResult::new(additional));
                     let _ = sender.send(call_result); // TODO: Handle this Result.
                 }
@@ -623,7 +715,8 @@ where
         zone_soa_answer: &Answer,
         zone_info: &ZoneInfo,
         xfr_mode: XfrMode,
-    ) -> Option<
+        tsig: Option<ServerTransaction<KS::Key>>,
+    ) -> Result<
         ControlFlow<
             XfrMiddlewareStream<
                 Svc::Future,
@@ -631,10 +724,11 @@ where
                 <Svc::Stream as Stream>::Item,
             >,
         >,
+        Option<ServerTransaction<KS::Key>>,
     > {
         if xfr_mode == XfrMode::AxfrOnly {
             trace!("Not responding with IXFR as mode is set to AXFR only");
-            return None;
+            return Err(tsig);
         }
 
         let msg = req.message();
@@ -693,23 +787,25 @@ where
                                     zone_serial,
                                     zone_info,
                                     zone_soa_answer,
+                                    tsig,
                                 )
                                 .await;
                             }
                         }
                     }
 
-                    return Some(ControlFlow::Break(Self::to_stream(
+                    return Ok(ControlFlow::Break(Self::to_stream(
+                        tsig,
                         mk_error_response(msg, OptRcode::SERVFAIL),
                     )));
                 }
             }
         }
 
-        Some(ControlFlow::Break(Self::to_stream(mk_error_response(
-            msg,
-            OptRcode::FORMERR,
-        ))))
+        Ok(ControlFlow::Break(Self::to_stream(
+            tsig,
+            mk_error_response(msg, OptRcode::FORMERR),
+        )))
     }
 
     // Returns None if fallback to AXFR should be done.
@@ -722,7 +818,8 @@ where
         zone_serial: Serial,
         zone_info: &ZoneInfo,
         zone_soa_answer: &Answer,
-    ) -> Option<
+        tsig: Option<ServerTransaction<KS::Key>>,
+    ) -> Result<
         ControlFlow<
             XfrMiddlewareStream<
                 Svc::Future,
@@ -730,6 +827,7 @@ where
                 <Svc::Stream as Stream>::Item,
             >,
         >,
+        Option<ServerTransaction<KS::Key>>,
     > {
         let msg = req.message();
 
@@ -759,7 +857,7 @@ where
             let builder = mk_builder_for_target();
             let response = zone_soa_answer.to_message(msg, builder);
             trace!("IXFR finished because query_serial >= zone_serial");
-            return Some(ControlFlow::Break(Self::to_stream(response)));
+            return Ok(ControlFlow::Break(Self::to_stream(tsig, response)));
         }
 
         // Get the necessary diffs, if available
@@ -769,7 +867,7 @@ where
         if diffs.is_empty() {
             // The caller should fallback to an AXFR style response at this
             // point.
-            return None;
+            return Err(tsig);
         };
 
         // TODO: Add something like the Bind `max-ixfr-ratio` option that
@@ -877,6 +975,7 @@ where
             let mut num_rrs_added;
 
             for rrset in rrsets {
+                trace!("Starting RRSET..");
                 records_to_process = rrset.data();
                 num_rrs_added = 0;
 
@@ -892,6 +991,7 @@ where
                                 Ok(PushResult::PushedAndReadyForMore) => {
                                     // Message still has space, keep going.
                                     num_rrs_added += 1;
+                                    trace!("Pushed");
                                 }
 
                                 Ok(PushResult::PushedAndLimitReached(
@@ -899,6 +999,7 @@ where
                                 )) => {
                                     // Pushed and configured limit reached, send it.
                                     num_rrs_added += 1;
+                                    trace!("Pushed and limit reached");
                                     break 'inner builder;
                                 }
 
@@ -906,6 +1007,7 @@ where
                                     builder,
                                 )) => {
                                     // Message is full, send what we have so far.
+                                    trace!("Message is full");
                                     break 'inner builder;
                                 }
 
@@ -933,7 +1035,16 @@ where
                     let call_result = Ok(CallResult::new(additional));
                     let _ = sender.send(call_result); // TODO: Handle this Result.
 
-                    records_to_process = &rrset.data()[num_rrs_added..];
+                    if rrset.data().len() > num_rrs_added {
+                        trace!(
+                            "More to process... ({num_rrs_added} / {})",
+                            rrset.data().len()
+                        );
+                        records_to_process = &rrset.data()[num_rrs_added..];
+                    } else {
+                        trace!("end of RRSET reached");
+                        records_to_process = &[];
+                    }
                 }
             }
 
@@ -943,7 +1054,7 @@ where
             );
         });
 
-        Some(ControlFlow::Break(MiddlewareStream::Result(stream)))
+        Ok(ControlFlow::Break(MiddlewareStream::Result(stream)))
     }
 
     fn add_to_stream(
@@ -996,12 +1107,19 @@ where
     }
 
     fn to_stream(
-        response: AdditionalBuilder<StreamTarget<Svc::Target>>,
+        tsig: Option<ServerTransaction<KS::Key>>,
+        mut response: AdditionalBuilder<StreamTarget<Svc::Target>>,
     ) -> XfrMiddlewareStream<
         Svc::Future,
         Svc::Stream,
         <Svc::Stream as Stream>::Item,
     > {
+        if let Some(tsig) = tsig {
+            trace!("Producing a TSIG signed answer");
+            tsig.answer(&mut response, Time48::now()).unwrap();
+        } else {
+            trace!("No TSIG key to sign with");
+        }
         let res = Ok(CallResult::new(response));
         MiddlewareStream::Map(once(ready(res)))
     }
@@ -1035,15 +1153,17 @@ where
 
 //--- Service
 
-impl<RequestOctets, Svc> Service<RequestOctets>
-    for XfrMiddlewareSvc<RequestOctets, Svc>
+impl<RequestOctets, Svc, KS> Service<RequestOctets>
+    for XfrMiddlewareSvc<RequestOctets, Svc, KS>
 where
     RequestOctets: Octets + Send + Sync + 'static + Unpin,
     for<'a> <RequestOctets as octseq::Octets>::Range<'a>: Send + Sync,
-    Svc: Service<RequestOctets> + Clone + 'static + Send + Sync + Unpin,
+    Svc: Service<RequestOctets> + Clone + Send + Sync + 'static,
     Svc::Future: Send + Sync + Unpin,
     Svc::Target: Composer + Default + Send + Sync,
     Svc::Stream: Send + Sync,
+    KS: KeyStore + Clone + Send + Sync + 'static,
+    KS::Key: Send + Sync + 'static,
 {
     type Target = Svc::Target;
     type Stream = XfrMiddlewareStream<

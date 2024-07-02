@@ -148,22 +148,22 @@ async fn main() {
             .unwrap();
     let key = Arc::new(key);
     key_store.insert((key_name.clone(), Algorithm::Sha256), key);
-    let key_store = Arc::new(tokio::sync::RwLock::new(key_store));
+    let key_store = Arc::new(key_store);
 
     let zone_type = match primary {
         true => {
             let mut notify = Acl::new();
-            notify.allow_to("127.0.0.1:8054".parse().unwrap(), None);
+            notify.allow_to("127.0.0.1:8055".parse().unwrap(), Some((key_name.clone(), Algorithm::Sha256)));
 
             let mut allow_xfr = XfrAcl::new();
             let xfr_settings = XfrSettings {
-                strategy: XfrStrategy::AxfrOnly,
+                strategy: XfrStrategy::IxfrWithAxfrFallback,
                 ixfr_transport: TransportStrategy::Tcp,
                 compatibility_mode: catalog::CompatibilityMode::Default,
             };
             allow_xfr.allow_from(
                 "127.0.0.1".parse().unwrap(),
-                (xfr_settings, None),
+                (xfr_settings, Some((key_name, Algorithm::Sha256))),
             );
 
             ZoneType::new_primary(allow_xfr, notify)
@@ -201,13 +201,13 @@ async fn main() {
     let num_xfr_threads =
         std::thread::available_parallelism().unwrap().get() / 2;
     println!("Using {num_xfr_threads} threads for XFR");
-    let svc = XfrMiddlewareSvc::<Vec<u8>, _>::new(
+    let svc = XfrMiddlewareSvc::<Vec<u8>, _, _>::new(
         svc,
         catalog.clone(),
         num_xfr_threads,
         XfrMode::AxfrAndIxfr,
     );
-    let svc = NotifyMiddlewareSvc::<Vec<u8>, _>::new(svc, catalog.clone());
+    let svc = NotifyMiddlewareSvc::<Vec<u8>, _, _>::new(svc, catalog.clone());
 
     #[cfg(feature = "siphasher")]
     let svc = CookiesMiddlewareSvc::<Vec<u8>, _>::with_random_secret(svc);
@@ -335,7 +335,7 @@ async fn main() {
 #[allow(clippy::type_complexity)]
 fn my_service(
     request: Request<Vec<u8>>,
-    catalog: Arc<Catalog>,
+    catalog: Arc<Catalog<Arc<CatalogKeyStore>>>,
 ) -> ServiceResult<Vec<u8>> {
     let question = request.message().sole_question().unwrap();
     let zones = catalog.zones();

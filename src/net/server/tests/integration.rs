@@ -39,6 +39,7 @@ use crate::stelline::client::{
 use crate::stelline::parse_stelline::{self, parse_file, Config, Matches};
 use crate::tsig::{Algorithm, KeyName};
 use crate::utils::base16;
+use crate::zonecatalog::catalog::CatalogKeyStore;
 use crate::zonecatalog::catalog::{
     Acl, Catalog, CompatibilityMode, TransportStrategy, TypedZone, XfrAcl,
     XfrSettings, XfrStrategy, ZoneType,
@@ -81,7 +82,7 @@ async fn server_tests(#[files("test-data/server/*.rpl")] rpl_file: PathBuf) {
     let server_config = parse_server_config(&stelline.config);
 
     // Create a service to answer queries received by the DNS servers.
-    let key_store = Default::default();
+    let key_store = Arc::new(CatalogKeyStore::new());
     let catalog_config = catalog::Config::new(key_store);
     let catalog = Catalog::new_with_config(catalog_config);
     let catalog = Arc::new(catalog);
@@ -128,7 +129,7 @@ async fn server_tests(#[files("test-data/server/*.rpl")] rpl_file: PathBuf) {
         // TODO: It should be possible to use XFR/NOTIFY middleware also when
         // using cookies or EDNS middleware.
         const MAX_XFR_CONCURRENCY: usize = 1;
-        let svc = XfrMiddlewareSvc::<Vec<u8>, _>::new(
+        let svc = XfrMiddlewareSvc::<Vec<u8>, _, Arc<CatalogKeyStore>>::new(
             svc,
             catalog,
             MAX_XFR_CONCURRENCY,
@@ -315,7 +316,7 @@ fn mk_server_configs(
 #[allow(clippy::type_complexity)]
 fn test_service(
     request: Request<Vec<u8>>,
-    catalog: Arc<Catalog>,
+    catalog: Arc<Catalog<Arc<CatalogKeyStore>>>,
 ) -> ServiceResult<Vec<u8>> {
     let question = request.message().sole_question().unwrap();
 

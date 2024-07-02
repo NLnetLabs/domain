@@ -25,19 +25,19 @@ use crate::tsig::{ClientSequence, ClientTransaction, Key};
 
 /// TODO
 #[derive(Clone, Debug)]
-enum TsigClient {
+enum TsigClient<K> {
     /// TODO
-    Transaction(ClientTransaction<Arc<Key>>),
+    Transaction(ClientTransaction<K>),
 
     /// TODO
-    Sequence(ClientSequence<Arc<Key>>),
+    Sequence(ClientSequence<K>),
 }
 
 //------------ Connection -----------------------------------------------------
 
 #[derive(Clone)]
 /// TODO
-pub struct Connection<Upstream> {
+pub struct Connection<Upstream, K> {
     /// Upstream transport to use for requests.
     ///
     /// This should be the final transport, there should be no further
@@ -45,12 +45,12 @@ pub struct Connection<Upstream> {
     upstream: Arc<Upstream>,
 
     /// TODO
-    key: Option<Arc<Key>>,
+    key: Option<K>,
 }
 
-impl<Upstream> Connection<Upstream> {
+impl<Upstream, K> Connection<Upstream, K> {
     /// TODO
-    pub fn new(key: Option<Arc<Key>>, upstream: Upstream) -> Self {
+    pub fn new(key: Option<K>, upstream: Upstream) -> Self {
         Self {
             upstream: Arc::new(upstream),
             key,
@@ -60,17 +60,20 @@ impl<Upstream> Connection<Upstream> {
 
 //------------ SendRequest ----------------------------------------------------
 
-impl<CR, Upstream> SendRequest<CR> for Connection<Upstream>
+impl<CR, Upstream, K> SendRequest<CR> for Connection<Upstream, K>
 where
     CR: ComposeRequest + 'static,
-    Upstream:
-        SendRequest<AuthenticatedRequestMessage<CR>> + Send + Sync + 'static,
+    Upstream: SendRequest<AuthenticatedRequestMessage<CR, K>>
+        + Send
+        + Sync
+        + 'static,
+    K: Clone + AsRef<Key> + Send + Sync + 'static,
 {
     fn send_request(
         &self,
         request_msg: CR,
     ) -> Box<dyn GetResponse + Send + Sync> {
-        Box::new(Request::<CR, Upstream>::new(
+        Box::new(Request::<CR, Upstream, K>::new(
             request_msg,
             self.key.clone(),
             self.upstream.clone(),
@@ -81,35 +84,31 @@ where
 //------------ Request --------------------------------------------------------
 
 /// The state of a request that is executed.
-pub struct Request<CR, Upstream>
+pub struct Request<CR, Upstream, K>
 where
     CR: ComposeRequest,
-    Upstream: SendRequest<AuthenticatedRequestMessage<CR>>,
 {
     /// State of the request.
-    state: RequestState,
+    state: RequestState<K>,
 
     /// The request message.
     request_msg: Option<CR>,
 
     /// TODO
-    key: Option<Arc<Key>>,
+    key: Option<K>,
 
     /// The upstream transport of the connection.
     upstream: Arc<Upstream>,
 }
 
-impl<CR, Upstream> Request<CR, Upstream>
+impl<CR, Upstream, K> Request<CR, Upstream, K>
 where
     CR: ComposeRequest,
-    Upstream: SendRequest<AuthenticatedRequestMessage<CR>> + Send + Sync,
+    Upstream: SendRequest<AuthenticatedRequestMessage<CR, K>> + Send + Sync,
+    K: Clone + AsRef<Key>,
 {
     /// Create a new Request object.
-    fn new(
-        request_msg: CR,
-        key: Option<Arc<Key>>,
-        upstream: Arc<Upstream>,
-    ) -> Self {
+    fn new(request_msg: CR, key: Option<K>, upstream: Arc<Upstream>) -> Self {
         Self {
             state: RequestState::Init,
             request_msg: Some(request_msg),
@@ -147,7 +146,9 @@ where
                 RequestState::GetResponse(request, tsig_client) => {
                     trace!("Receiving response to auth request");
                     let response = request.get_response().await;
-                    assert!(tsig_client.lock().unwrap().is_some());
+                    if self.key.is_some() {
+                        assert!(tsig_client.lock().unwrap().is_some());
+                    }
 
                     // TSIG validation
                     match response {
@@ -212,10 +213,10 @@ where
     }
 }
 
-impl<CR, Upstream> Debug for Request<CR, Upstream>
+impl<CR, Upstream, K> Debug for Request<CR, Upstream, K>
 where
     CR: ComposeRequest,
-    Upstream: SendRequest<AuthenticatedRequestMessage<CR>>,
+    Upstream: SendRequest<AuthenticatedRequestMessage<CR, K>>,
 {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), core::fmt::Error> {
         f.debug_struct("Request")
@@ -224,10 +225,11 @@ where
     }
 }
 
-impl<CR, Upstream> GetResponse for Request<CR, Upstream>
+impl<CR, Upstream, K> GetResponse for Request<CR, Upstream, K>
 where
     CR: ComposeRequest,
-    Upstream: SendRequest<AuthenticatedRequestMessage<CR>> + Send + Sync,
+    Upstream: SendRequest<AuthenticatedRequestMessage<CR, K>> + Send + Sync,
+    K: Clone + AsRef<Key> + Send + Sync,
 {
     fn get_response(
         &mut self,
@@ -275,14 +277,14 @@ where
 
 //------------ RequestState ---------------------------------------------------
 /// States of the state machine in get_response_impl
-enum RequestState {
+enum RequestState<K> {
     /// Initial state, perform a cache lookup.
     Init,
 
     /// Wait for a response and insert the response in the cache.
     GetResponse(
         Box<dyn GetResponse + Send + Sync>,
-        Arc<std::sync::Mutex<Option<TsigClient>>>,
+        Arc<std::sync::Mutex<Option<TsigClient<K>>>>,
     ),
 
     /// TODO
@@ -293,18 +295,25 @@ enum RequestState {
 
 /// TODO
 #[derive(Debug)]
-pub struct AuthenticatedRequestMessage<CR: Send + Sync> {
+pub struct AuthenticatedRequestMessage<CR, K>
+where
+    CR: Send + Sync,
+{
     /// TODO
     request: CR,
 
     /// TODO
-    key: Option<Arc<Key>>,
+    key: Option<K>,
 
     /// TODO
-    signer: Arc<std::sync::Mutex<Option<TsigClient>>>,
+    signer: Arc<std::sync::Mutex<Option<TsigClient<K>>>>,
 }
 
-impl<CR: ComposeRequest> ComposeRequest for AuthenticatedRequestMessage<CR> {
+impl<CR, K> ComposeRequest for AuthenticatedRequestMessage<CR, K>
+where
+    CR: ComposeRequest,
+    K: Clone + Debug + Send + Sync + AsRef<Key>,
+{
     // Used by the stream transport.
     fn append_message<Target: Composer>(
         &self,

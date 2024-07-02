@@ -208,7 +208,7 @@ impl Service<Vec<u8>> for MyAsyncStreamingService {
 /// The function signature is slightly more complex than when using
 /// [`service_fn`] (see the [`query`] example below).
 #[allow(clippy::type_complexity)]
-fn name_to_ip(request: Request<Vec<u8>>) -> ServiceResult<Vec<u8>> {
+fn name_to_ip(request: Request<Vec<u8>>, _: ()) -> ServiceResult<Vec<u8>> {
     let mut out_answer = None;
     if let Ok(question) = request.message().sole_question() {
         let qname = question.qname();
@@ -633,8 +633,10 @@ async fn main() {
 
     // 2. name_to_ip: a service impl defined as a function compatible with the
     //               `Service` trait.
-    let name_into_ip_svc =
-        Arc::new(build_middleware_chain(name_to_ip, stats.clone()));
+    let name_into_ip_svc = Arc::new(build_middleware_chain(
+        service_fn(name_to_ip, ()),
+        stats.clone(),
+    ));
 
     // 3. query: a service impl defined as a function converted to a `Service`
     //           impl via the `service_fn()` helper function.

@@ -1,5 +1,5 @@
 //! DNS Cookies related message processing.
-use core::future::{ready, Future, Ready};
+use core::future::{ready, Ready};
 use core::marker::PhantomData;
 use core::ops::ControlFlow;
 
@@ -420,39 +420,6 @@ where
 
         ControlFlow::Continue(())
     }
-
-    // fn postprocess(
-    //     _request: &Request<RequestOctets>,
-    //     _response: &mut AdditionalBuilder<StreamTarget<Svc::Target>>,
-    //     _server_secret: [u8; 16],
-    // ) where
-    //     RequestOctets: Octets,
-    // {
-    //     // https://datatracker.ietf.org/doc/html/rfc7873#section-5.2.1
-    //     // No OPT RR or No COOKIE Option:
-    //     //   If the request lacked a client cookie we don't need to do
-    //     //   anything.
-    //     //
-    //     // https://datatracker.ietf.org/doc/html/rfc7873#section-5.2.2
-    //     // Malformed COOKIE Option:
-    //     //   If the request COOKIE option was malformed we would have already
-    //     //   rejected it during pre-processing so again nothing to do here.
-    //     //
-    //     // https://datatracker.ietf.org/doc/html/rfc7873#section-5.2.3
-    //     // Only a Client Cookie:
-    //     //   If the request had a client cookie but no server cookie and
-    //     //   we didn't already reject the request during pre-processing.
-    //     //
-    //     // https://datatracker.ietf.org/doc/html/rfc7873#section-5.2.4
-    //     // A Client Cookie and an Invalid Server Cookie:
-    //     //   Per RFC 7873 this is handled the same way as the "Only a Client
-    //     //   Cookie" case.
-    //     //
-    //     // https://datatracker.ietf.org/doc/html/rfc7873#section-5.2.5
-    //     // A Client Cookie and a Valid Server Cookie
-    //     //   Any server cookie will already have been validated during
-    //     //   pre-processing, we don't need to check it again here.
-    // }
 }
 
 //--- Service
@@ -462,9 +429,8 @@ impl<RequestOctets, Svc> Service<RequestOctets>
 where
     RequestOctets: Octets + Send + Sync + 'static + Unpin,
     Svc: Service<RequestOctets>,
-    Svc::Future: Future + Unpin,
-    <Svc::Future as Future>::Output: Unpin,
     Svc::Target: Composer + Default,
+    Svc::Future: Unpin,
 {
     type Target = Svc::Target;
     type Stream = MiddlewareStream<
@@ -494,6 +460,7 @@ mod tests {
     use bytes::Bytes;
     use std::vec::Vec;
     use tokio::time::Instant;
+    use tokio_stream::StreamExt;
 
     use crate::base::opt::cookie::ClientCookie;
     use crate::base::opt::Cookie;
@@ -502,7 +469,6 @@ mod tests {
     use crate::net::server::middleware::cookies::CookiesMiddlewareSvc;
     use crate::net::server::service::{CallResult, Service, ServiceResult};
     use crate::net::server::util::service_fn;
-    use futures::prelude::stream::StreamExt;
 
     #[tokio::test]
     async fn dont_add_cookie_twice() {

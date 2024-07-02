@@ -5,6 +5,7 @@
 // reading: https://kb.isc.org/docs/axfr-style-ixfr-explained
 use core::any::Any;
 use core::fmt::Debug;
+use core::marker::Send;
 use core::ops::{Deref, DerefMut};
 use core::pin::Pin;
 use core::sync::atomic::{AtomicBool, Ordering};
@@ -49,31 +50,30 @@ use crate::net::client::request::{
 };
 use crate::net::client::{auth, stream, xfr};
 use crate::rdata::{Soa, ZoneRecordData};
-use crate::tsig::{self, Algorithm, Key, KeyName};
+use crate::tsig::{self, Algorithm, Key, KeyName, KeyStore};
 use crate::zonetree::error::{OutOfZone, ZoneTreeModificationError};
 use crate::zonetree::{
     AnswerContent, ReadableZone, SharedRrset, StoredName, WritableZone,
     WritableZoneNode, Zone, ZoneDiff, ZoneKey, ZoneStore, ZoneTree,
 };
-use core::marker::Send;
 
 //------------ Config --------------------------------------------------------
 
 /// Configuration for a Catalog.
 #[derive(Debug, Default)]
-pub struct Config {
+pub struct Config<KS> {
     /// A store of TSIG keys that can optionally be used to lookup keys when
     /// TSIG signing/validating.
-    key_store: Arc<RwLock<CatalogKeyStore>>,
+    key_store: KS,
 
     /// A connection factory for making outbound requests to primary servers
     /// to fetch remote zones. For internal use only.
     conn_factory: ConnFactory,
 }
 
-impl Config {
-    /// Creates a new config using the provided [`CatalogKeyStore`].
-    pub fn new(key_store: Arc<RwLock<CatalogKeyStore>>) -> Self {
+impl<KS> Config<KS> {
+    /// Creates a new config using the provided [`KeyStore`].
+    pub fn new(key_store: KS) -> Self {
         Self {
             key_store,
             conn_factory: ConnFactory,
@@ -920,9 +920,9 @@ enum Event {
 ///
 /// Also capable of acting as an RFC 9432 Catalog Zone producer/consumer.
 #[derive(Debug)]
-pub struct Catalog {
+pub struct Catalog<KS> {
     // cat_zone: Zone, // TODO
-    config: Arc<ArcSwap<Config>>,
+    config: Arc<ArcSwap<Config<KS>>>,
     pending_zones: Arc<RwLock<HashMap<ZoneKey, Zone>>>,
     member_zones: Arc<ArcSwap<ZoneTree>>,
     loaded_arc: std::sync::RwLock<Arc<ZoneTree>>,
@@ -931,18 +931,24 @@ pub struct Catalog {
     running: AtomicBool,
 }
 
-impl Default for Catalog {
+impl<KS> Default for Catalog<KS>
+where
+    KS: Default,
+{
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl Catalog {
+impl<KS> Catalog<KS>
+where
+    KS: Default,
+{
     pub fn new() -> Self {
         Self::new_with_config(Config::default())
     }
 
-    pub fn new_with_config(config: Config) -> Self {
+    pub fn new_with_config(config: Config<KS>) -> Self {
         let pending_zones = Default::default();
         let member_zones = ZoneTree::new();
         let member_zones = Arc::new(ArcSwap::from_pointee(member_zones));
@@ -964,7 +970,23 @@ impl Catalog {
     }
 }
 
-impl Catalog {
+impl<KS> Catalog<KS>
+where
+    KS: Clone,
+{
+    pub fn key_store(&self) -> KS {
+        self.config.load().key_store.clone()
+    }
+}
+
+impl<KS> Catalog<KS>
+where
+    // KS: KeyStore<Key = Arc<Key>> + Sync + Send + 'static,
+    // KS: Clone + Send + Sync,
+    KS: Deref + Send + Sync + 'static,
+    KS::Target: KeyStore,
+    <KS::Target as KeyStore>::Key: Clone + Debug + Sync + Send + 'static,
+{
     pub async fn run(&self) {
         self.running.store(true, Ordering::SeqCst);
         let lock = &mut self.event_rx.lock().await;
@@ -1399,7 +1421,10 @@ impl Catalog {
     }
 }
 
-impl Catalog {
+impl<KS> Catalog<KS>
+// where
+//     KS: KeyStore,
+{
     /// Wrap a [`Zone`] so that we get notified when it is modified.
     fn wrap_zone(zone: TypedZone, notify_tx: Sender<Event>) -> Zone {
         let diffs = Arc::new(Mutex::new(ZoneDiffs::new()));
@@ -1419,11 +1444,19 @@ impl Catalog {
         let new_store = CatalogZone::new(notify_tx, zone_store, zone_info);
         Zone::new(new_store)
     }
+}
 
+impl<KS> Catalog<KS>
+where
+    // KS: KeyStore<Key = Arc<Key>>,
+    KS: Deref,
+    KS::Target: KeyStore,
+    <KS::Target as KeyStore>::Key: Clone + Debug + Sync + Send + 'static,
+{
     async fn send_notify(
         zone: &Zone,
         notify: &NotifyAcl,
-        config: Arc<ArcSwap<Config>>,
+        config: Arc<ArcSwap<Config<KS>>>,
     ) {
         let cat_zone = zone
             .as_ref()
@@ -1459,7 +1492,7 @@ impl Catalog {
     async fn send_notify_to_addrs(
         apex_name: StoredName,
         notify_set: impl Iterator<Item = &SocketAddr>,
-        config: Arc<ArcSwap<Config>>,
+        config: Arc<ArcSwap<Config<KS>>>,
         zone_info: &ZoneInfo,
     ) {
         let mut dgram_config = dgram::Config::new();
@@ -1486,7 +1519,7 @@ impl Catalog {
         // it would own the TSIG ClientTransaction or ClientSequence object
         // that is required in order to do response verification.
         let loaded_config = config.load();
-        let readable_key_store = loaded_config.key_store.read().await;
+        let readable_key_store = &loaded_config.key_store;
 
         for nameserver_addr in notify_set {
             let dgram_config = dgram_config.clone();
@@ -1496,13 +1529,13 @@ impl Catalog {
             let tsig_key = if let ZoneType::Primary { notify, .. } =
                 &zone_info.zone_type
             {
-                if let Some(Some(key_info)) =
+                if let Some(Some((name, alg))) =
                     notify.get_target(&nameserver_addr)
                 {
-                    let key = readable_key_store.get(key_info).cloned();
+                    let key = readable_key_store.get_key(name, *alg);
 
-                    if key.is_some() {
-                        debug!("Found TSIG key '{}' (algorith {}) for NOTIFY to {nameserver_addr}", key_info.0, key_info.1);
+                     if key.is_some() {
+                        debug!("Found TSIG key '{name}' (algorith {alg}) for NOTIFY to {nameserver_addr}");
                     }
 
                     key
@@ -1523,6 +1556,9 @@ impl Catalog {
                 let client = auth::Connection::new(tsig_key.clone(), client);
 
                 trace!("Sending NOTIFY to nameserver {nameserver_addr}");
+                let span = tracing::trace_span!("auth", addr = %nameserver_addr);
+                let _guard = span.enter();
+                
                 if let Err(err) =
                     client.send_request(req.clone()).get_response().await
                 {
@@ -1636,7 +1672,7 @@ impl Catalog {
         msg: ZoneChangedMsg,
         time_tracking: Arc<RwLock<HashMap<ZoneKey, ZoneRefreshState>>>,
         event_tx: Sender<Event>,
-        config: Arc<ArcSwap<Config>>,
+        config: Arc<ArcSwap<Config<KS>>>,
     ) {
         // Do we have the zone that is being updated?
         let pending_zones = pending_zones.read().await;
@@ -1839,7 +1875,7 @@ impl Catalog {
         initial_xfr_addr: Option<SocketAddr>,
         zone_refresh_info: &mut ZoneRefreshState,
         event_tx: Sender<Event>,
-        config: Arc<ArcSwap<Config>>,
+        config: Arc<ArcSwap<Config<KS>>>,
     ) -> Result<(), ()> {
         match cause {
             ZoneRefreshCause::ManualTrigger
@@ -1980,7 +2016,7 @@ impl Catalog {
         zone: &Zone,
         initial_xfr_addr: Option<SocketAddr>,
         zone_refresh_info: &mut ZoneRefreshState,
-        config: Arc<ArcSwap<Config>>,
+        config: Arc<ArcSwap<Config<KS>>>,
     ) -> Result<Option<Soa<Name<Bytes>>>, CatalogError> {
         // Was this zone already refreshed recently?
         if let Some(last_refreshed) =
@@ -2087,7 +2123,7 @@ impl Catalog {
         xfr_settings: &XfrSettings,
         tsig_key: &Option<TsigKey>,
         zone_refresh_info: &mut ZoneRefreshState,
-        config: Arc<ArcSwap<Config>>,
+        config: Arc<ArcSwap<Config<KS>>>,
     ) -> Result<Option<Soa<Name<Bytes>>>, CatalogError> {
         // TODO: Replace this loop with one, or two, calls to a helper fn.
         // Try at least once, at most twice (when using IXFR -> AXFR fallback)
@@ -2144,14 +2180,15 @@ impl Catalog {
             // is constructed if a key is specified and available.
 
             let loaded_config = config.load();
-            let readable_key_store = loaded_config.key_store.read().await;
-            let key =
-                tsig_key.as_ref().and_then(|v| readable_key_store.get(v));
+            let readable_key_store = &loaded_config.key_store; //.read().await;
+            let key = tsig_key.as_ref().and_then(|(name, alg)| {
+                readable_key_store.get_key(name, *alg)
+            });
 
             // Query the SOA serial of the primary via the chosen transport.
             let Some(client) = loaded_config
                 .conn_factory
-                .get(primary_addr, &transport, key.cloned())
+                .get(primary_addr, &transport, key)
                 .await?
             else {
                 return Ok(None);
@@ -2247,7 +2284,10 @@ impl Catalog {
     }
 
     async fn do_xfr(
-        client: Conn<RequestMessage<Vec<u8>>>,
+        client: Conn<
+            RequestMessage<Vec<u8>>,
+            <<KS as Deref>::Target as KeyStore>::Key,
+        >,
         zone: &Zone,
         primary_addr: SocketAddr,
         xfr_type: Rtype,
@@ -2550,7 +2590,10 @@ impl Catalog {
     }
 }
 
-impl Catalog {
+impl<KS> Catalog<KS>
+// where
+// KS: KeyStore,
+{
     /// The entire tree of zones managed by this [`Catalog`] instance.
     pub fn zones(&self) -> Arc<ZoneTree> {
         self.loaded_arc.read().unwrap().clone()
@@ -2612,7 +2655,10 @@ impl Catalog {
     }
 }
 
-impl Catalog {
+impl<KS> Catalog<KS>
+// where
+//     KS: KeyStore,
+{
     fn update_lodaded_arc(&self) {
         *self.loaded_arc.write().unwrap() = self.member_zones.load_full();
     }
@@ -2928,13 +2974,23 @@ impl From<io::Error> for CatalogError {
 // continue;
 // }
 
-pub enum Conn<S: Send + Sync> {
-    Udp(auth::Connection<dgram::Connection<UdpConnect>>),
-    Tcp(auth::Connection<stream::Connection<AuthenticatedRequestMessage<S>>>),
+pub enum Conn<S, K>
+where
+    S: Send + Sync,
+{
+    Udp(auth::Connection<dgram::Connection<UdpConnect>, K>),
+    Tcp(
+        auth::Connection<
+            stream::Connection<AuthenticatedRequestMessage<S, K>>,
+            K,
+        >,
+    ),
 }
 
-impl<CR: ComposeRequest + Send + Sync + 'static> SendRequest<CR>
-    for Conn<CR>
+impl<CR, K> SendRequest<CR> for Conn<CR, K>
+where
+    CR: ComposeRequest + Send + Sync + 'static,
+    K: Clone + Debug + AsRef<Key> + Sync + Send + 'static,
 {
     fn send_request(
         &self,
@@ -2952,12 +3008,15 @@ pub struct ConnFactory;
 
 #[cfg(not(test))]
 impl ConnFactory {
-    async fn get(
+    async fn get<K>(
         &self,
         dest: SocketAddr,
         strategy: &TransportStrategy,
-        key: Option<Arc<Key>>,
-    ) -> Result<Option<Conn<RequestMessage<Vec<u8>>>>, std::io::Error> {
+        key: Option<K>,
+    ) -> Result<Option<Conn<RequestMessage<Vec<u8>>, K>>, std::io::Error>
+    where
+        K: Clone + Debug + AsRef<Key> + Send + Sync + 'static,
+    {
         match strategy {
             TransportStrategy::None => Ok(None),
 
@@ -3004,12 +3063,15 @@ impl ConnFactory {
 
 #[cfg(test)]
 impl ConnFactory {
-    async fn get(
+    async fn get<K>(
         &self,
         _primary_addr: SocketAddr,
         _transport: &TransportStrategy,
-        _cloned: Option<Arc<Key>>,
-    ) -> Result<Option<Conn<RequestMessage<Vec<u8>>>>, std::io::Error> {
+        _cloned: Option<K>,
+    ) -> Result<Option<Conn<RequestMessage<Vec<u8>>, K>>, std::io::Error>
+    where
+        K: Clone + Debug + AsRef<Key> + Send + Sync + 'static,
+    {
         todo!()
     }
 }

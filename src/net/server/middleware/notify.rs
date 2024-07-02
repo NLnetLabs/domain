@@ -1,14 +1,16 @@
 //! DNS NOTIFY related message processing.
 use core::future::{ready, Future, Ready};
 use core::marker::PhantomData;
-use core::ops::ControlFlow;
+use core::ops::{ControlFlow, Deref};
 use core::pin::Pin;
 
 use std::boxed::Box;
+use std::fmt::Debug;
 use std::sync::Arc;
 
 use futures::stream::{once, Once, Stream};
 use octseq::Octets;
+use tracing::{debug, error, info, warn};
 
 use crate::base::iana::{Opcode, OptRcode, Rcode};
 use crate::base::message::CopyRecordsError;
@@ -22,8 +24,8 @@ use crate::net::server::middleware::stream::MiddlewareStream;
 use crate::net::server::service::{CallResult, Service};
 use crate::net::server::util::{mk_builder_for_target, mk_error_response};
 use crate::rdata::AllRecordData;
+use crate::tsig::KeyStore;
 use crate::zonecatalog::catalog::{Catalog, CatalogError};
-use tracing::{debug, error, info, warn};
 
 /// A DNS NOTIFY middleware service
 ///
@@ -35,18 +37,17 @@ use tracing::{debug, error, info, warn};
 ///
 /// [1996]: https://datatracker.ietf.org/doc/html/rfc1996
 #[derive(Clone, Debug)]
-pub struct NotifyMiddlewareSvc<RequestOctets, Svc> {
+pub struct NotifyMiddlewareSvc<RequestOctets, Svc, KS> {
     svc: Svc,
 
-    catalog: Arc<Catalog>,
+    catalog: Arc<Catalog<KS>>,
 
     _phantom: PhantomData<RequestOctets>,
 }
 
-impl<RequestOctets, Svc> NotifyMiddlewareSvc<RequestOctets, Svc> {
-    /// Creates an instance of this processor.
+impl<RequestOctets, Svc, KS> NotifyMiddlewareSvc<RequestOctets, Svc, KS> {
     #[must_use]
-    pub fn new(svc: Svc, catalog: Arc<Catalog>) -> Self {
+    pub fn new(svc: Svc, catalog: Arc<Catalog<KS>>) -> Self {
         Self {
             svc,
             catalog,
@@ -55,15 +56,18 @@ impl<RequestOctets, Svc> NotifyMiddlewareSvc<RequestOctets, Svc> {
     }
 }
 
-impl<RequestOctets, Svc> NotifyMiddlewareSvc<RequestOctets, Svc>
+impl<RequestOctets, Svc, KS> NotifyMiddlewareSvc<RequestOctets, Svc, KS>
 where
     RequestOctets: Octets + Send + Sync + Unpin,
     Svc: Service<RequestOctets>,
     Svc::Target: Composer + Default,
+    KS: Deref + Sync + Send + 'static,
+    KS::Target: KeyStore,
+    <<KS as Deref>::Target as KeyStore>::Key: Clone + Debug + Sync + Send,
 {
     async fn preprocess(
         req: &Request<RequestOctets>,
-        catalog: Arc<Catalog>,
+        catalog: Arc<Catalog<KS>>,
     ) -> ControlFlow<Once<Ready<<Svc::Stream as Stream>::Item>>> {
         let msg = req.message();
 
@@ -302,14 +306,17 @@ where
 
 //--- Service
 
-impl<RequestOctets, Svc> Service<RequestOctets>
-    for NotifyMiddlewareSvc<RequestOctets, Svc>
+impl<RequestOctets, Svc, KS> Service<RequestOctets>
+    for NotifyMiddlewareSvc<RequestOctets, Svc, KS>
 where
     RequestOctets: Octets + Send + Sync + 'static + Unpin,
     for<'a> <RequestOctets as octseq::Octets>::Range<'a>: Send + Sync,
     Svc: Service<RequestOctets> + Clone + 'static + Send + Sync + Unpin,
     Svc::Future: Send + Sync + Unpin,
     Svc::Target: Composer + Default + Send + Sync,
+    KS: Deref + Sync + Send + 'static,
+    KS::Target: KeyStore,
+    <<KS as Deref>::Target as KeyStore>::Key: Clone + Debug + Sync + Send,
 {
     type Target = Svc::Target;
     type Stream = MiddlewareStream<
