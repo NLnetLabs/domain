@@ -332,7 +332,6 @@ async fn main() {
     pending::<()>().await;
 }
 
-#[allow(clippy::type_complexity)]
 fn my_service(
     request: Request<Vec<u8>>,
     catalog: Arc<Catalog<Arc<CatalogKeyStore>>>,
