@@ -62,10 +62,10 @@ zonefile    = ["bytes", "serde", "std"]
 
 # Unstable features
 unstable-client-transport = ["moka", "net", "tracing"]
-unstable-server-transport = ["arc-swap", "chrono/clock", "libc", "net", "rustversion", "tokio-stream", "tracing"]
+unstable-server-transport = ["arc-swap", "chrono/clock", "libc", "net", "rustversion", "tokio-stream", "tracing", "tsig"]
 unstable-stelline = ["tokio/test-util", "tracing", "tracing-subscriber", "unstable-server-transport", "zonefile"]
 unstable-validator = ["validate", "zonefile", "unstable-client-transport"]
-unstable-zonetree = ["futures", "parking_lot", "serde", "tokio", "tracing"]
+unstable-zonetree = ["futures", "parking_lot", "serde", "tokio", "tracing", "zonefile"]
 
 [dev-dependencies]
 lazy_static        = { version = "1.4.0" }
