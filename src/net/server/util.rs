@@ -133,7 +133,7 @@ where
 {
     type Target = Target;
     type Stream = Once<Ready<ServiceResult<Target>>>;
-    type Future = Ready<Once<Ready<ServiceResult<Target>>>>;
+    type Future = Ready<Self::Stream>;
 
     fn call(&self, request: Request<RequestOctets>) -> Self::Future {
         ready(futures_util::stream::once(ready((self.request_handler)(
