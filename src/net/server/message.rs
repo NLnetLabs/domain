@@ -155,7 +155,10 @@ impl From<NonUdpTransportContext> for TransportSpecificContext {
 /// message itself but also on the circumstances surrounding its creation and
 /// delivery.
 #[derive(Debug)]
-pub struct Request<Octs: AsRef<[u8]> + Send + Sync + Unpin> {
+pub struct Request<Octs>
+where
+    Octs: AsRef<[u8]> + Send + Sync + Unpin,
+{
     /// The network address of the connected client.
     client_addr: std::net::SocketAddr,
 
@@ -169,6 +172,21 @@ pub struct Request<Octs: AsRef<[u8]> + Send + Sync + Unpin> {
     /// protocol via which it was received.
     transport_specific: TransportSpecificContext,
 }
+
+// TODO: This is a questionable implementation of equality.
+impl<Octs> PartialEq for Request<Octs>
+where
+    Octs: AsRef<[u8]> + Send + Sync + Unpin,
+{
+    fn eq(&self, other: &Self) -> bool {
+        self.client_addr == other.client_addr
+            && self.received_at == other.received_at
+            && self.message.header().id() == other.message.header().id()
+        // && self.transport_specific == other.transport_specific
+    }
+}
+
+impl<Octs> Eq for Request<Octs> where Octs: AsRef<[u8]> + Send + Sync + Unpin {}
 
 impl<Octs: AsRef<[u8]> + Send + Sync + Unpin> Request<Octs> {
     /// Creates a new request wrapper around a message along with its context.
