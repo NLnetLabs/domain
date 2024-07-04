@@ -897,7 +897,7 @@ impl<K: AsRef<Key>> ServerSequence<K> {
         SigningContext::server_request(store, message, now).map(|context| {
             context.map(|context| ServerSequence {
                 context,
-                first: false,
+                first: true,
             })
         })
     }
@@ -931,9 +931,11 @@ impl<K: AsRef<Key>> ServerSequence<K> {
     where
         Target: Composer,
     {
+        let mut mark_subsequent = false;
+
         let variables = Variables::new(now, fudge, TsigRcode::NOERROR, None);
         let mac = if self.first {
-            self.first = false;
+            mark_subsequent = true;
             self.context
                 .first_answer(message.as_slice(), None, &variables)
         } else {
@@ -944,7 +946,19 @@ impl<K: AsRef<Key>> ServerSequence<K> {
             )
         };
         let mac = self.key().signature_slice(&mac);
-        self.key().complete_message(message, &variables, mac)
+        let res = self.key().complete_message(message, &variables, mac);
+
+        // Don't switch to subsequent message signing mode if there isn't
+        // enough space in the message to add the TSIG RR.
+        // TODO: This isn't enough as-is, because the calls above already
+        // modified our signing context for the "Prior MAC (running)"
+        // support required by RFC 8945 section 5.3.1, so presumably we
+        // also need to undo that as well if the TSIG RR doesn't fit?
+        if mark_subsequent && res.is_ok() {
+            self.first = false;
+        }
+
+        res
     }
 
     /// Returns a reference to the transaction’s key.
@@ -1249,17 +1263,20 @@ impl<K: AsRef<Key>> SigningContext<K> {
         second: Option<&[u8]>,
         variables: &Variables,
     ) -> hmac::Tag {
+        // Update the old context with message and variables, return signature
+        self.context.update(first);
+        if let Some(second) = second {
+            self.context.update(second)
+        }
+        variables.sign(self.key.as_ref(), &mut self.context);
+
         // Replace current context with new context.
         let mut context = self.key().signing_context();
         mem::swap(&mut self.context, &mut context);
 
-        // Update the old context with message and variables, return signature
-        context.update(first);
-        if let Some(second) = second {
-            context.update(second)
-        }
-        variables.sign(self.key.as_ref(), &mut context);
-        context.sign()
+        let mac = context.sign();
+        self.apply_signature(mac.as_ref());
+        mac
     }
 
     /// Applies the content of an unsigned message to the context.
@@ -1276,17 +1293,20 @@ impl<K: AsRef<Key>> SigningContext<K> {
         second: Option<&[u8]>,
         variables: &Variables,
     ) -> hmac::Tag {
+        // Update the old context with message and timers, return signature
+        self.context.update(first);
+        if let Some(second) = second {
+            self.context.update(second)
+        }
+        variables.sign_timers(&mut self.context);
+
         // Replace current context with new context.
         let mut context = self.key().signing_context();
         mem::swap(&mut self.context, &mut context);
 
-        // Update the old context with message and timers, return signature
-        context.update(first);
-        if let Some(second) = second {
-            context.update(second)
-        }
-        variables.sign_timers(&mut context);
-        context.sign()
+        let mac = context.sign();
+        self.apply_signature(mac.as_ref());
+        mac
     }
 }
 
