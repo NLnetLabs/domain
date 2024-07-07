@@ -122,9 +122,9 @@ async fn main() {
     // agent SHOULD respond to queries received over UDP that have no DNS
     // Cookie set with a response that has the truncation bit (TC bit) set to
     // challenge the resolver to requery over TCP."
-    let svc = CookiesMiddlewareSvc::<Vec<u8>, _>::with_random_secret(svc);
-    let svc = EdnsMiddlewareSvc::<Vec<u8>, _>::new(svc);
-    let svc = MandatoryMiddlewareSvc::<Vec<u8>, _>::new(svc);
+    let svc = CookiesMiddlewareSvc::<Vec<u8>, _, _>::with_random_secret(svc);
+    let svc = EdnsMiddlewareSvc::<Vec<u8>, _, _>::new(svc);
+    let svc = MandatoryMiddlewareSvc::<Vec<u8>, _, _>::new(svc);
     let svc = Arc::new(svc);
 
     // -----------------------------------------------------------------------

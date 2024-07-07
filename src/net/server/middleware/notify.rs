@@ -37,38 +37,42 @@ use crate::zonecatalog::catalog::{Catalog, CatalogError};
 ///
 /// [1996]: https://datatracker.ietf.org/doc/html/rfc1996
 #[derive(Clone, Debug)]
-pub struct NotifyMiddlewareSvc<RequestOctets, Svc, KS> {
-    svc: Svc,
+pub struct NotifyMiddlewareSvc<RequestOctets, NextSvc, RequestMeta, KS> {
+    next_svc: NextSvc,
 
     catalog: Arc<Catalog<KS>>,
 
-    _phantom: PhantomData<RequestOctets>,
+    _phantom: PhantomData<(RequestOctets, RequestMeta)>,
 }
 
-impl<RequestOctets, Svc, KS> NotifyMiddlewareSvc<RequestOctets, Svc, KS> {
+impl<RequestOctets, NextSvc, RequestMeta, KS>
+    NotifyMiddlewareSvc<RequestOctets, NextSvc, RequestMeta, KS>
+{
     #[must_use]
-    pub fn new(svc: Svc, catalog: Arc<Catalog<KS>>) -> Self {
+    pub fn new(next_svc: NextSvc, catalog: Arc<Catalog<KS>>) -> Self {
         Self {
-            svc,
+            next_svc,
             catalog,
             _phantom: PhantomData,
         }
     }
 }
 
-impl<RequestOctets, Svc, KS> NotifyMiddlewareSvc<RequestOctets, Svc, KS>
+impl<RequestOctets, NextSvc, RequestMeta, KS>
+    NotifyMiddlewareSvc<RequestOctets, NextSvc, RequestMeta, KS>
 where
     RequestOctets: Octets + Send + Sync + Unpin,
-    Svc: Service<RequestOctets>,
-    Svc::Target: Composer + Default,
+    RequestMeta: Clone + Default,
+    NextSvc: Service<RequestOctets, RequestMeta>,
+    NextSvc::Target: Composer + Default,
     KS: Deref + Sync + Send + 'static,
     KS::Target: KeyStore,
     <<KS as Deref>::Target as KeyStore>::Key: Clone + Debug + Sync + Send,
 {
     async fn preprocess(
-        req: &Request<RequestOctets>,
+        req: &Request<RequestOctets, RequestMeta>,
         catalog: Arc<Catalog<KS>>,
-    ) -> ControlFlow<Once<Ready<<Svc::Stream as Stream>::Item>>> {
+    ) -> ControlFlow<Once<Ready<<NextSvc::Stream as Stream>::Item>>> {
         let msg = req.message();
 
         let Some(q) = Self::get_relevant_question(msg) else {
@@ -236,8 +240,8 @@ where
     }
 
     fn to_stream_compatible(
-        response: AdditionalBuilder<StreamTarget<Svc::Target>>,
-    ) -> Once<Ready<<Svc::Stream as Stream>::Item>> {
+        response: AdditionalBuilder<StreamTarget<NextSvc::Target>>,
+    ) -> Once<Ready<<NextSvc::Stream as Stream>::Item>> {
         once(ready(Ok(CallResult::new(response))))
     }
 
@@ -258,8 +262,10 @@ where
     // Based on RequestMessage::append_message_impl().
     fn copy_message(
         source: &Message<RequestOctets>,
-    ) -> Result<AdditionalBuilder<StreamTarget<Svc::Target>>, CopyRecordsError>
-    {
+    ) -> Result<
+        AdditionalBuilder<StreamTarget<NextSvc::Target>>,
+        CopyRecordsError,
+    > {
         let mut builder = mk_builder_for_target();
         *builder.header_mut() = source.header();
 
@@ -306,36 +312,46 @@ where
 
 //--- Service
 
-impl<RequestOctets, Svc, KS> Service<RequestOctets>
-    for NotifyMiddlewareSvc<RequestOctets, Svc, KS>
+impl<RequestOctets, NextSvc, RequestMeta, KS>
+    Service<RequestOctets, RequestMeta>
+    for NotifyMiddlewareSvc<RequestOctets, NextSvc, RequestMeta, KS>
 where
     RequestOctets: Octets + Send + Sync + 'static + Unpin,
+    RequestMeta: Clone + Default + Sync + Send + 'static,
     for<'a> <RequestOctets as octseq::Octets>::Range<'a>: Send + Sync,
-    Svc: Service<RequestOctets> + Clone + 'static + Send + Sync + Unpin,
-    Svc::Future: Send + Sync + Unpin,
-    Svc::Target: Composer + Default + Send + Sync,
+    NextSvc: Service<RequestOctets, RequestMeta>
+        + Clone
+        + 'static
+        + Send
+        + Sync
+        + Unpin,
+    NextSvc::Future: Send + Sync + Unpin,
+    NextSvc::Target: Composer + Default + Send + Sync,
     KS: Deref + Sync + Send + 'static,
     KS::Target: KeyStore,
     <<KS as Deref>::Target as KeyStore>::Key: Clone + Debug + Sync + Send,
 {
-    type Target = Svc::Target;
+    type Target = NextSvc::Target;
     type Stream = MiddlewareStream<
-        Svc::Future,
-        Svc::Stream,
-        Svc::Stream,
-        Once<Ready<<Svc::Stream as Stream>::Item>>,
-        <Svc::Stream as Stream>::Item,
+        NextSvc::Future,
+        NextSvc::Stream,
+        NextSvc::Stream,
+        Once<Ready<<NextSvc::Stream as Stream>::Item>>,
+        <NextSvc::Stream as Stream>::Item,
     >;
     type Future = Pin<Box<dyn Future<Output = Self::Stream> + Send + Sync>>;
 
-    fn call(&self, request: Request<RequestOctets>) -> Self::Future {
+    fn call(
+        &self,
+        request: Request<RequestOctets, RequestMeta>,
+    ) -> Self::Future {
         let request = request.clone();
-        let svc = self.svc.clone();
+        let next_svc = self.next_svc.clone();
         let catalog = self.catalog.clone();
         Box::pin(async move {
             match Self::preprocess(&request, catalog).await {
                 ControlFlow::Continue(()) => {
-                    let stream = svc.call(request).await;
+                    let stream = next_svc.call(request).await;
                     MiddlewareStream::IdentityStream(stream)
                 }
                 ControlFlow::Break(stream) => {

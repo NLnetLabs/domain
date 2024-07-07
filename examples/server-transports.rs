@@ -542,6 +542,7 @@ where
             RequestOctets,
             Svc::Future,
             Svc::Stream,
+            (),
             Arc<RwLock<Stats>>,
         >,
         Empty<ServiceResult<Self::Target>>,
@@ -571,13 +572,18 @@ fn build_middleware_chain<Svc>(
 ) -> StatsMiddlewareSvc<
     MandatoryMiddlewareSvc<
         Vec<u8>,
-        EdnsMiddlewareSvc<Vec<u8>, CookiesMiddlewareSvc<Vec<u8>, Svc>>,
+        EdnsMiddlewareSvc<
+            Vec<u8>,
+            CookiesMiddlewareSvc<Vec<u8>, Svc, ()>,
+            (),
+        >,
+        (),
     >,
 > {
     #[cfg(feature = "siphasher")]
-    let svc = CookiesMiddlewareSvc::<Vec<u8>, _>::with_random_secret(svc);
-    let svc = EdnsMiddlewareSvc::<Vec<u8>, _>::new(svc);
-    let svc = MandatoryMiddlewareSvc::<Vec<u8>, _>::new(svc);
+    let svc = CookiesMiddlewareSvc::<Vec<u8>, _, _>::with_random_secret(svc);
+    let svc = EdnsMiddlewareSvc::<Vec<u8>, _, _>::new(svc);
+    let svc = MandatoryMiddlewareSvc::<Vec<u8>, _, _>::new(svc);
     StatsMiddlewareSvc::new(svc, stats.clone())
 }
 
@@ -644,11 +650,11 @@ async fn main() {
     // creating a separate middleware chain for use just by this server.
     let count = Arc::new(AtomicU8::new(5));
     let svc = service_fn(query, count);
-    let svc = MandatoryMiddlewareSvc::<Vec<u8>, _>::new(svc);
+    let svc = MandatoryMiddlewareSvc::<Vec<u8>, _, _>::new(svc);
     #[cfg(feature = "siphasher")]
     let svc = {
         let server_secret = "server12secret34".as_bytes().try_into().unwrap();
-        CookiesMiddlewareSvc::<Vec<u8>, _>::new(svc, server_secret)
+        CookiesMiddlewareSvc::<Vec<u8>, _, _>::new(svc, server_secret)
     };
     let svc = StatsMiddlewareSvc::new(svc, stats.clone());
     let query_svc = Arc::new(svc);

@@ -155,7 +155,7 @@ impl From<NonUdpTransportContext> for TransportSpecificContext {
 /// message itself but also on the circumstances surrounding its creation and
 /// delivery.
 #[derive(Debug)]
-pub struct Request<Octs>
+pub struct Request<Octs, Metadata = ()>
 where
     Octs: AsRef<[u8]> + Send + Sync + Unpin,
 {
@@ -171,10 +171,12 @@ where
     /// Properties of the request specific to the server and transport
     /// protocol via which it was received.
     transport_specific: TransportSpecificContext,
+
+    metadata: Metadata,
 }
 
 // TODO: This is a questionable implementation of equality.
-impl<Octs> PartialEq for Request<Octs>
+impl<Octs, Metadata> PartialEq for Request<Octs, Metadata>
 where
     Octs: AsRef<[u8]> + Send + Sync + Unpin,
 {
@@ -186,21 +188,29 @@ where
     }
 }
 
-impl<Octs> Eq for Request<Octs> where Octs: AsRef<[u8]> + Send + Sync + Unpin {}
+impl<Octs, Metadata> Eq for Request<Octs, Metadata> where
+    Octs: AsRef<[u8]> + Send + Sync + Unpin
+{
+}
 
-impl<Octs: AsRef<[u8]> + Send + Sync + Unpin> Request<Octs> {
+impl<Octs, Metadata> Request<Octs, Metadata>
+where
+    Octs: AsRef<[u8]> + Send + Sync + Unpin,
+{
     /// Creates a new request wrapper around a message along with its context.
     pub fn new(
         client_addr: std::net::SocketAddr,
         received_at: Instant,
         message: Message<Octs>,
         transport_specific: TransportSpecificContext,
+        metadata: Metadata,
     ) -> Self {
         Self {
             client_addr,
             received_at,
             message: Arc::new(message),
             transport_specific,
+            metadata,
         }
     }
 
@@ -223,17 +233,36 @@ impl<Octs: AsRef<[u8]> + Send + Sync + Unpin> Request<Octs> {
     pub fn message(&self) -> &Arc<Message<Octs>> {
         &self.message
     }
+
+    pub fn with_new_metadata<T>(self, new_metadata: T) -> Request<Octs, T> {
+        Request::<Octs, T> {
+            client_addr: self.client_addr,
+            received_at: self.received_at,
+            message: self.message,
+            transport_specific: self.transport_specific,
+            metadata: new_metadata,
+        }
+    }
+
+    pub fn metadata(&self) -> &Metadata {
+        &self.metadata
+    }
 }
 
 //--- Clone
 
-impl<Octs: AsRef<[u8]> + Send + Sync + Unpin> Clone for Request<Octs> {
+impl<Octs, Metadata> Clone for Request<Octs, Metadata>
+where
+    Octs: AsRef<[u8]> + Send + Sync + Unpin,
+    Metadata: Clone,
+{
     fn clone(&self) -> Self {
         Self {
             client_addr: self.client_addr,
             received_at: self.received_at,
             message: Arc::clone(&self.message),
             transport_specific: self.transport_specific.clone(),
+            metadata: self.metadata.clone(),
         }
     }
 }

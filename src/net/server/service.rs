@@ -6,7 +6,6 @@
 use core::fmt::Display;
 use core::ops::Deref;
 
-use std::sync::Arc;
 use std::time::Duration;
 use std::vec::Vec;
 
@@ -16,8 +15,6 @@ use crate::base::wire::ParseError;
 use crate::base::StreamTarget;
 
 use super::message::Request;
-use core::future::ready;
-use futures::stream::once;
 
 //------------ Service -------------------------------------------------------
 
@@ -182,7 +179,10 @@ pub type ServiceResult<Target> = Result<CallResult<Target>, ServiceError>;
 /// [net::server module documentation]: crate::net::server
 /// [`call`]: Self::call()
 /// [`service_fn`]: crate::net::server::util::service_fn()
-pub trait Service<RequestOctets: AsRef<[u8]> + Send + Sync + Unpin = Vec<u8>>
+pub trait Service<
+    RequestOctets: AsRef<[u8]> + Send + Sync + Unpin = Vec<u8>,
+    RequestMeta: Clone + Default = (),
+>
 {
     /// The underlying byte storage type used to hold generated responses.
     type Target;
@@ -195,23 +195,31 @@ pub trait Service<RequestOctets: AsRef<[u8]> + Send + Sync + Unpin = Vec<u8>>
     type Future: core::future::Future<Output = Self::Stream>;
 
     /// Generate a response to a fully pre-processed request.
-    fn call(&self, request: Request<RequestOctets>) -> Self::Future;
+    fn call(
+        &self,
+        request: Request<RequestOctets, RequestMeta>,
+    ) -> Self::Future;
 }
 
 //--- impl Service for Deref
 
 /// Helper trait impl to treat an [`Deref<Target = impl Service>`] as a [`Service`].
-impl<RequestOctets, T, U> Service<RequestOctets> for U
+impl<RequestOctets, RequestMeta, T, U> Service<RequestOctets, RequestMeta>
+    for U
 where
     RequestOctets: Unpin + Send + Sync + AsRef<[u8]>,
-    T: ?Sized + Service<RequestOctets>,
+    T: ?Sized + Service<RequestOctets, RequestMeta>,
     U: Deref<Target = T> + Clone,
+    RequestMeta: Clone + Default,
 {
     type Target = T::Target;
     type Stream = T::Stream;
     type Future = T::Future;
 
-    fn call(&self, request: Request<RequestOctets>) -> Self::Future {
+    fn call(
+        &self,
+        request: Request<RequestOctets, RequestMeta>,
+    ) -> Self::Future {
         (**self).call(request)
     }
 }

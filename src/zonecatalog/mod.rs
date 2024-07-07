@@ -9,7 +9,7 @@
         feature = "unstable-client-transport"
     )))
 )]
-#![warn(missing_docs)]
+// #![warn(missing_docs)]
 //! Experimental storing, querying and syncing a catalog of zones.
 
 pub mod catalog;

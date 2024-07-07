@@ -56,6 +56,15 @@
 
 mod interop;
 
+use core::{cmp, fmt, mem, str};
+
+#[cfg(feature = "std")]
+use std::collections::HashMap;
+
+use bytes::{Bytes, BytesMut};
+use octseq::octets::Octets;
+use ring::{constant_time, hkdf::KeyType, hmac, rand};
+
 use crate::base::header::HeaderSection;
 use crate::base::iana::{Class, Rcode, TsigRcode};
 use crate::base::message::Message;
@@ -66,13 +75,6 @@ use crate::base::name::{Label, Name, ParsedName, ToLabelIter, ToName};
 use crate::base::record::Record;
 use crate::base::wire::{Composer, ParseError};
 use crate::rdata::tsig::{Time48, Tsig};
-use bytes::{Bytes, BytesMut};
-use core::ops::Deref;
-use core::{cmp, fmt, mem, str};
-use octseq::octets::Octets;
-use ring::{constant_time, hkdf::KeyType, hmac, rand};
-#[cfg(feature = "std")]
-use std::collections::HashMap;
 
 //------------ KeyName -------------------------------------------------------
 
@@ -622,8 +624,7 @@ impl<K: AsRef<Key>> ServerTransaction<K> {
     /// TSIG record must be the last record and returns it.
     ///
     /// If appending the TSIG record fails, which can only happen if there
-    /// isn’t enough space left, it returns the builder unchanged as the
-    /// error case.
+    /// isn’t enough space left, it returns an error.
     pub fn answer<Target: Composer>(
         self,
         message: &mut AdditionalBuilder<Target>,
@@ -634,7 +635,7 @@ impl<K: AsRef<Key>> ServerTransaction<K> {
 
     /// Produces a signed answer with a given fudge.
     ///
-    /// This method is similar to [`answer`] but lets you explicitely state
+    /// This method is similar to [`answer`] but lets you explicitly state
     /// the `fudge`, i.e., the number of seconds the recipient’s clock is
     /// allowed to differ from your current time when checking the signature.
     /// The default, suggested by the RFC, is 300.
@@ -933,7 +934,7 @@ impl<K: AsRef<Key>> ServerSequence<K> {
         SigningContext::server_request(store, message, now).map(|context| {
             context.map(|context| ServerSequence {
                 context,
-                first: false,
+                first: true,
             })
         })
     }
@@ -968,8 +969,9 @@ impl<K: AsRef<Key>> ServerSequence<K> {
         Target: Composer,
     {
         let variables = Variables::new(now, fudge, TsigRcode::NOERROR, None);
+        let mut mark_subsequent = false;
         let mac = if self.first {
-            self.first = false;
+            mark_subsequent = true;
             self.context
                 .first_answer(message.as_slice(), None, &variables)
         } else {
@@ -980,7 +982,11 @@ impl<K: AsRef<Key>> ServerSequence<K> {
             )
         };
         let mac = self.key().signature_slice(&mac);
-        self.key().complete_message(message, &variables, mac)
+        let res = self.key().complete_message(message, &variables, mac);
+        if mark_subsequent && res.is_ok() {
+            self.first = false;
+        }
+        res
     }
 
     /// Returns a reference to the transaction’s key.
@@ -1296,17 +1302,20 @@ impl<K: AsRef<Key>> SigningContext<K> {
         second: Option<&[u8]>,
         variables: &Variables,
     ) -> hmac::Tag {
+        // Update the old context with message and variables, return signature
+        self.context.update(first);
+        if let Some(second) = second {
+            self.context.update(second)
+        }
+        variables.sign(self.key.as_ref(), &mut self.context);
+
         // Replace current context with new context.
         let mut context = self.key().signing_context();
         mem::swap(&mut self.context, &mut context);
 
-        // Update the old context with message and variables, return signature
-        context.update(first);
-        if let Some(second) = second {
-            context.update(second)
-        }
-        variables.sign(self.key.as_ref(), &mut context);
-        context.sign()
+        let mac = context.sign();
+        self.apply_signature(mac.as_ref());
+        mac
     }
 
     /// Applies the content of an unsigned message to the context.
@@ -1323,17 +1332,20 @@ impl<K: AsRef<Key>> SigningContext<K> {
         second: Option<&[u8]>,
         variables: &Variables,
     ) -> hmac::Tag {
+        // Update the old context with message and timers, return signature
+        self.context.update(first);
+        if let Some(second) = second {
+            self.context.update(second)
+        }
+        variables.sign_timers(&mut self.context);
+
         // Replace current context with new context.
         let mut context = self.key().signing_context();
         mem::swap(&mut self.context, &mut context);
 
-        // Update the old context with message and timers, return signature
-        context.update(first);
-        if let Some(second) = second {
-            context.update(second)
-        }
-        variables.sign_timers(&mut context);
-        context.sign()
+        let mac = context.sign();
+        self.apply_signature(mac.as_ref());
+        mac
     }
 }
 
@@ -1917,3 +1929,72 @@ impl fmt::Display for ValidationError {
 
 #[cfg(feature = "std")]
 impl std::error::Error for ValidationError {}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn sign_request() {
+        // 4.3.2 DNS Message
+        // First sign the DNS message bytes.
+        // Then the variables.
+        // Then the timers.
+
+        //    1 let now = Time48::now();
+        //    2 let fudge = 300;
+        //    3 let variables = Variables::new(now, fudge, TsigRcode::NOERROR, None);
+        //    4 let (mut context, mac) = SigningContext::request(
+        //        key,
+        //        message.as_slice(),
+        //        None,
+        //        &variables,
+        //      );
+        //
+        // So, what does the above do?
+        // 3 Just creates a struct.
+        // 4 Does the following:
+        //
+        //    5 let mut context = key.as_ref().signing_context();
+        //    6 context.update(first);
+        //    7 if let Some(second) = second {
+        //    8    context.update(second)
+        //    9 }
+        //   10 variables.sign(key.as_ref(), &mut context);
+        //   11 let signature = context.sign();
+        //   12 (Self::new(key), signature)
+        //
+        // And that does what?
+        // 5 Does the following which doesn't seem to sign anything yet.
+        //
+        //   13 hmac::Context::with_key(&self.key)
+        //
+        // In 6, "first" is message.as_slice().
+        //       "second" is None.
+        //
+        // 6 seems to actually "sign the DNS message bytes".
+        // 7-9 won't do anything as "second" is None.
+        // 10 does the next required part: signing with SOME OF the variables.
+        //   Key name as wire slice.
+        //   CLASS ANY as u16 BE bytes (per RFC 1035)
+        //   TTL 0 as u32 BE bytes (per RFC 1035)
+        //   Algorithm name as wire slice
+        //   Time signed 48-bit integer as octets
+        //   Fudge as u16 BE bytes
+        //   Error as u16 BE bytes
+        //     ^^ in requests this MUST be zero but the code
+        //        doesn't seem to ensure that
+        //   Other Len is u16 zero BE bytes (because "second" is None)
+        //   Other Data is not added (because "second" is None)
+        //
+        // ^^^ This all looks good.
+
+        // Next we need the 4.3.3.1 Timer values: "for the purpose of MAC
+        //   calculation, they are hashed in their wire format, in the
+        //   following order: first Time Signed, then Fudge."
+        // Does 11 do that?
+        // It does NOT seem to do these two fields!
+
+        // let mac = context.key().signature_slice(&mac);
+        // context.apply_signature(mac);
+        // context.key().complete_message(message, &variables, mac)?;
+    }
+}

@@ -35,11 +35,13 @@ use std::process::exit;
 use std::sync::Arc;
 use std::time::Duration;
 
+use bytes::Bytes;
+use octseq::Parser;
 use tokio::net::{TcpListener, UdpSocket};
+use tokio::sync::mpsc;
 use tracing::{debug, info, trace};
 use tracing_subscriber::EnvFilter;
 
-use bytes::Bytes;
 use domain::base::iana::{Class, Rcode};
 use domain::base::record::ComposeRecord;
 use domain::base::{
@@ -52,6 +54,7 @@ use domain::net::server::middleware::cookies::CookiesMiddlewareSvc;
 use domain::net::server::middleware::edns::EdnsMiddlewareSvc;
 use domain::net::server::middleware::mandatory::MandatoryMiddlewareSvc;
 use domain::net::server::middleware::notify::NotifyMiddlewareSvc;
+use domain::net::server::middleware::tsig::TsigMiddlewareSvc;
 use domain::net::server::middleware::xfr::{XfrMiddlewareSvc, XfrMode};
 use domain::net::server::service::{CallResult, ServiceResult};
 use domain::net::server::stream::{self, StreamServer};
@@ -67,8 +70,6 @@ use domain::zonecatalog::catalog::{
 use domain::zonefile::inplace;
 use domain::zonetree::{Answer, Rrset, SharedRrset, ZoneBuilder};
 use domain::zonetree::{WritableZone, Zone, ZoneStore};
-use octseq::Parser;
-use tokio::sync::mpsc;
 
 #[tokio::main()]
 async fn main() {
@@ -153,7 +154,10 @@ async fn main() {
     let zone_type = match primary {
         true => {
             let mut notify = Acl::new();
-            notify.allow_to("127.0.0.1:8055".parse().unwrap(), Some((key_name.clone(), Algorithm::Sha256)));
+            notify.allow_to(
+                "127.0.0.1:8055".parse().unwrap(),
+                Some((key_name.clone(), Algorithm::Sha256)),
+            );
 
             let mut allow_xfr = XfrAcl::new();
             let xfr_settings = XfrSettings {
@@ -198,21 +202,23 @@ async fn main() {
     let svc = service_fn(my_service, catalog.clone());
 
     // Insert XFR middleware to automagically handle AXFR and IXFR requests.
-    let num_xfr_threads =
+    let max_concurrency =
         std::thread::available_parallelism().unwrap().get() / 2;
-    println!("Using {num_xfr_threads} threads for XFR");
-    let svc = XfrMiddlewareSvc::<Vec<u8>, _, _>::new(
-        svc,
-        catalog.clone(),
-        num_xfr_threads,
-        XfrMode::AxfrAndIxfr,
-    );
-    let svc = NotifyMiddlewareSvc::<Vec<u8>, _, _>::new(svc, catalog.clone());
+    println!("Using max concurrency {max_concurrency} for XFR");
 
-    #[cfg(feature = "siphasher")]
-    let svc = CookiesMiddlewareSvc::<Vec<u8>, _>::with_random_secret(svc);
-    let svc = EdnsMiddlewareSvc::<Vec<u8>, _>::new(svc);
-    let svc = MandatoryMiddlewareSvc::<Vec<u8>, _>::new(svc);
+    let svc: XfrMiddlewareSvc<Vec<u8>, _, Arc<CatalogKeyStore>> =
+        XfrMiddlewareSvc::<Vec<u8>, _, _>::new(
+            svc,
+            catalog.clone(),
+            max_concurrency,
+            XfrMode::AxfrAndIxfr,
+        );
+    let svc =
+        NotifyMiddlewareSvc::<Vec<u8>, _, _, _>::new(svc, catalog.clone());
+    let svc = CookiesMiddlewareSvc::<Vec<u8>, _, _>::with_random_secret(svc);
+    let svc = EdnsMiddlewareSvc::<Vec<u8>, _, _>::new(svc);
+    let svc = MandatoryMiddlewareSvc::<Vec<u8>, _, _>::new(svc);
+    let svc = TsigMiddlewareSvc::<Vec<u8>, _, _>::new(svc, key_store);
     let svc = Arc::new(svc);
 
     let sock = UdpSocket::bind(addr).await.unwrap();

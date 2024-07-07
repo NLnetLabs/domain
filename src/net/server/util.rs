@@ -99,14 +99,20 @@ where
 /// [`Vec<u8>`]: std::vec::Vec<u8>
 /// [`CallResult`]: crate::net::server::service::CallResult
 /// [`Result::Ok`]: std::result::Result::Ok
-pub fn service_fn<RequestOctets, Target, T, Metadata>(
+pub fn service_fn<RequestOctets, Target, T, RequestMeta, Metadata>(
     request_handler: T,
     metadata: Metadata,
 ) -> ServiceFn<Target, T, Metadata>
 where
     RequestOctets: AsRef<[u8]> + Send + Sync + Unpin,
+    RequestMeta: Clone + Default,
     Metadata: Clone,
-    T: Fn(Request<RequestOctets>, Metadata) -> ServiceResult<Target> + Clone,
+    Target: Composer + Default,
+    T: Fn(
+            Request<RequestOctets, RequestMeta>,
+            Metadata,
+        ) -> ServiceResult<Target>
+        + Clone,
 {
     ServiceFn {
         request_handler,
@@ -124,18 +130,27 @@ pub struct ServiceFn<Target, T, Metadata> {
     _phantom: PhantomData<Target>,
 }
 
-impl<RequestOctets, Target, T, Metadata> Service<RequestOctets>
-    for ServiceFn<Target, T, Metadata>
+impl<RequestOctets, Target, RequestMeta, T, Metadata>
+    Service<RequestOctets, RequestMeta> for ServiceFn<Target, T, Metadata>
 where
     RequestOctets: AsRef<[u8]> + Send + Sync + Unpin,
+    RequestMeta: Default + Clone,
     Metadata: Clone,
-    T: Fn(Request<RequestOctets>, Metadata) -> ServiceResult<Target> + Clone,
+    Target: Composer + Default,
+    T: Fn(
+            Request<RequestOctets, RequestMeta>,
+            Metadata,
+        ) -> ServiceResult<Target>
+        + Clone,
 {
     type Target = Target;
-    type Stream = Once<Ready<ServiceResult<Target>>>;
+    type Stream = Once<Ready<ServiceResult<Self::Target>>>;
     type Future = Ready<Self::Stream>;
 
-    fn call(&self, request: Request<RequestOctets>) -> Self::Future {
+    fn call(
+        &self,
+        request: Request<RequestOctets, RequestMeta>,
+    ) -> Self::Future {
         ready(futures_util::stream::once(ready((self.request_handler)(
             request,
             self.metadata.clone(),
@@ -401,7 +416,7 @@ mod tests {
         let client_ip = "127.0.0.1:12345".parse().unwrap();
         let sent_at = Instant::now();
         let ctx = UdpTransportContext::default();
-        let request = Request::new(client_ip, sent_at, msg, ctx.into());
+        let request = Request::new(client_ip, sent_at, msg, ctx.into(), ());
 
         // Create a dummy DNS reply which does not yet have an OPT record.
         let reply = start_reply::<_, Vec<u8>>(request.message());
@@ -489,7 +504,7 @@ mod tests {
         let client_ip = "127.0.0.1:12345".parse().unwrap();
         let sent_at = Instant::now();
         let ctx = UdpTransportContext::default();
-        let request = Request::new(client_ip, sent_at, msg, ctx.into());
+        let request = Request::new(client_ip, sent_at, msg, ctx.into(), ());
 
         // Create a dummy DNS reply which does not yet have an OPT record.
         let reply = start_reply::<_, Vec<u8>>(request.message());

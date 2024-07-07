@@ -1534,7 +1534,7 @@ where
                 {
                     let key = readable_key_store.get_key(name, *alg);
 
-                     if key.is_some() {
+                    if key.is_some() {
                         debug!("Found TSIG key '{name}' (algorith {alg}) for NOTIFY to {nameserver_addr}");
                     }
 
@@ -1556,9 +1556,10 @@ where
                 let client = auth::Connection::new(tsig_key.clone(), client);
 
                 trace!("Sending NOTIFY to nameserver {nameserver_addr}");
-                let span = tracing::trace_span!("auth", addr = %nameserver_addr);
+                let span =
+                    tracing::trace_span!("auth", addr = %nameserver_addr);
                 let _guard = span.enter();
-                
+
                 if let Err(err) =
                     client.send_request(req.clone()).get_response().await
                 {
