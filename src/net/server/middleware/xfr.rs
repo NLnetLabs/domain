@@ -16,7 +16,7 @@ use tokio::sync::Semaphore;
 use tokio_stream::wrappers::UnboundedReceiverStream;
 use tracing::{error, info, trace, warn};
 
-use crate::base::iana::{Opcode, OptRcode, Rcode, TsigRcode};
+use crate::base::iana::{Opcode, OptRcode, Rcode};
 use crate::base::message_builder::{
     AdditionalBuilder, AnswerBuilder, PushError,
 };
@@ -26,13 +26,13 @@ use crate::base::wire::Composer;
 use crate::base::{
     Message, Name, ParsedName, Question, Rtype, Serial, StreamTarget, ToName,
 };
-use crate::net::server::message::Request;
+use crate::net::server::message::{Request, TransportSpecificContext};
 use crate::net::server::service::{
     CallResult, Service, ServiceFeedback, ServiceResult,
 };
 use crate::net::server::util::{mk_builder_for_target, mk_error_response};
 use crate::rdata::{Soa, ZoneRecordData};
-use crate::tsig::{self, KeyName, KeyStore};
+use crate::tsig::{KeyName, KeyStore};
 use crate::zonecatalog::catalog::{
     Catalog, CatalogZone, CompatibilityMode, TsigKey, XfrSettings,
     XfrStrategy, ZoneInfo, ZoneType,
@@ -568,6 +568,17 @@ where
         // the caller.
         let msg = msg.clone();
 
+        let soft_byte_limit = match req.transport_ctx() {
+            TransportSpecificContext::Udp(ctx) => {
+                let max_msg_size =
+                    ctx.max_response_size_hint().unwrap_or(512);
+                max_msg_size - req.num_reserved_bytes()
+            }
+            TransportSpecificContext::NonUdp(_) => {
+                65535 - req.num_reserved_bytes()
+            }
+        };
+
         tokio::spawn(async move {
             // Limit the number of concurrently running XFR batching
             // operations.
@@ -591,10 +602,24 @@ where
             let mut current_rrset = zone_soa_rrset;
             let mut records_to_process = current_rrset.data();
 
+            // Note: NSD apparently uses name compresson on AXFR responses
+            // because AXFR responses they typically contain lots of
+            // alphabetically ordered duplicate names which compress well. NSD
+            // limits AXFR responses to 16,383 RRs because DNS name
+            // compression uses a 14-bit offset (2^14-1=16383) from the start
+            // of the message to the first occurence of a name instead of
+            // repeating the name, and name compression is less effective
+            // over 16383 bytes. (Credit: Wouter Wijngaards)
+            //
+            // TODO: Once we start supporting name compression in responses decide
+            // if we want to behave the same way.
+
             let mut batcher = RrBatcher::new(msg.clone());
             if compatibility_mode {
-                batcher.set_limit(1);
+                batcher.set_hard_rr_limit(1);
             }
+
+            batcher.set_soft_byte_limit(soft_byte_limit);
 
             // Loop until all of the RRsets sent by the zone walker have been
             // pushed into DNS response messages and sent into the result
@@ -1270,7 +1295,8 @@ enum PushResult<Target> {
 
 struct RrBatcher<RequestOctets, Target> {
     req_msg: Arc<Message<RequestOctets>>,
-    limit: Option<u16>,
+    hard_rr_limit: Option<u16>,
+    soft_byte_limit: Option<usize>,
     answer: Option<Result<AnswerBuilder<StreamTarget<Target>>, PushError>>,
 }
 
@@ -1282,13 +1308,19 @@ where
     pub fn new(req_msg: Arc<Message<RequestOctets>>) -> Self {
         Self {
             req_msg,
-            limit: None,
+            hard_rr_limit: None,
+            soft_byte_limit: None,
             answer: None,
         }
     }
 
-    pub fn set_limit(&mut self, limit: u16) {
-        self.limit = Some(limit);
+    pub fn set_hard_rr_limit(&mut self, rr_limit: u16) {
+        self.hard_rr_limit = Some(rr_limit);
+    }
+
+    pub fn set_soft_byte_limit(&mut self, byte_limit: u16) {
+        trace!("Setting soft byte limit to {byte_limit} bytes");
+        self.soft_byte_limit = Some(byte_limit as usize);
     }
 
     pub fn push(
@@ -1296,7 +1328,10 @@ where
         record: impl ComposeRecord,
     ) -> Result<PushResult<Target>, PushError> {
         self.answer.get_or_insert_with(|| {
-            let builder = mk_builder_for_target();
+            let mut builder = mk_builder_for_target();
+            if let Some(limit) = self.soft_byte_limit {
+                builder.set_push_limit(limit);
+            }
             builder.start_answer(&self.req_msg, Rcode::NOERROR)
         });
 
@@ -1304,13 +1339,23 @@ where
 
         let res = answer.push(record);
         let ancount = answer.counts().ancount();
+        // let msg_len = answer.as_slice().len() as u16;
 
         match res {
-            Ok(()) if Some(ancount) == self.limit => {
+            Ok(()) if Some(ancount) == self.hard_rr_limit => {
                 // Push succeeded but the message is as full as the caller
                 // allows, pass it back to the caller to process.
                 Ok(PushResult::PushedAndLimitReached(answer))
             }
+
+            // Ok(())
+            //     if self.soft_byte_limit.is_some()
+            //         && Some(msg_len) >= self.soft_byte_limit =>
+            // {
+            //     // Push succeeded but the message is as full as the caller
+            //     // allows, pass it back to the caller to process.
+            //     Ok(PushResult::PushedAndLimitReached(answer))
+            // }
 
             Err(_) if ancount > 0 => {
                 // Push failed because the message is full, pass it back to

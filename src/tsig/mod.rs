@@ -264,6 +264,70 @@ impl Key {
         self.signing_len
     }
 
+    /// Returns the space needed for a TSIG RR for this key.
+    pub fn compose_len(&self) -> u16 {
+        // The length of the generated TSIG RR is governed by variable and
+        // fixed parts. The variable parts are the key name, the algorithm
+        // name and the MAC. Given the key we can work this out.
+
+        // https://datatracker.ietf.org/doc/html/rfc8945#section-4.2
+        // 4.2. TSIG Record Format
+        //   "The fields of the TSIG RR are described below. All multi-octet
+        //   integers in the record are sent in network byte order (see
+        //   Section 2.3.2 of [RFC1035]).
+        //
+        //   Field     Description                               RFC 1035 Size
+        //   -----------------------------------------------------------------
+        //   NAME:     The name of the key used, in domain name  (variable)
+        //             syntax. [...]
+        //   TYPE:     This MUST be TSIG (250: Transaction       two octets
+        //             SIGnature).
+        //   CLASS:    This MUST be ANY.                         two octets
+        //   TTL:      This MUST be 0.                           32-bit
+        //   RDLENGTH: (variable)                                16-bit
+        //   RDATA:    The RDATA for a TSIG RR consists of a     (variable)
+        //             number of fields, described below:
+        //
+        //                        1 1 1 1 1 1 1 1 1 1 2 2 2 2 2 2 2 2 2 2 3 3
+        //    0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+        //   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+        //   /                         Algorithm Name                        /
+        //   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+        //   |                                                               |
+        //   |          Time Signed          +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+        //   |                               |            Fudge              |
+        //   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+        //   |          MAC Size             |                               /
+        //   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+             MAC               /
+        //   /                                                               /
+        //   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+        //   |          Original ID          |            Error              |
+        //   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+        //   |          Other Len            |                               /
+        //   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+           Other Data          /
+        //   /                                                               /
+        //   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+        //   "
+        let rdata_len = self.algorithm().to_name().compose_len() // Algorithm Name
+            + 6 // Time Signed
+            + 2 // Fudge
+            + 2 // MAC Size
+            + self.signing_len() as u16
+            + 2 // Original ID
+            + 2 // Error
+            + 2; // Other Len
+          //+ 0; // Other Data (assume a successful response)
+
+        let rr_len = self.name().compose_len()
+            + 2 // TYPE
+            + 2 // CLASS
+            + 4 // TTL
+            + 2 // RDLENGTH
+            + rdata_len;
+
+        rr_len
+    }
+
     /// Checks whether the key in the record is this key.
     fn check_tsig<Octs: Octets + ?Sized>(
         &self,

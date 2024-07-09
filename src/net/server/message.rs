@@ -172,6 +172,11 @@ where
     /// protocol via which it was received.
     transport_specific: TransportSpecificContext,
 
+    /// The number of bytes to be reserved when generating a response
+    /// to this request so that needed additional data can be added to
+    /// to the generated response.
+    num_reserved_bytes: u16,
+
     metadata: Metadata,
 }
 
@@ -210,6 +215,7 @@ where
             received_at,
             message: Arc::new(message),
             transport_specific,
+            num_reserved_bytes: 0,
             metadata,
         }
     }
@@ -234,12 +240,26 @@ where
         &self.message
     }
 
+    /// Request that an additional number of bytes be reserved in the response
+    /// to this message.
+    pub fn reserve_bytes(&mut self, len: u16) {
+        self.num_reserved_bytes += len;
+        tracing::trace!("Reserved {len} bytes: total now = {}", self.num_reserved_bytes);
+    }
+
+    /// The number of bytes to reserve when generating a response to this
+    /// message.
+    pub fn num_reserved_bytes(&self) -> u16 {
+        self.num_reserved_bytes
+    }
+
     pub fn with_new_metadata<T>(self, new_metadata: T) -> Request<Octs, T> {
         Request::<Octs, T> {
             client_addr: self.client_addr,
             received_at: self.received_at,
             message: self.message,
             transport_specific: self.transport_specific,
+            num_reserved_bytes: self.num_reserved_bytes,
             metadata: new_metadata,
         }
     }
@@ -262,6 +282,7 @@ where
             received_at: self.received_at,
             message: Arc::clone(&self.message),
             transport_specific: self.transport_specific.clone(),
+            num_reserved_bytes: self.num_reserved_bytes,
             metadata: self.metadata.clone(),
         }
     }

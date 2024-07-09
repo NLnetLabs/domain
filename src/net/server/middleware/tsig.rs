@@ -82,7 +82,10 @@ where
         key_store: &KS,
     ) -> ControlFlow<
         AdditionalBuilder<StreamTarget<NextSvc::Target>>,
-        Option<(Message<RequestOctets>, TsigSigner<KS::Key>)>,
+        Option<(
+            Request<RequestOctets, Option<KeyName>>,
+            TsigSigner<KS::Key>,
+        )>,
     > {
         if let Some(q) = Self::get_relevant_question(req.message()) {
             let octets = req.message().as_slice().to_vec();
@@ -106,8 +109,19 @@ where
                     let octets = RequestOctets::octets_from(source);
                     let new_msg = Message::from_octets(octets).unwrap();
 
-                    return ControlFlow::Continue(Some((
+                    let mut new_req = Request::new(
+                        req.client_addr(),
+                        req.received_at(),
                         new_msg,
+                        req.transport_ctx().clone(),
+                        Some(tsig.key().name().clone()),
+                    );
+
+                    let num_bytes_to_reserve = tsig.key().compose_len();
+                    new_req.reserve_bytes(num_bytes_to_reserve);
+
+                    return ControlFlow::Continue(Some((
+                        new_req,
                         TsigSigner::Transaction(tsig),
                     )));
                 }
@@ -144,6 +158,10 @@ where
         // Sign the response.
         let mut tsig_signer = pp_config.tsig.lock().unwrap();
 
+        // Remove the limit we should have imposed during pre-processing so
+        // that we can use the space we reserved for the OPT RR.
+        response.clear_push_limit();
+
         let signing_result = match tsig_signer.as_mut() {
             Some(TsigSigner::Transaction(_)) => {
                 // Extract the single response signer and consume it in the
@@ -167,11 +185,9 @@ where
             }
         };
 
-        // Handle signle or multiple response signing failure.
+        // Handle signing failure. This shouldn't happen because we reserve
+        // space in preprocess() for the TSIG RR that we add when signing.
         if signing_result.is_err() {
-            // Not enough space! If UDP, truncate. If TCP... ?
-
-            // https://datatracker.ietf.org/doc/html/rfc8945#name-generation-of-tsig-on-answe
             // 5.3. Generation of TSIG on Answers
             //   "If addition of the TSIG record will cause the message to be
             //   truncated, the server MUST alter the response so that a TSIG
@@ -188,7 +204,22 @@ where
                     request, &pp_config,
                 );
             } else {
-                todo!()
+                // In the TCP case there's not much we can do. The upstream
+                // service pushes response messages into the stream and we try
+                // and sign them. If there isn't enough space to add the TSIG
+                // signature RR to the response we can't signal the upstream
+                // to try again to produce a smaller response message as it
+                // may already have finished pushing into the stream or be
+                // several messages further on in its processsing. We also
+                // can't edit the response message content ourselves as we
+                // know nothing about the content. The only option left to us
+                // is to try and truncate the TSIG MAC and see if that helps,
+                // but we don't support that (yet? NSD doesn't support it
+                // either).
+                return Some(mk_error_response(
+                    request.message(),
+                    OptRcode::SERVFAIL,
+                ));
             }
         }
 
@@ -345,25 +376,10 @@ where
 
     fn call(&self, request: Request<RequestOctets>) -> Self::Future {
         match Self::preprocess(&request, &self.key_store) {
-            ControlFlow::Continue(Some((modified_msg, tsig_opt))) => {
-                let key_name = match &tsig_opt {
-                    TsigSigner::Transaction(tsig) => tsig.key(),
-                    TsigSigner::Sequence(tsig) => tsig.key(),
-                }
-                .name()
-                .clone();
-
+            ControlFlow::Continue(Some((modified_req, tsig_opt))) => {
                 let tsig = Arc::new(std::sync::Mutex::new(Some(tsig_opt)));
 
-                let new_req = Request::new(
-                    request.client_addr(),
-                    request.received_at(),
-                    modified_msg,
-                    request.transport_ctx().clone(),
-                    Some(key_name),
-                );
-
-                let svc_call_fut = self.next_svc.call(new_req);
+                let svc_call_fut = self.next_svc.call(modified_req);
 
                 let pp_config = PostprocessingConfig {
                     tsig,

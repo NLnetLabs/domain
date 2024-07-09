@@ -9,10 +9,11 @@ use tracing::{debug, enabled, error, trace, warn, Level};
 
 use crate::base::iana::OptRcode;
 use crate::base::message_builder::AdditionalBuilder;
+use crate::base::name::ToLabelIter;
 use crate::base::opt::keepalive::IdleTimeout;
-use crate::base::opt::{Opt, OptRecord, TcpKeepalive};
+use crate::base::opt::{ComposeOptData, Opt, OptRecord, TcpKeepalive};
 use crate::base::wire::Composer;
-use crate::base::StreamTarget;
+use crate::base::{Name, StreamTarget};
 use crate::net::server::message::{Request, TransportSpecificContext};
 use crate::net::server::middleware::stream::MiddlewareStream;
 use crate::net::server::service::{CallResult, Service, ServiceResult};
@@ -82,7 +83,7 @@ where
 {
     fn preprocess(
         &self,
-        request: &Request<RequestOctets, RequestMeta>,
+        request: &mut Request<RequestOctets, RequestMeta>,
     ) -> ControlFlow<AdditionalBuilder<StreamTarget<NextSvc::Target>>> {
         // https://www.rfc-editor.org/rfc/rfc6891.html#section-6.1.1
         // 6.1.1: Basic Elements
@@ -200,7 +201,7 @@ where
                             ));
                         }
 
-                        TransportSpecificContext::NonUdp(_) => {
+                        TransportSpecificContext::NonUdp(ctx) => {
                             // https://datatracker.ietf.org/doc/html/rfc7828#section-3.2.1
                             // 3.2.1. Sending Queries
                             //   "Clients MUST specify an OPTION-LENGTH of 0
@@ -215,6 +216,16 @@ where
                                             request.message(),
                                             OptRcode::FORMERR,
                                         ),
+                                    );
+                                }
+                            }
+
+                            if let Some(keep_alive) = ctx.idle_timeout() {
+                                if let Ok(timeout) =
+                                    IdleTimeout::try_from(keep_alive)
+                                {
+                                    Self::reserve_space_for_keep_alive_opt(
+                                        request, timeout,
                                     );
                                 }
                             }
@@ -286,6 +297,12 @@ where
                                 // timeout is known: "Signal the timeout value
                                 // using the edns-tcp-keepalive EDNS(0) option
                                 // [RFC7828]".
+
+                                // Remove the limit we should have imposed
+                                // during pre-processing so that we can use
+                                // the space we reserved for the OPT RR.
+                                response.clear_push_limit();
+
                                 if let Err(err) =
                                     // TODO: Don't add the option if it
                                     // already exists?
@@ -314,6 +331,34 @@ where
         // TODO: For UDP EDNS capable clients (those that included an OPT
         // record in the request) should we set the Requestor's Payload Size
         // field to some value?
+    }
+
+    fn reserve_space_for_keep_alive_opt(
+        request: &mut Request<RequestOctets, RequestMeta>,
+        timeout: IdleTimeout,
+    ) {
+        // TODO: Calculate this once as a const value, not on every request.
+
+        let keep_alive_opt = TcpKeepalive::new(Some(timeout));
+        let root_name_len = Name::root_ref().compose_len();
+
+        // See:
+        //  - https://datatracker.ietf.org/doc/html/rfc1035#section-3.2.1
+        //  - https://datatracker.ietf.org/doc/html/rfc6891#autoid-12
+        //  - https://datatracker.ietf.org/doc/html/rfc7828#section-3.1
+
+        // Calculate the size of the DNS OPTION RR that will be added to the
+        // response during post-processing.
+        let wire_opt_len = root_name_len // "0" root domain name per RFC 6891
+            + 2 // TYPE
+            + 2 // CLASS
+            + 4 // TTL
+            + 2 // RDLEN
+            + 2 // OPTION-CODE
+            + 2 // OPTION-LENGTH
+            + keep_alive_opt.compose_len(); // OPTION-DATA
+
+        request.reserve_bytes(wire_opt_len);
     }
 
     fn map_stream_item(
@@ -359,14 +404,14 @@ where
 
     fn call(
         &self,
-        request: Request<RequestOctets, RequestMeta>,
+        mut request: Request<RequestOctets, RequestMeta>,
     ) -> Self::Future {
         if !self.enabled {
             let svc_call_fut = self.next_svc.call(request.clone());
             return ready(MiddlewareStream::IdentityFuture(svc_call_fut));
         }
 
-        match self.preprocess(&request) {
+        match self.preprocess(&mut request) {
             ControlFlow::Continue(()) => {
                 let svc_call_fut = self.next_svc.call(request.clone());
                 let map = PostprocessingStream::new(
