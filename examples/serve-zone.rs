@@ -39,7 +39,7 @@ use bytes::Bytes;
 use octseq::Parser;
 use tokio::net::{TcpListener, UdpSocket};
 use tokio::sync::mpsc;
-use tracing::{debug, info, trace};
+use tracing::{debug, info};
 use tracing_subscriber::EnvFilter;
 
 use domain::base::iana::{Class, Rcode};
@@ -312,29 +312,6 @@ async fn main() {
         let _diff = writer.commit(true).await.unwrap();
     }
 
-    // // Send NOTIFY
-    // if primary {
-    //     let secondary_addr = "127.0.0.1:8054";
-    //     eprintln!("Sending NOTIFY to secondary at {secondary_addr}...");
-
-    //     let mut msg = MessageBuilder::new_vec();
-    //     msg.header_mut().set_opcode(Opcode::NOTIFY);
-    //     let mut msg = msg.question();
-    //     msg.push((Name::vec_from_str("example.com").unwrap(), Rtype::SOA))
-    //         .unwrap();
-    //     let req = RequestMessage::new(msg);
-
-    //     let server_addr = secondary_addr.parse().unwrap();
-    //     let udp_connect = UdpConnect::new(server_addr);
-    //     let mut dgram_config = Config::new();
-    //     dgram_config.set_max_parallel(1);
-    //     dgram_config.set_read_timeout(Duration::from_millis(1000));
-    //     dgram_config.set_max_retries(1);
-    //     dgram_config.set_udp_payload_size(Some(1400));
-    //     let dgram_conn = Connection::with_config(udp_connect, dgram_config);
-    //     dgram_conn.send_request(req).get_response().await.unwrap();
-    // }
-
     pending::<()>().await;
 }
 
@@ -344,7 +321,6 @@ fn my_service(
 ) -> ServiceResult<Vec<u8>> {
     let question = request.message().sole_question().unwrap();
     let zones = catalog.zones();
-    trace!("my_service: zones dump: {zones:#?}");
     let zone = zones
         .find_zone(question.qname(), question.qclass())
         .map(|zone| zone.read());
