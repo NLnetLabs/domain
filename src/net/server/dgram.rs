@@ -498,8 +498,8 @@ where
                     self.metrics.inc_num_received_requests();
 
                     if enabled!(Level::TRACE) {
-                        let pcap_text = to_pcap_text(&buf, bytes_read);
-                        trace!(%addr, pcap_text, "Received message");
+                        let pcap_text = to_pcap_text(&buf, bytes_read.min(128));
+                        trace!(%addr, pcap_text, "Received message (dumping max 128 bytes)");
                     }
 
                     let svc = self.service.clone();
@@ -545,8 +545,8 @@ where
 
                                         // Logging
                                         if enabled!(Level::TRACE) {
-                                            let pcap_text = to_pcap_text(bytes, bytes.len());
-                                            trace!(%addr, pcap_text, "Sending response");
+                                            let pcap_text = to_pcap_text(bytes, bytes.len().min(128));
+                                            trace!(%addr, pcap_text, "Sending response (dumping max 128 bytes)");
                                         }
 
                                         metrics.inc_num_pending_writes();

@@ -613,8 +613,8 @@ where
     ) -> Result<(), ConnectionEvent> {
         if enabled!(Level::TRACE) {
             let bytes = msg.as_dgram_slice();
-            let pcap_text = to_pcap_text(bytes, bytes.len());
-            trace!(addr = %self.addr, pcap_text, "Sending response");
+            let pcap_text = to_pcap_text(bytes, bytes.len().min(128));
+            trace!(addr = %self.addr, pcap_text, "Sending response (dumping max 128 bytes)");
         }
 
         let max_tries = self.config.load().response_write_retries + 1;
@@ -700,8 +700,9 @@ where
                 let received_at = Instant::now();
 
                 if enabled!(Level::TRACE) {
-                    let pcap_text = to_pcap_text(&buf, buf.as_ref().len());
-                    trace!(addr = %self.addr, pcap_text, "Received message");
+                    let pcap_text =
+                        to_pcap_text(&buf, buf.as_ref().len().min(128));
+                    trace!(addr = %self.addr, pcap_text, "Received message (dumping max 128 bytes)");
                 }
 
                 self.metrics.inc_num_received_requests();
@@ -753,7 +754,7 @@ where
                             while let Some(Ok(call_result)) =
                                 stream.next().await
                             {
-                                trace!("Processing service call result for request id {request_id}");
+trace!("Processing service call result for request id {request_id}");
                                 let (response, feedback) =
                                     call_result.into_inner();
 

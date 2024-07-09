@@ -202,7 +202,7 @@ impl WritableZone for WriteZone {
             .push_version(self.version, marker);
 
         debug!("Commit: zone versions: {:#?}", self.zone_versions);
-        trace!("Commit: zone dump:\n{:#?}", self.apex);
+        // trace!("Commit: zone dump:\n{:#?}", self.apex);
 
         // Start the next version.
         self.version = self.version.next();
