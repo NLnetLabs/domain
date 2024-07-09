@@ -169,6 +169,11 @@ use std::vec::Vec;
 #[derive(Clone, Debug)]
 pub struct MessageBuilder<Target> {
     target: Target,
+
+    /// An optional maximum message size.
+    ///
+    /// Defaults to usize::MAX.
+    limit: usize,
 }
 
 /// # Creating Message Builders
@@ -187,7 +192,10 @@ impl<Target: OctetsBuilder + Truncate> MessageBuilder<Target> {
     ) -> Result<Self, Target::AppendError> {
         target.truncate(0);
         target.append_slice(HeaderSection::new().as_slice())?;
-        Ok(MessageBuilder { target })
+        Ok(MessageBuilder {
+            target,
+            limit: usize::MAX,
+        })
     }
 }
 
@@ -267,6 +275,41 @@ impl<Target: Composer> MessageBuilder<Target> {
         let mut builder = self.question();
         builder.push((apex, Rtype::AXFR))?;
         Ok(builder.answer())
+    }
+}
+
+/// # Limiting message size
+impl<Target: Composer> MessageBuilder<Target> {
+    /// Limit how much of the underlying buffer may be used.
+    ///
+    /// When a limit is set, calling [`push()`] will fail if the limit is
+    /// exceeded just as if the actual end of the underlying buffer had been
+    /// reached.
+    ///
+    /// Note: Calling this function does NOT truncate the underlying buffer.
+    /// If the new limit is lees than the amount of the buffer that has
+    /// already been used, exisitng content beyond the limit will remain
+    /// untouched, the length will remain larger than the limit, and calls to
+    /// [`push()`] will fail until the buffer is truncated to a size less than
+    /// the limit.
+    pub fn set_push_limit(&mut self, limit: usize) {
+        self.limit = limit;
+    }
+
+    /// Clear the push limit, if set.
+    ///
+    /// Removes any push limit previously set via `[set_push_limit()`].
+    pub fn clear_push_limit(&mut self) {
+        self.limit = usize::MAX;
+    }
+
+    /// Returns the current push limit, if set.
+    pub fn push_limit(&self) -> Option<usize> {
+        if self.limit == usize::MAX {
+            None
+        } else {
+            Some(self.limit)
+        }
     }
 }
 
@@ -401,6 +444,13 @@ impl<Target: Composer> MessageBuilder<Target> {
             self.target.truncate(pos);
             return Err(From::from(err));
         }
+
+        let new_pos = self.target.as_ref().len();
+        if new_pos >= self.limit {
+            self.target.truncate(pos);
+            return Err(PushError::ShortBuf);
+        }
+
         if inc(self.counts_mut()).is_err() {
             self.target.truncate(pos);
             return Err(PushError::CountOverflow);
@@ -2380,6 +2430,41 @@ mod test {
         let rr = records.next().unwrap().unwrap();
         assert_eq!(rr.owner(), &name);
         assert_eq!(rr.data(), &A::from_octets(192, 0, 2, 1));
+    }
+
+    #[test]
+    fn exceed_limits() {
+        // Create a limited message builder.
+        let buf = heapless::Vec::<u8, 100>::new();
+
+        // Initialize it with a message header (12 bytes)
+        let mut msg = MessageBuilder::from_target(buf).unwrap();
+        let hdr_len = msg.as_slice().len();
+
+        // Add some bytes.
+        msg.push(|t| t.append_slice(&[0u8; 50]), |_| Ok(()))
+            .unwrap();
+        assert_eq!(msg.as_slice().len(), hdr_len + 50);
+
+        // Set a push limit below the current length.
+        msg.set_push_limit(25);
+
+        // Verify that push fails.
+        assert!(msg.push(|t| t.append_slice(&[0u8; 1]), |_| Ok(())).is_err());
+        assert_eq!(msg.as_slice().len(), hdr_len + 50);
+
+        // Remove the limit.
+        msg.clear_push_limit();
+
+        // Verify that push up until capacity succeeds.
+        for _ in (hdr_len + 50)..100 {
+            msg.push(|t| t.append_slice(&[0u8; 1]), |_| Ok(())).unwrap();
+        }
+        assert_eq!(msg.as_slice().len(), 100);
+
+        // Verify that exceeding the underlying capacity limit fails.
+        assert!(msg.push(|t| t.append_slice(&[0u8; 1]), |_| Ok(())).is_err());
+        assert_eq!(msg.as_slice().len(), 100);
     }
 
     #[test]
