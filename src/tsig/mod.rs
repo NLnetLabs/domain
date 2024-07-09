@@ -1001,7 +1001,7 @@ impl<K> From<ServerTransaction<K>> for ServerSequence<K> {
     fn from(txn: ServerTransaction<K>) -> Self {
         Self {
             context: txn.context,
-            first: true, // TODO: Why is this the only place the sets this to true?
+            first: true,
         }
     }
 }
