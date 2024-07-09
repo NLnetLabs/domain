@@ -8,9 +8,9 @@ use futures::stream::Once;
 use octseq::{Octets, OctetsBuilder};
 use tracing::warn;
 
-use crate::base::iana::{OptRcode, Rcode};
+use crate::base::iana::OptRcode;
 use crate::base::message_builder::{
-    AdditionalBuilder, OptBuilder, PushError, QuestionBuilder,
+    AdditionalBuilder, OptBuilder, PushError,
 };
 use crate::base::wire::Composer;
 use crate::base::Message;
