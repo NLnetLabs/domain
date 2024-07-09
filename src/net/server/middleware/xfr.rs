@@ -228,11 +228,8 @@ where
                 req.client_addr(),
                 reason
             );
-            let builder = mk_builder_for_target();
             let response =
-                tsig::ServerError::<KS::Key>::unsigned(TsigRcode::BADKEY)
-                    .build_message(msg, builder)
-                    .unwrap();
+                mk_error_response(req.message(), OptRcode::NOTAUTH);
             return ControlFlow::Break(Self::to_stream(response));
         }
 

@@ -189,53 +189,6 @@ pub(crate) fn to_pcap_text<T: AsRef<[u8]>>(
     formatted
 }
 
-//----------- start_reply ----------------------------------------------------
-
-/// Create a DNS response message that is a reply to a given request message.
-///
-/// Copy the request question into a new response and return the builder for
-/// further message construction.
-///
-/// On internal error this function will attempt to set RCODE ServFail in the
-/// returned message.
-pub fn start_reply<RequestOctets, Target>(
-    msg: &Message<RequestOctets>,
-) -> QuestionBuilder<StreamTarget<Target>>
-where
-    RequestOctets: Octets,
-    Target: Composer + Default,
-{
-    let builder = mk_builder_for_target();
-
-    // RFC (1035?) compliance - copy question from request to response.
-    let mut abort = false;
-    let mut builder = builder.question();
-    for rr in msg.question() {
-        match rr {
-            Ok(rr) => {
-                if let Err(err) = builder.push(rr) {
-                    warn!("Internal error while copying question RR to the resposne: {err}");
-                    abort = true;
-                    break;
-                }
-            }
-            Err(err) => {
-                warn!(
-                    "Parse error while copying question RR to the resposne: {err} [RR: {rr:?}]"
-                );
-                abort = true;
-                break;
-            }
-        }
-    }
-
-    if abort {
-        builder.header_mut().set_rcode(Rcode::SERVFAIL);
-    }
-
-    builder
-}
-
 //------------ mk_error_response ---------------------------------------------
 
 pub fn mk_error_response<RequestOctets, Target>(
@@ -246,7 +199,9 @@ where
     RequestOctets: Octets,
     Target: Composer + Default,
 {
-    let mut additional = start_reply(msg).additional();
+    let mut additional = mk_builder_for_target()
+        .start_error(msg, rcode.rcode())
+        .additional();
 
     // Note: if rcode is non-extended this will also correctly handle
     // setting the rcode in the main message header.
@@ -394,13 +349,12 @@ mod tests {
     use crate::base::{Message, MessageBuilder, Name, Rtype, StreamTarget};
     use crate::net::server::message::{Request, UdpTransportContext};
 
-    use super::start_reply;
     use crate::base::iana::{OptRcode, Rcode};
     use crate::base::message_builder::AdditionalBuilder;
     use crate::base::opt::UnknownOptData;
     use crate::base::wire::Composer;
     use crate::net::server::util::{
-        add_edns_options, remove_edns_opt_record,
+        add_edns_options, mk_builder_for_target, remove_edns_opt_record,
     };
     use std::vec::Vec;
 
@@ -419,7 +373,9 @@ mod tests {
         let request = Request::new(client_ip, sent_at, msg, ctx.into(), ());
 
         // Create a dummy DNS reply which does not yet have an OPT record.
-        let reply = start_reply::<_, Vec<u8>>(request.message());
+        let reply = mk_builder_for_target::<Vec<u8>>()
+            .start_answer(request.message(), Rcode::NOERROR)
+            .unwrap();
         assert_eq!(reply.counts().arcount(), 0);
         assert_eq!(reply.header().rcode(), Rcode::NOERROR);
 
@@ -507,7 +463,9 @@ mod tests {
         let request = Request::new(client_ip, sent_at, msg, ctx.into(), ());
 
         // Create a dummy DNS reply which does not yet have an OPT record.
-        let reply = start_reply::<_, Vec<u8>>(request.message());
+        let reply = mk_builder_for_target::<Vec<u8>>()
+            .start_answer(request.message(), Rcode::NOERROR)
+            .unwrap();
         assert_eq!(reply.counts().arcount(), 0);
 
         // Add an OPT record to the reply.

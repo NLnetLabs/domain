@@ -8,7 +8,7 @@ use std::vec::Vec;
 use futures::stream::{once, Once, Stream};
 use octseq::Octets;
 use rand::RngCore;
-use tracing::{debug, trace, warn};
+use tracing::{debug, error, trace, warn};
 
 use crate::base::iana::{OptRcode, Rcode};
 use crate::base::message_builder::AdditionalBuilder;
@@ -19,8 +19,8 @@ use crate::base::{Serial, StreamTarget};
 use crate::net::server::message::Request;
 use crate::net::server::middleware::stream::MiddlewareStream;
 use crate::net::server::service::{CallResult, Service};
-use crate::net::server::util::add_edns_options;
-use crate::net::server::util::{mk_builder_for_target, start_reply};
+use crate::net::server::util::mk_builder_for_target;
+use crate::net::server::util::{add_edns_options, mk_error_response};
 
 //----------- Constants -------------------------------------------------------
 
@@ -171,7 +171,19 @@ where
         request: &Request<RequestOctets, RequestMeta>,
         rcode: OptRcode,
     ) -> AdditionalBuilder<StreamTarget<NextSvc::Target>> {
-        let mut additional = start_reply(request.message()).additional();
+        let res = mk_builder_for_target()
+            .start_answer(request.message(), rcode.rcode());
+
+        let mut additional = match res {
+            Ok(answer) => answer.additional(),
+            Err(err) => {
+                error!("Failed to create response: {err}");
+                return mk_error_response(
+                    request.message(),
+                    OptRcode::SERVFAIL,
+                );
+            }
+        };
 
         if let Some(Ok(client_cookie)) = Self::cookie(request) {
             let response_cookie = client_cookie.create_response(
