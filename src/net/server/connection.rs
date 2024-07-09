@@ -754,7 +754,7 @@ where
                             while let Some(Ok(call_result)) =
                                 stream.next().await
                             {
-trace!("Processing service call result for request id {request_id}");
+                                trace!("Processing service call result for request id {request_id}");
                                 let (response, feedback) =
                                     call_result.into_inner();
 

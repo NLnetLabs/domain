@@ -316,7 +316,7 @@ impl Key {
             + 2 // Original ID
             + 2 // Error
             + 2; // Other Len
-          //+ 0; // Other Data (assume a successful response)
+                 //+ 0; // Other Data (assume a successful response)
 
         let rr_len = self.name().compose_len()
             + 2 // TYPE

@@ -244,7 +244,10 @@ where
     /// to this message.
     pub fn reserve_bytes(&mut self, len: u16) {
         self.num_reserved_bytes += len;
-        tracing::trace!("Reserved {len} bytes: total now = {}", self.num_reserved_bytes);
+        tracing::trace!(
+            "Reserved {len} bytes: total now = {}",
+            self.num_reserved_bytes
+        );
     }
 
     /// The number of bytes to reserve when generating a response to this

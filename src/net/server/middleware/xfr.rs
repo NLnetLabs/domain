@@ -1356,7 +1356,6 @@ where
             //     // allows, pass it back to the caller to process.
             //     Ok(PushResult::PushedAndLimitReached(answer))
             // }
-
             Err(_) if ancount > 0 => {
                 // Push failed because the message is full, pass it back to
                 // the caller to process.
