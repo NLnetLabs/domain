@@ -2432,6 +2432,7 @@ mod test {
         assert_eq!(rr.data(), &A::from_octets(192, 0, 2, 1));
     }
 
+    #[cfg(feature = "heapless")]
     #[test]
     fn exceed_limits() {
         // Create a limited message builder.
