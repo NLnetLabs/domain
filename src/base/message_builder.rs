@@ -421,7 +421,7 @@ impl<Target> MessageBuilder<Target> {
     ///
     /// This message is atop the octets slices derived from the builder, so
     /// it can be created cheaply.
-    pub fn as_message(&self) -> Message<&[u8]>
+    pub fn as_message(&self) -> Message<&[u8]>git
     where
         Target: AsRef<[u8]>,
     {
@@ -448,7 +448,7 @@ impl<Target: Composer> MessageBuilder<Target> {
         let new_pos = self.target.as_ref().len();
         if new_pos >= self.limit {
             self.target.truncate(pos);
-            return Err(PushError::ShortBuf);
+            return Err(PushError::LimitExceeded);
         }
 
         if inc(self.counts_mut()).is_err() {
@@ -2332,6 +2332,7 @@ impl<Target: Composer> Truncate for TreeCompressor<Target> {
 #[derive(Clone, Copy, Debug)]
 pub enum PushError {
     CountOverflow,
+    LimitedExceeded,
     ShortBuf,
 }
 
@@ -2345,6 +2346,7 @@ impl fmt::Display for PushError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
             PushError::CountOverflow => f.write_str("counter overflow"),
+            PushError::LimitExceeded => f.write_str("limit exceeded"),
             PushError::ShortBuf => ShortBuf.fmt(f),
         }
     }
@@ -2451,7 +2453,10 @@ mod test {
         msg.set_push_limit(25);
 
         // Verify that push fails.
-        assert!(msg.push(|t| t.append_slice(&[0u8; 1]), |_| Ok(())).is_err());
+        assert!(matches!(
+            msg.push(|t| t.append_slice(&[0u8; 1]), |_| Ok(())),
+            Err(PushError::LimitExceeded)
+        ));
         assert_eq!(msg.as_slice().len(), hdr_len + 50);
 
         // Remove the limit.
@@ -2464,7 +2469,10 @@ mod test {
         assert_eq!(msg.as_slice().len(), 100);
 
         // Verify that exceeding the underlying capacity limit fails.
-        assert!(msg.push(|t| t.append_slice(&[0u8; 1]), |_| Ok(())).is_err());
+        assert!(matches!(
+            msg.push(|t| t.append_slice(&[0u8; 1]), |_| Ok(())),
+            Err(PushError::ShortBuf)
+        ));
         assert_eq!(msg.as_slice().len(), 100);
     }
 
