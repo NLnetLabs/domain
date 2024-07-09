@@ -6,6 +6,8 @@ Breaking changes
 
 New
 
+* Added an optional push size limit to `MessageBuilder`. ([#348])
+
 Bug fixes
 
 * Fixed a mistake in the tsig module while calculating the start of
@@ -31,6 +33,7 @@ Other changes
 [#333]: https://github.com/NLnetLabs/domain/pull/333
 [#336]: https://github.com/NLnetLabs/domain/pull/336
 [#338]: https://github.com/NLnetLabs/domain/pull/338
+[#348]: https://github.com/NLnetLabs/domain/pull/348
 
 ## 0.10.1
 
