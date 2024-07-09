@@ -177,7 +177,7 @@ impl WritableZone for WriteZone {
                 let new_soa_shared_rrset =
                     SharedRrset::new(new_soa_shared_rrset);
 
-                let diff = arc_into_inner(diff).unwrap();
+                let diff = Arc::try_unwrap(diff).unwrap();
                 let mut diff = Mutex::into_inner(diff).unwrap();
                 diff.start_serial = Some(old_soa.serial());
                 diff.end_serial = Some(new_soa.serial());
@@ -210,57 +210,6 @@ impl WritableZone for WriteZone {
 
         Box::pin(ready(Ok(out_diff)))
     }
-}
-
-#[rustversion::since(1.70.0)]
-fn arc_into_inner(this: Arc<Mutex<ZoneDiff>>) -> Option<Mutex<ZoneDiff>> {
-    #[allow(clippy::incompatible_msrv)]
-    Arc::into_inner(this)
-}
-
-// Taken from: https://github.com/rust-lang/rust/blob/129f3b9964af4d4a709d1383930ade12dfe7c081/library/alloc/src/sync.rs#L63
-#[rustversion::before(1.70.0)]
-macro_rules! acquire {
-    ($x:expr) => {
-        atomic::fence(std::sync::atomic::Ordering::Acquire)
-    };
-}
-
-// Taken from: https://github.com/rust-lang/rust/blob/129f3b9964af4d4a709d1383930ade12dfe7c081/library/alloc/src/sync.rs#L1086
-#[rustversion::before(1.70.0)]
-fn arc_into_inner(this: Arc<Mutex<ZoneDiff>>) -> Option<Mutex<ZoneDiff>> {
-    // Make sure that the ordinary `Drop` implementation isn’t called as well
-    let mut this = std::mem::ManuallyDrop::new(this);
-
-    // Following the implementation of `drop` and `drop_slow`
-    if this
-        .inner()
-        .strong
-        .fetch_sub(1, std::sync::atomic::Ordering::Release)
-        != 1
-    {
-        return None;
-    }
-
-    acquire!(this.inner().strong);
-
-    // SAFETY: This mirrors the line
-    //
-    //     unsafe { ptr::drop_in_place(Self::get_mut_unchecked(self)) };
-    //
-    // in `drop_slow`. Instead of dropping the value behind the pointer,
-    // it is read and eventually returned; `ptr::read` has the same
-    // safety conditions as `ptr::drop_in_place`.
-
-    let inner = unsafe { ptr::read(Self::get_mut_unchecked(&mut this)) };
-    let alloc = unsafe { ptr::read(&this.alloc) };
-
-    drop(Weak {
-        ptr: this.ptr,
-        alloc,
-    });
-
-    Some(inner)
 }
 
 //------------ WriteNode ------------------------------------------------------
