@@ -953,6 +953,25 @@ impl<K: AsRef<Key>> ServerSequence<K> {
     }
 }
 
+//--- From
+
+/// Convert an unused [`ServerTransaction`] to a [`ServerSequence`]
+///
+/// If [`ServerTransaction::request()`] was used to verify a TSIG signed
+/// request but then you need to sign multiple responses,
+/// [`ServerTransaction`] will not suffice as it can only sign a single
+/// response. To resolve this you can use this function to convert the
+/// [`ServerTransaction`] to a [`ServerSequence`] which can be used to sign
+/// multiple responses.
+impl<K> From<ServerTransaction<K>> for ServerSequence<K> {
+    fn from(txn: ServerTransaction<K>) -> Self {
+        Self {
+            context: txn.context,
+            first: true,
+        }
+    }
+}
+
 //------------ SigningContext ------------------------------------------------
 
 /// A TSIG signing context.
