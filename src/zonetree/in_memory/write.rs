@@ -177,7 +177,7 @@ impl WritableZone for WriteZone {
                 let new_soa_shared_rrset =
                     SharedRrset::new(new_soa_shared_rrset);
 
-                let diff = Arc::try_unwrap(diff).unwrap();
+                let diff = arc_into_inner(diff).unwrap();
                 let mut diff = Mutex::into_inner(diff).unwrap();
                 diff.start_serial = Some(old_soa.serial());
                 diff.end_serial = Some(new_soa.serial());
@@ -210,6 +210,31 @@ impl WritableZone for WriteZone {
 
         Box::pin(ready(Ok(out_diff)))
     }
+}
+
+#[rustversion::since(1.70.0)]
+fn arc_into_inner(this: Arc<Mutex<ZoneDiff>>) -> Option<Mutex<ZoneDiff>> {
+    #[allow(clippy::incompatible_msrv)]
+    Arc::into_inner(this)
+}
+
+#[rustversion::before(1.70.0)]
+fn arc_into_inner(this: Arc<Mutex<ZoneDiff>>) -> Option<Mutex<ZoneDiff>> {
+    // From: https://doc.rust-lang.org/std/sync/struct.Arc.html#method.into_inner
+    //
+    // "If Arc::into_inner is called on every clone of this Arc, it is
+    // guaranteed that exactly one of the calls returns the inner value. This
+    // means in particular that the inner value is not dropped.
+    //
+    // Arc::try_unwrap is conceptually similar to Arc::into_inner, but it is
+    // meant for different use-cases. If used as a direct replacement for
+    // Arc::into_inner anyway, such as with the expression
+    // Arc::try_unwrap(this).ok(), then it does not give the same guarantee as
+    // described in the previous paragraph. For more information, see the
+    // examples below and read the documentation of Arc::try_unwrap."
+    //
+    // In our case there is no other thread trying to unwrap the value.
+    Arc::try_unwrap(this).ok()
 }
 
 //------------ WriteNode ------------------------------------------------------
