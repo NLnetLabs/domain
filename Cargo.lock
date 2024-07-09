@@ -248,7 +248,6 @@ dependencies = [
  "ring",
  "rstest",
  "rustls-pemfile",
- "rustversion",
  "serde",
  "serde_json",
  "serde_test",
@@ -962,17 +961,6 @@ dependencies = [
  "ring",
  "rustls-pki-types",
  "untrusted",
-]
-
-[[package]]
-name = "rustversion"
-version = "1.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c48f91977f4ef3be5358c15d131d3f663f6b4d7a112555bf3bf52ad23b6659e5"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 1.0.96",
 ]
 
 [[package]]
