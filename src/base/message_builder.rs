@@ -421,7 +421,7 @@ impl<Target> MessageBuilder<Target> {
     ///
     /// This message is atop the octets slices derived from the builder, so
     /// it can be created cheaply.
-    pub fn as_message(&self) -> Message<&[u8]>git
+    pub fn as_message(&self) -> Message<&[u8]>
     where
         Target: AsRef<[u8]>,
     {
@@ -2332,7 +2332,7 @@ impl<Target: Composer> Truncate for TreeCompressor<Target> {
 #[derive(Clone, Copy, Debug)]
 pub enum PushError {
     CountOverflow,
-    LimitedExceeded,
+    LimitExceeded,
     ShortBuf,
 }
 
