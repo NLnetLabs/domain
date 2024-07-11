@@ -101,7 +101,22 @@ impl ReadZone {
                 answer
             }
             Some(Special::NxDomain) => NodeAnswer::nx_domain(),
-            Some(Special::Cname(_)) | None => self.query_children(
+            Some(Special::Cname(cname)) => {
+                if walk.enabled() {
+                    let mut rrset = Rrset::new(Rtype::CNAME, cname.ttl());
+                    rrset.push_data(cname.data().clone());
+                    walk.op(&SharedRrset::new(rrset));
+                }
+
+                self.query_children(
+                    node.children(),
+                    label,
+                    qname,
+                    qtype,
+                    walk,
+                )
+            }
+            None => self.query_children(
                 node.children(),
                 label,
                 qname,
