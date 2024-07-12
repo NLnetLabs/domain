@@ -44,7 +44,7 @@ use domain::net::server::middleware::processors::cookies::CookiesMiddlewareProce
 use domain::net::server::middleware::processors::mandatory::MandatoryMiddlewareProcessor;
 use domain::net::server::query_router::QueryRouter;
 use domain::net::server::service::{
-    CallResult, Service, ServiceError, ServiceFeedback, Transaction,
+    CallResult, ServiceError, ServiceFeedback, Transaction,
 };
 use domain::net::server::sock::AsyncAccept;
 use domain::net::server::sr_service::ReplyMessage;
@@ -77,30 +77,6 @@ where
 }
 
 //----------- Example Service trait implementations --------------------------
-
-//--- MyService
-
-struct MyService;
-
-/// This example shows how to implement the [`Service`] trait directly.
-///
-/// See [`query`] and [`name_to_ip`] for ways of implementing the [`Service`]
-/// trait for a function instead of a struct.
-impl Service<Vec<u8>> for MyService {
-    type Target = Vec<u8>;
-    type Future = Ready<Result<CallResult<Self::Target>, ServiceError>>;
-
-    fn call(
-        &self,
-        request: Request<Vec<u8>>,
-    ) -> Result<Transaction<Self::Target, Self::Future>, ServiceError> {
-        let builder = mk_builder_for_target();
-        let additional = mk_answer(&request, builder)?;
-        let item = ready(Ok(CallResult::new(additional)));
-        let txn = Transaction::single(item);
-        Ok(txn)
-    }
-}
 
 //--- name_to_ip()
 
