@@ -265,7 +265,7 @@ impl ClientFactory for SingleClientFactory {
 
 pub struct PerClientAddressClientFactory<F, S>
 where
-    F: Fn(&IpAddr) -> Box<dyn SendRequest<RequestMessage<Vec<u8>>>>,
+    F: Fn(&IpAddr, &Entry) -> Box<dyn SendRequest<RequestMessage<Vec<u8>>>>,
     S: Fn(&Entry) -> bool,
 {
     clients_by_address:
@@ -276,7 +276,7 @@ where
 
 impl<F, S> PerClientAddressClientFactory<F, S>
 where
-    F: Fn(&IpAddr) -> Box<dyn SendRequest<RequestMessage<Vec<u8>>>>,
+    F: Fn(&IpAddr, &Entry) -> Box<dyn SendRequest<RequestMessage<Vec<u8>>>>,
     S: Fn(&Entry) -> bool,
 {
     pub fn new(factory_func: F, is_suitable_func: S) -> Self {
@@ -290,7 +290,7 @@ where
 
 impl<F, S> ClientFactory for PerClientAddressClientFactory<F, S>
 where
-    F: Fn(&IpAddr) -> Box<dyn SendRequest<RequestMessage<Vec<u8>>>>,
+    F: Fn(&IpAddr, &Entry) -> Box<dyn SendRequest<RequestMessage<Vec<u8>>>>,
     S: Fn(&Entry) -> bool,
 {
     fn get(
@@ -304,7 +304,9 @@ where
         let client = self
             .clients_by_address
             .entry(client_addr)
-            .or_insert_with_key(|addr| Rc::new((self.factory_func)(addr)))
+            .or_insert_with_key(|addr| {
+                Rc::new((self.factory_func)(addr, entry))
+            })
             .clone();
 
         Box::pin(ready(Dispatcher::with_rc_boxed_client(client)))

@@ -184,7 +184,9 @@ where
                                                 Error::Authentication(err)
                                             })?;
                                     }
-                                    _ => unreachable!(),
+                                    _ => {
+                                        // Unsigned, nothing to do
+                                    }
                                 }
                             }
 
@@ -251,9 +253,9 @@ where
             }
 
             RequestState::GetResponse(ref mut request, tsig_client) => {
-                let client = tsig_client.lock().unwrap().take().unwrap();
-
-                if let TsigClient::Sequence(client) = client {
+                if let Some(TsigClient::Sequence(client)) =
+                    tsig_client.lock().unwrap().take()
+                {
                     trace!("Completing TSIG sequence");
                     client.done().map_err(Error::Authentication)?;
                     request.stream_complete()?;
@@ -319,7 +321,6 @@ where
         &self,
         target: Target,
     ) -> Result<AdditionalBuilder<Target>, CopyRecordsError> {
-        trace!("auth::AuthenticatedRequestMessage<CR>::append_message()");
         let mut target = self.request.append_message(target)?;
 
         if let Some(key) = &self.key {

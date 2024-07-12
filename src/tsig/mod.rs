@@ -877,6 +877,7 @@ impl<K: AsRef<Key>> ClientSequence<K> {
                     [mem::size_of::<HeaderSection>()..tsig.start],
             ),
             &tsig.variables(),
+            true,
         );
         self.context.key().compare_signatures(
             &signature,
@@ -923,6 +924,7 @@ impl<K: AsRef<Key>> ClientSequence<K> {
                     [mem::size_of::<HeaderSection>()..tsig.start],
             ),
             &tsig.variables(),
+            true,
         );
         self.context.key().compare_signatures(
             &signature,
@@ -1036,13 +1038,18 @@ impl<K: AsRef<Key>> ServerSequence<K> {
         let mut mark_subsequent = false;
         let mac = if self.first {
             mark_subsequent = true;
-            self.context
-                .first_answer(message.as_slice(), None, &variables)
+            self.context.first_answer(
+                message.as_slice(),
+                None,
+                &variables,
+                false,
+            )
         } else {
             self.context.signed_subsequent(
                 message.as_slice(),
                 None,
                 &variables,
+                false,
             )
         };
         let mac = self.key().signature_slice(&mac);
@@ -1365,21 +1372,36 @@ impl<K: AsRef<Key>> SigningContext<K> {
         first: &[u8],
         second: Option<&[u8]>,
         variables: &Variables,
+        client_mode: bool,
     ) -> hmac::Tag {
-        // Update the old context with message and variables, return signature
-        self.context.update(first);
-        if let Some(second) = second {
-            self.context.update(second)
+        if client_mode {
+            // Replace current context with new context.
+            let mut context = self.key().signing_context();
+            mem::swap(&mut self.context, &mut context);
+
+            // Update the old context with message and variables, return signature
+            context.update(first);
+            if let Some(second) = second {
+                context.update(second)
+            }
+            variables.sign(self.key.as_ref(), &mut context);
+            context.sign()
+        } else {
+            // Update the old context with message and variables, return signature
+            self.context.update(first);
+            if let Some(second) = second {
+                self.context.update(second)
+            }
+            variables.sign(self.key.as_ref(), &mut self.context);
+
+            // Replace current context with new context.
+            let mut context = self.key().signing_context();
+            mem::swap(&mut self.context, &mut context);
+
+            let mac = context.sign();
+            self.apply_signature(mac.as_ref());
+            mac
         }
-        variables.sign(self.key.as_ref(), &mut self.context);
-
-        // Replace current context with new context.
-        let mut context = self.key().signing_context();
-        mem::swap(&mut self.context, &mut context);
-
-        let mac = context.sign();
-        self.apply_signature(mac.as_ref());
-        mac
     }
 
     /// Applies the content of an unsigned message to the context.
@@ -1395,21 +1417,36 @@ impl<K: AsRef<Key>> SigningContext<K> {
         first: &[u8],
         second: Option<&[u8]>,
         variables: &Variables,
+        client_mode: bool,
     ) -> hmac::Tag {
-        // Update the old context with message and timers, return signature
-        self.context.update(first);
-        if let Some(second) = second {
-            self.context.update(second)
+        if client_mode {
+            // Replace current context with new context.
+            let mut context = self.key().signing_context();
+            mem::swap(&mut self.context, &mut context);
+
+            // Update the old context with message and timers, return signature
+            context.update(first);
+            if let Some(second) = second {
+                context.update(second)
+            }
+            variables.sign_timers(&mut context);
+            context.sign()
+        } else {
+            // Update the old context with message and timers, return signature
+            self.context.update(first);
+            if let Some(second) = second {
+                self.context.update(second)
+            }
+            variables.sign_timers(&mut self.context);
+
+            // Replace current context with new context.
+            let mut context = self.key().signing_context();
+            mem::swap(&mut self.context, &mut context);
+
+            let mac = context.sign();
+            self.apply_signature(mac.as_ref());
+            mac
         }
-        variables.sign_timers(&mut self.context);
-
-        // Replace current context with new context.
-        let mut context = self.key().signing_context();
-        mem::swap(&mut self.context, &mut context);
-
-        let mac = context.sign();
-        self.apply_signature(mac.as_ref());
-        mac
     }
 }
 

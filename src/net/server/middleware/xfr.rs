@@ -84,7 +84,7 @@ pub enum XfrMode {
 /// [1995]: https://datatracker.ietf.org/doc/html/rfc1995
 /// [5936]: https://datatracker.ietf.org/doc/html/rfc5936
 #[derive(Clone, Debug)]
-pub struct XfrMiddlewareSvc<RequestOctets, NextSvc, KS> {
+pub struct XfrMiddlewareSvc<RequestOctets, NextSvc, KS: Default> {
     next_svc: NextSvc,
 
     catalog: Arc<Catalog<KS>>,
@@ -98,8 +98,9 @@ pub struct XfrMiddlewareSvc<RequestOctets, NextSvc, KS> {
     _phantom: PhantomData<RequestOctets>,
 }
 
-impl<RequestOctets, NextSvc, KS>
-    XfrMiddlewareSvc<RequestOctets, NextSvc, KS>
+impl<RequestOctets, NextSvc, KS> XfrMiddlewareSvc<RequestOctets, NextSvc, KS>
+where
+    KS: Default,
 {
     /// Creates an empty processor instance.
     ///
@@ -136,7 +137,7 @@ where
     NextSvc::Future: Send + Sync + Unpin,
     NextSvc::Target: Composer + Default + Send + Sync,
     NextSvc::Stream: Send + Sync,
-    KS: KeyStore + Clone + Send + Sync + 'static,
+    KS: KeyStore + Clone + Default + Send + Sync + 'static,
     KS::Key: Send + Sync + 'static,
 {
     async fn preprocess<T>(
@@ -593,14 +594,13 @@ where
                 unreachable!();
             };
 
-            let (mut owner, mut zone_soa_rrset) =
-                batcher_rx.recv().await.unwrap();
-            assert_eq!(zone_soa_rrset.rtype(), Rtype::SOA);
-            let saved_soa_rrset = zone_soa_rrset.clone();
+            let (mut owner, zone_rrset) = batcher_rx.recv().await.unwrap();
+            assert_eq!(zone_rrset.rtype(), Rtype::SOA);
+            let saved_soa_rrset = zone_rrset.clone();
             let mut soa_seen_count = 0;
 
-            let mut current_rrset = zone_soa_rrset;
-            let mut records_to_process = current_rrset.data();
+            let mut current_rrset = zone_rrset;
+            let mut rrset_to_process = current_rrset.data();
 
             // Note: NSD apparently uses name compresson on AXFR responses
             // because AXFR responses they typically contain lots of
@@ -624,18 +624,25 @@ where
             // Loop until all of the RRsets sent by the zone walker have been
             // pushed into DNS response messages and sent into the result
             // stream.
+            let mut rrset_progress = 0;
             'outer: loop {
                 // Loop over the RRset items being sent by the zone walker and
                 // add as many of them as possible to the response being
                 // built.
 
-                let mut num_rrs_added = 0;
                 let builder = 'inner: loop {
-                    if records_to_process == saved_soa_rrset.data() {
+                    if rrset_to_process == saved_soa_rrset.data() {
                         soa_seen_count += 1;
                     }
 
-                    for rr in records_to_process {
+                    for rr in rrset_to_process {
+                        trace!(
+                            "Adding [{}/{}] {owner} {qclass} {} {:?} {rr} to batch",
+                            rrset_progress+1,
+                            rrset_to_process.len(),
+                            current_rrset.rtype(),
+                            current_rrset.ttl()
+                        );
                         let res = batcher.push((
                             owner.clone(),
                             qclass,
@@ -646,14 +653,14 @@ where
                         match res {
                             Ok(PushResult::PushedAndReadyForMore) => {
                                 // Message still has space, keep going.
-                                num_rrs_added += 1;
+                                rrset_progress += 1;
                             }
 
                             Ok(PushResult::PushedAndLimitReached(
                                 builder,
                             )) => {
                                 // Pushed and configured limit reached, send it.
-                                num_rrs_added += 1;
+                                rrset_progress += 1;
                                 trace!("Pushed and limit reached");
                                 break 'inner Some(builder);
                             }
@@ -678,9 +685,21 @@ where
                         break 'inner batcher.take();
                     } else {
                         // Fetch more RRsets to add to the message.
-                        (owner, current_rrset) =
-                            batcher_rx.recv().await.unwrap();
-                        records_to_process = current_rrset.data();
+                        let Some((new_owner, new_rrset)) =
+                            batcher_rx.recv().await
+                        else {
+                            trace!("Fetch failed");
+                            let mut additional =
+                                mk_error_response(&msg, OptRcode::SERVFAIL);
+                            Self::set_axfr_header(&msg, &mut additional);
+                            let call_result = Ok(CallResult::new(additional));
+                            trace!("Sending");
+                            sender.send(call_result).unwrap(); // TODO: Handle this Result
+                            break 'outer;
+                        };
+                        (owner, current_rrset) = (new_owner, new_rrset);
+                        rrset_to_process = current_rrset.data();
+                        rrset_progress = 0;
                     }
                 };
 
@@ -696,20 +715,22 @@ where
                     }
                 }
 
-                if (num_rrs_added as usize) < records_to_process.len() {
+                if rrset_progress < rrset_to_process.len() {
+                    trace!("Current RRSET not yet fully batched ({} RRs remain), continuing..", rrset_to_process.len()-rrset_progress);
                     // Some RRs from the current RRset didn't fit in the last
                     // message, process these before fetching another RRset
                     // from the incoming queue.
-                    records_to_process =
-                        &current_rrset.data()[(num_rrs_added as usize)..];
+                    rrset_to_process = &rrset_to_process[rrset_progress..];
+                    rrset_progress = 0;
                 } else if soa_seen_count == 2 {
                     trace!("SOA seen count == 2, really stopping");
                     break;
                 } else {
                     // Fetch more RRsets to add to the message from the incoming queue.
                     trace!("Fetching more records");
-                    let res = batcher_rx.recv().await;
-                    if res.is_none() {
+                    let Some((new_owner, new_rrset)) =
+                        batcher_rx.recv().await
+                    else {
                         trace!("Fetch failed");
                         let mut additional =
                             mk_error_response(&msg, OptRcode::SERVFAIL);
@@ -719,8 +740,9 @@ where
                         sender.send(call_result).unwrap(); // TODO: Handle this Result
                         break 'outer;
                     };
-                    (owner, zone_soa_rrset) = res.unwrap();
-                    records_to_process = zone_soa_rrset.data();
+                    (owner, current_rrset) = (new_owner, new_rrset);
+                    rrset_to_process = current_rrset.data();
+                    rrset_progress = 0;
                 }
             }
 
@@ -1185,7 +1207,7 @@ where
     NextSvc::Future: Send + Sync + Unpin,
     NextSvc::Target: Composer + Default + Send + Sync,
     NextSvc::Stream: Send + Sync,
-    KS: KeyStore + Clone + Send + Sync + 'static,
+    KS: KeyStore + Clone + Default + Send + Sync + 'static,
     KS::Key: Send + Sync,
 {
     type Target = NextSvc::Target;
@@ -1239,7 +1261,7 @@ where
     NextSvc::Future: Send + Sync + Unpin,
     NextSvc::Target: Composer + Default + Send + Sync,
     NextSvc::Stream: Send + Sync,
-    KS: KeyStore + Clone + Send + Sync + 'static,
+    KS: KeyStore + Clone + Default + Send + Sync + 'static,
     KS::Key: Send + Sync,
 {
     type Target = NextSvc::Target;

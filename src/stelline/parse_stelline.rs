@@ -9,6 +9,7 @@ use std::vec::Vec;
 use bytes::Bytes;
 
 use crate::base;
+use crate::tsig::KeyName;
 use crate::utils::base16;
 use crate::zonefile::inplace::Entry as ZonefileEntry;
 use crate::zonefile::inplace::Zonefile;
@@ -19,6 +20,7 @@ const SCENARIO_END: &str = "SCENARIO_END";
 const RANGE_BEGIN: &str = "RANGE_BEGIN";
 const RANGE_END: &str = "RANGE_END";
 const ADDRESS: &str = "ADDRESS";
+const KEY: &str = "KEY";
 const ENTRY_BEGIN: &str = "ENTRY_BEGIN";
 const ENTRY_END: &str = "ENTRY_END";
 const MATCH: &str = "MATCH";
@@ -231,6 +233,7 @@ fn parse_step<Lines: Iterator<Item = Result<String, std::io::Error>>>(
     l: &mut Lines,
 ) -> Step {
     let mut step_client_address = None;
+    let mut step_key_name = None;
     let step_value = tokens.next().unwrap().parse::<u64>().unwrap();
     let step_type_str = tokens.next().unwrap();
     let step_type = if step_type_str == STEP_TYPE_QUERY {
@@ -263,6 +266,10 @@ fn parse_step<Lines: Iterator<Item = Result<String, std::io::Error>>>(
                 match (param, value) {
                     (Some(ADDRESS), Some(addr)) => {
                         step_client_address = Some(addr.parse().unwrap());
+                    }
+                    (Some(KEY), Some(key_name)) => {
+                        step_key_name =
+                            Some(KeyName::from_str(key_name).unwrap());
                     }
                     (Some(param), Some(value)) => {
                         eprintln!("Ignoring unknown query parameter '{param}' with value '{value}'");
@@ -320,7 +327,9 @@ fn parse_step<Lines: Iterator<Item = Result<String, std::io::Error>>>(
         let token = tokens.next().unwrap();
         if token == ENTRY_BEGIN {
             step.entry = Some(parse_entry(l));
-            step.entry.as_mut().unwrap().client_addr = step_client_address;
+            let entry = step.entry.as_mut().unwrap();
+            entry.client_addr = step_client_address;
+            entry.key_name = step_key_name;
             //println!("parse_step: {:?}", step);
             return step;
         }
@@ -331,6 +340,7 @@ fn parse_step<Lines: Iterator<Item = Result<String, std::io::Error>>>(
 #[derive(Clone, Debug, Default)]
 pub struct Entry {
     pub client_addr: Option<IpAddr>,
+    pub key_name: Option<KeyName>,
     pub matches: Option<Matches>,
     pub adjust: Option<Adjust>,
     pub reply: Option<Reply>,
@@ -340,13 +350,7 @@ pub struct Entry {
 fn parse_entry<Lines: Iterator<Item = Result<String, std::io::Error>>>(
     l: &mut Lines,
 ) -> Entry {
-    let mut entry = Entry {
-        client_addr: None,
-        matches: None,
-        adjust: None,
-        reply: None,
-        sections: None,
-    };
+    let mut entry = Entry::default();
     loop {
         let line = l.next().unwrap().unwrap();
         let clean_line = get_clean_line(line.as_ref());
@@ -424,6 +428,7 @@ fn parse_section<Lines: Iterator<Item = Result<String, std::io::Error>>>(
     let mut sections = Sections::default();
     let next = tokens.next().unwrap();
     let mut answer_idx = 0;
+    let mut origin = ".".to_string();
     let mut section = if next == QUESTION {
         Section::Question
     } else {
@@ -452,6 +457,7 @@ fn parse_section<Lines: Iterator<Item = Result<String, std::io::Error>>>(
             } else {
                 panic!("Bad section {next}");
             };
+            origin = ".".to_string();
             continue;
         }
         if token == ENTRY_END {
@@ -492,9 +498,16 @@ fn parse_section<Lines: Iterator<Item = Result<String, std::io::Error>>>(
                             .edns_bytes
                             .extend(edns_line_bytes);
                     }
+                } else if clean_line.starts_with("$ORIGIN") {
+                    if let Some((_, new_origin)) = clean_line.split_once(' ')
+                    {
+                        origin = new_origin.to_string();
+                    }
                 } else {
                     let mut zonefile = Zonefile::new();
-                    zonefile.extend_from_slice(b"$ORIGIN .\n");
+                    zonefile.extend_from_slice(
+                        format!("$ORIGIN {origin}\n").as_bytes(),
+                    );
                     zonefile.extend_from_slice(b"ignore 3600 in ns ignore\n");
                     zonefile.extend_from_slice(clean_line.as_ref());
                     zonefile.extend_from_slice(b"\n");
@@ -597,7 +610,7 @@ fn parse_match(mut tokens: LineTokens<'_>) -> Matches {
         } else if token == "ttl" {
             matches.ttl = true;
         } else if token == "UDP" {
-            matches.tcp = true;
+            matches.tcp = false;
         } else if token == "server_cookie" {
             matches.server_cookie = true;
         } else if token == "ednsdata" {

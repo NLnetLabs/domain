@@ -1,7 +1,20 @@
 //! The nodes in a zone tree.
 
 use std::boxed::Box;
-use std::collections::{hash_map, HashMap};
+
+// Conditionally use HashMap or BTreeMap in order to guarantee the order of
+// tree walking when in test mode so that Stelline tests that need to know
+// which response RRs will be in which response of a multi-part response have
+// a predictable tree walking order compared to the usual unordered tree
+// walking results. This will be make tree inserts slower, but one shouldn't
+// be doing performance tests against a test build anyway so that shouldn't
+// matter.
+#[cfg(test)]
+// TODO: Use a Stelline specific feature for this, not for all tests?
+use std::collections::{btree_map as col, BTreeMap as Col};
+#[cfg(not(test))]
+use std::collections::{hash_map as col, HashMap as Col};
+
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -230,7 +243,7 @@ impl ZoneNode {
 
 #[derive(Default, Debug)]
 pub struct NodeRrsets {
-    rrsets: RwLock<HashMap<Rtype, NodeRrset>>,
+    rrsets: RwLock<Col<Rtype, NodeRrset>>,
 }
 
 impl NodeRrsets {
@@ -300,15 +313,15 @@ impl NodeRrsets {
 //------------ NodeRrsetIter -------------------------------------------------
 
 pub(super) struct NodeRrsetsIter<'a> {
-    guard: RwLockReadGuard<'a, HashMap<Rtype, NodeRrset>>,
+    guard: RwLockReadGuard<'a, Col<Rtype, NodeRrset>>,
 }
 
 impl<'a> NodeRrsetsIter<'a> {
-    fn new(guard: RwLockReadGuard<'a, HashMap<Rtype, NodeRrset>>) -> Self {
+    fn new(guard: RwLockReadGuard<'a, Col<Rtype, NodeRrset>>) -> Self {
         Self { guard }
     }
 
-    pub fn iter(&self) -> hash_map::Iter<'_, Rtype, NodeRrset> {
+    pub fn iter(&self) -> col::Iter<'_, Rtype, NodeRrset> {
         self.guard.iter()
     }
 }
@@ -356,7 +369,7 @@ pub enum Special {
 
 #[derive(Debug, Default)]
 pub struct NodeChildren {
-    children: RwLock<HashMap<OwnedLabel, Arc<ZoneNode>>>,
+    children: RwLock<Col<OwnedLabel, Arc<ZoneNode>>>,
 }
 
 impl NodeChildren {

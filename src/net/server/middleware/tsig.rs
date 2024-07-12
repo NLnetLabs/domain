@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use futures::stream::{once, Once, Stream};
 use octseq::{Octets, OctetsFrom};
-use tracing::{error, warn};
+use tracing::{error, trace, warn};
 
 use crate::base::iana::{Opcode, OptRcode, Rcode, TsigRcode};
 use crate::base::message_builder::AdditionalBuilder;
@@ -102,6 +102,10 @@ where
 
                 Ok(Some(tsig)) => {
                     // Message is TSIG signed by a known key.
+                    trace!(
+                        "Request is signed with TSIG key '{}'",
+                        tsig.key().name()
+                    );
 
                     // Convert to RequestOctets so that the non-TSIG signed
                     // message case can just pass through the RequestOctets.
@@ -170,11 +174,19 @@ where
                 else {
                     unreachable!()
                 };
+                trace!(
+                    "Signing single response with TSIG key '{}'",
+                    tsig.key().name()
+                );
                 tsig.answer(response, Time48::now())
             }
 
             Some(TsigSigner::Sequence(tsig)) => {
                 // Use the multi-response signer to sign the response.
+                trace!(
+                    "Signing response stream with TSIG key '{}'",
+                    tsig.key().name()
+                );
                 tsig.answer(response, Time48::now())
             }
 

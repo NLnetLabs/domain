@@ -147,7 +147,6 @@ async fn main() {
     let key =
         Key::new(Algorithm::Sha256, &secret, key_name.clone(), None, None)
             .unwrap();
-    let key = Arc::new(key);
     key_store.insert((key_name.clone(), Algorithm::Sha256), key);
     let key_store = Arc::new(key_store);
 

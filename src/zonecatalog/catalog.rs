@@ -42,13 +42,13 @@ use crate::base::net::IpAddr;
 use crate::base::{
     CanonicalOrd, Message, MessageBuilder, Name, Rtype, Serial, ToName, Ttl,
 };
-use crate::net::client::auth::AuthenticatedRequestMessage;
+use crate::net;
 use crate::net::client::dgram::{self, Connection};
 use crate::net::client::protocol::UdpConnect;
 use crate::net::client::request::{
     self, ComposeRequest, RequestMessage, SendRequest,
 };
-use crate::net::client::{auth, stream, xfr};
+use crate::net::client::tsig::AuthenticatedRequestMessage;
 use crate::rdata::{Soa, ZoneRecordData};
 use crate::tsig::{self, Algorithm, Key, KeyName, KeyStore};
 use crate::zonetree::error::{OutOfZone, ZoneTreeModificationError};
@@ -92,7 +92,7 @@ const MIN_DURATION_BETWEEN_ZONE_REFRESHES: tokio::time::Duration =
 //------------ Type Aliases --------------------------------------------------
 
 /// A store of TSIG keys index by key name and algorithm.
-pub type CatalogKeyStore = HashMap<(KeyName, Algorithm), Arc<Key>>;
+pub type CatalogKeyStore = HashMap<(KeyName, Algorithm), Key>;
 
 //------------ Acl -----------------------------------------------------------
 
@@ -920,7 +920,7 @@ enum Event {
 ///
 /// Also capable of acting as an RFC 9432 Catalog Zone producer/consumer.
 #[derive(Debug)]
-pub struct Catalog<KS> {
+pub struct Catalog<KS: Default> {
     // cat_zone: Zone, // TODO
     config: Arc<ArcSwap<Config<KS>>>,
     pending_zones: Arc<RwLock<HashMap<ZoneKey, Zone>>>,
@@ -972,7 +972,7 @@ where
 
 impl<KS> Catalog<KS>
 where
-    KS: Clone,
+    KS: Clone + Default,
 {
     pub fn key_store(&self) -> KS {
         self.config.load().key_store.clone()
@@ -981,9 +981,7 @@ where
 
 impl<KS> Catalog<KS>
 where
-    // KS: KeyStore<Key = Arc<Key>> + Sync + Send + 'static,
-    // KS: Clone + Send + Sync,
-    KS: Deref + Send + Sync + 'static,
+    KS: Default + Deref + Send + Sync + 'static,
     KS::Target: KeyStore,
     <KS::Target as KeyStore>::Key: Clone + Debug + Sync + Send + 'static,
 {
@@ -1422,8 +1420,8 @@ where
 }
 
 impl<KS> Catalog<KS>
-// where
-//     KS: KeyStore,
+where
+    KS: Default,
 {
     /// Wrap a [`Zone`] so that we get notified when it is modified.
     fn wrap_zone(zone: TypedZone, notify_tx: Sender<Event>) -> Zone {
@@ -1448,8 +1446,7 @@ impl<KS> Catalog<KS>
 
 impl<KS> Catalog<KS>
 where
-    // KS: KeyStore<Key = Arc<Key>>,
-    KS: Deref,
+    KS: Default + Deref,
     KS::Target: KeyStore,
     <KS::Target as KeyStore>::Key: Clone + Debug + Sync + Send + 'static,
 {
@@ -1547,13 +1544,17 @@ where
             };
 
             tokio::spawn(async move {
+                // TODO: Use the connection factory here.
                 let udp_connect = UdpConnect::new(nameserver_addr);
                 let client = Connection::with_config(
                     udp_connect,
                     dgram_config.clone(),
                 );
 
-                let client = auth::Connection::new(tsig_key.clone(), client);
+                let client = net::client::tsig::Connection::new(
+                    tsig_key.clone(),
+                    client,
+                );
 
                 trace!("Sending NOTIFY to nameserver {nameserver_addr}");
                 let span =
@@ -2321,7 +2322,8 @@ where
         let msg = msg.into_message();
         let req = RequestMessage::new(msg);
 
-        let client = xfr::Connection::new(zone.clone(), client);
+        let client =
+            net::client::xfr::Connection::new(Some(zone.clone()), client);
         let msg = client.send_request(req).get_response().await?;
 
         if msg.is_error() {
@@ -2592,8 +2594,8 @@ where
 }
 
 impl<KS> Catalog<KS>
-// where
-// KS: KeyStore,
+where
+    KS: Default,
 {
     /// The entire tree of zones managed by this [`Catalog`] instance.
     pub fn zones(&self) -> Arc<ZoneTree> {
@@ -2657,8 +2659,8 @@ impl<KS> Catalog<KS>
 }
 
 impl<KS> Catalog<KS>
-// where
-//     KS: KeyStore,
+where
+    KS: Default,
 {
     fn update_lodaded_arc(&self) {
         *self.loaded_arc.write().unwrap() = self.member_zones.load_full();
@@ -2979,10 +2981,12 @@ pub enum Conn<S, K>
 where
     S: Send + Sync,
 {
-    Udp(auth::Connection<dgram::Connection<UdpConnect>, K>),
+    Udp(net::client::tsig::Connection<dgram::Connection<UdpConnect>, K>),
     Tcp(
-        auth::Connection<
-            stream::Connection<AuthenticatedRequestMessage<S, K>>,
+        net::client::tsig::Connection<
+            net::client::stream::Connection<
+                AuthenticatedRequestMessage<S, K>,
+            >,
             K,
         >,
     ),
@@ -3031,13 +3035,15 @@ impl ConnFactory {
                 let client =
                     dgram::Connection::with_config(udp_connect, dgram_config);
 
-                Ok(Some(Conn::Udp(auth::Connection::new(key, client))))
+                Ok(Some(Conn::Udp(net::client::tsig::Connection::new(
+                    key, client,
+                ))))
             }
 
             TransportStrategy::Tcp => {
                 let tcp_stream = TcpStream::connect(dest).await?;
 
-                let mut stream_config = stream::Config::new();
+                let mut stream_config = net::client::stream::Config::new();
                 stream_config.set_response_timeout(Duration::from_secs(2));
                 // Allow time between the SOA query response and sending the
                 // AXFR/IXFR request.
@@ -3046,17 +3052,20 @@ impl ConnFactory {
                 // Allow much more time for an XFR streaming response.
                 stream_config
                     .set_streaming_response_timeout(Duration::from_secs(30));
-                let (client, transport) = stream::Connection::with_config(
-                    tcp_stream,
-                    stream_config,
-                );
+                let (client, transport) =
+                    net::client::stream::Connection::with_config(
+                        tcp_stream,
+                        stream_config,
+                    );
 
                 tokio::spawn(async move {
                     transport.run().await;
                     trace!("TCP connection terminated");
                 });
 
-                Ok(Some(Conn::Tcp(auth::Connection::new(key, client))))
+                Ok(Some(Conn::Tcp(net::client::tsig::Connection::new(
+                    key, client,
+                ))))
             }
         }
     }

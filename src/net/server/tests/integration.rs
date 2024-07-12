@@ -9,16 +9,20 @@ use std::sync::Arc;
 use std::time::Duration;
 use std::vec::Vec;
 
+use ring::rand::SystemRandom;
 use rstest::rstest;
-use tracing::instrument;
+use tokio::io::{AsyncRead, AsyncWrite};
 use tracing::warn;
+use tracing::{instrument, trace};
 
 use crate::base::iana::Class;
 use crate::base::iana::Rcode;
 use crate::base::name::{Name, ToName};
 use crate::base::net::IpAddr;
 use crate::base::wire::Composer;
-use crate::net::client::{dgram, stream};
+use crate::net::client::dgram::Connection;
+use crate::net::client::request::ComposeRequest;
+use crate::net::client::{dgram, stream, tsig, xfr};
 use crate::net::server;
 use crate::net::server::buf::VecBufSource;
 use crate::net::server::dgram::DgramServer;
@@ -26,6 +30,8 @@ use crate::net::server::message::Request;
 use crate::net::server::middleware::cookies::CookiesMiddlewareSvc;
 use crate::net::server::middleware::edns::EdnsMiddlewareSvc;
 use crate::net::server::middleware::mandatory::MandatoryMiddlewareSvc;
+use crate::net::server::middleware::notify::NotifyMiddlewareSvc;
+use crate::net::server::middleware::tsig::TsigMiddlewareSvc;
 use crate::net::server::middleware::xfr::{XfrMiddlewareSvc, XfrMode};
 use crate::net::server::service::{CallResult, Service, ServiceResult};
 use crate::net::server::stream::StreamServer;
@@ -36,8 +42,9 @@ use crate::stelline::client::{
     QueryTailoredClientFactory,
 };
 use crate::stelline::parse_stelline::{self, parse_file, Config, Matches};
-use crate::tsig::{Algorithm, KeyName};
+use crate::tsig::{Algorithm, Key, KeyName, KeyStore};
 use crate::utils::base16;
+use crate::zonecatalog::catalog;
 use crate::zonecatalog::catalog::CatalogKeyStore;
 use crate::zonecatalog::catalog::{
     Acl, Catalog, CompatibilityMode, TransportStrategy, TypedZone, XfrAcl,
@@ -47,28 +54,22 @@ use crate::zonefile::inplace::Zonefile;
 use crate::zonetree::Answer;
 use crate::zonetree::{Zone, ZoneBuilder};
 
+const MAX_XFR_CONCURRENCY: usize = 1;
+
 //----------- Tests ----------------------------------------------------------
 
-/// Stelline test cases for which the .rpl file defines a server: config block.
+/// Stelline test cases for which the .rpl file defines a server: config
+/// block.
 ///
 /// Note: Adding or removing .rpl files on disk won't be detected until the
 /// test is re-compiled.
-// #[cfg(feature = "mock-time")] # Needed for the cookies test but that is
-// currently disabled by renaming it to .rpl.not.
 #[instrument(skip_all, fields(rpl = rpl_file.file_name().unwrap().to_str()))]
 #[rstest]
 #[tokio::test(start_paused = true)]
 async fn server_tests(#[files("test-data/server/*.rpl")] rpl_file: PathBuf) {
-    // Load the test .rpl file that determines which queries will be sent
-    // and which responses will be expected, and how the server that
-    // answers them should be configured.
-
     // Initialize tracing based logging. Override with env var RUST_LOG, e.g.
     // RUST_LOG=trace. DEBUG level will show the .rpl file name, Stelline step
     // numbers and types as they are being executed.
-
-    use crate::zonecatalog::catalog;
-
     tracing_subscriber::fmt()
         .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
         .with_thread_ids(true)
@@ -76,20 +77,40 @@ async fn server_tests(#[files("test-data/server/*.rpl")] rpl_file: PathBuf) {
         .try_init()
         .ok();
 
+    // Load the test .rpl file that determines which queries will be sent
+    // and which responses will be expected, and how the server that
+    // answers them should be configured.
     let file = File::open(&rpl_file).unwrap();
     let stelline = parse_file(&file, rpl_file.to_str().unwrap());
     let server_config = parse_server_config(&stelline.config);
 
-    // Create a service to answer queries received by the DNS servers.
-    let key_store = Arc::new(CatalogKeyStore::new());
-    let catalog_config = catalog::Config::new(key_store);
+    // Create a TSIG key store containing a 'TESTKEY'
+    let mut key_store = CatalogKeyStore::new();
+    let key_name = KeyName::from_str("TESTKEY").unwrap();
+    let rng = SystemRandom::new();
+    let (key, _) =
+        Key::generate(Algorithm::Sha256, &rng, key_name.clone(), None, None)
+            .unwrap();
+    key_store.insert((key_name, Algorithm::Sha256), key);
+    let key_store = Arc::new(key_store);
+
+    // Create a zone catalog. For now this is only used by the service to
+    // query zones, and for XFR-in testing. In future it could also be used
+    // with XFR-out and NOTIFY-in/out testing.
+    let catalog_config = catalog::Config::new(key_store.clone());
     let catalog = Catalog::new_with_config(catalog_config);
     let catalog = Arc::new(catalog);
 
+    // Build and insert the test defined zone, if any, into the zone catalog
     if let Some(zone_config) = &server_config.zone {
         let zone = match &zone_config.zone_file {
-            Some(zone_file) => Zone::try_from(zone_file.clone()).unwrap(),
+            Some(zone_file) => {
+                // This is a primary zone with content already defined.
+                Zone::try_from(zone_file.clone()).unwrap()
+            }
             None => {
+                // This is a secondary zone with content to be received via
+                // XFR.
                 let builder = ZoneBuilder::new(
                     Name::from_str("test").unwrap(),
                     Class::IN,
@@ -102,15 +123,14 @@ async fn server_tests(#[files("test-data/server/*.rpl")] rpl_file: PathBuf) {
         catalog.insert_zone(zone).await.unwrap();
     }
 
-    let with_cookies = server_config.cookies.enabled
-        && server_config.cookies.secret.is_some();
-
-    let svc = service_fn(test_service, catalog.clone());
-
     // Start the catalog background service so that incoming XFR/NOTIFY
     // requests will be handled.
     let catalog_clone = catalog.clone();
     tokio::spawn(async move { catalog_clone.run().await });
+
+    // Prepare cookie middleware configuration settings.
+    let with_cookies = server_config.cookies.enabled
+        && server_config.cookies.secret.is_some();
 
     let secret = if with_cookies {
         let secret = server_config.cookies.secret.unwrap();
@@ -119,34 +139,60 @@ async fn server_tests(#[files("test-data/server/*.rpl")] rpl_file: PathBuf) {
     } else {
         Default::default()
     };
+
+    // Create a layered service to respond to received DNS queries. The layers
+    // are created top to bottom, with the application specific logic service
+    // on top and generic DNS logic below. Behaviour required by implemented
+    // DNS RFCs will be applied/enforced before the application logic receives
+    // it and without it having to know or do anything about it.
+
+    // 1. Application logic service
+    let svc = service_fn(test_service, catalog.clone());
+
+    // 2. DNS COOKIES middleware service
     let svc = CookiesMiddlewareSvc::new(svc, secret)
         .with_denied_ips(server_config.cookies.ip_deny_list.clone())
         .enable(with_cookies);
 
+    // 3. EDNS middleware service
     let svc =
         EdnsMiddlewareSvc::new(svc).enable(server_config.edns_tcp_keepalive);
 
-    // TODO: It should be possible to use XFR/NOTIFY middleware also when
-    // using cookies or EDNS middleware.
-    const MAX_XFR_CONCURRENCY: usize = 1;
+    // 4. XFR(-in) middleware service (XFR-out is handled by the Catalog).
     let svc = XfrMiddlewareSvc::<Vec<u8>, _, Arc<CatalogKeyStore>>::new(
         svc,
-        catalog,
+        catalog.clone(),
         MAX_XFR_CONCURRENCY,
         XfrMode::AxfrAndIxfr,
     );
-    // let svc = NotifyMiddlewareSvc::<Vec<u8>, _>::new(svc, catalog);
 
+    // 5. NOTIFY(-in) middleware service (relayed to the Catalog for handling,
+    // and the Catalog is also responsible for NOTIFY-out).
+    let svc = NotifyMiddlewareSvc::<Vec<u8>, _, _, _>::new(svc, catalog);
+
+    // 6. Mandatory DNS behaviour (e.g. RFC 1034/35 rules).
     let svc = MandatoryMiddlewareSvc::new(svc);
 
-    // Create dgram and stream servers for answering requests
+    // 7. TSIG message authentication.
+    let svc = TsigMiddlewareSvc::new(svc, key_store.clone());
+
+    // NOTE: TSIG middleware *MUST* be the first middleware in the chain per
+    // RFC 8945 as it has to see incoming messages prior to any modification
+    // in order to verify the signature, and has to sign outgoing messages in
+    // their final state without any modification occuring thereafter.
+
+    // 8. The dgram and stream servers that receive DNS queries and dispatch
+    // them to the service layers above.
     let (dgram_srv, dgram_conn, stream_srv, stream_conn) =
         mk_servers(svc, &server_config);
 
-    // Create a client factory for sending requests
-    let client_factory = mk_client_factory(dgram_conn, stream_conn);
-
-    // Create Stelline "mock" UDP
+    // Create a client factory for creating DNS clients per Stelline STEP with
+    // the appropriate configuration (as defined by the .rpl content) to
+    // submit requests to our DNS servers. No actual network communication
+    // takes place, these clients and servers use a direct in-memory channel
+    // to exchange messages instead of actual network sockets.
+    let client_factory =
+        mk_client_factory(dgram_conn, stream_conn, key_store);
 
     // Run the Stelline test!
     let step_value = Arc::new(CurrStepValue::new());
@@ -220,6 +266,7 @@ where
 fn mk_client_factory(
     dgram_server_conn: ClientServerChannel,
     stream_server_conn: ClientServerChannel,
+    key_store: Arc<CatalogKeyStore>,
 ) -> impl ClientFactory {
     // Create a TCP client factory that only creates a client if (a) no
     // existing TCP client exists for the source address of the Stelline query,
@@ -229,13 +276,18 @@ fn mk_client_factory(
         matches!(entry.matches, Some(Matches { tcp: true, .. }))
     };
 
+    let tcp_key_store = key_store.clone();
     let tcp_client_factory = PerClientAddressClientFactory::new(
-        move |source_addr| {
-            let stream = stream_server_conn
-                .connect(Some(SocketAddr::new(*source_addr, 0)));
-            let (conn, transport) = stream::Connection::new(stream);
-            tokio::spawn(transport.run());
-            Box::new(conn)
+        move |source_addr, entry| {
+            let key = entry.key_name.as_ref().and_then(|key_name| {
+                tcp_key_store.get_key(&key_name, Algorithm::Sha256)
+            });
+            let client = mk_stream_conn(
+                stream_server_conn
+                    .connect(Some(SocketAddr::new(*source_addr, 0))),
+            );
+            let client = xfr::Connection::new(None, client);
+            Box::new(tsig::Connection::new(key, client))
         },
         only_for_tcp_queries,
     );
@@ -245,11 +297,15 @@ fn mk_client_factory(
     let for_all_other_queries = |_: &_| true;
 
     let udp_client_factory = PerClientAddressClientFactory::new(
-        move |source_addr| {
-            Box::new(dgram::Connection::new(
+        move |source_addr, entry| {
+            let key = entry.key_name.as_ref().and_then(|key_name| {
+                key_store.get_key(&key_name, Algorithm::Sha256)
+            });
+            let client = mk_dgram_conn(
                 dgram_server_conn
                     .new_client(Some(SocketAddr::new(*source_addr, 0))),
-            ))
+            );
+            Box::new(tsig::Connection::new(key, client))
         },
         for_all_other_queries,
     );
@@ -400,9 +456,6 @@ fn parse_server_config(config: &Config) -> ServerConfig {
                         }
                     }
                     ("local-data", v) => {
-                        if !zone_file_bytes.is_empty() {
-                            zone_file_bytes.push_back(b'\n');
-                        }
                         zone_file_bytes
                             .extend(v.trim_matches('"').as_bytes().iter());
                         zone_file_bytes.push_back(b'\n');
@@ -445,11 +498,10 @@ fn parse_server_config(config: &Config) -> ServerConfig {
                         let key_name = pieces.next().unwrap();
                         let tsig_key = match key_name {
                             "NOKEY" => None,
-                            "TEST" => Some((
-                                KeyName::from_str("test").unwrap(),
+                            name => Some((
+                                KeyName::from_str(name).unwrap(),
                                 Algorithm::Sha256,
                             )),
-                            _ => panic!("Unsupported key name value '{key_name}' for 'provide-xfr' setting"),
                         };
                         let compatibility_mode = match pieces.next() {
                             Some("COMPATIBLE") => CompatibilityMode::BackwardCompatible,
@@ -486,4 +538,36 @@ fn parse_server_config(config: &Config) -> ServerConfig {
     }
 
     parsed_config
+}
+
+pub fn mk_dgram_conn<S>(socket: S) -> Connection<S> {
+    let mut dgram_config = dgram::Config::new();
+    dgram_config.set_max_parallel(1);
+    dgram_config.set_read_timeout(Duration::from_millis(1000));
+    dgram_config.set_max_retries(1);
+    dgram_config.set_udp_payload_size(Some(1400));
+    dgram::Connection::with_config(socket, dgram_config)
+}
+
+pub fn mk_stream_conn<Stream, Req>(stream: Stream) -> stream::Connection<Req>
+where
+    Stream: AsyncRead + AsyncWrite + Send + 'static,
+    Req: ComposeRequest + 'static,
+{
+    let mut stream_config = stream::Config::new();
+    stream_config.set_response_timeout(Duration::from_secs(2));
+    // Allow time between the SOA query response and sending the
+    // AXFR/IXFR request.
+    stream_config.set_initial_idle_timeout(Duration::from_secs(5));
+    // Allow much more time for an XFR streaming response.
+    stream_config.set_streaming_response_timeout(Duration::from_secs(30));
+    let (client, transport) =
+        stream::Connection::with_config(stream, stream_config);
+
+    tokio::spawn(async move {
+        transport.run().await;
+        trace!("TCP connection terminated");
+    });
+
+    client
 }

@@ -13,22 +13,25 @@
 //! > the Internet._
 //!
 //! [stream]: https://en.wikipedia.org/wiki/Reliable_byte_streamuse
-use arc_swap::ArcSwap;
 use core::future::poll_fn;
 use core::ops::Deref;
-use core::sync::atomic::{AtomicUsize, Ordering};
 use core::time::Duration;
-use octseq::Octets;
+
 use std::fmt::Debug;
 use std::io;
 use std::net::SocketAddr;
 use std::string::{String, ToString};
 use std::sync::{Arc, Mutex};
+
+use arc_swap::ArcSwap;
+use octseq::Octets;
+use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::TcpListener;
 use tokio::sync::watch;
 use tokio::time::{interval, timeout, MissedTickBehavior};
-use tracing::{error, trace, trace_span, warn};
+use tracing::{error, trace, warn};
 
+use crate::base::wire::Composer;
 use crate::net::server::buf::BufSource;
 use crate::net::server::error::Error;
 use crate::net::server::metrics::ServerMetrics;
@@ -39,8 +42,6 @@ use crate::utils::config::DefMinMax;
 use super::buf::VecBufSource;
 use super::connection::{self, Connection};
 use super::ServerCommand;
-use crate::base::wire::Composer;
-use tokio::io::{AsyncRead, AsyncWrite};
 
 // TODO: Should this crate also provide a TLS listener implementation?
 
@@ -299,11 +300,6 @@ where
 
     /// An optional pre-connect hook.
     pre_connect_hook: Option<fn(&mut Listener::StreamType)>,
-
-    /// An ascending "ID" number assigned incrementally to newly accepted
-    /// connections.
-    connection_idx: AtomicUsize,
-
     /// [`ServerMetrics`] describing the status of the server.
     metrics: Arc<ServerMetrics>,
 }
@@ -353,7 +349,6 @@ where
             service,
             pre_connect_hook: None,
             metrics,
-            connection_idx: AtomicUsize::new(0),
         }
     }
 
@@ -661,14 +656,9 @@ where
         let conn_buf = self.buf.clone();
         let conn_metrics = self.metrics.clone();
         let pre_connect_hook = self.pre_connect_hook;
-        let new_connection_idx =
-            self.connection_idx.fetch_add(1, Ordering::SeqCst);
 
-        trace!("Spawning new connection handler.");
+        trace!("Spawning new connection handler");
         tokio::spawn(async move {
-            let span = trace_span!("stream", conn = new_connection_idx);
-            let _guard = span.enter();
-
             trace!("Accepting connection.");
             if let Ok(mut stream) = stream.await {
                 trace!("Connection accepted.");

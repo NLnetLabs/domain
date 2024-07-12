@@ -37,7 +37,10 @@ use crate::zonecatalog::catalog::{Catalog, CatalogError};
 ///
 /// [1996]: https://datatracker.ietf.org/doc/html/rfc1996
 #[derive(Clone, Debug)]
-pub struct NotifyMiddlewareSvc<RequestOctets, NextSvc, RequestMeta, KS> {
+pub struct NotifyMiddlewareSvc<RequestOctets, NextSvc, RequestMeta, KS>
+where
+    KS: Default,
+{
     next_svc: NextSvc,
 
     catalog: Arc<Catalog<KS>>,
@@ -47,6 +50,8 @@ pub struct NotifyMiddlewareSvc<RequestOctets, NextSvc, RequestMeta, KS> {
 
 impl<RequestOctets, NextSvc, RequestMeta, KS>
     NotifyMiddlewareSvc<RequestOctets, NextSvc, RequestMeta, KS>
+where
+    KS: Default,
 {
     #[must_use]
     pub fn new(next_svc: NextSvc, catalog: Arc<Catalog<KS>>) -> Self {
@@ -65,7 +70,7 @@ where
     RequestMeta: Clone + Default,
     NextSvc: Service<RequestOctets, RequestMeta>,
     NextSvc::Target: Composer + Default,
-    KS: Deref + Sync + Send + 'static,
+    KS: Default + Deref + Sync + Send + 'static,
     KS::Target: KeyStore,
     <<KS as Deref>::Target as KeyStore>::Key: Clone + Debug + Sync + Send,
 {
@@ -327,7 +332,7 @@ where
         + Unpin,
     NextSvc::Future: Send + Sync + Unpin,
     NextSvc::Target: Composer + Default + Send + Sync,
-    KS: Deref + Sync + Send + 'static,
+    KS: Default + Deref + Sync + Send + 'static,
     KS::Target: KeyStore,
     <<KS as Deref>::Target as KeyStore>::Key: Clone + Debug + Sync + Send,
 {

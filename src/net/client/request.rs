@@ -102,7 +102,8 @@ pub trait GetResponse: Debug {
 
     /// TODO
     fn stream_complete(&mut self) -> Result<(), Error> {
-        unimplemented!();
+        // Nothing to do.
+        Ok(())
     }
 
     /// TODO

@@ -174,7 +174,6 @@
 #![warn(missing_docs)]
 #![warn(clippy::missing_docs_in_private_items)]
 
-pub mod auth;
 pub mod cache;
 pub mod dgram;
 pub mod dgram_stream;
@@ -183,6 +182,7 @@ pub mod protocol;
 pub mod redundant;
 pub mod request;
 pub mod stream;
+pub mod tsig;
 #[cfg(feature = "unstable-validator")]
 pub mod validator;
 pub mod validator_test;

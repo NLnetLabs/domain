@@ -86,22 +86,44 @@ impl ReadZone {
     ) -> NodeAnswer {
         node.with_special(self.version, |special| match special {
             Some(Special::Cut(ref cut)) => {
-                let answer = NodeAnswer::authority(AnswerAuthority::new(
-                    cut.name.clone(),
-                    None,
-                    Some(cut.ns.clone()),
-                    cut.ds.as_ref().cloned(),
-                ));
-
-                walk.op(&cut.ns);
-                if let Some(ds) = &cut.ds {
-                    walk.op(ds);
+                if walk.enabled() {
+                    walk.op(&cut.ns);
+                    if let Some(ds) = &cut.ds {
+                        walk.op(ds);
+                    }
+                    NodeAnswer::no_data()
+                } else {
+                    // There is nothing more in this zone, only a cut here.
+                    // Respond with NODATA and an authority section referring the
+                    // client to the nameserver that should know more.
+                    NodeAnswer::authority(AnswerAuthority::new(
+                        cut.name.clone(),
+                        None,
+                        Some(cut.ns.clone()),
+                        cut.ds.as_ref().cloned(),
+                    ))
                 }
-
-                answer
             }
             Some(Special::NxDomain) => NodeAnswer::nx_domain(),
-            Some(Special::Cname(_)) | None => self.query_children(
+            Some(Special::Cname(cname)) => {
+                if walk.enabled() {
+                    let mut rrset = Rrset::new(Rtype::CNAME, cname.ttl());
+                    rrset.push_data(cname.data().clone());
+                    walk.op(&SharedRrset::new(rrset));
+                }
+
+                // As we are querying for a qname below this node this
+                // means that the CNAME at this node cannot be a match, so
+                // ignore it and look for a match in the children.
+                self.query_children(
+                    node.children(),
+                    label,
+                    qname,
+                    qtype,
+                    walk,
+                )
+            }
+            None => self.query_children(
                 node.children(),
                 label,
                 qname,
@@ -118,25 +140,8 @@ impl ReadZone {
         walk: WalkState,
     ) -> NodeAnswer {
         node.with_special(self.version, |special| match special {
-            Some(Special::Cut(cut)) => {
-                let answer = self.query_at_cut(cut, qtype);
-                if walk.enabled() {
-                    walk.op(&cut.ns);
-                    if let Some(ds) = &cut.ds {
-                        walk.op(ds);
-                    }
-                }
-                answer
-            }
-            Some(Special::Cname(cname)) => {
-                let answer = NodeAnswer::cname(cname.clone());
-                if walk.enabled() {
-                    let mut rrset = Rrset::new(Rtype::CNAME, cname.ttl());
-                    rrset.push_data(cname.data().clone());
-                    walk.op(&SharedRrset::new(rrset));
-                }
-                answer
-            }
+            Some(Special::Cut(cut)) => self.query_at_cut(cut, qtype),
+            Some(Special::Cname(cname)) => NodeAnswer::cname(cname.clone()),
             Some(Special::NxDomain) => NodeAnswer::nx_domain(),
             None => self.query_rrsets(node.rrsets(), qtype, walk),
         })
