@@ -45,6 +45,12 @@ impl<Octs, RequestOcts, CR> QueryRouter<Octs, RequestOcts, CR> {
     }
 }
 
+impl<Octs, RequestOcts, CR> Default for QueryRouter<Octs, RequestOcts, CR> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<Octs, RequestOcts, CR> SrService<RequestOcts, CR>
     for QueryRouter<Octs, RequestOcts, CR>
 where
