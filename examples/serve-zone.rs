@@ -2,9 +2,12 @@
 //!
 //! Try queries such as:
 //!
-//!   dig @127.0.0.1 -p 8053 NS example.com dig @127.0.0.1 -p 8053 A
-//!   example.com dig @127.0.0.1 -p 8053 AAAA example.com dig @127.0.0.1 -p
-//!   8053 CNAME example.com
+//! ```sh
+//!   dig @127.0.0.1 -p 8053 NS example.com
+//!   dig @127.0.0.1 -p 8053 A example.com
+//!   dig @127.0.0.1 -p 8053 AAAA example.com
+//!   dig @127.0.0.1 -p 8053 CNAME example.com
+//! ```
 //!
 //! Also try with TCP, e.g.:
 //!

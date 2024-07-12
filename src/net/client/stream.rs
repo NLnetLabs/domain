@@ -93,7 +93,7 @@ impl Config {
 
     /// Sets the response timeout.
     ///
-    /// Forrequests where ComposeRequest::is_streaming() returns true see
+    /// For requests where ComposeRequest::is_streaming() returns true see
     /// set_streaming_response_timeout() instead.    
     ///
     /// Excessive values are quietly trimmed.

@@ -221,9 +221,7 @@ where
     Upstream: SendRequest<AuthenticatedRequestMessage<CR, K>>,
 {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), core::fmt::Error> {
-        f.debug_struct("Request")
-            .field("fut", &format_args!("_"))
-            .finish()
+        f.debug_struct("Request").finish()
     }
 }
 

@@ -987,7 +987,7 @@ where
     }
 }
 
-/// Handle I/O errors by deciding whether to log them, and whethr to continue
+/// Handle I/O errors by deciding whether to log them, and whether to continue
 /// or abort.
 #[must_use]
 fn process_io_error(err: io::Error) -> ControlFlow<ConnectionEvent> {
