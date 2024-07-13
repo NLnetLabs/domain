@@ -522,6 +522,9 @@ fn init_logging() {
 fn entry2reqmsg(entry: &Entry) -> RequestMessage<Vec<u8>> {
     let sections = entry.sections.as_ref().unwrap();
     let mut msg = MessageBuilder::new_vec().question();
+    if let Some(opcode) = entry.opcode {
+        msg.header_mut().set_opcode(opcode);
+    }
     for q in &sections.question {
         msg.push(q).unwrap();
     }

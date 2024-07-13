@@ -9,6 +9,7 @@ use std::vec::Vec;
 use bytes::Bytes;
 
 use crate::base;
+use crate::base::iana::Opcode;
 use crate::tsig::KeyName;
 use crate::utils::base16;
 use crate::zonefile::inplace::Entry as ZonefileEntry;
@@ -26,6 +27,7 @@ const ENTRY_END: &str = "ENTRY_END";
 const MATCH: &str = "MATCH";
 const ADJUST: &str = "ADJUST";
 const REPLY: &str = "REPLY";
+const OPCODE: &str = "OPCODE";
 const SECTION: &str = "SECTION";
 const QUESTION: &str = "QUESTION";
 const ANSWER: &str = "ANSWER";
@@ -343,6 +345,7 @@ pub struct Entry {
     pub key_name: Option<KeyName>,
     pub matches: Option<Matches>,
     pub adjust: Option<Adjust>,
+    pub opcode: Option<Opcode>,
     pub reply: Option<Reply>,
     pub sections: Option<Sections>,
 }
@@ -360,6 +363,11 @@ fn parse_entry<Lines: Iterator<Item = Result<String, std::io::Error>>>(
         let clean_line = clean_line.unwrap();
         let mut tokens = LineTokens::new(clean_line);
         let token = tokens.next().unwrap();
+        if token == OPCODE {
+            entry.opcode =
+                Some(Opcode::from_str(tokens.next().unwrap()).unwrap());
+            continue;
+        }
         if token == MATCH {
             entry.matches = Some(parse_match(tokens));
             continue;
