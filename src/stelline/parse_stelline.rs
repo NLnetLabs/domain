@@ -388,7 +388,7 @@ fn parse_entry<Lines: Iterator<Item = Result<String, std::io::Error>>>(
         if token == ENTRY_END {
             break;
         }
-        todo!();
+        todo!("Unsupported token '{token}'");
     }
     entry
 }
