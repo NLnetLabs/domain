@@ -61,7 +61,11 @@ use crate::zonetree::{
 
 /// Configuration for a Catalog.
 #[derive(Debug, Default)]
-pub struct Config<KS> {
+pub struct Config<KS>
+where
+    KS: Deref,
+    KS::Target: KeyStore,
+{
     /// A store of TSIG keys that can optionally be used to lookup keys when
     /// TSIG signing/validating.
     key_store: KS,
@@ -71,7 +75,11 @@ pub struct Config<KS> {
     conn_factory: ConnFactory,
 }
 
-impl<KS> Config<KS> {
+impl<KS> Config<KS>
+where
+    KS: Deref,
+    KS::Target: KeyStore,
+{
     /// Creates a new config using the provided [`KeyStore`].
     pub fn new(key_store: KS) -> Self {
         Self {
@@ -94,34 +102,37 @@ const MIN_DURATION_BETWEEN_ZONE_REFRESHES: tokio::time::Duration =
 /// A store of TSIG keys index by key name and algorithm.
 pub type CatalogKeyStore = HashMap<(KeyName, Algorithm), Key>;
 
-//------------ Acl -----------------------------------------------------------
+//------------ SrcDstConfig --------------------------------------------------
 
-/// An access control list.
+/// A mapping of network source/destination to some config `T`.
 ///
-/// The `Acl` maps caller addresses (a `SocketAddress` with port 0, i.e. just
-/// an `IpAddr`, as we can't know in advance the port number a caller will
-/// use), or target addresses (a `SocketAddr` including port), to some user
+/// Maps source addresses (a `SocketAddress` with port 0, i.e. just an
+/// `IpAddr`, as we can't know in advance the port number a caller will use),
+/// or destination addresses (a `SocketAddr` including port), to some user
 /// provided data.
+///
+/// TODO: Change this to support net blocks as the source once PR 340 (which
+/// extends COOKIE middleware to use net blocks) is resolved.
 #[derive(Clone, Debug, Default)]
-pub struct Acl<T: Clone + Debug + Default> {
+pub struct SrcDstConfig<T: Clone + Debug + Default> {
     entries: HashMap<SocketAddr, T>,
 }
 
-impl<T: Clone + Debug + Default> Acl<T> {
+impl<T: Clone + Debug + Default> SrcDstConfig<T> {
     /// Creates a new empty access control list.
     pub fn new() -> Self {
         Default::default()
     }
 
     /// Adds a rule allowing inbound access from the given IP address.
-    pub fn allow_from(&mut self, addr: IpAddr, v: T) {
+    pub fn add_src(&mut self, addr: IpAddr, v: T) {
         let k = SocketAddr::new(addr, IANA_DNS_PORT_NUMBER);
         let _ = self.entries.insert(k, v);
     }
 
     /// Adds a rule allowing outbound access to the given IP address and port
     /// number.
-    pub fn allow_to(&mut self, addr: SocketAddr, v: T) {
+    pub fn add_dst(&mut self, addr: SocketAddr, v: T) {
         let _ = self.entries.insert(addr, v);
     }
 
@@ -136,24 +147,24 @@ impl<T: Clone + Debug + Default> Acl<T> {
     }
 
     /// Gets the user supplied data for the given target `SocketAddr`, if any.
-    pub fn get_target(&self, addr: &SocketAddr) -> Option<&T> {
+    pub fn dst(&self, addr: &SocketAddr) -> Option<&T> {
         self.entries.get(addr)
     }
 
     /// Gets the user supplied data for the given caller `IpAddr`, if any.
-    pub fn get_caller(&self, ip: IpAddr) -> Option<&T> {
+    pub fn src(&self, ip: IpAddr) -> Option<&T> {
         self.entries.get(&SocketAddr::new(ip, IANA_DNS_PORT_NUMBER))
     }
 
     /// Returns true if the given target `SocketAddr`` exists in this ACL,
     /// false otherwise.
-    pub fn contains_target(&self, addr: &SocketAddr) -> bool {
+    pub fn has_dst(&self, addr: &SocketAddr) -> bool {
         self.entries.contains_key(addr)
     }
 
     /// Returns true if the given caller `IpAddr` exists in this ACL, false
     /// otherwise.
-    pub fn contains_ip(&self, ip: IpAddr) -> bool {
+    pub fn has_src(&self, ip: IpAddr) -> bool {
         self.entries
             .contains_key(&SocketAddr::new(ip, IANA_DNS_PORT_NUMBER))
     }
@@ -208,77 +219,88 @@ pub enum CompatibilityMode {
     BackwardCompatible,
 }
 
-//------------ XfrSettings ---------------------------------------------------
-
-#[derive(Clone, Debug, Default)]
-pub struct XfrSettings {
-    pub strategy: XfrStrategy,
-    pub ixfr_transport: TransportStrategy,
-    pub compatibility_mode: CompatibilityMode,
-}
-
 //------------ TsigKey -------------------------------------------------------
 
 pub type TsigKey = (tsig::KeyName, tsig::Algorithm);
 
+//------------ XfrConfig -----------------------------------------------------
+
+#[derive(Clone, Debug, Default)]
+pub struct XfrConfig {
+    pub strategy: XfrStrategy,
+    pub ixfr_transport: TransportStrategy,
+    pub compatibility_mode: CompatibilityMode,
+    pub tsig_key: Option<TsigKey>,
+}
+
+//------------ NotifyConfig --------------------------------------------------
+
+#[derive(Clone, Debug, Default)]
+pub struct NotifyConfig {
+    pub tsig_key: Option<TsigKey>,
+}
+
 //------------ Type Aliases --------------------------------------------------
 
-pub type XfrAcl = Acl<(XfrSettings, Option<TsigKey>)>;
-pub type NotifyAcl = Acl<Option<TsigKey>>;
+pub type XfrSrcDstConfig = SrcDstConfig<XfrConfig>;
+pub type NotifySrcDstConfig = SrcDstConfig<NotifyConfig>;
 
-//------------ MultiPrimaryXfrStrategy ---------------------------------------
+//------------ NotifyStrategy ------------------------------------------------
 
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub enum MultiPrimaryXfrStrategy {
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub enum NotifyStrategy {
+    #[default]
     NotifySourceFirstThenSequentialStoppingAtFirstNewerSerial,
 }
 
 //------------ ZoneType ------------------------------------------------------
 
-#[derive(Clone, Debug)]
-pub enum ZoneType {
-    /// We are primary for the zone and allow the specified (secondary?)
-    /// servers to request the zone via XFR. NOTIFY messages will be sent to
-    /// zone nameservers on changes to zone content.
-    Primary {
-        allow_xfr: XfrAcl,
-        notify: NotifyAcl,
-    },
-
-    /// We are secondary for the zone and will request the zone via XFR from
-    /// the specified nameservers, and allow the specified nameservers to
-    /// notify us of an update to the zone.
-    Secondary {
-        multi_primary_xfr_strategy: MultiPrimaryXfrStrategy,
-        allow_notify: NotifyAcl,
-        request_xfr: XfrAcl,
-    },
+#[derive(Clone, Debug, Default)]
+pub struct ZoneConfig {
+    pub multi_primary_xfr_strategy: NotifyStrategy,
+    pub discover_notify_set: bool,
+    pub provide_xfr_to: XfrSrcDstConfig,
+    pub send_notify_to: NotifySrcDstConfig,
+    pub allow_notify_from: NotifySrcDstConfig,
+    pub request_xfr_from: XfrSrcDstConfig,
 }
 
-impl ZoneType {
-    pub fn new_primary(allow_xfr: XfrAcl, notify: NotifyAcl) -> Self {
-        Self::Primary { allow_xfr, notify }
+impl ZoneConfig {
+    pub fn new() -> Self {
+        Default::default()
+    }
+
+    pub fn new_primary(
+        provide_xfr_to: XfrSrcDstConfig,
+        send_notify_to: NotifySrcDstConfig,
+    ) -> Self {
+        Self {
+            provide_xfr_to,
+            send_notify_to,
+            ..Default::default()
+        }
     }
 
     pub fn new_secondary(
-        allow_notify: NotifyAcl,
-        request_xfr: XfrAcl,
+        allow_notify_from: NotifySrcDstConfig,
+        request_xfr_from: XfrSrcDstConfig,
     ) -> Self {
-        Self::Secondary {
-            allow_notify,
-            request_xfr,
-            multi_primary_xfr_strategy: MultiPrimaryXfrStrategy::NotifySourceFirstThenSequentialStoppingAtFirstNewerSerial,
+        Self {
+            allow_notify_from,
+            request_xfr_from,
+            ..Default::default()
         }
     }
 }
 
-impl ZoneType {
+impl ZoneConfig {
     pub fn is_primary(&self) -> bool {
-        matches!(self, Self::Primary { .. })
+        !self.provide_xfr_to.is_empty() && !self.send_notify_to.is_empty()
     }
 
     pub fn is_secondary(&self) -> bool {
-        matches!(self, Self::Secondary { .. })
+        !self.allow_notify_from.is_empty()
+            && !self.request_xfr_from.is_empty()
     }
 }
 
@@ -624,7 +646,7 @@ impl ZoneNameServers {
 #[derive(Clone, Debug)]
 pub struct ZoneInfo {
     _catalog_member_id: Option<StoredName>,
-    zone_type: ZoneType,
+    config: ZoneConfig,
     diffs: Arc<Mutex<ZoneDiffs>>,
     nameservers: Arc<Mutex<Option<ZoneNameServers>>>,
     expired: Arc<AtomicBool>,
@@ -678,8 +700,8 @@ impl ZoneInfo {
         out_diffs
     }
 
-    pub fn zone_type(&self) -> &ZoneType {
-        &self.zone_type
+    pub fn config(&self) -> &ZoneConfig {
+        &self.config
     }
 }
 
@@ -920,7 +942,11 @@ enum Event {
 ///
 /// Also capable of acting as an RFC 9432 Catalog Zone producer/consumer.
 #[derive(Debug)]
-pub struct Catalog<KS: Default> {
+pub struct Catalog<KS>
+where
+    KS: Deref,
+    KS::Target: KeyStore,
+{
     // cat_zone: Zone, // TODO
     config: Arc<ArcSwap<Config<KS>>>,
     pending_zones: Arc<RwLock<HashMap<ZoneKey, Zone>>>,
@@ -933,7 +959,8 @@ pub struct Catalog<KS: Default> {
 
 impl<KS> Default for Catalog<KS>
 where
-    KS: Default,
+    KS: Deref + Default,
+    KS::Target: KeyStore,
 {
     fn default() -> Self {
         Self::new()
@@ -942,7 +969,8 @@ where
 
 impl<KS> Catalog<KS>
 where
-    KS: Default,
+    KS: Deref + Default,
+    KS::Target: KeyStore,
 {
     pub fn new() -> Self {
         Self::new_with_config(Config::default())
@@ -972,7 +1000,8 @@ where
 
 impl<KS> Catalog<KS>
 where
-    KS: Clone + Default,
+    KS: Clone + Deref,
+    KS::Target: KeyStore,
 {
     pub fn key_store(&self) -> KS {
         self.config.load().key_store.clone()
@@ -1005,44 +1034,44 @@ where
                 .downcast_ref::<CatalogZone>()
                 .unwrap();
 
-            match &cat_zone.info().zone_type {
-                ZoneType::Primary { notify, .. } => {
-                    // https://datatracker.ietf.org/doc/html/rfc1996#autoid-4
-                    // 4. Details and Examples
-                    //   "4.1. Retaining query state information across host
-                    //    reboots is optional, but it is reasonable to simply
-                    //    execute an SOA NOTIFY transaction on each authority
-                    //    zone when a server first starts."
-                    Self::send_notify(zone, notify, self.config.clone())
-                        .await;
-                }
+            let zone_config = &cat_zone.info().config;
 
-                ZoneType::Secondary { .. } => {
-                    match Self::track_zone_freshness(
-                        zone,
-                        time_tracking.clone(),
-                    )
+            if zone_config.is_primary() {
+                // https://datatracker.ietf.org/doc/html/rfc1996#autoid-4
+                // 4. Details and Examples
+                //   "4.1. Retaining query state information across host
+                //    reboots is optional, but it is reasonable to simply
+                //    execute an SOA NOTIFY transaction on each authority zone
+                //    when a server first starts."
+                Self::send_notify(
+                    zone,
+                    &zone_config.send_notify_to,
+                    self.config.clone(),
+                )
+                .await;
+            }
+
+            if zone_config.is_secondary() {
+                match Self::track_zone_freshness(zone, time_tracking.clone())
                     .await
-                    {
-                        Ok(soa_refresh) => {
-                            // https://datatracker.ietf.org/doc/html/rfc1034#section-4.3.5
-                            // 4.3.5. Zone maintenance and transfers
-                            //   ..
-                            //   "Whenever a new zone is loaded in a
-                            //    secondary, the secondary waits REFRESH
-                            //    seconds before checking with the primary for
-                            //    a new serial."
-                            Self::refresh_zone_at(
-                                ZoneRefreshCause::SoaRefreshTimerAfterStartup,
-                                zone.key(),
-                                soa_refresh,
-                                &mut refresh_timers,
-                            );
-                        }
+                {
+                    Ok(soa_refresh) => {
+                        // https://datatracker.ietf.org/doc/html/rfc1034#section-4.3.5
+                        // 4.3.5. Zone maintenance and transfers
+                        //   ..
+                        //   "Whenever a new zone is loaded in a secondary,
+                        //    the secondary waits REFRESH seconds before
+                        //    checking with the primary for a new serial."
+                        Self::refresh_zone_at(
+                            ZoneRefreshCause::SoaRefreshTimerAfterStartup,
+                            zone.key(),
+                            soa_refresh,
+                            &mut refresh_timers,
+                        );
+                    }
 
-                        Err(_) => {
-                            todo!();
-                        }
+                    Err(_) => {
+                        todo!();
                     }
                 }
             }
@@ -1090,6 +1119,7 @@ where
                                     // it is not empty and we can make it
                                     // active immediately.
                                     if soa_refresh.is_some() {
+                                        trace!("Removing zone '{}' from the pending set as it has a SOA REFRESH", key.0);
                                         let zone = pending_zones.remove(&key).unwrap();
                                         self.insert_active_zone(zone).await.unwrap();
                                     }
@@ -1111,10 +1141,10 @@ where
                         }
 
                         Event::ZoneStatusRequested { key, tx } => {
-                            let details = if let Some(zone_refresh_info) = time_tracking.read().await.get(&key) {
-                                ZoneReportDetails::Secondary(*zone_refresh_info)
-                            } else if self.pending_zones.read().await.contains_key(&key) {
+                            let details = if self.pending_zones.read().await.contains_key(&key) {
                                 ZoneReportDetails::PendingSecondary
+                            } else if let Some(zone_refresh_info) = time_tracking.read().await.get(&key) {
+                                ZoneReportDetails::Secondary(*zone_refresh_info)
                             } else {
                                 ZoneReportDetails::Primary
                             };
@@ -1198,9 +1228,7 @@ where
                             .downcast_ref::<CatalogZone>()
                             .unwrap();
 
-                        if let ZoneType::Secondary{ .. } =
-                        &cat_zone.info().zone_type
-                        {
+                        if cat_zone.info().config.is_secondary() {
                             // If successful this will commit changes to the
                             // zone causing a notify event message to be sent
                             // which will be handled above.
@@ -1216,6 +1244,7 @@ where
                             {
                                 Ok(()) => {
                                     if is_pending_zone {
+                                        trace!("Removing zone '{}' from the pending set as it was successfully refreshed", key.0);
                                         drop(pending_zones);
                                         let mut pending_zones = self.pending_zones.write().await;
                                         let zone = pending_zones.remove(&key).unwrap();
@@ -1252,20 +1281,27 @@ where
         let mut new_zones = self.zones().deref().clone();
 
         for zone in zones {
-            let is_primary = zone.zone_type().is_primary();
+            let is_secondary = zone.zone_type().is_secondary();
             let zone = Self::wrap_zone(zone, self.event_tx.clone());
             let key = zone.key();
+            let zone_name = &key.0;
 
-            if is_primary {
-                Self::update_known_nameservers_for_zone(&zone).await;
-                new_zones.insert_zone(zone)?;
-            } else {
+            if is_secondary {
                 // Don't add secondary zones immediately as they may be empty
                 // until refreshed. Instead add them in run() once it has been
                 // determined if they are empty or that the initial refresh
                 // has been performed successfully. This prevents callers of
                 // get_zone() or find_zone() attempting to use an empty zone.
+                trace!(
+                    "Adding new secondary zone '{zone_name}' to the pending set"
+                );
                 self.pending_zones.write().await.insert(zone.key(), zone);
+            } else {
+                trace!(
+                    "Adding new primary zone '{zone_name}' to the active set"
+                );
+                Self::update_known_nameservers_for_zone(&zone).await;
+                new_zones.insert_zone(zone)?;
             }
 
             self.event_tx.send(Event::ZoneAdded(key)).await.unwrap();
@@ -1421,7 +1457,8 @@ where
 
 impl<KS> Catalog<KS>
 where
-    KS: Default,
+    KS: Deref,
+    KS::Target: KeyStore,
 {
     /// Wrap a [`Zone`] so that we get notified when it is modified.
     fn wrap_zone(zone: TypedZone, notify_tx: Sender<Event>) -> Zone {
@@ -1433,7 +1470,7 @@ where
 
         let zone_info = ZoneInfo {
             _catalog_member_id: None, // TODO
-            zone_type,
+            config: zone_type,
             diffs,
             nameservers,
             expired,
@@ -1452,7 +1489,7 @@ where
 {
     async fn send_notify(
         zone: &Zone,
-        notify: &NotifyAcl,
+        notify: &NotifySrcDstConfig,
         config: Arc<ArcSwap<Config<KS>>>,
     ) {
         let cat_zone = zone
@@ -1503,18 +1540,6 @@ where
         let mut msg = msg.question();
         msg.push((apex_name, Rtype::SOA)).unwrap();
 
-        // TSIG TODO: let key = key_store .read() .await
-        // .get_key(&Name::root_bytes(), Algorithm::Sha256) .unwrap(); let mut
-        // msg = msg.additional(); let txn = ClientTransaction::request(key,
-        //     &mut msg, Time48::now()).unwrap();
-        //
-        // TODO: TSIG cannot be done here, it must be done by RequestMessage,
-        // because RequestMessage can alter the message such as replacing any
-        // OPT records in the additional section, and TSIG needs to add its
-        // own RR to the additional section AFTER all other changes have been
-        // made to the message. It would also have to verify the response as
-        // it would own the TSIG ClientTransaction or ClientSequence object
-        // that is required in order to do response verification.
         let loaded_config = config.load();
         let readable_key_store = &loaded_config.key_store;
 
@@ -1523,25 +1548,18 @@ where
             let req = RequestMessage::new(msg.clone());
             let nameserver_addr = *nameserver_addr;
 
-            let tsig_key = if let ZoneType::Primary { notify, .. } =
-                &zone_info.zone_type
-            {
-                if let Some(Some((name, alg))) =
-                    notify.get_target(&nameserver_addr)
-                {
-                    let key = readable_key_store.get_key(name, *alg);
+            let tsig_key = zone_info
+                .config
+                .send_notify_to
+                .dst(&nameserver_addr)
+                .and_then(|cfg| cfg.tsig_key.as_ref())
+                .map(|(name, alg)| readable_key_store.get_key(name, *alg))
+                .flatten();
 
-                    if key.is_some() {
-                        debug!("Found TSIG key '{name}' (algorith {alg}) for NOTIFY to {nameserver_addr}");
-                    }
-
-                    key
-                } else {
-                    None
-                }
-            } else {
-                None
-            };
+            if let Some(key) = tsig_key.as_ref() {
+                debug!("Found TSIG key '{}' (algorith {}) for NOTIFY to {nameserver_addr}",
+                    key.as_ref().name(), key.as_ref().algorithm());
+            }
 
             tokio::spawn(async move {
                 // TODO: Use the connection factory here.
@@ -1583,7 +1601,7 @@ where
             .downcast_ref::<CatalogZone>()
             .unwrap();
 
-        if !matches!(cat_zone.info().zone_type, ZoneType::Secondary { .. }) {
+        if !cat_zone.info().config.is_secondary() {
             // TODO: log this? dbg_assert()?
             return Err(());
         }
@@ -1677,13 +1695,15 @@ where
         config: Arc<ArcSwap<Config<KS>>>,
     ) {
         // Do we have the zone that is being updated?
-        let pending_zones = pending_zones.read().await;
+        let readable_pending_zones = pending_zones.read().await;
+        let mut is_pending = false;
         let zone =
             if let Some(zone) = zones.get_zone(&msg.apex_name, msg.class) {
                 zone
-            } else if let Some(zone) =
-                pending_zones.get(&(msg.apex_name.clone(), msg.class))
+            } else if let Some(zone) = readable_pending_zones
+                .get(&(msg.apex_name.clone(), msg.class))
             {
+                is_pending = true;
                 zone
             } else {
                 warn!(
@@ -1703,56 +1723,34 @@ where
         // notifications for updates to a zone that we are authoritative for.
         let zone_info = cat_zone.info();
 
-        let (source, allow_notify) = match (msg.source, &zone_info.zone_type)
-        {
-            (None, ZoneType::Primary { notify, .. }) => {
-                // A local notification that a zone that we are primary for
-                // has been changed locally.
-                trace!(
-                    "Local change occurred in primary zone '{}'",
-                    msg.apex_name
-                );
+        let (source, allow_notify_from) =
+            match (msg.source, &zone_info.config) {
+                (None, zone_cfg) => {
+                    // One of our zones has been changed locally.
+                    trace!(
+                        "Local change occurred in zone '{}'",
+                        msg.apex_name
+                    );
 
-                Self::update_known_nameservers_for_zone(zone).await;
-                Self::send_notify(zone, notify, config).await;
-                return;
-            }
+                    Self::update_known_nameservers_for_zone(zone).await;
+                    Self::send_notify(zone, &zone_cfg.send_notify_to, config)
+                        .await;
+                    return;
+                }
 
-            (None, ZoneType::Secondary { .. }) => {
-                // A local notification that a zone we are secondary for has
-                // been changed locally. This happens when we applied changes
-                // received via XFR from a remote primary to a local secondary
-                // zone. The REFRESH timer will have already been reset by
-                // [`refresh_zone_and_update_state()`] which fetched and
-                // applied the remote changes.
-                trace!(
-                    "Local change occurred in secondary zone '{}'",
-                    msg.apex_name
-                );
-
-                Self::update_known_nameservers_for_zone(zone).await;
-                return;
-            }
-
-            (Some(source), ZoneType::Secondary { allow_notify, .. }) => {
-                // A remote notification that a zone that we are secondary for
-                // has been updated on the remote server. If the notification
-                // is legitimate we will want to check if the remote copy of
-                // the zone is indeed newer than our copy and then fetch the
-                // changes.
-                trace!("Remote change notification received for secondary zone '{}'", msg.apex_name);
-                (source, allow_notify)
-            }
-
-            (Some(_), ZoneType::Primary { .. }) => {
-                // An attempt by a remote entity to notify us of a change to a
-                // zone that we are primary for. As only we can update a zone
-                // that we are primary for, such a notification is spurious
-                // and should be ignored.
-                warn!("Ignoring spurious change notification for primary zone '{}'", msg.apex_name);
-                return;
-            }
-        };
+                (Some(source), zone_cfg) => {
+                    // A remote notification that a zone that we are secondary for
+                    // has been updated on the remote server. If the notification
+                    // is legitimate we will want to check if the remote copy of
+                    // the zone is indeed newer than our copy and then fetch the
+                    // changes.
+                    trace!(
+                        "Remote change notification received for zone '{}'",
+                        msg.apex_name
+                    );
+                    (source, &zone_cfg.allow_notify_from)
+                }
+            };
 
         // https://datatracker.ietf.org/doc/html/rfc1996#section-2
         //   "2.1. The following definitions are used in this document:
@@ -1785,7 +1783,7 @@ where
         // address resolves to the SOA MNAME or an apex NS name for the
         // zone being updated. If not, ignore the notification.
 
-        if !Self::is_known_primary(allow_notify, &source, zone).await {
+        if !Self::is_known_primary(allow_notify_from, &source, zone).await {
             warn!(
                 "NOTIFY for {}, from {source}: refused, no acl matches",
                 msg.apex_name
@@ -1861,12 +1859,18 @@ where
             zone,
             Some(initial_xfr_addr),
             zone_refresh_info,
-            event_tx,
+            event_tx.clone(),
             config,
         )
         .await
         {
             // TODO
+            return;
+        }
+
+        // Trigger migration of the zone from the pending set to the active set.
+        if is_pending {
+            event_tx.send(Event::ZoneAdded(key)).await.unwrap();
         }
     }
 
@@ -2043,20 +2047,17 @@ where
             .downcast_ref::<CatalogZone>()
             .unwrap();
 
-        let ZoneType::Secondary {
+        let ZoneConfig {
             multi_primary_xfr_strategy,
-            request_xfr,
+            request_xfr_from,
             ..
-        } = &cat_zone.info().zone_type
-        else {
-            unreachable!();
-        };
+        } = &cat_zone.info().config;
 
         // TODO: If we later have more than one MultiPrimaryXfrStrategy,
         // adjust our behaviour to match the requested strategy.
         // TODO: Factor out the multi-primary strategy to a generic type on
         // Catalog that implements a trait to make it pluggable.
-        assert!(matches!(multi_primary_xfr_strategy, MultiPrimaryXfrStrategy::NotifySourceFirstThenSequentialStoppingAtFirstNewerSerial));
+        assert!(matches!(multi_primary_xfr_strategy, NotifyStrategy::NotifySourceFirstThenSequentialStoppingAtFirstNewerSerial));
 
         // Determine our current SOA SERIAL value so that we can check that
         // the primary is higher. If the zone is a new secondary it will not
@@ -2070,21 +2071,18 @@ where
 
         // Determine the primary server addresses to visit and in which order.
         let primary_addrs =
-            initial_xfr_addr.iter().chain(request_xfr.addrs());
+            initial_xfr_addr.iter().chain(request_xfr_from.addrs());
 
         let mut num_ok_primaries = 0;
         let mut saved_err = None;
 
         for primary_addr in primary_addrs {
-            if let Some((xfr_settings, tsig_key)) =
-                request_xfr.get_target(primary_addr)
-            {
+            if let Some(xfr_config) = request_xfr_from.dst(primary_addr) {
                 let res = Self::refresh_zone_from_addr(
                     zone,
                     current_serial,
                     *primary_addr,
-                    xfr_settings,
-                    tsig_key,
+                    xfr_config,
                     zone_refresh_info,
                     config.clone(),
                 )
@@ -2122,8 +2120,7 @@ where
         zone: &Zone,
         current_serial: Option<Serial>,
         primary_addr: SocketAddr,
-        xfr_settings: &XfrSettings,
-        tsig_key: &Option<TsigKey>,
+        xfr_config: &XfrConfig,
         zone_refresh_info: &mut ZoneRefreshState,
         config: Arc<ArcSwap<Config<KS>>>,
     ) -> Result<Option<Soa<Name<Bytes>>>, CatalogError> {
@@ -2131,7 +2128,7 @@ where
         // Try at least once, at most twice (when using IXFR -> AXFR fallback)
         for i in 0..=1 {
             // Determine the kind of transfer to use if the zone is outdated
-            let rtype = match xfr_settings.strategy {
+            let rtype = match xfr_config.strategy {
                 XfrStrategy::None => {
                     warn!("Transfer not enabled for possibly outdated secondary zone '{}'", zone.apex_name());
                     return Ok(None);
@@ -2163,7 +2160,7 @@ where
             // Fetch the SOA serial using the appropriate transport
             let transport = match rtype {
                 Rtype::AXFR => TransportStrategy::Tcp,
-                Rtype::IXFR => xfr_settings.ixfr_transport,
+                Rtype::IXFR => xfr_config.ixfr_transport,
                 _ => unreachable!(),
             };
 
@@ -2183,7 +2180,7 @@ where
 
             let loaded_config = config.load();
             let readable_key_store = &loaded_config.key_store; //.read().await;
-            let key = tsig_key.as_ref().and_then(|(name, alg)| {
+            let key = xfr_config.tsig_key.as_ref().and_then(|(name, alg)| {
                 readable_key_store.get_key(name, *alg)
             });
 
@@ -2515,12 +2512,12 @@ where
     }
 
     async fn is_known_primary<'a>(
-        acl: &'a NotifyAcl,
+        acl: &'a NotifySrcDstConfig,
         source: &IpAddr,
         zone: &Zone,
     ) -> bool {
         let source_addr = SocketAddr::new(*source, IANA_DNS_PORT_NUMBER);
-        if acl.contains_target(&source_addr) {
+        if acl.has_dst(&source_addr) {
             trace!("Source IP {source} is on the ACL for the zone.");
             return true;
         } else {
@@ -2532,6 +2529,10 @@ where
             .as_any()
             .downcast_ref::<CatalogZone>()
             .unwrap();
+
+        if !cat_zone.info().config.discover_notify_set {
+            return false;
+        }
 
         let mut locked_nameservers = cat_zone.info().nameservers.lock().await;
         if locked_nameservers.is_none() {
@@ -2587,15 +2588,18 @@ where
             .downcast_ref::<CatalogZone>()
             .unwrap();
 
-        if let Ok(nameservers) = Self::identify_nameservers(zone).await {
-            *cat_zone.info().nameservers.lock().await = Some(nameservers);
-        };
+        if cat_zone.info().config.discover_notify_set {
+            if let Ok(nameservers) = Self::identify_nameservers(zone).await {
+                *cat_zone.info().nameservers.lock().await = Some(nameservers);
+            };
+        }
     }
 }
 
 impl<KS> Catalog<KS>
 where
-    KS: Default,
+    KS: Default + Deref,
+    KS::Target: KeyStore,
 {
     /// The entire tree of zones managed by this [`Catalog`] instance.
     pub fn zones(&self) -> Arc<ZoneTree> {
@@ -2660,7 +2664,8 @@ where
 
 impl<KS> Catalog<KS>
 where
-    KS: Default,
+    KS: Default + Deref,
+    KS::Target: KeyStore,
 {
     fn update_lodaded_arc(&self) {
         *self.loaded_arc.write().unwrap() = self.member_zones.load_full();
@@ -2700,21 +2705,21 @@ async fn send_zone_changed_msg(
 #[derive(Debug)]
 pub struct TypedZone {
     store: Arc<dyn ZoneStore>,
-    zone_type: ZoneType,
+    zone_type: ZoneConfig,
 }
 
 impl TypedZone {
-    pub fn new(zone: Zone, zone_type: ZoneType) -> TypedZone {
+    pub fn new(zone: Zone, zone_type: ZoneConfig) -> TypedZone {
         TypedZone {
             store: zone.into_inner(),
             zone_type,
         }
     }
-    pub fn into_inner(self) -> (Arc<dyn ZoneStore>, ZoneType) {
+    pub fn into_inner(self) -> (Arc<dyn ZoneStore>, ZoneConfig) {
         (self.store, self.zone_type)
     }
 
-    pub fn zone_type(&self) -> &ZoneType {
+    pub fn zone_type(&self) -> &ZoneConfig {
         &self.zone_type
     }
 }

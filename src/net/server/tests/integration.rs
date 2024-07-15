@@ -47,8 +47,8 @@ use crate::utils::base16;
 use crate::zonecatalog::catalog;
 use crate::zonecatalog::catalog::CatalogKeyStore;
 use crate::zonecatalog::catalog::{
-    Acl, Catalog, CompatibilityMode, TransportStrategy, TypedZone, XfrAcl,
-    XfrSettings, XfrStrategy, ZoneType,
+    Catalog, CompatibilityMode, SrcDstConfig, TransportStrategy, TypedZone,
+    XfrConfig, XfrSrcDstConfig, XfrStrategy, ZoneConfig,
 };
 use crate::zonefile::inplace::Zonefile;
 use crate::zonetree::Answer;
@@ -381,7 +381,7 @@ struct ServerZone {
     /// None if we fetch it via XFR
     zone_file: Option<Zonefile>,
 
-    zone_type: ZoneType,
+    zone_type: ZoneConfig,
 }
 
 #[derive(Default)]
@@ -403,7 +403,7 @@ fn parse_server_config(config: &Config) -> ServerConfig {
     let mut parsed_config = ServerConfig::default();
     let mut zone_file_bytes = VecDeque::<u8>::new();
     let mut in_server_block = false;
-    let mut allow_xfr = XfrAcl::new();
+    let mut allow_xfr = XfrSrcDstConfig::new();
 
     for line in config.lines() {
         if line.starts_with("server:") {
@@ -509,13 +509,14 @@ fn parse_server_config(config: &Config) -> ServerConfig {
                             None => CompatibilityMode::Default,
                         };
 
-                        let xfr_settings = XfrSettings {
+                        let xfr_config = XfrConfig {
                             strategy,
                             ixfr_transport,
                             compatibility_mode,
+                            tsig_key,
                         };
 
-                        allow_xfr.allow_from(ip, (xfr_settings, tsig_key));
+                        allow_xfr.add_src(ip, xfr_config);
                     }
                     _ => {
                         eprintln!("Ignoring unknown server setting '{setting}' with value: {value}");
@@ -529,7 +530,8 @@ fn parse_server_config(config: &Config) -> ServerConfig {
         let zone_file = (!zone_file_bytes.is_empty())
             .then(|| Zonefile::load(&mut zone_file_bytes).unwrap());
 
-        let zone_type = ZoneType::new_primary(allow_xfr, Acl::new());
+        let zone_type =
+            ZoneConfig::new_primary(allow_xfr, SrcDstConfig::new());
 
         parsed_config.zone = Some(ServerZone {
             zone_file,

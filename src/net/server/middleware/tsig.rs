@@ -294,6 +294,14 @@ where
                     return Some(q);
                 }
             }
+        } else if Opcode::NOTIFY == msg.header().opcode()
+            && !msg.header().qr()
+        {
+            if let Some(q) = msg.first_question() {
+                if matches!(q.qtype(), Rtype::SOA) {
+                    return Some(q);
+                }
+            }
         }
 
         None

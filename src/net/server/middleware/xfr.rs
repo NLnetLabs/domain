@@ -6,6 +6,7 @@ use core::ops::ControlFlow;
 use core::pin::Pin;
 
 use std::boxed::Box;
+use std::ops::Deref;
 use std::sync::Arc;
 
 use bytes::Bytes;
@@ -34,8 +35,7 @@ use crate::net::server::util::{mk_builder_for_target, mk_error_response};
 use crate::rdata::{Soa, ZoneRecordData};
 use crate::tsig::{KeyName, KeyStore};
 use crate::zonecatalog::catalog::{
-    Catalog, CatalogZone, CompatibilityMode, TsigKey, XfrSettings,
-    XfrStrategy, ZoneInfo, ZoneType,
+    Catalog, CatalogZone, CompatibilityMode, XfrConfig, XfrStrategy, ZoneInfo,
 };
 use crate::zonetree::error::OutOfZone;
 use crate::zonetree::{
@@ -84,7 +84,11 @@ pub enum XfrMode {
 /// [1995]: https://datatracker.ietf.org/doc/html/rfc1995
 /// [5936]: https://datatracker.ietf.org/doc/html/rfc5936
 #[derive(Clone, Debug)]
-pub struct XfrMiddlewareSvc<RequestOctets, NextSvc, KS: Default> {
+pub struct XfrMiddlewareSvc<RequestOctets, NextSvc, KS>
+where
+    KS: Default + Deref,
+    KS::Target: KeyStore,
+{
     next_svc: NextSvc,
 
     catalog: Arc<Catalog<KS>>,
@@ -100,7 +104,8 @@ pub struct XfrMiddlewareSvc<RequestOctets, NextSvc, KS: Default> {
 
 impl<RequestOctets, NextSvc, KS> XfrMiddlewareSvc<RequestOctets, NextSvc, KS>
 where
-    KS: Default,
+    KS: Default + Deref,
+    KS::Target: KeyStore,
 {
     /// Creates an empty processor instance.
     ///
@@ -137,8 +142,8 @@ where
     NextSvc::Future: Send + Sync + Unpin,
     NextSvc::Target: Composer + Default + Send + Sync,
     NextSvc::Stream: Send + Sync,
-    KS: KeyStore + Clone + Default + Send + Sync + 'static,
-    KS::Key: Send + Sync + 'static,
+    KS: Default + Deref,
+    KS::Target: KeyStore,
 {
     async fn preprocess<T>(
         zone_walking_semaphore: Arc<Semaphore>,
@@ -163,8 +168,7 @@ where
         let qname: Name<Bytes> = q.qname().to_name();
 
         // Find the zone
-        let zones = catalog.zones();
-        let Some(zone) = zones.get_zone(&qname, q.qclass()) else {
+        let Some(zone) = catalog.get_zone(&qname, q.qclass()) else {
             // https://datatracker.ietf.org/doc/html/rfc5936#section-2.2.1
             // 2.2.1 Header Values
             //   "If a server is not authoritative for the queried zone, the
@@ -191,47 +195,50 @@ where
             .downcast_ref::<CatalogZone>()
             .unwrap();
 
-        let (xfr_settings, tsig_key) = Self::settings_for_client(
+        let xfr_config = Self::settings_for_client(
             req.client_addr().ip(),
             &qname,
             q.qtype(),
             cat_zone.info(),
         );
 
-        let actual_tsig_key_name = get_key_for_req(req);
-        let expected_tsig_key_name = tsig_key.map(|(name, _alg)| name);
-        let tsig_key_mismatch = match (expected_tsig_key_name, actual_tsig_key_name) {
-            (None, Some(actual)) => {
-                Some(format!(
-                    "Request was signed with TSIG key '{actual}' but should be unsigned."))
+        if let Some(cfg) = xfr_config {
+            let actual_tsig_key_name = get_key_for_req(req);
+            let expected_tsig_key_name =
+                cfg.tsig_key.as_ref().map(|(name, _alg)| name);
+            let tsig_key_mismatch = match (expected_tsig_key_name, actual_tsig_key_name) {
+                (None, Some(actual)) => {
+                    Some(format!(
+                        "Request was signed with TSIG key '{actual}' but should be unsigned."))
+                }
+                (Some(expected), None) => {
+                    Some(
+                        format!("Request should be signed with TSIG key '{expected}' but was unsigned"))
+                }
+                (Some(expected), Some(actual)) if *actual != expected => {
+                    Some(format!(
+                        "Request should be signed with TSIG key '{expected}' but was instead signed with TSIG key '{actual}'"))
+                }
+                (Some(expected), Some(_)) => {
+                    trace!("Request is signed with expected TSIG key '{expected}'");
+                    None
+                },
+                (None, None) => {
+                    trace!("Request is unsigned as expected");
+                    None
+                }
+            };
+            if let Some(reason) = tsig_key_mismatch {
+                warn!(
+                    "{} for {qname} from {} refused: {}",
+                    q.qtype(),
+                    req.client_addr(),
+                    reason
+                );
+                let response =
+                    mk_error_response(req.message(), OptRcode::NOTAUTH);
+                return ControlFlow::Break(Self::to_stream(response));
             }
-            (Some(expected), None) => {
-                Some(
-                    format!("Request should be signed with TSIG key '{expected}' but was unsigned"))
-            }
-            (Some(expected), Some(actual)) if actual != expected => {
-                Some(format!(
-                    "Request should be signed with TSIG key '{expected}' but was instead signed with TSIG key '{actual}'"))
-            }
-            (Some(expected), Some(_)) => {
-                trace!("Request is signed with expected TSIG key '{expected}'");
-                None
-            },
-            (None, None) => {
-                trace!("Request is unsigned as expected");
-                None
-            }
-        };
-        if let Some(reason) = tsig_key_mismatch {
-            warn!(
-                "{} for {qname} from {} refused: {}",
-                q.qtype(),
-                req.client_addr(),
-                reason
-            );
-            let response =
-                mk_error_response(req.message(), OptRcode::NOTAUTH);
-            return ControlFlow::Break(Self::to_stream(response));
         }
 
         // Read the zone SOA RR
@@ -256,7 +263,7 @@ where
                 ControlFlow::Break(Self::to_stream(response))
             }
 
-            Rtype::AXFR | Rtype::IXFR if xfr_settings.is_none() => {
+            Rtype::AXFR | Rtype::IXFR if xfr_config.is_none() => {
                 ControlFlow::Break(Self::to_stream(mk_error_response(
                     msg,
                     OptRcode::REFUSED,
@@ -327,7 +334,7 @@ where
                 {
                     IxfrResult::Ok(stream) => ControlFlow::Break(stream),
                     IxfrResult::FallbackToAxfr => {
-                        if xfr_settings.unwrap().strategy
+                        if xfr_config.unwrap().strategy
                             != XfrStrategy::IxfrWithAxfrFallback
                         {
                             info!(
@@ -382,29 +389,29 @@ where
         qname: &Name<Bytes>,
         qtype: Rtype,
         zone_info: &'a ZoneInfo,
-    ) -> (Option<&'a XfrSettings>, Option<&'a TsigKey>) {
-        let ZoneType::Primary { allow_xfr, .. } = zone_info.zone_type()
-        else {
-            if qtype != Rtype::SOA {
-                warn!(
-                    "{qtype} for {qname} from {client_ip} refused: zone does not allow XFR",
-                );
-            }
-            return (None, None);
+    ) -> Option<&'a XfrConfig> {
+        if qtype == Rtype::SOA {
+            return None;
+        }
+
+        if zone_info.config().provide_xfr_to.is_empty() {
+            warn!(
+                "{qtype} for {qname} from {client_ip} refused: zone does not allow XFR",
+            );
+            return None;
         };
 
-        let Some((xfr_settings, tsig_key)) = allow_xfr.get_caller(client_ip)
+        let Some(xfr_config) =
+            zone_info.config().provide_xfr_to.src(client_ip)
         else {
-            if qtype != Rtype::SOA {
-                warn!(
-                    "{qtype} for {qname} from {client_ip} refused: client is not permitted to transfer this zone",
-                );
-            }
-            return (None, None);
+            warn!(
+                "{qtype} for {qname} from {client_ip} refused: client is not permitted to transfer this zone",
+            );
+            return None;
         };
 
         if matches!(
-            (qtype, xfr_settings.strategy),
+            (qtype, xfr_config.strategy),
             (Rtype::AXFR, XfrStrategy::IxfrOnly)
                 | (Rtype::IXFR, XfrStrategy::AxfrOnly)
         ) {
@@ -413,10 +420,10 @@ where
                     "{qtype} for {qname} from {client_ip} refused: zone does not allow {qtype}",
                 );
             }
-            return (None, None);
+            return None;
         }
 
-        (Some(xfr_settings), tsig_key.as_ref())
+        Some(xfr_config)
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -444,18 +451,15 @@ where
             unreachable!()
         };
 
-        let ZoneType::Primary { allow_xfr, .. } = zone_info.zone_type()
+        let Some(xfr_config) = zone_info
+            .config()
+            .provide_xfr_to
+            .src(req.client_addr().ip())
         else {
             unreachable!();
         };
 
-        let Some((xfr_settings, _tsig_key)) =
-            allow_xfr.get_caller(req.client_addr().ip())
-        else {
-            unreachable!();
-        };
-
-        let compatibility_mode = xfr_settings.compatibility_mode
+        let compatibility_mode = xfr_config.compatibility_mode
             == CompatibilityMode::BackwardCompatible;
 
         if compatibility_mode {
@@ -1207,8 +1211,8 @@ where
     NextSvc::Future: Send + Sync + Unpin,
     NextSvc::Target: Composer + Default + Send + Sync,
     NextSvc::Stream: Send + Sync,
-    KS: KeyStore + Clone + Default + Send + Sync + 'static,
-    KS::Key: Send + Sync,
+    KS: Default + Deref + Send + Sync + 'static,
+    KS::Target: KeyStore,
 {
     type Target = NextSvc::Target;
     type Stream = XfrMiddlewareStream<
@@ -1261,8 +1265,8 @@ where
     NextSvc::Future: Send + Sync + Unpin,
     NextSvc::Target: Composer + Default + Send + Sync,
     NextSvc::Stream: Send + Sync,
-    KS: KeyStore + Clone + Default + Send + Sync + 'static,
-    KS::Key: Send + Sync,
+    KS: Default + Deref + Send + Sync + 'static,
+    KS::Target: KeyStore,
 {
     type Target = NextSvc::Target;
     type Stream = XfrMiddlewareStream<

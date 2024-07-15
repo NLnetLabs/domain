@@ -39,7 +39,8 @@ use crate::zonecatalog::catalog::{Catalog, CatalogError};
 #[derive(Clone, Debug)]
 pub struct NotifyMiddlewareSvc<RequestOctets, NextSvc, RequestMeta, KS>
 where
-    KS: Default,
+    KS: Default + Deref,
+    KS::Target: KeyStore,
 {
     next_svc: NextSvc,
 
@@ -51,7 +52,8 @@ where
 impl<RequestOctets, NextSvc, RequestMeta, KS>
     NotifyMiddlewareSvc<RequestOctets, NextSvc, RequestMeta, KS>
 where
-    KS: Default,
+    KS: Default + Deref,
+    KS::Target: KeyStore,
 {
     #[must_use]
     pub fn new(next_svc: NextSvc, catalog: Arc<Catalog<KS>>) -> Self {
