@@ -44,10 +44,9 @@ use crate::stelline::client::{
 use crate::stelline::parse_stelline::{self, parse_file, Config, Matches};
 use crate::tsig::{Algorithm, Key, KeyName, KeyStore};
 use crate::utils::base16;
-use crate::zonecatalog::catalog;
-use crate::zonecatalog::catalog::CatalogKeyStore;
-use crate::zonecatalog::catalog::{
-    Catalog, CompatibilityMode, SrcDstConfig, TransportStrategy, TypedZone,
+use crate::zonecatalog::catalog::{self, Catalog};
+use crate::zonecatalog::types::{
+    CatalogKeyStore, CompatibilityMode, SrcDstConfig, TransportStrategy,
     XfrConfig, XfrSrcDstConfig, XfrStrategy, ZoneConfig,
 };
 use crate::zonefile::inplace::Zonefile;
@@ -70,6 +69,11 @@ async fn server_tests(#[files("test-data/server/*.rpl")] rpl_file: PathBuf) {
     // Initialize tracing based logging. Override with env var RUST_LOG, e.g.
     // RUST_LOG=trace. DEBUG level will show the .rpl file name, Stelline step
     // numbers and types as they are being executed.
+
+    use crate::zonecatalog::{
+        catalog::{Catalog, TypedZone},
+        types::CatalogKeyStore,
+    };
     tracing_subscriber::fmt()
         .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
         .with_thread_ids(true)

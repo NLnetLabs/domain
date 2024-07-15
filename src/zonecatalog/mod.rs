@@ -13,3 +13,4 @@
 //! Experimental storing, querying and syncing a catalog of zones.
 
 pub mod catalog;
+pub mod types;

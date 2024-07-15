@@ -42,6 +42,10 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use bytes::Bytes;
+use domain::zonecatalog::catalog::{self, Catalog, TypedZone};
+use domain::zonecatalog::types::{
+    CatalogKeyStore, CompatibilityMode, NotifyConfig, TransportStrategy, XfrConfig, XfrStrategy, ZoneConfig
+};
 use octseq::Parser;
 use tokio::net::{TcpListener, UdpSocket};
 use tokio::sync::mpsc;
@@ -67,10 +71,6 @@ use domain::net::server::ConnectionConfig;
 use domain::rdata::ZoneRecordData;
 use domain::tsig::{Algorithm, Key, KeyName};
 use domain::utils::base64;
-use domain::zonecatalog::catalog::{
-    self, Catalog, CatalogKeyStore, NotifyConfig, TransportStrategy,
-    TypedZone, XfrConfig, XfrStrategy, ZoneConfig,
-};
 use domain::zonefile::inplace;
 use domain::zonetree::{Answer, Rrset, ZoneBuilder};
 use domain::zonetree::{WritableZone, Zone, ZoneStore};
@@ -459,7 +459,7 @@ Options:
     let mut xfr_cfg = XfrConfig {
         strategy: XfrStrategy::IxfrWithAxfrFallback,
         ixfr_transport: TransportStrategy::Tcp,
-        compatibility_mode: catalog::CompatibilityMode::Default,
+        compatibility_mode: CompatibilityMode::Default,
         tsig_key: None,
     };
 
