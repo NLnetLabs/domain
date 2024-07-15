@@ -44,7 +44,8 @@ use std::time::Duration;
 use bytes::Bytes;
 use domain::zonecatalog::catalog::{self, Catalog, TypedZone};
 use domain::zonecatalog::types::{
-    CatalogKeyStore, CompatibilityMode, NotifyConfig, TransportStrategy, XfrConfig, XfrStrategy, ZoneConfig
+    CatalogKeyStore, CompatibilityMode, NotifyConfig, TransportStrategy,
+    XfrConfig, XfrStrategy, ZoneConfig,
 };
 use octseq::Parser;
 use tokio::net::{TcpListener, UdpSocket};
