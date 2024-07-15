@@ -582,7 +582,7 @@ Options:
                 } else if zone_path.is_none() {
                     zone_path = Some(arg);
                 } else {
-                    return Err(usage)?;
+                    return Err(usage);
                 }
             }
         }

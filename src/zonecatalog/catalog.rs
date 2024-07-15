@@ -1553,8 +1553,9 @@ where
                 .send_notify_to
                 .dst(&nameserver_addr)
                 .and_then(|cfg| cfg.tsig_key.as_ref())
-                .map(|(name, alg)| readable_key_store.get_key(name, *alg))
-                .flatten();
+                .and_then(|(name, alg)| {
+                    readable_key_store.get_key(name, *alg)
+                });
 
             if let Some(key) = tsig_key.as_ref() {
                 debug!("Found TSIG key '{}' (algorith {}) for NOTIFY to {nameserver_addr}",
