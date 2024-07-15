@@ -76,9 +76,6 @@ use domain::zonefile::inplace;
 use domain::zonetree::{Answer, Rrset, ZoneBuilder};
 use domain::zonetree::{WritableZone, Zone, ZoneStore};
 
-const DEF_LISTEN_ADDR: SocketAddr =
-    SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 8053);
-
 #[tokio::main()]
 async fn main() {
     // Initialize tracing based logging. Override with env var RUST_LOG, e.g.
@@ -426,7 +423,8 @@ fn parse_args() -> Result<Config, String> {
     let mut args = args();
     let bin_name = args.next().unwrap();
 
-    let def_listen_addr = DEF_LISTEN_ADDR.to_string();
+    let def_listen_addr =
+        SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 8053);
     let usage = format!(
         r###"Usage: {bin_name} <zone-name> [<zone-file-path>] OPTIONS
 
@@ -630,8 +628,8 @@ Options:
     let zone = TypedZone::new(zone, zone_cfg);
 
     Ok(Config {
-        udp_listen_addr: udp_listen_addr.unwrap_or(DEF_LISTEN_ADDR),
-        tcp_listen_addr: tcp_listen_addr.unwrap_or(DEF_LISTEN_ADDR),
+        udp_listen_addr: udp_listen_addr.unwrap_or(def_listen_addr),
+        tcp_listen_addr: tcp_listen_addr.unwrap_or(def_listen_addr),
         zone,
         key_store: Arc::new(key_store),
     })
