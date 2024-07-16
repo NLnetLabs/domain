@@ -600,6 +600,7 @@ fn parse_server_config(config: &Config) -> ServerConfig {
     parsed_config
 }
 
+#[allow(dead_code)]
 #[derive(Clone, Default)]
 struct TestServerConnFactory {
     dgram_server_conn: ClientServerChannel,
