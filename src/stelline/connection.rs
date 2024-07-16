@@ -12,6 +12,7 @@ use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 
 use crate::base::message_builder::AdditionalBuilder;
 use crate::base::Message;
+use tracing::trace;
 
 #[derive(Clone, Debug)]
 pub struct Connection {
@@ -47,6 +48,7 @@ impl AsyncRead for Connection {
         buf: &mut ReadBuf<'_>,
     ) -> Poll<Result<(), std::io::Error>> {
         if self.reply.is_some() {
+            trace!("Returning stored reply to the caller");
             let slice = self.reply.as_ref().unwrap().as_slice();
             let len = slice.len();
             if self.send_body {
@@ -87,6 +89,7 @@ impl AsyncWrite for Connection {
         self.tmpbuf = Vec::new();
         let opt_reply = do_server(&msg, &self.stelline, &self.step_value);
         if opt_reply.is_some() {
+            trace!("Storing response for caller to read");
             // Do we need to support more than one reply?
             self.reply = opt_reply;
             let opt_waker = self.waker.take();

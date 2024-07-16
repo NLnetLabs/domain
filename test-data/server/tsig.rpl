@@ -1,5 +1,3 @@
-; Based on https://github.com/NLnetLabs/unbound/blob/172b84f7ce6507e96fe51bd94448222a5a47274b/testdata/auth_xfr.rpl
-
 ; config options
 server:
 	provide-xfr: 127.0.0.1 NOKEY
@@ -67,7 +65,7 @@ SECTION ANSWER
 ENTRY_END
 
 ; Retrieve the zone using a client for which the server is configured to serve
-; AXFR in backward compatible mode.
+; AXFR in backward compatible mode so that we can test multi-response TSIG.
 STEP 40 QUERY ADDRESS 127.0.0.4 KEY TESTKEY
 ENTRY_BEGIN
 MATCH TCP
