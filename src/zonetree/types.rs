@@ -267,10 +267,10 @@ pub struct ZoneDiff {
     pub end_serial: Option<Serial>,
 
     /// The records added to the Zone.
-    pub added: HashMap<StoredName, Vec<SharedRrset>>,
+    pub added: HashMap<(StoredName, Rtype), SharedRrset>,
 
     /// The records removed from the Zone.
-    pub removed: HashMap<StoredName, Vec<SharedRrset>>,
+    pub removed: HashMap<(StoredName, Rtype), SharedRrset>,
 }
 
 impl ZoneDiff {

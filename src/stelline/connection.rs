@@ -13,7 +13,7 @@ use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use crate::base::message_builder::AdditionalBuilder;
 use crate::base::Message;
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Connection {
     stelline: Stelline,
     step_value: Arc<CurrStepValue>,

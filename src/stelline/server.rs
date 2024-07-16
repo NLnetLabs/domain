@@ -1,6 +1,7 @@
 use std::fmt::Debug;
 
 use octseq::{OctetsBuilder, Truncate};
+use tracing::trace;
 
 use crate::base::iana::rcode::Rcode;
 use crate::base::iana::Opcode;
@@ -32,12 +33,18 @@ where
 
     // Take the last entry. That works better if the RPL is written with
     // a recursive resolver in mind.
+    trace!(
+        "Looking for matching Stelline range response for opcode {} qtype {}",
+        msg.header().opcode(),
+        msg.first_question().unwrap().qtype()
+    );
     for range in ranges {
         if step < range.start_value || step > range.end_value {
             continue;
         }
         for entry in &range.entry {
             if match_msg(entry, msg, false) {
+                trace!("Match found");
                 opt_entry = Some(entry);
             }
         }
@@ -49,6 +56,7 @@ where
             Some(reply)
         }
         None => {
+            trace!("No matching reply found");
             println!("do_server: no reply at step value {step}");
             todo!();
         }

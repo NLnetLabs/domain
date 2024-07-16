@@ -225,6 +225,8 @@ where
     if matches.opcode {
         let expected_opcode = if reply.notify {
             Opcode::NOTIFY
+        } else if let Some(opcode) = entry.opcode {
+            opcode
         } else {
             Opcode::QUERY
         };

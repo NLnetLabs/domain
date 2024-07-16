@@ -2,49 +2,103 @@
 
 ; config options
 server:
+    allow-notify: 127.0.0.100 NOKEY
+    request-xfr: 127.0.0.100 NOKEY
 	provide-xfr: 127.0.0.1 NOKEY
-    local-data: "JAIN.AD.JP.         IN SOA NS.JAIN.AD.JP. mohta.jain.ad.jp. (3 600 600 3600000 604800)"
+    provide-xfr: AXFR 127.0.0.10 NOKEY
+    local-data: "JAIN.AD.JP.         IN SOA NS.JAIN.AD.JP. mohta.jain.ad.jp. (1 600 600 3600000 604800)"
     local-data: "                    IN NS  NS.JAIN.AD.JP."
     local-data: "NS.JAIN.AD.JP.      IN A   133.69.136.1"
-    local-data: "JAIN-BB.JAIN.AD.JP. IN A   133.69.136.3"
-    local-data: "                    IN A   192.41.197.2"
+    local-data: "NEZU.JAIN.AD.JP.    IN A   133.69.136.5"
 
 CONFIG_END
 
-SCENARIO_BEGIN Test IXFR out
+SCENARIO_BEGIN Test IXFR
 
-; Request serial version 1 of the zone via IXFR from the server via TCP
-; The reply should be sent as a stream of responses.
-STEP 10 QUERY
+RANGE_BEGIN 10 20
+	ADDRESS 127.0.0.100
+
+; Mock reply 1:
+; =============
+; When notified in step 1 the server will attempt to update itself via XFR,
+; starting with a SOA query. This entry relpies to that SOA query indicating
+; that a newer version 3 of the zone is available.
 ENTRY_BEGIN
-MATCH TCP
+MATCH opcode qtype qname
+ADJUST copy_id
+REPLY QR AA NOERROR
 SECTION QUESTION
-    JAIN.AD.JP. IN IXFR
-SECTION AUTHORITY
-    JAIN.AD.JP.         IN SOA NS.JAIN.AD.JP. mohta.jain.ad.jp. (1 600 600 3600000 604800)
+    JAIN.AD.JP. IN SOA
+SECTION ANSWER
+    JAIN.AD.JP.         IN SOA NS.JAIN.AD.JP. mohta.jain.ad.jp. (3 600 600 3600000 604800)
 ENTRY_END
 
-STEP 20 CHECK_ANSWER
+; Mock reply 2:
+; =============
+; The server should then perform an IXFR query to fetch the updates in version
+; 3 of the zone. This entry replies with an IXFR response.
 ENTRY_BEGIN
-MATCH all
+MATCH opcode qtype qname
+ADJUST copy_id
 REPLY QR AA NOERROR
 SECTION QUESTION
     JAIN.AD.JP. IN IXFR
 SECTION ANSWER
-    JAIN.AD.JP.         IN SOA NS.JAIN.AD.JP. mohta.jain.ad.jp. (3 600 600 3600000 604800)
-    JAIN.AD.JP.         IN NS  NS.JAIN.AD.JP.
-    NS.JAIN.AD.JP.      IN A   133.69.136.1
-    JAIN-BB.JAIN.AD.JP. IN A   133.69.136.3
-    JAIN-BB.JAIN.AD.JP. IN A   192.41.197.2
-    JAIN.AD.JP.         IN SOA NS.JAIN.AD.JP. mohta.jain.ad.jp. (3 600 600 3600000 604800)
+    JAIN.AD.JP. IN SOA NS.JAIN.AD.JP. mohta.jain.ad.jp. (3 600 600 3600000 604800)
+    JAIN.AD.JP. IN SOA NS.JAIN.AD.JP. mohta.jain.ad.jp. (1 600 600 3600000 604800)
+    NEZU.JAIN.AD.JP. IN A 133.69.136.5
+    JAIN.AD.JP. IN SOA NS.JAIN.AD.JP. mohta.jain.ad.jp. (2 600 600 3600000 604800)
+    JAIN-BB.JAIN.AD.JP. IN A 133.69.136.4
+    JAIN-BB.JAIN.AD.JP. IN A 192.41.197.2
+    JAIN.AD.JP. IN SOA NS.JAIN.AD.JP. mohta.jain.ad.jp. (2 600 600 3600000 604800)
+    JAIN-BB.JAIN.AD.JP. IN A 133.69.136.4
+    JAIN.AD.JP. IN SOA NS.JAIN.AD.JP. mohta.jain.ad.jp. (3 600 600 3600000 604800)
+    JAIN-BB.JAIN.AD.JP. IN A 133.69.136.3
+    JAIN.AD.JP. IN SOA NS.JAIN.AD.JP. mohta.jain.ad.jp. (3 600 600 3600000 604800)
 ENTRY_END
 
-; Request serial version 1 of the zone via IXFR from the server via UDP
-; The reply should fit in a single UDP packet.
-STEP 30 QUERY
+RANGE_END
+
+; Setup
+; =====
+; Before we can execute the test query defined in RFC 1995 section 7 we must
+; first populate the server with the "three generations of data with the current
+; serial number of 3".
+;
+; Above via local-data we populate the server with the data for serial number 1.
+;
+; Here we then notify the real server from a mock server (that appears to exist
+; at 127.0.0.100) that it has a newer version of the zone than our real server
+; has.
+;
+; This should trigger a SOA query (answered with mock reply 1 above) followed by
+; an IXFR query (answered with mock reply 2 above) resulting in the server having
+; the serial number 3 content.
+STEP 10 QUERY ADDRESS 127.0.0.100
 ENTRY_BEGIN
+OPCODE NOTIFY
+MATCH UDP
 SECTION QUESTION
-    JAIN.AD.JP. IN IXFR
+    JAIN.AD.JP. IN SOA
+ENTRY_END
+
+STEP 20 CHECK_ANSWER
+ENTRY_BEGIN
+OPCODE NOTIFY
+MATCH all
+REPLY QR AA NOERROR
+SECTION QUESTION
+    JAIN.AD.JP. IN SOA
+ENTRY_END
+
+; Request update from serial version 1 of the zone via IXFR from the server
+; via TCP using a client to which only AXFR will be served. This is the example query and
+; "full zone transfer message" response defined in RFC 1995 section 7.
+STEP 30 QUERY 127.0.0.2
+ENTRY_BEGIN
+MATCH TCP
+SECTION QUESTION
+    JAIN.AD.JP. IN AXFR
 SECTION AUTHORITY
     JAIN.AD.JP.         IN SOA NS.JAIN.AD.JP. mohta.jain.ad.jp. (1 600 600 3600000 604800)
 ENTRY_END
@@ -54,7 +108,7 @@ ENTRY_BEGIN
 MATCH all
 REPLY QR AA NOERROR
 SECTION QUESTION
-    JAIN.AD.JP. IN IXFR
+    JAIN.AD.JP. IN AXFR
 SECTION ANSWER
     JAIN.AD.JP.         IN SOA NS.JAIN.AD.JP. mohta.jain.ad.jp. (3 600 600 3600000 604800)
     JAIN.AD.JP.         IN NS  NS.JAIN.AD.JP.
@@ -64,4 +118,43 @@ SECTION ANSWER
     JAIN.AD.JP.         IN SOA NS.JAIN.AD.JP. mohta.jain.ad.jp. (3 600 600 3600000 604800)
 ENTRY_END
 
+; Request update from serial version 1 of the zone via IXFR from the server
+; via UDP. The server only knows the state at serial number 1 and at serial number 3, it
+; doesn't know anything about serial number 2. So the reply should be the "condensed
+; incremental message" defined in RFC 1995 section 7. This reply should fit in a single
+; UDP packet.
+STEP 50 QUERY
+ENTRY_BEGIN
+SECTION QUESTION
+    JAIN.AD.JP.         IN IXFR
+SECTION AUTHORITY
+    JAIN.AD.JP.         IN SOA NS.JAIN.AD.JP. mohta.jain.ad.jp. (1 600 600 3600000 604800)
+ENTRY_END
+
+STEP 60 CHECK_ANSWER
+ENTRY_BEGIN
+MATCH all
+REPLY QR AA NOERROR
+SECTION QUESTION
+    JAIN.AD.JP.         IN IXFR
+SECTION ANSWER
+    JAIN.AD.JP.         IN SOA NS.JAIN.AD.JP. mohta.jain.ad.jp. (3 600 600 3600000 604800)
+    JAIN.AD.JP.         IN SOA NS.JAIN.AD.JP. mohta.jain.ad.jp. (1 600 600 3600000 604800)
+    NEZU.JAIN.AD.JP.    IN A 133.69.136.5
+    JAIN.AD.JP.         IN SOA NS.JAIN.AD.JP. mohta.jain.ad.jp. (2 600 600 3600000 604800)
+    JAIN-BB.JAIN.AD.JP. IN A 192.41.197.2
+    JAIN-BB.JAIN.AD.JP. IN A 133.69.136.4
+    JAIN.AD.JP.         IN SOA NS.JAIN.AD.JP. mohta.jain.ad.jp. (2 600 600 3600000 604800)
+    JAIN-BB.JAIN.AD.JP. IN A 192.41.197.2       ; NOTE: Adding this RR is pointless as it is removed below.
+    JAIN-BB.JAIN.AD.JP. IN A 133.69.136.4
+    JAIN.AD.JP.         IN SOA NS.JAIN.AD.JP. mohta.jain.ad.jp. (3 600 600 3600000 604800)
+    JAIN-BB.JAIN.AD.JP. IN A 133.69.136.3
+    JAIN-BB.JAIN.AD.JP. IN A 192.41.197.2       ; NOTE: This is where the pointlessly added RR is removed.
+    JAIN.AD.JP.         IN SOA NS.JAIN.AD.JP. mohta.jain.ad.jp. (3 600 600 3600000 604800)
+ENTRY_END
+
 SCENARIO_END
+
+; TODO: We don't test IXFR over multiple TCP responses, nor IXFR over UDP that
+; does NOT fit in a single response resulting in the special IXFR single SOA
+; "truncated" response).

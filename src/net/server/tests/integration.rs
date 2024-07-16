@@ -11,7 +11,6 @@ use std::vec::Vec;
 
 use ring::rand::SystemRandom;
 use rstest::rstest;
-use tokio::io::{AsyncRead, AsyncWrite};
 use tracing::warn;
 use tracing::{instrument, trace};
 
@@ -20,10 +19,8 @@ use crate::base::iana::Rcode;
 use crate::base::name::{Name, ToName};
 use crate::base::net::IpAddr;
 use crate::base::wire::Composer;
-use crate::net::client::dgram::Connection;
-use crate::net::client::request::ComposeRequest;
+use crate::net::client::request::{RequestMessage, SendRequest};
 use crate::net::client::{dgram, stream, tsig, xfr};
-use crate::net::server;
 use crate::net::server::buf::VecBufSource;
 use crate::net::server::dgram::DgramServer;
 use crate::net::server::message::Request;
@@ -36,22 +33,30 @@ use crate::net::server::middleware::xfr::{XfrMiddlewareSvc, XfrMode};
 use crate::net::server::service::{CallResult, Service, ServiceResult};
 use crate::net::server::stream::StreamServer;
 use crate::net::server::util::{mk_builder_for_target, service_fn};
+use crate::net::{self, server};
+use crate::stelline;
 use crate::stelline::channel::ClientServerChannel;
 use crate::stelline::client::{
     do_client, ClientFactory, CurrStepValue, PerClientAddressClientFactory,
     QueryTailoredClientFactory,
 };
-use crate::stelline::parse_stelline::{self, parse_file, Config, Matches};
+use crate::stelline::parse_stelline::{
+    self, parse_file, Config, Matches, Stelline,
+};
 use crate::tsig::{Algorithm, Key, KeyName, KeyStore};
 use crate::utils::base16;
-use crate::zonecatalog::catalog::{self, Catalog};
+use crate::zonecatalog::catalog::{
+    self, Catalog, ConnectionFactory, TypedZone,
+};
 use crate::zonecatalog::types::{
-    CatalogKeyStore, CompatibilityMode, SrcDstConfig, TransportStrategy,
-    XfrConfig, XfrSrcDstConfig, XfrStrategy, ZoneConfig,
+    CatalogKeyStore, CompatibilityMode, NotifyConfig, TransportStrategy,
+    XfrConfig, XfrStrategy, ZoneConfig,
 };
 use crate::zonefile::inplace::Zonefile;
 use crate::zonetree::Answer;
 use crate::zonetree::{Zone, ZoneBuilder};
+use core::future::ready;
+use std::string::String;
 
 const MAX_XFR_CONCURRENCY: usize = 1;
 
@@ -69,15 +74,10 @@ async fn server_tests(#[files("test-data/server/*.rpl")] rpl_file: PathBuf) {
     // Initialize tracing based logging. Override with env var RUST_LOG, e.g.
     // RUST_LOG=trace. DEBUG level will show the .rpl file name, Stelline step
     // numbers and types as they are being executed.
-
-    use crate::zonecatalog::{
-        catalog::{Catalog, TypedZone},
-        types::CatalogKeyStore,
-    };
     tracing_subscriber::fmt()
         .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
         .with_thread_ids(true)
-        .without_time()
+        // .without_time()
         .try_init()
         .ok();
 
@@ -98,10 +98,20 @@ async fn server_tests(#[files("test-data/server/*.rpl")] rpl_file: PathBuf) {
     key_store.insert((key_name, Algorithm::Sha256), key);
     let key_store = Arc::new(key_store);
 
+    // Create a connection factory.
+    let dgram_server_conn = ClientServerChannel::new_dgram();
+    let stream_server_conn = ClientServerChannel::new_stream();
+    let step_value = Arc::new(CurrStepValue::new());
+    let conn_factory =
+        MockServerConnFactory::new(stelline.clone(), step_value.clone());
+
     // Create a zone catalog. For now this is only used by the service to
     // query zones, and for XFR-in testing. In future it could also be used
     // with XFR-out and NOTIFY-in/out testing.
-    let catalog_config = catalog::Config::new(key_store.clone());
+    let catalog_config = catalog::Config::new_with_conn_factory(
+        key_store.clone(),
+        conn_factory,
+    );
     let catalog = Catalog::new_with_config(catalog_config);
     let catalog = Arc::new(catalog);
 
@@ -123,7 +133,7 @@ async fn server_tests(#[files("test-data/server/*.rpl")] rpl_file: PathBuf) {
             }
         };
 
-        let zone = TypedZone::new(zone, zone_config.zone_type.clone());
+        let zone = TypedZone::new(zone, zone_config.zone_config.clone());
         catalog.insert_zone(zone).await.unwrap();
     }
 
@@ -163,7 +173,7 @@ async fn server_tests(#[files("test-data/server/*.rpl")] rpl_file: PathBuf) {
         EdnsMiddlewareSvc::new(svc).enable(server_config.edns_tcp_keepalive);
 
     // 4. XFR(-in) middleware service (XFR-out is handled by the Catalog).
-    let svc = XfrMiddlewareSvc::<Vec<u8>, _, Arc<CatalogKeyStore>>::new(
+    let svc = XfrMiddlewareSvc::<Vec<u8>, _, Arc<CatalogKeyStore>, _>::new(
         svc,
         catalog.clone(),
         MAX_XFR_CONCURRENCY,
@@ -172,7 +182,7 @@ async fn server_tests(#[files("test-data/server/*.rpl")] rpl_file: PathBuf) {
 
     // 5. NOTIFY(-in) middleware service (relayed to the Catalog for handling,
     // and the Catalog is also responsible for NOTIFY-out).
-    let svc = NotifyMiddlewareSvc::<Vec<u8>, _, _, _>::new(svc, catalog);
+    let svc = NotifyMiddlewareSvc::<Vec<u8>, _, _, _, _>::new(svc, catalog);
 
     // 6. Mandatory DNS behaviour (e.g. RFC 1034/35 rules).
     let svc = MandatoryMiddlewareSvc::new(svc);
@@ -187,8 +197,12 @@ async fn server_tests(#[files("test-data/server/*.rpl")] rpl_file: PathBuf) {
 
     // 8. The dgram and stream servers that receive DNS queries and dispatch
     // them to the service layers above.
-    let (dgram_srv, dgram_conn, stream_srv, stream_conn) =
-        mk_servers(svc, &server_config);
+    let (dgram_srv, stream_srv) = mk_servers(
+        svc,
+        &server_config,
+        dgram_server_conn.clone(),
+        stream_server_conn.clone(),
+    );
 
     // Create a client factory for creating DNS clients per Stelline STEP with
     // the appropriate configuration (as defined by the .rpl content) to
@@ -196,10 +210,9 @@ async fn server_tests(#[files("test-data/server/*.rpl")] rpl_file: PathBuf) {
     // takes place, these clients and servers use a direct in-memory channel
     // to exchange messages instead of actual network sockets.
     let client_factory =
-        mk_client_factory(dgram_conn, stream_conn, key_store);
+        mk_client_factory(dgram_server_conn, stream_server_conn, key_store);
 
     // Run the Stelline test!
-    let step_value = Arc::new(CurrStepValue::new());
     do_client(&stelline, &step_value, client_factory).await;
 
     // Await shutdown
@@ -218,11 +231,11 @@ async fn server_tests(#[files("test-data/server/*.rpl")] rpl_file: PathBuf) {
 fn mk_servers<Svc>(
     service: Svc,
     server_config: &ServerConfig,
+    dgram_server_conn: ClientServerChannel,
+    stream_server_conn: ClientServerChannel,
 ) -> (
     Arc<DgramServer<ClientServerChannel, VecBufSource, Svc>>,
-    ClientServerChannel,
     Arc<StreamServer<ClientServerChannel, VecBufSource, Svc>>,
-    ClientServerChannel,
 )
 where
     Svc: Clone + Service + Send + Sync,
@@ -235,7 +248,6 @@ where
     let (dgram_config, stream_config) = mk_server_configs(server_config);
 
     // Create a dgram server for handling UDP requests.
-    let dgram_server_conn = ClientServerChannel::new_dgram();
     let dgram_server = DgramServer::<_, _, Svc>::with_config(
         dgram_server_conn.clone(),
         VecBufSource,
@@ -248,7 +260,6 @@ where
 
     // Create a stream server for handling TCP requests, i.e. Stelline queries
     // with "MATCH TCP".
-    let stream_server_conn = ClientServerChannel::new_stream();
     let stream_server = StreamServer::with_config(
         stream_server_conn.clone(),
         VecBufSource,
@@ -259,12 +270,7 @@ where
     let cloned_stream_server = stream_server.clone();
     tokio::spawn(async move { cloned_stream_server.run().await });
 
-    (
-        dgram_server,
-        dgram_server_conn,
-        stream_server,
-        stream_server_conn,
-    )
+    (dgram_server, stream_server)
 }
 
 fn mk_client_factory(
@@ -286,10 +292,16 @@ fn mk_client_factory(
             let key = entry.key_name.as_ref().and_then(|key_name| {
                 tcp_key_store.get_key(&key_name, Algorithm::Sha256)
             });
-            let client = mk_stream_conn(
+            let (client, transport) = stream::Connection::new(
                 stream_server_conn
                     .connect(Some(SocketAddr::new(*source_addr, 0))),
             );
+
+            tokio::spawn(async move {
+                transport.run().await;
+                trace!("TCP connection terminated");
+            });
+
             let client = xfr::Connection::new(None, client);
             Box::new(tsig::Connection::new(key, client))
         },
@@ -305,10 +317,13 @@ fn mk_client_factory(
             let key = entry.key_name.as_ref().and_then(|key_name| {
                 key_store.get_key(&key_name, Algorithm::Sha256)
             });
-            let client = mk_dgram_conn(
+            let client = dgram::Connection::new(
                 dgram_server_conn
                     .new_client(Some(SocketAddr::new(*source_addr, 0))),
             );
+
+            // While AXFR is TCP only, IXFR can also be done over UDP
+            let client = xfr::Connection::new(None, client);
             Box::new(tsig::Connection::new(key, client))
         },
         for_all_other_queries,
@@ -354,7 +369,7 @@ fn mk_server_configs(
 #[allow(clippy::type_complexity)]
 fn test_service(
     request: Request<Vec<u8>>,
-    catalog: Arc<Catalog<Arc<CatalogKeyStore>>>,
+    catalog: Arc<Catalog<Arc<CatalogKeyStore>, MockServerConnFactory>>,
 ) -> ServiceResult<Vec<u8>> {
     let question = request.message().sole_question().unwrap();
 
@@ -385,7 +400,7 @@ struct ServerZone {
     /// None if we fetch it via XFR
     zone_file: Option<Zonefile>,
 
-    zone_type: ZoneConfig,
+    zone_config: ZoneConfig,
 }
 
 #[derive(Default)]
@@ -407,7 +422,7 @@ fn parse_server_config(config: &Config) -> ServerConfig {
     let mut parsed_config = ServerConfig::default();
     let mut zone_file_bytes = VecDeque::<u8>::new();
     let mut in_server_block = false;
-    let mut allow_xfr = XfrSrcDstConfig::new();
+    let mut zone_config = ZoneConfig::default();
 
     for line in config.lines() {
         if line.starts_with("server:") {
@@ -474,13 +489,36 @@ fn parse_server_config(config: &Config) -> ServerConfig {
                             );
                         }
                     }
-                    ("provide-xfr", v) => {
+                    ("allow-notify", v) => {
+                        // allow-notify: <ip-address> <key-name | NOKEY>
+                        let mut pieces = v.split(|c: char| c.is_whitespace());
+
+                        let ip = pieces.next().unwrap();
+                        let ip = ip.parse().unwrap();
+
+                        let key_name = pieces.next().unwrap();
+                        let tsig_key = match key_name {
+                            "NOKEY" => None,
+                            name => Some((
+                                KeyName::from_str(name).unwrap(),
+                                Algorithm::Sha256,
+                            )),
+                        };
+
+                        let notify_config = NotifyConfig { tsig_key };
+
+                        zone_config
+                            .allow_notify_from
+                            .add_src(ip, notify_config);
+                    }
+                    ("provide-xfr", v) | ("request-xfr", v) => {
                         // provide-xfr: [AXFR|UDP] <ip-address> <key-name | NOKEY> [COMPATIBLE]
+                        // request-xfr: [AXFR|UDP] <ip-address>[:<port>] <key-name | NOKEY> [COMPATIBLE]
                         let mut pieces = v.split(|c: char| c.is_whitespace());
                         let flags_or_ip = pieces.next().unwrap();
                         let strategy;
                         let ixfr_transport;
-                        let ip = match flags_or_ip {
+                        let addr = match flags_or_ip {
                             "AXFR" => {
                                 strategy = XfrStrategy::AxfrOnly;
                                 ixfr_transport = TransportStrategy::Tcp;
@@ -498,7 +536,6 @@ fn parse_server_config(config: &Config) -> ServerConfig {
                             }
                         };
 
-                        let ip = ip.parse().unwrap();
                         let key_name = pieces.next().unwrap();
                         let tsig_key = match key_name {
                             "NOKEY" => None,
@@ -507,10 +544,15 @@ fn parse_server_config(config: &Config) -> ServerConfig {
                                 Algorithm::Sha256,
                             )),
                         };
-                        let compatibility_mode = match pieces.next() {
-                            Some("COMPATIBLE") => CompatibilityMode::BackwardCompatible,
-                            Some(data) => panic!("Unsupported trailing data '{data}' for 'provide-xfr' setting"),
-                            None => CompatibilityMode::Default,
+
+                        let compatibility_mode = if setting == "provide-xfr" {
+                            match pieces.next() {
+                                Some("COMPATIBLE") => CompatibilityMode::BackwardCompatible,
+                                Some(data) => panic!("Unsupported trailing data '{data}' for 'provide-xfr' setting"),
+                                None => CompatibilityMode::Default,
+                            }
+                        } else {
+                            CompatibilityMode::Default
                         };
 
                         let xfr_config = XfrConfig {
@@ -520,7 +562,24 @@ fn parse_server_config(config: &Config) -> ServerConfig {
                             tsig_key,
                         };
 
-                        allow_xfr.add_src(ip, xfr_config);
+                        match setting {
+                            "request-xfr" => {
+                                let addr = addr
+                                    .parse()
+                                    .or_else(|_| format!("{addr}:53").parse())
+                                    .unwrap();
+                                zone_config
+                                    .request_xfr_from
+                                    .add_dst(addr, xfr_config);
+                            }
+                            "provide-xfr" => {
+                                zone_config.provide_xfr_to.add_src(
+                                    addr.parse().unwrap(),
+                                    xfr_config,
+                                );
+                            }
+                            _ => unreachable!(),
+                        }
                     }
                     _ => {
                         eprintln!("Ignoring unknown server setting '{setting}' with value: {value}");
@@ -530,50 +589,220 @@ fn parse_server_config(config: &Config) -> ServerConfig {
         }
     }
 
-    if !zone_file_bytes.is_empty() || !allow_xfr.is_empty() {
-        let zone_file = (!zone_file_bytes.is_empty())
-            .then(|| Zonefile::load(&mut zone_file_bytes).unwrap());
+    let zone_file = (!zone_file_bytes.is_empty())
+        .then(|| Zonefile::load(&mut zone_file_bytes).unwrap());
 
-        let zone_type =
-            ZoneConfig::new_primary(allow_xfr, SrcDstConfig::new());
-
-        parsed_config.zone = Some(ServerZone {
-            zone_file,
-            zone_type,
-        });
-    }
+    parsed_config.zone = Some(ServerZone {
+        zone_file,
+        zone_config,
+    });
 
     parsed_config
 }
 
-pub fn mk_dgram_conn<S>(socket: S) -> Connection<S> {
-    let mut dgram_config = dgram::Config::new();
-    dgram_config.set_max_parallel(1);
-    dgram_config.set_read_timeout(Duration::from_millis(1000));
-    dgram_config.set_max_retries(1);
-    dgram_config.set_udp_payload_size(Some(1400));
-    dgram::Connection::with_config(socket, dgram_config)
+#[derive(Clone, Default)]
+struct TestServerConnFactory {
+    dgram_server_conn: ClientServerChannel,
+    stream_server_conn: ClientServerChannel,
 }
 
-pub fn mk_stream_conn<Stream, Req>(stream: Stream) -> stream::Connection<Req>
-where
-    Stream: AsyncRead + AsyncWrite + Send + 'static,
-    Req: ComposeRequest + 'static,
-{
-    let mut stream_config = stream::Config::new();
-    stream_config.set_response_timeout(Duration::from_secs(2));
-    // Allow time between the SOA query response and sending the
-    // AXFR/IXFR request.
-    stream_config.set_initial_idle_timeout(Duration::from_secs(5));
-    // Allow much more time for an XFR streaming response.
-    stream_config.set_streaming_response_timeout(Duration::from_secs(30));
-    let (client, transport) =
-        stream::Connection::with_config(stream, stream_config);
+impl ConnectionFactory for TestServerConnFactory {
+    type Error = String;
 
-    tokio::spawn(async move {
-        transport.run().await;
-        trace!("TCP connection terminated");
-    });
+    fn get<K, Octs>(
+        &self,
+        _dest: SocketAddr,
+        strategy: TransportStrategy,
+        key: Option<K>,
+    ) -> core::pin::Pin<
+        Box<
+            dyn futures::Future<
+                    Output = Result<
+                        Option<
+                            Box<
+                                dyn SendRequest<RequestMessage<Octs>>
+                                    + Send
+                                    + Sync
+                                    + 'static,
+                            >,
+                        >,
+                        Self::Error,
+                    >,
+                > + Send
+                + Sync
+                + 'static,
+        >,
+    >
+    where
+        K: Clone + core::fmt::Debug + AsRef<Key> + Send + Sync + 'static,
+        Octs: octseq::Octets + core::fmt::Debug + Send + Sync + 'static,
+    {
+        let client = match strategy {
+            TransportStrategy::None => Ok(None),
 
-    client
+            TransportStrategy::Udp => {
+                let mut dgram_config = dgram::Config::new();
+                dgram_config.set_max_parallel(1);
+                dgram_config.set_read_timeout(Duration::from_millis(1000));
+                dgram_config.set_max_retries(1);
+                dgram_config.set_udp_payload_size(Some(1400));
+
+                let client = dgram::Connection::with_config(
+                    self.dgram_server_conn.new_client(None),
+                    dgram_config,
+                );
+                Ok(Some(Box::new(tsig::Connection::new(key, client))
+                    as Box<
+                        dyn SendRequest<RequestMessage<Octs>> + Send + Sync,
+                    >))
+            }
+
+            TransportStrategy::Tcp => {
+                let mut stream_config = stream::Config::new();
+                stream_config.set_response_timeout(Duration::from_secs(2));
+                // Allow time between the SOA query response and sending the
+                // AXFR/IXFR request.
+                stream_config
+                    .set_initial_idle_timeout(Duration::from_secs(5));
+                // Allow much more time for an XFR streaming response.
+                stream_config
+                    .set_streaming_response_timeout(Duration::from_secs(30));
+
+                let (client, transport) = {
+                    stream::Connection::with_config(
+                        self.stream_server_conn.connect(None),
+                        stream_config,
+                    )
+                };
+
+                tokio::spawn(async move {
+                    transport.run().await;
+                    trace!("TCP connection terminated");
+                });
+
+                Ok(Some(Box::new(net::client::tsig::Connection::new(
+                    key, client,
+                ))
+                    as Box<
+                        dyn SendRequest<RequestMessage<Octs>> + Send + Sync,
+                    >))
+            }
+        };
+
+        Box::pin(ready(client))
+    }
+}
+
+#[derive(Clone)]
+struct MockServerConnFactory {
+    stelline: Stelline,
+    step_value: Arc<CurrStepValue>,
+}
+
+impl Default for MockServerConnFactory {
+    fn default() -> Self {
+        unimplemented!()
+    }
+}
+
+impl MockServerConnFactory {
+    fn new(stelline: Stelline, step_value: Arc<CurrStepValue>) -> Self {
+        Self {
+            stelline,
+            step_value,
+        }
+    }
+}
+
+impl ConnectionFactory for MockServerConnFactory {
+    type Error = String;
+
+    fn get<K, Octs>(
+        &self,
+        _dest: SocketAddr,
+        strategy: TransportStrategy,
+        key: Option<K>,
+    ) -> core::pin::Pin<
+        Box<
+            dyn futures::Future<
+                    Output = Result<
+                        Option<
+                            Box<
+                                dyn SendRequest<RequestMessage<Octs>>
+                                    + Send
+                                    + Sync
+                                    + 'static,
+                            >,
+                        >,
+                        Self::Error,
+                    >,
+                > + Send
+                + Sync
+                + 'static,
+        >,
+    >
+    where
+        K: Clone + core::fmt::Debug + AsRef<Key> + Send + Sync + 'static,
+        Octs: octseq::Octets + core::fmt::Debug + Send + Sync + 'static,
+    {
+        let client = match strategy {
+            TransportStrategy::None => Ok(None),
+
+            TransportStrategy::Udp => {
+                let mut dgram_config = dgram::Config::new();
+                dgram_config.set_max_parallel(1);
+                dgram_config.set_read_timeout(Duration::from_millis(1000));
+                dgram_config.set_max_retries(1);
+                dgram_config.set_udp_payload_size(Some(1400));
+
+                let dgram_conn = stelline::dgram::Dgram::new(
+                    self.stelline.clone(),
+                    self.step_value.clone(),
+                );
+                let client =
+                    dgram::Connection::with_config(dgram_conn, dgram_config);
+                Ok(Some(Box::new(tsig::Connection::new(key, client))
+                    as Box<
+                        dyn SendRequest<RequestMessage<Octs>> + Send + Sync,
+                    >))
+            }
+
+            TransportStrategy::Tcp => {
+                let mut stream_config = stream::Config::new();
+                stream_config.set_response_timeout(Duration::from_secs(2));
+                // Allow time between the SOA query response and sending the
+                // AXFR/IXFR request.
+                stream_config
+                    .set_initial_idle_timeout(Duration::from_secs(5));
+                // Allow much more time for an XFR streaming response.
+                stream_config
+                    .set_streaming_response_timeout(Duration::from_secs(30));
+
+                let (client, transport) = {
+                    let stream_conn = stelline::connection::Connection::new(
+                        self.stelline.clone(),
+                        self.step_value.clone(),
+                    );
+                    stream::Connection::with_config(
+                        stream_conn,
+                        stream_config,
+                    )
+                };
+
+                tokio::spawn(async move {
+                    transport.run().await;
+                    trace!("TCP connection terminated");
+                });
+
+                Ok(Some(Box::new(net::client::tsig::Connection::new(
+                    key, client,
+                ))
+                    as Box<
+                        dyn SendRequest<RequestMessage<Octs>> + Send + Sync,
+                    >))
+            }
+        };
+
+        Box::pin(ready(client))
+    }
 }

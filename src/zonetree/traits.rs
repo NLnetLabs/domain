@@ -175,6 +175,18 @@ pub trait WritableZoneNode: Send + Sync {
         >,
     >;
 
+    /// Get an RRset of the given type at this node, if any.
+    fn get_rrset(
+        &self,
+        rtype: Rtype,
+    ) -> Pin<
+        Box<
+            dyn Future<Output = Result<Option<SharedRrset>, io::Error>>
+                + Send
+                + Sync,
+        >,
+    >;
+
     /// Replace the RRset at this node with the given RRset.
     fn update_rrset(
         &self,

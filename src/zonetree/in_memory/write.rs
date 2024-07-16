@@ -161,34 +161,38 @@ impl WritableZone for WriteZone {
 
             // Extract the created diff, if any.
             if let Some(diff) = self.diff.lock().unwrap().take() {
-                let mut removed_soa_rrset =
-                    Rrset::new(Rtype::SOA, old_soa_rr.ttl());
-                removed_soa_rrset.push_data(old_soa_rr.data().clone());
-                let removed_soa_rrset = SharedRrset::new(removed_soa_rrset);
-
                 let new_soa_rr = self.apex.get_soa(self.version).unwrap();
                 let ZoneRecordData::Soa(new_soa) = new_soa_rr.data() else {
                     unreachable!()
                 };
 
-                let mut new_soa_shared_rrset =
-                    Rrset::new(Rtype::SOA, new_soa_rr.ttl());
-                new_soa_shared_rrset.push_data(new_soa_rr.data().clone());
-                let new_soa_shared_rrset =
-                    SharedRrset::new(new_soa_shared_rrset);
-
                 let diff = arc_into_inner(diff).unwrap();
                 let mut diff = Mutex::into_inner(diff).unwrap();
                 diff.start_serial = Some(old_soa.serial());
                 diff.end_serial = Some(new_soa.serial());
-                diff.removed
-                    .entry(self.apex.name().clone())
-                    .or_default()
-                    .push(removed_soa_rrset);
-                diff.added
-                    .entry(self.apex.name().clone())
-                    .or_default()
-                    .push(new_soa_shared_rrset);
+
+                if bump_soa_serial {
+                    let mut removed_soa_rrset =
+                        Rrset::new(Rtype::SOA, old_soa_rr.ttl());
+                    removed_soa_rrset.push_data(old_soa_rr.data().clone());
+                    let removed_soa_rrset =
+                        SharedRrset::new(removed_soa_rrset);
+
+                    let mut new_soa_shared_rrset =
+                        Rrset::new(Rtype::SOA, new_soa_rr.ttl());
+                    new_soa_shared_rrset.push_data(new_soa_rr.data().clone());
+                    let new_soa_rrset =
+                        SharedRrset::new(new_soa_shared_rrset);
+
+                    let k = (self.apex.name().clone(), Rtype::SOA);
+                    trace!("Diff: recording removal of old SOA: {removed_soa_rrset:#?}");
+                    diff.removed.insert(k.clone(), removed_soa_rrset);
+
+                    trace!(
+                        "Diff: recording addition of new SOA: {new_soa_rrset:#?}"
+                    );
+                    diff.added.insert(k, new_soa_rrset);
+                }
 
                 out_diff = Some(diff);
             }
@@ -201,8 +205,8 @@ impl WritableZone for WriteZone {
             .write()
             .push_version(self.version, marker);
 
-        // debug!("Commit: zone versions: {:#?}", self.zone_versions);
-        // trace!("Commit: zone dump:\n{:#?}", self.apex);
+        debug!("Commit: zone versions: {:#?}", self.zone_versions);
+        trace!("Commit: zone dump:\n{:#?}", self.apex);
 
         // Start the next version.
         self.version = self.version.next();
@@ -310,23 +314,19 @@ impl WriteNode {
 
         trace!("Updating RRset");
         if let Some((owner, diff)) = &self.diff {
-            trace!(
-                "Diff found: v={:?}, rrsets: {rrsets:?}",
-                self.zone.version
-            );
+            let k = (owner.clone(), rrset.rtype());
+
             let changed = if let Some(removed_rrset) =
-                rrsets.get(rrset.rtype(), self.zone.version)
+                rrsets.get(rrset.rtype(), self.zone.version.prev())
             {
                 let changed = rrset != removed_rrset;
-                trace!("Changed = {changed}");
 
-                if changed {
+                if changed && !removed_rrset.is_empty() {
+                    trace!("Diff detected: update of existing RRSET - recording removal of the current RRSET: {removed_rrset:#?}");
                     diff.lock()
                         .unwrap()
                         .removed
-                        .entry(owner.clone())
-                        .or_default()
-                        .push(removed_rrset.clone());
+                        .insert(k.clone(), removed_rrset.clone());
                 }
 
                 changed
@@ -334,19 +334,31 @@ impl WriteNode {
                 true
             };
 
-            if changed {
-                diff.lock()
-                    .unwrap()
-                    .added
-                    .entry(owner.clone())
-                    .or_default()
-                    .push(rrset.clone());
+            if changed && !rrset.is_empty() {
+                trace!("Diff detected: update of existing RRSET - recording addition of the new RRSET: {rrset:#?}");
+                diff.lock().unwrap().added.insert(k, rrset.clone());
             }
         }
 
+        // if rrset.is_empty() {
+        //     rrsets.remove(rrset.rtype(), self.zone.version.prev());
+        // } else {
         rrsets.update(rrset, self.zone.version);
+        // }
         self.check_nx_domain()?;
         Ok(())
+    }
+
+    fn get_rrset(
+        &self,
+        rtype: Rtype,
+    ) -> Result<Option<SharedRrset>, io::Error> {
+        let rrsets = match self.node {
+            Either::Left(ref apex) => apex.rrsets(),
+            Either::Right(ref node) => node.rrsets(),
+        };
+
+        Ok(rrsets.get(rtype, self.zone.version))
     }
 
     fn remove_rrset(&self, rtype: Rtype) -> Result<(), io::Error> {
@@ -356,13 +368,16 @@ impl WriteNode {
         };
 
         if let Some((owner, diff)) = &self.diff {
-            if let Some(removed) = rrsets.get(rtype, self.zone.version) {
+            if let Some(removed) = rrsets.get(rtype, self.zone.version.prev())
+            {
+                trace!(
+                    "Diff detected: removal of existing RRSET: {removed:#?}"
+                );
+                let k = (owner.clone(), rtype);
                 diff.lock()
                     .unwrap()
                     .removed
-                    .entry(owner.clone())
-                    .or_default()
-                    .push(removed.clone());
+                    .insert(k.clone(), removed.clone());
             }
         }
 
@@ -486,6 +501,19 @@ impl WritableZoneNode for WriteNode {
     ) -> Pin<Box<dyn Future<Output = Result<(), io::Error>> + Send + Sync>>
     {
         Box::pin(ready(self.update_rrset(rrset)))
+    }
+
+    fn get_rrset(
+        &self,
+        rtype: Rtype,
+    ) -> Pin<
+        Box<
+            dyn Future<Output = Result<Option<SharedRrset>, io::Error>>
+                + Send
+                + Sync,
+        >,
+    > {
+        Box::pin(ready(self.get_rrset(rtype)))
     }
 
     fn remove_rrset(

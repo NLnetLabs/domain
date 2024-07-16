@@ -34,7 +34,7 @@ use crate::net::server::service::{
 use crate::net::server::util::{mk_builder_for_target, mk_error_response};
 use crate::rdata::{Soa, ZoneRecordData};
 use crate::tsig::{KeyName, KeyStore};
-use crate::zonecatalog::catalog::{Catalog, CatalogZone};
+use crate::zonecatalog::catalog::{Catalog, CatalogZone, ConnectionFactory};
 use crate::zonecatalog::types::{
     CompatibilityMode, XfrConfig, XfrStrategy, ZoneInfo,
 };
@@ -85,14 +85,15 @@ pub enum XfrMode {
 /// [1995]: https://datatracker.ietf.org/doc/html/rfc1995
 /// [5936]: https://datatracker.ietf.org/doc/html/rfc5936
 #[derive(Clone, Debug)]
-pub struct XfrMiddlewareSvc<RequestOctets, NextSvc, KS>
+pub struct XfrMiddlewareSvc<RequestOctets, NextSvc, KS, CF>
 where
     KS: Default + Deref,
     KS::Target: KeyStore,
+    CF: ConnectionFactory,
 {
     next_svc: NextSvc,
 
-    catalog: Arc<Catalog<KS>>,
+    catalog: Arc<Catalog<KS, CF>>,
 
     zone_walking_semaphore: Arc<Semaphore>,
 
@@ -103,10 +104,12 @@ where
     _phantom: PhantomData<RequestOctets>,
 }
 
-impl<RequestOctets, NextSvc, KS> XfrMiddlewareSvc<RequestOctets, NextSvc, KS>
+impl<RequestOctets, NextSvc, KS, CF>
+    XfrMiddlewareSvc<RequestOctets, NextSvc, KS, CF>
 where
     KS: Default + Deref,
     KS::Target: KeyStore,
+    CF: ConnectionFactory,
 {
     /// Creates an empty processor instance.
     ///
@@ -116,7 +119,7 @@ where
     #[must_use]
     pub fn new(
         next_svc: NextSvc,
-        catalog: Arc<Catalog<KS>>,
+        catalog: Arc<Catalog<KS, CF>>,
         max_concurrency: usize,
         xfr_mode: XfrMode,
     ) -> Self {
@@ -135,7 +138,8 @@ where
     }
 }
 
-impl<RequestOctets, NextSvc, KS> XfrMiddlewareSvc<RequestOctets, NextSvc, KS>
+impl<RequestOctets, NextSvc, KS, CF>
+    XfrMiddlewareSvc<RequestOctets, NextSvc, KS, CF>
 where
     RequestOctets: Octets + Send + Sync + 'static + Unpin,
     for<'a> <RequestOctets as octseq::Octets>::Range<'a>: Send + Sync,
@@ -145,12 +149,13 @@ where
     NextSvc::Stream: Send + Sync,
     KS: Default + Deref,
     KS::Target: KeyStore,
+    CF: ConnectionFactory,
 {
     async fn preprocess<T>(
         zone_walking_semaphore: Arc<Semaphore>,
         batcher_semaphore: Arc<Semaphore>,
         req: &Request<RequestOctets, T>,
-        catalog: Arc<Catalog<KS>>,
+        catalog: Arc<Catalog<KS, CF>>,
         xfr_mode: XfrMode,
         get_key_for_req: fn(&Request<RequestOctets, T>) -> Option<&KeyName>,
     ) -> ControlFlow<
@@ -247,7 +252,7 @@ where
         let Ok(zone_soa_answer) = Self::read_soa(&read, qname.clone()).await
         else {
             warn!(
-                "{} for {qname} from {} refused: zone lacks SOA RR",
+                "{} for {qname} from {} refused: name is outside the zone",
                 q.qtype(),
                 req.client_addr()
             );
@@ -326,7 +331,6 @@ where
                 match Self::do_ixfr(
                     batcher_semaphore.clone(),
                     req,
-                    qname.clone(),
                     &zone_soa_answer,
                     cat_zone.info(),
                     xfr_mode,
@@ -449,7 +453,11 @@ where
         let AnswerContent::Data(zone_soa_rrset) =
             zone_soa_answer.content().clone()
         else {
-            unreachable!()
+            error!(
+                "AXFR for {qname} from {} refused: zone lacks SOA RR",
+                req.client_addr()
+            );
+            return Err(OptRcode::SERVFAIL);
         };
 
         let Some(xfr_config) = zone_info
@@ -680,6 +688,8 @@ where
                                 error!("Internal error: Unable to add RR to AXFR response message: {err}");
                                 break 'outer;
                             }
+
+                            _ => unreachable!(),
                         }
                     }
 
@@ -768,7 +778,6 @@ where
     async fn do_ixfr<T>(
         batcher_semaphore: Arc<Semaphore>,
         req: &Request<RequestOctets, T>,
-        qname: Name<Bytes>,
         zone_soa_answer: &Answer,
         zone_info: &ZoneInfo,
         xfr_mode: XfrMode,
@@ -836,7 +845,6 @@ where
                                 return Self::compute_ixfr(
                                     batcher_semaphore,
                                     req,
-                                    qname,
                                     query_serial,
                                     zone_serial,
                                     zone_info,
@@ -859,7 +867,6 @@ where
     async fn compute_ixfr<T>(
         batcher_semaphore: Arc<Semaphore>,
         req: &Request<RequestOctets, T>,
-        qname: Name<Bytes>,
         query_serial: Serial,
         zone_serial: Serial,
         zone_info: &ZoneInfo,
@@ -907,6 +914,7 @@ where
         let end_serial = zone_serial;
         let diffs = zone_info.diffs_for_range(start_serial, end_serial).await;
         if diffs.is_empty() {
+            trace!("No diff available for IXFR");
             return IxfrResult::FallbackToAxfr;
         };
 
@@ -973,128 +981,143 @@ where
                 (q.qname().to_name::<Bytes>(), q.qclass())
             };
 
-            let diff_sequences = diffs
-                .iter()
-                .flat_map(|diff| {
-                    // https://datatracker.ietf.org/doc/html/rfc1995#section-4
-                    // 4. Response Format
-                    //    "Each difference sequence represents one update to the zone
-                    //    (one SOA serial change) consisting of deleted RRs and added
-                    //    RRs.  The first RR of the deleted RRs is the older SOA RR
-                    //    and the first RR of the added RRs is the newer SOA RR.
-                    let deleted = diff.removed.get(&qname).unwrap();
-                    let added = diff.added.get(&qname).unwrap();
-
-                    let mut rrset_iters: std::vec::Vec<
-                        Box<dyn Iterator<Item = SharedRrset>>,
-                    > = vec![];
-
-                    for rrsets in [deleted, added] {
-                        rrset_iters.push(Box::new(std::iter::once(
-                            rrsets
-                                .iter()
-                                .find(|rrset| rrset.rtype() == Rtype::SOA)
-                                .unwrap() // The zone MUST have a SOA record
-                                .clone(),
-                        )));
-
-                        rrset_iters.push(Box::new(
-                            rrsets
-                                .iter()
-                                .filter(|rrset| rrset.rtype() != Rtype::SOA)
-                                .cloned(),
-                        ));
-                    }
-
-                    rrset_iters
-                })
-                .flatten();
-
-            let rrsets = std::iter::once(zone_soa_rrset.clone())
-                .chain(diff_sequences)
-                .chain(std::iter::once(zone_soa_rrset.clone()));
-
             let mut batcher = RrBatcher::new(msg.clone());
+            let cloned_msg = msg.clone();
+            let cloned_sender = sender.clone();
+            batcher.set_cb(Box::new(move |builder| {
+                trace!("sending intermediate batch");
+                let mut additional = builder.additional();
+                Self::set_axfr_header(&cloned_msg, &mut additional);
+                let call_result = Ok(CallResult::new(additional));
+                let _ = cloned_sender.send(call_result); // TODO: Handle this Result.
+                Ok(())
+            }));
 
-            // Loop until all of the RRsets in the diffs have been pushed into
-            // DNS response messages and sent into the result stream.
-            let mut records_to_process;
-            let mut num_rrs_added;
+            // let first_and_last_soa_rr = (
+            //     owner.clone(),
+            //     qclass,
+            //     zone_soa_rrset.ttl(),
+            //     &zone_soa_rrset.data()[0],
+            // );
+            // batcher
+            //     .push_with_cb(first_and_last_soa_rr)
+            //     .expect("HANDLE ME");
 
-            for rrset in rrsets {
-                trace!("Starting RRSET.. ({} records)", rrset.data().len());
-                records_to_process = rrset.data();
-                num_rrs_added = 0;
+            // fn push_rrset<RequestOctets, Target>(
+            //     batcher: &mut RrBatcher<RequestOctets, Target>,
+            //     owner: &Name<Bytes>,
+            //     rrsets: &[SharedRrset],
+            // ) where
+            //     RequestOctets: Octets,
+            //     Target: Composer,
+            //     Target: Default,
+            // {
+            //     trace!("PUSHING: RRSETS");
+            //     for rrset in rrsets {
+            //         trace!("PUSHING: RRSET");
+            //         // for rr in rrset.data() {
+            //         //     trace!("PUSHING RR: {rr:?}");
+            //         //     if matches!(
+            //         //         batcher
+            //         //             .push_with_cb((
+            //         //                 owner.clone(),
+            //         //                 Class::IN,
+            //         //                 rrset.ttl(),
+            //         //                 &rr
+            //         //             ))
+            //         //             .expect("HANDLE ME"),
+            //         //         PushResult::Retry
+            //         //     ) {
+            //         //         batcher
+            //         //             .push_with_cb((
+            //         //                 owner.clone(),
+            //         //                 Class::IN,
+            //         //                 rrset.ttl(),
+            //         //                 &rr,
+            //         //             ))
+            //         //             .expect("HANDLE ME");
+            //         //     }
+            //         // }
+            //         // batcher.push_with_cb((owner.clone(), Class::IN, rrset.ttl(), rrset.data())).expect("HANDLE ME");
+            //     }
+            // }
 
-                'outer: loop {
-                    let builder = 'inner: loop {
-                        for rr in records_to_process {
-                            match batcher.push((
-                                owner.clone(),
-                                qclass,
-                                rrset.ttl(),
-                                rr,
-                            )) {
-                                Ok(PushResult::PushedAndReadyForMore) => {
-                                    // Message still has space, keep going.
-                                    num_rrs_added += 1;
-                                }
+            batcher
+                .push_with_cb((
+                    owner.clone(),
+                    qclass,
+                    zone_soa_rrset.ttl(),
+                    &zone_soa_rrset.data()[0],
+                ))
+                .expect("HANDLE ME");
 
-                                Ok(PushResult::PushedAndLimitReached(
-                                    builder,
-                                )) => {
-                                    // Pushed and configured limit reached, send it.
-                                    num_rrs_added += 1;
-                                    trace!("Pushed and limit reached");
-                                    break 'inner builder;
-                                }
+            for diff in diffs {
+                // 4. Response Format
+                //    "Each difference sequence represents one update to the
+                //    zone (one SOA serial change) consisting of deleted RRs
+                //    and added RRs.  The first RR of the deleted RRs is the
+                //    older SOA RR and the first RR of the added RRs is the
+                //    newer SOA RR.
+                let soa_k = &(owner.clone(), Rtype::SOA);
+                let removed_soa = diff.removed.get(soa_k).unwrap(); // The zone MUST have a SOA record
+                batcher
+                    .push_with_cb((
+                        owner.clone(),
+                        qclass,
+                        removed_soa.ttl(),
+                        &removed_soa.data()[0],
+                    ))
+                    .expect("HANDLE ME");
 
-                                Ok(PushResult::NotPushedMessageFull(
-                                    builder,
-                                )) => {
-                                    // Message is full, send what we have so far.
-                                    trace!("Message is full");
-                                    break 'inner builder;
-                                }
-
-                                Err(err) => {
-                                    error!("Internal error: Unable to add RR to IXFR response message: {err}");
-                                    let mut additional = mk_error_response(
-                                        &msg,
-                                        OptRcode::SERVFAIL,
-                                    );
-                                    Self::set_axfr_header(
-                                        &msg,
-                                        &mut additional,
-                                    );
-                                    let call_result =
-                                        Ok(CallResult::new(additional));
-                                    let _ = sender.send(call_result); // TODO: Handle this Result.
-                                    break 'outer;
-                                }
-                            }
+                diff.removed.iter().for_each(|((owner, rtype), rrset)| {
+                    if *rtype != Rtype::SOA {
+                        for rr in rrset.data() {
+                            batcher
+                                .push_with_cb((
+                                    owner.clone(),
+                                    qclass,
+                                    rrset.ttl(),
+                                    rr,
+                                ))
+                                .expect("HANDLE ME");
                         }
+                    }
+                });
 
-                        if rrset.data().len() > num_rrs_added {
-                            trace!(
-                                "More to process... ({num_rrs_added} / {})",
-                                rrset.data().len()
-                            );
-                            records_to_process =
-                                &rrset.data()[num_rrs_added..];
-                        } else {
-                            trace!("end of RRSET reached");
-                            break 'outer;
+                let added_soa = diff.added.get(soa_k).unwrap(); // The zone MUST have a SOA record
+                batcher
+                    .push_with_cb((
+                        owner.clone(),
+                        qclass,
+                        added_soa.ttl(),
+                        &added_soa.data()[0],
+                    ))
+                    .expect("HANDLE ME");
+
+                diff.added.iter().for_each(|((owner, rtype), rrset)| {
+                    if *rtype != Rtype::SOA {
+                        for rr in rrset.data() {
+                            batcher
+                                .push_with_cb((
+                                    owner.clone(),
+                                    qclass,
+                                    rrset.ttl(),
+                                    rr,
+                                ))
+                                .expect("HANDLE ME");
                         }
-                    };
-
-                    trace!("sending intermediate batch");
-                    let mut additional = builder.additional();
-                    Self::set_axfr_header(&msg, &mut additional);
-                    let call_result = Ok(CallResult::new(additional));
-                    let _ = sender.send(call_result); // TODO: Handle this Result.
-                }
+                    }
+                });
             }
+
+            batcher
+                .push_with_cb((
+                    owner,
+                    qclass,
+                    zone_soa_rrset.ttl(),
+                    &zone_soa_rrset.data()[0],
+                ))
+                .expect("HANDLE ME");
 
             if let Some(builder) = batcher.take() {
                 trace!("sending final batch");
@@ -1203,8 +1226,8 @@ where
 
 //--- Service (with TSIG key name in the request metadata)
 
-impl<RequestOctets, NextSvc, KS> Service<RequestOctets, Option<KeyName>>
-    for XfrMiddlewareSvc<RequestOctets, NextSvc, KS>
+impl<RequestOctets, NextSvc, KS, CF> Service<RequestOctets, Option<KeyName>>
+    for XfrMiddlewareSvc<RequestOctets, NextSvc, KS, CF>
 where
     RequestOctets: Octets + Send + Sync + Unpin + 'static,
     for<'a> <RequestOctets as octseq::Octets>::Range<'a>: Send + Sync,
@@ -1214,6 +1237,7 @@ where
     NextSvc::Stream: Send + Sync,
     KS: Default + Deref + Send + Sync + 'static,
     KS::Target: KeyStore,
+    CF: ConnectionFactory + Send + Sync + 'static,
 {
     type Target = NextSvc::Target;
     type Stream = XfrMiddlewareStream<
@@ -1257,8 +1281,8 @@ where
 
 //--- Service (without TSIG key name in the request metadata)
 
-impl<RequestOctets, NextSvc, KS> Service<RequestOctets, ()>
-    for XfrMiddlewareSvc<RequestOctets, NextSvc, KS>
+impl<RequestOctets, NextSvc, KS, CF> Service<RequestOctets, ()>
+    for XfrMiddlewareSvc<RequestOctets, NextSvc, KS, CF>
 where
     RequestOctets: Octets + Send + Sync + Unpin + 'static,
     for<'a> <RequestOctets as octseq::Octets>::Range<'a>: Send + Sync,
@@ -1268,6 +1292,7 @@ where
     NextSvc::Stream: Send + Sync,
     KS: Default + Deref + Send + Sync + 'static,
     KS::Target: KeyStore,
+    CF: ConnectionFactory + Send + Sync + 'static,
 {
     type Target = NextSvc::Target;
     type Stream = XfrMiddlewareStream<
@@ -1312,6 +1337,7 @@ enum PushResult<Target> {
     PushedAndReadyForMore,
     PushedAndLimitReached(AnswerBuilder<StreamTarget<Target>>),
     NotPushedMessageFull(AnswerBuilder<StreamTarget<Target>>),
+    Retry,
 }
 
 //----------- RrBatcher -------------------------------------------------------
@@ -1325,6 +1351,13 @@ struct RrBatcher<RequestOctets, Target> {
     hard_rr_limit: Option<u16>,
     soft_byte_limit: Option<usize>,
     answer: Option<Result<AnswerBuilder<StreamTarget<Target>>, PushError>>,
+    #[allow(clippy::type_complexity)]
+    cb: Option<
+        Box<
+            dyn Fn(AnswerBuilder<StreamTarget<Target>>) -> Result<(), ()>
+                + Send,
+        >,
+    >,
 }
 
 impl<RequestOctets, Target> RrBatcher<RequestOctets, Target>
@@ -1338,6 +1371,7 @@ where
             hard_rr_limit: None,
             soft_byte_limit: None,
             answer: None,
+            cb: None,
         }
     }
 
@@ -1348,6 +1382,17 @@ where
     pub fn set_soft_byte_limit(&mut self, byte_limit: u16) {
         trace!("Setting soft byte limit to {byte_limit} bytes");
         self.soft_byte_limit = Some(byte_limit as usize);
+    }
+
+    #[allow(clippy::type_complexity)]
+    pub fn set_cb(
+        &mut self,
+        cb: Box<
+            dyn Fn(AnswerBuilder<StreamTarget<Target>>) -> Result<(), ()>
+                + Send,
+        >,
+    ) {
+        self.cb = Some(cb);
     }
 
     pub fn push(
@@ -1399,6 +1444,24 @@ where
                 self.answer = Some(Ok(answer));
                 Ok(PushResult::PushedAndReadyForMore)
             }
+        }
+    }
+
+    pub fn push_with_cb(
+        &mut self,
+        record: impl ComposeRecord,
+    ) -> Result<PushResult<Target>, ()> {
+        match self.push(record) {
+            Ok(PushResult::PushedAndLimitReached(builder)) => {
+                (self.cb.as_ref().unwrap())(builder)?;
+                Ok(PushResult::PushedAndReadyForMore)
+            }
+            Ok(PushResult::NotPushedMessageFull(builder)) => {
+                (self.cb.as_ref().unwrap())(builder)?;
+                Ok(PushResult::Retry)
+            }
+            Ok(PushResult::Retry) => unreachable!(),
+            res => res.map_err(|_| ()),
         }
     }
 

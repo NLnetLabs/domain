@@ -23,7 +23,6 @@ use std::vec::Vec;
 use arc_swap::ArcSwap;
 use bytes::Bytes;
 use futures::stream::FuturesUnordered;
-#[cfg(not(test))]
 use tokio::net::TcpStream;
 use tokio::sync::mpsc::error::SendError;
 use tokio::sync::mpsc::{self, Receiver, Sender};
@@ -42,10 +41,7 @@ use crate::base::{
 use crate::net;
 use crate::net::client::dgram::{self, Connection};
 use crate::net::client::protocol::UdpConnect;
-use crate::net::client::request::{
-    self, ComposeRequest, RequestMessage, SendRequest,
-};
-use crate::net::client::tsig::AuthenticatedRequestMessage;
+use crate::net::client::request::{self, RequestMessage, SendRequest};
 use crate::rdata::{Soa, ZoneRecordData};
 use crate::tsig::{Key, KeyStore};
 use crate::zonecatalog::types::{
@@ -63,12 +59,50 @@ use super::types::{
     ZoneConfig, ZoneDiffs, ZoneInfo, ZoneRefreshCause, ZoneRefreshInstant,
     ZoneRefreshState, ZoneRefreshTimer, ZoneReport, IANA_DNS_PORT_NUMBER,
 };
+use octseq::Octets;
+use std::fmt::Display;
+use std::string::String;
+
+//------------ ConnectionFactory ---------------------------------------------
+
+pub trait ConnectionFactory {
+    type Error: Display;
+
+    #[allow(clippy::type_complexity)]
+    fn get<K, Octs>(
+        &self,
+        dest: SocketAddr,
+        strategy: TransportStrategy,
+        key: Option<K>,
+    ) -> Pin<
+        Box<
+            dyn Future<
+                    Output = Result<
+                        Option<
+                            Box<
+                                dyn SendRequest<RequestMessage<Octs>>
+                                    + Send
+                                    + Sync
+                                    + 'static,
+                            >,
+                        >,
+                        Self::Error,
+                    >,
+                > + Send
+                + Sync
+                + 'static,
+        >,
+    >
+    where
+        K: Clone + Debug + AsRef<Key> + Send + Sync + 'static,
+        Octs: Octets + Debug + Send + Sync + 'static;
+}
 
 //------------ Config --------------------------------------------------------
 
 /// Configuration for a Catalog.
 #[derive(Debug, Default)]
-pub struct Config<KS>
+pub struct Config<KS, CF: ConnectionFactory>
 where
     KS: Deref,
     KS::Target: KeyStore,
@@ -78,11 +112,11 @@ where
     key_store: KS,
 
     /// A connection factory for making outbound requests to primary servers
-    /// to fetch remote zones. For internal use only.
-    conn_factory: ConnFactory,
+    /// to fetch remote zones.
+    conn_factory: CF,
 }
 
-impl<KS> Config<KS>
+impl<KS, CF: ConnectionFactory + Default> Config<KS, CF>
 where
     KS: Deref,
     KS::Target: KeyStore,
@@ -91,7 +125,14 @@ where
     pub fn new(key_store: KS) -> Self {
         Self {
             key_store,
-            conn_factory: ConnFactory,
+            conn_factory: CF::default(),
+        }
+    }
+
+    pub fn new_with_conn_factory(key_store: KS, conn_factory: CF) -> Self {
+        Self {
+            key_store,
+            conn_factory,
         }
     }
 }
@@ -102,13 +143,13 @@ where
 ///
 /// Also capable of acting as an RFC 9432 Catalog Zone producer/consumer.
 #[derive(Debug)]
-pub struct Catalog<KS>
+pub struct Catalog<KS, CF: ConnectionFactory>
 where
     KS: Deref,
     KS::Target: KeyStore,
 {
     // cat_zone: Zone, // TODO
-    config: Arc<ArcSwap<Config<KS>>>,
+    config: Arc<ArcSwap<Config<KS, CF>>>,
     pending_zones: Arc<RwLock<HashMap<ZoneKey, Zone>>>,
     member_zones: Arc<ArcSwap<ZoneTree>>,
     loaded_arc: std::sync::RwLock<Arc<ZoneTree>>,
@@ -117,7 +158,7 @@ where
     running: AtomicBool,
 }
 
-impl<KS> Default for Catalog<KS>
+impl<KS, CF: ConnectionFactory + Default> Default for Catalog<KS, CF>
 where
     KS: Deref + Default,
     KS::Target: KeyStore,
@@ -127,7 +168,7 @@ where
     }
 }
 
-impl<KS> Catalog<KS>
+impl<KS, CF: ConnectionFactory + Default> Catalog<KS, CF>
 where
     KS: Deref + Default,
     KS::Target: KeyStore,
@@ -136,7 +177,7 @@ where
         Self::new_with_config(Config::default())
     }
 
-    pub fn new_with_config(config: Config<KS>) -> Self {
+    pub fn new_with_config(config: Config<KS, CF>) -> Self {
         let pending_zones = Default::default();
         let member_zones = ZoneTree::new();
         let member_zones = Arc::new(ArcSwap::from_pointee(member_zones));
@@ -158,7 +199,7 @@ where
     }
 }
 
-impl<KS> Catalog<KS>
+impl<KS, CF: ConnectionFactory> Catalog<KS, CF>
 where
     KS: Clone + Deref,
     KS::Target: KeyStore,
@@ -168,11 +209,12 @@ where
     }
 }
 
-impl<KS> Catalog<KS>
+impl<KS, CF> Catalog<KS, CF>
 where
     KS: Default + Deref + Send + Sync + 'static,
     KS::Target: KeyStore,
     <KS::Target as KeyStore>::Key: Clone + Debug + Sync + Send + 'static,
+    CF: ConnectionFactory + Send + Sync + 'static,
 {
     pub async fn run(&self) {
         self.running.store(true, Ordering::SeqCst);
@@ -615,7 +657,7 @@ where
     }
 }
 
-impl<KS> Catalog<KS>
+impl<KS, CF: ConnectionFactory> Catalog<KS, CF>
 where
     KS: Deref,
     KS::Target: KeyStore,
@@ -641,16 +683,17 @@ where
     }
 }
 
-impl<KS> Catalog<KS>
+impl<KS, CF> Catalog<KS, CF>
 where
-    KS: Default + Deref,
+    KS: Default + Deref + 'static,
     KS::Target: KeyStore,
     <KS::Target as KeyStore>::Key: Clone + Debug + Sync + Send + 'static,
+    CF: ConnectionFactory + 'static,
 {
     async fn send_notify(
         zone: &Zone,
         notify: &NotifySrcDstConfig,
-        config: Arc<ArcSwap<Config<KS>>>,
+        config: Arc<ArcSwap<Config<KS, CF>>>,
     ) {
         let cat_zone = zone
             .as_ref()
@@ -686,7 +729,7 @@ where
     async fn send_notify_to_addrs(
         apex_name: StoredName,
         notify_set: impl Iterator<Item = &SocketAddr>,
-        config: Arc<ArcSwap<Config<KS>>>,
+        config: Arc<ArcSwap<Config<KS, CF>>>,
         zone_info: &ZoneInfo,
     ) {
         let mut dgram_config = dgram::Config::new();
@@ -853,7 +896,7 @@ where
         msg: ZoneChangedMsg,
         time_tracking: Arc<RwLock<HashMap<ZoneKey, ZoneRefreshState>>>,
         event_tx: Sender<Event>,
-        config: Arc<ArcSwap<Config<KS>>>,
+        config: Arc<ArcSwap<Config<KS, CF>>>,
     ) {
         // Do we have the zone that is being updated?
         let readable_pending_zones = pending_zones.read().await;
@@ -1042,7 +1085,7 @@ where
         initial_xfr_addr: Option<SocketAddr>,
         zone_refresh_info: &mut ZoneRefreshState,
         event_tx: Sender<Event>,
-        config: Arc<ArcSwap<Config<KS>>>,
+        config: Arc<ArcSwap<Config<KS, CF>>>,
     ) -> Result<(), ()> {
         match cause {
             ZoneRefreshCause::ManualTrigger
@@ -1110,6 +1153,10 @@ where
                                 .downcast_ref::<CatalogZone>()
                                 .unwrap();
 
+                            trace!(
+                                "Marking zone '{}' as expired",
+                                zone.apex_name()
+                            );
                             cat_zone.mark_expired();
 
                             // TODO: Should we keep trying to refresh an
@@ -1183,7 +1230,7 @@ where
         zone: &Zone,
         initial_xfr_addr: Option<SocketAddr>,
         zone_refresh_info: &mut ZoneRefreshState,
-        config: Arc<ArcSwap<Config<KS>>>,
+        config: Arc<ArcSwap<Config<KS, CF>>>,
     ) -> Result<Option<Soa<Name<Bytes>>>, CatalogError> {
         // Was this zone already refreshed recently?
         if let Some(last_refreshed) =
@@ -1283,7 +1330,7 @@ where
         primary_addr: SocketAddr,
         xfr_config: &XfrConfig,
         zone_refresh_info: &mut ZoneRefreshState,
-        config: Arc<ArcSwap<Config<KS>>>,
+        config: Arc<ArcSwap<Config<KS, CF>>>,
     ) -> Result<Option<Soa<Name<Bytes>>>, CatalogError> {
         // TODO: Replace this loop with one, or two, calls to a helper fn.
         // Try at least once, at most twice (when using IXFR -> AXFR fallback)
@@ -1348,8 +1395,9 @@ where
             // Query the SOA serial of the primary via the chosen transport.
             let Some(client) = loaded_config
                 .conn_factory
-                .get(primary_addr, &transport, key)
-                .await?
+                .get(primary_addr, transport, key)
+                .await
+                .map_err(|_| CatalogError::InternalError)?
             else {
                 return Ok(None);
             };
@@ -1443,16 +1491,16 @@ where
         Err(CatalogError::ResponseError(msg.opt_rcode()))
     }
 
-    async fn do_xfr(
-        client: Conn<
-            RequestMessage<Vec<u8>>,
-            <<KS as Deref>::Target as KeyStore>::Key,
-        >,
+    async fn do_xfr<T>(
+        client: T,
         zone: &Zone,
         primary_addr: SocketAddr,
         xfr_type: Rtype,
         zone_refresh_info: &mut ZoneRefreshState,
-    ) -> Result<Option<Soa<Name<Bytes>>>, CatalogError> {
+    ) -> Result<Option<Soa<Name<Bytes>>>, CatalogError>
+    where
+        T: SendRequest<RequestMessage<Vec<u8>>> + Send + Sync + 'static,
+    {
         // Update the zone from the primary using XFR.
         info!(
             "Zone '{}' is outdated, attempting to sync zone by {xfr_type} from {}",
@@ -1469,6 +1517,10 @@ where
             let Ok(Some((soa, ttl))) =
                 Self::read_soa(&read, zone.apex_name().clone()).await
             else {
+                trace!(
+                    "Internal error - missing SA for zone '{}'",
+                    zone.apex_name()
+                );
                 return Err(CatalogError::InternalError);
             };
             msg.push((zone.apex_name(), ttl, soa)).unwrap();
@@ -1757,7 +1809,7 @@ where
     }
 }
 
-impl<KS> Catalog<KS>
+impl<KS, CF: ConnectionFactory> Catalog<KS, CF>
 where
     KS: Default + Deref,
     KS::Target: KeyStore,
@@ -1823,7 +1875,7 @@ where
     }
 }
 
-impl<KS> Catalog<KS>
+impl<KS, CF: ConnectionFactory> Catalog<KS, CF>
 where
     KS: Default + Deref,
     KS::Target: KeyStore,
@@ -2025,7 +2077,7 @@ impl WritableZone for WritableCatalogZone {
             match fut.await {
                 Ok(diff) => {
                     if let Some(diff) = &diff {
-                        trace!("Captured diff: {diff:?}");
+                        trace!("Captured diff: {diff:#?}");
                         cat_zone.info().add_diff(diff.clone()).await;
                     }
 
@@ -2059,7 +2111,7 @@ pub enum CatalogError {
 
 //--- Display
 
-impl std::fmt::Display for CatalogError {
+impl Display for CatalogError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             CatalogError::NotRunning => f.write_str("Catalog not running"),
@@ -2131,129 +2183,227 @@ impl From<io::Error> for CatalogError {
 
 // let cat_zone = cat_zone.build();
 
-//-----------------
+//------------ DefaultConnFactory ------------------------------------------
 
-// if msg.header().rcode() == Rcode::NOTIMP
-// && matches!(
-//     xfr_settings.xfr,
-//     XfrStrategy::IxfrWithAxfrFallback
-// )
-// {
-// // Try to fallback.
-// continue;
-// }
+#[derive(Clone, Default)]
+pub struct DefaultConnFactory;
 
-//------------ Conn -----------------------------------------------------------
+impl ConnectionFactory for DefaultConnFactory {
+    type Error = String;
 
-pub enum Conn<S, K>
-where
-    S: Send + Sync,
-{
-    Udp(net::client::tsig::Connection<dgram::Connection<UdpConnect>, K>),
-    Tcp(
-        net::client::tsig::Connection<
-            net::client::stream::Connection<
-                AuthenticatedRequestMessage<S, K>,
-            >,
-            K,
+    fn get<K, Octs>(
+        &self,
+        dest: SocketAddr,
+        strategy: TransportStrategy,
+        key: Option<K>,
+    ) -> Pin<
+        Box<
+            dyn Future<
+                    Output = Result<
+                        Option<
+                            Box<
+                                dyn SendRequest<RequestMessage<Octs>>
+                                    + Send
+                                    + Sync
+                                    + 'static,
+                            >,
+                        >,
+                        Self::Error,
+                    >,
+                > + Send
+                + Sync
+                + 'static,
         >,
-    ),
+    >
+    where
+        K: Clone + Debug + AsRef<Key> + Send + Sync + 'static,
+        Octs: Octets + Debug + Send + Sync + 'static,
+    {
+        let fut = async move {
+            match strategy {
+                TransportStrategy::None => Ok(None),
+
+                TransportStrategy::Udp => {
+                    let mut dgram_config = dgram::Config::new();
+                    dgram_config.set_max_parallel(1);
+                    dgram_config
+                        .set_read_timeout(Duration::from_millis(1000));
+                    dgram_config.set_max_retries(1);
+                    dgram_config.set_udp_payload_size(Some(1400));
+
+                    let client = dgram::Connection::with_config(
+                        UdpConnect::new(dest),
+                        dgram_config,
+                    );
+                    Ok(Some(Box::new(net::client::tsig::Connection::new(
+                        key, client,
+                    ))
+                        as Box<
+                            dyn SendRequest<RequestMessage<Octs>>
+                                + Send
+                                + Sync,
+                        >))
+                }
+
+                TransportStrategy::Tcp => {
+                    let mut stream_config =
+                        net::client::stream::Config::new();
+                    stream_config
+                        .set_response_timeout(Duration::from_secs(2));
+                    // Allow time between the SOA query response and sending the
+                    // AXFR/IXFR request.
+                    stream_config
+                        .set_initial_idle_timeout(Duration::from_secs(5));
+                    // Allow much more time for an XFR streaming response.
+                    stream_config.set_streaming_response_timeout(
+                        Duration::from_secs(30),
+                    );
+
+                    let (client, transport) = {
+                        let tcp_stream = TcpStream::connect(dest)
+                            .await
+                            .map_err(|err| format!("{err}"))?;
+                        net::client::stream::Connection::with_config(
+                            tcp_stream,
+                            stream_config,
+                        )
+                    };
+
+                    tokio::spawn(async move {
+                        transport.run().await;
+                        trace!("TCP connection terminated");
+                    });
+
+                    Ok(Some(Box::new(net::client::tsig::Connection::new(
+                        key, client,
+                    ))
+                        as Box<
+                            dyn SendRequest<RequestMessage<Octs>>
+                                + Send
+                                + Sync,
+                        >))
+                }
+            }
+        };
+
+        Box::pin(fut)
+    }
 }
 
-//--- SendRequest
+// #[derive(Default)]
+// pub struct ConnFactory {
+//     #[cfg(test)]
+//     test_channel: Option<ClientServerChannel>,
+// }
 
-impl<CR, K> SendRequest<CR> for Conn<CR, K>
-where
-    CR: ComposeRequest + Send + Sync + 'static,
-    K: Clone + Debug + AsRef<Key> + Sync + Send + 'static,
+// impl std::fmt::Debug for ConnFactory {
+//     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+//         f.debug_struct("ConnFactory").finish()
+//     }
+// }
+
+// impl ConnFactory {
+//     async fn get<K>(
+//         &self,
+//         dest: SocketAddr,
+//         strategy: &TransportStrategy,
+//         key: Option<K>,
+//     ) -> Result<Option<Conn<RequestMessage<Vec<u8>>, K>>, std::io::Error>
+//     where
+//         K: Clone + Debug + AsRef<Key> + Send + Sync + 'static,
+//     {
+//         match strategy {
+//             TransportStrategy::None => Ok(None),
+
+//             TransportStrategy::Udp => {
+//                 let mut dgram_config = dgram::Config::new();
+//                 dgram_config.set_max_parallel(1);
+//                 dgram_config.set_read_timeout(Duration::from_millis(1000));
+//                 dgram_config.set_max_retries(1);
+//                 dgram_config.set_udp_payload_size(Some(1400));
+
+//                 #[cfg(test)]
+//                 {
+//                     let client = dgram::Connection::with_config(
+//                         self.test_channel.unwrap().new_client(None),
+//                         dgram_config,
+//                     );
+//                     Ok(Some(Conn::Udp(net::client::tsig::Connection::new(
+//                         key, client,
+//                     ))))
+//                 }
+
+//                 #[cfg(not(test))]
+//                 {
+//                     let client = dgram::Connection::with_config(
+//                         UdpConnect::new(dest),
+//                         dgram_config,
+//                     );
+//                     Ok(Some(Conn::Udp(net::client::tsig::Connection::new(
+//                         key, client,
+//                     ))))
+//                 }
+//             }
+
+//             TransportStrategy::Tcp => {
+//                 let mut stream_config = net::client::stream::Config::new();
+//                 stream_config.set_response_timeout(Duration::from_secs(2));
+//                 // Allow time between the SOA query response and sending the
+//                 // AXFR/IXFR request.
+//                 stream_config
+//                     .set_initial_idle_timeout(Duration::from_secs(5));
+//                 // Allow much more time for an XFR streaming response.
+//                 stream_config
+//                     .set_streaming_response_timeout(Duration::from_secs(30));
+
+//                 #[cfg(test)]
+//                 let (client, transport) = {
+//                     net::client::stream::Connection::with_config(
+//                         self.test_channel.unwrap().connect(None),
+//                         stream_config,
+//                     )
+//                 };
+
+//                 #[cfg(not(test))]
+//                 let (client, transport) = {
+//                     let tcp_stream = TcpStream::connect(dest).await?;
+//                     net::client::stream::Connection::with_config(
+//                         tcp_stream,
+//                         stream_config,
+//                     )
+//                 };
+
+//                 tokio::spawn(async move {
+//                     transport.run().await;
+//                     trace!("TCP connection terminated");
+//                 });
+
+//                 Ok(Some(Conn::Tcp(net::client::tsig::Connection::new(
+//                     key, client,
+//                 ))))
+//             }
+//         }
+//     }
+// }
+
+// fn mk_xfr_tcp_client_cfg() -> net::client::stream::Config {
+//     let mut stream_config = net::client::stream::Config::new();
+//     stream_config.set_response_timeout(Duration::from_secs(2));
+//     // Allow time between the SOA query response and sending the
+//     // AXFR/IXFR request.
+//     stream_config.set_initial_idle_timeout(Duration::from_secs(5));
+//     // Allow much more time for an XFR streaming response.
+//     stream_config.set_streaming_response_timeout(Duration::from_secs(30));
+//     stream_config
+// }
+
+impl<T: SendRequest<RequestMessage<Octs>> + ?Sized, Octs: Octets>
+    SendRequest<RequestMessage<Octs>> for Box<T>
 {
     fn send_request(
         &self,
-        request_msg: CR,
+        request_msg: RequestMessage<Octs>,
     ) -> Box<dyn request::GetResponse + Send + Sync> {
-        match self {
-            Conn::Udp(conn) => conn.send_request(request_msg),
-            Conn::Tcp(conn) => conn.send_request(request_msg),
-        }
-    }
-}
-
-//------------ ConnFactory ----------------------------------------------------
-
-#[derive(Default, Debug)]
-pub struct ConnFactory;
-
-#[cfg(not(test))]
-impl ConnFactory {
-    async fn get<K>(
-        &self,
-        dest: SocketAddr,
-        strategy: &TransportStrategy,
-        key: Option<K>,
-    ) -> Result<Option<Conn<RequestMessage<Vec<u8>>, K>>, std::io::Error>
-    where
-        K: Clone + Debug + AsRef<Key> + Send + Sync + 'static,
-    {
-        match strategy {
-            TransportStrategy::None => Ok(None),
-
-            TransportStrategy::Udp => {
-                let udp_connect = UdpConnect::new(dest);
-                let mut dgram_config = dgram::Config::new();
-                dgram_config.set_max_parallel(1);
-                dgram_config.set_read_timeout(Duration::from_millis(1000));
-                dgram_config.set_max_retries(1);
-                dgram_config.set_udp_payload_size(Some(1400));
-                let client =
-                    dgram::Connection::with_config(udp_connect, dgram_config);
-
-                Ok(Some(Conn::Udp(net::client::tsig::Connection::new(
-                    key, client,
-                ))))
-            }
-
-            TransportStrategy::Tcp => {
-                let tcp_stream = TcpStream::connect(dest).await?;
-
-                let mut stream_config = net::client::stream::Config::new();
-                stream_config.set_response_timeout(Duration::from_secs(2));
-                // Allow time between the SOA query response and sending the
-                // AXFR/IXFR request.
-                stream_config
-                    .set_initial_idle_timeout(Duration::from_secs(5));
-                // Allow much more time for an XFR streaming response.
-                stream_config
-                    .set_streaming_response_timeout(Duration::from_secs(30));
-                let (client, transport) =
-                    net::client::stream::Connection::with_config(
-                        tcp_stream,
-                        stream_config,
-                    );
-
-                tokio::spawn(async move {
-                    transport.run().await;
-                    trace!("TCP connection terminated");
-                });
-
-                Ok(Some(Conn::Tcp(net::client::tsig::Connection::new(
-                    key, client,
-                ))))
-            }
-        }
-    }
-}
-
-#[cfg(test)]
-impl ConnFactory {
-    async fn get<K>(
-        &self,
-        _primary_addr: SocketAddr,
-        _transport: &TransportStrategy,
-        _cloned: Option<K>,
-    ) -> Result<Option<Conn<RequestMessage<Vec<u8>>, K>>, std::io::Error>
-    where
-        K: Clone + Debug + AsRef<Key> + Send + Sync + 'static,
-    {
-        todo!()
+        (**self).send_request(request_msg)
     }
 }

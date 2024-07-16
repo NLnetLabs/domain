@@ -227,12 +227,16 @@ where
                 };
         }
 
+        let mut ixfr_update_mode = IxfrUpdateMode::Deleting;
+
         match msg.answer() {
             Ok(answer) => {
                 let records = answer.limit_to::<ZoneRecordData<_, _>>();
                 for record in records.flatten() {
                     trace!("XFR record {}: {record:?}", self.n);
 
+                    // With IXFR we expect both the first and second records to be SOA records.
+                    // With AXFR only a single SOA record is expected.
                     if self.xfr_type == Some(Rtype::IXFR)
                         && self.n == 1
                         && self.initial_soa_serial_seen_count == 1
@@ -257,6 +261,59 @@ where
                     let data = record.into_data().flatten_into();
 
                     if let ZoneRecordData::Soa(soa) = &data {
+                        if self.xfr_type == Some(Rtype::IXFR) && self.n > 1 {
+                            match ixfr_update_mode {
+                                IxfrUpdateMode::Deleting => {
+                                    trace!("IXFR: Switching to adding mode");
+                                    ixfr_update_mode = IxfrUpdateMode::Adding;
+                                }
+                                IxfrUpdateMode::Adding => {
+                                    trace!(
+                                        "IXFR: Switching to deleting mode"
+                                    );
+                                    ixfr_update_mode =
+                                        IxfrUpdateMode::Deleting;
+
+                                    if let Some(zone) = &self.zone {
+                                        // Commit the deletes and adds that just occurred
+                                        if let Some(writable) =
+                                            self.writable.take()
+                                        {
+                                            // Ensure that there are no
+                                            // dangling references to the
+                                            // created diff (otherwise
+                                            // commit() will panic).
+                                            drop(writable);
+
+                                            if let Some(mut write) =
+                                                self.write.take()
+                                            {
+                                                write
+                                                    .commit(false)
+                                                    .await
+                                                    .map_err(|_| {
+                                                        Error::ZoneWrite
+                                                    })?;
+
+                                                let new_serial = self
+                                                    .initial_soa
+                                                    .as_ref()
+                                                    .unwrap()
+                                                    .serial();
+
+                                                info!(
+                                                        "Zone '{}' has been updated to serial {} by {}",
+                                                        zone.apex_name(),
+                                                        new_serial,
+                                                        self.xfr_type.unwrap(),
+                                                    );
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
                         if let Some(initial_soa_serial) =
                             self.initial_soa_serial
                         {
@@ -273,46 +330,15 @@ where
                                         self.i, self.initial_soa_serial_seen_count);
                                     send_request.stream_complete()?;
 
-                                    // Ensure that there are no dangling references to the created diff
-                                    // (otherwise commit() will panic).
                                     if let Some(zone) = &self.zone {
-                                        info!("XFR progress report for zone '{}': Transfer complete, commiting changes.", zone.apex_name());
-                                        if let Some(writable) =
-                                            self.writable.take()
-                                        {
-                                            drop(writable);
-
-                                            if let Some(mut write) =
-                                                self.write.take()
-                                            {
-                                                // TODO
-                                                write
-                                                    .commit(false)
-                                                    .await
-                                                    .map_err(|_| {
-                                                        Error::ZoneWrite
-                                                    })?;
-
-                                                let new_serial = self
-                                                    .initial_soa
-                                                    .as_ref()
-                                                    .unwrap()
-                                                    .serial();
-
-                                                info!(
-                                                    "Zone '{}' has been updated to serial {} by {}",
-                                                    zone.apex_name(),
-                                                    new_serial,
-                                                    self.xfr_type.unwrap(),
-                                                );
-                                            }
-                                        }
+                                        info!("{} progress report for zone '{}': Transfer complete, commiting changes.", self.xfr_type.unwrap(), zone.apex_name());
                                     } else {
                                         info!(
-                                            "XFR progress report for zone '{:?}': Transfer complete.",
-                                            self.initial_soa_owner
+                                            "{} progress report for zone '{}': Transfer complete.",
+                                            self.xfr_type.unwrap(), self.initial_soa_owner.as_ref().unwrap()
                                         );
                                     }
+                                    break;
                                 }
                             }
                         } else {
@@ -391,24 +417,93 @@ where
                         );
                     }
 
-                    let mut rrset = Rrset::new(rtype, ttl);
-                    rrset.push_data(data);
+                    if self.xfr_type == Some(Rtype::AXFR)
+                        || (self.xfr_type == Some(Rtype::IXFR)
+                            && ixfr_update_mode == IxfrUpdateMode::Adding)
+                    {
+                        let mut rrset = Rrset::new(rtype, ttl);
+                        rrset.push_data(data);
 
-                    trace!("Adding RRset: {rrset:?}");
-                    let rrset = SharedRrset::new(rrset);
-                    match end_node {
-                        Some(n) => {
-                            trace!("Adding RRset at end_node");
-                            n.update_rrset(rrset)
-                                .await
-                                .map_err(|_| Error::ZoneWrite)?;
+                        trace!("Adding RR: {:?}", rrset);
+
+                        match end_node {
+                            Some(n) => {
+                                trace!("Adding RR at end_node");
+
+                                if let Some(existing_rrset) = n
+                                    .get_rrset(rtype)
+                                    .await
+                                    .map_err(|_| Error::ZoneWrite)?
+                                {
+                                    for existing_data in existing_rrset.data()
+                                    {
+                                        rrset
+                                            .push_data(existing_data.clone());
+                                    }
+                                }
+
+                                n.update_rrset(SharedRrset::new(rrset))
+                                    .await
+                                    .map_err(|_| Error::ZoneWrite)?;
+                            }
+                            None => {
+                                trace!("Adding RR at root");
+                                writable
+                                    .update_rrset(SharedRrset::new(rrset))
+                                    .await
+                                    .map_err(|_| Error::ZoneWrite)?;
+                            }
                         }
-                        None => {
-                            trace!("Adding RRset at root");
-                            writable
-                                .update_rrset(rrset)
-                                .await
-                                .map_err(|_| Error::ZoneWrite)?;
+                    } else {
+                        trace!("Deleting RR for {rtype}");
+                        let mut rrset = Rrset::new(rtype, ttl);
+                        match end_node {
+                            Some(n) => {
+                                trace!("Deleting RR at end_node");
+
+                                if let Some(existing_rrset) = n
+                                    .get_rrset(rtype)
+                                    .await
+                                    .map_err(|_| Error::ZoneWrite)?
+                                {
+                                    for existing_data in existing_rrset.data()
+                                    {
+                                        if existing_data != &data {
+                                            rrset.push_data(
+                                                existing_data.clone(),
+                                            );
+                                        }
+                                    }
+
+                                    trace!("Removing single RR of {rtype} so updating RRSET");
+                                    n.update_rrset(SharedRrset::new(rrset))
+                                        .await
+                                        .map_err(|_| Error::ZoneWrite)?;
+                                }
+                            }
+                            None => {
+                                trace!("Deleting RR at root");
+                                if let Some(existing_rrset) = writable
+                                    .get_rrset(rtype)
+                                    .await
+                                    .map_err(|_| Error::ZoneWrite)?
+                                {
+                                    for existing_data in existing_rrset.data()
+                                    {
+                                        if existing_data != &data {
+                                            rrset.push_data(
+                                                existing_data.clone(),
+                                            );
+                                        }
+                                    }
+
+                                    trace!("Removing single RR of {rtype} so updating RRSET");
+                                    writable
+                                        .update_rrset(SharedRrset::new(rrset))
+                                        .await
+                                        .map_err(|_| Error::ZoneWrite)?;
+                                }
+                            }
                         }
                     }
                 }
@@ -469,4 +564,15 @@ where
     > {
         Box::pin(self.get_response_impl())
     }
+}
+
+//------------ IxfrUpdateMode -------------------------------------------------
+
+/// TODO
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+enum IxfrUpdateMode {
+    /// TODO
+    Deleting,
+    /// TODO
+    Adding,
 }

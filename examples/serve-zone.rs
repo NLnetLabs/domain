@@ -42,7 +42,9 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use bytes::Bytes;
-use domain::zonecatalog::catalog::{self, Catalog, TypedZone};
+use domain::zonecatalog::catalog::{
+    self, Catalog, DefaultConnFactory, TypedZone,
+};
 use domain::zonecatalog::types::{
     CatalogKeyStore, CompatibilityMode, NotifyConfig, TransportStrategy,
     XfrConfig, XfrStrategy, ZoneConfig,
@@ -106,15 +108,15 @@ async fn main() {
 
     // Create a service to answer queries for the zone.
     let svc = service_fn(my_service, catalog.clone());
-    let svc: XfrMiddlewareSvc<Vec<u8>, _, Arc<CatalogKeyStore>> =
-        XfrMiddlewareSvc::<Vec<u8>, _, _>::new(
+    let svc: XfrMiddlewareSvc<Vec<u8>, _, Arc<CatalogKeyStore>, _> =
+        XfrMiddlewareSvc::<Vec<u8>, _, _, _>::new(
             svc,
             catalog.clone(),
             max_concurrency,
             XfrMode::AxfrAndIxfr,
         );
     let svc =
-        NotifyMiddlewareSvc::<Vec<u8>, _, _, _>::new(svc, catalog.clone());
+        NotifyMiddlewareSvc::<Vec<u8>, _, _, _, _>::new(svc, catalog.clone());
     let svc = CookiesMiddlewareSvc::<Vec<u8>, _, _>::with_random_secret(svc);
     let svc = EdnsMiddlewareSvc::<Vec<u8>, _, _>::new(svc);
     let svc = MandatoryMiddlewareSvc::<Vec<u8>, _, _>::new(svc);
@@ -224,7 +226,7 @@ async fn main() {
 
 fn my_service(
     request: Request<Vec<u8>>,
-    catalog: Arc<Catalog<Arc<CatalogKeyStore>>>,
+    catalog: Arc<Catalog<Arc<CatalogKeyStore>, DefaultConnFactory>>,
 ) -> ServiceResult<Vec<u8>> {
     let question = request.message().sole_question().unwrap();
     let zones = catalog.zones();

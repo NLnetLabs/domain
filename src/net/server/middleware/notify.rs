@@ -25,7 +25,7 @@ use crate::net::server::service::{CallResult, Service};
 use crate::net::server::util::{mk_builder_for_target, mk_error_response};
 use crate::rdata::AllRecordData;
 use crate::tsig::KeyStore;
-use crate::zonecatalog::catalog::{Catalog, CatalogError};
+use crate::zonecatalog::catalog::{Catalog, CatalogError, ConnectionFactory};
 
 /// A DNS NOTIFY middleware service
 ///
@@ -37,26 +37,28 @@ use crate::zonecatalog::catalog::{Catalog, CatalogError};
 ///
 /// [1996]: https://datatracker.ietf.org/doc/html/rfc1996
 #[derive(Clone, Debug)]
-pub struct NotifyMiddlewareSvc<RequestOctets, NextSvc, RequestMeta, KS>
+pub struct NotifyMiddlewareSvc<RequestOctets, NextSvc, RequestMeta, KS, CF>
 where
     KS: Default + Deref,
     KS::Target: KeyStore,
+    CF: ConnectionFactory,
 {
     next_svc: NextSvc,
 
-    catalog: Arc<Catalog<KS>>,
+    catalog: Arc<Catalog<KS, CF>>,
 
     _phantom: PhantomData<(RequestOctets, RequestMeta)>,
 }
 
-impl<RequestOctets, NextSvc, RequestMeta, KS>
-    NotifyMiddlewareSvc<RequestOctets, NextSvc, RequestMeta, KS>
+impl<RequestOctets, NextSvc, RequestMeta, KS, CF>
+    NotifyMiddlewareSvc<RequestOctets, NextSvc, RequestMeta, KS, CF>
 where
     KS: Default + Deref,
     KS::Target: KeyStore,
+    CF: ConnectionFactory,
 {
     #[must_use]
-    pub fn new(next_svc: NextSvc, catalog: Arc<Catalog<KS>>) -> Self {
+    pub fn new(next_svc: NextSvc, catalog: Arc<Catalog<KS, CF>>) -> Self {
         Self {
             next_svc,
             catalog,
@@ -65,8 +67,8 @@ where
     }
 }
 
-impl<RequestOctets, NextSvc, RequestMeta, KS>
-    NotifyMiddlewareSvc<RequestOctets, NextSvc, RequestMeta, KS>
+impl<RequestOctets, NextSvc, RequestMeta, KS, CF>
+    NotifyMiddlewareSvc<RequestOctets, NextSvc, RequestMeta, KS, CF>
 where
     RequestOctets: Octets + Send + Sync + Unpin,
     RequestMeta: Clone + Default,
@@ -75,10 +77,11 @@ where
     KS: Default + Deref + Sync + Send + 'static,
     KS::Target: KeyStore,
     <<KS as Deref>::Target as KeyStore>::Key: Clone + Debug + Sync + Send,
+    CF: ConnectionFactory + Send + Sync + 'static,
 {
     async fn preprocess(
         req: &Request<RequestOctets, RequestMeta>,
-        catalog: Arc<Catalog<KS>>,
+        catalog: Arc<Catalog<KS, CF>>,
     ) -> ControlFlow<Once<Ready<<NextSvc::Stream as Stream>::Item>>> {
         let msg = req.message();
 
@@ -319,9 +322,9 @@ where
 
 //--- Service
 
-impl<RequestOctets, NextSvc, RequestMeta, KS>
+impl<RequestOctets, NextSvc, RequestMeta, KS, CF>
     Service<RequestOctets, RequestMeta>
-    for NotifyMiddlewareSvc<RequestOctets, NextSvc, RequestMeta, KS>
+    for NotifyMiddlewareSvc<RequestOctets, NextSvc, RequestMeta, KS, CF>
 where
     RequestOctets: Octets + Send + Sync + 'static + Unpin,
     RequestMeta: Clone + Default + Sync + Send + 'static,
@@ -337,6 +340,7 @@ where
     KS: Default + Deref + Sync + Send + 'static,
     KS::Target: KeyStore,
     <<KS as Deref>::Target as KeyStore>::Key: Clone + Debug + Sync + Send,
+    CF: ConnectionFactory + Sync + Send + 'static,
 {
     type Target = NextSvc::Target;
     type Stream = MiddlewareStream<
