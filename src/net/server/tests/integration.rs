@@ -1,3 +1,6 @@
+use core::fmt::Debug;
+use core::future::ready;
+use core::pin::Pin;
 use core::str::FromStr;
 
 use std::boxed::Box;
@@ -5,10 +8,13 @@ use std::collections::VecDeque;
 use std::fs::File;
 use std::net::SocketAddr;
 use std::path::PathBuf;
+use std::string::String;
 use std::sync::Arc;
 use std::time::Duration;
 use std::vec::Vec;
 
+use futures::Future;
+use octseq::Octets;
 use ring::rand::SystemRandom;
 use rstest::rstest;
 use tracing::warn;
@@ -21,6 +27,7 @@ use crate::base::net::IpAddr;
 use crate::base::wire::Composer;
 use crate::net::client::request::{RequestMessage, SendRequest};
 use crate::net::client::{dgram, stream, tsig, xfr};
+use crate::net::server;
 use crate::net::server::buf::VecBufSource;
 use crate::net::server::dgram::DgramServer;
 use crate::net::server::message::Request;
@@ -33,7 +40,6 @@ use crate::net::server::middleware::xfr::{XfrMiddlewareSvc, XfrMode};
 use crate::net::server::service::{CallResult, Service, ServiceResult};
 use crate::net::server::stream::StreamServer;
 use crate::net::server::util::{mk_builder_for_target, service_fn};
-use crate::net::{self, server};
 use crate::stelline;
 use crate::stelline::channel::ClientServerChannel;
 use crate::stelline::client::{
@@ -55,8 +61,6 @@ use crate::zonecatalog::types::{
 use crate::zonefile::inplace::Zonefile;
 use crate::zonetree::Answer;
 use crate::zonetree::{Zone, ZoneBuilder};
-use core::future::ready;
-use std::string::String;
 
 const MAX_XFR_CONCURRENCY: usize = 1;
 
@@ -615,9 +619,9 @@ impl ConnectionFactory for TestServerConnFactory {
         _dest: SocketAddr,
         strategy: TransportStrategy,
         key: Option<K>,
-    ) -> core::pin::Pin<
+    ) -> Pin<
         Box<
-            dyn futures::Future<
+            dyn Future<
                     Output = Result<
                         Option<
                             Box<
@@ -635,8 +639,8 @@ impl ConnectionFactory for TestServerConnFactory {
         >,
     >
     where
-        K: Clone + core::fmt::Debug + AsRef<Key> + Send + Sync + 'static,
-        Octs: octseq::Octets + core::fmt::Debug + Send + Sync + 'static,
+        K: Clone + Debug + AsRef<Key> + Send + Sync + 'static,
+        Octs: Octets + Debug + Send + Sync + 'static,
     {
         let client = match strategy {
             TransportStrategy::None => Ok(None),
@@ -681,9 +685,7 @@ impl ConnectionFactory for TestServerConnFactory {
                     trace!("TCP connection terminated");
                 });
 
-                Ok(Some(Box::new(net::client::tsig::Connection::new(
-                    key, client,
-                ))
+                Ok(Some(Box::new(tsig::Connection::new(key, client))
                     as Box<
                         dyn SendRequest<RequestMessage<Octs>> + Send + Sync,
                     >))
@@ -723,9 +725,9 @@ impl ConnectionFactory for MockServerConnFactory {
         _dest: SocketAddr,
         strategy: TransportStrategy,
         key: Option<K>,
-    ) -> core::pin::Pin<
+    ) -> Pin<
         Box<
-            dyn futures::Future<
+            dyn Future<
                     Output = Result<
                         Option<
                             Box<
@@ -743,8 +745,8 @@ impl ConnectionFactory for MockServerConnFactory {
         >,
     >
     where
-        K: Clone + core::fmt::Debug + AsRef<Key> + Send + Sync + 'static,
-        Octs: octseq::Octets + core::fmt::Debug + Send + Sync + 'static,
+        K: Clone + Debug + AsRef<Key> + Send + Sync + 'static,
+        Octs: Octets + Debug + Send + Sync + 'static,
     {
         let client = match strategy {
             TransportStrategy::None => Ok(None),
@@ -795,9 +797,7 @@ impl ConnectionFactory for MockServerConnFactory {
                     trace!("TCP connection terminated");
                 });
 
-                Ok(Some(Box::new(net::client::tsig::Connection::new(
-                    key, client,
-                ))
+                Ok(Some(Box::new(tsig::Connection::new(key, client))
                     as Box<
                         dyn SendRequest<RequestMessage<Octs>> + Send + Sync,
                     >))
