@@ -59,3 +59,10 @@ involving two or three parties that communicate via mock network sockets:
   as definedby the `SECTION` blocks of a `CHECK_ANSWER` step. As such the
   actual effects of TSIG signing are not visible nor explicitly tested for in
   test steps that use `KEY <KEYNAME>`.
+
+- Using a real client limits the control the tests have over the sent messages.
+  For example, irrespective of the query defined by a test, the client code
+  will inject an EDNS TCP keep-alive OPT record before sending it. This can be
+  worked around by using `MATCH MOCK_CLIENT` which will instruct the Stelline
+  test framework to use a different UDP client which does not modify the
+  request before sending.
