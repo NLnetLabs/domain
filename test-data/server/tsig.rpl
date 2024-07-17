@@ -14,11 +14,15 @@ server:
     provide-xfr: 127.0.0.3 TESTKEY
 
     ; Permit the server to respond to clients that send XFR requests from
-    ; 127.0.0.4. The requests must be TSIG signed using the specified key.
+    ; 127.0.0.5. The requests must be TSIG signed using the specified key.
     ; Responses will be sent in "backward compatible" mode as defined by
     ; RFC 5936.
     ; See: https://datatracker.ietf.org/doc/html/rfc5936#section-7.1.
     provide-xfr: 127.0.0.4 TESTKEY COMPATIBLE
+
+    ; Permit the server to respond to clients that send XFR requests from
+    ; 127.0.0.4. The requests must be TSIG signed using the specified key.
+    provide-xfr: 127.0.0.5 TESTKEY
 
     ; Define an in-memory zone to be served by the server.
     local-data: "example.com.      3600  IN  SOA  ns.example.com. hostmaster.example.com. 1 3600 900 86400 3600"
@@ -112,6 +116,48 @@ EXTRA_PACKET
     www.example.com.  3600  IN  A    1.2.3.4
 EXTRA_PACKET
     example.com.      3600  IN  SOA  ns.example.com. hostmaster.example.com. 1 3600 900 86400 3600
+ENTRY_END
+
+; Manually construct and verify the TSIG signatures.
+; Instead of using net::client::tsig to sign the request, we use MOCK_CLIENT
+; to ensure that (a) no signing is done and so we are free to insert the TSIG
+; record ourselves, (b) net::client::dgram is not used as that modifies the
+; request just prior to sending it (such as adding an EDNS(0) OPT record AFTER
+; our TSIG which violates TSIG RFC 8945 which states that the TSIG RR MUST be
+; the last RR in the ADDITIONAL section of the message). This manual signing
+; also assumes (a) that test time is in effect and that the time now is zero,
+; and (b) that the TSIG key that was used for signing has a known fixed secret
+; because the MAC that we generated was based on those two fixed properties.
+STEP 50 QUERY ADDRESS 127.0.0.5
+ENTRY_BEGIN
+MATCH UDP
+MATCH MOCK_CLIENT
+SECTION QUESTION
+    example.com.            IN  SOA
+SECTION ADDITIONAL
+    TESTKEY           0     CLASS255  TYPE250  \# 61 0b686d61632d73686132353600 000000000000 012c 0020 a1c86ced1815d60903129a525a14494516895d99ea94bf0b5b04338126a4d625 0000 0000 0000
+;                                                                                                                                                                                 ^ Other Len
+;                                                                                                                                                                            ^ Error
+;                                                                                                                                                                       ^ Original ID
+;                                                                                                      ^ MAC
+;                                                                                                 ^ MAC Size
+;                                                                                            ^ Fudge
+;                                                    ^ Algorithm Name           ^ Time Signed
+;                                                 ^ RDATA byte length.
+;                           ^ RFC 3597 CLASSNN TYPENN \# encoding of unknown DNS RR types.
+;                             We use this so that we can define the RDATA using HEX bytes.
+ENTRY_END
+
+STEP 51 CHECK_ANSWER
+ENTRY_BEGIN
+MATCH all
+REPLY QR NOERROR
+SECTION QUESTION
+    example.com.            IN  SOA
+SECTION ANSWER
+    example.com.      3600  IN  SOA  ns.example.com. hostmaster.example.com. 1 3600 900 86400 3600
+SECTION ADDITIONAL
+    TESTKEY           0     CLASS255  TYPE250  \# 61 0b686d61632d73686132353600 000000000000 012c 0020 6d7f9c5a14c2b48d4a0549000af29808e5eb25f7a80c22a2b1c0cf2ef3929bcd 0000 0000 0000
 ENTRY_END
 
 SCENARIO_END
