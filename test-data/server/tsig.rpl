@@ -1,24 +1,49 @@
-; config options
-server:
-	provide-xfr: 127.0.0.1 NOKEY
-    provide-xfr: 127.0.0.2 TESTKEY
-    provide-xfr: 127.0.0.3 TESTKEY
-	provide-xfr: 127.0.0.4 TESTKEY COMPATIBLE
-	local-data: "example.com.	3600	IN	SOA	ns.example.com. hostmaster.example.com. 1 3600 900 86400 3600"
-	local-data: "example.com.	3600	IN	NS	ns.example.net."
-	local-data: "www.example.com.	3600	IN	A	1.2.3.4"
+;------------ Server configuration --------------------------------------------
 
+server:
+    ; Permit the server to respond to clients that send XFR requests from
+    ; 127.0.0.1 (the default). No TSIG signing is expected.
+    provide-xfr: 127.0.0.1 NOKEY
+
+    ; Permit the server to respond to clients that send XFR requests from
+    ; 127.0.0.2. The requests must be TSIG signed using the specified key.
+    provide-xfr: 127.0.0.2 TESTKEY
+
+    ; Permit the server to respond to clients that send XFR requests from
+    ; 127.0.0.3. The requests must be TSIG signed using the specified key.
+    provide-xfr: 127.0.0.3 TESTKEY
+
+    ; Permit the server to respond to clients that send XFR requests from
+    ; 127.0.0.4. The requests must be TSIG signed using the specified key.
+    ; Responses will be sent in "backward compatible" mode as defined by
+    ; RFC 5936.
+    ; See: https://datatracker.ietf.org/doc/html/rfc5936#section-7.1.
+    provide-xfr: 127.0.0.4 TESTKEY COMPATIBLE
+
+    ; Define an in-memory zone to be served by the server.
+    local-data: "example.com.      3600  IN  SOA  ns.example.com. hostmaster.example.com. 1 3600 900 86400 3600"
+    local-data: "example.com.      3600  IN  NS   ns.example.net."
+    local-data: "www.example.com.  3600  IN  A    1.2.3.4"
 CONFIG_END
 
-SCENARIO_BEGIN Test TSIG signed AXFR out
+;------------ Test definition ------------------------------------------------
 
-; Verify that when the default 127.0.0.1 client submits an un-TSIG-signed AXFR
-; request over UDP that it is rejected (because AXFR over UDP is not supported).
+SCENARIO_BEGIN Test TSIG signed queries and TSIG signed AXFR replies.
+
+;--- Mock replies
+
+; None
+
+;--- Test steps
+
+; Verify that when the default 127.0.0.1 client submits an AXFR request over
+; UDP that it is rejected (because AXFR over UDP is not defined by RFC 5936).
+; See: https://datatracker.ietf.org/doc/html/rfc5936#section-4.2
 STEP 10 QUERY
 ENTRY_BEGIN
 MATCH UDP
 SECTION QUESTION
-	example.com. IN AXFR
+    example.com.            IN  AXFR
 ENTRY_END
 
 STEP 11 CHECK_ANSWER
@@ -29,12 +54,12 @@ ENTRY_END
 
 ; Verify that when a client that is required to TSIG sign requests (127.0.0.2)
 ; submits an unsigned AXFR request over TCP that it is rejected (because while
-; AXFR over TCP is allowed, the request is required to be correctly signed)
+; AXFR over TCP is allowed, the request is required to be correctly signed).
 STEP 20 QUERY ADDRESS 127.0.0.2
 ENTRY_BEGIN
 MATCH TCP
 SECTION QUESTION
-	example.com. IN AXFR
+    example.com.            IN  AXFR
 ENTRY_END
 
 STEP 21 CHECK_ANSWER
@@ -43,12 +68,12 @@ MATCH all
 REPLY QR AA REFUSED
 ENTRY_END
 
-; Retrieve the zone via AXFR from the server using the required TSIG key.
+; Retrieve the zone via AXFR over TCP using the expected TSIG key.
 STEP 30 QUERY ADDRESS 127.0.0.3 KEY TESTKEY
 ENTRY_BEGIN
 MATCH TCP
 SECTION QUESTION
-	example.com. IN AXFR
+    example.com.            IN AXFR
 ENTRY_END
 
 STEP 31 CHECK_ANSWER
@@ -56,12 +81,12 @@ ENTRY_BEGIN
 MATCH all
 REPLY QR AA NOERROR
 SECTION QUESTION
-	example.com. IN AXFR
+    example.com. IN AXFR
 SECTION ANSWER
-	example.com.	3600	IN	SOA	ns.example.com. hostmaster.example.com. 1 3600 900 86400 3600
-	example.com.	3600	IN	NS	ns.example.net.
-	www.example.com.	3600	IN	A	1.2.3.4
-	example.com.	3600	IN	SOA	ns.example.com. hostmaster.example.com. 1 3600 900 86400 3600
+    example.com.      3600  IN  SOA  ns.example.com. hostmaster.example.com. 1 3600 900 86400 3600
+    example.com.      3600  IN  NS   ns.example.net.
+    www.example.com.  3600  IN  A    1.2.3.4
+    example.com.      3600  IN  SOA  ns.example.com. hostmaster.example.com. 1 3600 900 86400 3600
 ENTRY_END
 
 ; Retrieve the zone using a client for which the server is configured to serve
@@ -70,7 +95,7 @@ STEP 40 QUERY ADDRESS 127.0.0.4 KEY TESTKEY
 ENTRY_BEGIN
 MATCH TCP
 SECTION QUESTION
-	example.com. IN AXFR
+    example.com.            IN  AXFR
 ENTRY_END
 
 STEP 41 CHECK_ANSWER
@@ -78,15 +103,15 @@ ENTRY_BEGIN
 MATCH all
 REPLY QR AA NOERROR
 SECTION QUESTION
-	example.com. IN AXFR
+    example.com.            IN  AXFR
 SECTION ANSWER
-	example.com.	3600	IN	SOA	ns.example.com. hostmaster.example.com. 1 3600 900 86400 3600
+    example.com.      3600  IN  SOA  ns.example.com. hostmaster.example.com. 1 3600 900 86400 3600
 EXTRA_PACKET
-	example.com.	3600	IN	NS	ns.example.net.
+    example.com.      3600  IN  NS   ns.example.net.
 EXTRA_PACKET
-	www.example.com.	3600	IN	A	1.2.3.4
+    www.example.com.  3600  IN  A    1.2.3.4
 EXTRA_PACKET
-	example.com.	3600	IN	SOA	ns.example.com. hostmaster.example.com. 1 3600 900 86400 3600
+    example.com.      3600  IN  SOA  ns.example.com. hostmaster.example.com. 1 3600 900 86400 3600
 ENTRY_END
 
 SCENARIO_END

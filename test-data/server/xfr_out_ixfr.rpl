@@ -1,63 +1,75 @@
-; Based https://datatracker.ietf.org/doc/html/rfc1995#section-7
+; Based on https://datatracker.ietf.org/doc/html/rfc1995#section-7
 
-; config options
+;------------ Server configuration --------------------------------------------
+
 server:
+    ; Allow a server at 127.0.0.1 to send NOTIFY to our server, and request XFR
+    ; transfer from that server. No TSIG signing is expected.
     allow-notify: 127.0.0.100 NOKEY
     request-xfr: 127.0.0.100 NOKEY
-	provide-xfr: 127.0.0.1 NOKEY
-    provide-xfr: AXFR 127.0.0.10 NOKEY
+
+    ; Permit the server to respond to clients that send XFR requests from
+    ; 127.0.0.1 (the default). No TSIG signing is expected.
+    provide-xfr: 127.0.0.1 NOKEY
+
+    ; Define an in-memory zone to be served by the server.
     local-data: "JAIN.AD.JP.         IN SOA NS.JAIN.AD.JP. mohta.jain.ad.jp. (1 600 600 3600000 604800)"
     local-data: "                    IN NS  NS.JAIN.AD.JP."
     local-data: "NS.JAIN.AD.JP.      IN A   133.69.136.1"
     local-data: "NEZU.JAIN.AD.JP.    IN A   133.69.136.5"
-
 CONFIG_END
 
-SCENARIO_BEGIN Test IXFR
+;------------ Test definition ------------------------------------------------
+
+SCENARIO_BEGIN Tests IXFR-in, IXFR-out, and NOTIFY-in.
+
+;--- Mock replies
 
 RANGE_BEGIN 10 20
-	ADDRESS 127.0.0.100
+        ADDRESS 127.0.0.100
 
 ; Mock reply 1:
 ; =============
 ; When notified in step 1 the server will attempt to update itself via XFR,
-; starting with a SOA query. This entry relpies to that SOA query indicating
-; that a newer version 3 of the zone is available.
+; starting with a SOA query. This entry defines the reply to that SOA query
+; and indicates that a newer version 3 of the zone is available.
 ENTRY_BEGIN
 MATCH opcode qtype qname
 ADJUST copy_id
 REPLY QR AA NOERROR
 SECTION QUESTION
-    JAIN.AD.JP. IN SOA
+    JAIN.AD.JP.          IN  SOA
 SECTION ANSWER
-    JAIN.AD.JP.         IN SOA NS.JAIN.AD.JP. mohta.jain.ad.jp. (3 600 600 3600000 604800)
+    JAIN.AD.JP.          IN  SOA  NS.JAIN.AD.JP. mohta.jain.ad.jp. (3 600 600 3600000 604800)
 ENTRY_END
 
 ; Mock reply 2:
 ; =============
 ; The server should then perform an IXFR query to fetch the updates in version
-; 3 of the zone. This entry replies with an IXFR response.
+; 3 of the zone. This entry defines the IXFR reply to that query.
 ENTRY_BEGIN
 MATCH opcode qtype qname
 ADJUST copy_id
 REPLY QR AA NOERROR
 SECTION QUESTION
-    JAIN.AD.JP. IN IXFR
+    JAIN.AD.JP.          IN  IXFR
 SECTION ANSWER
-    JAIN.AD.JP. IN SOA NS.JAIN.AD.JP. mohta.jain.ad.jp. (3 600 600 3600000 604800)
-    JAIN.AD.JP. IN SOA NS.JAIN.AD.JP. mohta.jain.ad.jp. (1 600 600 3600000 604800)
-    NEZU.JAIN.AD.JP. IN A 133.69.136.5
-    JAIN.AD.JP. IN SOA NS.JAIN.AD.JP. mohta.jain.ad.jp. (2 600 600 3600000 604800)
-    JAIN-BB.JAIN.AD.JP. IN A 133.69.136.4
-    JAIN-BB.JAIN.AD.JP. IN A 192.41.197.2
-    JAIN.AD.JP. IN SOA NS.JAIN.AD.JP. mohta.jain.ad.jp. (2 600 600 3600000 604800)
-    JAIN-BB.JAIN.AD.JP. IN A 133.69.136.4
-    JAIN.AD.JP. IN SOA NS.JAIN.AD.JP. mohta.jain.ad.jp. (3 600 600 3600000 604800)
-    JAIN-BB.JAIN.AD.JP. IN A 133.69.136.3
-    JAIN.AD.JP. IN SOA NS.JAIN.AD.JP. mohta.jain.ad.jp. (3 600 600 3600000 604800)
+    JAIN.AD.JP.          IN  SOA  NS.JAIN.AD.JP. mohta.jain.ad.jp. (3 600 600 3600000 604800)
+    JAIN.AD.JP.          IN  SOA  NS.JAIN.AD.JP. mohta.jain.ad.jp. (1 600 600 3600000 604800)
+    NEZU.JAIN.AD.JP.     IN  A    133.69.136.5
+    JAIN.AD.JP.          IN  SOA  NS.JAIN.AD.JP. mohta.jain.ad.jp. (2 600 600 3600000 604800)
+    JAIN-BB.JAIN.AD.JP.  IN  A    133.69.136.4
+    JAIN-BB.JAIN.AD.JP.  IN  A    192.41.197.2
+    JAIN.AD.JP.          IN  SOA  NS.JAIN.AD.JP. mohta.jain.ad.jp. (2 600 600 3600000 604800)
+    JAIN-BB.JAIN.AD.JP.  IN  A    133.69.136.4
+    JAIN.AD.JP.          IN  SOA  NS.JAIN.AD.JP. mohta.jain.ad.jp. (3 600 600 3600000 604800)
+    JAIN-BB.JAIN.AD.JP.  IN  A    133.69.136.3
+    JAIN.AD.JP.          IN  SOA  NS.JAIN.AD.JP. mohta.jain.ad.jp. (3 600 600 3600000 604800)
 ENTRY_END
 
 RANGE_END
+
+;--- Test steps
 
 ; Setup
 ; =====
@@ -79,7 +91,7 @@ ENTRY_BEGIN
 OPCODE NOTIFY
 MATCH UDP
 SECTION QUESTION
-    JAIN.AD.JP. IN SOA
+    JAIN.AD.JP.          IN  SOA
 ENTRY_END
 
 STEP 20 CHECK_ANSWER
@@ -88,7 +100,7 @@ OPCODE NOTIFY
 MATCH all
 REPLY QR AA NOERROR
 SECTION QUESTION
-    JAIN.AD.JP. IN SOA
+    JAIN.AD.JP.          IN  SOA
 ENTRY_END
 
 ; Request update from serial version 1 of the zone via IXFR from the server
@@ -100,7 +112,7 @@ MATCH TCP
 SECTION QUESTION
     JAIN.AD.JP. IN AXFR
 SECTION AUTHORITY
-    JAIN.AD.JP.         IN SOA NS.JAIN.AD.JP. mohta.jain.ad.jp. (1 600 600 3600000 604800)
+    JAIN.AD.JP.          IN  SOA  NS.JAIN.AD.JP. mohta.jain.ad.jp. (1 600 600 3600000 604800)
 ENTRY_END
 
 STEP 40 CHECK_ANSWER
@@ -110,12 +122,12 @@ REPLY QR AA NOERROR
 SECTION QUESTION
     JAIN.AD.JP. IN AXFR
 SECTION ANSWER
-    JAIN.AD.JP.         IN SOA NS.JAIN.AD.JP. mohta.jain.ad.jp. (3 600 600 3600000 604800)
-    JAIN.AD.JP.         IN NS  NS.JAIN.AD.JP.
-    NS.JAIN.AD.JP.      IN A   133.69.136.1
-    JAIN-BB.JAIN.AD.JP. IN A   133.69.136.3
-    JAIN-BB.JAIN.AD.JP. IN A   192.41.197.2
-    JAIN.AD.JP.         IN SOA NS.JAIN.AD.JP. mohta.jain.ad.jp. (3 600 600 3600000 604800)
+    JAIN.AD.JP.          IN  SOA  NS.JAIN.AD.JP. mohta.jain.ad.jp. (3 600 600 3600000 604800)
+    JAIN.AD.JP.          IN  NS   NS.JAIN.AD.JP.
+    NS.JAIN.AD.JP.       IN  A    133.69.136.1
+    JAIN-BB.JAIN.AD.JP.  IN  A    133.69.136.3
+    JAIN-BB.JAIN.AD.JP.  IN  A    192.41.197.2
+    JAIN.AD.JP.          IN  SOA  NS.JAIN.AD.JP. mohta.jain.ad.jp. (3 600 600 3600000 604800)
 ENTRY_END
 
 ; Request update from serial version 1 of the zone via IXFR from the server
@@ -126,9 +138,9 @@ ENTRY_END
 STEP 50 QUERY
 ENTRY_BEGIN
 SECTION QUESTION
-    JAIN.AD.JP.         IN IXFR
+    JAIN.AD.JP.         IN  IXFR
 SECTION AUTHORITY
-    JAIN.AD.JP.         IN SOA NS.JAIN.AD.JP. mohta.jain.ad.jp. (1 600 600 3600000 604800)
+    JAIN.AD.JP.         IN  SOA  NS.JAIN.AD.JP. mohta.jain.ad.jp. (1 600 600 3600000 604800)
 ENTRY_END
 
 STEP 60 CHECK_ANSWER
@@ -136,21 +148,21 @@ ENTRY_BEGIN
 MATCH all
 REPLY QR AA NOERROR
 SECTION QUESTION
-    JAIN.AD.JP.         IN IXFR
+    JAIN.AD.JP.         IN  IXFR
 SECTION ANSWER
-    JAIN.AD.JP.         IN SOA NS.JAIN.AD.JP. mohta.jain.ad.jp. (3 600 600 3600000 604800)
-    JAIN.AD.JP.         IN SOA NS.JAIN.AD.JP. mohta.jain.ad.jp. (1 600 600 3600000 604800)
-    NEZU.JAIN.AD.JP.    IN A 133.69.136.5
-    JAIN.AD.JP.         IN SOA NS.JAIN.AD.JP. mohta.jain.ad.jp. (2 600 600 3600000 604800)
-    JAIN-BB.JAIN.AD.JP. IN A 192.41.197.2
-    JAIN-BB.JAIN.AD.JP. IN A 133.69.136.4
-    JAIN.AD.JP.         IN SOA NS.JAIN.AD.JP. mohta.jain.ad.jp. (2 600 600 3600000 604800)
-    JAIN-BB.JAIN.AD.JP. IN A 192.41.197.2       ; NOTE: Adding this RR is pointless as it is removed below.
-    JAIN-BB.JAIN.AD.JP. IN A 133.69.136.4
-    JAIN.AD.JP.         IN SOA NS.JAIN.AD.JP. mohta.jain.ad.jp. (3 600 600 3600000 604800)
-    JAIN-BB.JAIN.AD.JP. IN A 133.69.136.3
-    JAIN-BB.JAIN.AD.JP. IN A 192.41.197.2       ; NOTE: This is where the pointlessly added RR is removed.
-    JAIN.AD.JP.         IN SOA NS.JAIN.AD.JP. mohta.jain.ad.jp. (3 600 600 3600000 604800)
+    JAIN.AD.JP.         IN  SOA  NS.JAIN.AD.JP. mohta.jain.ad.jp. (3 600 600 3600000 604800)
+    JAIN.AD.JP.         IN  SOA  NS.JAIN.AD.JP. mohta.jain.ad.jp. (1 600 600 3600000 604800)
+    NEZU.JAIN.AD.JP.    IN  A    133.69.136.5
+    JAIN.AD.JP.         IN  SOA  NS.JAIN.AD.JP. mohta.jain.ad.jp. (2 600 600 3600000 604800)
+    JAIN-BB.JAIN.AD.JP. IN  A    192.41.197.2
+    JAIN-BB.JAIN.AD.JP. IN  A    133.69.136.4
+    JAIN.AD.JP.         IN  SOA  NS.JAIN.AD.JP. mohta.jain.ad.jp. (2 600 600 3600000 604800)
+    JAIN-BB.JAIN.AD.JP. IN  A    192.41.197.2 ; NOTE: Adding this RR is pointless as it is removed below. The server implementation currently can't do better than this however.
+    JAIN-BB.JAIN.AD.JP. IN  A    133.69.136.4
+    JAIN.AD.JP.         IN  SOA  NS.JAIN.AD.JP. mohta.jain.ad.jp. (3 600 600 3600000 604800)
+    JAIN-BB.JAIN.AD.JP. IN  A    133.69.136.3
+    JAIN-BB.JAIN.AD.JP. IN  A    192.41.197.2 ; NOTE: This is where the pointlessly added RR is removed.
+    JAIN.AD.JP.         IN  SOA  NS.JAIN.AD.JP. mohta.jain.ad.jp. (3 600 600 3600000 604800)
 ENTRY_END
 
 SCENARIO_END

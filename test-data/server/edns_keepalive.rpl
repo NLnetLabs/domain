@@ -1,14 +1,25 @@
 ; Based on: https://github.com/NLnetLabs/unbound/blob/49e425810275917e7fd09a24bae3b97d83b55c13/testdata/edns_keepalive.rpl
+
+;------------ Server configuration --------------------------------------------
+
 server:
-        edns-tcp-keepalive: yes
-        edns-tcp-keepalive-timeout: 30000
-	local-data: "test.	3600	IN	SOA	ns.test. hostmaster.test. 1 3600 900 86400 3600"
-        local-data: "test. TXT test"
+    edns-tcp-keepalive: yes
+    edns-tcp-keepalive-timeout: 30000
+
+    ; Define an in-memory zone to be served by the server.
+    local-data: "test.  3600  IN  SOA  ns.test. hostmaster.test. 1 3600 900 86400 3600"
+    local-data: "test.            TXT  test"
 CONFIG_END
 
-SCENARIO_BEGIN TCP Keepalive
+;------------ Test definition ------------------------------------------------
 
-;; ----------------------------------------
+SCENARIO_BEGIN Test RFC 7828 DNS TCP keep-alive support.
+
+;--- Mock replies
+
+; None
+
+;--- Test steps
 
 STEP 1 QUERY
 
