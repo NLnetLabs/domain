@@ -20,6 +20,7 @@ use rstest::rstest;
 use tracing::warn;
 use tracing::{instrument, trace};
 
+use super::mock_dgram_client;
 use crate::base::iana::Class;
 use crate::base::iana::Rcode;
 use crate::base::name::{Name, ToName};
@@ -312,23 +313,29 @@ fn mk_client_factory(
         only_for_tcp_queries,
     );
 
-    // Create a UDP client factory that only creates a client if (a) no
-    // existing UDP client exists for the source address of the Stelline query.
+    // Create a UDP client factory that only creates a client if no existing
+    // UDP client exists for the source address of the Stelline query.
     let for_all_other_queries = |_: &_| true;
 
     let udp_client_factory = PerClientAddressClientFactory::new(
         move |source_addr, entry| {
-            let key = entry.key_name.as_ref().and_then(|key_name| {
-                key_store.get_key(&key_name, Algorithm::Sha256)
-            });
-            let client = dgram::Connection::new(
-                dgram_server_conn
-                    .new_client(Some(SocketAddr::new(*source_addr, 0))),
-            );
+            let connect = dgram_server_conn
+                .new_client(Some(SocketAddr::new(*source_addr, 0)));
 
-            // While AXFR is TCP only, IXFR can also be done over UDP
-            let client = xfr::Connection::new(None, client);
-            Box::new(tsig::Connection::new(key, client))
+            match entry.matches.as_ref().map(|v| v.mock_client) {
+                Some(true) => {
+                    Box::new(mock_dgram_client::Connection::new(connect))
+                }
+                _ => {
+                    let key = entry.key_name.as_ref().and_then(|key_name| {
+                        key_store.get_key(&key_name, Algorithm::Sha256)
+                    });
+                    let client = dgram::Connection::new(connect);
+                    // While AXFR is TCP only, IXFR can also be done over UDP.
+                    let client = xfr::Connection::new(None, client);
+                    Box::new(tsig::Connection::new(key, client))
+                }
+            }
         },
         for_all_other_queries,
     );

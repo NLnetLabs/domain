@@ -555,7 +555,14 @@ fn entry2reqmsg(entry: &Entry) -> RequestMessage<Vec<u8>> {
     let msg = msg.into_message();
 
     let mut reqmsg = RequestMessage::new(msg);
-    reqmsg.set_dnssec_ok(reply.fl_do);
+    if !entry
+        .matches
+        .as_ref()
+        .map(|v| v.mock_client)
+        .unwrap_or_default()
+    {
+        reqmsg.set_dnssec_ok(reply.fl_do);
+    }
     if reply.notify {
         reqmsg.header_mut().set_opcode(Opcode::NOTIFY);
     }
