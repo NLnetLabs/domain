@@ -15,7 +15,7 @@ use std::vec::Vec;
 
 use futures::Future;
 use octseq::Octets;
-use ring::rand::SystemRandom;
+use ring::test::rand::FixedByteRandom;
 use rstest::rstest;
 use tracing::warn;
 use tracing::{instrument, trace};
@@ -95,7 +95,7 @@ async fn server_tests(#[files("test-data/server/*.rpl")] rpl_file: PathBuf) {
     // Create a TSIG key store containing a 'TESTKEY'
     let mut key_store = CatalogKeyStore::new();
     let key_name = KeyName::from_str("TESTKEY").unwrap();
-    let rng = SystemRandom::new();
+    let rng = FixedByteRandom { byte: 0u8 };
     let (key, _) =
         Key::generate(Algorithm::Sha256, &rng, key_name.clone(), None, None)
             .unwrap();
