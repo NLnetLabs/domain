@@ -135,6 +135,8 @@ MATCH MOCK_CLIENT
 SECTION QUESTION
     example.com.            IN  SOA
 SECTION ADDITIONAL
+; Stelline doesn't support parsing zone entries that use the ( multiline )
+; format, otherwise we could use here.
     TESTKEY           0     CLASS255  TYPE250  \# 61 0b686d61632d73686132353600 000000000000 012c 0020 a1c86ced1815d60903129a525a14494516895d99ea94bf0b5b04338126a4d625 0000 0000 0000
 ;                                                                                                                                                                                 ^ Other Len
 ;                                                                                                                                                                            ^ Error
