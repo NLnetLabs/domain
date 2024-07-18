@@ -8,7 +8,7 @@ use std::collections::VecDeque;
 use std::fs::File;
 use std::net::SocketAddr;
 use std::path::PathBuf;
-use std::string::String;
+use std::string::{String, ToString};
 use std::sync::Arc;
 use std::time::Duration;
 use std::vec::Vec;
@@ -122,20 +122,21 @@ async fn server_tests(#[files("test-data/server/*.rpl")] rpl_file: PathBuf) {
 
     // Build and insert the test defined zone, if any, into the zone catalog
     if let Some(zone_config) = &server_config.zone {
-        let zone = match &zone_config.zone_file {
-            Some(zone_file) => {
+        let zone = match (&zone_config.zone_name, &zone_config.zone_file) {
+            (_, Some(zone_file)) => {
                 // This is a primary zone with content already defined.
                 Zone::try_from(zone_file.clone()).unwrap()
             }
-            None => {
+            (Some(zone_name), None) => {
                 // This is a secondary zone with content to be received via
                 // XFR.
                 let builder = ZoneBuilder::new(
-                    Name::from_str("test").unwrap(),
+                    Name::from_str(zone_name).unwrap(),
                     Class::IN,
                 );
                 builder.build()
             }
+            _ => unreachable!(),
         };
 
         let zone = TypedZone::new(zone, zone_config.zone_config.clone());
@@ -408,7 +409,9 @@ fn test_service(
 //----------- Stelline config block parsing -----------------------------------
 
 struct ServerZone {
-    /// None if we fetch it via XFR
+    /// Used for an empty secondary zone. Ignored if zone_file is Some.
+    zone_name: Option<String>,
+
     zone_file: Option<Zonefile>,
 
     zone_config: ZoneConfig,
@@ -433,6 +436,7 @@ fn parse_server_config(config: &Config) -> ServerConfig {
     let mut parsed_config = ServerConfig::default();
     let mut zone_file_bytes = VecDeque::<u8>::new();
     let mut in_server_block = false;
+    let mut zone_name = None;
     let mut zone_config = ZoneConfig::default();
 
     for line in config.lines() {
@@ -592,6 +596,10 @@ fn parse_server_config(config: &Config) -> ServerConfig {
                             _ => unreachable!(),
                         }
                     }
+                    ("zone", v) => {
+                        // zone: <name>
+                        zone_name = Some(v.to_string());
+                    }
                     _ => {
                         eprintln!("Ignoring unknown server setting '{setting}' with value: {value}");
                     }
@@ -604,6 +612,7 @@ fn parse_server_config(config: &Config) -> ServerConfig {
         .then(|| Zonefile::load(&mut zone_file_bytes).unwrap());
 
     parsed_config.zone = Some(ServerZone {
+        zone_name,
         zone_file,
         zone_config,
     });
