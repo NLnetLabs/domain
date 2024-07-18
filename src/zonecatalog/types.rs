@@ -230,12 +230,11 @@ impl ZoneConfig {
 
 impl ZoneConfig {
     pub fn is_primary(&self) -> bool {
-        !self.provide_xfr_to.is_empty() && !self.send_notify_to.is_empty()
+        !self.provide_xfr_to.is_empty()
     }
 
     pub fn is_secondary(&self) -> bool {
-        !self.allow_notify_from.is_empty()
-            && !self.request_xfr_from.is_empty()
+        !self.request_xfr_from.is_empty()
     }
 }
 
