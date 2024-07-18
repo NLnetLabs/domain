@@ -13,7 +13,6 @@ use std::{fmt, io};
 use futures::future::Either;
 use parking_lot::RwLock;
 use tokio::sync::OwnedMutexGuard;
-use tracing::debug;
 use tracing::trace;
 
 use crate::base::iana::Rtype;
@@ -134,7 +133,7 @@ impl WritableZone for WriteZone {
             let ZoneRecordData::Soa(old_soa) = old_soa_rr.data() else {
                 unreachable!()
             };
-            debug!("Commit: old_soa={old_soa:#?}");
+            trace!("Commit: old_soa={old_soa:#?}");
 
             if bump_soa_serial {
                 // Ensure that the SOA record in the zone is updated.
@@ -151,7 +150,7 @@ impl WritableZone for WriteZone {
                     old_soa.minimum(),
                 );
                 new_soa_rrset.push_data(new_soa_data.into());
-                debug!("Commit: new_soa={new_soa_rrset:#?}");
+                trace!("Commit: new_soa={new_soa_rrset:#?}");
                 let new_soa_shared_rrset = SharedRrset::new(new_soa_rrset);
 
                 self.apex
@@ -199,13 +198,13 @@ impl WritableZone for WriteZone {
         }
 
         // Make the new version visible.
-        debug!("Commit: Making zone version '{:#?}' current", self.version);
+        trace!("Commit: Making zone version '{:#?}' current", self.version);
         let marker = self.zone_versions.write().update_current(self.version);
         self.zone_versions
             .write()
             .push_version(self.version, marker);
 
-        debug!("Commit: zone versions: {:#?}", self.zone_versions);
+        trace!("Commit: zone versions: {:#?}", self.zone_versions);
         trace!("Commit: zone dump:\n{:#?}", self.apex);
 
         // Start the next version.

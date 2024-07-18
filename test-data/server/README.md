@@ -66,3 +66,7 @@ involving two or three parties that communicate via mock network sockets:
   worked around by using `MATCH MOCK_CLIENT` which will instruct the Stelline
   test framework to use a different UDP client which does not modify the
   request before sending.
+
+- Tests are run in a single thread. Actions that need to take place in the
+  background may therefore need an explicit chance to run, via use of
+  `STEP <N> TIME_PASSES ELAPSE 0`.

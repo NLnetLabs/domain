@@ -1,0 +1,192 @@
+; Based on https://datatracker.ietf.org/doc/html/rfc1034#section-4.3.5
+
+;------------ Server configuration --------------------------------------------
+
+server:
+    ; Act as a secondary to another server.
+    request-xfr: AXFR 127.0.0.100 NOKEY
+
+    ; Define an in-memory zone to be fetched from the primary and served by the
+    ; server.
+    zone: JAIN.AD.JP.
+CONFIG_END
+
+;------------ Test definition ------------------------------------------------
+
+SCENARIO_BEGIN Tests the lifecycle of a secondary zone.
+
+;--- Mock replies
+
+RANGE_BEGIN 10 20
+        ADDRESS 127.0.0.100
+
+; Mock reply 1:
+; =============
+; Initial SOA query response.
+ENTRY_BEGIN
+MATCH opcode qtype qname
+ADJUST copy_id
+REPLY QR AA NOERROR
+SECTION QUESTION
+    JAIN.AD.JP.          IN  SOA
+SECTION ANSWER
+    JAIN.AD.JP.          IN  SOA  NS.JAIN.AD.JP. mohta.jain.ad.jp. (1 600 600 3600000 604800)
+;                                                                                     ^ MINIMUM
+;                                                                             ^ EXPIRE
+;                                                                         ^ RETRY
+;                                                                     ^ REFRESH
+;                                                                   ^ SERIAL
+ENTRY_END
+
+; Mock reply 2:
+; =============
+; The server should then perform an AXFR query to do the initial zone fetch.
+ENTRY_BEGIN
+MATCH opcode qtype qname
+ADJUST copy_id
+REPLY QR AA NOERROR
+SECTION QUESTION
+    JAIN.AD.JP.          IN  AXFR
+SECTION ANSWER
+    $ORIGIN JAIN.AD.JP.
+    JAIN.AD.JP.          IN  SOA   NS.JAIN.AD.JP. mohta.jain.ad.jp. (1 600 600 3600000 604800)
+                         IN  NS    NS.JAIN.AD.JP.
+    NS.JAIN.AD.JP.       IN  A     133.69.136.1
+    NEZU.JAIN.AD.JP.     IN  A     133.69.136.5
+    JAIN.AD.JP.          IN  SOA   NS.JAIN.AD.JP. mohta.jain.ad.jp. (1 600 600 3600000 604800)
+ENTRY_END
+
+RANGE_END
+
+RANGE_BEGIN 40 71
+        ADDRESS 127.0.0.100
+
+; Mock replies 3 & 4
+; ==================
+; SOA and AXFR responses for an updated version of the zone
+ENTRY_BEGIN
+MATCH opcode qtype qname
+ADJUST copy_id
+REPLY QR AA NOERROR
+SECTION QUESTION
+    JAIN.AD.JP.          IN  SOA
+SECTION ANSWER
+    JAIN.AD.JP.          IN  SOA  NS.JAIN.AD.JP. mohta.jain.ad.jp. (2 600 600 3600000 604800)
+ENTRY_END
+
+ENTRY_BEGIN
+MATCH opcode qtype qname
+ADJUST copy_id
+REPLY QR AA NOERROR
+SECTION QUESTION
+    JAIN.AD.JP.          IN  AXFR
+SECTION ANSWER
+    $ORIGIN JAIN.AD.JP.
+    JAIN.AD.JP.          IN  SOA   NS.JAIN.AD.JP. mohta.jain.ad.jp. (2 600 600 3600000 604800)
+                         IN  NS    NS.JAIN.AD.JP.
+    NS.JAIN.AD.JP.       IN  A     133.69.136.2
+    NEZU.JAIN.AD.JP.     IN  A     133.69.136.6
+    JAIN.AD.JP.          IN  SOA   NS.JAIN.AD.JP. mohta.jain.ad.jp. (2 600 600 3600000 604800)
+ENTRY_END
+
+RANGE_END
+
+;--- Test steps
+
+; Check that the zone is unknown at this point. The server is configured with
+; it but hasn't yet done the initial AXFR fetch from the primary and so has no
+; zone content to reply with.
+;
+; https://www.rfc-editor.org/rfc/rfc8914.html#section-1 says:
+;   "Unfortunately, the error signals that a DNS server can return are very
+;    limited and are not very expressive. This means that applications and
+;    resolvers often have to "guess" at what the issue is, e.g., was the answer
+;    marked REFUSED because of a lame delegation or because the nameserver is
+;    still starting up and loading zones?"
+;
+; The "still starting up and loading zones" case is what we have here, so let's
+; expect the server to respond with REFUSED.
+STEP 10 QUERY
+ENTRY_BEGIN
+MATCH UDP
+SECTION QUESTION
+    JAIN.AD.JP.          IN  SOA
+ENTRY_END
+; ... get a REFUSED answer because the zone is not transferred yet.
+STEP 11 CHECK_ANSWER
+ENTRY_BEGIN
+MATCH all
+REPLY QR AA REFUSED
+ENTRY_END
+
+; Yield to allow the server to transfer the zone from the secondary.
+STEP 20 TIME_PASSES ELAPSE 0
+
+; Verify that the zone is being served now.
+STEP 30 QUERY
+ENTRY_BEGIN
+MATCH UDP
+SECTION QUESTION
+    JAIN.AD.JP.          IN  SOA
+ENTRY_END
+; ... get a NOERROR answer
+STEP 31 CHECK_ANSWER
+ENTRY_BEGIN
+MATCH all
+REPLY QR NOERROR
+SECTION QUESTION
+    JAIN.AD.JP.          IN  SOA
+SECTION ANSWER
+    JAIN.AD.JP.          IN  SOA   NS.JAIN.AD.JP. mohta.jain.ad.jp. (1 600 600 3600000 604800)
+ENTRY_END
+
+; Let 599 seconds elapse. This is less than the 600 second SOA REFRESH interval
+; and so we don't expect the server to update itself yet.
+STEP 40 TIME_PASSES ELAPSE 599
+
+; Yield to allow the server to transfer the zone from the secondary.
+STEP 41 TIME_PASSES ELAPSE 0
+
+; So let's check that the server still has zone version 1.
+STEP 50 QUERY
+ENTRY_BEGIN
+MATCH UDP
+SECTION QUESTION
+    JAIN.AD.JP.          IN  SOA
+ENTRY_END
+; ... get a NOERROR answer
+STEP 51 CHECK_ANSWER
+ENTRY_BEGIN
+MATCH all
+REPLY QR NOERROR
+SECTION QUESTION
+    JAIN.AD.JP.          IN  SOA
+SECTION ANSWER
+    JAIN.AD.JP.          IN  SOA   NS.JAIN.AD.JP. mohta.jain.ad.jp. (1 600 600 3600000 604800)
+ENTRY_END
+
+; Let 2 more seconds elapse and now we should be at 601 seconds after last zone
+; refresh and the server should have fetched the new version of the zone.
+STEP 60 TIME_PASSES ELAPSE 599
+
+; Yield to allow the server to transfer the zone from the secondary.
+STEP 61 TIME_PASSES ELAPSE 0
+
+STEP 70 QUERY
+ENTRY_BEGIN
+MATCH UDP
+SECTION QUESTION
+    JAIN.AD.JP.          IN  SOA
+ENTRY_END
+; ... get a NOERROR answer
+STEP 71 CHECK_ANSWER
+ENTRY_BEGIN
+MATCH all
+REPLY QR NOERROR
+SECTION QUESTION
+    JAIN.AD.JP.          IN  SOA
+SECTION ANSWER
+    JAIN.AD.JP.          IN  SOA   NS.JAIN.AD.JP. mohta.jain.ad.jp. (2 600 600 3600000 604800)
+ENTRY_END
+
+SCENARIO_END
