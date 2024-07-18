@@ -43,7 +43,7 @@ const READ_TIMEOUT: DefMinMax<Duration> = DefMinMax::new(
 );
 
 /// Configuration limits for the maximum number of retries.
-const MAX_RETRIES: DefMinMax<u8> = DefMinMax::new(5, 1, 100);
+const MAX_RETRIES: DefMinMax<u8> = DefMinMax::new(5, 0, 100);
 
 /// Default UDP payload size.
 const DEF_UDP_PAYLOAD_SIZE: u16 = 1232;
@@ -85,7 +85,7 @@ impl Config {
     /// Once this many number of requests are currently outstanding,
     /// additional requests will wait.
     ///
-    /// If this value is too small or too large, it will be caped.
+    /// If this value is too small or too large, it will be capped.
     pub fn set_max_parallel(&mut self, value: usize) {
         self.max_parallel = MAX_PARALLEL.limit(value)
     }
@@ -100,7 +100,7 @@ impl Config {
     /// The read timeout is the maximum amount of time to wait for any
     /// response after a request was sent.
     ///
-    /// If this value is too small or too large, it will be caped.
+    /// If this value is too small or too large, it will be capped.
     pub fn set_read_timeout(&mut self, value: Duration) {
         self.read_timeout = READ_TIMEOUT.limit(value)
     }
@@ -110,9 +110,10 @@ impl Config {
         self.read_timeout
     }
 
-    /// Sets the maximum number a request is retried before giving up.
+    /// Sets the maximum number of times a request is retried before giving
+    /// up.
     ///
-    /// If this value is too small or too large, it will be caped.
+    /// If this value is too small or too large, it will be capped.
     pub fn set_max_retries(&mut self, value: u8) {
         self.max_retries = MAX_RETRIES.limit(value)
     }
@@ -239,7 +240,7 @@ where
         let mut reuse_buf = None;
 
         // Transmit loop.
-        for _ in 0..self.state.config.max_retries {
+        for _ in 0..=self.state.config.max_retries {
             let mut sock = self
                 .state
                 .connect
