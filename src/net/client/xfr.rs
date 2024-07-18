@@ -229,6 +229,30 @@ where
 
         let mut ixfr_update_mode = IxfrUpdateMode::Deleting;
 
+        /// TODO
+        async fn commit(
+            writable: Option<Box<dyn WritableZoneNode>>,
+            write: Option<Box<dyn WritableZone>>,
+        ) -> Result<bool, Error> {
+            // Commit the deletes and adds that just occurred
+            if let Some(writable) = writable {
+                // Ensure that there are no dangling references to the created
+                // diff (otherwise commit() will panic).
+                drop(writable);
+
+                if let Some(mut write) = write {
+                    write
+                        .commit(false)
+                        .await
+                        .map_err(|_| Error::ZoneWrite)?;
+
+                    return Ok(true);
+                }
+            }
+
+            Ok(false)
+        }
+
         match msg.answer() {
             Ok(answer) => {
                 let records = answer.limit_to::<ZoneRecordData<_, _>>();
@@ -275,39 +299,24 @@ where
                                         IxfrUpdateMode::Deleting;
 
                                     if let Some(zone) = &self.zone {
-                                        // Commit the deletes and adds that just occurred
-                                        if let Some(writable) =
-                                            self.writable.take()
+                                        if commit(
+                                            self.writable.take(),
+                                            self.write.take(),
+                                        )
+                                        .await?
                                         {
-                                            // Ensure that there are no
-                                            // dangling references to the
-                                            // created diff (otherwise
-                                            // commit() will panic).
-                                            drop(writable);
+                                            let new_serial = self
+                                                .initial_soa
+                                                .as_ref()
+                                                .unwrap()
+                                                .serial();
 
-                                            if let Some(mut write) =
-                                                self.write.take()
-                                            {
-                                                write
-                                                    .commit(false)
-                                                    .await
-                                                    .map_err(|_| {
-                                                        Error::ZoneWrite
-                                                    })?;
-
-                                                let new_serial = self
-                                                    .initial_soa
-                                                    .as_ref()
-                                                    .unwrap()
-                                                    .serial();
-
-                                                info!(
-                                                        "Zone '{}' has been updated to serial {} by {}",
-                                                        zone.apex_name(),
-                                                        new_serial,
-                                                        self.xfr_type.unwrap(),
-                                                    );
-                                            }
+                                            info!(
+                                                    "Zone '{}' has been updated to serial {} by {}",
+                                                    zone.apex_name(),
+                                                    new_serial,
+                                                    self.xfr_type.unwrap(),
+                                                );
                                         }
                                     }
                                 }
@@ -332,6 +341,25 @@ where
 
                                     if let Some(zone) = &self.zone {
                                         info!("{} progress report for zone '{}': Transfer complete, commiting changes.", self.xfr_type.unwrap(), zone.apex_name());
+                                        if commit(
+                                            self.writable.take(),
+                                            self.write.take(),
+                                        )
+                                        .await?
+                                        {
+                                            let new_serial = self
+                                                .initial_soa
+                                                .as_ref()
+                                                .unwrap()
+                                                .serial();
+
+                                            info!(
+                                                    "Zone '{}' has been updated to serial {} by {}",
+                                                    zone.apex_name(),
+                                                    new_serial,
+                                                    self.xfr_type.unwrap(),
+                                                );
+                                        }
                                     } else {
                                         info!(
                                             "{} progress report for zone '{}': Transfer complete.",
