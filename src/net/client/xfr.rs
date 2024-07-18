@@ -527,7 +527,7 @@ where
         for apex_label in apex_name.iter_labels().rev() {
             let qname_label = qname.next();
             if Some(apex_label) != qname_label {
-                error!("Qname is not in zone '{apex_name}'");
+                error!("Qname '{qname_label:?}' is not in zone '{apex_name}'");
                 return Err(OutOfZone);
             }
         }
