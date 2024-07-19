@@ -187,9 +187,9 @@ fn tsig_server_dig() {
         .expect("failed to start dig");
     drop(join);
     assert!(output.status.success());
-    assert!(!String::from_utf8(output.stdout).unwrap().contains(
-        "tsig verify failure"
-    ));
+    assert!(!String::from_utf8(output.stdout)
+        .unwrap()
+        .contains("tsig verify failure"));
 }
 
 /// Test the client sequence implementation against NSD.
@@ -346,9 +346,9 @@ fn tsig_server_sequence_dig() {
         .expect("failed to start dig");
     drop(join);
     assert!(output.status.success());
-    assert!(!String::from_utf8(output.stdout).unwrap().contains(
-        "tsig verify failure"
-    ));
+    assert!(!String::from_utf8(output.stdout)
+        .unwrap()
+        .contains("tsig verify failure"));
 }
 
 //------------ Helpers ------------------------------------------------------
