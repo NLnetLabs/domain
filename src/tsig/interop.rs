@@ -19,6 +19,7 @@ use std::io::{Read, Write};
 use std::net::{IpAddr, SocketAddr, TcpListener, TcpStream, UdpSocket};
 use std::process::Command;
 use std::str::FromStr;
+use std::string::String;
 use std::time::Duration;
 use std::vec::Vec;
 use std::{env, fs, io, path::PathBuf, thread};
@@ -124,10 +125,10 @@ fn tsig_client_nsd() {
     res.unwrap(); // Panic if the thread panicked.
 }
 
-/// Tests the TSIG server implementation against drill as a client.
+/// Tests the TSIG server implementation against dig as a client.
 #[test]
 #[ignore]
-fn tsig_server_drill() {
+fn tsig_server_dig() {
     let rng = SystemRandom::new();
     let (key, secret) = tsig::Key::generate(
         tsig::Algorithm::Sha1,
@@ -138,7 +139,7 @@ fn tsig_server_drill() {
     )
     .unwrap();
     let secret = base64::encode_string(&secret);
-    let secret = format!("test.key:{}:hmac-sha1", secret);
+    let secret = format!("hmac-sha1:test.key:{}", secret);
 
     let join = thread::spawn(move || {
         let sock = UdpSocket::bind("127.0.0.1:54322").unwrap();
@@ -180,12 +181,15 @@ fn tsig_server_drill() {
         }
     });
 
-    let status = Command::new("/usr/bin/drill")
+    let output = Command::new("/usr/bin/dig")
         .args(["-p", "54322", "-y", &secret, "example.com", "@127.0.0.1"])
-        .status()
-        .expect("failed to start drill");
+        .output()
+        .expect("failed to start dig");
     drop(join);
-    assert!(status.success());
+    assert!(output.status.success());
+    assert!(!String::from_utf8(output.stdout).unwrap().contains(
+        "tsig verify failure"
+    ));
 }
 
 /// Test the client sequence implementation against NSD.
@@ -274,10 +278,10 @@ fn tsig_client_sequence_nsd() {
     res.unwrap(); // Panic if the thread paniced.
 }
 
-/// Tests the TSIG server sequence implementation against drill.
+/// Tests the TSIG server sequence implementation against dig.
 #[test]
 #[ignore]
-fn tsig_server_sequence_drill() {
+fn tsig_server_sequence_dig() {
     let rng = SystemRandom::new();
     let (key, secret) = tsig::Key::generate(
         tsig::Algorithm::Sha1,
@@ -288,7 +292,7 @@ fn tsig_server_sequence_drill() {
     )
     .unwrap();
     let secret = base64::encode_string(&secret);
-    let secret = format!("test.key:{}:hmac-sha1", secret);
+    let secret = format!("hmac-sha1:test.key:{}", secret);
     let listener = TcpListener::bind("127.0.0.1:54324").unwrap();
     let port = listener.local_addr().unwrap().port();
 
@@ -327,21 +331,24 @@ fn tsig_server_sequence_drill() {
         }
     });
 
-    let status = Command::new("/usr/bin/drill")
+    let output = Command::new("/usr/bin/dig")
         .args([
             "-p",
             &format!("{}", port),
             "-y",
             &secret,
-            "-t",
             "example.com",
             "AXFR",
             "@127.0.0.1",
+            "+tcp",
         ])
-        .status()
-        .expect("failed to start drill");
+        .output()
+        .expect("failed to start dig");
     drop(join);
-    assert!(status.success());
+    assert!(output.status.success());
+    assert!(!String::from_utf8(output.stdout).unwrap().contains(
+        "tsig verify failure"
+    ));
 }
 
 //------------ Helpers ------------------------------------------------------
