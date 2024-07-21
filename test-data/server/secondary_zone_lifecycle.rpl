@@ -1,10 +1,10 @@
-; Based on https://datatracker.ietf.org/doc/html/rfc1034#section-4.3.5
+`; Based on https://datatracker.ietf.org/doc/html/rfc1034#section-4.3.5
 
 ;------------ Server configuration --------------------------------------------
 
 server:
     ; Act as a secondary to another server.
-    request-xfr: AXFR 127.0.0.100 NOKEY
+    request-xfr: 127.0.0.100 NOKEY
 
     ; Define an in-memory zone to be fetched from the primary and served by the
     ; server.
@@ -72,6 +72,14 @@ SECTION QUESTION
     JAIN.AD.JP.          IN  SOA
 SECTION ANSWER
     JAIN.AD.JP.          IN  SOA  NS.JAIN.AD.JP. mohta.jain.ad.jp. (2 600 600 3600000 604800)
+ENTRY_END
+
+ENTRY_BEGIN
+MATCH opcode qtype qname
+ADJUST copy_id
+REPLY QR AA NOTIMP
+SECTION QUESTION
+    JAIN.AD.JP.          IN  IXFR
 ENTRY_END
 
 ENTRY_BEGIN
@@ -163,11 +171,12 @@ SECTION QUESTION
     JAIN.AD.JP.          IN  SOA
 SECTION ANSWER
     JAIN.AD.JP.          IN  SOA   NS.JAIN.AD.JP. mohta.jain.ad.jp. (1 600 600 3600000 604800)
+;                                                                    ^ Still at serial 1
 ENTRY_END
 
 ; Let 2 more seconds elapse and now we should be at 601 seconds after last zone
 ; refresh and the server should have fetched the new version of the zone.
-STEP 60 TIME_PASSES ELAPSE 599
+STEP 60 TIME_PASSES ELAPSE 2
 
 ; Yield to allow the server to transfer the zone from the secondary.
 STEP 61 TIME_PASSES ELAPSE 0
@@ -187,6 +196,7 @@ SECTION QUESTION
     JAIN.AD.JP.          IN  SOA
 SECTION ANSWER
     JAIN.AD.JP.          IN  SOA   NS.JAIN.AD.JP. mohta.jain.ad.jp. (2 600 600 3600000 604800)
+;                                                                    ^ Now at serial 2
 ENTRY_END
 
 SCENARIO_END
