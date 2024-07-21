@@ -199,16 +199,6 @@ where
     }
 }
 
-impl<KS, CF: ConnectionFactory> Catalog<KS, CF>
-where
-    KS: Clone + Deref,
-    KS::Target: KeyStore,
-{
-    pub fn key_store(&self) -> KS {
-        self.config.load().key_store.clone()
-    }
-}
-
 impl<KS, CF> Catalog<KS, CF>
 where
     KS: Default + Deref + Send + Sync + 'static,
@@ -1552,21 +1542,6 @@ where
         zone_refresh_info.metrics.last_refresh_succeeded_serial =
             Some(soa.serial());
         Ok(Some(soa))
-    }
-
-    pub fn mk_relative_name_iterator<'l>(
-        apex_name: &Name<Bytes>,
-        qname: &'l impl ToName,
-    ) -> Result<impl Iterator<Item = &'l Label> + Clone, OutOfZone> {
-        let mut qname = qname.iter_labels().rev();
-        for apex_label in apex_name.iter_labels().rev() {
-            let qname_label = qname.next();
-            if Some(apex_label) != qname_label {
-                error!("Qname is not in zone '{apex_name}'");
-                return Err(OutOfZone);
-            }
-        }
-        Ok(qname)
     }
 
     #[allow(clippy::borrowed_box)]
