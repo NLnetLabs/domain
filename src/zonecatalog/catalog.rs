@@ -1718,72 +1718,75 @@ where
     KS::Target: KeyStore,
     CF: ConnectionFactory + Send + Sync + 'static,
 {
-    async fn notify_zone_changed(
+    #[allow(clippy::manual_async_fn)]
+    fn notify_zone_changed(
         &self,
         class: Class,
         apex_name: &StoredName,
         source: IpAddr,
-    ) -> Result<(), NotifyError> {
-        if !self.running.load(Ordering::SeqCst) {
-            return Err(NotifyError::NotReady);
-        }
-
-        if self.zones().get_zone(apex_name, class).is_none() {
-            let key = (apex_name.clone(), class);
-            if !self.pending_zones.read().await.contains_key(&key) {
-                return Err(NotifyError::UnknownZone);
+    ) -> Pin<
+        Box<dyn Future<Output = Result<(), NotifyError>> + Sync + Send + '_>,
+    > {
+        let apex_name = apex_name.clone();
+        Box::pin(async move {
+            if !self.running.load(Ordering::SeqCst) {
+                return Err(NotifyError::NotReady);
             }
-        }
 
-        // https://datatracker.ietf.org/doc/html/rfc1996#section-2
-        //   "2.1. The following definitions are used in this document:
-        //    ...
-        //    Master          any authoritative server configured to be the
-        //                    source of zone transfer for one or more slave
-        //                    servers.
-        //
-        //    Primary Master  master server at the root of the zone transfer
-        //                    dependency graph.  The primary master is named
-        //                    in the zone's SOA MNAME field and optionally by
-        //                    an NS RR. There is by definition only one
-        //                    primary master server per zone.
-        //
-        //    Stealth         like a slave server except not listed in an NS
-        //                    RR for the zone.  A stealth server, unless
-        //                    explicitly configured to do otherwise, will set
-        //                    the AA bit in responses and be capable of acting
-        //                    as a master.  A stealth server will only be
-        //                    known by other servers if they are given static
-        //                    configuration data indicating its existence."
+            if self.zones().get_zone(&apex_name, class).is_none() {
+                let key = (apex_name.clone(), class);
+                if !self.pending_zones.read().await.contains_key(&key) {
+                    return Err(NotifyError::UnknownZone);
+                }
+            }
 
-        // https://datatracker.ietf.org/doc/html/rfc1996#section-3
-        //   "3.10. If a slave receives a NOTIFY request from a host that is
-        //    not a known master for the zone containing the QNAME, it should
-        //    ignore the request and produce an error message in its
-        //    operations log."
+            // https://datatracker.ietf.org/doc/html/rfc1996#section-2
+            //   "2.1. The following definitions are used in this document:
+            //    ...
+            //    Master          any authoritative server configured to be the
+            //                    source of zone transfer for one or more slave
+            //                    servers.
+            //
+            //    Primary Master  master server at the root of the zone transfer
+            //                    dependency graph.  The primary master is named
+            //                    in the zone's SOA MNAME field and optionally by
+            //                    an NS RR. There is by definition only one
+            //                    primary master server per zone.
+            //
+            //    Stealth         like a slave server except not listed in an NS
+            //                    RR for the zone.  A stealth server, unless
+            //                    explicitly configured to do otherwise, will set
+            //                    the AA bit in responses and be capable of acting
+            //                    as a master.  A stealth server will only be
+            //                    known by other servers if they are given static
+            //                    configuration data indicating its existence."
 
-        // From the definition in 2.1 above "known masters" are the combined
-        // set of masters and stealth masters. If we are the primary for the
-        // zone because this notification arose internally due to a local
-        // change in the zone then this check is irrelevant. Comparing the SOA
-        // MNAME or NS record value to the source IP address would require
-        // resolving the name to an IP address. Such a check would not be
-        // quick so we leave that to the running Catalog task to handle.
+            // https://datatracker.ietf.org/doc/html/rfc1996#section-3
+            //   "3.10. If a slave receives a NOTIFY request from a host that is
+            //    not a known master for the zone containing the QNAME, it should
+            //    ignore the request and produce an error message in its
+            //    operations log."
 
-        let msg = ZoneChangedMsg {
-            class,
-            apex_name: apex_name.clone(),
-            source: Some(source),
-        };
+            // From the definition in 2.1 above "known masters" are the combined
+            // set of masters and stealth masters. If we are the primary for the
+            // zone because this notification arose internally due to a local
+            // change in the zone then this check is irrelevant. Comparing the SOA
+            // MNAME or NS record value to the source IP address would require
+            // resolving the name to an IP address. Such a check would not be
+            // quick so we leave that to the running Catalog task to handle.
 
-        self.event_tx
-            .send(Event::ZoneChanged(msg))
-            .await
-            .map_err(|err| {
-                NotifyError::Failed(format!("Internal error: {err}"))
-            })?;
+            let msg = ZoneChangedMsg {
+                class,
+                apex_name: apex_name.clone(),
+                source: Some(source),
+            };
 
-        Ok(())
+            self.event_tx.send(Event::ZoneChanged(msg)).await.map_err(
+                |err| NotifyError::Failed(format!("Internal error: {err}")),
+            )?;
+
+            Ok(())
+        })
     }
 
     fn notify_response_received(
@@ -1791,7 +1794,9 @@ where
         _class: Class,
         _apex_name: &StoredName,
         _source: IpAddr,
-    ) -> impl Future<Output = Result<(), NotifyError>> + Sync {
+    ) -> Pin<
+        Box<dyn Future<Output = Result<(), NotifyError>> + Sync + Send + '_>,
+    > {
         // https://datatracker.ietf.org/doc/html/rfc1996
         //   "4.8 Master Receives a NOTIFY Response from Slave
         //
@@ -1800,7 +1805,7 @@ where
         //    process" of "this" RRset change to "that" server."
 
         // TODO
-        ready(Ok(()))
+        Box::pin(ready(Ok(())))
     }
 }
 
@@ -2296,20 +2301,26 @@ pub enum NotifyError {
     Failed(String),
 }
 
+// Note: The fn signatures can be simplified to fn() -> impl Future<...> if
+// our MSRV is later increased.
 pub trait Notifiable {
     fn notify_zone_changed(
         &self,
         class: Class,
         apex_name: &StoredName,
         source: IpAddr,
-    ) -> impl Future<Output = Result<(), NotifyError>> + Sync + Send;
+    ) -> Pin<
+        Box<dyn Future<Output = Result<(), NotifyError>> + Sync + Send + '_>,
+    >;
 
     fn notify_response_received(
         &self,
         class: Class,
         apex_name: &StoredName,
         source: IpAddr,
-    ) -> impl Future<Output = Result<(), NotifyError>> + Sync + Send;
+    ) -> Pin<
+        Box<dyn Future<Output = Result<(), NotifyError>> + Sync + Send + '_>,
+    >;
 }
 
 impl<T: Notifiable> Notifiable for Arc<T> {
@@ -2318,7 +2329,9 @@ impl<T: Notifiable> Notifiable for Arc<T> {
         class: Class,
         apex_name: &StoredName,
         source: IpAddr,
-    ) -> impl Future<Output = Result<(), NotifyError>> + Sync + Send {
+    ) -> Pin<
+        Box<dyn Future<Output = Result<(), NotifyError>> + Sync + Send + '_>,
+    > {
         (**self).notify_zone_changed(class, apex_name, source)
     }
 
@@ -2327,7 +2340,9 @@ impl<T: Notifiable> Notifiable for Arc<T> {
         class: Class,
         apex_name: &StoredName,
         source: IpAddr,
-    ) -> impl Future<Output = Result<(), NotifyError>> + Sync + Send {
+    ) -> Pin<
+        Box<dyn Future<Output = Result<(), NotifyError>> + Sync + Send + '_>,
+    > {
         (**self).notify_response_received(class, apex_name, source)
     }
 }
