@@ -200,7 +200,7 @@ where
 
 impl<KS, CF> Catalog<KS, CF>
 where
-    KS: Default + Deref + Send + Sync + 'static,
+    KS: Deref + Send + Sync + 'static,
     KS::Target: KeyStore,
     <KS::Target as KeyStore>::Key: Clone + Debug + Sync + Send + 'static,
     CF: ConnectionFactory + Send + Sync + 'static,
@@ -520,7 +520,7 @@ where
 
 impl<KS, CF> Catalog<KS, CF>
 where
-    KS: Default + Deref + Send + Sync + 'static,
+    KS: Deref + Send + Sync + 'static,
     KS::Target: KeyStore,
     <KS::Target as KeyStore>::Key: Clone + Debug + Sync + Send + 'static,
     CF: ConnectionFactory + Send + Sync + 'static,
@@ -601,7 +601,7 @@ where
 
 impl<KS, CF> Catalog<KS, CF>
 where
-    KS: Default + Deref + 'static,
+    KS: Deref + 'static,
     KS::Target: KeyStore,
     <KS::Target as KeyStore>::Key: Clone + Debug + Sync + Send + 'static,
     CF: ConnectionFactory + 'static,
@@ -1714,9 +1714,8 @@ where
 
 impl<KS, CF> Notifiable for Catalog<KS, CF>
 where
-    KS: Default + Deref + Send + Sync + 'static,
+    KS: Deref + Send + Sync + 'static,
     KS::Target: KeyStore,
-    <KS::Target as KeyStore>::Key: Clone + Debug + Sync + Send + 'static,
     CF: ConnectionFactory + Send + Sync + 'static,
 {
     async fn notify_zone_changed(
@@ -1805,13 +1804,13 @@ where
     }
 }
 
-impl<KS, CF: ConnectionFactory> Catalog<KS, CF>
+impl<KS, CF: ConnectionFactory> ZoneLookup for Catalog<KS, CF>
 where
-    KS: Default + Deref,
+    KS: Deref,
     KS::Target: KeyStore,
 {
     /// The entire tree of zones managed by this [`Catalog`] instance.
-    pub fn zones(&self) -> Arc<ZoneTree> {
+    fn zones(&self) -> Arc<ZoneTree> {
         self.loaded_arc.read().unwrap().clone()
     }
 
@@ -1820,7 +1819,7 @@ where
     /// Excludes:
     ///   - Newly added empty secondary zones still pending initial refresh.
     ///   - Expired zones.
-    pub fn get_zone(
+    fn get_zone(
         &self,
         apex_name: &impl ToName,
         class: Class,
@@ -1848,11 +1847,7 @@ where
     /// Excludes:
     ///   - Newly added empty secondary zones still pending initial refresh.
     ///   - Expired zones.
-    pub fn find_zone(
-        &self,
-        qname: &impl ToName,
-        class: Class,
-    ) -> Option<Zone> {
+    fn find_zone(&self, qname: &impl ToName, class: Class) -> Option<Zone> {
         let zones = self.zones();
 
         if let Some(zone) = zones.find_zone(qname, class) {
@@ -1873,7 +1868,7 @@ where
 
 impl<KS, CF: ConnectionFactory> Catalog<KS, CF>
 where
-    KS: Default + Deref,
+    KS: Deref,
     KS::Target: KeyStore,
 {
     fn update_lodaded_arc(&self) {
@@ -2334,5 +2329,34 @@ impl<T: Notifiable> Notifiable for Arc<T> {
         source: IpAddr,
     ) -> impl Future<Output = Result<(), NotifyError>> + Sync + Send {
         (**self).notify_response_received(class, apex_name, source)
+    }
+}
+
+//------------ ZoneLookup -----------------------------------------------------
+
+pub trait ZoneLookup {
+    fn zones(&self) -> Arc<ZoneTree>;
+
+    fn get_zone(&self, apex_name: &impl ToName, class: Class)
+        -> Option<Zone>;
+
+    fn find_zone(&self, qname: &impl ToName, class: Class) -> Option<Zone>;
+}
+
+impl<T: ZoneLookup> ZoneLookup for Arc<T> {
+    fn zones(&self) -> Arc<ZoneTree> {
+        (**self).zones()
+    }
+
+    fn get_zone(
+        &self,
+        apex_name: &impl ToName,
+        class: Class,
+    ) -> Option<Zone> {
+        (**self).get_zone(apex_name, class)
+    }
+
+    fn find_zone(&self, qname: &impl ToName, class: Class) -> Option<Zone> {
+        (**self).find_zone(qname, class)
     }
 }

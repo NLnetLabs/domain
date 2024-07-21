@@ -43,7 +43,7 @@ use std::time::Duration;
 
 use bytes::Bytes;
 use domain::zonecatalog::catalog::{
-    self, Catalog, DefaultConnFactory, TypedZone,
+    self, Catalog, DefaultConnFactory, TypedZone, ZoneLookup,
 };
 use domain::zonecatalog::types::{
     CatalogKeyStore, CompatibilityMode, NotifyConfig, TransportStrategy,
@@ -97,7 +97,9 @@ async fn main() {
     };
 
     // Create a catalog that will handle outbound XFR for zones
-    let cat_config = catalog::Config::new(config.key_store.clone());
+    let cat_config = catalog::Config::<_, DefaultConnFactory>::new(
+        config.key_store.clone(),
+    );
     let catalog = Catalog::new_with_config(cat_config);
     let catalog = Arc::new(catalog);
     catalog.insert_zone(config.zone).await.unwrap();
@@ -108,8 +110,8 @@ async fn main() {
 
     // Create a service to answer queries for the zone.
     let svc = service_fn(my_service, catalog.clone());
-    let svc: XfrMiddlewareSvc<Vec<u8>, _, Arc<CatalogKeyStore>, _> =
-        XfrMiddlewareSvc::<Vec<u8>, _, _, _>::new(
+    let svc: XfrMiddlewareSvc<Vec<u8>, _, _> =
+        XfrMiddlewareSvc::<Vec<u8>, _, _>::new(
             svc,
             catalog.clone(),
             max_concurrency,
@@ -224,9 +226,9 @@ async fn main() {
     pending::<()>().await;
 }
 
-fn my_service(
+fn my_service<T: ZoneLookup>(
     request: Request<Vec<u8>>,
-    catalog: Arc<Catalog<Arc<CatalogKeyStore>, DefaultConnFactory>>,
+    catalog: T,
 ) -> ServiceResult<Vec<u8>> {
     let question = request.message().sole_question().unwrap();
     let zones = catalog.zones();

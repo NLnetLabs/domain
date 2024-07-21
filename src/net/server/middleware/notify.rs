@@ -324,7 +324,7 @@ where
         + Unpin,
     NextSvc::Future: Send + Sync + Unpin,
     NextSvc::Target: Composer + Default + Send + Sync,
-    N: Clone + Notifiable + Sync + Send + 'static,
+    N: Notifiable + Clone + Sync + Send + 'static,
 {
     type Target = NextSvc::Target;
     type Stream = MiddlewareStream<

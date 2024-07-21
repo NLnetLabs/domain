@@ -6,7 +6,6 @@ use core::ops::ControlFlow;
 use core::pin::Pin;
 
 use std::boxed::Box;
-use std::ops::Deref;
 use std::sync::Arc;
 
 use bytes::Bytes;
@@ -33,8 +32,8 @@ use crate::net::server::service::{
 };
 use crate::net::server::util::{mk_builder_for_target, mk_error_response};
 use crate::rdata::{Soa, ZoneRecordData};
-use crate::tsig::{KeyName, KeyStore};
-use crate::zonecatalog::catalog::{Catalog, CatalogZone, ConnectionFactory};
+use crate::tsig::KeyName;
+use crate::zonecatalog::catalog::{CatalogZone, ZoneLookup};
 use crate::zonecatalog::types::{
     CompatibilityMode, XfrConfig, XfrStrategy, ZoneInfo,
 };
@@ -85,15 +84,13 @@ pub enum XfrMode {
 /// [1995]: https://datatracker.ietf.org/doc/html/rfc1995
 /// [5936]: https://datatracker.ietf.org/doc/html/rfc5936
 #[derive(Clone, Debug)]
-pub struct XfrMiddlewareSvc<RequestOctets, NextSvc, KS, CF>
+pub struct XfrMiddlewareSvc<RequestOctets, NextSvc, ZL>
 where
-    KS: Default + Deref,
-    KS::Target: KeyStore,
-    CF: ConnectionFactory,
+    ZL: ZoneLookup + Clone + Sync + Send + 'static,
 {
     next_svc: NextSvc,
 
-    catalog: Arc<Catalog<KS, CF>>,
+    zones: ZL,
 
     zone_walking_semaphore: Arc<Semaphore>,
 
@@ -104,12 +101,9 @@ where
     _phantom: PhantomData<RequestOctets>,
 }
 
-impl<RequestOctets, NextSvc, KS, CF>
-    XfrMiddlewareSvc<RequestOctets, NextSvc, KS, CF>
+impl<RequestOctets, NextSvc, ZL> XfrMiddlewareSvc<RequestOctets, NextSvc, ZL>
 where
-    KS: Default + Deref,
-    KS::Target: KeyStore,
-    CF: ConnectionFactory,
+    ZL: ZoneLookup + Clone + Sync + Send + 'static,
 {
     /// Creates an empty processor instance.
     ///
@@ -119,7 +113,7 @@ where
     #[must_use]
     pub fn new(
         next_svc: NextSvc,
-        catalog: Arc<Catalog<KS, CF>>,
+        zones: ZL,
         max_concurrency: usize,
         xfr_mode: XfrMode,
     ) -> Self {
@@ -129,7 +123,7 @@ where
 
         Self {
             next_svc,
-            catalog,
+            zones,
             zone_walking_semaphore,
             batcher_semaphore,
             xfr_mode,
@@ -138,8 +132,7 @@ where
     }
 }
 
-impl<RequestOctets, NextSvc, KS, CF>
-    XfrMiddlewareSvc<RequestOctets, NextSvc, KS, CF>
+impl<RequestOctets, NextSvc, ZL> XfrMiddlewareSvc<RequestOctets, NextSvc, ZL>
 where
     RequestOctets: Octets + Send + Sync + 'static + Unpin,
     for<'a> <RequestOctets as octseq::Octets>::Range<'a>: Send + Sync,
@@ -147,15 +140,13 @@ where
     NextSvc::Future: Send + Sync + Unpin,
     NextSvc::Target: Composer + Default + Send + Sync,
     NextSvc::Stream: Send + Sync,
-    KS: Default + Deref,
-    KS::Target: KeyStore,
-    CF: ConnectionFactory,
+    ZL: ZoneLookup + Clone + Sync + Send + 'static,
 {
     async fn preprocess<T>(
         zone_walking_semaphore: Arc<Semaphore>,
         batcher_semaphore: Arc<Semaphore>,
         req: &Request<RequestOctets, T>,
-        catalog: Arc<Catalog<KS, CF>>,
+        zones: ZL,
         xfr_mode: XfrMode,
         get_key_for_req: fn(&Request<RequestOctets, T>) -> Option<&KeyName>,
     ) -> ControlFlow<
@@ -174,7 +165,7 @@ where
         let qname: Name<Bytes> = q.qname().to_name();
 
         // Find the zone
-        let Some(zone) = catalog.get_zone(&qname, q.qclass()) else {
+        let Some(zone) = zones.get_zone(&qname, q.qclass()) else {
             // https://datatracker.ietf.org/doc/html/rfc5936#section-2.2.1
             // 2.2.1 Header Values
             //   "If a server is not authoritative for the queried zone, the
@@ -1226,8 +1217,8 @@ where
 
 //--- Service (with TSIG key name in the request metadata)
 
-impl<RequestOctets, NextSvc, KS, CF> Service<RequestOctets, Option<KeyName>>
-    for XfrMiddlewareSvc<RequestOctets, NextSvc, KS, CF>
+impl<RequestOctets, NextSvc, ZL> Service<RequestOctets, Option<KeyName>>
+    for XfrMiddlewareSvc<RequestOctets, NextSvc, ZL>
 where
     RequestOctets: Octets + Send + Sync + Unpin + 'static,
     for<'a> <RequestOctets as octseq::Octets>::Range<'a>: Send + Sync,
@@ -1235,9 +1226,7 @@ where
     NextSvc::Future: Send + Sync + Unpin,
     NextSvc::Target: Composer + Default + Send + Sync,
     NextSvc::Stream: Send + Sync,
-    KS: Default + Deref + Send + Sync + 'static,
-    KS::Target: KeyStore,
-    CF: ConnectionFactory + Send + Sync + 'static,
+    ZL: ZoneLookup + Clone + Sync + Send + 'static,
 {
     type Target = NextSvc::Target;
     type Stream = XfrMiddlewareStream<
@@ -1253,7 +1242,7 @@ where
     ) -> Self::Future {
         let request = request.clone();
         let next_svc = self.next_svc.clone();
-        let catalog = self.catalog.clone();
+        let catalog = self.zones.clone();
         let zone_walking_semaphore = self.zone_walking_semaphore.clone();
         let batcher_semaphore = self.batcher_semaphore.clone();
         let xfr_mode = self.xfr_mode;
@@ -1281,8 +1270,8 @@ where
 
 //--- Service (without TSIG key name in the request metadata)
 
-impl<RequestOctets, NextSvc, KS, CF> Service<RequestOctets, ()>
-    for XfrMiddlewareSvc<RequestOctets, NextSvc, KS, CF>
+impl<RequestOctets, NextSvc, ZL> Service<RequestOctets, ()>
+    for XfrMiddlewareSvc<RequestOctets, NextSvc, ZL>
 where
     RequestOctets: Octets + Send + Sync + Unpin + 'static,
     for<'a> <RequestOctets as octseq::Octets>::Range<'a>: Send + Sync,
@@ -1290,9 +1279,7 @@ where
     NextSvc::Future: Send + Sync + Unpin,
     NextSvc::Target: Composer + Default + Send + Sync,
     NextSvc::Stream: Send + Sync,
-    KS: Default + Deref + Send + Sync + 'static,
-    KS::Target: KeyStore,
-    CF: ConnectionFactory + Send + Sync + 'static,
+    ZL: ZoneLookup + Clone + Sync + Send + 'static,
 {
     type Target = NextSvc::Target;
     type Stream = XfrMiddlewareStream<
@@ -1305,7 +1292,7 @@ where
     fn call(&self, request: Request<RequestOctets, ()>) -> Self::Future {
         let request = request.clone();
         let next_svc = self.next_svc.clone();
-        let catalog = self.catalog.clone();
+        let zones = self.zones.clone();
         let zone_walking_semaphore = self.zone_walking_semaphore.clone();
         let batcher_semaphore = self.batcher_semaphore.clone();
         let xfr_mode = self.xfr_mode;
@@ -1314,7 +1301,7 @@ where
                 zone_walking_semaphore,
                 batcher_semaphore,
                 &request,
-                catalog,
+                zones,
                 xfr_mode,
                 |_| None,
             )
