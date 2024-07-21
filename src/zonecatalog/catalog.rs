@@ -1805,8 +1805,6 @@ where
     }
 }
 
-//--- ConnectionFactory
-
 impl<KS, CF: ConnectionFactory> Catalog<KS, CF>
 where
     KS: Default + Deref,
@@ -2178,6 +2176,8 @@ impl From<io::Error> for CatalogError {
 
 #[derive(Clone, Default)]
 pub struct DefaultConnFactory;
+
+//--- ConnectionFactory
 
 impl ConnectionFactory for DefaultConnFactory {
     type Error = String;
