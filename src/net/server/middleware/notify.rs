@@ -1,16 +1,15 @@
 //! DNS NOTIFY related message processing.
 use core::future::{ready, Future, Ready};
 use core::marker::PhantomData;
-use core::ops::{ControlFlow, Deref};
+use core::ops::ControlFlow;
 use core::pin::Pin;
 
 use std::boxed::Box;
 use std::fmt::Debug;
-use std::sync::Arc;
 
 use futures::stream::{once, Once, Stream};
 use octseq::Octets;
-use tracing::{debug, error, info, warn};
+use tracing::{error, info, warn};
 
 use crate::base::iana::{Opcode, OptRcode, Rcode};
 use crate::base::message::CopyRecordsError;
@@ -24,8 +23,7 @@ use crate::net::server::middleware::stream::MiddlewareStream;
 use crate::net::server::service::{CallResult, Service};
 use crate::net::server::util::{mk_builder_for_target, mk_error_response};
 use crate::rdata::AllRecordData;
-use crate::tsig::KeyStore;
-use crate::zonecatalog::catalog::{Catalog, CatalogError, ConnectionFactory};
+use crate::zonecatalog::catalog::{Notifiable, NotifyError};
 
 /// A DNS NOTIFY middleware service
 ///
@@ -37,51 +35,39 @@ use crate::zonecatalog::catalog::{Catalog, CatalogError, ConnectionFactory};
 ///
 /// [1996]: https://datatracker.ietf.org/doc/html/rfc1996
 #[derive(Clone, Debug)]
-pub struct NotifyMiddlewareSvc<RequestOctets, NextSvc, RequestMeta, KS, CF>
-where
-    KS: Default + Deref,
-    KS::Target: KeyStore,
-    CF: ConnectionFactory,
-{
+pub struct NotifyMiddlewareSvc<RequestOctets, NextSvc, RequestMeta, N> {
     next_svc: NextSvc,
 
-    catalog: Arc<Catalog<KS, CF>>,
+    notify_target: N,
 
     _phantom: PhantomData<(RequestOctets, RequestMeta)>,
 }
 
-impl<RequestOctets, NextSvc, RequestMeta, KS, CF>
-    NotifyMiddlewareSvc<RequestOctets, NextSvc, RequestMeta, KS, CF>
-where
-    KS: Default + Deref,
-    KS::Target: KeyStore,
-    CF: ConnectionFactory,
+impl<RequestOctets, NextSvc, RequestMeta, N>
+    NotifyMiddlewareSvc<RequestOctets, NextSvc, RequestMeta, N>
 {
     #[must_use]
-    pub fn new(next_svc: NextSvc, catalog: Arc<Catalog<KS, CF>>) -> Self {
+    pub fn new(next_svc: NextSvc, catalog: N) -> Self {
         Self {
             next_svc,
-            catalog,
+            notify_target: catalog,
             _phantom: PhantomData,
         }
     }
 }
 
-impl<RequestOctets, NextSvc, RequestMeta, KS, CF>
-    NotifyMiddlewareSvc<RequestOctets, NextSvc, RequestMeta, KS, CF>
+impl<RequestOctets, NextSvc, RequestMeta, N>
+    NotifyMiddlewareSvc<RequestOctets, NextSvc, RequestMeta, N>
 where
     RequestOctets: Octets + Send + Sync + Unpin,
     RequestMeta: Clone + Default,
     NextSvc: Service<RequestOctets, RequestMeta>,
     NextSvc::Target: Composer + Default,
-    KS: Default + Deref + Sync + Send + 'static,
-    KS::Target: KeyStore,
-    <<KS as Deref>::Target as KeyStore>::Key: Clone + Debug + Sync + Send,
-    CF: ConnectionFactory + Send + Sync + 'static,
+    N: Clone + Notifiable + Sync + Send,
 {
     async fn preprocess(
         req: &Request<RequestOctets, RequestMeta>,
-        catalog: Arc<Catalog<KS, CF>>,
+        notify_target: N,
     ) -> ControlFlow<Once<Ready<<NextSvc::Stream as Stream>::Item>>> {
         let msg = req.message();
 
@@ -149,12 +135,12 @@ where
                 //
                 // We pass the source to the Catalog to compare against the
                 // set of known masters for the zone.
-                if let Err(err) = catalog
+                if let Err(err) = notify_target
                     .notify_zone_changed(class, &apex_name, source)
                     .await
                 {
                     match err {
-                        CatalogError::UnknownZone => {
+                        NotifyError::UnknownZone => {
                             warn!("Ignoring NOTIFY from {} for zone '{}': Zone not managed by the catalog",
                                 req.client_addr(),
                                 q.qname()
@@ -165,21 +151,21 @@ where
                                 ),
                             );
                         }
-                        CatalogError::RequestError(_) => {
-                            debug!("Ignoring NOTIFY from {} for zone '{}': {err}",
-                                req.client_addr(),
-                                q.qname()
+                        NotifyError::NotReady => {
+                            error!("Error while processing NOTIFY from {} for zone '{}': Notify target is not ready",
+                            req.client_addr(),
+                            q.qname()
                             );
                             return ControlFlow::Break(
                                 Self::to_stream_compatible(
-                                    mk_error_response(msg, OptRcode::FORMERR),
+                                    mk_error_response(
+                                        msg,
+                                        OptRcode::SERVFAIL,
+                                    ),
                                 ),
                             );
                         }
-                        CatalogError::NotRunning
-                        | CatalogError::InternalError
-                        | CatalogError::ResponseError(_)
-                        | CatalogError::IoError(_) => {
+                        NotifyError::Failed(err) => {
                             error!("Error while processing NOTIFY from {} for zone '{}': {err}",
                             req.client_addr(),
                             q.qname()
@@ -240,9 +226,10 @@ where
                 //    deletes this query from the retry queue, thus completing
                 //    the "notification process" of "this" RRset change to
                 //    "that" server."
-                catalog
+                notify_target
                     .notify_response_received(class, &apex_name, source)
-                    .await;
+                    .await
+                    .unwrap() // TODO;
             }
         }
 
@@ -322,9 +309,9 @@ where
 
 //--- Service
 
-impl<RequestOctets, NextSvc, RequestMeta, KS, CF>
+impl<RequestOctets, NextSvc, RequestMeta, N>
     Service<RequestOctets, RequestMeta>
-    for NotifyMiddlewareSvc<RequestOctets, NextSvc, RequestMeta, KS, CF>
+    for NotifyMiddlewareSvc<RequestOctets, NextSvc, RequestMeta, N>
 where
     RequestOctets: Octets + Send + Sync + 'static + Unpin,
     RequestMeta: Clone + Default + Sync + Send + 'static,
@@ -337,10 +324,7 @@ where
         + Unpin,
     NextSvc::Future: Send + Sync + Unpin,
     NextSvc::Target: Composer + Default + Send + Sync,
-    KS: Default + Deref + Sync + Send + 'static,
-    KS::Target: KeyStore,
-    <<KS as Deref>::Target as KeyStore>::Key: Clone + Debug + Sync + Send,
-    CF: ConnectionFactory + Sync + Send + 'static,
+    N: Clone + Notifiable + Sync + Send + 'static,
 {
     type Target = NextSvc::Target;
     type Stream = MiddlewareStream<
@@ -358,9 +342,9 @@ where
     ) -> Self::Future {
         let request = request.clone();
         let next_svc = self.next_svc.clone();
-        let catalog = self.catalog.clone();
+        let notify_target = self.notify_target.clone();
         Box::pin(async move {
-            match Self::preprocess(&request, catalog).await {
+            match Self::preprocess(&request, notify_target).await {
                 ControlFlow::Continue(()) => {
                     let stream = next_svc.call(request).await;
                     MiddlewareStream::IdentityStream(stream)

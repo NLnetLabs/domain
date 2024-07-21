@@ -5,6 +5,7 @@
 // reading: https://kb.isc.org/docs/axfr-style-ixfr-explained
 use core::any::Any;
 use core::fmt::Debug;
+use core::future::ready;
 use core::marker::Send;
 use core::ops::{Deref, DerefMut};
 use core::pin::Pin;
@@ -14,17 +15,19 @@ use core::time::Duration;
 use std::boxed::Box;
 use std::collections::hash_map::Entry::{Occupied, Vacant};
 use std::collections::HashMap;
+use std::fmt::Display;
 use std::future::Future;
 use std::io;
 use std::net::SocketAddr;
+use std::string::String;
 use std::sync::Arc;
 use std::vec::Vec;
 
 use arc_swap::ArcSwap;
 use bytes::Bytes;
 use futures::stream::FuturesUnordered;
+use octseq::Octets;
 use tokio::net::TcpStream;
-use tokio::sync::mpsc::error::SendError;
 use tokio::sync::mpsc::{self, Receiver, Sender};
 use tokio::sync::Mutex;
 use tokio::sync::RwLock;
@@ -33,7 +36,6 @@ use tokio_stream::StreamExt;
 use tracing::{debug, error, info, trace, warn};
 
 use crate::base::iana::{Class, Opcode, OptRcode};
-use crate::base::name::{Label, ToLabelIter};
 use crate::base::net::IpAddr;
 use crate::base::{
     Message, MessageBuilder, Name, Rtype, Serial, ToName, Ttl,
@@ -59,9 +61,6 @@ use super::types::{
     ZoneConfig, ZoneDiffs, ZoneInfo, ZoneRefreshCause, ZoneRefreshInstant,
     ZoneRefreshState, ZoneRefreshTimer, ZoneReport, IANA_DNS_PORT_NUMBER,
 };
-use octseq::Octets;
-use std::fmt::Display;
-use std::string::String;
 
 //------------ ConnectionFactory ---------------------------------------------
 
@@ -517,88 +516,15 @@ where
         self.update_lodaded_arc();
         Ok(())
     }
+}
 
-    pub async fn notify_zone_changed(
-        &self,
-        class: Class,
-        apex_name: &StoredName,
-        source: IpAddr,
-    ) -> Result<(), CatalogError> {
-        if !self.running.load(Ordering::SeqCst) {
-            return Err(CatalogError::NotRunning);
-        }
-
-        if self.zones().get_zone(apex_name, class).is_none() {
-            let key = (apex_name.clone(), class);
-            if !self.pending_zones.read().await.contains_key(&key) {
-                return Err(CatalogError::UnknownZone);
-            }
-        }
-
-        // https://datatracker.ietf.org/doc/html/rfc1996#section-2
-        //   "2.1. The following definitions are used in this document:
-        //    ...
-        //    Master          any authoritative server configured to be the
-        //                    source of zone transfer for one or more slave
-        //                    servers.
-        //
-        //    Primary Master  master server at the root of the zone transfer
-        //                    dependency graph.  The primary master is named
-        //                    in the zone's SOA MNAME field and optionally by
-        //                    an NS RR. There is by definition only one
-        //                    primary master server per zone.
-        //
-        //    Stealth         like a slave server except not listed in an NS
-        //                    RR for the zone.  A stealth server, unless
-        //                    explicitly configured to do otherwise, will set
-        //                    the AA bit in responses and be capable of acting
-        //                    as a master.  A stealth server will only be
-        //                    known by other servers if they are given static
-        //                    configuration data indicating its existence."
-
-        // https://datatracker.ietf.org/doc/html/rfc1996#section-3
-        //   "3.10. If a slave receives a NOTIFY request from a host that is
-        //    not a known master for the zone containing the QNAME, it should
-        //    ignore the request and produce an error message in its
-        //    operations log."
-
-        // From the definition in 2.1 above "known masters" are the combined
-        // set of masters and stealth masters. If we are the primary for the
-        // zone because this notification arose internally due to a local
-        // change in the zone then this check is irrelevant. Comparing the SOA
-        // MNAME or NS record value to the source IP address would require
-        // resolving the name to an IP address. Such a check would not be
-        // quick so we leave that to the running Catalog task to handle.
-
-        let msg = ZoneChangedMsg {
-            class,
-            apex_name: apex_name.clone(),
-            source: Some(source),
-        };
-
-        send_zone_changed_msg(&self.event_tx, msg)
-            .await
-            .map_err(|_| CatalogError::InternalError)?;
-
-        Ok(())
-    }
-
-    pub async fn notify_response_received(
-        &self,
-        _class: Class,
-        _apex_name: &StoredName,
-        _source: IpAddr,
-    ) {
-        // https://datatracker.ietf.org/doc/html/rfc1996
-        //   "4.8 Master Receives a NOTIFY Response from Slave
-        //
-        //    When a master server receives a NOTIFY response, it deletes this
-        //    query from the retry queue, thus completing the "notification
-        //    process" of "this" RRset change to "that" server."
-
-        // TODO
-    }
-
+impl<KS, CF> Catalog<KS, CF>
+where
+    KS: Default + Deref + Send + Sync + 'static,
+    KS::Target: KeyStore,
+    <KS::Target as KeyStore>::Key: Clone + Debug + Sync + Send + 'static,
+    CF: ConnectionFactory + Send + Sync + 'static,
+{
     /// Get a status report for a zone.
     ///
     /// The Catalog must be [`run()`]ing for this to work.
@@ -1784,6 +1710,103 @@ where
     }
 }
 
+//--- Notifiable
+
+impl<KS, CF> Notifiable for Catalog<KS, CF>
+where
+    KS: Default + Deref + Send + Sync + 'static,
+    KS::Target: KeyStore,
+    <KS::Target as KeyStore>::Key: Clone + Debug + Sync + Send + 'static,
+    CF: ConnectionFactory + Send + Sync + 'static,
+{
+    async fn notify_zone_changed(
+        &self,
+        class: Class,
+        apex_name: &StoredName,
+        source: IpAddr,
+    ) -> Result<(), NotifyError> {
+        if !self.running.load(Ordering::SeqCst) {
+            return Err(NotifyError::NotReady);
+        }
+
+        if self.zones().get_zone(apex_name, class).is_none() {
+            let key = (apex_name.clone(), class);
+            if !self.pending_zones.read().await.contains_key(&key) {
+                return Err(NotifyError::UnknownZone);
+            }
+        }
+
+        // https://datatracker.ietf.org/doc/html/rfc1996#section-2
+        //   "2.1. The following definitions are used in this document:
+        //    ...
+        //    Master          any authoritative server configured to be the
+        //                    source of zone transfer for one or more slave
+        //                    servers.
+        //
+        //    Primary Master  master server at the root of the zone transfer
+        //                    dependency graph.  The primary master is named
+        //                    in the zone's SOA MNAME field and optionally by
+        //                    an NS RR. There is by definition only one
+        //                    primary master server per zone.
+        //
+        //    Stealth         like a slave server except not listed in an NS
+        //                    RR for the zone.  A stealth server, unless
+        //                    explicitly configured to do otherwise, will set
+        //                    the AA bit in responses and be capable of acting
+        //                    as a master.  A stealth server will only be
+        //                    known by other servers if they are given static
+        //                    configuration data indicating its existence."
+
+        // https://datatracker.ietf.org/doc/html/rfc1996#section-3
+        //   "3.10. If a slave receives a NOTIFY request from a host that is
+        //    not a known master for the zone containing the QNAME, it should
+        //    ignore the request and produce an error message in its
+        //    operations log."
+
+        // From the definition in 2.1 above "known masters" are the combined
+        // set of masters and stealth masters. If we are the primary for the
+        // zone because this notification arose internally due to a local
+        // change in the zone then this check is irrelevant. Comparing the SOA
+        // MNAME or NS record value to the source IP address would require
+        // resolving the name to an IP address. Such a check would not be
+        // quick so we leave that to the running Catalog task to handle.
+
+        let msg = ZoneChangedMsg {
+            class,
+            apex_name: apex_name.clone(),
+            source: Some(source),
+        };
+
+        self.event_tx
+            .send(Event::ZoneChanged(msg))
+            .await
+            .map_err(|err| {
+                NotifyError::Failed(format!("Internal error: {err}"))
+            })?;
+
+        Ok(())
+    }
+
+    fn notify_response_received(
+        &self,
+        _class: Class,
+        _apex_name: &StoredName,
+        _source: IpAddr,
+    ) -> impl Future<Output = Result<(), NotifyError>> + Sync {
+        // https://datatracker.ietf.org/doc/html/rfc1996
+        //   "4.8 Master Receives a NOTIFY Response from Slave
+        //
+        //    When a master server receives a NOTIFY response, it deletes this
+        //    query from the retry queue, thus completing the "notification
+        //    process" of "this" RRset change to "that" server."
+
+        // TODO
+        ready(Ok(()))
+    }
+}
+
+//--- ConnectionFactory
+
 impl<KS, CF: ConnectionFactory> Catalog<KS, CF>
 where
     KS: Default + Deref,
@@ -1858,13 +1881,6 @@ where
     fn update_lodaded_arc(&self) {
         *self.loaded_arc.write().unwrap() = self.member_zones.load_full();
     }
-}
-
-async fn send_zone_changed_msg(
-    tx: &Sender<Event>,
-    msg: ZoneChangedMsg,
-) -> Result<(), SendError<Event>> {
-    tx.send(Event::ZoneChanged(msg)).await
 }
 
 /// Create a [`Catalog`] from an RFC 9432 catalog zone.
@@ -2062,7 +2078,7 @@ impl WritableZone for WritableCatalogZone {
                         source: None,
                     };
 
-                    send_zone_changed_msg(&notify_tx, msg).await.unwrap();
+                    notify_tx.send(Event::ZoneChanged(msg)).await.unwrap(); // TODO
 
                     Ok(diff)
                 }
@@ -2380,5 +2396,50 @@ impl<T: SendRequest<RequestMessage<Octs>> + ?Sized, Octs: Octets>
         request_msg: RequestMessage<Octs>,
     ) -> Box<dyn request::GetResponse + Send + Sync> {
         (**self).send_request(request_msg)
+    }
+}
+
+//------------ Notifiable -----------------------------------------------------
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum NotifyError {
+    NotReady,
+    UnknownZone,
+    Failed(String),
+}
+
+pub trait Notifiable {
+    fn notify_zone_changed(
+        &self,
+        class: Class,
+        apex_name: &StoredName,
+        source: IpAddr,
+    ) -> impl Future<Output = Result<(), NotifyError>> + Sync + Send;
+
+    fn notify_response_received(
+        &self,
+        class: Class,
+        apex_name: &StoredName,
+        source: IpAddr,
+    ) -> impl Future<Output = Result<(), NotifyError>> + Sync + Send;
+}
+
+impl<T: Notifiable> Notifiable for Arc<T> {
+    fn notify_zone_changed(
+        &self,
+        class: Class,
+        apex_name: &StoredName,
+        source: IpAddr,
+    ) -> impl Future<Output = Result<(), NotifyError>> + Sync + Send {
+        (**self).notify_zone_changed(class, apex_name, source)
+    }
+
+    fn notify_response_received(
+        &self,
+        class: Class,
+        apex_name: &StoredName,
+        source: IpAddr,
+    ) -> impl Future<Output = Result<(), NotifyError>> + Sync + Send {
+        (**self).notify_response_received(class, apex_name, source)
     }
 }

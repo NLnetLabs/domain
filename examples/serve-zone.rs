@@ -116,7 +116,7 @@ async fn main() {
             XfrMode::AxfrAndIxfr,
         );
     let svc =
-        NotifyMiddlewareSvc::<Vec<u8>, _, _, _, _>::new(svc, catalog.clone());
+        NotifyMiddlewareSvc::<Vec<u8>, _, _, _>::new(svc, catalog.clone());
     let svc = CookiesMiddlewareSvc::<Vec<u8>, _, _>::with_random_secret(svc);
     let svc = EdnsMiddlewareSvc::<Vec<u8>, _, _>::new(svc);
     let svc = MandatoryMiddlewareSvc::<Vec<u8>, _, _>::new(svc);

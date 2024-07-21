@@ -179,7 +179,7 @@ async fn server_tests(#[files("test-data/server/*.rpl")] rpl_file: PathBuf) {
         EdnsMiddlewareSvc::new(svc).enable(server_config.edns_tcp_keepalive);
 
     // 4. XFR(-in) middleware service (XFR-out is handled by the Catalog).
-    let svc = XfrMiddlewareSvc::<Vec<u8>, _, Arc<CatalogKeyStore>, _>::new(
+    let svc = XfrMiddlewareSvc::<Vec<u8>, _, _, _>::new(
         svc,
         catalog.clone(),
         MAX_XFR_CONCURRENCY,
@@ -188,7 +188,7 @@ async fn server_tests(#[files("test-data/server/*.rpl")] rpl_file: PathBuf) {
 
     // 5. NOTIFY(-in) middleware service (relayed to the Catalog for handling,
     // and the Catalog is also responsible for NOTIFY-out).
-    let svc = NotifyMiddlewareSvc::<Vec<u8>, _, _, _, _>::new(svc, catalog);
+    let svc = NotifyMiddlewareSvc::<Vec<u8>, _, _, _>::new(svc, catalog);
 
     // 6. Mandatory DNS behaviour (e.g. RFC 1034/35 rules).
     let svc = MandatoryMiddlewareSvc::new(svc);
