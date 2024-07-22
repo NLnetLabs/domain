@@ -70,6 +70,7 @@ pub enum StellineErrorCause {
     MissingResponse,
     MissingStepEntry,
     MissingClient,
+    AnswerTimedOut,
 }
 
 impl From<Error> for StellineErrorCause {
@@ -95,6 +96,9 @@ impl std::fmt::Display for StellineErrorCause {
             }
             StellineErrorCause::MissingStepEntry => {
                 f.write_str("Missing step entry")
+            }
+            StellineErrorCause::AnswerTimedOut => {
+                f.write_str("Timed out waiting for answer")
             }
         }
     }
@@ -448,7 +452,12 @@ pub async fn do_client<'a, T: ClientFactory>(
                             "Awaiting answer {}/{num_expected_answers}...",
                             idx + 1
                         );
-                        let resp = send_request.get_response().await?;
+                        let resp = tokio::time::timeout(
+                            Duration::from_secs(3),
+                            send_request.get_response(),
+                        )
+                        .await
+                        .map_err(|_| StellineErrorCause::AnswerTimedOut)??;
                         trace!("Received answer.");
                         trace!(?resp);
                         if !match_multi_msg(entry, idx, &resp, true) {
