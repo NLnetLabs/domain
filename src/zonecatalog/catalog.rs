@@ -746,7 +746,7 @@ where
             Occupied(e) => {
                 // Zone is already managed, just return the recorded SOA
                 // REFRESH value.
-                Ok(Some(e.get().refresh))
+                Ok(Some(e.get().refresh()))
             }
         }
     }
@@ -958,7 +958,7 @@ where
         // tuple we only have to look at the status of the zone for which the
         // notify was received.
         if matches!(
-            zone_refresh_info.status,
+            zone_refresh_info.status(),
             ZoneRefreshStatus::NotifyInProgress
         ) {
             // Note: Rather than defer the NOTIFY when one is already in
@@ -971,7 +971,7 @@ where
             return;
         }
 
-        zone_refresh_info.status = ZoneRefreshStatus::NotifyInProgress;
+        zone_refresh_info.set_status(ZoneRefreshStatus::NotifyInProgress);
 
         let initial_xfr_addr = SocketAddr::new(source, IANA_DNS_PORT_NUMBER);
         if let Err(()) = Self::refresh_zone_and_update_state(
@@ -1009,13 +1009,14 @@ where
             | ZoneRefreshCause::SoaRefreshTimer
             | ZoneRefreshCause::SoaRefreshTimerAfterStartup
             | ZoneRefreshCause::SoaRefreshTimerAfterZoneAdded => {
-                zone_refresh_info.metrics.last_refresh_phase_started_at =
-                    Some(Instant::now());
-                zone_refresh_info.metrics.last_refresh_attempted_at =
+                zone_refresh_info
+                    .metrics_mut()
+                    .last_refresh_phase_started_at = Some(Instant::now());
+                zone_refresh_info.metrics_mut().last_refresh_attempted_at =
                     Some(Instant::now());
             }
             ZoneRefreshCause::SoaRetryTimer => {
-                zone_refresh_info.metrics.last_refresh_attempted_at =
+                zone_refresh_info.metrics_mut().last_refresh_attempted_at =
                     Some(Instant::now());
             }
         }
@@ -1040,6 +1041,7 @@ where
                     "Failed to refresh zone '{}': {err}",
                     zone.apex_name()
                 );
+
                 // https://datatracker.ietf.org/doc/html/rfc1034#section-4.3.5
                 // 4.3.5. Zone maintenance and transfers
                 //   ..
@@ -1052,61 +1054,58 @@ where
                 //    check for the EXPIRE interval, it must assume that its
                 //    copy of the zone is obsolete an discard it."
 
-                if zone_refresh_info.status == ZoneRefreshStatus::Retrying {
+                if zone_refresh_info.status() == ZoneRefreshStatus::Retrying {
                     let time_of_last_soa_check = zone_refresh_info
-                        .metrics
+                        .metrics()
                         .last_soa_serial_check_succeeded_at
-                        .unwrap_or(zone_refresh_info.metrics.zone_created_at);
+                        .unwrap_or(
+                            zone_refresh_info.metrics().zone_created_at,
+                        );
 
-                    if let Some(duration) = Instant::now()
-                        .checked_duration_since(time_of_last_soa_check)
-                    {
-                        if duration > zone_refresh_info.expire.into_duration()
-                        {
-                            let cat_zone = zone
-                                .as_ref()
-                                .as_any()
-                                .downcast_ref::<CatalogZone>()
-                                .unwrap();
+                    if zone_refresh_info.is_expired(time_of_last_soa_check) {
+                        let cat_zone = zone
+                            .as_ref()
+                            .as_any()
+                            .downcast_ref::<CatalogZone>()
+                            .unwrap();
 
-                            trace!(
-                                "Marking zone '{}' as expired",
-                                zone.apex_name()
-                            );
-                            cat_zone.mark_expired();
+                        trace!(
+                            "Marking zone '{}' as expired",
+                            zone.apex_name()
+                        );
+                        cat_zone.mark_expired();
 
-                            // TODO: Should we keep trying to refresh an
-                            // expired zone so that we can bring it back to
-                            // life if we are able to connect to the primary?
-                            //
-                            // https://unbound.docs.nlnetlabs.nl/en/latest/manpages/unbound.conf.html#authority-zone-options
-                            // Authority Zone Options
-                            //   ...
-                            //   "If the update fetch fails, the timers in the
-                            //   SOA record are used to time another fetch
-                            //   attempt. Until the SOA expiry timer is
-                            //   reached. Then the zone is expired. When a
-                            //   zone is expired, queries are SERVFAIL, and
-                            //   any new serial number is accepted from the
-                            //   primary (even if older), and if fallback is
-                            //   enabled, the fallback activates to fetch from
-                            //   the upstream instead of the SERVFAIL."
-                            //
-                            // ^^^ Maybe we should do the same as Unbound?
+                        // TODO: Should we keep trying to refresh an
+                        // expired zone so that we can bring it back to
+                        // life if we are able to connect to the primary?
+                        //
+                        // https://unbound.docs.nlnetlabs.nl/en/latest/manpages/unbound.conf.html#authority-zone-options
+                        // Authority Zone Options
+                        //   ...
+                        //   "If the update fetch fails, the timers in the
+                        //   SOA record are used to time another fetch
+                        //   attempt. Until the SOA expiry timer is
+                        //   reached. Then the zone is expired. When a
+                        //   zone is expired, queries are SERVFAIL, and
+                        //   any new serial number is accepted from the
+                        //   primary (even if older), and if fallback is
+                        //   enabled, the fallback activates to fetch from
+                        //   the upstream instead of the SERVFAIL."
+                        //
+                        // ^^^ Maybe we should do the same as Unbound?
 
-                            return Err(());
-                        }
+                        return Err(());
                     }
+                } else {
+                    zone_refresh_info.set_status(ZoneRefreshStatus::Retrying);
                 }
-
-                zone_refresh_info.status = ZoneRefreshStatus::Retrying;
 
                 // Schedule a zone refresh according to the SOA RETRY timer value.
                 Self::schedule_zone_refresh(
                     ZoneRefreshCause::SoaRetryTimer,
                     &event_tx,
                     key,
-                    zone_refresh_info.retry,
+                    zone_refresh_info.retry(),
                 )
                 .await;
 
@@ -1116,25 +1115,21 @@ where
             Ok(new_soa) => {
                 if let Some(new_soa) = new_soa {
                     // Refresh succeeded:
-                    zone_refresh_info.refresh = new_soa.refresh();
-                    zone_refresh_info.retry = new_soa.retry();
-                    zone_refresh_info.expire = new_soa.expire();
-                    zone_refresh_info.metrics.last_refreshed_at =
-                        Some(Instant::now());
+                    zone_refresh_info.refresh_succeeded(&new_soa);
                 } else {
                     // No transfer was required, either because transfer is
                     // not enabled at the primaries for the zone or the zone
                     // is up-to-date with the primaries.
                 }
 
-                zone_refresh_info.status = ZoneRefreshStatus::Refreshing;
+                zone_refresh_info.set_status(ZoneRefreshStatus::Refreshing);
 
                 // Schedule a zone refresh according to the SOA REFRESH timer value.
                 Self::schedule_zone_refresh(
                     ZoneRefreshCause::SoaRefreshTimer,
                     &event_tx,
                     key,
-                    zone_refresh_info.refresh,
+                    zone_refresh_info.refresh(),
                 )
                 .await;
 
@@ -1150,18 +1145,12 @@ where
         config: Arc<ArcSwap<Config<KS, CF>>>,
     ) -> Result<Option<Soa<Name<Bytes>>>, CatalogError> {
         // Was this zone already refreshed recently?
-        if let Some(last_refreshed) =
-            zone_refresh_info.metrics.last_refreshed_at
-        {
-            if let Some(elapsed) =
-                Instant::now().checked_duration_since(last_refreshed)
-            {
-                if elapsed < MIN_DURATION_BETWEEN_ZONE_REFRESHES {
-                    // Don't refresh, we refreshed very recently
-                    debug!("Skipping refresh of zone '{}' as it was refreshed less than {}s ago ({}s)",
-                        zone.apex_name(), MIN_DURATION_BETWEEN_ZONE_REFRESHES.as_secs(), elapsed.as_secs());
-                    return Ok(None);
-                }
+        if let Some(age) = zone_refresh_info.age() {
+            if age < MIN_DURATION_BETWEEN_ZONE_REFRESHES {
+                // Don't refresh, we refreshed very recently
+                debug!("Skipping refresh of zone '{}' as it was refreshed less than {}s ago ({}s)",
+                    zone.apex_name(), MIN_DURATION_BETWEEN_ZONE_REFRESHES.as_secs(), age.as_secs());
+                return Ok(None);
             }
         }
 
@@ -1326,41 +1315,46 @@ where
             let send_request = &mut client.send_request(req);
             let msg = send_request.get_response().await?;
 
-            let newer_data_available = Self::check_primary_soa_serial(
-                msg,
-                zone_refresh_info,
-                current_serial,
-            )
-            .await?;
+            let primary_soa_serial =
+                Self::extract_response_soa_serial(msg).await?;
+
+            let newer_data_available = current_serial
+                .map(|v| primary_soa_serial > v)
+                .unwrap_or(true);
+
+            debug!("Current: {current_serial:?}");
+            debug!("Primary: {primary_soa_serial}");
+            debug!("Newer data available: {newer_data_available}");
 
             if !newer_data_available {
+                zone_refresh_info.soa_serial_check_succeeded(None);
                 return Ok(None);
+            } else {
+                zone_refresh_info
+                    .soa_serial_check_succeeded(Some(primary_soa_serial));
             }
 
             trace!(
                 "Refreshing zone '{}' by {rtype} from {primary_addr}",
                 zone.apex_name()
             );
-            let res = Self::do_xfr(
-                client,
-                zone,
-                primary_addr,
-                rtype,
-                zone_refresh_info,
-            )
-            .await;
+            let res = Self::do_xfr(client, zone, primary_addr, rtype).await;
 
-            if rtype == Rtype::IXFR
-                && matches!(
-                    res,
-                    Err(CatalogError::ResponseError(OptRcode::NOTIMP))
-                )
-            {
-                trace!("Primary {primary_addr} doesn't support IXFR");
-                continue;
+            match res {
+                Err(CatalogError::ResponseError(OptRcode::NOTIMP))
+                    if rtype == Rtype::IXFR =>
+                {
+                    trace!("Primary {primary_addr} doesn't support IXFR");
+                    continue;
+                }
+
+                Ok(new_soa) => {
+                    zone_refresh_info.refresh_succeeded(&new_soa);
+                    return Ok(Some(new_soa));
+                }
+
+                Err(err) => return Err(err),
             }
-
-            return res;
         }
 
         Ok(None)
@@ -1370,37 +1364,15 @@ where
     ///
     /// Returns Ok(true) if so, Ok(false) if its serial is equal or older, or
     /// Err if the response message indicated an error.
-    async fn check_primary_soa_serial(
+    async fn extract_response_soa_serial(
         msg: Message<Bytes>,
-        zone_refresh_info: &mut ZoneRefreshState,
-        current_serial: Option<Serial>,
-    ) -> Result<bool, CatalogError> {
+    ) -> Result<Serial, CatalogError> {
         if msg.no_error() {
             if let Ok(answer) = msg.answer() {
                 let mut records = answer.limit_to::<Soa<_>>();
                 let record = records.next();
                 if let Some(Ok(record)) = record {
-                    let serial_at_primary = record.data().serial();
-
-                    zone_refresh_info
-                        .metrics
-                        .last_soa_serial_check_succeeded_at =
-                        Some(Instant::now());
-
-                    zone_refresh_info.metrics.last_soa_serial_check_serial =
-                        Some(serial_at_primary);
-
-                    // The serial at the primary can't be stale
-                    // compared to ours if we don't have a serial yet.
-                    let newer_data_available = current_serial
-                        .map(|current| current < serial_at_primary)
-                        .unwrap_or(true);
-
-                    debug!("Current: {current_serial:?}");
-                    debug!("Primary: {serial_at_primary:?}");
-                    debug!("Newer data available: {newer_data_available}");
-
-                    return Ok(newer_data_available);
+                    return Ok(record.data().serial());
                 }
             }
         }
@@ -1413,8 +1385,7 @@ where
         zone: &Zone,
         primary_addr: SocketAddr,
         xfr_type: Rtype,
-        zone_refresh_info: &mut ZoneRefreshState,
-    ) -> Result<Option<Soa<Name<Bytes>>>, CatalogError>
+    ) -> Result<Soa<Name<Bytes>>, CatalogError>
     where
         T: SendRequest<RequestMessage<Vec<u8>>> + Send + Sync + 'static,
     {
@@ -1466,9 +1437,7 @@ where
             return Err(CatalogError::InternalError);
         };
 
-        zone_refresh_info.metrics.last_refresh_succeeded_serial =
-            Some(soa.serial());
-        Ok(Some(soa))
+        Ok(soa)
     }
 
     #[allow(clippy::borrowed_box)]
