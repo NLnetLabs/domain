@@ -9,6 +9,7 @@ use std::vec::Vec;
 use bytes::Bytes;
 
 use crate::base;
+use crate::base::iana::OptRcode;
 use crate::utils::base16;
 use crate::zonefile::inplace::Entry as ZonefileEntry;
 use crate::zonefile::inplace::Zonefile;
@@ -567,7 +568,7 @@ fn parse_match(mut tokens: LineTokens<'_>) -> Matches {
         } else if token == "ttl" {
             matches.ttl = true;
         } else if token == "UDP" {
-            matches.tcp = true;
+            matches.udp = true;
         } else if token == "server_cookie" {
             matches.server_cookie = true;
         } else if token == "ednsdata" {
@@ -615,14 +616,7 @@ pub struct Reply {
     pub ra: bool,
     pub rd: bool,
     pub tc: bool,
-    pub formerr: bool,
-    pub noerror: bool,
-    pub notimp: bool,
-    pub nxdomain: bool,
-    pub refused: bool,
-    pub servfail: bool,
-    pub yxdomain: bool,
-    pub yxrrset: String,
+    pub rcode: Option<OptRcode>,
     pub notify: bool,
 }
 
@@ -651,22 +645,8 @@ fn parse_reply(mut tokens: LineTokens<'_>) -> Reply {
             reply.rd = true;
         } else if token == "TC" {
             reply.tc = true;
-        } else if token == "FORMERR" {
-            reply.formerr = true;
-        } else if token == "NOERROR" {
-            reply.noerror = true;
-        } else if token == "NOTIMP" {
-            reply.notimp = true;
-        } else if token == "NXDOMAIN" {
-            reply.nxdomain = true;
-        } else if token == "REFUSED" {
-            reply.refused = true;
-        } else if token == "SERVFAIL" {
-            reply.servfail = true;
-        } else if token == "YXDOMAIN" {
-            reply.yxdomain = true;
-        } else if token.starts_with("YXRRSET=") {
-            reply.yxrrset = token.split_once('=').unwrap().1.to_string();
+        } else if let Ok(rcode) = token.parse() {
+            reply.rcode = Some(rcode);
         } else if token == "NOTIFY" {
             reply.notify = true;
         } else {
