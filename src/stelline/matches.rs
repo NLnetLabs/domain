@@ -258,84 +258,16 @@ where
     if matches.rcode {
         let msg_rcode =
             get_opt_rcode(&Message::from_octets(msg.as_slice()).unwrap());
-        if reply.noerror {
-            if let OptRcode::NOERROR = msg_rcode {
-                // Okay
-            } else {
+        match (reply.rcode, msg_rcode) {
+            (Some(reply_rcode), msg_rcode) if reply_rcode != msg_rcode => {
                 if verbose {
                     println!(
-                        "Wrong Rcode, expected NOERROR, got {msg_rcode}"
+                        "Wrong Rcode, expected {reply_rcode}, got {msg_rcode}"
                     );
                 }
                 return false;
             }
-        } else if reply.formerr {
-            if let OptRcode::FORMERR = msg_rcode {
-                // Okay
-            } else {
-                if verbose {
-                    println!(
-                        "Wrong Rcode, expected FORMERR, got {msg_rcode}"
-                    );
-                }
-                return false;
-            }
-        } else if reply.notimp {
-            if let OptRcode::NOTIMP = msg_rcode {
-                // Okay
-            } else {
-                if verbose {
-                    println!("Wrong Rcode, expected NOTIMP, got {msg_rcode}");
-                }
-                return false;
-            }
-        } else if reply.nxdomain {
-            if let OptRcode::NXDOMAIN = msg_rcode {
-                // Okay
-            } else {
-                if verbose {
-                    println!(
-                        "Wrong Rcode, expected NXDOMAIN, got {msg_rcode}"
-                    );
-                }
-                return false;
-            }
-        } else if reply.refused {
-            if let OptRcode::REFUSED = msg_rcode {
-                // Okay
-            } else {
-                if verbose {
-                    println!(
-                        "Wrong Rcode, expected REFUSED, got {msg_rcode}"
-                    );
-                }
-                return false;
-            }
-        } else if reply.servfail {
-            if let OptRcode::SERVFAIL = msg_rcode {
-                // Okay
-            } else {
-                if verbose {
-                    println!(
-                        "Wrong Rcode, expected SERVFAIL, got {msg_rcode}"
-                    );
-                }
-                return false;
-            }
-        } else if "BADCOOKIE" == reply.yxrrset.as_str() {
-            if !matches!(msg_rcode, OptRcode::BADCOOKIE) {
-                if verbose {
-                    println!(
-                        "Wrong Rcode, expected BADCOOKIE, got {msg_rcode}"
-                    );
-                }
-                return false;
-            }
-        } else {
-            if verbose {
-                println!("Unexpected Rcode: {msg_rcode}");
-            }
-            return false;
+            _ => { /* Okay */ }
         }
     }
     if matches.tcp {

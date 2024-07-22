@@ -124,31 +124,10 @@ where
     header.set_aa(reply.aa);
     header.set_ad(reply.ad);
     header.set_cd(reply.cd);
-    if reply.formerr {
-        header.set_rcode(Rcode::FORMERR);
-    }
-    if reply.noerror {
-        header.set_rcode(Rcode::NOERROR);
-    }
-    if reply.notimp {
-        header.set_rcode(Rcode::NOTIMP);
-    }
-    if reply.nxdomain {
-        header.set_rcode(Rcode::NXDOMAIN);
-    }
     header.set_qr(reply.qr);
     header.set_ra(reply.ra);
     header.set_rd(reply.rd);
-    if reply.refused {
-        header.set_rcode(Rcode::REFUSED);
-    }
-    if reply.servfail {
-        header.set_rcode(Rcode::SERVFAIL);
-    }
     if reply.tc {
-        todo!()
-    }
-    if reply.yxdomain {
         todo!()
     }
     if reply.notify {
@@ -164,9 +143,22 @@ where
     if reply.fl_do {
         msg.opt(|o| {
             o.set_dnssec_ok(reply.fl_do);
+            if let Some(rcode) = reply.rcode {
+                o.set_rcode(rcode);
+            }
             Ok(())
         })
         .unwrap()
+    } else if let Some(rcode) = reply.rcode {
+        if rcode.is_ext() {
+            msg.opt(|o| {
+                o.set_rcode(rcode);
+                Ok(())
+            })
+            .unwrap();
+        } else {
+            header.set_rcode(rcode.rcode());
+        }
     }
     msg
 }
