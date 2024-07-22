@@ -266,11 +266,11 @@ fn test_service(
     >,
     ServiceError,
 > {
-    fn as_record_and_dname(
+    fn as_record_and_name(
         r: ScannedRecord,
     ) -> Option<(ScannedRecord, Name<Vec<u8>>)> {
-        let dname = r.owner().to_name();
-        Some((r, dname))
+        let name = r.owner().to_name();
+        Some((r, name))
     }
 
     fn as_records(
@@ -298,8 +298,10 @@ fn test_service(
                 zonefile
                     .clone()
                     .filter_map(as_records)
-                    .filter_map(as_record_and_dname)
-                    .find(|(_record, dname)| dname == q.qname())
+                    .filter_map(as_record_and_name)
+                    .find(|(rec, name)| {
+                        name == q.qname() && rec.rtype() == q.qtype()
+                    })
             })
             .map_or_else(
                 || {
