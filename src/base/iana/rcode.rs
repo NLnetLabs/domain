@@ -205,7 +205,7 @@ impl Rcode {
             Rcode::YXDOMAIN => Some(b"YXDOMAIN"),
             Rcode::YXRRSET => Some(b"YXRRSET"),
             Rcode::NXRRSET => Some(b"NXRRSET"),
-            Rcode::NOTAUTH => Some(b"NOAUTH"),
+            Rcode::NOTAUTH => Some(b"NOTAUTH"),
             Rcode::NOTZONE => Some(b"NOTZONE"),
             _ => None,
         }
@@ -585,7 +585,7 @@ impl OptRcode {
             OptRcode::YXDOMAIN => Some(b"YXDOMAIN"),
             OptRcode::YXRRSET => Some(b"YXRRSET"),
             OptRcode::NXRRSET => Some(b"NXRRSET"),
-            OptRcode::NOTAUTH => Some(b"NOAUTH"),
+            OptRcode::NOTAUTH => Some(b"NOTAUTH"),
             OptRcode::NOTZONE => Some(b"NOTZONE"),
             OptRcode::BADVERS => Some(b"BADVERS"),
             OptRcode::BADCOOKIE => Some(b"BADCOOKIE"),
