@@ -18,7 +18,7 @@ use std::future::Future;
 use std::pin::Pin;
 use std::vec::Vec;
 
-pub trait SrService<RequestOcts, CR> {
+pub trait SingleService<RequestOcts, CR> {
     type Target;
 
     fn call(

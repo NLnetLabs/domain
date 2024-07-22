@@ -1,7 +1,7 @@
 // Qname Router
 
 use super::message::RequestNG;
-use super::sr_service::SrService;
+use super::single_service::SingleService;
 use crate::base::Name;
 use crate::base::ToName;
 use crate::dep::octseq::EmptyBuilder;
@@ -19,7 +19,7 @@ pub struct QnameRouter<Octs, RequestOcts, CR> {
 struct Element<NameOcts, RequestOcts, CR> {
     name: Name<NameOcts>,
     service:
-        Box<dyn SrService<RequestOcts, CR, Target = Vec<u8>> + Send + Sync>,
+        Box<dyn SingleService<RequestOcts, CR, Target = Vec<u8>> + Send + Sync>,
 }
 
 impl<Octs, RequestOcts, CR> QnameRouter<Octs, RequestOcts, CR> {
@@ -32,7 +32,7 @@ impl<Octs, RequestOcts, CR> QnameRouter<Octs, RequestOcts, CR> {
         Octs: FromBuilder,
         <Octs as FromBuilder>::Builder: EmptyBuilder,
         TN: ToName,
-        SVC: SrService<RequestOcts, CR, Target = Vec<u8>>
+        SVC: SingleService<RequestOcts, CR, Target = Vec<u8>>
             + Send
             + Sync
             + 'static,
@@ -51,7 +51,7 @@ impl<Octs, RequestOcts, CR> Default for QnameRouter<Octs, RequestOcts, CR> {
     }
 }
 
-impl<Octs, RequestOcts, CR> SrService<RequestOcts, CR>
+impl<Octs, RequestOcts, CR> SingleService<RequestOcts, CR>
     for QnameRouter<Octs, RequestOcts, CR>
 where
     Octs: AsRef<[u8]>,

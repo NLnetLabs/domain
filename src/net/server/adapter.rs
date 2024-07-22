@@ -2,7 +2,7 @@
 
 use super::message::{Request, RequestNG};
 use super::service::{CallResult, Service, ServiceError, Transaction};
-use super::sr_service::{ComposeReply, SrService};
+use super::single_service::{ComposeReply, SingleService};
 use std::boxed::Box;
 use std::fmt::Debug;
 use std::future::Future;
@@ -30,7 +30,7 @@ impl<SVC, CR> SrServiceToService<SVC, CR> {
 
 impl<SVC, CR> Service for SrServiceToService<SVC, CR>
 where
-    SVC: SrService<Vec<u8>, CR>,
+    SVC: SingleService<Vec<u8>, CR>,
     CR: ComposeReply + 'static,
 {
     type Target = Vec<u8>;
@@ -81,7 +81,7 @@ where
     }
 }
 
-impl<SR, RequestOcts, CR> SrService<RequestOcts, CR>
+impl<SR, RequestOcts, CR> SingleService<RequestOcts, CR>
     for ClientTransportToSrService<SR, RequestOcts>
 where
     RequestOcts: AsRef<[u8]> + Clone + Debug + Octets + Send + Sync,

@@ -190,7 +190,7 @@ pub mod middleware;
 pub mod qname_router;
 pub mod service;
 pub mod sock;
-pub mod sr_service;
+pub mod single_service;
 pub mod stream;
 pub mod util;
 
