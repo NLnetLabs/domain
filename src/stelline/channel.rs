@@ -506,7 +506,6 @@ impl Future for ClientServerChannelReadableFut {
             trace!("Server socket is now readable");
             Poll::Ready(Ok(()))
         } else {
-            trace!("Server socket is not yet readable");
             let waker = cx.waker().clone();
             tokio::task::spawn(async move {
                 waker.wake();
