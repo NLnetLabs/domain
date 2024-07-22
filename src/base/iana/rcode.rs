@@ -992,4 +992,21 @@ mod test {
         assert_eq!(Ok(OptRcode::BADCOOKIE), "BADCOOKIE".parse());
         assert!("#$%!@".parse::<Rcode>().is_err());
     }
+    
+    #[test]
+    fn optrcode_isext() {
+        assert!(!OptRcode::NOERROR.is_ext());
+        assert!(!OptRcode::FORMERR.is_ext());
+        assert!(!OptRcode::SERVFAIL.is_ext());
+        assert!(!OptRcode::NXDOMAIN.is_ext());
+        assert!(!OptRcode::NOTIMP.is_ext());
+        assert!(!OptRcode::REFUSED.is_ext());
+        assert!(!OptRcode::YXDOMAIN.is_ext());
+        assert!(!OptRcode::YXRRSET.is_ext());
+        assert!(!OptRcode::NXRRSET.is_ext());
+        assert!(!OptRcode::NOTAUTH.is_ext());
+        assert!(!OptRcode::NOTZONE.is_ext());
+        assert!(OptRcode::BADVERS.is_ext());
+        assert!(OptRcode::BADCOOKIE.is_ext());
+    }
 }
