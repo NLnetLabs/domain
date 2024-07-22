@@ -1,4 +1,4 @@
-// Query Router
+// Qname Router
 
 use super::message::RequestNG;
 use super::sr_service::SrService;
@@ -12,7 +12,7 @@ use std::future::Future;
 use std::pin::Pin;
 use std::vec::Vec;
 
-pub struct QueryRouter<Octs, RequestOcts, CR> {
+pub struct QnameRouter<Octs, RequestOcts, CR> {
     list: Vec<Element<Octs, RequestOcts, CR>>,
 }
 
@@ -22,7 +22,7 @@ struct Element<NameOcts, RequestOcts, CR> {
         Box<dyn SrService<RequestOcts, CR, Target = Vec<u8>> + Send + Sync>,
 }
 
-impl<Octs, RequestOcts, CR> QueryRouter<Octs, RequestOcts, CR> {
+impl<Octs, RequestOcts, CR> QnameRouter<Octs, RequestOcts, CR> {
     pub fn new() -> Self {
         Self { list: Vec::new() }
     }
@@ -45,14 +45,14 @@ impl<Octs, RequestOcts, CR> QueryRouter<Octs, RequestOcts, CR> {
     }
 }
 
-impl<Octs, RequestOcts, CR> Default for QueryRouter<Octs, RequestOcts, CR> {
+impl<Octs, RequestOcts, CR> Default for QnameRouter<Octs, RequestOcts, CR> {
     fn default() -> Self {
         Self::new()
     }
 }
 
 impl<Octs, RequestOcts, CR> SrService<RequestOcts, CR>
-    for QueryRouter<Octs, RequestOcts, CR>
+    for QnameRouter<Octs, RequestOcts, CR>
 where
     Octs: AsRef<[u8]>,
 {

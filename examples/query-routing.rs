@@ -42,7 +42,7 @@ use domain::net::server::middleware::processor::MiddlewareProcessor;
 #[cfg(feature = "siphasher")]
 use domain::net::server::middleware::processors::cookies::CookiesMiddlewareProcessor;
 use domain::net::server::middleware::processors::mandatory::MandatoryMiddlewareProcessor;
-use domain::net::server::query_router::QueryRouter;
+use domain::net::server::qname_router::QnameRouter;
 use domain::net::server::service::{
     CallResult, ServiceError, ServiceFeedback, Transaction,
 };
@@ -460,8 +460,8 @@ async fn main() {
     */
 
     // Start building the query router plus upstreams.
-    let mut qr: QueryRouter<Vec<u8>, Vec<u8>, ReplyMessage> =
-        QueryRouter::new();
+    let mut qr: QnameRouter<Vec<u8>, Vec<u8>, ReplyMessage> =
+        QnameRouter::new();
 
     // Queries to the root go to 1.1.1.1
     let server_addr =
