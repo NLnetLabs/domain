@@ -1,4 +1,8 @@
-`; Based on https://datatracker.ietf.org/doc/html/rfc1034#section-4.3.5
+; Based on https://datatracker.ietf.org/doc/html/rfc1034#section-4.3.5
+;
+; This test verifies that a managed zone is kept up-to-date per the lifecycle
+; defined by RFC 1034, namely refresh, retry on failure and given sufficient
+; failed refresh attempts expire the zone.
 
 ;------------ Server configuration --------------------------------------------
 
@@ -17,6 +21,19 @@ SCENARIO_BEGIN Tests the lifecycle of a secondary zone.
 
 ;--- Mock replies
 
+RANGE_BEGIN 0 9999
+
+; Our mock primary does not support IXFR.
+ENTRY_BEGIN
+MATCH opcode qtype qname
+ADJUST copy_id
+REPLY QR AA NOTIMP
+SECTION QUESTION
+    JAIN.AD.JP.          IN  IXFR
+ENTRY_END
+
+RANGE_END
+
 RANGE_BEGIN 10 20
         ADDRESS 127.0.0.100
 
@@ -30,10 +47,10 @@ REPLY QR AA NOERROR
 SECTION QUESTION
     JAIN.AD.JP.          IN  SOA
 SECTION ANSWER
-    JAIN.AD.JP.          IN  SOA  NS.JAIN.AD.JP. mohta.jain.ad.jp. (1 600 600 3600000 604800)
+    JAIN.AD.JP.          IN  SOA  NS.JAIN.AD.JP. mohta.jain.ad.jp. (1 1800 300 604800 86400)
 ;                                                                                     ^ MINIMUM
-;                                                                             ^ EXPIRE
-;                                                                         ^ RETRY
+;                                                                              ^ EXPIRE
+;                                                                          ^ RETRY
 ;                                                                     ^ REFRESH
 ;                                                                   ^ SERIAL
 ENTRY_END
@@ -49,16 +66,16 @@ SECTION QUESTION
     JAIN.AD.JP.          IN  AXFR
 SECTION ANSWER
     $ORIGIN JAIN.AD.JP.
-    JAIN.AD.JP.          IN  SOA   NS.JAIN.AD.JP. mohta.jain.ad.jp. (1 600 600 3600000 604800)
+    JAIN.AD.JP.          IN  SOA   NS.JAIN.AD.JP. mohta.jain.ad.jp. (1 1800 300 604800 86400)
                          IN  NS    NS.JAIN.AD.JP.
     NS.JAIN.AD.JP.       IN  A     133.69.136.1
     NEZU.JAIN.AD.JP.     IN  A     133.69.136.5
-    JAIN.AD.JP.          IN  SOA   NS.JAIN.AD.JP. mohta.jain.ad.jp. (1 600 600 3600000 604800)
+    JAIN.AD.JP.          IN  SOA   NS.JAIN.AD.JP. mohta.jain.ad.jp. (1 1800 300 604800 86400)
 ENTRY_END
 
 RANGE_END
 
-RANGE_BEGIN 40 71
+RANGE_BEGIN 30 41
         ADDRESS 127.0.0.100
 
 ; Mock replies 3 & 4
@@ -71,15 +88,7 @@ REPLY QR AA NOERROR
 SECTION QUESTION
     JAIN.AD.JP.          IN  SOA
 SECTION ANSWER
-    JAIN.AD.JP.          IN  SOA  NS.JAIN.AD.JP. mohta.jain.ad.jp. (2 600 600 3600000 604800)
-ENTRY_END
-
-ENTRY_BEGIN
-MATCH opcode qtype qname
-ADJUST copy_id
-REPLY QR AA NOTIMP
-SECTION QUESTION
-    JAIN.AD.JP.          IN  IXFR
+    JAIN.AD.JP.          IN  SOA  NS.JAIN.AD.JP. mohta.jain.ad.jp. (2 1800 300 604800 86400)
 ENTRY_END
 
 ENTRY_BEGIN
@@ -90,12 +99,67 @@ SECTION QUESTION
     JAIN.AD.JP.          IN  AXFR
 SECTION ANSWER
     $ORIGIN JAIN.AD.JP.
-    JAIN.AD.JP.          IN  SOA   NS.JAIN.AD.JP. mohta.jain.ad.jp. (2 600 600 3600000 604800)
+    JAIN.AD.JP.          IN  SOA   NS.JAIN.AD.JP. mohta.jain.ad.jp. (2 1800 300 604800 86400)
                          IN  NS    NS.JAIN.AD.JP.
     NS.JAIN.AD.JP.       IN  A     133.69.136.2
     NEZU.JAIN.AD.JP.     IN  A     133.69.136.6
-    JAIN.AD.JP.          IN  SOA   NS.JAIN.AD.JP. mohta.jain.ad.jp. (2 600 600 3600000 604800)
+    JAIN.AD.JP.          IN  SOA   NS.JAIN.AD.JP. mohta.jain.ad.jp. (2 1800 300 604800 86400)
 ENTRY_END
+
+RANGE_END
+
+RANGE_BEGIN 50 61
+        ADDRESS 127.0.0.100
+
+; Mock server unreachability
+; ==========================
+; Offer no reply to queries in the specified step range. Not responding to
+; SOA queries should cause zone refresh to be retried per the RETRY interval
+; defined by the previously fetched SOA for the zone.
+
+RANGE_END
+
+RANGE_BEGIN 70 71
+        ADDRESS 127.0.0.100
+
+; Mock replies 5 & 6
+; ==================
+; SOA and AXFR responses for an updated version of the zone
+ENTRY_BEGIN
+MATCH opcode qtype qname
+ADJUST copy_id
+REPLY QR AA NOERROR
+SECTION QUESTION
+    JAIN.AD.JP.          IN  SOA
+SECTION ANSWER
+    JAIN.AD.JP.          IN  SOA  NS.JAIN.AD.JP. mohta.jain.ad.jp. (3 1800 300 604800 86400)
+ENTRY_END
+
+ENTRY_BEGIN
+MATCH opcode qtype qname
+ADJUST copy_id
+REPLY QR AA NOERROR
+SECTION QUESTION
+    JAIN.AD.JP.          IN  AXFR
+SECTION ANSWER
+    $ORIGIN JAIN.AD.JP.
+    JAIN.AD.JP.          IN  SOA   NS.JAIN.AD.JP. mohta.jain.ad.jp. (3 1800 300 604800 86400)
+                         IN  NS    NS.JAIN.AD.JP.
+    NS.JAIN.AD.JP.       IN  A     133.69.136.2
+    NEZU.JAIN.AD.JP.     IN  A     133.69.136.6
+    JAIN.AD.JP.          IN  SOA   NS.JAIN.AD.JP. mohta.jain.ad.jp. (3 1800 300 604800 86400)
+ENTRY_END
+
+RANGE_END
+
+RANGE_BEGIN 80 83
+        ADDRESS 127.0.0.100
+
+; Mock server unreachability
+; ==========================
+; Offer no reply to queries in the specified step range. Not responding to
+; SOA queries should cause zone refresh to be retried per the RETRY interval
+; defined by the previously fetched SOA for the zone.
 
 RANGE_END
 
@@ -131,72 +195,173 @@ ENTRY_END
 STEP 20 TIME_PASSES ELAPSE 0
 
 ; Verify that the zone is being served now.
-STEP 30 QUERY
+STEP 21 QUERY
 ENTRY_BEGIN
 MATCH UDP
 SECTION QUESTION
     JAIN.AD.JP.          IN  SOA
 ENTRY_END
 ; ... get a NOERROR answer
-STEP 31 CHECK_ANSWER
+STEP 22 CHECK_ANSWER
 ENTRY_BEGIN
 MATCH all
 REPLY QR NOERROR
 SECTION QUESTION
     JAIN.AD.JP.          IN  SOA
 SECTION ANSWER
-    JAIN.AD.JP.          IN  SOA   NS.JAIN.AD.JP. mohta.jain.ad.jp. (1 600 600 3600000 604800)
+    JAIN.AD.JP.          IN  SOA   NS.JAIN.AD.JP. mohta.jain.ad.jp. (1 1800 300 604800 86400)
 ENTRY_END
 
-; Let 599 seconds elapse. This is less than the 600 second SOA REFRESH interval
-; and so we don't expect the server to update itself yet.
-STEP 40 TIME_PASSES ELAPSE 599
+; Let 1799 seconds elapse. This is less than the 1800 second SOA REFRESH
+; interval and so we don't expect the server to update itself yet.
+STEP 30 TIME_PASSES ELAPSE 1799
+
+; So let's check that the server still has zone version 1.
+STEP 31 QUERY
+ENTRY_BEGIN
+MATCH UDP
+SECTION QUESTION
+    JAIN.AD.JP.          IN  SOA
+ENTRY_END
+; ... get a NOERROR answer
+STEP 32 CHECK_ANSWER
+ENTRY_BEGIN
+MATCH all
+REPLY QR NOERROR
+SECTION QUESTION
+    JAIN.AD.JP.          IN  SOA
+SECTION ANSWER
+    JAIN.AD.JP.          IN  SOA   NS.JAIN.AD.JP. mohta.jain.ad.jp. (1 1800 300 604800 86400)
+;                                                                    ^ Still at serial 1
+ENTRY_END
+
+; Let 2 more seconds elapse and now we should be at 1801 seconds after last
+; zone refresh and the server should have fetched the new version of the
+; zone.
+STEP 40 TIME_PASSES ELAPSE 2
 
 ; Yield to allow the server to transfer the zone from the secondary.
 STEP 41 TIME_PASSES ELAPSE 0
 
-; So let's check that the server still has zone version 1.
-STEP 50 QUERY
+STEP 42 QUERY
 ENTRY_BEGIN
 MATCH UDP
 SECTION QUESTION
     JAIN.AD.JP.          IN  SOA
 ENTRY_END
 ; ... get a NOERROR answer
-STEP 51 CHECK_ANSWER
+STEP 43 CHECK_ANSWER
 ENTRY_BEGIN
 MATCH all
 REPLY QR NOERROR
 SECTION QUESTION
     JAIN.AD.JP.          IN  SOA
 SECTION ANSWER
-    JAIN.AD.JP.          IN  SOA   NS.JAIN.AD.JP. mohta.jain.ad.jp. (1 600 600 3600000 604800)
-;                                                                    ^ Still at serial 1
-ENTRY_END
-
-; Let 2 more seconds elapse and now we should be at 601 seconds after last zone
-; refresh and the server should have fetched the new version of the zone.
-STEP 60 TIME_PASSES ELAPSE 2
-
-; Yield to allow the server to transfer the zone from the secondary.
-STEP 61 TIME_PASSES ELAPSE 0
-
-STEP 70 QUERY
-ENTRY_BEGIN
-MATCH UDP
-SECTION QUESTION
-    JAIN.AD.JP.          IN  SOA
-ENTRY_END
-; ... get a NOERROR answer
-STEP 71 CHECK_ANSWER
-ENTRY_BEGIN
-MATCH all
-REPLY QR NOERROR
-SECTION QUESTION
-    JAIN.AD.JP.          IN  SOA
-SECTION ANSWER
-    JAIN.AD.JP.          IN  SOA   NS.JAIN.AD.JP. mohta.jain.ad.jp. (2 600 600 3600000 604800)
+    JAIN.AD.JP.          IN  SOA   NS.JAIN.AD.JP. mohta.jain.ad.jp. (2 1800 300 604800 86400)
 ;                                                                    ^ Now at serial 2
 ENTRY_END
+
+; Let another 1801 seconds elapse but this time when the server attempts to
+; refresh the zone it should find that the primary is unreachable. The server
+; should enter retry mode and thus try refreshing the zone from this point on
+; every 300 seconds (as defined by the SOA RETRY value). Nothing we can observe
+; from the outside by querying the secondary can tell us that the zone is in
+; retry mode as the zone should still be served normally when queried.
+STEP 50 TIME_PASSES ELAPSE 1801
+
+; Yield to allow the server to try to transfer the zone from the secondary.
+STEP 51 TIME_PASSES ELAPSE 0
+
+STEP 52 QUERY
+ENTRY_BEGIN
+MATCH UDP
+SECTION QUESTION
+    JAIN.AD.JP.          IN  SOA
+ENTRY_END
+; ... get a NOERROR answer
+STEP 53 CHECK_ANSWER
+ENTRY_BEGIN
+MATCH all
+REPLY QR NOERROR
+SECTION QUESTION
+    JAIN.AD.JP.          IN  SOA
+SECTION ANSWER
+    JAIN.AD.JP.          IN  SOA   NS.JAIN.AD.JP. mohta.jain.ad.jp. (2 1800 300 604800 86400)
+;                                                                    ^ Still at serial 2
+ENTRY_END
+
+; Let another 301 seconds pass without the primary being available, thereby
+; passing the first RETRY checkpoint. From outside the zone should still appear
+; normal, we can't tell this point has passed inside the server.
+STEP 60 TIME_PASSES ELAPSE 301
+
+STEP 61 QUERY
+ENTRY_BEGIN
+MATCH UDP
+SECTION QUESTION
+    JAIN.AD.JP.          IN  SOA
+ENTRY_END
+; ... get a NOERROR answer
+STEP 62 CHECK_ANSWER
+ENTRY_BEGIN
+MATCH all
+REPLY QR NOERROR
+SECTION QUESTION
+    JAIN.AD.JP.          IN  SOA
+SECTION ANSWER
+    JAIN.AD.JP.          IN  SOA   NS.JAIN.AD.JP. mohta.jain.ad.jp. (2 1800 300 604800 86400)
+;                                                                    ^ Still at serial 2
+ENTRY_END
+
+; Verify that when available again the zone is refreshed.
+STEP 70 TIME_PASSES ELAPSE 301
+
+; Yield to allow the server to transfer the zone from the secondary.
+STEP 71 TIME_PASSES ELAPSE 0
+
+STEP 72 QUERY
+ENTRY_BEGIN
+MATCH UDP
+SECTION QUESTION
+    JAIN.AD.JP.          IN  SOA
+ENTRY_END
+; ... get a NOERROR answer
+STEP 73 CHECK_ANSWER
+ENTRY_BEGIN
+MATCH all
+REPLY QR NOERROR
+SECTION QUESTION
+    JAIN.AD.JP.          IN  SOA
+SECTION ANSWER
+    JAIN.AD.JP.          IN  SOA   NS.JAIN.AD.JP. mohta.jain.ad.jp. (3 1800 300 604800 86400)
+;                                                                    ^ Now at serial 3!
+ENTRY_END
+
+; Now force switching back to RETRY mode again but this time don't succeed
+; within the EXPIRE interval.
+STEP 80 TIME_PASSES ELAPSE 1801
+STEP 81 TIME_PASSES ELAPSE 0
+STEP 82 TIME_PASSES ELAPSE 604800
+STEP 83 TIME_PASSES ELAPSE 0
+
+; The zone should now be expired, querying it should fail.
+STEP 84 QUERY
+ENTRY_BEGIN
+MATCH UDP
+SECTION QUESTION
+    JAIN.AD.JP.          IN  SOA
+ENTRY_END
+; ... get a NOERROR answer
+STEP 85 CHECK_ANSWER
+ENTRY_BEGIN
+MATCH all
+REPLY QR SERVFAIL
+SECTION QUESTION
+    JAIN.AD.JP.          IN  SOA
+ENTRY_END
+
+; NOTE: We don't yet support bringing an expired zone back to an active state
+; like Unbound is able to do.
+; See: https://unbound.docs.nlnetlabs.nl/en/latest/manpages/unbound.conf.html#authority-zone-options
 
 SCENARIO_END
