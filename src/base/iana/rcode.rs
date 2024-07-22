@@ -19,6 +19,7 @@
 //  bits of the wrapped integer.
 
 use core::fmt;
+use core::str::FromStr;
 
 //------------ Rcode ---------------------------------------------------------
 
@@ -207,6 +208,29 @@ impl Rcode {
             Rcode::NOTAUTH => Some(b"NOAUTH"),
             Rcode::NOTZONE => Some(b"NOTZONE"),
             _ => None,
+        }
+    }
+}
+
+//--- FromStr
+
+impl FromStr for Rcode {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "NOERROR" => Ok(Rcode::NOERROR),
+            "FORMERR" => Ok(Rcode::FORMERR),
+            "SERVFAIL" => Ok(Rcode::SERVFAIL),
+            "NXDOMAIN" => Ok(Rcode::NXDOMAIN),
+            "NOTIMP" => Ok(Rcode::NOTIMP),
+            "REFUSED" => Ok(Rcode::REFUSED),
+            "YXDOMAIN" => Ok(Rcode::YXDOMAIN),
+            "YXRRSET" => Ok(Rcode::YXRRSET),
+            "NXRRSET" => Ok(Rcode::NXRRSET),
+            "NOTAUTH" => Ok(Rcode::NOTAUTH),
+            "NOTZONE" => Ok(Rcode::NOTZONE),
+            _ => Err(()),
         }
     }
 }
@@ -556,6 +580,31 @@ impl OptRcode {
     }
 }
 
+//--- FromStr
+
+impl FromStr for OptRcode {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "NOERROR" => Ok(OptRcode::NOERROR),
+            "FORMERR" => Ok(OptRcode::FORMERR),
+            "SERVFAIL" => Ok(OptRcode::SERVFAIL),
+            "NXDOMAIN" => Ok(OptRcode::NXDOMAIN),
+            "NOTIMP" => Ok(OptRcode::NOTIMP),
+            "REFUSED" => Ok(OptRcode::REFUSED),
+            "YXDOMAIN" => Ok(OptRcode::YXDOMAIN),
+            "YXRRSET" => Ok(OptRcode::YXRRSET),
+            "NXRRSET" => Ok(OptRcode::NXRRSET),
+            "NOTAUTH" => Ok(OptRcode::NOTAUTH),
+            "NOTZONE" => Ok(OptRcode::NOTZONE),
+            "BADVERS" => Ok(OptRcode::BADVERS),
+            "BADCOOKIE" => Ok(OptRcode::BADCOOKIE),
+            _ => Err(()),
+        }
+    }
+}
+
 //--- TryFrom and From
 
 impl TryFrom<u16> for OptRcode {
@@ -892,5 +941,41 @@ mod test {
         assert_opt_rcode_parts_eq!(OptRcode::BADCOOKIE, 0b000_0001, 0b0111);
         assert_opt_rcode_parts_eq!(OptRcode(4094), 0b1111_1111, 0b1110);
         assert_opt_rcode_parts_eq!(OptRcode(4095), 0b1111_1111, 0b1111);
+    }
+
+    #[test]
+    fn rcode_fromstr() {
+        assert_eq!(Ok(Rcode::NOERROR), "NOERROR".parse());
+        assert_eq!(Ok(Rcode::NOERROR), "NOERROR".parse());
+        assert_eq!(Ok(Rcode::FORMERR), "FORMERR".parse());
+        assert_eq!(Ok(Rcode::SERVFAIL), "SERVFAIL".parse());
+        assert_eq!(Ok(Rcode::NXDOMAIN), "NXDOMAIN".parse());
+        assert_eq!(Ok(Rcode::NOTIMP), "NOTIMP".parse());
+        assert_eq!(Ok(Rcode::REFUSED), "REFUSED".parse());
+        assert_eq!(Ok(Rcode::YXDOMAIN), "YXDOMAIN".parse());
+        assert_eq!(Ok(Rcode::YXRRSET), "YXRRSET".parse());
+        assert_eq!(Ok(Rcode::NXRRSET), "NXRRSET".parse());
+        assert_eq!(Ok(Rcode::NOTAUTH), "NOTAUTH".parse());
+        assert_eq!(Ok(Rcode::NOTZONE), "NOTZONE".parse());
+        assert!("#$%!@".parse::<Rcode>().is_err());
+    }
+
+    #[test]
+    fn optrcode_fromstr() {
+        assert_eq!(Ok(OptRcode::NOERROR), "NOERROR".parse());
+        assert_eq!(Ok(OptRcode::NOERROR), "NOERROR".parse());
+        assert_eq!(Ok(OptRcode::FORMERR), "FORMERR".parse());
+        assert_eq!(Ok(OptRcode::SERVFAIL), "SERVFAIL".parse());
+        assert_eq!(Ok(OptRcode::NXDOMAIN), "NXDOMAIN".parse());
+        assert_eq!(Ok(OptRcode::NOTIMP), "NOTIMP".parse());
+        assert_eq!(Ok(OptRcode::REFUSED), "REFUSED".parse());
+        assert_eq!(Ok(OptRcode::YXDOMAIN), "YXDOMAIN".parse());
+        assert_eq!(Ok(OptRcode::YXRRSET), "YXRRSET".parse());
+        assert_eq!(Ok(OptRcode::NXRRSET), "NXRRSET".parse());
+        assert_eq!(Ok(OptRcode::NOTAUTH), "NOTAUTH".parse());
+        assert_eq!(Ok(OptRcode::NOTZONE), "NOTZONE".parse());
+        assert_eq!(Ok(OptRcode::BADVERS), "BADVERS".parse());
+        assert_eq!(Ok(OptRcode::BADCOOKIE), "BADCOOKIE".parse());
+        assert!("#$%!@".parse::<Rcode>().is_err());
     }
 }
