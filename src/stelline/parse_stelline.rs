@@ -568,7 +568,7 @@ fn parse_match(mut tokens: LineTokens<'_>) -> Matches {
         } else if token == "ttl" {
             matches.ttl = true;
         } else if token == "UDP" {
-            matches.udp = true;
+            matches.tcp = true;
         } else if token == "server_cookie" {
             matches.server_cookie = true;
         } else if token == "ednsdata" {
