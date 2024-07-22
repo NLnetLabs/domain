@@ -28,7 +28,7 @@ use crate::base::{
 };
 use crate::net::server::message::{Request, TransportSpecificContext};
 use crate::net::server::service::{
-    CallResult, Service, ServiceFeedback, ServiceResult,
+    CallResult, Service, ServiceError, ServiceFeedback, ServiceResult,
 };
 use crate::net::server::util::{mk_builder_for_target, mk_error_response};
 use crate::rdata::{Soa, ZoneRecordData};
@@ -598,14 +598,6 @@ where
                 unreachable!();
             };
 
-            let (mut owner, zone_rrset) = batcher_rx.recv().await.unwrap();
-            assert_eq!(zone_rrset.rtype(), Rtype::SOA);
-            let saved_soa_rrset = zone_rrset.clone();
-            let mut soa_seen_count = 0;
-
-            let mut current_rrset = zone_rrset;
-            let mut rrset_to_process = current_rrset.data();
-
             // Note: NSD apparently uses name compresson on AXFR responses
             // because AXFR responses they typically contain lots of
             // alphabetically ordered duplicate names which compress well. NSD
@@ -618,139 +610,24 @@ where
             // TODO: Once we start supporting name compression in responses decide
             // if we want to behave the same way.
 
-            let mut batcher = RrBatcher::new(msg.clone());
+            let cb =
+                Box::new(Self::mk_rr_batcher_cb(msg.clone(), sender.clone()));
+            let mut batcher = RrBatcher::new(msg.clone(), cb);
             if compatibility_mode {
                 batcher.set_hard_rr_limit(1);
             }
 
             batcher.set_soft_byte_limit(soft_byte_limit);
 
-            // Loop until all of the RRsets sent by the zone walker have been
-            // pushed into DNS response messages and sent into the result
-            // stream.
-            let mut rrset_progress = 0;
-            'outer: loop {
-                // Loop over the RRset items being sent by the zone walker and
-                // add as many of them as possible to the response being
-                // built.
-
-                let builder = 'inner: loop {
-                    if rrset_to_process == saved_soa_rrset.data() {
-                        soa_seen_count += 1;
-                    }
-
-                    for rr in rrset_to_process {
-                        trace!(
-                            "Adding [{}/{}] {owner} {qclass} {} {:?} {rr} to batch",
-                            rrset_progress+1,
-                            rrset_to_process.len(),
-                            current_rrset.rtype(),
-                            current_rrset.ttl()
-                        );
-                        let res = batcher.push((
-                            owner.clone(),
-                            qclass,
-                            current_rrset.ttl(),
-                            rr,
-                        ));
-
-                        match res {
-                            Ok(PushResult::PushedAndReadyForMore) => {
-                                // Message still has space, keep going.
-                                rrset_progress += 1;
-                            }
-
-                            Ok(PushResult::PushedAndLimitReached(
-                                builder,
-                            )) => {
-                                // Pushed and configured limit reached, send it.
-                                rrset_progress += 1;
-                                trace!("Pushed and limit reached");
-                                break 'inner Some(builder);
-                            }
-
-                            Ok(PushResult::NotPushedMessageFull(builder)) => {
-                                // Message is full, send what we have so far.
-                                trace!("Message is full");
-                                break 'inner Some(builder);
-                            }
-
-                            Err(err) => {
-                                error!("Internal error: Unable to add RR to AXFR response message: {err}");
-                                break 'outer;
-                            }
-
-                            _ => unreachable!(),
-                        }
-                    }
-
-                    if soa_seen_count == 2 {
-                        trace!("SOA seen count == 2, stopping");
-                        // This is our signal to stop, as the AXFR message
-                        // starts and ends with the zone SOA.
-                        break 'inner batcher.take();
-                    } else {
-                        // Fetch more RRsets to add to the message.
-                        let Some((new_owner, new_rrset)) =
-                            batcher_rx.recv().await
-                        else {
-                            trace!("Fetch failed");
-                            let mut additional =
-                                mk_error_response(&msg, OptRcode::SERVFAIL);
-                            Self::set_axfr_header(&msg, &mut additional);
-                            let call_result = Ok(CallResult::new(additional));
-                            trace!("Sending");
-                            sender.send(call_result).unwrap(); // TODO: Handle this Result
-                            break 'outer;
-                        };
-                        (owner, current_rrset) = (new_owner, new_rrset);
-                        rrset_to_process = current_rrset.data();
-                        rrset_progress = 0;
-                    }
-                };
-
-                // Send the message.
-                if let Some(builder) = builder {
-                    trace!("Sending");
-                    let mut additional = builder.additional();
-                    Self::set_axfr_header(&msg, &mut additional);
-                    let call_result = Ok(CallResult::new(additional));
-                    if sender.send(call_result).is_err() {
-                        batcher_rx.close();
-                        return;
-                    }
-                }
-
-                if rrset_progress < rrset_to_process.len() {
-                    trace!("Current RRSET not yet fully batched ({} RRs remain), continuing..", rrset_to_process.len()-rrset_progress);
-                    // Some RRs from the current RRset didn't fit in the last
-                    // message, process these before fetching another RRset
-                    // from the incoming queue.
-                    rrset_to_process = &rrset_to_process[rrset_progress..];
-                    rrset_progress = 0;
-                } else if soa_seen_count == 2 {
-                    trace!("SOA seen count == 2, really stopping");
-                    break;
-                } else {
-                    // Fetch more RRsets to add to the message from the incoming queue.
-                    trace!("Fetching more records");
-                    let Some((new_owner, new_rrset)) =
-                        batcher_rx.recv().await
-                    else {
-                        trace!("Fetch failed");
-                        let mut additional =
-                            mk_error_response(&msg, OptRcode::SERVFAIL);
-                        Self::set_axfr_header(&msg, &mut additional);
-                        let call_result = Ok(CallResult::new(additional));
-                        trace!("Sending");
-                        sender.send(call_result).unwrap(); // TODO: Handle this Result
-                        break 'outer;
-                    };
-                    (owner, current_rrset) = (new_owner, new_rrset);
-                    rrset_to_process = current_rrset.data();
-                    rrset_progress = 0;
+            while let Some((owner, rrset)) = batcher_rx.recv().await {
+                for rr in rrset.data() {
+                    batcher
+                        .push((owner.clone(), qclass, rrset.ttl(), rr))
+                        .unwrap(); // TODO
                 }
             }
+
+            batcher.finish().unwrap(); // TODO
 
             trace!("Finishing transaction");
             Self::add_to_stream(
@@ -972,75 +849,18 @@ where
                 (q.qname().to_name::<Bytes>(), q.qclass())
             };
 
-            let mut batcher = RrBatcher::new(msg.clone());
-            let cloned_msg = msg.clone();
-            let cloned_sender = sender.clone();
-            batcher.set_cb(Box::new(move |builder| {
-                trace!("sending intermediate batch");
-                let mut additional = builder.additional();
-                Self::set_axfr_header(&cloned_msg, &mut additional);
-                let call_result = Ok(CallResult::new(additional));
-                let _ = cloned_sender.send(call_result); // TODO: Handle this Result.
-                Ok(())
-            }));
-
-            // let first_and_last_soa_rr = (
-            //     owner.clone(),
-            //     qclass,
-            //     zone_soa_rrset.ttl(),
-            //     &zone_soa_rrset.data()[0],
-            // );
-            // batcher
-            //     .push_with_cb(first_and_last_soa_rr)
-            //     .expect("HANDLE ME");
-
-            // fn push_rrset<RequestOctets, Target>(
-            //     batcher: &mut RrBatcher<RequestOctets, Target>,
-            //     owner: &Name<Bytes>,
-            //     rrsets: &[SharedRrset],
-            // ) where
-            //     RequestOctets: Octets,
-            //     Target: Composer,
-            //     Target: Default,
-            // {
-            //     trace!("PUSHING: RRSETS");
-            //     for rrset in rrsets {
-            //         trace!("PUSHING: RRSET");
-            //         // for rr in rrset.data() {
-            //         //     trace!("PUSHING RR: {rr:?}");
-            //         //     if matches!(
-            //         //         batcher
-            //         //             .push_with_cb((
-            //         //                 owner.clone(),
-            //         //                 Class::IN,
-            //         //                 rrset.ttl(),
-            //         //                 &rr
-            //         //             ))
-            //         //             .expect("HANDLE ME"),
-            //         //         PushResult::Retry
-            //         //     ) {
-            //         //         batcher
-            //         //             .push_with_cb((
-            //         //                 owner.clone(),
-            //         //                 Class::IN,
-            //         //                 rrset.ttl(),
-            //         //                 &rr,
-            //         //             ))
-            //         //             .expect("HANDLE ME");
-            //         //     }
-            //         // }
-            //         // batcher.push_with_cb((owner.clone(), Class::IN, rrset.ttl(), rrset.data())).expect("HANDLE ME");
-            //     }
-            // }
+            let batcher_callback =
+                Box::new(Self::mk_rr_batcher_cb(msg.clone(), sender.clone()));
+            let mut batcher = RrBatcher::new(msg.clone(), batcher_callback);
 
             batcher
-                .push_with_cb((
+                .push((
                     owner.clone(),
                     qclass,
                     zone_soa_rrset.ttl(),
                     &zone_soa_rrset.data()[0],
                 ))
-                .expect("HANDLE ME");
+                .unwrap(); // TODO
 
             for diff in diffs {
                 // 4. Response Format
@@ -1052,71 +872,65 @@ where
                 let soa_k = &(owner.clone(), Rtype::SOA);
                 let removed_soa = diff.removed.get(soa_k).unwrap(); // The zone MUST have a SOA record
                 batcher
-                    .push_with_cb((
+                    .push((
                         owner.clone(),
                         qclass,
                         removed_soa.ttl(),
                         &removed_soa.data()[0],
                     ))
-                    .expect("HANDLE ME");
+                    .unwrap(); // TODO
 
                 diff.removed.iter().for_each(|((owner, rtype), rrset)| {
                     if *rtype != Rtype::SOA {
                         for rr in rrset.data() {
                             batcher
-                                .push_with_cb((
+                                .push((
                                     owner.clone(),
                                     qclass,
                                     rrset.ttl(),
                                     rr,
                                 ))
-                                .expect("HANDLE ME");
+                                .unwrap(); // TODO
                         }
                     }
                 });
 
                 let added_soa = diff.added.get(soa_k).unwrap(); // The zone MUST have a SOA record
                 batcher
-                    .push_with_cb((
+                    .push((
                         owner.clone(),
                         qclass,
                         added_soa.ttl(),
                         &added_soa.data()[0],
                     ))
-                    .expect("HANDLE ME");
+                    .unwrap(); // TODO
 
                 diff.added.iter().for_each(|((owner, rtype), rrset)| {
                     if *rtype != Rtype::SOA {
                         for rr in rrset.data() {
                             batcher
-                                .push_with_cb((
+                                .push((
                                     owner.clone(),
                                     qclass,
                                     rrset.ttl(),
                                     rr,
                                 ))
-                                .expect("HANDLE ME");
+                                .unwrap(); // TODO
                         }
                     }
                 });
             }
 
             batcher
-                .push_with_cb((
+                .push((
                     owner,
                     qclass,
                     zone_soa_rrset.ttl(),
                     &zone_soa_rrset.data()[0],
                 ))
-                .expect("HANDLE ME");
+                .unwrap(); // TODO
 
-            if let Some(builder) = batcher.take() {
-                trace!("sending final batch");
-                let mut additional = builder.additional();
-                Self::set_axfr_header(&msg, &mut additional);
-                let call_result = Ok(CallResult::new(additional));
-                let _ = sender.send(call_result); // TODO: Handle this Result.
-            }
+            batcher.finish().unwrap(); // TODO
 
             trace!("Ending transaction");
             Self::add_to_stream(
@@ -1212,6 +1026,24 @@ where
         }
 
         None
+    }
+
+    fn mk_rr_batcher_cb(
+        msg: Arc<Message<RequestOctets>>,
+        sender: UnboundedSender<
+            Result<CallResult<NextSvc::Target>, ServiceError>,
+        >,
+    ) -> impl Fn(AnswerBuilder<StreamTarget<NextSvc::Target>>) -> Result<(), ()>
+    {
+        move |builder: AnswerBuilder<StreamTarget<_>>| {
+            trace!("Sending RR batch");
+            let mut additional = builder.additional();
+            Self::set_axfr_header(&msg, &mut additional);
+            let call_result = Ok(CallResult::new(additional));
+            sender.send(call_result).map_err(|err| {
+                warn!("Internal error: Send from RR batcher failed: {err}");
+            })
+        }
     }
 }
 
@@ -1339,26 +1171,29 @@ struct RrBatcher<RequestOctets, Target> {
     soft_byte_limit: Option<usize>,
     answer: Option<Result<AnswerBuilder<StreamTarget<Target>>, PushError>>,
     #[allow(clippy::type_complexity)]
-    cb: Option<
-        Box<
-            dyn Fn(AnswerBuilder<StreamTarget<Target>>) -> Result<(), ()>
-                + Send,
-        >,
+    cb: Box<
+        dyn Fn(AnswerBuilder<StreamTarget<Target>>) -> Result<(), ()> + Send,
     >,
 }
+
+pub type RrBatcherCallback<Target> =
+    dyn Fn(AnswerBuilder<StreamTarget<Target>>) -> Result<(), ()> + Send;
 
 impl<RequestOctets, Target> RrBatcher<RequestOctets, Target>
 where
     RequestOctets: Octets,
     Target: Composer + Default,
 {
-    pub fn new(req_msg: Arc<Message<RequestOctets>>) -> Self {
+    pub fn new(
+        req_msg: Arc<Message<RequestOctets>>,
+        cb: Box<RrBatcherCallback<Target>>,
+    ) -> Self {
         Self {
             req_msg,
             hard_rr_limit: None,
             soft_byte_limit: None,
             answer: None,
-            cb: None,
+            cb,
         }
     }
 
@@ -1371,20 +1206,41 @@ where
         self.soft_byte_limit = Some(byte_limit as usize);
     }
 
-    #[allow(clippy::type_complexity)]
-    pub fn set_cb(
-        &mut self,
-        cb: Box<
-            dyn Fn(AnswerBuilder<StreamTarget<Target>>) -> Result<(), ()>
-                + Send,
-        >,
-    ) {
-        self.cb = Some(cb);
-    }
-
     pub fn push(
         &mut self,
         record: impl ComposeRecord,
+    ) -> Result<PushResult<Target>, ()> {
+        match self.try_push(&record) {
+            Ok(PushResult::Retry) => self.try_push(&record),
+            other => other,
+        }
+    }
+
+    pub fn finish(&mut self) -> Result<(), ()> {
+        let builder = self.answer.take().unwrap().map_err(|_| ())?;
+        (self.cb)(builder)
+    }
+
+    fn try_push(
+        &mut self,
+        record: &impl ComposeRecord,
+    ) -> Result<PushResult<Target>, ()> {
+        match self.push_ref(record).map_err(|_| ())? {
+            PushResult::PushedAndLimitReached(builder) => {
+                (self.cb)(builder)?;
+                Ok(PushResult::PushedAndReadyForMore)
+            }
+            PushResult::NotPushedMessageFull(builder) => {
+                (self.cb)(builder)?;
+                Ok(PushResult::Retry)
+            }
+            other => Ok(other),
+        }
+    }
+
+    fn push_ref(
+        &mut self,
+        record: &impl ComposeRecord,
     ) -> Result<PushResult<Target>, PushError> {
         self.answer.get_or_insert_with(|| {
             let mut builder = mk_builder_for_target();
@@ -1396,9 +1252,8 @@ where
 
         let mut answer = self.answer.take().unwrap()?;
 
-        let res = answer.push(record);
+        let res = answer.push_ref(record);
         let ancount = answer.counts().ancount();
-        // let msg_len = answer.as_slice().len() as u16;
 
         match res {
             Ok(()) if Some(ancount) == self.hard_rr_limit => {
@@ -1407,14 +1262,6 @@ where
                 Ok(PushResult::PushedAndLimitReached(answer))
             }
 
-            // Ok(())
-            //     if self.soft_byte_limit.is_some()
-            //         && Some(msg_len) >= self.soft_byte_limit =>
-            // {
-            //     // Push succeeded but the message is as full as the caller
-            //     // allows, pass it back to the caller to process.
-            //     Ok(PushResult::PushedAndLimitReached(answer))
-            // }
             Err(_) if ancount > 0 => {
                 // Push failed because the message is full, pass it back to
                 // the caller to process.
@@ -1433,27 +1280,13 @@ where
             }
         }
     }
+}
 
-    pub fn push_with_cb(
-        &mut self,
-        record: impl ComposeRecord,
-    ) -> Result<PushResult<Target>, ()> {
-        match self.push(record) {
-            Ok(PushResult::PushedAndLimitReached(builder)) => {
-                (self.cb.as_ref().unwrap())(builder)?;
-                Ok(PushResult::PushedAndReadyForMore)
-            }
-            Ok(PushResult::NotPushedMessageFull(builder)) => {
-                (self.cb.as_ref().unwrap())(builder)?;
-                Ok(PushResult::Retry)
-            }
-            Ok(PushResult::Retry) => unreachable!(),
-            res => res.map_err(|_| ()),
+impl<RequestOctets, Target> Drop for RrBatcher<RequestOctets, Target> {
+    fn drop(&mut self) {
+        if self.answer.is_some() {
+            trace!("Dropping unfinished RrBatcher, was that intentional or did you forget to call finish()?");
         }
-    }
-
-    pub fn take(&mut self) -> Option<AnswerBuilder<StreamTarget<Target>>> {
-        self.answer.take().and_then(|res| res.ok())
     }
 }
 
