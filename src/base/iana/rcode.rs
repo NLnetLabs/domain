@@ -230,7 +230,7 @@ impl FromStr for Rcode {
             "NXRRSET" => Ok(Rcode::NXRRSET),
             "NOTAUTH" => Ok(Rcode::NOTAUTH),
             "NOTZONE" => Ok(Rcode::NOTZONE),
-            _ => Err(())
+            _ => Err(()),
         }
     }
 }
@@ -614,7 +614,7 @@ impl FromStr for OptRcode {
             "NOTZONE" => Ok(OptRcode::NOTZONE),
             "BADVERS" => Ok(OptRcode::BADVERS),
             "BADCOOKIE" => Ok(OptRcode::BADCOOKIE),
-            _ => Err(())
+            _ => Err(()),
         }
     }
 }
@@ -992,7 +992,7 @@ mod test {
         assert_eq!(Ok(OptRcode::BADCOOKIE), "BADCOOKIE".parse());
         assert!("#$%!@".parse::<Rcode>().is_err());
     }
-    
+
     #[test]
     fn optrcode_isext() {
         assert!(!OptRcode::NOERROR.is_ext());
