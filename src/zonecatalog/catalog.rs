@@ -1821,14 +1821,18 @@ where
 
     /// The set of "active" zones managed by this [`Catalog`] instance.
     ///
-    /// Excludes:
-    ///   - Newly added empty secondary zones still pending initial refresh.
-    ///   - Expired zones.
+    /// Attempting to get a newly added empty secondary zone that is still
+    /// pending initial refresh or an expired zone will result in an error.
+    /// This allows the caller to distinguish between the catalog not being
+    /// authoratitive for a zone (Ok(None)) (thus the response should be
+    /// NOTAUTH), a zone for which the catalog is authoritative but is
+    /// temporarily not in the correct state (SERVFAIL) vs a zone for which
+    /// the catalog is authoritative and which is in the correct state (Ok).
     fn get_zone(
         &self,
         apex_name: &impl ToName,
         class: Class,
-    ) -> Option<Zone> {
+    ) -> Result<Option<Zone>, ZoneError> {
         let zones = self.zones();
 
         if let Some(zone) = zones.get_zone(apex_name, class) {
@@ -1839,20 +1843,24 @@ where
                 .unwrap();
 
             if cat_zone.is_active() {
-                return Some(zone.clone());
+                return Ok(Some(zone.clone()));
+            } else {
+                return Err(ZoneError::TemporarilyUnavailable);
             }
         }
 
-        None
+        Ok(None)
     }
 
     /// Gets the closest matching "active" [`Zone`] for the given QNAME and
     /// CLASS, if any.
     ///
-    /// Excludes:
-    ///   - Newly added empty secondary zones still pending initial refresh.
-    ///   - Expired zones.
-    fn find_zone(&self, qname: &impl ToName, class: Class) -> Option<Zone> {
+    /// Returns the same result as [get_zone()].
+    fn find_zone(
+        &self,
+        qname: &impl ToName,
+        class: Class,
+    ) -> Result<Option<Zone>, ZoneError> {
         let zones = self.zones();
 
         if let Some(zone) = zones.find_zone(qname, class) {
@@ -1863,11 +1871,13 @@ where
                 .unwrap();
 
             if cat_zone.is_active() {
-                return Some(zone.clone());
+                return Ok(Some(zone.clone()));
+            } else {
+                return Err(ZoneError::TemporarilyUnavailable);
             }
         }
 
-        None
+        Ok(None)
     }
 }
 
@@ -2352,10 +2362,17 @@ impl<T: Notifiable> Notifiable for Arc<T> {
 pub trait ZoneLookup {
     fn zones(&self) -> Arc<ZoneTree>;
 
-    fn get_zone(&self, apex_name: &impl ToName, class: Class)
-        -> Option<Zone>;
+    fn get_zone(
+        &self,
+        apex_name: &impl ToName,
+        class: Class,
+    ) -> Result<Option<Zone>, ZoneError>;
 
-    fn find_zone(&self, qname: &impl ToName, class: Class) -> Option<Zone>;
+    fn find_zone(
+        &self,
+        qname: &impl ToName,
+        class: Class,
+    ) -> Result<Option<Zone>, ZoneError>;
 }
 
 impl<T: ZoneLookup> ZoneLookup for Arc<T> {
@@ -2367,11 +2384,22 @@ impl<T: ZoneLookup> ZoneLookup for Arc<T> {
         &self,
         apex_name: &impl ToName,
         class: Class,
-    ) -> Option<Zone> {
+    ) -> Result<Option<Zone>, ZoneError> {
         (**self).get_zone(apex_name, class)
     }
 
-    fn find_zone(&self, qname: &impl ToName, class: Class) -> Option<Zone> {
+    fn find_zone(
+        &self,
+        qname: &impl ToName,
+        class: Class,
+    ) -> Result<Option<Zone>, ZoneError> {
         (**self).find_zone(qname, class)
     }
+}
+
+//------------ ZoneError ------------------------------------------------------
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum ZoneError {
+    TemporarilyUnavailable,
 }

@@ -53,7 +53,7 @@ use crate::stelline::parse_stelline::{
 use crate::tsig::{Algorithm, Key, KeyName, KeyStore};
 use crate::utils::base16;
 use crate::zonecatalog::catalog::{
-    self, Catalog, ConnectionFactory, TypedZone, ZoneLookup,
+    self, Catalog, ConnectionFactory, TypedZone, ZoneError, ZoneLookup,
 };
 use crate::zonecatalog::types::{
     CatalogKeyStore, CompatibilityMode, NotifyConfig, TransportStrategy,
@@ -385,17 +385,18 @@ fn test_service<T: ZoneLookup>(
 ) -> ServiceResult<Vec<u8>> {
     let question = request.message().sole_question().unwrap();
 
-    let zone = catalog
-        .find_zone(question.qname(), question.qclass())
-        .map(|zone| zone.read());
-
-    let answer = match zone {
-        Some(zone) => {
+    let answer = match catalog.find_zone(question.qname(), question.qclass())
+    {
+        Ok(Some(zone)) => {
+            let readable_zone = zone.read();
             let qname = question.qname().to_bytes();
             let qtype = question.qtype();
-            zone.query(qname, qtype).unwrap()
+            readable_zone.query(qname, qtype).unwrap()
         }
-        None => Answer::new(Rcode::NXDOMAIN),
+        Ok(None) => Answer::new(Rcode::NXDOMAIN),
+        Err(ZoneError::TemporarilyUnavailable) => {
+            Answer::new(Rcode::SERVFAIL)
+        }
     };
 
     let builder = mk_builder_for_target();

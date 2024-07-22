@@ -33,7 +33,7 @@ use crate::net::server::service::{
 use crate::net::server::util::{mk_builder_for_target, mk_error_response};
 use crate::rdata::{Soa, ZoneRecordData};
 use crate::tsig::KeyName;
-use crate::zonecatalog::catalog::{CatalogZone, ZoneLookup};
+use crate::zonecatalog::catalog::{CatalogZone, ZoneError, ZoneLookup};
 use crate::zonecatalog::types::{
     CompatibilityMode, XfrConfig, XfrStrategy, ZoneInfo,
 };
@@ -165,24 +165,43 @@ where
         let qname: Name<Bytes> = q.qname().to_name();
 
         // Find the zone
-        let Some(zone) = zones.get_zone(&qname, q.qclass()) else {
-            // https://datatracker.ietf.org/doc/html/rfc5936#section-2.2.1
-            // 2.2.1 Header Values
-            //   "If a server is not authoritative for the queried zone, the
-            //    server SHOULD set the value to NotAuth(9)"
-            warn!(
-                "{} for {qname} from {} refused: unknown zone",
-                q.qtype(),
-                req.client_addr()
-            );
+        let zone = match zones.get_zone(&qname, q.qclass()) {
+            Ok(Some(zone)) => zone,
 
-            // Note: This may not be strictly true, we may be authoritative
-            // for the zone but not willing to transfer it, but we can't know
-            // here which is the case.
-            return ControlFlow::Break(Self::to_stream(mk_error_response(
-                msg,
-                OptRcode::NOTAUTH,
-            )));
+            Ok(None) => {
+                // https://datatracker.ietf.org/doc/html/rfc5936#section-2.2.1
+                // 2.2.1 Header Values
+                //   "If a server is not authoritative for the queried zone, the
+                //    server SHOULD set the value to NotAuth(9)"
+                warn!(
+                    "{} for {qname} from {} refused: unknown zone",
+                    q.qtype(),
+                    req.client_addr()
+                );
+
+                // Note: This may not be strictly true, we may be authoritative
+                // for the zone but not willing to transfer it, but we can't know
+                // here which is the case.
+                return ControlFlow::Break(Self::to_stream(
+                    mk_error_response(msg, OptRcode::NOTAUTH),
+                ));
+            }
+
+            Err(ZoneError::TemporarilyUnavailable) => {
+                // The zone is not yet loaded or has expired, both of which
+                // are presumably transient conditions and thus SERVFAIL is the
+                // appropriate response, not NOTAUTH, as we know we are supposed
+                // to be authoritative for the zone but we just don't have the
+                // data right now.
+                warn!(
+                    "{} for {qname} from {} refused: zone not currently available",
+                    q.qtype(),
+                    req.client_addr()
+                );
+                return ControlFlow::Break(Self::to_stream(
+                    mk_error_response(msg, OptRcode::SERVFAIL),
+                ));
+            }
         };
 
         // Only provide XFR if allowed.
