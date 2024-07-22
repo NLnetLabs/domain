@@ -1122,8 +1122,9 @@ where
                     zone_refresh_info.metrics.last_refreshed_at =
                         Some(Instant::now());
                 } else {
-                    // No transfer was required, either because transfer is not
-                    // enabled for the zone or the zone is up-to-date.
+                    // No transfer was required, either because transfer is
+                    // not enabled at the primaries for the zone or the zone
+                    // is up-to-date with the primaries.
                 }
 
                 zone_refresh_info.status = ZoneRefreshStatus::Refreshing;
@@ -1224,7 +1225,7 @@ where
                         num_ok_primaries += 1;
                     }
                     Err(err) => {
-                        // Transfer failed. This shuold already have been
+                        // Transfer failed. This should already have been
                         // logged along with more details about the transfer
                         // than we have here. Try the next primary.
                         saved_err = Some(err);
