@@ -3,7 +3,6 @@ use std::fmt::Debug;
 use octseq::{OctetsBuilder, Truncate};
 use tracing::trace;
 
-use crate::base::iana::rcode::Rcode;
 use crate::base::iana::Opcode;
 use crate::base::message_builder::AdditionalBuilder;
 use crate::base::wire::Composer;
@@ -39,6 +38,11 @@ where
         msg.first_question().unwrap().qtype()
     );
     for range in ranges {
+        trace!(
+            "Checking against range {} <= {}",
+            range.start_value,
+            range.end_value
+        );
         if step < range.start_value || step > range.end_value {
             continue;
         }
