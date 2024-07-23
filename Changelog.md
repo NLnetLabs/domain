@@ -7,12 +7,16 @@ Breaking changes
 New
 
 * Added an optional push size limit to `MessageBuilder`. ([#348])
+* Added `FromStr` impls for `Rcode` and `OptRcode`. ([#357])
+* Added `OptRcode::is_ext` to check if the code is an extended code.
+  ([#358])
 
 Bug fixes
 
 * Fixed a mistake in the tsig module while calculating the start of
   the TSIG record when there were other records in the additional section,
   causing the TSIG code to fail if OPT records were in use. ([#333])
+* Fixed the mnemonic for the `NOTAUTH` rcode – it was `NOAUTH`. ([#360])
 
 Unstable features
 
@@ -22,6 +26,10 @@ Unstable features
   * Fixed an issue with slow responses in the
     `multi_stream` transport by not waiting in the first iteration if an
     underlying stream reports its connection being closed. ([#338])
+  * Added an option called idle_timeout to stream that allows a TCP or
+    TLS connection to stay open even if no TcpKeepalive option is received
+    from the server. ([#341])
+  * Fixed an off-by-one error in Dgram client retry count checking. ([#354])
 * `unstable-server-transport`
   * The `CookiesMiddlewareProcessor` now allows requests with invalid
     cookies to proceed if they are authenticated or not required to
@@ -33,7 +41,11 @@ Other changes
 [#333]: https://github.com/NLnetLabs/domain/pull/333
 [#336]: https://github.com/NLnetLabs/domain/pull/336
 [#338]: https://github.com/NLnetLabs/domain/pull/338
+[#341]: https://github.com/NLnetLabs/domain/pull/341
 [#348]: https://github.com/NLnetLabs/domain/pull/348
+[#357]: https://github.com/NLnetLabs/domain/pull/357
+[#358]: https://github.com/NLnetLabs/domain/pull/358
+[#360]: https://github.com/NLnetLabs/domain/pull/360
 
 ## 0.10.1
 
