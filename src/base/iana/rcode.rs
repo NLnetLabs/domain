@@ -558,6 +558,20 @@ impl OptRcode {
         self.to_parts().1
     }
 
+    /// Returns true if the RCODE is extended, false otherwise.
+    #[must_use]
+    pub fn is_ext(&self) -> bool {
+        // https://datatracker.ietf.org/doc/html/rfc6891#section-6.1.3
+        // 6.1.3. OPT Record TTL Field Use
+        //   ...
+        //   "EXTENDED-RCODE
+        //       Forms the upper 8 bits of extended 12-bit RCODE (together
+        //       with the 4 bits defined in [RFC1035].  Note that
+        //       EXTENDED-RCODE value 0 indicates that an unextended RCODE is
+        //       in use (values 0 through 15)."
+        self.0 >> 4 != 0
+    }
+
     /// Returns the mnemonic for this value if there is one.
     #[must_use]
     pub const fn to_mnemonic(self) -> Option<&'static [u8]> {
@@ -975,5 +989,22 @@ mod test {
         assert_eq!(Ok(OptRcode::BADVERS), "BADVERS".parse());
         assert_eq!(Ok(OptRcode::BADCOOKIE), "BADCOOKIE".parse());
         assert!("#$%!@".parse::<Rcode>().is_err());
+    }
+
+    #[test]
+    fn optrcode_isext() {
+        assert!(!OptRcode::NOERROR.is_ext());
+        assert!(!OptRcode::FORMERR.is_ext());
+        assert!(!OptRcode::SERVFAIL.is_ext());
+        assert!(!OptRcode::NXDOMAIN.is_ext());
+        assert!(!OptRcode::NOTIMP.is_ext());
+        assert!(!OptRcode::REFUSED.is_ext());
+        assert!(!OptRcode::YXDOMAIN.is_ext());
+        assert!(!OptRcode::YXRRSET.is_ext());
+        assert!(!OptRcode::NXRRSET.is_ext());
+        assert!(!OptRcode::NOTAUTH.is_ext());
+        assert!(!OptRcode::NOTZONE.is_ext());
+        assert!(OptRcode::BADVERS.is_ext());
+        assert!(OptRcode::BADCOOKIE.is_ext());
     }
 }
