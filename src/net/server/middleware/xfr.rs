@@ -21,14 +21,16 @@ use crate::base::message_builder::{
     AdditionalBuilder, AnswerBuilder, PushError,
 };
 use crate::base::net::IpAddr;
-use crate::base::record::ComposeRecord;
 use crate::base::wire::Composer;
 use crate::base::{
     Message, Name, ParsedName, Question, Rtype, Serial, StreamTarget, ToName,
 };
+use crate::net::server::batcher::{
+    CallbackBatcher, Callbacks, ResourceRecordBatcher,
+};
 use crate::net::server::message::{Request, TransportSpecificContext};
 use crate::net::server::service::{
-    CallResult, Service, ServiceError, ServiceFeedback, ServiceResult,
+    CallResult, Service, ServiceFeedback, ServiceResult,
 };
 use crate::net::server::util::{mk_builder_for_target, mk_error_response};
 use crate::rdata::{Soa, ZoneRecordData};
@@ -591,17 +593,7 @@ where
         // DNS response message and pass the created messages downstream to
         // the caller.
         let msg = msg.clone();
-
-        let soft_byte_limit = match req.transport_ctx() {
-            TransportSpecificContext::Udp(ctx) => {
-                let max_msg_size =
-                    ctx.max_response_size_hint().unwrap_or(512);
-                max_msg_size - req.num_reserved_bytes()
-            }
-            TransportSpecificContext::NonUdp(_) => {
-                65535 - req.num_reserved_bytes()
-            }
-        };
+        let soft_byte_limit = Self::calc_msg_bytes_available(req);
 
         tokio::spawn(async move {
             // Limit the number of concurrently running XFR batching
@@ -629,14 +621,22 @@ where
             // TODO: Once we start supporting name compression in responses decide
             // if we want to behave the same way.
 
-            let cb =
-                Box::new(Self::mk_rr_batcher_cb(msg.clone(), sender.clone()));
-            let mut batcher = RrBatcher::new(msg.clone(), cb);
-            if compatibility_mode {
-                batcher.set_hard_rr_limit(1);
-            }
+            let hard_rr_limit = match compatibility_mode {
+                true => Some(1),
+                false => None,
+            };
 
-            batcher.set_soft_byte_limit(soft_byte_limit);
+            let batcher = XfrRrBatcher::build(
+                msg.clone(),
+                sender.clone(),
+                Some(soft_byte_limit),
+                hard_rr_limit,
+            );
+
+            #[cfg(test)]
+            let batcher = test::PredictablyOrderedBatcher::new(batcher);
+
+            let mut batcher = batcher;
 
             while let Some((owner, rrset)) = batcher_rx.recv().await {
                 for rr in rrset.data() {
@@ -826,6 +826,8 @@ where
 
         // Stream the IXFR diffs in the background
         let msg = msg.clone();
+        let soft_byte_limit = Self::calc_msg_bytes_available(req);
+
         tokio::spawn(async move {
             // Limit the number of concurrently running XFR batching
             // operations.
@@ -868,9 +870,17 @@ where
                 (q.qname().to_name::<Bytes>(), q.qclass())
             };
 
-            let batcher_callback =
-                Box::new(Self::mk_rr_batcher_cb(msg.clone(), sender.clone()));
-            let mut batcher = RrBatcher::new(msg.clone(), batcher_callback);
+            let batcher = XfrRrBatcher::build(
+                msg.clone(),
+                sender.clone(),
+                Some(soft_byte_limit),
+                None,
+            );
+
+            #[cfg(test)]
+            let batcher = test::PredictablyOrderedBatcher::new(batcher);
+
+            let mut batcher = batcher;
 
             batcher
                 .push((
@@ -968,48 +978,6 @@ where
         sender.send(Ok(call_result)).unwrap(); // TODO: Handle this Result
     }
 
-    fn set_axfr_header(
-        msg: &Message<RequestOctets>,
-        additional: &mut AdditionalBuilder<StreamTarget<NextSvc::Target>>,
-    ) {
-        // https://datatracker.ietf.org/doc/html/rfc5936#section-2.2.1
-        // 2.2.1: Header Values
-        //
-        // "These are the DNS message header values for AXFR responses.
-        //
-        //     ID          MUST be copied from request -- see Note a)
-        //
-        //     QR          MUST be 1 (Response)
-        //
-        //     OPCODE      MUST be 0 (Standard Query)
-        //
-        //     Flags:
-        //        AA       normally 1 -- see Note b)
-        //        TC       MUST be 0 (Not truncated)
-        //        RD       RECOMMENDED: copy request's value; MAY be set to 0
-        //        RA       SHOULD be 0 -- see Note c)
-        //        Z        "mbz" -- see Note d)
-        //        AD       "mbz" -- see Note d)
-        //        CD       "mbz" -- see Note d)"
-        let header = additional.header_mut();
-
-        // Note: MandatoryMiddlewareSvc will also "fix" ID and QR, so strictly
-        // speaking this isn't necessary, but as a caller might not use
-        // MandatoryMiddlewareSvc we do it anyway to try harder to conform to
-        // the RFC.
-        header.set_id(msg.header().id());
-        header.set_qr(true);
-
-        header.set_opcode(Opcode::QUERY);
-        header.set_aa(true);
-        header.set_tc(false);
-        header.set_rd(msg.header().rd());
-        header.set_ra(false);
-        header.set_z(false);
-        header.set_ad(false);
-        header.set_cd(false);
-    }
-
     fn to_stream(
         response: AdditionalBuilder<StreamTarget<NextSvc::Target>>,
     ) -> XfrMiddlewareStream<
@@ -1047,22 +1015,19 @@ where
         None
     }
 
-    fn mk_rr_batcher_cb(
-        msg: Arc<Message<RequestOctets>>,
-        sender: UnboundedSender<
-            Result<CallResult<NextSvc::Target>, ServiceError>,
-        >,
-    ) -> impl Fn(AnswerBuilder<StreamTarget<NextSvc::Target>>) -> Result<(), ()>
-    {
-        move |builder: AnswerBuilder<StreamTarget<_>>| {
-            trace!("Sending RR batch");
-            let mut additional = builder.additional();
-            Self::set_axfr_header(&msg, &mut additional);
-            let call_result = Ok(CallResult::new(additional));
-            sender.send(call_result).map_err(|err| {
-                warn!("Internal error: Send from RR batcher failed: {err}");
-            })
-        }
+    fn calc_msg_bytes_available<T>(req: &Request<RequestOctets, T>) -> usize {
+        let bytes_available = match req.transport_ctx() {
+            TransportSpecificContext::Udp(ctx) => {
+                let max_msg_size =
+                    ctx.max_response_size_hint().unwrap_or(512);
+                max_msg_size - req.num_reserved_bytes()
+            }
+            TransportSpecificContext::NonUdp(_) => {
+                65535 - req.num_reserved_bytes()
+            }
+        };
+
+        bytes_available as usize
     }
 }
 
@@ -1169,142 +1134,27 @@ where
     }
 }
 
-//----------- PushResult ------------------------------------------------------
+//------------ CallbackState --------------------------------------------------
 
-enum PushResult<Target> {
-    PushedAndReadyForMore,
-    PushedAndLimitReached(AnswerBuilder<StreamTarget<Target>>),
-    NotPushedMessageFull(AnswerBuilder<StreamTarget<Target>>),
-    Retry,
-}
-
-//----------- RrBatcher -------------------------------------------------------
-
-// IDEA: Maybe this should act like an iterator and whenever it runs out of
-// items to process one should feed it more? And pass it RRsets instead of
-// Records.
-
-struct RrBatcher<RequestOctets, Target> {
+struct CallbackState<RequestOctets, Target> {
     req_msg: Arc<Message<RequestOctets>>,
-    hard_rr_limit: Option<u16>,
+    sender: UnboundedSender<ServiceResult<Target>>,
     soft_byte_limit: Option<usize>,
-    answer: Option<Result<AnswerBuilder<StreamTarget<Target>>, PushError>>,
-    #[allow(clippy::type_complexity)]
-    cb: Box<
-        dyn Fn(AnswerBuilder<StreamTarget<Target>>) -> Result<(), ()> + Send,
-    >,
+    hard_rr_limit: Option<u16>,
 }
 
-pub type RrBatcherCallback<Target> =
-    dyn Fn(AnswerBuilder<StreamTarget<Target>>) -> Result<(), ()> + Send;
-
-impl<RequestOctets, Target> RrBatcher<RequestOctets, Target>
-where
-    RequestOctets: Octets,
-    Target: Composer + Default,
-{
-    pub fn new(
+impl<RequestOctets, Target> CallbackState<RequestOctets, Target> {
+    fn new(
         req_msg: Arc<Message<RequestOctets>>,
-        cb: Box<RrBatcherCallback<Target>>,
+        sender: UnboundedSender<ServiceResult<Target>>,
+        soft_byte_limit: Option<usize>,
+        hard_rr_limit: Option<u16>,
     ) -> Self {
         Self {
             req_msg,
-            hard_rr_limit: None,
-            soft_byte_limit: None,
-            answer: None,
-            cb,
-        }
-    }
-
-    pub fn set_hard_rr_limit(&mut self, rr_limit: u16) {
-        self.hard_rr_limit = Some(rr_limit);
-    }
-
-    pub fn set_soft_byte_limit(&mut self, byte_limit: u16) {
-        trace!("Setting soft byte limit to {byte_limit} bytes");
-        self.soft_byte_limit = Some(byte_limit as usize);
-    }
-
-    pub fn push(
-        &mut self,
-        record: impl ComposeRecord,
-    ) -> Result<PushResult<Target>, ()> {
-        match self.try_push(&record) {
-            Ok(PushResult::Retry) => self.try_push(&record),
-            other => other,
-        }
-    }
-
-    pub fn finish(&mut self) -> Result<(), ()> {
-        let builder = self.answer.take().unwrap().map_err(|_| ())?;
-        (self.cb)(builder)
-    }
-
-    fn try_push(
-        &mut self,
-        record: &impl ComposeRecord,
-    ) -> Result<PushResult<Target>, ()> {
-        match self.push_ref(record).map_err(|_| ())? {
-            PushResult::PushedAndLimitReached(builder) => {
-                (self.cb)(builder)?;
-                Ok(PushResult::PushedAndReadyForMore)
-            }
-            PushResult::NotPushedMessageFull(builder) => {
-                (self.cb)(builder)?;
-                Ok(PushResult::Retry)
-            }
-            other => Ok(other),
-        }
-    }
-
-    fn push_ref(
-        &mut self,
-        record: &impl ComposeRecord,
-    ) -> Result<PushResult<Target>, PushError> {
-        self.answer.get_or_insert_with(|| {
-            let mut builder = mk_builder_for_target();
-            if let Some(limit) = self.soft_byte_limit {
-                builder.set_push_limit(limit);
-            }
-            builder.start_answer(&self.req_msg, Rcode::NOERROR)
-        });
-
-        let mut answer = self.answer.take().unwrap()?;
-
-        let res = answer.push_ref(record);
-        let ancount = answer.counts().ancount();
-
-        match res {
-            Ok(()) if Some(ancount) == self.hard_rr_limit => {
-                // Push succeeded but the message is as full as the caller
-                // allows, pass it back to the caller to process.
-                Ok(PushResult::PushedAndLimitReached(answer))
-            }
-
-            Err(_) if ancount > 0 => {
-                // Push failed because the message is full, pass it back to
-                // the caller to process.
-                Ok(PushResult::NotPushedMessageFull(answer))
-            }
-
-            Err(err) => {
-                // We expect to be able to add at least one answer to the message.
-                Err(err)
-            }
-
-            Ok(()) => {
-                // Record has been added, keep the answer builder for the next push.
-                self.answer = Some(Ok(answer));
-                Ok(PushResult::PushedAndReadyForMore)
-            }
-        }
-    }
-}
-
-impl<RequestOctets, Target> Drop for RrBatcher<RequestOctets, Target> {
-    fn drop(&mut self) {
-        if self.answer.is_some() {
-            trace!("Dropping unfinished RrBatcher, was that intentional or did you forget to call finish()?");
+            sender,
+            soft_byte_limit,
+            hard_rr_limit,
         }
     }
 }
@@ -1315,4 +1165,223 @@ enum IxfrResult<Stream> {
     Ok(Stream),
     FallbackToAxfr,
     Err(OptRcode),
+}
+
+//------------ XfrRrBatcher ---------------------------------------------------
+
+struct XfrRrBatcher<RequestOctets, Target> {
+    _phantom: PhantomData<(RequestOctets, Target)>,
+}
+
+impl<RequestOctets, Target> XfrRrBatcher<RequestOctets, Target>
+where
+    RequestOctets: Octets + Sync + Send + 'static,
+    Target: Composer + Default + Send + 'static,
+{
+    pub fn build(
+        req_msg: Arc<Message<RequestOctets>>,
+        sender: UnboundedSender<ServiceResult<Target>>,
+        soft_byte_limit: Option<usize>,
+        hard_rr_limit: Option<u16>,
+    ) -> impl ResourceRecordBatcher<RequestOctets, Target> {
+        let cb_state = CallbackState::new(
+            req_msg.clone(),
+            sender,
+            soft_byte_limit,
+            hard_rr_limit,
+        );
+
+        CallbackBatcher::<
+            RequestOctets,
+            Target,
+            Self,
+            CallbackState<RequestOctets, Target>,
+        >::new(req_msg, cb_state)
+    }
+}
+
+impl<RequestOctets, Target> XfrRrBatcher<RequestOctets, Target>
+where
+    RequestOctets: Octets,
+    Target: Composer + Default,
+{
+    fn set_axfr_header(
+        msg: &Message<RequestOctets>,
+        additional: &mut AdditionalBuilder<StreamTarget<Target>>,
+    ) {
+        // https://datatracker.ietf.org/doc/html/rfc5936#section-2.2.1
+        // 2.2.1: Header Values
+        //
+        // "These are the DNS message header values for AXFR responses.
+        //
+        //     ID          MUST be copied from request -- see Note a)
+        //
+        //     QR          MUST be 1 (Response)
+        //
+        //     OPCODE      MUST be 0 (Standard Query)
+        //
+        //     Flags:
+        //        AA       normally 1 -- see Note b)
+        //        TC       MUST be 0 (Not truncated)
+        //        RD       RECOMMENDED: copy request's value; MAY be set to 0
+        //        RA       SHOULD be 0 -- see Note c)
+        //        Z        "mbz" -- see Note d)
+        //        AD       "mbz" -- see Note d)
+        //        CD       "mbz" -- see Note d)"
+        let header = additional.header_mut();
+
+        // Note: MandatoryMiddlewareSvc will also "fix" ID and QR, so strictly
+        // speaking this isn't necessary, but as a caller might not use
+        // MandatoryMiddlewareSvc we do it anyway to try harder to conform to
+        // the RFC.
+        header.set_id(msg.header().id());
+        header.set_qr(true);
+
+        header.set_opcode(Opcode::QUERY);
+        header.set_aa(true);
+        header.set_tc(false);
+        header.set_rd(msg.header().rd());
+        header.set_ra(false);
+        header.set_z(false);
+        header.set_ad(false);
+        header.set_cd(false);
+    }
+}
+
+//--- Callbacks
+
+impl<RequestOctets, Target>
+    Callbacks<RequestOctets, Target, CallbackState<RequestOctets, Target>>
+    for XfrRrBatcher<RequestOctets, Target>
+where
+    RequestOctets: Octets,
+    Target: Composer + Default,
+{
+    fn batch_started(
+        cb_state: &CallbackState<RequestOctets, Target>,
+        msg: &Message<RequestOctets>,
+    ) -> Result<AnswerBuilder<StreamTarget<Target>>, PushError> {
+        let mut builder = mk_builder_for_target();
+        if let Some(limit) = cb_state.soft_byte_limit {
+            builder.set_push_limit(limit);
+        }
+        let answer = builder.start_answer(msg, Rcode::NOERROR)?;
+        Ok(answer)
+    }
+
+    fn batch_ready(
+        cb_state: &CallbackState<RequestOctets, Target>,
+        builder: AnswerBuilder<StreamTarget<Target>>,
+    ) -> Result<(), ()> {
+        trace!("Sending RR batch");
+        let mut additional = builder.additional();
+        Self::set_axfr_header(&cb_state.req_msg, &mut additional);
+        let call_result = Ok(CallResult::new(additional));
+        cb_state.sender.send(call_result).map_err(|err| {
+            warn!("Internal error: Send from RR batcher failed: {err}");
+        })
+    }
+
+    fn record_pushed(
+        cb_state: &CallbackState<RequestOctets, Target>,
+        answer: &AnswerBuilder<StreamTarget<Target>>,
+    ) -> bool {
+        if let Some(hard_rr_limit) = cb_state.hard_rr_limit {
+            let ancount = answer.counts().ancount();
+            let limit_reached = ancount == hard_rr_limit;
+            trace!(
+                "ancount={ancount}, hard_rr_limit={hard_rr_limit}, limit_reached={limit_reached}");
+            limit_reached
+        } else {
+            false
+        }
+    }
+}
+
+//------------ SortingBatcher -------------------------------------------------
+
+// Conditionally use HashMap or BTreeMap in order to guarantee the order of
+// tree walking when in test mode so that Stelline tests that need to know
+// which response RRs will be in which response of a multi-part response have
+// a predictable tree walking order compared to the usual unordered tree
+// walking results. This will be make tree inserts slower, but one shouldn't
+// be doing performance tests against a test build anyway so that shouldn't
+// matter.
+#[cfg(test)]
+mod test {
+    use core::marker::PhantomData;
+
+    use std::vec::Vec;
+
+    use octseq::Octets;
+
+    use crate::base::record::ComposeRecord;
+    use crate::base::wire::Composer;
+    use crate::net::server::batcher::PushResult;
+    use crate::net::server::batcher::ResourceRecordBatcher;
+
+    pub struct PredictablyOrderedBatcher<RequestOctets, Target, Batcher>
+    where
+        Target: Composer + Default,
+        RequestOctets: Octets,
+        Batcher: ResourceRecordBatcher<RequestOctets, Target>,
+    {
+        composed: Vec<Vec<u8>>,
+        batcher: Batcher,
+        _phantom: PhantomData<(RequestOctets, Target)>,
+    }
+
+    impl<RequestOctets, Target, Batcher>
+        PredictablyOrderedBatcher<RequestOctets, Target, Batcher>
+    where
+        Target: Composer + Default,
+        RequestOctets: Octets,
+        Batcher: ResourceRecordBatcher<RequestOctets, Target>,
+    {
+        pub fn new(batcher: Batcher) -> Self {
+            Self {
+                composed: vec![],
+                batcher,
+                _phantom: PhantomData,
+            }
+        }
+    }
+
+    impl<RequestOctets, Target, Batcher>
+        ResourceRecordBatcher<RequestOctets, Target>
+        for PredictablyOrderedBatcher<RequestOctets, Target, Batcher>
+    where
+        RequestOctets: Octets,
+        Target: Composer + Default,
+        Batcher: ResourceRecordBatcher<RequestOctets, Target>,
+    {
+        fn push(
+            &mut self,
+            record: impl ComposeRecord,
+        ) -> Result<PushResult<Target>, ()> {
+            let mut new_vec = vec![];
+            record.compose_record(&mut new_vec).map_err(|_| ())?;
+            self.composed.push(new_vec);
+            Ok(PushResult::PushedAndReadyForMore)
+        }
+
+        fn finish(&mut self) -> Result<(), ()> {
+            let len = self.composed.len();
+            self.composed[1..len - 1].sort();
+            for v in self.composed.iter().as_ref() {
+                self.batcher.push(v).unwrap();
+            }
+            self.batcher.finish().unwrap();
+            Ok(())
+        }
+    }
+
+    impl ComposeRecord for Vec<u8> {
+        fn compose_record<Target: Composer + ?Sized>(
+            &self,
+            target: &mut Target,
+        ) -> Result<(), Target::AppendError> {
+            target.append_slice(self.as_slice())
+        }
+    }
 }

@@ -206,6 +206,7 @@
 mod connection;
 pub use connection::Config as ConnectionConfig;
 
+pub mod batcher;
 pub mod buf;
 pub mod dgram;
 pub mod error;

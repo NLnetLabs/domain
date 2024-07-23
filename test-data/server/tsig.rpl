@@ -106,28 +106,23 @@ STEP 41 CHECK_ANSWER
 ENTRY_BEGIN
 MATCH all
 REPLY QR AA NOERROR
+
+; NOTE: See test-data/server/README.md regarding order of RRs across multiple
+; response packets.
 SECTION QUESTION
     example.com.            IN  AXFR
 SECTION ANSWER
     example.com.      3600  IN  SOA  ns.example.com. hostmaster.example.com. 1 3600 900 86400 3600
 EXTRA_PACKET
-    example.com.      3600  IN  NS   ns.example.net.
-EXTRA_PACKET
     www.example.com.  3600  IN  A    1.2.3.4
+EXTRA_PACKET
+    example.com.      3600  IN  NS   ns.example.net.
 EXTRA_PACKET
     example.com.      3600  IN  SOA  ns.example.com. hostmaster.example.com. 1 3600 900 86400 3600
 ENTRY_END
 
-; Manually construct and verify the TSIG signatures.
-; Instead of using net::client::tsig to sign the request, we use MOCK_CLIENT
-; to ensure that (a) no signing is done and so we are free to insert the TSIG
-; record ourselves, (b) net::client::dgram is not used as that modifies the
-; request just prior to sending it (such as adding an EDNS(0) OPT record AFTER
-; our TSIG which violates TSIG RFC 8945 which states that the TSIG RR MUST be
-; the last RR in the ADDITIONAL section of the message). This manual signing
-; also assumes (a) that test time is in effect and that the time now is zero,
-; and (b) that the TSIG key that was used for signing has a known fixed secret
-; because the MAC that we generated was based on those two fixed properties.
+; NOTE: See test-data/server/README.md regarding the effect of MOCK_CLIENT
+; that is used here.
 STEP 50 QUERY ADDRESS 127.0.0.5
 ENTRY_BEGIN
 MATCH UDP

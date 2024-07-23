@@ -537,6 +537,8 @@ SECTION QUESTION
     example.com.        IN  AXFR
 ENTRY_END
 
+; NOTE: See test-data/server/README.md regarding order of RRs across multiple
+; response packets.
 STEP 11 CHECK_ANSWER
 ENTRY_BEGIN
 MATCH all

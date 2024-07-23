@@ -47,11 +47,12 @@ involving two or three parties that communicate via mock network sockets:
 
 - By default server responses are expected consist of only a single reply. The
   `EXTRA_PACKET` directive can be used to denote that a subsequent reply should
-  also be expected. The `EXTRA_PACKET` directive can be used more than once.
-  The number of replies must exactly match the number of expected replies. To
-  make it possible to define which RRs will appear in which reply, when running
-  these tests the server will order zone contents in memory, while there is
-  usually no such ordering guarantee.
+  also be expected, e.g. for XFR responses. The `EXTRA_PACKET` directive can be
+  used more than once. The number of replies must exactly match the number of
+  expected replies. To make it possible to correctly define which RRs will
+  appear in which reply in which order, when running in test mode the server
+  uses PredictablyOrderedBatcher to order XFR response RRs by wire format
+  byte sequence, while there is usually no such ordering guarantee.
 
 - Specifying a TSIG key via `STEP <N> QUERY KEY <KEYNAME>` will cause the real
   TSIG client code to TSIG sign the request, and to strip out the TSIG signing

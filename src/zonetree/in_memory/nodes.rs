@@ -2,17 +2,6 @@
 
 use std::boxed::Box;
 
-// Conditionally use HashMap or BTreeMap in order to guarantee the order of
-// tree walking when in test mode so that Stelline tests that need to know
-// which response RRs will be in which response of a multi-part response have
-// a predictable tree walking order compared to the usual unordered tree
-// walking results. This will be make tree inserts slower, but one shouldn't
-// be doing performance tests against a test build anyway so that shouldn't
-// matter.
-#[cfg(test)]
-// TODO: Use a Stelline specific feature for this, not for all tests?
-use std::collections::{btree_map as col, BTreeMap as Col};
-#[cfg(not(test))]
 use std::collections::{hash_map as col, HashMap as Col};
 
 use std::future::Future;
