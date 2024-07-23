@@ -58,7 +58,7 @@ const RESPONSE_TIMEOUT: DefMinMax<Duration> = DefMinMax::new(
 /// reuse existing connections for subsequent queries as long as they have
 /// sufficient resources.".
 /// We set the default to 10 seconds, which is that same as what stubby
-/// uses. Minium zero to allow idle timeout to be disabled. Assume that
+/// uses. Minimum zero to allow idle timeout to be disabled. Assume that
 /// one hour is more than enough as maximum.
 const IDLE_TIMEOUT: DefMinMax<Duration> = DefMinMax::new(
     Duration::from_secs(10),
