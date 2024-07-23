@@ -35,7 +35,7 @@ where
     )
 }
 
-//------------ streaming_service_fn() ----------------------------------------
+//------------ service_fn() --------------------------------------------------
 
 /// Helper to simplify making a [`Service`] impl.
 ///
@@ -43,17 +43,9 @@ where
 /// those of its associated types, but this makes implementing it for simple
 /// cases quite verbose.
 ///
-/// `streaming_service_fn()` enables you to write a slightly simpler function
-/// definition that implements the [`Service`] trait than implementing
-/// [`Service`] directly.
-///
-/// The provided function must produce a future that results in a stream of
-/// futures. The envisaged use case for producing a stream of results in the
-/// context of DNS is zone transfers. If you need to implement zone transfer
-/// or other streaming support yourself then you should implement [`Service`]
-/// directly or via `streaming_service_fn`.
-///
-/// Most users should probably use `service_fn` instead.
+/// `service_fn()` enables you to write a slightly simpler function definition
+/// that implements the [`Service`] trait than implementing [`Service`]
+/// directly.
 ///
 /// # Example
 ///
