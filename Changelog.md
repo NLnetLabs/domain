@@ -26,6 +26,9 @@ Unstable features
   * Fixed an issue with slow responses in the
     `multi_stream` transport by not waiting in the first iteration if an
     underlying stream reports its connection being closed. ([#338])
+  * Added an option called idle_timeout to stream that allows a TCP or
+    TLS connection to stay open even if no TcpKeepalive option is received
+    from the server. ([#341])
 * `unstable-server-transport`
   * The `CookiesMiddlewareProcessor` now allows requests with invalid
     cookies to proceed if they are authenticated or not required to
@@ -37,6 +40,7 @@ Other changes
 [#333]: https://github.com/NLnetLabs/domain/pull/333
 [#336]: https://github.com/NLnetLabs/domain/pull/336
 [#338]: https://github.com/NLnetLabs/domain/pull/338
+[#341]: https://github.com/NLnetLabs/domain/pull/341
 [#348]: https://github.com/NLnetLabs/domain/pull/348
 [#357]: https://github.com/NLnetLabs/domain/pull/357
 [#358]: https://github.com/NLnetLabs/domain/pull/358
