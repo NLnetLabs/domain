@@ -29,6 +29,7 @@ Unstable features
   * Added an option called idle_timeout to stream that allows a TCP or
     TLS connection to stay open even if no TcpKeepalive option is received
     from the server. ([#341])
+  * Fixed an off-by-one error in Dgram client retry count checking. ([#354])
 * `unstable-server-transport`
   * The `CookiesMiddlewareProcessor` now allows requests with invalid
     cookies to proceed if they are authenticated or not required to
