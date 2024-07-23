@@ -19,6 +19,7 @@
 //  bits of the wrapped integer.
 
 use core::fmt;
+use core::str::FromStr;
 
 //------------ Rcode ---------------------------------------------------------
 
@@ -204,9 +205,32 @@ impl Rcode {
             Rcode::YXDOMAIN => Some(b"YXDOMAIN"),
             Rcode::YXRRSET => Some(b"YXRRSET"),
             Rcode::NXRRSET => Some(b"NXRRSET"),
-            Rcode::NOTAUTH => Some(b"NOAUTH"),
+            Rcode::NOTAUTH => Some(b"NOTAUTH"),
             Rcode::NOTZONE => Some(b"NOTZONE"),
             _ => None,
+        }
+    }
+}
+
+//--- FromStr
+
+impl FromStr for Rcode {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "NOERROR" => Ok(Rcode::NOERROR),
+            "FORMERR" => Ok(Rcode::FORMERR),
+            "SERVFAIL" => Ok(Rcode::SERVFAIL),
+            "NXDOMAIN" => Ok(Rcode::NXDOMAIN),
+            "NOTIMP" => Ok(Rcode::NOTIMP),
+            "REFUSED" => Ok(Rcode::REFUSED),
+            "YXDOMAIN" => Ok(Rcode::YXDOMAIN),
+            "YXRRSET" => Ok(Rcode::YXRRSET),
+            "NXRRSET" => Ok(Rcode::NXRRSET),
+            "NOTAUTH" => Ok(Rcode::NOTAUTH),
+            "NOTZONE" => Ok(Rcode::NOTZONE),
+            _ => Err(()),
         }
     }
 }
@@ -534,6 +558,20 @@ impl OptRcode {
         self.to_parts().1
     }
 
+    /// Returns true if the RCODE is extended, false otherwise.
+    #[must_use]
+    pub fn is_ext(&self) -> bool {
+        // https://datatracker.ietf.org/doc/html/rfc6891#section-6.1.3
+        // 6.1.3. OPT Record TTL Field Use
+        //   ...
+        //   "EXTENDED-RCODE
+        //       Forms the upper 8 bits of extended 12-bit RCODE (together
+        //       with the 4 bits defined in [RFC1035].  Note that
+        //       EXTENDED-RCODE value 0 indicates that an unextended RCODE is
+        //       in use (values 0 through 15)."
+        self.0 >> 4 != 0
+    }
+
     /// Returns the mnemonic for this value if there is one.
     #[must_use]
     pub const fn to_mnemonic(self) -> Option<&'static [u8]> {
@@ -547,11 +585,36 @@ impl OptRcode {
             OptRcode::YXDOMAIN => Some(b"YXDOMAIN"),
             OptRcode::YXRRSET => Some(b"YXRRSET"),
             OptRcode::NXRRSET => Some(b"NXRRSET"),
-            OptRcode::NOTAUTH => Some(b"NOAUTH"),
+            OptRcode::NOTAUTH => Some(b"NOTAUTH"),
             OptRcode::NOTZONE => Some(b"NOTZONE"),
             OptRcode::BADVERS => Some(b"BADVERS"),
             OptRcode::BADCOOKIE => Some(b"BADCOOKIE"),
             _ => None,
+        }
+    }
+}
+
+//--- FromStr
+
+impl FromStr for OptRcode {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "NOERROR" => Ok(OptRcode::NOERROR),
+            "FORMERR" => Ok(OptRcode::FORMERR),
+            "SERVFAIL" => Ok(OptRcode::SERVFAIL),
+            "NXDOMAIN" => Ok(OptRcode::NXDOMAIN),
+            "NOTIMP" => Ok(OptRcode::NOTIMP),
+            "REFUSED" => Ok(OptRcode::REFUSED),
+            "YXDOMAIN" => Ok(OptRcode::YXDOMAIN),
+            "YXRRSET" => Ok(OptRcode::YXRRSET),
+            "NXRRSET" => Ok(OptRcode::NXRRSET),
+            "NOTAUTH" => Ok(OptRcode::NOTAUTH),
+            "NOTZONE" => Ok(OptRcode::NOTZONE),
+            "BADVERS" => Ok(OptRcode::BADVERS),
+            "BADCOOKIE" => Ok(OptRcode::BADCOOKIE),
+            _ => Err(()),
         }
     }
 }
@@ -892,5 +955,56 @@ mod test {
         assert_opt_rcode_parts_eq!(OptRcode::BADCOOKIE, 0b000_0001, 0b0111);
         assert_opt_rcode_parts_eq!(OptRcode(4094), 0b1111_1111, 0b1110);
         assert_opt_rcode_parts_eq!(OptRcode(4095), 0b1111_1111, 0b1111);
+    }
+
+    #[test]
+    fn rcode_fromstr() {
+        assert_eq!(Ok(Rcode::NOERROR), "NOERROR".parse());
+        assert_eq!(Ok(Rcode::FORMERR), "FORMERR".parse());
+        assert_eq!(Ok(Rcode::SERVFAIL), "SERVFAIL".parse());
+        assert_eq!(Ok(Rcode::NXDOMAIN), "NXDOMAIN".parse());
+        assert_eq!(Ok(Rcode::NOTIMP), "NOTIMP".parse());
+        assert_eq!(Ok(Rcode::REFUSED), "REFUSED".parse());
+        assert_eq!(Ok(Rcode::YXDOMAIN), "YXDOMAIN".parse());
+        assert_eq!(Ok(Rcode::YXRRSET), "YXRRSET".parse());
+        assert_eq!(Ok(Rcode::NXRRSET), "NXRRSET".parse());
+        assert_eq!(Ok(Rcode::NOTAUTH), "NOTAUTH".parse());
+        assert_eq!(Ok(Rcode::NOTZONE), "NOTZONE".parse());
+        assert!("#$%!@".parse::<Rcode>().is_err());
+    }
+
+    #[test]
+    fn optrcode_fromstr() {
+        assert_eq!(Ok(OptRcode::NOERROR), "NOERROR".parse());
+        assert_eq!(Ok(OptRcode::FORMERR), "FORMERR".parse());
+        assert_eq!(Ok(OptRcode::SERVFAIL), "SERVFAIL".parse());
+        assert_eq!(Ok(OptRcode::NXDOMAIN), "NXDOMAIN".parse());
+        assert_eq!(Ok(OptRcode::NOTIMP), "NOTIMP".parse());
+        assert_eq!(Ok(OptRcode::REFUSED), "REFUSED".parse());
+        assert_eq!(Ok(OptRcode::YXDOMAIN), "YXDOMAIN".parse());
+        assert_eq!(Ok(OptRcode::YXRRSET), "YXRRSET".parse());
+        assert_eq!(Ok(OptRcode::NXRRSET), "NXRRSET".parse());
+        assert_eq!(Ok(OptRcode::NOTAUTH), "NOTAUTH".parse());
+        assert_eq!(Ok(OptRcode::NOTZONE), "NOTZONE".parse());
+        assert_eq!(Ok(OptRcode::BADVERS), "BADVERS".parse());
+        assert_eq!(Ok(OptRcode::BADCOOKIE), "BADCOOKIE".parse());
+        assert!("#$%!@".parse::<Rcode>().is_err());
+    }
+
+    #[test]
+    fn optrcode_isext() {
+        assert!(!OptRcode::NOERROR.is_ext());
+        assert!(!OptRcode::FORMERR.is_ext());
+        assert!(!OptRcode::SERVFAIL.is_ext());
+        assert!(!OptRcode::NXDOMAIN.is_ext());
+        assert!(!OptRcode::NOTIMP.is_ext());
+        assert!(!OptRcode::REFUSED.is_ext());
+        assert!(!OptRcode::YXDOMAIN.is_ext());
+        assert!(!OptRcode::YXRRSET.is_ext());
+        assert!(!OptRcode::NXRRSET.is_ext());
+        assert!(!OptRcode::NOTAUTH.is_ext());
+        assert!(!OptRcode::NOTZONE.is_ext());
+        assert!(OptRcode::BADVERS.is_ext());
+        assert!(OptRcode::BADCOOKIE.is_ext());
     }
 }
