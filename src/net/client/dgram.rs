@@ -240,7 +240,7 @@ where
         let mut reuse_buf = None;
 
         // Transmit loop.
-        for _ in 0..=self.state.config.max_retries {
+        for _ in 0..1+self.state.config.max_retries {
             let mut sock = self
                 .state
                 .connect
