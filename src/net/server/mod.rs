@@ -189,8 +189,8 @@ pub mod metrics;
 pub mod middleware;
 pub mod qname_router;
 pub mod service;
-pub mod sock;
 pub mod single_service;
+pub mod sock;
 pub mod stream;
 pub mod util;
 

@@ -18,8 +18,9 @@ pub struct QnameRouter<Octs, RequestOcts, CR> {
 
 struct Element<NameOcts, RequestOcts, CR> {
     name: Name<NameOcts>,
-    service:
-        Box<dyn SingleService<RequestOcts, CR, Target = Vec<u8>> + Send + Sync>,
+    service: Box<
+        dyn SingleService<RequestOcts, CR, Target = Vec<u8>> + Send + Sync,
+    >,
 }
 
 impl<Octs, RequestOcts, CR> QnameRouter<Octs, RequestOcts, CR> {

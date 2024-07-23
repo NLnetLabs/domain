@@ -46,8 +46,8 @@ use domain::net::server::qname_router::QnameRouter;
 use domain::net::server::service::{
     CallResult, ServiceError, ServiceFeedback, Transaction,
 };
-use domain::net::server::sock::AsyncAccept;
 use domain::net::server::single_service::ReplyMessage;
+use domain::net::server::sock::AsyncAccept;
 use domain::net::server::stream;
 use domain::net::server::stream::StreamServer;
 use domain::net::server::util::{mk_builder_for_target, service_fn};
