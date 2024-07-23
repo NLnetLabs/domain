@@ -53,8 +53,6 @@ async fn main() {
     // Populate a zone tree with test data
     let zone_bytes = include_bytes!("../test-data/zonefiles/nsd-example.txt");
     let mut zone_bytes = BufReader::new(&zone_bytes[..]);
-    // let zone_bytes = std::fs::File::open("/etc/nsd/zones/de-zone").unwrap();
-    // let mut zone_bytes = BufReader::new(zone_bytes);
 
     // We're reading from static data so this cannot fail due to I/O error.
     // Don't handle errors that shouldn't happen, keep the example focused
@@ -62,33 +60,12 @@ async fn main() {
     let reader = inplace::Zonefile::load(&mut zone_bytes).unwrap();
     let zone = Zone::try_from(reader).unwrap();
 
-    // TODO: Make changes to a zone to create a diff for IXFR use.
-    // let mut writer = zone.write().await;
-    // {
-    //     let node = writer.open(true).await.unwrap();
-    //     let mut new_ns = Rrset::new(Rtype::NS, Ttl::from_secs(60));
-    //     let ns_rec = domain::rdata::Ns::new(
-    //         Dname::from_str("write-test.example.com").unwrap(),
-    //     );
-    //     new_ns.push_data(ns_rec.into());
-    //     node.update_rrset(SharedRrset::new(new_ns)).await.unwrap();
-    // }
-    // let diff = writer.commit().await.unwrap();
-
     let mut zones = ZoneTree::new();
     zones.insert_zone(zone.clone()).unwrap();
     let zones = Arc::new(zones);
 
     let addr = "127.0.0.1:8053";
     let svc = service_fn(my_service, zones);
-
-    // TODO: Insert XFR middleware to automagically handle AXFR and IXFR
-    // requests.
-    // let mut svc = XfrMiddlewareSvc::<Vec<u8>, _>::new(svc);
-    // svc.add_zone(zone.clone());
-    // if let Some(diff) = diff {
-    //     svc.add_diff(&zone, diff);
-    // }
 
     #[cfg(feature = "siphasher")]
     let svc = CookiesMiddlewareSvc::<Vec<u8>, _>::with_random_secret(svc);
