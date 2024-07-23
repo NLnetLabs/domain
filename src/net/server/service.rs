@@ -333,8 +333,7 @@ pub struct CallResult<Target> {
     feedback: Option<ServiceFeedback>,
 }
 
-impl<Target> CallResult<Target>
-{
+impl<Target> CallResult<Target> {
     /// Construct a [`CallResult`] from a DNS response message.
     #[must_use]
     pub fn new(response: AdditionalBuilder<StreamTarget<Target>>) -> Self {

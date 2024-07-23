@@ -11,9 +11,9 @@
 //! the layer beneath, passing them on to the layer above and then
 //! post-processing the resulting responses and propagating them back down
 //! through the layers to the server.
-//! 
+//!
 //! Currently the following middleware are available:
-//! 
+//!
 //!   - [`MandatoryMiddlewareSvc`]: Core DNS RFC standards based message
 //!         processing for MUST requirements.
 //!   - [`EdnsMiddlewareSvc`]: RFC 6891 and related EDNS message processing.
