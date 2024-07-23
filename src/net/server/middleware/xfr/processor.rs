@@ -1,34 +1,30 @@
 //! XFR request handling middleware.
 
-use core::future::{ready, Future, Ready};
+use core::future::ready;
 use core::marker::PhantomData;
 use core::ops::ControlFlow;
-use core::pin::Pin;
 
 use std::boxed::Box;
 use std::sync::Arc;
 
 use bytes::Bytes;
-use futures::stream::{once, Once, Stream};
+use futures::stream::{once, Stream};
 use octseq::Octets;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedSender};
 use tokio::sync::Semaphore;
 use tokio_stream::wrappers::UnboundedReceiverStream;
 use tracing::{error, info, trace, warn};
 
-use crate::base::iana::{Opcode, OptRcode, Rcode};
-use crate::base::message_builder::{
-    AdditionalBuilder, AnswerBuilder, PushError,
-};
+use crate::base::iana::{Opcode, OptRcode};
+use crate::base::message_builder::AdditionalBuilder;
 use crate::base::net::IpAddr;
 use crate::base::wire::Composer;
 use crate::base::{
     Message, Name, ParsedName, Question, Rtype, Serial, StreamTarget, ToName,
 };
-use crate::net::server::batcher::{
-    CallbackBatcher, Callbacks, ResourceRecordBatcher,
-};
+use crate::net::server::batcher::ResourceRecordBatcher;
 use crate::net::server::message::{Request, TransportSpecificContext};
+use crate::net::server::middleware::stream::MiddlewareStream;
 use crate::net::server::service::{
     CallResult, Service, ServiceFeedback, ServiceResult,
 };
@@ -44,27 +40,11 @@ use crate::zonetree::{
     Answer, AnswerContent, ReadableZone, SharedRrset, StoredName,
 };
 
-use super::stream::MiddlewareStream;
+use super::batcher::XfrRrBatcher;
+use super::types::{IxfrResult, XfrMiddlewareStream, XfrMode};
 
-//------------ XfrMapStream --------------------------------------------------
-
-type XfrResultStream<StreamItem> = UnboundedReceiverStream<StreamItem>;
-
-//------------ XfrMiddlewareStream -------------------------------------------
-
-type XfrMiddlewareStream<Future, Stream, StreamItem> = MiddlewareStream<
-    Future,
-    Stream,
-    Once<Ready<StreamItem>>,
-    XfrResultStream<StreamItem>,
-    StreamItem,
->;
-
-#[derive(Copy, Clone, Debug, PartialEq)]
-pub enum XfrMode {
-    AxfrAndIxfr,
-    AxfrOnly,
-}
+#[cfg(test)]
+use super::test::PredictablyOrderedBatcher;
 
 //------------ XfrMiddlewareSvc ----------------------------------------------
 
@@ -90,15 +70,15 @@ pub struct XfrMiddlewareSvc<RequestOctets, NextSvc, ZL>
 where
     ZL: ZoneLookup + Clone + Sync + Send + 'static,
 {
-    next_svc: NextSvc,
+    pub(super) next_svc: NextSvc,
 
-    zones: ZL,
+    pub(super) zones: ZL,
 
-    zone_walking_semaphore: Arc<Semaphore>,
+    pub(super) zone_walking_semaphore: Arc<Semaphore>,
 
-    batcher_semaphore: Arc<Semaphore>,
+    pub(super) batcher_semaphore: Arc<Semaphore>,
 
-    xfr_mode: XfrMode,
+    pub(super) xfr_mode: XfrMode,
 
     _phantom: PhantomData<RequestOctets>,
 }
@@ -144,7 +124,7 @@ where
     NextSvc::Stream: Send + Sync,
     ZL: ZoneLookup + Clone + Sync + Send + 'static,
 {
-    async fn preprocess<T>(
+    pub(super) async fn preprocess<T>(
         zone_walking_semaphore: Arc<Semaphore>,
         batcher_semaphore: Arc<Semaphore>,
         req: &Request<RequestOctets, T>,
@@ -634,7 +614,7 @@ where
             );
 
             #[cfg(test)]
-            let batcher = test::PredictablyOrderedBatcher::new(batcher);
+            let batcher = PredictablyOrderedBatcher::new(batcher);
 
             let mut batcher = batcher;
 
@@ -878,7 +858,7 @@ where
             );
 
             #[cfg(test)]
-            let batcher = test::PredictablyOrderedBatcher::new(batcher);
+            let batcher = PredictablyOrderedBatcher::new(batcher);
 
             let mut batcher = batcher;
 
@@ -1028,360 +1008,5 @@ where
         };
 
         bytes_available as usize
-    }
-}
-
-//--- Service (with TSIG key name in the request metadata)
-
-impl<RequestOctets, NextSvc, ZL> Service<RequestOctets, Option<KeyName>>
-    for XfrMiddlewareSvc<RequestOctets, NextSvc, ZL>
-where
-    RequestOctets: Octets + Send + Sync + Unpin + 'static,
-    for<'a> <RequestOctets as octseq::Octets>::Range<'a>: Send + Sync,
-    NextSvc: Service<RequestOctets, ()> + Clone + Send + Sync + 'static,
-    NextSvc::Future: Send + Sync + Unpin,
-    NextSvc::Target: Composer + Default + Send + Sync,
-    NextSvc::Stream: Send + Sync,
-    ZL: ZoneLookup + Clone + Sync + Send + 'static,
-{
-    type Target = NextSvc::Target;
-    type Stream = XfrMiddlewareStream<
-        NextSvc::Future,
-        NextSvc::Stream,
-        <NextSvc::Stream as Stream>::Item,
-    >;
-    type Future = Pin<Box<dyn Future<Output = Self::Stream> + Send + Sync>>;
-
-    fn call(
-        &self,
-        request: Request<RequestOctets, Option<KeyName>>,
-    ) -> Self::Future {
-        let request = request.clone();
-        let next_svc = self.next_svc.clone();
-        let catalog = self.zones.clone();
-        let zone_walking_semaphore = self.zone_walking_semaphore.clone();
-        let batcher_semaphore = self.batcher_semaphore.clone();
-        let xfr_mode = self.xfr_mode;
-        Box::pin(async move {
-            match Self::preprocess(
-                zone_walking_semaphore,
-                batcher_semaphore,
-                &request,
-                catalog,
-                xfr_mode,
-                |req| req.metadata().as_ref(),
-            )
-            .await
-            {
-                ControlFlow::Continue(()) => {
-                    let request = request.with_new_metadata(());
-                    let stream = next_svc.call(request).await;
-                    MiddlewareStream::IdentityStream(stream)
-                }
-                ControlFlow::Break(stream) => stream,
-            }
-        })
-    }
-}
-
-//--- Service (without TSIG key name in the request metadata)
-
-impl<RequestOctets, NextSvc, ZL> Service<RequestOctets, ()>
-    for XfrMiddlewareSvc<RequestOctets, NextSvc, ZL>
-where
-    RequestOctets: Octets + Send + Sync + Unpin + 'static,
-    for<'a> <RequestOctets as octseq::Octets>::Range<'a>: Send + Sync,
-    NextSvc: Service<RequestOctets, ()> + Clone + Send + Sync + 'static,
-    NextSvc::Future: Send + Sync + Unpin,
-    NextSvc::Target: Composer + Default + Send + Sync,
-    NextSvc::Stream: Send + Sync,
-    ZL: ZoneLookup + Clone + Sync + Send + 'static,
-{
-    type Target = NextSvc::Target;
-    type Stream = XfrMiddlewareStream<
-        NextSvc::Future,
-        NextSvc::Stream,
-        <NextSvc::Stream as Stream>::Item,
-    >;
-    type Future = Pin<Box<dyn Future<Output = Self::Stream> + Send + Sync>>;
-
-    fn call(&self, request: Request<RequestOctets, ()>) -> Self::Future {
-        let request = request.clone();
-        let next_svc = self.next_svc.clone();
-        let zones = self.zones.clone();
-        let zone_walking_semaphore = self.zone_walking_semaphore.clone();
-        let batcher_semaphore = self.batcher_semaphore.clone();
-        let xfr_mode = self.xfr_mode;
-        Box::pin(async move {
-            match Self::preprocess(
-                zone_walking_semaphore,
-                batcher_semaphore,
-                &request,
-                zones,
-                xfr_mode,
-                |_| None,
-            )
-            .await
-            {
-                ControlFlow::Continue(()) => {
-                    let request = request.with_new_metadata(());
-                    let stream = next_svc.call(request).await;
-                    MiddlewareStream::IdentityStream(stream)
-                }
-                ControlFlow::Break(stream) => stream,
-            }
-        })
-    }
-}
-
-//------------ CallbackState --------------------------------------------------
-
-struct CallbackState<RequestOctets, Target> {
-    req_msg: Arc<Message<RequestOctets>>,
-    sender: UnboundedSender<ServiceResult<Target>>,
-    soft_byte_limit: Option<usize>,
-    hard_rr_limit: Option<u16>,
-}
-
-impl<RequestOctets, Target> CallbackState<RequestOctets, Target> {
-    fn new(
-        req_msg: Arc<Message<RequestOctets>>,
-        sender: UnboundedSender<ServiceResult<Target>>,
-        soft_byte_limit: Option<usize>,
-        hard_rr_limit: Option<u16>,
-    ) -> Self {
-        Self {
-            req_msg,
-            sender,
-            soft_byte_limit,
-            hard_rr_limit,
-        }
-    }
-}
-
-//------------ IxfrResult -----------------------------------------------------
-
-enum IxfrResult<Stream> {
-    Ok(Stream),
-    FallbackToAxfr,
-    Err(OptRcode),
-}
-
-//------------ XfrRrBatcher ---------------------------------------------------
-
-struct XfrRrBatcher<RequestOctets, Target> {
-    _phantom: PhantomData<(RequestOctets, Target)>,
-}
-
-impl<RequestOctets, Target> XfrRrBatcher<RequestOctets, Target>
-where
-    RequestOctets: Octets + Sync + Send + 'static,
-    Target: Composer + Default + Send + 'static,
-{
-    pub fn build(
-        req_msg: Arc<Message<RequestOctets>>,
-        sender: UnboundedSender<ServiceResult<Target>>,
-        soft_byte_limit: Option<usize>,
-        hard_rr_limit: Option<u16>,
-    ) -> impl ResourceRecordBatcher<RequestOctets, Target> {
-        let cb_state = CallbackState::new(
-            req_msg.clone(),
-            sender,
-            soft_byte_limit,
-            hard_rr_limit,
-        );
-
-        CallbackBatcher::<
-            RequestOctets,
-            Target,
-            Self,
-            CallbackState<RequestOctets, Target>,
-        >::new(req_msg, cb_state)
-    }
-}
-
-impl<RequestOctets, Target> XfrRrBatcher<RequestOctets, Target>
-where
-    RequestOctets: Octets,
-    Target: Composer + Default,
-{
-    fn set_axfr_header(
-        msg: &Message<RequestOctets>,
-        additional: &mut AdditionalBuilder<StreamTarget<Target>>,
-    ) {
-        // https://datatracker.ietf.org/doc/html/rfc5936#section-2.2.1
-        // 2.2.1: Header Values
-        //
-        // "These are the DNS message header values for AXFR responses.
-        //
-        //     ID          MUST be copied from request -- see Note a)
-        //
-        //     QR          MUST be 1 (Response)
-        //
-        //     OPCODE      MUST be 0 (Standard Query)
-        //
-        //     Flags:
-        //        AA       normally 1 -- see Note b)
-        //        TC       MUST be 0 (Not truncated)
-        //        RD       RECOMMENDED: copy request's value; MAY be set to 0
-        //        RA       SHOULD be 0 -- see Note c)
-        //        Z        "mbz" -- see Note d)
-        //        AD       "mbz" -- see Note d)
-        //        CD       "mbz" -- see Note d)"
-        let header = additional.header_mut();
-
-        // Note: MandatoryMiddlewareSvc will also "fix" ID and QR, so strictly
-        // speaking this isn't necessary, but as a caller might not use
-        // MandatoryMiddlewareSvc we do it anyway to try harder to conform to
-        // the RFC.
-        header.set_id(msg.header().id());
-        header.set_qr(true);
-
-        header.set_opcode(Opcode::QUERY);
-        header.set_aa(true);
-        header.set_tc(false);
-        header.set_rd(msg.header().rd());
-        header.set_ra(false);
-        header.set_z(false);
-        header.set_ad(false);
-        header.set_cd(false);
-    }
-}
-
-//--- Callbacks
-
-impl<RequestOctets, Target>
-    Callbacks<RequestOctets, Target, CallbackState<RequestOctets, Target>>
-    for XfrRrBatcher<RequestOctets, Target>
-where
-    RequestOctets: Octets,
-    Target: Composer + Default,
-{
-    fn batch_started(
-        cb_state: &CallbackState<RequestOctets, Target>,
-        msg: &Message<RequestOctets>,
-    ) -> Result<AnswerBuilder<StreamTarget<Target>>, PushError> {
-        let mut builder = mk_builder_for_target();
-        if let Some(limit) = cb_state.soft_byte_limit {
-            builder.set_push_limit(limit);
-        }
-        let answer = builder.start_answer(msg, Rcode::NOERROR)?;
-        Ok(answer)
-    }
-
-    fn batch_ready(
-        cb_state: &CallbackState<RequestOctets, Target>,
-        builder: AnswerBuilder<StreamTarget<Target>>,
-    ) -> Result<(), ()> {
-        trace!("Sending RR batch");
-        let mut additional = builder.additional();
-        Self::set_axfr_header(&cb_state.req_msg, &mut additional);
-        let call_result = Ok(CallResult::new(additional));
-        cb_state.sender.send(call_result).map_err(|err| {
-            warn!("Internal error: Send from RR batcher failed: {err}");
-        })
-    }
-
-    fn record_pushed(
-        cb_state: &CallbackState<RequestOctets, Target>,
-        answer: &AnswerBuilder<StreamTarget<Target>>,
-    ) -> bool {
-        if let Some(hard_rr_limit) = cb_state.hard_rr_limit {
-            let ancount = answer.counts().ancount();
-            let limit_reached = ancount == hard_rr_limit;
-            trace!(
-                "ancount={ancount}, hard_rr_limit={hard_rr_limit}, limit_reached={limit_reached}");
-            limit_reached
-        } else {
-            false
-        }
-    }
-}
-
-//------------ SortingBatcher -------------------------------------------------
-
-// Conditionally use HashMap or BTreeMap in order to guarantee the order of
-// tree walking when in test mode so that Stelline tests that need to know
-// which response RRs will be in which response of a multi-part response have
-// a predictable tree walking order compared to the usual unordered tree
-// walking results. This will be make tree inserts slower, but one shouldn't
-// be doing performance tests against a test build anyway so that shouldn't
-// matter.
-#[cfg(test)]
-mod test {
-    use core::marker::PhantomData;
-
-    use std::vec::Vec;
-
-    use octseq::Octets;
-
-    use crate::base::record::ComposeRecord;
-    use crate::base::wire::Composer;
-    use crate::net::server::batcher::PushResult;
-    use crate::net::server::batcher::ResourceRecordBatcher;
-
-    pub struct PredictablyOrderedBatcher<RequestOctets, Target, Batcher>
-    where
-        Target: Composer + Default,
-        RequestOctets: Octets,
-        Batcher: ResourceRecordBatcher<RequestOctets, Target>,
-    {
-        composed: Vec<Vec<u8>>,
-        batcher: Batcher,
-        _phantom: PhantomData<(RequestOctets, Target)>,
-    }
-
-    impl<RequestOctets, Target, Batcher>
-        PredictablyOrderedBatcher<RequestOctets, Target, Batcher>
-    where
-        Target: Composer + Default,
-        RequestOctets: Octets,
-        Batcher: ResourceRecordBatcher<RequestOctets, Target>,
-    {
-        pub fn new(batcher: Batcher) -> Self {
-            Self {
-                composed: vec![],
-                batcher,
-                _phantom: PhantomData,
-            }
-        }
-    }
-
-    impl<RequestOctets, Target, Batcher>
-        ResourceRecordBatcher<RequestOctets, Target>
-        for PredictablyOrderedBatcher<RequestOctets, Target, Batcher>
-    where
-        RequestOctets: Octets,
-        Target: Composer + Default,
-        Batcher: ResourceRecordBatcher<RequestOctets, Target>,
-    {
-        fn push(
-            &mut self,
-            record: impl ComposeRecord,
-        ) -> Result<PushResult<Target>, ()> {
-            let mut new_vec = vec![];
-            record.compose_record(&mut new_vec).map_err(|_| ())?;
-            self.composed.push(new_vec);
-            Ok(PushResult::PushedAndReadyForMore)
-        }
-
-        fn finish(&mut self) -> Result<(), ()> {
-            let len = self.composed.len();
-            self.composed[1..len - 1].sort();
-            for v in self.composed.iter().as_ref() {
-                self.batcher.push(v).unwrap();
-            }
-            self.batcher.finish().unwrap();
-            Ok(())
-        }
-    }
-
-    impl ComposeRecord for Vec<u8> {
-        fn compose_record<Target: Composer + ?Sized>(
-            &self,
-            target: &mut Target,
-        ) -> Result<(), Target::AppendError> {
-            target.append_slice(self.as_slice())
-        }
     }
 }

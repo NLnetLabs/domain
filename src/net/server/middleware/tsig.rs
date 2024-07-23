@@ -1,9 +1,12 @@
 //! TSIG message authentication middleware.
 
+use core::convert::Infallible;
 use core::future::{ready, Ready};
 use core::marker::PhantomData;
 use core::ops::{ControlFlow, DerefMut};
+
 use std::sync::Arc;
+use std::vec::Vec;
 
 use futures::stream::{once, Once, Stream};
 use octseq::{Octets, OctetsFrom};
@@ -18,14 +21,12 @@ use crate::net::server::service::{
     CallResult, Service, ServiceFeedback, ServiceResult,
 };
 use crate::net::server::util::{mk_builder_for_target, mk_error_response};
-
-use super::stream::{MiddlewareStream, PostprocessingStream};
 use crate::rdata::tsig::Time48;
 use crate::tsig::{
     self, KeyName, KeyStore, ServerSequence, ServerTransaction,
 };
-use core::convert::Infallible;
-use std::vec::Vec;
+
+use super::stream::{MiddlewareStream, PostprocessingStream};
 
 //------------ TsigMiddlewareSvc ----------------------------------------------
 
