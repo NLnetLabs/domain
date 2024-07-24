@@ -55,12 +55,10 @@ impl Zone {
 //--- TryFrom<inplace::Zonefile>
 
 impl TryFrom<inplace::Zonefile> for Zone {
-    type Error = RecordError;
+    type Error = ZoneErrors<RecordError>;
 
     fn try_from(source: inplace::Zonefile) -> Result<Self, Self::Error> {
-        parsed::Zonefile::try_from(source)?
-            .try_into()
-            .map_err(Self::Error::InvalidRecord)
+        parsed::Zonefile::try_from(source)?.try_into()
     }
 }
 
@@ -75,9 +73,18 @@ impl From<ZoneBuilder> for Zone {
 //--- TryFrom<parsed::Zonefile>
 
 impl TryFrom<parsed::Zonefile> for Zone {
-    type Error = ZoneErrors;
+    type Error = ZoneErrors<RecordError>;
 
     fn try_from(source: parsed::Zonefile) -> Result<Self, Self::Error> {
-        Ok(Zone::from(ZoneBuilder::try_from(source)?))
+        Ok(Zone::from(ZoneBuilder::try_from(source).map_err(
+            |errors| {
+                let mut new_errors = Self::Error::default();
+                for (name, err) in errors {
+                    new_errors
+                        .add_error(name, RecordError::InvalidRecord(err))
+                }
+                new_errors
+            },
+        )?))
     }
 }

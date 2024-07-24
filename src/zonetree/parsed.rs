@@ -3,11 +3,10 @@
 use std::collections::{BTreeMap, HashMap};
 use std::vec::Vec;
 
-use tracing::{trace, warn};
-
 use super::error::{ContextError, RecordError, ZoneErrors};
 use crate::base::iana::{Class, Rtype};
 use crate::base::name::{FlattenInto, ToName};
+use crate::base::Name;
 use crate::rdata::ZoneRecordData;
 use crate::zonefile::inplace::{self, Entry};
 use crate::zonetree::ZoneBuilder;
@@ -226,14 +225,14 @@ impl Zonefile {
 }
 
 impl TryFrom<Zonefile> for ZoneBuilder {
-    type Error = ZoneErrors;
+    type Error = ZoneErrors<ContextError>;
 
     fn try_from(mut zonefile: Zonefile) -> Result<Self, Self::Error> {
         let mut builder = ZoneBuilder::new(
             zonefile.origin.unwrap(),
             zonefile.class.unwrap(),
         );
-        let mut zone_err = ZoneErrors::default();
+        let mut errors = ZoneErrors::<ContextError>::default();
 
         // Insert all the zone cuts first. Fish out potential glue records
         // from the normal or out-of-zone records.
@@ -241,7 +240,7 @@ impl TryFrom<Zonefile> for ZoneBuilder {
             let ns = match cut.ns {
                 Some(ns) => ns.into_shared(),
                 None => {
-                    zone_err.add_error(name, ContextError::MissingNs);
+                    errors.add_error(name, ContextError::MissingNs);
                     continue;
                 }
             };
@@ -256,14 +255,14 @@ impl TryFrom<Zonefile> for ZoneBuilder {
             }
 
             if let Err(err) = builder.insert_zone_cut(&name, ns, ds, glue) {
-                zone_err.add_error(name, ContextError::InvalidZonecut(err))
+                errors.add_error(name, ContextError::InvalidZonecut(err))
             }
         }
 
         // Now insert all the CNAMEs.
         for (name, rrset) in zonefile.cnames.into_iter() {
             if let Err(err) = builder.insert_cname(&name, rrset) {
-                zone_err.add_error(name, ContextError::InvalidCname(err))
+                errors.add_error(name, ContextError::InvalidCname(err))
             }
         }
 
@@ -271,7 +270,7 @@ impl TryFrom<Zonefile> for ZoneBuilder {
         for (name, rrsets) in zonefile.normal.into_iter() {
             for (rtype, rrset) in rrsets.into_iter() {
                 if builder.insert_rrset(&name, rrset.into_shared()).is_err() {
-                    zone_err.add_error(
+                    errors.add_error(
                         name.clone(),
                         ContextError::OutOfZone(rtype),
                     );
@@ -283,40 +282,50 @@ impl TryFrom<Zonefile> for ZoneBuilder {
         // surprises.
         for (name, rrsets) in zonefile.out_of_zone.into_iter() {
             for (rtype, _) in rrsets.into_iter() {
-                zone_err
+                errors
                     .add_error(name.clone(), ContextError::OutOfZone(rtype));
             }
         }
 
-        zone_err.unwrap().map(|_| builder)
+        errors.unwrap().map(|_| builder)
     }
 }
 
 //--- TryFrom<inplace::Zonefile>
 
 impl TryFrom<inplace::Zonefile> for Zonefile {
-    type Error = RecordError;
+    type Error = ZoneErrors<RecordError>;
 
     fn try_from(source: inplace::Zonefile) -> Result<Self, Self::Error> {
         let mut zonefile = Zonefile::default();
+        let mut errors = ZoneErrors::<RecordError>::default();
 
         for res in source {
             match res.map_err(RecordError::MalformedRecord) {
                 Ok(Entry::Record(r)) => {
-                    if let Err(err) = zonefile.insert(r.flatten_into()) {
-                        warn!("Skipping entry due to error: {err}");
+                    let stored_rec = r.flatten_into();
+                    let name = stored_rec.owner().clone();
+                    if let Err(err) = zonefile.insert(stored_rec) {
+                        errors.add_error(name, err);
                     }
                 }
-                Ok(entry) => {
-                    trace!("Skipping unsupported zone file entry: {entry:?}");
+
+                Ok(Entry::Include { .. }) => {
+                    // Not supported at this time.
                 }
-                Err(err) => {
-                    warn!("Skipping entry due to error: {err}");
-                }
+
+                Err(err) => match err.owner() {
+                    Some(name) => errors.add_error(name.clone(), err),
+                    None => errors.add_error(Name::root_bytes(), err),
+                },
             }
         }
 
-        Ok(zonefile)
+        if errors.is_empty() {
+            Ok(zonefile)
+        } else {
+            Err(errors)
+        }
     }
 }
 
