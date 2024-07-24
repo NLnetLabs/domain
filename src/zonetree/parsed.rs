@@ -309,13 +309,10 @@ impl TryFrom<inplace::Zonefile> for Zonefile {
                     // Not supported at this time.
                 }
 
-                Err(err) => {
-                    let name = match err.owner() {
-                        Some(owner) => owner,
-                        None => &Name::root_bytes(),
-                    };
-                    errors.add_error(name.clone(), err);
-                }
+                Err(err) => match err.owner() {
+                    Some(name) => errors.add_error(name.clone(), err),
+                    None => errors.add_error(Name::root_bytes(), err),
+                },
             }
         }
 
