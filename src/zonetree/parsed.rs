@@ -157,8 +157,13 @@ impl Zonefile {
                     }
                 }
                 _ => {
-                    if let Some(zone_cut) = self.zone_cuts.get(record.owner())
-                    {
+                    let maybe_glue =
+                        matches!(record.rtype(), Rtype::A | Rtype::AAAA);
+                    let illegal_zone_cut = (!maybe_glue)
+                        .then(|| self.zone_cuts.get(record.owner()))
+                        .flatten();
+
+                    if let Some(zone_cut) = illegal_zone_cut {
                         let rtype = zone_cut.sample_rtype().unwrap();
                         Err(RecordError::IllegalRecord(record, rtype))
                     } else if self.cnames.contains(record.owner()) {
