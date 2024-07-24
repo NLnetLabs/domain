@@ -612,9 +612,17 @@ where
 
             while let Some((owner, rrset)) = batcher_rx.recv().await {
                 for rr in rrset.data() {
-                    batcher
+                    if batcher
                         .push((owner.clone(), qclass, rrset.ttl(), rr))
-                        .unwrap(); // TODO
+                        .is_err()
+                    {
+                        error!("Internal error: Failed to send final AXFR SOA to batcher");
+                        let resp =
+                            mk_error_response(&msg, OptRcode::SERVFAIL);
+                        Self::add_to_stream(CallResult::new(resp), &sender);
+                        batcher_rx.close();
+                        return;
+                    }
                 }
             }
 
