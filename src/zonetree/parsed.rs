@@ -3,8 +3,9 @@
 use std::collections::{BTreeMap, HashMap};
 use std::vec::Vec;
 
-use tracing::trace;
+use tracing::{trace, warn};
 
+use super::error::{ContextError, RecordError, ZoneErrors};
 use crate::base::iana::{Class, Rtype};
 use crate::base::name::{FlattenInto, ToName};
 use crate::rdata::ZoneRecordData;
@@ -12,7 +13,6 @@ use crate::zonefile::inplace::{self, Entry};
 use crate::zonetree::ZoneBuilder;
 use crate::zonetree::{Rrset, SharedRr};
 
-use super::error::{ContextError, RecordError, ZoneErrors};
 use super::types::{StoredName, StoredRecord};
 
 //------------ Zonefile ------------------------------------------------------
@@ -296,10 +296,17 @@ impl TryFrom<inplace::Zonefile> for Zonefile {
         let mut zonefile = Zonefile::default();
 
         for res in source {
-            match res.map_err(RecordError::MalformedRecord)? {
-                Entry::Record(r) => zonefile.insert(r.flatten_into())?,
-                entry => {
-                    trace!("Skipping unsupported zone file entry: {entry:?}")
+            match res.map_err(RecordError::MalformedRecord) {
+                Ok(Entry::Record(r)) => {
+                    if let Err(err) = zonefile.insert(r.flatten_into()) {
+                        warn!("Skipping entry due to error: {err}");
+                    }
+                }
+                Ok(entry) => {
+                    trace!("Skipping unsupported zone file entry: {entry:?}");
+                }
+                Err(err) => {
+                    warn!("Skipping entry due to error: {err}");
                 }
             }
         }
