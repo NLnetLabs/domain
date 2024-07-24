@@ -1179,7 +1179,7 @@ where
         // primary should be accepted.
         let soa = Self::read_soa(&zone.read(), zone.apex_name().clone())
             .await
-            .map_err(|_out_of_zone_err| CatalogError::InternalError)?;
+            .map_err(|_out_of_zone_err| CatalogError::InternalError("Unable to read SOA for zone when checking if zone refresh is needed"))?;
 
         let current_serial = soa.map(|(soa, _)| soa.serial());
 
@@ -1303,7 +1303,11 @@ where
                 .conn_factory
                 .get(primary_addr, transport, key)
                 .await
-                .map_err(|_| CatalogError::InternalError)?
+                .map_err(|_| {
+                    CatalogError::InternalError(
+                        "Conn factory failed to create XFR client",
+                    )
+                })?
             else {
                 return Ok(None);
             };
@@ -1406,10 +1410,12 @@ where
                 Self::read_soa(&read, zone.apex_name().clone()).await
             else {
                 trace!(
-                    "Internal error - missing SA for zone '{}'",
+                    "Internal error - missing SOA for zone '{}'",
                     zone.apex_name()
                 );
-                return Err(CatalogError::InternalError);
+                return Err(CatalogError::InternalError(
+                    "Unable to read SOA for zone when preparing for IXFR in",
+                ));
             };
             msg.push((zone.apex_name(), ttl, soa)).unwrap();
             msg
@@ -1431,10 +1437,16 @@ where
         let soa_and_ttl =
             Self::read_soa(&zone.read(), zone.apex_name().clone())
                 .await
-                .map_err(|_out_of_zone_err| CatalogError::InternalError)?;
+                .map_err(|_out_of_zone_err| {
+                    CatalogError::InternalError(
+                        "Unable to read SOA for zone post XFR in",
+                    )
+                })?;
 
         let Some((soa, _ttl)) = soa_and_ttl else {
-            return Err(CatalogError::InternalError);
+            return Err(CatalogError::InternalError(
+                "SOA for zone missing post XFR in",
+            ));
         };
 
         Ok(soa)
@@ -2071,7 +2083,7 @@ impl WritableZone for WritableCatalogZone {
 #[derive(Debug)]
 pub enum CatalogError {
     NotRunning,
-    InternalError,
+    InternalError(&'static str),
     UnknownZone,
     RequestError(request::Error),
     ResponseError(OptRcode),
@@ -2084,8 +2096,8 @@ impl Display for CatalogError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             CatalogError::NotRunning => f.write_str("Catalog not running"),
-            CatalogError::InternalError => {
-                f.write_str("Internal Catalog error")
+            CatalogError::InternalError(err) => {
+                f.write_fmt(format_args!("Internal Catalog error: {err}"))
             }
             CatalogError::UnknownZone => f.write_str("Unknown zone"),
             CatalogError::RequestError(err) => f.write_fmt(format_args!(
