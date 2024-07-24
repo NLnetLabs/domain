@@ -4,7 +4,6 @@ use std::collections::{BTreeMap, HashMap};
 use std::vec::Vec;
 
 use super::error::{ContextError, RecordError, ZoneErrors};
-use crate::base::iana::rtype::IsGlue;
 use crate::base::iana::{Class, Rtype};
 use crate::base::name::{FlattenInto, ToName};
 use crate::base::Name;
