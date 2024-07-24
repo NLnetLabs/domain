@@ -1437,8 +1437,8 @@ where
                 .await
                 .map_err(CatalogError::RequestError)?;
 
-        if msg.is_error() {
-            return Err(CatalogError::ResponseError(msg.opt_rcode()));
+            if msg.is_error() {
+                return Err(CatalogError::ResponseError(msg.opt_rcode()));
             }
         }
 
