@@ -14,8 +14,12 @@ use bytes::Bytes;
 use tokio::time::Instant;
 use tracing::{debug, error, info, trace, warn};
 
-use crate::base::name::{FlattenInto, Label, ToLabelIter};
-use crate::base::{Message, Name, ParsedName, Rtype, Serial, ToName};
+use crate::base::name::FlattenInto;
+#[cfg(feature = "unstable-zonetree")]
+use crate::base::name::{Label, ToLabelIter};
+use crate::base::{Message, Name, ParsedName, Rtype, Serial};
+#[cfg(feature = "unstable-zonetree")]
+use crate::base::ToName;
 use crate::net::client::request::{
     ComposeRequest, Error, GetResponse, SendRequest,
 };
@@ -304,9 +308,11 @@ where
                     }
 
                     let owner = record.owner().to_owned();
+                    #[cfg(feature = "unstable-zonetree")]
                     let ttl = record.ttl();
+                    #[cfg(feature = "unstable-zonetree")]
                     let rtype = record.rtype();
-                    let data = record.into_data().flatten_into();
+                    let data: ZoneRecordData<Bytes, Name<Bytes>> = record.into_data().flatten_into();
 
                     if let ZoneRecordData::Soa(soa) = &data {
                         #[cfg(feature = "unstable-zonetree")]
