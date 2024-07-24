@@ -1,8 +1,16 @@
-//! Tests the TSIG implementation.
+//! TSIG interop testing with other DNS implementations.
+#![cfg(all(feature = "bytes", feature = "std"))]
 
 mod common;
 
-use common::nsd;
+use std::io::{Read, Write};
+use std::net::{IpAddr, SocketAddr, TcpListener, TcpStream, UdpSocket};
+use std::process::Command;
+use std::str::FromStr;
+use std::string::String;
+use std::time::Duration;
+use std::vec::Vec;
+use std::{env, fs, io, path::PathBuf, thread};
 
 use domain::base::iana::{Rcode, Rtype};
 use domain::base::message::Message;
@@ -17,14 +25,8 @@ use domain::rdata::{Soa, A};
 use domain::tsig;
 use domain::utils::base64;
 use ring::rand::SystemRandom;
-use std::io::{Read, Write};
-use std::net::{IpAddr, SocketAddr, TcpListener, TcpStream, UdpSocket};
-use std::process::Command;
-use std::str::FromStr;
-use std::string::String;
-use std::time::Duration;
-use std::vec::Vec;
-use std::{env, fs, io, path::PathBuf, thread};
+
+use common::nsd;
 
 type TestMessage = Message<Vec<u8>>;
 type TestBuilder = MessageBuilder<StreamTarget<Vec<u8>>>;
