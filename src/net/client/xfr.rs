@@ -17,9 +17,9 @@ use tracing::{debug, error, info, trace, warn};
 use crate::base::name::FlattenInto;
 #[cfg(feature = "unstable-zonetree")]
 use crate::base::name::{Label, ToLabelIter};
-use crate::base::{Message, Name, ParsedName, Rtype, Serial};
 #[cfg(feature = "unstable-zonetree")]
 use crate::base::ToName;
+use crate::base::{Message, Name, ParsedName, Rtype, Serial};
 use crate::net::client::request::{
     ComposeRequest, Error, GetResponse, SendRequest,
 };
@@ -151,8 +151,7 @@ where
     /// Create a new Request object.
     fn new(
         request_msg: CR,
-        #[cfg(feature = "unstable-zonetree")]
-        zone: Option<Zone>,
+        #[cfg(feature = "unstable-zonetree")] zone: Option<Zone>,
         upstream: Arc<Upstream>,
     ) -> Self {
         Self {
@@ -312,7 +311,8 @@ where
                     let ttl = record.ttl();
                     #[cfg(feature = "unstable-zonetree")]
                     let rtype = record.rtype();
-                    let data: ZoneRecordData<Bytes, Name<Bytes>> = record.into_data().flatten_into();
+                    let data: ZoneRecordData<Bytes, Name<Bytes>> =
+                        record.into_data().flatten_into();
 
                     if let ZoneRecordData::Soa(soa) = &data {
                         #[cfg(feature = "unstable-zonetree")]
@@ -437,7 +437,8 @@ where
                     }
 
                     #[cfg(feature = "unstable-zonetree")]
-                    let Some(zone) = &self.zone else {
+                    let Some(zone) = &self.zone
+                    else {
                         continue;
                     };
 
@@ -499,10 +500,12 @@ where
                                         .await
                                         .map_err(|_| Error::ZoneWrite)?
                                     {
-                                        for existing_data in existing_rrset.data()
+                                        for existing_data in
+                                            existing_rrset.data()
                                         {
-                                            rrset
-                                                .push_data(existing_data.clone());
+                                            rrset.push_data(
+                                                existing_data.clone(),
+                                            );
                                         }
                                     }
 
@@ -530,7 +533,8 @@ where
                                         .await
                                         .map_err(|_| Error::ZoneWrite)?
                                     {
-                                        for existing_data in existing_rrset.data()
+                                        for existing_data in
+                                            existing_rrset.data()
                                         {
                                             if existing_data != &data {
                                                 rrset.push_data(
@@ -540,9 +544,11 @@ where
                                         }
 
                                         trace!("Removing single RR of {rtype} so updating RRSET");
-                                        n.update_rrset(SharedRrset::new(rrset))
-                                            .await
-                                            .map_err(|_| Error::ZoneWrite)?;
+                                        n.update_rrset(SharedRrset::new(
+                                            rrset,
+                                        ))
+                                        .await
+                                        .map_err(|_| Error::ZoneWrite)?;
                                     }
                                 }
                                 None => {
@@ -552,7 +558,8 @@ where
                                         .await
                                         .map_err(|_| Error::ZoneWrite)?
                                     {
-                                        for existing_data in existing_rrset.data()
+                                        for existing_data in
+                                            existing_rrset.data()
                                         {
                                             if existing_data != &data {
                                                 rrset.push_data(
@@ -563,7 +570,9 @@ where
 
                                         trace!("Removing single RR of {rtype} so updating RRSET");
                                         writable
-                                            .update_rrset(SharedRrset::new(rrset))
+                                            .update_rrset(SharedRrset::new(
+                                                rrset,
+                                            ))
                                             .await
                                             .map_err(|_| Error::ZoneWrite)?;
                                     }
