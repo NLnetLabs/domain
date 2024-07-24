@@ -457,7 +457,7 @@ impl fmt::Display for Error {
             #[cfg(feature = "unstable-server-transport")]
             Error::ZoneWrite => write!(f, "zone write error"),
 
-            #[cfg(feature = "unstable-server-transport")]
+            #[cfg(feature = "tsig")]
             Error::Authentication(err) => fmt::Display::fmt(err, f),
 
             #[cfg(feature = "unstable-validator")]
@@ -501,7 +501,7 @@ impl error::Error for Error {
             #[cfg(feature = "unstable-server-transport")]
             Error::ZoneWrite => None,
 
-            #[cfg(feature = "unstable-server-transport")]
+            #[cfg(feature = "tsig")]
             Error::Authentication(err) => Some(err),
 
             #[cfg(feature = "unstable-validator")]
