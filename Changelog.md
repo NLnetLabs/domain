@@ -37,6 +37,8 @@ Unstable features
   * Improved zonefile parsing error messages. ([#362]). 
   * `TryFrom<inplace::Zonefile> for Zonefile` now returns the set of
     errors instead of logging and ignoring them. ([#362])
+  * Allow both glue (A/AAAA) and zone cuts at the same owner when zone
+    parsing. ([#363])
 
 Other changes
 
