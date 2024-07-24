@@ -120,6 +120,9 @@ where
 
     /// TODO
     last_progress_report: Option<Instant>,
+
+    /// TODO
+    complete: bool,
 }
 
 impl<CR, Upstream> Request<CR, Upstream>
@@ -150,6 +153,7 @@ where
             initial_soa_serial_seen_count: 0,
             start_time: Instant::now(),
             last_progress_report: None,
+            complete: false,
         }
     }
 
@@ -338,6 +342,7 @@ where
                                     trace!("Closing response stream at record nr {} (soa seen count = {})",
                                         self.i, self.initial_soa_serial_seen_count);
                                     send_request.stream_complete()?;
+                                    self.stream_complete()?;
 
                                     if let Some(zone) = &self.zone {
                                         info!("{} progress report for zone '{}': Transfer complete, commiting changes.", self.xfr_type.unwrap(), zone.apex_name());
@@ -593,6 +598,15 @@ where
         >,
     > {
         Box::pin(self.get_response_impl())
+    }
+
+    fn stream_complete(&mut self) -> Result<(), Error> {
+        self.complete = true;
+        Ok(())
+    }
+
+    fn is_stream_complete(&self) -> bool {
+        self.complete
     }
 }
 
