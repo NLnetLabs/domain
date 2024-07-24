@@ -111,7 +111,7 @@ impl Display for RecordError {
                 write!(f, "The class of the record does not match the class {zone_class} of the zone: {rec}")
             }
             RecordError::IllegalZoneCut(rec, existing_rtype) => {
-                write!(f, "Attempted to add zone cut records where there non-zone cut records (e.g. {existing_rtype}) already exist: {rec}")
+                write!(f, "Attempted to add zone cut records where non-zone cut records (e.g. {existing_rtype}) already exist: {rec}")
             }
             RecordError::IllegalRecord(rec, existing_rtype) => {
                 write!(f, "Attempted to add a normal record where a {existing_rtype} record already exists: {rec}")
