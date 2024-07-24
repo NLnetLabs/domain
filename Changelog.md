@@ -34,6 +34,9 @@ Unstable features
   * The `CookiesMiddlewareProcessor` now allows requests with invalid
     cookies to proceed if they are authenticated or not required to
     authenticate. ([#336])
+  * Improved zonefile parsing error messages. ([#362]). 
+  * `TryFrom<inplace::Zonefile> for Zonefile` now returns the set of
+    errors instead of logging and ignoring them. ([#362])
 
 Other changes
 
