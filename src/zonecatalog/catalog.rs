@@ -1905,7 +1905,7 @@ where
 
 //------------ TypedZone -----------------------------------------------------
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct TypedZone {
     store: Arc<dyn ZoneStore>,
     zone_type: ZoneConfig,
