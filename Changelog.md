@@ -10,7 +10,7 @@ New
 * Added `FromStr` impls for `Rcode` and `OptRcode`. ([#357])
 * Added `OptRcode::is_ext` to check if the code is an extended code.
   ([#358])
-* Added Rtype::is_glue to check if the Rtype may be used as glue. ([#363])
+* Added `Rtype::is_glue` to check if the Rtype may be used as glue. ([#363])
 
 Bug fixes
 
