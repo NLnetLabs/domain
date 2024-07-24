@@ -621,8 +621,14 @@ Options:
             let reader = inplace::Zonefile::load(&mut zone_bytes).map_err(|err| {
                 format!("Error: Failed to load zone file from '{zone_path}': {err}")
             })?;
-            Zone::try_from(reader)
-                .map_err(|err| format!("Failed to parse zone: {err}"))?
+            Zone::try_from(reader).map_err(|errors| {
+                let mut msg =
+                    format!("Failed to parse zone: {} errors", errors.len());
+                for (name, err) in errors {
+                    msg.push_str(&format!("  {name}: {err}"));
+                }
+                msg
+            })?
         }
 
         None => {

@@ -39,19 +39,38 @@ use crate::base::opt::{AllOptData, OptRecord, TcpKeepalive};
 use crate::net::client::request::{
     ComposeRequest, Error, GetResponse, SendRequest,
 };
+use crate::utils::config::DefMinMax;
 
 //------------ Configuration Constants ----------------------------------------
 
 /// Default response timeout.
 ///
 /// Note: nsd has 120 seconds, unbound has 3 seconds.
-const DEF_RESPONSE_TIMEOUT: Duration = Duration::from_secs(19);
+const RESPONSE_TIMEOUT: DefMinMax<Duration> = DefMinMax::new(
+    Duration::from_secs(19),
+    Duration::from_millis(1),
+    Duration::from_secs(600),
+);
 
-/// Minimum configuration value for the response timeout.
-const MIN_RESPONSE_TIMEOUT: Duration = Duration::from_millis(1);
-
-/// Maximum configuration value for the response timeout.
-const MAX_RESPONSE_TIMEOUT: Duration = Duration::from_secs(600);
+/// Default idle timeout.
+///
+/// Note that RFC 7766, Secton 6.2.3 says: "DNS clients SHOULD close the
+/// TCP connection of an idle session, unless an idle timeout has been
+/// established using some other signalling mechanism, for example,
+/// [edns-tcp-keepalive]."
+/// However, RFC 7858, Section 3.4 says: "In order to amortize TCP and TLS
+/// connection setup costs, clients and servers SHOULD NOT immediately close
+/// a connection after each response.  Instead, clients and servers SHOULD
+/// reuse existing connections for subsequent queries as long as they have
+/// sufficient resources.".
+/// We set the default to 10 seconds, which is that same as what stubby
+/// uses. Minimum zero to allow idle timeout to be disabled. Assume that
+/// one hour is more than enough as maximum.
+const IDLE_TIMEOUT: DefMinMax<Duration> = DefMinMax::new(
+    Duration::from_secs(10),
+    Duration::ZERO,
+    Duration::from_secs(3600),
+);
 
 /// Capacity of the channel that transports `ChanReq`s.
 const DEF_CHAN_CAP: usize = 8;
@@ -73,8 +92,11 @@ pub struct Config {
     /// Streaming response timeout.
     streaming_response_timeout: Duration,
 
-    /// Initial idle timeout.
-    initial_idle_timeout: Option<Duration>,
+    /// Default idle timeout.
+    ///
+    /// This value is used if the other side does not send a TcpKeepalive
+    /// option.
+    idle_timeout: Duration,
 }
 
 impl Config {
@@ -100,10 +122,7 @@ impl Config {
     //
     //  XXX Maybe that’s wrong and we should rather return an error?
     pub fn set_response_timeout(&mut self, timeout: Duration) {
-        self.response_timeout = cmp::max(
-            cmp::min(timeout, MAX_RESPONSE_TIMEOUT),
-            MIN_RESPONSE_TIMEOUT,
-        );
+        self.response_timeout = RESPONSE_TIMEOUT.limit(timeout);
         self.streaming_response_timeout = self.response_timeout;
     }
 
@@ -121,15 +140,12 @@ impl Config {
     ///
     /// Excessive values are quietly trimmed.
     pub fn set_streaming_response_timeout(&mut self, timeout: Duration) {
-        self.streaming_response_timeout = cmp::max(
-            cmp::min(timeout, MAX_RESPONSE_TIMEOUT),
-            MIN_RESPONSE_TIMEOUT,
-        );
+        self.streaming_response_timeout = RESPONSE_TIMEOUT.limit(timeout);
     }
 
     /// Returns the initial idle timeout, if set.
-    pub fn initial_idle_timeout(&self) -> Option<Duration> {
-        self.initial_idle_timeout
+    pub fn idle_timeout(&self) -> Duration {
+        self.idle_timeout
     }
 
     /// Sets the initial idle timeout.
@@ -145,21 +161,18 @@ impl Config {
     /// received from a server.
     ///
     /// Excessive values are quietly trimmed.
-    pub fn set_initial_idle_timeout(&mut self, timeout: Duration) {
-        self.initial_idle_timeout = Some(cmp::max(
-            cmp::min(timeout, MAX_RESPONSE_TIMEOUT),
-            MIN_RESPONSE_TIMEOUT,
-        ));
+    pub fn set_idle_timeout(&mut self, timeout: Duration) {
+        self.idle_timeout = IDLE_TIMEOUT.limit(timeout)
     }
 }
 
 impl Default for Config {
     fn default() -> Self {
         Self {
-            response_timeout: DEF_RESPONSE_TIMEOUT,
-            single_response_timeout: DEF_RESPONSE_TIMEOUT,
-            streaming_response_timeout: DEF_RESPONSE_TIMEOUT,
-            initial_idle_timeout: None,
+            response_timeout: RESPONSE_TIMEOUT.default(),
+            single_response_timeout: RESPONSE_TIMEOUT.default(),
+            streaming_response_timeout: RESPONSE_TIMEOUT.default(),
+            idle_timeout: IDLE_TIMEOUT.default(),
         }
     }
 }
@@ -436,9 +449,9 @@ struct Status {
 
     /// Time we are allow to keep the connection open when idle.
     ///
-    /// Initially we assume that the idle timeout is zero. A received
+    /// Initially we set the idle timeout to the default in config. A received
     /// edns-tcp-keepalive option may change that.
-    idle_timeout: Option<Duration>,
+    idle_timeout: Duration,
 }
 
 /// Status of the connection. Used in [`Status`].
@@ -531,7 +544,7 @@ where
 
         let mut status = Status {
             state: ConnState::Active(None),
-            idle_timeout: self.config.initial_idle_timeout,
+            idle_timeout: self.config.idle_timeout,
             send_keepalive: true,
         };
         let mut query_vec = Queries::new();
@@ -558,18 +571,14 @@ where
                     }
                 }
                 ConnState::Idle(instant) => {
-                    if let Some(timeout) = &status.idle_timeout {
-                        let elapsed = instant.elapsed();
-                        if elapsed >= *timeout {
-                            // Move to IdleTimeout and end
-                            // the loop
-                            status.state = ConnState::IdleTimeout;
-                            break;
-                        }
-                        Some(*timeout - elapsed)
-                    } else {
-                        panic!("Idle state but no timeout");
+                    let elapsed = instant.elapsed();
+                    if elapsed >= status.idle_timeout {
+                        // Move to IdleTimeout and end
+                        // the loop
+                        status.state = ConnState::IdleTimeout;
+                        break;
                     }
+                    Some(status.idle_timeout - elapsed)
                 }
                 ConnState::IdleTimeout
                 | ConnState::ReadError(_)
@@ -834,7 +843,7 @@ where
             // this independent.
             status.state = ConnState::Active(None);
 
-            status.state = if status.idle_timeout.is_none() {
+            status.state = if status.idle_timeout.is_zero() {
                 // Assume that we can just move to IdleTimeout
                 // state
                 ConnState::IdleTimeout
@@ -934,7 +943,7 @@ where
     fn handle_keepalive(opt_value: TcpKeepalive, status: &mut Status) {
         if let Some(value) = opt_value.timeout() {
             let value_dur = Duration::from(value);
-            status.idle_timeout = Some(value_dur);
+            status.idle_timeout = value_dur;
         }
     }
 

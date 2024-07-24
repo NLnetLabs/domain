@@ -402,7 +402,6 @@ async fn service_test() {
         let buf = MockBufSource;
         let my_service =
             Arc::new(MandatoryMiddlewareSvc::new(MyService::new()));
-        // let my_service = Arc::new(MyService::new());
         let srv =
             Arc::new(StreamServer::new(listener, buf, my_service.clone()));
 

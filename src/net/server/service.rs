@@ -21,17 +21,13 @@ use super::message::Request;
 /// The type of item that `Service` implementations stream as output.
 pub type ServiceResult<Target> = Result<CallResult<Target>, ServiceError>;
 
-/// [`Service`]s are responsible for determining how to respond to valid DNS
+/// `Service`s are responsible for determining how to respond to DNS
 /// requests.
 ///
-/// A request is "valid" if it passed successfully through the underlying
-/// server (e.g. [`DgramServer`] or [`StreamServer`]) and middleware
-/// stages.
-///
 /// For an overview of how services fit into the total flow of request and
-/// response handling see the [net::server module documentation].
+/// response handling see the [`net::server`] module documentation.
 ///
-/// Each [`Service`] implementation defines a [`call`] function which takes a
+/// Each `Service` implementation defines a [`call`] function which takes a
 /// [`Request`] DNS request as input and returns a future that yields a stream
 /// of one or more items each of which is either a [`CallResult`] or
 /// [`ServiceError`].
@@ -41,10 +37,10 @@ pub type ServiceResult<Target> = Result<CallResult<Target>, ServiceError>;
 ///
 /// # Usage
 ///
-/// There are three ways to implement the [`Service`] trait:
+/// There are three ways to implement the `Service` trait:
 ///
-///   1. Implement the [`Service`] trait on a struct.
-///   2. Define a function compatible with the [`Service`] trait.
+///   1. Implement the `Service` trait on a struct.
+///   2. Define a function compatible with the `Service` trait.
 ///   3. Define a function compatible with [`service_fn`].
 ///
 /// <div class="warning">
@@ -56,7 +52,7 @@ pub type ServiceResult<Target> = Result<CallResult<Target>, ServiceError>;
 ///
 /// </div>
 ///
-/// # Implementing the [`Service`] trait on a `struct`
+/// # Implementing the `Service` trait on a `struct`
 ///
 /// ```
 /// use core::future::ready;
@@ -107,7 +103,7 @@ pub type ServiceResult<Target> = Result<CallResult<Target>, ServiceError>;
 /// }
 /// ```
 ///
-/// # Define a function compatible with the [`Service`] trait
+/// # Define a function compatible with the `Service` trait
 ///
 /// ```
 /// use core::fmt::Debug;
@@ -171,12 +167,12 @@ pub type ServiceResult<Target> = Result<CallResult<Target>, ServiceError>;
 ///
 /// # Define a function compatible with [`service_fn`]
 ///
-/// See [`service_fn`] for an example of how to use it to create a [`Service`]
-/// impl from a funciton.
+/// See [`service_fn`] for an example of how to use it to create a `Service`
+/// impl from a function.
 ///
 /// [`DgramServer`]: crate::net::server::dgram::DgramServer
 /// [`StreamServer`]: crate::net::server::stream::StreamServer
-/// [net::server module documentation]: crate::net::server
+/// [`net::server`]: crate::net::server
 /// [`call`]: Self::call()
 /// [`service_fn`]: crate::net::server::util::service_fn()
 pub trait Service<
@@ -203,7 +199,7 @@ pub trait Service<
 
 //--- impl Service for Deref
 
-/// Helper trait impl to treat an [`Deref<Target = impl Service>`] as a [`Service`].
+/// Helper trait impl to treat a [`Deref<Target = impl Service>`] as a [`Service`].
 impl<RequestOctets, RequestMeta, T, U> Service<RequestOctets, RequestMeta>
     for U
 where
@@ -226,7 +222,7 @@ where
 
 //------------ ServiceError --------------------------------------------------
 
-/// An error reported by a [`Service`].
+/// An error reported by a `Service`.
 #[derive(Debug)]
 pub enum ServiceError {
     /// The service was unable to parse the request.
@@ -285,21 +281,24 @@ impl From<ParseError> for ServiceError {
 
 //------------ ServiceFeedback -----------------------------------------------
 
-/// Feedback from a [`Service`] to a server asking it to do something.
+/// Feedback from a `Service` to a server asking it to do something.
 #[derive(Copy, Clone, Debug)]
 pub enum ServiceFeedback {
     /// Ask the server to alter its configuration. For connection-oriented
     /// servers the changes will only apply to the current connection.
     Reconfigure {
-        /// If `Some`, the new idle timeout the [`Service`] would like the
+        /// If `Some`, the new idle timeout the `Service` would like the
         /// server to use.
         idle_timeout: Option<Duration>,
     },
 
-    /// Ensure that messages from this stream are all enqueued, don't drop
-    /// messages if the outgoing queue is full.
+    /// Ask the server to wait much longer for responses than it usually would
+    /// in order to ensure that an entire set of related response messages are
+    /// all sent back to the caller rather than being dropped if the outgoing
+    /// queue is full.
     BeginTransaction,
 
+    /// Signal to the server that the transaction that we began has ended.
     EndTransaction,
 }
 
@@ -320,15 +319,11 @@ pub struct CallResult<Target> {
     /// Optional response to send back to the client.
     response: Option<AdditionalBuilder<StreamTarget<Target>>>,
 
-    /// Optional feedback from the [`Service`] to the server.
+    /// Optional feedback from the `Service` to the server.
     feedback: Option<ServiceFeedback>,
 }
 
-impl<Target> CallResult<Target>
-// where
-//     Target: OctetsBuilder + AsRef<[u8]> + AsMut<[u8]>,
-//     Target::AppendError: Into<ShortBuf>,
-{
+impl<Target> CallResult<Target> {
     /// Construct a [`CallResult`] from a DNS response message.
     #[must_use]
     pub fn new(response: AdditionalBuilder<StreamTarget<Target>>) -> Self {

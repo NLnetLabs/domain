@@ -960,7 +960,6 @@ mod test {
     #[test]
     fn rcode_fromstr() {
         assert_eq!(Ok(Rcode::NOERROR), "NOERROR".parse());
-        assert_eq!(Ok(Rcode::NOERROR), "NOERROR".parse());
         assert_eq!(Ok(Rcode::FORMERR), "FORMERR".parse());
         assert_eq!(Ok(Rcode::SERVFAIL), "SERVFAIL".parse());
         assert_eq!(Ok(Rcode::NXDOMAIN), "NXDOMAIN".parse());
@@ -976,7 +975,6 @@ mod test {
 
     #[test]
     fn optrcode_fromstr() {
-        assert_eq!(Ok(OptRcode::NOERROR), "NOERROR".parse());
         assert_eq!(Ok(OptRcode::NOERROR), "NOERROR".parse());
         assert_eq!(Ok(OptRcode::FORMERR), "FORMERR".parse());
         assert_eq!(Ok(OptRcode::SERVFAIL), "SERVFAIL".parse());

@@ -1063,6 +1063,7 @@ impl<K: AsRef<Key>> ServerSequence<K> {
                 false,
             )
         };
+        self.context.apply_signature(mac.as_ref());
         let mac = self.key().signature_slice(&mac);
         let res = self.key().complete_message(message, &variables, mac);
         if mark_subsequent && res.is_ok() {

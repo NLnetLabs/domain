@@ -3,16 +3,15 @@
 use std::collections::{BTreeMap, HashMap};
 use std::vec::Vec;
 
-use tracing::{info, trace};
-
-use super::error::{ContextError, RecordError, ZoneErrors};
 use crate::base::iana::{Class, Rtype};
 use crate::base::name::{FlattenInto, ToName};
+use crate::base::Name;
 use crate::rdata::ZoneRecordData;
 use crate::zonefile::inplace::{self, Entry};
 use crate::zonetree::ZoneBuilder;
 use crate::zonetree::{Rrset, SharedRr};
 
+use super::error::{ContextError, RecordError, ZoneErrors};
 use super::types::{StoredName, StoredRecord};
 
 //------------ Zonefile ------------------------------------------------------
@@ -105,7 +104,7 @@ impl Zonefile {
             (self.origin().unwrap(), self.class().unwrap());
 
         if record.class() != zone_class {
-            return Err(RecordError::ClassMismatch(record));
+            return Err(RecordError::ClassMismatch(record, zone_class));
         }
 
         if !record.owner().ends_with(zone_apex) {
@@ -123,36 +122,52 @@ impl Zonefile {
                 // parent zone and refer to a child zone, a DS record cannot
                 // therefore appear at the apex.
                 Rtype::NS | Rtype::DS if record.owner() != zone_apex => {
-                    if self.normal.contains(record.owner())
-                        || self.cnames.contains(record.owner())
+                    if let Some(normal_records) =
+                        self.normal.get(record.owner())
                     {
-                        return Err(RecordError::IllegalZoneCut(record));
+                        let rtype = normal_records.sample_rtype().unwrap();
+                        Err(RecordError::IllegalZoneCut(record, rtype))
+                    } else if self.cnames.contains(record.owner()) {
+                        Err(RecordError::IllegalZoneCut(record, Rtype::CNAME))
+                    } else {
+                        self.zone_cuts
+                            .entry(record.owner().clone())
+                            .insert(record);
+                        Ok(())
                     }
-                    self.zone_cuts
-                        .entry(record.owner().clone())
-                        .insert(record);
-                    Ok(())
                 }
                 Rtype::CNAME => {
-                    if self.normal.contains(record.owner())
-                        || self.zone_cuts.contains(record.owner())
+                    if let Some(normal_records) =
+                        self.normal.get(record.owner())
                     {
-                        return Err(RecordError::IllegalCname(record));
+                        let rtype = normal_records.sample_rtype().unwrap();
+                        Err(RecordError::IllegalCname(record, rtype))
+                    } else if let Some(zone_cut) =
+                        self.zone_cuts.get(record.owner())
+                    {
+                        let rtype = zone_cut.sample_rtype().unwrap();
+                        Err(RecordError::IllegalCname(record, rtype))
+                    } else if self.cnames.contains(record.owner()) {
+                        Err(RecordError::MultipleCnames(record))
+                    } else {
+                        self.cnames
+                            .insert(record.owner().clone(), record.into());
+                        Ok(())
                     }
-                    if self.cnames.contains(record.owner()) {
-                        return Err(RecordError::MultipleCnames(record));
-                    }
-                    self.cnames.insert(record.owner().clone(), record.into());
-                    Ok(())
                 }
                 _ => {
-                    if self.zone_cuts.contains(record.owner())
-                        || self.cnames.contains(record.owner())
+                    if let Some(zone_cut) = self.zone_cuts.get(record.owner())
                     {
-                        return Err(RecordError::IllegalRecord(record));
+                        let rtype = zone_cut.sample_rtype().unwrap();
+                        Err(RecordError::IllegalRecord(record, rtype))
+                    } else if self.cnames.contains(record.owner()) {
+                        Err(RecordError::IllegalRecord(record, Rtype::CNAME))
+                    } else {
+                        self.normal
+                            .entry(record.owner().clone())
+                            .insert(record);
+                        Ok(())
                     }
-                    self.normal.entry(record.owner().clone()).insert(record);
-                    Ok(())
                 }
             }
         }
@@ -205,14 +220,14 @@ impl Zonefile {
 }
 
 impl TryFrom<Zonefile> for ZoneBuilder {
-    type Error = ZoneErrors;
+    type Error = ZoneErrors<ContextError>;
 
     fn try_from(mut zonefile: Zonefile) -> Result<Self, Self::Error> {
         let mut builder = ZoneBuilder::new(
             zonefile.origin.unwrap(),
             zonefile.class.unwrap(),
         );
-        let mut zone_err = ZoneErrors::default();
+        let mut errors = ZoneErrors::<ContextError>::default();
 
         // Insert all the zone cuts first. Fish out potential glue records
         // from the normal or out-of-zone records.
@@ -220,7 +235,7 @@ impl TryFrom<Zonefile> for ZoneBuilder {
             let ns = match cut.ns {
                 Some(ns) => ns.into_shared(),
                 None => {
-                    zone_err.add_error(name, ContextError::MissingNs);
+                    errors.add_error(name, ContextError::MissingNs);
                     continue;
                 }
             };
@@ -235,14 +250,14 @@ impl TryFrom<Zonefile> for ZoneBuilder {
             }
 
             if let Err(err) = builder.insert_zone_cut(&name, ns, ds, glue) {
-                zone_err.add_error(name, ContextError::InvalidZonecut(err))
+                errors.add_error(name, ContextError::InvalidZonecut(err))
             }
         }
 
         // Now insert all the CNAMEs.
         for (name, rrset) in zonefile.cnames.into_iter() {
             if let Err(err) = builder.insert_cname(&name, rrset) {
-                zone_err.add_error(name, ContextError::InvalidCname(err))
+                errors.add_error(name, ContextError::InvalidCname(err))
             }
         }
 
@@ -250,7 +265,7 @@ impl TryFrom<Zonefile> for ZoneBuilder {
         for (name, rrsets) in zonefile.normal.into_iter() {
             for (rtype, rrset) in rrsets.into_iter() {
                 if builder.insert_rrset(&name, rrset.into_shared()).is_err() {
-                    zone_err.add_error(
+                    errors.add_error(
                         name.clone(),
                         ContextError::OutOfZone(rtype),
                     );
@@ -262,40 +277,50 @@ impl TryFrom<Zonefile> for ZoneBuilder {
         // surprises.
         for (name, rrsets) in zonefile.out_of_zone.into_iter() {
             for (rtype, _) in rrsets.into_iter() {
-                zone_err
+                errors
                     .add_error(name.clone(), ContextError::OutOfZone(rtype));
             }
         }
 
-        zone_err.unwrap().map(|_| builder)
+        errors.unwrap().map(|_| builder)
     }
 }
 
 //--- TryFrom<inplace::Zonefile>
 
 impl TryFrom<inplace::Zonefile> for Zonefile {
-    type Error = RecordError;
+    type Error = ZoneErrors<RecordError>;
 
     fn try_from(source: inplace::Zonefile) -> Result<Self, Self::Error> {
         let mut zonefile = Zonefile::default();
+        let mut errors = ZoneErrors::<RecordError>::default();
 
         for res in source {
             match res.map_err(RecordError::MalformedRecord) {
                 Ok(Entry::Record(r)) => {
-                    if let Err(err) = zonefile.insert(r.flatten_into()) {
-                        info!("Skipping entry due to error: {err}");
+                    let stored_rec = r.flatten_into();
+                    let name = stored_rec.owner().clone();
+                    if let Err(err) = zonefile.insert(stored_rec) {
+                        errors.add_error(name, err);
                     }
                 }
-                Ok(entry) => {
-                    trace!("Skipping unsupported zone file entry: {entry:?}");
+
+                Ok(Entry::Include { .. }) => {
+                    // Not supported at this time.
                 }
-                Err(err) => {
-                    info!("Skipping entry due to error: {err}");
-                }
+
+                Err(err) => match err.owner() {
+                    Some(name) => errors.add_error(name.clone(), err),
+                    None => errors.add_error(Name::root_bytes(), err),
+                },
             }
         }
 
-        Ok(zonefile)
+        if errors.is_empty() {
+            Ok(zonefile)
+        } else {
+            Err(errors)
+        }
     }
 }
 
@@ -310,6 +335,10 @@ pub struct Owners<Content> {
 impl<Content> Owners<Content> {
     fn contains(&self, name: &StoredName) -> bool {
         self.owners.contains_key(name)
+    }
+
+    fn get(&self, name: &StoredName) -> Option<&Content> {
+        self.owners.get(name)
     }
 
     fn insert(&mut self, name: StoredName, content: Content) -> bool {
@@ -406,6 +435,10 @@ impl Normal {
     fn into_iter(self) -> impl Iterator<Item = (Rtype, Rrset)> {
         self.records.into_iter()
     }
+
+    fn sample_rtype(&self) -> Option<Rtype> {
+        self.records.iter().next().map(|(&rtype, _)| rtype)
+    }
 }
 
 //------------ ZoneCut -------------------------------------------------------
@@ -436,5 +469,9 @@ impl ZoneCut {
             }
             _ => panic!("inserting wrong rtype to zone cut"),
         }
+    }
+
+    fn sample_rtype(&self) -> Option<Rtype> {
+        self.ds.as_ref().or(self.ns.as_ref()).map(|r| r.rtype())
     }
 }

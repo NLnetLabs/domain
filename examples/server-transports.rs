@@ -275,7 +275,7 @@ fn query(
     eprintln!("Setting idle timeout to {idle_timeout:?}");
 
     let builder = mk_builder_for_target();
-    let answer = mk_answer(&request, builder).unwrap();
+    let answer = mk_answer(&request, builder)?;
     Ok(CallResult::new(answer).with_feedback(cmd))
 }
 

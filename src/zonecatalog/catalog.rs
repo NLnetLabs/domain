@@ -2248,8 +2248,7 @@ impl ConnectionFactory for DefaultConnFactory {
                         .set_response_timeout(Duration::from_secs(2));
                     // Allow time between the SOA query response and sending the
                     // AXFR/IXFR request.
-                    stream_config
-                        .set_initial_idle_timeout(Duration::from_secs(5));
+                    stream_config.set_idle_timeout(Duration::from_secs(5));
                     // Allow much more time for an XFR streaming response.
                     stream_config.set_streaming_response_timeout(
                         Duration::from_secs(30),

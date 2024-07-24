@@ -1,4 +1,4 @@
-//! DNS Cookies related message processing.
+//! RFC 7873 DNS Cookies related message processing.
 use core::future::{ready, Ready};
 use core::marker::PhantomData;
 use core::ops::ControlFlow;

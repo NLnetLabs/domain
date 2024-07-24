@@ -3,10 +3,12 @@ use core::ops::{ControlFlow, Deref};
 use core::sync::atomic::{AtomicBool, Ordering};
 use core::time::Duration;
 
+use std::fmt::Display;
 use std::io;
 use std::net::SocketAddr;
 use std::sync::Arc;
 
+use arc_swap::ArcSwap;
 use futures::StreamExt;
 use octseq::Octets;
 use tokio::io::{
@@ -19,6 +21,7 @@ use tokio::time::{sleep_until, timeout};
 use tracing::Level;
 use tracing::{debug, enabled, error, trace, warn};
 
+use crate::base::message_builder::AdditionalBuilder;
 use crate::base::wire::Composer;
 use crate::base::{Message, StreamTarget};
 use crate::net::server::buf::BufSource;
@@ -31,9 +34,6 @@ use crate::utils::config::DefMinMax;
 use super::message::{NonUdpTransportContext, TransportSpecificContext};
 use super::stream::Config as ServerConfig;
 use super::ServerCommand;
-use crate::base::message_builder::AdditionalBuilder;
-use arc_swap::ArcSwap;
-use std::fmt::Display;
 
 /// Limit on the amount of time to allow between client requests.
 ///
