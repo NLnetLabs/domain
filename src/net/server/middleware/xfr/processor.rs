@@ -43,9 +43,6 @@ use crate::zonetree::{
 use super::batcher::XfrRrBatcher;
 use super::types::{IxfrResult, XfrMiddlewareStream, XfrMode};
 
-#[cfg(test)]
-use super::test::PredictablyOrderedBatcher;
-
 //------------ XfrMiddlewareSvc ----------------------------------------------
 
 /// A [`MiddlewareProcessor`] for responding to XFR requests.
@@ -606,17 +603,12 @@ where
                 false => None,
             };
 
-            let batcher = XfrRrBatcher::build(
+            let mut batcher = XfrRrBatcher::build(
                 msg.clone(),
                 sender.clone(),
                 Some(soft_byte_limit),
                 hard_rr_limit,
             );
-
-            #[cfg(test)]
-            let batcher = PredictablyOrderedBatcher::new(batcher);
-
-            let mut batcher = batcher;
 
             while let Some((owner, rrset)) = batcher_rx.recv().await {
                 for rr in rrset.data() {
@@ -850,17 +842,12 @@ where
                 (q.qname().to_name::<Bytes>(), q.qclass())
             };
 
-            let batcher = XfrRrBatcher::build(
+            let mut batcher = XfrRrBatcher::build(
                 msg.clone(),
                 sender.clone(),
                 Some(soft_byte_limit),
                 None,
             );
-
-            #[cfg(test)]
-            let batcher = PredictablyOrderedBatcher::new(batcher);
-
-            let mut batcher = batcher;
 
             batcher
                 .push((
