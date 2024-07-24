@@ -25,6 +25,7 @@ server:
     local-data: "com.               86400   IN  DNSKEY  256 3 13 Nps5nxuQHRbY3e9hcbH36kxiELJH5wil+6dC4K1keQI9ci1nqyCP4k1X oXBBn2aeSK4KxwPEs0Opqc0dicuujg=="
     local-data: "com.               86400   IN  DNSKEY  256 3 13 cCRwZIITlPXwDm0yKpGVYSmWLL4OpEHxA7+Rt3jS0W1N4EMOaF8doSzr JuM7aDbgAR7jtQ9SNCvYZCH2xSyfaQ=="
     local-data: "alt.com.           3600    IN  CNAME   example.com."
+    local-data: "a.alt.com.           3600  IN  A       1.2.3.4"
     local-data: "example.com.       172800  IN  NS      a.iana-servers.net."
     local-data: "example.com.       172800  IN  NS      b.iana-servers.net."
     local-data: "example.com.       86400   IN  DS      370 13 2 BE74359954660069D5C63D200C39F5603827D7DD02B56F120EE9F3A8 6764247C"
@@ -65,7 +66,7 @@ REPLY QR AA NOERROR
 SECTION QUESTION
     com. IN AXFR
 SECTION ANSWER
-    com.                    900 IN SOA a.gtld-servers.net. nstld.verisign-grs.com. 1720688795 1800 900 604800 86400
+    com.                    900     IN      SOA     a.gtld-servers.net. nstld.verisign-grs.com. 1720688795 1800 900 604800 86400
     com.                    166972  IN      NS      a.gtld-servers.net.
     com.                    166972  IN      NS      b.gtld-servers.net.
     com.                    166972  IN      NS      c.gtld-servers.net.
@@ -83,12 +84,13 @@ SECTION ANSWER
     com.                    86400   IN      DNSKEY  256 3 13 Nps5nxuQHRbY3e9hcbH36kxiELJH5wil+6dC4K1keQI9ci1nqyCP4k1X oXBBn2aeSK4KxwPEs0Opqc0dicuujg==
     com.                    86400   IN      DNSKEY  256 3 13 cCRwZIITlPXwDm0yKpGVYSmWLL4OpEHxA7+Rt3jS0W1N4EMOaF8doSzr JuM7aDbgAR7jtQ9SNCvYZCH2xSyfaQ==
     alt.com.                3600    IN      CNAME   example.com.
+    a.alt.com.              3600    IN      A       1.2.3.4
     example.com.            172800  IN      NS      a.iana-servers.net.
     example.com.            172800  IN      NS      b.iana-servers.net.
     example.com.            86400   IN      DS      370 13 2 BE74359954660069D5C63D200C39F5603827D7DD02B56F120EE9F3A8 6764247C
-    alt.terminal.com.       3600    IN      CNAME   www.example.com.
     www.terminal.com.       3600    IN      A       1.2.3.4
-    com.                    900 IN SOA a.gtld-servers.net. nstld.verisign-grs.com. 1720688795 1800 900 604800 86400
+    alt.terminal.com.       3600    IN      CNAME   www.example.com.
+    com.                    900     IN      SOA     a.gtld-servers.net. nstld.verisign-grs.com. 1720688795 1800 900 604800 86400
 ENTRY_END
 
 ; Retrieve the zone via backward compatible AXFR from the server
@@ -99,62 +101,38 @@ SECTION QUESTION
     com. IN AXFR
 ENTRY_END
 
-; NOTE: See test-data/server/README.md regarding order of RRs across multiple
-; response packets.
 STEP 31 CHECK_ANSWER
 ENTRY_BEGIN
-MATCH all
+MATCH all EXTRA_PACKETS
 REPLY QR AA NOERROR
 SECTION QUESTION
     com. IN AXFR
 SECTION ANSWER
-    com.                    900 IN SOA a.gtld-servers.net. nstld.verisign-grs.com. 1720688795 1800 900 604800 86400
-EXTRA_PACKET
-    alt.com.                3600    IN      CNAME   example.com.
-EXTRA_PACKET
-    alt.terminal.com.       3600    IN      CNAME   www.example.com.
-EXTRA_PACKET
+    com.                    900     IN      SOA     a.gtld-servers.net. nstld.verisign-grs.com. 1720688795 1800 900 604800 86400
     com.                    166972  IN      NS      a.gtld-servers.net.
-EXTRA_PACKET
     com.                    166972  IN      NS      b.gtld-servers.net.
-EXTRA_PACKET
     com.                    166972  IN      NS      c.gtld-servers.net.
-EXTRA_PACKET
     com.                    166972  IN      NS      d.gtld-servers.net.
-EXTRA_PACKET
     com.                    166972  IN      NS      e.gtld-servers.net.
-EXTRA_PACKET
     com.                    166972  IN      NS      f.gtld-servers.net.
-EXTRA_PACKET
     com.                    166972  IN      NS      g.gtld-servers.net.
-EXTRA_PACKET
     com.                    166972  IN      NS      h.gtld-servers.net.
-EXTRA_PACKET
     com.                    166972  IN      NS      i.gtld-servers.net.
-EXTRA_PACKET
     com.                    166972  IN      NS      j.gtld-servers.net.
-EXTRA_PACKET
     com.                    166972  IN      NS      k.gtld-servers.net.
-EXTRA_PACKET
     com.                    166972  IN      NS      l.gtld-servers.net.
-EXTRA_PACKET
     com.                    166972  IN      NS      m.gtld-servers.net.
-EXTRA_PACKET
     com.                    86400   IN      DNSKEY  256 3 13 Nps5nxuQHRbY3e9hcbH36kxiELJH5wil+6dC4K1keQI9ci1nqyCP4k1X oXBBn2aeSK4KxwPEs0Opqc0dicuujg==
-EXTRA_PACKET
     com.                    86400   IN      DNSKEY  256 3 13 cCRwZIITlPXwDm0yKpGVYSmWLL4OpEHxA7+Rt3jS0W1N4EMOaF8doSzr JuM7aDbgAR7jtQ9SNCvYZCH2xSyfaQ==
-EXTRA_PACKET
     com.                    86400   IN      DNSKEY  257 3 13 tx8EZRAd2+K/DJRV0S+hbBzaRPS/G6JVNBitHzqpsGlz8huE61Ms9ANe 6NSDLKJtiTBqfTJWDAywEp1FCsEINQ==
-EXTRA_PACKET
-    www.terminal.com.       3600    IN      A       1.2.3.4
-EXTRA_PACKET
+    alt.terminal.com.       3600    IN      CNAME   www.example.com.
+    a.alt.com.              3600    IN      A       1.2.3.4
     example.com.            172800  IN      NS      a.iana-servers.net.
-EXTRA_PACKET
     example.com.            172800  IN      NS      b.iana-servers.net.
-EXTRA_PACKET
     example.com.            86400   IN      DS      370 13 2 BE74359954660069D5C63D200C39F5603827D7DD02B56F120EE9F3A8 6764247C
-EXTRA_PACKET
-    com.                    900 IN SOA a.gtld-servers.net. nstld.verisign-grs.com. 1720688795 1800 900 604800 86400
+    www.terminal.com.       3600    IN      A       1.2.3.4
+    alt.com.                3600    IN      CNAME   example.com.
+    com.                    900     IN      SOA     a.gtld-servers.net. nstld.verisign-grs.com. 1720688795 1800 900 604800 86400
 ENTRY_END
 
 SCENARIO_END

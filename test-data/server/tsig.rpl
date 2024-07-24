@@ -104,20 +104,14 @@ ENTRY_END
 
 STEP 41 CHECK_ANSWER
 ENTRY_BEGIN
-MATCH all
+MATCH all EXTRA_PACKETS
 REPLY QR AA NOERROR
-
-; NOTE: See test-data/server/README.md regarding order of RRs across multiple
-; response packets.
 SECTION QUESTION
     example.com.            IN  AXFR
 SECTION ANSWER
     example.com.      3600  IN  SOA  ns.example.com. hostmaster.example.com. 1 3600 900 86400 3600
-EXTRA_PACKET
     www.example.com.  3600  IN  A    1.2.3.4
-EXTRA_PACKET
     example.com.      3600  IN  NS   ns.example.net.
-EXTRA_PACKET
     example.com.      3600  IN  SOA  ns.example.com. hostmaster.example.com. 1 3600 900 86400 3600
 ENTRY_END
 
