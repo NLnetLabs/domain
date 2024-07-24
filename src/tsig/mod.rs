@@ -60,6 +60,8 @@ use core::{cmp, fmt, mem, str};
 
 #[cfg(feature = "std")]
 use std::collections::HashMap;
+#[cfg(feature = "std")]
+use std::fmt::Display;
 
 use bytes::{Bytes, BytesMut};
 use octseq::octets::Octets;
@@ -389,6 +391,15 @@ impl Key {
 impl AsRef<Key> for Key {
     fn as_ref(&self) -> &Self {
         self
+    }
+}
+
+//--- Display
+
+#[cfg(feature = "std")]
+impl Display for Key {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_fmt(format_args!("{}", self.name))
     }
 }
 

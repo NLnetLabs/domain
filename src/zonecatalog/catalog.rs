@@ -19,7 +19,7 @@ use std::fmt::Display;
 use std::future::Future;
 use std::io;
 use std::net::SocketAddr;
-use std::string::String;
+use std::string::{String, ToString};
 use std::sync::Arc;
 use std::vec::Vec;
 
@@ -202,7 +202,8 @@ impl<KS, CF> Catalog<KS, CF>
 where
     KS: Deref + Send + Sync + 'static,
     KS::Target: KeyStore,
-    <KS::Target as KeyStore>::Key: Clone + Debug + Sync + Send + 'static,
+    <KS::Target as KeyStore>::Key:
+        Clone + Debug + Display + Sync + Send + 'static,
     CF: ConnectionFactory + Send + Sync + 'static,
 {
     pub async fn run(&self) {
@@ -603,7 +604,8 @@ impl<KS, CF> Catalog<KS, CF>
 where
     KS: Deref + 'static,
     KS::Target: KeyStore,
-    <KS::Target as KeyStore>::Key: Clone + Debug + Sync + Send + 'static,
+    <KS::Target as KeyStore>::Key:
+        Clone + Debug + Display + Sync + Send + 'static,
     CF: ConnectionFactory + 'static,
 {
     async fn send_notify(
@@ -1301,12 +1303,11 @@ where
             // Query the SOA serial of the primary via the chosen transport.
             let Some(client) = loaded_config
                 .conn_factory
-                .get(primary_addr, transport, key)
+                .get(primary_addr, transport, key.clone())
                 .await
-                .map_err(|_| {
-                    CatalogError::InternalError(
-                        "Conn factory failed to create XFR client",
-                    )
+                .map_err(|err| {
+                    let key = key.map(|key| format!("{key}")).unwrap_or("NOKEY".to_string());
+                    CatalogError::ConnectionError(format!("Connecting to {primary_addr} via {transport} with key '{key}' failed: {err}"))
                 })?
             else {
                 return Ok(None);
@@ -2096,6 +2097,7 @@ pub enum CatalogError {
     RequestError(request::Error),
     ResponseError(OptRcode),
     IoError(io::Error),
+    ConnectionError(String),
 }
 
 //--- Display
@@ -2105,18 +2107,21 @@ impl Display for CatalogError {
         match self {
             CatalogError::NotRunning => f.write_str("Catalog not running"),
             CatalogError::InternalError(err) => {
-                f.write_fmt(format_args!("Internal Catalog error: {err}"))
+                f.write_fmt(format_args!("Internal error: {err}"))
             }
             CatalogError::UnknownZone => f.write_str("Unknown zone"),
             CatalogError::RequestError(err) => f.write_fmt(format_args!(
-                "Request sent by Catalog failed: {err}"
+                "Error while sending request: {err}"
             )),
             CatalogError::ResponseError(err) => f.write_fmt(format_args!(
-                "Error response received by Catalog: {err}"
+                "Error while receiving response: {err}"
             )),
-            CatalogError::IoError(err) => f.write_fmt(format_args!(
-                "I/O error during Catalog operation: {err}"
-            )),
+            CatalogError::IoError(err) => {
+                f.write_fmt(format_args!("I/O error: {err}"))
+            }
+            CatalogError::ConnectionError(err) => {
+                f.write_fmt(format_args!("Unable to connect: {err}"))
+            }
         }
     }
 }

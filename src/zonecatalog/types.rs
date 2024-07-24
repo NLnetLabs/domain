@@ -5,6 +5,7 @@ use core::task::{Context, Poll};
 
 use std::boxed::Box;
 use std::collections::{BTreeMap, HashMap, HashSet};
+use std::fmt::Display;
 use std::future::Future;
 use std::net::SocketAddr;
 use std::string::ToString;
@@ -136,6 +137,18 @@ pub enum TransportStrategy {
     None,
     Udp,
     Tcp,
+}
+
+//--- Display
+
+impl Display for TransportStrategy {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            TransportStrategy::None => f.write_str("None"),
+            TransportStrategy::Udp => f.write_str("UDP"),
+            TransportStrategy::Tcp => f.write_str("TCP"),
+        }
+    }
 }
 
 //------------ CompatibilityMode ---------------------------------------------
@@ -296,7 +309,7 @@ pub enum ZoneRefreshStatus {
 
 //--- Display
 
-impl std::fmt::Display for ZoneRefreshStatus {
+impl Display for ZoneRefreshStatus {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             ZoneRefreshStatus::Refreshing => f.write_str("refreshing"),
@@ -507,7 +520,7 @@ pub(super) enum ZoneRefreshCause {
     SoaRetryTimer,
 }
 
-impl std::fmt::Display for ZoneRefreshCause {
+impl Display for ZoneRefreshCause {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             ZoneRefreshCause::ManualTrigger => f.write_str("manual trigger"),
@@ -749,7 +762,7 @@ impl ZoneReport {
 
 //--- Display
 
-impl std::fmt::Display for ZoneReport {
+impl Display for ZoneReport {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.write_fmt(format_args!("zone:   {}\n", self.key.0))?;
         f.write_fmt(format_args!("{}", self.details))?;
@@ -812,7 +825,7 @@ pub enum ZoneReportDetails {
 
 //--- Display
 
-impl std::fmt::Display for ZoneReportDetails {
+impl Display for ZoneReportDetails {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             ZoneReportDetails::Primary => {
