@@ -1,7 +1,7 @@
 //! Configuring and running NSD.
 
-use crate::utils::base64;
 use bytes::Bytes;
+use domain::utils::base64;
 use std::fs::File;
 use std::net::{IpAddr, SocketAddr};
 use std::path::{Path, PathBuf};

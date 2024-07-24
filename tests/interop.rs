@@ -1,19 +1,21 @@
 //! Tests the TSIG implementation.
-#![cfg(test)]
 
-use crate::base::iana::{Rcode, Rtype};
-use crate::base::message::Message;
-use crate::base::message_builder::{
+mod common;
+
+use common::nsd;
+
+use domain::base::iana::{Rcode, Rtype};
+use domain::base::message::Message;
+use domain::base::message_builder::{
     AdditionalBuilder, AnswerBuilder, MessageBuilder, StreamTarget,
 };
-use crate::base::name::Name;
-use crate::base::opt::TcpKeepalive;
-use crate::base::record::Ttl;
-use crate::rdata::tsig::Time48;
-use crate::rdata::{Soa, A};
-use crate::test::nsd;
-use crate::tsig;
-use crate::utils::base64;
+use domain::base::name::Name;
+use domain::base::opt::TcpKeepalive;
+use domain::base::record::Ttl;
+use domain::rdata::tsig::Time48;
+use domain::rdata::{Soa, A};
+use domain::tsig;
+use domain::utils::base64;
 use ring::rand::SystemRandom;
 use std::io::{Read, Write};
 use std::net::{IpAddr, SocketAddr, TcpListener, TcpStream, UdpSocket};
