@@ -442,8 +442,8 @@ Options:
   --listen <ip>:<port>:            UDP and TCP address to listen on [default {def_listen_addr}].
   --listen-udp <ip>:<port>:        UDP address to listen on [default {def_listen_addr}].
   --listen-tcp <ip>:<port>:        TCP address to listen on [default {def_listen_addr}].
-  --xfr-src <ip>:<port>:           Accept NOTIFY from <ip> and request XFR from <ip>:<port>.
-  --xfr-dst <ip>:<port>:           Send NOTIFY to <ip>:<port> and accept XFR requests from <ip>.
+  --xfr-src <ip>[:<port>]:         Accept NOTIFY from <ip> and (optional) request XFR from <ip>:<port>.
+  --xfr-dst <ip>[:<port>]:         Accept XFR requests from <ip> and (optional) send NOTIFY to <ip>:<port>.
   --tsig-key <name>:[<alg>]:<key>: E.g. "my key":hmac-sha256:<base64 key data>.
                                    Applies to the next --xfr-src|dst argument.
   --zone-dump-path <path>:         Save received updates to the served zone to this path.
@@ -511,23 +511,33 @@ Options:
 
             "--xfr-src" => {
                 let arg = args.next().ok_or("Error: Missing XFR source")?;
-                let src = SocketAddr::from_str(&arg).map_err(|err| {
-                    format!("Error: Invalid XFR source '{arg}': {err}")
-                })?;
+                let src = SocketAddr::from_str(&arg)
+                    .or(IpAddr::from_str(&arg)
+                        .map(|ip| SocketAddr::new(ip, 0)))
+                    .map_err(|err| {
+                        format!("Error: Invalid XFR src '{arg}': {err}")
+                    })?;
 
                 zone_cfg
                     .allow_notify_from
                     .add_src(src.ip(), notify_cfg.clone());
-                zone_cfg.request_xfr_from.add_dst(src, xfr_cfg.clone());
+                if src.port() != 0 {
+                    zone_cfg.request_xfr_from.add_dst(src, xfr_cfg.clone());
+                }
             }
 
             "--xfr-dst" => {
                 let arg = args.next().ok_or("Error: Missing XFR dest")?;
-                let dst = SocketAddr::from_str(&arg).map_err(|err| {
-                    format!("Error: Invalid XFR dest '{arg}': {err}")
-                })?;
+                let dst = SocketAddr::from_str(&arg)
+                    .or(IpAddr::from_str(&arg)
+                        .map(|ip| SocketAddr::new(ip, 0)))
+                    .map_err(|err| {
+                        format!("Error: Invalid XFR dst '{arg}': {err}")
+                    })?;
 
-                zone_cfg.send_notify_to.add_dst(dst, notify_cfg.clone());
+                if dst.port() != 0 {
+                    zone_cfg.send_notify_to.add_dst(dst, notify_cfg.clone());
+                }
                 zone_cfg.provide_xfr_to.add_src(dst.ip(), xfr_cfg.clone());
             }
 
