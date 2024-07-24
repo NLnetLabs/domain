@@ -162,7 +162,7 @@ impl Zonefile {
                     }
                 }
                 _ => {
-                    // Only gue records can only be added at the same owner as
+                    // Only glue records can only be added at the same owner as
                     // a zone cut.
                     let incompatible_zone_cut = match record.rtype().is_glue()
                     {
