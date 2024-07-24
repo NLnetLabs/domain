@@ -1428,10 +1428,18 @@ where
 
         let client =
             net::client::xfr::Connection::new(Some(zone.clone()), client);
-        let msg = client.send_request(req).get_response().await?;
+
+        let mut send_request = client.send_request(req);
+
+        while !send_request.is_stream_complete() {
+            let msg = send_request
+                .get_response()
+                .await
+                .map_err(CatalogError::RequestError)?;
 
         if msg.is_error() {
             return Err(CatalogError::ResponseError(msg.opt_rcode()));
+            }
         }
 
         let soa_and_ttl =
