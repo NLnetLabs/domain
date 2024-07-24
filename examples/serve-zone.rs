@@ -17,11 +17,9 @@
 
 use std::future::pending;
 use std::io::BufReader;
+use std::process::exit;
 use std::sync::Arc;
 use std::time::Duration;
-
-use tokio::net::{TcpListener, UdpSocket};
-use tracing_subscriber::EnvFilter;
 
 use domain::base::iana::Rcode;
 use domain::base::ToName;
@@ -38,6 +36,8 @@ use domain::net::server::util::{mk_builder_for_target, service_fn};
 use domain::zonefile::inplace;
 use domain::zonetree::Answer;
 use domain::zonetree::{Zone, ZoneTree};
+use tokio::net::{TcpListener, UdpSocket};
+use tracing_subscriber::EnvFilter;
 
 #[tokio::main()]
 async fn main() {
@@ -57,11 +57,23 @@ async fn main() {
     // We're reading from static data so this cannot fail due to I/O error.
     // Don't handle errors that shouldn't happen, keep the example focused
     // on what we want to demonstrate.
-    let reader = inplace::Zonefile::load(&mut zone_bytes).unwrap();
-    let zone = Zone::try_from(reader).unwrap();
-
     let mut zones = ZoneTree::new();
-    zones.insert_zone(zone.clone()).unwrap();
+    let reader =
+        inplace::Zonefile::load(&mut zone_bytes).unwrap_or_else(|err| {
+            eprintln!("Error reading zone file bytes: {err}");
+            exit(1);
+        });
+    let zone = Zone::try_from(reader).unwrap_or_else(|errors| {
+        eprintln!(
+            "{} zone file entries could not be parsed, aborting:",
+            errors.len()
+        );
+        for (name, err) in errors {
+            eprintln!("  {name}: {err}");
+        }
+        exit(1);
+    });
+    zones.insert_zone(zone).unwrap();
     let zones = Arc::new(zones);
 
     let addr = "127.0.0.1:8053";
