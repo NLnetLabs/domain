@@ -4,6 +4,7 @@ use std::fmt::Display;
 use std::io;
 use std::vec::Vec;
 
+use crate::base::iana::Class;
 use crate::base::Rtype;
 use crate::zonefile::inplace;
 
@@ -75,16 +76,20 @@ pub struct OutOfZone;
 #[derive(Clone, Debug)]
 pub enum RecordError {
     /// The class of the record does not match the class of the zone.
-    ClassMismatch(StoredRecord),
+    ClassMismatch(StoredRecord, Class),
 
     /// Attempted to add zone cut records where there is no zone cut.
-    IllegalZoneCut(StoredRecord),
+    ///
+    /// At least one record of non-zone cut type Rtype already exists.
+    IllegalZoneCut(StoredRecord, Rtype),
 
     /// Attempted to add a normal record to a zone cut or CNAME.
-    IllegalRecord(StoredRecord),
+    IllegalRecord(StoredRecord, Rtype),
 
     /// Attempted to add a CNAME record where there are other records.
-    IllegalCname(StoredRecord),
+    ///
+    /// At least one record of type Rtype already exists.
+    IllegalCname(StoredRecord, Rtype),
 
     /// Attempted to add multiple CNAME records for an owner.
     MultipleCnames(StoredRecord),
@@ -102,28 +107,30 @@ pub enum RecordError {
 impl Display for RecordError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            RecordError::ClassMismatch(rec) => {
-                write!(f, "ClassMismatch: {rec}")
+            RecordError::ClassMismatch(rec, zone_class) => {
+                write!(f, "The class of the record does not match the class {zone_class} of the zone: {rec}")
             }
-            RecordError::IllegalZoneCut(rec) => {
-                write!(f, "IllegalZoneCut: {rec}")
+            RecordError::IllegalZoneCut(rec, existing_rtype) => {
+                write!(f, "Attempted to add zone cut records where there non-zone cut records (e.g. {existing_rtype}) already exist: {rec}")
             }
-            RecordError::IllegalRecord(rec) => {
-                write!(f, "IllegalRecord: {rec}")
+            RecordError::IllegalRecord(rec, existing_rtype) => {
+                write!(f, "Attempted to add a normal record where a {existing_rtype} record already exists: {rec}")
             }
-            RecordError::IllegalCname(rec) => {
-                write!(f, "IllegalCname: {rec}")
+            RecordError::IllegalCname(rec, existing_rtype) => {
+                write!(f, "Attempted to add a CNAME record where a {existing_rtype} record already exists: {rec}")
             }
             RecordError::MultipleCnames(rec) => {
-                write!(f, "MultipleCnames: {rec}")
+                write!(f, "Attempted to add a CNAME record a CNAME record already exists: {rec}")
             }
             RecordError::MalformedRecord(err) => {
-                write!(f, "MalformedRecord: {err}")
+                write!(f, "The record could not be parsed: {err}")
             }
             RecordError::InvalidRecord(err) => {
-                write!(f, "InvalidRecord: {err}")
+                write!(f, "The record is parseable but not valid: {err}")
             }
-            RecordError::MissingSoa(rec) => write!(f, "MissingSoa: {rec}"),
+            RecordError::MissingSoa(rec) => {
+                write!(f, "The SOA record was not found: {rec}")
+            }
         }
     }
 }
