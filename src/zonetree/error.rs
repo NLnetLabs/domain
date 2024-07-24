@@ -4,8 +4,10 @@ use std::fmt::Display;
 use std::io;
 use std::vec::Vec;
 
+use bytes::Bytes;
+
 use crate::base::iana::Class;
-use crate::base::Rtype;
+use crate::base::{Name, Rtype, ToName};
 use crate::zonefile::inplace;
 
 use super::types::{StoredName, StoredRecord};
@@ -98,11 +100,29 @@ pub enum RecordError {
     MalformedRecord(inplace::Error),
 
     /// The record is parseable but not valid.
-    InvalidRecord(ZoneErrors),
+    InvalidRecord(ContextError),
 
     /// The SOA record was not found.
     MissingSoa(StoredRecord),
 }
+
+impl RecordError {
+    /// Get the RR owner name for the error, if any.
+    pub fn owner(&self) -> Option<&Name<Bytes>> {
+        match self {
+            RecordError::ClassMismatch(rec, _)
+            | RecordError::IllegalZoneCut(rec, _)
+            | RecordError::IllegalRecord(rec, _)
+            | RecordError::IllegalCname(rec, _)
+            | RecordError::MultipleCnames(rec)
+            | RecordError::MissingSoa(rec) => Some(rec.owner()),
+            RecordError::MalformedRecord(_)
+            | RecordError::InvalidRecord(_) => None,
+        }
+    }
+}
+
+//--- Display
 
 impl Display for RecordError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
@@ -138,21 +158,21 @@ impl Display for RecordError {
 //------------ ZoneErrors ----------------------------------------------------
 
 /// A set of problems relating to a zone.
-#[derive(Clone, Debug, Default)]
-pub struct ZoneErrors {
-    errors: Vec<(StoredName, ContextError)>,
+#[derive(Clone, Debug)]
+pub struct ZoneErrors<T> {
+    errors: Vec<(StoredName, T)>,
 }
 
-impl ZoneErrors {
+impl<T> ZoneErrors<T> {
     /// Add an error to the set.
-    pub fn add_error(&mut self, name: StoredName, error: ContextError) {
-        self.errors.push((name, error))
+    pub fn add_error(&mut self, name: impl ToName, error: T) {
+        self.errors.push((name.to_name(), error))
     }
 
     /// Unwrap the set of errors.
     ///
-    /// Returns the set of errors as [Result::Err(ZonErrors)] or [Result::Ok]
-    /// if the set is empty.
+    /// Returns the set of errors as [Result::Err(T)] or [Result::Ok] if the
+    /// set is empty.
     pub fn unwrap(self) -> Result<(), Self> {
         if self.errors.is_empty() {
             Ok(())
@@ -160,9 +180,43 @@ impl ZoneErrors {
             Err(self)
         }
     }
+
+    /// Returns true if there are no errors.
+    pub fn is_empty(&self) -> bool {
+        self.errors.is_empty()
+    }
+
+    /// Returns the number of errors.
+    pub fn len(&self) -> usize {
+        self.errors.len()
+    }
 }
 
-impl Display for ZoneErrors {
+//--- IntoIter
+
+impl<T> IntoIterator for ZoneErrors<T> {
+    type Item = (StoredName, T);
+
+    type IntoIter = std::vec::IntoIter<Self::Item>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.errors.into_iter()
+    }
+}
+
+//--- Default
+
+impl<T> Default for ZoneErrors<T> {
+    fn default() -> Self {
+        Self {
+            errors: Default::default(),
+        }
+    }
+}
+
+//--- Display
+
+impl<T: Display> Display for ZoneErrors<T> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(f, "Zone file errors: [")?;
         for err in &self.errors {

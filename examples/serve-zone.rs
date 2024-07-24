@@ -15,6 +15,12 @@
 //!
 //!   dig @127.0.0.1 -p 8053 AXFR example.com
 
+use std::future::{pending, ready, Future};
+use std::io::BufReader;
+use std::process::exit;
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
+
 use domain::base::iana::{Opcode, Rcode};
 use domain::base::message_builder::AdditionalBuilder;
 use domain::base::{Message, Name, Rtype, ToName};
@@ -30,10 +36,6 @@ use domain::zonefile::inplace;
 use domain::zonetree::{Answer, Rrset};
 use domain::zonetree::{Zone, ZoneTree};
 use octseq::OctetsBuilder;
-use std::future::{pending, ready, Future};
-use std::io::BufReader;
-use std::sync::{Arc, Mutex};
-use std::time::Duration;
 use tokio::net::{TcpListener, UdpSocket};
 use tracing_subscriber::EnvFilter;
 
@@ -56,8 +58,21 @@ async fn main() {
     // We're reading from static data so this cannot fail due to I/O error.
     // Don't handle errors that shouldn't happen, keep the example focused
     // on what we want to demonstrate.
-    let reader = inplace::Zonefile::load(&mut zone_bytes).unwrap();
-    let zone = Zone::try_from(reader).unwrap();
+    let reader =
+        inplace::Zonefile::load(&mut zone_bytes).unwrap_or_else(|err| {
+            eprintln!("Error reading zone file bytes: {err}");
+            exit(1);
+        });
+    let zone = Zone::try_from(reader).unwrap_or_else(|errors| {
+        eprintln!(
+            "{} zone file entries could not be parsed, aborting:",
+            errors.len()
+        );
+        for (name, err) in errors {
+            eprintln!("  {name}: {err}");
+        }
+        exit(1);
+    });
     zones.insert_zone(zone).unwrap();
     let zones = Arc::new(zones);
 
