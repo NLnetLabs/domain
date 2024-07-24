@@ -102,7 +102,7 @@ async fn main() {
     );
     let catalog = Catalog::new_with_config(cat_config);
     let catalog = Arc::new(catalog);
-    catalog.insert_zone(config.zone).await.unwrap();
+    catalog.insert_zone(config.zone.clone()).await.unwrap();
 
     let max_concurrency =
         std::thread::available_parallelism().unwrap().get() / 2;
@@ -193,7 +193,7 @@ async fn main() {
 
             if let Ok(report) = catalog_clone
                 .zone_status(
-                    &Name::from_str("example.com").unwrap(),
+                    config.zone.apex_name(),
                     Class::IN,
                 )
                 .await
@@ -625,7 +625,7 @@ Options:
                 let mut msg =
                     format!("Failed to parse zone: {} errors", errors.len());
                 for (name, err) in errors {
-                    msg.push_str(&format!("  {name}: {err}"));
+                    msg.push_str(&format!("  {name}: {err}\n"));
                 }
                 msg
             })?
