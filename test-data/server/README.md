@@ -45,14 +45,15 @@ involving two or three parties that communicate via mock network sockets:
   particular TSIG key, the former step will determine that the client sends
   unsigned requests and the latter TSIG key specification will be ignored.
 
-- By default server responses are expected consist of only a single reply. The
-  `EXTRA_PACKET` directive can be used to denote that a subsequent reply should
-  also be expected, e.g. for XFR responses. The `EXTRA_PACKET` directive can be
-  used more than once. The number of replies must exactly match the number of
-  expected replies. To make it possible to correctly define which RRs will
-  appear in which reply in which order, when running in test mode the server
-  uses PredictablyOrderedBatcher to order XFR response RRs by wire format
-  byte sequence, while there is usually no such ordering guarantee.
+- By default server responses are expected to consist of only a single reply.
+  The `EXTRA_PACKET` directive can be used to denote that a subsequent reply
+  should also be expected, e.g. for XFR responses. The `EXTRA_PACKET`
+  directive can be used more than once. The number of replies must exactly
+  match the number of expected replies and each reply must have the correct
+  subset of the total RRs across all "packets" (response messages). If the
+  number and/or composition of extra responses is not known use `MATCH
+  EXTRA_PACKETS` (note the plural) to tell the Stelline test framework to
+  gather all replies into one then test the RR present (order insensitive).
 
 - Specifying a TSIG key via `STEP <N> QUERY KEY <KEYNAME>` will cause the real
   TSIG client code to TSIG sign the request, and to strip out the TSIG signing
