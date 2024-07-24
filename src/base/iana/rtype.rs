@@ -425,3 +425,13 @@ int_enum! {
 }
 
 int_enum_str_with_prefix!(Rtype, "TYPE", b"TYPE", u16, "unknown record type");
+
+pub trait IsGlue {
+    fn is_glue(&self) -> bool;
+}
+
+impl IsGlue for Rtype {
+    fn is_glue(&self) -> bool {
+        matches!(*self, Rtype::A | Rtype::AAAA)
+    }
+}

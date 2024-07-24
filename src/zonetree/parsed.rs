@@ -4,6 +4,7 @@ use std::collections::{BTreeMap, HashMap};
 use std::vec::Vec;
 
 use super::error::{ContextError, RecordError, ZoneErrors};
+use crate::base::iana::rtype::IsGlue;
 use crate::base::iana::{Class, Rtype};
 use crate::base::name::{FlattenInto, ToName};
 use crate::base::Name;
@@ -122,10 +123,15 @@ impl Zonefile {
                 // parent zone and refer to a child zone, a DS record cannot
                 // therefore appear at the apex.
                 Rtype::NS | Rtype::DS if record.owner() != zone_apex => {
-                    if let Some(normal_records) =
-                        self.normal.get(record.owner())
-                    {
-                        let rtype = normal_records.sample_rtype().unwrap();
+                    // Zone cuts can only be made when records already exist
+                    // at the owner if all such records are glue (records that
+                    // ease resolution of a zone cut name to an address).
+                    let incompatible_normal_record = self
+                        .normal
+                        .get(record.owner())
+                        .and_then(|normal| normal.first_non_glue());
+
+                    if let Some((&rtype, _)) = incompatible_normal_record {
                         Err(RecordError::IllegalZoneCut(record, rtype))
                     } else if self.cnames.contains(record.owner()) {
                         Err(RecordError::IllegalZoneCut(record, Rtype::CNAME))
@@ -156,13 +162,15 @@ impl Zonefile {
                     }
                 }
                 _ => {
-                    let maybe_glue =
-                        matches!(record.rtype(), Rtype::A | Rtype::AAAA);
-                    let illegal_zone_cut = (!maybe_glue)
-                        .then(|| self.zone_cuts.get(record.owner()))
-                        .flatten();
+                    // Only gue records can only be added at the same owner as
+                    // a zone cut.
+                    let incompatible_zone_cut = match record.rtype().is_glue()
+                    {
+                        true => None,
+                        false => self.zone_cuts.get(record.owner()),
+                    };
 
-                    if let Some(zone_cut) = illegal_zone_cut {
+                    if let Some(zone_cut) = incompatible_zone_cut {
                         let rtype = zone_cut.sample_rtype().unwrap();
                         Err(RecordError::IllegalRecord(record, rtype))
                     } else if self.cnames.contains(record.owner()) {
@@ -385,9 +393,7 @@ impl Owners<Normal> {
             // Now see if A/AAAA records exists for the name in
             // this zone.
             for (_rtype, rrset) in
-                normal.records.iter().filter(|(&rtype, _)| {
-                    rtype == Rtype::A || rtype == Rtype::AAAA
-                })
+                normal.records.iter().filter(|(&rtype, _)| rtype.is_glue())
             {
                 for rdata in rrset.data() {
                     let glue_record = StoredRecord::new(
@@ -443,6 +449,10 @@ impl Normal {
 
     fn sample_rtype(&self) -> Option<Rtype> {
         self.records.iter().next().map(|(&rtype, _)| rtype)
+    }
+
+    fn first_non_glue(&self) -> Option<(&Rtype, &Rrset)> {
+        self.records.iter().find(|(rtype, _)| !rtype.is_glue())
     }
 }
 
