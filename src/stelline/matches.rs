@@ -319,7 +319,7 @@ fn match_section<
             println!("match_section: expected section length {} doesn't match message count {}", match_section.len(), msg_count);
             if !match_section.is_empty() {
                 println!("expected sections:");
-                for section in match_section {
+                for section in &match_section {
                     println!("  {section:?}");
                 }
             }
