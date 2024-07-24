@@ -1,13 +1,14 @@
 //! Configuring and running NSD.
 
-use bytes::Bytes;
-use domain::utils::base64;
 use std::fs::File;
 use std::net::{IpAddr, SocketAddr};
 use std::path::{Path, PathBuf};
 use std::string::String;
 use std::vec::Vec;
 use std::{fmt, io};
+
+use bytes::Bytes;
+use domain::utils::base64;
 
 //------------ Config --------------------------------------------------------
 
