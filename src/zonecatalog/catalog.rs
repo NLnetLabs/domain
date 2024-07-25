@@ -139,8 +139,6 @@ where
 //------------ Catalog -------------------------------------------------------
 
 /// A set of zones that are kept in sync with other servers.
-///
-/// Also capable of acting as an RFC 9432 Catalog Zone producer/consumer.
 #[derive(Debug)]
 pub struct Catalog<KS, CF: ConnectionFactory>
 where
