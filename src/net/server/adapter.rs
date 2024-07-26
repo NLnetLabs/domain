@@ -1,7 +1,7 @@
 // adapters
 
 use super::message::{Request, RequestNG};
-use super::service::{CallResult, Service, ServiceError, Transaction};
+use super::service::{CallResult, Service, ServiceResult, };
 use super::single_service::{ComposeReply, SingleService};
 use std::boxed::Box;
 use std::fmt::Debug;
@@ -11,15 +11,20 @@ use std::marker::PhantomData;
 use crate::dep::octseq::Octets;
 use crate::net::client::request::RequestMessage;
 use crate::net::client::request::SendRequest;
+//use futures::Stream;
+use futures::stream::Once;
+use futures::stream::once;
+use std::future::Ready;
+use std::future::ready;
 use std::pin::Pin;
 use std::vec::Vec;
 
-pub struct SrServiceToService<SVC, CR> {
+pub struct SingleServiceToService<SVC, CR> {
     service: SVC,
     phantom: PhantomData<CR>,
 }
 
-impl<SVC, CR> SrServiceToService<SVC, CR> {
+impl<SVC, CR> SingleServiceToService<SVC, CR> {
     pub fn new(service: SVC) -> Self {
         Self {
             service,
@@ -28,34 +33,31 @@ impl<SVC, CR> SrServiceToService<SVC, CR> {
     }
 }
 
-impl<SVC, CR> Service for SrServiceToService<SVC, CR>
+impl<SVC, CR> Service for SingleServiceToService<SVC, CR>
 where
     SVC: SingleService<Vec<u8>, CR>,
     CR: ComposeReply + 'static,
 {
     type Target = Vec<u8>;
-    //type Future = Ready<Result<CallResult<Self::Target>, ServiceError>>;
+    type Stream = Once<Ready<ServiceResult<Self::Target>>>;
     type Future = Pin<
         Box<
-            dyn Future<
-                    Output = Result<CallResult<Self::Target>, ServiceError>,
-                > + Send
-                + Sync,
+            dyn Future<Output = Self::Stream, > + Send,
         >,
     >;
 
     fn call(
         &self,
         request: Request<Vec<u8>>,
-    ) -> Result<Transaction<Self::Target, Self::Future>, ServiceError> {
+    ) -> Self::Future {
         let req = RequestNG::from_request(request);
         let fut = self.service.call(req);
         let fut = async move {
             let reply = fut.await.unwrap();
             let abs = reply.additional_builder_stream_target();
-            Ok(CallResult::new(abs))
+            once(ready(Ok(CallResult::new(abs))))
         };
-        Ok(Transaction::single(Box::pin(fut)))
+        Box::pin(fut)
     }
 }
 

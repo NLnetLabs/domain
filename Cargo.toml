@@ -128,7 +128,7 @@ required-features = ["zonefile", "net", "unstable-server-transport", "unstable-z
 
 [[example]]
 name = "query-routing"
-required-features = ["net", "unstable-client-transport", "unstable-server-transport"]
+required-features = ["net", "unstable-client-transport", "unstable-server-transport","futures", "tracing-subscriber"]
 
 # This example is commented out because it is difficult, if not impossible,
 # when including the sqlx dependency, to make the dependency tree compatible
