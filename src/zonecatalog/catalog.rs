@@ -226,6 +226,8 @@ where
 
             let zone_config = &cat_zone.info().config;
 
+            // TODO: This shouldn't check is_primary() but rather
+            // if it has notify targets.
             if zone_config.is_primary() {
                 // https://datatracker.ietf.org/doc/html/rfc1996#autoid-4
                 // 4. Details and Examples
