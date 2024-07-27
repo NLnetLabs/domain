@@ -177,6 +177,10 @@ where
                     q.qtype(),
                     req.client_addr()
                 );
+                
+                // TODO: Should this return REFUSED instead? (I think
+                // in the secondary lifecycle Stelline test an argument
+                // is made that this should be REFUSED?
                 return ControlFlow::Break(Self::to_stream(
                     mk_error_response(msg, OptRcode::SERVFAIL),
                 ));
