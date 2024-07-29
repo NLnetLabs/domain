@@ -45,7 +45,7 @@ use super::versioned::Version;
 /// To use `ZoneBuilder`:
 /// - Call [`ZoneBuilder::new`] to create a new builder.
 /// - Call the various `insert_()` functions to add as many resource records
-/// as needed.
+///   as needed.
 /// - Call [`ZoneBuilder::build`] to exchange the builder for a populated
 ///   [`Zone`].
 ///

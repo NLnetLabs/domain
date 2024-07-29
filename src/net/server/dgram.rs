@@ -310,7 +310,7 @@ where
     ///
     /// Takes:
     /// - A socket which must implement [`AsyncDgramSock`] and is responsible
-    /// receiving new messages and send responses back to the client.
+    ///   receiving new messages and send responses back to the client.
     /// - A [`BufSource`] for creating buffers on demand.
     /// - A [`Service`] for handling received requests and generating
     ///   responses.

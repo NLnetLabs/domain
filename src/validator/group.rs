@@ -321,6 +321,7 @@ impl Group {
     /// 4) optionally an extended error.
     /// 5) optionally a TTL. A TTL is return if the TTL of one of the
     ///    records in the group is too high.
+    ///
     /// An error is returned if validation was not possible.
     pub async fn validate_with_vc<Octs, Upstream>(
         &self,
