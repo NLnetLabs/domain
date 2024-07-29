@@ -73,7 +73,7 @@ const MAX_CONCURRENT_TCP_CONNECTIONS: DefMinMax<usize> =
 //----------- Config ---------------------------------------------------------
 
 /// Configuration for a stream server.
-pub struct Config<RequestOctets, Target> {
+pub struct Config {
     /// Limit on the number of concurrent TCP connections that can be handled
     /// by the server.
     max_concurrent_connections: usize,
@@ -82,14 +82,10 @@ pub struct Config<RequestOctets, Target> {
     accept_connections_at_max: bool,
 
     /// Connection specific configuration.
-    pub(super) connection_config: connection::Config<RequestOctets, Target>,
+    pub(super) connection_config: connection::Config,
 }
 
-impl<RequestOctets, Target> Config<RequestOctets, Target>
-where
-    RequestOctets: Octets,
-    Target: Composer + Default,
-{
+impl Config {
     /// Creates a new, default config.
     pub fn new() -> Self {
         Default::default()
@@ -145,26 +141,20 @@ where
     /// See [`connection::Config`] for more information.
     pub fn set_connection_config(
         &mut self,
-        connection_config: connection::Config<RequestOctets, Target>,
+        connection_config: connection::Config,
     ) {
         self.connection_config = connection_config;
     }
 
     /// Gets the connection specific configuration.
-    pub fn connection_config(
-        &self,
-    ) -> &connection::Config<RequestOctets, Target> {
+    pub fn connection_config(&self) -> &connection::Config {
         &self.connection_config
     }
 }
 
 //--- Default
 
-impl<RequestOctets, Target> Default for Config<RequestOctets, Target>
-where
-    RequestOctets: Octets,
-    Target: Composer + Default,
-{
+impl Default for Config {
     fn default() -> Self {
         Self {
             accept_connections_at_max: true,
@@ -177,16 +167,12 @@ where
 
 //--- Clone
 
-impl<RequestOctets, Target> Clone for Config<RequestOctets, Target>
-where
-    RequestOctets: Octets,
-    Target: Composer + Default,
-{
+impl Clone for Config {
     fn clone(&self) -> Self {
         Self {
             accept_connections_at_max: self.accept_connections_at_max,
             max_concurrent_connections: self.max_concurrent_connections,
-            connection_config: self.connection_config.clone(),
+            connection_config: self.connection_config,
         }
     }
 }
@@ -194,16 +180,13 @@ where
 //------------ StreamServer --------------------------------------------------
 
 /// A [`ServerCommand`] capable of propagating a StreamServer [`Config`] value.
-type ServerCommandType<RequestOctets, Target> =
-    ServerCommand<Config<RequestOctets, Target>>;
+type ServerCommandType = ServerCommand<Config>;
 
 /// A thread safe sender of [`ServerCommand`]s.
-type CommandSender<RequestOctets, Target> =
-    Arc<Mutex<watch::Sender<ServerCommandType<RequestOctets, Target>>>>;
+type CommandSender = Arc<Mutex<watch::Sender<ServerCommandType>>>;
 
 /// A thread safe receiver of [`ServerCommand`]s.
-type CommandReceiver<RequestOctets, Target> =
-    watch::Receiver<ServerCommandType<RequestOctets, Target>>;
+type CommandReceiver = watch::Receiver<ServerCommandType>;
 
 /// A server for connecting clients via stream based network transport to a
 /// [`Service`].
@@ -242,19 +225,11 @@ type CommandReceiver<RequestOctets, Target> =
 /// use domain::base::Message;
 /// use domain::net::server::buf::VecBufSource;
 /// use domain::net::server::message::Request;
-/// use domain::net::server::service::{CallResult, ServiceError, Transaction};
+/// use domain::net::server::service::{CallResult, ServiceError, ServiceResult};
 /// use domain::net::server::stream::StreamServer;
 /// use domain::net::server::util::service_fn;
 ///
-/// fn my_service(msg: Request<Vec<u8>>, _meta: ())
-/// -> Result<
-///        Transaction<Vec<u8>,
-///           Pin<Box<dyn Future<
-///               Output = Result<CallResult<Vec<u8>>, ServiceError>
-///           > + Send>>,
-///       >,
-///       ServiceError,
-///    >
+/// fn my_service(msg: Request<Vec<u8>>, _meta: ()) -> ServiceResult<Vec<u8>>
 /// {
 ///     todo!()
 /// }
@@ -294,23 +269,23 @@ pub struct StreamServer<Listener, Buf, Svc>
 where
     Listener: AsyncAccept + Send + Sync,
     Buf: BufSource + Send + Sync + Clone,
-    Buf::Output: Octets + Send + Sync,
+    Buf::Output: Octets + Send + Sync + Unpin,
     Svc: Service<Buf::Output> + Send + Sync + Clone,
-    Svc::Target: Composer + Default + 'static,
+    Svc::Target: Composer + Default, // + 'static,
 {
     /// The configuration of the server.
-    config: Arc<ArcSwap<Config<Buf::Output, Svc::Target>>>,
+    config: Arc<ArcSwap<Config>>,
 
     /// A receiver for receiving [`ServerCommand`]s.
     ///
     /// Used by both the server and spawned connections to react to sent
     /// commands.
-    command_rx: CommandReceiver<Buf::Output, Svc::Target>,
+    command_rx: CommandReceiver,
 
     /// A sender for sending [`ServerCommand`]s.
     ///
     /// Used to signal the server to stop, reconfigure, etc.
-    command_tx: CommandSender<Buf::Output, Svc::Target>,
+    command_tx: CommandSender,
 
     /// A listener for listening for and accepting incoming stream
     /// connections.
@@ -339,7 +314,7 @@ impl<Listener, Buf, Svc> StreamServer<Listener, Buf, Svc>
 where
     Listener: AsyncAccept + Send + Sync,
     Buf: BufSource + Send + Sync + Clone,
-    Buf::Output: Octets + Send + Sync,
+    Buf::Output: Octets + Send + Sync + Unpin,
     Svc: Service<Buf::Output> + Send + Sync + Clone,
     Svc::Target: Composer + Default,
 {
@@ -361,7 +336,7 @@ where
         listener: Listener,
         buf: Buf,
         service: Svc,
-        config: Config<Buf::Output, Svc::Target>,
+        config: Config,
     ) -> Self {
         let (command_tx, command_rx) = watch::channel(ServerCommand::Init);
         let command_tx = Arc::new(Mutex::new(command_tx));
@@ -419,7 +394,7 @@ impl<Listener, Buf, Svc> StreamServer<Listener, Buf, Svc>
 where
     Listener: AsyncAccept + Send + Sync,
     Buf: BufSource + Send + Sync + Clone,
-    Buf::Output: Octets + Debug + Send + Sync,
+    Buf::Output: Octets + Debug + Send + Sync + Unpin,
     Svc: Service<Buf::Output> + Send + Sync + Clone,
     Svc::Target: Composer + Default,
 {
@@ -442,9 +417,9 @@ impl<Listener, Buf, Svc> StreamServer<Listener, Buf, Svc>
 where
     Listener: AsyncAccept + Send + Sync,
     Buf: BufSource + Send + Sync + Clone,
-    Buf::Output: Octets + Send + Sync,
+    Buf::Output: Octets + Send + Sync + Unpin,
     Svc: Service<Buf::Output> + Send + Sync + Clone,
-    Svc::Target: Composer + Default + 'static,
+    Svc::Target: Composer + Default,
 {
     /// Start the server.
     ///
@@ -462,6 +437,7 @@ where
         Listener::StreamType: AsyncRead + AsyncWrite + Send + Sync + 'static,
         Svc: 'static,
         Svc::Target: Send + Sync,
+        Svc::Stream: Send,
         Svc::Future: Send,
     {
         if let Err(err) = self.run_until_error().await {
@@ -473,10 +449,7 @@ where
     ///
     /// This command will be received both by the server and by any existing
     /// connections.
-    pub fn reconfigure(
-        &self,
-        config: Config<Buf::Output, Svc::Target>,
-    ) -> Result<(), Error> {
+    pub fn reconfigure(&self, config: Config) -> Result<(), Error> {
         self.command_tx
             .lock()
             .map_err(|_| Error::CommandCouldNotBeSent)?
@@ -539,7 +512,7 @@ impl<Listener, Buf, Svc> StreamServer<Listener, Buf, Svc>
 where
     Listener: AsyncAccept + Send + Sync,
     Buf: BufSource + Send + Sync + Clone,
-    Buf::Output: Octets + Send + Sync,
+    Buf::Output: Octets + Send + Sync + Unpin,
     Svc: Service<Buf::Output> + Send + Sync + Clone,
     Svc::Target: Composer + Default,
 {
@@ -552,8 +525,9 @@ where
         Listener::Future: Send + 'static,
         Listener::StreamType: AsyncRead + AsyncWrite + Send + Sync + 'static,
         Svc: 'static,
+        Svc::Target: Send + Sync,
+        Svc::Stream: Send,
         Svc::Future: Send,
-        Svc::Target: Send + Sync + 'static,
     {
         let mut command_rx = self.command_rx.clone();
 
@@ -615,9 +589,7 @@ where
     fn process_server_command(
         &self,
         res: Result<(), watch::error::RecvError>,
-        command_rx: &mut watch::Receiver<
-            ServerCommand<Config<Buf::Output, Svc::Target>>,
-        >,
+        command_rx: &mut watch::Receiver<ServerCommand<Config>>,
     ) -> Result<(), String> {
         // If the parent server no longer exists but was not cleanly shutdown
         // then the command channel will be closed and attempting to check for
@@ -675,14 +647,15 @@ where
         Listener::Future: Send + 'static,
         Listener::StreamType: AsyncRead + AsyncWrite + Send + Sync + 'static,
         Svc: 'static,
+        Svc::Target: Composer + Send + Sync,
+        Svc::Stream: Send,
         Svc::Future: Send,
-        Svc::Target: Send + Sync + 'static,
     {
         // Work around the compiler wanting to move self to the async block by
         // preparing only those pieces of information from self for the new
         // connection handler that it actually needs.
         let config = ArcSwap::load(&self.config);
-        let conn_config = config.connection_config.clone();
+        let conn_config = config.connection_config;
         let conn_command_rx = self.command_rx.clone();
         let conn_service = self.service.clone();
         let conn_buf = self.buf.clone();
@@ -739,9 +712,9 @@ impl<Listener, Buf, Svc> Drop for StreamServer<Listener, Buf, Svc>
 where
     Listener: AsyncAccept + Send + Sync,
     Buf: BufSource + Send + Sync + Clone,
-    Buf::Output: Octets + Send + Sync,
+    Buf::Output: Octets + Send + Sync + Unpin,
     Svc: Service<Buf::Output> + Send + Sync + Clone,
-    Svc::Target: Composer + Default + 'static,
+    Svc::Target: Composer + Default,
 {
     fn drop(&mut self) {
         // Shutdown the StreamServer. Don't handle the failure case here as

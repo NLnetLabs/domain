@@ -1,10 +1,13 @@
 //! Small utilities for building and working with servers.
+use core::future::Ready;
+
 use std::string::{String, ToString};
 
+use futures::stream::Once;
 use octseq::{Octets, OctetsBuilder};
 use tracing::warn;
 
-use crate::base::iana::Rcode;
+use crate::base::iana::{OptRcode, Rcode};
 use crate::base::message_builder::{
     AdditionalBuilder, OptBuilder, PushError, QuestionBuilder,
 };
@@ -15,7 +18,7 @@ use crate::rdata::AllRecordData;
 use crate::utils::base16;
 
 use super::message::Request;
-use super::service::{CallResult, Service, ServiceError, Transaction};
+use super::service::{Service, ServiceResult};
 
 //----------- mk_builder_for_target() ----------------------------------------
 
@@ -58,7 +61,7 @@ where
 /// use domain::base::iana::Rcode;
 /// use domain::base::Message;
 /// use domain::net::server::message::Request;
-/// use domain::net::server::service::{CallResult, ServiceError, Transaction};
+/// use domain::net::server::service::{CallResult, ServiceError, ServiceResult};
 /// use domain::net::server::util::{mk_builder_for_target, service_fn};
 ///
 /// // Define some types to make the example easier to read.
@@ -67,23 +70,12 @@ where
 /// // Implement the application logic of our service.
 /// // Takes the received DNS request and any additional meta data you wish to
 /// // provide, and returns one or more future DNS responses.
-/// fn my_service(
-///     req: Request<Vec<u8>>,
-///     _meta: MyMeta,
-/// ) -> Result<
-///     Transaction<Vec<u8>,
-///         Pin<Box<dyn Future<
-///             Output = Result<CallResult<Vec<u8>>, ServiceError>
-///         >>>,
-///     >,
-///     ServiceError,
-/// > {
-///     // For each request create a single response:
-///     Ok(Transaction::single(Box::pin(async move {
-///         let builder = mk_builder_for_target();
-///         let answer = builder.start_answer(req.message(), Rcode::NXDOMAIN)?;
-///         Ok(CallResult::new(answer.additional()))
-///     })))
+/// fn my_service(req: Request<Vec<u8>>, _meta: MyMeta)
+///     -> ServiceResult<Vec<u8>>
+/// {
+///     let builder = mk_builder_for_target();
+///     let answer = builder.start_answer(req.message(), Rcode::NXDOMAIN)?;
+///     Ok(CallResult::new(answer.additional()))
 /// }
 ///
 /// // Turn my_service() into an actual Service trait impl.
@@ -98,21 +90,19 @@ where
 /// [`Vec<u8>`]: std::vec::Vec<u8>
 /// [`CallResult`]: crate::net::server::service::CallResult
 /// [`Result::Ok`]: std::result::Result::Ok
-pub fn service_fn<RequestOctets, Target, Future, T, Metadata>(
+pub fn service_fn<RequestOctets, Target, T, Metadata>(
     request_handler: T,
     metadata: Metadata,
-) -> impl Service<RequestOctets, Target = Target, Future = Future> + Clone
+) -> impl Service<
+    RequestOctets,
+    Target = Target,
+    Stream = Once<Ready<ServiceResult<Target>>>,
+    Future = Ready<Once<Ready<ServiceResult<Target>>>>,
+> + Clone
 where
-    RequestOctets: AsRef<[u8]>,
-    Future: std::future::Future<
-        Output = Result<CallResult<Target>, ServiceError>,
-    >,
+    RequestOctets: AsRef<[u8]> + Send + Sync + Unpin,
     Metadata: Clone,
-    T: Fn(
-            Request<RequestOctets>,
-            Metadata,
-        ) -> Result<Transaction<Target, Future>, ServiceError>
-        + Clone,
+    T: Fn(Request<RequestOctets>, Metadata) -> ServiceResult<Target> + Clone,
 {
     move |request| request_handler(request, metadata.clone())
 }
@@ -158,7 +148,7 @@ pub(crate) fn to_pcap_text<T: AsRef<[u8]>>(
 /// On internal error this function will attempt to set RCODE ServFail in the
 /// returned message.
 pub fn start_reply<RequestOctets, Target>(
-    request: &Request<RequestOctets>,
+    msg: &Message<RequestOctets>,
 ) -> QuestionBuilder<StreamTarget<Target>>
 where
     RequestOctets: Octets,
@@ -169,7 +159,7 @@ where
     // RFC (1035?) compliance - copy question from request to response.
     let mut abort = false;
     let mut builder = builder.question();
-    for rr in request.message().question() {
+    for rr in msg.question() {
         match rr {
             Ok(rr) => {
                 if let Err(err) = builder.push(rr) {
@@ -195,12 +185,45 @@ where
     builder
 }
 
+//------------ mk_error_response ---------------------------------------------
+
+pub fn mk_error_response<RequestOctets, Target>(
+    msg: &Message<RequestOctets>,
+    rcode: OptRcode,
+) -> AdditionalBuilder<StreamTarget<Target>>
+where
+    RequestOctets: Octets,
+    Target: Composer + Default,
+{
+    let mut additional = start_reply(msg).additional();
+
+    // Note: if rcode is non-extended this will also correctly handle
+    // setting the rcode in the main message header.
+    if let Err(err) = add_edns_options(&mut additional, |opt| {
+        opt.set_rcode(rcode);
+        Ok(())
+    }) {
+        warn!("Failed to set (extended) error '{rcode}' in response: {err}");
+    }
+
+    additional
+}
+
 //----------- add_edns_option ------------------------------------------------
 
 /// Adds one or more EDNS OPT options to a response.
 ///
 /// If the response already has an OPT record the options will be added to
 /// that. Otherwise an OPT record will be created to hold the new options.
+///
+/// Similar to [`AdditionalBuilder::opt`] a caller supplied closure is passed
+/// an [`OptBuilder`] which can be used to add EDNS options and set EDNS
+/// header fields.
+///
+/// However, unlike [`AdditionalBuilder::opt`], the closure is also passed a
+/// collection of option codes for the options that already exist so that the
+/// caller can avoid adding the same type of option more than once if that is
+/// important to them.
 pub fn add_edns_options<F, Target>(
     response: &mut AdditionalBuilder<StreamTarget<Target>>,
     op: F,
@@ -264,7 +287,7 @@ where
     }
 
     // No existing OPT record in the additional section so build a new one.
-    response.opt(op)
+    response.opt(|builder| op(builder))
 }
 
 /// Removes any OPT records present in the response.
@@ -345,7 +368,7 @@ mod tests {
         let request = Request::new(client_ip, sent_at, msg, ctx.into());
 
         // Create a dummy DNS reply which does not yet have an OPT record.
-        let reply = start_reply::<_, Vec<u8>>(&request);
+        let reply = start_reply::<_, Vec<u8>>(request.message());
         assert_eq!(reply.counts().arcount(), 0);
         assert_eq!(reply.header().rcode(), Rcode::NOERROR);
 
@@ -433,7 +456,7 @@ mod tests {
         let request = Request::new(client_ip, sent_at, msg, ctx.into());
 
         // Create a dummy DNS reply which does not yet have an OPT record.
-        let reply = start_reply::<_, Vec<u8>>(&request);
+        let reply = start_reply::<_, Vec<u8>>(request.message());
         assert_eq!(reply.counts().arcount(), 0);
 
         // Add an OPT record to the reply.
