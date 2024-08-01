@@ -54,8 +54,6 @@
 #![cfg(feature = "tsig")]
 #![cfg_attr(docsrs, doc(cfg(feature = "tsig")))]
 
-mod interop;
-
 use crate::base::header::HeaderSection;
 use crate::base::iana::{Class, Rcode, TsigRcode};
 use crate::base::message::Message;
