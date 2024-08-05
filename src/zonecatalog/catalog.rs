@@ -43,7 +43,7 @@ use crate::base::{
 use crate::net;
 use crate::net::client::dgram::{self, Connection};
 use crate::net::client::protocol::UdpConnect;
-use crate::net::client::request::{self, RequestMessage, SendRequest};
+use crate::net::client::request::{self, RequestMessage, RequestMessageMulti, SendRequest, SendRequestMulti};
 use crate::rdata::{Soa, ZoneRecordData};
 use crate::tsig::{Key, KeyStore};
 use crate::zonecatalog::types::{
@@ -80,6 +80,41 @@ pub trait ConnectionFactory {
                         Option<
                             Box<
                                 dyn SendRequest<RequestMessage<Octs>>
+                                    + Send
+                                    + Sync
+                                    + 'static,
+                            >,
+                        >,
+                        Self::Error,
+                    >,
+                > + Send
+                + Sync
+                + 'static,
+        >,
+    >
+    where
+        K: Clone + Debug + AsRef<Key> + Send + Sync + 'static,
+        Octs: Octets + Debug + Send + Sync + 'static;
+}
+
+//------------ ConnectionFactoryMulti -----------------------------------------
+
+pub trait ConnectionFactoryMulti {
+    type Error: Display;
+
+    #[allow(clippy::type_complexity)]
+    fn get<K, Octs>(
+        &self,
+        dest: SocketAddr,
+        strategy: TransportStrategy,
+        key: Option<K>,
+    ) -> Pin<
+        Box<
+            dyn Future<
+                    Output = Result<
+                        Option<
+                            Box<
+                                dyn SendRequestMulti<RequestMessageMulti<Octs>>
                                     + Send
                                     + Sync
                                     + 'static,
@@ -136,17 +171,56 @@ where
     }
 }
 
+//------------ ConfigMulti ----------------------------------------------------
+
+/// Configuration for a Catalog.
+#[derive(Debug, Default)]
+pub struct ConfigMulti<KS, CF: ConnectionFactoryMulti>
+where
+    KS: Deref,
+    KS::Target: KeyStore,
+{
+    /// A store of TSIG keys that can optionally be used to lookup keys when
+    /// TSIG signing/validating.
+    key_store: KS,
+
+    /// A connection factory for making outbound requests to primary servers
+    /// to fetch remote zones.
+    conn_factory: CF,
+}
+
+impl<KS, CF: ConnectionFactoryMulti + Default> ConfigMulti<KS, CF>
+where
+    KS: Deref,
+    KS::Target: KeyStore,
+{
+    /// Creates a new config using the provided [`KeyStore`].
+    pub fn new(key_store: KS) -> Self {
+        Self {
+            key_store,
+            conn_factory: CF::default(),
+        }
+    }
+
+    pub fn new_with_conn_factory(key_store: KS, conn_factory: CF) -> Self {
+        Self {
+            key_store,
+            conn_factory,
+        }
+    }
+}
+
 //------------ Catalog -------------------------------------------------------
 
 /// A set of zones that are kept in sync with other servers.
 #[derive(Debug)]
-pub struct Catalog<KS, CF: ConnectionFactory>
+pub struct Catalog<KS, CF: ConnectionFactoryMulti>
 where
     KS: Deref,
     KS::Target: KeyStore,
 {
     // cat_zone: Zone, // TODO
-    config: Arc<ArcSwap<Config<KS, CF>>>,
+    config: Arc<ArcSwap<ConfigMulti<KS, CF>>>,
     pending_zones: Arc<RwLock<HashMap<ZoneKey, Zone>>>,
     member_zones: Arc<ArcSwap<ZoneTree>>,
     loaded_arc: std::sync::RwLock<Arc<ZoneTree>>,
@@ -155,7 +229,7 @@ where
     running: AtomicBool,
 }
 
-impl<KS, CF: ConnectionFactory + Default> Default for Catalog<KS, CF>
+impl<KS, CF: ConnectionFactoryMulti + Default> Default for Catalog<KS, CF>
 where
     KS: Deref + Default,
     KS::Target: KeyStore,
@@ -165,16 +239,16 @@ where
     }
 }
 
-impl<KS, CF: ConnectionFactory + Default> Catalog<KS, CF>
+impl<KS, CF: ConnectionFactoryMulti + Default> Catalog<KS, CF>
 where
     KS: Deref + Default,
     KS::Target: KeyStore,
 {
     pub fn new() -> Self {
-        Self::new_with_config(Config::default())
+        Self::new_with_config(ConfigMulti::default())
     }
 
-    pub fn new_with_config(config: Config<KS, CF>) -> Self {
+    pub fn new_with_config(config: ConfigMulti<KS, CF>) -> Self {
         let pending_zones = Default::default();
         let member_zones = ZoneTree::new();
         let member_zones = Arc::new(ArcSwap::from_pointee(member_zones));
@@ -202,7 +276,7 @@ where
     KS::Target: KeyStore,
     <KS::Target as KeyStore>::Key:
         Clone + Debug + Display + Sync + Send + 'static,
-    CF: ConnectionFactory + Send + Sync + 'static,
+    CF: ConnectionFactoryMulti + Send + Sync + 'static,
 {
     pub async fn run(&self) {
         self.running.store(true, Ordering::SeqCst);
@@ -524,7 +598,7 @@ where
     KS: Deref + Send + Sync + 'static,
     KS::Target: KeyStore,
     <KS::Target as KeyStore>::Key: Clone + Debug + Sync + Send + 'static,
-    CF: ConnectionFactory + Send + Sync + 'static,
+    CF: ConnectionFactoryMulti + Send + Sync + 'static,
 {
     /// Get a status report for a zone.
     ///
@@ -574,7 +648,7 @@ where
     }
 }
 
-impl<KS, CF: ConnectionFactory> Catalog<KS, CF>
+impl<KS, CF: ConnectionFactoryMulti> Catalog<KS, CF>
 where
     KS: Deref,
     KS::Target: KeyStore,
@@ -606,12 +680,12 @@ where
     KS::Target: KeyStore,
     <KS::Target as KeyStore>::Key:
         Clone + Debug + Display + Sync + Send + 'static,
-    CF: ConnectionFactory + 'static,
+    CF: ConnectionFactoryMulti + 'static,
 {
     async fn send_notify(
         zone: &Zone,
         notify: &NotifySrcDstConfig,
-        config: Arc<ArcSwap<Config<KS, CF>>>,
+        config: Arc<ArcSwap<ConfigMulti<KS, CF>>>,
     ) {
         let cat_zone = zone
             .as_ref()
@@ -647,7 +721,7 @@ where
     async fn send_notify_to_addrs(
         apex_name: StoredName,
         notify_set: impl Iterator<Item = &SocketAddr>,
-        config: Arc<ArcSwap<Config<KS, CF>>>,
+        config: Arc<ArcSwap<ConfigMulti<KS, CF>>>,
         zone_info: &ZoneInfo,
     ) {
         let mut dgram_config = dgram::Config::new();
@@ -702,7 +776,8 @@ where
                 let _guard = span.enter();
 
                 if let Err(err) =
-                    client.send_request(req.clone()).get_response().await
+                    SendRequest::send_request(&client, req.clone()).get_response().await
+                    //(client as SendRequest<_>).send_request(req.clone()).get_response().await
                 {
                     // TODO: Add retry support.
                     warn!("Unable to send NOTIFY to nameserver {nameserver_addr}: {err}");
@@ -814,7 +889,7 @@ where
         msg: ZoneChangedMsg,
         time_tracking: Arc<RwLock<HashMap<ZoneKey, ZoneRefreshState>>>,
         event_tx: Sender<Event>,
-        config: Arc<ArcSwap<Config<KS, CF>>>,
+        config: Arc<ArcSwap<ConfigMulti<KS, CF>>>,
     ) {
         // Do we have the zone that is being updated?
         let readable_pending_zones = pending_zones.read().await;
@@ -1003,7 +1078,7 @@ where
         initial_xfr_addr: Option<SocketAddr>,
         zone_refresh_info: &mut ZoneRefreshState,
         event_tx: Sender<Event>,
-        config: Arc<ArcSwap<Config<KS, CF>>>,
+        config: Arc<ArcSwap<ConfigMulti<KS, CF>>>,
     ) -> Result<(), ()> {
         match cause {
             ZoneRefreshCause::ManualTrigger
@@ -1144,7 +1219,7 @@ where
         zone: &Zone,
         initial_xfr_addr: Option<SocketAddr>,
         zone_refresh_info: &mut ZoneRefreshState,
-        config: Arc<ArcSwap<Config<KS, CF>>>,
+        config: Arc<ArcSwap<ConfigMulti<KS, CF>>>,
     ) -> Result<Option<Soa<Name<Bytes>>>, CatalogError> {
         // Was this zone already refreshed recently?
         if let Some(age) = zone_refresh_info.age() {
@@ -1238,7 +1313,7 @@ where
         primary_addr: SocketAddr,
         xfr_config: &XfrConfig,
         zone_refresh_info: &mut ZoneRefreshState,
-        config: Arc<ArcSwap<Config<KS, CF>>>,
+        config: Arc<ArcSwap<ConfigMulti<KS, CF>>>,
     ) -> Result<Option<Soa<Name<Bytes>>>, CatalogError> {
         // TODO: Replace this loop with one, or two, calls to a helper fn.
         // Try at least once, at most twice (when using IXFR -> AXFR fallback)
@@ -1271,7 +1346,7 @@ where
             let mut msg = msg.question();
             msg.push((zone.apex_name(), Rtype::SOA)).unwrap();
             let msg = msg.into_message();
-            let req = RequestMessage::new(msg);
+            let req = RequestMessageMulti::new(msg);
 
             // Fetch the SOA serial using the appropriate transport
             let transport = match rtype {
@@ -1392,7 +1467,7 @@ where
         xfr_type: Rtype,
     ) -> Result<Soa<Name<Bytes>>, CatalogError>
     where
-        T: SendRequest<RequestMessage<Vec<u8>>> + Send + Sync + 'static,
+        T: SendRequestMulti<RequestMessageMulti<Vec<u8>>> + Send + Sync + 'static,
     {
         // Update the zone from the primary using XFR.
         info!(
@@ -1425,7 +1500,7 @@ where
         };
 
         let msg = msg.into_message();
-        let req = RequestMessage::new(msg);
+        let req = RequestMessageMulti::new(msg);
 
         let client =
             net::client::xfr::Connection::new(Some(zone.clone()), client);
@@ -1707,7 +1782,7 @@ impl<KS, CF> Notifiable for Catalog<KS, CF>
 where
     KS: Deref + Send + Sync + 'static,
     KS::Target: KeyStore,
-    CF: ConnectionFactory + Send + Sync + 'static,
+    CF: ConnectionFactoryMulti + Send + Sync + 'static,
 {
     #[allow(clippy::manual_async_fn)]
     fn notify_zone_changed(
@@ -1800,7 +1875,7 @@ where
     }
 }
 
-impl<KS, CF: ConnectionFactory> ZoneLookup for Catalog<KS, CF>
+impl<KS, CF: ConnectionFactoryMulti> ZoneLookup for Catalog<KS, CF>
 where
     KS: Deref,
     KS::Target: KeyStore,
@@ -1872,7 +1947,7 @@ where
     }
 }
 
-impl<KS, CF: ConnectionFactory> Catalog<KS, CF>
+impl<KS, CF: ConnectionFactoryMulti> Catalog<KS, CF>
 where
     KS: Deref,
     KS::Target: KeyStore,
@@ -2258,7 +2333,7 @@ impl ConnectionFactory for DefaultConnFactory {
                         let tcp_stream = TcpStream::connect(dest)
                             .await
                             .map_err(|err| format!("{err}"))?;
-                        net::client::stream::Connection::with_config(
+                        net::client::stream::Connection::<_, RequestMessageMulti<Vec<u8>>>::with_config(
                             tcp_stream,
                             stream_config,
                         )
@@ -2285,13 +2360,118 @@ impl ConnectionFactory for DefaultConnFactory {
     }
 }
 
-impl<T: SendRequest<RequestMessage<Octs>> + ?Sized, Octs: Octets>
-    SendRequest<RequestMessage<Octs>> for Box<T>
+impl ConnectionFactoryMulti for DefaultConnFactory {
+    type Error = String;
+
+    fn get<K, Octs>(
+        &self,
+        dest: SocketAddr,
+        strategy: TransportStrategy,
+        key: Option<K>,
+    ) -> Pin<
+        Box<
+            dyn Future<
+                    Output = Result<
+                        Option<
+                            Box<
+                                dyn SendRequestMulti<RequestMessageMulti<Octs>>
+                                    + Send
+                                    + Sync
+                                    + 'static,
+                            >,
+                        >,
+                        Self::Error,
+                    >,
+                > + Send
+                + Sync
+                + 'static,
+        >,
+    >
+    where
+        K: Clone + Debug + AsRef<Key> + Send + Sync + 'static,
+        Octs: Octets + Debug + Send + Sync + 'static,
+    {
+        let fut = async move {
+            match strategy {
+                TransportStrategy::None => Ok(None),
+
+                TransportStrategy::Udp => {
+		    todo!();
+		    // UDP cannot do Multi
+		    /*
+                    let mut dgram_config = dgram::Config::new();
+                    dgram_config.set_max_parallel(1);
+                    dgram_config
+                        .set_read_timeout(Duration::from_millis(1000));
+                    dgram_config.set_max_retries(1);
+                    dgram_config.set_udp_payload_size(Some(1400));
+
+                    let client = dgram::Connection::with_config(
+                        UdpConnect::new(dest),
+                        dgram_config,
+                    );
+                    Ok(Some(Box::new(net::client::tsig::Connection::new(
+                        key, client,
+                    ))
+                        as Box<
+                            dyn SendRequestMulti<RequestMessageMulti<Octs>>
+                                + Send
+                                + Sync,
+                        >))
+		    */
+                }
+
+                TransportStrategy::Tcp => {
+                    let mut stream_config =
+                        net::client::stream::Config::new();
+                    stream_config
+                        .set_response_timeout(Duration::from_secs(2));
+                    // Allow time between the SOA query response and sending the
+                    // AXFR/IXFR request.
+                    stream_config.set_idle_timeout(Duration::from_secs(5));
+                    // Allow much more time for an XFR streaming response.
+                    stream_config.set_streaming_response_timeout(
+                        Duration::from_secs(30),
+                    );
+
+                    let (client, transport) = {
+                        let tcp_stream = TcpStream::connect(dest)
+                            .await
+                            .map_err(|err| format!("{err}"))?;
+                        net::client::stream::Connection::<RequestMessage<Vec<u8>>, _>::with_config(
+                            tcp_stream,
+                            stream_config,
+                        )
+                    };
+
+                    tokio::spawn(async move {
+                        transport.run().await;
+                        trace!("TCP connection terminated");
+                    });
+
+                    Ok(Some(Box::new(net::client::tsig::Connection::new(
+                        key, client,
+                    ))
+                        as Box<
+                            dyn SendRequestMulti<RequestMessageMulti<Octs>>
+                                + Send
+                                + Sync,
+                        >))
+                }
+            }
+        };
+
+        Box::pin(fut)
+    }
+}
+
+impl<T: SendRequestMulti<RequestMessageMulti<Octs>> + ?Sized, Octs: Octets>
+    SendRequestMulti<RequestMessageMulti<Octs>> for Box<T>
 {
     fn send_request(
         &self,
-        request_msg: RequestMessage<Octs>,
-    ) -> Box<dyn request::GetResponse + Send + Sync> {
+        request_msg: RequestMessageMulti<Octs>,
+    ) -> Box<dyn request::GetResponseMulti + Send + Sync> {
         (**self).send_request(request_msg)
     }
 }

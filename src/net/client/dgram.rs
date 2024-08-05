@@ -13,7 +13,7 @@ use core::fmt;
 use std::boxed::Box;
 use std::future::Future;
 use std::pin::Pin;
-use std::prelude::v1::Vec;
+//use std::prelude::v1::Vec;
 use std::sync::Arc;
 use std::{error, io};
 
@@ -23,7 +23,7 @@ use tokio::sync::Semaphore;
 use tokio::time::{timeout_at, Duration, Instant};
 use tracing::trace;
 
-use crate::base::{Message, StaticCompressor};
+use crate::base::{Message, /*StaticCompressor*/};
 use crate::net::client::protocol::{
     AsyncConnect, AsyncDgramRecv, AsyncDgramRecvEx, AsyncDgramSend,
     AsyncDgramSendEx,
@@ -260,16 +260,7 @@ where
             }
 
             // Create the message and send it out.
-            let target = StaticCompressor::new(Vec::new());
-            let builder = request.append_message(target)?;
-            let request_msg = Message::from_octets(
-                builder.finish().into_target(),
-            )
-            .expect(
-                "Message should be able to parse output from MessageBuilder",
-            );
-
-            // let request_msg = request.to_message()?;
+            let request_msg = request.to_message()?;
             let dgram = request_msg.as_slice();
             let sent = sock.send(dgram).await.map_err(QueryError::send)?;
             if sent != dgram.len() {

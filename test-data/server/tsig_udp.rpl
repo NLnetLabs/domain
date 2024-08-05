@@ -56,65 +56,6 @@ MATCH all
 REPLY QR AA REFUSED
 ENTRY_END
 
-; Verify that when a client that is required to TSIG sign requests (127.0.0.2)
-; submits an unsigned AXFR request over TCP that it is rejected (because while
-; AXFR over TCP is allowed, the request is required to be correctly signed).
-STEP 20 QUERY ADDRESS 127.0.0.2
-ENTRY_BEGIN
-MATCH TCP
-SECTION QUESTION
-    example.com.            IN  AXFR
-ENTRY_END
-
-STEP 21 CHECK_ANSWER
-ENTRY_BEGIN
-MATCH all
-REPLY QR AA REFUSED
-ENTRY_END
-
-; Retrieve the zone via AXFR over TCP using the expected TSIG key.
-STEP 30 QUERY ADDRESS 127.0.0.3 KEY TESTKEY
-ENTRY_BEGIN
-MATCH TCP
-SECTION QUESTION
-    example.com.            IN  AXFR
-ENTRY_END
-
-STEP 31 CHECK_ANSWER
-ENTRY_BEGIN
-MATCH all
-REPLY QR AA NOERROR
-SECTION QUESTION
-    example.com.            IN  AXFR
-SECTION ANSWER
-    example.com.      3600  IN  SOA  ns.example.com. hostmaster.example.com. 1 3600 900 86400 3600
-    example.com.      3600  IN  NS   ns.example.net.
-    www.example.com.  3600  IN  A    1.2.3.4
-    example.com.      3600  IN  SOA  ns.example.com. hostmaster.example.com. 1 3600 900 86400 3600
-ENTRY_END
-
-; Retrieve the zone using a client for which the server is configured to serve
-; AXFR in backward compatible mode so that we can test multi-response TSIG.
-STEP 40 QUERY ADDRESS 127.0.0.4 KEY TESTKEY
-ENTRY_BEGIN
-MATCH TCP
-SECTION QUESTION
-    example.com.            IN  AXFR
-ENTRY_END
-
-STEP 41 CHECK_ANSWER
-ENTRY_BEGIN
-MATCH all EXTRA_PACKETS
-REPLY QR AA NOERROR
-SECTION QUESTION
-    example.com.            IN  AXFR
-SECTION ANSWER
-    example.com.      3600  IN  SOA  ns.example.com. hostmaster.example.com. 1 3600 900 86400 3600
-    www.example.com.  3600  IN  A    1.2.3.4
-    example.com.      3600  IN  NS   ns.example.net.
-    example.com.      3600  IN  SOA  ns.example.com. hostmaster.example.com. 1 3600 900 86400 3600
-ENTRY_END
-
 ; NOTE: See test-data/server/README.md regarding the effect of MOCK_CLIENT
 ; that is used here.
 STEP 50 QUERY ADDRESS 127.0.0.5

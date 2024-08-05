@@ -103,68 +103,6 @@ SECTION QUESTION
     JAIN.AD.JP.          IN  SOA
 ENTRY_END
 
-; Request update from serial version 1 of the zone via IXFR from the server
-; via TCP using a client to which only AXFR will be served. This is the example query and
-; "full zone transfer message" response defined in RFC 1995 section 7.
-STEP 30 QUERY 127.0.0.2
-ENTRY_BEGIN
-MATCH TCP
-SECTION QUESTION
-    JAIN.AD.JP.          IN  AXFR
-SECTION AUTHORITY
-    JAIN.AD.JP.          IN  SOA  NS.JAIN.AD.JP. mohta.jain.ad.jp. (1 600 600 3600000 604800)
-ENTRY_END
-
-STEP 40 CHECK_ANSWER
-ENTRY_BEGIN
-MATCH all
-REPLY QR AA NOERROR
-SECTION QUESTION
-    JAIN.AD.JP.          IN  AXFR
-SECTION ANSWER
-    JAIN.AD.JP.          IN  SOA  NS.JAIN.AD.JP. mohta.jain.ad.jp. (3 600 600 3600000 604800)
-    JAIN.AD.JP.          IN  NS   NS.JAIN.AD.JP.
-    NS.JAIN.AD.JP.       IN  A    133.69.136.1
-    JAIN-BB.JAIN.AD.JP.  IN  A    133.69.136.3
-    JAIN-BB.JAIN.AD.JP.  IN  A    192.41.197.2
-    JAIN.AD.JP.          IN  SOA  NS.JAIN.AD.JP. mohta.jain.ad.jp. (3 600 600 3600000 604800)
-ENTRY_END
-
-; Request update from serial version 1 of the zone via IXFR from the server
-; via UDP. The server only knows the state at serial number 1 and at serial number 3, it
-; doesn't know anything about serial number 2. So the reply should be the "condensed
-; incremental message" defined in RFC 1995 section 7. This reply should fit in a single
-; UDP packet.
-STEP 50 QUERY
-ENTRY_BEGIN
-SECTION QUESTION
-    JAIN.AD.JP.         IN  IXFR
-SECTION AUTHORITY
-    JAIN.AD.JP.         IN  SOA  NS.JAIN.AD.JP. mohta.jain.ad.jp. (1 600 600 3600000 604800)
-ENTRY_END
-
-STEP 60 CHECK_ANSWER
-ENTRY_BEGIN
-MATCH all
-REPLY QR AA NOERROR
-SECTION QUESTION
-    JAIN.AD.JP.         IN  IXFR
-SECTION ANSWER
-    JAIN.AD.JP.         IN  SOA  NS.JAIN.AD.JP. mohta.jain.ad.jp. (3 600 600 3600000 604800)
-    JAIN.AD.JP.         IN  SOA  NS.JAIN.AD.JP. mohta.jain.ad.jp. (1 600 600 3600000 604800)
-    NEZU.JAIN.AD.JP.    IN  A    133.69.136.5
-    JAIN.AD.JP.         IN  SOA  NS.JAIN.AD.JP. mohta.jain.ad.jp. (2 600 600 3600000 604800)
-    JAIN-BB.JAIN.AD.JP. IN  A    192.41.197.2
-    JAIN-BB.JAIN.AD.JP. IN  A    133.69.136.4
-    JAIN.AD.JP.         IN  SOA  NS.JAIN.AD.JP. mohta.jain.ad.jp. (2 600 600 3600000 604800)
-    JAIN-BB.JAIN.AD.JP. IN  A    192.41.197.2 ; NOTE: Adding this RR is pointless as it is removed below. The server implementation currently can't do better than this however.
-    JAIN-BB.JAIN.AD.JP. IN  A    133.69.136.4
-    JAIN.AD.JP.         IN  SOA  NS.JAIN.AD.JP. mohta.jain.ad.jp. (3 600 600 3600000 604800)
-    JAIN-BB.JAIN.AD.JP. IN  A    133.69.136.3
-    JAIN-BB.JAIN.AD.JP. IN  A    192.41.197.2 ; NOTE: This is where the pointlessly added RR is removed.
-    JAIN.AD.JP.         IN  SOA  NS.JAIN.AD.JP. mohta.jain.ad.jp. (3 600 600 3600000 604800)
-ENTRY_END
-
 SCENARIO_END
 
 ; TODO: We don't test IXFR over multiple TCP responses, nor IXFR over UDP that

@@ -482,13 +482,7 @@ where
         loop {
             match &mut self.state {
                 RequestState::Init => {
-                    let target = StaticCompressor::new(Vec::new());
-                    let builder = self.request_msg.append_message(target)?;
-                    let msg = Message::from_octets(builder.finish().into_target()).expect(
-                        "Message should be able to parse output from MessageBuilder",
-                    );
-
-                    // let msg = self.request_msg.to_message()?;
+                    let msg = self.request_msg.to_message()?;
                     let header = msg.header();
                     let opcode = header.opcode();
 
