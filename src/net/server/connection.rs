@@ -1,6 +1,5 @@
 //! Support for stream based connections.
 use core::ops::{ControlFlow, Deref};
-use core::sync::atomic::{AtomicBool, Ordering};
 use core::time::Duration;
 
 use std::fmt::Display;
@@ -76,14 +75,6 @@ const RESPONSE_WRITE_TIMEOUT: DefMinMax<Duration> = DefMinMax::new(
     Duration::from_secs(60 * 60),
 );
 
-/// Limit on the number of attempts that will be made to overcome
-/// non-fatal write errors.
-///
-/// The value has to be between 0 and 255 with a default of 2. A value of
-/// zero means that one try will be attempted.
-const RESPONSE_WRITE_RETRIES: DefMinMax<u8> =
-    DefMinMax::new(2, u8::MIN, u8::MAX);
-
 /// Limit on the number of DNS responses queued for writing to the client.
 ///
 /// The value has to be between zero and 1,024. The default value is 10. These
@@ -115,11 +106,12 @@ pub struct Config {
 
     /// Limit on the amount of time to wait for writing a response to
     /// complete.
+    ///
+    /// The value has to be between 1 millisecond and 1 hour with a default of
+    /// 30 seconds. These values are guesses at something reasonable. The
+    /// default is based on the Unbound 1.19.2 default value for its
+    /// `tcp-idle-timeout` setting.
     response_write_timeout: Duration,
-
-    /// Limit on the number of attempts that will be made to overcome
-    /// non-fatal write errors.
-    response_write_retries: u8,
 
     /// Limit on the number of DNS responses queued for wriing to the client.
     max_queued_responses: usize,
@@ -182,16 +174,6 @@ impl Config {
         self.response_write_timeout = value;
     }
 
-    /// Limit on the number of attempts that will be made to overcome
-    /// non-fatal write errors.
-    ///
-    /// The value has to be between 0 and 255 with a default of 2. A value of
-    /// zero means that one try will be attempted.
-    #[allow(dead_code)]
-    pub fn set_response_write_retries(&mut self, value: u8) {
-        self.response_write_retries = value;
-    }
-
     /// Set the limit on the number of DNS responses queued for writing to the
     /// client.
     ///
@@ -221,7 +203,6 @@ impl Default for Config {
         Self {
             idle_timeout: IDLE_TIMEOUT.default(),
             response_write_timeout: RESPONSE_WRITE_TIMEOUT.default(),
-            response_write_retries: RESPONSE_WRITE_RETRIES.default(),
             max_queued_responses: MAX_QUEUED_RESPONSES.default(),
         }
     }
@@ -283,9 +264,6 @@ where
     /// DNS protocol idle time out tracking.
     idle_timer: IdleTimer,
 
-    /// Is a transaction in progress?
-    in_transaction: Arc<AtomicBool>,
-
     /// [`ServerMetrics`] describing the status of the server.
     metrics: Arc<ServerMetrics>,
 }
@@ -334,7 +312,6 @@ where
             mpsc::channel(config.max_queued_responses);
         let config = Arc::new(ArcSwap::from_pointee(config));
         let idle_timer = IdleTimer::new();
-        let in_transaction = Arc::new(AtomicBool::new(false));
 
         // Place the ReadHalf of the stream into an Option so that we can take
         // it out (as we can't clone it and we can't place it into an Arc
@@ -356,7 +333,6 @@ where
             result_q_tx,
             service,
             idle_timer,
-            in_transaction,
             metrics,
         }
     }
@@ -447,7 +423,7 @@ where
                     }
 
                     _ = sleep_until(self.idle_timer.idle_timeout_deadline(self.config.load().idle_timeout)) => {
-                        self.process_dns_idle_timeout(self.config.load().idle_timeout)
+                        self.process_dns_idle_timeout()
                     }
 
                     res = &mut msg_recv => {
@@ -464,11 +440,9 @@ where
                 if let Err(err) = res {
                     match err {
                         ConnectionEvent::DisconnectWithoutFlush => {
-                            trace!("Disconnect without flush");
                             break 'outer;
                         }
                         ConnectionEvent::DisconnectWithFlush => {
-                            trace!("Disconnect with flush");
                             self.flush_write_queue().await;
                             break 'outer;
                         }
@@ -562,7 +536,10 @@ where
     }
 
     /// Stop queueing new responses and process those already in the queue.
-    async fn flush_write_queue(&mut self) {
+    async fn flush_write_queue(&mut self)
+    // where
+    // Target: Composer,
+    {
         debug!("Flushing connection write queue.");
         // Stop accepting new response messages (should we check for in-flight
         // messages that haven't generated a response yet but should be
@@ -587,7 +564,10 @@ where
     async fn process_queued_result(
         &mut self,
         response: Option<AdditionalBuilder<StreamTarget<Svc::Target>>>,
-    ) -> Result<(), ConnectionEvent> {
+    ) -> Result<(), ConnectionEvent>
+// where
+    //     Target: Composer,
+    {
         // If we failed to read the results of requests processed by the
         // service because the queue holding those results is empty and can no
         // longer be read from, then there is no point continuing to read from
@@ -603,82 +583,63 @@ where
             "Writing queued response with id {} to stream",
             response.header().id()
         );
-        self.write_response_to_stream(response.finish()).await
+        self.write_response_to_stream(response.finish()).await;
+
+        Ok(())
     }
 
     /// Write a response back to the caller over the network stream.
     async fn write_response_to_stream(
         &mut self,
         msg: StreamTarget<Svc::Target>,
-    ) -> Result<(), ConnectionEvent> {
+    )
+    // where
+    //     Target: AsRef<[u8]>,
+    {
         if enabled!(Level::TRACE) {
             let bytes = msg.as_dgram_slice();
-            let pcap_text = to_pcap_text(bytes, bytes.len().min(128));
-            trace!(addr = %self.addr, pcap_text, "Sending response (dumping max 128 bytes)");
+            let pcap_text = to_pcap_text(bytes, bytes.len());
+            trace!(addr = %self.addr, pcap_text, "Sending response");
         }
 
-        let max_tries = self.config.load().response_write_retries + 1;
-        let mut tries_left = max_tries;
-        while tries_left > 0 {
-            debug!(addr = %self.addr, "Sending response: attempts left={tries_left}");
-            tries_left -= 1;
-
-            match timeout(
-                self.config.load().response_write_timeout,
-                self.stream_tx.write_all(msg.as_stream_slice()),
-            )
-            .await
-            {
-                Err(_) => {
-                    error!(addr = %self.addr,
-                        "Write timed out (>{:?})",
-                        self.config.load().response_write_timeout
-                    );
-                    // Retry
-                    continue;
-                }
-                Ok(Err(err)) => {
-                    if let ControlFlow::Break(err) = process_io_error(err) {
-                        // Fatal error, abort.
-                        return Err(err);
-                    } else {
-                        // Retry
-                        continue;
-                    }
-                }
-                Ok(Ok(_)) => {
-                    // Success.
-                    self.metrics.inc_num_sent_responses();
-                    self.metrics.dec_num_pending_writes();
-
-                    if self.result_q_tx.capacity()
-                        == self.result_q_tx.max_capacity()
-                    {
-                        self.idle_timer.response_queue_emptied();
-                    }
-
-                    return Ok(());
-                }
+        match timeout(
+            self.config.load().response_write_timeout,
+            self.stream_tx.write_all(msg.as_stream_slice()),
+        )
+        .await
+        {
+            Err(_) => {
+                error!(
+                    "Write timed out (>{:?})",
+                    self.config.load().response_write_timeout
+                );
+                // TODO: Push it to the back of the queue to retry it?
+            }
+            Ok(Err(err)) => {
+                error!("Write error: {err}");
+            }
+            Ok(Ok(_)) => {
+                self.metrics.inc_num_sent_responses();
             }
         }
 
-        error!(addr = %self.addr, "Failed to send response after {max_tries}. The connection will be closed.");
-        Err(ConnectionEvent::DisconnectWithoutFlush)
+        self.metrics.dec_num_pending_writes();
+
+        if self.result_q_tx.capacity() == self.result_q_tx.max_capacity() {
+            self.idle_timer.response_queue_emptied();
+        }
     }
 
-    /// Implement DNS rules regarding timing out of idle connections.
+    /// Implemnt DNS rules regarding timing out of idle connections.
     ///
     /// Disconnects the current connection of the timer is expired, flushing
     /// pending responses first.
-    fn process_dns_idle_timeout(
-        &self,
-        timeout: Duration,
-    ) -> Result<(), ConnectionEvent> {
+    fn process_dns_idle_timeout(&self) -> Result<(), ConnectionEvent> {
         // DNS idle timeout elapsed, or was it reset?
-        if self.idle_timer.idle_timeout_expired(timeout)
-            && !self.in_transaction.load(Ordering::SeqCst)
+        if self
+            .idle_timer
+            .idle_timeout_expired(self.config.load().idle_timeout)
         {
-            trace!("Timing out idle connection");
             Err(ConnectionEvent::DisconnectWithoutFlush)
         } else {
             Ok(())
@@ -693,16 +654,13 @@ where
     where
         Svc::Stream: Send,
     {
-        let in_transaction = self.in_transaction.clone();
-
         match res {
             Ok(buf) => {
                 let received_at = Instant::now();
 
                 if enabled!(Level::TRACE) {
-                    let pcap_text =
-                        to_pcap_text(&buf, buf.as_ref().len().min(128));
-                    trace!(addr = %self.addr, pcap_text, "Received message (dumping max 128 bytes)");
+                    let pcap_text = to_pcap_text(&buf, buf.as_ref().len());
+                    trace!(addr = %self.addr, pcap_text, "Received message");
                 }
 
                 self.metrics.inc_num_received_requests();
@@ -721,7 +679,6 @@ where
                     }
 
                     Ok(msg) => {
-                        trace!(addr = %self.addr, ?msg, "Parsed first question: {:?}", msg.first_question());
                         let ctx = NonUdpTransportContext::new(Some(
                             self.config.load().idle_timeout,
                         ));
@@ -749,6 +706,7 @@ where
                                 "Calling service for request id {request_id}"
                             );
                             let mut stream = svc.call(request).await;
+                            let mut in_transaction = false;
 
                             trace!("Awaiting service call results for request id {request_id}");
                             while let Some(Ok(call_result)) =
@@ -780,17 +738,11 @@ where
                                         }
 
                                         ServiceFeedback::BeginTransaction => {
-                                            in_transaction.store(
-                                                true,
-                                                Ordering::SeqCst,
-                                            );
+                                            in_transaction = true;
                                         }
 
                                         ServiceFeedback::EndTransaction => {
-                                            in_transaction.store(
-                                                false,
-                                                Ordering::SeqCst,
-                                            );
+                                            in_transaction = false;
                                         }
                                     }
                                 }
@@ -813,16 +765,14 @@ where
                                             }
 
                                             Err(TrySendError::Closed(_)) => {
-                                                error!("Unable to queue message for sending: connection is shutting down.");
-                                                return;
+                                                error!("Unable to queue message for sending: server is shutting down.");
+                                                break;
                                             }
 
                                             Err(TrySendError::Full(
                                                 unused_response,
                                             )) => {
-                                                if in_transaction
-                                                    .load(Ordering::SeqCst)
-                                                {
+                                                if in_transaction {
                                                     // Wait until there is space in the message queue.
                                                     tokio::task::yield_now()
                                                         .await;
@@ -978,35 +928,35 @@ where
                 // buffer.
                 Ok(_size) => return Ok(()),
 
-                Err(err) => match process_io_error(err) {
+                Err(err) => match Self::process_io_error(err) {
                     ControlFlow::Continue(_) => continue,
                     ControlFlow::Break(err) => return Err(err),
                 },
             }
         }
     }
-}
 
-/// Handle I/O errors by deciding whether to log them, and whether to continue
-/// or abort.
-#[must_use]
-fn process_io_error(err: io::Error) -> ControlFlow<ConnectionEvent> {
-    match err.kind() {
-        io::ErrorKind::UnexpectedEof => {
-            // The client disconnected. Per RFC 7766 6.2.4 pending responses
-            // MUST NOT be sent to the client.
-            ControlFlow::Break(ConnectionEvent::DisconnectWithoutFlush)
-        }
-        io::ErrorKind::TimedOut | io::ErrorKind::Interrupted => {
-            // These errors might be recoverable, try again.
-            ControlFlow::Continue(())
-        }
-        _ => {
-            // Everything else is either unrecoverable or unknown to us at the
-            // time of writing and so we can't guess how to handle it, so
-            // abort.
-            error!("I/O error: {}", err);
-            ControlFlow::Break(ConnectionEvent::DisconnectWithoutFlush)
+    /// Handle I/O errors by deciding whether to log them, and whethr to
+    /// continue or abort.
+    #[must_use]
+    fn process_io_error(err: io::Error) -> ControlFlow<ConnectionEvent> {
+        match err.kind() {
+            io::ErrorKind::UnexpectedEof => {
+                // The client disconnected. Per RFC 7766 6.2.4 pending
+                // responses MUST NOT be sent to the client.
+                ControlFlow::Break(ConnectionEvent::DisconnectWithoutFlush)
+            }
+            io::ErrorKind::TimedOut | io::ErrorKind::Interrupted => {
+                // These errors might be recoverable, try again.
+                ControlFlow::Continue(())
+            }
+            _ => {
+                // Everything else is either unrecoverable or unknown to us at
+                // the time of writing and so we can't guess how to handle it,
+                // so abort.
+                error!("I/O error: {}", err);
+                ControlFlow::Break(ConnectionEvent::DisconnectWithoutFlush)
+            }
         }
     }
 }
