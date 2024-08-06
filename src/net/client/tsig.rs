@@ -15,14 +15,10 @@ use std::vec::Vec;
 use bytes::Bytes;
 use tracing::{debug, trace, warn};
 
-use crate::base::MessageBuilder;
-use crate::base::message_builder::PushError;
 use crate::base::message::CopyRecordsError;
 use crate::base::message_builder::AdditionalBuilder;
 use crate::base::wire::Composer;
 use crate::base::Message;
-use crate::rdata::AllRecordData;
-use crate::base::ParsedName;
 use crate::base::StaticCompressor;
 use crate::net::client::request::{
     ComposeRequest, ComposeRequestMulti, Error, GetResponse, GetResponseMulti, SendRequest, SendRequestMulti,
@@ -230,10 +226,6 @@ where
 
                         Err(err) => break Err(err),
                     }
-                }
-
-                RequestState::Complete => {
-                    break Err(Error::StreamReceiveError);
                 }
             }
         };
@@ -487,9 +479,6 @@ enum RequestState<K> {
         Box<dyn GetResponse + Send + Sync>,
         Arc<std::sync::Mutex<Option<TsigClient<K>>>>,
     ),
-
-    /// TODO
-    Complete,
 }
 
 //------------ RequestStateMulti ----------------------------------------------
@@ -534,60 +523,16 @@ where
     // Used by the stream transport.
     fn append_message<Target: Composer>(
         &self,
-        target: &mut Target,
-    ) -> Result<(), CopyRecordsError>
-    {
-        if let Some(key) = &self.key {
+        target: Target,
+    ) -> Result<AdditionalBuilder<Target>, CopyRecordsError> {
+        let mut target = self.request.append_message(target)?;
 
+        if let Some(key) = &self.key {
+	    let client = {
                 trace!(
                     "Signing single request transaction with key '{}'",
                     key.as_ref().name()
                 );
-		
-
-	    // The following is very inefficient. The solution is to implement
-	    // ComposeRequest directly instead of relying on another
-	    // implementation of ComposeRequest.
-	    let msg = self.request.to_message()
-		.map_err(|_| CopyRecordsError::Push(PushError::ShortBuf))?;
-	    let mut target = MessageBuilder::from_target(target)
-		.map_err(|_| CopyRecordsError::Push(PushError::ShortBuf))?;
-	
-	    *target.header_mut() = msg.header();
-
-	    let msg = msg.question();
-	    let mut target = target.question();
-	    for rr in msg {
-		target.push(rr?).expect("push failed");
-	    }
-	    let mut msg = msg.answer()?;
-	    let mut target = target.answer();
-	    for rr in &mut msg {
-		let rr = rr?
-		    .into_record::<AllRecordData<_, ParsedName<_>>>()?
-		    .expect("record expected");
-		target.push(rr).expect("push error");
-	    }
-	    let mut msg =
-		msg.next_section()?.expect("section should be present");
-	    let mut target = target.authority();
-	    for rr in &mut msg {
-		let rr = rr?
-		    .into_record::<AllRecordData<_, ParsedName<_>>>()?
-		    .expect("record expected");
-		target.push(rr).expect("push error");
-	    }
-
-	    let msg = msg.next_section()?.expect("section should be present");
-	    let mut target = target.additional();
-	    for rr in msg {
-		let rr = rr?
-		    .into_record::<AllRecordData<_, ParsedName<_>>>()?
-		    .expect("record expected");
-		target.push(rr).expect("push error");
-	    }
-
-            let client = 
                 TsigClient::Transaction(
                     ClientTransaction::request(
                         key.clone(),
@@ -596,16 +541,16 @@ where
                     )
                     .unwrap(),
                 )
-            ;
+	    };
 
             *self.signer.lock().unwrap() = Some(client);
         } else {
             trace!("No signing key was configured for this request, nothing to do");
-	    self.request.append_message(target)?;
         }
 
-        Ok(())
+        Ok(target)
     }
+
 
     fn to_vec(&self) -> Result<Vec<u8>, Error> {
         let msg = self.to_message()?;
@@ -662,18 +607,8 @@ where
 
 /// TODO
 #[derive(Debug)]
-pub struct AuthenticatedRequestMessageMulti<CR, K>
-where
-    CR: Send + Sync,
+pub struct AuthenticatedRequestMessageMulti
 {
-    /// TODO
-    request: CR,
-
-    /// TODO
-    key: Option<K>,
-
-    /// TODO
-    signer: Arc<std::sync::Mutex<Option<TsigClient<K>>>>,
 }
 
 impl<CR, K> ComposeRequestMulti for AuthenticatedRequestMessage<CR, K>
@@ -689,26 +624,13 @@ where
         let mut target = self.request.append_message(target)?;
 
         if let Some(key) = &self.key {
-            let client = if self.request.is_streaming() {
+            let client = {
                 trace!(
                     "Signing streaming request sequence with key '{}'",
                     key.as_ref().name()
                 );
                 TsigClient::Sequence(
                     ClientSequence::request(
-                        key.clone(),
-                        &mut target,
-                        Time48::now(),
-                    )
-                    .unwrap(),
-                )
-            } else {
-                trace!(
-                    "Signing single request transaction with key '{}'",
-                    key.as_ref().name()
-                );
-                TsigClient::Transaction(
-                    ClientTransaction::request(
                         key.clone(),
                         &mut target,
                         Time48::now(),

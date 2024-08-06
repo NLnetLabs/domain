@@ -136,37 +136,27 @@ pub trait ConnectionFactoryMulti {
 
 /// Configuration for a Catalog.
 #[derive(Debug, Default)]
-pub struct Config<KS, CF: ConnectionFactory>
-where
-    KS: Deref,
-    KS::Target: KeyStore,
+pub struct Config<CF>
 {
-    /// A store of TSIG keys that can optionally be used to lookup keys when
-    /// TSIG signing/validating.
-    key_store: KS,
-
     /// A connection factory for making outbound requests to primary servers
     /// to fetch remote zones.
     conn_factory: CF,
 }
 
-impl<KS, CF: ConnectionFactory + Default> Config<KS, CF>
+impl<CF> Config<CF>
 where
-    KS: Deref,
-    KS::Target: KeyStore,
+	CF: Default
 {
     /// Creates a new config using the provided [`KeyStore`].
-    pub fn new(key_store: KS) -> Self {
+    pub fn new() -> Self {
         Self {
-            key_store,
             conn_factory: CF::default(),
         }
     }
 
-    pub fn new_with_conn_factory(key_store: KS, conn_factory: CF) -> Self {
+    pub fn new_with_conn_factory(conn_factory: CF) -> Self {
         Self {
-            key_store,
-            conn_factory,
+	    conn_factory,
         }
     }
 }
@@ -214,13 +204,15 @@ where
 
 /// A set of zones that are kept in sync with other servers.
 #[derive(Debug)]
-pub struct Catalog<KS, CF: ConnectionFactoryMulti>
+pub struct Catalog<KS, CF, CFM: ConnectionFactoryMulti>
 where
     KS: Deref,
     KS::Target: KeyStore,
+    //CF: ConnectionFactory
 {
     // cat_zone: Zone, // TODO
-    config: Arc<ArcSwap<ConfigMulti<KS, CF>>>,
+    config: Arc<ArcSwap<Config<CF>>>,
+    config_multi: Arc<ArcSwap<ConfigMulti<KS, CFM>>>,
     pending_zones: Arc<RwLock<HashMap<ZoneKey, Zone>>>,
     member_zones: Arc<ArcSwap<ZoneTree>>,
     loaded_arc: std::sync::RwLock<Arc<ZoneTree>>,
@@ -229,26 +221,28 @@ where
     running: AtomicBool,
 }
 
-impl<KS, CF: ConnectionFactoryMulti + Default> Default for Catalog<KS, CF>
+impl<KS, CF, CFM: ConnectionFactoryMulti + Default> Default for Catalog<KS, CF, CFM>
 where
     KS: Deref + Default,
     KS::Target: KeyStore,
+    CF: Default
 {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl<KS, CF: ConnectionFactoryMulti + Default> Catalog<KS, CF>
+impl<KS, CF, CFM: ConnectionFactoryMulti + Default> Catalog<KS, CF, CFM>
 where
     KS: Deref + Default,
     KS::Target: KeyStore,
+    CF: Default
 {
     pub fn new() -> Self {
-        Self::new_with_config(ConfigMulti::default())
+        Self::new_with_config(Config::default(), ConfigMulti::default())
     }
 
-    pub fn new_with_config(config: ConfigMulti<KS, CF>) -> Self {
+    pub fn new_with_config(config: Config<CF>, config_multi: ConfigMulti<KS, CFM>) -> Self {
         let pending_zones = Default::default();
         let member_zones = ZoneTree::new();
         let member_zones = Arc::new(ArcSwap::from_pointee(member_zones));
@@ -256,10 +250,12 @@ where
         let (event_tx, event_rx) = mpsc::channel(10);
         let event_rx = Mutex::new(event_rx);
         let config = Arc::new(ArcSwap::from_pointee(config));
+        let config_multi = Arc::new(ArcSwap::from_pointee(config_multi));
 
         Catalog {
             // cat_zone,
             config,
+            config_multi,
             pending_zones,
             member_zones,
             loaded_arc,
@@ -270,13 +266,14 @@ where
     }
 }
 
-impl<KS, CF> Catalog<KS, CF>
+impl<KS, CF, CFM> Catalog<KS, CF, CFM>
 where
     KS: Deref + Send + Sync + 'static,
     KS::Target: KeyStore,
     <KS::Target as KeyStore>::Key:
         Clone + Debug + Display + Sync + Send + 'static,
-    CF: ConnectionFactoryMulti + Send + Sync + 'static,
+    CF: ConnectionFactory + Send + Sync + 'static,
+    CFM: ConnectionFactoryMulti + Send + Sync + 'static,
 {
     pub async fn run(&self) {
         self.running.store(true, Ordering::SeqCst);
@@ -312,7 +309,7 @@ where
                 Self::send_notify(
                     zone,
                     &zone_config.send_notify_to,
-                    self.config.clone(),
+                    self.config_multi.clone(),
                 )
                 .await;
             }
@@ -363,9 +360,10 @@ where
                             let event_tx = self.event_tx.clone();
                             let pending_zones = self.pending_zones.clone();
                             let config = self.config.clone();
+                            let config_multi = self.config_multi.clone();
                             tokio::spawn(
                                 Self::handle_notify(
-                                    zones, pending_zones, msg, time_tracking, event_tx, config,
+                                    zones, pending_zones, msg, time_tracking, event_tx, config, config_multi,
                                 )
                             );
                         }
@@ -505,6 +503,7 @@ where
                                     zone_refresh_info,
                                     self.event_tx.clone(),
                                     self.config.clone(),
+                                    self.config_multi.clone(),
                                 )
                                 .await
                             {
@@ -593,12 +592,12 @@ where
     }
 }
 
-impl<KS, CF> Catalog<KS, CF>
+impl<KS, CF, CFM> Catalog<KS, CF, CFM>
 where
     KS: Deref + Send + Sync + 'static,
     KS::Target: KeyStore,
     <KS::Target as KeyStore>::Key: Clone + Debug + Sync + Send + 'static,
-    CF: ConnectionFactoryMulti + Send + Sync + 'static,
+    CFM: ConnectionFactoryMulti + Send + Sync + 'static,
 {
     /// Get a status report for a zone.
     ///
@@ -648,7 +647,7 @@ where
     }
 }
 
-impl<KS, CF: ConnectionFactoryMulti> Catalog<KS, CF>
+impl<KS, CF, CFM: ConnectionFactoryMulti> Catalog<KS, CF, CFM>
 where
     KS: Deref,
     KS::Target: KeyStore,
@@ -674,18 +673,19 @@ where
     }
 }
 
-impl<KS, CF> Catalog<KS, CF>
+impl<KS, CF, CFM> Catalog<KS, CF, CFM>
 where
     KS: Deref + 'static,
     KS::Target: KeyStore,
     <KS::Target as KeyStore>::Key:
         Clone + Debug + Display + Sync + Send + 'static,
-    CF: ConnectionFactoryMulti + 'static,
+    CF: ConnectionFactory + 'static,
+    CFM: ConnectionFactoryMulti + 'static,
 {
     async fn send_notify(
         zone: &Zone,
         notify: &NotifySrcDstConfig,
-        config: Arc<ArcSwap<ConfigMulti<KS, CF>>>,
+        config: Arc<ArcSwap<ConfigMulti<KS, CFM>>>,
     ) {
         let cat_zone = zone
             .as_ref()
@@ -721,7 +721,7 @@ where
     async fn send_notify_to_addrs(
         apex_name: StoredName,
         notify_set: impl Iterator<Item = &SocketAddr>,
-        config: Arc<ArcSwap<ConfigMulti<KS, CF>>>,
+        config: Arc<ArcSwap<ConfigMulti<KS, CFM>>>,
         zone_info: &ZoneInfo,
     ) {
         let mut dgram_config = dgram::Config::new();
@@ -740,7 +740,7 @@ where
 
         for nameserver_addr in notify_set {
             let dgram_config = dgram_config.clone();
-            let req = RequestMessage::new(msg.clone());
+            let req = RequestMessage::new(msg.clone()).expect("should not fail");
             let nameserver_addr = *nameserver_addr;
 
             let tsig_key = zone_info
@@ -889,7 +889,8 @@ where
         msg: ZoneChangedMsg,
         time_tracking: Arc<RwLock<HashMap<ZoneKey, ZoneRefreshState>>>,
         event_tx: Sender<Event>,
-        config: Arc<ArcSwap<ConfigMulti<KS, CF>>>,
+        config: Arc<ArcSwap<Config<CF>>>,
+        config_multi: Arc<ArcSwap<ConfigMulti<KS, CFM>>>,
     ) {
         // Do we have the zone that is being updated?
         let readable_pending_zones = pending_zones.read().await;
@@ -930,7 +931,7 @@ where
                     );
 
                     Self::update_known_nameservers_for_zone(zone).await;
-                    Self::send_notify(zone, &zone_cfg.send_notify_to, config)
+                    Self::send_notify(zone, &zone_cfg.send_notify_to, config_multi)
                         .await;
                     return;
                 }
@@ -1058,6 +1059,7 @@ where
             zone_refresh_info,
             event_tx.clone(),
             config,
+	    config_multi,
         )
         .await
         {
@@ -1078,7 +1080,8 @@ where
         initial_xfr_addr: Option<SocketAddr>,
         zone_refresh_info: &mut ZoneRefreshState,
         event_tx: Sender<Event>,
-        config: Arc<ArcSwap<ConfigMulti<KS, CF>>>,
+        config: Arc<ArcSwap<Config<CF>>>,
+        config_multi: Arc<ArcSwap<ConfigMulti<KS, CFM>>>,
     ) -> Result<(), ()> {
         match cause {
             ZoneRefreshCause::ManualTrigger
@@ -1109,6 +1112,7 @@ where
             initial_xfr_addr,
             zone_refresh_info,
             config,
+            config_multi,
         )
         .await;
 
@@ -1219,7 +1223,8 @@ where
         zone: &Zone,
         initial_xfr_addr: Option<SocketAddr>,
         zone_refresh_info: &mut ZoneRefreshState,
-        config: Arc<ArcSwap<ConfigMulti<KS, CF>>>,
+        config: Arc<ArcSwap<Config<CF>>>,
+        config_multi: Arc<ArcSwap<ConfigMulti<KS, CFM>>>,
     ) -> Result<Option<Soa<Name<Bytes>>>, CatalogError> {
         // Was this zone already refreshed recently?
         if let Some(age) = zone_refresh_info.age() {
@@ -1276,6 +1281,7 @@ where
                     xfr_config,
                     zone_refresh_info,
                     config.clone(),
+                    config_multi.clone(),
                 )
                 .await;
 
@@ -1313,7 +1319,8 @@ where
         primary_addr: SocketAddr,
         xfr_config: &XfrConfig,
         zone_refresh_info: &mut ZoneRefreshState,
-        config: Arc<ArcSwap<ConfigMulti<KS, CF>>>,
+        config: Arc<ArcSwap<Config<CF>>>,
+        config_multi: Arc<ArcSwap<ConfigMulti<KS, CFM>>>,
     ) -> Result<Option<Soa<Name<Bytes>>>, CatalogError> {
         // TODO: Replace this loop with one, or two, calls to a helper fn.
         // Try at least once, at most twice (when using IXFR -> AXFR fallback)
@@ -1346,7 +1353,7 @@ where
             let mut msg = msg.question();
             msg.push((zone.apex_name(), Rtype::SOA)).unwrap();
             let msg = msg.into_message();
-            let req = RequestMessageMulti::new(msg);
+            let req = RequestMessage::new(msg).expect("should not fail");
 
             // Fetch the SOA serial using the appropriate transport
             let transport = match rtype {
@@ -1370,13 +1377,25 @@ where
             // is constructed if a key is specified and available.
 
             let loaded_config = config.load();
-            let readable_key_store = &loaded_config.key_store; //.read().await;
+            let loaded_config_multi = config_multi.load();
+            let readable_key_store = &loaded_config_multi.key_store; //.read().await;
             let key = xfr_config.tsig_key.as_ref().and_then(|(name, alg)| {
                 readable_key_store.get_key(name, *alg)
             });
 
             // Query the SOA serial of the primary via the chosen transport.
             let Some(client) = loaded_config
+                .conn_factory
+                .get(primary_addr, transport, key.clone())
+                .await
+                .map_err(|err| {
+                    let key = key.clone().map(|key| format!("{key}")).unwrap_or("NOKEY".to_string());
+                    CatalogError::ConnectionError(format!("Connecting to {primary_addr} via {transport} with key '{key}' failed: {err}"))
+                })?
+            else {
+                return Ok(None);
+            };
+            let Some(client_multi) = loaded_config_multi
                 .conn_factory
                 .get(primary_addr, transport, key.clone())
                 .await
@@ -1418,7 +1437,7 @@ where
                 "Refreshing zone '{}' by {rtype} from {primary_addr}",
                 zone.apex_name()
             );
-            let res = Self::do_xfr(client, zone, primary_addr, rtype).await;
+            let res = Self::do_xfr(client_multi, zone, primary_addr, rtype).await;
 
             match res {
                 Err(CatalogError::ResponseError(OptRcode::NOTIMP))
@@ -1500,7 +1519,7 @@ where
         };
 
         let msg = msg.into_message();
-        let req = RequestMessageMulti::new(msg);
+        let req = RequestMessageMulti::new(msg).expect("should not fail");
 
         let client =
             net::client::xfr::Connection::new(Some(zone.clone()), client);
@@ -1778,11 +1797,12 @@ where
 
 //--- Notifiable
 
-impl<KS, CF> Notifiable for Catalog<KS, CF>
+impl<KS, CF, CFM> Notifiable for Catalog<KS, CF, CFM>
 where
     KS: Deref + Send + Sync + 'static,
     KS::Target: KeyStore,
-    CF: ConnectionFactoryMulti + Send + Sync + 'static,
+    CF: Send + Sync,
+    CFM: ConnectionFactoryMulti + Send + Sync + 'static,
 {
     #[allow(clippy::manual_async_fn)]
     fn notify_zone_changed(
@@ -1875,7 +1895,7 @@ where
     }
 }
 
-impl<KS, CF: ConnectionFactoryMulti> ZoneLookup for Catalog<KS, CF>
+impl<KS, CF, CFM: ConnectionFactoryMulti> ZoneLookup for Catalog<KS, CF, CFM>
 where
     KS: Deref,
     KS::Target: KeyStore,
@@ -1947,7 +1967,7 @@ where
     }
 }
 
-impl<KS, CF: ConnectionFactoryMulti> Catalog<KS, CF>
+impl<KS, CF, CFM: ConnectionFactoryMulti> Catalog<KS, CF, CFM>
 where
     KS: Deref,
     KS::Target: KeyStore,

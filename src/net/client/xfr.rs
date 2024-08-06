@@ -158,9 +158,6 @@ where
 
     /// TODO
     last_progress_report: Option<Instant>,
-
-    /// TODO
-    complete: bool,
 }
 
 impl<CR, Upstream> Request<CR, Upstream>
@@ -194,7 +191,6 @@ where
             initial_soa_serial_seen_count: 0,
             start_time: Instant::now(),
             last_progress_report: None,
-            complete: false,
         }
     }
 

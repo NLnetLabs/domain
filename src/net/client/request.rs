@@ -11,6 +11,7 @@ use bytes::Bytes;
 use octseq::Octets;
 use tracing::trace;
 
+use crate::base::iana::Opcode;
 use crate::base::iana::Rcode;
 use crate::base::StaticCompressor;
 use crate::base::message::{CopyRecordsError, ShortMessage};
@@ -32,8 +33,8 @@ pub trait ComposeRequest: Debug + Send + Sync {
     /// Appends the final message to a provided composer.
     fn append_message<Target: Composer>(
         &self,
-        target: &mut Target,
-    ) -> Result<(), CopyRecordsError>;
+        target: Target,
+    ) -> Result<AdditionalBuilder<Target>, CopyRecordsError>;
 
     /// Create a message that captures the recorded changes.
     fn to_message(&self) -> Result<Message<Vec<u8>>, Error>;
@@ -209,15 +210,24 @@ pub struct RequestMessage<Octs: AsRef<[u8]>> {
 }
 
 impl<Octs: AsRef<[u8]> + Debug + Octets> RequestMessage<Octs> {
-    /// Create a new BMB object.
-    pub fn new(msg: impl Into<Message<Octs>>) -> Self {
+    /// Create a new RequestMessage object.
+    pub fn new(msg: impl Into<Message<Octs>>) -> Result<Self, Error> {
         let msg = msg.into();
+
+	// On UDP, IXFR results in a single responses, so we need to accept it.
+	// We can reject AXFR because it always requires support for multiple
+	// responses.
+	if msg.header().opcode() == Opcode::QUERY &&
+		msg.first_question().ok_or(Error::FormError)?.qtype() == Rtype::AXFR {
+	    return Err(Error::FormError);
+	}
+
         let header = msg.header();
-        Self {
+        Ok(Self {
             msg,
             header,
             opt: None,
-        }
+        })
     }
 
     /// Returns a mutable reference to the OPT record.
@@ -304,12 +314,12 @@ impl<Octs: AsRef<[u8]> + Debug + Octets + Send + Sync> ComposeRequest
 {
     fn append_message<Target: Composer>(
         &self,
-        target: &mut Target,
-    ) -> Result<(), CopyRecordsError> {
+        target: Target,
+    ) -> Result<AdditionalBuilder<Target>, CopyRecordsError> {
         let target = MessageBuilder::from_target(target)
             .map_err(|_| CopyRecordsError::Push(PushError::ShortBuf))?;
-        self.append_message_impl(target)?;
-        Ok(())
+        let builder = self.append_message_impl(target)?;
+        Ok(builder)
     }
 
     fn to_vec(&self) -> Result<Vec<u8>, Error> {
@@ -413,14 +423,19 @@ where
 
 impl<Octs: AsRef<[u8]> + Debug + Octets> RequestMessageMulti<Octs> {
     /// Create a new BMB object.
-    pub fn new(msg: impl Into<Message<Octs>>) -> Self {
+    pub fn new(msg: impl Into<Message<Octs>>) -> Result<Self, Error> {
         let msg = msg.into();
+
+	// Only accept the streaming types (IXFR and AXFR).
+	if !msg.is_streaming() {
+	    return Err(Error::FormError);
+	}
         let header = msg.header();
-        Self {
+        Ok(Self {
             msg,
             header,
             opt: None,
-        }
+        })
     }
 
     /// Returns a mutable reference to the OPT record.
@@ -606,6 +621,9 @@ pub enum Error {
     /// Underlying transport not found in redundant connection
     RedundantTransportNotFound,
 
+    /// The message violated some constraints.
+    FormError,
+
     /// Octet sequence too short to be a valid DNS message.
     ShortMessage,
 
@@ -703,6 +721,9 @@ impl fmt::Display for Error {
             Error::ShortMessage => {
                 write!(f, "octet sequence to short to be a valid message")
             }
+            Error::FormError => {
+                write!(f, "message violates a constraint")
+            }
             Error::StreamLongMessage => {
                 write!(f, "message too long for stream transport")
             }
@@ -765,6 +786,7 @@ impl error::Error for Error {
             Error::MessageParseError => None,
             Error::RedundantTransportNotFound => None,
             Error::ShortMessage => None,
+            Error::FormError => None,
             Error::StreamLongMessage => None,
             Error::StreamIdleTimeout => None,
             Error::StreamReceiveError => None,

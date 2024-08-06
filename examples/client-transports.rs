@@ -33,7 +33,7 @@ async fn main() {
     let mut msg = msg.question();
     msg.push((Name::vec_from_str("example.com").unwrap(), Rtype::AAAA))
         .unwrap();
-    let req = RequestMessage::new(msg);
+    let req = RequestMessage::new(msg).unwrap();
 
     // Destination for UDP and TCP
     let server_addr = SocketAddr::new(IpAddr::from_str("::1").unwrap(), 53);

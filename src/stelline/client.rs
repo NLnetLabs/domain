@@ -932,7 +932,7 @@ fn entry2reqmsg(entry: &Entry) -> RequestMessage<Vec<u8>> {
     header.set_cd(reply.cd);
     let msg = msg.into_message();
 
-    let mut reqmsg = RequestMessage::new(msg);
+    let mut reqmsg = RequestMessage::new(msg).expect("should not fail unless the QTYPE is AXFR");
     if !entry
         .matches
         .as_ref()
@@ -989,7 +989,7 @@ fn entry2reqmsg_multi(entry: &Entry) -> RequestMessageMulti<Vec<u8>> {
     header.set_cd(reply.cd);
     let msg = msg.into_message();
 
-    let mut reqmsg = RequestMessageMulti::new(msg);
+    let mut reqmsg = RequestMessageMulti::new(msg).expect("should not fail unless QTYPE is neither AXFR nor IXFR");
     if !entry
         .matches
         .as_ref()

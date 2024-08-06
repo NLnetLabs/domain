@@ -114,11 +114,14 @@ async fn server_tests(#[files("test-data/server/*.rpl")] rpl_file: PathBuf) {
     // Create a zone catalog. For now this is only used by the service to
     // query zones, and for XFR-in testing. In future it could also be used
     // with XFR-out and NOTIFY-in/out testing.
-    let catalog_config = catalog::ConfigMulti::new_with_conn_factory(
+    let catalog_config = catalog::Config::new_with_conn_factory(
+        conn_factory.clone(),
+    );
+    let catalog_config_multi = catalog::ConfigMulti::new_with_conn_factory(
         key_store.clone(),
         conn_factory,
     );
-    let catalog = Catalog::new_with_config(catalog_config);
+    let catalog = Catalog::new_with_config(catalog_config, catalog_config_multi);
     let catalog = Arc::new(catalog);
 
     // Build and insert the test defined zone, if any, into the zone catalog
@@ -278,11 +281,14 @@ async fn server_tests_multi(#[files("test-data/server/multi/*.rpl")] rpl_file: P
     // Create a zone catalog. For now this is only used by the service to
     // query zones, and for XFR-in testing. In future it could also be used
     // with XFR-out and NOTIFY-in/out testing.
-    let catalog_config = catalog::ConfigMulti::new_with_conn_factory(
+    let catalog_config = catalog::Config::new_with_conn_factory(
+        conn_factory.clone(),
+    );
+    let catalog_config_multi = catalog::ConfigMulti::new_with_conn_factory(
         key_store.clone(),
         conn_factory,
     );
-    let catalog = Catalog::new_with_config(catalog_config);
+    let catalog = Catalog::new_with_config(catalog_config, catalog_config_multi);
     let catalog = Arc::new(catalog);
 
     // Build and insert the test defined zone, if any, into the zone catalog
@@ -381,7 +387,7 @@ async fn server_tests_multi(#[files("test-data/server/multi/*.rpl")] rpl_file: P
     // takes place, these clients and servers use a direct in-memory channel
     // to exchange messages instead of actual network sockets.
     let client_factory =
-        mk_client_factory_multi(dgram_server_conn, stream_server_conn, key_store);
+        mk_client_factory_multi(stream_server_conn, key_store);
 
     // Run the Stelline test!
     do_client_multi(&stelline, &step_value, client_factory).await;
@@ -516,7 +522,6 @@ fn mk_client_factory(
 }
 
 fn mk_client_factory_multi(
-    dgram_server_conn: ClientServerChannel,
     stream_server_conn: ClientServerChannel,
     key_store: Arc<CatalogKeyStore>,
 ) -> impl ClientFactoryMulti {
