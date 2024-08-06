@@ -1946,14 +1946,6 @@ where
     }
 }
 
-impl<Target> FreezeBuilder for StreamTarget<Target> {
-    type Octets = Target;
-
-    fn freeze(self) -> Self::Octets {
-        self.into_target()
-    }
-}
-
 //------------ StaticCompressor ----------------------------------------------
 
 /// A domain name compressor that doesn’t require an allocator.
