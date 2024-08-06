@@ -97,12 +97,10 @@ async fn main() {
     };
 
     // Create a catalog that will handle outbound XFR for zones
-    let cat_config = catalog::Config::<DefaultConnFactory>::new(
-    );
-    let cat_config_multi = catalog::ConfigMulti::<_, DefaultConnFactory>::new(
+    let cat_config = catalog::Config::<_, DefaultConnFactory, DefaultConnFactory>::new(
         config.key_store.clone(),
     );
-    let catalog = Catalog::new_with_config(cat_config, cat_config_multi);
+    let catalog = Catalog::new_with_config(cat_config);
     let catalog = Arc::new(catalog);
     catalog.insert_zone(config.zone.clone()).await.unwrap();
 

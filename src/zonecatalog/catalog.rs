@@ -97,6 +97,70 @@ pub trait ConnectionFactory {
         Octs: Octets + Debug + Send + Sync + 'static;
 }
 
+//------------ ConnectionFactory2 ---------------------------------------------
+
+pub trait ConnectionFactory2 {
+    type Error: Display;
+
+    #[allow(clippy::type_complexity)]
+    fn get<K, Octs>(
+        &self,
+        dest: SocketAddr,
+        strategy: TransportStrategy,
+        key: Option<K>,
+    ) -> Pin<
+        Box<
+            dyn Future<
+                    Output = Result<
+                        Option<
+                            Box<
+                                dyn SendRequest<RequestMessage<Octs>>
+                                    + Send
+                                    + Sync
+                                    + 'static,
+                            >,
+                        >,
+                        Self::Error,
+                    >,
+                > + Send
+                + Sync
+                + 'static,
+        >,
+    >
+    where
+        K: Clone + Debug + AsRef<Key> + Send + Sync + 'static,
+        Octs: Octets + Debug + Send + Sync + 'static;
+
+    #[allow(clippy::type_complexity)]
+    fn get_multi<K, Octs>(
+        &self,
+        dest: SocketAddr,
+        strategy: TransportStrategy,
+        key: Option<K>,
+    ) -> Pin<
+        Box<
+            dyn Future<
+                    Output = Result<
+                        Option<
+                            Box<
+                                dyn SendRequestMulti<RequestMessageMulti<Octs>>
+                                    + Send
+                                    + Sync
+                                    + 'static,
+                            >,
+                        >,
+                        Self::Error,
+                    >,
+                > + Send
+                + Sync
+                + 'static,
+        >,
+    >
+    where
+        K: Clone + Debug + AsRef<Key> + Send + Sync + 'static,
+        Octs: Octets + Debug + Send + Sync + 'static;
+}
+
 //------------ ConnectionFactoryMulti -----------------------------------------
 
 pub trait ConnectionFactoryMulti {
@@ -132,40 +196,11 @@ pub trait ConnectionFactoryMulti {
         Octs: Octets + Debug + Send + Sync + 'static;
 }
 
-//------------ Config --------------------------------------------------------
+//------------ Config ---------------------------------------------------------
 
 /// Configuration for a Catalog.
 #[derive(Debug, Default)]
-pub struct Config<CF>
-{
-    /// A connection factory for making outbound requests to primary servers
-    /// to fetch remote zones.
-    conn_factory: CF,
-}
-
-impl<CF> Config<CF>
-where
-	CF: Default
-{
-    /// Creates a new config using the provided [`KeyStore`].
-    pub fn new() -> Self {
-        Self {
-            conn_factory: CF::default(),
-        }
-    }
-
-    pub fn new_with_conn_factory(conn_factory: CF) -> Self {
-        Self {
-	    conn_factory,
-        }
-    }
-}
-
-//------------ ConfigMulti ----------------------------------------------------
-
-/// Configuration for a Catalog.
-#[derive(Debug, Default)]
-pub struct ConfigMulti<KS, CF: ConnectionFactoryMulti>
+pub struct Config<KS, CF, CFM>
 where
     KS: Deref,
     KS::Target: KeyStore,
@@ -177,25 +212,32 @@ where
     /// A connection factory for making outbound requests to primary servers
     /// to fetch remote zones.
     conn_factory: CF,
+
+    /// A connection factory for making outbound requests to primary servers
+    /// to fetch remote zones.
+    conn_factory_multi: CFM,
 }
 
-impl<KS, CF: ConnectionFactoryMulti + Default> ConfigMulti<KS, CF>
+impl<KS, CF, CFM: Default> Config<KS, CF, CFM>
 where
     KS: Deref,
     KS::Target: KeyStore,
+    CF: Default,
 {
     /// Creates a new config using the provided [`KeyStore`].
     pub fn new(key_store: KS) -> Self {
         Self {
             key_store,
             conn_factory: CF::default(),
+            conn_factory_multi: CFM::default(),
         }
     }
 
-    pub fn new_with_conn_factory(key_store: KS, conn_factory: CF) -> Self {
+    pub fn new_with_conn_factory(key_store: KS, conn_factory: CF, conn_factory_multi: CFM) -> Self {
         Self {
             key_store,
             conn_factory,
+            conn_factory_multi,
         }
     }
 }
@@ -204,15 +246,13 @@ where
 
 /// A set of zones that are kept in sync with other servers.
 #[derive(Debug)]
-pub struct Catalog<KS, CF, CFM: ConnectionFactoryMulti>
+pub struct Catalog<KS, CF, CFM>
 where
     KS: Deref,
     KS::Target: KeyStore,
-    //CF: ConnectionFactory
 {
     // cat_zone: Zone, // TODO
-    config: Arc<ArcSwap<Config<CF>>>,
-    config_multi: Arc<ArcSwap<ConfigMulti<KS, CFM>>>,
+    config: Arc<ArcSwap<Config<KS, CF, CFM>>>,
     pending_zones: Arc<RwLock<HashMap<ZoneKey, Zone>>>,
     member_zones: Arc<ArcSwap<ZoneTree>>,
     loaded_arc: std::sync::RwLock<Arc<ZoneTree>>,
@@ -221,7 +261,7 @@ where
     running: AtomicBool,
 }
 
-impl<KS, CF, CFM: ConnectionFactoryMulti + Default> Default for Catalog<KS, CF, CFM>
+impl<KS, CF, CFM: Default> Default for Catalog<KS, CF, CFM>
 where
     KS: Deref + Default,
     KS::Target: KeyStore,
@@ -232,17 +272,17 @@ where
     }
 }
 
-impl<KS, CF, CFM: ConnectionFactoryMulti + Default> Catalog<KS, CF, CFM>
+impl<KS, CF, CFM: Default> Catalog<KS, CF, CFM>
 where
     KS: Deref + Default,
     KS::Target: KeyStore,
     CF: Default
 {
     pub fn new() -> Self {
-        Self::new_with_config(Config::default(), ConfigMulti::default())
+        Self::new_with_config(Config::default())
     }
 
-    pub fn new_with_config(config: Config<CF>, config_multi: ConfigMulti<KS, CFM>) -> Self {
+    pub fn new_with_config(config: Config<KS, CF, CFM>) -> Self {
         let pending_zones = Default::default();
         let member_zones = ZoneTree::new();
         let member_zones = Arc::new(ArcSwap::from_pointee(member_zones));
@@ -250,12 +290,10 @@ where
         let (event_tx, event_rx) = mpsc::channel(10);
         let event_rx = Mutex::new(event_rx);
         let config = Arc::new(ArcSwap::from_pointee(config));
-        let config_multi = Arc::new(ArcSwap::from_pointee(config_multi));
 
         Catalog {
             // cat_zone,
             config,
-            config_multi,
             pending_zones,
             member_zones,
             loaded_arc,
@@ -309,7 +347,7 @@ where
                 Self::send_notify(
                     zone,
                     &zone_config.send_notify_to,
-                    self.config_multi.clone(),
+                    self.config.clone(),
                 )
                 .await;
             }
@@ -360,10 +398,9 @@ where
                             let event_tx = self.event_tx.clone();
                             let pending_zones = self.pending_zones.clone();
                             let config = self.config.clone();
-                            let config_multi = self.config_multi.clone();
                             tokio::spawn(
                                 Self::handle_notify(
-                                    zones, pending_zones, msg, time_tracking, event_tx, config, config_multi,
+                                    zones, pending_zones, msg, time_tracking, event_tx, config,
                                 )
                             );
                         }
@@ -503,7 +540,6 @@ where
                                     zone_refresh_info,
                                     self.event_tx.clone(),
                                     self.config.clone(),
-                                    self.config_multi.clone(),
                                 )
                                 .await
                             {
@@ -685,7 +721,7 @@ where
     async fn send_notify(
         zone: &Zone,
         notify: &NotifySrcDstConfig,
-        config: Arc<ArcSwap<ConfigMulti<KS, CFM>>>,
+        config: Arc<ArcSwap<Config<KS, CF, CFM>>>,
     ) {
         let cat_zone = zone
             .as_ref()
@@ -721,7 +757,7 @@ where
     async fn send_notify_to_addrs(
         apex_name: StoredName,
         notify_set: impl Iterator<Item = &SocketAddr>,
-        config: Arc<ArcSwap<ConfigMulti<KS, CFM>>>,
+        config: Arc<ArcSwap<Config<KS, CF, CFM>>>,
         zone_info: &ZoneInfo,
     ) {
         let mut dgram_config = dgram::Config::new();
@@ -889,8 +925,7 @@ where
         msg: ZoneChangedMsg,
         time_tracking: Arc<RwLock<HashMap<ZoneKey, ZoneRefreshState>>>,
         event_tx: Sender<Event>,
-        config: Arc<ArcSwap<Config<CF>>>,
-        config_multi: Arc<ArcSwap<ConfigMulti<KS, CFM>>>,
+        config: Arc<ArcSwap<Config<KS, CF, CFM>>>,
     ) {
         // Do we have the zone that is being updated?
         let readable_pending_zones = pending_zones.read().await;
@@ -931,7 +966,7 @@ where
                     );
 
                     Self::update_known_nameservers_for_zone(zone).await;
-                    Self::send_notify(zone, &zone_cfg.send_notify_to, config_multi)
+                    Self::send_notify(zone, &zone_cfg.send_notify_to, config)
                         .await;
                     return;
                 }
@@ -1058,8 +1093,7 @@ where
             Some(initial_xfr_addr),
             zone_refresh_info,
             event_tx.clone(),
-            config,
-	    config_multi,
+	    config,
         )
         .await
         {
@@ -1080,8 +1114,7 @@ where
         initial_xfr_addr: Option<SocketAddr>,
         zone_refresh_info: &mut ZoneRefreshState,
         event_tx: Sender<Event>,
-        config: Arc<ArcSwap<Config<CF>>>,
-        config_multi: Arc<ArcSwap<ConfigMulti<KS, CFM>>>,
+        config: Arc<ArcSwap<Config<KS, CF, CFM>>>,
     ) -> Result<(), ()> {
         match cause {
             ZoneRefreshCause::ManualTrigger
@@ -1112,7 +1145,6 @@ where
             initial_xfr_addr,
             zone_refresh_info,
             config,
-            config_multi,
         )
         .await;
 
@@ -1223,8 +1255,7 @@ where
         zone: &Zone,
         initial_xfr_addr: Option<SocketAddr>,
         zone_refresh_info: &mut ZoneRefreshState,
-        config: Arc<ArcSwap<Config<CF>>>,
-        config_multi: Arc<ArcSwap<ConfigMulti<KS, CFM>>>,
+        config: Arc<ArcSwap<Config<KS, CF, CFM>>>,
     ) -> Result<Option<Soa<Name<Bytes>>>, CatalogError> {
         // Was this zone already refreshed recently?
         if let Some(age) = zone_refresh_info.age() {
@@ -1281,7 +1312,6 @@ where
                     xfr_config,
                     zone_refresh_info,
                     config.clone(),
-                    config_multi.clone(),
                 )
                 .await;
 
@@ -1319,8 +1349,7 @@ where
         primary_addr: SocketAddr,
         xfr_config: &XfrConfig,
         zone_refresh_info: &mut ZoneRefreshState,
-        config: Arc<ArcSwap<Config<CF>>>,
-        config_multi: Arc<ArcSwap<ConfigMulti<KS, CFM>>>,
+        config: Arc<ArcSwap<Config<KS, CF, CFM>>>,
     ) -> Result<Option<Soa<Name<Bytes>>>, CatalogError> {
         // TODO: Replace this loop with one, or two, calls to a helper fn.
         // Try at least once, at most twice (when using IXFR -> AXFR fallback)
@@ -1377,8 +1406,7 @@ where
             // is constructed if a key is specified and available.
 
             let loaded_config = config.load();
-            let loaded_config_multi = config_multi.load();
-            let readable_key_store = &loaded_config_multi.key_store; //.read().await;
+            let readable_key_store = &loaded_config.key_store; //.read().await;
             let key = xfr_config.tsig_key.as_ref().and_then(|(name, alg)| {
                 readable_key_store.get_key(name, *alg)
             });
@@ -1395,8 +1423,8 @@ where
             else {
                 return Ok(None);
             };
-            let Some(client_multi) = loaded_config_multi
-                .conn_factory
+            let Some(client_multi) = loaded_config
+                .conn_factory_multi
                 .get(primary_addr, transport, key.clone())
                 .await
                 .map_err(|err| {
