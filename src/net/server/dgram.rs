@@ -20,6 +20,8 @@ use std::string::String;
 use std::string::ToString;
 use std::sync::{Arc, Mutex};
 
+use arc_swap::ArcSwap;
+use futures::prelude::stream::StreamExt;
 use octseq::Octets;
 use tokio::io::ReadBuf;
 use tokio::net::UdpSocket;
@@ -32,6 +34,7 @@ use tracing::warn;
 use tracing::Level;
 use tracing::{enabled, error, trace};
 
+use crate::base::wire::Composer;
 use crate::base::Message;
 use crate::net::server::buf::BufSource;
 use crate::net::server::error::Error;
@@ -45,9 +48,6 @@ use crate::utils::config::DefMinMax;
 use super::buf::VecBufSource;
 use super::message::{TransportSpecificContext, UdpTransportContext};
 use super::ServerCommand;
-use crate::base::wire::Composer;
-use arc_swap::ArcSwap;
-use futures::prelude::stream::StreamExt;
 
 /// A UDP transport based DNS server transport.
 ///
@@ -118,7 +118,7 @@ impl Config {
     /// [RFC 6891]:
     ///     https://datatracker.ietf.org/doc/html/rfc6891#section-6.2.5
     pub fn set_max_response_size(&mut self, value: Option<u16>) {
-        self.max_response_size = value;
+        self.max_response_size = value.map(|v| MAX_RESPONSE_SIZE.limit(v));
     }
 
     /// Sets the time to wait for a complete message to be written to the
@@ -251,12 +251,16 @@ type CommandReceiver = watch::Receiver<ServerCommandType>;
 pub struct DgramServer<Sock, Buf, Svc>
 where
     Sock: AsyncDgramSock + Send + Sync + 'static,
-    Buf: BufSource + Send + Sync + 'static,
-    Buf::Output: Octets + Send + Sync + Unpin,
-    Svc: Service<Buf::Output> + Send + Sync + 'static + Clone,
-    Svc::Target: Composer + Send,
-    Svc::Stream: Send,
-    Svc::Future: Send,
+    Buf: BufSource + Send + Sync,
+    <Buf as BufSource>::Output: Octets + Send + Sync + Unpin + 'static,
+    Svc: Clone
+        + Service<<Buf as BufSource>::Output, ()>
+        + Send
+        + Sync
+        + 'static,
+    <Svc as Service<<Buf as BufSource>::Output, ()>>::Future: Send,
+    <Svc as Service<<Buf as BufSource>::Output, ()>>::Stream: Send,
+    <Svc as Service<<Buf as BufSource>::Output, ()>>::Target: Composer + Send,
 {
     /// The configuration of the server.
     config: Arc<ArcSwap<Config>>,
@@ -292,11 +296,11 @@ impl<Sock, Buf, Svc> DgramServer<Sock, Buf, Svc>
 where
     Sock: AsyncDgramSock + Send + Sync,
     Buf: BufSource + Send + Sync,
-    Buf::Output: Octets + Send + Sync + Unpin,
-    Svc: Service<Buf::Output> + Send + Sync + Clone,
-    Svc::Target: Composer + Send,
-    Svc::Stream: Send,
-    Svc::Future: Send,
+    <Buf as BufSource>::Output: Octets + Send + Sync + Unpin,
+    Svc: Clone + Service<<Buf as BufSource>::Output, ()> + Send + Sync,
+    <Svc as Service<<Buf as BufSource>::Output, ()>>::Future: Send,
+    <Svc as Service<<Buf as BufSource>::Output, ()>>::Stream: Send,
+    <Svc as Service<<Buf as BufSource>::Output, ()>>::Target: Composer + Send,
 {
     /// Constructs a new [`DgramServer`] with default configuration.
     ///
@@ -310,7 +314,7 @@ where
     ///
     /// Takes:
     /// - A socket which must implement [`AsyncDgramSock`] and is responsible
-    ///   receiving new messages and send responses back to the client.
+    /// receiving new messages and send responses back to the client.
     /// - A [`BufSource`] for creating buffers on demand.
     /// - A [`Service`] for handling received requests and generating
     ///   responses.
@@ -347,13 +351,13 @@ where
 ///
 impl<Sock, Buf, Svc> DgramServer<Sock, Buf, Svc>
 where
-    Sock: AsyncDgramSock + Send + Sync + 'static,
-    Buf: BufSource + Send + Sync + 'static,
-    Buf::Output: Octets + Send + Sync + 'static + Debug + Unpin,
-    Svc: Service<Buf::Output> + Send + Sync + 'static + Clone,
-    Svc::Target: Composer + Send,
-    Svc::Stream: Send,
-    Svc::Future: Send,
+    Sock: AsyncDgramSock + Send + Sync,
+    Buf: BufSource + Send + Sync,
+    <Buf as BufSource>::Output: Octets + Send + Sync + Unpin,
+    Svc: Clone + Service<<Buf as BufSource>::Output, ()> + Send + Sync,
+    <Svc as Service<<Buf as BufSource>::Output, ()>>::Future: Send,
+    <Svc as Service<<Buf as BufSource>::Output, ()>>::Stream: Send,
+    <Svc as Service<<Buf as BufSource>::Output, ()>>::Target: Composer + Send,
 {
     /// Get a reference to the network source being used to receive messages.
     #[must_use]
@@ -374,11 +378,15 @@ impl<Sock, Buf, Svc> DgramServer<Sock, Buf, Svc>
 where
     Sock: AsyncDgramSock + Send + Sync + 'static,
     Buf: BufSource + Send + Sync,
-    Buf::Output: Octets + Send + Sync + 'static + Unpin,
-    Svc: Service<Buf::Output> + Send + Sync + 'static + Clone,
-    Svc::Target: Composer + Send,
-    Svc::Stream: Send,
-    Svc::Future: Send,
+    <Buf as BufSource>::Output: Octets + Send + Sync + 'static + Unpin,
+    Svc: Clone
+        + Service<<Buf as BufSource>::Output, ()>
+        + Send
+        + Sync
+        + 'static,
+    <Svc as Service<<Buf as BufSource>::Output, ()>>::Future: Send,
+    <Svc as Service<<Buf as BufSource>::Output, ()>>::Stream: Send,
+    <Svc as Service<<Buf as BufSource>::Output, ()>>::Target: Composer + Send,
 {
     /// Start the server.
     ///
@@ -456,13 +464,13 @@ where
 
 impl<Sock, Buf, Svc> DgramServer<Sock, Buf, Svc>
 where
-    Sock: AsyncDgramSock + Send + Sync + 'static,
+    Sock: AsyncDgramSock + Send + Sync,
     Buf: BufSource + Send + Sync,
-    Buf::Output: Octets + Send + Sync + 'static + Unpin,
-    Svc: Service<Buf::Output> + Send + Sync + 'static + Clone,
-    Svc::Target: Composer + Send,
-    Svc::Stream: Send,
-    Svc::Future: Send,
+    <Buf as BufSource>::Output: Octets + Send + Sync + Unpin,
+    Svc: Clone + Service<<Buf as BufSource>::Output, ()> + Send + Sync,
+    <Svc as Service<<Buf as BufSource>::Output, ()>>::Future: Send,
+    <Svc as Service<<Buf as BufSource>::Output, ()>>::Stream: Send,
+    <Svc as Service<<Buf as BufSource>::Output, ()>>::Target: Composer + Send,
 {
     /// Receive incoming messages until shutdown or fatal error.
     async fn run_until_error(&self) -> Result<(), String> {
@@ -490,8 +498,8 @@ where
                     self.metrics.inc_num_received_requests();
 
                     if enabled!(Level::TRACE) {
-                        let pcap_text = to_pcap_text(&buf, bytes_read);
-                        trace!(%addr, pcap_text, "Received message");
+                        let pcap_text = to_pcap_text(&buf, bytes_read.min(128));
+                        trace!(%addr, pcap_text, "Received message (dumping max 128 bytes)");
                     }
 
                     let svc = self.service.clone();
@@ -507,9 +515,10 @@ where
                             }
 
                             Ok(msg) => {
+                                trace!(addr = %addr, ?msg, "Parsed first question: {:?}", msg.first_question());
                                 let ctx = UdpTransportContext::new(cfg.load().max_response_size);
                                 let ctx = TransportSpecificContext::Udp(ctx);
-                                let request = Request::new(addr, received_at, msg, ctx);
+                                let request = Request::new(addr, received_at, msg, ctx, ());
                                 let mut stream = svc.call(request).await;
                                 while let Some(Ok(call_result)) = stream.next().await {
                                     let (response, feedback) = call_result.into_inner();
@@ -536,8 +545,8 @@ where
 
                                         // Logging
                                         if enabled!(Level::TRACE) {
-                                            let pcap_text = to_pcap_text(bytes, bytes.len());
-                                            trace!(%addr, pcap_text, "Sending response");
+                                            let pcap_text = to_pcap_text(bytes, bytes.len().min(128));
+                                            trace!(%addr, pcap_text, "Sending response (dumping max 128 bytes)");
                                         }
 
                                         metrics.inc_num_pending_writes();
@@ -621,7 +630,8 @@ where
     /// Receive a single datagram using the user supplied network socket.
     fn recv_from(
         &self,
-    ) -> Result<(Buf::Output, SocketAddr, usize), io::Error> {
+    ) -> Result<(<Buf as BufSource>::Output, SocketAddr, usize), io::Error>
+    {
         let mut msg = self.buf.create_buf();
         let mut buf = ReadBuf::new(msg.as_mut());
         self.sock
@@ -659,12 +669,16 @@ where
 impl<Sock, Buf, Svc> Drop for DgramServer<Sock, Buf, Svc>
 where
     Sock: AsyncDgramSock + Send + Sync + 'static,
-    Buf: BufSource + Send + Sync + 'static,
-    Buf::Output: Octets + Send + Sync + Unpin,
-    Svc: Service<Buf::Output> + Send + Sync + 'static + Clone,
-    Svc::Target: Composer + Send,
-    Svc::Stream: Send,
-    Svc::Future: Send,
+    Buf: BufSource + Send + Sync,
+    <Buf as BufSource>::Output: Octets + Send + Sync + Unpin + 'static,
+    Svc: Clone
+        + Service<<Buf as BufSource>::Output, ()>
+        + Send
+        + Sync
+        + 'static,
+    <Svc as Service<<Buf as BufSource>::Output, ()>>::Future: Send,
+    <Svc as Service<<Buf as BufSource>::Output, ()>>::Stream: Send,
+    <Svc as Service<<Buf as BufSource>::Output, ()>>::Target: Composer + Send,
 {
     fn drop(&mut self) {
         // Shutdown the DgramServer. Don't handle the failure case here as

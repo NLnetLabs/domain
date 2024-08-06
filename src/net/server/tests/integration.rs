@@ -8,7 +8,6 @@ use std::sync::Arc;
 use std::time::Duration;
 use std::vec::Vec;
 
-use octseq::Octets;
 use rstest::rstest;
 use tracing::instrument;
 use tracing::{trace, warn};
@@ -73,61 +72,53 @@ async fn server_tests(#[files("test-data/server/*.rpl")] rpl_file: PathBuf) {
     let with_cookies = server_config.cookies.enabled
         && server_config.cookies.secret.is_some();
 
-    async fn finish_svc<'a, RequestOctets, Svc>(
-        svc: Svc,
-        server_config: ServerConfig<'a>,
-        stelline: &parse_stelline::Stelline,
-    ) where
-        RequestOctets: Octets + Send + Sync + Unpin,
-        Svc: Service<RequestOctets> + Send + Sync + 'static,
-        // TODO: Why are the following bounds needed to persuade the compiler
-        // that the `svc` value created _within the function_ (not the one
-        // passed in as an argument) is actually an impl of the Service trait?
-        MandatoryMiddlewareSvc<Vec<u8>, Svc>: Service + Send + Sync,
-        <MandatoryMiddlewareSvc<Vec<u8>, Svc> as Service>::Target:
-            Composer + Default + Send + Sync,
-        <MandatoryMiddlewareSvc<Vec<u8>, Svc> as Service>::Stream:
-            Send + Sync,
-        <MandatoryMiddlewareSvc<Vec<u8>, Svc> as Service>::Future:
-            Send + Sync,
-    {
-        let svc = MandatoryMiddlewareSvc::<Vec<u8>, _>::new(svc);
-        let svc = Arc::new(svc);
-
-        // Create dgram and stream servers for answering requests
-        let (dgram_srv, dgram_conn, stream_srv, stream_conn) =
-            mk_servers(svc, &server_config);
-
-        // Create a client factory for sending requests
-        let client_factory = mk_client_factory(dgram_conn, stream_conn);
-
-        // Run the Stelline test!
-        let step_value = Arc::new(CurrStepValue::new());
-        do_client(stelline, &step_value, client_factory).await;
-
-        // Await shutdown
-        if !dgram_srv.await_shutdown(Duration::from_secs(5)).await {
-            warn!("Datagram server did not shutdown on time.");
-        }
-
-        if !stream_srv.await_shutdown(Duration::from_secs(5)).await {
-            warn!("Stream server did not shutdown on time.");
-        }
-    }
-
-    let svc = service_fn(test_service, zonefile);
-    if with_cookies {
+    let secret = if with_cookies {
         let secret = server_config.cookies.secret.unwrap();
         let secret = base16::decode_vec(secret).unwrap();
-        let secret = <[u8; 16]>::try_from(secret).unwrap();
-        let svc = CookiesMiddlewareSvc::new(svc, secret)
-            .with_denied_ips(server_config.cookies.ip_deny_list.clone());
-        finish_svc(svc, server_config, &stelline).await;
-    } else if server_config.edns_tcp_keepalive {
-        let svc = EdnsMiddlewareSvc::new(svc);
-        finish_svc(svc, server_config, &stelline).await;
+        <[u8; 16]>::try_from(secret).unwrap()
     } else {
-        finish_svc(svc, server_config, &stelline).await;
+        Default::default()
+    };
+
+    // Create a layered service to respond to received DNS queries. The layers
+    // are created top to bottom, with the application specific logic service
+    // on top and generic DNS logic below. Behaviour required by implemented
+    // DNS RFCs will be applied/enforced before the application logic receives
+    // it and without it having to know or do anything about it.
+
+    // 1. Application logic service
+    let svc = service_fn(test_service, zonefile);
+
+    // 2. DNS COOKIES middleware service
+    let svc = CookiesMiddlewareSvc::new(svc, secret)
+        .with_denied_ips(server_config.cookies.ip_deny_list.clone())
+        .enable(with_cookies);
+
+    // 3. EDNS middleware service
+    let svc =
+        EdnsMiddlewareSvc::new(svc).enable(server_config.edns_tcp_keepalive);
+
+    // 4. Mandatory DNS behaviour (e.g. RFC 1034/35 rules).
+    let svc = MandatoryMiddlewareSvc::new(svc);
+
+    // Create dgram and stream servers for answering requests
+    let (dgram_srv, dgram_conn, stream_srv, stream_conn) =
+        mk_servers(svc, &server_config);
+
+    // Create a client factory for sending requests
+    let client_factory = mk_client_factory(dgram_conn, stream_conn);
+
+    // Run the Stelline test!
+    let step_value = Arc::new(CurrStepValue::new());
+    do_client(&stelline, &step_value, client_factory).await;
+
+    // Await shutdown
+    if !dgram_srv.await_shutdown(Duration::from_secs(5)).await {
+        warn!("Datagram server did not shutdown on time.");
+    }
+
+    if !stream_srv.await_shutdown(Duration::from_secs(5)).await {
+        warn!("Stream server did not shutdown on time.");
     }
 }
 
@@ -135,19 +126,19 @@ async fn server_tests(#[files("test-data/server/*.rpl")] rpl_file: PathBuf) {
 
 #[allow(clippy::type_complexity)]
 fn mk_servers<Svc>(
-    service: Arc<Svc>,
+    service: Svc,
     server_config: &ServerConfig,
 ) -> (
-    Arc<DgramServer<ClientServerChannel, VecBufSource, Arc<Svc>>>,
+    Arc<DgramServer<ClientServerChannel, VecBufSource, Svc>>,
     ClientServerChannel,
-    Arc<StreamServer<ClientServerChannel, VecBufSource, Arc<Svc>>>,
+    Arc<StreamServer<ClientServerChannel, VecBufSource, Svc>>,
     ClientServerChannel,
 )
 where
-    Svc: Service + Send + Sync + 'static,
-    Svc::Future: Send,
-    Svc::Target: Composer + Default + Send + Sync,
-    Svc::Stream: Send,
+    Svc: Clone + Service + Send + Sync,
+    <Svc as Service>::Future: Send,
+    <Svc as Service>::Target: Composer + Default + Send + Sync,
+    <Svc as Service>::Stream: Send,
 {
     // Prepare middleware to be used by the DNS servers to pre-process
     // received requests and post-process created responses.

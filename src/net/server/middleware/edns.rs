@@ -3,16 +3,17 @@ use core::future::{ready, Ready};
 use core::marker::PhantomData;
 use core::ops::ControlFlow;
 
-use futures::stream::{once, Once};
+use futures::stream::{once, Once, Stream};
 use octseq::Octets;
 use tracing::{debug, enabled, error, trace, warn, Level};
 
 use crate::base::iana::OptRcode;
 use crate::base::message_builder::AdditionalBuilder;
+use crate::base::name::ToLabelIter;
 use crate::base::opt::keepalive::IdleTimeout;
-use crate::base::opt::{Opt, OptRecord, TcpKeepalive};
+use crate::base::opt::{ComposeOptData, Opt, OptRecord, TcpKeepalive};
 use crate::base::wire::Composer;
-use crate::base::StreamTarget;
+use crate::base::{Name, StreamTarget};
 use crate::net::server::message::{Request, TransportSpecificContext};
 use crate::net::server::middleware::stream::MiddlewareStream;
 use crate::net::server::service::{CallResult, Service, ServiceResult};
@@ -45,33 +46,45 @@ const EDNS_VERSION_ZERO: u8 = 0;
 /// [7828]: https://datatracker.ietf.org/doc/html/rfc7828
 /// [9210]: https://datatracker.ietf.org/doc/html/rfc9210
 #[derive(Clone, Debug, Default)]
-pub struct EdnsMiddlewareSvc<RequestOctets, Svc> {
-    svc: Svc,
+pub struct EdnsMiddlewareSvc<RequestOctets, NextSvc, RequestMeta> {
+    next_svc: NextSvc,
 
-    _phantom: PhantomData<RequestOctets>,
+    _phantom: PhantomData<(RequestOctets, RequestMeta)>,
+
+    enabled: bool,
 }
 
-impl<RequestOctets, Svc> EdnsMiddlewareSvc<RequestOctets, Svc> {
+impl<RequestOctets, NextSvc, RequestMeta>
+    EdnsMiddlewareSvc<RequestOctets, NextSvc, RequestMeta>
+{
     /// Creates an instance of this processor.
     #[must_use]
-    pub fn new(svc: Svc) -> Self {
+    pub fn new(next_svc: NextSvc) -> Self {
         Self {
-            svc,
+            next_svc,
             _phantom: PhantomData,
+            enabled: true,
         }
+    }
+
+    pub fn enable(mut self, enabled: bool) -> Self {
+        self.enabled = enabled;
+        self
     }
 }
 
-impl<RequestOctets, Svc> EdnsMiddlewareSvc<RequestOctets, Svc>
+impl<RequestOctets, NextSvc, RequestMeta>
+    EdnsMiddlewareSvc<RequestOctets, NextSvc, RequestMeta>
 where
     RequestOctets: Octets + Send + Sync + Unpin,
-    Svc: Service<RequestOctets>,
-    Svc::Target: Composer + Default,
+    NextSvc: Service<RequestOctets, RequestMeta>,
+    NextSvc::Target: Composer + Default,
+    RequestMeta: Clone + Default,
 {
     fn preprocess(
         &self,
-        request: &Request<RequestOctets>,
-    ) -> ControlFlow<AdditionalBuilder<StreamTarget<Svc::Target>>> {
+        request: &mut Request<RequestOctets, RequestMeta>,
+    ) -> ControlFlow<AdditionalBuilder<StreamTarget<NextSvc::Target>>> {
         // https://www.rfc-editor.org/rfc/rfc6891.html#section-6.1.1
         // 6.1.1: Basic Elements
         // ...
@@ -188,7 +201,7 @@ where
                             ));
                         }
 
-                        TransportSpecificContext::NonUdp(_) => {
+                        TransportSpecificContext::NonUdp(ctx) => {
                             // https://datatracker.ietf.org/doc/html/rfc7828#section-3.2.1
                             // 3.2.1. Sending Queries
                             //   "Clients MUST specify an OPTION-LENGTH of 0
@@ -206,6 +219,16 @@ where
                                     );
                                 }
                             }
+
+                            if let Some(keep_alive) = ctx.idle_timeout() {
+                                if let Ok(timeout) =
+                                    IdleTimeout::try_from(keep_alive)
+                                {
+                                    Self::reserve_space_for_keep_alive_opt(
+                                        request, timeout,
+                                    );
+                                }
+                            }
                         }
                     }
                 }
@@ -216,8 +239,8 @@ where
     }
 
     fn postprocess(
-        request: &Request<RequestOctets>,
-        response: &mut AdditionalBuilder<StreamTarget<Svc::Target>>,
+        request: &Request<RequestOctets, RequestMeta>,
+        response: &mut AdditionalBuilder<StreamTarget<NextSvc::Target>>,
     ) {
         // https://www.rfc-editor.org/rfc/rfc6891.html#section-6.1.1
         // 6.1.1: Basic Elements
@@ -274,6 +297,12 @@ where
                                 // timeout is known: "Signal the timeout value
                                 // using the edns-tcp-keepalive EDNS(0) option
                                 // [RFC7828]".
+
+                                // Remove the limit we should have imposed
+                                // during pre-processing so that we can use
+                                // the space we reserved for the OPT RR.
+                                response.clear_push_limit();
+
                                 if let Err(err) =
                                     // TODO: Don't add the option if it
                                     // already exists?
@@ -304,11 +333,39 @@ where
         // field to some value?
     }
 
+    fn reserve_space_for_keep_alive_opt(
+        request: &mut Request<RequestOctets, RequestMeta>,
+        timeout: IdleTimeout,
+    ) {
+        // TODO: Calculate this once as a const value, not on every request.
+
+        let keep_alive_opt = TcpKeepalive::new(Some(timeout));
+        let root_name_len = Name::root_ref().compose_len();
+
+        // See:
+        //  - https://datatracker.ietf.org/doc/html/rfc1035#section-3.2.1
+        //  - https://datatracker.ietf.org/doc/html/rfc6891#autoid-12
+        //  - https://datatracker.ietf.org/doc/html/rfc7828#section-3.1
+
+        // Calculate the size of the DNS OPTION RR that will be added to the
+        // response during post-processing.
+        let wire_opt_len = root_name_len // "0" root domain name per RFC 6891
+            + 2 // TYPE
+            + 2 // CLASS
+            + 4 // TTL
+            + 2 // RDLEN
+            + 2 // OPTION-CODE
+            + 2 // OPTION-LENGTH
+            + keep_alive_opt.compose_len(); // OPTION-DATA
+
+        request.reserve_bytes(wire_opt_len);
+    }
+
     fn map_stream_item(
-        request: Request<RequestOctets>,
-        mut stream_item: ServiceResult<Svc::Target>,
-        _metadata: (),
-    ) -> ServiceResult<Svc::Target> {
+        request: Request<RequestOctets, RequestMeta>,
+        mut stream_item: ServiceResult<NextSvc::Target>,
+        _pp_meta: (),
+    ) -> ServiceResult<NextSvc::Target> {
         if let Ok(cr) = &mut stream_item {
             if let Some(response) = cr.response_mut() {
                 Self::postprocess(&request, response);
@@ -320,28 +377,43 @@ where
 
 //--- Service
 
-impl<RequestOctets, Svc> Service<RequestOctets>
-    for EdnsMiddlewareSvc<RequestOctets, Svc>
+impl<RequestOctets, NextSvc, RequestMeta> Service<RequestOctets, RequestMeta>
+    for EdnsMiddlewareSvc<RequestOctets, NextSvc, RequestMeta>
 where
     RequestOctets: Octets + Send + Sync + 'static + Unpin,
-    Svc: Service<RequestOctets>,
-    Svc::Target: Composer + Default,
-    Svc::Future: Unpin,
+    RequestMeta: Clone + Default + Unpin,
+    NextSvc: Service<RequestOctets, RequestMeta>,
+    NextSvc::Target: Composer + Default,
+    NextSvc::Future: Unpin,
 {
-    type Target = Svc::Target;
+    type Target = NextSvc::Target;
     type Stream = MiddlewareStream<
-        Svc::Future,
-        Svc::Stream,
-        PostprocessingStream<RequestOctets, Svc::Future, Svc::Stream, ()>,
-        Once<Ready<<Svc::Stream as futures::stream::Stream>::Item>>,
-        <Svc::Stream as futures::stream::Stream>::Item,
+        NextSvc::Future,
+        NextSvc::Stream,
+        PostprocessingStream<
+            RequestOctets,
+            NextSvc::Future,
+            NextSvc::Stream,
+            RequestMeta,
+            (),
+        >,
+        Once<Ready<<NextSvc::Stream as Stream>::Item>>,
+        <NextSvc::Stream as Stream>::Item,
     >;
     type Future = core::future::Ready<Self::Stream>;
 
-    fn call(&self, request: Request<RequestOctets>) -> Self::Future {
-        match self.preprocess(&request) {
+    fn call(
+        &self,
+        mut request: Request<RequestOctets, RequestMeta>,
+    ) -> Self::Future {
+        if !self.enabled {
+            let svc_call_fut = self.next_svc.call(request.clone());
+            return ready(MiddlewareStream::IdentityFuture(svc_call_fut));
+        }
+
+        match self.preprocess(&mut request) {
             ControlFlow::Continue(()) => {
-                let svc_call_fut = self.svc.call(request.clone());
+                let svc_call_fut = self.next_svc.call(request.clone());
                 let map = PostprocessingStream::new(
                     svc_call_fut,
                     request,
@@ -462,6 +534,7 @@ mod tests {
             Instant::now(),
             message,
             ctx.into(),
+            (),
         );
 
         fn my_service(
@@ -478,7 +551,7 @@ mod tests {
         // Either call the service directly.
         let my_svc = service_fn(my_service, ());
         let mut stream = my_svc.call(request.clone()).await;
-        let _call_result: CallResult<Vec<u8>> =
+        let _call_result: CallResult<_> =
             stream.next().await.unwrap().unwrap();
 
         // Or pass the query through the middleware processor

@@ -262,6 +262,31 @@ impl<Target: Composer> MessageBuilder<Target> {
         Ok(builder.answer())
     }
 
+    /// Starts creating an error for the given message.
+    ///
+    /// Like [`start_answer()`] but infallible. Questions will be pushed if possible.
+    pub fn start_error<Octs: Octets + ?Sized>(
+        mut self,
+        msg: &Message<Octs>,
+        rcode: Rcode,
+    ) -> AnswerBuilder<Target> {
+        {
+            let header = self.header_mut();
+            header.set_id(msg.header().id());
+            header.set_qr(true);
+            header.set_opcode(msg.header().opcode());
+            header.set_rd(msg.header().rd());
+        }
+        let mut builder = self.question();
+        for item in msg.question().flatten() {
+            if builder.push(item).is_err() {
+                break;
+            }
+        }
+        builder.header_mut().set_rcode(rcode);
+        builder.answer()
+    }
+
     /// Creates an AXFR request for the given domain.
     ///
     /// Sets a random ID, pushes the domain and the AXFR record type into
@@ -843,6 +868,16 @@ impl<Target: Composer> AnswerBuilder<Target> {
     pub fn push(
         &mut self,
         record: impl ComposeRecord,
+    ) -> Result<(), PushError> {
+        self.builder.push(
+            |target| record.compose_record(target).map_err(Into::into),
+            |counts| counts.inc_ancount(),
+        )
+    }
+
+    pub fn push_ref(
+        &mut self,
+        record: &impl ComposeRecord,
     ) -> Result<(), PushError> {
         self.builder.push(
             |target| record.compose_record(target).map_err(Into::into),
@@ -1920,6 +1955,14 @@ where
             .append_compressed_name(name)
             .map_err(Into::into)?;
         self.update_shim()
+    }
+}
+
+impl<Target> FreezeBuilder for StreamTarget<Target> {
+    type Octets = Target;
+
+    fn freeze(self) -> Self::Octets {
+        self.into_target()
     }
 }
 
