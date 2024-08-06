@@ -19,7 +19,13 @@ use super::types::XfrMiddlewareStream;
 
 //--- Service (with TSIG key name in the request metadata)
 
-impl<RequestOctets, NextSvc, ZL> Service<RequestOctets, Option<KeyName>>
+pub trait MaybeAuthenticated:
+    Clone + Default + Sync + Send + 'static
+{
+    fn key(&self) -> Option<&KeyName>;
+}
+
+impl<RequestOctets, NextSvc, ZL, MetaType> Service<RequestOctets, MetaType>
     for XfrMiddlewareSvc<RequestOctets, NextSvc, ZL>
 where
     RequestOctets: Octets + Send + Sync + Unpin + 'static,
@@ -29,6 +35,7 @@ where
     NextSvc::Target: Composer + Default + Send + Sync,
     NextSvc::Stream: Send + Sync,
     ZL: ZoneLookup + Clone + Sync + Send + 'static,
+    MetaType: MaybeAuthenticated,
 {
     type Target = NextSvc::Target;
     type Stream = XfrMiddlewareStream<
@@ -40,7 +47,7 @@ where
 
     fn call(
         &self,
-        request: Request<RequestOctets, Option<KeyName>>,
+        request: Request<RequestOctets, MetaType>,
     ) -> Self::Future {
         let request = request.clone();
         let next_svc = self.next_svc.clone();
@@ -55,7 +62,7 @@ where
                 &request,
                 catalog,
                 xfr_mode,
-                |req| req.metadata().as_ref(),
+                request.metadata().key(),
             )
             .await
             {
@@ -105,7 +112,7 @@ where
                 &request,
                 zones,
                 xfr_mode,
-                |_| None,
+                None,
             )
             .await
             {

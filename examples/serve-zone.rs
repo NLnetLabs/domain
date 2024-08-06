@@ -192,10 +192,7 @@ async fn main() {
             );
 
             if let Ok(report) = catalog_clone
-                .zone_status(
-                    config.zone.apex_name(),
-                    Class::IN,
-                )
+                .zone_status(config.zone.apex_name(), Class::IN)
                 .await
             {
                 eprintln!("{report}");

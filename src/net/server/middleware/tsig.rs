@@ -27,6 +27,7 @@ use crate::tsig::{
 };
 
 use super::stream::{MiddlewareStream, PostprocessingStream};
+use super::xfr::MaybeAuthenticated;
 
 //------------ TsigMiddlewareSvc ----------------------------------------------
 
@@ -71,7 +72,7 @@ impl<RequestOctets, NextSvc, KS> TsigMiddlewareSvc<RequestOctets, NextSvc, KS>
 where
     RequestOctets:
         Octets + OctetsFrom<Vec<u8>> + Send + Sync + 'static + Unpin,
-    NextSvc: Service<RequestOctets, Option<KeyName>>,
+    NextSvc: Service<RequestOctets, Authenticated>,
     NextSvc::Target: Composer + Default + Send + Sync + 'static,
     NextSvc::Future: Unpin,
     KS: Clone + KeyStore,
@@ -83,10 +84,7 @@ where
         key_store: &KS,
     ) -> ControlFlow<
         AdditionalBuilder<StreamTarget<NextSvc::Target>>,
-        Option<(
-            Request<RequestOctets, Option<KeyName>>,
-            TsigSigner<KS::Key>,
-        )>,
+        Option<(Request<RequestOctets, Authenticated>, TsigSigner<KS::Key>)>,
     > {
         if let Some(q) = Self::get_relevant_question(req.message()) {
             let octets = req.message().as_slice().to_vec();
@@ -119,7 +117,7 @@ where
                         req.received_at(),
                         new_msg,
                         req.transport_ctx().clone(),
-                        Some(tsig.key().name().clone()),
+                        Authenticated(Some(tsig.key().name().clone())),
                     );
 
                     let num_bytes_to_reserve = tsig.key().compose_len();
@@ -366,7 +364,7 @@ where
     RequestOctets:
         Octets + OctetsFrom<Vec<u8>> + Send + Sync + 'static + Unpin,
     for<'a> <RequestOctets as octseq::Octets>::Range<'a>: Send + Sync,
-    NextSvc: Service<RequestOctets, Option<KeyName>>
+    NextSvc: Service<RequestOctets, Authenticated>
         + Clone
         + 'static
         + Send
@@ -418,7 +416,7 @@ where
             }
 
             ControlFlow::Continue(None) => {
-                let request = request.with_new_metadata(None);
+                let request = request.with_new_metadata(Authenticated(None));
                 let svc_call_fut = self.next_svc.call(request);
                 ready(MiddlewareStream::IdentityFuture(svc_call_fut))
             }
@@ -448,4 +446,13 @@ enum TsigSigner<K> {
 
     /// TODO
     Sequence(ServerSequence<K>),
+}
+
+#[derive(Clone, Default)]
+pub struct Authenticated(pub Option<KeyName>);
+
+impl MaybeAuthenticated for Authenticated {
+    fn key(&self) -> Option<&KeyName> {
+        self.0.as_ref()
+    }
 }

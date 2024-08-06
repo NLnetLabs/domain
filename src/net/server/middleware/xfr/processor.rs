@@ -127,7 +127,7 @@ where
         req: &Request<RequestOctets, T>,
         zones: ZL,
         xfr_mode: XfrMode,
-        get_key_for_req: fn(&Request<RequestOctets, T>) -> Option<&KeyName>,
+        actual_tsig_key_name: Option<&KeyName>,
     ) -> ControlFlow<
         XfrMiddlewareStream<
             NextSvc::Future,
@@ -177,7 +177,7 @@ where
                     q.qtype(),
                     req.client_addr()
                 );
-                
+
                 // TODO: Should this return REFUSED instead? (I think
                 // in the secondary lifecycle Stelline test an argument
                 // is made that this should be REFUSED?
@@ -202,7 +202,6 @@ where
         );
 
         if let Some(cfg) = xfr_config {
-            let actual_tsig_key_name = get_key_for_req(req);
             let expected_tsig_key_name =
                 cfg.tsig_key.as_ref().map(|(name, _alg)| name);
             let tsig_key_mismatch = match (expected_tsig_key_name, actual_tsig_key_name) {
