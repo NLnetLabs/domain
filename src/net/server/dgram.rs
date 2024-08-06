@@ -118,7 +118,7 @@ impl Config {
     /// [RFC 6891]:
     ///     https://datatracker.ietf.org/doc/html/rfc6891#section-6.2.5
     pub fn set_max_response_size(&mut self, value: Option<u16>) {
-        self.max_response_size = value.map(|v| MAX_RESPONSE_SIZE.limit(v));
+        self.max_response_size = value;
     }
 
     /// Sets the time to wait for a complete message to be written to the
@@ -314,7 +314,7 @@ where
     ///
     /// Takes:
     /// - A socket which must implement [`AsyncDgramSock`] and is responsible
-    /// receiving new messages and send responses back to the client.
+    ///   receiving new messages and send responses back to the client.
     /// - A [`BufSource`] for creating buffers on demand.
     /// - A [`Service`] for handling received requests and generating
     ///   responses.
@@ -498,8 +498,8 @@ where
                     self.metrics.inc_num_received_requests();
 
                     if enabled!(Level::TRACE) {
-                        let pcap_text = to_pcap_text(&buf, bytes_read.min(128));
-                        trace!(%addr, pcap_text, "Received message (dumping max 128 bytes)");
+                        let pcap_text = to_pcap_text(&buf, bytes_read);
+                        trace!(%addr, pcap_text, "Received message");
                     }
 
                     let svc = self.service.clone();
@@ -515,7 +515,6 @@ where
                             }
 
                             Ok(msg) => {
-                                trace!(addr = %addr, ?msg, "Parsed first question: {:?}", msg.first_question());
                                 let ctx = UdpTransportContext::new(cfg.load().max_response_size);
                                 let ctx = TransportSpecificContext::Udp(ctx);
                                 let request = Request::new(addr, received_at, msg, ctx, ());
@@ -545,8 +544,8 @@ where
 
                                         // Logging
                                         if enabled!(Level::TRACE) {
-                                            let pcap_text = to_pcap_text(bytes, bytes.len().min(128));
-                                            trace!(%addr, pcap_text, "Sending response (dumping max 128 bytes)");
+                                            let pcap_text = to_pcap_text(bytes, bytes.len());
+                                            trace!(%addr, pcap_text, "Sending response");
                                         }
 
                                         metrics.inc_num_pending_writes();
@@ -630,8 +629,7 @@ where
     /// Receive a single datagram using the user supplied network socket.
     fn recv_from(
         &self,
-    ) -> Result<(<Buf as BufSource>::Output, SocketAddr, usize), io::Error>
-    {
+    ) -> Result<(Buf::Output, SocketAddr, usize), io::Error> {
         let mut msg = self.buf.create_buf();
         let mut buf = ReadBuf::new(msg.as_mut());
         self.sock
