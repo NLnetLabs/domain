@@ -53,10 +53,10 @@ use crate::stelline::parse_stelline::{
 use crate::tsig::{Algorithm, Key, KeyName, KeyStore};
 use crate::utils::base16;
 use crate::zonefile::inplace::Zonefile;
-use crate::zonemaintainer::maintainer::{
+use crate::zonemaintainance::maintainer::{
     self, ConnectionFactory, TypedZone, ZoneError, ZoneLookup, ZoneMaintainer,
 };
-use crate::zonemaintainer::types::{
+use crate::zonemaintainance::types::{
     CatalogKeyStore, CompatibilityMode, NotifyConfig, TransportStrategy,
     XfrConfig, XfrStrategy, ZoneConfig,
 };

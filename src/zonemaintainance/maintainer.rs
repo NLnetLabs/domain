@@ -46,7 +46,7 @@ use crate::net::client::protocol::UdpConnect;
 use crate::net::client::request::{self, RequestMessage, SendRequest};
 use crate::rdata::{Soa, ZoneRecordData};
 use crate::tsig::{Key, KeyStore};
-use crate::zonemaintainer::types::{
+use crate::zonemaintainance::types::{
     NotifyStrategy, XfrStrategy, ZoneNameServers, ZoneRefreshStatus,
     ZoneReportDetails, MIN_DURATION_BETWEEN_ZONE_REFRESHES,
 };

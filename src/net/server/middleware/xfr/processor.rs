@@ -31,8 +31,8 @@ use crate::net::server::service::{
 use crate::net::server::util::{mk_builder_for_target, mk_error_response};
 use crate::rdata::{Soa, ZoneRecordData};
 use crate::tsig::KeyName;
-use crate::zonemaintainer::maintainer::{CatalogZone, ZoneError, ZoneLookup};
-use crate::zonemaintainer::types::{
+use crate::zonemaintainance::maintainer::{CatalogZone, ZoneError, ZoneLookup};
+use crate::zonemaintainance::types::{
     CompatibilityMode, XfrConfig, XfrStrategy, ZoneInfo,
 };
 use crate::zonetree::error::OutOfZone;

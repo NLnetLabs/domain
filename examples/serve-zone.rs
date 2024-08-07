@@ -42,10 +42,10 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use bytes::Bytes;
-use domain::zonemaintainer::maintainer::{
+use domain::zonemaintainance::maintainer::{
     self, DefaultConnFactory, TypedZone, ZoneLookup, ZoneMaintainer,
 };
-use domain::zonemaintainer::types::{
+use domain::zonemaintainance::types::{
     CatalogKeyStore, CompatibilityMode, NotifyConfig, TransportStrategy,
     XfrConfig, XfrStrategy, ZoneConfig,
 };

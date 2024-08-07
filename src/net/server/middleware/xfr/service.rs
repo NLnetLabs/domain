@@ -12,7 +12,7 @@ use crate::net::server::message::Request;
 use crate::net::server::middleware::stream::MiddlewareStream;
 use crate::net::server::service::Service;
 use crate::tsig::KeyName;
-use crate::zonemaintainer::maintainer::ZoneLookup;
+use crate::zonemaintainance::maintainer::ZoneLookup;
 
 use super::processor::XfrMiddlewareSvc;
 use super::types::XfrMiddlewareStream;
