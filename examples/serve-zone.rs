@@ -42,10 +42,10 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use bytes::Bytes;
-use domain::zonecatalog::catalog::{
-    self, Catalog, DefaultConnFactory, TypedZone, ZoneLookup,
+use domain::zonemaintainer::maintainer::{
+    self, DefaultConnFactory, TypedZone, ZoneLookup, ZoneMaintainer,
 };
-use domain::zonecatalog::types::{
+use domain::zonemaintainer::types::{
     CatalogKeyStore, CompatibilityMode, NotifyConfig, TransportStrategy,
     XfrConfig, XfrStrategy, ZoneConfig,
 };
@@ -96,29 +96,29 @@ async fn main() {
         }
     };
 
-    // Create a catalog that will handle outbound XFR for zones
-    let cat_config = catalog::Config::<_, DefaultConnFactory>::new(
+    // Create a ZoneMaintainer that will handle outbound XFR for zones.
+    let cat_config = maintainer::Config::<_, DefaultConnFactory>::new(
         config.key_store.clone(),
     );
-    let catalog = Catalog::new_with_config(cat_config);
-    let catalog = Arc::new(catalog);
-    catalog.insert_zone(config.zone.clone()).await.unwrap();
+    let zones = ZoneMaintainer::new_with_config(cat_config);
+    let zones = Arc::new(zones);
+    zones.insert_zone(config.zone.clone()).await.unwrap();
 
     let max_concurrency =
         std::thread::available_parallelism().unwrap().get() / 2;
     println!("Using max concurrency {max_concurrency} for XFR");
 
     // Create a service to answer queries for the zone.
-    let svc = service_fn(my_service, catalog.clone());
+    let svc = service_fn(my_service, zones.clone());
     let svc: XfrMiddlewareSvc<Vec<u8>, _, _> =
         XfrMiddlewareSvc::<Vec<u8>, _, _>::new(
             svc,
-            catalog.clone(),
+            zones.clone(),
             max_concurrency,
             XfrMode::AxfrAndIxfr,
         );
     let svc =
-        NotifyMiddlewareSvc::<Vec<u8>, _, _, _>::new(svc, catalog.clone());
+        NotifyMiddlewareSvc::<Vec<u8>, _, _, _>::new(svc, zones.clone());
     let svc = CookiesMiddlewareSvc::<Vec<u8>, _, _>::with_random_secret(svc);
     let svc = EdnsMiddlewareSvc::<Vec<u8>, _, _>::new(svc);
     let svc = MandatoryMiddlewareSvc::<Vec<u8>, _, _>::new(svc);
@@ -155,10 +155,10 @@ async fn main() {
     let tcp_metrics = tcp_srv.metrics();
     tokio::spawn(async move { tcp_srv.run().await });
 
-    let catalog_clone = catalog.clone();
-    tokio::spawn(async move { catalog_clone.run().await });
+    let zones_clone = zones.clone();
+    tokio::spawn(async move { zones_clone.run().await });
 
-    let catalog_clone = catalog.clone();
+    let zones_clone = zones.clone();
     tokio::spawn(async move {
         loop {
             tokio::time::sleep(Duration::from_millis(5000)).await;
@@ -191,7 +191,7 @@ async fn main() {
                 tcp_metrics.num_sent_responses(),
             );
 
-            if let Ok(report) = catalog_clone
+            if let Ok(report) = zones_clone
                 .zone_status(config.zone.apex_name(), Class::IN)
                 .await
             {
@@ -225,10 +225,10 @@ async fn main() {
 
 fn my_service<T: ZoneLookup>(
     request: Request<Vec<u8>>,
-    catalog: T,
+    zones: T,
 ) -> ServiceResult<Vec<u8>> {
     let question = request.message().sole_question().unwrap();
-    let zones = catalog.zones();
+    let zones = zones.zones();
     let zone = zones
         .find_zone(question.qname(), question.qclass())
         .map(|zone| zone.read());
@@ -261,9 +261,10 @@ fn my_service<T: ZoneLookup>(
 //    of the server);"
 //
 // ArchiveZone demonstrates persisting a zone on commit, e.g. as part of XFR.
-// By wrapping a Zone in an ArchiveZone and then using it with the Catalog the
-// ArchiveZone will see the commit operation performed by the Catalog as part
-// of XFR processing and can persist the data to disk at that point.
+// By wrapping a Zone in an ArchiveZone and then using it with the
+// ZoneMaintainer the ArchiveZone will see the commit operation performed by
+// the ZoneMaintainer as part of XFR processing and can persist the data to
+// disk at that point.
 //
 // One known issue at present is that there is no way for ArchiveZone to see
 // the new version of the zone pre-commit, only post-commit. Ideally we would

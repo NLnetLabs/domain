@@ -1,4 +1,4 @@
-//! Experimental storing, querying and syncing a catalog of zones.
+//! Experimental storing, querying and syncing of a collection of zones.
 // TODO: Add lifecycle hooks for callers, e.g. zone added, zone removed, zone
 // expired, zone refreshed.?
 // TODO: Support RFC-1995 "condensation" (aka "delta compression")? Related
@@ -46,7 +46,7 @@ use crate::net::client::protocol::UdpConnect;
 use crate::net::client::request::{self, RequestMessage, SendRequest};
 use crate::rdata::{Soa, ZoneRecordData};
 use crate::tsig::{Key, KeyStore};
-use crate::zonecatalog::types::{
+use crate::zonemaintainer::types::{
     NotifyStrategy, XfrStrategy, ZoneNameServers, ZoneRefreshStatus,
     ZoneReportDetails, MIN_DURATION_BETWEEN_ZONE_REFRESHES,
 };
@@ -99,7 +99,7 @@ pub trait ConnectionFactory {
 
 //------------ Config --------------------------------------------------------
 
-/// Configuration for a Catalog.
+/// Configuration for a ZoneMaintainer.
 #[derive(Debug, Default)]
 pub struct Config<KS, CF: ConnectionFactory>
 where
@@ -136,11 +136,21 @@ where
     }
 }
 
-//------------ Catalog -------------------------------------------------------
+//------------ ZoneMaintainer -------------------------------------------------
 
-/// A set of zones that are kept in sync with other servers.
+/// Maintain a set of zones by using NOTIFY and XFR to keep them up-to-date.
+///
+/// https://www.rfc-editor.org/rfc/rfc1034#section-4.3.5
+/// 4.3.5. Zone maintenance and transfers
+///
+/// "Part of the job of a zone administrator is to maintain the zones at all
+///  of the name servers which are authoritative for the zone.  When the
+///  inevitable changes are made, they must be distributed to all of the name
+///  servers.  While this distribution can be accomplished using FTP or some
+///  other ad hoc procedure, the preferred method is the zone transfer part of
+///  the DNS protocol."
 #[derive(Debug)]
-pub struct Catalog<KS, CF: ConnectionFactory>
+pub struct ZoneMaintainer<KS, CF: ConnectionFactory>
 where
     KS: Deref,
     KS::Target: KeyStore,
@@ -155,7 +165,7 @@ where
     running: AtomicBool,
 }
 
-impl<KS, CF: ConnectionFactory + Default> Default for Catalog<KS, CF>
+impl<KS, CF: ConnectionFactory + Default> Default for ZoneMaintainer<KS, CF>
 where
     KS: Deref + Default,
     KS::Target: KeyStore,
@@ -165,7 +175,7 @@ where
     }
 }
 
-impl<KS, CF: ConnectionFactory + Default> Catalog<KS, CF>
+impl<KS, CF: ConnectionFactory + Default> ZoneMaintainer<KS, CF>
 where
     KS: Deref + Default,
     KS::Target: KeyStore,
@@ -183,7 +193,7 @@ where
         let event_rx = Mutex::new(event_rx);
         let config = Arc::new(ArcSwap::from_pointee(config));
 
-        Catalog {
+        ZoneMaintainer {
             // cat_zone,
             config,
             pending_zones,
@@ -196,7 +206,7 @@ where
     }
 }
 
-impl<KS, CF> Catalog<KS, CF>
+impl<KS, CF> ZoneMaintainer<KS, CF>
 where
     KS: Deref + Send + Sync + 'static,
     KS::Target: KeyStore,
@@ -275,9 +285,10 @@ where
 
                 msg = event_rx.recv() => {
                     let Some(event) = msg else {
-                        // The channel has been closed, i.e. the Catalog
-                        // instance has been dropped. Stop performing
-                        // background activiities for this catalog.
+                        // The channel has been closed, i.e. the
+                        // ZoneMaintainer instance has been dropped. Stop
+                        // performing background activiities for this
+                        // ZoneMaintainer.
                         break;
                     };
 
@@ -519,7 +530,7 @@ where
     }
 }
 
-impl<KS, CF> Catalog<KS, CF>
+impl<KS, CF> ZoneMaintainer<KS, CF>
 where
     KS: Deref + Send + Sync + 'static,
     KS::Target: KeyStore,
@@ -528,7 +539,7 @@ where
 {
     /// Get a status report for a zone.
     ///
-    /// The Catalog must be [`run()`]ing for this to work.
+    /// The ZoneMaintainer must be [`run()`]ing for this to work.
     ///
     /// When unable to report the status for a zone the error will be one of
     /// the following:
@@ -541,8 +552,8 @@ where
     ) -> Result<ZoneReport, CatalogError> {
         let (tx, rx) = tokio::sync::oneshot::channel();
 
-        // If we are unable to send it means that the Catalog is not running
-        // so cannot respond to the request.
+        // If we are unable to send it means that the ZoneMaintainer is not
+        // running so cannot respond to the request.
         self.event_tx
             .send(Event::ZoneStatusRequested {
                 key: (apex_name.clone(), class),
@@ -551,10 +562,10 @@ where
             .await
             .map_err(|_| CatalogError::NotRunning)?;
 
-        // If the zone is not known we get a RecvError as the Catalog will not
-        // send a status report back over the oneshot channel but will just
-        // drop the sending end causing the client end to see that the channel
-        // has been closed.
+        // If the zone is not known we get a RecvError as the ZoneMaintainer
+        // will not send a status report back over the oneshot channel but
+        // will just drop the sending end causing the client end to see that
+        // the channel has been closed.
         rx.await.map_err(|_| CatalogError::UnknownZone)
     }
 
@@ -574,7 +585,7 @@ where
     }
 }
 
-impl<KS, CF: ConnectionFactory> Catalog<KS, CF>
+impl<KS, CF: ConnectionFactory> ZoneMaintainer<KS, CF>
 where
     KS: Deref,
     KS::Target: KeyStore,
@@ -600,7 +611,7 @@ where
     }
 }
 
-impl<KS, CF> Catalog<KS, CF>
+impl<KS, CF> ZoneMaintainer<KS, CF>
 where
     KS: Deref + 'static,
     KS::Target: KeyStore,
@@ -1172,7 +1183,7 @@ where
         // TODO: If we later have more than one MultiPrimaryXfrStrategy,
         // adjust our behaviour to match the requested strategy.
         // TODO: Factor out the multi-primary strategy to a generic type on
-        // Catalog that implements a trait to make it pluggable.
+        // ZoneMaintainer that implements a trait to make it pluggable.
         assert!(matches!(multi_primary_xfr_strategy, NotifyStrategy::NotifySourceFirstThenSequentialStoppingAtFirstNewerSerial));
 
         // Determine our current SOA SERIAL value so that we can check that
@@ -1703,7 +1714,7 @@ where
 
 //--- Notifiable
 
-impl<KS, CF> Notifiable for Catalog<KS, CF>
+impl<KS, CF> Notifiable for ZoneMaintainer<KS, CF>
 where
     KS: Deref + Send + Sync + 'static,
     KS::Target: KeyStore,
@@ -1764,7 +1775,7 @@ where
             // change in the zone then this check is irrelevant. Comparing the SOA
             // MNAME or NS record value to the source IP address would require
             // resolving the name to an IP address. Such a check would not be
-            // quick so we leave that to the running Catalog task to handle.
+            // quick so we leave that to the running ZoneMaintainer task to handle.
 
             let msg = ZoneChangedMsg {
                 class,
@@ -1800,25 +1811,26 @@ where
     }
 }
 
-impl<KS, CF: ConnectionFactory> ZoneLookup for Catalog<KS, CF>
+impl<KS, CF: ConnectionFactory> ZoneLookup for ZoneMaintainer<KS, CF>
 where
     KS: Deref,
     KS::Target: KeyStore,
 {
-    /// The entire tree of zones managed by this [`Catalog`] instance.
+    /// The entire tree of zones managed by this [`ZoneMaintainer`] instance.
     fn zones(&self) -> Arc<ZoneTree> {
         self.loaded_arc.read().unwrap().clone()
     }
 
-    /// The set of "active" zones managed by this [`Catalog`] instance.
+    /// The set of "active" zones managed by this [`ZoneMaintainer`] instance.
     ///
     /// Attempting to get a newly added empty secondary zone that is still
     /// pending initial refresh or an expired zone will result in an error.
-    /// This allows the caller to distinguish between the catalog not being
-    /// authoratitive for a zone (Ok(None)) (thus the response should be
-    /// NOTAUTH), a zone for which the catalog is authoritative but is
+    /// This allows the caller to distinguish between the ZoneMaintainer not
+    /// being authoratitive for a zone (Ok(None)) (thus the response should be
+    /// NOTAUTH), a zone for which the ZoneMaintainer is authoritative but is
     /// temporarily not in the correct state (SERVFAIL) vs a zone for which
-    /// the catalog is authoritative and which is in the correct state (Ok).
+    /// the ZoneMaintainer is authoritative and which is in the correct state
+    /// (Ok).
     fn get_zone(
         &self,
         apex_name: &impl ToName,
@@ -1872,7 +1884,7 @@ where
     }
 }
 
-impl<KS, CF: ConnectionFactory> Catalog<KS, CF>
+impl<KS, CF: ConnectionFactory> ZoneMaintainer<KS, CF>
 where
     KS: Deref,
     KS::Target: KeyStore,
@@ -1881,27 +1893,6 @@ where
         *self.loaded_arc.write().unwrap() = self.member_zones.load_full();
     }
 }
-
-/// Create a [`Catalog`] from an RFC 9432 catalog zone.
-// impl<ClientTransportFactory> From<(Zone, ClientTransportFactory)>
-//     for Catalog
-// {
-//     fn from(
-//         (zone, client_transport_factory): (Zone, ClientTransportFactory),
-//     ) -> Self {
-//         let mut catalog = Catalog::new(client_transport_factory);
-//         // TODO: Parse the given RFC 9432 catalog zone and add appropriate
-//         // ZoneInfo entries to the new catalog.
-//         todo!()
-//     }
-// }
-
-/// Produce an RFC 9432 catalog zone for a [`Catalog`].
-// impl From<Catalog> for Zone {
-//     fn from(value: Catalog) -> Self {
-//         todo!()
-//     }
-// }
 
 //------------ TypedZone -----------------------------------------------------
 
@@ -2105,7 +2096,9 @@ pub enum CatalogError {
 impl Display for CatalogError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            CatalogError::NotRunning => f.write_str("Catalog not running"),
+            CatalogError::NotRunning => {
+                f.write_str("ZoneMaintainer not running")
+            }
             CatalogError::InternalError(err) => {
                 f.write_fmt(format_args!("Internal error: {err}"))
             }

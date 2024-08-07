@@ -23,7 +23,7 @@ use crate::net::server::middleware::stream::MiddlewareStream;
 use crate::net::server::service::{CallResult, Service};
 use crate::net::server::util::{mk_builder_for_target, mk_error_response};
 use crate::rdata::AllRecordData;
-use crate::zonecatalog::catalog::{Notifiable, NotifyError};
+use crate::zonemaintainer::maintainer::{Notifiable, NotifyError};
 
 /// A DNS NOTIFY middleware service
 ///
@@ -47,10 +47,10 @@ impl<RequestOctets, NextSvc, RequestMeta, N>
     NotifyMiddlewareSvc<RequestOctets, NextSvc, RequestMeta, N>
 {
     #[must_use]
-    pub fn new(next_svc: NextSvc, catalog: N) -> Self {
+    pub fn new(next_svc: NextSvc, zones: N) -> Self {
         Self {
             next_svc,
-            notify_target: catalog,
+            notify_target: zones,
             _phantom: PhantomData,
         }
     }
@@ -133,15 +133,15 @@ where
                 //       on the slave's state list of masters for the zone,
                 //       which would be an error."
                 //
-                // We pass the source to the Catalog to compare against the
-                // set of known masters for the zone.
+                // We pass the source to the ZoneMaintainer to compare against
+                // the set of known masters for the zone.
                 if let Err(err) = notify_target
                     .notify_zone_changed(class, &apex_name, source)
                     .await
                 {
                     match err {
                         NotifyError::UnknownZone => {
-                            warn!("Ignoring NOTIFY from {} for zone '{}': Zone not managed by the catalog",
+                            warn!("Ignoring NOTIFY from {} for zone '{}': Zone not managed by the ZoneMaintainer",
                                 req.client_addr(),
                                 q.qname()
                             );

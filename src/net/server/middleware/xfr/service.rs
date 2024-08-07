@@ -12,7 +12,7 @@ use crate::net::server::message::Request;
 use crate::net::server::middleware::stream::MiddlewareStream;
 use crate::net::server::service::Service;
 use crate::tsig::KeyName;
-use crate::zonecatalog::catalog::ZoneLookup;
+use crate::zonemaintainer::maintainer::ZoneLookup;
 
 use super::processor::XfrMiddlewareSvc;
 use super::types::XfrMiddlewareStream;
@@ -51,7 +51,7 @@ where
     ) -> Self::Future {
         let request = request.clone();
         let next_svc = self.next_svc.clone();
-        let catalog = self.zones.clone();
+        let zones = self.zones.clone();
         let zone_walking_semaphore = self.zone_walking_semaphore.clone();
         let batcher_semaphore = self.batcher_semaphore.clone();
         let xfr_mode = self.xfr_mode;
@@ -60,7 +60,7 @@ where
                 zone_walking_semaphore,
                 batcher_semaphore,
                 &request,
-                catalog,
+                zones,
                 xfr_mode,
                 request.metadata().key(),
             )

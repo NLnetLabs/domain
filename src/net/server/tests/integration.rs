@@ -52,14 +52,14 @@ use crate::stelline::parse_stelline::{
 };
 use crate::tsig::{Algorithm, Key, KeyName, KeyStore};
 use crate::utils::base16;
-use crate::zonecatalog::catalog::{
-    self, Catalog, ConnectionFactory, TypedZone, ZoneError, ZoneLookup,
+use crate::zonefile::inplace::Zonefile;
+use crate::zonemaintainer::maintainer::{
+    self, ConnectionFactory, TypedZone, ZoneError, ZoneLookup, ZoneMaintainer,
 };
-use crate::zonecatalog::types::{
+use crate::zonemaintainer::types::{
     CatalogKeyStore, CompatibilityMode, NotifyConfig, TransportStrategy,
     XfrConfig, XfrStrategy, ZoneConfig,
 };
-use crate::zonefile::inplace::Zonefile;
 use crate::zonetree::Answer;
 use crate::zonetree::{Zone, ZoneBuilder};
 
@@ -110,17 +110,17 @@ async fn server_tests(#[files("test-data/server/*.rpl")] rpl_file: PathBuf) {
     let conn_factory =
         MockServerConnFactory::new(stelline.clone(), step_value.clone());
 
-    // Create a zone catalog. For now this is only used by the service to
+    // Create a zone maintainer. For now this is only used by the service to
     // query zones, and for XFR-in testing. In future it could also be used
     // with XFR-out and NOTIFY-in/out testing.
-    let catalog_config = catalog::Config::new_with_conn_factory(
+    let zone_maintainer_config = maintainer::Config::new_with_conn_factory(
         key_store.clone(),
         conn_factory,
     );
-    let catalog = Catalog::new_with_config(catalog_config);
-    let catalog = Arc::new(catalog);
+    let zones = ZoneMaintainer::new_with_config(zone_maintainer_config);
+    let zones = Arc::new(zones);
 
-    // Build and insert the test defined zone, if any, into the zone catalog
+    // Build and insert the test defined zone, if any, into the zone maintainer
     if let Some(zone_config) = &server_config.zone {
         let zone = match (&zone_config.zone_name, &zone_config.zone_file) {
             (_, Some(zone_file)) => {
@@ -140,13 +140,13 @@ async fn server_tests(#[files("test-data/server/*.rpl")] rpl_file: PathBuf) {
         };
 
         let zone = TypedZone::new(zone, zone_config.zone_config.clone());
-        catalog.insert_zone(zone).await.unwrap();
+        zones.insert_zone(zone).await.unwrap();
     }
 
-    // Start the catalog background service so that incoming XFR/NOTIFY
+    // Start the zone maintainer background service so that incoming XFR/NOTIFY
     // requests will be handled.
-    let catalog_clone = catalog.clone();
-    tokio::spawn(async move { catalog_clone.run().await });
+    let zones_clone = zones.clone();
+    tokio::spawn(async move { zones_clone.run().await });
 
     // Prepare cookie middleware configuration settings.
     let with_cookies = server_config.cookies.enabled
@@ -167,7 +167,7 @@ async fn server_tests(#[files("test-data/server/*.rpl")] rpl_file: PathBuf) {
     // it and without it having to know or do anything about it.
 
     // 1. Application logic service
-    let svc = service_fn(test_service, catalog.clone());
+    let svc = service_fn(test_service, zones.clone());
 
     // 2. DNS COOKIES middleware service
     let svc = CookiesMiddlewareSvc::new(svc, secret)
@@ -178,17 +178,18 @@ async fn server_tests(#[files("test-data/server/*.rpl")] rpl_file: PathBuf) {
     let svc =
         EdnsMiddlewareSvc::new(svc).enable(server_config.edns_tcp_keepalive);
 
-    // 4. XFR(-in) middleware service (XFR-out is handled by the Catalog).
+    // 4. XFR(-in) middleware service (XFR-out is handled by the
+    //    ZoneMaintainer).
     let svc = XfrMiddlewareSvc::<Vec<u8>, _, _>::new(
         svc,
-        catalog.clone(),
+        zones.clone(),
         MAX_XFR_CONCURRENCY,
         XfrMode::AxfrAndIxfr,
     );
 
-    // 5. NOTIFY(-in) middleware service (relayed to the Catalog for handling,
-    // and the Catalog is also responsible for NOTIFY-out).
-    let svc = NotifyMiddlewareSvc::<Vec<u8>, _, _, _>::new(svc, catalog);
+    // 5. NOTIFY(-in) middleware service (relayed to the ZoneMaintainer for
+    // handling, and the ZoneMaintainer is also responsible for NOTIFY-out).
+    let svc = NotifyMiddlewareSvc::<Vec<u8>, _, _, _>::new(svc, zones);
 
     // 6. Mandatory DNS behaviour (e.g. RFC 1034/35 rules).
     let svc = MandatoryMiddlewareSvc::new(svc);
@@ -381,12 +382,11 @@ fn mk_server_configs(
 #[allow(clippy::type_complexity)]
 fn test_service<T: ZoneLookup>(
     request: Request<Vec<u8>>,
-    catalog: T,
+    zones: T,
 ) -> ServiceResult<Vec<u8>> {
     let question = request.message().sole_question().unwrap();
 
-    let answer = match catalog.find_zone(question.qname(), question.qclass())
-    {
+    let answer = match zones.find_zone(question.qname(), question.qclass()) {
         Ok(Some(zone)) => {
             let readable_zone = zone.read();
             let qname = question.qname().to_bytes();
