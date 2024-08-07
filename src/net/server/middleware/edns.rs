@@ -47,17 +47,23 @@ const EDNS_VERSION_ZERO: u8 = 0;
 /// [9210]: https://datatracker.ietf.org/doc/html/rfc9210
 #[derive(Clone, Debug, Default)]
 pub struct EdnsMiddlewareSvc<RequestOctets, NextSvc, RequestMeta> {
+    /// The upstream [`Service`] to pass requests to and receive responses
+    /// from.
     next_svc: NextSvc,
 
-    _phantom: PhantomData<(RequestOctets, RequestMeta)>,
-
+    /// Is the middleware service enabled?
+    ///
+    /// Defaults to true. If false, the service will pass requests and
+    /// responses through unmodified.
     enabled: bool,
+
+    _phantom: PhantomData<(RequestOctets, RequestMeta)>,
 }
 
 impl<RequestOctets, NextSvc, RequestMeta>
     EdnsMiddlewareSvc<RequestOctets, NextSvc, RequestMeta>
 {
-    /// Creates an instance of this processor.
+    /// Creates an instance of this middleware service.
     #[must_use]
     pub fn new(next_svc: NextSvc) -> Self {
         Self {
@@ -468,17 +474,16 @@ mod tests {
 
         // --- Only server specified max UDP response sizes
         //
-        // The EdnsMiddlewareProcessor should leave these untouched as no EDNS
+        // The EdnsMiddlewareSvc should leave these untouched as no EDNS
         // option was present in the request, only the server hint exists, and
-        // EdnsMiddlewareProcessor only acts if the client EDNS option is
-        // present.
+        // EdnsMiddlewareSvc only acts if the client EDNS option is present.
         assert_eq!(process(None, TOO_SMALL).await, TOO_SMALL);
         assert_eq!(process(None, JUST_RIGHT).await, JUST_RIGHT);
         assert_eq!(process(None, HUGE).await, HUGE);
 
         // --- Only client specified max UDP response sizes
         //
-        // The EdnsMiddlewareProcessor should adopt these, after clamping
+        // The EdnsMiddlewareSvc should adopt these, after clamping
         // them.
         assert_eq!(process(TOO_SMALL, None).await, JUST_RIGHT);
         assert_eq!(process(JUST_RIGHT, None).await, JUST_RIGHT);
@@ -486,7 +491,7 @@ mod tests {
 
         // --- Both client and server specified max UDP response sizes
         //
-        // The EdnsMiddlewareProcessor should negotiate the largest size
+        // The EdnsMiddlewareSvc should negotiate the largest size
         // acceptable to both sides.
         assert_eq!(process(TOO_SMALL, TOO_SMALL).await, MIN_ALLOWED);
         assert_eq!(process(TOO_SMALL, JUST_RIGHT).await, JUST_RIGHT);
@@ -554,9 +559,9 @@ mod tests {
         let _call_result: CallResult<_> =
             stream.next().await.unwrap().unwrap();
 
-        // Or pass the query through the middleware processor
-        let processor_svc = EdnsMiddlewareSvc::new(my_svc);
-        let mut stream = processor_svc.call(request.clone()).await;
+        // Or pass the query through the middleware service
+        let middleware_svc = EdnsMiddlewareSvc::new(my_svc);
+        let mut stream = middleware_svc.call(request.clone()).await;
         let call_result: CallResult<Vec<u8>> =
             stream.next().await.unwrap().unwrap();
         let (_response, _feedback) = call_result.into_inner();

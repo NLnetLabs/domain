@@ -33,7 +33,7 @@ pub type ServiceResult<Target> = Result<CallResult<Target>, ServiceError>;
 ///
 /// Most DNS requests result in a single response, with the exception of AXFR
 /// and IXFR requests which can result in a stream of responses.
-/// 
+///
 /// # Usage
 ///
 /// You can either implement the [`Service`] trait on a struct or use the
@@ -145,14 +145,14 @@ pub type ServiceResult<Target> = Result<CallResult<Target>, ServiceError>;
 /// In your own [`Service`] impl you would implement actual business logic
 /// returning single or multiple responses synchronously or asynchronously as
 /// needed.
-/// 
+///
 /// # Advanced usage
-/// 
+///
 /// The [`Service`] trait takes two generic types which in most cases you
 /// don't need to specify as the defaults will be fine.
-/// 
+///
 /// For more advanced cases you may need to override these defaults.
-/// 
+///
 /// - `RequestMeta`: If implementing a [middleware] `Service` you may need to
 ///   supply your own `RequestMeta` type. `RequestMeta` is intended to enable
 ///   middleware `Service` impls to express strongly typed support for
@@ -161,7 +161,7 @@ pub type ServiceResult<Target> = Result<CallResult<Target>, ServiceError>;
 ///   detect that the request is signed using a particular key and communicate
 ///   the name of the key to any upstream `Service` that needs to know the
 ///   name of the key used to sign the request.
-/// 
+///
 /// - `RequestOctets`: By specifying your own `RequestOctets` type you can use
 ///   a type other than `Vec<u8>` to transport request bytes through your
 ///   application.
