@@ -44,6 +44,9 @@ pub type ServiceResult<Target> = Result<CallResult<Target>, ServiceError>;
 /// ```
 /// use core::future::ready;
 /// use core::future::Ready;
+/// use core::pin::Pin;
+///
+/// use std::task::{Context, Poll};
 ///
 /// use futures::stream::{once, Once, Stream};
 ///
@@ -71,25 +74,75 @@ pub type ServiceResult<Target> = Result<CallResult<Target>, ServiceError>;
 ///     answer.additional()
 /// }
 ///
-/// struct MyService;
+/// fn mk_response_stream(msg: &Request<Vec<u8>>)
+///   -> Once<Ready<ServiceResult<Vec<u8>>>>
+/// {
+///     let builder = mk_builder_for_target();
+///     let additional = mk_answer(msg, builder);
+///     let item = Ok(CallResult::new(additional));
+///     once(ready(item))
+/// }
 ///
-/// impl Service<Vec<u8>> for MyService {
+/// //------------ A synchronous service example ------------------------------
+/// struct MySyncService;
+///
+/// impl Service<Vec<u8>> for MySyncService {
 ///     type Target = Vec<u8>;
 ///     type Stream = Once<Ready<ServiceResult<Self::Target>>>;
 ///     type Future = Ready<Self::Stream>;
+///     
+///     fn call(
+///         &self,
+///         msg: Request<Vec<u8>>,
+///     ) -> Self::Future {
+///         ready(mk_response_stream(&msg))
+///     }
+/// }
+///
+/// //------------ An anonymous async block service example -------------------
+/// struct MyAsyncBlockService;
+///
+/// impl Service<Vec<u8>> for MyAsyncBlockService {
+///     type Target = Vec<u8>;
+///     type Stream = Once<Ready<ServiceResult<Self::Target>>>;
+///     type Future = Pin<Box<dyn std::future::Future<Output = Self::Stream>>>;
 ///
 ///     fn call(
 ///         &self,
 ///         msg: Request<Vec<u8>>,
 ///     ) -> Self::Future {
-///         let builder = mk_builder_for_target();
-///         let additional = mk_answer(&msg, builder);
-///         let item = Ok(CallResult::new(additional));
-///         ready(once(ready(item)))
+///         Box::pin(async move { mk_response_stream(&msg) })
 ///     }
+/// }
+///
+/// //------------ A named Future service example -----------------------------
+/// struct MyFut(Request<Vec<u8>>);
+///
+/// impl std::future::Future for MyFut {
+///     type Output = Once<Ready<ServiceResult<Vec<u8>>>>;
+///
+///     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+///         Poll::Ready(mk_response_stream(&self.0))
+///     }
+/// }
+///
+/// struct MyNamedFutureService;
+///
+/// impl Service<Vec<u8>> for MyNamedFutureService {
+///     type Target = Vec<u8>;
+///     type Stream = Once<Ready<ServiceResult<Self::Target>>>;
+///     type Future = MyFut;
+///     
+///     fn call(&self, msg: Request<Vec<u8>>) -> Self::Future { MyFut(msg) }
 /// }
 /// ```
 ///
+/// The above are minimalist examples to illustrate what you need to do, but
+/// lacking any actual useful behaviour.
+///
+/// In your own [`Service`] impl you would implement actual business logic
+/// using synchronous or asynchronous code and returning single or multiple
+/// responses as needed.
 ///
 /// [`DgramServer`]: crate::net::server::dgram::DgramServer
 /// [`StreamServer`]: crate::net::server::stream::StreamServer
