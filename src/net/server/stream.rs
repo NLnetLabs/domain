@@ -318,7 +318,7 @@ where
     ///
     /// Takes:
     /// - A listener which must implement [`AsyncAccept`] and is responsible
-    /// awaiting and accepting incoming stream connections.
+    ///   awaiting and accepting incoming stream connections.
     /// - A [`BufSource`] for creating buffers on demand.
     /// - A [`Service`] for handling received requests and generating responses.
     #[must_use]

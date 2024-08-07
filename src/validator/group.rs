@@ -312,7 +312,7 @@ impl Group {
 
     /// Validate a group with a validation context.
     ///
-    /// A successfull result contists of
+    /// A successfull result contists of:
     /// 1) The validation state.
     /// 2) The signer name, the name of the secure zone that contains
     ///    the name of the group.
@@ -321,6 +321,7 @@ impl Group {
     /// 4) optionally an extended error.
     /// 5) optionally a TTL. A TTL is return if the TTL of one of the
     ///    records in the group is too high.
+    /// 
     /// An error is returned if validation was not possible.
     pub async fn validate_with_vc<Octs, Upstream>(
         &self,
@@ -400,7 +401,7 @@ impl Group {
 
     /// Try to validate the signature using a node.
     ///
-    /// A successfull result contists of
+    /// A successfull result contists of:
     /// 1) The validation state.
     /// 2) optionally the name of the closest encloser if the signature
     ///    indicates a wildcard.
@@ -408,6 +409,7 @@ impl Group {
     /// 4) a duration how long the information can be cached.
     /// 5) optionally a TTL. A TTL is return if the TTL of one of the
     ///    records in the group is too high.
+    /// 
     /// An error is returned if validation was not possible.
     pub(crate) async fn validate_with_node(
         &self,
