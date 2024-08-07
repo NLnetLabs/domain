@@ -83,13 +83,18 @@ Unstable features
 
 * New unstable feature `unstable-stelline` for the Stelline testing
   framework as a “normal” module of _domain._ ([#315])
-* Renamed the domain name types in `zonetree` from `Dname` to `Name`.
-  ([#308])
+* `unstable-server-transport`:
+  *  Redesigned the service trait and changes middleware processors as
+     services that take an upstream service to pass requests on to. ([#307])
+* `unstable-zonetree`:
+  * Renamed the domain name types in `zonetree` from `Dname` to `Name`.
+    ([#308])
 
 Other changes
 
 * The minimum Rust version is now 1.78. ([#320])
 
+[#307]: https://github.com/NLnetLabs/domain/pull/307
 [#308]: https://github.com/NLnetLabs/domain/pull/308
 [#310]: https://github.com/NLnetLabs/domain/pull/310
 [#312]: https://github.com/NLnetLabs/domain/pull/312

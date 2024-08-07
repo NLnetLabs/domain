@@ -498,8 +498,8 @@ where
                     self.metrics.inc_num_received_requests();
 
                     if enabled!(Level::TRACE) {
-                        let pcap_text = to_pcap_text(&buf, bytes_read.min(128));
-                        trace!(%addr, pcap_text, "Received message (dumping max 128 bytes)");
+                        let pcap_text = to_pcap_text(&buf, bytes_read);
+                        trace!(%addr, pcap_text, "Received message");
                     }
 
                     let svc = self.service.clone();
@@ -515,7 +515,6 @@ where
                             }
 
                             Ok(msg) => {
-                                trace!(addr = %addr, ?msg, "Parsed first question: {:?}", msg.first_question());
                                 let ctx = UdpTransportContext::new(cfg.load().max_response_size);
                                 let ctx = TransportSpecificContext::Udp(ctx);
                                 let request = Request::new(addr, received_at, msg, ctx, ());
@@ -545,8 +544,8 @@ where
 
                                         // Logging
                                         if enabled!(Level::TRACE) {
-                                            let pcap_text = to_pcap_text(bytes, bytes.len().min(128));
-                                            trace!(%addr, pcap_text, "Sending response (dumping max 128 bytes)");
+                                            let pcap_text = to_pcap_text(bytes, bytes.len());
+                                            trace!(%addr, pcap_text, "Sending response");
                                         }
 
                                         metrics.inc_num_pending_writes();

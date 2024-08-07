@@ -271,7 +271,7 @@ where
     Listener: AsyncAccept + Send + Sync,
     Buf: BufSource + Send + Sync + Clone,
     Buf::Output: Octets + Send + Sync + Unpin,
-    Svc: Service<Buf::Output, ()> + Send + Sync + Clone,
+    Svc: Service<Buf::Output> + Send + Sync + Clone,
     Svc::Target: Composer + Default,
 {
     /// The configuration of the server.
@@ -311,7 +311,7 @@ where
     Listener: AsyncAccept + Send + Sync,
     Buf: BufSource + Send + Sync + Clone,
     Buf::Output: Octets + Send + Sync + Unpin,
-    Svc: Service<Buf::Output, ()> + Send + Sync + Clone,
+    Svc: Service<Buf::Output> + Send + Sync + Clone,
     Svc::Target: Composer + Default,
 {
     /// Creates a new [`StreamServer`] instance.
@@ -390,7 +390,7 @@ where
     Listener: AsyncAccept + Send + Sync,
     Buf: BufSource + Send + Sync + Clone,
     Buf::Output: Octets + Debug + Send + Sync + Unpin,
-    Svc: Service<Buf::Output, ()> + Send + Sync + Clone,
+    Svc: Service<Buf::Output> + Send + Sync + Clone,
     Svc::Target: Composer + Default,
 {
     /// Get a reference to the source for this server.
@@ -413,7 +413,7 @@ where
     Listener: AsyncAccept + Send + Sync,
     Buf: BufSource + Send + Sync + Clone,
     Buf::Output: Octets + Send + Sync + Unpin,
-    Svc: Service<Buf::Output, ()> + Send + Sync + Clone,
+    Svc: Service<Buf::Output> + Send + Sync + Clone,
     Svc::Target: Composer + Default,
 {
     /// Start the server.
@@ -508,7 +508,7 @@ where
     Listener: AsyncAccept + Send + Sync,
     Buf: BufSource + Send + Sync + Clone,
     Buf::Output: Octets + Send + Sync + Unpin,
-    Svc: Service<Buf::Output, ()> + Send + Sync + Clone,
+    Svc: Service<Buf::Output> + Send + Sync + Clone,
     Svc::Target: Composer + Default,
 {
     /// Accept stream connections until shutdown or fatal error.
@@ -703,7 +703,7 @@ where
     Listener: AsyncAccept + Send + Sync,
     Buf: BufSource + Send + Sync + Clone,
     Buf::Output: Octets + Send + Sync + Unpin,
-    Svc: Service<Buf::Output, ()> + Send + Sync + Clone,
+    Svc: Service<Buf::Output> + Send + Sync + Clone,
     Svc::Target: Composer + Default,
 {
     fn drop(&mut self) {

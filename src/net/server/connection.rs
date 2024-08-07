@@ -562,7 +562,10 @@ where
     }
 
     /// Stop queueing new responses and process those already in the queue.
-    async fn flush_write_queue(&mut self) {
+    async fn flush_write_queue(&mut self)
+    // where
+    // Target: Composer,
+    {
         debug!("Flushing connection write queue.");
         // Stop accepting new response messages (should we check for in-flight
         // messages that haven't generated a response yet but should be

@@ -21,9 +21,7 @@
 //! something that looks like a [`Record`]. Apart from actual values
 //! of these types, tuples of the components also work, such as a pair of a
 //! domain name and a record type for a question or a triple of the owner
-//! name, TTL, and record data for a record. If you already have a question
-//! or record, you can use the `push_ref` method to add
-//!
+//! name, TTL, and record data for a record.
 //!
 //! The `push` method of the record
 //! section builders is also available via the [`RecordSectionBuilder`]
