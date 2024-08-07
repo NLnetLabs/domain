@@ -54,7 +54,7 @@ use crate::stelline::parse_stelline::{
 use crate::tsig::{Algorithm, Key, KeyName, KeyStore};
 use crate::utils::base16;
 use crate::zonecatalog::catalog::{
-    self, Catalog, ConnectionFactory, ConnectionFactoryMulti, TypedZone, ZoneError, ZoneLookup,
+    self, Catalog, ConnectionFactory, TypedZone, ZoneError, ZoneLookup,
 };
 use crate::zonecatalog::types::{
     CatalogKeyStore, CompatibilityMode, NotifyConfig, TransportStrategy,
@@ -116,7 +116,6 @@ async fn server_tests(#[files("test-data/server/*.rpl")] rpl_file: PathBuf) {
     // with XFR-out and NOTIFY-in/out testing.
     let catalog_config = catalog::Config::new_with_conn_factory(
         key_store.clone(),
-        conn_factory.clone(),
 	conn_factory,
     );
     let catalog = Catalog::new_with_config(catalog_config);
@@ -281,7 +280,6 @@ async fn server_tests_multi(#[files("test-data/server/multi/*.rpl")] rpl_file: P
     // with XFR-out and NOTIFY-in/out testing.
     let catalog_config = catalog::Config::new_with_conn_factory(
         key_store.clone(),
-        conn_factory.clone(),
         conn_factory,
     );
     let catalog = Catalog::new_with_config(catalog_config);
@@ -868,6 +866,7 @@ struct TestServerConnFactory {
     stream_server_conn: ClientServerChannel,
 }
 
+/*
 impl ConnectionFactory for TestServerConnFactory {
     type Error = String;
 
@@ -951,6 +950,7 @@ impl ConnectionFactory for TestServerConnFactory {
         Box::pin(ready(client))
     }
 }
+*/
 
 #[derive(Clone)]
 struct MockServerConnFactory {
@@ -1061,12 +1061,7 @@ impl ConnectionFactory for MockServerConnFactory {
 
         Box::pin(ready(client))
     }
-}
-
-impl ConnectionFactoryMulti for MockServerConnFactory {
-    type Error = String;
-
-    fn get<K, Octs>(
+    fn get_multi<K, Octs>(
         &self,
         _dest: SocketAddr,
         strategy: TransportStrategy,

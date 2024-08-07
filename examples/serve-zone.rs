@@ -97,7 +97,7 @@ async fn main() {
     };
 
     // Create a catalog that will handle outbound XFR for zones
-    let cat_config = catalog::Config::<_, DefaultConnFactory, DefaultConnFactory>::new(
+    let cat_config = catalog::Config::<_, DefaultConnFactory>::new(
         config.key_store.clone(),
     );
     let catalog = Catalog::new_with_config(cat_config);
