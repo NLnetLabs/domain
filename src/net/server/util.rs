@@ -47,13 +47,13 @@ where
 /// [`service_fn()`] enables you to write a slightly simpler function
 /// definition that implements the [`Service`] trait than implementing
 /// [`Service`] directly.
-/// 
+///
 /// <div class="warning">
-/// 
+///
 /// Note that [`service_fn`] does not support async service functions. To
 /// use async code in a service you must implement the [`Service`] trait
 /// manually on a struct.
-/// 
+///
 /// </div>
 ///
 /// # Example
