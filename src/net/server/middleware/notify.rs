@@ -23,7 +23,7 @@ use crate::net::server::middleware::stream::MiddlewareStream;
 use crate::net::server::service::{CallResult, Service};
 use crate::net::server::util::{mk_builder_for_target, mk_error_response};
 use crate::rdata::AllRecordData;
-use crate::zonemaintainance::maintainer::{Notifiable, NotifyError};
+use crate::zonemaintenance::maintainer::{Notifiable, NotifyError};
 
 /// A DNS NOTIFY middleware service
 ///

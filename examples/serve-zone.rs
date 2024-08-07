@@ -42,12 +42,12 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use bytes::Bytes;
-use domain::zonemaintainance::maintainer::{
+use domain::zonemaintenance::maintainer::{
     self, DefaultConnFactory, TypedZone, ZoneLookup, ZoneMaintainer,
 };
-use domain::zonemaintainance::types::{
-    CatalogKeyStore, CompatibilityMode, NotifyConfig, TransportStrategy,
-    XfrConfig, XfrStrategy, ZoneConfig,
+use domain::zonemaintenance::types::{
+    CompatibilityMode, NotifyConfig, TransportStrategy, XfrConfig,
+    XfrStrategy, ZoneConfig, ZoneMaintainerKeyStore,
 };
 use octseq::Parser;
 use tokio::net::{TcpListener, UdpSocket};
@@ -205,7 +205,7 @@ async fn main() {
     // // Modify zone
     // if primary {
     //     // Make changes to a zone to create a diff for IXFR use.
-    //     let c_zones = catalog.zones();
+    //     let c_zones = zones.zones();
     //     let zone = c_zones.get_zone(&z_apex_name, z_class).unwrap();
     //     let mut writer = zone.write().await;
     //     {
@@ -418,7 +418,7 @@ struct Config {
     pub udp_listen_addr: SocketAddr,
     pub tcp_listen_addr: SocketAddr,
     pub zone: TypedZone,
-    pub key_store: Arc<CatalogKeyStore>,
+    pub key_store: Arc<ZoneMaintainerKeyStore>,
 }
 
 fn parse_args() -> Result<Config, String> {
@@ -455,7 +455,7 @@ Options:
     let mut zone_dump_path = None;
 
     let mut zone_cfg = ZoneConfig::new();
-    let mut key_store = CatalogKeyStore::new();
+    let mut key_store = ZoneMaintainerKeyStore::new();
 
     let mut xfr_cfg = XfrConfig {
         strategy: XfrStrategy::IxfrWithAxfrFallback,

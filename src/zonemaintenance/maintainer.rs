@@ -46,10 +46,6 @@ use crate::net::client::protocol::UdpConnect;
 use crate::net::client::request::{self, RequestMessage, SendRequest};
 use crate::rdata::{Soa, ZoneRecordData};
 use crate::tsig::{Key, KeyStore};
-use crate::zonemaintainance::types::{
-    NotifyStrategy, XfrStrategy, ZoneNameServers, ZoneRefreshStatus,
-    ZoneReportDetails, MIN_DURATION_BETWEEN_ZONE_REFRESHES,
-};
 use crate::zonetree::error::{OutOfZone, ZoneTreeModificationError};
 use crate::zonetree::{
     AnswerContent, ReadableZone, SharedRrset, StoredName, WritableZone,
@@ -57,9 +53,11 @@ use crate::zonetree::{
 };
 
 use super::types::{
-    Event, NotifySrcDstConfig, TransportStrategy, XfrConfig, ZoneChangedMsg,
-    ZoneConfig, ZoneDiffs, ZoneInfo, ZoneRefreshCause, ZoneRefreshInstant,
-    ZoneRefreshState, ZoneRefreshTimer, ZoneReport, IANA_DNS_PORT_NUMBER,
+    Event, NotifySrcDstConfig, NotifyStrategy, TransportStrategy, XfrConfig,
+    XfrStrategy, ZoneChangedMsg, ZoneConfig, ZoneDiffs, ZoneInfo,
+    ZoneNameServers, ZoneRefreshCause, ZoneRefreshInstant, ZoneRefreshState,
+    ZoneRefreshStatus, ZoneRefreshTimer, ZoneReport, ZoneReportDetails,
+    IANA_DNS_PORT_NUMBER, MIN_DURATION_BETWEEN_ZONE_REFRESHES,
 };
 
 //------------ ConnectionFactory ---------------------------------------------
@@ -155,7 +153,6 @@ where
     KS: Deref,
     KS::Target: KeyStore,
 {
-    // cat_zone: Zone, // TODO
     config: Arc<ArcSwap<Config<KS, CF>>>,
     pending_zones: Arc<RwLock<HashMap<ZoneKey, Zone>>>,
     member_zones: Arc<ArcSwap<ZoneTree>>,
@@ -231,7 +228,7 @@ where
             let cat_zone = zone
                 .as_ref()
                 .as_any()
-                .downcast_ref::<CatalogZone>()
+                .downcast_ref::<MaintainedZone>()
                 .unwrap();
 
             let zone_config = &cat_zone.info().config;
@@ -368,7 +365,7 @@ where
                                 let cat_zone = zone
                                 .as_ref()
                                 .as_any()
-                                .downcast_ref::<CatalogZone>()
+                                .downcast_ref::<MaintainedZone>()
                                 .unwrap();
 
                                 let zone_info = cat_zone.info().clone();
@@ -428,7 +425,7 @@ where
                         let cat_zone = zone
                             .as_ref()
                             .as_any()
-                            .downcast_ref::<CatalogZone>()
+                            .downcast_ref::<MaintainedZone>()
                             .unwrap();
 
                         if cat_zone.info().config.is_secondary() {
@@ -549,7 +546,7 @@ where
         &self,
         apex_name: &StoredName,
         class: Class,
-    ) -> Result<ZoneReport, CatalogError> {
+    ) -> Result<ZoneReport, ZoneMaintainerError> {
         let (tx, rx) = tokio::sync::oneshot::channel();
 
         // If we are unable to send it means that the ZoneMaintainer is not
@@ -560,13 +557,13 @@ where
                 tx,
             })
             .await
-            .map_err(|_| CatalogError::NotRunning)?;
+            .map_err(|_| ZoneMaintainerError::NotRunning)?;
 
         // If the zone is not known we get a RecvError as the ZoneMaintainer
         // will not send a status report back over the oneshot channel but
         // will just drop the sending end causing the client end to see that
         // the channel has been closed.
-        rx.await.map_err(|_| CatalogError::UnknownZone)
+        rx.await.map_err(|_| ZoneMaintainerError::UnknownZone)
     }
 
     pub async fn force_zone_refresh(
@@ -606,7 +603,7 @@ where
             expired,
         };
 
-        let new_store = CatalogZone::new(notify_tx, zone_store, zone_info);
+        let new_store = MaintainedZone::new(notify_tx, zone_store, zone_info);
         Zone::new(new_store)
     }
 }
@@ -627,7 +624,7 @@ where
         let cat_zone = zone
             .as_ref()
             .as_any()
-            .downcast_ref::<CatalogZone>()
+            .downcast_ref::<MaintainedZone>()
             .unwrap();
 
         let zone_info = cat_zone.info();
@@ -731,7 +728,7 @@ where
         let cat_zone = zone
             .as_ref()
             .as_any()
-            .downcast_ref::<CatalogZone>()
+            .downcast_ref::<MaintainedZone>()
             .unwrap();
 
         if !cat_zone.info().config.is_secondary() {
@@ -849,7 +846,7 @@ where
         let cat_zone = zone
             .as_ref()
             .as_any()
-            .downcast_ref::<CatalogZone>()
+            .downcast_ref::<MaintainedZone>()
             .unwrap();
 
         // Are we the primary for the zone? We don't accept external
@@ -1079,7 +1076,7 @@ where
                         let cat_zone = zone
                             .as_ref()
                             .as_any()
-                            .downcast_ref::<CatalogZone>()
+                            .downcast_ref::<MaintainedZone>()
                             .unwrap();
 
                         trace!(
@@ -1156,7 +1153,7 @@ where
         initial_xfr_addr: Option<SocketAddr>,
         zone_refresh_info: &mut ZoneRefreshState,
         config: Arc<ArcSwap<Config<KS, CF>>>,
-    ) -> Result<Option<Soa<Name<Bytes>>>, CatalogError> {
+    ) -> Result<Option<Soa<Name<Bytes>>>, ZoneMaintainerError> {
         // Was this zone already refreshed recently?
         if let Some(age) = zone_refresh_info.age() {
             if age < MIN_DURATION_BETWEEN_ZONE_REFRESHES {
@@ -1171,7 +1168,7 @@ where
         let cat_zone = zone
             .as_ref()
             .as_any()
-            .downcast_ref::<CatalogZone>()
+            .downcast_ref::<MaintainedZone>()
             .unwrap();
 
         let ZoneConfig {
@@ -1192,7 +1189,7 @@ where
         // primary should be accepted.
         let soa = Self::read_soa(&zone.read(), zone.apex_name().clone())
             .await
-            .map_err(|_out_of_zone_err| CatalogError::InternalError("Unable to read SOA for zone when checking if zone refresh is needed"))?;
+            .map_err(|_out_of_zone_err| ZoneMaintainerError::InternalError("Unable to read SOA for zone when checking if zone refresh is needed"))?;
 
         let current_serial = soa.map(|(soa, _)| soa.serial());
 
@@ -1250,7 +1247,7 @@ where
         xfr_config: &XfrConfig,
         zone_refresh_info: &mut ZoneRefreshState,
         config: Arc<ArcSwap<Config<KS, CF>>>,
-    ) -> Result<Option<Soa<Name<Bytes>>>, CatalogError> {
+    ) -> Result<Option<Soa<Name<Bytes>>>, ZoneMaintainerError> {
         // TODO: Replace this loop with one, or two, calls to a helper fn.
         // Try at least once, at most twice (when using IXFR -> AXFR fallback)
         for i in 0..=1 {
@@ -1318,7 +1315,7 @@ where
                 .await
                 .map_err(|err| {
                     let key = key.map(|key| format!("{key}")).unwrap_or("NOKEY".to_string());
-                    CatalogError::ConnectionError(format!("Connecting to {primary_addr} via {transport} with key '{key}' failed: {err}"))
+                    ZoneMaintainerError::ConnectionError(format!("Connecting to {primary_addr} via {transport} with key '{key}' failed: {err}"))
                 })?
             else {
                 return Ok(None);
@@ -1357,7 +1354,7 @@ where
             let res = Self::do_xfr(client, zone, primary_addr, rtype).await;
 
             match res {
-                Err(CatalogError::ResponseError(OptRcode::NOTIMP))
+                Err(ZoneMaintainerError::ResponseError(OptRcode::NOTIMP))
                     if rtype == Rtype::IXFR =>
                 {
                     trace!("Primary {primary_addr} doesn't support IXFR");
@@ -1382,7 +1379,7 @@ where
     /// Err if the response message indicated an error.
     async fn extract_response_soa_serial(
         msg: Message<Bytes>,
-    ) -> Result<Serial, CatalogError> {
+    ) -> Result<Serial, ZoneMaintainerError> {
         if msg.no_error() {
             if let Ok(answer) = msg.answer() {
                 let mut records = answer.limit_to::<Soa<_>>();
@@ -1393,7 +1390,7 @@ where
             }
         }
 
-        Err(CatalogError::ResponseError(msg.opt_rcode()))
+        Err(ZoneMaintainerError::ResponseError(msg.opt_rcode()))
     }
 
     async fn do_xfr<T>(
@@ -1401,7 +1398,7 @@ where
         zone: &Zone,
         primary_addr: SocketAddr,
         xfr_type: Rtype,
-    ) -> Result<Soa<Name<Bytes>>, CatalogError>
+    ) -> Result<Soa<Name<Bytes>>, ZoneMaintainerError>
     where
         T: SendRequest<RequestMessage<Vec<u8>>> + Send + Sync + 'static,
     {
@@ -1425,7 +1422,7 @@ where
                     "Internal error - missing SOA for zone '{}'",
                     zone.apex_name()
                 );
-                return Err(CatalogError::InternalError(
+                return Err(ZoneMaintainerError::InternalError(
                     "Unable to read SOA for zone when preparing for IXFR in",
                 ));
             };
@@ -1447,10 +1444,12 @@ where
             let msg = send_request
                 .get_response()
                 .await
-                .map_err(CatalogError::RequestError)?;
+                .map_err(ZoneMaintainerError::RequestError)?;
 
             if msg.is_error() {
-                return Err(CatalogError::ResponseError(msg.opt_rcode()));
+                return Err(ZoneMaintainerError::ResponseError(
+                    msg.opt_rcode(),
+                ));
             }
         }
 
@@ -1458,13 +1457,13 @@ where
             Self::read_soa(&zone.read(), zone.apex_name().clone())
                 .await
                 .map_err(|_out_of_zone_err| {
-                    CatalogError::InternalError(
+                    ZoneMaintainerError::InternalError(
                         "Unable to read SOA for zone post XFR in",
                     )
                 })?;
 
         let Some((soa, _ttl)) = soa_and_ttl else {
-            return Err(CatalogError::InternalError(
+            return Err(ZoneMaintainerError::InternalError(
                 "SOA for zone missing post XFR in",
             ));
         };
@@ -1643,7 +1642,7 @@ where
         let cat_zone = zone
             .as_ref()
             .as_any()
-            .downcast_ref::<CatalogZone>()
+            .downcast_ref::<MaintainedZone>()
             .unwrap();
 
         if !cat_zone.info().config.discover_notify_set {
@@ -1701,7 +1700,7 @@ where
         let cat_zone = zone
             .as_ref()
             .as_any()
-            .downcast_ref::<CatalogZone>()
+            .downcast_ref::<MaintainedZone>()
             .unwrap();
 
         if cat_zone.info().config.discover_notify_set {
@@ -1842,7 +1841,7 @@ where
             let cat_zone = zone
                 .as_ref()
                 .as_any()
-                .downcast_ref::<CatalogZone>()
+                .downcast_ref::<MaintainedZone>()
                 .unwrap();
 
             if cat_zone.is_active() {
@@ -1870,7 +1869,7 @@ where
             let cat_zone = zone
                 .as_ref()
                 .as_any()
-                .downcast_ref::<CatalogZone>()
+                .downcast_ref::<MaintainedZone>()
                 .unwrap();
 
             if cat_zone.is_active() {
@@ -1946,13 +1945,13 @@ impl ZoneStore for TypedZone {
 //------------ CatalogZone ---------------------------------------------------
 
 #[derive(Debug)]
-pub struct CatalogZone {
+pub struct MaintainedZone {
     notify_tx: Sender<Event>,
     store: Arc<dyn ZoneStore>,
     info: ZoneInfo,
 }
 
-impl CatalogZone {
+impl MaintainedZone {
     fn new(
         notify_tx: Sender<Event>,
         store: Arc<dyn ZoneStore>,
@@ -1974,13 +1973,13 @@ impl CatalogZone {
     }
 }
 
-impl CatalogZone {
+impl MaintainedZone {
     pub fn info(&self) -> &ZoneInfo {
         &self.info
     }
 }
 
-impl ZoneStore for CatalogZone {
+impl ZoneStore for MaintainedZone {
     /// Gets the CLASS of this zone.
     fn class(&self) -> Class {
         self.store.class()
@@ -2005,7 +2004,7 @@ impl ZoneStore for CatalogZone {
         let notify_tx = self.notify_tx.clone();
         Box::pin(async move {
             let writable_zone = fut.await;
-            let writable_zone = WritableCatalogZone {
+            let writable_zone = WritableMaintainedZone {
                 catalog_zone: self.clone(),
                 notify_tx,
                 writable_zone,
@@ -2021,13 +2020,13 @@ impl ZoneStore for CatalogZone {
 
 //------------ WritableCatalogZone -------------------------------------------
 
-struct WritableCatalogZone {
-    catalog_zone: Arc<CatalogZone>,
+struct WritableMaintainedZone {
+    catalog_zone: Arc<MaintainedZone>,
     notify_tx: Sender<Event>,
     writable_zone: Box<dyn WritableZone>,
 }
 
-impl WritableZone for WritableCatalogZone {
+impl WritableZone for WritableMaintainedZone {
     fn open(
         &self,
         _create_diff: bool,
@@ -2081,7 +2080,7 @@ impl WritableZone for WritableCatalogZone {
 //------------ CatalogError --------------------------------------------------
 
 #[derive(Debug)]
-pub enum CatalogError {
+pub enum ZoneMaintainerError {
     NotRunning,
     InternalError(&'static str),
     UnknownZone,
@@ -2093,26 +2092,26 @@ pub enum CatalogError {
 
 //--- Display
 
-impl Display for CatalogError {
+impl Display for ZoneMaintainerError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            CatalogError::NotRunning => {
+            ZoneMaintainerError::NotRunning => {
                 f.write_str("ZoneMaintainer not running")
             }
-            CatalogError::InternalError(err) => {
+            ZoneMaintainerError::InternalError(err) => {
                 f.write_fmt(format_args!("Internal error: {err}"))
             }
-            CatalogError::UnknownZone => f.write_str("Unknown zone"),
-            CatalogError::RequestError(err) => f.write_fmt(format_args!(
-                "Error while sending request: {err}"
-            )),
-            CatalogError::ResponseError(err) => f.write_fmt(format_args!(
-                "Error while receiving response: {err}"
-            )),
-            CatalogError::IoError(err) => {
+            ZoneMaintainerError::UnknownZone => f.write_str("Unknown zone"),
+            ZoneMaintainerError::RequestError(err) => f.write_fmt(
+                format_args!("Error while sending request: {err}"),
+            ),
+            ZoneMaintainerError::ResponseError(err) => f.write_fmt(
+                format_args!("Error while receiving response: {err}"),
+            ),
+            ZoneMaintainerError::IoError(err) => {
                 f.write_fmt(format_args!("I/O error: {err}"))
             }
-            CatalogError::ConnectionError(err) => {
+            ZoneMaintainerError::ConnectionError(err) => {
                 f.write_fmt(format_args!("Unable to connect: {err}"))
             }
         }
@@ -2121,7 +2120,7 @@ impl Display for CatalogError {
 
 //--- From request::Error
 
-impl From<request::Error> for CatalogError {
+impl From<request::Error> for ZoneMaintainerError {
     fn from(err: request::Error) -> Self {
         Self::RequestError(err)
     }
@@ -2129,46 +2128,11 @@ impl From<request::Error> for CatalogError {
 
 //--- From io::Error
 
-impl From<io::Error> for CatalogError {
+impl From<io::Error> for ZoneMaintainerError {
     fn from(err: io::Error) -> Self {
         Self::IoError(err)
     }
 }
-
-// TODO: Maintain an RFC 9432 catalog zone
-// let apex_name = Name::from_str("catalog.invalid.").unwrap();
-// let invalid_name = Name::from_str("invalid.").unwrap();
-// let mut cat_zone = ZoneBuilder::new(apex_name.clone(), Class::IN);
-
-// let mut soa_rrset = Rrset::new(Rtype::SOA, Ttl::from_hours(1));
-// let soa_data = crate::rdata::Soa::new(
-//     invalid_name.clone(),
-//     invalid_name.clone(),
-//     Serial::now(),
-//     Ttl::from_hours(1), // refresh
-//     Ttl::from_hours(1), // retry
-//     Ttl::from_hours(1), // expire
-//     Ttl::from_hours(1), // minimum
-// );
-// soa_rrset.push_data(soa_data.into());
-// let soa_rrset = SharedRrset::new(soa_rrset);
-// cat_zone.insert_rrset(&apex_name, soa_rrset).unwrap();
-
-// let mut ns_rrset = Rrset::new(Rtype::NS, Ttl::from_hours(1));
-// ns_rrset.push_data(crate::rdata::Ns::new(invalid_name).into());
-// let ns_rrset = SharedRrset::new(ns_rrset);
-// cat_zone.insert_rrset(&apex_name, ns_rrset).unwrap();
-
-// let mut txt_rrset = Rrset::new(Rtype::TXT, Ttl::from_hours(1));
-// let mut txt_builder = TxtBuilder::<Vec<u8>>::new();
-// let txt = {
-//     let cs = CharStr::<Vec<u8>>::from_str("2").unwrap();
-//     txt_builder.append_charstr(&cs).unwrap();
-//     txt_builder.finish().unwrap()
-// };
-// // txt_rrset.push_data(txt);
-
-// let cat_zone = cat_zone.build();
 
 //------------ DefaultConnFactory ------------------------------------------
 

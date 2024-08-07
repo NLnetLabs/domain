@@ -53,6 +53,9 @@
 #![cfg_attr(feature = "unstable-zonetree", doc = "* [zonetree]:")]
 #![cfg_attr(not(feature = "unstable-zonetree"), doc = "* zonetree:")]
 //!   Experimental storing and querying of zone trees.
+#![cfg_attr(feature = "unstable-zonetree", doc = "* [zonemaintenance]:")]
+#![cfg_attr(not(feature = "unstable-zonetree"), doc = "* zonemaintenance:")]
+//!   Experimental storing, querying and syncing zone collections.
 //!
 //! Finally, the [dep] module contains re-exports of some important
 //! dependencies to help avoid issues with multiple versions of a crate.
@@ -138,7 +141,7 @@
 //! * `unstable-validator`: a DNSSEC validator, primarily the `validator`
 //!   and the `net::client::validator` modules.
 //! * `unstable-zonetree`: building & querying zone trees; primarily the
-//!   `zonetree` module.
+//!   `zonetree` and `zonemaintenance` module.
 //!
 //! Note: Some functionality is currently informally marked as
 //! “experimental” since it was introduced before adoption of the concept
@@ -171,5 +174,5 @@ pub mod utils;
 pub mod validate;
 pub mod validator;
 pub mod zonefile;
-pub mod zonemaintainance;
+pub mod zonemaintenance;
 pub mod zonetree;

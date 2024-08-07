@@ -31,8 +31,10 @@ use crate::net::server::service::{
 use crate::net::server::util::{mk_builder_for_target, mk_error_response};
 use crate::rdata::{Soa, ZoneRecordData};
 use crate::tsig::KeyName;
-use crate::zonemaintainance::maintainer::{CatalogZone, ZoneError, ZoneLookup};
-use crate::zonemaintainance::types::{
+use crate::zonemaintenance::maintainer::{
+    MaintainedZone, ZoneError, ZoneLookup,
+};
+use crate::zonemaintenance::types::{
     CompatibilityMode, XfrConfig, XfrStrategy, ZoneInfo,
 };
 use crate::zonetree::error::OutOfZone;
@@ -191,7 +193,7 @@ where
         let cat_zone = zone
             .as_ref()
             .as_any()
-            .downcast_ref::<CatalogZone>()
+            .downcast_ref::<MaintainedZone>()
             .unwrap();
 
         let xfr_config = Self::settings_for_client(

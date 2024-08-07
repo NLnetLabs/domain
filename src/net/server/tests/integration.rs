@@ -53,12 +53,12 @@ use crate::stelline::parse_stelline::{
 use crate::tsig::{Algorithm, Key, KeyName, KeyStore};
 use crate::utils::base16;
 use crate::zonefile::inplace::Zonefile;
-use crate::zonemaintainance::maintainer::{
+use crate::zonemaintenance::maintainer::{
     self, ConnectionFactory, TypedZone, ZoneError, ZoneLookup, ZoneMaintainer,
 };
-use crate::zonemaintainance::types::{
-    CatalogKeyStore, CompatibilityMode, NotifyConfig, TransportStrategy,
-    XfrConfig, XfrStrategy, ZoneConfig,
+use crate::zonemaintenance::types::{
+    CompatibilityMode, NotifyConfig, TransportStrategy, XfrConfig,
+    XfrStrategy, ZoneConfig, ZoneMaintainerKeyStore,
 };
 use crate::zonetree::Answer;
 use crate::zonetree::{Zone, ZoneBuilder};
@@ -94,7 +94,7 @@ async fn server_tests(#[files("test-data/server/*.rpl")] rpl_file: PathBuf) {
     let server_config = parse_server_config(&stelline.config);
 
     // Create a TSIG key store containing a 'TESTKEY'
-    let mut key_store = CatalogKeyStore::new();
+    let mut key_store = ZoneMaintainerKeyStore::new();
     let key_name = KeyName::from_str("TESTKEY").unwrap();
     let rng = FixedByteRandom { byte: 0u8 };
     let (key, _) =
@@ -283,7 +283,7 @@ where
 fn mk_client_factory(
     dgram_server_conn: ClientServerChannel,
     stream_server_conn: ClientServerChannel,
-    key_store: Arc<CatalogKeyStore>,
+    key_store: Arc<ZoneMaintainerKeyStore>,
 ) -> impl ClientFactory {
     // Create a TCP client factory that only creates a client if (a) no
     // existing TCP client exists for the source address of the Stelline query,

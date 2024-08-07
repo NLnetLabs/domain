@@ -36,7 +36,7 @@ pub(super) const MIN_DURATION_BETWEEN_ZONE_REFRESHES: tokio::time::Duration =
 //------------ Type Aliases --------------------------------------------------
 
 /// A store of TSIG keys index by key name and algorithm.
-pub type CatalogKeyStore = HashMap<(KeyName, Algorithm), Key>;
+pub type ZoneMaintainerKeyStore = HashMap<(KeyName, Algorithm), Key>;
 
 //------------ SrcDstConfig --------------------------------------------------
 

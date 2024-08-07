@@ -10,7 +10,7 @@
     )))
 )]
 // #![warn(missing_docs)]
-//! Experimental storing, querying and syncing a catalog of zones.
+//! Experimental storing, querying and syncing of zone collections.
 
 pub mod maintainer;
 pub mod types;
