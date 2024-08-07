@@ -1,4 +1,4 @@
-//! Core DNS RFC standards based message processing for MUST requirements.
+//! RFC 1034, 1035 and other "core" DNS RFC related message processing.
 use core::future::{ready, Ready};
 use core::marker::PhantomData;
 use core::ops::ControlFlow;
