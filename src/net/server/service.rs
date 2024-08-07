@@ -21,8 +21,7 @@ use super::message::Request;
 /// The type of item that `Service` implementations stream as output.
 pub type ServiceResult<Target> = Result<CallResult<Target>, ServiceError>;
 
-/// `Service`s are responsible for determining how to respond to DNS
-/// requests.
+/// `Service`s are responsible for determining how to respond to DNS requests.
 ///
 /// For an overview of how services fit into the total flow of request and
 /// response handling see the [`net::server`] module documentation.
@@ -37,20 +36,8 @@ pub type ServiceResult<Target> = Result<CallResult<Target>, ServiceError>;
 ///
 /// # Usage
 ///
-/// There are three ways to implement the `Service` trait:
-///
-///   1. Implement the `Service` trait on a struct.
-///   2. Define a function compatible with the `Service` trait.
-///   3. Define a function compatible with [`service_fn`].
-///
-/// <div class="warning">
-///
-/// Whichever approach you choose it is important to minimize the work done
-/// before returning from [`Service::call`], as time spent here blocks the
-/// caller. Instead as much work as possible should be delegated to the
-/// future returned.
-///
-/// </div>
+/// You can either implement the [`Service`] trait on a struct or use the
+/// helper function [`service_fn`] to turn a function into a [`Service`].
 ///
 /// # Implementing the `Service` trait on a `struct`
 ///
@@ -103,72 +90,6 @@ pub type ServiceResult<Target> = Result<CallResult<Target>, ServiceError>;
 /// }
 /// ```
 ///
-/// # Define a function compatible with the `Service` trait
-///
-/// ```
-/// use core::fmt::Debug;
-/// use core::future::ready;
-/// use core::future::Future;
-///
-/// use domain::base::{Name, Message};
-/// use domain::base::iana::{Class, Rcode};
-/// use domain::base::name::ToLabelIter;
-/// use domain::base::wire::Composer;
-/// use domain::dep::octseq::{OctetsBuilder, FreezeBuilder, Octets};
-/// use domain::net::server::message::Request;
-/// use domain::net::server::service::{CallResult, ServiceError, ServiceResult};
-/// use domain::net::server::util::mk_builder_for_target;
-/// use domain::rdata::A;
-///
-/// fn name_to_ip(request: Request<Vec<u8>>) -> ServiceResult<Vec<u8>> {
-///     let mut out_answer = None;
-///     if let Ok(question) = request.message().sole_question() {
-///         let qname = question.qname();
-///         let num_labels = qname.label_count();
-///         if num_labels >= 5 {
-///             let mut iter = qname.iter_labels();
-///             let a = iter.nth(num_labels - 5).unwrap();
-///             let b = iter.next().unwrap();
-///             let c = iter.next().unwrap();
-///             let d = iter.next().unwrap();
-///             let a_rec: Result<A, _> = format!("{a}.{b}.{c}.{d}").parse();
-///             if let Ok(a_rec) = a_rec {
-///                 let builder = mk_builder_for_target();
-///                 let mut answer =
-///                     builder
-///                         .start_answer(request.message(), Rcode::NOERROR)
-///                         .unwrap();
-///                 answer
-///                     .push((Name::root_ref(), Class::IN, 86400, a_rec))
-///                     .unwrap();
-///                 out_answer = Some(answer);
-///             }
-///         }
-///     }
-///
-///     if out_answer.is_none() {
-///         let builder = mk_builder_for_target();
-///         let answer = builder
-///             .start_answer(request.message(), Rcode::REFUSED)
-///             .unwrap();
-///         out_answer = Some(answer);
-///     }
-///
-///     let additional = out_answer.unwrap().additional();
-///     Ok(CallResult::new(additional))
-/// }
-/// ```
-///
-/// Now when you want to use the service pass it to the server:
-///
-/// ```ignore
-/// let srv = DgramServer::new(sock, buf, name_to_ip);
-/// ```
-///
-/// # Define a function compatible with [`service_fn`]
-///
-/// See [`service_fn`] for an example of how to use it to create a `Service`
-/// impl from a function.
 ///
 /// [`DgramServer`]: crate::net::server::dgram::DgramServer
 /// [`StreamServer`]: crate::net::server::stream::StreamServer

@@ -44,9 +44,17 @@ where
 /// those of its associated types, but this makes implementing it for simple
 /// cases quite verbose.
 ///
-/// `service_fn()` enables you to write a slightly simpler function definition
-/// that implements the [`Service`] trait than implementing [`Service`]
-/// directly.
+/// [`service_fn()`] enables you to write a slightly simpler function
+/// definition that implements the [`Service`] trait than implementing
+/// [`Service`] directly.
+/// 
+/// <div class="warning">
+/// 
+/// Note that [`service_fn`] does not support async service functions. To
+/// use async code in a service you must implement the [`Service`] trait
+/// manually on a struct.
+/// 
+/// </div>
 ///
 /// # Example
 ///
@@ -56,13 +64,9 @@ where
 ///
 /// ```
 /// // Import the types we need.
-/// use std::boxed::Box;
-/// use std::future::Future;
-/// use std::pin::Pin;
 /// use domain::base::iana::Rcode;
-/// use domain::base::Message;
 /// use domain::net::server::message::Request;
-/// use domain::net::server::service::{CallResult, ServiceError, ServiceResult};
+/// use domain::net::server::service::{CallResult, ServiceResult};
 /// use domain::net::server::util::{mk_builder_for_target, service_fn};
 ///
 /// // Define some types to make the example easier to read.
@@ -70,7 +74,9 @@ where
 ///
 /// // Implement the application logic of our service.
 /// // Takes the received DNS request and any additional meta data you wish to
-/// // provide, and returns one or more future DNS responses.
+/// // provide, and returns one or more DNS responses.
+/// //
+/// // Note that using `service_fn()` does not permit you to use async code!
 /// fn my_service(req: Request<Vec<u8>>, _meta: MyMeta)
 ///     -> ServiceResult<Vec<u8>>
 /// {
