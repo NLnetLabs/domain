@@ -26,7 +26,7 @@ use crate::rdata::AllRecordData;
 /// A trait that allows composing a request as a series.
 pub trait ComposeRequest: Debug + Send + Sync {
     /// Writes the message to a provided composer.
-    /// 
+    ///
     /// Returns the builder used to allow the caller to make further changes
     /// if needed.
     fn to_message_builder<Target: Composer>(
@@ -93,7 +93,7 @@ pub trait GetResponse: Debug {
     /// Get the result of a DNS request.
     ///
     /// This function is intended to be cancel safe.
-    /// 
+    ///
     /// If [`is_stream_complete()`] returns false you can call this function
     /// again to receive the next response when dealing with a stream of
     /// responses.
@@ -109,7 +109,7 @@ pub trait GetResponse: Debug {
     >;
 
     /// Signal that no more responses are expected.
-    /// 
+    ///
     /// The DNS protocol does not provide a standardized way to detect the end
     /// of a stream of responses. At the time of writing the only query types
     /// that can result in a stream of responses are AXFR and IXFR. In both
@@ -124,10 +124,10 @@ pub trait GetResponse: Debug {
     }
 
     /// Has the last response been received or are more expected?
-    /// 
+    ///
     /// Call this after each call to [`get_response`] to check if more
     /// responses are expected.
-    /// 
+    ///
     /// Returns false if more responses are expected, true otherwise.
     fn is_stream_complete(&self) -> bool {
         // DNS response streams only exist at the time of writing for
@@ -137,7 +137,7 @@ pub trait GetResponse: Debug {
         // implementaiton. We return true because the caller should always
         // check for at least one response and then if they call this function
         // to find out if there will be more we say no, the stream is
-        // complete. 
+        // complete.
         true
     }
 }
@@ -237,9 +237,10 @@ impl<Octs: AsRef<[u8]> + Debug + Octets> RequestMessage<Octs> {
 
         let builder = self.append_message_impl(target)?;
 
-        let msg = Message::from_octets(builder.finish().into_target()).expect(
-            "Message should be able to parse output from MessageBuilder",
-        );
+        let msg = Message::from_octets(builder.finish().into_target())
+            .expect(
+                "Message should be able to parse output from MessageBuilder",
+            );
         Ok(msg)
     }
 }
