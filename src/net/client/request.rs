@@ -38,11 +38,11 @@ pub trait ComposeRequest: Debug + Send + Sync {
     ) -> Result<AdditionalBuilder<Target>, CopyRecordsError>;
 
     /// Create a message that captures the recorded changes.
-    fn to_vec(&self) -> Result<Vec<u8>, Error>;
+    fn to_message(&self) -> Result<Message<Vec<u8>>, Error>;
 
     /// Create a message that captures the recorded changes and convert to
     /// a Vec.
-    fn to_message(&self) -> Result<Message<Vec<u8>>, Error>;
+    fn to_vec(&self) -> Result<Vec<u8>, Error>;
 
     /// Return a reference to the current Header.
     fn header(&self) -> &Header;
