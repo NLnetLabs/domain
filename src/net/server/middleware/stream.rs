@@ -102,25 +102,49 @@ where
 
 //------------ PostprocessingStreamCallback ----------------------------------
 
-type PostprocessingStreamCallback<RequestOctets, StreamItem, Metadata> =
-    fn(Request<RequestOctets>, StreamItem, Metadata) -> StreamItem;
+type PostprocessingStreamCallback<
+    RequestOctets,
+    StreamItem,
+    RequestMeta,
+    PostProcessingMeta,
+> = fn(
+    Request<RequestOctets, RequestMeta>,
+    StreamItem,
+    PostProcessingMeta,
+) -> StreamItem;
 
 //------------ PostprocessingStream ------------------------------------------
 
-pub struct PostprocessingStream<RequestOctets, Future, Stream, Metadata>
-where
+pub struct PostprocessingStream<
+    RequestOctets,
+    Future,
+    Stream,
+    RequestMeta,
+    PostProcessingMeta,
+> where
     RequestOctets: Octets + Send + Sync + Unpin,
     Future: core::future::Future<Output = Stream>,
     Stream: futures::stream::Stream,
 {
-    request: Request<RequestOctets>,
+    request: Request<RequestOctets, RequestMeta>,
     state: PostprocessingStreamState<Future, Stream>,
-    cb: PostprocessingStreamCallback<RequestOctets, Stream::Item, Metadata>,
-    metadata: Metadata,
+    cb: PostprocessingStreamCallback<
+        RequestOctets,
+        Stream::Item,
+        RequestMeta,
+        PostProcessingMeta,
+    >,
+    pp_meta: PostProcessingMeta,
 }
 
-impl<RequestOctets, Future, Stream, Metadata>
-    PostprocessingStream<RequestOctets, Future, Stream, Metadata>
+impl<RequestOctets, Future, Stream, RequestMeta, PostProcessingMeta>
+    PostprocessingStream<
+        RequestOctets,
+        Future,
+        Stream,
+        RequestMeta,
+        PostProcessingMeta,
+    >
 where
     RequestOctets: Octets + Send + Sync + Unpin,
     Future: core::future::Future<Output = Stream>,
@@ -128,33 +152,42 @@ where
 {
     pub fn new(
         svc_call_fut: Future,
-        request: Request<RequestOctets>,
-        metadata: Metadata,
+        request: Request<RequestOctets, RequestMeta>,
+        metadata: PostProcessingMeta,
         cb: PostprocessingStreamCallback<
             RequestOctets,
             Stream::Item,
-            Metadata,
+            RequestMeta,
+            PostProcessingMeta,
         >,
     ) -> Self {
         Self {
             state: PostprocessingStreamState::Pending(svc_call_fut),
             request,
             cb,
-            metadata,
+            pp_meta: metadata,
         }
     }
 }
 
 //--- impl Stream
 
-impl<RequestOctets, Future, Stream, Metadata> futures::stream::Stream
-    for PostprocessingStream<RequestOctets, Future, Stream, Metadata>
+impl<RequestOctets, Future, Stream, RequestMeta, PostProcessingMeta>
+    futures::stream::Stream
+    for PostprocessingStream<
+        RequestOctets,
+        Future,
+        Stream,
+        RequestMeta,
+        PostProcessingMeta,
+    >
 where
     RequestOctets: Octets + Send + Sync + Unpin,
     Future: core::future::Future<Output = Stream> + Unpin,
     Stream: futures::stream::Stream + Unpin,
     Self: Unpin,
-    Metadata: Clone,
+    RequestMeta: Clone,
+    PostProcessingMeta: Clone,
 {
     type Item = Stream::Item;
 
@@ -173,9 +206,9 @@ where
                 let stream_item = ready!(stream.poll_next_unpin(cx));
                 trace!("Stream item retrieved, mapping to downstream type");
                 let request = self.request.clone();
-                let metadata = self.metadata.clone();
-                let map = stream_item
-                    .map(|item| (self.cb)(request, item, metadata));
+                let pp_meta = self.pp_meta.clone();
+                let map =
+                    stream_item.map(|item| (self.cb)(request, item, pp_meta));
                 Poll::Ready(map)
             }
         }

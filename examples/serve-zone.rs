@@ -80,9 +80,9 @@ async fn main() {
     let svc = service_fn(my_service, zones);
 
     #[cfg(feature = "siphasher")]
-    let svc = CookiesMiddlewareSvc::<Vec<u8>, _>::with_random_secret(svc);
-    let svc = EdnsMiddlewareSvc::<Vec<u8>, _>::new(svc);
-    let svc = MandatoryMiddlewareSvc::<Vec<u8>, _>::new(svc);
+    let svc = CookiesMiddlewareSvc::<Vec<u8>, _, _>::with_random_secret(svc);
+    let svc = EdnsMiddlewareSvc::<Vec<u8>, _, _>::new(svc);
+    let svc = MandatoryMiddlewareSvc::<Vec<u8>, _, _>::new(svc);
     let svc = Arc::new(svc);
 
     let sock = UdpSocket::bind(addr).await.unwrap();
