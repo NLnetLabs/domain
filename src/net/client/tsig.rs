@@ -206,6 +206,8 @@ where
     }
 }
 
+//--- Debug
+
 impl<CR, Upstream, K> Debug for Request<CR, Upstream, K>
 where
     CR: ComposeRequest,
@@ -215,6 +217,8 @@ where
         f.debug_struct("Request").finish()
     }
 }
+
+//--- GetResponse
 
 impl<CR, Upstream, K> GetResponse for Request<CR, Upstream, K>
 where
@@ -304,6 +308,8 @@ where
     /// If None, signing was skipped because no key was supplied.
     signer: Arc<std::sync::Mutex<Option<TsigClient<K>>>>,
 }
+
+//--- ComposeRequest
 
 impl<CR, K> ComposeRequest for AuthenticatedRequestMessage<CR, K>
 where
