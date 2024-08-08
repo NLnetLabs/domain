@@ -432,15 +432,6 @@ pub async fn do_client<'a, T: ClientFactory>(
                         return Err(StellineErrorCause::MissingResponse);
                     };
 
-                    // NOTE: Calling .get_response() on a non-streaming
-                    // request will only work once at the time of writing, the
-                    // dgram client implementation will fail if called a
-                    // second time with error that the future has already been
-                    // awaited. Either the streaming response mechanism needs
-                    // to be implemented differently, or all client
-                    // implementations need to be safe to call for a
-                    // subsequent response.
-
                     if entry
                         .matches
                         .as_ref()
@@ -454,14 +445,29 @@ pub async fn do_client<'a, T: ClientFactory>(
                         trace!("Awaiting an unknown number of answers");
                         let mut entry = entry.clone();
                         loop {
-                            let resp = tokio::time::timeout(
+                            let resp = match tokio::time::timeout(
                                 Duration::from_secs(3),
                                 send_request.get_response(),
                             )
                             .await
-                            .map_err(|_| {
-                                StellineErrorCause::AnswerTimedOut
-                            })??;
+                            .map_err(|_| StellineErrorCause::AnswerTimedOut)?
+                            {
+                                Err(
+                                    Error::StreamReceiveError
+                                    | Error::ConnectionClosed,
+                                ) if entry
+                                    .matches
+                                    .as_ref()
+                                    .map(|v| v.conn_closed)
+                                    == Some(true) =>
+                                {
+                                    trace!(
+                                        "Connection terminated as expected"
+                                    );
+                                    break;
+                                }
+                                other => other,
+                            }?;
                             trace!("Received answer.");
                             trace!(?resp);
 
@@ -507,14 +513,29 @@ pub async fn do_client<'a, T: ClientFactory>(
                                 "Awaiting answer {}/{num_expected_answers}...",
                                 idx + 1
                             );
-                            let resp = tokio::time::timeout(
+                            let resp = match tokio::time::timeout(
                                 Duration::from_secs(3),
                                 send_request.get_response(),
                             )
                             .await
-                            .map_err(|_| {
-                                StellineErrorCause::AnswerTimedOut
-                            })??;
+                            .map_err(|_| StellineErrorCause::AnswerTimedOut)?
+                            {
+                                Err(
+                                    Error::StreamReceiveError
+                                    | Error::ConnectionClosed,
+                                ) if entry
+                                    .matches
+                                    .as_ref()
+                                    .map(|v| v.conn_closed)
+                                    == Some(true) =>
+                                {
+                                    trace!(
+                                        "Connection terminated as expected"
+                                    );
+                                    break;
+                                }
+                                other => other,
+                            }?;
                             trace!("Received answer.");
                             trace!(?resp);
                             if !match_multi_msg(

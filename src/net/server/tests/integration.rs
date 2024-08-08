@@ -20,7 +20,6 @@ use rstest::rstest;
 use tracing::warn;
 use tracing::{instrument, trace};
 
-use super::mock_dgram_client;
 use crate::base::iana::Class;
 use crate::base::iana::Rcode;
 use crate::base::name::{Name, ToName};
@@ -50,6 +49,7 @@ use crate::stelline::client::{
 use crate::stelline::parse_stelline::{
     self, parse_file, Config, Matches, Stelline,
 };
+use crate::stelline::simple_dgram_client;
 use crate::tsig::{Algorithm, Key, KeyName, KeyStore};
 use crate::utils::base16;
 use crate::zonefile::inplace::Zonefile;
@@ -286,9 +286,9 @@ fn mk_client_factory(
     key_store: Arc<ZoneMaintainerKeyStore>,
 ) -> impl ClientFactory {
     // Create a TCP client factory that only creates a client if (a) no
-    // existing TCP client exists for the source address of the Stelline query,
-    // and (b) if the query specifies "MATCHES TCP". Clients created by this
-    // factory connect to the TCP server created above.
+    // existing TCP client exists for the source address of the Stelline
+    // query, and (b) if the query specifies "MATCHES TCP". Clients created by
+    // this factory connect to the TCP server created above.
     let only_for_tcp_queries = |entry: &parse_stelline::Entry| {
         matches!(entry.matches, Some(Matches { tcp: true, .. }))
     };
@@ -326,7 +326,7 @@ fn mk_client_factory(
 
             match entry.matches.as_ref().map(|v| v.mock_client) {
                 Some(true) => {
-                    Box::new(mock_dgram_client::Connection::new(connect))
+                    Box::new(simple_dgram_client::Connection::new(connect))
                 }
                 _ => {
                     let key = entry.key_name.as_ref().and_then(|key_name| {
@@ -371,14 +371,14 @@ fn mk_server_configs(
 // This function can be used with `service_fn()` to create a `Service`
 // instance designed to respond to test queries.
 //
-// The functionality provided is the mininum common set of behaviour needed
-// by the tests that use it.
+// The functionality provided is the mininum common set of behaviour needed by
+// the tests that use it.
 //
 // It's behaviour should be influenced to match the conditions under test by:
 //   - Using different `MiddlewareChain` setups with the server(s) to which
 //     the `Service` will be passed.
-//   - Controlling the content of the `Zonefile` passed to instances of
-//     this `Service` impl.
+//   - Controlling the content of the `Zonefile` passed to instances of this
+//     `Service` impl.
 #[allow(clippy::type_complexity)]
 fn test_service<T: ZoneLookup>(
     request: Request<Vec<u8>>,
@@ -467,8 +467,8 @@ fn parse_server_config(config: &Config) -> ServerConfig {
                         // TODO: Strictly speaking the "ip" is a netblock
                         // "given as an IPv4 or IPv6 address /size appended
                         // for a classless network block", but we only handle
-                        // an IP address here for now.
-                        // See: https://unbound.docs.nlnetlabs.nl/en/latest/manpages/unbound.conf.html?highlight=edns-tcp-keepalive#unbound-conf-access-control
+                        // an IP address here for now. See:
+                        // https://unbound.docs.nlnetlabs.nl/en/latest/manpages/unbound.conf.html?highlight=edns-tcp-keepalive#unbound-conf-access-control
                         if let Some((ip, action)) =
                             v.split_once(|c: char| c.is_whitespace())
                         {
