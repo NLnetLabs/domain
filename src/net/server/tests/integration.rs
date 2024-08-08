@@ -216,7 +216,11 @@ fn mk_client_factory(
                 Some(true) => {
                     Box::new(simple_dgram_client::Connection::new(connect))
                 }
-                _ => Box::new(dgram::Connection::new(connect)),
+                _ => {
+                    let mut config = dgram::Config::new();
+                    config.set_max_retries(0);
+                    Box::new(dgram::Connection::with_config(connect, config))
+                }
             }
         },
         for_all_other_queries,

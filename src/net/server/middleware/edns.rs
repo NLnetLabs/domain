@@ -2,6 +2,7 @@
 use core::future::{ready, Ready};
 use core::marker::PhantomData;
 use core::ops::ControlFlow;
+use core::time::Duration;
 
 use futures::stream::{once, Once, Stream};
 use octseq::Octets;
@@ -9,10 +10,11 @@ use tracing::{debug, enabled, error, trace, warn, Level};
 
 use crate::base::iana::OptRcode;
 use crate::base::message_builder::AdditionalBuilder;
+use crate::base::name::ToLabelIter;
 use crate::base::opt::keepalive::IdleTimeout;
-use crate::base::opt::{Opt, OptRecord, TcpKeepalive};
+use crate::base::opt::{ComposeOptData, Opt, OptRecord, TcpKeepalive};
 use crate::base::wire::Composer;
-use crate::base::StreamTarget;
+use crate::base::{Name, StreamTarget};
 use crate::net::server::message::{Request, TransportSpecificContext};
 use crate::net::server::middleware::stream::MiddlewareStream;
 use crate::net::server::service::{CallResult, Service, ServiceResult};
@@ -93,8 +95,8 @@ where
         // https://www.rfc-editor.org/rfc/rfc6891.html#section-6.1.1
         // 6.1.1: Basic Elements
         // ...
-        // "If a query message with more than one OPT RR is received, a
-        //  FORMERR (RCODE=1) MUST be returned"
+        //   "If a query message with more than one OPT RR is received, a
+        //    FORMERR (RCODE=1) MUST be returned"
         let msg = request.message().clone();
         if let Ok(additional) = msg.additional() {
             let mut iter = additional.limit_to::<Opt<_>>();
@@ -108,36 +110,124 @@ where
                     ));
                 }
 
-                if let Ok(opt) = opt {
-                    let opt_rec = OptRecord::from(opt);
-
-                    // https://datatracker.ietf.org/doc/html/rfc6891#section-6.1.3
-                    // 6.1.3. OPT Record TTL Field Use
-                    //   "If a responder does not implement the VERSION level
-                    //    of the request, then it MUST respond with
-                    //    RCODE=BADVERS."
-                    if opt_rec.version() > EDNS_VERSION_ZERO {
-                        debug!("RFC 6891 6.1.3 violation: request EDNS version {} > 0", opt_rec.version());
+                let opt = match opt {
+                    Ok(opt) => opt,
+                    Err(err) => {
+                        debug!("RFC 6891 violation: unable to parse OPT RR: {err}");
                         return ControlFlow::Break(mk_error_response(
                             request.message(),
-                            OptRcode::BADVERS,
+                            OptRcode::FORMERR,
                         ));
                     }
+                };
 
-                    match request.transport_ctx() {
-                        TransportSpecificContext::Udp(ctx) => {
-                            // https://datatracker.ietf.org/doc/html/rfc7828#section-3.2.1
-                            // 3.2.1. Sending Queries
-                            //   "DNS clients MUST NOT include the
-                            //    edns-tcp-keepalive option in queries sent
-                            //    using UDP transport."
-                            // TODO: We assume there is only one keep-alive
-                            // option in the request. Should we check for
-                            // multiple? Neither RFC 6891 nor RFC 7828 seem to
-                            // disallow multiple keep alive options in the OPT
-                            // RDATA but multiple at once seems strange.
-                            if opt_rec.opt().tcp_keepalive().is_some() {
-                                debug!("RFC 7828 3.2.1 violation: edns-tcp-keepalive option received via UDP");
+                let opt_rec = OptRecord::from(opt);
+
+                // https://datatracker.ietf.org/doc/html/rfc6891#section-6.1.3
+                // 6.1.3. OPT Record TTL Field Use
+                //   "If a responder does not implement the VERSION level of
+                //   the request, then it MUST respond with RCODE=BADVERS."
+                if opt_rec.version() > EDNS_VERSION_ZERO {
+                    debug!("RFC 6891 6.1.3 violation: request EDNS version {} > 0", opt_rec.version());
+                    return ControlFlow::Break(mk_error_response(
+                        request.message(),
+                        OptRcode::BADVERS,
+                    ));
+                }
+
+                match request.transport_ctx() {
+                    TransportSpecificContext::Udp(ctx) => {
+                        // https://datatracker.ietf.org/doc/html/rfc7828#section-3.3.1
+                        // 3.3.1.  Receiving Queries
+                        //   "A DNS server that receives a query using UDP
+                        //    transport that includes the edns-tcp-keepalive
+                        //    option MUST ignore the option."
+                        if enabled!(Level::DEBUG)
+                            && opt_rec.opt().tcp_keepalive().is_some()
+                        {
+                            debug!("RFC 7828 3.2.1 violation: ignoring edns-tcp-keepalive option received via UDP");
+                        }
+
+                        // https://datatracker.ietf.org/doc/html/rfc6891#section-6.2.3
+                        // 6.2.3. Requestor's Payload Size
+                        //   "The requestor's UDP payload size (encoded in the
+                        //    RR CLASS field) is the number of octets of the
+                        //    largest UDP payload that can be reassembled and
+                        //    delivered in the requestor's network stack. Note
+                        //    that path MTU, with or without fragmentation,
+                        //    could be smaller than this.
+                        //
+                        //    Values lower than 512 MUST be treated as equal
+                        //    to 512."
+                        let requestors_udp_payload_size =
+                            opt_rec.udp_payload_size();
+
+                        if enabled!(Level::DEBUG)
+                            && requestors_udp_payload_size
+                                < MINIMUM_RESPONSE_BYTE_LEN
+                        {
+                            debug!("RFC 6891 6.2.3 violation: OPT RR class (requestor's UDP payload size) < {MINIMUM_RESPONSE_BYTE_LEN}");
+                        }
+
+                        // Clamp the lower bound of the size limit requested
+                        // by the client:
+                        let clamped_requestors_udp_payload_size = u16::max(
+                            MINIMUM_RESPONSE_BYTE_LEN,
+                            requestors_udp_payload_size,
+                        );
+
+                        // Clamp the upper bound of the size limit requested
+                        // by the server:
+                        let server_max_response_size_hint =
+                            ctx.max_response_size_hint();
+                        let clamped_server_hint =
+                            server_max_response_size_hint.map(|v| {
+                                v.clamp(
+                                    MINIMUM_RESPONSE_BYTE_LEN,
+                                    clamped_requestors_udp_payload_size,
+                                )
+                            });
+
+                        // Use the clamped client size limit if no server hint
+                        // exists, otherwise use the smallest of the client
+                        // and server limits while not going lower than 512
+                        // bytes.
+                        let negotiated_hint = match clamped_server_hint {
+                            Some(clamped_server_hint) => u16::min(
+                                clamped_requestors_udp_payload_size,
+                                clamped_server_hint,
+                            ),
+
+                            None => clamped_requestors_udp_payload_size,
+                        };
+
+                        if enabled!(Level::TRACE) {
+                            trace!("EDNS(0) response size negotation concluded: client requested={}, server requested={:?}, chosen value={}",
+                                opt_rec.udp_payload_size(), server_max_response_size_hint, negotiated_hint);
+                        }
+
+                        ctx.set_max_response_size_hint(Some(negotiated_hint));
+
+                        // https://datatracker.ietf.org/doc/html/rfc6891#section-6.1.1
+                        // 6.1.1. Basic Elements
+                        //   "If an OPT record is present in a received
+                        //    request, compliant responders MUST include an
+                        //    OPT record in their respective responses."
+                        return Self::reserve_space_for_keep_alive_opt(
+                            request, None,
+                        );
+                    }
+
+                    TransportSpecificContext::NonUdp(ctx) => {
+                        // https://datatracker.ietf.org/doc/html/rfc7828#section-3.2.1
+                        // 3.2.1. Sending Queries
+                        //   "Clients MUST specify an OPTION-LENGTH of 0 and
+                        //    omit the TIMEOUT value."
+                        if let Some(keep_alive) =
+                            opt_rec.opt().tcp_keepalive()
+                        {
+                            if keep_alive.timeout().is_some() {
+                                debug!("RFC 7828 3.2.1 violation: edns-tcp-keepalive option received via TCP contains timeout");
                                 return ControlFlow::Break(
                                     mk_error_response(
                                         request.message(),
@@ -145,86 +235,17 @@ where
                                     ),
                                 );
                             }
-
-                            // https://datatracker.ietf.org/doc/html/rfc6891#section-6.2.3
-                            // 6.2.3. Requestor's Payload Size
-                            //   "The requestor's UDP payload size (encoded in
-                            //    the RR CLASS field) is the number of octets
-                            //    of the largest UDP payload that can be
-                            //    reassembled and delivered in the requestor's
-                            //    network stack. Note that path MTU, with or
-                            //    without fragmentation, could be smaller than
-                            //    this.
-                            //
-                            //    Values lower than 512 MUST be treated as
-                            //    equal to 512."
-                            let requestors_udp_payload_size =
-                                opt_rec.udp_payload_size();
-
-                            if requestors_udp_payload_size
-                                < MINIMUM_RESPONSE_BYTE_LEN
-                            {
-                                debug!("RFC 6891 6.2.3 violation: OPT RR class (requestor's UDP payload size) < {MINIMUM_RESPONSE_BYTE_LEN}");
-                            }
-
-                            // Clamp the lower bound of the size limit
-                            // requested by the client:
-                            let clamped_requestors_udp_payload_size =
-                                u16::max(512, requestors_udp_payload_size);
-
-                            // Clamp the upper bound of the size limit
-                            // requested by the server:
-                            let server_max_response_size_hint =
-                                ctx.max_response_size_hint();
-                            let clamped_server_hint =
-                                server_max_response_size_hint.map(|v| {
-                                    v.clamp(
-                                        MINIMUM_RESPONSE_BYTE_LEN,
-                                        clamped_requestors_udp_payload_size,
-                                    )
-                                });
-
-                            // Use the clamped client size limit if no server hint exists,
-                            // otherwise use the smallest of the client and server limits
-                            // while not going lower than 512 bytes.
-                            let negotiated_hint = match clamped_server_hint {
-                                Some(clamped_server_hint) => u16::min(
-                                    clamped_requestors_udp_payload_size,
-                                    clamped_server_hint,
-                                ),
-
-                                None => clamped_requestors_udp_payload_size,
-                            };
-
-                            if enabled!(Level::TRACE) {
-                                trace!("EDNS(0) response size negotation concluded: client requested={}, server requested={:?}, chosen value={}",
-                                    opt_rec.udp_payload_size(), server_max_response_size_hint, negotiated_hint);
-                            }
-
-                            ctx.set_max_response_size_hint(Some(
-                                negotiated_hint,
-                            ));
                         }
 
-                        TransportSpecificContext::NonUdp(_) => {
-                            // https://datatracker.ietf.org/doc/html/rfc7828#section-3.2.1
-                            // 3.2.1. Sending Queries
-                            //   "Clients MUST specify an OPTION-LENGTH of 0
-                            //    and omit the TIMEOUT value."
-                            if let Some(keep_alive) =
-                                opt_rec.opt().tcp_keepalive()
-                            {
-                                if keep_alive.timeout().is_some() {
-                                    debug!("RFC 7828 3.2.1 violation: edns-tcp-keepalive option received via TCP contains timeout");
-                                    return ControlFlow::Break(
-                                        mk_error_response(
-                                            request.message(),
-                                            OptRcode::FORMERR,
-                                        ),
-                                    );
-                                }
-                            }
-                        }
+                        // https://datatracker.ietf.org/doc/html/rfc6891#section-6.1.1
+                        // 6.1.1. Basic Elements
+                        //   "If an OPT record is present in a received
+                        //    request, compliant responders MUST include an
+                        //    OPT record in their respective responses."
+                        return Self::reserve_space_for_keep_alive_opt(
+                            request,
+                            ctx.idle_timeout(),
+                        );
                     }
                 }
             }
@@ -240,19 +261,19 @@ where
         // https://www.rfc-editor.org/rfc/rfc6891.html#section-6.1.1
         // 6.1.1: Basic Elements
         // ...
-        // "If an OPT record is present in a received request, compliant
-        //  responders MUST include an OPT record in their respective
-        //  responses."
+        //   "If an OPT record is present in a received request, compliant
+        //    responders MUST include an OPT record in their respective
+        //    responses."
         //
         // We don't do anything about this scenario at present.
 
         // https://www.rfc-editor.org/rfc/rfc6891.html#section-7
         // 7: Transport considerations
         // ...
-        // "Lack of presence of an OPT record in a request MUST be taken as an
-        //  indication that the requestor does not implement any part of this
-        //  specification and that the responder MUST NOT include an OPT
-        //  record in its response."
+        //   "Lack of presence of an OPT record in a request MUST be taken as
+        //    an indication that the requestor does not implement any part of
+        //    this specification and that the responder MUST NOT include an
+        //    OPT record in its response."
         //
         // So strip off any OPT record present if the query lacked an OPT
         // record.
@@ -320,6 +341,52 @@ where
         // TODO: For UDP EDNS capable clients (those that included an OPT
         // record in the request) should we set the Requestor's Payload Size
         // field to some value?
+    }
+
+    fn reserve_space_for_keep_alive_opt(
+        request: &mut Request<RequestOctets, RequestMeta>,
+        timeout: Option<Duration>,
+    ) -> ControlFlow<AdditionalBuilder<StreamTarget<NextSvc::Target>>> {
+        let keep_alive_option_len = match timeout {
+            Some(timeout) => {
+                match IdleTimeout::try_from(timeout) {
+                    Ok(idle_timeout) => {
+                        let option_data =
+                            TcpKeepalive::new(Some(idle_timeout));
+                        // OPTION-CODE + OPTION-LENGTH + OPTION-DATA
+                        2 + 2 + option_data.compose_len()
+                    }
+                    Err(err) => {
+                        debug!("RFC 7828 3.1 violation: unable to parse edns-tcp-keepalive timeout value: {err}");
+                        return ControlFlow::Break(mk_error_response(
+                            request.message(),
+                            OptRcode::FORMERR,
+                        ));
+                    }
+                }
+            }
+            None => 0,
+        };
+
+        let root_name_len = Name::root_ref().compose_len();
+
+        // See:
+        //  - https://datatracker.ietf.org/doc/html/rfc1035#section-3.2.1
+        //  - https://datatracker.ietf.org/doc/html/rfc6891#autoid-12
+        //  - https://datatracker.ietf.org/doc/html/rfc7828#section-3.1
+
+        // Calculate the size of the DNS OPTION RR that will be added to the
+        // response during post-processing.
+        let wire_opt_len = root_name_len // "0" root domain name per RFC 6891
+            + 2 // TYPE
+            + 2 // CLASS
+            + 4 // TTL
+            + 2 // RDLEN
+            + keep_alive_option_len; // OPTION-DATA
+
+        request.reserve_bytes(wire_opt_len);
+
+        ControlFlow::Continue(())
     }
 
     fn map_stream_item(
