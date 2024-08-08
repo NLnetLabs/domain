@@ -439,6 +439,19 @@ impl<Octs: Octets + ?Sized> Message<Octs> {
         }
     }
 
+    /// Could this message result in a stream of responses?
+    /// 
+    /// Most DNS queries result in a single response, but some (only AXFR and
+    /// IXFR at the time of writing) can result in a stream of responses.
+    /// 
+    /// Returns true if the first question is of a type that might result in a
+    /// stream of responses.
+    pub fn is_streaming(&self) -> bool {
+        self.first_question()
+            .map(|q| matches!(q.qtype(), Rtype::AXFR | Rtype::IXFR))
+            .unwrap_or_default()
+    }
+
     /// Returns the first question, if there is any.
     ///
     /// The method will return `None` both if there are no questions or if

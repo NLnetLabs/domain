@@ -14,16 +14,9 @@
 //   - request timeout
 // - create new connection after end/failure of previous one
 
-use crate::base::message::Message;
-use crate::base::message_builder::StreamTarget;
-use crate::base::opt::{AllOptData, OptRecord, TcpKeepalive};
-use crate::net::client::request::{
-    ComposeRequest, Error, GetResponse, SendRequest,
-};
-use crate::utils::config::DefMinMax;
-use bytes::{Bytes, BytesMut};
 use core::cmp;
-use octseq::Octets;
+use core::future::ready;
+
 use std::boxed::Box;
 use std::fmt::Debug;
 use std::future::Future;
@@ -31,9 +24,22 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use std::vec::Vec;
+
+use bytes::{Bytes, BytesMut};
+use octseq::Octets;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
+use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use tokio::sync::{mpsc, oneshot};
 use tokio::time::sleep;
+use tracing::trace;
+
+use crate::base::message::Message;
+use crate::base::message_builder::StreamTarget;
+use crate::base::opt::{AllOptData, OptRecord, TcpKeepalive};
+use crate::net::client::request::{
+    ComposeRequest, Error, GetResponse, SendRequest,
+};
+use crate::utils::config::DefMinMax;
 
 //------------ Configuration Constants ----------------------------------------
 
@@ -77,8 +83,14 @@ const READ_REPLY_CHAN_CAP: usize = 8;
 /// Configuration for a stream transport connection.
 #[derive(Clone, Debug)]
 pub struct Config {
-    /// Response timeout.
+    /// Response timeout currently in effect.
     response_timeout: Duration,
+
+    /// Single response timeout.
+    single_response_timeout: Duration,
+
+    /// Streaming response timeout.
+    streaming_response_timeout: Duration,
 
     /// Default idle timeout.
     ///
@@ -102,11 +114,53 @@ impl Config {
     }
 
     /// Sets the response timeout.
+    ///
+    /// For requests where ComposeRequest::is_streaming() returns true see
+    /// set_streaming_response_timeout() instead.    
+    ///
+    /// Excessive values are quietly trimmed.
+    //
+    //  XXX Maybe that’s wrong and we should rather return an error?
     pub fn set_response_timeout(&mut self, timeout: Duration) {
         self.response_timeout = RESPONSE_TIMEOUT.limit(timeout);
+        self.streaming_response_timeout = self.response_timeout;
     }
 
-    /// Sets the idle timeout.
+    /// Returns the streaming response timeout.
+    pub fn streaming_response_timeout(&self) -> Duration {
+        self.streaming_response_timeout
+    }
+
+    /// Sets the streaming response timeout.
+    ///
+    /// Only used for requests where ComposeRequest::is_streaming() returns
+    /// true as it is typically desirable that such response streams be
+    /// allowed to complete even if the individual responses arrive very
+    /// slowly.
+    ///
+    /// Excessive values are quietly trimmed.
+    pub fn set_streaming_response_timeout(&mut self, timeout: Duration) {
+        self.streaming_response_timeout = RESPONSE_TIMEOUT.limit(timeout);
+    }
+
+    /// Returns the initial idle timeout, if set.
+    pub fn idle_timeout(&self) -> Duration {
+        self.idle_timeout
+    }
+
+    /// Sets the initial idle timeout.
+    ///
+    /// By default the stream is immediately closed if there are no pending
+    /// requests or responses.
+    ///  
+    /// Set this to allow requests to be sent in sequence with delays between
+    /// such as a SOA query followed by AXFR for more efficient use of the
+    /// stream per RFC 9103.
+    ///
+    /// Note: May be overridden by an RFC 7828 edns-tcp-keepalive timeout
+    /// received from a server.
+    ///
+    /// Excessive values are quietly trimmed.
     pub fn set_idle_timeout(&mut self, timeout: Duration) {
         self.idle_timeout = IDLE_TIMEOUT.limit(timeout)
     }
@@ -116,6 +170,8 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             response_timeout: RESPONSE_TIMEOUT.default(),
+            single_response_timeout: RESPONSE_TIMEOUT.default(),
+            streaming_response_timeout: RESPONSE_TIMEOUT.default(),
             idle_timeout: IDLE_TIMEOUT.default(),
         }
     }
@@ -160,12 +216,13 @@ impl<Req: ComposeRequest + 'static> Connection<Req> {
     /// Start a DNS request.
     ///
     /// This function takes a precomposed message as a parameter and
-    /// returns a [`Message`] object wrapped in a [`Result`].
+    /// returns a response [`Message`] object wrapped in a [`Result`].
     async fn handle_request_impl(
         self,
         msg: Req,
     ) -> Result<Message<Bytes>, Error> {
         let (sender, receiver) = oneshot::channel();
+        let sender = ReplySender::Single(Some(sender));
         let req = ChanReq { sender, msg };
         self.sender.send(req).await.map_err(|_| {
             // Send error. The receiver is gone, this means that the
@@ -175,10 +232,49 @@ impl<Req: ComposeRequest + 'static> Connection<Req> {
         receiver.await.map_err(|_| Error::StreamReceiveError)?
     }
 
+    /// Start a DNS request that may result in multiple responses.
+    ///
+    /// This function takes a precomposed message as a parameter and a stream
+    /// sender which should be used to send responses back to the caller as
+    /// responses are received.
+    ///
+    /// Note: The return type is and must be compatible with that of
+    /// [`handle_request_impl`] but has no meaning and should not be checked.
+    async fn handle_streaming_request_impl(
+        self,
+        msg: Req,
+        sender: UnboundedSender<Result<Message<Bytes>, Error>>,
+    ) -> Result<Message<Bytes>, Error> {
+        let reply_sender = ReplySender::Stream(sender);
+        let req = ChanReq {
+            sender: reply_sender,
+            msg,
+        };
+        let _ = self.sender.send(req).await;
+
+        // TODO: It would be nicer if we could return Ok(()) here.
+        Err(Error::ConnectionClosed)
+    }
+
     /// Returns a request handler for this connection.
     pub fn get_request(&self, request_msg: Req) -> Request {
         Request {
+            stream: None,
             fut: Box::pin(self.clone().handle_request_impl(request_msg)),
+            stream_complete: false,
+        }
+    }
+
+    /// TODO
+    pub fn get_streaming_request(&self, request_msg: Req) -> Request {
+        let (sender, receiver) = mpsc::unbounded_channel();
+        Request {
+            stream: Some(receiver),
+            fut: Box::pin(
+                self.clone()
+                    .handle_streaming_request_impl(request_msg, sender),
+            ),
+            stream_complete: false,
         }
     }
 }
@@ -191,14 +287,16 @@ impl<Req> Clone for Connection<Req> {
     }
 }
 
-impl<Req: ComposeRequest + Clone + 'static> SendRequest<Req>
-    for Connection<Req>
-{
+impl<Req: ComposeRequest + 'static> SendRequest<Req> for Connection<Req> {
     fn send_request(
         &self,
         request_msg: Req,
     ) -> Box<dyn GetResponse + Send + Sync> {
-        Box::new(self.get_request(request_msg))
+        if request_msg.is_streaming() {
+            Box::new(self.get_streaming_request(request_msg))
+        } else {
+            Box::new(self.get_request(request_msg))
+        }
     }
 }
 
@@ -206,16 +304,59 @@ impl<Req: ComposeRequest + Clone + 'static> SendRequest<Req>
 
 /// An active request.
 pub struct Request {
+    /// The stream of responses to await when [`get_streaming_request()`] was
+    /// called, None otherwise.
+    stream: Option<UnboundedReceiver<Result<Message<Bytes>, Error>>>,
+
     /// The underlying future.
     fut: Pin<
         Box<dyn Future<Output = Result<Message<Bytes>, Error>> + Send + Sync>,
     >,
+
+    /// True if the caller has signalled that the last data in the stream has
+    /// been received.
+    ///
+    /// The DNS protocol does not provide a standardized way to detect the end
+    /// of a stream of responses. At the time of writing the only query types that
+    /// can result in a stream of responses are AXFR and IXFR. In both cases the
+    /// end of the response data is detected by examining the content of the DNS
+    /// responses, there is no actual END signal per se. So we rely on the caller
+    /// inspecting the response messages and telling us that it has detected the
+    /// end of the stream by calling [`stream_complete()`] at which point this
+    /// flag will be set to true. By default this flag is set to false.
+    stream_complete: bool,
 }
 
 impl Request {
     /// Async function that waits for the future stored in Request to complete.
     async fn get_response_impl(&mut self) -> Result<Message<Bytes>, Error> {
-        (&mut self.fut).await
+        // In most cases the caller will have called [`send_request()`] and
+        // only a single response is expected which will result from resolving
+        // this future to a successful result. However, if
+        // [`send_streaming_request()`] was called instead this future will
+        // always resolve to Error::ConnectionClosed as the response is not
+        // delivered immediately but instead via the separate response stream.
+        // In both cases no response will be received if the future is not
+        // first resolved to completion, so we must await it in either case.
+        let mut res = (&mut self.fut).await;
+
+        // Do we have a response stream that we should consume from? If not
+        // the result is already available and can be returned immediately.
+        let stream = self.stream else {
+            return res;
+        };
+
+        // Fetch from the stream
+        res = stream
+            .recv()
+            .await
+            .ok_or(Error::ConnectionClosed)
+            .map_err(|_| Error::ConnectionClosed)?;
+
+        // Setup the next future
+        self.fut = Box::pin(ready(Err(Error::ConnectionClosed)));
+
+        res
     }
 }
 
@@ -232,6 +373,21 @@ impl GetResponse for Request {
     > {
         Box::pin(self.get_response_impl())
     }
+
+    fn stream_complete(&mut self) -> Result<(), Error> {
+        if let Some(mut stream) = self.stream.take() {
+            trace!("Closing response stream");
+            stream.close();
+        }
+
+        self.stream_complete = true;
+
+        Ok(())
+    }
+
+    fn is_stream_complete(&self) -> bool {
+        self.stream_complete
+    }
 }
 
 impl Debug for Request {
@@ -247,7 +403,7 @@ impl Debug for Request {
 /// The underlying machinery of a stream transport.
 #[derive(Debug)]
 pub struct Transport<Stream, Req> {
-    /// The stream socket towards the remove end.
+    /// The stream socket towards the remote end.
     stream: Stream,
 
     /// Transport configuration.
@@ -255,6 +411,44 @@ pub struct Transport<Stream, Req> {
 
     /// The receiver half of request channel.
     receiver: mpsc::Receiver<ChanReq<Req>>,
+}
+
+/// A sender used to communicate a received response back to the caller.
+#[derive(Debug)]
+pub enum ReplySender {
+    /// A single immediate response.
+    ///
+    /// For most DNS query types this is the appropriate sender to use because
+    /// most DNS requests result in a single response.
+    Single(Option<oneshot::Sender<ChanResp>>),
+
+    /// For DNS query types that can result in a stream of responses use this
+    /// sender to send an unknown number of responses back to the caller.
+    Stream(mpsc::UnboundedSender<ChanResp>),
+}
+
+impl ReplySender {
+    /// Send a response back to the caller.
+    ///
+    /// If this ReplySender is of type Single, attempts to call this function
+    /// more than once will return an error containing the response value
+    /// supplied by the caller.
+    pub fn send(&mut self, resp: ChanResp) -> Result<(), ChanResp> {
+        match self {
+            ReplySender::Single(sender) => match sender.take() {
+                Some(sender) => sender.send(resp),
+                None => Err(resp),
+            },
+            ReplySender::Stream(sender) => {
+                sender.send(resp).map_err(|err| err.0)
+            }
+        }
+    }
+
+    /// Is this ReplySender of type Stream?
+    pub fn is_stream(&self) -> bool {
+        matches!(self, Self::Stream(_))
+    }
 }
 
 /// A message from a [`Request`] to start a new request.
@@ -266,9 +460,6 @@ struct ChanReq<Req> {
     /// Sender to send result back to [`Request`]
     sender: ReplySender,
 }
-
-/// This is the type of sender in [ChanReq].
-type ReplySender = oneshot::Sender<ChanResp>;
 
 /// A message back to [`Request`] returning a response.
 type ChanResp = Result<Message<Bytes>, Error>;
@@ -479,6 +670,15 @@ where
                 res = recv_fut, if !do_write => {
                     match res {
                         Some(req) => {
+                            // Wait longer for response streams than for
+                            // single responses.
+                            if req.sender.is_stream() {
+                                self.config.response_timeout =
+                                    self.config.streaming_response_timeout;
+                            } else {
+                                self.config.response_timeout =
+                                    self.config.single_response_timeout;
+                            }
                             Self::insert_req(
                                 req, &mut status, &mut reqmsg, &mut query_vec
                             )
@@ -586,7 +786,7 @@ where
     fn error(error: Error, query_vec: &mut Queries<ChanReq<Req>>) {
         // Update all requests that are in progress. Don't wait for
         // any reply that may be on its way.
-        for item in query_vec.drain() {
+        for mut item in query_vec.drain() {
             _ = item.sender.send(Err(error.clone()));
         }
     }
@@ -621,7 +821,7 @@ where
         status.state = ConnState::Active(Some(Instant::now()));
 
         // Get the correct query and send it the reply.
-        let req = match query_vec.try_remove(answer.header().id()) {
+        let mut req = match query_vec.try_remove(answer.header().id()) {
             Some(req) => req,
             None => {
                 // No query with this ID. We should
@@ -635,6 +835,11 @@ where
             Err(Error::WrongReplyForQuery)
         };
         _ = req.sender.send(answer);
+
+        // TODO: Discard streaming requests once the stream is complete.
+        if req.sender.is_stream() {
+            query_vec.insert(req).unwrap();
+        }
 
         if query_vec.is_empty() {
             // Clear the activity timer. There is no need to do
@@ -660,7 +865,7 @@ where
     /// idle. Addend a edns-tcp-keepalive option if needed.
     // Note: maybe reqmsg should be a return value.
     fn insert_req(
-        req: ChanReq<Req>,
+        mut req: ChanReq<Req>,
         status: &mut Status,
         reqmsg: &mut Option<Vec<u8>>,
         query_vec: &mut Queries<ChanReq<Req>>,
@@ -696,11 +901,11 @@ where
         }
 
         // Note that insert may fail if there are too many
-        // outstanding queires. First call insert before checking
+        // outstanding queries. First call insert before checking
         // send_keepalive.
         let (index, req) = match query_vec.insert(req) {
             Ok(res) => res,
-            Err(req) => {
+            Err(mut req) => {
                 // Send an appropriate error and return.
                 _ = req
                     .sender
@@ -732,7 +937,7 @@ where
             }
             Err(err) => {
                 // Take the sender out again and return the error.
-                if let Some(req) = query_vec.try_remove(index) {
+                if let Some(mut req) = query_vec.try_remove(index) {
                     _ = req.sender.send(Err(err));
                 }
             }
