@@ -162,6 +162,7 @@ extern crate std;
 #[macro_use]
 extern crate core;
 
+pub mod guide;
 pub mod base;
 pub mod dep;
 pub mod net;
