@@ -8,7 +8,7 @@
 //! send it without modifying it as that could invalidate the signature. The
 //! upstream transport must also not modify the response as that could cause
 //! signature verification to fail.
-//! 
+//!
 //! [RFC 8945]: https://www.rfc-editor.org/rfc/rfc8945.html
 #![cfg(all(feature = "tsig", feature = "unstable-client-transport"))]
 #![warn(missing_docs)]
