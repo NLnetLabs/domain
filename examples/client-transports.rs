@@ -1,6 +1,7 @@
 /// Using the `domain::net::client` module for sending a query.
 use std::net::{IpAddr, SocketAddr};
 use std::str::FromStr;
+use std::sync::Arc;
 use std::time::Duration;
 
 use domain::base::MessageBuilder;
@@ -316,7 +317,7 @@ where
         + domain::dep::octseq::Octets
         + 'static,
     SR: SendRequest<
-            tsig::AuthenticatedRequestMessage<RequestMessage<Octs>, Key>,
+            tsig::AuthenticatedRequestMessage<RequestMessage<Octs>, Arc<Key>>,
         > + Send
         + Sync
         + 'static,
@@ -327,8 +328,9 @@ where
         "zlCZbVJPIhobIs1gJNQfrsS3xCxxsR9pMUrGwG8OgG8=",
     )
     .unwrap();
-    let key =
-        Key::new(Algorithm::Sha256, &secret, key_name, None, None).unwrap();
+    let key = Arc::new(
+        Key::new(Algorithm::Sha256, &secret, key_name, None, None).unwrap(),
+    );
 
     // Create a signing transport. This assumes that the server being
     // connected to is configured with a key with the same name, algorithm and

@@ -103,7 +103,7 @@ pub type KeyName = Name<octseq::array::Array<255>>;
 /// [`new`]: #method.new
 /// [`min_mac_len`]: #method.min_mac_len
 /// [`signing_len`]: #method.signing_len
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct Key {
     /// The key’s bits and algorithm.
     key: hmac::Key,
