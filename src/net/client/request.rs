@@ -149,7 +149,10 @@ pub trait GetResponse: Debug {
 
 /// Object that implements the ComposeRequest trait for a Message object.
 #[derive(Clone, Debug)]
-pub struct RequestMessage<Octs: AsRef<[u8]>> {
+pub struct RequestMessage<Octs>
+where
+    Octs: AsRef<[u8]>,
+{
     /// Base message.
     msg: Message<Octs>,
 
@@ -321,8 +324,21 @@ impl<Octs: AsRef<[u8]> + Debug + Octets + Send + Sync> ComposeRequest
         }
 
         // Now the question section in the reply has to be the same as in the
-        // query.
-        if answer_hcounts.qdcount() != self.msg.header_counts().qdcount() {
+        // query, except in the case of an AXFR subsequent response:
+        //
+        // https://datatracker.ietf.org/doc/html/rfc5936#section-2.2
+        // 2.2.  AXFR Response
+        //   "The AXFR server MUST copy the Question section from the
+        //    corresponding AXFR query message into the first response
+        //    message's Question section.  For subsequent messages, it MAY do
+        //    the same or leave the Question section empty."
+        if self.msg.qtype() == Some(Rtype::AXFR)
+            && answer_hcounts.qdcount() == 0
+        {
+            true
+        } else if answer_hcounts.qdcount()
+            != self.msg.header_counts().qdcount()
+        {
             trace!("Wrong QD count");
             false
         } else {
@@ -402,6 +418,10 @@ pub enum Error {
 
     /// An error happened in the datagram transport.
     Dgram(Arc<super::dgram::QueryError>),
+
+    #[cfg(feature = "unstable-server-transport")]
+    /// Zone write failed.
+    ZoneWrite,
 
     #[cfg(feature = "tsig")]
     /// TSIG authentication failed.
@@ -489,6 +509,9 @@ impl fmt::Display for Error {
             }
             Error::Dgram(err) => fmt::Display::fmt(err, f),
 
+            #[cfg(feature = "unstable-server-transport")]
+            Error::ZoneWrite => write!(f, "zone write error"),
+
             #[cfg(feature = "tsig")]
             Error::Authentication(err) => fmt::Display::fmt(err, f),
 
@@ -529,6 +552,9 @@ impl error::Error for Error {
             Error::WrongReplyForQuery => None,
             Error::NoTransportAvailable => None,
             Error::Dgram(err) => Some(err),
+
+            #[cfg(feature = "unstable-server-transport")]
+            Error::ZoneWrite => None,
 
             #[cfg(feature = "tsig")]
             Error::Authentication(err) => Some(err),

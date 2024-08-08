@@ -312,7 +312,7 @@ impl Group {
 
     /// Validate a group with a validation context.
     ///
-    /// A successfull result contists of
+    /// A successfull result contists of:
     /// 1) The validation state.
     /// 2) The signer name, the name of the secure zone that contains
     ///    the name of the group.
@@ -401,7 +401,7 @@ impl Group {
 
     /// Try to validate the signature using a node.
     ///
-    /// A successfull result contists of
+    /// A successfull result contists of:
     /// 1) The validation state.
     /// 2) optionally the name of the closest encloser if the signature
     ///    indicates a wildcard.

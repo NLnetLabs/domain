@@ -118,7 +118,7 @@ impl Config {
     /// [RFC 6891]:
     ///     https://datatracker.ietf.org/doc/html/rfc6891#section-6.2.5
     pub fn set_max_response_size(&mut self, value: Option<u16>) {
-        self.max_response_size = value;
+        self.max_response_size = value.map(|v| MAX_RESPONSE_SIZE.limit(v));
     }
 
     /// Sets the time to wait for a complete message to be written to the
@@ -629,7 +629,8 @@ where
     /// Receive a single datagram using the user supplied network socket.
     fn recv_from(
         &self,
-    ) -> Result<(Buf::Output, SocketAddr, usize), io::Error> {
+    ) -> Result<(<Buf as BufSource>::Output, SocketAddr, usize), io::Error>
+    {
         let mut msg = self.buf.create_buf();
         let mut buf = ReadBuf::new(msg.as_mut());
         self.sock

@@ -514,6 +514,32 @@ enum ConnState {
     WriteError(Error),
 }
 
+//--- Display
+impl std::fmt::Display for ConnState {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            ConnState::Active(instant) => f.write_fmt(format_args!(
+                "Active (since {}s ago)",
+                instant
+                    .map(|v| Instant::now().duration_since(v).as_secs())
+                    .unwrap_or_default()
+            )),
+            ConnState::Idle(instant) => f.write_fmt(format_args!(
+                "Idle (since {}s ago)",
+                Instant::now().duration_since(*instant).as_secs()
+            )),
+            ConnState::IdleTimeout => f.write_str("IdleTimeout"),
+            ConnState::ReadError(err) => {
+                f.write_fmt(format_args!("ReadError: {err}"))
+            }
+            ConnState::ReadTimeout => f.write_str("ReadTimeout"),
+            ConnState::WriteError(err) => {
+                f.write_fmt(format_args!("WriteError: {err}"))
+            }
+        }
+    }
+}
+
 impl<Stream, Req> Transport<Stream, Req> {
     /// Creates a new transport.
     fn new(
@@ -681,7 +707,7 @@ where
                             }
                             Self::insert_req(
                                 req, &mut status, &mut reqmsg, &mut query_vec
-                            )
+                            );
                         }
                         None => {
                             // All references to the connection object have
@@ -710,6 +736,8 @@ where
                 }
             }
         }
+
+        trace!("Closing TCP connecting in state: {}", status.state);
 
         // Send FIN
         _ = write_stream.shutdown().await;

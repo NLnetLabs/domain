@@ -872,6 +872,16 @@ impl<Target: Composer> AnswerBuilder<Target> {
             |counts| counts.inc_ancount(),
         )
     }
+
+    pub fn push_ref(
+        &mut self,
+        record: &impl ComposeRecord,
+    ) -> Result<(), PushError> {
+        self.builder.push(
+            |target| record.compose_record(target).map_err(Into::into),
+            |counts| counts.inc_ancount(),
+        )
+    }
 }
 
 /// # Conversions
@@ -1943,6 +1953,14 @@ where
             .append_compressed_name(name)
             .map_err(Into::into)?;
         self.update_shim()
+    }
+}
+
+impl<Target> FreezeBuilder for StreamTarget<Target> {
+    type Octets = Target;
+
+    fn freeze(self) -> Self::Octets {
+        self.into_target()
     }
 }
 

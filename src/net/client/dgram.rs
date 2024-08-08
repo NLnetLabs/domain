@@ -8,6 +8,19 @@
 
 // To do:
 // - cookies
+use core::fmt;
+
+use std::boxed::Box;
+use std::future::Future;
+use std::pin::Pin;
+use std::sync::Arc;
+use std::{error, io};
+
+use bytes::Bytes;
+use octseq::OctetsInto;
+use tokio::sync::Semaphore;
+use tokio::time::{timeout_at, Duration, Instant};
+use tracing::trace;
 
 use crate::base::Message;
 use crate::net::client::protocol::{
@@ -18,17 +31,6 @@ use crate::net::client::request::{
     ComposeRequest, Error, GetResponse, SendRequest,
 };
 use crate::utils::config::DefMinMax;
-use bytes::Bytes;
-use core::fmt;
-use octseq::OctetsInto;
-use std::boxed::Box;
-use std::future::Future;
-use std::pin::Pin;
-use std::sync::Arc;
-use std::{error, io};
-use tokio::sync::Semaphore;
-use tokio::time::{timeout_at, Duration, Instant};
-use tracing::trace;
 
 //------------ Configuration Constants ----------------------------------------
 
@@ -322,7 +324,7 @@ where
     S: AsyncConnect + Clone + Send + Sync + 'static,
     S::Connection:
         AsyncDgramRecv + AsyncDgramSend + Send + Sync + Unpin + 'static,
-    Req: ComposeRequest + Clone + Send + Sync + 'static,
+    Req: ComposeRequest + Send + Sync + 'static,
 {
     fn send_request(
         &self,

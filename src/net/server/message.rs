@@ -180,7 +180,7 @@ where
     /// still possible to generate responses that ignore this value.
     num_reserved_bytes: u16,
 
-    /// user defined metadata to associate with the request.
+    /// User defined metadata to associate with the request.
     ///
     /// For example this could be used to pass data from one [middleware]
     /// [`Service`] impl to another.
@@ -188,6 +188,24 @@ where
     /// [middleware]: crate::net::server::middleware
     /// [`Service`]: crate::net::server::service::Service
     metadata: Metadata,
+}
+
+// TODO: This is a questionable implementation of equality.
+impl<Octs, Metadata> PartialEq for Request<Octs, Metadata>
+where
+    Octs: AsRef<[u8]> + Send + Sync + Unpin,
+{
+    fn eq(&self, other: &Self) -> bool {
+        self.client_addr == other.client_addr
+            && self.received_at == other.received_at
+            && self.message.header().id() == other.message.header().id()
+        // && self.transport_specific == other.transport_specific
+    }
+}
+
+impl<Octs, Metadata> Eq for Request<Octs, Metadata> where
+    Octs: AsRef<[u8]> + Send + Sync + Unpin
+{
 }
 
 impl<Octs, Metadata> Request<Octs, Metadata>
