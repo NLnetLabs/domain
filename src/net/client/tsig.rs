@@ -30,7 +30,7 @@ use octseq::Octets;
 /// TODO
 #[derive(Clone, Debug)]
 enum TsigClient<K> {
-    /// TSIG Client Transaction state.
+    /// TSIG Client transaction state.
     Transaction(ClientTransaction<K>),
 
     /// TSIG client sequence state.

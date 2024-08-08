@@ -505,7 +505,7 @@ where
 
 //------------ ClientTransaction ---------------------------------------------
 
-/// TSIG Client Transaction state.
+/// TSIG Client transaction state.
 ///
 /// This types allows signing a DNS request with a given key and validate an
 /// answer received for it.
