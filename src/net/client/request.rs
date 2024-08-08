@@ -25,11 +25,14 @@ use crate::rdata::AllRecordData;
 
 /// A trait that allows composing a request as a series.
 pub trait ComposeRequest: Debug + Send + Sync {
-    /// Appends the final message to a provided composer.
-    fn append_message<Target: Composer>(
+    /// Writes the message to a provided composer.
+    /// 
+    /// Returns the builder used to allow the caller to make further changes
+    /// if needed.
+    fn to_message_builder<Target: Composer>(
         &self,
-        target: &mut Target,
-    ) -> Result<(), CopyRecordsError>;
+        target: Target,
+    ) -> Result<AdditionalBuilder<Target>, CopyRecordsError>;
 
     /// Create a message that captures the recorded changes.
     fn to_message(&self) -> Result<Message<Vec<u8>>, Error>;
@@ -173,7 +176,7 @@ impl<Octs: AsRef<[u8]> + Debug + Octets> RequestMessage<Octs> {
         self.opt.get_or_insert_with(Default::default)
     }
 
-    /// Appends the message to a composer.
+    /// Appends the message to a builder.
     fn append_message_impl<Target: Composer>(
         &self,
         mut target: MessageBuilder<Target>,
@@ -232,13 +235,9 @@ impl<Octs: AsRef<[u8]> + Debug + Octets> RequestMessage<Octs> {
             MessageBuilder::from_target(StaticCompressor::new(Vec::new()))
                 .expect("Vec is expected to have enough space");
 
-        let target = self.append_message_impl(target)?;
+        let builder = self.append_message_impl(target)?;
 
-        // It would be nice to use .builder() here. But that one deletes all
-        // sections. We have to resort to .as_builder() which gives a
-        // reference and then .clone()
-        let result = target.as_builder().clone();
-        let msg = Message::from_octets(result.finish().into_target()).expect(
+        let msg = Message::from_octets(builder.finish().into_target()).expect(
             "Message should be able to parse output from MessageBuilder",
         );
         Ok(msg)
@@ -248,14 +247,14 @@ impl<Octs: AsRef<[u8]> + Debug + Octets> RequestMessage<Octs> {
 impl<Octs: AsRef<[u8]> + Debug + Octets + Send + Sync> ComposeRequest
     for RequestMessage<Octs>
 {
-    fn append_message<Target: Composer>(
+    fn to_message_builder<Target: Composer>(
         &self,
-        target: &mut Target,
-    ) -> Result<(), CopyRecordsError> {
+        target: Target,
+    ) -> Result<AdditionalBuilder<Target>, CopyRecordsError> {
         let target = MessageBuilder::from_target(target)
             .map_err(|_| CopyRecordsError::Push(PushError::ShortBuf))?;
-        self.append_message_impl(target)?;
-        Ok(())
+        let builder = self.append_message_impl(target)?;
+        Ok(builder)
     }
 
     fn to_vec(&self) -> Result<Vec<u8>, Error> {

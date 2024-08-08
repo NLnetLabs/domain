@@ -954,10 +954,11 @@ where
 
     /// Convert the query message to a vector.
     fn convert_query(msg: &Req) -> Result<Vec<u8>, Error> {
-        let mut target = StreamTarget::new_vec();
-        msg.append_message(&mut target)
+        let target = StreamTarget::new_vec();
+        let target = msg
+            .to_message_builder(target)
             .map_err(|_| Error::StreamLongMessage)?;
-        Ok(target.into_target())
+        Ok(target.finish().into_target())
     }
 }
 
