@@ -9,11 +9,10 @@ use tracing::{debug, enabled, error, trace, warn, Level};
 
 use crate::base::iana::OptRcode;
 use crate::base::message_builder::AdditionalBuilder;
-use crate::base::name::ToLabelIter;
 use crate::base::opt::keepalive::IdleTimeout;
-use crate::base::opt::{ComposeOptData, Opt, OptRecord, TcpKeepalive};
+use crate::base::opt::{Opt, OptRecord, TcpKeepalive};
 use crate::base::wire::Composer;
-use crate::base::{Name, StreamTarget};
+use crate::base::StreamTarget;
 use crate::net::server::message::{Request, TransportSpecificContext};
 use crate::net::server::middleware::stream::MiddlewareStream;
 use crate::net::server::service::{CallResult, Service, ServiceResult};
