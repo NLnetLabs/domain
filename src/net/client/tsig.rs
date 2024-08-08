@@ -171,8 +171,6 @@ where
                 RequestState::Init => {
                     let tsig_client = Arc::new(std::sync::Mutex::new(None));
 
-                    // TODO: TSIG sign the request, and send the signed version
-                    // upstream.
                     let msg = AuthenticatedRequestMessage {
                         request: self.request_msg.take().unwrap(),
                         key: self.key.clone(),
