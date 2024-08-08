@@ -172,11 +172,21 @@ where
     /// protocol via which it was received.
     transport_specific: TransportSpecificContext,
 
-    /// The number of bytes to be reserved when generating a response
-    /// to this request so that needed additional data can be added to
-    /// to the generated response.
+    /// The number of bytes to be reserved when generating a response to this
+    /// request so that needed additional data can be added to to the
+    /// generated response.
+    ///
+    /// Note: This is only a hint to code that considers this value, it is
+    /// still possible to generate responses that ignore this value.
     num_reserved_bytes: u16,
 
+    /// User defined metadata to associate with the request.
+    ///
+    /// For example this could be used to pass data from one [middleware]
+    /// [`Service`] impl to another.
+    ///
+    /// [middleware]: crate::net::server::middleware
+    /// [`Service`]: crate::net::server::service::Service
     metadata: Metadata,
 }
 
@@ -256,6 +266,7 @@ where
         self.num_reserved_bytes
     }
 
+    /// Set user defined metadata to associate with this request.
     pub fn with_new_metadata<T>(self, new_metadata: T) -> Request<Octs, T> {
         Request::<Octs, T> {
             client_addr: self.client_addr,
@@ -267,6 +278,7 @@ where
         }
     }
 
+    /// Get the user defined metadata associated with this request.
     pub fn metadata(&self) -> &Metadata {
         &self.metadata
     }

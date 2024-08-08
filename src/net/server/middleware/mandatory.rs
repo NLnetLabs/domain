@@ -40,11 +40,13 @@ pub const MINIMUM_RESPONSE_BYTE_LEN: u16 = 512;
 /// [2181]: https://datatracker.ietf.org/doc/html/rfc2181
 #[derive(Clone, Debug)]
 pub struct MandatoryMiddlewareSvc<RequestOctets, NextSvc, RequestMeta> {
-    /// In strict mode the processor does more checks on requests and
+    /// The upstream [`Service`] to pass requests to and receive responses
+    /// from.
+    next_svc: NextSvc,
+
+    /// In strict mode the service does more checks on requests and
     /// responses.
     strict: bool,
-
-    next_svc: NextSvc,
 
     _phantom: PhantomData<(RequestOctets, RequestMeta)>,
 }
@@ -52,9 +54,9 @@ pub struct MandatoryMiddlewareSvc<RequestOctets, NextSvc, RequestMeta> {
 impl<RequestOctets, NextSvc, RequestMeta>
     MandatoryMiddlewareSvc<RequestOctets, NextSvc, RequestMeta>
 {
-    /// Creates a new processor instance.
+    /// Creates an instance of this middleware service.
     ///
-    /// The processor will operate in strict mode.
+    /// The service will operate in strict mode.
     #[must_use]
     pub fn new(next_svc: NextSvc) -> Self {
         Self {
@@ -64,9 +66,9 @@ impl<RequestOctets, NextSvc, RequestMeta>
         }
     }
 
-    /// Creates a new processor instance.
+    /// Creates an instance of this middleware service.
     ///
-    /// The processor will operate in relaxed mode.
+    /// The service will operate in relaxed mode.
     #[must_use]
     pub fn relaxed(next_svc: NextSvc) -> Self {
         Self {
@@ -452,9 +454,9 @@ mod tests {
         let _call_result: CallResult<Vec<u8>> =
             stream.next().await.unwrap().unwrap();
 
-        // Or pass the query through the middleware processor
-        let processor_svc = MandatoryMiddlewareSvc::new(my_svc);
-        let mut stream = processor_svc.call(request).await;
+        // Or pass the query through the middleware service
+        let middleware_svc = MandatoryMiddlewareSvc::new(my_svc);
+        let mut stream = middleware_svc.call(request).await;
         let call_result: CallResult<Vec<u8>> =
             stream.next().await.unwrap().unwrap();
         let (response, _feedback) = call_result.into_inner();

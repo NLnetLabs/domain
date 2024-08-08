@@ -18,7 +18,7 @@ use crate::base::message_builder::{
 };
 use crate::base::opt::{ComposeOptData, LongOptData, OptRecord};
 use crate::base::wire::{Composer, ParseError};
-use crate::base::{Header, Message, ParsedName, Rtype};
+use crate::base::{Header, Message, ParsedName, Rtype, StaticCompressor};
 use crate::rdata::AllRecordData;
 
 #[cfg(feature = "tsig")]
@@ -28,16 +28,21 @@ use crate::tsig;
 
 /// A trait that allows composing a request as a series.
 pub trait ComposeRequest: Debug + Send + Sync {
-    /// Appends the final message to a provided composer.
-    fn append_message<Target: Composer>(
+    /// Writes the message to a provided composer.
+    ///
+    /// Returns the builder used to allow the caller to make further changes
+    /// if needed.
+    fn to_message_builder<Target: Composer>(
         &self,
         target: Target,
     ) -> Result<AdditionalBuilder<Target>, CopyRecordsError>;
 
     /// Create a message that captures the recorded changes.
+    fn to_vec(&self) -> Result<Vec<u8>, Error>;
 
     /// Create a message that captures the recorded changes and convert to
     /// a Vec.
+    fn to_message(&self) -> Result<Message<Vec<u8>>, Error>;
 
     /// Return a reference to the current Header.
     fn header(&self) -> &Header;
@@ -91,6 +96,10 @@ pub trait GetResponse: Debug {
     /// Get the result of a DNS request.
     ///
     /// This function is intended to be cancel safe.
+    ///
+    /// If [`is_stream_complete()`] returns false you can call this function
+    /// again to receive the next response when dealing with a stream of
+    /// responses.
     fn get_response(
         &mut self,
     ) -> Pin<
@@ -102,15 +111,37 @@ pub trait GetResponse: Debug {
         >,
     >;
 
-    /// TODO
+    /// Signal that no more responses are expected.
+    ///
+    /// The DNS protocol does not provide a standardized way to detect the end
+    /// of a stream of responses. At the time of writing the only query types
+    /// that can result in a stream of responses are AXFR and IXFR. In both
+    /// cases the end of the response data is detected by examining the
+    /// content of the DNS responses, there is no actual END signal per se. So
+    /// we rely on the caller to inspect the response messages and telling us
+    /// by calling this function that it has detected the end of the stream.
+
     fn stream_complete(&mut self) -> Result<(), Error> {
         // Nothing to do.
         Ok(())
     }
 
-    /// TODO
+    /// Has the last response been received or are more expected?
+    ///
+    /// Call this after each call to [`get_response`] to check if more
+    /// responses are expected.
+    ///
+    /// Returns false if more responses are expected, true otherwise.
     fn is_stream_complete(&self) -> bool {
-        false
+        // DNS response streams only exist at the time of writing for
+        // AXFR/IXFR over TCP, not over UDP, so in most cases there will not
+        // be a subsequent response. Implementations that know whether or not
+        // there will be a subsequent response can override this default
+        // implementaiton. We return true because the caller should always
+        // check for at least one response and then if they call this function
+        // to find out if there will be more we say no, the stream is
+        // complete.
+        true
     }
 }
 
@@ -151,7 +182,7 @@ impl<Octs: AsRef<[u8]> + Debug + Octets> RequestMessage<Octs> {
         self.opt.get_or_insert_with(Default::default)
     }
 
-    /// Appends the message to a composer.
+    /// Appends the message to a builder.
     fn append_message_impl<Target: Composer>(
         &self,
         mut target: MessageBuilder<Target>,
@@ -203,12 +234,27 @@ impl<Octs: AsRef<[u8]> + Debug + Octets> RequestMessage<Octs> {
 
         Ok(target)
     }
+
+    /// Create new message based on the changes to the base message.
+    fn to_message_impl(&self) -> Result<Message<Vec<u8>>, Error> {
+        let target =
+            MessageBuilder::from_target(StaticCompressor::new(Vec::new()))
+                .expect("Vec is expected to have enough space");
+
+        let builder = self.append_message_impl(target)?;
+
+        let msg = Message::from_octets(builder.finish().into_target())
+            .expect(
+                "Message should be able to parse output from MessageBuilder",
+            );
+        Ok(msg)
+    }
 }
 
 impl<Octs: AsRef<[u8]> + Debug + Octets + Send + Sync> ComposeRequest
     for RequestMessage<Octs>
 {
-    fn append_message<Target: Composer>(
+    fn to_message_builder<Target: Composer>(
         &self,
         target: Target,
     ) -> Result<AdditionalBuilder<Target>, CopyRecordsError> {
@@ -216,6 +262,15 @@ impl<Octs: AsRef<[u8]> + Debug + Octets + Send + Sync> ComposeRequest
             .map_err(|_| CopyRecordsError::Push(PushError::ShortBuf))?;
         let builder = self.append_message_impl(target)?;
         Ok(builder)
+    }
+
+    fn to_vec(&self) -> Result<Vec<u8>, Error> {
+        let msg = self.to_message()?;
+        Ok(msg.as_octets().clone())
+    }
+
+    fn to_message(&self) -> Result<Message<Vec<u8>>, Error> {
+        self.to_message_impl()
     }
 
     fn header(&self) -> &Header {

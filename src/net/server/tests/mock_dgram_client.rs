@@ -13,7 +13,6 @@ use core::fmt;
 use std::boxed::Box;
 use std::future::Future;
 use std::pin::Pin;
-use std::prelude::v1::Vec;
 use std::sync::Arc;
 
 use bytes::Bytes;
@@ -134,12 +133,7 @@ where
         request.header_mut().set_id(0);
 
         // Create the message and send it out.
-        let target = Vec::new();
-        let builder = request.append_message(target)?;
-        let request_msg = Message::from_octets(builder.finish()).expect(
-            "Message should be able to parse output from MessageBuilder",
-        );
-
+        let request_msg = request.to_message()?;
         let dgram = request_msg.as_slice();
         let sent = sock
             .send(dgram)

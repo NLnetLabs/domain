@@ -355,6 +355,9 @@ impl<Req: ComposeRequest + Clone + 'static> GetResponse for Request<Req> {
     > {
         Box::pin(Self::get_response(self))
     }
+
+    // TODO: Override stream_complete() and is_stream_complete() like
+    // net::client::stream does?
 }
 
 //------------ Transport ------------------------------------------------

@@ -216,7 +216,7 @@ impl<Req: ComposeRequest + 'static> Connection<Req> {
     /// Start a DNS request.
     ///
     /// This function takes a precomposed message as a parameter and
-    /// returns a [`Message`] object wrapped in a [`Result`].
+    /// returns a response [`Message`] object wrapped in a [`Result`].
     async fn handle_request_impl(
         self,
         msg: Req,
@@ -232,7 +232,14 @@ impl<Req: ComposeRequest + 'static> Connection<Req> {
         receiver.await.map_err(|_| Error::StreamReceiveError)?
     }
 
-    /// TODO: Document me.
+    /// Start a DNS request that may result in multiple responses.
+    ///
+    /// This function takes a precomposed message as a parameter and a stream
+    /// sender which should be used to send responses back to the caller as
+    /// responses are received.
+    ///
+    /// Note: The return type is and must be compatible with that of
+    /// [`handle_request_impl`] but has no meaning and should not be checked.
     async fn handle_streaming_request_impl(
         self,
         msg: Req,
@@ -243,12 +250,10 @@ impl<Req: ComposeRequest + 'static> Connection<Req> {
             sender: reply_sender,
             msg,
         };
-        self.sender.send(req).await.map_err(|_| {
-            // Send error. The receiver is gone, this means that the
-            // connection is closed.
-            Error::ConnectionClosed
-        })?;
-        Err(Error::ConnectionClosed) // TODO: Use different err code here
+        let _ = self.sender.send(req).await;
+
+        // TODO: It would be nicer if we could return Ok(()) here.
+        Err(Error::ConnectionClosed)
     }
 
     /// Returns a request handler for this connection.
@@ -299,7 +304,8 @@ impl<Req: ComposeRequest + 'static> SendRequest<Req> for Connection<Req> {
 
 /// An active request.
 pub struct Request {
-    /// TODO
+    /// The stream of responses to await when [`get_streaming_request()`] was
+    /// called, None otherwise.
     stream: Option<UnboundedReceiver<Result<Message<Bytes>, Error>>>,
 
     /// The underlying future.
@@ -307,31 +313,48 @@ pub struct Request {
         Box<dyn Future<Output = Result<Message<Bytes>, Error>> + Send + Sync>,
     >,
 
-    /// TODO
+    /// True if the caller has signalled that the last data in the stream has
+    /// been received.
+    ///
+    /// The DNS protocol does not provide a standardized way to detect the end
+    /// of a stream of responses. At the time of writing the only query types that
+    /// can result in a stream of responses are AXFR and IXFR. In both cases the
+    /// end of the response data is detected by examining the content of the DNS
+    /// responses, there is no actual END signal per se. So we rely on the caller
+    /// inspecting the response messages and telling us that it has detected the
+    /// end of the stream by calling [`stream_complete()`] at which point this
+    /// flag will be set to true. By default this flag is set to false.
     stream_complete: bool,
 }
 
 impl Request {
     /// Async function that waits for the future stored in Request to complete.
     async fn get_response_impl(&mut self) -> Result<Message<Bytes>, Error> {
+        // In most cases the caller will have called [`send_request()`] and
+        // only a single response is expected which will result from resolving
+        // this future to a successful result. However, if
+        // [`send_streaming_request()`] was called instead this future will
+        // always resolve to Error::ConnectionClosed as the response is not
+        // delivered immediately but instead via the separate response stream.
+        // In both cases no response will be received if the future is not
+        // first resolved to completion, so we must await it in either case.
         let mut res = (&mut self.fut).await;
 
-        match &mut self.stream {
-            Some(stream) => {
-                // Fetch from the stream
-                res = stream
-                    .recv()
-                    .await
-                    .ok_or(Error::ConnectionClosed)
-                    .map_err(|_| Error::ConnectionClosed)?;
+        // Do we have a response stream that we should consume from? If not
+        // the result is already available and can be returned immediately.
+        let Some(stream) = self.stream.as_mut() else {
+            return res;
+        };
 
-                // Setup the next future
-                self.fut = Box::pin(ready(Err(Error::ConnectionClosed)));
-            }
-            None => {
-                // Nothing to do
-            }
-        }
+        // Fetch from the stream
+        res = stream
+            .recv()
+            .await
+            .ok_or(Error::ConnectionClosed)
+            .map_err(|_| Error::ConnectionClosed)?;
+
+        // Setup the next future
+        self.fut = Box::pin(ready(Err(Error::ConnectionClosed)));
 
         res
     }
@@ -390,18 +413,26 @@ pub struct Transport<Stream, Req> {
     receiver: mpsc::Receiver<ChanReq<Req>>,
 }
 
-/// This is the type of sender in [ChanReq].
+/// A sender used to communicate a received response back to the caller.
 #[derive(Debug)]
 pub enum ReplySender {
-    /// TODO
+    /// A single immediate response.
+    ///
+    /// For most DNS query types this is the appropriate sender to use because
+    /// most DNS requests result in a single response.
     Single(Option<oneshot::Sender<ChanResp>>),
 
-    /// TODO
+    /// For DNS query types that can result in a stream of responses use this
+    /// sender to send an unknown number of responses back to the caller.
     Stream(mpsc::UnboundedSender<ChanResp>),
 }
 
 impl ReplySender {
-    /// TODO
+    /// Send a response back to the caller.
+    ///
+    /// If this ReplySender is of type Single, attempts to call this function
+    /// more than once will return an error containing the response value
+    /// supplied by the caller.
     pub fn send(&mut self, resp: ChanResp) -> Result<(), ChanResp> {
         match self {
             ReplySender::Single(sender) => match sender.take() {
@@ -414,7 +445,7 @@ impl ReplySender {
         }
     }
 
-    /// TODO
+    /// Is this ReplySender of type Stream?
     pub fn is_stream(&self) -> bool {
         matches!(self, Self::Stream(_))
     }
@@ -665,6 +696,8 @@ where
                 res = recv_fut, if !do_write => {
                     match res {
                         Some(req) => {
+                            // Wait longer for response streams than for
+                            // single responses.
                             if req.sender.is_stream() {
                                 self.config.response_timeout =
                                     self.config.streaming_response_timeout;
@@ -951,7 +984,7 @@ where
     fn convert_query(msg: &Req) -> Result<Vec<u8>, Error> {
         let target = StreamTarget::new_vec();
         let target = msg
-            .append_message(target)
+            .to_message_builder(target)
             .map_err(|_| Error::StreamLongMessage)?;
         Ok(target.finish().into_target())
     }

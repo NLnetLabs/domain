@@ -10,6 +10,7 @@ use std::fmt::{Debug, Formatter};
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
+use std::vec::Vec;
 
 use bytes::Bytes;
 use tracing::{debug, trace, warn};
@@ -17,7 +18,7 @@ use tracing::{debug, trace, warn};
 use crate::base::message::CopyRecordsError;
 use crate::base::message_builder::AdditionalBuilder;
 use crate::base::wire::Composer;
-use crate::base::Message;
+use crate::base::{Message, StaticCompressor};
 use crate::net::client::request::{
     ComposeRequest, Error, GetResponse, SendRequest,
 };
@@ -326,11 +327,11 @@ where
     K: Clone + Debug + Send + Sync + AsRef<Key>,
 {
     // Used by the stream transport.
-    fn append_message<Target: Composer>(
+    fn to_message_builder<Target: Composer>(
         &self,
         target: Target,
     ) -> Result<AdditionalBuilder<Target>, CopyRecordsError> {
-        let mut target = self.request.append_message(target)?;
+        let mut target = self.request.to_message_builder(target)?;
 
         if let Some(key) = &self.key {
             let client = if self.request.is_streaming() {
@@ -367,6 +368,23 @@ where
         }
 
         Ok(target)
+    }
+
+    fn to_vec(&self) -> Result<std::vec::Vec<u8>, Error> {
+        let msg = self.to_message()?;
+        Ok(msg.into_octets())
+    }
+
+    fn to_message(&self) -> Result<Message<std::vec::Vec<u8>>, Error> {
+        let target = StaticCompressor::new(Vec::new());
+
+        let builder = self.to_message_builder(target)?;
+
+        let msg = Message::from_octets(builder.finish().into_target())
+            .expect(
+                "Message should be able to parse output from MessageBuilder",
+            );
+        Ok(msg)
     }
 
     fn header(&self) -> &crate::base::Header {

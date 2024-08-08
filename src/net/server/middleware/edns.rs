@@ -9,11 +9,10 @@ use tracing::{debug, enabled, error, trace, warn, Level};
 
 use crate::base::iana::OptRcode;
 use crate::base::message_builder::AdditionalBuilder;
-use crate::base::name::ToLabelIter;
 use crate::base::opt::keepalive::IdleTimeout;
-use crate::base::opt::{ComposeOptData, Opt, OptRecord, TcpKeepalive};
+use crate::base::opt::{Opt, OptRecord, TcpKeepalive};
 use crate::base::wire::Composer;
-use crate::base::{Name, StreamTarget};
+use crate::base::StreamTarget;
 use crate::net::server::message::{Request, TransportSpecificContext};
 use crate::net::server::middleware::stream::MiddlewareStream;
 use crate::net::server::service::{CallResult, Service, ServiceResult};
@@ -47,23 +46,29 @@ const EDNS_VERSION_ZERO: u8 = 0;
 /// [9210]: https://datatracker.ietf.org/doc/html/rfc9210
 #[derive(Clone, Debug, Default)]
 pub struct EdnsMiddlewareSvc<RequestOctets, NextSvc, RequestMeta> {
+    /// The upstream [`Service`] to pass requests to and receive responses
+    /// from.
     next_svc: NextSvc,
 
-    _phantom: PhantomData<(RequestOctets, RequestMeta)>,
-
+    /// Is the middleware service enabled?
+    ///
+    /// Defaults to true. If false, the service will pass requests and
+    /// responses through unmodified.
     enabled: bool,
+
+    _phantom: PhantomData<(RequestOctets, RequestMeta)>,
 }
 
 impl<RequestOctets, NextSvc, RequestMeta>
     EdnsMiddlewareSvc<RequestOctets, NextSvc, RequestMeta>
 {
-    /// Creates an instance of this processor.
+    /// Creates an instance of this middleware service.
     #[must_use]
     pub fn new(next_svc: NextSvc) -> Self {
         Self {
             next_svc,
-            _phantom: PhantomData,
             enabled: true,
+            _phantom: PhantomData,
         }
     }
 
@@ -201,7 +206,7 @@ where
                             ));
                         }
 
-                        TransportSpecificContext::NonUdp(ctx) => {
+                        TransportSpecificContext::NonUdp(_) => {
                             // https://datatracker.ietf.org/doc/html/rfc7828#section-3.2.1
                             // 3.2.1. Sending Queries
                             //   "Clients MUST specify an OPTION-LENGTH of 0
@@ -216,16 +221,6 @@ where
                                             request.message(),
                                             OptRcode::FORMERR,
                                         ),
-                                    );
-                                }
-                            }
-
-                            if let Some(keep_alive) = ctx.idle_timeout() {
-                                if let Ok(timeout) =
-                                    IdleTimeout::try_from(keep_alive)
-                                {
-                                    Self::reserve_space_for_keep_alive_opt(
-                                        request, timeout,
                                     );
                                 }
                             }
@@ -297,12 +292,6 @@ where
                                 // timeout is known: "Signal the timeout value
                                 // using the edns-tcp-keepalive EDNS(0) option
                                 // [RFC7828]".
-
-                                // Remove the limit we should have imposed
-                                // during pre-processing so that we can use
-                                // the space we reserved for the OPT RR.
-                                response.clear_push_limit();
-
                                 if let Err(err) =
                                     // TODO: Don't add the option if it
                                     // already exists?
@@ -331,34 +320,6 @@ where
         // TODO: For UDP EDNS capable clients (those that included an OPT
         // record in the request) should we set the Requestor's Payload Size
         // field to some value?
-    }
-
-    fn reserve_space_for_keep_alive_opt(
-        request: &mut Request<RequestOctets, RequestMeta>,
-        timeout: IdleTimeout,
-    ) {
-        // TODO: Calculate this once as a const value, not on every request.
-
-        let keep_alive_opt = TcpKeepalive::new(Some(timeout));
-        let root_name_len = Name::root_ref().compose_len();
-
-        // See:
-        //  - https://datatracker.ietf.org/doc/html/rfc1035#section-3.2.1
-        //  - https://datatracker.ietf.org/doc/html/rfc6891#autoid-12
-        //  - https://datatracker.ietf.org/doc/html/rfc7828#section-3.1
-
-        // Calculate the size of the DNS OPTION RR that will be added to the
-        // response during post-processing.
-        let wire_opt_len = root_name_len // "0" root domain name per RFC 6891
-            + 2 // TYPE
-            + 2 // CLASS
-            + 4 // TTL
-            + 2 // RDLEN
-            + 2 // OPTION-CODE
-            + 2 // OPTION-LENGTH
-            + keep_alive_opt.compose_len(); // OPTION-DATA
-
-        request.reserve_bytes(wire_opt_len);
     }
 
     fn map_stream_item(
@@ -468,17 +429,16 @@ mod tests {
 
         // --- Only server specified max UDP response sizes
         //
-        // The EdnsMiddlewareProcessor should leave these untouched as no EDNS
+        // The EdnsMiddlewareSvc should leave these untouched as no EDNS
         // option was present in the request, only the server hint exists, and
-        // EdnsMiddlewareProcessor only acts if the client EDNS option is
-        // present.
+        // EdnsMiddlewareSvc only acts if the client EDNS option is present.
         assert_eq!(process(None, TOO_SMALL).await, TOO_SMALL);
         assert_eq!(process(None, JUST_RIGHT).await, JUST_RIGHT);
         assert_eq!(process(None, HUGE).await, HUGE);
 
         // --- Only client specified max UDP response sizes
         //
-        // The EdnsMiddlewareProcessor should adopt these, after clamping
+        // The EdnsMiddlewareSvc should adopt these, after clamping
         // them.
         assert_eq!(process(TOO_SMALL, None).await, JUST_RIGHT);
         assert_eq!(process(JUST_RIGHT, None).await, JUST_RIGHT);
@@ -486,7 +446,7 @@ mod tests {
 
         // --- Both client and server specified max UDP response sizes
         //
-        // The EdnsMiddlewareProcessor should negotiate the largest size
+        // The EdnsMiddlewareSvc should negotiate the largest size
         // acceptable to both sides.
         assert_eq!(process(TOO_SMALL, TOO_SMALL).await, MIN_ALLOWED);
         assert_eq!(process(TOO_SMALL, JUST_RIGHT).await, JUST_RIGHT);
@@ -554,9 +514,9 @@ mod tests {
         let _call_result: CallResult<_> =
             stream.next().await.unwrap().unwrap();
 
-        // Or pass the query through the middleware processor
-        let processor_svc = EdnsMiddlewareSvc::new(my_svc);
-        let mut stream = processor_svc.call(request.clone()).await;
+        // Or pass the query through the middleware service
+        let middleware_svc = EdnsMiddlewareSvc::new(my_svc);
+        let mut stream = middleware_svc.call(request.clone()).await;
         let call_result: CallResult<Vec<u8>> =
             stream.next().await.unwrap().unwrap();
         let (_response, _feedback) = call_result.into_inner();

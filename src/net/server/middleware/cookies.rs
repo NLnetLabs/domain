@@ -32,7 +32,7 @@ const FIVE_MINUTES_AS_SECS: u32 = 5 * 60;
 /// https://www.rfc-editor.org/rfc/rfc9018.html#section-4.3.
 const ONE_HOUR_AS_SECS: u32 = 60 * 60;
 
-//----------- CookiesMiddlewareProcessor --------------------------------------
+//----------- CookiesMiddlewareSvc --------------------------------------------
 
 /// A middleware service for enforcing the use of DNS Cookies.
 ///
@@ -47,6 +47,8 @@ const ONE_HOUR_AS_SECS: u32 = 60 * 60;
 /// [9018]: https://datatracker.ietf.org/doc/html/rfc7873
 #[derive(Clone, Debug)]
 pub struct CookiesMiddlewareSvc<RequestOctets, NextSvc, RequestMeta> {
+    /// The upstream [`Service`] to pass requests to and receive responses
+    /// from.
     next_svc: NextSvc,
 
     /// A user supplied secret used in making the cookie value.
@@ -57,23 +59,27 @@ pub struct CookiesMiddlewareSvc<RequestOctets, NextSvc, RequestMeta> {
     /// to reconnect with TCP in order to "authenticate" themselves.
     ip_deny_list: Vec<IpAddr>,
 
-    _phantom: PhantomData<(RequestOctets, RequestMeta)>,
-
+    /// Is the middleware service enabled?
+    ///
+    /// Defaults to true. If false, the service will pass requests and
+    /// responses through unmodified.
     enabled: bool,
+
+    _phantom: PhantomData<(RequestOctets, RequestMeta)>,
 }
 
 impl<RequestOctets, NextSvc, RequestMeta>
     CookiesMiddlewareSvc<RequestOctets, NextSvc, RequestMeta>
 {
-    /// Creates an instance of this processor.
+    /// Creates an instance of this middleware service.
     #[must_use]
     pub fn new(next_svc: NextSvc, server_secret: [u8; 16]) -> Self {
         Self {
             next_svc,
             server_secret,
             ip_deny_list: vec![],
-            _phantom: PhantomData,
             enabled: true,
+            _phantom: PhantomData,
         }
     }
 
@@ -274,7 +280,7 @@ where
                 //    back to using TCP is reasonable."
 
                 // While not required by RFC 7873, like Unbound the caller can
-                // configure this middleware processor to require clients
+                // configure this middleware service to require clients
                 // contacting it from certain IP addresses to authenticate
                 // themselves or be refused with TC=1 to signal that they
                 // should resubmit their request via TCP.
@@ -535,14 +541,14 @@ mod tests {
             todo!()
         }
 
-        // And pass the query through the middleware processor
+        // And pass the query through the middleware service
         let my_svc = service_fn(my_service, ());
         let server_secret: [u8; 16] =
             [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15];
-        let processor_svc = CookiesMiddlewareSvc::new(my_svc, server_secret)
+        let middleware_svc = CookiesMiddlewareSvc::new(my_svc, server_secret)
             .with_denied_ips(["127.0.0.1".parse().unwrap()]);
 
-        let mut stream = processor_svc.call(request).await;
+        let mut stream = middleware_svc.call(request).await;
         let call_result: CallResult<Vec<u8>> =
             stream.next().await.unwrap().unwrap();
         let (response, _feedback) = call_result.into_inner();
