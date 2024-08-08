@@ -68,8 +68,8 @@ impl<RequestOctets, NextSvc, RequestMeta>
     pub fn new(next_svc: NextSvc) -> Self {
         Self {
             next_svc,
-            _phantom: PhantomData,
             enabled: true,
+            _phantom: PhantomData,
         }
     }
 

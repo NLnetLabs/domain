@@ -78,8 +78,8 @@ impl<RequestOctets, NextSvc, RequestMeta>
             next_svc,
             server_secret,
             ip_deny_list: vec![],
-            _phantom: PhantomData,
             enabled: true,
+            _phantom: PhantomData,
         }
     }
 
