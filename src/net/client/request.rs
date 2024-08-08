@@ -21,6 +21,9 @@ use crate::base::wire::{Composer, ParseError};
 use crate::base::{Header, Message, ParsedName, Rtype, StaticCompressor};
 use crate::rdata::AllRecordData;
 
+#[cfg(feature = "tsig")]
+use crate::tsig;
+
 //------------ ComposeRequest ------------------------------------------------
 
 /// A trait that allows composing a request as a series.
@@ -400,6 +403,10 @@ pub enum Error {
     /// An error happened in the datagram transport.
     Dgram(Arc<super::dgram::QueryError>),
 
+    #[cfg(feature = "tsig")]
+    /// TSIG authentication failed.
+    Authentication(tsig::ValidationError),
+
     #[cfg(feature = "unstable-validator")]
     /// An error happened during DNSSEC validation.
     Validation(crate::validator::context::Error),
@@ -481,6 +488,10 @@ impl fmt::Display for Error {
                 write!(f, "no transport available")
             }
             Error::Dgram(err) => fmt::Display::fmt(err, f),
+
+            #[cfg(feature = "tsig")]
+            Error::Authentication(err) => fmt::Display::fmt(err, f),
+
             #[cfg(feature = "unstable-validator")]
             Error::Validation(_) => {
                 write!(f, "error validating response")
@@ -518,6 +529,10 @@ impl error::Error for Error {
             Error::WrongReplyForQuery => None,
             Error::NoTransportAvailable => None,
             Error::Dgram(err) => Some(err),
+
+            #[cfg(feature = "tsig")]
+            Error::Authentication(err) => Some(err),
+
             #[cfg(feature = "unstable-validator")]
             Error::Validation(err) => Some(err),
         }
