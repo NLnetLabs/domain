@@ -700,8 +700,8 @@ where
                 );
 
                 let client = net::client::tsig::Connection::new(
-                    tsig_key.clone(),
                     client,
+                    tsig_key.clone(),
                 );
 
                 trace!("Sending NOTIFY to nameserver {nameserver_addr}");
@@ -2189,7 +2189,7 @@ impl ConnectionFactory for DefaultConnFactory {
                         dgram_config,
                     );
                     Ok(Some(Box::new(net::client::tsig::Connection::new(
-                        key, client,
+                        client, key,
                     ))
                         as Box<
                             dyn SendRequest<RequestMessage<Octs>>
@@ -2227,7 +2227,7 @@ impl ConnectionFactory for DefaultConnFactory {
                     });
 
                     Ok(Some(Box::new(net::client::tsig::Connection::new(
-                        key, client,
+                        client, key,
                     ))
                         as Box<
                             dyn SendRequest<RequestMessage<Octs>>

@@ -10,9 +10,7 @@
 //! signature verification to fail.
 //!
 //! [RFC 8945]: https://www.rfc-editor.org/rfc/rfc8945.html
-#![cfg(all(feature = "tsig", feature = "unstable-client-transport"))]
 #![warn(missing_docs)]
-#![warn(clippy::missing_docs_in_private_items)]
 
 use core::convert::AsRef;
 use core::ops::DerefMut;
@@ -60,7 +58,7 @@ impl<Upstream, K> Connection<Upstream, K> {
     ///
     /// Requests will be signed with the given key, if any, then sent via the
     /// provided upstream transport.
-    pub fn new(key: Option<K>, upstream: Upstream) -> Self {
+    pub fn new(upstream: Upstream, key: Option<K>) -> Self {
         Self {
             upstream: Arc::new(upstream),
             key,

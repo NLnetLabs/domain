@@ -1,5 +1,10 @@
-use domain::base::MessageBuilder;
 /// Using the `domain::net::client` module for sending a query.
+use std::net::{IpAddr, SocketAddr};
+use std::str::FromStr;
+use std::sync::Arc;
+use std::time::Duration;
+
+use domain::base::MessageBuilder;
 use domain::base::Name;
 use domain::base::Rtype;
 use domain::net::client::cache;
@@ -10,9 +15,12 @@ use domain::net::client::protocol::{TcpConnect, TlsConnect, UdpConnect};
 use domain::net::client::redundant;
 use domain::net::client::request::{RequestMessage, SendRequest};
 use domain::net::client::stream;
-use std::net::{IpAddr, SocketAddr};
-use std::str::FromStr;
-use std::time::Duration;
+
+#[cfg(feature = "tsig")]
+use domain::net::client::tsig;
+#[cfg(feature = "tsig")]
+use domain::tsig::{Algorithm, Key, KeyName};
+
 use tokio::net::TcpStream;
 use tokio::time::timeout;
 use tokio_rustls::rustls::{ClientConfig, RootCertStore};
@@ -36,7 +44,8 @@ async fn main() {
     let req = RequestMessage::new(msg);
 
     // Destination for UDP and TCP
-    let server_addr = SocketAddr::new(IpAddr::from_str("::1").unwrap(), 53);
+    let server_addr =
+        SocketAddr::new(IpAddr::from_str("127.0.0.1").unwrap(), 8055);
 
     let mut stream_config = stream::Config::new();
     stream_config.set_response_timeout(Duration::from_millis(100));
@@ -222,7 +231,7 @@ async fn main() {
     let reply = request.get_response().await;
     println!("Dgram reply: {reply:?}");
 
-    // Create a single TCP transport connection. This is usefull for a
+    // Create a single TCP transport connection. This is useful for a
     // single request or a small burst of requests.
     let tcp_conn = match TcpStream::connect(server_addr).await {
         Ok(conn) => conn,
@@ -241,13 +250,27 @@ async fn main() {
     });
 
     // Send a request message.
-    let mut request = tcp.send_request(req);
+    let mut request = tcp.send_request(req.clone());
 
     // Get the reply
     let reply = request.get_response().await;
     println!("TCP reply: {reply:?}");
 
     drop(tcp);
+
+    #[cfg(feature = "tsig")]
+    {
+        let tcp_conn = TcpStream::connect(server_addr).await.unwrap();
+        let (tcp, transport) = stream::Connection::new(tcp_conn);
+        tokio::spawn(async move {
+            transport.run().await;
+            println!("single TSIG TCP run terminated");
+        });
+
+        do_tsig(tcp.clone(), req).await;
+
+        drop(tcp);
+    }
 }
 
 #[cfg(feature = "unstable-validator")]
@@ -282,4 +305,46 @@ where
     println!("Wating for Validator reply");
     let reply = request.get_response().await;
     println!("Validator reply: {:?}", reply);
+}
+
+#[cfg(feature = "tsig")]
+async fn do_tsig<Octs, SR>(conn: SR, req: RequestMessage<Octs>)
+where
+    Octs: AsRef<[u8]>
+        + Send
+        + Sync
+        + std::fmt::Debug
+        + domain::dep::octseq::Octets
+        + 'static,
+    SR: SendRequest<
+            tsig::AuthenticatedRequestMessage<RequestMessage<Octs>, Arc<Key>>,
+        > + Send
+        + Sync
+        + 'static,
+{
+    // Create a signing key.
+    let key_name = KeyName::from_str("demo-key").unwrap();
+    let secret = domain::utils::base64::decode::<Vec<u8>>(
+        "zlCZbVJPIhobIs1gJNQfrsS3xCxxsR9pMUrGwG8OgG8=",
+    )
+    .unwrap();
+    let key = Arc::new(
+        Key::new(Algorithm::Sha256, &secret, key_name, None, None).unwrap(),
+    );
+
+    // Create a signing transport. This assumes that the server being
+    // connected to is configured with a key with the same name, algorithm and
+    // secret and to allow that key to be used for the request we are making.
+    // I'm not aware of any public server with a publically announced TSIG key
+    // that can be used for testing so this will fail, but has been tested to
+    // work locally with an appropriately configured NSD server.
+    let tsig_conn = tsig::Connection::new(conn, Some(key));
+
+    // Send a query message.
+    let mut request = tsig_conn.send_request(req);
+
+    // Get the reply
+    println!("Wating for signed reply");
+    let reply = request.get_response().await;
+    println!("Signed reply: {:?}", reply);
 }

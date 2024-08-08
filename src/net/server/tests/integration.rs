@@ -310,7 +310,7 @@ fn mk_client_factory(
             });
 
             let client = xfr::Connection::new(None, client);
-            Box::new(tsig::Connection::new(key, client))
+            Box::new(tsig::Connection::new(client, key))
         },
         only_for_tcp_queries,
     );
@@ -335,7 +335,7 @@ fn mk_client_factory(
                     let client = dgram::Connection::new(connect);
                     // While AXFR is TCP only, IXFR can also be done over UDP.
                     let client = xfr::Connection::new(None, client);
-                    Box::new(tsig::Connection::new(key, client))
+                    Box::new(tsig::Connection::new(client, key))
                 }
             }
         },
@@ -673,7 +673,7 @@ impl ConnectionFactory for TestServerConnFactory {
                     self.dgram_server_conn.new_client(None),
                     dgram_config,
                 );
-                Ok(Some(Box::new(tsig::Connection::new(key, client))
+                Ok(Some(Box::new(tsig::Connection::new(client, key))
                     as Box<
                         dyn SendRequest<RequestMessage<Octs>> + Send + Sync,
                     >))
@@ -701,7 +701,7 @@ impl ConnectionFactory for TestServerConnFactory {
                     trace!("TCP connection terminated");
                 });
 
-                Ok(Some(Box::new(tsig::Connection::new(key, client))
+                Ok(Some(Box::new(tsig::Connection::new(client, key))
                     as Box<
                         dyn SendRequest<RequestMessage<Octs>> + Send + Sync,
                     >))
@@ -780,7 +780,7 @@ impl ConnectionFactory for MockServerConnFactory {
                 );
                 let client =
                     dgram::Connection::with_config(dgram_conn, dgram_config);
-                Ok(Some(Box::new(tsig::Connection::new(key, client))
+                Ok(Some(Box::new(tsig::Connection::new(client, key))
                     as Box<
                         dyn SendRequest<RequestMessage<Octs>> + Send + Sync,
                     >))
@@ -812,7 +812,7 @@ impl ConnectionFactory for MockServerConnFactory {
                     trace!("TCP connection terminated");
                 });
 
-                Ok(Some(Box::new(tsig::Connection::new(key, client))
+                Ok(Some(Box::new(tsig::Connection::new(client, key))
                     as Box<
                         dyn SendRequest<RequestMessage<Octs>> + Send + Sync,
                     >))
