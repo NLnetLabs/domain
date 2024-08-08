@@ -1,8 +1,20 @@
-//! TODO
+//! A transport that signs requests and verifies response signatures.
+//!
+//! This module implements an [RFC 8945] Secret Key Transaction Authentication
+//! for DNS (TSIG) client transport.
+//!
+//! This client cannot be used on its own, instead it must be used with an
+//! upstream transport. The upstream transport must build the message then
+//! send it without modifying it as that could invalidate the signature. The
+//! upstream transport must also not modify the response as that could cause
+//! signature verification to fail.
+//! 
+//! [RFC 8945]: https://www.rfc-editor.org/rfc/rfc8945.html
 #![cfg(all(feature = "tsig", feature = "unstable-client-transport"))]
 #![warn(missing_docs)]
 #![warn(clippy::missing_docs_in_private_items)]
 
+use core::convert::AsRef;
 use core::ops::DerefMut;
 
 use std::boxed::Box;
@@ -13,6 +25,7 @@ use std::sync::Arc;
 use std::vec::Vec;
 
 use bytes::Bytes;
+use octseq::Octets;
 use tracing::{debug, trace, warn};
 
 use crate::base::message::CopyRecordsError;
@@ -24,61 +37,11 @@ use crate::net::client::request::{
 };
 use crate::rdata::tsig::Time48;
 use crate::tsig::{ClientSequence, ClientTransaction, Key, ValidationError};
-use core::convert::AsRef;
-use octseq::Octets;
-
-/// TODO
-#[derive(Clone, Debug)]
-enum TsigClient<K> {
-    /// TSIG Client transaction state.
-    Transaction(ClientTransaction<K>),
-
-    /// TSIG client sequence state.
-    Sequence(ClientSequence<K>),
-}
-
-impl<K: AsRef<Key>> TsigClient<K> {
-    /// Creates a TSIG client for a request.
-    pub fn request<Target: Composer>(
-        key: K,
-        msg: &mut AdditionalBuilder<Target>,
-        now: Time48,
-        streaming: bool,
-    ) -> Result<Self, PushError> {
-        let client = if streaming {
-            Self::Sequence(ClientSequence::request(key, msg, now)?)
-        } else {
-            Self::Transaction(ClientTransaction::request(key, msg, now)?)
-        };
-
-        Ok(client)
-    }
-
-    /// Validates an answer.
-    pub fn answer<Octs: Octets + AsMut<[u8]> + ?Sized>(
-        &mut self,
-        message: &mut Message<Octs>,
-        now: Time48,
-    ) -> Result<(), ValidationError> {
-        match self {
-            TsigClient::Transaction(c) => c.answer(message, now),
-            TsigClient::Sequence(c) => c.answer(message, now),
-        }
-    }
-
-    /// Validates the end of the sequence.
-    pub fn done(self) -> Result<(), ValidationError> {
-        match self {
-            TsigClient::Transaction(_) => Ok(()),
-            TsigClient::Sequence(c) => c.done(),
-        }
-    }
-}
 
 //------------ Connection -----------------------------------------------------
 
 #[derive(Clone)]
-/// TODO
+/// A connection that TSIG signs requests and verifies upstream responses.
 pub struct Connection<Upstream, K> {
     /// Upstream transport to use for requests.
     ///
@@ -86,12 +49,17 @@ pub struct Connection<Upstream, K> {
     /// modification to the request before it is sent to the recipient.
     upstream: Arc<Upstream>,
 
-    /// TODO
+    /// The TSIG key to sign with.
+    ///
+    /// If None, signing will be skipped.
     key: Option<K>,
 }
 
 impl<Upstream, K> Connection<Upstream, K> {
-    /// TODO
+    /// Create a new TSIG transport with default configuration.
+    ///
+    /// Requests will be signed with the given key, if any, then sent via the
+    /// provided upstream transport.
     pub fn new(key: Option<K>, upstream: Upstream) -> Self {
         Self {
             upstream: Arc::new(upstream),
@@ -100,7 +68,7 @@ impl<Upstream, K> Connection<Upstream, K> {
     }
 }
 
-//------------ SendRequest ----------------------------------------------------
+//--- SendRequest
 
 impl<CR, Upstream, K> SendRequest<CR> for Connection<Upstream, K>
 where
@@ -126,7 +94,7 @@ where
 //------------ Request --------------------------------------------------------
 
 /// The state of a request that is executed.
-pub struct Request<CR, Upstream, K>
+struct Request<CR, Upstream, K>
 where
     CR: ComposeRequest,
 {
@@ -137,7 +105,7 @@ where
     request_msg: Option<CR>,
 
     /// The key to sign the request with.
-    /// 
+    ///
     /// If None, no signing will be done.
     key: Option<K>,
 
@@ -299,36 +267,43 @@ where
 }
 
 //------------ RequestState ---------------------------------------------------
+
 /// States of the state machine in get_response_impl
 enum RequestState<K> {
-    /// Initial state, perform a cache lookup.
+    /// Initial state, prepare the request for signing.
     Init,
 
-    /// Wait for a response and insert the response in the cache.
+    /// Wait for a response and verify it.
     GetResponse(
         Box<dyn GetResponse + Send + Sync>,
         Arc<std::sync::Mutex<Option<TsigClient<K>>>>,
     ),
 
-    /// TODO
+    /// The response has been received.
     Complete,
 }
 
 //------------ AuthenticatedRequestMessage ------------------------------------
 
-/// TODO
+/// A wrapper around a [`ComposeRequest`] impl that signs the request.
 #[derive(Debug)]
 pub struct AuthenticatedRequestMessage<CR, K>
 where
     CR: Send + Sync,
 {
-    /// TODO
+    /// The request to sign.
     request: CR,
 
-    /// TODO
+    /// The key to sign the request with.
+    ///
+    /// If None, signing will be skipped.
     key: Option<K>,
 
-    /// TODO
+    /// The TSIG signing client.
+    ///
+    /// Used to sign the request and verify the response.
+    ///
+    /// If None, signing was skipped because no key was supplied.
     signer: Arc<std::sync::Mutex<Option<TsigClient<K>>>>,
 }
 
@@ -337,7 +312,15 @@ where
     CR: ComposeRequest,
     K: Clone + Debug + Send + Sync + AsRef<Key>,
 {
-    // Used by the stream transport.
+    /// Writes the message to a provided composer.
+    ///
+    /// Use [`to_message()`] instead if you can. This function should only be
+    /// used to supply the target to write to. This client MUST be the final
+    /// modifier of the message before it is finished. Modifying the built
+    /// message using the returned builder could invalidate the TSIG message
+    /// signature.
+    ///
+    /// [`to_message()`]: Self::to_message
     fn to_message_builder<Target: Composer>(
         &self,
         target: Target,
@@ -411,5 +394,55 @@ where
 
     fn dnssec_ok(&self) -> bool {
         self.request.dnssec_ok()
+    }
+}
+
+//------------ TsigClient -----------------------------------------------------
+
+/// An asbtraction layer over [`ClientTransaction`] and [`ClientSequence`].
+#[derive(Clone, Debug)]
+enum TsigClient<K> {
+    /// TSIG Client transaction state.
+    Transaction(ClientTransaction<K>),
+
+    /// TSIG client sequence state.
+    Sequence(ClientSequence<K>),
+}
+
+impl<K: AsRef<Key>> TsigClient<K> {
+    /// Creates a TSIG client for a request.
+    pub fn request<Target: Composer>(
+        key: K,
+        msg: &mut AdditionalBuilder<Target>,
+        now: Time48,
+        streaming: bool,
+    ) -> Result<Self, PushError> {
+        let client = if streaming {
+            Self::Sequence(ClientSequence::request(key, msg, now)?)
+        } else {
+            Self::Transaction(ClientTransaction::request(key, msg, now)?)
+        };
+
+        Ok(client)
+    }
+
+    /// Validates an answer.
+    pub fn answer<Octs: Octets + AsMut<[u8]> + ?Sized>(
+        &mut self,
+        message: &mut Message<Octs>,
+        now: Time48,
+    ) -> Result<(), ValidationError> {
+        match self {
+            TsigClient::Transaction(c) => c.answer(message, now),
+            TsigClient::Sequence(c) => c.answer(message, now),
+        }
+    }
+
+    /// Validates the end of the sequence.
+    pub fn done(self) -> Result<(), ValidationError> {
+        match self {
+            TsigClient::Transaction(_) => Ok(()),
+            TsigClient::Sequence(c) => c.done(),
+        }
     }
 }

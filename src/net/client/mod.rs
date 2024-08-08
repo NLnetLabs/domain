@@ -9,20 +9,24 @@
 //!
 //! Currently the following transport protocols are supported:
 //! * [dgram] DNS over a datagram protocol, typically UDP.
-//! * [stream] DNS over an octet stream protocol, typically TCP or TLS.
-//!   Only a single connection is supported.
-//!   The transport works as long as the connection continues to exist.
+//! * [stream] DNS over an octet stream protocol, typically TCP or TLS. Only a
+//!   single connection is supported. The transport works as long as the
+//!   connection continues to exist.
 //! * [multi_stream] This is a layer on top of [stream] where new connections
 //!   are established as old connections are closed (or fail).
-//! * [dgram_stream] This is a combination of [dgram] and [multi_stream].
-//!   This is typically needed because a request over UDP can receive
-//!   a truncated response, which should be retried over TCP.
+//! * [dgram_stream] This is a combination of [dgram] and [multi_stream]. This
+//!   is typically needed because a request over UDP can receive a truncated
+//!   response, which should be retried over TCP.
 //! * [redundant] This transport multiplexes requests over a collection of
 //!   transport connections. The [redundant] transport favors the connection
 //!   with the lowest response time. Any of the other transports can be added
 //!   as upstream transports.
 //! * [cache] This is a simple message cache provided as a pass through
 //!   transport. The cache works with any of the other transports.
+//! * [tsig] This is a TSIG request signer and response verifier provided as a
+//!   pass through transport. The tsig transport works with any upstream
+//!   transports so long as they don't modify the message once signed nor
+//!   modify the response before it can be verified.
 #![cfg_attr(feature = "unstable-validator", doc = "* [validator]:")]
 #![cfg_attr(not(feature = "unstable-validator",), doc = "* validator:")]
 //!   This is a DNSSEC validator provided as a pass through transport.
