@@ -136,7 +136,9 @@ where
     /// The request message.
     request_msg: Option<CR>,
 
-    /// TODO
+    /// The key to sign the request with.
+    /// 
+    /// If None, no signing will be done.
     key: Option<K>,
 
     /// The upstream transport of the connection.
