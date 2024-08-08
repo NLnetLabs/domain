@@ -342,7 +342,7 @@ impl Request {
 
         // Do we have a response stream that we should consume from? If not
         // the result is already available and can be returned immediately.
-        let stream = self.stream else {
+        let Some(stream) = self.stream.as_mut() else {
             return res;
         };
 
