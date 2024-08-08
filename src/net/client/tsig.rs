@@ -16,23 +16,63 @@ use bytes::Bytes;
 use tracing::{debug, trace, warn};
 
 use crate::base::message::CopyRecordsError;
-use crate::base::message_builder::AdditionalBuilder;
+use crate::base::message_builder::{AdditionalBuilder, PushError};
 use crate::base::wire::Composer;
 use crate::base::{Message, StaticCompressor};
 use crate::net::client::request::{
     ComposeRequest, Error, GetResponse, SendRequest,
 };
 use crate::rdata::tsig::Time48;
-use crate::tsig::{ClientSequence, ClientTransaction, Key};
+use crate::tsig::{ClientSequence, ClientTransaction, Key, ValidationError};
+use core::convert::AsRef;
+use octseq::Octets;
 
 /// TODO
 #[derive(Clone, Debug)]
 enum TsigClient<K> {
-    /// TODO
+    /// TSIG Client Transaction state.
     Transaction(ClientTransaction<K>),
 
-    /// TODO
+    /// TSIG client sequence state.
     Sequence(ClientSequence<K>),
+}
+
+impl<K: AsRef<Key>> TsigClient<K> {
+    /// Creates a TSIG client for a request.
+    pub fn request<Target: Composer>(
+        key: K,
+        msg: &mut AdditionalBuilder<Target>,
+        now: Time48,
+        streaming: bool,
+    ) -> Result<Self, PushError> {
+        let client = if streaming {
+            Self::Sequence(ClientSequence::request(key, msg, now)?)
+        } else {
+            Self::Transaction(ClientTransaction::request(key, msg, now)?)
+        };
+
+        Ok(client)
+    }
+
+    /// Validates an answer.
+    pub fn answer<Octs: Octets + AsMut<[u8]> + ?Sized>(
+        &mut self,
+        message: &mut Message<Octs>,
+        now: Time48,
+    ) -> Result<(), ValidationError> {
+        match self {
+            TsigClient::Transaction(c) => c.answer(message, now),
+            TsigClient::Sequence(c) => c.answer(message, now),
+        }
+    }
+
+    /// Validates the end of the sequence.
+    pub fn done(self) -> Result<(), ValidationError> {
+        match self {
+            TsigClient::Transaction(_) => Ok(()),
+            TsigClient::Sequence(c) => c.done(),
+        }
+    }
 }
 
 //------------ Connection -----------------------------------------------------
@@ -160,52 +200,25 @@ where
                                 msg.as_slice().to_vec(),
                             )?;
 
-                            let mut locked = tsig_client.lock().unwrap();
-                            match locked.deref_mut() {
-                                Some(TsigClient::Transaction(client)) => {
-                                    trace!(
-                                        "Validating TSIG for single reply"
-                                    );
-                                    client
-                                        .answer(
-                                            &mut modifiable_msg,
-                                            Time48::now(),
-                                        )
-                                        .map_err(|err| {
-                                            Error::Authentication(err)
-                                        })?;
-                                    mark_as_complete = true;
-                                }
+                            let mut client = tsig_client.lock().unwrap();
+                            if let Some(client) = client.deref_mut() {
+                                client
+                                    .answer(
+                                        &mut modifiable_msg,
+                                        Time48::now(),
+                                    )
+                                    .map_err(Error::Authentication)?;
+                            }
 
-                                Some(TsigClient::Sequence(client)) => {
-                                    trace!(
-                                        "Validating TSIG for sequence reply"
-                                    );
-                                    client
-                                        .answer(
-                                            &mut modifiable_msg,
-                                            Time48::now(),
-                                        )
-                                        .map_err(|err| {
-                                            Error::Authentication(err)
-                                        })?;
-                                    if request.is_stream_complete() {
-                                        mark_as_complete = true;
-                                    }
-                                }
-
-                                _ => {
-                                    trace!("Response is not signed, nothing to do");
-                                    if request.is_stream_complete() {
-                                        mark_as_complete = true;
-                                    }
-                                }
+                            if request.is_stream_complete() {
+                                mark_as_complete = true;
                             }
 
                             let out_vec = modifiable_msg.into_octets();
                             let out_bytes = Bytes::from(out_vec);
                             let out_msg =
                                 Message::<Bytes>::from_octets(out_bytes)?;
+
                             break Ok(out_msg);
                         }
 
@@ -263,9 +276,7 @@ where
             }
 
             RequestState::GetResponse(ref mut request, tsig_client) => {
-                if let Some(TsigClient::Sequence(client)) =
-                    tsig_client.lock().unwrap().take()
-                {
+                if let Some(client) = tsig_client.lock().unwrap().take() {
                     trace!("Completing TSIG sequence");
                     client.done().map_err(Error::Authentication)?;
                     request.stream_complete()?;
@@ -334,33 +345,13 @@ where
         let mut target = self.request.to_message_builder(target)?;
 
         if let Some(key) = &self.key {
-            let client = if self.request.is_streaming() {
-                trace!(
-                    "Signing streaming request sequence with key '{}'",
-                    key.as_ref().name()
-                );
-                TsigClient::Sequence(
-                    ClientSequence::request(
-                        key.clone(),
-                        &mut target,
-                        Time48::now(),
-                    )
-                    .unwrap(),
-                )
-            } else {
-                trace!(
-                    "Signing single request transaction with key '{}'",
-                    key.as_ref().name()
-                );
-                TsigClient::Transaction(
-                    ClientTransaction::request(
-                        key.clone(),
-                        &mut target,
-                        Time48::now(),
-                    )
-                    .unwrap(),
-                )
-            };
+            let client = TsigClient::request(
+                key.clone(),
+                &mut target,
+                Time48::now(),
+                self.request.is_streaming(),
+            )
+            .unwrap();
 
             *self.signer.lock().unwrap() = Some(client);
         } else {
