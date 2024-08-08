@@ -1,9 +1,11 @@
 #![cfg(feature = "unstable-stelline")]
+mod matches;
+
 pub mod channel;
 pub mod client;
 pub mod connect;
 pub mod connection;
 pub mod dgram;
-mod matches;
 pub mod parse_stelline;
 pub mod server;
+pub mod simple_dgram_client;

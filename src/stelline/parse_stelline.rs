@@ -9,6 +9,8 @@ use std::vec::Vec;
 use bytes::Bytes;
 
 use crate::base;
+use crate::base::iana::{Opcode, OptRcode};
+use crate::tsig::KeyName;
 use crate::utils::base16;
 use crate::zonefile::inplace::Entry as ZonefileEntry;
 use crate::zonefile::inplace::Zonefile;
@@ -19,16 +21,19 @@ const SCENARIO_END: &str = "SCENARIO_END";
 const RANGE_BEGIN: &str = "RANGE_BEGIN";
 const RANGE_END: &str = "RANGE_END";
 const ADDRESS: &str = "ADDRESS";
+const KEY: &str = "KEY";
 const ENTRY_BEGIN: &str = "ENTRY_BEGIN";
 const ENTRY_END: &str = "ENTRY_END";
 const MATCH: &str = "MATCH";
 const ADJUST: &str = "ADJUST";
 const REPLY: &str = "REPLY";
+const OPCODE: &str = "OPCODE";
 const SECTION: &str = "SECTION";
 const QUESTION: &str = "QUESTION";
 const ANSWER: &str = "ANSWER";
 const AUTHORITY: &str = "AUTHORITY";
 const ADDITIONAL: &str = "ADDITIONAL";
+const EXTRA_PACKET: &str = "EXTRA_PACKET";
 const STEP: &str = "STEP";
 const STEP_TYPE_QUERY: &str = "QUERY";
 const STEP_TYPE_CHECK_ANSWER: &str = "CHECK_ANSWER";
@@ -230,6 +235,7 @@ fn parse_step<Lines: Iterator<Item = Result<String, std::io::Error>>>(
     l: &mut Lines,
 ) -> Step {
     let mut step_client_address = None;
+    let mut step_key_name = None;
     let step_value = tokens.next().unwrap().parse::<u64>().unwrap();
     let step_type_str = tokens.next().unwrap();
     let step_type = if step_type_str == STEP_TYPE_QUERY {
@@ -262,6 +268,10 @@ fn parse_step<Lines: Iterator<Item = Result<String, std::io::Error>>>(
                 match (param, value) {
                     (Some(ADDRESS), Some(addr)) => {
                         step_client_address = Some(addr.parse().unwrap());
+                    }
+                    (Some(KEY), Some(key_name)) => {
+                        step_key_name =
+                            Some(KeyName::from_str(key_name).unwrap());
                     }
                     (Some(param), Some(value)) => {
                         eprintln!("Ignoring unknown query parameter '{param}' with value '{value}'");
@@ -319,7 +329,9 @@ fn parse_step<Lines: Iterator<Item = Result<String, std::io::Error>>>(
         let token = tokens.next().unwrap();
         if token == ENTRY_BEGIN {
             step.entry = Some(parse_entry(l));
-            step.entry.as_mut().unwrap().client_addr = step_client_address;
+            let entry = step.entry.as_mut().unwrap();
+            entry.client_addr = step_client_address;
+            entry.key_name = step_key_name;
             //println!("parse_step: {:?}", step);
             return step;
         }
@@ -330,8 +342,10 @@ fn parse_step<Lines: Iterator<Item = Result<String, std::io::Error>>>(
 #[derive(Clone, Debug, Default)]
 pub struct Entry {
     pub client_addr: Option<IpAddr>,
+    pub key_name: Option<KeyName>,
     pub matches: Option<Matches>,
     pub adjust: Option<Adjust>,
+    pub opcode: Option<Opcode>,
     pub reply: Option<Reply>,
     pub sections: Option<Sections>,
 }
@@ -339,13 +353,7 @@ pub struct Entry {
 fn parse_entry<Lines: Iterator<Item = Result<String, std::io::Error>>>(
     l: &mut Lines,
 ) -> Entry {
-    let mut entry = Entry {
-        client_addr: None,
-        matches: None,
-        adjust: None,
-        reply: None,
-        sections: None,
-    };
+    let mut entry = Entry::default();
     loop {
         let line = l.next().unwrap().unwrap();
         let clean_line = get_clean_line(line.as_ref());
@@ -355,6 +363,11 @@ fn parse_entry<Lines: Iterator<Item = Result<String, std::io::Error>>>(
         let clean_line = clean_line.unwrap();
         let mut tokens = LineTokens::new(clean_line);
         let token = tokens.next().unwrap();
+        if token == OPCODE {
+            entry.opcode =
+                Some(Opcode::from_str(tokens.next().unwrap()).unwrap());
+            continue;
+        }
         if token == MATCH {
             entry.matches = Some(parse_match(tokens));
             continue;
@@ -383,7 +396,7 @@ fn parse_entry<Lines: Iterator<Item = Result<String, std::io::Error>>>(
         if token == ENTRY_END {
             break;
         }
-        todo!();
+        todo!("Unsupported token '{token}'");
     }
     entry
 }
@@ -394,12 +407,23 @@ pub struct AdditionalSection {
     pub edns_bytes: Vec<u8>,
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 pub struct Sections {
     pub question: Vec<Question>,
-    pub answer: Vec<ZonefileEntry>,
+    pub answer: Vec<Vec<ZonefileEntry>>,
     pub authority: Vec<ZonefileEntry>,
     pub additional: AdditionalSection,
+}
+
+impl Default for Sections {
+    fn default() -> Self {
+        Self {
+            question: Default::default(),
+            answer: vec![vec![]],
+            authority: Default::default(),
+            additional: Default::default(),
+        }
+    }
 }
 
 pub type Name = base::Name<Bytes>;
@@ -411,6 +435,8 @@ fn parse_section<Lines: Iterator<Item = Result<String, std::io::Error>>>(
 ) -> (Sections, String) {
     let mut sections = Sections::default();
     let next = tokens.next().unwrap();
+    let mut answer_idx = 0;
+    let mut origin = ".".to_string();
     let mut section = if next == QUESTION {
         Section::Question
     } else {
@@ -439,10 +465,15 @@ fn parse_section<Lines: Iterator<Item = Result<String, std::io::Error>>>(
             } else {
                 panic!("Bad section {next}");
             };
+            origin = ".".to_string();
             continue;
         }
         if token == ENTRY_END {
             return (sections, line);
+        }
+        if token == EXTRA_PACKET {
+            answer_idx += 1;
+            continue;
         }
 
         match section {
@@ -475,19 +506,39 @@ fn parse_section<Lines: Iterator<Item = Result<String, std::io::Error>>>(
                             .edns_bytes
                             .extend(edns_line_bytes);
                     }
+                } else if clean_line.starts_with("$ORIGIN") {
+                    if let Some((_, new_origin)) = clean_line.split_once(' ')
+                    {
+                        origin = new_origin.to_string();
+                    }
                 } else {
                     let mut zonefile = Zonefile::new();
-                    zonefile.extend_from_slice(b"$ORIGIN .\n");
+                    zonefile.extend_from_slice(
+                        format!("$ORIGIN {origin}\n").as_bytes(),
+                    );
                     zonefile.extend_from_slice(b"ignore 3600 in ns ignore\n");
                     zonefile.extend_from_slice(clean_line.as_ref());
                     zonefile.extend_from_slice(b"\n");
                     let _e = zonefile.next_entry().unwrap();
-                    let e = zonefile.next_entry().unwrap();
+                    let e = zonefile.next_entry().map_err(|err| format!("Failed to parse zone file line '{clean_line}': {err}")).unwrap();
 
                     let e = e.unwrap();
                     match section {
                         Section::Question => unreachable!(),
-                        Section::Answer => sections.answer.push(e),
+                        Section::Answer => {
+                            let answer =
+                                match sections.answer.get_mut(answer_idx) {
+                                    Some(answer) => answer,
+                                    None => {
+                                        sections.answer.push(vec![]);
+                                        sections
+                                            .answer
+                                            .get_mut(answer_idx)
+                                            .unwrap()
+                                    }
+                                };
+                            answer.push(e);
+                        }
                         Section::Authority => sections.authority.push(e),
                         Section::Additional => {
                             sections.additional.zone_entries.push(e)
@@ -521,6 +572,9 @@ pub struct Matches {
     pub udp: bool,
     pub server_cookie: bool,
     pub edns_data: bool,
+    pub mock_client: bool,
+    pub conn_closed: bool,
+    pub extra_packets: bool,
 }
 
 fn parse_match(mut tokens: LineTokens<'_>) -> Matches {
@@ -567,11 +621,17 @@ fn parse_match(mut tokens: LineTokens<'_>) -> Matches {
         } else if token == "ttl" {
             matches.ttl = true;
         } else if token == "UDP" {
-            matches.tcp = true;
+            matches.tcp = false;
         } else if token == "server_cookie" {
             matches.server_cookie = true;
         } else if token == "ednsdata" {
             matches.edns_data = true;
+        } else if token == "MOCK_CLIENT" {
+            matches.mock_client = true;
+        } else if token == "CONNECTION_CLOSED" {
+            matches.conn_closed = true;
+        } else if token == "EXTRA_PACKETS" {
+            matches.extra_packets = true;
         } else {
             println!("should handle match {token:?}");
             todo!();
@@ -615,14 +675,13 @@ pub struct Reply {
     pub ra: bool,
     pub rd: bool,
     pub tc: bool,
-    pub formerr: bool,
+    pub rcode: Option<OptRcode>,
     pub noerror: bool,
     pub notimp: bool,
     pub nxdomain: bool,
     pub refused: bool,
     pub servfail: bool,
     pub yxdomain: bool,
-    pub yxrrset: String,
     pub notify: bool,
 }
 
@@ -651,22 +710,8 @@ fn parse_reply(mut tokens: LineTokens<'_>) -> Reply {
             reply.rd = true;
         } else if token == "TC" {
             reply.tc = true;
-        } else if token == "FORMERR" {
-            reply.formerr = true;
-        } else if token == "NOERROR" {
-            reply.noerror = true;
-        } else if token == "NOTIMP" {
-            reply.notimp = true;
-        } else if token == "NXDOMAIN" {
-            reply.nxdomain = true;
-        } else if token == "REFUSED" {
-            reply.refused = true;
-        } else if token == "SERVFAIL" {
-            reply.servfail = true;
-        } else if token == "YXDOMAIN" {
-            reply.yxdomain = true;
-        } else if token.starts_with("YXRRSET=") {
-            reply.yxrrset = token.split_once('=').unwrap().1.to_string();
+        } else if let Ok(rcode) = token.parse() {
+            reply.rcode = Some(rcode);
         } else if token == "NOTIFY" {
             reply.notify = true;
         } else {
