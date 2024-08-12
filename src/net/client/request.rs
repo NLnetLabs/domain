@@ -79,6 +79,7 @@ pub trait ComposeRequestMulti: Debug + Send + Sync {
     ) -> Result<AdditionalBuilder<Target>, CopyRecordsError>;
 
     /// Create a message that captures the recorded changes.
+    fn to_message(&self) -> Result<Message<Vec<u8>>, Error>;
 
     /// Create a message that captures the recorded changes and convert to
     /// a Vec.
@@ -127,6 +128,7 @@ pub trait SendRequest<CR> {
 
 //------------ SendRequestMulti -----------------------------------------------
 
+/*
 /// Trait for starting a DNS request based on a request composer.
 ///
 /// In the future, the return type of request should become an associated type.
@@ -137,6 +139,19 @@ pub trait SendRequestMulti<CR> {
         &self,
         request_msg: CR,
     ) -> Box<dyn GetResponseMulti + Send + Sync>;
+}
+*/
+
+/// Trait for starting a DNS request based on a request composer.
+///
+/// In the future, the return type of request should become an associated type.
+/// However, the use of 'dyn Request' in redundant currently prevents that.
+pub trait SendRequestMulti2<CR> {
+    /// Request function that takes a ComposeRequest type.
+    fn send_request(
+        &self,
+        request_msg: CR,
+    ) -> Box<dyn GetResponseMulti2 + Send + Sync>;
 }
 
 //------------ GetResponse ---------------------------------------------------
@@ -191,6 +206,32 @@ pub trait GetResponseMulti: Debug {
     /// TODO
     fn is_stream_complete(&self) -> bool {
         false
+    }
+}
+
+/// Trait for getting the result of a DNS query.
+///
+/// In the future, the return type of get_response should become an associated
+/// type. However, too many uses of 'dyn GetResponse' currently prevent that.
+pub trait GetResponseMulti2: Debug {
+    /// Get the result of a DNS request.
+    ///
+    /// This function is intended to be cancel safe.
+    fn get_response(
+        &mut self,
+    ) -> Pin<
+        Box<
+            dyn Future<Output = Result<Option<Message<Bytes>>, Error>>
+                + Send
+                + Sync
+                + '_,
+        >,
+    >;
+
+    /// TODO
+    fn stream_complete2(&mut self) -> Result<(), Error> {
+        // Nothing to do.
+        Ok(())
     }
 }
 
@@ -497,6 +538,24 @@ impl<Octs: AsRef<[u8]> + Debug + Octets> RequestMessageMulti<Octs> {
 
         Ok(target)
     }
+
+    /// Create new message based on the changes to the base message.
+    fn to_message_impl(&self) -> Result<Message<Vec<u8>>, Error> {
+        let target =
+            MessageBuilder::from_target(StaticCompressor::new(Vec::new()))
+                .expect("Vec is expected to have enough space");
+
+        let target = self.append_message_impl(target)?;
+
+        // It would be nice to use .builder() here. But that one deletes all
+        // sections. We have to resort to .as_builder() which gives a
+        // reference and then .clone()
+        let result = target.as_builder().clone();
+        let msg = Message::from_octets(result.finish().into_target()).expect(
+            "Message should be able to parse output from MessageBuilder",
+        );
+        Ok(msg)
+    }
 }
 
 impl<Octs: AsRef<[u8]> + Debug + Octets + Send + Sync> ComposeRequestMulti
@@ -510,6 +569,10 @@ impl<Octs: AsRef<[u8]> + Debug + Octets + Send + Sync> ComposeRequestMulti
             .map_err(|_| CopyRecordsError::Push(PushError::ShortBuf))?;
         let builder = self.append_message_impl(target)?;
         Ok(builder)
+    }
+
+    fn to_message(&self) -> Result<Message<Vec<u8>>, Error> {
+        self.to_message_impl()
     }
 
     fn header(&self) -> &Header {

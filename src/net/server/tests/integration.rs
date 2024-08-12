@@ -26,7 +26,7 @@ use crate::base::iana::Rcode;
 use crate::base::name::{Name, ToName};
 use crate::base::net::IpAddr;
 use crate::base::wire::Composer;
-use crate::net::client::request::{RequestMessage, RequestMessageMulti, SendRequest, SendRequestMulti};
+use crate::net::client::request::{RequestMessage, RequestMessageMulti, SendRequest, SendRequestMulti2};
 use crate::net::client::{dgram, stream, tsig, xfr};
 use crate::net::server;
 use crate::net::server::buf::VecBufSource;
@@ -1072,7 +1072,7 @@ impl ConnectionFactory for MockServerConnFactory {
                     Output = Result<
                         Option<
                             Box<
-                                dyn SendRequestMulti<RequestMessageMulti<Octs>>
+                                dyn SendRequestMulti2<RequestMessageMulti<Octs>>
                                     + Send
                                     + Sync
                                     + 'static,
@@ -1143,7 +1143,7 @@ impl ConnectionFactory for MockServerConnFactory {
 
                 Ok(Some(Box::new(tsig::Connection::new(key, client))
                     as Box<
-                        dyn SendRequestMulti<RequestMessageMulti<Octs>> + Send + Sync,
+                        dyn SendRequestMulti2<RequestMessageMulti<Octs>> + Send + Sync,
                     >))
             }
         };

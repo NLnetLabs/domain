@@ -19,7 +19,7 @@ use crate::base::iana::{Opcode, OptionCode};
 use crate::base::opt::{ComposeOptData, OptData};
 use crate::base::{Message, MessageBuilder};
 use crate::net::client::request::{
-    ComposeRequest, ComposeRequestMulti, Error, GetResponse, GetResponseMulti, RequestMessage, RequestMessageMulti, SendRequest, SendRequestMulti,
+    ComposeRequest, ComposeRequestMulti, Error, GetResponse, GetResponseMulti2, RequestMessage, RequestMessageMulti, SendRequest, SendRequestMulti2,
 };
 use crate::stelline::matches::match_multi_msg;
 use crate::zonefile::inplace::Entry::Record;
@@ -226,19 +226,19 @@ impl Dispatcher {
 //----------- DispatcherMulti -------------------------------------------------
 
 pub struct DispatcherMulti(
-    Option<Rc<Box<dyn SendRequestMulti<RequestMessageMulti<Vec<u8>>>>>>,
+    Option<Rc<Box<dyn SendRequestMulti2<RequestMessageMulti<Vec<u8>>>>>>,
 );
 
 impl DispatcherMulti {
     pub fn with_client<T>(client: T) -> Self
     where
-        T: SendRequestMulti<RequestMessageMulti<Vec<u8>>> + 'static,
+        T: SendRequestMulti2<RequestMessageMulti<Vec<u8>>> + 'static,
     {
         Self(Some(Rc::new(Box::new(client))))
     }
 
     pub fn with_rc_boxed_client(
-        client: Rc<Box<dyn SendRequestMulti<RequestMessageMulti<Vec<u8>>>>>,
+        client: Rc<Box<dyn SendRequestMulti2<RequestMessageMulti<Vec<u8>>>>>,
     ) -> Self {
         Self(Some(client))
     }
@@ -250,7 +250,7 @@ impl DispatcherMulti {
     pub fn dispatch(
         &self,
         entry: &Entry,
-    ) -> Result<Box<dyn GetResponseMulti + Send + Sync>, StellineErrorCause> {
+    ) -> Result<Box<dyn GetResponseMulti2 + Send + Sync>, StellineErrorCause> {
         if let Some(dispatcher) = &self.0 {
             let reqmsg = entry2reqmsg_multi(entry);
             trace!(?reqmsg);
@@ -294,12 +294,12 @@ pub trait ClientFactoryMulti {
 //----------- SingleClientFactoryMulti ----------------------------------------
 
 pub struct SingleClientFactoryMulti(
-    Rc<Box<dyn SendRequestMulti<RequestMessageMulti<Vec<u8>>>>>,
+    Rc<Box<dyn SendRequestMulti2<RequestMessageMulti<Vec<u8>>>>>,
 );
 
 impl SingleClientFactoryMulti {
     pub fn new(
-        client: impl SendRequestMulti<RequestMessageMulti<Vec<u8>>> + 'static,
+        client: impl SendRequestMulti2<RequestMessageMulti<Vec<u8>>> + 'static,
     ) -> Self {
         Self(Rc::new(Box::new(client)))
     }
@@ -383,18 +383,18 @@ where
 
 pub struct PerClientAddressClientFactoryMulti<F, S>
 where
-    F: Fn(&IpAddr, &Entry) -> Box<dyn SendRequestMulti<RequestMessageMulti<Vec<u8>>>>,
+    F: Fn(&IpAddr, &Entry) -> Box<dyn SendRequestMulti2<RequestMessageMulti<Vec<u8>>>>,
     S: Fn(&Entry) -> bool,
 {
     clients_by_address:
-        HashMap<IpAddr, Rc<Box<dyn SendRequestMulti<RequestMessageMulti<Vec<u8>>>>>>,
+        HashMap<IpAddr, Rc<Box<dyn SendRequestMulti2<RequestMessageMulti<Vec<u8>>>>>>,
     factory_func: F,
     is_suitable_func: S,
 }
 
 impl<F, S> PerClientAddressClientFactoryMulti<F, S>
 where
-    F: Fn(&IpAddr, &Entry) -> Box<dyn SendRequestMulti<RequestMessageMulti<Vec<u8>>>>,
+    F: Fn(&IpAddr, &Entry) -> Box<dyn SendRequestMulti2<RequestMessageMulti<Vec<u8>>>>,
     S: Fn(&Entry) -> bool,
 {
     pub fn new(factory_func: F, is_suitable_func: S) -> Self {
@@ -408,7 +408,7 @@ where
 
 impl<F, S> ClientFactoryMulti for PerClientAddressClientFactoryMulti<F, S>
 where
-    F: Fn(&IpAddr, &Entry) -> Box<dyn SendRequestMulti<RequestMessageMulti<Vec<u8>>>>,
+    F: Fn(&IpAddr, &Entry) -> Box<dyn SendRequestMulti2<RequestMessageMulti<Vec<u8>>>>,
     S: Fn(&Entry) -> bool,
 {
     fn get(
@@ -688,7 +688,7 @@ pub async fn do_client_multi<'a, T: ClientFactoryMulti>(
         mut client_factory: T,
     ) -> Result<(), StellineErrorCause> {
         let mut last_sent_request: Option<
-            Box<dyn GetResponseMulti + Sync + Send>,
+            Box<dyn GetResponseMulti2 + Sync + Send>,
         > = None;
 
         #[cfg(all(feature = "std", test))]
@@ -769,6 +769,21 @@ pub async fn do_client_multi<'a, T: ClientFactoryMulti>(
                             .map_err(|_| {
                                 StellineErrorCause::AnswerTimedOut
                             })??;
+			    let resp = match resp {
+				Some(resp) => resp,
+				None => {
+				    trace!("Stream complete");
+				    if !entry.sections.as_ref().unwrap().answer[0]
+					.is_empty()
+				    {
+					return Err(
+					    StellineErrorCause::MismatchedAnswer,
+					);
+				    } else {
+					break;
+				    }
+				}
+			    };
                             trace!("Received answer.");
                             trace!(?resp);
 
@@ -789,18 +804,6 @@ pub async fn do_client_multi<'a, T: ClientFactoryMulti>(
                             }
                             trace!("Answer RRs remaining = {num_rrs_remaining_after}");
 
-                            if send_request.is_stream_complete() {
-                                trace!("Stream complete");
-                                if !entry.sections.as_ref().unwrap().answer[0]
-                                    .is_empty()
-                                {
-                                    return Err(
-                                        StellineErrorCause::MismatchedAnswer,
-                                    );
-                                } else {
-                                    break;
-                                }
-                            }
                         }
                     } else {
                         let num_expected_answers = entry
@@ -822,6 +825,13 @@ pub async fn do_client_multi<'a, T: ClientFactoryMulti>(
                             .map_err(|_| {
                                 StellineErrorCause::AnswerTimedOut
                             })??;
+			    let resp = match resp {
+				Some(resp) => resp,
+				None => {
+				    // What do we do for end of stream?
+				    todo!();
+				}
+			    };
                             trace!("Received answer.");
                             trace!(?resp);
                             if !match_multi_msg(
@@ -831,10 +841,6 @@ pub async fn do_client_multi<'a, T: ClientFactoryMulti>(
                                     StellineErrorCause::MismatchedAnswer,
                                 );
                             }
-                        }
-
-                        if num_expected_answers > 1 {
-                            send_request.stream_complete().unwrap();
                         }
                     }
 

@@ -7,6 +7,7 @@ use std::borrow::ToOwned;
 use std::boxed::Box;
 use std::fmt::{Debug, Formatter};
 use std::future::Future;
+use std::future::ready;
 use std::pin::Pin;
 use std::sync::Arc;
 
@@ -21,7 +22,7 @@ use crate::base::name::{Label, ToLabelIter};
 use crate::base::ToName;
 use crate::base::{Message, Name, ParsedName, Rtype, Serial};
 use crate::net::client::request::{
-    ComposeRequest, ComposeRequestMulti, Error, GetResponse, GetResponseMulti, SendRequest, SendRequestMulti,
+    ComposeRequest, ComposeRequestMulti, Error, GetResponse, GetResponseMulti2, SendRequest, SendRequestMulti2,
 };
 use crate::rdata::{Soa, ZoneRecordData};
 
@@ -82,6 +83,7 @@ where
 
 //------------ SendRequestMulti -----------------------------------------------
 
+/*
 impl<CR, Upstream> SendRequestMulti<CR> for Connection<Upstream>
 where
     CR: ComposeRequestMulti + 'static,
@@ -91,6 +93,25 @@ where
         &self,
         request_msg: CR,
     ) -> Box<dyn GetResponseMulti + Send + Sync> {
+        Box::new(RequestMulti::<CR, Upstream>::new(
+            request_msg,
+            #[cfg(feature = "unstable-zonetree")]
+            self.zone.clone(),
+            self.upstream.clone(),
+        ))
+    }
+}
+*/
+
+impl<CR, Upstream> SendRequestMulti2<CR> for Connection<Upstream>
+where
+    CR: ComposeRequestMulti + 'static,
+    Upstream: SendRequestMulti2<CR> + Send + Sync + 'static,
+{
+    fn send_request(
+        &self,
+        request_msg: CR,
+    ) -> Box<dyn GetResponseMulti2 + Send + Sync> {
         Box::new(RequestMulti::<CR, Upstream>::new(
             request_msg,
             #[cfg(feature = "unstable-zonetree")]
@@ -662,13 +683,13 @@ where
 pub struct RequestMulti<CR, Upstream>
 where
     CR: ComposeRequestMulti,
-    Upstream: SendRequestMulti<CR>,
+    Upstream: SendRequestMulti2<CR>,
 {
     /// The request message.
     request_msg: Option<CR>,
 
     /// TODO
-    send_request: Option<Box<dyn GetResponseMulti + Send + Sync>>,
+    send_request: Option<Box<dyn GetResponseMulti2 + Send + Sync>>,
 
     /// The upstream transport of the connection.
     upstream: Arc<Upstream>,
@@ -722,7 +743,7 @@ where
 impl<CR, Upstream> RequestMulti<CR, Upstream>
 where
     CR: ComposeRequestMulti,
-    Upstream: SendRequestMulti<CR> + Send + Sync,
+    Upstream: SendRequestMulti2<CR> + Send + Sync,
 {
     /// Create a new Request object.
     fn new(
@@ -757,7 +778,7 @@ where
     /// This is the implementation of the get_response method.
     ///
     /// This function is cancel safe.
-    async fn get_response_impl(&mut self) -> Result<Message<Bytes>, Error> {
+    async fn get_response_impl(&mut self) -> Result<Option<Message<Bytes>>, Error> {
         // The first time we are called, send the request and receive back an
         // object which can be used to fetch responses. Then use that in both
         // the first and subsequent invocations to do response fetching.
@@ -803,16 +824,20 @@ where
         // stop very large zone retrieval, that could otherwise use up a lot
         // of memory and disk space".
         let msg = send_request.get_response().await?;
+	let msg = match msg {
+	    Some(msg) => msg,
+	    None => return Ok(None),
+	};
 
         let not_xfr = msg
             .sole_question()
             .map(|q| q.qtype() != Rtype::AXFR && q.qtype() != Rtype::IXFR);
         if matches!(not_xfr, Ok(true)) {
-            return Ok(msg);
+            return Ok(Some(msg));
         }
 
         if msg.is_error() {
-            return Ok(msg);
+            return Ok(Some(msg));
         }
 
         trace!("Received response {}", self.i);
@@ -944,8 +969,14 @@ where
                                 {
                                     trace!("Closing response stream at record nr {} (soa seen count = {})",
                                         self.i, self.initial_soa_serial_seen_count);
-                                    send_request.stream_complete()?;
-                                    self.stream_complete()?;
+				    // We need to check that this is the last
+				    // record in the message. We also need to
+				    // check for the end-of-stream indication.
+				    // This gives the TSIG transport a chance
+				    // to verify that the last message was
+				    // properly signed.
+				    println!("TODO check for end-of-stream");
+                                    self.stream_complete2()?;
 
                                     #[cfg(feature = "unstable-zonetree")]
                                     if let Some(zone) = &self.zone {
@@ -1165,7 +1196,7 @@ where
             }
         }
 
-        Ok(msg)
+        Ok(Some(msg))
     }
 
     /// TODO
@@ -1191,7 +1222,7 @@ where
 impl<CR, Upstream> Debug for RequestMulti<CR, Upstream>
 where
     CR: ComposeRequestMulti,
-    Upstream: SendRequestMulti<CR>,
+    Upstream: SendRequestMulti2<CR>,
 {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), core::fmt::Error> {
         f.debug_struct("Request")
@@ -1200,32 +1231,39 @@ where
     }
 }
 
-impl<CR, Upstream> GetResponseMulti for RequestMulti<CR, Upstream>
+impl<CR, Upstream> GetResponseMulti2 for RequestMulti<CR, Upstream>
 where
     CR: ComposeRequestMulti,
-    Upstream: SendRequestMulti<CR> + Send + Sync,
+    Upstream: SendRequestMulti2<CR> + Send + Sync,
 {
     fn get_response(
         &mut self,
     ) -> Pin<
         Box<
-            dyn Future<Output = Result<Message<Bytes>, Error>>
+            dyn Future<Output = Result<Option<Message<Bytes>>, Error>>
                 + Send
                 + Sync
                 + '_,
         >,
     > {
-        Box::pin(self.get_response_impl())
+	if self.complete {
+	     Box::pin(ready(Ok(None)))
+	}
+	else {
+	    Box::pin(self.get_response_impl())
+	}
     }
 
-    fn stream_complete(&mut self) -> Result<(), Error> {
+    fn stream_complete2(&mut self) -> Result<(), Error> {
         self.complete = true;
         Ok(())
     }
 
+    /*
     fn is_stream_complete(&self) -> bool {
         self.complete
     }
+    */
 }
 
 //------------ IxfrUpdateMode -------------------------------------------------

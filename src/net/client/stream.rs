@@ -34,10 +34,12 @@ use tokio::time::sleep;
 use tracing::trace;
 
 use crate::base::message::Message;
+use crate::base::iana::Rtype;
+use crate::base::Serial;
 use crate::base::message_builder::StreamTarget;
 use crate::base::opt::{AllOptData, OptRecord, TcpKeepalive};
 use crate::net::client::request::{
-    ComposeRequest, ComposeRequestMulti, Error, GetResponse, GetResponseMulti, SendRequest, SendRequestMulti,
+    ComposeRequest, ComposeRequestMulti, Error, GetResponse, GetResponseMulti2, SendRequest, SendRequestMulti2,
 };
 use crate::utils::config::DefMinMax;
 
@@ -301,6 +303,7 @@ where
     }
 }
 
+/*
 impl<Req, ReqMulti> SendRequestMulti<ReqMulti> for Connection<Req, ReqMulti>
 where
 	Req: ComposeRequest + Debug + Send + Sync + 'static,
@@ -316,6 +319,21 @@ where
 	    panic!("Only streaming in SendRequestMulti");
             //Box::new(self.get_request(request_msg))
         }
+    }
+}
+*/
+
+impl<Req, ReqMulti> SendRequestMulti2<ReqMulti> for Connection<Req, ReqMulti>
+where
+	Req: ComposeRequest + Debug + Send + Sync + 'static,
+	ReqMulti: ComposeRequestMulti + 'static
+{
+    fn send_request(
+        &self,
+        request_msg: ReqMulti,
+    ) -> Box<dyn GetResponseMulti2 + Send + Sync> {
+	// ComposeRequestMulti is always streaming.
+	Box::new(self.get_streaming_request(request_msg))
     }
 }
 
@@ -376,21 +394,33 @@ impl GetResponse for Request {
     }
 }
 
-impl GetResponseMulti for Request {
+impl GetResponseMulti2 for Request {
     fn get_response(
         &mut self,
     ) -> Pin<
         Box<
-            dyn Future<Output = Result<Message<Bytes>, Error>>
+            dyn Future<Output = Result<Option<Message<Bytes>>, Error>>
                 + Send
                 + Sync
                 + '_,
         >,
     > {
-        Box::pin(self.get_response_impl())
+	if self.stream_complete {
+	    Box::pin(ready(Ok(None)))
+	}
+	else {
+	    let fut = self.get_response_impl();
+	    Box::pin(async move {
+		match fut.await {
+		    Ok(msg) => Ok(Some(msg)),
+		    Err(e) => Err(e)
+		}
+	    })
+	}
     }
 
-    fn stream_complete(&mut self) -> Result<(), Error> {
+    fn stream_complete2(&mut self) -> Result<(), Error> {
+	todo!();
         if let Some(mut stream) = self.stream.take() {
             trace!("Closing response stream");
             stream.close();
@@ -401,9 +431,11 @@ impl GetResponseMulti for Request {
         Ok(())
     }
 
+    /*
     fn is_stream_complete(&self) -> bool {
         self.stream_complete
     }
+    */
 }
 
 impl Debug for Request {
@@ -554,6 +586,21 @@ impl std::fmt::Display for ConnState {
     }
 }
 
+#[derive(Debug)]
+enum XFRState {
+    AXFRInit,
+    IXFRInit
+}
+
+#[derive(Debug)]
+struct XFRData {
+    /// State needed for AXFR and IXFR.
+    state: XFRState,
+
+    ///
+    serial: Serial,
+}
+
 impl<Stream, Req, ReqMulti> Transport<Stream, Req, ReqMulti> {
     /// Creates a new transport.
     fn new(
@@ -594,7 +641,7 @@ where
             idle_timeout: self.config.idle_timeout,
             send_keepalive: true,
         };
-        let mut query_vec = Queries::new();
+        let mut query_vec = Queries::<(ChanReq<Req, ReqMulti>, Option<XFRData>)>::new();
 
         let mut reqmsg: Option<Vec<u8>> = None;
         let mut reqmsg_offset = 0;
@@ -825,11 +872,12 @@ where
     }
 
     /// Reports an error to all outstanding queries.
-    fn error(error: Error, query_vec: &mut Queries<ChanReq<Req, ReqMulti>>) {
+    fn error(error: Error, query_vec: &mut Queries<(ChanReq<Req, ReqMulti>,
+		Option<XFRData>)>) {
         // Update all requests that are in progress. Don't wait for
         // any reply that may be on its way.
-        for mut item in query_vec.drain() {
-            _ = item.sender.send(Err(error.clone()));
+        for (mut req, _) in query_vec.drain() {
+            _ = req.sender.send(Err(error.clone()));
         }
     }
 
@@ -857,13 +905,13 @@ where
     fn demux_reply(
         answer: Message<Bytes>,
         status: &mut Status,
-        query_vec: &mut Queries<ChanReq<Req, ReqMulti>>,
+        query_vec: &mut Queries<(ChanReq<Req, ReqMulti>, Option<XFRData>)>,
     ) {
         // We got an answer, reset the timer
         status.state = ConnState::Active(Some(Instant::now()));
 
         // Get the correct query and send it the reply.
-        let mut req = match query_vec.try_remove(answer.header().id()) {
+        let (mut req, mut xfr_data) = match query_vec.try_remove(answer.header().id()) {
             Some(req) => req,
             None => {
                 // No query with this ID. We should
@@ -884,7 +932,7 @@ where
 
         // TODO: Discard streaming requests once the stream is complete.
         if req.sender.is_stream() {
-            query_vec.insert(req).unwrap();
+            query_vec.insert((req, xfr_data)).unwrap();
         }
 
         if query_vec.is_empty() {
@@ -914,7 +962,7 @@ where
         mut req: ChanReq<Req, ReqMulti>,
         status: &mut Status,
         reqmsg: &mut Option<Vec<u8>>,
-        query_vec: &mut Queries<ChanReq<Req, ReqMulti>>,
+        query_vec: &mut Queries<(ChanReq<Req, ReqMulti>, Option<XFRData>)>,
     ) {
         match &status.state {
             ConnState::Active(timer) => {
@@ -946,12 +994,34 @@ where
             }
         }
 
+	let xfr_data = match &req.msg {
+		ReqSingleMulti::Single(_) => None,
+		ReqSingleMulti::Multi(msg) => {
+			let qtype = match msg.to_message().and_then(|m| m.sole_question().map_err(|e| Error::MessageParseError).map(|q| q.qtype())) {
+			    Ok(msg) => msg,
+			    Err(e) => {
+				_ = req.sender.send(Err(e));
+				return;
+			    }
+			};
+			if qtype == Rtype::AXFR {
+			    Some(XFRData { state: XFRState::AXFRInit, serial: 0.into() })
+			} else if qtype == Rtype::IXFR {
+			    todo!();
+			} else {
+			    // Stream requests should be either AXFR or IXFR.
+			    _ = req.sender.send(Err(Error::FormError,));
+			    return;
+			}
+		}
+	};
+
         // Note that insert may fail if there are too many
         // outstanding queries. First call insert before checking
         // send_keepalive.
-        let (index, req) = match query_vec.insert(req) {
+        let (index, (req, _)) = match query_vec.insert((req, xfr_data)) {
             Ok(res) => res,
-            Err(mut req) => {
+            Err((mut req, _)) => {
                 // Send an appropriate error and return.
                 _ = req
                     .sender
@@ -990,7 +1060,7 @@ where
             }
             Err(err) => {
                 // Take the sender out again and return the error.
-                if let Some(mut req) = query_vec.try_remove(index) {
+                if let Some((mut req, _)) = query_vec.try_remove(index) {
                     _ = req.sender.send(Err(err));
                 }
             }
