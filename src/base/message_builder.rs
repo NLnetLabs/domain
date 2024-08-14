@@ -238,7 +238,7 @@ impl<Target: Composer> MessageBuilder<Target> {
     ///
     /// Specifically, this sets the ID, QR, OPCODE, RD, and RCODE fields
     /// in the header and attempts to push the message’s questions to the
-    /// builder. If iterating of the questions fails, it adds what it can.
+    /// builder.
     ///
     /// The method converts the message builder into an answer builder ready
     /// to receive the answer for the question.
