@@ -8,30 +8,24 @@
 
 // To do:
 // - cookies
-use core::fmt;
-
-use std::boxed::Box;
-use std::future::Future;
-use std::pin::Pin;
-//use std::prelude::v1::Vec;
-use std::sync::Arc;
-use std::{error, io};
-
-use bytes::Bytes;
-use octseq::OctetsInto;
-use tokio::sync::Semaphore;
-use tokio::time::{timeout_at, Duration, Instant};
-use tracing::trace;
-
-use crate::base::Message;
-use crate::net::client::protocol::{
+use super::protocol::{
     AsyncConnect, AsyncDgramRecv, AsyncDgramRecvEx, AsyncDgramSend,
     AsyncDgramSendEx,
 };
-use crate::net::client::request::{
-    ComposeRequest, Error, GetResponse, SendRequest,
-};
+use super::request::{ComposeRequest, Error, GetResponse, SendRequest};
+use crate::base::Message;
 use crate::utils::config::DefMinMax;
+use bytes::Bytes;
+use core::fmt;
+use octseq::OctetsInto;
+use std::boxed::Box;
+use std::future::Future;
+use std::pin::Pin;
+use std::sync::Arc;
+use std::{error, io};
+use tokio::sync::Semaphore;
+use tokio::time::{timeout_at, Duration, Instant};
+use tracing::trace;
 
 //------------ Configuration Constants ----------------------------------------
 
