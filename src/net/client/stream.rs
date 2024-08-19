@@ -35,10 +35,13 @@ use tracing::trace;
 
 use crate::base::message::Message;
 use crate::base::message_builder::StreamTarget;
+use crate::base::name::FlattenInto;
 use crate::base::opt::{AllOptData, OptRecord, TcpKeepalive};
+use crate::base::{Name, ParsedName, Record, Rtype};
 use crate::net::client::request::{
     ComposeRequest, Error, GetResponse, SendRequest,
 };
+use crate::rdata::Soa;
 use crate::utils::config::DefMinMax;
 
 //------------ Configuration Constants ----------------------------------------
@@ -223,7 +226,12 @@ impl<Req: ComposeRequest + 'static> Connection<Req> {
     ) -> Result<Message<Bytes>, Error> {
         let (sender, receiver) = oneshot::channel();
         let sender = ReplySender::Single(Some(sender));
-        let req = ChanReq { sender, msg };
+        let req = ChanReq {
+            sender,
+            msg,
+            eos: None,
+            eos_seen_count: 0,
+        };
         self.sender.send(req).await.map_err(|_| {
             // Send error. The receiver is gone, this means that the
             // connection is closed.
@@ -249,6 +257,8 @@ impl<Req: ComposeRequest + 'static> Connection<Req> {
         let req = ChanReq {
             sender: reply_sender,
             msg,
+            eos: None,
+            eos_seen_count: 0,
         };
         let _ = self.sender.send(req).await;
 
@@ -459,6 +469,54 @@ struct ChanReq<Req> {
 
     /// Sender to send result back to [`Request`]
     sender: ReplySender,
+
+    /// End of stream marker to check for, when streaming
+    eos: Option<Soa<Name<Bytes>>>,
+
+    /// Number of times eos has been seen
+    eos_seen_count: usize,
+}
+
+impl<Req> ChanReq<Req> {
+    fn is_eos(&mut self, msg: &Message<Bytes>) -> bool {
+        if self.sender.is_stream() {
+            if let Ok(mut answer) = msg.answer() {
+                if let Some(Ok(record)) = answer.next() {
+                    if record.rtype() == Rtype::SOA {
+                        if let Ok(Some(record)) = record.into_record() {
+                            let soa_rec: Record<_, Soa<ParsedName<Bytes>>> =
+                                record;
+                            let soa = soa_rec.data().clone().flatten_into();
+                            match &self.eos {
+                                Some(expected_soa) => {
+                                    let found = &soa == expected_soa;
+                                    if found {
+                                        self.eos_seen_count += 1;
+                                    }
+                                    let res = match msg.qtype() {
+                                        Some(Rtype::AXFR) => {
+                                            self.eos_seen_count == 1
+                                        }
+                                        Some(Rtype::IXFR) => {
+                                            self.eos_seen_count == 2
+                                        }
+                                        _ => false,
+                                    };
+                                    return res;
+                                }
+                                None => {
+                                    self.eos = Some(soa);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            false
+        } else {
+            true
+        }
+    }
 }
 
 /// A message back to [`Request`] returning a response.
@@ -829,6 +887,7 @@ where
                 return;
             }
         };
+        let is_eos = req.is_eos(&answer);
         let answer = if req.msg.is_answer(answer.for_slice()) {
             Ok(answer)
         } else {
@@ -837,7 +896,7 @@ where
         _ = req.sender.send(answer);
 
         // TODO: Discard streaming requests once the stream is complete.
-        if req.sender.is_stream() {
+        if req.sender.is_stream() && !is_eos {
             query_vec.insert(req).unwrap();
         }
 
