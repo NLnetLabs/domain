@@ -27,7 +27,7 @@ use crate::base::name::{Name, ToName};
 use crate::base::net::IpAddr;
 use crate::base::wire::Composer;
 use crate::net::client::request::{
-    RequestMessage, RequestMessageMulti, SendRequest, SendRequestMulti2,
+    RequestMessage, RequestMessageMulti, SendRequest, SendRequestMulti,
 };
 use crate::net::client::{dgram, stream, tsig, xfr};
 use crate::net::server;
@@ -1080,7 +1080,7 @@ impl ConnectionFactory for MockServerConnFactory {
                     Output = Result<
                         Option<
                             Box<
-                                dyn SendRequestMulti2<
+                                dyn SendRequestMulti<
                                         RequestMessageMulti<Octs>,
                                     > + Send
                                     + Sync
@@ -1152,7 +1152,7 @@ impl ConnectionFactory for MockServerConnFactory {
 
                 Ok(Some(Box::new(tsig::Connection::new(key, client))
                     as Box<
-                        dyn SendRequestMulti2<RequestMessageMulti<Octs>>
+                        dyn SendRequestMulti<RequestMessageMulti<Octs>>
                             + Send
                             + Sync,
                     >))

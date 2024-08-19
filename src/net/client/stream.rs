@@ -1181,10 +1181,8 @@ where
         | XFRState::IXFRFirstSoa(_)
         | XFRState::IXFRFirstDiffSoa(_)
         | XFRState::IXFRSecondDiffSoa(_) =>
-        // No need to check anything.
-        {
-            ()
-        }
+            // No need to check anything.
+            {}
         XFRState::Done => {
             // We should not be here. Switch to error state.
             xfr_state = XFRState::Error;
@@ -1322,10 +1320,8 @@ where
         XFRState::AXFRFirstSoa(_)
         | XFRState::IXFRFirstDiffSoa(_)
         | XFRState::IXFRSecondDiffSoa(_) =>
-        // Just continue.
-        {
-            ()
-        }
+            // Just continue.
+            {}
         XFRState::IXFRFirstSoa(_) => {
             // We are still in IXFRFirstSoa. Assume the other side doesn't
             // have anything more to say. We could check the SOA serial in
