@@ -22,7 +22,7 @@ use crate::base::name::{Label, ToLabelIter};
 use crate::base::ToName;
 use crate::base::{Message, Name, ParsedName, Rtype, Serial};
 use crate::net::client::request::{
-    ComposeRequest, ComposeRequestMulti, Error, GetResponse, GetResponseMulti2, SendRequest, SendRequestMulti2,
+    ComposeRequest, ComposeRequestMulti, Error, GetResponse, GetResponseMulti, SendRequest, SendRequestMulti,
 };
 use crate::rdata::{Soa, ZoneRecordData};
 
@@ -103,15 +103,15 @@ where
 }
 */
 
-impl<CR, Upstream> SendRequestMulti2<CR> for Connection<Upstream>
+impl<CR, Upstream> SendRequestMulti<CR> for Connection<Upstream>
 where
     CR: ComposeRequestMulti + 'static,
-    Upstream: SendRequestMulti2<CR> + Send + Sync + 'static,
+    Upstream: SendRequestMulti<CR> + Send + Sync + 'static,
 {
     fn send_request(
         &self,
         request_msg: CR,
-    ) -> Box<dyn GetResponseMulti2 + Send + Sync> {
+    ) -> Box<dyn GetResponseMulti + Send + Sync> {
         Box::new(RequestMulti::<CR, Upstream>::new(
             request_msg,
             #[cfg(feature = "unstable-zonetree")]
@@ -683,13 +683,13 @@ where
 pub struct RequestMulti<CR, Upstream>
 where
     CR: ComposeRequestMulti,
-    Upstream: SendRequestMulti2<CR>,
+    Upstream: SendRequestMulti<CR>,
 {
     /// The request message.
     request_msg: Option<CR>,
 
     /// TODO
-    send_request: Option<Box<dyn GetResponseMulti2 + Send + Sync>>,
+    send_request: Option<Box<dyn GetResponseMulti + Send + Sync>>,
 
     /// The upstream transport of the connection.
     upstream: Arc<Upstream>,
@@ -743,7 +743,7 @@ where
 impl<CR, Upstream> RequestMulti<CR, Upstream>
 where
     CR: ComposeRequestMulti,
-    Upstream: SendRequestMulti2<CR> + Send + Sync,
+    Upstream: SendRequestMulti<CR> + Send + Sync,
 {
     /// Create a new Request object.
     fn new(
@@ -976,7 +976,7 @@ where
 				    // to verify that the last message was
 				    // properly signed.
 				    println!("TODO check for end-of-stream");
-                                    self.stream_complete2()?;
+                                    self.complete = true;
 
                                     #[cfg(feature = "unstable-zonetree")]
                                     if let Some(zone) = &self.zone {
@@ -1222,7 +1222,7 @@ where
 impl<CR, Upstream> Debug for RequestMulti<CR, Upstream>
 where
     CR: ComposeRequestMulti,
-    Upstream: SendRequestMulti2<CR>,
+    Upstream: SendRequestMulti<CR>,
 {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), core::fmt::Error> {
         f.debug_struct("Request")
@@ -1231,10 +1231,10 @@ where
     }
 }
 
-impl<CR, Upstream> GetResponseMulti2 for RequestMulti<CR, Upstream>
+impl<CR, Upstream> GetResponseMulti for RequestMulti<CR, Upstream>
 where
     CR: ComposeRequestMulti,
-    Upstream: SendRequestMulti2<CR> + Send + Sync,
+    Upstream: SendRequestMulti<CR> + Send + Sync,
 {
     fn get_response(
         &mut self,
@@ -1253,17 +1253,6 @@ where
 	    Box::pin(self.get_response_impl())
 	}
     }
-
-    fn stream_complete2(&mut self) -> Result<(), Error> {
-        self.complete = true;
-        Ok(())
-    }
-
-    /*
-    fn is_stream_complete(&self) -> bool {
-        self.complete
-    }
-    */
 }
 
 //------------ IxfrUpdateMode -------------------------------------------------

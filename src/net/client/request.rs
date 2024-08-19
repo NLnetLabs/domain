@@ -128,30 +128,16 @@ pub trait SendRequest<CR> {
 
 //------------ SendRequestMulti -----------------------------------------------
 
-/*
 /// Trait for starting a DNS request based on a request composer.
 ///
 /// In the future, the return type of request should become an associated type.
 /// However, the use of 'dyn Request' in redundant currently prevents that.
 pub trait SendRequestMulti<CR> {
-    /// Request function that takes a ComposeRequest type.
+    /// Request function that takes a ComposeRequestMulti type.
     fn send_request(
         &self,
         request_msg: CR,
     ) -> Box<dyn GetResponseMulti + Send + Sync>;
-}
-*/
-
-/// Trait for starting a DNS request based on a request composer.
-///
-/// In the future, the return type of request should become an associated type.
-/// However, the use of 'dyn Request' in redundant currently prevents that.
-pub trait SendRequestMulti2<CR> {
-    /// Request function that takes a ComposeRequest type.
-    fn send_request(
-        &self,
-        request_msg: CR,
-    ) -> Box<dyn GetResponseMulti2 + Send + Sync>;
 }
 
 //------------ GetResponse ---------------------------------------------------
@@ -176,44 +162,12 @@ pub trait GetResponse: Debug {
     >;
 }
 
-//------------ GetResponseMulti -----------------------------------------------
-
-/// Trait for getting the result of a DNS query.
+//------------ GetResponseMulti ----------------------------------------------
+/// Trait for getting a stream of result of a DNS query.
 ///
 /// In the future, the return type of get_response should become an associated
 /// type. However, too many uses of 'dyn GetResponse' currently prevent that.
 pub trait GetResponseMulti: Debug {
-    /// Get the result of a DNS request.
-    ///
-    /// This function is intended to be cancel safe.
-    fn get_response(
-        &mut self,
-    ) -> Pin<
-        Box<
-            dyn Future<Output = Result<Message<Bytes>, Error>>
-                + Send
-                + Sync
-                + '_,
-        >,
-    >;
-
-    /// TODO
-    fn stream_complete(&mut self) -> Result<(), Error> {
-        // Nothing to do.
-        Ok(())
-    }
-
-    /// TODO
-    fn is_stream_complete(&self) -> bool {
-        false
-    }
-}
-
-/// Trait for getting the result of a DNS query.
-///
-/// In the future, the return type of get_response should become an associated
-/// type. However, too many uses of 'dyn GetResponse' currently prevent that.
-pub trait GetResponseMulti2: Debug {
     /// Get the result of a DNS request.
     ///
     /// This function is intended to be cancel safe.
@@ -227,12 +181,6 @@ pub trait GetResponseMulti2: Debug {
                 + '_,
         >,
     >;
-
-    /// TODO
-    fn stream_complete2(&mut self) -> Result<(), Error> {
-        // Nothing to do.
-        Ok(())
-    }
 }
 
 //------------ RequestMessage ------------------------------------------------

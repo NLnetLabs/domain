@@ -15,7 +15,7 @@
 // - create new connection after end/failure of previous one
 
 use core::cmp;
-use core::future::ready;
+//use core::future::ready;
 
 use std::boxed::Box;
 use std::fmt::Debug;
@@ -33,13 +33,16 @@ use tokio::sync::{mpsc, oneshot};
 use tokio::time::sleep;
 use tracing::trace;
 
+use crate::base::ParsedName;
+use crate::rdata::AllRecordData;
+use crate::base::iana::Rcode;
 use crate::base::message::Message;
 use crate::base::iana::Rtype;
 use crate::base::Serial;
 use crate::base::message_builder::StreamTarget;
 use crate::base::opt::{AllOptData, OptRecord, TcpKeepalive};
 use crate::net::client::request::{
-    ComposeRequest, ComposeRequestMulti, Error, GetResponse, GetResponseMulti2, SendRequest, SendRequestMulti2,
+    ComposeRequest, ComposeRequestMulti, Error, GetResponse, GetResponseMulti, SendRequest, SendRequestMulti,
 };
 use crate::utils::config::DefMinMax;
 
@@ -234,6 +237,7 @@ where
         self.sender.send(req).await.map_err(|_| {
             // Send error. The receiver is gone, this means that the
             // connection is closed.
+println!("handle_request_impl: returning ConnectionClosed");
             Error::ConnectionClosed
         })?;
         receiver.await.map_err(|_| Error::StreamReceiveError)?
@@ -243,41 +247,40 @@ where
     async fn handle_streaming_request_impl(
         self,
         msg: ReqMulti,
-        sender: UnboundedSender<Result<Message<Bytes>, Error>>,
-    ) -> Result<Message<Bytes>, Error> {
+        sender: UnboundedSender<Result<Option<Message<Bytes>>, Error>>,
+    ) -> Result<(), Error> {
         let reply_sender = ReplySender::Stream(sender);
 	let msg = ReqSingleMulti::Multi(msg);
         let req = ChanReq {
             sender: reply_sender,
             msg,
         };
-        self.sender.send(req).await.map_err(|_| {
+        self.sender.send(req).await.map_err(|e| {
             // Send error. The receiver is gone, this means that the
             // connection is closed.
+println!("handle_streaming_request_impl: send error {e:?}");
+println!("handle_streaming_request_impl: returning ConnectionClosed (1)");
             Error::ConnectionClosed
         })?;
-        Err(Error::ConnectionClosed) // TODO: Use different err code here
+        Ok(())
     }
 
     /// Returns a request handler for this connection.
     pub fn get_request(&self, request_msg: Req) -> Request {
         Request {
-            stream: None,
             fut: Box::pin(self.clone().handle_request_impl(request_msg)),
-            stream_complete: false,
         }
     }
 
     /// TODO
-    pub fn get_streaming_request(&self, request_msg: ReqMulti) -> Request {
+    pub fn get_streaming_request(&self, request_msg: ReqMulti) -> RequestMulti {
         let (sender, receiver) = mpsc::unbounded_channel();
-        Request {
-            stream: Some(receiver),
-            fut: Box::pin(
+        RequestMulti {
+            stream: receiver,
+            fut: Some(Box::pin(
                 self.clone()
                     .handle_streaming_request_impl(request_msg, sender),
-            ),
-            stream_complete: false,
+            )),
         }
     }
 }
@@ -323,7 +326,7 @@ where
 }
 */
 
-impl<Req, ReqMulti> SendRequestMulti2<ReqMulti> for Connection<Req, ReqMulti>
+impl<Req, ReqMulti> SendRequestMulti<ReqMulti> for Connection<Req, ReqMulti>
 where
 	Req: ComposeRequest + Debug + Send + Sync + 'static,
 	ReqMulti: ComposeRequestMulti + 'static
@@ -331,7 +334,7 @@ where
     fn send_request(
         &self,
         request_msg: ReqMulti,
-    ) -> Box<dyn GetResponseMulti2 + Send + Sync> {
+    ) -> Box<dyn GetResponseMulti + Send + Sync> {
 	// ComposeRequestMulti is always streaming.
 	Box::new(self.get_streaming_request(request_msg))
     }
@@ -341,39 +344,19 @@ where
 
 /// An active request.
 pub struct Request {
-    /// TODO
-    stream: Option<UnboundedReceiver<Result<Message<Bytes>, Error>>>,
-
     /// The underlying future.
     fut: Pin<
         Box<dyn Future<Output = Result<Message<Bytes>, Error>> + Send + Sync>,
     >,
-
-    /// TODO
-    stream_complete: bool,
 }
 
 impl Request {
     /// Async function that waits for the future stored in Request to complete.
     async fn get_response_impl(&mut self) -> Result<Message<Bytes>, Error> {
-        let mut res = (&mut self.fut).await;
+println!("in get_response_impl");
+        let res = (&mut self.fut).await;
 
-        match &mut self.stream {
-            Some(stream) => {
-                // Fetch from the stream
-                res = stream
-                    .recv()
-                    .await
-                    .ok_or(Error::ConnectionClosed)
-                    .map_err(|_| Error::ConnectionClosed)?;
-
-                // Setup the next future
-                self.fut = Box::pin(ready(Err(Error::ConnectionClosed)));
-            }
-            None => {
-                // Nothing to do
-            }
-        }
+println!("get_response_impl: got res {res:?}");
 
         res
     }
@@ -394,7 +377,52 @@ impl GetResponse for Request {
     }
 }
 
-impl GetResponseMulti2 for Request {
+impl Debug for Request {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        f.debug_struct("Request")
+            .field("fut", &format_args!("_"))
+            .finish()
+    }
+}
+
+//------------ RequestMulti --------------------------------------------------
+
+/// An active request.
+pub struct RequestMulti {
+    /// TODO
+    stream: UnboundedReceiver<Result<Option<Message<Bytes>>, Error>>,
+
+    /// The underlying future.
+    fut: Option<Pin<
+        Box<dyn Future<Output = Result<(), Error>> + Send + Sync>,
+    >>,
+}
+
+impl RequestMulti {
+    /// Async function that waits for the future stored in Request to complete.
+    async fn get_response_impl(&mut self) -> Result<Option<Message<Bytes>>, Error> {
+println!("in get_response_impl(RequestMulti)");
+	if self.fut.is_some() {
+	    let fut = self.fut.take().expect("Some expected");
+	    fut.await?;
+	}
+
+	// Fetch from the stream
+println!("get_response_impl(RequestMulti): before stream.recv");
+	let res = self.stream
+	    .recv()
+	    .await
+	    .ok_or(Error::ConnectionClosed)
+	    .map_err(|_| Error::ConnectionClosed)?;
+
+println!("get_response_impl(RequestMulti): res {res:?}");
+
+	res
+
+    }
+}
+
+impl GetResponseMulti for RequestMulti {
     fn get_response(
         &mut self,
     ) -> Pin<
@@ -405,40 +433,12 @@ impl GetResponseMulti2 for Request {
                 + '_,
         >,
     > {
-	if self.stream_complete {
-	    Box::pin(ready(Ok(None)))
-	}
-	else {
-	    let fut = self.get_response_impl();
-	    Box::pin(async move {
-		match fut.await {
-		    Ok(msg) => Ok(Some(msg)),
-		    Err(e) => Err(e)
-		}
-	    })
-	}
+	let fut = self.get_response_impl();
+	Box::pin(fut)
     }
-
-    fn stream_complete2(&mut self) -> Result<(), Error> {
-	todo!();
-        if let Some(mut stream) = self.stream.take() {
-            trace!("Closing response stream");
-            stream.close();
-        }
-
-        self.stream_complete = true;
-
-        Ok(())
-    }
-
-    /*
-    fn is_stream_complete(&self) -> bool {
-        self.stream_complete
-    }
-    */
 }
 
-impl Debug for Request {
+impl Debug for RequestMulti {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         f.debug_struct("Request")
             .field("fut", &format_args!("_"))
@@ -468,19 +468,30 @@ pub enum ReplySender {
     Single(Option<oneshot::Sender<ChanResp>>),
 
     /// TODO
-    Stream(mpsc::UnboundedSender<ChanResp>),
+    Stream(mpsc::UnboundedSender<Result<Option<Message<Bytes>>, Error>>),
 }
 
 impl ReplySender {
     /// TODO
-    pub fn send(&mut self, resp: ChanResp) -> Result<(), ChanResp> {
+    pub fn send(&mut self, resp: ChanResp) -> Result<(), ()> {
         match self {
             ReplySender::Single(sender) => match sender.take() {
-                Some(sender) => sender.send(resp),
-                None => Err(resp),
+                Some(sender) => sender.send(resp).map_err(|_| ()),
+                None => Err(()),
             },
             ReplySender::Stream(sender) => {
-                sender.send(resp).map_err(|err| err.0)
+                sender.send(resp.map(|m| Some(m))).map_err(|_| ())
+            }
+        }
+    }
+
+    pub fn send_eof(&mut self) -> Result<(), ()> {
+        match self {
+            ReplySender::Single(_) => {
+		panic!("cannot send EOF for Single");
+            },
+            ReplySender::Stream(sender) => {
+                sender.send(Ok(None)).map_err(|_| ())
             }
         }
     }
@@ -589,7 +600,13 @@ impl std::fmt::Display for ConnState {
 #[derive(Debug)]
 enum XFRState {
     AXFRInit,
-    IXFRInit
+    AXFRFirstSoa(Serial),
+    IXFRInit,
+    IXFRFirstSoa(Serial),
+    IXFRFirstDiffSoa(Serial),
+    IXFRSecondDiffSoa(Serial),
+    Done,
+    Error,
 }
 
 #[derive(Debug)]
@@ -628,6 +645,7 @@ where
 {
     /// Run the transport machinery.
     pub async fn run(mut self) {
+println!("in run");
         let (reply_sender, mut reply_receiver) =
             mpsc::channel::<Message<Bytes>>(READ_REPLY_CHAN_CAP);
 
@@ -773,6 +791,7 @@ where
                         None => {
                             // All references to the connection object have
                             // been dropped. Shutdown.
+println!("None from recv_fut");
                             break;
                         }
                     }
@@ -801,6 +820,7 @@ where
         trace!("Closing TCP connecting in state: {}", status.state);
 
         // Send FIN
+println!("shutdown stream");
         _ = write_stream.shutdown().await;
     }
 
@@ -911,7 +931,7 @@ where
         status.state = ConnState::Active(Some(Instant::now()));
 
         // Get the correct query and send it the reply.
-        let (mut req, mut xfr_data) = match query_vec.try_remove(answer.header().id()) {
+        let (mut req, mut opt_xfr_data) = match query_vec.try_remove(answer.header().id()) {
             Some(req) => req,
             None => {
                 // No query with this ID. We should
@@ -919,9 +939,16 @@ where
                 return;
             }
         };
+	let mut send_eof = false;
         let answer = if match &req.msg {
 		ReqSingleMulti::Single(msg) => msg.is_answer(answer.for_slice()),
-		ReqSingleMulti::Multi(msg) => msg.is_answer(answer.for_slice())
+		ReqSingleMulti::Multi(msg) => {
+			let xfr_data = opt_xfr_data.expect("xfr_data should be present");
+			let (eof, xfr_data, is_answer) = check_stream(msg, xfr_data, &answer);
+			send_eof = eof;
+			opt_xfr_data = Some(xfr_data);
+			is_answer
+		}
 	    }
 	{
             Ok(answer)
@@ -932,7 +959,12 @@ where
 
         // TODO: Discard streaming requests once the stream is complete.
         if req.sender.is_stream() {
-            query_vec.insert((req, xfr_data)).unwrap();
+	    if send_eof {
+		_ = req.sender.send_eof();
+	    }
+	    else {
+		query_vec.insert((req, opt_xfr_data)).unwrap();
+	    }
         }
 
         if query_vec.is_empty() {
@@ -1007,7 +1039,7 @@ where
 			if qtype == Rtype::AXFR {
 			    Some(XFRData { state: XFRState::AXFRInit, serial: 0.into() })
 			} else if qtype == Rtype::IXFR {
-			    todo!();
+			    Some(XFRData { state: XFRState::IXFRInit, serial: 0.into() })
 			} else {
 			    // Stream requests should be either AXFR or IXFR.
 			    _ = req.sender.send(Err(Error::FormError,));
@@ -1093,6 +1125,183 @@ where
 	    }
 	}
     }
+}
+
+fn check_stream<CRM>(msg: &CRM, mut xfr_data: XFRData, answer: &Message<Bytes>) -> (bool, XFRData, bool)
+where CRM: ComposeRequestMulti
+{
+    // First check if the reply matches the request.
+    // RFC 5936, Section 2.2.2:
+    // "In the first response message, this section MUST be copied from the
+    // query.  In subsequent messages, this section MAY be copied from the
+    // query, or it MAY be empty.  However, in an error response message
+    // (see Section 2.2), this section MUST be copied as well."
+    match xfr_data.state {
+	XFRState::AXFRInit | XFRState::IXFRInit => {
+	    if !msg.is_answer(answer.for_slice()) {
+		xfr_data.state = XFRState::Error;
+		// If we detect an error, then keep the stream open. We are
+		// likely out of sync with respect to the sender.
+println!("check_stream: line {}", line!());
+		return (false, xfr_data, false);
+	    }
+	}
+	XFRState::AXFRFirstSoa(_) | XFRState::IXFRFirstSoa(_) |
+		XFRState::IXFRFirstDiffSoa(_) |
+		XFRState::IXFRSecondDiffSoa(_) =>
+	    // No need to check anything.
+	    (),
+	XFRState::Done => {
+	    // We should not be here. Switch to error state.
+	    xfr_data.state = XFRState::Error;
+	    return (false, xfr_data, false);
+	}
+	XFRState::Error =>
+	    // Keep the stream open.
+	    return (false, xfr_data, false)
+    }
+
+    // Then check if the reply status an error.
+    if answer.header().rcode() != Rcode::NOERROR {
+	// Also check if this answers the question.
+	if !msg.is_answer(answer.for_slice()) {
+	    xfr_data.state = XFRState::Error;
+	    // If we detect an error, then keep the stream open. We are
+	    // likely out of sync with respect to the sender.
+println!("check_stream: line {}", line!());
+	    return (false, xfr_data, false);
+	}
+println!("check_stream: line {}", line!());
+	return (true, xfr_data, true);
+    }
+
+println!("check_stream: line {}", line!());
+    let ans_sec = answer.answer().unwrap();
+    for rr in ans_sec.into_records::<AllRecordData<Bytes, ParsedName<Bytes>,>>() {
+	println!("found rr {rr:?}");
+	let rr = rr.unwrap();
+	match xfr_data.state {
+	    XFRState::AXFRInit => {
+		// The first record has to be a SOA record.
+		if let AllRecordData::Soa(soa) = rr.data() {
+		    xfr_data.state = XFRState::AXFRFirstSoa(soa.serial());
+		    continue;
+		}
+		// Bad data. Switch to error status.
+		xfr_data.state = XFRState::Error;
+		return (false, xfr_data, false);
+	    }
+	    XFRState::AXFRFirstSoa(serial) => {
+		// Find the SOA at the end.
+		if let AllRecordData::Soa(soa) = rr.data() {
+		    if serial == soa.serial() {
+			// We found a match.
+			xfr_data.state = XFRState::Done;
+			continue;
+		    }
+
+		    // Serial does not match. Move to error state.
+		    xfr_data.state = XFRState::Error;
+		    return (false, xfr_data, false);
+		}
+
+		// Any other record, just continue.
+	    }
+	    XFRState::IXFRInit => {
+		// The first record has to be a SOA record.
+		if let AllRecordData::Soa(soa) = rr.data() {
+		    xfr_data.state = XFRState::IXFRFirstSoa(soa.serial());
+		    continue;
+		}
+		// Bad data. Switch to error status.
+		xfr_data.state = XFRState::Error;
+		return (false, xfr_data, false);
+	    }
+	    XFRState::IXFRFirstSoa(serial) => {
+		// We have three possibilities:
+		// 1) The record is not a SOA. In that case the format is AXFR.
+		// 2) The record is a SOA and the serial is not the current
+		//    serial. That is expected for an IXFR format. Move to 
+		//    IXFRFirstDiffSoa.
+		// 3) The record is a SOA and the serial is equal to the
+		//    current serial. Treat this as a strange empty AXFR.
+		if let AllRecordData::Soa(soa) = rr.data() {
+		    if serial == soa.serial() {
+			// We found a match.
+			xfr_data.state = XFRState::Done;
+			continue;
+		    }
+
+		    xfr_data.state = XFRState::IXFRFirstDiffSoa(serial);
+		    continue;
+		}
+
+		// Any other record, move to AXFRFirstSoa.
+		xfr_data.state = XFRState::AXFRFirstSoa(serial);
+	    }
+	    XFRState::IXFRFirstDiffSoa(serial) => {
+		// Move to IXFRSecondDiffSoa if the record is a SOA record,
+		// otherwise stay in the current state.
+		if let AllRecordData::Soa(soa) = rr.data() {
+		    xfr_data.state = XFRState::IXFRSecondDiffSoa(serial);
+		    continue;
+		}
+
+		// Any other record, just continue.
+	    }
+	    XFRState::IXFRSecondDiffSoa(serial) => {
+		// Move to Done if the record is a SOA record and the
+		// serial is the one from the first SOA record, move to
+		// IXFRFirstDiffSoa for any other SOA record and
+		// otherwise stay in the current state.
+		if let AllRecordData::Soa(soa) = rr.data() {
+		    if serial == soa.serial() {
+			// We found a match.
+			xfr_data.state = XFRState::Done;
+			continue;
+		    }
+
+		    xfr_data.state = XFRState::IXFRFirstDiffSoa(serial);
+		    continue;
+		}
+
+		// Any other record, just continue.
+	    }
+	    XFRState::Done => {
+		// We got a record after we are done. Switch to error state.
+		xfr_data.state = XFRState::Error;
+		return (false, xfr_data, false);
+	    }
+	    XFRState::Error => panic!("should not be here"),
+	}
+    }
+
+    // Check the final state.
+    match xfr_data.state {
+	XFRState::AXFRInit | XFRState::IXFRInit => {
+	    // Still in one of the init state. So the data section was empty.
+	    // Switch to error state.
+	    xfr_data.state = XFRState::Error;
+	    return (false, xfr_data, false);
+	}
+	XFRState::AXFRFirstSoa(_) | XFRState::IXFRFirstDiffSoa(_)
+	    | XFRState::IXFRSecondDiffSoa(_) =>
+	    // Just continue.
+	    (),
+	XFRState::IXFRFirstSoa(_) => {
+	    // We are still in IXFRFirstSoa. Assume the other side doesn't 
+	    // have anything more to day. We could check the SOA serial in
+	    // the request. Just assume that we are done.
+	    xfr_data.state = XFRState::Done;
+	    return (true, xfr_data, true);
+	}
+	XFRState::Done =>
+	    return (true, xfr_data, true),
+	XFRState::Error => panic!("should not be here"),
+    }
+
+    // (eof, xfr_data, is_answer)
+    return (false, xfr_data, true);
 }
 
 //------------ Queries -------------------------------------------------------
