@@ -1,4 +1,15 @@
 //! Constructing and sending requests.
+use crate::base::iana::{Opcode, Rcode};
+use crate::base::message::{CopyRecordsError, ShortMessage};
+use crate::base::message_builder::{
+    AdditionalBuilder, MessageBuilder, PushError,
+};
+use crate::base::opt::{ComposeOptData, LongOptData, OptRecord};
+use crate::base::wire::{Composer, ParseError};
+use crate::base::{Header, Message, ParsedName, Rtype, StaticCompressor};
+use crate::rdata::AllRecordData;
+use bytes::Bytes;
+use octseq::Octets;
 use std::boxed::Box;
 use std::fmt::Debug;
 use std::future::Future;
@@ -6,22 +17,7 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::vec::Vec;
 use std::{error, fmt};
-
-use bytes::Bytes;
-use octseq::Octets;
 use tracing::trace;
-
-use crate::base::iana::Opcode;
-use crate::base::iana::Rcode;
-use crate::base::message::{CopyRecordsError, ShortMessage};
-use crate::base::message_builder::{
-    AdditionalBuilder, MessageBuilder, PushError,
-};
-use crate::base::opt::{ComposeOptData, LongOptData, OptRecord};
-use crate::base::wire::{Composer, ParseError};
-use crate::base::StaticCompressor;
-use crate::base::{Header, Message, ParsedName, Rtype};
-use crate::rdata::AllRecordData;
 
 #[cfg(feature = "tsig")]
 use crate::tsig;
