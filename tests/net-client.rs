@@ -11,8 +11,8 @@ use domain::net::client::dgram;
 use domain::net::client::dgram_stream;
 use domain::net::client::multi_stream;
 use domain::net::client::redundant;
-use domain::net::client::stream;
 use domain::net::client::request::RequestMessageMulti;
+use domain::net::client::stream;
 use std::fs::File;
 use std::net::IpAddr;
 use std::net::SocketAddr;
@@ -44,7 +44,8 @@ fn single() {
         let step_value = Arc::new(CurrStepValue::new());
 
         let conn = Connection::new(stelline.clone(), step_value.clone());
-        let (octstr, transport) = stream::Connection::<_, RequestMessageMulti<Vec<u8>>>::new(conn);
+        let (octstr, transport) =
+            stream::Connection::<_, RequestMessageMulti<Vec<u8>>>::new(conn);
         tokio::spawn(async move {
             transport.run().await;
         });
@@ -139,7 +140,10 @@ fn tcp() {
             }
         };
 
-        let (tcp, transport) = stream::Connection::<_, RequestMessageMulti<Vec<u8>>>::new(tcp_conn);
+        let (tcp, transport) = stream::Connection::<
+            _,
+            RequestMessageMulti<Vec<u8>>,
+        >::new(tcp_conn);
         tokio::spawn(async move {
             transport.run().await;
             println!("single TCP run terminated");

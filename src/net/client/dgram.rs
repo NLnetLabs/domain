@@ -23,7 +23,7 @@ use tokio::sync::Semaphore;
 use tokio::time::{timeout_at, Duration, Instant};
 use tracing::trace;
 
-use crate::base::{Message, /*StaticCompressor*/};
+use crate::base::Message;
 use crate::net::client::protocol::{
     AsyncConnect, AsyncDgramRecv, AsyncDgramRecvEx, AsyncDgramSend,
     AsyncDgramSendEx,

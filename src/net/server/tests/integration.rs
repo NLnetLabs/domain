@@ -26,7 +26,9 @@ use crate::base::iana::Rcode;
 use crate::base::name::{Name, ToName};
 use crate::base::net::IpAddr;
 use crate::base::wire::Composer;
-use crate::net::client::request::{RequestMessage, RequestMessageMulti, SendRequest, SendRequestMulti2};
+use crate::net::client::request::{
+    RequestMessage, RequestMessageMulti, SendRequest, SendRequestMulti2,
+};
 use crate::net::client::{dgram, stream, tsig, xfr};
 use crate::net::server;
 use crate::net::server::buf::VecBufSource;
@@ -45,8 +47,10 @@ use crate::net::server::util::{mk_builder_for_target, service_fn};
 use crate::stelline;
 use crate::stelline::channel::ClientServerChannel;
 use crate::stelline::client::{
-    do_client, do_client_multi, ClientFactory, ClientFactoryMulti, CurrStepValue, PerClientAddressClientFactory, PerClientAddressClientFactoryMulti,
-    QueryTailoredClientFactory, QueryTailoredClientFactoryMulti,
+    do_client, do_client_multi, ClientFactory, ClientFactoryMulti,
+    CurrStepValue, PerClientAddressClientFactory,
+    PerClientAddressClientFactoryMulti, QueryTailoredClientFactory,
+    QueryTailoredClientFactoryMulti,
 };
 use crate::stelline::parse_stelline::{
     self, parse_file, Config, Matches, Stelline,
@@ -116,7 +120,7 @@ async fn server_tests(#[files("test-data/server/*.rpl")] rpl_file: PathBuf) {
     // with XFR-out and NOTIFY-in/out testing.
     let catalog_config = catalog::Config::new_with_conn_factory(
         key_store.clone(),
-	conn_factory,
+        conn_factory,
     );
     let catalog = Catalog::new_with_config(catalog_config);
     let catalog = Arc::new(catalog);
@@ -240,7 +244,9 @@ async fn server_tests(#[files("test-data/server/*.rpl")] rpl_file: PathBuf) {
 #[instrument(skip_all, fields(rpl = rpl_file.file_name().unwrap().to_str()))]
 #[rstest]
 #[tokio::test(start_paused = true)]
-async fn server_tests_multi(#[files("test-data/server/multi/*.rpl")] rpl_file: PathBuf) {
+async fn server_tests_multi(
+    #[files("test-data/server/multi/*.rpl")] rpl_file: PathBuf,
+) {
     // Initialize tracing based logging. Override with env var RUST_LOG, e.g.
     // RUST_LOG=trace. DEBUG level will show the .rpl file name, Stelline step
     // numbers and types as they are being executed.
@@ -463,10 +469,11 @@ fn mk_client_factory(
             let key = entry.key_name.as_ref().and_then(|key_name| {
                 tcp_key_store.get_key(&key_name, Algorithm::Sha256)
             });
-            let (client, transport) = stream::Connection::<_, RequestMessageMulti<Vec<u8>>>::new(
-                stream_server_conn
-                    .connect(Some(SocketAddr::new(*source_addr, 0))),
-            );
+            let (client, transport) =
+                stream::Connection::<_, RequestMessageMulti<Vec<u8>>>::new(
+                    stream_server_conn
+                        .connect(Some(SocketAddr::new(*source_addr, 0))),
+                );
 
             tokio::spawn(async move {
                 transport.run().await;
@@ -533,10 +540,11 @@ fn mk_client_factory_multi(
             let key = entry.key_name.as_ref().and_then(|key_name| {
                 tcp_key_store.get_key(&key_name, Algorithm::Sha256)
             });
-            let (client, transport) = stream::Connection::<RequestMessage<Vec<u8>>, _>::new(
-                stream_server_conn
-                    .connect(Some(SocketAddr::new(*source_addr, 0))),
-            );
+            let (client, transport) =
+                stream::Connection::<RequestMessage<Vec<u8>>, _>::new(
+                    stream_server_conn
+                        .connect(Some(SocketAddr::new(*source_addr, 0))),
+                );
 
             tokio::spawn(async move {
                 transport.run().await;
@@ -1072,8 +1080,9 @@ impl ConnectionFactory for MockServerConnFactory {
                     Output = Result<
                         Option<
                             Box<
-                                dyn SendRequestMulti2<RequestMessageMulti<Octs>>
-                                    + Send
+                                dyn SendRequestMulti2<
+                                        RequestMessageMulti<Octs>,
+                                    > + Send
                                     + Sync
                                     + 'static,
                             >,
@@ -1093,26 +1102,26 @@ impl ConnectionFactory for MockServerConnFactory {
             TransportStrategy::None => Ok(None),
 
             TransportStrategy::Udp => {
-		// We cannot do Multi for UDP.
-		todo!();
-		/*
-                let mut dgram_config = dgram::Config::new();
-                dgram_config.set_max_parallel(1);
-                dgram_config.set_read_timeout(Duration::from_millis(1000));
-                dgram_config.set_max_retries(1);
-                dgram_config.set_udp_payload_size(Some(1400));
+                // We cannot do Multi for UDP.
+                todo!();
+                /*
+                        let mut dgram_config = dgram::Config::new();
+                        dgram_config.set_max_parallel(1);
+                        dgram_config.set_read_timeout(Duration::from_millis(1000));
+                        dgram_config.set_max_retries(1);
+                        dgram_config.set_udp_payload_size(Some(1400));
 
-                let dgram_conn = stelline::dgram::Dgram::new(
-                    self.stelline.clone(),
-                    self.step_value.clone(),
-                );
-                let client =
-                    dgram::Connection::with_config(dgram_conn, dgram_config);
-                Ok(Some(Box::new(tsig::Connection::new(key, client))
-                    as Box<
-                        dyn SendRequestMulti<RequestMessageMulti<Octs>> + Send + Sync,
-                    >))
-		*/
+                        let dgram_conn = stelline::dgram::Dgram::new(
+                            self.stelline.clone(),
+                            self.step_value.clone(),
+                        );
+                        let client =
+                            dgram::Connection::with_config(dgram_conn, dgram_config);
+                        Ok(Some(Box::new(tsig::Connection::new(key, client))
+                            as Box<
+                                dyn SendRequestMulti<RequestMessageMulti<Octs>> + Send + Sync,
+                            >))
+                */
             }
 
             TransportStrategy::Tcp => {
@@ -1143,7 +1152,9 @@ impl ConnectionFactory for MockServerConnFactory {
 
                 Ok(Some(Box::new(tsig::Connection::new(key, client))
                     as Box<
-                        dyn SendRequestMulti2<RequestMessageMulti<Octs>> + Send + Sync,
+                        dyn SendRequestMulti2<RequestMessageMulti<Octs>>
+                            + Send
+                            + Sync,
                     >))
             }
         };

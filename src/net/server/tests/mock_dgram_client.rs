@@ -134,8 +134,7 @@ where
         request.header_mut().set_id(0);
 
         // Create the message and send it out.
-        let request_msg = request.to_message()
-		.expect(
+        let request_msg = request.to_message().expect(
             "Message should be able to parse output from MessageBuilder",
         );
 

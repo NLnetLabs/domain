@@ -13,13 +13,13 @@ use tracing::trace;
 
 use crate::base::iana::Opcode;
 use crate::base::iana::Rcode;
-use crate::base::StaticCompressor;
 use crate::base::message::{CopyRecordsError, ShortMessage};
 use crate::base::message_builder::{
     AdditionalBuilder, MessageBuilder, PushError,
 };
 use crate::base::opt::{ComposeOptData, LongOptData, OptRecord};
 use crate::base::wire::{Composer, ParseError};
+use crate::base::StaticCompressor;
 use crate::base::{Header, Message, ParsedName, Rtype};
 use crate::rdata::AllRecordData;
 
@@ -203,13 +203,15 @@ impl<Octs: AsRef<[u8]> + Debug + Octets> RequestMessage<Octs> {
     pub fn new(msg: impl Into<Message<Octs>>) -> Result<Self, Error> {
         let msg = msg.into();
 
-	// On UDP, IXFR results in a single responses, so we need to accept it.
-	// We can reject AXFR because it always requires support for multiple
-	// responses.
-	if msg.header().opcode() == Opcode::QUERY &&
-		msg.first_question().ok_or(Error::FormError)?.qtype() == Rtype::AXFR {
-	    return Err(Error::FormError);
-	}
+        // On UDP, IXFR results in a single responses, so we need to accept it.
+        // We can reject AXFR because it always requires support for multiple
+        // responses.
+        if msg.header().opcode() == Opcode::QUERY
+            && msg.first_question().ok_or(Error::FormError)?.qtype()
+                == Rtype::AXFR
+        {
+            return Err(Error::FormError);
+        }
 
         let header = msg.header();
         Ok(Self {
@@ -415,10 +417,10 @@ impl<Octs: AsRef<[u8]> + Debug + Octets> RequestMessageMulti<Octs> {
     pub fn new(msg: impl Into<Message<Octs>>) -> Result<Self, Error> {
         let msg = msg.into();
 
-	// Only accept the streaming types (IXFR and AXFR).
-	if !msg.is_streaming() {
-	    return Err(Error::FormError);
-	}
+        // Only accept the streaming types (IXFR and AXFR).
+        if !msg.is_streaming() {
+            return Err(Error::FormError);
+        }
         let header = msg.header();
         Ok(Self {
             msg,

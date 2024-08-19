@@ -43,7 +43,9 @@ use crate::base::{
 use crate::net;
 use crate::net::client::dgram::{self, Connection};
 use crate::net::client::protocol::UdpConnect;
-use crate::net::client::request::{self, RequestMessage, RequestMessageMulti, SendRequest, SendRequestMulti2};
+use crate::net::client::request::{
+    self, RequestMessage, RequestMessageMulti, SendRequest, SendRequestMulti2,
+};
 use crate::rdata::{Soa, ZoneRecordData};
 use crate::tsig::{Key, KeyStore};
 use crate::zonecatalog::types::{
@@ -108,8 +110,9 @@ pub trait ConnectionFactory {
                     Output = Result<
                         Option<
                             Box<
-                                dyn SendRequestMulti2<RequestMessageMulti<Octs>>
-                                    + Send
+                                dyn SendRequestMulti2<
+                                        RequestMessageMulti<Octs>,
+                                    > + Send
                                     + Sync
                                     + 'static,
                             >,
@@ -189,7 +192,7 @@ impl<KS, CF> Default for Catalog<KS, CF>
 where
     KS: Deref + Default,
     KS::Target: KeyStore,
-    CF: Default
+    CF: Default,
 {
     fn default() -> Self {
         Self::new()
@@ -200,7 +203,7 @@ impl<KS, CF> Catalog<KS, CF>
 where
     KS: Deref + Default,
     KS::Target: KeyStore,
-    CF: Default
+    CF: Default,
 {
     pub fn new() -> Self {
         Self::new_with_config(Config::default())
@@ -697,7 +700,8 @@ where
 
         for nameserver_addr in notify_set {
             let dgram_config = dgram_config.clone();
-            let req = RequestMessage::new(msg.clone()).expect("should not fail");
+            let req =
+                RequestMessage::new(msg.clone()).expect("should not fail");
             let nameserver_addr = *nameserver_addr;
 
             let tsig_key = zone_info
@@ -733,8 +737,10 @@ where
                 let _guard = span.enter();
 
                 if let Err(err) =
-                    SendRequest::send_request(&client, req.clone()).get_response().await
-                    //(client as SendRequest<_>).send_request(req.clone()).get_response().await
+                    SendRequest::send_request(&client, req.clone())
+                        .get_response()
+                        .await
+                //(client as SendRequest<_>).send_request(req.clone()).get_response().await
                 {
                     // TODO: Add retry support.
                     warn!("Unable to send NOTIFY to nameserver {nameserver_addr}: {err}");
@@ -1014,7 +1020,7 @@ where
             Some(initial_xfr_addr),
             zone_refresh_info,
             event_tx.clone(),
-	    config,
+            config,
         )
         .await
         {
@@ -1386,7 +1392,8 @@ where
                 "Refreshing zone '{}' by {rtype} from {primary_addr}",
                 zone.apex_name()
             );
-            let res = Self::do_xfr(client_multi, zone, primary_addr, rtype).await;
+            let res =
+                Self::do_xfr(client_multi, zone, primary_addr, rtype).await;
 
             match res {
                 Err(CatalogError::ResponseError(OptRcode::NOTIMP))
@@ -1435,7 +1442,10 @@ where
         xfr_type: Rtype,
     ) -> Result<Soa<Name<Bytes>>, CatalogError>
     where
-        T: SendRequestMulti2<RequestMessageMulti<Vec<u8>>> + Send + Sync + 'static,
+        T: SendRequestMulti2<RequestMessageMulti<Vec<u8>>>
+            + Send
+            + Sync
+            + 'static,
     {
         // Update the zone from the primary using XFR.
         info!(
@@ -1481,10 +1491,10 @@ where
                 .await
                 .map_err(CatalogError::RequestError)?;
 
-	    let msg = match msg {
-		Some(msg) => msg,
-		None => break,
-	    };
+            let msg = match msg {
+                Some(msg) => msg,
+                None => break,
+            };
 
             if msg.is_error() {
                 return Err(CatalogError::ResponseError(msg.opt_rcode()));
@@ -2306,9 +2316,11 @@ impl ConnectionFactory for DefaultConnFactory {
                         let tcp_stream = TcpStream::connect(dest)
                             .await
                             .map_err(|err| format!("{err}"))?;
-                        net::client::stream::Connection::<_, RequestMessageMulti<Vec<u8>>>::with_config(
-                            tcp_stream,
-                            stream_config,
+                        net::client::stream::Connection::<
+                            _,
+                            RequestMessageMulti<Vec<u8>>,
+                        >::with_config(
+                            tcp_stream, stream_config
                         )
                     };
 
@@ -2342,8 +2354,9 @@ impl ConnectionFactory for DefaultConnFactory {
                     Output = Result<
                         Option<
                             Box<
-                                dyn SendRequestMulti2<RequestMessageMulti<Octs>>
-                                    + Send
+                                dyn SendRequestMulti2<
+                                        RequestMessageMulti<Octs>,
+                                    > + Send
                                     + Sync
                                     + 'static,
                             >,
@@ -2364,29 +2377,29 @@ impl ConnectionFactory for DefaultConnFactory {
                 TransportStrategy::None => Ok(None),
 
                 TransportStrategy::Udp => {
-		    todo!();
-		    // UDP cannot do Multi
-		    /*
-                    let mut dgram_config = dgram::Config::new();
-                    dgram_config.set_max_parallel(1);
-                    dgram_config
-                        .set_read_timeout(Duration::from_millis(1000));
-                    dgram_config.set_max_retries(1);
-                    dgram_config.set_udp_payload_size(Some(1400));
+                    todo!();
+                    // UDP cannot do Multi
+                    /*
+                            let mut dgram_config = dgram::Config::new();
+                            dgram_config.set_max_parallel(1);
+                            dgram_config
+                                .set_read_timeout(Duration::from_millis(1000));
+                            dgram_config.set_max_retries(1);
+                            dgram_config.set_udp_payload_size(Some(1400));
 
-                    let client = dgram::Connection::with_config(
-                        UdpConnect::new(dest),
-                        dgram_config,
-                    );
-                    Ok(Some(Box::new(net::client::tsig::Connection::new(
-                        key, client,
-                    ))
-                        as Box<
-                            dyn SendRequestMulti<RequestMessageMulti<Octs>>
-                                + Send
-                                + Sync,
-                        >))
-		    */
+                            let client = dgram::Connection::with_config(
+                                UdpConnect::new(dest),
+                                dgram_config,
+                            );
+                            Ok(Some(Box::new(net::client::tsig::Connection::new(
+                                key, client,
+                            ))
+                                as Box<
+                                    dyn SendRequestMulti<RequestMessageMulti<Octs>>
+                                        + Send
+                                        + Sync,
+                                >))
+                    */
                 }
 
                 TransportStrategy::Tcp => {
@@ -2406,9 +2419,11 @@ impl ConnectionFactory for DefaultConnFactory {
                         let tcp_stream = TcpStream::connect(dest)
                             .await
                             .map_err(|err| format!("{err}"))?;
-                        net::client::stream::Connection::<RequestMessage<Vec<u8>>, _>::with_config(
-                            tcp_stream,
-                            stream_config,
+                        net::client::stream::Connection::<
+                            RequestMessage<Vec<u8>>,
+                            _,
+                        >::with_config(
+                            tcp_stream, stream_config
                         )
                     };
 
@@ -2433,8 +2448,10 @@ impl ConnectionFactory for DefaultConnFactory {
     }
 }
 
-impl<T: SendRequestMulti2<RequestMessageMulti<Octs>> + ?Sized, Octs: Octets>
-    SendRequestMulti2<RequestMessageMulti<Octs>> for Box<T>
+impl<
+        T: SendRequestMulti2<RequestMessageMulti<Octs>> + ?Sized,
+        Octs: Octets,
+    > SendRequestMulti2<RequestMessageMulti<Octs>> for Box<T>
 {
     fn send_request(
         &self,

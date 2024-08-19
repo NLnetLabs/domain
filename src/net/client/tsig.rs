@@ -21,7 +21,8 @@ use crate::base::wire::Composer;
 use crate::base::Message;
 use crate::base::StaticCompressor;
 use crate::net::client::request::{
-    ComposeRequest, ComposeRequestMulti, Error, GetResponse, GetResponseMulti2, SendRequest, SendRequestMulti2,
+    ComposeRequest, ComposeRequestMulti, Error, GetResponse,
+    GetResponseMulti2, SendRequest, SendRequestMulti2,
 };
 use crate::rdata::tsig::Time48;
 use crate::tsig::{ClientSequence, ClientTransaction, Key};
@@ -31,7 +32,6 @@ use crate::tsig::{ClientSequence, ClientTransaction, Key};
 enum TsigClient<K> {
     /// TODO
     Transaction(ClientTransaction<K>),
-
     // TODO
     //Sequence(ClientSequence<K>),
 }
@@ -306,7 +306,9 @@ where
 impl<CR, Upstream, K> RequestMulti<CR, Upstream, K>
 where
     CR: ComposeRequestMulti,
-    Upstream: SendRequestMulti2<AuthenticatedRequestMessageMulti<CR, K>> + Send + Sync,
+    Upstream: SendRequestMulti2<AuthenticatedRequestMessageMulti<CR, K>>
+        + Send
+        + Sync,
     K: Clone + AsRef<Key>,
     Self: GetResponseMulti2,
 {
@@ -323,7 +325,9 @@ where
     /// This is the implementation of the get_response method.
     ///
     /// This function is cancel safe.
-    async fn get_response_impl(&mut self) -> Result<Option<Message<Bytes>>, Error> {
+    async fn get_response_impl(
+        &mut self,
+    ) -> Result<Option<Message<Bytes>>, Error> {
         let res = loop {
             match &mut self.state {
                 RequestStateMulti::Init => {
@@ -354,20 +358,19 @@ where
                     // TSIG validation
                     match response {
                         Ok(msg) => {
-			    let msg = match msg {
-				Some(msg) => msg,
-				None =>  {
-				    self.stream_complete2()?;
-				    break Ok(None);
-				}
-			    };
+                            let msg = match msg {
+                                Some(msg) => msg,
+                                None => {
+                                    self.stream_complete2()?;
+                                    break Ok(None);
+                                }
+                            };
                             let mut modifiable_msg = Message::from_octets(
                                 msg.as_slice().to_vec(),
                             )?;
 
                             let mut locked = tsig_client.lock().unwrap();
                             match locked.deref_mut() {
-
                                 Some(TsigClientMulti::Sequence(client)) => {
                                     trace!(
                                         "Validating TSIG for sequence reply"
@@ -421,7 +424,9 @@ where
 impl<CR, Upstream, K> GetResponseMulti2 for RequestMulti<CR, Upstream, K>
 where
     CR: ComposeRequestMulti,
-    Upstream: SendRequestMulti2<AuthenticatedRequestMessageMulti<CR, K>> + Send + Sync,
+    Upstream: SendRequestMulti2<AuthenticatedRequestMessageMulti<CR, K>>
+        + Send
+        + Sync,
     K: Clone + AsRef<Key> + Send + Sync,
 {
     fn get_response(
@@ -438,23 +443,23 @@ where
     }
 
     fn stream_complete2(&mut self) -> Result<(), Error> {
-	// This code should move to the place where end-of-stream is received.
-	/*
-        match &mut self.state {
-            RequestStateMulti::Init => {
-                debug!("Ignoring attempt to complete TSIG stream that hasn't been read from yet.");
-            }
+        // This code should move to the place where end-of-stream is received.
+        /*
+            match &mut self.state {
+                RequestStateMulti::Init => {
+                    debug!("Ignoring attempt to complete TSIG stream that hasn't been read from yet.");
+                }
 
-            RequestStateMulti::GetResponse(ref mut request, tsig_client) => {
+                RequestStateMulti::GetResponse(ref mut request, tsig_client) => {
 
-                self.state = RequestStateMulti::Complete;
-            }
+                    self.state = RequestStateMulti::Complete;
+                }
 
-            RequestStateMulti::Complete => {
-                debug!("Ignoring attempt to complete TSIG stream that is already complete.");
+                RequestStateMulti::Complete => {
+                    debug!("Ignoring attempt to complete TSIG stream that is already complete.");
+                }
             }
-        }
-	*/
+        */
 
         Ok(())
     }
@@ -526,7 +531,7 @@ where
         let mut target = self.request.append_message(target)?;
 
         if let Some(key) = &self.key {
-	    let client = {
+            let client = {
                 trace!(
                     "Signing single request transaction with key '{}'",
                     key.as_ref().name()
@@ -539,7 +544,7 @@ where
                     )
                     .unwrap(),
                 )
-	    };
+            };
 
             *self.signer.lock().unwrap() = Some(client);
         } else {
@@ -548,7 +553,6 @@ where
 
         Ok(target)
     }
-
 
     fn to_vec(&self) -> Result<Vec<u8>, Error> {
         let msg = self.to_message()?;
@@ -568,7 +572,6 @@ where
         );
         Ok(msg)
     }
-
 
     fn header(&self) -> &crate::base::Header {
         self.request.header()
@@ -658,8 +661,7 @@ where
 
     /// Create new message based on the changes to the base message.
     fn to_message_impl(&self) -> Result<Message<Vec<u8>>, Error> {
-        let target =
-            StaticCompressor::new(Vec::new());
+        let target = StaticCompressor::new(Vec::new());
 
         let target = self.append_message(target)?;
 

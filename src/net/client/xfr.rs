@@ -6,8 +6,8 @@
 use std::borrow::ToOwned;
 use std::boxed::Box;
 use std::fmt::{Debug, Formatter};
-use std::future::Future;
 use std::future::ready;
+use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 
@@ -22,7 +22,8 @@ use crate::base::name::{Label, ToLabelIter};
 use crate::base::ToName;
 use crate::base::{Message, Name, ParsedName, Rtype, Serial};
 use crate::net::client::request::{
-    ComposeRequest, ComposeRequestMulti, Error, GetResponse, GetResponseMulti, SendRequest, SendRequestMulti,
+    ComposeRequest, ComposeRequestMulti, Error, GetResponse,
+    GetResponseMulti, SendRequest, SendRequestMulti,
 };
 use crate::rdata::{Soa, ZoneRecordData};
 
@@ -778,7 +779,9 @@ where
     /// This is the implementation of the get_response method.
     ///
     /// This function is cancel safe.
-    async fn get_response_impl(&mut self) -> Result<Option<Message<Bytes>>, Error> {
+    async fn get_response_impl(
+        &mut self,
+    ) -> Result<Option<Message<Bytes>>, Error> {
         // The first time we are called, send the request and receive back an
         // object which can be used to fetch responses. Then use that in both
         // the first and subsequent invocations to do response fetching.
@@ -824,10 +827,10 @@ where
         // stop very large zone retrieval, that could otherwise use up a lot
         // of memory and disk space".
         let msg = send_request.get_response().await?;
-	let msg = match msg {
-	    Some(msg) => msg,
-	    None => return Ok(None),
-	};
+        let msg = match msg {
+            Some(msg) => msg,
+            None => return Ok(None),
+        };
 
         let not_xfr = msg
             .sole_question()
@@ -969,13 +972,13 @@ where
                                 {
                                     trace!("Closing response stream at record nr {} (soa seen count = {})",
                                         self.i, self.initial_soa_serial_seen_count);
-				    // We need to check that this is the last
-				    // record in the message. We also need to
-				    // check for the end-of-stream indication.
-				    // This gives the TSIG transport a chance
-				    // to verify that the last message was
-				    // properly signed.
-				    println!("TODO check for end-of-stream");
+                                    // We need to check that this is the last
+                                    // record in the message. We also need to
+                                    // check for the end-of-stream indication.
+                                    // This gives the TSIG transport a chance
+                                    // to verify that the last message was
+                                    // properly signed.
+                                    println!("TODO check for end-of-stream");
                                     self.complete = true;
 
                                     #[cfg(feature = "unstable-zonetree")]
@@ -1246,12 +1249,11 @@ where
                 + '_,
         >,
     > {
-	if self.complete {
-	     Box::pin(ready(Ok(None)))
-	}
-	else {
-	    Box::pin(self.get_response_impl())
-	}
+        if self.complete {
+            Box::pin(ready(Ok(None)))
+        } else {
+            Box::pin(self.get_response_impl())
+        }
     }
 }
 

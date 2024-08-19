@@ -19,7 +19,9 @@ use crate::base::iana::{Opcode, OptionCode};
 use crate::base::opt::{ComposeOptData, OptData};
 use crate::base::{Message, MessageBuilder};
 use crate::net::client::request::{
-    ComposeRequest, ComposeRequestMulti, Error, GetResponse, GetResponseMulti2, RequestMessage, RequestMessageMulti, SendRequest, SendRequestMulti2,
+    ComposeRequest, ComposeRequestMulti, Error, GetResponse,
+    GetResponseMulti2, RequestMessage, RequestMessageMulti, SendRequest,
+    SendRequestMulti2,
 };
 use crate::stelline::matches::match_multi_msg;
 use crate::zonefile::inplace::Entry::Record;
@@ -250,7 +252,8 @@ impl DispatcherMulti {
     pub fn dispatch(
         &self,
         entry: &Entry,
-    ) -> Result<Box<dyn GetResponseMulti2 + Send + Sync>, StellineErrorCause> {
+    ) -> Result<Box<dyn GetResponseMulti2 + Send + Sync>, StellineErrorCause>
+    {
         if let Some(dispatcher) = &self.0 {
             let reqmsg = entry2reqmsg_multi(entry);
             trace!(?reqmsg);
@@ -383,18 +386,26 @@ where
 
 pub struct PerClientAddressClientFactoryMulti<F, S>
 where
-    F: Fn(&IpAddr, &Entry) -> Box<dyn SendRequestMulti2<RequestMessageMulti<Vec<u8>>>>,
+    F: Fn(
+        &IpAddr,
+        &Entry,
+    ) -> Box<dyn SendRequestMulti2<RequestMessageMulti<Vec<u8>>>>,
     S: Fn(&Entry) -> bool,
 {
-    clients_by_address:
-        HashMap<IpAddr, Rc<Box<dyn SendRequestMulti2<RequestMessageMulti<Vec<u8>>>>>>,
+    clients_by_address: HashMap<
+        IpAddr,
+        Rc<Box<dyn SendRequestMulti2<RequestMessageMulti<Vec<u8>>>>>,
+    >,
     factory_func: F,
     is_suitable_func: S,
 }
 
 impl<F, S> PerClientAddressClientFactoryMulti<F, S>
 where
-    F: Fn(&IpAddr, &Entry) -> Box<dyn SendRequestMulti2<RequestMessageMulti<Vec<u8>>>>,
+    F: Fn(
+        &IpAddr,
+        &Entry,
+    ) -> Box<dyn SendRequestMulti2<RequestMessageMulti<Vec<u8>>>>,
     S: Fn(&Entry) -> bool,
 {
     pub fn new(factory_func: F, is_suitable_func: S) -> Self {
@@ -408,7 +419,10 @@ where
 
 impl<F, S> ClientFactoryMulti for PerClientAddressClientFactoryMulti<F, S>
 where
-    F: Fn(&IpAddr, &Entry) -> Box<dyn SendRequestMulti2<RequestMessageMulti<Vec<u8>>>>,
+    F: Fn(
+        &IpAddr,
+        &Entry,
+    ) -> Box<dyn SendRequestMulti2<RequestMessageMulti<Vec<u8>>>>,
     S: Fn(&Entry) -> bool,
 {
     fn get(
@@ -596,8 +610,8 @@ pub async fn do_client<'a, T: ClientFactory>(
                         .map(|v| v.extra_packets)
                         .unwrap_or_default()
                     {
-			// We should not be here. No stream response in do_client.
-			todo!();
+                        // We should not be here. No stream response in do_client.
+                        todo!();
                     } else {
                         let num_expected_answers = entry
                             .sections
@@ -769,21 +783,25 @@ pub async fn do_client_multi<'a, T: ClientFactoryMulti>(
                             .map_err(|_| {
                                 StellineErrorCause::AnswerTimedOut
                             })??;
-			    let resp = match resp {
-				Some(resp) => resp,
-				None => {
-				    trace!("Stream complete");
-				    if !entry.sections.as_ref().unwrap().answer[0]
-					.is_empty()
-				    {
-					return Err(
+                            let resp = match resp {
+                                Some(resp) => resp,
+                                None => {
+                                    trace!("Stream complete");
+                                    if !entry
+                                        .sections
+                                        .as_ref()
+                                        .unwrap()
+                                        .answer[0]
+                                        .is_empty()
+                                    {
+                                        return Err(
 					    StellineErrorCause::MismatchedAnswer,
 					);
-				    } else {
-					break;
-				    }
-				}
-			    };
+                                    } else {
+                                        break;
+                                    }
+                                }
+                            };
                             trace!("Received answer.");
                             trace!(?resp);
 
@@ -803,7 +821,6 @@ pub async fn do_client_multi<'a, T: ClientFactoryMulti>(
                                 section.answer[0] = out_entry.unwrap();
                             }
                             trace!("Answer RRs remaining = {num_rrs_remaining_after}");
-
                         }
                     } else {
                         let num_expected_answers = entry
@@ -825,13 +842,13 @@ pub async fn do_client_multi<'a, T: ClientFactoryMulti>(
                             .map_err(|_| {
                                 StellineErrorCause::AnswerTimedOut
                             })??;
-			    let resp = match resp {
-				Some(resp) => resp,
-				None => {
-				    // What do we do for end of stream?
-				    todo!();
-				}
-			    };
+                            let resp = match resp {
+                                Some(resp) => resp,
+                                None => {
+                                    // What do we do for end of stream?
+                                    todo!();
+                                }
+                            };
                             trace!("Received answer.");
                             trace!(?resp);
                             if !match_multi_msg(
@@ -938,7 +955,8 @@ fn entry2reqmsg(entry: &Entry) -> RequestMessage<Vec<u8>> {
     header.set_cd(reply.cd);
     let msg = msg.into_message();
 
-    let mut reqmsg = RequestMessage::new(msg).expect("should not fail unless the QTYPE is AXFR");
+    let mut reqmsg = RequestMessage::new(msg)
+        .expect("should not fail unless the QTYPE is AXFR");
     if !entry
         .matches
         .as_ref()
@@ -995,7 +1013,8 @@ fn entry2reqmsg_multi(entry: &Entry) -> RequestMessageMulti<Vec<u8>> {
     header.set_cd(reply.cd);
     let msg = msg.into_message();
 
-    let mut reqmsg = RequestMessageMulti::new(msg).expect("should not fail unless QTYPE is neither AXFR nor IXFR");
+    let mut reqmsg = RequestMessageMulti::new(msg)
+        .expect("should not fail unless QTYPE is neither AXFR nor IXFR");
     if !entry
         .matches
         .as_ref()
