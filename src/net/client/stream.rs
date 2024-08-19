@@ -385,6 +385,7 @@ pub struct RequestMulti {
     stream: mpsc::Receiver<Result<Option<Message<Bytes>>, Error>>,
 
     /// The underlying future.
+    #[allow(clippy::type_complexity)]
     fut: Option<
         Pin<Box<dyn Future<Output = Result<(), Error>> + Send + Sync>>,
     >,
@@ -479,6 +480,7 @@ impl ReplySender {
         }
     }
 
+    /// Send EOF on a response stream.
     async fn send_eof(&mut self) -> Result<(), ()> {
         match self {
             ReplySender::Single(_) => {
@@ -497,8 +499,12 @@ impl ReplySender {
 }
 
 #[derive(Debug)]
+/// Enum that can either store a request for a single response or one for
+/// multiple responses.
 enum ReqSingleMulti<Req, ReqMulti> {
+    /// Single response request.
     Single(Req),
+    /// Multi-response request.
     Multi(ReqMulti),
 }
 
@@ -592,14 +598,24 @@ impl std::fmt::Display for ConnState {
 }
 
 #[derive(Debug)]
+/// State of an AXFR or IXFR responses stream for detecting the end of the
+/// stream.
 enum XFRState {
+    /// Start of AXFR.
     AXFRInit,
+    /// After the first SOA record has been encountered.
     AXFRFirstSoa(Serial),
+    /// Start of IXFR.
     IXFRInit,
+    /// After the first SOA record has been encountered.
     IXFRFirstSoa(Serial),
+    /// After the first SOA record in a diff section has been encountered.
     IXFRFirstDiffSoa(Serial),
+    /// After the second SOA record in a diff section has been encountered.
     IXFRSecondDiffSoa(Serial),
+    /// End of the stream has been found.
     Done,
+    /// An error has occured.
     Error,
 }
 
@@ -1136,6 +1152,7 @@ where
     }
 }
 
+/// Upstate the response stream state based on a response message.
 fn check_stream<CRM>(
     msg: &CRM,
     mut xfr_state: XFRState,

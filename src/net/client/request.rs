@@ -166,6 +166,7 @@ pub trait GetResponse: Debug {
 ///
 /// In the future, the return type of get_response should become an associated
 /// type. However, too many uses of 'dyn GetResponse' currently prevent that.
+#[allow(clippy::type_complexity)]
 pub trait GetResponseMulti: Debug {
     /// Get the result of a DNS request.
     ///
