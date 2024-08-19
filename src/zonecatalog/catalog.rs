@@ -44,7 +44,7 @@ use crate::net;
 use crate::net::client::dgram::{self, Connection};
 use crate::net::client::protocol::UdpConnect;
 use crate::net::client::request::{
-    self, RequestMessage, RequestMessageMulti, SendRequest, SendRequestMulti2,
+    self, RequestMessage, RequestMessageMulti, SendRequest, SendRequestMulti,
 };
 use crate::rdata::{Soa, ZoneRecordData};
 use crate::tsig::{Key, KeyStore};
@@ -110,7 +110,7 @@ pub trait ConnectionFactory {
                     Output = Result<
                         Option<
                             Box<
-                                dyn SendRequestMulti2<
+                                dyn SendRequestMulti<
                                         RequestMessageMulti<Octs>,
                                     > + Send
                                     + Sync
@@ -1442,7 +1442,7 @@ where
         xfr_type: Rtype,
     ) -> Result<Soa<Name<Bytes>>, CatalogError>
     where
-        T: SendRequestMulti2<RequestMessageMulti<Vec<u8>>>
+        T: SendRequestMulti<RequestMessageMulti<Vec<u8>>>
             + Send
             + Sync
             + 'static,
@@ -2354,7 +2354,7 @@ impl ConnectionFactory for DefaultConnFactory {
                     Output = Result<
                         Option<
                             Box<
-                                dyn SendRequestMulti2<
+                                dyn SendRequestMulti<
                                         RequestMessageMulti<Octs>,
                                     > + Send
                                     + Sync
@@ -2436,7 +2436,7 @@ impl ConnectionFactory for DefaultConnFactory {
                         key, client,
                     ))
                         as Box<
-                            dyn SendRequestMulti2<RequestMessageMulti<Octs>>
+                            dyn SendRequestMulti<RequestMessageMulti<Octs>>
                                 + Send
                                 + Sync,
                         >))
@@ -2449,14 +2449,14 @@ impl ConnectionFactory for DefaultConnFactory {
 }
 
 impl<
-        T: SendRequestMulti2<RequestMessageMulti<Octs>> + ?Sized,
+        T: SendRequestMulti<RequestMessageMulti<Octs>> + ?Sized,
         Octs: Octets,
-    > SendRequestMulti2<RequestMessageMulti<Octs>> for Box<T>
+    > SendRequestMulti<RequestMessageMulti<Octs>> for Box<T>
 {
     fn send_request(
         &self,
         request_msg: RequestMessageMulti<Octs>,
-    ) -> Box<dyn request::GetResponseMulti2 + Send + Sync> {
+    ) -> Box<dyn request::GetResponseMulti + Send + Sync> {
         (**self).send_request(request_msg)
     }
 }

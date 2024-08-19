@@ -20,8 +20,8 @@ use crate::base::opt::{ComposeOptData, OptData};
 use crate::base::{Message, MessageBuilder};
 use crate::net::client::request::{
     ComposeRequest, ComposeRequestMulti, Error, GetResponse,
-    GetResponseMulti2, RequestMessage, RequestMessageMulti, SendRequest,
-    SendRequestMulti2,
+    GetResponseMulti, RequestMessage, RequestMessageMulti, SendRequest,
+    SendRequestMulti,
 };
 use crate::stelline::matches::match_multi_msg;
 use crate::zonefile::inplace::Entry::Record;
@@ -228,19 +228,19 @@ impl Dispatcher {
 //----------- DispatcherMulti -------------------------------------------------
 
 pub struct DispatcherMulti(
-    Option<Rc<Box<dyn SendRequestMulti2<RequestMessageMulti<Vec<u8>>>>>>,
+    Option<Rc<Box<dyn SendRequestMulti<RequestMessageMulti<Vec<u8>>>>>>,
 );
 
 impl DispatcherMulti {
     pub fn with_client<T>(client: T) -> Self
     where
-        T: SendRequestMulti2<RequestMessageMulti<Vec<u8>>> + 'static,
+        T: SendRequestMulti<RequestMessageMulti<Vec<u8>>> + 'static,
     {
         Self(Some(Rc::new(Box::new(client))))
     }
 
     pub fn with_rc_boxed_client(
-        client: Rc<Box<dyn SendRequestMulti2<RequestMessageMulti<Vec<u8>>>>>,
+        client: Rc<Box<dyn SendRequestMulti<RequestMessageMulti<Vec<u8>>>>>,
     ) -> Self {
         Self(Some(client))
     }
@@ -252,7 +252,7 @@ impl DispatcherMulti {
     pub fn dispatch(
         &self,
         entry: &Entry,
-    ) -> Result<Box<dyn GetResponseMulti2 + Send + Sync>, StellineErrorCause>
+    ) -> Result<Box<dyn GetResponseMulti + Send + Sync>, StellineErrorCause>
     {
         if let Some(dispatcher) = &self.0 {
             let reqmsg = entry2reqmsg_multi(entry);
@@ -297,12 +297,12 @@ pub trait ClientFactoryMulti {
 //----------- SingleClientFactoryMulti ----------------------------------------
 
 pub struct SingleClientFactoryMulti(
-    Rc<Box<dyn SendRequestMulti2<RequestMessageMulti<Vec<u8>>>>>,
+    Rc<Box<dyn SendRequestMulti<RequestMessageMulti<Vec<u8>>>>>,
 );
 
 impl SingleClientFactoryMulti {
     pub fn new(
-        client: impl SendRequestMulti2<RequestMessageMulti<Vec<u8>>> + 'static,
+        client: impl SendRequestMulti<RequestMessageMulti<Vec<u8>>> + 'static,
     ) -> Self {
         Self(Rc::new(Box::new(client)))
     }
@@ -389,12 +389,12 @@ where
     F: Fn(
         &IpAddr,
         &Entry,
-    ) -> Box<dyn SendRequestMulti2<RequestMessageMulti<Vec<u8>>>>,
+    ) -> Box<dyn SendRequestMulti<RequestMessageMulti<Vec<u8>>>>,
     S: Fn(&Entry) -> bool,
 {
     clients_by_address: HashMap<
         IpAddr,
-        Rc<Box<dyn SendRequestMulti2<RequestMessageMulti<Vec<u8>>>>>,
+        Rc<Box<dyn SendRequestMulti<RequestMessageMulti<Vec<u8>>>>>,
     >,
     factory_func: F,
     is_suitable_func: S,
@@ -405,7 +405,7 @@ where
     F: Fn(
         &IpAddr,
         &Entry,
-    ) -> Box<dyn SendRequestMulti2<RequestMessageMulti<Vec<u8>>>>,
+    ) -> Box<dyn SendRequestMulti<RequestMessageMulti<Vec<u8>>>>,
     S: Fn(&Entry) -> bool,
 {
     pub fn new(factory_func: F, is_suitable_func: S) -> Self {
@@ -422,7 +422,7 @@ where
     F: Fn(
         &IpAddr,
         &Entry,
-    ) -> Box<dyn SendRequestMulti2<RequestMessageMulti<Vec<u8>>>>,
+    ) -> Box<dyn SendRequestMulti<RequestMessageMulti<Vec<u8>>>>,
     S: Fn(&Entry) -> bool,
 {
     fn get(
@@ -702,7 +702,7 @@ pub async fn do_client_multi<'a, T: ClientFactoryMulti>(
         mut client_factory: T,
     ) -> Result<(), StellineErrorCause> {
         let mut last_sent_request: Option<
-            Box<dyn GetResponseMulti2 + Sync + Send>,
+            Box<dyn GetResponseMulti + Sync + Send>,
         > = None;
 
         #[cfg(all(feature = "std", test))]
