@@ -30,6 +30,7 @@ use core::cmp;
 use octseq::Octets;
 use std::boxed::Box;
 use std::fmt::Debug;
+use std::future::ready;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -116,7 +117,7 @@ impl Config {
     /// Sets the response timeout.
     ///
     /// For requests where ComposeRequest::is_streaming() returns true see
-    /// set_streaming_response_timeout() instead.    
+    /// set_streaming_response_timeout() instead.
     ///
     /// Excessive values are quietly trimmed.
     //
@@ -152,7 +153,7 @@ impl Config {
     ///
     /// By default the stream is immediately closed if there are no pending
     /// requests or responses.
-    ///  
+    ///
     /// Set this to allow requests to be sent in sequence with delays between
     /// such as a SOA query followed by AXFR for more efficient use of the
     /// stream per RFC 9103.
@@ -264,8 +265,14 @@ println!("handle_streaming_request_impl: returning ConnectionClosed (1)");
 
     /// Returns a request handler for this connection.
     pub fn get_request(&self, request_msg: Req) -> Request {
-        Request {
-            fut: Box::pin(self.clone().handle_request_impl(request_msg)),
+        if request_msg.is_streaming() {
+            Request {
+                fut: Box::pin(ready(Err(Error::FormError))),
+            }
+        } else {
+            Request {
+                fut: Box::pin(self.clone().handle_request_impl(request_msg)),
+            }
         }
     }
 
@@ -275,12 +282,19 @@ println!("handle_streaming_request_impl: returning ConnectionClosed (1)");
         request_msg: ReqMulti,
     ) -> RequestMulti {
         let (sender, receiver) = mpsc::unbounded_channel();
-        RequestMulti {
-            stream: receiver,
-            fut: Some(Box::pin(
-                self.clone()
-                    .handle_streaming_request_impl(request_msg, sender),
-            )),
+        if !request_msg.is_streaming() {
+            RequestMulti {
+                stream: receiver,
+                fut: Some(Box::pin(ready(Err(Error::FormError)))),
+            }
+        } else {
+            RequestMulti {
+                stream: receiver,
+                fut: Some(Box::pin(
+                    self.clone()
+                        .handle_streaming_request_impl(request_msg, sender),
+                )),
+            }
         }
     }
 }
@@ -306,26 +320,6 @@ where
     }
 }
 
-/*
-impl<Req, ReqMulti> SendRequestMulti<ReqMulti> for Connection<Req, ReqMulti>
-where
-    Req: ComposeRequest + Debug + Send + Sync + 'static,
-    ReqMulti: ComposeRequestMulti + 'static
-{
-    fn send_request(
-        &self,
-        request_msg: ReqMulti,
-    ) -> Box<dyn GetResponseMulti + Send + Sync> {
-        if request_msg.is_streaming() {
-            Box::new(self.get_streaming_request(request_msg))
-        } else {
-        panic!("Only streaming in SendRequestMulti");
-            //Box::new(self.get_request(request_msg))
-        }
-    }
-}
-*/
-
 impl<Req, ReqMulti> SendRequestMulti<ReqMulti> for Connection<Req, ReqMulti>
 where
     Req: ComposeRequest + Debug + Send + Sync + 'static,
@@ -335,7 +329,6 @@ where
         &self,
         request_msg: ReqMulti,
     ) -> Box<dyn GetResponseMulti + Send + Sync> {
-        // ComposeRequestMulti is always streaming.
         Box::new(self.get_streaming_request(request_msg))
     }
 }
