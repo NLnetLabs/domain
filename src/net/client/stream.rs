@@ -485,7 +485,7 @@ impl ReplySender {
         }
     }
 
-    pub fn send_eof(&mut self) -> Result<(), ()> {
+    fn send_eof(&mut self) -> Result<(), ()> {
         match self {
             ReplySender::Single(_) => {
 		panic!("cannot send EOF for Single");
@@ -609,6 +609,7 @@ enum XFRState {
     Error,
 }
 
+/*
 #[derive(Debug)]
 struct XFRData {
     /// State needed for AXFR and IXFR.
@@ -617,6 +618,7 @@ struct XFRData {
     ///
     serial: Serial,
 }
+*/
 
 impl<Stream, Req, ReqMulti> Transport<Stream, Req, ReqMulti> {
     /// Creates a new transport.
@@ -659,7 +661,7 @@ println!("in run");
             idle_timeout: self.config.idle_timeout,
             send_keepalive: true,
         };
-        let mut query_vec = Queries::<(ChanReq<Req, ReqMulti>, Option<XFRData>)>::new();
+        let mut query_vec = Queries::<(ChanReq<Req, ReqMulti>, Option<XFRState>)>::new();
 
         let mut reqmsg: Option<Vec<u8>> = None;
         let mut reqmsg_offset = 0;
@@ -893,7 +895,7 @@ println!("shutdown stream");
 
     /// Reports an error to all outstanding queries.
     fn error(error: Error, query_vec: &mut Queries<(ChanReq<Req, ReqMulti>,
-		Option<XFRData>)>) {
+		Option<XFRState>)>) {
         // Update all requests that are in progress. Don't wait for
         // any reply that may be on its way.
         for (mut req, _) in query_vec.drain() {
@@ -925,7 +927,7 @@ println!("shutdown stream");
     fn demux_reply(
         answer: Message<Bytes>,
         status: &mut Status,
-        query_vec: &mut Queries<(ChanReq<Req, ReqMulti>, Option<XFRData>)>,
+        query_vec: &mut Queries<(ChanReq<Req, ReqMulti>, Option<XFRState>)>,
     ) {
         // We got an answer, reset the timer
         status.state = ConnState::Active(Some(Instant::now()));
@@ -994,7 +996,7 @@ println!("shutdown stream");
         mut req: ChanReq<Req, ReqMulti>,
         status: &mut Status,
         reqmsg: &mut Option<Vec<u8>>,
-        query_vec: &mut Queries<(ChanReq<Req, ReqMulti>, Option<XFRData>)>,
+        query_vec: &mut Queries<(ChanReq<Req, ReqMulti>, Option<XFRState>)>,
     ) {
         match &status.state {
             ConnState::Active(timer) => {
@@ -1029,7 +1031,7 @@ println!("shutdown stream");
 	let xfr_data = match &req.msg {
 		ReqSingleMulti::Single(_) => None,
 		ReqSingleMulti::Multi(msg) => {
-			let qtype = match msg.to_message().and_then(|m| m.sole_question().map_err(|e| Error::MessageParseError).map(|q| q.qtype())) {
+			let qtype = match msg.to_message().and_then(|m| m.sole_question().map_err(|_| Error::MessageParseError).map(|q| q.qtype())) {
 			    Ok(msg) => msg,
 			    Err(e) => {
 				_ = req.sender.send(Err(e));
@@ -1037,9 +1039,9 @@ println!("shutdown stream");
 			    }
 			};
 			if qtype == Rtype::AXFR {
-			    Some(XFRData { state: XFRState::AXFRInit, serial: 0.into() })
+			    Some(XFRState::AXFRInit)
 			} else if qtype == Rtype::IXFR {
-			    Some(XFRData { state: XFRState::IXFRInit, serial: 0.into() })
+			    Some(XFRState::IXFRInit)
 			} else {
 			    // Stream requests should be either AXFR or IXFR.
 			    _ = req.sender.send(Err(Error::FormError,));
@@ -1127,7 +1129,7 @@ println!("shutdown stream");
     }
 }
 
-fn check_stream<CRM>(msg: &CRM, mut xfr_data: XFRData, answer: &Message<Bytes>) -> (bool, XFRData, bool)
+fn check_stream<CRM>(msg: &CRM, mut xfr_state: XFRState, answer: &Message<Bytes>) -> (bool, XFRState, bool)
 where CRM: ComposeRequestMulti
 {
     // First check if the reply matches the request.
@@ -1136,14 +1138,14 @@ where CRM: ComposeRequestMulti
     // query.  In subsequent messages, this section MAY be copied from the
     // query, or it MAY be empty.  However, in an error response message
     // (see Section 2.2), this section MUST be copied as well."
-    match xfr_data.state {
+    match xfr_state {
 	XFRState::AXFRInit | XFRState::IXFRInit => {
 	    if !msg.is_answer(answer.for_slice()) {
-		xfr_data.state = XFRState::Error;
+		xfr_state = XFRState::Error;
 		// If we detect an error, then keep the stream open. We are
 		// likely out of sync with respect to the sender.
 println!("check_stream: line {}", line!());
-		return (false, xfr_data, false);
+		return (false, xfr_state, false);
 	    }
 	}
 	XFRState::AXFRFirstSoa(_) | XFRState::IXFRFirstSoa(_) |
@@ -1153,56 +1155,53 @@ println!("check_stream: line {}", line!());
 	    (),
 	XFRState::Done => {
 	    // We should not be here. Switch to error state.
-	    xfr_data.state = XFRState::Error;
-	    return (false, xfr_data, false);
+	    xfr_state = XFRState::Error;
+	    return (false, xfr_state, false);
 	}
 	XFRState::Error =>
 	    // Keep the stream open.
-	    return (false, xfr_data, false)
+	    return (false, xfr_state, false)
     }
 
     // Then check if the reply status an error.
     if answer.header().rcode() != Rcode::NOERROR {
 	// Also check if this answers the question.
 	if !msg.is_answer(answer.for_slice()) {
-	    xfr_data.state = XFRState::Error;
+	    xfr_state = XFRState::Error;
 	    // If we detect an error, then keep the stream open. We are
 	    // likely out of sync with respect to the sender.
-println!("check_stream: line {}", line!());
-	    return (false, xfr_data, false);
+	    return (false, xfr_state, false);
 	}
-println!("check_stream: line {}", line!());
-	return (true, xfr_data, true);
+	return (true, xfr_state, true);
     }
 
-println!("check_stream: line {}", line!());
     let ans_sec = answer.answer().unwrap();
     for rr in ans_sec.into_records::<AllRecordData<Bytes, ParsedName<Bytes>,>>() {
 	println!("found rr {rr:?}");
 	let rr = rr.unwrap();
-	match xfr_data.state {
+	match xfr_state {
 	    XFRState::AXFRInit => {
 		// The first record has to be a SOA record.
 		if let AllRecordData::Soa(soa) = rr.data() {
-		    xfr_data.state = XFRState::AXFRFirstSoa(soa.serial());
+		    xfr_state = XFRState::AXFRFirstSoa(soa.serial());
 		    continue;
 		}
 		// Bad data. Switch to error status.
-		xfr_data.state = XFRState::Error;
-		return (false, xfr_data, false);
+		xfr_state = XFRState::Error;
+		return (false, xfr_state, false);
 	    }
 	    XFRState::AXFRFirstSoa(serial) => {
 		// Find the SOA at the end.
 		if let AllRecordData::Soa(soa) = rr.data() {
 		    if serial == soa.serial() {
 			// We found a match.
-			xfr_data.state = XFRState::Done;
+			xfr_state = XFRState::Done;
 			continue;
 		    }
 
 		    // Serial does not match. Move to error state.
-		    xfr_data.state = XFRState::Error;
-		    return (false, xfr_data, false);
+		    xfr_state = XFRState::Error;
+		    return (false, xfr_state, false);
 		}
 
 		// Any other record, just continue.
@@ -1210,12 +1209,12 @@ println!("check_stream: line {}", line!());
 	    XFRState::IXFRInit => {
 		// The first record has to be a SOA record.
 		if let AllRecordData::Soa(soa) = rr.data() {
-		    xfr_data.state = XFRState::IXFRFirstSoa(soa.serial());
+		    xfr_state = XFRState::IXFRFirstSoa(soa.serial());
 		    continue;
 		}
 		// Bad data. Switch to error status.
-		xfr_data.state = XFRState::Error;
-		return (false, xfr_data, false);
+		xfr_state = XFRState::Error;
+		return (false, xfr_state, false);
 	    }
 	    XFRState::IXFRFirstSoa(serial) => {
 		// We have three possibilities:
@@ -1228,22 +1227,22 @@ println!("check_stream: line {}", line!());
 		if let AllRecordData::Soa(soa) = rr.data() {
 		    if serial == soa.serial() {
 			// We found a match.
-			xfr_data.state = XFRState::Done;
+			xfr_state = XFRState::Done;
 			continue;
 		    }
 
-		    xfr_data.state = XFRState::IXFRFirstDiffSoa(serial);
+		    xfr_state = XFRState::IXFRFirstDiffSoa(serial);
 		    continue;
 		}
 
 		// Any other record, move to AXFRFirstSoa.
-		xfr_data.state = XFRState::AXFRFirstSoa(serial);
+		xfr_state = XFRState::AXFRFirstSoa(serial);
 	    }
 	    XFRState::IXFRFirstDiffSoa(serial) => {
 		// Move to IXFRSecondDiffSoa if the record is a SOA record,
 		// otherwise stay in the current state.
-		if let AllRecordData::Soa(soa) = rr.data() {
-		    xfr_data.state = XFRState::IXFRSecondDiffSoa(serial);
+		if let AllRecordData::Soa(_) = rr.data() {
+		    xfr_state = XFRState::IXFRSecondDiffSoa(serial);
 		    continue;
 		}
 
@@ -1257,11 +1256,11 @@ println!("check_stream: line {}", line!());
 		if let AllRecordData::Soa(soa) = rr.data() {
 		    if serial == soa.serial() {
 			// We found a match.
-			xfr_data.state = XFRState::Done;
+			xfr_state = XFRState::Done;
 			continue;
 		    }
 
-		    xfr_data.state = XFRState::IXFRFirstDiffSoa(serial);
+		    xfr_state = XFRState::IXFRFirstDiffSoa(serial);
 		    continue;
 		}
 
@@ -1269,20 +1268,20 @@ println!("check_stream: line {}", line!());
 	    }
 	    XFRState::Done => {
 		// We got a record after we are done. Switch to error state.
-		xfr_data.state = XFRState::Error;
-		return (false, xfr_data, false);
+		xfr_state = XFRState::Error;
+		return (false, xfr_state, false);
 	    }
 	    XFRState::Error => panic!("should not be here"),
 	}
     }
 
     // Check the final state.
-    match xfr_data.state {
+    match xfr_state {
 	XFRState::AXFRInit | XFRState::IXFRInit => {
 	    // Still in one of the init state. So the data section was empty.
 	    // Switch to error state.
-	    xfr_data.state = XFRState::Error;
-	    return (false, xfr_data, false);
+	    xfr_state = XFRState::Error;
+	    return (false, xfr_state, false);
 	}
 	XFRState::AXFRFirstSoa(_) | XFRState::IXFRFirstDiffSoa(_)
 	    | XFRState::IXFRSecondDiffSoa(_) =>
@@ -1290,18 +1289,18 @@ println!("check_stream: line {}", line!());
 	    (),
 	XFRState::IXFRFirstSoa(_) => {
 	    // We are still in IXFRFirstSoa. Assume the other side doesn't 
-	    // have anything more to day. We could check the SOA serial in
+	    // have anything more to say. We could check the SOA serial in
 	    // the request. Just assume that we are done.
-	    xfr_data.state = XFRState::Done;
-	    return (true, xfr_data, true);
+	    xfr_state = XFRState::Done;
+	    return (true, xfr_state, true);
 	}
 	XFRState::Done =>
-	    return (true, xfr_data, true),
+	    return (true, xfr_state, true),
 	XFRState::Error => panic!("should not be here"),
     }
 
     // (eof, xfr_data, is_answer)
-    return (false, xfr_data, true);
+    return (false, xfr_state, true);
 }
 
 //------------ Queries -------------------------------------------------------
