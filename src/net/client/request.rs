@@ -60,6 +60,9 @@ pub trait ComposeRequest: Debug + Send + Sync {
     /// Returns whether a message is an answer to the request.
     fn is_answer(&self, answer: &Message<[u8]>) -> bool;
 
+    /// Returns whether a message results in a response stream or not.
+    fn is_streaming(&self) -> bool;
+
     /// Return the status of the DNSSEC OK flag.
     fn dnssec_ok(&self) -> bool;
 }
@@ -380,6 +383,10 @@ impl<Octs: AsRef<[u8]> + Debug + Octets + Send + Sync> ComposeRequest
             }
             res
         }
+    }
+
+    fn is_streaming(&self) -> bool {
+        self.msg.is_streaming()
     }
 
     fn dnssec_ok(&self) -> bool {

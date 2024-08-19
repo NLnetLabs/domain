@@ -573,6 +573,10 @@ where
         self.request.set_udp_payload_size(value)
     }
 
+    fn is_streaming(&self) -> bool {
+        self.request.is_streaming()
+    }
+
     fn set_dnssec_ok(&mut self, value: bool) {
         self.request.set_dnssec_ok(value)
     }
