@@ -37,7 +37,6 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use std::vec::Vec;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
-use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use tokio::sync::{mpsc, oneshot};
 use tokio::time::sleep;
 use tracing::trace;
@@ -245,7 +244,7 @@ where
     async fn handle_streaming_request_impl(
         self,
         msg: ReqMulti,
-        sender: UnboundedSender<Result<Option<Message<Bytes>>, Error>>,
+        sender: mpsc::Sender<Result<Option<Message<Bytes>>, Error>>,
     ) -> Result<(), Error> {
         let reply_sender = ReplySender::Stream(sender);
         let msg = ReqSingleMulti::Multi(msg);
@@ -281,7 +280,7 @@ println!("handle_streaming_request_impl: returning ConnectionClosed (1)");
         &self,
         request_msg: ReqMulti,
     ) -> RequestMulti {
-        let (sender, receiver) = mpsc::unbounded_channel();
+        let (sender, receiver) = mpsc::channel(DEF_CHAN_CAP);
         if !request_msg.is_streaming() {
             RequestMulti {
                 stream: receiver,
@@ -383,7 +382,7 @@ impl Debug for Request {
 /// An active request.
 pub struct RequestMulti {
     /// TODO
-    stream: UnboundedReceiver<Result<Option<Message<Bytes>>, Error>>,
+    stream: mpsc::Receiver<Result<Option<Message<Bytes>>, Error>>,
 
     /// The underlying future.
     fut: Option<
@@ -458,35 +457,35 @@ pub struct Transport<Stream, Req, ReqMulti> {
 
 /// This is the type of sender in [ChanReq].
 #[derive(Debug)]
-pub enum ReplySender {
+enum ReplySender {
     /// TODO
     Single(Option<oneshot::Sender<ChanResp>>),
 
     /// TODO
-    Stream(mpsc::UnboundedSender<Result<Option<Message<Bytes>>, Error>>),
+    Stream(mpsc::Sender<Result<Option<Message<Bytes>>, Error>>),
 }
 
 impl ReplySender {
     /// TODO
-    pub fn send(&mut self, resp: ChanResp) -> Result<(), ()> {
+    async fn send(&mut self, resp: ChanResp) -> Result<(), ()> {
         match self {
             ReplySender::Single(sender) => match sender.take() {
                 Some(sender) => sender.send(resp).map_err(|_| ()),
                 None => Err(()),
             },
             ReplySender::Stream(sender) => {
-                sender.send(resp.map(|m| Some(m))).map_err(|_| ())
+                sender.send(resp.map(Some)).await.map_err(|_| ())
             }
         }
     }
 
-    fn send_eof(&mut self) -> Result<(), ()> {
+    async fn send_eof(&mut self) -> Result<(), ()> {
         match self {
             ReplySender::Single(_) => {
                 panic!("cannot send EOF for Single");
             }
             ReplySender::Stream(sender) => {
-                sender.send(Ok(None)).map_err(|_| ())
+                sender.send(Ok(None)).await.map_err(|_| ())
             }
         }
     }
@@ -749,7 +748,7 @@ where
                                         &mut status);
                                 };
                                 drop(opt_record);
-                                Self::demux_reply(answer, &mut status, &mut query_vec);
+                                Self::demux_reply(answer, &mut status, &mut query_vec).await;
                             }
                             res = write_stream.write(&msg[reqmsg_offset..]),
                             if do_write => {
@@ -921,7 +920,7 @@ where
     ///
     /// In addition, the status is updated to IdleTimeout or Idle if there
     /// are no remaining pending requests.
-    fn demux_reply(
+    async fn demux_reply(
         answer: Message<Bytes>,
         status: &mut Status,
         query_vec: &mut Queries<(ChanReq<Req, ReqMulti>, Option<XFRState>)>,
@@ -956,12 +955,12 @@ where
         } else {
             Err(Error::WrongReplyForQuery)
         };
-        _ = req.sender.send(answer);
+        _ = req.sender.send(answer).await;
 
         // TODO: Discard streaming requests once the stream is complete.
         if req.sender.is_stream() {
             if send_eof {
-                _ = req.sender.send_eof();
+                _ = req.sender.send_eof().await;
             } else {
                 query_vec.insert((req, opt_xfr_data)).unwrap();
             }
@@ -1322,7 +1321,7 @@ where
     }
 
     // (eof, xfr_data, is_answer)
-    return (false, xfr_state, true);
+    (false, xfr_state, true)
 }
 
 //------------ Queries -------------------------------------------------------
