@@ -439,6 +439,12 @@ impl<Octs: Octets + ?Sized> Message<Octs> {
         }
     }
 
+    pub fn is_streaming(&self) -> bool {
+        self.first_question()
+            .map(|q| matches!(q.qtype(), Rtype::AXFR | Rtype::IXFR))
+            .unwrap_or_default()
+    }
+
     /// Returns the first question, if there is any.
     ///
     /// The method will return `None` both if there are no questions or if

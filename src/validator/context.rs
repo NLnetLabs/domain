@@ -2221,7 +2221,7 @@ where
         }
     };
     let msg = Message::from_octets(octs).expect("should not fail");
-    let mut req = RequestMessage::new(msg);
+    let mut req = RequestMessage::new(msg).expect("should not fail");
     req.set_dnssec_ok(true);
 
     let mut request = upstream.send_request(req);
