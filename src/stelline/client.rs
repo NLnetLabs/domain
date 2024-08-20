@@ -517,7 +517,8 @@ fn entry2reqmsg(entry: &Entry) -> RequestMessage<Vec<u8>> {
     header.set_cd(reply.cd);
     let msg = msg.into_message();
 
-    let mut reqmsg = RequestMessage::new(msg).expect("should not fail unless the request is AXFR");
+    let mut reqmsg = RequestMessage::new(msg)
+        .expect("should not fail unless the request is AXFR");
     reqmsg.set_dnssec_ok(reply.fl_do);
     if reply.notify {
         reqmsg.header_mut().set_opcode(Opcode::NOTIFY);
