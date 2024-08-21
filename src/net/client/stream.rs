@@ -342,9 +342,7 @@ pub struct Request {
 impl Request {
     /// Async function that waits for the future stored in Request to complete.
     async fn get_response_impl(&mut self) -> Result<Message<Bytes>, Error> {
-        let res = (&mut self.fut).await;
-
-        res
+        (&mut self.fut).await
     }
 }
 
@@ -396,14 +394,11 @@ impl RequestMulti {
         }
 
         // Fetch from the stream
-        let res = self
-            .stream
+        self.stream
             .recv()
             .await
             .ok_or(Error::ConnectionClosed)
-            .map_err(|_| Error::ConnectionClosed)?;
-
-        res
+            .map_err(|_| Error::ConnectionClosed)?
     }
 }
 
