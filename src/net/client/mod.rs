@@ -190,6 +190,7 @@ pub mod request;
 pub mod stream;
 #[cfg(feature = "tsig")]
 pub mod tsig;
+pub mod xfr;
 #[cfg(feature = "unstable-validator")]
 pub mod validator;
 pub mod validator_test;

@@ -88,7 +88,6 @@ mod traits;
 mod tree;
 pub mod types;
 mod walk;
-pub mod xfr;
 mod zone;
 
 pub use self::answer::{Answer, AnswerAuthority, AnswerContent};
