@@ -234,7 +234,6 @@ where
         self.sender.send(req).await.map_err(|_| {
             // Send error. The receiver is gone, this means that the
             // connection is closed.
-            println!("handle_request_impl: returning ConnectionClosed");
             Error::ConnectionClosed
         })?;
         receiver.await.map_err(|_| Error::StreamReceiveError)?
@@ -252,11 +251,9 @@ where
             sender: reply_sender,
             msg,
         };
-        self.sender.send(req).await.map_err(|e| {
+        self.sender.send(req).await.map_err(|_| {
             // Send error. The receiver is gone, this means that the
             // connection is closed.
-println!("handle_streaming_request_impl: send error {e:?}");
-println!("handle_streaming_request_impl: returning ConnectionClosed (1)");
             Error::ConnectionClosed
         })?;
         Ok(())
@@ -345,10 +342,7 @@ pub struct Request {
 impl Request {
     /// Async function that waits for the future stored in Request to complete.
     async fn get_response_impl(&mut self) -> Result<Message<Bytes>, Error> {
-        println!("in get_response_impl");
         let res = (&mut self.fut).await;
-
-        println!("get_response_impl: got res {res:?}");
 
         res
     }
@@ -396,22 +390,18 @@ impl RequestMulti {
     async fn get_response_impl(
         &mut self,
     ) -> Result<Option<Message<Bytes>>, Error> {
-        println!("in get_response_impl(RequestMulti)");
         if self.fut.is_some() {
             let fut = self.fut.take().expect("Some expected");
             fut.await?;
         }
 
         // Fetch from the stream
-        println!("get_response_impl(RequestMulti): before stream.recv");
         let res = self
             .stream
             .recv()
             .await
             .ok_or(Error::ConnectionClosed)
             .map_err(|_| Error::ConnectionClosed)?;
-
-        println!("get_response_impl(RequestMulti): res {res:?}");
 
         res
     }
@@ -656,7 +646,6 @@ where
 {
     /// Run the transport machinery.
     pub async fn run(mut self) {
-        println!("in run");
         let (reply_sender, mut reply_receiver) =
             mpsc::channel::<Message<Bytes>>(READ_REPLY_CHAN_CAP);
 
@@ -737,83 +726,82 @@ where
             };
 
             tokio::select! {
-                            biased;
-                            res = &mut reader_fut => {
-                                match res {
-                                    Ok(_) =>
-                                        // The reader should not
-                                        // terminate without
-                                        // error.
-                                        panic!("reader terminated"),
-                                    Err(error) => {
-                                        Self::error(error.clone(), &mut query_vec);
-                                        status.state = ConnState::ReadError(error);
-                                        // Reader failed. Break
-                                        // out of loop and
-                                        // shut down
-                                        break
-                                    }
-                                }
-                            }
-                            opt_answer = reply_receiver.recv() => {
-                                let answer = opt_answer.expect("reader died?");
-                                // Check for a edns-tcp-keepalive option
-                                let opt_record = answer.opt();
-                                if let Some(ref opts) = opt_record {
-                                    Self::handle_opts(opts,
-                                        &mut status);
-                                };
-                                drop(opt_record);
-                                Self::demux_reply(answer, &mut status, &mut query_vec).await;
-                            }
-                            res = write_stream.write(&msg[reqmsg_offset..]),
-                            if do_write => {
-                        match res {
+                biased;
+                res = &mut reader_fut => {
+                    match res {
+                        Ok(_) =>
+                            // The reader should not
+                            // terminate without
+                            // error.
+                            panic!("reader terminated"),
                         Err(error) => {
-                            let error =
-                            Error::StreamWriteError(Arc::new(error));
                             Self::error(error.clone(), &mut query_vec);
-                            status.state =
-                            ConnState::WriteError(error);
+                            status.state = ConnState::ReadError(error);
+                            // Reader failed. Break
+                            // out of loop and
+                            // shut down
+                            break
+                        }
+                    }
+                }
+                opt_answer = reply_receiver.recv() => {
+                    let answer = opt_answer.expect("reader died?");
+                    // Check for a edns-tcp-keepalive option
+                    let opt_record = answer.opt();
+                    if let Some(ref opts) = opt_record {
+                        Self::handle_opts(opts,
+                            &mut status);
+                    };
+                    drop(opt_record);
+                    Self::demux_reply(answer, &mut status, &mut query_vec).await;
+                }
+                res = write_stream.write(&msg[reqmsg_offset..]),
+                if do_write => {
+            match res {
+            Err(error) => {
+                let error =
+                Error::StreamWriteError(Arc::new(error));
+                Self::error(error.clone(), &mut query_vec);
+                status.state =
+                ConnState::WriteError(error);
+                break;
+            }
+            Ok(len) => {
+                reqmsg_offset += len;
+                if reqmsg_offset >= msg.len() {
+                reqmsg = None;
+                reqmsg_offset = 0;
+                }
+            }
+            }
+                }
+                res = recv_fut, if !do_write => {
+                    match res {
+                        Some(req) => {
+                            if req.sender.is_stream() {
+                                self.config.response_timeout =
+                                    self.config.streaming_response_timeout;
+                            } else {
+                                self.config.response_timeout =
+                                    self.config.single_response_timeout;
+                            }
+                            Self::insert_req(
+                                req, &mut status, &mut reqmsg, &mut query_vec
+                            );
+                        }
+                        None => {
+                            // All references to the connection object have
+                            // been dropped. Shutdown.
                             break;
                         }
-                        Ok(len) => {
-                            reqmsg_offset += len;
-                            if reqmsg_offset >= msg.len() {
-                            reqmsg = None;
-                            reqmsg_offset = 0;
-                            }
-                        }
-                        }
-                            }
-                            res = recv_fut, if !do_write => {
-                                match res {
-                                    Some(req) => {
-                                        if req.sender.is_stream() {
-                                            self.config.response_timeout =
-                                                self.config.streaming_response_timeout;
-                                        } else {
-                                            self.config.response_timeout =
-                                                self.config.single_response_timeout;
-                                        }
-                                        Self::insert_req(
-                                            req, &mut status, &mut reqmsg, &mut query_vec
-                                        );
-                                    }
-                                    None => {
-                                        // All references to the connection object have
-                                        // been dropped. Shutdown.
-            println!("None from recv_fut");
-                                        break;
-                                    }
-                                }
-                            }
-                            _ = sleep_fut => {
-                                // Timeout expired, just
-                                // continue with the loop
-                            }
+                    }
+                }
+                _ = sleep_fut => {
+                    // Timeout expired, just
+                    // continue with the loop
+                }
 
-                        }
+            }
 
             // Check if the connection is idle
             match status.state {
@@ -832,7 +820,6 @@ where
         trace!("Closing TCP connecting in state: {}", status.state);
 
         // Send FIN
-        println!("shutdown stream");
         _ = write_stream.shutdown().await;
     }
 
@@ -944,16 +931,17 @@ where
         // We got an answer, reset the timer
         status.state = ConnState::Active(Some(Instant::now()));
 
+        let id = answer.header().id();
+
         // Get the correct query and send it the reply.
-        let (mut req, mut opt_xfr_data) =
-            match query_vec.try_remove(answer.header().id()) {
-                Some(req) => req,
-                None => {
-                    // No query with this ID. We should
-                    // mark the connection as broken
-                    return;
-                }
-            };
+        let (mut req, mut opt_xfr_data) = match query_vec.try_remove(id) {
+            Some(req) => req,
+            None => {
+                // No query with this ID. We should
+                // mark the connection as broken
+                return;
+            }
+        };
         let mut send_eof = false;
         let answer = if match &req.msg {
             ReqSingleMulti::Single(msg) => msg.is_answer(answer.for_slice()),
@@ -973,12 +961,11 @@ where
         };
         _ = req.sender.send(answer).await;
 
-        // TODO: Discard streaming requests once the stream is complete.
         if req.sender.is_stream() {
             if send_eof {
                 _ = req.sender.send_eof().await;
             } else {
-                query_vec.insert((req, opt_xfr_data)).unwrap();
+                query_vec.insert_at(id, (req, opt_xfr_data));
             }
         }
 
@@ -1173,7 +1160,6 @@ where
                 xfr_state = XFRState::Error;
                 // If we detect an error, then keep the stream open. We are
                 // likely out of sync with respect to the sender.
-                println!("check_stream: line {}", line!());
                 return (false, xfr_state, false);
             }
         }
@@ -1207,12 +1193,26 @@ where
         return (true, xfr_state, true);
     }
 
-    let ans_sec = answer.answer().unwrap();
+    let ans_sec = match answer.answer() {
+        Ok(ans) => ans,
+        Err(_) => {
+            // Bad message, switch to error state.
+            xfr_state = XFRState::Error;
+            // If we detect an error, then keep the stream open.
+            return (true, xfr_state, false);
+        }
+    };
     for rr in
         ans_sec.into_records::<AllRecordData<Bytes, ParsedName<Bytes>>>()
     {
-        println!("found rr {rr:?}");
-        let rr = rr.unwrap();
+        let rr = match rr {
+            Ok(rr) => rr,
+            Err(_) => {
+                // Bad message, switch to error state.
+                xfr_state = XFRState::Error;
+                return (true, xfr_state, false);
+            }
+        };
         match xfr_state {
             XFRState::AXFRInit => {
                 // The first record has to be a SOA record.
@@ -1422,6 +1422,18 @@ impl<T> Queries<T> {
         let req = self.vec[idx].as_mut().expect("no inserted item?");
         let idx = u16::try_from(idx).expect("query vec too large");
         Ok((idx, req))
+    }
+
+    /// Inserts the given query at a specified position. The slot has to be
+    /// empty.
+    fn insert_at(&mut self, id: u16, req: T) {
+        let id = id as usize;
+        self.vec[id] = Some(req);
+
+        self.count += 1;
+        if id == self.curr {
+            self.curr += 1;
+        }
     }
 
     /// Tries to remove and return the query at the given index.
