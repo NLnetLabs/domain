@@ -1,5 +1,6 @@
 //! Zone tree related types.
 
+use std::collections::HashMap;
 use std::ops;
 use std::sync::Arc;
 use std::vec::Vec;
@@ -7,9 +8,11 @@ use std::vec::Vec;
 use bytes::Bytes;
 use serde::{Deserialize, Serialize};
 
+use crate::base::name::Name;
 use crate::base::rdata::RecordData;
+use crate::base::record::Record;
+use crate::base::Serial;
 use crate::base::{iana::Rtype, Ttl};
-use crate::base::{Name, Record};
 use crate::rdata::ZoneRecordData;
 
 //------------ Type Aliases --------------------------------------------------
@@ -246,4 +249,33 @@ pub struct ZoneCut {
 
     /// Zero or more glue records at the zone cut.
     pub glue: Vec<StoredRecord>,
+}
+
+//------------ ZoneDiff ------------------------------------------------------
+
+/// The differences between one serial and another for a Zone.
+#[derive(Clone, Debug, Default)]
+pub struct ZoneDiff {
+    /// The serial number of the Zone which was modified.
+    ///
+    /// For a completed diff this must be Some.
+    pub start_serial: Option<Serial>,
+
+    /// The serial number of the Zone that resulted from the modifications.
+    ///
+    /// For a completed diff this must be Some.
+    pub end_serial: Option<Serial>,
+
+    /// The records added to the Zone.
+    pub added: HashMap<(StoredName, Rtype), SharedRrset>,
+
+    /// The records removed from the Zone.
+    pub removed: HashMap<(StoredName, Rtype), SharedRrset>,
+}
+
+impl ZoneDiff {
+    /// Creates a new empty diff.
+    pub fn new() -> Self {
+        Self::default()
+    }
 }

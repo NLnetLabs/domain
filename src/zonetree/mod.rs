@@ -89,13 +89,16 @@ mod tree;
 pub mod types;
 mod walk;
 mod zone;
+pub mod xfr_event_handler;
 
 pub use self::answer::{Answer, AnswerAuthority, AnswerContent};
 pub use self::in_memory::ZoneBuilder;
 pub use self::traits::{
     ReadableZone, WritableZone, WritableZoneNode, ZoneStore,
 };
-pub use self::tree::ZoneTree;
-pub use self::types::{Rrset, SharedRr, SharedRrset};
+pub use self::tree::{ZoneSetIter, ZoneTree};
+pub use self::types::{
+    Rrset, SharedRr, SharedRrset, StoredName, StoredRecord, ZoneDiff,
+};
 pub use self::walk::WalkOp;
-pub use self::zone::Zone;
+pub use self::zone::{Zone, ZoneKey};

@@ -443,7 +443,14 @@ impl ReadState {
 
 //------------ RecordResult ---------------------------------------------------
 
-/// An event emitted by [`XfrResponseProcessor`] during transfer processing.`
+/// An event emitted by [`XfrResponseProcessor`] during transfer processing.
+///
+/// Notes:
+/// - `DeleteRecord` preceeds `AddRecord` for the same record.
+/// - `BeginBatchDelete` and `BeginBatchAdd` are optional. If used then
+///   `BeginBatchDelete` must be the first event emitted.
+/// - `BeginBatchDelete` preceeds `BeginBatchAdd` for the same serial.
+/// - `AddRecord` cannot occur following `BeginBatchDelete`
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum XfrEvent<R> {
     /// Delete record R in zone serial S.
@@ -515,11 +522,10 @@ pub trait XfrEventHandler {
     /// the case of [`XfrEvent::ProcessingFailed`] for which the return value of
     /// this handler will be ignored by [`XfrResponseProcessor`].
     fn handle_event(
-        &self,
+        &mut self,
         evt: XfrEvent<XfrRecord>,
     ) -> impl std::future::Future<Output = Result<(), Error>> + Send;
 }
-
 //------------ IxfrUpdateMode -------------------------------------------------
 
 #[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
@@ -554,6 +560,9 @@ pub enum Error {
 
     /// At least one record in the XFR response sequence is incorrect.
     Malformed,
+
+    /// The event handler failed to handle an emitted event.
+    EventHandlerError,
 
     /// Processing was already terminated for this XFR response sequence.
     Terminated,
@@ -998,7 +1007,7 @@ mod tests {
 
     impl XfrEventHandler for TestXfrEventHandler {
         async fn handle_event(
-            &self,
+            &mut self,
             evt: XfrEvent<XfrRecord>,
         ) -> Result<(), Error> {
             trace!("Received event: {evt}");

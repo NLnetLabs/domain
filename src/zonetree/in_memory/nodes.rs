@@ -1,5 +1,6 @@
 //! The nodes in a zone tree.
 
+use core::any::Any;
 use std::boxed::Box;
 use std::collections::{hash_map, HashMap};
 use std::future::Future;
@@ -103,9 +104,9 @@ impl ZoneApex {
         self.children.rollback(version);
     }
 
-    pub fn clean(&self, version: Version) {
-        self.rrsets.clean(version);
-        self.children.clean(version);
+    pub fn remove_all(&self, version: Version) {
+        self.rrsets.remove_all(version);
+        self.children.remove_all(version);
     }
 
     pub fn versions(&self) -> &RwLock<ZoneVersions> {
@@ -135,7 +136,8 @@ impl ZoneStore for ZoneApex {
 
     fn write(
         self: Arc<Self>,
-    ) -> Pin<Box<dyn Future<Output = Box<dyn WritableZone>>>> {
+    ) -> Pin<Box<(dyn Future<Output = Box<(dyn WritableZone + 'static)>> + Send + Sync + 'static)>>
+    {
         Box::pin(async move {
             let lock = self.update_lock.clone().lock_owned().await;
             let version = self.versions().read().current().0.next();
@@ -143,6 +145,10 @@ impl ZoneStore for ZoneApex {
             Box::new(WriteZone::new(self, lock, version, zone_versions))
                 as Box<dyn WritableZone>
         })
+    }
+
+    fn as_any(&self) -> &dyn Any {
+        self as &dyn Any
     }
 }
 
@@ -213,10 +219,10 @@ impl ZoneNode {
         self.children.rollback(version);
     }
 
-    pub fn clean(&self, version: Version) {
-        self.rrsets.clean(version);
-        self.special.write().clean(version);
-        self.children.clean(version);
+    pub fn remove_all(&self, version: Version) {
+        self.rrsets.remove_all(version);
+        self.special.write().remove(version);
+        self.children.remove_all(version);
     }
 }
 
@@ -276,11 +282,11 @@ impl NodeRrsets {
             .for_each(|rrset| rrset.rollback(version));
     }
 
-    pub fn clean(&self, version: Version) {
+    pub fn remove_all(&self, version: Version) {
         self.rrsets
             .write()
             .values_mut()
-            .for_each(|rrset| rrset.clean(version));
+            .for_each(|rrset| rrset.remove(version));
     }
 
     pub(super) fn iter(&self) -> NodeRrsetsIter {
@@ -322,7 +328,7 @@ impl NodeRrset {
     }
 
     fn remove(&mut self, version: Version) {
-        self.rrsets.clean(version)
+        self.rrsets.remove(version)
     }
 
     pub fn rollback(&mut self, version: Version) {
@@ -385,11 +391,11 @@ impl NodeChildren {
             .for_each(|item| item.rollback(version))
     }
 
-    fn clean(&self, version: Version) {
+    fn remove_all(&self, version: Version) {
         self.children
             .read()
             .values()
-            .for_each(|item| item.clean(version))
+            .for_each(|item| item.remove_all(version))
     }
 
     pub(super) fn walk(

@@ -13,12 +13,23 @@ use super::traits::WritableZone;
 use super::types::StoredName;
 use super::{parsed, ReadableZone, ZoneStore};
 
+//------------ ZoneKey -------------------------------------------------------
+
+/// TODO
+pub type ZoneKey = (StoredName, Class);
+
 //------------ Zone ----------------------------------------------------------
 
 /// A single DNS zone.
 #[derive(Clone, Debug)]
 pub struct Zone {
     store: Arc<dyn ZoneStore>,
+}
+
+impl AsRef<dyn ZoneStore> for Zone {
+    fn as_ref(&self) -> &dyn ZoneStore {
+        self.store.as_ref()
+    }
 }
 
 impl Zone {
@@ -29,6 +40,13 @@ impl Zone {
         }
     }
 
+    /// TODO
+    pub fn into_inner(self) -> Arc<dyn ZoneStore> {
+        self.store
+    }
+}
+
+impl Zone {
     /// Gets the CLASS of this zone.
     pub fn class(&self) -> Class {
         self.store.class()
@@ -47,8 +65,17 @@ impl Zone {
     /// Gets a write interface to this zone.
     pub fn write(
         &self,
-    ) -> Pin<Box<dyn Future<Output = Box<dyn WritableZone>>>> {
+    ) -> Pin<Box<dyn Future<Output = Box<dyn WritableZone>> + Send + Sync>>
+    {
         self.store.clone().write()
+    }
+
+    /// Gets a key that uniquely identifies this zone.
+    ///
+    /// Note: Assumes that there is only ever one instance of a zone with a
+    /// given apex name and class in a set of zones.
+    pub fn key(&self) -> ZoneKey {
+        (self.apex_name().clone(), self.class())
     }
 }
 
