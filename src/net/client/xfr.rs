@@ -500,7 +500,7 @@ impl ParsingState {
 
 //------------ RecordResult ---------------------------------------------------
 
-/// An event emitted by [`XfrResponseProcessor`] during transfer processing.`
+/// An event emitted by [`XfrResponseProcessor`] during transfer processing.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum XfrEvent<R> {
     /// Delete record R in zone serial S.
