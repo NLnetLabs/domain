@@ -29,10 +29,19 @@ pub type XfrRecord =
 /// [`XfrResponseProcessor`] can be invoked on one ore more sequentially
 /// AXFR/IXFR received response messages to verify them and during processing
 /// emit events which an implementor of [`XfrEventHandler`] can handle.
+///
+/// Each instance of [`XfrResponseProcessosr`] should process a single XFR
+/// response sequence. Once an instance of [`XfrResponseProcessosr`] has
+/// finished processing an XFR response sequence it must be discarded.
+/// Attempting to use it once processing has finished will result in an error.
+/// To process another XFR response sequence create another instance of
+/// [`XfrResponseProcessor`].
 pub struct XfrResponseProcessor<T: XfrEventHandler> {
+    /// The event handler that events will be sent to for handling.
     evt_handler: T,
 
-    mode: Mode,
+    /// The current processing state.
+    state: State,
 }
 
 impl<T: XfrEventHandler> XfrResponseProcessor<T> {
@@ -42,7 +51,7 @@ impl<T: XfrEventHandler> XfrResponseProcessor<T> {
     pub fn new(evt_handler: T) -> Self {
         Self {
             evt_handler,
-            mode: Mode::default(),
+            state: State::default(),
         }
     }
 
@@ -77,10 +86,10 @@ impl<T: XfrEventHandler> XfrResponseProcessor<T> {
         // file or not?
         let mut records = answer.limit_to::<ZoneRecordData<_, _>>();
 
-        match self.mode {
+        match self.state {
             // When given the first response in a sequence, do some initial
             // setup.
-            Mode::AwaitingFirstAnswer => {
+            State::AwaitingFirstAnswer => {
                 let Some(Ok(record)) = records.next() else {
                     return Err(Error::Malformed);
                 };
@@ -93,7 +102,7 @@ impl<T: XfrEventHandler> XfrResponseProcessor<T> {
             }
 
             // For subsequent messages make sure that the XFR
-            Mode::AwaitingNextAnswer {
+            State::AwaitingNextAnswer {
                 initial_xfr_type,
                 initial_query_id,
                 ..
@@ -109,13 +118,13 @@ impl<T: XfrEventHandler> XfrResponseProcessor<T> {
                 }
             }
 
-            Mode::TransferComplete => {
+            State::TransferComplete => {
                 // We already finished processing an XFR response sequence. We
                 // don't expect there to be any more messages to process!.
                 return Err(Error::Malformed);
             }
 
-            Mode::TransferFailed => {
+            State::TransferFailed => {
                 // We had ot terminate processing of the XFR response sequence
                 // due to a problem with the received data, so we don't expect
                 // to be invoked again with another response message!
@@ -123,7 +132,7 @@ impl<T: XfrEventHandler> XfrResponseProcessor<T> {
             }
         };
 
-        let Mode::AwaitingNextAnswer { read, .. } = &mut self.mode else {
+        let State::AwaitingNextAnswer { read, .. } = &mut self.state else {
             unreachable!();
         };
 
@@ -133,13 +142,13 @@ impl<T: XfrEventHandler> XfrResponseProcessor<T> {
             if let Some(event) = read.record(record).await? {
                 match event {
                     XfrEvent::EndOfTransfer => {
-                        self.mode = Mode::TransferComplete;
+                        self.state = State::TransferComplete;
                         self.evt_handler.handle_event(event).await?;
                         return Ok(true);
                     }
 
                     XfrEvent::ProcessingFailed => {
-                        self.mode = Mode::TransferFailed;
+                        self.state = State::TransferFailed;
                         let _ = self.evt_handler.handle_event(event).await;
                         return Err(Error::Malformed);
                     }
@@ -156,14 +165,22 @@ impl<T: XfrEventHandler> XfrResponseProcessor<T> {
         Ok(false)
     }
 
+    /// Check if an XFR response header is valid.
+    ///
+    /// Enforce the rules defined in 2. AXFR Messages of RFC 5936. See:
+    /// https://www.rfc-editor.org/rfc/rfc5936.html#section-2
+    ///
+    /// Takes a request as well as a response as the response is checked to
+    /// see if it is in reply to the given request.
+    ///
+    /// Returns Ok on success, Err otherwise. On success the type of XFR that
+    /// was determined is returned as well as the answer section from the XFR
+    /// response.
     async fn check_is_xfr_answer<'a>(
         &mut self,
         req: &Message<Bytes>,
         resp: &'a Message<Bytes>,
     ) -> Result<(XfrType, RecordSection<'a, Bytes>), CheckError> {
-        // Enforce the rules defined in 2. AXFR Messages of RFC 5936.
-        // See: https://www.rfc-editor.org/rfc/rfc5936.html#section-2
-
         // Check the request.
         let req_header = req.header();
         let req_counts = req.header_counts();
@@ -215,7 +232,7 @@ impl<T: XfrEventHandler> XfrResponseProcessor<T> {
         // 2.2.1. Header Values
         //   "QDCOUNT     MUST be 1 in the first message;
         //                MUST be 0 or 1 in all following messages;"
-        if matches!(self.mode, Mode::AwaitingFirstAnswer)
+        if matches!(self.state, State::AwaitingFirstAnswer)
             && (resp_counts.qdcount() != 1
                 || resp.sole_question() != req.sole_question())
         {
@@ -227,22 +244,26 @@ impl<T: XfrEventHandler> XfrResponseProcessor<T> {
         Ok((xfr_type, answer))
     }
 
+    /// Initialise the processosr.
+    /// 
+    /// Records the initial SOA record and other details will will be used 
+    /// while processing the rest of the response.
     async fn initialize(
         &mut self,
         initial_xfr_type: XfrType,
         initial_query_id: u16,
-        record: XfrRecord,
+        soa_record: XfrRecord,
     ) -> Result<(), CheckError> {
         // The initial record should be a SOA record.
-        let data = record.into_data();
+        let data = soa_record.into_data();
 
         let ZoneRecordData::Soa(soa) = data else {
             return Err(CheckError::NotValidXfrResponse);
         };
 
-        let read = ReadState::new(initial_xfr_type, soa);
+        let read = ParsingState::new(initial_xfr_type, soa);
 
-        self.mode = Mode::AwaitingNextAnswer {
+        self.state = State::AwaitingNextAnswer {
             initial_xfr_type,
             initial_query_id,
             read,
@@ -252,36 +273,68 @@ impl<T: XfrEventHandler> XfrResponseProcessor<T> {
     }
 }
 
-//------------ Mode -----------------------------------------------------------
+//------------ State ----------------------------------------------------------
 
+/// The current processing state.
 #[derive(Default)]
-enum Mode {
+enum State {
+    /// Waiting for the first XFR response message.
     #[default]
     AwaitingFirstAnswer,
 
+    /// Waiting for a subsequent XFR response message.
     AwaitingNextAnswer {
+        /// The type of XFR response sequence expected based on the initial
+        /// request and response.
         initial_xfr_type: XfrType,
+
+        /// The header ID of the original XFR request.
         initial_query_id: u16,
-        read: ReadState,
+
+        /// The current parsing state.
+        read: ParsingState,
     },
 
+    /// The end of the XFR response sequence was detected.
     TransferComplete,
 
+    /// An unrecoverable problem occurred while processing the XFR response
+    /// sequence.
     TransferFailed,
 }
 
-//------------ ReadState ------------------------------------------------------
+//------------ ParsingState ---------------------------------------------------
 
+/// State related to parsing the XFR response sequence.
 #[derive(Debug)]
-struct ReadState {
+struct ParsingState {
+    /// The type of XFR response sequence being parsed.
+    /// 
+    /// This can differ to the type of XFR response sequence that we expected
+    /// to parse because the server can fallback from IXFR to AXFR.
     actual_xfr_type: XfrType,
+
+    /// The initial SOA record that signals the start and end of both AXFR and
+    /// IXFR response sequences.
     initial_soa: Soa<ParsedName<Bytes>>,
+
+    /// The current SOA record.
+    /// 
+    /// For AXFR response sequences this will be the same as `initial_soa`.
+    /// For IXFR response sequences this will be the last SOA record parsed as
+    /// each diff sequence contains two SOA records: one at the start of the
+    /// delete sequence and one at the start of the add sequence.
     current_soa: Soa<ParsedName<Bytes>>,
+
+    /// The kind of records currently being processed, either adds or deletes.
     ixfr_update_mode: IxfrUpdateMode,
+
+    /// The number of resource records parsed so far.
     rr_count: usize,
 }
 
-impl ReadState {
+impl ParsingState {
+    /// Create a new parsing state.
     fn new(
         initial_xfr_type: XfrType,
         initial_soa: Soa<ParsedName<Bytes>>,
@@ -295,6 +348,10 @@ impl ReadState {
         }
     }
 
+    /// Parse a single resource record.
+    /// 
+    /// Returns an [`XfrEvent`] that should be emitted for the parsed record,
+    /// if any.
     async fn record(
         &mut self,
         rec: XfrRecord,
@@ -522,14 +579,22 @@ pub trait XfrEventHandler {
 
 //------------ IxfrUpdateMode -------------------------------------------------
 
+/// The kind of records currently being processed, either adds or deletes.
 #[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
 enum IxfrUpdateMode {
+    /// The records being parsed are deletions.
+    /// 
+    /// Deletions come before additions.
     #[default]
     Deleting,
 
+    /// The records being parsed are additions.
+
     Adding,
 }
+
 impl IxfrUpdateMode {
+    /// Toggle between the possible [`IxfrUpdateMode`] variants.
     fn toggle(&mut self) {
         match self {
             IxfrUpdateMode::Deleting => *self = IxfrUpdateMode::Adding,
@@ -574,12 +639,19 @@ impl Error {
 
 //------------ PrepareError ---------------------------------------------------
 
+/// Errors that can occur during intiial checking of an XFR response sequence.
 #[derive(Debug)]
 enum CheckError {
+    /// A parsing error occurred while checking the original request and
+    /// response messages.
     ParseError(ParseError),
 
+    /// The XFR request is not valid according to the rules defined by RFC
+    /// 5936 (AXFR) or RFC 1995 (IXFR).
     NotValidXfrQuery,
 
+    /// The XFR response is not valid according to the rules defined by RFC
+    /// 5936 (AXFR) or RFC 1995 (IXFR).
     NotValidXfrResponse,
 }
 
@@ -593,9 +665,18 @@ impl From<ParseError> for CheckError {
 
 //------------ XfrType --------------------------------------------------------
 
+/// The type of XFR response sequence.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 enum XfrType {
+    /// RFC 5936 AXFR.
+    /// 
+    /// A complete snapshot of a zone at a particular version.
     Axfr,
+
+    /// RFC 1995 IXFR.
+    /// 
+    /// An incremental diff of the version of the zone that the server has
+    /// compared to the version of the zone that the client has.
     Ixfr,
 }
 
