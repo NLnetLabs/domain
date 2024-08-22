@@ -39,7 +39,8 @@ pub type XfrRecord =
 /// If the `TransferComplete` event has not been seen it means that the
 /// sequence is incomplete and the next response message in the sequence
 /// should be passed to [`process_next_answer()`] along with the exhausted
-/// iterator. The result will be a new [`XfrEventIterator`] to consume.
+/// iterator. This will populate thr [`XfrEventIterator`] with more records
+/// to parse thereby causing iteration to resume.
 ///
 /// The process of producing and consuming iterators continues until the end
 /// of the transfer is detected or a parsing error occurs.
