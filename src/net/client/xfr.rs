@@ -14,13 +14,13 @@ use crate::base::wire::ParseError;
 use crate::base::{
     Message, ParsedName, Record, RecordSection, Rtype, Serial,
 };
-use crate::rdata::{Soa, ZoneRecordData};
+use crate::rdata::{AllRecordData, Soa};
 
 //------------ XfrRecord ------------------------------------------------------
 
 /// The type of record processed by [`XfrResponseProcessor`].
 pub type XfrRecord =
-    Record<ParsedName<Bytes>, ZoneRecordData<Bytes, ParsedName<Bytes>>>;
+    Record<ParsedName<Bytes>, AllRecordData<Bytes, ParsedName<Bytes>>>;
 
 //------------ XfrResponseProcessor -------------------------------------------
 
@@ -80,11 +80,21 @@ impl<T: XfrEventHandler> XfrResponseProcessor<T> {
             Err(err) => return Err(Error::from_check_error(resp, err)),
         };
 
-        // Walk over all records that are of the type that can exist in a zone
-        // file. TODO: Should this actually walk over all possible record
-        // types irrespective of whether they are intended to exist in a zone
-        // file or not?
-        let mut records = answer.limit_to::<ZoneRecordData<_, _>>();
+        // https://datatracker.ietf.org/doc/html/rfc5936#section-3
+        // 3. Zone Contents "The objective of the AXFR session is to request
+        //   and transfer the contents of a zone, in order to permit the AXFR
+        //    client to faithfully reconstruct the zone as it exists at the
+        //    primary server for the given zone serial number.  The word
+        //    "exists" here designates the externally visible behavior, i.e.,
+        //    the zone content that is being served (handed out to clients) --
+        //    not its persistent representation in a zone file or database
+        //    used by the server -- and that for consistency should be served
+        //    subsequently by the AXFR client in an identical manner."
+        //
+        // So, walk over all the records in the answer, not just those that
+        // might be expected to exist in a zone (i.e. not just ZoneRecordData
+        // record types).
+        let mut records = answer.into_records();
 
         match self.state {
             // When given the first response in a sequence, do some initial
@@ -257,7 +267,7 @@ impl<T: XfrEventHandler> XfrResponseProcessor<T> {
         // The initial record should be a SOA record.
         let data = soa_record.into_data();
 
-        let ZoneRecordData::Soa(soa) = data else {
+        let AllRecordData::Soa(soa) = data else {
             return Err(CheckError::NotValidXfrResponse);
         };
 
@@ -373,7 +383,7 @@ impl ParsingState {
         // having no effect as it is already present.
 
         let soa = match rec.data() {
-            ZoneRecordData::Soa(soa) => Some(soa),
+            AllRecordData::Soa(soa) => Some(soa),
             _ => None,
         };
 
