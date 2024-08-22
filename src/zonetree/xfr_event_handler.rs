@@ -1,16 +1,17 @@
 //! Support for applying XFR changes to a [`Zone`].
-use crate::net::client::xfr::{Error, XfrEvent, XfrEventHandler, XfrRecord};
+use std::borrow::ToOwned;
+use std::boxed::Box;
+
+use bytes::Bytes;
+use tracing::{error, trace};
 
 use super::error::OutOfZone;
 use super::{WritableZone, WritableZoneNode, Zone};
 use crate::base::name::{FlattenInto, Label, ToLabelIter};
-use crate::base::{Name, Record, Rtype, ToName};
+use crate::base::{Name, Rtype, ToName};
+use crate::net::client::xfr::{Error, XfrEvent, XfrEventHandler, XfrRecord};
 use crate::rdata::ZoneRecordData;
 use crate::zonetree::{Rrset, SharedRrset};
-use bytes::Bytes;
-use std::borrow::ToOwned;
-use std::boxed::Box;
-use tracing::{error, trace};
 
 struct ZoneUpdateEventHandler {
     zone: Zone,
@@ -118,48 +119,24 @@ impl XfrEventHandler for ZoneUpdateEventHandler {
 
                 trace!("Deleting RR for {rtype}");
 
-                match end_node {
-                    Some(n) => {
-                        trace!("Deleting RR at end_node");
+                let node = end_node.as_ref().unwrap_or(writable);
 
-                        if let Some(existing_rrset) = n
-                            .get_rrset(rtype)
-                            .await
-                            .map_err(|_| Error::EventHandlerError)?
-                        {
-                            for existing_data in existing_rrset.data() {
-                                if existing_data != &data {
-                                    rrset.push_data(existing_data.clone());
-                                }
-                            }
-
-                            trace!("Removing single RR of {rtype} so updating RRSET");
-                            n.update_rrset(SharedRrset::new(rrset))
-                                .await
-                                .map_err(|_| Error::EventHandlerError)?;
-                        }
-                    }
-                    None => {
-                        trace!("Deleting RR at root");
-                        if let Some(existing_rrset) = writable
-                            .get_rrset(rtype)
-                            .await
-                            .map_err(|_| Error::EventHandlerError)?
-                        {
-                            for existing_data in existing_rrset.data() {
-                                if existing_data != &data {
-                                    rrset.push_data(existing_data.clone());
-                                }
-                            }
-
-                            trace!("Removing single RR of {rtype} so updating RRSET");
-                            writable
-                                .update_rrset(SharedRrset::new(rrset))
-                                .await
-                                .map_err(|_| Error::EventHandlerError)?;
+                if let Some(existing_rrset) = node
+                    .get_rrset(rtype)
+                    .await
+                    .map_err(|_| Error::EventHandlerError)?
+                {
+                    for existing_data in existing_rrset.data() {
+                        if existing_data != &data {
+                            rrset.push_data(existing_data.clone());
                         }
                     }
                 }
+
+                trace!("Removing single RR of {rtype} so updating RRSET");
+                node.update_rrset(SharedRrset::new(rrset))
+                    .await
+                    .map_err(|_| Error::EventHandlerError)?;
             }
 
             XfrEvent::AddRecord(_serial, rec) => {
@@ -191,32 +168,21 @@ impl XfrEventHandler for ZoneUpdateEventHandler {
                 trace!("Adding RR: {:?}", rrset);
                 rrset.push_data(data);
 
-                match end_node {
-                    Some(n) => {
-                        trace!("Adding RR at end_node");
+                let node = end_node.as_ref().unwrap_or(writable);
 
-                        if let Some(existing_rrset) = n
-                            .get_rrset(rtype)
-                            .await
-                            .map_err(|_| Error::EventHandlerError)?
-                        {
-                            for existing_data in existing_rrset.data() {
-                                rrset.push_data(existing_data.clone());
-                            }
-                        }
-
-                        n.update_rrset(SharedRrset::new(rrset))
-                            .await
-                            .map_err(|_| Error::EventHandlerError)?;
-                    }
-                    None => {
-                        trace!("Adding RR at root");
-                        writable
-                            .update_rrset(SharedRrset::new(rrset))
-                            .await
-                            .map_err(|_| Error::EventHandlerError)?;
+                if let Some(existing_rrset) = node
+                    .get_rrset(rtype)
+                    .await
+                    .map_err(|_| Error::EventHandlerError)?
+                {
+                    for existing_data in existing_rrset.data() {
+                        rrset.push_data(existing_data.clone());
                     }
                 }
+
+                node.update_rrset(SharedRrset::new(rrset))
+                    .await
+                    .map_err(|_| Error::EventHandlerError)?;
             }
 
             XfrEvent::BeginBatchDelete(_) => {
@@ -291,11 +257,11 @@ mod tests {
     use core::str::FromStr;
 
     use crate::base::iana::Class;
+    use crate::base::{ParsedName, Record, Serial, Ttl};
+    use crate::rdata::Soa;
     use crate::zonetree::ZoneBuilder;
 
     use super::*;
-    use crate::base::{ParsedName, Serial, Ttl};
-    use crate::rdata::Soa;
 
     #[tokio::test]
     async fn simple_test() {
