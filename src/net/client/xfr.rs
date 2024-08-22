@@ -245,8 +245,8 @@ impl<T: XfrEventHandler> XfrResponseProcessor<T> {
     }
 
     /// Initialise the processosr.
-    /// 
-    /// Records the initial SOA record and other details will will be used 
+    ///
+    /// Records the initial SOA record and other details will will be used
     /// while processing the rest of the response.
     async fn initialize(
         &mut self,
@@ -309,7 +309,7 @@ enum State {
 #[derive(Debug)]
 struct ParsingState {
     /// The type of XFR response sequence being parsed.
-    /// 
+    ///
     /// This can differ to the type of XFR response sequence that we expected
     /// to parse because the server can fallback from IXFR to AXFR.
     actual_xfr_type: XfrType,
@@ -319,7 +319,7 @@ struct ParsingState {
     initial_soa: Soa<ParsedName<Bytes>>,
 
     /// The current SOA record.
-    /// 
+    ///
     /// For AXFR response sequences this will be the same as `initial_soa`.
     /// For IXFR response sequences this will be the last SOA record parsed as
     /// each diff sequence contains two SOA records: one at the start of the
@@ -349,7 +349,7 @@ impl ParsingState {
     }
 
     /// Parse a single resource record.
-    /// 
+    ///
     /// Returns an [`XfrEvent`] that should be emitted for the parsed record,
     /// if any.
     async fn record(
@@ -583,13 +583,12 @@ pub trait XfrEventHandler {
 #[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
 enum IxfrUpdateMode {
     /// The records being parsed are deletions.
-    /// 
+    ///
     /// Deletions come before additions.
     #[default]
     Deleting,
 
     /// The records being parsed are additions.
-
     Adding,
 }
 
@@ -669,12 +668,12 @@ impl From<ParseError> for CheckError {
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 enum XfrType {
     /// RFC 5936 AXFR.
-    /// 
+    ///
     /// A complete snapshot of a zone at a particular version.
     Axfr,
 
     /// RFC 1995 IXFR.
-    /// 
+    ///
     /// An incremental diff of the version of the zone that the server has
     /// compared to the version of the zone that the client has.
     Ixfr,
