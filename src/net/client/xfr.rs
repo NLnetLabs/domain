@@ -63,7 +63,7 @@ impl<T: XfrEventHandler> XfrResponseProcessor<T> {
     /// Returns Ok(true) if the XFR response was the last in the seqence,
     /// Ok(false) if more XFR response messages are needed to complete the
     /// sequence, or Err on error.
-    pub async fn answer(
+    pub async fn process_answer(
         &mut self,
         req: &Message<Bytes>,
         resp: Message<Bytes>,
@@ -112,8 +112,8 @@ impl<T: XfrEventHandler> XfrResponseProcessor<T> {
                 {
                     // The XFR type is extracted from the request. If we were
                     // given a different request with a different question and
-                    // qtype on a subsequent invocation of answer() that would
-                    // be unexpected.
+                    // qtype on a subsequent invocation of process_answer()
+                    // that would be unexpected.
                     return Err(Error::NotValidXfrQuery);
                 }
             }
@@ -125,7 +125,7 @@ impl<T: XfrEventHandler> XfrResponseProcessor<T> {
             }
 
             State::TransferFailed => {
-                // We had ot terminate processing of the XFR response sequence
+                // We had to terminate processing of the XFR response sequence
                 // due to a problem with the received data, so we don't expect
                 // to be invoked again with another response message!
                 return Err(Error::Terminated);
