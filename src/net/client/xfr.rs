@@ -696,7 +696,6 @@ impl TryFrom<Rtype> for XfrType {
 
 #[cfg(test)]
 mod tests {
-    use core::net::Ipv4Addr;
     use core::str::FromStr;
 
     use std::string::String;
@@ -711,6 +710,7 @@ mod tests {
     use crate::base::message_builder::{
         AnswerBuilder, AuthorityBuilder, QuestionBuilder,
     };
+    use crate::base::net::Ipv4Addr;
     use crate::base::rdata::ComposeRecordData;
     use crate::base::{MessageBuilder, Ttl};
     use crate::base::{Name, ToName};
