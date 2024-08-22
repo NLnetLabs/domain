@@ -4,16 +4,17 @@
 //! one or more AXFR/IXFR response messages in terms of the high level
 //! [`XfrEvent`]s that they represent without having to deal with the
 //! AXFR/IXFR protocol details.
+use core::iter::Flatten;
+
 use std::fmt::Debug;
 
 use bytes::Bytes;
 use tracing::trace;
 
 use crate::base::iana::Opcode;
+use crate::base::message::AnyRecordIter;
 use crate::base::wire::ParseError;
-use crate::base::{
-    Message, ParsedName, Record, RecordSection, Rtype, Serial,
-};
+use crate::base::{Message, ParsedName, Record, Rtype, Serial};
 use crate::rdata::{AllRecordData, Soa};
 
 //------------ XfrRecord ------------------------------------------------------
@@ -26,59 +27,40 @@ pub type XfrRecord =
 
 /// An AXFR/IXFR response processor.
 ///
-/// [`XfrResponseProcessor`] can be invoked on one ore more sequentially
+/// [`XfrResponseProcessor`] can be invoked on one or more sequentially
 /// AXFR/IXFR received response messages to verify them and during processing
-/// emit events which an implementor of [`XfrEventHandler`] can handle.
+/// emit events which can be consumed via the iterator returned by
+/// [`process_answer()`].
 ///
-/// Each instance of [`XfrResponseProcessosr`] should process a single XFR
-/// response sequence. Once an instance of [`XfrResponseProcessosr`] has
-/// finished processing an XFR response sequence it must be discarded.
-/// Attempting to use it once processing has finished will result in an error.
-/// To process another XFR response sequence create another instance of
-/// [`XfrResponseProcessor`].
-pub struct XfrResponseProcessor<T: XfrEventHandler> {
-    /// The event handler that events will be sent to for handling.
-    evt_handler: T,
+/// Each [`XfrEventIterator`] produces events for a single response message.
+/// If the end of the XFR response sequence has been reached the iterator will
+/// emit an [`XfrEvent::TransferComplete`] event.
+///
+/// If the `TransferComplete` event has not been seen it means that the
+/// sequence is incomplete and the next response message in the sequence
+/// should be passed to [`process_next_answer()`] along with the exhausted
+/// iterator. The result will be a new [`XfrEventIterator`] to consume.
+///
+/// The process of producing and consuming iterators continues until the end
+/// of the transfer is detected or a parsing error occurs.
+pub struct XfrResponseProcessor;
 
-    /// The current processing state.
-    state: State,
-}
-
-impl<T: XfrEventHandler> XfrResponseProcessor<T> {
-    /// Create a new XFR response processor.
-    ///
-    /// Events will be emitted to the given [`XfrEventHandler`] implementation.
-    pub fn new(evt_handler: T) -> Self {
-        Self {
-            evt_handler,
-            state: State::default(),
-        }
-    }
-
+impl XfrResponseProcessor {
     /// Process a single AXFR/IXFR response message.
     ///
-    /// During processing events will be emitted to the registered
-    /// [`XfrEventHandler`] for handling.
+    /// Return an [`XfrEventIterator`] over [`XfrEvent`]s emitted during
+    /// processing.
     ///
-    /// Returns Ok(true) if the XFR response was the last in the seqence,
-    /// Ok(false) if more XFR response messages are needed to complete the
-    /// sequence, or Err on error.
-    pub async fn process_answer(
-        &mut self,
-        req: &Message<Bytes>,
-        resp: Message<Bytes>,
-    ) -> Result<bool, Error> {
+    /// If the returned iterator does not emit an
+    /// [`XfrEvent::TransferComplete`] event, call [`process_next_answer()`]
+    /// with the next response message to continue iterating over the transfer
+    /// responses.
+    pub async fn process_answer<'a>(
+        req: &'a Message<Bytes>,
+        resp: &'a Message<Bytes>,
+    ) -> Result<XfrEventIterator<'a>, Error> {
         // Check that the given message is a DNS XFR response.
-        let res = self.check_is_xfr_answer(req, &resp).await;
-
-        // Unpack the XFR type and answer object. We cannot do this in the
-        // line above using `map_err()` and `?` as the Rust compiler complains
-        // about attempting to return `resp` while a reference to it still
-        // exists.
-        let (xfr_type, answer) = match res {
-            Ok(values) => values,
-            Err(err) => return Err(Error::from_check_error(resp, err)),
-        };
+        let xfr_type = Self::check_is_xfr_answer(req, resp).await?;
 
         // https://datatracker.ietf.org/doc/html/rfc5936#section-3
         // 3. Zone Contents "The objective of the AXFR session is to request
@@ -94,85 +76,61 @@ impl<T: XfrEventHandler> XfrResponseProcessor<T> {
         // So, walk over all the records in the answer, not just those that
         // might be expected to exist in a zone (i.e. not just ZoneRecordData
         // record types).
+        let answer = resp.answer().map_err(Error::ParseError)?;
         let mut records = answer.into_records();
 
-        match self.state {
-            // When given the first response in a sequence, do some initial
-            // setup.
-            State::AwaitingFirstAnswer => {
-                let Some(Ok(record)) = records.next() else {
-                    return Err(Error::Malformed);
-                };
+        let Some(Ok(record)) = records.next() else {
+            return Err(Error::Malformed);
+        };
 
-                if let Err(err) =
-                    self.initialize(xfr_type, req.header().id(), record).await
-                {
-                    return Err(Error::from_check_error(resp, err));
-                }
-            }
+        let state = Self::initialize(xfr_type, record).await?;
 
-            // For subsequent messages make sure that the XFR
-            State::AwaitingNextAnswer {
-                initial_xfr_type,
-                initial_query_id,
-                ..
-            } => {
-                if xfr_type != initial_xfr_type
-                    || req.header().id() != initial_query_id
-                {
-                    // The XFR type is extracted from the request. If we were
-                    // given a different request with a different question and
-                    // qtype on a subsequent invocation of process_answer()
-                    // that would be unexpected.
-                    return Err(Error::NotValidXfrQuery);
+        let records = records.flatten();
+
+        let iter = XfrEventIterator {
+            req,
+            state,
+            records,
+        };
+
+        Ok(iter)
+    }
+
+    /// Process a subsequent XFR response message.
+    ///
+    /// Revives the given iterator with new data based on the given response.
+    pub async fn process_next_answer<'a>(
+        it: &mut XfrEventIterator<'a>,
+        resp: &'a Message<Bytes>,
+    ) -> Result<(), Error> {
+        // Verify that the given iterator is in the expected state
+        match it.state {
+            State::AwaitingAnswer { .. } => {
+                // Verify that the given iterator is exhausted
+                if it.records.next().is_some() {
+                    return Err(Error::AnswerNotFullyProcessed);
                 }
+
+                let _ = Self::check_is_xfr_answer(it.req, resp).await?;
+                let answer = resp.answer().map_err(Error::ParseError)?;
+                it.records = answer.into_records().flatten();
+
+                Ok(())
             }
 
             State::TransferComplete => {
                 // We already finished processing an XFR response sequence. We
                 // don't expect there to be any more messages to process!.
-                return Err(Error::Malformed);
+                Err(Error::Malformed)
             }
 
             State::TransferFailed => {
                 // We had to terminate processing of the XFR response sequence
                 // due to a problem with the received data, so we don't expect
                 // to be invoked again with another response message!
-                return Err(Error::Terminated);
-            }
-        };
-
-        let State::AwaitingNextAnswer { read, .. } = &mut self.state else {
-            unreachable!();
-        };
-
-        for record in records.flatten() {
-            trace!("XFR record {}: {record:?}", read.rr_count);
-
-            if let Some(event) = read.record(record).await? {
-                match event {
-                    XfrEvent::EndOfTransfer => {
-                        self.state = State::TransferComplete;
-                        self.evt_handler.handle_event(event).await?;
-                        return Ok(true);
-                    }
-
-                    XfrEvent::ProcessingFailed => {
-                        self.state = State::TransferFailed;
-                        let _ = self.evt_handler.handle_event(event).await;
-                        return Err(Error::Malformed);
-                    }
-
-                    _ => {
-                        self.evt_handler.handle_event(event).await?;
-                    }
-                }
+                Err(Error::Terminated)
             }
         }
-
-        // Finished processing this message but did not yet reach the end of
-        // the transfer, more responses are expected.
-        Ok(false)
     }
 
     /// Check if an XFR response header is valid.
@@ -186,11 +144,10 @@ impl<T: XfrEventHandler> XfrResponseProcessor<T> {
     /// Returns Ok on success, Err otherwise. On success the type of XFR that
     /// was determined is returned as well as the answer section from the XFR
     /// response.
-    async fn check_is_xfr_answer<'a>(
-        &mut self,
+    async fn check_is_xfr_answer(
         req: &Message<Bytes>,
-        resp: &'a Message<Bytes>,
-    ) -> Result<(XfrType, RecordSection<'a, Bytes>), CheckError> {
+        resp: &Message<Bytes>,
+    ) -> Result<XfrType, CheckError> {
         // Check the request.
         let req_header = req.header();
         let req_counts = req.header_counts();
@@ -242,16 +199,13 @@ impl<T: XfrEventHandler> XfrResponseProcessor<T> {
         // 2.2.1. Header Values
         //   "QDCOUNT     MUST be 1 in the first message;
         //                MUST be 0 or 1 in all following messages;"
-        if matches!(self.state, State::AwaitingFirstAnswer)
-            && (resp_counts.qdcount() != 1
-                || resp.sole_question() != req.sole_question())
+        if resp_counts.qdcount() != 1
+            || resp.sole_question() != req.sole_question()
         {
             return Err(CheckError::NotValidXfrResponse);
         }
 
-        let answer = resp.answer().map_err(CheckError::ParseError)?;
-
-        Ok((xfr_type, answer))
+        Ok(xfr_type)
     }
 
     /// Initialise the processosr.
@@ -259,11 +213,9 @@ impl<T: XfrEventHandler> XfrResponseProcessor<T> {
     /// Records the initial SOA record and other details will will be used
     /// while processing the rest of the response.
     async fn initialize(
-        &mut self,
         initial_xfr_type: XfrType,
-        initial_query_id: u16,
         soa_record: XfrRecord,
-    ) -> Result<(), CheckError> {
+    ) -> Result<State, CheckError> {
         // The initial record should be a SOA record.
         let data = soa_record.into_data();
 
@@ -271,39 +223,20 @@ impl<T: XfrEventHandler> XfrResponseProcessor<T> {
             return Err(CheckError::NotValidXfrResponse);
         };
 
-        let read = ParsingState::new(initial_xfr_type, soa);
-
-        self.state = State::AwaitingNextAnswer {
+        Ok(State::AwaitingAnswer(ParsingState::new(
             initial_xfr_type,
-            initial_query_id,
-            read,
-        };
-
-        Ok(())
+            soa,
+        )))
     }
 }
 
 //------------ State ----------------------------------------------------------
 
 /// The current processing state.
-#[derive(Default)]
+#[derive(Debug)]
 enum State {
-    /// Waiting for the first XFR response message.
-    #[default]
-    AwaitingFirstAnswer,
-
-    /// Waiting for a subsequent XFR response message.
-    AwaitingNextAnswer {
-        /// The type of XFR response sequence expected based on the initial
-        /// request and response.
-        initial_xfr_type: XfrType,
-
-        /// The header ID of the original XFR request.
-        initial_query_id: u16,
-
-        /// The current parsing state.
-        read: ParsingState,
-    },
+    /// Waiting for an XFR response message.
+    AwaitingAnswer(ParsingState),
 
     /// The end of the XFR response sequence was detected.
     TransferComplete,
@@ -362,7 +295,7 @@ impl ParsingState {
     ///
     /// Returns an [`XfrEvent`] that should be emitted for the parsed record,
     /// if any.
-    async fn record(
+    fn parse_record(
         &mut self,
         rec: XfrRecord,
     ) -> Result<Option<XfrEvent<XfrRecord>>, Error> {
@@ -571,20 +504,96 @@ impl<R> std::fmt::Display for XfrEvent<R> {
     }
 }
 
-//------------ XfrEventHandler ---------------------------------------------------
+//------------ XfrEventIterator -----------------------------------------------
 
-/// A trait for implementing handlers of [`XfrEvent`]s.
-pub trait XfrEventHandler {
-    /// Handle the given [`XfrEvent`].
+/// An iterator over [`XfrResponseProcessor`] generated [`XfrEvent`]s.
+#[derive(Debug)]
+pub struct XfrEventIterator<'a> {
+    /// The original XFR request.
     ///
-    /// Returning an Err will cause transfer processsing to be aborted and the
-    /// error to be returned to the client of [`XfrResponseProcessor`], except in
-    /// the case of [`XfrEvent::ProcessingFailed`] for which the return value of
-    /// this handler will be ignored by [`XfrResponseProcessor`].
-    fn handle_event(
-        &self,
-        evt: XfrEvent<XfrRecord>,
-    ) -> impl std::future::Future<Output = Result<(), Error>> + Send;
+    /// Used to check if responses relate to the original request.
+    req: &'a Message<Bytes>,
+
+    /// The current parsing state.
+    state: State,
+
+    /// An iterator over the records in the current response.
+    records: Flatten<
+        AnyRecordIter<'a, Bytes, AllRecordData<Bytes, ParsedName<Bytes>>>,
+    >,
+}
+
+impl<'a> Iterator for XfrEventIterator<'a> {
+    type Item = Result<XfrEvent<XfrRecord>, XfrEventIteratorError>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        match &mut self.state {
+            State::AwaitingAnswer(parsing_state) => {
+                #[allow(clippy::blocks_in_conditions)]
+                let event = self.records.next().and_then(|record| {
+                    trace!(
+                        "XFR record {}: {record:?}",
+                        parsing_state.rr_count
+                    );
+                    parsing_state.parse_record(record).unwrap_or_default()
+                });
+
+                match event {
+                    Some(XfrEvent::EndOfTransfer) => {
+                        // Record that the transfer completed.
+                        self.state = State::TransferComplete;
+
+                        // Return the end of transfer event so that the client
+                        // can distinguish this condition from None (end of
+                        // iteration) which can happen when the message body
+                        // has been consumed but more records are needed from
+                        // subsequent responses to complete the transfer.
+                        Some(Ok(XfrEvent::EndOfTransfer))
+                    }
+
+                    Some(XfrEvent::ProcessingFailed) => {
+                        // Record that the transfer failed.
+                        self.state = State::TransferFailed;
+
+                        // Return an error.
+                        Some(Err(XfrEventIteratorError::ProcessingFailed))
+                    }
+
+                    Some(e) => {
+                        // Return the event.
+                        Some(Ok(e))
+                    }
+
+                    None => {
+                        // No more events available: end iteration for now.
+                        // The client can revive this iterator by passing it
+                        // to XfrResponseProcessor::process_next_answer().
+                        None
+                    }
+                }
+            }
+
+            State::TransferComplete => {
+                // The transfer was completed parsed. No more events available.
+                None
+            }
+
+            State::TransferFailed => {
+                // We had to terminate processing of the XFR response sequence
+                // due to a problem with the received data. No more events available.
+                None
+            }
+        }
+    }
+}
+
+//------------ XfrEventIteratorError ------------------------------------------
+
+/// Errors that can occur during XfrEventIterator iteration.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum XfrEventIteratorError {
+    /// Transfer processing failed.
+    ProcessingFailed,
 }
 
 //------------ IxfrUpdateMode -------------------------------------------------
@@ -618,31 +627,33 @@ impl IxfrUpdateMode {
 #[derive(Debug)]
 pub enum Error {
     /// The message could not be parsed.
-    ParseError(ParseError, Message<Bytes>),
+    ParseError(ParseError),
 
     /// The request message is not an XFR query/
     NotValidXfrQuery,
 
     /// The response message is not an XFR response.
-    NotValidXfrResponse(Message<Bytes>),
+    NotValidXfrResponse,
 
     /// At least one record in the XFR response sequence is incorrect.
     Malformed,
+
+    /// At least one record in the XFR response sequence was not consumed
+    /// by the caller.
+    AnswerNotFullyProcessed,
 
     /// Processing was already terminated for this XFR response sequence.
     Terminated,
 }
 
-impl Error {
-    /// Convert a [`CheckError`] to an [`Error`].
-    fn from_check_error(
-        msg: Message<Bytes>,
-        prepare_err: CheckError,
-    ) -> Self {
-        match prepare_err {
-            CheckError::ParseError(err) => Self::ParseError(err, msg),
+//--- From<CheckError>
+
+impl From<CheckError> for Error {
+    fn from(err: CheckError) -> Self {
+        match err {
+            CheckError::ParseError(err) => Self::ParseError(err),
             CheckError::NotValidXfrQuery => Self::NotValidXfrQuery,
-            CheckError::NotValidXfrResponse => Self::NotValidXfrResponse(msg),
+            CheckError::NotValidXfrResponse => Self::NotValidXfrResponse,
         }
     }
 }
@@ -708,13 +719,8 @@ impl TryFrom<Rtype> for XfrType {
 mod tests {
     use core::str::FromStr;
 
-    use std::string::String;
-    use std::sync::Arc;
-    use std::vec::Vec;
-
     use bytes::BytesMut;
     use octseq::Octets;
-    use tokio::sync::Mutex;
 
     use crate::base::iana::Rcode;
     use crate::base::message_builder::{
@@ -726,6 +732,7 @@ mod tests {
     use crate::base::{Name, ToName};
     use crate::rdata::A;
 
+    use super::XfrEvent as XE;
     use super::*;
 
     #[tokio::test]
@@ -737,13 +744,8 @@ mod tests {
 
         // Process the request and assert that it is rejected as not being
         // a valid XFR response and that no XFR processor events were emitted.
-        assert_xfr_response(
-            &req.clone(),
-            req,
-            |res| matches!(res, Err(Error::NotValidXfrResponse(_))),
-            &[],
-        )
-        .await;
+        let res = XfrResponseProcessor::process_answer(&req, &req).await;
+        assert!(matches!(res, Err(Error::NotValidXfrResponse)));
     }
 
     #[tokio::test]
@@ -759,13 +761,9 @@ mod tests {
 
         // Process the response and assert that it is rejected as not being
         // a valid XFR response and that no XFR processor events were emitted.
-        assert_xfr_response(
-            &req,
-            answer.into_message(),
-            |res| matches!(res, Err(Error::NotValidXfrResponse(_))),
-            &[],
-        )
-        .await;
+        let resp = answer.into_message();
+        let res = XfrResponseProcessor::process_answer(&req, &resp).await;
+        assert!(matches!(res, Err(Error::NotValidXfrResponse)));
     }
 
     #[tokio::test]
@@ -780,13 +778,9 @@ mod tests {
 
         // Process the response and assert that it is rejected as not being
         // a valid XFR response and that no XFR processor events were emitted.
-        assert_xfr_response(
-            &req,
-            answer.into_message(),
-            |res| matches!(res, Err(Error::NotValidXfrResponse(_))),
-            &[],
-        )
-        .await;
+        let resp = answer.into_message();
+        let res = XfrResponseProcessor::process_answer(&req, &resp).await;
+        assert!(matches!(res, Err(Error::NotValidXfrResponse)));
     }
 
     #[tokio::test]
@@ -804,13 +798,9 @@ mod tests {
 
         // Process the response and assert that it is rejected as not being
         // a valid XFR response and that no XFR processor events were emitted.
-        assert_xfr_response(
-            &req,
-            answer.into_message(),
-            |res| matches!(res, Err(Error::NotValidXfrResponse(_))),
-            &[],
-        )
-        .await;
+        let resp = answer.into_message();
+        let res = XfrResponseProcessor::process_answer(&req, &resp).await;
+        assert!(matches!(res, Err(Error::NotValidXfrResponse)));
     }
 
     #[tokio::test]
@@ -828,16 +818,14 @@ mod tests {
         let mut answer = mk_empty_answer(&req, Rcode::NOERROR);
         add_answer_record(&req, &mut answer, mk_soa(Serial::now()));
 
-        // Process the response and assert that Ok(false) is returned by the
-        // XFR processor indicating that the XFR response was incomplete. Also
-        // verify the events emitted by the XFR processor.
-        assert_xfr_response(
-            &req,
-            answer.into_message(),
-            |res| matches!(res, Ok(false)),
-            &[],
-        )
-        .await;
+        // Process the response.
+        let resp = answer.into_message();
+        let mut it = XfrResponseProcessor::process_answer(&req, &resp)
+            .await
+            .unwrap();
+
+        // Verify that no events are by the XFR processor.
+        assert!(it.next().is_none());
     }
 
     #[tokio::test]
@@ -857,16 +845,15 @@ mod tests {
         add_answer_record(&req, &mut answer, soa.clone());
         add_answer_record(&req, &mut answer, soa);
 
-        // Process the response and assert that Ok(true) is returned by the
-        // XFR processor indicating that the XFR response was complete. Also
-        // verify the events emitted by the XFR processor.
-        assert_xfr_response(
-            &req,
-            answer.into_message(),
-            |res| matches!(res, Ok(true)),
-            &["EndOfTransfer"],
-        )
-        .await;
+        // Process the response.
+        let resp = answer.into_message();
+        let mut it = XfrResponseProcessor::process_answer(&req, &resp)
+            .await
+            .unwrap();
+
+        // Verify the events emitted by the XFR processor.
+        assert!(matches!(it.next(), Some(Ok(XE::EndOfTransfer))));
+        assert!(it.next().is_none());
     }
 
     #[tokio::test]
@@ -885,33 +872,28 @@ mod tests {
         let soa = mk_soa(Serial::now());
         add_answer_record(&req, &mut answer, soa.clone());
 
-        // Process the response and assert that Ok(true) is returned by the
-        // XFR processor indicating that the XFR response was complete. Also
-        // verify the events emitted by the XFR processor.
-        let (evt_handler, mut processor) = assert_xfr_response(
-            &req,
-            answer.into_message(),
-            |res| matches!(res, Ok(false)),
-            &[],
-        )
-        .await;
+        // Process the response.
+        let resp = answer.into_message();
+        let mut it = XfrResponseProcessor::process_answer(&req, &resp)
+            .await
+            .unwrap();
+
+        // Verify the events emitted by the XFR processor.
+        assert!(it.next().is_none());
 
         // Create another AXFR response to complete the transfer.
         let mut answer = mk_empty_answer(&req, Rcode::NOERROR);
         add_answer_record(&req, &mut answer, soa);
 
-        // Process the response and assert that Ok(true) is returned by the
-        // XFR processor indicating that the XFR response was complete. Also
-        // verify the events emitted by the XFR processor.
-        assert_xfr_response_with_processor(
-            &req,
-            answer.into_message(),
-            |res| matches!(res, Ok(true)),
-            &["EndOfTransfer"],
-            evt_handler,
-            &mut processor,
-        )
-        .await;
+        // Process the response.
+        let resp = answer.into_message();
+        XfrResponseProcessor::process_next_answer(&mut it, &resp)
+            .await
+            .unwrap();
+
+        // Verify the events emitted by the XFR processor.
+        assert!(matches!(it.next(), Some(Ok(XE::EndOfTransfer))));
+        assert!(it.next().is_none());
     }
 
     #[tokio::test]
@@ -923,22 +905,25 @@ mod tests {
 
         // Create an AXFR response.
         let mut answer = mk_empty_answer(&req, Rcode::NOERROR);
-        let soa = mk_soa(Serial::now());
+        let serial = Serial::now();
+        let soa = mk_soa(serial);
         add_answer_record(&req, &mut answer, soa.clone());
         add_answer_record(&req, &mut answer, A::new(Ipv4Addr::LOCALHOST));
         add_answer_record(&req, &mut answer, A::new(Ipv4Addr::BROADCAST));
         add_answer_record(&req, &mut answer, soa);
 
-        // Process the response and assert that Ok(true) is returned by the
-        // XFR processor indicating that the XFR response was complete. Also
-        // verify the events emitted by the XFR processor.
-        assert_xfr_response(
-            &req,
-            answer.into_message(),
-            |res| matches!(res, Ok(true)),
-            &["AddRecord", "AddRecord", "EndOfTransfer"],
-        )
-        .await;
+        // Process the response.
+        let resp = answer.into_message();
+        let mut it = XfrResponseProcessor::process_answer(&req, &resp)
+            .await
+            .unwrap();
+
+        // Verify the events emitted by the XFR processor.
+        let s = serial;
+        assert!(matches!(it.next(), Some(Ok(XE::AddRecord(n, _))) if n == s));
+        assert!(matches!(it.next(), Some(Ok(XE::AddRecord(n, _))) if n == s));
+        assert!(matches!(it.next(), Some(Ok(XE::EndOfTransfer))));
+        assert!(it.next().is_none());
     }
 
     #[tokio::test]
@@ -979,24 +964,53 @@ mod tests {
         // Closing SOA with servers current SOA
         add_answer_record(&req, &mut answer, new_soa);
 
-        // Process the response and assert that Ok(true) is returned by the
-        // XFR processor indicating that the XFR response was complete. Also
-        // verify the events emitted by the XFR processor.
-        assert_xfr_response(
-            &req,
-            answer.into_message(),
-            |res| matches!(res, Ok(true)),
-            &[
-                "BeginBatchDelete",
-                "DeleteRecord",
-                "DeleteRecord",
-                "BeginBatchAdd",
-                "AddRecord",
-                "AddRecord",
-                "EndOfTransfer",
-            ],
-        )
-        .await;
+        // Process the response.
+        let resp = answer.into_message();
+        let it = XfrResponseProcessor::process_answer(&req, &resp)
+            .await
+            .unwrap();
+
+        // Verify the events emitted by the XFR processor.
+        let owner = ParsedName::from(Name::from_str("example.com").unwrap());
+        let expected_events = [
+            Ok(XfrEvent::BeginBatchDelete(old_serial)),
+            Ok(XfrEvent::DeleteRecord(
+                old_serial,
+                Record::from((
+                    owner.clone(),
+                    0,
+                    AllRecordData::A(A::new(Ipv4Addr::LOCALHOST)),
+                )),
+            )),
+            Ok(XfrEvent::DeleteRecord(
+                old_serial,
+                Record::from((
+                    owner.clone(),
+                    0,
+                    AllRecordData::A(A::new(Ipv4Addr::BROADCAST)),
+                )),
+            )),
+            Ok(XfrEvent::BeginBatchAdd(new_serial)),
+            Ok(XfrEvent::AddRecord(
+                new_serial,
+                Record::from((
+                    owner.clone(),
+                    0,
+                    AllRecordData::A(A::new(Ipv4Addr::BROADCAST)),
+                )),
+            )),
+            Ok(XfrEvent::AddRecord(
+                new_serial,
+                Record::from((
+                    owner,
+                    0,
+                    AllRecordData::A(A::new(Ipv4Addr::LOCALHOST)),
+                )),
+            )),
+            Ok(XfrEvent::EndOfTransfer),
+        ];
+
+        assert!(it.eq(expected_events));
     }
 
     #[tokio::test]
@@ -1028,16 +1042,15 @@ mod tests {
         add_answer_record(&req, &mut answer, old_soa);
         add_answer_record(&req, &mut answer, A::new(Ipv4Addr::LOCALHOST));
 
-        // Process the response and assert that Ok(true) is returned by the
-        // XFR processor indicating that the XFR response was complete. Also
-        // verify the events emitted by the XFR processor.
-        let (evt_handler, mut processor) = assert_xfr_response(
-            &req,
-            answer.into_message(),
-            |res| matches!(res, Ok(false)),
-            &["BeginBatchDelete", "DeleteRecord"],
-        )
-        .await;
+        // Process the response.
+        let resp = answer.into_message();
+        let mut it = XfrResponseProcessor::process_answer(&req, &resp)
+            .await
+            .unwrap();
+
+        // Verify the events emitted by the XFR processor.
+        assert!(matches!(it.next(), Some(Ok(XE::BeginBatchDelete(_)))));
+        assert!(matches!(it.next(), Some(Ok(XE::DeleteRecord(..)))));
 
         // Craete a second IXFR response that completes the transfer
         let mut answer = mk_empty_answer(&req, Rcode::NOERROR);
@@ -1051,51 +1064,19 @@ mod tests {
         // Closing SOA with servers current SOA
         add_answer_record(&req, &mut answer, new_soa);
 
-        assert_xfr_response_with_processor(
-            &req,
-            answer.into_message(),
-            |res| matches!(res, Ok(true)),
-            &[
-                "BeginBatchDelete", // Seen during processing of the 1st answer
-                "DeleteRecord", // Seen during processing of the 1st answer
-                "DeleteRecord", // Seen during processing of the 2nd answer
-                "BeginBatchAdd", // Seen during processing of the 2nd answer
-                "AddRecord",    // Seen during processing of the 2nd answer
-                "AddRecord",    // Seen during processing of the 2nd answer
-                "EndOfTransfer", // Seen during processing of the 2nd answer
-            ],
-            evt_handler,
-            &mut processor,
-        )
-        .await;
-    }
+        // Process the response.
+        let resp = answer.into_message();
+        XfrResponseProcessor::process_next_answer(&mut it, &resp)
+            .await
+            .unwrap();
 
-    //------------ TestXfrEventHandler ----------------------------------------
-
-    #[derive(Clone, Default)]
-    struct TestXfrEventHandler {
-        events: Arc<Mutex<Vec<String>>>,
-    }
-
-    impl TestXfrEventHandler {
-        pub fn new() -> Self {
-            Self::default()
-        }
-
-        pub async fn events(self) -> Vec<String> {
-            self.events.lock().await.clone()
-        }
-    }
-
-    impl XfrEventHandler for TestXfrEventHandler {
-        async fn handle_event(
-            &self,
-            evt: XfrEvent<XfrRecord>,
-        ) -> Result<(), Error> {
-            trace!("Received event: {evt}");
-            self.events.lock().await.push(format!("{evt}"));
-            Ok(())
-        }
+        // Verify the events emitted by the XFR processor.
+        assert!(matches!(it.next(), Some(Ok(XE::DeleteRecord(..)))));
+        assert!(matches!(it.next(), Some(Ok(XE::BeginBatchAdd(_)))));
+        assert!(matches!(it.next(), Some(Ok(XE::AddRecord(..)))));
+        assert!(matches!(it.next(), Some(Ok(XE::AddRecord(..)))));
+        assert!(matches!(it.next(), Some(Ok(XE::EndOfTransfer))));
+        assert!(it.next().is_none());
     }
 
     //------------ Helper functions -------------------------------------------
@@ -1110,55 +1091,6 @@ mod tests {
             .without_time()
             .try_init()
             .ok();
-    }
-
-    async fn assert_xfr_response(
-        req: &Message<Bytes>,
-        resp: Message<Bytes>,
-        res_check_cb: fn(&Result<bool, Error>) -> bool,
-        expected_events: &[&str],
-    ) -> (
-        TestXfrEventHandler,
-        XfrResponseProcessor<TestXfrEventHandler>,
-    ) {
-        let evt_handler = TestXfrEventHandler::new();
-        let mut processor = XfrResponseProcessor::new(evt_handler.clone());
-
-        assert_xfr_response_with_processor(
-            req,
-            resp,
-            res_check_cb,
-            expected_events,
-            evt_handler.clone(),
-            &mut processor,
-        )
-        .await;
-
-        (evt_handler, processor)
-    }
-
-    async fn assert_xfr_response_with_processor(
-        req: &Message<Bytes>,
-        resp: Message<Bytes>,
-        res_check_cb: fn(&Result<bool, Error>) -> bool,
-        expected_events: &[&str],
-        evt_handler: TestXfrEventHandler,
-        processor: &mut XfrResponseProcessor<TestXfrEventHandler>,
-    ) {
-        let res = processor.process_answer(req, resp).await;
-
-        // Verify that the XFR processor returns an error.
-        assert!(
-            res_check_cb(&res),
-            "Unexpected result {res:?} from the XFR processor",
-        );
-
-        // Verify that no XFR processing events were emitted.
-        assert_eq!(
-            &evt_handler.clone().events().await,
-            expected_events,
-            "Unexpected events were emitted by the XFR processor"
-        );
     }
 
     fn mk_request(qname: &str, qtype: Rtype) -> QuestionBuilder<BytesMut> {
