@@ -624,6 +624,7 @@ pub enum Error {
 }
 
 impl Error {
+    /// Convert a [`CheckError`] to an [`Error`].
     fn from_check_error(
         msg: Message<Bytes>,
         prepare_err: CheckError,
@@ -1134,7 +1135,7 @@ mod tests {
         evt_handler: TestXfrEventHandler,
         processor: &mut XfrResponseProcessor<TestXfrEventHandler>,
     ) {
-        let res = processor.answer(req, resp).await;
+        let res = processor.process_answer(req, resp).await;
 
         // Verify that the XFR processor returns an error.
         assert!(
