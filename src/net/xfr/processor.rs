@@ -124,7 +124,7 @@ impl<T: XfrEventHandler> XfrResponseProcessor<T> {
                     // given a different request with a different question and
                     // qtype on a subsequent invocation of process_answer()
                     // that would be unexpected.
-                    return Err(Error::NotValidXfrQuery);
+                    return Err(Error::NotValidXfrRequest);
                 }
             }
 
@@ -620,7 +620,7 @@ pub enum Error {
     ParseError(ParseError, Message<Bytes>),
 
     /// The request message is not an XFR query/
-    NotValidXfrQuery,
+    NotValidXfrRequest,
 
     /// The response message is not an XFR response.
     NotValidXfrResponse(Message<Bytes>),
@@ -640,7 +640,7 @@ impl Error {
     ) -> Self {
         match prepare_err {
             CheckError::ParseError(err) => Self::ParseError(err, msg),
-            CheckError::NotValidXfrRequest => Self::NotValidXfrQuery,
+            CheckError::NotValidXfrRequest => Self::NotValidXfrRequest,
             CheckError::NotValidXfrResponse => Self::NotValidXfrResponse(msg),
         }
     }
@@ -741,7 +741,7 @@ mod tests {
         assert_xfr_response(
             &req.clone(),
             req,
-            |res| matches!(res, Err(Error::NotValidXfrResponse(_))),
+            |res| matches!(res, Err(Error::NotValidXfrRequest)),
             &[],
         )
         .await;
@@ -752,7 +752,7 @@ mod tests {
         init_logging();
 
         // Create a non-XFR request to reply to.
-        let req = mk_request("example.com", Rtype::A).into_message();
+        let req = mk_request("example.com", Rtype::AXFR).into_message();
 
         // Create a non-XFR response.
         let mut answer = mk_empty_answer(&req, Rcode::NOERROR);
