@@ -201,17 +201,17 @@ impl<T: XfrEventHandler> XfrResponseProcessor<T> {
             || req_counts.ancount() != 0
             || req_header.opcode() != Opcode::QUERY
         {
-            return Err(CheckError::NotValidXfrQuery);
+            return Err(CheckError::NotValidXfrRequest);
         }
 
         let Some(qtype) = req.qtype() else {
-            return Err(CheckError::NotValidXfrResponse);
+            return Err(CheckError::NotValidXfrRequest);
         };
 
         let xfr_type = match qtype {
             Rtype::AXFR => XfrType::Axfr,
             Rtype::IXFR => XfrType::Ixfr,
-            _ => return Err(CheckError::NotValidXfrResponse),
+            _ => return Err(CheckError::NotValidXfrRequest),
         };
 
         // https://datatracker.ietf.org/doc/html/rfc1995#section-3
@@ -640,7 +640,7 @@ impl Error {
     ) -> Self {
         match prepare_err {
             CheckError::ParseError(err) => Self::ParseError(err, msg),
-            CheckError::NotValidXfrQuery => Self::NotValidXfrQuery,
+            CheckError::NotValidXfrRequest => Self::NotValidXfrQuery,
             CheckError::NotValidXfrResponse => Self::NotValidXfrResponse(msg),
         }
     }
@@ -657,7 +657,7 @@ enum CheckError {
 
     /// The XFR request is not valid according to the rules defined by RFC
     /// 5936 (AXFR) or RFC 1995 (IXFR).
-    NotValidXfrQuery,
+    NotValidXfrRequest,
 
     /// The XFR response is not valid according to the rules defined by RFC
     /// 5936 (AXFR) or RFC 1995 (IXFR).
