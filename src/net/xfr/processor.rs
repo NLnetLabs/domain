@@ -508,7 +508,7 @@ impl ParsingState {
     }
 }
 
-//------------ RecordResult ---------------------------------------------------
+//------------ XfrEvent -------------------------------------------------------
 
 /// An event emitted by [`XfrResponseProcessor`] during transfer processing.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
