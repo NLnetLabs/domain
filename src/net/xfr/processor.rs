@@ -575,16 +575,15 @@ impl<R> std::fmt::Display for XfrEvent<R> {
 
 /// A trait for implementing handlers of [`XfrEvent`]s.
 pub trait XfrEventHandler {
+    type Fut: std::future::Future<Output = Result<(), Error>>;
+
     /// Handle the given [`XfrEvent`].
     ///
     /// Returning an Err will cause transfer processsing to be aborted and the
     /// error to be returned to the client of [`XfrResponseProcessor`], except in
     /// the case of [`XfrEvent::ProcessingFailed`] for which the return value of
     /// this handler will be ignored by [`XfrResponseProcessor`].
-    fn handle_event(
-        &self,
-        evt: XfrEvent<XfrRecord>,
-    ) -> impl std::future::Future<Output = Result<(), Error>> + Send;
+    fn handle_event(&self, evt: XfrEvent<XfrRecord>) -> Self::Fut;
 }
 
 //------------ IxfrUpdateMode -------------------------------------------------
@@ -706,15 +705,17 @@ impl TryFrom<Rtype> for XfrType {
 
 #[cfg(test)]
 mod tests {
+    use core::future::ready;
+    use core::future::Ready;
     use core::str::FromStr;
 
     use std::string::String;
     use std::sync::Arc;
+    use std::sync::Mutex;
     use std::vec::Vec;
 
     use bytes::BytesMut;
     use octseq::Octets;
-    use tokio::sync::Mutex;
 
     use crate::base::iana::Rcode;
     use crate::base::message_builder::{
@@ -1083,18 +1084,17 @@ mod tests {
         }
 
         pub async fn events(self) -> Vec<String> {
-            self.events.lock().await.clone()
+            self.events.lock().unwrap().clone()
         }
     }
 
     impl XfrEventHandler for TestXfrEventHandler {
-        async fn handle_event(
-            &self,
-            evt: XfrEvent<XfrRecord>,
-        ) -> Result<(), Error> {
+        type Fut = Ready<Result<(), Error>>;
+
+        fn handle_event(&self, evt: XfrEvent<XfrRecord>) -> Self::Fut {
             trace!("Received event: {evt}");
-            self.events.lock().await.push(format!("{evt}"));
-            Ok(())
+            self.events.lock().unwrap().push(format!("{evt}"));
+            ready(Ok(()))
         }
     }
 
