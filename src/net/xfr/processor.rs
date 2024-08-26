@@ -238,7 +238,7 @@ impl<T: XfrEventHandler> XfrResponseProcessor<T> {
             return Err(CheckError::NotValidXfrResponse);
         }
 
-        //
+        // https://datatracker.ietf.org/doc/html/rfc1995#section-2.2.1
         // 2.2.1. Header Values
         //   "QDCOUNT     MUST be 1 in the first message;
         //                MUST be 0 or 1 in all following messages;"
