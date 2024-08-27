@@ -7,11 +7,13 @@ use crate::base::{message::AnyRecordIter, Message, ParsedName};
 use crate::rdata::AllRecordData;
 
 use super::processor::RecordProcessor;
-use super::types::{Error, XfrEvent, XfrEventIteratorError, XfrRecord};
+use super::types::{ProcessingError, XfrEvent, IterationError, XfrRecord};
 
-///------------ XfrEventIterator -----------------------------------------------
+//------------ XfrEventIterator -----------------------------------------------
 
 /// An iterator over [`XfrResponseProcessor`] generated [`XfrEvent`]s.
+/// 
+/// [`XfrResponseProcessor`]: super::processor::XfrResponseProcessor
 pub struct XfrEventIterator<'a, 'b> {
     /// The parent processor.
     state: &'a mut RecordProcessor,
@@ -24,8 +26,8 @@ impl<'a, 'b> XfrEventIterator<'a, 'b> {
     pub(super) fn new(
         state: &'a mut RecordProcessor,
         resp: &'b Message<Bytes>,
-    ) -> Result<Self, Error> {
-        let answer = resp.answer().map_err(Error::ParseError)?;
+    ) -> Result<Self, ProcessingError> {
+        let answer = resp.answer().map_err(ProcessingError::ParseError)?;
 
         // https://datatracker.ietf.org/doc/html/rfc5936#section-3
         // 3. Zone Contents
@@ -48,7 +50,7 @@ impl<'a, 'b> XfrEventIterator<'a, 'b> {
 
         if state.rr_count == 0 {
             let Some(Ok(_)) = iter.next() else {
-                return Err(Error::Malformed);
+                return Err(ProcessingError::Malformed);
             };
             state.rr_count += 1;
         }
@@ -58,7 +60,7 @@ impl<'a, 'b> XfrEventIterator<'a, 'b> {
 }
 
 impl<'a, 'b> Iterator for XfrEventIterator<'a, 'b> {
-    type Item = Result<XfrEvent<XfrRecord>, XfrEventIteratorError>;
+    type Item = Result<XfrEvent<XfrRecord>, IterationError>;
 
     fn next(&mut self) -> Option<Self::Item> {
         match self.iter.next() {
@@ -69,7 +71,7 @@ impl<'a, 'b> Iterator for XfrEventIterator<'a, 'b> {
             }
 
             Some(Err(err)) => {
-                Some(Err(XfrEventIteratorError::ParseError(err)))
+                Some(Err(IterationError::ParseError(err)))
             }
 
             None => {

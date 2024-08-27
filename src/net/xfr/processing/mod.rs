@@ -4,9 +4,13 @@
 //! one or more AXFR/IXFR response messages in terms of the high level
 //! [`XfrEvent`]s that they represent without having to deal with the
 //! AXFR/IXFR protocol details.
-pub mod iterator;
-pub mod processor;
-pub mod types;
+mod iterator;
+mod processor;
+mod types;
 
 #[cfg(test)]
 mod tests;
+
+pub use iterator::XfrEventIterator;
+pub use processor::XfrResponseProcessor;
+pub use types::{ProcessingError, XfrEvent, IterationError, XfrRecord};

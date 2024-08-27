@@ -17,7 +17,7 @@ use crate::rdata::{AllRecordData, Soa, A};
 
 use super::processor::XfrResponseProcessor;
 use super::types::{
-    Error, XfrEvent, XfrEvent as XE, XfrEventIteratorError, XfrRecord,
+    ProcessingError, XfrEvent, XfrEvent as XE, IterationError, XfrRecord,
 };
 
 #[test]
@@ -32,7 +32,7 @@ fn request_message_is_rejected() {
 
     // Process the request and assert that it is rejected as not being
     // a valid XFR response and that no XFR processor events were emitted.
-    assert!(matches!(res, Err(Error::NotValidXfrRequest)));
+    assert!(matches!(res, Err(ProcessingError::NotValidXfrRequest)));
 }
 
 #[test]
@@ -54,7 +54,7 @@ fn non_xfr_response_is_rejected() {
     // a valid XFR response and that no XFR processor events were emitted.
     assert!(matches!(
         processor.process_answer(resp),
-        Err(Error::NotValidXfrResponse)
+        Err(ProcessingError::NotValidXfrResponse)
     ));
 }
 
@@ -75,7 +75,7 @@ fn axfr_response_with_no_answers_is_rejected() {
     // a valid XFR response and that no XFR processor events were emitted.
     assert!(matches!(
         processor.process_answer(resp),
-        Err(Error::NotValidXfrResponse)
+        Err(ProcessingError::NotValidXfrResponse)
     ));
 }
 
@@ -100,7 +100,7 @@ fn error_axfr_response_is_rejected() {
     // a valid XFR response and that no XFR processor events were emitted.
     assert!(matches!(
         processor.process_answer(resp),
-        Err(Error::NotValidXfrResponse)
+        Err(ProcessingError::NotValidXfrResponse)
     ));
 }
 
@@ -277,7 +277,7 @@ fn ixfr_response_generates_expected_events() {
     // Verify the events emitted by the XFR processor.
     let owner =
         ParsedName::<Bytes>::from(Name::from_str("example.com").unwrap());
-    let expected_events: [Result<XfrEvent<XfrRecord>, XfrEventIteratorError>;
+    let expected_events: [Result<XfrEvent<XfrRecord>, IterationError>;
         7] = [
         Ok(XfrEvent::BeginBatchDelete(old_serial)),
         Ok(XfrEvent::DeleteRecord(

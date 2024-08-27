@@ -7,29 +7,32 @@ use crate::base::{Message, ParsedName, Rtype};
 use crate::rdata::{AllRecordData, Soa};
 
 use super::iterator::XfrEventIterator;
-use super::types::{Error, IxfrUpdateMode, XfrEvent, XfrRecord, XfrType};
+use super::types::{ProcessingError, IxfrUpdateMode, XfrEvent, XfrRecord, XfrType};
 
 //------------ XfrResponseProcessor -------------------------------------------
 
 /// An AXFR/IXFR response processor.
 ///
-/// [`XfrResponseProcessor`] can be invoked on one or more sequentially
-/// AXFR/IXFR received response messages to verify them and during processing
-/// emit events which can be consumed via the iterator returned by
-/// [`process_answer()`].
+/// Use [`XfrResponseProcessor`] to process a sequence of AXFR or IXFR
+/// response messages into a corresponding sequence of high level
+/// [`XfrEvent`]s.
 ///
-/// Each [`XfrEventIterator`] produces events for a single response message.
-/// If the end of the XFR response sequence has been reached the iterator will
-/// emit an [`XfrEvent::TransferComplete`] event.
+/// # Usage
+/// 
+/// For each response stream to be processed, construct an
+/// [`XfrResponseProcessor`] for the corresponding XFR request message, then
+/// pass each XFR response message to [`process_answer()`].
+/// 
+/// Each call to [`process_answer()`] will return an [`XfrEventIterator`]
+/// which when iterated over will produce a sequence of [`XfrEvent`]s for a
+/// single response message. The iterator emits an [`XfrEvent::EndOfTransfer`]
+/// event when the last record in the transfer is reached.
 ///
-/// If the `TransferComplete` event has not been seen it means that the
-/// sequence is incomplete and the next response message in the sequence
-/// should be passed to [`process_next_answer()`] along with the exhausted
-/// iterator. This will populate thr [`XfrEventIterator`] with more records
-/// to parse thereby causing iteration to resume.
-///
-/// The process of producing and consuming iterators continues until the end
-/// of the transfer is detected or a parsing error occurs.
+/// If [`XfrEvent::EndOfTransfer`] event has not yet been emitted it means
+/// that the sequence is incomplete and the next response message in the
+/// sequence should be passed to [`process_answer()`].
+/// 
+/// [`process_answer()`]: XfrResponseProcessor::process_answer()
 pub struct XfrResponseProcessor {
     /// The XFR request for which responses should be processed.
     req: Message<Bytes>,
@@ -41,10 +44,11 @@ pub struct XfrResponseProcessor {
 }
 
 impl XfrResponseProcessor {
-    /// Creates a new instance of [`XfrMessageProcessor`].
+    /// Creates a new XFR message processor.
     ///
-    /// Processes a single XFR response stream.
-    pub fn new(req: Message<Bytes>) -> Result<Self, Error> {
+    /// The processor can be used to process response messages that relate to
+    /// the given XFR request message.
+    pub fn new(req: Message<Bytes>) -> Result<Self, ProcessingError> {
         Self::check_request(&req)?;
         Ok(Self { req, inner: None })
     }
@@ -53,17 +57,16 @@ impl XfrResponseProcessor {
 impl XfrResponseProcessor {
     /// Process a single AXFR/IXFR response message.
     ///
-    /// Return an [`XfrEventIterator`] over [`XfrEvent`]s emitted during
+    /// Returns an [`XfrEventIterator`] over [`XfrEvent`]s emitted during
     /// processing.
     ///
-    /// If the returned iterator does not emit an
-    /// [`XfrEvent::TransferComplete`] event, call [`process_next_answer()`]
-    /// with the next response message to continue iterating over the transfer
-    /// responses.
+    /// If the returned iterator does not emit an [`XfrEvent::EndOfTransfer`]
+    /// event, call this function with the next outstanding response message
+    /// to continue iterating over the incomplete transfer.
     pub fn process_answer(
         &mut self,
         resp: Message<Bytes>,
-    ) -> Result<XfrEventIterator, Error> {
+    ) -> Result<XfrEventIterator, ProcessingError> {
         // Check that the given message is a DNS XFR response.
         self.check_response(&resp)?;
 
@@ -81,13 +84,13 @@ impl XfrResponseProcessor {
 
 impl XfrResponseProcessor {
     /// Initialize inner state.
-    fn initialize(&mut self, resp: Message<Bytes>) -> Result<(), Error> {
+    fn initialize(&mut self, resp: Message<Bytes>) -> Result<(), ProcessingError> {
         self.inner = Some(Inner::new(&self.req, resp)?);
         Ok(())
     }
 
     /// Check if an XFR request is valid.
-    fn check_request(req: &Message<Bytes>) -> Result<(), Error> {
+    fn check_request(req: &Message<Bytes>) -> Result<(), ProcessingError> {
         let req_header = req.header();
         let req_counts = req.header_counts();
 
@@ -97,15 +100,15 @@ impl XfrResponseProcessor {
             || req_counts.ancount() != 0
             || req_header.opcode() != Opcode::QUERY
         {
-            return Err(Error::NotValidXfrRequest);
+            return Err(ProcessingError::NotValidXfrRequest);
         }
 
         let Some(qtype) = req.qtype() else {
-            return Err(Error::NotValidXfrRequest);
+            return Err(ProcessingError::NotValidXfrRequest);
         };
 
         if !matches!(qtype, Rtype::AXFR | Rtype::IXFR) {
-            return Err(Error::NotValidXfrRequest);
+            return Err(ProcessingError::NotValidXfrRequest);
         }
 
         // https://datatracker.ietf.org/doc/html/rfc1995#section-3
@@ -115,7 +118,7 @@ impl XfrResponseProcessor {
         //    section containing the SOA record of client's version of the
         //    zone."
         if matches!(qtype, Rtype::IXFR) && req_counts.nscount() != 1 {
-            return Err(Error::NotValidXfrRequest);
+            return Err(ProcessingError::NotValidXfrRequest);
         }
 
         Ok(())
@@ -132,18 +135,22 @@ impl XfrResponseProcessor {
     /// Returns Ok on success, Err otherwise. On success the type of XFR that
     /// was determined is returned as well as the answer section from the XFR
     /// response.
-    fn check_response(&self, resp: &Message<Bytes>) -> Result<(), Error> {
+    fn check_response(&self, resp: &Message<Bytes>) -> Result<(), ProcessingError> {
         let resp_header = resp.header();
         let resp_counts = resp.header_counts();
 
+        // Note: We don't call Message::is_answer() here because that requires
+        // the message to have a question but subsequent AXFR responses are
+        // not required to have a question.
         if resp.is_error()
-            || !resp.is_answer_header(&self.req)
+            || !resp_header.qr()
+            || resp_header.id() != self.req.header().id()
             || resp_header.opcode() != Opcode::QUERY
             || resp_header.tc()
             || resp_counts.ancount() == 0
             || resp_counts.nscount() != 0
         {
-            return Err(Error::NotValidXfrResponse);
+            return Err(ProcessingError::NotValidXfrResponse);
         }
 
         //https://www.rfc-editor.org/rfc/rfc5936.html#section-2.2.1
@@ -154,7 +161,7 @@ impl XfrResponseProcessor {
         let first_message = self.inner.is_none();
         if (first_message && qdcount != 1) || (!first_message && qdcount > 1)
         {
-            return Err(Error::NotValidXfrResponse);
+            return Err(ProcessingError::NotValidXfrResponse);
         }
 
         Ok(())
@@ -183,8 +190,8 @@ impl Inner {
     fn new(
         req: &Message<Bytes>,
         resp: Message<Bytes>,
-    ) -> Result<Self, Error> {
-        let answer = resp.answer().map_err(Error::ParseError)?;
+    ) -> Result<Self, ProcessingError> {
+        let answer = resp.answer().map_err(ProcessingError::ParseError)?;
 
         // https://datatracker.ietf.org/doc/html/rfc5936#section-3
         // 3. Zone Contents
@@ -212,12 +219,12 @@ impl Inner {
         };
 
         let Some(Ok(record)) = records.next() else {
-            return Err(Error::Malformed);
+            return Err(ProcessingError::Malformed);
         };
 
         // The initial record should be a SOA record.
         let AllRecordData::Soa(soa) = record.into_data() else {
-            return Err(Error::NotValidXfrResponse);
+            return Err(ProcessingError::NotValidXfrResponse);
         };
 
         let state = RecordProcessor::new(xfr_type, soa);
@@ -275,7 +282,10 @@ impl RecordProcessor {
     ///
     /// Returns an [`XfrEvent`] that should be emitted for the processed
     /// record, if any.
-    pub(super) fn process_record(&mut self, rec: XfrRecord) -> XfrEvent<XfrRecord> {
+    pub(super) fn process_record(
+        &mut self,
+        rec: XfrRecord,
+    ) -> XfrEvent<XfrRecord> {
         self.rr_count += 1;
 
         // https://datatracker.ietf.org/doc/html/rfc5936#section-2.2

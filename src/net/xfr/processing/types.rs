@@ -10,6 +10,8 @@ use crate::{
 };
 
 /// The type of record processed by [`XfrResponseProcessor`].
+/// 
+/// [`XfrResponseProcessor`]: super::processor::XfrResponseProcessor
 pub type XfrRecord =
     Record<ParsedName<Bytes>, AllRecordData<Bytes, ParsedName<Bytes>>>;
 
@@ -47,6 +49,8 @@ impl TryFrom<Rtype> for XfrType {
 //------------ XfrEvent -------------------------------------------------------
 
 /// An event emitted by [`XfrResponseProcessor`] during transfer processing.
+/// 
+/// [`XfrResponseProcessor`]: super::processor::XfrResponseProcessor
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum XfrEvent<R> {
     /// Delete record R in zone serial S.
@@ -132,11 +136,13 @@ impl IxfrUpdateMode {
     }
 }
 
-//------------ Error ----------------------------------------------------------
+//------------ ProcessingError ------------------------------------------------
 
 /// An error reported by [`XfrResponseProcessor`].
+/// 
+/// [`XfrResponseProcessor`]: super::processor::XfrResponseProcessor
 #[derive(Debug)]
-pub enum Error {
+pub enum ProcessingError {
     /// The message could not be parsed.
     ParseError(ParseError),
 
@@ -148,20 +154,15 @@ pub enum Error {
 
     /// At least one record in the XFR response sequence is incorrect.
     Malformed,
-
-    /// At least one record in the XFR response sequence was not consumed
-    /// by the caller.
-    AnswerNotFullyProcessed,
-
-    /// Processing was already terminated for this XFR response sequence.
-    Terminated,
 }
 
-//------------ XfrEventIteratorError ------------------------------------------
+//------------ IterationError -------------------------------------------------
 
-/// Errors that can occur during XfrEventIterator iteration.
+/// Errors that can occur during [`XfrEventIterator`]` iteration.
+/// 
+/// [`XfrEventIterator`]: super::iterator::XfrEventIterator
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
-pub enum XfrEventIteratorError {
+pub enum IterationError {
     /// Transfer processing failed.
     ParseError(ParseError),
 }
