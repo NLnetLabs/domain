@@ -193,4 +193,3 @@ pub mod tsig;
 #[cfg(feature = "unstable-validator")]
 pub mod validator;
 pub mod validator_test;
-pub mod xfr;
