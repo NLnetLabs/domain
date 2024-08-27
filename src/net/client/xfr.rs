@@ -55,8 +55,8 @@ struct Inner {
     /// The response message currently being processed.
     resp: Option<Message<Bytes>>,
 
-    /// The processing state.
-    iteration_state: Option<State>,
+    /// The iteration state.
+    state: Option<State>,
 }
 
 impl XfrResponseProcessor {
@@ -93,7 +93,7 @@ impl XfrResponseProcessor {
 
         XfrEventIterator::new(
             is_first,
-            &mut self.inner.iteration_state,
+            self.inner.state.as_mut().unwrap(),
             self.inner.resp.as_ref().unwrap(),
         )
     }
@@ -163,8 +163,8 @@ impl XfrResponseProcessor {
         //   "QDCOUNT     MUST be 1 in the first message;
         //                MUST be 0 or 1 in all following messages;"
         let qdcount = resp_counts.qdcount();
-        if (self.inner.iteration_state.is_none() && qdcount != 1)
-            || (self.inner.iteration_state.is_some() && qdcount > 1)
+        if (self.inner.state.is_none() && qdcount != 1)
+            || (self.inner.state.is_some() && qdcount > 1)
         {
             return Err(Error::NotValidXfrResponse);
         }
@@ -185,7 +185,7 @@ impl Inner {
     ) -> Result<bool, Error> {
         self.resp = Some(resp);
 
-        if self.iteration_state.is_none() {
+        if self.state.is_none() {
             let Some(resp) = &self.resp else {
                 unreachable!();
             };
@@ -226,7 +226,7 @@ impl Inner {
                 return Err(Error::NotValidXfrResponse);
             };
 
-            self.iteration_state.replace(State::new(xfr_type, soa));
+            self.state.replace(State::new(xfr_type, soa));
 
             Ok(true)
         } else {
@@ -486,7 +486,7 @@ impl<R> std::fmt::Display for XfrEvent<R> {
 /// An iterator over [`XfrResponseProcessor`] generated [`XfrEvent`]s.
 pub struct XfrEventIterator<'a, 'b> {
     /// The parent processor.
-    iteration_state: &'a mut Option<State>,
+    state: &'a mut State,
 
     /// An iterator over the records in the current response.
     iter: AnyRecordIter<'b, Bytes, AllRecordData<Bytes, ParsedName<Bytes>>>,
@@ -495,7 +495,7 @@ pub struct XfrEventIterator<'a, 'b> {
 impl<'a, 'b> XfrEventIterator<'a, 'b> {
     fn new(
         is_first: bool,
-        iteration_state: &'a mut Option<State>,
+        state: &'a mut State,
         resp: &'b Message<Bytes>,
     ) -> Result<Self, Error> {
         let answer = resp.answer().map_err(Error::ParseError)?;
@@ -525,10 +525,7 @@ impl<'a, 'b> XfrEventIterator<'a, 'b> {
             };
         }
 
-        Ok(Self {
-            iteration_state,
-            iter,
-        })
+        Ok(Self { state, iter })
     }
 }
 
@@ -536,18 +533,10 @@ impl<'a, 'b> Iterator for XfrEventIterator<'a, 'b> {
     type Item = Result<XfrEvent<XfrRecord>, XfrEventIteratorError>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let Some(iteration_state) = self.iteration_state else {
-            unreachable!();
-        };
-
         match self.iter.next() {
             Some(Ok(record)) => {
-                trace!(
-                    "XFR record {}: {record:?}",
-                    iteration_state.rr_count
-                );
-                let event = iteration_state.parse_record(record);
-
+                trace!("XFR record {}: {record:?}", self.state.rr_count);
+                let event = self.state.parse_record(record);
                 Some(Ok(event))
             }
 
