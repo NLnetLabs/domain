@@ -13,4 +13,4 @@ mod tests;
 
 pub use iterator::XfrEventIterator;
 pub use processor::XfrResponseProcessor;
-pub use types::{ProcessingError, XfrEvent, IterationError, XfrRecord};
+pub use types::{IterationError, ProcessingError, XfrEvent, XfrRecord};

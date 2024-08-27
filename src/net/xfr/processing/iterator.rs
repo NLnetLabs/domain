@@ -7,12 +7,12 @@ use crate::base::{message::AnyRecordIter, Message, ParsedName};
 use crate::rdata::AllRecordData;
 
 use super::processor::RecordProcessor;
-use super::types::{ProcessingError, XfrEvent, IterationError, XfrRecord};
+use super::types::{IterationError, ProcessingError, XfrEvent, XfrRecord};
 
 //------------ XfrEventIterator -----------------------------------------------
 
 /// An iterator over [`XfrResponseProcessor`] generated [`XfrEvent`]s.
-/// 
+///
 /// [`XfrResponseProcessor`]: super::processor::XfrResponseProcessor
 pub struct XfrEventIterator<'a, 'b> {
     /// The parent processor.
@@ -70,9 +70,7 @@ impl<'a, 'b> Iterator for XfrEventIterator<'a, 'b> {
                 Some(Ok(event))
             }
 
-            Some(Err(err)) => {
-                Some(Err(IterationError::ParseError(err)))
-            }
+            Some(Err(err)) => Some(Err(IterationError::ParseError(err))),
 
             None => {
                 // No more events available: end iteration.

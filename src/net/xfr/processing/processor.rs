@@ -7,7 +7,9 @@ use crate::base::{Message, ParsedName, Rtype};
 use crate::rdata::{AllRecordData, Soa};
 
 use super::iterator::XfrEventIterator;
-use super::types::{ProcessingError, IxfrUpdateMode, XfrEvent, XfrRecord, XfrType};
+use super::types::{
+    IxfrUpdateMode, ProcessingError, XfrEvent, XfrRecord, XfrType,
+};
 
 //------------ XfrResponseProcessor -------------------------------------------
 
@@ -18,11 +20,11 @@ use super::types::{ProcessingError, IxfrUpdateMode, XfrEvent, XfrRecord, XfrType
 /// [`XfrEvent`]s.
 ///
 /// # Usage
-/// 
+///
 /// For each response stream to be processed, construct an
 /// [`XfrResponseProcessor`] for the corresponding XFR request message, then
 /// pass each XFR response message to [`process_answer()`].
-/// 
+///
 /// Each call to [`process_answer()`] will return an [`XfrEventIterator`]
 /// which when iterated over will produce a sequence of [`XfrEvent`]s for a
 /// single response message. The iterator emits an [`XfrEvent::EndOfTransfer`]
@@ -31,7 +33,7 @@ use super::types::{ProcessingError, IxfrUpdateMode, XfrEvent, XfrRecord, XfrType
 /// If [`XfrEvent::EndOfTransfer`] event has not yet been emitted it means
 /// that the sequence is incomplete and the next response message in the
 /// sequence should be passed to [`process_answer()`].
-/// 
+///
 /// [`process_answer()`]: XfrResponseProcessor::process_answer()
 pub struct XfrResponseProcessor {
     /// The XFR request for which responses should be processed.
@@ -84,7 +86,10 @@ impl XfrResponseProcessor {
 
 impl XfrResponseProcessor {
     /// Initialize inner state.
-    fn initialize(&mut self, resp: Message<Bytes>) -> Result<(), ProcessingError> {
+    fn initialize(
+        &mut self,
+        resp: Message<Bytes>,
+    ) -> Result<(), ProcessingError> {
         self.inner = Some(Inner::new(&self.req, resp)?);
         Ok(())
     }
@@ -135,7 +140,10 @@ impl XfrResponseProcessor {
     /// Returns Ok on success, Err otherwise. On success the type of XFR that
     /// was determined is returned as well as the answer section from the XFR
     /// response.
-    fn check_response(&self, resp: &Message<Bytes>) -> Result<(), ProcessingError> {
+    fn check_response(
+        &self,
+        resp: &Message<Bytes>,
+    ) -> Result<(), ProcessingError> {
         let resp_header = resp.header();
         let resp_counts = resp.header_counts();
 

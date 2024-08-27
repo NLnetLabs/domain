@@ -17,7 +17,7 @@ use crate::rdata::{AllRecordData, Soa, A};
 
 use super::processor::XfrResponseProcessor;
 use super::types::{
-    ProcessingError, XfrEvent, XfrEvent as XE, IterationError, XfrRecord,
+    IterationError, ProcessingError, XfrEvent, XfrEvent as XE, XfrRecord,
 };
 
 #[test]
@@ -277,8 +277,7 @@ fn ixfr_response_generates_expected_events() {
     // Verify the events emitted by the XFR processor.
     let owner =
         ParsedName::<Bytes>::from(Name::from_str("example.com").unwrap());
-    let expected_events: [Result<XfrEvent<XfrRecord>, IterationError>;
-        7] = [
+    let expected_events: [Result<XfrEvent<XfrRecord>, IterationError>; 7] = [
         Ok(XfrEvent::BeginBatchDelete(old_serial)),
         Ok(XfrEvent::DeleteRecord(
             old_serial,

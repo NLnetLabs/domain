@@ -10,7 +10,7 @@ use crate::{
 };
 
 /// The type of record processed by [`XfrResponseProcessor`].
-/// 
+///
 /// [`XfrResponseProcessor`]: super::processor::XfrResponseProcessor
 pub type XfrRecord =
     Record<ParsedName<Bytes>, AllRecordData<Bytes, ParsedName<Bytes>>>;
@@ -49,7 +49,7 @@ impl TryFrom<Rtype> for XfrType {
 //------------ XfrEvent -------------------------------------------------------
 
 /// An event emitted by [`XfrResponseProcessor`] during transfer processing.
-/// 
+///
 /// [`XfrResponseProcessor`]: super::processor::XfrResponseProcessor
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum XfrEvent<R> {
@@ -139,7 +139,7 @@ impl IxfrUpdateMode {
 //------------ ProcessingError ------------------------------------------------
 
 /// An error reported by [`XfrResponseProcessor`].
-/// 
+///
 /// [`XfrResponseProcessor`]: super::processor::XfrResponseProcessor
 #[derive(Debug)]
 pub enum ProcessingError {
@@ -159,7 +159,7 @@ pub enum ProcessingError {
 //------------ IterationError -------------------------------------------------
 
 /// Errors that can occur during [`XfrEventIterator`]` iteration.
-/// 
+///
 /// [`XfrEventIterator`]: super::iterator::XfrEventIterator
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum IterationError {
