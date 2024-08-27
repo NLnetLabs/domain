@@ -5,7 +5,6 @@
 //! [`XfrEvent`]s that they represent without having to deal with the
 //! AXFR/IXFR protocol details.
 use std::fmt::Debug;
-use std::sync::{Arc, Mutex};
 
 use bytes::Bytes;
 use tracing::trace;
@@ -44,12 +43,20 @@ pub type XfrRecord =
 /// The process of producing and consuming iterators continues until the end
 /// of the transfer is detected or a parsing error occurs.
 pub struct XfrResponseProcessor {
+    /// The XFR request for which responses should be processed.
     req: Message<Bytes>,
 
+    /// Internal state.
+    inner: Inner,
+}
+
+#[derive(Default)]
+struct Inner {
     /// The response message currently being processed.
     resp: Option<Message<Bytes>>,
 
-    state: Option<Arc<Mutex<State>>>,
+    /// The processing state.
+    iteration_state: Option<State>,
 }
 
 impl XfrResponseProcessor {
@@ -60,15 +67,39 @@ impl XfrResponseProcessor {
         Self::check_request(&req)?;
         Ok(Self {
             req,
-            resp: None,
-            state: None,
+            inner: Default::default(),
         })
     }
 }
 
 impl XfrResponseProcessor {
+    /// Process a single AXFR/IXFR response message.
+    ///
+    /// Return an [`XfrEventIterator`] over [`XfrEvent`]s emitted during
+    /// processing.
+    ///
+    /// If the returned iterator does not emit an
+    /// [`XfrEvent::TransferComplete`] event, call [`process_next_answer()`]
+    /// with the next response message to continue iterating over the transfer
+    /// responses.
+    pub fn process_answer(
+        &mut self,
+        resp: Message<Bytes>,
+    ) -> Result<XfrEventIterator, Error> {
+        // Check that the given message is a DNS XFR response.
+        self.check_response(&resp)?;
+
+        let is_first = self.inner.initialize(&self.req, resp)?;
+
+        XfrEventIterator::new(
+            is_first,
+            &mut self.inner.iteration_state,
+            self.inner.resp.as_ref().unwrap(),
+        )
+    }
+
     /// Check if an XFR request is valid.
-    pub fn check_request(req: &Message<Bytes>) -> Result<(), Error> {
+    fn check_request(req: &Message<Bytes>) -> Result<(), Error> {
         let req_header = req.header();
         let req_counts = req.header_counts();
 
@@ -102,87 +133,6 @@ impl XfrResponseProcessor {
         Ok(())
     }
 
-    /// Process a single AXFR/IXFR response message.
-    ///
-    /// Return an [`XfrEventIterator`] over [`XfrEvent`]s emitted during
-    /// processing.
-    ///
-    /// If the returned iterator does not emit an
-    /// [`XfrEvent::TransferComplete`] event, call [`process_next_answer()`]
-    /// with the next response message to continue iterating over the transfer
-    /// responses.
-    pub fn process_answer(
-        &mut self,
-        resp: Message<Bytes>,
-    ) -> Result<XfrEventIterator, Error> {
-        // Check that the given message is a DNS XFR response.
-        self.check_response(&resp)?;
-
-        // https://datatracker.ietf.org/doc/html/rfc5936#section-3
-        // 3. Zone Contents "The objective of the AXFR session is to request
-        //   and transfer the contents of a zone, in order to permit the AXFR
-        //    client to faithfully reconstruct the zone as it exists at the
-        //    primary server for the given zone serial number.  The word
-        //    "exists" here designates the externally visible behavior, i.e.,
-        //    the zone content that is being served (handed out to clients) --
-        //    not its persistent representation in a zone file or database
-        //    used by the server -- and that for consistency should be served
-        //    subsequently by the AXFR client in an identical manner."
-        //
-        // So, walk over all the records in the answer, not just those that
-        // might be expected to exist in a zone (i.e. not just ZoneRecordData
-        // record types).
-
-        let state;
-        let iter = if self.state.is_none() {
-            let (state_clone, iter) = self.initialize(resp)?;
-            state = state_clone;
-            iter
-        } else {
-            state = self.state.as_ref().unwrap().clone();
-            self.update(resp)?
-        };
-
-        Ok(XfrEventIterator::new(state, iter))
-    }
-
-    // /// Process a subsequent XFR response message.
-    // ///
-    // /// Revives the given iterator with new data based on the given response.
-    // pub async fn process_next_answer<'a>(
-    //     it: &mut XfrEventIterator<'a>,
-    //     resp: &'a Message<Bytes>,
-    // ) -> Result<(), Error> {
-    //     // Verify that the given iterator is in the expected state
-    //     match it.state {
-    //         State::AwaitingAnswer { .. } => {
-    //             // Verify that the given iterator is exhausted
-    //             if it.iter.next().is_some() {
-    //                 return Err(Error::AnswerNotFullyProcessed);
-    //             }
-
-    //             let _ = Self::check_respons(it.req, resp).await?;
-    //             let answer = resp.answer().map_err(Error::ParseError)?;
-    //             it.iter = answer.into_records().flatten();
-
-    //             Ok(())
-    //         }
-
-    //         State::TransferComplete => {
-    //             // We already finished processing an XFR response sequence. We
-    //             // don't expect there to be any more messages to process!.
-    //             Err(Error::Malformed)
-    //         }
-
-    //         State::TransferFailed => {
-    //             // We had to terminate processing of the XFR response sequence
-    //             // due to a problem with the received data, so we don't expect
-    //             // to be invoked again with another response message!
-    //             Err(Error::Terminated)
-    //         }
-    //     }
-    // }
-
     /// Check if an XFR response header is valid.
     ///
     /// Enforce the rules defined in 2. AXFR Messages of RFC 5936. See:
@@ -213,80 +163,75 @@ impl XfrResponseProcessor {
         //   "QDCOUNT     MUST be 1 in the first message;
         //                MUST be 0 or 1 in all following messages;"
         let qdcount = resp_counts.qdcount();
-        if (self.state.is_none() && qdcount != 1)
-            || (self.state.is_some() && qdcount > 1)
+        if (self.inner.iteration_state.is_none() && qdcount != 1)
+            || (self.inner.iteration_state.is_some() && qdcount > 1)
         {
             return Err(Error::NotValidXfrResponse);
         }
 
         Ok(())
     }
+}
 
+impl Inner {
     /// Initialise the processosr.
     ///
     /// Records the initial SOA record and other details will will be used
     /// while processing the rest of the response.
     fn initialize(
         &mut self,
+        req: &Message<Bytes>,
         resp: Message<Bytes>,
-    ) -> Result<
-        (
-            Arc<Mutex<State>>,
-            AnyRecordIter<'_, Bytes, AllRecordData<Bytes, ParsedName<Bytes>>>,
-        ),
-        Error,
-    > {
-        let xfr_type = match self.req.qtype() {
-            Some(Rtype::AXFR) => XfrType::Axfr,
-            Some(Rtype::IXFR) => XfrType::Ixfr,
-            _ => unreachable!(), // Checked already in check_request().
-        };
-
+    ) -> Result<bool, Error> {
         self.resp = Some(resp);
 
-        let Some(resp) = &self.resp else {
-            unreachable!();
-        };
+        if self.iteration_state.is_none() {
+            let Some(resp) = &self.resp else {
+                unreachable!();
+            };
 
-        let answer = resp.answer().map_err(Error::ParseError)?;
+            let answer = resp.answer().map_err(Error::ParseError)?;
 
-        let mut records = answer.into_records();
+            // https://datatracker.ietf.org/doc/html/rfc5936#section-3
+            // 3. Zone Contents
+            //   "The objective of the AXFR session is to request and transfer
+            //    the contents of a zone, in order to permit the AXFR client
+            //    to faithfully reconstruct the zone as it exists at the
+            //    primary server for the given zone serial number.  The word
+            //    "exists" here designates the externally visible behavior,
+            //    i.e., the zone content that is being served (handed out to
+            //    clients) -- not its persistent representation in a zone file
+            //    or database used by the server -- and that for consistency
+            //    should be served subsequently by the AXFR client in an
+            //    identical manner."
+            //
+            // So, walk over all the records in the answer, not just those
+            // that might be expected to exist in a zone (i.e. not just
+            // ZoneRecordData record types).
 
-        let Some(Ok(record)) = records.next() else {
-            return Err(Error::Malformed);
-        };
+            let mut records = answer.into_records();
 
-        // The initial record should be a SOA record.
-        let AllRecordData::Soa(soa) = record.into_data() else {
-            return Err(Error::NotValidXfrResponse);
-        };
+            let xfr_type = match req.qtype() {
+                Some(Rtype::AXFR) => XfrType::Axfr,
+                Some(Rtype::IXFR) => XfrType::Ixfr,
+                _ => unreachable!(), // Checked already in check_request().
+            };
 
-        let state = Arc::new(Mutex::new(State::new(xfr_type, soa)));
-        self.state.replace(state.clone());
+            let Some(Ok(record)) = records.next() else {
+                return Err(Error::Malformed);
+            };
 
-        Ok((state, records))
-    }
+            // The initial record should be a SOA record.
+            let AllRecordData::Soa(soa) = record.into_data() else {
+                return Err(Error::NotValidXfrResponse);
+            };
 
-    /// Initialise the processosr.
-    ///
-    /// Records the initial SOA record and other details will will be used
-    /// while processing the rest of the response.
-    fn update(
-        &mut self,
-        resp: Message<Bytes>,
-    ) -> Result<
-        AnyRecordIter<'_, Bytes, AllRecordData<Bytes, ParsedName<Bytes>>>,
-        Error,
-    > {
-        self.resp = Some(resp);
+            self.iteration_state.replace(State::new(xfr_type, soa));
 
-        let Some(resp) = &self.resp else {
-            unreachable!();
-        };
-
-        let answer = resp.answer().map_err(Error::ParseError)?;
-
-        Ok(answer.into_records())
+            Ok(true)
+        } else {
+            Ok(false)
+        }
     }
 }
 
@@ -539,40 +484,69 @@ impl<R> std::fmt::Display for XfrEvent<R> {
 //------------ XfrEventIterator -----------------------------------------------
 
 /// An iterator over [`XfrResponseProcessor`] generated [`XfrEvent`]s.
-pub struct XfrEventIterator<'a> {
+pub struct XfrEventIterator<'a, 'b> {
     /// The parent processor.
-    processor_state: Arc<Mutex<State>>,
+    iteration_state: &'a mut Option<State>,
 
     /// An iterator over the records in the current response.
-    iter: AnyRecordIter<'a, Bytes, AllRecordData<Bytes, ParsedName<Bytes>>>,
+    iter: AnyRecordIter<'b, Bytes, AllRecordData<Bytes, ParsedName<Bytes>>>,
 }
 
-impl<'a> XfrEventIterator<'a> {
+impl<'a, 'b> XfrEventIterator<'a, 'b> {
     fn new(
-        processor_state: Arc<Mutex<State>>,
-        iter: AnyRecordIter<
-            'a,
-            Bytes,
-            AllRecordData<Bytes, ParsedName<Bytes>>,
-        >,
-    ) -> Self {
-        Self {
-            processor_state,
-            iter,
+        is_first: bool,
+        iteration_state: &'a mut Option<State>,
+        resp: &'b Message<Bytes>,
+    ) -> Result<Self, Error> {
+        let answer = resp.answer().map_err(Error::ParseError)?;
+
+        // https://datatracker.ietf.org/doc/html/rfc5936#section-3
+        // 3. Zone Contents
+        //   "The objective of the AXFR session is to request and transfer
+        //    the contents of a zone, in order to permit the AXFR client
+        //    to faithfully reconstruct the zone as it exists at the
+        //    primary server for the given zone serial number.  The word
+        //    "exists" here designates the externally visible behavior,
+        //    i.e., the zone content that is being served (handed out to
+        //    clients) -- not its persistent representation in a zone file
+        //    or database used by the server -- and that for consistency
+        //    should be served subsequently by the AXFR client in an
+        //    identical manner."
+        //
+        // So, walk over all the records in the answer, not just those
+        // that might be expected to exist in a zone (i.e. not just
+        // ZoneRecordData record types).
+
+        let mut iter = answer.into_records();
+
+        if is_first {
+            let Some(Ok(_)) = iter.next() else {
+                return Err(Error::Malformed);
+            };
         }
+
+        Ok(Self {
+            iteration_state,
+            iter,
+        })
     }
 }
 
-impl<'a> Iterator for XfrEventIterator<'a> {
+impl<'a, 'b> Iterator for XfrEventIterator<'a, 'b> {
     type Item = Result<XfrEvent<XfrRecord>, XfrEventIteratorError>;
 
     fn next(&mut self) -> Option<Self::Item> {
+        let Some(iteration_state) = self.iteration_state else {
+            unreachable!();
+        };
+
         match self.iter.next() {
             Some(Ok(record)) => {
-                let mut state = self.processor_state.lock().unwrap();
-
-                trace!("XFR record {}: {record:?}", state.rr_count);
-                let event = state.parse_record(record);
+                trace!(
+                    "XFR record {}: {record:?}",
+                    iteration_state.rr_count
+                );
+                let event = iteration_state.parse_record(record);
 
                 Some(Ok(event))
             }
@@ -647,44 +621,6 @@ pub enum Error {
     /// Processing was already terminated for this XFR response sequence.
     Terminated,
 }
-
-// //--- From<CheckError>
-
-// impl From<CheckError> for Error {
-//     fn from(err: CheckError) -> Self {
-//         match err {
-//             CheckError::ParseError(err) => Self::ParseError(err),
-//             CheckError::NotValidXfrQuery => Self::NotValidXfrQuery,
-//             CheckError::NotValidXfrResponse => Self::NotValidXfrResponse,
-//         }
-//     }
-// }
-
-// //------------ PrepareError ---------------------------------------------------
-
-// /// Errors that can occur during intiial checking of an XFR response sequence.
-// #[derive(Debug)]
-// enum CheckError {
-//     /// A parsing error occurred while checking the original request and
-//     /// response messages.
-//     ParseError(ParseError),
-
-//     /// The XFR request is not valid according to the rules defined by RFC
-//     /// 5936 (AXFR) or RFC 1995 (IXFR).
-//     NotValidXfrQuery,
-
-//     /// The XFR response is not valid according to the rules defined by RFC
-//     /// 5936 (AXFR) or RFC 1995 (IXFR).
-//     NotValidXfrResponse,
-// }
-
-// //--- From<ParseError>
-
-// impl From<ParseError> for CheckError {
-//     fn from(err: ParseError) -> Self {
-//         Self::ParseError(err)
-//     }
-// }
 
 //------------ XfrType --------------------------------------------------------
 
