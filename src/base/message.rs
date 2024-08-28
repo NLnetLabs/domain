@@ -428,7 +428,8 @@ impl<Octs: Octets + ?Sized> Message<Octs> {
         &self,
         query: &Message<Other>,
     ) -> bool {
-        if !self.is_answer_header(query)
+        if !self.header().qr()
+            || self.header().id() != query.header().id()
             || self.header_counts().qdcount()
                 != query.header_counts().qdcount()
         {
@@ -436,20 +437,6 @@ impl<Octs: Octets + ?Sized> Message<Octs> {
         } else {
             self.question() == query.question()
         }
-    }
-
-    /// Returns whether this is the answer to some other message.
-    ///
-    /// The method checks whether the ID fields of the headers are the same,
-    /// whether the QR flag is set in this message. It does NOT check whether
-    /// the questions are the same which is useful in case of responses such
-    /// as subsequent RFC 5936 AXFR responses which are not required to copy
-    /// the question from the request to the response.
-    pub fn is_answer_header<Other: Octets + ?Sized>(
-        &self,
-        query: &Message<Other>,
-    ) -> bool {
-        self.header().qr() && self.header().id() == query.header().id()
     }
 
     /// Could this message result in a stream of responses?

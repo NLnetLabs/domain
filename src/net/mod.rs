@@ -7,11 +7,14 @@
 #![cfg_attr(feature = "unstable-client-transport", doc = " [`client`]")]
 #![cfg_attr(not(feature = "unstable-client-transport"), doc = " `client`")]
 //! sub-module intended for sending requests and receiving responses to them,
-//! and the unstable
+//! the unstable
 #![cfg_attr(feature = "unstable-server-transport", doc = " [`server`]")]
 #![cfg_attr(not(feature = "unstable-server-transport"), doc = " `server`")]
 //! sub-module intended for receiving requests and sending responses to them.
-//! sub-module for sending requests and receiving responses to them.
+//! and the unstable
+#![cfg_attr(feature = "unstable-xfr", doc = " [`xfr`]")]
+#![cfg_attr(not(feature = "unstable-xfr"), doc = " `xfr`")]
+//! sub-module for zone transfer related functionality.
 //!
 #![cfg(feature = "net")]
 #![cfg_attr(docsrs, doc(cfg(feature = "net")))]
