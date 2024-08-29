@@ -8,7 +8,9 @@ use domain::net::client::dgram_stream;
 use domain::net::client::multi_stream;
 use domain::net::client::protocol::{TcpConnect, TlsConnect, UdpConnect};
 use domain::net::client::redundant;
-use domain::net::client::request::{RequestMessage, SendRequest};
+use domain::net::client::request::{
+    RequestMessage, RequestMessageMulti, SendRequest,
+};
 use domain::net::client::stream;
 use std::net::{IpAddr, SocketAddr};
 use std::str::FromStr;
@@ -33,7 +35,7 @@ async fn main() {
     let mut msg = msg.question();
     msg.push((Name::vec_from_str("example.com").unwrap(), Rtype::AAAA))
         .unwrap();
-    let req = RequestMessage::new(msg);
+    let req = RequestMessage::new(msg).unwrap();
 
     // Destination for UDP and TCP
     let server_addr = SocketAddr::new(IpAddr::from_str("::1").unwrap(), 53);
@@ -234,7 +236,8 @@ async fn main() {
         }
     };
 
-    let (tcp, transport) = stream::Connection::new(tcp_conn);
+    let (tcp, transport) =
+        stream::Connection::<_, RequestMessageMulti<Vec<u8>>>::new(tcp_conn);
     tokio::spawn(async move {
         transport.run().await;
         println!("single TCP run terminated");
