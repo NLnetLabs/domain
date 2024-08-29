@@ -1945,7 +1945,7 @@ impl<Octs: AsRef<[u8]>> fmt::Display for Ds<Octs> {
         write!(
             f,
             "{} {} {} ",
-            self.key_tag, self.algorithm, self.digest_type
+            self.key_tag, self.algorithm.to_int(), self.digest_type
         )?;
         for ch in self.digest.as_ref() {
             write!(f, "{:02x}", ch)?
