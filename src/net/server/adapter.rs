@@ -9,7 +9,7 @@ use std::future::Future;
 use std::marker::PhantomData;
 //use std::future::Ready;
 use crate::dep::octseq::Octets;
-use crate::net::client::request::RequestMessage;
+use crate::net::client::request::{Error, RequestMessage};
 use crate::net::client::request::SendRequest;
 //use futures::Stream;
 use futures::stream::Once;
@@ -88,18 +88,21 @@ impl<SR, RequestOcts, CR> SingleService<RequestOcts, CR>
 where
     RequestOcts: AsRef<[u8]> + Clone + Debug + Octets + Send + Sync,
     SR: SendRequest<RequestMessage<RequestOcts>> + Sync,
-    CR: ComposeReply,
+    CR: ComposeReply + Send + Sync + 'static,
 {
     type Target = Vec<u8>;
 
     fn call(
         &self,
         request: RequestNG<RequestOcts>,
-    ) -> Pin<Box<dyn Future<Output = Result<CR, ()>> + Send + Sync>>
+    ) -> Pin<Box<dyn Future<Output = Result<CR, Error>> + Send + Sync>>
     where
         RequestOcts: AsRef<[u8]>,
     {
-        let req = request.to_request_message();
+        let req = match request.to_request_message() {
+	    Ok(req) => req,
+	    Err(e) => return Box::pin(ready(Err(e))),
+	};
         let mut gr = self.conn.send_request(req);
         let fut = async move {
             let msg = gr.get_response().await.unwrap();

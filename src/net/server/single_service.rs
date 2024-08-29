@@ -11,6 +11,7 @@ use crate::base::MessageBuilder;
 use crate::base::ParsedName;
 use crate::base::Rtype;
 use crate::base::StreamTarget;
+use crate::net::client::request::Error;
 use crate::dep::octseq::Octets;
 use crate::rdata::AllRecordData;
 use std::boxed::Box;
@@ -24,7 +25,7 @@ pub trait SingleService<RequestOcts, CR> {
     fn call(
         &self,
         request: RequestNG<RequestOcts>,
-    ) -> Pin<Box<dyn Future<Output = Result<CR, ()>> + Send + Sync>>
+    ) -> Pin<Box<dyn Future<Output = Result<CR, Error>> + Send + Sync>>
     where
         RequestOcts: AsRef<[u8]> + Octets;
 }

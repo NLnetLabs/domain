@@ -18,7 +18,7 @@ use crate::dep::octseq::Octets;
 //use crate::base::opt::subnet::ClientSubnet;
 //use crate::dep::octseq::OctetsFrom;
 use crate::net::client::request::ComposeRequest;
-use crate::net::client::request::RequestMessage;
+use crate::net::client::request::{Error, RequestMessage};
 //use crate::net::server::buf::BufSource;
 //use crate::net::server::metrics::ServerMetrics;
 //use crate::net::server::middleware::chain::MiddlewareChain;
@@ -381,7 +381,7 @@ impl<Octs: AsRef<[u8]>> RequestNG<Octs> {
         req
     }
 
-    pub fn to_request_message(&self) -> RequestMessage<Octs>
+    pub fn to_request_message(&self) -> Result<RequestMessage<Octs>, Error>
     where
         Octs: Clone + Debug + Octets + Send + Sync,
     {
@@ -389,7 +389,7 @@ impl<Octs: AsRef<[u8]>> RequestNG<Octs> {
         // message in the Arc directly.
         let msg =
             Message::from_octets(self.message.as_octets().clone()).unwrap();
-        let mut reqmsg = RequestMessage::new(msg);
+        let mut reqmsg = RequestMessage::new(msg)?;
 
         // Copy DO bit
         if dnssec_ok(&self.message) {
@@ -400,7 +400,7 @@ impl<Octs: AsRef<[u8]>> RequestNG<Octs> {
         for opt in &self.opt {
             reqmsg.add_opt(opt).unwrap();
         }
-        reqmsg
+        Ok(reqmsg)
     }
 
     /// When was this message received?

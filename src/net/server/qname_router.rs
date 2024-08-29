@@ -2,6 +2,7 @@
 
 use super::message::RequestNG;
 use super::single_service::SingleService;
+use crate::net::client::request::Error;
 use crate::base::Name;
 use crate::base::ToName;
 use crate::dep::octseq::EmptyBuilder;
@@ -62,7 +63,7 @@ where
     fn call(
         &self,
         request: RequestNG<RequestOcts>,
-    ) -> Pin<Box<dyn Future<Output = Result<CR, ()>> + Send + Sync>>
+    ) -> Pin<Box<dyn Future<Output = Result<CR, Error>> + Send + Sync>>
     where
         RequestOcts: AsRef<[u8]> + Octets,
     {
