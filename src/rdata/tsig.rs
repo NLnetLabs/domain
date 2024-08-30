@@ -12,6 +12,7 @@ use crate::base::rdata::{
 };
 use crate::base::wire::{Compose, Composer, Parse, ParseError};
 use crate::utils::base64;
+use crate::zonefile::present::{Present, ZoneFileFormatter};
 use core::cmp::Ordering;
 use core::{fmt, hash};
 use octseq::builder::OctetsBuilder;
@@ -597,6 +598,23 @@ impl<O: AsRef<[u8]>, N: fmt::Debug> fmt::Debug for Tsig<O, N> {
             .field("error", &self.error)
             .field("other", &self.other.as_ref())
             .finish()
+    }
+}
+
+//--- Present
+
+impl<O: AsRef<[u8]>, N: fmt::Display> Present for Tsig<O, N> {
+    fn present(&self, f: &mut ZoneFileFormatter) -> fmt::Result {
+        use std::fmt::Write;
+        write!(
+            f,
+            "{}. {} {} ",
+            self.algorithm, self.time_signed, self.fudge
+        )?;
+        base64::display(&self.mac, f)?;
+        write!(f, " {} {} \"", self.original_id, self.error)?;
+        base64::display(&self.other, f)?;
+        write!(f, "\"")
     }
 }
 

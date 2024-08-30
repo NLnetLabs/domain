@@ -7,6 +7,7 @@ use crate::base::cmp::CanonicalOrd;
 use crate::base::iana::SvcParamKey;
 use crate::base::scan::Symbol;
 use crate::base::wire::{Compose, Parse, ParseError};
+use crate::zonefile::present::{Present, ZoneFileFormatter};
 use octseq::builder::{EmptyBuilder, FromBuilder, OctetsBuilder, ShortBuf};
 use octseq::octets::{Octets, OctetsFrom, OctetsInto};
 use octseq::parse::{Parser, ShortInput};
@@ -361,6 +362,36 @@ impl<Octs: Octets + ?Sized> fmt::Debug for SvcParams<Octs> {
     }
 }
 
+//-- Present
+
+impl<Octs: Octets + ?Sized> Present for SvcParams<Octs> {
+    fn present(&self, f: &mut ZoneFileFormatter) -> fmt::Result {
+        use std::fmt::Write;
+        let mut parser = Parser::from_ref(self.as_slice());
+        let mut first = true;
+        while parser.remaining() > 0 {
+            let key = SvcParamKey::parse(
+                &mut parser
+            ).expect("invalid SvcbParam");
+            let len = usize::from(
+                u16::parse(&mut parser).expect("invalid SvcParam")
+            );
+            let mut parser = parser.parse_parser(
+                len
+            ).expect("invalid SvcParam");
+            if first {
+                first = false;
+            }
+            else {
+                f.write_str(" ")?;
+            }
+            write!(
+                f, "{}", super::value::AllValues::parse_any(key, &mut parser)
+            )?;
+        };
+        Ok(())
+    }
+}
 
 //------------ ValueIter -----------------------------------------------------
 

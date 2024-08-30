@@ -12,6 +12,7 @@ use crate::base::record::Ttl;
 use crate::base::scan::{Scan, Scanner};
 use crate::base::serial::Serial;
 use crate::base::wire::{Compose, Composer, ParseError};
+use crate::zonefile::present::{Present, ZoneFileFormatter};
 use core::fmt;
 use core::cmp::Ordering;
 use octseq::octets::{Octets, OctetsFrom, OctetsInto};
@@ -387,6 +388,23 @@ impl<Name: ToName> Soa<Name> {
 
 impl<N: fmt::Display> fmt::Display for Soa<N> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "{}. {}. {} {} {} {} {}",
+            self.mname,
+            self.rname,
+            self.serial,
+            self.refresh.as_secs(),
+            self.retry.as_secs(),
+            self.expire.as_secs(),
+            self.minimum.as_secs()
+        )
+    }
+}
+
+impl<N: fmt::Display> Present for Soa<N> {
+    fn present(&self, f: &mut ZoneFileFormatter) -> fmt::Result {
+        use std::fmt::Write;
         write!(
             f,
             "{}. {}. {} {} {} {} {}",

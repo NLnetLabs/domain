@@ -15,6 +15,7 @@ use crate::base::serial::Serial;
 use crate::base::wire::{Compose, Composer, FormError, Parse, ParseError};
 use crate::base::Ttl;
 use crate::utils::{base16, base64};
+use crate::zonefile::present::{Present, ZoneFileFormatter};
 use core::cmp::Ordering;
 use core::convert::TryInto;
 use core::{cmp, fmt, hash, str};
@@ -431,6 +432,18 @@ impl<Octs: AsRef<[u8]>> fmt::Debug for Dnskey<Octs> {
     }
 }
 
+//--- Present
+
+impl<Octs: AsRef<[u8]>> Present for Dnskey<Octs> {
+    fn present(&self, f: &mut ZoneFileFormatter) -> fmt::Result {
+        use std::fmt::Write;
+        write!(f, "{} {} ", self.flags, self.protocol)?;
+        self.algorithm.present(f)?;
+        f.write_char(' ')?;
+        base64::display(&self.public_key, f)
+    }
+}
+
 //------------ ProtoRrsig ----------------------------------------------------
 
 /// The RRSIG RDATA to be included when creating the signature.
@@ -753,6 +766,15 @@ impl str::FromStr for Timestamp {
 
 impl fmt::Display for Timestamp {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+//--- Present
+
+impl Present for Timestamp {
+    fn present(&self, f: &mut ZoneFileFormatter) -> fmt::Result {
+        use std::fmt::Write;
         write!(f, "{}", self.0)
     }
 }
@@ -1354,6 +1376,30 @@ where
     }
 }
 
+//--- Present
+
+impl<Octs, Name> Present for Rrsig<Octs, Name>
+where
+    Octs: AsRef<[u8]>,
+    Name: fmt::Display,
+{
+    fn present(&self, f: &mut ZoneFileFormatter) -> fmt::Result {
+        use std::fmt::Write;
+        self.type_covered.present(f)?;
+        f.write_char(' ')?;
+        self.algorithm.present(f)?;
+        f.write_char(' ')?;
+        self.original_ttl.present(f)?;
+        f.write_char(' ')?;
+        self.expiration.present(f)?;
+        f.write_char(' ')?;
+        self.inception.present(f)?;
+        f.write_char(' ')?;
+        write!(f, " {} {}. ", self.key_tag, self.signer_name)?;
+        base64::display(&self.signature, f)
+    }
+}
+
 //------------ Nsec ----------------------------------------------------------
 
 #[derive(Clone)]
@@ -1631,6 +1677,19 @@ where
             .field("next_name", &self.next_name)
             .field("types", &self.types)
             .finish()
+    }
+}
+
+//--- Present
+
+impl<Octs, Name> Present for Nsec<Octs, Name>
+where
+    Octs: AsRef<[u8]>,
+    Name: fmt::Display,
+{
+    fn present(&self, f: &mut ZoneFileFormatter) -> fmt::Result {
+        use std::fmt::Write;
+        write!(f, "{}. {}", self.next_name, self.types)
     }
 }
 
@@ -1945,7 +2004,7 @@ impl<Octs: AsRef<[u8]>> fmt::Display for Ds<Octs> {
         write!(
             f,
             "{} {} {} ",
-            self.key_tag, self.algorithm.to_int(), self.digest_type
+            self.key_tag, self.algorithm, self.digest_type
         )?;
         for ch in self.digest.as_ref() {
             write!(f, "{:02x}", ch)?
@@ -1964,6 +2023,24 @@ impl<Octs: AsRef<[u8]>> fmt::Debug for Ds<Octs> {
             .field("digest_type", &self.digest_type)
             .field("digest", &self.digest.as_ref())
             .finish()
+    }
+}
+
+//--- Present
+
+impl<Octs: AsRef<[u8]>> Present for Ds<Octs> {
+    fn present(&self, f: &mut ZoneFileFormatter) -> fmt::Result {
+        use std::fmt::Write;
+
+        write!(f, "{} ", self.key_tag)?;
+        self.algorithm.present(f)?;
+        f.write_char(' ')?;
+        self.digest_type.present(f)?;
+        f.write_char(' ')?;
+        for ch in self.digest.as_ref() {
+            write!(f, "{:02x}", ch)?
+        }
+        Ok(())
     }
 }
 
@@ -2432,7 +2509,7 @@ where
         let buf_len = self.buf.as_ref().len();
         for src_pos in (0..buf_len).step_by(34) {
             let chunk_len = (self.buf.as_ref()[src_pos + 1] as usize) + 2;
-                let buf = self.buf.as_mut();
+            let buf = self.buf.as_mut();
             buf.copy_within(src_pos..src_pos+chunk_len, dst_pos);
             dst_pos += chunk_len;
         }

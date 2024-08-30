@@ -10,6 +10,7 @@ use crate::base::rdata::{
 };
 use crate::base::scan::{Scanner, ScannerError};
 use crate::base::wire::{Composer, Parse, ParseError};
+use crate::zonefile::present::{Present, ZoneFileFormatter};
 use core::{fmt, str};
 use core::cmp::Ordering;
 use core::convert::Infallible;
@@ -169,6 +170,15 @@ impl ComposeRecordData for A {
 impl fmt::Display for A {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         self.addr.fmt(f)
+    }
+}
+
+//--- Display
+
+impl Present for A {
+    fn present(&self, f: &mut ZoneFileFormatter) -> fmt::Result {
+        use std::fmt::Write;
+        write!(f, "{}", self.addr)
     }
 }
 

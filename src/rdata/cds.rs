@@ -9,6 +9,7 @@ use crate::base::rdata::{
 use crate::base::scan::{Scan, Scanner, ScannerError};
 use crate::base::wire::{Compose, Composer, Parse, ParseError};
 use crate::utils::{base16, base64};
+use crate::zonefile::present::{Present, ZoneFileFormatter};
 use core::cmp::Ordering;
 use core::{fmt, hash};
 use octseq::octets::{Octets, OctetsFrom, OctetsInto};
@@ -316,6 +317,18 @@ impl<Octs: AsRef<[u8]>> fmt::Debug for Cdnskey<Octs> {
             .field("algorithm", &self.algorithm)
             .field("public_key", &self.public_key.as_ref())
             .finish()
+    }
+}
+
+//--- Present
+
+impl<Octs: AsRef<[u8]>> Present for Cdnskey<Octs> {
+    fn present(&self, f: &mut ZoneFileFormatter) -> fmt::Result {
+        use std::fmt::Write;
+        write!(f, "{} {} ", self.flags, self.protocol)?;
+        self.algorithm.present(f)?;
+        f.write_char(' ')?;
+        base64::display(&self.public_key, f)
     }
 }
 
@@ -643,6 +656,23 @@ impl<Octs: AsRef<[u8]>> fmt::Debug for Cds<Octs> {
             .field("digest_type", &self.digest_type)
             .field("digest", &self.digest.as_ref())
             .finish()
+    }
+}
+
+//--- Present
+
+impl<Octs: AsRef<[u8]>> Present for Cds<Octs> {
+    fn present(&self, f: &mut ZoneFileFormatter) -> fmt::Result {
+        use std::fmt::Write;
+        write!(
+            f,
+            "{} {} {} ",
+            self.key_tag, self.algorithm, self.digest_type
+        )?;
+        for ch in self.digest.as_ref() {
+            write!(f, "{:02x}", ch)?
+        }
+        Ok(())
     }
 }
 

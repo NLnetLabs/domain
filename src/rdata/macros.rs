@@ -499,6 +499,25 @@ macro_rules! rdata_types {
             }
         }
 
+        ///--- Present
+
+        impl<O, N> $crate::zonefile::present::Present for ZoneRecordData<O, N>
+        where
+        O: AsRef<[u8]>,
+        N: fmt::Display
+        {
+            fn present(&self, f: &mut $crate::zonefile::present::ZoneFileFormatter) -> fmt::Result {
+                match *self {
+                    $( $( $(
+                        ZoneRecordData::$mtype(ref inner) => {
+                            inner.present(f)
+                        }
+                    )* )* )*
+                    ZoneRecordData::Unknown(ref inner) => inner.present(f),
+                }
+            }
+        }
+
         //------------- AllRecordData ----------------------------------------
 
         /// Record data for all record types.
@@ -1102,6 +1121,28 @@ macro_rules! rdata_types {
             }
         }
 
+        //--- Present
+        impl<O, N> $crate::zonefile::present::Present for AllRecordData<O, N>
+        where O: Octets, N: fmt::Display {
+            fn present(
+                &self, f: &mut $crate::zonefile::present::ZoneFileFormatter
+            ) -> fmt::Result {
+                match *self {
+                    $( $( $(
+                        AllRecordData::$mtype(ref inner) => {
+                            inner.present(f)
+                        }
+                    )* )* )*
+                    $( $( $(
+                        AllRecordData::$ptype(ref inner) => {
+                            inner.present(f)
+                        }
+                    )* )* )*
+                    AllRecordData::Opt(ref inner) => inner.present(f),
+                    AllRecordData::Unknown(ref inner) => inner.present(f),
+                }
+            }
+        }
     }
 }
 
@@ -1285,6 +1326,15 @@ macro_rules! name_type_base {
 
         impl<N: fmt::Display> fmt::Display for $target<N> {
             fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+                write!(f, "{}.", self.$field)
+            }
+        }
+
+        //--- Present
+
+        impl<N: fmt::Display> $crate::zonefile::present::Present for $target<N> {
+            fn present(&self, f: &mut $crate::zonefile::present::ZoneFileFormatter) -> fmt::Result {
+                use std::fmt::Write;
                 write!(f, "{}.", self.$field)
             }
         }

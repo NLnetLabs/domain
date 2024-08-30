@@ -15,6 +15,8 @@
 //! [`RecordHeader`]: struct.RecordHeader.html
 //! [`ParsedRecord`]: struct.ParsedRecord.html
 
+use crate::zonefile::present::{Present, ZoneFileFormatter};
+
 use super::cmp::CanonicalOrd;
 use super::iana::{Class, Rtype};
 use super::name::{FlattenInto, ParsedName, ToName};
@@ -428,6 +430,26 @@ where
             .field("ttl", &self.ttl)
             .field("data", &self.data)
             .finish()
+    }
+}
+
+//--- Present
+impl<Name, Data> Present for Record<Name, Data>
+where
+    Name: fmt::Display,
+    Data: RecordData + Present,
+{
+    fn present(&self, f: &mut ZoneFileFormatter) -> fmt::Result {
+        use std::fmt::Write;
+
+        write!(f, "{} ", self.owner)?;
+        self.ttl.present(f)?;
+        f.write_char(' ')?;
+        self.class.present(f)?;
+        f.write_char(' ')?;
+        self.data.rtype().present(f)?;
+        f.write_char(' ')?;
+        self.data.present(f)
     }
 }
 
@@ -1478,6 +1500,13 @@ impl Ttl {
             .parse_u32_be()
             .map(Ttl::from_secs)
             .map_err(Into::into)
+    }
+}
+
+impl Present for Ttl {
+    fn present(&self, f: &mut ZoneFileFormatter) -> fmt::Result {
+        use std::fmt::Write;
+        write!(f, "{}", self.as_secs())
     }
 }
 

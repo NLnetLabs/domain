@@ -201,6 +201,24 @@ macro_rules! int_enum_str_decimal {
 
         impl core::fmt::Display for $ianatype {
             fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+                use std::fmt::Write;
+
+                write!(f, "{}", self.to_int())?;
+
+                if let Some(m) = self.to_mnemonic() {
+                    write!(f, "(")?;
+                    for ch in m {
+                        f.write_char(*ch as char)?;
+                    }
+                    write!(f, ")")?;
+                }
+                Ok(())
+            }
+        }
+        
+        impl $crate::zonefile::present::Present for $ianatype {
+            fn present(&self, f: &mut $crate::zonefile::present::ZoneFileFormatter) -> core::fmt::Result {
+                use std::fmt::Write;
                 write!(f, "{}", self.to_int())
             }
         }
@@ -275,6 +293,26 @@ macro_rules! int_enum_str_with_decimal {
             fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
                 use core::fmt::Write;
 
+                match self.to_mnemonic() {
+                    Some(m) => {
+                        for ch in m {
+                            f.write_char(*ch as char)?
+                        }
+                        write!(f, "({})", self.to_int())
+                    }
+                    None => {
+                        write!(f, "{}", self.to_int())
+                    }
+                }
+            }
+        }
+
+        impl $crate::zonefile::present::Present for $ianatype {
+            fn present(
+                &self,
+                f: &mut $crate::zonefile::present::ZoneFileFormatter<'_>,
+            ) -> core::fmt::Result {
+                use std::fmt::Write;
                 match self.to_mnemonic() {
                     Some(m) => {
                         for ch in m {
@@ -389,7 +427,16 @@ macro_rules! int_enum_str_with_prefix {
 
         impl core::fmt::Display for $ianatype {
             fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
-                use core::fmt::Write;
+                $crate::zonefile::present::Present::write_presentation(self, f)
+            }
+        }
+
+        impl $crate::zonefile::present::Present for $ianatype {
+            fn present(
+                &self,
+                f: &mut $crate::zonefile::present::ZoneFileFormatter<'_>,
+            ) -> core::fmt::Result {
+                use std::fmt::Write;
 
                 match self.to_mnemonic() {
                     Some(m) => {

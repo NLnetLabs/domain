@@ -13,6 +13,7 @@ use crate::base::scan::{
 };
 use crate::base::wire::{Compose, Composer, Parse, ParseError};
 use crate::utils::{base16, base32};
+use crate::zonefile::present::{Present, ZoneFileFormatter};
 #[cfg(feature = "bytes")]
 use bytes::Bytes;
 use core::cmp::Ordering;
@@ -369,6 +370,27 @@ impl<Octs: AsRef<[u8]>> fmt::Debug for Nsec3<Octs> {
     }
 }
 
+
+//--- Present
+
+//--- Present
+
+impl<Octs: AsRef<[u8]>> Present for Nsec3<Octs>
+where
+    Octs: AsRef<[u8]>,
+{
+    fn present(&self, f: &mut ZoneFileFormatter) -> fmt::Result {
+        use std::fmt::Write;
+
+        self.hash_algorithm.present(f)?;
+        write!(f, " {} {} ", self.flags, self.iterations)?;
+        self.salt.present(f)?;
+        f.write_char(' ')?;
+        base32::display_hex(&self.next_owner, f)?;
+        write!(f, " {}", self.types)
+    }
+}
+
 //------------ Nsec3Param ----------------------------------------------------
 
 #[derive(Clone)]
@@ -658,6 +680,17 @@ impl<Octs: AsRef<[u8]>> fmt::Debug for Nsec3param<Octs> {
             .field("iterations", &self.iterations)
             .field("salt", &self.salt)
             .finish()
+    }
+}
+
+//--- Present
+
+impl<Octs: AsRef<[u8]>> Present for Nsec3param<Octs> {
+    fn present(&self, f: &mut ZoneFileFormatter) -> fmt::Result {
+        use std::fmt::Write;
+        self.hash_algorithm.present(f)?;
+        write!(f, " {} {} ", self.flags, self.iterations)?;
+        self.salt.present(f)
     }
 }
 
@@ -967,6 +1000,14 @@ impl<Octs: AsRef<[u8]> + ?Sized> fmt::Debug for Nsec3Salt<Octs> {
         f.debug_tuple("Nsec3Salt")
             .field(&format_args!("{}", self))
             .finish()
+    }
+}
+
+//--- Present
+
+impl<Octs: AsRef<[u8]> + ?Sized> Present for Nsec3Salt<Octs> {
+    fn present(&self, f: &mut ZoneFileFormatter) -> fmt::Result {
+        base16::display(self.as_slice(), f)
     }
 }
 

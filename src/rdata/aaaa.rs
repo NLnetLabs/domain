@@ -10,6 +10,7 @@ use crate::base::net::Ipv6Addr;
 use crate::base::rdata::{ComposeRecordData, ParseRecordData, RecordData};
 use crate::base::scan::{Scanner, ScannerError};
 use crate::base::wire::{Composer, Parse, ParseError};
+use crate::zonefile::present::Present;
 use core::cmp::Ordering;
 use core::convert::Infallible;
 use core::str::FromStr;
@@ -153,6 +154,15 @@ impl ComposeRecordData for Aaaa {
 impl fmt::Display for Aaaa {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         self.addr.fmt(f)
+    }
+}
+
+//--- Present
+
+impl Present for Aaaa {
+    fn present(&self, f: &mut crate::zonefile::present::ZoneFileFormatter) -> fmt::Result {
+        use std::fmt::Write;
+        write!(f, "{}", self.addr)
     }
 }
 

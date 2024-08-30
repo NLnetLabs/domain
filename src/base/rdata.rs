@@ -20,6 +20,7 @@ use super::iana::Rtype;
 use super::scan::{Scan, Scanner, ScannerError, Symbol};
 use super::wire::{Compose, Composer, ParseError};
 use crate::utils::base16;
+use crate::zonefile::present::{Present, ZoneFileFormatter};
 use core::cmp::Ordering;
 use core::fmt;
 use octseq::octets::{Octets, OctetsFrom};
@@ -474,6 +475,19 @@ impl<Octs: AsRef<[u8]>> fmt::Debug for UnknownRecordData<Octs> {
         f.write_str("UnknownRecordData(")?;
         fmt::Display::fmt(self, f)?;
         f.write_str(")")
+    }
+}
+
+//--- Present
+
+impl<Octs: AsRef<[u8]>> Present for UnknownRecordData<Octs> {
+    fn present(&self, f: &mut ZoneFileFormatter) -> fmt::Result {
+        use std::fmt::Write;
+        write!(f, "\\# {}", self.data.as_ref().len())?;
+        for ch in self.data.as_ref() {
+            write!(f, " {:02x}", *ch)?
+        }
+        Ok(())
     }
 }
 

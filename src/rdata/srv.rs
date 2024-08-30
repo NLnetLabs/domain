@@ -10,6 +10,7 @@ use crate::base::name::{FlattenInto, ParsedName, ToName};
 use crate::base::rdata::{ComposeRecordData, ParseRecordData, RecordData};
 use crate::base::scan::{Scan, Scanner};
 use crate::base::wire::{Compose, Composer, Parse, ParseError};
+use crate::zonefile::present::{Present, ZoneFileFormatter};
 use core::cmp::Ordering;
 use core::fmt;
 use octseq::octets::{Octets, OctetsFrom, OctetsInto};
@@ -274,6 +275,19 @@ impl<Name: ToName> Srv<Name> {
 
 impl<N: fmt::Display> fmt::Display for Srv<N> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "{} {} {} {}",
+            self.priority, self.weight, self.port, self.target
+        )
+    }
+}
+
+//--- Present
+
+impl<N: fmt::Display> Present for Srv<N> {
+    fn present(&self, f: &mut ZoneFileFormatter) -> fmt::Result {
+        use std::fmt::Write;
         write!(
             f,
             "{} {} {} {}",

@@ -116,4 +116,4 @@ int_enum! {
     (PRIVATEOID => 254, b"PRIVATEOID")
 }
 
-int_enum_str_with_decimal!(SecAlg, u8, "unknown algorithm");
+int_enum_str_decimal!(SecAlg, u8);

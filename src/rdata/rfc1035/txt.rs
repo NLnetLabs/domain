@@ -14,6 +14,7 @@ use crate::base::scan::Scanner;
 #[cfg(feature = "serde")]
 use crate::base::scan::Symbol;
 use crate::base::wire::{Composer, FormError, ParseError};
+use crate::zonefile::present::{Present, ZoneFileFormatter};
 #[cfg(feature = "bytes")]
 use bytes::BytesMut;
 use core::cmp::Ordering;
@@ -461,6 +462,24 @@ impl<Octs: AsRef<[u8]>> fmt::Debug for Txt<Octs> {
         f.write_str("Txt(")?;
         fmt::Display::fmt(self, f)?;
         f.write_str(")")
+    }
+}
+
+//--- Present
+
+impl<Octs: AsRef<[u8]>> Present for Txt<Octs> {
+    fn present(&self, f: &mut ZoneFileFormatter) -> fmt::Result {
+        use std::fmt::Write;
+        let mut first = true;
+        for slice in self.iter_charstrs() {
+            if !first {
+                f.write_str(" ")?;
+            } else {
+                first = false;
+            }
+            write!(f, "{}", slice.display_quoted())?;
+        }
+        Ok(())
     }
 }
 
