@@ -3,6 +3,7 @@ use std::net::{IpAddr, SocketAddr};
 use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
+use std::vec::Vec;
 
 use domain::base::MessageBuilder;
 use domain::base::Name;
@@ -13,11 +14,17 @@ use domain::net::client::dgram_stream;
 use domain::net::client::multi_stream;
 use domain::net::client::protocol::{TcpConnect, TlsConnect, UdpConnect};
 use domain::net::client::redundant;
-use domain::net::client::request::{RequestMessage, SendRequest};
+use domain::net::client::request::{
+    RequestMessage, RequestMessageMulti, SendRequest,
+};
 use domain::net::client::stream;
 
 #[cfg(feature = "tsig")]
-use domain::net::client::tsig;
+use domain::net::client::request::SendRequestMulti;
+#[cfg(feature = "tsig")]
+use domain::net::client::tsig::{
+    self, AuthenticatedRequestMessage, AuthenticatedRequestMessageMulti,
+};
 #[cfg(feature = "tsig")]
 use domain::tsig::{Algorithm, Key, KeyName};
 
@@ -41,7 +48,7 @@ async fn main() {
     let mut msg = msg.question();
     msg.push((Name::vec_from_str("example.com").unwrap(), Rtype::AAAA))
         .unwrap();
-    let req = RequestMessage::new(msg);
+    let req = RequestMessage::new(msg).unwrap();
 
     // Destination for UDP and TCP
     let server_addr =
@@ -243,14 +250,18 @@ async fn main() {
         }
     };
 
-    let (tcp, transport) = stream::Connection::new(tcp_conn);
+    let (tcp, transport) =
+        stream::Connection::<_, RequestMessageMulti<Vec<u8>>>::new(tcp_conn);
     tokio::spawn(async move {
         transport.run().await;
         println!("single TCP run terminated");
     });
 
     // Send a request message.
-    let mut request = tcp.send_request(req.clone());
+    let mut request = domain::net::client::request::SendRequest::send_request(
+        &tcp,
+        req.clone(),
+    );
 
     // Get the reply
     let reply = request.get_response().await;
@@ -261,11 +272,28 @@ async fn main() {
     #[cfg(feature = "tsig")]
     {
         let tcp_conn = TcpStream::connect(server_addr).await.unwrap();
-        let (tcp, transport) = stream::Connection::new(tcp_conn);
+        let (tcp, transport) = stream::Connection::<
+            AuthenticatedRequestMessage<
+                RequestMessage<Vec<u8>>,
+                Arc<domain::tsig::Key>,
+            >,
+            AuthenticatedRequestMessageMulti<
+                RequestMessageMulti<Vec<u8>>,
+                Arc<domain::tsig::Key>,
+            >,
+        >::new(tcp_conn);
         tokio::spawn(async move {
             transport.run().await;
             println!("single TSIG TCP run terminated");
         });
+
+        let mut msg = MessageBuilder::new_vec();
+        msg.header_mut().set_rd(true);
+        msg.header_mut().set_ad(true);
+        let mut msg = msg.question();
+        msg.push((Name::vec_from_str("example.com").unwrap(), Rtype::AXFR))
+            .unwrap();
+        let req = RequestMessageMulti::new(msg).unwrap();
 
         do_tsig(tcp.clone(), req).await;
 
@@ -293,9 +321,10 @@ where
     let ta =
         domain::validator::anchor::TrustAnchors::from_reader(anchor_file)
             .unwrap();
-    let vc = std::sync::Arc::new(
-        domain::validator::context::ValidationContext::new(ta, conn.clone()),
-    );
+    let vc = Arc::new(domain::validator::context::ValidationContext::new(
+        ta,
+        conn.clone(),
+    ));
     let val_conn = domain::net::client::validator::Connection::new(conn, vc);
 
     // Send a query message.
@@ -308,7 +337,7 @@ where
 }
 
 #[cfg(feature = "tsig")]
-async fn do_tsig<Octs, SR>(conn: SR, req: RequestMessage<Octs>)
+async fn do_tsig<Octs, SR>(conn: SR, req: RequestMessageMulti<Octs>)
 where
     Octs: AsRef<[u8]>
         + Send
@@ -316,12 +345,17 @@ where
         + std::fmt::Debug
         + domain::dep::octseq::Octets
         + 'static,
-    SR: SendRequest<
-            tsig::AuthenticatedRequestMessage<RequestMessage<Octs>, Arc<Key>>,
+    SR: SendRequestMulti<
+            tsig::AuthenticatedRequestMessageMulti<
+                RequestMessageMulti<Octs>,
+                Arc<Key>,
+            >,
         > + Send
         + Sync
         + 'static,
 {
+    use domain::net::xfr::processing::XfrResponseProcessor;
+
     // Create a signing key.
     let key_name = KeyName::from_str("demo-key").unwrap();
     let secret = domain::utils::base64::decode::<Vec<u8>>(
@@ -338,13 +372,26 @@ where
     // I'm not aware of any public server with a publically announced TSIG key
     // that can be used for testing so this will fail, but has been tested to
     // work locally with an appropriately configured NSD server.
-    let tsig_conn = tsig::Connection::new(conn, Some(key));
+    let tsig_conn = tsig::Connection::new(Some(key), conn);
 
     // Send a query message.
     let mut request = tsig_conn.send_request(req);
 
     // Get the reply
-    println!("Wating for signed reply");
-    let reply = request.get_response().await;
-    println!("Signed reply: {:?}", reply);
+    let mut processor = XfrResponseProcessor::new();
+    loop {
+        println!("Waiting for signed reply");
+        let reply = request.get_response().await.unwrap();
+        println!("Signed reply: {:?}", reply);
+        match reply {
+            Some(reply) => {
+                let it = processor.process_answer(reply).unwrap();
+                for event in it {
+                    let event = event.unwrap();
+                    println!("XFR event: {event}");
+                }
+            }
+            None => break,
+        }
+    }
 }

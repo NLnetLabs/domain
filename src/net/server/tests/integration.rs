@@ -16,6 +16,8 @@ use crate::base::iana::Rcode;
 use crate::base::name::{Name, ToName};
 use crate::base::net::IpAddr;
 use crate::base::wire::Composer;
+use crate::base::Rtype;
+use crate::net::client::request::{RequestMessage, RequestMessageMulti};
 use crate::net::client::{dgram, stream};
 use crate::net::server;
 use crate::net::server::buf::VecBufSource;
@@ -29,8 +31,8 @@ use crate::net::server::stream::StreamServer;
 use crate::net::server::util::{mk_builder_for_target, service_fn};
 use crate::stelline::channel::ClientServerChannel;
 use crate::stelline::client::{
-    do_client, ClientFactory, CurrStepValue, PerClientAddressClientFactory,
-    QueryTailoredClientFactory,
+    do_client, Client, ClientFactory, CurrStepValue,
+    PerClientAddressClientFactory, QueryTailoredClientFactory,
 };
 use crate::stelline::parse_stelline::{self, parse_file, Config, Matches};
 use crate::stelline::simple_dgram_client;
@@ -192,12 +194,22 @@ fn mk_client_factory(
     };
 
     let tcp_client_factory = PerClientAddressClientFactory::new(
-        move |source_addr, _entry| {
+        move |source_addr, entry| {
             let stream = stream_server_conn
                 .connect(Some(SocketAddr::new(*source_addr, 0)));
-            let (conn, transport) = stream::Connection::new(stream);
+            let (conn, transport) = stream::Connection::<
+                RequestMessage<Vec<u8>>,
+                RequestMessageMulti<Vec<u8>>,
+            >::new(stream);
             tokio::spawn(transport.run());
-            Box::new(conn)
+            if let Some(sections) = &entry.sections {
+                if let Some(q) = sections.question.first() {
+                    if matches!(q.qtype(), Rtype::AXFR | Rtype::IXFR) {
+                        return Client::Multi(Box::new(conn));
+                    }
+                }
+            }
+            Client::Single(Box::new(conn))
         },
         only_for_tcp_queries,
     );
@@ -213,10 +225,12 @@ fn mk_client_factory(
                 .new_client(Some(SocketAddr::new(*source_addr, 0)));
 
             match entry.matches.as_ref().map(|v| v.mock_client) {
-                Some(true) => {
-                    Box::new(simple_dgram_client::Connection::new(connect))
+                Some(true) => Client::Single(Box::new(
+                    simple_dgram_client::Connection::new(connect),
+                )),
+                _ => {
+                    Client::Single(Box::new(dgram::Connection::new(connect)))
                 }
-                _ => Box::new(dgram::Connection::new(connect)),
             }
         },
         for_all_other_queries,

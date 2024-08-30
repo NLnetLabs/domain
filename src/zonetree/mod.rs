@@ -88,8 +88,8 @@ mod traits;
 mod tree;
 pub mod types;
 mod walk;
-mod zone;
 pub mod xfr_event_handler;
+mod zone;
 
 pub use self::answer::{Answer, AnswerAuthority, AnswerContent};
 pub use self::in_memory::ZoneBuilder;

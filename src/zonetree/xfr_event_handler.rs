@@ -9,11 +9,12 @@ use super::error::OutOfZone;
 use super::{WritableZone, WritableZoneNode, Zone};
 use crate::base::name::{FlattenInto, Label, ToLabelIter};
 use crate::base::{Name, Rtype, ToName};
-use crate::net::client::xfr::{Error, XfrEvent, XfrEventHandler, XfrRecord};
+use crate::net::xfr::processing::{XfrEvent, XfrRecord};
 use crate::rdata::ZoneRecordData;
 use crate::zonetree::{Rrset, SharedRrset};
 
-struct ZoneUpdateEventHandler {
+/// TODO
+pub struct ZoneUpdateEventHandler {
     zone: Zone,
 
     write: WriteState,
@@ -24,7 +25,8 @@ struct ZoneUpdateEventHandler {
 }
 
 impl ZoneUpdateEventHandler {
-    async fn new(zone: Zone) -> std::io::Result<Self> {
+    /// TODO
+    pub async fn new(zone: Zone) -> std::io::Result<Self> {
         let write = WriteState::new(&zone).await?;
 
         Ok(Self {
@@ -35,11 +37,9 @@ impl ZoneUpdateEventHandler {
         })
     }
 
-    async fn init_batch(&mut self) -> Result<(), Error> {
+    async fn init_batch(&mut self) -> Result<(), ()> {
         if self.batching {
-            self.write = WriteState::new(&self.zone)
-                .await
-                .map_err(|_| Error::EventHandlerError)?;
+            self.write = WriteState::new(&self.zone).await.map_err(|_| ())?;
         }
 
         Ok(())
@@ -72,7 +72,7 @@ impl ZoneUpdateEventHandler {
             Option<Box<dyn WritableZoneNode>>,
             Rrset,
         ),
-        Error,
+        (),
     > {
         let owner = rec.owner().to_owned();
         let ttl = rec.ttl();
@@ -84,7 +84,7 @@ impl ZoneUpdateEventHandler {
 
         let name =
             Self::mk_relative_name_iterator(self.zone.apex_name(), &owner)
-                .map_err(|_| Error::EventHandlerError)?;
+                .map_err(|_| ())?;
 
         let writable = self.write.writable.as_ref().unwrap();
 
@@ -96,20 +96,19 @@ impl ZoneUpdateEventHandler {
                     None => writable.update_child(label),
                 }
                 .await
-                .map_err(|_| Error::EventHandlerError)?,
+                .map_err(|_| ())?,
             );
         }
 
         let rrset = Rrset::new(rtype, ttl);
         Ok((rtype, data, end_node, rrset))
     }
-}
 
-impl XfrEventHandler for ZoneUpdateEventHandler {
-    async fn handle_event(
+    /// TODO
+    pub async fn handle_event(
         &mut self,
         evt: XfrEvent<XfrRecord>,
-    ) -> Result<(), Error> {
+    ) -> Result<(), ()> {
         match evt {
             XfrEvent::DeleteRecord(_serial, rec) => {
                 let (rtype, data, end_node, mut rrset) =
@@ -121,10 +120,8 @@ impl XfrEventHandler for ZoneUpdateEventHandler {
 
                 let node = end_node.as_ref().unwrap_or(writable);
 
-                if let Some(existing_rrset) = node
-                    .get_rrset(rtype)
-                    .await
-                    .map_err(|_| Error::EventHandlerError)?
+                if let Some(existing_rrset) =
+                    node.get_rrset(rtype).await.map_err(|_| ())?
                 {
                     for existing_data in existing_rrset.data() {
                         if existing_data != &data {
@@ -136,7 +133,7 @@ impl XfrEventHandler for ZoneUpdateEventHandler {
                 trace!("Removing single RR of {rtype} so updating RRSET");
                 node.update_rrset(SharedRrset::new(rrset))
                     .await
-                    .map_err(|_| Error::EventHandlerError)?;
+                    .map_err(|_| ())?;
             }
 
             XfrEvent::AddRecord(_serial, rec) => {
@@ -154,10 +151,7 @@ impl XfrEventHandler for ZoneUpdateEventHandler {
                     // in the zone as "removed" and then add new records. This
                     // allows the old records to continue being served to
                     // current consumers while the zone is being updated.
-                    self.write
-                        .remove_all()
-                        .await
-                        .map_err(|_| Error::EventHandlerError)?;
+                    self.write.remove_all().await.map_err(|_| ())?;
                 }
 
                 let (rtype, data, end_node, mut rrset) =
@@ -170,10 +164,8 @@ impl XfrEventHandler for ZoneUpdateEventHandler {
 
                 let node = end_node.as_ref().unwrap_or(writable);
 
-                if let Some(existing_rrset) = node
-                    .get_rrset(rtype)
-                    .await
-                    .map_err(|_| Error::EventHandlerError)?
+                if let Some(existing_rrset) =
+                    node.get_rrset(rtype).await.map_err(|_| ())?
                 {
                     for existing_data in existing_rrset.data() {
                         rrset.push_data(existing_data.clone());
@@ -182,7 +174,7 @@ impl XfrEventHandler for ZoneUpdateEventHandler {
 
                 node.update_rrset(SharedRrset::new(rrset))
                     .await
-                    .map_err(|_| Error::EventHandlerError)?;
+                    .map_err(|_| ())?;
             }
 
             XfrEvent::BeginBatchDelete(_) => {
@@ -236,16 +228,13 @@ impl WriteState {
         Ok(())
     }
 
-    async fn commit(&mut self) -> Result<(), Error> {
+    async fn commit(&mut self) -> Result<(), ()> {
         // Commit the deletes and adds that just occurred
         if let Some(writable) = self.writable.take() {
             // Ensure that there are no dangling references to the created
             // diff (otherwise commit() will panic).
             drop(writable);
-            self.write
-                .commit(false)
-                .await
-                .map_err(|_| Error::EventHandlerError)?;
+            self.write.commit(false).await.map_err(|_| ())?;
         }
 
         Ok(())
@@ -256,9 +245,18 @@ impl WriteState {
 mod tests {
     use core::str::FromStr;
 
-    use crate::base::iana::Class;
-    use crate::base::{ParsedName, Record, Serial, Ttl};
-    use crate::rdata::Soa;
+    use bytes::BytesMut;
+    use octseq::Octets;
+
+    use crate::base::iana::{Class, Rcode};
+    use crate::base::message_builder::{AnswerBuilder, QuestionBuilder};
+    use crate::base::net::Ipv4Addr;
+    use crate::base::rdata::ComposeRecordData;
+    use crate::base::{
+        Message, MessageBuilder, ParsedName, Record, Serial, Ttl,
+    };
+    use crate::net::xfr::processing::XfrResponseProcessor;
+    use crate::rdata::{Soa, A};
     use crate::zonetree::ZoneBuilder;
 
     use super::*;
@@ -293,6 +291,42 @@ mod tests {
             .unwrap();
     }
 
+    #[tokio::test]
+    async fn axfr_response_generates_expected_events() {
+        init_logging();
+
+        let zone = mk_empty_zone("example.com");
+
+        let mut evt_handler =
+            ZoneUpdateEventHandler::new(zone.clone()).await.unwrap();
+
+        // Create an AXFR request to reply to.
+        let req = mk_request("example.com", Rtype::AXFR).into_message();
+
+        // Create an XFR response processor.
+        let mut processor = XfrResponseProcessor::new();
+
+        // Create an AXFR response.
+        let mut answer = mk_empty_answer(&req, Rcode::NOERROR);
+        let serial = Serial::now();
+        let soa = mk_soa(serial);
+        add_answer_record(&req, &mut answer, soa.clone());
+        add_answer_record(&req, &mut answer, A::new(Ipv4Addr::LOCALHOST));
+        add_answer_record(&req, &mut answer, A::new(Ipv4Addr::BROADCAST));
+        add_answer_record(&req, &mut answer, soa);
+        let resp = answer.into_message();
+
+        // Process the response.
+        let it = processor.process_answer(resp).unwrap();
+
+        for evt in it {
+            let evt = evt.unwrap();
+            evt_handler.handle_event(evt).await.unwrap();
+        }
+
+        dbg!(zone);
+    }
+
     //------------ Helper functions -------------------------------------------
 
     fn init_logging() {
@@ -317,5 +351,34 @@ mod tests {
         let rname = ParsedName::from(Name::from_str("rname").unwrap());
         let ttl = Ttl::from_secs(0);
         Soa::new(mname, rname, serial, ttl, ttl, ttl, ttl)
+    }
+
+    fn mk_request(qname: &str, qtype: Rtype) -> QuestionBuilder<BytesMut> {
+        let req = MessageBuilder::new_bytes();
+        let mut req = req.question();
+        req.push((Name::vec_from_str(qname).unwrap(), qtype))
+            .unwrap();
+        req
+    }
+
+    fn mk_empty_answer(
+        req: &Message<Bytes>,
+        rcode: Rcode,
+    ) -> AnswerBuilder<BytesMut> {
+        let builder = MessageBuilder::new_bytes();
+        builder.start_answer(req, rcode).unwrap()
+    }
+
+    fn add_answer_record<O: Octets, T: ComposeRecordData>(
+        req: &Message<O>,
+        answer: &mut AnswerBuilder<BytesMut>,
+        item: T,
+    ) {
+        let question = req.sole_question().unwrap();
+        let qname = question.qname();
+        let qclass = question.qclass();
+        answer
+            .push((qname, qclass, Ttl::from_secs(0), item))
+            .unwrap();
     }
 }
