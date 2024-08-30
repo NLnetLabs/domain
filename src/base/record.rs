@@ -442,7 +442,7 @@ where
     fn present(&self, f: &mut ZoneFileFormatter) -> fmt::Result {
         use std::fmt::Write;
 
-        write!(f, "{} ", self.owner)?;
+        write!(f, "{}. ", self.owner)?;
         self.ttl.present(f)?;
         f.write_char(' ')?;
         self.class.present(f)?;
