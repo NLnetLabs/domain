@@ -21,21 +21,6 @@ use super::types::{
 };
 
 #[test]
-fn request_message_is_rejected() {
-    init_logging();
-
-    // Create a no/n-XFR request to reply to.
-    let req = mk_request("example.com", Rtype::A).into_message();
-
-    // Create an XFR response processor.
-    let res = XfrResponseProcessor::new(req.clone());
-
-    // Process the request and assert that it is rejected as not being
-    // a valid XFR response and that no XFR processor events were emitted.
-    assert!(matches!(res, Err(ProcessingError::NotValidXfrRequest)));
-}
-
-#[test]
 fn non_xfr_response_is_rejected() {
     init_logging();
 
@@ -43,7 +28,7 @@ fn non_xfr_response_is_rejected() {
     let req = mk_request("example.com", Rtype::AXFR).into_message();
 
     // Create an XFR response processor.
-    let mut processor = XfrResponseProcessor::new(req.clone()).unwrap();
+    let mut processor = XfrResponseProcessor::new();
 
     // Create a non-XFR response.
     let mut answer = mk_empty_answer(&req, Rcode::NOERROR);
@@ -66,7 +51,7 @@ fn axfr_response_with_no_answers_is_rejected() {
     let req = mk_request("example.com", Rtype::AXFR).into_message();
 
     // Create an XFR response processor.
-    let mut processor = XfrResponseProcessor::new(req.clone()).unwrap();
+    let mut processor = XfrResponseProcessor::new();
 
     // Create a response that lacks answers.
     let resp = mk_empty_answer(&req, Rcode::NOERROR).into_message();
@@ -87,7 +72,7 @@ fn error_axfr_response_is_rejected() {
     let req = mk_request("example.com", Rtype::AXFR).into_message();
 
     // Create an XFR response processor.
-    let mut processor = XfrResponseProcessor::new(req.clone()).unwrap();
+    let mut processor = XfrResponseProcessor::new();
 
     // Create a minimal valid AXFR response, just something that should
     // not be rejected by the XFR processor due to its content. It should
@@ -112,7 +97,7 @@ fn incomplete_axfr_response_is_accepted() {
     let req = mk_request("example.com", Rtype::AXFR).into_message();
 
     // Create an XFR response processor.
-    let mut processor = XfrResponseProcessor::new(req.clone()).unwrap();
+    let mut processor = XfrResponseProcessor::new();
 
     // Create an incomplete AXFR response. A proper AXFR response has at
     // least two identical SOA records, one at the start and one at the
@@ -138,7 +123,7 @@ fn axfr_response_with_only_soas_is_accepted() {
     let req = mk_request("example.com", Rtype::AXFR).into_message();
 
     // Create an XFR response processor.
-    let mut processor = XfrResponseProcessor::new(req.clone()).unwrap();
+    let mut processor = XfrResponseProcessor::new();
 
     // Create a complete but minimal AXFR response. A proper AXFR response
     // has at least two identical SOA records, one at the start and one at
@@ -167,7 +152,7 @@ fn axfr_multi_response_with_only_soas_is_accepted() {
     let req = mk_request("example.com", Rtype::AXFR).into_message();
 
     // Create an XFR response processor.
-    let mut processor = XfrResponseProcessor::new(req.clone()).unwrap();
+    let mut processor = XfrResponseProcessor::new();
 
     // Create a complete but minimal AXFR response. A proper AXFR response
     // has at least two identical SOA records, one at the start and one at
@@ -206,7 +191,7 @@ fn axfr_response_generates_expected_events() {
     let req = mk_request("example.com", Rtype::AXFR).into_message();
 
     // Create an XFR response processor.
-    let mut processor = XfrResponseProcessor::new(req.clone()).unwrap();
+    let mut processor = XfrResponseProcessor::new();
 
     // Create an AXFR response.
     let mut answer = mk_empty_answer(&req, Rcode::NOERROR);
@@ -242,7 +227,7 @@ fn ixfr_response_generates_expected_events() {
     let req = authority.into_message();
 
     // Create an XFR response processor.
-    let mut processor = XfrResponseProcessor::new(req.clone()).unwrap();
+    let mut processor = XfrResponseProcessor::new();
 
     // Prepare some serial numbers and SOA records to use in the IXFR response.
     let old_serial = client_serial;
@@ -331,7 +316,7 @@ fn multi_ixfr_response_generates_expected_events() {
     let req = authority.into_message();
 
     // Create an XFR response processor.
-    let mut processor = XfrResponseProcessor::new(req.clone()).unwrap();
+    let mut processor = XfrResponseProcessor::new();
 
     // Prepare some serial numbers and SOA records to use in the IXFR response.
     let old_serial = client_serial;

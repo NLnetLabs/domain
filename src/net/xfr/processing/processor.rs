@@ -35,10 +35,8 @@ use super::types::{
 /// sequence should be passed to [`process_answer()`].
 ///
 /// [`process_answer()`]: XfrResponseProcessor::process_answer()
+#[derive(Default)]
 pub struct XfrResponseProcessor {
-    /// The XFR request for which responses should be processed.
-    req: Message<Bytes>,
-
     /// Internal state.
     ///
     /// None until the first call to [`process_answer()`].
@@ -47,12 +45,8 @@ pub struct XfrResponseProcessor {
 
 impl XfrResponseProcessor {
     /// Creates a new XFR message processor.
-    ///
-    /// The processor can be used to process response messages that relate to
-    /// the given XFR request message.
-    pub fn new(req: Message<Bytes>) -> Result<Self, ProcessingError> {
-        Self::check_request(&req)?;
-        Ok(Self { req, inner: None })
+    pub fn new() -> Self {
+        Self::default()
     }
 }
 
@@ -90,42 +84,7 @@ impl XfrResponseProcessor {
         &mut self,
         resp: Message<Bytes>,
     ) -> Result<(), ProcessingError> {
-        self.inner = Some(Inner::new(&self.req, resp)?);
-        Ok(())
-    }
-
-    /// Check if an XFR request is valid.
-    fn check_request(req: &Message<Bytes>) -> Result<(), ProcessingError> {
-        let req_header = req.header();
-        let req_counts = req.header_counts();
-
-        if req.is_error()
-            || req_header.qr()
-            || req_counts.qdcount() != 1
-            || req_counts.ancount() != 0
-            || req_header.opcode() != Opcode::QUERY
-        {
-            return Err(ProcessingError::NotValidXfrRequest);
-        }
-
-        let Some(qtype) = req.qtype() else {
-            return Err(ProcessingError::NotValidXfrRequest);
-        };
-
-        if !matches!(qtype, Rtype::AXFR | Rtype::IXFR) {
-            return Err(ProcessingError::NotValidXfrRequest);
-        }
-
-        // https://datatracker.ietf.org/doc/html/rfc1995#section-3
-        // 3. Query Format
-        //   "The IXFR query packet format is the same as that of a normal DNS
-        //    query, but with the query type being IXFR and the authority
-        //    section containing the SOA record of client's version of the
-        //    zone."
-        if matches!(qtype, Rtype::IXFR) && req_counts.nscount() != 1 {
-            return Err(ProcessingError::NotValidXfrRequest);
-        }
-
+        self.inner = Some(Inner::new(resp)?);
         Ok(())
     }
 
@@ -152,7 +111,6 @@ impl XfrResponseProcessor {
         // not required to have a question.
         if resp.is_error()
             || !resp_header.qr()
-            || resp_header.id() != self.req.header().id()
             || resp_header.opcode() != Opcode::QUERY
             || resp_header.tc()
             || resp_counts.ancount() == 0
@@ -195,10 +153,7 @@ impl Inner {
     ///
     /// Records the initial SOA record and other details will will be used
     /// while processing the rest of the response.
-    fn new(
-        req: &Message<Bytes>,
-        resp: Message<Bytes>,
-    ) -> Result<Self, ProcessingError> {
+    fn new(resp: Message<Bytes>) -> Result<Self, ProcessingError> {
         let answer = resp.answer().map_err(ProcessingError::ParseError)?;
 
         // https://datatracker.ietf.org/doc/html/rfc5936#section-3
@@ -220,7 +175,7 @@ impl Inner {
 
         let mut records = answer.into_records();
 
-        let xfr_type = match req.qtype() {
+        let xfr_type = match resp.qtype() {
             Some(Rtype::AXFR) => XfrType::Axfr,
             Some(Rtype::IXFR) => XfrType::Ixfr,
             _ => unreachable!(), // Checked already in check_request().

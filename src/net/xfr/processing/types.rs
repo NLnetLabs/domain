@@ -146,9 +146,6 @@ pub enum ProcessingError {
     /// The message could not be parsed.
     ParseError(ParseError),
 
-    /// The request message is not an XFR query/
-    NotValidXfrRequest,
-
     /// The response message is not an XFR response.
     NotValidXfrResponse,
 
