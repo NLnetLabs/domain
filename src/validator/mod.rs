@@ -80,7 +80,7 @@
 //! #    let mut msg = msg.question();
 //! #    msg.push((Name::vec_from_str("example.com").unwrap(), Rtype::AAAA))
 //! #        .unwrap();
-//!     let mut req = RequestMessage::new(msg);
+//!     let mut req = RequestMessage::new(msg).unwrap();
 //!     req.set_dnssec_ok(true);
 //!
 //!     // Send a query message.
