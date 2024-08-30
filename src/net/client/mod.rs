@@ -93,7 +93,7 @@
 //! tokio::spawn(transport.run());
 //! # let req = domain::net::client::request::RequestMessage::new(
 //! #     domain::base::MessageBuilder::new_vec()
-//! # );
+//! # ).unwrap();
 //! # let mut request = tcp_conn.send_request(req);
 //! # }
 //! ```
@@ -106,18 +106,18 @@
 //!
 //! For example:
 //! ```no_run
-//! # use domain::net::client::request::SendRequest;
+//! # use domain::net::client::request::{RequestMessageMulti, SendRequest};
 //! # use std::net::{IpAddr, SocketAddr};
 //! # use std::str::FromStr;
 //! # async fn _test() {
-//! # let (tls_conn, _) = domain::net::client::stream::Connection::new(
+//! # let (tls_conn, _) = domain::net::client::stream::Connection::<_, RequestMessageMulti<Vec<u8>>>::new(
 //! #     domain::net::client::protocol::TcpConnect::new(
 //! #         SocketAddr::new(IpAddr::from_str("::1").unwrap(), 53)
 //! #     )
 //! # );
 //! # let req = domain::net::client::request::RequestMessage::new(
 //! #     domain::base::MessageBuilder::new_vec()
-//! # );
+//! # ).unwrap();
 //! let mut request = tls_conn.send_request(req);
 //! # }
 //! ```
@@ -134,18 +134,18 @@
 //!
 //! For example:
 //! ```no_run
-//! # use crate::domain::net::client::request::SendRequest;
+//! # use crate::domain::net::client::request::{RequestMessageMulti, SendRequest};
 //! # use std::net::{IpAddr, SocketAddr};
 //! # use std::str::FromStr;
 //! # async fn _test() {
-//! # let (tls_conn, _) = domain::net::client::stream::Connection::new(
+//! # let (tls_conn, _) = domain::net::client::stream::Connection::<_, RequestMessageMulti<Vec<u8>>>::new(
 //! #     domain::net::client::protocol::TcpConnect::new(
 //! #         SocketAddr::new(IpAddr::from_str("::1").unwrap(), 53)
 //! #     )
 //! # );
 //! # let req = domain::net::client::request::RequestMessage::new(
 //! #     domain::base::MessageBuilder::new_vec()
-//! # );
+//! # ).unwrap();
 //! # let mut request = tls_conn.send_request(req);
 //! let reply = request.get_response().await;
 //! # }

@@ -19,7 +19,8 @@ use crate::base::iana::{Opcode, OptionCode};
 use crate::base::opt::{ComposeOptData, OptData};
 use crate::base::{Message, MessageBuilder};
 use crate::net::client::request::{
-    ComposeRequest, Error, GetResponse, RequestMessage, SendRequest,
+    ComposeRequest, Error, GetResponse, GetResponseMulti, RequestMessage,
+    RequestMessageMulti, SendRequest, SendRequestMulti,
 };
 use crate::stelline::matches::match_multi_msg;
 use crate::zonefile::inplace::Entry::Record;
@@ -28,6 +29,7 @@ use super::matches::match_msg;
 use super::parse_stelline::{Entry, Reply, Stelline, StepType};
 
 use super::channel::DEF_CLIENT_ADDR;
+use core::ops::Deref;
 
 //----------- StellineError ---------------------------------------------------
 
@@ -185,23 +187,43 @@ pub async fn do_client_simple<R: SendRequest<RequestMessage<Vec<u8>>>>(
     }
 }
 
+//----------- Response -------------------------------------------------------
+
+pub enum Response {
+    Single(Box<dyn GetResponse + Send + Sync>),
+    Multi(Box<dyn GetResponseMulti + Send + Sync>),
+}
+
+impl Response {
+    fn get_response(
+        &mut self,
+    ) -> Pin<
+        Box<
+            dyn Future<Output = Result<Option<Message<Bytes>>, Error>>
+                + Send
+                + Sync
+                + '_,
+        >,
+    > {
+        match self {
+            Response::Single(response) => {
+                Box::pin(async { response.get_response().await.map(Some) })
+            }
+            Response::Multi(response) => response.get_response(),
+        }
+    }
+}
+
 //----------- Dispatcher -----------------------------------------------------
 
-pub struct Dispatcher(
-    Option<Rc<Box<dyn SendRequest<RequestMessage<Vec<u8>>>>>>,
-);
+pub struct Dispatcher(Option<Rc<Client>>);
 
 impl Dispatcher {
-    pub fn with_client<T>(client: T) -> Self
-    where
-        T: SendRequest<RequestMessage<Vec<u8>>> + 'static,
-    {
-        Self(Some(Rc::new(Box::new(client))))
+    pub fn with_client(client: Client) -> Self {
+        Self(Some(Rc::new(client)))
     }
 
-    pub fn with_rc_boxed_client(
-        client: Rc<Box<dyn SendRequest<RequestMessage<Vec<u8>>>>>,
-    ) -> Self {
+    pub fn with_rc_client(client: Rc<Client>) -> Self {
         Self(Some(client))
     }
 
@@ -212,14 +234,57 @@ impl Dispatcher {
     pub fn dispatch(
         &self,
         entry: &Entry,
-    ) -> Result<Box<dyn GetResponse + Send + Sync>, StellineErrorCause> {
-        if let Some(dispatcher) = &self.0 {
+    ) -> Result<Response, StellineErrorCause> {
+        if let Some(client) = &self.0 {
             let reqmsg = entry2reqmsg(entry);
             trace!(?reqmsg);
-            return Ok(dispatcher.send_request(reqmsg));
+            let res = match client.deref() {
+                Client::Single(client) => {
+                    Response::Single(client.send_request(reqmsg))
+                }
+                Client::Multi(client) => Response::Multi(
+                    client.send_request(RequestMessageMulti::from(reqmsg)),
+                ),
+            };
+            return Ok(res);
         }
 
         Err(StellineErrorCause::MissingClient)
+    }
+}
+
+//----------- Client ---------------------------------------------------------
+
+pub enum Client {
+    Single(Box<dyn SendRequest<RequestMessage<Vec<u8>>>>),
+    Multi(Box<dyn SendRequestMulti<RequestMessageMulti<Vec<u8>>>>),
+}
+
+impl SendRequest<RequestMessage<Vec<u8>>> for Client {
+    fn send_request(
+        &self,
+        request_msg: RequestMessage<Vec<u8>>,
+    ) -> Box<dyn GetResponse + Send + Sync> {
+        match self {
+            Client::Single(client) => client.send_request(request_msg),
+            Client::Multi(_) => panic!(
+                "Cannot dispatch a single request to a multi-request client"
+            ),
+        }
+    }
+}
+
+impl SendRequestMulti<RequestMessageMulti<Vec<u8>>> for Client {
+    fn send_request(
+        &self,
+        request_msg: RequestMessageMulti<Vec<u8>>,
+    ) -> Box<dyn GetResponseMulti + Send + Sync> {
+        match self {
+            Client::Single(_) => panic!(
+                "Cannot dispatch a multi-request to a single requst client"
+            ),
+            Client::Multi(client) => client.send_request(request_msg),
+        }
     }
 }
 
@@ -238,26 +303,25 @@ pub trait ClientFactory {
     fn discard(&mut self, entry: &Entry);
 }
 
-//----------- SingleClientFactory --------------------------------------------
+//----------- OneClientFactory ------------------------------------------------
 
-pub struct SingleClientFactory(
-    Rc<Box<dyn SendRequest<RequestMessage<Vec<u8>>>>>,
-);
+pub struct OneClientFactory(Rc<Client>);
 
-impl SingleClientFactory {
+impl OneClientFactory {
     pub fn new(
         client: impl SendRequest<RequestMessage<Vec<u8>>> + 'static,
     ) -> Self {
-        Self(Rc::new(Box::new(client)))
+        Self(Rc::new(Client::Single(Box::new(client))))
     }
 }
 
-impl ClientFactory for SingleClientFactory {
+impl ClientFactory for OneClientFactory {
     fn get(
         &mut self,
         _entry: &Entry,
     ) -> Pin<Box<dyn Future<Output = Dispatcher>>> {
-        Box::pin(ready(Dispatcher::with_rc_boxed_client(self.0.clone())))
+        let dispatcher = Dispatcher::with_rc_client(self.0.clone());
+        Box::pin(ready(dispatcher))
     }
 
     fn discard(&mut self, _entry: &Entry) {
@@ -269,18 +333,17 @@ impl ClientFactory for SingleClientFactory {
 
 pub struct PerClientAddressClientFactory<F, S>
 where
-    F: Fn(&IpAddr, &Entry) -> Box<dyn SendRequest<RequestMessage<Vec<u8>>>>,
+    F: Fn(&IpAddr, &Entry) -> Client,
     S: Fn(&Entry) -> bool,
 {
-    clients_by_address:
-        HashMap<IpAddr, Rc<Box<dyn SendRequest<RequestMessage<Vec<u8>>>>>>,
+    clients_by_address: HashMap<IpAddr, Rc<Client>>,
     factory_func: F,
     is_suitable_func: S,
 }
 
 impl<F, S> PerClientAddressClientFactory<F, S>
 where
-    F: Fn(&IpAddr, &Entry) -> Box<dyn SendRequest<RequestMessage<Vec<u8>>>>,
+    F: Fn(&IpAddr, &Entry) -> Client,
     S: Fn(&Entry) -> bool,
 {
     pub fn new(factory_func: F, is_suitable_func: S) -> Self {
@@ -294,7 +357,7 @@ where
 
 impl<F, S> ClientFactory for PerClientAddressClientFactory<F, S>
 where
-    F: Fn(&IpAddr, &Entry) -> Box<dyn SendRequest<RequestMessage<Vec<u8>>>>,
+    F: Fn(&IpAddr, &Entry) -> Client,
     S: Fn(&Entry) -> bool,
 {
     fn get(
@@ -313,7 +376,7 @@ where
             })
             .clone();
 
-        Box::pin(ready(Dispatcher::with_rc_boxed_client(client)))
+        Box::pin(ready(Dispatcher::with_rc_client(client)))
     }
 
     fn discard(&mut self, entry: &Entry) {
@@ -380,9 +443,7 @@ pub async fn do_client<'a, T: ClientFactory>(
         step_value: &CurrStepValue,
         mut client_factory: T,
     ) -> Result<(), StellineErrorCause> {
-        let mut last_sent_request: Option<
-            Box<dyn GetResponse + Sync + Send>,
-        > = None;
+        let mut last_sent_request: Option<Response> = None;
 
         #[cfg(all(feature = "std", test))]
         {
@@ -468,6 +529,22 @@ pub async fn do_client<'a, T: ClientFactory>(
                                 }
                                 other => other,
                             }?;
+
+                            if resp.is_none() {
+                                trace!("Stream complete");
+                                if !entry.sections.as_ref().unwrap().answer[0]
+                                    .is_empty()
+                                {
+                                    return Err(
+                                        StellineErrorCause::MismatchedAnswer,
+                                    );
+                                } else {
+                                    break;
+                                }
+                            }
+
+                            let resp = resp.unwrap();
+
                             trace!("Received answer.");
                             trace!(?resp);
 
@@ -487,19 +564,6 @@ pub async fn do_client<'a, T: ClientFactory>(
                                 section.answer[0] = out_entry.unwrap();
                             }
                             trace!("Answer RRs remaining = {num_rrs_remaining_after}");
-
-                            if send_request.is_stream_complete() {
-                                trace!("Stream complete");
-                                if !entry.sections.as_ref().unwrap().answer[0]
-                                    .is_empty()
-                                {
-                                    return Err(
-                                        StellineErrorCause::MismatchedAnswer,
-                                    );
-                                } else {
-                                    break;
-                                }
-                            }
                         }
                     } else {
                         let num_expected_answers = entry
@@ -536,6 +600,13 @@ pub async fn do_client<'a, T: ClientFactory>(
                                 }
                                 other => other,
                             }?;
+
+                            let Some(resp) = resp else {
+                                return Err(
+                                    StellineErrorCause::MissingResponse,
+                                );
+                            };
+
                             trace!("Received answer.");
                             trace!(?resp);
                             if !match_multi_msg(
@@ -545,10 +616,6 @@ pub async fn do_client<'a, T: ClientFactory>(
                                     StellineErrorCause::MismatchedAnswer,
                                 );
                             }
-                        }
-
-                        if num_expected_answers > 1 {
-                            send_request.stream_complete().unwrap();
                         }
                     }
 
@@ -646,7 +713,7 @@ fn entry2reqmsg(entry: &Entry) -> RequestMessage<Vec<u8>> {
     header.set_cd(reply.cd);
     let msg = msg.into_message();
 
-    let mut reqmsg = RequestMessage::new(msg);
+    let mut reqmsg = RequestMessage::new(msg).unwrap();
     if !entry
         .matches
         .as_ref()
