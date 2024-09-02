@@ -19,23 +19,26 @@ use std::future::ready;
 use std::pin::Pin;
 use std::vec::Vec;
 
-pub struct SingleServiceToService<SVC, CR> {
+pub struct SingleServiceToService<RequestOcts, SVC, CR> {
     service: SVC,
-    phantom: PhantomData<CR>,
+    ro_phantom: PhantomData<RequestOcts>,
+    cr_phantom: PhantomData<CR>,
 }
 
-impl<SVC, CR> SingleServiceToService<SVC, CR> {
+impl<RequestOcts, SVC, CR> SingleServiceToService<RequestOcts, SVC, CR> {
     pub fn new(service: SVC) -> Self {
         Self {
             service,
-            phantom: PhantomData,
+            ro_phantom: PhantomData,
+            cr_phantom: PhantomData,
         }
     }
 }
 
-impl<SVC, CR> Service for SingleServiceToService<SVC, CR>
+impl<RequestOcts, SVC, CR> Service<RequestOcts> for SingleServiceToService<RequestOcts, SVC, CR>
 where
-    SVC: SingleService<Vec<u8>, CR>,
+    RequestOcts: Octets + Send + Sync + Unpin,
+    SVC: SingleService<RequestOcts, CR>,
     CR: ComposeReply + 'static,
 {
     type Target = Vec<u8>;
@@ -48,7 +51,7 @@ where
 
     fn call(
         &self,
-        request: Request<Vec<u8>>,
+        request: Request<RequestOcts>,
     ) -> Self::Future {
         let req = RequestNG::from_request(request);
         let fut = self.service.call(req);
@@ -88,6 +91,54 @@ impl<SR, RequestOcts, CR> SingleService<RequestOcts, CR>
 where
     RequestOcts: AsRef<[u8]> + Clone + Debug + Octets + Send + Sync,
     SR: SendRequest<RequestMessage<RequestOcts>> + Sync,
+    CR: ComposeReply + Send + Sync + 'static,
+{
+    type Target = Vec<u8>;
+
+    fn call(
+        &self,
+        request: RequestNG<RequestOcts>,
+    ) -> Pin<Box<dyn Future<Output = Result<CR, Error>> + Send + Sync>>
+    where
+        RequestOcts: AsRef<[u8]>,
+    {
+        let req = match request.to_request_message() {
+	    Ok(req) => req,
+	    Err(e) => return Box::pin(ready(Err(e))),
+	};
+        let mut gr = self.conn.send_request(req);
+        let fut = async move {
+            let msg = gr.get_response().await.unwrap();
+            Ok(CR::from_message(&msg))
+        };
+        Box::pin(fut)
+    }
+}
+
+pub struct BoxClientTransportToSrService<RequestOcts>
+where
+    RequestOcts: AsRef<[u8]>,
+{
+    conn: Box<dyn SendRequest<RequestMessage<RequestOcts>> + Send + Sync>,
+    _phantom: PhantomData<RequestOcts>,
+}
+
+impl<RequestOcts> BoxClientTransportToSrService<RequestOcts>
+where
+    RequestOcts: AsRef<[u8]>,
+{
+    pub fn new(conn: Box<dyn SendRequest<RequestMessage<RequestOcts>> + Send + Sync>) -> Self {
+        Self {
+            conn,
+            _phantom: PhantomData,
+        }
+    }
+}
+
+impl<RequestOcts, CR> SingleService<RequestOcts, CR>
+    for BoxClientTransportToSrService<RequestOcts>
+where
+    RequestOcts: AsRef<[u8]> + Clone + Debug + Octets + Send + Sync,
     CR: ComposeReply + Send + Sync + 'static,
 {
     type Target = Vec<u8>;
