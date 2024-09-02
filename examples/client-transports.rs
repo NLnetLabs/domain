@@ -363,9 +363,6 @@ where
     // Create a signing transport. This assumes that the server being
     // connected to is configured with a key with the same name, algorithm and
     // secret and to allow that key to be used for the request we are making.
-    // I'm not aware of any public server with a publically announced TSIG key
-    // that can be used for testing so this will fail, but has been tested to
-    // work locally with an appropriately configured NSD server.
     let tsig_conn = tsig::Connection::new(Some(key), conn);
 
     // Send a query message.
