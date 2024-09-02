@@ -53,7 +53,6 @@ impl AsyncRead for Connection {
             }
             trace!("Returning stored reply to the caller");
             let slice = self.reply.as_ref().unwrap().as_ref().unwrap().as_slice();
-            let slice = slice;
             let len = slice.len();
             if self.send_body {
                 buf.put_slice(slice);
