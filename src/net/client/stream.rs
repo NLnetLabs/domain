@@ -122,7 +122,7 @@ impl Config {
     /// Sets the response timeout.
     ///
     /// For requests where ComposeRequest::is_streaming() returns true see
-    /// set_streaming_response_timeout() instead.    
+    /// set_streaming_response_timeout() instead.
     ///
     /// Excessive values are quietly trimmed.
     //
@@ -158,7 +158,7 @@ impl Config {
     ///
     /// By default the stream is immediately closed if there are no pending
     /// requests or responses.
-    ///  
+    ///
     /// Set this to allow requests to be sent in sequence with delays between
     /// such as a SOA query followed by AXFR for more efficient use of the
     /// stream per RFC 9103.
