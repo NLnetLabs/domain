@@ -280,7 +280,6 @@ impl<Target: Composer> MessageBuilder<Target> {
         let mut builder = self.question();
         for item in msg.question().flatten() {
             if builder.push(item).is_err() {
-                builder.rewind();
                 builder.header_mut().set_rcode(Rcode::SERVFAIL);
                 break;
             }
