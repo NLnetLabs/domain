@@ -27,7 +27,7 @@
 //!         <-- (optional) middleware services - post-processes responses
 //!     <-- server                             - serializes responses
 //! <-- network source                         - writes bytes to the client
-//! ````
+//! ```
 //!
 //! # Getting started
 //!
@@ -38,15 +38,15 @@
 //! application [`Service`] impl at the peak.
 //!
 //! Whether using [`DgramServer`] or [`StreamServer`] the required steps are
-//! the same.
+//! the same:
 //!
-//!   - Create an appropriate network source (more on this below).
-//!   - Construct a server transport with `new()` passing in the network
+//!   1. Create an appropriate network source (more on this below).
+//!   2. Construct a server transport with `new()` passing in the network
 //!     source and service instance as arguments.
 //!     - (optional) Tune the server behaviour via builder functions such as
 //!       `with_config()`.
-//!   - `run()` the server.
-//!   - `shutdown()` the server, explicitly or on [`drop`].
+//!   3. `run()` the server.
+//!   4. `shutdown()` the server, explicitly or on [`drop`].
 //!
 //! See [`DgramServer`] and [`StreamServer`] for example code to help you get
 //! started.
