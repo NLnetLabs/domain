@@ -157,7 +157,7 @@ impl From<NonUdpTransportContext> for TransportSpecificContext {
 #[derive(Debug)]
 pub struct Request<Octs, Metadata = ()>
 where
-    Octs: AsRef<[u8]> + Send + Sync + Unpin,
+    Octs: AsRef<[u8]> + Send + Sync,
 {
     /// The network address of the connected client.
     client_addr: std::net::SocketAddr,
