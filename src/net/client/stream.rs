@@ -13,6 +13,7 @@
 // - timeouts
 //   - request timeout
 // - create new connection after end/failure of previous one
+
 use super::request::{
     ComposeRequest, ComposeRequestMulti, Error, GetResponse,
     GetResponseMulti, SendRequest, SendRequestMulti,
