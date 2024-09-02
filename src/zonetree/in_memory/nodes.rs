@@ -1,9 +1,9 @@
 //! The nodes in a zone tree.
 
+use core::any::Any;
+
 use std::boxed::Box;
-
 use std::collections::{hash_map as col, HashMap as Col};
-
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -12,6 +12,7 @@ use parking_lot::{
     RwLock, RwLockReadGuard, RwLockUpgradableReadGuard, RwLockWriteGuard,
 };
 use tokio::sync::Mutex;
+use tracing::trace;
 
 use crate::base::iana::{Class, Rtype};
 use crate::base::name::{Label, OwnedLabel, ToLabelIter, ToName};
@@ -25,7 +26,6 @@ use crate::zonetree::{
 use super::read::ReadZone;
 use super::versioned::{Version, Versioned};
 use super::write::{WriteZone, ZoneVersions};
-use core::any::Any;
 
 //------------ ZoneApex ------------------------------------------------------
 
@@ -106,9 +106,9 @@ impl ZoneApex {
         self.children.rollback(version);
     }
 
-    pub fn clean(&self, version: Version) {
-        self.rrsets.clean(version);
-        self.children.clean(version);
+    pub fn remove_all(&self, version: Version) {
+        self.rrsets.remove_all(version);
+        self.children.remove_all(version);
     }
 
     pub fn versions(&self) -> &RwLock<ZoneVersions> {
@@ -138,10 +138,18 @@ impl ZoneStore for ZoneApex {
 
     fn write(
         self: Arc<Self>,
-    ) -> Pin<Box<dyn Future<Output = Box<dyn WritableZone>> + Send + Sync>>
-    {
+    ) -> Pin<
+        Box<
+            (dyn Future<Output = Box<(dyn WritableZone + 'static)>>
+                 + Send
+                 + Sync
+                 + 'static),
+        >,
+    > {
         Box::pin(async move {
+            trace!("Acquiring zone update lock");
             let lock = self.update_lock.clone().lock_owned().await;
+            trace!("Zone update lock acquired");
             let version = self.versions().read().current().0.next();
             let zone_versions = self.versions.clone();
             Box::new(WriteZone::new(self, lock, version, zone_versions))
@@ -221,10 +229,10 @@ impl ZoneNode {
         self.children.rollback(version);
     }
 
-    pub fn clean(&self, version: Version) {
-        self.rrsets.clean(version);
-        self.special.write().clean(version);
-        self.children.clean(version);
+    pub fn remove_all(&self, version: Version) {
+        self.rrsets.remove_all(version);
+        self.special.write().remove(version);
+        self.children.remove_all(version);
     }
 }
 
@@ -287,11 +295,11 @@ impl NodeRrsets {
             .for_each(|rrset| rrset.rollback(version));
     }
 
-    pub fn clean(&self, version: Version) {
+    pub fn remove_all(&self, version: Version) {
         self.rrsets
             .write()
             .values_mut()
-            .for_each(|rrset| rrset.clean(version));
+            .for_each(|rrset| rrset.remove(version));
     }
 
     pub(super) fn iter(&self) -> NodeRrsetsIter {
@@ -333,7 +341,7 @@ impl NodeRrset {
     }
 
     fn remove(&mut self, version: Version) {
-        self.rrsets.clean(version)
+        self.rrsets.remove(version)
     }
 
     pub fn rollback(&mut self, version: Version) {
@@ -396,11 +404,11 @@ impl NodeChildren {
             .for_each(|item| item.rollback(version))
     }
 
-    fn clean(&self, version: Version) {
+    fn remove_all(&self, version: Version) {
         self.children
             .read()
             .values()
-            .for_each(|item| item.clean(version))
+            .for_each(|item| item.remove_all(version))
     }
 
     pub(super) fn walk(

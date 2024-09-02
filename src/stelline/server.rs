@@ -19,7 +19,7 @@ pub fn do_server<'a, Oct, Target>(
     msg: &'a Message<Oct>,
     stelline: &Stelline,
     step_value: &CurrStepValue,
-) -> Option<AdditionalBuilder<Target>>
+) -> Option<std::io::Result<AdditionalBuilder<Target>>>
 where
     <Oct as Octets>::Range<'a>: Clone,
     Oct: Clone + Octets + 'a,
@@ -57,12 +57,12 @@ where
     match opt_entry {
         Some(entry) => {
             let reply = do_adjust(entry, msg);
-            Some(reply)
+            Some(Ok(reply))
         }
         None => {
             trace!("No matching reply found");
             println!("do_server: no reply at step value {step}");
-            todo!();
+            Some(Err(std::io::ErrorKind::TimedOut.into()))
         }
     }
 }

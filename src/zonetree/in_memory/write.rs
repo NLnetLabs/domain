@@ -432,6 +432,19 @@ impl WriteNode {
         })
     }
 
+    fn remove_all(&self) -> Result<(), io::Error> {
+        match self.node {
+            Either::Left(ref apex) => {
+                apex.remove_all(self.zone.version);
+            }
+            Either::Right(ref node) => {
+                node.remove_all(self.zone.version);
+            }
+        }
+
+        Ok(())
+    }
+
     /// Makes sure a NXDomain special is set or removed as necesssary.
     fn check_nx_domain(&self) -> Result<(), io::Error> {
         let node = match self.node {
@@ -544,6 +557,13 @@ impl WritableZoneNode for WriteNode {
     ) -> Pin<Box<dyn Future<Output = Result<(), io::Error>> + Send + Sync>>
     {
         Box::pin(ready(self.make_cname(cname)))
+    }
+
+    fn remove_all(
+        &self,
+    ) -> Pin<Box<dyn Future<Output = Result<(), io::Error>> + Send + Sync>>
+    {
+        Box::pin(ready(self.remove_all()))
     }
 }
 

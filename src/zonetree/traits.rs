@@ -49,7 +49,14 @@ pub trait ZoneStore: Debug + Sync + Send + Any {
     /// Get a write interface to this store.
     fn write(
         self: Arc<Self>,
-    ) -> Pin<Box<dyn Future<Output = Box<dyn WritableZone>> + Send + Sync>>;
+    ) -> Pin<
+        Box<
+            (dyn Future<Output = Box<(dyn WritableZone + 'static)>>
+                 + Send
+                 + Sync
+                 + 'static),
+        >,
+    >;
 
     /// TODO
     fn as_any(&self) -> &dyn Any;
@@ -221,5 +228,10 @@ pub trait WritableZoneNode: Send + Sync {
     fn make_cname(
         &self,
         cname: SharedRr,
+    ) -> Pin<Box<dyn Future<Output = Result<(), io::Error>> + Send + Sync>>;
+
+    /// Recursively make all content at and below this point appear to be removed.
+    fn remove_all(
+        &self,
     ) -> Pin<Box<dyn Future<Output = Result<(), io::Error>> + Send + Sync>>;
 }

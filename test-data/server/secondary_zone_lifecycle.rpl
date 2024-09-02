@@ -240,17 +240,14 @@ ENTRY_END
 ; zone.
 STEP 40 TIME_PASSES ELAPSE 2
 
-; Yield to allow the server to transfer the zone from the secondary.
-STEP 41 TIME_PASSES ELAPSE 0
-
-STEP 42 QUERY
+STEP 41 QUERY
 ENTRY_BEGIN
 MATCH UDP
 SECTION QUESTION
     JAIN.AD.JP.          IN  SOA
 ENTRY_END
 ; ... get a NOERROR answer
-STEP 43 CHECK_ANSWER
+STEP 42 CHECK_ANSWER
 ENTRY_BEGIN
 MATCH all
 REPLY QR NOERROR
@@ -269,17 +266,14 @@ ENTRY_END
 ; retry mode as the zone should still be served normally when queried.
 STEP 50 TIME_PASSES ELAPSE 1801
 
-; Yield to allow the server to try to transfer the zone from the secondary.
-STEP 51 TIME_PASSES ELAPSE 0
-
-STEP 52 QUERY
+STEP 51 QUERY
 ENTRY_BEGIN
 MATCH UDP
 SECTION QUESTION
     JAIN.AD.JP.          IN  SOA
 ENTRY_END
 ; ... get a NOERROR answer
-STEP 53 CHECK_ANSWER
+STEP 52 CHECK_ANSWER
 ENTRY_BEGIN
 MATCH all
 REPLY QR NOERROR
@@ -313,20 +307,19 @@ SECTION ANSWER
 ;                                                                    ^ Still at serial 2
 ENTRY_END
 
-; Verify that when available again the zone is refreshed.
+; A mock reply is available at this step number (see above) so allow enough
+; time to pass that server attempts to refresh zone again but this time it
+; should succeed.
 STEP 70 TIME_PASSES ELAPSE 301
 
-; Yield to allow the server to transfer the zone from the secondary.
-STEP 71 TIME_PASSES ELAPSE 0
-
-STEP 72 QUERY
+STEP 71 QUERY
 ENTRY_BEGIN
 MATCH UDP
 SECTION QUESTION
     JAIN.AD.JP.          IN  SOA
 ENTRY_END
 ; ... get a NOERROR answer
-STEP 73 CHECK_ANSWER
+STEP 72 CHECK_ANSWER
 ENTRY_BEGIN
 MATCH all
 REPLY QR NOERROR
@@ -337,22 +330,21 @@ SECTION ANSWER
 ;                                                                    ^ Now at serial 3!
 ENTRY_END
 
-; Now force switching back to RETRY mode again but this time don't succeed
-; within the EXPIRE interval.
+; For the next two steps no mock reply is defined above.
+; Let enough time pass such that the zone enters the RETRY state.
 STEP 80 TIME_PASSES ELAPSE 1801
-STEP 81 TIME_PASSES ELAPSE 0
-STEP 82 TIME_PASSES ELAPSE 604800
-STEP 83 TIME_PASSES ELAPSE 0
+; Let enough time pass such that the zone enters the EXPIRED state.
+STEP 81 TIME_PASSES ELAPSE 604800
 
 ; The zone should now be expired, querying it should fail.
-STEP 84 QUERY
+STEP 82 QUERY
 ENTRY_BEGIN
 MATCH UDP
 SECTION QUESTION
     JAIN.AD.JP.          IN  SOA
 ENTRY_END
 ; ... get a SERVFAIL answer
-STEP 85 CHECK_ANSWER
+STEP 83 CHECK_ANSWER
 ENTRY_BEGIN
 MATCH all
 REPLY QR SERVFAIL

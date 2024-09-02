@@ -14,12 +14,12 @@ use crate::base::message_builder::AdditionalBuilder;
 use crate::base::Message;
 use tracing::trace;
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct Connection {
     stelline: Stelline,
     step_value: Arc<CurrStepValue>,
     waker: Option<Waker>,
-    reply: Option<AdditionalBuilder<Vec<u8>>>,
+    reply: Option<Result<AdditionalBuilder<Vec<u8>>, std::io::Error>>,
     send_body: bool,
 
     tmpbuf: Vec<u8>,
@@ -48,8 +48,12 @@ impl AsyncRead for Connection {
         buf: &mut ReadBuf<'_>,
     ) -> Poll<Result<(), std::io::Error>> {
         if self.reply.is_some() {
+            if self.reply.as_ref().unwrap().is_err() {
+                self.reply.take().unwrap()?;
+            }
             trace!("Returning stored reply to the caller");
-            let slice = self.reply.as_ref().unwrap().as_slice();
+            let slice = self.reply.as_ref().unwrap().as_ref().unwrap().as_slice();
+            let slice = slice;
             let len = slice.len();
             if self.send_body {
                 buf.put_slice(slice);

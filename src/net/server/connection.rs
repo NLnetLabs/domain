@@ -616,7 +616,7 @@ where
     ) -> Result<(), ConnectionEvent> {
         if enabled!(Level::TRACE) {
             let bytes = msg.as_dgram_slice();
-            let pcap_text = to_pcap_text(bytes, bytes.len().min(128));
+            let pcap_text = to_pcap_text(bytes, bytes.len());//.min(128));
             trace!(addr = %self.addr, pcap_text, "Sending response (dumping max 128 bytes)");
         }
 

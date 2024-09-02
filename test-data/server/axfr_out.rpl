@@ -37,19 +37,21 @@ CONFIG_END
 
 SCENARIO_BEGIN Test AXFR out.
 
-; Verify that AXFR over UDP is refused
-STEP 10 QUERY
-ENTRY_BEGIN
-MATCH UDP
-SECTION QUESTION
-    com. IN AXFR
-ENTRY_END
-
-STEP 11 CHECK_ANSWER
-ENTRY_BEGIN
-MATCH all
-REPLY QR AA REFUSED
-ENTRY_END
+; Note: It is not currently possible to construct a UDP AXFR query so we cannot
+; test that the server refuses the request. This instead results in FORMERR
+; during request construction rather than REFUSED from the server.
+;STEP 10 QUERY
+;ENTRY_BEGIN
+;MATCH UDP
+;SECTION QUESTION
+;    com. IN AXFR
+;ENTRY_END
+;
+;STEP 11 CHECK_ANSWER
+;ENTRY_BEGIN
+;MATCH all
+;REPLY QR AA REFUSED
+;ENTRY_END
 
 ; Retrieve the zone via AXFR from the server
 STEP 20 QUERY

@@ -140,6 +140,7 @@
 //!   a server perspective; primarily the `net::server` module.
 //! * `unstable-validator`: a DNSSEC validator, primarily the `validator`
 //!   and the `net::client::validator` modules.
+//! * `unstable-xfr`: zone transfer related functionality..
 //! * `unstable-zonetree`: building & querying zone trees; primarily the
 //!   `zonetree` and `zonemaintenance` module.
 //!

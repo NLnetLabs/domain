@@ -56,7 +56,7 @@ pub struct DgramConnection {
     stelline: Stelline,
     step_value: Arc<CurrStepValue>,
 
-    reply: SyncMutex<Option<AdditionalBuilder<Vec<u8>>>>,
+    reply: SyncMutex<Option<std::io::Result<AdditionalBuilder<Vec<u8>>>>>,
     waker: SyncMutex<Option<Waker>>,
 }
 
@@ -78,12 +78,14 @@ impl AsyncDgramRecv for DgramConnection {
     ) -> Poll<Result<(), std::io::Error>> {
         let mut reply = self.reply.lock().unwrap();
         if (*reply).is_some() {
-            let slice = (*reply).as_ref().unwrap().as_slice();
+            if reply.as_ref().unwrap().is_err() {
+                reply.take().unwrap()?;
+            }
+            let slice = (*reply).as_ref().unwrap().as_ref().unwrap().as_slice();
             buf.put_slice(slice);
             *reply = None;
             return Poll::Ready(Ok(()));
         }
-        *reply = None;
         let mut waker = self.waker.lock().unwrap();
         *waker = Some(cx.waker().clone());
         Poll::Pending

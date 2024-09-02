@@ -13,7 +13,6 @@ use std::sync::Arc;
 use std::time::Duration;
 use std::vec::Vec;
 
-use futures::Future;
 use octseq::Octets;
 use ring::test::rand::FixedByteRandom;
 use rstest::rstest;
@@ -25,8 +24,14 @@ use crate::base::iana::Rcode;
 use crate::base::name::{Name, ToName};
 use crate::base::net::IpAddr;
 use crate::base::wire::Composer;
-use crate::net::client::request::{RequestMessage, SendRequest};
-use crate::net::client::{dgram, stream, tsig, xfr};
+use crate::base::Rtype;
+use crate::net::client::request::{
+    RequestMessage, RequestMessageMulti, SendRequest, SendRequestMulti,
+};
+use crate::net::client::tsig::{
+    AuthenticatedRequestMessage, AuthenticatedRequestMessageMulti,
+};
+use crate::net::client::{dgram, stream, tsig};
 use crate::net::server;
 use crate::net::server::buf::VecBufSource;
 use crate::net::server::dgram::DgramServer;
@@ -43,8 +48,8 @@ use crate::net::server::util::{mk_builder_for_target, service_fn};
 use crate::stelline;
 use crate::stelline::channel::ClientServerChannel;
 use crate::stelline::client::{
-    do_client, ClientFactory, CurrStepValue, PerClientAddressClientFactory,
-    QueryTailoredClientFactory,
+    do_client, Client, ClientFactory, CurrStepValue,
+    PerClientAddressClientFactory, QueryTailoredClientFactory,
 };
 use crate::stelline::parse_stelline::{
     self, parse_file, Config, Matches, Stelline,
@@ -54,7 +59,8 @@ use crate::tsig::{Algorithm, Key, KeyName, KeyStore};
 use crate::utils::base16;
 use crate::zonefile::inplace::Zonefile;
 use crate::zonemaintenance::maintainer::{
-    self, ConnectionFactory, TypedZone, ZoneError, ZoneLookup, ZoneMaintainer,
+    self, ConnectionFactory, TcpClientResult, TypedZone, UdpClientResult,
+    ZoneError, ZoneLookup, ZoneMaintainer,
 };
 use crate::zonemaintenance::types::{
     CompatibilityMode, NotifyConfig, TransportStrategy, XfrConfig,
@@ -299,18 +305,25 @@ fn mk_client_factory(
             let key = entry.key_name.as_ref().and_then(|key_name| {
                 tcp_key_store.get_key(&key_name, Algorithm::Sha256)
             });
-            let (client, transport) = stream::Connection::new(
-                stream_server_conn
-                    .connect(Some(SocketAddr::new(*source_addr, 0))),
-            );
-
-            tokio::spawn(async move {
-                transport.run().await;
-                trace!("TCP connection terminated");
-            });
-
-            let client = xfr::Connection::new(None, client);
-            Box::new(tsig::Connection::new(client, key))
+            let stream = stream_server_conn
+                .connect(Some(SocketAddr::new(*source_addr, 0)));
+            let (conn, transport) = stream::Connection::<
+                AuthenticatedRequestMessage<RequestMessage<Vec<u8>>, Key>,
+                AuthenticatedRequestMessageMulti<
+                    RequestMessageMulti<Vec<u8>>,
+                    Key,
+                >,
+            >::new(stream);
+            tokio::spawn(transport.run());
+            let conn = Box::new(tsig::Connection::new(key, conn));
+            if let Some(sections) = &entry.sections {
+                if let Some(q) = sections.question.first() {
+                    if matches!(q.qtype(), Rtype::AXFR | Rtype::IXFR) {
+                        return Client::Multi(conn);
+                    }
+                }
+            }
+            Client::Single(conn)
         },
         only_for_tcp_queries,
     );
@@ -321,22 +334,24 @@ fn mk_client_factory(
 
     let udp_client_factory = PerClientAddressClientFactory::new(
         move |source_addr, entry| {
+            let key = entry.key_name.as_ref().and_then(|key_name| {
+                key_store.get_key(&key_name, Algorithm::Sha256)
+            });
             let connect = dgram_server_conn
                 .new_client(Some(SocketAddr::new(*source_addr, 0)));
 
             match entry.matches.as_ref().map(|v| v.mock_client) {
                 Some(true) => {
-                    Box::new(simple_dgram_client::Connection::new(connect))
+                    Client::Single(Box::new(tsig::Connection::new(
+                        key,
+                        simple_dgram_client::Connection::new(connect),
+                    )))
                 }
-                _ => {
-                    let key = entry.key_name.as_ref().and_then(|key_name| {
-                        key_store.get_key(&key_name, Algorithm::Sha256)
-                    });
-                    let client = dgram::Connection::new(connect);
-                    // While AXFR is TCP only, IXFR can also be done over UDP.
-                    let client = xfr::Connection::new(None, client);
-                    Box::new(tsig::Connection::new(client, key))
-                }
+
+                _ => Client::Single(Box::new(tsig::Connection::new(
+                    key,
+                    dgram::Connection::new(connect),
+                ))),
             }
         },
         for_all_other_queries,
@@ -621,96 +636,85 @@ fn parse_server_config(config: &Config) -> ServerConfig {
     parsed_config
 }
 
-#[allow(dead_code)]
-#[derive(Clone, Default)]
-struct TestServerConnFactory {
-    dgram_server_conn: ClientServerChannel,
-    stream_server_conn: ClientServerChannel,
-}
+// #[allow(dead_code)]
+// #[derive(Clone, Default)]
+// struct TestServerConnFactory {
+//     dgram_server_conn: ClientServerChannel,
+//     stream_server_conn: ClientServerChannel,
+// }
 
-impl ConnectionFactory for TestServerConnFactory {
-    type Error = String;
+// impl ConnectionFactory for TestServerConnFactory {
+//     type Error = String;
 
-    fn get<K, Octs>(
-        &self,
-        _dest: SocketAddr,
-        strategy: TransportStrategy,
-        key: Option<K>,
-    ) -> Pin<
-        Box<
-            dyn Future<
-                    Output = Result<
-                        Option<
-                            Box<
-                                dyn SendRequest<RequestMessage<Octs>>
-                                    + Send
-                                    + Sync
-                                    + 'static,
-                            >,
-                        >,
-                        Self::Error,
-                    >,
-                > + Send
-                + Sync
-                + 'static,
-        >,
-    >
-    where
-        K: Clone + Debug + AsRef<Key> + Send + Sync + 'static,
-        Octs: Octets + Debug + Send + Sync + 'static,
-    {
-        let client = match strategy {
-            TransportStrategy::None => Ok(None),
+//     fn get_udp<K, Octs>(
+//         &self,
+//         _dest: SocketAddr,
+//         key: Option<K>,
+//     ) -> Pin<UdpClientResult<Octs, Self::Error>>
+//     where
+//         K: Clone + Debug + AsRef<Key> + Send + Sync + 'static,
+//         Octs: Octets + Debug + Send + Sync + 'static,
+//     {
+//         let mut dgram_config = dgram::Config::new();
+//         dgram_config.set_max_parallel(1);
+//         dgram_config.set_read_timeout(Duration::from_millis(1000));
+//         dgram_config.set_max_retries(1);
+//         dgram_config.set_udp_payload_size(Some(1400));
 
-            TransportStrategy::Udp => {
-                let mut dgram_config = dgram::Config::new();
-                dgram_config.set_max_parallel(1);
-                dgram_config.set_read_timeout(Duration::from_millis(1000));
-                dgram_config.set_max_retries(1);
-                dgram_config.set_udp_payload_size(Some(1400));
+//         let client = dgram::Connection::with_config(
+//             self.dgram_server_conn.new_client(None),
+//             dgram_config,
+//         );
 
-                let client = dgram::Connection::with_config(
-                    self.dgram_server_conn.new_client(None),
-                    dgram_config,
-                );
-                Ok(Some(Box::new(tsig::Connection::new(client, key))
-                    as Box<
-                        dyn SendRequest<RequestMessage<Octs>> + Send + Sync,
-                    >))
-            }
+//         let client = Ok(Some(Box::new(tsig::Connection::new(key, client))
+//             as Box<dyn SendRequest<RequestMessage<Octs>> + Send + Sync>));
 
-            TransportStrategy::Tcp => {
-                let mut stream_config = stream::Config::new();
-                stream_config.set_response_timeout(Duration::from_secs(2));
-                // Allow time between the SOA query response and sending the
-                // AXFR/IXFR request.
-                stream_config.set_idle_timeout(Duration::from_secs(5));
-                // Allow much more time for an XFR streaming response.
-                stream_config
-                    .set_streaming_response_timeout(Duration::from_secs(30));
+//         Box::pin(ready(client))
+//     }
 
-                let (client, transport) = {
-                    stream::Connection::with_config(
-                        self.stream_server_conn.connect(None),
-                        stream_config,
-                    )
-                };
+//     fn get_tcp<K, Octs>(
+//         &self,
+//         _dest: SocketAddr,
+//         key: Option<K>,
+//     ) -> Pin<TcpClientResult<Octs, Self::Error>>
+//     where
+//         K: Clone + Debug + AsRef<Key> + Send + Sync + 'static,
+//         Octs: Octets + Debug + Send + Sync + 'static,
+//     {
+//         let mut stream_config = stream::Config::new();
+//         stream_config.set_response_timeout(Duration::from_secs(2));
+//         // Allow time between the SOA query response and sending the
+//         // AXFR/IXFR request.
+//         stream_config.set_idle_timeout(Duration::from_secs(5));
+//         // Allow much more time for an XFR streaming response.
+//         stream_config.set_streaming_response_timeout(Duration::from_secs(30));
 
-                tokio::spawn(async move {
-                    transport.run().await;
-                    trace!("TCP connection terminated");
-                });
+//         let (client, transport) = {
+//             stream::Connection::<
+//                 AuthenticatedRequestMessage<RequestMessage<Octs>, K>,
+//                 AuthenticatedRequestMessageMulti<
+//                     RequestMessageMulti<Octs>,
+//                     K,
+//                 >,
+//             >::with_config(
+//                 self.stream_server_conn.connect(None),
+//                 stream_config,
+//             )
+//         };
 
-                Ok(Some(Box::new(tsig::Connection::new(client, key))
-                    as Box<
-                        dyn SendRequest<RequestMessage<Octs>> + Send + Sync,
-                    >))
-            }
-        };
+//         tokio::spawn(async move {
+//             transport.run().await;
+//             trace!("TCP connection terminated");
+//         });
 
-        Box::pin(ready(client))
-    }
-}
+//         let client = Ok(Some(Box::new(tsig::Connection::new(key, client))
+//             as Box<
+//                 dyn SendRequestMulti<RequestMessageMulti<Octs>> + Send + Sync,
+//             >));
+
+//         Box::pin(ready(client))
+//     }
+// }
 
 #[derive(Clone)]
 struct MockServerConnFactory {
@@ -736,88 +740,73 @@ impl MockServerConnFactory {
 impl ConnectionFactory for MockServerConnFactory {
     type Error = String;
 
-    fn get<K, Octs>(
+    fn get_udp<K, Octs>(
         &self,
         _dest: SocketAddr,
-        strategy: TransportStrategy,
         key: Option<K>,
-    ) -> Pin<
-        Box<
-            dyn Future<
-                    Output = Result<
-                        Option<
-                            Box<
-                                dyn SendRequest<RequestMessage<Octs>>
-                                    + Send
-                                    + Sync
-                                    + 'static,
-                            >,
-                        >,
-                        Self::Error,
-                    >,
-                > + Send
-                + Sync
-                + 'static,
-        >,
-    >
+    ) -> Pin<UdpClientResult<Octs, Self::Error>>
     where
         K: Clone + Debug + AsRef<Key> + Send + Sync + 'static,
         Octs: Octets + Debug + Send + Sync + 'static,
     {
-        let client = match strategy {
-            TransportStrategy::None => Ok(None),
+        let mut dgram_config = dgram::Config::new();
+        dgram_config.set_max_parallel(1);
+        dgram_config.set_read_timeout(Duration::from_millis(1000));
+        dgram_config.set_max_retries(1);
+        dgram_config.set_udp_payload_size(Some(1400));
 
-            TransportStrategy::Udp => {
-                let mut dgram_config = dgram::Config::new();
-                dgram_config.set_max_parallel(1);
-                dgram_config.set_read_timeout(Duration::from_millis(1000));
-                dgram_config.set_max_retries(1);
-                dgram_config.set_udp_payload_size(Some(1400));
+        let dgram_conn = stelline::dgram::Dgram::new(
+            self.stelline.clone(),
+            self.step_value.clone(),
+        );
+        let client = dgram::Connection::with_config(dgram_conn, dgram_config);
 
-                let dgram_conn = stelline::dgram::Dgram::new(
-                    self.stelline.clone(),
-                    self.step_value.clone(),
-                );
-                let client =
-                    dgram::Connection::with_config(dgram_conn, dgram_config);
-                Ok(Some(Box::new(tsig::Connection::new(client, key))
-                    as Box<
-                        dyn SendRequest<RequestMessage<Octs>> + Send + Sync,
-                    >))
-            }
+        let client = Ok(Some(Box::new(tsig::Connection::new(key, client))
+            as Box<dyn SendRequest<RequestMessage<Octs>> + Send + Sync>));
 
-            TransportStrategy::Tcp => {
-                let mut stream_config = stream::Config::new();
-                stream_config.set_response_timeout(Duration::from_secs(2));
-                // Allow time between the SOA query response and sending the
-                // AXFR/IXFR request.
-                stream_config.set_idle_timeout(Duration::from_secs(5));
-                // Allow much more time for an XFR streaming response.
-                stream_config
-                    .set_streaming_response_timeout(Duration::from_secs(30));
+        Box::pin(ready(client))
+    }
 
-                let (client, transport) = {
-                    let stream_conn = stelline::connection::Connection::new(
-                        self.stelline.clone(),
-                        self.step_value.clone(),
-                    );
-                    stream::Connection::with_config(
-                        stream_conn,
-                        stream_config,
-                    )
-                };
+    fn get_tcp<K, Octs>(
+        &self,
+        _dest: SocketAddr,
+        key: Option<K>,
+    ) -> Pin<TcpClientResult<Octs, Self::Error>>
+    where
+        K: Clone + Debug + AsRef<Key> + Send + Sync + 'static,
+        Octs: Octets + Debug + Send + Sync + 'static,
+    {
+        let mut stream_config = stream::Config::new();
+        stream_config.set_response_timeout(Duration::from_secs(2));
+        // Allow time between the SOA query response and sending the
+        // AXFR/IXFR request.
+        stream_config.set_idle_timeout(Duration::from_secs(5));
+        // Allow much more time for an XFR streaming response.
+        stream_config.set_streaming_response_timeout(Duration::from_secs(30));
 
-                tokio::spawn(async move {
-                    transport.run().await;
-                    trace!("TCP connection terminated");
-                });
-
-                Ok(Some(Box::new(tsig::Connection::new(client, key))
-                    as Box<
-                        dyn SendRequest<RequestMessage<Octs>> + Send + Sync,
-                    >))
-            }
+        let (client, transport) = {
+            let stream_conn = stelline::connection::Connection::new(
+                self.stelline.clone(),
+                self.step_value.clone(),
+            );
+            stream::Connection::<
+                AuthenticatedRequestMessage<RequestMessage<Octs>, K>,
+                AuthenticatedRequestMessageMulti<
+                    RequestMessageMulti<Octs>,
+                    K,
+                >,
+            >::with_config(stream_conn, stream_config)
         };
+
+        tokio::spawn(async move {
+            transport.run().await;
+            trace!("TCP connection terminated");
+        });
+
+        let client = Ok(Some(Box::new(tsig::Connection::new(key, client))
+            as Box<
+                dyn SendRequestMulti<RequestMessageMulti<Octs>> + Send + Sync,
+            >));
 
         Box::pin(ready(client))
     }

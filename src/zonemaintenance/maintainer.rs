@@ -43,7 +43,12 @@ use crate::base::{
 use crate::net;
 use crate::net::client::dgram::{self, Connection};
 use crate::net::client::protocol::UdpConnect;
-use crate::net::client::request::{self, RequestMessage, SendRequest};
+use crate::net::client::request::{
+    self, RequestMessage, RequestMessageMulti, SendRequest, SendRequestMulti,
+};
+use crate::net::client::tsig::{
+    AuthenticatedRequestMessage, AuthenticatedRequestMessageMulti,
+};
 use crate::rdata::{Soa, ZoneRecordData};
 use crate::tsig::{Key, KeyStore};
 use crate::zonetree::error::{OutOfZone, ZoneTreeModificationError};
@@ -59,37 +64,46 @@ use super::types::{
     ZoneRefreshStatus, ZoneRefreshTimer, ZoneReport, ZoneReportDetails,
     IANA_DNS_PORT_NUMBER, MIN_DURATION_BETWEEN_ZONE_REFRESHES,
 };
+use crate::net::xfr::processing::{
+    ProcessingError, XfrEvent, XfrResponseProcessor,
+};
+use crate::zonetree::xfr_event_handler::ZoneUpdateEventHandler;
 
 //------------ ConnectionFactory ---------------------------------------------
+
+pub type FactoryResult<SR, E> = Box<
+    dyn Future<Output = Result<Option<Box<SR>>, E>> + Send + Sync + 'static,
+>;
+
+pub type UdpClientResult<Octs, E> = FactoryResult<
+    dyn SendRequest<RequestMessage<Octs>> + Send + Sync + 'static,
+    E,
+>;
+
+pub type TcpClientResult<Octs, E> = FactoryResult<
+    dyn SendRequestMulti<RequestMessageMulti<Octs>> + Send + Sync + 'static,
+    E,
+>;
 
 pub trait ConnectionFactory {
     type Error: Display;
 
     #[allow(clippy::type_complexity)]
-    fn get<K, Octs>(
+    fn get_udp<K, Octs>(
         &self,
         dest: SocketAddr,
-        strategy: TransportStrategy,
         key: Option<K>,
-    ) -> Pin<
-        Box<
-            dyn Future<
-                    Output = Result<
-                        Option<
-                            Box<
-                                dyn SendRequest<RequestMessage<Octs>>
-                                    + Send
-                                    + Sync
-                                    + 'static,
-                            >,
-                        >,
-                        Self::Error,
-                    >,
-                > + Send
-                + Sync
-                + 'static,
-        >,
-    >
+    ) -> Pin<UdpClientResult<Octs, Self::Error>>
+    where
+        K: Clone + Debug + AsRef<Key> + Send + Sync + 'static,
+        Octs: Octets + Debug + Send + Sync + 'static;
+
+    #[allow(clippy::type_complexity)]
+    fn get_tcp<K, Octs>(
+        &self,
+        dest: SocketAddr,
+        key: Option<K>,
+    ) -> Pin<TcpClientResult<Octs, Self::Error>>
     where
         K: Clone + Debug + AsRef<Key> + Send + Sync + 'static,
         Octs: Octets + Debug + Send + Sync + 'static;
@@ -674,7 +688,7 @@ where
 
         for nameserver_addr in notify_set {
             let dgram_config = dgram_config.clone();
-            let req = RequestMessage::new(msg.clone());
+            let req = RequestMessage::new(msg.clone()).unwrap();
             let nameserver_addr = *nameserver_addr;
 
             let tsig_key = zone_info
@@ -700,8 +714,8 @@ where
                 );
 
                 let client = net::client::tsig::Connection::new(
-                    client,
                     tsig_key.clone(),
+                    client,
                 );
 
                 trace!("Sending NOTIFY to nameserver {nameserver_addr}");
@@ -1227,6 +1241,7 @@ where
                         // Transfer failed. This should already have been
                         // logged along with more details about the transfer
                         // than we have here. Try the next primary.
+                        warn!("Refreshing zone '{}' from {primary_addr} failed: {err}", zone.apex_name());
                         saved_err = Some(err);
                     }
                 }
@@ -1248,7 +1263,76 @@ where
         zone_refresh_info: &mut ZoneRefreshState,
         config: Arc<ArcSwap<Config<KS, CF>>>,
     ) -> Result<Option<Soa<Name<Bytes>>>, ZoneMaintainerError> {
-        // TODO: Replace this loop with one, or two, calls to a helper fn.
+        // Build the SOA request message
+        let msg = MessageBuilder::new_vec();
+        let mut msg = msg.question();
+        msg.push((zone.apex_name(), Rtype::SOA)).unwrap();
+        let msg = msg.into_message();
+        let req = RequestMessage::new(msg).unwrap();
+
+        // https://datatracker.ietf.org/doc/html/rfc5936#section-6
+        // 6.  Zone Integrity
+        // ...
+        //   "Besides best attempts at securing TCP connections, DNS
+        //    implementations SHOULD provide means to make use of "Secret Key
+        //    Transaction Authentication for DNS (TSIG)" [RFC2845] and/or "DNS
+        //    Request and Transaction Signatures ( SIG(0)s )" [RFC2931] to
+        //    allow AXFR clients to verify the contents. These techniques MAY
+        //    also be used for authorization."
+        //
+        // When constructing an appropriate DNS client below to query the SOA
+        // and to do XFR a TSIG signing/validating "auth" connection is
+        // constructed if a key is specified and available.
+
+        let loaded_config = config.load();
+        let readable_key_store = &loaded_config.key_store;
+        let key = xfr_config
+            .tsig_key
+            .as_ref()
+            .and_then(|(name, alg)| readable_key_store.get_key(name, *alg));
+
+        // Query the SOA serial of the primary.
+        let Some(udp_client) = loaded_config
+            .conn_factory
+            .get_udp(primary_addr, key.clone())
+            .await
+            .map_err(|err| {
+                let key = key.clone().map(|key| format!("{key}")).unwrap_or("NOKEY".to_string());
+                ZoneMaintainerError::ConnectionError(format!("Connecting to {primary_addr} via UDP with key '{key}' failed: {err}"))
+            })?
+        else {
+            return Err(ZoneMaintainerError::NoConnectionAvailable);
+        };
+
+        trace!(
+            "Sending SOA query for zone '{}' to {primary_addr}",
+            zone.apex_name()
+        );
+        let send_request = &mut udp_client.send_request(req);
+        let msg = send_request.get_response().await?;
+
+        let primary_soa_serial =
+            Self::extract_response_soa_serial(msg).await?;
+
+        let newer_data_available = current_serial
+            .map(|v| primary_soa_serial > v)
+            .unwrap_or(true);
+
+        debug!("Current: {current_serial:?}");
+        debug!("Primary: {primary_soa_serial}");
+        debug!("Newer data available: {newer_data_available}");
+
+        if !newer_data_available {
+            zone_refresh_info.soa_serial_check_succeeded(None);
+            return Ok(None);
+        } else {
+            zone_refresh_info
+                .soa_serial_check_succeeded(Some(primary_soa_serial));
+        }
+
+        let mut udp_client = Some(udp_client);
+
+        // TODO: Replace this loop with one, or two, calls to a helper fn?
         // Try at least once, at most twice (when using IXFR -> AXFR fallback)
         for i in 0..=1 {
             // Determine the kind of transfer to use if the zone is outdated
@@ -1274,13 +1358,6 @@ where
                 _ => break,
             };
 
-            // Build the SOA request message
-            let msg = MessageBuilder::new_vec();
-            let mut msg = msg.question();
-            msg.push((zone.apex_name(), Rtype::SOA)).unwrap();
-            let msg = msg.into_message();
-            let req = RequestMessage::new(msg);
-
             // Fetch the SOA serial using the appropriate transport
             let transport = match rtype {
                 Rtype::AXFR => TransportStrategy::Tcp,
@@ -1288,70 +1365,25 @@ where
                 _ => unreachable!(),
             };
 
-            // https://datatracker.ietf.org/doc/html/rfc5936#section-6
-            // 6.  Zone Integrity
-            // ...
-            //   "Besides best attempts at securing TCP connections, DNS
-            //    implementations SHOULD provide means to make use of "Secret
-            //    Key Transaction Authentication for DNS (TSIG)" [RFC2845]
-            //    and/or "DNS Request and Transaction Signatures ( SIG(0)s )"
-            //    [RFC2931] to allow AXFR clients to verify the contents.
-            //    These techniques MAY also be used for authorization."
-            //
-            // When constructing an appropriate DNS client below to query the
-            // SOA and to do XFR a TSIG signing/validating "auth" connection
-            // is constructed if a key is specified and available.
-
-            let loaded_config = config.load();
-            let readable_key_store = &loaded_config.key_store; //.read().await;
-            let key = xfr_config.tsig_key.as_ref().and_then(|(name, alg)| {
-                readable_key_store.get_key(name, *alg)
-            });
-
-            // Query the SOA serial of the primary via the chosen transport.
-            let Some(client) = loaded_config
-                .conn_factory
-                .get(primary_addr, transport, key.clone())
-                .await
-                .map_err(|err| {
-                    let key = key.map(|key| format!("{key}")).unwrap_or("NOKEY".to_string());
-                    ZoneMaintainerError::ConnectionError(format!("Connecting to {primary_addr} via {transport} with key '{key}' failed: {err}"))
-                })?
-            else {
-                return Ok(None);
-            };
-
-            trace!(
-                "Sending SOA query for zone '{}' to {primary_addr}",
-                zone.apex_name()
-            );
-            let send_request = &mut client.send_request(req);
-            let msg = send_request.get_response().await?;
-
-            let primary_soa_serial =
-                Self::extract_response_soa_serial(msg).await?;
-
-            let newer_data_available = current_serial
-                .map(|v| primary_soa_serial > v)
-                .unwrap_or(true);
-
-            debug!("Current: {current_serial:?}");
-            debug!("Primary: {primary_soa_serial}");
-            debug!("Newer data available: {newer_data_available}");
-
-            if !newer_data_available {
-                zone_refresh_info.soa_serial_check_succeeded(None);
-                return Ok(None);
-            } else {
-                zone_refresh_info
-                    .soa_serial_check_succeeded(Some(primary_soa_serial));
+            if matches!(transport, TransportStrategy::None) {
+                // IXFR not allowed by the zone config.
+                continue;
             }
 
             trace!(
                 "Refreshing zone '{}' by {rtype} from {primary_addr}",
                 zone.apex_name()
             );
-            let res = Self::do_xfr(client, zone, primary_addr, rtype).await;
+            let res = Self::do_xfr(
+                udp_client.take(),
+                transport,
+                zone,
+                primary_addr,
+                rtype,
+                key.clone(),
+                config.clone(),
+            )
+            .await;
 
             match res {
                 Err(ZoneMaintainerError::ResponseError(OptRcode::NOTIMP))
@@ -1393,15 +1425,17 @@ where
         Err(ZoneMaintainerError::ResponseError(msg.opt_rcode()))
     }
 
-    async fn do_xfr<T>(
-        client: T,
+    async fn do_xfr(
+        udp_client: Option<
+            Box<dyn SendRequest<RequestMessage<Vec<u8>>> + Send + Sync>,
+        >,
+        transport: TransportStrategy,
         zone: &Zone,
         primary_addr: SocketAddr,
         xfr_type: Rtype,
-    ) -> Result<Soa<Name<Bytes>>, ZoneMaintainerError>
-    where
-        T: SendRequest<RequestMessage<Vec<u8>>> + Send + Sync + 'static,
-    {
+        key: Option<<<KS as Deref>::Target as KeyStore>::Key>,
+        config: Arc<ArcSwap<Config<KS, CF>>>,
+    ) -> Result<Soa<Name<Bytes>>, ZoneMaintainerError> {
         // Update the zone from the primary using XFR.
         info!(
             "Zone '{}' is outdated, attempting to sync zone by {xfr_type} from {}",
@@ -1432,24 +1466,164 @@ where
             msg.authority()
         };
 
-        let msg = msg.into_message();
-        let req = RequestMessage::new(msg);
+        let mut xfr_processor = XfrResponseProcessor::new();
+        let mut zone_updater = ZoneUpdateEventHandler::new(zone.clone())
+            .await
+            .map_err(ZoneMaintainerError::IoError)?;
 
-        let client =
-            net::client::xfr::Connection::new(Some(zone.clone()), client);
+        match transport {
+            TransportStrategy::None => unreachable!(),
 
-        let mut send_request = client.send_request(req);
+            TransportStrategy::Udp => {
+                // Use the given UDP client if available, else get another one.
 
-        while !send_request.is_stream_complete() {
-            let msg = send_request
-                .get_response()
-                .await
-                .map_err(ZoneMaintainerError::RequestError)?;
+                let client = match udp_client {
+                    Some(udp_client) => {
+                        trace!("Using existing UDP client");
+                        udp_client
+                    }
+                    None => {
+                        trace!("Getting UDP client");
+                        let loaded_config = config.load();
+                        let Some(udp_client) = loaded_config
+                            .conn_factory
+                            .get_udp(primary_addr, key.clone())
+                            .await
+                            .map_err(|err| {
+                                let key = key.map(|key| format!("{key}")).unwrap_or("NOKEY".to_string());
+                                ZoneMaintainerError::ConnectionError(format!("Connecting to {primary_addr} via UDP with key '{key}' failed: {err}"))
+                            })?
+                        else {
+                            return Err(ZoneMaintainerError::NoConnectionAvailable);
+                        };
+                        udp_client
+                    }
+                };
 
-            if msg.is_error() {
-                return Err(ZoneMaintainerError::ResponseError(
-                    msg.opt_rcode(),
-                ));
+                let msg = msg.into_message();
+                let req = RequestMessage::new(msg).unwrap();
+                let mut send_request = client.send_request(req);
+                let msg = send_request
+                    .get_response()
+                    .await
+                    .map_err(ZoneMaintainerError::RequestError)?;
+
+                if msg.is_error() {
+                    return Err(ZoneMaintainerError::ResponseError(
+                        msg.opt_rcode(),
+                    ));
+                }
+
+                // TODO: process response, either a complete IXFR or AXFR
+                // inside a single UDP packet (which could be a single SOA
+                // either indicating that the client is up-to-date, or if
+                // newer that the client should fallback to TCP).
+                let it = xfr_processor
+                    .process_answer(msg)
+                    .map_err(ZoneMaintainerError::ProcessingError)?;
+
+                let mut eot = false;
+
+                trace!("Processing XFR events");
+                for evt in it {
+                    let evt = evt.map_err(|_err| {
+                        ZoneMaintainerError::ProcessingError(
+                            ProcessingError::Malformed,
+                        )
+                    })?;
+
+                    eot = matches!(evt, XfrEvent::EndOfTransfer(_));
+
+                    zone_updater
+                        .handle_event(evt)
+                        .await
+                        .map_err(|()| ZoneMaintainerError::ZoneUpdateError)?;
+
+                    if eot {
+                        break;
+                    }
+                }
+
+                if !eot {
+                    trace!(
+                        "Processing XFR events complete: incomplete response"
+                    );
+                    return Err(ZoneMaintainerError::IncompleteResponse);
+                }
+
+                trace!("Processing XFR events complete");
+            }
+
+            TransportStrategy::Tcp => {
+                // Get a TCP connection.
+                trace!("Getting TCP client");
+                let loaded_config = config.load();
+                let Some(tcp_client) = loaded_config
+                    .conn_factory
+                    .get_tcp(primary_addr, key.clone())
+                    .await
+                    .map_err(|err| {
+                        let key = key.map(|key| format!("{key}")).unwrap_or("NOKEY".to_string());
+                        ZoneMaintainerError::ConnectionError(format!("Connecting to {primary_addr} via TCP with key '{key}' failed: {err}"))
+                    })?
+                else {
+                    return Err(ZoneMaintainerError::NoConnectionAvailable);
+                };
+
+                let msg = msg.into_message();
+                let req = RequestMessageMulti::new(msg).unwrap();
+                let mut send_request = tcp_client.send_request(req);
+
+                trace!("Fetching XFR responses");
+                'outer: loop {
+                    trace!("Fetching XFR response");
+                    let msg = send_request
+                        .get_response()
+                        .await
+                        .map_err(ZoneMaintainerError::RequestError)?;
+
+                    let Some(msg) = msg else {
+                        return Err(ZoneMaintainerError::IncompleteResponse);
+                    };
+
+                    if msg.is_error() {
+                        return Err(ZoneMaintainerError::ResponseError(
+                            msg.opt_rcode(),
+                        ));
+                    }
+
+                    let it = xfr_processor
+                        .process_answer(msg)
+                        .map_err(ZoneMaintainerError::ProcessingError)?;
+
+                    trace!("Processing XFR events");
+
+                    for evt in it {
+                        let evt = evt.map_err(|_err| {
+                            ZoneMaintainerError::ProcessingError(
+                                ProcessingError::Malformed,
+                            )
+                        })?;
+
+                        let eot = matches!(evt, XfrEvent::EndOfTransfer(_));
+
+                        zone_updater.handle_event(evt).await.map_err(
+                            |()| {
+                                error!("Zone update error");
+                                ZoneMaintainerError::ZoneUpdateError
+                            },
+                        )?;
+
+                        if eot {
+                            trace!("Processing XFR events: EoT detected");
+                            break 'outer;
+                        }
+                    }
+
+                    trace!("Processing XFR events complete");
+                }
+
+                trace!("Fetching XFR responses complete");
             }
         }
 
@@ -2088,6 +2262,11 @@ pub enum ZoneMaintainerError {
     ResponseError(OptRcode),
     IoError(io::Error),
     ConnectionError(String),
+    NoConnectionAvailable,
+    IxfrResponseTooLargeForUdp,
+    IncompleteResponse,
+    ProcessingError(ProcessingError),
+    ZoneUpdateError,
 }
 
 //--- Display
@@ -2113,6 +2292,21 @@ impl Display for ZoneMaintainerError {
             }
             ZoneMaintainerError::ConnectionError(err) => {
                 f.write_fmt(format_args!("Unable to connect: {err}"))
+            }
+            ZoneMaintainerError::NoConnectionAvailable => {
+                f.write_str("No connection available")
+            }
+            ZoneMaintainerError::IxfrResponseTooLargeForUdp => {
+                f.write_str("IXFR response too large for UDP")
+            }
+            ZoneMaintainerError::IncompleteResponse => {
+                f.write_str("Incomplete response")
+            }
+            ZoneMaintainerError::ProcessingError(err) => {
+                f.write_fmt(format_args!("Processing error: {err}"))
+            }
+            ZoneMaintainerError::ZoneUpdateError => {
+                f.write_str("Zone update error")
             }
         }
     }
@@ -2144,10 +2338,9 @@ pub struct DefaultConnFactory;
 impl ConnectionFactory for DefaultConnFactory {
     type Error = String;
 
-    fn get<K, Octs>(
+    fn get_udp<K, Octs>(
         &self,
         dest: SocketAddr,
-        strategy: TransportStrategy,
         key: Option<K>,
     ) -> Pin<
         Box<
@@ -2173,69 +2366,90 @@ impl ConnectionFactory for DefaultConnFactory {
         Octs: Octets + Debug + Send + Sync + 'static,
     {
         let fut = async move {
-            match strategy {
-                TransportStrategy::None => Ok(None),
+            let mut dgram_config = dgram::Config::new();
+            dgram_config.set_max_parallel(1);
+            dgram_config.set_read_timeout(Duration::from_millis(1000));
+            dgram_config.set_max_retries(1);
+            dgram_config.set_udp_payload_size(Some(1400));
 
-                TransportStrategy::Udp => {
-                    let mut dgram_config = dgram::Config::new();
-                    dgram_config.set_max_parallel(1);
-                    dgram_config
-                        .set_read_timeout(Duration::from_millis(1000));
-                    dgram_config.set_max_retries(1);
-                    dgram_config.set_udp_payload_size(Some(1400));
+            let client = dgram::Connection::with_config(
+                UdpConnect::new(dest),
+                dgram_config,
+            );
+            Ok(Some(
+                Box::new(net::client::tsig::Connection::new(key, client))
+                    as Box<
+                        dyn SendRequest<RequestMessage<Octs>> + Send + Sync,
+                    >,
+            ))
+        };
 
-                    let client = dgram::Connection::with_config(
-                        UdpConnect::new(dest),
-                        dgram_config,
-                    );
-                    Ok(Some(Box::new(net::client::tsig::Connection::new(
-                        client, key,
-                    ))
-                        as Box<
-                            dyn SendRequest<RequestMessage<Octs>>
-                                + Send
-                                + Sync,
-                        >))
-                }
+        Box::pin(fut)
+    }
 
-                TransportStrategy::Tcp => {
-                    let mut stream_config =
-                        net::client::stream::Config::new();
-                    stream_config
-                        .set_response_timeout(Duration::from_secs(2));
-                    // Allow time between the SOA query response and sending the
-                    // AXFR/IXFR request.
-                    stream_config.set_idle_timeout(Duration::from_secs(5));
-                    // Allow much more time for an XFR streaming response.
-                    stream_config.set_streaming_response_timeout(
-                        Duration::from_secs(30),
-                    );
+    fn get_tcp<K, Octs>(
+        &self,
+        dest: SocketAddr,
+        key: Option<K>,
+    ) -> Pin<
+        Box<
+            dyn Future<
+                    Output = Result<
+                        Option<
+                            Box<
+                                dyn SendRequestMulti<
+                                        RequestMessageMulti<Octs>,
+                                    > + Send
+                                    + Sync
+                                    + 'static,
+                            >,
+                        >,
+                        Self::Error,
+                    >,
+                > + Send
+                + Sync
+                + 'static,
+        >,
+    >
+    where
+        K: Clone + Debug + AsRef<Key> + Send + Sync + 'static,
+        Octs: Octets + Debug + Send + Sync + 'static,
+    {
+        let fut = async move {
+            let mut stream_config = net::client::stream::Config::new();
+            stream_config.set_response_timeout(Duration::from_secs(2));
+            // Allow time between the SOA query response and sending the
+            // AXFR/IXFR request.
+            stream_config.set_idle_timeout(Duration::from_secs(5));
+            // Allow much more time for an XFR streaming response.
+            stream_config
+                .set_streaming_response_timeout(Duration::from_secs(30));
 
-                    let (client, transport) = {
-                        let tcp_stream = TcpStream::connect(dest)
-                            .await
-                            .map_err(|err| format!("{err}"))?;
-                        net::client::stream::Connection::with_config(
-                            tcp_stream,
-                            stream_config,
-                        )
-                    };
+            let (client, transport) = {
+                let tcp_stream = TcpStream::connect(dest)
+                    .await
+                    .map_err(|err| format!("{err}"))?;
+                net::client::stream::Connection::<
+                    AuthenticatedRequestMessage<RequestMessage<Octs>, K>,
+                    AuthenticatedRequestMessageMulti<
+                        RequestMessageMulti<Octs>,
+                        K,
+                    >,
+                >::with_config(tcp_stream, stream_config)
+            };
 
-                    tokio::spawn(async move {
-                        transport.run().await;
-                        trace!("TCP connection terminated");
-                    });
+            tokio::spawn(async move {
+                transport.run().await;
+                trace!("TCP connection terminated");
+            });
 
-                    Ok(Some(Box::new(net::client::tsig::Connection::new(
-                        client, key,
-                    ))
-                        as Box<
-                            dyn SendRequest<RequestMessage<Octs>>
-                                + Send
-                                + Sync,
-                        >))
-                }
-            }
+            let conn = net::client::tsig::Connection::new(key, client);
+            Ok(Some(Box::new(conn)
+                as Box<
+                    dyn SendRequestMulti<RequestMessageMulti<Octs>>
+                        + Send
+                        + Sync,
+                >))
         };
 
         Box::pin(fut)
