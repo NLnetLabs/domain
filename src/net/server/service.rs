@@ -173,7 +173,7 @@ pub type ServiceResult<Target> = Result<CallResult<Target>, ServiceError>;
 /// [`call`]: Self::call()
 /// [`service_fn`]: crate::net::server::util::service_fn()
 pub trait Service<
-    RequestOctets: AsRef<[u8]> + Send + Sync + Unpin = Vec<u8>,
+    RequestOctets: AsRef<[u8]> + Send + Sync = Vec<u8>,
     RequestMeta: Clone + Default = (),
 >
 {
