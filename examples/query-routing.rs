@@ -549,7 +549,7 @@ where
         PostprocessingStream<
             RequestOctets,
             Svc::Future,
-            Svc::Stream,
+            Svc::Stream, (),
             Arc<RwLock<Stats>>,
         >,
         Empty<ServiceResult<Self::Target>>,
@@ -579,13 +579,14 @@ fn build_middleware_chain<Svc>(
 ) -> StatsMiddlewareSvc<
     MandatoryMiddlewareSvc<
         Vec<u8>,
-        EdnsMiddlewareSvc<Vec<u8>, CookiesMiddlewareSvc<Vec<u8>, Svc>>,
+        EdnsMiddlewareSvc<Vec<u8>, CookiesMiddlewareSvc<Vec<u8>, Svc, ()>, ()>,
+	()
     >,
 > {
     #[cfg(feature = "siphasher")]
-    let svc = CookiesMiddlewareSvc::<Vec<u8>, _>::with_random_secret(svc);
-    let svc = EdnsMiddlewareSvc::<Vec<u8>, _>::new(svc);
-    let svc = MandatoryMiddlewareSvc::<Vec<u8>, _>::new(svc);
+    let svc = CookiesMiddlewareSvc::<Vec<u8>, _, _>::with_random_secret(svc);
+    let svc = EdnsMiddlewareSvc::<Vec<u8>, _, _>::new(svc);
+    let svc = MandatoryMiddlewareSvc::<Vec<u8>, _, _>::new(svc);
     StatsMiddlewareSvc::new(svc, stats.clone())
 }
 
