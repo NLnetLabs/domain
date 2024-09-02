@@ -81,7 +81,8 @@ impl AsyncDgramRecv for DgramConnection {
             if reply.as_ref().unwrap().is_err() {
                 reply.take().unwrap()?;
             }
-            let slice = (*reply).as_ref().unwrap().as_ref().unwrap().as_slice();
+            let slice =
+                (*reply).as_ref().unwrap().as_ref().unwrap().as_slice();
             buf.put_slice(slice);
             *reply = None;
             return Poll::Ready(Ok(()));

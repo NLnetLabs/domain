@@ -72,7 +72,10 @@ impl<'a, 'b> Iterator for XfrEventIterator<'a, 'b> {
             }
 
             Some(Err(err)) => {
-                trace!("XFR record {}: parsing error: {err}", self.state.rr_count);
+                trace!(
+                    "XFR record {}: parsing error: {err}",
+                    self.state.rr_count
+                );
                 Some(Err(IterationError::ParseError(err)))
             }
 
