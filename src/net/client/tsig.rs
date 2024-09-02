@@ -1,4 +1,4 @@
-//! TODO
+//! A TSIG signing & verifying passthrough transport.
 #![cfg(all(feature = "tsig", feature = "unstable-client-transport"))]
 #![warn(missing_docs)]
 #![warn(clippy::missing_docs_in_private_items)]
