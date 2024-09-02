@@ -13,7 +13,7 @@ use crate::base::scan::{
 };
 use crate::base::wire::{Compose, Composer, Parse, ParseError};
 use crate::utils::{base16, base32};
-use crate::zonefile::present::{Present, ZoneFileFormatter};
+use crate::zonefile::present::{ZoneFileFormat, ZoneFileFormatter};
 #[cfg(feature = "bytes")]
 use bytes::Bytes;
 use core::cmp::Ordering;
@@ -371,21 +371,23 @@ impl<Octs: AsRef<[u8]>> fmt::Debug for Nsec3<Octs> {
 }
 
 
-//--- Present
+//--- ZoneFileFormat
 
-//--- Present
+//--- ZoneFileFormat
 
-impl<Octs: AsRef<[u8]>> Present for Nsec3<Octs>
+impl<Octs: AsRef<[u8]>> ZoneFileFormat for Nsec3<Octs>
 where
     Octs: AsRef<[u8]>,
 {
     fn present(&self, f: &mut ZoneFileFormatter) -> fmt::Result {
-        use std::fmt::Write;
-
-        self.hash_algorithm.present(f)?;
-        write!(f, " {} {} ", self.flags, self.iterations)?;
-        self.salt.present(f)?;
-        f.write_char(' ')?;
+        write!(
+            f,
+            "{} {} {} {} ",
+            self.hash_algorithm.display_zone_file(),
+            self.flags,
+            self.iterations,
+            self.salt.display_zone_file(),
+        )?;
         base32::display_hex(&self.next_owner, f)?;
         write!(f, " {}", self.types)
     }
@@ -683,14 +685,18 @@ impl<Octs: AsRef<[u8]>> fmt::Debug for Nsec3param<Octs> {
     }
 }
 
-//--- Present
+//--- ZoneFileFormat
 
-impl<Octs: AsRef<[u8]>> Present for Nsec3param<Octs> {
+impl<Octs: AsRef<[u8]>> ZoneFileFormat for Nsec3param<Octs> {
     fn present(&self, f: &mut ZoneFileFormatter) -> fmt::Result {
-        use std::fmt::Write;
-        self.hash_algorithm.present(f)?;
-        write!(f, " {} {} ", self.flags, self.iterations)?;
-        self.salt.present(f)
+        write!(
+            f,
+            "{} {} {} {}",
+            self.hash_algorithm.display_zone_file(),
+            self.flags,
+            self.iterations,
+            self.salt.display_zone_file(),
+        )
     }
 }
 
@@ -1003,9 +1009,9 @@ impl<Octs: AsRef<[u8]> + ?Sized> fmt::Debug for Nsec3Salt<Octs> {
     }
 }
 
-//--- Present
+//--- ZoneFileFormat
 
-impl<Octs: AsRef<[u8]> + ?Sized> Present for Nsec3Salt<Octs> {
+impl<Octs: AsRef<[u8]> + ?Sized> ZoneFileFormat for Nsec3Salt<Octs> {
     fn present(&self, f: &mut ZoneFileFormatter) -> fmt::Result {
         base16::display(self.as_slice(), f)
     }

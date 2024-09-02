@@ -7,7 +7,7 @@ use crate::base::cmp::CanonicalOrd;
 use crate::base::iana::SvcParamKey;
 use crate::base::scan::Symbol;
 use crate::base::wire::{Compose, Parse, ParseError};
-use crate::zonefile::present::{Present, ZoneFileFormatter};
+use crate::zonefile::present::{ZoneFileFormat, ZoneFileFormatter};
 use octseq::builder::{EmptyBuilder, FromBuilder, OctetsBuilder, ShortBuf};
 use octseq::octets::{Octets, OctetsFrom, OctetsInto};
 use octseq::parse::{Parser, ShortInput};
@@ -362,11 +362,10 @@ impl<Octs: Octets + ?Sized> fmt::Debug for SvcParams<Octs> {
     }
 }
 
-//-- Present
+//-- ZoneFileFormat
 
-impl<Octs: Octets + ?Sized> Present for SvcParams<Octs> {
+impl<Octs: Octets + ?Sized> ZoneFileFormat for SvcParams<Octs> {
     fn present(&self, f: &mut ZoneFileFormatter) -> fmt::Result {
-        use std::fmt::Write;
         let mut parser = Parser::from_ref(self.as_slice());
         let mut first = true;
         while parser.remaining() > 0 {

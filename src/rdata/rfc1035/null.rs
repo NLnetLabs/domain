@@ -8,7 +8,7 @@ use crate::base::rdata::{
     ComposeRecordData, LongRecordData, ParseRecordData, RecordData,
 };
 use crate::base::wire::{Composer, ParseError};
-use crate::zonefile::present::{Present, ZoneFileFormatter};
+use crate::zonefile::present::{ZoneFileFormat, ZoneFileFormatter};
 use core::{fmt, hash, mem};
 use core::cmp::Ordering;
 use octseq::octets::{Octets, OctetsFrom, OctetsInto};
@@ -278,11 +278,10 @@ impl<Octs: AsRef<[u8]>> fmt::Debug for Null<Octs> {
     }
 }
 
-//--- Present
+//--- ZoneFileFormat
 
-impl<Octs: AsRef<[u8]>> Present for Null<Octs> {
+impl<Octs: AsRef<[u8]>> ZoneFileFormat for Null<Octs> {
     fn present(&self, f: &mut ZoneFileFormatter) -> fmt::Result {
-        use std::fmt::Write;
         write!(f, "\\# {}", self.data.as_ref().len())?;
         for ch in self.data.as_ref().iter() {
             write!(f, " {:02x}", ch)?;

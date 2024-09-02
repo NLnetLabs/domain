@@ -47,7 +47,7 @@ use super::rdata::{ComposeRecordData, ParseRecordData, RecordData};
 use super::record::{Record, Ttl};
 use super::wire::{Compose, Composer, FormError, ParseError};
 use crate::utils::base16;
-use crate::zonefile::present::{Present, ZoneFileFormatter};
+use crate::zonefile::present::{ZoneFileFormat, ZoneFileFormatter};
 use core::cmp::Ordering;
 use core::marker::PhantomData;
 use core::{fmt, hash, mem};
@@ -359,12 +359,11 @@ impl<Octs: AsRef<[u8]> + ?Sized> fmt::Debug for Opt<Octs> {
     }
 }
 
-//--- Present
+//--- ZoneFileFormat
 
-impl<Octs: AsRef<[u8]> + ?Sized> Present for Opt<Octs> {
+impl<Octs: AsRef<[u8]> + ?Sized> ZoneFileFormat for Opt<Octs> {
     fn present(&self, f: &mut ZoneFileFormatter) -> fmt::Result {
         // XXX TODO Print this properly.
-        use std::fmt::Write;
         f.write_str("OPT ...")
     }
 }

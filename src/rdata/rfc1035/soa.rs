@@ -12,7 +12,7 @@ use crate::base::record::Ttl;
 use crate::base::scan::{Scan, Scanner};
 use crate::base::serial::Serial;
 use crate::base::wire::{Compose, Composer, ParseError};
-use crate::zonefile::present::{Present, ZoneFileFormatter};
+use crate::zonefile::present::{ZoneFileFormat, ZoneFileFormatter};
 use core::fmt;
 use core::cmp::Ordering;
 use octseq::octets::{Octets, OctetsFrom, OctetsInto};
@@ -402,9 +402,8 @@ impl<N: fmt::Display> fmt::Display for Soa<N> {
     }
 }
 
-impl<N: fmt::Display> Present for Soa<N> {
+impl<N: fmt::Display> ZoneFileFormat for Soa<N> {
     fn present(&self, f: &mut ZoneFileFormatter) -> fmt::Result {
-        use std::fmt::Write;
         write!(
             f,
             "{}. {}. {} {} {} {} {}",

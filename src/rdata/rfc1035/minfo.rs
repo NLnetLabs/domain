@@ -10,7 +10,7 @@ use crate::base::rdata::{
 };
 use crate::base::scan::Scanner;
 use crate::base::wire::{Composer, ParseError};
-use crate::zonefile::present::{Present, ZoneFileFormatter};
+use crate::zonefile::present::{ZoneFileFormat, ZoneFileFormatter};
 use core::fmt;
 use core::cmp::Ordering;
 use octseq::octets::{Octets, OctetsFrom, OctetsInto};
@@ -243,11 +243,10 @@ impl<N: fmt::Display> fmt::Display for Minfo<N> {
     }
 }
 
-//--- Present
+//--- ZoneFileFormat
 
-impl<N: fmt::Display> Present for Minfo<N> {
+impl<N: fmt::Display> ZoneFileFormat for Minfo<N> {
     fn present(&self, f: &mut ZoneFileFormatter) -> fmt::Result {
-        use std::fmt::Write;
         write!(f, "{}. {}.", self.rmailbx, self.emailbx)
     }
 }

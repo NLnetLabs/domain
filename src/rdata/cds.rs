@@ -4,12 +4,12 @@
 use crate::base::cmp::CanonicalOrd;
 use crate::base::iana::{DigestAlg, Rtype, SecAlg};
 use crate::base::rdata::{
-    ComposeRecordData, LongRecordData, ParseRecordData, RecordData
+    ComposeRecordData, LongRecordData, ParseRecordData, RecordData,
 };
 use crate::base::scan::{Scan, Scanner, ScannerError};
 use crate::base::wire::{Compose, Composer, Parse, ParseError};
 use crate::utils::{base16, base64};
-use crate::zonefile::present::{Present, ZoneFileFormatter};
+use crate::zonefile::present::{ZoneFileFormat, ZoneFileFormatter};
 use core::cmp::Ordering;
 use core::{fmt, hash};
 use octseq::octets::{Octets, OctetsFrom, OctetsInto};
@@ -58,11 +58,15 @@ impl<Octs> Cdnskey<Octs> {
         algorithm: SecAlg,
         public_key: Octs,
     ) -> Result<Self, LongRecordData>
-    where Octs: AsRef<[u8]> {
+    where
+        Octs: AsRef<[u8]>,
+    {
         LongRecordData::check_len(
             usize::from(
-                u16::COMPOSE_LEN + u8::COMPOSE_LEN + SecAlg::COMPOSE_LEN
-            ).checked_add(public_key.as_ref().len()).expect("long key")
+                u16::COMPOSE_LEN + u8::COMPOSE_LEN + SecAlg::COMPOSE_LEN,
+            )
+            .checked_add(public_key.as_ref().len())
+            .expect("long key"),
         )?;
         Ok(unsafe {
             Cdnskey::new_unchecked(flags, protocol, algorithm, public_key)
@@ -144,13 +148,16 @@ impl<Octs> Cdnskey<Octs> {
     pub fn scan<S: Scanner<Octets = Octs>>(
         scanner: &mut S,
     ) -> Result<Self, S::Error>
-    where Octs: AsRef<[u8]> {
+    where
+        Octs: AsRef<[u8]>,
+    {
         Self::new(
             u16::scan(scanner)?,
             u8::scan(scanner)?,
             SecAlg::scan(scanner)?,
             scanner.convert_entry(base64::SymbolConverter::new())?,
-        ).map_err(|err| S::Error::custom(err.as_str()))
+        )
+        .map_err(|err| S::Error::custom(err.as_str()))
     }
 }
 
@@ -320,14 +327,17 @@ impl<Octs: AsRef<[u8]>> fmt::Debug for Cdnskey<Octs> {
     }
 }
 
-//--- Present
+//--- ZoneFileFormat
 
-impl<Octs: AsRef<[u8]>> Present for Cdnskey<Octs> {
+impl<Octs: AsRef<[u8]>> ZoneFileFormat for Cdnskey<Octs> {
     fn present(&self, f: &mut ZoneFileFormatter) -> fmt::Result {
-        use std::fmt::Write;
-        write!(f, "{} {} ", self.flags, self.protocol)?;
-        self.algorithm.present(f)?;
-        f.write_char(' ')?;
+        write!(
+            f,
+            "{} {} {} ",
+            self.flags,
+            self.protocol,
+            self.algorithm.display_zone_file()
+        )?;
         base64::display(&self.public_key, f)
     }
 }
@@ -375,11 +385,17 @@ impl<Octs> Cds<Octs> {
         digest_type: DigestAlg,
         digest: Octs,
     ) -> Result<Self, LongRecordData>
-    where Octs: AsRef<[u8]> {
+    where
+        Octs: AsRef<[u8]>,
+    {
         LongRecordData::check_len(
             usize::from(
-                u16::COMPOSE_LEN + SecAlg::COMPOSE_LEN + DigestAlg::COMPOSE_LEN
-            ).checked_add(digest.as_ref().len()).expect("long digest")
+                u16::COMPOSE_LEN
+                    + SecAlg::COMPOSE_LEN
+                    + DigestAlg::COMPOSE_LEN,
+            )
+            .checked_add(digest.as_ref().len())
+            .expect("long digest"),
         )?;
         Ok(unsafe {
             Cds::new_unchecked(key_tag, algorithm, digest_type, digest)
@@ -465,13 +481,16 @@ impl<Octs> Cds<Octs> {
     pub fn scan<S: Scanner<Octets = Octs>>(
         scanner: &mut S,
     ) -> Result<Self, S::Error>
-    where Octs: AsRef<[u8]> {
+    where
+        Octs: AsRef<[u8]>,
+    {
         Self::new(
             u16::scan(scanner)?,
             SecAlg::scan(scanner)?,
             DigestAlg::scan(scanner)?,
             scanner.convert_entry(base16::SymbolConverter::new())?,
-        ).map_err(|err| S::Error::custom(err.as_str()))
+        )
+        .map_err(|err| S::Error::custom(err.as_str()))
     }
 }
 
@@ -659,15 +678,16 @@ impl<Octs: AsRef<[u8]>> fmt::Debug for Cds<Octs> {
     }
 }
 
-//--- Present
+//--- ZoneFileFormat
 
-impl<Octs: AsRef<[u8]>> Present for Cds<Octs> {
+impl<Octs: AsRef<[u8]>> ZoneFileFormat for Cds<Octs> {
     fn present(&self, f: &mut ZoneFileFormatter) -> fmt::Result {
-        use std::fmt::Write;
         write!(
             f,
             "{} {} {} ",
-            self.key_tag, self.algorithm, self.digest_type
+            self.key_tag,
+            self.algorithm.display_zone_file(),
+            self.digest_type.display_zone_file(),
         )?;
         for ch in self.digest.as_ref() {
             write!(f, "{:02x}", ch)?

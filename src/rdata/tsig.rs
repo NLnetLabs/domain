@@ -12,7 +12,7 @@ use crate::base::rdata::{
 };
 use crate::base::wire::{Compose, Composer, Parse, ParseError};
 use crate::utils::base64;
-use crate::zonefile::present::{Present, ZoneFileFormatter};
+use crate::zonefile::present::{ZoneFileFormat, ZoneFileFormatter};
 use core::cmp::Ordering;
 use core::{fmt, hash};
 use octseq::builder::OctetsBuilder;
@@ -601,11 +601,10 @@ impl<O: AsRef<[u8]>, N: fmt::Debug> fmt::Debug for Tsig<O, N> {
     }
 }
 
-//--- Present
+//--- ZoneFileFormat
 
-impl<O: AsRef<[u8]>, N: fmt::Display> Present for Tsig<O, N> {
+impl<O: AsRef<[u8]>, N: fmt::Display> ZoneFileFormat for Tsig<O, N> {
     fn present(&self, f: &mut ZoneFileFormatter) -> fmt::Result {
-        use std::fmt::Write;
         write!(
             f,
             "{}. {} {} ",

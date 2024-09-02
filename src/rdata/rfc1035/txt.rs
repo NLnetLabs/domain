@@ -14,7 +14,7 @@ use crate::base::scan::Scanner;
 #[cfg(feature = "serde")]
 use crate::base::scan::Symbol;
 use crate::base::wire::{Composer, FormError, ParseError};
-use crate::zonefile::present::{Present, ZoneFileFormatter};
+use crate::zonefile::present::{ZoneFileFormat, ZoneFileFormatter};
 #[cfg(feature = "bytes")]
 use bytes::BytesMut;
 use core::cmp::Ordering;
@@ -465,11 +465,10 @@ impl<Octs: AsRef<[u8]>> fmt::Debug for Txt<Octs> {
     }
 }
 
-//--- Present
+//--- ZoneFileFormat
 
-impl<Octs: AsRef<[u8]>> Present for Txt<Octs> {
+impl<Octs: AsRef<[u8]>> ZoneFileFormat for Txt<Octs> {
     fn present(&self, f: &mut ZoneFileFormatter) -> fmt::Result {
-        use std::fmt::Write;
         let mut first = true;
         for slice in self.iter_charstrs() {
             if !first {

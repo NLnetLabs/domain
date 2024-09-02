@@ -15,7 +15,7 @@
 //! [`RecordHeader`]: struct.RecordHeader.html
 //! [`ParsedRecord`]: struct.ParsedRecord.html
 
-use crate::zonefile::present::{Present, ZoneFileFormatter};
+use crate::zonefile::present::{ZoneFileFormat, ZoneFileFormatter};
 
 use super::cmp::CanonicalOrd;
 use super::iana::{Class, Rtype};
@@ -433,23 +433,22 @@ where
     }
 }
 
-//--- Present
-impl<Name, Data> Present for Record<Name, Data>
+//--- ZoneFileFormat
+impl<Name, Data> ZoneFileFormat for Record<Name, Data>
 where
     Name: fmt::Display,
-    Data: RecordData + Present,
+    Data: RecordData + ZoneFileFormat,
 {
     fn present(&self, f: &mut ZoneFileFormatter) -> fmt::Result {
-        use std::fmt::Write;
-
-        write!(f, "{}. ", self.owner)?;
-        self.ttl.present(f)?;
-        f.write_char(' ')?;
-        self.class.present(f)?;
-        f.write_char(' ')?;
-        self.data.rtype().present(f)?;
-        f.write_char(' ')?;
-        self.data.present(f)
+        write!(
+            f,
+            "{}. {} {} {} {}",
+            self.owner,
+            self.ttl.display_zone_file(),
+            self.class.display_zone_file(),
+            self.data.rtype().display_zone_file(),
+            self.data.display_zone_file(),
+        )
     }
 }
 
@@ -1503,9 +1502,8 @@ impl Ttl {
     }
 }
 
-impl Present for Ttl {
+impl ZoneFileFormat for Ttl {
     fn present(&self, f: &mut ZoneFileFormatter) -> fmt::Result {
-        use std::fmt::Write;
         write!(f, "{}", self.as_secs())
     }
 }

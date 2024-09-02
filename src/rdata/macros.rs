@@ -499,9 +499,9 @@ macro_rules! rdata_types {
             }
         }
 
-        ///--- Present
+        ///--- ZoneFileFormat
 
-        impl<O, N> $crate::zonefile::present::Present for ZoneRecordData<O, N>
+        impl<O, N> $crate::zonefile::present::ZoneFileFormat for ZoneRecordData<O, N>
         where
         O: AsRef<[u8]>,
         N: fmt::Display
@@ -1121,8 +1121,8 @@ macro_rules! rdata_types {
             }
         }
 
-        //--- Present
-        impl<O, N> $crate::zonefile::present::Present for AllRecordData<O, N>
+        //--- ZoneFileFormat
+        impl<O, N> $crate::zonefile::present::ZoneFileFormat for AllRecordData<O, N>
         where O: Octets, N: fmt::Display {
             fn present(
                 &self, f: &mut $crate::zonefile::present::ZoneFileFormatter
@@ -1330,11 +1330,10 @@ macro_rules! name_type_base {
             }
         }
 
-        //--- Present
+        //--- ZoneFileFormat
 
-        impl<N: fmt::Display> $crate::zonefile::present::Present for $target<N> {
+        impl<N: fmt::Display> $crate::zonefile::present::ZoneFileFormat for $target<N> {
             fn present(&self, f: &mut $crate::zonefile::present::ZoneFileFormatter) -> fmt::Result {
-                use std::fmt::Write;
                 write!(f, "{}.", self.$field)
             }
         }

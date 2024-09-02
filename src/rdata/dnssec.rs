@@ -15,7 +15,7 @@ use crate::base::serial::Serial;
 use crate::base::wire::{Compose, Composer, FormError, Parse, ParseError};
 use crate::base::Ttl;
 use crate::utils::{base16, base64};
-use crate::zonefile::present::{Present, ZoneFileFormatter};
+use crate::zonefile::present::{ZoneFileFormat, ZoneFileFormatter};
 use core::cmp::Ordering;
 use core::convert::TryInto;
 use core::{cmp, fmt, hash, str};
@@ -432,14 +432,17 @@ impl<Octs: AsRef<[u8]>> fmt::Debug for Dnskey<Octs> {
     }
 }
 
-//--- Present
+//--- ZoneFileFormat
 
-impl<Octs: AsRef<[u8]>> Present for Dnskey<Octs> {
+impl<Octs: AsRef<[u8]>> ZoneFileFormat for Dnskey<Octs> {
     fn present(&self, f: &mut ZoneFileFormatter) -> fmt::Result {
-        use std::fmt::Write;
-        write!(f, "{} {} ", self.flags, self.protocol)?;
-        self.algorithm.present(f)?;
-        f.write_char(' ')?;
+        write!(
+            f,
+            "{} {} {} ",
+            self.flags,
+            self.protocol,
+            self.algorithm.display_zone_file()
+        )?;
         base64::display(&self.public_key, f)
     }
 }
@@ -770,11 +773,10 @@ impl fmt::Display for Timestamp {
     }
 }
 
-//--- Present
+//--- ZoneFileFormat
 
-impl Present for Timestamp {
+impl ZoneFileFormat for Timestamp {
     fn present(&self, f: &mut ZoneFileFormatter) -> fmt::Result {
-        use std::fmt::Write;
         write!(f, "{}", self.0)
     }
 }
@@ -1376,26 +1378,26 @@ where
     }
 }
 
-//--- Present
+//--- ZoneFileFormat
 
-impl<Octs, Name> Present for Rrsig<Octs, Name>
+impl<Octs, Name> ZoneFileFormat for Rrsig<Octs, Name>
 where
     Octs: AsRef<[u8]>,
     Name: fmt::Display,
 {
     fn present(&self, f: &mut ZoneFileFormatter) -> fmt::Result {
-        use std::fmt::Write;
-        self.type_covered.present(f)?;
-        f.write_char(' ')?;
-        self.algorithm.present(f)?;
-        f.write_char(' ')?;
-        self.original_ttl.present(f)?;
-        f.write_char(' ')?;
-        self.expiration.present(f)?;
-        f.write_char(' ')?;
-        self.inception.present(f)?;
-        f.write_char(' ')?;
-        write!(f, " {} {}. ", self.key_tag, self.signer_name)?;
+        write!(
+            f,
+            "{} {} {} {} {} {} {} {}. ",
+            self.type_covered.display_zone_file(),
+            self.algorithm.display_zone_file(),
+            self.labels,
+            self.original_ttl.display_zone_file(),
+            self.expiration.display_zone_file(),
+            self.inception.display_zone_file(),
+            self.key_tag,
+            self.signer_name,
+        )?;
         base64::display(&self.signature, f)
     }
 }
@@ -1680,15 +1682,14 @@ where
     }
 }
 
-//--- Present
+//--- ZoneFileFormat
 
-impl<Octs, Name> Present for Nsec<Octs, Name>
+impl<Octs, Name> ZoneFileFormat for Nsec<Octs, Name>
 where
     Octs: AsRef<[u8]>,
     Name: fmt::Display,
 {
     fn present(&self, f: &mut ZoneFileFormatter) -> fmt::Result {
-        use std::fmt::Write;
         write!(f, "{}. {}", self.next_name, self.types)
     }
 }
@@ -2026,17 +2027,17 @@ impl<Octs: AsRef<[u8]>> fmt::Debug for Ds<Octs> {
     }
 }
 
-//--- Present
+//--- ZoneFileFormat
 
-impl<Octs: AsRef<[u8]>> Present for Ds<Octs> {
+impl<Octs: AsRef<[u8]>> ZoneFileFormat for Ds<Octs> {
     fn present(&self, f: &mut ZoneFileFormatter) -> fmt::Result {
-        use std::fmt::Write;
-
-        write!(f, "{} ", self.key_tag)?;
-        self.algorithm.present(f)?;
-        f.write_char(' ')?;
-        self.digest_type.present(f)?;
-        f.write_char(' ')?;
+        write!(
+            f,
+            "{} {} {} ",
+            self.key_tag,
+            self.algorithm.display_zone_file(),
+            self.digest_type.display_zone_file()
+        )?;
         for ch in self.digest.as_ref() {
             write!(f, "{:02x}", ch)?
         }

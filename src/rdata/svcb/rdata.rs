@@ -10,7 +10,7 @@ use crate::base::rdata::{
     ComposeRecordData, LongRecordData, ParseRecordData, RecordData,
 };
 use crate::base::wire::{Compose, Composer, Parse, ParseError};
-use crate::zonefile::present::{Present, ZoneFileFormatter};
+use crate::zonefile::present::{ZoneFileFormat, ZoneFileFormatter};
 use octseq::octets::{Octets, OctetsFrom, OctetsInto};
 use octseq::parse::Parser;
 use core::{cmp, fmt, hash};
@@ -465,17 +465,21 @@ where
     }
 }
 
-//--- Present
+//--- ZoneFileFormat
 
-impl<Variant, Octs, Name> Present for SvcbRdata<Variant, Octs, Name>
+impl<Variant, Octs, Name> ZoneFileFormat for SvcbRdata<Variant, Octs, Name>
 where
     Octs: Octets,
     Name: fmt::Display,
 {
     fn present(&self, f: &mut ZoneFileFormatter) -> fmt::Result {
-        use std::fmt::Write;
-        write!(f, "{} {} ", self.priority, self.target)?;
-        self.params.present(f)
+        write!(
+            f,
+            "{} {} {}",
+            self.priority,
+            self.target,
+            self.params.display_zone_file()
+        )
     }
 }
 

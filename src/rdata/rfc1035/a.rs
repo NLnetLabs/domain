@@ -10,7 +10,7 @@ use crate::base::rdata::{
 };
 use crate::base::scan::{Scanner, ScannerError};
 use crate::base::wire::{Composer, Parse, ParseError};
-use crate::zonefile::present::{Present, ZoneFileFormatter};
+use crate::zonefile::present::{ZoneFileFormat, ZoneFileFormatter};
 use core::{fmt, str};
 use core::cmp::Ordering;
 use core::convert::Infallible;
@@ -175,9 +175,8 @@ impl fmt::Display for A {
 
 //--- Display
 
-impl Present for A {
+impl ZoneFileFormat for A {
     fn present(&self, f: &mut ZoneFileFormatter) -> fmt::Result {
-        use std::fmt::Write;
         write!(f, "{}", self.addr)
     }
 }

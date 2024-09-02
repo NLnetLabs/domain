@@ -10,7 +10,7 @@ use crate::base::rdata::{
 };
 use crate::base::scan::Scanner;
 use crate::base::wire::{Composer, ParseError};
-use crate::zonefile::present::{Present, ZoneFileFormatter};
+use crate::zonefile::present::{ZoneFileFormat, ZoneFileFormatter};
 use core::{fmt, hash};
 use core::cmp::Ordering;
 #[cfg(feature = "serde")]
@@ -237,11 +237,10 @@ impl<Octs: AsRef<[u8]>> fmt::Debug for Hinfo<Octs> {
     }
 }
 
-//--- Present
+//--- ZoneFileFormat
 
-impl<Octs: AsRef<[u8]>> Present for Hinfo<Octs> {
+impl<Octs: AsRef<[u8]>> ZoneFileFormat for Hinfo<Octs> {
     fn present(&self, f: &mut ZoneFileFormatter) -> fmt::Result {
-        use std::fmt::Write;
         write!(f, "{} {}", self.cpu, self.os)
     }
 }

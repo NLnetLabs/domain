@@ -11,7 +11,7 @@ use crate::base::scan::{Scan, Scanner};
 use crate::base::serial::Serial;
 use crate::base::wire::{Composer, ParseError};
 use crate::utils::base16;
-use crate::zonefile::present::{Present, ZoneFileFormatter};
+use crate::zonefile::present::{ZoneFileFormat, ZoneFileFormatter};
 use core::cmp::Ordering;
 use core::{fmt, hash};
 use octseq::octets::{Octets, OctetsFrom, OctetsInto};
@@ -224,9 +224,8 @@ impl<Octs: AsRef<[u8]>> fmt::Debug for Zonemd<Octs> {
     }
 }
 
-impl<Octs: AsRef<[u8]>> Present for Zonemd<Octs> {
+impl<Octs: AsRef<[u8]>> ZoneFileFormat for Zonemd<Octs> {
     fn present(&self, f: &mut ZoneFileFormatter) -> fmt::Result {
-        use std::fmt::Write;
         write!(
             f,
             "{} {} {} ( ",
