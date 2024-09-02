@@ -51,8 +51,7 @@ async fn main() {
     let req = RequestMessage::new(msg).unwrap();
 
     // Destination for UDP and TCP
-    let server_addr =
-        SocketAddr::new(IpAddr::from_str("127.0.0.1").unwrap(), 8055);
+    let server_addr = SocketAddr::new(IpAddr::from_str("::1").unwrap(), 53);
 
     let mut stream_config = stream::Config::new();
     stream_config.set_response_timeout(Duration::from_millis(100));
