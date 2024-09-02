@@ -274,14 +274,17 @@ impl<Target: Composer> MessageBuilder<Target> {
             header.set_qr(true);
             header.set_opcode(msg.header().opcode());
             header.set_rd(msg.header().rd());
+            header.set_rcode(rcode);
         }
+
         let mut builder = self.question();
         for item in msg.question().flatten() {
             if builder.push(item).is_err() {
+                builder.header_mut().set_rcode(Rcode::SERVFAIL);
                 break;
             }
         }
-        builder.header_mut().set_rcode(rcode);
+
         builder.answer()
     }
 
