@@ -359,7 +359,7 @@ where
                                 None => {
                                     match &mut self.state {
                                         RequestStateMulti::Init => {
-                                            debug!("Ignoring attempt to complete TSIG stream that hasn't been read from yet.");
+                                            unreachable!()
                                         }
 
                                         RequestStateMulti::GetResponse(
