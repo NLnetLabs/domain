@@ -32,7 +32,7 @@
 //! 1) Creating a request message,
 //! 2) Creating a DNS transport,
 //! 3) Sending the request, and
-//! 4) Receiving the reply.
+//! 4) Receiving the reply or replies.
 //!
 //! The first and second step are independent and can happen in any order.
 //! The third step uses the resuts of the first and second step.
@@ -144,6 +144,45 @@
 //! let reply = request.get_response().await;
 //! # }
 //! ```
+//!
+//! <div class="warning">
+//!
+//! **Support for multiple responses:**
+//!
+//! [RequestMessage][request::RequestMessage] is designed for the most common
+//! use case: single request, single response.
+//!
+//! However, zone transfers (e.g. using the `AXFR` or `IXFR` query types) can
+//! result in multiple responses. Attempting to create a
+//! [RequestMessage][request::RequestMessage] for such a query will result in
+//! [Error::FormError][request::Error::FormError].
+//!
+//! For zone transfers you should use
+//! [RequestMessageMulti][request::RequestMessageMulti] instead which can be
+//! used like so:
+//!
+//! ```no_run
+//! # use crate::domain::net::client::request::{RequestMessageMulti, SendRequest};
+//! # use std::net::{IpAddr, SocketAddr};
+//! # use std::str::FromStr;
+//! # async fn _test() {
+//! # let (conn, _) = domain::net::client::stream::Connection::<_, RequestMessageMulti<Vec<u8>>>::new(
+//! #     domain::net::client::protocol::TcpConnect::new(
+//! #         SocketAddr::new(IpAddr::from_str("::1").unwrap(), 53)
+//! #     )
+//! # );
+//! # let req = domain::net::client::request::RequestMessageMulti::new(
+//! #     domain::base::MessageBuilder::new_vec()
+//! # ).unwrap();
+//! # let mut request = tls_conn.send_request(req);
+//! while let Some(reply) = request.get_response().await {
+//!     // ...
+//! }
+//! # }
+//! ```
+//!
+//! </div>
+//!
 
 //! # Limitations
 //!
