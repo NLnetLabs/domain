@@ -1,4 +1,26 @@
 //! A TSIG signing & verifying passthrough transport.
+//!
+//! This module provides a transport that wraps the [high-level support for
+//! signing message exchanges with TSIG][crate::tsig].
+//!
+//! # Usage
+//!
+//! 1. Create a signing [Key].
+//! 2. Create a [Connection] that wraps an upstream connection and uses the
+//!    key.
+//! 3. [Send a request][Connection::send_request] using the connection.
+//! 4. [Receive the response][Request::get_response] or responses.
+//!
+//! # How it works
+//!
+//! Supplying the key is optional. The transport only affects the request and
+//! response if a key is supplied. This allows for optional signing without
+//! having to construct a different client stack.
+//!
+//! When a key is supplied, requests are automatically signed and response
+//! signatures are automatically verified. On verification failure
+//! [Error::ValidationError][crate::net::client::request::Error] will be
+//! returned.
 #![cfg(all(feature = "tsig", feature = "unstable-client-transport"))]
 #![warn(missing_docs)]
 #![warn(clippy::missing_docs_in_private_items)]
