@@ -96,29 +96,6 @@ where
 
 //------------ SendRequestMulti ----------------------------------------------------
 
-/*
-impl<CR, Upstream, K> SendRequestMulti<CR> for Connection<Upstream, K>
-where
-    CR: ComposeRequestMulti + 'static,
-    Upstream: SendRequestMulti<AuthenticatedRequestMessage<CR, K>>
-        + Send
-        + Sync
-        + 'static,
-    K: Clone + AsRef<Key> + Send + Sync + 'static,
-{
-    fn send_request(
-        &self,
-        request_msg: CR,
-    ) -> Box<dyn GetResponseMulti + Send + Sync> {
-        Box::new(RequestMulti::<CR, Upstream, K>::new(
-            request_msg,
-            self.key.clone(),
-            self.upstream.clone(),
-        ))
-    }
-}
-*/
-
 impl<CR, Upstream, K> SendRequestMulti<CR> for Connection<Upstream, K>
 where
     CR: ComposeRequestMulti + 'static,
