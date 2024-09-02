@@ -42,9 +42,9 @@
 //!
 //!   1. Create an appropriate network source (more on this below).
 //!   2. Construct a server transport with `new()` passing in the network
-//!     source and service instance as arguments.
-//!     - (optional) Tune the server behaviour via builder functions such as
-//!       `with_config()`.
+//!      source and service instance as arguments.
+//!      - (optional) Tune the server behaviour via builder functions such as
+//!        `with_config()`.
 //!   3. `run()` the server.
 //!   4. `shutdown()` the server, explicitly or on [`drop`].
 //!
