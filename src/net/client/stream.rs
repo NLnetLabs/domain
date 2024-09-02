@@ -13,39 +13,33 @@
 // - timeouts
 //   - request timeout
 // - create new connection after end/failure of previous one
-
+use super::request::{
+    ComposeRequest, ComposeRequestMulti, Error, GetResponse,
+    GetResponseMulti, SendRequest, SendRequestMulti,
+};
+use crate::base::iana::{Rcode, Rtype};
+use crate::base::message::Message;
+use crate::base::message_builder::StreamTarget;
+use crate::base::opt::{AllOptData, OptRecord, TcpKeepalive};
+use crate::base::{ParsedName, Serial};
+use crate::rdata::AllRecordData;
+use crate::utils::config::DefMinMax;
+use bytes::{Bytes, BytesMut};
 use core::cmp;
-use core::future::ready;
+use octseq::Octets;
 
 use std::boxed::Box;
 use std::fmt::Debug;
+use std::future::ready;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use std::vec::Vec;
-
-use bytes::{Bytes, BytesMut};
-use octseq::Octets;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::sync::{mpsc, oneshot};
 use tokio::time::sleep;
 use tracing::trace;
-
-use crate::base::iana::Rcode;
-use crate::base::message::Message;
-use crate::base::message_builder::StreamTarget;
-use crate::base::opt::{AllOptData, OptRecord, TcpKeepalive};
-use crate::base::{ParsedName, Rtype, Serial};
-use crate::net::client::request::{
-    ComposeRequest, Error, GetResponse, SendRequest,
-};
-use crate::rdata::AllRecordData;
-use crate::utils::config::DefMinMax;
-
-use super::request::{
-    ComposeRequestMulti, GetResponseMulti, SendRequestMulti,
-};
 
 //------------ Configuration Constants ----------------------------------------
 
