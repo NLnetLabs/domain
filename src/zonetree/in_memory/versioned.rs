@@ -87,7 +87,7 @@ impl<T> Versioned<T> {
         // clients to continue seeing the old version, but clients of the zone
         // after it is committed will see the new version, i.e. the empty
         // value which will cause get() to return None.
-        if self.data.last().map(|item| item.0) != None {
+        if self.data.last().map(|item| item.0).is_some() {
             self.data.push((version, None));
         }
     }
