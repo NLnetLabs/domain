@@ -2,12 +2,9 @@
 
 use super::message::RequestNG;
 use super::single_service::SingleService;
+use crate::base::{Name, ToName};
+use crate::dep::octseq::{EmptyBuilder, FromBuilder, Octets};
 use crate::net::client::request::Error;
-use crate::base::Name;
-use crate::base::ToName;
-use crate::dep::octseq::EmptyBuilder;
-use crate::dep::octseq::FromBuilder;
-use crate::dep::octseq::Octets;
 use std::boxed::Box;
 use std::future::Future;
 use std::pin::Pin;

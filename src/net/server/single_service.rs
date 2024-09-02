@@ -2,17 +2,10 @@
 
 use super::message::RequestNG;
 use crate::base::message_builder::AdditionalBuilder;
-use crate::base::opt::AllOptData;
-use crate::base::opt::ComposeOptData;
-use crate::base::opt::LongOptData;
-use crate::base::opt::OptRecord;
-use crate::base::Message;
-use crate::base::MessageBuilder;
-use crate::base::ParsedName;
-use crate::base::Rtype;
-use crate::base::StreamTarget;
-use crate::net::client::request::Error;
+use crate::base::opt::{AllOptData, ComposeOptData, LongOptData, OptRecord};
+use crate::base::{Message, MessageBuilder, ParsedName, Rtype, StreamTarget};
 use crate::dep::octseq::Octets;
+use crate::net::client::request::Error;
 use crate::rdata::AllRecordData;
 use std::boxed::Box;
 use std::future::Future;

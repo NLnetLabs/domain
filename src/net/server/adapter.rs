@@ -1,21 +1,15 @@
 // adapters
 
 use super::message::{Request, RequestNG};
-use super::service::{CallResult, Service, ServiceResult, };
+use super::service::{CallResult, Service, ServiceResult};
 use super::single_service::{ComposeReply, SingleService};
+use crate::dep::octseq::Octets;
+use crate::net::client::request::{Error, RequestMessage, SendRequest};
+use futures::stream::{once, Once};
 use std::boxed::Box;
 use std::fmt::Debug;
-use std::future::Future;
+use std::future::{ready, Future, Ready};
 use std::marker::PhantomData;
-//use std::future::Ready;
-use crate::dep::octseq::Octets;
-use crate::net::client::request::{Error, RequestMessage};
-use crate::net::client::request::SendRequest;
-//use futures::Stream;
-use futures::stream::Once;
-use futures::stream::once;
-use std::future::Ready;
-use std::future::ready;
 use std::pin::Pin;
 use std::vec::Vec;
 
@@ -35,7 +29,8 @@ impl<RequestOcts, SVC, CR> SingleServiceToService<RequestOcts, SVC, CR> {
     }
 }
 
-impl<RequestOcts, SVC, CR> Service<RequestOcts> for SingleServiceToService<RequestOcts, SVC, CR>
+impl<RequestOcts, SVC, CR> Service<RequestOcts>
+    for SingleServiceToService<RequestOcts, SVC, CR>
 where
     RequestOcts: Octets + Send + Sync + Unpin,
     SVC: SingleService<RequestOcts, CR>,
@@ -43,16 +38,9 @@ where
 {
     type Target = Vec<u8>;
     type Stream = Once<Ready<ServiceResult<Self::Target>>>;
-    type Future = Pin<
-        Box<
-            dyn Future<Output = Self::Stream, > + Send,
-        >,
-    >;
+    type Future = Pin<Box<dyn Future<Output = Self::Stream> + Send>>;
 
-    fn call(
-        &self,
-        request: Request<RequestOcts>,
-    ) -> Self::Future {
+    fn call(&self, request: Request<RequestOcts>) -> Self::Future {
         let req = RequestNG::from_request(request);
         let fut = self.service.call(req);
         let fut = async move {
@@ -103,9 +91,9 @@ where
         RequestOcts: AsRef<[u8]>,
     {
         let req = match request.to_request_message() {
-	    Ok(req) => req,
-	    Err(e) => return Box::pin(ready(Err(e))),
-	};
+            Ok(req) => req,
+            Err(e) => return Box::pin(ready(Err(e))),
+        };
         let mut gr = self.conn.send_request(req);
         let fut = async move {
             let msg = gr.get_response().await.unwrap();
@@ -127,7 +115,9 @@ impl<RequestOcts> BoxClientTransportToSrService<RequestOcts>
 where
     RequestOcts: AsRef<[u8]>,
 {
-    pub fn new(conn: Box<dyn SendRequest<RequestMessage<RequestOcts>> + Send + Sync>) -> Self {
+    pub fn new(
+        conn: Box<dyn SendRequest<RequestMessage<RequestOcts>> + Send + Sync>,
+    ) -> Self {
         Self {
             conn,
             _phantom: PhantomData,
@@ -151,9 +141,9 @@ where
         RequestOcts: AsRef<[u8]>,
     {
         let req = match request.to_request_message() {
-	    Ok(req) => req,
-	    Err(e) => return Box::pin(ready(Err(e))),
-	};
+            Ok(req) => req,
+            Err(e) => return Box::pin(ready(Err(e))),
+        };
         let mut gr = self.conn.send_request(req);
         let fut = async move {
             let msg = gr.get_response().await.unwrap();

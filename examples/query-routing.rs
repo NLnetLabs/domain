@@ -3,25 +3,6 @@ use core::future::{ready, Future, Ready};
 use core::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use core::task::{Context, Poll};
 use core::time::Duration;
-
-use std::fs::File;
-use std::io;
-use std::io::BufReader;
-use std::net::SocketAddr;
-use std::pin::Pin;
-use std::sync::Arc;
-use std::sync::RwLock;
-
-use futures::channel::mpsc::unbounded;
-use futures::stream::{once, Empty, Once, Stream};
-use octseq::{FreezeBuilder, Octets};
-use tokio::net::{TcpListener, TcpSocket, TcpStream, UdpSocket};
-use tokio::time::Instant;
-use tokio_rustls::rustls;
-use tokio_rustls::TlsAcceptor;
-use tokio_tfo::{TfoListener, TfoStream};
-use tracing_subscriber::EnvFilter;
-
 use domain::base::iana::{Class, Rcode};
 use domain::base::message_builder::{AdditionalBuilder, PushError};
 use domain::base::name::ToLabelIter;
@@ -29,8 +10,9 @@ use domain::base::wire::Composer;
 use domain::base::{MessageBuilder, Name, Rtype, Serial, StreamTarget, Ttl};
 use domain::net::client::dgram as client_dgram;
 use domain::net::client::protocol::UdpConnect;
-use domain::net::server::adapter::ClientTransportToSrService;
-use domain::net::server::adapter::SingleServiceToService;
+use domain::net::server::adapter::{
+    ClientTransportToSrService, SingleServiceToService,
+};
 use domain::net::server::buf::VecBufSource;
 use domain::net::server::dgram::DgramServer;
 use domain::net::server::message::Request;
@@ -47,11 +29,25 @@ use domain::net::server::service::{
 use domain::net::server::single_service::ReplyMessage;
 use domain::net::server::sock::AsyncAccept;
 use domain::net::server::stream::StreamServer;
-use domain::net::server::util::{mk_builder_for_target, /*service_fn*/};
+use domain::net::server::util::mk_builder_for_target;
 use domain::rdata::{Soa, A};
-use std::vec::Vec;
-use std::net::IpAddr;
+use futures::channel::mpsc::unbounded;
+use futures::stream::{once, Empty, Once, Stream};
+use octseq::{FreezeBuilder, Octets};
+use std::fs::File;
+use std::io;
+use std::io::BufReader;
+use std::net::{IpAddr, SocketAddr};
+use std::pin::Pin;
 use std::str::FromStr;
+use std::sync::Arc;
+use std::sync::RwLock;
+use std::vec::Vec;
+use tokio::net::{TcpListener, TcpSocket, TcpStream, UdpSocket};
+use tokio::time::Instant;
+use tokio_rustls::{rustls, TlsAcceptor};
+use tokio_tfo::{TfoListener, TfoStream};
+use tracing_subscriber::EnvFilter;
 
 //----------- mk_answer() ----------------------------------------------------
 
@@ -549,7 +545,8 @@ where
         PostprocessingStream<
             RequestOctets,
             Svc::Future,
-            Svc::Stream, (),
+            Svc::Stream,
+            (),
             Arc<RwLock<Stats>>,
         >,
         Empty<ServiceResult<Self::Target>>,
@@ -579,8 +576,12 @@ fn build_middleware_chain<Svc>(
 ) -> StatsMiddlewareSvc<
     MandatoryMiddlewareSvc<
         Vec<u8>,
-        EdnsMiddlewareSvc<Vec<u8>, CookiesMiddlewareSvc<Vec<u8>, Svc, ()>, ()>,
-	()
+        EdnsMiddlewareSvc<
+            Vec<u8>,
+            CookiesMiddlewareSvc<Vec<u8>, Svc, ()>,
+            (),
+        >,
+        (),
     >,
 > {
     #[cfg(feature = "siphasher")]
@@ -626,41 +627,41 @@ async fn main() {
     // Create services with accompanying middleware chains to answer incoming
     // requests.
 
-/*
-    // 1. MySingleResultService: a struct that implements the `Service` trait
-    //    directly.
-    let my_svc = Arc::new(build_middleware_chain(
-        MySingleResultService,
-        stats.clone(),
-    ));
+    /*
+        // 1. MySingleResultService: a struct that implements the `Service` trait
+        //    directly.
+        let my_svc = Arc::new(build_middleware_chain(
+            MySingleResultService,
+            stats.clone(),
+        ));
 
-    // 2. MyAsyncStreamingService: another struct that implements the
-    //    `Service` trait directly.
-    let my_async_svc = Arc::new(build_middleware_chain(
-        MyAsyncStreamingService,
-        stats.clone(),
-    ));
+        // 2. MyAsyncStreamingService: another struct that implements the
+        //    `Service` trait directly.
+        let my_async_svc = Arc::new(build_middleware_chain(
+            MyAsyncStreamingService,
+            stats.clone(),
+        ));
 
-    // 2. name_to_ip: a service impl defined as a function compatible with the
-    //               `Service` trait.
-    let name_into_ip_svc =
-        Arc::new(build_middleware_chain(name_to_ip, stats.clone()));
+        // 2. name_to_ip: a service impl defined as a function compatible with the
+        //               `Service` trait.
+        let name_into_ip_svc =
+            Arc::new(build_middleware_chain(name_to_ip, stats.clone()));
 
-    // 3. query: a service impl defined as a function converted to a `Service`
-    //           impl via the `service_fn()` helper function.
-    // Show that we don't have to use the same middleware with every server by
-    // creating a separate middleware chain for use just by this server.
-    let count = Arc::new(AtomicU8::new(5));
-    let svc = service_fn(query, count);
-    let svc = MandatoryMiddlewareSvc::<Vec<u8>, _>::new(svc);
-    #[cfg(feature = "siphasher")]
-    let svc = {
-        let server_secret = "server12secret34".as_bytes().try_into().unwrap();
-        CookiesMiddlewareSvc::<Vec<u8>, _>::new(svc, server_secret)
-    };
-    let svc = StatsMiddlewareSvc::new(svc, stats.clone());
-    let query_svc = Arc::new(svc);
-*/
+        // 3. query: a service impl defined as a function converted to a `Service`
+        //           impl via the `service_fn()` helper function.
+        // Show that we don't have to use the same middleware with every server by
+        // creating a separate middleware chain for use just by this server.
+        let count = Arc::new(AtomicU8::new(5));
+        let svc = service_fn(query, count);
+        let svc = MandatoryMiddlewareSvc::<Vec<u8>, _>::new(svc);
+        #[cfg(feature = "siphasher")]
+        let svc = {
+            let server_secret = "server12secret34".as_bytes().try_into().unwrap();
+            CookiesMiddlewareSvc::<Vec<u8>, _>::new(svc, server_secret)
+        };
+        let svc = StatsMiddlewareSvc::new(svc, stats.clone());
+        let query_svc = Arc::new(svc);
+    */
     // Start building the query router plus upstreams.
     let mut qr: QnameRouter<Vec<u8>, Vec<u8>, ReplyMessage> =
         QnameRouter::new();
@@ -690,10 +691,7 @@ async fn main() {
     qr.add(Name::<Vec<u8>>::from_str("nl").unwrap(), conn_service);
 
     let srv = SingleServiceToService::new(qr);
-    let my_svc = Arc::new(build_middleware_chain(
-        srv,
-        stats.clone(),
-    ));
+    let my_svc = Arc::new(build_middleware_chain(srv, stats.clone()));
 
     // -----------------------------------------------------------------------
     // Run a DNS server on UDP port 8053 on 127.0.0.1 using the name_to_ip
