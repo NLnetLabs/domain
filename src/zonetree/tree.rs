@@ -185,6 +185,7 @@ impl ZoneSetNode {
 
 //------------ ZoneSetIter ---------------------------------------------------
 
+/// TODO
 pub struct ZoneSetIter<'a> {
     roots: hash_map::Values<'a, Class, ZoneSetNode>,
     nodes: NodesIter<'a>,
