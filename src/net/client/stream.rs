@@ -27,7 +27,6 @@ use crate::utils::config::DefMinMax;
 use bytes::{Bytes, BytesMut};
 use core::cmp;
 use octseq::Octets;
-
 use std::boxed::Box;
 use std::fmt::Debug;
 use std::future::ready;
