@@ -257,10 +257,7 @@ async fn main() {
     });
 
     // Send a request message.
-    let mut request = domain::net::client::request::SendRequest::send_request(
-        &tcp,
-        req.clone(),
-    );
+    let mut request = SendRequest::send_request(&tcp, req.clone());
 
     // Get the reply
     let reply = request.get_response().await;
