@@ -620,20 +620,6 @@ impl<Octs: AsRef<[u8]> + Debug + Octets + Send + Sync> ComposeRequestMulti
     }
 }
 
-//--- From<RequestMessage>
-
-impl<Octs: AsRef<[u8]>> From<RequestMessage<Octs>>
-    for RequestMessageMulti<Octs>
-{
-    fn from(req: RequestMessage<Octs>) -> Self {
-        RequestMessageMulti {
-            msg: req.msg,
-            header: req.header,
-            opt: req.opt,
-        }
-    }
-}
-
 //------------ Error ---------------------------------------------------------
 
 /// Error type for client transports.
