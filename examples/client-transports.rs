@@ -378,9 +378,9 @@ where
     loop {
         println!("Waiting for signed reply");
         let reply = request.get_response().await.unwrap();
-        println!("Signed reply: {:?}", reply);
         match reply {
             Some(reply) => {
+                println!("Signed reply: {:?}", reply);
                 let it = processor.process_answer(reply).unwrap();
                 for event in it {
                     let event = event.unwrap();
