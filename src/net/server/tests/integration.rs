@@ -372,9 +372,6 @@ fn test_service<RequestMeta>(
                 let mut answer = mk_builder_for_target()
                     .start_answer(request.message(), Rcode::NOERROR)
                     .unwrap();
-                // As we serve all answers from our own zones we are the
-                // authority for the domain in question.
-                answer.header_mut().set_aa(true);
                 answer.push(record).unwrap();
                 answer
             },
