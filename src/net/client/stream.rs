@@ -30,7 +30,6 @@ use core::cmp;
 use octseq::Octets;
 use std::boxed::Box;
 use std::fmt::Debug;
-use std::future::ready;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -261,14 +260,8 @@ where
 
     /// Returns a request handler for this connection.
     pub fn get_request(&self, request_msg: Req) -> Request {
-        if request_msg.is_streaming() {
-            Request {
-                fut: Box::pin(ready(Err(Error::FormError))),
-            }
-        } else {
-            Request {
-                fut: Box::pin(self.clone().handle_request_impl(request_msg)),
-            }
+        Request {
+            fut: Box::pin(self.clone().handle_request_impl(request_msg)),
         }
     }
 
@@ -278,19 +271,12 @@ where
         request_msg: ReqMulti,
     ) -> RequestMulti {
         let (sender, receiver) = mpsc::channel(DEF_CHAN_CAP);
-        if !request_msg.is_streaming() {
-            RequestMulti {
-                stream: receiver,
-                fut: Some(Box::pin(ready(Err(Error::FormError)))),
-            }
-        } else {
-            RequestMulti {
-                stream: receiver,
-                fut: Some(Box::pin(
-                    self.clone()
-                        .handle_streaming_request_impl(request_msg, sender),
-                )),
-            }
+        RequestMulti {
+            stream: receiver,
+            fut: Some(Box::pin(
+                self.clone()
+                    .handle_streaming_request_impl(request_msg, sender),
+            )),
         }
     }
 }
