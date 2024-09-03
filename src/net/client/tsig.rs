@@ -1,4 +1,26 @@
 //! A TSIG signing & verifying passthrough transport.
+//!
+//! This module provides a transport that wraps the [high-level support for
+//! signing message exchanges with TSIG][crate::tsig].
+//!
+//! # Usage
+//!
+//! 1. Create a signing [Key].
+//! 2. Create a [Connection] that wraps an upstream connection and uses the
+//!    key.
+//! 3. [Send a request][Connection::send_request] using the connection.
+//! 4. [Receive the response][Request::get_response] or responses.
+//!
+//! # How it works
+//!
+//! Supplying the key is optional. The transport only affects the request and
+//! response if a key is supplied. This allows for optional signing without
+//! having to construct a different client stack.
+//!
+//! When a key is supplied, requests are automatically signed and response
+//! signatures are automatically verified. On verification failure
+//! [Error::ValidationError][crate::net::client::request::Error] will be
+//! returned.
 #![cfg(all(feature = "tsig", feature = "unstable-client-transport"))]
 #![warn(missing_docs)]
 #![warn(clippy::missing_docs_in_private_items)]
@@ -310,8 +332,6 @@ where
                 RequestStateMulti::Init => {
                     let tsig_client = Arc::new(std::sync::Mutex::new(None));
 
-                    // TODO: TSIG sign the request, and send the signed version
-                    // upstream.
                     let msg = AuthenticatedRequestMessageMulti {
                         request: self.request_msg.take().unwrap(),
                         key: self.key.clone(),
@@ -339,7 +359,7 @@ where
                                 None => {
                                     match &mut self.state {
                                         RequestStateMulti::Init => {
-                                            debug!("Ignoring attempt to complete TSIG stream that hasn't been read from yet.");
+                                            unreachable!()
                                         }
 
                                         RequestStateMulti::GetResponse(
@@ -551,10 +571,6 @@ where
         self.request.set_udp_payload_size(value)
     }
 
-    fn is_streaming(&self) -> bool {
-        self.request.is_streaming()
-    }
-
     fn set_dnssec_ok(&mut self, value: bool) {
         self.request.set_dnssec_ok(value)
     }
@@ -681,10 +697,6 @@ where
 
     fn is_answer(&self, answer: &Message<[u8]>) -> bool {
         self.request.is_answer(answer)
-    }
-
-    fn is_streaming(&self) -> bool {
-        self.request.is_streaming()
     }
 
     fn dnssec_ok(&self) -> bool {

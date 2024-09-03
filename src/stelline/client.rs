@@ -19,14 +19,15 @@ use crate::base::iana::{Opcode, OptionCode};
 use crate::base::opt::{ComposeOptData, OptData};
 use crate::base::{Message, MessageBuilder};
 use crate::net::client::request::{
-    ComposeRequest, Error, GetResponse, GetResponseMulti, RequestMessage,
-    RequestMessageMulti, SendRequest, SendRequestMulti,
+    ComposeRequest, ComposeRequestMulti, Error, GetResponse,
+    GetResponseMulti, RequestMessage, RequestMessageMulti, SendRequest,
+    SendRequestMulti,
 };
 use crate::stelline::matches::match_multi_msg;
 use crate::zonefile::inplace::Entry::Record;
 
 use super::matches::match_msg;
-use super::parse_stelline::{Entry, Reply, Stelline, StepType};
+use super::parse_stelline::{Entry, Reply, Sections, Stelline, StepType};
 
 use super::channel::DEF_CLIENT_ADDR;
 use core::ops::Deref;
@@ -236,15 +237,18 @@ impl Dispatcher {
         entry: &Entry,
     ) -> Result<Response, StellineErrorCause> {
         if let Some(client) = &self.0 {
-            let reqmsg = entry2reqmsg(entry);
-            trace!(?reqmsg);
             let res = match client.deref() {
                 Client::Single(client) => {
+                    let reqmsg = entry2reqmsg(entry);
+                    trace!(?reqmsg);
                     Response::Single(client.send_request(reqmsg))
                 }
-                Client::Multi(client) => Response::Multi(
-                    client.send_request(RequestMessageMulti::from(reqmsg)),
-                ),
+
+                Client::Multi(client) => {
+                    let reqmsg = entry2reqmsg_multi(entry);
+                    trace!(?reqmsg);
+                    Response::Multi(client.send_request(reqmsg))
+                }
             };
             return Ok(res);
         }
@@ -679,6 +683,56 @@ fn init_logging() {
 }
 
 fn entry2reqmsg(entry: &Entry) -> RequestMessage<Vec<u8>> {
+    let (sections, reply, msg) = entry2msg(entry);
+
+    let mut reqmsg = RequestMessage::new(msg).unwrap();
+    if !entry
+        .matches
+        .as_ref()
+        .map(|v| v.mock_client)
+        .unwrap_or_default()
+    {
+        reqmsg.set_dnssec_ok(reply.fl_do);
+    }
+    if reply.notify {
+        reqmsg.header_mut().set_opcode(Opcode::NOTIFY);
+    }
+
+    let edns_bytes = &sections.additional.edns_bytes;
+    if !edns_bytes.is_empty() {
+        let raw_opt = RawOptData { bytes: edns_bytes };
+        reqmsg.add_opt(&raw_opt).unwrap();
+    }
+
+    reqmsg
+}
+
+fn entry2reqmsg_multi(entry: &Entry) -> RequestMessageMulti<Vec<u8>> {
+    let (sections, reply, msg) = entry2msg(entry);
+
+    let mut reqmsg = RequestMessageMulti::new(msg).unwrap();
+    if !entry
+        .matches
+        .as_ref()
+        .map(|v| v.mock_client)
+        .unwrap_or_default()
+    {
+        reqmsg.set_dnssec_ok(reply.fl_do);
+    }
+    if reply.notify {
+        reqmsg.header_mut().set_opcode(Opcode::NOTIFY);
+    }
+
+    let edns_bytes = &sections.additional.edns_bytes;
+    if !edns_bytes.is_empty() {
+        let raw_opt = RawOptData { bytes: edns_bytes };
+        reqmsg.add_opt(&raw_opt).unwrap();
+    }
+
+    reqmsg
+}
+
+fn entry2msg(entry: &Entry) -> (&Sections, Reply, Message<Vec<u8>>) {
     let sections = entry.sections.as_ref().unwrap();
     let mut msg = MessageBuilder::new_vec().question();
     if let Some(opcode) = entry.opcode {
@@ -712,27 +766,7 @@ fn entry2reqmsg(entry: &Entry) -> RequestMessage<Vec<u8>> {
     header.set_ad(reply.ad);
     header.set_cd(reply.cd);
     let msg = msg.into_message();
-
-    let mut reqmsg = RequestMessage::new(msg).unwrap();
-    if !entry
-        .matches
-        .as_ref()
-        .map(|v| v.mock_client)
-        .unwrap_or_default()
-    {
-        reqmsg.set_dnssec_ok(reply.fl_do);
-    }
-    if reply.notify {
-        reqmsg.header_mut().set_opcode(Opcode::NOTIFY);
-    }
-
-    let edns_bytes = &sections.additional.edns_bytes;
-    if !edns_bytes.is_empty() {
-        let raw_opt = RawOptData { bytes: edns_bytes };
-        reqmsg.add_opt(&raw_opt).unwrap();
-    }
-
-    reqmsg
+    (sections, reply, msg)
 }
 
 #[derive(Debug)]
