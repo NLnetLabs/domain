@@ -439,7 +439,9 @@ impl<Octs: Octets + ?Sized> Message<Octs> {
         }
     }
 
-    pub fn is_streaming(&self) -> bool {
+    /// Returns whether the message has a question that is either AXFR or
+    /// IXFR.
+    pub fn is_xfr(&self) -> bool {
         self.first_question()
             .map(|q| matches!(q.qtype(), Rtype::AXFR | Rtype::IXFR))
             .unwrap_or_default()
