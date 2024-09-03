@@ -1,4 +1,15 @@
-// adapters
+//! Service adapters.
+//!
+//! This module defines three adapters for [SingleService]. The first,
+//! [ClientTransportToSingleService] implements [SingleService] for a
+//! client transport ([SendRequest]).
+//! The second one, [BoxClientTransportToSingleService],
+//! implements [Service] for a boxed trait object of [SendRequest].
+//! The third one, [SingleServiceToService] implements [Service] for
+//! [SingleService].
+
+#![warn(missing_docs)]
+#![warn(clippy::missing_docs_in_private_items)]
 
 use super::message::{Request, RequestNG};
 use super::service::{CallResult, Service, ServiceResult};
@@ -13,6 +24,7 @@ use std::marker::PhantomData;
 use std::pin::Pin;
 use std::vec::Vec;
 
+/// Provide a [Service] trait for an object that implements [SingleService].
 pub struct SingleServiceToService<RequestOcts, SVC, CR> {
     service: SVC,
     ro_phantom: PhantomData<RequestOcts>,
@@ -20,6 +32,7 @@ pub struct SingleServiceToService<RequestOcts, SVC, CR> {
 }
 
 impl<RequestOcts, SVC, CR> SingleServiceToService<RequestOcts, SVC, CR> {
+    /// Create a new [SingleServiceToService] object.
     pub fn new(service: SVC) -> Self {
         Self {
             service,
@@ -52,7 +65,9 @@ where
     }
 }
 
-pub struct ClientTransportToSrService<SR, RequestOcts>
+/// Provide a [SingleService] trait for an object that implements the
+/// [SendRequest] trait.
+pub struct ClientTransportToSingleService<SR, RequestOcts>
 where
     RequestOcts: AsRef<[u8]>,
     SR: SendRequest<RequestMessage<RequestOcts>>,
@@ -61,11 +76,12 @@ where
     _phantom: PhantomData<RequestOcts>,
 }
 
-impl<SR, RequestOcts> ClientTransportToSrService<SR, RequestOcts>
+impl<SR, RequestOcts> ClientTransportToSingleService<SR, RequestOcts>
 where
     RequestOcts: AsRef<[u8]>,
     SR: SendRequest<RequestMessage<RequestOcts>>,
 {
+    /// Create a new [ClientTransportToSingleService] object.
     pub fn new(conn: SR) -> Self {
         Self {
             conn,
@@ -75,7 +91,7 @@ where
 }
 
 impl<SR, RequestOcts, CR> SingleService<RequestOcts, CR>
-    for ClientTransportToSrService<SR, RequestOcts>
+    for ClientTransportToSingleService<SR, RequestOcts>
 where
     RequestOcts: AsRef<[u8]> + Clone + Debug + Octets + Send + Sync,
     SR: SendRequest<RequestMessage<RequestOcts>> + Sync,
@@ -103,7 +119,8 @@ where
     }
 }
 
-pub struct BoxClientTransportToSrService<RequestOcts>
+/// Implement the [SingleService] trait for a boxed [SendRequest] trait object.
+pub struct BoxClientTransportToSingleService<RequestOcts>
 where
     RequestOcts: AsRef<[u8]>,
 {
@@ -111,10 +128,11 @@ where
     _phantom: PhantomData<RequestOcts>,
 }
 
-impl<RequestOcts> BoxClientTransportToSrService<RequestOcts>
+impl<RequestOcts> BoxClientTransportToSingleService<RequestOcts>
 where
     RequestOcts: AsRef<[u8]>,
 {
+    /// Create a new [BoxClientTransportToSingleService] object.
     pub fn new(
         conn: Box<dyn SendRequest<RequestMessage<RequestOcts>> + Send + Sync>,
     ) -> Self {
@@ -126,7 +144,7 @@ where
 }
 
 impl<RequestOcts, CR> SingleService<RequestOcts, CR>
-    for BoxClientTransportToSrService<RequestOcts>
+    for BoxClientTransportToSingleService<RequestOcts>
 where
     RequestOcts: AsRef<[u8]> + Clone + Debug + Octets + Send + Sync,
     CR: ComposeReply + Send + Sync + 'static,
