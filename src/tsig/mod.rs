@@ -65,7 +65,6 @@ use crate::base::record::Record;
 use crate::base::wire::{Composer, ParseError};
 use crate::rdata::tsig::{Time48, Tsig};
 use bytes::{Bytes, BytesMut};
-use core::fmt::Display;
 use core::{cmp, fmt, mem, str};
 use octseq::octets::Octets;
 use ring::{constant_time, hkdf::KeyType, hmac, rand};
@@ -385,15 +384,6 @@ impl Key {
 impl AsRef<Key> for Key {
     fn as_ref(&self) -> &Self {
         self
-    }
-}
-
-//--- Display
-
-#[cfg(feature = "std")]
-impl Display for Key {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_fmt(format_args!("{}", self.name))
     }
 }
 
