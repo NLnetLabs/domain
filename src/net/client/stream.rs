@@ -14,9 +14,20 @@
 //   - request timeout
 // - create new connection after end/failure of previous one
 
+use super::request::{
+    ComposeRequest, ComposeRequestMulti, Error, GetResponse,
+    GetResponseMulti, SendRequest, SendRequestMulti,
+};
+use crate::base::iana::{Rcode, Rtype};
+use crate::base::message::Message;
+use crate::base::message_builder::StreamTarget;
+use crate::base::opt::{AllOptData, OptRecord, TcpKeepalive};
+use crate::base::{ParsedName, Serial};
+use crate::rdata::AllRecordData;
+use crate::utils::config::DefMinMax;
+use bytes::{Bytes, BytesMut};
 use core::cmp;
-use core::future::ready;
-
+use octseq::Octets;
 use std::boxed::Box;
 use std::fmt::Debug;
 use std::future::Future;
@@ -24,28 +35,10 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use std::vec::Vec;
-
-use bytes::{Bytes, BytesMut};
-use octseq::Octets;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::sync::{mpsc, oneshot};
 use tokio::time::sleep;
 use tracing::trace;
-
-use crate::base::iana::Rcode;
-use crate::base::message::Message;
-use crate::base::message_builder::StreamTarget;
-use crate::base::opt::{AllOptData, OptRecord, TcpKeepalive};
-use crate::base::{ParsedName, Rtype, Serial};
-use crate::net::client::request::{
-    ComposeRequest, Error, GetResponse, SendRequest,
-};
-use crate::rdata::AllRecordData;
-use crate::utils::config::DefMinMax;
-
-use super::request::{
-    ComposeRequestMulti, GetResponseMulti, SendRequestMulti,
-};
 
 //------------ Configuration Constants ----------------------------------------
 
@@ -122,7 +115,7 @@ impl Config {
     /// Sets the response timeout.
     ///
     /// For requests where ComposeRequest::is_streaming() returns true see
-    /// set_streaming_response_timeout() instead.    
+    /// set_streaming_response_timeout() instead.
     ///
     /// Excessive values are quietly trimmed.
     //
@@ -158,7 +151,7 @@ impl Config {
     ///
     /// By default the stream is immediately closed if there are no pending
     /// requests or responses.
-    ///  
+    ///
     /// Set this to allow requests to be sent in sequence with delays between
     /// such as a SOA query followed by AXFR for more efficient use of the
     /// stream per RFC 9103.
@@ -267,14 +260,8 @@ where
 
     /// Returns a request handler for this connection.
     pub fn get_request(&self, request_msg: Req) -> Request {
-        if request_msg.is_streaming() {
-            Request {
-                fut: Box::pin(ready(Err(Error::FormError))),
-            }
-        } else {
-            Request {
-                fut: Box::pin(self.clone().handle_request_impl(request_msg)),
-            }
+        Request {
+            fut: Box::pin(self.clone().handle_request_impl(request_msg)),
         }
     }
 
@@ -284,19 +271,12 @@ where
         request_msg: ReqMulti,
     ) -> RequestMulti {
         let (sender, receiver) = mpsc::channel(DEF_CHAN_CAP);
-        if !request_msg.is_streaming() {
-            RequestMulti {
-                stream: receiver,
-                fut: Some(Box::pin(ready(Err(Error::FormError)))),
-            }
-        } else {
-            RequestMulti {
-                stream: receiver,
-                fut: Some(Box::pin(
-                    self.clone()
-                        .handle_streaming_request_impl(request_msg, sender),
-                )),
-            }
+        RequestMulti {
+            stream: receiver,
+            fut: Some(Box::pin(
+                self.clone()
+                    .handle_streaming_request_impl(request_msg, sender),
+            )),
         }
     }
 }
