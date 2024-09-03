@@ -21,9 +21,7 @@
 //! something that looks like a [`Record`]. Apart from actual values
 //! of these types, tuples of the components also work, such as a pair of a
 //! domain name and a record type for a question or a triple of the owner
-//! name, TTL, and record data for a record. If you already have a question
-//! or record, you can use the `push_ref` method to add
-//!
+//! name, TTL, and record data for a record.
 //!
 //! The `push` method of the record
 //! section builders is also available via the [`RecordSectionBuilder`]
@@ -260,6 +258,34 @@ impl<Target: Composer> MessageBuilder<Target> {
             builder.push(item)?;
         }
         Ok(builder.answer())
+    }
+
+    /// Starts creating an error for the given message.
+    ///
+    /// Like [`start_answer()`] but infallible. Questions will be pushed if possible.
+    pub fn start_error<Octs: Octets + ?Sized>(
+        mut self,
+        msg: &Message<Octs>,
+        rcode: Rcode,
+    ) -> AnswerBuilder<Target> {
+        {
+            let header = self.header_mut();
+            header.set_id(msg.header().id());
+            header.set_qr(true);
+            header.set_opcode(msg.header().opcode());
+            header.set_rd(msg.header().rd());
+            header.set_rcode(rcode);
+        }
+
+        let mut builder = self.question();
+        for item in msg.question().flatten() {
+            if builder.push(item).is_err() {
+                builder.header_mut().set_rcode(Rcode::SERVFAIL);
+                break;
+            }
+        }
+
+        builder.answer()
     }
 
     /// Creates an AXFR request for the given domain.

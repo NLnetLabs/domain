@@ -3,7 +3,7 @@ use core::future::{ready, Ready};
 use core::marker::PhantomData;
 use core::ops::ControlFlow;
 
-use futures::stream::{once, Once};
+use futures::stream::{once, Once, Stream};
 use octseq::Octets;
 use tracing::{debug, enabled, error, trace, warn, Level};
 
@@ -45,33 +45,51 @@ const EDNS_VERSION_ZERO: u8 = 0;
 /// [7828]: https://datatracker.ietf.org/doc/html/rfc7828
 /// [9210]: https://datatracker.ietf.org/doc/html/rfc9210
 #[derive(Clone, Debug, Default)]
-pub struct EdnsMiddlewareSvc<RequestOctets, Svc> {
-    svc: Svc,
+pub struct EdnsMiddlewareSvc<RequestOctets, NextSvc, RequestMeta> {
+    /// The upstream [`Service`] to pass requests to and receive responses
+    /// from.
+    next_svc: NextSvc,
 
-    _phantom: PhantomData<RequestOctets>,
+    /// Is the middleware service enabled?
+    ///
+    /// Defaults to true. If false, the service will pass requests and
+    /// responses through unmodified.
+    enabled: bool,
+
+    _phantom: PhantomData<(RequestOctets, RequestMeta)>,
 }
 
-impl<RequestOctets, Svc> EdnsMiddlewareSvc<RequestOctets, Svc> {
-    /// Creates an instance of this processor.
+impl<RequestOctets, NextSvc, RequestMeta>
+    EdnsMiddlewareSvc<RequestOctets, NextSvc, RequestMeta>
+{
+    /// Creates an instance of this middleware service.
     #[must_use]
-    pub fn new(svc: Svc) -> Self {
+    pub fn new(next_svc: NextSvc) -> Self {
         Self {
-            svc,
+            next_svc,
+            enabled: true,
             _phantom: PhantomData,
         }
     }
+
+    pub fn enable(mut self, enabled: bool) -> Self {
+        self.enabled = enabled;
+        self
+    }
 }
 
-impl<RequestOctets, Svc> EdnsMiddlewareSvc<RequestOctets, Svc>
+impl<RequestOctets, NextSvc, RequestMeta>
+    EdnsMiddlewareSvc<RequestOctets, NextSvc, RequestMeta>
 where
     RequestOctets: Octets + Send + Sync + Unpin,
-    Svc: Service<RequestOctets>,
-    Svc::Target: Composer + Default,
+    NextSvc: Service<RequestOctets, RequestMeta>,
+    NextSvc::Target: Composer + Default,
+    RequestMeta: Clone + Default,
 {
     fn preprocess(
         &self,
-        request: &Request<RequestOctets>,
-    ) -> ControlFlow<AdditionalBuilder<StreamTarget<Svc::Target>>> {
+        request: &mut Request<RequestOctets, RequestMeta>,
+    ) -> ControlFlow<AdditionalBuilder<StreamTarget<NextSvc::Target>>> {
         // https://www.rfc-editor.org/rfc/rfc6891.html#section-6.1.1
         // 6.1.1: Basic Elements
         // ...
@@ -216,8 +234,8 @@ where
     }
 
     fn postprocess(
-        request: &Request<RequestOctets>,
-        response: &mut AdditionalBuilder<StreamTarget<Svc::Target>>,
+        request: &Request<RequestOctets, RequestMeta>,
+        response: &mut AdditionalBuilder<StreamTarget<NextSvc::Target>>,
     ) {
         // https://www.rfc-editor.org/rfc/rfc6891.html#section-6.1.1
         // 6.1.1: Basic Elements
@@ -305,10 +323,10 @@ where
     }
 
     fn map_stream_item(
-        request: Request<RequestOctets>,
-        mut stream_item: ServiceResult<Svc::Target>,
-        _metadata: (),
-    ) -> ServiceResult<Svc::Target> {
+        request: Request<RequestOctets, RequestMeta>,
+        mut stream_item: ServiceResult<NextSvc::Target>,
+        _pp_meta: (),
+    ) -> ServiceResult<NextSvc::Target> {
         if let Ok(cr) = &mut stream_item {
             if let Some(response) = cr.response_mut() {
                 Self::postprocess(&request, response);
@@ -320,28 +338,43 @@ where
 
 //--- Service
 
-impl<RequestOctets, Svc> Service<RequestOctets>
-    for EdnsMiddlewareSvc<RequestOctets, Svc>
+impl<RequestOctets, NextSvc, RequestMeta> Service<RequestOctets, RequestMeta>
+    for EdnsMiddlewareSvc<RequestOctets, NextSvc, RequestMeta>
 where
     RequestOctets: Octets + Send + Sync + 'static + Unpin,
-    Svc: Service<RequestOctets>,
-    Svc::Target: Composer + Default,
-    Svc::Future: Unpin,
+    RequestMeta: Clone + Default + Unpin,
+    NextSvc: Service<RequestOctets, RequestMeta>,
+    NextSvc::Target: Composer + Default,
+    NextSvc::Future: Unpin,
 {
-    type Target = Svc::Target;
+    type Target = NextSvc::Target;
     type Stream = MiddlewareStream<
-        Svc::Future,
-        Svc::Stream,
-        PostprocessingStream<RequestOctets, Svc::Future, Svc::Stream, ()>,
-        Once<Ready<<Svc::Stream as futures::stream::Stream>::Item>>,
-        <Svc::Stream as futures::stream::Stream>::Item,
+        NextSvc::Future,
+        NextSvc::Stream,
+        PostprocessingStream<
+            RequestOctets,
+            NextSvc::Future,
+            NextSvc::Stream,
+            RequestMeta,
+            (),
+        >,
+        Once<Ready<<NextSvc::Stream as Stream>::Item>>,
+        <NextSvc::Stream as Stream>::Item,
     >;
     type Future = core::future::Ready<Self::Stream>;
 
-    fn call(&self, request: Request<RequestOctets>) -> Self::Future {
-        match self.preprocess(&request) {
+    fn call(
+        &self,
+        mut request: Request<RequestOctets, RequestMeta>,
+    ) -> Self::Future {
+        if !self.enabled {
+            let svc_call_fut = self.next_svc.call(request.clone());
+            return ready(MiddlewareStream::IdentityFuture(svc_call_fut));
+        }
+
+        match self.preprocess(&mut request) {
             ControlFlow::Continue(()) => {
-                let svc_call_fut = self.svc.call(request.clone());
+                let svc_call_fut = self.next_svc.call(request.clone());
                 let map = PostprocessingStream::new(
                     svc_call_fut,
                     request,
@@ -396,17 +429,16 @@ mod tests {
 
         // --- Only server specified max UDP response sizes
         //
-        // The EdnsMiddlewareProcessor should leave these untouched as no EDNS
+        // The EdnsMiddlewareSvc should leave these untouched as no EDNS
         // option was present in the request, only the server hint exists, and
-        // EdnsMiddlewareProcessor only acts if the client EDNS option is
-        // present.
+        // EdnsMiddlewareSvc only acts if the client EDNS option is present.
         assert_eq!(process(None, TOO_SMALL).await, TOO_SMALL);
         assert_eq!(process(None, JUST_RIGHT).await, JUST_RIGHT);
         assert_eq!(process(None, HUGE).await, HUGE);
 
         // --- Only client specified max UDP response sizes
         //
-        // The EdnsMiddlewareProcessor should adopt these, after clamping
+        // The EdnsMiddlewareSvc should adopt these, after clamping
         // them.
         assert_eq!(process(TOO_SMALL, None).await, JUST_RIGHT);
         assert_eq!(process(JUST_RIGHT, None).await, JUST_RIGHT);
@@ -414,7 +446,7 @@ mod tests {
 
         // --- Both client and server specified max UDP response sizes
         //
-        // The EdnsMiddlewareProcessor should negotiate the largest size
+        // The EdnsMiddlewareSvc should negotiate the largest size
         // acceptable to both sides.
         assert_eq!(process(TOO_SMALL, TOO_SMALL).await, MIN_ALLOWED);
         assert_eq!(process(TOO_SMALL, JUST_RIGHT).await, JUST_RIGHT);
@@ -462,6 +494,7 @@ mod tests {
             Instant::now(),
             message,
             ctx.into(),
+            (),
         );
 
         fn my_service(
@@ -478,12 +511,12 @@ mod tests {
         // Either call the service directly.
         let my_svc = service_fn(my_service, ());
         let mut stream = my_svc.call(request.clone()).await;
-        let _call_result: CallResult<Vec<u8>> =
+        let _call_result: CallResult<_> =
             stream.next().await.unwrap().unwrap();
 
-        // Or pass the query through the middleware processor
-        let processor_svc = EdnsMiddlewareSvc::new(my_svc);
-        let mut stream = processor_svc.call(request.clone()).await;
+        // Or pass the query through the middleware service
+        let middleware_svc = EdnsMiddlewareSvc::new(my_svc);
+        let mut stream = middleware_svc.call(request.clone()).await;
         let call_result: CallResult<Vec<u8>> =
             stream.next().await.unwrap().unwrap();
         let (_response, _feedback) = call_result.into_inner();

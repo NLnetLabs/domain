@@ -6,7 +6,6 @@
 use core::fmt::Display;
 use core::ops::Deref;
 
-use std::sync::Arc;
 use std::time::Duration;
 use std::vec::Vec;
 
@@ -16,16 +15,13 @@ use crate::base::wire::ParseError;
 use crate::base::StreamTarget;
 
 use super::message::Request;
-use core::future::ready;
-use futures::stream::once;
 
 //------------ Service -------------------------------------------------------
 
 /// The type of item that `Service` implementations stream as output.
 pub type ServiceResult<Target> = Result<CallResult<Target>, ServiceError>;
 
-/// `Service`s are responsible for determining how to respond to DNS
-/// requests.
+/// `Service`s are responsible for determining how to respond to DNS requests.
 ///
 /// For an overview of how services fit into the total flow of request and
 /// response handling see the [`net::server`] module documentation.
@@ -40,26 +36,17 @@ pub type ServiceResult<Target> = Result<CallResult<Target>, ServiceError>;
 ///
 /// # Usage
 ///
-/// There are three ways to implement the `Service` trait:
-///
-///   1. Implement the `Service` trait on a struct.
-///   2. Define a function compatible with the `Service` trait.
-///   3. Define a function compatible with [`service_fn`].
-///
-/// <div class="warning">
-///
-/// Whichever approach you choose it is important to minimize the work done
-/// before returning from [`Service::call`], as time spent here blocks the
-/// caller. Instead as much work as possible should be delegated to the
-/// future returned.
-///
-/// </div>
+/// You can either implement the [`Service`] trait on a struct or use the
+/// helper function [`service_fn`] to turn a function into a [`Service`].
 ///
 /// # Implementing the `Service` trait on a `struct`
 ///
 /// ```
 /// use core::future::ready;
 /// use core::future::Ready;
+/// use core::pin::Pin;
+///
+/// use std::task::{Context, Poll};
 ///
 /// use futures::stream::{once, Once, Stream};
 ///
@@ -87,98 +74,108 @@ pub type ServiceResult<Target> = Result<CallResult<Target>, ServiceError>;
 ///     answer.additional()
 /// }
 ///
-/// struct MyService;
+/// fn mk_response_stream(msg: &Request<Vec<u8>>)
+///   -> Once<Ready<ServiceResult<Vec<u8>>>>
+/// {
+///     let builder = mk_builder_for_target();
+///     let additional = mk_answer(msg, builder);
+///     let item = Ok(CallResult::new(additional));
+///     once(ready(item))
+/// }
 ///
-/// impl Service<Vec<u8>> for MyService {
+/// //------------ A synchronous service example ------------------------------
+/// struct MySyncService;
+///
+/// impl Service<Vec<u8>> for MySyncService {
 ///     type Target = Vec<u8>;
 ///     type Stream = Once<Ready<ServiceResult<Self::Target>>>;
 ///     type Future = Ready<Self::Stream>;
+///     
+///     fn call(
+///         &self,
+///         msg: Request<Vec<u8>>,
+///     ) -> Self::Future {
+///         ready(mk_response_stream(&msg))
+///     }
+/// }
+///
+/// //------------ An anonymous async block service example -------------------
+/// struct MyAsyncBlockService;
+///
+/// impl Service<Vec<u8>> for MyAsyncBlockService {
+///     type Target = Vec<u8>;
+///     type Stream = Once<Ready<ServiceResult<Self::Target>>>;
+///     type Future = Pin<Box<dyn std::future::Future<Output = Self::Stream>>>;
 ///
 ///     fn call(
 ///         &self,
 ///         msg: Request<Vec<u8>>,
 ///     ) -> Self::Future {
-///         let builder = mk_builder_for_target();
-///         let additional = mk_answer(&msg, builder);
-///         let item = Ok(CallResult::new(additional));
-///         ready(once(ready(item)))
+///         Box::pin(async move { mk_response_stream(&msg) })
 ///     }
+/// }
+///
+/// //------------ A named Future service example -----------------------------
+/// struct MyFut(Request<Vec<u8>>);
+///
+/// impl std::future::Future for MyFut {
+///     type Output = Once<Ready<ServiceResult<Vec<u8>>>>;
+///
+///     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+///         Poll::Ready(mk_response_stream(&self.0))
+///     }
+/// }
+///
+/// struct MyNamedFutureService;
+///
+/// impl Service<Vec<u8>> for MyNamedFutureService {
+///     type Target = Vec<u8>;
+///     type Stream = Once<Ready<ServiceResult<Self::Target>>>;
+///     type Future = MyFut;
+///     
+///     fn call(&self, msg: Request<Vec<u8>>) -> Self::Future { MyFut(msg) }
 /// }
 /// ```
 ///
-/// # Define a function compatible with the `Service` trait
+/// The above are minimalist examples to illustrate what you need to do, but
+/// lacking any actual useful behaviour. They also only demonstrate returning
+/// a response stream containing a single immediately available value via
+/// `futures::stream::Once` and `std::future::Ready`.
 ///
-/// ```
-/// use core::fmt::Debug;
-/// use core::future::ready;
-/// use core::future::Future;
+/// In your own [`Service`] impl you would implement actual business logic
+/// returning single or multiple responses synchronously or asynchronously as
+/// needed.
 ///
-/// use domain::base::{Name, Message};
-/// use domain::base::iana::{Class, Rcode};
-/// use domain::base::name::ToLabelIter;
-/// use domain::base::wire::Composer;
-/// use domain::dep::octseq::{OctetsBuilder, FreezeBuilder, Octets};
-/// use domain::net::server::message::Request;
-/// use domain::net::server::service::{CallResult, ServiceError, ServiceResult};
-/// use domain::net::server::util::mk_builder_for_target;
-/// use domain::rdata::A;
+/// # Advanced usage
 ///
-/// fn name_to_ip(request: Request<Vec<u8>>) -> ServiceResult<Vec<u8>> {
-///     let mut out_answer = None;
-///     if let Ok(question) = request.message().sole_question() {
-///         let qname = question.qname();
-///         let num_labels = qname.label_count();
-///         if num_labels >= 5 {
-///             let mut iter = qname.iter_labels();
-///             let a = iter.nth(num_labels - 5).unwrap();
-///             let b = iter.next().unwrap();
-///             let c = iter.next().unwrap();
-///             let d = iter.next().unwrap();
-///             let a_rec: Result<A, _> = format!("{a}.{b}.{c}.{d}").parse();
-///             if let Ok(a_rec) = a_rec {
-///                 let builder = mk_builder_for_target();
-///                 let mut answer =
-///                     builder
-///                         .start_answer(request.message(), Rcode::NOERROR)
-///                         .unwrap();
-///                 answer
-///                     .push((Name::root_ref(), Class::IN, 86400, a_rec))
-///                     .unwrap();
-///                 out_answer = Some(answer);
-///             }
-///         }
-///     }
+/// The [`Service`] trait takes two generic types which in most cases you
+/// don't need to specify as the defaults will be fine.
 ///
-///     if out_answer.is_none() {
-///         let builder = mk_builder_for_target();
-///         let answer = builder
-///             .start_answer(request.message(), Rcode::REFUSED)
-///             .unwrap();
-///         out_answer = Some(answer);
-///     }
+/// For more advanced cases you may need to override these defaults.
 ///
-///     let additional = out_answer.unwrap().additional();
-///     Ok(CallResult::new(additional))
-/// }
-/// ```
+/// - `RequestMeta`: If implementing a [middleware] `Service` you may need to
+///   supply your own `RequestMeta` type. `RequestMeta` is intended to enable
+///   middleware `Service` impls to express strongly typed support for
+///   middleware specific data that can be consumed by upstream middleware, or
+///   even by your application service. For example a middleware `Service` may
+///   detect that the request is signed using a particular key and communicate
+///   the name of the key to any upstream `Service` that needs to know the
+///   name of the key used to sign the request.
 ///
-/// Now when you want to use the service pass it to the server:
-///
-/// ```ignore
-/// let srv = DgramServer::new(sock, buf, name_to_ip);
-/// ```
-///
-/// # Define a function compatible with [`service_fn`]
-///
-/// See [`service_fn`] for an example of how to use it to create a `Service`
-/// impl from a function.
+/// - `RequestOctets`: By specifying your own `RequestOctets` type you can use
+///   a type other than `Vec<u8>` to transport request bytes through your
+///   application.
 ///
 /// [`DgramServer`]: crate::net::server::dgram::DgramServer
 /// [`StreamServer`]: crate::net::server::stream::StreamServer
+/// [middleware]: crate::net::server::middleware
 /// [`net::server`]: crate::net::server
 /// [`call`]: Self::call()
 /// [`service_fn`]: crate::net::server::util::service_fn()
-pub trait Service<RequestOctets: AsRef<[u8]> + Send + Sync + Unpin = Vec<u8>>
+pub trait Service<
+    RequestOctets: AsRef<[u8]> + Send + Sync = Vec<u8>,
+    RequestMeta: Clone + Default = (),
+>
 {
     /// The underlying byte storage type used to hold generated responses.
     type Target;
@@ -191,42 +188,32 @@ pub trait Service<RequestOctets: AsRef<[u8]> + Send + Sync + Unpin = Vec<u8>>
     type Future: core::future::Future<Output = Self::Stream>;
 
     /// Generate a response to a fully pre-processed request.
-    fn call(&self, request: Request<RequestOctets>) -> Self::Future;
+    fn call(
+        &self,
+        request: Request<RequestOctets, RequestMeta>,
+    ) -> Self::Future;
 }
 
-//--- impl Service for Arc
+//--- impl Service for Deref
 
-/// Helper trait impl to treat an [`Arc<impl Service>`] as a `Service`.
-impl<RequestOctets, T> Service<RequestOctets> for Arc<T>
+/// Helper trait impl to treat a [`Deref<Target = impl Service>`] as a [`Service`].
+impl<RequestOctets, RequestMeta, T, U> Service<RequestOctets, RequestMeta>
+    for U
 where
     RequestOctets: Unpin + Send + Sync + AsRef<[u8]>,
-    T: ?Sized + Service<RequestOctets>,
+    T: ?Sized + Service<RequestOctets, RequestMeta>,
+    U: Deref<Target = T> + Clone,
+    RequestMeta: Clone + Default,
 {
     type Target = T::Target;
     type Stream = T::Stream;
     type Future = T::Future;
 
-    fn call(&self, request: Request<RequestOctets>) -> Self::Future {
-        Arc::deref(self).call(request)
-    }
-}
-
-//--- impl Service for functions with matching signature
-
-/// Helper trait impl to treat a function as a `Service`.
-impl<RequestOctets, Target, F> Service<RequestOctets> for F
-where
-    RequestOctets: AsRef<[u8]> + Send + Sync + Unpin,
-    F: Fn(Request<RequestOctets>) -> ServiceResult<Target>,
-{
-    type Target = Target;
-    type Stream = futures::stream::Once<
-        core::future::Ready<ServiceResult<Self::Target>>,
-    >;
-    type Future = core::future::Ready<Self::Stream>;
-
-    fn call(&self, request: Request<RequestOctets>) -> Self::Future {
-        ready(once(ready((*self)(request))))
+    fn call(
+        &self,
+        request: Request<RequestOctets, RequestMeta>,
+    ) -> Self::Future {
+        (**self).call(request)
     }
 }
 
