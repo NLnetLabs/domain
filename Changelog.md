@@ -11,6 +11,7 @@ New
 * Added `OptRcode::is_ext` to check if the code is an extended code.
   ([#358])
 * Added `Rtype::is_glue` to check if the Rtype may be used as glue. ([#363])
+* Added `MessageBuilder::start_error`, like `start_answer` but infallible. ([#369])
 
 Bug fixes
 
@@ -35,14 +36,15 @@ Unstable features
     from the server. ([#341])
   * Fixed an off-by-one error in Dgram client retry count checking. ([#354])
 * `unstable-server-transport`
-  * The `CookiesMiddlewareProcessor` now allows requests with invalid
-    cookies to proceed if they are authenticated or not required to
-    authenticate. ([#336])
+  * The cookies middleware now allows requests with invalid cookies to
+    proceed if they are authenticated or not required to authenticate. ([#336])
   * Improved zonefile parsing error messages. ([#362]). 
   * `TryFrom<inplace::Zonefile> for Zonefile` now returns the set of
     errors instead of logging and ignoring them. ([#362])
   * Allow both glue (A/AAAA) and zone cuts at the same owner when zone
     parsing. ([#363])
+  * Breaking changes to the `Service` and middleware traits. ([#369])
+  * Added an `enabled` flag to `CookiesMiddlewareSvc`. ([#369])
 
 Other changes
 
