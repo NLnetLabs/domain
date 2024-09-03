@@ -262,7 +262,8 @@ impl<Target: Composer> MessageBuilder<Target> {
 
     /// Starts creating an error for the given message.
     ///
-    /// Like [`start_answer()`] but infallible. Questions will be pushed if possible.
+    /// Like [`start_answer()`] but infallible. Questions will be pushed if
+    /// possible.
     pub fn start_error<Octs: Octets + ?Sized>(
         mut self,
         msg: &Message<Octs>,
