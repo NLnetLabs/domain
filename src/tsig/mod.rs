@@ -54,8 +54,6 @@
 #![cfg(feature = "tsig")]
 #![cfg_attr(docsrs, doc(cfg(feature = "tsig")))]
 
-mod interop;
-
 use crate::base::header::HeaderSection;
 use crate::base::iana::{Class, Rcode, TsigRcode};
 use crate::base::message::Message;
@@ -67,6 +65,7 @@ use crate::base::record::Record;
 use crate::base::wire::{Composer, ParseError};
 use crate::rdata::tsig::{Time48, Tsig};
 use bytes::{Bytes, BytesMut};
+use core::fmt::Display;
 use core::{cmp, fmt, mem, str};
 use octseq::octets::Octets;
 use ring::{constant_time, hkdf::KeyType, hmac, rand};
@@ -103,7 +102,7 @@ pub type KeyName = Name<octseq::array::Array<255>>;
 /// [`new`]: #method.new
 /// [`min_mac_len`]: #method.min_mac_len
 /// [`signing_len`]: #method.signing_len
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Key {
     /// The key’s bits and algorithm.
     key: hmac::Key,
@@ -261,6 +260,70 @@ impl Key {
         self.signing_len
     }
 
+    /// Returns the space needed for a TSIG RR for this key.
+    pub fn compose_len(&self) -> u16 {
+        // The length of the generated TSIG RR is governed by variable and
+        // fixed parts. The variable parts are the key name, the algorithm
+        // name and the MAC. Given the key we can work this out.
+
+        // https://datatracker.ietf.org/doc/html/rfc8945#section-4.2
+        // 4.2. TSIG Record Format
+        //   "The fields of the TSIG RR are described below. All multi-octet
+        //   integers in the record are sent in network byte order (see
+        //   Section 2.3.2 of [RFC1035]).
+        //
+        //   Field     Description                               RFC 1035 Size
+        //   -----------------------------------------------------------------
+        //   NAME:     The name of the key used, in domain name  (variable)
+        //             syntax. [...]
+        //   TYPE:     This MUST be TSIG (250: Transaction       two octets
+        //             SIGnature).
+        //   CLASS:    This MUST be ANY.                         two octets
+        //   TTL:      This MUST be 0.                           32-bit
+        //   RDLENGTH: (variable)                                16-bit
+        //   RDATA:    The RDATA for a TSIG RR consists of a     (variable)
+        //             number of fields, described below:
+        //
+        //                        1 1 1 1 1 1 1 1 1 1 2 2 2 2 2 2 2 2 2 2 3 3
+        //    0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+        //   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+        //   /                         Algorithm Name                        /
+        //   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+        //   |                                                               |
+        //   |          Time Signed          +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+        //   |                               |            Fudge              |
+        //   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+        //   |          MAC Size             |                               /
+        //   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+             MAC               /
+        //   /                                                               /
+        //   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+        //   |          Original ID          |            Error              |
+        //   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+        //   |          Other Len            |                               /
+        //   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+           Other Data          /
+        //   /                                                               /
+        //   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+        //   "
+        let rdata_len = self.algorithm().to_name().compose_len() // Algorithm Name
+            + 6 // Time Signed
+            + 2 // Fudge
+            + 2 // MAC Size
+            + self.signing_len() as u16
+            + 2 // Original ID
+            + 2 // Error
+            + 2; // Other Len
+                 //+ 0; // Other Data (assume a successful response)
+
+        let rr_len = self.name().compose_len()
+            + 2 // TYPE
+            + 2 // CLASS
+            + 4 // TTL
+            + 2 // RDLENGTH
+            + rdata_len;
+
+        rr_len
+    }
+
     /// Checks whether the key in the record is this key.
     fn check_tsig<Octs: Octets + ?Sized>(
         &self,
@@ -305,7 +368,7 @@ impl Key {
     /// if that is required.
     ///
     /// The method fails if the TSIG record doesn’t fit into the message
-    /// anymore, in which case the builder is returned unharmed.
+    /// anymore, in which case the builder is left unmodified.
     fn complete_message<Target: Composer>(
         &self,
         message: &mut AdditionalBuilder<Target>,
@@ -322,6 +385,15 @@ impl Key {
 impl AsRef<Key> for Key {
     fn as_ref(&self) -> &Self {
         self
+    }
+}
+
+//--- Display
+
+#[cfg(feature = "std")]
+impl Display for Key {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_fmt(format_args!("{}", self.name))
     }
 }
 
@@ -359,7 +431,7 @@ pub trait KeyStore {
     ) -> Option<Self::Key>;
 }
 
-impl<K: AsRef<Key> + Clone> KeyStore for K {
+impl KeyStore for Key {
     type Key = Self;
 
     fn get_key<N: ToName>(
@@ -371,6 +443,24 @@ impl<K: AsRef<Key> + Clone> KeyStore for K {
             && self.as_ref().algorithm() == algorithm
         {
             Some(self.clone())
+        } else {
+            None
+        }
+    }
+}
+
+impl KeyStore for &'_ Key {
+    type Key = Self;
+
+    fn get_key<N: ToName>(
+        &self,
+        name: &N,
+        algorithm: Algorithm,
+    ) -> Option<Self::Key> {
+        if self.as_ref().name() == name
+            && self.as_ref().algorithm() == algorithm
+        {
+            Some(self)
         } else {
             None
         }
@@ -396,9 +486,26 @@ where
     }
 }
 
+#[cfg(feature = "std")]
+impl<K, U> KeyStore for std::sync::Arc<U>
+where
+    K: AsRef<Key> + Clone,
+    U: KeyStore<Key = K>,
+{
+    type Key = K;
+
+    fn get_key<N: ToName>(
+        &self,
+        name: &N,
+        algorithm: Algorithm,
+    ) -> Option<Self::Key> {
+        (**self).get_key(name, algorithm)
+    }
+}
+
 //------------ ClientTransaction ---------------------------------------------
 
-/// TSIG Client Transaction State.
+/// TSIG Client transaction state.
 ///
 /// This types allows signing a DNS request with a given key and validate an
 /// answer received for it.
@@ -425,14 +532,15 @@ impl<K: AsRef<Key>> ClientTransaction<K> {
     /// builder and a key. It signs the message with the key and adds the
     /// signature as a TSIG record to the message’s additional section. It
     /// also creates a transaction value that can later be used to validate
-    /// the response. It returns both the message and the transaction.
+    /// the response. It modifies the given message and returns the created
+    /// transaction.
     ///
-    /// The function can fail if the TSIG record doesn’t actually fit into
-    /// the message anymore. In this case, the function returns an error and
-    /// the untouched message.
+    /// The function can fail if the TSIG record doesn’t fit into the message.
+    /// In this case, the function returns an error and leave the given
+    /// message unmodified.
     ///
-    /// Unlike [`request_with_fudge`], this function uses the
-    /// recommended default value for _fudge:_ 300 seconds.
+    /// Unlike [`request_with_fudge`], this function uses the recommended
+    /// default value for _fudge:_ 300 seconds.
     ///
     /// [`request_with_fudge`]: #method.request_with_fudge
     pub fn request<Target: Composer>(
@@ -586,8 +694,7 @@ impl<K: AsRef<Key>> ServerTransaction<K> {
     /// TSIG record must be the last record and returns it.
     ///
     /// If appending the TSIG record fails, which can only happen if there
-    /// isn’t enough space left, it returns the builder unchanged as the
-    /// error case.
+    /// isn’t enough space left, it returns an error.
     pub fn answer<Target: Composer>(
         self,
         message: &mut AdditionalBuilder<Target>,
@@ -598,7 +705,7 @@ impl<K: AsRef<Key>> ServerTransaction<K> {
 
     /// Produces a signed answer with a given fudge.
     ///
-    /// This method is similar to [`answer`] but lets you explicitely state
+    /// This method is similar to [`answer`] but lets you explicitly state
     /// the `fudge`, i.e., the number of seconds the recipient’s clock is
     /// allowed to differ from your current time when checking the signature.
     /// The default, suggested by the RFC, is 300.
@@ -951,6 +1058,25 @@ impl<K: AsRef<Key>> ServerSequence<K> {
     /// Returns a reference to the transaction’s key.
     pub fn key(&self) -> &Key {
         self.context.key()
+    }
+}
+
+//--- From
+
+/// Convert an unused [`ServerTransaction`] to a [`ServerSequence`]
+///
+/// If [`ServerTransaction::request()`] was used to verify a TSIG signed
+/// request but then you need to sign multiple responses,
+/// [`ServerTransaction`] will not suffice as it can only sign a single
+/// response. To resolve this you can use this function to convert the
+/// [`ServerTransaction`] to a [`ServerSequence`] which can be used to sign
+/// multiple responses.
+impl<K> From<ServerTransaction<K>> for ServerSequence<K> {
+    fn from(txn: ServerTransaction<K>) -> Self {
+        Self {
+            context: txn.context,
+            first: true,
+        }
     }
 }
 
@@ -1404,8 +1530,8 @@ impl Variables {
             Class::ANY,
             0,
             // The only reason creating TSIG record data can fail here is
-            // that the hmac is unreasonable large. Since we control its
-            // creation, panicing in this case is fine.
+            // that the hmac is unreasonably large. Since we control its
+            // creation, panicking in this case is fine.
             Tsig::new(
                 key.algorithm().to_name(),
                 self.time_signed,
@@ -1619,7 +1745,7 @@ enum ServerErrorInner<K> {
 }
 
 impl<K> ServerError<K> {
-    fn unsigned(error: TsigRcode) -> Self {
+    pub fn unsigned(error: TsigRcode) -> Self {
         ServerError(ServerErrorInner::Unsigned { error })
     }
 

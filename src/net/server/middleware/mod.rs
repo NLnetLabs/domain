@@ -30,3 +30,5 @@ pub mod cookies;
 pub mod edns;
 pub mod mandatory;
 pub mod stream;
+#[cfg(feature = "tsig")]
+pub mod tsig;

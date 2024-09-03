@@ -192,7 +192,7 @@ where
 
 impl<Octs, Metadata> Request<Octs, Metadata>
 where
-    Octs: AsRef<[u8]> + Send + Sync + Unpin,
+    Octs: AsRef<[u8]> + Send + Sync,
 {
     /// Creates a new request wrapper around a message along with its context.
     pub fn new(
@@ -270,7 +270,7 @@ where
 
 impl<Octs, Metadata> Clone for Request<Octs, Metadata>
 where
-    Octs: AsRef<[u8]> + Send + Sync + Unpin,
+    Octs: AsRef<[u8]> + Send + Sync,
     Metadata: Clone,
 {
     fn clone(&self) -> Self {
