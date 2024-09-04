@@ -1180,7 +1180,6 @@ where
                 return (false, xfr_state, false);
             }
             XFRState::AXFRFirstSoa(serial) => {
-                // Find the SOA at the end.
                 if let AllRecordData::Soa(soa) = rr.data() {
                     if serial == soa.serial() {
                         // We found a match.
@@ -1379,8 +1378,8 @@ impl<T> Queries<T> {
         Ok((idx, req))
     }
 
-    /// Inserts the given query at a specified position. The slot has to be
-    /// empty.
+    /// Inserts the given query at a specified position. A pre-condition is
+    /// is that the slot has to be empty.
     fn insert_at(&mut self, id: u16, req: T) {
         let id = id as usize;
         self.vec[id] = Some(req);
