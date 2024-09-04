@@ -3,17 +3,6 @@
 // RFC 7766 describes DNS over TCP
 // RFC 7828 describes the edns-tcp-keepalive option
 
-// TODO:
-// - errors
-//   - connect errors? Retry after connection refused?
-//   - server errors
-//     - ID out of range
-//     - ID not in use
-//     - reply for wrong query
-// - timeouts
-//   - request timeout
-// - create new connection after end/failure of previous one
-
 use super::request::{
     ComposeRequest, ComposeRequestMulti, Error, GetResponse,
     GetResponseMulti, SendRequest, SendRequestMulti,
@@ -238,7 +227,6 @@ where
         receiver.await.map_err(|_| Error::StreamReceiveError)?
     }
 
-    /// TODO: Document me.
     async fn handle_streaming_request_impl(
         self,
         msg: ReqMulti,
@@ -258,15 +246,15 @@ where
         Ok(())
     }
 
-    /// Returns a request handler for this connection.
+    /// Returns a request handler for a request.
     pub fn get_request(&self, request_msg: Req) -> Request {
         Request {
             fut: Box::pin(self.clone().handle_request_impl(request_msg)),
         }
     }
 
-    /// TODO
-    pub fn get_streaming_request(
+    /// Return a multiple-response request handler for a request.
+    fn get_streaming_request(
         &self,
         request_msg: ReqMulti,
     ) -> RequestMulti {
@@ -359,7 +347,7 @@ impl Debug for Request {
 
 /// An active request.
 pub struct RequestMulti {
-    /// TODO
+    /// Receiver for a stream of responses.
     stream: mpsc::Receiver<Result<Option<Message<Bytes>>, Error>>,
 
     /// The underlying future.
@@ -430,15 +418,15 @@ pub struct Transport<Stream, Req, ReqMulti> {
 /// This is the type of sender in [ChanReq].
 #[derive(Debug)]
 enum ReplySender {
-    /// TODO
+    /// Return channel for a single response.
     Single(Option<oneshot::Sender<ChanResp>>),
 
-    /// TODO
+    /// Return channel for a stream of responses.
     Stream(mpsc::Sender<Result<Option<Message<Bytes>>, Error>>),
 }
 
 impl ReplySender {
-    /// TODO
+    /// Send a response.
     async fn send(&mut self, resp: ChanResp) -> Result<(), ()> {
         match self {
             ReplySender::Single(sender) => match sender.take() {
@@ -463,8 +451,8 @@ impl ReplySender {
         }
     }
 
-    /// TODO
-    pub fn is_stream(&self) -> bool {
+    /// Report whether in stream mode or not.
+    fn is_stream(&self) -> bool {
         matches!(self, Self::Stream(_))
     }
 }
