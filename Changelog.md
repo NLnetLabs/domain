@@ -35,6 +35,10 @@ Unstable features
     TLS connection to stay open even if no TcpKeepalive option is received
     from the server. ([#341])
   * Fixed an off-by-one error in Dgram client retry count checking. ([#354])
+  * Add support for requests that may result in multiple responses. This
+    adds ComposeRequestMulti and other *Multi types. The main change is to
+    the stream transport, which is the only transport that implements
+    SendRequestMulti.  (#377)
 * `unstable-server-transport`
   * The cookies middleware now allows requests with invalid cookies to
     proceed if they are authenticated or not required to authenticate. ([#336])
@@ -58,6 +62,7 @@ Other changes
 [#358]: https://github.com/NLnetLabs/domain/pull/358
 [#360]: https://github.com/NLnetLabs/domain/pull/360
 [#374]: https://github.com/NLnetLabs/domain/pull/374
+[#377]: https://github.com/NLnetLabs/domain/pull/377
 [@dklbreitling]: https://github.com/dklbreitling
 
 ## 0.10.1
