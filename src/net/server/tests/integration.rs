@@ -1,22 +1,25 @@
+use core::future::ready;
 use core::str::FromStr;
 
 use std::boxed::Box;
 use std::collections::{HashMap, VecDeque};
+use std::fmt::Debug;
 use std::fs::File;
 use std::net::SocketAddr;
 use std::path::PathBuf;
+use std::pin::Pin;
 use std::string::{String, ToString};
 use std::sync::Arc;
 use std::time::Duration;
 use std::vec::Vec;
 
+use octseq::Octets;
 use ring::test::rand::FixedByteRandom;
 use rstest::rstest;
 use tracing::warn;
 use tracing::{instrument, trace};
 
-use crate::base::iana::Class;
-use crate::base::iana::Rcode;
+use crate::base::iana::{Class, Rcode};
 use crate::base::name::{Name, ToName};
 use crate::base::net::IpAddr;
 use crate::base::wire::Composer;
@@ -63,10 +66,6 @@ use crate::zonemaintenance::types::{
 };
 use crate::zonetree::Answer;
 use crate::zonetree::{Zone, ZoneBuilder};
-use core::future::ready;
-use octseq::Octets;
-use std::fmt::Debug;
-use std::pin::Pin;
 
 const MAX_XFR_CONCURRENCY: usize = 1;
 
@@ -196,7 +195,7 @@ async fn server_tests(#[files("test-data/server/*.rpl")] rpl_file: PathBuf) {
 
     // 5. NOTIFY(-in) middleware service (relayed to the ZoneMaintainer for
     // handling, and the ZoneMaintainer is also responsible for NOTIFY-out).
-    let svc = NotifyMiddlewareSvc::<Vec<u8>, _, _, _>::new(svc, zones);
+    let svc = NotifyMiddlewareSvc::new(svc, zones);
 
     // 6. Mandatory DNS behaviour (e.g. RFC 1034/35 rules).
     let svc = MandatoryMiddlewareSvc::new(svc);

@@ -13,7 +13,6 @@
 //! through the layers to the server.
 //!
 //! Currently the following middleware are available:
-
 #[cfg(feature = "siphasher")]
 pub mod cookies;
 pub mod edns;

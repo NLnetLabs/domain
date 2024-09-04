@@ -5,7 +5,6 @@
 // reading: https://kb.isc.org/docs/axfr-style-ixfr-explained
 use core::any::Any;
 use core::fmt::Debug;
-use core::future::ready;
 use core::marker::Send;
 use core::ops::{Deref, DerefMut};
 use core::pin::Pin;
@@ -64,6 +63,7 @@ use super::types::{
     ZoneRefreshStatus, ZoneRefreshTimer, ZoneReport, ZoneReportDetails,
     IANA_DNS_PORT_NUMBER, MIN_DURATION_BETWEEN_ZONE_REFRESHES,
 };
+use crate::net::server::middleware::notify::{Notifiable, NotifyError};
 use crate::net::xfr::processing::{
     ProcessingError, XfrEvent, XfrResponseProcessor,
 };
@@ -723,10 +723,17 @@ where
                     tracing::trace_span!("auth", addr = %nameserver_addr);
                 let _guard = span.enter();
 
+                // https://datatracker.ietf.org/doc/html/rfc1996
+                //   "4.8 Master Receives a NOTIFY Response from Slave
+                //
+                //    When a master server receives a NOTIFY response, it deletes this
+                //    query from the retry queue, thus completing the "notification
+                //    process" of "this" RRset change to "that" server."
+                //
+                // TODO: We have no retry queue at the moment. Do we need one?
                 if let Err(err) =
                     client.send_request(req.clone()).get_response().await
                 {
-                    // TODO: Add retry support.
                     warn!("Unable to send NOTIFY to nameserver {nameserver_addr}: {err}");
                 }
             });
@@ -1905,13 +1912,13 @@ where
         let apex_name = apex_name.clone();
         Box::pin(async move {
             if !self.running.load(Ordering::SeqCst) {
-                return Err(NotifyError::NotReady);
+                return Err(NotifyError::Other);
             }
 
             if self.zones().get_zone(&apex_name, class).is_none() {
                 let key = (apex_name.clone(), class);
                 if !self.pending_zones.read().await.contains_key(&key) {
-                    return Err(NotifyError::UnknownZone);
+                    return Err(NotifyError::NotAuthForZone);
                 }
             }
 
@@ -1957,30 +1964,14 @@ where
             };
 
             self.event_tx.send(Event::ZoneChanged(msg)).await.map_err(
-                |err| NotifyError::Failed(format!("Internal error: {err}")),
+                |err| {
+                    error!("Internal error: {err}");
+                    NotifyError::Other
+                },
             )?;
 
             Ok(())
         })
-    }
-
-    fn notify_response_received(
-        &self,
-        _class: Class,
-        _apex_name: &StoredName,
-        _source: IpAddr,
-    ) -> Pin<
-        Box<dyn Future<Output = Result<(), NotifyError>> + Sync + Send + '_>,
-    > {
-        // https://datatracker.ietf.org/doc/html/rfc1996
-        //   "4.8 Master Receives a NOTIFY Response from Slave
-        //
-        //    When a master server receives a NOTIFY response, it deletes this
-        //    query from the retry queue, thus completing the "notification
-        //    process" of "this" RRset change to "that" server."
-
-        // TODO
-        Box::pin(ready(Ok(())))
     }
 }
 
@@ -2464,61 +2455,6 @@ impl<T: SendRequest<RequestMessage<Octs>> + ?Sized, Octs: Octets>
         request_msg: RequestMessage<Octs>,
     ) -> Box<dyn request::GetResponse + Send + Sync> {
         (**self).send_request(request_msg)
-    }
-}
-
-//------------ Notifiable -----------------------------------------------------
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum NotifyError {
-    NotReady,
-    UnknownZone,
-    Failed(String),
-}
-
-// Note: The fn signatures can be simplified to fn() -> impl Future<...> if
-// our MSRV is later increased.
-pub trait Notifiable {
-    fn notify_zone_changed(
-        &self,
-        class: Class,
-        apex_name: &StoredName,
-        source: IpAddr,
-    ) -> Pin<
-        Box<dyn Future<Output = Result<(), NotifyError>> + Sync + Send + '_>,
-    >;
-
-    fn notify_response_received(
-        &self,
-        class: Class,
-        apex_name: &StoredName,
-        source: IpAddr,
-    ) -> Pin<
-        Box<dyn Future<Output = Result<(), NotifyError>> + Sync + Send + '_>,
-    >;
-}
-
-impl<T: Notifiable> Notifiable for Arc<T> {
-    fn notify_zone_changed(
-        &self,
-        class: Class,
-        apex_name: &StoredName,
-        source: IpAddr,
-    ) -> Pin<
-        Box<dyn Future<Output = Result<(), NotifyError>> + Sync + Send + '_>,
-    > {
-        (**self).notify_zone_changed(class, apex_name, source)
-    }
-
-    fn notify_response_received(
-        &self,
-        class: Class,
-        apex_name: &StoredName,
-        source: IpAddr,
-    ) -> Pin<
-        Box<dyn Future<Output = Result<(), NotifyError>> + Sync + Send + '_>,
-    > {
-        (**self).notify_response_received(class, apex_name, source)
     }
 }
 
