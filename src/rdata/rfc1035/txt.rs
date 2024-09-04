@@ -448,7 +448,7 @@ impl<Octs: AsRef<[u8]>> fmt::Debug for Txt<Octs> {
 
 //--- Show
 
-impl<Octs: AsRef<[u8]>> Show for Txt<Octs> {
+impl<Octs> Show for Txt<Octs> where Octs: AsRef<[u8]> {
     fn show(&self, p: &mut Presenter) -> show::Result {
         let mut block = p.block();
         for slice in self.iter_charstrs() {

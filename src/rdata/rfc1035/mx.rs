@@ -234,7 +234,7 @@ impl<N: fmt::Display> Show for Mx<N> {
     fn show(&self, p: &mut Presenter) -> show::Result {
         p.block()
             .write_token(self.preference)
-            .write_token(&self.exchange)
+            .write_token(format_args!("{}.", self.exchange))
             .finish()
     }
 }

@@ -680,22 +680,11 @@ impl<Octs: AsRef<[u8]>> fmt::Debug for Cds<Octs> {
 
 impl<Octs: AsRef<[u8]>> Show for Cds<Octs> {
     fn show(&self, p: &mut Presenter) -> show::Result {
-        struct Data<'a>(&'a [u8]);
-
-        impl std::fmt::Display for Data<'_> {
-            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-                for ch in self.0 {
-                    write!(f, " {:02x}", *ch)?
-                }
-                Ok(())
-            }
-        }
-
         p.block()
             .write_token(self.key_tag)
             .write_show(self.algorithm)
             .write_show(self.digest_type)
-            .write_token(Data(self.digest.as_ref()))
+            .write_token(base16::encode_display(&self.digest))
             .finish()
     }
 }
