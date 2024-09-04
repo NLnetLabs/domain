@@ -1,4 +1,6 @@
 #![allow(clippy::type_complexity)]
+use core::ops::Deref;
+
 use std::boxed::Box;
 use std::collections::HashMap;
 use std::future::{ready, Future};
@@ -26,11 +28,9 @@ use crate::net::client::request::{
 use crate::stelline::matches::match_multi_msg;
 use crate::zonefile::inplace::Entry::Record;
 
+use super::channel::DEF_CLIENT_ADDR;
 use super::matches::match_msg;
 use super::parse_stelline::{Entry, Reply, Stelline, StepType};
-
-use super::channel::DEF_CLIENT_ADDR;
-use core::ops::Deref;
 
 //----------- StellineError ---------------------------------------------------
 
@@ -699,6 +699,7 @@ fn entry2reqmsg(entry: &Entry) -> Result<RequestMessage<Vec<u8>>, Error> {
     {
         reqmsg.set_dnssec_ok(reply.fl_do);
     }
+
     if reply.notify {
         reqmsg.header_mut().set_opcode(Opcode::NOTIFY);
     }
