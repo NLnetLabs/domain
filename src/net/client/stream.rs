@@ -1284,7 +1284,7 @@ where
             return (true, xfr_state, true);
         }
         XFRState::Done => return (true, xfr_state, true),
-        XFRState::Error => panic!("should not be here"),
+        XFRState::Error => unreachable!(),
     }
 
     // (eof, xfr_data, is_answer)
