@@ -3,7 +3,7 @@
 use core::any::Any;
 
 use std::boxed::Box;
-use std::collections::{hash_map as col, HashMap as Col};
+use std::collections::{hash_map, HashMap};
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -240,7 +240,7 @@ impl ZoneNode {
 
 #[derive(Default, Debug)]
 pub struct NodeRrsets {
-    rrsets: RwLock<Col<Rtype, NodeRrset>>,
+    rrsets: RwLock<HashMap<Rtype, NodeRrset>>,
 }
 
 impl NodeRrsets {
@@ -260,14 +260,11 @@ impl NodeRrsets {
 
     /// Returns the RRset for a given record type.
     pub fn get(&self, rtype: Rtype, version: Version) -> Option<SharedRrset> {
-        let res = self
-            .rrsets
+        self.rrsets
             .read()
             .get(&rtype)
             .and_then(|rrsets| rrsets.get(version))
-            .cloned();
-
-        res
+            .cloned()
     }
 
     /// Updates an RRset.
@@ -276,7 +273,7 @@ impl NodeRrsets {
             .write()
             .entry(rrset.rtype())
             .or_default()
-            .update(rrset, version);
+            .update(rrset, version)
     }
 
     /// Removes the RRset for the given type.
@@ -310,15 +307,15 @@ impl NodeRrsets {
 //------------ NodeRrsetIter -------------------------------------------------
 
 pub(super) struct NodeRrsetsIter<'a> {
-    guard: RwLockReadGuard<'a, Col<Rtype, NodeRrset>>,
+    guard: RwLockReadGuard<'a, HashMap<Rtype, NodeRrset>>,
 }
 
 impl<'a> NodeRrsetsIter<'a> {
-    fn new(guard: RwLockReadGuard<'a, Col<Rtype, NodeRrset>>) -> Self {
+    fn new(guard: RwLockReadGuard<'a, HashMap<Rtype, NodeRrset>>) -> Self {
         Self { guard }
     }
 
-    pub fn iter(&self) -> col::Iter<'_, Rtype, NodeRrset> {
+    pub fn iter(&self) -> hash_map::Iter<'_, Rtype, NodeRrset> {
         self.guard.iter()
     }
 }
@@ -367,7 +364,7 @@ pub enum Special {
 
 #[derive(Debug, Default)]
 pub struct NodeChildren {
-    children: RwLock<Col<OwnedLabel, Arc<ZoneNode>>>,
+    children: RwLock<HashMap<OwnedLabel, Arc<ZoneNode>>>,
 }
 
 impl NodeChildren {
