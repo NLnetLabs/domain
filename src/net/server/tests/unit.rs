@@ -1,4 +1,4 @@
-use core::future::Future;
+use core::future::{ready, Ready};
 use core::pin::Pin;
 use core::str::FromStr;
 use core::sync::atomic::{AtomicBool, Ordering};
@@ -14,20 +14,21 @@ use std::vec::Vec;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::time::sleep;
 use tokio::time::Instant;
+use tracing::trace;
 
 use crate::base::MessageBuilder;
 use crate::base::Name;
 use crate::base::Rtype;
 use crate::base::StaticCompressor;
 use crate::base::StreamTarget;
-
-use super::buf::BufSource;
-use super::message::Request;
-use super::service::{
-    CallResult, Service, ServiceError, ServiceFeedback, Transaction,
+use crate::net::server::buf::BufSource;
+use crate::net::server::message::Request;
+use crate::net::server::middleware::mandatory::MandatoryMiddlewareSvc;
+use crate::net::server::service::{
+    CallResult, Service, ServiceError, ServiceFeedback,
 };
-use super::sock::AsyncAccept;
-use super::stream::StreamServer;
+use crate::net::server::sock::AsyncAccept;
+use crate::net::server::stream::StreamServer;
 
 /// Mock I/O which supplies a sequence of mock messages to the server at a
 /// defined rate.
@@ -275,25 +276,39 @@ impl BufSource for MockBufSource {
 
 /// A mock single result to be returned by a mock service, just to show that
 /// it is possible to define your own.
-struct MySingle;
+struct MySingle {
+    done: bool,
+}
 
-impl Future for MySingle {
-    type Output = Result<CallResult<Vec<u8>>, ServiceError>;
+impl MySingle {
+    fn new() -> MySingle {
+        Self { done: false }
+    }
+}
 
-    fn poll(
-        self: Pin<&mut Self>,
+impl futures::stream::Stream for MySingle {
+    type Item = Result<CallResult<Vec<u8>>, ServiceError>;
+
+    fn poll_next(
+        mut self: Pin<&mut Self>,
         _cx: &mut Context<'_>,
-    ) -> Poll<Self::Output> {
-        let builder = MessageBuilder::new_stream_vec();
-        let response = builder.additional();
+    ) -> Poll<Option<Self::Item>> {
+        if self.done {
+            Poll::Ready(None)
+        } else {
+            let builder = MessageBuilder::new_stream_vec();
+            let response = builder.additional();
 
-        let command = ServiceFeedback::Reconfigure {
-            idle_timeout: Some(Duration::from_millis(5000)),
-        };
+            let command = ServiceFeedback::Reconfigure {
+                idle_timeout: Some(Duration::from_millis(5000)),
+            };
 
-        let call_result = CallResult::new(response).with_feedback(command);
+            let call_result =
+                CallResult::new(response).with_feedback(command);
+            self.done = true;
 
-        Poll::Ready(Ok(call_result))
+            Poll::Ready(Some(Ok(call_result)))
+        }
     }
 }
 
@@ -309,13 +324,12 @@ impl MyService {
 
 impl Service<Vec<u8>> for MyService {
     type Target = Vec<u8>;
-    type Future = MySingle;
+    type Stream = MySingle;
+    type Future = Ready<Self::Stream>;
 
-    fn call(
-        &self,
-        _msg: Request<Vec<u8>>,
-    ) -> Result<Transaction<Self::Target, Self::Future>, ServiceError> {
-        Ok(Transaction::single(MySingle))
+    fn call(&self, request: Request<Vec<u8>>) -> Self::Future {
+        trace!("Processing request id {}", request.message().header().id());
+        ready(MySingle::new())
     }
 }
 
@@ -349,23 +363,32 @@ fn mk_query() -> StreamTarget<Vec<u8>> {
 // waiting to allow time to elapse.
 #[tokio::test(flavor = "current_thread", start_paused = true)]
 async fn service_test() {
+    // Initialize tracing based logging. Override with env var RUST_LOG, e.g.
+    // RUST_LOG=trace.
+    tracing_subscriber::fmt()
+        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+        .with_thread_ids(true)
+        .without_time()
+        .try_init()
+        .ok();
+
     let (srv_handle, server_status_printer_handle) = {
         let fast_client = MockClientConfig {
             new_message_every: Duration::from_millis(100),
             messages: VecDeque::from([
-                mk_query().as_stream_slice().to_vec(),
-                mk_query().as_stream_slice().to_vec(),
-                mk_query().as_stream_slice().to_vec(),
-                mk_query().as_stream_slice().to_vec(),
-                mk_query().as_stream_slice().to_vec(),
+                mk_query().as_dgram_slice().to_vec(),
+                mk_query().as_dgram_slice().to_vec(),
+                mk_query().as_dgram_slice().to_vec(),
+                mk_query().as_dgram_slice().to_vec(),
+                mk_query().as_dgram_slice().to_vec(),
             ]),
             client_port: 1,
         };
         let slow_client = MockClientConfig {
             new_message_every: Duration::from_millis(3000),
             messages: VecDeque::from([
-                mk_query().as_stream_slice().to_vec(),
-                mk_query().as_stream_slice().to_vec(),
+                mk_query().as_dgram_slice().to_vec(),
+                mk_query().as_dgram_slice().to_vec(),
             ]),
             client_port: 2,
         };
@@ -377,7 +400,8 @@ async fn service_test() {
         let ready_flag = listener.get_ready_flag();
 
         let buf = MockBufSource;
-        let my_service = Arc::new(MyService::new());
+        let my_service =
+            Arc::new(MandatoryMiddlewareSvc::new(MyService::new()));
         let srv =
             Arc::new(StreamServer::new(listener, buf, my_service.clone()));
 

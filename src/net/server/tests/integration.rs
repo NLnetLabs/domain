@@ -1,47 +1,40 @@
-#![cfg(feature = "net")]
-
+use std::boxed::Box;
 use std::collections::VecDeque;
 use std::fs::File;
-use std::future::Future;
-use std::net::IpAddr;
+use std::net::SocketAddr;
 use std::path::PathBuf;
+use std::result::Result;
 use std::sync::Arc;
 use std::time::Duration;
+use std::vec::Vec;
 
-use octseq::Octets;
 use rstest::rstest;
 use tracing::instrument;
 use tracing::{trace, warn};
 
-use domain::base::iana::Rcode;
-use domain::base::name::{Name, ToName};
-use domain::base::wire::Composer;
-use domain::net::client::{dgram, stream};
-use domain::net::server::buf::VecBufSource;
-use domain::net::server::dgram::DgramServer;
-use domain::net::server::message::Request;
-use domain::net::server::middleware::builder::MiddlewareBuilder;
-#[cfg(feature = "siphasher")]
-use domain::net::server::middleware::processors::cookies::CookiesMiddlewareProcessor;
-use domain::net::server::middleware::processors::edns::EdnsMiddlewareProcessor;
-use domain::net::server::service::{
-    CallResult, Service, ServiceError, Transaction,
+use crate::base::iana::Rcode;
+use crate::base::name::{Name, ToName};
+use crate::base::net::IpAddr;
+use crate::base::wire::Composer;
+use crate::net::client::{dgram, stream};
+use crate::net::server;
+use crate::net::server::buf::VecBufSource;
+use crate::net::server::dgram::DgramServer;
+use crate::net::server::message::Request;
+use crate::net::server::middleware::cookies::CookiesMiddlewareSvc;
+use crate::net::server::middleware::edns::EdnsMiddlewareSvc;
+use crate::net::server::middleware::mandatory::MandatoryMiddlewareSvc;
+use crate::net::server::service::{CallResult, Service, ServiceResult};
+use crate::net::server::stream::StreamServer;
+use crate::net::server::util::{mk_builder_for_target, service_fn};
+use crate::stelline::channel::ClientServerChannel;
+use crate::stelline::client::{
+    do_client, ClientFactory, CurrStepValue, PerClientAddressClientFactory,
+    QueryTailoredClientFactory,
 };
-use domain::net::server::stream::StreamServer;
-use domain::net::server::util::{mk_builder_for_target, service_fn};
-use domain::utils::base16;
-use domain::zonefile::inplace::{Entry, ScannedRecord, Zonefile};
-
-use domain::stelline::channel::ClientServerChannel;
-use domain::stelline::client::do_client;
-use domain::stelline::client::ClientFactory;
-use domain::stelline::client::{
-    CurrStepValue, PerClientAddressClientFactory, QueryTailoredClientFactory,
-};
-use domain::stelline::parse_stelline;
-use domain::stelline::parse_stelline::parse_file;
-use domain::stelline::parse_stelline::Config;
-use domain::stelline::parse_stelline::Matches;
+use crate::stelline::parse_stelline::{self, parse_file, Config, Matches};
+use crate::utils::base16;
+use crate::zonefile::inplace::{Entry, ScannedRecord, Zonefile};
 
 //----------- Tests ----------------------------------------------------------
 
@@ -59,17 +52,58 @@ async fn server_tests(#[files("test-data/server/*.rpl")] rpl_file: PathBuf) {
     // and which responses will be expected, and how the server that
     // answers them should be configured.
 
+    // Initialize tracing based logging. Override with env var RUST_LOG, e.g.
+    // RUST_LOG=trace. DEBUG level will show the .rpl file name, Stelline step
+    // numbers and types as they are being executed.
+    tracing_subscriber::fmt()
+        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+        .with_thread_ids(true)
+        .without_time()
+        .try_init()
+        .ok();
+
     let file = File::open(&rpl_file).unwrap();
     let stelline = parse_file(&file, rpl_file.to_str().unwrap());
     let server_config = parse_server_config(&stelline.config);
 
     // Create a service to answer queries received by the DNS servers.
     let zonefile = server_config.zonefile.clone();
-    let service: Arc<_> = service_fn(test_service, zonefile).into();
+
+    let with_cookies = server_config.cookies.enabled
+        && server_config.cookies.secret.is_some();
+
+    let secret = if with_cookies {
+        let secret = server_config.cookies.secret.unwrap();
+        let secret = base16::decode_vec(secret).unwrap();
+        <[u8; 16]>::try_from(secret).unwrap()
+    } else {
+        Default::default()
+    };
+
+    // Create a layered service to respond to received DNS queries. The layers
+    // are created top to bottom, with the application specific logic service
+    // on top and generic DNS logic below. Behaviour required by implemented
+    // DNS RFCs will be applied/enforced before the application logic receives
+    // it and without it having to know or do anything about it.
+
+    // 1. Application logic service
+    let svc = service_fn(test_service, zonefile);
+
+    // 2. DNS COOKIES middleware service
+    let svc = CookiesMiddlewareSvc::new(svc, secret)
+        .with_denied_ips(server_config.cookies.ip_deny_list.clone())
+        .enable(with_cookies);
+
+    // 3. EDNS middleware service
+    let svc =
+        EdnsMiddlewareSvc::new(svc).enable(server_config.edns_tcp_keepalive);
+
+    // 4. Mandatory DNS behaviour (e.g. RFC 1034/35 rules).
+    let svc = MandatoryMiddlewareSvc::new(svc);
 
     // Create dgram and stream servers for answering requests
     let (dgram_srv, dgram_conn, stream_srv, stream_conn) =
-        mk_servers(service, &server_config);
+        mk_servers(svc, &server_config);
 
     // Create a client factory for sending requests
     let client_factory = mk_client_factory(dgram_conn, stream_conn);
@@ -92,18 +126,19 @@ async fn server_tests(#[files("test-data/server/*.rpl")] rpl_file: PathBuf) {
 
 #[allow(clippy::type_complexity)]
 fn mk_servers<Svc>(
-    service: Arc<Svc>,
+    service: Svc,
     server_config: &ServerConfig,
 ) -> (
-    Arc<DgramServer<ClientServerChannel, VecBufSource, Arc<Svc>>>,
+    Arc<DgramServer<ClientServerChannel, VecBufSource, Svc>>,
     ClientServerChannel,
-    Arc<StreamServer<ClientServerChannel, VecBufSource, Arc<Svc>>>,
+    Arc<StreamServer<ClientServerChannel, VecBufSource, Svc>>,
     ClientServerChannel,
 )
 where
-    Svc: Service + Send + Sync + 'static,
-    Svc::Future: Send,
-    Svc::Target: Composer + Default + Send + Sync,
+    Svc: Clone + Service + Send + Sync,
+    <Svc as Service>::Future: Send,
+    <Svc as Service>::Target: Composer + Default + Send + Sync,
+    <Svc as Service>::Stream: Send,
 {
     // Prepare middleware to be used by the DNS servers to pre-process
     // received requests and post-process created responses.
@@ -155,8 +190,9 @@ fn mk_client_factory(
     };
 
     let tcp_client_factory = PerClientAddressClientFactory::new(
-        move |_source_addr| {
-            let stream = stream_server_conn.connect();
+        move |source_addr| {
+            let stream = stream_server_conn
+                .connect(Some(SocketAddr::new(*source_addr, 0)));
             let (conn, transport) = stream::Connection::new(stream);
             tokio::spawn(transport.run());
             Box::new(conn)
@@ -169,7 +205,12 @@ fn mk_client_factory(
     let for_all_other_queries = |_: &_| true;
 
     let udp_client_factory = PerClientAddressClientFactory::new(
-        move |_| Box::new(dgram::Connection::new(dgram_server_conn.clone())),
+        move |source_addr| {
+            Box::new(dgram::Connection::new(
+                dgram_server_conn
+                    .new_client(Some(SocketAddr::new(*source_addr, 0))),
+            ))
+        },
         for_all_other_queries,
     );
 
@@ -182,49 +223,15 @@ fn mk_client_factory(
     ])
 }
 
-fn mk_server_configs<RequestOctets, Target>(
+fn mk_server_configs(
     config: &ServerConfig,
-) -> (
-    domain::net::server::dgram::Config<RequestOctets, Target>,
-    domain::net::server::stream::Config<RequestOctets, Target>,
-)
-where
-    RequestOctets: Octets,
-    Target: Composer + Default,
-{
-    let mut middleware = MiddlewareBuilder::minimal();
+) -> (server::dgram::Config, server::stream::Config) {
+    let dgram_config = server::dgram::Config::default();
 
-    if config.cookies.enabled {
-        #[cfg(feature = "siphasher")]
-        if let Some(secret) = config.cookies.secret {
-            let secret = base16::decode_vec(secret).unwrap();
-            let secret = <[u8; 16]>::try_from(secret).unwrap();
-            let processor = CookiesMiddlewareProcessor::new(secret);
-            let processor = processor
-                .with_denied_ips(config.cookies.ip_deny_list.clone());
-            middleware.push(processor.into());
-        }
-
-        #[cfg(not(feature = "siphasher"))]
-        panic!("The test uses cookies but the required 'siphasher' feature is not enabled.");
-    }
-
-    if config.edns_tcp_keepalive {
-        let processor = EdnsMiddlewareProcessor::new();
-        middleware.push(processor.into());
-    }
-
-    let middleware = middleware.build();
-
-    let mut dgram_config = domain::net::server::dgram::Config::default();
-    dgram_config.set_middleware_chain(middleware.clone());
-
-    let mut stream_config = domain::net::server::stream::Config::default();
+    let mut stream_config = server::stream::Config::default();
     if let Some(idle_timeout) = config.idle_timeout {
-        let mut connection_config =
-            domain::net::server::ConnectionConfig::default();
+        let mut connection_config = server::ConnectionConfig::default();
         connection_config.set_idle_timeout(idle_timeout);
-        connection_config.set_middleware_chain(middleware);
         stream_config.set_connection_config(connection_config);
     }
 
@@ -248,13 +255,7 @@ where
 fn test_service(
     request: Request<Vec<u8>>,
     zonefile: Zonefile,
-) -> Result<
-    Transaction<
-        Vec<u8>,
-        impl Future<Output = Result<CallResult<Vec<u8>>, ServiceError>> + Send,
-    >,
-    ServiceError,
-> {
+) -> ServiceResult<Vec<u8>> {
     fn as_record_and_dname(
         r: ScannedRecord,
     ) -> Option<(ScannedRecord, Name<Vec<u8>>)> {
@@ -263,7 +264,7 @@ fn test_service(
     }
 
     fn as_records(
-        e: Result<Entry, domain::zonefile::inplace::Error>,
+        e: Result<Entry, crate::zonefile::inplace::Error>,
     ) -> Option<ScannedRecord> {
         match e {
             Ok(Entry::Record(r)) => Some(r),
@@ -275,43 +276,41 @@ fn test_service(
     }
 
     trace!("Service received request");
-    Ok(Transaction::single(async move {
-        trace!("Service is constructing a single response");
-        // If given a single question:
-        let answer = request
-            .message()
-            .sole_question()
-            .ok()
-            .and_then(|q| {
-                // Walk the zone to find the queried name
-                zonefile
-                    .clone()
-                    .filter_map(as_records)
-                    .filter_map(as_record_and_dname)
-                    .find(|(_record, dname)| dname == q.qname())
-            })
-            .map_or_else(
-                || {
-                    // The Qname was not found in the zone:
-                    mk_builder_for_target()
-                        .start_answer(request.message(), Rcode::NXDOMAIN)
-                        .unwrap()
-                },
-                |(record, _)| {
-                    // Respond with the found record:
-                    let mut answer = mk_builder_for_target()
-                        .start_answer(request.message(), Rcode::NOERROR)
-                        .unwrap();
-                    // As we serve all answers from our own zones we are the
-                    // authority for the domain in question.
-                    answer.header_mut().set_aa(true);
-                    answer.push(record).unwrap();
-                    answer
-                },
-            );
+    trace!("Service is constructing a single response");
+    // If given a single question:
+    let answer = request
+        .message()
+        .sole_question()
+        .ok()
+        .and_then(|q| {
+            // Walk the zone to find the queried name
+            zonefile
+                .clone()
+                .filter_map(as_records)
+                .filter_map(as_record_and_dname)
+                .find(|(_record, dname)| dname == q.qname())
+        })
+        .map_or_else(
+            || {
+                // The Qname was not found in the zone:
+                mk_builder_for_target()
+                    .start_answer(request.message(), Rcode::NXDOMAIN)
+                    .unwrap()
+            },
+            |(record, _)| {
+                // Respond with the found record:
+                let mut answer = mk_builder_for_target()
+                    .start_answer(request.message(), Rcode::NOERROR)
+                    .unwrap();
+                // As we serve all answers from our own zones we are the
+                // authority for the domain in question.
+                answer.header_mut().set_aa(true);
+                answer.push(record).unwrap();
+                answer
+            },
+        );
 
-        Ok(CallResult::new(answer.additional()))
-    }))
+    Ok(CallResult::new(answer.additional()))
 }
 
 //----------- Stelline config block parsing -----------------------------------

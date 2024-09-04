@@ -2,14 +2,14 @@
     not(feature = "unstable-server-transport"),
     doc = " The `unstable-server-transport` feature is necessary to enable this module."
 )]
-#![warn(missing_docs)]
-#![warn(clippy::missing_docs_in_private_items)]
+// #![warn(missing_docs)]
+// #![warn(clippy::missing_docs_in_private_items)]
 //! Receiving requests and sending responses.
 //!
 //! This module provides skeleton asynchronous server implementations based on
 //! the [Tokio](https://tokio.rs/) async runtime. In combination with an
-//! appropriate network source, optional [`MiddlewareChain`] and your own
-//! [`Service`] implementation they can be used to run a standards compliant
+//! appropriate network source, optional middleware services and your own
+//! [`Service`] implementation, they can be used to run a standards compliant
 //! DNS server that answers requests based on the application logic you
 //! specify.
 //!
@@ -19,32 +19,34 @@
 //! requests and outgoing responses:
 //!
 //! ```text
-//! --> network source                      - reads bytes from the client
-//!     --> server                          - deserializes requests
-//!         --> (optional) middleware chain - pre-processes requests
-//!             --> service                 - processes requests &
-//!             <--                           generates responses
-//!         <-- (optional) middleware chain - post-processes responses
-//!     <-- server                          - serializes responses
-//! <-- network source                      - writes bytes to the client
-//! ````
+//! --> network source                         - reads bytes from the client
+//!     --> server                             - deserializes requests
+//!         --> (optional) middleware services - pre-processes requests
+//!             --> service                    - processes requests &
+//!             <--                              generates responses
+//!         <-- (optional) middleware services - post-processes responses
+//!     <-- server                             - serializes responses
+//! <-- network source                         - writes bytes to the client
+//! ```
 //!
 //! # Getting started
 //!
 //! Servers are implemented by combining a server transport (see [dgram] and
-//! [stream]), [`BufSource`], (optional) [`MiddlewareChain`] and [`Service`]
-//! together.
+//! [stream]), [`BufSource`] and [`Service`] together. Middleware [`Service`]
+//! impls take an upstream [`Service`] instance as input during construction
+//! allowing them to be layered on top of one another, with your own
+//! application [`Service`] impl at the peak.
 //!
 //! Whether using [`DgramServer`] or [`StreamServer`] the required steps are
-//! the same.
+//! the same:
 //!
-//!   - Create an appropriate network source (more on this below).
-//!   - Construct a server transport with `new()` passing in the network
-//!     source as an argument.
-//!   - Tune the server behaviour via builder functions such as
-//!     `with_middleware()`.
-//!   - `run()` the server.
-//!   - `shutdown()` the server, explicitly or on [`drop`].
+//!   1. Create an appropriate network source (more on this below).
+//!   2. Construct a server transport with `new()` passing in the network
+//!      source and service instance as arguments.
+//!      - (optional) Tune the server behaviour via builder functions such as
+//!        `with_config()`.
+//!   3. `run()` the server.
+//!   4. `shutdown()` the server, explicitly or on [`drop`].
 //!
 //! See [`DgramServer`] and [`StreamServer`] for example code to help you get
 //! started.
@@ -59,11 +61,8 @@
 //!
 //! Modern DNS servers increasingly need to support stream based
 //! connection-oriented network transport protocols for additional response
-//! capacity and connection security.
-//!
-//! This module provides support for both datagram and stream based network
-//! transport protocols via the [`DgramServer`] and [`StreamServer`] types
-//! respectively.
+//! capacity and connection security. This module provides support for both
+//! via the [`DgramServer`] and [`StreamServer`] types respectively.
 //!
 //! ## Datagram (e.g. UDP) servers
 //!
@@ -92,27 +91,19 @@
 //! specific layer of a server nor does it constitute part of the core
 //! application logic.
 //!
-//! With Middleware mandatory functionality and logic required by all
-//! standards compliant DNS servers can be incorporated into your server by
-//! building a [`MiddlewareChain`] starting from
-//! [`MiddlewareBuilder::default`].
-//!
-//! You can also opt to incorporate additional behaviours into your DNS server
-//! from a selection of pre-supplied implementations via
-//! [`MiddlewareBuilder::push`]. See the various implementations of
-//! [`MiddlewareProcessor`] for more information.
-//!
-//! And if the existing middleware processors don't meet your needs, maybe you
-//! have specific access control or rate limiting requirements for example,
-//! you can implement [`MiddlewareProcessor`] yourself to add your own pre-
-//! and post- processing stages into your DNS server.
+//! Mandatory functionality and logic required by all standards compliant DNS
+//! servers can be incorporated into your server by layering your service on
+//! top of [`MandatoryMiddlewareSvc`]. Additional layers of behaviour can be
+//! optionally added from a selection of [pre-supplied middleware] or
+//! middleware that you create yourself.
 //!
 //! ## Application logic
 //!
 //! With the basic work of handling DNS requests and responses taken care of,
 //! the actual application logic that differentiates your DNS server from
 //! other DNS servers is left for you to define by implementing the
-//! [`Service`] trait.
+//! [`Service`] trait yourself and passing an instance of that service to the
+//! server or middleware service as input.
 //!
 //! # Advanced
 //!
@@ -131,41 +122,23 @@
 //!
 //! ## Performance
 //!
-//! Both [`DgramServer`] and [`StreamServer`] use [`CommonMessageFlow`] to
-//! pre-process the request, invoke [`Service::call`], and post-process the
-//! response.
-//!
-//!   - Pre-processing and [`Service::call`] invocation are done from the
-//!     Tokio task handling the request. For [`DgramServer`] this is the main
-//!     task that receives incoming messages. For [`StreamServer`] this is a
-//!     dedicated task per accepted connection.
-//!   - Post-processing is done in a new task request within which each future
-//!     resulting from invoking [`Service::call`] is awaited and the resulting
-//!     response is post-processed.
-//!
-//! The initial work done by [`Service::call`] should therefore complete as
-//! quickly as possible, delegating as much of the work as it can to the
-//! future(s) it returns. Until then it blocks the server from receiving new
-//! messages, or in the case of [`StreamServer`], new messages for the
-//! connection on which the current message was received.
+//! Calls into the service layer from the servers are asynchronous and thus
+//! managed by the Tokio async runtime. As with any Tokio application, long
+//! running tasks should be spawned onto a separate threadpool, e.g. via
+//! [`tokio::task::spawn_blocking()`] to avoid blocking the Tokio async
+//! runtime.
 //!
 //! ## Clone, Arc, and shared state
 //!
 //! Both [`DgramServer`] and [`StreamServer`] take ownership of the
 //! [`Service`] impl passed to them.
 //!
-//! While this may work for some scenarios, real DNS server applications will
-//! likely need to accept client requests over multiple transports, will
-//! require multiple instances of [`DgramServer`] and [`StreamServer`], and
-//! the [`Service`] impl will likely need to have its own state.
-//!
-//! In these more complex scenarios it becomes more important to understand
-//! how the servers work with the [`Service`] impl and the [`Clone`] and
-//! [`Arc`] traits.
-//!
-//! [`DgramServer`] uses a single copy of the [`Service`] impl that it
-//! receives but [`StreamServer`] requires that [`Service`] be [`Clone`]
-//! because it clones it for each new connection that it accepts.
+//! For each request received a new Tokio task is spawned to parse the request
+//! bytes, pass it to the first service and process the response(s).
+//! [`Service`] impls are therefore required to implement the [`Clone`] trait,
+//! either directly or indirectly by for example wrapping the service instance
+//! in an [`Arc`], so that [`Service::call`] can be invoked inside the task
+//! handling the request.
 //!
 //! There are various approaches you can take to manage the sharing of state
 //! between server instances and processing tasks, for example:
@@ -182,14 +155,9 @@
 //! [`AsyncDgramSock`]: sock::AsyncDgramSock
 //! [`BufSource`]: buf::BufSource
 //! [`DgramServer`]: dgram::DgramServer
-//! [`CommonMessageFlow`]: message::CommonMessageFlow
 //! [Middleware]: middleware
-//! [`MiddlewareBuilder::default`]:
-//!     middleware::builder::MiddlewareBuilder::default()
-//! [`MiddlewareBuilder::push`]:
-//!     middleware::builder::MiddlewareBuilder::push()
-//! [`MiddlewareChain`]: middleware::chain::MiddlewareChain
-//! [`MiddlewareProcessor`]: middleware::processor::MiddlewareProcessor
+//! [`MandatoryMiddlewareSvc`]: middleware::mandatory::MandatoryMiddlewareSvc
+//! [pre-supplied middleware]: middleware
 //! [`Service`]: service::Service
 //! [`Service::call`]: service::Service::call()
 //! [`StreamServer`]: stream::StreamServer

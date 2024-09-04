@@ -426,3 +426,13 @@ int_enum! {
 
 int_enum_str_with_prefix!(Rtype, "TYPE", b"TYPE", u16, "unknown record type");
 int_enum_show_with_prefix!(Rtype, "TYPE");
+
+impl Rtype {
+    /// Returns true if this record type is a type used for Glue records.
+    ///
+    /// See the definition of "glue" in [RFC
+    /// 9499](https://datatracker.ietf.org/doc/rfc9499/) Section 7 "Zones".
+    pub fn is_glue(&self) -> bool {
+        matches!(*self, Rtype::A | Rtype::AAAA)
+    }
+}

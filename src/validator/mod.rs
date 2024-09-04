@@ -33,7 +33,7 @@
 //! # Limitations
 //! * When invoked multiple times for the same name, for example a simulanous
 //!   `A` and `AAAA` query, the validator will fetch `DS` and `DNSKEY`
-//! record multiple times and will validate them in parallel.
+//!   record multiple times and will validate them in parallel.
 //! * There is no prefetching. An expired cached node will be regenerated at
 //!   next request that needs it.
 //! * Currently `DS` and `DNSKEY` requests are issued sequentically. They

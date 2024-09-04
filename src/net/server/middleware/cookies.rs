@@ -1,22 +1,28 @@
-//! DNS Cookies related message processing.
+//! RFC 7873 DNS Cookies related message processing.
+use core::future::{ready, Ready};
+use core::marker::PhantomData;
 use core::ops::ControlFlow;
 
-use std::net::IpAddr;
 use std::vec::Vec;
 
+use futures::stream::{once, Once, Stream};
 use octseq::Octets;
 use rand::RngCore;
-use tracing::{debug, trace, warn};
+use tracing::{debug, error, trace, warn};
 
 use crate::base::iana::{OptRcode, Rcode};
 use crate::base::message_builder::AdditionalBuilder;
+use crate::base::net::IpAddr;
 use crate::base::opt;
 use crate::base::wire::{Composer, ParseError};
 use crate::base::{Serial, StreamTarget};
 use crate::net::server::message::Request;
-use crate::net::server::middleware::processor::MiddlewareProcessor;
-use crate::net::server::util::add_edns_options;
-use crate::net::server::util::{mk_builder_for_target, start_reply};
+use crate::net::server::middleware::stream::MiddlewareStream;
+use crate::net::server::service::{CallResult, Service};
+use crate::net::server::util::mk_builder_for_target;
+use crate::net::server::util::{add_edns_options, mk_error_response};
+
+//----------- Constants -------------------------------------------------------
 
 /// The five minute period referred to by
 /// https://www.rfc-editor.org/rfc/rfc9018.html#section-4.3.
@@ -26,7 +32,9 @@ const FIVE_MINUTES_AS_SECS: u32 = 5 * 60;
 /// https://www.rfc-editor.org/rfc/rfc9018.html#section-4.3.
 const ONE_HOUR_AS_SECS: u32 = 60 * 60;
 
-/// A DNS Cookies [`MiddlewareProcessor`].
+//----------- CookiesMiddlewareSvc --------------------------------------------
+
+/// A middleware service for enforcing the use of DNS Cookies.
 ///
 /// Standards covered by ths implementation:
 ///
@@ -37,9 +45,12 @@ const ONE_HOUR_AS_SECS: u32 = 60 * 60;
 ///
 /// [7873]: https://datatracker.ietf.org/doc/html/rfc7873
 /// [9018]: https://datatracker.ietf.org/doc/html/rfc7873
-/// [`MiddlewareProcessor`]: crate::net::server::middleware::processor::MiddlewareProcessor
-#[derive(Debug)]
-pub struct CookiesMiddlewareProcessor {
+#[derive(Clone, Debug)]
+pub struct CookiesMiddlewareSvc<RequestOctets, NextSvc, RequestMeta> {
+    /// The upstream [`Service`] to pass requests to and receive responses
+    /// from.
+    next_svc: NextSvc,
+
     /// A user supplied secret used in making the cookie value.
     server_secret: [u8; 16],
 
@@ -47,16 +58,35 @@ pub struct CookiesMiddlewareProcessor {
     /// a cookie otherwise they will receive REFUSED with TC=1 prompting them
     /// to reconnect with TCP in order to "authenticate" themselves.
     ip_deny_list: Vec<IpAddr>,
+
+    /// Is the middleware service enabled?
+    ///
+    /// Defaults to true. If false, the service will pass requests and
+    /// responses through unmodified.
+    enabled: bool,
+
+    _phantom: PhantomData<(RequestOctets, RequestMeta)>,
 }
 
-impl CookiesMiddlewareProcessor {
-    /// Creates an instance of this processor.
+impl<RequestOctets, NextSvc, RequestMeta>
+    CookiesMiddlewareSvc<RequestOctets, NextSvc, RequestMeta>
+{
+    /// Creates an instance of this middleware service.
     #[must_use]
-    pub fn new(server_secret: [u8; 16]) -> Self {
+    pub fn new(next_svc: NextSvc, server_secret: [u8; 16]) -> Self {
         Self {
+            next_svc,
             server_secret,
             ip_deny_list: vec![],
+            enabled: true,
+            _phantom: PhantomData,
         }
+    }
+
+    pub fn with_random_secret(next_svc: NextSvc) -> Self {
+        let mut server_secret = [0u8; 16];
+        rand::thread_rng().fill_bytes(&mut server_secret);
+        Self::new(next_svc, server_secret)
     }
 
     /// Define IP addresses required to supply DNS cookies if using UDP.
@@ -68,25 +98,38 @@ impl CookiesMiddlewareProcessor {
         self.ip_deny_list = ip_deny_list.into();
         self
     }
+
+    pub fn enable(mut self, enabled: bool) -> Self {
+        self.enabled = enabled;
+        self
+    }
 }
 
-impl CookiesMiddlewareProcessor {
+impl<RequestOctets, NextSvc, RequestMeta>
+    CookiesMiddlewareSvc<RequestOctets, NextSvc, RequestMeta>
+where
+    RequestOctets: Octets + Send + Sync + Unpin,
+    RequestMeta: Clone + Default,
+    NextSvc: Service<RequestOctets, RequestMeta>,
+    NextSvc::Target: Composer + Default,
+{
     /// Get the DNS COOKIE, if any, for the given message.
     ///
-    /// https://datatracker.ietf.org/doc/html/rfc7873#section-5.2: Responding
-    /// to a Request: "In all cases of multiple COOKIE options in a request,
-    ///   only the first (the one closest to the DNS header) is considered.
-    ///   All others are ignored."
+    /// https://datatracker.ietf.org/doc/html/rfc7873#section-5.2
+    /// 5.2 Responding to a Request
+    ///   "In all cases of multiple COOKIE options in a request, only the
+    ///    first (the one closest to the DNS header) is considered. All others
+    ///    are ignored."
     ///
     /// Returns:
-    ///   - `None` if the request has no cookie,
-    ///   - Some(Ok(cookie)) if the request has a cookie in the correct
-    ///     format,
-    ///   - Some(Err(err)) if the request has a cookie that we could not
-    ///     parse.
+    ///   - None if the request has no cookie,
+    ///   - Some(Ok(cookie)) if the first cookie in the request could be
+    ///     parsed.
+    ///   - Some(Err(err)) if the first cookie in the request could not be
+    ///     parsed.
     #[must_use]
-    fn cookie<RequestOctets: Octets>(
-        request: &Request<RequestOctets>,
+    fn cookie(
+        request: &Request<RequestOctets, RequestMeta>,
     ) -> Option<Result<opt::Cookie, ParseError>> {
         // Note: We don't use `opt::Opt::first()` because that will silently
         // ignore an unparseable COOKIE option but we need to detect and
@@ -117,20 +160,36 @@ impl CookiesMiddlewareProcessor {
         let now = Serial::now();
         let too_new_at = now.add(FIVE_MINUTES_AS_SECS);
         let expires_at = serial.add(ONE_HOUR_AS_SECS);
-        now <= expires_at && serial <= too_new_at
+        if now > expires_at {
+            trace!("Invalid server cookie: cookie has expired ({now} > {expires_at})");
+            false
+        } else if serial > too_new_at {
+            trace!("Invalid server cookie: cookie is too new ({serial} > {too_new_at})");
+            false
+        } else {
+            true
+        }
     }
 
     /// Create a DNS response message for the given request, including cookie.
-    fn response_with_cookie<RequestOctets, Target>(
+    fn response_with_cookie(
         &self,
-        request: &Request<RequestOctets>,
+        request: &Request<RequestOctets, RequestMeta>,
         rcode: OptRcode,
-    ) -> AdditionalBuilder<StreamTarget<Target>>
-    where
-        RequestOctets: Octets,
-        Target: Composer + Default,
-    {
-        let mut additional = start_reply(request).additional();
+    ) -> AdditionalBuilder<StreamTarget<NextSvc::Target>> {
+        let res = mk_builder_for_target()
+            .start_answer(request.message(), rcode.rcode());
+
+        let mut additional = match res {
+            Ok(answer) => answer.additional(),
+            Err(err) => {
+                error!("Failed to create response: {err}");
+                return mk_error_response(
+                    request.message(),
+                    OptRcode::SERVFAIL,
+                );
+            }
+        };
 
         if let Some(Ok(client_cookie)) = Self::cookie(request) {
             let response_cookie = client_cookie.create_response(
@@ -162,14 +221,10 @@ impl CookiesMiddlewareProcessor {
     /// client cookie or is unable to write to an internal buffer while
     /// constructing the response.
     #[must_use]
-    fn bad_cookie_response<RequestOctets, Target>(
+    fn bad_cookie_response(
         &self,
-        request: &Request<RequestOctets>,
-    ) -> AdditionalBuilder<StreamTarget<Target>>
-    where
-        RequestOctets: Octets,
-        Target: Composer + Default,
-    {
+        request: &Request<RequestOctets, RequestMeta>,
+    ) -> AdditionalBuilder<StreamTarget<NextSvc::Target>> {
         // https://datatracker.ietf.org/doc/html/rfc7873#section-5.2.3
         //   "If the server responds [ed: by sending a BADCOOKIE error
         //    response], it SHALL generate its own COOKIE option containing
@@ -182,14 +237,10 @@ impl CookiesMiddlewareProcessor {
 
     /// Create a DNS response to a client cookie prefetch request.
     #[must_use]
-    fn prefetch_cookie_response<RequestOctets, Target>(
+    fn prefetch_cookie_response(
         &self,
-        request: &Request<RequestOctets>,
-    ) -> AdditionalBuilder<StreamTarget<Target>>
-    where
-        RequestOctets: Octets,
-        Target: Composer + Default,
-    {
+        request: &Request<RequestOctets, RequestMeta>,
+    ) -> AdditionalBuilder<StreamTarget<NextSvc::Target>> {
         // https://datatracker.ietf.org/doc/html/rfc7873#section-5.4
         // Querying for a Server Cookie:
         //   "For servers with DNS Cookies enabled, the
@@ -203,37 +254,12 @@ impl CookiesMiddlewareProcessor {
         //   Cookie, the response SHALL have the RCODE NOERROR."
         self.response_with_cookie(request, Rcode::NOERROR.into())
     }
-}
 
-//--- Default
-
-impl Default for CookiesMiddlewareProcessor {
-    /// Creates an instance of this processor with default configuration.
-    ///
-    /// The processor will use a randomly generated server secret.
-    fn default() -> Self {
-        let mut server_secret = [0u8; 16];
-        rand::thread_rng().fill_bytes(&mut server_secret);
-
-        Self {
-            server_secret,
-            ip_deny_list: Default::default(),
-        }
-    }
-}
-
-//--- MiddlewareProcessor
-
-impl<RequestOctets, Target> MiddlewareProcessor<RequestOctets, Target>
-    for CookiesMiddlewareProcessor
-where
-    RequestOctets: Octets,
-    Target: Composer + Default,
-{
+    #[tracing::instrument(skip_all, fields(request_ip = %request.client_addr().ip()))]
     fn preprocess(
         &self,
-        request: &Request<RequestOctets>,
-    ) -> ControlFlow<AdditionalBuilder<StreamTarget<Target>>> {
+        request: &Request<RequestOctets, RequestMeta>,
+    ) -> ControlFlow<AdditionalBuilder<StreamTarget<NextSvc::Target>>> {
         match Self::cookie(request) {
             None => {
                 trace!("Request does not contain a DNS cookie");
@@ -245,24 +271,31 @@ where
                 //   the request as if the server doesn't implement the
                 //   COOKIE option."
 
-                // For clients on the IP deny list they MUST authenticate
-                // themselves to the server, either with a cookie or by
-                // re-connecting over TCP, so we REFUSE them and reply with
-                // TC=1 to prompt them to reconnect via TCP.
+                // https://datatracker.ietf.org/doc/html/rfc7873#section-1
+                // 1. Introduction
+                //   "The protection provided by DNS Cookies is similar to
+                //    that provided by using TCP for DNS transactions.
+                //    ...
+                //    Where DNS Cookies are not available but TCP is, falling
+                //    back to using TCP is reasonable."
+
+                // While not required by RFC 7873, like Unbound the caller can
+                // configure this middleware service to require clients
+                // contacting it from certain IP addresses to authenticate
+                // themselves or be refused with TC=1 to signal that they
+                // should resubmit their request via TCP.
                 if request.transport_ctx().is_udp()
                     && self.ip_deny_list.contains(&request.client_addr().ip())
                 {
-                    debug!(
-                        "Rejecting cookie-less non-TCP request due to matching IP deny list entry"
-                    );
+                    debug!("Rejecting cookie-less non-TCP request due to matching deny list entry");
                     let builder = mk_builder_for_target();
                     let mut additional = builder.additional();
                     additional.header_mut().set_rcode(Rcode::REFUSED);
                     additional.header_mut().set_tc(true);
                     return ControlFlow::Break(additional);
-                } else {
-                    trace!("Permitting cookie-less request to flow due to use of TCP transport");
                 }
+
+                // Continue as if we we don't implement the COOKIE option.
             }
 
             Some(Err(err)) => {
@@ -305,6 +338,8 @@ where
                 );
 
                 if !server_cookie_is_valid {
+                    trace!("Request has an invalid DNS server cookie");
+
                     // https://datatracker.ietf.org/doc/html/rfc7873#section-5.2.3
                     // Only a Client Cookie:
                     //   "Based on server policy, including rate limiting, the
@@ -379,10 +414,13 @@ where
                             self.bad_cookie_response(request)
                         };
                         return ControlFlow::Break(additional);
-                    } else if request.transport_ctx().is_udp() {
+                    } else if request.transport_ctx().is_udp()
+                        && self
+                            .ip_deny_list
+                            .contains(&request.client_addr().ip())
+                    {
                         let additional = self.bad_cookie_response(request);
-                        debug!(
-                                "Rejecting non-TCP request due to invalid server cookie");
+                        debug!("Rejecting non-TCP request with invalid server cookie due to matching deny list entry");
                         return ControlFlow::Break(additional);
                     }
                 } else if request.message().header_counts().qdcount() == 0 {
@@ -412,57 +450,67 @@ where
 
         ControlFlow::Continue(())
     }
+}
 
-    fn postprocess(
+//--- Service
+
+impl<RequestOctets, NextSvc, RequestMeta> Service<RequestOctets, RequestMeta>
+    for CookiesMiddlewareSvc<RequestOctets, NextSvc, RequestMeta>
+where
+    RequestOctets: Octets + Send + Sync + 'static + Unpin,
+    RequestMeta: Clone + Default,
+    NextSvc: Service<RequestOctets, RequestMeta>,
+    NextSvc::Target: Composer + Default,
+    NextSvc::Future: Unpin,
+{
+    type Target = NextSvc::Target;
+    type Stream = MiddlewareStream<
+        NextSvc::Future,
+        NextSvc::Stream,
+        NextSvc::Stream,
+        Once<Ready<<NextSvc::Stream as Stream>::Item>>,
+        <NextSvc::Stream as Stream>::Item,
+    >;
+    type Future = core::future::Ready<Self::Stream>;
+
+    fn call(
         &self,
-        _request: &Request<RequestOctets>,
-        _response: &mut AdditionalBuilder<StreamTarget<Target>>,
-    ) {
-        // https://datatracker.ietf.org/doc/html/rfc7873#section-5.2.1
-        // No OPT RR or No COOKIE Option:
-        //   If the request lacked a client cookie we don't need to do
-        //   anything.
-        //
-        // https://datatracker.ietf.org/doc/html/rfc7873#section-5.2.2
-        // Malformed COOKIE Option:
-        //   If the request COOKIE option was malformed we would have already
-        //   rejected it during pre-processing so again nothing to do here.
-        //
-        // https://datatracker.ietf.org/doc/html/rfc7873#section-5.2.3
-        // Only a Client Cookie:
-        //   If the request had a client cookie but no server cookie and
-        //   we didn't already reject the request during pre-processing.
-        //
-        // https://datatracker.ietf.org/doc/html/rfc7873#section-5.2.4
-        // A Client Cookie and an Invalid Server Cookie:
-        //   Per RFC 7873 this is handled the same way as the "Only a Client
-        //   Cookie" case.
-        //
-        // https://datatracker.ietf.org/doc/html/rfc7873#section-5.2.5
-        // A Client Cookie and a Valid Server Cookie
-        //   Any server cookie will already have been validated during
-        //   pre-processing, we don't need to check it again here.
+        request: Request<RequestOctets, RequestMeta>,
+    ) -> Self::Future {
+        if !self.enabled {
+            let svc_call_fut = self.next_svc.call(request.clone());
+            return ready(MiddlewareStream::IdentityFuture(svc_call_fut));
+        }
+
+        match self.preprocess(&request) {
+            ControlFlow::Continue(()) => {
+                let svc_call_fut = self.next_svc.call(request.clone());
+                ready(MiddlewareStream::IdentityFuture(svc_call_fut))
+            }
+            ControlFlow::Break(response) => ready(MiddlewareStream::Result(
+                once(ready(Ok(CallResult::new(response)))),
+            )),
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use core::ops::ControlFlow;
-
     use bytes::Bytes;
     use std::vec::Vec;
     use tokio::time::Instant;
+    use tokio_stream::StreamExt;
 
     use crate::base::opt::cookie::ClientCookie;
     use crate::base::opt::Cookie;
     use crate::base::{Message, MessageBuilder, Name, Rtype};
     use crate::net::server::message::{Request, UdpTransportContext};
-    use crate::net::server::middleware::processor::MiddlewareProcessor;
+    use crate::net::server::middleware::cookies::CookiesMiddlewareSvc;
+    use crate::net::server::service::{CallResult, Service, ServiceResult};
+    use crate::net::server::util::service_fn;
 
-    use super::CookiesMiddlewareProcessor;
-
-    #[test]
-    fn dont_add_cookie_twice() {
+    #[tokio::test]
+    async fn dont_add_cookie_twice() {
         // Build a dummy DNS query containing a client cookie.
         let query = MessageBuilder::new_vec();
         let mut query = query.question();
@@ -477,25 +525,37 @@ mod tests {
         // as if it came from a UDP server.
         let ctx = UdpTransportContext::default();
         let client_addr = "127.0.0.1:12345".parse().unwrap();
-        let request =
-            Request::new(client_addr, Instant::now(), message, ctx.into());
+        let request = Request::new(
+            client_addr,
+            Instant::now(),
+            message,
+            ctx.into(),
+            (),
+        );
 
-        // And pass the query through the middleware processor
+        fn my_service(
+            _req: Request<Vec<u8>>,
+            _meta: (),
+        ) -> ServiceResult<Vec<u8>> {
+            // For each request create a single response:
+            todo!()
+        }
+
+        // And pass the query through the middleware service
+        let my_svc = service_fn(my_service, ());
         let server_secret: [u8; 16] =
             [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15];
-        let processor = CookiesMiddlewareProcessor::new(server_secret);
-        let processor: &dyn MiddlewareProcessor<Vec<u8>, Vec<u8>> =
-            &processor;
+        let middleware_svc = CookiesMiddlewareSvc::new(my_svc, server_secret)
+            .with_denied_ips(["127.0.0.1".parse().unwrap()]);
 
-        let ControlFlow::Break(mut response) = processor.preprocess(&request)
-        else {
-            unreachable!()
-        };
-        processor.postprocess(&request, &mut response);
+        let mut stream = middleware_svc.call(request).await;
+        let call_result: CallResult<Vec<u8>> =
+            stream.next().await.unwrap().unwrap();
+        let (response, _feedback) = call_result.into_inner();
 
         // Expect the response to contain a single cookie option containing
         // both a client cookie and a server cookie.
-        let response = response.finish();
+        let response = response.unwrap().finish();
         let response_bytes = response.as_dgram_slice().to_vec();
         let response = Message::from_octets(response_bytes).unwrap();
 

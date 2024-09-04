@@ -332,9 +332,7 @@ where
     Other: AsRef<[u8]>,
 {
     fn eq(&self, other: &Txt<Other>) -> bool {
-        self.iter()
-            .flat_map(|s| s.iter().copied())
-            .eq(other.iter().flat_map(|s| s.iter().copied()))
+        self.0.as_ref().eq(other.0.as_ref())
     }
 }
 
@@ -348,9 +346,7 @@ where
     Other: AsRef<[u8]>,
 {
     fn partial_cmp(&self, other: &Txt<Other>) -> Option<Ordering> {
-        self.iter()
-            .flat_map(|s| s.iter().copied())
-            .partial_cmp(other.iter().flat_map(|s| s.iter().copied()))
+        self.0.as_ref().partial_cmp(other.0.as_ref())
     }
 }
 
@@ -360,26 +356,13 @@ where
     Other: AsRef<[u8]>,
 {
     fn canonical_cmp(&self, other: &Txt<Other>) -> Ordering {
-        // Canonical comparison requires TXT RDATA to be canonically
-        // sorted in the wire format.
-        // The TXT has each label prefixed by length, which must be
-        // taken into account.
-        for (a, b) in self.iter().zip(other.iter()) {
-            match (a.len(), a).cmp(&(b.len(), b)) {
-                Ordering::Equal => continue,
-                r => return r,
-            }
-        }
-
-        Ordering::Equal
+        self.0.as_ref().cmp(other.0.as_ref())
     }
 }
 
 impl<Octs: AsRef<[u8]>> Ord for Txt<Octs> {
     fn cmp(&self, other: &Self) -> Ordering {
-        self.iter()
-            .flat_map(|s| s.iter().copied())
-            .cmp(other.iter().flat_map(|s| s.iter().copied()))
+        self.0.as_ref().cmp(other.0.as_ref())
     }
 }
 
@@ -387,9 +370,7 @@ impl<Octs: AsRef<[u8]>> Ord for Txt<Octs> {
 
 impl<Octs: AsRef<[u8]>> hash::Hash for Txt<Octs> {
     fn hash<H: hash::Hasher>(&self, state: &mut H) {
-        self.iter()
-            .flat_map(|s| s.iter().copied())
-            .for_each(|c| c.hash(state))
+        self.0.as_ref().hash(state)
     }
 }
 
@@ -1046,6 +1027,29 @@ mod test {
         for (a, b) in records.iter().zip(sorted.iter()) {
             assert_eq!(a, b);
         }
+    }
+
+    #[test]
+    fn txt_strings_eq() {
+        let records = [["foo", "bar"], ["foob", "ar"], ["foo", "bar"]];
+
+        let records = records
+            .iter()
+            .map(|strings| {
+                let mut builder = TxtBuilder::<Vec<u8>>::new();
+                for string in strings {
+                    builder
+                        .append_charstr(
+                            CharStr::from_slice(string.as_bytes()).unwrap(),
+                        )
+                        .unwrap();
+                }
+                builder.finish().unwrap()
+            })
+            .collect::<Vec<_>>();
+
+        assert_ne!(records[0], records[1]);
+        assert_eq!(records[0], records[2]);
     }
 
     #[cfg(all(feature = "serde", feature = "std"))]

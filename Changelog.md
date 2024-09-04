@@ -6,25 +6,59 @@ Breaking changes
 
 New
 
+* Added an optional push size limit to `MessageBuilder`. ([#348])
+* Added `FromStr` impls for `Rcode` and `OptRcode`. ([#357])
+* Added `OptRcode::is_ext` to check if the code is an extended code.
+  ([#358])
+* Added `Rtype::is_glue` to check if the Rtype may be used as glue. ([#363])
+* Added `MessageBuilder::start_error`, like `start_answer` but infallible. ([#369])
+
 Bug fixes
 
 * Fixed a mistake in the tsig module while calculating the start of
   the TSIG record when there were other records in the additional section,
   causing the TSIG code to fail if OPT records were in use. ([#333])
+* Fixed the mnemonic for the `NOTAUTH` rcode – it was `NOAUTH`. ([#360])
+* Fixes the way the `Txt<_> `record data implements comparison-related
+  traits. They now directly compare the underlying octets, i.e., the wire
+  format bytes. ([#374] by [@dklbreitling])
 
 Unstable features
 
-* `unstable-client-transport`: Fixed an issue with slow responses in the
-  `multi_stream` transport by not waiting in the first iteration if an
-  underlying stream reports its connection being closed. ([#338])
 * New unstable feature `unstable-validator` that adds a DNSSEC validator.
   ([#328])
+* `unstable-client-transport`:
+  * Fixed an issue with slow responses in the
+    `multi_stream` transport by not waiting in the first iteration if an
+    underlying stream reports its connection being closed. ([#338])
+  * Added an option called idle_timeout to stream that allows a TCP or
+    TLS connection to stay open even if no TcpKeepalive option is received
+    from the server. ([#341])
+  * Fixed an off-by-one error in Dgram client retry count checking. ([#354])
+* `unstable-server-transport`
+  * The cookies middleware now allows requests with invalid cookies to
+    proceed if they are authenticated or not required to authenticate. ([#336])
+  * Improved zonefile parsing error messages. ([#362]). 
+  * `TryFrom<inplace::Zonefile> for Zonefile` now returns the set of
+    errors instead of logging and ignoring them. ([#362])
+  * Allow both glue (A/AAAA) and zone cuts at the same owner when zone
+    parsing. ([#363])
+  * Breaking changes to the `Service` and middleware traits. ([#369])
+  * Added an `enabled` flag to `CookiesMiddlewareSvc`. ([#369])
 
 Other changes
 
 [#328]: https://github.com/NLnetLabs/domain/pull/328
 [#333]: https://github.com/NLnetLabs/domain/pull/333
+[#336]: https://github.com/NLnetLabs/domain/pull/336
 [#338]: https://github.com/NLnetLabs/domain/pull/338
+[#341]: https://github.com/NLnetLabs/domain/pull/341
+[#348]: https://github.com/NLnetLabs/domain/pull/348
+[#357]: https://github.com/NLnetLabs/domain/pull/357
+[#358]: https://github.com/NLnetLabs/domain/pull/358
+[#360]: https://github.com/NLnetLabs/domain/pull/360
+[#374]: https://github.com/NLnetLabs/domain/pull/374
+[@dklbreitling]: https://github.com/dklbreitling
 
 ## 0.10.1
 
@@ -56,13 +90,18 @@ Unstable features
 
 * New unstable feature `unstable-stelline` for the Stelline testing
   framework as a “normal” module of _domain._ ([#315])
-* Renamed the domain name types in `zonetree` from `Dname` to `Name`.
-  ([#308])
+* `unstable-server-transport`:
+  *  Redesigned the service trait and changes middleware processors as
+     services that take an upstream service to pass requests on to. ([#307])
+* `unstable-zonetree`:
+  * Renamed the domain name types in `zonetree` from `Dname` to `Name`.
+    ([#308])
 
 Other changes
 
 * The minimum Rust version is now 1.78. ([#320])
 
+[#307]: https://github.com/NLnetLabs/domain/pull/307
 [#308]: https://github.com/NLnetLabs/domain/pull/308
 [#310]: https://github.com/NLnetLabs/domain/pull/310
 [#312]: https://github.com/NLnetLabs/domain/pull/312

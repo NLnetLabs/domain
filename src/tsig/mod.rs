@@ -897,7 +897,7 @@ impl<K: AsRef<Key>> ServerSequence<K> {
         SigningContext::server_request(store, message, now).map(|context| {
             context.map(|context| ServerSequence {
                 context,
-                first: false,
+                first: true,
             })
         })
     }
@@ -943,6 +943,7 @@ impl<K: AsRef<Key>> ServerSequence<K> {
                 &variables,
             )
         };
+        self.context.apply_signature(mac.as_ref());
         let mac = self.key().signature_slice(&mac);
         self.key().complete_message(message, &variables, mac)
     }
