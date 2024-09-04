@@ -16,6 +16,7 @@ use crate::base::iana::Rcode;
 use crate::base::name::{Name, ToName};
 use crate::base::net::IpAddr;
 use crate::base::wire::Composer;
+use crate::net::client::request::RequestMessageMulti;
 use crate::net::client::{dgram, stream};
 use crate::net::server;
 use crate::net::server::buf::VecBufSource;
@@ -193,7 +194,10 @@ fn mk_client_factory(
         move |source_addr| {
             let stream = stream_server_conn
                 .connect(Some(SocketAddr::new(*source_addr, 0)));
-            let (conn, transport) = stream::Connection::new(stream);
+            let (conn, transport) = stream::Connection::<
+                _,
+                RequestMessageMulti<Vec<u8>>,
+            >::new(stream);
             tokio::spawn(transport.run());
             Box::new(conn)
         },
