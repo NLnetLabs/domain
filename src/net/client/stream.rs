@@ -3,17 +3,6 @@
 // RFC 7766 describes DNS over TCP
 // RFC 7828 describes the edns-tcp-keepalive option
 
-// TODO:
-// - errors
-//   - connect errors? Retry after connection refused?
-//   - server errors
-//     - ID out of range
-//     - ID not in use
-//     - reply for wrong query
-// - timeouts
-//   - request timeout
-// - create new connection after end/failure of previous one
-
 use super::request::{
     ComposeRequest, ComposeRequestMulti, Error, GetResponse,
     GetResponseMulti, SendRequest, SendRequestMulti,
@@ -238,7 +227,7 @@ where
         receiver.await.map_err(|_| Error::StreamReceiveError)?
     }
 
-    /// TODO: Document me.
+    /// Start a streaming request.
     async fn handle_streaming_request_impl(
         self,
         msg: ReqMulti,
@@ -258,18 +247,15 @@ where
         Ok(())
     }
 
-    /// Returns a request handler for this connection.
+    /// Returns a request handler for a request.
     pub fn get_request(&self, request_msg: Req) -> Request {
         Request {
             fut: Box::pin(self.clone().handle_request_impl(request_msg)),
         }
     }
 
-    /// TODO
-    pub fn get_streaming_request(
-        &self,
-        request_msg: ReqMulti,
-    ) -> RequestMulti {
+    /// Return a multiple-response request handler for a request.
+    fn get_streaming_request(&self, request_msg: ReqMulti) -> RequestMulti {
         let (sender, receiver) = mpsc::channel(DEF_CHAN_CAP);
         RequestMulti {
             stream: receiver,
@@ -359,7 +345,7 @@ impl Debug for Request {
 
 /// An active request.
 pub struct RequestMulti {
-    /// TODO
+    /// Receiver for a stream of responses.
     stream: mpsc::Receiver<Result<Option<Message<Bytes>>, Error>>,
 
     /// The underlying future.
@@ -430,15 +416,15 @@ pub struct Transport<Stream, Req, ReqMulti> {
 /// This is the type of sender in [ChanReq].
 #[derive(Debug)]
 enum ReplySender {
-    /// TODO
+    /// Return channel for a single response.
     Single(Option<oneshot::Sender<ChanResp>>),
 
-    /// TODO
+    /// Return channel for a stream of responses.
     Stream(mpsc::Sender<Result<Option<Message<Bytes>>, Error>>),
 }
 
 impl ReplySender {
-    /// TODO
+    /// Send a response.
     async fn send(&mut self, resp: ChanResp) -> Result<(), ()> {
         match self {
             ReplySender::Single(sender) => match sender.take() {
@@ -463,8 +449,8 @@ impl ReplySender {
         }
     }
 
-    /// TODO
-    pub fn is_stream(&self) -> bool {
+    /// Report whether in stream mode or not.
+    fn is_stream(&self) -> bool {
         matches!(self, Self::Stream(_))
     }
 }
@@ -589,17 +575,6 @@ enum XFRState {
     /// An error has occured.
     Error,
 }
-
-/*
-#[derive(Debug)]
-struct XFRData {
-    /// State needed for AXFR and IXFR.
-    state: XFRState,
-
-    ///
-    serial: Serial,
-}
-*/
 
 impl<Stream, Req, ReqMulti> Transport<Stream, Req, ReqMulti> {
     /// Creates a new transport.
@@ -1068,7 +1043,6 @@ where
                 ReqSingleMulti::Single(msg) => {
                     msg.add_opt(&TcpKeepalive::new(None)).is_ok()
                 }
-                // Do we need to set TcpKeepalive for XFR?
                 ReqSingleMulti::Multi(msg) => {
                     msg.add_opt(&TcpKeepalive::new(None)).is_ok()
                 }
@@ -1206,7 +1180,6 @@ where
                 return (false, xfr_state, false);
             }
             XFRState::AXFRFirstSoa(serial) => {
-                // Find the SOA at the end.
                 if let AllRecordData::Soa(soa) = rr.data() {
                     if serial == soa.serial() {
                         // We found a match.
@@ -1311,7 +1284,7 @@ where
             return (true, xfr_state, true);
         }
         XFRState::Done => return (true, xfr_state, true),
-        XFRState::Error => panic!("should not be here"),
+        XFRState::Error => unreachable!(),
     }
 
     // (eof, xfr_data, is_answer)
@@ -1405,8 +1378,8 @@ impl<T> Queries<T> {
         Ok((idx, req))
     }
 
-    /// Inserts the given query at a specified position. The slot has to be
-    /// empty.
+    /// Inserts the given query at a specified position. A pre-condition is
+    /// is that the slot has to be empty.
     fn insert_at(&mut self, id: u16, req: T) {
         let id = id as usize;
         self.vec[id] = Some(req);
