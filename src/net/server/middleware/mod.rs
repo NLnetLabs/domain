@@ -13,11 +13,11 @@
 //! through the layers to the server.
 //!
 //! Currently the following middleware are available:
-
 #[cfg(feature = "siphasher")]
 pub mod cookies;
 pub mod edns;
 pub mod mandatory;
+pub mod notify;
 pub mod stream;
 #[cfg(feature = "tsig")]
 pub mod tsig;

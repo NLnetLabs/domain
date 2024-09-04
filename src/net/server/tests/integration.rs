@@ -15,7 +15,7 @@ use rstest::rstest;
 use tracing::instrument;
 use tracing::{trace, warn};
 
-use crate::base::iana::Rcode;
+use crate::base::iana::{Class, Rcode};
 use crate::base::name::{Name, ToName};
 use crate::base::net::IpAddr;
 use crate::base::wire::Composer;
@@ -32,6 +32,9 @@ use crate::net::server::message::Request;
 use crate::net::server::middleware::cookies::CookiesMiddlewareSvc;
 use crate::net::server::middleware::edns::EdnsMiddlewareSvc;
 use crate::net::server::middleware::mandatory::MandatoryMiddlewareSvc;
+use crate::net::server::middleware::notify::{
+    Notifiable, NotifyError, NotifyMiddlewareSvc,
+};
 use crate::net::server::service::{CallResult, Service, ServiceResult};
 use crate::net::server::stream::StreamServer;
 use crate::net::server::util::{mk_builder_for_target, service_fn};
@@ -45,6 +48,10 @@ use crate::stelline::simple_dgram_client;
 use crate::tsig::{Algorithm, Key, KeyName, KeyStore};
 use crate::utils::base16;
 use crate::zonefile::inplace::{Entry, ScannedRecord, Zonefile};
+use crate::zonetree::StoredName;
+use core::future::{ready, Future};
+use core::pin::Pin;
+use std::string::ToString;
 
 //----------- Tests ----------------------------------------------------------
 
@@ -130,7 +137,10 @@ async fn server_tests(#[files("test-data/server/*.rpl")] rpl_file: PathBuf) {
     // 4. Mandatory DNS behaviour (e.g. RFC 1034/35 rules).
     let svc = MandatoryMiddlewareSvc::new(svc);
 
-    // 5. TSIG message authentication.
+    // 5. RFC 1996 NOTIFY support.
+    let svc = NotifyMiddlewareSvc::new(svc, TestNotifyTarget);
+
+    // 6. TSIG message authentication.
     let svc = TsigMiddlewareSvc::new(svc, key_store.clone());
 
     // NOTE: TSIG middleware *MUST* be the first middleware in the chain per
@@ -490,3 +500,29 @@ fn parse_server_config(config: &Config) -> ServerConfig {
 
 // KeyStore is impl'd elsewhere for HashMap<(KeyName, Algorithm), K, S>.
 type TestKeyStore = HashMap<(KeyName, Algorithm), Key>;
+
+//------------ NoOpNotifyTarget -----------------------------------------------
+
+#[derive(Copy, Clone, Default, Debug)]
+struct TestNotifyTarget;
+
+impl Notifiable for TestNotifyTarget {
+    fn notify_zone_changed(
+        &self,
+        class: Class,
+        apex_name: &StoredName,
+        source: IpAddr,
+    ) -> Pin<
+        Box<dyn Future<Output = Result<(), NotifyError>> + Sync + Send + '_>,
+    > {
+        trace!("Notify received from {source} of change to zone {apex_name} in class {class}");
+
+        let res = match apex_name.to_string().to_lowercase().as_str() {
+            "example.com" => Ok(()),
+            "othererror.com" => Err(NotifyError::Other),
+            _ => Err(NotifyError::NotAuthForZone),
+        };
+
+        Box::pin(ready(res))
+    }
+}
