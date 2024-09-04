@@ -1,4 +1,6 @@
 #![allow(clippy::type_complexity)]
+use core::ops::Deref;
+
 use std::boxed::Box;
 use std::collections::HashMap;
 use std::future::{ready, Future};
@@ -26,11 +28,9 @@ use crate::net::client::request::{
 use crate::stelline::matches::match_multi_msg;
 use crate::zonefile::inplace::Entry::Record;
 
+use super::channel::DEF_CLIENT_ADDR;
 use super::matches::match_msg;
 use super::parse_stelline::{Entry, Reply, Sections, Stelline, StepType};
-
-use super::channel::DEF_CLIENT_ADDR;
-use core::ops::Deref;
 
 //----------- StellineError ---------------------------------------------------
 
@@ -685,7 +685,8 @@ fn init_logging() {
 fn entry2reqmsg(entry: &Entry) -> RequestMessage<Vec<u8>> {
     let (sections, reply, msg) = entry2msg(entry);
 
-    let mut reqmsg = RequestMessage::new(msg).unwrap();
+    let mut reqmsg = RequestMessage::new(msg)
+        .expect("should not fail unless the request is AXFR");
     if !entry
         .matches
         .as_ref()
@@ -694,6 +695,7 @@ fn entry2reqmsg(entry: &Entry) -> RequestMessage<Vec<u8>> {
     {
         reqmsg.set_dnssec_ok(reply.fl_do);
     }
+
     if reply.notify {
         reqmsg.header_mut().set_opcode(Opcode::NOTIFY);
     }
