@@ -193,7 +193,7 @@ where
 // TODO: This is a questionable implementation of equality.
 impl<Octs, Metadata> PartialEq for Request<Octs, Metadata>
 where
-    Octs: AsRef<[u8]> + Send + Sync + Unpin,
+    Octs: AsRef<[u8]> + Send + Sync,
 {
     fn eq(&self, other: &Self) -> bool {
         self.client_addr == other.client_addr
