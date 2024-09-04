@@ -197,7 +197,7 @@ impl<Octs: AsRef<[u8]> + Debug + Octets> RequestMessage<Octs> {
     pub fn new(msg: impl Into<Message<Octs>>) -> Result<Self, Error> {
         let msg = msg.into();
 
-        // On UDP, IXFR results in a single responses, so we need to accept it.
+        // On UDP, IXFR results in a single response, so we need to accept it.
         // We can reject AXFR because it always requires support for multiple
         // responses.
         if msg.header().opcode() == Opcode::QUERY
