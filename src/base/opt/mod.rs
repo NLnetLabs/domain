@@ -45,9 +45,9 @@ use super::iana::{Class, OptRcode, OptionCode, Rtype};
 use super::name::{Name, ToName};
 use super::rdata::{ComposeRecordData, ParseRecordData, RecordData};
 use super::record::{Record, Ttl};
+use super::show::{self, Presenter, Show};
 use super::wire::{Compose, Composer, FormError, ParseError};
 use crate::utils::base16;
-use crate::zonefile::present::{ZoneFileFormat, ZoneFileFormatter};
 use core::cmp::Ordering;
 use core::marker::PhantomData;
 use core::{fmt, hash, mem};
@@ -359,12 +359,12 @@ impl<Octs: AsRef<[u8]> + ?Sized> fmt::Debug for Opt<Octs> {
     }
 }
 
-//--- ZoneFileFormat
+//--- Show
 
-impl<Octs: AsRef<[u8]> + ?Sized> ZoneFileFormat for Opt<Octs> {
-    fn present(&self, f: &mut ZoneFileFormatter) -> fmt::Result {
+impl<Octs: AsRef<[u8]> + ?Sized> Show for Opt<Octs> {
+    fn show(&self, p: &mut Presenter) -> show::Result {
         // XXX TODO Print this properly.
-        f.write_str("OPT ...")
+        p.write_token("OPT ...")
     }
 }
 

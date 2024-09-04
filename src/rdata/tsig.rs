@@ -10,9 +10,9 @@ use crate::base::name::{FlattenInto, ParsedName, ToName};
 use crate::base::rdata::{
     ComposeRecordData, LongRecordData, ParseRecordData, RecordData
 };
+use crate::base::show::{self, Presenter, Show};
 use crate::base::wire::{Compose, Composer, Parse, ParseError};
 use crate::utils::base64;
-use crate::zonefile::present::{ZoneFileFormat, ZoneFileFormatter};
 use core::cmp::Ordering;
 use core::{fmt, hash};
 use octseq::builder::OctetsBuilder;
@@ -601,19 +601,22 @@ impl<O: AsRef<[u8]>, N: fmt::Debug> fmt::Debug for Tsig<O, N> {
     }
 }
 
-//--- ZoneFileFormat
+//--- Show
 
-impl<O: AsRef<[u8]>, N: fmt::Display> ZoneFileFormat for Tsig<O, N> {
-    fn present(&self, f: &mut ZoneFileFormatter) -> fmt::Result {
-        write!(
-            f,
-            "{}. {} {} ",
-            self.algorithm, self.time_signed, self.fudge
-        )?;
-        base64::display(&self.mac, f)?;
-        write!(f, " {} {} \"", self.original_id, self.error)?;
-        base64::display(&self.other, f)?;
-        write!(f, "\"")
+impl<O: AsRef<[u8]>, N: fmt::Display> Show for Tsig<O, N> {
+    fn show(&self, p: &mut Presenter) -> show::Result {
+        p.block()
+            .write_token(format_args!("{}.", self.algorithm))
+            .write_token(self.time_signed)
+            .write_token(self.fudge)
+            .write_token(base64::encode_display(&self.mac))
+            .write_token(self.original_id)
+            .write_token(self.error)
+            .write_token(format_args!(
+                "\"{}\"",
+                base64::encode_display(&self.other))
+            )
+            .finish()
     }
 }
 

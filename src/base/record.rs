@@ -15,14 +15,13 @@
 //! [`RecordHeader`]: struct.RecordHeader.html
 //! [`ParsedRecord`]: struct.ParsedRecord.html
 
-use crate::zonefile::present::{ZoneFileFormat, ZoneFileFormatter};
-
 use super::cmp::CanonicalOrd;
 use super::iana::{Class, Rtype};
 use super::name::{FlattenInto, ParsedName, ToName};
 use super::rdata::{
     ComposeRecordData, ParseAnyRecordData, ParseRecordData, RecordData,
 };
+use super::show::{self, Presenter, Show};
 use super::wire::{Compose, Composer, FormError, Parse, ParseError};
 use core::cmp::Ordering;
 use core::time::Duration;
@@ -433,22 +432,19 @@ where
     }
 }
 
-//--- ZoneFileFormat
-impl<Name, Data> ZoneFileFormat for Record<Name, Data>
+//--- Show
+
+impl<Name, Data> Show for Record<Name, Data>
 where
     Name: fmt::Display,
-    Data: RecordData + ZoneFileFormat,
+    Data: RecordData + Show,
 {
-    fn present(&self, f: &mut ZoneFileFormatter) -> fmt::Result {
-        write!(
-            f,
-            "{}. {} {} {} {}",
-            self.owner,
-            self.ttl.display_zone_file(),
-            self.class.display_zone_file(),
-            self.data.rtype().display_zone_file(),
-            self.data.display_zone_file(),
-        )
+    fn show(&self, p: &mut Presenter) -> show::Result {
+        p.write_token(format_args!("{}.", self.owner))?;
+        self.ttl.show(p)?;
+        self.class.show(p)?;
+        self.data.rtype().show(p)?;
+        self.data.show(p)
     }
 }
 
@@ -1502,9 +1498,9 @@ impl Ttl {
     }
 }
 
-impl ZoneFileFormat for Ttl {
-    fn present(&self, f: &mut ZoneFileFormatter) -> fmt::Result {
-        write!(f, "{}", self.as_secs())
+impl Show for Ttl {
+    fn show(&self, p: &mut Presenter) -> show::Result {
+        p.write_token(self.as_secs())
     }
 }
 

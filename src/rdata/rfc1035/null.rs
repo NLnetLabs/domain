@@ -7,8 +7,8 @@ use crate::base::iana::Rtype;
 use crate::base::rdata::{
     ComposeRecordData, LongRecordData, ParseRecordData, RecordData,
 };
+use crate::base::show::{self, Presenter, Show};
 use crate::base::wire::{Composer, ParseError};
-use crate::zonefile::present::{ZoneFileFormat, ZoneFileFormatter};
 use core::{fmt, hash, mem};
 use core::cmp::Ordering;
 use octseq::octets::{Octets, OctetsFrom, OctetsInto};
@@ -278,15 +278,23 @@ impl<Octs: AsRef<[u8]>> fmt::Debug for Null<Octs> {
     }
 }
 
-//--- ZoneFileFormat
+//--- Show
 
-impl<Octs: AsRef<[u8]>> ZoneFileFormat for Null<Octs> {
-    fn present(&self, f: &mut ZoneFileFormatter) -> fmt::Result {
-        write!(f, "\\# {}", self.data.as_ref().len())?;
-        for ch in self.data.as_ref().iter() {
-            write!(f, " {:02x}", ch)?;
+impl<Octs: AsRef<[u8]>> Show for Null<Octs> {
+    fn show(&self, p: &mut Presenter) -> show::Result {
+        struct Data<'a>(&'a [u8]);
+
+        impl std::fmt::Display for Data<'_> {
+            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                write!(f, "\\# {}", self.0.len())?;
+                for ch in self.0 {
+                    write!(f, " {:02x}", *ch)?
+                }
+                Ok(())
+            }
         }
-        Ok(())
+
+        p.write_token(Data(self.data.as_ref()))
     }
 }
 

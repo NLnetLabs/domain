@@ -9,8 +9,8 @@ use crate::base::name::{FlattenInto, ParsedName, ToName};
 use crate::base::rdata::{
     ComposeRecordData, LongRecordData, ParseRecordData, RecordData,
 };
+use crate::base::show::{self, Presenter, Show};
 use crate::base::wire::{Compose, Composer, Parse, ParseError};
-use crate::zonefile::present::{ZoneFileFormat, ZoneFileFormatter};
 use octseq::octets::{Octets, OctetsFrom, OctetsInto};
 use octseq::parse::Parser;
 use core::{cmp, fmt, hash};
@@ -465,21 +465,19 @@ where
     }
 }
 
-//--- ZoneFileFormat
+//--- Show
 
-impl<Variant, Octs, Name> ZoneFileFormat for SvcbRdata<Variant, Octs, Name>
+impl<Variant, Octs, Name> Show for SvcbRdata<Variant, Octs, Name>
 where
     Octs: Octets,
     Name: fmt::Display,
 {
-    fn present(&self, f: &mut ZoneFileFormatter) -> fmt::Result {
-        write!(
-            f,
-            "{} {} {}",
-            self.priority,
-            self.target,
-            self.params.display_zone_file()
-        )
+    fn show(&self, p: &mut Presenter) -> show::Result {
+        p.block()
+            .write_token(self.priority)
+            .write_token(&self.target)
+            .write_show(&self.params)
+            .finish()
     }
 }
 

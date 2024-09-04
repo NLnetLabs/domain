@@ -5,16 +5,14 @@
 use crate::base::cmp::CanonicalOrd;
 use crate::base::iana::Rtype;
 use crate::base::name::{FlattenInto, ParsedName, ToName};
-use crate::base::rdata::{
-    ComposeRecordData, ParseRecordData, RecordData,
-};
+use crate::base::rdata::{ComposeRecordData, ParseRecordData, RecordData};
 use crate::base::record::Ttl;
 use crate::base::scan::{Scan, Scanner};
 use crate::base::serial::Serial;
+use crate::base::show::{self, Presenter, Show};
 use crate::base::wire::{Compose, Composer, ParseError};
-use crate::zonefile::present::{ZoneFileFormat, ZoneFileFormatter};
-use core::fmt;
 use core::cmp::Ordering;
+use core::fmt;
 use octseq::octets::{Octets, OctetsFrom, OctetsInto};
 use octseq::parse::Parser;
 
@@ -26,7 +24,7 @@ use octseq::parse::Parser;
 /// name server maintenance operations.
 ///
 /// The Soa record type is defined in [RFC 1035, section 3.3.13][1].
-/// 
+///
 /// [1]: https://tools.ietf.org/html/rfc1035#section-3.3.13
 #[derive(Clone, Debug, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -119,7 +117,9 @@ impl<N> Soa<N> {
     pub(in crate::rdata) fn flatten<TargetName>(
         self,
     ) -> Result<Soa<TargetName>, N::AppendError>
-    where N: FlattenInto<TargetName> {
+    where
+        N: FlattenInto<TargetName>,
+    {
         Ok(Soa::new(
             self.mname.try_flatten_into()?,
             self.rname.try_flatten_into()?,
@@ -402,19 +402,17 @@ impl<N: fmt::Display> fmt::Display for Soa<N> {
     }
 }
 
-impl<N: fmt::Display> ZoneFileFormat for Soa<N> {
-    fn present(&self, f: &mut ZoneFileFormatter) -> fmt::Result {
-        write!(
-            f,
-            "{}. {}. {} {} {} {} {}",
-            self.mname,
-            self.rname,
-            self.serial,
-            self.refresh.as_secs(),
-            self.retry.as_secs(),
-            self.expire.as_secs(),
-            self.minimum.as_secs()
-        )
+impl<N: fmt::Display> Show for Soa<N> {
+    fn show(&self, p: &mut Presenter) -> show::Result {
+        p.block()
+            .write_token(format_args!("{}.", self.mname))
+            .write_token(format_args!("{}.", self.rname))
+            .write_token(self.serial)
+            .write_show(self.refresh)
+            .write_show(self.retry)
+            .write_show(self.expire)
+            .write_show(self.minimum)
+            .finish()
     }
 }
 
@@ -460,4 +458,3 @@ mod test {
         );
     }
 }
-

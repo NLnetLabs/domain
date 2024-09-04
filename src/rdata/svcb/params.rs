@@ -6,8 +6,8 @@ use super::value::AllValues;
 use crate::base::cmp::CanonicalOrd;
 use crate::base::iana::SvcParamKey;
 use crate::base::scan::Symbol;
+use crate::base::show::{self, Presenter, Show};
 use crate::base::wire::{Compose, Parse, ParseError};
-use crate::zonefile::present::{ZoneFileFormat, ZoneFileFormatter};
 use octseq::builder::{EmptyBuilder, FromBuilder, OctetsBuilder, ShortBuf};
 use octseq::octets::{Octets, OctetsFrom, OctetsInto};
 use octseq::parse::{Parser, ShortInput};
@@ -362,12 +362,13 @@ impl<Octs: Octets + ?Sized> fmt::Debug for SvcParams<Octs> {
     }
 }
 
-//-- ZoneFileFormat
+//-- Show
 
-impl<Octs: Octets + ?Sized> ZoneFileFormat for SvcParams<Octs> {
-    fn present(&self, f: &mut ZoneFileFormatter) -> fmt::Result {
+impl<Octs: Octets + ?Sized> Show for SvcParams<Octs> {
+    fn show(&self, p: &mut Presenter) -> show::Result {
+        let mut block = p.block();
+        
         let mut parser = Parser::from_ref(self.as_slice());
-        let mut first = true;
         while parser.remaining() > 0 {
             let key = SvcParamKey::parse(
                 &mut parser
@@ -378,17 +379,10 @@ impl<Octs: Octets + ?Sized> ZoneFileFormat for SvcParams<Octs> {
             let mut parser = parser.parse_parser(
                 len
             ).expect("invalid SvcParam");
-            if first {
-                first = false;
-            }
-            else {
-                f.write_str(" ")?;
-            }
-            write!(
-                f, "{}", super::value::AllValues::parse_any(key, &mut parser)
-            )?;
+            block.write_token(super::value::AllValues::parse_any(key, &mut parser));
         };
-        Ok(())
+
+        block.finish()
     }
 }
 

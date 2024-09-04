@@ -11,9 +11,9 @@ use crate::base::rdata::{ComposeRecordData, ParseRecordData, RecordData};
 use crate::base::scan::{
     ConvertSymbols, EntrySymbol, Scan, Scanner, ScannerError,
 };
+use crate::base::show::{self, Presenter, Show};
 use crate::base::wire::{Compose, Composer, Parse, ParseError};
 use crate::utils::{base16, base32};
-use crate::zonefile::present::{ZoneFileFormat, ZoneFileFormatter};
 #[cfg(feature = "bytes")]
 use bytes::Bytes;
 use core::cmp::Ordering;
@@ -370,26 +370,21 @@ impl<Octs: AsRef<[u8]>> fmt::Debug for Nsec3<Octs> {
     }
 }
 
+//--- Show
 
-//--- ZoneFileFormat
-
-//--- ZoneFileFormat
-
-impl<Octs: AsRef<[u8]>> ZoneFileFormat for Nsec3<Octs>
+impl<Octs: AsRef<[u8]>> Show for Nsec3<Octs>
 where
     Octs: AsRef<[u8]>,
 {
-    fn present(&self, f: &mut ZoneFileFormatter) -> fmt::Result {
-        write!(
-            f,
-            "{} {} {} {} ",
-            self.hash_algorithm.display_zone_file(),
-            self.flags,
-            self.iterations,
-            self.salt.display_zone_file(),
-        )?;
-        base32::display_hex(&self.next_owner, f)?;
-        write!(f, " {}", self.types)
+    fn show(&self, p: &mut Presenter) -> show::Result {
+        p.block()
+            .write_show(self.hash_algorithm)
+            .write_token(self.flags)
+            .write_token(self.iterations)
+            .write_show(&self.salt)
+            .write_token(base32::encode_display_hex(&self.next_owner))
+            .write_token(&self.types)
+            .finish()
     }
 }
 
@@ -685,18 +680,16 @@ impl<Octs: AsRef<[u8]>> fmt::Debug for Nsec3param<Octs> {
     }
 }
 
-//--- ZoneFileFormat
+//--- Show
 
-impl<Octs: AsRef<[u8]>> ZoneFileFormat for Nsec3param<Octs> {
-    fn present(&self, f: &mut ZoneFileFormatter) -> fmt::Result {
-        write!(
-            f,
-            "{} {} {} {}",
-            self.hash_algorithm.display_zone_file(),
-            self.flags,
-            self.iterations,
-            self.salt.display_zone_file(),
-        )
+impl<Octs: AsRef<[u8]>> Show for Nsec3param<Octs> {
+    fn show(&self, p: &mut Presenter) -> show::Result {
+        p.block()
+            .write_show(self.hash_algorithm)
+            .write_token(self.flags)
+            .write_token(self.iterations)
+            .write_show(&self.salt)
+            .finish()
     }
 }
 
@@ -1009,11 +1002,11 @@ impl<Octs: AsRef<[u8]> + ?Sized> fmt::Debug for Nsec3Salt<Octs> {
     }
 }
 
-//--- ZoneFileFormat
+//--- Show
 
-impl<Octs: AsRef<[u8]> + ?Sized> ZoneFileFormat for Nsec3Salt<Octs> {
-    fn present(&self, f: &mut ZoneFileFormatter) -> fmt::Result {
-        base16::display(self.as_slice(), f)
+impl<Octs: AsRef<[u8]> + ?Sized> Show for Nsec3Salt<Octs> {
+    fn show(&self, p: &mut Presenter) -> show::Result {
+        p.write_token(base16::encode_display(self))
     }
 }
 

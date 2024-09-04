@@ -9,9 +9,9 @@ use crate::base::iana::Rtype;
 use crate::base::rdata::{ComposeRecordData, RecordData};
 use crate::base::scan::{Scan, Scanner};
 use crate::base::serial::Serial;
+use crate::base::show::{self, Presenter, Show};
 use crate::base::wire::{Composer, ParseError};
 use crate::utils::base16;
-use crate::zonefile::present::{ZoneFileFormat, ZoneFileFormatter};
 use core::cmp::Ordering;
 use core::{fmt, hash};
 use octseq::octets::{Octets, OctetsFrom, OctetsInto};
@@ -224,17 +224,14 @@ impl<Octs: AsRef<[u8]>> fmt::Debug for Zonemd<Octs> {
     }
 }
 
-impl<Octs: AsRef<[u8]>> ZoneFileFormat for Zonemd<Octs> {
-    fn present(&self, f: &mut ZoneFileFormatter) -> fmt::Result {
-        write!(
-            f,
-            "{} {} {} ( ",
-            self.serial,
-            u8::from(self.scheme),
-            u8::from(self.algo)
-        )?;
-        base16::display(&self.digest, f)?;
-        write!(f, " )")
+impl<Octs: AsRef<[u8]>> Show for Zonemd<Octs> {
+    fn show(&self, p: &mut Presenter) -> show::Result {
+        p.block()
+            .write_token(self.serial)
+            .write_token(u8::from(self.scheme))
+            .write_token(u8::from(self.algo))
+            .write_token(base16::encode_display(&self.digest))
+            .finish()
     }
 }
 

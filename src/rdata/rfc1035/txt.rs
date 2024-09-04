@@ -13,8 +13,8 @@ use crate::base::rdata::{
 use crate::base::scan::Scanner;
 #[cfg(feature = "serde")]
 use crate::base::scan::Symbol;
+use crate::base::show::{self, Presenter, Show};
 use crate::base::wire::{Composer, FormError, ParseError};
-use crate::zonefile::present::{ZoneFileFormat, ZoneFileFormatter};
 #[cfg(feature = "bytes")]
 use bytes::BytesMut;
 use core::cmp::Ordering;
@@ -465,20 +465,15 @@ impl<Octs: AsRef<[u8]>> fmt::Debug for Txt<Octs> {
     }
 }
 
-//--- ZoneFileFormat
+//--- Show
 
-impl<Octs: AsRef<[u8]>> ZoneFileFormat for Txt<Octs> {
-    fn present(&self, f: &mut ZoneFileFormatter) -> fmt::Result {
-        let mut first = true;
+impl<Octs: AsRef<[u8]>> Show for Txt<Octs> {
+    fn show(&self, p: &mut Presenter) -> show::Result {
+        let mut block = p.block();
         for slice in self.iter_charstrs() {
-            if !first {
-                f.write_str(" ")?;
-            } else {
-                first = false;
-            }
-            write!(f, "{}", slice.display_quoted())?;
+            block.write_token(slice.display_quoted());
         }
-        Ok(())
+        block.finish()
     }
 }
 

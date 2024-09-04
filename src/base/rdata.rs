@@ -18,9 +18,9 @@
 use super::cmp::CanonicalOrd;
 use super::iana::Rtype;
 use super::scan::{Scan, Scanner, ScannerError, Symbol};
+use super::show::{self, Presenter, Show};
 use super::wire::{Compose, Composer, ParseError};
 use crate::utils::base16;
-use crate::zonefile::present::{ZoneFileFormat, ZoneFileFormatter};
 use core::cmp::Ordering;
 use core::fmt;
 use octseq::octets::{Octets, OctetsFrom};
@@ -478,15 +478,23 @@ impl<Octs: AsRef<[u8]>> fmt::Debug for UnknownRecordData<Octs> {
     }
 }
 
-//--- ZoneFileFormat
+//--- Show
 
-impl<Octs: AsRef<[u8]>> ZoneFileFormat for UnknownRecordData<Octs> {
-    fn present(&self, f: &mut ZoneFileFormatter) -> fmt::Result {
-        write!(f, "\\# {}", self.data.as_ref().len())?;
-        for ch in self.data.as_ref() {
-            write!(f, " {:02x}", *ch)?
+impl<Octs: AsRef<[u8]>> Show for UnknownRecordData<Octs> {
+    fn show(&self, p: &mut Presenter) -> show::Result {
+        struct Data<'a>(&'a [u8]);
+
+        impl std::fmt::Display for Data<'_> {
+            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                write!(f, "\\# {}", self.0.len())?;
+                for ch in self.0 {
+                    write!(f, " {:02x}", *ch)?
+                }
+                Ok(())
+            }
         }
-        Ok(())
+
+        p.write_token(Data(self.data.as_ref()))
     }
 }
 

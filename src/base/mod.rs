@@ -121,6 +121,7 @@ pub mod rdata;
 pub mod record;
 pub mod scan;
 pub mod serial;
+pub mod show;
 //pub mod str;
 pub mod wire;
 

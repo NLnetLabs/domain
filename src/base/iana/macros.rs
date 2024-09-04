@@ -39,7 +39,7 @@ macro_rules! int_enum {
             #[must_use]
             pub fn from_mnemonic(m: &[u8]) -> Option<Self> {
                 $(
-                    if m.eq_ignore_ascii_case($mnemonic) {
+                    if m.eq_ignore_ascii_case($mnemonic.as_bytes()) {
                         return Some($ianatype::$variant)
                     }
                 )*
@@ -52,6 +52,14 @@ macro_rules! int_enum {
             /// is hidden in a `Int` variant.
             #[must_use]
             pub const fn to_mnemonic(self) -> Option<&'static [u8]> {
+                match self.to_mnemonic_str() {
+                    Some(m) => Some(m.as_bytes()),
+                    None => None,
+                }
+            }
+
+            /// Returns the mnemonic as a `&str` for this value if there is one
+            pub const fn to_mnemonic_str(self) -> Option<&'static str> {
                 match self {
                     $(
                         $ianatype::$variant => {
@@ -201,24 +209,14 @@ macro_rules! int_enum_str_decimal {
 
         impl core::fmt::Display for $ianatype {
             fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
-                use std::fmt::Write;
-
                 write!(f, "{}", self.to_int())?;
 
-                if let Some(m) = self.to_mnemonic() {
+                if let Some(m) = self.to_mnemonic_str() {
                     write!(f, "(")?;
-                    for ch in m {
-                        f.write_char(*ch as char)?;
-                    }
+                    f.write_str(m)?;
                     write!(f, ")")?;
                 }
                 Ok(())
-            }
-        }
-        
-        impl $crate::zonefile::present::ZoneFileFormat for $ianatype {
-            fn present(&self, f: &mut $crate::zonefile::present::ZoneFileFormatter) -> core::fmt::Result {
-                write!(f, "{}", self.to_int())
             }
         }
 
@@ -290,33 +288,10 @@ macro_rules! int_enum_str_with_decimal {
 
         impl core::fmt::Display for $ianatype {
             fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
-                use core::fmt::Write;
-
-                match self.to_mnemonic() {
+                match self.to_mnemonic_str() {
                     Some(m) => {
-                        for ch in m {
-                            f.write_char(*ch as char)?
-                        }
+                        f.write_str(m)?;
                         write!(f, "({})", self.to_int())
-                    }
-                    None => {
-                        write!(f, "{}", self.to_int())
-                    }
-                }
-            }
-        }
-
-        impl $crate::zonefile::present::ZoneFileFormat for $ianatype {
-            fn present(
-                &self,
-                f: &mut $crate::zonefile::present::ZoneFileFormatter<'_>,
-            ) -> core::fmt::Result {
-                match self.to_mnemonic() {
-                    Some(m) => {
-                        for ch in m {
-                            f.write_char(*ch as char)?
-                        }
-                        Ok(())
                     }
                     None => {
                         write!(f, "{}", self.to_int())
@@ -425,22 +400,8 @@ macro_rules! int_enum_str_with_prefix {
 
         impl core::fmt::Display for $ianatype {
             fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
-                $crate::zonefile::present::ZoneFileFormat::write_presentation(self, f)
-            }
-        }
-
-        impl $crate::zonefile::present::ZoneFileFormat for $ianatype {
-            fn present(
-                &self,
-                f: &mut $crate::zonefile::present::ZoneFileFormatter<'_>,
-            ) -> core::fmt::Result {
-                match self.to_mnemonic() {
-                    Some(m) => {
-                        for ch in m {
-                            f.write_char(*ch as char)?
-                        }
-                        Ok(())
-                    }
+                match self.to_mnemonic_str() {
+                    Some(m) => f.write_str(m),
                     None => {
                         write!(f, "{}{}", $str_prefix, self.to_int())
                     }
@@ -476,6 +437,55 @@ macro_rules! int_enum_str_with_prefix {
         }
 
         from_str_error!($error);
+    };
+}
+
+macro_rules! int_enum_show_decimal {
+    ($ianatype:ident) => {
+        impl $crate::base::show::Show for $ianatype {
+            fn show(
+                &self,
+                p: &mut $crate::base::show::Presenter,
+            ) -> $crate::base::show::Result {
+                p.write_token(self.to_int())
+            }
+        }
+    };
+}
+
+macro_rules! int_enum_show_with_decimal {
+    ($ianatype:ident) => {
+        impl $crate::base::show::Show for $ianatype {
+            fn show(
+                &self,
+                p: &mut $crate::base::show::Presenter,
+            ) -> $crate::base::show::Result {
+                match self.to_mnemonic_str() {
+                    Some(m) => p.write_token(m),
+                    None => p.write_token(self.to_int()),
+                }
+            }
+        }
+    };
+}
+
+macro_rules! int_enum_show_with_prefix {
+    ($ianatype:ident, $str_prefix:expr) => {
+        impl $crate::base::show::Show for $ianatype {
+            fn show(
+                &self,
+                p: &mut $crate::base::show::Presenter,
+            ) -> $crate::base::show::Result {
+                match self.to_mnemonic_str() {
+                    Some(m) => p.write_token(m),
+                    None => p.write_token(format_args!(
+                        "{}{}",
+                        $str_prefix,
+                        self.to_int()
+                    )),
+                }
+            }
+        }
     };
 }
 

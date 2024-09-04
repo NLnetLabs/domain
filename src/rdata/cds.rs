@@ -7,9 +7,9 @@ use crate::base::rdata::{
     ComposeRecordData, LongRecordData, ParseRecordData, RecordData,
 };
 use crate::base::scan::{Scan, Scanner, ScannerError};
+use crate::base::show::{self, Presenter, Show};
 use crate::base::wire::{Compose, Composer, Parse, ParseError};
 use crate::utils::{base16, base64};
-use crate::zonefile::present::{ZoneFileFormat, ZoneFileFormatter};
 use core::cmp::Ordering;
 use core::{fmt, hash};
 use octseq::octets::{Octets, OctetsFrom, OctetsInto};
@@ -327,18 +327,16 @@ impl<Octs: AsRef<[u8]>> fmt::Debug for Cdnskey<Octs> {
     }
 }
 
-//--- ZoneFileFormat
+//--- Show
 
-impl<Octs: AsRef<[u8]>> ZoneFileFormat for Cdnskey<Octs> {
-    fn present(&self, f: &mut ZoneFileFormatter) -> fmt::Result {
-        write!(
-            f,
-            "{} {} {} ",
-            self.flags,
-            self.protocol,
-            self.algorithm.display_zone_file()
-        )?;
-        base64::display(&self.public_key, f)
+impl<Octs: AsRef<[u8]>> Show for Cdnskey<Octs> {
+    fn show(&self, p: &mut Presenter) -> show::Result {
+        p.block()
+            .write_token(self.flags)
+            .write_token(self.protocol)
+            .write_show(self.algorithm)
+            .write_token(base64::encode_display(&self.public_key))
+            .finish()
     }
 }
 
@@ -678,21 +676,27 @@ impl<Octs: AsRef<[u8]>> fmt::Debug for Cds<Octs> {
     }
 }
 
-//--- ZoneFileFormat
+//--- Show
 
-impl<Octs: AsRef<[u8]>> ZoneFileFormat for Cds<Octs> {
-    fn present(&self, f: &mut ZoneFileFormatter) -> fmt::Result {
-        write!(
-            f,
-            "{} {} {} ",
-            self.key_tag,
-            self.algorithm.display_zone_file(),
-            self.digest_type.display_zone_file(),
-        )?;
-        for ch in self.digest.as_ref() {
-            write!(f, "{:02x}", ch)?
+impl<Octs: AsRef<[u8]>> Show for Cds<Octs> {
+    fn show(&self, p: &mut Presenter) -> show::Result {
+        struct Data<'a>(&'a [u8]);
+
+        impl std::fmt::Display for Data<'_> {
+            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                for ch in self.0 {
+                    write!(f, " {:02x}", *ch)?
+                }
+                Ok(())
+            }
         }
-        Ok(())
+
+        p.block()
+            .write_token(self.key_tag)
+            .write_show(self.algorithm)
+            .write_show(self.digest_type)
+            .write_token(Data(self.digest.as_ref()))
+            .finish()
     }
 }
 
@@ -728,9 +732,8 @@ mod test {
     #[test]
     #[allow(clippy::redundant_closure)] // lifetimes ...
     fn cds_compose_parse_scan() {
-        let rdata = Cds::new(
-            10, SecAlg::RSASHA1, DigestAlg::SHA256, b"key"
-        ).unwrap();
+        let rdata =
+            Cds::new(10, SecAlg::RSASHA1, DigestAlg::SHA256, b"key").unwrap();
         test_rdlen(&rdata);
         test_compose_parse(&rdata, |parser| Cds::parse(parser));
         test_scan(&["10", "RSASHA1", "2", "6b6579"], Cds::scan, &rdata);

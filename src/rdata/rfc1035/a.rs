@@ -9,8 +9,8 @@ use crate::base::rdata::{
     ComposeRecordData, ParseRecordData, RecordData,
 };
 use crate::base::scan::{Scanner, ScannerError};
+use crate::base::show::{self, Presenter, Show};
 use crate::base::wire::{Composer, Parse, ParseError};
-use crate::zonefile::present::{ZoneFileFormat, ZoneFileFormatter};
 use core::{fmt, str};
 use core::cmp::Ordering;
 use core::convert::Infallible;
@@ -173,11 +173,11 @@ impl fmt::Display for A {
     }
 }
 
-//--- Display
+//--- Show
 
-impl ZoneFileFormat for A {
-    fn present(&self, f: &mut ZoneFileFormatter) -> fmt::Result {
-        write!(f, "{}", self.addr)
+impl Show for A {
+    fn show(&self, p: &mut Presenter) -> show::Result {
+        p.write_token(self.addr)
     }
 }
 

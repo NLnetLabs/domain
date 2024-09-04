@@ -632,7 +632,7 @@ int_enum! {
     /// Defined in [RFC 1035].
     ///
     /// [RFC 1035]: https://tools.ietf.org/html/rfc1035
-    (NOERROR => 0, b"NOERROR")
+    (NOERROR => 0, "NOERROR")
 
     /// Format error.
     ///
@@ -641,7 +641,7 @@ int_enum! {
     /// Defined in [RFC 1035].
     ///
     /// [RFC 1035]: https://tools.ietf.org/html/rfc1035
-    (FORMERR => 1, b"FORMERR")
+    (FORMERR => 1, "FORMERR")
 
     /// Server failure.
     ///
@@ -651,7 +651,7 @@ int_enum! {
     /// Defined in [RFC 1035].
     ///
     /// [RFC 1035]: https://tools.ietf.org/html/rfc1035
-    (SERVFAIL => 2, b"SERVFAIL")
+    (SERVFAIL => 2, "SERVFAIL")
 
     /// Name error.
     ///
@@ -660,7 +660,7 @@ int_enum! {
     /// Defined in [RFC 1035].
     ///
     /// [RFC 1035]: https://tools.ietf.org/html/rfc1035
-    (NXDOMAIN => 3, b"NXDOMAIN")
+    (NXDOMAIN => 3, "NXDOMAIN")
 
     /// Not implemented.
     ///
@@ -669,7 +669,7 @@ int_enum! {
     /// Defined in [RFC 1035].
     ///
     /// [RFC 1035]: https://tools.ietf.org/html/rfc1035
-    (NOTIMP => 4, b"NOTIMPL")
+    (NOTIMP => 4, "NOTIMPL")
 
     /// Query refused.
     ///
@@ -679,7 +679,7 @@ int_enum! {
     /// Defined in [RFC 1035].
     ///
     /// [RFC 1035]: https://tools.ietf.org/html/rfc1035
-    (REFUSED => 5, b"REFUSED")
+    (REFUSED => 5, "REFUSED")
 
     /// Name exists when it should not.
     ///
@@ -694,7 +694,7 @@ int_enum! {
     ///
     /// [RFC 2136]: https://tools.ietf.org/html/rfc2136
     /// [RFC 6672]: https://tools.ietf.org/html/rfc6672
-    (YXDOMAIN => 6, b"YXDOMAIN")
+    (YXDOMAIN => 6, "YXDOMAIN")
 
     /// RR set exists when it should not.
     ///
@@ -704,7 +704,7 @@ int_enum! {
     /// Defined in [RFC 2136].
     ///
     /// [RFC 2136]: https://tools.ietf.org/html/rfc2136
-    (YXRRSET => 7, b"YXRRSET")
+    (YXRRSET => 7, "YXRRSET")
 
     /// RR set that should exist does not.
     ///
@@ -714,7 +714,7 @@ int_enum! {
     /// Defined in [RFC 2136].
     ///
     /// [RFC 2136]: https://tools.ietf.org/html/rfc2136
-    (NXRRSET => 8, b"NXRRSET")
+    (NXRRSET => 8, "NXRRSET")
 
     /// Server not authoritative for zone or client not authorized.
     ///
@@ -727,7 +727,7 @@ int_enum! {
     ///
     /// [RFC 2136]: https://tools.ietf.org/html/rfc2136
     /// [RFC 2845]: https://tools.ietf.org/html/rfc2845
-    (NOTAUTH => 9, b"NOTAUTH")
+    (NOTAUTH => 9, "NOTAUTH")
 
     /// Name not contained in zone.
     ///
@@ -737,7 +737,7 @@ int_enum! {
     /// Defined in [RFC 2136].
     ///
     /// [RFC 2136]: https://tools.ietf.org/html/rfc2136
-    (NOTZONE => 10, b"NOTZONE")
+    (NOTZONE => 10, "NOTZONE")
 
     /// TSIG signature failure.
     ///
@@ -746,7 +746,7 @@ int_enum! {
     /// Defined in [RFC 2845].
     ///
     /// [RFC 2845]: https://tools.ietf.org/html/rfc2845
-    (BADSIG => 16, b"BADSIG")
+    (BADSIG => 16, "BADSIG")
 
     /// Key not recognized.
     ///
@@ -756,7 +756,7 @@ int_enum! {
     /// Defined in [RFC 2845].
     ///
     /// [RFC 2845]: https://tools.ietf.org/html/rfc2845
-    (BADKEY => 17, b"BADKEY")
+    (BADKEY => 17, "BADKEY")
 
     /// Signature out of time window.
     ///
@@ -766,7 +766,7 @@ int_enum! {
     /// Defined in [RFC 2845].
     ///
     /// [RFC 2845]: https://tools.ietf.org/html/rfc2845
-    (BADTIME => 18, b"BADTIME")
+    (BADTIME => 18, "BADTIME")
 
     /// Bad TKEY mode.
     ///
@@ -776,7 +776,7 @@ int_enum! {
     /// Defined in [RFC 2930].
     ///
     /// [RFC 2930]: https://tools.ietf.org/html/rfc2930
-    (BADMODE => 19, b"BADMODE")
+    (BADMODE => 19, "BADMODE")
 
     /// Duplicate key name.
     ///
@@ -787,7 +787,7 @@ int_enum! {
     /// Defined in [RFC 2930].
     ///
     /// [RFC 2930]: https://tools.ietf.org/html/rfc2930
-    (BADNAME => 20, b"BADNAME")
+    (BADNAME => 20, "BADNAME")
 
     /// Algorithm not supported.
     ///
@@ -796,7 +796,7 @@ int_enum! {
     /// record contains a value not supported by the server.
     ///
     /// [RFC 2930]: https://tools.ietf.org/html/rfc2930
-    (BADALG => 21, b"BADALG")
+    (BADALG => 21, "BADALG")
 
     /// Bad truncation.
     ///
@@ -806,7 +806,7 @@ int_enum! {
     /// Defined in [RFC 4635].
     ///
     /// [RFC 4635]: https://tools.ietf.org/html/rfc4635
-    (BADTRUNC => 22, b"BADTRUNC")
+    (BADTRUNC => 22, "BADTRUNC")
 
     /// Bad or missing server cookie.
     ///
@@ -816,7 +816,7 @@ int_enum! {
     /// Defined in [RFC 7873].
     ///
     /// [RFC 7873]: https://tools.ietf.org/html/rfc7873
-    (BADCOOKIE => 23, b"BADCOOKIE")
+    (BADCOOKIE => 23, "BADCOOKIE")
 }
 
 //--- From
@@ -834,6 +834,7 @@ impl From<OptRcode> for TsigRcode {
 }
 
 int_enum_str_with_decimal!(TsigRcode, u16, "unknown TSIG error");
+int_enum_show_with_decimal!(TsigRcode);
 
 //============ Error Types ===================================================
 

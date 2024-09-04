@@ -9,8 +9,8 @@ use crate::base::rdata::{
     ComposeRecordData, ParseRecordData, RecordData,
 };
 use crate::base::scan::Scanner;
+use crate::base::show::{self, Presenter, Show};
 use crate::base::wire::{Composer, ParseError};
-use crate::zonefile::present::{ZoneFileFormat, ZoneFileFormatter};
 use core::{fmt, hash};
 use core::cmp::Ordering;
 #[cfg(feature = "serde")]
@@ -237,11 +237,14 @@ impl<Octs: AsRef<[u8]>> fmt::Debug for Hinfo<Octs> {
     }
 }
 
-//--- ZoneFileFormat
+//--- Show
 
-impl<Octs: AsRef<[u8]>> ZoneFileFormat for Hinfo<Octs> {
-    fn present(&self, f: &mut ZoneFileFormatter) -> fmt::Result {
-        write!(f, "{} {}", self.cpu, self.os)
+impl<Octs: AsRef<[u8]>> Show for Hinfo<Octs> {
+    fn show(&self, p: &mut Presenter) -> show::Result {
+        p.block()
+            .write_token(&self.cpu)
+            .write_token(&self.os)
+            .finish()
     }
 }
 

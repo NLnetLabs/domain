@@ -499,21 +499,21 @@ macro_rules! rdata_types {
             }
         }
 
-        ///--- ZoneFileFormat
+        ///--- Show
 
-        impl<O, N> $crate::zonefile::present::ZoneFileFormat for ZoneRecordData<O, N>
+        impl<O, N> $crate::base::show::Show for ZoneRecordData<O, N>
         where
         O: AsRef<[u8]>,
         N: fmt::Display
         {
-            fn present(&self, f: &mut $crate::zonefile::present::ZoneFileFormatter) -> fmt::Result {
+            fn show(&self, p: &mut $crate::base::show::Presenter) -> $crate::base::show::Result {
                 match *self {
                     $( $( $(
                         ZoneRecordData::$mtype(ref inner) => {
-                            inner.present(f)
+                            inner.show(p)
                         }
                     )* )* )*
-                    ZoneRecordData::Unknown(ref inner) => inner.present(f),
+                    ZoneRecordData::Unknown(ref inner) => inner.show(p),
                 }
             }
         }
@@ -1121,25 +1121,26 @@ macro_rules! rdata_types {
             }
         }
 
-        //--- ZoneFileFormat
-        impl<O, N> $crate::zonefile::present::ZoneFileFormat for AllRecordData<O, N>
+        //--- Show
+
+        impl<O, N> $crate::base::show::Show for AllRecordData<O, N>
         where O: Octets, N: fmt::Display {
-            fn present(
-                &self, f: &mut $crate::zonefile::present::ZoneFileFormatter
-            ) -> fmt::Result {
+            fn show(
+                &self, f: &mut $crate::base::show::Presenter
+            ) -> $crate::base::show::Result {
                 match *self {
                     $( $( $(
                         AllRecordData::$mtype(ref inner) => {
-                            inner.present(f)
+                            inner.show(f)
                         }
                     )* )* )*
                     $( $( $(
                         AllRecordData::$ptype(ref inner) => {
-                            inner.present(f)
+                            inner.show(f)
                         }
                     )* )* )*
-                    AllRecordData::Opt(ref inner) => inner.present(f),
-                    AllRecordData::Unknown(ref inner) => inner.present(f),
+                    AllRecordData::Opt(ref inner) => inner.show(f),
+                    AllRecordData::Unknown(ref inner) => inner.show(f),
                 }
             }
         }
@@ -1330,11 +1331,11 @@ macro_rules! name_type_base {
             }
         }
 
-        //--- ZoneFileFormat
+        //--- Show
 
-        impl<N: fmt::Display> $crate::zonefile::present::ZoneFileFormat for $target<N> {
-            fn present(&self, f: &mut $crate::zonefile::present::ZoneFileFormatter) -> fmt::Result {
-                write!(f, "{}.", self.$field)
+        impl<N: fmt::Display> $crate::base::show::Show for $target<N> {
+            fn show(&self, p: &mut $crate::base::show::Presenter) -> $crate::base::show::Result {
+                p.write_token(format_args!("{}.", self.$field))
             }
         }
     }

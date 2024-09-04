@@ -12,10 +12,10 @@ use crate::base::rdata::{
 };
 use crate::base::scan::{Scan, Scanner, ScannerError};
 use crate::base::serial::Serial;
+use crate::base::show::{self, Presenter, Show};
 use crate::base::wire::{Compose, Composer, FormError, Parse, ParseError};
 use crate::base::Ttl;
 use crate::utils::{base16, base64};
-use crate::zonefile::present::{ZoneFileFormat, ZoneFileFormatter};
 use core::cmp::Ordering;
 use core::convert::TryInto;
 use core::{cmp, fmt, hash, str};
@@ -432,18 +432,16 @@ impl<Octs: AsRef<[u8]>> fmt::Debug for Dnskey<Octs> {
     }
 }
 
-//--- ZoneFileFormat
+//--- Show
 
-impl<Octs: AsRef<[u8]>> ZoneFileFormat for Dnskey<Octs> {
-    fn present(&self, f: &mut ZoneFileFormatter) -> fmt::Result {
-        write!(
-            f,
-            "{} {} {} ",
-            self.flags,
-            self.protocol,
-            self.algorithm.display_zone_file()
-        )?;
-        base64::display(&self.public_key, f)
+impl<Octs: AsRef<[u8]>> Show for Dnskey<Octs> {
+    fn show(&self, p: &mut Presenter) -> show::Result {
+        p.block()
+            .write_token(self.flags)
+            .write_token(self.protocol)
+            .write_show(self.algorithm)
+            .write_token(base64::encode_display(&self.public_key))
+            .finish()
     }
 }
 
@@ -773,11 +771,11 @@ impl fmt::Display for Timestamp {
     }
 }
 
-//--- ZoneFileFormat
+//--- Show
 
-impl ZoneFileFormat for Timestamp {
-    fn present(&self, f: &mut ZoneFileFormatter) -> fmt::Result {
-        write!(f, "{}", self.0)
+impl Show for Timestamp {
+    fn show(&self, p: &mut Presenter) -> show::Result {
+        p.write_token(self.0)
     }
 }
 
@@ -1378,27 +1376,25 @@ where
     }
 }
 
-//--- ZoneFileFormat
+//--- Show
 
-impl<Octs, Name> ZoneFileFormat for Rrsig<Octs, Name>
+impl<Octs, Name> Show for Rrsig<Octs, Name>
 where
     Octs: AsRef<[u8]>,
     Name: fmt::Display,
 {
-    fn present(&self, f: &mut ZoneFileFormatter) -> fmt::Result {
-        write!(
-            f,
-            "{} {} {} {} {} {} {} {}. ",
-            self.type_covered.display_zone_file(),
-            self.algorithm.display_zone_file(),
-            self.labels,
-            self.original_ttl.display_zone_file(),
-            self.expiration.display_zone_file(),
-            self.inception.display_zone_file(),
-            self.key_tag,
-            self.signer_name,
-        )?;
-        base64::display(&self.signature, f)
+    fn show(&self, p: &mut Presenter) -> show::Result {
+        p.block()
+            .write_show(self.type_covered)
+            .write_show(self.algorithm)
+            .write_token(self.labels)
+            .write_show(self.original_ttl)
+            .write_show(self.expiration)
+            .write_show(self.inception)
+            .write_token(self.key_tag)
+            .write_token(&self.signer_name)
+            .write_token(base64::encode_display(&self.signature))
+            .finish()
     }
 }
 
@@ -1682,15 +1678,18 @@ where
     }
 }
 
-//--- ZoneFileFormat
+//--- Show
 
-impl<Octs, Name> ZoneFileFormat for Nsec<Octs, Name>
+impl<Octs, Name> Show for Nsec<Octs, Name>
 where
     Octs: AsRef<[u8]>,
     Name: fmt::Display,
 {
-    fn present(&self, f: &mut ZoneFileFormatter) -> fmt::Result {
-        write!(f, "{}. {}", self.next_name, self.types)
+    fn show(&self, p: &mut Presenter) -> show::Result {
+        p.block()
+            .write_token(format_args!("{}.", self.next_name))
+            .write_token(&self.types)
+            .finish()
     }
 }
 
@@ -2027,21 +2026,16 @@ impl<Octs: AsRef<[u8]>> fmt::Debug for Ds<Octs> {
     }
 }
 
-//--- ZoneFileFormat
+//--- Show
 
-impl<Octs: AsRef<[u8]>> ZoneFileFormat for Ds<Octs> {
-    fn present(&self, f: &mut ZoneFileFormatter) -> fmt::Result {
-        write!(
-            f,
-            "{} {} {} ",
-            self.key_tag,
-            self.algorithm.display_zone_file(),
-            self.digest_type.display_zone_file()
-        )?;
-        for ch in self.digest.as_ref() {
-            write!(f, "{:02x}", ch)?
-        }
-        Ok(())
+impl<Octs: AsRef<[u8]>> Show for Ds<Octs> {
+    fn show(&self, p: &mut Presenter) -> show::Result {
+        p.block()
+            .write_token(self.key_tag)
+            .write_show(self.algorithm)
+            .write_show(self.digest_type)
+            .write_token(base16::encode_display(&self.digest))
+            .finish()
     }
 }
 

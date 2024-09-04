@@ -9,8 +9,8 @@ use crate::base::iana::Rtype;
 use crate::base::name::{FlattenInto, ParsedName, ToName};
 use crate::base::rdata::{ComposeRecordData, ParseRecordData, RecordData};
 use crate::base::scan::{Scan, Scanner};
+use crate::base::show::{self, Presenter, Show};
 use crate::base::wire::{Compose, Composer, Parse, ParseError};
-use crate::zonefile::present::{ZoneFileFormat, ZoneFileFormatter};
 use core::cmp::Ordering;
 use core::fmt;
 use octseq::octets::{Octets, OctetsFrom, OctetsInto};
@@ -283,15 +283,16 @@ impl<N: fmt::Display> fmt::Display for Srv<N> {
     }
 }
 
-//--- ZoneFileFormat
+//--- Show
 
-impl<N: fmt::Display> ZoneFileFormat for Srv<N> {
-    fn present(&self, f: &mut ZoneFileFormatter) -> fmt::Result {
-        write!(
-            f,
-            "{} {} {} {}",
-            self.priority, self.weight, self.port, self.target
-        )
+impl<N: fmt::Display> Show for Srv<N> {
+    fn show(&self, p: &mut Presenter) -> show::Result {
+        p.block()
+            .write_token(self.priority)
+            .write_token(self.weight)
+            .write_token(self.port)
+            .write_token(&self.target)
+            .finish()
     }
 }
 
