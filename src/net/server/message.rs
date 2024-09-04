@@ -190,7 +190,6 @@ where
     metadata: Metadata,
 }
 
-
 impl<Octs, Metadata> Request<Octs, Metadata>
 where
     Octs: AsRef<[u8]> + Send + Sync,
