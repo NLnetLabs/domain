@@ -27,7 +27,6 @@ use crate::tsig::{
 };
 
 use super::stream::{MiddlewareStream, PostprocessingStream};
-use super::xfr::MaybeAuthenticated;
 
 //------------ TsigMiddlewareSvc ----------------------------------------------
 
@@ -57,7 +56,7 @@ impl<RequestOctets, NextSvc, KS> TsigMiddlewareSvc<RequestOctets, NextSvc, KS>
 where
     KS: Clone + KeyStore,
 {
-    /// Creates an empty processor instance.
+    /// Creates a new processor instance.
     #[must_use]
     pub fn new(next_svc: NextSvc, key_store: KS) -> Self {
         Self {
@@ -70,11 +69,9 @@ where
 
 impl<RequestOctets, NextSvc, KS> TsigMiddlewareSvc<RequestOctets, NextSvc, KS>
 where
-    RequestOctets:
-        Octets + OctetsFrom<Vec<u8>> + Send + Sync + 'static + Unpin,
-    NextSvc: Service<RequestOctets, Authenticated>,
-    NextSvc::Target: Composer + Default + Send + Sync + 'static,
-    NextSvc::Future: Unpin,
+    RequestOctets: Octets + OctetsFrom<Vec<u8>> + Send + Sync + Unpin,
+    NextSvc: Service<RequestOctets, Authentication>,
+    NextSvc::Target: Composer + Default,
     KS: Clone + KeyStore,
     Infallible: From<<RequestOctets as octseq::OctetsFrom<Vec<u8>>>::Error>,
 {
@@ -84,7 +81,7 @@ where
         key_store: &KS,
     ) -> ControlFlow<
         AdditionalBuilder<StreamTarget<NextSvc::Target>>,
-        Option<(Request<RequestOctets, Authenticated>, TsigSigner<KS::Key>)>,
+        Option<(Request<RequestOctets, Authentication>, TsigSigner<KS::Key>)>,
     > {
         if let Some(q) = Self::get_relevant_question(req.message()) {
             let octets = req.message().as_slice().to_vec();
@@ -117,7 +114,7 @@ where
                         req.received_at(),
                         new_msg,
                         req.transport_ctx().clone(),
-                        Authenticated(Some(tsig.key().name().clone())),
+                        Authentication(Some(tsig.key().name().clone())),
                     );
 
                     let num_bytes_to_reserve = tsig.key().compose_len();
@@ -358,21 +355,16 @@ where
 
 //--- Service
 
-impl<RequestOctets, NextSvc, KS> Service<RequestOctets>
+// Note: As the TSIG middleware must be the closest middleware to the server,
+// it does not receive any special RequestMeta from the server, only ().
+impl<RequestOctets, NextSvc, KS> Service<RequestOctets, ()>
     for TsigMiddlewareSvc<RequestOctets, NextSvc, KS>
 where
     RequestOctets:
         Octets + OctetsFrom<Vec<u8>> + Send + Sync + 'static + Unpin,
-    for<'a> <RequestOctets as octseq::Octets>::Range<'a>: Send + Sync,
-    NextSvc: Service<RequestOctets, Authenticated>
-        + Clone
-        + 'static
-        + Send
-        + Sync
-        + Unpin,
-    NextSvc::Future: Send + Sync + Unpin,
-    NextSvc::Target: Composer + Default + Send + Sync,
-    NextSvc::Stream: Send + Sync,
+    NextSvc: Service<RequestOctets, Authentication>,
+    NextSvc::Future: Unpin,
+    NextSvc::Target: Composer + Default,
     KS: Clone + KeyStore + Unpin,
     KS::Key: Clone + Unpin,
     Infallible: From<<RequestOctets as octseq::OctetsFrom<Vec<u8>>>::Error>,
@@ -391,9 +383,9 @@ where
         Once<Ready<<NextSvc::Stream as Stream>::Item>>,
         <NextSvc::Stream as Stream>::Item,
     >;
-    type Future = core::future::Ready<Self::Stream>;
+    type Future = Ready<Self::Stream>;
 
-    fn call(&self, request: Request<RequestOctets>) -> Self::Future {
+    fn call(&self, request: Request<RequestOctets, ()>) -> Self::Future {
         match Self::preprocess(&request, &self.key_store) {
             ControlFlow::Continue(Some((modified_req, tsig_opt))) => {
                 let tsig = Arc::new(std::sync::Mutex::new(Some(tsig_opt)));
@@ -416,7 +408,7 @@ where
             }
 
             ControlFlow::Continue(None) => {
-                let request = request.with_new_metadata(Authenticated(None));
+                let request = request.with_new_metadata(Authentication(None));
                 let svc_call_fut = self.next_svc.call(request);
                 ready(MiddlewareStream::IdentityFuture(svc_call_fut))
             }
@@ -448,11 +440,21 @@ enum TsigSigner<K> {
     Sequence(ServerSequence<K>),
 }
 
-#[derive(Clone, Default)]
-pub struct Authenticated(pub Option<KeyName>);
+//------------ MaybeAuthenticated ---------------------------------------------
 
-impl MaybeAuthenticated for Authenticated {
-    fn key(&self) -> Option<&KeyName> {
+pub trait MaybeAuthenticated:
+    Clone + Default + Sync + Send + 'static
+{
+    fn key_name(&self) -> Option<&KeyName>;
+}
+
+//------------ Authentication --------------------------------------------------
+
+#[derive(Clone, Default)]
+pub struct Authentication(pub Option<KeyName>);
+
+impl MaybeAuthenticated for Authentication {
+    fn key_name(&self) -> Option<&KeyName> {
         self.0.as_ref()
     }
 }

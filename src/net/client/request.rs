@@ -1,16 +1,4 @@
 //! Constructing and sending requests.
-use std::boxed::Box;
-use std::fmt::Debug;
-use std::future::Future;
-use std::pin::Pin;
-use std::sync::Arc;
-use std::vec::Vec;
-use std::{error, fmt};
-
-use bytes::Bytes;
-use octseq::Octets;
-use tracing::trace;
-
 use crate::base::iana::{Opcode, Rcode};
 use crate::base::message::{CopyRecordsError, ShortMessage};
 use crate::base::message_builder::{
@@ -20,6 +8,16 @@ use crate::base::opt::{ComposeOptData, LongOptData, OptRecord};
 use crate::base::wire::{Composer, ParseError};
 use crate::base::{Header, Message, ParsedName, Rtype, StaticCompressor};
 use crate::rdata::AllRecordData;
+use bytes::Bytes;
+use octseq::Octets;
+use std::boxed::Box;
+use std::fmt::Debug;
+use std::future::Future;
+use std::pin::Pin;
+use std::sync::Arc;
+use std::vec::Vec;
+use std::{error, fmt};
+use tracing::trace;
 
 #[cfg(feature = "tsig")]
 use crate::tsig;
@@ -62,9 +60,6 @@ pub trait ComposeRequest: Debug + Send + Sync {
     /// Returns whether a message is an answer to the request.
     fn is_answer(&self, answer: &Message<[u8]>) -> bool;
 
-    /// Returns whether a message results in a response stream or not.
-    fn is_streaming(&self) -> bool;
-
     /// Return the status of the DNSSEC OK flag.
     fn dnssec_ok(&self) -> bool;
 }
@@ -105,9 +100,6 @@ pub trait ComposeRequestMulti: Debug + Send + Sync {
 
     /// Returns whether a message is an answer to the request.
     fn is_answer(&self, answer: &Message<[u8]>) -> bool;
-
-    /// Returns whether a message results in a response stream or not.
-    fn is_streaming(&self) -> bool;
 
     /// Return the status of the DNSSEC OK flag.
     fn dnssec_ok(&self) -> bool;
@@ -404,10 +396,6 @@ impl<Octs: AsRef<[u8]> + Debug + Octets + Send + Sync> ComposeRequest
         }
     }
 
-    fn is_streaming(&self) -> bool {
-        self.msg.is_streaming()
-    }
-
     fn dnssec_ok(&self) -> bool {
         match &self.opt {
             None => false,
@@ -440,7 +428,7 @@ impl<Octs: AsRef<[u8]> + Debug + Octets> RequestMessageMulti<Octs> {
         let msg = msg.into();
 
         // Only accept the streaming types (IXFR and AXFR).
-        if !msg.is_streaming() {
+        if !msg.is_xfr() {
             return Err(Error::FormError);
         }
         let header = msg.header();
@@ -624,28 +612,10 @@ impl<Octs: AsRef<[u8]> + Debug + Octets + Send + Sync> ComposeRequestMulti
         }
     }
 
-    fn is_streaming(&self) -> bool {
-        self.msg.is_streaming()
-    }
-
     fn dnssec_ok(&self) -> bool {
         match &self.opt {
             None => false,
             Some(opt) => opt.dnssec_ok(),
-        }
-    }
-}
-
-//--- From<RequestMessage>
-
-impl<Octs: AsRef<[u8]>> From<RequestMessage<Octs>>
-    for RequestMessageMulti<Octs>
-{
-    fn from(req: RequestMessage<Octs>) -> Self {
-        RequestMessageMulti {
-            msg: req.msg,
-            header: req.header,
-            opt: req.opt,
         }
     }
 }

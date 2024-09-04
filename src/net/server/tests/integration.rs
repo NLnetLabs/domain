@@ -1,10 +1,7 @@
-use core::fmt::Debug;
-use core::future::ready;
-use core::pin::Pin;
 use core::str::FromStr;
 
 use std::boxed::Box;
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::fs::File;
 use std::net::SocketAddr;
 use std::path::PathBuf;
@@ -13,7 +10,6 @@ use std::sync::Arc;
 use std::time::Duration;
 use std::vec::Vec;
 
-use octseq::Octets;
 use ring::test::rand::FixedByteRandom;
 use rstest::rstest;
 use tracing::warn;
@@ -40,7 +36,6 @@ use crate::net::server::middleware::cookies::CookiesMiddlewareSvc;
 use crate::net::server::middleware::edns::EdnsMiddlewareSvc;
 use crate::net::server::middleware::mandatory::MandatoryMiddlewareSvc;
 use crate::net::server::middleware::notify::NotifyMiddlewareSvc;
-use crate::net::server::middleware::tsig::TsigMiddlewareSvc;
 use crate::net::server::middleware::xfr::{XfrMiddlewareSvc, XfrMode};
 use crate::net::server::service::{CallResult, Service, ServiceResult};
 use crate::net::server::stream::StreamServer;
@@ -64,10 +59,14 @@ use crate::zonemaintenance::maintainer::{
 };
 use crate::zonemaintenance::types::{
     CompatibilityMode, NotifyConfig, TransportStrategy, XfrConfig,
-    XfrStrategy, ZoneConfig, ZoneMaintainerKeyStore,
+    XfrStrategy, ZoneConfig,
 };
 use crate::zonetree::Answer;
 use crate::zonetree::{Zone, ZoneBuilder};
+use core::future::ready;
+use octseq::Octets;
+use std::fmt::Debug;
+use std::pin::Pin;
 
 const MAX_XFR_CONCURRENCY: usize = 1;
 
@@ -85,6 +84,8 @@ async fn server_tests(#[files("test-data/server/*.rpl")] rpl_file: PathBuf) {
     // Initialize tracing based logging. Override with env var RUST_LOG, e.g.
     // RUST_LOG=trace. DEBUG level will show the .rpl file name, Stelline step
     // numbers and types as they are being executed.
+
+    use crate::net::server::middleware::tsig::TsigMiddlewareSvc;
     tracing_subscriber::fmt()
         .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
         .with_thread_ids(true)
@@ -100,7 +101,7 @@ async fn server_tests(#[files("test-data/server/*.rpl")] rpl_file: PathBuf) {
     let server_config = parse_server_config(&stelline.config);
 
     // Create a TSIG key store containing a 'TESTKEY'
-    let mut key_store = ZoneMaintainerKeyStore::new();
+    let mut key_store = TestKeyStore::new();
     let key_name = KeyName::from_str("TESTKEY").unwrap();
     let rng = FixedByteRandom { byte: 0u8 };
     let (key, _) =
@@ -289,7 +290,7 @@ where
 fn mk_client_factory(
     dgram_server_conn: ClientServerChannel,
     stream_server_conn: ClientServerChannel,
-    key_store: Arc<ZoneMaintainerKeyStore>,
+    key_store: Arc<TestKeyStore>,
 ) -> impl ClientFactory {
     // Create a TCP client factory that only creates a client if (a) no
     // existing TCP client exists for the source address of the Stelline
@@ -415,10 +416,7 @@ fn test_service<T: ZoneLookup>(
     };
 
     let builder = mk_builder_for_target();
-    let mut additional = answer.to_message(request.message(), builder);
-    // As we serve all answers from our own zones we are the
-    // authority for the domain in question.
-    additional.header_mut().set_aa(true);
+    let additional = answer.to_message(request.message(), builder);
     Ok(CallResult::new(additional))
 }
 
@@ -636,86 +634,6 @@ fn parse_server_config(config: &Config) -> ServerConfig {
     parsed_config
 }
 
-// #[allow(dead_code)]
-// #[derive(Clone, Default)]
-// struct TestServerConnFactory {
-//     dgram_server_conn: ClientServerChannel,
-//     stream_server_conn: ClientServerChannel,
-// }
-
-// impl ConnectionFactory for TestServerConnFactory {
-//     type Error = String;
-
-//     fn get_udp<K, Octs>(
-//         &self,
-//         _dest: SocketAddr,
-//         key: Option<K>,
-//     ) -> Pin<UdpClientResult<Octs, Self::Error>>
-//     where
-//         K: Clone + Debug + AsRef<Key> + Send + Sync + 'static,
-//         Octs: Octets + Debug + Send + Sync + 'static,
-//     {
-//         let mut dgram_config = dgram::Config::new();
-//         dgram_config.set_max_parallel(1);
-//         dgram_config.set_read_timeout(Duration::from_millis(1000));
-//         dgram_config.set_max_retries(1);
-//         dgram_config.set_udp_payload_size(Some(1400));
-
-//         let client = dgram::Connection::with_config(
-//             self.dgram_server_conn.new_client(None),
-//             dgram_config,
-//         );
-
-//         let client = Ok(Some(Box::new(tsig::Connection::new(key, client))
-//             as Box<dyn SendRequest<RequestMessage<Octs>> + Send + Sync>));
-
-//         Box::pin(ready(client))
-//     }
-
-//     fn get_tcp<K, Octs>(
-//         &self,
-//         _dest: SocketAddr,
-//         key: Option<K>,
-//     ) -> Pin<TcpClientResult<Octs, Self::Error>>
-//     where
-//         K: Clone + Debug + AsRef<Key> + Send + Sync + 'static,
-//         Octs: Octets + Debug + Send + Sync + 'static,
-//     {
-//         let mut stream_config = stream::Config::new();
-//         stream_config.set_response_timeout(Duration::from_secs(2));
-//         // Allow time between the SOA query response and sending the
-//         // AXFR/IXFR request.
-//         stream_config.set_idle_timeout(Duration::from_secs(5));
-//         // Allow much more time for an XFR streaming response.
-//         stream_config.set_streaming_response_timeout(Duration::from_secs(30));
-
-//         let (client, transport) = {
-//             stream::Connection::<
-//                 AuthenticatedRequestMessage<RequestMessage<Octs>, K>,
-//                 AuthenticatedRequestMessageMulti<
-//                     RequestMessageMulti<Octs>,
-//                     K,
-//                 >,
-//             >::with_config(
-//                 self.stream_server_conn.connect(None),
-//                 stream_config,
-//             )
-//         };
-
-//         tokio::spawn(async move {
-//             transport.run().await;
-//             trace!("TCP connection terminated");
-//         });
-
-//         let client = Ok(Some(Box::new(tsig::Connection::new(key, client))
-//             as Box<
-//                 dyn SendRequestMulti<RequestMessageMulti<Octs>> + Send + Sync,
-//             >));
-
-//         Box::pin(ready(client))
-//     }
-// }
-
 #[derive(Clone)]
 struct MockServerConnFactory {
     stelline: Stelline,
@@ -811,3 +729,8 @@ impl ConnectionFactory for MockServerConnFactory {
         Box::pin(ready(client))
     }
 }
+
+//------------ TestKeyStore ---------------------------------------------------
+
+// KeyStore is impl'd elsewhere for HashMap<(KeyName, Algorithm), K, S>.
+type TestKeyStore = HashMap<(KeyName, Algorithm), Key>;

@@ -10,20 +10,14 @@ use octseq::Octets;
 use crate::base::wire::Composer;
 use crate::net::server::message::Request;
 use crate::net::server::middleware::stream::MiddlewareStream;
+use crate::net::server::middleware::tsig::MaybeAuthenticated;
 use crate::net::server::service::Service;
-use crate::tsig::KeyName;
 use crate::zonemaintenance::maintainer::ZoneLookup;
 
 use super::processor::XfrMiddlewareSvc;
 use super::types::XfrMiddlewareStream;
 
 //--- Service (with TSIG key name in the request metadata)
-
-pub trait MaybeAuthenticated:
-    Clone + Default + Sync + Send + 'static
-{
-    fn key(&self) -> Option<&KeyName>;
-}
 
 impl<RequestOctets, NextSvc, ZL, MetaType> Service<RequestOctets, MetaType>
     for XfrMiddlewareSvc<RequestOctets, NextSvc, ZL>
@@ -62,7 +56,7 @@ where
                 &request,
                 zones,
                 xfr_mode,
-                request.metadata().key(),
+                request.metadata().key_name(),
             )
             .await
             {
