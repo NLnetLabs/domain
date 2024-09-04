@@ -254,10 +254,7 @@ where
     }
 
     /// Return a multiple-response request handler for a request.
-    fn get_streaming_request(
-        &self,
-        request_msg: ReqMulti,
-    ) -> RequestMulti {
+    fn get_streaming_request(&self, request_msg: ReqMulti) -> RequestMulti {
         let (sender, receiver) = mpsc::channel(DEF_CHAN_CAP);
         RequestMulti {
             stream: receiver,
@@ -577,17 +574,6 @@ enum XFRState {
     /// An error has occured.
     Error,
 }
-
-/*
-#[derive(Debug)]
-struct XFRData {
-    /// State needed for AXFR and IXFR.
-    state: XFRState,
-
-    ///
-    serial: Serial,
-}
-*/
 
 impl<Stream, Req, ReqMulti> Transport<Stream, Req, ReqMulti> {
     /// Creates a new transport.
