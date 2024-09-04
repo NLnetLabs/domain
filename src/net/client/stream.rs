@@ -1042,7 +1042,6 @@ where
                 ReqSingleMulti::Single(msg) => {
                     msg.add_opt(&TcpKeepalive::new(None)).is_ok()
                 }
-                // Do we need to set TcpKeepalive for XFR?
                 ReqSingleMulti::Multi(msg) => {
                     msg.add_opt(&TcpKeepalive::new(None)).is_ok()
                 }
