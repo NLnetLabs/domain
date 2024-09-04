@@ -876,6 +876,19 @@ impl<Target: Composer> AnswerBuilder<Target> {
             |counts| counts.inc_ancount(),
         )
     }
+
+    /// Appends a record to the answer section without consuming it.
+    ///
+    /// See [`push`][Self::push].
+    pub fn push_ref(
+        &mut self,
+        record: &impl ComposeRecord,
+    ) -> Result<(), PushError> {
+        self.builder.push(
+            |target| record.compose_record(target).map_err(Into::into),
+            |counts| counts.inc_ancount(),
+        )
+    }
 }
 
 /// # Conversions
