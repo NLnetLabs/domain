@@ -227,6 +227,7 @@ where
         receiver.await.map_err(|_| Error::StreamReceiveError)?
     }
 
+    /// Start a streaming request.
     async fn handle_streaming_request_impl(
         self,
         msg: ReqMulti,
