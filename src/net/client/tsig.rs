@@ -547,7 +547,6 @@ where
     fn to_message(&self) -> Result<Message<Vec<u8>>, Error> {
         let mut target = StaticCompressor::new(Vec::new());
 
-        trace!("to_message");
         self.append_message(&mut target)?;
 
         // It would be nice to use .builder() here. But that one deletes all
