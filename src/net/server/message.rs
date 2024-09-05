@@ -298,6 +298,9 @@ where
 
 //------------ RequestNG ------------------------------------------------------
 
+/// RequestNG is very similar to Request. The main changes are:
+/// * to_request_message to convert to a [RequestMessage].
+///
 /// A DNS message with additional properties describing its context.
 ///
 /// DNS messages don't exist in isolation, they are received from somewhere or
