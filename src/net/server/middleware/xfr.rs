@@ -184,9 +184,8 @@ where
                 Self::log_and_break(&q, req, msg, rcode, reason)
             });
 
-        let (zone, diffs) = match res {
-            Ok(res) => res,
-            Err(control_flow) => return control_flow,
+        let Ok((zone, diffs)) = res else {
+            return res.unwrap_err();
         };
 
         // Read the zone SOA RR
