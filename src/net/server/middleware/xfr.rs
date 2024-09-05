@@ -179,9 +179,15 @@ where
                 XfrDataProviderError::Refused => {
                     ("access denied", OptRcode::REFUSED)
                 }
+            })
+            .map_err(|(reason, rcode)| {
+                Self::log_and_break(&q, req, msg, rcode, reason)
             });
 
-        let (zone, diffs) = res.unwrap();
+        let (zone, diffs) = match res {
+            Ok(res) => res,
+            Err(control_flow) => return control_flow,
+        };
 
         // Read the zone SOA RR
         let read = zone.read();
