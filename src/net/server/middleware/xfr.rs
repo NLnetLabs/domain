@@ -509,7 +509,7 @@ where
                         .push((owner.clone(), qclass, rrset.ttl(), rr))
                         .is_err()
                     {
-                        error!("Internal error: Failed to send final AXFR SOA to batcher");
+                        error!("Internal error: Failed to send RR to batcher");
                         let resp =
                             mk_error_response(&msg, OptRcode::SERVFAIL);
                         Self::add_to_stream(CallResult::new(resp), &sender);
