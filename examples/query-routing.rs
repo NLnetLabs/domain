@@ -1,17 +1,16 @@
 use core::fmt;
 use core::future::{ready, Future, Ready};
-use core::sync::atomic::{AtomicBool, AtomicU8, Ordering};
+use core::sync::atomic::{AtomicBool, Ordering};
 use core::task::{Context, Poll};
 use core::time::Duration;
 use domain::base::iana::{Class, Rcode};
 use domain::base::message_builder::{AdditionalBuilder, PushError};
-use domain::base::name::ToLabelIter;
 use domain::base::wire::Composer;
 use domain::base::{MessageBuilder, Name, Rtype, Serial, StreamTarget, Ttl};
 use domain::net::client::dgram as client_dgram;
 use domain::net::client::protocol::UdpConnect;
 use domain::net::server::adapter::{
-    ClientTransportToSrService, SingleServiceToService,
+    ClientTransportToSingleService, SingleServiceToService,
 };
 use domain::net::server::buf::VecBufSource;
 use domain::net::server::dgram::DgramServer;
@@ -24,7 +23,7 @@ use domain::net::server::middleware::stream::{
 };
 use domain::net::server::qname_router::QnameRouter;
 use domain::net::server::service::{
-    CallResult, Service, ServiceFeedback, ServiceResult,
+    CallResult, Service, ServiceResult,
 };
 use domain::net::server::single_service::ReplyMessage;
 use domain::net::server::sock::AsyncAccept;
@@ -202,85 +201,6 @@ impl Service<Vec<u8>> for MyAsyncStreamingService {
             Box::pin(receiver) as Self::Stream
         })
     }
-}
-
-//--- name_to_ip()
-
-/// This function shows how to implement [`Service`] logic by matching the
-/// function signature required by the [`Service`] trait.
-///
-/// The function signature is slightly more complex than when using
-/// [`service_fn`] (see the [`query`] example below).
-#[allow(clippy::type_complexity)]
-fn name_to_ip(request: Request<Vec<u8>>) -> ServiceResult<Vec<u8>> {
-    let mut out_answer = None;
-    if let Ok(question) = request.message().sole_question() {
-        let qname = question.qname();
-        let num_labels = qname.label_count();
-        if num_labels >= 5 {
-            let mut iter = qname.iter_labels();
-            let a = iter.nth(num_labels - 5).unwrap();
-            let b = iter.next().unwrap();
-            let c = iter.next().unwrap();
-            let d = iter.next().unwrap();
-            let a_rec: Result<A, _> = format!("{a}.{b}.{c}.{d}").parse();
-            if let Ok(a_rec) = a_rec {
-                let builder = mk_builder_for_target();
-                let mut answer = builder
-                    .start_answer(request.message(), Rcode::NOERROR)
-                    .unwrap();
-                answer
-                    .push((Name::root_ref(), Class::IN, 86400, a_rec))
-                    .unwrap();
-                out_answer = Some(answer);
-            }
-        }
-    }
-
-    if out_answer.is_none() {
-        let builder = mk_builder_for_target();
-        eprintln!("Refusing request, only requests for A records in IPv4 dotted quad format are accepted by this service.");
-        out_answer = Some(
-            builder
-                .start_answer(request.message(), Rcode::REFUSED)
-                .unwrap(),
-        );
-    }
-
-    let additional = out_answer.unwrap().additional();
-    Ok(CallResult::new(additional))
-}
-
-//--- query()
-
-/// This function shows how to implement [`Service`] logic by matching the
-/// function signature required by [`service_fn`].
-///
-/// The function signature is slightly simpler to write than when not using
-/// [`service_fn`] and supports passing in meta data without any extra
-/// boilerplate.
-fn query(
-    request: Request<Vec<u8>>,
-    count: Arc<AtomicU8>,
-) -> ServiceResult<Vec<u8>> {
-    let cnt = count
-        .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |x| {
-            Some(if x > 0 { x - 1 } else { 0 })
-        })
-        .unwrap();
-
-    // Note: A real service would have application logic here to process
-    // the request and generate an response.
-
-    let idle_timeout = Duration::from_millis((50 * cnt).into());
-    let cmd = ServiceFeedback::Reconfigure {
-        idle_timeout: Some(idle_timeout),
-    };
-    eprintln!("Setting idle timeout to {idle_timeout:?}");
-
-    let builder = mk_builder_for_target();
-    let answer = mk_answer(&request, builder)?;
-    Ok(CallResult::new(answer).with_feedback(cmd))
 }
 
 //----------- Example socket trait implementations ---------------------------
@@ -671,7 +591,7 @@ async fn main() {
         SocketAddr::new(IpAddr::from_str("1.1.1.1").unwrap(), 53);
     let udp_connect = UdpConnect::new(server_addr);
     let dgram_conn = client_dgram::Connection::new(udp_connect);
-    let conn_service = ClientTransportToSrService::new(dgram_conn);
+    let conn_service = ClientTransportToSingleService::new(dgram_conn);
     qr.add(Name::<Vec<u8>>::from_str(".").unwrap(), conn_service);
 
     // Queries to .com go to 8.8.8.8
@@ -679,7 +599,7 @@ async fn main() {
         SocketAddr::new(IpAddr::from_str("8.8.8.8").unwrap(), 53);
     let udp_connect = UdpConnect::new(server_addr);
     let dgram_conn = client_dgram::Connection::new(udp_connect);
-    let conn_service = ClientTransportToSrService::new(dgram_conn);
+    let conn_service = ClientTransportToSingleService::new(dgram_conn);
     qr.add(Name::<Vec<u8>>::from_str("com").unwrap(), conn_service);
 
     // Queries to .nl go to 9.9.9.9
@@ -687,7 +607,7 @@ async fn main() {
         SocketAddr::new(IpAddr::from_str("9.9.9.9").unwrap(), 53);
     let udp_connect = UdpConnect::new(server_addr);
     let dgram_conn = client_dgram::Connection::new(udp_connect);
-    let conn_service = ClientTransportToSrService::new(dgram_conn);
+    let conn_service = ClientTransportToSingleService::new(dgram_conn);
     qr.add(Name::<Vec<u8>>::from_str("nl").unwrap(), conn_service);
 
     let srv = SingleServiceToService::new(qr);
