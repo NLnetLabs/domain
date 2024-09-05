@@ -151,28 +151,6 @@ impl ComposeReply for ReplyMessage {
         for rr in source {
             let rr = rr.unwrap();
             if rr.rtype() == Rtype::OPT {
-                /*
-                            let rr = rr.into_record::<Opt<_>>().unwrap().unwrap();
-                            let opt_record = OptRecord::from_record(rr);
-                            target
-                                .opt(|newopt| {
-                                newopt
-                                    .set_udp_payload_size(opt_record.udp_payload_size());
-                                newopt.set_version(opt_record.version());
-                                newopt.set_dnssec_ok(opt_record.dnssec_ok());
-
-                                // Copy the transitive options that we support.
-                                for option in opt_record.opt().iter::<AllOptData<_, _>>()
-                                {
-                                    let option = option.unwrap();
-                                    if let AllOptData::ExtendedError(_) = option {
-                                    newopt.push(&option).unwrap();
-                                    }
-                                }
-                                Ok(())
-                                })
-                                .unwrap();
-                */
             } else {
                 let rr = rr
                     .into_record::<AllRecordData<_, ParsedName<_>>>()
