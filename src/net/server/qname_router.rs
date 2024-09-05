@@ -1,4 +1,7 @@
-// Qname Router
+//! This module provides an example query router using the Qname field.
+
+#![warn(missing_docs)]
+#![warn(clippy::missing_docs_in_private_items)]
 
 use super::message::RequestNG;
 use super::single_service::SingleService;
@@ -10,31 +13,35 @@ use std::future::Future;
 use std::pin::Pin;
 use std::vec::Vec;
 
+/// A service that routes requests to other services based on the Qname in the
+/// request.
 pub struct QnameRouter<Octs, RequestOcts, CR> {
+    /// List of names and services for routing requests.
     list: Vec<Element<Octs, RequestOcts, CR>>,
 }
 
+/// Element in the name space for the Qname router.
 struct Element<NameOcts, RequestOcts, CR> {
+    /// Name to match for this element.
     name: Name<NameOcts>,
-    service: Box<
-        dyn SingleService<RequestOcts, CR, Target = Vec<u8>> + Send + Sync,
-    >,
+
+    /// Service to call for this element.
+    service: Box<dyn SingleService<RequestOcts, CR> + Send + Sync>,
 }
 
 impl<Octs, RequestOcts, CR> QnameRouter<Octs, RequestOcts, CR> {
+    /// Create a new empty router.
     pub fn new() -> Self {
         Self { list: Vec::new() }
     }
 
+    /// Add a name and service to the router.
     pub fn add<TN, SVC>(&mut self, name: TN, service: SVC)
     where
         Octs: FromBuilder,
         <Octs as FromBuilder>::Builder: EmptyBuilder,
         TN: ToName,
-        SVC: SingleService<RequestOcts, CR, Target = Vec<u8>>
-            + Send
-            + Sync
-            + 'static,
+        SVC: SingleService<RequestOcts, CR> + Send + Sync + 'static,
     {
         let el = Element {
             name: name.try_to_name().ok().unwrap(),
@@ -55,8 +62,6 @@ impl<Octs, RequestOcts, CR> SingleService<RequestOcts, CR>
 where
     Octs: AsRef<[u8]>,
 {
-    type Target = ();
-
     fn call(
         &self,
         request: RequestNG<RequestOcts>,

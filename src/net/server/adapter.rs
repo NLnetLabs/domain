@@ -26,8 +26,13 @@ use std::vec::Vec;
 
 /// Provide a [Service] trait for an object that implements [SingleService].
 pub struct SingleServiceToService<RequestOcts, SVC, CR> {
+    /// Service that is wrapped by this object.
     service: SVC,
+
+    /// Phantom field for RequestOcts.
     ro_phantom: PhantomData<RequestOcts>,
+
+    /// Phantom field for CR.
     cr_phantom: PhantomData<CR>,
 }
 
@@ -72,7 +77,10 @@ where
     RequestOcts: AsRef<[u8]>,
     SR: SendRequest<RequestMessage<RequestOcts>>,
 {
+    /// The client transport to use.
     conn: SR,
+
+    /// Phantom data for RequestOcts.
     _phantom: PhantomData<RequestOcts>,
 }
 
@@ -97,8 +105,6 @@ where
     SR: SendRequest<RequestMessage<RequestOcts>> + Sync,
     CR: ComposeReply + Send + Sync + 'static,
 {
-    type Target = Vec<u8>;
-
     fn call(
         &self,
         request: RequestNG<RequestOcts>,
@@ -124,7 +130,10 @@ pub struct BoxClientTransportToSingleService<RequestOcts>
 where
     RequestOcts: AsRef<[u8]>,
 {
+    /// The client transport to use.
     conn: Box<dyn SendRequest<RequestMessage<RequestOcts>> + Send + Sync>,
+
+    /// Phantom data for RequestOcts.
     _phantom: PhantomData<RequestOcts>,
 }
 
@@ -149,8 +158,6 @@ where
     RequestOcts: AsRef<[u8]> + Clone + Debug + Octets + Send + Sync,
     CR: ComposeReply + Send + Sync + 'static,
 {
-    type Target = Vec<u8>;
-
     fn call(
         &self,
         request: RequestNG<RequestOcts>,

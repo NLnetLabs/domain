@@ -1,4 +1,8 @@
 //! Support for working with DNS messages in servers.
+
+#![warn(missing_docs)]
+#![warn(clippy::missing_docs_in_private_items)]
+
 use bytes::Bytes;
 //use core::ops::ControlFlow;
 use core::time::Duration;
@@ -350,6 +354,7 @@ impl<Octs: AsRef<[u8]>> RequestNG<Octs> {
         }
     }
 
+    /// Convert a Request to a RequestNG.
     pub fn from_request(request: Request<Octs>) -> Self
     where
         Octs: Octets + Send + Sync + Unpin,
@@ -381,6 +386,7 @@ impl<Octs: AsRef<[u8]>> RequestNG<Octs> {
         req
     }
 
+    /// Convert the Request to a Message.
     pub fn to_request_message(&self) -> Result<RequestMessage<Octs>, Error>
     where
         Octs: Clone + Debug + Octets + Send + Sync,

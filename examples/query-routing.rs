@@ -22,9 +22,7 @@ use domain::net::server::middleware::stream::{
     MiddlewareStream, PostprocessingStream,
 };
 use domain::net::server::qname_router::QnameRouter;
-use domain::net::server::service::{
-    CallResult, Service, ServiceResult,
-};
+use domain::net::server::service::{CallResult, Service, ServiceResult};
 use domain::net::server::single_service::ReplyMessage;
 use domain::net::server::sock::AsyncAccept;
 use domain::net::server::stream::StreamServer;

@@ -1,4 +1,13 @@
-// Single reply service
+//! This module provides the as simple service interface for services that
+//! provide (at most) a single response.
+//!
+//! The simple service is represented by the trait [SingleService].
+//! Additionally, this module provide a new trait [ComposeReply] that
+//! helps generating reply messages and [ReplyMessage] an implementation of
+//! ComposeReply.
+
+#![warn(missing_docs)]
+#![warn(clippy::missing_docs_in_private_items)]
 
 use super::message::RequestNG;
 use crate::base::message_builder::AdditionalBuilder;
@@ -12,9 +21,11 @@ use std::future::Future;
 use std::pin::Pin;
 use std::vec::Vec;
 
+/// Trait for a service that results in a single response.
 pub trait SingleService<RequestOcts, CR> {
-    type Target;
-
+    /// Call the service with a request message.
+    ///
+    /// The service returns a boxed future.
     fn call(
         &self,
         request: RequestNG<RequestOcts>,
@@ -23,16 +34,22 @@ pub trait SingleService<RequestOcts, CR> {
         RequestOcts: AsRef<[u8]> + Octets;
 }
 
+/// Trait for creating a reply message.
 pub trait ComposeReply {
+    /// Start a reply from an existing message.
     fn from_message<Octs>(msg: &Message<Octs>) -> Self
     where
         Octs: AsRef<[u8]>;
+
+    /// Return the reply message as an AdditionalBuilder with a StreamTarget.
     fn additional_builder_stream_target(
         &self,
     ) -> AdditionalBuilder<StreamTarget<Vec<u8>>>;
 }
 
+/// Record changes to a Message for generating a reply message.
 pub struct ReplyMessage {
+    /// Field to store the underlying Message.
     msg: Message<Vec<u8>>,
 
     /// The OPT record to add if required.
@@ -40,6 +57,7 @@ pub struct ReplyMessage {
 }
 
 impl ReplyMessage {
+    /// Add an option that is to be included in the final message.
     fn add_opt(
         &mut self,
         opt: &impl ComposeOptData,
