@@ -4,32 +4,19 @@
 #![warn(clippy::missing_docs_in_private_items)]
 
 use bytes::Bytes;
-//use core::ops::ControlFlow;
 use core::time::Duration;
 
 use std::fmt::Debug;
-//use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
 use std::vec::Vec;
 
 use tokio::time::Instant;
 
 use crate::base::opt::AllOptData;
-use crate::base::Message;
-use crate::base::Name;
+use crate::base::{Message, Name};
 use crate::dep::octseq::Octets;
-//use crate::base::opt::OptRecord;
-//use crate::base::opt::subnet::ClientSubnet;
-//use crate::dep::octseq::OctetsFrom;
 use crate::net::client::request::ComposeRequest;
 use crate::net::client::request::{Error, RequestMessage};
-//use crate::net::server::buf::BufSource;
-//use crate::net::server::metrics::ServerMetrics;
-//use crate::net::server::middleware::chain::MiddlewareChain;
-
-//use super::service::{Service, };
-//use super::util::start_reply;
-//use crate::base::wire::Composer;
 
 //------------ UdpTransportContext -------------------------------------------
 
