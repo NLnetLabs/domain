@@ -1266,6 +1266,7 @@ mod tests {
     use super::*;
     use crate::base::{MessageBuilder, Ttl};
     use crate::net::server::message::NonUdpTransportContext;
+    use crate::net::server::middleware::tsig::Authentication;
     use crate::zonetree::{Rrset, ZoneBuilder};
     use core::str::FromStr;
     use futures::StreamExt;
@@ -1286,8 +1287,10 @@ mod tests {
         let transport_specific = TransportSpecificContext::NonUdp(
             NonUdpTransportContext::new(None),
         );
-        let metadata = ();
-        let req: Request<Vec<u8>, ()> = Request::new(
+        let metadata = Authentication(Some(
+            crate::tsig::KeyName::from_str("blah").unwrap(),
+        ));
+        let req = Request::new(
             client_addr,
             received_at,
             msg,
@@ -1317,7 +1320,9 @@ mod tests {
         let read = zone.read();
 
         let mut stream =
-            XfrMiddlewareSvc::<Vec<u8>, TestNextSvc, Zone>::do_axfr::<()>(
+            XfrMiddlewareSvc::<Vec<u8>, TestNextSvc, Zone>::do_axfr::<
+                Authentication,
+            >(
                 zone_walk_semaphore,
                 batcher_semaphore,
                 &req,
