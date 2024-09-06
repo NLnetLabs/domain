@@ -1512,60 +1512,64 @@ mod tests {
             Some(ServiceFeedback::BeginTransaction)
         ));
 
-        let msg = stream.next().await.unwrap().unwrap();
-        let resp_builder = msg.into_inner().0.unwrap();
-        let resp = resp_builder.as_message();
-        assert!(resp.is_answer(req));
-        let mut records = resp.answer().unwrap();
+        let mut msg = stream.next().await.unwrap().unwrap();
+        while msg.response().is_some() {
+            let resp_builder = msg.into_inner().0.unwrap();
+            let resp = resp_builder.as_message();
+            assert!(resp.is_answer(req));
+            let mut records = resp.answer().unwrap();
 
-        let rec = records.next().unwrap().unwrap();
-        assert_eq!(rec.owner(), zone.apex_name());
-        assert_eq!(rec.rtype(), Rtype::SOA);
-        assert_eq!(rec.ttl(), Ttl::from_secs(86400));
-        let soa = rec
-            .into_record::<Soa<ParsedName<&[u8]>>>()
-            .unwrap()
-            .unwrap()
-            .into_data();
-        assert_eq!(&soa, expected_soa);
+            let rec = records.next().unwrap().unwrap();
+            assert_eq!(rec.owner(), zone.apex_name());
+            assert_eq!(rec.rtype(), Rtype::SOA);
+            assert_eq!(rec.ttl(), Ttl::from_secs(86400));
+            let soa = rec
+                .into_record::<Soa<ParsedName<&[u8]>>>()
+                .unwrap()
+                .unwrap()
+                .into_data();
+            assert_eq!(&soa, expected_soa);
 
-        for rec in records.by_ref() {
-            let rec = rec.unwrap();
-            if rec.rtype() == Rtype::SOA {
-                let soa = rec
-                    .into_record::<Soa<ParsedName<&[u8]>>>()
-                    .unwrap()
-                    .unwrap()
-                    .into_data();
-                assert_eq!(&soa, expected_soa);
-                break;
-            } else {
-                let pos = expected_records
-                    .iter()
-                    .position(|(name, data)| {
-                        name == &rec.owner() && data.rtype() == rec.rtype()
-                    })
-                    .unwrap_or_else(|| {
-                        panic!(
-                            "XFR record {} {} {} was not expected",
-                            rec.owner(),
-                            rec.class(),
-                            rec.rtype()
-                        )
-                    });
-                let (_, data) = expected_records.remove(pos);
-                let rec = rec
-                    .into_record::<AllRecordData<_, ParsedName<_>>>()
-                    .unwrap()
-                    .unwrap();
-                assert_eq!(&data, rec.data());
+            for rec in records.by_ref() {
+                let rec = rec.unwrap();
+                if rec.rtype() == Rtype::SOA {
+                    let soa = rec
+                        .into_record::<Soa<ParsedName<&[u8]>>>()
+                        .unwrap()
+                        .unwrap()
+                        .into_data();
+                    assert_eq!(&soa, expected_soa);
+                    break;
+                } else {
+                    let pos = expected_records
+                        .iter()
+                        .position(|(name, data)| {
+                            name == &rec.owner()
+                                && data.rtype() == rec.rtype()
+                        })
+                        .unwrap_or_else(|| {
+                            panic!(
+                                "XFR record {} {} {} was not expected",
+                                rec.owner(),
+                                rec.class(),
+                                rec.rtype()
+                            )
+                        });
+                    let (_, data) = expected_records.remove(pos);
+                    let rec = rec
+                        .into_record::<AllRecordData<_, ParsedName<_>>>()
+                        .unwrap()
+                        .unwrap();
+                    assert_eq!(&data, rec.data());
+                }
             }
+
+            assert!(records.next().is_none());
+            assert!(expected_records.is_empty());
+
+            msg = stream.next().await.unwrap().unwrap();
         }
 
-        assert!(records.next().is_none());
-        assert!(expected_records.is_empty());
-
-        let msg = stream.next().await.unwrap().unwrap();
         assert!(matches!(
             msg.feedback(),
             Some(ServiceFeedback::EndTransaction)
