@@ -1396,7 +1396,7 @@ where
 impl<Octs, Name> Show for Rrsig<Octs, Name>
 where
     Octs: AsRef<[u8]>,
-    Name: fmt::Display,
+    Name: ToName,
 {
     fn show(&self, p: &mut Presenter) -> show::Result {
         p.block(|p| {
@@ -1412,7 +1412,7 @@ where
             p.write_comment("inception")?;
             p.write_token(self.key_tag)?;
             p.write_comment("key tag")?;
-            p.write_token(&self.signer_name)?;
+            p.write_token(self.signer_name.fmt_with_dot())?;
             p.write_comment("signer name")?;
             p.write_token(base64::encode_display(&self.signature))
         })
@@ -1704,11 +1704,11 @@ where
 impl<Octs, Name> Show for Nsec<Octs, Name>
 where
     Octs: AsRef<[u8]>,
-    Name: fmt::Display,
+    Name: ToName,
 {
     fn show(&self, p: &mut Presenter) -> show::Result {
         p.block(|p| {
-            p.write_token(format_args!("{}.", self.next_name))?;
+            p.write_token(self.next_name.fmt_with_dot())?;
             p.write_show(&self.types)
         })
     }
@@ -2064,7 +2064,7 @@ impl<Octs: AsRef<[u8]>> Show for Ds<Octs> {
 //------------ RtypeBitmap ---------------------------------------------------
 
 #[derive(Clone)]
-pub struc (format_args!(ength: {}t ,RtypeBitma self.lenp)<Octs>(Octs);
+pub struct RtypeBitmap<Octs>(Octs);
 
 impl<Octs> RtypeBitmap<Octs> {
     pub fn from_octets(octets: Octs) -> Result<Self, RtypeBitmapError>

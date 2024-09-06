@@ -503,8 +503,8 @@ macro_rules! rdata_types {
 
         impl<O, N> $crate::base::show::Show for ZoneRecordData<O, N>
         where
-        O: AsRef<[u8]>,
-        N: fmt::Display
+            O: AsRef<[u8]>,
+            N: ToName,
         {
             fn show(&self, p: &mut $crate::base::show::Presenter) -> $crate::base::show::Result {
                 match *self {
@@ -1124,7 +1124,7 @@ macro_rules! rdata_types {
         //--- Show
 
         impl<O, N> $crate::base::show::Show for AllRecordData<O, N>
-        where O: Octets, N: fmt::Display {
+        where O: Octets, N: ToName {
             fn show(
                 &self, f: &mut $crate::base::show::Presenter
             ) -> $crate::base::show::Result {
@@ -1333,9 +1333,9 @@ macro_rules! name_type_base {
 
         //--- Show
 
-        impl<N: fmt::Display> $crate::base::show::Show for $target<N> {
+        impl<N: ToName> $crate::base::show::Show for $target<N> {
             fn show(&self, p: &mut $crate::base::show::Presenter) -> $crate::base::show::Result {
-                p.write_token(format_args!("{}.", self.$field))
+                p.write_token(self.$field.fmt_with_dot())
             }
         }
     }

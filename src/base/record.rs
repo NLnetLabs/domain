@@ -436,7 +436,7 @@ where
 
 impl<Name, Data> Show for Record<Name, Data>
 where
-    Name: fmt::Display,
+    Name: ToName,
     Data: RecordData + Show,
 {
     fn show(&self, p: &mut Presenter) -> show::Result {
@@ -444,7 +444,7 @@ where
         p.write_show(self.ttl)?;
         p.write_show(self.class)?;
         p.write_show(self.data.rtype())?;
-        p.write_show(self.data)
+        p.write_show(&self.data)
     }
 }
 
@@ -1497,7 +1497,7 @@ impl Ttl {
             .map_err(Into::into)
     }
 
-    pub fn pretty(&self) -> impl Display {
+    pub fn pretty(&self) -> impl fmt::Display {
         struct Inner {
             inner: Ttl,
         }
@@ -1511,13 +1511,13 @@ impl Ttl {
                 let minutes = self.inner.as_minutes() % 60;
                 let seconds = self.inner.as_secs() % 60;
     
-                let first = true;
+                let mut first = true;
                 for (n, unit) in [
                     (weeks, "weeks"),
                     (days, "days"),
-                    (hours, "hours"),
-                    (minutes, "minutes"),
-                    (seconds, "seconds"),
+                    (hours as u16, "hours"),
+                    (minutes as u16, "minutes"),
+                    (seconds as u16, "seconds"),
                 ] {
                     if n == 0 {
                         continue;

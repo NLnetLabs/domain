@@ -402,12 +402,12 @@ impl<N: fmt::Display> fmt::Display for Soa<N> {
     }
 }
 
-impl<N: fmt::Display> Show for Soa<N> {
+impl<N: ToName> Show for Soa<N> {
     fn show(&self, p: &mut Presenter) -> show::Result {
         p.block(|p| {
-            p.write_token(format_args!("{}.", self.mname))?;
+            p.write_token(self.mname.fmt_with_dot())?;
             p.write_comment("mname")?;
-            p.write_token(format_args!("{}.", self.rname))?;
+            p.write_token(self.rname.fmt_with_dot())?;
             p.write_comment("rname")?;
             p.write_token(self.serial)?;
             p.write_comment("serial")?;

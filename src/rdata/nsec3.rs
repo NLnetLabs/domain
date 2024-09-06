@@ -1013,10 +1013,11 @@ impl<Octs: AsRef<[u8]> + ?Sized> fmt::Debug for Nsec3Salt<Octs> {
 
 impl<Octs: AsRef<[u8]> + ?Sized> Show for Nsec3Salt<Octs> {
     fn show(&self, p: &mut Presenter) -> show::Result {
-        p.write_token(base16::encode_display(self))?;
-        p.write_comment(format_args!("salt (length: {})", self.salt_len()))
-    }?;
-    p.write_comment(format_args!("key tag: {}", self.key_tag()))
+        p.block(|p| {
+            p.write_token(base16::encode_display(self))?;
+            p.write_comment(format_args!("salt (length: {})", self.salt_len()))
+        })
+    }
 }
 
 //--- Serialize and Deserialize

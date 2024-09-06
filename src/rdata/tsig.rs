@@ -603,7 +603,7 @@ impl<O: AsRef<[u8]>, N: fmt::Debug> fmt::Debug for Tsig<O, N> {
 
 //--- Show
 
-impl<O: AsRef<[u8]>, N: fmt::Display> Show for Tsig<O, N> {
+impl<O: AsRef<[u8]>, N: ToName> Show for Tsig<O, N> {
     fn show(&self, p: &mut Presenter) -> show::Result {
         p.block(|p| {
             p.write_token(self.algorithm.fmt_with_dot())?;

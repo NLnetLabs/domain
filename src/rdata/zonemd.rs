@@ -229,14 +229,14 @@ impl<Octs: AsRef<[u8]>> Show for Zonemd<Octs> {
         p.block(|p| {
             p.write_token(self.serial)?;
             p.write_show(self.scheme)?;
-            p.write_comment(format_args!("scheme ()", match self.scheme {
+            p.write_comment(format_args!("scheme ({})", match self.scheme {
                 Scheme::Reserved => "reserved",
                 Scheme::Simple => "simple",
                 Scheme::Unassigned(_) => "unassigned",
                 Scheme::Private(_) => "private",
             }))?;
             p.write_show(self.algo)?;
-            p.write_comment(format_args!("algorithm ()", match self.algo {
+            p.write_comment(format_args!("algorithm ({})", match self.algo {
                 Algorithm::Reserved => "reserved",
                 Algorithm::Sha384 => "SHA384",
                 Algorithm::Sha512 => "SHA512",

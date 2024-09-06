@@ -447,7 +447,7 @@ where
     Name: fmt::Display,
 {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{} {} {}", self.priority, self.target, self.params)
+        write!(f, "{} {}. {}", self.priority, self.target, self.params)
     }
 }
 
@@ -470,13 +470,13 @@ where
 impl<Variant, Octs, Name> Show for SvcbRdata<Variant, Octs, Name>
 where
     Octs: Octets,
-    Name: fmt::Display,
+    Name: ToName,
 {
     fn show(&self, p: &mut Presenter) -> show::Result {
         p.block(|p| {
             p.write_token(self.priority)?;
             p.write_comment("priority")?;
-            p.write_token(&self.target)?;
+            p.write_token(self.target.fmt_with_dot())?;
             p.write_comment("target")?;
             p.write_show(&self.params)
         })

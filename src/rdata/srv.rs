@@ -285,7 +285,7 @@ impl<N: fmt::Display> fmt::Display for Srv<N> {
 
 //--- Show
 
-impl<N: fmt::Display> Show for Srv<N> {
+impl<N: ToName> Show for Srv<N> {
     fn show(&self, p: &mut Presenter) -> show::Result {
         p.block(|p| {
             p.write_token(self.priority)?;
@@ -294,7 +294,7 @@ impl<N: fmt::Display> Show for Srv<N> {
             p.write_comment("weight")?;
             p.write_token(self.port)?;
             p.write_comment("port")?;
-            p.write_token(&self.target)
+            p.write_token(self.target.fmt_with_dot())
         })
     }
 }

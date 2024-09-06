@@ -245,12 +245,12 @@ impl<N: fmt::Display> fmt::Display for Minfo<N> {
 
 //--- Show
 
-impl<N: fmt::Display> Show for Minfo<N> {
+impl<N: ToName> Show for Minfo<N> {
     fn show(&self, p: &mut Presenter) -> show::Result {
         p.block(|p| {
-            p.write_token(&self.rmailbx)?;
+            p.write_token(self.rmailbx.fmt_with_dot())?;
             p.write_comment("responsible mailbox")?;
-            p.write_token(&self.emailbx)?;
+            p.write_token(self.emailbx.fmt_with_dot())?;
             p.write_comment("error mailbox")
         })
     }
