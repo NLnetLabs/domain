@@ -1263,75 +1263,161 @@ impl<RequestOctets, Target> CallbackState<RequestOctets, Target> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::base::{MessageBuilder, Ttl};
-    use crate::net::server::message::NonUdpTransportContext;
-    use crate::net::server::middleware::tsig::Authentication;
-    use crate::zonetree::{Rrset, ZoneBuilder};
     use core::str::FromStr;
+
+    use std::borrow::ToOwned;
+
     use futures::StreamExt;
     use tokio::time::Instant;
 
-    #[tokio::test]
-    async fn empty_axfr() {
-        let zone_walk_semaphore = Arc::new(Semaphore::new(1));
-        let batcher_semaphore = Arc::new(Semaphore::new(1));
+    use crate::base::{MessageBuilder, RecordData, Ttl};
+    use crate::net::server::message::NonUdpTransportContext;
+    use crate::net::server::service::ServiceError;
+    use crate::rdata::{Aaaa, AllRecordData, Cname, Mx, Ns, A};
+    use crate::zonefile::inplace::Zonefile;
 
+    use super::*;
+
+    type ExpectedRecords =
+        Vec<(Name<Bytes>, AllRecordData<Bytes, Name<Bytes>>)>;
+
+    #[tokio::test]
+    async fn axfr_with_example_zone() {
+        let mut expected_records: ExpectedRecords = vec![
+            (n("example.com"), Ns::new(n("example.com")).into()),
+            (n("example.com"), A::new(p("192.0.2.1")).into()),
+            (n("example.com"), A::new(p("192.0.2.1")).into()),
+            (n("example.com"), A::new(p("192.0.2.1")).into()),
+            (n("example.com"), Aaaa::new(p("2001:db8::3")).into()),
+            (n("www.example.com"), Cname::new(n("example.com")).into()),
+            (n("mail.example.com"), Mx::new(10, n("example.com")).into()),
+        ];
+
+        let zone = load_zone(include_bytes!(
+            "../../../../test-data/zonefiles/nsd-example.txt"
+        ));
+
+        let req = mk_axfr_request(zone.apex_name(), ());
+
+        let mut stream = do_axfr_for_zone(&zone, &req).await.unwrap();
+
+        assert_xfr_stream_eq(
+            req.message(),
+            &zone,
+            &mut stream,
+            &mut expected_records,
+        )
+        .await;
+    }
+
+    // #[tokio::test]
+    // async fn axfr_with_tsig() {
+    //     let metadata = Authentication(Some(
+    //         KeyName::from_str("blah").unwrap(),
+    //     ))
+
+    //     let req = mk_axfr_request("example.com", metadata);
+    // }
+
+    //------------ Helper functions -------------------------------------------
+
+    fn n(name: &str) -> Name<Bytes> {
+        Name::from_str(name).unwrap()
+    }
+
+    fn p<T: FromStr>(txt: &str) -> T
+    where
+        <T as FromStr>::Err: std::fmt::Debug,
+    {
+        txt.parse().unwrap()
+    }
+
+    fn load_zone(bytes: &[u8]) -> Zone {
+        let mut zone_bytes = std::io::BufReader::new(bytes);
+        let reader = Zonefile::load(&mut zone_bytes).unwrap();
+        Zone::try_from(reader).unwrap()
+    }
+
+    fn mk_axfr_request<T>(
+        qname: impl ToName,
+        metadata: T,
+    ) -> Request<Vec<u8>, T> {
         let client_addr = "127.0.0.1:12345".parse().unwrap();
         let received_at = Instant::now();
         let msg = MessageBuilder::new_vec();
         let mut msg = msg.question();
-        msg.push((Name::vec_from_str("example.com").unwrap(), Rtype::AXFR))
-            .unwrap();
+        msg.push((qname, Rtype::AXFR)).unwrap();
         let msg = msg.into_message();
+
         let transport_specific = TransportSpecificContext::NonUdp(
             NonUdpTransportContext::new(None),
         );
-        let metadata = Authentication(Some(
-            crate::tsig::KeyName::from_str("blah").unwrap(),
-        ));
-        let req = Request::new(
+
+        Request::new(
             client_addr,
             received_at,
             msg,
             transport_specific,
             metadata,
-        );
+        )
+    }
 
-        let qname = Name::from_str("example.com").unwrap();
-        let mut zone_soa_answer = Answer::new(Rcode::NOERROR);
-        let mut soa_rrset = Rrset::new(Rtype::SOA, Ttl::from_secs(3600));
-        let mname = Name::from_str("blah").unwrap();
-        let rname = Name::from_str("blah").unwrap();
-        let serial = Serial::now();
-        let refresh = Ttl::from_secs(0);
-        let retry = Ttl::from_secs(0);
-        let expire = Ttl::from_secs(0);
-        let minimum = Ttl::from_secs(0);
-        let soa =
-            Soa::new(mname, rname, serial, refresh, retry, expire, minimum);
-        soa_rrset.push_data(ZoneRecordData::Soa(soa.clone()));
-        let soa_rrset = SharedRrset::new(soa_rrset);
-        zone_soa_answer.add_answer(soa_rrset.clone());
-
-        let mut zone = ZoneBuilder::new(qname.clone(), Class::IN);
-        zone.insert_rrset(&qname, soa_rrset).unwrap();
-        let zone = zone.build();
+    async fn do_axfr_for_zone<T>(
+        zone: &Zone,
+        req: &Request<Vec<u8>, T>,
+    ) -> Result<
+        XfrMiddlewareStream<
+            <TestNextSvc as Service>::Future,
+            <TestNextSvc as Service>::Stream,
+            <<TestNextSvc as Service>::Stream as Stream>::Item,
+        >,
+        OptRcode,
+    > {
+        let qname = zone.apex_name();
         let read = zone.read();
-
-        let mut stream =
-            XfrMiddlewareSvc::<Vec<u8>, TestNextSvc, Zone>::do_axfr::<
-                Authentication,
-            >(
-                zone_walk_semaphore,
-                batcher_semaphore,
-                &req,
-                qname,
-                &zone_soa_answer,
-                read,
+        let zone_soa_answer =
+            XfrMiddlewareSvc::<_, TestNextSvc, Zone>::read_soa(
+                &read,
+                qname.to_owned(),
             )
             .await
             .unwrap();
+        XfrMiddlewareSvc::<_, TestNextSvc, Zone>::do_axfr(
+            Arc::new(Semaphore::new(1)),
+            Arc::new(Semaphore::new(1)),
+            req,
+            qname.to_owned(),
+            &zone_soa_answer,
+            read,
+        )
+        .await
+    }
+
+    async fn assert_xfr_stream_eq<O: octseq::Octets>(
+        req: &Message<O>,
+        zone: &Zone,
+        mut stream: impl Stream<Item = Result<CallResult<Vec<u8>>, ServiceError>>
+            + Unpin,
+        expected_records: &mut ExpectedRecords,
+    ) {
+        let read = zone.read();
+        let q = req.first_question().unwrap();
+        let zone_soa_answer =
+            XfrMiddlewareSvc::<_, TestNextSvc, Zone>::read_soa(
+                &read,
+                q.qname().to_name(),
+            )
+            .await
+            .unwrap();
+        let AnswerContent::Data(zone_soa_rrset) =
+            zone_soa_answer.content().clone()
+        else {
+            unreachable!()
+        };
+        let first_rr = zone_soa_rrset.first().unwrap();
+        let ZoneRecordData::Soa(expected_soa) = first_rr.data() else {
+            unreachable!()
+        };
 
         let msg = stream.next().await.unwrap().unwrap();
         assert!(matches!(
@@ -1342,20 +1428,63 @@ mod tests {
         let msg = stream.next().await.unwrap().unwrap();
         let resp_builder = msg.into_inner().0.unwrap();
         let resp = resp_builder.as_message();
-        assert!(resp.is_answer(req.message()));
-        let rec = resp.answer().unwrap().next().unwrap().unwrap();
-        let rec = rec
+        assert!(resp.is_answer(req));
+        let mut records = resp.answer().unwrap();
+
+        let rec = records.next().unwrap().unwrap();
+        assert_eq!(rec.owner(), zone.apex_name());
+        assert_eq!(rec.rtype(), Rtype::SOA);
+        assert_eq!(rec.ttl(), Ttl::from_secs(86400));
+        let soa = rec
             .into_record::<Soa<ParsedName<&[u8]>>>()
             .unwrap()
-            .unwrap();
-        let rcvd_soa = rec.into_data();
-        assert_eq!(rcvd_soa, soa);
+            .unwrap()
+            .into_data();
+        assert_eq!(&soa, expected_soa);
+
+        for rec in records.by_ref() {
+            let rec = rec.unwrap();
+            if rec.rtype() == Rtype::SOA {
+                let soa = rec
+                    .into_record::<Soa<ParsedName<&[u8]>>>()
+                    .unwrap()
+                    .unwrap()
+                    .into_data();
+                assert_eq!(&soa, expected_soa);
+                break;
+            } else {
+                let pos = expected_records
+                    .iter()
+                    .position(|(name, data)| {
+                        name == &rec.owner() && data.rtype() == rec.rtype()
+                    })
+                    .unwrap_or_else(|| {
+                        panic!(
+                            "XFR record {} {} {} was not expected",
+                            rec.owner(),
+                            rec.class(),
+                            rec.rtype()
+                        )
+                    });
+                let (_, data) = expected_records.remove(pos);
+                let rec = rec
+                    .into_record::<AllRecordData<_, ParsedName<_>>>()
+                    .unwrap()
+                    .unwrap();
+                assert_eq!(&data, rec.data());
+            }
+        }
+
+        assert!(records.next().is_none());
+        assert!(expected_records.is_empty());
 
         let msg = stream.next().await.unwrap().unwrap();
         assert!(matches!(
             msg.feedback(),
             Some(ServiceFeedback::EndTransaction)
         ));
+
+        assert!(stream.next().await.is_none());
     }
 
     #[derive(Clone)]
