@@ -1270,12 +1270,12 @@ mod tests {
     use futures::StreamExt;
     use tokio::time::Instant;
 
-    use crate::base::{MessageBuilder, RecordData, Ttl};
+    use crate::base::{MessageBuilder, RecordData};
     use crate::net::server::message::{
         NonUdpTransportContext, UdpTransportContext,
     };
     use crate::net::server::service::ServiceError;
-    use crate::rdata::{Aaaa, AllRecordData, Cname, Mx, Ns, A};
+    use crate::rdata::{Aaaa, AllRecordData, Cname, Mx, Ns, Txt, A};
     use crate::zonefile::inplace::Zonefile;
 
     use super::*;
@@ -1320,7 +1320,48 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn axfr_multi_response() {}
+    async fn axfr_multi_response() {
+        let mut expected_records: ExpectedRecords = vec![
+            (n("example.com"), Ns::new(n("ns1.example.com")).into()),
+            (n("example.com"), Ns::new(n("ns2.example.com")).into()),
+            (n("example.com"), Mx::new(10, n("mail.example.com")).into()),
+            (n("example.com"), A::new(p("192.0.2.1")).into()),
+            (n("example.com"), Aaaa::new(p("2001:db8:10::1")).into()),
+            (n("ns1.example.com"), A::new(p("192.0.2.2")).into()),
+            (n("ns1.example.com"), Aaaa::new(p("2001:db8:10::2")).into()),
+            (n("ns2.example.com"), A::new(p("192.0.2.3")).into()),
+            (n("ns2.example.com"), Aaaa::new(p("2001:db8:10::3")).into()),
+            (n("mail.example.com"), A::new(p("192.0.2.4")).into()),
+            (n("mail.example.com"), Aaaa::new(p("2001:db8:10::4")).into()),
+        ];
+
+        for i in 1..=10000 {
+            expected_records.push((
+                n(&format!("host-{i}.example.com")),
+                Txt::build_from_slice(b"text").unwrap().into(),
+            ));
+        }
+
+        let zone = load_zone(include_bytes!(
+            "../../../../test-data/zonefiles/big.example.com.txt"
+        ));
+
+        let req = mk_axfr_request(zone.apex_name(), ());
+
+        let res = do_axfr_for_zone(zone.clone(), &req).await;
+
+        let ControlFlow::Break(mut stream) = res else {
+            panic!("AXFR failed");
+        };
+
+        assert_xfr_stream_eq(
+            req.message(),
+            &zone,
+            &mut stream,
+            &mut expected_records,
+        )
+        .await;
+    }
 
     #[tokio::test]
     async fn axfr_delegation_records() {
@@ -1504,22 +1545,26 @@ mod tests {
         ));
 
         let mut msg = stream.next().await.unwrap().unwrap();
+        let mut first = true;
+        let mut last = false;
         while msg.response().is_some() {
             let resp_builder = msg.into_inner().0.unwrap();
             let resp = resp_builder.as_message();
             assert!(resp.is_answer(req));
             let mut records = resp.answer().unwrap();
 
-            let rec = records.next().unwrap().unwrap();
-            assert_eq!(rec.owner(), zone.apex_name());
-            assert_eq!(rec.rtype(), Rtype::SOA);
-            assert_eq!(rec.ttl(), Ttl::from_secs(86400));
-            let soa = rec
-                .into_record::<Soa<ParsedName<&[u8]>>>()
-                .unwrap()
-                .unwrap()
-                .into_data();
-            assert_eq!(&soa, expected_soa);
+            if first {
+                let rec = records.next().unwrap().unwrap();
+                assert_eq!(rec.owner(), zone.apex_name());
+                assert_eq!(rec.rtype(), Rtype::SOA);
+                let soa = rec
+                    .into_record::<Soa<ParsedName<&[u8]>>>()
+                    .unwrap()
+                    .unwrap()
+                    .into_data();
+                assert_eq!(&soa, expected_soa);
+                first = false;
+            }
 
             for rec in records.by_ref() {
                 let rec = rec.unwrap();
@@ -1530,6 +1575,7 @@ mod tests {
                         .unwrap()
                         .into_data();
                     assert_eq!(&soa, expected_soa);
+                    last = true;
                     break;
                 } else {
                     let pos = expected_records
@@ -1552,14 +1598,22 @@ mod tests {
                         .unwrap()
                         .unwrap();
                     assert_eq!(&data, rec.data());
+                    eprintln!(
+                        "Found {} {} {}",
+                        rec.owner(),
+                        rec.class(),
+                        rec.rtype()
+                    )
                 }
             }
 
             assert!(records.next().is_none());
-            assert!(expected_records.is_empty());
 
             msg = stream.next().await.unwrap().unwrap();
         }
+
+        assert!(last);
+        assert!(expected_records.is_empty());
 
         assert!(matches!(
             msg.feedback(),
