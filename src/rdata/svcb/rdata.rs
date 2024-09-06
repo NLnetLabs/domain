@@ -473,11 +473,13 @@ where
     Name: fmt::Display,
 {
     fn show(&self, p: &mut Presenter) -> show::Result {
-        p.block()
-            .write_token(self.priority)
-            .write_token(&self.target)
-            .write_show(&self.params)
-            .finish()
+        p.block(|p| {
+            p.write_token(self.priority)?;
+            p.write_comment("priority")?;
+            p.write_token(&self.target)?;
+            p.write_comment("target")?;
+            p.write_show(&self.params)
+        })
     }
 }
 

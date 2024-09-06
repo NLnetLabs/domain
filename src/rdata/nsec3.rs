@@ -377,14 +377,19 @@ where
     Octs: AsRef<[u8]>,
 {
     fn show(&self, p: &mut Presenter) -> show::Result {
-        p.block()
-            .write_show(self.hash_algorithm)
-            .write_token(self.flags)
-            .write_token(self.iterations)
-            .write_show(&self.salt)
-            .write_token(base32::encode_display_hex(&self.next_owner))
-            .write_token(&self.types)
-            .finish()
+        p.block(|p| {
+            p.write_show(self.hash_algorithm)?;
+            p.write_token(self.flags)?;
+            p.write_comment(format_args!(
+                "flags: {}",
+                if self.opt_out() { "opt-out" } else { "<none>" }
+            ))?;
+            p.write_token(self.iterations)?;
+            p.write_comment("iterations")?;
+            p.write_show(&self.salt)?;
+            p.write_token(base32::encode_display_hex(&self.next_owner))?;
+            p.write_show(&self.types)
+        })
     }
 }
 
@@ -684,12 +689,14 @@ impl<Octs: AsRef<[u8]>> fmt::Debug for Nsec3param<Octs> {
 
 impl<Octs: AsRef<[u8]>> Show for Nsec3param<Octs> {
     fn show(&self, p: &mut Presenter) -> show::Result {
-        p.block()
-            .write_show(self.hash_algorithm)
-            .write_token(self.flags)
-            .write_token(self.iterations)
-            .write_show(&self.salt)
-            .finish()
+        p.block(|p| {
+            p.write_show(self.hash_algorithm)?;
+            p.write_token(self.flags)?;
+            p.write_comment("flags")?;
+            p.write_token(self.iterations)?;
+            p.write_comment("iterations")?;
+            p.write_show(&self.salt)
+        })
     }
 }
 
@@ -1006,8 +1013,10 @@ impl<Octs: AsRef<[u8]> + ?Sized> fmt::Debug for Nsec3Salt<Octs> {
 
 impl<Octs: AsRef<[u8]> + ?Sized> Show for Nsec3Salt<Octs> {
     fn show(&self, p: &mut Presenter) -> show::Result {
-        p.write_token(base16::encode_display(self))
-    }
+        p.write_token(base16::encode_display(self))?;
+        p.write_comment(format_args!("salt (length: {})", self.salt_len()))
+    }?;
+    p.write_comment(format_args!("key tag: {}", self.key_tag()))
 }
 
 //--- Serialize and Deserialize

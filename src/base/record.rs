@@ -440,11 +440,11 @@ where
     Data: RecordData + Show,
 {
     fn show(&self, p: &mut Presenter) -> show::Result {
-        p.write_token(format_args!("{}.", self.owner))?;
-        self.ttl.show(p)?;
-        self.class.show(p)?;
-        self.data.rtype().show(p)?;
-        self.data.show(p)
+        p.write_token(self.owner.fmt_with_dot())?;
+        p.write_show(self.ttl)?;
+        p.write_show(self.class)?;
+        p.write_show(self.data.rtype())?;
+        p.write_show(self.data)
     }
 }
 
@@ -1495,6 +1495,45 @@ impl Ttl {
             .parse_u32_be()
             .map(Ttl::from_secs)
             .map_err(Into::into)
+    }
+
+    pub fn pretty(&self) -> impl Display {
+        struct Inner {
+            inner: Ttl,
+        }
+
+        impl fmt::Display for Inner {
+            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                let days = self.inner.as_days();
+                let weeks = days / 7;
+                let days = days % 7;
+                let hours = self.inner.as_hours() % 24;
+                let minutes = self.inner.as_minutes() % 60;
+                let seconds = self.inner.as_secs() % 60;
+    
+                let first = true;
+                for (n, unit) in [
+                    (weeks, "weeks"),
+                    (days, "days"),
+                    (hours, "hours"),
+                    (minutes, "minutes"),
+                    (seconds, "seconds"),
+                ] {
+                    if n == 0 {
+                        continue;
+                    }
+                    if first {
+                        write!(f, " ")?;
+                    }
+                    write!(f, "{n}{unit}")?;
+                    first = false;
+                }
+
+                Ok(())
+            }
+        }
+
+        Inner { inner: *self }
     }
 }
 

@@ -226,12 +226,25 @@ impl<Octs: AsRef<[u8]>> fmt::Debug for Zonemd<Octs> {
 
 impl<Octs: AsRef<[u8]>> Show for Zonemd<Octs> {
     fn show(&self, p: &mut Presenter) -> show::Result {
-        p.block()
-            .write_token(self.serial)
-            .write_token(u8::from(self.scheme))
-            .write_token(u8::from(self.algo))
-            .write_token(base16::encode_display(&self.digest))
-            .finish()
+        p.block(|p| {
+            p.write_token(self.serial)?;
+            p.write_show(self.scheme)?;
+            p.write_comment(format_args!("scheme ()", match self.scheme {
+                Scheme::Reserved => "reserved",
+                Scheme::Simple => "simple",
+                Scheme::Unassigned(_) => "unassigned",
+                Scheme::Private(_) => "private",
+            }))?;
+            p.write_show(self.algo)?;
+            p.write_comment(format_args!("algorithm ()", match self.algo {
+                Algorithm::Reserved => "reserved",
+                Algorithm::Sha384 => "SHA384",
+                Algorithm::Sha512 => "SHA512",
+                Algorithm::Unassigned(_) => "unassigned",
+                Algorithm::Private(_) => "private",
+            }))?;
+            p.write_token(base16::encode_display(&self.digest))
+        })
     }
 }
 
@@ -333,6 +346,12 @@ impl From<u8> for Scheme {
     }
 }
 
+impl Show for Scheme {
+    fn show(&self, p: &mut Presenter<'_>) -> show::Result {
+        p.write_token(u8::from(*self))
+    }
+}
+
 /// The Hash Algorithm used to construct the digest.
 ///
 /// This enumeration wraps an 8-bit unsigned integer that identifies
@@ -368,6 +387,12 @@ impl From<u8> for Algorithm {
             3..=239 => Self::Unassigned(n),
             240..=254 => Self::Private(n),
         }
+    }
+}
+
+impl Show for Algorithm {
+    fn show(&self, p: &mut Presenter<'_>) -> show::Result {
+        p.write_token(u8::from(*self))
     }
 }
 

@@ -404,15 +404,34 @@ impl<N: fmt::Display> fmt::Display for Soa<N> {
 
 impl<N: fmt::Display> Show for Soa<N> {
     fn show(&self, p: &mut Presenter) -> show::Result {
-        p.block()
-            .write_token(format_args!("{}.", self.mname))
-            .write_token(format_args!("{}.", self.rname))
-            .write_token(self.serial)
-            .write_show(self.refresh)
-            .write_show(self.retry)
-            .write_show(self.expire)
-            .write_show(self.minimum)
-            .finish()
+        p.block(|p| {
+            p.write_token(format_args!("{}.", self.mname))?;
+            p.write_comment("mname")?;
+            p.write_token(format_args!("{}.", self.rname))?;
+            p.write_comment("rname")?;
+            p.write_token(self.serial)?;
+            p.write_comment("serial")?;
+            p.write_show(self.refresh)?;
+            p.write_comment(format_args!(
+                "refresh ({})",
+                self.refresh.pretty(),
+            ))?;
+            p.write_show(self.retry)?;
+            p.write_comment(format_args!(
+                "retry ({})",
+                self.retry.pretty(),
+            ))?;
+            p.write_show(self.expire)?;
+            p.write_comment(format_args!(
+                "expire ({})",
+                self.expire.pretty(),
+            ))?;
+            p.write_show(self.minimum)?;
+            p.write_comment(format_args!(
+                "minumum ({})",
+                self.minimum.pretty(),
+            ))
+        })
     }
 }
 

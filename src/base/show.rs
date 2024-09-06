@@ -15,22 +15,34 @@ pub type Result = std::result::Result<(), Error>;
 pub trait Show {
     fn show(&self, p: &mut Presenter<'_>) -> Result;
 
-    fn display_zonefile(&self) -> impl fmt::Display {
+    fn display_zonefile(&self, pretty: bool) -> impl fmt::Display {
         struct ZoneFileDisplay<'a, T: ?Sized> {
             inner: &'a T,
+            pretty: bool,
         }
 
         impl<T: Show + ?Sized> fmt::Display for ZoneFileDisplay<'_, T> {
             fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-                self.inner
-                    .show(&mut Presenter {
-                        writer: &mut SimplePresentationWriter::new(f),
-                    })
-                    .map_err(|_| fmt::Error)
+                if self.pretty {
+                    self.inner
+                        .show(&mut Presenter {
+                            writer: &mut MultiLineWriter::new(f),
+                        })
+                        .map_err(|_| fmt::Error)
+                } else {
+                    self.inner
+                        .show(&mut Presenter {
+                            writer: &mut SimpleWriter::new(f),
+                        })
+                        .map_err(|_| fmt::Error)
+                }
             }
         }
 
-        ZoneFileDisplay { inner: self }
+        ZoneFileDisplay {
+            inner: self,
+            pretty,
+        }
     }
 }
 
@@ -46,19 +58,19 @@ pub trait PresentationWriter {
     fn fmt_token(&mut self, args: std::fmt::Arguments<'_>) -> Result;
 
     /// Start a block of grouped tokens
-    /// 
+    ///
     /// This might push `'('` to the zonefile, but may be ignored by the
     /// `PresentationWriter`.
     fn begin_block(&mut self) -> Result;
 
     /// End a block of grouped tokens
-    /// 
+    ///
     /// This might push `'('` to the zonefile, but may be ignored by the
     /// `PresentationWriter`.
     fn end_block(&mut self) -> Result;
 
     /// Write a comment
-    /// 
+    ///
     /// This may be ignored.
     fn fmt_comment(&mut self, args: std::fmt::Arguments<'_>) -> Result;
 
@@ -67,15 +79,15 @@ pub trait PresentationWriter {
 }
 
 /// The simplest possible zonefile writer
-/// 
+///
 /// This writer does not do any alignment, comments and squeezes each record
 /// onto a single line.
-struct SimplePresentationWriter<'a> {
+struct SimpleWriter<'a> {
     first: bool,
     writer: &'a mut (dyn fmt::Write + 'a),
 }
 
-impl<'a> SimplePresentationWriter<'a> {
+impl<'a> SimpleWriter<'a> {
     fn new(writer: &'a mut dyn fmt::Write) -> Self {
         Self {
             first: true,
@@ -84,7 +96,7 @@ impl<'a> SimplePresentationWriter<'a> {
     }
 }
 
-impl PresentationWriter for SimplePresentationWriter<'_> {
+impl PresentationWriter for SimpleWriter<'_> {
     fn fmt_token(&mut self, args: fmt::Arguments<'_>) -> Result {
         if !self.first {
             self.writer.write_char(' ')?;
@@ -113,8 +125,80 @@ impl PresentationWriter for SimplePresentationWriter<'_> {
     }
 }
 
+struct MultiLineWriter<'a> {
+    current_column: usize,
+    block_indent: Option<usize>,
+    first: bool,
+    writer: &'a mut (dyn fmt::Write + 'a),
+}
+
+impl<'a> MultiLineWriter<'a> {
+    fn new(writer: &'a mut dyn fmt::Write) -> Self {
+        Self {
+            first: true,
+            current_column: 0,
+            block_indent: None,
+            writer,
+        }
+    }
+}
+
+impl PresentationWriter for MultiLineWriter<'_> {
+    fn fmt_token(&mut self, args: fmt::Arguments<'_>) -> Result {
+        use fmt::Write;
+        if !self.first {
+            self.write_str(" ")?;
+        }
+        self.first = false;
+        self.write_fmt(args)?;
+        Ok(())
+    }
+
+    fn begin_block(&mut self) -> Result {
+        self.fmt_token(format_args!("("))?;
+        self.block_indent = Some(self.current_column + 1);
+        Ok(())
+    }
+
+    fn end_block(&mut self) -> Result {
+        self.block_indent = None;
+        self.fmt_token(format_args!(")"))
+    }
+
+    fn fmt_comment(&mut self, args: fmt::Arguments<'_>) -> Result {
+        if self.block_indent.is_some() {
+            self.writer.write_fmt(format_args!("\t; {}", args))?;
+            self.newline()
+        } else {
+            // a comment should not have been allowed
+            // so ignore it
+            Ok(())
+        }
+    }
+
+    fn newline(&mut self) -> Result {
+        use fmt::Write;
+        self.writer.write_char('\n')?;
+        self.current_column = 0;
+        if let Some(x) = self.block_indent {
+            for _ in 0..x {
+                self.write_str(" ")?;
+            }
+        }
+        self.first = true;
+        Ok(())
+    }
+}
+
+impl fmt::Write for MultiLineWriter<'_> {
+    fn write_str(&mut self, x: &str) -> fmt::Result {
+        self.current_column += x.len();
+        self.writer.write_str(x)
+    }
+}
+
 /// A more structured wrapper around a [`PresentationWriter`]
-/// 
+///
 /// Writing comments is not allowed with this type because comments can only
 /// appear when a token is surrounded by parentheses.
 pub struct Presenter<'a> {
@@ -123,61 +207,29 @@ pub struct Presenter<'a> {
 
 impl<'a> Presenter<'a> {
     /// Start a sequence of grouped tokens
-    /// 
+    ///
     /// The block might be surrounded by `(` and `)` in a multiline format.
-    pub fn block<'b>(&'b mut self) -> Block<'a, 'b> {
-        let result = self.writer.begin_block();
-        Block {
-            presenter: self,
-            result,
-        }
+    pub fn block(&mut self, f: impl Fn(&mut Self) -> Result) -> Result {
+        self.writer.begin_block()?;
+        f(self)?;
+        self.writer.end_block()
     }
 
     /// Push a token
     pub fn write_token(&mut self, token: impl fmt::Display) -> Result {
         self.writer.fmt_token(format_args!("{token}"))
     }
-}
 
-#[must_use]
-pub struct Block<'a, 'b> {
-    presenter: &'b mut Presenter<'a>,
-    result: Result,
-}
-
-impl<'a, 'b> Block<'a, 'b> {
-    /// Push a token
-    pub fn write_token(
-        &mut self,
-        token: impl std::fmt::Display,
-    ) -> &mut Self {
-        self.result =
-            self.result.and_then(|_| self.presenter.write_token(token));
-        self
-    }
-
-    /// Push the sequence of tokens generated by the [`Show`] implementation
-    /// of the `token`
-    pub fn write_show(&mut self, token: impl Show) -> &mut Self {
-        self.result = self.result.and_then(|_| token.show(self.presenter));
-        self
+    /// Call the `show` method on `item` with this `Presenter`
+    pub fn write_show(&mut self, item: impl Show) -> Result {
+        item.show(self)
     }
 
     /// Write a comment
-    /// 
+    ///
     /// This may be ignored.
-    pub fn write_comment(&mut self, s: impl fmt::Display) -> &mut Self {
-        self.result = self.result.and_then(|_| {
-            self.presenter.writer.fmt_comment(format_args!("{s}"))
-        });
-        self
-    }
-
-    /// Finish the block.
-    /// 
-    /// This _must_ be called before the `Block` is dropped.
-    pub fn finish(&mut self) -> Result {
-        self.result.and_then(|_| self.presenter.writer.end_block())
+    pub fn write_comment(&mut self, s: impl fmt::Display) -> Result {
+        self.writer.fmt_comment(format_args!("{s}"))
     }
 }
 
@@ -201,7 +253,7 @@ mod test {
         let record = create_record(A::new("128.140.76.106".parse().unwrap()));
         assert_eq!(
             "example.com. 3600 IN A 128.140.76.106",
-            record.display_zonefile().to_string()
+            record.display_zonefile(false).to_string()
         );
     }
 
@@ -212,7 +264,7 @@ mod test {
         ));
         assert_eq!(
             "example.com. 3600 IN CNAME example.com.",
-            record.display_zonefile().to_string()
+            record.display_zonefile(false).to_string()
         );
     }
 
@@ -229,7 +281,16 @@ mod test {
         );
         assert_eq!(
             "example.com. 3600 IN DS 5414 15 2 DEADBEEF",
-            record.display_zonefile().to_string()
+            record.display_zonefile(false).to_string()
+        );
+        assert_eq!(
+            [
+                "example.com. 3600 IN DS ( 5414\t; key tag",
+                "                          15\t; algorithm: 15(ED25519)",
+                "                          2\t; digest type: 2(SHA-256)",
+                "                          DEADBEEF )",
+            ].join("\n"),
+            record.display_zonefile(true).to_string()
         );
     }
 
@@ -246,7 +307,7 @@ mod test {
         );
         assert_eq!(
             "example.com. 3600 IN CDS 5414 15 2 DEADBEEF",
-            record.display_zonefile().to_string()
+            record.display_zonefile(false).to_string()
         );
     }
 
@@ -258,7 +319,7 @@ mod test {
         ));
         assert_eq!(
             "example.com. 3600 IN MX 20 example.com.",
-            record.display_zonefile().to_string()
+            record.display_zonefile(false).to_string()
         );
     }
 
@@ -278,7 +339,7 @@ mod test {
             more like a silly monkey with a typewriter accidentally writing \
             some shakespeare along the way but it feels like I have to type \
             e\" \"ven longer to hit that limit!\"",
-            record.display_zonefile().to_string()
+            record.display_zonefile(false).to_string()
         );
     }
 }

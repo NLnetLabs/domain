@@ -232,10 +232,11 @@ impl<N: fmt::Display> fmt::Display for Mx<N> {
 
 impl<N: fmt::Display> Show for Mx<N> {
     fn show(&self, p: &mut Presenter) -> show::Result {
-        p.block()
-            .write_token(self.preference)
-            .write_token(format_args!("{}.", self.exchange))
-            .finish()
+        p.block(|p| {
+            p.write_token(self.preference)?;
+            p.write_comment("preference")?;
+            p.write_token(format_args!("{}.", self.exchange))
+        })
     }
 }
 

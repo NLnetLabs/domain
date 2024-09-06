@@ -605,18 +605,24 @@ impl<O: AsRef<[u8]>, N: fmt::Debug> fmt::Debug for Tsig<O, N> {
 
 impl<O: AsRef<[u8]>, N: fmt::Display> Show for Tsig<O, N> {
     fn show(&self, p: &mut Presenter) -> show::Result {
-        p.block()
-            .write_token(format_args!("{}.", self.algorithm))
-            .write_token(self.time_signed)
-            .write_token(self.fudge)
-            .write_token(base64::encode_display(&self.mac))
-            .write_token(self.original_id)
-            .write_token(self.error)
-            .write_token(format_args!(
+        p.block(|p| {
+            p.write_token(self.algorithm.fmt_with_dot())?;
+            p.write_comment("algorithm")?;
+            p.write_token(self.time_signed)?;
+            p.write_comment("time signed")?;
+            p.write_token(self.fudge)?;
+            p.write_comment("fudge")?;
+            p.write_token(base64::encode_display(&self.mac))?;
+            p.write_comment("mac")?;
+            p.write_token(self.original_id)?;
+            p.write_comment("original id")?;
+            p.write_token(self.error)?;
+            p.write_comment("error")?;
+            p.write_token(format_args!(
                 "\"{}\"",
                 base64::encode_display(&self.other))
             )
-            .finish()
+        })
     }
 }
 
@@ -630,7 +636,7 @@ pub struct Time48(u64);
 impl Time48 {
     /// Returns the timestamp of the current moment.
     ///
-    /// The funtion will panic if for whatever reason the current moment is
+    /// The function will panic if for whatever reason the current moment is
     /// too far in the future to fit into this type. For a correctly set
     /// clock, this will happen in December 8,921,556, so should be fine.
     #[cfg(feature = "std")]

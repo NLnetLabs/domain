@@ -331,12 +331,12 @@ impl<Octs: AsRef<[u8]>> fmt::Debug for Cdnskey<Octs> {
 
 impl<Octs: AsRef<[u8]>> Show for Cdnskey<Octs> {
     fn show(&self, p: &mut Presenter) -> show::Result {
-        p.block()
-            .write_token(self.flags)
-            .write_token(self.protocol)
-            .write_show(self.algorithm)
-            .write_token(base64::encode_display(&self.public_key))
-            .finish()
+        p.block(|p| {
+            p.write_token(self.flags)?;
+            p.write_token(self.protocol)?;
+            p.write_show(self.algorithm)?;
+            p.write_token(base64::encode_display(&self.public_key))
+        })
     }
 }
 
@@ -680,12 +680,13 @@ impl<Octs: AsRef<[u8]>> fmt::Debug for Cds<Octs> {
 
 impl<Octs: AsRef<[u8]>> Show for Cds<Octs> {
     fn show(&self, p: &mut Presenter) -> show::Result {
-        p.block()
-            .write_token(self.key_tag)
-            .write_show(self.algorithm)
-            .write_show(self.digest_type)
-            .write_token(base16::encode_display(&self.digest))
-            .finish()
+        p.block(|p| {
+            p.write_token(self.key_tag)?;
+            p.write_comment("key tag")?;
+            p.write_show(self.algorithm)?;
+            p.write_show(self.digest_type)?;
+            p.write_token(base16::encode_display(&self.digest))
+        })
     }
 }
 

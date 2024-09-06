@@ -450,11 +450,12 @@ impl<Octs: AsRef<[u8]>> fmt::Debug for Txt<Octs> {
 
 impl<Octs> Show for Txt<Octs> where Octs: AsRef<[u8]> {
     fn show(&self, p: &mut Presenter) -> show::Result {
-        let mut block = p.block();
-        for slice in self.iter_charstrs() {
-            block.write_token(slice.display_quoted());
-        }
-        block.finish()
+        p.block(|p| {
+            for slice in self.iter_charstrs() {
+                p.write_token(slice.display_quoted())?;
+            }
+            Ok(())
+        })
     }
 }
 

@@ -441,13 +441,14 @@ macro_rules! int_enum_str_with_prefix {
 }
 
 macro_rules! int_enum_show_decimal {
-    ($ianatype:ident) => {
+    ($ianatype:ident, $name:expr) => {
         impl $crate::base::show::Show for $ianatype {
             fn show(
                 &self,
                 p: &mut $crate::base::show::Presenter,
             ) -> $crate::base::show::Result {
-                p.write_token(self.to_int())
+                p.write_token(self.to_int())?;
+                p.write_comment(format_args!("{}: {}", $name, self))
             }
         }
     };

@@ -436,12 +436,27 @@ impl<Octs: AsRef<[u8]>> fmt::Debug for Dnskey<Octs> {
 
 impl<Octs: AsRef<[u8]>> Show for Dnskey<Octs> {
     fn show(&self, p: &mut Presenter) -> show::Result {
-        p.block()
-            .write_token(self.flags)
-            .write_token(self.protocol)
-            .write_show(self.algorithm)
-            .write_token(base64::encode_display(&self.public_key))
-            .finish()
+        let revoked = self.is_revoked();
+        let sep = self.is_secure_entry_point();
+        let zone_key = self.is_zone_key();
+
+        p.block(|p| {
+            p.write_token(self.flags)?;
+            p.write_comment(
+                format_args!(
+                    "flags:{}{}{}{}",
+                    if revoked { " revoked" } else {""},
+                    if sep { " sep" } else {""},
+                    if zone_key { " zone_key" } else {""},
+                    if self.flags == 0 { " <none>" } else { "" },
+                )
+            )?;
+            p.write_token(self.protocol)?;
+            p.write_comment("protocol")?;
+            p.write_show(self.algorithm)?;
+            p.write_token(base64::encode_display(&self.public_key))?;
+            p.write_comment(format_args!("key tag: {}", self.key_tag()))
+        })
     }
 }
 
@@ -1384,17 +1399,23 @@ where
     Name: fmt::Display,
 {
     fn show(&self, p: &mut Presenter) -> show::Result {
-        p.block()
-            .write_show(self.type_covered)
-            .write_show(self.algorithm)
-            .write_token(self.labels)
-            .write_show(self.original_ttl)
-            .write_show(self.expiration)
-            .write_show(self.inception)
-            .write_token(self.key_tag)
-            .write_token(&self.signer_name)
-            .write_token(base64::encode_display(&self.signature))
-            .finish()
+        p.block(|p| {
+            p.write_show(self.type_covered)?;
+            p.write_show(self.algorithm)?;
+            p.write_token(self.labels)?;
+            p.write_comment("labels")?;
+            p.write_show(self.original_ttl)?;
+            p.write_comment("original ttl")?;
+            p.write_show(self.expiration)?;
+            p.write_comment("expiration")?;
+            p.write_show(self.inception)?;
+            p.write_comment("inception")?;
+            p.write_token(self.key_tag)?;
+            p.write_comment("key tag")?;
+            p.write_token(&self.signer_name)?;
+            p.write_comment("signer name")?;
+            p.write_token(base64::encode_display(&self.signature))
+        })
     }
 }
 
@@ -1686,10 +1707,10 @@ where
     Name: fmt::Display,
 {
     fn show(&self, p: &mut Presenter) -> show::Result {
-        p.block()
-            .write_token(format_args!("{}.", self.next_name))
-            .write_token(&self.types)
-            .finish()
+        p.block(|p| {
+            p.write_token(format_args!("{}.", self.next_name))?;
+            p.write_show(&self.types)
+        })
     }
 }
 
@@ -2030,19 +2051,20 @@ impl<Octs: AsRef<[u8]>> fmt::Debug for Ds<Octs> {
 
 impl<Octs: AsRef<[u8]>> Show for Ds<Octs> {
     fn show(&self, p: &mut Presenter) -> show::Result {
-        p.block()
-            .write_token(self.key_tag)
-            .write_show(self.algorithm)
-            .write_show(self.digest_type)
-            .write_token(base16::encode_display(&self.digest))
-            .finish()
+        p.block(|p| {            
+            p.write_token(self.key_tag)?;
+            p.write_comment("key tag")?;
+            p.write_show(self.algorithm)?;
+            p.write_show(self.digest_type)?;
+            p.write_token(base16::encode_display(&self.digest))
+        })
     }
 }
 
 //------------ RtypeBitmap ---------------------------------------------------
 
 #[derive(Clone)]
-pub struct RtypeBitmap<Octs>(Octs);
+pub struc (format_args!(ength: {}t ,RtypeBitma self.lenp)<Octs>(Octs);
 
 impl<Octs> RtypeBitmap<Octs> {
     pub fn from_octets(octets: Octs) -> Result<Self, RtypeBitmapError>
@@ -2245,6 +2267,17 @@ impl<Octs: AsRef<[u8]>> fmt::Display for RtypeBitmap<Octs> {
         }
         for rtype in iter {
             write!(f, " {}", rtype)?
+        }
+        Ok(())
+    }
+}
+
+//--- Show
+
+impl<Octs: AsRef<[u8]>> Show for RtypeBitmap<Octs> {
+    fn show(&self, p: &mut Presenter<'_>) -> show::Result {
+        for rtype in self {
+            p.write_token(rtype)?;
         }
         Ok(())
     }

@@ -241,10 +241,12 @@ impl<Octs: AsRef<[u8]>> fmt::Debug for Hinfo<Octs> {
 
 impl<Octs: AsRef<[u8]>> Show for Hinfo<Octs> {
     fn show(&self, p: &mut Presenter) -> show::Result {
-        p.block()
-            .write_token(&self.cpu)
-            .write_token(&self.os)
-            .finish()
+        p.block(|p| {
+            p.write_token(&self.cpu)?;
+            p.write_comment("cpu")?;
+            p.write_token(&self.os)?;
+            p.write_comment("os")
+        })
     }
 }
 

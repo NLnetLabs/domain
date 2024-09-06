@@ -366,23 +366,22 @@ impl<Octs: Octets + ?Sized> fmt::Debug for SvcParams<Octs> {
 
 impl<Octs: Octets + ?Sized> Show for SvcParams<Octs> {
     fn show(&self, p: &mut Presenter) -> show::Result {
-        let mut block = p.block();
-        
-        let mut parser = Parser::from_ref(self.as_slice());
-        while parser.remaining() > 0 {
-            let key = SvcParamKey::parse(
-                &mut parser
-            ).expect("invalid SvcbParam");
-            let len = usize::from(
-                u16::parse(&mut parser).expect("invalid SvcParam")
-            );
-            let mut parser = parser.parse_parser(
-                len
-            ).expect("invalid SvcParam");
-            block.write_token(super::value::AllValues::parse_any(key, &mut parser));
-        };
-
-        block.finish()
+        p.block(|p| {
+            let mut parser = Parser::from_ref(self.as_slice());
+            while parser.remaining() > 0 {
+                let key = SvcParamKey::parse(
+                    &mut parser
+                ).expect("invalid SvcbParam");
+                let len = usize::from(
+                    u16::parse(&mut parser).expect("invalid SvcParam")
+                );
+                let mut parser = parser.parse_parser(
+                    len
+                ).expect("invalid SvcParam");
+                p.write_token(super::value::AllValues::parse_any(key, &mut parser))?;
+            }
+            Ok(())
+        })
     }
 }
 

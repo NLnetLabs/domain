@@ -287,12 +287,15 @@ impl<N: fmt::Display> fmt::Display for Srv<N> {
 
 impl<N: fmt::Display> Show for Srv<N> {
     fn show(&self, p: &mut Presenter) -> show::Result {
-        p.block()
-            .write_token(self.priority)
-            .write_token(self.weight)
-            .write_token(self.port)
-            .write_token(&self.target)
-            .finish()
+        p.block(|p| {
+            p.write_token(self.priority)?;
+            p.write_comment("priority")?;
+            p.write_token(self.weight)?;
+            p.write_comment("weight")?;
+            p.write_token(self.port)?;
+            p.write_comment("port")?;
+            p.write_token(&self.target)
+        })
     }
 }
 

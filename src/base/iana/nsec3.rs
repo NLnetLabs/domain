@@ -21,4 +21,4 @@ int_enum! {
 }
 
 int_enum_str_decimal!(Nsec3HashAlg, u8);
-int_enum_show_decimal!(Nsec3HashAlg);
+int_enum_show_decimal!(Nsec3HashAlg, "hash algorithm");
