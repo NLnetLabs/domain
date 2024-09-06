@@ -509,7 +509,9 @@ where
                         .push((owner.clone(), qclass, rrset.ttl(), rr))
                         .is_err()
                     {
-                        error!("Internal error: Failed to send RR to batcher");
+                        error!(
+                            "Internal error: Failed to send RR to batcher"
+                        );
                         let resp =
                             mk_error_response(&msg, OptRcode::SERVFAIL);
                         Self::add_to_stream(CallResult::new(resp), &sender);
@@ -1265,13 +1267,13 @@ impl<RequestOctets, Target> CallbackState<RequestOctets, Target> {
 mod tests {
     use core::str::FromStr;
 
-    use std::borrow::ToOwned;
-
     use futures::StreamExt;
     use tokio::time::Instant;
 
     use crate::base::{MessageBuilder, RecordData, Ttl};
-    use crate::net::server::message::NonUdpTransportContext;
+    use crate::net::server::message::{
+        NonUdpTransportContext, UdpTransportContext,
+    };
     use crate::net::server::service::ServiceError;
     use crate::rdata::{Aaaa, AllRecordData, Cname, Mx, Ns, A};
     use crate::zonefile::inplace::Zonefile;
@@ -1280,6 +1282,9 @@ mod tests {
 
     type ExpectedRecords =
         Vec<(Name<Bytes>, AllRecordData<Bytes, Name<Bytes>>)>;
+
+    #[tokio::test]
+    async fn axfr_minimal() {}
 
     #[tokio::test]
     async fn axfr_with_example_zone() {
@@ -1299,7 +1304,11 @@ mod tests {
 
         let req = mk_axfr_request(zone.apex_name(), ());
 
-        let mut stream = do_axfr_for_zone(&zone, &req).await.unwrap();
+        let res = do_axfr_for_zone(zone.clone(), &req).await;
+
+        let ControlFlow::Break(mut stream) = res else {
+            panic!("AXFR failed");
+        };
 
         assert_xfr_stream_eq(
             req.message(),
@@ -1309,6 +1318,66 @@ mod tests {
         )
         .await;
     }
+
+    #[tokio::test]
+    async fn axfr_multi_response() {}
+
+    #[tokio::test]
+    async fn axfr_delegation_records() {
+        // https://datatracker.ietf.org/doc/html/rfc5936#section-3.2
+    }
+
+    #[tokio::test]
+    async fn axfr_glue_records() {
+        // https://datatracker.ietf.org/doc/html/rfc5936#section-3.3
+    }
+
+    #[tokio::test]
+    async fn axfr_name_compression_not_yet_supported() {
+        // https://datatracker.ietf.org/doc/html/rfc5936#section-3.4
+    }
+
+    #[tokio::test]
+    async fn axfr_occluded_names() {
+        // https://datatracker.ietf.org/doc/html/rfc5936#section-3.5
+    }
+
+    #[tokio::test]
+    async fn axfr_not_allowed_over_udp() {
+        // https://datatracker.ietf.org/doc/html/rfc5936#section-4.2
+        let zone = load_zone(include_bytes!(
+            "../../../../test-data/zonefiles/nsd-example.txt"
+        ));
+
+        let req = mk_udp_axfr_request(zone.apex_name(), ());
+
+        let res = do_axfr_for_zone(zone, &req).await;
+
+        let ControlFlow::Break(mut stream) = res else {
+            panic!("AXFR failed");
+        };
+
+        let msg = stream.next().await.unwrap().unwrap();
+        let resp_builder = msg.into_inner().0.unwrap();
+        let resp = resp_builder.as_message();
+
+        assert_eq!(resp.header().rcode(), Rcode::NOTIMP);
+    }
+
+    #[tokio::test]
+    async fn ixfr_minimal() {}
+
+    #[tokio::test]
+    async fn ixfr_single_response_udp() {}
+
+    #[tokio::test]
+    async fn ixfr_too_large_response_udp() {}
+
+    #[tokio::test]
+    async fn ixfr_single_response_tcp() {}
+
+    #[tokio::test]
+    async fn ixfr_multi_response_tcp() {}
 
     // #[tokio::test]
     // async fn axfr_with_tsig() {
@@ -1342,16 +1411,37 @@ mod tests {
         qname: impl ToName,
         metadata: T,
     ) -> Request<Vec<u8>, T> {
+        mk_axfr_request_for_transport(
+            qname,
+            metadata,
+            TransportSpecificContext::NonUdp(NonUdpTransportContext::new(
+                None,
+            )),
+        )
+    }
+
+    fn mk_udp_axfr_request<T>(
+        qname: impl ToName,
+        metadata: T,
+    ) -> Request<Vec<u8>, T> {
+        mk_axfr_request_for_transport(
+            qname,
+            metadata,
+            TransportSpecificContext::Udp(UdpTransportContext::new(None)),
+        )
+    }
+
+    fn mk_axfr_request_for_transport<T>(
+        qname: impl ToName,
+        metadata: T,
+        transport_specific: TransportSpecificContext,
+    ) -> Request<Vec<u8>, T> {
         let client_addr = "127.0.0.1:12345".parse().unwrap();
         let received_at = Instant::now();
         let msg = MessageBuilder::new_vec();
         let mut msg = msg.question();
         msg.push((qname, Rtype::AXFR)).unwrap();
         let msg = msg.into_message();
-
-        let transport_specific = TransportSpecificContext::NonUdp(
-            NonUdpTransportContext::new(None),
-        );
 
         Request::new(
             client_addr,
@@ -1363,32 +1453,29 @@ mod tests {
     }
 
     async fn do_axfr_for_zone<T>(
-        zone: &Zone,
+        zone: Zone,
         req: &Request<Vec<u8>, T>,
-    ) -> Result<
+    ) -> ControlFlow<
         XfrMiddlewareStream<
             <TestNextSvc as Service>::Future,
             <TestNextSvc as Service>::Stream,
             <<TestNextSvc as Service>::Stream as Stream>::Item,
         >,
-        OptRcode,
     > {
-        let qname = zone.apex_name();
-        let read = zone.read();
-        let zone_soa_answer =
-            XfrMiddlewareSvc::<_, TestNextSvc, Zone>::read_soa(
-                &read,
-                qname.to_owned(),
-            )
-            .await
-            .unwrap();
-        XfrMiddlewareSvc::<_, TestNextSvc, Zone>::do_axfr(
+        // let qname = zone.apex_name();
+        // let read = zone.read();
+        // let zone_soa_answer =
+        //     XfrMiddlewareSvc::<_, TestNextSvc, Zone>::read_soa(
+        //         &read,
+        //         qname.to_owned(),
+        //     )
+        //     .await
+        //     .unwrap();
+        XfrMiddlewareSvc::<_, TestNextSvc, Zone>::preprocess(
             Arc::new(Semaphore::new(1)),
             Arc::new(Semaphore::new(1)),
             req,
-            qname.to_owned(),
-            &zone_soa_answer,
-            read,
+            zone,
         )
         .await
     }
