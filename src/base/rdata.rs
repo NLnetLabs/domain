@@ -484,7 +484,7 @@ impl<Octs: AsRef<[u8]>> Show for UnknownRecordData<Octs> {
     fn show(&self, p: &mut Presenter) -> show::Result {
         struct Data<'a>(&'a [u8]);
 
-        impl std::fmt::Display for Data<'_> {
+        impl fmt::Display for Data<'_> {
             fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
                 write!(f, "\\# {}", self.0.len())?;
                 for ch in self.0 {

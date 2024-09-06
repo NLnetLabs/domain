@@ -9,7 +9,7 @@ impl From<fmt::Error> for Error {
     }
 }
 
-pub type Result = std::result::Result<(), Error>;
+pub type Result = core::result::Result<(), Error>;
 
 /// Show a value as zonefile format
 pub trait Show {
@@ -55,7 +55,7 @@ impl<T: Show> Show for &T {
 /// Determines how a zonefile is formatted
 pub trait PresentationWriter {
     /// Push a token to the zonefile
-    fn fmt_token(&mut self, args: std::fmt::Arguments<'_>) -> Result;
+    fn fmt_token(&mut self, args: fmt::Arguments<'_>) -> Result;
 
     /// Start a block of grouped tokens
     ///
@@ -72,7 +72,7 @@ pub trait PresentationWriter {
     /// Write a comment
     ///
     /// This may be ignored.
-    fn fmt_comment(&mut self, args: std::fmt::Arguments<'_>) -> Result;
+    fn fmt_comment(&mut self, args: fmt::Arguments<'_>) -> Result;
 
     /// End the current record and start a new line
     fn newline(&mut self) -> Result;
