@@ -1462,15 +1462,6 @@ mod tests {
             <<TestNextSvc as Service>::Stream as Stream>::Item,
         >,
     > {
-        // let qname = zone.apex_name();
-        // let read = zone.read();
-        // let zone_soa_answer =
-        //     XfrMiddlewareSvc::<_, TestNextSvc, Zone>::read_soa(
-        //         &read,
-        //         qname.to_owned(),
-        //     )
-        //     .await
-        //     .unwrap();
         XfrMiddlewareSvc::<_, TestNextSvc, Zone>::preprocess(
             Arc::new(Semaphore::new(1)),
             Arc::new(Semaphore::new(1)),
