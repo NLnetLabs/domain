@@ -38,8 +38,11 @@ use crate::zonetree::StoredName;
 /// [1996]: https://datatracker.ietf.org/doc/html/rfc1996
 #[derive(Clone, Debug)]
 pub struct NotifyMiddlewareSvc<RequestOctets, NextSvc, RequestMeta, N> {
+    /// The upstream [`Service`] to pass requests to and receive responses
+    /// from.
     next_svc: NextSvc,
 
+    /// The target to send notifications to.
     notify_target: N,
 
     _phantom: PhantomData<(RequestOctets, RequestMeta)>,
@@ -48,6 +51,7 @@ pub struct NotifyMiddlewareSvc<RequestOctets, NextSvc, RequestMeta, N> {
 impl<RequestOctets, NextSvc, RequestMeta, N>
     NotifyMiddlewareSvc<RequestOctets, NextSvc, RequestMeta, N>
 {
+    /// Creates an instance of this middleware service.
     #[must_use]
     pub fn new(next_svc: NextSvc, notify_target: N) -> Self {
         Self {
@@ -309,8 +313,9 @@ where
     }
 }
 
-//------------ Notifiable -----------------------------------------------------
+//------------ NotifyError ----------------------------------------------------
 
+/// Errors reportable by a [`Notifiable`] trait impl.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum NotifyError {
     /// We are not authoritative for the zone.
@@ -320,9 +325,15 @@ pub enum NotifyError {
     Other,
 }
 
+//------------ Notifiable -----------------------------------------------------
+
+/// A target for notifications sent by [`NotifyMiddlewareSvc`].
 // Note: The fn signatures can be simplified to fn() -> impl Future<...> if
 // our MSRV is later increased.
 pub trait Notifiable {
+    /// A notification that the content of a zone has changed.
+    ///
+    /// The origin of the notification is the passed `source` IP address.
     fn notify_zone_changed(
         &self,
         class: Class,
