@@ -2,6 +2,7 @@
 
 use core::marker::PhantomData;
 
+use std::fmt::Debug;
 use std::sync::Arc;
 
 use octseq::Octets;
@@ -31,14 +32,16 @@ where
     RequestOctets: Octets,
     Target: Composer + Default,
 {
+    type Error: From<PushError> + Debug;
+
     #[allow(clippy::result_unit_err)]
     fn push(
         &mut self,
         record: impl ComposeRecord,
-    ) -> Result<PushResult<Target>, ()>;
+    ) -> Result<PushResult<Target>, Self::Error>;
 
     #[allow(clippy::result_unit_err)]
-    fn finish(&mut self) -> Result<(), ()>;
+    fn finish(&mut self) -> Result<(), Self::Error>;
 
     fn mk_answer_builder(
         &self,
@@ -56,6 +59,8 @@ where
     RequestOctets: Octets,
     Target: Composer + Default,
 {
+    type Error: From<PushError> + Debug;
+
     /// Prepare a message builder to push records into.
     fn batch_started(
         _state: &T,
@@ -81,7 +86,8 @@ where
     fn batch_ready(
         _state: &T,
         _answer: AnswerBuilder<StreamTarget<Target>>,
-    ) -> Result<(), ()>;
+        _finished: bool,
+    ) -> Result<(), Self::Error>;
 }
 
 //------------ CallbackBatcher ------------------------------------------------
@@ -130,14 +136,14 @@ where
     fn try_push(
         &mut self,
         record: &impl ComposeRecord,
-    ) -> Result<PushResult<Target>, ()> {
-        match self.push_ref(record).map_err(|_| ())? {
+    ) -> Result<PushResult<Target>, C::Error> {
+        match self.push_ref(record)? {
             PushResult::PushedAndLimitReached(builder) => {
-                C::batch_ready(&self.callback_state, builder)?;
+                C::batch_ready(&self.callback_state, builder, false)?;
                 Ok(PushResult::PushedAndReadyForMore)
             }
             PushResult::NotPushedMessageFull(builder) => {
-                C::batch_ready(&self.callback_state, builder)?;
+                C::batch_ready(&self.callback_state, builder, false)?;
                 Ok(PushResult::Retry)
             }
             other => Ok(other),
@@ -196,19 +202,21 @@ where
     Target: Composer + Default,
     C: Callbacks<RequestOctets, Target, T>,
 {
+    type Error = C::Error;
+
     fn push(
         &mut self,
         record: impl ComposeRecord,
-    ) -> Result<PushResult<Target>, ()> {
+    ) -> Result<PushResult<Target>, Self::Error> {
         match self.try_push(&record) {
             Ok(PushResult::Retry) => self.try_push(&record),
             other => other,
         }
     }
 
-    fn finish(&mut self) -> Result<(), ()> {
+    fn finish(&mut self) -> Result<(), Self::Error> {
         if let Some(builder) = self.answer.take() {
-            C::batch_ready(&self.callback_state, builder.unwrap())
+            C::batch_ready(&self.callback_state, builder.unwrap(), true)
         } else {
             Ok(())
         }
@@ -346,10 +354,17 @@ mod tests {
 
     struct BatchCounter;
 
+    impl From<PushError> for () {
+        fn from(_: PushError) -> Self {}
+    }
+
     impl Callbacks<Vec<u8>, Vec<u8>, Arc<TestCounters>> for BatchCounter {
+        type Error = ();
+
         fn batch_ready(
             counters: &Arc<TestCounters>,
             answer: AnswerBuilder<StreamTarget<Vec<u8>>>,
+            _finished: bool,
         ) -> Result<(), ()> {
             counters.num_batches.fetch_add(1, Ordering::SeqCst);
             counters.num_rrs_in_last_batch.store(0, Ordering::SeqCst);
