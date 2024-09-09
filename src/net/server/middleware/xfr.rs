@@ -1039,7 +1039,7 @@ pub trait XfrDataProvider {
         req: &Request<Octs, Metadata>,
         apex_name: &impl ToName,
         class: Class,
-        diff_to: Option<Serial>,
+        diff_from: Option<Serial>,
     ) -> Pin<
         Box<
             dyn Future<
@@ -1067,7 +1067,7 @@ where
         req: &Request<Octs, Metadata>,
         apex_name: &impl ToName,
         class: Class,
-        diff_to: Option<Serial>,
+        diff_from: Option<Serial>,
     ) -> Pin<
         Box<
             dyn Future<
@@ -1082,7 +1082,7 @@ where
     where
         Octs: AsRef<[u8]> + Send + Sync,
     {
-        (**self).request(req, apex_name, class, diff_to)
+        (**self).request(req, apex_name, class, diff_from)
     }
 }
 
@@ -1100,7 +1100,7 @@ impl XfrDataProvider for Zone {
         _req: &Request<Octs, Metadata>,
         apex_name: &impl ToName,
         class: Class,
-        _diff_to: Option<Serial>,
+        _diff_from: Option<Serial>,
     ) -> Pin<
         Box<
             dyn Future<
@@ -1141,7 +1141,7 @@ impl XfrDataProvider for ZoneTree {
         _req: &Request<Octs, Metadata>,
         apex_name: &impl ToName,
         class: Class,
-        _diff_to: Option<Serial>,
+        _diff_from: Option<Serial>,
     ) -> Pin<
         Box<
             dyn Future<
@@ -1354,6 +1354,7 @@ impl<RequestOctets, Target> CallbackState<RequestOctets, Target> {
 #[cfg(test)]
 mod tests {
     use core::str::FromStr;
+    use std::borrow::ToOwned;
 
     use futures::StreamExt;
     use tokio::time::Instant;
@@ -1365,6 +1366,7 @@ mod tests {
     use crate::net::server::service::ServiceError;
     use crate::rdata::{Aaaa, AllRecordData, Cname, Mx, Ns, Txt, A};
     use crate::zonefile::inplace::Zonefile;
+    use crate::zonetree::types::Rrset;
 
     use super::*;
 
@@ -1376,16 +1378,6 @@ mod tests {
 
     #[tokio::test]
     async fn axfr_with_example_zone() {
-        let mut expected_records: ExpectedRecords = vec![
-            (n("example.com"), Ns::new(n("example.com")).into()),
-            (n("example.com"), A::new(p("192.0.2.1")).into()),
-            (n("example.com"), A::new(p("192.0.2.1")).into()),
-            (n("example.com"), A::new(p("192.0.2.1")).into()),
-            (n("example.com"), Aaaa::new(p("2001:db8::3")).into()),
-            (n("www.example.com"), Cname::new(n("example.com")).into()),
-            (n("mail.example.com"), Mx::new(10, n("example.com")).into()),
-        ];
-
         let zone = load_zone(include_bytes!(
             "../../../../test-data/zonefiles/nsd-example.txt"
         ));
@@ -1398,18 +1390,58 @@ mod tests {
             panic!("AXFR failed");
         };
 
-        assert_xfr_stream_eq(
+        let zone_soa = get_zone_soa(&zone).await;
+
+        let mut expected_records: ExpectedRecords = vec![
+            (n("example.com"), zone_soa.clone().into()),
+            (n("example.com"), Ns::new(n("example.com")).into()),
+            (n("example.com"), A::new(p("192.0.2.1")).into()),
+            (n("example.com"), A::new(p("192.0.2.1")).into()),
+            (n("example.com"), A::new(p("192.0.2.1")).into()),
+            (n("example.com"), Aaaa::new(p("2001:db8::3")).into()),
+            (n("www.example.com"), Cname::new(n("example.com")).into()),
+            (n("mail.example.com"), Mx::new(10, n("example.com")).into()),
+            (n("example.com"), zone_soa.into()),
+        ];
+
+        let msg = stream.next().await.unwrap().unwrap();
+        assert!(matches!(
+            msg.feedback(),
+            Some(ServiceFeedback::BeginTransaction)
+        ));
+
+        let stream = assert_stream_eq(
             req.message(),
-            &zone,
             &mut stream,
             &mut expected_records,
         )
         .await;
+
+        let msg = stream.next().await.unwrap().unwrap();
+        assert!(matches!(
+            msg.feedback(),
+            Some(ServiceFeedback::EndTransaction)
+        ));
     }
 
     #[tokio::test]
     async fn axfr_multi_response() {
+        let zone = load_zone(include_bytes!(
+            "../../../../test-data/zonefiles/big.example.com.txt"
+        ));
+
+        let req = mk_axfr_request(zone.apex_name(), ());
+
+        let res = do_preprocess(zone.clone(), &req).await;
+
+        let ControlFlow::Break(mut stream) = res else {
+            panic!("AXFR failed");
+        };
+
+        let zone_soa = get_zone_soa(&zone).await;
+
         let mut expected_records: ExpectedRecords = vec![
+            (n("example.com"), zone_soa.clone().into()),
             (n("example.com"), Ns::new(n("ns1.example.com")).into()),
             (n("example.com"), Ns::new(n("ns2.example.com")).into()),
             (n("example.com"), Mx::new(10, n("mail.example.com")).into()),
@@ -1430,25 +1462,26 @@ mod tests {
             ));
         }
 
-        let zone = load_zone(include_bytes!(
-            "../../../../test-data/zonefiles/big.example.com.txt"
+        expected_records.push((n("example.com"), zone_soa.into()));
+
+        let msg = stream.next().await.unwrap().unwrap();
+        assert!(matches!(
+            msg.feedback(),
+            Some(ServiceFeedback::BeginTransaction)
         ));
 
-        let req = mk_axfr_request(zone.apex_name(), ());
-
-        let res = do_preprocess(zone.clone(), &req).await;
-
-        let ControlFlow::Break(mut stream) = res else {
-            panic!("AXFR failed");
-        };
-
-        assert_xfr_stream_eq(
+        let stream = assert_stream_eq(
             req.message(),
-            &zone,
             &mut stream,
             &mut expected_records,
         )
         .await;
+
+        let msg = stream.next().await.unwrap().unwrap();
+        assert!(matches!(
+            msg.feedback(),
+            Some(ServiceFeedback::EndTransaction)
+        ));
     }
 
     #[tokio::test]
@@ -1494,15 +1527,287 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn ixfr_minimal() {}
+    async fn ixfr_rfc1995_section7_full_zone_reply() {
+        // Based on https://datatracker.ietf.org/doc/html/rfc1995#section-7
+
+        // initial zone content:
+        // JAIN.AD.JP.         IN SOA NS.JAIN.AD.JP. mohta.jain.ad.jp. (
+        //                                   1 600 600 3600000 604800)
+        // IN NS  NS.JAIN.AD.JP.
+        // NS.JAIN.AD.JP.      IN A   133.69.136.1
+        // NEZU.JAIN.AD.JP.    IN A   133.69.136.5
+
+        // Final zone content:
+        let rfc_1995_zone = r#"
+JAIN.AD.JP.         IN SOA NS.JAIN.AD.JP. mohta.jain.ad.jp. (
+                                  3 600 600 3600000 604800)
+                    IN NS  NS.JAIN.AD.JP.
+NS.JAIN.AD.JP.      IN A   133.69.136.1
+JAIN-BB.JAIN.AD.JP. IN A   133.69.136.3
+JAIN-BB.JAIN.AD.JP. IN A   192.41.197.2
+        "#;
+        let zone = load_zone(rfc_1995_zone.as_bytes());
+
+        // Create an object that knows how to provide zone and diff data for
+        // our zone and no diffs.
+        let zone_with_diffs = ZoneWithDiffs::new(zone.clone(), vec![]);
+
+        // The following IXFR query
+        let req = mk_udp_ixfr_request(zone.apex_name(), Serial(1), ());
+
+        let res = do_preprocess(zone_with_diffs, &req).await;
+
+        let ControlFlow::Break(mut stream) = res else {
+            panic!("IXFR failed");
+        };
+
+        // could be replied to with the following full zone transfer message:
+        let zone_soa = get_zone_soa(&zone).await;
+
+        let mut expected_records: ExpectedRecords = vec![
+            (n("JAIN.AD.JP."), zone_soa.clone().into()),
+            (n("JAIN.AD.JP."), Ns::new(n("NS.JAIN.AD.JP.")).into()),
+            (n("NS.JAIN.AD.JP."), A::new(p("133.69.136.1")).into()),
+            (n("JAIN-BB.JAIN.AD.JP."), A::new(p("133.69.136.3")).into()),
+            (n("JAIN-BB.JAIN.AD.JP."), A::new(p("192.41.197.2")).into()),
+            (n("JAIN.AD.JP."), zone_soa.into()),
+        ];
+
+        assert_stream_eq(req.message(), &mut stream, &mut expected_records)
+            .await;
+    }
 
     #[tokio::test]
-    async fn ixfr_single_response_udp() {}
+    async fn ixfr_rfc1995_section7_incremental_reply() {
+        // Based on https://datatracker.ietf.org/doc/html/rfc1995#section-7
+        let mut diffs = Vec::new();
+
+        // initial zone content:
+        // JAIN.AD.JP.         IN SOA NS.JAIN.AD.JP. mohta.jain.ad.jp. (
+        //                                   1 600 600 3600000 604800)
+        // IN NS  NS.JAIN.AD.JP.
+        // NS.JAIN.AD.JP.      IN A   133.69.136.1
+        // NEZU.JAIN.AD.JP.    IN A   133.69.136.5
+
+        // Final zone content:
+        let rfc_1995_zone = r#"
+JAIN.AD.JP.         IN SOA NS.JAIN.AD.JP. mohta.jain.ad.jp. (
+                                  3 600 600 3600000 604800)
+                    IN NS  NS.JAIN.AD.JP.
+NS.JAIN.AD.JP.      IN A   133.69.136.1
+JAIN-BB.JAIN.AD.JP. IN A   133.69.136.3
+JAIN-BB.JAIN.AD.JP. IN A   192.41.197.2
+        "#;
+        let zone = load_zone(rfc_1995_zone.as_bytes());
+
+        // Diff 1: NEZU.JAIN.AD.JP. is removed and JAIN-BB.JAIN.AD.JP. is added.
+        let mut diff = ZoneDiff::new();
+        diff.start_serial = Some(Serial(1));
+        diff.end_serial = Some(Serial(2));
+
+        // -- Remove the old SOA.
+        let mut rrset = Rrset::new(Rtype::SOA, Ttl::from_secs(0));
+        let soa = Soa::new(
+            n("NS.JAIN.AD.JP."),
+            n("mohta.jain.ad.jp."),
+            Serial(1),
+            Ttl::from_secs(600),
+            Ttl::from_secs(600),
+            Ttl::from_secs(3600000),
+            Ttl::from_secs(604800),
+        );
+        rrset.push_data(soa.into());
+        diff.removed
+            .insert((n("JAIN.AD.JP"), Rtype::SOA), SharedRrset::new(rrset));
+
+        // -- Remove the A record.
+        let mut rrset = Rrset::new(Rtype::A, Ttl::from_secs(0));
+        rrset.push_data(A::new(p("133.69.136.5")).into());
+        diff.removed.insert(
+            (n("NEZU.JAIN.AD.JP"), Rtype::A),
+            SharedRrset::new(rrset),
+        );
+
+        // -- Add the new SOA.
+        let mut rrset = Rrset::new(Rtype::SOA, Ttl::from_secs(0));
+        let soa = Soa::new(
+            n("NS.JAIN.AD.JP."),
+            n("mohta.jain.ad.jp."),
+            Serial(2),
+            Ttl::from_secs(600),
+            Ttl::from_secs(600),
+            Ttl::from_secs(3600000),
+            Ttl::from_secs(604800),
+        );
+        rrset.push_data(soa.into());
+        diff.added
+            .insert((n("JAIN.AD.JP"), Rtype::SOA), SharedRrset::new(rrset));
+
+        // -- Add the new A records.
+        let mut rrset = Rrset::new(Rtype::A, Ttl::from_secs(0));
+        rrset.push_data(A::new(p("133.69.136.4")).into());
+        rrset.push_data(A::new(p("192.41.197.2")).into());
+        diff.added.insert(
+            (n("JAIN-BB.JAIN.AD.JP"), Rtype::A),
+            SharedRrset::new(rrset),
+        );
+
+        diffs.push(diff);
+
+        // Diff 2: One of the IP addresses of JAIN-BB.JAIN.AD.JP. is changed.
+        let mut diff = ZoneDiff::new();
+        diff.start_serial = Some(Serial(2));
+        diff.end_serial = Some(Serial(3));
+
+        // -- Remove the old SOA.
+        let mut rrset = Rrset::new(Rtype::SOA, Ttl::from_secs(0));
+        let soa = Soa::new(
+            n("NS.JAIN.AD.JP."),
+            n("mohta.jain.ad.jp."),
+            Serial(2),
+            Ttl::from_secs(600),
+            Ttl::from_secs(600),
+            Ttl::from_secs(3600000),
+            Ttl::from_secs(604800),
+        );
+        rrset.push_data(soa.into());
+        diff.removed
+            .insert((n("JAIN.AD.JP"), Rtype::SOA), SharedRrset::new(rrset));
+
+        // Remove the outdated IP address.
+        let mut rrset = Rrset::new(Rtype::A, Ttl::from_secs(0));
+        rrset.push_data(A::new(p("133.69.136.4")).into());
+        diff.removed.insert(
+            (n("JAIN-BB.JAIN.AD.JP"), Rtype::A),
+            SharedRrset::new(rrset),
+        );
+
+        // -- Add the new SOA.
+        let mut rrset = Rrset::new(Rtype::SOA, Ttl::from_secs(0));
+        let soa = Soa::new(
+            n("NS.JAIN.AD.JP."),
+            n("mohta.jain.ad.jp."),
+            Serial(3),
+            Ttl::from_secs(600),
+            Ttl::from_secs(600),
+            Ttl::from_secs(3600000),
+            Ttl::from_secs(604800),
+        );
+        rrset.push_data(soa.into());
+        diff.added
+            .insert((n("JAIN.AD.JP"), Rtype::SOA), SharedRrset::new(rrset));
+
+        // Add the updated IP address.
+        let mut rrset = Rrset::new(Rtype::A, Ttl::from_secs(0));
+        rrset.push_data(A::new(p("133.69.136.3")).into());
+        diff.added.insert(
+            (n("JAIN-BB.JAIN.AD.JP"), Rtype::A),
+            SharedRrset::new(rrset),
+        );
+
+        diffs.push(diff);
+
+        // Create an object that knows how to provide zone and diff data for
+        // our zone and diffs.
+        let zone_with_diffs = ZoneWithDiffs::new(zone.clone(), diffs);
+
+        // The following IXFR query
+        let req = mk_ixfr_request(zone.apex_name(), Serial(1), ());
+
+        let res = do_preprocess(zone_with_diffs, &req).await;
+
+        let ControlFlow::Break(mut stream) = res else {
+            panic!("IXFR failed");
+        };
+
+        let zone_soa = get_zone_soa(&zone).await;
+
+        // could be replied to with the following full zone transfer message:
+        let mut expected_records: ExpectedRecords = vec![
+            (n("JAIN.AD.JP."), zone_soa.clone().into()),
+            (
+                n("JAIN.AD.JP."),
+                Soa::new(
+                    n("NS.JAIN.AD.JP."),
+                    n("mohta.jain.ad.jp."),
+                    Serial(1),
+                    Ttl::from_secs(600),
+                    Ttl::from_secs(600),
+                    Ttl::from_secs(3600000),
+                    Ttl::from_secs(604800),
+                )
+                .into(),
+            ),
+            (n("NEZU.JAIN.AD.JP."), A::new(p("133.69.136.5")).into()),
+            (
+                n("JAIN.AD.JP."),
+                Soa::new(
+                    n("NS.JAIN.AD.JP."),
+                    n("mohta.jain.ad.jp."),
+                    Serial(2),
+                    Ttl::from_secs(600),
+                    Ttl::from_secs(600),
+                    Ttl::from_secs(3600000),
+                    Ttl::from_secs(604800),
+                )
+                .into(),
+            ),
+            (n("JAIN-BB.JAIN.AD.JP."), A::new(p("133.69.136.4")).into()),
+            (n("JAIN-BB.JAIN.AD.JP."), A::new(p("192.41.197.2")).into()),
+            (
+                n("JAIN.AD.JP."),
+                Soa::new(
+                    n("NS.JAIN.AD.JP."),
+                    n("mohta.jain.ad.jp."),
+                    Serial(2),
+                    Ttl::from_secs(600),
+                    Ttl::from_secs(600),
+                    Ttl::from_secs(3600000),
+                    Ttl::from_secs(604800),
+                )
+                .into(),
+            ),
+            (n("JAIN-BB.JAIN.AD.JP."), A::new(p("133.69.136.4")).into()),
+            (
+                n("JAIN.AD.JP."),
+                Soa::new(
+                    n("NS.JAIN.AD.JP."),
+                    n("mohta.jain.ad.jp."),
+                    Serial(3),
+                    Ttl::from_secs(600),
+                    Ttl::from_secs(600),
+                    Ttl::from_secs(3600000),
+                    Ttl::from_secs(604800),
+                )
+                .into(),
+            ),
+            (n("JAIN-BB.JAIN.AD.JP."), A::new(p("133.69.136.3")).into()),
+            (n("JAIN.AD.JP."), zone_soa.into()),
+        ];
+
+        let msg = stream.next().await.unwrap().unwrap();
+        assert!(matches!(
+            msg.feedback(),
+            Some(ServiceFeedback::BeginTransaction)
+        ));
+
+        let stream = assert_stream_eq(
+            req.message(),
+            &mut stream,
+            &mut expected_records,
+        )
+        .await;
+
+        let msg = stream.next().await.unwrap().unwrap();
+        assert!(matches!(
+            msg.feedback(),
+            Some(ServiceFeedback::EndTransaction)
+        ));
+    }
 
     #[tokio::test]
-    async fn ixfr_too_large_response_udp() {
-        let mut expected_records: ExpectedRecords = vec![];
-
+    async fn ixfr_rfc1995_section7_udp_packet_overflow() {
+        // Based on https://datatracker.ietf.org/doc/html/rfc1995#section-7
         let zone = load_zone(include_bytes!(
             "../../../../test-data/zonefiles/big.example.com.txt"
         ));
@@ -1512,20 +1817,17 @@ mod tests {
         let res = do_preprocess(zone.clone(), &req).await;
 
         let ControlFlow::Break(mut stream) = res else {
-            panic!("AXFR failed");
+            panic!("IXFR failed");
         };
 
-        assert_udp_xfr_stream_eq(
-            req.message(),
-            &zone,
-            &mut stream,
-            &mut expected_records,
-        )
-        .await;
-    }
+        let zone_soa = get_zone_soa(&zone).await;
 
-    #[tokio::test]
-    async fn ixfr_single_response_tcp() {}
+        let mut expected_records: ExpectedRecords =
+            vec![(n("example.com"), zone_soa.into())];
+
+        assert_stream_eq(req.message(), &mut stream, &mut expected_records)
+            .await;
+    }
 
     #[tokio::test]
     async fn ixfr_multi_response_tcp() {}
@@ -1556,6 +1858,27 @@ mod tests {
         let mut zone_bytes = std::io::BufReader::new(bytes);
         let reader = Zonefile::load(&mut zone_bytes).unwrap();
         Zone::try_from(reader).unwrap()
+    }
+
+    async fn get_zone_soa(zone: &Zone) -> Soa<Name<Bytes>> {
+        let read = zone.read();
+        let zone_soa_answer =
+            XfrMiddlewareSvc::<_, TestNextSvc, Zone>::read_soa(
+                &read,
+                zone.apex_name().to_owned(),
+            )
+            .await
+            .unwrap();
+        let AnswerContent::Data(zone_soa_rrset) =
+            zone_soa_answer.content().clone()
+        else {
+            unreachable!()
+        };
+        let first_rr = zone_soa_rrset.first().unwrap();
+        let ZoneRecordData::Soa(soa) = first_rr.data() else {
+            unreachable!()
+        };
+        soa.clone()
     }
 
     fn mk_axfr_request<T>(
@@ -1603,6 +1926,21 @@ mod tests {
         )
     }
 
+    fn mk_ixfr_request<T>(
+        qname: impl ToName + Clone,
+        serial: Serial,
+        metadata: T,
+    ) -> Request<Vec<u8>, T> {
+        mk_ixfr_request_for_transport(
+            qname,
+            serial,
+            metadata,
+            TransportSpecificContext::NonUdp(NonUdpTransportContext::new(
+                None,
+            )),
+        )
+    }
+
     fn mk_udp_ixfr_request<T>(
         qname: impl ToName + Clone,
         serial: Serial,
@@ -1629,10 +1967,8 @@ mod tests {
         msg.push((qname.clone(), Rtype::IXFR)).unwrap();
 
         let mut msg = msg.authority();
-        let mname = Name::<Bytes>::from_str("mname").unwrap();
-        let rname = Name::<Bytes>::from_str("rname").unwrap();
         let ttl = Ttl::from_secs(0);
-        let soa = Soa::new(mname, rname, serial, ttl, ttl, ttl, ttl);
+        let soa = Soa::new(n("name"), n("rname"), serial, ttl, ttl, ttl, ttl);
         msg.push((qname, Class::IN, Ttl::from_secs(0), soa))
             .unwrap();
         let msg = msg.into_message();
@@ -1646,8 +1982,8 @@ mod tests {
         )
     }
 
-    async fn do_preprocess<T>(
-        zone: Zone,
+    async fn do_preprocess<T, XDP: XfrDataProvider>(
+        zone: XDP,
         req: &Request<Vec<u8>, T>,
     ) -> ControlFlow<
         XfrMiddlewareStream<
@@ -1656,7 +1992,7 @@ mod tests {
             <<TestNextSvc as Service>::Stream as Stream>::Item,
         >,
     > {
-        XfrMiddlewareSvc::<_, TestNextSvc, Zone>::preprocess(
+        XfrMiddlewareSvc::<_, TestNextSvc, XDP>::preprocess(
             Arc::new(Semaphore::new(1)),
             Arc::new(Semaphore::new(1)),
             req,
@@ -1665,165 +2001,60 @@ mod tests {
         .await
     }
 
-    async fn assert_xfr_stream_eq<O: octseq::Octets>(
+    async fn assert_stream_eq<
+        O: octseq::Octets,
+        S: Stream<Item = Result<CallResult<Vec<u8>>, ServiceError>> + Unpin,
+    >(
         req: &Message<O>,
-        zone: &Zone,
-        stream: impl Stream<Item = Result<CallResult<Vec<u8>>, ServiceError>>
-            + Unpin,
+        mut stream: S,
         expected_records: &mut ExpectedRecords,
-    ) {
-        assert_transport_specific_xfr_stream_eq(
-            req,
-            zone,
-            stream,
-            expected_records,
-            false,
-        )
-        .await
-    }
-
-    async fn assert_udp_xfr_stream_eq<O: octseq::Octets>(
-        req: &Message<O>,
-        zone: &Zone,
-        stream: impl Stream<Item = Result<CallResult<Vec<u8>>, ServiceError>>
-            + Unpin,
-        expected_records: &mut ExpectedRecords,
-    ) {
-        assert_transport_specific_xfr_stream_eq(
-            req,
-            zone,
-            stream,
-            expected_records,
-            true,
-        )
-        .await
-    }
-
-    async fn assert_transport_specific_xfr_stream_eq<O: octseq::Octets>(
-        req: &Message<O>,
-        zone: &Zone,
-        mut stream: impl Stream<Item = Result<CallResult<Vec<u8>>, ServiceError>>
-            + Unpin,
-        expected_records: &mut ExpectedRecords,
-        udp: bool,
-    ) {
-        let read = zone.read();
-        let q = req.first_question().unwrap();
-        let zone_soa_answer =
-            XfrMiddlewareSvc::<_, TestNextSvc, Zone>::read_soa(
-                &read,
-                q.qname().to_name(),
-            )
-            .await
-            .unwrap();
-        let AnswerContent::Data(zone_soa_rrset) =
-            zone_soa_answer.content().clone()
-        else {
-            unreachable!()
-        };
-        let first_rr = zone_soa_rrset.first().unwrap();
-        let ZoneRecordData::Soa(expected_soa) = first_rr.data() else {
-            unreachable!()
-        };
-
-        // Allow for the RFC 1995 UDP IXFR case where the response doesn't fit
-        // in a single UDP message and so a single SOA reply is sent instead.
-        if !udp {
+    ) -> S {
+        while !expected_records.is_empty() {
             let msg = stream.next().await.unwrap().unwrap();
-            assert!(matches!(
-                msg.feedback(),
-                Some(ServiceFeedback::BeginTransaction)
-            ));
-        }
 
-        let mut msg = stream.next().await.unwrap().unwrap();
-        let mut first = true;
-        let mut last = false;
-        while msg.response().is_some() {
             let resp_builder = msg.into_inner().0.unwrap();
             let resp = resp_builder.as_message();
             assert!(resp.is_answer(req));
             let mut records = resp.answer().unwrap().peekable();
 
-            if first {
-                let rec = records.next().unwrap().unwrap();
-                assert_eq!(rec.owner(), zone.apex_name());
-                assert_eq!(rec.rtype(), Rtype::SOA);
-                let soa = rec
-                    .into_record::<Soa<ParsedName<&[u8]>>>()
-                    .unwrap()
-                    .unwrap()
-                    .into_data();
-                assert_eq!(&soa, expected_soa);
-                first = false;
-
-                if udp
-                    && records.peek().is_none()
-                    && expected_records.is_empty()
-                {
-                    // Stop. This is the IXFR 1995 UDP case where the response
-                    // didn't fit in a single UDP packet and so a single SOA
-                    // reply is sent back instead.
-                    assert!(stream.next().await.is_none());
-                    return;
-                }
-            }
-
             for rec in records.by_ref() {
                 let rec = rec.unwrap();
-                if rec.rtype() == Rtype::SOA {
-                    let soa = rec
-                        .into_record::<Soa<ParsedName<&[u8]>>>()
-                        .unwrap()
-                        .unwrap()
-                        .into_data();
-                    assert_eq!(&soa, expected_soa);
-                    last = true;
-                    break;
-                } else {
-                    let pos = expected_records
-                        .iter()
-                        .position(|(name, data)| {
-                            name == &rec.owner()
-                                && data.rtype() == rec.rtype()
-                        })
-                        .unwrap_or_else(|| {
-                            panic!(
-                                "XFR record {} {} {} was not expected",
-                                rec.owner(),
-                                rec.class(),
-                                rec.rtype()
-                            )
-                        });
-                    let (_, data) = expected_records.remove(pos);
-                    let rec = rec
-                        .into_record::<AllRecordData<_, ParsedName<_>>>()
-                        .unwrap()
-                        .unwrap();
-                    assert_eq!(&data, rec.data());
-                    eprintln!(
-                        "Found {} {} {}",
-                        rec.owner(),
-                        rec.class(),
-                        rec.rtype()
-                    )
-                }
+
+                let pos = expected_records
+                    .iter()
+                    .position(|(name, data)| {
+                        name == &rec.owner() && data.rtype() == rec.rtype()
+                    })
+                    .unwrap_or_else(|| {
+                        panic!(
+                            "XFR record {} {} {} was not expected",
+                            rec.owner(),
+                            rec.class(),
+                            rec.rtype()
+                        )
+                    });
+
+                let (_, data) = expected_records.remove(pos);
+
+                let rec = rec
+                    .into_record::<AllRecordData<_, ParsedName<_>>>()
+                    .unwrap()
+                    .unwrap();
+
+                assert_eq!(&data, rec.data());
+
+                eprintln!(
+                    "Found {} {} {}",
+                    rec.owner(),
+                    rec.class(),
+                    rec.rtype()
+                )
             }
 
             assert!(records.next().is_none());
-
-            msg = stream.next().await.unwrap().unwrap();
         }
 
-        assert!(last);
-        assert!(expected_records.is_empty());
-
-        assert!(matches!(
-            msg.feedback(),
-            Some(ServiceFeedback::EndTransaction)
-        ));
-
-        assert!(stream.next().await.is_none());
+        stream
     }
 
     #[derive(Clone)]
@@ -1836,6 +2067,62 @@ mod tests {
 
         fn call(&self, _request: Request<Vec<u8>, ()>) -> Self::Future {
             todo!()
+        }
+    }
+
+    struct ZoneWithDiffs {
+        zone: Zone,
+        diffs: Vec<Arc<ZoneDiff>>,
+    }
+
+    impl ZoneWithDiffs {
+        fn new(zone: Zone, diffs: Vec<ZoneDiff>) -> Self {
+            Self {
+                zone,
+                diffs: diffs.into_iter().map(Arc::new).collect(),
+            }
+        }
+    }
+
+    impl XfrDataProvider for ZoneWithDiffs {
+        fn request<Octs, Metadata>(
+            &self,
+            _req: &Request<Octs, Metadata>,
+            apex_name: &impl ToName,
+            class: Class,
+            diff_from: Option<Serial>,
+        ) -> Pin<
+            Box<
+                dyn Future<
+                        Output = Result<
+                            (Zone, Vec<Arc<ZoneDiff>>),
+                            XfrDataProviderError,
+                        >,
+                    > + Sync
+                    + Send,
+            >,
+        >
+        where
+            Octs: AsRef<[u8]> + Send + Sync,
+        {
+            let res = if apex_name.to_name::<Bytes>() == self.zone.apex_name()
+                && class == self.zone.class()
+            {
+                let diffs =
+                    if self.diffs.first().and_then(|diff| diff.start_serial)
+                        == diff_from
+                    {
+                        self.diffs.clone()
+                    } else {
+                        vec![]
+                    };
+
+                Ok((self.zone.clone(), diffs))
+            } else {
+                Err(XfrDataProviderError::UnknownZone)
+            };
+
+            Box::pin(ready(res))
         }
     }
 }
