@@ -1,4 +1,6 @@
 #![allow(clippy::type_complexity)]
+use core::ops::Deref;
+
 use std::boxed::Box;
 use std::collections::HashMap;
 use std::future::{ready, Future};
@@ -19,13 +21,16 @@ use crate::base::iana::{Opcode, OptionCode};
 use crate::base::opt::{ComposeOptData, OptData};
 use crate::base::{Message, MessageBuilder};
 use crate::net::client::request::{
-    ComposeRequest, Error, RequestMessage, SendRequest,
+    ComposeRequest, ComposeRequestMulti, Error, GetResponse,
+    GetResponseMulti, RequestMessage, RequestMessageMulti, SendRequest,
+    SendRequestMulti,
 };
-
-use super::matches::match_msg;
-use super::parse_stelline::{Entry, Reply, Stelline, StepType};
+use crate::stelline::matches::match_multi_msg;
+use crate::zonefile::inplace::Entry::Record;
 
 use super::channel::DEF_CLIENT_ADDR;
+use super::matches::match_msg;
+use super::parse_stelline::{Entry, Reply, Sections, Stelline, StepType};
 
 //----------- StellineError ---------------------------------------------------
 
@@ -68,6 +73,7 @@ pub enum StellineErrorCause {
     MissingResponse,
     MissingStepEntry,
     MissingClient,
+    AnswerTimedOut,
 }
 
 impl From<Error> for StellineErrorCause {
@@ -93,6 +99,9 @@ impl std::fmt::Display for StellineErrorCause {
             }
             StellineErrorCause::MissingStepEntry => {
                 f.write_str("Missing step entry")
+            }
+            StellineErrorCause::AnswerTimedOut => {
+                f.write_str("Timed out waiting for answer")
             }
         }
     }
@@ -179,23 +188,43 @@ pub async fn do_client_simple<R: SendRequest<RequestMessage<Vec<u8>>>>(
     }
 }
 
+//----------- Response -------------------------------------------------------
+
+pub enum Response {
+    Single(Box<dyn GetResponse + Send + Sync>),
+    Multi(Box<dyn GetResponseMulti + Send + Sync>),
+}
+
+impl Response {
+    fn get_response(
+        &mut self,
+    ) -> Pin<
+        Box<
+            dyn Future<Output = Result<Option<Message<Bytes>>, Error>>
+                + Send
+                + Sync
+                + '_,
+        >,
+    > {
+        match self {
+            Response::Single(response) => {
+                Box::pin(async { response.get_response().await.map(Some) })
+            }
+            Response::Multi(response) => response.get_response(),
+        }
+    }
+}
+
 //----------- Dispatcher -----------------------------------------------------
 
-pub struct Dispatcher(
-    Option<Rc<Box<dyn SendRequest<RequestMessage<Vec<u8>>>>>>,
-);
+pub struct Dispatcher(Option<Rc<Client>>);
 
 impl Dispatcher {
-    pub fn with_client<T>(client: T) -> Self
-    where
-        T: SendRequest<RequestMessage<Vec<u8>>> + 'static,
-    {
-        Self(Some(Rc::new(Box::new(client))))
+    pub fn with_client(client: Client) -> Self {
+        Self(Some(Rc::new(client)))
     }
 
-    pub fn with_rc_boxed_client(
-        client: Rc<Box<dyn SendRequest<RequestMessage<Vec<u8>>>>>,
-    ) -> Self {
+    pub fn with_rc_client(client: Rc<Client>) -> Self {
         Self(Some(client))
     }
 
@@ -203,18 +232,63 @@ impl Dispatcher {
         Self(None)
     }
 
-    pub async fn dispatch(
+    pub fn dispatch(
         &self,
         entry: &Entry,
-    ) -> Result<Option<Message<Bytes>>, StellineErrorCause> {
-        if let Some(dispatcher) = &self.0 {
-            let reqmsg = entry2reqmsg(entry);
-            trace!(?reqmsg);
-            let mut req = dispatcher.send_request(reqmsg);
-            return Ok(Some(req.get_response().await?));
+    ) -> Result<Response, StellineErrorCause> {
+        if let Some(client) = &self.0 {
+            let res = match client.deref() {
+                Client::Single(client) => {
+                    let reqmsg = entry2reqmsg(entry);
+                    trace!(?reqmsg);
+                    Response::Single(client.send_request(reqmsg))
+                }
+
+                Client::Multi(client) => {
+                    let reqmsg = entry2reqmsg_multi(entry);
+                    trace!(?reqmsg);
+                    Response::Multi(client.send_request(reqmsg))
+                }
+            };
+            return Ok(res);
         }
 
         Err(StellineErrorCause::MissingClient)
+    }
+}
+
+//----------- Client ---------------------------------------------------------
+
+pub enum Client {
+    Single(Box<dyn SendRequest<RequestMessage<Vec<u8>>>>),
+    Multi(Box<dyn SendRequestMulti<RequestMessageMulti<Vec<u8>>>>),
+}
+
+impl SendRequest<RequestMessage<Vec<u8>>> for Client {
+    fn send_request(
+        &self,
+        request_msg: RequestMessage<Vec<u8>>,
+    ) -> Box<dyn GetResponse + Send + Sync> {
+        match self {
+            Client::Single(client) => client.send_request(request_msg),
+            Client::Multi(_) => panic!(
+                "Cannot dispatch a single request to a multi-request client"
+            ),
+        }
+    }
+}
+
+impl SendRequestMulti<RequestMessageMulti<Vec<u8>>> for Client {
+    fn send_request(
+        &self,
+        request_msg: RequestMessageMulti<Vec<u8>>,
+    ) -> Box<dyn GetResponseMulti + Send + Sync> {
+        match self {
+            Client::Single(_) => panic!(
+                "Cannot dispatch a multi-request to a single requst client"
+            ),
+            Client::Multi(client) => client.send_request(request_msg),
+        }
     }
 }
 
@@ -233,26 +307,25 @@ pub trait ClientFactory {
     fn discard(&mut self, entry: &Entry);
 }
 
-//----------- SingleClientFactory --------------------------------------------
+//----------- OneClientFactory ------------------------------------------------
 
-pub struct SingleClientFactory(
-    Rc<Box<dyn SendRequest<RequestMessage<Vec<u8>>>>>,
-);
+pub struct OneClientFactory(Rc<Client>);
 
-impl SingleClientFactory {
+impl OneClientFactory {
     pub fn new(
         client: impl SendRequest<RequestMessage<Vec<u8>>> + 'static,
     ) -> Self {
-        Self(Rc::new(Box::new(client)))
+        Self(Rc::new(Client::Single(Box::new(client))))
     }
 }
 
-impl ClientFactory for SingleClientFactory {
+impl ClientFactory for OneClientFactory {
     fn get(
         &mut self,
         _entry: &Entry,
     ) -> Pin<Box<dyn Future<Output = Dispatcher>>> {
-        Box::pin(ready(Dispatcher::with_rc_boxed_client(self.0.clone())))
+        let dispatcher = Dispatcher::with_rc_client(self.0.clone());
+        Box::pin(ready(dispatcher))
     }
 
     fn discard(&mut self, _entry: &Entry) {
@@ -264,18 +337,17 @@ impl ClientFactory for SingleClientFactory {
 
 pub struct PerClientAddressClientFactory<F, S>
 where
-    F: Fn(&IpAddr) -> Box<dyn SendRequest<RequestMessage<Vec<u8>>>>,
+    F: Fn(&IpAddr, &Entry) -> Client,
     S: Fn(&Entry) -> bool,
 {
-    clients_by_address:
-        HashMap<IpAddr, Rc<Box<dyn SendRequest<RequestMessage<Vec<u8>>>>>>,
+    clients_by_address: HashMap<IpAddr, Rc<Client>>,
     factory_func: F,
     is_suitable_func: S,
 }
 
 impl<F, S> PerClientAddressClientFactory<F, S>
 where
-    F: Fn(&IpAddr) -> Box<dyn SendRequest<RequestMessage<Vec<u8>>>>,
+    F: Fn(&IpAddr, &Entry) -> Client,
     S: Fn(&Entry) -> bool,
 {
     pub fn new(factory_func: F, is_suitable_func: S) -> Self {
@@ -289,7 +361,7 @@ where
 
 impl<F, S> ClientFactory for PerClientAddressClientFactory<F, S>
 where
-    F: Fn(&IpAddr) -> Box<dyn SendRequest<RequestMessage<Vec<u8>>>>,
+    F: Fn(&IpAddr, &Entry) -> Client,
     S: Fn(&Entry) -> bool,
 {
     fn get(
@@ -303,10 +375,12 @@ where
         let client = self
             .clients_by_address
             .entry(client_addr)
-            .or_insert_with_key(|addr| Rc::new((self.factory_func)(addr)))
+            .or_insert_with_key(|addr| {
+                Rc::new((self.factory_func)(addr, entry))
+            })
             .clone();
 
-        Box::pin(ready(Dispatcher::with_rc_boxed_client(client)))
+        Box::pin(ready(Dispatcher::with_rc_client(client)))
     }
 
     fn discard(&mut self, entry: &Entry) {
@@ -373,7 +447,7 @@ pub async fn do_client<'a, T: ClientFactory>(
         step_value: &CurrStepValue,
         mut client_factory: T,
     ) -> Result<(), StellineErrorCause> {
-        let mut resp: Option<Message<Bytes>> = None;
+        let mut last_sent_request: Option<Response> = None;
 
         #[cfg(all(feature = "std", test))]
         {
@@ -397,40 +471,159 @@ pub async fn do_client<'a, T: ClientFactory>(
                         .ok_or(StellineErrorCause::MissingStepEntry)?;
 
                     // Dispatch the request to a suitable client.
-                    let mut res =
-                        client_factory.get(entry).await.dispatch(entry).await;
+                    let mut send_request =
+                        client_factory.get(entry).await.dispatch(entry);
 
                     // If the client is no longer connected, discard it and
                     // try again with a new client.
                     if let Err(StellineErrorCause::ClientError(
                         Error::ConnectionClosed,
-                    )) = res
+                    )) = send_request
                     {
                         client_factory.discard(entry);
-                        res = client_factory
-                            .get(entry)
-                            .await
-                            .dispatch(entry)
-                            .await;
+                        send_request =
+                            client_factory.get(entry).await.dispatch(entry);
                     }
 
-                    trace!("Receive result: {res:?}");
-
-                    resp = res?;
-
-                    trace!(?resp);
+                    last_sent_request = Some(send_request?);
                 }
                 StepType::CheckAnswer => {
-                    let answer = resp
-                        .take()
-                        .ok_or(StellineErrorCause::MissingResponse)?;
                     let entry = step
                         .entry
                         .as_ref()
                         .ok_or(StellineErrorCause::MissingStepEntry)?;
-                    if !match_msg(entry, &answer, true) {
-                        return Err(StellineErrorCause::MismatchedAnswer);
+
+                    let Some(mut send_request) = last_sent_request else {
+                        return Err(StellineErrorCause::MissingResponse);
+                    };
+
+                    if entry
+                        .matches
+                        .as_ref()
+                        .map(|v| v.extra_packets)
+                        .unwrap_or_default()
+                    {
+                        // This assumes that the client used for the test knows
+                        // how to detect the last response in a set of
+                        // responses, e.g. the xfr client knows how to detect
+                        // the last response in an AXFR/IXFR response set.
+                        trace!("Awaiting an unknown number of answers");
+                        let mut entry = entry.clone();
+                        loop {
+                            let resp = match tokio::time::timeout(
+                                Duration::from_secs(3),
+                                send_request.get_response(),
+                            )
+                            .await
+                            .map_err(|_| StellineErrorCause::AnswerTimedOut)?
+                            {
+                                Err(
+                                    Error::StreamReceiveError
+                                    | Error::ConnectionClosed,
+                                ) if entry
+                                    .matches
+                                    .as_ref()
+                                    .map(|v| v.conn_closed)
+                                    == Some(true) =>
+                                {
+                                    trace!(
+                                        "Connection terminated as expected"
+                                    );
+                                    break;
+                                }
+                                other => other,
+                            }?;
+
+                            if resp.is_none() {
+                                trace!("Stream complete");
+                                if !entry.sections.as_ref().unwrap().answer[0]
+                                    .is_empty()
+                                {
+                                    return Err(
+                                        StellineErrorCause::MismatchedAnswer,
+                                    );
+                                } else {
+                                    break;
+                                }
+                            }
+
+                            let resp = resp.unwrap();
+
+                            trace!("Received answer.");
+                            trace!(?resp);
+
+                            let mut out_entry = Some(vec![]);
+                            match_multi_msg(
+                                &entry,
+                                0,
+                                &resp,
+                                true,
+                                &mut out_entry,
+                            );
+                            let num_rrs_remaining_after = out_entry
+                                .as_ref()
+                                .map(|entries| entries.len())
+                                .unwrap_or_default();
+                            if let Some(section) = &mut entry.sections {
+                                section.answer[0] = out_entry.unwrap();
+                            }
+                            trace!("Answer RRs remaining = {num_rrs_remaining_after}");
+                        }
+                    } else {
+                        let num_expected_answers = entry
+                            .sections
+                            .as_ref()
+                            .map(|section| section.answer.len())
+                            .unwrap_or_default();
+
+                        for idx in 0..num_expected_answers {
+                            trace!(
+                                "Awaiting answer {}/{num_expected_answers}...",
+                                idx + 1
+                            );
+                            let resp = match tokio::time::timeout(
+                                Duration::from_secs(3),
+                                send_request.get_response(),
+                            )
+                            .await
+                            .map_err(|_| StellineErrorCause::AnswerTimedOut)?
+                            {
+                                Err(
+                                    Error::StreamReceiveError
+                                    | Error::ConnectionClosed,
+                                ) if entry
+                                    .matches
+                                    .as_ref()
+                                    .map(|v| v.conn_closed)
+                                    == Some(true) =>
+                                {
+                                    trace!(
+                                        "Connection terminated as expected"
+                                    );
+                                    break;
+                                }
+                                other => other,
+                            }?;
+
+                            let Some(resp) = resp else {
+                                return Err(
+                                    StellineErrorCause::MissingResponse,
+                                );
+                            };
+
+                            trace!("Received answer.");
+                            trace!(?resp);
+                            if !match_multi_msg(
+                                entry, idx, &resp, true, &mut None,
+                            ) {
+                                return Err(
+                                    StellineErrorCause::MismatchedAnswer,
+                                );
+                            }
+                        }
                     }
+
+                    last_sent_request = None;
                 }
                 StepType::TimePasses => {
                     let duration =
@@ -490,36 +683,19 @@ fn init_logging() {
 }
 
 fn entry2reqmsg(entry: &Entry) -> RequestMessage<Vec<u8>> {
-    let sections = entry.sections.as_ref().unwrap();
-    let mut msg = MessageBuilder::new_vec().question();
-    for q in &sections.question {
-        msg.push(q).unwrap();
-    }
-    let msg = msg.answer();
-    for _a in &sections.answer {
-        todo!();
-    }
-    let msg = msg.authority();
-    for _a in &sections.authority {
-        todo!();
-    }
-    let mut msg = msg.additional();
-    for _a in &sections.additional.zone_entries {
-        todo!();
-    }
-    let reply: Reply = match &entry.reply {
-        Some(reply) => reply.clone(),
-        None => Default::default(),
-    };
-    let header = msg.header_mut();
-    header.set_rd(reply.rd);
-    header.set_ad(reply.ad);
-    header.set_cd(reply.cd);
-    let msg = msg.into_message();
+    let (sections, reply, msg) = entry2msg(entry);
 
     let mut reqmsg = RequestMessage::new(msg)
         .expect("should not fail unless the request is AXFR");
-    reqmsg.set_dnssec_ok(reply.fl_do);
+    if !entry
+        .matches
+        .as_ref()
+        .map(|v| v.mock_client)
+        .unwrap_or_default()
+    {
+        reqmsg.set_dnssec_ok(reply.fl_do);
+    }
+
     if reply.notify {
         reqmsg.header_mut().set_opcode(Opcode::NOTIFY);
     }
@@ -531,6 +707,68 @@ fn entry2reqmsg(entry: &Entry) -> RequestMessage<Vec<u8>> {
     }
 
     reqmsg
+}
+
+fn entry2reqmsg_multi(entry: &Entry) -> RequestMessageMulti<Vec<u8>> {
+    let (sections, reply, msg) = entry2msg(entry);
+
+    let mut reqmsg = RequestMessageMulti::new(msg).unwrap();
+    if !entry
+        .matches
+        .as_ref()
+        .map(|v| v.mock_client)
+        .unwrap_or_default()
+    {
+        reqmsg.set_dnssec_ok(reply.fl_do);
+    }
+    if reply.notify {
+        reqmsg.header_mut().set_opcode(Opcode::NOTIFY);
+    }
+
+    let edns_bytes = &sections.additional.edns_bytes;
+    if !edns_bytes.is_empty() {
+        let raw_opt = RawOptData { bytes: edns_bytes };
+        reqmsg.add_opt(&raw_opt).unwrap();
+    }
+
+    reqmsg
+}
+
+fn entry2msg(entry: &Entry) -> (&Sections, Reply, Message<Vec<u8>>) {
+    let sections = entry.sections.as_ref().unwrap();
+    let mut msg = MessageBuilder::new_vec().question();
+    if let Some(opcode) = entry.opcode {
+        msg.header_mut().set_opcode(opcode);
+    }
+    for q in &sections.question {
+        msg.push(q).unwrap();
+    }
+    let msg = msg.answer();
+    for _a in &sections.answer[0] {
+        todo!();
+    }
+    let mut msg = msg.authority();
+    for zone_file_entry in &sections.authority {
+        if let Record(rec) = zone_file_entry {
+            msg.push(rec).unwrap();
+        }
+    }
+    let mut msg = msg.additional();
+    for zone_file_entry in &sections.additional.zone_entries {
+        if let Record(rec) = zone_file_entry {
+            msg.push(rec).unwrap();
+        }
+    }
+    let reply: Reply = match &entry.reply {
+        Some(reply) => reply.clone(),
+        None => Default::default(),
+    };
+    let header = msg.header_mut();
+    header.set_rd(reply.rd);
+    header.set_ad(reply.ad);
+    header.set_cd(reply.cd);
+    let msg = msg.into_message();
+    (sections, reply, msg)
 }
 
 #[derive(Debug)]

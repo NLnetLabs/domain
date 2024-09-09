@@ -16,7 +16,8 @@ use crate::base::iana::Rcode;
 use crate::base::name::{Name, ToName};
 use crate::base::net::IpAddr;
 use crate::base::wire::Composer;
-use crate::net::client::request::RequestMessageMulti;
+use crate::base::Rtype;
+use crate::net::client::request::{RequestMessage, RequestMessageMulti};
 use crate::net::client::{dgram, stream};
 use crate::net::server;
 use crate::net::server::buf::VecBufSource;
@@ -30,16 +31,18 @@ use crate::net::server::stream::StreamServer;
 use crate::net::server::util::{mk_builder_for_target, service_fn};
 use crate::stelline::channel::ClientServerChannel;
 use crate::stelline::client::{
-    do_client, ClientFactory, CurrStepValue, PerClientAddressClientFactory,
-    QueryTailoredClientFactory,
+    do_client, Client, ClientFactory, CurrStepValue,
+    PerClientAddressClientFactory, QueryTailoredClientFactory,
 };
 use crate::stelline::parse_stelline::{self, parse_file, Config, Matches};
+use crate::stelline::simple_dgram_client;
 use crate::utils::base16;
 use crate::zonefile::inplace::{Entry, ScannedRecord, Zonefile};
 
 //----------- Tests ----------------------------------------------------------
 
-/// Stelline test cases for which the .rpl file defines a server: config block.
+/// Stelline test cases for which the .rpl file defines a server: config
+/// block.
 ///
 /// Note: Adding or removing .rpl files on disk won't be detected until the
 /// test is re-compiled.
@@ -49,9 +52,9 @@ use crate::zonefile::inplace::{Entry, ScannedRecord, Zonefile};
 #[rstest]
 #[tokio::test(start_paused = true)]
 async fn server_tests(#[files("test-data/server/*.rpl")] rpl_file: PathBuf) {
-    // Load the test .rpl file that determines which queries will be sent
-    // and which responses will be expected, and how the server that
-    // answers them should be configured.
+    // Load the test .rpl file that determines which queries will be sent and
+    // which responses will be expected, and how the server that answers them
+    // should be configured.
 
     // Initialize tracing based logging. Override with env var RUST_LOG, e.g.
     // RUST_LOG=trace. DEBUG level will show the .rpl file name, Stelline step
@@ -183,37 +186,52 @@ fn mk_client_factory(
     stream_server_conn: ClientServerChannel,
 ) -> impl ClientFactory {
     // Create a TCP client factory that only creates a client if (a) no
-    // existing TCP client exists for the source address of the Stelline query,
-    // and (b) if the query specifies "MATCHES TCP". Clients created by this
-    // factory connect to the TCP server created above.
+    // existing TCP client exists for the source address of the Stelline
+    // query, and (b) if the query specifies "MATCHES TCP". Clients created by
+    // this factory connect to the TCP server created above.
     let only_for_tcp_queries = |entry: &parse_stelline::Entry| {
         matches!(entry.matches, Some(Matches { tcp: true, .. }))
     };
 
     let tcp_client_factory = PerClientAddressClientFactory::new(
-        move |source_addr| {
+        move |source_addr, entry| {
             let stream = stream_server_conn
                 .connect(Some(SocketAddr::new(*source_addr, 0)));
             let (conn, transport) = stream::Connection::<
-                _,
+                RequestMessage<Vec<u8>>,
                 RequestMessageMulti<Vec<u8>>,
             >::new(stream);
             tokio::spawn(transport.run());
-            Box::new(conn)
+            if let Some(sections) = &entry.sections {
+                if let Some(q) = sections.question.first() {
+                    if matches!(q.qtype(), Rtype::AXFR | Rtype::IXFR) {
+                        return Client::Multi(Box::new(conn));
+                    }
+                }
+            }
+            Client::Single(Box::new(conn))
         },
         only_for_tcp_queries,
     );
 
     // Create a UDP client factory that only creates a client if (a) no
-    // existing UDP client exists for the source address of the Stelline query.
+    // existing UDP client exists for the source address of the Stelline
+    // query.
     let for_all_other_queries = |_: &_| true;
 
     let udp_client_factory = PerClientAddressClientFactory::new(
-        move |source_addr| {
-            Box::new(dgram::Connection::new(
-                dgram_server_conn
-                    .new_client(Some(SocketAddr::new(*source_addr, 0))),
-            ))
+        move |source_addr, entry| {
+            let connect = dgram_server_conn
+                .new_client(Some(SocketAddr::new(*source_addr, 0)));
+
+            match entry.matches.as_ref().map(|v| v.mock_client) {
+                Some(true) => Client::Single(Box::new(
+                    simple_dgram_client::Connection::new(connect),
+                )),
+                _ => {
+                    Client::Single(Box::new(dgram::Connection::new(connect)))
+                }
+            }
         },
         for_all_other_queries,
     );
@@ -247,14 +265,14 @@ fn mk_server_configs(
 // This function can be used with `service_fn()` to create a `Service`
 // instance designed to respond to test queries.
 //
-// The functionality provided is the mininum common set of behaviour needed
-// by the tests that use it.
+// The functionality provided is the mininum common set of behaviour needed by
+// the tests that use it.
 //
 // It's behaviour should be influenced to match the conditions under test by:
 //   - Using different `MiddlewareChain` setups with the server(s) to which
 //     the `Service` will be passed.
-//   - Controlling the content of the `Zonefile` passed to instances of
-//     this `Service` impl.
+//   - Controlling the content of the `Zonefile` passed to instances of this
+//     `Service` impl.
 #[allow(clippy::type_complexity)]
 fn test_service(
     request: Request<Vec<u8>>,
@@ -366,8 +384,8 @@ fn parse_server_config(config: &Config) -> ServerConfig {
                         // TODO: Strictly speaking the "ip" is a netblock
                         // "given as an IPv4 or IPv6 address /size appended
                         // for a classless network block", but we only handle
-                        // an IP address here for now.
-                        // See: https://unbound.docs.nlnetlabs.nl/en/latest/manpages/unbound.conf.html?highlight=edns-tcp-keepalive#unbound-conf-access-control
+                        // an IP address here for now. See:
+                        // https://unbound.docs.nlnetlabs.nl/en/latest/manpages/unbound.conf.html?highlight=edns-tcp-keepalive#unbound-conf-access-control
                         if let Some((ip, action)) =
                             v.split_once(|c: char| c.is_whitespace())
                         {
