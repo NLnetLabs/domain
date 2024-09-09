@@ -15,7 +15,7 @@ use octseq::Octets;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedSender};
 use tokio::sync::Semaphore;
 use tokio_stream::wrappers::UnboundedReceiverStream;
-use tracing::{error, info, trace, warn};
+use tracing::{debug, error, info, trace, warn};
 
 use crate::base::iana::{Class, Opcode, OptRcode, Rcode};
 use crate::base::message_builder::{
@@ -245,7 +245,7 @@ where
                         req.client_addr()
                     );
                 }
-                let stream = Self::do_axfr(
+                let stream = Self::send_axfr_response(
                     zone_walking_semaphore,
                     batcher_semaphore,
                     req,
@@ -278,7 +278,7 @@ where
                 //    the query is responded to with a single SOA record of
                 //    the server's current version to inform the client that a
                 //    TCP query should be initiated."
-                let stream = Self::do_ixfr(
+                let stream = Self::send_ixfr_response(
                     batcher_semaphore.clone(),
                     req,
                     ixfr_query_serial,
@@ -321,7 +321,7 @@ where
     }
 
     #[allow(clippy::too_many_arguments)]
-    async fn do_axfr<T>(
+    async fn send_axfr_response<T>(
         zone_walk_semaphore: Arc<Semaphore>,
         batcher_semaphore: Arc<Semaphore>,
         req: &Request<RequestOctets, T>,
@@ -391,13 +391,19 @@ where
         let (batcher_tx, mut batcher_rx) =
             tokio::sync::mpsc::channel::<(StoredName, SharedRrset)>(100);
 
-        // Notify the underlying transport to expect a stream of related
-        // responses. The transport should modify its behaviour to account for
-        // the potentially slow and long running nature of a transaction.
-        Self::add_to_stream(
-            CallResult::feedback_only(ServiceFeedback::BeginTransaction),
-            &sender,
-        );
+        let must_fit_in_single_message =
+            matches!(req.transport_ctx(), TransportSpecificContext::Udp(_));
+
+        if !must_fit_in_single_message {
+            // Notify the underlying transport to expect a stream of related
+            // responses. The transport should modify its behaviour to account
+            // for the potentially slow and long running nature of a
+            // transaction.
+            Self::add_to_stream(
+                CallResult::feedback_only(ServiceFeedback::BeginTransaction),
+                &sender,
+            );
+        }
 
         // Enqueue the zone SOA RRset for the batcher to process.
         if batcher_tx
@@ -424,9 +430,9 @@ where
                     if rrset.rtype() != Rtype::SOA {
                         let _ = cloned_batcher_tx
                             .blocking_send((owner.clone(), rrset.clone()));
-                        // If the blocking send fails it means that he batcher
-                        // is no longer available. This can happen if it was
-                        // no longer able to pass messages back to the
+                        // If the blocking send fails it means that the
+                        // batcher is no longer available. This can happen if
+                        // it was no longer able to pass messages back to the
                         // underlying transport, which can happen if the
                         // client closed the connection. We don't log this
                         // because we can't stop the tree walk and so will
@@ -464,6 +470,7 @@ where
         // the caller.
         let msg = msg.clone();
         let soft_byte_limit = Self::calc_msg_bytes_available(req);
+        let zone_soa_answer = zone_soa_answer.clone();
 
         tokio::spawn(async move {
             // Limit the number of concurrently running XFR batching
@@ -501,33 +508,74 @@ where
                 sender.clone(),
                 Some(soft_byte_limit),
                 hard_rr_limit,
+                must_fit_in_single_message,
             );
 
             while let Some((owner, rrset)) = batcher_rx.recv().await {
                 for rr in rrset.data() {
-                    if batcher
-                        .push((owner.clone(), qclass, rrset.ttl(), rr))
-                        .is_err()
+                    if let Err(err) =
+                        batcher.push((owner.clone(), qclass, rrset.ttl(), rr))
                     {
-                        error!(
-                            "Internal error: Failed to send RR to batcher"
-                        );
-                        let resp =
-                            mk_error_response(&msg, OptRcode::SERVFAIL);
-                        Self::add_to_stream(CallResult::new(resp), &sender);
-                        batcher_rx.close();
-                        return;
+                        match err {
+                            BatchReadyError::MustFitInSingleMessage => {
+                                // https://datatracker.ietf.org/doc/html/rfc1995#section-2
+                                // 2. Brief Description of the Protocol
+                                //    ..
+                                //    "If the UDP reply does not fit, the
+                                //     query is responded to with a single SOA
+                                //     record of the server's current version
+                                //     to inform the client that a TCP query
+                                //     should be initiated."
+                                debug_assert!(must_fit_in_single_message);
+                                let builder = mk_builder_for_target();
+                                let resp =
+                                    zone_soa_answer.to_message(&msg, builder);
+                                debug!("IXFR aborted because response does not fit in a single UDP reply");
+                                Self::add_to_stream(
+                                    CallResult::new(resp),
+                                    &sender,
+                                );
+                                batcher_rx.close();
+                                return;
+                            }
+
+                            BatchReadyError::PushError(err) => {
+                                error!(
+                                "Internal error: Failed to send RR to batcher: {err}"
+                            );
+                                let resp = mk_error_response(
+                                    &msg,
+                                    OptRcode::SERVFAIL,
+                                );
+                                Self::add_to_stream(
+                                    CallResult::new(resp),
+                                    &sender,
+                                );
+                                batcher_rx.close();
+                                return;
+                            }
+
+                            BatchReadyError::SendError => {
+                                debug!("Batcher was unable to send completed batch, presumably because the receiver was dropped");
+                                batcher_rx.close();
+                                return;
+                            }
+                        }
                     }
                 }
             }
 
             batcher.finish().unwrap(); // TODO
 
-            trace!("Finishing transaction");
-            Self::add_to_stream(
-                CallResult::feedback_only(ServiceFeedback::EndTransaction),
-                &sender,
-            );
+            if !must_fit_in_single_message {
+                trace!("Finishing transaction");
+                Self::add_to_stream(
+                    CallResult::feedback_only(
+                        ServiceFeedback::EndTransaction,
+                    ),
+                    &sender,
+                );
+            }
 
             batcher_rx.close();
         });
@@ -537,7 +585,7 @@ where
 
     // Returns None if fallback to AXFR should be done.
     #[allow(clippy::too_many_arguments)]
-    async fn do_ixfr<T>(
+    async fn send_ixfr_response<T>(
         batcher_semaphore: Arc<Semaphore>,
         req: &Request<RequestOctets, T>,
         query_serial: Serial,
@@ -671,13 +719,19 @@ where
         let (sender, receiver) = unbounded_channel();
         let stream = UnboundedReceiverStream::new(receiver);
 
-        // Notify the underlying transport to expect a stream of related
-        // responses. The transport should modify its behaviour to account for
-        // the potentially slow and long running nature of a transaction.
-        Self::add_to_stream(
-            CallResult::feedback_only(ServiceFeedback::BeginTransaction),
-            &sender,
-        );
+        let must_fit_in_single_message =
+            matches!(req.transport_ctx(), TransportSpecificContext::Udp(_));
+
+        if !must_fit_in_single_message {
+            // Notify the underlying transport to expect a stream of related
+            // responses. The transport should modify its behaviour to account
+            // for the potentially slow and long running nature of a
+            // transaction.
+            Self::add_to_stream(
+                CallResult::feedback_only(ServiceFeedback::BeginTransaction),
+                &sender,
+            );
+        }
 
         // Stream the IXFR diffs in the background
         let msg = msg.clone();
@@ -730,6 +784,7 @@ where
                 sender.clone(),
                 Some(soft_byte_limit),
                 None,
+                must_fit_in_single_message,
             );
 
             batcher
@@ -811,11 +866,15 @@ where
 
             batcher.finish().unwrap(); // TODO
 
-            trace!("Ending transaction");
-            Self::add_to_stream(
-                CallResult::feedback_only(ServiceFeedback::EndTransaction),
-                &sender,
-            );
+            if !must_fit_in_single_message {
+                trace!("Ending transaction");
+                Self::add_to_stream(
+                    CallResult::feedback_only(
+                        ServiceFeedback::EndTransaction,
+                    ),
+                    &sender,
+                );
+            }
         });
 
         Ok(MiddlewareStream::Result(stream))
@@ -1123,12 +1182,15 @@ where
         sender: UnboundedSender<ServiceResult<Target>>,
         soft_byte_limit: Option<usize>,
         hard_rr_limit: Option<u16>,
-    ) -> impl ResourceRecordBatcher<RequestOctets, Target> {
+        must_fit_in_single_message: bool,
+    ) -> impl ResourceRecordBatcher<RequestOctets, Target, Error = BatchReadyError>
+    {
         let cb_state = CallbackState::new(
             req_msg.clone(),
             sender,
             soft_byte_limit,
             hard_rr_limit,
+            must_fit_in_single_message,
         );
 
         CallbackBatcher::<
@@ -1190,6 +1252,21 @@ where
 
 //--- Callbacks
 
+#[derive(Clone, Copy, Debug)]
+pub enum BatchReadyError {
+    PushError(PushError),
+
+    SendError,
+
+    MustFitInSingleMessage,
+}
+
+impl From<PushError> for BatchReadyError {
+    fn from(err: PushError) -> Self {
+        Self::PushError(err)
+    }
+}
+
 impl<RequestOctets, Target>
     Callbacks<RequestOctets, Target, CallbackState<RequestOctets, Target>>
     for XfrRrBatcher<RequestOctets, Target>
@@ -1197,6 +1274,8 @@ where
     RequestOctets: Octets,
     Target: Composer + Default,
 {
+    type Error = BatchReadyError;
+
     fn batch_started(
         cb_state: &CallbackState<RequestOctets, Target>,
         msg: &Message<RequestOctets>,
@@ -1212,14 +1291,20 @@ where
     fn batch_ready(
         cb_state: &CallbackState<RequestOctets, Target>,
         builder: AnswerBuilder<StreamTarget<Target>>,
-    ) -> Result<(), ()> {
+        finished: bool,
+    ) -> Result<(), Self::Error> {
+        if !finished && cb_state.must_fit_in_single_message {
+            return Err(BatchReadyError::MustFitInSingleMessage);
+        }
+
         trace!("Sending RR batch");
         let mut additional = builder.additional();
         Self::set_axfr_header(&cb_state.req_msg, &mut additional);
         let call_result = Ok(CallResult::new(additional));
-        cb_state.sender.send(call_result).map_err(|err| {
-            warn!("Internal error: Send from RR batcher failed: {err}");
-        })
+        cb_state
+            .sender
+            .send(call_result)
+            .map_err(|_unsent_msg| BatchReadyError::SendError)
     }
 
     fn record_pushed(
@@ -1245,6 +1330,7 @@ struct CallbackState<RequestOctets, Target> {
     sender: UnboundedSender<ServiceResult<Target>>,
     soft_byte_limit: Option<usize>,
     hard_rr_limit: Option<u16>,
+    must_fit_in_single_message: bool,
 }
 
 impl<RequestOctets, Target> CallbackState<RequestOctets, Target> {
@@ -1253,12 +1339,14 @@ impl<RequestOctets, Target> CallbackState<RequestOctets, Target> {
         sender: UnboundedSender<ServiceResult<Target>>,
         soft_byte_limit: Option<usize>,
         hard_rr_limit: Option<u16>,
+        must_fit_in_single_message: bool,
     ) -> Self {
         Self {
             req_msg,
             sender,
             soft_byte_limit,
             hard_rr_limit,
+            must_fit_in_single_message,
         }
     }
 }
@@ -1270,7 +1358,7 @@ mod tests {
     use futures::StreamExt;
     use tokio::time::Instant;
 
-    use crate::base::{MessageBuilder, RecordData};
+    use crate::base::{MessageBuilder, RecordData, Ttl};
     use crate::net::server::message::{
         NonUdpTransportContext, UdpTransportContext,
     };
@@ -1304,7 +1392,7 @@ mod tests {
 
         let req = mk_axfr_request(zone.apex_name(), ());
 
-        let res = do_axfr_for_zone(zone.clone(), &req).await;
+        let res = do_preprocess(zone.clone(), &req).await;
 
         let ControlFlow::Break(mut stream) = res else {
             panic!("AXFR failed");
@@ -1348,7 +1436,7 @@ mod tests {
 
         let req = mk_axfr_request(zone.apex_name(), ());
 
-        let res = do_axfr_for_zone(zone.clone(), &req).await;
+        let res = do_preprocess(zone.clone(), &req).await;
 
         let ControlFlow::Break(mut stream) = res else {
             panic!("AXFR failed");
@@ -1392,7 +1480,7 @@ mod tests {
 
         let req = mk_udp_axfr_request(zone.apex_name(), ());
 
-        let res = do_axfr_for_zone(zone, &req).await;
+        let res = do_preprocess(zone, &req).await;
 
         let ControlFlow::Break(mut stream) = res else {
             panic!("AXFR failed");
@@ -1412,7 +1500,29 @@ mod tests {
     async fn ixfr_single_response_udp() {}
 
     #[tokio::test]
-    async fn ixfr_too_large_response_udp() {}
+    async fn ixfr_too_large_response_udp() {
+        let mut expected_records: ExpectedRecords = vec![];
+
+        let zone = load_zone(include_bytes!(
+            "../../../../test-data/zonefiles/big.example.com.txt"
+        ));
+
+        let req = mk_udp_ixfr_request(zone.apex_name(), Serial(0), ());
+
+        let res = do_preprocess(zone.clone(), &req).await;
+
+        let ControlFlow::Break(mut stream) = res else {
+            panic!("AXFR failed");
+        };
+
+        assert_udp_xfr_stream_eq(
+            req.message(),
+            &zone,
+            &mut stream,
+            &mut expected_records,
+        )
+        .await;
+    }
 
     #[tokio::test]
     async fn ixfr_single_response_tcp() {}
@@ -1493,7 +1603,50 @@ mod tests {
         )
     }
 
-    async fn do_axfr_for_zone<T>(
+    fn mk_udp_ixfr_request<T>(
+        qname: impl ToName + Clone,
+        serial: Serial,
+        metadata: T,
+    ) -> Request<Vec<u8>, T> {
+        mk_ixfr_request_for_transport(
+            qname,
+            serial,
+            metadata,
+            TransportSpecificContext::Udp(UdpTransportContext::new(None)),
+        )
+    }
+
+    fn mk_ixfr_request_for_transport<T>(
+        qname: impl ToName + Clone,
+        serial: Serial,
+        metadata: T,
+        transport_specific: TransportSpecificContext,
+    ) -> Request<Vec<u8>, T> {
+        let client_addr = "127.0.0.1:12345".parse().unwrap();
+        let received_at = Instant::now();
+        let msg = MessageBuilder::new_vec();
+        let mut msg = msg.question();
+        msg.push((qname.clone(), Rtype::IXFR)).unwrap();
+
+        let mut msg = msg.authority();
+        let mname = Name::<Bytes>::from_str("mname").unwrap();
+        let rname = Name::<Bytes>::from_str("rname").unwrap();
+        let ttl = Ttl::from_secs(0);
+        let soa = Soa::new(mname, rname, serial, ttl, ttl, ttl, ttl);
+        msg.push((qname, Class::IN, Ttl::from_secs(0), soa))
+            .unwrap();
+        let msg = msg.into_message();
+
+        Request::new(
+            client_addr,
+            received_at,
+            msg,
+            transport_specific,
+            metadata,
+        )
+    }
+
+    async fn do_preprocess<T>(
         zone: Zone,
         req: &Request<Vec<u8>, T>,
     ) -> ControlFlow<
@@ -1515,9 +1668,44 @@ mod tests {
     async fn assert_xfr_stream_eq<O: octseq::Octets>(
         req: &Message<O>,
         zone: &Zone,
+        stream: impl Stream<Item = Result<CallResult<Vec<u8>>, ServiceError>>
+            + Unpin,
+        expected_records: &mut ExpectedRecords,
+    ) {
+        assert_transport_specific_xfr_stream_eq(
+            req,
+            zone,
+            stream,
+            expected_records,
+            false,
+        )
+        .await
+    }
+
+    async fn assert_udp_xfr_stream_eq<O: octseq::Octets>(
+        req: &Message<O>,
+        zone: &Zone,
+        stream: impl Stream<Item = Result<CallResult<Vec<u8>>, ServiceError>>
+            + Unpin,
+        expected_records: &mut ExpectedRecords,
+    ) {
+        assert_transport_specific_xfr_stream_eq(
+            req,
+            zone,
+            stream,
+            expected_records,
+            true,
+        )
+        .await
+    }
+
+    async fn assert_transport_specific_xfr_stream_eq<O: octseq::Octets>(
+        req: &Message<O>,
+        zone: &Zone,
         mut stream: impl Stream<Item = Result<CallResult<Vec<u8>>, ServiceError>>
             + Unpin,
         expected_records: &mut ExpectedRecords,
+        udp: bool,
     ) {
         let read = zone.read();
         let q = req.first_question().unwrap();
@@ -1538,11 +1726,15 @@ mod tests {
             unreachable!()
         };
 
-        let msg = stream.next().await.unwrap().unwrap();
-        assert!(matches!(
-            msg.feedback(),
-            Some(ServiceFeedback::BeginTransaction)
-        ));
+        // Allow for the RFC 1995 UDP IXFR case where the response doesn't fit
+        // in a single UDP message and so a single SOA reply is sent instead.
+        if !udp {
+            let msg = stream.next().await.unwrap().unwrap();
+            assert!(matches!(
+                msg.feedback(),
+                Some(ServiceFeedback::BeginTransaction)
+            ));
+        }
 
         let mut msg = stream.next().await.unwrap().unwrap();
         let mut first = true;
@@ -1551,7 +1743,7 @@ mod tests {
             let resp_builder = msg.into_inner().0.unwrap();
             let resp = resp_builder.as_message();
             assert!(resp.is_answer(req));
-            let mut records = resp.answer().unwrap();
+            let mut records = resp.answer().unwrap().peekable();
 
             if first {
                 let rec = records.next().unwrap().unwrap();
@@ -1564,6 +1756,17 @@ mod tests {
                     .into_data();
                 assert_eq!(&soa, expected_soa);
                 first = false;
+
+                if udp
+                    && records.peek().is_none()
+                    && expected_records.is_empty()
+                {
+                    // Stop. This is the IXFR 1995 UDP case where the response
+                    // didn't fit in a single UDP packet and so a single SOA
+                    // reply is sent back instead.
+                    assert!(stream.next().await.is_none());
+                    return;
+                }
             }
 
             for rec in records.by_ref() {
