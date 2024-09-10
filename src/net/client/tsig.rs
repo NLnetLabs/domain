@@ -662,7 +662,6 @@ where
         &self,
         target: Target,
     ) -> Result<AdditionalBuilder<Target>, CopyRecordsError> {
-        trace!("append_message()");
         let mut target = self.request.append_message(target)?;
 
         if let Some(key) = &self.key {
