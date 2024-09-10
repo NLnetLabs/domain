@@ -22,9 +22,7 @@ use domain::net::client::stream;
 #[cfg(feature = "tsig")]
 use domain::net::client::request::SendRequestMulti;
 #[cfg(feature = "tsig")]
-use domain::net::client::tsig::{
-    self, AuthenticatedRequestMessage, AuthenticatedRequestMessageMulti,
-};
+use domain::net::client::tsig::{self, AuthenticatedRequestMessage};
 #[cfg(feature = "tsig")]
 use domain::tsig::{Algorithm, Key, KeyName};
 
@@ -273,7 +271,7 @@ async fn main() {
                 RequestMessage<Vec<u8>>,
                 Arc<domain::tsig::Key>,
             >,
-            AuthenticatedRequestMessageMulti<
+            AuthenticatedRequestMessage<
                 RequestMessageMulti<Vec<u8>>,
                 Arc<domain::tsig::Key>,
             >,
@@ -342,7 +340,7 @@ where
         + domain::dep::octseq::Octets
         + 'static,
     SR: SendRequestMulti<
-            tsig::AuthenticatedRequestMessageMulti<
+            tsig::AuthenticatedRequestMessage<
                 RequestMessageMulti<Octs>,
                 Arc<Key>,
             >,

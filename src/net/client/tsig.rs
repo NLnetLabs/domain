@@ -146,7 +146,7 @@ where
 impl<CR, Upstream, K> SendRequestMulti<CR> for Connection<Upstream, K>
 where
     CR: ComposeRequestMulti + 'static,
-    Upstream: SendRequestMulti<AuthenticatedRequestMessageMulti<CR, K>>
+    Upstream: SendRequestMulti<AuthenticatedRequestMessage<CR, K>>
         + Send
         + Sync
         + 'static,
@@ -330,9 +330,8 @@ where
 impl<CR, Upstream, K> RequestMulti<CR, Upstream, K>
 where
     CR: ComposeRequestMulti,
-    Upstream: SendRequestMulti<AuthenticatedRequestMessageMulti<CR, K>>
-        + Send
-        + Sync,
+    Upstream:
+        SendRequestMulti<AuthenticatedRequestMessage<CR, K>> + Send + Sync,
     K: Clone + AsRef<Key>,
     Self: GetResponseMulti,
 {
@@ -357,7 +356,7 @@ where
                 RequestStateMulti::Init => {
                     let tsig_client = Arc::new(std::sync::Mutex::new(None));
 
-                    let msg = AuthenticatedRequestMessageMulti {
+                    let msg = AuthenticatedRequestMessage {
                         request: self.request_msg.take().unwrap(),
                         key: self.key.clone(),
                         signer: tsig_client.clone(),
@@ -447,7 +446,7 @@ where
 impl<CR, Upstream, K> Debug for RequestMulti<CR, Upstream, K>
 where
     CR: ComposeRequestMulti,
-    Upstream: SendRequestMulti<AuthenticatedRequestMessageMulti<CR, K>>,
+    Upstream: SendRequestMulti<AuthenticatedRequestMessage<CR, K>>,
 {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), core::fmt::Error> {
         f.debug_struct("Request").finish()
@@ -457,9 +456,8 @@ where
 impl<CR, Upstream, K> GetResponseMulti for RequestMulti<CR, Upstream, K>
 where
     CR: ComposeRequestMulti,
-    Upstream: SendRequestMulti<AuthenticatedRequestMessageMulti<CR, K>>
-        + Send
-        + Sync,
+    Upstream:
+        SendRequestMulti<AuthenticatedRequestMessage<CR, K>> + Send + Sync,
     K: Clone + AsRef<Key> + Send + Sync,
 {
     fn get_response(
@@ -612,25 +610,7 @@ where
     }
 }
 
-//------------ AuthenticatedRequestMessageMulti -------------------------------
-
-/// TODO
-#[derive(Debug)]
-pub struct AuthenticatedRequestMessageMulti<CR, K>
-where
-    CR: Send + Sync,
-{
-    /// TODO
-    request: CR,
-
-    /// TODO
-    key: Option<K>,
-
-    /// TODO
-    signer: Arc<std::sync::Mutex<Option<TsigClient<K>>>>,
-}
-
-impl<CR, K> AuthenticatedRequestMessageMulti<CR, K>
+impl<CR, K> AuthenticatedRequestMessage<CR, K>
 where
     CR: ComposeRequestMulti + Send + Sync,
     K: Clone + Debug + Send + Sync + AsRef<Key>,
@@ -652,7 +632,7 @@ where
     }
 }
 
-impl<CR, K> ComposeRequestMulti for AuthenticatedRequestMessageMulti<CR, K>
+impl<CR, K> ComposeRequestMulti for AuthenticatedRequestMessage<CR, K>
 where
     CR: ComposeRequestMulti,
     K: Clone + Debug + Send + Sync + AsRef<Key>,
