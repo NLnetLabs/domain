@@ -17,7 +17,7 @@ use tokio::sync::Semaphore;
 use tokio_stream::wrappers::UnboundedReceiverStream;
 use tracing::{debug, error, info, trace, warn};
 
-use crate::base::iana::{Class, Opcode, OptRcode, Rcode};
+use crate::base::iana::{Opcode, OptRcode, Rcode};
 use crate::base::message_builder::{
     AdditionalBuilder, AnswerBuilder, PushError,
 };
@@ -158,7 +158,7 @@ where
 
         // Is transfer allowed for the requested zone for this requestor?
         let res = xfr_data_provider
-            .request(req, q.qname(), q.qclass(), ixfr_query_serial)
+            .request(req, ixfr_query_serial)
             .await
             .map_err(|err| match err {
                 XfrDataProviderError::UnknownZone => {
@@ -1039,8 +1039,6 @@ pub trait XfrDataProvider<Metadata = ()> {
     fn request<Octs>(
         &self,
         req: &Request<Octs, Metadata>,
-        apex_name: &impl ToName,
-        class: Class,
         diff_from: Option<Serial>,
     ) -> Pin<
         Box<
@@ -1050,25 +1048,24 @@ pub trait XfrDataProvider<Metadata = ()> {
                         XfrDataProviderError,
                     >,
                 > + Sync
-                + Send,
+                + Send
+                + '_,
         >,
     >
     where
-        Octs: AsRef<[u8]> + Send + Sync;
+        Octs: Octets + Send + Sync;
 }
 
 //--- impl for AsRef
 
 impl<Metadata, T, U> XfrDataProvider<Metadata> for U
 where
-    T: XfrDataProvider<Metadata>,
+    T: XfrDataProvider<Metadata> + 'static,
     U: Deref<Target = T>,
 {
     fn request<Octs>(
         &self,
         req: &Request<Octs, Metadata>,
-        apex_name: &impl ToName,
-        class: Class,
         diff_from: Option<Serial>,
     ) -> Pin<
         Box<
@@ -1078,13 +1075,14 @@ where
                         XfrDataProviderError,
                     >,
                 > + Sync
-                + Send,
+                + Send
+                + '_,
         >,
     >
     where
-        Octs: AsRef<[u8]> + Send + Sync,
+        Octs: Octets + Send + Sync,
     {
-        (**self).request(req, apex_name, class, diff_from)
+        (**self).request(req, diff_from)
     }
 }
 
@@ -1099,9 +1097,7 @@ impl<Metadata> XfrDataProvider<Metadata> for Zone {
     /// Returns Err if the requested zone is not this zone.
     fn request<Octs>(
         &self,
-        _req: &Request<Octs, Metadata>,
-        apex_name: &impl ToName,
-        class: Class,
+        req: &Request<Octs, Metadata>,
         _diff_from: Option<Serial>,
     ) -> Pin<
         Box<
@@ -1115,12 +1111,14 @@ impl<Metadata> XfrDataProvider<Metadata> for Zone {
         >,
     >
     where
-        Octs: AsRef<[u8]> + Send + Sync,
+        Octs: Octets + Send + Sync,
     {
-        let res = if apex_name.to_name::<Bytes>() == self.apex_name()
-            && class == self.class()
-        {
-            Ok((self.clone(), vec![]))
+        let res = if let Ok(q) = req.message().sole_question() {
+            if q.qname() == self.apex_name() && q.qclass() == self.class() {
+                Ok((self.clone(), vec![]))
+            } else {
+                Err(XfrDataProviderError::UnknownZone)
+            }
         } else {
             Err(XfrDataProviderError::UnknownZone)
         };
@@ -1140,9 +1138,7 @@ impl<Metadata> XfrDataProvider<Metadata> for ZoneTree {
     /// Returns Err if the requested zone is not this zone tree.
     fn request<Octs>(
         &self,
-        _req: &Request<Octs, Metadata>,
-        apex_name: &impl ToName,
-        class: Class,
+        req: &Request<Octs, Metadata>,
         _diff_from: Option<Serial>,
     ) -> Pin<
         Box<
@@ -1156,10 +1152,14 @@ impl<Metadata> XfrDataProvider<Metadata> for ZoneTree {
         >,
     >
     where
-        Octs: AsRef<[u8]> + Send + Sync,
+        Octs: Octets + Send + Sync,
     {
-        let res = if let Some(zone) = self.get_zone(apex_name, class) {
-            Ok((zone.clone(), vec![]))
+        let res = if let Ok(q) = req.message().sole_question() {
+            if let Some(zone) = self.find_zone(q.qname(), q.qclass()) {
+                Ok((zone.clone(), vec![]))
+            } else {
+                Err(XfrDataProviderError::UnknownZone)
+            }
         } else {
             Err(XfrDataProviderError::UnknownZone)
         };
@@ -1356,26 +1356,28 @@ impl<RequestOctets, Target> CallbackState<RequestOctets, Target> {
 #[cfg(test)]
 mod tests {
     use core::str::FromStr;
+    use core::sync::atomic::{AtomicBool, Ordering};
+
     use std::borrow::ToOwned;
 
     use futures::StreamExt;
     use tokio::time::Instant;
 
-    use crate::base::{MessageBuilder, RecordData, Ttl};
+    use crate::base::iana::Class;
+    use crate::base::{MessageBuilder, Ttl};
     use crate::net::server::message::{
         NonUdpTransportContext, UdpTransportContext,
     };
+    use crate::net::server::middleware::tsig::{
+        Authentication, MaybeAuthenticated,
+    };
     use crate::net::server::service::ServiceError;
     use crate::rdata::{Aaaa, AllRecordData, Cname, Mx, Ns, Txt, A};
+    use crate::tsig::KeyName;
     use crate::zonefile::inplace::Zonefile;
     use crate::zonetree::types::Rrset;
 
     use super::*;
-    use crate::net::server::middleware::tsig::{
-        Authentication, MaybeAuthenticated,
-    };
-    use crate::tsig::KeyName;
-    use core::sync::atomic::{AtomicBool, Ordering};
 
     type ExpectedRecords =
         Vec<(Name<Bytes>, AllRecordData<Bytes, Name<Bytes>>)>;
@@ -1400,7 +1402,7 @@ mod tests {
             (n("example.com"), zone_soa.clone().into()),
             (n("example.com"), Ns::new(n("example.com")).into()),
             (n("example.com"), A::new(p("192.0.2.1")).into()),
-            (n("example.com"), A::new(p("192.0.2.1")).into()),
+            (n("example.com"), A::new(p("127.0.0.1")).into()),
             (n("example.com"), A::new(p("192.0.2.1")).into()),
             (n("example.com"), Aaaa::new(p("2001:db8::3")).into()),
             (n("www.example.com"), Cname::new(n("example.com")).into()),
@@ -1853,8 +1855,6 @@ JAIN-BB.JAIN.AD.JP. IN A   192.41.197.2
             fn request<Octs>(
                 &self,
                 req: &Request<Octs, Authentication>,
-                _apex_name: &impl ToName,
-                _class: Class,
                 _diff_from: Option<Serial>,
             ) -> Pin<
                 Box<
@@ -1868,7 +1868,7 @@ JAIN-BB.JAIN.AD.JP. IN A   192.41.197.2
                 >,
             >
             where
-                Octs: AsRef<[u8]> + Send + Sync,
+                Octs: Octets + Send + Sync,
             {
                 assert_eq!(req.metadata().key_name(), Some(&self.key_name));
                 self.checked.store(true, Ordering::SeqCst);
@@ -2072,28 +2072,27 @@ JAIN-BB.JAIN.AD.JP. IN A   192.41.197.2
             for rec in records.by_ref() {
                 let rec = rec.unwrap();
 
-                let pos = expected_records
-                    .iter()
-                    .position(|(name, data)| {
-                        name == &rec.owner() && data.rtype() == rec.rtype()
-                    })
-                    .unwrap_or_else(|| {
-                        panic!(
-                            "XFR record {} {} {} was not expected",
-                            rec.owner(),
-                            rec.class(),
-                            rec.rtype()
-                        )
-                    });
-
-                let (_, data) = expected_records.remove(pos);
-
                 let rec = rec
                     .into_record::<AllRecordData<_, ParsedName<_>>>()
                     .unwrap()
                     .unwrap();
 
-                assert_eq!(&data, rec.data());
+                let pos = expected_records
+                    .iter()
+                    .position(|(name, data)| {
+                        name == rec.owner() && data == rec.data()
+                    })
+                    .unwrap_or_else(|| {
+                        panic!(
+                            "XFR record {} {} {} {} was not expected",
+                            rec.owner(),
+                            rec.class(),
+                            rec.rtype(),
+                            rec.data(),
+                        )
+                    });
+
+                let _ = expected_records.remove(pos);
 
                 eprintln!(
                     "Found {} {} {}",
@@ -2139,9 +2138,7 @@ JAIN-BB.JAIN.AD.JP. IN A   192.41.197.2
     impl XfrDataProvider for ZoneWithDiffs {
         fn request<Octs>(
             &self,
-            _req: &Request<Octs, ()>,
-            apex_name: &impl ToName,
-            class: Class,
+            req: &Request<Octs, ()>,
             diff_from: Option<Serial>,
         ) -> Pin<
             Box<
@@ -2155,13 +2152,16 @@ JAIN-BB.JAIN.AD.JP. IN A   192.41.197.2
             >,
         >
         where
-            Octs: AsRef<[u8]> + Send + Sync,
+            Octs: Octets + Send + Sync,
         {
-            let res = if apex_name.to_name::<Bytes>() == self.zone.apex_name()
-                && class == self.zone.class()
-            {
-                let diffs =
-                    if self.diffs.first().and_then(|diff| diff.start_serial)
+            let res = if let Ok(q) = req.message().sole_question() {
+                if q.qname() == self.zone.apex_name()
+                    && q.qclass() == self.zone.class()
+                {
+                    let diffs = if self
+                        .diffs
+                        .first()
+                        .and_then(|diff| diff.start_serial)
                         == diff_from
                     {
                         self.diffs.clone()
@@ -2169,7 +2169,10 @@ JAIN-BB.JAIN.AD.JP. IN A   192.41.197.2
                         vec![]
                     };
 
-                Ok((self.zone.clone(), diffs))
+                    Ok((self.zone.clone(), diffs))
+                } else {
+                    Err(XfrDataProviderError::UnknownZone)
+                }
             } else {
                 Err(XfrDataProviderError::UnknownZone)
             };
