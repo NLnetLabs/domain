@@ -59,7 +59,7 @@ impl XfrResponseProcessor {
     /// If the returned iterator does not emit an [`XfrEvent::EndOfTransfer`]
     /// event, call this function with the next outstanding response message
     /// to continue iterating over the incomplete transfer.
-    /// 
+    ///
     /// Checking that the given response corresponds by ID to the related
     /// original XFR query or that the question section of the response, if
     /// present (RFC 5936 allows it to be empty for subsequent AXFR responses)
