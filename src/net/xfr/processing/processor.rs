@@ -59,6 +59,12 @@ impl XfrResponseProcessor {
     /// If the returned iterator does not emit an [`XfrEvent::EndOfTransfer`]
     /// event, call this function with the next outstanding response message
     /// to continue iterating over the incomplete transfer.
+    /// 
+    /// Checking that the given response corresponds by ID to the related
+    /// original XFR query or that the question section of the response, if
+    /// present (RFC 5936 allows it to be empty for subsequent AXFR responses)
+    /// matches that of the original query is NOT done here but instead is
+    /// left to the caller to do.
     pub fn process_answer(
         &mut self,
         resp: Message<Bytes>,
@@ -90,11 +96,8 @@ impl XfrResponseProcessor {
 
     /// Check if an XFR response header is valid.
     ///
-    /// Enforce the rules defined in 2. AXFR Messages of RFC 5936. See:
-    /// https://www.rfc-editor.org/rfc/rfc5936.html#section-2
-    ///
-    /// Takes a request as well as a response as the response is checked to
-    /// see if it is in reply to the given request.
+    /// Enforce the rules defined in 2.2. AXFR Messages of RFC 5936. See:
+    /// https://www.rfc-editor.org/rfc/rfc5936.html#section-2.2
     ///
     /// Returns Ok on success, Err otherwise. On success the type of XFR that
     /// was determined is returned as well as the answer section from the XFR
@@ -106,9 +109,6 @@ impl XfrResponseProcessor {
         let resp_header = resp.header();
         let resp_counts = resp.header_counts();
 
-        // Note: We don't call Message::is_answer() here because that requires
-        // the message to have a question but subsequent AXFR responses are
-        // not required to have a question.
         if resp.is_error()
             || !resp_header.qr()
             || resp_header.opcode() != Opcode::QUERY
@@ -178,7 +178,7 @@ impl Inner {
         let xfr_type = match resp.qtype() {
             Some(Rtype::AXFR) => XfrType::Axfr,
             Some(Rtype::IXFR) => XfrType::Ixfr,
-            _ => unreachable!(), // Checked already in check_request().
+            _ => unreachable!(),
         };
 
         let Some(Ok(record)) = records.next() else {
@@ -196,7 +196,7 @@ impl Inner {
     }
 }
 
-//------------ State ----------------------------------------------------------
+//------------ RecordProcessor ------------------------------------------------
 
 /// State related to processing the XFR response sequence.
 #[derive(Debug)]

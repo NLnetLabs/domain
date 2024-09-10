@@ -64,25 +64,19 @@ impl<'a, 'b> Iterator for XfrEventIterator<'a, 'b> {
     type Item = Result<XfrEvent<XfrRecord>, IterationError>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        match self.iter.next() {
-            Some(Ok(record)) => {
+        match self.iter.next()? {
+            Ok(record) => {
                 trace!("XFR record {}: {record:?}", self.state.rr_count);
                 let event = self.state.process_record(record);
                 Some(Ok(event))
             }
 
-            Some(Err(err)) => {
+            Err(err) => {
                 trace!(
                     "XFR record {}: parsing error: {err}",
                     self.state.rr_count
                 );
                 Some(Err(IterationError::ParseError(err)))
-            }
-
-            None => {
-                trace!("End of XFR records");
-                // No more events available: end iteration.
-                None
             }
         }
     }
