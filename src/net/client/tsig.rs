@@ -213,8 +213,7 @@ enum HandleResponseResult {
 //------------ Request --------------------------------------------------------
 
 /// The state of a request that is executed.
-pub struct Request<CR, Upstream, K>
-{
+pub struct Request<CR, Upstream, K> {
     /// State of the request.
     state: RequestState<K>,
 
