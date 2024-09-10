@@ -22,9 +22,7 @@ use domain::net::client::stream;
 #[cfg(feature = "tsig")]
 use domain::net::client::request::SendRequestMulti;
 #[cfg(feature = "tsig")]
-use domain::net::client::tsig::{
-    self, AuthenticatedRequestMessage, AuthenticatedRequestMessageMulti,
-};
+use domain::net::client::tsig::{self, AuthenticatedRequestMessage};
 #[cfg(feature = "tsig")]
 use domain::tsig::{Algorithm, Key, KeyName};
 
@@ -273,7 +271,7 @@ async fn main() {
                 RequestMessage<Vec<u8>>,
                 Arc<domain::tsig::Key>,
             >,
-            AuthenticatedRequestMessageMulti<
+            AuthenticatedRequestMessage<
                 RequestMessageMulti<Vec<u8>>,
                 Arc<domain::tsig::Key>,
             >,
@@ -342,7 +340,7 @@ where
         + domain::dep::octseq::Octets
         + 'static,
     SR: SendRequestMulti<
-            tsig::AuthenticatedRequestMessageMulti<
+            tsig::AuthenticatedRequestMessage<
                 RequestMessageMulti<Octs>,
                 Arc<Key>,
             >,
@@ -363,7 +361,7 @@ where
     // Create a signing transport. This assumes that the server being
     // connected to is configured with a key with the same name, algorithm and
     // secret and to allow that key to be used for the request we are making.
-    let tsig_conn = tsig::Connection::new(Some(key), conn);
+    let tsig_conn = tsig::Connection::new(key, conn);
 
     // Send a query message.
     let mut request = tsig_conn.send_request(req);
