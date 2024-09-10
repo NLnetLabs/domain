@@ -8,7 +8,7 @@ use tracing::{error, trace};
 use super::error::OutOfZone;
 use super::{WritableZone, WritableZoneNode, Zone};
 use crate::base::name::{FlattenInto, Label, ToLabelIter};
-use crate::base::{Name, Rtype, ToName};
+use crate::base::{Name, ParsedName, Record, Rtype, ToName};
 use crate::net::xfr::processing::{XfrEvent, XfrRecord};
 use crate::rdata::ZoneRecordData;
 use crate::zonetree::{Rrset, SharedRrset};
@@ -35,14 +35,6 @@ impl ZoneUpdateEventHandler {
             batching: false,
             first_event_seen: false,
         })
-    }
-
-    async fn init_batch(&mut self) -> Result<(), ()> {
-        if self.batching {
-            self.write = WriteState::new(&self.zone).await.map_err(|_| ())?;
-        }
-
-        Ok(())
     }
 
     fn mk_relative_name_iterator<'l>(
@@ -109,88 +101,39 @@ impl ZoneUpdateEventHandler {
         &mut self,
         evt: XfrEvent<XfrRecord>,
     ) -> Result<(), ()> {
+        trace!("Event: {evt}");
         match evt {
             XfrEvent::DeleteRecord(_serial, rec) => {
-                let (rtype, data, end_node, mut rrset) =
-                    self.prep_add_del(rec).await?;
-
-                let writable = self.write.writable.as_ref().unwrap();
-
-                trace!("Deleting RR for {rtype}");
-
-                let node = end_node.as_ref().unwrap_or(writable);
-
-                if let Some(existing_rrset) =
-                    node.get_rrset(rtype).await.map_err(|_| ())?
-                {
-                    for existing_data in existing_rrset.data() {
-                        if existing_data != &data {
-                            rrset.push_data(existing_data.clone());
-                        }
-                    }
-                }
-
-                trace!("Removing single RR of {rtype} so updating RRSET");
-                node.update_rrset(SharedRrset::new(rrset))
-                    .await
-                    .map_err(|_| ())?;
+                self.delete_record(rec).await?
             }
 
-            XfrEvent::AddRecord(_serial, rec) => {
-                self.init_batch().await?;
+            XfrEvent::AddRecord(_serial, rec) => self.add_record(rec).await?,
 
-                if !self.first_event_seen && rec.rtype() == Rtype::SOA {
-                    // If the first event is the addition of a SOA record to
-                    // the zone, this must be a complete replacement of the
-                    // zone (as you can't have two SOA records), i.e.
-                    // something like an AXFR transfer. We can't add records
-                    // from a new version of the zone to an existing zone
-                    // because if the old version contained a record which the
-                    // new version does not, it would get left behind. So in
-                    // this case we have to mark all of the existing records
-                    // in the zone as "removed" and then add new records. This
-                    // allows the old records to continue being served to
-                    // current consumers while the zone is being updated.
-                    self.write.remove_all().await.map_err(|_| ())?;
-                }
-
-                let (rtype, data, end_node, mut rrset) =
-                    self.prep_add_del(rec).await?;
-
-                let writable = self.write.writable.as_ref().unwrap();
-
-                trace!("Adding RR: {:?}", rrset);
-                rrset.push_data(data);
-
-                let node = end_node.as_ref().unwrap_or(writable);
-
-                if let Some(existing_rrset) =
-                    node.get_rrset(rtype).await.map_err(|_| ())?
-                {
-                    for existing_data in existing_rrset.data() {
-                        rrset.push_data(existing_data.clone());
-                    }
-                }
-
-                node.update_rrset(SharedRrset::new(rrset))
-                    .await
-                    .map_err(|_| ())?;
-            }
-
-            XfrEvent::BeginBatchDelete(_) => {
+            // Note: Batches first contain deletions then additions, so batch
+            // deletion signals the start of a batch, and the end of any
+            // previous batch addition.
+            XfrEvent::BeginBatchDelete(_old_soa) => {
                 if self.batching {
                     // Commit the previous batch.
                     self.write.commit().await?;
+                    // Open a writer for the new batch.
+                    self.write.reopen().await.map_err(|_| ())?;
                 }
 
                 self.batching = true;
             }
 
-            XfrEvent::BeginBatchAdd(_) => {
+            XfrEvent::BeginBatchAdd(new_soa) => {
+                // Update the SOA record.
+                self.update_soa(new_soa).await?;
                 self.batching = true;
             }
 
-            XfrEvent::EndOfTransfer => {
+            XfrEvent::EndOfTransfer(zone_soa) => {
+                if !self.batching {
+                    // Update the SOA record.
+                    self.update_soa(zone_soa).await?;
+                }
                 // Commit the previous batch.
                 self.write.commit().await?;
             }
@@ -201,6 +144,110 @@ impl ZoneUpdateEventHandler {
         }
 
         self.first_event_seen = true;
+
+        Ok(())
+    }
+
+    async fn update_soa(
+        &mut self,
+        new_soa: Record<
+            ParsedName<Bytes>,
+            ZoneRecordData<Bytes, ParsedName<Bytes>>,
+        >,
+    ) -> Result<(), ()> {
+        if new_soa.rtype() != Rtype::SOA {
+            return Err(());
+        }
+
+        let mut rrset = Rrset::new(Rtype::SOA, new_soa.ttl());
+        rrset.push_data(new_soa.data().to_owned().flatten_into());
+        self.write
+            .writable
+            .as_ref()
+            .unwrap()
+            .update_rrset(SharedRrset::new(rrset))
+            .await
+            .map_err(|_| ())?;
+        Ok(())
+    }
+
+    async fn delete_record(
+        &mut self,
+        rec: Record<
+            ParsedName<Bytes>,
+            ZoneRecordData<Bytes, ParsedName<Bytes>>,
+        >,
+    ) -> Result<(), ()> {
+        let (rtype, data, end_node, mut rrset) =
+            self.prep_add_del(rec).await?;
+
+        let writable = self.write.writable.as_ref().unwrap();
+
+        trace!("Deleting RR for {rtype}");
+
+        let node = end_node.as_ref().unwrap_or(writable);
+
+        if let Some(existing_rrset) =
+            node.get_rrset(rtype).await.map_err(|_| ())?
+        {
+            for existing_data in existing_rrset.data() {
+                if existing_data != &data {
+                    rrset.push_data(existing_data.clone());
+                }
+            }
+        }
+
+        trace!("Removing single RR of {rtype} so updating RRSET");
+
+        node.update_rrset(SharedRrset::new(rrset))
+            .await
+            .map_err(|_| ())?;
+
+        Ok(())
+    }
+
+    async fn add_record(
+        &mut self,
+        rec: Record<
+            ParsedName<Bytes>,
+            ZoneRecordData<Bytes, ParsedName<Bytes>>,
+        >,
+    ) -> Result<(), ()> {
+        if !self.first_event_seen && rec.rtype() == Rtype::SOA {
+            // If the first event is the addition of a SOA record to the zone,
+            // this must be a complete replacement of the zone (as you can't
+            // have two SOA records), i.e. something like an AXFR transfer. We
+            // can't add records from a new version of the zone to an existing
+            // zone because if the old version contained a record which the
+            // new version does not, it would get left behind. So in this case
+            // we have to mark all of the existing records in the zone as
+            // "removed" and then add new records. This allows the old records
+            // to continue being served to current consumers while the zone is
+            // being updated.
+            self.write.remove_all().await.map_err(|_| ())?;
+        }
+
+        let (rtype, data, end_node, mut rrset) =
+            self.prep_add_del(rec).await?;
+
+        let writable = self.write.writable.as_ref().unwrap();
+
+        trace!("Adding RR: {:?}", rrset);
+        rrset.push_data(data);
+
+        let node = end_node.as_ref().unwrap_or(writable);
+
+        if let Some(existing_rrset) =
+            node.get_rrset(rtype).await.map_err(|_| ())?
+        {
+            for existing_data in existing_rrset.data() {
+                rrset.push_data(existing_data.clone());
+            }
+        }
+
+        node.update_rrset(SharedRrset::new(rrset))
+            .await
+            .map_err(|_| ())?;
 
         Ok(())
     }
@@ -237,6 +284,11 @@ impl WriteState {
             self.write.commit(false).await.map_err(|_| ())?;
         }
 
+        Ok(())
+    }
+
+    async fn reopen(&mut self) -> std::io::Result<()> {
+        self.writable = Some(self.write.open(true).await?);
         Ok(())
     }
 }
@@ -281,12 +333,12 @@ mod tests {
         );
 
         evt_handler
-            .handle_event(XfrEvent::AddRecord(s, soa))
+            .handle_event(XfrEvent::AddRecord(s, soa.clone()))
             .await
             .unwrap();
 
         evt_handler
-            .handle_event(XfrEvent::EndOfTransfer)
+            .handle_event(XfrEvent::EndOfTransfer(soa))
             .await
             .unwrap();
     }
