@@ -6,7 +6,7 @@ use std::collections::{HashMap, VecDeque};
 use std::fmt::Debug;
 use std::fs::File;
 use std::net::SocketAddr;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::string::{String, ToString};
 use std::sync::Arc;
@@ -39,7 +39,9 @@ use crate::net::server::middleware::cookies::CookiesMiddlewareSvc;
 use crate::net::server::middleware::edns::EdnsMiddlewareSvc;
 use crate::net::server::middleware::mandatory::MandatoryMiddlewareSvc;
 use crate::net::server::middleware::notify::NotifyMiddlewareSvc;
-use crate::net::server::middleware::xfr::{XfrMiddlewareSvc, XfrMode};
+use crate::net::server::middleware::tsig::Authentication;
+use crate::net::server::middleware::tsig::TsigMiddlewareSvc;
+use crate::net::server::middleware::xfr::XfrMiddlewareSvc;
 use crate::net::server::service::{CallResult, Service, ServiceResult};
 use crate::net::server::stream::StreamServer;
 use crate::net::server::util::{mk_builder_for_target, service_fn};
@@ -66,6 +68,7 @@ use crate::zonemaintenance::types::{
 };
 use crate::zonetree::Answer;
 use crate::zonetree::{Zone, ZoneBuilder};
+use std::io::Read;
 
 const MAX_XFR_CONCURRENCY: usize = 1;
 
@@ -83,8 +86,6 @@ async fn server_tests(#[files("test-data/server/*.rpl")] rpl_file: PathBuf) {
     // Initialize tracing based logging. Override with env var RUST_LOG, e.g.
     // RUST_LOG=trace. DEBUG level will show the .rpl file name, Stelline step
     // numbers and types as they are being executed.
-
-    use crate::net::server::middleware::tsig::TsigMiddlewareSvc;
     tracing_subscriber::fmt()
         .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
         .with_thread_ids(true)
@@ -131,7 +132,7 @@ async fn server_tests(#[files("test-data/server/*.rpl")] rpl_file: PathBuf) {
         let zone = match (&zone_config.zone_name, &zone_config.zone_file) {
             (_, Some(zone_file)) => {
                 // This is a primary zone with content already defined.
-                Zone::try_from(zone_file.clone()).unwrap()
+                Some(Zone::try_from(zone_file.clone()).unwrap())
             }
             (Some(zone_name), None) => {
                 // This is a secondary zone with content to be received via
@@ -140,13 +141,15 @@ async fn server_tests(#[files("test-data/server/*.rpl")] rpl_file: PathBuf) {
                     Name::from_str(zone_name).unwrap(),
                     Class::IN,
                 );
-                builder.build()
+                Some(builder.build())
             }
-            _ => unreachable!(),
+            _ => None,
         };
 
-        let zone = TypedZone::new(zone, zone_config.zone_config.clone());
-        zones.insert_zone(zone).await.unwrap();
+        if let Some(zone) = zone {
+            let zone = TypedZone::new(zone, zone_config.zone_config.clone());
+            zones.insert_zone(zone).await.unwrap();
+        }
     }
 
     // Start the zone maintainer background service so that incoming XFR/NOTIFY
@@ -186,11 +189,10 @@ async fn server_tests(#[files("test-data/server/*.rpl")] rpl_file: PathBuf) {
 
     // 4. XFR(-in) middleware service (XFR-out is handled by the
     //    ZoneMaintainer).
-    let svc = XfrMiddlewareSvc::<Vec<u8>, _, _>::new(
+    let svc = XfrMiddlewareSvc::<Vec<u8>, _, _, Authentication>::new(
         svc,
         zones.clone(),
         MAX_XFR_CONCURRENCY,
-        XfrMode::AxfrAndIxfr,
     );
 
     // 5. NOTIFY(-in) middleware service (relayed to the ZoneMaintainer for
@@ -506,6 +508,28 @@ fn parse_server_config(config: &Config) -> ServerConfig {
                         zone_file_bytes
                             .extend(v.trim_matches('"').as_bytes().iter());
                         zone_file_bytes.push_back(b'\n');
+                    }
+                    ("zonefile", v) => {
+                        let zone_path =
+                            Path::new("test-data/zonefiles/").join(v);
+                        let zone_path = zone_path.canonicalize().map_err(|err| {
+                            format!("Error: Failed to open zone file at '{}': {err}", zone_path.display())
+                        }).unwrap();
+                        let path = zone_path.as_path();
+
+                        println!(
+                            "Loading zone file from '{}'..",
+                            zone_path.display()
+                        );
+
+                        let mut temp_vec = vec![];
+                        File::open(path.canonicalize().unwrap().as_path())
+                            .map_err(|err| {
+                                format!("Error: Failed to open zone file at '{}': {err}", zone_path.display())
+                            }).unwrap()
+                            .read_to_end(&mut temp_vec)
+                            .unwrap();
+                        zone_file_bytes = temp_vec.into();
                     }
                     ("edns-tcp-keepalive", "yes") => {
                         parsed_config.edns_tcp_keepalive = true;

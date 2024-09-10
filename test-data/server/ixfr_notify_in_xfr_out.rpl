@@ -71,6 +71,32 @@ RANGE_END
 
 ;--- Test steps
 
+; Request update from serial version 1 of the zone via IXFR from the server
+; via TCP using a client to which only AXFR will be served. This is the example query and
+; "full zone transfer message" response defined in RFC 1995 section 7.
+STEP 1 QUERY 127.0.0.2
+ENTRY_BEGIN
+MATCH TCP
+SECTION QUESTION
+    JAIN.AD.JP.          IN  IXFR
+SECTION AUTHORITY
+    JAIN.AD.JP.          IN  SOA  NS.JAIN.AD.JP. mohta.jain.ad.jp. (0 600 600 3600000 604800)
+ENTRY_END
+
+STEP 2 CHECK_ANSWER
+ENTRY_BEGIN
+MATCH all
+REPLY QR AA NOERROR
+SECTION QUESTION
+    JAIN.AD.JP.          IN  IXFR
+SECTION ANSWER
+    JAIN.AD.JP.          IN  SOA  NS.JAIN.AD.JP. mohta.jain.ad.jp. (1 600 600 3600000 604800)
+    JAIN.AD.JP.          IN  NS   NS.JAIN.AD.JP.
+    NS.JAIN.AD.JP.       IN  A    133.69.136.1
+    NEZU.JAIN.AD.JP.     IN  A    133.69.136.5
+    JAIN.AD.JP.          IN  SOA  NS.JAIN.AD.JP. mohta.jain.ad.jp. (1 600 600 3600000 604800)
+ENTRY_END
+
 ; Setup
 ; =====
 ; Before we can execute the test query defined in RFC 1995 section 7 we must
@@ -111,8 +137,6 @@ ENTRY_BEGIN
 MATCH TCP
 SECTION QUESTION
     JAIN.AD.JP.          IN  AXFR
-SECTION AUTHORITY
-    JAIN.AD.JP.          IN  SOA  NS.JAIN.AD.JP. mohta.jain.ad.jp. (1 600 600 3600000 604800)
 ENTRY_END
 
 STEP 40 CHECK_ANSWER

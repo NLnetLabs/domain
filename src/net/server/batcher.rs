@@ -1,7 +1,8 @@
-//------------ ResourceRecordBatcher ------------------------------------------
+//! Resource record batching.
 
 use core::marker::PhantomData;
 
+use std::fmt::Debug;
 use std::sync::Arc;
 
 use octseq::Octets;
@@ -31,14 +32,16 @@ where
     RequestOctets: Octets,
     Target: Composer + Default,
 {
+    type Error: From<PushError> + Debug;
+
     #[allow(clippy::result_unit_err)]
     fn push(
         &mut self,
         record: impl ComposeRecord,
-    ) -> Result<PushResult<Target>, ()>;
+    ) -> Result<PushResult<Target>, Self::Error>;
 
     #[allow(clippy::result_unit_err)]
-    fn finish(&mut self) -> Result<(), ()>;
+    fn finish(&mut self) -> Result<(), Self::Error>;
 
     fn mk_answer_builder(
         &self,
@@ -56,6 +59,9 @@ where
     RequestOctets: Octets,
     Target: Composer + Default,
 {
+    type Error: From<PushError> + Debug;
+
+    /// Prepare a message builder to push records into.
     fn batch_started(
         _state: &T,
         msg: &Message<RequestOctets>,
@@ -65,6 +71,9 @@ where
         Ok(answer)
     }
 
+    /// A record has been pushed. Is the message now full?
+    ///
+    /// Return true if it is full, false if there is still space.
     fn record_pushed(
         _state: &T,
         _answer: &AnswerBuilder<StreamTarget<Target>>,
@@ -72,11 +81,13 @@ where
         false
     }
 
+    /// Do something with the completed message.
     #[allow(clippy::result_unit_err)]
     fn batch_ready(
         _state: &T,
         _answer: AnswerBuilder<StreamTarget<Target>>,
-    ) -> Result<(), ()>;
+        _finished: bool,
+    ) -> Result<(), Self::Error>;
 }
 
 //------------ CallbackBatcher ------------------------------------------------
@@ -110,6 +121,10 @@ where
             _phantom: PhantomData,
         }
     }
+
+    pub fn callback_state(&self) -> &T {
+        &self.callback_state
+    }
 }
 
 impl<RequestOctets, Target, C, T> CallbackBatcher<RequestOctets, Target, C, T>
@@ -121,14 +136,14 @@ where
     fn try_push(
         &mut self,
         record: &impl ComposeRecord,
-    ) -> Result<PushResult<Target>, ()> {
-        match self.push_ref(record).map_err(|_| ())? {
+    ) -> Result<PushResult<Target>, C::Error> {
+        match self.push_ref(record)? {
             PushResult::PushedAndLimitReached(builder) => {
-                C::batch_ready(&self.callback_state, builder)?;
+                C::batch_ready(&self.callback_state, builder, false)?;
                 Ok(PushResult::PushedAndReadyForMore)
             }
             PushResult::NotPushedMessageFull(builder) => {
-                C::batch_ready(&self.callback_state, builder)?;
+                C::batch_ready(&self.callback_state, builder, false)?;
                 Ok(PushResult::Retry)
             }
             other => Ok(other),
@@ -187,19 +202,21 @@ where
     Target: Composer + Default,
     C: Callbacks<RequestOctets, Target, T>,
 {
+    type Error = C::Error;
+
     fn push(
         &mut self,
         record: impl ComposeRecord,
-    ) -> Result<PushResult<Target>, ()> {
+    ) -> Result<PushResult<Target>, Self::Error> {
         match self.try_push(&record) {
             Ok(PushResult::Retry) => self.try_push(&record),
             other => other,
         }
     }
 
-    fn finish(&mut self) -> Result<(), ()> {
+    fn finish(&mut self) -> Result<(), Self::Error> {
         if let Some(builder) = self.answer.take() {
-            C::batch_ready(&self.callback_state, builder.unwrap())
+            C::batch_ready(&self.callback_state, builder.unwrap(), true)
         } else {
             Ok(())
         }
@@ -225,6 +242,145 @@ where
     fn drop(&mut self) {
         if self.answer.is_some() {
             trace!("Dropping unfinished batcher, was that intentional or did you forget to call finish()?");
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::base::{MessageBuilder, Name};
+    use crate::rdata::Txt;
+    use core::sync::atomic::{AtomicU64, Ordering};
+    use std::vec::Vec;
+
+    #[test]
+    fn batch_of_zero() {
+        let mut batcher = mk_counting_batcher();
+        batcher.callback_state().assert_eq(0, 0, 0);
+        batcher.finish().unwrap();
+        batcher.callback_state().assert_eq(0, 0, 0);
+    }
+
+    #[test]
+    fn batch_of_one() {
+        let mut batcher = mk_counting_batcher();
+        batcher.push(mk_dummy_rr(&[])).unwrap();
+        batcher.callback_state().assert_eq(1, 1, 0);
+        batcher.finish().unwrap();
+        batcher.callback_state().assert_eq(0, 1, 1);
+    }
+
+    #[test]
+    fn batch_of_one_very_large_rr() {
+        let mut batcher = mk_counting_batcher();
+        batcher.push(mk_dummy_rr(&vec![0; 65000])).unwrap();
+        batcher.callback_state().assert_eq(1, 1, 0);
+        batcher.finish().unwrap();
+        batcher.callback_state().assert_eq(0, 1, 1);
+    }
+
+    #[test]
+    fn batch_of_many_small_rrs() {
+        let mut batcher = mk_counting_batcher();
+        for _ in 0..1000 {
+            batcher.push(mk_dummy_rr(&[0; 10])).unwrap();
+        }
+        batcher.callback_state().assert_eq(1000, 1000, 0);
+        batcher.finish().unwrap();
+        batcher.callback_state().assert_eq(0, 1000, 1);
+    }
+
+    #[test]
+    fn batch_of_two_too_big_rrs() {
+        let mut batcher = mk_counting_batcher();
+        batcher.push(mk_dummy_rr(&vec![0; 65000])).unwrap();
+        batcher.callback_state().assert_eq(1, 1, 0);
+        batcher.push(mk_dummy_rr(&vec![0; 1000])).unwrap();
+        batcher.callback_state().assert_eq(1, 2, 1);
+        batcher.finish().unwrap();
+        batcher.callback_state().assert_eq(0, 2, 2);
+    }
+
+    fn mk_counting_batcher(
+    ) -> CallbackBatcher<Vec<u8>, Vec<u8>, BatchCounter, Arc<TestCounters>>
+    {
+        let req = Arc::new(MessageBuilder::new_vec().into_message());
+        let cnt = Arc::new(TestCounters::new());
+        CallbackBatcher::new(req, cnt)
+    }
+
+    fn mk_dummy_rr(text: &[u8]) -> impl ComposeRecord {
+        (
+            Name::root_vec(),
+            0,
+            Txt::<Vec<u8>>::build_from_slice(text).unwrap(),
+        )
+    }
+
+    //------------ TestCounters -----------------------------------------------
+
+    #[derive(Default)]
+    struct TestCounters {
+        num_rrs_in_last_batch: AtomicU64,
+        num_total_rrs: AtomicU64,
+        num_batches: AtomicU64,
+    }
+
+    impl TestCounters {
+        fn new() -> Self {
+            Self::default()
+        }
+
+        fn assert_eq(
+            &self,
+            num_rrs_in_last_batch: u64,
+            num_total_rrs: u64,
+            num_batches: u64,
+        ) {
+            assert_eq!(
+                self.num_rrs_in_last_batch.load(Ordering::SeqCst),
+                num_rrs_in_last_batch
+            );
+            assert_eq!(
+                self.num_total_rrs.load(Ordering::SeqCst),
+                num_total_rrs
+            );
+            assert_eq!(self.num_batches.load(Ordering::SeqCst), num_batches);
+        }
+    }
+
+    //------------ TestCallbacks ----------------------------------------------
+
+    struct BatchCounter;
+
+    impl From<PushError> for () {
+        fn from(_: PushError) -> Self {}
+    }
+
+    impl Callbacks<Vec<u8>, Vec<u8>, Arc<TestCounters>> for BatchCounter {
+        type Error = ();
+
+        fn batch_ready(
+            counters: &Arc<TestCounters>,
+            answer: AnswerBuilder<StreamTarget<Vec<u8>>>,
+            _finished: bool,
+        ) -> Result<(), ()> {
+            counters.num_batches.fetch_add(1, Ordering::SeqCst);
+            counters.num_rrs_in_last_batch.store(0, Ordering::SeqCst);
+            eprintln!("Answer byte length: {}", answer.as_slice().len());
+            Ok(())
+        }
+
+        fn record_pushed(
+            counters: &Arc<TestCounters>,
+            _answer: &AnswerBuilder<StreamTarget<Vec<u8>>>,
+        ) -> bool {
+            counters
+                .num_rrs_in_last_batch
+                .fetch_add(1, Ordering::SeqCst);
+            counters.num_total_rrs.fetch_add(1, Ordering::SeqCst);
+            false
         }
     }
 }

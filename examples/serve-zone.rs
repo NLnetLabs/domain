@@ -65,8 +65,10 @@ use domain::net::server::middleware::cookies::CookiesMiddlewareSvc;
 use domain::net::server::middleware::edns::EdnsMiddlewareSvc;
 use domain::net::server::middleware::mandatory::MandatoryMiddlewareSvc;
 use domain::net::server::middleware::notify::NotifyMiddlewareSvc;
-use domain::net::server::middleware::tsig::TsigMiddlewareSvc;
-use domain::net::server::middleware::xfr::{XfrMiddlewareSvc, XfrMode};
+use domain::net::server::middleware::tsig::{
+    Authentication, TsigMiddlewareSvc,
+};
+use domain::net::server::middleware::xfr::XfrMiddlewareSvc;
 use domain::net::server::service::{CallResult, ServiceResult};
 use domain::net::server::stream::{self, StreamServer};
 use domain::net::server::util::{mk_builder_for_target, service_fn};
@@ -110,13 +112,11 @@ async fn main() {
 
     // Create a service to answer queries for the zone.
     let svc = service_fn(my_service, zones.clone());
-    let svc: XfrMiddlewareSvc<Vec<u8>, _, _> =
-        XfrMiddlewareSvc::<Vec<u8>, _, _>::new(
-            svc,
-            zones.clone(),
-            max_concurrency,
-            XfrMode::AxfrAndIxfr,
-        );
+    let svc = XfrMiddlewareSvc::<Vec<u8>, _, _, Authentication>::new(
+        svc,
+        zones.clone(),
+        max_concurrency,
+    );
     let svc =
         NotifyMiddlewareSvc::<Vec<u8>, _, _, _>::new(svc, zones.clone());
     let svc = CookiesMiddlewareSvc::<Vec<u8>, _, _>::with_random_secret(svc);

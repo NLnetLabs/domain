@@ -877,6 +877,9 @@ impl<Target: Composer> AnswerBuilder<Target> {
         )
     }
 
+    /// Appends a record to the answer section without consuming it.
+    ///
+    /// See [`push`][Self::push].
     pub fn push_ref(
         &mut self,
         record: &impl ComposeRecord,

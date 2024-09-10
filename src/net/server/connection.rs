@@ -703,8 +703,7 @@ where
                 let received_at = Instant::now();
 
                 if enabled!(Level::TRACE) {
-                    let pcap_text =
-                        to_pcap_text(&buf, buf.as_ref().len().min(128));
+                    let pcap_text = to_pcap_text(&buf, buf.as_ref().len()); //.min(128));
                     trace!(addr = %self.addr, pcap_text, "Received message (dumping max 128 bytes)");
                 }
 

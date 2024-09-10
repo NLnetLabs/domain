@@ -5,12 +5,13 @@
 // reading: https://kb.isc.org/docs/axfr-style-ixfr-explained
 use core::any::Any;
 use core::fmt::Debug;
-use core::marker::Send;
+use core::marker::{Send, Sync};
 use core::ops::{Deref, DerefMut};
 use core::pin::Pin;
 use core::sync::atomic::{AtomicBool, Ordering};
 use core::time::Duration;
 
+use std::borrow::ToOwned;
 use std::boxed::Box;
 use std::collections::hash_map::Entry::{Occupied, Vacant};
 use std::collections::HashMap;
@@ -63,7 +64,14 @@ use super::types::{
     ZoneRefreshStatus, ZoneRefreshTimer, ZoneReport, ZoneReportDetails,
     IANA_DNS_PORT_NUMBER, MIN_DURATION_BETWEEN_ZONE_REFRESHES,
 };
+use crate::net::server::message::Request;
 use crate::net::server::middleware::notify::{Notifiable, NotifyError};
+use crate::net::server::middleware::tsig::{
+    Authentication, MaybeAuthenticated,
+};
+use crate::net::server::middleware::xfr::{
+    XfrDataProvider, XfrDataProviderError,
+};
 use crate::net::xfr::processing::{
     ProcessingError, XfrEvent, XfrResponseProcessor,
 };
@@ -1975,6 +1983,18 @@ where
     }
 }
 
+impl<KS, CF: ConnectionFactory> ZoneMaintainer<KS, CF>
+where
+    KS: Deref,
+    KS::Target: KeyStore,
+{
+    fn update_lodaded_arc(&self) {
+        *self.loaded_arc.write().unwrap() = self.member_zones.load_full();
+    }
+}
+
+//--- ZoneLookup
+
 impl<KS, CF: ConnectionFactory> ZoneLookup for ZoneMaintainer<KS, CF>
 where
     KS: Deref,
@@ -2048,13 +2068,260 @@ where
     }
 }
 
-impl<KS, CF: ConnectionFactory> ZoneMaintainer<KS, CF>
+impl<KS, CF> ZoneMaintainer<KS, CF>
 where
-    KS: Deref,
+    KS: Deref + 'static + Sync + Send,
     KS::Target: KeyStore,
+    <KS::Target as KeyStore>::Key:
+        Clone + Debug + Display + Sync + Send + 'static,
+    CF: ConnectionFactory + Sync + Send + 'static,
 {
-    fn update_lodaded_arc(&self) {
-        *self.loaded_arc.write().unwrap() = self.member_zones.load_full();
+    fn check_xfr_access<'a>(
+        zone_info: &'a ZoneInfo,
+        zone: &Zone,
+        client_ip: IpAddr,
+        qtype: Rtype,
+    ) -> Result<&'a XfrConfig, XfrDataProviderError> {
+        if zone_info.config().provide_xfr_to.is_empty() {
+            warn!(
+                "{qtype} for zone '{}' from {client_ip} refused: zone does not allow XFR", zone.apex_name(),
+            );
+            return Err(XfrDataProviderError::Refused);
+        };
+        let Some(xfr_config) =
+            zone_info.config().provide_xfr_to.src(client_ip)
+        else {
+            warn!(
+                "{qtype} for zone '{}' from {client_ip} refused: client is not permitted to transfer this zone", zone.apex_name(),
+            );
+            return Err(XfrDataProviderError::Refused);
+        };
+
+        if matches!(
+            (qtype, xfr_config.strategy),
+            (Rtype::AXFR, XfrStrategy::IxfrOnly)
+                | (Rtype::IXFR, XfrStrategy::AxfrOnly)
+        ) {
+            warn!(
+                "{qtype} for zone '{}' from {client_ip} refused: zone does not allow {qtype}", zone.apex_name(),
+            );
+            return Err(XfrDataProviderError::Refused);
+        }
+
+        Ok(xfr_config)
+    }
+
+    async fn diffs_for_zone(
+        diff_from: Option<Serial>,
+        zone: &Zone,
+        zone_info: &ZoneInfo,
+    ) -> Vec<Arc<ZoneDiff>>
+    where
+        KS: Deref + 'static + Sync + Send,
+        CF: ConnectionFactory + Sync + Send + 'static,
+    {
+        let mut diffs = vec![];
+
+        if let Some(diff_from) = diff_from {
+            let read = zone.read();
+            if let Ok(Some((soa, _ttl))) = ZoneMaintainer::<KS, CF>::read_soa(
+                &read,
+                zone.apex_name().to_owned(),
+            )
+            .await
+            {
+                diffs =
+                    zone_info.diffs_for_range(diff_from, soa.serial()).await;
+            }
+        }
+
+        diffs
+    }
+}
+
+//--- XfrDataProvider
+
+impl<KS, CF> XfrDataProvider for ZoneMaintainer<KS, CF>
+where
+    KS: Deref + 'static + Sync + Send,
+    KS::Target: KeyStore,
+    <KS::Target as KeyStore>::Key:
+        Clone + Debug + Display + Sync + Send + 'static,
+    CF: ConnectionFactory + Sync + Send + 'static,
+{
+    fn request<Octs>(
+        &self,
+        req: &Request<Octs>,
+        diff_from: Option<Serial>,
+    ) -> Pin<
+        Box<
+            dyn Future<
+                    Output = Result<
+                        (Zone, Vec<Arc<ZoneDiff>>),
+                        net::server::middleware::xfr::XfrDataProviderError,
+                    >,
+                > + Sync
+                + Send
+                + '_,
+        >,
+    >
+    where
+        Octs: Octets + Send + Sync,
+    {
+        let opt = if let Ok(q) = req.message().sole_question() {
+            Some((self.find_zone(&q.qname(), q.qclass()), q.qtype()))
+        } else {
+            None
+        };
+
+        let client_ip = req.client_addr().ip();
+
+        let res = async move {
+            let Some((zone_res, qtype)) = opt else {
+                return Err(XfrDataProviderError::Refused);
+            };
+
+            match zone_res {
+                Ok(Some(zone)) => {
+                    let cat_zone = zone
+                        .as_ref()
+                        .as_any()
+                        .downcast_ref::<MaintainedZone>()
+                        .unwrap();
+
+                    let zone_info = cat_zone.info();
+
+                    let _ = ZoneMaintainer::<KS, CF>::check_xfr_access(
+                        zone_info, &zone, client_ip, qtype,
+                    )?;
+
+                    let diffs = ZoneMaintainer::<KS, CF>::diffs_for_zone(
+                        diff_from, &zone, zone_info,
+                    )
+                    .await;
+
+                    Ok((zone.clone(), diffs))
+                }
+
+                Ok(None) => Err(XfrDataProviderError::UnknownZone),
+
+                Err(ZoneError::TemporarilyUnavailable) => {
+                    Err(XfrDataProviderError::TemporarilyUnavailable)
+                }
+            }
+        };
+
+        Box::pin(res)
+    }
+}
+
+//--- XfrDataProvider<Authentication>
+
+impl<KS, CF> XfrDataProvider<Authentication> for ZoneMaintainer<KS, CF>
+where
+    KS: Deref + 'static + Sync + Send,
+    KS::Target: KeyStore,
+    <KS::Target as KeyStore>::Key:
+        Clone + Debug + Display + Sync + Send + 'static,
+    CF: ConnectionFactory + Sync + Send + 'static,
+{
+    fn request<Octs>(
+        &self,
+        req: &Request<Octs, Authentication>,
+        diff_from: Option<Serial>,
+    ) -> Pin<
+        Box<
+            dyn Future<
+                    Output = Result<
+                        (Zone, Vec<Arc<ZoneDiff>>),
+                        net::server::middleware::xfr::XfrDataProviderError,
+                    >,
+                > + Sync
+                + Send
+                + '_,
+        >,
+    >
+    where
+        Octs: Octets + Send + Sync,
+    {
+        let opt = if let Ok(q) = req.message().sole_question() {
+            Some((self.find_zone(&q.qname(), q.qclass()), q.qtype()))
+        } else {
+            None
+        };
+
+        let client_ip = req.client_addr().ip();
+        let key_name = req.metadata().key_name().map(ToOwned::to_owned);
+
+        let res = async move {
+            let Some((zone_res, qtype)) = opt else {
+                return Err(XfrDataProviderError::Refused);
+            };
+
+            match zone_res {
+                Ok(Some(zone)) => {
+                    let cat_zone = zone
+                        .as_ref()
+                        .as_any()
+                        .downcast_ref::<MaintainedZone>()
+                        .unwrap();
+
+                    let zone_info = cat_zone.info();
+
+                    let xfr_config =
+                        ZoneMaintainer::<KS, CF>::check_xfr_access(
+                            zone_info, &zone, client_ip, qtype,
+                        )?;
+
+                    let expected_tsig_key_name =
+                        xfr_config.tsig_key.as_ref().map(|(name, _alg)| name);
+                    let tsig_key_mismatch = match (expected_tsig_key_name, key_name.as_ref()) {
+                        (None, Some(actual)) => {
+                            Some(format!(
+                                "Request was signed with TSIG key '{actual}' but should be unsigned."))
+                        }
+                        (Some(expected), None) => {
+                            Some(
+                                format!("Request should be signed with TSIG key '{expected}' but was unsigned"))
+                        }
+                        (Some(expected), Some(actual)) if *actual != expected => {
+                            Some(format!(
+                                "Request should be signed with TSIG key '{expected}' but was instead signed with TSIG key '{actual}'"))
+                        }
+                        (Some(expected), Some(_)) => {
+                            trace!("Request is signed with expected TSIG key '{expected}'");
+                            None
+                        },
+                        (None, None) => {
+                            trace!("Request is unsigned as expected");
+                            None
+                        }
+                    };
+                    if let Some(reason) = tsig_key_mismatch {
+                        warn!(
+                            "{qtype} for zone '{}' from {client_ip} refused: {reason}",
+                            zone.apex_name(),
+                        );
+                        return Err(XfrDataProviderError::Refused);
+                    }
+
+                    let diffs = ZoneMaintainer::<KS, CF>::diffs_for_zone(
+                        diff_from, &zone, zone_info,
+                    )
+                    .await;
+
+                    Ok((zone.clone(), diffs))
+                }
+
+                Ok(None) => Err(XfrDataProviderError::UnknownZone),
+
+                Err(ZoneError::TemporarilyUnavailable) => {
+                    Err(XfrDataProviderError::TemporarilyUnavailable)
+                }
+            }
+        };
+
+        Box::pin(res)
     }
 }
 
