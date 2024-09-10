@@ -334,18 +334,15 @@ where
             }
         };
 
-        match Self::handle_response(&self.key, response, tsig_client) {
-            Ok(HandleResponseResult::Complete) => {
-                self.state = RequestState::Complete;
-                Ok(None)
+        Self::handle_response(&self.key, response, tsig_client).map(|res| {
+            match res {
+                HandleResponseResult::Complete => {
+                    self.state = RequestState::Complete;
+                    None
+                }
+                HandleResponseResult::Response(res) => Some(res),
             }
-
-            Ok(HandleResponseResult::Response(response)) => {
-                Ok(Some(response))
-            }
-
-            Err(err) => Err(err),
-        }
+        })
     }
 
     /// TODO
