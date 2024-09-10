@@ -105,12 +105,12 @@ pub struct Connection<Upstream, K> {
     upstream: Arc<Upstream>,
 
     /// TODO
-    key: Option<K>,
+    key: K,
 }
 
 impl<Upstream, K> Connection<Upstream, K> {
     /// TODO
-    pub fn new(key: Option<K>, upstream: Upstream) -> Self {
+    pub fn new(key: K, upstream: Upstream) -> Self {
         Self {
             upstream: Arc::new(upstream),
             key,
@@ -221,7 +221,7 @@ pub struct Request<CR, Upstream, K> {
     request_msg: Option<CR>,
 
     /// TODO
-    key: Option<K>,
+    key: K,
 
     /// The upstream transport of the connection.
     upstream: Arc<Upstream>,
@@ -235,7 +235,7 @@ where
     Self: GetResponse,
 {
     /// Create a new Request object.
-    fn new(request_msg: CR, key: Option<K>, upstream: Arc<Upstream>) -> Self {
+    fn new(request_msg: CR, key: K, upstream: Arc<Upstream>) -> Self {
         Self {
             state: RequestState::Init,
             request_msg: Some(request_msg),
@@ -281,11 +281,7 @@ where
     K: Clone + AsRef<Key>,
 {
     /// Create a new Request object.
-    fn new_multi(
-        request_msg: CR,
-        key: Option<K>,
-        upstream: Arc<Upstream>,
-    ) -> Self {
+    fn new_multi(request_msg: CR, key: K, upstream: Arc<Upstream>) -> Self {
         Self {
             state: RequestState::Init,
             request_msg: Some(request_msg),
@@ -334,27 +330,20 @@ where
             }
         };
 
-        Self::handle_response(&self.key, response, tsig_client).map(|res| {
-            match res {
-                HandleResponseResult::Complete => {
-                    self.state = RequestState::Complete;
-                    None
-                }
-                HandleResponseResult::Response(res) => Some(res),
+        Self::handle_response(response, tsig_client).map(|res| match res {
+            HandleResponseResult::Complete => {
+                self.state = RequestState::Complete;
+                None
             }
+            HandleResponseResult::Response(res) => Some(res),
         })
     }
 
     /// TODO
     fn handle_response(
-        key: &Option<K>,
         response: Result<Option<Message<Bytes>>, Error>,
         tsig_client: &mut Arc<std::sync::Mutex<Option<TsigClient<K>>>>,
     ) -> Result<HandleResponseResult, Error> {
-        if response.is_ok() && key.is_some() {
-            assert!(tsig_client.lock().unwrap().is_some());
-        }
-
         // TSIG validation
         match response {
             Ok(None) => {
@@ -440,7 +429,7 @@ where
     request: CR,
 
     /// TODO
-    key: Option<K>,
+    key: K,
 
     /// TODO
     signer: Arc<std::sync::Mutex<Option<TsigClient<K>>>>,
@@ -458,26 +447,22 @@ where
     ) -> Result<AdditionalBuilder<Target>, CopyRecordsError> {
         let mut target = self.request.append_message(target)?;
 
-        if let Some(key) = &self.key {
-            let client = {
-                trace!(
-                    "Signing single request transaction with key '{}'",
-                    key.as_ref().name()
-                );
-                TsigClient::Transaction(
-                    ClientTransaction::request(
-                        key.clone(),
-                        &mut target,
-                        Time48::now(),
-                    )
-                    .unwrap(),
+        let client = {
+            trace!(
+                "Signing single request transaction with key '{}'",
+                self.key.as_ref().name()
+            );
+            TsigClient::Transaction(
+                ClientTransaction::request(
+                    self.key.clone(),
+                    &mut target,
+                    Time48::now(),
                 )
-            };
+                .unwrap(),
+            )
+        };
 
-            *self.signer.lock().unwrap() = Some(client);
-        } else {
-            trace!("No signing key was configured for this request, nothing to do");
-        }
+        *self.signer.lock().unwrap() = Some(client);
 
         Ok(target)
     }
@@ -545,24 +530,20 @@ where
     ) -> Result<AdditionalBuilder<Target>, CopyRecordsError> {
         let mut target = self.request.append_message(target)?;
 
-        if let Some(key) = &self.key {
-            trace!(
-                "Signing streaming request sequence with key '{}'",
-                key.as_ref().name()
-            );
-            let client = TsigClient::Sequence(
-                ClientSequence::request(
-                    key.clone(),
-                    &mut target,
-                    Time48::now(),
-                )
-                .unwrap(),
-            );
+        trace!(
+            "Signing streaming request sequence with key '{}'",
+            self.key.as_ref().name()
+        );
+        let client = TsigClient::Sequence(
+            ClientSequence::request(
+                self.key.clone(),
+                &mut target,
+                Time48::now(),
+            )
+            .unwrap(),
+        );
 
-            *self.signer.lock().unwrap() = Some(client);
-        } else {
-            trace!("No signing key was configured for this request, nothing to do");
-        }
+        *self.signer.lock().unwrap() = Some(client);
 
         Ok(target)
     }
