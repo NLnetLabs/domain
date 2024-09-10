@@ -1402,8 +1402,6 @@ mod tests {
             (n("example.com"), zone_soa.clone().into()),
             (n("example.com"), Ns::new(n("example.com")).into()),
             (n("example.com"), A::new(p("192.0.2.1")).into()),
-            (n("example.com"), A::new(p("127.0.0.1")).into()),
-            (n("example.com"), A::new(p("192.0.2.1")).into()),
             (n("example.com"), Aaaa::new(p("2001:db8::3")).into()),
             (n("www.example.com"), Cname::new(n("example.com")).into()),
             (n("mail.example.com"), Mx::new(10, n("example.com")).into()),

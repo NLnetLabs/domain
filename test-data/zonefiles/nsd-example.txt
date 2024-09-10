@@ -1,7 +1,8 @@
-$ORIGIN example.com. ; 'default' domain as FQDN for this zone
+; From: https://nsd.docs.nlnetlabs.nl/en/latest/zonefile.html#creating-a-zone
+$ORIGIN example.com.
 $TTL 86400 ; default time-to-live for this zone
 
-example.com.   IN  SOA     ns.example.com. noc.dns.icann.org. (
+example.com.   IN  SOA     ns.example.com. noc.dns.example.org. (
         2020080302  ;Serial
         5        ;Refresh
         3600        ;Retry
@@ -9,17 +10,14 @@ example.com.   IN  SOA     ns.example.com. noc.dns.icann.org. (
         3600        ;Negative response caching TTL
 )
 
-; The nameserver that are authoritative for this zone.
+; The nameservers that are authoritative for this zone.
                                 NS      example.com.
 
-; these A records below are equivalent
+; A and AAAA records are for IPv4 and IPv6 addresses respectively
 example.com.    A       192.0.2.1
-@                               A       127.0.0.1
-                                A       192.0.2.1
+                                AAAA 2001:db8::3
 
-@                               AAAA 2001:db8::3
-
-; A CNAME redirect from www.exmaple.com to example.com
+; A CNAME redirects from www.example.com to example.com
 www                             CNAME   example.com.
 
 mail                    MX      10      example.com.
