@@ -46,9 +46,7 @@ use crate::net::client::protocol::UdpConnect;
 use crate::net::client::request::{
     self, RequestMessage, RequestMessageMulti, SendRequest, SendRequestMulti,
 };
-use crate::net::client::tsig::{
-    AuthenticatedRequestMessage, AuthenticatedRequestMessageMulti,
-};
+use crate::net::client::tsig::AuthenticatedRequestMessage;
 use crate::rdata::{Soa, ZoneRecordData};
 use crate::tsig::{Key, KeyStore};
 use crate::zonetree::error::{OutOfZone, ZoneTreeModificationError};
@@ -721,11 +719,6 @@ where
                     dgram_config.clone(),
                 );
 
-                let client = net::client::tsig::Connection::new(
-                    tsig_key.clone(),
-                    client,
-                );
-
                 trace!("Sending NOTIFY to nameserver {nameserver_addr}");
                 let span =
                     tracing::trace_span!("auth", addr = %nameserver_addr);
@@ -739,9 +732,18 @@ where
                 //    process" of "this" RRset change to "that" server."
                 //
                 // TODO: We have no retry queue at the moment. Do we need one?
-                if let Err(err) =
+
+                let res = if let Some(key) = tsig_key {
+                    let client = net::client::tsig::Connection::new(
+                        key.clone(),
+                        client,
+                    );
                     client.send_request(req.clone()).get_response().await
-                {
+                } else {
+                    client.send_request(req.clone()).get_response().await
+                };
+
+                if let Err(err) = res {
                     warn!("Unable to send NOTIFY to nameserver {nameserver_addr}: {err}");
                 }
             });
@@ -2634,12 +2636,20 @@ impl ConnectionFactory for DefaultConnFactory {
                 UdpConnect::new(dest),
                 dgram_config,
             );
-            Ok(Some(
-                Box::new(net::client::tsig::Connection::new(key, client))
+
+            if let Some(key) = key {
+                Ok(Some(Box::new(net::client::tsig::Connection::new(
+                    key, client,
+                ))
                     as Box<
                         dyn SendRequest<RequestMessage<Octs>> + Send + Sync,
-                    >,
-            ))
+                    >))
+            } else {
+                Ok(Some(Box::new(client)
+                    as Box<
+                        dyn SendRequest<RequestMessage<Octs>> + Send + Sync,
+                    >))
+            }
         };
 
         Box::pin(fut)
@@ -2683,31 +2693,50 @@ impl ConnectionFactory for DefaultConnFactory {
             stream_config
                 .set_streaming_response_timeout(Duration::from_secs(30));
 
-            let (client, transport) = {
-                let tcp_stream = TcpStream::connect(dest)
-                    .await
-                    .map_err(|err| format!("{err}"))?;
-                net::client::stream::Connection::<
+            let tcp_stream = TcpStream::connect(dest)
+                .await
+                .map_err(|err| format!("{err}"))?;
+
+            if let Some(key) = key {
+                let (client, transport) = net::client::stream::Connection::<
                     AuthenticatedRequestMessage<RequestMessage<Octs>, K>,
-                    AuthenticatedRequestMessageMulti<
-                        RequestMessageMulti<Octs>,
-                        K,
-                    >,
-                >::with_config(tcp_stream, stream_config)
-            };
+                    AuthenticatedRequestMessage<RequestMessageMulti<Octs>, K>,
+                >::with_config(
+                    tcp_stream, stream_config
+                );
 
-            tokio::spawn(async move {
-                transport.run().await;
-                trace!("TCP connection terminated");
-            });
+                tokio::spawn(async move {
+                    transport.run().await;
+                    trace!("TCP connection terminated");
+                });
 
-            let conn = net::client::tsig::Connection::new(key, client);
-            Ok(Some(Box::new(conn)
-                as Box<
-                    dyn SendRequestMulti<RequestMessageMulti<Octs>>
-                        + Send
-                        + Sync,
-                >))
+                let conn = net::client::tsig::Connection::new(key, client);
+                Ok(Some(Box::new(conn)
+                    as Box<
+                        dyn SendRequestMulti<RequestMessageMulti<Octs>>
+                            + Send
+                            + Sync,
+                    >))
+            } else {
+                let (client, transport) = net::client::stream::Connection::<
+                    RequestMessage<Octs>,
+                    RequestMessageMulti<Octs>,
+                >::with_config(
+                    tcp_stream, stream_config
+                );
+
+                tokio::spawn(async move {
+                    transport.run().await;
+                    trace!("TCP connection terminated");
+                });
+
+                Ok(Some(Box::new(client)
+                    as Box<
+                        dyn SendRequestMulti<RequestMessageMulti<Octs>>
+                            + Send
+                            + Sync,
+                    >))
+            }
         };
 
         Box::pin(fut)

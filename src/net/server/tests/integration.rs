@@ -27,9 +27,7 @@ use crate::base::Rtype;
 use crate::net::client::request::{
     RequestMessage, RequestMessageMulti, SendRequest, SendRequestMulti,
 };
-use crate::net::client::tsig::{
-    AuthenticatedRequestMessage, AuthenticatedRequestMessageMulti,
-};
+use crate::net::client::tsig::AuthenticatedRequestMessage;
 use crate::net::client::{dgram, stream, tsig};
 use crate::net::server;
 use crate::net::server::buf::VecBufSource;
@@ -304,28 +302,53 @@ fn mk_client_factory(
     let tcp_key_store = key_store.clone();
     let tcp_client_factory = PerClientAddressClientFactory::new(
         move |source_addr, entry| {
+            let stream = stream_server_conn
+                .connect(Some(SocketAddr::new(*source_addr, 0)));
+
             let key = entry.key_name.as_ref().and_then(|key_name| {
                 tcp_key_store.get_key(&key_name, Algorithm::Sha256)
             });
-            let stream = stream_server_conn
-                .connect(Some(SocketAddr::new(*source_addr, 0)));
-            let (conn, transport) = stream::Connection::<
-                AuthenticatedRequestMessage<RequestMessage<Vec<u8>>, Key>,
-                AuthenticatedRequestMessageMulti<
-                    RequestMessageMulti<Vec<u8>>,
-                    Key,
-                >,
-            >::new(stream);
-            tokio::spawn(transport.run());
-            let conn = Box::new(tsig::Connection::new(key, conn));
-            if let Some(sections) = &entry.sections {
-                if let Some(q) = sections.question.first() {
-                    if matches!(q.qtype(), Rtype::AXFR | Rtype::IXFR) {
-                        return Client::Multi(conn);
+
+            if let Some(key) = key {
+                let (conn, transport) = stream::Connection::<
+                    AuthenticatedRequestMessage<RequestMessage<Vec<u8>>, Key>,
+                    AuthenticatedRequestMessage<
+                        RequestMessageMulti<Vec<u8>>,
+                        Key,
+                    >,
+                >::new(stream);
+
+                tokio::spawn(transport.run());
+
+                let conn = Box::new(tsig::Connection::new(key, conn));
+
+                if let Some(sections) = &entry.sections {
+                    if let Some(q) = sections.question.first() {
+                        if matches!(q.qtype(), Rtype::AXFR | Rtype::IXFR) {
+                            return Client::Multi(conn);
+                        }
                     }
                 }
+                Client::Single(conn)
+            } else {
+                let (conn, transport) = stream::Connection::<
+                    RequestMessage<Vec<u8>>,
+                    RequestMessageMulti<Vec<u8>>,
+                >::new(stream);
+
+                tokio::spawn(transport.run());
+
+                let conn = Box::new(conn);
+
+                if let Some(sections) = &entry.sections {
+                    if let Some(q) = sections.question.first() {
+                        if matches!(q.qtype(), Rtype::AXFR | Rtype::IXFR) {
+                            return Client::Multi(conn);
+                        }
+                    }
+                }
+                Client::Single(conn)
             }
-            Client::Single(conn)
         },
         only_for_tcp_queries,
     );
@@ -336,24 +359,37 @@ fn mk_client_factory(
 
     let udp_client_factory = PerClientAddressClientFactory::new(
         move |source_addr, entry| {
-            let key = entry.key_name.as_ref().and_then(|key_name| {
-                key_store.get_key(&key_name, Algorithm::Sha256)
-            });
             let connect = dgram_server_conn
                 .new_client(Some(SocketAddr::new(*source_addr, 0)));
 
-            match entry.matches.as_ref().map(|v| v.mock_client) {
-                Some(true) => {
-                    Client::Single(Box::new(tsig::Connection::new(
-                        key,
-                        simple_dgram_client::Connection::new(connect),
-                    )))
-                }
+            let key = entry.key_name.as_ref().and_then(|key_name| {
+                key_store.get_key(&key_name, Algorithm::Sha256)
+            });
 
-                _ => Client::Single(Box::new(tsig::Connection::new(
-                    key,
-                    dgram::Connection::new(connect),
-                ))),
+            if let Some(key) = key {
+                match entry.matches.as_ref().map(|v| v.mock_client) {
+                    Some(true) => {
+                        Client::Single(Box::new(tsig::Connection::new(
+                            key,
+                            simple_dgram_client::Connection::new(connect),
+                        )))
+                    }
+
+                    _ => Client::Single(Box::new(tsig::Connection::new(
+                        key,
+                        dgram::Connection::new(connect),
+                    ))),
+                }
+            } else {
+                match entry.matches.as_ref().map(|v| v.mock_client) {
+                    Some(true) => Client::Single(Box::new(
+                        simple_dgram_client::Connection::new(connect),
+                    )),
+
+                    _ => Client::Single(Box::new(dgram::Connection::new(
+                        connect,
+                    ))),
+                }
             }
         },
         for_all_other_queries,
@@ -702,10 +738,15 @@ impl ConnectionFactory for MockServerConnFactory {
         );
         let client = dgram::Connection::with_config(dgram_conn, dgram_config);
 
-        let client = Ok(Some(Box::new(tsig::Connection::new(key, client))
-            as Box<dyn SendRequest<RequestMessage<Octs>> + Send + Sync>));
+        let client = if let Some(key) = key {
+            Box::new(tsig::Connection::new(key, client))
+                as Box<dyn SendRequest<RequestMessage<Octs>> + Send + Sync>
+        } else {
+            Box::new(client)
+                as Box<dyn SendRequest<RequestMessage<Octs>> + Send + Sync>
+        };
 
-        Box::pin(ready(client))
+        Box::pin(ready(Ok(Some(client))))
     }
 
     fn get_tcp<K, Octs>(
@@ -725,31 +766,52 @@ impl ConnectionFactory for MockServerConnFactory {
         // Allow much more time for an XFR streaming response.
         stream_config.set_streaming_response_timeout(Duration::from_secs(30));
 
-        let (client, transport) = {
-            let stream_conn = stelline::connection::Connection::new(
-                self.stelline.clone(),
-                self.step_value.clone(),
-            );
-            stream::Connection::<
-                AuthenticatedRequestMessage<RequestMessage<Octs>, K>,
-                AuthenticatedRequestMessageMulti<
+        let stream_conn = stelline::connection::Connection::new(
+            self.stelline.clone(),
+            self.step_value.clone(),
+        );
+
+        let client = if let Some(key) = key {
+            let (client, transport) = {
+                stream::Connection::<
+                    AuthenticatedRequestMessage<RequestMessage<Octs>, K>,
+                    AuthenticatedRequestMessage<RequestMessageMulti<Octs>, K>,
+                >::with_config(stream_conn, stream_config)
+            };
+
+            tokio::spawn(async move {
+                transport.run().await;
+                trace!("TCP connection terminated");
+            });
+
+            Box::new(tsig::Connection::new(key, client))
+                as Box<
+                    dyn SendRequestMulti<RequestMessageMulti<Octs>>
+                        + Send
+                        + Sync,
+                >
+        } else {
+            let (client, transport) = {
+                stream::Connection::<
+                    RequestMessage<Octs>,
                     RequestMessageMulti<Octs>,
-                    K,
-                >,
-            >::with_config(stream_conn, stream_config)
+                >::with_config(stream_conn, stream_config)
+            };
+
+            tokio::spawn(async move {
+                transport.run().await;
+                trace!("TCP connection terminated");
+            });
+
+            Box::new(client)
+                as Box<
+                    dyn SendRequestMulti<RequestMessageMulti<Octs>>
+                        + Send
+                        + Sync,
+                >
         };
 
-        tokio::spawn(async move {
-            transport.run().await;
-            trace!("TCP connection terminated");
-        });
-
-        let client = Ok(Some(Box::new(tsig::Connection::new(key, client))
-            as Box<
-                dyn SendRequestMulti<RequestMessageMulti<Octs>> + Send + Sync,
-            >));
-
-        Box::pin(ready(client))
+        Box::pin(ready(Ok(Some(client))))
     }
 }
 
