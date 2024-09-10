@@ -1915,7 +1915,7 @@ JAIN-BB.JAIN.AD.JP. IN A   192.41.197.2
     async fn get_zone_soa(zone: &Zone) -> Soa<Name<Bytes>> {
         let read = zone.read();
         let zone_soa_answer =
-            XfrMiddlewareSvc::<_, TestNextSvc, Zone>::read_soa(
+            XfrMiddlewareSvc::<Vec<u8>, TestNextSvc, Zone>::read_soa(
                 &read,
                 zone.apex_name().to_owned(),
             )
@@ -2044,7 +2044,7 @@ JAIN-BB.JAIN.AD.JP. IN A   192.41.197.2
             <<TestNextSvc as Service>::Stream as Stream>::Item,
         >,
     > {
-        XfrMiddlewareSvc::<_, TestNextSvc, XDP, Metadata>::preprocess(
+        XfrMiddlewareSvc::<Vec<u8>, TestNextSvc, XDP, Metadata>::preprocess(
             Arc::new(Semaphore::new(1)),
             Arc::new(Semaphore::new(1)),
             req,
