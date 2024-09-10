@@ -1,7 +1,7 @@
 use core::str::FromStr;
 
 use bytes::{Bytes, BytesMut};
-use octseq::Octets;
+use octseq::{Octets, Parser};
 
 use crate::base::iana::Rcode;
 use crate::base::message_builder::{
@@ -13,7 +13,7 @@ use crate::base::{
     Message, MessageBuilder, ParsedName, Record, Rtype, Serial, Ttl,
 };
 use crate::base::{Name, ToName};
-use crate::rdata::{AllRecordData, Soa, A};
+use crate::rdata::{Soa, ZoneRecordData, A};
 
 use super::processor::XfrResponseProcessor;
 use super::types::{
@@ -140,7 +140,7 @@ fn axfr_response_with_only_soas_is_accepted() {
     let mut it = processor.process_answer(resp).unwrap();
 
     // Verify the events emitted by the XFR processor.
-    assert!(matches!(it.next(), Some(Ok(XE::EndOfTransfer))));
+    assert!(matches!(it.next(), Some(Ok(XE::EndOfTransfer(_)))));
     assert!(it.next().is_none());
 }
 
@@ -179,7 +179,7 @@ fn axfr_multi_response_with_only_soas_is_accepted() {
     let mut it = processor.process_answer(resp).unwrap();
 
     // Verify the events emitted by the XFR processor.
-    assert!(matches!(it.next(), Some(Ok(XE::EndOfTransfer))));
+    assert!(matches!(it.next(), Some(Ok(XE::EndOfTransfer(_)))));
     assert!(it.next().is_none());
 }
 
@@ -210,7 +210,7 @@ fn axfr_response_generates_expected_events() {
     let s = serial;
     assert!(matches!(it.next(), Some(Ok(XE::AddRecord(n, _))) if n == s));
     assert!(matches!(it.next(), Some(Ok(XE::AddRecord(n, _))) if n == s));
-    assert!(matches!(it.next(), Some(Ok(XE::EndOfTransfer))));
+    assert!(matches!(it.next(), Some(Ok(XE::EndOfTransfer(_)))));
     assert!(it.next().is_none());
 }
 
@@ -243,7 +243,7 @@ fn ixfr_response_generates_expected_events() {
     // (which matches that of the client) followed by records to be
     // deleted as they were in that version of the zone but are not in the
     // new version of the zone.
-    add_answer_record(&req, &mut answer, old_soa);
+    add_answer_record(&req, &mut answer, old_soa.clone());
     add_answer_record(&req, &mut answer, A::new(Ipv4Addr::LOCALHOST));
     add_answer_record(&req, &mut answer, A::new(Ipv4Addr::BROADCAST));
     // SOA of the servers` new zone version (which is ahead of that of the
@@ -253,23 +253,40 @@ fn ixfr_response_generates_expected_events() {
     add_answer_record(&req, &mut answer, A::new(Ipv4Addr::BROADCAST));
     add_answer_record(&req, &mut answer, A::new(Ipv4Addr::LOCALHOST));
     // Closing SOA with servers current SOA
-    add_answer_record(&req, &mut answer, new_soa);
+    add_answer_record(&req, &mut answer, new_soa.clone());
     let resp = answer.into_message();
 
     // Process the response.
     let it = processor.process_answer(resp).unwrap();
 
+    // Make parsed versions of the old and new SOAs.
+    let mut buf = BytesMut::new();
+    new_soa.compose_rdata(&mut buf).unwrap();
+    let buf = buf.freeze();
+    let mut parser = Parser::from_ref(&buf);
+    let expected_new_soa = Soa::parse(&mut parser).unwrap();
+
+    let mut buf = BytesMut::new();
+    old_soa.compose_rdata(&mut buf).unwrap();
+    let buf = buf.freeze();
+    let mut parser = Parser::from_ref(&buf);
+    let expected_old_soa = Soa::parse(&mut parser).unwrap();
+
     // Verify the events emitted by the XFR processor.
     let owner =
         ParsedName::<Bytes>::from(Name::from_str("example.com").unwrap());
     let expected_events: [Result<XfrEvent<XfrRecord>, IterationError>; 7] = [
-        Ok(XfrEvent::BeginBatchDelete(old_serial)),
+        Ok(XfrEvent::BeginBatchDelete(Record::from((
+            owner.clone(),
+            0,
+            ZoneRecordData::Soa(expected_old_soa),
+        )))),
         Ok(XfrEvent::DeleteRecord(
             old_serial,
             Record::from((
                 owner.clone(),
                 0,
-                AllRecordData::A(A::new(Ipv4Addr::LOCALHOST)),
+                ZoneRecordData::A(A::new(Ipv4Addr::LOCALHOST)),
             )),
         )),
         Ok(XfrEvent::DeleteRecord(
@@ -277,27 +294,35 @@ fn ixfr_response_generates_expected_events() {
             Record::from((
                 owner.clone(),
                 0,
-                AllRecordData::A(A::new(Ipv4Addr::BROADCAST)),
+                ZoneRecordData::A(A::new(Ipv4Addr::BROADCAST)),
             )),
         )),
-        Ok(XfrEvent::BeginBatchAdd(new_serial)),
+        Ok(XfrEvent::BeginBatchAdd(Record::from((
+            owner.clone(),
+            0,
+            ZoneRecordData::Soa(expected_new_soa.clone()),
+        )))),
         Ok(XfrEvent::AddRecord(
             new_serial,
             Record::from((
                 owner.clone(),
                 0,
-                AllRecordData::A(A::new(Ipv4Addr::BROADCAST)),
+                ZoneRecordData::A(A::new(Ipv4Addr::BROADCAST)),
             )),
         )),
         Ok(XfrEvent::AddRecord(
             new_serial,
             Record::from((
-                owner,
+                owner.clone(),
                 0,
-                AllRecordData::A(A::new(Ipv4Addr::LOCALHOST)),
+                ZoneRecordData::A(A::new(Ipv4Addr::LOCALHOST)),
             )),
         )),
-        Ok(XfrEvent::EndOfTransfer),
+        Ok(XfrEvent::EndOfTransfer(Record::from((
+            owner.clone(),
+            0,
+            ZoneRecordData::Soa(expected_new_soa),
+        )))),
     ];
 
     assert!(it.eq(expected_events));
@@ -365,7 +390,7 @@ fn multi_ixfr_response_generates_expected_events() {
     assert!(matches!(it.next(), Some(Ok(XE::BeginBatchAdd(_)))));
     assert!(matches!(it.next(), Some(Ok(XE::AddRecord(..)))));
     assert!(matches!(it.next(), Some(Ok(XE::AddRecord(..)))));
-    assert!(matches!(it.next(), Some(Ok(XE::EndOfTransfer))));
+    assert!(matches!(it.next(), Some(Ok(XE::EndOfTransfer(_)))));
     assert!(it.next().is_none());
 }
 

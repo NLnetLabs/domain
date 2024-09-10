@@ -4,7 +4,7 @@ use bytes::Bytes;
 
 use crate::base::iana::Opcode;
 use crate::base::{Message, ParsedName, Rtype};
-use crate::rdata::{AllRecordData, Soa};
+use crate::rdata::{Soa, ZoneRecordData};
 
 use super::iterator::XfrEventIterator;
 use super::types::{
@@ -59,6 +59,12 @@ impl XfrResponseProcessor {
     /// If the returned iterator does not emit an [`XfrEvent::EndOfTransfer`]
     /// event, call this function with the next outstanding response message
     /// to continue iterating over the incomplete transfer.
+    /// 
+    /// Checking that the given response corresponds by ID to the related
+    /// original XFR query or that the question section of the response, if
+    /// present (RFC 5936 allows it to be empty for subsequent AXFR responses)
+    /// matches that of the original query is NOT done here but instead is
+    /// left to the caller to do.
     pub fn process_answer(
         &mut self,
         resp: Message<Bytes>,
@@ -90,11 +96,8 @@ impl XfrResponseProcessor {
 
     /// Check if an XFR response header is valid.
     ///
-    /// Enforce the rules defined in 2. AXFR Messages of RFC 5936. See:
-    /// https://www.rfc-editor.org/rfc/rfc5936.html#section-2
-    ///
-    /// Takes a request as well as a response as the response is checked to
-    /// see if it is in reply to the given request.
+    /// Enforce the rules defined in 2.2. AXFR Messages of RFC 5936. See:
+    /// https://www.rfc-editor.org/rfc/rfc5936.html#section-2.2
     ///
     /// Returns Ok on success, Err otherwise. On success the type of XFR that
     /// was determined is returned as well as the answer section from the XFR
@@ -106,9 +109,6 @@ impl XfrResponseProcessor {
         let resp_header = resp.header();
         let resp_counts = resp.header_counts();
 
-        // Note: We don't call Message::is_answer() here because that requires
-        // the message to have a question but subsequent AXFR responses are
-        // not required to have a question.
         if resp.is_error()
             || !resp_header.qr()
             || resp_header.opcode() != Opcode::QUERY
@@ -173,12 +173,12 @@ impl Inner {
         // that might be expected to exist in a zone (i.e. not just
         // ZoneRecordData record types).
 
-        let mut records = answer.into_records();
+        let mut records = answer.limit_to();
 
         let xfr_type = match resp.qtype() {
             Some(Rtype::AXFR) => XfrType::Axfr,
             Some(Rtype::IXFR) => XfrType::Ixfr,
-            _ => unreachable!(), // Checked already in check_request().
+            _ => unreachable!(),
         };
 
         let Some(Ok(record)) = records.next() else {
@@ -186,7 +186,7 @@ impl Inner {
         };
 
         // The initial record should be a SOA record.
-        let AllRecordData::Soa(soa) = record.into_data() else {
+        let ZoneRecordData::Soa(soa) = record.into_data() else {
             return Err(ProcessingError::NotValidXfrResponse);
         };
 
@@ -196,7 +196,7 @@ impl Inner {
     }
 }
 
-//------------ State ----------------------------------------------------------
+//------------ RecordProcessor ------------------------------------------------
 
 /// State related to processing the XFR response sequence.
 #[derive(Debug)]
@@ -266,7 +266,7 @@ impl RecordProcessor {
         // having no effect as it is already present.
 
         let soa = match rec.data() {
-            AllRecordData::Soa(soa) => Some(soa),
+            ZoneRecordData::Soa(soa) => Some(soa),
             _ => None,
         };
 
@@ -282,7 +282,7 @@ impl RecordProcessor {
                 //    MUST conclude with the same SOA resource record.
                 //    Intermediate messages MUST NOT contain the SOA resource
                 //    record."
-                XfrEvent::EndOfTransfer
+                XfrEvent::EndOfTransfer(rec)
             }
 
             XfrType::Axfr => {
@@ -294,7 +294,7 @@ impl RecordProcessor {
             XfrType::Ixfr if self.rr_count == 2 => {
                 if record_matches_initial_soa {
                     // IXFR not available, AXFR of empty zone detected.
-                    XfrEvent::EndOfTransfer
+                    XfrEvent::EndOfTransfer(rec)
                 } else if let Some(soa) = soa {
                     // This SOA record is the start of an IXFR diff sequence.
                     self.current_soa = soa.clone();
@@ -306,7 +306,7 @@ impl RecordProcessor {
                         IxfrUpdateMode::Deleting
                     );
 
-                    XfrEvent::BeginBatchDelete(soa.serial())
+                    XfrEvent::BeginBatchDelete(rec)
                 } else {
                     // https://datatracker.ietf.org/doc/html/rfc1995#section-4
                     // 4. Response Format
@@ -351,18 +351,16 @@ impl RecordProcessor {
                             // Is this the end of the transfer, or the start
                             // of a new diff sequence?
                             if record_matches_initial_soa {
-                                XfrEvent::EndOfTransfer
+                                XfrEvent::EndOfTransfer(rec)
                             } else {
-                                XfrEvent::BeginBatchDelete(
-                                    self.current_soa.serial(),
-                                )
+                                XfrEvent::BeginBatchDelete(rec)
                             }
                         }
                         IxfrUpdateMode::Adding => {
                             // We just switched from the Delete phase of a
                             // diff sequence to the add phase of the diff
                             // sequence.
-                            XfrEvent::BeginBatchAdd(self.current_soa.serial())
+                            XfrEvent::BeginBatchAdd(rec)
                         }
                     }
                 } else {

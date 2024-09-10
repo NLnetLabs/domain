@@ -3,8 +3,9 @@
 use bytes::Bytes;
 use tracing::trace;
 
-use crate::base::{message::AnyRecordIter, Message, ParsedName};
-use crate::rdata::AllRecordData;
+use crate::base::message::RecordIter;
+use crate::base::{Message, ParsedName};
+use crate::rdata::ZoneRecordData;
 
 use super::processor::RecordProcessor;
 use super::types::{IterationError, ProcessingError, XfrEvent, XfrRecord};
@@ -19,7 +20,7 @@ pub struct XfrEventIterator<'a, 'b> {
     state: &'a mut RecordProcessor,
 
     /// An iterator over the records in the current response.
-    iter: AnyRecordIter<'b, Bytes, AllRecordData<Bytes, ParsedName<Bytes>>>,
+    iter: RecordIter<'b, Bytes, ZoneRecordData<Bytes, ParsedName<Bytes>>>,
 }
 
 impl<'a, 'b> XfrEventIterator<'a, 'b> {
@@ -46,7 +47,7 @@ impl<'a, 'b> XfrEventIterator<'a, 'b> {
         // that might be expected to exist in a zone (i.e. not just
         // ZoneRecordData record types).
 
-        let mut iter = answer.into_records();
+        let mut iter = answer.limit_to();
 
         if state.rr_count == 0 {
             let Some(Ok(_)) = iter.next() else {
