@@ -51,7 +51,7 @@ impl TryFrom<Rtype> for XfrType {
 /// An event emitted by [`XfrResponseProcessor`] during transfer processing.
 ///
 /// [`XfrResponseProcessor`]: super::processor::XfrResponseProcessor
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum XfrEvent<R> {
     /// Delete record R in zone serial S.
     ///
@@ -75,19 +75,19 @@ pub enum XfrEvent<R> {
     ///
     /// The transfer signalled that zero or more record deletions will follow,
     /// all for the zone version with the given serial number.
-    BeginBatchDelete(Serial),
+    BeginBatchDelete(R),
 
     /// Prepare to add records in zone serial S.
     ///
     /// The transfer signalled that zero or more record additions will follow,
     /// all for the zone version with the given serial number.
-    BeginBatchAdd(Serial),
+    BeginBatchAdd(R),
 
     /// Transfer completed successfully.
     ///
     /// Note: This event is not emitted until the final record of the final
     /// response in a set of one or more transfer responss has been seen.
-    EndOfTransfer,
+    EndOfTransfer(R),
 
     /// Transfer processing failed.
     ///
@@ -105,7 +105,7 @@ impl<R> std::fmt::Display for XfrEvent<R> {
             XfrEvent::AddRecord(_, _) => f.write_str("AddRecord"),
             XfrEvent::BeginBatchDelete(_) => f.write_str("BeginBatchDelete"),
             XfrEvent::BeginBatchAdd(_) => f.write_str("BeginBatchAdd"),
-            XfrEvent::EndOfTransfer => f.write_str("EndOfTransfer"),
+            XfrEvent::EndOfTransfer(_) => f.write_str("EndOfTransfer"),
             XfrEvent::ProcessingFailed => f.write_str("ProcessingFailed"),
         }
     }
@@ -151,6 +151,22 @@ pub enum ProcessingError {
 
     /// At least one record in the XFR response sequence is incorrect.
     Malformed,
+}
+
+impl std::fmt::Display for ProcessingError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            ProcessingError::ParseError(err) => {
+                f.write_fmt(format_args!("XFR response parsing error: {err}"))
+            }
+            ProcessingError::NotValidXfrResponse => {
+                f.write_str("Not a valid XFR response")
+            }
+            ProcessingError::Malformed => {
+                f.write_str("Malformed XFR response")
+            }
+        }
+    }
 }
 
 //------------ IterationError -------------------------------------------------
