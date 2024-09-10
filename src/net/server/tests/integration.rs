@@ -21,9 +21,7 @@ use crate::base::net::IpAddr;
 use crate::base::wire::Composer;
 use crate::base::Rtype;
 use crate::net::client::request::{RequestMessage, RequestMessageMulti};
-use crate::net::client::tsig::{
-    AuthenticatedRequestMessage, AuthenticatedRequestMessageMulti,
-};
+use crate::net::client::tsig::AuthenticatedRequestMessage;
 use crate::net::client::{dgram, stream, tsig};
 use crate::net::server;
 use crate::net::server::buf::VecBufSource;
@@ -238,28 +236,53 @@ fn mk_client_factory(
     let tcp_key_store = key_store.clone();
     let tcp_client_factory = PerClientAddressClientFactory::new(
         move |source_addr, entry| {
+            let stream = stream_server_conn
+                .connect(Some(SocketAddr::new(*source_addr, 0)));
+
             let key = entry.key_name.as_ref().and_then(|key_name| {
                 tcp_key_store.get_key(&key_name, Algorithm::Sha256)
             });
-            let stream = stream_server_conn
-                .connect(Some(SocketAddr::new(*source_addr, 0)));
-            let (conn, transport) = stream::Connection::<
-                AuthenticatedRequestMessage<RequestMessage<Vec<u8>>, Key>,
-                AuthenticatedRequestMessageMulti<
-                    RequestMessageMulti<Vec<u8>>,
-                    Key,
-                >,
-            >::new(stream);
-            tokio::spawn(transport.run());
-            let conn = Box::new(tsig::Connection::new(key, conn));
-            if let Some(sections) = &entry.sections {
-                if let Some(q) = sections.question.first() {
-                    if matches!(q.qtype(), Rtype::AXFR | Rtype::IXFR) {
-                        return Client::Multi(conn);
+
+            if let Some(key) = key {
+                let (conn, transport) = stream::Connection::<
+                    AuthenticatedRequestMessage<RequestMessage<Vec<u8>>, Key>,
+                    AuthenticatedRequestMessage<
+                        RequestMessageMulti<Vec<u8>>,
+                        Key,
+                    >,
+                >::new(stream);
+
+                tokio::spawn(transport.run());
+
+                let conn = Box::new(tsig::Connection::new(key, conn));
+
+                if let Some(sections) = &entry.sections {
+                    if let Some(q) = sections.question.first() {
+                        if matches!(q.qtype(), Rtype::AXFR | Rtype::IXFR) {
+                            return Client::Multi(conn);
+                        }
                     }
                 }
+                Client::Single(conn)
+            } else {
+                let (conn, transport) = stream::Connection::<
+                    RequestMessage<Vec<u8>>,
+                    RequestMessageMulti<Vec<u8>>,
+                >::new(stream);
+
+                tokio::spawn(transport.run());
+
+                let conn = Box::new(conn);
+
+                if let Some(sections) = &entry.sections {
+                    if let Some(q) = sections.question.first() {
+                        if matches!(q.qtype(), Rtype::AXFR | Rtype::IXFR) {
+                            return Client::Multi(conn);
+                        }
+                    }
+                }
+                Client::Single(conn)
             }
-            Client::Single(conn)
         },
         only_for_tcp_queries,
     );
@@ -271,24 +294,37 @@ fn mk_client_factory(
 
     let udp_client_factory = PerClientAddressClientFactory::new(
         move |source_addr, entry| {
-            let key = entry.key_name.as_ref().and_then(|key_name| {
-                key_store.get_key(&key_name, Algorithm::Sha256)
-            });
             let connect = dgram_server_conn
                 .new_client(Some(SocketAddr::new(*source_addr, 0)));
 
-            match entry.matches.as_ref().map(|v| v.mock_client) {
-                Some(true) => {
-                    Client::Single(Box::new(tsig::Connection::new(
-                        key,
-                        simple_dgram_client::Connection::new(connect),
-                    )))
-                }
+            let key = entry.key_name.as_ref().and_then(|key_name| {
+                key_store.get_key(&key_name, Algorithm::Sha256)
+            });
 
-                _ => Client::Single(Box::new(tsig::Connection::new(
-                    key,
-                    dgram::Connection::new(connect),
-                ))),
+            if let Some(key) = key {
+                match entry.matches.as_ref().map(|v| v.mock_client) {
+                    Some(true) => {
+                        Client::Single(Box::new(tsig::Connection::new(
+                            key,
+                            simple_dgram_client::Connection::new(connect),
+                        )))
+                    }
+
+                    _ => Client::Single(Box::new(tsig::Connection::new(
+                        key,
+                        dgram::Connection::new(connect),
+                    ))),
+                }
+            } else {
+                match entry.matches.as_ref().map(|v| v.mock_client) {
+                    Some(true) => Client::Single(Box::new(
+                        simple_dgram_client::Connection::new(connect),
+                    )),
+
+                    _ => Client::Single(Box::new(dgram::Connection::new(
+                        connect,
+                    ))),
+                }
             }
         },
         for_all_other_queries,
