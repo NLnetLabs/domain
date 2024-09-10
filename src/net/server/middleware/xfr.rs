@@ -61,7 +61,9 @@ use crate::zonetree::{
 /// [1995]: https://datatracker.ietf.org/doc/html/rfc1995
 /// [5936]: https://datatracker.ietf.org/doc/html/rfc5936
 #[derive(Clone, Debug)]
-pub struct XfrMiddlewareSvc<RequestOctets, NextSvc, XDP> {
+pub struct XfrMiddlewareSvc<RequestOctets, NextSvc, XDP, Metadata = ()> {
+    /// The upstream [`Service`] to pass requests to and receive responses
+    /// from.
     next_svc: NextSvc,
 
     xfr_data_provider: XDP,
@@ -70,13 +72,13 @@ pub struct XfrMiddlewareSvc<RequestOctets, NextSvc, XDP> {
 
     batcher_semaphore: Arc<Semaphore>,
 
-    _phantom: PhantomData<RequestOctets>,
+    _phantom: PhantomData<(RequestOctets, Metadata)>,
 }
 
-impl<RequestOctets, NextSvc, XDP>
-    XfrMiddlewareSvc<RequestOctets, NextSvc, XDP>
+impl<RequestOctets, NextSvc, XDP, Metadata>
+    XfrMiddlewareSvc<RequestOctets, NextSvc, XDP, Metadata>
 where
-    XDP: XfrDataProvider,
+    XDP: XfrDataProvider<Metadata>,
 {
     /// Creates a new processor instance.
     #[must_use]
@@ -99,8 +101,8 @@ where
     }
 }
 
-impl<RequestOctets, NextSvc, XDP>
-    XfrMiddlewareSvc<RequestOctets, NextSvc, XDP>
+impl<RequestOctets, NextSvc, XDP, Metadata>
+    XfrMiddlewareSvc<RequestOctets, NextSvc, XDP, Metadata>
 where
     RequestOctets: Octets + Send + Sync + 'static + Unpin,
     for<'a> <RequestOctets as octseq::Octets>::Range<'a>: Send + Sync,
@@ -108,12 +110,12 @@ where
     NextSvc::Future: Send + Sync + Unpin,
     NextSvc::Target: Composer + Default + Send + Sync,
     NextSvc::Stream: Send + Sync,
-    XDP: XfrDataProvider,
+    XDP: XfrDataProvider<Metadata>,
 {
-    pub async fn preprocess<T>(
+    pub async fn preprocess(
         zone_walking_semaphore: Arc<Semaphore>,
         batcher_semaphore: Arc<Semaphore>,
-        req: &Request<RequestOctets, T>,
+        req: &Request<RequestOctets, Metadata>,
         xfr_data_provider: XDP,
     ) -> ControlFlow<
         XfrMiddlewareStream<
@@ -942,7 +944,7 @@ where
 //--- impl Service
 
 impl<RequestOctets, NextSvc, XDP, Metadata> Service<RequestOctets, Metadata>
-    for XfrMiddlewareSvc<RequestOctets, NextSvc, XDP>
+    for XfrMiddlewareSvc<RequestOctets, NextSvc, XDP, Metadata>
 where
     RequestOctets: Octets + Send + Sync + Unpin + 'static,
     for<'a> <RequestOctets as octseq::Octets>::Range<'a>: Send + Sync,
@@ -950,7 +952,7 @@ where
     NextSvc::Future: Send + Sync + Unpin,
     NextSvc::Target: Composer + Default + Send + Sync,
     NextSvc::Stream: Send + Sync,
-    XDP: XfrDataProvider + Clone + Sync + Send + 'static,
+    XDP: XfrDataProvider<Metadata> + Clone + Sync + Send + 'static,
     Metadata: Clone + Default + Sync + Send + 'static,
 {
     type Target = NextSvc::Target;
@@ -1026,7 +1028,7 @@ pub enum XfrDataProviderError {
 //------------ Transferable ---------------------------------------------------
 
 /// A provider of data needed for responding to XFR requests.
-pub trait XfrDataProvider {
+pub trait XfrDataProvider<Metadata = ()> {
     /// Request data needed to respond to an XFR request.
     ///
     /// Returns Ok if the request is allowed and the requested data is
@@ -1034,7 +1036,7 @@ pub trait XfrDataProvider {
     ///
     /// Returns Err otherwise.
     #[allow(clippy::type_complexity)]
-    fn request<Octs, Metadata>(
+    fn request<Octs>(
         &self,
         req: &Request<Octs, Metadata>,
         apex_name: &impl ToName,
@@ -1057,12 +1059,12 @@ pub trait XfrDataProvider {
 
 //--- impl for AsRef
 
-impl<T, U> XfrDataProvider for U
+impl<Metadata, T, U> XfrDataProvider<Metadata> for U
 where
-    T: XfrDataProvider,
+    T: XfrDataProvider<Metadata>,
     U: Deref<Target = T>,
 {
-    fn request<Octs, Metadata>(
+    fn request<Octs>(
         &self,
         req: &Request<Octs, Metadata>,
         apex_name: &impl ToName,
@@ -1088,14 +1090,14 @@ where
 
 //--- impl for Zone
 
-impl XfrDataProvider for Zone {
+impl<Metadata> XfrDataProvider<Metadata> for Zone {
     /// Request data needed to respond to an XFR request.
     ///
     /// Returns Ok(Self, vec![]) if the given apex name and class match this
     /// zone, irrespective of the given request or diff range.
     ///
     /// Returns Err if the requested zone is not this zone.
-    fn request<Octs, Metadata>(
+    fn request<Octs>(
         &self,
         _req: &Request<Octs, Metadata>,
         apex_name: &impl ToName,
@@ -1129,14 +1131,14 @@ impl XfrDataProvider for Zone {
 
 //--- impl for ZoneTree
 
-impl XfrDataProvider for ZoneTree {
+impl<Metadata> XfrDataProvider<Metadata> for ZoneTree {
     /// Request data needed to respond to an XFR request.
     ///
     /// Returns Ok(zone, vec![]) if the given apex name and class match a zone
     /// in this zone tree, irrespective of the given request or diff range.
     ///
     /// Returns Err if the requested zone is not this zone tree.
-    fn request<Octs, Metadata>(
+    fn request<Octs>(
         &self,
         _req: &Request<Octs, Metadata>,
         apex_name: &impl ToName,
@@ -1369,12 +1371,14 @@ mod tests {
     use crate::zonetree::types::Rrset;
 
     use super::*;
+    use crate::net::server::middleware::tsig::{
+        Authentication, MaybeAuthenticated,
+    };
+    use crate::tsig::KeyName;
+    use core::sync::atomic::{AtomicBool, Ordering};
 
     type ExpectedRecords =
         Vec<(Name<Bytes>, AllRecordData<Bytes, Name<Bytes>>)>;
-
-    #[tokio::test]
-    async fn axfr_minimal() {}
 
     #[tokio::test]
     async fn axfr_with_example_zone() {
@@ -1832,14 +1836,62 @@ JAIN-BB.JAIN.AD.JP. IN A   192.41.197.2
     #[tokio::test]
     async fn ixfr_multi_response_tcp() {}
 
-    // #[tokio::test]
-    // async fn axfr_with_tsig() {
-    //     let metadata = Authentication(Some(
-    //         KeyName::from_str("blah").unwrap(),
-    //     ))
+    #[tokio::test]
+    async fn axfr_with_tsig_key_name() {
+        // Define an XfrDataProvider that expects to receive a Request that is
+        // generic over a type that we specify: Authentication. This is the
+        // type over which the Request produced by TsigMiddlewareSvc is generic.
+        // When the XfrMiddlewareSvc receives a Request<Octs, Authentication> it
+        // passes it to the XfrDataProvider which in turn can inspect it.
+        struct KeyReceivingXfrDataProvider {
+            key_name: KeyName,
+            checked: Arc<AtomicBool>,
+        }
 
-    //     let req = mk_axfr_request("example.com", metadata);
-    // }
+        impl XfrDataProvider<Authentication> for KeyReceivingXfrDataProvider {
+            #[allow(clippy::type_complexity)]
+            fn request<Octs>(
+                &self,
+                req: &Request<Octs, Authentication>,
+                _apex_name: &impl ToName,
+                _class: Class,
+                _diff_from: Option<Serial>,
+            ) -> Pin<
+                Box<
+                    dyn Future<
+                            Output = Result<
+                                (Zone, Vec<Arc<ZoneDiff>>),
+                                XfrDataProviderError,
+                            >,
+                        > + Sync
+                        + Send,
+                >,
+            >
+            where
+                Octs: AsRef<[u8]> + Send + Sync,
+            {
+                assert_eq!(req.metadata().key_name(), Some(&self.key_name));
+                self.checked.store(true, Ordering::SeqCst);
+                Box::pin(ready(Err(XfrDataProviderError::Refused)))
+            }
+        }
+
+        let key_name = KeyName::from_str("some_tsig_key_name").unwrap();
+        let metadata = Authentication(Some(key_name.clone()));
+        let req = mk_axfr_request(n("example.com"), metadata);
+        let checked = Arc::new(AtomicBool::new(false));
+        let xdp = KeyReceivingXfrDataProvider {
+            key_name,
+            checked: checked.clone(),
+        };
+
+        // Invoke XfrMiddlewareSvc with our custom XfrDataProvidedr.
+        let _ = do_preprocess(xdp, &req).await;
+
+        // Veirfy that our XfrDataProvider was invoked and received the expected
+        // TSIG key name data.
+        assert!(checked.load(Ordering::SeqCst));
+    }
 
     //------------ Helper functions -------------------------------------------
 
@@ -1982,9 +2034,9 @@ JAIN-BB.JAIN.AD.JP. IN A   192.41.197.2
         )
     }
 
-    async fn do_preprocess<T, XDP: XfrDataProvider>(
+    async fn do_preprocess<Metadata, XDP: XfrDataProvider<Metadata>>(
         zone: XDP,
-        req: &Request<Vec<u8>, T>,
+        req: &Request<Vec<u8>, Metadata>,
     ) -> ControlFlow<
         XfrMiddlewareStream<
             <TestNextSvc as Service>::Future,
@@ -1992,7 +2044,7 @@ JAIN-BB.JAIN.AD.JP. IN A   192.41.197.2
             <<TestNextSvc as Service>::Stream as Stream>::Item,
         >,
     > {
-        XfrMiddlewareSvc::<_, TestNextSvc, XDP>::preprocess(
+        XfrMiddlewareSvc::<_, TestNextSvc, XDP, Metadata>::preprocess(
             Arc::new(Semaphore::new(1)),
             Arc::new(Semaphore::new(1)),
             req,
@@ -2085,9 +2137,9 @@ JAIN-BB.JAIN.AD.JP. IN A   192.41.197.2
     }
 
     impl XfrDataProvider for ZoneWithDiffs {
-        fn request<Octs, Metadata>(
+        fn request<Octs>(
             &self,
-            _req: &Request<Octs, Metadata>,
+            _req: &Request<Octs, ()>,
             apex_name: &impl ToName,
             class: Class,
             diff_from: Option<Serial>,

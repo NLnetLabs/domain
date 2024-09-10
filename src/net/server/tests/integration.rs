@@ -39,6 +39,7 @@ use crate::net::server::middleware::mandatory::MandatoryMiddlewareSvc;
 use crate::net::server::middleware::notify::{
     Notifiable, NotifyError, NotifyMiddlewareSvc,
 };
+use crate::net::server::middleware::tsig::Authentication;
 use crate::net::server::middleware::tsig::TsigMiddlewareSvc;
 use crate::net::server::middleware::xfr::XfrMiddlewareSvc;
 use crate::net::server::service::{CallResult, Service, ServiceResult};
@@ -163,7 +164,8 @@ async fn server_tests(#[files("test-data/server/*.rpl")] rpl_file: PathBuf) {
 
     // 4. XFR(-in) middleware service (XFR-out is handled by the
     //    ZoneMaintainer).
-    let svc = XfrMiddlewareSvc::<Vec<u8>, _, _>::new(svc, zones, 1);
+    let svc =
+        XfrMiddlewareSvc::<Vec<u8>, _, _, Authentication>::new(svc, zones, 1);
 
     // 5. RFC 1996 NOTIFY support.
     let svc = NotifyMiddlewareSvc::new(svc, TestNotifyTarget);
