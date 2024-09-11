@@ -1,7 +1,8 @@
 //! A TSIG signing & verifying passthrough transport.
 //!
 //! This module provides a transport that wraps the [high-level support for
-//! signing message exchanges with TSIG][crate::tsig].
+//! signing message exchanges with TSIG][crate::tsig], thereby authenticating
+//! them.
 //!
 //! # Usage
 //!
@@ -13,14 +14,35 @@
 //!
 //! # How it works
 //!
-//! Supplying the key is optional. The transport only affects the request and
-//! response if a key is supplied. This allows for optional signing without
-//! having to construct a different client stack.
-//!
-//! When a key is supplied, requests are automatically signed and response
+//! Requests are automatically signed with the given key and response
 //! signatures are automatically verified. On verification failure
 //! [Error::ValidationError][crate::net::client::request::Error] will be
 //! returned.
+//!
+//! <div class="warning">
+//!
+//! TSIG verification is a destructive process. It will alter the response
+//! stripping out the TSIG RR contained within the additional section and
+//! decrementing the DNS message header ARCOUNT accordingly. It may also
+//! adjust the mesage ID, in conformance with [RFC
+//! 8945](https://www.rfc-editor.org/rfc/rfc8945.html#name-dns-message).
+//!
+//! If you wish to receive the response TSIG RR intact, do **NOT** use this
+//! transport. Instead process the response records manually using a normal
+//! transport.
+//!
+//! </div>
+//!
+//! # Requirements
+//!
+//! This transport works with any upstream transports so long as they don’t
+//! modify the message once signed nor modify the response before it can be
+//! verified.
+//!
+//! Failing to do so will result in signature verification failure. For
+//! requests this will occur at the receiving server. For responses this will
+//! result in [`GetResponse`][crate::net::client::request::GetResponse]
+//! rerturning [Error::ValidationError][crate::net::client::request::Error].
 #![cfg(all(feature = "tsig", feature = "unstable-client-transport"))]
 #![warn(missing_docs)]
 #![warn(clippy::missing_docs_in_private_items)]
@@ -50,12 +72,21 @@ use crate::net::client::request::{
 use crate::rdata::tsig::Time48;
 use crate::tsig::{ClientSequence, ClientTransaction, Key};
 
-/// TODO
+/// A wrapper around [`ClientTransaction`] and [`ClientSequence`].
+///
+/// This wrapper allows us to write calling code once that invokes methods on
+/// the TSIG signer/validator which have the same name and purpose for single
+/// response vs multiple response streams, yet have distinct Rust types and so
+/// must be called on the correct type, without needing to know at the call
+/// site which of the distinct types it actually is.
 #[derive(Clone, Debug)]
 enum TsigClient<K> {
-    /// TODO
+    /// A [`ClientTransaction`] for signing a request and validating a single
+    /// response.
     Transaction(ClientTransaction<K>),
-    /// TODO
+
+    /// A [`ClientSequence`] for signing a request and validating a single
+    /// response.
     Sequence(ClientSequence<K>),
 }
 
@@ -63,7 +94,9 @@ impl<K> TsigClient<K>
 where
     K: AsRef<Key>,
 {
-    /// TODO
+    /// A helper wrapper around [`ClientTransaction::answer`] and
+    /// [`ClientSequence::answer`] that allows the appropriate method to be
+    /// invoked without needing to know which type it actually is.
     pub fn answer<Octs>(
         &mut self,
         message: &mut Message<Octs>,
@@ -79,7 +112,12 @@ where
         .map_err(Error::Authentication)
     }
 
-    /// TODO
+    /// A helper method that allows [`ClientSequence::done`] to be called
+    /// without knowing or caring if the underlying type is actually
+    /// [`ClientTransaction`] instead (which doesn't have a `done()` method).
+    ///
+    /// Invoking this method on a [`ClientTransaction`] is harmless and has no
+    /// effect.
     fn done(self) -> Result<(), Error> {
         match self {
             TsigClient::Transaction(_) => {
@@ -95,13 +133,17 @@ where
 
 //------------ Connection -----------------------------------------------------
 
+/// A TSIG signing and verifying transport.
+///
+/// This transport signs requests and verifies responses using a provided key
+/// and upstream transport. For more information see the [module
+/// docs][crate::net::client::tsig].
 #[derive(Clone)]
-/// TODO
 pub struct Connection<Upstream, K> {
     /// Upstream transport to use for requests.
     ///
-    /// This should be the final transport, there should be no further
-    /// modification to the request before it is sent to the recipient.
+    /// The upstream transport(s) **MUST NOT** modify the request before it is
+    /// sent nor modify the response before this transport can verify it.
     upstream: Arc<Upstream>,
 
     /// TODO
@@ -109,7 +151,11 @@ pub struct Connection<Upstream, K> {
 }
 
 impl<Upstream, K> Connection<Upstream, K> {
-    /// TODO
+    /// Create a new tsig transport.
+    ///
+    /// After creating the transport call `send_request` via the
+    /// [`SendRequest`] or [`SendRequestMulti`] traits to send signed messages
+    /// and verify signed responses.
     pub fn new(key: K, upstream: Upstream) -> Self {
         Self {
             upstream: Arc::new(upstream),
@@ -123,10 +169,7 @@ impl<Upstream, K> Connection<Upstream, K> {
 impl<CR, Upstream, K> SendRequest<CR> for Connection<Upstream, K>
 where
     CR: ComposeRequest + 'static,
-    Upstream: SendRequest<AuthenticatedRequestMessage<CR, K>>
-        + Send
-        + Sync
-        + 'static,
+    Upstream: SendRequest<RequestMessage<CR, K>> + Send + Sync + 'static,
     K: Clone + AsRef<Key> + Send + Sync + 'static,
 {
     fn send_request(
@@ -146,10 +189,7 @@ where
 impl<CR, Upstream, K> SendRequestMulti<CR> for Connection<Upstream, K>
 where
     CR: ComposeRequestMulti + 'static,
-    Upstream: SendRequestMulti<AuthenticatedRequestMessage<CR, K>>
-        + Send
-        + Sync
-        + 'static,
+    Upstream: SendRequestMulti<RequestMessage<CR, K>> + Send + Sync + 'static,
     K: Clone + AsRef<Key> + Send + Sync + 'static,
 {
     fn send_request(
@@ -164,63 +204,67 @@ where
     }
 }
 
-//------------ UpstreamSender -------------------------------------------------
+//------------ Forwarder ------------------------------------------------------
 
-/// TODO
-type UpstreamSender<Upstream, CR, K> = fn(
+/// A function that can forward a request via an upstream transport.
+///
+/// This type is generic over whether the [`RequestMessage`] being sent was
+/// sent via the [`ComposeRequest`] trait or the  [`ComposeRequestMulti`]
+/// trait, which allows common logic to be used for both despite the different
+/// trait bounds required to work with them.
+type Forwarder<Upstream, CR, K> = fn(
     &Upstream,
-    AuthenticatedRequestMessage<CR, K>,
+    RequestMessage<CR, K>,
     Arc<std::sync::Mutex<Option<TsigClient<K>>>>,
 ) -> RequestState<K>;
 
-/// TODO
-fn upstream_sender<CR, K, Upstream>(
+/// Forward a request that should result in a single response.
+///
+/// This function forwards a [`RequestMessage`] to an upstream transport using
+/// a client that can only accept a single response, i.e. was sent via the
+/// [`ComposeRequest`] trait.
+fn forwarder<CR, K, Upstream>(
     upstream: &Upstream,
-    msg: AuthenticatedRequestMessage<CR, K>,
+    msg: RequestMessage<CR, K>,
     tsig_client: Arc<std::sync::Mutex<Option<TsigClient<K>>>>,
 ) -> RequestState<K>
 where
     CR: ComposeRequest,
-    Upstream: SendRequest<AuthenticatedRequestMessage<CR, K>> + Send + Sync,
+    Upstream: SendRequest<RequestMessage<CR, K>> + Send + Sync,
 {
     RequestState::GetResponse(upstream.send_request(msg), tsig_client)
 }
 
-/// TODO
-fn upstream_sender_multi<CR, K, Upstream>(
+/// Forward a request that may result in multiple responses.
+///
+/// This function forwards a [`RequestMessage`] to an upstream transport using
+/// a client that can accept multiple responses, i.e. was sent via the
+/// [`ComposeRequestMulti`] trait.
+fn forwarder_multi<CR, K, Upstream>(
     upstream: &Upstream,
-    msg: AuthenticatedRequestMessage<CR, K>,
+    msg: RequestMessage<CR, K>,
     tsig_client: Arc<std::sync::Mutex<Option<TsigClient<K>>>>,
 ) -> RequestState<K>
 where
     CR: ComposeRequestMulti,
-    Upstream:
-        SendRequestMulti<AuthenticatedRequestMessage<CR, K>> + Send + Sync,
+    Upstream: SendRequestMulti<RequestMessage<CR, K>> + Send + Sync,
 {
     RequestState::GetResponseMulti(upstream.send_request(msg), tsig_client)
 }
 
-//------------ HandleResponseResult -------------------------------------------
-
-/// TODO
-enum HandleResponseResult {
-    /// TODO
-    Response(Message<Bytes>),
-    /// TODO
-    Complete,
-}
-
 //------------ Request --------------------------------------------------------
 
-/// The state of a request that is executed.
-pub struct Request<CR, Upstream, K> {
+/// The state and related properties of an in-progress request.
+struct Request<CR, Upstream, K> {
     /// State of the request.
     state: RequestState<K>,
 
     /// The request message.
+    ///
+    /// Initially Some, consumed when sent.
     request_msg: Option<CR>,
 
-    /// TODO
+    /// The TSIG key used to sign the request.
     key: K,
 
     /// The upstream transport of the connection.
@@ -230,7 +274,7 @@ pub struct Request<CR, Upstream, K> {
 impl<CR, Upstream, K> Request<CR, Upstream, K>
 where
     CR: ComposeRequest,
-    Upstream: SendRequest<AuthenticatedRequestMessage<CR, K>> + Send + Sync,
+    Upstream: SendRequest<RequestMessage<CR, K>> + Send + Sync,
     K: Clone + AsRef<Key>,
     Self: GetResponse,
 {
@@ -242,36 +286,6 @@ where
             key,
             upstream,
         }
-    }
-}
-
-impl<CR, Upstream, K> Debug for Request<CR, Upstream, K> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), core::fmt::Error> {
-        f.debug_struct("Request").finish()
-    }
-}
-
-impl<CR, Upstream, K> GetResponse for Request<CR, Upstream, K>
-where
-    CR: ComposeRequest,
-    Upstream: SendRequest<AuthenticatedRequestMessage<CR, K>> + Send + Sync,
-    K: Clone + AsRef<Key> + Send + Sync,
-{
-    fn get_response(
-        &mut self,
-    ) -> Pin<
-        Box<
-            dyn Future<Output = Result<Message<Bytes>, Error>>
-                + Send
-                + Sync
-                + '_,
-        >,
-    > {
-        Box::pin(async move {
-            self.get_response_impl(upstream_sender)
-                .await
-                .map(|v| v.unwrap())
-        })
     }
 }
 
@@ -295,18 +309,18 @@ where
     /// This function is cancel safe.
     async fn get_response_impl(
         &mut self,
-        upstream_sender: UpstreamSender<Upstream, CR, K>,
+        upstream_sender: Forwarder<Upstream, CR, K>,
     ) -> Result<Option<Message<Bytes>>, Error> {
         let (response, tsig_client) = loop {
             match &mut self.state {
                 RequestState::Init => {
                     let tsig_client = Arc::new(std::sync::Mutex::new(None));
 
-                    let msg = AuthenticatedRequestMessage {
-                        request: self.request_msg.take().unwrap(),
-                        key: self.key.clone(),
-                        signer: tsig_client.clone(),
-                    };
+                    let msg = RequestMessage::new(
+                        self.request_msg.take().unwrap(),
+                        self.key.clone(),
+                        tsig_client.clone(),
+                    );
 
                     trace!("Sending request upstream...");
                     self.state =
@@ -315,12 +329,12 @@ where
                 }
 
                 RequestState::GetResponse(request, tsig_client) => {
-                    let response = request.get_response().await.map(Some);
-                    break (response, tsig_client);
+                    let response = request.get_response().await?;
+                    break (Some(response), tsig_client);
                 }
 
                 RequestState::GetResponseMulti(request, tsig_client) => {
-                    let response = request.get_response().await;
+                    let response = request.get_response().await?;
                     break (response, tsig_client);
                 }
 
@@ -330,29 +344,47 @@ where
             }
         };
 
-        Self::handle_response(response, tsig_client).map(|res| match res {
-            HandleResponseResult::Complete => {
-                self.state = RequestState::Complete;
-                None
-            }
-            HandleResponseResult::Response(res) => Some(res),
-        })
+        let res = Self::validate_response(response, tsig_client)?;
+
+        if res.is_none() {
+            self.state = RequestState::Complete;
+        }
+
+        Ok(res)
     }
 
-    /// TODO
-    fn handle_response(
-        response: Result<Option<Message<Bytes>>, Error>,
+    /// Perform TSIG validation on the result of receiving a response.
+    ///
+    /// If no response were received, validation must still be performed in
+    /// order to verify that the final message that was received was signed
+    /// correctly. This cannot be done when receiving the final response as we
+    /// only know that it is final by trying and failing (which may involve
+    /// waiting) to receive another response.
+    ///
+    /// This function therefore takes an optional response message and a
+    /// [`TsigClient`]. The process of validating that the final response was
+    /// valid will consume the given [`TsigClient`].
+    ///
+    /// Note: Validation is a destructive process, as it strips the TSIG RR
+    /// out of the response. The given response message is consumed, altered
+    /// and returned.
+    ///
+    /// Returns:
+    /// - `Ok(Some)` when returning a successfully validated response.
+    /// - `Ok(None)` when the end of a responses stream was successfully validated.
+    /// - `Err` if validation or some other error occurred.
+    fn validate_response(
+        response: Option<Message<Bytes>>,
         tsig_client: &mut Arc<std::sync::Mutex<Option<TsigClient<K>>>>,
-    ) -> Result<HandleResponseResult, Error> {
-        // TSIG validation
-        match response {
-            Ok(None) => {
+    ) -> Result<Option<Message<Bytes>>, Error> {
+        let res = match response {
+            None => {
                 let client = tsig_client.lock().unwrap().take().unwrap();
                 client.done()?;
-                Ok(HandleResponseResult::Complete)
+                None
             }
 
-            Ok(Some(msg)) => {
+            Some(msg) => {
                 let mut modifiable_msg =
                     Message::from_octets(msg.as_slice().to_vec())?;
 
@@ -365,19 +397,54 @@ where
                 let out_vec = modifiable_msg.into_octets();
                 let out_bytes = Bytes::from(out_vec);
                 let out_msg = Message::<Bytes>::from_octets(out_bytes)?;
-                Ok(HandleResponseResult::Response(out_msg))
+                Some(out_msg)
             }
+        };
 
-            Err(err) => Err(err),
-        }
+        Ok(res)
     }
 }
+
+//-- Debug
+
+impl<CR, Upstream, K> Debug for Request<CR, Upstream, K> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), core::fmt::Error> {
+        f.debug_struct("Request").finish()
+    }
+}
+
+//--- GetResponse
+
+impl<CR, Upstream, K> GetResponse for Request<CR, Upstream, K>
+where
+    CR: ComposeRequest,
+    Upstream: SendRequest<RequestMessage<CR, K>> + Send + Sync,
+    K: Clone + AsRef<Key> + Send + Sync,
+{
+    fn get_response(
+        &mut self,
+    ) -> Pin<
+        Box<
+            dyn Future<Output = Result<Message<Bytes>, Error>>
+                + Send
+                + Sync
+                + '_,
+        >,
+    > {
+        Box::pin(async move {
+            // Unwrap the one and only response, we don't need the multiple
+            // response handling ability of [`Request::get_response_impl`].
+            self.get_response_impl(forwarder).await.map(|v| v.unwrap())
+        })
+    }
+}
+
+//--- GetResponseMulti
 
 impl<CR, Upstream, K> GetResponseMulti for Request<CR, Upstream, K>
 where
     CR: ComposeRequestMulti,
-    Upstream:
-        SendRequestMulti<AuthenticatedRequestMessage<CR, K>> + Send + Sync,
+    Upstream: SendRequestMulti<RequestMessage<CR, K>> + Send + Sync,
     K: Clone + AsRef<Key> + Send + Sync,
 {
     fn get_response(
@@ -390,52 +457,109 @@ where
                 + '_,
         >,
     > {
-        Box::pin(self.get_response_impl(upstream_sender_multi))
+        Box::pin(self.get_response_impl(forwarder_multi))
     }
 }
 
 //------------ RequestState ---------------------------------------------------
 
-/// States of the state machine in get_response_impl
+/// State machine used by [`Request::get_response_impl`].
+///
+/// Possible flows:
+///   - Init -> GetResponse
+///   - Init -> GetResponseMulti -> Complete
 enum RequestState<K> {
-    /// Initial state, perform a cache lookup.
+    /// Initial state, waiting to sign and send the request.
     Init,
 
-    /// Wait for a response and verify it.
+    /// Waiting for a response to verify.
     GetResponse(
         Box<dyn GetResponse + Send + Sync>,
         Arc<std::sync::Mutex<Option<TsigClient<K>>>>,
     ),
 
-    /// Wait for multiple responses and verify them.
+    /// Wait for multiple responses to verify.
     GetResponseMulti(
         Box<dyn GetResponseMulti + Send + Sync>,
         Arc<std::sync::Mutex<Option<TsigClient<K>>>>,
     ),
 
-    /// The last response in a sequence was already received.
+    /// The last of multiple responses was received and verified.
+    ///
+    /// Note: This state can only be entered when processing a sequence of
+    /// responses, i.e. using [`GetResponseMulti`]. When using [`GetResponse`]
+    /// this state will not be enetered because it only calls
+    /// [`Request::get_response_impl`] once.
     Complete,
 }
 
-//------------ AuthenticatedRequestMessage ------------------------------------
+//------------ RequestMessage -------------------------------------------------
 
-/// TODO
+/// A message that can be sent using a [`Connection`].
+///
+/// This type implements the [`ComposeRequest`] and [`ComposeRequestMulti`]
+/// traits and thus is compatible with the [`SendRequest`] and
+/// [`SendRequestMulti`] traits implemented by [`Connection`].
+///
+/// This type stores the message to be sent and implements the
+/// [`ComposeRequest`] and [`ComposeRequestMulti`] traits so that when the
+/// upstream transport accesses the message via the traits that we can at that
+/// point sign the request.
+///
+/// Signing it earlier is not possible as the upstream transport may modify
+/// the request prior to sending it, e.g. to assign a message ID or to add
+/// EDNS options, and signing **MUST** be the last modification made to the
+/// message prior to sending.
 #[derive(Debug)]
-pub struct AuthenticatedRequestMessage<CR, K>
+pub struct RequestMessage<CR, K>
 where
     CR: Send + Sync,
 {
-    /// TODO
+    /// The actual request to sign.
     request: CR,
 
-    /// TODO
+    /// The TSIG key to sign the request with.
     key: K,
 
-    /// TODO
+    /// The TSIG signer state.
+    ///
+    /// This must be kept here as it is created only when signing the request
+    /// and is needed later when verifying responses.
+    ///
+    /// Note: It is wrapped inside an [`Arc<Mutex<T>>`] because the signing is
+    /// done in [`Request::get_response_impl`] which returns a [`Future`] and
+    /// the compiler has no way of knowing whether or not a second call to
+    /// [`Request::get_response_impl`] could be made concurrently with an
+    /// earlier invocation which has not yet completed its progression through
+    /// its async state machine, and could be "woken up" in parallel on a
+    /// different thread thus requiring that access to the signer be made
+    /// thread safe via a locking mechanism like [`Mutex`].
     signer: Arc<std::sync::Mutex<Option<TsigClient<K>>>>,
 }
 
-impl<CR, K> ComposeRequest for AuthenticatedRequestMessage<CR, K>
+impl<CR, K> RequestMessage<CR, K>
+where
+    CR: Send + Sync,
+{
+    /// Creates a new [`RequestMessage`].
+    fn new(
+        request: CR,
+        key: K,
+        signer: Arc<std::sync::Mutex<Option<TsigClient<K>>>>,
+    ) -> Self
+    where
+        CR: Sync + Send,
+        K: Clone + AsRef<Key>,
+    {
+        Self {
+            request,
+            key,
+            signer,
+        }
+    }
+}
+
+impl<CR, K> ComposeRequest for RequestMessage<CR, K>
 where
     CR: ComposeRequest,
     K: Clone + Debug + Send + Sync + AsRef<Key>,
@@ -518,7 +642,7 @@ where
     }
 }
 
-impl<CR, K> ComposeRequestMulti for AuthenticatedRequestMessage<CR, K>
+impl<CR, K> ComposeRequestMulti for RequestMessage<CR, K>
 where
     CR: ComposeRequestMulti,
     K: Clone + Debug + Send + Sync + AsRef<Key>,
