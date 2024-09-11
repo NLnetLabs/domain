@@ -717,3 +717,467 @@ where
         self.request.dnssec_ok()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::base::iana::Rcode;
+    use crate::base::message_builder::QuestionBuilder;
+    use crate::base::{MessageBuilder, Name, Rtype};
+    use crate::tsig::{
+        Algorithm, KeyName, KeyStore, ServerSequence, ServerTransaction,
+        ValidationError,
+    };
+    use core::future::ready;
+    use core::str::FromStr;
+
+    #[tokio::test]
+    async fn single_signed_valid_response() {
+        do_single_response(false).await;
+    }
+
+    #[tokio::test]
+    async fn single_signed_invalid_response() {
+        do_single_response(true).await;
+    }
+
+    async fn do_single_response(invalidate_signature: bool) {
+        // Make a query message that would be expected to result in a single
+        // reply.
+        let msg = mk_request_msg(Rtype::A);
+
+        // Wrap that message into a request message compatible with a
+        // transport capable of receving a single response.
+        let req =
+            crate::net::client::request::RequestMessage::new(msg).unwrap();
+
+        // Make a TSIG key to sign the request with.
+        let key = mk_tsig_key();
+
+        // Make a mock upstream that will "send" the request and receives a
+        // mock TSIG signed response back.
+        let upstream =
+            Arc::new(MockUpstream::new(key.clone(), invalidate_signature));
+
+        // Wrap the request message into a TSIG signing request with a signing
+        // key and upstream transport.
+        let mut req = Request::new(req, key, upstream);
+
+        // "Send" the request and receive the validated mock response.
+        let res = req.get_response().await;
+
+        assert_eq!(res.is_err(), invalidate_signature);
+
+        if let Ok(res) = res {
+            // Verify that the mock response has had its TSIG RR stripped out
+            // during validation.
+            assert_eq!(res.header_counts().arcount(), 0, "TSIG RR should have been removed from the additional section during response processing");
+        }
+    }
+
+    #[tokio::test]
+    async fn multiple_signed_valid_responses() {
+        do_multiple_responses(false, false).await
+    }
+
+    #[tokio::test]
+    async fn multiple_signed_responses_with_one_invalid() {
+        do_multiple_responses(true, false).await
+    }
+
+    #[tokio::test]
+    async fn multiple_signed_valid_responses_and_a_final_unsigned_response() {
+        do_multiple_responses(false, true).await
+    }
+
+    async fn do_multiple_responses(
+        invalidate_signature: bool,
+        dont_sign_last_response: bool,
+    ) {
+        // Make a query message that would be expected to result in multiple
+        // replies.
+        let msg = mk_request_msg(Rtype::AXFR);
+
+        // Wrap that message into a request message compatible with a
+        // transport capable of receving multiple responses.
+        let req = crate::net::client::request::RequestMessageMulti::new(msg)
+            .unwrap();
+
+        // Make a TSIG key to sign the request with.
+        let key = mk_tsig_key();
+
+        // Make a mock upstream that will "send" the request and receive
+        // multiple mock TSIG signed responses back.
+        let upstream = Arc::new(MockUpstreamMulti::new(
+            key.clone(),
+            invalidate_signature,
+            dont_sign_last_response,
+        ));
+
+        // Wrap the request message into a TSIG signing request with a signing
+        // key and upstream transport.
+        let mut req = Request::new_multi(req, key, upstream);
+
+        // "Send" the request and receive the first validated mock response.
+        let res = req
+            .get_response()
+            .await
+            .unwrap()
+            .expect("First response is missing");
+
+        // Verify that the mock response has had its TSIG RR stripped out
+        // during validation.
+        assert_eq!(res.header_counts().arcount(), 0, "TSIG RR should have been removed from the additional section during response processing");
+
+        // Receive the second mock response, which may have been deliberately
+        // invalidated.
+        let res = req.get_response().await;
+
+        if invalidate_signature {
+            assert!(
+                matches!(
+                    res,
+                    Err(Error::Authentication(ValidationError::BadSig))
+                ),
+                "Expected error BadSig but the result was: {res:?}"
+            );
+        } else {
+            assert!(res.is_ok(), "Unexpected error message: {res:?}");
+        }
+
+        if let Ok(res) = res {
+            let res = res.expect("Second response is missing");
+
+            // Verify that the mock response has had its TSIG RR stripped out
+            // during validation.
+            assert_eq!(res.header_counts().arcount(), 0, "TSIG RR should have been removed from the additional section during response processing");
+
+            // Receive the third and final mock response, which may have been
+            // deliberately not signed, in order to test whether or not we
+            // are correctly calling `ClientSequence::done()` to catch this
+            // case. This shouldn't fail at this point however as apparently
+            // it's only caught when .done() is called when no more responses
+            // are received.
+            let res = req
+                .get_response()
+                .await
+                .unwrap()
+                .expect("Third response is missing");
+
+            // Verify that the mock response has had its TSIG RR stripped out
+            // during validation, or it was never added during response
+            // generation.
+            if dont_sign_last_response {
+                assert_eq!(res.header_counts().arcount(), 0, "TSIG RR should never have been added to the additional section during response generation");
+            } else {
+                assert_eq!(res.header_counts().arcount(), 0, "TSIG RR should have been removed from the additional section during response processing");
+            }
+
+            if dont_sign_last_response {
+                // Attempt to receive another response but discover that the
+                // last response was not signed as it should have been.
+                assert!(
+                    matches!(req.get_response().await, Err(Error::Authentication(ValidationError::TooManyUnsigned))),
+                    "Receiving another response should have failed because the last response should have lacked a signature"
+                );
+            } else {
+                // Attempt to receive another response but discover that this
+                // is the end of the response sequence.
+                assert!(
+                    req.get_response().await.unwrap().is_none(),
+                    "There should not be a fourth response"
+                );
+            }
+        }
+    }
+
+    // Make a query for the given RTYPE.
+    fn mk_request_msg(rtype: Rtype) -> QuestionBuilder<Vec<u8>> {
+        let mut msg = MessageBuilder::new_vec();
+        msg.header_mut().set_rd(true);
+        msg.header_mut().set_ad(true);
+        let mut msg = msg.question();
+        msg.push((Name::vec_from_str("example.com").unwrap(), rtype))
+            .unwrap();
+        msg
+    }
+
+    // Make a TSIG key for signing test requests and responses with.
+    fn mk_tsig_key() -> Arc<Key> {
+        // Create a signing key.
+        let key_name = KeyName::from_str("demo-key").unwrap();
+        let secret = crate::utils::base64::decode::<Vec<u8>>(
+            "zlCZbVJPIhobIs1gJNQfrsS3xCxxsR9pMUrGwG8OgG8=",
+        )
+        .unwrap();
+        Arc::new(
+            Key::new(Algorithm::Sha256, &secret, key_name, None, None)
+                .unwrap(),
+        )
+    }
+
+    //------------ MockGetResponse --------------------------------------------
+
+    #[derive(Debug)]
+    struct MockGetResponse<CR, KS> {
+        request_msg: CR,
+        key_store: KS,
+        invalidate_signature: bool,
+    }
+
+    impl<CR, KS> MockGetResponse<CR, KS> {
+        fn new(
+            request_msg: CR,
+            key_store: KS,
+            invalidate_signature: bool,
+        ) -> Self {
+            Self {
+                request_msg,
+                key_store,
+                invalidate_signature,
+            }
+        }
+    }
+
+    //--- GetResponse
+
+    impl<CR: ComposeRequest + Debug, KS: Debug + KeyStore> GetResponse
+        for MockGetResponse<CR, KS>
+    {
+        fn get_response(
+            &mut self,
+        ) -> Pin<
+            Box<
+                dyn Future<Output = Result<Message<Bytes>, Error>>
+                    + Send
+                    + Sync
+                    + '_,
+            >,
+        > {
+            let mut req = self.request_msg.to_message().unwrap();
+
+            // Create a TSIG signer for a single response based on the
+            // received request.
+            let tsig = ServerTransaction::request(
+                &self.key_store,
+                &mut req,
+                Time48::now(),
+            )
+            .unwrap()
+            .unwrap();
+
+            // Generate a mock response to the request.
+            let builder = MessageBuilder::new_bytes();
+            let builder = builder.start_answer(&req, Rcode::NOERROR).unwrap();
+            let mut builder = builder.additional();
+
+            // Sign the response.
+            tsig.answer(&mut builder, Time48::now()).unwrap();
+
+            if self.invalidate_signature {
+                // Invalidate the signature.
+                builder.header_mut().set_rcode(Rcode::SERVFAIL);
+            }
+
+            // Generate the wire format response message and sanity check it
+            // before returning it.
+            let res = builder.into_message();
+            assert_eq!(res.header_counts().arcount(), 1, "Constructed response lacks a TSIG RR in the additional section");
+            Box::pin(ready(Ok(res)))
+        }
+    }
+
+    //------------ MockGetResponseMulti ---------------------------------------
+
+    #[derive(Debug)]
+    struct MockGetResponseMulti<CR, KS> {
+        request_msg: CR,
+        key_store: KS,
+        sent_request: Option<Message<Vec<u8>>>,
+        num_responses_generated: usize,
+        signer: Option<ServerSequence<KS>>,
+        invalidate_signature: bool,
+        dont_sign_last_response: bool,
+    }
+
+    impl<CR, KS> MockGetResponseMulti<CR, KS> {
+        fn new(
+            request_msg: CR,
+            key_store: KS,
+            invalidate_signature: bool,
+            dont_sign_last_response: bool,
+        ) -> Self {
+            Self {
+                request_msg,
+                key_store,
+                sent_request: None,
+                num_responses_generated: 0,
+                signer: None,
+                invalidate_signature,
+                dont_sign_last_response,
+            }
+        }
+    }
+
+    //--- GetResponseMulti
+
+    impl<CR, KS> GetResponseMulti for MockGetResponseMulti<CR, KS>
+    where
+        CR: ComposeRequestMulti + Debug,
+        KS: Debug + KeyStore<Key = KS> + AsRef<Key>,
+    {
+        fn get_response(
+            &mut self,
+        ) -> Pin<
+            Box<
+                dyn Future<Output = Result<Option<Message<Bytes>>, Error>>
+                    + Send
+                    + Sync
+                    + '_,
+            >,
+        > {
+            // Generate a sequence of at most 3 responses.
+            if self.num_responses_generated == 3 {
+                return Box::pin(ready(Ok(None)));
+            }
+
+            self.num_responses_generated += 1;
+
+            // When first receiving the request, generate a TSIG signer for a
+            // multiple response sequence based on the received request.
+            let mut tsig = match self.signer.take() {
+                Some(tsig) => tsig,
+                None => {
+                    let mut req = self.request_msg.to_message().unwrap();
+
+                    let tsig = ServerSequence::request(
+                        &self.key_store,
+                        &mut req,
+                        Time48::now(),
+                    )
+                    .unwrap()
+                    .unwrap();
+
+                    // Store the signer, we'll need it to sign subsequent
+                    // responses.
+                    self.sent_request = Some(req);
+
+                    tsig
+                }
+            };
+
+            // Generate a mock response to the request.
+            let req = self.sent_request.as_ref().unwrap();
+            let builder = MessageBuilder::new_bytes();
+            let builder = builder.start_answer(req, Rcode::NOERROR).unwrap();
+            let mut builder = builder.additional();
+
+            // Decide whether to sign and/or invalidate the response.
+            let (sign, invalidate) = match self.num_responses_generated {
+                1 => (true, false),
+                2 => (true, self.invalidate_signature),
+                3 => (!self.dont_sign_last_response, false),
+                _ => unreachable!(),
+            };
+
+            eprintln!(
+                "Response {}: sign={}, invalidate={}",
+                self.num_responses_generated, sign, invalidate
+            );
+
+            // Sign the response (we might strip the signature out below).
+            if sign {
+                tsig.answer(&mut builder, Time48::now()).unwrap();
+            }
+
+            // Put the signer back in storage for the next response.
+            self.signer = Some(tsig);
+
+            if invalidate {
+                // Invalidate the signature.
+                builder.header_mut().set_rcode(Rcode::SERVFAIL);
+            }
+
+            // Generate the wire format response message and sanity check it
+            // before returning it.
+            let res = builder.into_message();
+            if sign {
+                assert_eq!(res.header_counts().arcount(), 1, "Constructed response lacks a TSIG RR in the additional section");
+                let rec = res.additional().unwrap().next().unwrap().unwrap();
+                assert_eq!(rec.rtype(), Rtype::TSIG);
+            }
+            Box::pin(ready(Ok(Some(res))))
+        }
+    }
+
+    //------------ MockUpstream -----------------------------------------------
+
+    struct MockUpstream {
+        key: Arc<Key>,
+        invalidate_signature: bool,
+    }
+
+    impl MockUpstream {
+        fn new(key: Arc<Key>, invalidate_signature: bool) -> Self {
+            Self {
+                key,
+                invalidate_signature,
+            }
+        }
+    }
+
+    //--- SendRequest
+
+    impl<CR: ComposeRequest + Debug + Send + Sync + 'static> SendRequest<CR>
+        for MockUpstream
+    {
+        fn send_request(
+            &self,
+            request_msg: CR,
+        ) -> Box<dyn GetResponse + Send + Sync> {
+            Box::new(MockGetResponse::new(
+                request_msg,
+                self.key.clone(),
+                self.invalidate_signature,
+            ))
+        }
+    }
+
+    //------------ MockUpstreamMulti ------------------------------------------
+
+    struct MockUpstreamMulti {
+        key: Arc<Key>,
+        invalidate_signature: bool,
+        dont_sign_last_response: bool,
+    }
+    impl MockUpstreamMulti {
+        fn new(
+            key: Arc<Key>,
+            invalidate_signature: bool,
+            dont_sign_last_response: bool,
+        ) -> Self {
+            Self {
+                key,
+                invalidate_signature,
+                dont_sign_last_response,
+            }
+        }
+    }
+
+    impl<CR> SendRequestMulti<CR> for MockUpstreamMulti
+    where
+        CR: ComposeRequestMulti + Debug + Send + Sync + 'static,
+    {
+        fn send_request(
+            &self,
+            request_msg: CR,
+        ) -> Box<dyn GetResponseMulti + Send + Sync> {
+            Box::new(MockGetResponseMulti::new(
+                request_msg,
+                self.key.clone(),
+                self.invalidate_signature,
+                self.dont_sign_last_response,
+            ))
+        }
+    }
+}
