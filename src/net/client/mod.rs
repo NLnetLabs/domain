@@ -216,6 +216,7 @@
 pub mod cache;
 pub mod dgram;
 pub mod dgram_stream;
+pub mod load_balancer;
 pub mod multi_stream;
 pub mod protocol;
 pub mod redundant;
