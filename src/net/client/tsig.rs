@@ -146,7 +146,7 @@ pub struct Connection<Upstream, K> {
     /// sent nor modify the response before this transport can verify it.
     upstream: Arc<Upstream>,
 
-    /// TODO
+    /// The key to sign requests with.
     key: K,
 }
 
