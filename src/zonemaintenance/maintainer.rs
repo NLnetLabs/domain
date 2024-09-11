@@ -46,7 +46,7 @@ use crate::net::client::protocol::UdpConnect;
 use crate::net::client::request::{
     self, RequestMessage, RequestMessageMulti, SendRequest, SendRequestMulti,
 };
-use crate::net::client::tsig::AuthenticatedRequestMessage;
+use crate::net::client::tsig::{self};
 use crate::rdata::{Soa, ZoneRecordData};
 use crate::tsig::{Key, KeyStore};
 use crate::zonetree::error::{OutOfZone, ZoneTreeModificationError};
@@ -2699,8 +2699,8 @@ impl ConnectionFactory for DefaultConnFactory {
 
             if let Some(key) = key {
                 let (client, transport) = net::client::stream::Connection::<
-                    AuthenticatedRequestMessage<RequestMessage<Octs>, K>,
-                    AuthenticatedRequestMessage<RequestMessageMulti<Octs>, K>,
+                    tsig::RequestMessage<RequestMessage<Octs>, K>,
+                    tsig::RequestMessage<RequestMessageMulti<Octs>, K>,
                 >::with_config(
                     tcp_stream, stream_config
                 );
