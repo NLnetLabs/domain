@@ -39,7 +39,7 @@ Unstable features
     adds ComposeRequestMulti and other *Multi types. The main change is to
     the stream transport, which is the only transport that implements
     SendRequestMulti. (#377)
-  * Added a TSIG client request signing and response validating passthrough
+  * Added a TSIG request signing and response validating passthrough
     transport in `net::client:tsig`. ([#373])
 * `unstable-server-transport`
   * The cookies middleware now allows requests with invalid cookies to
