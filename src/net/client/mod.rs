@@ -23,6 +23,12 @@
 //!   as upstream transports.
 //! * [cache] This is a simple message cache provided as a pass through
 //!   transport. The cache works with any of the other transports.
+#![cfg_attr(feature = "tsig", doc = "* [tsig]:")]
+#![cfg_attr(not(feature = "tsig",), doc = "* tsig:")]
+//!   This is a TSIG request signer and response verifier provided as a
+//!   pass through transport. The tsig transport works with any upstream
+//!   transports so long as they don't modify the message once signed nor
+//!   modify the response before it can be verified.
 #![cfg_attr(feature = "unstable-validator", doc = "* [validator]:")]
 #![cfg_attr(not(feature = "unstable-validator",), doc = "* validator:")]
 //!   This is a DNSSEC validator provided as a pass through transport.
@@ -221,6 +227,8 @@ pub mod protocol;
 pub mod redundant;
 pub mod request;
 pub mod stream;
+#[cfg(feature = "tsig")]
+pub mod tsig;
 #[cfg(feature = "unstable-validator")]
 pub mod validator;
 pub mod validator_test;
