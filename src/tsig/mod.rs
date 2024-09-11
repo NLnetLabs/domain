@@ -423,7 +423,7 @@ pub trait KeyStore {
     ) -> Option<Self::Key>;
 }
 
-impl KeyStore for Key {
+impl<K: AsRef<Key> + Clone> KeyStore for K {
     type Key = Self;
 
     fn get_key<N: ToName>(
@@ -435,24 +435,6 @@ impl KeyStore for Key {
             && self.as_ref().algorithm() == algorithm
         {
             Some(self.clone())
-        } else {
-            None
-        }
-    }
-}
-
-impl KeyStore for &'_ Key {
-    type Key = Self;
-
-    fn get_key<N: ToName>(
-        &self,
-        name: &N,
-        algorithm: Algorithm,
-    ) -> Option<Self::Key> {
-        if self.as_ref().name() == name
-            && self.as_ref().algorithm() == algorithm
-        {
-            Some(self)
         } else {
             None
         }
@@ -475,23 +457,6 @@ where
         // XXX This seems a bit wasteful.
         let name = name.try_to_name().ok()?;
         self.get(&(name, algorithm)).cloned()
-    }
-}
-
-#[cfg(feature = "std")]
-impl<K, U> KeyStore for std::sync::Arc<U>
-where
-    K: AsRef<Key> + Clone,
-    U: KeyStore<Key = K>,
-{
-    type Key = K;
-
-    fn get_key<N: ToName>(
-        &self,
-        name: &N,
-        algorithm: Algorithm,
-    ) -> Option<Self::Key> {
-        (**self).get_key(name, algorithm)
     }
 }
 
