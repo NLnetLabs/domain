@@ -528,11 +528,6 @@ fn parse_server_config(config: &Config) -> ServerConfig {
     parsed_config
 }
 
-//------------ TestKeyStore ---------------------------------------------------
-
-// KeyStore is impl'd elsewhere for HashMap<(KeyName, Algorithm), K, S>.
-type TestKeyStore = HashMap<(KeyName, Algorithm), Key>;
-
 //------------ NoOpNotifyTarget -----------------------------------------------
 
 #[derive(Copy, Clone, Default, Debug)]
@@ -556,5 +551,26 @@ impl Notifiable for TestNotifyTarget {
         };
 
         Box::pin(ready(res))
+    }
+}
+
+//------------ TestKeyStore ---------------------------------------------------
+
+// KeyStore is impl'd elsewhere for HashMap<(KeyName, Algorithm), K, S>.
+type TestKeyStore = HashMap<(KeyName, Algorithm), Key>;
+
+impl KeyStore for Arc<TestKeyStore> {
+    type Key = Key;
+
+    fn get_key<N: ToName>(
+        &self,
+        name: &N,
+        algorithm: Algorithm,
+    ) -> Option<Self::Key> {
+        if let Ok(name) = name.try_to_name() {
+            self.get(&(name, algorithm)).cloned()
+        } else {
+            None
+        }
     }
 }
