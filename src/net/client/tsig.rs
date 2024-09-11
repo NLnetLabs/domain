@@ -10,7 +10,7 @@
 //! 2. Create a [Connection] that wraps an upstream connection and uses the
 //!    key.
 //! 3. [Send a request][Connection::send_request] using the connection.
-//! 4. [Receive the response][Request::get_response] or responses.
+//! 4. [Receive the response][GetResponse] or responses.
 //!
 //! # How it works
 //!
@@ -41,8 +41,8 @@
 //!
 //! Failing to do so will result in signature verification failure. For
 //! requests this will occur at the receiving server. For responses this will
-//! result in [`GetResponse`][crate::net::client::request::GetResponse]
-//! rerturning [Error::ValidationError][crate::net::client::request::Error].
+//! result in [`GetResponse`] rerturning
+//! [Error::ValidationError][crate::net::client::request::Error].
 #![cfg(all(feature = "tsig", feature = "unstable-client-transport"))]
 #![warn(missing_docs)]
 #![warn(clippy::missing_docs_in_private_items)]
