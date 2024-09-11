@@ -1,3 +1,5 @@
+//! Module for testing the validator client transport.
+
 #![cfg(test)]
 
 use std::fs::File;
