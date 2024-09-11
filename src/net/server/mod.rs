@@ -180,13 +180,16 @@
 mod connection;
 pub use connection::Config as ConnectionConfig;
 
+pub mod adapter;
 pub mod buf;
 pub mod dgram;
 pub mod error;
 pub mod message;
 pub mod metrics;
 pub mod middleware;
+pub mod qname_router;
 pub mod service;
+pub mod single_service;
 pub mod sock;
 pub mod stream;
 pub mod util;
