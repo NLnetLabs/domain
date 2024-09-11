@@ -41,7 +41,7 @@
 //!
 //! Failing to do so will result in signature verification failure. For
 //! requests this will occur at the receiving server. For responses this will
-//! result in [`GetResponse`] rerturning
+//! result in [`GetResponse`] returning
 //! [Error::ValidationError][crate::net::client::request::Error].
 #![cfg(all(feature = "tsig", feature = "unstable-client-transport"))]
 #![warn(missing_docs)]
