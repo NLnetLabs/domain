@@ -361,7 +361,7 @@ where
         Once<Ready<<NextSvc::Stream as Stream>::Item>>,
         <NextSvc::Stream as Stream>::Item,
     >;
-    type Future = Ready<Self::Stream>;
+    type Future = core::future::Ready<Self::Stream>;
 
     fn call(
         &self,
