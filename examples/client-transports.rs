@@ -358,7 +358,9 @@ where
     // Get the reply
     loop {
         println!("Waiting for signed reply");
-        let reply = request.get_response().await.unwrap();
+        let reply = request.get_response()
+            .await
+            .expect("Failed while getting a TSIG signed response. This is probably expected as the server will not know the TSIG key we are using unless you have ensured that is the case.");
         println!("Signed reply: {:?}", reply);
         if reply.is_none() {
             break;
