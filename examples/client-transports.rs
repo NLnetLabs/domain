@@ -22,7 +22,7 @@ use domain::net::client::stream;
 #[cfg(feature = "tsig")]
 use domain::net::client::request::SendRequestMulti;
 #[cfg(feature = "tsig")]
-use domain::net::client::tsig::{self, AuthenticatedRequestMessage};
+use domain::net::client::tsig::{self};
 #[cfg(feature = "tsig")]
 use domain::tsig::{Algorithm, Key, KeyName};
 
@@ -266,16 +266,8 @@ async fn main() {
     #[cfg(feature = "tsig")]
     {
         let tcp_conn = TcpStream::connect(server_addr).await.unwrap();
-        let (tcp, transport) = stream::Connection::<
-            AuthenticatedRequestMessage<
-                RequestMessage<Vec<u8>>,
-                Arc<domain::tsig::Key>,
-            >,
-            AuthenticatedRequestMessage<
-                RequestMessageMulti<Vec<u8>>,
-                Arc<domain::tsig::Key>,
-            >,
-        >::new(tcp_conn);
+        let (tcp, transport) =
+            stream::Connection::<RequestMessage<Vec<u8>>, _>::new(tcp_conn);
         tokio::spawn(async move {
             transport.run().await;
             println!("single TSIG TCP run terminated");
@@ -340,10 +332,7 @@ where
         + domain::dep::octseq::Octets
         + 'static,
     SR: SendRequestMulti<
-            tsig::AuthenticatedRequestMessage<
-                RequestMessageMulti<Octs>,
-                Arc<Key>,
-            >,
+            tsig::RequestMessage<RequestMessageMulti<Octs>, Arc<Key>>,
         > + Send
         + Sync
         + 'static,
