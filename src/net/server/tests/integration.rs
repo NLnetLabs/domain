@@ -186,7 +186,7 @@ async fn server_tests(#[files("test-data/server/*.rpl")] rpl_file: PathBuf) {
 
     // 4. XFR(-in) middleware service (XFR-out is handled by the
     //    ZoneMaintainer).
-    let svc = XfrMiddlewareSvc::<Vec<u8>, _, _, Authentication>::new(
+    let svc = XfrMiddlewareSvc::<_, _, _, Authentication>::new(
         svc,
         zones.clone(),
         MAX_XFR_CONCURRENCY,

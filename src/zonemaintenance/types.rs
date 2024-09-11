@@ -20,9 +20,9 @@ use tracing::trace;
 
 use crate::base::iana::Class;
 use crate::base::net::IpAddr;
-use crate::base::{CanonicalOrd, Name, Serial, Ttl};
+use crate::base::{CanonicalOrd, Name, Serial, ToName, Ttl};
 use crate::rdata::Soa;
-use crate::tsig::{self, Algorithm, Key, KeyName};
+use crate::tsig::{self, Algorithm, Key, KeyName, KeyStore};
 use crate::zonetree::{StoredName, ZoneDiff, ZoneKey};
 
 //------------ Constants -----------------------------------------------------
@@ -37,6 +37,22 @@ pub(super) const MIN_DURATION_BETWEEN_ZONE_REFRESHES: tokio::time::Duration =
 
 /// A store of TSIG keys index by key name and algorithm.
 pub type ZoneMaintainerKeyStore = HashMap<(KeyName, Algorithm), Key>;
+
+impl KeyStore for Arc<HashMap<(KeyName, Algorithm), Key>> {
+    type Key = Key;
+
+    fn get_key<N: ToName>(
+        &self,
+        name: &N,
+        algorithm: Algorithm,
+    ) -> Option<Self::Key> {
+        if let Ok(name) = name.try_to_name() {
+            self.get(&(name, algorithm)).cloned()
+        } else {
+            None
+        }
+    }
+}
 
 //------------ SrcDstConfig --------------------------------------------------
 

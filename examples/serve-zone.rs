@@ -112,17 +112,16 @@ async fn main() {
 
     // Create a service to answer queries for the zone.
     let svc = service_fn(my_service, zones.clone());
-    let svc = XfrMiddlewareSvc::<Vec<u8>, _, _, Authentication>::new(
+    let svc = XfrMiddlewareSvc::<_, _, _, Authentication>::new(
         svc,
         zones.clone(),
         max_concurrency,
     );
-    let svc =
-        NotifyMiddlewareSvc::<Vec<u8>, _, _, _>::new(svc, zones.clone());
-    let svc = CookiesMiddlewareSvc::<Vec<u8>, _, _>::with_random_secret(svc);
-    let svc = EdnsMiddlewareSvc::<Vec<u8>, _, _>::new(svc);
-    let svc = MandatoryMiddlewareSvc::<Vec<u8>, _, _>::new(svc);
-    let svc = TsigMiddlewareSvc::<Vec<u8>, _, _>::new(svc, config.key_store);
+    let svc = NotifyMiddlewareSvc::new(svc, zones.clone());
+    let svc = CookiesMiddlewareSvc::with_random_secret(svc);
+    let svc = EdnsMiddlewareSvc::new(svc);
+    let svc = MandatoryMiddlewareSvc::new(svc);
+    let svc = TsigMiddlewareSvc::new(svc, config.key_store);
     let svc = Arc::new(svc);
 
     println!(
