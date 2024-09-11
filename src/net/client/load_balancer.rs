@@ -133,6 +133,10 @@ impl<Req: Clone + Debug + Send + Sync + 'static> Connection<Req> {
         rx.await.expect("receive should not fail")
     }
 
+    pub async fn print_stats(&self) {
+	self.sender.send(ChanReq::PrintStats).await.unwrap();
+    }
+
     /// Implementation of the query method.
     async fn request_impl(
         self,
@@ -293,6 +297,8 @@ where
 
     /// Report that a connection failed to provide a timely response
     Failure(TimeReport),
+
+    PrintStats,
 }
 
 impl<Req> Debug for ChanReq<Req>
@@ -737,8 +743,15 @@ impl<'a, Req: Clone + Send + Sync + 'static> Transport<Req> {
                         conn_rt[ind].est_rt = Duration::from_secs_f64(est_rt);
                     }
                 }
+                ChanReq::PrintStats => Self::print_stats(&conn_rt)
             }
         }
+    }
+
+    fn print_stats(conn_rt: &[ConnRT]) {
+	for e in conn_rt {
+	    println!("id {} label {}", e.id, e.label);
+	}
     }
 }
 
