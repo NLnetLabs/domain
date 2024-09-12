@@ -692,8 +692,8 @@ impl<K: AsRef<Key>> ServerTransaction<K> {
 
     /// Returns a reference to the transaction's key.
     ///
-    /// This is the same as [`key`] but doesn't lose the original key type
-    /// information.
+    /// This is the same as [`Self::key`] but doesn't lose the original key
+    /// type information.
     pub fn key_wrapper(&self) -> &K {
         self.context.key_wrapper()
     }
@@ -1027,8 +1027,8 @@ impl<K: AsRef<Key>> ServerSequence<K> {
 
     /// Returns a reference to the transaction's key.
     ///
-    /// This is the same as [`key`] but doesn't lose the original key type
-    /// information.
+    /// This is the same as [`Self::key`] but doesn't lose the original key
+    /// type information.
     pub fn key_wrapper(&self) -> &K {
         self.context.key_wrapper()
     }
