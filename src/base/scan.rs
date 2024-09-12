@@ -114,10 +114,9 @@ impl<S: Scanner> Scan<S> for Ttl {
 /// A presentation format tokenizer.
 ///
 /// Text in the presentation format consists of whitespace-separated tokens.
-/// In addition, there are lexical elements such as quoted strings, escaped
-/// characters, and parenthesized content.  This type will parse the text and
-/// allow iteration of the tokens within it, greatly simplifying the task of
-/// parsing the content into semantic elements.
+/// Tokens can contain whitespace if they are quoted strings.  This type will
+/// parse the text, correctly split it into tokens, and allow iterating over
+/// them.  This greatly simplifies the task of parsing into semantic elements.
 pub struct Tokenizer<'a> {
     /// The underlying input string.
     ///
@@ -144,7 +143,102 @@ impl<'a> Iterator for Tokenizer<'a> {
     type Item = Token<'a>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        todo!()
+        // TODO: We could use 'memchr' to track the position of the next
+        // double-quote, backslash, or semicolon.  These positions would be
+        // stored in the tokenizer state and updated when required.  We don't
+        // expect them to occur very often -- otherwise a simple for loop
+        // would be fast enough.
+
+        // Since we're looking for ASCII characters, it's easier to work with
+        // the byte-wise version of the input.  The indices are identical.
+        let input = self.input.as_bytes();
+
+        // If there isn't any more input left, just stop.
+        if self.pos >= input.len() {
+            return None;
+        }
+
+        // We should be at the beginning of the next token.  This assumption
+        // does not hold at the start of tokenization, so let's fix that.
+        if self.pos == 0 {
+            self.pos += input
+                .iter()
+                .position(|b| !b" \t\r\n".contains(&b))
+                .unwrap_or(self.input.len());
+
+            // We need to repeat this test from the top of the function.
+            if self.pos >= input.len() {
+                return None;
+            }
+        }
+
+        // While we should be at the beginning of a token, we might encounter
+        // a comment or a newline.  If we had output a token on the same line,
+        // we should output a newline token, as this indicates the separation
+        // between entries in zone files.
+        //
+        // So, we loop and skip past all comments and newlines.  If any such
+        // skips happened, then we're on a different line than the previous
+        // token, so we stop and output a newline token.
+        let newline_pos = self.pos;
+        if b";\n".contains(&input[self.pos]) {
+            while self.pos < input.len() {
+                // If we reach an actual token, stop.
+                if !b";\n".contains(&input[self.pos]) {
+                    break;
+                }
+
+                if input[self.pos] == b';' {
+                    // Skip ahead to and past the newline.
+                    self.pos += input[self.pos..]
+                        .iter()
+                        .position(|&b| b == b'\n')
+                        .map_or(input.len() - self.pos, |p| p + 1);
+                } else {
+                    // Skip past the newline.
+                    self.pos += 1;
+                }
+
+                // We're now on the next line; skip any whitespace on it.
+                self.pos += input[self.pos..]
+                    .iter()
+                    .position(|b| b" \t\r".contains(&b))
+                    .unwrap_or(input.len() - self.pos);
+            }
+
+            // Output a newline token, so that the token on this line is
+            // separated from previous tokens.
+            return (self.pos == input.len()).then_some(Token {
+                input: self.input,
+                pos: newline_pos,
+                len: 0,
+            });
+        }
+
+        // Every token is either a quoted or unquoted string.
+        let pos = self.pos;
+        let len = if input[self.pos] == b'"' {
+            use core::mem::replace;
+
+            // We search for an un-escaped double-quote.
+            input[self.pos + 1..]
+                .iter()
+                .scan(false, |e, &b| Some((replace(e, !*e && b == b'\\'), b)))
+                .position(|x| x == (false, b'"'))
+                .map_or(input.len() - self.pos, |p| p + 1)
+        } else {
+            // We search for any whitespace.
+            input[self.pos + 1..]
+                .iter()
+                .position(|b| !b" \t\r".contains(&b))
+                .unwrap_or(input.len() - self.pos)
+        };
+
+        Some(Token {
+            input: self.input,
+            pos,
+            len,
+        })
     }
 }
 
@@ -152,7 +246,14 @@ impl<'a> Iterator for Tokenizer<'a> {
 
 /// A token of text in the presentation format.
 pub struct Token<'a> {
-    raw: &'a str,
+    /// The referenced input text.
+    input: &'a str,
+
+    /// The position of this token.
+    pos: usize,
+
+    /// The length of this token.
+    len: usize,
 }
 
 //------------ Scanner -------------------------------------------------------
