@@ -180,8 +180,25 @@ impl<'a> Iterator for Tokenizer<'a> {
         // So, we loop and skip past all comments and newlines.  If any such
         // skips happened, then we're on a different line than the previous
         // token, so we stop and output a newline token.
-        let newline_pos = self.pos;
         if b";\n".contains(&input[self.pos]) {
+            // The token we will output references the newline, so we need to
+            // skip ahead to it if we had hit a comment.
+            if input[self.pos] == b';' {
+                self.pos += input[self.pos..]
+                    .iter()
+                    .position(|&b| b == b'\n')
+                    .unwrap_or(input.len() - self.pos);
+
+                // If we can't find a newline, we can stop already.
+                if self.pos >= input.len() {
+                    return None;
+                }
+            }
+
+            // Save the newline position and skip it.
+            let newline_pos = self.pos;
+            self.pos += 1;
+
             while self.pos < input.len() {
                 // If we reach an actual token, stop.
                 if !b";\n".contains(&input[self.pos]) {
@@ -211,7 +228,7 @@ impl<'a> Iterator for Tokenizer<'a> {
             return (self.pos == input.len()).then_some(Token {
                 input: self.input,
                 pos: newline_pos,
-                len: 0,
+                len: 1,
             });
         }
 
