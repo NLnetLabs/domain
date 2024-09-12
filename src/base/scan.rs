@@ -109,6 +109,52 @@ impl<S: Scanner> Scan<S> for Ttl {
     }
 }
 
+//------------ Tokenizer -----------------------------------------------------
+
+/// A presentation format tokenizer.
+///
+/// Text in the presentation format consists of whitespace-separated tokens.
+/// In addition, there are lexical elements such as quoted strings, escaped
+/// characters, and parenthesized content.  This type will parse the text and
+/// allow iteration of the tokens within it, greatly simplifying the task of
+/// parsing the content into semantic elements.
+pub struct Tokenizer<'a> {
+    /// The underlying input string.
+    ///
+    /// This is the entire string -- `pos` provides the current position of
+    /// the tokenizer within it.
+    input: &'a str,
+
+    /// The current position.
+    ///
+    /// This is the index of the first unexamined byte in `input`.  If it
+    /// falls outside the range of `input`, then tokenization is complete.
+    pos: usize,
+}
+
+impl<'a> Tokenizer<'a> {
+    /// Prepare to tokenize a string.
+    #[must_use]
+    pub fn new(input: &'a str) -> Self {
+        Self { input, pos: 0 }
+    }
+}
+
+impl<'a> Iterator for Tokenizer<'a> {
+    type Item = Token<'a>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        todo!()
+    }
+}
+
+//------------ Token ---------------------------------------------------------
+
+/// A token of text in the presentation format.
+pub struct Token<'a> {
+    raw: &'a str,
+}
+
 //------------ Scanner -------------------------------------------------------
 
 /// A type that can produce tokens of data in presentation format.
