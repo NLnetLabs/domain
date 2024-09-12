@@ -13,6 +13,8 @@
 //! through the layers to the server.
 //!
 //! Currently the following middleware are available:
+//!
+//! [`Service`]: crate::net::server::service::Service
 
 #[cfg(feature = "siphasher")]
 pub mod cookies;

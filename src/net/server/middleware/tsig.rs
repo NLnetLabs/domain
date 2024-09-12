@@ -1,4 +1,18 @@
-//! TSIG message authentication middleware.
+//! RFC 8495 TSIG message authentication middleware.
+//!
+//! This module provides a TSIG request validation and response signing
+//! middleware service. The underlying TSIG RR processing is implemented using
+//! the [`tsig`] module.
+//!
+//! # Communicating which key signed a request.
+//!
+//! This middleware service passes the [`Authentication`] type to upstream
+//! [`Service`] impls via request metadata. Upstream services can choose to
+//! ignore the metadata by being generic over any kind of metadata, or may
+//! offer a [`Service`] impl that specifically accepts the [`Authentication`]
+//! metadata type. By specifically accepting the [`Authentication`] metadata
+//! type the upstream service is able to use it to learn which key the request
+//! was signed with.
 
 use core::convert::Infallible;
 use core::future::{ready, Ready};
@@ -30,7 +44,7 @@ use super::stream::{MiddlewareStream, PostprocessingStream};
 
 //------------ TsigMiddlewareSvc ----------------------------------------------
 
-/// TSIG message authentication middlware.
+/// RFC 8495 TSIG message authentication middleware.
 ///
 /// This middleware service validates TSIG signatures on incoming requests, if
 /// any, and adds TSIG signatures to responses to signed requests.
@@ -56,7 +70,10 @@ impl<RequestOctets, NextSvc, KS> TsigMiddlewareSvc<RequestOctets, NextSvc, KS>
 where
     KS: Clone + KeyStore,
 {
-    /// Creates a new processor instance.
+    /// Creates an instance of this middleware service.
+    ///
+    /// Keys in the provided [`KeyStore`] will be used to verify received signed
+    /// requests and to sign the corresponding responses.
     #[must_use]
     pub fn new(next_svc: NextSvc, key_store: KS) -> Self {
         Self {
@@ -355,8 +372,19 @@ where
 
 //--- Service
 
-// Note: As the TSIG middleware must be the closest middleware to the server,
-// it does not receive any special RequestMeta from the server, only ().
+/// This [`Service`] implementation specifies that the upstream service will
+/// be passed metadata of type [`Authentication`]. The upstream service can
+/// optionally use this to learn which TSIG key signed the request.
+///
+/// This service does not accept downstream metadata, explicitly restricting
+/// what it accepts to `()`. This is because (a) the service should be the
+/// first layer above the network server, or as near as possible, such that it
+/// receives unmodified requests and that the responses it generates are sent
+/// over the network without prior modification, and thus it is not very
+/// likely that the is a downstream layer that has metadata to supply to us,
+/// and (b) because this service does not propagate the metadata it receives
+/// from downstream but instead outputs [`Authentication`] metadata to
+/// upstream services.
 impl<RequestOctets, NextSvc, KS> Service<RequestOctets, ()>
     for TsigMiddlewareSvc<RequestOctets, NextSvc, KS>
 where
@@ -440,21 +468,13 @@ enum TsigSigner<K> {
     Sequence(ServerSequence<K>),
 }
 
-//------------ MaybeAuthenticated ---------------------------------------------
-
-pub trait MaybeAuthenticated:
-    Clone + Default + Sync + Send + 'static
-{
-    fn key_name(&self) -> Option<&KeyName>;
-}
-
 //------------ Authentication --------------------------------------------------
 
 #[derive(Clone, Default)]
 pub struct Authentication(pub Option<KeyName>);
 
-impl MaybeAuthenticated for Authentication {
-    fn key_name(&self) -> Option<&KeyName> {
+impl Authentication {
+    pub fn key_name(&self) -> Option<&KeyName> {
         self.0.as_ref()
     }
 }
