@@ -46,7 +46,7 @@ use super::stream::{MiddlewareStream, PostprocessingStream};
 /// any, and adds TSIG signatures to responses to signed requests.
 ///
 /// Upstream services can detect whether a request is signed and with which
-/// key by consuming the [`Authentication`] metadata output by this service.
+/// key by consuming the [`Option<KS::Key>`] metadata output by this service.
 ///
 /// | RFC    | Status  |
 /// |--------|---------|
@@ -386,7 +386,7 @@ where
 //--- Service
 
 /// This [`Service`] implementation specifies that the upstream service will
-/// be passed metadata of type [`Authentication`]. The upstream service can
+/// be passed metadata of type [`Option<KS::Key>`]. The upstream service can
 /// optionally use this to learn which TSIG key signed the request.
 ///
 /// This service does not accept downstream metadata, explicitly restricting
@@ -396,7 +396,7 @@ where
 /// over the network without prior modification, and thus it is not very
 /// likely that the is a downstream layer that has metadata to supply to us,
 /// and (b) because this service does not propagate the metadata it receives
-/// from downstream but instead outputs [`Authentication`] metadata to
+/// from downstream but instead outputs [`Option<KS::Key>`] metadata to
 /// upstream services.
 impl<RequestOctets, NextSvc, KS> Service<RequestOctets, ()>
     for TsigMiddlewareSvc<RequestOctets, NextSvc, KS>
