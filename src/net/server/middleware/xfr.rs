@@ -1368,12 +1368,9 @@ mod tests {
     use crate::net::server::message::{
         NonUdpTransportContext, UdpTransportContext,
     };
-    use crate::net::server::middleware::tsig::{
-        Authentication, MaybeAuthenticated,
-    };
     use crate::net::server::service::ServiceError;
     use crate::rdata::{Aaaa, AllRecordData, Cname, Mx, Ns, Txt, A};
-    use crate::tsig::KeyName;
+    use crate::tsig::{Algorithm, Key, KeyName};
     use crate::zonefile::inplace::Zonefile;
     use crate::zonetree::types::Rrset;
 
@@ -1837,22 +1834,22 @@ JAIN-BB.JAIN.AD.JP. IN A   192.41.197.2
     async fn ixfr_multi_response_tcp() {}
 
     #[tokio::test]
-    async fn axfr_with_tsig_key_name() {
+    async fn axfr_with_tsig_key() {
         // Define an XfrDataProvider that expects to receive a Request that is
         // generic over a type that we specify: Authentication. This is the
         // type over which the Request produced by TsigMiddlewareSvc is generic.
         // When the XfrMiddlewareSvc receives a Request<Octs, Authentication> it
         // passes it to the XfrDataProvider which in turn can inspect it.
         struct KeyReceivingXfrDataProvider {
-            key_name: KeyName,
+            key: Arc<Key>,
             checked: Arc<AtomicBool>,
         }
 
-        impl XfrDataProvider<Authentication> for KeyReceivingXfrDataProvider {
+        impl XfrDataProvider<Option<Arc<Key>>> for KeyReceivingXfrDataProvider {
             #[allow(clippy::type_complexity)]
             fn request<Octs>(
                 &self,
-                req: &Request<Octs, Authentication>,
+                req: &Request<Octs, Option<Arc<Key>>>,
                 _diff_from: Option<Serial>,
             ) -> Pin<
                 Box<
@@ -1868,18 +1865,28 @@ JAIN-BB.JAIN.AD.JP. IN A   192.41.197.2
             where
                 Octs: Octets + Send + Sync,
             {
-                assert_eq!(req.metadata().key_name(), Some(&self.key_name));
+                let key = req.metadata().as_ref().unwrap();
+                assert_eq!(key.name(), self.key.name());
                 self.checked.store(true, Ordering::SeqCst);
                 Box::pin(ready(Err(XfrDataProviderError::Refused)))
             }
         }
 
         let key_name = KeyName::from_str("some_tsig_key_name").unwrap();
-        let metadata = Authentication(Some(key_name.clone()));
+        let secret = crate::utils::base64::decode::<Vec<u8>>(
+            "zlCZbVJPIhobIs1gJNQfrsS3xCxxsR9pMUrGwG8OgG8=",
+        )
+        .unwrap();
+        let key = Arc::new(
+            Key::new(Algorithm::Sha256, &secret, key_name, None, None)
+                .unwrap(),
+        );
+
+        let metadata = Some(key.clone());
         let req = mk_axfr_request(n("example.com"), metadata);
         let checked = Arc::new(AtomicBool::new(false));
         let xdp = KeyReceivingXfrDataProvider {
-            key_name,
+            key,
             checked: checked.clone(),
         };
 
