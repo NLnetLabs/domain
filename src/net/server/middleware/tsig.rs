@@ -31,15 +31,15 @@ use futures::stream::{once, Once, Stream};
 use octseq::{Octets, OctetsFrom};
 use tracing::{error, trace, warn};
 
-use crate::base::iana::{Opcode, OptRcode, Rcode, TsigRcode};
+use crate::base::iana::{Opcode, Rcode, TsigRcode};
 use crate::base::message_builder::AdditionalBuilder;
 use crate::base::wire::Composer;
 use crate::base::{Message, ParsedName, Question, Rtype, StreamTarget};
 use crate::net::server::message::Request;
 use crate::net::server::service::{
-    CallResult, Service, ServiceFeedback, ServiceResult,
+    CallResult, Service, ServiceError, ServiceFeedback, ServiceResult,
 };
-use crate::net::server::util::{mk_builder_for_target, mk_error_response};
+use crate::net::server::util::mk_builder_for_target;
 use crate::rdata::tsig::Time48;
 use crate::tsig::{self, KeyStore, ServerSequence, ServerTransaction};
 
@@ -175,17 +175,17 @@ where
         request: &Request<RequestOctets>,
         response: &mut AdditionalBuilder<StreamTarget<NextSvc::Target>>,
         pp_config: &mut PostprocessingConfig<KS::Key>,
-    ) -> Option<AdditionalBuilder<StreamTarget<NextSvc::Target>>> {
+    ) -> Result<
+        Option<AdditionalBuilder<StreamTarget<NextSvc::Target>>>,
+        ServiceError,
+    > {
         // Remove the limit we should have imposed during pre-processing so
         // that we can use the space we reserved for the OPT RR.
         response.clear_push_limit();
 
-        // The variable itself isn't used by a reference to its interior value
-        // *is* used if the if signing_result.is_err() block below.
-        #[allow(unused_assignments)]
-        let mut key_for_err_handling = None;
+        let truncation_ctx;
 
-        let (signing_result, key) = match &mut pp_config.signer {
+        let res = match &mut pp_config.signer {
             Some(TsigSigner::Transaction(_)) => {
                 // Extract the single response signer and consume it in the
                 // signing process.
@@ -206,11 +206,11 @@ where
                 // over the key type via KS::Key so if cloning cost is a
                 // problem the caller can choose to wrap the key in an Arc or
                 // such to reduce the cloning cost.
-                key_for_err_handling = Some(signer.key().clone());
+                truncation_ctx = TruncationContext::NoSignerOnlyTheKey(
+                    signer.key().clone(),
+                );
 
-                let res = signer.answer(response, Time48::now());
-
-                (res, key_for_err_handling.as_ref().unwrap())
+                signer.answer(response, Time48::now())
             }
 
             Some(TsigSigner::Sequence(ref mut signer)) => {
@@ -219,21 +219,26 @@ where
                     "Signing response stream with TSIG key '{}'",
                     signer.key().name()
                 );
+
                 let res = signer.answer(response, Time48::now());
 
-                (res, signer.key())
+                truncation_ctx = TruncationContext::HaveSigner(signer);
+
+                res
             }
 
             None => {
                 // Nothing to do as unsigned requests don't require response
                 // signing.
-                return None;
+                return Ok(None);
             }
         };
 
-        // Handle signing failure. This shouldn't happen because we reserve
-        // space in preprocess() for the TSIG RR that we add when signing.
-        if signing_result.is_err() {
+        // Handle signing failure due to push error, i.e. there wasn't enough
+        // space in the response to add the TSIG RR. This shouldn't happen
+        // because we reserve space in preprocess() for the TSIG RR that we
+        // add when signing.
+        if res.is_err() {
             // 5.3. Generation of TSIG on Answers
             //   "If addition of the TSIG record will cause the message to be
             //   truncated, the server MUST alter the response so that a TSIG
@@ -241,74 +246,73 @@ where
             //   a TSIG record, has the TC bit set, and has an RCODE of 0
             //   (NOERROR). At this point, the client SHOULD retry the request
             //   using TCP (as per Section 4.2.2 of [RFC1035])."
-
-            // We can't use the TSIG signer state we just had as that was consumed
-            // in the failed attempt to sign the answer, so we have to create a new
-            // TSIG state in order to sign the truncated response.
-            if request.transport_ctx().is_udp() {
-                return Self::mk_signed_truncated_response(request, key);
-            } else {
-                // In the TCP case there's not much we can do. The upstream
-                // service pushes response messages into the stream and we try
-                // and sign them. If there isn't enough space to add the TSIG
-                // signature RR to the response we can't signal the upstream
-                // to try again to produce a smaller response message as it
-                // may already have finished pushing into the stream or be
-                // several messages further on in its processsing. We also
-                // can't edit the response message content ourselves as we
-                // know nothing about the content. The only option left to us
-                // is to try and truncate the TSIG MAC and see if that helps,
-                // but we don't support that (yet? NSD doesn't support it
-                // either).
-                return Some(mk_error_response(
-                    request.message(),
-                    OptRcode::SERVFAIL,
-                ));
-            }
+            Ok(Some(Self::mk_signed_truncated_response(
+                request,
+                truncation_ctx,
+            )?))
+        } else {
+            Ok(None)
         }
-
-        None
     }
 
     fn mk_signed_truncated_response(
         request: &Request<RequestOctets>,
-        key: &tsig::Key,
-    ) -> Option<AdditionalBuilder<StreamTarget<NextSvc::Target>>> {
-        let octets = request.message().as_slice().to_vec();
-        let mut mut_msg = Message::from_octets(octets).unwrap();
-        let res =
-            ServerTransaction::request(&key, &mut mut_msg, Time48::now());
+        truncation_ctx: TruncationContext<KS::Key, tsig::Key>,
+    ) -> Result<AdditionalBuilder<StreamTarget<NextSvc::Target>>, ServiceError>
+    {
+        let builder = mk_builder_for_target();
+        let mut new_response = builder
+            .start_answer(request.message(), Rcode::NOERROR)
+            .unwrap();
+        new_response.header_mut().set_tc(true);
+        let mut additional = new_response.additional();
 
-        match res {
-            Ok(None) => {
-                warn!("Ignoring attempt to create a signed truncated response for an unsigned request.");
-                None
-            }
-
-            Ok(Some(tsig)) => {
-                let builder = mk_builder_for_target();
-                let mut new_response = builder
-                    .start_answer(request.message(), Rcode::NOERROR)
-                    .unwrap();
-                new_response.header_mut().set_tc(true);
-                let mut new_response = new_response.additional();
-
+        match truncation_ctx {
+            TruncationContext::HaveSigner(signer) => {
                 if let Err(err) =
-                    tsig.answer(&mut new_response, Time48::now())
+                    signer.answer(&mut additional, Time48::now())
                 {
                     error!("Unable to sign truncated TSIG response: {err}");
-                    Some(mk_error_response(
-                        request.message(),
-                        OptRcode::SERVFAIL,
-                    ))
+                    Err(ServiceError::InternalError)
                 } else {
-                    Some(new_response)
+                    Ok(additional)
                 }
             }
 
-            Err(err) => {
-                error!("Unable to sign truncated TSIG response: {err}");
-                Some(mk_error_response(request.message(), OptRcode::SERVFAIL))
+            TruncationContext::NoSignerOnlyTheKey(key) => {
+                // We can't use the TSIG signer state we just had as that was
+                // consumed in the failed attempt to sign the answer, so we
+                // have to create a new TSIG state in order to sign the
+                // truncated response.
+                let octets = request.message().as_slice().to_vec();
+                let mut mut_msg = Message::from_octets(octets).unwrap();
+
+                match ServerTransaction::request(
+                    &key,
+                    &mut mut_msg,
+                    Time48::now(),
+                ) {
+                    Ok(None) => {
+                        error!("Unable to create signer for truncated TSIG response: internal error: request is not signed but was expected to be");
+                        Err(ServiceError::InternalError)
+                    }
+
+                    Err(err) => {
+                        error!("Unable to create signer for truncated TSIG response: {err}");
+                        Err(ServiceError::InternalError)
+                    }
+
+                    Ok(Some(signer)) => {
+                        if let Err(err) =
+                            signer.answer(&mut additional, Time48::now())
+                        {
+                            error!("Unable to sign truncated TSIG response: {err}");
+                            Err(ServiceError::InternalError)
+                        } else {
+                            Ok(additional)
+                        }
+                    }
+                }
             }
         }
     }
@@ -371,7 +375,7 @@ where
 
             if let Some(response) = call_res.response_mut() {
                 if let Some(new_response) =
-                    Self::postprocess(&request, response, pp_config)
+                    Self::postprocess(&request, response, pp_config)?
                 {
                     *response = new_response;
                 }
@@ -494,4 +498,12 @@ enum TsigSigner<K> {
 
     /// A [`ServerSequence`] for signing multiple responses.
     Sequence(ServerSequence<K>),
+}
+
+//------------ TruncationContext ----------------------------------------------
+
+enum TruncationContext<'a, KSeq, KTxn> {
+    HaveSigner(&'a mut tsig::ServerSequence<KSeq>),
+
+    NoSignerOnlyTheKey(KTxn),
 }
