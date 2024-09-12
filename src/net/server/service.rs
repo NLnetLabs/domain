@@ -153,14 +153,8 @@ pub type ServiceResult<Target> = Result<CallResult<Target>, ServiceError>;
 ///
 /// For more advanced cases you may need to override these defaults.
 ///
-/// - `RequestMeta`: If implementing a [middleware] `Service` you may need to
-///   supply your own `RequestMeta` type. `RequestMeta` is intended to enable
-///   middleware `Service` impls to express strongly typed support for
-///   middleware specific data that can be consumed by upstream middleware, or
-///   even by your application service. For example a middleware `Service` may
-///   detect that the request is signed using a particular key and communicate
-///   the name of the key to any upstream `Service` that needs to know the
-///   name of the key used to sign the request.
+/// - `RequestMeta`: Use this to pass additional custom data to your service.
+///   [Middleware] services use this to pass data to the next layer.
 ///
 /// - `RequestOctets`: By specifying your own `RequestOctets` type you can use
 ///   a type other than `Vec<u8>` to transport request bytes through your
