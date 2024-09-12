@@ -1,11 +1,23 @@
-//! TSIG message authentication middleware.
+//! RFC 8495 TSIG message authentication middleware.
+//!
+//! This module provides a TSIG request validation and response signing
+//! middleware service. The underlying TSIG RR processing is implemented using
+//! the [`tsig`] module.
+//!
+//! # Communicating which key signed a request.
+//!
+//! For signed requests this middleware service passes the signing key to
+//! upstream [`Service`] impls via request metadata. Upstream services can
+//! choose to ignore the metadata by being generic over any kind of metadata,
+//! or may offer a [`Service`] impl that specifically accepts the
+//! [`Option<tsig::Key>`] metadata type. The upstream service is then able to
+//! use the received metadata to learn which key the request was signed with.
 
 use core::convert::Infallible;
 use core::future::{ready, Ready};
 use core::marker::PhantomData;
-use core::ops::{ControlFlow, DerefMut};
+use core::ops::ControlFlow;
 
-use std::sync::Arc;
 use std::vec::Vec;
 
 use futures::stream::{once, Once, Stream};
@@ -22,18 +34,19 @@ use crate::net::server::service::{
 };
 use crate::net::server::util::{mk_builder_for_target, mk_error_response};
 use crate::rdata::tsig::Time48;
-use crate::tsig::{
-    self, KeyName, KeyStore, ServerSequence, ServerTransaction,
-};
+use crate::tsig::{self, KeyStore, ServerSequence, ServerTransaction};
 
 use super::stream::{MiddlewareStream, PostprocessingStream};
 
 //------------ TsigMiddlewareSvc ----------------------------------------------
 
-/// TSIG message authentication middlware.
+/// RFC 8495 TSIG message authentication middleware.
 ///
 /// This middleware service validates TSIG signatures on incoming requests, if
 /// any, and adds TSIG signatures to responses to signed requests.
+///
+/// Upstream services can detect whether a request is signed and with which
+/// key by consuming the [`Option<KS::Key>`] metadata output by this service.
 ///
 /// | RFC    | Status  |
 /// |--------|---------|
@@ -56,7 +69,10 @@ impl<RequestOctets, NextSvc, KS> TsigMiddlewareSvc<RequestOctets, NextSvc, KS>
 where
     KS: Clone + KeyStore,
 {
-    /// Creates a new processor instance.
+    /// Creates an instance of this middleware service.
+    ///
+    /// Keys in the provided [`KeyStore`] will be used to verify received signed
+    /// requests and to sign the corresponding responses.
     #[must_use]
     pub fn new(next_svc: NextSvc, key_store: KS) -> Self {
         Self {
@@ -70,9 +86,10 @@ where
 impl<RequestOctets, NextSvc, KS> TsigMiddlewareSvc<RequestOctets, NextSvc, KS>
 where
     RequestOctets: Octets + OctetsFrom<Vec<u8>> + Send + Sync + Unpin,
-    NextSvc: Service<RequestOctets, Authentication>,
+    NextSvc: Service<RequestOctets, Option<KS::Key>>,
     NextSvc::Target: Composer + Default,
     KS: Clone + KeyStore,
+    KS::Key: Clone,
     Infallible: From<<RequestOctets as octseq::OctetsFrom<Vec<u8>>>::Error>,
 {
     #[allow(clippy::type_complexity)]
@@ -81,7 +98,10 @@ where
         key_store: &KS,
     ) -> ControlFlow<
         AdditionalBuilder<StreamTarget<NextSvc::Target>>,
-        Option<(Request<RequestOctets, Authentication>, TsigSigner<KS::Key>)>,
+        Option<(
+            Request<RequestOctets, Option<KS::Key>>,
+            TsigSigner<KS::Key>,
+        )>,
     > {
         if let Some(q) = Self::get_relevant_question(req.message()) {
             let octets = req.message().as_slice().to_vec();
@@ -114,7 +134,7 @@ where
                         req.received_at(),
                         new_msg,
                         req.transport_ctx().clone(),
-                        Authentication(Some(tsig.key().name().clone())),
+                        Some(tsig.key_wrapper().clone()),
                     );
 
                     let num_bytes_to_reserve = tsig.key().compose_len();
@@ -153,37 +173,54 @@ where
     fn postprocess(
         request: &Request<RequestOctets>,
         response: &mut AdditionalBuilder<StreamTarget<NextSvc::Target>>,
-        pp_config: PostprocessingConfig<KS>,
+        pp_config: &mut PostprocessingConfig<KS::Key>,
     ) -> Option<AdditionalBuilder<StreamTarget<NextSvc::Target>>> {
-        // Sign the response.
-        let mut tsig_signer = pp_config.tsig.lock().unwrap();
-
         // Remove the limit we should have imposed during pre-processing so
         // that we can use the space we reserved for the OPT RR.
         response.clear_push_limit();
 
-        let signing_result = match tsig_signer.as_mut() {
+        // The variable itself isn't used by a reference to its interior value
+        // *is* used if the if signing_result.is_err() block below.
+        #[allow(unused_assignments)]
+        let mut key_for_err_handling = None;
+
+        let (signing_result, key) = match &mut pp_config.signer {
             Some(TsigSigner::Transaction(_)) => {
                 // Extract the single response signer and consume it in the
                 // signing process.
-                let Some(TsigSigner::Transaction(tsig)) = tsig_signer.take()
+                let Some(TsigSigner::Transaction(signer)) =
+                    pp_config.signer.take()
                 else {
                     unreachable!()
                 };
+
                 trace!(
                     "Signing single response with TSIG key '{}'",
-                    tsig.key().name()
+                    signer.key().name()
                 );
-                tsig.answer(response, Time48::now())
+
+                // We have to clone the key here in case the signer produces
+                // an error, otherwise we lose access to the key as the signer
+                // is consumed by calling answer(). The caller has control
+                // over the key type via KS::Key so if cloning cost is a
+                // problem the caller can choose to wrap the key in an Arc or
+                // such to reduce the cloning cost.
+                key_for_err_handling = Some(signer.key().clone());
+
+                let res = signer.answer(response, Time48::now());
+
+                (res, key_for_err_handling.as_ref().unwrap())
             }
 
-            Some(TsigSigner::Sequence(tsig)) => {
+            Some(TsigSigner::Sequence(ref mut signer)) => {
                 // Use the multi-response signer to sign the response.
                 trace!(
                     "Signing response stream with TSIG key '{}'",
-                    tsig.key().name()
+                    signer.key().name()
                 );
-                tsig.answer(response, Time48::now())
+                let res = signer.answer(response, Time48::now());
+
+                (res, signer.key())
             }
 
             None => {
@@ -208,9 +245,7 @@ where
             // in the failed attempt to sign the answer, so we have to create a new
             // TSIG state in order to sign the truncated response.
             if request.transport_ctx().is_udp() {
-                return Self::mk_signed_truncated_response(
-                    request, &pp_config,
-                );
+                return Self::mk_signed_truncated_response(request, key);
             } else {
                 // In the TCP case there's not much we can do. The upstream
                 // service pushes response messages into the stream and we try
@@ -236,15 +271,12 @@ where
 
     fn mk_signed_truncated_response(
         request: &Request<RequestOctets>,
-        pp_config: &PostprocessingConfig<KS>,
+        key: &tsig::Key,
     ) -> Option<AdditionalBuilder<StreamTarget<NextSvc::Target>>> {
         let octets = request.message().as_slice().to_vec();
         let mut mut_msg = Message::from_octets(octets).unwrap();
-        let res = ServerTransaction::request(
-            &pp_config.key_store,
-            &mut mut_msg,
-            Time48::now(),
-        );
+        let res =
+            ServerTransaction::request(&key, &mut mut_msg, Time48::now());
 
         match res {
             Ok(None) => {
@@ -306,7 +338,7 @@ where
     fn map_stream_item(
         request: Request<RequestOctets, ()>,
         stream_item: ServiceResult<NextSvc::Target>,
-        pp_config: PostprocessingConfig<KS>,
+        pp_config: &mut PostprocessingConfig<KS::Key>,
     ) -> ServiceResult<NextSvc::Target> {
         if let Ok(mut call_res) = stream_item {
             if matches!(
@@ -324,15 +356,13 @@ where
                 // ServerTransaction the TSIG code means handling of single
                 // messages only and NOT sequences for which there is a
                 // separate ServerSequence type. Sigh.
-                let mut locked_tsig = pp_config.tsig.lock().unwrap();
-                let mutable_tsig = locked_tsig.deref_mut();
                 if let Some(TsigSigner::Transaction(tsig_txn)) =
-                    mutable_tsig.take()
+                    pp_config.signer.take()
                 {
                     // Do the conversion and store the result for future
                     // invocations of this function for subsequent items
                     // in the response stream.
-                    *mutable_tsig = Some(TsigSigner::Sequence(
+                    pp_config.signer = Some(TsigSigner::Sequence(
                         ServerSequence::from(tsig_txn),
                     ));
                 }
@@ -355,14 +385,25 @@ where
 
 //--- Service
 
-// Note: As the TSIG middleware must be the closest middleware to the server,
-// it does not receive any special RequestMeta from the server, only ().
+/// This [`Service`] implementation specifies that the upstream service will
+/// be passed metadata of type [`Option<KS::Key>`]. The upstream service can
+/// optionally use this to learn which TSIG key signed the request.
+///
+/// This service does not accept downstream metadata, explicitly restricting
+/// what it accepts to `()`. This is because (a) the service should be the
+/// first layer above the network server, or as near as possible, such that it
+/// receives unmodified requests and that the responses it generates are sent
+/// over the network without prior modification, and thus it is not very
+/// likely that the is a downstream layer that has metadata to supply to us,
+/// and (b) because this service does not propagate the metadata it receives
+/// from downstream but instead outputs [`Option<KS::Key>`] metadata to
+/// upstream services.
 impl<RequestOctets, NextSvc, KS> Service<RequestOctets, ()>
     for TsigMiddlewareSvc<RequestOctets, NextSvc, KS>
 where
     RequestOctets:
         Octets + OctetsFrom<Vec<u8>> + Send + Sync + 'static + Unpin,
-    NextSvc: Service<RequestOctets, Authentication>,
+    NextSvc: Service<RequestOctets, Option<KS::Key>>,
     NextSvc::Future: Unpin,
     NextSvc::Target: Composer + Default,
     KS: Clone + KeyStore + Unpin,
@@ -378,7 +419,7 @@ where
             NextSvc::Future,
             NextSvc::Stream,
             (),
-            PostprocessingConfig<KS>,
+            PostprocessingConfig<KS::Key>,
         >,
         Once<Ready<<NextSvc::Stream as Stream>::Item>>,
         <NextSvc::Stream as Stream>::Item,
@@ -387,15 +428,10 @@ where
 
     fn call(&self, request: Request<RequestOctets, ()>) -> Self::Future {
         match Self::preprocess(&request, &self.key_store) {
-            ControlFlow::Continue(Some((modified_req, tsig_opt))) => {
-                let tsig = Arc::new(std::sync::Mutex::new(Some(tsig_opt)));
+            ControlFlow::Continue(Some((modified_req, signer))) => {
+                let pp_config = PostprocessingConfig::new(signer);
 
                 let svc_call_fut = self.next_svc.call(modified_req);
-
-                let pp_config = PostprocessingConfig {
-                    tsig,
-                    key_store: self.key_store.clone(),
-                };
 
                 let map = PostprocessingStream::new(
                     svc_call_fut,
@@ -408,7 +444,7 @@ where
             }
 
             ControlFlow::Continue(None) => {
-                let request = request.with_new_metadata(Authentication(None));
+                let request = request.with_new_metadata(None);
                 let svc_call_fut = self.next_svc.call(request);
                 ready(MiddlewareStream::IdentityFuture(svc_call_fut))
             }
@@ -422,39 +458,39 @@ where
     }
 }
 
-#[derive(Clone)]
-pub struct PostprocessingConfig<KS>
-where
-    KS: KeyStore + Clone,
-{
-    tsig: Arc<std::sync::Mutex<Option<TsigSigner<<KS as KeyStore>::Key>>>>,
-    key_store: KS,
+/// Data needed to do signing during response post-processing.
+
+pub struct PostprocessingConfig<K> {
+    /// The signer used to verify the request.
+    ///
+    /// Needed to sign responses.
+    ///
+    /// We store it as an Option because ServerTransaction::answer() consumes
+    /// the signer so have to first take it out of this struct, as a reference
+    /// is held to the struct so it iself cannot be consumed.
+    signer: Option<TsigSigner<K>>,
 }
 
+impl<K> PostprocessingConfig<K> {
+    fn new(signer: TsigSigner<K>) -> Self {
+        Self {
+            signer: Some(signer),
+        }
+    }
+}
+
+/// A wrapper around [`ServerTransaction`] and [`ServerSequence`].
+///
+/// This wrapper allows us to write calling code once that invokes methods on
+/// the TSIG signer/validator which have the same name and purpose for single
+/// response vs multiple response streams, yet have distinct Rust types and so
+/// must be called on the correct type, without needing to know at the call
+/// site which of the distinct types it actually is.
 #[derive(Clone, Debug)]
 enum TsigSigner<K> {
-    /// TODO
+    /// A [`ServerTransaction`] for signing a single response.
     Transaction(ServerTransaction<K>),
 
-    /// TODO
+    /// A [`ServerSequence`] for signing multiple responses.
     Sequence(ServerSequence<K>),
-}
-
-//------------ MaybeAuthenticated ---------------------------------------------
-
-pub trait MaybeAuthenticated:
-    Clone + Default + Sync + Send + 'static
-{
-    fn key_name(&self) -> Option<&KeyName>;
-}
-
-//------------ Authentication --------------------------------------------------
-
-#[derive(Clone, Default)]
-pub struct Authentication(pub Option<KeyName>);
-
-impl MaybeAuthenticated for Authentication {
-    fn key_name(&self) -> Option<&KeyName> {
-        self.0.as_ref()
-    }
 }

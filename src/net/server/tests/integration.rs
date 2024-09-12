@@ -94,7 +94,7 @@ async fn server_tests(#[files("test-data/server/*.rpl")] rpl_file: PathBuf) {
     let (key, _) =
         Key::generate(Algorithm::Sha256, &rng, key_name.clone(), None, None)
             .unwrap();
-    key_store.insert((key_name, Algorithm::Sha256), key);
+    key_store.insert((key_name, Algorithm::Sha256), key.into());
     let key_store = Arc::new(key_store);
 
     // Create a connection factory.
@@ -282,8 +282,11 @@ fn mk_client_factory(
 
             if let Some(key) = key {
                 let (conn, transport) = stream::Connection::<
-                    tsig::RequestMessage<RequestMessage<Vec<u8>>, Key>,
-                    tsig::RequestMessage<RequestMessageMulti<Vec<u8>>, Key>,
+                    tsig::RequestMessage<RequestMessage<Vec<u8>>, Arc<Key>>,
+                    tsig::RequestMessage<
+                        RequestMessageMulti<Vec<u8>>,
+                        Arc<Key>,
+                    >,
                 >::new(stream);
 
                 tokio::spawn(transport.run());
@@ -570,10 +573,10 @@ impl Notifiable for TestNotifyTarget {
 //------------ TestKeyStore ---------------------------------------------------
 
 // KeyStore is impl'd elsewhere for HashMap<(KeyName, Algorithm), K, S>.
-type TestKeyStore = HashMap<(KeyName, Algorithm), Key>;
+type TestKeyStore = HashMap<(KeyName, Algorithm), Arc<Key>>;
 
 impl KeyStore for Arc<TestKeyStore> {
-    type Key = Key;
+    type Key = Arc<Key>;
 
     fn get_key<N: ToName>(
         &self,
