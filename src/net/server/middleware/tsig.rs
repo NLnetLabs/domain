@@ -24,7 +24,7 @@ use futures::stream::{once, Once, Stream};
 use octseq::{Octets, OctetsFrom};
 use tracing::{error, trace, warn};
 
-use crate::base::iana::{Opcode, OptRcode, Rcode, TsigRcode};
+use crate::base::iana::{Opcode, OptRcode, Rcode};
 use crate::base::message_builder::AdditionalBuilder;
 use crate::base::wire::Composer;
 use crate::base::{Message, ParsedName, Question, Rtype, StreamTarget};
@@ -147,7 +147,6 @@ where
                 }
 
                 Err(err) => {
-                    // Message is incorrectly signed or signed with an unknown key.
                     warn!(
                         "{} for {} from {} refused: {err}",
                         q.qtype(),
@@ -155,11 +154,8 @@ where
                         req.client_addr(),
                     );
                     let builder = mk_builder_for_target();
-                    let additional = tsig::ServerError::<KS::Key>::unsigned(
-                        TsigRcode::BADKEY,
-                    )
-                    .build_message(req.message(), builder)
-                    .unwrap();
+                    let additional =
+                        err.build_message(req.message(), builder).unwrap();
                     return ControlFlow::Break(additional);
                 }
             }
