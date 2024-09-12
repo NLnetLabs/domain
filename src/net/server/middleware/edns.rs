@@ -325,7 +325,7 @@ where
     fn map_stream_item(
         request: Request<RequestOctets, RequestMeta>,
         mut stream_item: ServiceResult<NextSvc::Target>,
-        _pp_meta: (),
+        _pp_meta: &mut (),
     ) -> ServiceResult<NextSvc::Target> {
         if let Ok(cr) = &mut stream_item {
             if let Some(response) = cr.response_mut() {
@@ -361,7 +361,7 @@ where
         Once<Ready<<NextSvc::Stream as Stream>::Item>>,
         <NextSvc::Stream as Stream>::Item,
     >;
-    type Future = Ready<Self::Stream>;
+    type Future = core::future::Ready<Self::Stream>;
 
     fn call(
         &self,

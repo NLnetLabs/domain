@@ -12,7 +12,14 @@
 //! post-processing the resulting responses and propagating them back down
 //! through the layers to the server.
 //!
+//! If needed middleware services can pass service specific data to upstream
+//! services for consumption, via the  `RequestMeta` custom data support of
+//! the [`Service`] trait. An example of this can be seen in the
+//! [`TsigMiddlewareSvc`][tsig::TsigMiddlewareSvc].
+//!
 //! Currently the following middleware are available:
+//!
+//! [`Service`]: crate::net::server::service::Service
 
 #[cfg(feature = "siphasher")]
 pub mod cookies;

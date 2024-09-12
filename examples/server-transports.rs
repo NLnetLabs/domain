@@ -489,7 +489,7 @@ impl<Svc> StatsMiddlewareSvc<Svc> {
     fn postprocess<RequestOctets>(
         request: &Request<RequestOctets>,
         response: &AdditionalBuilder<StreamTarget<Svc::Target>>,
-        stats: Arc<RwLock<Stats>>,
+        stats: &RwLock<Stats>,
     ) where
         RequestOctets: Octets + Send + Sync + Unpin,
         Svc: Service<RequestOctets>,
@@ -511,7 +511,7 @@ impl<Svc> StatsMiddlewareSvc<Svc> {
     fn map_stream_item<RequestOctets>(
         request: Request<RequestOctets>,
         stream_item: ServiceResult<Svc::Target>,
-        stats: Arc<RwLock<Stats>>,
+        stats: &mut Arc<RwLock<Stats>>,
     ) -> ServiceResult<Svc::Target>
     where
         RequestOctets: Octets + Send + Sync + Unpin,
