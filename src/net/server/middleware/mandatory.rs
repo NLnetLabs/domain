@@ -268,11 +268,11 @@ where
     fn map_stream_item(
         request: Request<RequestOctets, RequestMeta>,
         mut stream_item: ServiceResult<NextSvc::Target>,
-        strict: bool,
+        strict: &mut bool,
     ) -> ServiceResult<NextSvc::Target> {
         if let Ok(cr) = &mut stream_item {
             if let Some(response) = cr.response_mut() {
-                Self::postprocess(&request, response, strict);
+                Self::postprocess(&request, response, *strict);
             }
         }
         stream_item
