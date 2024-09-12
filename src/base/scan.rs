@@ -245,6 +245,7 @@ impl<'a> Iterator for Tokenizer<'a> {
 //------------ Token ---------------------------------------------------------
 
 /// A token of text in the presentation format.
+#[derive(Copy, Clone, Debug)]
 pub struct Token<'a> {
     /// The referenced input text.
     input: &'a str,
@@ -254,6 +255,24 @@ pub struct Token<'a> {
 
     /// The length of this token.
     len: usize,
+}
+
+impl<'a> Token<'a> {
+    /// The position of this token in the input.
+    pub fn pos(&self) -> usize {
+        self.pos
+    }
+
+    /// The length of this token, in bytes.
+    pub fn len(&self) -> usize {
+        self.len
+    }
+}
+
+impl<'a> AsRef<str> for Token<'a> {
+    fn as_ref(&self) -> &str {
+        &self.input[self.pos..][..self.len]
+    }
 }
 
 //------------ Scanner -------------------------------------------------------
