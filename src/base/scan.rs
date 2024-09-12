@@ -163,7 +163,7 @@ impl<'a> Iterator for Tokenizer<'a> {
         if self.pos == 0 {
             self.pos += input
                 .iter()
-                .position(|b| !b" \t\r\n".contains(&b))
+                .position(|b| !b" \t\r\n".contains(b))
                 .unwrap_or(self.input.len());
 
             // We need to repeat this test from the top of the function.
@@ -219,7 +219,7 @@ impl<'a> Iterator for Tokenizer<'a> {
                 // We're now on the next line; skip any whitespace on it.
                 self.pos += input[self.pos..]
                     .iter()
-                    .position(|b| b" \t\r".contains(&b))
+                    .position(|b| b" \t\r".contains(b))
                     .unwrap_or(input.len() - self.pos);
             }
 
@@ -247,7 +247,7 @@ impl<'a> Iterator for Tokenizer<'a> {
             // We search for any whitespace.
             input[self.pos + 1..]
                 .iter()
-                .position(|b| !b" \t\r".contains(&b))
+                .position(|b| !b" \t\r".contains(b))
                 .unwrap_or(input.len() - self.pos)
         };
 
@@ -281,6 +281,7 @@ impl<'a> Token<'a> {
     }
 
     /// The length of this token, in bytes.
+    #[allow(clippy::len_without_is_empty)]
     pub fn len(&self) -> usize {
         self.len
     }
