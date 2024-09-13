@@ -286,7 +286,7 @@ impl MySingle {
     }
 }
 
-impl futures::stream::Stream for MySingle {
+impl futures_util::stream::Stream for MySingle {
     type Item = Result<CallResult<Vec<u8>>, ServiceError>;
 
     fn poll_next(

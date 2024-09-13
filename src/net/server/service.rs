@@ -48,7 +48,7 @@ pub type ServiceResult<Target> = Result<CallResult<Target>, ServiceError>;
 ///
 /// use std::task::{Context, Poll};
 ///
-/// use futures::stream::{once, Once, Stream};
+/// use futures_util::stream::{once, Once, Stream};
 ///
 /// use domain::base::iana::{Class, Rcode};
 /// use domain::base::message_builder::AdditionalBuilder;
@@ -140,7 +140,7 @@ pub type ServiceResult<Target> = Result<CallResult<Target>, ServiceError>;
 /// The above are minimalist examples to illustrate what you need to do, but
 /// lacking any actual useful behaviour. They also only demonstrate returning
 /// a response stream containing a single immediately available value via
-/// `futures::stream::Once` and `std::future::Ready`.
+/// `futures_util::stream::Once` and `std::future::Ready`.
 ///
 /// In your own [`Service`] impl you would implement actual business logic
 /// returning single or multiple responses synchronously or asynchronously as
@@ -181,7 +181,7 @@ pub trait Service<
     type Target;
 
     /// The type of stream that the service produces.
-    type Stream: futures::stream::Stream<Item = ServiceResult<Self::Target>>
+    type Stream: futures_util::stream::Stream<Item = ServiceResult<Self::Target>>
         + Unpin;
 
     /// The type of future that will yield the service result stream.
