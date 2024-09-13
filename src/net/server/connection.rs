@@ -29,7 +29,7 @@ use crate::net::server::service::{Service, ServiceError};
 use crate::net::server::util::to_pcap_text;
 use crate::utils::config::DefMinMax;
 
-use super::dispatcher::{InvokerStatus, ServiceInvoker};
+use super::invoker::{InvokerStatus, ServiceInvoker};
 use super::message::{NonUdpTransportContext, TransportSpecificContext};
 use super::stream::Config as ServerConfig;
 use super::ServerCommand;
