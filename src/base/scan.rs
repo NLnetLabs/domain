@@ -255,6 +255,16 @@ pub struct Token<'a> {
 }
 
 impl<'a> Token<'a> {
+    /// Construct a [`Token`] from raw text.
+    #[must_use]
+    pub fn from_raw(text: &'a str) -> Self {
+        Self {
+            input: text,
+            pos: 0,
+            len: text.len(),
+        }
+    }
+
     /// The raw content of this token.
     ///
     /// This includes unprocessed escape sequences.
@@ -309,47 +319,59 @@ impl<'a> Token<'a> {
     /// This method reads the contents of the token and processes escape
     /// sequences within it.  Each byte, either from the original text or from
     /// an escape sequence, is passed to the given closure in order.
-    pub fn process(&self, mut f: impl FnMut(u8)) -> Result<(), ScanError> {
-        let input = self.raw().as_bytes();
-        let mut pos = 0;
-        while pos < input.len() {
-            if input[pos] == b'\\' {
-                if pos + 1 >= input.len() {
-                    return Err(ScanError::custom(
-                        "incomplete escape sequence",
-                    ));
-                }
+    pub fn process(&self, mut f: impl FnMut(&[u8])) -> Result<(), ScanError> {
+        let mut input = self.raw().as_bytes();
+        if self.is_quoted() {
+            input = &input[1..input.len() - 1];
+        }
 
-                if input[pos + 1].is_ascii_digit() {
-                    // Parse '\DDD' with 3 octal digits as a byte.
-                    if pos + 3 >= input.len() {
-                        return Err(ScanError::custom(
-                            "incomplete escape sequence",
-                        ));
-                    }
+        // Reduce the input so that it is always preceded by a backslash.
+        let (prefix, mut suffix) = input
+            .split_once(|&b| b == b'\\')
+            .map_or((input, None), |(p, s)| (p, Some(s)));
 
-                    let seq = &input[pos + 1][..3];
-                    let val = u8::from_str_radix(seq, 8).map_err(|_| {
-                        ScanError::custom("invalid escape sequence")
-                    })?;
-                    (f)(val);
-                    pos += 4;
-                } else {
-                    // Parse '\X' with a printable ASCII character.
-                    if !input[pos + 1].is_ascii_graphic() {
-                        return Err(ScanError::custom(
-                            "invalid escape sequence",
-                        ));
-                    }
+        // Write the initial input that was not preceded by a backslash.
+        (f)(prefix);
 
-                    (f)(input[pos + 1]);
-                    pos += 2;
-                }
+        // Repeatedly parse the suffix as an escape sequence.
+        while let Some(mut input) = suffix {
+            if input.is_empty() {
+                return Err(ScanError::custom("incomplete escape sequence"));
+            }
+
+            // Cut the input at the next backslash.
+            let cut = input[1..]
+                .iter()
+                .position(|&b| b == b'\\')
+                .map_or(input.len(), |p| p + 1);
+            (input, suffix) = input[1..]
+                .iter()
+                .position(|&b| b == b'\\')
+                .map_or((input, None), |p| input.split_at(p + 1));
+
+            if input[0].is_ascii_digit() {
+                // The escape sequence should be '\DDD'.
+                let seq = input
+                    .get(..3)
+                    .ok_or(ScanError::custom("incomplete escape sequence"))?;
+                let val = u8::from_str_radix(seq, 8).map_err(|_| {
+                    ScanError::custom("invalid escape sequence")
+                })?;
+
+                // Write the decoded character and the rest of the input.
+                (f)(&[val]);
+                (f)(&input[3..]);
             } else {
-                (f)(input[pos]);
-                pos += 1;
+                // The escape sequence is '\X'.
+                if !input[0].is_ascii_graphic() {
+                    return Err(ScanError::custom("invalid escape sequence"));
+                }
+
+                // Write the escaped character and everything following it.
+                (f)(input);
             }
         }
+
         Ok(())
     }
 
@@ -365,8 +387,8 @@ impl<'a> Token<'a> {
         }
 
         let mut buffer = std::vec::Vec::new();
-        self.process(|b| buffer.push(b))?;
-        Ok(buffer)
+        self.process(|b| buffer.extend_from_slice(b))?;
+        Ok(buffer.into())
     }
 }
 
@@ -382,11 +404,11 @@ pub struct ScanError {
 }
 
 impl ScanError {
-    fn custom(msg: &'static str) -> Self {
+    pub fn custom(msg: &'static str) -> Self {
         Self { msg }
     }
 
-    fn missing() -> Self {
+    pub fn missing() -> Self {
         Self {
             msg: "unexpected end of text",
         }
