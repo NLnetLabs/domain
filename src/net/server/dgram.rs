@@ -21,7 +21,6 @@ use std::string::ToString;
 use std::sync::{Arc, Mutex};
 
 use arc_swap::ArcSwap;
-use futures::prelude::stream::StreamExt;
 use octseq::Octets;
 use tokio::io::ReadBuf;
 use tokio::net::UdpSocket;
@@ -34,18 +33,20 @@ use tracing::warn;
 use tracing::Level;
 use tracing::{enabled, error, trace};
 
+use crate::base::message_builder::AdditionalBuilder;
 use crate::base::wire::Composer;
-use crate::base::Message;
+use crate::base::{Message, StreamTarget};
 use crate::net::server::buf::BufSource;
 use crate::net::server::error::Error;
 use crate::net::server::message::Request;
 use crate::net::server::metrics::ServerMetrics;
-use crate::net::server::service::{Service, ServiceFeedback};
+use crate::net::server::service::Service;
 use crate::net::server::sock::AsyncDgramSock;
 use crate::net::server::util::to_pcap_text;
 use crate::utils::config::DefMinMax;
 
 use super::buf::VecBufSource;
+use super::dispatcher::{InvokerStatus, ServiceInvoker};
 use super::message::{TransportSpecificContext, UdpTransportContext};
 use super::ServerCommand;
 
@@ -252,15 +253,11 @@ pub struct DgramServer<Sock, Buf, Svc>
 where
     Sock: AsyncDgramSock + Send + Sync + 'static,
     Buf: BufSource + Send + Sync,
-    <Buf as BufSource>::Output: Octets + Send + Sync + Unpin + 'static,
-    Svc: Clone
-        + Service<<Buf as BufSource>::Output, ()>
-        + Send
-        + Sync
-        + 'static,
-    <Svc as Service<<Buf as BufSource>::Output, ()>>::Future: Send,
-    <Svc as Service<<Buf as BufSource>::Output, ()>>::Stream: Send,
-    <Svc as Service<<Buf as BufSource>::Output, ()>>::Target: Composer + Send,
+    Buf::Output: Octets + Send + Sync + Unpin + 'static,
+    Svc: Service<Buf::Output> + Clone + Send + Sync + 'static,
+    Svc::Future: Send,
+    Svc::Stream: Send,
+    Svc::Target: Composer + Default + Send,
 {
     /// The configuration of the server.
     config: Arc<ArcSwap<Config>>,
@@ -288,6 +285,9 @@ where
 
     /// [`ServerMetrics`] describing the status of the server.
     metrics: Arc<ServerMetrics>,
+
+    /// Dispatches requests to the service and enqueues responses for sending.
+    request_dispatcher: ServiceResponseHandler<Sock>,
 }
 
 /// Creation
@@ -296,11 +296,11 @@ impl<Sock, Buf, Svc> DgramServer<Sock, Buf, Svc>
 where
     Sock: AsyncDgramSock + Send + Sync,
     Buf: BufSource + Send + Sync,
-    <Buf as BufSource>::Output: Octets + Send + Sync + Unpin,
-    Svc: Clone + Service<<Buf as BufSource>::Output, ()> + Send + Sync,
-    <Svc as Service<<Buf as BufSource>::Output, ()>>::Future: Send,
-    <Svc as Service<<Buf as BufSource>::Output, ()>>::Stream: Send,
-    <Svc as Service<<Buf as BufSource>::Output, ()>>::Target: Composer + Send,
+    Buf::Output: Octets + Send + Sync + Unpin,
+    Svc: Service<Buf::Output> + Clone + Send + Sync + 'static,
+    Svc::Future: Send,
+    Svc::Stream: Send,
+    Svc::Target: Composer + Default + Send,
 {
     /// Constructs a new [`DgramServer`] with default configuration.
     ///
@@ -334,15 +334,23 @@ where
         let command_tx = Arc::new(Mutex::new(command_tx));
         let metrics = Arc::new(ServerMetrics::connection_less());
         let config = Arc::new(ArcSwap::from_pointee(config));
+        let sock = Arc::new(sock);
+
+        let request_dispatcher = ServiceResponseHandler::new(
+            config.clone(),
+            sock.clone(),
+            metrics.clone(),
+        );
 
         DgramServer {
             config,
             command_tx,
             command_rx,
-            sock: sock.into(),
+            sock,
             buf,
             service,
             metrics,
+            request_dispatcher,
         }
     }
 }
@@ -353,11 +361,11 @@ impl<Sock, Buf, Svc> DgramServer<Sock, Buf, Svc>
 where
     Sock: AsyncDgramSock + Send + Sync,
     Buf: BufSource + Send + Sync,
-    <Buf as BufSource>::Output: Octets + Send + Sync + Unpin,
-    Svc: Clone + Service<<Buf as BufSource>::Output, ()> + Send + Sync,
-    <Svc as Service<<Buf as BufSource>::Output, ()>>::Future: Send,
-    <Svc as Service<<Buf as BufSource>::Output, ()>>::Stream: Send,
-    <Svc as Service<<Buf as BufSource>::Output, ()>>::Target: Composer + Send,
+    Buf::Output: Octets + Send + Sync + Unpin,
+    Svc: Service<Buf::Output> + Clone + Send + Sync + 'static,
+    Svc::Future: Send,
+    Svc::Stream: Send,
+    Svc::Target: Composer + Default + Send,
 {
     /// Get a reference to the network source being used to receive messages.
     #[must_use]
@@ -378,15 +386,11 @@ impl<Sock, Buf, Svc> DgramServer<Sock, Buf, Svc>
 where
     Sock: AsyncDgramSock + Send + Sync + 'static,
     Buf: BufSource + Send + Sync,
-    <Buf as BufSource>::Output: Octets + Send + Sync + 'static + Unpin,
-    Svc: Clone
-        + Service<<Buf as BufSource>::Output, ()>
-        + Send
-        + Sync
-        + 'static,
-    <Svc as Service<<Buf as BufSource>::Output, ()>>::Future: Send,
-    <Svc as Service<<Buf as BufSource>::Output, ()>>::Stream: Send,
-    <Svc as Service<<Buf as BufSource>::Output, ()>>::Target: Composer + Send,
+    Buf::Output: Octets + Send + Sync + Unpin + 'static,
+    Svc: Service<Buf::Output> + Clone + Send + Sync + 'static,
+    Svc::Future: Send,
+    Svc::Stream: Send,
+    Svc::Target: Composer + Default + Send,
 {
     /// Start the server.
     ///
@@ -466,11 +470,11 @@ impl<Sock, Buf, Svc> DgramServer<Sock, Buf, Svc>
 where
     Sock: AsyncDgramSock + Send + Sync,
     Buf: BufSource + Send + Sync,
-    <Buf as BufSource>::Output: Octets + Send + Sync + Unpin,
-    Svc: Clone + Service<<Buf as BufSource>::Output, ()> + Send + Sync,
-    <Svc as Service<<Buf as BufSource>::Output, ()>>::Future: Send,
-    <Svc as Service<<Buf as BufSource>::Output, ()>>::Stream: Send,
-    <Svc as Service<<Buf as BufSource>::Output, ()>>::Target: Composer + Send,
+    Buf::Output: Octets + Send + Sync + Unpin + 'static,
+    Svc: Service<Buf::Output> + Clone + Send + Sync + 'static,
+    Svc::Future: Send,
+    Svc::Stream: Send,
+    Svc::Target: Composer + Default + Send,
 {
     /// Receive incoming messages until shutdown or fatal error.
     async fn run_until_error(&self) -> Result<(), String> {
@@ -502,74 +506,28 @@ where
                         trace!(%addr, pcap_text, "Received message");
                     }
 
-                    let svc = self.service.clone();
-                    let cfg = self.config.clone();
-                    let metrics = self.metrics.clone();
-                    let cloned_sock = self.sock.clone();
-                    let write_timeout = self.config.load().write_timeout;
-
-                    tokio::spawn(async move {
-                        match Message::from_octets(buf) {
-                            Err(err) => {
-                                tracing::warn!("Failed while parsing request message: {err}");
-                            }
-
-                            Ok(msg) => {
-                                let ctx = UdpTransportContext::new(cfg.load().max_response_size);
-                                let ctx = TransportSpecificContext::Udp(ctx);
-                                let request = Request::new(addr, received_at, msg, ctx, ());
-                                let mut stream = svc.call(request).await;
-                                while let Some(Ok(call_result)) = stream.next().await {
-                                    let (response, feedback) = call_result.into_inner();
-
-                                    if let Some(feedback) = feedback {
-                                        match feedback {
-                                            ServiceFeedback::Reconfigure {
-                                                idle_timeout: _, // N/A - only applies to connection-oriented transports
-                                            } => {
-                                                // Nothing to do.
-                                            }
-
-                                            ServiceFeedback::BeginTransaction|ServiceFeedback::EndTransaction => {
-                                                // Nothing to do.
-                                            }
-                                        }
-                                    }
-
-                                    // Process the DNS response message, if any.
-                                    if let Some(response) = response {
-                                        // Convert the DNS response message into bytes.
-                                        let target = response.finish();
-                                        let bytes = target.as_dgram_slice();
-
-                                        // Logging
-                                        if enabled!(Level::TRACE) {
-                                            let pcap_text = to_pcap_text(bytes, bytes.len());
-                                            trace!(%addr, pcap_text, "Sending response");
-                                        }
-
-                                        metrics.inc_num_pending_writes();
-
-                                        // Actually write the DNS response message bytes to the UDP
-                                        // socket.
-                                        if let Err(err) = Self::send_to(
-                                            &cloned_sock,
-                                            bytes,
-                                            &addr,
-                                            write_timeout,
-                                        )
-                                        .await
-                                        {
-                                            warn!(%addr, "Failed to send response: {err}");
-                                        }
-
-                                        metrics.dec_num_pending_writes();
-                                        metrics.inc_num_sent_responses();
-                                    }
-                                }
-                            }
+                    match Message::from_octets(buf) {
+                        Err(err) => {
+                            tracing::warn!("Failed while parsing request message: {err}");
                         }
-                    });
+
+                        Ok(msg) => {
+                            let ctx = UdpTransportContext::new(self.config.load().max_response_size);
+                            let ctx = TransportSpecificContext::Udp(ctx);
+                            let request = Request::new(addr, received_at, msg, ctx, ());
+
+                            trace!(
+                                "Spawning task to handle new message with id {}",
+                                request.message().header().id()
+                            );
+
+                            let mut dispatcher = self.request_dispatcher.clone();
+                            let service = self.service.clone();
+                            tokio::spawn(async move {
+                                dispatcher.dispatch(request, service, addr).await
+                            });
+                        }
+                    }
                 }
             }
         }
@@ -636,9 +594,101 @@ where
             .try_recv_buf_from(&mut buf)
             .map(|(bytes_read, addr)| (msg, addr, bytes_read))
     }
+}
+
+//--- Drop
+
+impl<Sock, Buf, Svc> Drop for DgramServer<Sock, Buf, Svc>
+where
+    Sock: AsyncDgramSock + Send + Sync + 'static,
+    Buf: BufSource + Send + Sync,
+    Buf::Output: Octets + Send + Sync + Unpin + 'static,
+    Svc: Service<Buf::Output> + Clone + Send + Sync + 'static,
+    Svc::Future: Send,
+    Svc::Stream: Send,
+    Svc::Target: Composer + Default + Send,
+{
+    fn drop(&mut self) {
+        // Shutdown the DgramServer. Don't handle the failure case here as
+        // I'm not sure if it's safe to log or write to stderr from a Drop
+        // impl.
+        let _ = self.shutdown();
+    }
+}
+
+//------------ ServiceResponseHandler -----------------------------------------
+
+/// Handles responses from the [`Service`] impl.
+struct ServiceResponseHandler<Sock> {
+    /// User supplied settings that influence our behaviour.
+    ///
+    /// May updated during request and response processing based on received
+    /// [`ServiceFeedback`].
+    config: Arc<ArcSwap<Config>>,
+
+    /// The network socket to which responses will be sent.
+    sock: Arc<Sock>,
+
+    /// [`ServerMetrics`] describing the status of the server.
+    metrics: Arc<ServerMetrics>,
+
+    /// The status of the service invoker.
+    status: InvokerStatus,
+}
+
+impl<Sock> ServiceResponseHandler<Sock>
+where
+    Sock: AsyncDgramSock + Send + Sync + 'static,
+{
+    /// Creates a new instance of the service response handler.
+    fn new(
+        config: Arc<ArcSwap<Config>>,
+        sock: Arc<Sock>,
+        metrics: Arc<ServerMetrics>,
+    ) -> Self {
+        Self {
+            config,
+            sock,
+            metrics,
+            status: InvokerStatus::Normal,
+        }
+    }
+
+    /// Send a response from the [`Service`] impl to the client.
+    async fn send_response<Target: Composer>(
+        &self,
+        addr: SocketAddr,
+        response: AdditionalBuilder<StreamTarget<Target>>,
+    ) {
+        // Convert the DNS response message into bytes.
+        let target = response.finish();
+        let bytes = target.as_dgram_slice();
+
+        // Logging
+        if enabled!(Level::TRACE) {
+            let pcap_text = to_pcap_text(bytes, bytes.len());
+            trace!(%addr, pcap_text, "Sending {} bytes of response tp {addr}", bytes.len());
+        }
+
+        self.metrics.inc_num_pending_writes();
+
+        let write_timeout = self.config.load().write_timeout;
+
+        // Actually write the DNS response message bytes to the UDP
+        // socket.
+        if let Err(err) =
+            Self::write_to_network(&self.sock, bytes, &addr, write_timeout)
+                .await
+        {
+            warn!(%addr, "Failed to send response: {err}");
+        }
+
+        self.metrics.dec_num_pending_writes();
+        self.metrics.inc_num_sent_responses();
+    }
 
     /// Send a single datagram using the user supplied network socket.
-    async fn send_to(
+    async fn write_to_network(
         sock: &Sock,
         data: &[u8],
         dest: &SocketAddr,
@@ -662,26 +712,46 @@ where
     }
 }
 
-//--- Drop
+//--- Clone
 
-impl<Sock, Buf, Svc> Drop for DgramServer<Sock, Buf, Svc>
+impl<Sock> Clone for ServiceResponseHandler<Sock> {
+    fn clone(&self) -> Self {
+        Self {
+            config: self.config.clone(),
+            sock: self.sock.clone(),
+            metrics: self.metrics.clone(),
+            status: InvokerStatus::Normal,
+        }
+    }
+}
+
+//--- ServiceInvoker
+
+impl<Sock, RequestOctets, Svc> ServiceInvoker<RequestOctets, Svc, SocketAddr>
+    for ServiceResponseHandler<Sock>
 where
     Sock: AsyncDgramSock + Send + Sync + 'static,
-    Buf: BufSource + Send + Sync,
-    <Buf as BufSource>::Output: Octets + Send + Sync + Unpin + 'static,
-    Svc: Clone
-        + Service<<Buf as BufSource>::Output, ()>
-        + Send
-        + Sync
-        + 'static,
-    <Svc as Service<<Buf as BufSource>::Output, ()>>::Future: Send,
-    <Svc as Service<<Buf as BufSource>::Output, ()>>::Stream: Send,
-    <Svc as Service<<Buf as BufSource>::Output, ()>>::Target: Composer + Send,
+    RequestOctets: Octets + Send + Sync,
+    Svc: Service<RequestOctets> + Clone + Send + Sync,
+    Svc::Target: Composer + Default + Send,
 {
-    fn drop(&mut self) {
-        // Shutdown the DgramServer. Don't handle the failure case here as
-        // I'm not sure if it's safe to log or write to stderr from a Drop
-        // impl.
-        let _ = self.shutdown();
+    fn status(&self) -> InvokerStatus {
+        self.status
+    }
+
+    fn set_status(&mut self, status: InvokerStatus) {
+        self.status = status;
+    }
+
+    fn reconfigure(&self, _idle_timeout: Option<Duration>) {
+        // N/A
+    }
+
+    async fn enqueue_response(
+        &self,
+        response: AdditionalBuilder<StreamTarget<Svc::Target>>,
+        addr: &SocketAddr,
+    ) {
+        self.send_response(*addr, response).await
     }
 }
