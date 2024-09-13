@@ -1,7 +1,10 @@
 //! Support for stream based connections.
+use core::future::Future;
 use core::ops::{ControlFlow, Deref};
+use core::pin::Pin;
 use core::time::Duration;
 
+use std::boxed::Box;
 use std::fmt::Display;
 use std::io;
 use std::net::SocketAddr;
@@ -1113,7 +1116,7 @@ where
 impl<RequestOctets, Svc> ServiceInvoker<RequestOctets, Svc, ()>
     for ServiceResponseHandler<RequestOctets, Svc>
 where
-    RequestOctets: Octets + Send + Sync,
+    RequestOctets: Octets + Send + Sync + 'static,
     Svc: Service<RequestOctets> + Clone + Send + Sync,
     Svc::Target: Composer + Default + Send,
 {
@@ -1129,11 +1132,11 @@ where
         self.update_config(idle_timeout);
     }
 
-    async fn enqueue_response(
+    fn enqueue_response(
         &self,
         response: AdditionalBuilder<StreamTarget<Svc::Target>>,
         _meta: &(),
-    ) {
-        self.do_enqueue_response(response).await
+    ) -> Pin<Box<dyn Future<Output = ()> + Send + '_>> {
+        Box::pin(async move { self.do_enqueue_response(response).await })
     }
 }

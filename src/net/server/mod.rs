@@ -182,8 +182,8 @@ pub use connection::Config as ConnectionConfig;
 
 pub mod buf;
 pub mod dgram;
-pub mod invoker;
 pub mod error;
+pub mod invoker;
 pub mod message;
 pub mod metrics;
 pub mod middleware;

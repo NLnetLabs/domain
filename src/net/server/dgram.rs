@@ -11,9 +11,12 @@
 //! [Datagram]: https://en.wikipedia.org/wiki/Datagram
 use core::fmt::Debug;
 use core::future::poll_fn;
+use core::future::Future;
 use core::ops::Deref;
+use core::pin::Pin;
 use core::time::Duration;
 
+use std::boxed::Box;
 use std::io;
 use std::net::SocketAddr;
 use std::string::String;
@@ -731,8 +734,8 @@ impl<Sock, RequestOctets, Svc> ServiceInvoker<RequestOctets, Svc, SocketAddr>
     for ServiceResponseHandler<Sock>
 where
     Sock: AsyncDgramSock + Send + Sync + 'static,
-    RequestOctets: Octets + Send + Sync,
-    Svc: Service<RequestOctets> + Clone + Send + Sync,
+    RequestOctets: Octets + Send + Sync + 'static,
+    Svc: Service<RequestOctets> + Clone + Send + Sync + 'static,
     Svc::Target: Composer + Default + Send,
 {
     fn status(&self) -> InvokerStatus {
@@ -747,11 +750,11 @@ where
         // N/A
     }
 
-    async fn enqueue_response(
-        &self,
+    fn enqueue_response<'a>(
+        &'a self,
         response: AdditionalBuilder<StreamTarget<Svc::Target>>,
-        addr: &SocketAddr,
-    ) {
-        self.send_response(*addr, response).await
+        addr: &'a SocketAddr,
+    ) -> Pin<Box<dyn Future<Output = ()> + Send + '_>> {
+        Box::pin(async move { self.send_response(*addr, response).await })
     }
 }

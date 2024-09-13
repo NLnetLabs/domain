@@ -4,7 +4,10 @@
 /// [`dgram::Dgram`][net::server::dgram::Dgram].
 use core::clone::Clone;
 use core::default::Default;
+use core::future::Future;
+use core::pin::Pin;
 use core::time::Duration;
+use std::boxed::Box;
 
 use futures_util::StreamExt;
 use octseq::Octets;
@@ -47,12 +50,12 @@ pub enum InvokerStatus {
 ///
 /// Also handles [`ServiceFeedback`] by invoking fn impls on the trait
 /// implementing type.
-#[allow(async_fn_in_trait)]
 pub trait ServiceInvoker<RequestOctets, Svc, EnqueueMeta>
 where
-    Svc: Service<RequestOctets>,
+    Svc: Service<RequestOctets> + Send + Sync + 'static,
     Svc::Target: Composer + Default,
-    RequestOctets: Octets + Send + Sync,
+    RequestOctets: Octets + Send + Sync + 'static,
+    EnqueueMeta: Send + Sync + 'static,
 {
     /// Dispatch a request and process the responses.
     ///
@@ -65,39 +68,50 @@ where
     ///
     /// On [`ServiceFeedback::Reconfigure`] passes the new configuration data
     /// to the trait impl'd [`reconfugure`] function.
-    async fn dispatch(
+    fn dispatch(
         &mut self,
         request: Request<RequestOctets>,
         svc: Svc,
         enqueue_meta: EnqueueMeta,
-    ) {
-        let req_msg = request.message().clone();
-        let request_id = request.message().header().id();
+    ) -> Pin<Box<dyn Future<Output = ()> + Send + '_>>
+    where
+        Self: Send + Sync,
+        Svc::Target: Send,
+        Svc::Stream: Send,
+        Svc::Future: Send,
+    {
+        Box::pin(async move {
+            let req_msg = request.message().clone();
+            let request_id = request.message().header().id();
 
-        // Dispatch the request to the service for processing.
-        trace!("Calling service for request id {request_id}");
-        let mut stream = svc.call(request).await;
+            // Dispatch the request to the service for processing.
+            trace!("Calling service for request id {request_id}");
+            let mut stream = svc.call(request).await;
 
-        // Handle the resulting stream of responses, most likely just one as
-        // only XFR requests potentially result in multiple responses.
-        trace!("Awaiting service call results for request id {request_id}");
-        while let Some(item) = stream.next().await {
+            // Handle the resulting stream of responses, most likely just one as
+            // only XFR requests potentially result in multiple responses.
             trace!(
-                "Processing service call result for request id {request_id}"
+                "Awaiting service call results for request id {request_id}"
             );
+            while let Some(item) = stream.next().await {
+                trace!(
+                    "Processing service call result for request id {request_id}"
+                );
 
-            let response = self.process_response_stream_item(item, &req_msg);
+                let response =
+                    self.process_response_stream_item(item, &req_msg);
 
-            if let Some(response) = response {
-                self.enqueue_response(response, &enqueue_meta).await;
+                if let Some(response) = response {
+                    self.enqueue_response(response, &enqueue_meta).await;
+                }
+
+                if matches!(self.status(), InvokerStatus::Aborting) {
+                    trace!("Aborting response stream processing for request id {request_id}");
+                    break;
+                }
             }
-
-            if matches!(self.status(), InvokerStatus::Aborting) {
-                trace!("Aborting response stream processing for request id {request_id}");
-                break;
-            }
-        }
-        trace!("Finished processing service call results for request id {request_id}");
+            trace!("Finished processing service call results for request id {request_id}");
+        })
     }
 
     /// Processing a single response stream item.
@@ -166,9 +180,9 @@ where
     fn reconfigure(&self, idle_timeout: Option<Duration>);
 
     /// Enqueues a response for writing back to the client.
-    async fn enqueue_response(
-        &self,
+    fn enqueue_response<'a>(
+        &'a self,
         response: AdditionalBuilder<StreamTarget<Svc::Target>>,
-        meta: &EnqueueMeta,
-    );
+        meta: &'a EnqueueMeta,
+    ) -> Pin<Box<dyn Future<Output = ()> + Send + '_>>;
 }
