@@ -27,7 +27,6 @@ rand           = { version = "0.8", optional = true }
 arc-swap       = { version = "1.7.0", optional = true }
 bytes          = { version = "1.0", optional = true, default-features = false }
 chrono         = { version = "0.4.35", optional = true, default-features = false } # 0.4.35 deprecates Duration::seconds()
-futures        = { version = "0.3.22", optional = true } # Force futures to at least 0.3.22 for minimal-version build
 futures-util   = { version = "0.3", optional = true }
 heapless       = { version = "0.8", optional = true }
 libc           = { version = "0.2.153", default-features = false, optional = true } # 0.2.79 is the first version that has IP_PMTUDISC_OMIT
@@ -64,7 +63,7 @@ unstable-client-transport = ["moka", "net", "tracing"]
 unstable-server-transport = ["arc-swap", "chrono/clock", "libc", "net", "siphasher", "tracing"]
 unstable-stelline = ["tokio/test-util", "tracing", "tracing-subscriber", "unstable-server-transport", "zonefile"]
 unstable-validator = ["validate", "zonefile", "unstable-client-transport"]
-unstable-zonetree = ["futures", "parking_lot", "serde", "tokio", "tracing"]
+unstable-zonetree = ["futures-util", "parking_lot", "serde", "tokio", "tracing"]
 
 [dev-dependencies]
 lazy_static        = { version = "1.4.0" }

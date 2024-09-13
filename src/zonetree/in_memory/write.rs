@@ -9,7 +9,7 @@ use std::sync::Weak;
 use std::vec::Vec;
 use std::{fmt, io};
 
-use futures::future::Either;
+use futures_util::future::Either;
 use parking_lot::RwLock;
 use tokio::sync::OwnedMutexGuard;
 
