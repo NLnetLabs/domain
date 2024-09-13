@@ -184,5 +184,5 @@ where
         &'a self,
         response: AdditionalBuilder<StreamTarget<Svc::Target>>,
         meta: &'a EnqueueMeta,
-    ) -> Pin<Box<dyn Future<Output = ()> + Send + '_>>;
+    ) -> Pin<Box<dyn Future<Output = ()> + Send + 'a>>;
 }

@@ -754,7 +754,7 @@ where
         &'a self,
         response: AdditionalBuilder<StreamTarget<Svc::Target>>,
         addr: &'a SocketAddr,
-    ) -> Pin<Box<dyn Future<Output = ()> + Send + '_>> {
+    ) -> Pin<Box<dyn Future<Output = ()> + Send + 'a>> {
         Box::pin(async move { self.send_response(*addr, response).await })
     }
 }
