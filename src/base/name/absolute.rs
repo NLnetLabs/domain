@@ -4,7 +4,7 @@
 
 use super::super::cmp::CanonicalOrd;
 use super::super::net::IpAddr;
-use super::super::scan::{Scanner, Symbol, SymbolCharsError, Symbols};
+use super::super::scan::{Scan, Token, Tokenizer, ScanError};
 use super::super::wire::{FormError, ParseError};
 use super::builder::{FromStrError, NameBuilder, PushError};
 use super::label::{Label, LabelTypeError, SplitLabelError};
@@ -112,7 +112,7 @@ impl<Octs> Name<Octs> {
                     <Octs as FromBuilder>::Builder::with_capacity(1);
                 builder
                     .append_slice(b"\0")
-                    .map_err(|_| FromStrError::ShortBuf)?;
+                    .map_err(|_| ScanError::custom("could not build domain name"))?;
                 return Ok(unsafe {
                     Self::from_octets_unchecked(builder.freeze())
                 });
@@ -155,13 +155,6 @@ impl<Octs> Name<Octs> {
         Symbols::with(chars.into_iter(), |symbols| {
             Self::from_symbols(symbols)
         })
-    }
-
-    /// Reads a name in presentation format from the beginning of a scanner.
-    pub fn scan<S: Scanner<Name = Self>>(
-        scanner: &mut S,
-    ) -> Result<Self, S::Error> {
-        scanner.scan_name()
     }
 
     /// Returns a domain name consisting of the root label only.
@@ -735,6 +728,101 @@ impl<Octs> Name<Octs> {
         } else {
             Ok(len)
         }
+    }
+}
+
+//--- Scan
+
+impl<Octs> Scan for Name<Octs>
+where
+    Octs: FromBuilder,
+    <Octs as FromBuilder>::Builder: EmptyBuilder
+        + FreezeBuilder<Octets = Octs>
+        + AsRef<[u8]>
+        + AsMut<[u8]>,
+{
+    fn scan(tokens: &mut Tokenizer<'_>) -> Result<Self, ScanError> {
+        let token = tokens.next()?;
+
+        if token.is_quoted() {
+            return Err(ScanError::custom("domain names cannot be quoted"));
+        }
+
+        if token.raw() == "." {
+            // Make a root name.
+            let mut builder = <Octs as FromBuilder>::Builder::with_capacity(token.len());
+            builder
+                .append_slice(b"\0")
+                .map_err(|_| ScanError::custom("could not create a domain name"))?;
+            return Ok(unsafe {
+                Self::from_octets_unchecked(builder.freeze())
+            });
+        }
+
+        let mut builder = NameBuilder::<Octs::Builder>::new();
+
+        // We don't expect to find escaped periods in the domain name.
+        //
+        // In both cases, we use 'split_inclusive()' to handle a final '.' correctly.
+        if !token.raw().contains("\\.") {
+            // We know that dots are never escaped, so we blindly split by them.
+            for token in token.raw().split_inclusive('.') {
+                // Strip the delimiting '.' if there is one.
+                let token = token
+                    .strip_suffix('.')
+                    .unwrap_or(token);
+
+                if token.is_empty() {
+                    return Err(ScanError::custom("empty label"));
+                }
+
+                let mut err = None;
+                Token::from_raw(token).process(|slice| {
+                    if err.is_none() {
+                        builder.append_slice(slice)
+                            .unwrap_or_else(|e| err = Some(e));
+                    }
+                });
+                if let Some(err) = err { return Err(err); }
+
+                // Mark the end of this label.
+                builder.end_label();
+            }
+        } else {
+            // We split by dots and check for preceding backslashes.
+            for mut token in token.raw().split_inclusive('.') {
+                // Strip the delimiting '.' if it is not escaped.
+                if let Some(prefix) = token.strip_suffix('.') {
+                    let num = prefix.bytes()
+                        .rposition(|b| b != b'\\')
+                        .map_or(0, |p| prefix.len() - p);
+
+                    if num % 2 == 0 {
+                        token = &token[.. token.len() - 1];
+                    }
+                }
+
+                if token.is_empty() && !builder.in_label() {
+                    return Err(ScanError::custom("empty label"));
+                }
+
+                let mut err = None;
+                Token::from_raw(token).process(|slice| {
+                    if err.is_none() {
+                        builder.append_slice(slice)
+                            .unwrap_or_else(|e| err = Some(e));
+                    }
+                });
+                if let Some(err) = err { return Err(err); }
+
+                // We don't end the label if we didn't strip out the '.'.
+                if !token.ends_with('.') {
+                    builder.end_label();
+                }
+            }
+        }
+
+        builder.into_name().map_err(Into::into)
     }
 }
 

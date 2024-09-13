@@ -39,7 +39,7 @@ macro_rules! rdata_types {
             ComposeRecordData, ParseAnyRecordData, ParseRecordData,
             RecordData, UnknownRecordData,
         };
-        use crate::base::scan::ScannerError;
+        use crate::base::scan::{ScanError, Tokenizer};
         use crate::base::wire::{Composer, ParseError};
         use octseq::octets::{Octets, OctetsFrom};
         use octseq::parse::Parser;
@@ -89,29 +89,26 @@ macro_rules! rdata_types {
             /// If the record data is given via the notation for unknown
             /// record types, the returned value will be of the
             /// `ZoneRecordData::Unknown(_)` variant.
-            pub fn scan<S>(
+            pub fn scan(
+                tokens: &mut Tokenizer<'_>,
                 rtype: Rtype,
-                scanner: &mut S
-            ) -> Result<Self, S::Error>
-            where
-                S: $crate::base::scan::Scanner<Octets = Octets, Name = Name>
-            {
-                if scanner.scan_opt_unknown_marker()? {
+            ) -> Result<Self, ScanError> {
+                // This is an unknown RDATA marker.
+                if tokens.try_skip_exactly("\\#") {
                     UnknownRecordData::scan_without_marker(
-                        rtype, scanner
+                        tokens, rtype
                     ).map(ZoneRecordData::Unknown)
-                }
-                else {
+                } else {
                     match rtype {
                         $( $( $(
                             $mtype::RTYPE => {
                                 $mtype::scan(
-                                    scanner
+                                    tokens
                                 ).map(ZoneRecordData::$mtype)
                             }
                         )* )* )*
                         _ => {
-                            Err(S::Error::custom(
+                            Err(ScanError::custom(
                                 "unknown record type with concrete data"
                             ))
                         }
@@ -1144,12 +1141,6 @@ macro_rules! name_type_base {
                 self.$field
             }
 
-            pub fn scan<S: crate::base::scan::Scanner<Name = N>>(
-                scanner: &mut S
-            ) -> Result<Self, S::Error> {
-                scanner.scan_name().map(Self::new)
-            }
-
             pub(in crate::rdata) fn convert_octets<Target: OctetsFrom<N>>(
                 self
             ) -> Result<$target<Target>, Target::Error> {
@@ -1171,6 +1162,14 @@ macro_rules! name_type_base {
                 parser: &mut Parser<'a, Src>,
             ) -> Result<Self, ParseError> {
                 ParsedName::parse(parser).map(Self::new)
+            }
+        }
+
+        //--- Scan
+
+        impl<N: Scan> Scan for $target<N> {
+            fn scan(tokens: &mut Tokenizer<'_>) -> Result<Self, ScanError> {
+                N::scan(tokens).map(Self::new)
             }
         }
 

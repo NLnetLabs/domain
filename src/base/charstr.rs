@@ -24,7 +24,7 @@
 //! [RFC 1035]: https://tools.ietf.org/html/rfc1035
 
 use super::cmp::CanonicalOrd;
-use super::scan::{BadSymbol, Scanner, Symbol, SymbolCharsError};
+use super::scan::{Scan, ScanError, Token, Tokenizer};
 use super::wire::{Compose, ParseError};
 #[cfg(feature = "bytes")]
 use bytes::BytesMut;
@@ -317,18 +317,20 @@ impl CharStr<[u8]> {
         target: &mut impl OctetsBuilder,
     ) -> Result<u8, FromStrError> {
         let mut len = 0u8;
-        let mut chars = s.chars();
-        while let Some(symbol) = Symbol::from_chars(&mut chars)? {
-            // We have the max length but there’s another character. Error!
-            if len == u8::MAX {
-                return Err(PresentationErrorEnum::LongString.into());
+        let mut err = None;
+        Token::from_raw(s).process(|b| {
+            if err.is_some() {
+                return;
+            } else if len == u8::MAX {
+                err = Some(PresentationErrorEnum::LongString.into());
+            } else {
+                target
+                    .append_slice(&[b])
+                    .unwrap_or_else(|e| err = Some(e.into()));
+                len += 1;
             }
-            target
-                .append_slice(&[symbol.into_octet()?])
-                .map_err(Into::into)?;
-            len += 1;
-        }
-        Ok(len)
+        })?;
+        err.map(Err).unwrap_or(Ok(len))
     }
 }
 
@@ -379,15 +381,6 @@ impl<Octs: AsRef<[u8]> + ?Sized> CharStr<Octs> {
             .expect("long charstr")
             .compose(target)?;
         target.append_slice(self.0.as_ref())
-    }
-}
-
-impl<Octs> CharStr<Octs> {
-    /// Scans the presentation format from a scanner.
-    pub fn scan<S: Scanner<Octets = Octs>>(
-        scanner: &mut S,
-    ) -> Result<Self, S::Error> {
-        scanner.scan_charstr()
     }
 }
 

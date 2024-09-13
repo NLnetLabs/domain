@@ -111,6 +111,23 @@ impl<'a> Tokenizer<'a> {
         Self { input, pos: 0 }
     }
 
+    /// Skip a token if it exactly matches the given raw text.
+    pub fn try_skip_exactly(&mut self, raw: &str) -> bool {
+        if let Some(suffix) = self.input[self.pos ..].strip_prefix(raw) {
+            if suffix.as_bytes().first().map_or(|b| " \t\r".contains(b), true) {
+                self.pos += raw.len();
+
+                // Move past any whitespace, to the next token, comment, or newline.
+                self.pos += self.input[self.pos ..].bytes()
+                    .position(|b| !b" \t\r".contains(&b))
+                    .unwrap_or(self.input.len() - self.pos);
+
+                return true;
+            }
+        }
+        false
+    }
+
     /// Extract the next token from the text.
     pub fn next(&mut self) -> Result<Token<'a>, ScanError> {
         // TODO: We could use 'memchr' to track the position of the next
@@ -223,6 +240,11 @@ impl<'a> Tokenizer<'a> {
 
         // Move past this token.
         self.pos += len;
+
+        // Move past any whitespace, to the next token, comment, or newline.
+        self.pos += input[self.pos ..].iter()
+            .position(|b| !b" \t\r".contains(b))
+            .unwrap_or(input.len() - self.pos);
 
         // Ensure the token doesn't contain any invalid characters.
         if input[pos..][..len].any(|&b| b < 0x20 && b != b'\t') {
