@@ -2,16 +2,40 @@
 //!
 //! This module provides a TSIG request validation and response signing
 //! middleware service. The underlying TSIG RR processing is implemented using
-//! the [`tsig`] module.
+//! the [`rdata::tsig`][crate::rdata::tsig] module.
 //!
-//! # Communicating which key signed a request.
+//! # Affected requests
 //!
-//! For signed requests this middleware service passes the signing key to
-//! upstream [`Service`] impls via request metadata. Upstream services can
-//! choose to ignore the metadata by being generic over any kind of metadata,
-//! or may offer a [`Service`] impl that specifically accepts the
-//! [`Option<tsig::Key>`] metadata type. The upstream service is then able to
-//! use the received metadata to learn which key the request was signed with.
+//! Requests matching the following criteria will be affected by this
+//! middleware:
+//!
+//! - Requests must have `Opcode::QUERY` in the header.
+//! - The first question must have QTYPE `SOA`, `AXFR` or `IXFR`.
+//! - The request must be signed, i.e. the last record of the additional
+//!   section of the request be a TSIG RR.
+//!
+//! If the request matches all of the above criteria it will only be allowed
+//! through by the middleware if it has a valid TSIG signature.
+//!
+//! All other requests pass through this middleware unchanged.
+//!
+//! # Affected responses
+//!
+//! For requests which were correctly signed the response will be signed using
+//! the same key as the request.
+//!
+//! All other responses pass through this middleware unchanged.
+//!
+//! # Determining the key that a request was signed with
+//!
+//! The key that signed a request is output by this middleware via the request
+//! metadata in the form [`Option<KS::Key>`], where `KS` denotes the type of
+//! [`KeyStore`] that was used to construct this middleware. Upstream services
+//! can choose to ignore the metadata by being generic over any kind of
+//! metadata, or may offer a [`Service`] impl that specifically accepts the
+//! [`Option<KS::Key>`] metadata type, enabling the upstream service to use
+//! the request metadata to determine the key that the request was signed
+//! with.
 //!
 //! # Limitations
 //!
@@ -27,7 +51,6 @@ use core::ops::ControlFlow;
 
 use std::vec::Vec;
 
-use futures::stream::{once, Once, Stream};
 use octseq::{Octets, OctetsFrom};
 use tracing::{error, trace, warn};
 
@@ -44,6 +67,8 @@ use crate::rdata::tsig::Time48;
 use crate::tsig::{self, KeyStore, ServerSequence, ServerTransaction};
 
 use super::stream::{MiddlewareStream, PostprocessingStream};
+use futures_util::stream::{once, Once};
+use futures_util::Stream;
 
 //------------ TsigMiddlewareSvc ----------------------------------------------
 
