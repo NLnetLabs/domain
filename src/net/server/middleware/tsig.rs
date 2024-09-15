@@ -2,7 +2,7 @@
 //!
 //! This module provides a TSIG request validation and response signing
 //! middleware service. The underlying TSIG RR processing is implemented using
-//! the [`tsig`] module.
+//! the [`rdata::tsig`][crate::rdata::tsig] module.
 //!
 //! # Communicating which key signed a request.
 //!
