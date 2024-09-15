@@ -51,7 +51,6 @@ use core::ops::ControlFlow;
 
 use std::vec::Vec;
 
-use futures::stream::{once, Once, Stream};
 use octseq::{Octets, OctetsFrom};
 use tracing::{error, trace, warn};
 
@@ -68,6 +67,8 @@ use crate::rdata::tsig::Time48;
 use crate::tsig::{self, KeyStore, ServerSequence, ServerTransaction};
 
 use super::stream::{MiddlewareStream, PostprocessingStream};
+use futures_util::stream::{once, Once};
+use futures_util::Stream;
 
 //------------ TsigMiddlewareSvc ----------------------------------------------
 
