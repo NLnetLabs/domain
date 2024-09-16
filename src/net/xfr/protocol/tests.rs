@@ -15,7 +15,7 @@ use crate::base::{
 use crate::base::{Name, ToName};
 use crate::rdata::{Soa, ZoneRecordData, A};
 
-use super::processor::XfrResponseInterpreter;
+use super::interpreter::XfrResponseInterpreter;
 use super::types::{
     IterationError, ProcessingError, XfrEvent, XfrEvent as XE, XfrRecord,
 };

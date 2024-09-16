@@ -5,12 +5,12 @@
 //! [`XfrEvent`]s that they represent without having to deal with the
 //! AXFR/IXFR protocol details.
 mod iterator;
-mod processor;
+mod interpreter;
 mod types;
 
 #[cfg(test)]
 mod tests;
 
 pub use iterator::XfrEventIterator;
-pub use processor::XfrResponseInterpreter;
+pub use interpreter::XfrResponseInterpreter;
 pub use types::{IterationError, ProcessingError, XfrEvent, XfrRecord};

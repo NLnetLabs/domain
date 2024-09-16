@@ -7,7 +7,7 @@ use crate::base::message::RecordIter;
 use crate::base::{Message, ParsedName};
 use crate::rdata::ZoneRecordData;
 
-use super::processor::RecordProcessor;
+use super::interpreter::RecordProcessor;
 use super::types::{IterationError, ProcessingError, XfrEvent, XfrRecord};
 
 //------------ XfrEventIterator -----------------------------------------------
