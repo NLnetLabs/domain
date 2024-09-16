@@ -149,6 +149,9 @@ int_enum! {
     /// is otherwise configured to support. Examples of this include
     /// its most recent zone being too old or having expired.
     (INVALID_DATA => 24, b"Invalid Data")
+
+    /// The requested resource record type should not appear in a query.
+    (INVALID_QUERY_TYPE => 30, b"Invalid Query Type")
 }
 
 /// Start of the private range for EDE codes.
