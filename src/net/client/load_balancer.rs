@@ -18,6 +18,8 @@ use std::fmt::{Debug, Formatter};
 use std::future::Future;
 use std::pin::Pin;
 use std::vec::Vec;
+use std::string::String;
+use std::string::ToString;
 
 use tokio::sync::{mpsc, oneshot};
 use tokio::time::{sleep_until, Duration, Instant};
@@ -65,7 +67,7 @@ const PROBE_RT: Duration = Duration::from_millis(1);
 //------------ Config ---------------------------------------------------------
 
 /// User configuration variables.
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Copy, Debug)]
 pub struct Config {
     /// Defer transport errors.
     pub defer_transport_error: bool,
@@ -75,6 +77,19 @@ pub struct Config {
 
     /// Defer replies that report ServFail.
     pub defer_servfail: bool,
+
+    pub slow_rt_factor: f64,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+	Self {
+	    defer_transport_error: Default::default(),
+	    defer_refused: Default::default(),
+	    defer_servfail: Default::default(),
+	    slow_rt_factor: 10.0,
+	}
+    }
 }
 
 //------------ ConnConfig -----------------------------------------------------
@@ -121,13 +136,13 @@ impl<Req: Clone + Debug + Send + Sync + 'static> Connection<Req> {
     /// Add a transport connection.
     pub async fn add(
         &self,
-	_label: &str,
-	_config: ConnConfig,
+	label: &str,
+	config: ConnConfig,
         conn: Box<dyn SendRequest<Req> + Send + Sync>,
     ) -> Result<(), Error> {
         let (tx, rx) = oneshot::channel();
         self.sender
-            .send(ChanReq::Add(AddReq { conn, tx }))
+            .send(ChanReq::Add(AddReq { label: label.to_string(), qps: config.qps, conn, tx }))
             .await
             .expect("send should not fail");
         rx.await.expect("receive should not fail")
@@ -312,6 +327,11 @@ where
 
 /// Request to add a new connection
 struct AddReq<Req> {
+    /// Name of new connection
+    label: String,
+
+    qps: Option<f64>,
+
     /// New connection to add
     conn: Box<dyn SendRequest<Req> + Send + Sync>,
 
@@ -373,11 +393,26 @@ struct TimeReport {
 
 /// Connection statistics to compute the estimated response time.
 struct ConnStats {
+    /// Name of the connection.
+    label: String,
+
     /// Aproximation of the windowed average of response times.
     mean: f64,
 
     /// Aproximation of the windowed average of the square of response times.
     mean_sq: f64,
+
+    /// QPS limit
+    qps_max_burst: Option<f64>,
+
+    /// QPS burst length,
+    qps_burst_interval: Duration,
+
+    /// Start of current QPS burst
+    qps_start: Instant,
+
+    /// Number of queries since start
+    qps_num: u64,
 }
 
 /// Data required to schedule requests and report timing results.
@@ -391,6 +426,8 @@ struct ConnRT {
 
     /// Start of a request using this connection.
     start: Option<Instant>,
+
+    queue_len: u64,
 }
 
 /// Result of the futures in fut_list.
@@ -405,16 +442,33 @@ impl<Req: Clone + Send + Sync + 'static> Query<Req> {
         sender: mpsc::Sender<ChanReq<Req>>,
     ) -> Self {
         let conn_rt_len = conn_rt.len();
-        conn_rt.sort_unstable_by(conn_rt_cmp);
+	let min_rt = conn_rt.iter().map(|e| e.est_rt).min().unwrap();
+	println!("min_rt = {min_rt:?}");
+	let slow_rt = min_rt.as_secs_f64() * config.slow_rt_factor;
+        conn_rt.sort_unstable_by(|e1, e2| conn_rt_cmp(e1, e2, slow_rt));
 
-        // Do we want to probe a less performant upstream?
+        // Do we want to probe a less performant upstream? We only need to
+	// probe upstreams with a queue length of zero. If the queue length
+	// is non-zero then the upstream recently got work and does not need
+	// to be probed.
         if conn_rt_len > 1 && random::<f64>() < PROBE_P {
             let index: usize = 1 + random::<usize>() % (conn_rt_len - 1);
-            conn_rt[index].est_rt = PROBE_RT;
+
+	    if conn_rt[index].queue_len == 0 {
+		// Give the probe some head start. We may need a separate
+		// configuration parameter. A multiple of min_rt. Just use
+		// min_rt for now.
+		conn_rt[index].est_rt = min_rt;
+	    }
 
             // Sort again
-            conn_rt.sort_unstable_by(conn_rt_cmp);
+            conn_rt.sort_unstable_by(|e1, e2| conn_rt_cmp(e1, e2, slow_rt));
         }
+
+	println!("Query::new after sort:");
+	for i in 0..conn_rt_len {
+	    println!("{:?}", conn_rt[i]);
+	}
 
         Self {
             config,
@@ -665,14 +719,25 @@ impl<'a, Req: Clone + Send + Sync + 'static> Transport<Req> {
                 ChanReq::Add(add_req) => {
                     let id = next_id;
                     next_id += 1;
+		    let qps_burst_interval = Duration::from_secs(1);
+		    let qps_max_burst = if let Some(qps) = add_req.qps {
+			Some(qps*qps_burst_interval.as_secs_f64())
+		    }
+		    else { None };
                     conn_stats.push(ConnStats {
+			label: add_req.label,
                         mean: (DEFAULT_RT_MS as f64) / 1000.,
                         mean_sq: 0.,
+			qps_max_burst,
+			qps_burst_interval,
+			qps_start: Instant::now(),
+			qps_num: 0,
                     });
                     conn_rt.push(ConnRT {
                         id,
                         est_rt: DEFAULT_RT,
                         start: None,
+			queue_len: 0,
                     });
                     conns.push(add_req.conn);
 
@@ -680,14 +745,38 @@ impl<'a, Req: Clone + Send + Sync + 'static> Transport<Req> {
                     let _ = add_req.tx.send(Ok(()));
                 }
                 ChanReq::GetRT(rt_req) => {
+		    let mut tmp_conn_rt = conn_rt.clone();
+
+		    // Remove entries that exceed the QPS limit. Loop 
+		    // backward to efficiently remove them.
+		    for i in (0..tmp_conn_rt.len()).rev() {
+			if let Some(qps_max_burst) = conn_stats[i].qps_max_burst {
+			    if conn_stats[i].qps_start.elapsed() > conn_stats[i].qps_burst_interval {
+				conn_stats[i].qps_start = Instant::now();
+				conn_stats[i].qps_num = 0;
+			    }
+			    // TODO should check qps_start and rest if it
+			    // is too long ago.
+			    if (conn_stats[i].qps_num as f64) > qps_max_burst {
+				println!("qps exceeded for index {i}");
+				tmp_conn_rt.swap_remove(i);
+			    }
+			}
+			else {
+			    // No limit.
+			}
+		    }
                     // Don't care if send fails
-                    let _ = rt_req.tx.send(Ok(conn_rt.clone()));
+                    let _ = rt_req.tx.send(Ok(tmp_conn_rt));
                 }
                 ChanReq::Query(request_req) => {
                     let opt_ind =
                         conn_rt.iter().position(|e| e.id == request_req.id);
                     match opt_ind {
                         Some(ind) => {
+			    // Leave resetting qps_num to GetRT.
+			    conn_stats[ind].qps_num += 1;
+			    conn_rt[ind].queue_len += 1;
                             let query = conns[ind]
                                 .send_request(request_req.request_msg);
                             // Don't care if send fails
@@ -705,6 +794,7 @@ impl<'a, Req: Clone + Send + Sync + 'static> Transport<Req> {
                     let opt_ind =
                         conn_rt.iter().position(|e| e.id == time_report.id);
                     if let Some(ind) = opt_ind {
+			conn_rt[ind].queue_len -= 1;
                         let elapsed = time_report.elapsed.as_secs_f64();
                         conn_stats[ind].mean +=
                             (elapsed - conn_stats[ind].mean) / SMOOTH_N;
@@ -723,6 +813,7 @@ impl<'a, Req: Clone + Send + Sync + 'static> Transport<Req> {
                     let opt_ind =
                         conn_rt.iter().position(|e| e.id == time_report.id);
                     if let Some(ind) = opt_ind {
+			conn_rt[ind].queue_len -= 1;
                         let elapsed = time_report.elapsed.as_secs_f64();
                         if elapsed < conn_stats[ind].mean {
                             // Do not update the mean if a
@@ -743,14 +834,14 @@ impl<'a, Req: Clone + Send + Sync + 'static> Transport<Req> {
                         conn_rt[ind].est_rt = Duration::from_secs_f64(est_rt);
                     }
                 }
-                ChanReq::PrintStats => Self::print_stats(&conn_rt)
+                ChanReq::PrintStats => Self::print_stats(&conn_stats, &conn_rt)
             }
         }
     }
 
-    fn print_stats(conn_rt: &[ConnRT]) {
-	for e in conn_rt {
-	    println!("id {} label {}", e.id, e.label);
+    fn print_stats(conn_stats: &[ConnStats], conn_rt: &[ConnRT]) {
+	for i in 0..conn_rt.len() {
+	    println!("id {} label {} burst {} max burst {:?} Qlen {} Est. RT {:.3}", conn_rt[i].id, conn_stats[i].label, conn_stats[i].qps_num, conn_stats[i].qps_max_burst, conn_rt[i].queue_len, conn_rt[i].est_rt.as_secs_f64());
 	}
     }
 }
@@ -788,7 +879,24 @@ where
 }
 
 /// Compare ConnRT elements based on estimated response time.
-fn conn_rt_cmp(e1: &ConnRT, e2: &ConnRT) -> Ordering {
+fn conn_rt_cmp(e1: &ConnRT, e2: &ConnRT, slow_rt: f64) -> Ordering {
+    let e1_slow = e1.est_rt.as_secs_f64() > slow_rt;
+    let e2_slow = e2.est_rt.as_secs_f64() > slow_rt;
+    println!("{e1_slow:?} and {e2_slow:?} for {e1:?}, {e2:?} and {slow_rt:?}");
+    if e1_slow != e2_slow {
+	return if e2_slow { Ordering::Less } else { Ordering::Greater };
+    }
+    if !e1_slow && !e2_slow {
+	// Normal case. First check queue lengths.
+	if e1.queue_len != e2.queue_len {
+	    return if e1.queue_len < e2.queue_len { Ordering::Less } else 
+		{ Ordering::Greater};
+	}
+
+	// Equal queue length. Just take est_rt.
+	return e1.est_rt.cmp(&e2.est_rt);
+    } 
+    // e1_slow == e2_slow
     e1.est_rt.cmp(&e2.est_rt)
 }
 
