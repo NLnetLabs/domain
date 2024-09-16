@@ -19,7 +19,7 @@
 //! [`KeyStore`] that was used to construct this middleware. Upstream services
 //! can choose to ignore the metadata by being generic over any kind of
 //! metadata, or may offer a [`Service`] impl that specifically accepts the
-//! [`Option<KS::Key>`] metadata type, enabling the upstream service to use
+//! `Option<KS::Key>` metadata type, enabling the upstream service to use
 //! the request metadata to determine the key that the request was signed
 //! with.
 //!
