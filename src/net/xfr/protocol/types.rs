@@ -9,9 +9,9 @@ use crate::{
     rdata::ZoneRecordData,
 };
 
-/// The type of record processed by [`XfrResponseProcessor`].
+/// The type of record processed by [`XfrResponseInterpreter`].
 ///
-/// [`XfrResponseProcessor`]: super::processor::XfrResponseProcessor
+/// [`XfrResponseInterpreter`]: super::processor::XfrResponseInterpreter
 pub type XfrRecord =
     Record<ParsedName<Bytes>, ZoneRecordData<Bytes, ParsedName<Bytes>>>;
 
@@ -48,9 +48,9 @@ impl TryFrom<Rtype> for XfrType {
 
 //------------ XfrEvent -------------------------------------------------------
 
-/// An event emitted by [`XfrResponseProcessor`] during transfer processing.
+/// An event emitted by [`XfrResponseInterpreter`] during transfer processing.
 ///
-/// [`XfrResponseProcessor`]: super::processor::XfrResponseProcessor
+/// [`XfrResponseInterpreter`]: super::processor::XfrResponseInterpreter
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum XfrEvent<R> {
     /// Delete record R in zone serial S.
@@ -138,9 +138,9 @@ impl IxfrUpdateMode {
 
 //------------ ProcessingError ------------------------------------------------
 
-/// An error reported by [`XfrResponseProcessor`].
+/// An error reported by [`XfrResponseInterpreter`].
 ///
-/// [`XfrResponseProcessor`]: super::processor::XfrResponseProcessor
+/// [`XfrResponseInterpreter`]: super::processor::XfrResponseInterpreter
 #[derive(Debug)]
 pub enum ProcessingError {
     /// The message could not be parsed.
