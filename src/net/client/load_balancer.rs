@@ -163,6 +163,9 @@ impl<Req: Clone + Debug + Send + Sync + 'static> Connection<Req> {
             .await
             .expect("send should not fail");
         let conn_rt = rx.await.expect("receive should not fail")?;
+	if conn_rt.len() == 0 {
+		todo!();
+	}
         Query::new(self.config, request_msg, conn_rt, self.sender.clone())
             .get_response()
             .await
