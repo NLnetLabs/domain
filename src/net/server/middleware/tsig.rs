@@ -40,7 +40,7 @@ use std::vec::Vec;
 use octseq::{Octets, OctetsFrom};
 use tracing::{error, trace, warn};
 
-use crate::base::iana::{Rcode, TsigRcode};
+use crate::base::iana::Rcode;
 use crate::base::message_builder::AdditionalBuilder;
 use crate::base::wire::Composer;
 use crate::base::{Message, StreamTarget};
@@ -108,12 +108,15 @@ where
     fn preprocess(
         req: &Request<RequestOctets>,
         key_store: &KS,
-    ) -> ControlFlow<
-        AdditionalBuilder<StreamTarget<NextSvc::Target>>,
-        Option<(
-            Request<RequestOctets, Option<KS::Key>>,
-            TsigSigner<KS::Key>,
-        )>,
+    ) -> Result<
+        ControlFlow<
+            AdditionalBuilder<StreamTarget<NextSvc::Target>>,
+            Option<(
+                Request<RequestOctets, Option<KS::Key>>,
+                TsigSigner<KS::Key>,
+            )>,
+        >,
+        ServiceError,
     > {
         let octets = req.message().as_slice().to_vec();
         let mut mut_msg = Message::from_octets(octets).unwrap();
@@ -151,10 +154,10 @@ where
                 let num_bytes_to_reserve = tsig.key().compose_len();
                 new_req.reserve_bytes(num_bytes_to_reserve);
 
-                return ControlFlow::Continue(Some((
+                return Ok(ControlFlow::Continue(Some((
                     new_req,
                     TsigSigner::Transaction(tsig),
-                )));
+                ))));
             }
 
             Err(err) => {
@@ -164,16 +167,22 @@ where
                     req.message().header().opcode(),
                     req.client_addr(),
                 );
+
                 let builder = mk_builder_for_target();
-                let additional =
-                    tsig::ServerError::<KS::Key>::unsigned(TsigRcode::BADKEY)
-                        .build_message(req.message(), builder)
-                        .unwrap();
-                return ControlFlow::Break(additional);
+
+                let res = match err.build_message(req.message(), builder) {
+                    Ok(additional) => Ok(ControlFlow::Break(additional)),
+                    Err(err) => {
+                        error!("Unable to build TSIG error response: {err}");
+                        Err(ServiceError::InternalError)
+                    }
+                };
+
+                return res;
             }
         }
 
-        ControlFlow::Continue(None)
+        Ok(ControlFlow::Continue(None))
     }
 
     /// Sign the given response, or if necessary construct and return an
@@ -410,14 +419,14 @@ where
             (),
             PostprocessingConfig<KS::Key>,
         >,
-        Once<Ready<<NextSvc::Stream as Stream>::Item>>,
+        Once<Ready<ServiceResult<Self::Target>>>,
         <NextSvc::Stream as Stream>::Item,
     >;
     type Future = Ready<Self::Stream>;
 
     fn call(&self, request: Request<RequestOctets, ()>) -> Self::Future {
         match Self::preprocess(&request, &self.key_store) {
-            ControlFlow::Continue(Some((modified_req, signer))) => {
+            Ok(ControlFlow::Continue(Some((modified_req, signer)))) => {
                 let pp_config = PostprocessingConfig::new(signer);
 
                 let svc_call_fut = self.next_svc.call(modified_req);
@@ -432,16 +441,20 @@ where
                 ready(MiddlewareStream::Map(map))
             }
 
-            ControlFlow::Continue(None) => {
+            Ok(ControlFlow::Continue(None)) => {
                 let request = request.with_new_metadata(None);
                 let svc_call_fut = self.next_svc.call(request);
                 ready(MiddlewareStream::IdentityFuture(svc_call_fut))
             }
 
-            ControlFlow::Break(additional) => {
+            Ok(ControlFlow::Break(additional)) => {
                 ready(MiddlewareStream::Result(once(ready(Ok(
                     CallResult::new(additional),
                 )))))
+            }
+
+            Err(err) => {
+                ready(MiddlewareStream::Result(once(ready(Err(err)))))
             }
         }
     }
