@@ -10,7 +10,7 @@ use std::sync::Arc;
 use std::vec::Vec;
 
 use bytes::Bytes;
-use futures::stream::{once, Once, Stream};
+use futures_util::stream::{once, Once, Stream};
 use octseq::Octets;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedSender};
 use tokio::sync::Semaphore;
@@ -1360,7 +1360,7 @@ mod tests {
 
     use std::borrow::ToOwned;
 
-    use futures::StreamExt;
+    use futures_util::StreamExt;
     use tokio::time::Instant;
 
     use crate::base::iana::Class;

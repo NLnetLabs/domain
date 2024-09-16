@@ -15,7 +15,7 @@ use crate::base::{
 use crate::base::{Name, ToName};
 use crate::rdata::{Soa, ZoneRecordData, A};
 
-use super::processor::XfrResponseProcessor;
+use super::interpreter::XfrResponseInterpreter;
 use super::types::{
     IterationError, ProcessingError, XfrEvent, XfrEvent as XE, XfrRecord,
 };
@@ -28,7 +28,7 @@ fn non_xfr_response_is_rejected() {
     let req = mk_request("example.com", Rtype::AXFR).into_message();
 
     // Create an XFR response processor.
-    let mut processor = XfrResponseProcessor::new();
+    let mut processor = XfrResponseInterpreter::new();
 
     // Create a non-XFR response.
     let mut answer = mk_empty_answer(&req, Rcode::NOERROR);
@@ -51,7 +51,7 @@ fn axfr_response_with_no_answers_is_rejected() {
     let req = mk_request("example.com", Rtype::AXFR).into_message();
 
     // Create an XFR response processor.
-    let mut processor = XfrResponseProcessor::new();
+    let mut processor = XfrResponseInterpreter::new();
 
     // Create a response that lacks answers.
     let resp = mk_empty_answer(&req, Rcode::NOERROR).into_message();
@@ -72,7 +72,7 @@ fn error_axfr_response_is_rejected() {
     let req = mk_request("example.com", Rtype::AXFR).into_message();
 
     // Create an XFR response processor.
-    let mut processor = XfrResponseProcessor::new();
+    let mut processor = XfrResponseInterpreter::new();
 
     // Create a minimal valid AXFR response, just something that should
     // not be rejected by the XFR processor due to its content. It should
@@ -97,7 +97,7 @@ fn incomplete_axfr_response_is_accepted() {
     let req = mk_request("example.com", Rtype::AXFR).into_message();
 
     // Create an XFR response processor.
-    let mut processor = XfrResponseProcessor::new();
+    let mut processor = XfrResponseInterpreter::new();
 
     // Create an incomplete AXFR response. A proper AXFR response has at
     // least two identical SOA records, one at the start and one at the
@@ -123,7 +123,7 @@ fn axfr_response_with_only_soas_is_accepted() {
     let req = mk_request("example.com", Rtype::AXFR).into_message();
 
     // Create an XFR response processor.
-    let mut processor = XfrResponseProcessor::new();
+    let mut processor = XfrResponseInterpreter::new();
 
     // Create a complete but minimal AXFR response. A proper AXFR response
     // has at least two identical SOA records, one at the start and one at
@@ -152,7 +152,7 @@ fn axfr_multi_response_with_only_soas_is_accepted() {
     let req = mk_request("example.com", Rtype::AXFR).into_message();
 
     // Create an XFR response processor.
-    let mut processor = XfrResponseProcessor::new();
+    let mut processor = XfrResponseInterpreter::new();
 
     // Create a complete but minimal AXFR response. A proper AXFR response
     // has at least two identical SOA records, one at the start and one at
@@ -191,7 +191,7 @@ fn axfr_response_generates_expected_events() {
     let req = mk_request("example.com", Rtype::AXFR).into_message();
 
     // Create an XFR response processor.
-    let mut processor = XfrResponseProcessor::new();
+    let mut processor = XfrResponseInterpreter::new();
 
     // Create an AXFR response.
     let mut answer = mk_empty_answer(&req, Rcode::NOERROR);
@@ -227,7 +227,7 @@ fn ixfr_response_generates_expected_events() {
     let req = authority.into_message();
 
     // Create an XFR response processor.
-    let mut processor = XfrResponseProcessor::new();
+    let mut processor = XfrResponseInterpreter::new();
 
     // Prepare some serial numbers and SOA records to use in the IXFR response.
     let old_serial = client_serial;
@@ -341,7 +341,7 @@ fn multi_ixfr_response_generates_expected_events() {
     let req = authority.into_message();
 
     // Create an XFR response processor.
-    let mut processor = XfrResponseProcessor::new();
+    let mut processor = XfrResponseInterpreter::new();
 
     // Prepare some serial numbers and SOA records to use in the IXFR response.
     let old_serial = client_serial;

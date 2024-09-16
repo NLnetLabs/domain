@@ -3,7 +3,7 @@ use core::future::{ready, Ready};
 use core::marker::PhantomData;
 use core::ops::ControlFlow;
 
-use futures::stream::{once, Once, Stream};
+use futures_util::stream::{once, Once, Stream};
 use octseq::Octets;
 use tracing::{debug, enabled, error, trace, warn, Level};
 
@@ -398,7 +398,7 @@ mod tests {
     use std::vec::Vec;
 
     use bytes::Bytes;
-    use futures::stream::StreamExt;
+    use futures_util::stream::StreamExt;
     use tokio::time::Instant;
 
     use crate::base::{Message, MessageBuilder, Name, Rtype};

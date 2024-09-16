@@ -11,18 +11,17 @@ use super::types::{
     IxfrUpdateMode, ProcessingError, XfrEvent, XfrRecord, XfrType,
 };
 
-//------------ XfrResponseProcessor -------------------------------------------
+//------------ XfrResponseInterpreter -----------------------------------------
 
 /// An AXFR/IXFR response processor.
 ///
-/// Use [`XfrResponseProcessor`] to process a sequence of AXFR or IXFR
-/// response messages into a corresponding sequence of high level
-/// [`XfrEvent`]s.
+/// Use [`XfrResponseInterpreter`] to interpret a sequence of AXFR or IXFR
+/// response messages as a sequence of high level [`XfrEvent`]s.
 ///
 /// # Usage
 ///
-/// For each response stream to be processed, construct an
-/// [`XfrResponseProcessor`] for the corresponding XFR request message, then
+/// For each response stream to be interpreted, construct an
+/// [`XfrResponseInterpreter`] for the corresponding XFR request message, then
 /// pass each XFR response message to [`process_answer()`].
 ///
 /// Each call to [`process_answer()`] will return an [`XfrEventIterator`]
@@ -34,23 +33,23 @@ use super::types::{
 /// that the sequence is incomplete and the next response message in the
 /// sequence should be passed to [`process_answer()`].
 ///
-/// [`process_answer()`]: XfrResponseProcessor::process_answer()
+/// [`process_answer()`]: XfrResponseInterpreter::process_answer()
 #[derive(Default)]
-pub struct XfrResponseProcessor {
+pub struct XfrResponseInterpreter {
     /// Internal state.
     ///
     /// None until the first call to [`process_answer()`].
     inner: Option<Inner>,
 }
 
-impl XfrResponseProcessor {
+impl XfrResponseInterpreter {
     /// Creates a new XFR message processor.
     pub fn new() -> Self {
         Self::default()
     }
 }
 
-impl XfrResponseProcessor {
+impl XfrResponseInterpreter {
     /// Process a single AXFR/IXFR response message.
     ///
     /// Returns an [`XfrEventIterator`] over [`XfrEvent`]s emitted during
@@ -84,7 +83,7 @@ impl XfrResponseProcessor {
     }
 }
 
-impl XfrResponseProcessor {
+impl XfrResponseInterpreter {
     /// Initialize inner state.
     fn initialize(
         &mut self,
@@ -136,9 +135,9 @@ impl XfrResponseProcessor {
 
 //------------ Inner ----------------------------------------------------------
 
-/// Internal dynamic state of [`XfrResponseProcessor`].
+/// Internal dynamic state of [`XfrResponseInterpreter`].
 ///
-/// Separated out from [`XfrResponseProcessor`] to avoid needing multiple
+/// Separated out from [`XfrResponseInterpreter`] to avoid needing multiple
 /// mutable self references in [`process_answer()`].
 struct Inner {
     /// The response message currently being processed.
@@ -260,7 +259,7 @@ impl RecordProcessor {
         // Note: We do NOT implement this MUST here because it would be very
         // inefficient to actually check that any received non-SOA RR has not
         // been seen before during the in-progress transfer. Clients of
-        // XfrResponseProcessor are better placed to enforce this rule if
+        // XfrResponseInterpreter are better placed to enforce this rule if
         // needed, e.g. at the moment of insertion into a zone tree checking
         // that the record is not already present or insertion of a duplicate
         // having no effect as it is already present.

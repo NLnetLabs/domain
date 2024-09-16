@@ -9,7 +9,7 @@ use super::error::OutOfZone;
 use super::{WritableZone, WritableZoneNode, Zone};
 use crate::base::name::{FlattenInto, Label, ToLabelIter};
 use crate::base::{Name, ParsedName, Record, Rtype, ToName};
-use crate::net::xfr::processing::{XfrEvent, XfrRecord};
+use crate::net::xfr::protocol::{XfrEvent, XfrRecord};
 use crate::rdata::ZoneRecordData;
 use crate::zonetree::{Rrset, SharedRrset};
 
@@ -307,7 +307,7 @@ mod tests {
     use crate::base::{
         Message, MessageBuilder, ParsedName, Record, Serial, Ttl,
     };
-    use crate::net::xfr::processing::XfrResponseProcessor;
+    use crate::net::xfr::protocol::XfrResponseInterpreter;
     use crate::rdata::{Soa, A};
     use crate::zonetree::ZoneBuilder;
 
@@ -356,7 +356,7 @@ mod tests {
         let req = mk_request("example.com", Rtype::AXFR).into_message();
 
         // Create an XFR response processor.
-        let mut processor = XfrResponseProcessor::new();
+        let mut processor = XfrResponseInterpreter::new();
 
         // Create an AXFR response.
         let mut answer = mk_empty_answer(&req, Rcode::NOERROR);
