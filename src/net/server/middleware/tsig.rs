@@ -346,10 +346,10 @@ where
                 // Does it need converting from the variant that supports
                 // single messages only (ServerTransaction) to the variant
                 // that supports signing multiple messages (ServerSequence)?
-                // Note: confusingly BeginTransaction and ServerTransaction
-                // use the term "transaction" to mean completely the opppsite
+                // Note: Confusingly BeginTransaction and ServerTransaction
+                // use the term "transaction" to mean completely the opposite
                 // of each other. With BeginTransaction we mean that the
-                // caller should instead a sequence of response messages
+                // caller should expect a sequence of response messages
                 // instead of the usual single response message. With
                 // ServerTransaction the TSIG code means handling of single
                 // messages only and NOT sequences for which there is a
