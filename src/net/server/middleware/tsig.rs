@@ -190,7 +190,7 @@ where
     fn postprocess(
         request: &Request<RequestOctets>,
         response: &mut AdditionalBuilder<StreamTarget<NextSvc::Target>>,
-        pp_config: &mut PostprocessingConfig<KS::Key>,
+        state: &mut PostprocessingState<KS::Key>,
     ) -> Result<
         Option<AdditionalBuilder<StreamTarget<NextSvc::Target>>>,
         ServiceError,
@@ -201,12 +201,12 @@ where
 
         let truncation_ctx;
 
-        let res = match &mut pp_config.signer {
+        let res = match &mut state.signer {
             Some(TsigSigner::Transaction(_)) => {
                 // Extract the single response signer and consume it in the
                 // signing process.
                 let Some(TsigSigner::Transaction(signer)) =
-                    pp_config.signer.take()
+                    state.signer.take()
                 else {
                     unreachable!()
                 };
@@ -336,7 +336,7 @@ where
     fn map_stream_item(
         request: Request<RequestOctets, ()>,
         stream_item: ServiceResult<NextSvc::Target>,
-        pp_config: &mut PostprocessingConfig<KS::Key>,
+        pp_config: &mut PostprocessingState<KS::Key>,
     ) -> ServiceResult<NextSvc::Target> {
         if let Ok(mut call_res) = stream_item {
             if matches!(
@@ -417,7 +417,7 @@ where
             NextSvc::Future,
             NextSvc::Stream,
             (),
-            PostprocessingConfig<KS::Key>,
+            PostprocessingState<KS::Key>,
         >,
         Once<Ready<ServiceResult<Self::Target>>>,
         <NextSvc::Stream as Stream>::Item,
@@ -427,7 +427,7 @@ where
     fn call(&self, request: Request<RequestOctets, ()>) -> Self::Future {
         match Self::preprocess(&request, &self.key_store) {
             Ok(ControlFlow::Continue(Some((modified_req, signer)))) => {
-                let pp_config = PostprocessingConfig::new(signer);
+                let pp_config = PostprocessingState::new(signer);
 
                 let svc_call_fut = self.next_svc.call(modified_req);
 
@@ -462,7 +462,7 @@ where
 
 /// Data needed to do signing during response post-processing.
 
-pub struct PostprocessingConfig<K> {
+pub struct PostprocessingState<K> {
     /// The signer used to verify the request.
     ///
     /// Needed to sign responses.
@@ -473,7 +473,7 @@ pub struct PostprocessingConfig<K> {
     signer: Option<TsigSigner<K>>,
 }
 
-impl<K> PostprocessingConfig<K> {
+impl<K> PostprocessingState<K> {
     fn new(signer: TsigSigner<K>) -> Self {
         Self {
             signer: Some(signer),
