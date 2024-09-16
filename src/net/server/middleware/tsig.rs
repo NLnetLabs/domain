@@ -64,7 +64,7 @@ use futures_util::Stream;
 /// any, and adds TSIG signatures to responses to signed requests.
 ///
 /// Upstream services can detect whether a request is signed and with which
-/// key by consuming the [`Option<KS::Key>`] metadata output by this service.
+/// key by consuming the `Option<KS::Key>` metadata output by this service.
 #[derive(Clone, Debug)]
 pub struct TsigMiddlewareSvc<RequestOctets, NextSvc, KS>
 where
