@@ -12,9 +12,9 @@ use super::types::{IterationError, ProcessingError, XfrEvent, XfrRecord};
 
 //------------ XfrEventIterator -----------------------------------------------
 
-/// An iterator over [`XfrResponseProcessor`] generated [`XfrEvent`]s.
+/// An iterator over [`XfrResponseInterpreter`] generated [`XfrEvent`]s.
 ///
-/// [`XfrResponseProcessor`]: super::processor::XfrResponseProcessor
+/// [`XfrResponseInterpreter`]: super::processor::XfrResponseInterpreter
 pub struct XfrEventIterator<'a, 'b> {
     /// The parent processor.
     state: &'a mut RecordProcessor,
