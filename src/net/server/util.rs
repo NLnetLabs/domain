@@ -4,7 +4,7 @@ use core::future::{ready, Ready};
 use core::marker::PhantomData;
 use std::string::{String, ToString};
 
-use futures::stream::Once;
+use futures_util::stream::Once;
 use octseq::{Octets, OctetsBuilder};
 use tracing::warn;
 

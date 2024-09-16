@@ -5,7 +5,7 @@ use core::ops::ControlFlow;
 
 use std::vec::Vec;
 
-use futures::stream::{once, Once, Stream};
+use futures_util::stream::{once, Once, Stream};
 use octseq::Octets;
 use rand::RngCore;
 use tracing::{debug, error, trace, warn};

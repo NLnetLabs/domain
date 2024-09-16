@@ -2,16 +2,26 @@
 //!
 //! This module provides a TSIG request validation and response signing
 //! middleware service. The underlying TSIG RR processing is implemented using
-//! the [`tsig`] module.
+//! the [`rdata::tsig`][crate::rdata::tsig] module.
 //!
-//! # Communicating which key signed a request.
+//! Signed requests thta fail signature verification will be rejected.
 //!
-//! For signed requests this middleware service passes the signing key to
-//! upstream [`Service`] impls via request metadata. Upstream services can
-//! choose to ignore the metadata by being generic over any kind of metadata,
-//! or may offer a [`Service`] impl that specifically accepts the
-//! [`Option<tsig::Key>`] metadata type. The upstream service is then able to
-//! use the received metadata to learn which key the request was signed with.
+//! Unsigned requests and correctly signed requests will pass through this
+//! middleware unchanged.
+//!
+//! For requests which were correctly signed the corresponding response(s)
+//! will be signed using the same key as the request.
+//!
+//! # Determining the key that a request was signed with
+//!
+//! The key that signed a request is output by this middleware via the request
+//! metadata in the form [`Option<KS::Key>`], where `KS` denotes the type of
+//! [`KeyStore`] that was used to construct this middleware. Upstream services
+//! can choose to ignore the metadata by being generic over any kind of
+//! metadata, or may offer a [`Service`] impl that specifically accepts the
+//! [`Option<KS::Key>`] metadata type, enabling the upstream service to use
+//! the request metadata to determine the key that the request was signed
+//! with.
 //!
 //! # Limitations
 //!
@@ -27,14 +37,13 @@ use core::ops::ControlFlow;
 
 use std::vec::Vec;
 
-use futures::stream::{once, Once, Stream};
 use octseq::{Octets, OctetsFrom};
 use tracing::{error, trace, warn};
 
-use crate::base::iana::{Opcode, Rcode, TsigRcode};
+use crate::base::iana::{Rcode, TsigRcode};
 use crate::base::message_builder::AdditionalBuilder;
 use crate::base::wire::Composer;
-use crate::base::{Message, ParsedName, Question, Rtype, StreamTarget};
+use crate::base::{Message, StreamTarget};
 use crate::net::server::message::Request;
 use crate::net::server::service::{
     CallResult, Service, ServiceError, ServiceFeedback, ServiceResult,
@@ -44,6 +53,8 @@ use crate::rdata::tsig::Time48;
 use crate::tsig::{self, KeyStore, ServerSequence, ServerTransaction};
 
 use super::stream::{MiddlewareStream, PostprocessingStream};
+use futures_util::stream::{once, Once};
+use futures_util::Stream;
 
 //------------ TsigMiddlewareSvc ----------------------------------------------
 
@@ -104,65 +115,61 @@ where
             TsigSigner<KS::Key>,
         )>,
     > {
-        if let Some(q) = Self::get_relevant_question(req.message()) {
-            let octets = req.message().as_slice().to_vec();
-            let mut mut_msg = Message::from_octets(octets).unwrap();
+        let octets = req.message().as_slice().to_vec();
+        let mut mut_msg = Message::from_octets(octets).unwrap();
 
-            match tsig::ServerTransaction::request(
-                key_store,
-                &mut mut_msg,
-                Time48::now(),
-            ) {
-                Ok(None) => {
-                    // Message is not TSIG signed.
-                }
+        match tsig::ServerTransaction::request(
+            key_store,
+            &mut mut_msg,
+            Time48::now(),
+        ) {
+            Ok(None) => {
+                // Message is not TSIG signed.
+            }
 
-                Ok(Some(tsig)) => {
-                    // Message is TSIG signed by a known key.
-                    trace!(
-                        "Request is signed with TSIG key '{}'",
-                        tsig.key().name()
-                    );
+            Ok(Some(tsig)) => {
+                // Message is TSIG signed by a known key.
+                trace!(
+                    "Request is signed with TSIG key '{}'",
+                    tsig.key().name()
+                );
 
-                    // Convert to RequestOctets so that the non-TSIG signed
-                    // message case can just pass through the RequestOctets.
-                    let source = mut_msg.into_octets();
-                    let octets = RequestOctets::octets_from(source);
-                    let new_msg = Message::from_octets(octets).unwrap();
+                // Convert to RequestOctets so that the non-TSIG signed
+                // message case can just pass through the RequestOctets.
+                let source = mut_msg.into_octets();
+                let octets = RequestOctets::octets_from(source);
+                let new_msg = Message::from_octets(octets).unwrap();
 
-                    let mut new_req = Request::new(
-                        req.client_addr(),
-                        req.received_at(),
-                        new_msg,
-                        req.transport_ctx().clone(),
-                        Some(tsig.key_wrapper().clone()),
-                    );
+                let mut new_req = Request::new(
+                    req.client_addr(),
+                    req.received_at(),
+                    new_msg,
+                    req.transport_ctx().clone(),
+                    Some(tsig.key_wrapper().clone()),
+                );
 
-                    let num_bytes_to_reserve = tsig.key().compose_len();
-                    new_req.reserve_bytes(num_bytes_to_reserve);
+                let num_bytes_to_reserve = tsig.key().compose_len();
+                new_req.reserve_bytes(num_bytes_to_reserve);
 
-                    return ControlFlow::Continue(Some((
-                        new_req,
-                        TsigSigner::Transaction(tsig),
-                    )));
-                }
+                return ControlFlow::Continue(Some((
+                    new_req,
+                    TsigSigner::Transaction(tsig),
+                )));
+            }
 
-                Err(err) => {
-                    // Message is incorrectly signed or signed with an unknown key.
-                    warn!(
-                        "{} for {} from {} refused: {err}",
-                        q.qtype(),
-                        q.qname(),
-                        req.client_addr(),
-                    );
-                    let builder = mk_builder_for_target();
-                    let additional = tsig::ServerError::<KS::Key>::unsigned(
-                        TsigRcode::BADKEY,
-                    )
-                    .build_message(req.message(), builder)
-                    .unwrap();
-                    return ControlFlow::Break(additional);
-                }
+            Err(err) => {
+                // Message is incorrectly signed or signed with an unknown key.
+                warn!(
+                    "{} from {} refused: {err}",
+                    req.message().header().opcode(),
+                    req.client_addr(),
+                );
+                let builder = mk_builder_for_target();
+                let additional =
+                    tsig::ServerError::<KS::Key>::unsigned(TsigRcode::BADKEY)
+                        .build_message(req.message(), builder)
+                        .unwrap();
+                return ControlFlow::Break(additional);
             }
         }
 
@@ -315,29 +322,6 @@ where
                 }
             }
         }
-    }
-
-    fn get_relevant_question(
-        msg: &Message<RequestOctets>,
-    ) -> Option<Question<ParsedName<RequestOctets::Range<'_>>>> {
-        if Opcode::QUERY == msg.header().opcode() && !msg.header().qr() {
-            if let Some(q) = msg.first_question() {
-                if matches!(q.qtype(), Rtype::SOA | Rtype::AXFR | Rtype::IXFR)
-                {
-                    return Some(q);
-                }
-            }
-        } else if Opcode::NOTIFY == msg.header().opcode()
-            && !msg.header().qr()
-        {
-            if let Some(q) = msg.first_question() {
-                if matches!(q.qtype(), Rtype::SOA) {
-                    return Some(q);
-                }
-            }
-        }
-
-        None
     }
 
     fn map_stream_item(
