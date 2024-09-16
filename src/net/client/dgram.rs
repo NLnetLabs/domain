@@ -322,7 +322,7 @@ where
     S: AsyncConnect + Clone + Send + Sync + 'static,
     S::Connection:
         AsyncDgramRecv + AsyncDgramSend + Send + Sync + Unpin + 'static,
-    Req: ComposeRequest + Clone + Send + Sync + 'static,
+    Req: ComposeRequest + Send + Sync + 'static,
 {
     fn send_request(
         &self,
