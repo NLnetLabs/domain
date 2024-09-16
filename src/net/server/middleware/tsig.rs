@@ -4,7 +4,7 @@
 //! middleware service. The underlying TSIG RR processing is implemented using
 //! the [`rdata::tsig`][crate::rdata::tsig] module.
 //!
-//! Signed requests thta fail signature verification will be rejected.
+//! Signed requests that fail signature verification will be rejected.
 //!
 //! Unsigned requests and correctly signed requests will pass through this
 //! middleware unchanged.
