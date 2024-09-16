@@ -1726,7 +1726,7 @@ enum ServerErrorInner<K> {
 }
 
 impl<K> ServerError<K> {
-    pub fn unsigned(error: TsigRcode) -> Self {
+    fn unsigned(error: TsigRcode) -> Self {
         ServerError(ServerErrorInner::Unsigned { error })
     }
 
