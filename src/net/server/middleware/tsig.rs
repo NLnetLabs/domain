@@ -4,27 +4,13 @@
 //! middleware service. The underlying TSIG RR processing is implemented using
 //! the [`rdata::tsig`][crate::rdata::tsig] module.
 //!
-//! # Affected requests
+//! Signed requests thta fail signature verification will be rejected.
 //!
-//! Requests matching the following criteria will be affected by this
-//! middleware:
+//! Unsigned requests and correctly signed requests will pass through this
+//! middleware unchanged.
 //!
-//! - Requests must have `Opcode::QUERY` in the header.
-//! - The first question must have QTYPE `SOA`, `AXFR` or `IXFR`.
-//! - The request must be signed, i.e. the last record of the additional
-//!   section of the request be a TSIG RR.
-//!
-//! If the request matches all of the above criteria it will only be allowed
-//! through by the middleware if it has a valid TSIG signature.
-//!
-//! All other requests pass through this middleware unchanged.
-//!
-//! # Affected responses
-//!
-//! For requests which were correctly signed the response will be signed using
-//! the same key as the request.
-//!
-//! All other responses pass through this middleware unchanged.
+//! For requests which were correctly signed the corresponding response(s)
+//! will be signed using the same key as the request.
 //!
 //! # Determining the key that a request was signed with
 //!
@@ -54,10 +40,10 @@ use std::vec::Vec;
 use octseq::{Octets, OctetsFrom};
 use tracing::{error, trace, warn};
 
-use crate::base::iana::{Opcode, Rcode, TsigRcode};
+use crate::base::iana::{Rcode, TsigRcode};
 use crate::base::message_builder::AdditionalBuilder;
 use crate::base::wire::Composer;
-use crate::base::{Message, ParsedName, Question, Rtype, StreamTarget};
+use crate::base::{Message, StreamTarget};
 use crate::net::server::message::Request;
 use crate::net::server::service::{
     CallResult, Service, ServiceError, ServiceFeedback, ServiceResult,
@@ -129,65 +115,61 @@ where
             TsigSigner<KS::Key>,
         )>,
     > {
-        if let Some(q) = Self::get_relevant_question(req.message()) {
-            let octets = req.message().as_slice().to_vec();
-            let mut mut_msg = Message::from_octets(octets).unwrap();
+        let octets = req.message().as_slice().to_vec();
+        let mut mut_msg = Message::from_octets(octets).unwrap();
 
-            match tsig::ServerTransaction::request(
-                key_store,
-                &mut mut_msg,
-                Time48::now(),
-            ) {
-                Ok(None) => {
-                    // Message is not TSIG signed.
-                }
+        match tsig::ServerTransaction::request(
+            key_store,
+            &mut mut_msg,
+            Time48::now(),
+        ) {
+            Ok(None) => {
+                // Message is not TSIG signed.
+            }
 
-                Ok(Some(tsig)) => {
-                    // Message is TSIG signed by a known key.
-                    trace!(
-                        "Request is signed with TSIG key '{}'",
-                        tsig.key().name()
-                    );
+            Ok(Some(tsig)) => {
+                // Message is TSIG signed by a known key.
+                trace!(
+                    "Request is signed with TSIG key '{}'",
+                    tsig.key().name()
+                );
 
-                    // Convert to RequestOctets so that the non-TSIG signed
-                    // message case can just pass through the RequestOctets.
-                    let source = mut_msg.into_octets();
-                    let octets = RequestOctets::octets_from(source);
-                    let new_msg = Message::from_octets(octets).unwrap();
+                // Convert to RequestOctets so that the non-TSIG signed
+                // message case can just pass through the RequestOctets.
+                let source = mut_msg.into_octets();
+                let octets = RequestOctets::octets_from(source);
+                let new_msg = Message::from_octets(octets).unwrap();
 
-                    let mut new_req = Request::new(
-                        req.client_addr(),
-                        req.received_at(),
-                        new_msg,
-                        req.transport_ctx().clone(),
-                        Some(tsig.key_wrapper().clone()),
-                    );
+                let mut new_req = Request::new(
+                    req.client_addr(),
+                    req.received_at(),
+                    new_msg,
+                    req.transport_ctx().clone(),
+                    Some(tsig.key_wrapper().clone()),
+                );
 
-                    let num_bytes_to_reserve = tsig.key().compose_len();
-                    new_req.reserve_bytes(num_bytes_to_reserve);
+                let num_bytes_to_reserve = tsig.key().compose_len();
+                new_req.reserve_bytes(num_bytes_to_reserve);
 
-                    return ControlFlow::Continue(Some((
-                        new_req,
-                        TsigSigner::Transaction(tsig),
-                    )));
-                }
+                return ControlFlow::Continue(Some((
+                    new_req,
+                    TsigSigner::Transaction(tsig),
+                )));
+            }
 
-                Err(err) => {
-                    // Message is incorrectly signed or signed with an unknown key.
-                    warn!(
-                        "{} for {} from {} refused: {err}",
-                        q.qtype(),
-                        q.qname(),
-                        req.client_addr(),
-                    );
-                    let builder = mk_builder_for_target();
-                    let additional = tsig::ServerError::<KS::Key>::unsigned(
-                        TsigRcode::BADKEY,
-                    )
-                    .build_message(req.message(), builder)
-                    .unwrap();
-                    return ControlFlow::Break(additional);
-                }
+            Err(err) => {
+                // Message is incorrectly signed or signed with an unknown key.
+                warn!(
+                    "{} from {} refused: {err}",
+                    req.message().header().opcode(),
+                    req.client_addr(),
+                );
+                let builder = mk_builder_for_target();
+                let additional =
+                    tsig::ServerError::<KS::Key>::unsigned(TsigRcode::BADKEY)
+                        .build_message(req.message(), builder)
+                        .unwrap();
+                return ControlFlow::Break(additional);
             }
         }
 
@@ -340,29 +322,6 @@ where
                 }
             }
         }
-    }
-
-    fn get_relevant_question(
-        msg: &Message<RequestOctets>,
-    ) -> Option<Question<ParsedName<RequestOctets::Range<'_>>>> {
-        if Opcode::QUERY == msg.header().opcode() && !msg.header().qr() {
-            if let Some(q) = msg.first_question() {
-                if matches!(q.qtype(), Rtype::SOA | Rtype::AXFR | Rtype::IXFR)
-                {
-                    return Some(q);
-                }
-            }
-        } else if Opcode::NOTIFY == msg.header().opcode()
-            && !msg.header().qr()
-        {
-            if let Some(q) = msg.first_question() {
-                if matches!(q.qtype(), Rtype::SOA) {
-                    return Some(q);
-                }
-            }
-        }
-
-        None
     }
 
     fn map_stream_item(
