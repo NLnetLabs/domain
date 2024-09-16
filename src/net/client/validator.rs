@@ -24,7 +24,7 @@
 //!
 //! # Caching
 //!
-//! ideally caching should be done before (downstream of) the validator
+//! Ideally caching should be done before (downstream of) the validator
 //! transport. This way validated results are cached. A cache that is
 //! upstream of the validator would avoid network traffic, but would require
 //! some amount of validating for each request.

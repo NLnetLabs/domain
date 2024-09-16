@@ -221,7 +221,6 @@ dependencies = [
  "arc-swap",
  "bytes",
  "chrono",
- "futures",
  "futures-util",
  "heapless",
  "lazy_static",

@@ -337,8 +337,6 @@ where
         + Sync
         + 'static,
 {
-    use domain::net::xfr::processing::XfrResponseProcessor;
-
     // Create a signing key.
     let key_name = KeyName::from_str("demo-key").unwrap();
     let secret = domain::utils::base64::decode::<Vec<u8>>(
@@ -358,7 +356,6 @@ where
     let mut request = tsig_conn.send_request(req);
 
     // Get the reply
-    let mut processor = XfrResponseProcessor::new();
     loop {
         println!("Waiting for signed reply");
         let reply = request.get_response()
@@ -367,11 +364,6 @@ where
         match reply {
             Some(reply) => {
                 println!("Signed reply: {:?}", reply);
-                let it = processor.process_answer(reply).unwrap();
-                for event in it {
-                    let event = event.unwrap();
-                    println!("XFR event: {event}");
-                }
             }
             None => break,
         }
