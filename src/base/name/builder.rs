@@ -11,6 +11,7 @@ use super::relative::RelativeName;
 use super::traits::{ToName, ToRelativeName};
 use super::uncertain::UncertainName;
 use super::Label;
+use crate::base::scan::{self, Symbol, Symbols};
 
 //------------ NameBuilder --------------------------------------------------
 
@@ -123,7 +124,7 @@ where
     /// Panics if a label was already being built.
     pub fn append_label(&mut self, label: &[u8]) -> Result<(), BuildError> {
         assert!(
-            self.label_offset == self.write_offset,
+            self.cur_label().is_none(),
             "cannot append a whole label to a partially-built one"
         );
 
@@ -201,6 +202,117 @@ where
     }
 }
 
+/// # Scanning
+///
+/// The presentation format for domain names is somewhat underspecified.  For
+/// the purposes of this implementation, it is defined thusly:
+///
+/// A domain name in the presentation format is a sequence of ASCII characters.
+/// It is divided into a sequence of period-separated labels (possibly with one
+/// terminating period representing the root label).  Labels can contain almost
+/// any printable ASCII character, except `"[].` (unless they are escaped).
+///
+/// Backslashes represent escape sequences.  A backslash followed by three ASCII
+/// digits is interpreted as an octal-encoded byte value (with digits ordered
+/// from most to least significant).  If it is followed by a printable ASCII
+/// character that is not a decimal digit, it is interpreted as that character
+/// verbatim, even if that character is otherwise not allowed in a label.
+///
+/// A binary label is one that begins and ends with escaped square brackets.  It
+/// is defined by a now-obsolete RFC and we choose not to support it.  However,
+/// as end-users may still write binary labels, we will detect them and provide
+/// an appropriate error message instead of silently doing the wrong thing.
+impl<Buffer: ?Sized> NameBuilder<Buffer>
+where
+    Buffer: Borrow<[u8; 256]> + BorrowMut<[u8; 256]>,
+{
+    /// Scan and a label from the presentation format and append it.
+    ///
+    /// Given a label encoded in the presentation format, this function will
+    /// parse it, decode escape sequences within it, and append it to the name.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the label is misformatted or too big, or if
+    /// appending it to the domain name would make the domain name too big.
+    ///
+    /// # Panics
+    ///
+    /// Panics if a label was already being built.
+    pub fn scan_label(&mut self, label: &str) -> Result<(), ScanError> {
+        assert!(
+            self.cur_label().is_none(),
+            "cannot append a whole label to a partially-built one"
+        );
+
+        // TODO: Rewrite to process the entire label in one go.
+        Symbols::with(label.chars(), |symbols| {
+            for symbol in symbols {
+                // Ensure it is not one of the disallowed characters.
+                if matches!(
+                    symbol,
+                    Symbol::Char('"' | '[' | ']' | '.' | ' ')
+                        | Symbol::SimpleEscape(b' ' | b'\t' | b'\r' | b'\n')
+                ) {
+                    return Err(ScanError::DisallowedChar);
+                } else if self.cur_label().is_none()
+                    && matches!(symbol, Symbol::SimpleEscape(b'['))
+                {
+                    return Err(ScanError::BinaryLabel);
+                }
+
+                self.append_slice(&[symbol.into_octet()?])?;
+            }
+
+            Ok(())
+        })
+    }
+
+    /// Scan a whole domain name from the presentation format and append it.
+    ///
+    /// Given a domain name encoded in the presentation format, this function
+    /// will parse it, decode escape sequences within it, and append it.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the label is misformatted or too big, or if
+    /// appending it to the domain name would make the domain name too big.
+    ///
+    /// # Panics
+    ///
+    /// Panics if a label was already being built.
+    pub fn scan_name(&mut self, name: &str) -> Result<(), ScanError> {
+        assert!(
+            self.cur_label().is_none(),
+            "cannot append a whole name to a partially-built label"
+        );
+
+        // TODO: Rewrite to process the entire name in one go.
+        Symbols::with(name.chars(), |symbols| {
+            for symbol in symbols {
+                // Ensure it is not one of the disallowed characters.
+                if matches!(
+                    symbol,
+                    Symbol::Char('"' | '[' | ']' | ' ')
+                        | Symbol::SimpleEscape(b' ' | b'\t' | b'\r' | b'\n')
+                ) {
+                    return Err(ScanError::DisallowedChar);
+                } else if matches!(symbol, Symbol::Char('.')) {
+                    self.end_label();
+                } else {
+                    self.append_slice(&[symbol.into_octet()?])?;
+                }
+            }
+
+            // In case there was a root label, we want to append an empty slice.
+            // If there wasn't one, this has no effect.
+            self.append_slice(&[])?;
+
+            Ok(())
+        })
+    }
+}
+
 /// # Inspecting
 impl<Buffer: ?Sized> NameBuilder<Buffer>
 where
@@ -252,11 +364,11 @@ where
         Octs: TryFrom<&'a [u8]>,
     {
         assert!(
-            self.write_offset <= self.label_offset + 1,
+            !self.cur_label().is_some_and(|l| !l.is_empty()),
             "cannot extract a domain name while a label is being built"
         );
 
-        if self.write_offset == self.label_offset {
+        if self.cur_label().is_some() {
             let buffer = &self.buffer.borrow()[..self.write_offset as usize];
             let octseq = Octs::try_from(buffer)?;
             Ok(Some(unsafe {
@@ -286,7 +398,7 @@ where
         Octs: TryFrom<&'a [u8]>,
     {
         assert!(
-            self.label_offset == self.write_offset,
+            self.cur_label().is_none(),
             "cannot extract a domain name while a label is being built"
         );
 
@@ -371,6 +483,64 @@ impl fmt::Display for BuildError {
 
 #[cfg(feature = "std")]
 impl std::error::Error for BuildError {}
+
+//------------ ScanError -----------------------------------------------------
+
+/// An error in scanning a domain name.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ScanError {
+    /// An invalid escape sequence was encountered.
+    InvalidEscape,
+
+    /// A disallowed character was encountered.
+    DisallowedChar,
+
+    /// A binary label (which is unsupported) was encountered.
+    BinaryLabel,
+
+    /// The label being built would exceed the 63-byte limit.
+    LongLabel,
+
+    /// The name being built would exceed the 255-byte limit.
+    LongName,
+}
+
+impl From<BuildError> for ScanError {
+    fn from(value: BuildError) -> Self {
+        match value {
+            BuildError::LongLabel => Self::LongLabel,
+            BuildError::LongName => Self::LongName,
+        }
+    }
+}
+
+impl From<scan::SymbolCharsError> for ScanError {
+    fn from(_value: scan::SymbolCharsError) -> Self {
+        Self::InvalidEscape
+    }
+}
+
+impl From<scan::BadSymbol> for ScanError {
+    fn from(_value: scan::BadSymbol) -> Self {
+        // TODO: If we could inspect BadSymbolEnum, we could be more specific.
+        Self::DisallowedChar
+    }
+}
+
+impl fmt::Display for ScanError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.write_str(match *self {
+            Self::InvalidEscape => "invalid escape sequence found",
+            Self::DisallowedChar => "disallowed character found",
+            Self::BinaryLabel => "binary labels are unsupported",
+            Self::LongLabel => "domain name label longer than 63 bytes",
+            Self::LongName => "domain name longer than 255 bytes",
+        })
+    }
+}
+
+#[cfg(feature = "std")]
+impl std::error::Error for ScanError {}
 
 //============ Testing =======================================================
 
