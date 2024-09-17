@@ -284,11 +284,40 @@ impl ZoneDiff {
 
 /// An update to be applied to a [`Zone`].
 ///
-/// Note: This enum is marked as `#[non_exhaustive]` to permit addition of
-/// more update operations in future, e.g. to support RFC 2136 Dynamic Updates
+/// # Design
+/// 
+/// The variants of this enum are modelled after the way the AXFR and IXFR
+/// protocols represent updates to zones.
+/// 
+/// AXFR responses can be represented as a sequence of
+/// [`ZoneUpdate::AddRecord`]s.
+/// 
+/// IXFR responses can be represented as a sequence of batches, each
+/// consisting of:
+/// - [`ZoneUpdate::BeginBatchDelete`]
+/// - [`ZoneUpdate::DeleteRecord`]s _(zero or more)_
+/// - [`ZoneUpdate::BeginBatchAdd`]
+/// - [`ZoneUpdate::AddRecord`]s _(zero or more)_
+/// 
+/// Both AXFR and IXFR responses encoded using this enum are terminated by a
+/// final [`ZoneUpdate::Finished`].
+///
+/// # Use within this crate
+///  
+/// [`XfrResponseInterpreter`] can convert received XFR responses into
+/// sequences of [`ZoneUpdate`]s. These can then be consumed by a
+/// [`ZoneUpdater`] to effect changes to an existing [`Zone`].
+/// 
+/// # Future extensions
+/// 
+/// This enum is marked as `#[non_exhaustive]` to permit addition of more
+/// update operations in future, e.g. to support RFC 2136 Dynamic Updates
 /// operations.
 ///
+/// [`XfrResponseInterpreter`]:
+///     crate::net::xfr::protocol::XfrResponseInterpreter
 /// [`Zone`]: crate::zonetree::zone::Zone
+/// [`ZoneUpdater`]: crate::zonetree::update::ZoneUpdater
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum ZoneUpdate<R> {
