@@ -12,7 +12,7 @@ use crate::{
 /// The type of record processed by [`XfrResponseInterpreter`].
 ///
 /// [`XfrResponseInterpreter`]: super::interpreter::XfrResponseInterpreter
-pub type XfrRecord =
+pub type ParsedRecord =
     Record<ParsedName<Bytes>, ZoneRecordData<Bytes, ParsedName<Bytes>>>;
 
 //------------ XfrType --------------------------------------------------------

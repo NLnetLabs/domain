@@ -9,7 +9,7 @@ use crate::rdata::ZoneRecordData;
 use crate::zonetree::types::ZoneUpdate;
 
 use super::interpreter::RecordProcessor;
-use super::types::{Error, IterationError, XfrRecord};
+use super::types::{Error, IterationError, ParsedRecord};
 
 //------------ XfrZoneUpdateIterator ------------------------------------------
 
@@ -62,7 +62,7 @@ impl<'a, 'b> XfrZoneUpdateIterator<'a, 'b> {
 }
 
 impl<'a, 'b> Iterator for XfrZoneUpdateIterator<'a, 'b> {
-    type Item = Result<ZoneUpdate<XfrRecord>, IterationError>;
+    type Item = Result<ZoneUpdate<ParsedRecord>, IterationError>;
 
     fn next(&mut self) -> Option<Self::Item> {
         match self.iter.next()? {

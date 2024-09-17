@@ -61,7 +61,7 @@ use tracing::{error, trace};
 
 use crate::base::name::{FlattenInto, Label, ToLabelIter};
 use crate::base::{Name, ParsedName, Record, Rtype, ToName};
-use crate::net::xfr::protocol::XfrRecord;
+use crate::net::xfr::protocol::ParsedRecord;
 use crate::rdata::ZoneRecordData;
 use crate::zonetree::{Rrset, SharedRrset};
 
@@ -69,19 +69,29 @@ use super::error::OutOfZone;
 use super::types::ZoneUpdate;
 use super::{WritableZone, WritableZoneNode, Zone};
 
-/// TODO
+/// Apply a sequence of [`ZoneUpdate`]s to alter the content of a [`Zone`].
 pub struct ZoneUpdater {
+    /// The zone to be updated.
     zone: Zone,
 
+    /// The current write handles in use.
     write: WriteState,
 
+    /// Whether or not we entered an IXFR-like batching mode.
     batching: bool,
 
-    first_event_seen: bool,
+    /// Whether or not at least one update has been applied so far.
+    first_update_seen: bool,
 }
 
 impl ZoneUpdater {
-    /// TODO
+    /// Creates a new [`ZoneUpdater`] that will update the given [`Zone`]
+    /// content.
+    ///
+    /// Returns the new instance on success, or an error if the zone could not
+    /// be opened for writing.
+    ///
+    /// Use [`apply`][Self::apply] to apply changes to the zone.
     pub fn new(
         zone: Zone,
     ) -> Pin<Box<dyn Future<Output = std::io::Result<Self>>>> {
@@ -92,20 +102,22 @@ impl ZoneUpdater {
                 zone,
                 write,
                 batching: false,
-                first_event_seen: false,
+                first_update_seen: false,
             })
         })
     }
 }
 
 impl ZoneUpdater {
-    /// TODO
+    /// Apply the given [`ZoneUpdate`] to the [`Zone`] being updated.
+    ///
+    /// Returns `Ok` on success, `Err` otherwise.
     pub async fn apply(
         &mut self,
-        evt: ZoneUpdate<XfrRecord>,
+        update: ZoneUpdate<ParsedRecord>,
     ) -> Result<(), ()> {
-        trace!("Event: {evt}");
-        match evt {
+        trace!("Event: {update}");
+        match update {
             ZoneUpdate::DeleteRecord(_serial, rec) => {
                 self.delete_record(rec).await?
             }
@@ -144,7 +156,7 @@ impl ZoneUpdater {
             }
         }
 
-        self.first_event_seen = true;
+        self.first_update_seen = true;
 
         Ok(())
     }
@@ -170,7 +182,7 @@ impl ZoneUpdater {
 
     async fn prep_add_del(
         &mut self,
-        rec: XfrRecord,
+        rec: ParsedRecord,
     ) -> Result<
         (
             Rtype,
@@ -275,7 +287,7 @@ impl ZoneUpdater {
             ZoneRecordData<Bytes, ParsedName<Bytes>>,
         >,
     ) -> Result<(), ()> {
-        if !self.first_event_seen && rec.rtype() == Rtype::SOA {
+        if !self.first_update_seen && rec.rtype() == Rtype::SOA {
             // If the first event is the addition of a SOA record to the zone,
             // this must be a complete replacement of the zone (as you can't
             // have two SOA records), i.e. something like an AXFR transfer. We

@@ -8,7 +8,7 @@ use crate::rdata::{Soa, ZoneRecordData};
 use crate::zonetree::types::ZoneUpdate;
 
 use super::iterator::XfrZoneUpdateIterator;
-use super::types::{Error, IxfrUpdateMode, XfrRecord, XfrType};
+use super::types::{Error, IxfrUpdateMode, ParsedRecord, XfrType};
 
 //------------ XfrResponseInterpreter -----------------------------------------
 
@@ -259,8 +259,8 @@ impl RecordProcessor {
     /// record, if any.
     pub(super) fn process_record(
         &mut self,
-        rec: XfrRecord,
-    ) -> ZoneUpdate<XfrRecord> {
+        rec: ParsedRecord,
+    ) -> ZoneUpdate<ParsedRecord> {
         self.rr_count += 1;
 
         // https://datatracker.ietf.org/doc/html/rfc5936#section-2.2
