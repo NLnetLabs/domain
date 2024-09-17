@@ -7,9 +7,11 @@ use std::vec::Vec;
 use bytes::Bytes;
 use serde::{Deserialize, Serialize};
 
+use crate::base::name::Name;
 use crate::base::rdata::RecordData;
+use crate::base::record::Record;
+use crate::base::Serial;
 use crate::base::{iana::Rtype, Ttl};
-use crate::base::{Name, Record};
 use crate::rdata::ZoneRecordData;
 
 //------------ Type Aliases --------------------------------------------------
@@ -246,4 +248,76 @@ pub struct ZoneCut {
 
     /// Zero or more glue records at the zone cut.
     pub glue: Vec<StoredRecord>,
+}
+
+//------------ ZoneUpdate -----------------------------------------------------
+
+/// An update to be applied to a [`Zone`].
+///
+/// Note: This enum is marked as `#[non_exhaustive]` to permit addition of
+/// more update operations in future, e.g. to support RFC 2136 Dynamic Updates
+/// operations.
+///
+/// [`Zone`]: crate::zonetree::zone::Zone
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum ZoneUpdate<R> {
+    /// Delete record R from the specified version (serial) of the zone.
+    DeleteRecord(Serial, R),
+
+    /// Add record R to the specified version (serial) of the zone.
+    AddRecord(Serial, R),
+
+    /// Start a batch delete for the specified version (serial) of the zone.
+    ///
+    /// If not already in batching mode, this signals the start of batching
+    /// mode. In batching mode one or more batches of updates will be
+    /// signalled, each consisting of the sequence:
+    ///
+    /// - ZoneUpdate::BeginBatchDelete
+    /// - ZoneUpdate::DeleteRecord (zero or more)
+    /// - ZoneUpdate::BeginBatchAdd
+    /// - ZoneUpdate::AddRecord (zero or more)
+    ///
+    /// Batching mode can only be terminated by `UpdateComplete` or
+    /// `UpdateIncomplete`.
+    ///
+    /// Batching mode makes updates more predictable for the receiver to work
+    /// with by limiting the updates that can be signalled next, enabling
+    /// receiver logic to be simpler and more efficient.
+    BeginBatchDelete(R),
+
+    /// Start a batch add for the specified version (serial) of the zone.
+    ///
+    /// This can only be signalled when already in batching mode, i.e. when
+    /// `BeginBatchDelete` has already been signalled.
+    ///
+    /// See `BeginBatchDelete` for more information.
+    BeginBatchAdd(R),
+
+    /// Updates for the specified version (serial) of the zone can now be
+    /// finalized.
+    ///
+    /// This signals the end of a group of related changes to the specified
+    /// version (serial) of the zone.
+    ///
+    /// For example this could be used to trigger an atomic commit of a set of
+    /// related pending changes.
+    Finished(R),
+}
+
+//--- Display
+
+impl<R> std::fmt::Display for ZoneUpdate<R> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            ZoneUpdate::DeleteRecord(_, _) => f.write_str("DeleteRecord"),
+            ZoneUpdate::AddRecord(_, _) => f.write_str("AddRecord"),
+            ZoneUpdate::BeginBatchDelete(_) => {
+                f.write_str("BeginBatchDelete")
+            }
+            ZoneUpdate::BeginBatchAdd(_) => f.write_str("BeginBatchAdd"),
+            ZoneUpdate::Finished(_) => f.write_str("Finished"),
+        }
+    }
 }
