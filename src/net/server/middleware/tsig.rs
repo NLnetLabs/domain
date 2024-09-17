@@ -4,7 +4,7 @@
 //! middleware service. The underlying TSIG RR processing is implemented using
 //! the [`rdata::tsig`][crate::rdata::tsig] module.
 //!
-//! Signed requests thta fail signature verification will be rejected.
+//! Signed requests that fail signature verification will be rejected.
 //!
 //! Unsigned requests and correctly signed requests will pass through this
 //! middleware unchanged.
@@ -19,7 +19,7 @@
 //! [`KeyStore`] that was used to construct this middleware. Upstream services
 //! can choose to ignore the metadata by being generic over any kind of
 //! metadata, or may offer a [`Service`] impl that specifically accepts the
-//! [`Option<KS::Key>`] metadata type, enabling the upstream service to use
+//! `Option<KS::Key>` metadata type, enabling the upstream service to use
 //! the request metadata to determine the key that the request was signed
 //! with.
 //!
@@ -40,7 +40,7 @@ use std::vec::Vec;
 use octseq::{Octets, OctetsFrom};
 use tracing::{error, trace, warn};
 
-use crate::base::iana::{Rcode, TsigRcode};
+use crate::base::iana::Rcode;
 use crate::base::message_builder::AdditionalBuilder;
 use crate::base::wire::Composer;
 use crate::base::{Message, StreamTarget};
@@ -64,7 +64,7 @@ use futures_util::Stream;
 /// any, and adds TSIG signatures to responses to signed requests.
 ///
 /// Upstream services can detect whether a request is signed and with which
-/// key by consuming the [`Option<KS::Key>`] metadata output by this service.
+/// key by consuming the `Option<KS::Key>` metadata output by this service.
 #[derive(Clone, Debug)]
 pub struct TsigMiddlewareSvc<RequestOctets, NextSvc, KS>
 where
@@ -108,12 +108,15 @@ where
     fn preprocess(
         req: &Request<RequestOctets>,
         key_store: &KS,
-    ) -> ControlFlow<
-        AdditionalBuilder<StreamTarget<NextSvc::Target>>,
-        Option<(
-            Request<RequestOctets, Option<KS::Key>>,
-            TsigSigner<KS::Key>,
-        )>,
+    ) -> Result<
+        ControlFlow<
+            AdditionalBuilder<StreamTarget<NextSvc::Target>>,
+            Option<(
+                Request<RequestOctets, Option<KS::Key>>,
+                TsigSigner<KS::Key>,
+            )>,
+        >,
+        ServiceError,
     > {
         let octets = req.message().as_slice().to_vec();
         let mut mut_msg = Message::from_octets(octets).unwrap();
@@ -145,16 +148,16 @@ where
                     req.received_at(),
                     new_msg,
                     req.transport_ctx().clone(),
-                    Some(tsig.key_wrapper().clone()),
+                    Some(tsig.wrapped_key().clone()),
                 );
 
                 let num_bytes_to_reserve = tsig.key().compose_len();
                 new_req.reserve_bytes(num_bytes_to_reserve);
 
-                return ControlFlow::Continue(Some((
+                return Ok(ControlFlow::Continue(Some((
                     new_req,
                     TsigSigner::Transaction(tsig),
-                )));
+                ))));
             }
 
             Err(err) => {
@@ -164,16 +167,22 @@ where
                     req.message().header().opcode(),
                     req.client_addr(),
                 );
+
                 let builder = mk_builder_for_target();
-                let additional =
-                    tsig::ServerError::<KS::Key>::unsigned(TsigRcode::BADKEY)
-                        .build_message(req.message(), builder)
-                        .unwrap();
-                return ControlFlow::Break(additional);
+
+                let res = match err.build_message(req.message(), builder) {
+                    Ok(additional) => Ok(ControlFlow::Break(additional)),
+                    Err(err) => {
+                        error!("Unable to build TSIG error response: {err}");
+                        Err(ServiceError::InternalError)
+                    }
+                };
+
+                return res;
             }
         }
 
-        ControlFlow::Continue(None)
+        Ok(ControlFlow::Continue(None))
     }
 
     /// Sign the given response, or if necessary construct and return an
@@ -181,7 +190,7 @@ where
     fn postprocess(
         request: &Request<RequestOctets>,
         response: &mut AdditionalBuilder<StreamTarget<NextSvc::Target>>,
-        pp_config: &mut PostprocessingConfig<KS::Key>,
+        state: &mut PostprocessingState<KS::Key>,
     ) -> Result<
         Option<AdditionalBuilder<StreamTarget<NextSvc::Target>>>,
         ServiceError,
@@ -192,12 +201,12 @@ where
 
         let truncation_ctx;
 
-        let res = match &mut pp_config.signer {
+        let res = match &mut state.signer {
             Some(TsigSigner::Transaction(_)) => {
                 // Extract the single response signer and consume it in the
                 // signing process.
                 let Some(TsigSigner::Transaction(signer)) =
-                    pp_config.signer.take()
+                    state.signer.take()
                 else {
                     unreachable!()
                 };
@@ -327,7 +336,7 @@ where
     fn map_stream_item(
         request: Request<RequestOctets, ()>,
         stream_item: ServiceResult<NextSvc::Target>,
-        pp_config: &mut PostprocessingConfig<KS::Key>,
+        pp_config: &mut PostprocessingState<KS::Key>,
     ) -> ServiceResult<NextSvc::Target> {
         if let Ok(mut call_res) = stream_item {
             if matches!(
@@ -337,10 +346,10 @@ where
                 // Does it need converting from the variant that supports
                 // single messages only (ServerTransaction) to the variant
                 // that supports signing multiple messages (ServerSequence)?
-                // Note: confusingly BeginTransaction and ServerTransaction
-                // use the term "transaction" to mean completely the opppsite
+                // Note: Confusingly BeginTransaction and ServerTransaction
+                // use the term "transaction" to mean completely the opposite
                 // of each other. With BeginTransaction we mean that the
-                // caller should instead a sequence of response messages
+                // caller should expect a sequence of response messages
                 // instead of the usual single response message. With
                 // ServerTransaction the TSIG code means handling of single
                 // messages only and NOT sequences for which there is a
@@ -408,17 +417,17 @@ where
             NextSvc::Future,
             NextSvc::Stream,
             (),
-            PostprocessingConfig<KS::Key>,
+            PostprocessingState<KS::Key>,
         >,
-        Once<Ready<<NextSvc::Stream as Stream>::Item>>,
+        Once<Ready<ServiceResult<Self::Target>>>,
         <NextSvc::Stream as Stream>::Item,
     >;
     type Future = Ready<Self::Stream>;
 
     fn call(&self, request: Request<RequestOctets, ()>) -> Self::Future {
         match Self::preprocess(&request, &self.key_store) {
-            ControlFlow::Continue(Some((modified_req, signer))) => {
-                let pp_config = PostprocessingConfig::new(signer);
+            Ok(ControlFlow::Continue(Some((modified_req, signer)))) => {
+                let pp_config = PostprocessingState::new(signer);
 
                 let svc_call_fut = self.next_svc.call(modified_req);
 
@@ -432,16 +441,20 @@ where
                 ready(MiddlewareStream::Map(map))
             }
 
-            ControlFlow::Continue(None) => {
+            Ok(ControlFlow::Continue(None)) => {
                 let request = request.with_new_metadata(None);
                 let svc_call_fut = self.next_svc.call(request);
                 ready(MiddlewareStream::IdentityFuture(svc_call_fut))
             }
 
-            ControlFlow::Break(additional) => {
+            Ok(ControlFlow::Break(additional)) => {
                 ready(MiddlewareStream::Result(once(ready(Ok(
                     CallResult::new(additional),
                 )))))
+            }
+
+            Err(err) => {
+                ready(MiddlewareStream::Result(once(ready(Err(err)))))
             }
         }
     }
@@ -449,7 +462,7 @@ where
 
 /// Data needed to do signing during response post-processing.
 
-pub struct PostprocessingConfig<K> {
+pub struct PostprocessingState<K> {
     /// The signer used to verify the request.
     ///
     /// Needed to sign responses.
@@ -460,7 +473,7 @@ pub struct PostprocessingConfig<K> {
     signer: Option<TsigSigner<K>>,
 }
 
-impl<K> PostprocessingConfig<K> {
+impl<K> PostprocessingState<K> {
     fn new(signer: TsigSigner<K>) -> Self {
         Self {
             signer: Some(signer),

@@ -87,8 +87,8 @@ pub mod parsed;
 mod traits;
 mod tree;
 pub mod types;
+pub mod update;
 mod walk;
-pub mod xfr_event_handler;
 mod zone;
 
 pub use self::answer::{Answer, AnswerAuthority, AnswerContent};

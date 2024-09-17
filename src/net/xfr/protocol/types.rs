@@ -5,13 +5,13 @@
 use bytes::Bytes;
 
 use crate::{
-    base::{wire::ParseError, ParsedName, Record, Rtype, Serial},
+    base::{wire::ParseError, ParsedName, Record, Rtype},
     rdata::ZoneRecordData,
 };
 
 /// The type of record processed by [`XfrResponseInterpreter`].
 ///
-/// [`XfrResponseInterpreter`]: super::processor::XfrResponseInterpreter
+/// [`XfrResponseInterpreter`]: super::interpreter::XfrResponseInterpreter
 pub type XfrRecord =
     Record<ParsedName<Bytes>, ZoneRecordData<Bytes, ParsedName<Bytes>>>;
 
@@ -46,71 +46,6 @@ impl TryFrom<Rtype> for XfrType {
     }
 }
 
-//------------ XfrEvent -------------------------------------------------------
-
-/// An event emitted by [`XfrResponseInterpreter`] during transfer processing.
-///
-/// [`XfrResponseInterpreter`]: super::processor::XfrResponseInterpreter
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum XfrEvent<R> {
-    /// Delete record R in zone serial S.
-    ///
-    /// The transfer signalled that the given record should be deleted from
-    /// the zone version with the given serial number.
-    ///
-    /// Note: If the transfer contains N deletions of fhe same record then
-    /// this event will occur N times.
-    DeleteRecord(Serial, R),
-
-    /// Add record R in zone serial S.
-    ///
-    /// The transfer signalled that the given record should be added to the
-    /// zone version with the given serial number.
-    ///
-    /// Note: If the transfer contains N additions of fhe same record then
-    /// this event will occur N times.
-    AddRecord(Serial, R),
-
-    /// Prepare to delete records in zone serial S.
-    ///
-    /// The transfer signalled that zero or more record deletions will follow,
-    /// all for the zone version with the given serial number.
-    BeginBatchDelete(R),
-
-    /// Prepare to add records in zone serial S.
-    ///
-    /// The transfer signalled that zero or more record additions will follow,
-    /// all for the zone version with the given serial number.
-    BeginBatchAdd(R),
-
-    /// Transfer completed successfully.
-    ///
-    /// Note: This event is not emitted until the final record of the final
-    /// response in a set of one or more transfer responss has been seen.
-    EndOfTransfer(R),
-
-    /// Transfer processing failed.
-    ///
-    /// This event indicates that there is a problem with the transfer data
-    /// and that transfer processing cannot continue.
-    ProcessingFailed,
-}
-
-//--- Display
-
-impl<R> std::fmt::Display for XfrEvent<R> {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        match self {
-            XfrEvent::DeleteRecord(_, _) => f.write_str("DeleteRecord"),
-            XfrEvent::AddRecord(_, _) => f.write_str("AddRecord"),
-            XfrEvent::BeginBatchDelete(_) => f.write_str("BeginBatchDelete"),
-            XfrEvent::BeginBatchAdd(_) => f.write_str("BeginBatchAdd"),
-            XfrEvent::EndOfTransfer(_) => f.write_str("EndOfTransfer"),
-            XfrEvent::ProcessingFailed => f.write_str("ProcessingFailed"),
-        }
-    }
-}
-
 //------------ IxfrUpdateMode -------------------------------------------------
 
 /// The kind of records currently being processed, either adds or deletes.
@@ -140,7 +75,7 @@ impl IxfrUpdateMode {
 
 /// An error reported by [`XfrResponseInterpreter`].
 ///
-/// [`XfrResponseInterpreter`]: super::processor::XfrResponseInterpreter
+/// [`XfrResponseInterpreter`]: super::interpreter::XfrResponseInterpreter
 #[derive(Debug)]
 pub enum ProcessingError {
     /// The message could not be parsed.
@@ -171,9 +106,9 @@ impl std::fmt::Display for ProcessingError {
 
 //------------ IterationError -------------------------------------------------
 
-/// Errors that can occur during [`XfrEventIterator`]` iteration.
+/// Errors that can occur during [`XfrZoneUpdateIterator`]` iteration.
 ///
-/// [`XfrEventIterator`]: super::iterator::XfrEventIterator
+/// [`XfrZoneUpdateIterator`]: super::iterator::XfrZoneUpdateIterator
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum IterationError {
     /// Transfer processing failed.
