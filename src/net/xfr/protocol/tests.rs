@@ -276,7 +276,8 @@ fn ixfr_response_generates_expected_updates() {
     // Verify the updates emitted by the XFR interpreter.
     let owner =
         ParsedName::<Bytes>::from(Name::from_str("example.com").unwrap());
-    let expected_updates: [Result<ZoneUpdate<ParsedRecord>, IterationError>; 7] = [
+    let expected_updates: [Result<ZoneUpdate<ParsedRecord>, IterationError>;
+        7] = [
         Ok(ZoneUpdate::BeginBatchDelete(Record::from((
             owner.clone(),
             0,
