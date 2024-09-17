@@ -8,8 +8,8 @@ use core::fmt;
 
 use super::absolute::Name;
 use super::relative::RelativeName;
-use super::uncertain::UncertainName;
 use super::traits::{ToName, ToRelativeName};
+use super::uncertain::UncertainName;
 use super::Label;
 
 //------------ NameBuilder --------------------------------------------------
@@ -106,7 +106,9 @@ impl<Buffer: ?Sized> NameBuilder<Buffer> {
 
 /// # Building
 impl<Buffer: ?Sized> NameBuilder<Buffer>
-where Buffer: Borrow<[u8; 256]> + BorrowMut<[u8; 256]> {
+where
+    Buffer: Borrow<[u8; 256]> + BorrowMut<[u8; 256]>,
+{
     /// Append a whole label as a slice of bytes.
     ///
     /// The label is added to the end of the domain name.
@@ -120,15 +122,17 @@ where Buffer: Borrow<[u8; 256]> + BorrowMut<[u8; 256]> {
     ///
     /// Panics if a label was already being built.
     pub fn append_label(&mut self, label: &[u8]) -> Result<(), BuildError> {
-        assert!(self.label_offset == self.write_offset,
-            "cannot append a whole label to a partially-built one");
+        assert!(
+            self.label_offset == self.write_offset,
+            "cannot append a whole label to a partially-built one"
+        );
 
         // Ensure the new label will fit.
         self.can_fit_label(label.len())?;
 
         let buffer = self.buffer.borrow_mut();
         buffer[self.write_offset as usize] = label.len() as u8;
-        buffer[self.write_offset as usize + 1 ..][.. label.len()]
+        buffer[self.write_offset as usize + 1..][..label.len()]
             .copy_from_slice(label);
         self.write_offset += (1 + label.len()) as u8;
         self.label_offset = self.write_offset;
@@ -146,8 +150,9 @@ where Buffer: Borrow<[u8; 256]> + BorrowMut<[u8; 256]> {
     /// to the current domain name would make the domain name too big.
     pub fn append_slice(&mut self, data: &[u8]) -> Result<(), BuildError> {
         // Ensure the label being built will fit.
-        self.can_fit_label(data.len() + self.cur_label()
-                .map_or(0, |l| l.len()))?;
+        self.can_fit_label(
+            data.len() + self.cur_label().map_or(0, |l| l.len()),
+        )?;
 
         let buffer = self.buffer.borrow_mut();
         if self.label_offset == self.write_offset {
@@ -157,7 +162,7 @@ where Buffer: Borrow<[u8; 256]> + BorrowMut<[u8; 256]> {
         }
 
         // Append the new data.
-        buffer[self.write_offset as usize ..][.. data.len()]
+        buffer[self.write_offset as usize..][..data.len()]
             .copy_from_slice(data);
         self.write_offset += data.len() as u8;
 
@@ -181,10 +186,14 @@ where Buffer: Borrow<[u8; 256]> + BorrowMut<[u8; 256]> {
     ///
     /// This ignores any partially-built label already in the builder; its size
     /// should be included in the provided `label_size` parameter.
-    const fn can_fit_label(&self, label_size: usize) -> Result<(), BuildError> {
+    const fn can_fit_label(
+        &self,
+        label_size: usize,
+    ) -> Result<(), BuildError> {
         if label_size > Label::MAX_LEN {
             Err(BuildError::LongLabel)
-        } else if self.label_offset as usize + 1 + label_size > Name::MAX_LEN {
+        } else if self.label_offset as usize + 1 + label_size > Name::MAX_LEN
+        {
             Err(BuildError::LongName)
         } else {
             Ok(())
@@ -194,12 +203,14 @@ where Buffer: Borrow<[u8; 256]> + BorrowMut<[u8; 256]> {
 
 /// # Inspecting
 impl<Buffer: ?Sized> NameBuilder<Buffer>
-where Buffer: Borrow<[u8; 256]> {
+where
+    Buffer: Borrow<[u8; 256]>,
+{
     /// The domain name built thus far.
     ///
     /// This does not include any partially-built label.
     pub fn cur_slice(&self) -> &[u8] {
-        &self.buffer.borrow()[.. self.label_offset as usize]
+        &self.buffer.borrow()[..self.label_offset as usize]
     }
 
     /// The current label being built, if any.
@@ -209,7 +220,7 @@ where Buffer: Borrow<[u8; 256]> {
         if self.label_offset < self.write_offset {
             let label = self.label_offset as usize;
             let write = self.write_offset as usize;
-            Some(&self.buffer.borrow()[label + 1 .. write])
+            Some(&self.buffer.borrow()[label + 1..write])
         } else {
             None
         }
@@ -218,7 +229,9 @@ where Buffer: Borrow<[u8; 256]> {
 
 /// # Extracting
 impl<Buffer: ?Sized> NameBuilder<Buffer>
-where Buffer: Borrow<[u8; 256]> {
+where
+    Buffer: Borrow<[u8; 256]>,
+{
     /// Extract an absolute domain name from the builder.
     ///
     /// If the name does not end with the root label (which has length zero),
@@ -232,14 +245,19 @@ where Buffer: Borrow<[u8; 256]> {
     /// # Panics
     ///
     /// Panics if a non-empty label was in the process of being built.
-    pub fn as_absolute<'a, Octs>(&'a self)
-        -> Result<Option<Name<Octs>>, Octs::Error>
-    where Octs: TryFrom<&'a [u8]> {
-        assert!(self.write_offset <= self.label_offset + 1,
-            "cannot extract a domain name while a label is being built");
+    pub fn as_absolute<'a, Octs>(
+        &'a self,
+    ) -> Result<Option<Name<Octs>>, Octs::Error>
+    where
+        Octs: TryFrom<&'a [u8]>,
+    {
+        assert!(
+            self.write_offset <= self.label_offset + 1,
+            "cannot extract a domain name while a label is being built"
+        );
 
         if self.write_offset == self.label_offset {
-            let buffer = &self.buffer.borrow()[.. self.write_offset as usize];
+            let buffer = &self.buffer.borrow()[..self.write_offset as usize];
             let octseq = Octs::try_from(buffer)?;
             Ok(Some(unsafe {
                 // SAFETY: `buffer` contains a valid name that was built through
@@ -261,13 +279,18 @@ where Buffer: Borrow<[u8; 256]> {
     /// # Panics
     ///
     /// Panics if a label was in the process of being built.
-    pub fn as_relative<'a, Octs>(&'a self)
-        -> Result<RelativeName<Octs>, Octs::Error>
-    where Octs: TryFrom<&'a [u8]> {
-        assert!(self.label_offset == self.write_offset,
-            "cannot extract a domain name while a label is being built");
+    pub fn as_relative<'a, Octs>(
+        &'a self,
+    ) -> Result<RelativeName<Octs>, Octs::Error>
+    where
+        Octs: TryFrom<&'a [u8]>,
+    {
+        assert!(
+            self.label_offset == self.write_offset,
+            "cannot extract a domain name while a label is being built"
+        );
 
-        let buffer = &self.buffer.borrow()[.. self.write_offset as usize];
+        let buffer = &self.buffer.borrow()[..self.write_offset as usize];
         let octseq = Octs::try_from(buffer)?;
         Ok(unsafe {
             // SAFETY: `buffer` contains a valid name that was built through
@@ -287,13 +310,18 @@ where Buffer: Borrow<[u8; 256]> {
     /// # Panics
     ///
     /// Panics if a non-empty label was in the process of being built.
-    pub fn as_uncertain<'a, Octs>(&'a self)
-        -> Result<UncertainName<Octs>, Octs::Error>
-    where Octs: TryFrom<&'a [u8]> {
-        assert!(self.write_offset <= self.label_offset + 1,
-            "cannot extract a domain name while a label is being built");
+    pub fn as_uncertain<'a, Octs>(
+        &'a self,
+    ) -> Result<UncertainName<Octs>, Octs::Error>
+    where
+        Octs: TryFrom<&'a [u8]>,
+    {
+        assert!(
+            self.write_offset <= self.label_offset + 1,
+            "cannot extract a domain name while a label is being built"
+        );
 
-        let buffer = &self.buffer.borrow()[.. self.write_offset as usize];
+        let buffer = &self.buffer.borrow()[..self.write_offset as usize];
         let octseq = Octs::try_from(buffer)?;
         if self.write_offset == self.label_offset {
             Ok(unsafe {
