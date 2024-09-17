@@ -1,4 +1,5 @@
 use core::str::FromStr;
+use std::collections::VecDeque;
 
 use bytes::{Bytes, BytesMut};
 use octseq::{Octets, Parser};
@@ -17,7 +18,7 @@ use crate::rdata::{Soa, ZoneRecordData, A};
 use crate::zonetree::types::{ZoneUpdate, ZoneUpdate as ZU};
 
 use super::interpreter::XfrResponseInterpreter;
-use super::types::{IterationError, ProcessingError, XfrRecord};
+use super::types::{Error, IterationError, XfrRecord};
 
 #[test]
 fn non_xfr_response_is_rejected() {
@@ -26,8 +27,8 @@ fn non_xfr_response_is_rejected() {
     // Create an AXFR-like request to reply to.
     let req = mk_request("example.com", Rtype::AXFR).into_message();
 
-    // Create an XFR response processor.
-    let mut processor = XfrResponseInterpreter::new();
+    // Create an XFR response interpreter.
+    let mut interpreter = XfrResponseInterpreter::new();
 
     // Create a non-XFR response.
     let mut answer = mk_empty_answer(&req, Rcode::NOERROR);
@@ -35,10 +36,10 @@ fn non_xfr_response_is_rejected() {
     let resp = answer.into_message();
 
     // Process the response and assert that it is rejected as not being
-    // a valid XFR response and that no XFR processor events were emitted.
+    // a valid XFR response and that no XFR interpreter updates were emitted.
     assert!(matches!(
-        processor.process_answer(resp),
-        Err(ProcessingError::NotValidXfrResponse)
+        interpreter.intrepret_response(resp),
+        Err(Error::NotValidXfrResponse)
     ));
 }
 
@@ -49,17 +50,17 @@ fn axfr_response_with_no_answers_is_rejected() {
     // Create an AXFR request to reply to.
     let req = mk_request("example.com", Rtype::AXFR).into_message();
 
-    // Create an XFR response processor.
-    let mut processor = XfrResponseInterpreter::new();
+    // Create an XFR response interpreter.
+    let mut interpreter = XfrResponseInterpreter::new();
 
     // Create a response that lacks answers.
     let resp = mk_empty_answer(&req, Rcode::NOERROR).into_message();
 
     // Process the response and assert that it is rejected as not being
-    // a valid XFR response and that no XFR processor events were emitted.
+    // a valid XFR response and that no XFR interpreter updates were emitted.
     assert!(matches!(
-        processor.process_answer(resp),
-        Err(ProcessingError::NotValidXfrResponse)
+        interpreter.intrepret_response(resp),
+        Err(Error::NotValidXfrResponse)
     ));
 }
 
@@ -70,21 +71,21 @@ fn error_axfr_response_is_rejected() {
     // Create an AXFR request to reply to.
     let req = mk_request("example.com", Rtype::AXFR).into_message();
 
-    // Create an XFR response processor.
-    let mut processor = XfrResponseInterpreter::new();
+    // Create an XFR response interpreter.
+    let mut interpreter = XfrResponseInterpreter::new();
 
     // Create a minimal valid AXFR response, just something that should
-    // not be rejected by the XFR processor due to its content. It should
+    // not be rejected by the XFR interpreter due to its content. It should
     // however be rejected due to the non-NOERROR rcode.
     let mut answer = mk_empty_answer(&req, Rcode::SERVFAIL);
     add_answer_record(&req, &mut answer, mk_soa(Serial::now()));
     let resp = answer.into_message();
 
     // Process the response and assert that it is rejected as not being
-    // a valid XFR response and that no XFR processor events were emitted.
+    // a valid XFR response and that no XFR interpreter updates were emitted.
     assert!(matches!(
-        processor.process_answer(resp),
-        Err(ProcessingError::NotValidXfrResponse)
+        interpreter.intrepret_response(resp),
+        Err(Error::NotValidXfrResponse)
     ));
 }
 
@@ -95,8 +96,8 @@ fn incomplete_axfr_response_is_accepted() {
     // Create an AXFR request to reply to.
     let req = mk_request("example.com", Rtype::AXFR).into_message();
 
-    // Create an XFR response processor.
-    let mut processor = XfrResponseInterpreter::new();
+    // Create an XFR response interpreter.
+    let mut interpreter = XfrResponseInterpreter::new();
 
     // Create an incomplete AXFR response. A proper AXFR response has at
     // least two identical SOA records, one at the start and one at the
@@ -108,9 +109,9 @@ fn incomplete_axfr_response_is_accepted() {
     let resp = answer.into_message();
 
     // Process the response.
-    let mut it = processor.process_answer(resp).unwrap();
+    let mut it = interpreter.intrepret_response(resp).unwrap();
 
-    // Verify that no events are by the XFR processor.
+    // Verify that no updates are by the XFR interpreter.
     assert!(it.next().is_none());
 }
 
@@ -121,8 +122,8 @@ fn axfr_response_with_only_soas_is_accepted() {
     // Create an AXFR request to reply to.
     let req = mk_request("example.com", Rtype::AXFR).into_message();
 
-    // Create an XFR response processor.
-    let mut processor = XfrResponseInterpreter::new();
+    // Create an XFR response interpreter.
+    let mut interpreter = XfrResponseInterpreter::new();
 
     // Create a complete but minimal AXFR response. A proper AXFR response
     // has at least two identical SOA records, one at the start and one at
@@ -136,9 +137,9 @@ fn axfr_response_with_only_soas_is_accepted() {
     let resp = answer.into_message();
 
     // Process the response.
-    let mut it = processor.process_answer(resp).unwrap();
+    let mut it = interpreter.intrepret_response(resp).unwrap();
 
-    // Verify the events emitted by the XFR processor.
+    // Verify the updates emitted by the XFR interpreter.
     assert!(matches!(it.next(), Some(Ok(ZU::Finished(_)))));
     assert!(it.next().is_none());
 }
@@ -150,8 +151,8 @@ fn axfr_multi_response_with_only_soas_is_accepted() {
     // Create an AXFR request to reply to.
     let req = mk_request("example.com", Rtype::AXFR).into_message();
 
-    // Create an XFR response processor.
-    let mut processor = XfrResponseInterpreter::new();
+    // Create an XFR response interpreter.
+    let mut interpreter = XfrResponseInterpreter::new();
 
     // Create a complete but minimal AXFR response. A proper AXFR response
     // has at least two identical SOA records, one at the start and one at
@@ -164,9 +165,9 @@ fn axfr_multi_response_with_only_soas_is_accepted() {
     let resp = answer.into_message();
 
     // Process the response.
-    let mut it = processor.process_answer(resp).unwrap();
+    let mut it = interpreter.intrepret_response(resp).unwrap();
 
-    // Verify the events emitted by the XFR processor.
+    // Verify the updates emitted by the XFR interpreter.
     assert!(it.next().is_none());
 
     // Create another AXFR response to complete the transfer.
@@ -175,22 +176,22 @@ fn axfr_multi_response_with_only_soas_is_accepted() {
     let resp = answer.into_message();
 
     // Process the response.
-    let mut it = processor.process_answer(resp).unwrap();
+    let mut it = interpreter.intrepret_response(resp).unwrap();
 
-    // Verify the events emitted by the XFR processor.
+    // Verify the updates emitted by the XFR interpreter.
     assert!(matches!(it.next(), Some(Ok(ZU::Finished(_)))));
     assert!(it.next().is_none());
 }
 
 #[test]
-fn axfr_response_generates_expected_events() {
+fn axfr_response_generates_expected_updates() {
     init_logging();
 
     // Create an AXFR request to reply to.
     let req = mk_request("example.com", Rtype::AXFR).into_message();
 
-    // Create an XFR response processor.
-    let mut processor = XfrResponseInterpreter::new();
+    // Create an XFR response interpreter.
+    let mut interpreter = XfrResponseInterpreter::new();
 
     // Create an AXFR response.
     let mut answer = mk_empty_answer(&req, Rcode::NOERROR);
@@ -203,9 +204,9 @@ fn axfr_response_generates_expected_events() {
     let resp = answer.into_message();
 
     // Process the response.
-    let mut it = processor.process_answer(resp).unwrap();
+    let mut it = interpreter.intrepret_response(resp).unwrap();
 
-    // Verify the events emitted by the XFR processor.
+    // Verify the updates emitted by the XFR interpreter.
     let s = serial;
     assert!(matches!(it.next(), Some(Ok(ZU::AddRecord(n, _))) if n == s));
     assert!(matches!(it.next(), Some(Ok(ZU::AddRecord(n, _))) if n == s));
@@ -214,7 +215,7 @@ fn axfr_response_generates_expected_events() {
 }
 
 #[test]
-fn ixfr_response_generates_expected_events() {
+fn ixfr_response_generates_expected_updates() {
     init_logging();
 
     // Create an IXFR request to reply to.
@@ -225,8 +226,8 @@ fn ixfr_response_generates_expected_events() {
     add_authority_record(&mut authority, soa);
     let req = authority.into_message();
 
-    // Create an XFR response processor.
-    let mut processor = XfrResponseInterpreter::new();
+    // Create an XFR response interpreter.
+    let mut interpreter = XfrResponseInterpreter::new();
 
     // Prepare some serial numbers and SOA records to use in the IXFR response.
     let old_serial = client_serial;
@@ -256,7 +257,7 @@ fn ixfr_response_generates_expected_events() {
     let resp = answer.into_message();
 
     // Process the response.
-    let it = processor.process_answer(resp).unwrap();
+    let it = interpreter.intrepret_response(resp).unwrap();
 
     // Make parsed versions of the old and new SOAs.
     let mut buf = BytesMut::new();
@@ -271,10 +272,10 @@ fn ixfr_response_generates_expected_events() {
     let mut parser = Parser::from_ref(&buf);
     let expected_old_soa = Soa::parse(&mut parser).unwrap();
 
-    // Verify the events emitted by the XFR processor.
+    // Verify the updates emitted by the XFR interpreter.
     let owner =
         ParsedName::<Bytes>::from(Name::from_str("example.com").unwrap());
-    let expected_events: [Result<ZoneUpdate<XfrRecord>, IterationError>; 7] = [
+    let expected_updates: [Result<ZoneUpdate<XfrRecord>, IterationError>; 7] = [
         Ok(ZoneUpdate::BeginBatchDelete(Record::from((
             owner.clone(),
             0,
@@ -324,11 +325,11 @@ fn ixfr_response_generates_expected_events() {
         )))),
     ];
 
-    assert!(it.eq(expected_events));
+    assert!(it.eq(expected_updates));
 }
 
 #[test]
-fn multi_ixfr_response_generates_expected_events() {
+fn multi_ixfr_response_generates_expected_updates() {
     init_logging();
 
     // Create an IXFR request to reply to.
@@ -339,8 +340,52 @@ fn multi_ixfr_response_generates_expected_events() {
     add_authority_record(&mut authority, soa);
     let req = authority.into_message();
 
-    // Create an XFR response processor.
-    let mut processor = XfrResponseInterpreter::new();
+    // Prepare some serial numbers and SOA records to use in the IXFR response.
+    let old_serial = client_serial;
+    let new_serial = client_serial.add(1);
+    let old_soa = mk_soa(old_serial);
+    let new_soa = mk_soa(new_serial);
+
+    // Create a partial IXFR response.
+    let resp = mk_first_ixfr_response(&req, &new_soa, old_soa);
+
+    // Create an XFR response interpreter.
+    let mut interpreter = XfrResponseInterpreter::new();
+
+    // Process the response.
+    let mut it = interpreter.intrepret_response(resp).unwrap();
+
+    // Verify the updates emitted by the XFR interpreter.
+    assert!(matches!(it.next(), Some(Ok(ZU::BeginBatchDelete(_)))));
+    assert!(matches!(it.next(), Some(Ok(ZU::DeleteRecord(..)))));
+    assert!(it.next().is_none());
+
+    // Craete a second IXFR response that completes the transfer
+    let resp = mk_second_ixfr_response(req, new_soa);
+
+    // Process the response.
+    let mut it = interpreter.intrepret_response(resp).unwrap();
+
+    // Verify the updates emitted by the XFR interpreter.
+    assert!(matches!(it.next(), Some(Ok(ZU::DeleteRecord(..)))));
+    assert!(matches!(it.next(), Some(Ok(ZU::BeginBatchAdd(_)))));
+    assert!(matches!(it.next(), Some(Ok(ZU::AddRecord(..)))));
+    assert!(matches!(it.next(), Some(Ok(ZU::AddRecord(..)))));
+    assert!(matches!(it.next(), Some(Ok(ZU::Finished(_)))));
+    assert!(it.next().is_none());
+}
+
+#[test]
+fn is_finished() {
+    init_logging();
+
+    // Create an IXFR request to reply to.
+    let req = mk_request("example.com", Rtype::IXFR);
+    let mut authority = req.authority();
+    let client_serial = Serial::now();
+    let soa = mk_soa(client_serial);
+    add_authority_record(&mut authority, soa);
+    let req = authority.into_message();
 
     // Prepare some serial numbers and SOA records to use in the IXFR response.
     let old_serial = client_serial;
@@ -349,26 +394,49 @@ fn multi_ixfr_response_generates_expected_events() {
     let new_soa = mk_soa(new_serial);
 
     // Create a partial IXFR response.
-    let mut answer = mk_empty_answer(&req, Rcode::NOERROR);
+    let mut responses: VecDeque<_> = vec![
+        mk_first_ixfr_response(&req, &new_soa, old_soa),
+        mk_second_ixfr_response(req, new_soa),
+    ]
+    .into();
+
+    // Create an XFR response interpreter.
+    let mut interpreter = XfrResponseInterpreter::new();
+
+    // Process the responses
+    let mut count = 0;
+    while !interpreter.is_finished() {
+        let resp = responses.pop_front().unwrap();
+        let it = interpreter.intrepret_response(resp).unwrap();
+        count += it.count();
+    }
+
+    assert!(interpreter.is_finished());
+    assert!(responses.is_empty());
+    assert_eq!(count, 7);
+}
+
+fn mk_first_ixfr_response(
+    req: &Message<Bytes>,
+    new_soa: &Soa<Name<Bytes>>,
+    old_soa: Soa<Name<Bytes>>,
+) -> Message<Bytes> {
+    let mut answer = mk_empty_answer(req, Rcode::NOERROR);
     // Outer SOA with servers current SOA
-    add_answer_record(&req, &mut answer, new_soa.clone());
+    add_answer_record(req, &mut answer, new_soa.clone());
     // Start of diff sequence: SOA of the servers' previous zone version
     // (which matches that of the client) followed by records to be
     // deleted as they were in that version of the zone but are not in the
     // new version of the zone.
-    add_answer_record(&req, &mut answer, old_soa);
-    add_answer_record(&req, &mut answer, A::new(Ipv4Addr::LOCALHOST));
-    let resp = answer.into_message();
+    add_answer_record(req, &mut answer, old_soa);
+    add_answer_record(req, &mut answer, A::new(Ipv4Addr::LOCALHOST));
+    answer.into_message()
+}
 
-    // Process the response.
-    let mut it = processor.process_answer(resp).unwrap();
-
-    // Verify the events emitted by the XFR processor.
-    assert!(matches!(it.next(), Some(Ok(ZU::BeginBatchDelete(_)))));
-    assert!(matches!(it.next(), Some(Ok(ZU::DeleteRecord(..)))));
-    assert!(it.next().is_none());
-
-    // Craete a second IXFR response that completes the transfer
+fn mk_second_ixfr_response(
+    req: Message<Bytes>,
+    new_soa: Soa<Name<Bytes>>,
+) -> Message<Bytes> {
     let mut answer = mk_empty_answer(&req, Rcode::NOERROR);
     add_answer_record(&req, &mut answer, A::new(Ipv4Addr::BROADCAST));
     // SOA of the servers` new zone version (which is ahead of that of the
@@ -379,18 +447,7 @@ fn multi_ixfr_response_generates_expected_events() {
     add_answer_record(&req, &mut answer, A::new(Ipv4Addr::LOCALHOST));
     // Closing SOA with servers current SOA
     add_answer_record(&req, &mut answer, new_soa);
-    let resp = answer.into_message();
-
-    // Process the response.
-    let mut it = processor.process_answer(resp).unwrap();
-
-    // Verify the events emitted by the XFR processor.
-    assert!(matches!(it.next(), Some(Ok(ZU::DeleteRecord(..)))));
-    assert!(matches!(it.next(), Some(Ok(ZU::BeginBatchAdd(_)))));
-    assert!(matches!(it.next(), Some(Ok(ZU::AddRecord(..)))));
-    assert!(matches!(it.next(), Some(Ok(ZU::AddRecord(..)))));
-    assert!(matches!(it.next(), Some(Ok(ZU::Finished(_)))));
-    assert!(it.next().is_none());
+    answer.into_message()
 }
 
 //------------ Helper functions -------------------------------------------

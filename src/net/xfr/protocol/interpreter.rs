@@ -8,7 +8,7 @@ use crate::rdata::{Soa, ZoneRecordData};
 use crate::zonetree::types::ZoneUpdate;
 
 use super::iterator::XfrZoneUpdateIterator;
-use super::types::{IxfrUpdateMode, ProcessingError, XfrRecord, XfrType};
+use super::types::{Error, IxfrUpdateMode, XfrRecord, XfrType};
 
 //------------ XfrResponseInterpreter -----------------------------------------
 
@@ -21,25 +21,25 @@ use super::types::{IxfrUpdateMode, ProcessingError, XfrRecord, XfrType};
 ///
 /// For each response stream to be interpreted, construct an
 /// [`XfrResponseInterpreter`] for the corresponding XFR request message, then
-/// pass each XFR response message to [`process_answer()`].
+/// pass each XFR response message to [`intrepret_response()`].
 ///
-/// Each call to [`process_answer()`] will return an [`XfrZoneUpdateIterator`]
+/// Each call to [`intrepret_response()`] will return an [`XfrZoneUpdateIterator`]
 /// which when iterated over will produce a sequence of [`ZoneUpdate`]s for a
 /// single response message. The iterator emits [`ZoneUpdate::Complete`] when
 /// the last record in the transfer is reached.
 ///
 /// If [`ZoneUpdate::Complete`] has not yet been emitted it means that the
 /// sequence is incomplete and the next response message in the sequence
-/// should be passed to [`process_answer()`].
+/// should be passed to [`intrepret_response()`].
 ///
-/// [`process_answer()`]: XfrResponseInterpreter::process_answer()
+/// [`intrepret_response()`]: XfrResponseInterpreter::intrepret_response()
 /// [`ZoneUpdate`]: crate::zonetree::types::ZoneUpdate
 /// [`ZoneUpdate::Complete`]: crate::zonetree::types::ZoneUpdate
 #[derive(Default)]
 pub struct XfrResponseInterpreter {
     /// Internal state.
     ///
-    /// None until the first call to [`process_answer()`].
+    /// None until the first call to [`intrepret_response()`].
     inner: Option<Inner>,
 }
 
@@ -53,23 +53,26 @@ impl XfrResponseInterpreter {
 impl XfrResponseInterpreter {
     /// Process a single AXFR/IXFR response message.
     ///
-    /// Returns an [`XfrZoneUpdateIterator`] over [`ZoneUpdate`]s emitted during
-    /// processing.
+    /// Returns an [`XfrZoneUpdateIterator`] over [`ZoneUpdate`]s emitted
+    /// during processing.
     ///
     /// Call this function with the next outstanding response message to
     /// continue iterating over an incomplete transfer (i.e. previous
-    /// iterators were exhausted without emiting [`ZoneUpdate::Finished`] or
-    /// [`ZoneUpdate::Corrupt`]).
+    /// iterators were exhausted without emiting [`ZoneUpdate::Finished`].
     ///
     /// Checking that the given response corresponds by ID to the related
     /// original XFR query or that the question section of the response, if
     /// present (RFC 5936 allows it to be empty for subsequent AXFR responses)
     /// matches that of the original query is NOT done here but instead is
     /// left to the caller to do.
-    pub fn process_answer(
+    pub fn intrepret_response(
         &mut self,
         resp: Message<Bytes>,
-    ) -> Result<XfrZoneUpdateIterator, ProcessingError> {
+    ) -> Result<XfrZoneUpdateIterator, Error> {
+        if self.is_finished() {
+            return Err(Error::Finished);
+        }
+
         // Check that the given message is a DNS XFR response.
         self.check_response(&resp)?;
 
@@ -83,14 +86,21 @@ impl XfrResponseInterpreter {
 
         XfrZoneUpdateIterator::new(&mut inner.state, &inner.resp)
     }
+
+    /// Is the transfer finished?
+    ///
+    /// Returns true if the end of the transfer has been detected, false otherwise.
+    pub fn is_finished(&self) -> bool {
+        self.inner
+            .as_ref()
+            .map(|inner| inner.state.finished)
+            .unwrap_or_default()
+    }
 }
 
 impl XfrResponseInterpreter {
     /// Initialize inner state.
-    fn initialize(
-        &mut self,
-        resp: Message<Bytes>,
-    ) -> Result<(), ProcessingError> {
+    fn initialize(&mut self, resp: Message<Bytes>) -> Result<(), Error> {
         self.inner = Some(Inner::new(resp)?);
         Ok(())
     }
@@ -103,10 +113,7 @@ impl XfrResponseInterpreter {
     /// Returns Ok on success, Err otherwise. On success the type of XFR that
     /// was determined is returned as well as the answer section from the XFR
     /// response.
-    fn check_response(
-        &self,
-        resp: &Message<Bytes>,
-    ) -> Result<(), ProcessingError> {
+    fn check_response(&self, resp: &Message<Bytes>) -> Result<(), Error> {
         let resp_header = resp.header();
         let resp_counts = resp.header_counts();
 
@@ -117,7 +124,7 @@ impl XfrResponseInterpreter {
             || resp_counts.ancount() == 0
             || resp_counts.nscount() != 0
         {
-            return Err(ProcessingError::NotValidXfrResponse);
+            return Err(Error::NotValidXfrResponse);
         }
 
         //https://www.rfc-editor.org/rfc/rfc5936.html#section-2.2.1
@@ -128,7 +135,7 @@ impl XfrResponseInterpreter {
         let first_message = self.inner.is_none();
         if (first_message && qdcount != 1) || (!first_message && qdcount > 1)
         {
-            return Err(ProcessingError::NotValidXfrResponse);
+            return Err(Error::NotValidXfrResponse);
         }
 
         Ok(())
@@ -140,7 +147,7 @@ impl XfrResponseInterpreter {
 /// Internal dynamic state of [`XfrResponseInterpreter`].
 ///
 /// Separated out from [`XfrResponseInterpreter`] to avoid needing multiple
-/// mutable self references in [`process_answer()`].
+/// mutable self references in [`intrepret_response()`].
 struct Inner {
     /// The response message currently being processed.
     resp: Message<Bytes>,
@@ -154,8 +161,8 @@ impl Inner {
     ///
     /// Records the initial SOA record and other details will will be used
     /// while processing the rest of the response.
-    fn new(resp: Message<Bytes>) -> Result<Self, ProcessingError> {
-        let answer = resp.answer().map_err(ProcessingError::ParseError)?;
+    fn new(resp: Message<Bytes>) -> Result<Self, Error> {
+        let answer = resp.answer().map_err(Error::ParseError)?;
 
         // https://datatracker.ietf.org/doc/html/rfc5936#section-3
         // 3. Zone Contents
@@ -183,12 +190,12 @@ impl Inner {
         };
 
         let Some(Ok(record)) = records.next() else {
-            return Err(ProcessingError::Malformed);
+            return Err(Error::Malformed);
         };
 
         // The initial record should be a SOA record.
         let ZoneRecordData::Soa(soa) = record.into_data() else {
-            return Err(ProcessingError::NotValidXfrResponse);
+            return Err(Error::NotValidXfrResponse);
         };
 
         let state = RecordProcessor::new(xfr_type, soa);
@@ -225,6 +232,9 @@ pub(super) struct RecordProcessor {
 
     /// The number of resource records parsed so far.
     pub(super) rr_count: usize,
+
+    /// True if the end of the transfer has been detected, false otherwise.
+    pub(super) finished: bool,
 }
 
 impl RecordProcessor {
@@ -239,12 +249,13 @@ impl RecordProcessor {
             current_soa: initial_soa,
             rr_count: 0,
             ixfr_update_mode: Default::default(),
+            finished: false,
         }
     }
 
     /// Process a single resource record.
     ///
-    /// Returns an [`XfrEvent`] that should be emitted for the processed
+    /// Returns a [`ZoneUpdate`] that should be emitted for the processed
     /// record, if any.
     pub(super) fn process_record(
         &mut self,
@@ -273,7 +284,7 @@ impl RecordProcessor {
 
         let record_matches_initial_soa = soa == Some(&self.initial_soa);
 
-        match self.actual_xfr_type {
+        let update = match self.actual_xfr_type {
             XfrType::Axfr if record_matches_initial_soa => {
                 // https://www.rfc-editor.org/rfc/rfc5936.html#section-2.2
                 // 2.2.  AXFR Response
@@ -377,6 +388,12 @@ impl RecordProcessor {
                     }
                 }
             }
+        };
+
+        if matches!(update, ZoneUpdate::Finished(_)) {
+            self.finished = true;
         }
+
+        update
     }
 }

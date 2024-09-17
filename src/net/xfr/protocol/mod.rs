@@ -15,4 +15,4 @@ mod tests;
 
 pub use interpreter::XfrResponseInterpreter;
 pub use iterator::XfrZoneUpdateIterator;
-pub use types::{IterationError, ProcessingError, XfrRecord};
+pub use types::{Error, IterationError, XfrRecord};

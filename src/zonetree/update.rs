@@ -1,4 +1,38 @@
-//! Support for applying XFR changes to a [`Zone`].
+//! High-level support for applying changes to a [`Zone`].
+//!
+//! This module provides a high-level interface for making alterations to the
+//! content of zones without requiring knowledge of the low-level details of
+//! how the [`WritableZone`] trait implemented by [`Zone`] works.
+//!
+//! # Applying XFR changes to a zone
+//!
+//! ```rust
+//! // Given a ZoneUpdater
+//! let mut updater = ZoneUpdater::new(&zone).await.unwrap();
+//!
+//! // And a zone
+//! let builder = ZoneBuilder::new(Name::from_str("example.com").unwrap(), Class::IN);
+//! let zone = builder.build()
+//!
+//! // And an XFR response interpreter
+//! let mut interpreter = XfrResponseInterpreter::new();
+//!
+//! // Iterate over the XFR responses applying the updates to the zone
+//! while !updater.finished() {
+//!     // Get the next XFR response
+//!     // let next_xfr_response = ...
+//!
+//!     // Convert it to an update iterator
+//!     let it = interpreter.intrepret_response(next_xfr_response).unwrap();
+//!
+//!     // Iterate over the updates
+//!     for update in it {
+//!         // Apply each update to the zone
+//!         updater.apply(update.unwrap()).await.unwrap();
+//!     }
+//! }
+//!
+//! ```
 use std::borrow::ToOwned;
 use std::boxed::Box;
 
@@ -16,8 +50,8 @@ use super::types::ZoneUpdate;
 use super::{WritableZone, WritableZoneNode, Zone};
 
 /// TODO
-pub struct ZoneUpdater {
-    zone: Zone,
+pub struct ZoneUpdater<'a> {
+    zone: &'a Zone,
 
     write: WriteState,
 
@@ -26,10 +60,10 @@ pub struct ZoneUpdater {
     first_event_seen: bool,
 }
 
-impl ZoneUpdater {
+impl<'a> ZoneUpdater<'a> {
     /// TODO
-    pub async fn new(zone: Zone) -> std::io::Result<Self> {
-        let write = WriteState::new(&zone).await?;
+    pub async fn new(zone: &'a Zone) -> std::io::Result<Self> {
+        let write = WriteState::new(zone).await?;
 
         Ok(Self {
             zone,
@@ -38,7 +72,61 @@ impl ZoneUpdater {
             first_event_seen: false,
         })
     }
+}
 
+impl<'a> ZoneUpdater<'a> {
+    /// TODO
+    pub async fn apply(
+        &mut self,
+        evt: ZoneUpdate<XfrRecord>,
+    ) -> Result<(), ()> {
+        trace!("Event: {evt}");
+        match evt {
+            ZoneUpdate::DeleteRecord(_serial, rec) => {
+                self.delete_record(rec).await?
+            }
+
+            ZoneUpdate::AddRecord(_serial, rec) => {
+                self.add_record(rec).await?
+            }
+
+            // Note: Batches first contain deletions then additions, so batch
+            // deletion signals the start of a batch, and the end of any
+            // previous batch addition.
+            ZoneUpdate::BeginBatchDelete(_old_soa) => {
+                if self.batching {
+                    // Commit the previous batch.
+                    self.write.commit().await?;
+                    // Open a writer for the new batch.
+                    self.write.reopen().await.map_err(|_| ())?;
+                }
+
+                self.batching = true;
+            }
+
+            ZoneUpdate::BeginBatchAdd(new_soa) => {
+                // Update the SOA record.
+                self.update_soa(new_soa).await?;
+                self.batching = true;
+            }
+
+            ZoneUpdate::Finished(zone_soa) => {
+                if !self.batching {
+                    // Update the SOA record.
+                    self.update_soa(zone_soa).await?;
+                }
+                // Commit the previous batch.
+                self.write.commit().await?;
+            }
+        }
+
+        self.first_event_seen = true;
+
+        Ok(())
+    }
+}
+
+impl<'a> ZoneUpdater<'a> {
     fn mk_relative_name_iterator<'l>(
         apex_name: &Name<Bytes>,
         qname: &'l impl ToName,
@@ -96,60 +184,6 @@ impl ZoneUpdater {
 
         let rrset = Rrset::new(rtype, ttl);
         Ok((rtype, data, end_node, rrset))
-    }
-
-    /// TODO
-    pub async fn handle_event(
-        &mut self,
-        evt: ZoneUpdate<XfrRecord>,
-    ) -> Result<(), ()> {
-        trace!("Event: {evt}");
-        match evt {
-            ZoneUpdate::DeleteRecord(_serial, rec) => {
-                self.delete_record(rec).await?
-            }
-
-            ZoneUpdate::AddRecord(_serial, rec) => {
-                self.add_record(rec).await?
-            }
-
-            // Note: Batches first contain deletions then additions, so batch
-            // deletion signals the start of a batch, and the end of any
-            // previous batch addition.
-            ZoneUpdate::BeginBatchDelete(_old_soa) => {
-                if self.batching {
-                    // Commit the previous batch.
-                    self.write.commit().await?;
-                    // Open a writer for the new batch.
-                    self.write.reopen().await.map_err(|_| ())?;
-                }
-
-                self.batching = true;
-            }
-
-            ZoneUpdate::BeginBatchAdd(new_soa) => {
-                // Update the SOA record.
-                self.update_soa(new_soa).await?;
-                self.batching = true;
-            }
-
-            ZoneUpdate::Finished(zone_soa) => {
-                if !self.batching {
-                    // Update the SOA record.
-                    self.update_soa(zone_soa).await?;
-                }
-                // Commit the previous batch.
-                self.write.commit().await?;
-            }
-
-            ZoneUpdate::Corrupt => {
-                // ???
-            }
-        }
-
-        self.first_event_seen = true;
-
-        Ok(())
     }
 
     async fn update_soa(
@@ -323,7 +357,7 @@ mod tests {
 
         let zone = mk_empty_zone("example.com");
 
-        let mut evt_handler = ZoneUpdater::new(zone.clone()).await.unwrap();
+        let mut updater = ZoneUpdater::new(&zone).await.unwrap();
 
         let s = Serial::now();
         let soa = mk_soa(s);
@@ -335,15 +369,12 @@ mod tests {
             soa,
         );
 
-        evt_handler
-            .handle_event(ZoneUpdate::AddRecord(s, soa.clone()))
+        updater
+            .apply(ZoneUpdate::AddRecord(s, soa.clone()))
             .await
             .unwrap();
 
-        evt_handler
-            .handle_event(ZoneUpdate::Finished(soa))
-            .await
-            .unwrap();
+        updater.apply(ZoneUpdate::Finished(soa)).await.unwrap();
     }
 
     #[tokio::test]
@@ -352,13 +383,13 @@ mod tests {
 
         let zone = mk_empty_zone("example.com");
 
-        let mut evt_handler = ZoneUpdater::new(zone.clone()).await.unwrap();
+        let mut updater = ZoneUpdater::new(&zone).await.unwrap();
 
         // Create an AXFR request to reply to.
         let req = mk_request("example.com", Rtype::AXFR).into_message();
 
-        // Create an XFR response processor.
-        let mut processor = XfrResponseInterpreter::new();
+        // Create an XFR response interpreter.
+        let mut interpreter = XfrResponseInterpreter::new();
 
         // Create an AXFR response.
         let mut answer = mk_empty_answer(&req, Rcode::NOERROR);
@@ -371,11 +402,11 @@ mod tests {
         let resp = answer.into_message();
 
         // Process the response.
-        let it = processor.process_answer(resp).unwrap();
+        let it = interpreter.intrepret_response(resp).unwrap();
 
-        for evt in it {
-            let evt = evt.unwrap();
-            evt_handler.handle_event(evt).await.unwrap();
+        for update in it {
+            let update = update.unwrap();
+            updater.apply(update).await.unwrap();
         }
 
         dbg!(zone);
