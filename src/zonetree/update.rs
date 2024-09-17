@@ -3,7 +3,7 @@
 //! This module provides a high-level interface for making alterations to the
 //! content of zones without requiring knowledge of the low-level details of
 //! how the [`WritableZone`] trait implemented by [`Zone`] works.
-//! 
+//!
 //! It can be used manually, or in combination with a source of
 //! [`ZoneUpdate`]s such as
 //! [`XfrResponseInterpreter`][crate::net::xfr::protocol::XfrResponseInterpreter].
@@ -12,21 +12,21 @@
 //!
 //! ```no_run
 //! # use std::str::FromStr;
-//! # 
+//! #
 //! # use domain::base::iana::Class;
 //! # use domain::base::MessageBuilder;
 //! # use domain::base::Name;
 //! # use domain::net::xfr::protocol::XfrResponseInterpreter;
 //! # use domain::zonetree::ZoneBuilder;
 //! # use domain::zonetree::update::ZoneUpdater;
-//! # 
+//! #
 //! # #[tokio::main]
 //! # async fn main() {
-//! # 
+//! #
 //! // Given a zone
 //! let builder = ZoneBuilder::new(Name::from_str("example.com").unwrap(), Class::IN);
 //! let zone = builder.build();
-//! 
+//!
 //! // And a ZoneUpdater
 //! let mut updater = ZoneUpdater::new(zone.clone()).await.unwrap();
 //!
@@ -47,7 +47,7 @@
 //!         updater.apply(update.unwrap()).await.unwrap();
 //!     }
 //! }
-//! # 
+//! #
 //! # }
 //! ```
 use core::future::Future;
