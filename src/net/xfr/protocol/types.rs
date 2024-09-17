@@ -77,7 +77,7 @@ impl IxfrUpdateMode {
 ///
 /// [`XfrResponseInterpreter`]: super::interpreter::XfrResponseInterpreter
 #[derive(Debug)]
-pub enum ProcessingError {
+pub enum Error {
     /// The message could not be parsed.
     ParseError(ParseError),
 
@@ -86,20 +86,22 @@ pub enum ProcessingError {
 
     /// At least one record in the XFR response sequence is incorrect.
     Malformed,
+
+    /// A complete transfer was already processed.
+    Finished,
 }
 
-impl std::fmt::Display for ProcessingError {
+impl std::fmt::Display for Error {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            ProcessingError::ParseError(err) => {
+            Error::ParseError(err) => {
                 f.write_fmt(format_args!("XFR response parsing error: {err}"))
             }
-            ProcessingError::NotValidXfrResponse => {
+            Error::NotValidXfrResponse => {
                 f.write_str("Not a valid XFR response")
             }
-            ProcessingError::Malformed => {
-                f.write_str("Malformed XFR response")
-            }
+            Error::Malformed => f.write_str("Malformed XFR response"),
+            Error::Finished => f.write_str("XFR already finished"),
         }
     }
 }

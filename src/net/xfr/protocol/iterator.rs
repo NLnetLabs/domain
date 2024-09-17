@@ -9,7 +9,7 @@ use crate::rdata::ZoneRecordData;
 use crate::zonetree::types::ZoneUpdate;
 
 use super::interpreter::RecordProcessor;
-use super::types::{IterationError, ProcessingError, XfrRecord};
+use super::types::{Error, IterationError, XfrRecord};
 
 //------------ XfrZoneUpdateIterator ------------------------------------------
 
@@ -28,8 +28,8 @@ impl<'a, 'b> XfrZoneUpdateIterator<'a, 'b> {
     pub(super) fn new(
         state: &'a mut RecordProcessor,
         resp: &'b Message<Bytes>,
-    ) -> Result<Self, ProcessingError> {
-        let answer = resp.answer().map_err(ProcessingError::ParseError)?;
+    ) -> Result<Self, Error> {
+        let answer = resp.answer().map_err(Error::ParseError)?;
 
         // https://datatracker.ietf.org/doc/html/rfc5936#section-3
         // 3. Zone Contents
@@ -52,7 +52,7 @@ impl<'a, 'b> XfrZoneUpdateIterator<'a, 'b> {
 
         if state.rr_count == 0 {
             let Some(Ok(_)) = iter.next() else {
-                return Err(ProcessingError::Malformed);
+                return Err(Error::Malformed);
             };
             state.rr_count += 1;
         }
