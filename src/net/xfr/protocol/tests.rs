@@ -39,7 +39,7 @@ fn non_xfr_response_is_rejected() {
     // Process the response and assert that it is rejected as not being
     // a valid XFR response and that no XFR interpreter updates were emitted.
     assert!(matches!(
-        interpreter.intrepret_response(resp),
+        interpreter.interpret_response(resp),
         Err(Error::NotValidXfrResponse)
     ));
 }
@@ -60,7 +60,7 @@ fn axfr_response_with_no_answers_is_rejected() {
     // Process the response and assert that it is rejected as not being
     // a valid XFR response and that no XFR interpreter updates were emitted.
     assert!(matches!(
-        interpreter.intrepret_response(resp),
+        interpreter.interpret_response(resp),
         Err(Error::NotValidXfrResponse)
     ));
 }
@@ -85,7 +85,7 @@ fn error_axfr_response_is_rejected() {
     // Process the response and assert that it is rejected as not being
     // a valid XFR response and that no XFR interpreter updates were emitted.
     assert!(matches!(
-        interpreter.intrepret_response(resp),
+        interpreter.interpret_response(resp),
         Err(Error::NotValidXfrResponse)
     ));
 }
@@ -110,7 +110,7 @@ fn incomplete_axfr_response_is_accepted() {
     let resp = answer.into_message();
 
     // Process the response.
-    let mut it = interpreter.intrepret_response(resp).unwrap();
+    let mut it = interpreter.interpret_response(resp).unwrap();
 
     // Verify that no updates are by the XFR interpreter.
     assert!(it.next().is_none());
@@ -138,7 +138,7 @@ fn axfr_response_with_only_soas_is_accepted() {
     let resp = answer.into_message();
 
     // Process the response.
-    let mut it = interpreter.intrepret_response(resp).unwrap();
+    let mut it = interpreter.interpret_response(resp).unwrap();
 
     // Verify the updates emitted by the XFR interpreter.
     assert!(matches!(it.next(), Some(Ok(ZU::Finished(_)))));
@@ -166,7 +166,7 @@ fn axfr_multi_response_with_only_soas_is_accepted() {
     let resp = answer.into_message();
 
     // Process the response.
-    let mut it = interpreter.intrepret_response(resp).unwrap();
+    let mut it = interpreter.interpret_response(resp).unwrap();
 
     // Verify the updates emitted by the XFR interpreter.
     assert!(it.next().is_none());
@@ -177,7 +177,7 @@ fn axfr_multi_response_with_only_soas_is_accepted() {
     let resp = answer.into_message();
 
     // Process the response.
-    let mut it = interpreter.intrepret_response(resp).unwrap();
+    let mut it = interpreter.interpret_response(resp).unwrap();
 
     // Verify the updates emitted by the XFR interpreter.
     assert!(matches!(it.next(), Some(Ok(ZU::Finished(_)))));
@@ -205,7 +205,7 @@ fn axfr_response_generates_expected_updates() {
     let resp = answer.into_message();
 
     // Process the response.
-    let mut it = interpreter.intrepret_response(resp).unwrap();
+    let mut it = interpreter.interpret_response(resp).unwrap();
 
     // Verify the updates emitted by the XFR interpreter.
     let s = serial;
@@ -258,7 +258,7 @@ fn ixfr_response_generates_expected_updates() {
     let resp = answer.into_message();
 
     // Process the response.
-    let it = interpreter.intrepret_response(resp).unwrap();
+    let it = interpreter.interpret_response(resp).unwrap();
 
     // Make parsed versions of the old and new SOAs.
     let mut buf = BytesMut::new();
@@ -354,7 +354,7 @@ fn multi_ixfr_response_generates_expected_updates() {
     let mut interpreter = XfrResponseInterpreter::new();
 
     // Process the response.
-    let mut it = interpreter.intrepret_response(resp).unwrap();
+    let mut it = interpreter.interpret_response(resp).unwrap();
 
     // Verify the updates emitted by the XFR interpreter.
     assert!(matches!(it.next(), Some(Ok(ZU::BeginBatchDelete(_)))));
@@ -365,7 +365,7 @@ fn multi_ixfr_response_generates_expected_updates() {
     let resp = mk_second_ixfr_response(req, new_soa);
 
     // Process the response.
-    let mut it = interpreter.intrepret_response(resp).unwrap();
+    let mut it = interpreter.interpret_response(resp).unwrap();
 
     // Verify the updates emitted by the XFR interpreter.
     assert!(matches!(it.next(), Some(Ok(ZU::DeleteRecord(..)))));
@@ -408,7 +408,7 @@ fn is_finished() {
     let mut count = 0;
     while !interpreter.is_finished() {
         let resp = responses.pop_front().unwrap();
-        let it = interpreter.intrepret_response(resp).unwrap();
+        let it = interpreter.interpret_response(resp).unwrap();
         count += it.count();
     }
 

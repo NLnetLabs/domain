@@ -21,25 +21,25 @@ use super::types::{Error, IxfrUpdateMode, XfrRecord, XfrType};
 ///
 /// For each response stream to be interpreted, construct an
 /// [`XfrResponseInterpreter`] for the corresponding XFR request message, then
-/// pass each XFR response message to [`intrepret_response()`].
+/// pass each XFR response message to [`interpret_response()`].
 ///
-/// Each call to [`intrepret_response()`] will return an [`XfrZoneUpdateIterator`]
+/// Each call to [`interpret_response()`] will return an [`XfrZoneUpdateIterator`]
 /// which when iterated over will produce a sequence of [`ZoneUpdate`]s for a
 /// single response message. The iterator emits [`ZoneUpdate::Complete`] when
 /// the last record in the transfer is reached.
 ///
 /// If [`ZoneUpdate::Complete`] has not yet been emitted it means that the
 /// sequence is incomplete and the next response message in the sequence
-/// should be passed to [`intrepret_response()`].
+/// should be passed to [`interpret_response()`].
 ///
-/// [`intrepret_response()`]: XfrResponseInterpreter::intrepret_response()
+/// [`interpret_response()`]: XfrResponseInterpreter::interpret_response()
 /// [`ZoneUpdate`]: crate::zonetree::types::ZoneUpdate
 /// [`ZoneUpdate::Complete`]: crate::zonetree::types::ZoneUpdate
 #[derive(Default)]
 pub struct XfrResponseInterpreter {
     /// Internal state.
     ///
-    /// None until the first call to [`intrepret_response()`].
+    /// None until the first call to [`interpret_response()`].
     inner: Option<Inner>,
 }
 
@@ -65,7 +65,7 @@ impl XfrResponseInterpreter {
     /// present (RFC 5936 allows it to be empty for subsequent AXFR responses)
     /// matches that of the original query is NOT done here but instead is
     /// left to the caller to do.
-    pub fn intrepret_response(
+    pub fn interpret_response(
         &mut self,
         resp: Message<Bytes>,
     ) -> Result<XfrZoneUpdateIterator, Error> {
@@ -147,7 +147,7 @@ impl XfrResponseInterpreter {
 /// Internal dynamic state of [`XfrResponseInterpreter`].
 ///
 /// Separated out from [`XfrResponseInterpreter`] to avoid needing multiple
-/// mutable self references in [`intrepret_response()`].
+/// mutable self references in [`interpret_response()`].
 struct Inner {
     /// The response message currently being processed.
     resp: Message<Bytes>,
