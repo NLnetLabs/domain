@@ -694,8 +694,8 @@ impl<K: AsRef<Key>> ServerTransaction<K> {
     ///
     /// This is the same as [`Self::key`] but doesn't lose the original key
     /// type information.
-    pub fn key_wrapper(&self) -> &K {
-        self.context.key_wrapper()
+    pub fn wrapped_key(&self) -> &K {
+        self.context.wrapped_key()
     }
 }
 
@@ -1029,8 +1029,8 @@ impl<K: AsRef<Key>> ServerSequence<K> {
     ///
     /// This is the same as [`Self::key`] but doesn't lose the original key
     /// type information.
-    pub fn key_wrapper(&self) -> &K {
-        self.context.key_wrapper()
+    pub fn wrapped_key(&self) -> &K {
+        self.context.wrapped_key()
     }
 }
 
@@ -1269,7 +1269,7 @@ impl<K: AsRef<Key>> SigningContext<K> {
     ///
     /// This is the same as [`key`] but doesn't lose the original key type
     /// information.
-    fn key_wrapper(&self) -> &K {
+    fn wrapped_key(&self) -> &K {
         &self.key
     }
 

@@ -14,11 +14,10 @@ use crate::base::{
 };
 use crate::base::{Name, ToName};
 use crate::rdata::{Soa, ZoneRecordData, A};
+use crate::zonetree::types::{ZoneUpdate, ZoneUpdate as ZU};
 
 use super::interpreter::XfrResponseInterpreter;
-use super::types::{
-    IterationError, ProcessingError, XfrEvent, XfrEvent as XE, XfrRecord,
-};
+use super::types::{IterationError, ProcessingError, XfrRecord};
 
 #[test]
 fn non_xfr_response_is_rejected() {
@@ -140,7 +139,7 @@ fn axfr_response_with_only_soas_is_accepted() {
     let mut it = processor.process_answer(resp).unwrap();
 
     // Verify the events emitted by the XFR processor.
-    assert!(matches!(it.next(), Some(Ok(XE::EndOfTransfer(_)))));
+    assert!(matches!(it.next(), Some(Ok(ZU::Finished(_)))));
     assert!(it.next().is_none());
 }
 
@@ -179,7 +178,7 @@ fn axfr_multi_response_with_only_soas_is_accepted() {
     let mut it = processor.process_answer(resp).unwrap();
 
     // Verify the events emitted by the XFR processor.
-    assert!(matches!(it.next(), Some(Ok(XE::EndOfTransfer(_)))));
+    assert!(matches!(it.next(), Some(Ok(ZU::Finished(_)))));
     assert!(it.next().is_none());
 }
 
@@ -208,9 +207,9 @@ fn axfr_response_generates_expected_events() {
 
     // Verify the events emitted by the XFR processor.
     let s = serial;
-    assert!(matches!(it.next(), Some(Ok(XE::AddRecord(n, _))) if n == s));
-    assert!(matches!(it.next(), Some(Ok(XE::AddRecord(n, _))) if n == s));
-    assert!(matches!(it.next(), Some(Ok(XE::EndOfTransfer(_)))));
+    assert!(matches!(it.next(), Some(Ok(ZU::AddRecord(n, _))) if n == s));
+    assert!(matches!(it.next(), Some(Ok(ZU::AddRecord(n, _))) if n == s));
+    assert!(matches!(it.next(), Some(Ok(ZU::Finished(_)))));
     assert!(it.next().is_none());
 }
 
@@ -275,13 +274,13 @@ fn ixfr_response_generates_expected_events() {
     // Verify the events emitted by the XFR processor.
     let owner =
         ParsedName::<Bytes>::from(Name::from_str("example.com").unwrap());
-    let expected_events: [Result<XfrEvent<XfrRecord>, IterationError>; 7] = [
-        Ok(XfrEvent::BeginBatchDelete(Record::from((
+    let expected_events: [Result<ZoneUpdate<XfrRecord>, IterationError>; 7] = [
+        Ok(ZoneUpdate::BeginBatchDelete(Record::from((
             owner.clone(),
             0,
             ZoneRecordData::Soa(expected_old_soa),
         )))),
-        Ok(XfrEvent::DeleteRecord(
+        Ok(ZoneUpdate::DeleteRecord(
             old_serial,
             Record::from((
                 owner.clone(),
@@ -289,7 +288,7 @@ fn ixfr_response_generates_expected_events() {
                 ZoneRecordData::A(A::new(Ipv4Addr::LOCALHOST)),
             )),
         )),
-        Ok(XfrEvent::DeleteRecord(
+        Ok(ZoneUpdate::DeleteRecord(
             old_serial,
             Record::from((
                 owner.clone(),
@@ -297,12 +296,12 @@ fn ixfr_response_generates_expected_events() {
                 ZoneRecordData::A(A::new(Ipv4Addr::BROADCAST)),
             )),
         )),
-        Ok(XfrEvent::BeginBatchAdd(Record::from((
+        Ok(ZoneUpdate::BeginBatchAdd(Record::from((
             owner.clone(),
             0,
             ZoneRecordData::Soa(expected_new_soa.clone()),
         )))),
-        Ok(XfrEvent::AddRecord(
+        Ok(ZoneUpdate::AddRecord(
             new_serial,
             Record::from((
                 owner.clone(),
@@ -310,7 +309,7 @@ fn ixfr_response_generates_expected_events() {
                 ZoneRecordData::A(A::new(Ipv4Addr::BROADCAST)),
             )),
         )),
-        Ok(XfrEvent::AddRecord(
+        Ok(ZoneUpdate::AddRecord(
             new_serial,
             Record::from((
                 owner.clone(),
@@ -318,7 +317,7 @@ fn ixfr_response_generates_expected_events() {
                 ZoneRecordData::A(A::new(Ipv4Addr::LOCALHOST)),
             )),
         )),
-        Ok(XfrEvent::EndOfTransfer(Record::from((
+        Ok(ZoneUpdate::Finished(Record::from((
             owner.clone(),
             0,
             ZoneRecordData::Soa(expected_new_soa),
@@ -365,8 +364,8 @@ fn multi_ixfr_response_generates_expected_events() {
     let mut it = processor.process_answer(resp).unwrap();
 
     // Verify the events emitted by the XFR processor.
-    assert!(matches!(it.next(), Some(Ok(XE::BeginBatchDelete(_)))));
-    assert!(matches!(it.next(), Some(Ok(XE::DeleteRecord(..)))));
+    assert!(matches!(it.next(), Some(Ok(ZU::BeginBatchDelete(_)))));
+    assert!(matches!(it.next(), Some(Ok(ZU::DeleteRecord(..)))));
     assert!(it.next().is_none());
 
     // Craete a second IXFR response that completes the transfer
@@ -386,11 +385,11 @@ fn multi_ixfr_response_generates_expected_events() {
     let mut it = processor.process_answer(resp).unwrap();
 
     // Verify the events emitted by the XFR processor.
-    assert!(matches!(it.next(), Some(Ok(XE::DeleteRecord(..)))));
-    assert!(matches!(it.next(), Some(Ok(XE::BeginBatchAdd(_)))));
-    assert!(matches!(it.next(), Some(Ok(XE::AddRecord(..)))));
-    assert!(matches!(it.next(), Some(Ok(XE::AddRecord(..)))));
-    assert!(matches!(it.next(), Some(Ok(XE::EndOfTransfer(_)))));
+    assert!(matches!(it.next(), Some(Ok(ZU::DeleteRecord(..)))));
+    assert!(matches!(it.next(), Some(Ok(ZU::BeginBatchAdd(_)))));
+    assert!(matches!(it.next(), Some(Ok(ZU::AddRecord(..)))));
+    assert!(matches!(it.next(), Some(Ok(ZU::AddRecord(..)))));
+    assert!(matches!(it.next(), Some(Ok(ZU::Finished(_)))));
     assert!(it.next().is_none());
 }
 

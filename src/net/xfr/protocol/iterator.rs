@@ -6,16 +6,17 @@ use tracing::trace;
 use crate::base::message::RecordIter;
 use crate::base::{Message, ParsedName};
 use crate::rdata::ZoneRecordData;
+use crate::zonetree::types::ZoneUpdate;
 
 use super::interpreter::RecordProcessor;
-use super::types::{IterationError, ProcessingError, XfrEvent, XfrRecord};
+use super::types::{IterationError, ProcessingError, XfrRecord};
 
-//------------ XfrEventIterator -----------------------------------------------
+//------------ XfrZoneUpdateIterator ------------------------------------------
 
-/// An iterator over [`XfrResponseInterpreter`] generated [`XfrEvent`]s.
+/// An iterator over [`XfrResponseInterpreter`] generated [`ZoneUpdate`]s.
 ///
-/// [`XfrResponseInterpreter`]: super::processor::XfrResponseInterpreter
-pub struct XfrEventIterator<'a, 'b> {
+/// [`XfrResponseInterpreter`]: super::interpreter::XfrResponseInterpreter
+pub struct XfrZoneUpdateIterator<'a, 'b> {
     /// The parent processor.
     state: &'a mut RecordProcessor,
 
@@ -23,7 +24,7 @@ pub struct XfrEventIterator<'a, 'b> {
     iter: RecordIter<'b, Bytes, ZoneRecordData<Bytes, ParsedName<Bytes>>>,
 }
 
-impl<'a, 'b> XfrEventIterator<'a, 'b> {
+impl<'a, 'b> XfrZoneUpdateIterator<'a, 'b> {
     pub(super) fn new(
         state: &'a mut RecordProcessor,
         resp: &'b Message<Bytes>,
@@ -60,15 +61,15 @@ impl<'a, 'b> XfrEventIterator<'a, 'b> {
     }
 }
 
-impl<'a, 'b> Iterator for XfrEventIterator<'a, 'b> {
-    type Item = Result<XfrEvent<XfrRecord>, IterationError>;
+impl<'a, 'b> Iterator for XfrZoneUpdateIterator<'a, 'b> {
+    type Item = Result<ZoneUpdate<XfrRecord>, IterationError>;
 
     fn next(&mut self) -> Option<Self::Item> {
         match self.iter.next()? {
             Ok(record) => {
                 trace!("XFR record {}: {record:?}", self.state.rr_count);
-                let event = self.state.process_record(record);
-                Some(Ok(event))
+                let update = self.state.process_record(record);
+                Some(Ok(update))
             }
 
             Err(err) => {
