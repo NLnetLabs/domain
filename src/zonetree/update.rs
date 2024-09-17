@@ -33,6 +33,9 @@
 //! }
 //!
 //! ```
+use core::future::Future;
+use core::pin::Pin;
+
 use std::borrow::ToOwned;
 use std::boxed::Box;
 
@@ -50,8 +53,8 @@ use super::types::ZoneUpdate;
 use super::{WritableZone, WritableZoneNode, Zone};
 
 /// TODO
-pub struct ZoneUpdater<'a> {
-    zone: &'a Zone,
+pub struct ZoneUpdater {
+    zone: Zone,
 
     write: WriteState,
 
@@ -60,21 +63,25 @@ pub struct ZoneUpdater<'a> {
     first_event_seen: bool,
 }
 
-impl<'a> ZoneUpdater<'a> {
+impl ZoneUpdater {
     /// TODO
-    pub async fn new(zone: &'a Zone) -> std::io::Result<Self> {
-        let write = WriteState::new(zone).await?;
+    pub fn new(
+        zone: Zone,
+    ) -> Pin<Box<dyn Future<Output = std::io::Result<Self>>>> {
+        Box::pin(async move {
+            let write = WriteState::new(zone.clone()).await?;
 
-        Ok(Self {
-            zone,
-            write,
-            batching: false,
-            first_event_seen: false,
+            Ok(Self {
+                zone,
+                write,
+                batching: false,
+                first_event_seen: false,
+            })
         })
     }
 }
 
-impl<'a> ZoneUpdater<'a> {
+impl ZoneUpdater {
     /// TODO
     pub async fn apply(
         &mut self,
@@ -126,7 +133,7 @@ impl<'a> ZoneUpdater<'a> {
     }
 }
 
-impl<'a> ZoneUpdater<'a> {
+impl ZoneUpdater {
     fn mk_relative_name_iterator<'l>(
         apex_name: &Name<Bytes>,
         qname: &'l impl ToName,
@@ -299,7 +306,7 @@ struct WriteState {
 }
 
 impl WriteState {
-    async fn new(zone: &Zone) -> std::io::Result<Self> {
+    async fn new(zone: Zone) -> std::io::Result<Self> {
         let write = zone.write().await;
         let writable = Some(write.open(true).await?);
         Ok(Self { write, writable })
@@ -357,7 +364,7 @@ mod tests {
 
         let zone = mk_empty_zone("example.com");
 
-        let mut updater = ZoneUpdater::new(&zone).await.unwrap();
+        let mut updater = ZoneUpdater::new(zone.clone()).await.unwrap();
 
         let s = Serial::now();
         let soa = mk_soa(s);
@@ -383,7 +390,7 @@ mod tests {
 
         let zone = mk_empty_zone("example.com");
 
-        let mut updater = ZoneUpdater::new(&zone).await.unwrap();
+        let mut updater = ZoneUpdater::new(zone.clone()).await.unwrap();
 
         // Create an AXFR request to reply to.
         let req = mk_request("example.com", Rtype::AXFR).into_message();
