@@ -180,7 +180,8 @@ impl ZoneUpdater {
         Ok(qname)
     }
 
-    async fn prep_add_del(
+    /// Given a zone record, obtain a [`WritableZoneNode`] for the owner.
+    async fn get_writable_node_for_owner(
         &mut self,
         rec: ParsedRecord,
     ) -> Result<
@@ -245,6 +246,7 @@ impl ZoneUpdater {
         Ok(())
     }
 
+    /// Find and delete a record in the zone by exact match.
     async fn delete_record(
         &mut self,
         rec: Record<
@@ -253,7 +255,7 @@ impl ZoneUpdater {
         >,
     ) -> Result<(), ()> {
         let (rtype, data, end_node, mut rrset) =
-            self.prep_add_del(rec).await?;
+            self.get_update_child_write_handle(rec).await?;
 
         let writable = self.write.writable.as_ref().unwrap();
 
@@ -302,7 +304,7 @@ impl ZoneUpdater {
         }
 
         let (rtype, data, end_node, mut rrset) =
-            self.prep_add_del(rec).await?;
+            self.get_update_child_write_handle(rec).await?;
 
         let writable = self.write.writable.as_ref().unwrap();
 
