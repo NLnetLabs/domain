@@ -334,19 +334,6 @@ pub enum ZoneUpdate<R> {
     /// For example this could be used to trigger an atomic commit of a set of
     /// related pending changes.
     Finished(R),
-
-    /// A sequence of updates has been deemed to be corrupt.
-    ///
-    /// This signals that something is wrong with the sequence of updates
-    /// being processed and that it will not be possible to complete the
-    /// sequence.
-    ///
-    /// For example this could occur if a sequence of XFR responses from a
-    /// primary server is fatally interrupted and cannot be completed. Some
-    /// responses may have already been communicated as [`ZoneUpdate`]s but
-    /// they should not be used without the remainder that will now not be
-    /// received.
-    Corrupt,
 }
 
 //--- Display
@@ -361,7 +348,6 @@ impl<R> std::fmt::Display for ZoneUpdate<R> {
             }
             ZoneUpdate::BeginBatchAdd(_) => f.write_str("BeginBatchAdd"),
             ZoneUpdate::Finished(_) => f.write_str("Finished"),
-            ZoneUpdate::Corrupt => f.write_str("Corrupt"),
         }
     }
 }
