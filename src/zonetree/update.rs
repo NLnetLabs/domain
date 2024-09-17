@@ -60,6 +60,7 @@ use bytes::Bytes;
 use tracing::{error, trace};
 
 use crate::base::name::{FlattenInto, Label, ToLabelIter};
+use crate::base::scan::ScannerError;
 use crate::base::{Name, ParsedName, Record, Rtype, ToName};
 use crate::net::xfr::protocol::ParsedRecord;
 use crate::rdata::ZoneRecordData;
@@ -70,11 +71,23 @@ use super::types::ZoneUpdate;
 use super::{WritableZone, WritableZoneNode, Zone};
 
 /// Apply a sequence of [`ZoneUpdate`]s to alter the content of a [`Zone`].
+///
+/// Each [`ZoneUpdate::BeginBatchDelete`] starts a new zone version,
+///
+/// For each version of the zone that is edited the zone will be opened for
+/// writing, edits made and then the changes committed, only then becoming
+/// visible for readers of the zone.
+///
+/// For each commit of the zone a diff of the changes made will be stored with
+/// the zone.
 pub struct ZoneUpdater {
     /// The zone to be updated.
     zone: Zone,
 
     /// The current write handles in use.
+    ///
+    /// For each new zone version any old write state has to be committed and
+    /// a new write state opened.
     write: WriteState,
 
     /// Whether or not we entered an IXFR-like batching mode.
@@ -115,7 +128,7 @@ impl ZoneUpdater {
     pub async fn apply(
         &mut self,
         update: ZoneUpdate<ParsedRecord>,
-    ) -> Result<(), ()> {
+    ) -> std::io::Result<()> {
         trace!("Event: {update}");
         match update {
             ZoneUpdate::DeleteRecord(_serial, rec) => {
@@ -132,9 +145,13 @@ impl ZoneUpdater {
             ZoneUpdate::BeginBatchDelete(_old_soa) => {
                 if self.batching {
                     // Commit the previous batch.
-                    self.write.commit().await?;
+                    self.write.commit().await.map_err(|()| {
+                        std::io::Error::custom(
+                            "Error commiting changes to zone",
+                        )
+                    })?;
                     // Open a writer for the new batch.
-                    self.write.reopen().await.map_err(|_| ())?;
+                    self.write.reopen().await?;
                 }
 
                 self.batching = true;
@@ -152,7 +169,9 @@ impl ZoneUpdater {
                     self.update_soa(zone_soa).await?;
                 }
                 // Commit the previous batch.
-                self.write.commit().await?;
+                self.write.commit().await.map_err(|()| {
+                    std::io::Error::custom("Error commiting changes to zone")
+                })?;
             }
         }
 
@@ -181,29 +200,35 @@ impl ZoneUpdater {
     }
 
     /// Given a zone record, obtain a [`WritableZoneNode`] for the owner.
+    ///
+    /// A [`Zone`] is a tree structure which can be modified by descending the
+    /// tree from parent to child one (dot separated) label at a time.
+    ///
+    /// This function constructs an iterator over the labels of the owner name
+    /// of the given record then descends the tree one label at a time,
+    /// creating nodes if needed, until the appropriate end node has been
+    /// reached.
+    ///
+    /// If the owner name of the given record is not overlapping with the apex
+    /// name of the zone an out of zone error will occur.
+    ///
+    /// # Panics
+    ///
+    /// This function may panic if it is unable to create new tree nodes for
+    /// the record owner name.
     async fn get_writable_node_for_owner(
         &mut self,
-        rec: ParsedRecord,
-    ) -> Result<
-        (
-            Rtype,
-            ZoneRecordData<Bytes, Name<Bytes>>,
-            Option<Box<dyn WritableZoneNode>>,
-            Rrset,
-        ),
-        (),
-    > {
+        rec: &ParsedRecord,
+    ) -> std::io::Result<Option<Box<dyn WritableZoneNode>>> {
         let owner = rec.owner().to_owned();
-        let ttl = rec.ttl();
-        let rtype = rec.rtype();
-        let data: ZoneRecordData<Bytes, Name<Bytes>> =
-            rec.into_data().flatten_into();
 
         let mut end_node: Option<Box<dyn WritableZoneNode>> = None;
 
         let name =
             Self::mk_relative_name_iterator(self.zone.apex_name(), &owner)
-                .map_err(|_| ())?;
+                .map_err(|_| {
+                    std::io::Error::custom("Record owner name out of zone")
+                })?;
 
         let writable = self.write.writable.as_ref().unwrap();
 
@@ -214,13 +239,11 @@ impl ZoneUpdater {
                     Some(new_node) => new_node.update_child(label),
                     None => writable.update_child(label),
                 }
-                .await
-                .map_err(|_| ())?,
+                .await?,
             );
         }
 
-        let rrset = Rrset::new(rtype, ttl);
-        Ok((rtype, data, end_node, rrset))
+        Ok(end_node)
     }
 
     async fn update_soa(
@@ -229,9 +252,9 @@ impl ZoneUpdater {
             ParsedName<Bytes>,
             ZoneRecordData<Bytes, ParsedName<Bytes>>,
         >,
-    ) -> Result<(), ()> {
+    ) -> std::io::Result<()> {
         if new_soa.rtype() != Rtype::SOA {
-            return Err(());
+            return Err(std::io::Error::custom("Invalid SOA rtype"));
         }
 
         let mut rrset = Rrset::new(Rtype::SOA, new_soa.ttl());
@@ -242,8 +265,6 @@ impl ZoneUpdater {
             .unwrap()
             .update_rrset(SharedRrset::new(rrset))
             .await
-            .map_err(|_| ())?;
-        Ok(())
     }
 
     /// Find and delete a record in the zone by exact match.
@@ -253,33 +274,27 @@ impl ZoneUpdater {
             ParsedName<Bytes>,
             ZoneRecordData<Bytes, ParsedName<Bytes>>,
         >,
-    ) -> Result<(), ()> {
-        let (rtype, data, end_node, mut rrset) =
-            self.get_update_child_write_handle(rec).await?;
-
+    ) -> std::io::Result<()> {
+        let end_node = self.get_writable_node_for_owner(&rec).await?;
+        let mut rrset = Rrset::new(rec.rtype(), rec.ttl());
+        let rtype = rec.rtype();
+        let data = rec.data();
         let writable = self.write.writable.as_ref().unwrap();
 
         trace!("Deleting RR for {rtype}");
 
         let node = end_node.as_ref().unwrap_or(writable);
 
-        if let Some(existing_rrset) =
-            node.get_rrset(rtype).await.map_err(|_| ())?
-        {
+        if let Some(existing_rrset) = node.get_rrset(rtype).await? {
             for existing_data in existing_rrset.data() {
-                if existing_data != &data {
+                if existing_data != data {
                     rrset.push_data(existing_data.clone());
                 }
             }
         }
 
         trace!("Removing single RR of {rtype} so updating RRSET");
-
-        node.update_rrset(SharedRrset::new(rrset))
-            .await
-            .map_err(|_| ())?;
-
-        Ok(())
+        node.update_rrset(SharedRrset::new(rrset)).await
     }
 
     async fn add_record(
@@ -288,7 +303,7 @@ impl ZoneUpdater {
             ParsedName<Bytes>,
             ZoneRecordData<Bytes, ParsedName<Bytes>>,
         >,
-    ) -> Result<(), ()> {
+    ) -> std::io::Result<()> {
         if !self.first_update_seen && rec.rtype() == Rtype::SOA {
             // If the first event is the addition of a SOA record to the zone,
             // this must be a complete replacement of the zone (as you can't
@@ -300,12 +315,13 @@ impl ZoneUpdater {
             // "removed" and then add new records. This allows the old records
             // to continue being served to current consumers while the zone is
             // being updated.
-            self.write.remove_all().await.map_err(|_| ())?;
+            self.write.remove_all().await?;
         }
 
-        let (rtype, data, end_node, mut rrset) =
-            self.get_update_child_write_handle(rec).await?;
-
+        let end_node = self.get_writable_node_for_owner(&rec).await?;
+        let mut rrset = Rrset::new(rec.rtype(), rec.ttl());
+        let rtype = rec.rtype();
+        let data = rec.into_data().flatten_into();
         let writable = self.write.writable.as_ref().unwrap();
 
         trace!("Adding RR: {:?}", rrset);
@@ -313,19 +329,13 @@ impl ZoneUpdater {
 
         let node = end_node.as_ref().unwrap_or(writable);
 
-        if let Some(existing_rrset) =
-            node.get_rrset(rtype).await.map_err(|_| ())?
-        {
+        if let Some(existing_rrset) = node.get_rrset(rtype).await? {
             for existing_data in existing_rrset.data() {
                 rrset.push_data(existing_data.clone());
             }
         }
 
-        node.update_rrset(SharedRrset::new(rrset))
-            .await
-            .map_err(|_| ())?;
-
-        Ok(())
+        node.update_rrset(SharedRrset::new(rrset)).await
     }
 }
 
