@@ -4,14 +4,10 @@
 //! that may have different quite performance.
 
 use bytes::Bytes;
-
 use futures_util::stream::FuturesUnordered;
 use futures_util::StreamExt;
-
 use octseq::Octets;
-
 use rand::random;
-
 use std::boxed::Box;
 use std::cmp::Ordering;
 use std::fmt::{Debug, Formatter};
@@ -20,13 +16,17 @@ use std::pin::Pin;
 use std::vec::Vec;
 use std::string::String;
 use std::string::ToString;
-
 use tokio::sync::{mpsc, oneshot};
 use tokio::time::{sleep_until, Duration, Instant};
-
 use crate::base::iana::OptRcode;
 use crate::base::Message;
 use crate::net::client::request::{Error, GetResponse, SendRequest};
+use crate::base::MessageBuilder;
+use crate::base::StaticCompressor;
+use crate::base::iana::Rcode;
+use crate::base::opt::AllOptData;
+use crate::dep::octseq::OctetsInto;
+use crate::net::client::request::ComposeRequest;
 
 /*
 Basic algorithm:
@@ -58,6 +58,8 @@ const SMOOTH_N: f64 = 8.;
 
 /// Chance to probe a worse connection.
 const PROBE_P: f64 = 0.05;
+
+const DEFAULT_BURST_INTERVAL: Duration = Duration::from_secs(1);
 
 /// Avoid sending two requests at the same time.
 ///
@@ -97,12 +99,13 @@ impl Default for Config {
 /// Configuration variables for each upstream.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct ConnConfig {
-    pub qps: Option<f64>
+    pub qps: Option<f64>,
+    pub burst_interval: Option<Duration>
 }
 
 impl ConnConfig {
     pub fn new() -> Self {
-	Self { qps: None }
+	Self { qps: None, burst_interval: None }
     }
 }
 
@@ -142,7 +145,7 @@ impl<Req: Clone + Debug + Send + Sync + 'static> Connection<Req> {
     ) -> Result<(), Error> {
         let (tx, rx) = oneshot::channel();
         self.sender
-            .send(ChanReq::Add(AddReq { label: label.to_string(), qps: config.qps, conn, tx }))
+            .send(ChanReq::Add(AddReq { label: label.to_string(), qps: config.qps, burst_interval: config.burst_interval, conn, tx }))
             .await
             .expect("send should not fail");
         rx.await.expect("receive should not fail")
@@ -156,7 +159,9 @@ impl<Req: Clone + Debug + Send + Sync + 'static> Connection<Req> {
     async fn request_impl(
         self,
         request_msg: Req,
-    ) -> Result<Message<Bytes>, Error> {
+    ) -> Result<Message<Bytes>, Error>
+    where Req: ComposeRequest
+    {
         let (tx, rx) = oneshot::channel();
         self.sender
             .send(ChanReq::GetRT(RTReq { tx }))
@@ -164,7 +169,7 @@ impl<Req: Clone + Debug + Send + Sync + 'static> Connection<Req> {
             .expect("send should not fail");
         let conn_rt = rx.await.expect("receive should not fail")?;
 	if conn_rt.len() == 0 {
-		todo!();
+		return serve_fail(&request_msg.to_message().unwrap());
 	}
         Query::new(self.config, request_msg, conn_rt, self.sender.clone())
             .get_response()
@@ -184,7 +189,7 @@ where
     }
 }
 
-impl<Req: Clone + Debug + Send + Sync + 'static> SendRequest<Req>
+impl<Req: Clone + ComposeRequest + Debug + Send + Sync + 'static> SendRequest<Req>
     for Connection<Req>
 {
     fn send_request(
@@ -334,6 +339,8 @@ struct AddReq<Req> {
     label: String,
 
     qps: Option<f64>,
+
+    burst_interval: Option<Duration>,
 
     /// New connection to add
     conn: Box<dyn SendRequest<Req> + Send + Sync>,
@@ -722,7 +729,8 @@ impl<'a, Req: Clone + Send + Sync + 'static> Transport<Req> {
                 ChanReq::Add(add_req) => {
                     let id = next_id;
                     next_id += 1;
-		    let qps_burst_interval = Duration::from_secs(1);
+		    let qps_burst_interval = add_req.burst_interval.unwrap_or(DEFAULT_BURST_INTERVAL);
+println!("burst {:?} {qps_burst_interval:?}", add_req.burst_interval);
 		    let qps_max_burst = if let Some(qps) = add_req.qps {
 			Some(qps*qps_burst_interval.as_secs_f64())
 		    }
@@ -924,4 +932,54 @@ fn skip<Octs: Octets>(msg: &Message<Octs>, config: &Config) -> bool {
     }
 
     false
+}
+
+/// Generate a SERVFAIL reply message.
+// This needs to be consolodated with the one in validator and the one in
+// MessageBuilder.
+fn serve_fail<Octs>(
+    msg: &Message<Octs>,
+) -> Result<Message<Bytes>, Error>
+where
+    Octs: AsRef<[u8]> + Octets
+{
+    let mut target =
+        MessageBuilder::from_target(StaticCompressor::new(Vec::new()))
+            .expect("Vec is expected to have enough space");
+
+    let source = msg;
+
+    *target.header_mut() = msg.header();
+    target.header_mut().set_rcode(Rcode::SERVFAIL);
+    target.header_mut().set_ad(false);
+
+    let source = source.question();
+    let mut target = target.question();
+    for rr in source {
+        target.push(rr?).expect("should not fail");
+    }
+    let mut target = target.additional();
+
+    if let Some(opt) = msg.opt() {
+        target
+            .opt(|ob| {
+                ob.set_dnssec_ok(opt.dnssec_ok());
+                // XXX something is missing ob.set_rcode(opt.rcode());
+                ob.set_udp_payload_size(opt.udp_payload_size());
+                ob.set_version(opt.version());
+                for o in opt.opt().iter() {
+                    let x: AllOptData<_, _> = o.expect("should not fail");
+                    ob.push(&x).expect("should not fail");
+                }
+                Ok(())
+            })
+            .expect("should not fail");
+    }
+
+    let result = target.as_builder().clone();
+    let msg = Message::<Bytes>::from_octets(
+        result.finish().into_target().octets_into(),
+    )
+    .expect("Message should be able to parse output from MessageBuilder");
+    Ok(msg)
 }
