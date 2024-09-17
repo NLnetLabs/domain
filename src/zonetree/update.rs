@@ -3,27 +3,43 @@
 //! This module provides a high-level interface for making alterations to the
 //! content of zones without requiring knowledge of the low-level details of
 //! how the [`WritableZone`] trait implemented by [`Zone`] works.
+//! 
+//! It can be used manually, or in combination with a source of
+//! [`ZoneUpdate`]s such as
+//! [`XfrResponseInterpreter`][crate::net::xfr::protocol::XfrResponseInterpreter].
 //!
 //! # Applying XFR changes to a zone
 //!
-//! ```rust
-//! // Given a ZoneUpdater
-//! let mut updater = ZoneUpdater::new(&zone).await.unwrap();
-//!
-//! // And a zone
+//! ```no_run
+//! # use std::str::FromStr;
+//! # 
+//! # use domain::base::iana::Class;
+//! # use domain::base::MessageBuilder;
+//! # use domain::base::Name;
+//! # use domain::net::xfr::protocol::XfrResponseInterpreter;
+//! # use domain::zonetree::ZoneBuilder;
+//! # use domain::zonetree::update::ZoneUpdater;
+//! # 
+//! # #[tokio::main]
+//! # async fn main() {
+//! # 
+//! // Given a zone
 //! let builder = ZoneBuilder::new(Name::from_str("example.com").unwrap(), Class::IN);
-//! let zone = builder.build()
+//! let zone = builder.build();
+//! 
+//! // And a ZoneUpdater
+//! let mut updater = ZoneUpdater::new(zone.clone()).await.unwrap();
 //!
 //! // And an XFR response interpreter
 //! let mut interpreter = XfrResponseInterpreter::new();
 //!
 //! // Iterate over the XFR responses applying the updates to the zone
-//! while !updater.finished() {
+//! while !interpreter.is_finished() {
 //!     // Get the next XFR response
-//!     // let next_xfr_response = ...
+//!     let next_xfr_response = MessageBuilder::new_bytes().into_message(); // A dummy response
 //!
 //!     // Convert it to an update iterator
-//!     let it = interpreter.intrepret_response(next_xfr_response).unwrap();
+//!     let it = interpreter.interpret_response(next_xfr_response).unwrap();
 //!
 //!     // Iterate over the updates
 //!     for update in it {
@@ -31,7 +47,8 @@
 //!         updater.apply(update.unwrap()).await.unwrap();
 //!     }
 //! }
-//!
+//! # 
+//! # }
 //! ```
 use core::future::Future;
 use core::pin::Pin;
@@ -409,7 +426,7 @@ mod tests {
         let resp = answer.into_message();
 
         // Process the response.
-        let it = interpreter.intrepret_response(resp).unwrap();
+        let it = interpreter.interpret_response(resp).unwrap();
 
         for update in it {
             let update = update.unwrap();
