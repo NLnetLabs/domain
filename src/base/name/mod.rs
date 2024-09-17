@@ -92,9 +92,7 @@
 //! [_punycode_]: <https://datatracker.ietf.org/doc/html/rfc3492>
 
 pub use self::absolute::{Name, NameError};
-pub use self::builder::{
-    FromStrError, NameBuilder, PresentationError, PushError, PushNameError,
-};
+pub use self::builder::{BuildError, NameBuilder, ScanError};
 pub use self::chain::{Chain, ChainIter, LongChainError, UncertainChainIter};
 pub use self::label::{
     Label, LabelTypeError, LongLabelError, OwnedLabel, SliceLabelsIter,
@@ -102,7 +100,7 @@ pub use self::label::{
 };
 pub use self::parsed::{ParsedName, ParsedNameIter, ParsedSuffixIter};
 pub use self::relative::{
-    NameIter, RelativeFromStrError, RelativeName, RelativeNameError,
+    NameIter, RelativeName, RelativeNameError, RelativeScanError,
     StripSuffixError,
 };
 pub use self::traits::{FlattenInto, ToLabelIter, ToName, ToRelativeName};

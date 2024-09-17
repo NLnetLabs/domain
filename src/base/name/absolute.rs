@@ -4,9 +4,9 @@
 
 use super::super::cmp::CanonicalOrd;
 use super::super::net::IpAddr;
-use super::super::scan::{Scanner, Symbol, SymbolCharsError, Symbols};
+use super::super::scan::Scanner;
 use super::super::wire::{FormError, ParseError};
-use super::builder::{FromStrError, NameBuilder, PushError};
+use super::builder::{BuildError, NameBuilder, ScanError};
 use super::label::{Label, LabelTypeError, SplitLabelError};
 use super::relative::{NameIter, RelativeName};
 use super::traits::{FlattenInto, ToLabelIter, ToName};
@@ -15,9 +15,7 @@ use bytes::Bytes;
 use core::ops::{Bound, RangeBounds};
 use core::str::FromStr;
 use core::{borrow, cmp, fmt, hash, mem, str};
-use octseq::builder::{
-    EmptyBuilder, FreezeBuilder, FromBuilder, OctetsBuilder, Truncate,
-};
+use octseq::builder::Truncate;
 use octseq::octets::{Octets, OctetsFrom};
 use octseq::parse::Parser;
 #[cfg(feature = "serde")]
@@ -87,76 +85,6 @@ impl<Octs> Name<Octs> {
         Ok(unsafe { Self::from_octets_unchecked(octets) })
     }
 
-    pub fn from_symbols<Sym>(symbols: Sym) -> Result<Self, FromStrError>
-    where
-        Octs: FromBuilder,
-        <Octs as FromBuilder>::Builder: EmptyBuilder
-            + FreezeBuilder<Octets = Octs>
-            + AsRef<[u8]>
-            + AsMut<[u8]>,
-        Sym: IntoIterator<Item = Symbol>,
-    {
-        // NameBuilder can’t deal with a single dot, so we need to special
-        // case that.
-        let mut symbols = symbols.into_iter();
-        let first = match symbols.next() {
-            Some(first) => first,
-            None => return Err(SymbolCharsError::short_input().into()),
-        };
-        if first == Symbol::Char('.') {
-            if symbols.next().is_some() {
-                return Err(FromStrError::empty_label());
-            } else {
-                // Make a root name.
-                let mut builder =
-                    <Octs as FromBuilder>::Builder::with_capacity(1);
-                builder
-                    .append_slice(b"\0")
-                    .map_err(|_| FromStrError::ShortBuf)?;
-                return Ok(unsafe {
-                    Self::from_octets_unchecked(builder.freeze())
-                });
-            }
-        }
-
-        let mut builder = NameBuilder::<Octs::Builder>::new();
-        builder.push_symbol(first)?;
-        builder.append_symbols(symbols)?;
-        builder.into_name().map_err(Into::into)
-    }
-
-    /// Creates a domain name from a sequence of characters.
-    ///
-    /// The sequence must result in a domain name in representation format.
-    /// That is, its labels should be separated by dots.
-    /// Actual dots, white space and backslashes should be escaped by a
-    /// preceeding backslash, and any byte value that is not a printable
-    /// ASCII character should be encoded by a backslash followed by its
-    /// three digit decimal value.
-    ///
-    /// If Internationalized Domain Names are to be used, the labels already
-    /// need to be in punycode-encoded form.
-    ///
-    /// The name will always be an absolute name. If the last character in the
-    /// sequence is not a dot, the function will quietly add a root label,
-    /// anyway. In most cases, this is likely what you want. If it isn’t,
-    /// though, use [`UncertainName`] instead to be able to check.
-    ///
-    /// [`UncertainName`]: crate::base::name::UncertainName
-    pub fn from_chars<C>(chars: C) -> Result<Self, FromStrError>
-    where
-        Octs: FromBuilder,
-        <Octs as FromBuilder>::Builder: EmptyBuilder
-            + FreezeBuilder<Octets = Octs>
-            + AsRef<[u8]>
-            + AsMut<[u8]>,
-        C: IntoIterator<Item = char>,
-    {
-        Symbols::with(chars.into_iter(), |symbols| {
-            Self::from_symbols(symbols)
-        })
-    }
-
     /// Reads a name in presentation format from the beginning of a scanner.
     pub fn scan<S: Scanner<Name = Self>>(
         scanner: &mut S,
@@ -186,36 +114,45 @@ impl<Octs> Name<Octs> {
     ///
     /// The returned name will use the standard suffixes of `in-addr.arpa.`
     /// for IPv4 addresses and `ip6.arpa.` for IPv6.
-    pub fn reverse_from_addr(addr: IpAddr) -> Result<Self, PushError>
+    pub fn reverse_from_addr(addr: IpAddr) -> Result<Self, BuildError>
     where
-        Octs: FromBuilder,
-        <Octs as FromBuilder>::Builder: EmptyBuilder
-            + FreezeBuilder<Octets = Octs>
-            + AsRef<[u8]>
-            + AsMut<[u8]>,
+        Octs: for<'a> TryFrom<&'a [u8]>,
     {
-        let mut builder =
-            NameBuilder::<<Octs as FromBuilder>::Builder>::new();
+        let mut buffer = [0u8; 256];
+        let mut builder = NameBuilder::new(&mut buffer);
         match addr {
             IpAddr::V4(addr) => {
-                let [a, b, c, d] = addr.octets();
-                builder.append_dec_u8_label(d)?;
-                builder.append_dec_u8_label(c)?;
-                builder.append_dec_u8_label(b)?;
-                builder.append_dec_u8_label(a)?;
+                for octet in addr.octets().iter().rev() {
+                    // Manually translate into decimal digits.
+                    let mut buffer = [0u8; 3];
+                    buffer[0] = b'0' + octet / 100;
+                    buffer[1] = b'0' + octet / 10 % 10;
+                    buffer[2] = b'0' + octet % 10;
+                    let len = octet.checked_ilog10().unwrap_or(1);
+                    builder.append_label(&buffer[3 - len as usize..])?;
+                }
                 builder.append_label(b"in-addr")?;
                 builder.append_label(b"arpa")?;
+                builder.append_slice(b"")?;
             }
             IpAddr::V6(addr) => {
                 for &item in addr.octets().iter().rev() {
-                    builder.append_hex_digit_label(item)?;
-                    builder.append_hex_digit_label(item >> 4)?;
+                    // Manually translate into hexadecimal digits.
+                    for nibble in [item, item >> 4] {
+                        let base = b"0123456789ABCDEF";
+                        let label = [base[nibble as usize]];
+                        builder.append_label(&label)?;
+                    }
                 }
                 builder.append_label(b"ip6")?;
                 builder.append_label(b"arpa")?;
+                builder.append_slice(b"")?;
             }
         }
-        builder.into_name()
+        builder
+            .as_absolute()
+            .map(Option::unwrap) // We always add a root label.
+            .map_err(|_| BuildError::ShortBuf)
     }
 }
 
@@ -292,7 +229,7 @@ impl Name<Vec<u8>> {
     }
 
     /// Creates a domain name atop a `Vec<u8>` from its string representation.
-    pub fn vec_from_str(s: &str) -> Result<Self, FromStrError> {
+    pub fn vec_from_str(s: &str) -> Result<Self, ScanError> {
         FromStr::from_str(s)
     }
 }
@@ -305,7 +242,7 @@ impl Name<Bytes> {
     }
 
     /// Creates a domain name atop a Bytes from its string representation.
-    pub fn bytes_from_str(s: &str) -> Result<Self, FromStrError> {
+    pub fn bytes_from_str(s: &str) -> Result<Self, ScanError> {
         FromStr::from_str(s)
     }
 }
@@ -770,13 +707,9 @@ where
 
 impl<Octs> FromStr for Name<Octs>
 where
-    Octs: FromBuilder,
-    <Octs as FromBuilder>::Builder: EmptyBuilder
-        + FreezeBuilder<Octets = Octs>
-        + AsRef<[u8]>
-        + AsMut<[u8]>,
+    Octs: for<'a> TryFrom<&'a [u8]>,
 {
-    type Err = FromStrError;
+    type Err = ScanError;
 
     /// Parses a string into an absolute domain name.
     ///
@@ -790,8 +723,15 @@ where
     /// between those two cases, you can use [`UncertainDname`] instead.
     ///
     /// [`UncertainDname`]: struct.UncertainDname.html
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Self::from_chars(s.chars())
+    fn from_str(name: &str) -> Result<Self, Self::Err> {
+        let mut builder = NameBuilder::new([0u8; 256]);
+        builder.scan_name(name)?;
+        // Append an empty slice for a root label.
+        builder.append_slice(&[]);
+        builder
+            .as_absolute()
+            .map(Option::unwrap) // We ensure there is a root label.
+            .map_err(|_| ScanError::ShortBuf)
     }
 }
 

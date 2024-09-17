@@ -4,7 +4,7 @@
 
 use super::super::wire::ParseError;
 use super::absolute::Name;
-use super::builder::{FromStrError, NameBuilder, PushError};
+use super::builder::{BuildError, NameBuilder, ScanError};
 use super::chain::{Chain, LongChainError};
 use super::label::{Label, LabelTypeError, SplitLabelError};
 use super::traits::{ToLabelIter, ToRelativeName};
@@ -14,9 +14,7 @@ use core::cmp::Ordering;
 use core::ops::{Bound, RangeBounds};
 use core::str::FromStr;
 use core::{borrow, cmp, fmt, hash, mem};
-use octseq::builder::{
-    EmptyBuilder, FreezeBuilder, FromBuilder, IntoBuilder, Truncate,
-};
+use octseq::builder::Truncate;
 use octseq::octets::{Octets, OctetsFrom};
 #[cfg(feature = "serde")]
 use octseq::serde::{DeserializeOctets, SerializeOctets};
@@ -92,35 +90,6 @@ impl<Octs> RelativeName<Octs> {
     {
         unsafe {
             RelativeName::from_octets_unchecked(b"\x01*".as_ref().into())
-        }
-    }
-
-    /// Creates a domain name from a sequence of characters.
-    ///
-    /// The sequence must result in a domain name in representation format.
-    /// That is, its labels should be separated by dots.
-    /// Actual dots, white space and backslashes should be escaped by a
-    /// preceeding backslash, and any byte value that is not a printable
-    /// ASCII character should be encoded by a backslash followed by its
-    /// three digit decimal value.
-    ///
-    /// If Internationalized Domain Names are to be used, the labels already
-    /// need to be in punycode-encoded form.
-    pub fn from_chars<C>(chars: C) -> Result<Self, RelativeFromStrError>
-    where
-        Octs: FromBuilder,
-        <Octs as FromBuilder>::Builder: EmptyBuilder
-            + FreezeBuilder<Octets = Octs>
-            + AsRef<[u8]>
-            + AsMut<[u8]>,
-        C: IntoIterator<Item = char>,
-    {
-        let mut builder = NameBuilder::<Octs::Builder>::new();
-        builder.append_chars(chars)?;
-        if builder.in_label() || builder.is_empty() {
-            Ok(builder.finish())
-        } else {
-            Err(RelativeFromStrError::AbsoluteName)
         }
     }
 }
@@ -211,7 +180,7 @@ impl RelativeName<Vec<u8>> {
     }
 
     /// Parses a string into a relative name atop a `Vec<u8>`.
-    pub fn vec_from_str(s: &str) -> Result<Self, RelativeFromStrError> {
+    pub fn vec_from_str(s: &str) -> Result<Self, RelativeScanError> {
         FromStr::from_str(s)
     }
 }
@@ -229,7 +198,7 @@ impl RelativeName<Bytes> {
     }
 
     /// Parses a string into a relative name atop a `Bytes`.
-    pub fn bytes_from_str(s: &str) -> Result<Self, RelativeFromStrError> {
+    pub fn bytes_from_str(s: &str) -> Result<Self, RelativeScanError> {
         FromStr::from_str(s)
     }
 }
@@ -281,29 +250,18 @@ impl<Octs: ?Sized> RelativeName<Octs> {
 }
 
 impl<Octs> RelativeName<Octs> {
-    /// Converts the name into a domain name builder for appending data.
-    ///
-    /// This method is only available for octets sequences that have an
-    /// associated octets builder such as `Vec<u8>` or `Bytes`.
-    pub fn into_builder(self) -> NameBuilder<<Octs as IntoBuilder>::Builder>
-    where
-        Octs: IntoBuilder,
-    {
-        unsafe { NameBuilder::from_builder_unchecked(self.0.into_builder()) }
-    }
-
     /// Converts the name into an absolute name by appending the root label.
-    ///
-    /// This manipulates the name itself and thus is only available for
-    /// octets sequences that can be converted into an octets builder and back
-    /// such as `Vec<u8>`.
-    pub fn into_absolute(self) -> Result<Name<Octs>, PushError>
+    pub fn to_absolute(&self) -> Result<Name<Octs>, BuildError>
     where
-        Octs: IntoBuilder,
-        <Octs as IntoBuilder>::Builder:
-            FreezeBuilder<Octets = Octs> + AsRef<[u8]> + AsMut<[u8]>,
+        Octs: AsRef<[u8]> + for<'a> TryFrom<&'a [u8]>,
     {
-        self.into_builder().into_name()
+        let mut builder = NameBuilder::new([0u8; 256]);
+        builder.append_relative_name(self.for_ref())?;
+        builder.append_slice(&[])?;
+        builder
+            .as_absolute()
+            .map(Option::unwrap) // We added a root label manually.
+            .map_err(|_| BuildError::ShortBuf)
     }
 
     /// Chains another name to the end of this name.
@@ -609,13 +567,9 @@ where
 
 impl<Octs> FromStr for RelativeName<Octs>
 where
-    Octs: FromBuilder,
-    <Octs as FromBuilder>::Builder: EmptyBuilder
-        + FreezeBuilder<Octets = Octs>
-        + AsRef<[u8]>
-        + AsMut<[u8]>,
+    Octs: for<'a> TryFrom<&'a [u8]>,
 {
-    type Err = RelativeFromStrError;
+    type Err = RelativeScanError;
 
     /// Parses a string into an absolute domain name.
     ///
@@ -626,8 +580,16 @@ where
     ///
     /// This implementation will error if the name ends in a dot since that
     /// indicates an absolute name.
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Self::from_chars(s.chars())
+    fn from_str(name: &str) -> Result<Self, Self::Err> {
+        let mut builder = NameBuilder::new([0u8; 256]);
+        builder.scan_name(name)?;
+        // If there was a root label, fail.
+        if builder.cur_label().is_some() {
+            return Err(RelativeScanError::AbsoluteName);
+        }
+        builder
+            .as_relative()
+            .map_err(|_| ScanError::ShortBuf.into())
     }
 }
 
@@ -1022,13 +984,13 @@ impl fmt::Display for RelativeNameError {
 #[cfg(feature = "std")]
 impl std::error::Error for RelativeNameError {}
 
-//------------ RelativeFromStrError ------------------------------------------
+//------------ RelativeScanError ------------------------------------------
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[non_exhaustive]
-pub enum RelativeFromStrError {
+pub enum RelativeScanError {
     /// The name could not be parsed.
-    FromStr(FromStrError),
+    FromStr(ScanError),
 
     /// The parsed name was ended in a dot.
     AbsoluteName,
@@ -1036,19 +998,19 @@ pub enum RelativeFromStrError {
 
 //--- From
 
-impl From<FromStrError> for RelativeFromStrError {
-    fn from(src: FromStrError) -> Self {
+impl From<ScanError> for RelativeScanError {
+    fn from(src: ScanError) -> Self {
         Self::FromStr(src)
     }
 }
 
 //--- Display and Error
 
-impl fmt::Display for RelativeFromStrError {
+impl fmt::Display for RelativeScanError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            RelativeFromStrError::FromStr(err) => err.fmt(f),
-            RelativeFromStrError::AbsoluteName => {
+            RelativeScanError::FromStr(err) => err.fmt(f),
+            RelativeScanError::AbsoluteName => {
                 f.write_str("absolute domain name")
             }
         }
@@ -1056,7 +1018,7 @@ impl fmt::Display for RelativeFromStrError {
 }
 
 #[cfg(feature = "std")]
-impl std::error::Error for RelativeFromStrError {}
+impl std::error::Error for RelativeScanError {}
 
 //------------ StripSuffixError ----------------------------------------------
 
@@ -1236,13 +1198,13 @@ mod test {
 
     #[test]
     #[cfg(feature = "std")]
-    fn into_absolute() {
+    fn to_absolute() {
         assert_eq!(
             RelativeName::from_octets(Vec::from(
                 b"\x03www\x07example\x03com".as_ref()
             ))
             .unwrap()
-            .into_absolute()
+            .to_absolute()
             .unwrap()
             .as_slice(),
             b"\x03www\x07example\x03com\0"
@@ -1258,7 +1220,7 @@ mod test {
         tmp.extend_from_slice(b"\x03123");
         RelativeName::from_octets(tmp)
             .unwrap()
-            .into_absolute()
+            .to_absolute()
             .unwrap();
     }
 

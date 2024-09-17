@@ -3,11 +3,8 @@
 //! This is a private module. Its public types are re-exported by the parent
 //! module.
 
-use super::super::scan::BadSymbol;
 use super::super::wire::{FormError, ParseError};
-use super::builder::{
-    parse_escape, LabelFromStrError, LabelFromStrErrorEnum,
-};
+use super::{NameBuilder, ScanError};
 use core::str::FromStr;
 use core::{borrow, cmp, fmt, hash, iter, mem, ops, slice};
 use octseq::builder::OctetsBuilder;
@@ -478,26 +475,6 @@ impl OwnedLabel {
         OwnedLabel(res)
     }
 
-    /// Creates a label from a sequence of chars.
-    pub fn from_chars(
-        mut chars: impl Iterator<Item = char>,
-    ) -> Result<Self, LabelFromStrError> {
-        let mut res = [0u8; 64];
-        while let Some(ch) = chars.next() {
-            if res[0] as usize >= Label::MAX_LEN {
-                return Err(LabelFromStrErrorEnum::LongLabel.into());
-            }
-            let ch = match ch {
-                ' '..='-' | '/'..='[' | ']'..='~' => ch as u8,
-                '\\' => parse_escape(&mut chars, res[0] > 0)?,
-                _ => return Err(BadSymbol::non_ascii().into()),
-            };
-            res[(res[0] as usize) + 1] = ch;
-            res[0] += 1;
-        }
-        Ok(OwnedLabel(res))
-    }
-
     /// Converts the label into the canonical form.
     ///
     /// This form has all octets representing ASCII letters converted to their
@@ -539,10 +516,15 @@ impl<'a> From<&'a Label> for OwnedLabel {
 //--- FromStr
 
 impl FromStr for OwnedLabel {
-    type Err = LabelFromStrError;
+    type Err = ScanError;
 
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Self::from_chars(s.chars())
+    fn from_str(label: &str) -> Result<Self, Self::Err> {
+        let mut builder = NameBuilder::new([0u8; 256]);
+        builder.scan_label(label)?;
+        // SAFETY: `NameBuilder` only builds valid labels.
+        let label =
+            unsafe { Label::from_slice_unchecked(builder.cur_slice()) };
+        Ok(label.into())
     }
 }
 

@@ -8,9 +8,8 @@ use core::fmt;
 
 use super::absolute::Name;
 use super::relative::RelativeName;
-use super::traits::{ToName, ToRelativeName};
 use super::uncertain::UncertainName;
-use super::Label;
+use super::{Label, ToLabelIter};
 use crate::base::scan::{self, Symbol, Symbols};
 
 //------------ NameBuilder --------------------------------------------------
@@ -183,6 +182,39 @@ where
         }
     }
 
+    /// Append a relative name to the current label.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the domain name would become too big.
+    ///
+    /// # Panics
+    ///
+    /// Panics if a label was already being built.
+    pub fn append_relative_name<Octs>(
+        &mut self,
+        name: RelativeName<Octs>,
+    ) -> Result<(), BuildError>
+    where
+        Octs: AsRef<[u8]>,
+    {
+        assert!(
+            self.cur_label().is_none(),
+            "cannot append a name to a partially-built label"
+        );
+
+        if self.write_offset as usize + name.len() > Name::MAX_LEN {
+            return Err(BuildError::LongName);
+        }
+
+        let buffer = self.buffer.borrow_mut();
+        buffer[self.write_offset as usize..][..name.len()]
+            .copy_from_slice(name.as_ref());
+        self.write_offset += name.len() as u8;
+        self.label_offset += name.len() as u8;
+        Ok(())
+    }
+
     /// Check that a label can be appended to this builder.
     ///
     /// This ignores any partially-built label already in the builder; its size
@@ -251,8 +283,9 @@ where
                 // Ensure it is not one of the disallowed characters.
                 if matches!(
                     symbol,
-                    Symbol::Char('"' | '[' | ']' | '.' | ' ')
-                        | Symbol::SimpleEscape(b' ' | b'\t' | b'\r' | b'\n')
+                    Symbol::Char(
+                        '"' | '[' | ']' | '.' | ' ' | '\t' | '\r' | '\n'
+                    ) | Symbol::SimpleEscape(b' ' | b'\t' | b'\r' | b'\n')
                 ) {
                     return Err(ScanError::DisallowedChar);
                 } else if self.cur_label().is_none()
@@ -262,6 +295,10 @@ where
                 }
 
                 self.append_slice(&[symbol.into_octet()?])?;
+            }
+
+            if !label.is_empty() {
+                self.end_label();
             }
 
             Ok(())
@@ -293,20 +330,27 @@ where
                 // Ensure it is not one of the disallowed characters.
                 if matches!(
                     symbol,
-                    Symbol::Char('"' | '[' | ']' | ' ')
-                        | Symbol::SimpleEscape(b' ' | b'\t' | b'\r' | b'\n')
+                    Symbol::Char(
+                        '"' | '[' | ']' | '.' | ' ' | '\t' | '\r' | '\n'
+                    ) | Symbol::SimpleEscape(b' ' | b'\t' | b'\r' | b'\n')
                 ) {
                     return Err(ScanError::DisallowedChar);
                 } else if matches!(symbol, Symbol::Char('.')) {
+                    if self.cur_label().is_none() {
+                        return Err(ScanError::EmptyLabel);
+                    }
                     self.end_label();
                 } else {
                     self.append_slice(&[symbol.into_octet()?])?;
                 }
             }
 
-            // In case there was a root label, we want to append an empty slice.
-            // If there wasn't one, this has no effect.
-            self.append_slice(&[])?;
+            // End the last label, or create the root label.
+            if self.cur_label().is_some() {
+                self.end_label();
+            } else {
+                self.append_slice(&[])?;
+            }
 
             Ok(())
         })
@@ -383,6 +427,9 @@ where
 
     /// Extract a relative domain name from the builder.
     ///
+    /// If the name ends with the root label (which has length zero), [`None`]
+    /// is returned.
+    ///
     /// # Errors
     ///
     /// Fails if the octet sequence type underlying the [`RelativeName`] cannot
@@ -393,23 +440,27 @@ where
     /// Panics if a label was in the process of being built.
     pub fn as_relative<'a, Octs>(
         &'a self,
-    ) -> Result<RelativeName<Octs>, Octs::Error>
+    ) -> Result<Option<RelativeName<Octs>>, Octs::Error>
     where
         Octs: TryFrom<&'a [u8]>,
     {
         assert!(
-            self.cur_label().is_none(),
+            !self.cur_label().is_some_and(|l| !l.is_empty()),
             "cannot extract a domain name while a label is being built"
         );
 
-        let buffer = &self.buffer.borrow()[..self.write_offset as usize];
-        let octseq = Octs::try_from(buffer)?;
-        Ok(unsafe {
-            // SAFETY: `buffer` contains a valid name that was built through
-            // `NameBuilder`.  No root labels are present.
-            // TODO: Worry about a 255-byte relative name?
-            RelativeName::from_octets_unchecked(octseq)
-        })
+        if self.cur_label().is_none() {
+            let buffer = &self.buffer.borrow()[..self.write_offset as usize];
+            let octseq = Octs::try_from(buffer)?;
+            Ok(Some(unsafe {
+                // SAFETY: `buffer` contains a valid name that was built through
+                // `NameBuilder`.  No root labels are present.
+                // TODO: Worry about a 255-byte relative name?
+                RelativeName::from_octets_unchecked(octseq)
+            }))
+        } else {
+            Ok(None)
+        }
     }
 
     /// Extract an absolute or relative domain name from the builder.
@@ -458,13 +509,14 @@ impl<Buffer: Default> Default for NameBuilder<Buffer> {
     }
 }
 
-// TODO: impl 'ToName' / 'ToRelativeName'
-
 //------------ BuildError ----------------------------------------------------
 
 /// An error in building a domain name.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum BuildError {
+    /// The backing buffer is too short to store the data.
+    ShortBuf,
+
     /// The label being built would exceed the 63-byte limit.
     LongLabel,
 
@@ -475,6 +527,7 @@ pub enum BuildError {
 impl fmt::Display for BuildError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         f.write_str(match *self {
+            Self::ShortBuf => "the backing buffer was too short",
             Self::LongLabel => "domain name label longer than 63 bytes",
             Self::LongName => "domain name longer than 255 bytes",
         })
@@ -498,6 +551,12 @@ pub enum ScanError {
     /// A binary label (which is unsupported) was encountered.
     BinaryLabel,
 
+    /// An empty (non-root) label was encountered.
+    EmptyLabel,
+
+    /// The backing buffer is too short to store the data.
+    ShortBuf,
+
     /// The label being built would exceed the 63-byte limit.
     LongLabel,
 
@@ -508,6 +567,7 @@ pub enum ScanError {
 impl From<BuildError> for ScanError {
     fn from(value: BuildError) -> Self {
         match value {
+            BuildError::ShortBuf => Self::ShortBuf,
             BuildError::LongLabel => Self::LongLabel,
             BuildError::LongName => Self::LongName,
         }
@@ -533,6 +593,8 @@ impl fmt::Display for ScanError {
             Self::InvalidEscape => "invalid escape sequence found",
             Self::DisallowedChar => "disallowed character found",
             Self::BinaryLabel => "binary labels are unsupported",
+            Self::EmptyLabel => "empty domain name label",
+            Self::ShortBuf => "the backing buffer was too short",
             Self::LongLabel => "domain name label longer than 63 bytes",
             Self::LongName => "domain name longer than 255 bytes",
         })
