@@ -5,16 +5,18 @@ use std::boxed::Box;
 use bytes::Bytes;
 use tracing::{error, trace};
 
-use super::error::OutOfZone;
-use super::{WritableZone, WritableZoneNode, Zone};
 use crate::base::name::{FlattenInto, Label, ToLabelIter};
 use crate::base::{Name, ParsedName, Record, Rtype, ToName};
-use crate::net::xfr::protocol::{XfrEvent, XfrRecord};
+use crate::net::xfr::protocol::XfrRecord;
 use crate::rdata::ZoneRecordData;
 use crate::zonetree::{Rrset, SharedRrset};
 
+use super::error::OutOfZone;
+use super::types::ZoneUpdate;
+use super::{WritableZone, WritableZoneNode, Zone};
+
 /// TODO
-pub struct ZoneUpdateEventHandler {
+pub struct ZoneUpdater {
     zone: Zone,
 
     write: WriteState,
@@ -24,7 +26,7 @@ pub struct ZoneUpdateEventHandler {
     first_event_seen: bool,
 }
 
-impl ZoneUpdateEventHandler {
+impl ZoneUpdater {
     /// TODO
     pub async fn new(zone: Zone) -> std::io::Result<Self> {
         let write = WriteState::new(&zone).await?;
@@ -99,20 +101,22 @@ impl ZoneUpdateEventHandler {
     /// TODO
     pub async fn handle_event(
         &mut self,
-        evt: XfrEvent<XfrRecord>,
+        evt: ZoneUpdate<XfrRecord>,
     ) -> Result<(), ()> {
         trace!("Event: {evt}");
         match evt {
-            XfrEvent::DeleteRecord(_serial, rec) => {
+            ZoneUpdate::DeleteRecord(_serial, rec) => {
                 self.delete_record(rec).await?
             }
 
-            XfrEvent::AddRecord(_serial, rec) => self.add_record(rec).await?,
+            ZoneUpdate::AddRecord(_serial, rec) => {
+                self.add_record(rec).await?
+            }
 
             // Note: Batches first contain deletions then additions, so batch
             // deletion signals the start of a batch, and the end of any
             // previous batch addition.
-            XfrEvent::BeginBatchDelete(_old_soa) => {
+            ZoneUpdate::BeginBatchDelete(_old_soa) => {
                 if self.batching {
                     // Commit the previous batch.
                     self.write.commit().await?;
@@ -123,13 +127,13 @@ impl ZoneUpdateEventHandler {
                 self.batching = true;
             }
 
-            XfrEvent::BeginBatchAdd(new_soa) => {
+            ZoneUpdate::BeginBatchAdd(new_soa) => {
                 // Update the SOA record.
                 self.update_soa(new_soa).await?;
                 self.batching = true;
             }
 
-            XfrEvent::EndOfTransfer(zone_soa) => {
+            ZoneUpdate::Finished(zone_soa) => {
                 if !self.batching {
                     // Update the SOA record.
                     self.update_soa(zone_soa).await?;
@@ -138,7 +142,7 @@ impl ZoneUpdateEventHandler {
                 self.write.commit().await?;
             }
 
-            XfrEvent::ProcessingFailed => {
+            ZoneUpdate::Corrupt => {
                 // ???
             }
         }
@@ -319,8 +323,7 @@ mod tests {
 
         let zone = mk_empty_zone("example.com");
 
-        let mut evt_handler =
-            ZoneUpdateEventHandler::new(zone.clone()).await.unwrap();
+        let mut evt_handler = ZoneUpdater::new(zone.clone()).await.unwrap();
 
         let s = Serial::now();
         let soa = mk_soa(s);
@@ -333,12 +336,12 @@ mod tests {
         );
 
         evt_handler
-            .handle_event(XfrEvent::AddRecord(s, soa.clone()))
+            .handle_event(ZoneUpdate::AddRecord(s, soa.clone()))
             .await
             .unwrap();
 
         evt_handler
-            .handle_event(XfrEvent::EndOfTransfer(soa))
+            .handle_event(ZoneUpdate::Finished(soa))
             .await
             .unwrap();
     }
@@ -349,8 +352,7 @@ mod tests {
 
         let zone = mk_empty_zone("example.com");
 
-        let mut evt_handler =
-            ZoneUpdateEventHandler::new(zone.clone()).await.unwrap();
+        let mut evt_handler = ZoneUpdater::new(zone.clone()).await.unwrap();
 
         // Create an AXFR request to reply to.
         let req = mk_request("example.com", Rtype::AXFR).into_message();

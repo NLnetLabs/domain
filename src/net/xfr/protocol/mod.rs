@@ -2,8 +2,10 @@
 //!
 //! This module provides [`XfrResponseInterpreter`] which can be used to
 //! process one or more AXFR/IXFR response messages in terms of the high level
-//! [`XfrEvent`]s that they represent without having to deal with the
+//! [`ZoneUpdate`]s that they represent without having to deal with the
 //! AXFR/IXFR protocol details.
+//!
+//! [`ZoneUpdate`]: crate::zonetree::types::ZoneUpdate
 mod interpreter;
 mod iterator;
 mod types;
@@ -12,5 +14,5 @@ mod types;
 mod tests;
 
 pub use interpreter::XfrResponseInterpreter;
-pub use iterator::XfrEventIterator;
-pub use types::{IterationError, ProcessingError, XfrEvent, XfrRecord};
+pub use iterator::XfrZoneUpdateIterator;
+pub use types::{IterationError, ProcessingError, XfrRecord};

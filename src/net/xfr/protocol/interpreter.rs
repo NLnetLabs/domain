@@ -5,18 +5,17 @@ use bytes::Bytes;
 use crate::base::iana::Opcode;
 use crate::base::{Message, ParsedName, Rtype};
 use crate::rdata::{Soa, ZoneRecordData};
+use crate::zonetree::types::ZoneUpdate;
 
-use super::iterator::XfrEventIterator;
-use super::types::{
-    IxfrUpdateMode, ProcessingError, XfrEvent, XfrRecord, XfrType,
-};
+use super::iterator::XfrZoneUpdateIterator;
+use super::types::{IxfrUpdateMode, ProcessingError, XfrRecord, XfrType};
 
 //------------ XfrResponseInterpreter -----------------------------------------
 
-/// An AXFR/IXFR response processor.
+/// An AXFR/IXFR response interpreter.
 ///
 /// Use [`XfrResponseInterpreter`] to interpret a sequence of AXFR or IXFR
-/// response messages as a sequence of high level [`XfrEvent`]s.
+/// response messages as a sequence of [`ZoneUpdate`]s.
 ///
 /// # Usage
 ///
@@ -24,16 +23,18 @@ use super::types::{
 /// [`XfrResponseInterpreter`] for the corresponding XFR request message, then
 /// pass each XFR response message to [`process_answer()`].
 ///
-/// Each call to [`process_answer()`] will return an [`XfrEventIterator`]
-/// which when iterated over will produce a sequence of [`XfrEvent`]s for a
-/// single response message. The iterator emits an [`XfrEvent::EndOfTransfer`]
-/// event when the last record in the transfer is reached.
+/// Each call to [`process_answer()`] will return an [`XfrZoneUpdateIterator`]
+/// which when iterated over will produce a sequence of [`ZoneUpdate`]s for a
+/// single response message. The iterator emits [`ZoneUpdate::Complete`] when
+/// the last record in the transfer is reached.
 ///
-/// If [`XfrEvent::EndOfTransfer`] event has not yet been emitted it means
-/// that the sequence is incomplete and the next response message in the
-/// sequence should be passed to [`process_answer()`].
+/// If [`ZoneUpdate::Complete`] has not yet been emitted it means that the
+/// sequence is incomplete and the next response message in the sequence
+/// should be passed to [`process_answer()`].
 ///
 /// [`process_answer()`]: XfrResponseInterpreter::process_answer()
+/// [`ZoneUpdate`]: crate::zonetree::types::ZoneUpdate
+/// [`ZoneUpdate::Complete`]: crate::zonetree::types::ZoneUpdate
 #[derive(Default)]
 pub struct XfrResponseInterpreter {
     /// Internal state.
@@ -52,12 +53,13 @@ impl XfrResponseInterpreter {
 impl XfrResponseInterpreter {
     /// Process a single AXFR/IXFR response message.
     ///
-    /// Returns an [`XfrEventIterator`] over [`XfrEvent`]s emitted during
+    /// Returns an [`XfrZoneUpdateIterator`] over [`ZoneUpdate`]s emitted during
     /// processing.
     ///
-    /// If the returned iterator does not emit an [`XfrEvent::EndOfTransfer`]
-    /// event, call this function with the next outstanding response message
-    /// to continue iterating over the incomplete transfer.
+    /// Call this function with the next outstanding response message to
+    /// continue iterating over an incomplete transfer (i.e. previous
+    /// iterators were exhausted without emiting [`ZoneUpdate::Finished`] or
+    /// [`ZoneUpdate::Corrupt`]).
     ///
     /// Checking that the given response corresponds by ID to the related
     /// original XFR query or that the question section of the response, if
@@ -67,7 +69,7 @@ impl XfrResponseInterpreter {
     pub fn process_answer(
         &mut self,
         resp: Message<Bytes>,
-    ) -> Result<XfrEventIterator, ProcessingError> {
+    ) -> Result<XfrZoneUpdateIterator, ProcessingError> {
         // Check that the given message is a DNS XFR response.
         self.check_response(&resp)?;
 
@@ -79,7 +81,7 @@ impl XfrResponseInterpreter {
 
         let inner = self.inner.as_mut().unwrap();
 
-        XfrEventIterator::new(&mut inner.state, &inner.resp)
+        XfrZoneUpdateIterator::new(&mut inner.state, &inner.resp)
     }
 }
 
@@ -247,7 +249,7 @@ impl RecordProcessor {
     pub(super) fn process_record(
         &mut self,
         rec: XfrRecord,
-    ) -> XfrEvent<XfrRecord> {
+    ) -> ZoneUpdate<XfrRecord> {
         self.rr_count += 1;
 
         // https://datatracker.ietf.org/doc/html/rfc5936#section-2.2
@@ -281,11 +283,11 @@ impl RecordProcessor {
                 //    MUST conclude with the same SOA resource record.
                 //    Intermediate messages MUST NOT contain the SOA resource
                 //    record."
-                XfrEvent::EndOfTransfer(rec)
+                ZoneUpdate::Finished(rec)
             }
 
             XfrType::Axfr => {
-                XfrEvent::AddRecord(self.current_soa.serial(), rec)
+                ZoneUpdate::AddRecord(self.current_soa.serial(), rec)
             }
 
             XfrType::Ixfr if self.rr_count < 2 => unreachable!(),
@@ -293,7 +295,7 @@ impl RecordProcessor {
             XfrType::Ixfr if self.rr_count == 2 => {
                 if record_matches_initial_soa {
                     // IXFR not available, AXFR of empty zone detected.
-                    XfrEvent::EndOfTransfer(rec)
+                    ZoneUpdate::Finished(rec)
                 } else if let Some(soa) = soa {
                     // This SOA record is the start of an IXFR diff sequence.
                     self.current_soa = soa.clone();
@@ -305,7 +307,7 @@ impl RecordProcessor {
                         IxfrUpdateMode::Deleting
                     );
 
-                    XfrEvent::BeginBatchDelete(rec)
+                    ZoneUpdate::BeginBatchDelete(rec)
                 } else {
                     // https://datatracker.ietf.org/doc/html/rfc1995#section-4
                     // 4. Response Format
@@ -335,7 +337,7 @@ impl RecordProcessor {
                     // assume that "incremental zone transfer is not available"
                     // and so "the behaviour is the same as an AXFR response",
                     self.actual_xfr_type = XfrType::Axfr;
-                    XfrEvent::AddRecord(self.current_soa.serial(), rec)
+                    ZoneUpdate::AddRecord(self.current_soa.serial(), rec)
                 }
             }
 
@@ -350,25 +352,25 @@ impl RecordProcessor {
                             // Is this the end of the transfer, or the start
                             // of a new diff sequence?
                             if record_matches_initial_soa {
-                                XfrEvent::EndOfTransfer(rec)
+                                ZoneUpdate::Finished(rec)
                             } else {
-                                XfrEvent::BeginBatchDelete(rec)
+                                ZoneUpdate::BeginBatchDelete(rec)
                             }
                         }
                         IxfrUpdateMode::Adding => {
                             // We just switched from the Delete phase of a
                             // diff sequence to the add phase of the diff
                             // sequence.
-                            XfrEvent::BeginBatchAdd(rec)
+                            ZoneUpdate::BeginBatchAdd(rec)
                         }
                     }
                 } else {
                     match self.ixfr_update_mode {
-                        IxfrUpdateMode::Deleting => XfrEvent::DeleteRecord(
+                        IxfrUpdateMode::Deleting => ZoneUpdate::DeleteRecord(
                             self.current_soa.serial(),
                             rec,
                         ),
-                        IxfrUpdateMode::Adding => XfrEvent::AddRecord(
+                        IxfrUpdateMode::Adding => ZoneUpdate::AddRecord(
                             self.current_soa.serial(),
                             rec,
                         ),

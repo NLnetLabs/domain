@@ -148,7 +148,7 @@ where
                     req.received_at(),
                     new_msg,
                     req.transport_ctx().clone(),
-                    Some(tsig.key_wrapper().clone()),
+                    Some(tsig.wrapped_key().clone()),
                 );
 
                 let num_bytes_to_reserve = tsig.key().compose_len();
