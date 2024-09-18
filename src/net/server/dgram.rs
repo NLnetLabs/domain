@@ -21,7 +21,7 @@ use std::string::ToString;
 use std::sync::{Arc, Mutex};
 
 use arc_swap::ArcSwap;
-use futures::prelude::stream::StreamExt;
+use futures_util::stream::StreamExt;
 use octseq::Octets;
 use tokio::io::ReadBuf;
 use tokio::net::UdpSocket;

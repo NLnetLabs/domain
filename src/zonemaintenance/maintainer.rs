@@ -25,14 +25,14 @@ use std::vec::Vec;
 
 use arc_swap::ArcSwap;
 use bytes::Bytes;
-use futures::stream::FuturesUnordered;
+use futures_util::stream::FuturesUnordered;
+use futures_util::StreamExt;
 use octseq::Octets;
 use tokio::net::TcpStream;
 use tokio::sync::mpsc::{self, Receiver, Sender};
 use tokio::sync::Mutex;
 use tokio::sync::RwLock;
 use tokio::time::Instant;
-use tokio_stream::StreamExt;
 use tracing::{debug, error, info, trace, warn};
 
 use crate::base::iana::{Class, Opcode, OptRcode};
@@ -47,9 +47,16 @@ use crate::net::client::request::{
     self, RequestMessage, RequestMessageMulti, SendRequest, SendRequestMulti,
 };
 use crate::net::client::tsig::{self};
+use crate::net::server::message::Request;
+use crate::net::server::middleware::notify::{Notifiable, NotifyError};
+use crate::net::server::middleware::xfr::{
+    XfrDataProvider, XfrDataProviderError,
+};
+use crate::net::xfr::protocol::XfrResponseInterpreter;
 use crate::rdata::{Soa, ZoneRecordData};
 use crate::tsig::{Key, KeyStore};
 use crate::zonetree::error::{OutOfZone, ZoneTreeModificationError};
+use crate::zonetree::update::ZoneUpdater;
 use crate::zonetree::{
     AnswerContent, ReadableZone, SharedRrset, StoredName, WritableZone,
     WritableZoneNode, Zone, ZoneDiff, ZoneKey, ZoneStore, ZoneTree,
@@ -62,18 +69,6 @@ use super::types::{
     ZoneRefreshStatus, ZoneRefreshTimer, ZoneReport, ZoneReportDetails,
     IANA_DNS_PORT_NUMBER, MIN_DURATION_BETWEEN_ZONE_REFRESHES,
 };
-use crate::net::server::message::Request;
-use crate::net::server::middleware::notify::{Notifiable, NotifyError};
-use crate::net::server::middleware::tsig::{
-    Authentication, MaybeAuthenticated,
-};
-use crate::net::server::middleware::xfr::{
-    XfrDataProvider, XfrDataProviderError,
-};
-use crate::net::xfr::processing::{
-    ProcessingError, XfrEvent, XfrResponseProcessor,
-};
-use crate::zonetree::xfr_event_handler::ZoneUpdateEventHandler;
 
 //------------ ConnectionFactory ---------------------------------------------
 
@@ -1483,8 +1478,8 @@ where
             msg.authority()
         };
 
-        let mut xfr_processor = XfrResponseProcessor::new();
-        let mut zone_updater = ZoneUpdateEventHandler::new(zone.clone())
+        let mut xfr_interpreter = XfrResponseInterpreter::new();
+        let mut zone_updater = ZoneUpdater::new(zone.clone())
             .await
             .map_err(ZoneMaintainerError::IoError)?;
 
@@ -1535,33 +1530,25 @@ where
                 // inside a single UDP packet (which could be a single SOA
                 // either indicating that the client is up-to-date, or if
                 // newer that the client should fallback to TCP).
-                let it = xfr_processor
-                    .process_answer(msg)
+                let it = xfr_interpreter
+                    .interpret_response(msg)
                     .map_err(ZoneMaintainerError::ProcessingError)?;
 
-                let mut eot = false;
-
                 trace!("Processing XFR events");
-                for evt in it {
-                    let evt = evt.map_err(|_err| {
+                for update in it {
+                    let update = update.map_err(|_err| {
                         ZoneMaintainerError::ProcessingError(
-                            ProcessingError::Malformed,
+                            crate::net::xfr::protocol::Error::Malformed,
                         )
                     })?;
 
-                    eot = matches!(evt, XfrEvent::EndOfTransfer(_));
-
                     zone_updater
-                        .handle_event(evt)
+                        .apply(update)
                         .await
-                        .map_err(|()| ZoneMaintainerError::ZoneUpdateError)?;
-
-                    if eot {
-                        break;
-                    }
+                        .map_err(ZoneMaintainerError::ZoneUpdateError)?;
                 }
 
-                if !eot {
+                if !xfr_interpreter.is_finished() {
                     trace!(
                         "Processing XFR events complete: incomplete response"
                     );
@@ -1592,7 +1579,7 @@ where
                 let mut send_request = tcp_client.send_request(req);
 
                 trace!("Fetching XFR responses");
-                'outer: loop {
+                while !xfr_interpreter.is_finished() {
                     trace!("Fetching XFR response");
                     let msg = send_request
                         .get_response()
@@ -1609,32 +1596,23 @@ where
                         ));
                     }
 
-                    let it = xfr_processor
-                        .process_answer(msg)
+                    let it = xfr_interpreter
+                        .interpret_response(msg)
                         .map_err(ZoneMaintainerError::ProcessingError)?;
 
                     trace!("Processing XFR events");
 
-                    for evt in it {
-                        let evt = evt.map_err(|_err| {
+                    for update in it {
+                        let evt = update.map_err(|_err| {
                             ZoneMaintainerError::ProcessingError(
-                                ProcessingError::Malformed,
+                                crate::net::xfr::protocol::Error::Malformed,
                             )
                         })?;
 
-                        let eot = matches!(evt, XfrEvent::EndOfTransfer(_));
-
-                        zone_updater.handle_event(evt).await.map_err(
-                            |()| {
-                                error!("Zone update error");
-                                ZoneMaintainerError::ZoneUpdateError
-                            },
-                        )?;
-
-                        if eot {
-                            trace!("Processing XFR events: EoT detected");
-                            break 'outer;
-                        }
+                        zone_updater
+                            .apply(evt)
+                            .await
+                            .map_err(ZoneMaintainerError::ZoneUpdateError)?;
                     }
 
                     trace!("Processing XFR events complete");
@@ -2217,9 +2195,9 @@ where
     }
 }
 
-//--- XfrDataProvider<Authentication>
+//--- XfrDataProvider<Option<Key>>
 
-impl<KS, CF> XfrDataProvider<Authentication> for ZoneMaintainer<KS, CF>
+impl<KS, CF> XfrDataProvider<Option<Key>> for ZoneMaintainer<KS, CF>
 where
     KS: Deref + 'static + Sync + Send,
     KS::Target: KeyStore,
@@ -2229,7 +2207,7 @@ where
 {
     fn request<Octs>(
         &self,
-        req: &Request<Octs, Authentication>,
+        req: &Request<Octs, Option<Key>>,
         diff_from: Option<Serial>,
     ) -> Pin<
         Box<
@@ -2253,7 +2231,8 @@ where
         };
 
         let client_ip = req.client_addr().ip();
-        let key_name = req.metadata().key_name().map(ToOwned::to_owned);
+        let key_name =
+            req.metadata().as_ref().map(|key| key.name().to_owned());
 
         let res = async move {
             let Some((zone_res, qtype)) = opt else {
@@ -2525,8 +2504,8 @@ pub enum ZoneMaintainerError {
     NoConnectionAvailable,
     IxfrResponseTooLargeForUdp,
     IncompleteResponse,
-    ProcessingError(ProcessingError),
-    ZoneUpdateError,
+    ProcessingError(crate::net::xfr::protocol::Error),
+    ZoneUpdateError(std::io::Error),
 }
 
 //--- Display
@@ -2565,8 +2544,8 @@ impl Display for ZoneMaintainerError {
             ZoneMaintainerError::ProcessingError(err) => {
                 f.write_fmt(format_args!("Processing error: {err}"))
             }
-            ZoneMaintainerError::ZoneUpdateError => {
-                f.write_str("Zone update error")
+            ZoneMaintainerError::ZoneUpdateError(err) => {
+                f.write_fmt(format_args!("Zone update error: {err}"))
             }
         }
     }

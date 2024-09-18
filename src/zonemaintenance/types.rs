@@ -13,7 +13,7 @@ use std::sync::Arc;
 use std::vec::Vec;
 
 use bytes::Bytes;
-use futures::FutureExt;
+use futures_util::FutureExt;
 use tokio::sync::{oneshot, Mutex};
 use tokio::time::{sleep_until, Instant, Sleep};
 use tracing::trace;
@@ -678,10 +678,7 @@ pub struct ZoneInfo {
 
 impl ZoneInfo {
     pub async fn add_diff(&self, diff: ZoneDiff) {
-        let k = ZoneDiffKey::new(
-            diff.start_serial.unwrap(), // SAFETY: TODO
-            diff.end_serial.unwrap(),   // SAFETY: TODO
-        );
+        let k = ZoneDiffKey::new(diff.start_serial, diff.end_serial);
         self.diffs.lock().await.insert(k, Arc::new(diff));
     }
 

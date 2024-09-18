@@ -36,7 +36,6 @@ use crate::net::server::middleware::cookies::CookiesMiddlewareSvc;
 use crate::net::server::middleware::edns::EdnsMiddlewareSvc;
 use crate::net::server::middleware::mandatory::MandatoryMiddlewareSvc;
 use crate::net::server::middleware::notify::NotifyMiddlewareSvc;
-use crate::net::server::middleware::tsig::Authentication;
 use crate::net::server::middleware::tsig::TsigMiddlewareSvc;
 use crate::net::server::middleware::xfr::XfrMiddlewareSvc;
 use crate::net::server::service::{CallResult, Service, ServiceResult};
@@ -121,8 +120,8 @@ async fn server_tests(#[files("test-data/server/*.rpl")] rpl_file: PathBuf) {
         key_store.clone(),
         conn_factory,
     );
-    let zones = ZoneMaintainer::new_with_config(zone_maintainer_config);
-    let zones = Arc::new(zones);
+    let zones =
+        Arc::new(ZoneMaintainer::new_with_config(zone_maintainer_config));
 
     // Build and insert the test defined zone, if any, into the zone maintainer
     if let Some(zone_config) = &server_config.zone {
@@ -186,7 +185,7 @@ async fn server_tests(#[files("test-data/server/*.rpl")] rpl_file: PathBuf) {
 
     // 4. XFR(-in) middleware service (XFR-out is handled by the
     //    ZoneMaintainer).
-    let svc = XfrMiddlewareSvc::<_, _, _, Authentication>::new(
+    let svc = XfrMiddlewareSvc::<Vec<u8>, _, _, Option<Key>>::new(
         svc,
         zones.clone(),
         MAX_XFR_CONCURRENCY,

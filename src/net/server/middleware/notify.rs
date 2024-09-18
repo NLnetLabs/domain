@@ -8,7 +8,7 @@ use std::boxed::Box;
 use std::fmt::Debug;
 use std::sync::Arc;
 
-use futures::stream::{once, Once, Stream};
+use futures_util::stream::{once, Once, Stream};
 use octseq::Octets;
 use tracing::{error, info, warn};
 

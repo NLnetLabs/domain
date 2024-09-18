@@ -5,7 +5,7 @@ use core::ops::ControlFlow;
 
 use std::vec::Vec;
 
-use futures::stream::{once, Once, Stream};
+use futures_util::stream::{once, Once, Stream};
 use octseq::Octets;
 use rand::RngCore;
 use tracing::{debug, error, trace, warn};
@@ -471,7 +471,7 @@ where
         Once<Ready<<NextSvc::Stream as Stream>::Item>>,
         <NextSvc::Stream as Stream>::Item,
     >;
-    type Future = Ready<Self::Stream>;
+    type Future = core::future::Ready<Self::Stream>;
 
     fn call(
         &self,

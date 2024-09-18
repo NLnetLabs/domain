@@ -251,31 +251,181 @@ pub struct ZoneCut {
     pub glue: Vec<StoredRecord>,
 }
 
+//------------ ZoneDiffBuilder -----------------------------------------------
+
+/// A [`ZoneDiff`] builder.
+#[derive(Debug, Default)]
+pub struct ZoneDiffBuilder {
+    /// The records added to the Zone.
+    added: HashMap<(StoredName, Rtype), SharedRrset>,
+
+    /// The records removed from the Zone.
+    removed: HashMap<(StoredName, Rtype), SharedRrset>,
+}
+
+impl ZoneDiffBuilder {
+    /// TODO
+    pub fn new() -> Self {
+        Default::default()
+    }
+
+    /// TODO
+    pub fn add(
+        &mut self,
+        owner: StoredName,
+        rtype: Rtype,
+        rrset: SharedRrset,
+    ) {
+        self.added.insert((owner, rtype), rrset);
+    }
+
+    /// TODO
+    pub fn remove(
+        &mut self,
+        owner: StoredName,
+        rtype: Rtype,
+        rrset: SharedRrset,
+    ) {
+        self.removed.insert((owner, rtype), rrset);
+    }
+
+    /// TODO
+    pub fn build(self, start_serial: Serial, end_serial: Serial) -> ZoneDiff {
+        ZoneDiff {
+            start_serial,
+            end_serial,
+            added: Arc::new(self.added),
+            removed: Arc::new(self.removed),
+        }
+    }
+}
+
 //------------ ZoneDiff ------------------------------------------------------
 
 /// The differences between one serial and another for a Zone.
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 pub struct ZoneDiff {
     /// The serial number of the Zone which was modified.
-    ///
-    /// For a completed diff this must be Some.
-    pub start_serial: Option<Serial>,
+    pub start_serial: Serial,
 
     /// The serial number of the Zone that resulted from the modifications.
-    ///
-    /// For a completed diff this must be Some.
-    pub end_serial: Option<Serial>,
+    pub end_serial: Serial,
 
     /// The records added to the Zone.
-    pub added: HashMap<(StoredName, Rtype), SharedRrset>,
+    pub added: Arc<HashMap<(StoredName, Rtype), SharedRrset>>,
 
     /// The records removed from the Zone.
-    pub removed: HashMap<(StoredName, Rtype), SharedRrset>,
+    pub removed: Arc<HashMap<(StoredName, Rtype), SharedRrset>>,
 }
 
-impl ZoneDiff {
-    /// Creates a new empty diff.
-    pub fn new() -> Self {
-        Self::default()
+//------------ ZoneUpdate -----------------------------------------------------
+
+/// An update to be applied to a [`Zone`].
+///
+/// # Design
+///
+/// The variants of this enum are modelled after the way the AXFR and IXFR
+/// protocols represent updates to zones.
+///
+/// AXFR responses can be represented as a sequence of
+/// [`ZoneUpdate::AddRecord`]s.
+///
+/// IXFR responses can be represented as a sequence of batches, each
+/// consisting of:
+/// - [`ZoneUpdate::BeginBatchDelete`]
+/// - [`ZoneUpdate::DeleteRecord`]s _(zero or more)_
+/// - [`ZoneUpdate::BeginBatchAdd`]
+/// - [`ZoneUpdate::AddRecord`]s _(zero or more)_
+///
+/// Both AXFR and IXFR responses encoded using this enum are terminated by a
+/// final [`ZoneUpdate::Finished`].
+///
+/// # Use within this crate
+///  
+/// [`XfrResponseInterpreter`] can convert received XFR responses into
+/// sequences of [`ZoneUpdate`]s. These can then be consumed by a
+/// [`ZoneUpdater`] to effect changes to an existing [`Zone`].
+///
+/// # Future extensions
+///
+/// This enum is marked as `#[non_exhaustive]` to permit addition of more
+/// update operations in future, e.g. to support RFC 2136 Dynamic Updates
+/// operations.
+///
+/// [`XfrResponseInterpreter`]:
+///     crate::net::xfr::protocol::XfrResponseInterpreter
+/// [`Zone`]: crate::zonetree::zone::Zone
+/// [`ZoneUpdater`]: crate::zonetree::update::ZoneUpdater
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum ZoneUpdate<R> {
+    /// Delete all records in the zone.
+    DeleteAllRecords,
+
+    /// Delete record R from the zone.
+    DeleteRecord(R),
+
+    /// Add record R to the zone.
+    AddRecord(R),
+
+    /// Start a batch delete for the specified version (serial) of the zone.
+    ///
+    /// If not already in batching mode, this signals the start of batching
+    /// mode. In batching mode one or more batches of updates will be
+    /// signalled, each consisting of the sequence:
+    ///
+    /// - ZoneUpdate::BeginBatchDelete
+    /// - ZoneUpdate::DeleteRecord (zero or more)
+    /// - ZoneUpdate::BeginBatchAdd
+    /// - ZoneUpdate::AddRecord (zero or more)
+    ///
+    /// Batching mode can only be terminated by `UpdateComplete` or
+    /// `UpdateIncomplete`.
+    ///
+    /// Batching mode makes updates more predictable for the receiver to work
+    /// with by limiting the updates that can be signalled next, enabling
+    /// receiver logic to be simpler and more efficient.
+    ///
+    /// The record must be a SOA record that matches the SOA record of the
+    /// zone version in which the subsequent [`ZoneUpdate::DeleteRecord`]s
+    /// should be deleted.
+    BeginBatchDelete(R),
+
+    /// Start a batch add for the specified version (serial) of the zone.
+    ///
+    /// This can only be signalled when already in batching mode, i.e. when
+    /// `BeginBatchDelete` has already been signalled.
+    ///
+    /// The record must be the SOA record to use for the new version of the
+    /// zone under which the subsequent [`ZoneUpdate::AddRecord`]s will be
+    /// added.
+    ///
+    /// See `BeginBatchDelete` for more information.
+    BeginBatchAdd(R),
+
+    /// In progress updates for the zone can now be finalized.
+    ///
+    /// This signals the end of a group of related changes for the given SOA
+    /// record of the zone.
+    ///
+    /// For example this could be used to trigger an atomic commit of a set of
+    /// related pending changes.
+    Finished(R),
+}
+
+//--- Display
+
+impl<R> std::fmt::Display for ZoneUpdate<R> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            ZoneUpdate::DeleteAllRecords => f.write_str("DeleteAllRecords"),
+            ZoneUpdate::DeleteRecord(_) => f.write_str("DeleteRecord"),
+            ZoneUpdate::AddRecord(_) => f.write_str("AddRecord"),
+            ZoneUpdate::BeginBatchDelete(_) => {
+                f.write_str("BeginBatchDelete")
+            }
+            ZoneUpdate::BeginBatchAdd(_) => f.write_str("BeginBatchAdd"),
+            ZoneUpdate::Finished(_) => f.write_str("Finished"),
+        }
     }
 }

@@ -10,7 +10,7 @@ use std::sync::Arc;
 use std::vec::Vec;
 
 use bytes::Bytes;
-use futures::stream::{once, Once, Stream};
+use futures_util::stream::{once, Once, Stream};
 use octseq::Octets;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedSender};
 use tokio::sync::Semaphore;
@@ -1360,7 +1360,7 @@ mod tests {
 
     use std::borrow::ToOwned;
 
-    use futures::StreamExt;
+    use futures_util::StreamExt;
     use tokio::time::Instant;
 
     use crate::base::iana::Class;
@@ -1368,16 +1368,14 @@ mod tests {
     use crate::net::server::message::{
         NonUdpTransportContext, UdpTransportContext,
     };
-    use crate::net::server::middleware::tsig::{
-        Authentication, MaybeAuthenticated,
-    };
     use crate::net::server::service::ServiceError;
     use crate::rdata::{Aaaa, AllRecordData, Cname, Mx, Ns, Txt, A};
-    use crate::tsig::KeyName;
+    use crate::tsig::{Algorithm, Key, KeyName};
     use crate::zonefile::inplace::Zonefile;
     use crate::zonetree::types::Rrset;
 
     use super::*;
+    use crate::zonetree::ZoneDiffBuilder;
 
     type ExpectedRecords =
         Vec<(Name<Bytes>, AllRecordData<Bytes, Name<Bytes>>)>;
@@ -1605,9 +1603,7 @@ JAIN-BB.JAIN.AD.JP. IN A   192.41.197.2
         let zone = load_zone(rfc_1995_zone.as_bytes());
 
         // Diff 1: NEZU.JAIN.AD.JP. is removed and JAIN-BB.JAIN.AD.JP. is added.
-        let mut diff = ZoneDiff::new();
-        diff.start_serial = Some(Serial(1));
-        diff.end_serial = Some(Serial(2));
+        let mut diff = ZoneDiffBuilder::new();
 
         // -- Remove the old SOA.
         let mut rrset = Rrset::new(Rtype::SOA, Ttl::from_secs(0));
@@ -1621,16 +1617,12 @@ JAIN-BB.JAIN.AD.JP. IN A   192.41.197.2
             Ttl::from_secs(604800),
         );
         rrset.push_data(soa.into());
-        diff.removed
-            .insert((n("JAIN.AD.JP"), Rtype::SOA), SharedRrset::new(rrset));
+        diff.remove(n("JAIN.AD.JP"), Rtype::SOA, SharedRrset::new(rrset));
 
         // -- Remove the A record.
         let mut rrset = Rrset::new(Rtype::A, Ttl::from_secs(0));
         rrset.push_data(A::new(p("133.69.136.5")).into());
-        diff.removed.insert(
-            (n("NEZU.JAIN.AD.JP"), Rtype::A),
-            SharedRrset::new(rrset),
-        );
+        diff.remove(n("NEZU.JAIN.AD.JP"), Rtype::A, SharedRrset::new(rrset));
 
         // -- Add the new SOA.
         let mut rrset = Rrset::new(Rtype::SOA, Ttl::from_secs(0));
@@ -1644,24 +1636,18 @@ JAIN-BB.JAIN.AD.JP. IN A   192.41.197.2
             Ttl::from_secs(604800),
         );
         rrset.push_data(soa.into());
-        diff.added
-            .insert((n("JAIN.AD.JP"), Rtype::SOA), SharedRrset::new(rrset));
+        diff.add(n("JAIN.AD.JP"), Rtype::SOA, SharedRrset::new(rrset));
 
         // -- Add the new A records.
         let mut rrset = Rrset::new(Rtype::A, Ttl::from_secs(0));
         rrset.push_data(A::new(p("133.69.136.4")).into());
         rrset.push_data(A::new(p("192.41.197.2")).into());
-        diff.added.insert(
-            (n("JAIN-BB.JAIN.AD.JP"), Rtype::A),
-            SharedRrset::new(rrset),
-        );
+        diff.add(n("JAIN-BB.JAIN.AD.JP"), Rtype::A, SharedRrset::new(rrset));
 
-        diffs.push(diff);
+        diffs.push(diff.build(Serial(1), Serial(2)));
 
         // Diff 2: One of the IP addresses of JAIN-BB.JAIN.AD.JP. is changed.
-        let mut diff = ZoneDiff::new();
-        diff.start_serial = Some(Serial(2));
-        diff.end_serial = Some(Serial(3));
+        let mut diff = ZoneDiffBuilder::new();
 
         // -- Remove the old SOA.
         let mut rrset = Rrset::new(Rtype::SOA, Ttl::from_secs(0));
@@ -1675,14 +1661,14 @@ JAIN-BB.JAIN.AD.JP. IN A   192.41.197.2
             Ttl::from_secs(604800),
         );
         rrset.push_data(soa.into());
-        diff.removed
-            .insert((n("JAIN.AD.JP"), Rtype::SOA), SharedRrset::new(rrset));
+        diff.remove(n("JAIN.AD.JP"), Rtype::SOA, SharedRrset::new(rrset));
 
         // Remove the outdated IP address.
         let mut rrset = Rrset::new(Rtype::A, Ttl::from_secs(0));
         rrset.push_data(A::new(p("133.69.136.4")).into());
-        diff.removed.insert(
-            (n("JAIN-BB.JAIN.AD.JP"), Rtype::A),
+        diff.remove(
+            n("JAIN-BB.JAIN.AD.JP"),
+            Rtype::A,
             SharedRrset::new(rrset),
         );
 
@@ -1698,18 +1684,14 @@ JAIN-BB.JAIN.AD.JP. IN A   192.41.197.2
             Ttl::from_secs(604800),
         );
         rrset.push_data(soa.into());
-        diff.added
-            .insert((n("JAIN.AD.JP"), Rtype::SOA), SharedRrset::new(rrset));
+        diff.add(n("JAIN.AD.JP"), Rtype::SOA, SharedRrset::new(rrset));
 
         // Add the updated IP address.
         let mut rrset = Rrset::new(Rtype::A, Ttl::from_secs(0));
         rrset.push_data(A::new(p("133.69.136.3")).into());
-        diff.added.insert(
-            (n("JAIN-BB.JAIN.AD.JP"), Rtype::A),
-            SharedRrset::new(rrset),
-        );
+        diff.add(n("JAIN-BB.JAIN.AD.JP"), Rtype::A, SharedRrset::new(rrset));
 
-        diffs.push(diff);
+        diffs.push(diff.build(Serial(2), Serial(3)));
 
         // Create an object that knows how to provide zone and diff data for
         // our zone and diffs.
@@ -1837,22 +1819,22 @@ JAIN-BB.JAIN.AD.JP. IN A   192.41.197.2
     async fn ixfr_multi_response_tcp() {}
 
     #[tokio::test]
-    async fn axfr_with_tsig_key_name() {
+    async fn axfr_with_tsig_key() {
         // Define an XfrDataProvider that expects to receive a Request that is
         // generic over a type that we specify: Authentication. This is the
         // type over which the Request produced by TsigMiddlewareSvc is generic.
         // When the XfrMiddlewareSvc receives a Request<Octs, Authentication> it
         // passes it to the XfrDataProvider which in turn can inspect it.
         struct KeyReceivingXfrDataProvider {
-            key_name: KeyName,
+            key: Arc<Key>,
             checked: Arc<AtomicBool>,
         }
 
-        impl XfrDataProvider<Authentication> for KeyReceivingXfrDataProvider {
+        impl XfrDataProvider<Option<Arc<Key>>> for KeyReceivingXfrDataProvider {
             #[allow(clippy::type_complexity)]
             fn request<Octs>(
                 &self,
-                req: &Request<Octs, Authentication>,
+                req: &Request<Octs, Option<Arc<Key>>>,
                 _diff_from: Option<Serial>,
             ) -> Pin<
                 Box<
@@ -1868,18 +1850,28 @@ JAIN-BB.JAIN.AD.JP. IN A   192.41.197.2
             where
                 Octs: Octets + Send + Sync,
             {
-                assert_eq!(req.metadata().key_name(), Some(&self.key_name));
+                let key = req.metadata().as_ref().unwrap();
+                assert_eq!(key.name(), self.key.name());
                 self.checked.store(true, Ordering::SeqCst);
                 Box::pin(ready(Err(XfrDataProviderError::Refused)))
             }
         }
 
         let key_name = KeyName::from_str("some_tsig_key_name").unwrap();
-        let metadata = Authentication(Some(key_name.clone()));
+        let secret = crate::utils::base64::decode::<Vec<u8>>(
+            "zlCZbVJPIhobIs1gJNQfrsS3xCxxsR9pMUrGwG8OgG8=",
+        )
+        .unwrap();
+        let key = Arc::new(
+            Key::new(Algorithm::Sha256, &secret, key_name, None, None)
+                .unwrap(),
+        );
+
+        let metadata = Some(key.clone());
         let req = mk_axfr_request(n("example.com"), metadata);
         let checked = Arc::new(AtomicBool::new(false));
         let xdp = KeyReceivingXfrDataProvider {
-            key_name,
+            key,
             checked: checked.clone(),
         };
 
@@ -2156,16 +2148,14 @@ JAIN-BB.JAIN.AD.JP. IN A   192.41.197.2
                 if q.qname() == self.zone.apex_name()
                     && q.qclass() == self.zone.class()
                 {
-                    let diffs = if self
-                        .diffs
-                        .first()
-                        .and_then(|diff| diff.start_serial)
-                        == diff_from
-                    {
-                        self.diffs.clone()
-                    } else {
-                        vec![]
-                    };
+                    let diffs =
+                        if self.diffs.first().map(|diff| diff.start_serial)
+                            == diff_from
+                        {
+                            self.diffs.clone()
+                        } else {
+                            vec![]
+                        };
 
                     Ok((self.zone.clone(), diffs))
                 } else {

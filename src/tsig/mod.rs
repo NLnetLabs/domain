@@ -697,6 +697,14 @@ impl<K: AsRef<Key>> ServerTransaction<K> {
     pub fn key(&self) -> &Key {
         self.context.key()
     }
+
+    /// Returns a reference to the transaction's key.
+    ///
+    /// This is the same as [`Self::key`] but doesn't lose the original key
+    /// type information.
+    pub fn wrapped_key(&self) -> &K {
+        self.context.wrapped_key()
+    }
 }
 
 //------------ ClientSequence ------------------------------------------------
@@ -1024,6 +1032,14 @@ impl<K: AsRef<Key>> ServerSequence<K> {
     pub fn key(&self) -> &Key {
         self.context.key()
     }
+
+    /// Returns a reference to the transaction's key.
+    ///
+    /// This is the same as [`Self::key`] but doesn't lose the original key
+    /// type information.
+    pub fn wrapped_key(&self) -> &K {
+        self.context.wrapped_key()
+    }
 }
 
 //--- From
@@ -1252,9 +1268,17 @@ impl<K: AsRef<Key>> SigningContext<K> {
         }
     }
 
-    /// Returns a references to the key that was used to create the context.
+    /// Returns a reference to the key that was used to create the context.
     fn key(&self) -> &Key {
         self.key.as_ref()
+    }
+
+    /// Returns a reference to the key that was used to create the context.
+    ///
+    /// This is the same as [`key`] but doesn't lose the original key type
+    /// information.
+    fn wrapped_key(&self) -> &K {
+        &self.key
     }
 
     /// Applies a signature to the signing context.
@@ -1710,7 +1734,7 @@ enum ServerErrorInner<K> {
 }
 
 impl<K> ServerError<K> {
-    pub fn unsigned(error: TsigRcode) -> Self {
+    fn unsigned(error: TsigRcode) -> Self {
         ServerError(ServerErrorInner::Unsigned { error })
     }
 

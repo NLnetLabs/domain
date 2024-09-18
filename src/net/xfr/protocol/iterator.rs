@@ -6,16 +6,17 @@ use tracing::trace;
 use crate::base::message::RecordIter;
 use crate::base::{Message, ParsedName};
 use crate::rdata::ZoneRecordData;
+use crate::zonetree::types::ZoneUpdate;
 
-use super::processor::RecordProcessor;
-use super::types::{IterationError, ProcessingError, XfrEvent, XfrRecord};
+use super::interpreter::RecordProcessor;
+use super::types::{Error, IterationError, ParsedRecord, XfrType};
 
-//------------ XfrEventIterator -----------------------------------------------
+//------------ XfrZoneUpdateIterator ------------------------------------------
 
-/// An iterator over [`XfrResponseProcessor`] generated [`XfrEvent`]s.
+/// An iterator over [`XfrResponseInterpreter`] generated [`ZoneUpdate`]s.
 ///
-/// [`XfrResponseProcessor`]: super::processor::XfrResponseProcessor
-pub struct XfrEventIterator<'a, 'b> {
+/// [`XfrResponseInterpreter`]: super::interpreter::XfrResponseInterpreter
+pub struct XfrZoneUpdateIterator<'a, 'b> {
     /// The parent processor.
     state: &'a mut RecordProcessor,
 
@@ -23,12 +24,12 @@ pub struct XfrEventIterator<'a, 'b> {
     iter: RecordIter<'b, Bytes, ZoneRecordData<Bytes, ParsedName<Bytes>>>,
 }
 
-impl<'a, 'b> XfrEventIterator<'a, 'b> {
+impl<'a, 'b> XfrZoneUpdateIterator<'a, 'b> {
     pub(super) fn new(
         state: &'a mut RecordProcessor,
         resp: &'b Message<Bytes>,
-    ) -> Result<Self, ProcessingError> {
-        let answer = resp.answer().map_err(ProcessingError::ParseError)?;
+    ) -> Result<Self, Error> {
+        let answer = resp.answer().map_err(Error::ParseError)?;
 
         // https://datatracker.ietf.org/doc/html/rfc5936#section-3
         // 3. Zone Contents
@@ -51,24 +52,39 @@ impl<'a, 'b> XfrEventIterator<'a, 'b> {
 
         if state.rr_count == 0 {
             let Some(Ok(_)) = iter.next() else {
-                return Err(ProcessingError::Malformed);
+                return Err(Error::Malformed);
             };
-            state.rr_count += 1;
         }
 
         Ok(Self { state, iter })
     }
 }
 
-impl<'a, 'b> Iterator for XfrEventIterator<'a, 'b> {
-    type Item = Result<XfrEvent<XfrRecord>, IterationError>;
+impl<'a, 'b> Iterator for XfrZoneUpdateIterator<'a, 'b> {
+    type Item = Result<ZoneUpdate<ParsedRecord>, IterationError>;
 
     fn next(&mut self) -> Option<Self::Item> {
+        if self.state.rr_count == 0 {
+            // We already skipped the first record in new() above by calling
+            // iter.next(). We didn't reflect that yet in rr_count because we
+            // wanted to still be able to detect the first call to next() and
+            // handle it specially for AXFR.
+            self.state.rr_count += 1;
+
+            if self.state.actual_xfr_type == XfrType::Axfr {
+                // For AXFR we're not making changes to a zone, we're
+                // replacing its entire contents, so before returning any
+                // actual updates to apply, first instruct the consumer to
+                // "discard" everything it has.
+                return Some(Ok(ZoneUpdate::DeleteAllRecords));
+            }
+        }
+
         match self.iter.next()? {
             Ok(record) => {
                 trace!("XFR record {}: {record:?}", self.state.rr_count);
-                let event = self.state.process_record(record);
-                Some(Ok(event))
+                let update = self.state.process_record(record);
+                Some(Ok(update))
             }
 
             Err(err) => {

@@ -37,6 +37,7 @@ use std::future::pending;
 use std::io::Write;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
+use std::pin::Pin;
 use std::process::exit;
 use std::sync::Arc;
 use std::time::Duration;
@@ -55,6 +56,7 @@ use tokio::sync::mpsc;
 use tracing::{debug, info};
 use tracing_subscriber::EnvFilter;
 
+use core::future::Future;
 use domain::base::iana::{Class, Rcode};
 use domain::base::record::ComposeRecord;
 use domain::base::{Name, ParsedName, ParsedRecord, Record, ToName};
@@ -65,9 +67,7 @@ use domain::net::server::middleware::cookies::CookiesMiddlewareSvc;
 use domain::net::server::middleware::edns::EdnsMiddlewareSvc;
 use domain::net::server::middleware::mandatory::MandatoryMiddlewareSvc;
 use domain::net::server::middleware::notify::NotifyMiddlewareSvc;
-use domain::net::server::middleware::tsig::{
-    Authentication, TsigMiddlewareSvc,
-};
+use domain::net::server::middleware::tsig::TsigMiddlewareSvc;
 use domain::net::server::middleware::xfr::XfrMiddlewareSvc;
 use domain::net::server::service::{CallResult, ServiceResult};
 use domain::net::server::stream::{self, StreamServer};
@@ -77,8 +77,10 @@ use domain::rdata::ZoneRecordData;
 use domain::tsig::{Algorithm, Key, KeyName};
 use domain::utils::base64;
 use domain::zonefile::inplace;
-use domain::zonetree::{Answer, Rrset, ZoneBuilder};
-use domain::zonetree::{WritableZone, Zone, ZoneStore};
+use domain::zonetree::{
+    Answer, ReadableZone, Rrset, StoredName, WritableZone, WritableZoneNode,
+    Zone, ZoneBuilder, ZoneDiff, ZoneStore,
+};
 
 #[tokio::main()]
 async fn main() {
@@ -112,7 +114,7 @@ async fn main() {
 
     // Create a service to answer queries for the zone.
     let svc = service_fn(my_service, zones.clone());
-    let svc = XfrMiddlewareSvc::<_, _, _, Authentication>::new(
+    let svc = XfrMiddlewareSvc::<_, _, _, Option<Key>>::new(
         svc,
         zones.clone(),
         max_concurrency,
@@ -280,24 +282,18 @@ impl ZoneStore for ArchiveZone {
         self.store.class()
     }
 
-    fn apex_name(&self) -> &domain::zonetree::StoredName {
+    fn apex_name(&self) -> &StoredName {
         self.store.apex_name()
     }
 
-    fn read(self: Arc<Self>) -> Box<dyn domain::zonetree::ReadableZone> {
+    fn read(self: Arc<Self>) -> Box<dyn ReadableZone> {
         self.store.clone().read()
     }
 
     fn write(
         self: Arc<Self>,
-    ) -> std::pin::Pin<
-        Box<
-            dyn futures::prelude::Future<
-                    Output = Box<dyn domain::zonetree::WritableZone>,
-                > + Send
-                + Sync,
-        >,
-    > {
+    ) -> Pin<Box<dyn Future<Output = Box<dyn WritableZone>> + Send + Sync>>
+    {
         if let Some(write_path) = self.write_path.clone() {
             let fut = self.store.clone().write();
             Box::pin(async move {
@@ -329,11 +325,11 @@ impl WritableZone for WritableArchiveZone {
     fn open(
         &self,
         create_diff: bool,
-    ) -> std::pin::Pin<
+    ) -> Pin<
         Box<
-            dyn futures::prelude::Future<
+            dyn Future<
                     Output = Result<
-                        Box<dyn domain::zonetree::WritableZoneNode>,
+                        Box<dyn WritableZoneNode>,
                         std::io::Error,
                     >,
                 > + Send
@@ -346,14 +342,10 @@ impl WritableZone for WritableArchiveZone {
     fn commit(
         &mut self,
         bump_soa_serial: bool,
-    ) -> std::pin::Pin<
+    ) -> Pin<
         Box<
-            dyn futures::prelude::Future<
-                    Output = Result<
-                        Option<domain::zonetree::ZoneDiff>,
-                        std::io::Error,
-                    >,
-                > + Send
+            dyn Future<Output = Result<Option<ZoneDiff>, std::io::Error>>
+                + Send
                 + Sync,
         >,
     > {
