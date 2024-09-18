@@ -8,6 +8,135 @@
 //! [`ZoneUpdate`]s such as
 //! [`XfrResponseInterpreter`][crate::net::xfr::protocol::XfrResponseInterpreter].
 //!
+//! <div class="warning">
+//!
+//! `WritableZone::commit()` is invoked by `ZoneUpdater` when it receives
+//! `ZoneUpdate::Finished`. If `ZoneUpdate::Finished` is not passed to
+//! `ZoneUpdater::apply()` there is no guarantee that the applied changes to
+//! the zone will take effect.
+//!
+//! </div>
+//!
+//! # Replacing the content of a zone
+//!
+//! ```
+//! # use std::str::FromStr;
+//! #
+//! # use domain::base::iana::Class;
+//! # use domain::base::MessageBuilder;
+//! # use domain::base::Name;
+//! # use domain::base::ParsedName;
+//! # use domain::base::Record;
+//! # use domain::base::Serial;
+//! # use domain::base::Ttl;
+//! # use domain::base::net::Ipv4Addr;
+//! # use domain::net::xfr::protocol::XfrResponseInterpreter;
+//! # use domain::rdata::A;
+//! # use domain::rdata::Soa;
+//! # use domain::rdata::ZoneRecordData;
+//! # use domain::zonetree::ZoneBuilder;
+//! # use domain::zonetree::types::ZoneUpdate;
+//! # use domain::zonetree::update::ZoneUpdater;
+//! #
+//! # #[tokio::main]
+//! # async fn main() {
+//! #
+//! # let builder = ZoneBuilder::new(Name::from_str("example.com").unwrap(), Class::IN);
+//! # let zone = builder.build();
+//! #
+//! # // Prepare some records to pass to ZoneUpdater
+//! # let serial = Serial::now();
+//! # let mname = ParsedName::from(Name::from_str("mname").unwrap());
+//! # let rname = ParsedName::from(Name::from_str("rname").unwrap());
+//! # let ttl = Ttl::from_secs(0);
+//! # let new_soa_rec = Record::new(
+//! #     ParsedName::from(Name::from_str("example.com").unwrap()),
+//! #     Class::IN,
+//! #     Ttl::from_secs(0),
+//! #     ZoneRecordData::Soa(Soa::new(mname, rname, serial, ttl, ttl, ttl, ttl)),
+//! # );
+//! #
+//! # let a_data = A::new(Ipv4Addr::LOCALHOST);
+//! # let a_rec = Record::new(
+//! #     ParsedName::from(Name::from_str("a.example.com").unwrap()),
+//! #     Class::IN,
+//! #     Ttl::from_secs(0),
+//! #     ZoneRecordData::A(A::new(Ipv4Addr::LOCALHOST)),
+//! # );
+//! #
+//! let mut updater = ZoneUpdater::new(zone.clone()).await.unwrap();
+//! updater.apply(ZoneUpdate::DeleteAllRecords);
+//! updater.apply(ZoneUpdate::AddRecord(a_rec));
+//! updater.apply(ZoneUpdate::Finished(new_soa_rec));
+//! #
+//! # }
+//! ```
+//!
+//! # Altering the content of a zone
+//!
+//! ```rust
+//! # use std::str::FromStr;
+//! #
+//! # use domain::base::iana::Class;
+//! # use domain::base::MessageBuilder;
+//! # use domain::base::Name;
+//! # use domain::base::ParsedName;
+//! # use domain::base::Record;
+//! # use domain::base::Serial;
+//! # use domain::base::Ttl;
+//! # use domain::base::net::Ipv4Addr;
+//! # use domain::base::net::Ipv6Addr;
+//! # use domain::net::xfr::protocol::XfrResponseInterpreter;
+//! # use domain::rdata::A;
+//! # use domain::rdata::Aaaa;
+//! # use domain::rdata::Soa;
+//! # use domain::rdata::ZoneRecordData;
+//! # use domain::zonetree::ZoneBuilder;
+//! # use domain::zonetree::update::ZoneUpdater;
+//! # use domain::zonetree::types::ZoneUpdate;
+//! #
+//! # #[tokio::main]
+//! # async fn main() {
+//! #
+//! # let builder = ZoneBuilder::new(Name::from_str("example.com").unwrap(), Class::IN);
+//! # let zone = builder.build();
+//! #
+//! # // Prepare some records to pass to ZoneUpdater
+//! # let serial = Serial::now();
+//! # let mname = ParsedName::from(Name::from_str("mname").unwrap());
+//! # let rname = ParsedName::from(Name::from_str("rname").unwrap());
+//! # let ttl = Ttl::from_secs(0);
+//! # let new_soa_rec = Record::new(
+//! #     ParsedName::from(Name::from_str("example.com").unwrap()),
+//! #     Class::IN,
+//! #     Ttl::from_secs(0),
+//! #     ZoneRecordData::Soa(Soa::new(mname, rname, serial, ttl, ttl, ttl, ttl)),
+//! # );
+//! #
+//! # let old_a_data = A::new(Ipv4Addr::LOCALHOST);
+//! # let old_a_rec = Record::new(
+//! #     ParsedName::from(Name::from_str("a.example.com").unwrap()),
+//! #     Class::IN,
+//! #     Ttl::from_secs(0),
+//! #     ZoneRecordData::A(A::new(Ipv4Addr::LOCALHOST)),
+//! # );
+//! #
+//! # let new_aaaa_data = Aaaa::new(Ipv6Addr::LOCALHOST);
+//! # let new_aaaa_rec = Record::new(
+//! #     ParsedName::from(Name::from_str("a.example.com").unwrap()),
+//! #     Class::IN,
+//! #     Ttl::from_secs(0),
+//! #     ZoneRecordData::A(A::new(Ipv4Addr::LOCALHOST)),
+//! # );
+//! #
+//! let mut updater = ZoneUpdater::new(zone.clone()).await.unwrap();
+//! updater.apply(ZoneUpdate::DeleteRecord(old_a_rec));
+//! updater.apply(ZoneUpdate::AddRecord(new_aaaa_rec));
+//! updater.apply(ZoneUpdate::Finished(new_soa_rec));
+//! #
+//! # }
+//! ```
+//!
 //! # Applying XFR changes to a zone
 //!
 //! ```no_run
@@ -16,6 +145,7 @@
 //! # use domain::base::iana::Class;
 //! # use domain::base::MessageBuilder;
 //! # use domain::base::Name;
+//! # use domain::base::Serial;
 //! # use domain::net::xfr::protocol::XfrResponseInterpreter;
 //! # use domain::zonetree::ZoneBuilder;
 //! # use domain::zonetree::update::ZoneUpdater;
@@ -35,8 +165,10 @@
 //!
 //! // Iterate over the XFR responses applying the updates to the zone
 //! while !interpreter.is_finished() {
-//!     // Get the next XFR response
-//!     let next_xfr_response = MessageBuilder::new_bytes().into_message(); // A dummy response
+//!     // Get the next XFR response:
+//!     // For this example this is just a dummy response, which would cause
+//!     // Error::NotValidXfrResponse if this code were run.
+//!     let next_xfr_response = MessageBuilder::new_bytes().into_message();
 //!
 //!     // Convert it to an update iterator
 //!     let it = interpreter.interpret_response(next_xfr_response).unwrap();
@@ -70,13 +202,20 @@ use super::error::OutOfZone;
 use super::types::ZoneUpdate;
 use super::{WritableZone, WritableZoneNode, Zone};
 
-/// Apply a sequence of [`ZoneUpdate`]s to alter the content of a [`Zone`].
-///
-/// Each [`ZoneUpdate::BeginBatchDelete`] starts a new zone version,
+/// Apply a sequence of [`ZoneUpdate`]s to update the content of a [`Zone`].
 ///
 /// For each version of the zone that is edited the zone will be opened for
 /// writing, edits made and then the changes committed, only then becoming
 /// visible for readers of the zone.
+///
+/// To completely replace the content of a zone pass
+/// [`ZoneUpdate::DeleteAllRecords`] to `apply` before any other updates.
+///
+/// Changes to the zone are committed when [`ZoneUpdate::Finished`] is
+/// received.
+///
+/// Passing [`ZoneUpdate::BeginBatchDelete`] commits any edits in progress and
+/// starts editing a new zone version.
 ///
 /// For each commit of the zone a diff of the changes made will be stored with
 /// the zone.
@@ -121,6 +260,15 @@ impl ZoneUpdater {
     /// Apply the given [`ZoneUpdate`] to the [`Zone`] being updated.
     ///
     /// Returns `Ok` on success, `Err` otherwise.
+    ///
+    /// <div class="warning">
+    ///
+    /// This method invokes `WritableZone::commit()` when it receives
+    /// `ZoneUpdate::Finished`. If `ZoneUpdate::Finished` is not passed to
+    /// `ZoneUpdater::apply()` there is no guarantee that the applied changes
+    /// to the zone will take effect.
+    ///
+    /// </div>
     pub async fn apply(
         &mut self,
         update: ZoneUpdate<ParsedRecord>,

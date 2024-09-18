@@ -40,6 +40,8 @@ pub struct XfrResponseInterpreter {
     /// Internal state.
     ///
     /// None until the first call to [`interpret_response()`].
+    ///
+    /// [`interpret_response()`]: XfrResponseInterpreter::interpret_response()
     inner: Option<Inner>,
 }
 
@@ -148,6 +150,8 @@ impl XfrResponseInterpreter {
 ///
 /// Separated out from [`XfrResponseInterpreter`] to avoid needing multiple
 /// mutable self references in [`interpret_response()`].
+///
+/// [`interpret_response()`]: XfrResponseInterpreter::interpret_response()
 struct Inner {
     /// The response message currently being processed.
     resp: Message<Bytes>,
