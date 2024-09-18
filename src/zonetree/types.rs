@@ -284,19 +284,51 @@ impl ZoneDiff {
 
 /// An update to be applied to a [`Zone`].
 ///
-/// Note: This enum is marked as `#[non_exhaustive]` to permit addition of
-/// more update operations in future, e.g. to support RFC 2136 Dynamic Updates
+/// # Design
+///
+/// The variants of this enum are modelled after the way the AXFR and IXFR
+/// protocols represent updates to zones.
+///
+/// AXFR responses can be represented as a sequence of
+/// [`ZoneUpdate::AddRecord`]s.
+///
+/// IXFR responses can be represented as a sequence of batches, each
+/// consisting of:
+/// - [`ZoneUpdate::BeginBatchDelete`]
+/// - [`ZoneUpdate::DeleteRecord`]s _(zero or more)_
+/// - [`ZoneUpdate::BeginBatchAdd`]
+/// - [`ZoneUpdate::AddRecord`]s _(zero or more)_
+///
+/// Both AXFR and IXFR responses encoded using this enum are terminated by a
+/// final [`ZoneUpdate::Finished`].
+///
+/// # Use within this crate
+///  
+/// [`XfrResponseInterpreter`] can convert received XFR responses into
+/// sequences of [`ZoneUpdate`]s. These can then be consumed by a
+/// [`ZoneUpdater`] to effect changes to an existing [`Zone`].
+///
+/// # Future extensions
+///
+/// This enum is marked as `#[non_exhaustive]` to permit addition of more
+/// update operations in future, e.g. to support RFC 2136 Dynamic Updates
 /// operations.
 ///
+/// [`XfrResponseInterpreter`]:
+///     crate::net::xfr::protocol::XfrResponseInterpreter
 /// [`Zone`]: crate::zonetree::zone::Zone
+/// [`ZoneUpdater`]: crate::zonetree::update::ZoneUpdater
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum ZoneUpdate<R> {
-    /// Delete record R from the specified version (serial) of the zone.
-    DeleteRecord(Serial, R),
+    /// Delete all records in the zone.
+    DeleteAllRecords,
 
-    /// Add record R to the specified version (serial) of the zone.
-    AddRecord(Serial, R),
+    /// Delete record R from the zone.
+    DeleteRecord(R),
+
+    /// Add record R to the zone.
+    AddRecord(R),
 
     /// Start a batch delete for the specified version (serial) of the zone.
     ///
@@ -315,6 +347,10 @@ pub enum ZoneUpdate<R> {
     /// Batching mode makes updates more predictable for the receiver to work
     /// with by limiting the updates that can be signalled next, enabling
     /// receiver logic to be simpler and more efficient.
+    ///
+    /// The record must be a SOA record that matches the SOA record of the
+    /// zone version in which the subsequent [`ZoneUpdate::DeleteRecord`]s
+    /// should be deleted.
     BeginBatchDelete(R),
 
     /// Start a batch add for the specified version (serial) of the zone.
@@ -322,14 +358,17 @@ pub enum ZoneUpdate<R> {
     /// This can only be signalled when already in batching mode, i.e. when
     /// `BeginBatchDelete` has already been signalled.
     ///
+    /// The record must be the SOA record to use for the new version of the
+    /// zone under which the subsequent [`ZoneUpdate::AddRecord`]s will be
+    /// added.
+    ///
     /// See `BeginBatchDelete` for more information.
     BeginBatchAdd(R),
 
-    /// Updates for the specified version (serial) of the zone can now be
-    /// finalized.
+    /// In progress updates for the zone can now be finalized.
     ///
-    /// This signals the end of a group of related changes to the specified
-    /// version (serial) of the zone.
+    /// This signals the end of a group of related changes for the given SOA
+    /// record of the zone.
     ///
     /// For example this could be used to trigger an atomic commit of a set of
     /// related pending changes.
@@ -341,8 +380,9 @@ pub enum ZoneUpdate<R> {
 impl<R> std::fmt::Display for ZoneUpdate<R> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            ZoneUpdate::DeleteRecord(_, _) => f.write_str("DeleteRecord"),
-            ZoneUpdate::AddRecord(_, _) => f.write_str("AddRecord"),
+            ZoneUpdate::DeleteAllRecords => f.write_str("DeleteAllRecords"),
+            ZoneUpdate::DeleteRecord(_) => f.write_str("DeleteRecord"),
+            ZoneUpdate::AddRecord(_) => f.write_str("AddRecord"),
             ZoneUpdate::BeginBatchDelete(_) => {
                 f.write_str("BeginBatchDelete")
             }

@@ -4,26 +4,174 @@
 //! content of zones without requiring knowledge of the low-level details of
 //! how the [`WritableZone`] trait implemented by [`Zone`] works.
 //!
-//! # Applying XFR changes to a zone
+//! It can be used manually, or in combination with a source of
+//! [`ZoneUpdate`]s such as
+//! [`XfrResponseInterpreter`][crate::net::xfr::protocol::XfrResponseInterpreter].
+//!
+//! <div class="warning">
+//!
+//! `WritableZone::commit()` is invoked by `ZoneUpdater` when it receives
+//! `ZoneUpdate::Finished`. If `ZoneUpdate::Finished` is not passed to
+//! `ZoneUpdater::apply()` there is no guarantee that the applied changes to
+//! the zone will take effect.
+//!
+//! </div>
+//!
+//! # Replacing the content of a zone
+//!
+//! ```
+//! # use std::str::FromStr;
+//! #
+//! # use domain::base::iana::Class;
+//! # use domain::base::MessageBuilder;
+//! # use domain::base::Name;
+//! # use domain::base::ParsedName;
+//! # use domain::base::Record;
+//! # use domain::base::Serial;
+//! # use domain::base::Ttl;
+//! # use domain::base::net::Ipv4Addr;
+//! # use domain::net::xfr::protocol::XfrResponseInterpreter;
+//! # use domain::rdata::A;
+//! # use domain::rdata::Soa;
+//! # use domain::rdata::ZoneRecordData;
+//! # use domain::zonetree::ZoneBuilder;
+//! # use domain::zonetree::types::ZoneUpdate;
+//! # use domain::zonetree::update::ZoneUpdater;
+//! #
+//! # #[tokio::main]
+//! # async fn main() {
+//! #
+//! # let builder = ZoneBuilder::new(Name::from_str("example.com").unwrap(), Class::IN);
+//! # let zone = builder.build();
+//! #
+//! # // Prepare some records to pass to ZoneUpdater
+//! # let serial = Serial::now();
+//! # let mname = ParsedName::from(Name::from_str("mname").unwrap());
+//! # let rname = ParsedName::from(Name::from_str("rname").unwrap());
+//! # let ttl = Ttl::from_secs(0);
+//! # let new_soa_rec = Record::new(
+//! #     ParsedName::from(Name::from_str("example.com").unwrap()),
+//! #     Class::IN,
+//! #     Ttl::from_secs(0),
+//! #     ZoneRecordData::Soa(Soa::new(mname, rname, serial, ttl, ttl, ttl, ttl)),
+//! # );
+//! #
+//! # let a_data = A::new(Ipv4Addr::LOCALHOST);
+//! # let a_rec = Record::new(
+//! #     ParsedName::from(Name::from_str("a.example.com").unwrap()),
+//! #     Class::IN,
+//! #     Ttl::from_secs(0),
+//! #     ZoneRecordData::A(A::new(Ipv4Addr::LOCALHOST)),
+//! # );
+//! #
+//! let mut updater = ZoneUpdater::new(zone.clone()).await.unwrap();
+//! updater.apply(ZoneUpdate::DeleteAllRecords);
+//! updater.apply(ZoneUpdate::AddRecord(a_rec));
+//! updater.apply(ZoneUpdate::Finished(new_soa_rec));
+//! #
+//! # }
+//! ```
+//!
+//! # Altering the content of a zone
 //!
 //! ```rust
-//! // Given a ZoneUpdater
-//! let mut updater = ZoneUpdater::new(&zone).await.unwrap();
+//! # use std::str::FromStr;
+//! #
+//! # use domain::base::iana::Class;
+//! # use domain::base::MessageBuilder;
+//! # use domain::base::Name;
+//! # use domain::base::ParsedName;
+//! # use domain::base::Record;
+//! # use domain::base::Serial;
+//! # use domain::base::Ttl;
+//! # use domain::base::net::Ipv4Addr;
+//! # use domain::base::net::Ipv6Addr;
+//! # use domain::net::xfr::protocol::XfrResponseInterpreter;
+//! # use domain::rdata::A;
+//! # use domain::rdata::Aaaa;
+//! # use domain::rdata::Soa;
+//! # use domain::rdata::ZoneRecordData;
+//! # use domain::zonetree::ZoneBuilder;
+//! # use domain::zonetree::update::ZoneUpdater;
+//! # use domain::zonetree::types::ZoneUpdate;
+//! #
+//! # #[tokio::main]
+//! # async fn main() {
+//! #
+//! # let builder = ZoneBuilder::new(Name::from_str("example.com").unwrap(), Class::IN);
+//! # let zone = builder.build();
+//! #
+//! # // Prepare some records to pass to ZoneUpdater
+//! # let serial = Serial::now();
+//! # let mname = ParsedName::from(Name::from_str("mname").unwrap());
+//! # let rname = ParsedName::from(Name::from_str("rname").unwrap());
+//! # let ttl = Ttl::from_secs(0);
+//! # let new_soa_rec = Record::new(
+//! #     ParsedName::from(Name::from_str("example.com").unwrap()),
+//! #     Class::IN,
+//! #     Ttl::from_secs(0),
+//! #     ZoneRecordData::Soa(Soa::new(mname, rname, serial, ttl, ttl, ttl, ttl)),
+//! # );
+//! #
+//! # let old_a_data = A::new(Ipv4Addr::LOCALHOST);
+//! # let old_a_rec = Record::new(
+//! #     ParsedName::from(Name::from_str("a.example.com").unwrap()),
+//! #     Class::IN,
+//! #     Ttl::from_secs(0),
+//! #     ZoneRecordData::A(A::new(Ipv4Addr::LOCALHOST)),
+//! # );
+//! #
+//! # let new_aaaa_data = Aaaa::new(Ipv6Addr::LOCALHOST);
+//! # let new_aaaa_rec = Record::new(
+//! #     ParsedName::from(Name::from_str("a.example.com").unwrap()),
+//! #     Class::IN,
+//! #     Ttl::from_secs(0),
+//! #     ZoneRecordData::A(A::new(Ipv4Addr::LOCALHOST)),
+//! # );
+//! #
+//! let mut updater = ZoneUpdater::new(zone.clone()).await.unwrap();
+//! updater.apply(ZoneUpdate::DeleteRecord(old_a_rec));
+//! updater.apply(ZoneUpdate::AddRecord(new_aaaa_rec));
+//! updater.apply(ZoneUpdate::Finished(new_soa_rec));
+//! #
+//! # }
+//! ```
 //!
-//! // And a zone
+//! # Applying XFR changes to a zone
+//!
+//! ```no_run
+//! # use std::str::FromStr;
+//! #
+//! # use domain::base::iana::Class;
+//! # use domain::base::MessageBuilder;
+//! # use domain::base::Name;
+//! # use domain::base::Serial;
+//! # use domain::net::xfr::protocol::XfrResponseInterpreter;
+//! # use domain::zonetree::ZoneBuilder;
+//! # use domain::zonetree::update::ZoneUpdater;
+//! #
+//! # #[tokio::main]
+//! # async fn main() {
+//! #
+//! // Given a zone
 //! let builder = ZoneBuilder::new(Name::from_str("example.com").unwrap(), Class::IN);
-//! let zone = builder.build()
+//! let zone = builder.build();
+//!
+//! // And a ZoneUpdater
+//! let mut updater = ZoneUpdater::new(zone.clone()).await.unwrap();
 //!
 //! // And an XFR response interpreter
 //! let mut interpreter = XfrResponseInterpreter::new();
 //!
 //! // Iterate over the XFR responses applying the updates to the zone
-//! while !updater.finished() {
-//!     // Get the next XFR response
-//!     // let next_xfr_response = ...
+//! while !interpreter.is_finished() {
+//!     // Get the next XFR response:
+//!     // For this example this is just a dummy response, which would cause
+//!     // Error::NotValidXfrResponse if this code were run.
+//!     let next_xfr_response = MessageBuilder::new_bytes().into_message();
 //!
 //!     // Convert it to an update iterator
-//!     let it = interpreter.intrepret_response(next_xfr_response).unwrap();
+//!     let it = interpreter.interpret_response(next_xfr_response).unwrap();
 //!
 //!     // Iterate over the updates
 //!     for update in it {
@@ -31,8 +179,12 @@
 //!         updater.apply(update.unwrap()).await.unwrap();
 //!     }
 //! }
-//!
+//! #
+//! # }
 //! ```
+use core::future::Future;
+use core::pin::Pin;
+
 use std::borrow::ToOwned;
 use std::boxed::Box;
 
@@ -40,8 +192,9 @@ use bytes::Bytes;
 use tracing::{error, trace};
 
 use crate::base::name::{FlattenInto, Label, ToLabelIter};
+use crate::base::scan::ScannerError;
 use crate::base::{Name, ParsedName, Record, Rtype, ToName};
-use crate::net::xfr::protocol::XfrRecord;
+use crate::net::xfr::protocol::ParsedRecord;
 use crate::rdata::ZoneRecordData;
 use crate::zonetree::{Rrset, SharedRrset};
 
@@ -49,46 +202,95 @@ use super::error::OutOfZone;
 use super::types::ZoneUpdate;
 use super::{WritableZone, WritableZoneNode, Zone};
 
-/// TODO
-pub struct ZoneUpdater<'a> {
-    zone: &'a Zone,
+/// Apply a sequence of [`ZoneUpdate`]s to update the content of a [`Zone`].
+///
+/// For each version of the zone that is edited the zone will be opened for
+/// writing, edits made and then the changes committed, only then becoming
+/// visible for readers of the zone.
+///
+/// To completely replace the content of a zone pass
+/// [`ZoneUpdate::DeleteAllRecords`] to `apply` before any other updates.
+///
+/// Changes to the zone are committed when [`ZoneUpdate::Finished`] is
+/// received.
+///
+/// Passing [`ZoneUpdate::BeginBatchDelete`] commits any edits in progress and
+/// starts editing a new zone version.
+///
+/// For each commit of the zone a diff of the changes made will be stored with
+/// the zone.
+pub struct ZoneUpdater {
+    /// The zone to be updated.
+    zone: Zone,
 
+    /// The current write handles in use.
+    ///
+    /// For each new zone version any old write state has to be committed and
+    /// a new write state opened.
     write: WriteState,
 
+    /// Whether or not we entered an IXFR-like batching mode.
     batching: bool,
-
-    first_event_seen: bool,
 }
 
-impl<'a> ZoneUpdater<'a> {
-    /// TODO
-    pub async fn new(zone: &'a Zone) -> std::io::Result<Self> {
-        let write = WriteState::new(zone).await?;
+impl ZoneUpdater {
+    /// Creates a new [`ZoneUpdater`] that will update the given [`Zone`]
+    /// content.
+    ///
+    /// Returns the new instance on success, or an error if the zone could not
+    /// be opened for writing.
+    ///
+    /// Use [`apply`][Self::apply] to apply changes to the zone.
+    pub fn new(
+        zone: Zone,
+    ) -> Pin<Box<dyn Future<Output = std::io::Result<Self>>>> {
+        Box::pin(async move {
+            let write = WriteState::new(zone.clone()).await?;
 
-        Ok(Self {
-            zone,
-            write,
-            batching: false,
-            first_event_seen: false,
+            Ok(Self {
+                zone,
+                write,
+                batching: false,
+            })
         })
     }
 }
 
-impl<'a> ZoneUpdater<'a> {
-    /// TODO
+impl ZoneUpdater {
+    /// Apply the given [`ZoneUpdate`] to the [`Zone`] being updated.
+    ///
+    /// Returns `Ok` on success, `Err` otherwise.
+    ///
+    /// <div class="warning">
+    ///
+    /// This method invokes `WritableZone::commit()` when it receives
+    /// `ZoneUpdate::Finished`. If `ZoneUpdate::Finished` is not passed to
+    /// `ZoneUpdater::apply()` there is no guarantee that the applied changes
+    /// to the zone will take effect.
+    ///
+    /// </div>
     pub async fn apply(
         &mut self,
-        evt: ZoneUpdate<XfrRecord>,
-    ) -> Result<(), ()> {
-        trace!("Event: {evt}");
-        match evt {
-            ZoneUpdate::DeleteRecord(_serial, rec) => {
-                self.delete_record(rec).await?
+        update: ZoneUpdate<ParsedRecord>,
+    ) -> std::io::Result<()> {
+        trace!("Event: {update}");
+        match update {
+            ZoneUpdate::DeleteAllRecords => {
+                // To completely replace the content of the zone, i.e.
+                // something like an AXFR transfer, we can't add records from
+                // a new version of the zone to an existing zone because if
+                // the old version contained a record which the new version
+                // does not, the record would remain in the zone. So in this
+                // case we have to mark all of the existing records in the
+                // zone as "removed" and then add new records. This allows the
+                // old records to continue being served to current consumers
+                // while the zone is being updated.
+                self.write.remove_all().await?;
             }
 
-            ZoneUpdate::AddRecord(_serial, rec) => {
-                self.add_record(rec).await?
-            }
+            ZoneUpdate::DeleteRecord(rec) => self.delete_record(rec).await?,
+
+            ZoneUpdate::AddRecord(rec) => self.add_record(rec).await?,
 
             // Note: Batches first contain deletions then additions, so batch
             // deletion signals the start of a batch, and the end of any
@@ -96,9 +298,13 @@ impl<'a> ZoneUpdater<'a> {
             ZoneUpdate::BeginBatchDelete(_old_soa) => {
                 if self.batching {
                     // Commit the previous batch.
-                    self.write.commit().await?;
+                    self.write.commit().await.map_err(|()| {
+                        std::io::Error::custom(
+                            "Error commiting changes to zone",
+                        )
+                    })?;
                     // Open a writer for the new batch.
-                    self.write.reopen().await.map_err(|_| ())?;
+                    self.write.reopen().await?;
                 }
 
                 self.batching = true;
@@ -116,17 +322,17 @@ impl<'a> ZoneUpdater<'a> {
                     self.update_soa(zone_soa).await?;
                 }
                 // Commit the previous batch.
-                self.write.commit().await?;
+                self.write.commit().await.map_err(|()| {
+                    std::io::Error::custom("Error commiting changes to zone")
+                })?;
             }
         }
-
-        self.first_event_seen = true;
 
         Ok(())
     }
 }
 
-impl<'a> ZoneUpdater<'a> {
+impl ZoneUpdater {
     fn mk_relative_name_iterator<'l>(
         apex_name: &Name<Bytes>,
         qname: &'l impl ToName,
@@ -144,29 +350,36 @@ impl<'a> ZoneUpdater<'a> {
         Ok(qname)
     }
 
-    async fn prep_add_del(
+    /// Given a zone record, obtain a [`WritableZoneNode`] for the owner.
+    ///
+    /// A [`Zone`] is a tree structure which can be modified by descending the
+    /// tree from parent to child one (dot separated) label at a time.
+    ///
+    /// This function constructs an iterator over the labels of the owner name
+    /// of the given record then descends the tree one label at a time,
+    /// creating nodes if needed, until the appropriate end node has been
+    /// reached.
+    ///
+    /// If the owner name of the given record is not overlapping with the apex
+    /// name of the zone an out of zone error will occur.
+    ///
+    /// # Panics
+    ///
+    /// This function may panic if it is unable to create new tree nodes for
+    /// the record owner name.
+    async fn get_writable_node_for_owner(
         &mut self,
-        rec: XfrRecord,
-    ) -> Result<
-        (
-            Rtype,
-            ZoneRecordData<Bytes, Name<Bytes>>,
-            Option<Box<dyn WritableZoneNode>>,
-            Rrset,
-        ),
-        (),
-    > {
+        rec: &ParsedRecord,
+    ) -> std::io::Result<Option<Box<dyn WritableZoneNode>>> {
         let owner = rec.owner().to_owned();
-        let ttl = rec.ttl();
-        let rtype = rec.rtype();
-        let data: ZoneRecordData<Bytes, Name<Bytes>> =
-            rec.into_data().flatten_into();
 
         let mut end_node: Option<Box<dyn WritableZoneNode>> = None;
 
         let name =
             Self::mk_relative_name_iterator(self.zone.apex_name(), &owner)
-                .map_err(|_| ())?;
+                .map_err(|_| {
+                    std::io::Error::custom("Record owner name out of zone")
+                })?;
 
         let writable = self.write.writable.as_ref().unwrap();
 
@@ -177,13 +390,11 @@ impl<'a> ZoneUpdater<'a> {
                     Some(new_node) => new_node.update_child(label),
                     None => writable.update_child(label),
                 }
-                .await
-                .map_err(|_| ())?,
+                .await?,
             );
         }
 
-        let rrset = Rrset::new(rtype, ttl);
-        Ok((rtype, data, end_node, rrset))
+        Ok(end_node)
     }
 
     async fn update_soa(
@@ -192,9 +403,9 @@ impl<'a> ZoneUpdater<'a> {
             ParsedName<Bytes>,
             ZoneRecordData<Bytes, ParsedName<Bytes>>,
         >,
-    ) -> Result<(), ()> {
+    ) -> std::io::Result<()> {
         if new_soa.rtype() != Rtype::SOA {
-            return Err(());
+            return Err(std::io::Error::custom("Invalid SOA rtype"));
         }
 
         let mut rrset = Rrset::new(Rtype::SOA, new_soa.ttl());
@@ -205,43 +416,36 @@ impl<'a> ZoneUpdater<'a> {
             .unwrap()
             .update_rrset(SharedRrset::new(rrset))
             .await
-            .map_err(|_| ())?;
-        Ok(())
     }
 
+    /// Find and delete a record in the zone by exact match.
     async fn delete_record(
         &mut self,
         rec: Record<
             ParsedName<Bytes>,
             ZoneRecordData<Bytes, ParsedName<Bytes>>,
         >,
-    ) -> Result<(), ()> {
-        let (rtype, data, end_node, mut rrset) =
-            self.prep_add_del(rec).await?;
-
+    ) -> std::io::Result<()> {
+        let end_node = self.get_writable_node_for_owner(&rec).await?;
+        let mut rrset = Rrset::new(rec.rtype(), rec.ttl());
+        let rtype = rec.rtype();
+        let data = rec.data();
         let writable = self.write.writable.as_ref().unwrap();
 
         trace!("Deleting RR for {rtype}");
 
         let node = end_node.as_ref().unwrap_or(writable);
 
-        if let Some(existing_rrset) =
-            node.get_rrset(rtype).await.map_err(|_| ())?
-        {
+        if let Some(existing_rrset) = node.get_rrset(rtype).await? {
             for existing_data in existing_rrset.data() {
-                if existing_data != &data {
+                if existing_data != data {
                     rrset.push_data(existing_data.clone());
                 }
             }
         }
 
         trace!("Removing single RR of {rtype} so updating RRSET");
-
-        node.update_rrset(SharedRrset::new(rrset))
-            .await
-            .map_err(|_| ())?;
-
-        Ok(())
+        node.update_rrset(SharedRrset::new(rrset)).await
     }
 
     async fn add_record(
@@ -250,24 +454,11 @@ impl<'a> ZoneUpdater<'a> {
             ParsedName<Bytes>,
             ZoneRecordData<Bytes, ParsedName<Bytes>>,
         >,
-    ) -> Result<(), ()> {
-        if !self.first_event_seen && rec.rtype() == Rtype::SOA {
-            // If the first event is the addition of a SOA record to the zone,
-            // this must be a complete replacement of the zone (as you can't
-            // have two SOA records), i.e. something like an AXFR transfer. We
-            // can't add records from a new version of the zone to an existing
-            // zone because if the old version contained a record which the
-            // new version does not, it would get left behind. So in this case
-            // we have to mark all of the existing records in the zone as
-            // "removed" and then add new records. This allows the old records
-            // to continue being served to current consumers while the zone is
-            // being updated.
-            self.write.remove_all().await.map_err(|_| ())?;
-        }
-
-        let (rtype, data, end_node, mut rrset) =
-            self.prep_add_del(rec).await?;
-
+    ) -> std::io::Result<()> {
+        let end_node = self.get_writable_node_for_owner(&rec).await?;
+        let mut rrset = Rrset::new(rec.rtype(), rec.ttl());
+        let rtype = rec.rtype();
+        let data = rec.into_data().flatten_into();
         let writable = self.write.writable.as_ref().unwrap();
 
         trace!("Adding RR: {:?}", rrset);
@@ -275,19 +466,13 @@ impl<'a> ZoneUpdater<'a> {
 
         let node = end_node.as_ref().unwrap_or(writable);
 
-        if let Some(existing_rrset) =
-            node.get_rrset(rtype).await.map_err(|_| ())?
-        {
+        if let Some(existing_rrset) = node.get_rrset(rtype).await? {
             for existing_data in existing_rrset.data() {
                 rrset.push_data(existing_data.clone());
             }
         }
 
-        node.update_rrset(SharedRrset::new(rrset))
-            .await
-            .map_err(|_| ())?;
-
-        Ok(())
+        node.update_rrset(SharedRrset::new(rrset)).await
     }
 }
 
@@ -299,7 +484,7 @@ struct WriteState {
 }
 
 impl WriteState {
-    async fn new(zone: &Zone) -> std::io::Result<Self> {
+    async fn new(zone: Zone) -> std::io::Result<Self> {
         let write = zone.write().await;
         let writable = Some(write.open(true).await?);
         Ok(Self { write, writable })
@@ -357,7 +542,7 @@ mod tests {
 
         let zone = mk_empty_zone("example.com");
 
-        let mut updater = ZoneUpdater::new(&zone).await.unwrap();
+        let mut updater = ZoneUpdater::new(zone.clone()).await.unwrap();
 
         let s = Serial::now();
         let soa = mk_soa(s);
@@ -370,7 +555,7 @@ mod tests {
         );
 
         updater
-            .apply(ZoneUpdate::AddRecord(s, soa.clone()))
+            .apply(ZoneUpdate::AddRecord(soa.clone()))
             .await
             .unwrap();
 
@@ -383,7 +568,7 @@ mod tests {
 
         let zone = mk_empty_zone("example.com");
 
-        let mut updater = ZoneUpdater::new(&zone).await.unwrap();
+        let mut updater = ZoneUpdater::new(zone.clone()).await.unwrap();
 
         // Create an AXFR request to reply to.
         let req = mk_request("example.com", Rtype::AXFR).into_message();
@@ -402,7 +587,7 @@ mod tests {
         let resp = answer.into_message();
 
         // Process the response.
-        let it = interpreter.intrepret_response(resp).unwrap();
+        let it = interpreter.interpret_response(resp).unwrap();
 
         for update in it {
             let update = update.unwrap();
