@@ -1,4 +1,5 @@
 use core::str::FromStr;
+
 use std::collections::VecDeque;
 
 use bytes::{Bytes, BytesMut};
@@ -8,17 +9,17 @@ use crate::base::iana::Rcode;
 use crate::base::message_builder::{
     AnswerBuilder, AuthorityBuilder, QuestionBuilder,
 };
-use crate::base::net::Ipv4Addr;
+use crate::base::net::{Ipv4Addr, Ipv6Addr};
 use crate::base::rdata::ComposeRecordData;
 use crate::base::{
     Message, MessageBuilder, ParsedName, Record, Rtype, Serial, Ttl,
 };
 use crate::base::{Name, ToName};
-use crate::rdata::{Soa, ZoneRecordData, A};
+use crate::rdata::{Aaaa, Soa, ZoneRecordData, A};
 use crate::zonetree::types::{ZoneUpdate, ZoneUpdate as ZU};
 
 use super::interpreter::XfrResponseInterpreter;
-use super::types::{Error, IterationError, XfrRecord};
+use super::types::{Error, IterationError, ParsedRecord};
 
 #[test]
 fn non_xfr_response_is_rejected() {
@@ -38,7 +39,7 @@ fn non_xfr_response_is_rejected() {
     // Process the response and assert that it is rejected as not being
     // a valid XFR response and that no XFR interpreter updates were emitted.
     assert!(matches!(
-        interpreter.intrepret_response(resp),
+        interpreter.interpret_response(resp),
         Err(Error::NotValidXfrResponse)
     ));
 }
@@ -59,7 +60,7 @@ fn axfr_response_with_no_answers_is_rejected() {
     // Process the response and assert that it is rejected as not being
     // a valid XFR response and that no XFR interpreter updates were emitted.
     assert!(matches!(
-        interpreter.intrepret_response(resp),
+        interpreter.interpret_response(resp),
         Err(Error::NotValidXfrResponse)
     ));
 }
@@ -84,7 +85,7 @@ fn error_axfr_response_is_rejected() {
     // Process the response and assert that it is rejected as not being
     // a valid XFR response and that no XFR interpreter updates were emitted.
     assert!(matches!(
-        interpreter.intrepret_response(resp),
+        interpreter.interpret_response(resp),
         Err(Error::NotValidXfrResponse)
     ));
 }
@@ -109,9 +110,10 @@ fn incomplete_axfr_response_is_accepted() {
     let resp = answer.into_message();
 
     // Process the response.
-    let mut it = interpreter.intrepret_response(resp).unwrap();
+    let mut it = interpreter.interpret_response(resp).unwrap();
 
-    // Verify that no updates are by the XFR interpreter.
+    // Verify that no updates are output by the XFR interpreter.
+    assert_eq!(it.next(), Some(Ok(ZoneUpdate::DeleteAllRecords)));
     assert!(it.next().is_none());
 }
 
@@ -137,9 +139,10 @@ fn axfr_response_with_only_soas_is_accepted() {
     let resp = answer.into_message();
 
     // Process the response.
-    let mut it = interpreter.intrepret_response(resp).unwrap();
+    let mut it = interpreter.interpret_response(resp).unwrap();
 
     // Verify the updates emitted by the XFR interpreter.
+    assert_eq!(it.next(), Some(Ok(ZoneUpdate::DeleteAllRecords)));
     assert!(matches!(it.next(), Some(Ok(ZU::Finished(_)))));
     assert!(it.next().is_none());
 }
@@ -165,9 +168,10 @@ fn axfr_multi_response_with_only_soas_is_accepted() {
     let resp = answer.into_message();
 
     // Process the response.
-    let mut it = interpreter.intrepret_response(resp).unwrap();
+    let mut it = interpreter.interpret_response(resp).unwrap();
 
     // Verify the updates emitted by the XFR interpreter.
+    assert_eq!(it.next(), Some(Ok(ZoneUpdate::DeleteAllRecords)));
     assert!(it.next().is_none());
 
     // Create another AXFR response to complete the transfer.
@@ -176,7 +180,7 @@ fn axfr_multi_response_with_only_soas_is_accepted() {
     let resp = answer.into_message();
 
     // Process the response.
-    let mut it = interpreter.intrepret_response(resp).unwrap();
+    let mut it = interpreter.interpret_response(resp).unwrap();
 
     // Verify the updates emitted by the XFR interpreter.
     assert!(matches!(it.next(), Some(Ok(ZU::Finished(_)))));
@@ -199,18 +203,22 @@ fn axfr_response_generates_expected_updates() {
     let soa = mk_soa(serial);
     add_answer_record(&req, &mut answer, soa.clone());
     add_answer_record(&req, &mut answer, A::new(Ipv4Addr::LOCALHOST));
-    add_answer_record(&req, &mut answer, A::new(Ipv4Addr::BROADCAST));
+    add_answer_record(&req, &mut answer, Aaaa::new(Ipv6Addr::LOCALHOST));
     add_answer_record(&req, &mut answer, soa);
     let resp = answer.into_message();
 
     // Process the response.
-    let mut it = interpreter.intrepret_response(resp).unwrap();
+    let mut it = interpreter.interpret_response(resp).unwrap();
 
     // Verify the updates emitted by the XFR interpreter.
-    let s = serial;
-    assert!(matches!(it.next(), Some(Ok(ZU::AddRecord(n, _))) if n == s));
-    assert!(matches!(it.next(), Some(Ok(ZU::AddRecord(n, _))) if n == s));
-    assert!(matches!(it.next(), Some(Ok(ZU::Finished(_)))));
+    assert_eq!(it.next(), Some(Ok(ZoneUpdate::DeleteAllRecords)));
+    assert!(
+        matches!(it.next(), Some(Ok(ZoneUpdate::AddRecord(r))) if r.rtype() == Rtype::A)
+    );
+    assert!(
+        matches!(it.next(), Some(Ok(ZoneUpdate::AddRecord(r))) if r.rtype() == Rtype::AAAA)
+    );
+    assert!(matches!(it.next(), Some(Ok(ZoneUpdate::Finished(_)))));
     assert!(it.next().is_none());
 }
 
@@ -257,7 +265,7 @@ fn ixfr_response_generates_expected_updates() {
     let resp = answer.into_message();
 
     // Process the response.
-    let it = interpreter.intrepret_response(resp).unwrap();
+    let it = interpreter.interpret_response(resp).unwrap();
 
     // Make parsed versions of the old and new SOAs.
     let mut buf = BytesMut::new();
@@ -275,49 +283,38 @@ fn ixfr_response_generates_expected_updates() {
     // Verify the updates emitted by the XFR interpreter.
     let owner =
         ParsedName::<Bytes>::from(Name::from_str("example.com").unwrap());
-    let expected_updates: [Result<ZoneUpdate<XfrRecord>, IterationError>; 7] = [
+    let expected_updates: [Result<ZoneUpdate<ParsedRecord>, IterationError>;
+        7] = [
         Ok(ZoneUpdate::BeginBatchDelete(Record::from((
             owner.clone(),
             0,
             ZoneRecordData::Soa(expected_old_soa),
         )))),
-        Ok(ZoneUpdate::DeleteRecord(
-            old_serial,
-            Record::from((
-                owner.clone(),
-                0,
-                ZoneRecordData::A(A::new(Ipv4Addr::LOCALHOST)),
-            )),
-        )),
-        Ok(ZoneUpdate::DeleteRecord(
-            old_serial,
-            Record::from((
-                owner.clone(),
-                0,
-                ZoneRecordData::A(A::new(Ipv4Addr::BROADCAST)),
-            )),
-        )),
+        Ok(ZoneUpdate::DeleteRecord(Record::from((
+            owner.clone(),
+            0,
+            ZoneRecordData::A(A::new(Ipv4Addr::LOCALHOST)),
+        )))),
+        Ok(ZoneUpdate::DeleteRecord(Record::from((
+            owner.clone(),
+            0,
+            ZoneRecordData::A(A::new(Ipv4Addr::BROADCAST)),
+        )))),
         Ok(ZoneUpdate::BeginBatchAdd(Record::from((
             owner.clone(),
             0,
             ZoneRecordData::Soa(expected_new_soa.clone()),
         )))),
-        Ok(ZoneUpdate::AddRecord(
-            new_serial,
-            Record::from((
-                owner.clone(),
-                0,
-                ZoneRecordData::A(A::new(Ipv4Addr::BROADCAST)),
-            )),
-        )),
-        Ok(ZoneUpdate::AddRecord(
-            new_serial,
-            Record::from((
-                owner.clone(),
-                0,
-                ZoneRecordData::A(A::new(Ipv4Addr::LOCALHOST)),
-            )),
-        )),
+        Ok(ZoneUpdate::AddRecord(Record::from((
+            owner.clone(),
+            0,
+            ZoneRecordData::A(A::new(Ipv4Addr::BROADCAST)),
+        )))),
+        Ok(ZoneUpdate::AddRecord(Record::from((
+            owner.clone(),
+            0,
+            ZoneRecordData::A(A::new(Ipv4Addr::LOCALHOST)),
+        )))),
         Ok(ZoneUpdate::Finished(Record::from((
             owner.clone(),
             0,
@@ -353,7 +350,7 @@ fn multi_ixfr_response_generates_expected_updates() {
     let mut interpreter = XfrResponseInterpreter::new();
 
     // Process the response.
-    let mut it = interpreter.intrepret_response(resp).unwrap();
+    let mut it = interpreter.interpret_response(resp).unwrap();
 
     // Verify the updates emitted by the XFR interpreter.
     assert!(matches!(it.next(), Some(Ok(ZU::BeginBatchDelete(_)))));
@@ -364,7 +361,7 @@ fn multi_ixfr_response_generates_expected_updates() {
     let resp = mk_second_ixfr_response(req, new_soa);
 
     // Process the response.
-    let mut it = interpreter.intrepret_response(resp).unwrap();
+    let mut it = interpreter.interpret_response(resp).unwrap();
 
     // Verify the updates emitted by the XFR interpreter.
     assert!(matches!(it.next(), Some(Ok(ZU::DeleteRecord(..)))));
@@ -407,7 +404,7 @@ fn is_finished() {
     let mut count = 0;
     while !interpreter.is_finished() {
         let resp = responses.pop_front().unwrap();
-        let it = interpreter.intrepret_response(resp).unwrap();
+        let it = interpreter.interpret_response(resp).unwrap();
         count += it.count();
     }
 
