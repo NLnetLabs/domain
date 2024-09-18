@@ -1373,6 +1373,7 @@ mod tests {
     use crate::tsig::{Algorithm, Key, KeyName};
     use crate::zonefile::inplace::Zonefile;
     use crate::zonetree::types::Rrset;
+    use crate::zonetree::ZoneDiffBuilder;
 
     use super::*;
 
@@ -1602,9 +1603,7 @@ JAIN-BB.JAIN.AD.JP. IN A   192.41.197.2
         let zone = load_zone(rfc_1995_zone.as_bytes());
 
         // Diff 1: NEZU.JAIN.AD.JP. is removed and JAIN-BB.JAIN.AD.JP. is added.
-        let mut diff = ZoneDiff::new();
-        diff.start_serial = Some(Serial(1));
-        diff.end_serial = Some(Serial(2));
+        let mut diff = ZoneDiffBuilder::new();
 
         // -- Remove the old SOA.
         let mut rrset = Rrset::new(Rtype::SOA, Ttl::from_secs(0));
@@ -1618,16 +1617,12 @@ JAIN-BB.JAIN.AD.JP. IN A   192.41.197.2
             Ttl::from_secs(604800),
         );
         rrset.push_data(soa.into());
-        diff.removed
-            .insert((n("JAIN.AD.JP"), Rtype::SOA), SharedRrset::new(rrset));
+        diff.remove(n("JAIN.AD.JP"), Rtype::SOA, SharedRrset::new(rrset));
 
         // -- Remove the A record.
         let mut rrset = Rrset::new(Rtype::A, Ttl::from_secs(0));
         rrset.push_data(A::new(p("133.69.136.5")).into());
-        diff.removed.insert(
-            (n("NEZU.JAIN.AD.JP"), Rtype::A),
-            SharedRrset::new(rrset),
-        );
+        diff.remove(n("NEZU.JAIN.AD.JP"), Rtype::A, SharedRrset::new(rrset));
 
         // -- Add the new SOA.
         let mut rrset = Rrset::new(Rtype::SOA, Ttl::from_secs(0));
@@ -1641,24 +1636,18 @@ JAIN-BB.JAIN.AD.JP. IN A   192.41.197.2
             Ttl::from_secs(604800),
         );
         rrset.push_data(soa.into());
-        diff.added
-            .insert((n("JAIN.AD.JP"), Rtype::SOA), SharedRrset::new(rrset));
+        diff.add(n("JAIN.AD.JP"), Rtype::SOA, SharedRrset::new(rrset));
 
         // -- Add the new A records.
         let mut rrset = Rrset::new(Rtype::A, Ttl::from_secs(0));
         rrset.push_data(A::new(p("133.69.136.4")).into());
         rrset.push_data(A::new(p("192.41.197.2")).into());
-        diff.added.insert(
-            (n("JAIN-BB.JAIN.AD.JP"), Rtype::A),
-            SharedRrset::new(rrset),
-        );
+        diff.add(n("JAIN-BB.JAIN.AD.JP"), Rtype::A, SharedRrset::new(rrset));
 
-        diffs.push(diff);
+        diffs.push(diff.build(Serial(1), Serial(2)));
 
         // Diff 2: One of the IP addresses of JAIN-BB.JAIN.AD.JP. is changed.
-        let mut diff = ZoneDiff::new();
-        diff.start_serial = Some(Serial(2));
-        diff.end_serial = Some(Serial(3));
+        let mut diff = ZoneDiffBuilder::new();
 
         // -- Remove the old SOA.
         let mut rrset = Rrset::new(Rtype::SOA, Ttl::from_secs(0));
@@ -1672,14 +1661,14 @@ JAIN-BB.JAIN.AD.JP. IN A   192.41.197.2
             Ttl::from_secs(604800),
         );
         rrset.push_data(soa.into());
-        diff.removed
-            .insert((n("JAIN.AD.JP"), Rtype::SOA), SharedRrset::new(rrset));
+        diff.remove(n("JAIN.AD.JP"), Rtype::SOA, SharedRrset::new(rrset));
 
         // Remove the outdated IP address.
         let mut rrset = Rrset::new(Rtype::A, Ttl::from_secs(0));
         rrset.push_data(A::new(p("133.69.136.4")).into());
-        diff.removed.insert(
-            (n("JAIN-BB.JAIN.AD.JP"), Rtype::A),
+        diff.remove(
+            n("JAIN-BB.JAIN.AD.JP"),
+            Rtype::A,
             SharedRrset::new(rrset),
         );
 
@@ -1695,18 +1684,14 @@ JAIN-BB.JAIN.AD.JP. IN A   192.41.197.2
             Ttl::from_secs(604800),
         );
         rrset.push_data(soa.into());
-        diff.added
-            .insert((n("JAIN.AD.JP"), Rtype::SOA), SharedRrset::new(rrset));
+        diff.add(n("JAIN.AD.JP"), Rtype::SOA, SharedRrset::new(rrset));
 
         // Add the updated IP address.
         let mut rrset = Rrset::new(Rtype::A, Ttl::from_secs(0));
         rrset.push_data(A::new(p("133.69.136.3")).into());
-        diff.added.insert(
-            (n("JAIN-BB.JAIN.AD.JP"), Rtype::A),
-            SharedRrset::new(rrset),
-        );
+        diff.add(n("JAIN-BB.JAIN.AD.JP"), Rtype::A, SharedRrset::new(rrset));
 
-        diffs.push(diff);
+        diffs.push(diff.build(Serial(2), Serial(3)));
 
         // Create an object that knows how to provide zone and diff data for
         // our zone and diffs.
@@ -2163,16 +2148,14 @@ JAIN-BB.JAIN.AD.JP. IN A   192.41.197.2
                 if q.qname() == self.zone.apex_name()
                     && q.qclass() == self.zone.class()
                 {
-                    let diffs = if self
-                        .diffs
-                        .first()
-                        .and_then(|diff| diff.start_serial)
-                        == diff_from
-                    {
-                        self.diffs.clone()
-                    } else {
-                        vec![]
-                    };
+                    let diffs =
+                        if self.diffs.first().map(|diff| diff.start_serial)
+                            == diff_from
+                        {
+                            self.diffs.clone()
+                        } else {
+                            vec![]
+                        };
 
                     Ok((self.zone.clone(), diffs))
                 } else {
