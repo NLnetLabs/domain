@@ -408,7 +408,7 @@ where
         Octs: TryFrom<&'a [u8]>,
     {
         assert!(
-            !self.cur_label().is_some_and(|l| !l.is_empty()),
+            self.cur_label().map_or(true, |l| l.is_empty()),
             "cannot extract a domain name while a label is being built"
         );
 
@@ -445,7 +445,7 @@ where
         Octs: TryFrom<&'a [u8]>,
     {
         assert!(
-            !self.cur_label().is_some_and(|l| !l.is_empty()),
+            self.cur_label().map_or(true, |l| l.is_empty()),
             "cannot extract a domain name while a label is being built"
         );
 

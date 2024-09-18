@@ -361,16 +361,6 @@ impl Symbol {
     pub fn from_chars<C: Iterator<Item = char>>(
         chars: &mut C,
     ) -> Result<Option<Self>, SymbolCharsError> {
-        #[inline]
-        fn bad_escape() -> SymbolCharsError {
-            SymbolCharsError(SymbolCharsEnum::BadEscape)
-        }
-
-        #[inline]
-        fn short_input() -> SymbolCharsError {
-            SymbolCharsError(SymbolCharsEnum::ShortInput)
-        }
-
         let ch = match chars.next() {
             Some(ch) => ch,
             None => return Ok(None),
@@ -384,32 +374,33 @@ impl Symbol {
                 let ch2 = match chars.next() {
                     Some(ch) => match ch.to_digit(10) {
                         Some(ch) => ch * 10,
-                        None => return Err(bad_escape()),
+                        None => return Err(SymbolCharsError::bad_escape()),
                     },
-                    None => return Err(short_input()),
+                    None => return Err(SymbolCharsError::short_input()),
                 };
                 let ch3 = match chars.next() {
                     Some(ch) => match ch.to_digit(10) {
                         Some(ch) => ch,
-                        None => return Err(bad_escape()),
+                        None => return Err(SymbolCharsError::bad_escape()),
                     },
-                    None => return Err(short_input()),
+                    None => return Err(SymbolCharsError::short_input()),
                 };
                 let res = ch + ch2 + ch3;
                 if res > 255 {
-                    return Err(bad_escape());
+                    return Err(SymbolCharsError::bad_escape());
                 }
                 Ok(Some(Symbol::DecimalEscape(res as u8)))
             }
             Some(ch) => {
-                let ch = u8::try_from(ch).map_err(|_| bad_escape())?;
+                let ch = u8::try_from(ch)
+                    .map_err(|_| SymbolCharsError::bad_escape())?;
                 if ch < 0x20 || ch > 0x7e {
-                    Err(bad_escape())
+                    Err(SymbolCharsError::bad_escape())
                 } else {
                     Ok(Some(Symbol::SimpleEscape(ch)))
                 }
             }
-            None => Err(short_input()),
+            None => Err(SymbolCharsError::short_input()),
         }
     }
 
@@ -636,7 +627,7 @@ impl Symbol {
                 if ch.is_ascii() && ch >= '\u{20}' && ch <= '\u{7E}' {
                     Ok(ch as u8)
                 } else {
-                    Err(BadSymbol(BadSymbolEnum::NonAscii))
+                    Err(BadSymbol::non_ascii())
                 }
             }
             Symbol::SimpleEscape(ch) | Symbol::DecimalEscape(ch) => Ok(ch),
