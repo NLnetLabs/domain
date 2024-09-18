@@ -128,7 +128,7 @@ impl<N: ToName> From<(N, Rtype)> for Question<N> {
     }
 }
 
-impl<N: FromStr<Err = name::FromStrError>> FromStr for Question<N> {
+impl<N: FromStr<Err = name::ScanError>> FromStr for Question<N> {
     type Err = FromStrError;
 
     /// Parses a question from a string.
@@ -380,13 +380,11 @@ pub enum FromStrError {
 
 //--- From
 
-impl From<name::FromStrError> for FromStrError {
-    fn from(err: name::FromStrError) -> FromStrError {
+impl From<name::ScanError> for FromStrError {
+    fn from(err: name::ScanError) -> FromStrError {
         match err {
-            name::FromStrError::Presentation(err) => {
-                Self::Presentation(err.into())
-            }
-            name::FromStrError::ShortBuf => Self::ShortBuf,
+            name::ScanError::ShortBuf => Self::ShortBuf,
+            err => Self::Presentation(err.into()),
         }
     }
 }
@@ -419,7 +417,7 @@ pub struct PresentationError(PresentationErrorEnum);
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum PresentationErrorEnum {
-    BadName(name::PresentationError),
+    BadName(name::ScanError),
     MissingQname,
     MissingClassAndQtype,
     MissingQtype,
@@ -436,8 +434,8 @@ impl From<PresentationErrorEnum> for PresentationError {
     }
 }
 
-impl From<name::PresentationError> for PresentationError {
-    fn from(err: name::PresentationError) -> Self {
+impl From<name::ScanError> for PresentationError {
+    fn from(err: name::ScanError) -> Self {
         Self(PresentationErrorEnum::BadName(err))
     }
 }

@@ -847,7 +847,7 @@ impl<Iter, Item, Octets> Scanner for IterScanner<Iter, Octets>
 where
     Item: AsRef<str>,
     Iter: Iterator<Item = Item>,
-    Octets: FromBuilder,
+    Octets: FromBuilder + for<'a> TryFrom<&'a [u8]>,
     <Octets as FromBuilder>::Builder: EmptyBuilder + Composer,
 {
     type Octets = Octets;
@@ -959,11 +959,11 @@ where
     }
 
     fn scan_name(&mut self) -> Result<Self::Name, Self::Error> {
-        let token = match self.iter.next() {
-            Some(token) => token,
-            None => return Err(StrError::end_of_entry()),
-        };
-        Name::from_symbols(Symbols::new(token.as_ref().chars()))
+        self.iter
+            .next()
+            .ok_or_else(StrError::end_of_entry)?
+            .as_ref()
+            .parse()
             .map_err(|_| StrError::custom("invalid domain name"))
     }
 

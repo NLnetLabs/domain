@@ -7,9 +7,9 @@ use core::borrow::{Borrow, BorrowMut};
 use core::fmt;
 
 use super::absolute::Name;
+use super::label::Label;
 use super::relative::RelativeName;
 use super::uncertain::UncertainName;
-use super::{Label, ToLabelIter};
 use crate::base::scan::{self, Symbol, Symbols};
 
 //------------ NameBuilder --------------------------------------------------

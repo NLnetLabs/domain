@@ -5,7 +5,7 @@
 use super::super::scan::Scanner;
 use super::super::wire::ParseError;
 use super::absolute::Name;
-use super::builder::{FromStrError, NameBuilder, PushError};
+use super::builder::{BuildError, NameBuilder, ScanError};
 use super::chain::{Chain, LongChainError};
 use super::label::{Label, LabelTypeError, SplitLabelError};
 use super::relative::{NameIter, RelativeName};
@@ -13,9 +13,7 @@ use super::traits::ToLabelIter;
 #[cfg(feature = "bytes")]
 use bytes::Bytes;
 use core::{fmt, hash, str};
-use octseq::builder::{
-    EmptyBuilder, FreezeBuilder, FromBuilder, IntoBuilder,
-};
+use octseq::builder::{FreezeBuilder, IntoBuilder};
 #[cfg(feature = "serde")]
 use octseq::serde::{DeserializeOctets, SerializeOctets};
 #[cfg(feature = "std")]
@@ -104,44 +102,6 @@ impl<Octets> UncertainName<Octets> {
         }
     }
 
-    /// Creates a domain name from a sequence of characters.
-    ///
-    /// The sequence must result in a domain name in zone file
-    /// representation. That is, its labels should be separated by dots,
-    /// while actual dots, white space and backslashes should be escaped by a
-    /// preceeding backslash, and any byte value that is not a printable
-    /// ASCII character should be encoded by a backslash followed by its
-    /// three digit decimal value.
-    ///
-    /// If Internationalized Domain Names are to be used, the labels already
-    /// need to be in punycode-encoded form.
-    ///
-    /// If the last character is a dot, the name will be absolute, otherwise
-    /// it will be relative.
-    ///
-    /// If you have a string, you can also use the [`FromStr`] trait, which
-    /// really does the same thing.
-    ///
-    /// [`FromStr`]: std::str::FromStr
-    pub fn from_chars<C>(chars: C) -> Result<Self, FromStrError>
-    where
-        Octets: FromBuilder,
-        <Octets as FromBuilder>::Builder: FreezeBuilder<Octets = Octets>
-            + EmptyBuilder
-            + AsRef<[u8]>
-            + AsMut<[u8]>,
-        C: IntoIterator<Item = char>,
-    {
-        let mut builder =
-            NameBuilder::<<Octets as FromBuilder>::Builder>::new();
-        builder.append_chars(chars)?;
-        if builder.in_label() || builder.is_empty() {
-            Ok(builder.finish().into())
-        } else {
-            Ok(builder.into_name()?.into())
-        }
-    }
-
     pub fn scan<S: Scanner<Name = Name<Octets>>>(
         scanner: &mut S,
     ) -> Result<Self, S::Error> {
@@ -225,11 +185,10 @@ impl<Octets> UncertainName<Octets> {
     ///
     /// If the name is relative, appends the root label to it using
     /// [`RelativeName::into_absolute`].
-    pub fn into_absolute(self) -> Result<Name<Octets>, PushError>
+    pub fn to_absolute(self) -> Result<Name<Octets>, BuildError>
     where
         Octets: AsRef<[u8]> + IntoBuilder,
-        <Octets as IntoBuilder>::Builder:
-            FreezeBuilder<Octets = Octets> + AsRef<[u8]> + AsMut<[u8]>,
+        Octets::Builder: FreezeBuilder<Octets = Octets>,
     {
         match self {
             UncertainName::Absolute(name) => Ok(name),
@@ -313,16 +272,14 @@ impl<Octets> From<RelativeName<Octets>> for UncertainName<Octets> {
 
 impl<Octets> str::FromStr for UncertainName<Octets>
 where
-    Octets: FromBuilder,
-    <Octets as FromBuilder>::Builder: EmptyBuilder
-        + FreezeBuilder<Octets = Octets>
-        + AsRef<[u8]>
-        + AsMut<[u8]>,
+    Octets: for<'a> TryFrom<&'a [u8]>,
 {
-    type Err = FromStrError;
+    type Err = ScanError;
 
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Self::from_chars(s.chars())
+    fn from_str(name: &str) -> Result<Self, Self::Err> {
+        let mut builder = NameBuilder::new([0u8; 256]);
+        builder.scan_name(name)?;
+        builder.as_uncertain().map_err(|_| ScanError::ShortBuf)
     }
 }
 

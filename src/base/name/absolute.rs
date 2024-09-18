@@ -727,7 +727,7 @@ where
         let mut builder = NameBuilder::new([0u8; 256]);
         builder.scan_name(name)?;
         // Append an empty slice for a root label.
-        builder.append_slice(&[]);
+        builder.append_slice(&[])?;
         builder
             .as_absolute()
             .map(Option::unwrap) // We ensure there is a root label.

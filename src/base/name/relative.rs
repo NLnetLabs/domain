@@ -14,7 +14,7 @@ use core::cmp::Ordering;
 use core::ops::{Bound, RangeBounds};
 use core::str::FromStr;
 use core::{borrow, cmp, fmt, hash, mem};
-use octseq::builder::Truncate;
+use octseq::builder::{FreezeBuilder, IntoBuilder, OctetsBuilder, Truncate};
 use octseq::octets::{Octets, OctetsFrom};
 #[cfg(feature = "serde")]
 use octseq::serde::{DeserializeOctets, SerializeOctets};
@@ -251,17 +251,20 @@ impl<Octs: ?Sized> RelativeName<Octs> {
 
 impl<Octs> RelativeName<Octs> {
     /// Converts the name into an absolute name by appending the root label.
-    pub fn to_absolute(&self) -> Result<Name<Octs>, BuildError>
+    pub fn into_absolute(self) -> Result<Name<Octs>, BuildError>
     where
-        Octs: AsRef<[u8]> + for<'a> TryFrom<&'a [u8]>,
+        Octs: AsRef<[u8]> + IntoBuilder,
+        Octs::Builder: FreezeBuilder<Octets = Octs>,
     {
-        let mut builder = NameBuilder::new([0u8; 256]);
-        builder.append_relative_name(self.for_ref())?;
-        builder.append_slice(&[])?;
+        let mut builder = self.0.into_builder();
         builder
-            .as_absolute()
-            .map(Option::unwrap) // We added a root label manually.
-            .map_err(|_| BuildError::ShortBuf)
+            .append_slice(&[0])
+            .map_err(|_| BuildError::ShortBuf)?;
+        let buffer = builder.freeze();
+        // SAFETY: We added a root label to a valid relative name, making it a
+        // valid absolute name.  Relative names are at most 254 bytes, so the
+        // constructed absolute name is at most 255 bytes.
+        Ok(unsafe { Name::from_octets_unchecked(buffer) })
     }
 
     /// Chains another name to the end of this name.
@@ -583,13 +586,10 @@ where
     fn from_str(name: &str) -> Result<Self, Self::Err> {
         let mut builder = NameBuilder::new([0u8; 256]);
         builder.scan_name(name)?;
-        // If there was a root label, fail.
-        if builder.cur_label().is_some() {
-            return Err(RelativeScanError::AbsoluteName);
-        }
         builder
             .as_relative()
             .map_err(|_| ScanError::ShortBuf.into())
+            .and_then(|n| n.ok_or(RelativeScanError::AbsoluteName))
     }
 }
 
@@ -1204,7 +1204,7 @@ mod test {
                 b"\x03www\x07example\x03com".as_ref()
             ))
             .unwrap()
-            .to_absolute()
+            .into_absolute()
             .unwrap()
             .as_slice(),
             b"\x03www\x07example\x03com\0"
@@ -1220,7 +1220,7 @@ mod test {
         tmp.extend_from_slice(b"\x03123");
         RelativeName::from_octets(tmp)
             .unwrap()
-            .to_absolute()
+            .into_absolute()
             .unwrap();
     }
 
