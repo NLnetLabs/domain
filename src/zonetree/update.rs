@@ -92,9 +92,6 @@ pub struct ZoneUpdater {
 
     /// Whether or not we entered an IXFR-like batching mode.
     batching: bool,
-
-    /// Whether or not at least one update has been applied so far.
-    first_update_seen: bool,
 }
 
 impl ZoneUpdater {
@@ -115,7 +112,6 @@ impl ZoneUpdater {
                 zone,
                 write,
                 batching: false,
-                first_update_seen: false,
             })
         })
     }
@@ -131,13 +127,22 @@ impl ZoneUpdater {
     ) -> std::io::Result<()> {
         trace!("Event: {update}");
         match update {
-            ZoneUpdate::DeleteRecord(_serial, rec) => {
-                self.delete_record(rec).await?
+            ZoneUpdate::DeleteAllRecords => {
+                // To completely replace the content of the zone, i.e.
+                // something like an AXFR transfer, we can't add records from
+                // a new version of the zone to an existing zone because if
+                // the old version contained a record which the new version
+                // does not, the record would remain in the zone. So in this
+                // case we have to mark all of the existing records in the
+                // zone as "removed" and then add new records. This allows the
+                // old records to continue being served to current consumers
+                // while the zone is being updated.
+                self.write.remove_all().await?;
             }
 
-            ZoneUpdate::AddRecord(_serial, rec) => {
-                self.add_record(rec).await?
-            }
+            ZoneUpdate::DeleteRecord(rec) => self.delete_record(rec).await?,
+
+            ZoneUpdate::AddRecord(rec) => self.add_record(rec).await?,
 
             // Note: Batches first contain deletions then additions, so batch
             // deletion signals the start of a batch, and the end of any
@@ -174,8 +179,6 @@ impl ZoneUpdater {
                 })?;
             }
         }
-
-        self.first_update_seen = true;
 
         Ok(())
     }
@@ -304,20 +307,6 @@ impl ZoneUpdater {
             ZoneRecordData<Bytes, ParsedName<Bytes>>,
         >,
     ) -> std::io::Result<()> {
-        if !self.first_update_seen && rec.rtype() == Rtype::SOA {
-            // If the first event is the addition of a SOA record to the zone,
-            // this must be a complete replacement of the zone (as you can't
-            // have two SOA records), i.e. something like an AXFR transfer. We
-            // can't add records from a new version of the zone to an existing
-            // zone because if the old version contained a record which the
-            // new version does not, it would get left behind. So in this case
-            // we have to mark all of the existing records in the zone as
-            // "removed" and then add new records. This allows the old records
-            // to continue being served to current consumers while the zone is
-            // being updated.
-            self.write.remove_all().await?;
-        }
-
         let end_node = self.get_writable_node_for_owner(&rec).await?;
         let mut rrset = Rrset::new(rec.rtype(), rec.ttl());
         let rtype = rec.rtype();
@@ -418,7 +407,7 @@ mod tests {
         );
 
         updater
-            .apply(ZoneUpdate::AddRecord(s, soa.clone()))
+            .apply(ZoneUpdate::AddRecord(soa.clone()))
             .await
             .unwrap();
 

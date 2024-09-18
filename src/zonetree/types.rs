@@ -321,11 +321,14 @@ impl ZoneDiff {
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum ZoneUpdate<R> {
-    /// Delete record R from the specified version (serial) of the zone.
-    DeleteRecord(Serial, R),
+    /// Delete all records in the zone.
+    DeleteAllRecords,
 
-    /// Add record R to the specified version (serial) of the zone.
-    AddRecord(Serial, R),
+    /// Delete record R from the zone.
+    DeleteRecord(R),
+
+    /// Add record R to the zone.
+    AddRecord(R),
 
     /// Start a batch delete for the specified version (serial) of the zone.
     ///
@@ -362,11 +365,10 @@ pub enum ZoneUpdate<R> {
     /// See `BeginBatchDelete` for more information.
     BeginBatchAdd(R),
 
-    /// Updates for the specified version (serial) of the zone can now be
-    /// finalized.
+    /// In progress updates for the zone can now be finalized.
     ///
-    /// This signals the end of a group of related changes to the specified
-    /// version (serial) of the zone.
+    /// This signals the end of a group of related changes for the given SOA
+    /// record of the zone.
     ///
     /// For example this could be used to trigger an atomic commit of a set of
     /// related pending changes.
@@ -378,8 +380,9 @@ pub enum ZoneUpdate<R> {
 impl<R> std::fmt::Display for ZoneUpdate<R> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            ZoneUpdate::DeleteRecord(_, _) => f.write_str("DeleteRecord"),
-            ZoneUpdate::AddRecord(_, _) => f.write_str("AddRecord"),
+            ZoneUpdate::DeleteAllRecords => f.write_str("DeleteAllRecords"),
+            ZoneUpdate::DeleteRecord(_) => f.write_str("DeleteRecord"),
+            ZoneUpdate::AddRecord(_) => f.write_str("AddRecord"),
             ZoneUpdate::BeginBatchDelete(_) => {
                 f.write_str("BeginBatchDelete")
             }

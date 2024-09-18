@@ -9,7 +9,7 @@ use crate::rdata::ZoneRecordData;
 use crate::zonetree::types::ZoneUpdate;
 
 use super::interpreter::RecordProcessor;
-use super::types::{Error, IterationError, ParsedRecord};
+use super::types::{Error, IterationError, ParsedRecord, XfrType};
 
 //------------ XfrZoneUpdateIterator ------------------------------------------
 
@@ -54,7 +54,6 @@ impl<'a, 'b> XfrZoneUpdateIterator<'a, 'b> {
             let Some(Ok(_)) = iter.next() else {
                 return Err(Error::Malformed);
             };
-            state.rr_count += 1;
         }
 
         Ok(Self { state, iter })
@@ -65,6 +64,22 @@ impl<'a, 'b> Iterator for XfrZoneUpdateIterator<'a, 'b> {
     type Item = Result<ZoneUpdate<ParsedRecord>, IterationError>;
 
     fn next(&mut self) -> Option<Self::Item> {
+        if self.state.rr_count == 0 {
+            // We already skipped the first record in new() above by calling
+            // iter.next(). We didn't reflect that yet in rr_count because we
+            // wanted to still be able to detect the first call to next() and
+            // handle it specially for AXFR.
+            self.state.rr_count += 1;
+
+            if self.state.actual_xfr_type == XfrType::Axfr {
+                // For AXFR we're not making changes to a zone, we're
+                // replacing its entire contents, so before returning any
+                // actual updates to apply, first instruct the consumer to
+                // "discard" everything it has.
+                return Some(Ok(ZoneUpdate::DeleteAllRecords));
+            }
+        }
+
         match self.iter.next()? {
             Ok(record) => {
                 trace!("XFR record {}: {record:?}", self.state.rr_count);

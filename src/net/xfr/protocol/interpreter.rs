@@ -297,9 +297,7 @@ impl RecordProcessor {
                 ZoneUpdate::Finished(rec)
             }
 
-            XfrType::Axfr => {
-                ZoneUpdate::AddRecord(self.current_soa.serial(), rec)
-            }
+            XfrType::Axfr => ZoneUpdate::AddRecord(rec),
 
             XfrType::Ixfr if self.rr_count < 2 => unreachable!(),
 
@@ -348,7 +346,7 @@ impl RecordProcessor {
                     // assume that "incremental zone transfer is not available"
                     // and so "the behaviour is the same as an AXFR response",
                     self.actual_xfr_type = XfrType::Axfr;
-                    ZoneUpdate::AddRecord(self.current_soa.serial(), rec)
+                    ZoneUpdate::AddRecord(rec)
                 }
             }
 
@@ -377,14 +375,10 @@ impl RecordProcessor {
                     }
                 } else {
                     match self.ixfr_update_mode {
-                        IxfrUpdateMode::Deleting => ZoneUpdate::DeleteRecord(
-                            self.current_soa.serial(),
-                            rec,
-                        ),
-                        IxfrUpdateMode::Adding => ZoneUpdate::AddRecord(
-                            self.current_soa.serial(),
-                            rec,
-                        ),
+                        IxfrUpdateMode::Deleting => {
+                            ZoneUpdate::DeleteRecord(rec)
+                        }
+                        IxfrUpdateMode::Adding => ZoneUpdate::AddRecord(rec),
                     }
                 }
             }
