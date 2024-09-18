@@ -228,7 +228,7 @@ fn arc_into_inner<T>(this: Arc<Mutex<T>>) -> Option<Mutex<T>> {
 }
 
 #[rustversion::before(1.70.0)]
-fn arc_into_inner(this: Arc<Mutex<T>>) -> Option<Mutex<T>> {
+fn arc_into_inner<T>(this: Arc<Mutex<T>>) -> Option<Mutex<T>> {
     // From: https://doc.rust-lang.org/std/sync/struct.Arc.html#method.into_inner
     //
     // "If Arc::into_inner is called on every clone of this Arc, it is
