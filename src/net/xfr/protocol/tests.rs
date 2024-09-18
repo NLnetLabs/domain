@@ -9,7 +9,7 @@ use crate::base::iana::Rcode;
 use crate::base::message_builder::{
     AnswerBuilder, AuthorityBuilder, QuestionBuilder,
 };
-use crate::base::net::Ipv4Addr;
+use crate::base::net::{Ipv4Addr, Ipv6Addr};
 use crate::base::rdata::ComposeRecordData;
 use crate::base::{
     Message, MessageBuilder, ParsedName, Record, Rtype, Serial, Ttl,
@@ -20,7 +20,6 @@ use crate::zonetree::types::{ZoneUpdate, ZoneUpdate as ZU};
 
 use super::interpreter::XfrResponseInterpreter;
 use super::types::{Error, IterationError, ParsedRecord};
-use core::net::Ipv6Addr;
 
 #[test]
 fn non_xfr_response_is_rejected() {
