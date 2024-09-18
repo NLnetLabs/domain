@@ -1376,7 +1376,7 @@ mod tests {
     use crate::zonetree::ZoneDiffBuilder;
 
     use super::*;
-    
+
     type ExpectedRecords =
         Vec<(Name<Bytes>, AllRecordData<Bytes, Name<Bytes>>)>;
 
