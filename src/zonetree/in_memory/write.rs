@@ -18,7 +18,7 @@ use tracing::trace;
 use crate::base::iana::Rtype;
 use crate::base::name::Label;
 use crate::base::NameBuilder;
-use crate::zonetree::types::{ZoneCut, ZoneDiff};
+use crate::zonetree::types::{ZoneCut, ZoneDiff, ZoneDiffBuilder};
 use crate::zonetree::StoredName;
 use crate::zonetree::{Rrset, SharedRr};
 use crate::zonetree::{SharedRrset, WritableZone, WritableZoneNode};
@@ -35,7 +35,7 @@ pub struct WriteZone {
     version: Version,
     dirty: bool,
     zone_versions: Arc<RwLock<ZoneVersions>>,
-    diff: Arc<Mutex<Option<Arc<Mutex<ZoneDiff>>>>>,
+    diff: Arc<Mutex<Option<Arc<Mutex<ZoneDiffBuilder>>>>>,
 }
 
 impl WriteZone {
@@ -167,8 +167,6 @@ impl WritableZone for WriteZone {
 
                 let diff = arc_into_inner(diff).unwrap();
                 let mut diff = Mutex::into_inner(diff).unwrap();
-                diff.start_serial = Some(old_soa.serial());
-                diff.end_serial = Some(new_soa.serial());
 
                 if bump_soa_serial {
                     let mut removed_soa_rrset =
@@ -183,17 +181,25 @@ impl WritableZone for WriteZone {
                     let new_soa_rrset =
                         SharedRrset::new(new_soa_shared_rrset);
 
-                    let k = (self.apex.name().clone(), Rtype::SOA);
                     trace!("Diff: recording removal of old SOA: {removed_soa_rrset:#?}");
-                    diff.removed.insert(k.clone(), removed_soa_rrset);
+                    diff.remove(
+                        self.apex.name().clone(),
+                        Rtype::SOA,
+                        removed_soa_rrset,
+                    );
 
                     trace!(
                         "Diff: recording addition of new SOA: {new_soa_rrset:#?}"
                     );
-                    diff.added.insert(k, new_soa_rrset);
+                    diff.add(
+                        self.apex.name().clone(),
+                        Rtype::SOA,
+                        new_soa_rrset,
+                    );
                 }
 
-                out_diff = Some(diff);
+                out_diff =
+                    Some(diff.build(old_soa.serial(), new_soa.serial()));
             }
         }
 
@@ -216,13 +222,13 @@ impl WritableZone for WriteZone {
 }
 
 #[rustversion::since(1.70.0)]
-fn arc_into_inner(this: Arc<Mutex<ZoneDiff>>) -> Option<Mutex<ZoneDiff>> {
+fn arc_into_inner<T>(this: Arc<Mutex<T>>) -> Option<Mutex<T>> {
     #[allow(clippy::incompatible_msrv)]
     Arc::into_inner(this)
 }
 
 #[rustversion::before(1.70.0)]
-fn arc_into_inner(this: Arc<Mutex<ZoneDiff>>) -> Option<Mutex<ZoneDiff>> {
+fn arc_into_inner(this: Arc<Mutex<T>>) -> Option<Mutex<T>> {
     // From: https://doc.rust-lang.org/std/sync/struct.Arc.html#method.into_inner
     //
     // "If Arc::into_inner is called on every clone of this Arc, it is
@@ -250,7 +256,7 @@ pub struct WriteNode {
     node: Either<Arc<ZoneApex>, Arc<ZoneNode>>,
 
     /// The diff we are building, if enabled.
-    diff: Option<(StoredName, Arc<Mutex<ZoneDiff>>)>,
+    diff: Option<(StoredName, Arc<Mutex<ZoneDiffBuilder>>)>,
 }
 
 impl WriteNode {
@@ -263,7 +269,7 @@ impl WriteNode {
         let diff = if create_diff {
             Some((
                 zone.apex.name().clone(),
-                Arc::new(Mutex::new(ZoneDiff::new())),
+                Arc::new(Mutex::new(ZoneDiffBuilder::new())),
             ))
         } else {
             None
@@ -313,8 +319,6 @@ impl WriteNode {
 
         trace!("Updating RRset");
         if let Some((owner, diff)) = &self.diff {
-            let k = (owner.clone(), rrset.rtype());
-
             let changed = if let Some(removed_rrset) =
                 rrsets.get(rrset.rtype(), self.zone.version.prev())
             {
@@ -322,10 +326,11 @@ impl WriteNode {
 
                 if changed && !removed_rrset.is_empty() {
                     trace!("Diff detected: update of existing RRSET - recording removal of the current RRSET: {removed_rrset:#?}");
-                    diff.lock()
-                        .unwrap()
-                        .removed
-                        .insert(k.clone(), removed_rrset.clone());
+                    diff.lock().unwrap().remove(
+                        owner.clone(),
+                        rrset.rtype(),
+                        removed_rrset.clone(),
+                    );
                 }
 
                 changed
@@ -335,7 +340,11 @@ impl WriteNode {
 
             if changed && !rrset.is_empty() {
                 trace!("Diff detected: update of existing RRSET - recording addition of the new RRSET: {rrset:#?}");
-                diff.lock().unwrap().added.insert(k, rrset.clone());
+                diff.lock().unwrap().add(
+                    owner.clone(),
+                    rrset.rtype(),
+                    rrset.clone(),
+                );
             }
         }
 
@@ -372,11 +381,11 @@ impl WriteNode {
                 trace!(
                     "Diff detected: removal of existing RRSET: {removed:#?}"
                 );
-                let k = (owner.clone(), rtype);
-                diff.lock()
-                    .unwrap()
-                    .removed
-                    .insert(k.clone(), removed.clone());
+                diff.lock().unwrap().remove(
+                    owner.clone(),
+                    rtype,
+                    removed.clone(),
+                );
             }
         }
 
@@ -482,8 +491,10 @@ impl WriteNode {
         Ok(())
     }
 
-    fn diff(&self) -> Option<Arc<Mutex<ZoneDiff>>> {
-        self.diff.as_ref().map(|(_, diff)| diff.clone())
+    fn diff(&self) -> Option<Arc<Mutex<ZoneDiffBuilder>>> {
+        self.diff
+            .as_ref()
+            .map(|(_, diff_builder)| diff_builder.clone())
     }
 }
 
