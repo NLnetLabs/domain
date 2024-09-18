@@ -200,7 +200,7 @@ use crate::zonetree::{Rrset, SharedRrset};
 
 use super::error::OutOfZone;
 use super::types::ZoneUpdate;
-use super::{WritableZone, WritableZoneNode, Zone};
+use super::{WritableZone, WritableZoneNode, Zone, ZoneDiff};
 
 /// Apply a sequence of [`ZoneUpdate`]s to update the content of a [`Zone`].
 ///
@@ -259,7 +259,9 @@ impl ZoneUpdater {
 impl ZoneUpdater {
     /// Apply the given [`ZoneUpdate`] to the [`Zone`] being updated.
     ///
-    /// Returns `Ok` on success, `Err` otherwise.
+    /// Returns `Ok` on success, `Err` otherwise. On success, if changes were
+    /// committed then any diff made by the `Zone` backing store
+    /// implementation will be returned.
     ///
     /// <div class="warning">
     ///
@@ -272,7 +274,7 @@ impl ZoneUpdater {
     pub async fn apply(
         &mut self,
         update: ZoneUpdate<ParsedRecord>,
-    ) -> std::io::Result<()> {
+    ) -> std::io::Result<Option<ZoneDiff>> {
         trace!("Event: {update}");
         match update {
             ZoneUpdate::DeleteAllRecords => {
@@ -296,18 +298,21 @@ impl ZoneUpdater {
             // deletion signals the start of a batch, and the end of any
             // previous batch addition.
             ZoneUpdate::BeginBatchDelete(_old_soa) => {
-                if self.batching {
+                let diff = if self.batching {
                     // Commit the previous batch.
-                    self.write.commit().await.map_err(|()| {
-                        std::io::Error::custom(
-                            "Error commiting changes to zone",
-                        )
-                    })?;
+                    let diff = self.write.commit().await?;
+
                     // Open a writer for the new batch.
                     self.write.reopen().await?;
-                }
+
+                    diff
+                } else {
+                    None
+                };
 
                 self.batching = true;
+
+                return Ok(diff);
             }
 
             ZoneUpdate::BeginBatchAdd(new_soa) => {
@@ -321,14 +326,13 @@ impl ZoneUpdater {
                     // Update the SOA record.
                     self.update_soa(zone_soa).await?;
                 }
-                // Commit the previous batch.
-                self.write.commit().await.map_err(|()| {
-                    std::io::Error::custom("Error commiting changes to zone")
-                })?;
+
+                // Commit the previous batch and return any diff produced.
+                return self.write.commit().await;
             }
         }
 
-        Ok(())
+        Ok(None)
     }
 }
 
@@ -498,16 +502,16 @@ impl WriteState {
         Ok(())
     }
 
-    async fn commit(&mut self) -> Result<(), ()> {
+    async fn commit(&mut self) -> std::io::Result<Option<ZoneDiff>> {
         // Commit the deletes and adds that just occurred
         if let Some(writable) = self.writable.take() {
             // Ensure that there are no dangling references to the created
             // diff (otherwise commit() will panic).
             drop(writable);
-            self.write.commit(false).await.map_err(|_| ())?;
+            self.write.commit(false).await
+        } else {
+            Ok(None)
         }
-
-        Ok(())
     }
 
     async fn reopen(&mut self) -> std::io::Result<()> {

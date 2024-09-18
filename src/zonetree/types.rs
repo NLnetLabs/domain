@@ -368,7 +368,8 @@ pub enum ZoneUpdate<R> {
     /// Add record R to the zone.
     AddRecord(R),
 
-    /// Start a batch delete for the specified version (serial) of the zone.
+    /// Start a batch delete for the version of the zone with the given SOA
+    /// record.
     ///
     /// If not already in batching mode, this signals the start of batching
     /// mode. In batching mode one or more batches of updates will be
@@ -391,7 +392,8 @@ pub enum ZoneUpdate<R> {
     /// should be deleted.
     BeginBatchDelete(R),
 
-    /// Start a batch add for the specified version (serial) of the zone.
+    /// Start a batch add for the version of the zone with the given SOA
+    /// record.
     ///
     /// This can only be signalled when already in batching mode, i.e. when
     /// `BeginBatchDelete` has already been signalled.
