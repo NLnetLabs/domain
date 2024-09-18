@@ -251,33 +251,71 @@ pub struct ZoneCut {
     pub glue: Vec<StoredRecord>,
 }
 
+//------------ ZoneDiffBuilder -----------------------------------------------
+
+/// A [`ZoneDiff`] builder.
+#[derive(Debug, Default)]
+pub struct ZoneDiffBuilder {
+    /// The records added to the Zone.
+    added: HashMap<(StoredName, Rtype), SharedRrset>,
+
+    /// The records removed from the Zone.
+    removed: HashMap<(StoredName, Rtype), SharedRrset>,
+}
+
+impl ZoneDiffBuilder {
+    /// TODO
+    pub fn new() -> Self {
+        Default::default()
+    }
+
+    /// TODO
+    pub fn add(
+        &mut self,
+        owner: StoredName,
+        rtype: Rtype,
+        rrset: SharedRrset,
+    ) {
+        self.added.insert((owner, rtype), rrset);
+    }
+
+    /// TODO
+    pub fn remove(
+        &mut self,
+        owner: StoredName,
+        rtype: Rtype,
+        rrset: SharedRrset,
+    ) {
+        self.removed.insert((owner, rtype), rrset);
+    }
+
+    /// TODO
+    pub fn build(self, start_serial: Serial, end_serial: Serial) -> ZoneDiff {
+        ZoneDiff {
+            start_serial,
+            end_serial,
+            added: Arc::new(self.added),
+            removed: Arc::new(self.removed),
+        }
+    }
+}
+
 //------------ ZoneDiff ------------------------------------------------------
 
 /// The differences between one serial and another for a Zone.
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 pub struct ZoneDiff {
     /// The serial number of the Zone which was modified.
-    ///
-    /// For a completed diff this must be Some.
-    pub start_serial: Option<Serial>,
+    pub start_serial: Serial,
 
     /// The serial number of the Zone that resulted from the modifications.
-    ///
-    /// For a completed diff this must be Some.
-    pub end_serial: Option<Serial>,
+    pub end_serial: Serial,
 
     /// The records added to the Zone.
-    pub added: HashMap<(StoredName, Rtype), SharedRrset>,
+    pub added: Arc<HashMap<(StoredName, Rtype), SharedRrset>>,
 
     /// The records removed from the Zone.
-    pub removed: HashMap<(StoredName, Rtype), SharedRrset>,
-}
-
-impl ZoneDiff {
-    /// Creates a new empty diff.
-    pub fn new() -> Self {
-        Self::default()
-    }
+    pub removed: Arc<HashMap<(StoredName, Rtype), SharedRrset>>,
 }
 
 //------------ ZoneUpdate -----------------------------------------------------
