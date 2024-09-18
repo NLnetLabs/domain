@@ -243,7 +243,7 @@ impl ZoneUpdater {
     /// Use [`apply`][Self::apply] to apply changes to the zone.
     pub fn new(
         zone: Zone,
-    ) -> Pin<Box<dyn Future<Output = std::io::Result<Self>>>> {
+    ) -> Pin<Box<dyn Future<Output = std::io::Result<Self>> + Send>> {
         Box::pin(async move {
             let write = WriteState::new(zone.clone()).await?;
 
