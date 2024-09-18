@@ -1373,10 +1373,10 @@ mod tests {
     use crate::tsig::{Algorithm, Key, KeyName};
     use crate::zonefile::inplace::Zonefile;
     use crate::zonetree::types::Rrset;
-
-    use super::*;
     use crate::zonetree::ZoneDiffBuilder;
 
+    use super::*;
+    
     type ExpectedRecords =
         Vec<(Name<Bytes>, AllRecordData<Bytes, Name<Bytes>>)>;
 
