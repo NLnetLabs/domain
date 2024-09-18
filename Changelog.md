@@ -27,6 +27,9 @@ Unstable features
 
 * New unstable feature `unstable-validator` that adds a DNSSEC validator.
   ([#328])
+* New unstable feature `unstable-xfr` that adds an XFR response
+  interpreter in `net::xfr` for iterating over XFR responses
+  as a sequence of high level `ZoneUpdate`s. ([#375])
 * `unstable-client-transport`:
   * Fixed an issue with slow responses in the
     `multi_stream` transport by not waiting in the first iteration if an
@@ -38,21 +41,25 @@ Unstable features
   * Add support for requests that may result in multiple responses. This
     adds ComposeRequestMulti and other *Multi types. The main change is to
     the stream transport, which is the only transport that implements
-    SendRequestMulti. (#377)
+    SendRequestMulti. ([#377])
   * Added a TSIG request signing and response validating passthrough
     transport in `net::client:tsig`. ([#373])
 * `unstable-server-transport`
+  * Breaking changes to the `Service` and middleware traits. ([#369])
+  * Added a TSIG request validating and response signing middleware in
+    `net::server::middleware::tsig`. ([#380])
   * The cookies middleware now allows requests with invalid cookies to
     proceed if they are authenticated or not required to authenticate. ([#336])
+  * Added an `enabled` flag to `CookiesMiddlewareSvc`. ([#369])
   * Improved zonefile parsing error messages. ([#362]). 
   * `TryFrom<inplace::Zonefile> for Zonefile` now returns the set of
     errors instead of logging and ignoring them. ([#362])
   * Allow both glue (A/AAAA) and zone cuts at the same owner when zone
     parsing. ([#363])
-  * Breaking changes to the `Service` and middleware traits. ([#369])
-  * Added an `enabled` flag to `CookiesMiddlewareSvc`. ([#369])
 
 Other changes
+
+* None.
 
 [#328]: https://github.com/NLnetLabs/domain/pull/328
 [#333]: https://github.com/NLnetLabs/domain/pull/333
@@ -60,11 +67,18 @@ Other changes
 [#338]: https://github.com/NLnetLabs/domain/pull/338
 [#341]: https://github.com/NLnetLabs/domain/pull/341
 [#348]: https://github.com/NLnetLabs/domain/pull/348
+[#354]: https://github.com/NLnetLabs/domain/pull/354
 [#357]: https://github.com/NLnetLabs/domain/pull/357
 [#358]: https://github.com/NLnetLabs/domain/pull/358
 [#360]: https://github.com/NLnetLabs/domain/pull/360
+[#362]: https://github.com/NLnetLabs/domain/pull/362
+[#363]: https://github.com/NLnetLabs/domain/pull/363
+[#369]: https://github.com/NLnetLabs/domain/pull/369
+[#373]: https://github.com/NLnetLabs/domain/pull/373
 [#374]: https://github.com/NLnetLabs/domain/pull/374
+[#375]: https://github.com/NLnetLabs/domain/pull/375
 [#377]: https://github.com/NLnetLabs/domain/pull/377
+[#380]: https://github.com/NLnetLabs/domain/pull/380
 [@dklbreitling]: https://github.com/dklbreitling
 
 ## 0.10.1
