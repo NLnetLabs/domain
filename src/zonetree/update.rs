@@ -271,7 +271,7 @@ impl ZoneUpdater {
         trace!("Event: {update}");
         match update {
             ZoneUpdate::DeleteAllRecords => {
-                // To completely replace the content of the zone, i.e.
+                // To completely replace the content of the zone, i.e. with
                 // something like an AXFR transfer, we can't add records from
                 // a new version of the zone to an existing zone because if
                 // the old version contained a record which the new version
@@ -287,9 +287,8 @@ impl ZoneUpdater {
 
             ZoneUpdate::AddRecord(rec) => self.add_record(rec).await?,
 
-            // Note: Batches first contain deletions then additions, so batch
-            // deletion signals the start of a batch, and the end of any
-            // previous batch addition.
+            // Batch deletion signals the start of a batch, and the end of any
+            // batch addition that was in progress.
             ZoneUpdate::BeginBatchDelete(_old_soa) => {
                 let diff = if self.batching {
                     // Commit the previous batch.
