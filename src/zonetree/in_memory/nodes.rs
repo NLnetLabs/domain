@@ -335,11 +335,6 @@ impl NodeRrset {
     pub fn rollback(&mut self, version: Version) {
         self.rrsets.rollback(version);
     }
-
-    #[allow(dead_code)]
-    pub fn clean(&mut self, version: Version) {
-        self.rrsets.rollback(version);
-    }
 }
 
 //------------ Special -------------------------------------------------------
