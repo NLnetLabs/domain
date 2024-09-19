@@ -29,25 +29,26 @@ use super::{WritableZone, WritableZoneNode, Zone, ZoneDiff};
 /// writing, edits made and then the changes committed, only then becoming
 /// visible for readers of the zone.
 ///
-/// To completely replace the content of a zone pass
-/// [`ZoneUpdate::DeleteAllRecords`] to `apply` before any other updates.
-///
 /// Changes to the zone are committed when [`ZoneUpdate::Finished`] is
 /// received, or rolled back if [`ZoneUpdater`] is dropped before receiving
 /// [`ZoneUpdate::Finished`].
 ///
-/// Passing [`ZoneUpdate::BeginBatchDelete`] commits any edits in progress and
-/// starts editing a new zone version.
-///
 /// For each commit of the zone a diff of the changes made is requested and,
-/// if a diff was actually created, it will be returned by
-/// [`ZoneUpdater::apply()`].
+/// if a diff was actually created, will be returned by [`apply()`].
 ///
 /// # Usage
 ///
 /// [`ZoneUpdater`] can be used manually, or in combination with a source of
 /// [`ZoneUpdate`]s such as
 /// [`XfrResponseInterpreter`][crate::net::xfr::protocol::XfrResponseInterpreter].
+///
+/// To completely replace the content of a zone pass
+/// [`ZoneUpdate::DeleteAllRecords`] to [`apply()`] before any other updates.
+///
+/// Pass updates to be applied to the zone one at a time to [`apply()`].
+///
+/// Passing [`ZoneUpdate::BeginBatchDelete`] commits any edits in progress and
+/// starts editing a new zone version.
 ///
 /// # Replacing the content of a zone
 ///
@@ -214,6 +215,8 @@ use super::{WritableZone, WritableZoneNode, Zone, ZoneDiff};
 /// #
 /// # }
 /// ```
+///
+/// [`apply()`]: ZoneUpdater::apply()
 pub struct ZoneUpdater {
     /// The zone to be updated.
     zone: Zone,
