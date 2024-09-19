@@ -478,6 +478,7 @@ fn parse_section<Lines: Iterator<Item = Result<String, std::io::Error>>>(
 
         match section {
             Section::Question => {
+                use core::str::FromStr;
                 sections
                     .question
                     .push(Question::from_str(clean_line).unwrap());

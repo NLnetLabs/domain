@@ -243,7 +243,8 @@ impl Name<Bytes> {
 
     /// Creates a domain name atop a Bytes from its string representation.
     pub fn bytes_from_str(s: &str) -> Result<Self, ScanError> {
-        FromStr::from_str(s)
+        let name: Name<Vec<u8>> = s.parse()?;
+        Ok(Self(name.0.into()))
     }
 }
 
@@ -941,11 +942,7 @@ where
 #[cfg(feature = "serde")]
 impl<'de, Octs> serde::Deserialize<'de> for Name<Octs>
 where
-    Octs: FromBuilder + DeserializeOctets<'de>,
-    <Octs as FromBuilder>::Builder: FreezeBuilder<Octets = Octs>
-        + EmptyBuilder
-        + AsRef<[u8]>
-        + AsMut<[u8]>,
+    Octs: AsRef<[u8]> + for<'a> TryFrom<&'a [u8]> + DeserializeOctets<'de>,
 {
     fn deserialize<D: serde::Deserializer<'de>>(
         deserializer: D,
@@ -956,11 +953,9 @@ where
 
         impl<'de, Octs> serde::de::Visitor<'de> for InnerVisitor<'de, Octs>
         where
-            Octs: FromBuilder + DeserializeOctets<'de>,
-            <Octs as FromBuilder>::Builder: FreezeBuilder<Octets = Octs>
-                + EmptyBuilder
-                + AsRef<[u8]>
-                + AsMut<[u8]>,
+            Octs: AsRef<[u8]>
+                + for<'a> TryFrom<&'a [u8]>
+                + DeserializeOctets<'de>,
         {
             type Value = Name<Octs>;
 
@@ -999,11 +994,9 @@ where
 
         impl<'de, Octs> serde::de::Visitor<'de> for NewtypeVisitor<Octs>
         where
-            Octs: FromBuilder + DeserializeOctets<'de>,
-            <Octs as FromBuilder>::Builder: EmptyBuilder
-                + FreezeBuilder<Octets = Octs>
-                + AsRef<[u8]>
-                + AsMut<[u8]>,
+            Octs: AsRef<[u8]>
+                + for<'a> TryFrom<&'a [u8]>
+                + DeserializeOctets<'de>,
         {
             type Value = Name<Octs>;
 

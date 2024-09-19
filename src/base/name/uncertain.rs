@@ -418,11 +418,7 @@ where
 #[cfg(feature = "serde")]
 impl<'de, Octets> serde::Deserialize<'de> for UncertainName<Octets>
 where
-    Octets: FromBuilder + DeserializeOctets<'de>,
-    <Octets as FromBuilder>::Builder: EmptyBuilder
-        + FreezeBuilder<Octets = Octets>
-        + AsRef<[u8]>
-        + AsMut<[u8]>,
+    Octets: AsRef<[u8]> + for<'a> TryFrom<&'a [u8]> + DeserializeOctets<'de>,
 {
     fn deserialize<D: serde::Deserializer<'de>>(
         deserializer: D,
@@ -433,11 +429,9 @@ where
 
         impl<'de, Octets> serde::de::Visitor<'de> for InnerVisitor<'de, Octets>
         where
-            Octets: FromBuilder + DeserializeOctets<'de>,
-            <Octets as FromBuilder>::Builder: EmptyBuilder
-                + FreezeBuilder<Octets = Octets>
-                + AsRef<[u8]>
-                + AsMut<[u8]>,
+            Octets: AsRef<[u8]>
+                + for<'a> TryFrom<&'a [u8]>
+                + DeserializeOctets<'de>,
         {
             type Value = UncertainName<Octets>;
 
@@ -478,11 +472,9 @@ where
 
         impl<'de, Octets> serde::de::Visitor<'de> for NewtypeVisitor<Octets>
         where
-            Octets: FromBuilder + DeserializeOctets<'de>,
-            <Octets as FromBuilder>::Builder: EmptyBuilder
-                + FreezeBuilder<Octets = Octets>
-                + AsRef<[u8]>
-                + AsMut<[u8]>,
+            Octets: AsRef<[u8]>
+                + for<'a> TryFrom<&'a [u8]>
+                + DeserializeOctets<'de>,
         {
             type Value = UncertainName<Octets>;
 

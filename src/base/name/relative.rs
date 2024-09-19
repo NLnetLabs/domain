@@ -199,7 +199,8 @@ impl RelativeName<Bytes> {
 
     /// Parses a string into a relative name atop a `Bytes`.
     pub fn bytes_from_str(s: &str) -> Result<Self, RelativeScanError> {
-        FromStr::from_str(s)
+        let name: RelativeName<Vec<u8>> = s.parse()?;
+        Ok(RelativeName(name.0.into()))
     }
 }
 
@@ -766,11 +767,7 @@ where
 #[cfg(feature = "serde")]
 impl<'de, Octs> serde::Deserialize<'de> for RelativeName<Octs>
 where
-    Octs: FromBuilder + DeserializeOctets<'de>,
-    <Octs as FromBuilder>::Builder: FreezeBuilder<Octets = Octs>
-        + EmptyBuilder
-        + AsRef<[u8]>
-        + AsMut<[u8]>,
+    Octs: AsRef<[u8]> + for<'a> TryFrom<&'a [u8]> + DeserializeOctets<'de>,
 {
     fn deserialize<D: serde::Deserializer<'de>>(
         deserializer: D,
@@ -781,11 +778,9 @@ where
 
         impl<'de, Octs> serde::de::Visitor<'de> for InnerVisitor<'de, Octs>
         where
-            Octs: FromBuilder + DeserializeOctets<'de>,
-            <Octs as FromBuilder>::Builder: FreezeBuilder<Octets = Octs>
-                + EmptyBuilder
-                + AsRef<[u8]>
-                + AsMut<[u8]>,
+            Octs: AsRef<[u8]>
+                + for<'a> TryFrom<&'a [u8]>
+                + DeserializeOctets<'de>,
         {
             type Value = RelativeName<Octs>;
 
@@ -797,9 +792,14 @@ where
                 self,
                 v: &str,
             ) -> Result<Self::Value, E> {
-                let mut builder = NameBuilder::<Octs::Builder>::new();
-                builder.append_chars(v.chars()).map_err(E::custom)?;
-                Ok(builder.finish())
+                let mut builder = NameBuilder::new([0u8; 256]);
+                builder.scan_name(v).map_err(E::custom)?;
+                builder
+                    .as_relative()
+                    .map_err(|_| E::custom(ScanError::ShortBuf))
+                    .and_then(|n| {
+                        n.ok_or_else(|| E::custom("needed a relative name"))
+                    })
             }
 
             fn visit_borrowed_bytes<E: serde::de::Error>(
@@ -826,11 +826,9 @@ where
 
         impl<'de, Octs> serde::de::Visitor<'de> for NewtypeVisitor<Octs>
         where
-            Octs: FromBuilder + DeserializeOctets<'de>,
-            <Octs as FromBuilder>::Builder: FreezeBuilder<Octets = Octs>
-                + EmptyBuilder
-                + AsRef<[u8]>
-                + AsMut<[u8]>,
+            Octs: AsRef<[u8]>
+                + for<'a> TryFrom<&'a [u8]>
+                + DeserializeOctets<'de>,
         {
             type Value = RelativeName<Octs>;
 

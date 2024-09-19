@@ -2307,9 +2307,6 @@ pub enum Error {
     /// Error adding data while building a DNS message.
     PushError,
 
-    /// Error adding a label to a name.
-    PushNameError,
-
     /// Error reading from a file.
     ReadError(Arc<std::io::Error>),
 
@@ -2323,15 +2320,9 @@ impl From<inplace::Error> for Error {
     }
 }
 
-impl From<name::PushError> for Error {
-    fn from(_: name::PushError) -> Self {
+impl From<name::BuildError> for Error {
+    fn from(_: name::BuildError) -> Self {
         Error::PushError
-    }
-}
-
-impl From<name::PushNameError> for Error {
-    fn from(_: name::PushNameError) -> Self {
-        Error::PushNameError
     }
 }
 
@@ -2355,7 +2346,6 @@ impl fmt::Display for Error {
             Error::OctetsConversion => write!(f, "OctetsConversion"),
             Error::ParseError => write!(f, "ParseError"),
             Error::PushError => write!(f, "PushError"),
-            Error::PushNameError => write!(f, "PushNameError"),
             Error::ReadError(_) => write!(f, "FormError"),
             Error::ShortMessage => write!(f, "ShortMEssage"),
         }
@@ -2370,7 +2360,6 @@ impl error::Error for Error {
             Error::OctetsConversion => None,
             Error::ParseError => None,
             Error::PushError => None,
-            Error::PushNameError => None,
             Error::ReadError(err) => Some(err),
             Error::ShortMessage => None,
         }

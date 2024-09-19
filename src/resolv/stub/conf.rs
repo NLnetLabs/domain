@@ -707,8 +707,8 @@ impl convert::From<io::Error> for Error {
     }
 }
 
-impl convert::From<name::FromStrError> for Error {
-    fn from(_: name::FromStrError) -> Error {
+impl convert::From<name::ScanError> for Error {
+    fn from(_: name::ScanError) -> Error {
         Error::ParseError
     }
 }
