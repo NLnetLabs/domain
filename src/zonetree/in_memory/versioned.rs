@@ -73,13 +73,30 @@ impl<T> Versioned<T> {
         // it should be a new version of the zone and a value exists for a
         // previous version, then we have to mask the old value so that it
         // isn't seen by consumers of the newer version of the zone.
+        let len = self.data.len();
         if let Some(last) = self.data.last_mut() {
+            if last.1.is_none() {
+                // If it was already marked as removed in the last version
+                // we don't need to mark it removed again.
+                return;
+            }
             if last.0 == version {
-                last.1 = None;
+                if len == 1 {
+                    // If this new version is the only version, we can
+                    // remove it entirely rather than mark it as deleted.
+                    let _ = self.data.pop();
+                } else {
+                    last.1 = None;
+                }
                 return;
             }
         }
-        self.data.push((version, None))
+
+        // If there's nothing here, we don't need to explicitly mark that
+        // there is nothing here.
+        if !self.data.is_empty() {
+            self.data.push((version, None))
+        }
     }
 }
 
