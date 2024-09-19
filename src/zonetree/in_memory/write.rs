@@ -402,7 +402,7 @@ impl WriteNode {
             }
         }
 
-        rrsets.remove(rtype, self.zone.new_version);
+        rrsets.remove_rtype(rtype, self.zone.new_version);
         self.check_nx_domain()?;
 
         Ok(())

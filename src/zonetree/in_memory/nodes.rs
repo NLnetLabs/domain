@@ -268,7 +268,7 @@ impl NodeRrsets {
     }
 
     /// Removes the RRset for the given type.
-    pub fn remove(&self, rtype: Rtype, version: Version) {
+    pub fn remove_rtype(&self, rtype: Rtype, version: Version) {
         self.rrsets
             .write()
             .entry(rtype)
