@@ -8,6 +8,7 @@ use core::pin::Pin;
 
 use std::borrow::ToOwned;
 use std::boxed::Box;
+use std::io::Error as IoError;
 
 use bytes::Bytes;
 use tracing::trace;
@@ -344,32 +345,29 @@ impl ZoneUpdater {
     ///
     /// This function may panic if it is unable to create new tree nodes for
     /// the record owner name.
-    async fn get_writable_node_for_owner(
+    async fn get_writable_child_node_for_owner(
         &mut self,
         rec: &ParsedRecord,
     ) -> std::io::Result<Option<Box<dyn WritableZoneNode>>> {
         let owner = rec.owner().to_owned();
 
-        let mut end_node: Option<Box<dyn WritableZoneNode>> = None;
+        let mut it = rel_name_rev_iter(self.zone.apex_name(), &owner)
+            .map_err(|_| IoError::custom("Record owner name out of zone"))?;
 
-        let name = rel_name_rev_iter(self.zone.apex_name(), &owner).map_err(
-            |_| std::io::Error::custom("Record owner name out of zone"),
-        )?;
+        let Some(label) = it.next() else {
+            return Ok(None);
+        };
 
         let writable = self.write.writable.as_ref().unwrap();
+        let mut node = writable.update_child(label).await?;
 
-        for label in name {
-            trace!("Relativised label: {label}");
-            end_node = Some(
-                match end_node {
-                    Some(new_node) => new_node.update_child(label),
-                    None => writable.update_child(label),
-                }
-                .await?,
-            );
+        // Find (create if missing) the tree node for the owner name
+        // of the given record.
+        for label in it {
+            node = node.update_child(label).await?;
         }
 
-        Ok(end_node)
+        Ok(Some(node))
     }
 
     async fn update_soa(
@@ -380,7 +378,7 @@ impl ZoneUpdater {
         >,
     ) -> std::io::Result<()> {
         if new_soa.rtype() != Rtype::SOA {
-            return Err(std::io::Error::custom("Invalid SOA rtype"));
+            return Err(IoError::custom("Invalid SOA rtype"));
         }
 
         let mut rrset = Rrset::new(Rtype::SOA, new_soa.ttl());
@@ -401,7 +399,7 @@ impl ZoneUpdater {
             ZoneRecordData<Bytes, ParsedName<Bytes>>,
         >,
     ) -> std::io::Result<()> {
-        let end_node = self.get_writable_node_for_owner(&rec).await?;
+        let end_node = self.get_writable_child_node_for_owner(&rec).await?;
         let mut rrset = Rrset::new(rec.rtype(), rec.ttl());
         let rtype = rec.rtype();
         let data = rec.data();
@@ -430,7 +428,7 @@ impl ZoneUpdater {
             ZoneRecordData<Bytes, ParsedName<Bytes>>,
         >,
     ) -> std::io::Result<()> {
-        let end_node = self.get_writable_node_for_owner(&rec).await?;
+        let end_node = self.get_writable_child_node_for_owner(&rec).await?;
         let mut rrset = Rrset::new(rec.rtype(), rec.ttl());
         let rtype = rec.rtype();
         let data = rec.into_data().flatten_into();
