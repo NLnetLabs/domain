@@ -12,7 +12,7 @@ use parking_lot::{
 use tokio::sync::Mutex;
 
 use crate::base::iana::{Class, Rtype};
-use crate::base::name::{Label, OwnedLabel, ToLabelIter, ToName};
+use crate::base::name::{Label, OwnedLabel, ToName};
 use crate::zonetree::error::{CnameError, OutOfZone, ZoneCutError};
 use crate::zonetree::types::{StoredName, ZoneCut};
 use crate::zonetree::walk::WalkState;
@@ -23,6 +23,7 @@ use crate::zonetree::{
 use super::read::ReadZone;
 use super::versioned::{Version, Versioned};
 use super::write::{WriteZone, ZoneVersions};
+use crate::zonetree::util::rel_name_rev_iter;
 
 //------------ ZoneApex ------------------------------------------------------
 
@@ -71,14 +72,7 @@ impl ZoneApex {
         &self,
         qname: &'l impl ToName,
     ) -> Result<impl Iterator<Item = &'l Label> + Clone, OutOfZone> {
-        let mut qname = qname.iter_labels().rev();
-        for apex_label in self.name().iter_labels().rev() {
-            let qname_label = qname.next();
-            if Some(apex_label) != qname_label {
-                return Err(OutOfZone);
-            }
-        }
-        Ok(qname)
+        rel_name_rev_iter(&self.apex_name, qname)
     }
 
     /// Returns the RRsets of this node.

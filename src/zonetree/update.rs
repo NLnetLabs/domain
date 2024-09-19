@@ -10,17 +10,17 @@ use std::borrow::ToOwned;
 use std::boxed::Box;
 
 use bytes::Bytes;
-use tracing::{error, trace};
+use tracing::trace;
 
-use crate::base::name::{FlattenInto, Label, ToLabelIter};
+use crate::base::name::FlattenInto;
 use crate::base::scan::ScannerError;
-use crate::base::{Name, ParsedName, Record, Rtype, ToName};
+use crate::base::{ParsedName, Record, Rtype};
 use crate::net::xfr::protocol::ParsedRecord;
 use crate::rdata::ZoneRecordData;
 use crate::zonetree::{Rrset, SharedRrset};
 
-use super::error::OutOfZone;
 use super::types::ZoneUpdate;
+use super::util::rel_name_rev_iter;
 use super::{WritableZone, WritableZoneNode, Zone, ZoneDiff};
 
 /// Apply a sequence of [`ZoneUpdate`]s to update the content of a [`Zone`].
@@ -327,23 +327,6 @@ impl ZoneUpdater {
 }
 
 impl ZoneUpdater {
-    fn mk_relative_name_iterator<'l>(
-        apex_name: &Name<Bytes>,
-        qname: &'l impl ToName,
-    ) -> Result<impl Iterator<Item = &'l Label> + Clone, OutOfZone> {
-        let mut qname = qname.iter_labels().rev();
-        for apex_label in apex_name.iter_labels().rev() {
-            let qname_label = qname.next();
-            if Some(apex_label) != qname_label {
-                error!(
-                    "Qname '{qname_label:?}' is not in zone '{apex_name}'"
-                );
-                return Err(OutOfZone);
-            }
-        }
-        Ok(qname)
-    }
-
     /// Given a zone record, obtain a [`WritableZoneNode`] for the owner.
     ///
     /// A [`Zone`] is a tree structure which can be modified by descending the
@@ -369,11 +352,9 @@ impl ZoneUpdater {
 
         let mut end_node: Option<Box<dyn WritableZoneNode>> = None;
 
-        let name =
-            Self::mk_relative_name_iterator(self.zone.apex_name(), &owner)
-                .map_err(|_| {
-                    std::io::Error::custom("Record owner name out of zone")
-                })?;
+        let name = rel_name_rev_iter(self.zone.apex_name(), &owner).map_err(
+            |_| std::io::Error::custom("Record owner name out of zone"),
+        )?;
 
         let writable = self.write.writable.as_ref().unwrap();
 
@@ -522,7 +503,7 @@ mod tests {
     use crate::base::net::Ipv4Addr;
     use crate::base::rdata::ComposeRecordData;
     use crate::base::{
-        Message, MessageBuilder, ParsedName, Record, Serial, Ttl,
+        Message, MessageBuilder, Name, ParsedName, Record, Serial, Ttl,
     };
     use crate::net::xfr::protocol::XfrResponseInterpreter;
     use crate::rdata::{Soa, A};
