@@ -69,24 +69,7 @@ impl<T> Versioned<T> {
     }
 
     pub fn remove(&mut self, version: Version) {
-        // WARNING: This isn't safe to do while updating a zone, e.g. via an
-        // AXFR that lacks some records that were in the previous version of
-        // the zone, as the effects are immediately visible to users of the
-        // zone!
-        //
-        //   self.data.retain(|item| item.0 >= version)
-        //
-        // When updating a Zone via ZoneStore::write(), the new version of the
-        // zone that is created will be one higher than the highest version of
-        // data currently in the zone.
-        //
-        // So adding an empty value at the new version will cause current
-        // clients to continue seeing the old version, but clients of the zone
-        // after it is committed will see the new version, i.e. the empty
-        // value which will cause get() to return None.
-        if self.data.last().map(|item| item.0).is_some() {
-            self.data.push((version, None));
-        }
+        self.data.retain(|item| item.0 >= version)
     }
 }
 
