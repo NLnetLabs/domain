@@ -103,8 +103,6 @@ impl WritableZone for WriteZone {
         let new_apex = WriteNode::new_apex(self.clone(), create_diff);
 
         if let Ok(write_node) = &new_apex {
-            // Note: the start and end serial of the diff will be filled in
-            // when commit() is invoked.
             *self.diff.lock().unwrap() = write_node.diff();
         }
 
