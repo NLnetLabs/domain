@@ -8,13 +8,11 @@ use core::pin::Pin;
 
 use std::borrow::ToOwned;
 use std::boxed::Box;
-use std::io::Error as IoError;
 
 use bytes::Bytes;
 use tracing::trace;
 
 use crate::base::name::FlattenInto;
-use crate::base::scan::ScannerError;
 use crate::base::{ParsedName, Record, Rtype};
 use crate::net::xfr::protocol::ParsedRecord;
 use crate::rdata::ZoneRecordData;
@@ -374,9 +372,9 @@ impl ZoneUpdater {
             ParsedName<Bytes>,
             ZoneRecordData<Bytes, ParsedName<Bytes>>,
         >,
-    ) -> std::io::Result<()> {
+    ) -> Result<(), Error> {
         if new_soa.rtype() != Rtype::SOA {
-            return Err(IoError::custom("Invalid SOA rtype"));
+            return Err(Error::NotSoaRecord);
         }
 
         let mut rrset = Rrset::new(Rtype::SOA, new_soa.ttl());
@@ -386,7 +384,9 @@ impl ZoneUpdater {
             .as_ref()
             .unwrap()
             .update_rrset(SharedRrset::new(rrset))
-            .await
+            .await?;
+
+        Ok(())
     }
 
     /// Find and delete a record in the zone by exact match.
