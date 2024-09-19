@@ -283,9 +283,13 @@ impl ZoneUpdater {
                 self.write.remove_all().await?;
             }
 
-            ZoneUpdate::DeleteRecord(rec) => self.delete_record(rec).await?,
+            ZoneUpdate::DeleteRecord(rec) => {
+                self.delete_record_from_rrset(rec).await?
+            }
 
-            ZoneUpdate::AddRecord(rec) => self.add_record(rec).await?,
+            ZoneUpdate::AddRecord(rec) => {
+                self.add_record_to_rrset(rec).await?
+            }
 
             // Batch deletion signals the start of a batch, and the end of any
             // batch addition that was in progress.
@@ -366,6 +370,7 @@ impl ZoneUpdater {
         Ok(Some(node))
     }
 
+    /// Create or update the SOA RRset using the given SOA record.
     async fn update_soa(
         &mut self,
         new_soa: Record<
@@ -389,25 +394,26 @@ impl ZoneUpdater {
         Ok(())
     }
 
-    /// Find and delete a record in the zone by exact match.
-    async fn delete_record(
+    /// Find and delete a resource record in the zone by exact match.
+    async fn delete_record_from_rrset(
         &mut self,
         rec: Record<
             ParsedName<Bytes>,
             ZoneRecordData<Bytes, ParsedName<Bytes>>,
         >,
     ) -> Result<(), Error> {
-        let end_node = self.get_writable_child_node_for_owner(&rec).await?;
+        // Find or create the point to edit in the node tree.
+        let tree_node = self.get_writable_child_node_for_owner(&rec).await?;
+        let writable = self.write.writable.as_ref().unwrap();
+        let tree_node = tree_node.as_ref().unwrap_or(writable);
+
+        // Prepare an RRset that contains all of the records of the existing
+        // RRset in the tree except the one to delete.
         let mut rrset = Rrset::new(rec.rtype(), rec.ttl());
         let rtype = rec.rtype();
         let data = rec.data();
-        let writable = self.write.writable.as_ref().unwrap();
 
-        trace!("Deleting RR for {rtype}");
-
-        let node = end_node.as_ref().unwrap_or(writable);
-
-        if let Some(existing_rrset) = node.get_rrset(rtype).await? {
+        if let Some(existing_rrset) = tree_node.get_rrset(rtype).await? {
             for existing_data in existing_rrset.data() {
                 if existing_data != data {
                     rrset.push_data(existing_data.clone());
@@ -415,37 +421,41 @@ impl ZoneUpdater {
             }
         }
 
-        trace!("Removing single RR of {rtype} so updating RRSET");
-        node.update_rrset(SharedRrset::new(rrset)).await?;
+        // Replace the RRset in the tree with the new smaller one.
+        tree_node.update_rrset(SharedRrset::new(rrset)).await?;
 
         Ok(())
     }
 
-    async fn add_record(
+    /// Add a resource record to a new or existing RRset.
+    async fn add_record_to_rrset(
         &mut self,
         rec: Record<
             ParsedName<Bytes>,
             ZoneRecordData<Bytes, ParsedName<Bytes>>,
         >,
     ) -> Result<(), Error> {
-        let end_node = self.get_writable_child_node_for_owner(&rec).await?;
+        // Find or create the point to edit in the node tree.
+        let tree_node = self.get_writable_child_node_for_owner(&rec).await?;
+        let writable = self.write.writable.as_ref().unwrap();
+        let tree_node = tree_node.as_ref().unwrap_or(writable);
+
+        // Prepare an RRset that contains all of the records of the existing
+        // RRset in the tree plus the one to add.
         let mut rrset = Rrset::new(rec.rtype(), rec.ttl());
         let rtype = rec.rtype();
         let data = rec.into_data().flatten_into();
-        let writable = self.write.writable.as_ref().unwrap();
 
-        trace!("Adding RR: {:?}", rrset);
         rrset.push_data(data);
 
-        let node = end_node.as_ref().unwrap_or(writable);
-
-        if let Some(existing_rrset) = node.get_rrset(rtype).await? {
+        if let Some(existing_rrset) = tree_node.get_rrset(rtype).await? {
             for existing_data in existing_rrset.data() {
                 rrset.push_data(existing_data.clone());
             }
         }
 
-        node.update_rrset(SharedRrset::new(rrset)).await?;
+        // Replace the Rrset in the tree with the new bigger one.
+        tree_node.update_rrset(SharedRrset::new(rrset)).await?;
 
         Ok(())
     }
