@@ -12,7 +12,7 @@ use std::boxed::Box;
 use bytes::Bytes;
 use tracing::trace;
 
-use crate::base::name::FlattenInto;
+use crate::base::name::{FlattenInto, Label};
 use crate::base::{ParsedName, Record, Rtype};
 use crate::net::xfr::protocol::ParsedRecord;
 use crate::rdata::ZoneRecordData;
@@ -222,7 +222,7 @@ pub struct ZoneUpdater {
     ///
     /// For each new zone version any old write state has to be committed and
     /// a new write state opened.
-    write: WriteState,
+    write: ReopenableZoneWriter,
 
     /// Whether or not we entered an IXFR-like batching mode.
     batching: bool,
@@ -240,7 +240,7 @@ impl ZoneUpdater {
         zone: Zone,
     ) -> Pin<Box<dyn Future<Output = Result<Self, Error>> + Send>> {
         Box::pin(async move {
-            let write = WriteState::new(zone.clone()).await?;
+            let write = ReopenableZoneWriter::new(zone.clone()).await?;
 
             Ok(Self {
                 zone,
@@ -358,16 +358,15 @@ impl ZoneUpdater {
             return Ok(None);
         };
 
-        let writable = self.write.writable.as_ref().unwrap();
-        let mut node = writable.update_child(label).await?;
+        let mut child_node = self.write.update_child(label).await?;
 
         // Find (create if missing) the tree node for the owner name
         // of the given record.
         for label in it {
-            node = node.update_child(label).await?;
+            child_node = child_node.update_child(label).await?;
         }
 
-        Ok(Some(node))
+        Ok(Some(child_node))
     }
 
     /// Create or update the SOA RRset using the given SOA record.
@@ -385,10 +384,7 @@ impl ZoneUpdater {
         let mut rrset = Rrset::new(Rtype::SOA, new_soa.ttl());
         rrset.push_data(new_soa.data().to_owned().flatten_into());
         self.write
-            .writable
-            .as_ref()
-            .unwrap()
-            .update_rrset(SharedRrset::new(rrset))
+            .update_root_rrset(SharedRrset::new(rrset))
             .await?;
 
         Ok(())
@@ -404,8 +400,7 @@ impl ZoneUpdater {
     ) -> Result<(), Error> {
         // Find or create the point to edit in the node tree.
         let tree_node = self.get_writable_child_node_for_owner(&rec).await?;
-        let writable = self.write.writable.as_ref().unwrap();
-        let tree_node = tree_node.as_ref().unwrap_or(writable);
+        let tree_node = tree_node.as_ref().unwrap_or(self.write.root());
 
         // Prepare an RRset that contains all of the records of the existing
         // RRset in the tree except the one to delete.
@@ -437,8 +432,7 @@ impl ZoneUpdater {
     ) -> Result<(), Error> {
         // Find or create the point to edit in the node tree.
         let tree_node = self.get_writable_child_node_for_owner(&rec).await?;
-        let writable = self.write.writable.as_ref().unwrap();
-        let tree_node = tree_node.as_ref().unwrap_or(writable);
+        let tree_node = tree_node.as_ref().unwrap_or(self.write.root());
 
         // Prepare an RRset that contains all of the records of the existing
         // RRset in the tree plus the one to add.
@@ -461,28 +455,35 @@ impl ZoneUpdater {
     }
 }
 
-//------------ WriteState -----------------------------------------------------
+//------------ MultiVersionWriteHandle ----------------------------------------
 
-struct WriteState {
+/// State for writing multiple zone versions in sequence.
+///
+/// This type provides write access to the next version of a zone and
+/// convenience methods for working with the zone.
+///
+/// If needed after commiting one version of the zone being edited the writer
+/// can be re-opened to write the next version of the zone.
+struct ReopenableZoneWriter {
+    /// A write interface to a zone.
     write: Box<dyn WritableZone>,
+
+    /// A write interface to the root node of a zone for a particular zone
+    /// version.
     writable: Option<Box<dyn WritableZoneNode>>,
 }
 
-impl WriteState {
+impl ReopenableZoneWriter {
+    /// Creates a writer for the given [`Zone`].
     async fn new(zone: Zone) -> std::io::Result<Self> {
         let write = zone.write().await;
         let writable = Some(write.open(true).await?);
         Ok(Self { write, writable })
     }
 
-    async fn remove_all(&mut self) -> std::io::Result<()> {
-        if let Some(writable) = &mut self.writable {
-            writable.remove_all().await?;
-        }
-
-        Ok(())
-    }
-
+    /// Commits any pending changes to the [`Zone`] being written to.
+    ///
+    /// Returns the created diff, if any.
     async fn commit(&mut self) -> Result<Option<ZoneDiff>, Error> {
         // Commit the deletes and adds that just occurred
         if let Some(writable) = self.writable.take() {
@@ -498,11 +499,52 @@ impl WriteState {
         }
     }
 
+    /// Replaces the current root node write interface with a new one.
+    ///
+    /// Call [`commit()`] before calling this method.
     async fn reopen(&mut self) -> Result<(), Error> {
         self.writable = Some(self.write.open(true).await?);
         Ok(())
     }
+
+    /// Convenience method to mark all nodes in the tree as removed.
+    ///
+    /// Current readers will not be affected until [`commit()`] is called.
+    async fn remove_all(&mut self) -> std::io::Result<()> {
+        if let Some(writable) = &mut self.writable {
+            writable.remove_all().await?;
+        }
+
+        Ok(())
+    }
+
+    /// Get a write interface to a child node of the tree.
+    ///
+    /// Use this to modify child nodes in the tree.
+    async fn update_child(
+        &self,
+        label: &Label,
+    ) -> std::io::Result<Box<dyn WritableZoneNode>> {
+        self.root().update_child(label).await
+    }
+
+    /// Replace the RRset at the root node with the given RRset.
+    async fn update_root_rrset(
+        &self,
+        rrset: SharedRrset,
+    ) -> std::io::Result<()> {
+        self.root().update_rrset(rrset).await
+    }
+
+    /// Helper method to access the current root node zone writer.
+    #[allow(clippy::borrowed_box)]
+    fn root(&self) -> &Box<dyn WritableZoneNode> {
+        // SAFETY: Writable is always Some so is safe to unwrap.
+        self.writable.as_ref().unwrap()
+    }
 }
+
+//------------ Tests ----------------------------------------------------------
 
 #[cfg(test)]
 mod tests {
