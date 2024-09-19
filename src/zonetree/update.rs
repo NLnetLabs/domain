@@ -42,13 +42,10 @@ use super::{WritableZone, WritableZoneNode, Zone, ZoneDiff};
 /// [`ZoneUpdate`]s such as
 /// [`XfrResponseInterpreter`][crate::net::xfr::protocol::XfrResponseInterpreter].
 ///
-/// To completely replace the content of a zone pass
-/// [`ZoneUpdate::DeleteAllRecords`] to [`apply()`] before any other updates.
-///
 /// Pass updates to be applied to the zone one at a time to [`apply()`].
 ///
-/// Passing [`ZoneUpdate::BeginBatchDelete`] commits any edits in progress and
-/// starts editing a new zone version.
+/// To completely replace the content of a zone pass
+/// [`ZoneUpdate::DeleteAllRecords`] to [`apply()`] before any other updates.
 ///
 /// # Replacing the content of a zone
 ///
@@ -261,14 +258,12 @@ impl ZoneUpdater {
     /// committed then any diff made by the `Zone` backing store
     /// implementation will be returned.
     ///
-    /// <div class="warning">
+    /// Changes to the zone are committed when [`ZoneUpdate::Finished`] is
+    /// received, or rolled back if [`ZoneUpdater`] is dropped before
+    /// receiving [`ZoneUpdate::Finished`].
     ///
-    /// This method invokes `WritableZone::commit()` when it receives
-    /// `ZoneUpdate::Finished`. If `ZoneUpdate::Finished` is not passed to
-    /// `ZoneUpdater::apply()` there is no guarantee that the applied changes
-    /// to the zone will take effect.
-    ///
-    /// </div>
+    /// Passing [`ZoneUpdate::BeginBatchDelete`] will also commit any edits in
+    /// progress and re-open the zone for editing again.
     pub async fn apply(
         &mut self,
         update: ZoneUpdate<ParsedRecord>,
