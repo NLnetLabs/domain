@@ -314,10 +314,8 @@ impl ZoneUpdater {
             }
 
             ZoneUpdate::Finished(zone_soa) => {
-                if !self.batching {
-                    // Update the SOA record.
-                    self.update_soa(zone_soa).await?;
-                }
+                // Update the SOA record.
+                self.update_soa(zone_soa).await?;
 
                 // Commit the previous batch and return any diff produced.
                 return self.write.commit().await;
