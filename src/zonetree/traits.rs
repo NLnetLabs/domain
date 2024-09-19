@@ -145,12 +145,14 @@ pub trait WritableZone: Send + Sync {
 
     /// Complete a write operation for the zone.
     ///
-    /// This function commits the changes accumulated since [`open`] was
+    /// This function commits the changes accumulated since [`open()`] was
     /// invoked. Clients who obtain a [`ReadableZone`] interface to this zone
     /// _before_ this function has been called will not see any of the changes
     /// made since the last commit. Only clients who obtain a [`ReadableZone`]
     /// _after_ invoking this function will be able to see the changes made
-    /// since [`open`] was called.
+    /// since [`open()`] was called.
+    /// 
+    /// [`open()`]: Self::open
     fn commit(
         &mut self,
         bump_soa_serial: bool,
