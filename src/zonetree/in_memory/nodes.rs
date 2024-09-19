@@ -15,6 +15,7 @@ use crate::base::iana::{Class, Rtype};
 use crate::base::name::{Label, OwnedLabel, ToName};
 use crate::zonetree::error::{CnameError, OutOfZone, ZoneCutError};
 use crate::zonetree::types::{StoredName, ZoneCut};
+use crate::zonetree::util::rel_name_rev_iter;
 use crate::zonetree::walk::WalkState;
 use crate::zonetree::{
     ReadableZone, SharedRr, SharedRrset, WritableZone, ZoneStore,
@@ -23,7 +24,6 @@ use crate::zonetree::{
 use super::read::ReadZone;
 use super::versioned::{Version, Versioned};
 use super::write::{WriteZone, ZoneVersions};
-use crate::zonetree::util::rel_name_rev_iter;
 
 //------------ ZoneApex ------------------------------------------------------
 
