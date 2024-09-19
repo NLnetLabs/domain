@@ -349,9 +349,7 @@ impl ZoneUpdater {
         &mut self,
         rec: &ParsedRecord,
     ) -> std::io::Result<Option<Box<dyn WritableZoneNode>>> {
-        let owner = rec.owner().to_owned();
-
-        let mut it = rel_name_rev_iter(self.zone.apex_name(), &owner)
+        let mut it = rel_name_rev_iter(self.zone.apex_name(), rec.owner())
             .map_err(|_| IoError::custom("Record owner name out of zone"))?;
 
         let Some(label) = it.next() else {
