@@ -32,9 +32,9 @@ use crate::rdata::ZoneRecordData;
 pub struct WriteZone {
     apex: Arc<ZoneApex>,
     _lock: Option<OwnedMutexGuard<()>>,
-    version: Version,
+    new_version: Version,
     dirty: bool,
-    zone_versions: Arc<RwLock<ZoneVersions>>,
+    published_versions: Arc<RwLock<ZoneVersions>>,
     diff: Arc<Mutex<Option<Arc<Mutex<ZoneDiffBuilder>>>>>,
 }
 
@@ -42,17 +42,21 @@ impl WriteZone {
     pub(super) fn new(
         apex: Arc<ZoneApex>,
         _lock: OwnedMutexGuard<()>,
-        version: Version,
-        zone_versions: Arc<RwLock<ZoneVersions>>,
+        new_version: Version,
+        published_versions: Arc<RwLock<ZoneVersions>>,
     ) -> Self {
         WriteZone {
             apex,
             _lock: Some(_lock),
-            version,
+            new_version,
             dirty: false,
-            zone_versions,
+            published_versions,
             diff: Arc::new(Mutex::new(None)),
         }
+    }
+
+    fn last_published_version(&self) -> Version {
+        self.published_versions.read().current().0
     }
 }
 
@@ -63,9 +67,9 @@ impl Clone for WriteZone {
         Self {
             apex: self.apex.clone(),
             _lock: None,
-            version: self.version,
+            new_version: self.new_version,
             dirty: self.dirty,
-            zone_versions: self.zone_versions.clone(),
+            published_versions: self.published_versions.clone(),
             diff: self.diff.clone(),
         }
     }
@@ -76,7 +80,7 @@ impl Clone for WriteZone {
 impl Drop for WriteZone {
     fn drop(&mut self) {
         if self.dirty {
-            self.apex.rollback(self.version);
+            self.apex.rollback(self.new_version);
             self.dirty = false;
         }
     }
@@ -129,7 +133,9 @@ impl WritableZone for WriteZone {
         let mut out_diff = None;
 
         // An empty zone that is being filled by AXFR won't have an existing SOA.
-        if let Some(old_soa_rr) = self.apex.get_soa(self.version.prev()) {
+        if let Some(old_soa_rr) =
+            self.apex.get_soa(self.last_published_version())
+        {
             let ZoneRecordData::Soa(old_soa) = old_soa_rr.data() else {
                 unreachable!()
             };
@@ -155,12 +161,12 @@ impl WritableZone for WriteZone {
 
                 self.apex
                     .rrsets()
-                    .update(new_soa_shared_rrset.clone(), self.version);
+                    .update(new_soa_shared_rrset.clone(), self.new_version);
             }
 
             // Extract the created diff, if any.
             if let Some(diff) = self.diff.lock().unwrap().take() {
-                let new_soa_rr = self.apex.get_soa(self.version).unwrap();
+                let new_soa_rr = self.apex.get_soa(self.new_version).unwrap();
                 let ZoneRecordData::Soa(new_soa) = new_soa_rr.data() else {
                     unreachable!()
                 };
@@ -204,17 +210,23 @@ impl WritableZone for WriteZone {
         }
 
         // Make the new version visible.
-        trace!("Commit: Making zone version '{:#?}' current", self.version);
-        let marker = self.zone_versions.write().update_current(self.version);
-        self.zone_versions
+        trace!(
+            "Commit: Making zone version '{:#?}' current",
+            self.new_version
+        );
+        let marker = self
+            .published_versions
             .write()
-            .push_version(self.version, marker);
+            .update_current(self.new_version);
+        self.published_versions
+            .write()
+            .push_version(self.new_version, marker);
 
-        trace!("Commit: zone versions: {:#?}", self.zone_versions);
+        trace!("Commit: zone versions: {:#?}", self.published_versions);
         trace!("Commit: zone dump:\n{:#?}", self.apex);
 
         // Start the next version.
-        self.version = self.version.next();
+        self.new_version = self.new_version.next();
         self.dirty = false;
 
         Box::pin(ready(Ok(out_diff)))
@@ -320,7 +332,7 @@ impl WriteNode {
         trace!("Updating RRset");
         if let Some((owner, diff)) = &self.diff {
             let changed = if let Some(removed_rrset) =
-                rrsets.get(rrset.rtype(), self.zone.version.prev())
+                rrsets.get(rrset.rtype(), self.zone.last_published_version())
             {
                 let changed = rrset != removed_rrset;
 
@@ -351,7 +363,7 @@ impl WriteNode {
         // if rrset.is_empty() {
         //     rrsets.remove(rrset.rtype(), self.zone.version.prev());
         // } else {
-        rrsets.update(rrset, self.zone.version);
+        rrsets.update(rrset, self.zone.new_version);
         // }
         self.check_nx_domain()?;
         Ok(())
@@ -366,7 +378,7 @@ impl WriteNode {
             Either::Right(ref node) => node.rrsets(),
         };
 
-        Ok(rrsets.get(rtype, self.zone.version))
+        Ok(rrsets.get(rtype, self.zone.new_version))
     }
 
     fn remove_rrset(&self, rtype: Rtype) -> Result<(), io::Error> {
@@ -376,7 +388,8 @@ impl WriteNode {
         };
 
         if let Some((owner, diff)) = &self.diff {
-            if let Some(removed) = rrsets.get(rtype, self.zone.version.prev())
+            if let Some(removed) =
+                rrsets.get(rtype, self.zone.last_published_version())
             {
                 trace!(
                     "Diff detected: removal of existing RRSET: {removed:#?}"
@@ -389,7 +402,7 @@ impl WriteNode {
             }
         }
 
-        rrsets.remove(rtype, self.zone.version);
+        rrsets.remove(rtype, self.zone.new_version);
         self.check_nx_domain()?;
 
         Ok(())
@@ -397,7 +410,7 @@ impl WriteNode {
 
     fn make_regular(&self) -> Result<(), io::Error> {
         if let Either::Right(ref node) = self.node {
-            node.update_special(self.zone.version, None);
+            node.update_special(self.zone.new_version, None);
             self.check_nx_domain()?;
         }
         Ok(())
@@ -408,7 +421,7 @@ impl WriteNode {
             Either::Left(_) => Err(WriteApexError::NotAllowed),
             Either::Right(ref node) => {
                 node.update_special(
-                    self.zone.version,
+                    self.zone.new_version,
                     Some(Special::Cut(cut)),
                 );
                 Ok(())
@@ -427,7 +440,7 @@ impl WriteNode {
             Either::Left(_) => Err(WriteApexError::NotAllowed),
             Either::Right(ref node) => {
                 node.update_special(
-                    self.zone.version,
+                    self.zone.new_version,
                     Some(Special::Cname(cname)),
                 );
                 Ok(())
@@ -444,10 +457,10 @@ impl WriteNode {
     fn remove_all(&self) -> Result<(), io::Error> {
         match self.node {
             Either::Left(ref apex) => {
-                apex.remove_all(self.zone.version);
+                apex.remove_all(self.zone.new_version);
             }
             Either::Right(ref node) => {
-                node.remove_all(self.zone.version);
+                node.remove_all(self.zone.new_version);
             }
         }
 
@@ -460,32 +473,34 @@ impl WriteNode {
             Either::Left(_) => return Ok(()),
             Either::Right(ref node) => node,
         };
-        let opt_new_nxdomain =
-            node.with_special(self.zone.version, |special| match special {
+        let opt_new_nxdomain = node.with_special(
+            self.zone.new_version,
+            |special| match special {
                 Some(Special::NxDomain) => {
-                    if !node.rrsets().is_empty(self.zone.version) {
+                    if !node.rrsets().is_empty(self.zone.new_version) {
                         Some(false)
                     } else {
                         None
                     }
                 }
                 None => {
-                    if node.rrsets().is_empty(self.zone.version) {
+                    if node.rrsets().is_empty(self.zone.new_version) {
                         Some(true)
                     } else {
                         None
                     }
                 }
                 _ => None,
-            });
+            },
+        );
         if let Some(new_nxdomain) = opt_new_nxdomain {
             if new_nxdomain {
                 node.update_special(
-                    self.zone.version,
+                    self.zone.new_version,
                     Some(Special::NxDomain),
                 );
             } else {
-                node.update_special(self.zone.version, None);
+                node.update_special(self.zone.new_version, None);
             }
         }
         Ok(())
