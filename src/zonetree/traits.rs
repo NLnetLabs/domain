@@ -57,9 +57,6 @@ pub trait ZoneStore: Debug + Sync + Send + Any {
                  + 'static),
         >,
     >;
-
-    /// TODO
-    fn as_any(&self) -> &dyn Any;
 }
 
 //------------ ReadableZone --------------------------------------------------
