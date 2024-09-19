@@ -20,6 +20,7 @@ use crate::net::xfr::protocol::ParsedRecord;
 use crate::rdata::ZoneRecordData;
 use crate::zonetree::{Rrset, SharedRrset};
 
+use super::error::OutOfZone;
 use super::types::ZoneUpdate;
 use super::util::rel_name_rev_iter;
 use super::{WritableZone, WritableZoneNode, Zone, ZoneDiff};
@@ -239,7 +240,7 @@ impl ZoneUpdater {
     /// Use [`apply`][Self::apply] to apply changes to the zone.
     pub fn new(
         zone: Zone,
-    ) -> Pin<Box<dyn Future<Output = std::io::Result<Self>> + Send>> {
+    ) -> Pin<Box<dyn Future<Output = Result<Self, Error>> + Send>> {
         Box::pin(async move {
             let write = WriteState::new(zone.clone()).await?;
 
@@ -268,7 +269,7 @@ impl ZoneUpdater {
     pub async fn apply(
         &mut self,
         update: ZoneUpdate<ParsedRecord>,
-    ) -> std::io::Result<Option<ZoneDiff>> {
+    ) -> Result<Option<ZoneDiff>, Error> {
         trace!("Event: {update}");
         match update {
             ZoneUpdate::DeleteAllRecords => {
@@ -348,9 +349,8 @@ impl ZoneUpdater {
     async fn get_writable_child_node_for_owner(
         &mut self,
         rec: &ParsedRecord,
-    ) -> std::io::Result<Option<Box<dyn WritableZoneNode>>> {
-        let mut it = rel_name_rev_iter(self.zone.apex_name(), rec.owner())
-            .map_err(|_| IoError::custom("Record owner name out of zone"))?;
+    ) -> Result<Option<Box<dyn WritableZoneNode>>, Error> {
+        let mut it = rel_name_rev_iter(self.zone.apex_name(), rec.owner())?;
 
         let Some(label) = it.next() else {
             return Ok(None);
@@ -396,7 +396,7 @@ impl ZoneUpdater {
             ParsedName<Bytes>,
             ZoneRecordData<Bytes, ParsedName<Bytes>>,
         >,
-    ) -> std::io::Result<()> {
+    ) -> Result<(), Error> {
         let end_node = self.get_writable_child_node_for_owner(&rec).await?;
         let mut rrset = Rrset::new(rec.rtype(), rec.ttl());
         let rtype = rec.rtype();
@@ -416,7 +416,9 @@ impl ZoneUpdater {
         }
 
         trace!("Removing single RR of {rtype} so updating RRSET");
-        node.update_rrset(SharedRrset::new(rrset)).await
+        node.update_rrset(SharedRrset::new(rrset)).await?;
+
+        Ok(())
     }
 
     async fn add_record(
@@ -425,7 +427,7 @@ impl ZoneUpdater {
             ParsedName<Bytes>,
             ZoneRecordData<Bytes, ParsedName<Bytes>>,
         >,
-    ) -> std::io::Result<()> {
+    ) -> Result<(), Error> {
         let end_node = self.get_writable_child_node_for_owner(&rec).await?;
         let mut rrset = Rrset::new(rec.rtype(), rec.ttl());
         let rtype = rec.rtype();
@@ -443,7 +445,9 @@ impl ZoneUpdater {
             }
         }
 
-        node.update_rrset(SharedRrset::new(rrset)).await
+        node.update_rrset(SharedRrset::new(rrset)).await?;
+
+        Ok(())
     }
 }
 
@@ -469,19 +473,22 @@ impl WriteState {
         Ok(())
     }
 
-    async fn commit(&mut self) -> std::io::Result<Option<ZoneDiff>> {
+    async fn commit(&mut self) -> Result<Option<ZoneDiff>, Error> {
         // Commit the deletes and adds that just occurred
         if let Some(writable) = self.writable.take() {
             // Ensure that there are no dangling references to the created
             // diff (otherwise commit() will panic).
             drop(writable);
-            self.write.commit(false).await
+
+            let diff = self.write.commit(false).await?;
+
+            Ok(diff)
         } else {
             Ok(None)
         }
     }
 
-    async fn reopen(&mut self) -> std::io::Result<()> {
+    async fn reopen(&mut self) -> Result<(), Error> {
         self.writable = Some(self.write.open(true).await?);
         Ok(())
     }
@@ -621,5 +628,34 @@ mod tests {
         answer
             .push((qname, qclass, Ttl::from_secs(0), item))
             .unwrap();
+    }
+}
+
+//------------ Error ----------------------------------------------------------
+
+/// Zone update error.
+#[derive(Debug)]
+pub enum Error {
+    /// The record owner is outside the zone.
+    OutOfZone,
+
+    /// The record must be a SOA record.
+    NotSoaRecord,
+
+    /// An I/O error occurred while updating the zone.
+    IoError(std::io::Error),
+}
+
+//--- From
+
+impl From<std::io::Error> for Error {
+    fn from(err: std::io::Error) -> Self {
+        Self::IoError(err)
+    }
+}
+
+impl From<OutOfZone> for Error {
+    fn from(_: OutOfZone) -> Self {
+        Self::OutOfZone
     }
 }
