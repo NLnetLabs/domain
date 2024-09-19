@@ -16,7 +16,7 @@ use super::{parsed, ReadableZone, ZoneStore};
 //------------ ZoneKey -------------------------------------------------------
 
 /// A key that uniquely identifies a zone.
-/// 
+///
 /// A zone is identified by the owner name of the apex and its class. Every
 /// record in a zone must be at or under the apex owner name and be of the
 /// same class.

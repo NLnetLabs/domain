@@ -1,4 +1,4 @@
-//! Write access to zones.
+//! Write access to in-memory zones.
 
 use core::future::ready;
 use std::boxed::Box;
@@ -29,6 +29,7 @@ use crate::rdata::ZoneRecordData;
 
 //------------ WriteZone -----------------------------------------------------
 
+/// Serialized write operations on in-memory zones with auto-diffing support.
 pub struct WriteZone {
     apex: Arc<ZoneApex>,
     _lock: Option<OwnedMutexGuard<()>>,
@@ -231,12 +232,20 @@ impl WritableZone for WriteZone {
     }
 }
 
+/// Returns the inner value, if the Arc has exactly one strong reference.
+///
+/// Wrapper around [`Arc::into_inner()`] with an implementation back-ported
+/// for Rust <1.70.0 when [`Arc::into_inner()`] did not exist yet.
 #[rustversion::since(1.70.0)]
 fn arc_into_inner<T>(this: Arc<Mutex<T>>) -> Option<Mutex<T>> {
     #[allow(clippy::incompatible_msrv)]
     Arc::into_inner(this)
 }
 
+/// Returns the inner value, if the Arc has exactly one strong reference.
+///
+/// Wrapper around [`Arc::into_inner()`] with an implementation back-ported
+/// for Rust <1.70.0 when [`Arc::into_inner()`] did not exist yet.
 #[rustversion::before(1.70.0)]
 fn arc_into_inner<T>(this: Arc<Mutex<T>>) -> Option<Mutex<T>> {
     // From: https://doc.rust-lang.org/std/sync/struct.Arc.html#method.into_inner
@@ -258,6 +267,7 @@ fn arc_into_inner<T>(this: Arc<Mutex<T>>) -> Option<Mutex<T>> {
 
 //------------ WriteNode ------------------------------------------------------
 
+/// Write operations on in-memory zone tree nodes with auto-diffing support.
 pub struct WriteNode {
     /// The writer for the zone we are working with.
     zone: WriteZone,
@@ -634,6 +644,7 @@ impl fmt::Display for WriteApexError {
 
 //------------ ZoneVersions --------------------------------------------------
 
+/// An ordered collection of zone versions of which only one is "current".
 #[derive(Debug)]
 pub struct ZoneVersions {
     current: (Version, Arc<VersionMarker>),

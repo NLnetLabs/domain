@@ -1,3 +1,4 @@
+//! Data types for storing in-memory zone data by zone version.
 use crate::base::serial::Serial;
 use serde::{Deserialize, Serialize};
 use std::vec::Vec;
@@ -31,6 +32,9 @@ impl Default for Version {
 
 //------------ Versioned -----------------------------------------------------
 
+/// A history preserving ordered map of data keyed by zone version.
+///
+/// Updates and inserts preserve previous versions of the stored data.
 #[derive(Clone, Debug)]
 pub struct Versioned<T> {
     data: Vec<(Version, Option<T>)>,

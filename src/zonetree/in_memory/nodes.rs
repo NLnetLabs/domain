@@ -1,4 +1,4 @@
-//! The nodes in a zone tree.
+//! The resource record tree nodes of an in-memory zone.
 
 use std::boxed::Box;
 use std::collections::{hash_map, HashMap};
