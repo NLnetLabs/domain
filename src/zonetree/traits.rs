@@ -151,7 +151,7 @@ pub trait WritableZone: Send + Sync {
     /// made since the last commit. Only clients who obtain a [`ReadableZone`]
     /// _after_ invoking this function will be able to see the changes made
     /// since [`open()`] was called.
-    /// 
+    ///
     /// [`open()`]: Self::open
     fn commit(
         &mut self,
