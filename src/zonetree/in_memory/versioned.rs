@@ -69,7 +69,17 @@ impl<T> Versioned<T> {
     }
 
     pub fn remove(&mut self, version: Version) {
-        self.data.retain(|item| item.0 >= version)
+        // We can't just remove the value for the specified version because if
+        // it should be a new version of the zone and a value exists for a
+        // previous version, then we have to mask the old value so that it
+        // isn't seen by consumers of the newer version of the zone.
+        if let Some(last) = self.data.last_mut() {
+            if last.0 == version {
+                last.1 = None;
+                return;
+            }
+        }
+        self.data.push((version, None))
     }
 }
 
