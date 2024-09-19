@@ -254,6 +254,8 @@ pub struct ZoneCut {
 //------------ ZoneDiffBuilder -----------------------------------------------
 
 /// A [`ZoneDiff`] builder.
+/// 
+/// Removes are assumed to occur before adds.
 #[derive(Debug, Default)]
 pub struct ZoneDiffBuilder {
     /// The records added to the Zone.
@@ -264,12 +266,12 @@ pub struct ZoneDiffBuilder {
 }
 
 impl ZoneDiffBuilder {
-    /// TODO
+    /// Creates a new instance of the builder.
     pub fn new() -> Self {
         Default::default()
     }
 
-    /// TODO
+    /// Record in the diff that a resource record was added.
     pub fn add(
         &mut self,
         owner: StoredName,
@@ -279,7 +281,7 @@ impl ZoneDiffBuilder {
         self.added.insert((owner, rtype), rrset);
     }
 
-    /// TODO
+    /// Record in the diff that a resource record was removed.
     pub fn remove(
         &mut self,
         owner: StoredName,
@@ -289,7 +291,15 @@ impl ZoneDiffBuilder {
         self.removed.insert((owner, rtype), rrset);
     }
 
-    /// TODO
+    /// Exchange this builder instnace for an immutable [`ZoneDiff`].
+    /// 
+    /// The start serial should be the zone version to which the diffs should
+    /// be applied. The end serial denotes the zone version that results from
+    /// applying this diff.
+    /// 
+    /// Note: No check is currently done that the start and end serials match
+    /// the SOA records in the removed and added records contained within the
+    /// diff.
     pub fn build(self, start_serial: Serial, end_serial: Serial) -> ZoneDiff {
         ZoneDiff {
             start_serial,
@@ -303,6 +313,8 @@ impl ZoneDiffBuilder {
 //------------ ZoneDiff ------------------------------------------------------
 
 /// The differences between one serial and another for a Zone.
+/// 
+/// Removes are assumed to occur before adds.
 #[derive(Clone, Debug)]
 pub struct ZoneDiff {
     /// The serial number of the Zone which was modified.

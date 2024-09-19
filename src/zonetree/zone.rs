@@ -15,7 +15,11 @@ use super::{parsed, ReadableZone, ZoneStore};
 
 //------------ ZoneKey -------------------------------------------------------
 
-/// TODO
+/// A key that uniquely identifies a zone.
+/// 
+/// A zone is identified by the owner name of the apex and its class. Every
+/// record in a zone must be at or under the apex owner name and be of the
+/// same class.
 pub type ZoneKey = (StoredName, Class);
 
 //------------ Zone ----------------------------------------------------------
@@ -40,7 +44,8 @@ impl Zone {
         }
     }
 
-    /// TODO
+    /// Exchange this [`Zone`] wrapper for the actual underlying backing store
+    /// implementation.
     pub fn into_inner(self) -> Arc<dyn ZoneStore> {
         self.store
     }

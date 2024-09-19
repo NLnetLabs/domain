@@ -501,7 +501,7 @@ impl ReopenableZoneWriter {
 
     /// Replaces the current root node write interface with a new one.
     ///
-    /// Call [`commit()`] before calling this method.
+    /// Call [`commit()`][Self::commit] before calling this method.
     async fn reopen(&mut self) -> Result<(), Error> {
         self.writable = Some(self.write.open(true).await?);
         Ok(())
@@ -509,7 +509,8 @@ impl ReopenableZoneWriter {
 
     /// Convenience method to mark all nodes in the tree as removed.
     ///
-    /// Current readers will not be affected until [`commit()`] is called.
+    /// Current readers will not be affected until [`commit()`][Self::commit]
+    /// is called.
     async fn remove_all(&mut self) -> std::io::Result<()> {
         if let Some(writable) = &mut self.writable {
             writable.remove_all().await?;
