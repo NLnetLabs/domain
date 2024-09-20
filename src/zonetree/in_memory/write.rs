@@ -1,4 +1,4 @@
-//! Write access to zones.
+//! Write access to in-memory zones.
 
 use core::future::ready;
 use std::boxed::Box;
@@ -17,7 +17,7 @@ use tracing::trace;
 
 use crate::base::iana::Rtype;
 use crate::base::name::Label;
-use crate::base::NameBuilder;
+use crate::base::{NameBuilder, Serial};
 use crate::zonetree::types::{ZoneCut, ZoneDiff, ZoneDiffBuilder};
 use crate::zonetree::StoredName;
 use crate::zonetree::{Rrset, SharedRr};
@@ -29,12 +29,51 @@ use crate::rdata::ZoneRecordData;
 
 //------------ WriteZone -----------------------------------------------------
 
+/// Serialized write operations on in-memory zones with auto-diffing support.
 pub struct WriteZone {
+    /// The zone to edit.
     apex: Arc<ZoneApex>,
+
+    /// A write lock on the zone.
+    ///
+    /// This lock is granted by [`ZoneApex::write()`] and held by us until we
+    /// are finished. Further calls to [`ZoneApex::write()`] will block until
+    /// we are dropped and release the lock.
+    ///
+    /// [ZoneApex::write()]: ZoneApex::write()
     _lock: Option<OwnedMutexGuard<()>>,
-    version: Version,
-    dirty: bool,
-    zone_versions: Arc<RwLock<ZoneVersions>>,
+
+    /// The version number of the new zone version to create.
+    ///
+    /// This is set initially in [`new()`] and is incremented by [`commit()`]
+    /// after the new zone version has been published.
+    ///
+    /// Note: There is currently no mechanism for controlling the version
+    /// number of the next zone version to be published. However, this version
+    /// number is for internal use and is not (yet?) constrained to match the
+    /// SOA serial in the zone when the zone is published. Users can therefore
+    /// use whatever serial incrementing policy they desire as they control
+    /// the content of the SOA record in the zone.
+    new_version: Version,
+
+    /// The set of versions already published in this zone prior to starting
+    /// the write operation.
+    published_versions: Arc<RwLock<ZoneVersions>>,
+
+    /// The set of differences accumulated as changes are made to the zone.
+    ///
+    /// The outermost Arc<Mutex<Option<..>>> is needed so that [`open()`] can
+    /// store a [`ZoneDiffBuilder`] created by [`WriteNode`] and because
+    /// [`open()`] takes &self it cannot mutate itself and store it that way.
+    /// It also can't just store a reference to [`ZoneDiffBuilder`] as it
+    /// needs to call [`ZoneDiffBuilder::build()`] in [`commit()`] which
+    /// requires that the builder be consumed (and thus owned, ). It is stored
+    /// as an Option because storing a diff is costly thus optional.
+    ///
+    /// The innermost Arc<Mutex<..>> is needed because each time
+    /// [`WriteNode::update_child()`] is called it creates a new [`WriteNode`]
+    /// which also needs to be able to add and remove things from the same
+    /// diff collection.
     diff: Arc<Mutex<Option<Arc<Mutex<ZoneDiffBuilder>>>>>,
 }
 
@@ -42,17 +81,124 @@ impl WriteZone {
     pub(super) fn new(
         apex: Arc<ZoneApex>,
         _lock: OwnedMutexGuard<()>,
-        version: Version,
-        zone_versions: Arc<RwLock<ZoneVersions>>,
+        new_version: Version,
+        published_versions: Arc<RwLock<ZoneVersions>>,
     ) -> Self {
         WriteZone {
             apex,
             _lock: Some(_lock),
-            version,
-            dirty: false,
-            zone_versions,
-            diff: Arc::new(Mutex::new(None)),
+            new_version,
+            published_versions,
+            diff: Default::default(),
         }
+    }
+
+    fn last_published_version(&self) -> Version {
+        self.published_versions.read().current().0
+    }
+
+    fn bump_soa_serial(&mut self, old_soa_rr: &Option<SharedRr>) {
+        let old_soa_rr = old_soa_rr.as_ref().unwrap();
+        let ZoneRecordData::Soa(old_soa) = old_soa_rr.data() else {
+            unreachable!()
+        };
+        trace!("Commit: old_soa={old_soa:#?}");
+
+        // Create a SOA record with a higher serial number than the previous
+        // SOA record.
+        let mut new_soa_rrset = Rrset::new(Rtype::SOA, old_soa_rr.ttl());
+        let new_soa_serial = old_soa.serial().add(1);
+        let new_soa_data = crate::rdata::Soa::new(
+            old_soa.mname().clone(),
+            old_soa.rname().clone(),
+            new_soa_serial,
+            old_soa.refresh(),
+            old_soa.retry(),
+            old_soa.expire(),
+            old_soa.minimum(),
+        );
+        new_soa_rrset.push_data(new_soa_data.into());
+
+        trace!("Commit: new_soa={new_soa_rrset:#?}");
+        let new_soa_shared_rrset = SharedRrset::new(new_soa_rrset);
+
+        // Update the SOA record in the new zone version.
+        self.apex
+            .rrsets()
+            .update(new_soa_shared_rrset.clone(), self.new_version);
+    }
+
+    fn add_soa_remove_diff_entry(
+        &mut self,
+        old_soa_rr: Option<SharedRr>,
+        diff: &mut ZoneDiffBuilder,
+    ) -> Option<Serial> {
+        if let Some(old_soa_rr) = old_soa_rr {
+            let ZoneRecordData::Soa(old_soa) = old_soa_rr.data() else {
+                unreachable!()
+            };
+
+            let mut removed_soa_rrset =
+                Rrset::new(Rtype::SOA, old_soa_rr.ttl());
+            removed_soa_rrset.push_data(old_soa_rr.data().clone());
+            let removed_soa_rrset = SharedRrset::new(removed_soa_rrset);
+
+            trace!(
+                "Diff: recording removal of old SOA: {removed_soa_rrset:#?}"
+            );
+            diff.remove(
+                self.apex.name().clone(),
+                Rtype::SOA,
+                removed_soa_rrset,
+            );
+
+            Some(old_soa.serial())
+        } else {
+            None
+        }
+    }
+
+    fn add_soa_add_diff_entry(
+        &mut self,
+        new_soa_rr: Option<SharedRr>,
+        diff: &mut ZoneDiffBuilder,
+    ) -> Option<Serial> {
+        if let Some(new_soa_rr) = new_soa_rr {
+            let ZoneRecordData::Soa(new_soa) = new_soa_rr.data() else {
+                unreachable!()
+            };
+            let mut new_soa_shared_rrset =
+                Rrset::new(Rtype::SOA, new_soa_rr.ttl());
+            new_soa_shared_rrset.push_data(new_soa_rr.data().clone());
+            let new_soa_rrset = SharedRrset::new(new_soa_shared_rrset);
+
+            trace!("Diff: recording addition of new SOA: {new_soa_rrset:#?}");
+            diff.add(self.apex.name().clone(), Rtype::SOA, new_soa_rrset);
+
+            Some(new_soa.serial())
+        } else {
+            None
+        }
+    }
+
+    fn publish_new_zone_version(&mut self) {
+        trace!(
+            "Commit: Making zone version '{:#?}' current",
+            self.new_version
+        );
+        let marker = self
+            .published_versions
+            .write()
+            .update_current(self.new_version);
+        self.published_versions
+            .write()
+            .push_version(self.new_version, marker);
+
+        trace!("Commit: zone versions: {:#?}", self.published_versions);
+        trace!("Commit: zone dump:\n{:#?}", self.apex);
+
+        // Start the next version.
+        self.new_version = self.new_version.next();
     }
 }
 
@@ -63,9 +209,8 @@ impl Clone for WriteZone {
         Self {
             apex: self.apex.clone(),
             _lock: None,
-            version: self.version,
-            dirty: self.dirty,
-            zone_versions: self.zone_versions.clone(),
+            new_version: self.new_version,
+            published_versions: self.published_versions.clone(),
             diff: self.diff.clone(),
         }
     }
@@ -75,10 +220,7 @@ impl Clone for WriteZone {
 
 impl Drop for WriteZone {
     fn drop(&mut self) {
-        if self.dirty {
-            self.apex.rollback(self.version);
-            self.dirty = false;
-        }
+        self.apex.rollback(self.new_version);
     }
 }
 
@@ -99,8 +241,6 @@ impl WritableZone for WriteZone {
         let new_apex = WriteNode::new_apex(self.clone(), create_diff);
 
         if let Ok(write_node) = &new_apex {
-            // Note: the start and end serial of the diff will be filled in
-            // when commit() is invoked.
             *self.diff.lock().unwrap() = write_node.diff();
         }
 
@@ -116,6 +256,15 @@ impl WritableZone for WriteZone {
         Box::pin(ready(res))
     }
 
+    /// Publish in-progress zone edits.
+    ///
+    /// If `bump_soa_serial` is true AND the zone has an existing SOA record
+    /// AND the to-be-published zone version does NOT have a new SOA record,
+    /// then a copy of the old SOA record with its serial number increased
+    /// will be saved.
+    ///
+    /// If a diff has been captured, also ensure that it contains diff entries
+    /// for removing the old SOA and adding the new SOA.
     fn commit(
         &mut self,
         bump_soa_serial: bool,
@@ -128,105 +277,67 @@ impl WritableZone for WriteZone {
     > {
         let mut out_diff = None;
 
-        // An empty zone that is being filled by AXFR won't have an existing SOA.
-        if let Some(old_soa_rr) = self.apex.get_soa(self.version.prev()) {
-            let ZoneRecordData::Soa(old_soa) = old_soa_rr.data() else {
-                unreachable!()
-            };
-            trace!("Commit: old_soa={old_soa:#?}");
+        // If bump_soa_serial is true AND if the zone already had a SOA record
+        // AND no SOA record exists in the new version of the zone: add a SOA
+        // record with a higher serial than the previous SOA record.
+        //
+        // For an empty zone being populated by AXFR this won't be possible as
+        // there won't be an existing SOA to increment, but there should in
+        // that case be a SOA record in the new version of the zone anyway.
 
-            if bump_soa_serial {
-                // Ensure that the SOA record in the zone is updated.
-                let mut new_soa_rrset =
-                    Rrset::new(Rtype::SOA, old_soa_rr.ttl());
-                let new_soa_serial = old_soa.serial().add(1);
-                let new_soa_data = crate::rdata::Soa::new(
-                    old_soa.mname().clone(),
-                    old_soa.rname().clone(),
-                    new_soa_serial,
-                    old_soa.refresh(),
-                    old_soa.retry(),
-                    old_soa.expire(),
-                    old_soa.minimum(),
-                );
-                new_soa_rrset.push_data(new_soa_data.into());
-                trace!("Commit: new_soa={new_soa_rrset:#?}");
-                let new_soa_shared_rrset = SharedRrset::new(new_soa_rrset);
+        let old_soa_rr = self.apex.get_soa(self.last_published_version());
+        let new_soa_rr = self.apex.get_soa(self.new_version);
 
-                self.apex
-                    .rrsets()
-                    .update(new_soa_shared_rrset.clone(), self.version);
-            }
+        let mut soa_serial_bumped = false;
+        if bump_soa_serial && old_soa_rr.is_some() && new_soa_rr.is_none() {
+            self.bump_soa_serial(&old_soa_rr);
+            soa_serial_bumped = true;
+        }
 
-            // Extract the created diff, if any.
-            if let Some(diff) = self.diff.lock().unwrap().take() {
-                let new_soa_rr = self.apex.get_soa(self.version).unwrap();
-                let ZoneRecordData::Soa(new_soa) = new_soa_rr.data() else {
-                    unreachable!()
-                };
+        // Extract (and finish) the created diff, if any.
+        let diff = self.diff.lock().unwrap().take();
 
-                let diff = arc_into_inner(diff).unwrap();
-                let mut diff = Mutex::into_inner(diff).unwrap();
+        if diff.is_some() && new_soa_rr.is_some() {
+            let diff = diff.unwrap();
+            let diff = arc_into_inner(diff).unwrap();
+            let mut diff = Mutex::into_inner(diff).unwrap();
 
-                if bump_soa_serial {
-                    let mut removed_soa_rrset =
-                        Rrset::new(Rtype::SOA, old_soa_rr.ttl());
-                    removed_soa_rrset.push_data(old_soa_rr.data().clone());
-                    let removed_soa_rrset =
-                        SharedRrset::new(removed_soa_rrset);
+            // Generate a diff entry for the update of the SOA record
+            if soa_serial_bumped {
+                let old_serial =
+                    self.add_soa_remove_diff_entry(old_soa_rr, &mut diff);
 
-                    let mut new_soa_shared_rrset =
-                        Rrset::new(Rtype::SOA, new_soa_rr.ttl());
-                    new_soa_shared_rrset.push_data(new_soa_rr.data().clone());
-                    let new_soa_rrset =
-                        SharedRrset::new(new_soa_shared_rrset);
+                let new_serial =
+                    self.add_soa_add_diff_entry(new_soa_rr, &mut diff);
 
-                    trace!("Diff: recording removal of old SOA: {removed_soa_rrset:#?}");
-                    diff.remove(
-                        self.apex.name().clone(),
-                        Rtype::SOA,
-                        removed_soa_rrset,
-                    );
-
-                    trace!(
-                        "Diff: recording addition of new SOA: {new_soa_rrset:#?}"
-                    );
-                    diff.add(
-                        self.apex.name().clone(),
-                        Rtype::SOA,
-                        new_soa_rrset,
-                    );
+                if old_serial.is_some() && new_serial.is_some() {
+                    let old_serial = old_serial.unwrap();
+                    let new_serial = new_serial.unwrap();
+                    out_diff = Some(diff.build(old_serial, new_serial));
                 }
-
-                out_diff =
-                    Some(diff.build(old_soa.serial(), new_soa.serial()));
             }
         }
 
-        // Make the new version visible.
-        trace!("Commit: Making zone version '{:#?}' current", self.version);
-        let marker = self.zone_versions.write().update_current(self.version);
-        self.zone_versions
-            .write()
-            .push_version(self.version, marker);
-
-        trace!("Commit: zone versions: {:#?}", self.zone_versions);
-        trace!("Commit: zone dump:\n{:#?}", self.apex);
-
-        // Start the next version.
-        self.version = self.version.next();
-        self.dirty = false;
+        self.publish_new_zone_version();
 
         Box::pin(ready(Ok(out_diff)))
     }
 }
 
+/// Returns the inner value, if the Arc has exactly one strong reference.
+///
+/// Wrapper around [`Arc::into_inner()`] with an implementation back-ported
+/// for Rust <1.70.0 when [`Arc::into_inner()`] did not exist yet.
 #[rustversion::since(1.70.0)]
 fn arc_into_inner<T>(this: Arc<Mutex<T>>) -> Option<Mutex<T>> {
     #[allow(clippy::incompatible_msrv)]
     Arc::into_inner(this)
 }
 
+/// Returns the inner value, if the Arc has exactly one strong reference.
+///
+/// Wrapper around [`Arc::into_inner()`] with an implementation back-ported
+/// for Rust <1.70.0 when [`Arc::into_inner()`] did not exist yet.
 #[rustversion::before(1.70.0)]
 fn arc_into_inner<T>(this: Arc<Mutex<T>>) -> Option<Mutex<T>> {
     // From: https://doc.rust-lang.org/std/sync/struct.Arc.html#method.into_inner
@@ -248,6 +359,7 @@ fn arc_into_inner<T>(this: Arc<Mutex<T>>) -> Option<Mutex<T>> {
 
 //------------ WriteNode ------------------------------------------------------
 
+/// Write operations on in-memory zone tree nodes with auto-diffing support.
 pub struct WriteNode {
     /// The writer for the zone we are working with.
     zone: WriteZone,
@@ -320,7 +432,7 @@ impl WriteNode {
         trace!("Updating RRset");
         if let Some((owner, diff)) = &self.diff {
             let changed = if let Some(removed_rrset) =
-                rrsets.get(rrset.rtype(), self.zone.version.prev())
+                rrsets.get(rrset.rtype(), self.zone.last_published_version())
             {
                 let changed = rrset != removed_rrset;
 
@@ -348,11 +460,7 @@ impl WriteNode {
             }
         }
 
-        // if rrset.is_empty() {
-        //     rrsets.remove(rrset.rtype(), self.zone.version.prev());
-        // } else {
-        rrsets.update(rrset, self.zone.version);
-        // }
+        rrsets.update(rrset, self.zone.new_version);
         self.check_nx_domain()?;
         Ok(())
     }
@@ -366,7 +474,7 @@ impl WriteNode {
             Either::Right(ref node) => node.rrsets(),
         };
 
-        Ok(rrsets.get(rtype, self.zone.version))
+        Ok(rrsets.get(rtype, self.zone.new_version))
     }
 
     fn remove_rrset(&self, rtype: Rtype) -> Result<(), io::Error> {
@@ -376,7 +484,8 @@ impl WriteNode {
         };
 
         if let Some((owner, diff)) = &self.diff {
-            if let Some(removed) = rrsets.get(rtype, self.zone.version.prev())
+            if let Some(removed) =
+                rrsets.get(rtype, self.zone.last_published_version())
             {
                 trace!(
                     "Diff detected: removal of existing RRSET: {removed:#?}"
@@ -389,7 +498,7 @@ impl WriteNode {
             }
         }
 
-        rrsets.remove(rtype, self.zone.version);
+        rrsets.remove_rtype(rtype, self.zone.new_version);
         self.check_nx_domain()?;
 
         Ok(())
@@ -397,7 +506,7 @@ impl WriteNode {
 
     fn make_regular(&self) -> Result<(), io::Error> {
         if let Either::Right(ref node) = self.node {
-            node.update_special(self.zone.version, None);
+            node.update_special(self.zone.new_version, None);
             self.check_nx_domain()?;
         }
         Ok(())
@@ -408,7 +517,7 @@ impl WriteNode {
             Either::Left(_) => Err(WriteApexError::NotAllowed),
             Either::Right(ref node) => {
                 node.update_special(
-                    self.zone.version,
+                    self.zone.new_version,
                     Some(Special::Cut(cut)),
                 );
                 Ok(())
@@ -427,7 +536,7 @@ impl WriteNode {
             Either::Left(_) => Err(WriteApexError::NotAllowed),
             Either::Right(ref node) => {
                 node.update_special(
-                    self.zone.version,
+                    self.zone.new_version,
                     Some(Special::Cname(cname)),
                 );
                 Ok(())
@@ -444,10 +553,10 @@ impl WriteNode {
     fn remove_all(&self) -> Result<(), io::Error> {
         match self.node {
             Either::Left(ref apex) => {
-                apex.remove_all(self.zone.version);
+                apex.remove_all(self.zone.new_version);
             }
             Either::Right(ref node) => {
-                node.remove_all(self.zone.version);
+                node.remove_all(self.zone.new_version);
             }
         }
 
@@ -460,32 +569,34 @@ impl WriteNode {
             Either::Left(_) => return Ok(()),
             Either::Right(ref node) => node,
         };
-        let opt_new_nxdomain =
-            node.with_special(self.zone.version, |special| match special {
+        let opt_new_nxdomain = node.with_special(
+            self.zone.new_version,
+            |special| match special {
                 Some(Special::NxDomain) => {
-                    if !node.rrsets().is_empty(self.zone.version) {
+                    if !node.rrsets().is_empty(self.zone.new_version) {
                         Some(false)
                     } else {
                         None
                     }
                 }
                 None => {
-                    if node.rrsets().is_empty(self.zone.version) {
+                    if node.rrsets().is_empty(self.zone.new_version) {
                         Some(true)
                     } else {
                         None
                     }
                 }
                 _ => None,
-            });
+            },
+        );
         if let Some(new_nxdomain) = opt_new_nxdomain {
             if new_nxdomain {
                 node.update_special(
-                    self.zone.version,
+                    self.zone.new_version,
                     Some(Special::NxDomain),
                 );
             } else {
-                node.update_special(self.zone.version, None);
+                node.update_special(self.zone.new_version, None);
             }
         }
         Ok(())
@@ -621,6 +732,7 @@ impl fmt::Display for WriteApexError {
 
 //------------ ZoneVersions --------------------------------------------------
 
+/// An ordered collection of zone versions of which only one is "current".
 #[derive(Debug)]
 pub struct ZoneVersions {
     current: (Version, Arc<VersionMarker>),

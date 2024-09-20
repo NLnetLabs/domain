@@ -72,9 +72,9 @@ impl<'a, 'b> Iterator for XfrZoneUpdateIterator<'a, 'b> {
             self.state.rr_count += 1;
 
             if self.state.actual_xfr_type == XfrType::Axfr {
-                // For AXFR we're not making changes to a zone, we're
-                // replacing its entire contents, so before returning any
-                // actual updates to apply, first instruct the consumer to
+                // For AXFR we're not making incremental changes to a zone,
+                // we're replacing its entire contents, so before returning
+                // any actual updates to apply first instruct the consumer to
                 // "discard" everything it has.
                 return Some(Ok(ZoneUpdate::DeleteAllRecords));
             }
