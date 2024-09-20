@@ -1,4 +1,4 @@
-//! Quering for zone data.
+//! Read access to in-memory zones.
 use core::iter;
 
 use std::sync::Arc;

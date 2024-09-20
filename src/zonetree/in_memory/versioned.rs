@@ -1,3 +1,4 @@
+//! Data types for storing in-memory zone data by zone version.
 use crate::base::serial::Serial;
 use serde::{Deserialize, Serialize};
 use std::vec::Vec;
@@ -21,9 +22,6 @@ impl Version {
     pub fn next(self) -> Version {
         Version(self.0.add(1))
     }
-    pub fn prev(self) -> Version {
-        Version(self.0.sub(1))
-    }
 }
 
 impl Default for Version {
@@ -34,6 +32,9 @@ impl Default for Version {
 
 //------------ Versioned -----------------------------------------------------
 
+/// A history preserving ordered map of data keyed by zone version.
+///
+/// Updates and inserts preserve previous versions of the stored data.
 #[derive(Clone, Debug)]
 pub struct Versioned<T> {
     data: Vec<(Version, Option<T>)>,
@@ -72,23 +73,33 @@ impl<T> Versioned<T> {
     }
 
     pub fn remove(&mut self, version: Version) {
-        // WARNING: This isn't safe to do while updating a zone, e.g. via an
-        // AXFR that lacks some records that were in the previous version of
-        // the zone, as the effects are immediately visible to users of the
-        // zone!
-        //
-        //   self.data.retain(|item| item.0 >= version)
-        //
-        // When updating a Zone via ZoneStore::write(), the new version of the
-        // zone that is created will be one higher than the highest version of
-        // data currently in the zone.
-        //
-        // So adding an empty value at the new version will cause current
-        // clients to continue seeing the old version, but clients of the zone
-        // after it is committed will see the new version, i.e. the empty
-        // value which will cause get() to return None.
-        if self.data.last().map(|item| item.0).is_some() {
-            self.data.push((version, None));
+        // We can't just remove the value for the specified version because if
+        // it should be a new version of the zone and a value exists for a
+        // previous version, then we have to mask the old value so that it
+        // isn't seen by consumers of the newer version of the zone.
+        let len = self.data.len();
+        if let Some(last) = self.data.last_mut() {
+            if last.1.is_none() {
+                // If it was already marked as removed in the last version
+                // we don't need to mark it removed again.
+                return;
+            }
+            if last.0 == version {
+                if len == 1 {
+                    // If this new version is the only version, we can
+                    // remove it entirely rather than mark it as deleted.
+                    let _ = self.data.pop();
+                } else {
+                    last.1 = None;
+                }
+                return;
+            }
+        }
+
+        // If there's nothing here, we don't need to explicitly mark that
+        // there is nothing here.
+        if !self.data.is_empty() {
+            self.data.push((version, None))
         }
     }
 }
