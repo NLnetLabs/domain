@@ -550,6 +550,7 @@ impl ReopenableZoneWriter {
 #[cfg(test)]
 mod tests {
     use core::str::FromStr;
+    use std::vec::Vec;
 
     use bytes::BytesMut;
     use octseq::Octets;
@@ -568,29 +569,58 @@ mod tests {
     use super::*;
 
     #[tokio::test]
-    async fn simple_test() {
+    async fn write_soa_read_soa() {
         init_logging();
 
         let zone = mk_empty_zone("example.com");
 
         let mut updater = ZoneUpdater::new(zone.clone()).await.unwrap();
 
+        let qname = Name::from_str("example.com").unwrap();
+
         let s = Serial::now();
         let soa = mk_soa(s);
-        let soa = ZoneRecordData::Soa(soa);
-        let soa = Record::new(
-            ParsedName::from(Name::from_str("example.com").unwrap()),
+        let soa_data = ZoneRecordData::Soa(soa.clone());
+        let soa_rec = Record::new(
+            ParsedName::from(qname.clone()),
             Class::IN,
             Ttl::from_secs(0),
-            soa,
+            soa_data,
         );
 
         updater
-            .apply(ZoneUpdate::AddRecord(soa.clone()))
+            .apply(ZoneUpdate::AddRecord(soa_rec.clone()))
             .await
             .unwrap();
 
-        updater.apply(ZoneUpdate::Finished(soa)).await.unwrap();
+        updater
+            .apply(ZoneUpdate::Finished(soa_rec.clone()))
+            .await
+            .unwrap();
+
+        let query = MessageBuilder::new_vec();
+        let mut query = query.question();
+        query.push((qname.clone(), Rtype::SOA)).unwrap();
+        let message: Message<Vec<u8>> = query.into();
+
+        let builder = MessageBuilder::new_bytes();
+        let answer: Message<Bytes> = zone
+            .read()
+            .query(qname, Rtype::SOA)
+            .unwrap()
+            .to_message(&message, builder)
+            .into();
+
+        let found_soa_rec = answer
+            .answer()
+            .unwrap()
+            .limit_to::<Soa<_>>()
+            .next()
+            .unwrap()
+            .unwrap()
+            .into_data();
+
+        assert_eq!(found_soa_rec, soa);
     }
 
     #[tokio::test]
