@@ -306,10 +306,8 @@ impl WritableZone for WriteZone {
         let old_soa_rr = self.apex.get_soa(self.last_published_version());
         let new_soa_rr = self.apex.get_soa(self.new_version);
 
-        let mut soa_serial_bumped = false;
         if bump_soa_serial && old_soa_rr.is_some() && new_soa_rr.is_none() {
             self.bump_soa_serial(&old_soa_rr);
-            soa_serial_bumped = true;
         }
 
         // Extract (and finish) the created diff, if any.
@@ -321,18 +319,16 @@ impl WritableZone for WriteZone {
             let mut diff = Mutex::into_inner(diff).unwrap();
 
             // Generate a diff entry for the update of the SOA record
-            if soa_serial_bumped {
-                let old_serial =
-                    self.add_soa_remove_diff_entry(old_soa_rr, &mut diff);
+            let old_serial =
+                self.add_soa_remove_diff_entry(old_soa_rr, &mut diff);
 
-                let new_serial =
-                    self.add_soa_add_diff_entry(new_soa_rr, &mut diff);
+            let new_serial =
+                self.add_soa_add_diff_entry(new_soa_rr, &mut diff);
 
-                if old_serial.is_some() && new_serial.is_some() {
-                    let old_serial = old_serial.unwrap();
-                    let new_serial = new_serial.unwrap();
-                    out_diff = Some(diff.build(old_serial, new_serial));
-                }
+            if old_serial.is_some() && new_serial.is_some() {
+                let old_serial = old_serial.unwrap();
+                let new_serial = new_serial.unwrap();
+                out_diff = Some(diff.build(old_serial, new_serial));
             }
         }
 
