@@ -1,6 +1,9 @@
 //! Write access to in-memory zones.
 
 use core::future::ready;
+use core::sync::atomic::AtomicBool;
+use core::sync::atomic::Ordering;
+
 use std::boxed::Box;
 use std::future::Future;
 use std::pin::Pin;
@@ -18,6 +21,7 @@ use tracing::trace;
 use crate::base::iana::Rtype;
 use crate::base::name::Label;
 use crate::base::{NameBuilder, Serial};
+use crate::rdata::ZoneRecordData;
 use crate::zonetree::types::{ZoneCut, ZoneDiff, ZoneDiffBuilder};
 use crate::zonetree::StoredName;
 use crate::zonetree::{Rrset, SharedRr};
@@ -25,7 +29,6 @@ use crate::zonetree::{SharedRrset, WritableZone, WritableZoneNode};
 
 use super::nodes::{Special, ZoneApex, ZoneNode};
 use super::versioned::{Version, VersionMarker};
-use crate::rdata::ZoneRecordData;
 
 //------------ WriteZone -----------------------------------------------------
 
@@ -75,6 +78,13 @@ pub struct WriteZone {
     /// which also needs to be able to add and remove things from the same
     /// diff collection.
     diff: Arc<Mutex<Option<Arc<Mutex<ZoneDiffBuilder>>>>>,
+
+    /// The zone is dirty if changes have been made but not yet committed.
+    ///
+    /// This flag is set when a zone is opened for editing, and cleared when
+    /// it is committed. If not cleared, on drop any changes made will be
+    /// rolled back.
+    dirty: Arc<AtomicBool>,
 }
 
 impl WriteZone {
@@ -90,6 +100,7 @@ impl WriteZone {
             new_version,
             published_versions,
             diff: Default::default(),
+            dirty: Default::default(),
         }
     }
 
@@ -199,6 +210,8 @@ impl WriteZone {
 
         // Start the next version.
         self.new_version = self.new_version.next();
+
+        self.dirty.store(false, Ordering::SeqCst);
     }
 }
 
@@ -212,6 +225,7 @@ impl Clone for WriteZone {
             new_version: self.new_version,
             published_versions: self.published_versions.clone(),
             diff: self.diff.clone(),
+            dirty: Default::default(),
         }
     }
 }
@@ -220,7 +234,9 @@ impl Clone for WriteZone {
 
 impl Drop for WriteZone {
     fn drop(&mut self) {
-        self.apex.rollback(self.new_version);
+        if self.dirty.swap(false, Ordering::SeqCst) {
+            self.apex.rollback(self.new_version);
+        }
     }
 }
 
@@ -252,6 +268,8 @@ impl WritableZone for WriteZone {
                     format!("Open error: {err}"),
                 )
             });
+
+        self.dirty.store(true, Ordering::SeqCst);
 
         Box::pin(ready(res))
     }
