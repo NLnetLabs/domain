@@ -122,7 +122,7 @@ pub use self::types::{
     Rrset, SharedRr, SharedRrset, StoredName, StoredRecord, ZoneDiff,
 };
 pub use self::walk::WalkOp;
-pub use self::zone::{Zone, ZoneKey};
+pub use self::zone::Zone;
 
 /// Zone related utilities.
 pub mod util {
