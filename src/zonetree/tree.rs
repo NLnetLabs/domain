@@ -185,7 +185,7 @@ impl ZoneSetNode {
 
 //------------ ZoneSetIter ---------------------------------------------------
 
-/// TODO
+/// An iterator over the [`Zone`]s in a [`ZoneTree`].
 pub struct ZoneSetIter<'a> {
     roots: hash_map::Values<'a, Class, ZoneSetNode>,
     nodes: NodesIter<'a>,

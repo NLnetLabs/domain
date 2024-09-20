@@ -1,6 +1,5 @@
-//! The nodes in a zone tree.
+//! The resource record tree nodes of an in-memory zone.
 
-use core::any::Any;
 use std::boxed::Box;
 use std::collections::{hash_map, HashMap};
 use std::future::Future;
@@ -13,9 +12,10 @@ use parking_lot::{
 use tokio::sync::Mutex;
 
 use crate::base::iana::{Class, Rtype};
-use crate::base::name::{Label, OwnedLabel, ToLabelIter, ToName};
+use crate::base::name::{Label, OwnedLabel, ToName};
 use crate::zonetree::error::{CnameError, OutOfZone, ZoneCutError};
 use crate::zonetree::types::{StoredName, ZoneCut};
+use crate::zonetree::util::rel_name_rev_iter;
 use crate::zonetree::walk::WalkState;
 use crate::zonetree::{
     ReadableZone, SharedRr, SharedRrset, WritableZone, ZoneStore,
@@ -72,14 +72,7 @@ impl ZoneApex {
         &self,
         qname: &'l impl ToName,
     ) -> Result<impl Iterator<Item = &'l Label> + Clone, OutOfZone> {
-        let mut qname = qname.iter_labels().rev();
-        for apex_label in self.name().iter_labels().rev() {
-            let qname_label = qname.next();
-            if Some(apex_label) != qname_label {
-                return Err(OutOfZone);
-            }
-        }
-        Ok(qname)
+        rel_name_rev_iter(&self.apex_name, qname)
     }
 
     /// Returns the RRsets of this node.
@@ -151,10 +144,6 @@ impl ZoneStore for ZoneApex {
             Box::new(WriteZone::new(self, lock, version, zone_versions))
                 as Box<dyn WritableZone>
         })
-    }
-
-    fn as_any(&self) -> &dyn Any {
-        self as &dyn Any
     }
 }
 
@@ -273,7 +262,7 @@ impl NodeRrsets {
     }
 
     /// Removes the RRset for the given type.
-    pub fn remove(&self, rtype: Rtype, version: Version) {
+    pub fn remove_rtype(&self, rtype: Rtype, version: Version) {
         self.rrsets
             .write()
             .entry(rtype)
@@ -338,11 +327,6 @@ impl NodeRrset {
     }
 
     pub fn rollback(&mut self, version: Version) {
-        self.rrsets.rollback(version);
-    }
-
-    #[allow(dead_code)]
-    pub fn clean(&mut self, version: Version) {
         self.rrsets.rollback(version);
     }
 }
