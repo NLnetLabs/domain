@@ -460,11 +460,7 @@ impl WriteNode {
             }
         }
 
-        // if rrset.is_empty() {
-        //     rrsets.remove(rrset.rtype(), self.zone.version.prev());
-        // } else {
         rrsets.update(rrset, self.zone.new_version);
-        // }
         self.check_nx_domain()?;
         Ok(())
     }
