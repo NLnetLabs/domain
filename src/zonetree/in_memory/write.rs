@@ -35,19 +35,19 @@ pub struct WriteZone {
     apex: Arc<ZoneApex>,
 
     /// A write lock on the zone.
-    /// 
+    ///
     /// This lock is granted by [`ZoneApex::write()`] and held by us until we
     /// are finished. Further calls to [`ZoneApex::write()`] will block until
     /// we are dropped and release the lock.
-    /// 
+    ///
     /// [ZoneApex::write()]: ZoneApex::write()
     _lock: Option<OwnedMutexGuard<()>>,
 
     /// The version number of the new zone version to create.
-    /// 
+    ///
     /// This is set initially in [`new()`] and is incremented by [`commit()`]
     /// after the new zone version has been published.
-    /// 
+    ///
     /// Note: There is currently no mechanism for controlling the version
     /// number of the next zone version to be published. However, this version
     /// number is for internal use and is not (yet?) constrained to match the
@@ -69,7 +69,7 @@ pub struct WriteZone {
     /// needs to call [`ZoneDiffBuilder::build()`] in [`commit()`] which
     /// requires that the builder be consumed (and thus owned, ). It is stored
     /// as an Option because storing a diff is costly thus optional.
-    /// 
+    ///
     /// The innermost Arc<Mutex<..>> is needed because each time
     /// [`WriteNode::update_child()`] is called it creates a new [`WriteNode`]
     /// which also needs to be able to add and remove things from the same
