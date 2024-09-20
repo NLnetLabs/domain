@@ -123,4 +123,31 @@ pub use self::types::{
     ZoneDiffBuilder,
 };
 pub use self::walk::WalkOp;
-pub use self::zone::{Zone, ZoneKey};
+pub use self::zone::Zone;
+
+/// Zone related utilities.
+pub mod util {
+    use crate::base::name::{Label, ToLabelIter};
+    use crate::base::ToName;
+
+    use super::error::OutOfZone;
+    use super::StoredName;
+
+    /// Gets a reverse iterator to the relative part of a name.
+    ///
+    /// Can be used for example to get an iterator over the part of a name
+    /// that is "under" a zone apex name.
+    pub fn rel_name_rev_iter<'l>(
+        base: &StoredName,
+        qname: &'l impl ToName,
+    ) -> Result<impl Iterator<Item = &'l Label> + Clone, OutOfZone> {
+        let mut qname = qname.iter_labels().rev();
+        for apex_label in base.iter_labels().rev() {
+            let qname_label = qname.next();
+            if Some(apex_label) != qname_label {
+                return Err(OutOfZone);
+            }
+        }
+        Ok(qname)
+    }
+}
