@@ -300,13 +300,8 @@ impl ZoneDiffBuilder {
     /// Note: No check is currently done that the start and end serials match
     /// the SOA records in the removed and added records contained within the
     /// diff.
-    pub fn build(self, start_serial: Serial, end_serial: Serial) -> ZoneDiff {
-        ZoneDiff {
-            start_serial,
-            end_serial,
-            added: Arc::new(self.added),
-            removed: Arc::new(self.removed),
-        }
+    pub fn build(self) -> Result<ZoneDiff, ZoneDiffError> {
+        ZoneDiff::new(self.added, self.removed)
     }
 }
 
@@ -328,6 +323,75 @@ pub struct ZoneDiff {
 
     /// The RRsets removed from the zone.
     pub removed: Arc<HashMap<(StoredName, Rtype), SharedRrset>>,
+}
+
+impl ZoneDiff {
+    /// Creates a new immutable zone diff.
+    ///
+    /// Returns `Err(ZoneDiffError::MissingStartSoa)` If the removed records
+    /// do not include a zone SOA.
+    ///
+    /// Returns `Err(ZoneDiffError::MissingEndSoa)` If the added records do
+    /// not include a zone SOA.
+    ///
+    /// Returns Ok otherwise.
+    fn new(
+        added: HashMap<(Name<Bytes>, Rtype), SharedRrset>,
+        removed: HashMap<(Name<Bytes>, Rtype), SharedRrset>,
+    ) -> Result<Self, ZoneDiffError> {
+        // Determine the old and new SOA serials by looking at the added and
+        // removed records.
+        let start_serial = removed
+            .iter()
+            .find_map(|((_, rtype), rrset)| {
+                if *rtype == Rtype::SOA {
+                    if let Some(ZoneRecordData::Soa(soa)) =
+                        rrset.data().first()
+                    {
+                        return Some(soa.serial());
+                    }
+                }
+                None
+            })
+            .ok_or(ZoneDiffError::MissingStartSoa)?;
+
+        let end_serial = added
+            .iter()
+            .find_map(|((_, rtype), rrset)| {
+                if *rtype == Rtype::SOA {
+                    if let Some(ZoneRecordData::Soa(soa)) =
+                        rrset.data().first()
+                    {
+                        return Some(soa.serial());
+                    }
+                }
+                None
+            })
+            .ok_or(ZoneDiffError::MissingEndSoa)?;
+
+        Ok(Self {
+            start_serial,
+            end_serial,
+            added: added.into(),
+            removed: removed.into(),
+        })
+    }
+}
+
+//------------ ZoneDiffError --------------------------------------------------
+
+/// Creating a [`ZoneDiff`] failed for some reason.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum ZoneDiffError {
+    /// Missing start SOA.
+    ///
+    /// A zone diff requires a starting SOA.
+    MissingStartSoa,
+
+    /// Missing end SOA.
+    ///
+    /// A zone diff requires a starting SOA.
+    MissingEndSoa,
 }
 
 //------------ ZoneUpdate -----------------------------------------------------

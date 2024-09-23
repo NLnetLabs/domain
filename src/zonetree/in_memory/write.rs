@@ -325,9 +325,13 @@ impl WritableZone for WriteZone {
                 self.add_soa_add_diff_entry(new_soa_rr, &mut diff);
 
             if old_serial.is_some() && new_serial.is_some() {
-                let old_serial = old_serial.unwrap();
-                let new_serial = new_serial.unwrap();
-                out_diff = Some(diff.build(old_serial, new_serial));
+                let Ok(zone_diff) = diff.build() else {
+                    return Box::pin(ready(Err(std::io::Error::new(
+                        ErrorKind::Other,
+                        "Diff lacks SOA records",
+                    ))));
+                };
+                out_diff = Some(zone_diff);
             }
         }
 
