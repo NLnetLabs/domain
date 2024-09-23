@@ -73,6 +73,8 @@ use crate::zonetree::StoredName;
 /// NOTIFY messages.
 ///
 /// See the [module documentation][super] for more information.
+///
+/// [RFC 1996]: https://www.rfc-editor.org/info/rfc1996
 #[derive(Clone, Debug)]
 pub struct NotifyMiddlewareSvc<RequestOctets, NextSvc, RequestMeta, N> {
     /// The upstream [`Service`] to pass requests to and receive responses
