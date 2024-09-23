@@ -524,11 +524,11 @@ impl WriteNode {
                 }
                 (false, true) => {
                     trace!("Diff detected: update of existing RRSET - recording addition of new RRSET {new_rrset:#?}");
-                diff.lock().unwrap().add(
-                    owner.clone(),
+                    diff.lock().unwrap().add(
+                        owner.clone(),
                         new_rrset.rtype(),
                         new_rrset.clone(),
-                );
+                    );
                 }
                 (false, false) => {
                     // NOOP
