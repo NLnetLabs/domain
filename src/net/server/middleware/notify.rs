@@ -91,6 +91,9 @@ impl<RequestOctets, NextSvc, RequestMeta, N>
     NotifyMiddlewareSvc<RequestOctets, NextSvc, RequestMeta, N>
 {
     /// Creates an instance of this middleware service.
+    ///
+    /// The given notify target must implement the [`Notifiable`] trait in
+    /// order to actually use this middleware with the target.
     #[must_use]
     pub fn new(next_svc: NextSvc, notify_target: N) -> Self {
         Self {
@@ -110,6 +113,10 @@ where
     NextSvc::Target: Composer + Default,
     N: Clone + Notifiable + Sync + Send,
 {
+    /// Pre-process received DNS NOTIFY queries.
+    ///
+    /// Other types of query will be propagated unmodified to the next
+    /// middleware or application service in the layered stack of services.
     async fn preprocess(
         req: &Request<RequestOctets, RequestMeta>,
         notify_target: N,
@@ -176,9 +183,9 @@ where
                     req.client_addr(),
                     q.qname()
                 );
-                ControlFlow::Break(Self::to_stream_compatible(
+                ControlFlow::Break(once(ready(Ok(CallResult::new(
                     mk_error_response(msg, OptRcode::NOTAUTH),
-                ))
+                )))))
             }
 
             Err(NotifyError::Other) => {
@@ -187,9 +194,9 @@ where
                     req.client_addr(),
                     q.qname()
                 );
-                ControlFlow::Break(Self::to_stream_compatible(
+                ControlFlow::Break(once(ready(Ok(CallResult::new(
                     mk_error_response(msg, OptRcode::SERVFAIL),
-                ))
+                )))))
             }
 
             Ok(()) => {
@@ -231,12 +238,10 @@ where
         }
     }
 
-    fn to_stream_compatible(
-        response: AdditionalBuilder<StreamTarget<NextSvc::Target>>,
-    ) -> Once<Ready<<NextSvc::Stream as Stream>::Item>> {
-        once(ready(Ok(CallResult::new(response))))
-    }
-
+    /// Is this message for us?
+    /// 
+    /// Returns `Some(Question)` if the given query uses OPCODE NOTIFY and has
+    /// a first question with a QTYPE of `SOA`, `None` otherwise.
     fn get_relevant_question(
         msg: &Message<RequestOctets>,
     ) -> Option<Question<ParsedName<RequestOctets::Range<'_>>>> {
@@ -251,6 +256,11 @@ where
         None
     }
 
+    /// Create a copy of the given message.
+    /// 
+    /// The copy will be returned as an [`AdditionalBuilder`] so that the
+    /// caller can further modify it before using it.
+    /// `
     // Based on RequestMessage::append_message_impl().
     fn copy_message(
         source: &Message<RequestOctets>,
