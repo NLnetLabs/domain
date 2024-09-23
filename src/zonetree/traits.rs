@@ -7,14 +7,17 @@
 //! </div>
 //!
 //! [`ZoneTree`]: super::ZoneTree
-use bytes::Bytes;
+use core::any::Any;
 use core::future::ready;
 use core::pin::Pin;
+
 use std::boxed::Box;
 use std::fmt::Debug;
 use std::future::Future;
 use std::io;
 use std::sync::Arc;
+
+use bytes::Bytes;
 
 use crate::base::iana::Class;
 use crate::base::name::Label;
@@ -22,8 +25,8 @@ use crate::base::{Name, Rtype};
 
 use super::answer::Answer;
 use super::error::OutOfZone;
-use super::types::{StoredName, ZoneCut};
-use super::{SharedRr, SharedRrset, WalkOp};
+use super::types::{ZoneCut, ZoneDiff};
+use super::{SharedRr, SharedRrset, StoredName, WalkOp};
 
 //------------ ZoneStore -----------------------------------------------------
 
@@ -33,7 +36,7 @@ use super::{SharedRr, SharedRrset, WalkOp};
 /// a particular backing store implementation.
 ///
 /// [`Zone`]: super::Zone
-pub trait ZoneStore: Debug + Sync + Send {
+pub trait ZoneStore: Debug + Sync + Send + Any {
     /// Returns the class of the zone.
     fn class(&self) -> Class;
 
@@ -46,7 +49,14 @@ pub trait ZoneStore: Debug + Sync + Send {
     /// Get a write interface to this store.
     fn write(
         self: Arc<Self>,
-    ) -> Pin<Box<dyn Future<Output = Box<dyn WritableZone>>>>;
+    ) -> Pin<
+        Box<
+            (dyn Future<Output = Box<(dyn WritableZone + 'static)>>
+                 + Send
+                 + Sync
+                 + 'static),
+        >,
+    >;
 }
 
 //------------ ReadableZone --------------------------------------------------
@@ -57,7 +67,7 @@ pub trait ZoneStore: Debug + Sync + Send {
 /// the [`ZoneStore`] backing storage for a [`Zone`].
 ///
 /// [`Zone`]: super::Zone
-pub trait ReadableZone: Send {
+pub trait ReadableZone: Send + Sync {
     /// Returns true if ths `_async` variants of the functions offered by this
     /// trait should be used by callers instead of the non-`_async`
     /// equivalents.
@@ -96,7 +106,8 @@ pub trait ReadableZone: Send {
         &self,
         qname: Name<Bytes>,
         qtype: Rtype,
-    ) -> Pin<Box<dyn Future<Output = Result<Answer, OutOfZone>> + Send>> {
+    ) -> Pin<Box<dyn Future<Output = Result<Answer, OutOfZone>> + Send + Sync>>
+    {
         Box::pin(ready(self.query(qname, qtype)))
     }
 
@@ -104,7 +115,7 @@ pub trait ReadableZone: Send {
     fn walk_async(
         &self,
         op: WalkOp,
-    ) -> Pin<Box<dyn Future<Output = ()> + Send>> {
+    ) -> Pin<Box<dyn Future<Output = ()> + Send + Sync>> {
         self.walk(op);
         Box::pin(ready(()))
     }
@@ -115,29 +126,40 @@ pub trait ReadableZone: Send {
 /// An asynchronous write interface to a [`Zone`].
 ///
 /// [`Zone`]: super::Zone
-pub trait WritableZone {
+pub trait WritableZone: Send + Sync {
     /// Start a write operation for the zone.
     #[allow(clippy::type_complexity)]
     fn open(
         &self,
+        create_diff: bool,
     ) -> Pin<
         Box<
-            dyn Future<Output = Result<Box<dyn WritableZoneNode>, io::Error>>,
+            dyn Future<Output = Result<Box<dyn WritableZoneNode>, io::Error>>
+                + Send
+                + Sync,
         >,
     >;
 
     /// Complete a write operation for the zone.
     ///
-    /// This function commits the changes accumulated since
-    /// [`WritableZone::open`] was invoked. Clients who obtain a
-    /// [`ReadableZone`] interface to this zone _before_ this function has
-    /// been called will not see any of the changes made since the last
-    /// commit. Only clients who obtain a [`ReadableZone`] _after_ invoking
-    /// this function will be able to see the changes made since
-    /// [`WritableZone::open`] was called. called.
+    /// This function commits the changes accumulated since [`open()`] was
+    /// invoked. Clients who obtain a [`ReadableZone`] interface to this zone
+    /// _before_ this function has been called will not see any of the changes
+    /// made since the last commit. Only clients who obtain a [`ReadableZone`]
+    /// _after_ invoking this function will be able to see the changes made
+    /// since [`open()`] was called.
+    ///
+    /// [`open()`]: Self::open
     fn commit(
         &mut self,
-    ) -> Pin<Box<dyn Future<Output = Result<(), io::Error>>>>;
+        bump_soa_serial: bool,
+    ) -> Pin<
+        Box<
+            dyn Future<Output = Result<Option<ZoneDiff>, io::Error>>
+                + Send
+                + Sync,
+        >,
+    >;
 }
 
 //------------ WritableZoneNode ----------------------------------------------
@@ -145,7 +167,7 @@ pub trait WritableZone {
 /// An asynchronous write interface to a particular node in a [`ZoneTree`].
 ///
 /// [`ZoneTree`]: super::ZoneTree
-pub trait WritableZoneNode {
+pub trait WritableZoneNode: Send + Sync {
     /// Get a write interface to a child node of this node.
     #[allow(clippy::type_complexity)]
     fn update_child(
@@ -153,7 +175,21 @@ pub trait WritableZoneNode {
         label: &Label,
     ) -> Pin<
         Box<
-            dyn Future<Output = Result<Box<dyn WritableZoneNode>, io::Error>>,
+            dyn Future<Output = Result<Box<dyn WritableZoneNode>, io::Error>>
+                + Send
+                + Sync,
+        >,
+    >;
+
+    /// Get an RRset of the given type at this node, if any.
+    fn get_rrset(
+        &self,
+        rtype: Rtype,
+    ) -> Pin<
+        Box<
+            dyn Future<Output = Result<Option<SharedRrset>, io::Error>>
+                + Send
+                + Sync,
         >,
     >;
 
@@ -161,13 +197,13 @@ pub trait WritableZoneNode {
     fn update_rrset(
         &self,
         rrset: SharedRrset,
-    ) -> Pin<Box<dyn Future<Output = Result<(), io::Error>>>>;
+    ) -> Pin<Box<dyn Future<Output = Result<(), io::Error>> + Send + Sync>>;
 
     /// Remove an RRset of the given type at this node, if any.
     fn remove_rrset(
         &self,
         rtype: Rtype,
-    ) -> Pin<Box<dyn Future<Output = Result<(), io::Error>>>>;
+    ) -> Pin<Box<dyn Future<Output = Result<(), io::Error>> + Send + Sync>>;
 
     /// Mark this node as a regular node.
     ///
@@ -175,7 +211,7 @@ pub trait WritableZoneNode {
     /// function will erase that data.
     fn make_regular(
         &self,
-    ) -> Pin<Box<dyn Future<Output = Result<(), io::Error>>>>;
+    ) -> Pin<Box<dyn Future<Output = Result<(), io::Error>> + Send + Sync>>;
 
     /// Mark this node as a zone cut.
     ///
@@ -183,7 +219,7 @@ pub trait WritableZoneNode {
     fn make_zone_cut(
         &self,
         cut: ZoneCut,
-    ) -> Pin<Box<dyn Future<Output = Result<(), io::Error>>>>;
+    ) -> Pin<Box<dyn Future<Output = Result<(), io::Error>> + Send + Sync>>;
 
     /// Mark this node as a CNAME.
     ///
@@ -191,5 +227,10 @@ pub trait WritableZoneNode {
     fn make_cname(
         &self,
         cname: SharedRr,
-    ) -> Pin<Box<dyn Future<Output = Result<(), io::Error>>>>;
+    ) -> Pin<Box<dyn Future<Output = Result<(), io::Error>> + Send + Sync>>;
+
+    /// Recursively make all content at and below this point appear to be removed.
+    fn remove_all(
+        &self,
+    ) -> Pin<Box<dyn Future<Output = Result<(), io::Error>> + Send + Sync>>;
 }

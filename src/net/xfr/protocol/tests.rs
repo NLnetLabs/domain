@@ -9,17 +9,17 @@ use crate::base::iana::Rcode;
 use crate::base::message_builder::{
     AnswerBuilder, AuthorityBuilder, QuestionBuilder,
 };
-use crate::base::net::Ipv4Addr;
+use crate::base::net::{Ipv4Addr, Ipv6Addr};
 use crate::base::rdata::ComposeRecordData;
 use crate::base::{
     Message, MessageBuilder, ParsedName, Record, Rtype, Serial, Ttl,
 };
 use crate::base::{Name, ToName};
-use crate::rdata::{Soa, ZoneRecordData, A};
+use crate::rdata::{Aaaa, Soa, ZoneRecordData, A};
 use crate::zonetree::types::{ZoneUpdate, ZoneUpdate as ZU};
 
 use super::interpreter::XfrResponseInterpreter;
-use super::types::{Error, IterationError, XfrRecord};
+use super::types::{Error, IterationError, ParsedRecord};
 
 #[test]
 fn non_xfr_response_is_rejected() {
@@ -112,7 +112,8 @@ fn incomplete_axfr_response_is_accepted() {
     // Process the response.
     let mut it = interpreter.interpret_response(resp).unwrap();
 
-    // Verify that no updates are by the XFR interpreter.
+    // Verify that no updates are output by the XFR interpreter.
+    assert_eq!(it.next(), Some(Ok(ZoneUpdate::DeleteAllRecords)));
     assert!(it.next().is_none());
 }
 
@@ -141,6 +142,7 @@ fn axfr_response_with_only_soas_is_accepted() {
     let mut it = interpreter.interpret_response(resp).unwrap();
 
     // Verify the updates emitted by the XFR interpreter.
+    assert_eq!(it.next(), Some(Ok(ZoneUpdate::DeleteAllRecords)));
     assert!(matches!(it.next(), Some(Ok(ZU::Finished(_)))));
     assert!(it.next().is_none());
 }
@@ -169,6 +171,7 @@ fn axfr_multi_response_with_only_soas_is_accepted() {
     let mut it = interpreter.interpret_response(resp).unwrap();
 
     // Verify the updates emitted by the XFR interpreter.
+    assert_eq!(it.next(), Some(Ok(ZoneUpdate::DeleteAllRecords)));
     assert!(it.next().is_none());
 
     // Create another AXFR response to complete the transfer.
@@ -200,7 +203,7 @@ fn axfr_response_generates_expected_updates() {
     let soa = mk_soa(serial);
     add_answer_record(&req, &mut answer, soa.clone());
     add_answer_record(&req, &mut answer, A::new(Ipv4Addr::LOCALHOST));
-    add_answer_record(&req, &mut answer, A::new(Ipv4Addr::BROADCAST));
+    add_answer_record(&req, &mut answer, Aaaa::new(Ipv6Addr::LOCALHOST));
     add_answer_record(&req, &mut answer, soa);
     let resp = answer.into_message();
 
@@ -208,10 +211,14 @@ fn axfr_response_generates_expected_updates() {
     let mut it = interpreter.interpret_response(resp).unwrap();
 
     // Verify the updates emitted by the XFR interpreter.
-    let s = serial;
-    assert!(matches!(it.next(), Some(Ok(ZU::AddRecord(n, _))) if n == s));
-    assert!(matches!(it.next(), Some(Ok(ZU::AddRecord(n, _))) if n == s));
-    assert!(matches!(it.next(), Some(Ok(ZU::Finished(_)))));
+    assert_eq!(it.next(), Some(Ok(ZoneUpdate::DeleteAllRecords)));
+    assert!(
+        matches!(it.next(), Some(Ok(ZoneUpdate::AddRecord(r))) if r.rtype() == Rtype::A)
+    );
+    assert!(
+        matches!(it.next(), Some(Ok(ZoneUpdate::AddRecord(r))) if r.rtype() == Rtype::AAAA)
+    );
+    assert!(matches!(it.next(), Some(Ok(ZoneUpdate::Finished(_)))));
     assert!(it.next().is_none());
 }
 
@@ -276,49 +283,38 @@ fn ixfr_response_generates_expected_updates() {
     // Verify the updates emitted by the XFR interpreter.
     let owner =
         ParsedName::<Bytes>::from(Name::from_str("example.com").unwrap());
-    let expected_updates: [Result<ZoneUpdate<XfrRecord>, IterationError>; 7] = [
+    let expected_updates: [Result<ZoneUpdate<ParsedRecord>, IterationError>;
+        7] = [
         Ok(ZoneUpdate::BeginBatchDelete(Record::from((
             owner.clone(),
             0,
             ZoneRecordData::Soa(expected_old_soa),
         )))),
-        Ok(ZoneUpdate::DeleteRecord(
-            old_serial,
-            Record::from((
-                owner.clone(),
-                0,
-                ZoneRecordData::A(A::new(Ipv4Addr::LOCALHOST)),
-            )),
-        )),
-        Ok(ZoneUpdate::DeleteRecord(
-            old_serial,
-            Record::from((
-                owner.clone(),
-                0,
-                ZoneRecordData::A(A::new(Ipv4Addr::BROADCAST)),
-            )),
-        )),
+        Ok(ZoneUpdate::DeleteRecord(Record::from((
+            owner.clone(),
+            0,
+            ZoneRecordData::A(A::new(Ipv4Addr::LOCALHOST)),
+        )))),
+        Ok(ZoneUpdate::DeleteRecord(Record::from((
+            owner.clone(),
+            0,
+            ZoneRecordData::A(A::new(Ipv4Addr::BROADCAST)),
+        )))),
         Ok(ZoneUpdate::BeginBatchAdd(Record::from((
             owner.clone(),
             0,
             ZoneRecordData::Soa(expected_new_soa.clone()),
         )))),
-        Ok(ZoneUpdate::AddRecord(
-            new_serial,
-            Record::from((
-                owner.clone(),
-                0,
-                ZoneRecordData::A(A::new(Ipv4Addr::BROADCAST)),
-            )),
-        )),
-        Ok(ZoneUpdate::AddRecord(
-            new_serial,
-            Record::from((
-                owner.clone(),
-                0,
-                ZoneRecordData::A(A::new(Ipv4Addr::LOCALHOST)),
-            )),
-        )),
+        Ok(ZoneUpdate::AddRecord(Record::from((
+            owner.clone(),
+            0,
+            ZoneRecordData::A(A::new(Ipv4Addr::BROADCAST)),
+        )))),
+        Ok(ZoneUpdate::AddRecord(Record::from((
+            owner.clone(),
+            0,
+            ZoneRecordData::A(A::new(Ipv4Addr::LOCALHOST)),
+        )))),
         Ok(ZoneUpdate::Finished(Record::from((
             owner.clone(),
             0,
