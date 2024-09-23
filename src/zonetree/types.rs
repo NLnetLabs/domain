@@ -7,6 +7,7 @@ use std::vec::Vec;
 
 use bytes::Bytes;
 use serde::{Deserialize, Serialize};
+use tracing::trace;
 
 use crate::base::name::Name;
 use crate::base::rdata::RecordData;
@@ -369,6 +370,15 @@ impl ZoneDiff {
             })
             .ok_or(ZoneDiffError::MissingEndSoa)?;
 
+        if start_serial == end_serial || end_serial < start_serial {
+            trace!("Diff construction error: serial {start_serial} -> serial {end_serial}:\nremoved: {removed:#?}\nadded: {added:#?}\n");
+            return Err(ZoneDiffError::InvalidSerialRange);
+        }
+
+        trace!(
+            "Built diff from serial {start_serial} to serial {end_serial}"
+        );
+
         Ok(Self {
             start_serial,
             end_serial,
@@ -392,6 +402,23 @@ pub enum ZoneDiffError {
     ///
     /// A zone diff requires a starting SOA.
     MissingEndSoa,
+
+    /// End SOA serial is equal to or less than the start SOA serial.
+    InvalidSerialRange,
+}
+
+//--- Display
+
+impl std::fmt::Display for ZoneDiffError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            ZoneDiffError::MissingStartSoa => f.write_str("MissingStartSoa"),
+            ZoneDiffError::MissingEndSoa => f.write_str("MissingEndSoa"),
+            ZoneDiffError::InvalidSerialRange => {
+                f.write_str("InvalidSerialRange")
+            }
+        }
+    }
 }
 
 //------------ ZoneUpdate -----------------------------------------------------
