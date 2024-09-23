@@ -441,7 +441,7 @@ impl WriteNode {
         Ok(node)
     }
 
-    fn update_rrset(&self, rrset: SharedRrset) -> Result<(), io::Error> {
+    fn update_rrset(&self, new_rrset: SharedRrset) -> Result<(), io::Error> {
         let rrsets = match self.node {
             Either::Right(ref apex) => apex.rrsets(),
             Either::Left(ref node) => node.rrsets(),
@@ -449,36 +449,94 @@ impl WriteNode {
 
         trace!("Updating RRset");
         if let Some((owner, diff)) = &self.diff {
-            let changed = if let Some(removed_rrset) =
-                rrsets.get(rrset.rtype(), self.zone.last_published_version())
+            let current_rrset = if let Some(current_rrset) = rrsets
+                .get(new_rrset.rtype(), self.zone.last_published_version())
             {
-                let changed = rrset != removed_rrset;
+                let changed = new_rrset != current_rrset;
 
-                if changed && !removed_rrset.is_empty() {
-                    trace!("Diff detected: update of existing RRSET - recording removal of the current RRSET: {removed_rrset:#?}");
-                    diff.lock().unwrap().remove(
-                        owner.clone(),
-                        rrset.rtype(),
-                        removed_rrset.clone(),
-                    );
+                if changed && !current_rrset.is_empty() {
+                    Some(current_rrset)
+                } else {
+                    None
                 }
-
-                changed
             } else {
-                true
+                None
             };
 
-            if changed && !rrset.is_empty() {
-                trace!("Diff detected: update of existing RRSET - recording addition of the new RRSET: {rrset:#?}");
+            match (current_rrset.is_some(), !new_rrset.is_empty()) {
+                (true, true) => {
+                    trace!("Diff detected: update of existing RRSET - recording change of RRSET from {current_rrset:?} to {new_rrset:#?}");
+
+                    // Check each resource record in the RRset being updated
+                    // to see if it is missing from the new RRSet.
+                    let new_rrs = new_rrset.as_rrset().data();
+                    let mut removed_rrs =
+                        Rrset::new(new_rrset.rtype(), new_rrset.ttl());
+                    for removed_rr in current_rrset
+                        .as_ref()
+                        .unwrap()
+                        .as_rrset()
+                        .data()
+                        .iter()
+                        .filter(|rr| !new_rrs.contains(rr))
+                    {
+                        removed_rrs.push_data(removed_rr.clone());
+                    }
+
+                    if !removed_rrs.is_empty() {
+                        diff.lock().unwrap().remove(
+                            owner.clone(),
+                            new_rrset.rtype(),
+                            SharedRrset::new(removed_rrs),
+                        );
+                    }
+
+                    // Check each resource record in the new RRset to see if
+                    // it is missing from the RRset being updated.
+                    let old_rrs =
+                        current_rrset.as_ref().unwrap().as_rrset().data();
+                    let mut added_rrs =
+                        Rrset::new(new_rrset.rtype(), new_rrset.ttl());
+                    for added_rr in new_rrset
+                        .as_rrset()
+                        .data()
+                        .iter()
+                        .filter(|rr| !old_rrs.contains(rr))
+                    {
+                        added_rrs.push_data(added_rr.clone());
+                    }
+
+                    if !added_rrs.is_empty() {
+                        diff.lock().unwrap().add(
+                            owner.clone(),
+                            new_rrset.rtype(),
+                            SharedRrset::new(added_rrs),
+                        );
+                    }
+                }
+                (true, false) => {
+                    trace!("Diff detected: update of existing RRSET - recording removal of the current RRSET {current_rrset:#?}");
+                    diff.lock().unwrap().remove(
+                        owner.clone(),
+                        new_rrset.rtype(),
+                        current_rrset.unwrap().clone(),
+                    );
+                }
+                (false, true) => {
+                    trace!("Diff detected: update of existing RRSET - recording addition of new RRSET {new_rrset:#?}");
                 diff.lock().unwrap().add(
                     owner.clone(),
-                    rrset.rtype(),
-                    rrset.clone(),
+                        new_rrset.rtype(),
+                        new_rrset.clone(),
                 );
+                }
+                (false, false) => {
+                    // NOOP
+                }
             }
         }
 
-        rrsets.update(rrset, self.zone.new_version);
+        rrsets.update(new_rrset, self.zone.new_version);
         self.check_nx_domain()?;
         Ok(())
     }
