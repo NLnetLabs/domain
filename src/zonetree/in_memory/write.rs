@@ -258,6 +258,7 @@ impl WritableZone for WriteZone {
 
         if let Ok(write_node) = &new_apex {
             *self.diff.lock().unwrap() = write_node.diff();
+            self.dirty.store(true, Ordering::SeqCst);
         }
 
         let res = new_apex
@@ -268,8 +269,6 @@ impl WritableZone for WriteZone {
                     format!("Open error: {err}"),
                 )
             });
-
-        self.dirty.store(true, Ordering::SeqCst);
 
         Box::pin(ready(res))
     }
