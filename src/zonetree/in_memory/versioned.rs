@@ -46,13 +46,17 @@ impl<T> Versioned<T> {
     }
 
     pub fn get(&self, version: Version) -> Option<&T> {
-        self.data.iter().rev().find_map(|item| {
+        let res = self.data.iter().rev().find_map(|item| {
             if item.0 <= version {
-                item.1.as_ref()
+                // Allow returning of empty values.
+                Some(item.1.as_ref())
             } else {
                 None
             }
-        })
+        });
+
+        // Flatten Some(None) to None for empty values.
+        res.flatten()
     }
 
     pub fn update(&mut self, version: Version, value: T) {
