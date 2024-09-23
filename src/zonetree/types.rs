@@ -7,6 +7,7 @@ use std::vec::Vec;
 
 use bytes::Bytes;
 use serde::{Deserialize, Serialize};
+use tracing::trace;
 
 use crate::base::name::Name;
 use crate::base::rdata::RecordData;
