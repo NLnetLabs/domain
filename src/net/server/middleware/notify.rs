@@ -239,7 +239,7 @@ where
     }
 
     /// Is this message for us?
-    /// 
+    ///
     /// Returns `Some(Question)` if the given query uses OPCODE NOTIFY and has
     /// a first question with a QTYPE of `SOA`, `None` otherwise.
     fn get_relevant_question(
@@ -257,7 +257,7 @@ where
     }
 
     /// Create a copy of the given message.
-    /// 
+    ///
     /// The copy will be returned as an [`AdditionalBuilder`] so that the
     /// caller can further modify it before using it.
     /// `
