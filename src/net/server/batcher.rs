@@ -22,17 +22,17 @@
 //!
 //! # Usage
 //!
-//! - `impl Callbacks` for a struct providing your own `batch_ready()` and
-//!   `record_pushed()` fn implementations.
+//! 1. `impl Callbacks` for a struct providing your own `batch_ready()` and
+//!    `record_pushed()` fn implementations.
 //!
-//! - Create an instance of `CallbackBatcher` generic over your `Callbacks`
-//!   impl type.
+//! 2. Create an instance of `CallbackBatcher` generic over your `Callbacks`
+//!    impl type.
 //!
-//! - Call `CallbackBatcher::push()` repeatedly until no more resource records
-//!   are left to push for the current response.
+//! 3. Call `CallbackBatcher::push()` repeatedly until no more resource
+//!    records are left to push for the current response.
 //!
-//! - Call `CallbackBatcher::finish()` to ensure that a last partial response
-//!   is also completely handled.
+//! 4. Call `CallbackBatcher::finish()` to ensure that a last partial response
+//!    is also completely handled.
 //!
 //! [RFC 1995]: https://www.rfc-editor.org/info/rfc1995
 //! [RFC 5936]: https://www.rfc-editor.org/info/rfc5936
