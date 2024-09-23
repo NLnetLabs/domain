@@ -257,11 +257,15 @@ impl NodeRrsets {
 
     /// Updates an RRset.
     pub fn update(&self, rrset: SharedRrset, version: Version) {
-        self.rrsets
-            .write()
-            .entry(rrset.rtype())
-            .or_default()
-            .update(rrset, version)
+        if rrset.is_empty() {
+            self.remove_rtype(rrset.rtype(), version);
+        } else {
+            self.rrsets
+                .write()
+                .entry(rrset.rtype())
+                .or_default()
+                .update(rrset, version);
+        }
     }
 
     /// Removes the RRset for the given type.
@@ -270,7 +274,7 @@ impl NodeRrsets {
             .write()
             .entry(rtype)
             .or_default()
-            .remove(version)
+            .remove(version);
     }
 
     pub fn rollback(&self, version: Version) {

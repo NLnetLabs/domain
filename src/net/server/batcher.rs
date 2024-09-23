@@ -1,5 +1,43 @@
-//! Resource record batching.
-
+//! Resource record batching for response stream splitting.
+//!
+//! Some DNS requests can result in very large responses that have to be split
+//! across multiple messages to be sent back to the client. This applies
+//! primarily, if not solely, to responses to AXFR ([RFC 5936]) and IXFR ([RFC
+//! 1995]) requests.
+//!
+//! For example RFC 5936 section 2.2 AXFR Response includes the following
+//! paragraph:
+//!
+//!    >  _"Each AXFR response message SHOULD contain a sufficient number of
+//!    >  RRs to reasonably amortize the per-message overhead, up to the
+//!    >  largest number that will fit within a DNS message (taking the
+//!    >  required content of the other sections into account, as described
+//!    >  below)."_
+//!
+//! This module defines a [ResourceRecordbatcher] trait and a
+//! [CallbackBatcher] implementation of the trait, which can split be used a
+//! stream of resource records into "batches" filling each DNS response
+//! message as much as possible one message at a time from a received stream
+//! of resource records.
+//!
+//! # Usage
+//!
+//! 1. `impl Callbacks` for a struct providing your own `batch_ready()` and
+//!    `record_pushed()` fn implementations.
+//!
+//! 2. Create an instance of `CallbackBatcher` generic over your `Callbacks`
+//!    impl type.
+//!
+//! 3. Call `CallbackBatcher::push()` repeatedly until no more resource
+//!    records are left to push for the current response.
+//!
+//! 4. Call `CallbackBatcher::finish()` to ensure that a last partial response
+//!    is also completely handled.
+//!
+//! [RFC 1995]: https://www.rfc-editor.org/info/rfc1995
+//! [RFC 5936]: https://www.rfc-editor.org/info/rfc5936
+//! [ResourceRecordBatcher]: ResourceRecordBatcher
+//! [CallbackBatcher]: CallbackBatcher  
 use core::marker::PhantomData;
 
 use std::fmt::Debug;
@@ -18,31 +56,49 @@ use super::util::mk_builder_for_target;
 
 //----------- PushResult ------------------------------------------------------
 
+/// The result of attempting to push a resource record into a
+/// [ResourceRecordBatcher].
 pub enum PushResult<Target> {
+    /// The resource record was successfully pushed and more will fit.
     PushedAndReadyForMore,
+
+    /// The resource record was successfully pushed and no more will fit.
     PushedAndLimitReached(AnswerBuilder<StreamTarget<Target>>),
+
+    /// The resource record was not pushed because the message is full.
     NotPushedMessageFull(AnswerBuilder<StreamTarget<Target>>),
+
+    /// The resource record was not pushed but trying again might work.
     Retry,
 }
 
 //------------ ResourceRecordBatcher ------------------------------------------
 
+/// An accumulator of resource records into one or more DNS responses.
 pub trait ResourceRecordBatcher<RequestOctets, Target>
 where
     RequestOctets: Octets,
     Target: Composer + Default,
 {
+    /// The type returned on error.
     type Error: From<PushError> + Debug;
 
+    /// Attempt to push a single resource record into a response message.
     #[allow(clippy::result_unit_err)]
     fn push(
         &mut self,
         record: impl ComposeRecord,
     ) -> Result<PushResult<Target>, Self::Error>;
 
+    /// Signal that the last resource record has been pushed for this response
+    /// sequence.
     #[allow(clippy::result_unit_err)]
     fn finish(&mut self) -> Result<(), Self::Error>;
 
+    /// Creates a new `AnswerBuilder` for the given request message.
+    ///
+    /// The default implementation sets the RCODE of the new builder to
+    /// `NOERROR`.
     fn mk_answer_builder(
         &self,
         msg: &Message<RequestOctets>,
@@ -54,11 +110,13 @@ where
 
 //------------ Callbacks ------------------------------------------------------
 
+/// A set of callback functions for use with [`CallbackBatcher`].
 pub trait Callbacks<RequestOctets, Target, T>
 where
     RequestOctets: Octets,
     Target: Composer + Default,
 {
+    /// The type returned on error.
     type Error: From<PushError> + Debug;
 
     /// Prepare a message builder to push records into.
@@ -92,15 +150,24 @@ where
 
 //------------ CallbackBatcher ------------------------------------------------
 
+/// A [`ResourceRecordBatcher`] impl that delegates work to callacks.
 pub struct CallbackBatcher<RequestOctets, Target, C, T>
 where
     RequestOctets: Octets,
     Target: Composer + Default,
     C: Callbacks<RequestOctets, Target, T>,
 {
+    /// The request message being responded to.
+    ///
+    /// Needed for constructing response messages.
     req_msg: Arc<Message<RequestOctets>>,
+
+    /// The current answer builder in use.
     answer: Option<Result<AnswerBuilder<StreamTarget<Target>>, PushError>>,
+
+    /// User defined callback specific state.
     callback_state: T,
+
     _phantom: PhantomData<C>,
 }
 
@@ -110,6 +177,13 @@ where
     Target: Composer + Default,
     C: Callbacks<RequestOctets, Target, T>,
 {
+    /// Creates a new instance for building responses to the given request.
+    ///
+    /// Delegates certain parts of the task to the callbacks supplied via
+    /// generic type `C` which must implement the [`Callbacks`] trait.
+    ///
+    /// Any state that should be forwarded to the callbacks can be provided
+    /// using the `callback_state` parameter.
     pub fn new(
         req_msg: Arc<Message<RequestOctets>>,
         callback_state: T,
@@ -122,6 +196,11 @@ where
         }
     }
 
+    /// Returns the callback specific state.
+    ///
+    /// This convenience method returns a reference to the callback specific
+    /// state that was supplied when the instance was created by calling
+    /// [`new()`][Self::new].
     pub fn callback_state(&self) -> &T {
         &self.callback_state
     }
@@ -133,6 +212,9 @@ where
     Target: Composer + Default,
     C: Callbacks<RequestOctets, Target, T>,
 {
+    /// Try and push a resource record into the current response.
+    ///
+    /// Invokes [`Callbacks::batch_ready()`] on success.
     fn try_push(
         &mut self,
         record: &impl ComposeRecord,
@@ -150,6 +232,10 @@ where
         }
     }
 
+    /// Push a resource record into the current response.
+    ///
+    /// Invokes [`Callbacks::batch_started()`] and
+    /// [`Callbacks::record_pushed()`] if appropriate.
     fn push_ref(
         &mut self,
         record: &impl ComposeRecord,
@@ -239,6 +325,7 @@ where
     Target: Composer + Default,
     C: Callbacks<RequestOctets, Target, T>,
 {
+    /// Notes via trace logging if an in-progress answer is dropped.
     fn drop(&mut self) {
         if self.answer.is_some() {
             trace!("Dropping unfinished batcher, was that intentional or did you forget to call finish()?");
