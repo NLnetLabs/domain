@@ -31,6 +31,7 @@
 
 use core::str::FromStr;
 
+use std::any::Any;
 use std::env::args;
 use std::fs::File;
 use std::future::pending;
@@ -310,8 +311,8 @@ impl ZoneStore for ArchiveZone {
         }
     }
 
-    fn as_any(&self) -> &dyn std::any::Any {
-        self as &dyn std::any::Any
+    fn as_any(&self) -> &dyn Any {
+        self as &dyn Any
     }
 }
 

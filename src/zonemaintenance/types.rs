@@ -16,7 +16,7 @@ use bytes::Bytes;
 use futures_util::FutureExt;
 use tokio::sync::{oneshot, Mutex};
 use tokio::time::{sleep_until, Instant, Sleep};
-use tracing::trace;
+use tracing::{enabled, trace, Level};
 
 use crate::base::iana::Class;
 use crate::base::net::IpAddr;
@@ -688,6 +688,8 @@ impl ZoneInfo {
         start_serial: Serial,
         end_serial: Serial,
     ) -> Vec<Arc<ZoneDiff>> {
+        trace!("Diffs from serial {start_serial} to serial {end_serial} requested.");
+
         let mut out_diffs = Vec::new();
         let mut serial = start_serial;
 
@@ -708,6 +710,9 @@ impl ZoneInfo {
             {
                 // Diff is for a serial that is too new, abort as we don't
                 // have the diff that the client needs.
+                if enabled!(Level::TRACE) {
+                    trace!("Diff is for a serial that is too new, aborting. Diffs available: {:?}", diffs.keys());
+                }
                 return vec![];
             } else if key.start_serial() == end_serial {
                 // We found the last diff that the client needs.
@@ -716,6 +721,10 @@ impl ZoneInfo {
 
             out_diffs.push(diff.clone());
             serial = key.to_serial();
+        }
+
+        if out_diffs.is_empty() && enabled!(Level::TRACE) {
+            trace!("No diffs found. Diffs available: {:?}", diffs.keys());
         }
 
         out_diffs

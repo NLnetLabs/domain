@@ -240,11 +240,7 @@ where
         let time_tracking = Arc::new(RwLock::new(time_tracking));
 
         for zone in self.zones().iter_zones() {
-            let cat_zone = zone
-                .as_ref()
-                .as_any()
-                .downcast_ref::<MaintainedZone>()
-                .unwrap();
+            let cat_zone: &MaintainedZone = zone.into();
 
             let zone_config = &cat_zone.info().config;
 
@@ -377,11 +373,7 @@ where
 
                             let zones = self.zones();
                             if let Some(zone) = self.pending_zones.read().await.get(&key).or_else(|| zones.get_zone(&key.0, key.1)) {
-                                let cat_zone = zone
-                                .as_ref()
-                                .as_any()
-                                .downcast_ref::<MaintainedZone>()
-                                .unwrap();
+                                let cat_zone: &MaintainedZone = zone.into();
 
                                 let zone_info = cat_zone.info().clone();
 
@@ -437,11 +429,7 @@ where
 
                         // Make sure it's still a secondary and hasn't been
                         // deleted and re-added as a primary.
-                        let cat_zone = zone
-                            .as_ref()
-                            .as_any()
-                            .downcast_ref::<MaintainedZone>()
-                            .unwrap();
+                        let cat_zone: &MaintainedZone = zone.into();
 
                         if cat_zone.info().config.is_secondary() {
                             // If successful this will commit changes to the
@@ -636,11 +624,7 @@ where
         notify: &NotifySrcDstConfig,
         config: Arc<ArcSwap<Config<KS, CF>>>,
     ) {
-        let cat_zone = zone
-            .as_ref()
-            .as_any()
-            .downcast_ref::<MaintainedZone>()
-            .unwrap();
+        let cat_zone: &MaintainedZone = zone.into();
 
         let zone_info = cat_zone.info();
 
@@ -751,11 +735,7 @@ where
         zone: &Zone,
         time_tracking: Arc<RwLock<HashMap<ZoneKey, ZoneRefreshState>>>,
     ) -> Result<Option<Ttl>, ()> {
-        let cat_zone = zone
-            .as_ref()
-            .as_any()
-            .downcast_ref::<MaintainedZone>()
-            .unwrap();
+        let cat_zone: &MaintainedZone = zone.into();
 
         if !cat_zone.info().config.is_secondary() {
             // TODO: log this? dbg_assert()?
@@ -869,11 +849,7 @@ where
                 return;
             };
 
-        let cat_zone = zone
-            .as_ref()
-            .as_any()
-            .downcast_ref::<MaintainedZone>()
-            .unwrap();
+        let cat_zone: &MaintainedZone = zone.into();
 
         // Are we the primary for the zone? We don't accept external
         // notifications for updates to a zone that we are authoritative for.
@@ -1099,11 +1075,7 @@ where
                         );
 
                     if zone_refresh_info.is_expired(time_of_last_soa_check) {
-                        let cat_zone = zone
-                            .as_ref()
-                            .as_any()
-                            .downcast_ref::<MaintainedZone>()
-                            .unwrap();
+                        let cat_zone: &MaintainedZone = zone.into();
 
                         trace!(
                             "Marking zone '{}' as expired",
@@ -1191,11 +1163,7 @@ where
         }
 
         // Determine which strategy to use if the zone has multiple primaries
-        let cat_zone = zone
-            .as_ref()
-            .as_any()
-            .downcast_ref::<MaintainedZone>()
-            .unwrap();
+        let cat_zone: &MaintainedZone = zone.into();
 
         let ZoneConfig {
             multi_primary_xfr_strategy,
@@ -1479,9 +1447,7 @@ where
         };
 
         let mut xfr_interpreter = XfrResponseInterpreter::new();
-        let mut zone_updater = ZoneUpdater::new(zone.clone())
-            .await
-            .map_err(ZoneMaintainerError::IoError)?;
+        let mut zone_updater = ZoneUpdater::new(zone.clone()).await?;
 
         match transport {
             TransportStrategy::None => unreachable!(),
@@ -1603,16 +1569,13 @@ where
                     trace!("Processing XFR events");
 
                     for update in it {
-                        let evt = update.map_err(|_err| {
+                        let update = update.map_err(|_err| {
                             ZoneMaintainerError::ProcessingError(
                                 crate::net::xfr::protocol::Error::Malformed,
                             )
                         })?;
 
-                        zone_updater
-                            .apply(evt)
-                            .await
-                            .map_err(ZoneMaintainerError::ZoneUpdateError)?;
+                        zone_updater.apply(update).await?;
                     }
 
                     trace!("Processing XFR events complete");
@@ -1808,11 +1771,7 @@ where
             trace!("Source IP {source} is NOT on the ACL for the zone.");
         }
 
-        let cat_zone = zone
-            .as_ref()
-            .as_any()
-            .downcast_ref::<MaintainedZone>()
-            .unwrap();
+        let cat_zone: &MaintainedZone = zone.into();
 
         if !cat_zone.info().config.discover_notify_set {
             return false;
@@ -1866,11 +1825,7 @@ where
     }
 
     async fn update_known_nameservers_for_zone(zone: &Zone) {
-        let cat_zone = zone
-            .as_ref()
-            .as_any()
-            .downcast_ref::<MaintainedZone>()
-            .unwrap();
+        let cat_zone: &MaintainedZone = zone.into();
 
         if cat_zone.info().config.discover_notify_set {
             if let Ok(nameservers) = Self::identify_nameservers(zone).await {
@@ -2003,11 +1958,7 @@ where
         let zones = self.zones();
 
         if let Some(zone) = zones.get_zone(apex_name, class) {
-            let cat_zone = zone
-                .as_ref()
-                .as_any()
-                .downcast_ref::<MaintainedZone>()
-                .unwrap();
+            let cat_zone: &MaintainedZone = zone.into();
 
             if cat_zone.is_active() {
                 return Ok(Some(zone.clone()));
@@ -2031,11 +1982,7 @@ where
         let zones = self.zones();
 
         if let Some(zone) = zones.find_zone(qname, class) {
-            let cat_zone = zone
-                .as_ref()
-                .as_any()
-                .downcast_ref::<MaintainedZone>()
-                .unwrap();
+            let cat_zone: &MaintainedZone = zone.into();
 
             if cat_zone.is_active() {
                 return Ok(Some(zone.clone()));
@@ -2163,11 +2110,7 @@ where
 
             match zone_res {
                 Ok(Some(zone)) => {
-                    let cat_zone = zone
-                        .as_ref()
-                        .as_any()
-                        .downcast_ref::<MaintainedZone>()
-                        .unwrap();
+                    let cat_zone: &MaintainedZone = (&zone).into();
 
                     let zone_info = cat_zone.info();
 
@@ -2241,11 +2184,7 @@ where
 
             match zone_res {
                 Ok(Some(zone)) => {
-                    let cat_zone = zone
-                        .as_ref()
-                        .as_any()
-                        .downcast_ref::<MaintainedZone>()
-                        .unwrap();
+                    let cat_zone: &MaintainedZone = (&zone).into();
 
                     let zone_info = cat_zone.info();
 
@@ -2431,6 +2370,12 @@ impl ZoneStore for MaintainedZone {
     }
 }
 
+impl<'a> From<&'a Zone> for &'a MaintainedZone {
+    fn from(zone: &'a Zone) -> Self {
+        zone.as_ref().as_any().downcast_ref().unwrap()
+    }
+}
+
 //------------ WritableCatalogZone -------------------------------------------
 
 struct WritableMaintainedZone {
@@ -2472,6 +2417,8 @@ impl WritableZone for WritableMaintainedZone {
                     if let Some(diff) = &diff {
                         trace!("Captured diff: {diff:#?}");
                         cat_zone.info().add_diff(diff.clone()).await;
+                    } else {
+                        trace!("No diff captured");
                     }
 
                     let msg = ZoneChangedMsg {
@@ -2505,7 +2452,7 @@ pub enum ZoneMaintainerError {
     IxfrResponseTooLargeForUdp,
     IncompleteResponse,
     ProcessingError(crate::net::xfr::protocol::Error),
-    ZoneUpdateError(std::io::Error),
+    ZoneUpdateError(crate::zonetree::update::Error),
 }
 
 //--- Display
@@ -2551,7 +2498,7 @@ impl Display for ZoneMaintainerError {
     }
 }
 
-//--- From request::Error
+//--- From
 
 impl From<request::Error> for ZoneMaintainerError {
     fn from(err: request::Error) -> Self {
@@ -2559,11 +2506,15 @@ impl From<request::Error> for ZoneMaintainerError {
     }
 }
 
-//--- From io::Error
-
 impl From<io::Error> for ZoneMaintainerError {
     fn from(err: io::Error) -> Self {
         Self::IoError(err)
+    }
+}
+
+impl From<crate::zonetree::update::Error> for ZoneMaintainerError {
+    fn from(err: crate::zonetree::update::Error) -> Self {
+        Self::ZoneUpdateError(err)
     }
 }
 

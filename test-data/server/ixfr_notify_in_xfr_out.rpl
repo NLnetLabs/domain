@@ -178,14 +178,12 @@ SECTION ANSWER
     JAIN.AD.JP.         IN  SOA  NS.JAIN.AD.JP. mohta.jain.ad.jp. (1 600 600 3600000 604800)
     NEZU.JAIN.AD.JP.    IN  A    133.69.136.5
     JAIN.AD.JP.         IN  SOA  NS.JAIN.AD.JP. mohta.jain.ad.jp. (2 600 600 3600000 604800)
-    JAIN-BB.JAIN.AD.JP. IN  A    192.41.197.2
     JAIN-BB.JAIN.AD.JP. IN  A    133.69.136.4
+    JAIN-BB.JAIN.AD.JP. IN  A    192.41.197.2
     JAIN.AD.JP.         IN  SOA  NS.JAIN.AD.JP. mohta.jain.ad.jp. (2 600 600 3600000 604800)
-    JAIN-BB.JAIN.AD.JP. IN  A    192.41.197.2 ; NOTE: Adding this RR is pointless as it is removed below. The server implementation currently can't do better than this however.
     JAIN-BB.JAIN.AD.JP. IN  A    133.69.136.4
     JAIN.AD.JP.         IN  SOA  NS.JAIN.AD.JP. mohta.jain.ad.jp. (3 600 600 3600000 604800)
     JAIN-BB.JAIN.AD.JP. IN  A    133.69.136.3
-    JAIN-BB.JAIN.AD.JP. IN  A    192.41.197.2 ; NOTE: This is where the pointlessly added RR is removed.
     JAIN.AD.JP.         IN  SOA  NS.JAIN.AD.JP. mohta.jain.ad.jp. (3 600 600 3600000 604800)
 ENTRY_END
 

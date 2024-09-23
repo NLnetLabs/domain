@@ -6,7 +6,6 @@ use core::sync::atomic::Ordering;
 
 use std::boxed::Box;
 use std::future::Future;
-use std::io::ErrorKind;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::sync::Mutex;
@@ -17,7 +16,7 @@ use std::{fmt, io};
 use futures_util::future::Either;
 use parking_lot::RwLock;
 use tokio::sync::OwnedMutexGuard;
-use tracing::trace;
+use tracing::{trace, warn};
 
 use crate::base::iana::Rtype;
 use crate::base::name::Label;
@@ -271,6 +270,8 @@ impl WritableZone for WriteZone {
                 )
             });
 
+        self.dirty.store(true, Ordering::SeqCst);
+
         Box::pin(ready(res))
     }
 
@@ -326,13 +327,13 @@ impl WritableZone for WriteZone {
                 self.add_soa_add_diff_entry(new_soa_rr, &mut diff);
 
             if old_serial.is_some() && new_serial.is_some() {
-                let Ok(zone_diff) = diff.build() else {
-                    return Box::pin(ready(Err(std::io::Error::new(
-                        ErrorKind::Other,
-                        "Diff lacks SOA records",
-                    ))));
+                out_diff = match diff.build() {
+                    Ok(zone_diff) => Some(zone_diff),
+                    Err(err) => {
+                        warn!("Error constructing diff: {err}");
+                        None
+                    }
                 };
-                out_diff = Some(zone_diff);
             }
         }
 
@@ -538,6 +539,8 @@ impl WriteNode {
 
         rrsets.update(new_rrset, self.zone.new_version);
         self.check_nx_domain()?;
+
+        trace!("update_rrset: post node dump:\n{:#?}", self.node);
         Ok(())
     }
 
