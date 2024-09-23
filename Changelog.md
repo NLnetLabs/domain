@@ -56,6 +56,16 @@ Unstable features
     errors instead of logging and ignoring them. ([#362])
   * Allow both glue (A/AAAA) and zone cuts at the same owner when zone
     parsing. ([#363])
+* `unstable-zonetree`:
+  * Added `ZoneUpdate`. ([#375])
+  * Added `ZoneUpdater`, `ZoneDiffBuilder` and `ZoneDiff` and improved
+    `ZoneUpdate`. ([#376])
+  * Removed / renamed references to `clean` in `zonetree::in_memory` to
+    `remove`. ([#376])
+  * Altered the logic in `Versioned::remove_all()` (formerly
+    `Versioned::clean()`) as it made destructive changes to the zone that
+    would have impacted readers of the current zone version while the new zone
+    version was being created. ([#376])
 
 Other changes
 
@@ -77,6 +87,7 @@ Other changes
 [#373]: https://github.com/NLnetLabs/domain/pull/373
 [#374]: https://github.com/NLnetLabs/domain/pull/374
 [#375]: https://github.com/NLnetLabs/domain/pull/375
+[#376]: https://github.com/NLnetLabs/domain/pull/376
 [#377]: https://github.com/NLnetLabs/domain/pull/377
 [#380]: https://github.com/NLnetLabs/domain/pull/380
 [@dklbreitling]: https://github.com/dklbreitling
