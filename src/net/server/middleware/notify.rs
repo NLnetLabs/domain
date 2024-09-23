@@ -1,4 +1,44 @@
-//! DNS NOTIFY related message processing.
+//! RFC 1996 DNS NOTIFY related message processing.
+//!
+//! Quoting [RFC 1996], DNS NOTIFY is the mechanism _"by which a master server
+//! advises a set of slave servers that the master's data has been changed and
+//! that a query should be initiated to discover the new data."_
+//!
+//! The middleware service requires an implementation of the [`Notifiable`]
+//! trait to which it forwards received notifications, referred to as the
+//! notify target from here on.
+//!
+//! The middleware service is intended to be used by "slave" implementations
+//! and provides a thin layer around receiving and responding to DNS NOTIFY
+//! messages, extracting the key data and making it available to the notify
+//! target.
+//!
+//! No actual handling of the received data is done by this module. In
+//! particular the following parts of RFC 1996 are NOT implemented and instead
+//! are left to the notify target to handle:
+//!
+//! - Messages with non-zero values in fields not described by RFC 1996 are
+//!   NOT ignored by this middleware. (RFC 1996 section 3.2)
+//!
+//! - This module does NOT _"query its masters"_ or initiate XFR transfers.
+//!   (RFC 1996 section 3.11)
+//!
+//! - Any "unsecure hint" contained in the answer section is ignored by this
+//!   middleware and is NOT passed to the notify target. (RFC 1996 section
+//!   3.7)
+//!
+//! - NOTIFY requests received from unknown masters are NOT ignored or logged
+//!   as this middleware has no knowledge of the known masters. (RFC 1996
+//!   section 3.10)
+//!
+//! - No defering of _"action on any subsequent NOTIFY with the same <QNAME,
+//!   QCLASS, QTYPE> until it has completed the transcation begun by the first
+//!   NOTIFY"_ is done by this middleware, as it has no knowledge of whether
+//!   the notify target begins or completes a transaction. (RFC 1996 section
+//!   4.4)
+//!
+//! [RFC 1996]: https://www.rfc-editor.org/info/rfc1996
+
 use core::future::{ready, Future, Ready};
 use core::marker::PhantomData;
 use core::ops::ControlFlow;
@@ -29,13 +69,10 @@ use crate::zonetree::StoredName;
 
 /// A DNS NOTIFY middleware service.
 ///
-/// Standards covered by ths implementation:
+/// [NotifyMiddlewareSvc] implements an [RFC 1996] compliant recipient of DNS
+/// NOTIFY messages.
 ///
-/// | RFC    | Status  |
-/// |--------|---------|
-/// | [1996] | TBD     |
-///
-/// [1996]: https://datatracker.ietf.org/doc/html/rfc1996
+/// See the [module documentation][super] for more information.
 #[derive(Clone, Debug)]
 pub struct NotifyMiddlewareSvc<RequestOctets, NextSvc, RequestMeta, N> {
     /// The upstream [`Service`] to pass requests to and receive responses
