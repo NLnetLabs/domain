@@ -1644,7 +1644,7 @@ JAIN-BB.JAIN.AD.JP. IN A   192.41.197.2
         rrset.push_data(A::new(p("192.41.197.2")).into());
         diff.add(n("JAIN-BB.JAIN.AD.JP"), Rtype::A, SharedRrset::new(rrset));
 
-        diffs.push(diff.build(Serial(1), Serial(2)));
+        diffs.push(diff.build().unwrap());
 
         // Diff 2: One of the IP addresses of JAIN-BB.JAIN.AD.JP. is changed.
         let mut diff = ZoneDiffBuilder::new();
@@ -1691,7 +1691,7 @@ JAIN-BB.JAIN.AD.JP. IN A   192.41.197.2
         rrset.push_data(A::new(p("133.69.136.3")).into());
         diff.add(n("JAIN-BB.JAIN.AD.JP"), Rtype::A, SharedRrset::new(rrset));
 
-        diffs.push(diff.build(Serial(2), Serial(3)));
+        diffs.push(diff.build().unwrap());
 
         // Create an object that knows how to provide zone and diff data for
         // our zone and diffs.
