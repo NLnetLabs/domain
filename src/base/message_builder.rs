@@ -43,22 +43,22 @@
 //! and makes sure the message doesn’t become longer than what the counter
 //! can provide for.
 //!
-//! Two further types, [`TreeCompressor`] and [`StaticCompressor`], provide
-//! name compression. This is a mechanism to decrease the size of a DNS
-//! message by avoiding repeating domain names: Instead of including a domain
-//! name or suffix of a domain name that has been mentioned already, a pointer
-//! to the position of the original mention is provided. Since this process is
-//! somewhat expensive as you have to remember which names have already been
-//! used, it isn’t enabled by default and provided via separate octets
-//! builders instead which we call compressors.
+//! There is also support for name compression. This is a mechanism to decrease
+//! the size of a DNS message by avoiding repeating domain names: Instead of
+//! including a domain name or suffix of a domain name that has been mentioned
+//! already, a pointer to the position of the original mention is provided.
+//! Since this process is somewhat expensive as you have to remember which names
+//! have already been used, it isn’t enabled by default and is instead provided
+//! by separate octets builders which we call compressors.
 //!
-//! Currently, there are two different compressors. [`TreeCompressor`] stores
+//! Currently, there are three different compressors. [`TreeCompressor`] stores
 //! all names it encountered in a binary tree. While it can handle any number
 //! of names, it does require an allocator and therefore cannot be used in a
-//! `no_std` environment. [`StaticCompressor`], meanwhile, has a static table
-//! for up to 24 names. It is thus becoming ineffective on large messages
-//! with lots of different names. However, 24 should be good enough for most
-//! normal messages.
+//! `no_std` environment. [`HashCompressor`] also requires allocation, but uses
+//! a fast and space efficient hash table (via the `hashbrown` crate) instead.
+//! [`StaticCompressor`], meanwhile, has a static table for up to 24 names. It
+//! is ineffective on large messages with lots of different names, but this is
+//! quite rare anyway.
 //!
 //! # Example
 //!
