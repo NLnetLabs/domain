@@ -224,8 +224,8 @@ pub struct ZoneUpdater {
     /// a new write state opened.
     write: ReopenableZoneWriter,
 
-    /// Whether or not we entered an IXFR-like batching mode.
-    batching: bool,
+    /// The current state of the updater.
+    state: ZoneUpdaterState,
 }
 
 impl ZoneUpdater {
@@ -245,7 +245,7 @@ impl ZoneUpdater {
             Ok(Self {
                 zone,
                 write,
-                batching: false,
+                state: Default::default(),
             })
         })
     }
@@ -268,7 +268,12 @@ impl ZoneUpdater {
         &mut self,
         update: ZoneUpdate<ParsedRecord>,
     ) -> Result<Option<ZoneDiff>, Error> {
-        trace!("Event: {update}");
+        trace!("Update: {update}");
+
+        if self.state == ZoneUpdaterState::Finished {
+            return Err(Error::Finished);
+        }
+
         match update {
             ZoneUpdate::DeleteAllRecords => {
                 // To completely replace the content of the zone, i.e. with
@@ -294,19 +299,13 @@ impl ZoneUpdater {
             // Batch deletion signals the start of a batch, and the end of any
             // batch addition that was in progress.
             ZoneUpdate::BeginBatchDelete(_old_soa) => {
-                let diff = if self.batching {
-                    // Commit the previous batch.
-                    let diff = self.write.commit().await?;
+                // Commit the previous batch.
+                let diff = self.write.commit().await?;
 
-                    // Open a writer for the new batch.
-                    self.write.reopen().await?;
+                // Open a writer for the new batch.
+                self.write.reopen().await?;
 
-                    diff
-                } else {
-                    None
-                };
-
-                self.batching = true;
+                self.state = ZoneUpdaterState::Batching;
 
                 return Ok(diff);
             }
@@ -314,7 +313,7 @@ impl ZoneUpdater {
             ZoneUpdate::BeginBatchAdd(new_soa) => {
                 // Update the SOA record.
                 self.update_soa(new_soa).await?;
-                self.batching = true;
+                self.state = ZoneUpdaterState::Batching;
             }
 
             ZoneUpdate::Finished(zone_soa) => {
@@ -322,11 +321,24 @@ impl ZoneUpdater {
                 self.update_soa(zone_soa).await?;
 
                 // Commit the previous batch and return any diff produced.
-                return self.write.commit().await;
+                let diff = self.write.commit().await?;
+
+                // Close this updater
+                self.write.close()?;
+                self.state = ZoneUpdaterState::Finished;
+
+                return Ok(diff);
             }
         }
 
         Ok(None)
+    }
+
+    /// Has zone updating finished?
+    ///
+    /// If true, further calls to [`apply()`] will fail.
+    pub fn is_finished(&self) -> bool {
+        self.state == ZoneUpdaterState::Finished
     }
 }
 
@@ -417,7 +429,11 @@ impl ZoneUpdater {
         }
 
         // Replace the RRset in the tree with the new smaller one.
-        tree_node.update_rrset(SharedRrset::new(rrset)).await?;
+        if rrset.is_empty() {
+            tree_node.remove_rrset(rrset.rtype()).await?;
+        } else {
+            tree_node.update_rrset(SharedRrset::new(rrset)).await?;
+        }
 
         Ok(())
     }
@@ -455,7 +471,27 @@ impl ZoneUpdater {
     }
 }
 
-//------------ MultiVersionWriteHandle ----------------------------------------
+//------------ ZoneUpdaterState -----------------------------------------------
+
+/// The current state of a [`ZoneUpdater`].
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
+enum ZoneUpdaterState {
+    #[default]
+    Normal,
+
+    /// IXFR-like batching mode.
+    Batching,
+
+    /// Finished.
+    ///
+    /// [`ZoneUpdate::Finished`] was encountered.
+    ///
+    /// The [`ZoneUpdater`] has closed the [`WritableZone`] and can no longer
+    /// be used.
+    Finished,
+}
+
+//------------ ReopenableZoneWriter -------------------------------------------
 
 /// State for writing multiple zone versions in sequence.
 ///
@@ -466,7 +502,7 @@ impl ZoneUpdater {
 /// can be re-opened to write the next version of the zone.
 struct ReopenableZoneWriter {
     /// A write interface to a zone.
-    write: Box<dyn WritableZone>,
+    write: Option<Box<dyn WritableZone>>,
 
     /// A write interface to the root node of a zone for a particular zone
     /// version.
@@ -478,6 +514,7 @@ impl ReopenableZoneWriter {
     async fn new(zone: Zone) -> std::io::Result<Self> {
         let write = zone.write().await;
         let writable = Some(write.open(true).await?);
+        let write = Some(write);
         Ok(Self { write, writable })
     }
 
@@ -491,7 +528,12 @@ impl ReopenableZoneWriter {
             // diff (otherwise commit() will panic).
             drop(writable);
 
-            let diff = self.write.commit(false).await?;
+            let diff = self
+                .write
+                .as_mut()
+                .ok_or(Error::Finished)?
+                .commit(false)
+                .await?;
 
             Ok(diff)
         } else {
@@ -503,7 +545,20 @@ impl ReopenableZoneWriter {
     ///
     /// Call [`commit()`][Self::commit] before calling this method.
     async fn reopen(&mut self) -> Result<(), Error> {
-        self.writable = Some(self.write.open(true).await?);
+        self.writable = Some(
+            self.write
+                .as_mut()
+                .ok_or(Error::Finished)?
+                .open(true)
+                .await?,
+        );
+        Ok(())
+    }
+
+    /// Close all write state, if not closed already.
+    fn close(&mut self) -> Result<(), Error> {
+        self.writable.take();
+        self.write.take().ok_or(Error::Finished)?;
         Ok(())
     }
 
@@ -550,6 +605,10 @@ impl ReopenableZoneWriter {
 #[cfg(test)]
 mod tests {
     use core::str::FromStr;
+    use core::sync::atomic::{AtomicUsize, Ordering};
+
+    use std::sync::Arc;
+    use std::vec::Vec;
 
     use bytes::BytesMut;
     use octseq::Octets;
@@ -562,35 +621,157 @@ mod tests {
         Message, MessageBuilder, Name, ParsedName, Record, Serial, Ttl,
     };
     use crate::net::xfr::protocol::XfrResponseInterpreter;
-    use crate::rdata::{Soa, A};
+    use crate::rdata::{Ns, Soa, A};
     use crate::zonetree::ZoneBuilder;
 
     use super::*;
 
     #[tokio::test]
-    async fn simple_test() {
+    async fn write_soa_read_soa() {
         init_logging();
 
         let zone = mk_empty_zone("example.com");
 
         let mut updater = ZoneUpdater::new(zone.clone()).await.unwrap();
 
+        let qname = Name::from_str("example.com").unwrap();
+
         let s = Serial::now();
         let soa = mk_soa(s);
-        let soa = ZoneRecordData::Soa(soa);
-        let soa = Record::new(
-            ParsedName::from(Name::from_str("example.com").unwrap()),
+        let soa_data = ZoneRecordData::Soa(soa.clone());
+        let soa_rec = Record::new(
+            ParsedName::from(qname.clone()),
             Class::IN,
             Ttl::from_secs(0),
-            soa,
+            soa_data,
         );
 
         updater
-            .apply(ZoneUpdate::AddRecord(soa.clone()))
+            .apply(ZoneUpdate::AddRecord(soa_rec.clone()))
             .await
             .unwrap();
 
-        updater.apply(ZoneUpdate::Finished(soa)).await.unwrap();
+        let diff = updater
+            .apply(ZoneUpdate::Finished(soa_rec.clone()))
+            .await
+            .unwrap();
+
+        let query = MessageBuilder::new_vec();
+        let mut query = query.question();
+        query.push((qname.clone(), Rtype::SOA)).unwrap();
+        let message: Message<Vec<u8>> = query.into();
+
+        let builder = MessageBuilder::new_bytes();
+        let answer: Message<Bytes> = zone
+            .read()
+            .query(qname, Rtype::SOA)
+            .unwrap()
+            .to_message(&message, builder)
+            .into();
+
+        let found_soa_rec = answer
+            .answer()
+            .unwrap()
+            .limit_to::<Soa<_>>()
+            .next()
+            .unwrap()
+            .unwrap()
+            .into_data();
+
+        assert_eq!(found_soa_rec, soa);
+
+        // No diff because there is no prior SOA serial
+        assert!(diff.is_none());
+    }
+
+    #[tokio::test]
+    async fn diff_check() {
+        init_logging();
+
+        let zone = mk_empty_zone("example.com");
+
+        let mut updater = ZoneUpdater::new(zone.clone()).await.unwrap();
+
+        let qname = Name::from_str("example.com").unwrap();
+
+        let s = Serial(20240922);
+        let soa = mk_soa(s);
+        let soa_data = ZoneRecordData::Soa(soa.clone());
+        let soa_rec = Record::new(
+            ParsedName::from(qname.clone()),
+            Class::IN,
+            Ttl::from_secs(0),
+            soa_data,
+        );
+
+        updater
+            .apply(ZoneUpdate::AddRecord(soa_rec.clone()))
+            .await
+            .unwrap();
+
+        let diff = updater
+            .apply(ZoneUpdate::Finished(soa_rec.clone()))
+            .await
+            .unwrap();
+
+        // No diff because there is no prior SOA serial
+        assert!(diff.is_none());
+
+        let soa = mk_soa(s.add(1));
+        let soa_data = ZoneRecordData::Soa(soa.clone());
+        let soa_rec = Record::new(
+            ParsedName::from(qname.clone()),
+            Class::IN,
+            Ttl::from_secs(0),
+            soa_data,
+        );
+
+        assert!(updater.is_finished());
+
+        let res = updater.apply(ZoneUpdate::AddRecord(soa_rec.clone())).await;
+        assert!(matches!(res, Err(crate::zonetree::update::Error::Finished)));
+
+        let mut updater = ZoneUpdater::new(zone.clone()).await.unwrap();
+
+        updater
+            .apply(ZoneUpdate::AddRecord(soa_rec.clone()))
+            .await
+            .unwrap();
+
+        let diff = updater
+            .apply(ZoneUpdate::Finished(soa_rec.clone()))
+            .await
+            .unwrap();
+
+        let query = MessageBuilder::new_vec();
+        let mut query = query.question();
+        query.push((qname.clone(), Rtype::SOA)).unwrap();
+        let message: Message<Vec<u8>> = query.into();
+
+        let builder = MessageBuilder::new_bytes();
+        let answer: Message<Bytes> = zone
+            .read()
+            .query(qname, Rtype::SOA)
+            .unwrap()
+            .to_message(&message, builder)
+            .into();
+
+        let found_soa_rec = answer
+            .answer()
+            .unwrap()
+            .limit_to::<Soa<_>>()
+            .next()
+            .unwrap()
+            .unwrap()
+            .into_data();
+
+        assert_eq!(found_soa_rec, soa);
+
+        assert!(diff.is_some());
+        let diff = diff.unwrap();
+
+        assert_eq!(diff.start_serial, Serial(20240922));
+        assert_eq!(diff.end_serial, Serial(20240923));
     }
 
     #[tokio::test]
@@ -612,9 +793,11 @@ mod tests {
         let serial = Serial::now();
         let soa = mk_soa(serial);
         add_answer_record(&req, &mut answer, soa.clone());
-        add_answer_record(&req, &mut answer, A::new(Ipv4Addr::LOCALHOST));
-        add_answer_record(&req, &mut answer, A::new(Ipv4Addr::BROADCAST));
-        add_answer_record(&req, &mut answer, soa);
+        let a_1 = A::new(Ipv4Addr::LOCALHOST);
+        add_answer_record(&req, &mut answer, a_1.clone());
+        let a_2 = A::new(Ipv4Addr::BROADCAST);
+        add_answer_record(&req, &mut answer, a_2.clone());
+        add_answer_record(&req, &mut answer, soa.clone());
         let resp = answer.into_message();
 
         // Process the response.
@@ -625,7 +808,429 @@ mod tests {
             updater.apply(update).await.unwrap();
         }
 
-        dbg!(zone);
+        // --------------------------------------------------------------------
+        // Check the contents of the constructed zone.
+        // --------------------------------------------------------------------
+
+        // example.com   SOA
+        let query = MessageBuilder::new_vec();
+        let mut query = query.question();
+        let qname = Name::from_str("example.com").unwrap();
+        query.push((qname.clone(), Rtype::SOA)).unwrap();
+        let message: Message<Vec<u8>> = query.into();
+
+        let builder = MessageBuilder::new_bytes();
+        let answer: Message<Bytes> = zone
+            .read()
+            .query(qname, Rtype::SOA)
+            .unwrap()
+            .to_message(&message, builder)
+            .into();
+
+        let mut answers = answer.answer().unwrap().limit_to::<Soa<_>>();
+        assert_eq!(answers.next().unwrap().unwrap().into_data(), soa);
+        assert_eq!(answers.next(), None);
+
+        // example.   A
+        let query = MessageBuilder::new_vec();
+        let mut query = query.question();
+        let qname = Name::from_str("example.com").unwrap();
+        query.push((qname.clone(), Rtype::A)).unwrap();
+        let message: Message<Vec<u8>> = query.into();
+
+        let builder = MessageBuilder::new_bytes();
+        let answer: Message<Bytes> = zone
+            .read()
+            .query(qname, Rtype::A)
+            .unwrap()
+            .to_message(&message, builder)
+            .into();
+
+        let mut answers = answer.answer().unwrap().limit_to::<A>();
+        assert_eq!(answers.next().unwrap().unwrap().into_data(), a_2);
+        assert_eq!(answers.next().unwrap().unwrap().into_data(), a_1);
+        assert_eq!(answers.next(), None);
+    }
+
+    #[tokio::test]
+    async fn rfc_1995_ixfr_example() {
+        fn mk_rfc_1995_ixfr_example_soa(
+            serial: u32,
+        ) -> Record<ParsedName<Bytes>, ZoneRecordData<Bytes, ParsedName<Bytes>>>
+        {
+            Record::new(
+                ParsedName::from(Name::from_str("JAIN.AD.JP.").unwrap()),
+                Class::IN,
+                Ttl::from_secs(0),
+                Soa::new(
+                    ParsedName::from(
+                        Name::from_str("NS.JAIN.AD.JP.").unwrap(),
+                    ),
+                    ParsedName::from(
+                        Name::from_str("mohta.jain.ad.jp.").unwrap(),
+                    ),
+                    Serial(serial),
+                    Ttl::from_secs(600),
+                    Ttl::from_secs(600),
+                    Ttl::from_secs(3600000),
+                    Ttl::from_secs(604800),
+                )
+                .into(),
+            )
+        }
+
+        init_logging();
+
+        // --------------------------------------------------------------------
+        // Construct a zone according to the example in RFC 1995 section 7.
+        // --------------------------------------------------------------------
+
+        // https://datatracker.ietf.org/doc/html/rfc1995#section-7
+        // 7. Example
+        //    "Given the following three generations of data with the current
+        //     serial number of 3,"
+        let zone = mk_empty_zone("JAIN.AD.JP.");
+
+        let mut updater = ZoneUpdater::new(zone.clone()).await.unwrap();
+        //    JAIN.AD.JP.         IN SOA NS.JAIN.AD.JP. mohta.jain.ad.jp. (
+        //                                      1 600 600 3600000 604800)
+        let soa_1 = mk_rfc_1995_ixfr_example_soa(1);
+        updater
+            .apply(ZoneUpdate::AddRecord(soa_1.clone()))
+            .await
+            .unwrap();
+
+        //                        IN NS  NS.JAIN.AD.JP.
+        let ns_1 = Record::new(
+            ParsedName::from(Name::from_str("JAIN.AD.JP.").unwrap()),
+            Class::IN,
+            Ttl::from_secs(0),
+            Ns::new(ParsedName::from(
+                Name::from_str("NS.JAIN.AD.JP.").unwrap(),
+            ))
+            .into(),
+        );
+        updater
+            .apply(ZoneUpdate::AddRecord(ns_1.clone()))
+            .await
+            .unwrap();
+
+        //    NS.JAIN.AD.JP.      IN A   133.69.136.1
+        let a_1 = Record::new(
+            ParsedName::from(Name::from_str("NS.JAIN.AD.JP.").unwrap()),
+            Class::IN,
+            Ttl::from_secs(0),
+            A::new(Ipv4Addr::new(133, 69, 136, 1)).into(),
+        );
+        updater
+            .apply(ZoneUpdate::AddRecord(a_1.clone()))
+            .await
+            .unwrap();
+
+        //    NEZU.JAIN.AD.JP.    IN A   133.69.136.5
+        let nezu = Record::new(
+            ParsedName::from(Name::from_str("NEZU.JAIN.AD.JP.").unwrap()),
+            Class::IN,
+            Ttl::from_secs(0),
+            A::new(Ipv4Addr::new(133, 69, 136, 5)).into(),
+        );
+        updater
+            .apply(ZoneUpdate::AddRecord(nezu.clone()))
+            .await
+            .unwrap();
+
+        //    "NEZU.JAIN.AD.JP. is removed and JAIN-BB.JAIN.AD.JP. is added."
+        let diff_1 = updater
+            .apply(ZoneUpdate::BeginBatchDelete(soa_1.clone()))
+            .await
+            .unwrap();
+        updater
+            .apply(ZoneUpdate::DeleteRecord(nezu.clone()))
+            .await
+            .unwrap();
+        let soa_2 = mk_rfc_1995_ixfr_example_soa(2);
+        updater
+            .apply(ZoneUpdate::BeginBatchAdd(soa_2.clone()))
+            .await
+            .unwrap();
+        let a_2 = Record::new(
+            ParsedName::from(Name::from_str("JAIN-BB.JAIN.AD.JP.").unwrap()),
+            Class::IN,
+            Ttl::from_secs(0),
+            A::new(Ipv4Addr::new(133, 69, 136, 4)).into(),
+        );
+        updater
+            .apply(ZoneUpdate::AddRecord(a_2.clone()))
+            .await
+            .unwrap();
+        let a_3 = Record::new(
+            ParsedName::from(Name::from_str("JAIN-BB.JAIN.AD.JP.").unwrap()),
+            Class::IN,
+            Ttl::from_secs(0),
+            A::new(Ipv4Addr::new(192, 41, 197, 2)).into(),
+        );
+        updater
+            .apply(ZoneUpdate::AddRecord(a_3.clone()))
+            .await
+            .unwrap();
+
+        // //    "One of the IP addresses of JAIN-BB.JAIN.AD.JP. is changed."
+        let diff_2 = updater
+            .apply(ZoneUpdate::BeginBatchDelete(soa_2.clone()))
+            .await
+            .unwrap();
+        updater
+            .apply(ZoneUpdate::DeleteRecord(a_2.clone()))
+            .await
+            .unwrap();
+        let soa_3 = mk_rfc_1995_ixfr_example_soa(3);
+        updater
+            .apply(ZoneUpdate::BeginBatchAdd(soa_3.clone()))
+            .await
+            .unwrap();
+        let a_4 = Record::new(
+            ParsedName::from(Name::from_str("JAIN-BB.JAIN.AD.JP.").unwrap()),
+            Class::IN,
+            Ttl::from_secs(0),
+            A::new(Ipv4Addr::new(133, 69, 136, 3)).into(),
+        );
+        updater
+            .apply(ZoneUpdate::AddRecord(a_4.clone()))
+            .await
+            .unwrap();
+
+        let diff_3 = updater
+            .apply(ZoneUpdate::Finished(soa_3.clone()))
+            .await
+            .unwrap();
+
+        // --------------------------------------------------------------------
+        // Check the contents of the constructed zone.
+        // --------------------------------------------------------------------
+
+        let count = Arc::new(AtomicUsize::new(0));
+        let cloned_count = count.clone();
+        zone.read().walk(Box::new(move |_name, _rrset| {
+            cloned_count.fetch_add(1, Ordering::SeqCst);
+        }));
+
+        assert_eq!(count.load(Ordering::SeqCst), 4);
+
+        // JAIN.AD.JP.   SOA
+        let query = MessageBuilder::new_vec();
+        let mut query = query.question();
+        let qname = Name::from_str("JAIN.AD.JP.").unwrap();
+        query.push((qname.clone(), Rtype::SOA)).unwrap();
+        let message: Message<Vec<u8>> = query.into();
+
+        let builder = MessageBuilder::new_bytes();
+        let answer: Message<Bytes> = zone
+            .read()
+            .query(qname, Rtype::SOA)
+            .unwrap()
+            .to_message(&message, builder)
+            .into();
+
+        let mut answers =
+            answer.answer().unwrap().limit_to::<ZoneRecordData<_, _>>();
+        assert_eq!(answers.next().unwrap().unwrap(), soa_3);
+        assert_eq!(answers.next(), None);
+
+        // JAIN.AD.JP.   NS
+        let query = MessageBuilder::new_vec();
+        let mut query = query.question();
+        let qname = Name::from_str("JAIN.AD.JP.").unwrap();
+        query.push((qname.clone(), Rtype::NS)).unwrap();
+        let message: Message<Vec<u8>> = query.into();
+
+        let builder = MessageBuilder::new_bytes();
+        let answer: Message<Bytes> = zone
+            .read()
+            .query(qname, Rtype::NS)
+            .unwrap()
+            .to_message(&message, builder)
+            .into();
+
+        let mut answers =
+            answer.answer().unwrap().limit_to::<ZoneRecordData<_, _>>();
+        assert_eq!(answers.next().unwrap().unwrap(), ns_1);
+        assert_eq!(answers.next(), None);
+
+        // NS.JAIN.AD.JP.   A
+        let query = MessageBuilder::new_vec();
+        let mut query = query.question();
+        let qname = Name::from_str("NS.JAIN.AD.JP.").unwrap();
+        query.push((qname.clone(), Rtype::A)).unwrap();
+        let message: Message<Vec<u8>> = query.into();
+
+        let builder = MessageBuilder::new_bytes();
+        let answer: Message<Bytes> = zone
+            .read()
+            .query(qname, Rtype::A)
+            .unwrap()
+            .to_message(&message, builder)
+            .into();
+
+        let mut answers =
+            answer.answer().unwrap().limit_to::<ZoneRecordData<_, _>>();
+        assert_eq!(answers.next().unwrap().unwrap(), a_1);
+        assert_eq!(answers.next(), None);
+
+        // JAIN-BB.JAIN.AD.JP.   A
+        let query = MessageBuilder::new_vec();
+        let mut query = query.question();
+        let qname = Name::from_str("JAIN-BB.JAIN.AD.JP.").unwrap();
+        query.push((qname.clone(), Rtype::A)).unwrap();
+        let message: Message<Vec<u8>> = query.into();
+
+        let builder = MessageBuilder::new_bytes();
+        let answer: Message<Bytes> = zone
+            .read()
+            .query(qname, Rtype::A)
+            .unwrap()
+            .to_message(&message, builder)
+            .into();
+
+        let mut answers =
+            answer.answer().unwrap().limit_to::<ZoneRecordData<_, _>>();
+        assert_eq!(answers.next().unwrap().unwrap(), a_4);
+        assert_eq!(answers.next().unwrap().unwrap(), a_3);
+        assert_eq!(answers.next(), None);
+
+        //    "or with the following incremental message:"
+
+        // --------------------------------------------------------------------
+        // Check the contents of diff 1:
+        // --------------------------------------------------------------------
+
+        // No prior SOA so no diff.
+        assert!(diff_1.is_none());
+
+        // --------------------------------------------------------------------
+        // Check the contents of diff 2:
+        // --------------------------------------------------------------------
+
+        // Diff from SOA serial 1 to SOA serial 2
+        assert!(diff_2.is_some());
+        let diff_2 = diff_2.unwrap();
+        assert_eq!(diff_2.start_serial, Serial(1));
+        assert_eq!(diff_2.end_serial, Serial(2));
+
+        // Removed: SOA and one A record at NEZU.JAIN.AD.JP.
+        assert_eq!(diff_2.removed.len(), 2);
+        let mut expected = vec![nezu.into_data()];
+        let mut actual = diff_2
+            .removed
+            .get(&(Name::from_str("NEZU.JAIN.AD.JP.").unwrap(), Rtype::A))
+            .unwrap()
+            .data()
+            .to_vec();
+        expected.sort();
+        actual.sort();
+        assert_eq!(expected, actual);
+
+        // Added: SOA and two A records at JAIN-BB.JAIN.AD.JP.
+        assert_eq!(diff_2.added.len(), 2);
+        let mut expected = vec![a_2.clone().into_data(), a_3.into_data()];
+        let mut actual = diff_2
+            .added
+            .get(&(Name::from_str("JAIN-BB.JAIN.AD.JP.").unwrap(), Rtype::A))
+            .unwrap()
+            .data()
+            .to_vec();
+        expected.sort();
+        actual.sort();
+        assert_eq!(expected, actual);
+
+        // --------------------------------------------------------------------
+        // Check the contents of diff 3:
+        // --------------------------------------------------------------------
+
+        // Diff from SOA serial 2 to SOA serial 3
+        assert!(diff_3.is_some());
+        let diff_3 = diff_3.unwrap();
+        assert_eq!(diff_3.start_serial, Serial(2));
+        assert_eq!(diff_3.end_serial, Serial(3));
+
+        // Removed: SOA and one A record at JAIN-BB.JAIN.AD.JP.
+        assert_eq!(diff_3.removed.len(), 2);
+        let mut expected = vec![a_2.into_data()];
+        let mut actual = diff_3
+            .removed
+            .get(&(Name::from_str("JAIN-BB.JAIN.AD.JP.").unwrap(), Rtype::A))
+            .unwrap()
+            .data()
+            .to_vec();
+        expected.sort();
+        actual.sort();
+        assert_eq!(expected, actual);
+
+        // Added: SOA and one A record at JAIN-BB.JAIN.AD.JP.
+        assert_eq!(diff_3.added.len(), 2);
+        let mut expected = vec![a_4.into_data()];
+        let mut actual = diff_3
+            .added
+            .get(&(Name::from_str("JAIN-BB.JAIN.AD.JP.").unwrap(), Rtype::A))
+            .unwrap()
+            .data()
+            .to_vec();
+        expected.sort();
+        actual.sort();
+        assert_eq!(expected, actual);
+    }
+
+    #[tokio::test]
+    async fn check_rollback() {
+        init_logging();
+
+        let zone = mk_empty_zone("example.com");
+
+        let mut updater = ZoneUpdater::new(zone.clone()).await.unwrap();
+
+        // Create an AXFR request to reply to.
+        let req = mk_request("example.com", Rtype::AXFR).into_message();
+
+        // Create an XFR response interpreter.
+        let mut interpreter = XfrResponseInterpreter::new();
+
+        // Create an AXFR response.
+        let mut answer = mk_empty_answer(&req, Rcode::NOERROR);
+        let serial = Serial::now();
+        let soa = mk_soa(serial);
+        add_answer_record(&req, &mut answer, soa.clone());
+        let a_1 = A::new(Ipv4Addr::LOCALHOST);
+        add_answer_record(&req, &mut answer, a_1.clone());
+        let a_2 = A::new(Ipv4Addr::BROADCAST);
+        add_answer_record(&req, &mut answer, a_2.clone());
+        add_answer_record(&req, &mut answer, soa.clone());
+        let resp = answer.into_message();
+
+        // Process the response.
+        let it = interpreter.interpret_response(resp).unwrap();
+
+        for update in it {
+            let update = update.unwrap();
+            // Don't pass ZoneUpdate::Finished to ZoneUpdater thereby preventing
+            // it from commiting the changes to the zone.
+            if !matches!(update, ZoneUpdate::Finished(_)) {
+                updater.apply(update).await.unwrap();
+            }
+        }
+
+        // Drop the ZoneUpdater to show that it definitely doesn't commit.
+        drop(updater);
+
+        // --------------------------------------------------------------------
+        // Check the contents of the constructed zone.
+        // --------------------------------------------------------------------
+
+        let count = Arc::new(AtomicUsize::new(0));
+        let cloned_count = count.clone();
+        zone.read().walk(Box::new(move |_name, _rrset| {
+            cloned_count.fetch_add(1, Ordering::SeqCst);
+        }));
+
+        assert_eq!(count.load(Ordering::SeqCst), 0);
     }
 
     //------------ Helper functions -------------------------------------------
@@ -697,6 +1302,9 @@ pub enum Error {
 
     /// An I/O error occurred while updating the zone.
     IoError(std::io::Error),
+
+    /// The updater has finished and cannot be used anymore.
+    Finished,
 }
 
 //--- From

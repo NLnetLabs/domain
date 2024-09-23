@@ -1,8 +1,12 @@
 //! Write access to in-memory zones.
 
 use core::future::ready;
+use core::sync::atomic::AtomicBool;
+use core::sync::atomic::Ordering;
+
 use std::boxed::Box;
 use std::future::Future;
+use std::io::ErrorKind;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::sync::Mutex;
@@ -18,6 +22,7 @@ use tracing::trace;
 use crate::base::iana::Rtype;
 use crate::base::name::Label;
 use crate::base::{NameBuilder, Serial};
+use crate::rdata::ZoneRecordData;
 use crate::zonetree::types::{ZoneCut, ZoneDiff, ZoneDiffBuilder};
 use crate::zonetree::StoredName;
 use crate::zonetree::{Rrset, SharedRr};
@@ -25,7 +30,6 @@ use crate::zonetree::{SharedRrset, WritableZone, WritableZoneNode};
 
 use super::nodes::{Special, ZoneApex, ZoneNode};
 use super::versioned::{Version, VersionMarker};
-use crate::rdata::ZoneRecordData;
 
 //------------ WriteZone -----------------------------------------------------
 
@@ -75,6 +79,13 @@ pub struct WriteZone {
     /// which also needs to be able to add and remove things from the same
     /// diff collection.
     diff: Arc<Mutex<Option<Arc<Mutex<ZoneDiffBuilder>>>>>,
+
+    /// The zone is dirty if changes have been made but not yet committed.
+    ///
+    /// This flag is set when a zone is opened for editing, and cleared when
+    /// it is committed. If not cleared, on drop any changes made will be
+    /// rolled back.
+    dirty: Arc<AtomicBool>,
 }
 
 impl WriteZone {
@@ -90,6 +101,7 @@ impl WriteZone {
             new_version,
             published_versions,
             diff: Default::default(),
+            dirty: Default::default(),
         }
     }
 
@@ -199,6 +211,8 @@ impl WriteZone {
 
         // Start the next version.
         self.new_version = self.new_version.next();
+
+        self.dirty.store(false, Ordering::SeqCst);
     }
 }
 
@@ -212,6 +226,7 @@ impl Clone for WriteZone {
             new_version: self.new_version,
             published_versions: self.published_versions.clone(),
             diff: self.diff.clone(),
+            dirty: Default::default(),
         }
     }
 }
@@ -220,7 +235,9 @@ impl Clone for WriteZone {
 
 impl Drop for WriteZone {
     fn drop(&mut self) {
-        self.apex.rollback(self.new_version);
+        if self.dirty.swap(false, Ordering::SeqCst) {
+            self.apex.rollback(self.new_version);
+        }
     }
 }
 
@@ -242,6 +259,7 @@ impl WritableZone for WriteZone {
 
         if let Ok(write_node) = &new_apex {
             *self.diff.lock().unwrap() = write_node.diff();
+            self.dirty.store(true, Ordering::SeqCst);
         }
 
         let res = new_apex
@@ -288,10 +306,8 @@ impl WritableZone for WriteZone {
         let old_soa_rr = self.apex.get_soa(self.last_published_version());
         let new_soa_rr = self.apex.get_soa(self.new_version);
 
-        let mut soa_serial_bumped = false;
         if bump_soa_serial && old_soa_rr.is_some() && new_soa_rr.is_none() {
             self.bump_soa_serial(&old_soa_rr);
-            soa_serial_bumped = true;
         }
 
         // Extract (and finish) the created diff, if any.
@@ -303,18 +319,20 @@ impl WritableZone for WriteZone {
             let mut diff = Mutex::into_inner(diff).unwrap();
 
             // Generate a diff entry for the update of the SOA record
-            if soa_serial_bumped {
-                let old_serial =
-                    self.add_soa_remove_diff_entry(old_soa_rr, &mut diff);
+            let old_serial =
+                self.add_soa_remove_diff_entry(old_soa_rr, &mut diff);
 
-                let new_serial =
-                    self.add_soa_add_diff_entry(new_soa_rr, &mut diff);
+            let new_serial =
+                self.add_soa_add_diff_entry(new_soa_rr, &mut diff);
 
-                if old_serial.is_some() && new_serial.is_some() {
-                    let old_serial = old_serial.unwrap();
-                    let new_serial = new_serial.unwrap();
-                    out_diff = Some(diff.build(old_serial, new_serial));
-                }
+            if old_serial.is_some() && new_serial.is_some() {
+                let Ok(zone_diff) = diff.build() else {
+                    return Box::pin(ready(Err(std::io::Error::new(
+                        ErrorKind::Other,
+                        "Diff lacks SOA records",
+                    ))));
+                };
+                out_diff = Some(zone_diff);
             }
         }
 
@@ -423,7 +441,7 @@ impl WriteNode {
         Ok(node)
     }
 
-    fn update_rrset(&self, rrset: SharedRrset) -> Result<(), io::Error> {
+    fn update_rrset(&self, new_rrset: SharedRrset) -> Result<(), io::Error> {
         let rrsets = match self.node {
             Either::Right(ref apex) => apex.rrsets(),
             Either::Left(ref node) => node.rrsets(),
@@ -431,36 +449,94 @@ impl WriteNode {
 
         trace!("Updating RRset");
         if let Some((owner, diff)) = &self.diff {
-            let changed = if let Some(removed_rrset) =
-                rrsets.get(rrset.rtype(), self.zone.last_published_version())
+            let current_rrset = if let Some(current_rrset) = rrsets
+                .get(new_rrset.rtype(), self.zone.last_published_version())
             {
-                let changed = rrset != removed_rrset;
+                let changed = new_rrset != current_rrset;
 
-                if changed && !removed_rrset.is_empty() {
-                    trace!("Diff detected: update of existing RRSET - recording removal of the current RRSET: {removed_rrset:#?}");
-                    diff.lock().unwrap().remove(
-                        owner.clone(),
-                        rrset.rtype(),
-                        removed_rrset.clone(),
-                    );
+                if changed && !current_rrset.is_empty() {
+                    Some(current_rrset)
+                } else {
+                    None
                 }
-
-                changed
             } else {
-                true
+                None
             };
 
-            if changed && !rrset.is_empty() {
-                trace!("Diff detected: update of existing RRSET - recording addition of the new RRSET: {rrset:#?}");
-                diff.lock().unwrap().add(
-                    owner.clone(),
-                    rrset.rtype(),
-                    rrset.clone(),
-                );
+            match (current_rrset.is_some(), !new_rrset.is_empty()) {
+                (true, true) => {
+                    trace!("Diff detected: update of existing RRSET - recording change of RRSET from {current_rrset:?} to {new_rrset:#?}");
+
+                    // Check each resource record in the RRset being updated
+                    // to see if it is missing from the new RRSet.
+                    let new_rrs = new_rrset.as_rrset().data();
+                    let mut removed_rrs =
+                        Rrset::new(new_rrset.rtype(), new_rrset.ttl());
+                    for removed_rr in current_rrset
+                        .as_ref()
+                        .unwrap()
+                        .as_rrset()
+                        .data()
+                        .iter()
+                        .filter(|rr| !new_rrs.contains(rr))
+                    {
+                        removed_rrs.push_data(removed_rr.clone());
+                    }
+
+                    if !removed_rrs.is_empty() {
+                        diff.lock().unwrap().remove(
+                            owner.clone(),
+                            new_rrset.rtype(),
+                            SharedRrset::new(removed_rrs),
+                        );
+                    }
+
+                    // Check each resource record in the new RRset to see if
+                    // it is missing from the RRset being updated.
+                    let old_rrs =
+                        current_rrset.as_ref().unwrap().as_rrset().data();
+                    let mut added_rrs =
+                        Rrset::new(new_rrset.rtype(), new_rrset.ttl());
+                    for added_rr in new_rrset
+                        .as_rrset()
+                        .data()
+                        .iter()
+                        .filter(|rr| !old_rrs.contains(rr))
+                    {
+                        added_rrs.push_data(added_rr.clone());
+                    }
+
+                    if !added_rrs.is_empty() {
+                        diff.lock().unwrap().add(
+                            owner.clone(),
+                            new_rrset.rtype(),
+                            SharedRrset::new(added_rrs),
+                        );
+                    }
+                }
+                (true, false) => {
+                    trace!("Diff detected: update of existing RRSET - recording removal of the current RRSET {current_rrset:#?}");
+                    diff.lock().unwrap().remove(
+                        owner.clone(),
+                        new_rrset.rtype(),
+                        current_rrset.unwrap().clone(),
+                    );
+                }
+                (false, true) => {
+                    trace!("Diff detected: update of existing RRSET - recording addition of new RRSET {new_rrset:#?}");
+                    diff.lock().unwrap().add(
+                        owner.clone(),
+                        new_rrset.rtype(),
+                        new_rrset.clone(),
+                    );
+                }
+                (false, false) => {
+                    // NOOP
+                }
             }
         }
 
-        rrsets.update(rrset, self.zone.new_version);
+        rrsets.update(new_rrset, self.zone.new_version);
         self.check_nx_domain()?;
         Ok(())
     }

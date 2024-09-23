@@ -1,4 +1,44 @@
-//! DNS NOTIFY related message processing.
+//! RFC 1996 DNS NOTIFY related message processing.
+//!
+//! Quoting [RFC 1996], DNS NOTIFY is the mechanism _"by which a master server
+//! advises a set of slave servers that the master's data has been changed and
+//! that a query should be initiated to discover the new data."_
+//!
+//! The middleware service requires an implementation of the [`Notifiable`]
+//! trait to which it forwards received notifications, referred to as the
+//! notify target from here on.
+//!
+//! The middleware service is intended to be used by "slave" implementations
+//! and provides a thin layer around receiving and responding to DNS NOTIFY
+//! messages, extracting the key data and making it available to the notify
+//! target.
+//!
+//! No actual handling of the received data is done by this module. In
+//! particular the following parts of RFC 1996 are NOT implemented and instead
+//! are left to the notify target to handle:
+//!
+//! - Messages with non-zero values in fields not described by RFC 1996 are
+//!   NOT ignored by this middleware. (RFC 1996 section 3.2)
+//!
+//! - This module does NOT _"query its masters"_ or initiate XFR transfers.
+//!   (RFC 1996 section 3.11)
+//!
+//! - Any "unsecure hint" contained in the answer section is ignored by this
+//!   middleware and is NOT passed to the notify target. (RFC 1996 section
+//!   3.7)
+//!
+//! - NOTIFY requests received from unknown masters are NOT ignored or logged
+//!   as this middleware has no knowledge of the known masters. (RFC 1996
+//!   section 3.10)
+//!
+//! - No defering of _"action on any subsequent NOTIFY with the same <QNAME,
+//!   QCLASS, QTYPE> until it has completed the transcation begun by the first
+//!   NOTIFY"_ is done by this middleware, as it has no knowledge of whether
+//!   the notify target begins or completes a transaction. (RFC 1996 section
+//!   4.4)
+//!
+//! [RFC 1996]: https://www.rfc-editor.org/info/rfc1996
+
 use core::future::{ready, Future, Ready};
 use core::marker::PhantomData;
 use core::ops::ControlFlow;
@@ -29,13 +69,12 @@ use crate::zonetree::StoredName;
 
 /// A DNS NOTIFY middleware service.
 ///
-/// Standards covered by ths implementation:
+/// [NotifyMiddlewareSvc] implements an [RFC 1996] compliant recipient of DNS
+/// NOTIFY messages.
 ///
-/// | RFC    | Status  |
-/// |--------|---------|
-/// | [1996] | TBD     |
+/// See the [module documentation][super] for more information.
 ///
-/// [1996]: https://datatracker.ietf.org/doc/html/rfc1996
+/// [RFC 1996]: https://www.rfc-editor.org/info/rfc1996
 #[derive(Clone, Debug)]
 pub struct NotifyMiddlewareSvc<RequestOctets, NextSvc, RequestMeta, N> {
     /// The upstream [`Service`] to pass requests to and receive responses
@@ -52,6 +91,9 @@ impl<RequestOctets, NextSvc, RequestMeta, N>
     NotifyMiddlewareSvc<RequestOctets, NextSvc, RequestMeta, N>
 {
     /// Creates an instance of this middleware service.
+    ///
+    /// The given notify target must implement the [`Notifiable`] trait in
+    /// order to actually use this middleware with the target.
     #[must_use]
     pub fn new(next_svc: NextSvc, notify_target: N) -> Self {
         Self {
@@ -71,6 +113,10 @@ where
     NextSvc::Target: Composer + Default,
     N: Clone + Notifiable + Sync + Send,
 {
+    /// Pre-process received DNS NOTIFY queries.
+    ///
+    /// Other types of query will be propagated unmodified to the next
+    /// middleware or application service in the layered stack of services.
     async fn preprocess(
         req: &Request<RequestOctets, RequestMeta>,
         notify_target: N,
@@ -137,9 +183,9 @@ where
                     req.client_addr(),
                     q.qname()
                 );
-                ControlFlow::Break(Self::to_stream_compatible(
+                ControlFlow::Break(once(ready(Ok(CallResult::new(
                     mk_error_response(msg, OptRcode::NOTAUTH),
-                ))
+                )))))
             }
 
             Err(NotifyError::Other) => {
@@ -148,9 +194,9 @@ where
                     req.client_addr(),
                     q.qname()
                 );
-                ControlFlow::Break(Self::to_stream_compatible(
+                ControlFlow::Break(once(ready(Ok(CallResult::new(
                     mk_error_response(msg, OptRcode::SERVFAIL),
-                ))
+                )))))
             }
 
             Ok(()) => {
@@ -192,12 +238,10 @@ where
         }
     }
 
-    fn to_stream_compatible(
-        response: AdditionalBuilder<StreamTarget<NextSvc::Target>>,
-    ) -> Once<Ready<<NextSvc::Stream as Stream>::Item>> {
-        once(ready(Ok(CallResult::new(response))))
-    }
-
+    /// Is this message for us?
+    ///
+    /// Returns `Some(Question)` if the given query uses OPCODE NOTIFY and has
+    /// a first question with a QTYPE of `SOA`, `None` otherwise.
     fn get_relevant_question(
         msg: &Message<RequestOctets>,
     ) -> Option<Question<ParsedName<RequestOctets::Range<'_>>>> {
@@ -212,6 +256,11 @@ where
         None
     }
 
+    /// Create a copy of the given message.
+    ///
+    /// The copy will be returned as an [`AdditionalBuilder`] so that the
+    /// caller can further modify it before using it.
+    /// `
     // Based on RequestMessage::append_message_impl().
     fn copy_message(
         source: &Message<RequestOctets>,
