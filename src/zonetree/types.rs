@@ -15,7 +15,6 @@ use crate::base::record::Record;
 use crate::base::Serial;
 use crate::base::{iana::Rtype, Ttl};
 use crate::rdata::ZoneRecordData;
-use tracing::trace;
 
 //------------ Type Aliases --------------------------------------------------
 
