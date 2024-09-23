@@ -141,14 +141,20 @@ use super::wire::{Compose, Composer};
 use bytes::BytesMut;
 use core::ops::{Deref, DerefMut};
 use core::{fmt, mem};
+#[cfg(feature = "hashbrown")]
+use hashbrown::HashTable;
 #[cfg(feature = "std")]
 use octseq::array::Array;
 #[cfg(any(feature = "std", feature = "bytes"))]
 use octseq::builder::infallible;
 use octseq::builder::{FreezeBuilder, OctetsBuilder, ShortBuf, Truncate};
 use octseq::octets::Octets;
+#[cfg(feature = "hashbrown")]
+use std::collections::hash_map::RandomState;
 #[cfg(feature = "std")]
 use std::collections::HashMap;
+#[cfg(feature = "hashbrown")]
+use std::hash::{BuildHasher, Hash, Hasher};
 #[cfg(feature = "std")]
 use std::vec::Vec;
 
@@ -2367,6 +2373,247 @@ impl<Target: Composer> Truncate for TreeCompressor<Target> {
     }
 }
 
+//------------ HashCompressor ------------------------------------------------
+
+/// A domain name compressor that uses a hash table.
+///
+/// This type wraps around an octets builder and implements domain name
+/// compression for it. It stores the position of any domain name it has seen
+/// in a hash table.
+///
+/// The position of a domain name is calculated relative to the beginning of
+/// the underlying octets builder. This means that this builder must represent
+/// the message only. This means that if you are using the [`StreamTarget`],
+/// you need to place it inside this type, _not_ the other way around.
+///
+/// [`StreamTarget`]: struct.StreamTarget.html
+#[cfg(feature = "hashbrown")]
+#[derive(Clone, Debug)]
+pub struct HashCompressor<Target> {
+    /// The underlying octetsbuilder.
+    target: Target,
+
+    /// The names inserted into the message.
+    ///
+    /// Each entry represents a name with at least one non-root label and its
+    /// position in the message.  The name is divided into a head (the leftmost
+    /// label) and a tail (the remaining labels).  The entry is stored as the
+    /// position of the head label in the message, and the position of the tail
+    /// label in the m
+    ///
+    /// Each entry is a tuple of head and tail positions.  The head position is
+    /// the position
+    names: HashTable<HashEntry>,
+
+    /// How names in the table are hashed.
+    hasher: RandomState,
+}
+
+#[cfg(feature = "hashbrown")]
+#[derive(Copy, Clone, Debug)]
+struct HashEntry {
+    /// The position of the head label in the name.
+    head: u16,
+
+    /// The position of the tail name.
+    tail: u16,
+}
+
+#[cfg(feature = "hashbrown")]
+impl HashEntry {
+    /// Try constructing a [`HashEntry`].
+    fn new(head: usize, tail: usize) -> Option<Self> {
+        if head < 0xC000 {
+            Some(Self {
+                head: head as u16,
+                tail: tail as u16,
+            })
+        } else {
+            None
+        }
+    }
+
+    /// Get the head label for this entry.
+    fn head<'m>(&self, message: &'m [u8]) -> &'m Label {
+        Label::split_from(&message[self.head as usize..])
+            .expect("the message contains valid labels")
+            .0
+    }
+
+    /// Compute the hash of this entry.
+    fn hash(&self, message: &[u8], hasher: &RandomState) -> u64 {
+        let mut state = hasher.build_hasher();
+        (self.head(message), self.tail).hash(&mut state);
+        state.finish()
+    }
+
+    /// Compare this entry to a label.
+    fn eq(&self, message: &[u8], query: (&Label, u16)) -> bool {
+        (self.head(message), self.tail) == query
+    }
+}
+
+#[cfg(feature = "hashbrown")]
+impl<Target> HashCompressor<Target> {
+    /// Creates a new compressor from an underlying octets builder.
+    pub fn new(target: Target) -> Self {
+        HashCompressor {
+            target,
+            names: Default::default(),
+            hasher: Default::default(),
+        }
+    }
+
+    /// Returns a reference to the underlying octets builder.
+    pub fn as_target(&self) -> &Target {
+        &self.target
+    }
+
+    /// Converts the compressor into the underlying octets builder.
+    pub fn into_target(self) -> Target {
+        self.target
+    }
+
+    /// Returns an octets slice of the data.
+    pub fn as_slice(&self) -> &[u8]
+    where
+        Target: AsRef<[u8]>,
+    {
+        self.target.as_ref()
+    }
+
+    /// Returns an mutable octets slice of the data.
+    pub fn as_slice_mut(&mut self) -> &mut [u8]
+    where
+        Target: AsMut<[u8]>,
+    {
+        self.target.as_mut()
+    }
+}
+
+//--- AsRef, AsMut, and OctetsBuilder
+
+#[cfg(feature = "hashbrown")]
+impl<Target: AsRef<[u8]>> AsRef<[u8]> for HashCompressor<Target> {
+    fn as_ref(&self) -> &[u8] {
+        self.as_slice()
+    }
+}
+
+#[cfg(feature = "hashbrown")]
+impl<Target: AsMut<[u8]>> AsMut<[u8]> for HashCompressor<Target> {
+    fn as_mut(&mut self) -> &mut [u8] {
+        self.as_slice_mut()
+    }
+}
+
+#[cfg(feature = "hashbrown")]
+impl<Target: OctetsBuilder> OctetsBuilder for HashCompressor<Target> {
+    type AppendError = Target::AppendError;
+
+    fn append_slice(
+        &mut self,
+        slice: &[u8],
+    ) -> Result<(), Self::AppendError> {
+        self.target.append_slice(slice)
+    }
+}
+
+#[cfg(feature = "hashbrown")]
+impl<Target: Composer> Composer for HashCompressor<Target> {
+    fn append_compressed_name<N: ToName + ?Sized>(
+        &mut self,
+        name: &N,
+    ) -> Result<(), Self::AppendError> {
+        let mut name = name.iter_labels();
+        let message = self.target.as_ref();
+
+        // Remove the root label -- we know it's there.
+        assert!(
+            name.next_back().map_or(false, |l| l.is_root()),
+            "absolute names must end with a root label"
+        );
+
+        // The position of the consumed labels from the end of the name.
+        let mut position = 0xFFFF;
+
+        // The last label that must be inserted, if any.
+        let mut last_label = None;
+
+        // Look up each label in reverse order.
+        while let Some(label) = name.next_back() {
+            // Look up the labels seen thus far in the hash table.
+            let query = (label, position);
+            let hash = {
+                let mut state = self.hasher.build_hasher();
+                query.hash(&mut state);
+                state.finish()
+            };
+
+            let entry =
+                self.names.find(hash, |&name| name.eq(message, query));
+            if let Some(entry) = entry {
+                // We found a match, so update the position.
+                position = entry.head;
+            } else {
+                // We will have to write this label.
+                last_label = Some(label);
+                break;
+            }
+        }
+
+        // Write out the remaining labels in the name in regular order.
+        let mut labels = name.chain(last_label).peekable();
+        while let Some(label) = labels.next() {
+            let head = self.target.as_ref().len();
+            let tail = head + label.compose_len() as usize;
+
+            label.compose(self)?;
+
+            // Remember this label for future compression, if possible.
+            //
+            // If some labels in this name pass the 0xC000 boundary point, then
+            // none of its remembered labels can be used (since they are looked
+            // up from right to left, and the rightmost ones will fail first).
+            // We could check more thoroughly for this, but it's not worth it.
+            if let Some(mut entry) = HashEntry::new(head, tail) {
+                // If there is no following label, use the remaining position.
+                if labels.peek().is_none() {
+                    entry.tail = position;
+                }
+
+                let message = self.target.as_ref();
+                let hasher = &self.hasher;
+                let hash = entry.hash(message, hasher);
+                self.names.insert_unique(hash, entry, |&name| {
+                    name.hash(message, hasher)
+                });
+            }
+        }
+
+        // Write the compressed pointer or the root label.
+        if position != 0xFFFF {
+            (position | 0xC000).compose(self)
+        } else {
+            Label::root().compose(self)
+        }
+    }
+
+    fn can_compress(&self) -> bool {
+        true
+    }
+}
+
+#[cfg(feature = "hashbrown")]
+impl<Target: Composer> Truncate for HashCompressor<Target> {
+    fn truncate(&mut self, len: usize) {
+        self.target.truncate(len);
+        if len < 0xC000 {
+            self.names.retain(|name| name.head < len as u16);
+        }
+    }
+}
+
 //============ Errors ========================================================
 
 #[derive(Clone, Copy, Debug)]
@@ -2614,6 +2861,53 @@ mod test {
         let name = "example.com.".parse::<Name<Vec<u8>>>().unwrap();
         let mut msg =
             MessageBuilder::from_target(StaticCompressor::new(Vec::new()))
+                .unwrap()
+                .question();
+        msg.header_mut().set_rcode(Rcode::NOERROR);
+        msg.header_mut().set_rd(true);
+        msg.header_mut().set_ra(true);
+        msg.header_mut().set_qr(true);
+        msg.header_mut().set_ad(true);
+
+        // Question
+        msg.push((name.clone(), Rtype::A)).unwrap();
+
+        // Answer
+        let mut msg = msg.answer();
+        msg.push((name.clone(), 3600, A::from_octets(203, 0, 113, 1)))
+            .unwrap();
+
+        let actual = msg.finish().into_target();
+        assert_eq!(45, actual.len(), "unexpected response size");
+        assert_eq!(expect[..], actual, "unexpected response data");
+    }
+
+    #[cfg(feature = "hashbrown")]
+    #[test]
+    fn hash_compress_positive_response() {
+        // An example positive response to `A example.com.` that is compressed
+        //
+        // ;; ->>HEADER<<- opcode: QUERY, status: NOERROR, id: 0
+        // ;; flags: qr rd ra ad; QUERY: 1, ANSWER: 1, AUTHORITY: 0, ADDITIONAL: 0
+        //
+        // ;; QUESTION SECTION:
+        // ;example.com.			IN	A
+        //
+        // ;; ANSWER SECTION:
+        // example.com.		3600	IN	A	203.0.113.1
+        //
+        // ;; MSG SIZE  rcvd: 45
+        let expect = &[
+            0x00, 0x00, 0x81, 0xa0, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x00,
+            0x00, 0x07, 0x65, 0x78, 0x61, 0x6d, 0x70, 0x6c, 0x65, 0x03, 0x63,
+            0x6f, 0x6d, 0x00, 0x00, 0x01, 0x00, 0x01, 0xc0, 0x0c, 0x00, 0x01,
+            0x00, 0x01, 0x00, 0x00, 0x0e, 0x10, 0x00, 0x04, 0xcb, 0x00, 0x71,
+            0x01,
+        ];
+
+        let name = "example.com.".parse::<Name<Vec<u8>>>().unwrap();
+        let mut msg =
+            MessageBuilder::from_target(HashCompressor::new(Vec::new()))
                 .unwrap()
                 .question();
         msg.header_mut().set_rcode(Rcode::NOERROR);
