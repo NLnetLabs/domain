@@ -22,7 +22,9 @@ use crate::base::iana::Rtype;
 use crate::base::name::Label;
 use crate::base::{NameBuilder, Serial};
 use crate::rdata::ZoneRecordData;
-use crate::zonetree::types::{ZoneCut, ZoneDiff, ZoneDiffBuilder};
+use crate::zonetree::types::{
+    InMemoryZoneDiff, InMemoryZoneDiffBuilder, ZoneCut,
+};
 use crate::zonetree::StoredName;
 use crate::zonetree::{Rrset, SharedRr};
 use crate::zonetree::{SharedRrset, WritableZone, WritableZoneNode};
@@ -77,7 +79,7 @@ pub struct WriteZone {
     /// [`WriteNode::update_child()`] is called it creates a new [`WriteNode`]
     /// which also needs to be able to add and remove things from the same
     /// diff collection.
-    diff: Arc<Mutex<Option<Arc<Mutex<ZoneDiffBuilder>>>>>,
+    diff: Arc<Mutex<Option<Arc<Mutex<InMemoryZoneDiffBuilder>>>>>,
 
     /// The zone is dirty if changes have been made but not yet committed.
     ///
@@ -142,7 +144,7 @@ impl WriteZone {
     fn add_soa_remove_diff_entry(
         &mut self,
         old_soa_rr: Option<SharedRr>,
-        diff: &mut ZoneDiffBuilder,
+        diff: &mut InMemoryZoneDiffBuilder,
     ) -> Option<Serial> {
         if let Some(old_soa_rr) = old_soa_rr {
             let ZoneRecordData::Soa(old_soa) = old_soa_rr.data() else {
@@ -172,7 +174,7 @@ impl WriteZone {
     fn add_soa_add_diff_entry(
         &mut self,
         new_soa_rr: Option<SharedRr>,
-        diff: &mut ZoneDiffBuilder,
+        diff: &mut InMemoryZoneDiffBuilder,
     ) -> Option<Serial> {
         if let Some(new_soa_rr) = new_soa_rr {
             let ZoneRecordData::Soa(new_soa) = new_soa_rr.data() else {
@@ -287,7 +289,7 @@ impl WritableZone for WriteZone {
         bump_soa_serial: bool,
     ) -> Pin<
         Box<
-            dyn Future<Output = Result<Option<ZoneDiff>, io::Error>>
+            dyn Future<Output = Result<Option<InMemoryZoneDiff>, io::Error>>
                 + Send
                 + Sync,
         >,
@@ -385,7 +387,7 @@ pub struct WriteNode {
     node: Either<Arc<ZoneApex>, Arc<ZoneNode>>,
 
     /// The diff we are building, if enabled.
-    diff: Option<(StoredName, Arc<Mutex<ZoneDiffBuilder>>)>,
+    diff: Option<(StoredName, Arc<Mutex<InMemoryZoneDiffBuilder>>)>,
 }
 
 impl WriteNode {
@@ -398,7 +400,7 @@ impl WriteNode {
         let diff = if create_diff {
             Some((
                 zone.apex.name().clone(),
-                Arc::new(Mutex::new(ZoneDiffBuilder::new())),
+                Arc::new(Mutex::new(InMemoryZoneDiffBuilder::new())),
             ))
         } else {
             None
@@ -677,7 +679,7 @@ impl WriteNode {
         Ok(())
     }
 
-    fn diff(&self) -> Option<Arc<Mutex<ZoneDiffBuilder>>> {
+    fn diff(&self) -> Option<Arc<Mutex<InMemoryZoneDiffBuilder>>> {
         self.diff
             .as_ref()
             .map(|(_, diff_builder)| diff_builder.clone())

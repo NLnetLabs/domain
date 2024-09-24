@@ -74,10 +74,12 @@ use crate::net::server::service::{
 use crate::net::server::util::{mk_builder_for_target, mk_error_response};
 use crate::rdata::{Soa, ZoneRecordData};
 use crate::zonetree::error::OutOfZone;
+use crate::zonetree::types::EmptyZoneDiff;
 use crate::zonetree::{
     Answer, AnswerContent, ReadableZone, SharedRrset, StoredName, Zone,
-    ZoneDiff, ZoneTree,
+    ZoneDiff, ZoneDiffItem, ZoneTree,
 };
+use std::fmt::Debug;
 
 //------------ Constants -----------------------------------------------------
 
@@ -162,6 +164,7 @@ where
     NextSvc::Target: Composer + Default + Send + Sync,
     NextSvc::Stream: Send + Sync,
     XDP: XfrDataProvider<Metadata>,
+    XDP::Diff: Debug + 'static,
 {
     /// Pre-process received DNS XFR queries.
     ///
@@ -650,7 +653,7 @@ where
         req: &Request<RequestOctets, T>,
         query_serial: Serial,
         zone_soa_answer: &Answer,
-        diffs: Vec<Arc<ZoneDiff>>,
+        diffs: Vec<XDP::Diff>,
     ) -> Result<
         XfrMiddlewareStream<
             NextSvc::Future,
@@ -658,7 +661,10 @@ where
             <NextSvc::Stream as Stream>::Item,
         >,
         OptRcode,
-    > {
+    >
+    where
+        XDP::Diff: Send + 'static,
+    {
         let msg = req.message();
 
         let AnswerContent::Data(zone_soa_rrset) =
@@ -805,8 +811,8 @@ where
                 //    and added RRs.  The first RR of the deleted RRs is the
                 //    older SOA RR and the first RR of the added RRs is the
                 //    newer SOA RR.
-                let soa_k = &(owner.clone(), Rtype::SOA);
-                let removed_soa = diff.removed.get(soa_k).unwrap(); // The zone MUST have a SOA record
+                let removed_soa =
+                    diff.get_removed(owner.clone(), Rtype::SOA).unwrap(); // The zone MUST have a SOA record
                 batcher
                     .push((
                         owner.clone(),
@@ -816,8 +822,10 @@ where
                     ))
                     .unwrap(); // TODO
 
-                diff.removed.iter().for_each(|((owner, rtype), rrset)| {
+                diff.iter_removed().for_each(|item| {
+                    let (owner, rtype) = item.key();
                     if *rtype != Rtype::SOA {
+                        let rrset = item.value();
                         for rr in rrset.data() {
                             batcher
                                 .push((
@@ -831,7 +839,8 @@ where
                     }
                 });
 
-                let added_soa = diff.added.get(soa_k).unwrap(); // The zone MUST have a SOA record
+                let added_soa =
+                    diff.get_added(owner.clone(), Rtype::SOA).unwrap(); // The zone MUST have a SOA record
                 batcher
                     .push((
                         owner.clone(),
@@ -841,8 +850,10 @@ where
                     ))
                     .unwrap(); // TODO
 
-                diff.added.iter().for_each(|((owner, rtype), rrset)| {
+                diff.iter_added().for_each(|item| {
+                    let (owner, rtype) = item.key();
                     if *rtype != Rtype::SOA {
+                        let rrset = item.value();
                         for rr in rrset.data() {
                             batcher
                                 .push((
@@ -958,6 +969,7 @@ where
     NextSvc::Target: Composer + Default + Send + Sync,
     NextSvc::Stream: Send + Sync,
     XDP: XfrDataProvider<Metadata> + Clone + Sync + Send + 'static,
+    XDP::Diff: Debug + Sync,
     Metadata: Clone + Default + Sync + Send + 'static,
 {
     type Target = NextSvc::Target;
@@ -1034,6 +1046,8 @@ pub enum XfrDataProviderError {
 
 /// A provider of data needed for responding to XFR requests.
 pub trait XfrDataProvider<Metadata = ()> {
+    type Diff: ZoneDiff + Send;
+
     /// Request data needed to respond to an XFR request.
     ///
     /// Returns Ok if the request is allowed and the requested data is
@@ -1053,7 +1067,7 @@ pub trait XfrDataProvider<Metadata = ()> {
         Box<
             dyn Future<
                     Output = Result<
-                        (Zone, Vec<Arc<ZoneDiff>>),
+                        (Zone, Vec<Self::Diff>),
                         XfrDataProviderError,
                     >,
                 > + Sync
@@ -1072,6 +1086,8 @@ where
     T: XfrDataProvider<Metadata> + 'static,
     U: Deref<Target = T>,
 {
+    type Diff = T::Diff;
+
     fn request<Octs>(
         &self,
         req: &Request<Octs, Metadata>,
@@ -1080,7 +1096,7 @@ where
         Box<
             dyn Future<
                     Output = Result<
-                        (Zone, Vec<Arc<ZoneDiff>>),
+                        (Zone, Vec<Self::Diff>),
                         XfrDataProviderError,
                     >,
                 > + Sync
@@ -1098,6 +1114,8 @@ where
 //--- impl XfrDataProvider for Zone
 
 impl<Metadata> XfrDataProvider<Metadata> for Zone {
+    type Diff = EmptyZoneDiff;
+
     /// Request data needed to respond to an XFR request.
     ///
     /// Returns Ok(Self, vec![]) if the given apex name and class match this
@@ -1112,7 +1130,7 @@ impl<Metadata> XfrDataProvider<Metadata> for Zone {
         Box<
             dyn Future<
                     Output = Result<
-                        (Zone, Vec<Arc<ZoneDiff>>),
+                        (Zone, Vec<EmptyZoneDiff>),
                         XfrDataProviderError,
                     >,
                 > + Sync
@@ -1139,6 +1157,8 @@ impl<Metadata> XfrDataProvider<Metadata> for Zone {
 //--- impl XfrDataProvider for ZoneTree
 
 impl<Metadata> XfrDataProvider<Metadata> for ZoneTree {
+    type Diff = EmptyZoneDiff;
+
     /// Request data needed to respond to an XFR request.
     ///
     /// Returns Ok(zone, vec![]) if the given apex name and class match a zone
@@ -1153,7 +1173,7 @@ impl<Metadata> XfrDataProvider<Metadata> for ZoneTree {
         Box<
             dyn Future<
                     Output = Result<
-                        (Zone, Vec<Arc<ZoneDiff>>),
+                        (Zone, Vec<EmptyZoneDiff>),
                         XfrDataProviderError,
                     >,
                 > + Sync
@@ -1382,7 +1402,7 @@ mod tests {
     use crate::tsig::{Algorithm, Key, KeyName};
     use crate::zonefile::inplace::Zonefile;
     use crate::zonetree::types::Rrset;
-    use crate::zonetree::ZoneDiffBuilder;
+    use crate::zonetree::{InMemoryZoneDiff, InMemoryZoneDiffBuilder};
 
     use super::*;
 
@@ -1612,7 +1632,7 @@ JAIN-BB.JAIN.AD.JP. IN A   192.41.197.2
         let zone = load_zone(rfc_1995_zone.as_bytes());
 
         // Diff 1: NEZU.JAIN.AD.JP. is removed and JAIN-BB.JAIN.AD.JP. is added.
-        let mut diff = ZoneDiffBuilder::new();
+        let mut diff = InMemoryZoneDiffBuilder::new();
 
         // -- Remove the old SOA.
         let mut rrset = Rrset::new(Rtype::SOA, Ttl::from_secs(0));
@@ -1656,7 +1676,7 @@ JAIN-BB.JAIN.AD.JP. IN A   192.41.197.2
         diffs.push(diff.build().unwrap());
 
         // Diff 2: One of the IP addresses of JAIN-BB.JAIN.AD.JP. is changed.
-        let mut diff = ZoneDiffBuilder::new();
+        let mut diff = InMemoryZoneDiffBuilder::new();
 
         // -- Remove the old SOA.
         let mut rrset = Rrset::new(Rtype::SOA, Ttl::from_secs(0));
@@ -1717,7 +1737,7 @@ JAIN-BB.JAIN.AD.JP. IN A   192.41.197.2
 
         let zone_soa = get_zone_soa(&zone).await;
 
-        // could be replied to with the following full zone transfer message:
+        // could be replied to with the following incremental message:
         let mut expected_records: ExpectedRecords = vec![
             (n("JAIN.AD.JP."), zone_soa.clone().into()),
             (
@@ -1840,6 +1860,8 @@ JAIN-BB.JAIN.AD.JP. IN A   192.41.197.2
         }
 
         impl XfrDataProvider<Option<Arc<Key>>> for KeyReceivingXfrDataProvider {
+            type Diff = EmptyZoneDiff;
+
             #[allow(clippy::type_complexity)]
             fn request<Octs>(
                 &self,
@@ -1849,7 +1871,7 @@ JAIN-BB.JAIN.AD.JP. IN A   192.41.197.2
                 Box<
                     dyn Future<
                             Output = Result<
-                                (Zone, Vec<Arc<ZoneDiff>>),
+                                (Zone, Vec<EmptyZoneDiff>),
                                 XfrDataProviderError,
                             >,
                         > + Sync
@@ -2042,7 +2064,10 @@ JAIN-BB.JAIN.AD.JP. IN A   192.41.197.2
             <TestNextSvc as Service>::Stream,
             <<TestNextSvc as Service>::Stream as Stream>::Item,
         >,
-    > {
+    >
+    where
+        XDP::Diff: Debug + 'static,
+    {
         XfrMiddlewareSvc::<Vec<u8>, TestNextSvc, XDP, Metadata>::preprocess(
             Arc::new(Semaphore::new(1)),
             Arc::new(Semaphore::new(1)),
@@ -2068,7 +2093,7 @@ JAIN-BB.JAIN.AD.JP. IN A   192.41.197.2
             assert!(resp.is_answer(req));
             let mut records = resp.answer().unwrap().peekable();
 
-            for rec in records.by_ref() {
+            for (idx, rec) in records.by_ref().enumerate() {
                 let rec = rec.unwrap();
 
                 let rec = rec
@@ -2083,7 +2108,7 @@ JAIN-BB.JAIN.AD.JP. IN A   192.41.197.2
                     })
                     .unwrap_or_else(|| {
                         panic!(
-                            "XFR record {} {} {} {} was not expected",
+                            "XFR record {idx} {} {} {} {} was not expected",
                             rec.owner(),
                             rec.class(),
                             rec.rtype(),
@@ -2122,11 +2147,11 @@ JAIN-BB.JAIN.AD.JP. IN A   192.41.197.2
 
     struct ZoneWithDiffs {
         zone: Zone,
-        diffs: Vec<Arc<ZoneDiff>>,
+        diffs: Vec<Arc<InMemoryZoneDiff>>,
     }
 
     impl ZoneWithDiffs {
-        fn new(zone: Zone, diffs: Vec<ZoneDiff>) -> Self {
+        fn new(zone: Zone, diffs: Vec<InMemoryZoneDiff>) -> Self {
             Self {
                 zone,
                 diffs: diffs.into_iter().map(Arc::new).collect(),
@@ -2135,6 +2160,7 @@ JAIN-BB.JAIN.AD.JP. IN A   192.41.197.2
     }
 
     impl XfrDataProvider for ZoneWithDiffs {
+        type Diff = Arc<InMemoryZoneDiff>;
         fn request<Octs>(
             &self,
             req: &Request<Octs, ()>,
@@ -2143,7 +2169,7 @@ JAIN-BB.JAIN.AD.JP. IN A   192.41.197.2
             Box<
                 dyn Future<
                         Output = Result<
-                            (Zone, Vec<Arc<ZoneDiff>>),
+                            (Zone, Vec<Arc<InMemoryZoneDiff>>),
                             XfrDataProviderError,
                         >,
                     > + Sync

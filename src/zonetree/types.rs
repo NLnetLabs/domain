@@ -9,11 +9,12 @@ use bytes::Bytes;
 use serde::{Deserialize, Serialize};
 use tracing::trace;
 
+use super::traits::{ZoneDiff, ZoneDiffItem};
 use crate::base::name::Name;
 use crate::base::rdata::RecordData;
 use crate::base::record::Record;
-use crate::base::Serial;
 use crate::base::{iana::Rtype, Ttl};
+use crate::base::{Serial, ToName};
 use crate::rdata::ZoneRecordData;
 
 //------------ Type Aliases --------------------------------------------------
@@ -252,13 +253,13 @@ pub struct ZoneCut {
     pub glue: Vec<StoredRecord>,
 }
 
-//------------ ZoneDiffBuilder -----------------------------------------------
+//------------ InMemoryZoneDiffBuilder ----------------------------------------
 
-/// A [`ZoneDiff`] builder.
+/// An [`InMemoryZoneDiff`] builder.
 ///
 /// Removes are assumed to occur before adds.
 #[derive(Debug, Default)]
-pub struct ZoneDiffBuilder {
+pub struct InMemoryZoneDiffBuilder {
     /// The records added to the Zone.
     added: HashMap<(StoredName, Rtype), SharedRrset>,
 
@@ -266,7 +267,7 @@ pub struct ZoneDiffBuilder {
     removed: HashMap<(StoredName, Rtype), SharedRrset>,
 }
 
-impl ZoneDiffBuilder {
+impl InMemoryZoneDiffBuilder {
     /// Creates a new instance of the builder.
     pub fn new() -> Self {
         Default::default()
@@ -301,22 +302,22 @@ impl ZoneDiffBuilder {
     /// Note: No check is currently done that the start and end serials match
     /// the SOA records in the removed and added records contained within the
     /// diff.
-    pub fn build(self) -> Result<ZoneDiff, ZoneDiffError> {
-        ZoneDiff::new(self.added, self.removed)
+    pub fn build(self) -> Result<InMemoryZoneDiff, ZoneDiffError> {
+        InMemoryZoneDiff::new(self.added, self.removed)
     }
 }
 
-//------------ ZoneDiff ------------------------------------------------------
+//------------ InMemoryZoneDiff -----------------------------------------------
 
 /// The differences between one serial and another for a DNS zone.
 ///
 /// Removes are assumed to occur before adds.
 #[derive(Clone, Debug)]
-pub struct ZoneDiff {
+pub struct InMemoryZoneDiff {
     /// The serial number of the zone which was modified.
     pub start_serial: Serial,
 
-    /// The serial number of the Zzone that resulted from the modifications.
+    /// The serial number of the zone that resulted from the modifications.
     pub end_serial: Serial,
 
     /// The RRsets added to the zone.
@@ -326,7 +327,7 @@ pub struct ZoneDiff {
     pub removed: Arc<HashMap<(StoredName, Rtype), SharedRrset>>,
 }
 
-impl ZoneDiff {
+impl InMemoryZoneDiff {
     /// Creates a new immutable zone diff.
     ///
     /// Returns `Err(ZoneDiffError::MissingStartSoa)` If the removed records
@@ -385,6 +386,131 @@ impl ZoneDiff {
             added: added.into(),
             removed: removed.into(),
         })
+    }
+}
+
+//--- impl ZoneDiff
+
+impl<'a> ZoneDiffItem for (&'a (StoredName, Rtype), &'a SharedRrset) {
+    fn key(&self) -> &(StoredName, Rtype) {
+        self.0
+    }
+
+    fn value(&self) -> &SharedRrset {
+        self.1
+    }
+}
+
+impl ZoneDiff for InMemoryZoneDiff {
+    type Item<'a> = (&'a (StoredName, Rtype), &'a SharedRrset)
+    where
+        Self: 'a;
+
+    type Iterator<'a> = std::collections::hash_map::Iter<'a, (StoredName, Rtype), SharedRrset>
+    where
+        Self: 'a;
+
+    fn start_serial(&self) -> Serial {
+        self.start_serial
+    }
+
+    fn end_serial(&self) -> Serial {
+        self.end_serial
+    }
+
+    fn iter_added(&self) -> Self::Iterator<'_> {
+        self.added.iter()
+    }
+
+    fn iter_removed(&self) -> Self::Iterator<'_> {
+        self.removed.iter()
+    }
+
+    fn get_added(
+        &self,
+        name: impl ToName,
+        rtype: Rtype,
+    ) -> Option<&SharedRrset> {
+        self.added.get(&(name.to_name(), rtype))
+    }
+
+    fn get_removed(
+        &self,
+        name: impl ToName,
+        rtype: Rtype,
+    ) -> Option<&SharedRrset> {
+        self.removed.get(&(name.to_name(), rtype))
+    }
+}
+
+/// TODO
+pub struct EmptyZoneDiffItem;
+
+impl ZoneDiffItem for EmptyZoneDiffItem {
+    fn key(&self) -> &(StoredName, Rtype) {
+        unreachable!()
+    }
+
+    fn value(&self) -> &SharedRrset {
+        unreachable!()
+    }
+}
+
+/// TODO
+#[derive(Debug)]
+pub struct EmptyZoneDiffIterator;
+
+impl Iterator for EmptyZoneDiffIterator {
+    type Item = EmptyZoneDiffItem;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        None
+    }
+}
+
+/// TODO
+#[derive(Debug)]
+pub struct EmptyZoneDiff;
+
+impl ZoneDiff for EmptyZoneDiff {
+    type Item<'a> = EmptyZoneDiffItem
+    where
+        Self: 'a;
+
+    type Iterator<'a> = EmptyZoneDiffIterator
+    where
+        Self: 'a;
+
+    fn start_serial(&self) -> Serial {
+        Serial(0)
+    }
+
+    fn end_serial(&self) -> Serial {
+        Serial(0)
+    }
+
+    fn iter_added(&self) -> Self::Iterator<'_> {
+        EmptyZoneDiffIterator
+    }
+
+    fn iter_removed(&self) -> Self::Iterator<'_> {
+        EmptyZoneDiffIterator
+    }
+
+    fn get_added(
+        &self,
+        _name: impl ToName,
+        _rtype: Rtype,
+    ) -> Option<&SharedRrset> {
+        None
+    }
+
+    fn get_removed(
+        &self,
+        _name: impl ToName,
+        _rtype: Rtype,
+    ) -> Option<&SharedRrset> {
+        None
     }
 }
 

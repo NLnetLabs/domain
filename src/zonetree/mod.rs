@@ -115,12 +115,13 @@ mod zone;
 pub use self::answer::{Answer, AnswerAuthority, AnswerContent};
 pub use self::in_memory::ZoneBuilder;
 pub use self::traits::{
-    ReadableZone, WritableZone, WritableZoneNode, ZoneStore,
+    ReadableZone, WritableZone, WritableZoneNode, ZoneDiff, ZoneDiffItem,
+    ZoneStore,
 };
 pub use self::tree::{ZoneSetIter, ZoneTree};
 pub use self::types::{
-    Rrset, SharedRr, SharedRrset, StoredName, StoredRecord, ZoneDiff,
-    ZoneDiffBuilder,
+    InMemoryZoneDiff, InMemoryZoneDiffBuilder, Rrset, SharedRr, SharedRrset,
+    StoredName, StoredRecord,
 };
 pub use self::walk::WalkOp;
 pub use self::zone::Zone;

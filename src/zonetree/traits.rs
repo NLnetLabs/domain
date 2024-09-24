@@ -21,12 +21,13 @@ use bytes::Bytes;
 
 use crate::base::iana::Class;
 use crate::base::name::Label;
-use crate::base::{Name, Rtype};
+use crate::base::{Name, Rtype, Serial, ToName};
 
 use super::answer::Answer;
 use super::error::OutOfZone;
-use super::types::{ZoneCut, ZoneDiff};
+use super::types::{InMemoryZoneDiff, ZoneCut};
 use super::{SharedRr, SharedRrset, StoredName, WalkOp};
+use core::ops::Deref;
 
 //------------ ZoneStore -----------------------------------------------------
 
@@ -155,7 +156,7 @@ pub trait WritableZone: Send + Sync {
         bump_soa_serial: bool,
     ) -> Pin<
         Box<
-            dyn Future<Output = Result<Option<ZoneDiff>, io::Error>>
+            dyn Future<Output = Result<Option<InMemoryZoneDiff>, io::Error>>
                 + Send
                 + Sync,
         >,
@@ -233,4 +234,100 @@ pub trait WritableZoneNode: Send + Sync {
     fn remove_all(
         &self,
     ) -> Pin<Box<dyn Future<Output = Result<(), io::Error>> + Send + Sync>>;
+}
+
+//------------ ZoneDiffItem ---------------------------------------------------
+
+/// TODO
+pub trait ZoneDiffItem {
+    /// TODO
+    fn key(&self) -> &(StoredName, Rtype);
+
+    /// TODO
+    fn value(&self) -> &SharedRrset;
+}
+
+//------------ ZoneDiff -------------------------------------------------------
+
+/// TODO
+pub trait ZoneDiff {
+    /// TODO
+    type Item<'a>: ZoneDiffItem
+    where
+        Self: 'a;
+
+    /// TODO
+    type Iterator<'a>: Iterator<Item = Self::Item<'a>>
+    where
+        Self: 'a;
+
+    /// The serial number of the zone which was modified.
+    fn start_serial(&self) -> Serial;
+
+    /// The serial number of the zone that resulted from the modifications.
+    fn end_serial(&self) -> Serial;
+
+    /// An iterator over the RRsets that were added to the zone.
+    fn iter_added(&self) -> Self::Iterator<'_>;
+
+    /// An iterator over the RRsets that were removed from the zone.
+    fn iter_removed(&self) -> Self::Iterator<'_>;
+
+    /// Get an RRset that was added to the zone, if present in the diff.
+    fn get_added(
+        &self,
+        name: impl ToName,
+        rtype: Rtype,
+    ) -> Option<&SharedRrset>;
+
+    /// Get an RRset that was removed from the zone, if present in the diff.
+    fn get_removed(
+        &self,
+        name: impl ToName,
+        rtype: Rtype,
+    ) -> Option<&SharedRrset>;
+}
+
+//--- impl ZoneDiff for Arc
+
+impl<T: ZoneDiff> ZoneDiff for Arc<T> {
+    type Item<'a> = T::Item<'a>
+    where
+        Self: 'a;
+
+    type Iterator<'a> = T::Iterator<'a>
+    where
+        Self: 'a;
+
+    fn start_serial(&self) -> Serial {
+        Arc::deref(self).start_serial()
+    }
+
+    fn end_serial(&self) -> Serial {
+        Arc::deref(self).end_serial()
+    }
+
+    fn iter_added(&self) -> Self::Iterator<'_> {
+        Arc::deref(self).iter_added()
+    }
+
+    fn iter_removed(&self) -> Self::Iterator<'_> {
+        Arc::deref(self).iter_removed()
+    }
+
+    fn get_added(
+        &self,
+        name: impl ToName,
+        rtype: Rtype,
+    ) -> Option<&SharedRrset> {
+        Arc::deref(self).get_added(name, rtype)
+    }
+
+    fn get_removed(
+        &self,
+        name: impl ToName,
+        rtype: Rtype,
+    ) -> Option<&SharedRrset> {
+        Arc::deref(self).get_removed(name, rtype)
+    }
 }
