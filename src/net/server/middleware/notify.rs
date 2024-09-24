@@ -248,6 +248,10 @@ where
     fn get_relevant_question(
         msg: &Message<RequestOctets>,
     ) -> Option<Question<ParsedName<RequestOctets::Range<'_>>>> {
+        // NOTE: If this middleware is used with a server that primarily
+        // receives Opcode::QUERY it would be more efficient to place a
+        // "router" middleware in front of this middleware that routes
+        // requests by Opcode to separate dedicated middleware "chains".
         if Opcode::NOTIFY == msg.header().opcode() {
             if let Some(q) = msg.first_question() {
                 if q.qtype() == Rtype::SOA {
