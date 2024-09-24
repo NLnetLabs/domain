@@ -35,7 +35,7 @@
 //!   NOTIFY"_ is done by this middleware, as it has no knowledge of whether
 //!   the notify target begins or completes a transaction. (RFC 1996 section
 //!   4.4)
-//! 
+//!
 //! - Only QTYPE SOA is supported. NOTIFY messages with other QTYPEs will be
 //!   propagated unmodified to the next middleware or application service in
 //!   the layered stack of services.
