@@ -6,6 +6,9 @@
 //!
 //! Determining which requests to honour and with what data is delegated to a
 //! caller supplied implementation of the [`XfrDataProvider`] trait.
+//! [`XfrDataProvider`] implementations for [`Zone`] and [`ZoneTree`] are
+//! provided allowing those types to be used as-is as XFR data providers with
+//! this middleware service.
 //!
 //! [`XfrRrBatcher`], primarily intended for internal use by
 //! [`XfrMiddlewareSvc`], handles splitting of large zone transfer replies
@@ -1022,6 +1025,10 @@ pub trait XfrDataProvider<Metadata = ()> {
     /// available.
     ///
     /// Returns Err otherwise.
+    ///
+    /// Pass `Some` zone SOA serial number in the `diff_from` parameter to
+    /// request `ZoneDiff`s from the specified serial to the current SOA
+    /// serial number of the zone, inclusive, if available.
     #[allow(clippy::type_complexity)]
     fn request<Octs>(
         &self,
@@ -1043,7 +1050,7 @@ pub trait XfrDataProvider<Metadata = ()> {
         Octs: Octets + Send + Sync;
 }
 
-//--- impl for AsRef
+//--- impl XfrDataProvider for Deref<XfrDataProvider>
 
 impl<Metadata, T, U> XfrDataProvider<Metadata> for U
 where
@@ -1073,7 +1080,7 @@ where
     }
 }
 
-//--- impl for Zone
+//--- impl XfrDataProvider for Zone
 
 impl<Metadata> XfrDataProvider<Metadata> for Zone {
     /// Request data needed to respond to an XFR request.
@@ -1114,7 +1121,7 @@ impl<Metadata> XfrDataProvider<Metadata> for Zone {
     }
 }
 
-//--- impl for ZoneTree
+//--- impl XfrDataProvider for ZoneTree
 
 impl<Metadata> XfrDataProvider<Metadata> for ZoneTree {
     /// Request data needed to respond to an XFR request.
