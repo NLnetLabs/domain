@@ -1,11 +1,17 @@
 //! Zone tree related types.
 
-use std::collections::HashMap;
+use core::future::{ready, Future};
+use core::pin::Pin;
+use core::task::{Context, Poll};
+
+use std::boxed::Box;
+use std::collections::{hash_map, HashMap};
 use std::ops;
 use std::sync::Arc;
 use std::vec::Vec;
 
 use bytes::Bytes;
+use futures_util::stream;
 use serde::{Deserialize, Serialize};
 use tracing::trace;
 
@@ -406,40 +412,44 @@ impl ZoneDiff for InMemoryZoneDiff {
     where
         Self: 'a;
 
-    type Iterator<'a> = std::collections::hash_map::Iter<'a, (StoredName, Rtype), SharedRrset>
+    type Stream<'a> = futures_util::stream::Iter<hash_map::Iter<'a, (StoredName, Rtype), SharedRrset>>
     where
         Self: 'a;
 
-    fn start_serial(&self) -> Serial {
-        self.start_serial
+    fn start_serial(
+        &self,
+    ) -> Pin<Box<dyn Future<Output = Serial> + Send + '_>> {
+        Box::pin(ready(self.start_serial))
     }
 
-    fn end_serial(&self) -> Serial {
-        self.end_serial
+    fn end_serial(
+        &self,
+    ) -> Pin<Box<dyn Future<Output = Serial> + Send + '_>> {
+        Box::pin(ready(self.end_serial))
     }
 
-    fn iter_added(&self) -> Self::Iterator<'_> {
-        self.added.iter()
+    fn added(&self) -> Self::Stream<'_> {
+        stream::iter(self.added.iter())
     }
 
-    fn iter_removed(&self) -> Self::Iterator<'_> {
-        self.removed.iter()
+    fn removed(&self) -> Self::Stream<'_> {
+        stream::iter(self.removed.iter())
     }
 
     fn get_added(
         &self,
         name: impl ToName,
         rtype: Rtype,
-    ) -> Option<&SharedRrset> {
-        self.added.get(&(name.to_name(), rtype))
+    ) -> Pin<Box<dyn Future<Output = Option<&SharedRrset>> + Send + '_>> {
+        Box::pin(ready(self.added.get(&(name.to_name(), rtype))))
     }
 
     fn get_removed(
         &self,
         name: impl ToName,
         rtype: Rtype,
-    ) -> Option<&SharedRrset> {
-        self.removed.get(&(name.to_name(), rtype))
+    ) -> Pin<Box<dyn Future<Output = Option<&SharedRrset>> + Send + '_>> {
+        Box::pin(ready(self.removed.get(&(name.to_name(), rtype))))
     }
 }
 
@@ -458,13 +468,16 @@ impl ZoneDiffItem for EmptyZoneDiffItem {
 
 /// TODO
 #[derive(Debug)]
-pub struct EmptyZoneDiffIterator;
+pub struct EmptyZoneDiffStream;
 
-impl Iterator for EmptyZoneDiffIterator {
+impl futures_util::stream::Stream for EmptyZoneDiffStream {
     type Item = EmptyZoneDiffItem;
 
-    fn next(&mut self) -> Option<Self::Item> {
-        None
+    fn poll_next(
+        self: Pin<&mut Self>,
+        _cx: &mut Context<'_>,
+    ) -> Poll<Option<Self::Item>> {
+        Poll::Ready(None)
     }
 }
 
@@ -477,40 +490,44 @@ impl ZoneDiff for EmptyZoneDiff {
     where
         Self: 'a;
 
-    type Iterator<'a> = EmptyZoneDiffIterator
+    type Stream<'a> = EmptyZoneDiffStream
     where
         Self: 'a;
 
-    fn start_serial(&self) -> Serial {
-        Serial(0)
+    fn start_serial(
+        &self,
+    ) -> Pin<Box<dyn Future<Output = Serial> + Send + '_>> {
+        Box::pin(ready(Serial(0)))
     }
 
-    fn end_serial(&self) -> Serial {
-        Serial(0)
+    fn end_serial(
+        &self,
+    ) -> Pin<Box<dyn Future<Output = Serial> + Send + '_>> {
+        Box::pin(ready(Serial(0)))
     }
 
-    fn iter_added(&self) -> Self::Iterator<'_> {
-        EmptyZoneDiffIterator
+    fn added(&self) -> Self::Stream<'_> {
+        EmptyZoneDiffStream
     }
 
-    fn iter_removed(&self) -> Self::Iterator<'_> {
-        EmptyZoneDiffIterator
+    fn removed(&self) -> Self::Stream<'_> {
+        EmptyZoneDiffStream
     }
 
     fn get_added(
         &self,
         _name: impl ToName,
         _rtype: Rtype,
-    ) -> Option<&SharedRrset> {
-        None
+    ) -> Pin<Box<dyn Future<Output = Option<&SharedRrset>> + Send + '_>> {
+        Box::pin(ready(None))
     }
 
     fn get_removed(
         &self,
         _name: impl ToName,
         _rtype: Rtype,
-    ) -> Option<&SharedRrset> {
-        None
+    ) -> Pin<Box<dyn Future<Output = Option<&SharedRrset>> + Send + '_>> {
+        Box::pin(ready(None))
     }
 }
 

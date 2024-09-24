@@ -43,12 +43,14 @@ use core::marker::PhantomData;
 use core::ops::{ControlFlow, Deref};
 
 use std::boxed::Box;
+use std::fmt::Debug;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::vec::Vec;
 
 use bytes::Bytes;
 use futures_util::stream::{once, Once, Stream};
+use futures_util::{pin_mut, StreamExt};
 use octseq::Octets;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedSender};
 use tokio::sync::Semaphore;
@@ -79,7 +81,6 @@ use crate::zonetree::{
     Answer, AnswerContent, ReadableZone, SharedRrset, StoredName, Zone,
     ZoneDiff, ZoneDiffItem, ZoneTree,
 };
-use std::fmt::Debug;
 
 //------------ Constants -----------------------------------------------------
 
@@ -165,6 +166,7 @@ where
     NextSvc::Stream: Send + Sync,
     XDP: XfrDataProvider<Metadata>,
     XDP::Diff: Debug + 'static,
+    for<'a> <XDP::Diff as ZoneDiff>::Stream<'a>: Send,
 {
     /// Pre-process received DNS XFR queries.
     ///
@@ -811,8 +813,10 @@ where
                 //    and added RRs.  The first RR of the deleted RRs is the
                 //    older SOA RR and the first RR of the added RRs is the
                 //    newer SOA RR.
-                let removed_soa =
-                    diff.get_removed(owner.clone(), Rtype::SOA).unwrap(); // The zone MUST have a SOA record
+                let removed_soa = diff
+                    .get_removed(owner.clone(), Rtype::SOA)
+                    .await
+                    .unwrap(); // The zone MUST have a SOA record
                 batcher
                     .push((
                         owner.clone(),
@@ -822,7 +826,9 @@ where
                     ))
                     .unwrap(); // TODO
 
-                diff.iter_removed().for_each(|item| {
+                let removed_stream = diff.removed();
+                pin_mut!(removed_stream);
+                while let Some(item) = removed_stream.next().await {
                     let (owner, rtype) = item.key();
                     if *rtype != Rtype::SOA {
                         let rrset = item.value();
@@ -837,10 +843,10 @@ where
                                 .unwrap(); // TODO
                         }
                     }
-                });
+                }
 
                 let added_soa =
-                    diff.get_added(owner.clone(), Rtype::SOA).unwrap(); // The zone MUST have a SOA record
+                    diff.get_added(owner.clone(), Rtype::SOA).await.unwrap(); // The zone MUST have a SOA record
                 batcher
                     .push((
                         owner.clone(),
@@ -850,7 +856,9 @@ where
                     ))
                     .unwrap(); // TODO
 
-                diff.iter_added().for_each(|item| {
+                let added_stream = diff.added();
+                pin_mut!(added_stream);
+                while let Some(item) = added_stream.next().await {
                     let (owner, rtype) = item.key();
                     if *rtype != Rtype::SOA {
                         let rrset = item.value();
@@ -865,7 +873,7 @@ where
                                 .unwrap(); // TODO
                         }
                     }
-                });
+                }
             }
 
             batcher
@@ -970,6 +978,7 @@ where
     NextSvc::Stream: Send + Sync,
     XDP: XfrDataProvider<Metadata> + Clone + Sync + Send + 'static,
     XDP::Diff: Debug + Sync,
+    for<'a> <XDP::Diff as ZoneDiff>::Stream<'a>: Send,
     Metadata: Clone + Default + Sync + Send + 'static,
 {
     type Target = NextSvc::Target;
@@ -2067,6 +2076,7 @@ JAIN-BB.JAIN.AD.JP. IN A   192.41.197.2
     >
     where
         XDP::Diff: Debug + 'static,
+        for<'a> <XDP::Diff as ZoneDiff>::Stream<'a>: Send,
     {
         XfrMiddlewareSvc::<Vec<u8>, TestNextSvc, XDP, Metadata>::preprocess(
             Arc::new(Semaphore::new(1)),
@@ -2100,6 +2110,14 @@ JAIN-BB.JAIN.AD.JP. IN A   192.41.197.2
                     .into_record::<AllRecordData<_, ParsedName<_>>>()
                     .unwrap()
                     .unwrap();
+
+                eprintln!(
+                    "XFR record {idx} {} {} {} {}",
+                    rec.owner(),
+                    rec.class(),
+                    rec.rtype(),
+                    rec.data(),
+                );
 
                 let pos = expected_records
                     .iter()

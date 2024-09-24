@@ -9,6 +9,7 @@
 //! [`ZoneTree`]: super::ZoneTree
 use core::any::Any;
 use core::future::ready;
+use core::ops::Deref;
 use core::pin::Pin;
 
 use std::boxed::Box;
@@ -18,6 +19,7 @@ use std::io;
 use std::sync::Arc;
 
 use bytes::Bytes;
+use futures_util::Stream;
 
 use crate::base::iana::Class;
 use crate::base::name::Label;
@@ -27,7 +29,6 @@ use super::answer::Answer;
 use super::error::OutOfZone;
 use super::types::{InMemoryZoneDiff, ZoneCut};
 use super::{SharedRr, SharedRrset, StoredName, WalkOp};
-use core::ops::Deref;
 
 //------------ ZoneStore -----------------------------------------------------
 
@@ -257,35 +258,40 @@ pub trait ZoneDiff {
         Self: 'a;
 
     /// TODO
-    type Iterator<'a>: Iterator<Item = Self::Item<'a>>
+    type Stream<'a>: Stream<Item = Self::Item<'a>>
     where
         Self: 'a;
 
     /// The serial number of the zone which was modified.
-    fn start_serial(&self) -> Serial;
+    fn start_serial(
+        &self,
+    ) -> Pin<Box<dyn Future<Output = Serial> + Send + '_>>;
 
     /// The serial number of the zone that resulted from the modifications.
-    fn end_serial(&self) -> Serial;
+    fn end_serial(&self)
+        -> Pin<Box<dyn Future<Output = Serial> + Send + '_>>;
 
-    /// An iterator over the RRsets that were added to the zone.
-    fn iter_added(&self) -> Self::Iterator<'_>;
+    /// An stream of RRsets that were added to the zone.
+    // TODO: Does this need to be Box<Pin<dyn Future<Output = Stream>>>?
+    fn added(&self) -> Self::Stream<'_>;
 
-    /// An iterator over the RRsets that were removed from the zone.
-    fn iter_removed(&self) -> Self::Iterator<'_>;
+    /// An stream of RRsets that were removed from the zone.
+    // TODO: Does this need to be Box<Pin<dyn Future<Output = Stream>>>?
+    fn removed(&self) -> Self::Stream<'_>;
 
     /// Get an RRset that was added to the zone, if present in the diff.
     fn get_added(
         &self,
         name: impl ToName,
         rtype: Rtype,
-    ) -> Option<&SharedRrset>;
+    ) -> Pin<Box<dyn Future<Output = Option<&SharedRrset>> + Send + '_>>;
 
     /// Get an RRset that was removed from the zone, if present in the diff.
     fn get_removed(
         &self,
         name: impl ToName,
         rtype: Rtype,
-    ) -> Option<&SharedRrset>;
+    ) -> Pin<Box<dyn Future<Output = Option<&SharedRrset>> + Send + '_>>;
 }
 
 //--- impl ZoneDiff for Arc
@@ -295,31 +301,35 @@ impl<T: ZoneDiff> ZoneDiff for Arc<T> {
     where
         Self: 'a;
 
-    type Iterator<'a> = T::Iterator<'a>
+    type Stream<'a> = T::Stream<'a>
     where
         Self: 'a;
 
-    fn start_serial(&self) -> Serial {
+    fn start_serial(
+        &self,
+    ) -> Pin<Box<dyn Future<Output = Serial> + Send + '_>> {
         Arc::deref(self).start_serial()
     }
 
-    fn end_serial(&self) -> Serial {
+    fn end_serial(
+        &self,
+    ) -> Pin<Box<dyn Future<Output = Serial> + Send + '_>> {
         Arc::deref(self).end_serial()
     }
 
-    fn iter_added(&self) -> Self::Iterator<'_> {
-        Arc::deref(self).iter_added()
+    fn added(&self) -> Self::Stream<'_> {
+        Arc::deref(self).added()
     }
 
-    fn iter_removed(&self) -> Self::Iterator<'_> {
-        Arc::deref(self).iter_removed()
+    fn removed(&self) -> Self::Stream<'_> {
+        Arc::deref(self).removed()
     }
 
     fn get_added(
         &self,
         name: impl ToName,
         rtype: Rtype,
-    ) -> Option<&SharedRrset> {
+    ) -> Pin<Box<dyn Future<Output = Option<&SharedRrset>> + Send + '_>> {
         Arc::deref(self).get_added(name, rtype)
     }
 
@@ -327,7 +337,7 @@ impl<T: ZoneDiff> ZoneDiff for Arc<T> {
         &self,
         name: impl ToName,
         rtype: Rtype,
-    ) -> Option<&SharedRrset> {
+    ) -> Pin<Box<dyn Future<Output = Option<&SharedRrset>> + Send + '_>> {
         Arc::deref(self).get_removed(name, rtype)
     }
 }
