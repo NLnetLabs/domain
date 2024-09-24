@@ -453,7 +453,7 @@ impl ZoneDiff for InMemoryZoneDiff {
     }
 }
 
-/// TODO
+/// The item type used by [`EmptyZoneDiff`].
 pub struct EmptyZoneDiffItem;
 
 impl ZoneDiffItem for EmptyZoneDiffItem {
@@ -466,7 +466,7 @@ impl ZoneDiffItem for EmptyZoneDiffItem {
     }
 }
 
-/// TODO
+/// The stream type used by [`EmptyZoneDiff`].
 #[derive(Debug)]
 pub struct EmptyZoneDiffStream;
 
@@ -481,7 +481,10 @@ impl futures_util::stream::Stream for EmptyZoneDiffStream {
     }
 }
 
-/// TODO
+/// A [`ZoneDiff`] implementation that is always empty.
+///
+/// Useful when a [`ZoneDiff`] type is needed in a type declaration but for use
+/// by a type that does not support zone difference data.
 #[derive(Debug)]
 pub struct EmptyZoneDiff;
 

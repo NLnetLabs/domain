@@ -239,25 +239,42 @@ pub trait WritableZoneNode: Send + Sync {
 
 //------------ ZoneDiffItem ---------------------------------------------------
 
-/// TODO
+/// One difference item in a set of changes made to a zone.
+///
+/// Conceptually a diff is like a set of keys and values, representing a change
+/// to a resource record set with key (owner name, resource type) and the value
+/// being the changed resource records at that owner and with that type.
 pub trait ZoneDiffItem {
-    /// TODO
+    /// The owner name and resource record type.
     fn key(&self) -> &(StoredName, Rtype);
 
-    /// TODO
+    /// The changed records.
+    ///
+    /// Each record has the same key (owner name and resource record type).
     fn value(&self) -> &SharedRrset;
 }
 
 //------------ ZoneDiff -------------------------------------------------------
 
-/// TODO
+/// A set of differences between two versions (SOA serial numbers) of a zone.
+///
+/// Often referred to simply as a "diff".
+///
+/// The default implementation of this trait supplied by the domain crate is
+/// the [`InMemoryZoneDiff`]. As the name implies it stores its data in
+/// memory.
+///
+/// In order however to support less local backing stores for diff data, such
+/// as on-disk storage or in a database possibly reached via a network,
+/// asynchronous access to the diff is supported via use of [`Future`]s and
+/// [`Stream`]s.
 pub trait ZoneDiff {
-    /// TODO
+    /// A single item in the diff.
     type Item<'a>: ZoneDiffItem
     where
         Self: 'a;
 
-    /// TODO
+    /// The type of [`Stream`] used to access the diff records.
     type Stream<'a>: Stream<Item = Self::Item<'a>>
     where
         Self: 'a;
