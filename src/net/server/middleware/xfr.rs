@@ -61,6 +61,19 @@ use crate::zonetree::{
     ZoneDiff, ZoneTree,
 };
 
+//------------ Constants -----------------------------------------------------
+
+/// https://datatracker.ietf.org/doc/html/rfc1035#section-2.3.4
+/// 2.3.4. Size limits
+///   "UDP messages    512 octets or less"
+const MAX_UDP_MSG_BYTE_LEN: u16 = 512;
+
+/// https://datatracker.ietf.org/doc/html/rfc1035#section-4.2.2
+/// 4.2.2. TCP usage
+///   "The message is prefixed with a two byte length field which gives the
+///    message length, excluding the two byte length field"
+const MAX_TCP_MSG_BYTE_LEN: u16 = u16::MAX;
+
 //------------ XfrMiddlewareSvc ----------------------------------------------
 
 /// RFC 5936 AXFR and RFC 1995 IXFR request handling middleware.
@@ -901,12 +914,13 @@ where
     fn calc_msg_bytes_available<T>(req: &Request<RequestOctets, T>) -> usize {
         let bytes_available = match req.transport_ctx() {
             TransportSpecificContext::Udp(ctx) => {
-                let max_msg_size =
-                    ctx.max_response_size_hint().unwrap_or(512);
+                let max_msg_size = ctx
+                    .max_response_size_hint()
+                    .unwrap_or(MAX_UDP_MSG_BYTE_LEN);
                 max_msg_size - req.num_reserved_bytes()
             }
             TransportSpecificContext::NonUdp(_) => {
-                65535 - req.num_reserved_bytes()
+                MAX_TCP_MSG_BYTE_LEN - req.num_reserved_bytes()
             }
         };
 
