@@ -177,18 +177,21 @@ where
         batcher_semaphore: Arc<Semaphore>,
         req: &Request<RequestOctets, Metadata>,
         xfr_data_provider: XDP,
-    ) -> ControlFlow<
-        XfrMiddlewareStream<
-            NextSvc::Future,
-            NextSvc::Stream,
-            <NextSvc::Stream as Stream>::Item,
+    ) -> Result<
+        ControlFlow<
+            XfrMiddlewareStream<
+                NextSvc::Future,
+                NextSvc::Stream,
+                <NextSvc::Stream as Stream>::Item,
+            >,
         >,
+        OptRcode,
     > {
         let msg = req.message();
 
         // Do we support this type of request?
         let Some(q) = Self::get_relevant_question(msg) else {
-            return ControlFlow::Continue(());
+            return Ok(ControlFlow::Continue(()));
         };
 
         // https://datatracker.ietf.org/doc/html/rfc1995#section-3
@@ -207,17 +210,17 @@ where
         };
 
         if q.qtype() == Rtype::IXFR && ixfr_query_serial.is_none() {
-            return Self::log_and_break(
-                &q,
-                req,
-                msg,
-                OptRcode::FORMERR,
-                "IXFR request lacks authority section SOA",
+            warn!(
+                "{} for {} from {} refused: IXFR request lacks authority section SOA",
+                q.qtype(),
+                q.qname(),
+                req.client_addr()
             );
+            return Err(OptRcode::FORMERR);
         }
 
         // Is transfer allowed for the requested zone for this requestor?
-        let res = xfr_data_provider
+        let (zone, diffs) = xfr_data_provider
             .request(req, ixfr_query_serial)
             .await
             .map_err(|err| match err {
@@ -226,7 +229,13 @@ where
                     // 2.2.1 Header Values
                     //   "If a server is not authoritative for the queried
                     //    zone, the server SHOULD set the value to NotAuth(9)"
-                    ("unknown zone", OptRcode::NOTAUTH)
+                    debug!(
+                        "{} for {} from {} refused: unknown zone",
+                        q.qtype(),
+                        q.qname(),
+                        req.client_addr()
+                    );
+                    OptRcode::NOTAUTH
                 }
 
                 XfrDataProviderError::TemporarilyUnavailable => {
@@ -235,33 +244,38 @@ where
                     // SERVFAIL is the appropriate response, not NOTAUTH, as
                     // we know we are supposed to be authoritative for the
                     // zone but we just don't have the data right now.
-                    ("zone not currently available", OptRcode::SERVFAIL)
+                    warn!(
+                        "{} for {} from {} refused: zone not currently available",
+                        q.qtype(),
+                        q.qname(),
+                        req.client_addr()
+                    );
+                    OptRcode::SERVFAIL
                 }
 
                 XfrDataProviderError::Refused => {
-                    ("access denied", OptRcode::REFUSED)
+                    warn!(
+                        "{} for {} from {} refused: access denied",
+                        q.qtype(),
+                        q.qname(),
+                        req.client_addr()
+                    );
+                    OptRcode::REFUSED
                 }
-            })
-            .map_err(|(reason, rcode)| {
-                Self::log_and_break(&q, req, msg, rcode, reason)
-            });
-
-        let Ok((zone, diffs)) = res else {
-            return res.unwrap_err();
-        };
+            })?;
 
         // Read the zone SOA RR
         let read = zone.read();
         let Ok(zone_soa_answer) =
             Self::read_soa(&read, q.qname().to_name()).await
         else {
-            return Self::log_and_break(
-                &q,
-                req,
-                msg,
-                OptRcode::SERVFAIL,
-                "name is outside the zone",
+            debug!(
+                "{} for {} from {} refused: name is outside the zone",
+                q.qtype(),
+                q.qname(),
+                req.client_addr()
             );
+            return Err(OptRcode::SERVFAIL);
         };
 
         match q.qtype() {
@@ -277,13 +291,17 @@ where
                 //    Therefore, this document does not update RFC 1035 in
                 //    this respect: AXFR sessions over UDP transport are not
                 //    defined."
-                Self::log_and_break(
-                    &q,
-                    req,
-                    msg,
-                    OptRcode::NOTIMP,
-                    "AXFR not suppored over UDP",
-                )
+                warn!(
+                    "{} for {} from {} refused: AXFR not supported over UDP",
+                    q.qtype(),
+                    q.qname(),
+                    req.client_addr()
+                );
+                let response = mk_error_response(msg, OptRcode::NOTIMP);
+                let res = Ok(CallResult::new(response));
+                Ok(ControlFlow::Break(MiddlewareStream::Map(once(ready(
+                    res,
+                )))))
             }
 
             Rtype::AXFR | Rtype::IXFR if diffs.is_empty() => {
@@ -296,8 +314,9 @@ where
                     //     behavior is the same as an AXFR response except the
                     //     query type is IXFR."
                     info!(
-                        "IXFR for {} from {}: diffs not available, falling back to AXFR",
+                        "IXFR for {} (serial {} from {}: diffs not available, falling back to AXFR",
                         q.qname(),
+                        ixfr_query_serial.unwrap(),
                         req.client_addr()
                     );
                 } else {
@@ -315,12 +334,9 @@ where
                     &zone_soa_answer,
                     read,
                 )
-                .await
-                .unwrap_or_else(|rcode| {
-                    Self::to_stream(mk_error_response(msg, rcode))
-                });
+                .await?;
 
-                ControlFlow::Break(stream)
+                Ok(ControlFlow::Break(stream))
             }
 
             Rtype::IXFR => {
@@ -347,40 +363,13 @@ where
                     &zone_soa_answer,
                     diffs,
                 )
-                .await
-                .unwrap_or_else(|rcode| {
-                    Self::to_stream(mk_error_response(msg, rcode))
-                });
+                .await?;
 
-                ControlFlow::Break(stream)
+                Ok(ControlFlow::Break(stream))
             }
 
-            _ => ControlFlow::Continue(()),
+            _ => Ok(ControlFlow::Continue(())),
         }
-    }
-
-    /// Log a message and break with an DNS error response stream.
-    #[allow(clippy::type_complexity)]
-    fn log_and_break<T>(
-        q: &Question<ParsedName<<RequestOctets as Octets>::Range<'_>>>,
-        req: &Request<RequestOctets, T>,
-        msg: &Message<RequestOctets>,
-        rcode: OptRcode,
-        reason: &'static str,
-    ) -> ControlFlow<
-        XfrMiddlewareStream<
-            NextSvc::Future,
-            NextSvc::Stream,
-            <NextSvc::Stream as Stream>::Item,
-        >,
-    > {
-        warn!(
-            "{} for {} from {} refused: {reason}",
-            q.qtype(),
-            q.qname(),
-            req.client_addr()
-        );
-        ControlFlow::Break(Self::to_stream(mk_error_response(msg, rcode)))
     }
 
     /// Generate and send an AXFR response for a given request and zone.
@@ -703,20 +692,12 @@ where
         // Errata https://www.rfc-editor.org/errata/eid3196 points out that
         // this is NOT "just as in AXFR" as AXFR does not do that.
         if query_serial >= zone_serial {
+            trace!("IXFR finished because query_serial >= zone_serial");
             let builder = mk_builder_for_target();
             let response = zone_soa_answer.to_message(msg, builder);
-            trace!("IXFR finished because query_serial >= zone_serial");
-            return Ok(Self::to_stream(response));
+            let res = Ok(CallResult::new(response));
+            return Ok(MiddlewareStream::Map(once(ready(res))));
         }
-
-        // Get the necessary diffs, if available
-        // let start_serial = query_serial;
-        // let end_serial = zone_serial;
-        // let diffs = zone_info.diffs_for_range(start_serial, end_serial).await;
-        // if diffs.is_empty() {
-        //     trace!("No diff available for IXFR");
-        //     return IxfrResult::FallbackToAxfr;
-        // };
 
         // TODO: Add something like the Bind `max-ixfr-ratio` option that
         // "sets the size threshold (expressed as a percentage of the size of
@@ -908,17 +889,6 @@ where
         sender.send(Ok(call_result)).unwrap(); // TODO: Handle this Result
     }
 
-    fn to_stream(
-        response: AdditionalBuilder<StreamTarget<NextSvc::Target>>,
-    ) -> XfrMiddlewareStream<
-        NextSvc::Future,
-        NextSvc::Stream,
-        <NextSvc::Stream as Stream>::Item,
-    > {
-        let res = Ok(CallResult::new(response));
-        MiddlewareStream::Map(once(ready(res)))
-    }
-
     #[allow(clippy::borrowed_box)]
     async fn read_soa(
         read: &Box<dyn ReadableZone>,
@@ -1007,12 +977,20 @@ where
             )
             .await
             {
-                ControlFlow::Continue(()) => {
+                Ok(ControlFlow::Continue(())) => {
                     let request = request.with_new_metadata(());
                     let stream = next_svc.call(request).await;
                     MiddlewareStream::IdentityStream(stream)
                 }
-                ControlFlow::Break(stream) => stream,
+
+                Ok(ControlFlow::Break(stream)) => stream,
+
+                Err(rcode) => {
+                    let response =
+                        mk_error_response(request.message(), rcode);
+                    let res = Ok(CallResult::new(response));
+                    MiddlewareStream::Map(once(ready(res)))
+                }
             }
         })
     }
@@ -1426,7 +1404,7 @@ mod tests {
 
         let req = mk_axfr_request(zone.apex_name(), ());
 
-        let res = do_preprocess(zone.clone(), &req).await;
+        let res = do_preprocess(zone.clone(), &req).await.unwrap();
 
         let ControlFlow::Break(mut stream) = res else {
             panic!("AXFR failed");
@@ -1472,7 +1450,7 @@ mod tests {
 
         let req = mk_axfr_request(zone.apex_name(), ());
 
-        let res = do_preprocess(zone.clone(), &req).await;
+        let res = do_preprocess(zone.clone(), &req).await.unwrap();
 
         let ControlFlow::Break(mut stream) = res else {
             panic!("AXFR failed");
@@ -1553,7 +1531,7 @@ mod tests {
 
         let req = mk_udp_axfr_request(zone.apex_name(), ());
 
-        let res = do_preprocess(zone, &req).await;
+        let res = do_preprocess(zone, &req).await.unwrap();
 
         let ControlFlow::Break(mut stream) = res else {
             panic!("AXFR failed");
@@ -1595,7 +1573,7 @@ JAIN-BB.JAIN.AD.JP. IN A   192.41.197.2
         // The following IXFR query
         let req = mk_udp_ixfr_request(zone.apex_name(), Serial(1), ());
 
-        let res = do_preprocess(zone_with_diffs, &req).await;
+        let res = do_preprocess(zone_with_diffs, &req).await.unwrap();
 
         let ControlFlow::Break(mut stream) = res else {
             panic!("IXFR failed");
@@ -1738,7 +1716,7 @@ JAIN-BB.JAIN.AD.JP. IN A   192.41.197.2
         // The following IXFR query
         let req = mk_ixfr_request(zone.apex_name(), Serial(1), ());
 
-        let res = do_preprocess(zone_with_diffs, &req).await;
+        let res = do_preprocess(zone_with_diffs, &req).await.unwrap();
 
         let ControlFlow::Break(mut stream) = res else {
             panic!("IXFR failed");
@@ -1838,7 +1816,7 @@ JAIN-BB.JAIN.AD.JP. IN A   192.41.197.2
 
         let req = mk_udp_ixfr_request(zone.apex_name(), Serial(0), ());
 
-        let res = do_preprocess(zone.clone(), &req).await;
+        let res = do_preprocess(zone.clone(), &req).await.unwrap();
 
         let ControlFlow::Break(mut stream) = res else {
             panic!("IXFR failed");
@@ -2067,12 +2045,15 @@ JAIN-BB.JAIN.AD.JP. IN A   192.41.197.2
     async fn do_preprocess<Metadata, XDP: XfrDataProvider<Metadata>>(
         zone: XDP,
         req: &Request<Vec<u8>, Metadata>,
-    ) -> ControlFlow<
-        XfrMiddlewareStream<
-            <TestNextSvc as Service>::Future,
-            <TestNextSvc as Service>::Stream,
-            <<TestNextSvc as Service>::Stream as Stream>::Item,
+    ) -> Result<
+        ControlFlow<
+            XfrMiddlewareStream<
+                <TestNextSvc as Service>::Future,
+                <TestNextSvc as Service>::Stream,
+                <<TestNextSvc as Service>::Stream as Stream>::Item,
+            >,
         >,
+        OptRcode,
     >
     where
         XDP::Diff: Debug + 'static,

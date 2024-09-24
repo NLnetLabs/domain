@@ -337,7 +337,7 @@ impl ZoneUpdater {
     /// Has zone updating finished?
     ///
     /// If true, further calls to [`apply()`] will fail.
-    /// 
+    ///
     /// [`apply()`]: Self::apply
     pub fn is_finished(&self) -> bool {
         self.state == ZoneUpdaterState::Finished
