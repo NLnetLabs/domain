@@ -3,23 +3,22 @@
 //! This module provides the [`XfrMiddlewareSvc`] service which responds to
 //! [RFC 5936] AXFR and [RFC 1995] IXFR requests to perform entire or
 //! incremental difference based zone transfers.
-//! 
+//!
 //! Determining which requests to honour and with what data is delegated to a
 //! caller supplied implementation of the [`XfrDataProvider`] trait.
-//! 
+//!
 //! [`XfrRrBatcher`], primarily intended for internal use by
 //! [`XfrMiddlewareSvc`], handles splitting of large zone transfer replies
 //! into batches with as many resource records per response as will fit.
-//! 
+//!
+//! # Limitations
+//!
+//! * RFC 1995 2 Brief Description of the Protocol states: _"To ensure
+//!   integrity, servers should use UDP checksums for all UDP responses."_.
+//!   This is not implemented.
+//!
 //! [RFC 5936]: https://www.rfc-editor.org/info/rfc5936
 //! [RFC 1995]: https://www.rfc-editor.org/info/rfc1995
-
-        // https://datatracker.ietf.org/doc/html/rfc1995#section-2
-        // 2. Brief Description of the Protocol
-        //   "To ensure integrity, servers should use UDP checksums for all
-        //    UDP responses.  A cautious client which receives a UDP packet
-        //    with a checksum value of zero should ignore the result and try a
-        //    TCP IXFR instead."
 
 use core::future::{ready, Future, Ready};
 use core::marker::PhantomData;
@@ -65,10 +64,10 @@ use crate::zonetree::{
 //------------ XfrMiddlewareSvc ----------------------------------------------
 
 /// RFC 5936 AXFR and RFC 1995 IXFR request handling middleware.
-/// 
-/// See the [module documentation] for more information.
-/// 
-/// [module documentation]: super
+///
+/// See the [module documentation] for a high level introduction.
+///
+/// [module documentation]: crate::net::server::middleware::xfr
 #[derive(Clone, Debug)]
 pub struct XfrMiddlewareSvc<RequestOctets, NextSvc, XDP, Metadata = ()> {
     /// The upstream [`Service`] to pass requests to and receive responses
@@ -96,10 +95,10 @@ where
     XDP: XfrDataProvider<Metadata>,
 {
     /// Creates a new instance of this middleware.
-    /// 
+    ///
     /// Takes an implementation of [`XfrDataProvider`] as a parameter to
     /// determine which requests to honour and with which data.
-    /// 
+    ///
     /// The `max_concurrency` parameter limits the number of simultaneous zone
     /// transfer operations that may occur concurrently without blocking.
     #[must_use]
