@@ -14,7 +14,7 @@
 //! [`XfrMiddlewareSvc`], handles splitting of large zone transfer replies
 //! into batches with as many resource records per response as will fit.
 //!
-//! # Requiring TSIG signed XFR requests
+//! # Requiring TSIG authenticated XFR requests
 //! 
 //! To require XFR requests to be TSIG authenticated, implement
 //! [`XfrDataProvider<Option<Key>>`], extract the key data using
