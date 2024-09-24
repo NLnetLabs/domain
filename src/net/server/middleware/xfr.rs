@@ -1,4 +1,25 @@
-//! XFR request handling middleware.
+//! RFC 5936 AXFR and RFC 1995 IXFR request handling middleware.
+//!
+//! This module provides the [`XfrMiddlewareSvc`] service which responds to
+//! [RFC 5936] AXFR and [RFC 1995] IXFR requests to perform entire or
+//! incremental difference based zone transfers.
+//! 
+//! Determining which requests to honour and with what data is delegated to a
+//! caller supplied implementation of the [`XfrDataProvider`] trait.
+//! 
+//! [`XfrRrBatcher`], primarily intended for internal use by
+//! [`XfrMiddlewareSvc`], handles splitting of large zone transfer replies
+//! into batches with as many resource records per response as will fit.
+//! 
+//! [RFC 5936]: https://www.rfc-editor.org/info/rfc5936
+//! [RFC 1995]: https://www.rfc-editor.org/info/rfc1995
+
+        // https://datatracker.ietf.org/doc/html/rfc1995#section-2
+        // 2. Brief Description of the Protocol
+        //   "To ensure integrity, servers should use UDP checksums for all
+        //    UDP responses.  A cautious client which receives a UDP packet
+        //    with a checksum value of zero should ignore the result and try a
+        //    TCP IXFR instead."
 
 use core::future::{ready, Future, Ready};
 use core::marker::PhantomData;
@@ -43,33 +64,27 @@ use crate::zonetree::{
 
 //------------ XfrMiddlewareSvc ----------------------------------------------
 
-/// A [`MiddlewareProcessor`] for responding to XFR requests.
-///
-/// Standards covered by ths implementation:
-///
-/// | RFC    | Status  |
-/// |--------|---------|
-/// | [1034] | TBD     |
-/// | [1035] | TBD     |
-/// | [1995] | TBD     |
-/// | [5936] | TBD     |
-///
-/// [`MiddlewareProcessor`]:
-///     crate::net::server::middleware::processor::MiddlewareProcessor
-/// [1034]: https://datatracker.ietf.org/doc/html/rfc1034
-/// [1035]: https://datatracker.ietf.org/doc/html/rfc1035
-/// [1995]: https://datatracker.ietf.org/doc/html/rfc1995
-/// [5936]: https://datatracker.ietf.org/doc/html/rfc5936
+/// RFC 5936 AXFR and RFC 1995 IXFR request handling middleware.
+/// 
+/// See the [module documentation] for more information.
+/// 
+/// [module documentation]: super
 #[derive(Clone, Debug)]
 pub struct XfrMiddlewareSvc<RequestOctets, NextSvc, XDP, Metadata = ()> {
     /// The upstream [`Service`] to pass requests to and receive responses
     /// from.
     next_svc: NextSvc,
 
+    /// A caller supplied implementation of [`XfrDataProvider`] for
+    /// determining which requests to answer and with which data.
     xfr_data_provider: XDP,
 
+    /// A limit on the number of XFR related zone walking operations
+    /// that may run concurrently.
     zone_walking_semaphore: Arc<Semaphore>,
 
+    /// A limit on the number of XFR related response batching operations that
+    /// may run concurrently.
     batcher_semaphore: Arc<Semaphore>,
 
     _phantom: PhantomData<(RequestOctets, Metadata)>,
@@ -80,7 +95,13 @@ impl<RequestOctets, NextSvc, XDP, Metadata>
 where
     XDP: XfrDataProvider<Metadata>,
 {
-    /// Creates a new processor instance.
+    /// Creates a new instance of this middleware.
+    /// 
+    /// Takes an implementation of [`XfrDataProvider`] as a parameter to
+    /// determine which requests to honour and with which data.
+    /// 
+    /// The `max_concurrency` parameter limits the number of simultaneous zone
+    /// transfer operations that may occur concurrently without blocking.
     #[must_use]
     pub fn new(
         next_svc: NextSvc,
@@ -112,6 +133,10 @@ where
     NextSvc::Stream: Send + Sync,
     XDP: XfrDataProvider<Metadata>,
 {
+    /// Pre-process received DNS XFR queries.
+    ///
+    /// Other types of query will be propagated unmodified to the next
+    /// middleware or application service in the layered stack of services.
     pub async fn preprocess(
         zone_walking_semaphore: Arc<Semaphore>,
         batcher_semaphore: Arc<Semaphore>,
@@ -299,6 +324,7 @@ where
         }
     }
 
+    /// Log a message and break with an DNS error response stream.
     #[allow(clippy::type_complexity)]
     fn log_and_break<T>(
         q: &Question<ParsedName<<RequestOctets as Octets>::Range<'_>>>,
@@ -322,6 +348,7 @@ where
         ControlFlow::Break(Self::to_stream(mk_error_response(msg, rcode)))
     }
 
+    /// Generate and send an AXFR response for a given request and zone.
     #[allow(clippy::too_many_arguments)]
     async fn send_axfr_response<T>(
         zone_walk_semaphore: Arc<Semaphore>,
@@ -585,7 +612,8 @@ where
         Ok(MiddlewareStream::Result(stream))
     }
 
-    // Returns None if fallback to AXFR should be done.
+    // Generate and send an IXFR response for the given request and zone
+    // diffs.
     #[allow(clippy::too_many_arguments)]
     async fn send_ixfr_response<T>(
         batcher_semaphore: Arc<Semaphore>,
@@ -601,82 +629,24 @@ where
         >,
         OptRcode,
     > {
-        // https://datatracker.ietf.org/doc/html/rfc1995#section-2
-        // 2. Brief Description of the Protocol
-        //   "Transport of a query may be by either UDP or TCP.  If an IXFR
-        //    query is via UDP, the IXFR server may attempt to reply using UDP
-        //    if the entire response can be contained in a single DNS packet.
-        //    If the UDP reply does not fit, the query is responded to with a
-        //    single SOA record of the server's current version to inform the
-        //    client that a TCP query should be initiated."
-        //
-        // https://datatracker.ietf.org/doc/html/rfc1995#section-3
-        // 3. Query Format
-        //   "The IXFR query packet format is the same as that of a normal DNS
-        //    query, but with the query type being IXFR and the authority
-        //    section containing the SOA record of client's version of the
-        //    zone."
-        //
-        // https://datatracker.ietf.org/doc/html/rfc1995#section-4
-        // 4. Response Format
-        //   "If incremental zone transfer is not available, the entire zone
-        //    is returned.  The first and the last RR of the response is the
-        //    SOA record of the zone.  I.e. the behavior is the same as an
-        //    AXFR response except the query type is IXFR."
-        //
-        // https://datatracker.ietf.org/doc/html/rfc1995#section-2
-        // 2. Brief Description of the Protocol
-        //   "To ensure integrity, servers should use UDP checksums for all
-        //    UDP responses.  A cautious client which receives a UDP packet
-        //    with a checksum value of zero should ignore the result and try a
-        //    TCP IXFR instead."
-        if let AnswerContent::Data(rrset) = zone_soa_answer.content() {
-            if rrset.data().len() == 1 {
-                if let ZoneRecordData::Soa(soa) =
-                    rrset.first().unwrap().data()
-                {
-                    let zone_serial = soa.serial();
-
-                    // TODO: if cached then return cached IXFR response
-                    return Self::compute_ixfr(
-                        batcher_semaphore,
-                        req,
-                        query_serial,
-                        zone_serial,
-                        zone_soa_answer,
-                        diffs,
-                    )
-                    .await;
-                }
-            }
-        }
-
-        Err(OptRcode::SERVFAIL)
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    async fn compute_ixfr<T>(
-        batcher_semaphore: Arc<Semaphore>,
-        req: &Request<RequestOctets, T>,
-        query_serial: Serial,
-        zone_serial: Serial,
-        zone_soa_answer: &Answer,
-        diffs: Vec<Arc<ZoneDiff>>,
-    ) -> Result<
-        XfrMiddlewareStream<
-            NextSvc::Future,
-            NextSvc::Stream,
-            <NextSvc::Stream as Stream>::Item,
-        >,
-        OptRcode,
-    > {
         let msg = req.message();
 
         let AnswerContent::Data(zone_soa_rrset) =
             zone_soa_answer.content().clone()
         else {
-            unreachable!()
+            return Err(OptRcode::SERVFAIL);
         };
+
+        if zone_soa_rrset.data().len() != 1 {
+            return Err(OptRcode::SERVFAIL);
+        }
+
+        let first_rr = zone_soa_rrset.first().unwrap();
+        let ZoneRecordData::Soa(soa) = first_rr.data() else {
+            return Err(OptRcode::SERVFAIL);
+        };
+
+        let zone_serial = soa.serial();
 
         // Note: Unlike RFC 5936 for AXFR, neither RFC 1995 nor RFC 9103 say
         // anything about whether an IXFR response can consist of more than
@@ -911,6 +881,10 @@ where
         }
     }
 
+    /// Is this message for us?
+    ///
+    /// Returns `Some(Question)` if the given query uses OPCODE QUERYY and has
+    /// a first question with a QTYPE of `AXFR` or `IXFR`, `None` otherwise.
     fn get_relevant_question(
         msg: &Message<RequestOctets>,
     ) -> Option<Question<ParsedName<RequestOctets::Range<'_>>>> {
