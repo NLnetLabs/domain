@@ -22,7 +22,8 @@
 //! request, and that the name and algorithm of the used key are acceptable to
 //! you.
 //! 
-//! You can then use [`TsigMiddlewareSvc`] below [`XfrMiddlewareSvc`] in the
+//! You can then use your [`XfrDataProvider`] impl with [`XfrMiddlewareSvc`],
+//! and add [`TsigMiddlewareSvc`] directly before [`XfrMiddlewareSvc`] in the
 //! middleware layer stack so that the used `Key` is made available from the
 //! TSIG middleware to the XFR middleware.
 //! 
