@@ -14,8 +14,7 @@
 //! target.
 //!
 //! No actual handling of the received data is done by this module. In
-//! particular the following parts of RFC 1996 are NOT implemented and instead
-//! are left to the notify target to handle:
+//! particular the following parts of RFC 1996 are NOT implemented:
 //!
 //! - Messages with non-zero values in fields not described by RFC 1996 are
 //!   NOT ignored by this middleware. (RFC 1996 section 3.2)
@@ -36,6 +35,10 @@
 //!   NOTIFY"_ is done by this middleware, as it has no knowledge of whether
 //!   the notify target begins or completes a transaction. (RFC 1996 section
 //!   4.4)
+//!
+//! - Only QTYPE SOA is supported. NOTIFY messages with other QTYPEs will be
+//!   propagated unmodified to the next middleware or application service in
+//!   the layered stack of services.
 //!
 //! [RFC 1996]: https://www.rfc-editor.org/info/rfc1996
 
