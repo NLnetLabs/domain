@@ -58,7 +58,7 @@ Unstable features
   * Added an `enabled` flag to `CookiesMiddlewareSvc`. ([#369])
   * Added trait `ResourceRecordBatcher` and impl `CallbackBatcher` in
     `net::server::batcher` for pushing as many records into a response as will
-    fit according to defined limits.
+    fit according to defined limits. ([#383])
 * `unstable-zonetree`:
   * Added `ZoneUpdate`. ([#375])
   * Added `ZoneUpdater`, `ZoneDiffBuilder` and `ZoneDiff` and improved
