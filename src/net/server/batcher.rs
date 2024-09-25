@@ -142,9 +142,9 @@ where
     /// Do something with the completed message.
     #[allow(clippy::result_unit_err)]
     fn batch_ready(
-        _state: &T,
-        _answer: AnswerBuilder<StreamTarget<Target>>,
-        _finished: bool,
+        state: &T,
+        answer: AnswerBuilder<StreamTarget<Target>>,
+        finished: bool,
     ) -> Result<(), Self::Error>;
 }
 
