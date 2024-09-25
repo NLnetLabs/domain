@@ -275,7 +275,7 @@ pub trait ZoneDiff {
         Self: 'a;
 
     /// The type of [`Stream`] used to access the diff records.
-    type Stream<'a>: Stream<Item = Self::Item<'a>>
+    type Stream<'a>: Stream<Item = Self::Item<'a>> + Send
     where
         Self: 'a;
 
