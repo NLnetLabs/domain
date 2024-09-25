@@ -208,12 +208,15 @@ impl AnswerContent {
     /// This can be used to get both the data as a specific variant, and the
     /// associated TTL, in a single step:
     ///
-    /// ```
-    /// # let answer = Answer::new(Rcode::NOERROR);
+    /// ```should_panic
+    /// # use domain::base::iana::Rcode;
+    /// # use domain::rdata::ZoneRecordData;
+    /// # use domain::zonetree::Answer;
+    /// # let some_answer = Answer::new(Rcode::NOERROR);
     /// let Some((soa_ttl, ZoneRecordData::Soa(soa))) =
     ///     some_answer.content().first()
     /// else {
-    ///     // ...
+    ///     todo!();
     /// };
     /// ```
     pub fn first(&self) -> Option<(Ttl, StoredRecordData)> {
