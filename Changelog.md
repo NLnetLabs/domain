@@ -27,9 +27,9 @@ Unstable features
 
 * New unstable feature `unstable-validator` that adds a DNSSEC validator.
   ([#328])
-* New unstable feature `unstable-xfr` that adds an XFR response
-  interpreter in `net::xfr` for iterating over XFR responses
-  as a sequence of high level `ZoneUpdate`s. ([#375])
+* New unstable feature `unstable-xfr` that adds `XfrResponseInterpreter` in
+  `net::xfr` for iterating over XFR responses as a sequence of high level
+  `ZoneUpdate`s. ([#375])
 * `unstable-client-transport`:
   * Fixed an issue with slow responses in the
     `multi_stream` transport by not waiting in the first iteration if an
@@ -46,16 +46,29 @@ Unstable features
     transport in `net::client:tsig`. ([#373])
 * `unstable-server-transport`
   * Breaking changes to the `Service` and middleware traits. ([#369])
-  * Added a TSIG request validating and response signing middleware in
-    `net::server::middleware::tsig`. ([#380])
-  * The cookies middleware now allows requests with invalid cookies to
-    proceed if they are authenticated or not required to authenticate. ([#336])
+  * Added `TsigMiddlewareSvc` request validating and response signing
+    middleware in `net::server::middleware::tsig`. ([#380])
+  * Added `NotifyMiddlewareSvc` in `net::server::middleware::notify` to parse
+    and acknowledge SOA NOTIFY requests, for use by secondary nameservers to
+    detect outdated zones compared to the primary. ([#382])
+  * `CookiesMiddlewareSvc` now allows requests with invalid cookies to proceed
+    if they are authenticated or not required to authenticate. ([#336])
   * Added an `enabled` flag to `CookiesMiddlewareSvc`. ([#369])
+* `unstable-zonetree`:
+  * Added `ZoneUpdate`. ([#375])
+  * Added `ZoneUpdater`, `ZoneDiffBuilder` and `ZoneDiff` and improved
+    `ZoneUpdate`. ([#376])
   * Improved zonefile parsing error messages. ([#362]). 
   * `TryFrom<inplace::Zonefile> for Zonefile` now returns the set of
     errors instead of logging and ignoring them. ([#362])
   * Allow both glue (A/AAAA) and zone cuts at the same owner when zone
     parsing. ([#363])
+  * Altered the logic in `Versioned::remove_all()` (formerly
+    `Versioned::clean()`) as it made destructive changes to the zone that
+    would have impacted readers of the current zone version while the new zone
+    version was being created. ([#376])
+  * Removed / renamed references to `clean` in `zonetree::in_memory` to
+    `remove`. ([#376])
 
 Other changes
 
@@ -77,8 +90,10 @@ Other changes
 [#373]: https://github.com/NLnetLabs/domain/pull/373
 [#374]: https://github.com/NLnetLabs/domain/pull/374
 [#375]: https://github.com/NLnetLabs/domain/pull/375
+[#376]: https://github.com/NLnetLabs/domain/pull/376
 [#377]: https://github.com/NLnetLabs/domain/pull/377
 [#380]: https://github.com/NLnetLabs/domain/pull/380
+[#382]: https://github.com/NLnetLabs/domain/pull/382
 [@dklbreitling]: https://github.com/dklbreitling
 
 ## 0.10.1
