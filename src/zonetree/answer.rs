@@ -216,7 +216,7 @@ impl AnswerContent {
     /// let Some((soa_ttl, ZoneRecordData::Soa(soa))) =
     ///     some_answer.content().first()
     /// else {
-    ///     todo!();
+    ///     panic!("some_answer is not a variant of AnswerContent that has data");
     /// };
     /// ```
     pub fn first(&self) -> Option<(Ttl, StoredRecordData)> {
