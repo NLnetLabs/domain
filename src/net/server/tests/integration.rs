@@ -158,9 +158,8 @@ async fn server_tests(#[files("test-data/server/*.rpl")] rpl_file: PathBuf) {
     let svc =
         EdnsMiddlewareSvc::new(svc).enable(server_config.edns_tcp_keepalive);
 
-    // 4. XFR(-in) middleware service (XFR-out is handled by the
-    //    ZoneMaintainer).
-    let svc = XfrMiddlewareSvc::<Vec<u8>, _, _, Option<Arc<Key>>>::new(
+    // 4. XFR(-in) middleware service.
+    let svc = XfrMiddlewareSvc::<Vec<u8>, _, Option<Arc<Key>>, _>::new(
         svc, zones, 1,
     );
 

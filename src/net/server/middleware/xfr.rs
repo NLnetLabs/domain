@@ -106,7 +106,7 @@ const MAX_TCP_MSG_BYTE_LEN: u16 = u16::MAX;
 ///
 /// [module documentation]: crate::net::server::middleware::xfr
 #[derive(Clone, Debug)]
-pub struct XfrMiddlewareSvc<RequestOctets, NextSvc, XDP, Metadata = ()> {
+pub struct XfrMiddlewareSvc<RequestOctets, NextSvc, RequestMeta, XDP> {
     /// The upstream [`Service`] to pass requests to and receive responses
     /// from.
     next_svc: NextSvc,
@@ -123,13 +123,13 @@ pub struct XfrMiddlewareSvc<RequestOctets, NextSvc, XDP, Metadata = ()> {
     /// may run concurrently.
     batcher_semaphore: Arc<Semaphore>,
 
-    _phantom: PhantomData<(RequestOctets, Metadata)>,
+    _phantom: PhantomData<(RequestOctets, RequestMeta)>,
 }
 
-impl<RequestOctets, NextSvc, XDP, Metadata>
-    XfrMiddlewareSvc<RequestOctets, NextSvc, XDP, Metadata>
+impl<RequestOctets, NextSvc, RequestMeta, XDP>
+    XfrMiddlewareSvc<RequestOctets, NextSvc, RequestMeta, XDP>
 where
-    XDP: XfrDataProvider<Metadata>,
+    XDP: XfrDataProvider<RequestMeta>,
 {
     /// Creates a new instance of this middleware.
     ///
@@ -158,8 +158,8 @@ where
     }
 }
 
-impl<RequestOctets, NextSvc, XDP, Metadata>
-    XfrMiddlewareSvc<RequestOctets, NextSvc, XDP, Metadata>
+impl<RequestOctets, NextSvc, RequestMeta, XDP>
+    XfrMiddlewareSvc<RequestOctets, NextSvc, RequestMeta, XDP>
 where
     RequestOctets: Octets + Send + Sync + 'static + Unpin,
     for<'a> <RequestOctets as octseq::Octets>::Range<'a>: Send + Sync,
@@ -167,7 +167,7 @@ where
     NextSvc::Future: Send + Sync + Unpin,
     NextSvc::Target: Composer + Default + Send + Sync,
     NextSvc::Stream: Send + Sync,
-    XDP: XfrDataProvider<Metadata>,
+    XDP: XfrDataProvider<RequestMeta>,
     XDP::Diff: Debug + 'static,
     for<'a> <XDP::Diff as ZoneDiff>::Stream<'a>: Send,
 {
@@ -178,7 +178,7 @@ where
     pub async fn preprocess(
         zone_walking_semaphore: Arc<Semaphore>,
         batcher_semaphore: Arc<Semaphore>,
-        req: &Request<RequestOctets, Metadata>,
+        req: &Request<RequestOctets, RequestMeta>,
         xfr_data_provider: XDP,
     ) -> Result<
         ControlFlow<
@@ -807,8 +807,9 @@ where
 
 //--- impl Service
 
-impl<RequestOctets, NextSvc, XDP, Metadata> Service<RequestOctets, Metadata>
-    for XfrMiddlewareSvc<RequestOctets, NextSvc, XDP, Metadata>
+impl<RequestOctets, NextSvc, RequestMeta, XDP>
+    Service<RequestOctets, RequestMeta>
+    for XfrMiddlewareSvc<RequestOctets, NextSvc, RequestMeta, XDP>
 where
     RequestOctets: Octets + Send + Sync + Unpin + 'static,
     for<'a> <RequestOctets as octseq::Octets>::Range<'a>: Send + Sync,
@@ -816,10 +817,9 @@ where
     NextSvc::Future: Send + Sync + Unpin,
     NextSvc::Target: Composer + Default + Send + Sync,
     NextSvc::Stream: Send + Sync,
-    XDP: XfrDataProvider<Metadata> + Clone + Sync + Send + 'static,
+    XDP: XfrDataProvider<RequestMeta> + Clone + Sync + Send + 'static,
     XDP::Diff: Debug + Sync,
-    for<'a> <XDP::Diff as ZoneDiff>::Stream<'a>: Send,
-    Metadata: Clone + Default + Sync + Send + 'static,
+    RequestMeta: Clone + Default + Sync + Send + 'static,
 {
     type Target = NextSvc::Target;
     type Stream = XfrMiddlewareStream<
@@ -831,7 +831,7 @@ where
 
     fn call(
         &self,
-        request: Request<RequestOctets, Metadata>,
+        request: Request<RequestOctets, RequestMeta>,
     ) -> Self::Future {
         let request = request.clone();
         let next_svc = self.next_svc.clone();
@@ -902,8 +902,8 @@ pub enum XfrDataProviderError {
 //------------ Transferable ---------------------------------------------------
 
 /// A provider of data needed for responding to XFR requests.
-pub trait XfrDataProvider<Metadata = ()> {
-    type Diff: ZoneDiff + Send;
+pub trait XfrDataProvider<RequestMeta = ()> {
+    type Diff: ZoneDiff + Send + Sync;
 
     /// Request data needed to respond to an XFR request.
     ///
@@ -918,7 +918,7 @@ pub trait XfrDataProvider<Metadata = ()> {
     #[allow(clippy::type_complexity)]
     fn request<Octs>(
         &self,
-        req: &Request<Octs, Metadata>,
+        req: &Request<Octs, RequestMeta>,
         diff_from: Option<Serial>,
     ) -> Pin<
         Box<
@@ -938,16 +938,16 @@ pub trait XfrDataProvider<Metadata = ()> {
 
 //--- impl XfrDataProvider for Deref<XfrDataProvider>
 
-impl<Metadata, T, U> XfrDataProvider<Metadata> for U
+impl<RequestMeta, T, U> XfrDataProvider<RequestMeta> for U
 where
-    T: XfrDataProvider<Metadata> + 'static,
+    T: XfrDataProvider<RequestMeta> + 'static,
     U: Deref<Target = T>,
 {
     type Diff = T::Diff;
 
     fn request<Octs>(
         &self,
-        req: &Request<Octs, Metadata>,
+        req: &Request<Octs, RequestMeta>,
         diff_from: Option<Serial>,
     ) -> Pin<
         Box<
@@ -970,7 +970,7 @@ where
 
 //--- impl XfrDataProvider for Zone
 
-impl<Metadata> XfrDataProvider<Metadata> for Zone {
+impl<RequestMeta> XfrDataProvider<RequestMeta> for Zone {
     type Diff = EmptyZoneDiff;
 
     /// Request data needed to respond to an XFR request.
@@ -981,7 +981,7 @@ impl<Metadata> XfrDataProvider<Metadata> for Zone {
     /// Returns Err if the requested zone is not this zone.
     fn request<Octs>(
         &self,
-        req: &Request<Octs, Metadata>,
+        req: &Request<Octs, RequestMeta>,
         _diff_from: Option<Serial>,
     ) -> Pin<
         Box<
@@ -1013,7 +1013,7 @@ impl<Metadata> XfrDataProvider<Metadata> for Zone {
 
 //--- impl XfrDataProvider for ZoneTree
 
-impl<Metadata> XfrDataProvider<Metadata> for ZoneTree {
+impl<RequestMeta> XfrDataProvider<RequestMeta> for ZoneTree {
     type Diff = EmptyZoneDiff;
 
     /// Request data needed to respond to an XFR request.
@@ -1024,7 +1024,7 @@ impl<Metadata> XfrDataProvider<Metadata> for ZoneTree {
     /// Returns Err if the requested zone is not this zone tree.
     fn request<Octs>(
         &self,
-        req: &Request<Octs, Metadata>,
+        req: &Request<Octs, RequestMeta>,
         _diff_from: Option<Serial>,
     ) -> Pin<
         Box<
@@ -2057,7 +2057,7 @@ JAIN-BB.JAIN.AD.JP. IN A   192.41.197.2
     async fn get_zone_soa(zone: &Zone) -> Soa<Name<Bytes>> {
         let read = zone.read();
         let zone_soa_answer =
-            XfrMiddlewareSvc::<Vec<u8>, TestNextSvc, Zone>::read_soa(
+            XfrMiddlewareSvc::<Vec<u8>, TestNextSvc, (), Zone>::read_soa(
                 &read,
                 zone.apex_name().to_owned(),
             )
@@ -2176,9 +2176,9 @@ JAIN-BB.JAIN.AD.JP. IN A   192.41.197.2
         )
     }
 
-    async fn do_preprocess<Metadata, XDP: XfrDataProvider<Metadata>>(
+    async fn do_preprocess<RequestMeta, XDP: XfrDataProvider<RequestMeta>>(
         zone: XDP,
-        req: &Request<Vec<u8>, Metadata>,
+        req: &Request<Vec<u8>, RequestMeta>,
     ) -> Result<
         ControlFlow<
             XfrMiddlewareStream<
@@ -2193,7 +2193,7 @@ JAIN-BB.JAIN.AD.JP. IN A   192.41.197.2
         XDP::Diff: Debug + 'static,
         for<'a> <XDP::Diff as ZoneDiff>::Stream<'a>: Send,
     {
-        XfrMiddlewareSvc::<Vec<u8>, TestNextSvc, XDP, Metadata>::preprocess(
+        XfrMiddlewareSvc::<Vec<u8>, TestNextSvc, RequestMeta, XDP>::preprocess(
             Arc::new(Semaphore::new(1)),
             Arc::new(Semaphore::new(1)),
             req,
