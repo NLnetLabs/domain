@@ -12,6 +12,8 @@ New
   ([#358])
 * Added `Rtype::is_glue` to check if the Rtype may be used as glue. ([#363])
 * Added `MessageBuilder::start_error`, like `start_answer` but infallible. ([#369])
+* Added `AnswerBuilder::push_ref`, like `push` but takes the record by
+  reference. ([#383])
 
 Bug fixes
 
@@ -54,6 +56,9 @@ Unstable features
   * `CookiesMiddlewareSvc` now allows requests with invalid cookies to proceed
     if they are authenticated or not required to authenticate. ([#336])
   * Added an `enabled` flag to `CookiesMiddlewareSvc`. ([#369])
+  * Added trait `ResourceRecordBatcher` and impl `CallbackBatcher` in
+    `net::server::batcher` for pushing as many records into a response as will
+    fit according to defined limits.
 * `unstable-zonetree`:
   * Added `ZoneUpdate`. ([#375])
   * Added `ZoneUpdater`, `ZoneDiffBuilder` and `ZoneDiff` and improved
@@ -94,6 +99,7 @@ Other changes
 [#377]: https://github.com/NLnetLabs/domain/pull/377
 [#380]: https://github.com/NLnetLabs/domain/pull/380
 [#382]: https://github.com/NLnetLabs/domain/pull/382
+[#383]: https://github.com/NLnetLabs/domain/pull/383
 [@dklbreitling]: https://github.com/dklbreitling
 
 ## 0.10.1
