@@ -161,6 +161,7 @@ where
             }
 
             Err(err) => {
+                // Message is incorrectly signed or signed with an unknown key.
                 warn!(
                     "{} from {} refused: {err}",
                     req.message().header().opcode(),
@@ -168,6 +169,7 @@ where
                 );
 
                 let builder = mk_builder_for_target();
+
                 let res = match err.build_message(req.message(), builder) {
                     Ok(additional) => Ok(ControlFlow::Break(additional)),
                     Err(err) => {
