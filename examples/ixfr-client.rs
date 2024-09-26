@@ -20,7 +20,10 @@ async fn main() {
     let args: Vec<String> = std::env::args().collect();
 
     if args.len() != 4 {
-        eprintln!("Usage: {} <ip addr:port> <zone name> <SOA serial>", args[0]);
+        eprintln!(
+            "Usage: {} <ip addr:port> <zone name> <SOA serial>",
+            args[0]
+        );
         eprintln!("E.g.:  {} 127.0.0.1:8053 example.com 2020080302", args[0]);
         std::process::exit(1);
     }
