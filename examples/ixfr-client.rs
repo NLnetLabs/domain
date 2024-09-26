@@ -1,9 +1,10 @@
 /// Using the `domain::net::client` module for sending a query.
+use core::str::FromStr;
+
 use std::vec::Vec;
 
 use tokio::net::TcpStream;
 
-use core::str::FromStr;
 use domain::base::Name;
 use domain::base::Rtype;
 use domain::base::{MessageBuilder, Serial, Ttl};

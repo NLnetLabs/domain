@@ -26,6 +26,9 @@ use std::process::exit;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use octseq::Octets;
+use rand::distributions::Alphanumeric;
+use rand::Rng;
 use tokio::net::{TcpListener, UdpSocket};
 use tracing_subscriber::EnvFilter;
 
@@ -56,9 +59,6 @@ use domain::zonetree::{
     Answer, InMemoryZoneDiff, Rrset, SharedRrset, StoredName,
 };
 use domain::zonetree::{Zone, ZoneTree};
-use octseq::Octets;
-use rand::distributions::Alphanumeric;
-use rand::Rng;
 
 #[tokio::main()]
 async fn main() {
