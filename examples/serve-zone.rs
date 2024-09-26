@@ -81,7 +81,7 @@ async fn main() {
     let key =
         Key::new(Algorithm::Sha256, &secret, key_name.clone(), None, None)
             .unwrap();
-    key_store.insert((key_name, Algorithm::Sha256), key.into());
+    key_store.insert((key_name, Algorithm::Sha256), key);
 
     // Populate a zone tree with test data
     let zone_bytes = include_bytes!("../test-data/zonefiles/nsd-example.txt");
