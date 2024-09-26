@@ -1,4 +1,5 @@
 use core::future::{ready, Future};
+use core::ops::Deref;
 use core::pin::Pin;
 use core::str::FromStr;
 
@@ -53,7 +54,6 @@ use crate::utils::base16;
 use crate::zonefile::inplace::Zonefile;
 use crate::zonetree::{Answer, Zone};
 use crate::zonetree::{StoredName, ZoneBuilder, ZoneTree};
-use core::ops::Deref;
 
 //----------- Tests ----------------------------------------------------------
 
