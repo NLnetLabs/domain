@@ -53,6 +53,7 @@ use crate::utils::base16;
 use crate::zonefile::inplace::Zonefile;
 use crate::zonetree::{Answer, Zone};
 use crate::zonetree::{StoredName, ZoneBuilder, ZoneTree};
+use core::ops::Deref;
 
 //----------- Tests ----------------------------------------------------------
 
@@ -582,10 +583,6 @@ impl KeyStore for Arc<TestKeyStore> {
         name: &N,
         algorithm: Algorithm,
     ) -> Option<Self::Key> {
-        if let Ok(name) = name.try_to_name() {
-            self.get(&(name, algorithm)).cloned()
-        } else {
-            None
-        }
+        Arc::deref(&self).get_key(name, algorithm)
     }
 }
