@@ -23,7 +23,7 @@ use crate::base::net::IpAddr;
 use crate::base::{CanonicalOrd, Name, Serial, ToName, Ttl};
 use crate::rdata::Soa;
 use crate::tsig::{self, Algorithm, Key, KeyName, KeyStore};
-use crate::zonetree::{StoredName, ZoneDiff, ZoneKey};
+use crate::zonetree::{InMemoryZoneDiff, StoredName, ZoneKey};
 
 //------------ Constants -----------------------------------------------------
 
@@ -306,7 +306,7 @@ impl ZoneDiffKey {
 
 //------------ ZoneDiffs -----------------------------------------------------
 
-pub type ZoneDiffs = BTreeMap<ZoneDiffKey, Arc<ZoneDiff>>;
+pub type ZoneDiffs = BTreeMap<ZoneDiffKey, Arc<InMemoryZoneDiff>>;
 
 //------------ ZoneStatus ----------------------------------------------------
 
@@ -677,7 +677,7 @@ pub struct ZoneInfo {
 }
 
 impl ZoneInfo {
-    pub async fn add_diff(&self, diff: ZoneDiff) {
+    pub async fn add_diff(&self, diff: InMemoryZoneDiff) {
         let k = ZoneDiffKey::new(diff.start_serial, diff.end_serial);
         self.diffs.lock().await.insert(k, Arc::new(diff));
     }
@@ -687,7 +687,7 @@ impl ZoneInfo {
         &self,
         start_serial: Serial,
         end_serial: Serial,
-    ) -> Vec<Arc<ZoneDiff>> {
+    ) -> Vec<Arc<InMemoryZoneDiff>> {
         trace!("Diffs from serial {start_serial} to serial {end_serial} requested.");
 
         let mut out_diffs = Vec::new();

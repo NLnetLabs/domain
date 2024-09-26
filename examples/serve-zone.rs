@@ -29,6 +29,7 @@
 //!   ;; WHEN: Thu May 02 00:14:04 CEST 2024
 //!   ;; XFR size: 43347447 records (messages 16393621, bytes 2557835040)
 
+use core::future::Future;
 use core::str::FromStr;
 
 use std::any::Any;
@@ -44,20 +45,12 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use bytes::Bytes;
-use domain::zonemaintenance::maintainer::{
-    self, DefaultConnFactory, TypedZone, ZoneLookup, ZoneMaintainer,
-};
-use domain::zonemaintenance::types::{
-    CompatibilityMode, NotifyConfig, TransportStrategy, XfrConfig,
-    XfrStrategy, ZoneConfig, ZoneMaintainerKeyStore,
-};
 use octseq::Parser;
 use tokio::net::{TcpListener, UdpSocket};
 use tokio::sync::mpsc;
 use tracing::{debug, info};
 use tracing_subscriber::EnvFilter;
 
-use core::future::Future;
 use domain::base::iana::{Class, Rcode};
 use domain::base::record::ComposeRecord;
 use domain::base::{Name, ParsedName, ParsedRecord, Record, ToName};
@@ -78,9 +71,16 @@ use domain::rdata::ZoneRecordData;
 use domain::tsig::{Algorithm, Key, KeyName};
 use domain::utils::base64;
 use domain::zonefile::inplace;
+use domain::zonemaintenance::maintainer::{
+    self, DefaultConnFactory, TypedZone, ZoneLookup, ZoneMaintainer,
+};
+use domain::zonemaintenance::types::{
+    CompatibilityMode, NotifyConfig, TransportStrategy, XfrConfig,
+    XfrStrategy, ZoneConfig, ZoneMaintainerKeyStore,
+};
 use domain::zonetree::{
-    Answer, ReadableZone, Rrset, StoredName, WritableZone, WritableZoneNode,
-    Zone, ZoneBuilder, ZoneDiff, ZoneStore,
+    Answer, InMemoryZoneDiff, ReadableZone, Rrset, StoredName, WritableZone,
+    WritableZoneNode, Zone, ZoneBuilder, ZoneStore,
 };
 
 #[tokio::main()]
@@ -115,7 +115,7 @@ async fn main() {
 
     // Create a service to answer queries for the zone.
     let svc = service_fn(my_service, zones.clone());
-    let svc = XfrMiddlewareSvc::<_, _, _, Option<Key>>::new(
+    let svc = XfrMiddlewareSvc::<_, _, Option<Key>, _>::new(
         svc,
         zones.clone(),
         max_concurrency,
@@ -345,8 +345,9 @@ impl WritableZone for WritableArchiveZone {
         bump_soa_serial: bool,
     ) -> Pin<
         Box<
-            dyn Future<Output = Result<Option<ZoneDiff>, std::io::Error>>
-                + Send
+            dyn Future<
+                    Output = Result<Option<InMemoryZoneDiff>, std::io::Error>,
+                > + Send
                 + Sync,
         >,
     > {

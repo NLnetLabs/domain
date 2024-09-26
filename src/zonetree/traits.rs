@@ -9,6 +9,7 @@
 //! [`ZoneTree`]: super::ZoneTree
 use core::any::Any;
 use core::future::ready;
+use core::ops::Deref;
 use core::pin::Pin;
 
 use std::boxed::Box;
@@ -18,14 +19,15 @@ use std::io;
 use std::sync::Arc;
 
 use bytes::Bytes;
+use futures_util::Stream;
 
 use crate::base::iana::Class;
 use crate::base::name::Label;
-use crate::base::{Name, Rtype};
+use crate::base::{Name, Rtype, Serial, ToName};
 
 use super::answer::Answer;
 use super::error::OutOfZone;
-use super::types::{ZoneCut, ZoneDiff};
+use super::types::{InMemoryZoneDiff, ZoneCut};
 use super::{SharedRr, SharedRrset, StoredName, WalkOp};
 
 //------------ ZoneStore -----------------------------------------------------
@@ -158,7 +160,7 @@ pub trait WritableZone: Send + Sync {
         bump_soa_serial: bool,
     ) -> Pin<
         Box<
-            dyn Future<Output = Result<Option<ZoneDiff>, io::Error>>
+            dyn Future<Output = Result<Option<InMemoryZoneDiff>, io::Error>>
                 + Send
                 + Sync,
         >,
@@ -236,4 +238,126 @@ pub trait WritableZoneNode: Send + Sync {
     fn remove_all(
         &self,
     ) -> Pin<Box<dyn Future<Output = Result<(), io::Error>> + Send + Sync>>;
+}
+
+//------------ ZoneDiffItem ---------------------------------------------------
+
+/// One difference item in a set of changes made to a zone.
+///
+/// Conceptually a diff is like a set of keys and values, representing a change
+/// to a resource record set with key (owner name, resource type) and the value
+/// being the changed resource records at that owner and with that type.
+pub trait ZoneDiffItem {
+    /// The owner name and resource record type.
+    fn key(&self) -> &(StoredName, Rtype);
+
+    /// The changed records.
+    ///
+    /// Each record has the same key (owner name and resource record type).
+    fn value(&self) -> &SharedRrset;
+}
+
+//------------ ZoneDiff -------------------------------------------------------
+
+/// A set of differences between two versions (SOA serial numbers) of a zone.
+///
+/// Often referred to simply as a "diff".
+///
+/// The default implementation of this trait supplied by the domain crate is
+/// the [`InMemoryZoneDiff`]. As the name implies it stores its data in
+/// memory.
+///
+/// In order however to support less local backing stores for diff data, such
+/// as on-disk storage or in a database possibly reached via a network,
+/// asynchronous access to the diff is supported via use of [`Future`]s and
+/// [`Stream`]s.
+pub trait ZoneDiff {
+    /// A single item in the diff.
+    type Item<'a>: ZoneDiffItem + Send
+    where
+        Self: 'a;
+
+    /// The type of [`Stream`] used to access the diff records.
+    type Stream<'a>: Stream<Item = Self::Item<'a>> + Send
+    where
+        Self: 'a;
+
+    /// The serial number of the zone which was modified.
+    fn start_serial(
+        &self,
+    ) -> Pin<Box<dyn Future<Output = Serial> + Send + '_>>;
+
+    /// The serial number of the zone that resulted from the modifications.
+    fn end_serial(&self)
+        -> Pin<Box<dyn Future<Output = Serial> + Send + '_>>;
+
+    /// An stream of RRsets that were added to the zone.
+    // TODO: Does this need to be Box<Pin<dyn Future<Output = Stream>>>?
+    fn added(&self) -> Self::Stream<'_>;
+
+    /// An stream of RRsets that were removed from the zone.
+    // TODO: Does this need to be Box<Pin<dyn Future<Output = Stream>>>?
+    fn removed(&self) -> Self::Stream<'_>;
+
+    /// Get an RRset that was added to the zone, if present in the diff.
+    fn get_added(
+        &self,
+        name: impl ToName,
+        rtype: Rtype,
+    ) -> Pin<Box<dyn Future<Output = Option<&SharedRrset>> + Send + '_>>;
+
+    /// Get an RRset that was removed from the zone, if present in the diff.
+    fn get_removed(
+        &self,
+        name: impl ToName,
+        rtype: Rtype,
+    ) -> Pin<Box<dyn Future<Output = Option<&SharedRrset>> + Send + '_>>;
+}
+
+//--- impl ZoneDiff for Arc
+
+impl<T: ZoneDiff> ZoneDiff for Arc<T> {
+    type Item<'a> = T::Item<'a>
+    where
+        Self: 'a;
+
+    type Stream<'a> = T::Stream<'a>
+    where
+        Self: 'a;
+
+    fn start_serial(
+        &self,
+    ) -> Pin<Box<dyn Future<Output = Serial> + Send + '_>> {
+        Arc::deref(self).start_serial()
+    }
+
+    fn end_serial(
+        &self,
+    ) -> Pin<Box<dyn Future<Output = Serial> + Send + '_>> {
+        Arc::deref(self).end_serial()
+    }
+
+    fn added(&self) -> Self::Stream<'_> {
+        Arc::deref(self).added()
+    }
+
+    fn removed(&self) -> Self::Stream<'_> {
+        Arc::deref(self).removed()
+    }
+
+    fn get_added(
+        &self,
+        name: impl ToName,
+        rtype: Rtype,
+    ) -> Pin<Box<dyn Future<Output = Option<&SharedRrset>> + Send + '_>> {
+        Arc::deref(self).get_added(name, rtype)
+    }
+
+    fn get_removed(
+        &self,
+        name: impl ToName,
+        rtype: Rtype,
+    ) -> Pin<Box<dyn Future<Output = Option<&SharedRrset>> + Send + '_>> {
+        Arc::deref(self).get_removed(name, rtype)
+    }
 }

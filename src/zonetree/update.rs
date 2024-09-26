@@ -21,7 +21,7 @@ use crate::zonetree::{Rrset, SharedRrset};
 use super::error::OutOfZone;
 use super::types::ZoneUpdate;
 use super::util::rel_name_rev_iter;
-use super::{WritableZone, WritableZoneNode, Zone, ZoneDiff};
+use super::{InMemoryZoneDiff, WritableZone, WritableZoneNode, Zone};
 
 /// Apply a sequence of [`ZoneUpdate`]s to update the content of a [`Zone`].
 ///
@@ -267,7 +267,7 @@ impl ZoneUpdater {
     pub async fn apply(
         &mut self,
         update: ZoneUpdate<ParsedRecord>,
-    ) -> Result<Option<ZoneDiff>, Error> {
+    ) -> Result<Option<InMemoryZoneDiff>, Error> {
         trace!("Update: {update}");
 
         if self.state == ZoneUpdaterState::Finished {
@@ -337,6 +337,8 @@ impl ZoneUpdater {
     /// Has zone updating finished?
     ///
     /// If true, further calls to [`apply()`] will fail.
+    ///
+    /// [`apply()`]: Self::apply
     pub fn is_finished(&self) -> bool {
         self.state == ZoneUpdaterState::Finished
     }
@@ -521,7 +523,7 @@ impl ReopenableZoneWriter {
     /// Commits any pending changes to the [`Zone`] being written to.
     ///
     /// Returns the created diff, if any.
-    async fn commit(&mut self) -> Result<Option<ZoneDiff>, Error> {
+    async fn commit(&mut self) -> Result<Option<InMemoryZoneDiff>, Error> {
         // Commit the deletes and adds that just occurred
         if let Some(writable) = self.writable.take() {
             // Ensure that there are no dangling references to the created

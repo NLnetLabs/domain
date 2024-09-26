@@ -50,7 +50,7 @@ use crate::net::client::tsig::{self};
 use crate::net::server::message::Request;
 use crate::net::server::middleware::notify::{Notifiable, NotifyError};
 use crate::net::server::middleware::xfr::{
-    XfrDataProvider, XfrDataProviderError,
+    XfrData, XfrDataProvider, XfrDataProviderError,
 };
 use crate::net::xfr::protocol::XfrResponseInterpreter;
 use crate::rdata::{Soa, ZoneRecordData};
@@ -58,16 +58,17 @@ use crate::tsig::{Key, KeyStore};
 use crate::zonetree::error::{OutOfZone, ZoneTreeModificationError};
 use crate::zonetree::update::ZoneUpdater;
 use crate::zonetree::{
-    AnswerContent, ReadableZone, SharedRrset, StoredName, WritableZone,
-    WritableZoneNode, Zone, ZoneDiff, ZoneKey, ZoneStore, ZoneTree,
+    AnswerContent, InMemoryZoneDiff, ReadableZone, SharedRrset, StoredName,
+    WritableZone, WritableZoneNode, Zone, ZoneKey, ZoneStore, ZoneTree,
 };
 
 use super::types::{
-    Event, NotifySrcDstConfig, NotifyStrategy, TransportStrategy, XfrConfig,
-    XfrStrategy, ZoneChangedMsg, ZoneConfig, ZoneDiffs, ZoneInfo,
-    ZoneNameServers, ZoneRefreshCause, ZoneRefreshInstant, ZoneRefreshState,
-    ZoneRefreshStatus, ZoneRefreshTimer, ZoneReport, ZoneReportDetails,
-    IANA_DNS_PORT_NUMBER, MIN_DURATION_BETWEEN_ZONE_REFRESHES,
+    CompatibilityMode, Event, NotifySrcDstConfig, NotifyStrategy,
+    TransportStrategy, XfrConfig, XfrStrategy, ZoneChangedMsg, ZoneConfig,
+    ZoneDiffs, ZoneInfo, ZoneNameServers, ZoneRefreshCause,
+    ZoneRefreshInstant, ZoneRefreshState, ZoneRefreshStatus,
+    ZoneRefreshTimer, ZoneReport, ZoneReportDetails, IANA_DNS_PORT_NUMBER,
+    MIN_DURATION_BETWEEN_ZONE_REFRESHES,
 };
 
 //------------ ConnectionFactory ---------------------------------------------
@@ -2042,7 +2043,7 @@ where
         diff_from: Option<Serial>,
         zone: &Zone,
         zone_info: &ZoneInfo,
-    ) -> Vec<Arc<ZoneDiff>>
+    ) -> Vec<Arc<InMemoryZoneDiff>>
     where
         KS: Deref + 'static + Sync + Send,
         CF: ConnectionFactory + Sync + Send + 'static,
@@ -2076,6 +2077,8 @@ where
         Clone + Debug + Display + Sync + Send + 'static,
     CF: ConnectionFactory + Sync + Send + 'static,
 {
+    type Diff = Arc<InMemoryZoneDiff>;
+
     fn request<Octs>(
         &self,
         req: &Request<Octs>,
@@ -2084,8 +2087,8 @@ where
         Box<
             dyn Future<
                     Output = Result<
-                        (Zone, Vec<Arc<ZoneDiff>>),
-                        net::server::middleware::xfr::XfrDataProviderError,
+                        XfrData<Self::Diff>,
+                        XfrDataProviderError,
                     >,
                 > + Sync
                 + Send
@@ -2114,16 +2117,22 @@ where
 
                     let zone_info = cat_zone.info();
 
-                    let _ = ZoneMaintainer::<KS, CF>::check_xfr_access(
-                        zone_info, &zone, client_ip, qtype,
-                    )?;
+                    let xfr_config =
+                        ZoneMaintainer::<KS, CF>::check_xfr_access(
+                            zone_info, &zone, client_ip, qtype,
+                        )?;
 
                     let diffs = ZoneMaintainer::<KS, CF>::diffs_for_zone(
                         diff_from, &zone, zone_info,
                     )
                     .await;
 
-                    Ok((zone.clone(), diffs))
+                    let backward_compatible = matches!(
+                        xfr_config.compatibility_mode,
+                        CompatibilityMode::BackwardCompatible
+                    );
+
+                    Ok(XfrData::new(zone.clone(), diffs, backward_compatible))
                 }
 
                 Ok(None) => Err(XfrDataProviderError::UnknownZone),
@@ -2148,6 +2157,8 @@ where
         Clone + Debug + Display + Sync + Send + 'static,
     CF: ConnectionFactory + Sync + Send + 'static,
 {
+    type Diff = Arc<InMemoryZoneDiff>;
+
     fn request<Octs>(
         &self,
         req: &Request<Octs, Option<Key>>,
@@ -2156,8 +2167,8 @@ where
         Box<
             dyn Future<
                     Output = Result<
-                        (Zone, Vec<Arc<ZoneDiff>>),
-                        net::server::middleware::xfr::XfrDataProviderError,
+                        XfrData<Self::Diff>,
+                        XfrDataProviderError,
                     >,
                 > + Sync
                 + Send
@@ -2230,7 +2241,12 @@ where
                     )
                     .await;
 
-                    Ok((zone.clone(), diffs))
+                    let backward_compatible = matches!(
+                        xfr_config.compatibility_mode,
+                        CompatibilityMode::BackwardCompatible
+                    );
+
+                    Ok(XfrData::new(zone.clone(), diffs, backward_compatible))
                 }
 
                 Ok(None) => Err(XfrDataProviderError::UnknownZone),
@@ -2403,7 +2419,7 @@ impl WritableZone for WritableMaintainedZone {
         bump_soa_serial: bool,
     ) -> Pin<
         Box<
-            dyn Future<Output = Result<Option<ZoneDiff>, io::Error>>
+            dyn Future<Output = Result<Option<InMemoryZoneDiff>, io::Error>>
                 + Send
                 + Sync,
         >,
