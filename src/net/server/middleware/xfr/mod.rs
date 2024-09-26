@@ -46,6 +46,7 @@ mod util;
 pub mod data_provider;
 pub mod service;
 
+pub use data_provider::{XfrData, XfrDataProvider, XfrDataProviderError};
 pub use service::XfrMiddlewareSvc;
 
 #[cfg(test)]
