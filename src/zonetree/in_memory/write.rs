@@ -305,10 +305,14 @@ impl WritableZone for WriteZone {
         // that case be a SOA record in the new version of the zone anyway.
 
         let old_soa_rr = self.apex.get_soa(self.last_published_version());
-        let new_soa_rr = self.apex.get_soa(self.new_version);
+        let mut new_soa_rr = self.apex.get_soa(self.new_version);
 
-        if bump_soa_serial && old_soa_rr.is_some() && new_soa_rr.is_none() {
+        if bump_soa_serial
+            && old_soa_rr.is_some()
+            && (new_soa_rr.is_none() || new_soa_rr == old_soa_rr)
+        {
             self.bump_soa_serial(&old_soa_rr);
+            new_soa_rr = self.apex.get_soa(self.new_version);
         }
 
         // Extract (and finish) the created diff, if any.
