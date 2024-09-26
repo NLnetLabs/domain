@@ -109,10 +109,13 @@ async fn main() {
     zones.insert_zone(zone).unwrap();
     let zones = Arc::new(zones);
 
+    // Create an XFR data provider that can serve diffs for our zone.
+    let zones_and_diffs = ZoneTreeWithDiffs::new(zones.clone());
+
+    // Create a server with middleware layers and an application service
+    // listening on localhost port 8053.
     let addr = "127.0.0.1:8053";
     let svc = service_fn(my_service, zones.clone());
-
-    let zones_and_diffs = ZoneTreeWithDiffs::new(zones.clone());
 
     #[cfg(feature = "siphasher")]
     let svc = CookiesMiddlewareSvc::<Vec<u8>, _, _>::with_random_secret(svc);
@@ -155,6 +158,7 @@ async fn main() {
     eprintln!();
     eprintln!("Tip: set env var RUST_LOG=info (or debug or trace) for more log output.");
 
+    // Print some status information every 5 seconds
     tokio::spawn(async move {
         loop {
             tokio::time::sleep(Duration::from_millis(5000)).await;
@@ -188,6 +192,7 @@ async fn main() {
         }
     });
 
+    // Mutate our own zone every 10 seconds.
     tokio::spawn(async move {
         let zone_name = Name::<Vec<u8>>::from_str("example.com").unwrap();
         let mut label: Option<OwnedLabel> = None;
