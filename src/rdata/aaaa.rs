@@ -8,7 +8,7 @@ use crate::base::cmp::CanonicalOrd;
 use crate::base::iana::Rtype;
 use crate::base::net::Ipv6Addr;
 use crate::base::rdata::{ComposeRecordData, ParseRecordData, RecordData};
-use crate::base::scan::{Scanner, ScannerError};
+use crate::base::scan::{Scan, Tokenizer, ScanError};
 use crate::base::wire::{Composer, Parse, ParseError};
 use core::cmp::Ordering;
 use core::convert::Infallible;
@@ -56,14 +56,6 @@ impl Aaaa {
         parser: &mut Parser<Octs>,
     ) -> Result<Self, ParseError> {
         Ipv6Addr::parse(parser).map(Self::new)
-    }
-
-    pub fn scan<S: Scanner>(scanner: &mut S) -> Result<Self, S::Error> {
-        let token = scanner.scan_octets()?;
-        let token = str::from_utf8(token.as_ref())
-            .map_err(|_| S::Error::custom("expected IPv6 address"))?;
-        Aaaa::from_str(token)
-            .map_err(|_| S::Error::custom("expected IPv6 address"))
     }
 }
 
@@ -145,6 +137,18 @@ impl ComposeRecordData for Aaaa {
         target: &mut Target,
     ) -> Result<(), Target::AppendError> {
         self.compose_rdata(target)
+    }
+}
+
+//--- Scan
+
+#[cfg(feature = "std")]
+impl Scan for Aaaa {
+    fn scan(tokens: &mut Tokenizer<'_>) -> Result<Self, ScanError> {
+        let token = tokens.next()?.processed_bytes()?;
+        str::from_utf8(token.as_ref()).ok()
+            .and_then(|s| Self::from_str(s).ok())
+            .ok_or(ScanError::custom("expected IPv6 address"))
     }
 }
 
