@@ -374,3 +374,21 @@ impl<Target> CallResult<Target> {
         (response, feedback)
     }
 }
+
+//--- From<AdditionalBuilder>
+
+impl<Target> From<AdditionalBuilder<StreamTarget<Target>>>
+    for CallResult<Target>
+{
+    fn from(response: AdditionalBuilder<StreamTarget<Target>>) -> Self {
+        Self::new(response)
+    }
+}
+
+//--- From<ServiceFeedback>
+
+impl<Target> From<ServiceFeedback> for CallResult<Target> {
+    fn from(feedback: ServiceFeedback) -> Self {
+        Self::feedback_only(feedback)
+    }
+}

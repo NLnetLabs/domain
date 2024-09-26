@@ -456,10 +456,7 @@ where
             // responses. The transport should modify its behaviour to account
             // for the potentially slow and long running nature of a
             // transaction.
-            add_to_stream(
-                CallResult::feedback_only(ServiceFeedback::BeginTransaction),
-                &response_tx,
-            );
+            add_to_stream(ServiceFeedback::BeginTransaction, &response_tx);
         }
 
         // Enqueue the zone SOA RRset for the batcher to process.
@@ -501,8 +498,10 @@ where
         // one at a time to the batching responder.
         tokio::spawn(async move {
             if let Err(rcode) = zone_funneler.run().await {
-                let resp = mk_error_response(&cloned_msg, rcode);
-                add_to_stream(CallResult::new(resp), &cloned_response_tx);
+                add_to_stream(
+                    mk_error_response(&cloned_msg, rcode),
+                    &cloned_response_tx,
+                );
             }
         });
 
@@ -513,16 +512,16 @@ where
                 Ok(()) => {
                     trace!("Ending transaction");
                     add_to_stream(
-                        CallResult::feedback_only(
-                            ServiceFeedback::EndTransaction,
-                        ),
+                        ServiceFeedback::EndTransaction,
                         &response_tx,
                     );
                 }
 
                 Err(rcode) => {
-                    let resp = mk_error_response(&msg, rcode);
-                    add_to_stream(CallResult::new(resp), &response_tx);
+                    add_to_stream(
+                        mk_error_response(&msg, rcode),
+                        &response_tx,
+                    );
                 }
             }
         });
@@ -605,10 +604,7 @@ where
             // responses. The transport should modify its behaviour to account
             // for the potentially slow and long running nature of a
             // transaction.
-            add_to_stream(
-                CallResult::feedback_only(ServiceFeedback::BeginTransaction),
-                &sender,
-            );
+            add_to_stream(ServiceFeedback::BeginTransaction, &sender);
         }
 
         // Stream the IXFR diffs in the background
@@ -622,8 +618,10 @@ where
                 error!(
                     "Internal error: Failed to acquire XFR batcher semaphore"
                 );
-                let resp = mk_error_response(&msg, OptRcode::SERVFAIL);
-                add_to_stream(CallResult::new(resp), &sender);
+                add_to_stream(
+                    mk_error_response(&msg, OptRcode::SERVFAIL),
+                    &sender,
+                );
                 return;
             }
 
@@ -747,12 +745,7 @@ where
 
             if !must_fit_in_single_message {
                 trace!("Ending transaction");
-                add_to_stream(
-                    CallResult::feedback_only(
-                        ServiceFeedback::EndTransaction,
-                    ),
-                    &sender,
-                );
+                add_to_stream(ServiceFeedback::EndTransaction, &sender);
             }
         });
 
@@ -1447,10 +1440,7 @@ where
                                 mk_builder_for_target(),
                             );
 
-                            add_to_stream(
-                                CallResult::new(resp),
-                                &self.response_tx,
-                            );
+                            add_to_stream(resp, &self.response_tx);
 
                             return Ok(());
                         }
@@ -1487,11 +1477,11 @@ where
 }
 
 //------------ add_to_stream() ------------------------------------------------
-fn add_to_stream<Target>(
-    call_result: CallResult<Target>,
+fn add_to_stream<Target, T: Into<CallResult<Target>>>(
+    call_result: T,
     response_tx: &UnboundedSender<ServiceResult<Target>>,
 ) {
-    if response_tx.send(Ok(call_result)).is_err() {
+    if response_tx.send(Ok(call_result.into())).is_err() {
         // We failed to write the message into the response stream. This
         // shouldn't happen. We can't now return an error to the client
         // because that would require writing to the response stream as
