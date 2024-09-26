@@ -170,12 +170,15 @@ where
     NextSvc::Stream: Send + Sync,
     XDP: XfrDataProvider<RequestMeta>,
     XDP::Diff: Debug + 'static,
-    for<'a> <XDP::Diff as ZoneDiff>::Stream<'a>: Send,
 {
     /// Pre-process received DNS XFR queries.
     ///
     /// Other types of query will be propagated unmodified to the next
     /// middleware or application service in the layered stack of services.
+    ///
+    /// Data to respond to the query will be requested from the given
+    /// [`XfrDataProvider`] which will act according to its policy concerning
+    /// the given [`Request`].
     pub async fn preprocess(
         zone_walking_semaphore: Arc<Semaphore>,
         batcher_semaphore: Arc<Semaphore>,
@@ -376,6 +379,7 @@ where
                     batcher_semaphore.clone(),
                     req,
                     ixfr_query_serial,
+                    q.qname().to_name(),
                     &zone_soa_answer,
                     xfr_data.diffs,
                 )
@@ -384,7 +388,10 @@ where
                 Ok(ControlFlow::Break(stream))
             }
 
-            _ => Ok(ControlFlow::Continue(())),
+            _ => {
+                // Other QTYPEs should have been filtered out by get_relevant_question().
+                unreachable!();
+            }
         }
     }
 
@@ -416,8 +423,6 @@ where
             return Err(OptRcode::SERVFAIL);
         };
 
-        let soft_byte_limit = Self::calc_msg_bytes_available(req);
-
         if compatibility_mode {
             trace!(
                 "Compatibility mode enabled for client with IP address {}",
@@ -444,11 +449,13 @@ where
         //   - https://datatracker.ietf.org/doc/html/rfc1995#section-4
         //   - https://datatracker.ietf.org/doc/html/rfc5936#section-4.2
 
+        let soft_byte_limit = Self::calc_msg_bytes_available(req);
+
         // Create a stream that will be immediately returned to the caller.
         // Async tasks will then push DNS response messages into the stream as
         // they become available.
-        let (response_tx, receiver) = unbounded_channel();
-        let stream = UnboundedReceiverStream::new(receiver);
+        let (response_tx, response_rx) = unbounded_channel();
+        let stream = UnboundedReceiverStream::new(response_rx);
 
         // Create a bounded queue for passing RRsets found during zone walking
         // to a task which will batch the RRs together before pushing them
@@ -548,6 +555,7 @@ where
         batcher_semaphore: Arc<Semaphore>,
         req: &Request<RequestOctets, T>,
         query_serial: Serial,
+        qname: StoredName,
         zone_soa_answer: &Answer,
         diffs: Vec<XDP::Diff>,
     ) -> Result<
@@ -563,9 +571,15 @@ where
     {
         let msg = req.message();
 
-        let Some((soa_ttl, ZoneRecordData::Soa(soa))) =
-            zone_soa_answer.content().first()
+        let AnswerContent::Data(zone_soa_rrset) =
+            zone_soa_answer.content().clone()
         else {
+            return Err(OptRcode::SERVFAIL);
+        };
+        let Some(first_rr) = zone_soa_rrset.first() else {
+            return Err(OptRcode::SERVFAIL);
+        };
+        let ZoneRecordData::Soa(soa) = first_rr.data() else {
             return Err(OptRcode::SERVFAIL);
         };
 
@@ -586,7 +600,7 @@ where
         // Errata https://www.rfc-editor.org/errata/eid3196 points out that
         // this is NOT "just as in AXFR" as AXFR does not do that.
         if query_serial >= soa.serial() {
-            trace!("IXFR finished because query_serial >= zone_serial");
+            trace!("Responding to IXFR with single SOA because query serial >= zone serial");
             let builder = mk_builder_for_target();
             let response = zone_soa_answer.to_message(msg, builder);
             let res = Ok(CallResult::new(response));
@@ -598,11 +612,19 @@ where
         // the full zone) beyond which named chooses to use an AXFR response
         // rather than IXFR when answering zone transfer requests"?
 
+        let soft_byte_limit = Self::calc_msg_bytes_available(req);
+
         // Create a stream that will be immediately returned to the caller.
         // Async tasks will then push DNS response messages into the stream as
         // they become available.
-        let (sender, receiver) = unbounded_channel();
-        let stream = UnboundedReceiverStream::new(receiver);
+        let (response_tx, response_rx) = unbounded_channel();
+        let stream = UnboundedReceiverStream::new(response_rx);
+
+        // Create a bounded queue for passing RRsets found during diff walking
+        // to a task which will batch the RRs together before pushing them
+        // into the result stream.
+        let (batcher_tx, batcher_rx) =
+            tokio::sync::mpsc::channel::<(StoredName, SharedRrset)>(100);
 
         let must_fit_in_single_message =
             matches!(req.transport_ctx(), TransportSpecificContext::Udp(_));
@@ -612,150 +634,64 @@ where
             // responses. The transport should modify its behaviour to account
             // for the potentially slow and long running nature of a
             // transaction.
-            add_to_stream(ServiceFeedback::BeginTransaction, &sender);
+            add_to_stream(ServiceFeedback::BeginTransaction, &response_tx);
         }
 
-        // Stream the IXFR diffs in the background
-        let msg = msg.clone();
-        let soft_byte_limit = Self::calc_msg_bytes_available(req);
+        // Stream the IXFR diffs in the background to the batcher.
+        let diff_funneler =
+            DiffFunneler::new(qname, zone_soa_rrset, diffs, batcher_tx);
 
+        let batching_responder = BatchingRrResponder::new(
+            req.message().clone(),
+            zone_soa_answer.clone(),
+            batcher_rx,
+            response_tx.clone(),
+            false,
+            soft_byte_limit,
+            must_fit_in_single_message,
+            batcher_semaphore,
+        );
+
+        let cloned_msg = msg.clone();
+        let cloned_response_tx = response_tx.clone();
+
+        // Start the funneler. It will walk the diffs and send all of the RRs
+        // one at a time to the batching responder.
         tokio::spawn(async move {
-            // Limit the number of concurrently running XFR batching
-            // operations.
-            if batcher_semaphore.acquire().await.is_err() {
-                error!(
-                    "Internal error: Failed to acquire XFR batcher semaphore"
-                );
+            if let Err(rcode) = diff_funneler.run().await {
                 add_to_stream(
-                    mk_error_response(&msg, OptRcode::SERVFAIL),
-                    &sender,
+                    mk_error_response(&cloned_msg, rcode),
+                    &cloned_response_tx,
                 );
-                return;
-            }
-
-            // https://datatracker.ietf.org/doc/html/rfc1995#section-4
-            // 4. Response Format
-            //    ...
-            //   "If incremental zone transfer is available, one or more
-            //    difference sequences is returned.  The list of difference
-            //    sequences is preceded and followed by a copy of the server's
-            //    current version of the SOA.
-            //
-            //    Each difference sequence represents one update to the zone
-            //    (one SOA serial change) consisting of deleted RRs and added
-            //    RRs.  The first RR of the deleted RRs is the older SOA RR
-            //    and the first RR of the added RRs is the newer SOA RR.
-            //
-            //    Modification of an RR is performed first by removing the
-            //    original RR and then adding the modified one.
-            //
-            //    The sequences of differential information are ordered oldest
-            //    first newest last.  Thus, the differential sequences are the
-            //    history of changes made since the version known by the IXFR
-            //    client up to the server's current version.
-            //
-            //    RRs in the incremental transfer messages may be partial. That
-            //    is, if a single RR of multiple RRs of the same RR type changes,
-            //    only the changed RR is transferred."
-
-            let (owner, qclass) = {
-                let Ok(q) = msg.sole_question() else {
-                    unreachable!();
-                };
-                (q.qname().to_name::<Bytes>(), q.qclass())
-            };
-
-            let mut batcher = XfrRrBatcher::build(
-                msg.clone(),
-                sender.clone(),
-                Some(soft_byte_limit),
-                None,
-                must_fit_in_single_message,
-            );
-
-            batcher
-                .push((owner.clone(), qclass, soa_ttl, &soa))
-                .unwrap(); // TODO
-
-            for diff in diffs {
-                // 4. Response Format
-                //    "Each difference sequence represents one update to the
-                //    zone (one SOA serial change) consisting of deleted RRs
-                //    and added RRs.  The first RR of the deleted RRs is the
-                //    older SOA RR and the first RR of the added RRs is the
-                //    newer SOA RR.
-                let removed_soa = diff
-                    .get_removed(owner.clone(), Rtype::SOA)
-                    .await
-                    .unwrap(); // The zone MUST have a SOA record
-                batcher
-                    .push((
-                        owner.clone(),
-                        qclass,
-                        removed_soa.ttl(),
-                        &removed_soa.data()[0],
-                    ))
-                    .unwrap(); // TODO
-
-                let removed_stream = diff.removed();
-                pin_mut!(removed_stream);
-                while let Some(item) = removed_stream.next().await {
-                    let (owner, rtype) = item.key();
-                    if *rtype != Rtype::SOA {
-                        let rrset = item.value();
-                        for rr in rrset.data() {
-                            batcher
-                                .push((
-                                    owner.clone(),
-                                    qclass,
-                                    rrset.ttl(),
-                                    rr,
-                                ))
-                                .unwrap(); // TODO
-                        }
-                    }
-                }
-
-                let added_soa =
-                    diff.get_added(owner.clone(), Rtype::SOA).await.unwrap(); // The zone MUST have a SOA record
-                batcher
-                    .push((
-                        owner.clone(),
-                        qclass,
-                        added_soa.ttl(),
-                        &added_soa.data()[0],
-                    ))
-                    .unwrap(); // TODO
-
-                let added_stream = diff.added();
-                pin_mut!(added_stream);
-                while let Some(item) = added_stream.next().await {
-                    let (owner, rtype) = item.key();
-                    if *rtype != Rtype::SOA {
-                        let rrset = item.value();
-                        for rr in rrset.data() {
-                            batcher
-                                .push((
-                                    owner.clone(),
-                                    qclass,
-                                    rrset.ttl(),
-                                    rr,
-                                ))
-                                .unwrap(); // TODO
-                        }
-                    }
-                }
-            }
-
-            batcher.push((owner, qclass, soa_ttl, soa)).unwrap(); // TODO
-
-            batcher.finish().unwrap(); // TODO
-
-            if !must_fit_in_single_message {
-                trace!("Ending transaction");
-                add_to_stream(ServiceFeedback::EndTransaction, &sender);
             }
         });
+
+        let cloned_msg = msg.clone();
+
+        // Start the batching responder. It will receive RRs from the funneler
+        // and push them in batches into the response stream.
+        tokio::spawn(async move {
+            match batching_responder.run().await {
+                Ok(()) => {
+                    trace!("Ending transaction");
+                    add_to_stream(
+                        ServiceFeedback::EndTransaction,
+                        &response_tx,
+                    );
+                }
+
+                Err(rcode) => {
+                    add_to_stream(
+                        mk_error_response(&cloned_msg, rcode),
+                        &response_tx,
+                    );
+                }
+            }
+        });
+
+        // If either the funneler or batcher responder terminate then so will
+        // the other as they each own half of a send <-> receive channel and
+        // abort if the other side of the channel is gone.
 
         Ok(MiddlewareStream::Result(stream))
     }
@@ -1390,6 +1326,144 @@ impl ZoneFunneler {
     }
 }
 
+//------------ DiffFunneler ----------------------------------------------------
+
+//------------ ZoneFunneler ---------------------------------------------------
+
+struct DiffFunneler<Diff> {
+    qname: StoredName,
+    zone_soa_rrset: SharedRrset,
+    diffs: Vec<Diff>,
+    batcher_tx: Sender<(Name<Bytes>, SharedRrset)>,
+}
+
+impl<Diff> DiffFunneler<Diff>
+where
+    Diff: ZoneDiff,
+{
+    fn new(
+        qname: StoredName,
+        zone_soa_rrset: SharedRrset,
+        diffs: Vec<Diff>,
+        batcher_tx: Sender<(Name<Bytes>, SharedRrset)>,
+    ) -> Self {
+        Self {
+            qname,
+            zone_soa_rrset,
+            diffs,
+            batcher_tx,
+        }
+    }
+
+    async fn run(self) -> Result<(), OptRcode> {
+        // https://datatracker.ietf.org/doc/html/rfc1995#section-4
+        // 4. Response Format
+        //    ...
+        //   "If incremental zone transfer is available, one or more
+        //    difference sequences is returned.  The list of difference
+        //    sequences is preceded and followed by a copy of the server's
+        //    current version of the SOA.
+        //
+        //    Each difference sequence represents one update to the zone
+        //    (one SOA serial change) consisting of deleted RRs and added
+        //    RRs.  The first RR of the deleted RRs is the older SOA RR
+        //    and the first RR of the added RRs is the newer SOA RR.
+        //
+        //    Modification of an RR is performed first by removing the
+        //    original RR and then adding the modified one.
+        //
+        //    The sequences of differential information are ordered oldest
+        //    first newest last.  Thus, the differential sequences are the
+        //    history of changes made since the version known by the IXFR
+        //    client up to the server's current version.
+        //
+        //    RRs in the incremental transfer messages may be partial. That
+        //    is, if a single RR of multiple RRs of the same RR type changes,
+        //    only the changed RR is transferred."
+
+        if let Err(err) = self
+            .batcher_tx
+            .send((self.qname.clone(), self.zone_soa_rrset.clone()))
+            .await
+        {
+            error!("Internal error: Failed to send initial IXFR SOA to batcher: {err}");
+            return Err(OptRcode::SERVFAIL);
+        }
+
+        let qname = self.qname.clone();
+
+        for diff in self.diffs {
+            // 4. Response Format
+            //    "Each difference sequence represents one update to the
+            //    zone (one SOA serial change) consisting of deleted RRs
+            //    and added RRs.  The first RR of the deleted RRs is the
+            //    older SOA RR and the first RR of the added RRs is the
+            //    newer SOA RR.
+
+            let added_soa =
+                diff.get_added(qname.clone(), Rtype::SOA).await.unwrap(); // The diff MUST have a SOA record
+            Self::send_diff_section(
+                &qname,
+                &self.batcher_tx,
+                added_soa,
+                diff.added(),
+            )
+            .await?;
+
+            let removed_soa =
+                diff.get_removed(qname.clone(), Rtype::SOA).await.unwrap(); // The diff MUST have a SOA record
+            Self::send_diff_section(
+                &qname,
+                &self.batcher_tx,
+                removed_soa,
+                diff.removed(),
+            )
+            .await?;
+        }
+
+        if let Err(err) = self
+            .batcher_tx
+            .send((qname.clone(), self.zone_soa_rrset))
+            .await
+        {
+            error!("Internal error: Failed to send final IXFR SOA to batcher: {err}");
+            return Err(OptRcode::SERVFAIL);
+        }
+
+        Ok(())
+    }
+
+    async fn send_diff_section(
+        qname: &StoredName,
+        batcher_tx: &Sender<(Name<Bytes>, SharedRrset)>,
+        soa: &SharedRrset,
+        diff_stream: <Diff as ZoneDiff>::Stream<'_>,
+    ) -> Result<(), OptRcode> {
+        if let Err(err) = batcher_tx.send((qname.clone(), soa.clone())).await
+        {
+            error!("Internal error: Failed to send SOA to batcher: {err}");
+            return Err(OptRcode::SERVFAIL);
+        }
+
+        pin_mut!(diff_stream);
+
+        while let Some(item) = diff_stream.next().await {
+            let (owner, rtype) = item.key();
+            if *rtype != Rtype::SOA {
+                let rrset = item.value();
+                if let Err(err) =
+                    batcher_tx.send((owner.clone(), rrset.clone())).await
+                {
+                    error!("Internal error: Failed to send RRSET to batcher: {err}");
+                    return Err(OptRcode::SERVFAIL);
+                }
+            }
+        }
+
+        Ok(())
+    }
+}
+
 //------------ BatchingRrResponder ---------------------------------------------
 
 struct BatchingRrResponder<RequestOctets, Target> {
@@ -1490,10 +1564,11 @@ where
                             debug_assert!(self.must_fit_in_single_message);
                             debug!("Responding to IXFR with single SOA because response does not fit in a single UDP reply");
 
-                            let resp = self.zone_soa_answer.to_message(
-                                &self.msg,
-                                mk_builder_for_target(),
-                            );
+                            let builder = mk_builder_for_target();
+
+                            let resp = self
+                                .zone_soa_answer
+                                .to_message(&self.msg, builder);
 
                             add_to_stream(resp, &self.response_tx);
 
@@ -1532,6 +1607,7 @@ where
 }
 
 //------------ add_to_stream() ------------------------------------------------
+
 fn add_to_stream<Target, T: Into<CallResult<Target>>>(
     call_result: T,
     response_tx: &UnboundedSender<ServiceResult<Target>>,
@@ -2236,7 +2312,6 @@ JAIN-BB.JAIN.AD.JP. IN A   192.41.197.2
     >
     where
         XDP::Diff: Debug + 'static,
-        for<'a> <XDP::Diff as ZoneDiff>::Stream<'a>: Send,
     {
         XfrMiddlewareSvc::<Vec<u8>, TestNextSvc, RequestMeta, XDP>::preprocess(
             Arc::new(Semaphore::new(1)),

@@ -270,7 +270,7 @@ pub trait ZoneDiffItem {
 /// [`Stream`]s.
 pub trait ZoneDiff {
     /// A single item in the diff.
-    type Item<'a>: ZoneDiffItem
+    type Item<'a>: ZoneDiffItem + Send
     where
         Self: 'a;
 
