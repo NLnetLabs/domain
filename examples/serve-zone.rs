@@ -21,7 +21,11 @@ use std::process::exit;
 use std::sync::Arc;
 use std::time::Duration;
 
-use domain::base::iana::Rcode;
+use core::future::{ready, Future};
+use core::net::IpAddr;
+use core::pin::Pin;
+use core::str::FromStr;
+use domain::base::iana::{Class, Rcode};
 use domain::base::ToName;
 use domain::net::server::buf::VecBufSource;
 use domain::net::server::dgram::DgramServer;
@@ -30,12 +34,19 @@ use domain::net::server::message::Request;
 use domain::net::server::middleware::cookies::CookiesMiddlewareSvc;
 use domain::net::server::middleware::edns::EdnsMiddlewareSvc;
 use domain::net::server::middleware::mandatory::MandatoryMiddlewareSvc;
+use domain::net::server::middleware::notify::{
+    Notifiable, NotifyError, NotifyMiddlewareSvc,
+};
+use domain::net::server::middleware::tsig::TsigMiddlewareSvc;
+use domain::net::server::middleware::xfr::XfrMiddlewareSvc;
 use domain::net::server::service::{CallResult, ServiceResult};
 use domain::net::server::stream::StreamServer;
 use domain::net::server::util::{mk_builder_for_target, service_fn};
+use domain::tsig::{Algorithm, Key, KeyName};
 use domain::zonefile::inplace;
-use domain::zonetree::Answer;
+use domain::zonetree::{Answer, StoredName};
 use domain::zonetree::{Zone, ZoneTree};
+use std::collections::HashMap;
 use tokio::net::{TcpListener, UdpSocket};
 use tracing_subscriber::EnvFilter;
 
@@ -49,6 +60,18 @@ async fn main() {
         .without_time()
         .try_init()
         .ok();
+
+    // Create a TSIG key store with a demo key.
+    let mut key_store = HashMap::new();
+    let key_name = KeyName::from_str("demo-key").unwrap();
+    let secret = domain::utils::base64::decode::<Vec<u8>>(
+        "zlCZbVJPIhobIs1gJNQfrsS3xCxxsR9pMUrGwG8OgG8=",
+    )
+    .unwrap();
+    let key =
+        Key::new(Algorithm::Sha256, &secret, key_name.clone(), None, None)
+            .unwrap();
+    key_store.insert((key_name, Algorithm::Sha256), key.into());
 
     // Populate a zone tree with test data
     let zone_bytes = include_bytes!("../test-data/zonefiles/nsd-example.txt");
@@ -77,15 +100,20 @@ async fn main() {
     let zones = Arc::new(zones);
 
     let addr = "127.0.0.1:8053";
-    let svc = service_fn(my_service, zones);
+    let svc = service_fn(my_service, zones.clone());
 
     #[cfg(feature = "siphasher")]
     let svc = CookiesMiddlewareSvc::<Vec<u8>, _, _>::with_random_secret(svc);
     let svc = EdnsMiddlewareSvc::<Vec<u8>, _, _>::new(svc);
+    let svc = XfrMiddlewareSvc::<Vec<u8>, _, Option<Arc<Key>>, _>::new(
+        svc, zones, 1,
+    );
+    let svc = NotifyMiddlewareSvc::new(svc, DemoNotifyTarget);
     let svc = MandatoryMiddlewareSvc::<Vec<u8>, _, _>::new(svc);
+    let svc = TsigMiddlewareSvc::new(svc, key_store);
     let svc = Arc::new(svc);
 
-    let sock = UdpSocket::bind(addr).await.unwrap();
+    let sock = UdpSocket::bind(&addr).await.unwrap();
     let sock = Arc::new(sock);
     let mut udp_metrics = vec![];
     let num_cores = std::thread::available_parallelism().unwrap().get();
@@ -103,7 +131,13 @@ async fn main() {
 
     tokio::spawn(async move { tcp_srv.run().await });
 
-    eprintln!("Ready");
+    eprintln!("Listening on {addr}");
+    eprintln!("Try:");
+    eprintln!("  dig @127.0.0.1 -p 8053 example.com");
+    eprintln!("  dig @127.0.0.1 -p 8053 -y hmac-sha256:demo-key:zlCZbVJPIhobIs1gJNQfrsS3xCxxsR9pMUrGwG8OgG8= example.com AXFR");
+    eprintln!("  dig @127.0.0.1 -p 8053 +opcode=notify example.com SOA");
+    eprintln!("");
+    eprintln!("Tip: set env var RUST_LOG=info (or debug or trace) for more log output.");
 
     tokio::spawn(async move {
         loop {
@@ -162,4 +196,28 @@ fn my_service(
     let builder = mk_builder_for_target();
     let additional = answer.to_message(request.message(), builder);
     Ok(CallResult::new(additional))
+}
+
+#[derive(Copy, Clone, Default, Debug)]
+struct DemoNotifyTarget;
+
+impl Notifiable for DemoNotifyTarget {
+    fn notify_zone_changed(
+        &self,
+        class: Class,
+        apex_name: &StoredName,
+        source: IpAddr,
+    ) -> Pin<
+        Box<dyn Future<Output = Result<(), NotifyError>> + Sync + Send + '_>,
+    > {
+        eprintln!("Notify received from {source} of change to zone {apex_name} in class {class}");
+
+        let res = match apex_name.to_string().to_lowercase().as_str() {
+            "example.com" => Ok(()),
+            "othererror.com" => Err(NotifyError::Other),
+            _ => Err(NotifyError::NotAuthForZone),
+        };
+
+        Box::pin(ready(res))
+    }
 }
