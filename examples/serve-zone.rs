@@ -136,7 +136,7 @@ async fn main() {
     eprintln!("  dig @127.0.0.1 -p 8053 example.com");
     eprintln!("  dig @127.0.0.1 -p 8053 -y hmac-sha256:demo-key:zlCZbVJPIhobIs1gJNQfrsS3xCxxsR9pMUrGwG8OgG8= example.com AXFR");
     eprintln!("  dig @127.0.0.1 -p 8053 +opcode=notify example.com SOA");
-    eprintln!("");
+    eprintln!();
     eprintln!("Tip: set env var RUST_LOG=info (or debug or trace) for more log output.");
 
     tokio::spawn(async move {
