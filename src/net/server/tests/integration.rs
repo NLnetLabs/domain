@@ -158,7 +158,7 @@ async fn server_tests(#[files("test-data/server/*.rpl")] rpl_file: PathBuf) {
     let svc =
         EdnsMiddlewareSvc::new(svc).enable(server_config.edns_tcp_keepalive);
 
-    // 4. XFR(-in) middleware service.
+    // 4. RFC 5936 AXFR and RFC 1995 IXFR middleware service.
     let svc = XfrMiddlewareSvc::<Vec<u8>, _, Option<Arc<Key>>, _>::new(
         svc, zones, 1,
     );
