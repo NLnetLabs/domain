@@ -64,6 +64,7 @@ use crate::base::message_builder::{
     AdditionalBuilder, AnswerBuilder, PushError,
 };
 use crate::base::wire::Composer;
+use crate::base::wire::ParseError;
 use crate::base::{
     Message, Name, ParsedName, Question, RecordData, Rtype, Serial,
     StreamTarget, ToName,
@@ -223,10 +224,20 @@ where
         }
 
         // Is transfer allowed for the requested zone for this requestor?
-        let (zone, diffs) = xfr_data_provider
+        let xfr_data = xfr_data_provider
             .request(req, ixfr_query_serial)
             .await
             .map_err(|err| match err {
+                XfrDataProviderError::ParseError(err) => {
+                    debug!(
+                        "{} for {} from {} refused: parse error: {err}",
+                        q.qtype(),
+                        q.qname(),
+                        req.client_addr()
+                    );
+                    OptRcode::FORMERR
+                }
+
                 XfrDataProviderError::UnknownZone => {
                     // https://datatracker.ietf.org/doc/html/rfc5936#section-2.2.1
                     // 2.2.1 Header Values
@@ -268,7 +279,7 @@ where
             })?;
 
         // Read the zone SOA RR
-        let read = zone.read();
+        let read = xfr_data.zone.read();
         let Ok(zone_soa_answer) =
             Self::read_soa(&read, q.qname().to_name()).await
         else {
@@ -307,8 +318,8 @@ where
                 )))))
             }
 
-            Rtype::AXFR | Rtype::IXFR if diffs.is_empty() => {
-                if q.qtype() == Rtype::IXFR && diffs.is_empty() {
+            Rtype::AXFR | Rtype::IXFR if xfr_data.diffs.is_empty() => {
+                if q.qtype() == Rtype::IXFR && xfr_data.diffs.is_empty() {
                     // https://datatracker.ietf.org/doc/html/rfc1995#section-4
                     // 4. Response Format
                     //    "If incremental zone transfer is not available, the
@@ -336,6 +347,7 @@ where
                     q.qname().to_name(),
                     &zone_soa_answer,
                     read,
+                    xfr_data.compatibility_mode,
                 )
                 .await?;
 
@@ -365,7 +377,7 @@ where
                     req,
                     ixfr_query_serial,
                     &zone_soa_answer,
-                    diffs,
+                    xfr_data.diffs,
                 )
                 .await?;
 
@@ -385,6 +397,7 @@ where
         qname: StoredName,
         zone_soa_answer: &Answer,
         read: Box<dyn ReadableZone>,
+        compatibility_mode: bool,
     ) -> Result<
         XfrMiddlewareStream<
             NextSvc::Future,
@@ -404,11 +417,6 @@ where
         };
 
         let soft_byte_limit = Self::calc_msg_bytes_available(req);
-
-        // TODO
-        // let compatibility_mode = xfr_config.compatibility_mode
-        //     == CompatibilityMode::BackwardCompatible;
-        let compatibility_mode = false;
 
         if compatibility_mode {
             trace!(
@@ -885,6 +893,8 @@ pub enum XfrMode {
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum XfrDataProviderError {
+    ParseError(ParseError),
+
     UnknownZone,
 
     Refused,
@@ -892,7 +902,47 @@ pub enum XfrDataProviderError {
     TemporarilyUnavailable,
 }
 
-//------------ Transferable ---------------------------------------------------
+//--- From<ParseError>
+
+impl From<ParseError> for XfrDataProviderError {
+    fn from(err: ParseError) -> Self {
+        Self::ParseError(err)
+    }
+}
+
+//------------ XfrData --------------------------------------------------------
+
+/// The data supplied by an [`XfrDataProvider`].
+pub struct XfrData<Diff> {
+    /// The zone to transfer.
+    zone: Zone,
+
+    /// The requested diffs.
+    ///
+    /// Empty if the requested diff range could not be satisfied.
+    diffs: Vec<Diff>,
+
+    /// Should XFR be done in RFC 5936 backward compatible mode?
+    ///
+    /// See: https://www.rfc-editor.org/rfc/rfc5936#section-7
+    compatibility_mode: bool,
+}
+
+impl<Diff> XfrData<Diff> {
+    pub fn new(
+        zone: Zone,
+        diffs: Vec<Diff>,
+        backward_compatible: bool,
+    ) -> Self {
+        Self {
+            zone,
+            diffs,
+            compatibility_mode: backward_compatible,
+        }
+    }
+}
+
+//------------ XfrDataProvider ------------------------------------------------
 
 /// A provider of data needed for responding to XFR requests.
 pub trait XfrDataProvider<RequestMeta = ()> {
@@ -917,7 +967,7 @@ pub trait XfrDataProvider<RequestMeta = ()> {
         Box<
             dyn Future<
                     Output = Result<
-                        (Zone, Vec<Self::Diff>),
+                        XfrData<Self::Diff>,
                         XfrDataProviderError,
                     >,
                 > + Sync
@@ -946,7 +996,7 @@ where
         Box<
             dyn Future<
                     Output = Result<
-                        (Zone, Vec<Self::Diff>),
+                        XfrData<Self::Diff>,
                         XfrDataProviderError,
                     >,
                 > + Sync
@@ -980,7 +1030,7 @@ impl<RequestMeta> XfrDataProvider<RequestMeta> for Zone {
         Box<
             dyn Future<
                     Output = Result<
-                        (Zone, Vec<EmptyZoneDiff>),
+                        XfrData<Self::Diff>,
                         XfrDataProviderError,
                     >,
                 > + Sync
@@ -990,15 +1040,18 @@ impl<RequestMeta> XfrDataProvider<RequestMeta> for Zone {
     where
         Octs: Octets + Send + Sync,
     {
-        let res = if let Ok(q) = req.message().sole_question() {
-            if q.qname() == self.apex_name() && q.qclass() == self.class() {
-                Ok((self.clone(), vec![]))
-            } else {
-                Err(XfrDataProviderError::UnknownZone)
-            }
-        } else {
-            Err(XfrDataProviderError::UnknownZone)
-        };
+        let res = req
+            .message()
+            .sole_question()
+            .map_err(XfrDataProviderError::ParseError)
+            .and_then(|q| {
+                if q.qname() == self.apex_name() && q.qclass() == self.class()
+                {
+                    Ok(XfrData::new(self.clone(), vec![], false))
+                } else {
+                    Err(XfrDataProviderError::UnknownZone)
+                }
+            });
 
         Box::pin(ready(res))
     }
@@ -1023,7 +1076,7 @@ impl<RequestMeta> XfrDataProvider<RequestMeta> for ZoneTree {
         Box<
             dyn Future<
                     Output = Result<
-                        (Zone, Vec<EmptyZoneDiff>),
+                        XfrData<Self::Diff>,
                         XfrDataProviderError,
                     >,
                 > + Sync
@@ -1033,15 +1086,17 @@ impl<RequestMeta> XfrDataProvider<RequestMeta> for ZoneTree {
     where
         Octs: Octets + Send + Sync,
     {
-        let res = if let Ok(q) = req.message().sole_question() {
-            if let Some(zone) = self.find_zone(q.qname(), q.qclass()) {
-                Ok((zone.clone(), vec![]))
-            } else {
-                Err(XfrDataProviderError::UnknownZone)
-            }
-        } else {
-            Err(XfrDataProviderError::UnknownZone)
-        };
+        let res = req
+            .message()
+            .sole_question()
+            .map_err(XfrDataProviderError::ParseError)
+            .and_then(|q| {
+                if let Some(zone) = self.find_zone(q.qname(), q.qclass()) {
+                    Ok(XfrData::new(zone.clone(), vec![], false))
+                } else {
+                    Err(XfrDataProviderError::UnknownZone)
+                }
+            });
 
         Box::pin(ready(res))
     }
@@ -1982,7 +2037,7 @@ JAIN-BB.JAIN.AD.JP. IN A   192.41.197.2
                 Box<
                     dyn Future<
                             Output = Result<
-                                (Zone, Vec<EmptyZoneDiff>),
+                                XfrData<Self::Diff>,
                                 XfrDataProviderError,
                             >,
                         > + Sync
@@ -2280,6 +2335,17 @@ JAIN-BB.JAIN.AD.JP. IN A   192.41.197.2
                 diffs: diffs.into_iter().map(Arc::new).collect(),
             }
         }
+
+        fn get_diffs(
+            &self,
+            diff_from: Option<Serial>,
+        ) -> Vec<Arc<InMemoryZoneDiff>> {
+            if self.diffs.first().map(|diff| diff.start_serial) == diff_from {
+                self.diffs.clone()
+            } else {
+                vec![]
+            }
+        }
     }
 
     impl XfrDataProvider for ZoneWithDiffs {
@@ -2292,7 +2358,7 @@ JAIN-BB.JAIN.AD.JP. IN A   192.41.197.2
             Box<
                 dyn Future<
                         Output = Result<
-                            (Zone, Vec<Arc<InMemoryZoneDiff>>),
+                            XfrData<Self::Diff>,
                             XfrDataProviderError,
                         >,
                     > + Sync
@@ -2302,26 +2368,23 @@ JAIN-BB.JAIN.AD.JP. IN A   192.41.197.2
         where
             Octs: Octets + Send + Sync,
         {
-            let res = if let Ok(q) = req.message().sole_question() {
-                if q.qname() == self.zone.apex_name()
-                    && q.qclass() == self.zone.class()
-                {
-                    let diffs =
-                        if self.diffs.first().map(|diff| diff.start_serial)
-                            == diff_from
-                        {
-                            self.diffs.clone()
-                        } else {
-                            vec![]
-                        };
-
-                    Ok((self.zone.clone(), diffs))
-                } else {
-                    Err(XfrDataProviderError::UnknownZone)
-                }
-            } else {
-                Err(XfrDataProviderError::UnknownZone)
-            };
+            let res = req
+                .message()
+                .sole_question()
+                .map_err(XfrDataProviderError::ParseError)
+                .and_then(|q| {
+                    if q.qname() == self.zone.apex_name()
+                        && q.qclass() == self.zone.class()
+                    {
+                        Ok(XfrData::new(
+                            self.zone.clone(),
+                            self.get_diffs(diff_from),
+                            false,
+                        ))
+                    } else {
+                        Err(XfrDataProviderError::UnknownZone)
+                    }
+                });
 
             Box::pin(ready(res))
         }
