@@ -305,13 +305,11 @@ impl ZoneTreeWithDiffs {
     }
 
     fn get_diffs(&self, diff_from: Option<Serial>) -> Vec<InMemoryZoneDiff> {
-        eprintln!("Looking up diffs from {diff_from:?}..");
         let diffs = self.diffs.lock().unwrap();
         if let Some(idx) = diffs
             .iter()
             .position(|diff| Some(diff.start_serial) == diff_from)
         {
-            eprintln!("Returning diffs from {idx}..");
             diffs[idx..].to_vec()
         } else {
             vec![]
