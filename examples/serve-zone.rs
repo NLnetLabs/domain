@@ -338,7 +338,6 @@ impl<RequestMeta> XfrDataProvider<RequestMeta> for ZoneTreeWithDiffs {
     where
         Octs: Octets + Send + Sync,
     {
-        eprintln!("XFR data requested: {diff_from:?}");
         let res = req
             .message()
             .sole_question()
