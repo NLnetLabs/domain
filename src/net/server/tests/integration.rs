@@ -583,6 +583,6 @@ impl KeyStore for Arc<TestKeyStore> {
         name: &N,
         algorithm: Algorithm,
     ) -> Option<Self::Key> {
-        Arc::deref(&self).get_key(name, algorithm)
+        Arc::deref(self).get_key(name, algorithm)
     }
 }
