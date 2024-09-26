@@ -81,16 +81,6 @@ where
             //    older SOA RR and the first RR of the added RRs is the
             //    newer SOA RR.
 
-            let added_soa =
-                diff.get_added(qname.clone(), Rtype::SOA).await.unwrap(); // The diff MUST have a SOA record
-            Self::send_diff_section(
-                &qname,
-                &self.batcher_tx,
-                added_soa,
-                diff.added(),
-            )
-            .await?;
-
             let removed_soa =
                 diff.get_removed(qname.clone(), Rtype::SOA).await.unwrap(); // The diff MUST have a SOA record
             Self::send_diff_section(
@@ -98,6 +88,16 @@ where
                 &self.batcher_tx,
                 removed_soa,
                 diff.removed(),
+            )
+            .await?;
+
+            let added_soa =
+                diff.get_added(qname.clone(), Rtype::SOA).await.unwrap(); // The diff MUST have a SOA record
+            Self::send_diff_section(
+                &qname,
+                &self.batcher_tx,
+                added_soa,
+                diff.added(),
             )
             .await?;
         }
