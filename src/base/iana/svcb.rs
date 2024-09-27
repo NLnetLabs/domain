@@ -17,7 +17,7 @@ int_enum! {
 }
 
 int_enum_str_with_prefix!(SvcParamKey, "key", b"key", u16, "unknown key");
-int_enum_show_with_prefix!(SvcParamKey, "key");
+int_enum_zonefile_fmt_with_prefix!(SvcParamKey, "key");
 
 impl SvcParamKey {
     pub const PRIVATE_RANGE_BEGIN: u16 = 65280;

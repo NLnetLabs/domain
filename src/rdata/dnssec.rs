@@ -2753,7 +2753,7 @@ mod test {
         let rdata = Dnskey::new(10, 11, SecAlg::RSASHA1, b"key0").unwrap();
         test_rdlen(&rdata);
         test_compose_parse(&rdata, |parser| Dnskey::parse(parser));
-        test_scan(&["10", "11", "RSASHA1", "a2V5MA=="], Dnskey::scan, &rdata);
+        test_scan(&["10", "11", "5", "a2V5MA=="], Dnskey::scan, &rdata);
     }
 
     //--- Rrsig
@@ -2778,7 +2778,7 @@ mod test {
         test_scan(
             &[
                 "A",
-                "RSASHA1",
+                "5",
                 "3",
                 "12",
                 "13",
@@ -2825,7 +2825,7 @@ mod test {
             Ds::new(10, SecAlg::RSASHA1, DigestAlg::SHA256, b"key").unwrap();
         test_rdlen(&rdata);
         test_compose_parse(&rdata, |parser| Ds::parse(parser));
-        test_scan(&["10", "RSASHA1", "2", "6b6579"], Ds::scan, &rdata);
+        test_scan(&["10", "5", "2", "6b6579"], Ds::scan, &rdata);
     }
 
     //--- RtypeBitmape

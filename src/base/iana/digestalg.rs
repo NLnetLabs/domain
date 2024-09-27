@@ -43,7 +43,7 @@ int_enum! {
 }
 
 int_enum_str_decimal!(DigestAlg, u8);
-int_enum_show_decimal!(DigestAlg, "digest type");
+int_enum_zonefile_fmt_decimal!(DigestAlg, "digest type");
 
 //============ Tests =========================================================
 

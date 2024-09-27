@@ -82,4 +82,4 @@ int_enum! {
 }
 
 int_enum_str_with_decimal!(Opcode, u8, "unknown opcode");
-int_enum_show_with_decimal!(Opcode);
+int_enum_zonefile_fmt_with_decimal!(Opcode);

@@ -1,4 +1,4 @@
-//! The nodes in a zone tree.
+//! The resource record tree nodes of an in-memory zone.
 
 use std::boxed::Box;
 use std::collections::{hash_map, HashMap};
@@ -12,9 +12,10 @@ use parking_lot::{
 use tokio::sync::Mutex;
 
 use crate::base::iana::{Class, Rtype};
-use crate::base::name::{Label, OwnedLabel, ToLabelIter, ToName};
+use crate::base::name::{Label, OwnedLabel, ToName};
 use crate::zonetree::error::{CnameError, OutOfZone, ZoneCutError};
 use crate::zonetree::types::{StoredName, ZoneCut};
+use crate::zonetree::util::rel_name_rev_iter;
 use crate::zonetree::walk::WalkState;
 use crate::zonetree::{
     ReadableZone, SharedRr, SharedRrset, WritableZone, ZoneStore,
@@ -71,14 +72,7 @@ impl ZoneApex {
         &self,
         qname: &'l impl ToName,
     ) -> Result<impl Iterator<Item = &'l Label> + Clone, OutOfZone> {
-        let mut qname = qname.iter_labels().rev();
-        for apex_label in self.name().iter_labels().rev() {
-            let qname_label = qname.next();
-            if Some(apex_label) != qname_label {
-                return Err(OutOfZone);
-            }
-        }
-        Ok(qname)
+        rel_name_rev_iter(&self.apex_name, qname)
     }
 
     /// Returns the RRsets of this node.
@@ -103,9 +97,9 @@ impl ZoneApex {
         self.children.rollback(version);
     }
 
-    pub fn clean(&self, version: Version) {
-        self.rrsets.clean(version);
-        self.children.clean(version);
+    pub fn remove_all(&self, version: Version) {
+        self.rrsets.remove_all(version);
+        self.children.remove_all(version);
     }
 
     pub fn versions(&self) -> &RwLock<ZoneVersions> {
@@ -135,7 +129,14 @@ impl ZoneStore for ZoneApex {
 
     fn write(
         self: Arc<Self>,
-    ) -> Pin<Box<dyn Future<Output = Box<dyn WritableZone>>>> {
+    ) -> Pin<
+        Box<
+            (dyn Future<Output = Box<(dyn WritableZone + 'static)>>
+                 + Send
+                 + Sync
+                 + 'static),
+        >,
+    > {
         Box::pin(async move {
             let lock = self.update_lock.clone().lock_owned().await;
             let version = self.versions().read().current().0.next();
@@ -213,10 +214,10 @@ impl ZoneNode {
         self.children.rollback(version);
     }
 
-    pub fn clean(&self, version: Version) {
-        self.rrsets.clean(version);
-        self.special.write().clean(version);
-        self.children.clean(version);
+    pub fn remove_all(&self, version: Version) {
+        self.rrsets.remove_all(version);
+        self.special.write().remove(version);
+        self.children.remove_all(version);
     }
 }
 
@@ -253,20 +254,24 @@ impl NodeRrsets {
 
     /// Updates an RRset.
     pub fn update(&self, rrset: SharedRrset, version: Version) {
-        self.rrsets
-            .write()
-            .entry(rrset.rtype())
-            .or_default()
-            .update(rrset, version)
+        if rrset.is_empty() {
+            self.remove_rtype(rrset.rtype(), version);
+        } else {
+            self.rrsets
+                .write()
+                .entry(rrset.rtype())
+                .or_default()
+                .update(rrset, version);
+        }
     }
 
     /// Removes the RRset for the given type.
-    pub fn remove(&self, rtype: Rtype, version: Version) {
+    pub fn remove_rtype(&self, rtype: Rtype, version: Version) {
         self.rrsets
             .write()
             .entry(rtype)
             .or_default()
-            .remove(version)
+            .remove(version);
     }
 
     pub fn rollback(&self, version: Version) {
@@ -276,11 +281,11 @@ impl NodeRrsets {
             .for_each(|rrset| rrset.rollback(version));
     }
 
-    pub fn clean(&self, version: Version) {
+    pub fn remove_all(&self, version: Version) {
         self.rrsets
             .write()
             .values_mut()
-            .for_each(|rrset| rrset.clean(version));
+            .for_each(|rrset| rrset.remove(version));
     }
 
     pub(super) fn iter(&self) -> NodeRrsetsIter {
@@ -322,14 +327,10 @@ impl NodeRrset {
     }
 
     fn remove(&mut self, version: Version) {
-        self.rrsets.clean(version)
+        self.rrsets.remove(version)
     }
 
     pub fn rollback(&mut self, version: Version) {
-        self.rrsets.rollback(version);
-    }
-
-    pub fn clean(&mut self, version: Version) {
         self.rrsets.rollback(version);
     }
 }
@@ -385,11 +386,11 @@ impl NodeChildren {
             .for_each(|item| item.rollback(version))
     }
 
-    fn clean(&self, version: Version) {
+    fn remove_all(&self, version: Version) {
         self.children
             .read()
             .values()
-            .for_each(|item| item.clean(version))
+            .for_each(|item| item.remove_all(version))
     }
 
     pub(super) fn walk(

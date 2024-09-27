@@ -1,5 +1,7 @@
+use core::str::FromStr;
+
 use std::boxed::Box;
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::fs::File;
 use std::net::SocketAddr;
 use std::path::PathBuf;
@@ -8,15 +10,18 @@ use std::sync::Arc;
 use std::time::Duration;
 use std::vec::Vec;
 
+use ring::test::rand::FixedByteRandom;
 use rstest::rstest;
 use tracing::instrument;
 use tracing::{trace, warn};
 
-use crate::base::iana::Rcode;
+use crate::base::iana::{Class, Rcode};
 use crate::base::name::{Name, ToName};
 use crate::base::net::IpAddr;
 use crate::base::wire::Composer;
-use crate::net::client::{dgram, stream};
+use crate::base::Rtype;
+use crate::net::client::request::{RequestMessage, RequestMessageMulti};
+use crate::net::client::{dgram, stream, tsig};
 use crate::net::server;
 use crate::net::server::buf::VecBufSource;
 use crate::net::server::dgram::DgramServer;
@@ -24,21 +29,31 @@ use crate::net::server::message::Request;
 use crate::net::server::middleware::cookies::CookiesMiddlewareSvc;
 use crate::net::server::middleware::edns::EdnsMiddlewareSvc;
 use crate::net::server::middleware::mandatory::MandatoryMiddlewareSvc;
+use crate::net::server::middleware::notify::{
+    Notifiable, NotifyError, NotifyMiddlewareSvc,
+};
 use crate::net::server::service::{CallResult, Service, ServiceResult};
 use crate::net::server::stream::StreamServer;
 use crate::net::server::util::{mk_builder_for_target, service_fn};
 use crate::stelline::channel::ClientServerChannel;
 use crate::stelline::client::{
-    do_client, ClientFactory, CurrStepValue, PerClientAddressClientFactory,
-    QueryTailoredClientFactory,
+    do_client, Client, ClientFactory, CurrStepValue,
+    PerClientAddressClientFactory, QueryTailoredClientFactory,
 };
 use crate::stelline::parse_stelline::{self, parse_file, Config, Matches};
+use crate::stelline::simple_dgram_client;
+use crate::tsig::{Algorithm, Key, KeyName, KeyStore};
 use crate::utils::base16;
 use crate::zonefile::inplace::{Entry, ScannedRecord, Zonefile};
+use crate::zonetree::StoredName;
+use core::future::{ready, Future};
+use core::pin::Pin;
+use std::string::ToString;
 
 //----------- Tests ----------------------------------------------------------
 
-/// Stelline test cases for which the .rpl file defines a server: config block.
+/// Stelline test cases for which the .rpl file defines a server: config
+/// block.
 ///
 /// Note: Adding or removing .rpl files on disk won't be detected until the
 /// test is re-compiled.
@@ -48,13 +63,15 @@ use crate::zonefile::inplace::{Entry, ScannedRecord, Zonefile};
 #[rstest]
 #[tokio::test(start_paused = true)]
 async fn server_tests(#[files("test-data/server/*.rpl")] rpl_file: PathBuf) {
-    // Load the test .rpl file that determines which queries will be sent
-    // and which responses will be expected, and how the server that
-    // answers them should be configured.
+    // Load the test .rpl file that determines which queries will be sent and
+    // which responses will be expected, and how the server that answers them
+    // should be configured.
 
     // Initialize tracing based logging. Override with env var RUST_LOG, e.g.
     // RUST_LOG=trace. DEBUG level will show the .rpl file name, Stelline step
     // numbers and types as they are being executed.
+
+    use crate::net::server::middleware::tsig::TsigMiddlewareSvc;
     tracing_subscriber::fmt()
         .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
         .with_thread_ids(true)
@@ -62,11 +79,27 @@ async fn server_tests(#[files("test-data/server/*.rpl")] rpl_file: PathBuf) {
         .try_init()
         .ok();
 
+    // Load the test .rpl file that determines which queries will be sent
+    // and which responses will be expected, and how the server that
+    // answers them should be configured.
     let file = File::open(&rpl_file).unwrap();
     let stelline = parse_file(&file, rpl_file.to_str().unwrap());
     let server_config = parse_server_config(&stelline.config);
 
-    // Create a service to answer queries received by the DNS servers.
+    // Create a TSIG key store containing a 'TESTKEY'
+    let mut key_store = TestKeyStore::new();
+    let key_name = KeyName::from_str("TESTKEY").unwrap();
+    let rng = FixedByteRandom { byte: 0u8 };
+    let (key, _) =
+        Key::generate(Algorithm::Sha256, &rng, key_name.clone(), None, None)
+            .unwrap();
+    key_store.insert((key_name, Algorithm::Sha256), key.into());
+    let key_store = Arc::new(key_store);
+
+    // Create a connection factory.
+    let dgram_server_conn = ClientServerChannel::new_dgram();
+    let stream_server_conn = ClientServerChannel::new_stream();
+
     let zonefile = server_config.zonefile.clone();
 
     let with_cookies = server_config.cookies.enabled
@@ -101,12 +134,28 @@ async fn server_tests(#[files("test-data/server/*.rpl")] rpl_file: PathBuf) {
     // 4. Mandatory DNS behaviour (e.g. RFC 1034/35 rules).
     let svc = MandatoryMiddlewareSvc::new(svc);
 
+    // 5. RFC 1996 NOTIFY support.
+    let svc = NotifyMiddlewareSvc::new(svc, TestNotifyTarget);
+
+    // 6. TSIG message authentication.
+    let svc = TsigMiddlewareSvc::new(svc, key_store.clone());
+
+    // NOTE: TSIG middleware *MUST* be the first middleware in the chain per
+    // RFC 8945 as it has to see incoming messages prior to any modification
+    // in order to verify the signature, and has to sign outgoing messages in
+    // their final state without any modification occuring thereafter.
+
     // Create dgram and stream servers for answering requests
-    let (dgram_srv, dgram_conn, stream_srv, stream_conn) =
-        mk_servers(svc, &server_config);
+    let (dgram_srv, stream_srv) = mk_servers(
+        svc,
+        &server_config,
+        dgram_server_conn.clone(),
+        stream_server_conn.clone(),
+    );
 
     // Create a client factory for sending requests
-    let client_factory = mk_client_factory(dgram_conn, stream_conn);
+    let client_factory =
+        mk_client_factory(dgram_server_conn, stream_server_conn, key_store);
 
     // Run the Stelline test!
     let step_value = Arc::new(CurrStepValue::new());
@@ -128,11 +177,11 @@ async fn server_tests(#[files("test-data/server/*.rpl")] rpl_file: PathBuf) {
 fn mk_servers<Svc>(
     service: Svc,
     server_config: &ServerConfig,
+    dgram_server_conn: ClientServerChannel,
+    stream_server_conn: ClientServerChannel,
 ) -> (
     Arc<DgramServer<ClientServerChannel, VecBufSource, Svc>>,
-    ClientServerChannel,
     Arc<StreamServer<ClientServerChannel, VecBufSource, Svc>>,
-    ClientServerChannel,
 )
 where
     Svc: Clone + Service + Send + Sync,
@@ -145,8 +194,7 @@ where
     let (dgram_config, stream_config) = mk_server_configs(server_config);
 
     // Create a dgram server for handling UDP requests.
-    let dgram_server_conn = ClientServerChannel::new_dgram();
-    let dgram_server = DgramServer::with_config(
+    let dgram_server = DgramServer::<_, _, Svc>::with_config(
         dgram_server_conn.clone(),
         VecBufSource,
         service.clone(),
@@ -158,7 +206,6 @@ where
 
     // Create a stream server for handling TCP requests, i.e. Stelline queries
     // with "MATCH TCP".
-    let stream_server_conn = ClientServerChannel::new_stream();
     let stream_server = StreamServer::with_config(
         stream_server_conn.clone(),
         VecBufSource,
@@ -169,47 +216,115 @@ where
     let cloned_stream_server = stream_server.clone();
     tokio::spawn(async move { cloned_stream_server.run().await });
 
-    (
-        dgram_server,
-        dgram_server_conn,
-        stream_server,
-        stream_server_conn,
-    )
+    (dgram_server, stream_server)
 }
 
 fn mk_client_factory(
     dgram_server_conn: ClientServerChannel,
     stream_server_conn: ClientServerChannel,
+    key_store: Arc<TestKeyStore>,
 ) -> impl ClientFactory {
     // Create a TCP client factory that only creates a client if (a) no
-    // existing TCP client exists for the source address of the Stelline query,
-    // and (b) if the query specifies "MATCHES TCP". Clients created by this
-    // factory connect to the TCP server created above.
+    // existing TCP client exists for the source address of the Stelline
+    // query, and (b) if the query specifies "MATCHES TCP". Clients created by
+    // this factory connect to the TCP server created above.
     let only_for_tcp_queries = |entry: &parse_stelline::Entry| {
         matches!(entry.matches, Some(Matches { tcp: true, .. }))
     };
 
+    let tcp_key_store = key_store.clone();
     let tcp_client_factory = PerClientAddressClientFactory::new(
-        move |source_addr| {
+        move |source_addr, entry| {
             let stream = stream_server_conn
                 .connect(Some(SocketAddr::new(*source_addr, 0)));
-            let (conn, transport) = stream::Connection::new(stream);
-            tokio::spawn(transport.run());
-            Box::new(conn)
+
+            let key = entry.key_name.as_ref().and_then(|key_name| {
+                tcp_key_store.get_key(&key_name, Algorithm::Sha256)
+            });
+
+            if let Some(key) = key {
+                let (conn, transport) = stream::Connection::<
+                    tsig::RequestMessage<RequestMessage<Vec<u8>>, Arc<Key>>,
+                    tsig::RequestMessage<
+                        RequestMessageMulti<Vec<u8>>,
+                        Arc<Key>,
+                    >,
+                >::new(stream);
+
+                tokio::spawn(transport.run());
+
+                let conn = Box::new(tsig::Connection::new(key, conn));
+
+                if let Some(sections) = &entry.sections {
+                    if let Some(q) = sections.question.first() {
+                        if matches!(q.qtype(), Rtype::AXFR | Rtype::IXFR) {
+                            return Client::Multi(conn);
+                        }
+                    }
+                }
+                Client::Single(conn)
+            } else {
+                let (conn, transport) = stream::Connection::<
+                    RequestMessage<Vec<u8>>,
+                    RequestMessageMulti<Vec<u8>>,
+                >::new(stream);
+
+                tokio::spawn(transport.run());
+
+                let conn = Box::new(conn);
+
+                if let Some(sections) = &entry.sections {
+                    if let Some(q) = sections.question.first() {
+                        if matches!(q.qtype(), Rtype::AXFR | Rtype::IXFR) {
+                            return Client::Multi(conn);
+                        }
+                    }
+                }
+                Client::Single(conn)
+            }
         },
         only_for_tcp_queries,
     );
 
     // Create a UDP client factory that only creates a client if (a) no
-    // existing UDP client exists for the source address of the Stelline query.
+    // existing UDP client exists for the source address of the Stelline
+    // query.
     let for_all_other_queries = |_: &_| true;
 
     let udp_client_factory = PerClientAddressClientFactory::new(
-        move |source_addr| {
-            Box::new(dgram::Connection::new(
-                dgram_server_conn
-                    .new_client(Some(SocketAddr::new(*source_addr, 0))),
-            ))
+        move |source_addr, entry| {
+            let connect = dgram_server_conn
+                .new_client(Some(SocketAddr::new(*source_addr, 0)));
+
+            let key = entry.key_name.as_ref().and_then(|key_name| {
+                key_store.get_key(&key_name, Algorithm::Sha256)
+            });
+
+            if let Some(key) = key {
+                match entry.matches.as_ref().map(|v| v.mock_client) {
+                    Some(true) => {
+                        Client::Single(Box::new(tsig::Connection::new(
+                            key,
+                            simple_dgram_client::Connection::new(connect),
+                        )))
+                    }
+
+                    _ => Client::Single(Box::new(tsig::Connection::new(
+                        key,
+                        dgram::Connection::new(connect),
+                    ))),
+                }
+            } else {
+                match entry.matches.as_ref().map(|v| v.mock_client) {
+                    Some(true) => Client::Single(Box::new(
+                        simple_dgram_client::Connection::new(connect),
+                    )),
+
+                    _ => Client::Single(Box::new(dgram::Connection::new(
+                        connect,
+                    ))),
+                }
+            }
         },
         for_all_other_queries,
     );
@@ -243,17 +358,17 @@ fn mk_server_configs(
 // This function can be used with `service_fn()` to create a `Service`
 // instance designed to respond to test queries.
 //
-// The functionality provided is the mininum common set of behaviour needed
-// by the tests that use it.
+// The functionality provided is the mininum common set of behaviour needed by
+// the tests that use it.
 //
 // It's behaviour should be influenced to match the conditions under test by:
 //   - Using different `MiddlewareChain` setups with the server(s) to which
 //     the `Service` will be passed.
-//   - Controlling the content of the `Zonefile` passed to instances of
-//     this `Service` impl.
+//   - Controlling the content of the `Zonefile` passed to instances of this
+//     `Service` impl.
 #[allow(clippy::type_complexity)]
-fn test_service(
-    request: Request<Vec<u8>>,
+fn test_service<RequestMeta>(
+    request: Request<Vec<u8>, RequestMeta>,
     zonefile: Zonefile,
 ) -> ServiceResult<Vec<u8>> {
     fn as_record_and_dname(
@@ -302,9 +417,6 @@ fn test_service(
                 let mut answer = mk_builder_for_target()
                     .start_answer(request.message(), Rcode::NOERROR)
                     .unwrap();
-                // As we serve all answers from our own zones we are the
-                // authority for the domain in question.
-                answer.header_mut().set_aa(true);
                 answer.push(record).unwrap();
                 answer
             },
@@ -362,8 +474,8 @@ fn parse_server_config(config: &Config) -> ServerConfig {
                         // TODO: Strictly speaking the "ip" is a netblock
                         // "given as an IPv4 or IPv6 address /size appended
                         // for a classless network block", but we only handle
-                        // an IP address here for now.
-                        // See: https://unbound.docs.nlnetlabs.nl/en/latest/manpages/unbound.conf.html?highlight=edns-tcp-keepalive#unbound-conf-access-control
+                        // an IP address here for now. See:
+                        // https://unbound.docs.nlnetlabs.nl/en/latest/manpages/unbound.conf.html?highlight=edns-tcp-keepalive#unbound-conf-access-control
                         if let Some((ip, action)) =
                             v.split_once(|c: char| c.is_whitespace())
                         {
@@ -417,4 +529,51 @@ fn parse_server_config(config: &Config) -> ServerConfig {
     }
 
     parsed_config
+}
+
+//------------ NoOpNotifyTarget -----------------------------------------------
+
+#[derive(Copy, Clone, Default, Debug)]
+struct TestNotifyTarget;
+
+impl Notifiable for TestNotifyTarget {
+    fn notify_zone_changed(
+        &self,
+        class: Class,
+        apex_name: &StoredName,
+        source: IpAddr,
+    ) -> Pin<
+        Box<dyn Future<Output = Result<(), NotifyError>> + Sync + Send + '_>,
+    > {
+        trace!("Notify received from {source} of change to zone {apex_name} in class {class}");
+
+        let res = match apex_name.to_string().to_lowercase().as_str() {
+            "example.com" => Ok(()),
+            "othererror.com" => Err(NotifyError::Other),
+            _ => Err(NotifyError::NotAuthForZone),
+        };
+
+        Box::pin(ready(res))
+    }
+}
+
+//------------ TestKeyStore ---------------------------------------------------
+
+// KeyStore is impl'd elsewhere for HashMap<(KeyName, Algorithm), K, S>.
+type TestKeyStore = HashMap<(KeyName, Algorithm), Arc<Key>>;
+
+impl KeyStore for Arc<TestKeyStore> {
+    type Key = Arc<Key>;
+
+    fn get_key<N: ToName>(
+        &self,
+        name: &N,
+        algorithm: Algorithm,
+    ) -> Option<Self::Key> {
+        if let Ok(name) = name.try_to_name() {
+            self.get(&(name, algorithm)).cloned()
+        } else {
+            None
+        }
+    }
 }

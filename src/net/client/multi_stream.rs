@@ -6,7 +6,7 @@
 use crate::base::Message;
 use crate::net::client::protocol::AsyncConnect;
 use crate::net::client::request::{
-    ComposeRequest, Error, GetResponse, SendRequest,
+    ComposeRequest, Error, GetResponse, RequestMessageMulti, SendRequest,
 };
 use crate::net::client::stream;
 use bytes::Bytes;
@@ -19,6 +19,7 @@ use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Duration;
+use std::vec::Vec;
 use tokio::io;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::sync::{mpsc, oneshot};
@@ -197,7 +198,7 @@ enum QueryState<Req> {
     ReceiveConn(oneshot::Receiver<ChanResp<Req>>),
 
     /// Start a query using the given stream transport.
-    StartQuery(Arc<stream::Connection<Req>>),
+    StartQuery(Arc<stream::Connection<Req, RequestMessageMulti<Vec<u8>>>>),
 
     /// Get the result of the query.
     GetResult(stream::Request),
@@ -222,7 +223,7 @@ struct ChanRespOk<Req> {
     id: u64,
 
     /// The new stream transport to use for sending a request.
-    conn: Arc<stream::Connection<Req>>,
+    conn: Arc<stream::Connection<Req, RequestMessageMulti<Vec<u8>>>>,
 }
 
 impl<Req> Request<Req> {
@@ -409,7 +410,7 @@ enum SingleConnState3<Req> {
     None,
 
     /// Current stream transport.
-    Some(Arc<stream::Connection<Req>>),
+    Some(Arc<stream::Connection<Req, RequestMessageMulti<Vec<u8>>>>),
 
     /// State that deals with an error getting a new octet stream from
     /// a connection stream.

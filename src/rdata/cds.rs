@@ -714,7 +714,7 @@ mod test {
         let rdata = Cdnskey::new(10, 11, SecAlg::RSASHA1, b"key").unwrap();
         test_rdlen(&rdata);
         test_compose_parse(&rdata, |parser| Cdnskey::parse(parser));
-        test_scan(&["10", "11", "RSASHA1", "a2V5"], Cdnskey::scan, &rdata);
+        test_scan(&["10", "11", "5", "a2V5"], Cdnskey::scan, &rdata);
     }
 
     //--- Cds
@@ -726,6 +726,6 @@ mod test {
             Cds::new(10, SecAlg::RSASHA1, DigestAlg::SHA256, b"key").unwrap();
         test_rdlen(&rdata);
         test_compose_parse(&rdata, |parser| Cds::parse(parser));
-        test_scan(&["10", "RSASHA1", "2", "6b6579"], Cds::scan, &rdata);
+        test_scan(&["10", "5", "2", "6b6579"], Cds::scan, &rdata);
     }
 }

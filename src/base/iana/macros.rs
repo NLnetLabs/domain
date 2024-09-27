@@ -440,7 +440,7 @@ macro_rules! int_enum_str_with_prefix {
     };
 }
 
-macro_rules! int_enum_show_decimal {
+macro_rules! int_enum_zonefile_fmt_decimal {
     ($ianatype:ident, $name:expr) => {
         impl $crate::base::zonefile_fmt::ZonefileFmt for $ianatype {
             fn show(
@@ -454,7 +454,7 @@ macro_rules! int_enum_show_decimal {
     };
 }
 
-macro_rules! int_enum_show_with_decimal {
+macro_rules! int_enum_zonefile_fmt_with_decimal {
     ($ianatype:ident) => {
         impl $crate::base::zonefile_fmt::ZonefileFmt for $ianatype {
             fn show(
@@ -470,7 +470,7 @@ macro_rules! int_enum_show_with_decimal {
     };
 }
 
-macro_rules! int_enum_show_with_prefix {
+macro_rules! int_enum_zonefile_fmt_with_prefix {
     ($ianatype:ident, $str_prefix:expr) => {
         impl $crate::base::zonefile_fmt::ZonefileFmt for $ianatype {
             fn show(

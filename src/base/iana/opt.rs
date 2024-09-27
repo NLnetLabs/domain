@@ -171,7 +171,7 @@ int_enum! {
 }
 
 int_enum_str_with_decimal!(OptionCode, u16, "unknown option code");
-int_enum_show_with_decimal!(OptionCode);
+int_enum_zonefile_fmt_with_decimal!(OptionCode);
 
 //============ Tests =========================================================
 

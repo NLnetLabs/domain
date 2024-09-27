@@ -117,4 +117,4 @@ int_enum! {
 }
 
 int_enum_str_decimal!(SecAlg, u8);
-int_enum_show_decimal!(SecAlg, "algorithm");
+int_enum_zonefile_fmt_decimal!(SecAlg, "algorithm");

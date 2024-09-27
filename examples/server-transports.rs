@@ -11,14 +11,16 @@ use std::net::SocketAddr;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::sync::RwLock;
+use std::vec::Vec;
 
-use futures::channel::mpsc::unbounded;
-use futures::stream::{once, Empty, Once, Stream};
+use futures_util::stream::{once, Empty, Once, Stream};
 use octseq::{FreezeBuilder, Octets};
 use tokio::net::{TcpListener, TcpSocket, TcpStream, UdpSocket};
+use tokio::sync::mpsc::unbounded_channel;
 use tokio::time::Instant;
 use tokio_rustls::rustls;
 use tokio_rustls::TlsAcceptor;
+use tokio_stream::wrappers::UnboundedReceiverStream;
 use tokio_tfo::{TfoListener, TfoStream};
 use tracing_subscriber::EnvFilter;
 
@@ -43,7 +45,6 @@ use domain::net::server::sock::AsyncAccept;
 use domain::net::server::stream::StreamServer;
 use domain::net::server::util::{mk_builder_for_target, service_fn};
 use domain::rdata::{Soa, A};
-use std::vec::Vec;
 
 //----------- mk_answer() ----------------------------------------------------
 
@@ -171,7 +172,7 @@ impl Service<Vec<u8>> for MyAsyncStreamingService {
                 return Box::pin(immediate_result) as Self::Stream;
             }
 
-            let (sender, receiver) = unbounded();
+            let (sender, receiver) = unbounded_channel();
             let cloned_sender = sender.clone();
 
             tokio::spawn(async move {
@@ -180,22 +181,22 @@ impl Service<Vec<u8>> for MyAsyncStreamingService {
                 let builder = mk_builder_for_target();
                 let additional = mk_soa_answer(&request, builder).unwrap();
                 let item = Ok(CallResult::new(additional));
-                cloned_sender.unbounded_send(item).unwrap();
+                cloned_sender.send(item).unwrap();
 
                 tokio::time::sleep(Duration::from_millis(100)).await;
                 let builder = mk_builder_for_target();
                 let additional = mk_answer(&request, builder).unwrap();
                 let item = Ok(CallResult::new(additional));
-                cloned_sender.unbounded_send(item).unwrap();
+                cloned_sender.send(item).unwrap();
 
                 tokio::time::sleep(Duration::from_millis(100)).await;
                 let builder = mk_builder_for_target();
                 let additional = mk_soa_answer(&request, builder).unwrap();
                 let item = Ok(CallResult::new(additional));
-                cloned_sender.unbounded_send(item).unwrap();
+                cloned_sender.send(item).unwrap();
             });
 
-            Box::pin(receiver) as Self::Stream
+            Box::pin(UnboundedReceiverStream::new(receiver)) as Self::Stream
         })
     }
 }
@@ -489,7 +490,7 @@ impl<Svc> StatsMiddlewareSvc<Svc> {
     fn postprocess<RequestOctets>(
         request: &Request<RequestOctets>,
         response: &AdditionalBuilder<StreamTarget<Svc::Target>>,
-        stats: Arc<RwLock<Stats>>,
+        stats: &RwLock<Stats>,
     ) where
         RequestOctets: Octets + Send + Sync + Unpin,
         Svc: Service<RequestOctets>,
@@ -511,7 +512,7 @@ impl<Svc> StatsMiddlewareSvc<Svc> {
     fn map_stream_item<RequestOctets>(
         request: Request<RequestOctets>,
         stream_item: ServiceResult<Svc::Target>,
-        stats: Arc<RwLock<Stats>>,
+        stats: &mut Arc<RwLock<Stats>>,
     ) -> ServiceResult<Svc::Target>
     where
         RequestOctets: Octets + Send + Sync + Unpin,

@@ -23,6 +23,12 @@
 //!   as upstream transports.
 //! * [cache] This is a simple message cache provided as a pass through
 //!   transport. The cache works with any of the other transports.
+#![cfg_attr(feature = "tsig", doc = "* [tsig]:")]
+#![cfg_attr(not(feature = "tsig",), doc = "* tsig:")]
+//!   This is a TSIG request signer and response verifier provided as a
+//!   pass through transport. The tsig transport works with any upstream
+//!   transports so long as they don't modify the message once signed nor
+//!   modify the response before it can be verified.
 #![cfg_attr(feature = "unstable-validator", doc = "* [validator]:")]
 #![cfg_attr(not(feature = "unstable-validator",), doc = "* validator:")]
 //!   This is a DNSSEC validator provided as a pass through transport.
@@ -32,7 +38,7 @@
 //! 1) Creating a request message,
 //! 2) Creating a DNS transport,
 //! 3) Sending the request, and
-//! 4) Receiving the reply.
+//! 4) Receiving the reply or replies.
 //!
 //! The first and second step are independent and can happen in any order.
 //! The third step uses the resuts of the first and second step.
@@ -87,7 +93,7 @@
 //! tokio::spawn(transport.run());
 //! # let req = domain::net::client::request::RequestMessage::new(
 //! #     domain::base::MessageBuilder::new_vec()
-//! # );
+//! # ).unwrap();
 //! # let mut request = tcp_conn.send_request(req);
 //! # }
 //! ```
@@ -100,18 +106,18 @@
 //!
 //! For example:
 //! ```no_run
-//! # use domain::net::client::request::SendRequest;
+//! # use domain::net::client::request::{RequestMessageMulti, SendRequest};
 //! # use std::net::{IpAddr, SocketAddr};
 //! # use std::str::FromStr;
 //! # async fn _test() {
-//! # let (tls_conn, _) = domain::net::client::stream::Connection::new(
+//! # let (tls_conn, _) = domain::net::client::stream::Connection::<_, RequestMessageMulti<Vec<u8>>>::new(
 //! #     domain::net::client::protocol::TcpConnect::new(
 //! #         SocketAddr::new(IpAddr::from_str("::1").unwrap(), 53)
 //! #     )
 //! # );
 //! # let req = domain::net::client::request::RequestMessage::new(
 //! #     domain::base::MessageBuilder::new_vec()
-//! # );
+//! # ).unwrap();
 //! let mut request = tls_conn.send_request(req);
 //! # }
 //! ```
@@ -128,26 +134,65 @@
 //!
 //! For example:
 //! ```no_run
-//! # use crate::domain::net::client::request::SendRequest;
+//! # use crate::domain::net::client::request::{RequestMessageMulti, SendRequest};
 //! # use std::net::{IpAddr, SocketAddr};
 //! # use std::str::FromStr;
 //! # async fn _test() {
-//! # let (tls_conn, _) = domain::net::client::stream::Connection::new(
+//! # let (tls_conn, _) = domain::net::client::stream::Connection::<_, RequestMessageMulti<Vec<u8>>>::new(
 //! #     domain::net::client::protocol::TcpConnect::new(
 //! #         SocketAddr::new(IpAddr::from_str("::1").unwrap(), 53)
 //! #     )
 //! # );
 //! # let req = domain::net::client::request::RequestMessage::new(
 //! #     domain::base::MessageBuilder::new_vec()
-//! # );
+//! # ).unwrap();
 //! # let mut request = tls_conn.send_request(req);
 //! let reply = request.get_response().await;
 //! # }
 //! ```
+//!
+//! <div class="warning">
+//!
+//! **Support for multiple responses:**
+//!
+//! [RequestMessage][request::RequestMessage] is designed for the most common
+//! use case: single request, single response.
+//!
+//! However, zone transfers (e.g. using the `AXFR` or `IXFR` query types) can
+//! result in multiple responses. Attempting to create a
+//! [RequestMessage][request::RequestMessage] for such a query will result in
+//! [Error::FormError][request::Error::FormError].
+//!
+//! For zone transfers you should use
+//! [RequestMessageMulti][request::RequestMessageMulti] instead which can be
+//! used like so:
+//!
+//! ```no_run
+//! # use crate::domain::net::client::request::{RequestMessage, SendRequestMulti};
+//! # use std::net::{IpAddr, SocketAddr};
+//! # use std::str::FromStr;
+//! # async fn _test() {
+//! # let (conn, _) = domain::net::client::stream::Connection::<RequestMessage<Vec<u8>>, _>::new(
+//! #     domain::net::client::protocol::TcpConnect::new(
+//! #         SocketAddr::new(IpAddr::from_str("::1").unwrap(), 53)
+//! #     )
+//! # );
+//! # let req = domain::net::client::request::RequestMessageMulti::new(
+//! #     domain::base::MessageBuilder::new_vec()
+//! # ).unwrap();
+//! # let mut request = conn.send_request(req);
+//! while let Ok(reply) = request.get_response().await {
+//!     // ...
+//! }
+//! # }
+//! ```
+//!
+//! </div>
+//!
 
 //! # Limitations
 //!
-//! The current implementaton has the following limitations:
+//! The current implementation has the following limitations:
 //! * The [dgram] transport does not support DNS Cookies
 //!   ([`RFC 7873`](https://tools.ietf.org/html/rfc7873)
 //!   Domain Name System (DNS) Cookies).
@@ -155,7 +200,7 @@
 //!   the number of attempts to open a connection. The caller has to
 //!   implement a timeout mechanism.
 //! * The [cache] transport does not support:
-//!   * prefetching. In this context, prefetching means updating a cache entry
+//!   * Prefetching. In this context, prefetching means updating a cache entry
 //!     before it expires.
 //!   * [RFC 8767](https://tools.ietf.org/html/rfc8767)
 //!     (Serving Stale Data to Improve DNS Resiliency)
@@ -182,6 +227,8 @@ pub mod protocol;
 pub mod redundant;
 pub mod request;
 pub mod stream;
+#[cfg(feature = "tsig")]
+pub mod tsig;
 #[cfg(feature = "unstable-validator")]
 pub mod validator;
 pub mod validator_test;

@@ -57,7 +57,7 @@ int_enum! {
 }
 
 int_enum_str_with_prefix!(Class, "CLASS", b"CLASS", u16, "unknown class");
-int_enum_show_with_prefix!(Class, "CLASS");
+int_enum_zonefile_fmt_with_prefix!(Class, "CLASS");
 
 //============ Tests =========================================================
 
