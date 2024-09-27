@@ -212,9 +212,7 @@ macro_rules! int_enum_str_decimal {
                 write!(f, "{}", self.to_int())?;
 
                 if let Some(m) = self.to_mnemonic_str() {
-                    write!(f, "(")?;
-                    f.write_str(m)?;
-                    write!(f, ")")?;
+                    write!(f, "({m})")?;
                 }
                 Ok(())
             }
@@ -290,8 +288,7 @@ macro_rules! int_enum_str_with_decimal {
             fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
                 match self.to_mnemonic_str() {
                     Some(m) => {
-                        f.write_str(m)?;
-                        write!(f, "({})", self.to_int())
+                        write!(f, "{m}({})", self.to_int())
                     }
                     None => {
                         write!(f, "{}", self.to_int())

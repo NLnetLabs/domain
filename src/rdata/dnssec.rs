@@ -445,9 +445,9 @@ impl<Octs: AsRef<[u8]>> ZonefileFmt for Dnskey<Octs> {
             p.write_comment(
                 format_args!(
                     "flags:{}{}{}{}",
-                    if revoked { " revoked" } else {""},
-                    if sep { " sep" } else {""},
-                    if zone_key { " zone_key" } else {""},
+                    if revoked { " revoked" } else { "" },
+                    if sep { " sep" } else { "" },
+                    if zone_key { " zone_key" } else { "" },
                     if self.flags == 0 { " <none>" } else { "" },
                 )
             )?;
