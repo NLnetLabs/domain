@@ -28,6 +28,13 @@
 //! * RFC 1995 2 Brief Description of the Protocol states: _"To ensure
 //!   integrity, servers should use UDP checksums for all UDP responses."_.
 //!   This is not implemented.
+//! * RFC 1995 5 Purging Strategy states: _"Information about older versions
+//!   should be purged if the total length of an IXFR response would be longer
+//!   than that of an AXFR response."_. This is not implemented.
+//! * RFC 1995 6 Optional Condensation of Multiple Versions states: _"An IXFR
+//!   server may optionally condense multiple difference sequences into a
+//!   single difference sequence, thus, dropping information on intermediate
+//!   versions."_. This is not implemented.
 //!
 //! [RFC 5936]: https://www.rfc-editor.org/info/rfc5936
 //! [RFC 1995]: https://www.rfc-editor.org/info/rfc1995
