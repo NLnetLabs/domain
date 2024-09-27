@@ -231,7 +231,8 @@ pub trait WritableZoneNode: Send + Sync {
         cname: SharedRr,
     ) -> Pin<Box<dyn Future<Output = Result<(), io::Error>> + Send + Sync>>;
 
-    /// Recursively make all content at and below this point appear to be removed.
+    /// Recursively make all content at and below this point appear to be
+    /// removed.
     fn remove_all(
         &self,
     ) -> Pin<Box<dyn Future<Output = Result<(), io::Error>> + Send + Sync>>;
