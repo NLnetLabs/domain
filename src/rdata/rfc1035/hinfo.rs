@@ -9,7 +9,7 @@ use crate::base::rdata::{
     ComposeRecordData, ParseRecordData, RecordData,
 };
 use crate::base::scan::Scanner;
-use crate::base::show::{self, Presenter, Show};
+use crate::base::zonefile_fmt::{self, Presenter, ZonefileFmt};
 use crate::base::wire::{Composer, ParseError};
 use core::{fmt, hash};
 use core::cmp::Ordering;
@@ -237,10 +237,10 @@ impl<Octs: AsRef<[u8]>> fmt::Debug for Hinfo<Octs> {
     }
 }
 
-//--- Show
+//--- ZonefileFmt
 
-impl<Octs: AsRef<[u8]>> Show for Hinfo<Octs> {
-    fn show(&self, p: &mut Presenter) -> show::Result {
+impl<Octs: AsRef<[u8]>> ZonefileFmt for Hinfo<Octs> {
+    fn show(&self, p: &mut Presenter) -> zonefile_fmt::Result {
         p.block(|p| {
             p.write_token(&self.cpu)?;
             p.write_comment("cpu")?;

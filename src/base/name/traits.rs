@@ -8,8 +8,8 @@ use super::label::Label;
 use super::relative::RelativeName;
 #[cfg(feature = "bytes")]
 use bytes::Bytes;
-use core::{cmp, fmt};
 use core::convert::Infallible;
+use core::{cmp, fmt};
 use octseq::builder::{
     infallible, BuilderAppendError, EmptyBuilder, FreezeBuilder, FromBuilder,
     OctetsBuilder, ShortBuf,
@@ -357,7 +357,7 @@ pub trait ToName: ToLabelIter {
                     Some(first) => first,
                     None => unreachable!("at least 1 label must be present"),
                 };
-                
+
                 if first.is_root() {
                     f.write_str(".")
                 } else {

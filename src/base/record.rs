@@ -21,8 +21,8 @@ use super::name::{FlattenInto, ParsedName, ToName};
 use super::rdata::{
     ComposeRecordData, ParseAnyRecordData, ParseRecordData, RecordData,
 };
-use super::show::{self, Presenter, Show};
 use super::wire::{Compose, Composer, FormError, Parse, ParseError};
+use super::zonefile_fmt::{self, Presenter, ZonefileFmt};
 use core::cmp::Ordering;
 use core::time::Duration;
 use core::{fmt, hash};
@@ -432,14 +432,14 @@ where
     }
 }
 
-//--- Show
+//--- ZonefileFmt
 
-impl<Name, Data> Show for Record<Name, Data>
+impl<Name, Data> ZonefileFmt for Record<Name, Data>
 where
     Name: ToName,
-    Data: RecordData + Show,
+    Data: RecordData + ZonefileFmt,
 {
-    fn show(&self, p: &mut Presenter) -> show::Result {
+    fn show(&self, p: &mut Presenter) -> zonefile_fmt::Result {
         p.write_token(self.owner.fmt_with_dot())?;
         p.write_show(self.ttl)?;
         p.write_show(self.class)?;
@@ -1510,7 +1510,7 @@ impl Ttl {
                 let hours = self.inner.as_hours() % 24;
                 let minutes = self.inner.as_minutes() % 60;
                 let seconds = self.inner.as_secs() % 60;
-    
+
                 let mut first = true;
                 for (n, unit) in [
                     (weeks, "weeks"),
@@ -1537,8 +1537,8 @@ impl Ttl {
     }
 }
 
-impl Show for Ttl {
-    fn show(&self, p: &mut Presenter) -> show::Result {
+impl ZonefileFmt for Ttl {
+    fn show(&self, p: &mut Presenter) -> zonefile_fmt::Result {
         p.write_token(self.as_secs())
     }
 }

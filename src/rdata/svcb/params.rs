@@ -6,7 +6,7 @@ use super::value::AllValues;
 use crate::base::cmp::CanonicalOrd;
 use crate::base::iana::SvcParamKey;
 use crate::base::scan::Symbol;
-use crate::base::show::{self, Presenter, Show};
+use crate::base::zonefile_fmt::{self, Presenter, ZonefileFmt};
 use crate::base::wire::{Compose, Parse, ParseError};
 use octseq::builder::{EmptyBuilder, FromBuilder, OctetsBuilder, ShortBuf};
 use octseq::octets::{Octets, OctetsFrom, OctetsInto};
@@ -364,8 +364,8 @@ impl<Octs: Octets + ?Sized> fmt::Debug for SvcParams<Octs> {
 
 //-- Show
 
-impl<Octs: Octets + ?Sized> Show for SvcParams<Octs> {
-    fn show(&self, p: &mut Presenter) -> show::Result {
+impl<Octs: Octets + ?Sized> ZonefileFmt for SvcParams<Octs> {
+    fn show(&self, p: &mut Presenter) -> zonefile_fmt::Result {
         p.block(|p| {
             let mut parser = Parser::from_ref(self.as_slice());
             while parser.remaining() > 0 {

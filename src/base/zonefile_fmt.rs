@@ -12,7 +12,7 @@ impl From<fmt::Error> for Error {
 pub type Result = core::result::Result<(), Error>;
 
 /// Show a value as zonefile format
-pub trait Show {
+pub trait ZonefileFmt {
     fn show(&self, p: &mut Presenter<'_>) -> Result;
 
     fn display_zonefile(&self, pretty: bool) -> impl fmt::Display {
@@ -21,7 +21,7 @@ pub trait Show {
             pretty: bool,
         }
 
-        impl<T: Show + ?Sized> fmt::Display for ZoneFileDisplay<'_, T> {
+        impl<T: ZonefileFmt + ?Sized> fmt::Display for ZoneFileDisplay<'_, T> {
             fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
                 if self.pretty {
                     self.inner
@@ -46,7 +46,7 @@ pub trait Show {
     }
 }
 
-impl<T: Show> Show for &T {
+impl<T: ZonefileFmt> ZonefileFmt for &T {
     fn show(&self, p: &mut Presenter<'_>) -> Result {
         T::show(self, p)
     }
@@ -221,7 +221,7 @@ impl<'a> Presenter<'a> {
     }
 
     /// Call the `show` method on `item` with this `Presenter`
-    pub fn write_show(&mut self, item: impl Show) -> Result {
+    pub fn write_show(&mut self, item: impl ZonefileFmt) -> Result {
         item.show(self)
     }
 
@@ -239,7 +239,7 @@ mod test {
     use std::vec::Vec;
 
     use crate::base::iana::{Class, DigestAlg, SecAlg};
-    use crate::base::show::Show;
+    use crate::base::zonefile_fmt::ZonefileFmt;
     use crate::base::{Name, Record, Ttl};
     use crate::rdata::{Cds, Cname, Ds, Mx, Txt, A};
 
@@ -289,7 +289,8 @@ mod test {
                 "                          15\t; algorithm: 15(ED25519)",
                 "                          2\t; digest type: 2(SHA-256)",
                 "                          DEADBEEF )",
-            ].join("\n"),
+            ]
+            .join("\n"),
             record.display_zonefile(true).to_string()
         );
     }

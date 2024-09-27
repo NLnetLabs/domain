@@ -9,7 +9,7 @@ use crate::base::rdata::{ComposeRecordData, ParseRecordData, RecordData};
 use crate::base::record::Ttl;
 use crate::base::scan::{Scan, Scanner};
 use crate::base::serial::Serial;
-use crate::base::show::{self, Presenter, Show};
+use crate::base::zonefile_fmt::{self, Presenter, ZonefileFmt};
 use crate::base::wire::{Compose, Composer, ParseError};
 use core::cmp::Ordering;
 use core::fmt;
@@ -402,8 +402,8 @@ impl<N: fmt::Display> fmt::Display for Soa<N> {
     }
 }
 
-impl<N: ToName> Show for Soa<N> {
-    fn show(&self, p: &mut Presenter) -> show::Result {
+impl<N: ToName> ZonefileFmt for Soa<N> {
+    fn show(&self, p: &mut Presenter) -> zonefile_fmt::Result {
         p.block(|p| {
             p.write_token(self.mname.fmt_with_dot())?;
             p.write_comment("mname")?;

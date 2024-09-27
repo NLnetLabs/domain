@@ -9,7 +9,7 @@ use crate::base::rdata::{
     ComposeRecordData, ParseRecordData, RecordData,
 };
 use crate::base::scan::{Scan, Scanner};
-use crate::base::show::{self, Presenter, Show};
+use crate::base::zonefile_fmt::{self, Presenter, ZonefileFmt};
 use crate::base::wire::{Compose, Composer, Parse, ParseError};
 use core::fmt;
 use core::cmp::Ordering;
@@ -228,10 +228,10 @@ impl<N: fmt::Display> fmt::Display for Mx<N> {
     }
 }
 
-//--- Show
+//--- ZonefileFmt
 
-impl<N: ToName> Show for Mx<N> {
-    fn show(&self, p: &mut Presenter) -> show::Result {
+impl<N: ToName> ZonefileFmt for Mx<N> {
+    fn show(&self, p: &mut Presenter) -> zonefile_fmt::Result {
         p.block(|p| {
             p.write_token(self.preference)?;
             p.write_comment("preference")?;

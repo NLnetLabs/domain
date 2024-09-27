@@ -9,7 +9,7 @@ use crate::base::rdata::{
     ComposeRecordData, ParseRecordData, RecordData,
 };
 use crate::base::scan::{Scanner, ScannerError};
-use crate::base::show::{self, Presenter, Show};
+use crate::base::zonefile_fmt::{self, Presenter, ZonefileFmt};
 use crate::base::wire::{Composer, Parse, ParseError};
 use core::{fmt, str};
 use core::cmp::Ordering;
@@ -173,10 +173,10 @@ impl fmt::Display for A {
     }
 }
 
-//--- Show
+//--- ZonefileFmt
 
-impl Show for A {
-    fn show(&self, p: &mut Presenter) -> show::Result {
+impl ZonefileFmt for A {
+    fn show(&self, p: &mut Presenter) -> zonefile_fmt::Result {
         p.write_token(self.addr)
     }
 }

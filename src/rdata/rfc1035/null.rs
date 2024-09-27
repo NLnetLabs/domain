@@ -7,7 +7,7 @@ use crate::base::iana::Rtype;
 use crate::base::rdata::{
     ComposeRecordData, LongRecordData, ParseRecordData, RecordData,
 };
-use crate::base::show::{self, Presenter, Show};
+use crate::base::zonefile_fmt::{self, Presenter, ZonefileFmt};
 use crate::base::wire::{Composer, ParseError};
 use core::{fmt, hash, mem};
 use core::cmp::Ordering;
@@ -278,10 +278,10 @@ impl<Octs: AsRef<[u8]>> fmt::Debug for Null<Octs> {
     }
 }
 
-//--- Show
+//--- ZonefileFmt
 
-impl<Octs: AsRef<[u8]>> Show for Null<Octs> {
-    fn show(&self, p: &mut Presenter) -> show::Result {
+impl<Octs: AsRef<[u8]>> ZonefileFmt for Null<Octs> {
+    fn show(&self, p: &mut Presenter) -> zonefile_fmt::Result {
         struct Data<'a>(&'a [u8]);
 
         impl fmt::Display for Data<'_> {

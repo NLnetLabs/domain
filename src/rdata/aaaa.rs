@@ -9,7 +9,7 @@ use crate::base::iana::Rtype;
 use crate::base::net::Ipv6Addr;
 use crate::base::rdata::{ComposeRecordData, ParseRecordData, RecordData};
 use crate::base::scan::{Scanner, ScannerError};
-use crate::base::show::{self, Presenter, Show};
+use crate::base::zonefile_fmt::{self, Presenter, ZonefileFmt};
 use crate::base::wire::{Composer, Parse, ParseError};
 use core::cmp::Ordering;
 use core::convert::Infallible;
@@ -157,10 +157,10 @@ impl fmt::Display for Aaaa {
     }
 }
 
-//--- Show
+//--- ZonefileFmt
 
-impl Show for Aaaa {
-    fn show(&self, p: &mut Presenter) -> show::Result {
+impl ZonefileFmt for Aaaa {
+    fn show(&self, p: &mut Presenter) -> zonefile_fmt::Result {
         p.write_token(self.addr)
     }
 }

@@ -7,7 +7,7 @@ use crate::base::rdata::{
     ComposeRecordData, LongRecordData, ParseRecordData, RecordData,
 };
 use crate::base::scan::{Scan, Scanner, ScannerError};
-use crate::base::show::{self, Presenter, Show};
+use crate::base::zonefile_fmt::{self, Presenter, ZonefileFmt};
 use crate::base::wire::{Compose, Composer, Parse, ParseError};
 use crate::utils::{base16, base64};
 use core::cmp::Ordering;
@@ -327,10 +327,10 @@ impl<Octs: AsRef<[u8]>> fmt::Debug for Cdnskey<Octs> {
     }
 }
 
-//--- Show
+//--- ZonefileFmt
 
-impl<Octs: AsRef<[u8]>> Show for Cdnskey<Octs> {
-    fn show(&self, p: &mut Presenter) -> show::Result {
+impl<Octs: AsRef<[u8]>> ZonefileFmt for Cdnskey<Octs> {
+    fn show(&self, p: &mut Presenter) -> zonefile_fmt::Result {
         p.block(|p| {
             p.write_token(self.flags)?;
             p.write_token(self.protocol)?;
@@ -676,10 +676,10 @@ impl<Octs: AsRef<[u8]>> fmt::Debug for Cds<Octs> {
     }
 }
 
-//--- Show
+//--- ZonefileFmt
 
-impl<Octs: AsRef<[u8]>> Show for Cds<Octs> {
-    fn show(&self, p: &mut Presenter) -> show::Result {
+impl<Octs: AsRef<[u8]>> ZonefileFmt for Cds<Octs> {
+    fn show(&self, p: &mut Presenter) -> zonefile_fmt::Result {
         p.block(|p| {
             p.write_token(self.key_tag)?;
             p.write_comment("key tag")?;

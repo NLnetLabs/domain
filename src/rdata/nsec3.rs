@@ -11,7 +11,7 @@ use crate::base::rdata::{ComposeRecordData, ParseRecordData, RecordData};
 use crate::base::scan::{
     ConvertSymbols, EntrySymbol, Scan, Scanner, ScannerError,
 };
-use crate::base::show::{self, Presenter, Show};
+use crate::base::zonefile_fmt::{self, Presenter, ZonefileFmt};
 use crate::base::wire::{Compose, Composer, Parse, ParseError};
 use crate::utils::{base16, base32};
 #[cfg(feature = "bytes")]
@@ -370,13 +370,13 @@ impl<Octs: AsRef<[u8]>> fmt::Debug for Nsec3<Octs> {
     }
 }
 
-//--- Show
+//--- ZonefileFmt
 
-impl<Octs: AsRef<[u8]>> Show for Nsec3<Octs>
+impl<Octs: AsRef<[u8]>> ZonefileFmt for Nsec3<Octs>
 where
     Octs: AsRef<[u8]>,
 {
-    fn show(&self, p: &mut Presenter) -> show::Result {
+    fn show(&self, p: &mut Presenter) -> zonefile_fmt::Result {
         p.block(|p| {
             p.write_show(self.hash_algorithm)?;
             p.write_token(self.flags)?;
@@ -685,10 +685,10 @@ impl<Octs: AsRef<[u8]>> fmt::Debug for Nsec3param<Octs> {
     }
 }
 
-//--- Show
+//--- ZonefileFmt
 
-impl<Octs: AsRef<[u8]>> Show for Nsec3param<Octs> {
-    fn show(&self, p: &mut Presenter) -> show::Result {
+impl<Octs: AsRef<[u8]>> ZonefileFmt for Nsec3param<Octs> {
+    fn show(&self, p: &mut Presenter) -> zonefile_fmt::Result {
         p.block(|p| {
             p.write_show(self.hash_algorithm)?;
             p.write_token(self.flags)?;
@@ -1009,10 +1009,10 @@ impl<Octs: AsRef<[u8]> + ?Sized> fmt::Debug for Nsec3Salt<Octs> {
     }
 }
 
-//--- Show
+//--- ZonefileFmt
 
-impl<Octs: AsRef<[u8]> + ?Sized> Show for Nsec3Salt<Octs> {
-    fn show(&self, p: &mut Presenter) -> show::Result {
+impl<Octs: AsRef<[u8]> + ?Sized> ZonefileFmt for Nsec3Salt<Octs> {
+    fn show(&self, p: &mut Presenter) -> zonefile_fmt::Result {
         p.block(|p| {
             p.write_token(base16::encode_display(self))?;
             p.write_comment(format_args!("salt (length: {})", self.salt_len()))

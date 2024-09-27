@@ -12,7 +12,7 @@ use crate::base::rdata::{
 };
 use crate::base::scan::{Scan, Scanner, ScannerError};
 use crate::base::serial::Serial;
-use crate::base::show::{self, Presenter, Show};
+use crate::base::zonefile_fmt::{self, Presenter, ZonefileFmt};
 use crate::base::wire::{Compose, Composer, FormError, Parse, ParseError};
 use crate::base::Ttl;
 use crate::utils::{base16, base64};
@@ -432,10 +432,10 @@ impl<Octs: AsRef<[u8]>> fmt::Debug for Dnskey<Octs> {
     }
 }
 
-//--- Show
+//--- ZonefileFmt
 
-impl<Octs: AsRef<[u8]>> Show for Dnskey<Octs> {
-    fn show(&self, p: &mut Presenter) -> show::Result {
+impl<Octs: AsRef<[u8]>> ZonefileFmt for Dnskey<Octs> {
+    fn show(&self, p: &mut Presenter) -> zonefile_fmt::Result {
         let revoked = self.is_revoked();
         let sep = self.is_secure_entry_point();
         let zone_key = self.is_zone_key();
@@ -786,10 +786,10 @@ impl fmt::Display for Timestamp {
     }
 }
 
-//--- Show
+//--- ZonefileFmt
 
-impl Show for Timestamp {
-    fn show(&self, p: &mut Presenter) -> show::Result {
+impl ZonefileFmt for Timestamp {
+    fn show(&self, p: &mut Presenter) -> zonefile_fmt::Result {
         p.write_token(self.0)
     }
 }
@@ -1391,14 +1391,14 @@ where
     }
 }
 
-//--- Show
+//--- ZonefileFmt
 
-impl<Octs, Name> Show for Rrsig<Octs, Name>
+impl<Octs, Name> ZonefileFmt for Rrsig<Octs, Name>
 where
     Octs: AsRef<[u8]>,
     Name: ToName,
 {
-    fn show(&self, p: &mut Presenter) -> show::Result {
+    fn show(&self, p: &mut Presenter) -> zonefile_fmt::Result {
         p.block(|p| {
             p.write_show(self.type_covered)?;
             p.write_show(self.algorithm)?;
@@ -1699,14 +1699,14 @@ where
     }
 }
 
-//--- Show
+//--- ZonefileFmt
 
-impl<Octs, Name> Show for Nsec<Octs, Name>
+impl<Octs, Name> ZonefileFmt for Nsec<Octs, Name>
 where
     Octs: AsRef<[u8]>,
     Name: ToName,
 {
-    fn show(&self, p: &mut Presenter) -> show::Result {
+    fn show(&self, p: &mut Presenter) -> zonefile_fmt::Result {
         p.block(|p| {
             p.write_token(self.next_name.fmt_with_dot())?;
             p.write_show(&self.types)
@@ -2047,10 +2047,10 @@ impl<Octs: AsRef<[u8]>> fmt::Debug for Ds<Octs> {
     }
 }
 
-//--- Show
+//--- ZonefileFmt
 
-impl<Octs: AsRef<[u8]>> Show for Ds<Octs> {
-    fn show(&self, p: &mut Presenter) -> show::Result {
+impl<Octs: AsRef<[u8]>> ZonefileFmt for Ds<Octs> {
+    fn show(&self, p: &mut Presenter) -> zonefile_fmt::Result {
         p.block(|p| {            
             p.write_token(self.key_tag)?;
             p.write_comment("key tag")?;
@@ -2272,10 +2272,10 @@ impl<Octs: AsRef<[u8]>> fmt::Display for RtypeBitmap<Octs> {
     }
 }
 
-//--- Show
+//--- ZonefileFmt
 
-impl<Octs: AsRef<[u8]>> Show for RtypeBitmap<Octs> {
-    fn show(&self, p: &mut Presenter<'_>) -> show::Result {
+impl<Octs: AsRef<[u8]>> ZonefileFmt for RtypeBitmap<Octs> {
+    fn show(&self, p: &mut Presenter<'_>) -> zonefile_fmt::Result {
         for rtype in self {
             p.write_token(rtype)?;
         }

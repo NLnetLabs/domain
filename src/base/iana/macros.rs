@@ -442,11 +442,11 @@ macro_rules! int_enum_str_with_prefix {
 
 macro_rules! int_enum_show_decimal {
     ($ianatype:ident, $name:expr) => {
-        impl $crate::base::show::Show for $ianatype {
+        impl $crate::base::zonefile_fmt::ZonefileFmt for $ianatype {
             fn show(
                 &self,
-                p: &mut $crate::base::show::Presenter,
-            ) -> $crate::base::show::Result {
+                p: &mut $crate::base::zonefile_fmt::Presenter,
+            ) -> $crate::base::zonefile_fmt::Result {
                 p.write_token(self.to_int())?;
                 p.write_comment(format_args!("{}: {}", $name, self))
             }
@@ -456,11 +456,11 @@ macro_rules! int_enum_show_decimal {
 
 macro_rules! int_enum_show_with_decimal {
     ($ianatype:ident) => {
-        impl $crate::base::show::Show for $ianatype {
+        impl $crate::base::zonefile_fmt::ZonefileFmt for $ianatype {
             fn show(
                 &self,
-                p: &mut $crate::base::show::Presenter,
-            ) -> $crate::base::show::Result {
+                p: &mut $crate::base::zonefile_fmt::Presenter,
+            ) -> $crate::base::zonefile_fmt::Result {
                 match self.to_mnemonic_str() {
                     Some(m) => p.write_token(m),
                     None => p.write_token(self.to_int()),
@@ -472,11 +472,11 @@ macro_rules! int_enum_show_with_decimal {
 
 macro_rules! int_enum_show_with_prefix {
     ($ianatype:ident, $str_prefix:expr) => {
-        impl $crate::base::show::Show for $ianatype {
+        impl $crate::base::zonefile_fmt::ZonefileFmt for $ianatype {
             fn show(
                 &self,
-                p: &mut $crate::base::show::Presenter,
-            ) -> $crate::base::show::Result {
+                p: &mut $crate::base::zonefile_fmt::Presenter,
+            ) -> $crate::base::zonefile_fmt::Result {
                 match self.to_mnemonic_str() {
                     Some(m) => p.write_token(m),
                     None => p.write_token(format_args!(
