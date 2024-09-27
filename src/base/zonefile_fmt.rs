@@ -11,34 +11,34 @@ impl From<fmt::Error> for Error {
 
 pub type Result = core::result::Result<(), Error>;
 
+pub struct ZoneFileDisplay<'a, T: ?Sized> {
+    inner: &'a T,
+    pretty: bool,
+}
+
+impl<T: ZonefileFmt + ?Sized> fmt::Display for ZoneFileDisplay<'_, T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if self.pretty {
+            self.inner
+                .show(&mut Presenter {
+                    writer: &mut MultiLineWriter::new(f),
+                })
+                .map_err(|_| fmt::Error)
+        } else {
+            self.inner
+                .show(&mut Presenter {
+                    writer: &mut SimpleWriter::new(f),
+                })
+                .map_err(|_| fmt::Error)
+        }
+    }
+}
+
 /// Show a value as zonefile format
 pub trait ZonefileFmt {
     fn show(&self, p: &mut Presenter<'_>) -> Result;
 
-    fn display_zonefile(&self, pretty: bool) -> impl fmt::Display {
-        struct ZoneFileDisplay<'a, T: ?Sized> {
-            inner: &'a T,
-            pretty: bool,
-        }
-
-        impl<T: ZonefileFmt + ?Sized> fmt::Display for ZoneFileDisplay<'_, T> {
-            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-                if self.pretty {
-                    self.inner
-                        .show(&mut Presenter {
-                            writer: &mut MultiLineWriter::new(f),
-                        })
-                        .map_err(|_| fmt::Error)
-                } else {
-                    self.inner
-                        .show(&mut Presenter {
-                            writer: &mut SimpleWriter::new(f),
-                        })
-                        .map_err(|_| fmt::Error)
-                }
-            }
-        }
-
+    fn display_zonefile(&self, pretty: bool) -> ZoneFileDisplay<'_, Self> {
         ZoneFileDisplay {
             inner: self,
             pretty,

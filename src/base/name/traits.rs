@@ -344,33 +344,33 @@ pub trait ToName: ToLabelIter {
         }
     }
 
-    fn fmt_with_dot(&self) -> impl fmt::Display {
-        struct DisplayWithDot<'a, T: ?Sized>(&'a T);
-
-        impl<'a, T> fmt::Display for DisplayWithDot<'a, T>
-        where
-            T: ToLabelIter + ?Sized,
-        {
-            fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-                let mut labels = self.0.iter_labels();
-                let first = match labels.next() {
-                    Some(first) => first,
-                    None => unreachable!("at least 1 label must be present"),
-                };
-
-                if first.is_root() {
-                    f.write_str(".")
-                } else {
-                    write!(f, "{}", first)?;
-                    for label in labels {
-                        write!(f, ".{}", label)?
-                    }
-                    Ok(())
-                }
-            }
-        }
-
+    fn fmt_with_dot(&self) -> DisplayWithDot<'_, Self> {
         DisplayWithDot(self)
+    }
+}
+
+pub struct DisplayWithDot<'a, T: ?Sized>(&'a T);
+
+impl<'a, T> fmt::Display for DisplayWithDot<'a, T>
+where
+    T: ToLabelIter + ?Sized,
+{
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let mut labels = self.0.iter_labels();
+        let first = match labels.next() {
+            Some(first) => first,
+            None => unreachable!("at least 1 label must be present"),
+        };
+
+        if first.is_root() {
+            f.write_str(".")
+        } else {
+            write!(f, "{}", first)?;
+            for label in labels {
+                write!(f, ".{}", label)?
+            }
+            Ok(())
+        }
     }
 }
 
