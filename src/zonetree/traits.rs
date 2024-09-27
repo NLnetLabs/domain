@@ -130,14 +130,16 @@ pub trait ReadableZone: Send + Sync {
 /// [`Zone`]: super::Zone
 pub trait WritableZone: Send + Sync {
     /// Start a write operation for the zone.
-    /// 
+    ///
     /// If `create_diff` is true the zone backing store is requested to create
     /// an [`InMemoryZoneDiff`] which will accumulate entries as changes are
     /// made to the zone and will be returned finally when [`commit()`] is
     /// invoked.
-    /// 
+    ///
     /// Creating a diff is optional. If the backing store doesn't support
     /// diff creation [`commit()`] will return `None`.
+    ///
+    /// [`commit()`]: Self::commit
     #[allow(clippy::type_complexity)]
     fn open(
         &self,
@@ -158,7 +160,7 @@ pub trait WritableZone: Send + Sync {
     /// made since the last commit. Only clients who obtain a [`ReadableZone`]
     /// _after_ invoking this function will be able to see the changes made
     /// since [`open()`] was called.
-    /// 
+    ///
     /// If `create_diff` was set to `true` when [`open()`] was invoked then
     /// this function _may_ return `Some` if a diff was created. `None` may be
     /// returned if the zone backing store does not support creation of diffs
