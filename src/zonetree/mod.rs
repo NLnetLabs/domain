@@ -124,7 +124,7 @@ pub use self::types::{
     StoredName, StoredRecord,
 };
 pub use self::walk::WalkOp;
-pub use self::zone::Zone;
+pub use self::zone::{Zone, ZoneKey};
 
 /// Zone related utilities.
 pub mod util {
