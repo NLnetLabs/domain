@@ -56,6 +56,17 @@
 
 mod interop;
 
+use core::fmt::Display;
+use core::{cmp, fmt, mem, str};
+
+use std::sync::Arc;
+#[cfg(feature = "std")]
+use std::collections::HashMap;
+
+use bytes::{Bytes, BytesMut};
+use octseq::octets::Octets;
+use ring::{constant_time, hkdf::KeyType, hmac, rand};
+
 use crate::base::header::HeaderSection;
 use crate::base::iana::{Class, Rcode, TsigRcode};
 use crate::base::message::Message;
@@ -66,12 +77,6 @@ use crate::base::name::{Label, Name, ParsedName, ToLabelIter, ToName};
 use crate::base::record::Record;
 use crate::base::wire::{Composer, ParseError};
 use crate::rdata::tsig::{Time48, Tsig};
-use bytes::{Bytes, BytesMut};
-use core::{cmp, fmt, mem, str};
-use octseq::octets::Octets;
-use ring::{constant_time, hkdf::KeyType, hmac, rand};
-#[cfg(feature = "std")]
-use std::collections::HashMap;
 
 //------------ KeyName -------------------------------------------------------
 
@@ -457,6 +462,23 @@ where
         // XXX This seems a bit wasteful.
         let name = name.try_to_name().ok()?;
         self.get(&(name, algorithm)).cloned()
+    }
+}
+
+#[cfg(feature = "std")]
+impl KeyStore for Arc<HashMap<(KeyName, Algorithm), Key>> {
+    type Key = Key;
+
+    fn get_key<N: ToName>(
+        &self,
+        name: &N,
+        algorithm: Algorithm,
+    ) -> Option<Self::Key> {
+        if let Ok(name) = name.try_to_name() {
+            self.get(&(name, algorithm)).cloned()
+        } else {
+            None
+        }
     }
 }
 
