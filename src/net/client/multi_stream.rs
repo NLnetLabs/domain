@@ -9,6 +9,7 @@ use crate::net::client::request::{
     ComposeRequest, Error, GetResponse, RequestMessageMulti, SendRequest,
 };
 use crate::net::client::stream;
+use crate::utils::config::DefMinMax;
 use bytes::Bytes;
 use futures_util::stream::FuturesUnordered;
 use futures_util::StreamExt;
@@ -23,9 +24,8 @@ use std::vec::Vec;
 use tokio::io;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::sync::{mpsc, oneshot};
-use tokio::time::{sleep_until, Instant};
 use tokio::time::timeout;
-use crate::utils::config::DefMinMax;
+use tokio::time::{sleep_until, Instant};
 
 //------------ Constants -----------------------------------------------------
 
@@ -80,20 +80,23 @@ impl Config {
     pub fn stream_mut(&mut self) -> &mut stream::Config {
         &mut self.stream
     }
-
 }
 
 impl From<stream::Config> for Config {
     fn from(stream: stream::Config) -> Self {
-        Self { stream, response_timeout: RESPONSE_TIMEOUT.default() }
+        Self {
+            stream,
+            response_timeout: RESPONSE_TIMEOUT.default(),
+        }
     }
 }
 
 impl Default for Config {
     fn default() -> Self {
-	Self { stream: Default::default(),
-		response_timeout: RESPONSE_TIMEOUT.default()
-	}
+        Self {
+            stream: Default::default(),
+            response_timeout: RESPONSE_TIMEOUT.default(),
+        }
     }
 }
 
@@ -104,6 +107,8 @@ impl Default for Config {
 pub struct Connection<Req> {
     /// The sender half of the connection request channel.
     sender: mpsc::Sender<ChanReq<Req>>,
+
+    /// Maximum amount of time to wait for a response.
     response_timeout: Duration,
 }
 
@@ -118,9 +123,15 @@ impl<Req> Connection<Req> {
         remote: Remote,
         config: Config,
     ) -> (Self, Transport<Remote, Req>) {
-	let response_timeout = config.response_timeout;
+        let response_timeout = config.response_timeout;
         let (sender, transport) = Transport::new(remote, config);
-        (Self { sender, response_timeout}, transport)
+        (
+            Self {
+                sender,
+                response_timeout,
+            },
+            transport,
+        )
     }
 }
 
@@ -186,7 +197,7 @@ impl<Req> Clone for Connection<Req> {
     fn clone(&self) -> Self {
         Self {
             sender: self.sender.clone(),
-	    response_timeout: self.response_timeout
+            response_timeout: self.response_timeout,
         }
     }
 }
@@ -215,6 +226,7 @@ struct Request<Req> {
     /// It is kept so we can compare a response with it.
     request_msg: Req,
 
+    /// Start time of the request.
     start: Instant,
 
     /// Current state of the query.
@@ -274,7 +286,7 @@ impl<Req> Request<Req> {
         Self {
             conn,
             request_msg,
-	    start: Instant::now(),
+            start: Instant::now(),
             state: QueryState::RequestConn,
             conn_id: None,
             delayed_retry_count: 0,
@@ -289,21 +301,27 @@ impl<Req: ComposeRequest + Clone + 'static> Request<Req> {
     /// it is resolved, you can call it again to get a new future.
     pub async fn get_response(&mut self) -> Result<Message<Bytes>, Error> {
         loop {
-	    let elapsed = self.start.elapsed();
-println!("get_response: eleapsed {elapsed:?} timeout {:?}",
-	self.conn.response_timeout);
-	    if elapsed >= self.conn.response_timeout {
-		return Err(Error::StreamReadTimeout);
-	    }
-	    let remaining = self.conn.response_timeout - elapsed;
+            let elapsed = self.start.elapsed();
+            println!(
+                "get_response: eleapsed {elapsed:?} timeout {:?}",
+                self.conn.response_timeout
+            );
+            if elapsed >= self.conn.response_timeout {
+                return Err(Error::StreamReadTimeout);
+            }
+            let remaining = self.conn.response_timeout - elapsed;
 
             match self.state {
                 QueryState::RequestConn => {
-		    let to = match timeout(remaining,
-			self.conn.new_conn(self.conn_id)).await {
-			Err(_) => return Err(Error::StreamReadTimeout),
-			Ok(v) => v,
-		    };
+                    let to = match timeout(
+                        remaining,
+                        self.conn.new_conn(self.conn_id),
+                    )
+                    .await
+                    {
+                        Err(_) => return Err(Error::StreamReadTimeout),
+                        Ok(v) => v,
+                    };
                     let rx = match to {
                         Ok(rx) => rx,
                         Err(err) => {
@@ -314,11 +332,10 @@ println!("get_response: eleapsed {elapsed:?} timeout {:?}",
                     self.state = QueryState::ReceiveConn(rx);
                 }
                 QueryState::ReceiveConn(ref mut receiver) => {
-		    let to = match timeout(remaining,
-			receiver).await {
-			Err(_) => return Err(Error::StreamReadTimeout),
-			Ok(v) => v,
-		    };
+                    let to = match timeout(remaining, receiver).await {
+                        Err(_) => return Err(Error::StreamReadTimeout),
+                        Ok(v) => v,
+                    };
                     let res = match to {
                         Ok(res) => res,
                         Err(_) => {
@@ -355,11 +372,12 @@ println!("get_response: eleapsed {elapsed:?} timeout {:?}",
                     continue;
                 }
                 QueryState::GetResult(ref mut query) => {
-		    let to = match timeout(remaining,
-			query.get_response()).await {
-			Err(_) => return Err(Error::StreamReadTimeout),
-			Ok(v) => v,
-		    };
+                    let to = match timeout(remaining, query.get_response())
+                        .await
+                    {
+                        Err(_) => return Err(Error::StreamReadTimeout),
+                        Ok(v) => v,
+                    };
                     match to {
                         Ok(reply) => {
                             return Ok(reply);
@@ -397,11 +415,12 @@ println!("get_response: eleapsed {elapsed:?} timeout {:?}",
                     }
                 }
                 QueryState::Delay(instant, duration) => {
-		    match timeout(remaining,
-			sleep_until(instant+duration)).await {
-			Err(_) => return Err(Error::StreamReadTimeout),
-			Ok(_) => (),
-		    };
+                    if timeout(remaining, sleep_until(instant + duration))
+                        .await
+                        .is_err()
+                    {
+                        return Err(Error::StreamReadTimeout);
+                    };
                     self.state = QueryState::RequestConn;
                 }
                 QueryState::Done => {

@@ -1,8 +1,19 @@
 //! A transport that tries to distribute requests over multiple upstreams.
-//! It assumed that the upstreams have similar performance. use the [redundant]
-//! transport to forward requests to the best upstream out of upstreams
-//! that may have different quite performance.
+//!
+//! It is assumed that the upstreams have similar performance. use the
+//! [redundant] transport to forward requests to the best upstream out of
+//! upstreams that may have quite different performance.
 
+use crate::base::iana::OptRcode;
+use crate::base::iana::Rcode;
+use crate::base::opt::AllOptData;
+use crate::base::Message;
+use crate::base::MessageBuilder;
+use crate::base::StaticCompressor;
+use crate::dep::octseq::OctetsInto;
+use crate::net::client::request::ComposeRequest;
+use crate::net::client::request::{Error, GetResponse, SendRequest};
+use crate::utils::config::DefMinMax;
 use bytes::Bytes;
 use futures_util::stream::FuturesUnordered;
 use futures_util::StreamExt;
@@ -13,34 +24,50 @@ use std::cmp::Ordering;
 use std::fmt::{Debug, Formatter};
 use std::future::Future;
 use std::pin::Pin;
-use std::vec::Vec;
 use std::string::String;
 use std::string::ToString;
+use std::vec::Vec;
 use tokio::sync::{mpsc, oneshot};
 use tokio::time::{sleep_until, Duration, Instant};
-use crate::base::iana::OptRcode;
-use crate::base::Message;
-use crate::net::client::request::{Error, GetResponse, SendRequest};
-use crate::base::MessageBuilder;
-use crate::base::StaticCompressor;
-use crate::base::iana::Rcode;
-use crate::base::opt::AllOptData;
-use crate::dep::octseq::OctetsInto;
-use crate::net::client::request::ComposeRequest;
 
 /*
 Basic algorithm:
-- keep track of expected response time for every upstream
-- start with the upstream with the lowest expected response time
+- try to distribute requests over all upstreams subject to some limitations.
+- limit bursts
+  - record the start of a burst interval when a request goes out over an
+    upstream
+  - record the number of requests since the start of the burst interval
+  - in the burst is larger than the maximum configured by the user then the
+    upstream is no longer available.
+  - start a new burst interval when enough time has passed.
+- prefer fast upstreams over slow upstreams
+  - maintain a response time estimate for each upstream
+  - upstreams with an estimate response time larger than slow_rt_factor
+    times the lowest estimated response time are consider slow.
+  - 'fast' upstreams are preferred over slow upstream. However slow upstreams
+    are considered if during a single request all fast upstreams fail.
+- prefer fast upstream with a low queue length
+  - maintain a counter with the number of current outstanding requests on an
+    upstream.
+  - prefer the upstream with the lowest count.
+  - preset the upstream with the lowest estimated response time in case
+    two or more upstreams have the same count.
+
+Execution:
 - set a timer to the expect response time.
 - if the timer expires before reply arrives, send the query to the next lowest
   and set a timer
 - when a reply arrives update the expected response time for the relevant
   upstream and for the ones that failed.
 
-Based on a random number generator:
-- pick a different upstream rather then the best but set the timer to the
-  expected response time of the best.
+Probing:
+- upstream that currently have outstanding requests do not need to be
+  probed.
+- for idle upstream, based on a random number generator:
+  - pick a different upstream rather then the best
+  - but set the timer to the expected response time of the best.
+  - maybe we need a configuration parameter for the amound of head start
+    given to the probed upstream.
 */
 
 /// Capacity of the channel that transports [ChanReq].
@@ -59,12 +86,14 @@ const SMOOTH_N: f64 = 8.;
 /// Chance to probe a worse connection.
 const PROBE_P: f64 = 0.05;
 
-const DEFAULT_BURST_INTERVAL: Duration = Duration::from_secs(1);
+//------------ Configuration Constants ----------------------------------------
 
-/// Avoid sending two requests at the same time.
-///
-/// When a worse connection is probed, give it a slight head start.
-const PROBE_RT: Duration = Duration::from_millis(1);
+/// Interval for limiting upstream query bursts.
+const BURST_INTERVAL: DefMinMax<Duration> = DefMinMax::new(
+    Duration::from_secs(1),
+    Duration::from_millis(1),
+    Duration::from_secs(3600),
+);
 
 //------------ Config ---------------------------------------------------------
 
@@ -72,25 +101,26 @@ const PROBE_RT: Duration = Duration::from_millis(1);
 #[derive(Clone, Copy, Debug)]
 pub struct Config {
     /// Defer transport errors.
-    pub defer_transport_error: bool,
+    defer_transport_error: bool,
 
     /// Defer replies that report Refused.
-    pub defer_refused: bool,
+    defer_refused: bool,
 
     /// Defer replies that report ServFail.
-    pub defer_servfail: bool,
+    defer_servfail: bool,
 
-    pub slow_rt_factor: f64,
+    /// Cut-off for slow upstreams as a factor of the fastest upstream.
+    slow_rt_factor: f64,
 }
 
 impl Default for Config {
     fn default() -> Self {
-	Self {
-	    defer_transport_error: Default::default(),
-	    defer_refused: Default::default(),
-	    defer_servfail: Default::default(),
-	    slow_rt_factor: 10.0,
-	}
+        Self {
+            defer_transport_error: Default::default(),
+            defer_refused: Default::default(),
+            defer_servfail: Default::default(),
+            slow_rt_factor: 10.0,
+        }
     }
 }
 
@@ -99,13 +129,49 @@ impl Default for Config {
 /// Configuration variables for each upstream.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct ConnConfig {
-    pub qps: Option<f64>,
-    pub burst_interval: Option<Duration>
+    /// Maximum burst of upstream queries.
+    max_burst: Option<u64>,
+
+    /// Interval over which the burst is counted.
+    burst_interval: Duration,
 }
 
 impl ConnConfig {
+    /// Create a new ConnConfig object.
     pub fn new() -> Self {
-	Self { qps: None, burst_interval: None }
+        Self {
+            max_burst: None,
+            burst_interval: BURST_INTERVAL.default(),
+        }
+    }
+
+    /// Return the current configuration value for the maximum burst.
+    /// None means that there is no limit.
+    pub fn max_burst(&mut self) -> Option<u64> {
+        self.max_burst
+    }
+
+    /// Set the configuration value for the maximum burst.
+    /// The value None means no limit.
+    pub fn set_max_burst(&mut self, mut max_burst: Option<u64>) {
+        if let Some(burst) = max_burst {
+            if burst == 0 {
+                max_burst = Some(1);
+            }
+        }
+        self.max_burst = max_burst;
+    }
+
+    /// Return the current burst interval.
+    pub fn burst_interval(&mut self) -> Duration {
+        self.burst_interval
+    }
+
+    /// Set a new burst interval.
+    /// The interval is silently limited to at least 1 millesecond and
+    /// at most 1 hour.
+    pub fn set_burst_interval(&mut self, burst_interval: Duration) {
+        self.burst_interval = BURST_INTERVAL.limit(burst_interval);
     }
 }
 
@@ -139,20 +205,27 @@ impl<Req: Clone + Debug + Send + Sync + 'static> Connection<Req> {
     /// Add a transport connection.
     pub async fn add(
         &self,
-	label: &str,
-	config: ConnConfig,
+        label: &str,
+        config: ConnConfig,
         conn: Box<dyn SendRequest<Req> + Send + Sync>,
     ) -> Result<(), Error> {
         let (tx, rx) = oneshot::channel();
         self.sender
-            .send(ChanReq::Add(AddReq { label: label.to_string(), qps: config.qps, burst_interval: config.burst_interval, conn, tx }))
+            .send(ChanReq::Add(AddReq {
+                label: label.to_string(),
+                max_burst: config.max_burst,
+                burst_interval: config.burst_interval,
+                conn,
+                tx,
+            }))
             .await
             .expect("send should not fail");
         rx.await.expect("receive should not fail")
     }
 
+    /// Print statistics.
     pub async fn print_stats(&self) {
-	self.sender.send(ChanReq::PrintStats).await.unwrap();
+        self.sender.send(ChanReq::PrintStats).await.unwrap();
     }
 
     /// Implementation of the query method.
@@ -160,7 +233,8 @@ impl<Req: Clone + Debug + Send + Sync + 'static> Connection<Req> {
         self,
         request_msg: Req,
     ) -> Result<Message<Bytes>, Error>
-    where Req: ComposeRequest
+    where
+        Req: ComposeRequest,
     {
         let (tx, rx) = oneshot::channel();
         self.sender
@@ -168,9 +242,9 @@ impl<Req: Clone + Debug + Send + Sync + 'static> Connection<Req> {
             .await
             .expect("send should not fail");
         let conn_rt = rx.await.expect("receive should not fail")?;
-	if conn_rt.len() == 0 {
-		return serve_fail(&request_msg.to_message().unwrap());
-	}
+        if conn_rt.is_empty() {
+            return serve_fail(&request_msg.to_message().unwrap());
+        }
         Query::new(self.config, request_msg, conn_rt, self.sender.clone())
             .get_response()
             .await
@@ -189,8 +263,8 @@ where
     }
 }
 
-impl<Req: Clone + ComposeRequest + Debug + Send + Sync + 'static> SendRequest<Req>
-    for Connection<Req>
+impl<Req: Clone + ComposeRequest + Debug + Send + Sync + 'static>
+    SendRequest<Req> for Connection<Req>
 {
     fn send_request(
         &self,
@@ -321,6 +395,7 @@ where
     /// Report that a connection failed to provide a timely response
     Failure(TimeReport),
 
+    /// Print statistics.
     PrintStats,
 }
 
@@ -338,9 +413,11 @@ struct AddReq<Req> {
     /// Name of new connection
     label: String,
 
-    qps: Option<f64>,
+    /// Maximum length of a burst.
+    max_burst: Option<u64>,
 
-    burst_interval: Option<Duration>,
+    /// Interval over which bursts are counted.
+    burst_interval: Duration,
 
     /// New connection to add
     conn: Box<dyn SendRequest<Req> + Send + Sync>,
@@ -412,17 +489,17 @@ struct ConnStats {
     /// Aproximation of the windowed average of the square of response times.
     mean_sq: f64,
 
-    /// QPS limit
-    qps_max_burst: Option<f64>,
+    /// Maximum upstream query burst.
+    max_burst: Option<u64>,
 
-    /// QPS burst length,
-    qps_burst_interval: Duration,
+    /// burst length,
+    burst_interval: Duration,
 
-    /// Start of current QPS burst
-    qps_start: Instant,
+    /// Start of the current burst
+    burst_start: Instant,
 
-    /// Number of queries since start
-    qps_num: u64,
+    /// Number of queries since the start of the burst.
+    burst: u64,
 }
 
 /// Data required to schedule requests and report timing results.
@@ -437,6 +514,7 @@ struct ConnRT {
     /// Start of a request using this connection.
     start: Option<Instant>,
 
+    /// Number of request waiting for a response.
     queue_len: u64,
 }
 
@@ -452,33 +530,33 @@ impl<Req: Clone + Send + Sync + 'static> Query<Req> {
         sender: mpsc::Sender<ChanReq<Req>>,
     ) -> Self {
         let conn_rt_len = conn_rt.len();
-	let min_rt = conn_rt.iter().map(|e| e.est_rt).min().unwrap();
-	println!("min_rt = {min_rt:?}");
-	let slow_rt = min_rt.as_secs_f64() * config.slow_rt_factor;
+        let min_rt = conn_rt.iter().map(|e| e.est_rt).min().unwrap();
+        println!("min_rt = {min_rt:?}");
+        let slow_rt = min_rt.as_secs_f64() * config.slow_rt_factor;
         conn_rt.sort_unstable_by(|e1, e2| conn_rt_cmp(e1, e2, slow_rt));
 
         // Do we want to probe a less performant upstream? We only need to
-	// probe upstreams with a queue length of zero. If the queue length
-	// is non-zero then the upstream recently got work and does not need
-	// to be probed.
+        // probe upstreams with a queue length of zero. If the queue length
+        // is non-zero then the upstream recently got work and does not need
+        // to be probed.
         if conn_rt_len > 1 && random::<f64>() < PROBE_P {
             let index: usize = 1 + random::<usize>() % (conn_rt_len - 1);
 
-	    if conn_rt[index].queue_len == 0 {
-		// Give the probe some head start. We may need a separate
-		// configuration parameter. A multiple of min_rt. Just use
-		// min_rt for now.
-		conn_rt[index].est_rt = min_rt;
-	    }
+            if conn_rt[index].queue_len == 0 {
+                // Give the probe some head start. We may need a separate
+                // configuration parameter. A multiple of min_rt. Just use
+                // min_rt for now.
+                conn_rt[index].est_rt = min_rt;
+            }
 
             // Sort again
             conn_rt.sort_unstable_by(|e1, e2| conn_rt_cmp(e1, e2, slow_rt));
         }
 
-	println!("Query::new after sort:");
-	for i in 0..conn_rt_len {
-	    println!("{:?}", conn_rt[i]);
-	}
+        println!("Query::new after sort:");
+        for e in &conn_rt {
+            println!("{:?}", e);
+        }
 
         Self {
             config,
@@ -729,26 +807,25 @@ impl<'a, Req: Clone + Send + Sync + 'static> Transport<Req> {
                 ChanReq::Add(add_req) => {
                     let id = next_id;
                     next_id += 1;
-		    let qps_burst_interval = add_req.burst_interval.unwrap_or(DEFAULT_BURST_INTERVAL);
-println!("burst {:?} {qps_burst_interval:?}", add_req.burst_interval);
-		    let qps_max_burst = if let Some(qps) = add_req.qps {
-			Some(qps*qps_burst_interval.as_secs_f64())
-		    }
-		    else { None };
+                    let burst_interval = add_req.burst_interval;
+                    println!(
+                        "burst {:?} {burst_interval:?}",
+                        add_req.burst_interval
+                    );
                     conn_stats.push(ConnStats {
-			label: add_req.label,
+                        label: add_req.label,
                         mean: (DEFAULT_RT_MS as f64) / 1000.,
                         mean_sq: 0.,
-			qps_max_burst,
-			qps_burst_interval,
-			qps_start: Instant::now(),
-			qps_num: 0,
+                        max_burst: add_req.max_burst,
+                        burst_interval: add_req.burst_interval,
+                        burst_start: Instant::now(),
+                        burst: 0,
                     });
                     conn_rt.push(ConnRT {
                         id,
                         est_rt: DEFAULT_RT,
                         start: None,
-			queue_len: 0,
+                        queue_len: 0,
                     });
                     conns.push(add_req.conn);
 
@@ -756,27 +833,26 @@ println!("burst {:?} {qps_burst_interval:?}", add_req.burst_interval);
                     let _ = add_req.tx.send(Ok(()));
                 }
                 ChanReq::GetRT(rt_req) => {
-		    let mut tmp_conn_rt = conn_rt.clone();
+                    let mut tmp_conn_rt = conn_rt.clone();
 
-		    // Remove entries that exceed the QPS limit. Loop 
-		    // backward to efficiently remove them.
-		    for i in (0..tmp_conn_rt.len()).rev() {
-			if let Some(qps_max_burst) = conn_stats[i].qps_max_burst {
-			    if conn_stats[i].qps_start.elapsed() > conn_stats[i].qps_burst_interval {
-				conn_stats[i].qps_start = Instant::now();
-				conn_stats[i].qps_num = 0;
-			    }
-			    // TODO should check qps_start and rest if it
-			    // is too long ago.
-			    if (conn_stats[i].qps_num as f64) > qps_max_burst {
-				println!("qps exceeded for index {i}");
-				tmp_conn_rt.swap_remove(i);
-			    }
-			}
-			else {
-			    // No limit.
-			}
-		    }
+                    // Remove entries that exceed the QPS limit. Loop
+                    // backward to efficiently remove them.
+                    for i in (0..tmp_conn_rt.len()).rev() {
+                        if let Some(max_burst) = conn_stats[i].max_burst {
+                            if conn_stats[i].burst_start.elapsed()
+                                > conn_stats[i].burst_interval
+                            {
+                                conn_stats[i].burst_start = Instant::now();
+                                conn_stats[i].burst = 0;
+                            }
+                            if conn_stats[i].burst > max_burst {
+                                println!("qps exceeded for index {i}");
+                                tmp_conn_rt.swap_remove(i);
+                            }
+                        } else {
+                            // No limit.
+                        }
+                    }
                     // Don't care if send fails
                     let _ = rt_req.tx.send(Ok(tmp_conn_rt));
                 }
@@ -785,9 +861,9 @@ println!("burst {:?} {qps_burst_interval:?}", add_req.burst_interval);
                         conn_rt.iter().position(|e| e.id == request_req.id);
                     match opt_ind {
                         Some(ind) => {
-			    // Leave resetting qps_num to GetRT.
-			    conn_stats[ind].qps_num += 1;
-			    conn_rt[ind].queue_len += 1;
+                            // Leave resetting qps_num to GetRT.
+                            conn_stats[ind].burst += 1;
+                            conn_rt[ind].queue_len += 1;
                             let query = conns[ind]
                                 .send_request(request_req.request_msg);
                             // Don't care if send fails
@@ -805,7 +881,7 @@ println!("burst {:?} {qps_burst_interval:?}", add_req.burst_interval);
                     let opt_ind =
                         conn_rt.iter().position(|e| e.id == time_report.id);
                     if let Some(ind) = opt_ind {
-			conn_rt[ind].queue_len -= 1;
+                        conn_rt[ind].queue_len -= 1;
                         let elapsed = time_report.elapsed.as_secs_f64();
                         conn_stats[ind].mean +=
                             (elapsed - conn_stats[ind].mean) / SMOOTH_N;
@@ -824,7 +900,7 @@ println!("burst {:?} {qps_burst_interval:?}", add_req.burst_interval);
                     let opt_ind =
                         conn_rt.iter().position(|e| e.id == time_report.id);
                     if let Some(ind) = opt_ind {
-			conn_rt[ind].queue_len -= 1;
+                        conn_rt[ind].queue_len -= 1;
                         let elapsed = time_report.elapsed.as_secs_f64();
                         if elapsed < conn_stats[ind].mean {
                             // Do not update the mean if a
@@ -845,15 +921,18 @@ println!("burst {:?} {qps_burst_interval:?}", add_req.burst_interval);
                         conn_rt[ind].est_rt = Duration::from_secs_f64(est_rt);
                     }
                 }
-                ChanReq::PrintStats => Self::print_stats(&conn_stats, &conn_rt)
+                ChanReq::PrintStats => {
+                    Self::print_stats(&conn_stats, &conn_rt)
+                }
             }
         }
     }
 
+    /// Print statistics.
     fn print_stats(conn_stats: &[ConnStats], conn_rt: &[ConnRT]) {
-	for i in 0..conn_rt.len() {
-	    println!("id {} label {} burst {} max burst {:?} Qlen {} Est. RT {:.3}", conn_rt[i].id, conn_stats[i].label, conn_stats[i].qps_num, conn_stats[i].qps_max_burst, conn_rt[i].queue_len, conn_rt[i].est_rt.as_secs_f64());
-	}
+        for i in 0..conn_rt.len() {
+            println!("id {} label {} burst {} max burst {:?} Qlen {} Est. RT {:.3}", conn_rt[i].id, conn_stats[i].label, conn_stats[i].burst, conn_stats[i].max_burst, conn_rt[i].queue_len, conn_rt[i].est_rt.as_secs_f64());
+        }
     }
 }
 
@@ -893,20 +972,29 @@ where
 fn conn_rt_cmp(e1: &ConnRT, e2: &ConnRT, slow_rt: f64) -> Ordering {
     let e1_slow = e1.est_rt.as_secs_f64() > slow_rt;
     let e2_slow = e2.est_rt.as_secs_f64() > slow_rt;
-    println!("{e1_slow:?} and {e2_slow:?} for {e1:?}, {e2:?} and {slow_rt:?}");
+    println!(
+        "{e1_slow:?} and {e2_slow:?} for {e1:?}, {e2:?} and {slow_rt:?}"
+    );
     if e1_slow != e2_slow {
-	return if e2_slow { Ordering::Less } else { Ordering::Greater };
+        return if e2_slow {
+            Ordering::Less
+        } else {
+            Ordering::Greater
+        };
     }
     if !e1_slow && !e2_slow {
-	// Normal case. First check queue lengths.
-	if e1.queue_len != e2.queue_len {
-	    return if e1.queue_len < e2.queue_len { Ordering::Less } else 
-		{ Ordering::Greater};
-	}
+        // Normal case. First check queue lengths.
+        if e1.queue_len != e2.queue_len {
+            return if e1.queue_len < e2.queue_len {
+                Ordering::Less
+            } else {
+                Ordering::Greater
+            };
+        }
 
-	// Equal queue length. Just take est_rt.
-	return e1.est_rt.cmp(&e2.est_rt);
-    } 
+        // Equal queue length. Just take est_rt.
+        return e1.est_rt.cmp(&e2.est_rt);
+    }
     // e1_slow == e2_slow
     e1.est_rt.cmp(&e2.est_rt)
 }
@@ -937,11 +1025,9 @@ fn skip<Octs: Octets>(msg: &Message<Octs>, config: &Config) -> bool {
 /// Generate a SERVFAIL reply message.
 // This needs to be consolodated with the one in validator and the one in
 // MessageBuilder.
-fn serve_fail<Octs>(
-    msg: &Message<Octs>,
-) -> Result<Message<Bytes>, Error>
+fn serve_fail<Octs>(msg: &Message<Octs>) -> Result<Message<Bytes>, Error>
 where
-    Octs: AsRef<[u8]> + Octets
+    Octs: AsRef<[u8]> + Octets,
 {
     let mut target =
         MessageBuilder::from_target(StaticCompressor::new(Vec::new()))
