@@ -22,7 +22,7 @@ use crate::base::name::{FlattenInto, ParsedName, ToName};
 use crate::base::rdata::{
     ComposeRecordData, LongRecordData, ParseRecordData, RecordData,
 };
-use crate::base::zonefile_fmt::{self, Presenter, ZonefileFmt};
+use crate::base::zonefile_fmt::{self, Formatter, ZonefileFmt};
 use crate::base::wire::{Compose, Composer, Parse, ParseError};
 use crate::utils::base64;
 
@@ -609,7 +609,7 @@ impl<O: AsRef<[u8]>, N: fmt::Debug> fmt::Debug for Tsig<O, N> {
 //--- ZonefileFmt
 
 impl<O: AsRef<[u8]>, N: ToName> ZonefileFmt for Tsig<O, N> {
-    fn show(&self, p: &mut Presenter) -> zonefile_fmt::Result {
+    fn fmt(&self, p: &mut impl Formatter) -> zonefile_fmt::Result {
         p.block(|p| {
             p.write_token(self.algorithm.fmt_with_dot())?;
             p.write_comment("algorithm")?;

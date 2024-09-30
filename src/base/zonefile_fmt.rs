@@ -20,15 +20,11 @@ impl<T: ZonefileFmt + ?Sized> fmt::Display for ZoneFileDisplay<'_, T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         if self.pretty {
             self.inner
-                .show(&mut Presenter {
-                    writer: &mut MultiLineWriter::new(f),
-                })
+                .fmt(&mut MultiLineWriter::new(f))
                 .map_err(|_| fmt::Error)
         } else {
             self.inner
-                .show(&mut Presenter {
-                    writer: &mut SimpleWriter::new(f),
-                })
+                .fmt(&mut SimpleWriter::new(f))
                 .map_err(|_| fmt::Error)
         }
     }
@@ -36,7 +32,7 @@ impl<T: ZonefileFmt + ?Sized> fmt::Display for ZoneFileDisplay<'_, T> {
 
 /// Show a value as zonefile format
 pub trait ZonefileFmt {
-    fn show(&self, p: &mut Presenter<'_>) -> Result;
+    fn fmt(&self, p: &mut impl Formatter) -> Result;
 
     fn display_zonefile(&self, pretty: bool) -> ZoneFileDisplay<'_, Self> {
         ZoneFileDisplay {
@@ -47,13 +43,13 @@ pub trait ZonefileFmt {
 }
 
 impl<T: ZonefileFmt> ZonefileFmt for &T {
-    fn show(&self, p: &mut Presenter<'_>) -> Result {
-        T::show(self, p)
+    fn fmt(&self, p: &mut impl Formatter) -> Result {
+        T::fmt(self, p)
     }
 }
 
 /// Determines how a zonefile is formatted
-pub trait PresentationWriter {
+pub trait FormatWriter: Sized {
     /// Push a token to the zonefile
     fn fmt_token(&mut self, args: fmt::Arguments<'_>) -> Result;
 
@@ -96,7 +92,7 @@ impl<'a> SimpleWriter<'a> {
     }
 }
 
-impl PresentationWriter for SimpleWriter<'_> {
+impl FormatWriter for SimpleWriter<'_> {
     fn fmt_token(&mut self, args: fmt::Arguments<'_>) -> Result {
         if !self.first {
             self.writer.write_char(' ')?;
@@ -143,7 +139,7 @@ impl<'a> MultiLineWriter<'a> {
     }
 }
 
-impl PresentationWriter for MultiLineWriter<'_> {
+impl FormatWriter for MultiLineWriter<'_> {
     fn fmt_token(&mut self, args: fmt::Arguments<'_>) -> Result {
         use fmt::Write;
         if !self.first {
@@ -198,40 +194,35 @@ impl fmt::Write for MultiLineWriter<'_> {
 }
 
 /// A more structured wrapper around a [`PresentationWriter`]
-///
-/// Writing comments is not allowed with this type because comments can only
-/// appear when a token is surrounded by parentheses.
-pub struct Presenter<'a> {
-    writer: &'a mut (dyn PresentationWriter + 'a),
-}
-
-impl<'a> Presenter<'a> {
+pub trait Formatter: FormatWriter {
     /// Start a sequence of grouped tokens
     ///
     /// The block might be surrounded by `(` and `)` in a multiline format.
-    pub fn block(&mut self, f: impl Fn(&mut Self) -> Result) -> Result {
-        self.writer.begin_block()?;
+    fn block(&mut self, f: impl Fn(&mut Self) -> Result) -> Result {
+        self.begin_block()?;
         f(self)?;
-        self.writer.end_block()
+        self.end_block()
     }
 
     /// Push a token
-    pub fn write_token(&mut self, token: impl fmt::Display) -> Result {
-        self.writer.fmt_token(format_args!("{token}"))
+    fn write_token(&mut self, token: impl fmt::Display) -> Result {
+        self.fmt_token(format_args!("{token}"))
     }
 
     /// Call the `show` method on `item` with this `Presenter`
-    pub fn write_show(&mut self, item: impl ZonefileFmt) -> Result {
-        item.show(self)
+    fn write_show(&mut self, item: impl ZonefileFmt) -> Result {
+        item.fmt(self)
     }
 
     /// Write a comment
     ///
     /// This may be ignored.
-    pub fn write_comment(&mut self, s: impl fmt::Display) -> Result {
-        self.writer.fmt_comment(format_args!("{s}"))
+    fn write_comment(&mut self, s: impl fmt::Display) -> Result {
+        self.fmt_comment(format_args!("{s}"))
     }
 }
+
+impl<T: FormatWriter> Formatter for T {}
 
 #[cfg(all(test, feature = "std"))]
 mod test {

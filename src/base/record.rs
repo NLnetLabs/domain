@@ -22,7 +22,7 @@ use super::rdata::{
     ComposeRecordData, ParseAnyRecordData, ParseRecordData, RecordData,
 };
 use super::wire::{Compose, Composer, FormError, Parse, ParseError};
-use super::zonefile_fmt::{self, Presenter, ZonefileFmt};
+use super::zonefile_fmt::{self, Formatter, ZonefileFmt};
 use core::cmp::Ordering;
 use core::time::Duration;
 use core::{fmt, hash};
@@ -439,7 +439,7 @@ where
     Name: ToName,
     Data: RecordData + ZonefileFmt,
 {
-    fn show(&self, p: &mut Presenter) -> zonefile_fmt::Result {
+    fn fmt(&self, p: &mut impl Formatter) -> zonefile_fmt::Result {
         p.write_token(self.owner.fmt_with_dot())?;
         p.write_show(self.ttl)?;
         p.write_show(self.class)?;
@@ -1554,7 +1554,7 @@ impl Ttl {
 }
 
 impl ZonefileFmt for Ttl {
-    fn show(&self, p: &mut Presenter) -> zonefile_fmt::Result {
+    fn fmt(&self, p: &mut impl Formatter) -> zonefile_fmt::Result {
         p.write_token(self.as_secs())
     }
 }

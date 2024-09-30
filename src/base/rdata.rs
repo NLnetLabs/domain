@@ -19,7 +19,7 @@ use super::cmp::CanonicalOrd;
 use super::iana::Rtype;
 use super::scan::{Scan, Scanner, ScannerError, Symbol};
 use super::wire::{Compose, Composer, ParseError};
-use super::zonefile_fmt::{self, Presenter, ZonefileFmt};
+use super::zonefile_fmt::{self, Formatter, ZonefileFmt};
 use crate::utils::base16;
 use core::cmp::Ordering;
 use core::fmt;
@@ -481,7 +481,7 @@ impl<Octs: AsRef<[u8]>> fmt::Debug for UnknownRecordData<Octs> {
 //--- ZonefileFmt
 
 impl<Octs: AsRef<[u8]>> ZonefileFmt for UnknownRecordData<Octs> {
-    fn show(&self, p: &mut Presenter) -> zonefile_fmt::Result {
+    fn fmt(&self, p: &mut impl Formatter) -> zonefile_fmt::Result {
         struct Data<'a>(&'a [u8]);
 
         impl fmt::Display for Data<'_> {

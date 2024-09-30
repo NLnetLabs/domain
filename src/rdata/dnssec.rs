@@ -12,8 +12,8 @@ use crate::base::rdata::{
 };
 use crate::base::scan::{Scan, Scanner, ScannerError};
 use crate::base::serial::Serial;
-use crate::base::zonefile_fmt::{self, Presenter, ZonefileFmt};
 use crate::base::wire::{Compose, Composer, FormError, Parse, ParseError};
+use crate::base::zonefile_fmt::{self, Formatter, ZonefileFmt};
 use crate::base::Ttl;
 use crate::utils::{base16, base64};
 use core::cmp::Ordering;
@@ -435,22 +435,20 @@ impl<Octs: AsRef<[u8]>> fmt::Debug for Dnskey<Octs> {
 //--- ZonefileFmt
 
 impl<Octs: AsRef<[u8]>> ZonefileFmt for Dnskey<Octs> {
-    fn show(&self, p: &mut Presenter) -> zonefile_fmt::Result {
+    fn fmt(&self, p: &mut impl Formatter) -> zonefile_fmt::Result {
         let revoked = self.is_revoked();
         let sep = self.is_secure_entry_point();
         let zone_key = self.is_zone_key();
 
         p.block(|p| {
             p.write_token(self.flags)?;
-            p.write_comment(
-                format_args!(
-                    "flags:{}{}{}{}",
-                    if revoked { " revoked" } else { "" },
-                    if sep { " sep" } else { "" },
-                    if zone_key { " zone_key" } else { "" },
-                    if self.flags == 0 { " <none>" } else { "" },
-                )
-            )?;
+            p.write_comment(format_args!(
+                "flags:{}{}{}{}",
+                if revoked { " revoked" } else { "" },
+                if sep { " sep" } else { "" },
+                if zone_key { " zone_key" } else { "" },
+                if self.flags == 0 { " <none>" } else { "" },
+            ))?;
             p.write_token(self.protocol)?;
             p.write_comment("protocol")?;
             p.write_show(self.algorithm)?;
@@ -789,7 +787,7 @@ impl fmt::Display for Timestamp {
 //--- ZonefileFmt
 
 impl ZonefileFmt for Timestamp {
-    fn show(&self, p: &mut Presenter) -> zonefile_fmt::Result {
+    fn fmt(&self, p: &mut impl Formatter) -> zonefile_fmt::Result {
         p.write_token(self.0)
     }
 }
@@ -1398,7 +1396,7 @@ where
     Octs: AsRef<[u8]>,
     Name: ToName,
 {
-    fn show(&self, p: &mut Presenter) -> zonefile_fmt::Result {
+    fn fmt(&self, p: &mut impl Formatter) -> zonefile_fmt::Result {
         p.block(|p| {
             p.write_show(self.type_covered)?;
             p.write_show(self.algorithm)?;
@@ -1706,7 +1704,7 @@ where
     Octs: AsRef<[u8]>,
     Name: ToName,
 {
-    fn show(&self, p: &mut Presenter) -> zonefile_fmt::Result {
+    fn fmt(&self, p: &mut impl Formatter) -> zonefile_fmt::Result {
         p.block(|p| {
             p.write_token(self.next_name.fmt_with_dot())?;
             p.write_show(&self.types)
@@ -2050,8 +2048,8 @@ impl<Octs: AsRef<[u8]>> fmt::Debug for Ds<Octs> {
 //--- ZonefileFmt
 
 impl<Octs: AsRef<[u8]>> ZonefileFmt for Ds<Octs> {
-    fn show(&self, p: &mut Presenter) -> zonefile_fmt::Result {
-        p.block(|p| {            
+    fn fmt(&self, p: &mut impl Formatter) -> zonefile_fmt::Result {
+        p.block(|p| {
             p.write_token(self.key_tag)?;
             p.write_comment("key tag")?;
             p.write_show(self.algorithm)?;
@@ -2263,7 +2261,7 @@ impl<Octs: AsRef<[u8]>> fmt::Display for RtypeBitmap<Octs> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let mut iter = self.iter();
         if let Some(rtype) = iter.next() {
-            rtype.fmt(f)?;
+            fmt::Display::fmt(&rtype, f)?;
         }
         for rtype in iter {
             write!(f, " {}", rtype)?
@@ -2275,7 +2273,7 @@ impl<Octs: AsRef<[u8]>> fmt::Display for RtypeBitmap<Octs> {
 //--- ZonefileFmt
 
 impl<Octs: AsRef<[u8]>> ZonefileFmt for RtypeBitmap<Octs> {
-    fn show(&self, p: &mut Presenter<'_>) -> zonefile_fmt::Result {
+    fn fmt(&self, p: &mut impl Formatter) -> zonefile_fmt::Result {
         for rtype in self {
             p.write_token(rtype)?;
         }
@@ -2538,7 +2536,7 @@ where
         for src_pos in (0..buf_len).step_by(34) {
             let chunk_len = (self.buf.as_ref()[src_pos + 1] as usize) + 2;
             let buf = self.buf.as_mut();
-            buf.copy_within(src_pos..src_pos+chunk_len, dst_pos);
+            buf.copy_within(src_pos..src_pos + chunk_len, dst_pos);
             dst_pos += chunk_len;
         }
         self.buf.truncate(dst_pos);

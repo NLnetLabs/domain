@@ -9,7 +9,7 @@ use crate::base::iana::Rtype;
 use crate::base::name::{FlattenInto, ParsedName, ToName};
 use crate::base::rdata::{ComposeRecordData, ParseRecordData, RecordData};
 use crate::base::scan::{Scan, Scanner};
-use crate::base::zonefile_fmt::{self, Presenter, ZonefileFmt};
+use crate::base::zonefile_fmt::{self, Formatter, ZonefileFmt};
 use crate::base::wire::{Compose, Composer, Parse, ParseError};
 use core::cmp::Ordering;
 use core::fmt;
@@ -286,7 +286,7 @@ impl<N: fmt::Display> fmt::Display for Srv<N> {
 //--- ZonefileFmt
 
 impl<N: ToName> ZonefileFmt for Srv<N> {
-    fn show(&self, p: &mut Presenter) -> zonefile_fmt::Result {
+    fn fmt(&self, p: &mut impl Formatter) -> zonefile_fmt::Result {
         p.block(|p| {
             p.write_token(self.priority)?;
             p.write_comment("priority")?;

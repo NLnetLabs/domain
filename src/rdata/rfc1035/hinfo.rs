@@ -5,14 +5,14 @@
 use crate::base::charstr::CharStr;
 use crate::base::cmp::CanonicalOrd;
 use crate::base::iana::Rtype;
-use crate::base::rdata::{
-    ComposeRecordData, ParseRecordData, RecordData,
-};
+use crate::base::rdata::{ComposeRecordData, ParseRecordData, RecordData};
 use crate::base::scan::Scanner;
-use crate::base::zonefile_fmt::{self, Presenter, ZonefileFmt};
 use crate::base::wire::{Composer, ParseError};
-use core::{fmt, hash};
+use crate::base::zonefile_fmt::{
+    self, Formatter, ZonefileFmt,
+};
 use core::cmp::Ordering;
+use core::{fmt, hash};
 #[cfg(feature = "serde")]
 use octseq::builder::{EmptyBuilder, FromBuilder};
 use octseq::octets::{Octets, OctetsFrom, OctetsInto};
@@ -240,7 +240,7 @@ impl<Octs: AsRef<[u8]>> fmt::Debug for Hinfo<Octs> {
 //--- ZonefileFmt
 
 impl<Octs: AsRef<[u8]>> ZonefileFmt for Hinfo<Octs> {
-    fn show(&self, p: &mut Presenter) -> zonefile_fmt::Result {
+    fn fmt(&self, p: &mut impl Formatter) -> zonefile_fmt::Result {
         p.block(|p| {
             p.write_token(&self.cpu)?;
             p.write_comment("cpu")?;
@@ -282,4 +282,3 @@ mod test {
         assert_eq!(hinfo.os(), hinfo_bytes.os());
     }
 }
-

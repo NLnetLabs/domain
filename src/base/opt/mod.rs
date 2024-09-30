@@ -46,7 +46,7 @@ use super::name::{Name, ToName};
 use super::rdata::{ComposeRecordData, ParseRecordData, RecordData};
 use super::record::{Record, Ttl};
 use super::wire::{Compose, Composer, FormError, ParseError};
-use super::zonefile_fmt::{self, Presenter, ZonefileFmt};
+use super::zonefile_fmt::{self, Formatter, ZonefileFmt};
 use crate::utils::base16;
 use core::cmp::Ordering;
 use core::marker::PhantomData;
@@ -362,7 +362,7 @@ impl<Octs: AsRef<[u8]> + ?Sized> fmt::Debug for Opt<Octs> {
 //--- ZonefileFmt
 
 impl<Octs: AsRef<[u8]> + ?Sized> ZonefileFmt for Opt<Octs> {
-    fn show(&self, p: &mut Presenter) -> zonefile_fmt::Result {
+    fn fmt(&self, p: &mut impl Formatter) -> zonefile_fmt::Result {
         // XXX TODO Print this properly.
         p.write_token("OPT ...")
     }

@@ -440,9 +440,9 @@ macro_rules! int_enum_str_with_prefix {
 macro_rules! int_enum_zonefile_fmt_decimal {
     ($ianatype:ident, $name:expr) => {
         impl $crate::base::zonefile_fmt::ZonefileFmt for $ianatype {
-            fn show(
+            fn fmt(
                 &self,
-                p: &mut $crate::base::zonefile_fmt::Presenter,
+                p: &mut impl $crate::base::zonefile_fmt::Formatter,
             ) -> $crate::base::zonefile_fmt::Result {
                 p.write_token(self.to_int())?;
                 p.write_comment(format_args!("{}: {}", $name, self))
@@ -454,9 +454,9 @@ macro_rules! int_enum_zonefile_fmt_decimal {
 macro_rules! int_enum_zonefile_fmt_with_decimal {
     ($ianatype:ident) => {
         impl $crate::base::zonefile_fmt::ZonefileFmt for $ianatype {
-            fn show(
+            fn fmt(
                 &self,
-                p: &mut $crate::base::zonefile_fmt::Presenter,
+                p: &mut impl $crate::base::zonefile_fmt::Formatter,
             ) -> $crate::base::zonefile_fmt::Result {
                 match self.to_mnemonic_str() {
                     Some(m) => p.write_token(m),
@@ -470,9 +470,9 @@ macro_rules! int_enum_zonefile_fmt_with_decimal {
 macro_rules! int_enum_zonefile_fmt_with_prefix {
     ($ianatype:ident, $str_prefix:expr) => {
         impl $crate::base::zonefile_fmt::ZonefileFmt for $ianatype {
-            fn show(
+            fn fmt(
                 &self,
-                p: &mut $crate::base::zonefile_fmt::Presenter,
+                p: &mut impl $crate::base::zonefile_fmt::Formatter,
             ) -> $crate::base::zonefile_fmt::Result {
                 match self.to_mnemonic_str() {
                     Some(m) => p.write_token(m),

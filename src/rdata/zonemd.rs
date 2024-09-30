@@ -13,7 +13,7 @@ use crate::base::iana::Rtype;
 use crate::base::rdata::{ComposeRecordData, RecordData};
 use crate::base::scan::{Scan, Scanner};
 use crate::base::serial::Serial;
-use crate::base::zonefile_fmt::{self, Presenter, ZonefileFmt};
+use crate::base::zonefile_fmt::{self, Formatter, ZonefileFmt};
 use crate::base::wire::{Composer, ParseError};
 use crate::utils::base16;
 use core::cmp::Ordering;
@@ -229,7 +229,7 @@ impl<Octs: AsRef<[u8]>> fmt::Debug for Zonemd<Octs> {
 }
 
 impl<Octs: AsRef<[u8]>> ZonefileFmt for Zonemd<Octs> {
-    fn show(&self, p: &mut Presenter) -> zonefile_fmt::Result {
+    fn fmt(&self, p: &mut impl Formatter) -> zonefile_fmt::Result {
         p.block(|p| {
             p.write_token(self.serial)?;
             p.write_show(self.scheme)?;
@@ -351,7 +351,7 @@ impl From<u8> for Scheme {
 }
 
 impl ZonefileFmt for Scheme {
-    fn show(&self, p: &mut Presenter<'_>) -> zonefile_fmt::Result {
+    fn fmt(&self, p: &mut impl Formatter) -> zonefile_fmt::Result {
         p.write_token(u8::from(*self))
     }
 }
@@ -395,7 +395,7 @@ impl From<u8> for Algorithm {
 }
 
 impl ZonefileFmt for Algorithm {
-    fn show(&self, p: &mut Presenter<'_>) -> zonefile_fmt::Result {
+    fn fmt(&self, p: &mut impl Formatter) -> zonefile_fmt::Result {
         p.write_token(u8::from(*self))
     }
 }
