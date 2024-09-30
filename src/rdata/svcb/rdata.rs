@@ -9,6 +9,7 @@ use crate::base::name::{FlattenInto, ParsedName, ToName};
 use crate::base::rdata::{
     ComposeRecordData, LongRecordData, ParseRecordData, RecordData,
 };
+use crate::base::zonefile_fmt::{self, Presenter, ZonefileFmt};
 use crate::base::wire::{Compose, Composer, Parse, ParseError};
 use octseq::octets::{Octets, OctetsFrom, OctetsInto};
 use octseq::parse::Parser;
@@ -446,7 +447,7 @@ where
     Name: fmt::Display,
 {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{} {} {}", self.priority, self.target, self.params)
+        write!(f, "{} {}. {}", self.priority, self.target, self.params)
     }
 }
 
@@ -461,6 +462,24 @@ where
             .field("target", &self.target)
             .field("params", &self.params)
             .finish()
+    }
+}
+
+//--- ZonefileFmt
+
+impl<Variant, Octs, Name> ZonefileFmt for SvcbRdata<Variant, Octs, Name>
+where
+    Octs: Octets,
+    Name: ToName,
+{
+    fn show(&self, p: &mut Presenter) -> zonefile_fmt::Result {
+        p.block(|p| {
+            p.write_token(self.priority)?;
+            p.write_comment("priority")?;
+            p.write_token(self.target.fmt_with_dot())?;
+            p.write_comment("target")?;
+            p.write_show(&self.params)
+        })
     }
 }
 

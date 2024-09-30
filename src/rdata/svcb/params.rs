@@ -11,6 +11,7 @@ use super::value::AllValues;
 use crate::base::cmp::CanonicalOrd;
 use crate::base::iana::SvcParamKey;
 use crate::base::scan::Symbol;
+use crate::base::zonefile_fmt::{self, Presenter, ZonefileFmt};
 use crate::base::wire::{Compose, Parse, ParseError};
 use octseq::builder::{EmptyBuilder, FromBuilder, OctetsBuilder, ShortBuf};
 use octseq::octets::{Octets, OctetsFrom, OctetsInto};
@@ -366,6 +367,28 @@ impl<Octs: Octets + ?Sized> fmt::Debug for SvcParams<Octs> {
     }
 }
 
+//-- Show
+
+impl<Octs: Octets + ?Sized> ZonefileFmt for SvcParams<Octs> {
+    fn show(&self, p: &mut Presenter) -> zonefile_fmt::Result {
+        p.block(|p| {
+            let mut parser = Parser::from_ref(self.as_slice());
+            while parser.remaining() > 0 {
+                let key = SvcParamKey::parse(
+                    &mut parser
+                ).expect("invalid SvcbParam");
+                let len = usize::from(
+                    u16::parse(&mut parser).expect("invalid SvcParam")
+                );
+                let mut parser = parser.parse_parser(
+                    len
+                ).expect("invalid SvcParam");
+                p.write_token(super::value::AllValues::parse_any(key, &mut parser))?;
+            }
+            Ok(())
+        })
+    }
+}
 
 //------------ ValueIter -----------------------------------------------------
 

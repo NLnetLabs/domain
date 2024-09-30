@@ -13,6 +13,7 @@ use crate::base::rdata::{
 use crate::base::scan::Scanner;
 #[cfg(feature = "serde")]
 use crate::base::scan::Symbol;
+use crate::base::zonefile_fmt::{self, Presenter, ZonefileFmt};
 use crate::base::wire::{Composer, FormError, ParseError};
 #[cfg(feature = "bytes")]
 use bytes::BytesMut;
@@ -442,6 +443,19 @@ impl<Octs: AsRef<[u8]>> fmt::Debug for Txt<Octs> {
         f.write_str("Txt(")?;
         fmt::Display::fmt(self, f)?;
         f.write_str(")")
+    }
+}
+
+//--- ZonefileFmt
+
+impl<Octs> ZonefileFmt for Txt<Octs> where Octs: AsRef<[u8]> {
+    fn show(&self, p: &mut Presenter) -> zonefile_fmt::Result {
+        p.block(|p| {
+            for slice in self.iter_charstrs() {
+                p.write_token(slice.display_quoted())?;
+            }
+            Ok(())
+        })
     }
 }
 

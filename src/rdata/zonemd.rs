@@ -13,6 +13,7 @@ use crate::base::iana::Rtype;
 use crate::base::rdata::{ComposeRecordData, RecordData};
 use crate::base::scan::{Scan, Scanner};
 use crate::base::serial::Serial;
+use crate::base::zonefile_fmt::{self, Formatter, ZonefileFmt};
 use crate::base::wire::{Composer, ParseError};
 use crate::utils::base16;
 use core::cmp::Ordering;
@@ -227,6 +228,30 @@ impl<Octs: AsRef<[u8]>> fmt::Debug for Zonemd<Octs> {
     }
 }
 
+impl<Octs: AsRef<[u8]>> ZonefileFmt for Zonemd<Octs> {
+    fn fmt(&self, p: &mut impl Formatter) -> zonefile_fmt::Result {
+        p.block(|p| {
+            p.write_token(self.serial)?;
+            p.write_show(self.scheme)?;
+            p.write_comment(format_args!("scheme ({})", match self.scheme {
+                Scheme::Reserved => "reserved",
+                Scheme::Simple => "simple",
+                Scheme::Unassigned(_) => "unassigned",
+                Scheme::Private(_) => "private",
+            }))?;
+            p.write_show(self.algo)?;
+            p.write_comment(format_args!("algorithm ({})", match self.algo {
+                Algorithm::Reserved => "reserved",
+                Algorithm::Sha384 => "SHA384",
+                Algorithm::Sha512 => "SHA512",
+                Algorithm::Unassigned(_) => "unassigned",
+                Algorithm::Private(_) => "private",
+            }))?;
+            p.write_token(base16::encode_display(&self.digest))
+        })
+    }
+}
+
 impl<Octs, Other> PartialOrd<Zonemd<Other>> for Zonemd<Octs>
 where
     Octs: AsRef<[u8]>,
@@ -325,6 +350,12 @@ impl From<u8> for Scheme {
     }
 }
 
+impl ZonefileFmt for Scheme {
+    fn fmt(&self, p: &mut impl Formatter) -> zonefile_fmt::Result {
+        p.write_token(u8::from(*self))
+    }
+}
+
 /// The Hash Algorithm used to construct the digest.
 ///
 /// This enumeration wraps an 8-bit unsigned integer that identifies
@@ -360,6 +391,12 @@ impl From<u8> for Algorithm {
             3..=239 => Self::Unassigned(n),
             240..=254 => Self::Private(n),
         }
+    }
+}
+
+impl ZonefileFmt for Algorithm {
+    fn fmt(&self, p: &mut impl Formatter) -> zonefile_fmt::Result {
+        p.write_token(u8::from(*self))
     }
 }
 

@@ -5,13 +5,14 @@
 use crate::base::cmp::CanonicalOrd;
 use crate::base::iana::Rtype;
 use crate::base::name::{FlattenInto, ParsedName, ToName};
-use crate::base::rdata::{
-    ComposeRecordData, ParseRecordData, RecordData,
-};
+use crate::base::rdata::{ComposeRecordData, ParseRecordData, RecordData};
 use crate::base::scan::Scanner;
 use crate::base::wire::{Composer, ParseError};
-use core::fmt;
+use crate::base::zonefile_fmt::{
+    self, Formatter, ZonefileFmt,
+};
 use core::cmp::Ordering;
+use core::fmt;
 use octseq::octets::{Octets, OctetsFrom, OctetsInto};
 use octseq::parse::Parser;
 
@@ -26,7 +27,7 @@ use octseq::parse::Parser;
 /// The Minfo record is experimental.
 ///
 /// The Minfo record type is defined in RFC 1035, section 3.3.7.
-/// 
+///
 /// [1]: https://tools.ietf.org/html/rfc1035#section-3.3.7
 #[derive(Clone, Debug, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -77,7 +78,9 @@ impl<N> Minfo<N> {
     pub(in crate::rdata) fn flatten<TargetName>(
         self,
     ) -> Result<Minfo<TargetName>, N::AppendError>
-    where N: FlattenInto<TargetName> {
+    where
+        N: FlattenInto<TargetName>,
+    {
         Ok(Minfo::new(
             self.rmailbx.try_flatten_into()?,
             self.emailbx.try_flatten_into()?,
@@ -242,6 +245,19 @@ impl<N: fmt::Display> fmt::Display for Minfo<N> {
     }
 }
 
+//--- ZonefileFmt
+
+impl<N: ToName> ZonefileFmt for Minfo<N> {
+    fn fmt(&self, p: &mut impl Formatter) -> zonefile_fmt::Result {
+        p.block(|p| {
+            p.write_token(self.rmailbx.fmt_with_dot())?;
+            p.write_comment("responsible mailbox")?;
+            p.write_token(self.emailbx.fmt_with_dot())?;
+            p.write_comment("error mailbox")
+        })
+    }
+}
+
 //============ Testing =======================================================
 
 #[cfg(test)]
@@ -279,4 +295,3 @@ mod test {
         assert_eq!(minfo.emailbx(), minfo_bytes.emailbx());
     }
 }
-

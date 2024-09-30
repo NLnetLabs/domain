@@ -11,6 +11,7 @@ use crate::base::iana::Rtype;
 use crate::base::rdata::{
     ComposeRecordData, LongRecordData, ParseRecordData, RecordData,
 };
+use crate::base::zonefile_fmt::{self, Presenter, ZonefileFmt};
 use crate::base::wire::{Composer, ParseError};
 use core::{fmt, hash, mem};
 use core::cmp::Ordering;
@@ -278,6 +279,26 @@ impl<Octs: AsRef<[u8]>> fmt::Debug for Null<Octs> {
         f.write_str("Null(")?;
         fmt::Display::fmt(self, f)?;
         f.write_str(")")
+    }
+}
+
+//--- ZonefileFmt
+
+impl<Octs: AsRef<[u8]>> ZonefileFmt for Null<Octs> {
+    fn show(&self, p: &mut Presenter) -> zonefile_fmt::Result {
+        struct Data<'a>(&'a [u8]);
+
+        impl fmt::Display for Data<'_> {
+            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                write!(f, "\\# {}", self.0.len())?;
+                for ch in self.0 {
+                    write!(f, " {:02x}", *ch)?
+                }
+                Ok(())
+            }
+        }
+
+        p.write_token(Data(self.data.as_ref()))
     }
 }
 

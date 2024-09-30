@@ -11,6 +11,7 @@ use crate::base::rdata::{ComposeRecordData, ParseRecordData, RecordData};
 use crate::base::scan::{
     ConvertSymbols, EntrySymbol, Scan, Scanner, ScannerError,
 };
+use crate::base::zonefile_fmt::{self, Formatter, ZonefileFmt};
 use crate::base::wire::{Compose, Composer, Parse, ParseError};
 use crate::utils::{base16, base32};
 #[cfg(feature = "bytes")]
@@ -369,6 +370,29 @@ impl<Octs: AsRef<[u8]>> fmt::Debug for Nsec3<Octs> {
     }
 }
 
+//--- ZonefileFmt
+
+impl<Octs: AsRef<[u8]>> ZonefileFmt for Nsec3<Octs>
+where
+    Octs: AsRef<[u8]>,
+{
+    fn fmt(&self, p: &mut impl Formatter) -> zonefile_fmt::Result {
+        p.block(|p| {
+            p.write_show(self.hash_algorithm)?;
+            p.write_token(self.flags)?;
+            p.write_comment(format_args!(
+                "flags: {}",
+                if self.opt_out() { "opt-out" } else { "<none>" }
+            ))?;
+            p.write_token(self.iterations)?;
+            p.write_comment("iterations")?;
+            p.write_show(&self.salt)?;
+            p.write_token(base32::encode_display_hex(&self.next_owner))?;
+            p.write_show(&self.types)
+        })
+    }
+}
+
 //------------ Nsec3Param ----------------------------------------------------
 
 #[derive(Clone)]
@@ -658,6 +682,21 @@ impl<Octs: AsRef<[u8]>> fmt::Debug for Nsec3param<Octs> {
             .field("iterations", &self.iterations)
             .field("salt", &self.salt)
             .finish()
+    }
+}
+
+//--- ZonefileFmt
+
+impl<Octs: AsRef<[u8]>> ZonefileFmt for Nsec3param<Octs> {
+    fn fmt(&self, p: &mut impl Formatter) -> zonefile_fmt::Result {
+        p.block(|p| {
+            p.write_show(self.hash_algorithm)?;
+            p.write_token(self.flags)?;
+            p.write_comment("flags")?;
+            p.write_token(self.iterations)?;
+            p.write_comment("iterations")?;
+            p.write_show(&self.salt)
+        })
     }
 }
 
@@ -967,6 +1006,17 @@ impl<Octs: AsRef<[u8]> + ?Sized> fmt::Debug for Nsec3Salt<Octs> {
         f.debug_tuple("Nsec3Salt")
             .field(&format_args!("{}", self))
             .finish()
+    }
+}
+
+//--- ZonefileFmt
+
+impl<Octs: AsRef<[u8]> + ?Sized> ZonefileFmt for Nsec3Salt<Octs> {
+    fn fmt(&self, p: &mut impl Formatter) -> zonefile_fmt::Result {
+        p.block(|p| {
+            p.write_token(base16::encode_display(self))?;
+            p.write_comment(format_args!("salt (length: {})", self.salt_len()))
+        })
     }
 }
 

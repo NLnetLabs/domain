@@ -394,7 +394,7 @@ impl<Octs: AsRef<[u8]> + ?Sized> Name<Octs> {
     /// add a dot after the name, this method can be used to display the name
     /// always ending in a single dot.
     pub fn fmt_with_dot(&self) -> impl fmt::Display + '_ {
-        DisplayWithDot(self.for_slice())
+        ToName::fmt_with_dot(self)
     }
 }
 
@@ -1124,25 +1124,6 @@ impl<'a, Octs: Octets + ?Sized> Iterator for SuffixIter<'a, Octs> {
             self.start = Some(start + usize::from(label.compose_len()))
         }
         Some(res)
-    }
-}
-
-//------------ DisplayWithDot ------------------------------------------------
-
-struct DisplayWithDot<'a>(&'a Name<[u8]>);
-
-impl<'a> fmt::Display for DisplayWithDot<'a> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        if self.0.is_root() {
-            f.write_str(".")
-        } else {
-            let mut iter = self.0.iter();
-            write!(f, "{}", iter.next().unwrap())?;
-            for label in iter {
-                write!(f, ".{}", label)?
-            }
-            Ok(())
-        }
     }
 }
 

@@ -4,10 +4,11 @@
 use crate::base::cmp::CanonicalOrd;
 use crate::base::iana::{DigestAlg, Rtype, SecAlg};
 use crate::base::rdata::{
-    ComposeRecordData, LongRecordData, ParseRecordData, RecordData
+    ComposeRecordData, LongRecordData, ParseRecordData, RecordData,
 };
 use crate::base::scan::{Scan, Scanner, ScannerError};
 use crate::base::wire::{Compose, Composer, Parse, ParseError};
+use crate::base::zonefile_fmt::{self, Formatter, ZonefileFmt};
 use crate::utils::{base16, base64};
 use core::cmp::Ordering;
 use core::{fmt, hash};
@@ -57,11 +58,15 @@ impl<Octs> Cdnskey<Octs> {
         algorithm: SecAlg,
         public_key: Octs,
     ) -> Result<Self, LongRecordData>
-    where Octs: AsRef<[u8]> {
+    where
+        Octs: AsRef<[u8]>,
+    {
         LongRecordData::check_len(
             usize::from(
-                u16::COMPOSE_LEN + u8::COMPOSE_LEN + SecAlg::COMPOSE_LEN
-            ).checked_add(public_key.as_ref().len()).expect("long key")
+                u16::COMPOSE_LEN + u8::COMPOSE_LEN + SecAlg::COMPOSE_LEN,
+            )
+            .checked_add(public_key.as_ref().len())
+            .expect("long key"),
         )?;
         Ok(unsafe {
             Cdnskey::new_unchecked(flags, protocol, algorithm, public_key)
@@ -143,13 +148,16 @@ impl<Octs> Cdnskey<Octs> {
     pub fn scan<S: Scanner<Octets = Octs>>(
         scanner: &mut S,
     ) -> Result<Self, S::Error>
-    where Octs: AsRef<[u8]> {
+    where
+        Octs: AsRef<[u8]>,
+    {
         Self::new(
             u16::scan(scanner)?,
             u8::scan(scanner)?,
             SecAlg::scan(scanner)?,
             scanner.convert_entry(base64::SymbolConverter::new())?,
-        ).map_err(|err| S::Error::custom(err.as_str()))
+        )
+        .map_err(|err| S::Error::custom(err.as_str()))
     }
 }
 
@@ -319,6 +327,19 @@ impl<Octs: AsRef<[u8]>> fmt::Debug for Cdnskey<Octs> {
     }
 }
 
+//--- ZonefileFmt
+
+impl<Octs: AsRef<[u8]>> ZonefileFmt for Cdnskey<Octs> {
+    fn fmt(&self, p: &mut impl Formatter) -> zonefile_fmt::Result {
+        p.block(|p| {
+            p.write_token(self.flags)?;
+            p.write_token(self.protocol)?;
+            p.write_show(self.algorithm)?;
+            p.write_token(base64::encode_display(&self.public_key))
+        })
+    }
+}
+
 //------------ Cds -----------------------------------------------------------
 
 #[derive(Clone)]
@@ -362,11 +383,17 @@ impl<Octs> Cds<Octs> {
         digest_type: DigestAlg,
         digest: Octs,
     ) -> Result<Self, LongRecordData>
-    where Octs: AsRef<[u8]> {
+    where
+        Octs: AsRef<[u8]>,
+    {
         LongRecordData::check_len(
             usize::from(
-                u16::COMPOSE_LEN + SecAlg::COMPOSE_LEN + DigestAlg::COMPOSE_LEN
-            ).checked_add(digest.as_ref().len()).expect("long digest")
+                u16::COMPOSE_LEN
+                    + SecAlg::COMPOSE_LEN
+                    + DigestAlg::COMPOSE_LEN,
+            )
+            .checked_add(digest.as_ref().len())
+            .expect("long digest"),
         )?;
         Ok(unsafe {
             Cds::new_unchecked(key_tag, algorithm, digest_type, digest)
@@ -452,13 +479,16 @@ impl<Octs> Cds<Octs> {
     pub fn scan<S: Scanner<Octets = Octs>>(
         scanner: &mut S,
     ) -> Result<Self, S::Error>
-    where Octs: AsRef<[u8]> {
+    where
+        Octs: AsRef<[u8]>,
+    {
         Self::new(
             u16::scan(scanner)?,
             SecAlg::scan(scanner)?,
             DigestAlg::scan(scanner)?,
             scanner.convert_entry(base16::SymbolConverter::new())?,
-        ).map_err(|err| S::Error::custom(err.as_str()))
+        )
+        .map_err(|err| S::Error::custom(err.as_str()))
     }
 }
 
@@ -646,6 +676,20 @@ impl<Octs: AsRef<[u8]>> fmt::Debug for Cds<Octs> {
     }
 }
 
+//--- ZonefileFmt
+
+impl<Octs: AsRef<[u8]>> ZonefileFmt for Cds<Octs> {
+    fn fmt(&self, p: &mut impl Formatter) -> zonefile_fmt::Result {
+        p.block(|p| {
+            p.write_token(self.key_tag)?;
+            p.write_comment("key tag")?;
+            p.write_show(self.algorithm)?;
+            p.write_show(self.digest_type)?;
+            p.write_token(base16::encode_display(&self.digest))
+        })
+    }
+}
+
 //------------ parsed --------------------------------------------------------
 
 pub mod parsed {
@@ -670,7 +714,7 @@ mod test {
         let rdata = Cdnskey::new(10, 11, SecAlg::RSASHA1, b"key").unwrap();
         test_rdlen(&rdata);
         test_compose_parse(&rdata, |parser| Cdnskey::parse(parser));
-        test_scan(&["10", "11", "RSASHA1", "a2V5"], Cdnskey::scan, &rdata);
+        test_scan(&["10", "11", "5", "a2V5"], Cdnskey::scan, &rdata);
     }
 
     //--- Cds
@@ -678,11 +722,10 @@ mod test {
     #[test]
     #[allow(clippy::redundant_closure)] // lifetimes ...
     fn cds_compose_parse_scan() {
-        let rdata = Cds::new(
-            10, SecAlg::RSASHA1, DigestAlg::SHA256, b"key"
-        ).unwrap();
+        let rdata =
+            Cds::new(10, SecAlg::RSASHA1, DigestAlg::SHA256, b"key").unwrap();
         test_rdlen(&rdata);
         test_compose_parse(&rdata, |parser| Cds::parse(parser));
-        test_scan(&["10", "RSASHA1", "2", "6b6579"], Cds::scan, &rdata);
+        test_scan(&["10", "5", "2", "6b6579"], Cds::scan, &rdata);
     }
 }
