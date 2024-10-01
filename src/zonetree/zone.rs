@@ -38,6 +38,12 @@ impl Zone {
         }
     }
 
+    /// Exchange this [`Zone`] wrapper for the actual underlying backing store
+    /// implementation.
+    pub fn into_inner(self) -> Arc<dyn ZoneStore> {
+        self.store
+    }
+
     /// Gets the CLASS of this zone.
     pub fn class(&self) -> Class {
         self.store.class()
