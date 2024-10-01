@@ -9,7 +9,7 @@ use crate::base::wire::Composer;
 use crate::base::MessageBuilder;
 use crate::base::{Message, Ttl};
 
-use super::types::{StoredName, StoredRecordData};
+use super::types::{StoredName, StoredRecord, StoredRecordData};
 use super::{SharedRr, SharedRrset};
 
 //------------ Answer --------------------------------------------------------
