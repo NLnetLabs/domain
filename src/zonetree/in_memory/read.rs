@@ -101,6 +101,7 @@ impl ReadZone {
                         None,
                         Some(cut.ns.clone()),
                         cut.ds.as_ref().cloned(),
+                        cut.glue.clone(),
                     ))
                 }
             }
@@ -219,6 +220,7 @@ impl ReadZone {
                 None,
                 Some(cut.ns.clone()),
                 cut.ds.as_ref().cloned(),
+                cut.glue.clone(),
             )),
         }
     }
@@ -367,6 +369,7 @@ impl NodeAnswer {
                     Some(soa),
                     None,
                     None,
+                    vec![],
                 ))
             }
         }

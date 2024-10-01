@@ -1,4 +1,5 @@
 //! Answers to zone tree queries.
+use std::vec::Vec;
 
 use octseq::Octets;
 
@@ -131,7 +132,7 @@ impl Answer {
         }
 
         let mut builder = builder.authority();
-        if let Some(authority) = self.authority.as_ref() {
+        let additional = if let Some(authority) = self.authority.as_ref() {
             if let Some(soa) = authority.soa.as_ref() {
                 builder
                     .push((
@@ -166,9 +167,19 @@ impl Answer {
                         .unwrap()
                 }
             }
-        }
 
-        builder.additional()
+            let mut additional = builder.additional();
+
+            for rec in &authority.additional {
+                additional.push(rec).unwrap();
+            }
+
+            additional
+        } else {
+            builder.additional()
+        };
+
+        additional
     }
 
     /// Gets the [`Rcode`] for this answer.
@@ -247,8 +258,13 @@ pub struct AnswerAuthority {
     /// The NS record set if it should be included.
     ns: Option<SharedRrset>,
 
-    /// The DS record set if it should be included..
+    /// The DS record set if it should be included.
     ds: Option<SharedRrset>,
+
+    /// Any additional address records to include.
+    ///
+    /// For step 3.b of RFC 1034 section 4.3.2.
+    additional: Vec<StoredRecord>,
 }
 
 impl AnswerAuthority {
@@ -258,7 +274,18 @@ impl AnswerAuthority {
         soa: Option<SharedRr>,
         ns: Option<SharedRrset>,
         ds: Option<SharedRrset>,
+        additional: Vec<StoredRecord>,
     ) -> Self {
-        AnswerAuthority { owner, soa, ns, ds }
+        AnswerAuthority {
+            owner,
+            soa,
+            ns,
+            ds,
+            additional,
+        }
+    }
+
+    pub fn push_additional_record(&mut self, rec: StoredRecord) {
+        self.additional.push(rec);
     }
 }
