@@ -76,6 +76,12 @@ impl Zone {
     }
 }
 
+impl AsRef<dyn ZoneStore> for Zone {
+    fn as_ref(&self) -> &dyn ZoneStore {
+        self.store.as_ref()
+    }
+}
+
 //--- TryFrom<inplace::Zonefile>
 
 impl TryFrom<inplace::Zonefile> for Zone {
