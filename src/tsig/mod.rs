@@ -393,6 +393,15 @@ impl AsRef<Key> for Key {
     }
 }
 
+//--- Display
+
+#[cfg(feature = "std")]
+impl fmt::Display for Key {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_fmt(format_args!("{}", self.name))
+    }
+}
+
 //------------ KeyStore ------------------------------------------------------
 
 /// A type that stores TSIG secret keys.
