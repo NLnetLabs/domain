@@ -25,6 +25,35 @@ pub type ZoneKey = (StoredName, Class);
 //------------ Zone ----------------------------------------------------------
 
 /// A single DNS zone.
+/// 
+/// # Abstract backing store
+/// 
+/// The actual backing store implementation used by a [`Zone`] is determined
+/// by the [`ZoeStore`] impl it wraps. In this way one can treat in-memory
+/// zone implementations and other backing store types (for example a database
+/// backed zone) in the same way, and even to store zones with different
+/// backing stores together in the same [`ZoneTree`].
+/// 
+/// # Layering functionality
+/// 
+/// The functionality of [`Zone`]s can be extended by creating a [`ZoneStore`]
+/// implementation that wraps another [`ZoneStore`] implementation with the
+/// purpose of wrapping the original zone with additional state and
+/// functionality.
+/// 
+/// This could be used to detect changes to the [`Zone`] via your own
+/// [`WritableZone`] impl e.g. to sign it or persist it, or to detect updated
+/// SOA timers, and so on.
+/// 
+/// To layer [`ZoneStore`] implementations on top of one another, use
+/// [`Zone::into_inner()`] to obtain backing store implementation of a
+/// [`Zone`] then store that (via [`Arc<dyn ZoneStore`]) in a wrapper type
+/// that itself implements [`ZoneStore`], and then use [`Zone::new()`] to
+/// create a new [`Zone`] based on the outer backing store impl.
+/// 
+/// Then to gain access to the additional functionality and state use
+/// [`ZoneStore::as_any()`] and attempt to [`Any::downcast()`] to a
+/// [`ZoneStore`] implementing type that was used earlier.
 #[derive(Clone, Debug)]
 pub struct Zone {
     store: Arc<dyn ZoneStore>,
