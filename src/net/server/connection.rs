@@ -264,6 +264,9 @@ where
     /// DNS protocol idle time out tracking.
     idle_timer: IdleTimer,
 
+    /// Is a transaction in progress?
+    in_transaction: Arc<AtomicBool>,
+
     /// [`ServerMetrics`] describing the status of the server.
     metrics: Arc<ServerMetrics>,
 }
@@ -312,6 +315,7 @@ where
             mpsc::channel(config.max_queued_responses);
         let config = Arc::new(ArcSwap::from_pointee(config));
         let idle_timer = IdleTimer::new();
+        let in_transaction = Arc::new(AtomicBool::new(false));
 
         // Place the ReadHalf of the stream into an Option so that we can take
         // it out (as we can't clone it and we can't place it into an Arc
@@ -333,6 +337,7 @@ where
             result_q_tx,
             service,
             idle_timer,
+            in_transaction,
             metrics,
         }
     }
@@ -423,7 +428,7 @@ where
                     }
 
                     _ = sleep_until(self.idle_timer.idle_timeout_deadline(self.config.load().idle_timeout)) => {
-                        self.process_dns_idle_timeout()
+                        self.process_dns_idle_timeout(self.config.load().idle_timeout)
                     }
 
                     res = &mut msg_recv => {
@@ -630,16 +635,19 @@ where
         }
     }
 
-    /// Implemnt DNS rules regarding timing out of idle connections.
+    /// Implement DNS rules regarding timing out of idle connections.
     ///
     /// Disconnects the current connection of the timer is expired, flushing
     /// pending responses first.
-    fn process_dns_idle_timeout(&self) -> Result<(), ConnectionEvent> {
+    fn process_dns_idle_timeout(
+        &self,
+        timeout: Duration,
+    ) -> Result<(), ConnectionEvent> {
         // DNS idle timeout elapsed, or was it reset?
-        if self
-            .idle_timer
-            .idle_timeout_expired(self.config.load().idle_timeout)
+        if self.idle_timer.idle_timeout_expired(timeout)
+            && !self.in_transaction.load(Ordering::SeqCst)
         {
+            trace!("Timing out idle connection");
             Err(ConnectionEvent::DisconnectWithoutFlush)
         } else {
             Ok(())
@@ -654,6 +662,8 @@ where
     where
         Svc::Stream: Send,
     {
+        let in_transaction = self.in_transaction.clone();
+
         match res {
             Ok(buf) => {
                 let received_at = Instant::now();
@@ -706,7 +716,6 @@ where
                                 "Calling service for request id {request_id}"
                             );
                             let mut stream = svc.call(request).await;
-                            let mut in_transaction = false;
 
                             trace!("Awaiting service call results for request id {request_id}");
                             while let Some(Ok(call_result)) =
@@ -738,11 +747,17 @@ where
                                         }
 
                                         ServiceFeedback::BeginTransaction => {
-                                            in_transaction = true;
+                                            in_transaction.store(
+                                                true,
+                                                Ordering::SeqCst,
+                                            );
                                         }
 
                                         ServiceFeedback::EndTransaction => {
-                                            in_transaction = false;
+                                            in_transaction.store(
+                                                false,
+                                                Ordering::SeqCst,
+                                            );
                                         }
                                     }
                                 }
@@ -772,7 +787,7 @@ where
                                             Err(TrySendError::Full(
                                                 unused_response,
                                             )) => {
-                                                if in_transaction {
+                                                if in_transaction.load(Ordering::SeqCst) {
                                                     // Wait until there is space in the message queue.
                                                     tokio::task::yield_now()
                                                         .await;
