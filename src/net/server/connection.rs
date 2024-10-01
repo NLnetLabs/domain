@@ -1,5 +1,6 @@
 //! Support for stream based connections.
 use core::ops::{ControlFlow, Deref};
+use core::sync::atomic::{AtomicBool, Ordering};
 use core::time::Duration;
 
 use std::fmt::Display;
