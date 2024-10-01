@@ -56,12 +56,11 @@
 
 mod interop;
 
-use core::fmt::Display;
 use core::{cmp, fmt, mem, str};
 
-use std::sync::Arc;
 #[cfg(feature = "std")]
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use bytes::{Bytes, BytesMut};
 use octseq::octets::Octets;
