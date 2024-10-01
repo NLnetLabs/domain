@@ -788,7 +788,9 @@ where
                                             Err(TrySendError::Full(
                                                 unused_response,
                                             )) => {
-                                                if in_transaction.load(Ordering::SeqCst) {
+                                                if in_transaction
+                                                    .load(Ordering::SeqCst)
+                                                {
                                                     // Wait until there is space in the message queue.
                                                     tokio::task::yield_now()
                                                         .await;
