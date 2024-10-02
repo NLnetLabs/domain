@@ -14,6 +14,7 @@ New
 * Added `MessageBuilder::start_error`, like `start_answer` but infallible. ([#369])
 * Added `AnswerBuilder::push_ref`, like `push` but takes the record by
   reference. ([#383])
+* Added Rtype::NXNAME and ExtendedErrorCode::INVALID_QUERY_TYPE. ([#392])
 
 Bug fixes
 
@@ -100,6 +101,7 @@ Other changes
 [#380]: https://github.com/NLnetLabs/domain/pull/380
 [#382]: https://github.com/NLnetLabs/domain/pull/382
 [#383]: https://github.com/NLnetLabs/domain/pull/383
+[#392]: https://github.com/NLnetLabs/domain/pull/392
 [@dklbreitling]: https://github.com/dklbreitling
 
 ## 0.10.1
