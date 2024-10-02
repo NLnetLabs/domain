@@ -15,6 +15,8 @@ New
 * Added `AnswerBuilder::push_ref`, like `push` but takes the record by
   reference. ([#383])
 * Added `Rtype::NXNAME` and `ExtendedErrorCode::INVALID_QUERY_TYPE`. ([#392])
+* Added a `Serialize` impl to `AllRecordData` and as a consequence to
+  the OPT record and all OPT options, as well as `ParsedName`. ([#343])
 
 Bug fixes
 
@@ -88,6 +90,7 @@ Other changes
 [#336]: https://github.com/NLnetLabs/domain/pull/336
 [#338]: https://github.com/NLnetLabs/domain/pull/338
 [#341]: https://github.com/NLnetLabs/domain/pull/341
+[#343]: https://github.com/NLnetLabs/domain/pull/343
 [#348]: https://github.com/NLnetLabs/domain/pull/348
 [#354]: https://github.com/NLnetLabs/domain/pull/354
 [#357]: https://github.com/NLnetLabs/domain/pull/357
