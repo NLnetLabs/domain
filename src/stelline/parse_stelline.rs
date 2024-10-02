@@ -575,7 +575,7 @@ pub struct Matches {
     pub mock_client: bool,
     pub conn_closed: bool,
     pub extra_packets: bool,
-    pub alternate_answers: bool,
+    pub any_answer: bool,
 }
 
 fn parse_match(mut tokens: LineTokens<'_>) -> Matches {
@@ -634,7 +634,7 @@ fn parse_match(mut tokens: LineTokens<'_>) -> Matches {
         } else if token == "EXTRA_PACKETS" {
             matches.extra_packets = true;
         } else if token == "ANY_ANSWER" {
-            matches.alternate_answers = true;
+            matches.any_answer = true;
         } else {
             println!("should handle match {token:?}");
             todo!();

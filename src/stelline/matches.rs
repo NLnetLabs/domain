@@ -87,7 +87,9 @@ where
         }
     }
     if matches.answer {
-        if matches.alternate_answers {
+        if matches.any_answer {
+            // Match any one of the available answers (additional answers can
+            // be provided using the EXTRA_PACKET Stelline directive).
             let mut matched = false;
             for answer in &sections.answer {
                 if !match_section(

@@ -573,7 +573,7 @@ pub async fn do_client<'a, T: ClientFactory>(
                         let num_expected_answers = if entry
                             .matches
                             .as_ref()
-                            .map(|v| v.alternate_answers)
+                            .map(|v| v.any_answer)
                             .unwrap_or_default()
                         {
                             1
