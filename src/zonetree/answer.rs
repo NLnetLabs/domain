@@ -41,17 +41,21 @@ pub struct Answer {
 
     /// The optional authority section to be included in the answer.
     authority: Option<AnswerAuthority>,
+
+    /// Should the answer be flagged as authoritative?
+    authoritative: bool,
 }
 
 impl Answer {
     /// Creates an "empty" answer.
     ///
-    /// The answer, authority and additinal sections will be empty.
+    /// The answer, authority and additional sections will be empty.
     pub fn new(rcode: Rcode) -> Self {
         Answer {
             rcode,
             content: AnswerContent::NoData,
             authority: Default::default(),
+            authoritative: false,
         }
     }
 
@@ -63,6 +67,7 @@ impl Answer {
             rcode,
             content: AnswerContent::NoData,
             authority: Some(authority),
+            authoritative: false,
         }
     }
 
@@ -86,6 +91,11 @@ impl Answer {
     /// Sets the content of the authority section.
     pub fn set_authority(&mut self, authority: AnswerAuthority) {
         self.authority = Some(authority)
+    }
+
+    /// Marks the response authoritative for the QNAME.
+    pub fn set_authoritative(&mut self, authoritative: bool) {
+        self.authoritative = authoritative;
     }
 
     /// Generate a DNS response [`Message`] for this answer.
@@ -113,6 +123,10 @@ impl Answer {
         let qname = question.qname();
         let qclass = question.qclass();
         let mut builder = builder.start_answer(message, self.rcode).unwrap();
+
+        if self.authoritative {
+            builder.header_mut().set_aa(true);
+        }
 
         match self.content {
             AnswerContent::Data(ref answer) => {

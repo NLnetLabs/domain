@@ -570,11 +570,20 @@ pub async fn do_client<'a, T: ClientFactory>(
                             trace!("Answer RRs remaining = {num_rrs_remaining_after}");
                         }
                     } else {
-                        let num_expected_answers = entry
-                            .sections
+                        let num_expected_answers = if entry
+                            .matches
                             .as_ref()
-                            .map(|section| section.answer.len())
-                            .unwrap_or_default();
+                            .map(|v| v.alternate_answers)
+                            .unwrap_or_default()
+                        {
+                            1
+                        } else {
+                            entry
+                                .sections
+                                .as_ref()
+                                .map(|section| section.answer.len())
+                                .unwrap_or_default()
+                        };
 
                         for idx in 0..num_expected_answers {
                             trace!(

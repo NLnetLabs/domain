@@ -312,6 +312,10 @@ impl ReadableZone for ReadZone {
 //------------ NodeAnswer ----------------------------------------------------
 
 /// An answer that includes instructions to the apex on what it needs to do.
+/// 
+/// Instructs the answer to be authoritative (AA flag set) except in the case
+/// of supplying authority records (i.e. a referral) rather than an answer
+/// (NOERROR, NODATA, NXDOMAIN).
 #[derive(Clone)]
 struct NodeAnswer {
     /// The actual answer.
@@ -319,6 +323,9 @@ struct NodeAnswer {
 
     /// Does the apex need to add the SOA RRset to the answer?
     add_soa: bool,
+
+    /// Should the answer be flagged as authoritative?
+    authoritative: bool,
 }
 
 impl NodeAnswer {
@@ -328,6 +335,7 @@ impl NodeAnswer {
         NodeAnswer {
             answer,
             add_soa: false,
+            authoritative: true,
         }
     }
 
@@ -335,6 +343,7 @@ impl NodeAnswer {
         NodeAnswer {
             answer: Answer::new(Rcode::NOERROR),
             add_soa: true,
+            authoritative: true,
         }
     }
 
@@ -344,6 +353,7 @@ impl NodeAnswer {
         NodeAnswer {
             answer,
             add_soa: false,
+            authoritative: true,
         }
     }
 
@@ -351,13 +361,16 @@ impl NodeAnswer {
         NodeAnswer {
             answer: Answer::new(Rcode::NXDOMAIN),
             add_soa: true,
+            authoritative: true,
         }
     }
 
     fn authority(authority: AnswerAuthority) -> Self {
+        // Tell the client who the authority is, because it is not us.
         NodeAnswer {
             answer: Answer::with_authority(Rcode::NOERROR, authority),
             add_soa: false,
+            authoritative: false,
         }
     }
 
@@ -373,6 +386,7 @@ impl NodeAnswer {
                 ))
             }
         }
+        self.answer.set_authoritative(self.authoritative);
         self.answer
     }
 }

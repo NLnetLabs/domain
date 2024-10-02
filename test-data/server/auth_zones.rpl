@@ -1,0 +1,171 @@
+; Based on: https://datatracker.ietf.org/doc/html/rfc1034#section-6
+; config options
+server:
+    ;zone: .
+	local-file: "zonefiles/rfc1034-6-1-root.zone"
+    ;zone: edu.
+	local-file: "zonefiles/rfc1034-6-1-edu.zone"
+CONFIG_END
+
+SCENARIO_BEGIN Test authority zone with zonefile
+
+; Step numbers are in the form 62<S><N> where:
+;   <S> is the 6.2.<S> subsection of RFC 1034 that defines the query and reply.
+;   <N> is 0 for the query and 1 for the reply.
+
+; RFC 1034 6.2.1
+STEP 6210 QUERY
+ENTRY_BEGIN
+REPLY QR
+SECTION QUESTION
+SRI-NIC.ARPA. IN A
+ENTRY_END
+
+STEP 6211 CHECK_ANSWER
+ENTRY_BEGIN
+MATCH all
+REPLY QR NOERROR AA
+SECTION QUESTION
+SRI-NIC.ARPA. IN A
+SECTION ANSWER
+SRI-NIC.ARPA. 86400 IN A 26.0.0.73
+SRI-NIC.ARPA. 86400 IN A 10.0.0.51
+ENTRY_END
+
+; RFC 1034 6.2.2
+; Note: The RFC refers to QTYPE=* which was thereafter referred to as QTYPE=ANY.
+; Note: The expected reply has been modified to reflect updated rules defined
+;       by RFC 8482 regarding how to reply to ANY queries, i.e. we expect the
+;       first RRSET at the matching QNAME to be returned. However, since the
+;       RRSETs are not stored or retrieved in a guaranteed order we don't know
+;       whether the answer will contain the A RRSET, the MX RRSET or the HINFO
+;       RRSET... So we specify each of the possible answers using EXTRA_PACKET
+;       and enable OR matching mode via MATCH ANY_ANSWER.
+STEP 6220 QUERY
+ENTRY_BEGIN
+REPLY QR
+SECTION QUESTION
+SRI-NIC.ARPA. IN ANY
+ENTRY_END
+
+STEP 6221 CHECK_ANSWER
+ENTRY_BEGIN
+MATCH all ANY_ANSWER
+REPLY QR NOERROR AA
+SECTION QUESTION
+SRI-NIC.ARPA. IN ANY
+SECTION ANSWER
+SRI-NIC.ARPA. 86400 IN A     26.0.0.73
+SRI-NIC.ARPA. 86400 IN A     10.0.0.51
+EXTRA_PACKET
+SRI-NIC.ARPA. 86400 IN MX    0 SRI-NIC.ARPA
+EXTRA_PACKET
+SRI-NIC.ARPA. 86400 IN HINFO DEC-2060 TOPS20  
+ENTRY_END
+
+; RFC 1034 6.2.3
+STEP 6230 QUERY
+ENTRY_BEGIN
+REPLY QR
+SECTION QUESTION
+SRI-NIC.ARPA. IN MX
+ENTRY_END
+
+STEP 6231 CHECK_ANSWER
+ENTRY_BEGIN
+MATCH all
+REPLY QR NOERROR AA
+SECTION QUESTION
+SRI-NIC.ARPA. IN MX
+SECTION ANSWER
+SRI-NIC.ARPA. 86400 IN     MX      0 SRI-NIC.ARPA.
+; Commented out because support for returning these additional records is not
+; implemented yet
+;SECTION ADDITIONAL 
+;SRI-NIC.ARPA. 86400 IN     A       26.0.0.73
+;SRI-NIC.ARPA. 86400 IN     A       10.0.0.51
+ENTRY_END
+
+; RFC 1034 6.2.4
+; Commented out because we respond with a SOA in the authority section as
+; well.
+;STEP 6240 QUERY
+;ENTRY_BEGIN
+;REPLY QR
+;SECTION QUESTION
+;SRI-NIC.ARPA.	IN	NS
+;ENTRY_END
+
+;STEP 6241 CHECK_ANSWER
+;ENTRY_BEGIN
+;MATCH all
+;REPLY AA QR NOERROR
+;SECTION QUESTION
+;SRI-NIC.ARPA.	IN	NS
+;ENTRY_END
+
+; RFC 1034 6.2.5
+STEP 6250 QUERY
+ENTRY_BEGIN
+REPLY QR
+SECTION QUESTION
+SIR-NIC.ARPA.	IN	A
+ENTRY_END
+
+STEP 6251 CHECK_ANSWER
+ENTRY_BEGIN
+MATCH all
+REPLY QR NXDOMAIN AA
+SECTION QUESTION
+SIR-NIC.ARPA.	IN	A
+SECTION AUTHORITY
+. SOA SRI-NIC.ARPA. HOSTMASTER.SRI-NIC.ARPA. 870611 1800 300 604800 86400
+ENTRY_END
+
+; RFC 1034 6.2.6
+; Commented out because support for returning these additional records is not
+; implemented yet
+STEP 6260 QUERY
+ENTRY_BEGIN
+REPLY QR
+SECTION QUESTION
+BRL.MIL.	IN	A
+ENTRY_END
+
+STEP 6261 CHECK_ANSWER
+ENTRY_BEGIN
+MATCH all
+REPLY QR NOERROR
+SECTION QUESTION
+BRL.MIL.	IN	A
+SECTION AUTHORITY
+MIL.			86400	IN	NS	SRI-NIC.ARPA.
+MIL.			86400	IN	NS	A.ISI.EDU
+SECTION ADDITIONAL
+A.ISI.EDU.                	A	26.3.0.103
+SRI-NIC.ARPA.             	A	26.0.0.73
+SRI-NIC.ARPA.             	A	10.0.0.51
+ENTRY_END
+
+; RFC 1034 6.2.7
+; Commented out because support for resolving the CNAME is not implemented
+; yet.
+;STEP 6270 QUERY
+;ENTRY_BEGIN
+;REPLY QR
+;SECTION QUESTION
+;USC-ISIC.ARPA.	IN	A
+;ENTRY_END
+
+;STEP 6271 CHECK_ANSWER
+;ENTRY_BEGIN
+;MATCH all
+;REPLY AA QR NXDOMAIN
+;SECTION QUESTION
+;USC-ISIC.ARPA.	IN	A
+;SECTION ANSWER
+;USC-ISIC.ARPA. 86400 IN CNAME      C.ISI.EDU.
+;C.ISI.EDU.     86400 IN A          10.0.0.52
+;ENTRY_END
+
+SCENARIO_END
