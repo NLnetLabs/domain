@@ -14,7 +14,7 @@ New
 * Added `MessageBuilder::start_error`, like `start_answer` but infallible. ([#369])
 * Added `AnswerBuilder::push_ref`, like `push` but takes the record by
   reference. ([#383])
-* Added Rtype::NXNAME and ExtendedErrorCode::INVALID_QUERY_TYPE. ([#392])
+* Added `Rtype::NXNAME` and `ExtendedErrorCode::INVALID_QUERY_TYPE`. ([#392])
 
 Bug fixes
 
@@ -25,6 +25,8 @@ Bug fixes
 * Fixes the way the `Txt<_> `record data implements comparison-related
   traits. They now directly compare the underlying octets, i.e., the wire
   format bytes. ([#374] by [@dklbreitling])
+* Fix the `tsig` module to reject messages with multiple TSIG records
+  ([#334])
 
 Unstable features
 
@@ -37,14 +39,14 @@ Unstable features
   * Fixed an issue with slow responses in the
     `multi_stream` transport by not waiting in the first iteration if an
     underlying stream reports its connection being closed. ([#338])
-  * Added an option called idle_timeout to stream that allows a TCP or
+  * Added an option called `idle_timeout` to stream that allows a TCP or
     TLS connection to stay open even if no TcpKeepalive option is received
     from the server. ([#341])
   * Fixed an off-by-one error in Dgram client retry count checking. ([#354])
   * Add support for requests that may result in multiple responses. This
-    adds ComposeRequestMulti and other *Multi types. The main change is to
+    adds `ComposeRequestMulti` and other `*Multi` types. The main change is to
     the stream transport, which is the only transport that implements
-    SendRequestMulti. ([#377])
+    `SendRequestMulti`. ([#377])
   * Added a TSIG request signing and response validating passthrough
     transport in `net::client:tsig`. ([#373])
 * `unstable-server-transport`
@@ -82,6 +84,7 @@ Other changes
 
 [#328]: https://github.com/NLnetLabs/domain/pull/328
 [#333]: https://github.com/NLnetLabs/domain/pull/333
+[#334]: https://github.com/NLnetLabs/domain/pull/334
 [#336]: https://github.com/NLnetLabs/domain/pull/336
 [#338]: https://github.com/NLnetLabs/domain/pull/338
 [#341]: https://github.com/NLnetLabs/domain/pull/341
