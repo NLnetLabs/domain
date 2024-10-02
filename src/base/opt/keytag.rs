@@ -335,6 +335,24 @@ impl<'a, Target: Composer> OptBuilder<'a, Target> {
     }
 }
 
+//--- Serialize
+
+#[cfg(feature = "serde")]
+impl<Octs: AsRef<[u8]>> serde::Serialize for KeyTag<Octs> {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer {
+        use serde::ser::SerializeSeq;
+
+        let mut list = serializer.serialize_seq(None)?;
+
+        for i in self.as_ref().iter() {
+            list.serialize_element(i)?;
+        }
+
+        list.end()
+    }
+}
 
 //------------ KeyTagIter ----------------------------------------------------
 
