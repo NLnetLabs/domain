@@ -61,7 +61,9 @@ impl Answer {
 
     /// Creates a new message with a populated authority section.
     ///
-    /// The answer and additional sections will be empty.
+    /// The answer section will be empty. The additional section will be
+    /// populated with the additional records in the given
+    /// [`AnswerAuthority`].
     pub fn with_authority(rcode: Rcode, authority: AnswerAuthority) -> Self {
         Answer {
             rcode,
