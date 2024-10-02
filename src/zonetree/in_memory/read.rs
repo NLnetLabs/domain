@@ -312,7 +312,7 @@ impl ReadableZone for ReadZone {
 //------------ NodeAnswer ----------------------------------------------------
 
 /// An answer that includes instructions to the apex on what it needs to do.
-/// 
+///
 /// Instructs the answer to be authoritative (AA flag set) except in the case
 /// of supplying authority records (i.e. a referral) rather than an answer
 /// (NOERROR, NODATA, NXDOMAIN).

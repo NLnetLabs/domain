@@ -302,7 +302,7 @@ impl AnswerAuthority {
     }
 
     /// Adds an additional record.
-    /// 
+    ///
     /// This is in addition to any additional records supplied via
     /// [`Self::new()`].
     pub fn push_additional_record(&mut self, rec: StoredRecord) {
