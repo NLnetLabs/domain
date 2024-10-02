@@ -66,6 +66,8 @@ Unstable features
     `net::server::batcher` for pushing as many records into a response as will
     fit according to defined limits. ([#383])
   * Enforce dgram max response size limit. ([#398])
+  * Extend MandatoryMiddlewareSvc with an RFC 9619 check for opcode QUERY with
+    QDCOUNT > 1. ([#365])
 * `unstable-zonetree`:
   * Added `ZoneUpdate`. ([#375])
   * Added `ZoneUpdater`, `ZoneDiff`, `InMemoryZoneDiffBuilder`,
@@ -103,6 +105,7 @@ Other changes
 [#360]: https://github.com/NLnetLabs/domain/pull/360
 [#362]: https://github.com/NLnetLabs/domain/pull/362
 [#363]: https://github.com/NLnetLabs/domain/pull/363
+[#365]: https://github.com/NLnetLabs/domain/pull/365
 [#369]: https://github.com/NLnetLabs/domain/pull/369
 [#373]: https://github.com/NLnetLabs/domain/pull/373
 [#374]: https://github.com/NLnetLabs/domain/pull/374
