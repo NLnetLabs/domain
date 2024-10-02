@@ -21,6 +21,42 @@ pub mod key;
 pub mod records;
 pub mod ring;
 
+/// Signing DNS records.
+///
+/// Implementors of this trait own a private key and sign DNS records for a zone
+/// with that key.  Signing is a synchronous operation performed on the current
+/// thread; this rules out implementations like HSMs, where I/O communication is
+/// necessary.
+pub trait Sign<Buffer> {
+    /// An error in constructing a signature.
+    type Error;
+
+    /// The signature algorithm used.
+    ///
+    /// The following algorithms can be used:
+    /// - [`SecAlg::RSAMD5`] (highly insecure, do not use)
+    /// - [`SecAlg::DSA`] (highly insecure, do not use)
+    /// - [`SecAlg::RSASHA1`] (insecure, not recommended)
+    /// - [`SecAlg::DSA_NSEC3_SHA1`] (highly insecure, do not use)
+    /// - [`SecAlg::RSASHA1_NSEC3_SHA1`] (insecure, not recommended)
+    /// - [`SecAlg::RSASHA256`]
+    /// - [`SecAlg::RSASHA512`] (not recommended)
+    /// - [`SecAlg::ECC_GOST`] (do not use)
+    /// - [`SecAlg::ECDSAP256SHA256`]
+    /// - [`SecAlg::ECDSAP384SHA384`]
+    /// - [`SecAlg::ED25519`]
+    /// - [`SecAlg::ED448`]
+    fn algorithm(&self) -> SecAlg;
+
+    /// Compute a signature.
+    ///
+    /// A regular signature of the given byte sequence is computed and is turned
+    /// into the selected buffer type.  This provides a lot of flexibility in
+    /// how buffers are constructed; they may be heap-allocated or have a static
+    /// size.
+    fn sign(&self, data: &[u8]) -> Result<Buffer, Self::Error>;
+}
+
 /// A generic keypair.
 ///
 /// This type cannot be used for computing signatures, as it does not implement
