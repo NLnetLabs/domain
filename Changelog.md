@@ -34,9 +34,10 @@ Unstable features
 
 * New unstable feature `unstable-validator` that adds a DNSSEC validator.
   ([#328])
-* New unstable feature `unstable-xfr` that adds `XfrResponseInterpreter` in
-  `net::xfr` for iterating over XFR responses as a sequence of high level
-  `ZoneUpdate`s. ([#375])
+* New unstable feature `unstable-xfr` that adds `XfrResponseInterpreter` for
+  iterating over XFR responses as a sequence of high level `ZoneUpdate`s, and
+  `XfrMiddlewareSvc` and `XfrDataProvider` for responding to received XFR
+  requests. ([#375], [#384])
 * `unstable-client-transport`:
   * Fixed an issue with slow responses in the
     `multi_stream` transport by not waiting in the first iteration if an
@@ -67,8 +68,8 @@ Unstable features
   * Enforce dgram max response size limit. ([#398])
 * `unstable-zonetree`:
   * Added `ZoneUpdate`. ([#375])
-  * Added `ZoneUpdater`, `ZoneDiffBuilder` and `ZoneDiff` and improved
-    `ZoneUpdate`. ([#376])
+  * Added `ZoneUpdater`, `ZoneDiff`, `InMemoryZoneDiffBuilder`,
+    `InMemoryZoneDiff` and improved `ZoneUpdate`. ([#376], [#384])
   * Improved zonefile parsing error messages. ([#362]). 
   * `TryFrom<inplace::Zonefile> for Zonefile` now returns the set of
     errors instead of logging and ignoring them. ([#362])
@@ -81,6 +82,7 @@ Unstable features
   * Removed / renamed references to `clean` in `zonetree::in_memory` to
     `remove`. ([#376])
   * Fix zone walking to include non-leaf CNAMEs. ([#352])
+  * Fix zone walking to pass the correct owner name to the callback. ([#384])
 
 Other changes
 
@@ -110,6 +112,7 @@ Other changes
 [#380]: https://github.com/NLnetLabs/domain/pull/380
 [#382]: https://github.com/NLnetLabs/domain/pull/382
 [#383]: https://github.com/NLnetLabs/domain/pull/383
+[#384]: https://github.com/NLnetLabs/domain/pull/384
 [#392]: https://github.com/NLnetLabs/domain/pull/392
 [#398]: https://github.com/NLnetLabs/domain/pull/398
 [@dklbreitling]: https://github.com/dklbreitling
