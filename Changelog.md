@@ -64,6 +64,7 @@ Unstable features
   * Added trait `ResourceRecordBatcher` and impl `CallbackBatcher` in
     `net::server::batcher` for pushing as many records into a response as will
     fit according to defined limits. ([#383])
+  * Enforce dgram max response size limit. ([#398])
 * `unstable-zonetree`:
   * Added `ZoneUpdate`. ([#375])
   * Added `ZoneUpdater`, `ZoneDiffBuilder` and `ZoneDiff` and improved
@@ -108,6 +109,7 @@ Other changes
 [#382]: https://github.com/NLnetLabs/domain/pull/382
 [#383]: https://github.com/NLnetLabs/domain/pull/383
 [#392]: https://github.com/NLnetLabs/domain/pull/392
+[#398]: https://github.com/NLnetLabs/domain/pull/398
 [@dklbreitling]: https://github.com/dklbreitling
 
 ## 0.10.1
