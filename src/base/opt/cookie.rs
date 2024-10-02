@@ -61,6 +61,7 @@ use super::{Opt, OptData, ComposeOptData, ParseOptData};
 /// cookie to be included in a response.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 #[cfg_attr(feature = "rand", derive(Default))]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct Cookie {
     /// The client cookie.
     client: ClientCookie, 
@@ -281,6 +282,16 @@ impl<'a, Target: Composer> OptBuilder<'a, Target> {
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
 pub struct ClientCookie([u8; 8]);
 
+#[cfg(feature = "serde")]
+impl serde::Serialize for ClientCookie {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer {
+            use octseq::serde::SerializeOctets;
+            self.0.serialize_octets(serializer)
+    }
+}
+
 impl ClientCookie {
     /// Creates a new client cookie from the given octets.
     #[must_use]
@@ -398,6 +409,16 @@ impl fmt::Display for ClientCookie {
 /// [RFC 9018]: https://tools.ietf.org/html/rfc9018
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct ServerCookie(Array<32>);
+
+#[cfg(feature = "serde")]
+impl serde::Serialize for ServerCookie {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer {
+        use octseq::serde::SerializeOctets;
+        self.0.serialize_octets(serializer)
+    }
+}
 
 impl ServerCookie {
     /// Creates a new server cookie from the given octets.
