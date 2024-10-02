@@ -47,3 +47,5 @@ pub mod notify;
 pub mod stream;
 #[cfg(feature = "tsig")]
 pub mod tsig;
+#[cfg(feature = "unstable-xfr")]
+pub mod xfr;

@@ -6,8 +6,10 @@ server:
 	cookie-secret: "000102030405060708090a0b0c0d0e0f"
 	access-control: 127.0.0.1 allow_cookie
 	access-control: 1.2.3.4 allow
-	local-data: "test. TXT test"
 
+    ; Define an in-memory zone to be served by the server.
+    local-data: "test.  3600  IN  SOA  ns.test. hostmaster.test. 1 3600 900 86400 3600"
+    local-data: "test.            TXT  test"
 CONFIG_END
 
 SCENARIO_BEGIN Test downstream DNS Cookies

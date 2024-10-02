@@ -5,10 +5,10 @@ use octseq::Octets;
 use crate::base::iana::Rcode;
 use crate::base::message_builder::AdditionalBuilder;
 use crate::base::wire::Composer;
-use crate::base::Message;
 use crate::base::MessageBuilder;
+use crate::base::{Message, Ttl};
 
-use super::types::StoredName;
+use super::types::{StoredName, StoredRecordData};
 use super::{SharedRr, SharedRrset};
 
 //------------ Answer --------------------------------------------------------
@@ -200,6 +200,37 @@ pub enum AnswerContent {
 
     /// An empty answer.
     NoData,
+}
+
+impl AnswerContent {
+    /// Gets the first record TTL and data, if any.
+    ///
+    /// This can be used to get both the data as a specific variant, and the
+    /// associated TTL, in a single step:
+    ///
+    /// ```should_panic
+    /// # use domain::base::iana::Rcode;
+    /// # use domain::rdata::ZoneRecordData;
+    /// # use domain::zonetree::Answer;
+    /// # let some_answer = Answer::new(Rcode::NOERROR);
+    /// let Some((soa_ttl, ZoneRecordData::Soa(soa))) =
+    ///     some_answer.content().first()
+    /// else {
+    ///     panic!("some_answer is not a variant of AnswerContent that has data");
+    /// };
+    /// ```
+    pub fn first(&self) -> Option<(Ttl, StoredRecordData)> {
+        match self {
+            AnswerContent::Data(shared_rrset) => shared_rrset
+                .data()
+                .first()
+                .map(|data| (shared_rrset.ttl(), data.clone())),
+            AnswerContent::Cname(shared_rr) => {
+                Some((shared_rr.ttl(), shared_rr.data().clone()))
+            }
+            AnswerContent::NoData => None,
+        }
+    }
 }
 
 //------------ AnswerAuthority -----------------------------------------------

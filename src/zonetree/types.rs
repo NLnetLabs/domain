@@ -1,19 +1,26 @@
 //! Zone tree related types.
 
-use std::collections::HashMap;
+use core::future::{ready, Future};
+use core::pin::Pin;
+use core::task::{Context, Poll};
+
+use std::boxed::Box;
+use std::collections::{hash_map, HashMap};
 use std::ops;
 use std::sync::Arc;
 use std::vec::Vec;
 
 use bytes::Bytes;
+use futures_util::stream;
 use serde::{Deserialize, Serialize};
 use tracing::trace;
 
+use super::traits::{ZoneDiff, ZoneDiffItem};
 use crate::base::name::Name;
 use crate::base::rdata::RecordData;
 use crate::base::record::Record;
-use crate::base::Serial;
 use crate::base::{iana::Rtype, Ttl};
+use crate::base::{Serial, ToName};
 use crate::rdata::ZoneRecordData;
 
 //------------ Type Aliases --------------------------------------------------
@@ -252,13 +259,13 @@ pub struct ZoneCut {
     pub glue: Vec<StoredRecord>,
 }
 
-//------------ ZoneDiffBuilder -----------------------------------------------
+//------------ InMemoryZoneDiffBuilder ----------------------------------------
 
-/// A [`ZoneDiff`] builder.
+/// An [`InMemoryZoneDiff`] builder.
 ///
 /// Removes are assumed to occur before adds.
 #[derive(Debug, Default)]
-pub struct ZoneDiffBuilder {
+pub struct InMemoryZoneDiffBuilder {
     /// The records added to the Zone.
     added: HashMap<(StoredName, Rtype), SharedRrset>,
 
@@ -266,7 +273,7 @@ pub struct ZoneDiffBuilder {
     removed: HashMap<(StoredName, Rtype), SharedRrset>,
 }
 
-impl ZoneDiffBuilder {
+impl InMemoryZoneDiffBuilder {
     /// Creates a new instance of the builder.
     pub fn new() -> Self {
         Default::default()
@@ -301,22 +308,22 @@ impl ZoneDiffBuilder {
     /// Note: No check is currently done that the start and end serials match
     /// the SOA records in the removed and added records contained within the
     /// diff.
-    pub fn build(self) -> Result<ZoneDiff, ZoneDiffError> {
-        ZoneDiff::new(self.added, self.removed)
+    pub fn build(self) -> Result<InMemoryZoneDiff, ZoneDiffError> {
+        InMemoryZoneDiff::new(self.added, self.removed)
     }
 }
 
-//------------ ZoneDiff ------------------------------------------------------
+//------------ InMemoryZoneDiff -----------------------------------------------
 
 /// The differences between one serial and another for a DNS zone.
 ///
 /// Removes are assumed to occur before adds.
 #[derive(Clone, Debug)]
-pub struct ZoneDiff {
+pub struct InMemoryZoneDiff {
     /// The serial number of the zone which was modified.
     pub start_serial: Serial,
 
-    /// The serial number of the Zzone that resulted from the modifications.
+    /// The serial number of the zone that resulted from the modifications.
     pub end_serial: Serial,
 
     /// The RRsets added to the zone.
@@ -326,7 +333,7 @@ pub struct ZoneDiff {
     pub removed: Arc<HashMap<(StoredName, Rtype), SharedRrset>>,
 }
 
-impl ZoneDiff {
+impl InMemoryZoneDiff {
     /// Creates a new immutable zone diff.
     ///
     /// Returns `Err(ZoneDiffError::MissingStartSoa)` If the removed records
@@ -385,6 +392,145 @@ impl ZoneDiff {
             added: added.into(),
             removed: removed.into(),
         })
+    }
+}
+
+//--- impl ZoneDiff
+
+impl<'a> ZoneDiffItem for (&'a (StoredName, Rtype), &'a SharedRrset) {
+    fn key(&self) -> &(StoredName, Rtype) {
+        self.0
+    }
+
+    fn value(&self) -> &SharedRrset {
+        self.1
+    }
+}
+
+impl ZoneDiff for InMemoryZoneDiff {
+    type Item<'a> = (&'a (StoredName, Rtype), &'a SharedRrset)
+    where
+        Self: 'a;
+
+    type Stream<'a> = futures_util::stream::Iter<hash_map::Iter<'a, (StoredName, Rtype), SharedRrset>>
+    where
+        Self: 'a;
+
+    fn start_serial(
+        &self,
+    ) -> Pin<Box<dyn Future<Output = Serial> + Send + '_>> {
+        Box::pin(ready(self.start_serial))
+    }
+
+    fn end_serial(
+        &self,
+    ) -> Pin<Box<dyn Future<Output = Serial> + Send + '_>> {
+        Box::pin(ready(self.end_serial))
+    }
+
+    fn added(&self) -> Self::Stream<'_> {
+        stream::iter(self.added.iter())
+    }
+
+    fn removed(&self) -> Self::Stream<'_> {
+        stream::iter(self.removed.iter())
+    }
+
+    fn get_added(
+        &self,
+        name: impl ToName,
+        rtype: Rtype,
+    ) -> Pin<Box<dyn Future<Output = Option<&SharedRrset>> + Send + '_>> {
+        Box::pin(ready(self.added.get(&(name.to_name(), rtype))))
+    }
+
+    fn get_removed(
+        &self,
+        name: impl ToName,
+        rtype: Rtype,
+    ) -> Pin<Box<dyn Future<Output = Option<&SharedRrset>> + Send + '_>> {
+        Box::pin(ready(self.removed.get(&(name.to_name(), rtype))))
+    }
+}
+
+/// The item type used by [`EmptyZoneDiff`].
+pub struct EmptyZoneDiffItem;
+
+impl ZoneDiffItem for EmptyZoneDiffItem {
+    fn key(&self) -> &(StoredName, Rtype) {
+        unreachable!()
+    }
+
+    fn value(&self) -> &SharedRrset {
+        unreachable!()
+    }
+}
+
+/// The stream type used by [`EmptyZoneDiff`].
+#[derive(Debug)]
+pub struct EmptyZoneDiffStream;
+
+impl futures_util::stream::Stream for EmptyZoneDiffStream {
+    type Item = EmptyZoneDiffItem;
+
+    fn poll_next(
+        self: Pin<&mut Self>,
+        _cx: &mut Context<'_>,
+    ) -> Poll<Option<Self::Item>> {
+        Poll::Ready(None)
+    }
+}
+
+/// A [`ZoneDiff`] implementation that is always empty.
+///
+/// Useful when a [`ZoneDiff`] type is needed in a type declaration but for use
+/// by a type that does not support zone difference data.
+#[derive(Debug)]
+pub struct EmptyZoneDiff;
+
+impl ZoneDiff for EmptyZoneDiff {
+    type Item<'a> = EmptyZoneDiffItem
+    where
+        Self: 'a;
+
+    type Stream<'a> = EmptyZoneDiffStream
+    where
+        Self: 'a;
+
+    fn start_serial(
+        &self,
+    ) -> Pin<Box<dyn Future<Output = Serial> + Send + '_>> {
+        Box::pin(ready(Serial(0)))
+    }
+
+    fn end_serial(
+        &self,
+    ) -> Pin<Box<dyn Future<Output = Serial> + Send + '_>> {
+        Box::pin(ready(Serial(0)))
+    }
+
+    fn added(&self) -> Self::Stream<'_> {
+        EmptyZoneDiffStream
+    }
+
+    fn removed(&self) -> Self::Stream<'_> {
+        EmptyZoneDiffStream
+    }
+
+    fn get_added(
+        &self,
+        _name: impl ToName,
+        _rtype: Rtype,
+    ) -> Pin<Box<dyn Future<Output = Option<&SharedRrset>> + Send + '_>> {
+        Box::pin(ready(None))
+    }
+
+    fn get_removed(
+        &self,
+        _name: impl ToName,
+        _rtype: Rtype,
+    ) -> Pin<Box<dyn Future<Output = Option<&SharedRrset>> + Send + '_>> {
+        Box::pin(ready(None))
     }
 }
 

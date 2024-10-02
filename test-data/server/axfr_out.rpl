@@ -1,0 +1,140 @@
+; Based on https://github.com/NLnetLabs/unbound/blob/172b84f7ce6507e96fe51bd94448222a5a47274b/testdata/auth_xfr.rpl
+
+;------------ Server configuration --------------------------------------------
+
+server:
+    provide-xfr: 127.0.0.1 NOKEY
+    provide-xfr: 127.0.0.2 NOKEY COMPATIBLE 
+
+    ; Define an in-memory zone to be served by the server.
+    local-data: "com.               900     IN  SOA     a.gtld-servers.net. nstld.verisign-grs.com. 1720688795 1800 900 604800 86400"
+    local-data: "com.               166972  IN  NS      a.gtld-servers.net."
+    local-data: "com.               166972  IN  NS      b.gtld-servers.net."
+    local-data: "com.               166972  IN  NS      c.gtld-servers.net."
+    local-data: "com.               166972  IN  NS      d.gtld-servers.net."
+    local-data: "com.               166972  IN  NS      e.gtld-servers.net."
+    local-data: "com.               166972  IN  NS      f.gtld-servers.net."
+    local-data: "com.               166972  IN  NS      g.gtld-servers.net."
+    local-data: "com.               166972  IN  NS      h.gtld-servers.net."
+    local-data: "com.               166972  IN  NS      i.gtld-servers.net."
+    local-data: "com.               166972  IN  NS      j.gtld-servers.net."
+    local-data: "com.               166972  IN  NS      k.gtld-servers.net."
+    local-data: "com.               166972  IN  NS      l.gtld-servers.net."
+    local-data: "com.               166972  IN  NS      m.gtld-servers.net."
+    local-data: "com.               86400   IN  DNSKEY  257 3 13 tx8EZRAd2+K/DJRV0S+hbBzaRPS/G6JVNBitHzqpsGlz8huE61Ms9ANe 6NSDLKJtiTBqfTJWDAywEp1FCsEINQ=="
+    local-data: "com.               86400   IN  DNSKEY  256 3 13 Nps5nxuQHRbY3e9hcbH36kxiELJH5wil+6dC4K1keQI9ci1nqyCP4k1X oXBBn2aeSK4KxwPEs0Opqc0dicuujg=="
+    local-data: "com.               86400   IN  DNSKEY  256 3 13 cCRwZIITlPXwDm0yKpGVYSmWLL4OpEHxA7+Rt3jS0W1N4EMOaF8doSzr JuM7aDbgAR7jtQ9SNCvYZCH2xSyfaQ=="
+    local-data: "alt.com.           3600    IN  CNAME   example.com."
+    local-data: "a.alt.com.           3600  IN  A       1.2.3.4"
+    local-data: "example.com.       172800  IN  NS      a.iana-servers.net."
+    local-data: "example.com.       172800  IN  NS      b.iana-servers.net."
+    local-data: "example.com.       86400   IN  DS      370 13 2 BE74359954660069D5C63D200C39F5603827D7DD02B56F120EE9F3A8 6764247C"
+    local-data: "www.terminal.com.   3600   IN  A       1.2.3.4"
+    local-data: "alt.terminal.com.   3600   IN  CNAME   www.example.com."
+CONFIG_END
+
+;------------ Test definition ------------------------------------------------
+
+SCENARIO_BEGIN Test AXFR out.
+
+; Note: It is not currently possible to construct a UDP AXFR query so we cannot
+; test that the server refuses the request. This instead results in FORMERR
+; during request construction rather than REFUSED from the server.
+;STEP 10 QUERY
+;ENTRY_BEGIN
+;MATCH UDP
+;SECTION QUESTION
+;    com. IN AXFR
+;ENTRY_END
+;
+;STEP 11 CHECK_ANSWER
+;ENTRY_BEGIN
+;MATCH all
+;REPLY QR AA REFUSED
+;ENTRY_END
+
+; Retrieve the zone via AXFR from the server
+STEP 20 QUERY
+ENTRY_BEGIN
+MATCH TCP
+SECTION QUESTION
+    com. IN AXFR
+ENTRY_END
+
+STEP 21 CHECK_ANSWER
+ENTRY_BEGIN
+MATCH all
+REPLY QR AA NOERROR
+SECTION QUESTION
+    com. IN AXFR
+SECTION ANSWER
+    com.                    900     IN      SOA     a.gtld-servers.net. nstld.verisign-grs.com. 1720688795 1800 900 604800 86400
+    com.                    166972  IN      NS      a.gtld-servers.net.
+    com.                    166972  IN      NS      b.gtld-servers.net.
+    com.                    166972  IN      NS      c.gtld-servers.net.
+    com.                    166972  IN      NS      d.gtld-servers.net.
+    com.                    166972  IN      NS      e.gtld-servers.net.
+    com.                    166972  IN      NS      f.gtld-servers.net.
+    com.                    166972  IN      NS      g.gtld-servers.net.
+    com.                    166972  IN      NS      h.gtld-servers.net.
+    com.                    166972  IN      NS      i.gtld-servers.net.
+    com.                    166972  IN      NS      j.gtld-servers.net.
+    com.                    166972  IN      NS      k.gtld-servers.net.
+    com.                    166972  IN      NS      l.gtld-servers.net.
+    com.                    166972  IN      NS      m.gtld-servers.net.
+    com.                    86400   IN      DNSKEY  257 3 13 tx8EZRAd2+K/DJRV0S+hbBzaRPS/G6JVNBitHzqpsGlz8huE61Ms9ANe 6NSDLKJtiTBqfTJWDAywEp1FCsEINQ==
+    com.                    86400   IN      DNSKEY  256 3 13 Nps5nxuQHRbY3e9hcbH36kxiELJH5wil+6dC4K1keQI9ci1nqyCP4k1X oXBBn2aeSK4KxwPEs0Opqc0dicuujg==
+    com.                    86400   IN      DNSKEY  256 3 13 cCRwZIITlPXwDm0yKpGVYSmWLL4OpEHxA7+Rt3jS0W1N4EMOaF8doSzr JuM7aDbgAR7jtQ9SNCvYZCH2xSyfaQ==
+    alt.com.                3600    IN      CNAME   example.com.
+    a.alt.com.              3600    IN      A       1.2.3.4
+    example.com.            172800  IN      NS      a.iana-servers.net.
+    example.com.            172800  IN      NS      b.iana-servers.net.
+    example.com.            86400   IN      DS      370 13 2 BE74359954660069D5C63D200C39F5603827D7DD02B56F120EE9F3A8 6764247C
+    www.terminal.com.       3600    IN      A       1.2.3.4
+    alt.terminal.com.       3600    IN      CNAME   www.example.com.
+    com.                    900     IN      SOA     a.gtld-servers.net. nstld.verisign-grs.com. 1720688795 1800 900 604800 86400
+ENTRY_END
+
+; Retrieve the zone via backward compatible AXFR from the server
+STEP 30 QUERY ADDRESS 127.0.0.2
+ENTRY_BEGIN
+MATCH TCP
+SECTION QUESTION
+    com. IN AXFR
+ENTRY_END
+
+STEP 31 CHECK_ANSWER
+ENTRY_BEGIN
+MATCH all EXTRA_PACKETS
+REPLY QR AA NOERROR
+SECTION QUESTION
+    com. IN AXFR
+SECTION ANSWER
+    com.                    900     IN      SOA     a.gtld-servers.net. nstld.verisign-grs.com. 1720688795 1800 900 604800 86400
+    com.                    166972  IN      NS      a.gtld-servers.net.
+    com.                    166972  IN      NS      b.gtld-servers.net.
+    com.                    166972  IN      NS      c.gtld-servers.net.
+    com.                    166972  IN      NS      d.gtld-servers.net.
+    com.                    166972  IN      NS      e.gtld-servers.net.
+    com.                    166972  IN      NS      f.gtld-servers.net.
+    com.                    166972  IN      NS      g.gtld-servers.net.
+    com.                    166972  IN      NS      h.gtld-servers.net.
+    com.                    166972  IN      NS      i.gtld-servers.net.
+    com.                    166972  IN      NS      j.gtld-servers.net.
+    com.                    166972  IN      NS      k.gtld-servers.net.
+    com.                    166972  IN      NS      l.gtld-servers.net.
+    com.                    166972  IN      NS      m.gtld-servers.net.
+    com.                    86400   IN      DNSKEY  256 3 13 Nps5nxuQHRbY3e9hcbH36kxiELJH5wil+6dC4K1keQI9ci1nqyCP4k1X oXBBn2aeSK4KxwPEs0Opqc0dicuujg==
+    com.                    86400   IN      DNSKEY  256 3 13 cCRwZIITlPXwDm0yKpGVYSmWLL4OpEHxA7+Rt3jS0W1N4EMOaF8doSzr JuM7aDbgAR7jtQ9SNCvYZCH2xSyfaQ==
+    com.                    86400   IN      DNSKEY  257 3 13 tx8EZRAd2+K/DJRV0S+hbBzaRPS/G6JVNBitHzqpsGlz8huE61Ms9ANe 6NSDLKJtiTBqfTJWDAywEp1FCsEINQ==
+    alt.terminal.com.       3600    IN      CNAME   www.example.com.
+    a.alt.com.              3600    IN      A       1.2.3.4
+    example.com.            172800  IN      NS      a.iana-servers.net.
+    example.com.            172800  IN      NS      b.iana-servers.net.
+    example.com.            86400   IN      DS      370 13 2 BE74359954660069D5C63D200C39F5603827D7DD02B56F120EE9F3A8 6764247C
+    www.terminal.com.       3600    IN      A       1.2.3.4
+    alt.com.                3600    IN      CNAME   example.com.
+    com.                    900     IN      SOA     a.gtld-servers.net. nstld.verisign-grs.com. 1720688795 1800 900 604800 86400
+ENTRY_END
+
+SCENARIO_END
