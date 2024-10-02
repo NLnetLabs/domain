@@ -63,7 +63,7 @@ pub trait Sign<Buffer> {
 ///
 /// This type cannot be used for computing signatures, as it does not implement
 /// any cryptographic primitives.  Instead, it is a generic representation that
-/// can be imported/exported or converted into a [`Signer`] (if the underlying
+/// can be imported/exported or converted into a [`Sign`] (if the underlying
 /// cryptographic implementation supports it).
 pub enum KeyPair<B: AsRef<[u8]> + AsMut<[u8]>> {
     /// An RSA/SHA256 keypair.
@@ -116,22 +116,22 @@ impl<B: AsRef<[u8]> + AsMut<[u8]>> KeyPair<B> {
 
             Self::EcdsaP256Sha256(s) => {
                 w.write_str("Algorithm: 13 (ECDSAP256SHA256)\n")?;
-                base64_encode(&*s, &mut *w)
+                base64_encode(s, &mut *w)
             }
 
             Self::EcdsaP384Sha384(s) => {
                 w.write_str("Algorithm: 14 (ECDSAP384SHA384)\n")?;
-                base64_encode(&*s, &mut *w)
+                base64_encode(s, &mut *w)
             }
 
             Self::Ed25519(s) => {
                 w.write_str("Algorithm: 15 (ED25519)\n")?;
-                base64_encode(&*s, &mut *w)
+                base64_encode(s, &mut *w)
             }
 
             Self::Ed448(s) => {
                 w.write_str("Algorithm: 16 (ED448)\n")?;
-                base64_encode(&*s, &mut *w)
+                base64_encode(s, &mut *w)
             }
         }
     }
@@ -141,26 +141,28 @@ impl<B: AsRef<[u8]> + AsMut<[u8]>> KeyPair<B> {
     /// - For RSA, see RFC 5702, section 6.
     /// - For ECDSA, see RFC 6605, section 6.
     /// - For EdDSA, see RFC 8080, section 6.
-    pub fn from_dns(data: &str) -> Result<Self, ()>
+    pub fn from_dns(data: &str) -> Result<Self, DnsFormatError>
     where
         B: From<Vec<u8>>,
     {
         /// Parse private keys for most algorithms (except RSA).
-        fn parse_pkey<const N: usize>(data: &str) -> Result<[u8; N], ()> {
+        fn parse_pkey<const N: usize>(
+            data: &str,
+        ) -> Result<[u8; N], DnsFormatError> {
             // Extract the 'PrivateKey' field.
             let (_, val, data) = parse_dns_pair(data)?
                 .filter(|&(k, _, _)| k == "PrivateKey")
-                .ok_or(())?;
+                .ok_or(DnsFormatError::Misformatted)?;
 
-            if !data.trim_ascii().is_empty() {
+            if !data.trim().is_empty() {
                 // There were more fields following.
-                return Err(());
+                return Err(DnsFormatError::Misformatted);
             }
 
             let mut buf = [0u8; N];
-            if base64_decode(val.as_bytes(), &mut buf)? != N {
+            if base64_decode(val.as_bytes(), &mut buf) != Ok(N) {
                 // The private key was of the wrong size.
-                return Err(());
+                return Err(DnsFormatError::Misformatted);
             }
 
             Ok(buf)
@@ -169,17 +171,24 @@ impl<B: AsRef<[u8]> + AsMut<[u8]>> KeyPair<B> {
         // The first line should specify the key format.
         let (_, _, data) = parse_dns_pair(data)?
             .filter(|&(k, v, _)| (k, v) == ("Private-key-format", "v1.2"))
-            .ok_or(())?;
+            .ok_or(DnsFormatError::UnsupportedFormat)?;
 
         // The second line should specify the algorithm.
         let (_, val, data) = parse_dns_pair(data)?
             .filter(|&(k, _, _)| k == "Algorithm")
-            .ok_or(())?;
+            .ok_or(DnsFormatError::Misformatted)?;
 
         // Parse the algorithm.
-        let mut words = val.split_ascii_whitespace();
-        let code = words.next().ok_or(())?.parse::<u8>().map_err(|_| ())?;
-        let name = words.next().ok_or(())?;
+        let mut words = val.split_whitespace();
+        let code = words
+            .next()
+            .ok_or(DnsFormatError::Misformatted)?
+            .parse::<u8>()
+            .map_err(|_| DnsFormatError::Misformatted)?;
+        let name = words.next().ok_or(DnsFormatError::Misformatted)?;
+        if words.next().is_some() {
+            return Err(DnsFormatError::Misformatted);
+        }
 
         match (code, name) {
             (8, "(RSASHA256)") => RsaKey::from_dns(data).map(Self::RsaSha256),
@@ -191,7 +200,7 @@ impl<B: AsRef<[u8]> + AsMut<[u8]>> KeyPair<B> {
             }
             (15, "(ED25519)") => parse_pkey(data).map(Self::Ed25519),
             (16, "(ED448)") => parse_pkey(data).map(Self::Ed448),
-            _ => Err(()),
+            _ => Err(DnsFormatError::UnsupportedAlgorithm),
         }
     }
 }
@@ -268,7 +277,7 @@ impl<B: AsRef<[u8]> + AsMut<[u8]>> RsaKey<B> {
     /// Parse a key from the conventional DNS format.
     ///
     /// See RFC 5702, section 6.
-    pub fn from_dns(mut data: &str) -> Result<Self, ()>
+    pub fn from_dns(mut data: &str) -> Result<Self, DnsFormatError>
     where
         B: From<Vec<u8>>,
     {
@@ -291,16 +300,17 @@ impl<B: AsRef<[u8]> + AsMut<[u8]>> RsaKey<B> {
                 "Exponent1" => &mut d_p,
                 "Exponent2" => &mut d_q,
                 "Coefficient" => &mut q_i,
-                _ => return Err(()),
+                _ => return Err(DnsFormatError::Misformatted),
             };
 
             if field.is_some() {
                 // This field has already been filled.
-                return Err(());
+                return Err(DnsFormatError::Misformatted);
             }
 
             let mut buffer = vec![0u8; (val.len() + 3) / 4 * 3];
-            let size = base64_decode(val.as_bytes(), &mut buffer)?;
+            let size = base64_decode(val.as_bytes(), &mut buffer)
+                .map_err(|_| DnsFormatError::Misformatted)?;
             buffer.truncate(size);
 
             *field = Some(buffer.into());
@@ -310,7 +320,7 @@ impl<B: AsRef<[u8]> + AsMut<[u8]>> RsaKey<B> {
         for field in [&n, &e, &d, &p, &q, &d_p, &d_q, &q_i] {
             if field.is_none() {
                 // A field was missing.
-                return Err(());
+                return Err(DnsFormatError::Misformatted);
             }
         }
 
@@ -342,18 +352,23 @@ impl<B: AsRef<[u8]> + AsMut<[u8]>> Drop for RsaKey<B> {
 }
 
 /// Extract the next key-value pair in a DNS private key file.
-fn parse_dns_pair(data: &str) -> Result<Option<(&str, &str, &str)>, ()> {
+fn parse_dns_pair(
+    data: &str,
+) -> Result<Option<(&str, &str, &str)>, DnsFormatError> {
+    // TODO: Use 'trim_ascii_start()' etc. once they pass the MSRV.
+
     // Trim any pending newlines.
-    let data = data.trim_ascii_start();
+    let data = data.trim_start();
 
     // Get the first line (NOTE: CR LF is handled later).
     let (line, rest) = data.split_once('\n').unwrap_or((data, ""));
 
     // Split the line by a colon.
-    let (key, val) = line.split_once(':').ok_or(())?;
+    let (key, val) =
+        line.split_once(':').ok_or(DnsFormatError::Misformatted)?;
 
     // Trim the key and value (incl. for CR LFs).
-    Ok(Some((key.trim_ascii(), val.trim_ascii(), rest)))
+    Ok(Some((key.trim(), val.trim(), rest)))
 }
 
 /// A utility function to format data as Base64.
@@ -388,6 +403,7 @@ fn base64_encode(data: &[u8], w: &mut impl fmt::Write) -> fmt::Result {
         let slashs = pluses >> 7;
 
         // Add the corresponding offset for each class.
+        #[allow(clippy::identity_op)]
         let chunk = chunk
             + (uppers & bcast) * (b'A' - 0) as u32
             + (lowers & bcast) * (b'a' - 26) as u32
@@ -461,6 +477,7 @@ fn base64_decode(encoded: &[u8], decoded: &mut [u8]) -> Result<usize, ()> {
         }
 
         // Subtract the corresponding offset for each class.
+        #[allow(clippy::identity_op)]
         let chunk = chunk
             - (uppers & bcast) * (b'A' - 0) as u32
             - (lowers & bcast) * (b'a' - 26) as u32
@@ -524,3 +541,28 @@ fn base64_decode(encoded: &[u8], decoded: &mut [u8]) -> Result<usize, ()> {
 
     Ok(index)
 }
+
+/// An error in loading a [`KeyPair`] from the conventional DNS format.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub enum DnsFormatError {
+    /// The key file uses an unsupported version of the format.
+    UnsupportedFormat,
+
+    /// The key file did not follow the DNS format correctly.
+    Misformatted,
+
+    /// The key file used an unsupported algorithm.
+    UnsupportedAlgorithm,
+}
+
+impl fmt::Display for DnsFormatError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Self::UnsupportedFormat => "unsupported format",
+            Self::Misformatted => "misformatted key file",
+            Self::UnsupportedAlgorithm => "unsupported algorithm",
+        })
+    }
+}
+
+impl std::error::Error for DnsFormatError {}
