@@ -4,8 +4,8 @@ use core::task::{ready, Context, Poll};
 
 use std::pin::Pin;
 
-use futures::prelude::future::FutureExt;
-use futures::stream::{Stream, StreamExt};
+use futures_util::future::FutureExt;
+use futures_util::stream::{Stream, StreamExt};
 use octseq::Octets;
 use tracing::trace;
 
@@ -93,7 +93,7 @@ where
 
 enum PostprocessingStreamState<Future, Stream>
 where
-    Stream: futures::stream::Stream,
+    Stream: futures_util::stream::Stream,
     Future: core::future::Future<Output = Stream>,
 {
     Pending(Future),
@@ -110,7 +110,7 @@ type PostprocessingStreamCallback<
 > = fn(
     Request<RequestOctets, RequestMeta>,
     StreamItem,
-    PostProcessingMeta,
+    &mut PostProcessingMeta,
 ) -> StreamItem;
 
 //------------ PostprocessingStream ------------------------------------------
@@ -124,7 +124,7 @@ pub struct PostprocessingStream<
 > where
     RequestOctets: Octets + Send + Sync + Unpin,
     Future: core::future::Future<Output = Stream>,
-    Stream: futures::stream::Stream,
+    Stream: futures_util::stream::Stream,
 {
     request: Request<RequestOctets, RequestMeta>,
     state: PostprocessingStreamState<Future, Stream>,
@@ -148,12 +148,12 @@ impl<RequestOctets, Future, Stream, RequestMeta, PostProcessingMeta>
 where
     RequestOctets: Octets + Send + Sync + Unpin,
     Future: core::future::Future<Output = Stream>,
-    Stream: futures::stream::Stream,
+    Stream: futures_util::stream::Stream,
 {
     pub fn new(
         svc_call_fut: Future,
         request: Request<RequestOctets, RequestMeta>,
-        metadata: PostProcessingMeta,
+        pp_meta: PostProcessingMeta,
         cb: PostprocessingStreamCallback<
             RequestOctets,
             Stream::Item,
@@ -165,7 +165,7 @@ where
             state: PostprocessingStreamState::Pending(svc_call_fut),
             request,
             cb,
-            pp_meta: metadata,
+            pp_meta,
         }
     }
 }
@@ -173,7 +173,7 @@ where
 //--- impl Stream
 
 impl<RequestOctets, Future, Stream, RequestMeta, PostProcessingMeta>
-    futures::stream::Stream
+    futures_util::stream::Stream
     for PostprocessingStream<
         RequestOctets,
         Future,
@@ -184,10 +184,9 @@ impl<RequestOctets, Future, Stream, RequestMeta, PostProcessingMeta>
 where
     RequestOctets: Octets + Send + Sync + Unpin,
     Future: core::future::Future<Output = Stream> + Unpin,
-    Stream: futures::stream::Stream + Unpin,
+    Stream: futures_util::stream::Stream + Unpin,
     Self: Unpin,
     RequestMeta: Clone,
-    PostProcessingMeta: Clone,
 {
     type Item = Stream::Item;
 
@@ -206,9 +205,8 @@ where
                 let stream_item = ready!(stream.poll_next_unpin(cx));
                 trace!("Stream item retrieved, mapping to downstream type");
                 let request = self.request.clone();
-                let pp_meta = self.pp_meta.clone();
-                let map =
-                    stream_item.map(|item| (self.cb)(request, item, pp_meta));
+                let map = stream_item
+                    .map(|item| (self.cb)(request, item, &mut self.pp_meta));
                 Poll::Ready(map)
             }
         }

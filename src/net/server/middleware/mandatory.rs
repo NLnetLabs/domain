@@ -5,7 +5,7 @@ use core::ops::ControlFlow;
 
 use std::fmt::Display;
 
-use futures::stream::{once, Once, Stream};
+use futures_util::stream::{once, Once, Stream};
 use octseq::Octets;
 use tracing::{debug, error, trace, warn};
 
@@ -268,11 +268,11 @@ where
     fn map_stream_item(
         request: Request<RequestOctets, RequestMeta>,
         mut stream_item: ServiceResult<NextSvc::Target>,
-        strict: bool,
+        strict: &mut bool,
     ) -> ServiceResult<NextSvc::Target> {
         if let Ok(cr) = &mut stream_item {
             if let Some(response) = cr.response_mut() {
-                Self::postprocess(&request, response, strict);
+                Self::postprocess(&request, response, *strict);
             }
         }
         stream_item
@@ -373,7 +373,7 @@ mod tests {
     use std::vec::Vec;
 
     use bytes::Bytes;
-    use futures::StreamExt;
+    use futures_util::StreamExt;
     use tokio::time::Instant;
 
     use crate::base::iana::Rcode;

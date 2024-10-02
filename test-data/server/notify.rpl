@@ -1,0 +1,49 @@
+;------------ Server configuration --------------------------------------------
+
+CONFIG_END
+
+;------------ Test definition ------------------------------------------------
+
+SCENARIO_BEGIN Test acknowledgement of NOTIFY query.
+
+;--- Mock replies
+
+; None
+
+;--- Test steps
+
+STEP 10 QUERY
+ENTRY_BEGIN
+OPCODE NOTIFY
+MATCH UDP
+SECTION QUESTION
+    EXAMPLE.COM.  IN  SOA
+ENTRY_END
+
+STEP 11 CHECK_ANSWER
+ENTRY_BEGIN
+OPCODE NOTIFY
+MATCH all
+REPLY QR AA NOERROR
+SECTION QUESTION
+    EXAMPLE.COM.  IN  SOA
+ENTRY_END
+
+STEP 20 QUERY
+ENTRY_BEGIN
+OPCODE NOTIFY
+MATCH UDP
+SECTION QUESTION
+    UNKNOWNZONE.COM.  IN  SOA
+ENTRY_END
+
+STEP 21 CHECK_ANSWER
+ENTRY_BEGIN
+OPCODE NOTIFY
+MATCH all
+REPLY QR NOTAUTH
+SECTION QUESTION
+    UNKNOWNZONE.COM.  IN  SOA
+ENTRY_END
+
+SCENARIO_END
