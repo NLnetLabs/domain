@@ -87,9 +87,12 @@ impl ReadZone {
         node.with_special(self.version, |special| match special {
             Some(Special::Cut(ref cut)) => {
                 if walk.enabled() {
-                    walk.op(&cut.ns);
+                    walk.op(&cut.ns, true);
                     if let Some(ds) = &cut.ds {
-                        walk.op(ds);
+                        walk.op(ds, true);
+                    }
+                    for glue_rec in &cut.glue {
+                        walk.op_glue_rec(glue_rec);
                     }
                     NodeAnswer::no_data()
                 } else {
@@ -110,7 +113,7 @@ impl ReadZone {
                 if walk.enabled() {
                     let mut rrset = Rrset::new(Rtype::CNAME, cname.ttl());
                     rrset.push_data(cname.data().clone());
-                    walk.op(&SharedRrset::new(rrset));
+                    walk.op(&SharedRrset::new(rrset), false);
                 }
 
                 // As we are querying for a qname below this node this
@@ -159,7 +162,7 @@ impl ReadZone {
             let guard = rrsets.iter();
             for (_rtype, rrset) in guard.iter() {
                 if let Some(shared_rrset) = rrset.get(self.version) {
-                    walk.op(shared_rrset);
+                    walk.op(shared_rrset, false);
                 }
             }
             NodeAnswer::no_data()
@@ -312,7 +315,7 @@ impl ReadableZone for ReadZone {
 //------------ NodeAnswer ----------------------------------------------------
 
 /// An answer that includes instructions to the apex on what it needs to do.
-/// 
+///
 /// Instructs the answer to be authoritative (AA flag set) except in the case
 /// of supplying authority records (i.e. a referral) rather than an answer
 /// (NOERROR, NODATA, NXDOMAIN).

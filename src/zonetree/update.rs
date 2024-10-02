@@ -1012,9 +1012,10 @@ mod tests {
 
         let count = Arc::new(AtomicUsize::new(0));
         let cloned_count = count.clone();
-        zone.read().walk(Box::new(move |_name, _rrset| {
-            cloned_count.fetch_add(1, Ordering::SeqCst);
-        }));
+        zone.read()
+            .walk(Box::new(move |_name, _rrset, _at_zone_cut| {
+                cloned_count.fetch_add(1, Ordering::SeqCst);
+            }));
 
         assert_eq!(count.load(Ordering::SeqCst), 4);
 
@@ -1228,9 +1229,10 @@ mod tests {
 
         let count = Arc::new(AtomicUsize::new(0));
         let cloned_count = count.clone();
-        zone.read().walk(Box::new(move |_name, _rrset| {
-            cloned_count.fetch_add(1, Ordering::SeqCst);
-        }));
+        zone.read()
+            .walk(Box::new(move |_name, _rrset, _at_zone_cut| {
+                cloned_count.fetch_add(1, Ordering::SeqCst);
+            }));
 
         assert_eq!(count.load(Ordering::SeqCst), 0);
     }
