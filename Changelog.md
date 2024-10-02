@@ -80,6 +80,7 @@ Unstable features
     version was being created. ([#376])
   * Removed / renamed references to `clean` in `zonetree::in_memory` to
     `remove`. ([#376])
+  * Fix zone walking to include non-leaf CNAMEs. ([#352])
 
 Other changes
 
@@ -93,6 +94,7 @@ Other changes
 [#341]: https://github.com/NLnetLabs/domain/pull/341
 [#343]: https://github.com/NLnetLabs/domain/pull/343
 [#348]: https://github.com/NLnetLabs/domain/pull/348
+[#352]: https://github.com/NLnetLabs/domain/pull/352
 [#354]: https://github.com/NLnetLabs/domain/pull/354
 [#357]: https://github.com/NLnetLabs/domain/pull/357
 [#358]: https://github.com/NLnetLabs/domain/pull/358
