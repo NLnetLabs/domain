@@ -115,6 +115,7 @@ pub mod message;
 pub mod message_builder;
 pub mod name;
 pub mod net;
+pub mod new_name;
 pub mod opt;
 pub mod question;
 pub mod rdata;
