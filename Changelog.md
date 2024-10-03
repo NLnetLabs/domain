@@ -71,6 +71,7 @@ Unstable features
     QDCOUNT > 1. ([#365])
   * Add blanket `SendRequest` and `SendRequestMulti` impls for boxes.
     ([#397])
+  * Servers now drop received DNS response messages. (#381)
 * `unstable-zonetree`:
   * Added `ZoneUpdate`. ([#375])
   * Added `ZoneUpdater`, `ZoneDiff`, `InMemoryZoneDiffBuilder`,
@@ -121,6 +122,7 @@ Other changes
 [#376]: https://github.com/NLnetLabs/domain/pull/376
 [#377]: https://github.com/NLnetLabs/domain/pull/377
 [#380]: https://github.com/NLnetLabs/domain/pull/380
+[#381]: https://github.com/NLnetLabs/domain/pull/381
 [#382]: https://github.com/NLnetLabs/domain/pull/382
 [#383]: https://github.com/NLnetLabs/domain/pull/383
 [#384]: https://github.com/NLnetLabs/domain/pull/384
