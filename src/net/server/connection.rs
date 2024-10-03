@@ -587,10 +587,7 @@ where
     async fn process_queued_result(
         &mut self,
         response: Option<AdditionalBuilder<StreamTarget<Svc::Target>>>,
-    ) -> Result<(), ConnectionEvent>
-// where
-    //     Target: Composer,
-    {
+    ) -> Result<(), ConnectionEvent> {
         // If we failed to read the results of requests processed by the
         // service because the queue holding those results is empty and can no
         // longer be read from, then there is no point continuing to read from
@@ -606,7 +603,7 @@ where
             "Writing queued response with id {} to stream",
             response.header().id()
         );
-        self.write_response_to_stream(response.finish()).await;
+        self.write_response_to_stream(response.finish()).await?;
 
         Ok(())
     }
@@ -638,7 +635,7 @@ where
             .await
             {
                 Err(_) => {
-                    error!("Write timed out (>{response_write_timeout})",);
+                    error!("Write timed out (>{response_write_timeout:?})",);
                     // Retry
                 }
                 Ok(Err(err)) => {

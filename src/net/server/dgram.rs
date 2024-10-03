@@ -11,7 +11,7 @@
 //! [Datagram]: https://en.wikipedia.org/wiki/Datagram
 use core::fmt::Debug;
 use core::future::poll_fn;
-use core::ops::{ControlFlow, Deref};
+use core::ops::Deref;
 use core::time::Duration;
 
 use std::io;

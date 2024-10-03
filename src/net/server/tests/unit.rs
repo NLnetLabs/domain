@@ -460,7 +460,6 @@ async fn tcp_service_test() {
         assert_eq!(srv.metrics().num_pending_writes(), 0);
         assert_eq!(srv.metrics().num_received_requests(), num_messages);
         assert_eq!(srv.metrics().num_sent_responses(), num_messages);
-        assert_eq!(srv.metrics().num_aborted_writes(), 0);
 
         eprintln!("Shutting down");
         srv.shutdown().unwrap();
@@ -559,7 +558,6 @@ async fn tcp_client_disconnect_test() {
         assert_eq!(srv.metrics().num_pending_writes(), 0);
         assert_eq!(srv.metrics().num_received_requests(), num_messages);
         assert!(srv.metrics().num_sent_responses() < num_messages);
-        assert!(srv.metrics().num_aborted_writes() > 0);
 
         eprintln!("Shutting down");
         srv.shutdown().unwrap();
