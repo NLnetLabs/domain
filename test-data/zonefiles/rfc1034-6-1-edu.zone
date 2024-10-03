@@ -1,0 +1,38 @@
+$ORIGIN EDU.
+EDU.  IN SOA SRI-NIC.ARPA. HOSTMASTER.SRI-NIC.ARPA. (
+                        870729 ;serial
+                        1800 ;refresh every 30 minutes
+                        300 ;retry every 5 minutes
+                        604800 ;expire after a week
+                        86400 ;minimum of a day
+                        )
+                NS SRI-NIC.ARPA.
+                NS C.ISI.EDU.
+
+UCI 172800 NS ICS.UCI
+                172800 NS ROME.UCI
+ICS.UCI 172800 A 192.5.19.1
+ROME.UCI 172800 A 192.5.19.31
+
+ISI 172800 NS VAXA.ISI
+                172800 NS A.ISI
+                172800 NS VENERA.ISI.EDU.
+VAXA.ISI 172800 A 10.2.0.27
+                172800 A 128.9.0.33
+VENERA.ISI.EDU. 172800 A 10.1.0.52
+                172800 A 128.9.0.32
+A.ISI 172800 A 26.3.0.103
+
+UDEL.EDU.  172800 NS LOUIE.UDEL.EDU.
+                172800 NS UMN-REI-UC.ARPA.
+LOUIE.UDEL.EDU. 172800 A 10.0.0.96
+                172800 A 192.5.39.3
+
+YALE.EDU.  172800 NS YALE.ARPA.
+YALE.EDU.  172800 NS YALE-BULLDOG.ARPA.
+
+MIT.EDU.  43200 NS XX.LCS.MIT.EDU.
+                  43200 NS ACHILLES.MIT.EDU.
+XX.LCS.MIT.EDU.  43200 A 10.0.0.44
+ACHILLES.MIT.EDU. 43200 A 18.72.0.8
+
