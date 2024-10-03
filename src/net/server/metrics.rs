@@ -110,7 +110,7 @@ impl ServerMetrics {
         self.num_pending_writes.load(Ordering::Relaxed)
     }
 
-    /// Set the number of pending writes metric.
+    /// Set the number of inflight requests metric.
     pub fn set_num_pending_writes(&self, new_value: usize) {
         self.num_pending_writes.store(new_value, Ordering::Relaxed);
     }
@@ -155,7 +155,7 @@ impl ServerMetrics {
         self.num_sent_responses.load(Ordering::Relaxed)
     }
 
-    /// Set the number of sent responses metric.
+    /// Set the number of sent resposnes metric.
     pub fn set_num_sent_responses(&self, new_value: usize) {
         self.num_sent_responses.store(new_value, Ordering::Relaxed);
     }
