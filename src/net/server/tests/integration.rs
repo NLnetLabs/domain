@@ -369,9 +369,13 @@ fn mk_client_factory(
                         simple_dgram_client::Connection::new(connect),
                     )),
 
-                    _ => Client::Single(Box::new(dgram::Connection::new(
-                        connect,
-                    ))),
+                    _ => {
+                        let mut config = dgram::Config::new();
+                        config.set_max_retries(0);
+                        Client::Single(Box::new(
+                            dgram::Connection::with_config(connect, config),
+                        ))
+                    }
                 }
             }
         },
