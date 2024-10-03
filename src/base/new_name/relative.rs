@@ -1,4 +1,7 @@
-use core::hash::{Hash, Hasher};
+use core::{
+    fmt,
+    hash::{Hash, Hasher},
+};
 
 use super::{Label, Name};
 
@@ -257,4 +260,14 @@ impl AsRef<[u8]> for RelName {
 }
 
 /// An error in constructing a [`RelName`].
+#[derive(Clone, Debug)]
 pub struct RelNameError;
+
+impl fmt::Display for RelNameError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("could not parse a relative domain name")
+    }
+}
+
+#[cfg(feature = "std")]
+impl std::error::Error for RelNameError {}

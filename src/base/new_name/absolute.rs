@@ -1,5 +1,5 @@
 use core::{
-    cmp,
+    cmp, fmt,
     hash::{Hash, Hasher},
     iter,
 };
@@ -346,4 +346,14 @@ impl AsRef<[u8]> for Name {
 }
 
 /// An error in costructing a [`Name`].
+#[derive(Clone, Debug)]
 pub struct NameError;
+
+impl fmt::Display for NameError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("could not parse an absolute domain name")
+    }
+}
+
+#[cfg(feature = "std")]
+impl std::error::Error for NameError {}

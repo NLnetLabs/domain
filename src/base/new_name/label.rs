@@ -1,5 +1,5 @@
 use core::{
-    cmp,
+    cmp, fmt,
     hash::{Hash, Hasher},
     iter,
 };
@@ -168,4 +168,14 @@ impl AsRef<[u8]> for Label {
 }
 
 /// An error in constructing a [`Label`].
+#[derive(Clone, Debug)]
 pub struct LabelError;
+
+impl fmt::Display for LabelError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("could not parse a domain name label")
+    }
+}
+
+#[cfg(feature = "std")]
+impl std::error::Error for LabelError {}
