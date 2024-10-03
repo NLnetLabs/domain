@@ -21,7 +21,7 @@ use std::string::ToString;
 use std::sync::{Arc, Mutex};
 
 use arc_swap::ArcSwap;
-use futures::prelude::stream::StreamExt;
+use futures_util::stream::StreamExt;
 use octseq::Octets;
 use tokio::io::ReadBuf;
 use tokio::net::UdpSocket;
@@ -118,7 +118,7 @@ impl Config {
     /// [RFC 6891]:
     ///     https://datatracker.ietf.org/doc/html/rfc6891#section-6.2.5
     pub fn set_max_response_size(&mut self, value: Option<u16>) {
-        self.max_response_size = value;
+        self.max_response_size = value.map(|v| MAX_RESPONSE_SIZE.limit(v));
     }
 
     /// Sets the time to wait for a complete message to be written to the

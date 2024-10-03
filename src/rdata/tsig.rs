@@ -4,21 +4,26 @@
 //!
 //! [RFC 2845]: https://tools.ietf.org/html/rfc2845
 
+use core::cmp::Ordering;
+use core::{fmt, hash};
+
+#[cfg(all(feature = "std", not(test)))]
+use std::time::SystemTime;
+
+#[cfg(all(feature = "std", test))]
+use mock_instant::thread_local::SystemTime;
+use octseq::builder::OctetsBuilder;
+use octseq::octets::{Octets, OctetsFrom, OctetsInto};
+use octseq::parse::Parser;
+
 use crate::base::cmp::CanonicalOrd;
 use crate::base::iana::{Rtype, TsigRcode};
 use crate::base::name::{FlattenInto, ParsedName, ToName};
 use crate::base::rdata::{
-    ComposeRecordData, LongRecordData, ParseRecordData, RecordData
+    ComposeRecordData, LongRecordData, ParseRecordData, RecordData,
 };
 use crate::base::wire::{Compose, Composer, Parse, ParseError};
 use crate::utils::base64;
-use core::cmp::Ordering;
-use core::{fmt, hash};
-use octseq::builder::OctetsBuilder;
-use octseq::octets::{Octets, OctetsFrom, OctetsInto};
-use octseq::parse::Parser;
-#[cfg(feature = "std")]
-use std::time::SystemTime;
 
 //------------ Tsig ----------------------------------------------------------
 

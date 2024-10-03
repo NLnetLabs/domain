@@ -3,7 +3,6 @@
 use std::collections::{BTreeMap, HashMap};
 use std::vec::Vec;
 
-use super::error::{ContextError, RecordError, ZoneErrors};
 use crate::base::iana::{Class, Rtype};
 use crate::base::name::{FlattenInto, ToName};
 use crate::base::Name;
@@ -12,6 +11,7 @@ use crate::zonefile::inplace::{self, Entry};
 use crate::zonetree::ZoneBuilder;
 use crate::zonetree::{Rrset, SharedRr};
 
+use super::error::{ContextError, RecordError, ZoneErrors};
 use super::types::{StoredName, StoredRecord};
 
 //------------ Zonefile ------------------------------------------------------

@@ -1,15 +1,26 @@
 //! Zone tree related types.
 
+use core::future::{ready, Future};
+use core::pin::Pin;
+use core::task::{Context, Poll};
+
+use std::boxed::Box;
+use std::collections::{hash_map, HashMap};
 use std::ops;
 use std::sync::Arc;
 use std::vec::Vec;
 
 use bytes::Bytes;
+use futures_util::stream;
 use serde::{Deserialize, Serialize};
+use tracing::trace;
 
+use super::traits::{ZoneDiff, ZoneDiffItem};
+use crate::base::name::Name;
 use crate::base::rdata::RecordData;
+use crate::base::record::Record;
 use crate::base::{iana::Rtype, Ttl};
-use crate::base::{Name, Record};
+use crate::base::{Serial, ToName};
 use crate::rdata::ZoneRecordData;
 
 //------------ Type Aliases --------------------------------------------------
@@ -246,4 +257,426 @@ pub struct ZoneCut {
 
     /// Zero or more glue records at the zone cut.
     pub glue: Vec<StoredRecord>,
+}
+
+//------------ InMemoryZoneDiffBuilder ----------------------------------------
+
+/// An [`InMemoryZoneDiff`] builder.
+///
+/// Removes are assumed to occur before adds.
+#[derive(Debug, Default)]
+pub struct InMemoryZoneDiffBuilder {
+    /// The records added to the Zone.
+    added: HashMap<(StoredName, Rtype), SharedRrset>,
+
+    /// The records removed from the Zone.
+    removed: HashMap<(StoredName, Rtype), SharedRrset>,
+}
+
+impl InMemoryZoneDiffBuilder {
+    /// Creates a new instance of the builder.
+    pub fn new() -> Self {
+        Default::default()
+    }
+
+    /// Record in the diff that a resource record was added.
+    pub fn add(
+        &mut self,
+        owner: StoredName,
+        rtype: Rtype,
+        rrset: SharedRrset,
+    ) {
+        self.added.insert((owner, rtype), rrset);
+    }
+
+    /// Record in the diff that a resource record was removed.
+    pub fn remove(
+        &mut self,
+        owner: StoredName,
+        rtype: Rtype,
+        rrset: SharedRrset,
+    ) {
+        self.removed.insert((owner, rtype), rrset);
+    }
+
+    /// Exchange this builder instnace for an immutable [`ZoneDiff`].
+    ///
+    /// The start serial should be the zone version to which the diffs should
+    /// be applied. The end serial denotes the zone version that results from
+    /// applying this diff.
+    ///
+    /// Note: No check is currently done that the start and end serials match
+    /// the SOA records in the removed and added records contained within the
+    /// diff.
+    pub fn build(self) -> Result<InMemoryZoneDiff, ZoneDiffError> {
+        InMemoryZoneDiff::new(self.added, self.removed)
+    }
+}
+
+//------------ InMemoryZoneDiff -----------------------------------------------
+
+/// The differences between one serial and another for a DNS zone.
+///
+/// Removes are assumed to occur before adds.
+#[derive(Clone, Debug)]
+pub struct InMemoryZoneDiff {
+    /// The serial number of the zone which was modified.
+    pub start_serial: Serial,
+
+    /// The serial number of the zone that resulted from the modifications.
+    pub end_serial: Serial,
+
+    /// The RRsets added to the zone.
+    pub added: Arc<HashMap<(StoredName, Rtype), SharedRrset>>,
+
+    /// The RRsets removed from the zone.
+    pub removed: Arc<HashMap<(StoredName, Rtype), SharedRrset>>,
+}
+
+impl InMemoryZoneDiff {
+    /// Creates a new immutable zone diff.
+    ///
+    /// Returns `Err(ZoneDiffError::MissingStartSoa)` If the removed records
+    /// do not include a zone SOA.
+    ///
+    /// Returns `Err(ZoneDiffError::MissingEndSoa)` If the added records do
+    /// not include a zone SOA.
+    ///
+    /// Returns Ok otherwise.
+    fn new(
+        added: HashMap<(Name<Bytes>, Rtype), SharedRrset>,
+        removed: HashMap<(Name<Bytes>, Rtype), SharedRrset>,
+    ) -> Result<Self, ZoneDiffError> {
+        // Determine the old and new SOA serials by looking at the added and
+        // removed records.
+        let start_serial = removed
+            .iter()
+            .find_map(|((_, rtype), rrset)| {
+                if *rtype == Rtype::SOA {
+                    if let Some(ZoneRecordData::Soa(soa)) =
+                        rrset.data().first()
+                    {
+                        return Some(soa.serial());
+                    }
+                }
+                None
+            })
+            .ok_or(ZoneDiffError::MissingStartSoa)?;
+
+        let end_serial = added
+            .iter()
+            .find_map(|((_, rtype), rrset)| {
+                if *rtype == Rtype::SOA {
+                    if let Some(ZoneRecordData::Soa(soa)) =
+                        rrset.data().first()
+                    {
+                        return Some(soa.serial());
+                    }
+                }
+                None
+            })
+            .ok_or(ZoneDiffError::MissingEndSoa)?;
+
+        if start_serial == end_serial || end_serial < start_serial {
+            trace!("Diff construction error: serial {start_serial} -> serial {end_serial}:\nremoved: {removed:#?}\nadded: {added:#?}\n");
+            return Err(ZoneDiffError::InvalidSerialRange);
+        }
+
+        trace!(
+            "Built diff from serial {start_serial} to serial {end_serial}"
+        );
+
+        Ok(Self {
+            start_serial,
+            end_serial,
+            added: added.into(),
+            removed: removed.into(),
+        })
+    }
+}
+
+//--- impl ZoneDiff
+
+impl<'a> ZoneDiffItem for (&'a (StoredName, Rtype), &'a SharedRrset) {
+    fn key(&self) -> &(StoredName, Rtype) {
+        self.0
+    }
+
+    fn value(&self) -> &SharedRrset {
+        self.1
+    }
+}
+
+impl ZoneDiff for InMemoryZoneDiff {
+    type Item<'a> = (&'a (StoredName, Rtype), &'a SharedRrset)
+    where
+        Self: 'a;
+
+    type Stream<'a> = futures_util::stream::Iter<hash_map::Iter<'a, (StoredName, Rtype), SharedRrset>>
+    where
+        Self: 'a;
+
+    fn start_serial(
+        &self,
+    ) -> Pin<Box<dyn Future<Output = Serial> + Send + '_>> {
+        Box::pin(ready(self.start_serial))
+    }
+
+    fn end_serial(
+        &self,
+    ) -> Pin<Box<dyn Future<Output = Serial> + Send + '_>> {
+        Box::pin(ready(self.end_serial))
+    }
+
+    fn added(&self) -> Self::Stream<'_> {
+        stream::iter(self.added.iter())
+    }
+
+    fn removed(&self) -> Self::Stream<'_> {
+        stream::iter(self.removed.iter())
+    }
+
+    fn get_added(
+        &self,
+        name: impl ToName,
+        rtype: Rtype,
+    ) -> Pin<Box<dyn Future<Output = Option<&SharedRrset>> + Send + '_>> {
+        Box::pin(ready(self.added.get(&(name.to_name(), rtype))))
+    }
+
+    fn get_removed(
+        &self,
+        name: impl ToName,
+        rtype: Rtype,
+    ) -> Pin<Box<dyn Future<Output = Option<&SharedRrset>> + Send + '_>> {
+        Box::pin(ready(self.removed.get(&(name.to_name(), rtype))))
+    }
+}
+
+/// The item type used by [`EmptyZoneDiff`].
+pub struct EmptyZoneDiffItem;
+
+impl ZoneDiffItem for EmptyZoneDiffItem {
+    fn key(&self) -> &(StoredName, Rtype) {
+        unreachable!()
+    }
+
+    fn value(&self) -> &SharedRrset {
+        unreachable!()
+    }
+}
+
+/// The stream type used by [`EmptyZoneDiff`].
+#[derive(Debug)]
+pub struct EmptyZoneDiffStream;
+
+impl futures_util::stream::Stream for EmptyZoneDiffStream {
+    type Item = EmptyZoneDiffItem;
+
+    fn poll_next(
+        self: Pin<&mut Self>,
+        _cx: &mut Context<'_>,
+    ) -> Poll<Option<Self::Item>> {
+        Poll::Ready(None)
+    }
+}
+
+/// A [`ZoneDiff`] implementation that is always empty.
+///
+/// Useful when a [`ZoneDiff`] type is needed in a type declaration but for use
+/// by a type that does not support zone difference data.
+#[derive(Debug)]
+pub struct EmptyZoneDiff;
+
+impl ZoneDiff for EmptyZoneDiff {
+    type Item<'a> = EmptyZoneDiffItem
+    where
+        Self: 'a;
+
+    type Stream<'a> = EmptyZoneDiffStream
+    where
+        Self: 'a;
+
+    fn start_serial(
+        &self,
+    ) -> Pin<Box<dyn Future<Output = Serial> + Send + '_>> {
+        Box::pin(ready(Serial(0)))
+    }
+
+    fn end_serial(
+        &self,
+    ) -> Pin<Box<dyn Future<Output = Serial> + Send + '_>> {
+        Box::pin(ready(Serial(0)))
+    }
+
+    fn added(&self) -> Self::Stream<'_> {
+        EmptyZoneDiffStream
+    }
+
+    fn removed(&self) -> Self::Stream<'_> {
+        EmptyZoneDiffStream
+    }
+
+    fn get_added(
+        &self,
+        _name: impl ToName,
+        _rtype: Rtype,
+    ) -> Pin<Box<dyn Future<Output = Option<&SharedRrset>> + Send + '_>> {
+        Box::pin(ready(None))
+    }
+
+    fn get_removed(
+        &self,
+        _name: impl ToName,
+        _rtype: Rtype,
+    ) -> Pin<Box<dyn Future<Output = Option<&SharedRrset>> + Send + '_>> {
+        Box::pin(ready(None))
+    }
+}
+
+//------------ ZoneDiffError --------------------------------------------------
+
+/// Creating a [`ZoneDiff`] failed for some reason.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum ZoneDiffError {
+    /// Missing start SOA.
+    ///
+    /// A zone diff requires a starting SOA.
+    MissingStartSoa,
+
+    /// Missing end SOA.
+    ///
+    /// A zone diff requires a starting SOA.
+    MissingEndSoa,
+
+    /// End SOA serial is equal to or less than the start SOA serial.
+    InvalidSerialRange,
+}
+
+//--- Display
+
+impl std::fmt::Display for ZoneDiffError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            ZoneDiffError::MissingStartSoa => f.write_str("MissingStartSoa"),
+            ZoneDiffError::MissingEndSoa => f.write_str("MissingEndSoa"),
+            ZoneDiffError::InvalidSerialRange => {
+                f.write_str("InvalidSerialRange")
+            }
+        }
+    }
+}
+
+//------------ ZoneUpdate -----------------------------------------------------
+
+/// An update to be applied to a [`Zone`].
+///
+/// # Design
+///
+/// The variants of this enum are modelled after the way the AXFR and IXFR
+/// protocols represent updates to zones.
+///
+/// AXFR responses can be represented as a sequence of
+/// [`ZoneUpdate::AddRecord`]s.
+///
+/// IXFR responses can be represented as a sequence of batches, each
+/// consisting of:
+/// - [`ZoneUpdate::BeginBatchDelete`]
+/// - [`ZoneUpdate::DeleteRecord`]s _(zero or more)_
+/// - [`ZoneUpdate::BeginBatchAdd`]
+/// - [`ZoneUpdate::AddRecord`]s _(zero or more)_
+///
+/// Both AXFR and IXFR responses encoded using this enum are terminated by a
+/// final [`ZoneUpdate::Finished`].
+///
+/// # Use within this crate
+///  
+/// [`XfrResponseInterpreter`] can convert received XFR responses into
+/// sequences of [`ZoneUpdate`]s. These can then be consumed by a
+/// [`ZoneUpdater`] to effect changes to an existing [`Zone`].
+///
+/// # Future extensions
+///
+/// This enum is marked as `#[non_exhaustive]` to permit addition of more
+/// update operations in future, e.g. to support RFC 2136 Dynamic Updates
+/// operations.
+///
+/// [`XfrResponseInterpreter`]:
+///     crate::net::xfr::protocol::XfrResponseInterpreter
+/// [`Zone`]: crate::zonetree::zone::Zone
+/// [`ZoneUpdater`]: crate::zonetree::update::ZoneUpdater
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum ZoneUpdate<R> {
+    /// Delete all records in the zone.
+    DeleteAllRecords,
+
+    /// Delete record R from the zone.
+    DeleteRecord(R),
+
+    /// Add record R to the zone.
+    AddRecord(R),
+
+    /// Start a batch delete for the version of the zone with the given SOA
+    /// record.
+    ///
+    /// If not already in batching mode, this signals the start of batching
+    /// mode. In batching mode one or more batches of updates will be
+    /// signalled, each consisting of the sequence:
+    ///
+    /// - ZoneUpdate::BeginBatchDelete
+    /// - ZoneUpdate::DeleteRecord (zero or more)
+    /// - ZoneUpdate::BeginBatchAdd
+    /// - ZoneUpdate::AddRecord (zero or more)
+    ///
+    /// Batching mode can only be terminated by `UpdateComplete` or
+    /// `UpdateIncomplete`.
+    ///
+    /// Batching mode makes updates more predictable for the receiver to work
+    /// with by limiting the updates that can be signalled next, enabling
+    /// receiver logic to be simpler and more efficient.
+    ///
+    /// The record must be a SOA record that matches the SOA record of the
+    /// zone version in which the subsequent [`ZoneUpdate::DeleteRecord`]s
+    /// should be deleted.
+    BeginBatchDelete(R),
+
+    /// Start a batch add for the version of the zone with the given SOA
+    /// record.
+    ///
+    /// This can only be signalled when already in batching mode, i.e. when
+    /// `BeginBatchDelete` has already been signalled.
+    ///
+    /// The record must be the SOA record to use for the new version of the
+    /// zone under which the subsequent [`ZoneUpdate::AddRecord`]s will be
+    /// added.
+    ///
+    /// See `BeginBatchDelete` for more information.
+    BeginBatchAdd(R),
+
+    /// In progress updates for the zone can now be finalized.
+    ///
+    /// This signals the end of a group of related changes for the given SOA
+    /// record of the zone.
+    ///
+    /// For example this could be used to trigger an atomic commit of a set of
+    /// related pending changes.
+    Finished(R),
+}
+
+//--- Display
+
+impl<R> std::fmt::Display for ZoneUpdate<R> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            ZoneUpdate::DeleteAllRecords => f.write_str("DeleteAllRecords"),
+            ZoneUpdate::DeleteRecord(_) => f.write_str("DeleteRecord"),
+            ZoneUpdate::AddRecord(_) => f.write_str("AddRecord"),
+            ZoneUpdate::BeginBatchDelete(_) => {
+                f.write_str("BeginBatchDelete")
+            }
+            ZoneUpdate::BeginBatchAdd(_) => f.write_str("BeginBatchAdd"),
+            ZoneUpdate::Finished(_) => f.write_str("Finished"),
+        }
+    }
 }
