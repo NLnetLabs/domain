@@ -26,6 +26,7 @@ use std::future::Future;
 use std::pin::Pin;
 use std::string::String;
 use std::string::ToString;
+use std::sync::Arc;
 use std::vec::Vec;
 use tokio::sync::{mpsc, oneshot};
 use tokio::time::{sleep_until, Duration, Instant};
@@ -514,8 +515,9 @@ struct ConnRT {
     /// Start of a request using this connection.
     start: Option<Instant>,
 
-    /// Number of request waiting for a response.
-    queue_len: u64,
+    /// Use the number of references to an Arc as queue length. The number
+    /// of references is one higher than then actual queue length.
+    queue_length_plus_one: Arc<()>,
 }
 
 /// Result of the futures in fut_list.
@@ -542,7 +544,9 @@ impl<Req: Clone + Send + Sync + 'static> Query<Req> {
         if conn_rt_len > 1 && random::<f64>() < PROBE_P {
             let index: usize = 1 + random::<usize>() % (conn_rt_len - 1);
 
-            if conn_rt[index].queue_len == 0 {
+            if Arc::strong_count(&conn_rt[index].queue_length_plus_one) - 1
+                == 0
+            {
                 // Give the probe some head start. We may need a separate
                 // configuration parameter. A multiple of min_rt. Just use
                 // min_rt for now.
@@ -825,7 +829,7 @@ impl<'a, Req: Clone + Send + Sync + 'static> Transport<Req> {
                         id,
                         est_rt: DEFAULT_RT,
                         start: None,
-                        queue_len: 0,
+                        queue_length_plus_one: Arc::new(()),
                     });
                     conns.push(add_req.conn);
 
@@ -863,7 +867,6 @@ impl<'a, Req: Clone + Send + Sync + 'static> Transport<Req> {
                         Some(ind) => {
                             // Leave resetting qps_num to GetRT.
                             conn_stats[ind].burst += 1;
-                            conn_rt[ind].queue_len += 1;
                             let query = conns[ind]
                                 .send_request(request_req.request_msg);
                             // Don't care if send fails
@@ -881,7 +884,6 @@ impl<'a, Req: Clone + Send + Sync + 'static> Transport<Req> {
                     let opt_ind =
                         conn_rt.iter().position(|e| e.id == time_report.id);
                     if let Some(ind) = opt_ind {
-                        conn_rt[ind].queue_len -= 1;
                         let elapsed = time_report.elapsed.as_secs_f64();
                         conn_stats[ind].mean +=
                             (elapsed - conn_stats[ind].mean) / SMOOTH_N;
@@ -900,7 +902,6 @@ impl<'a, Req: Clone + Send + Sync + 'static> Transport<Req> {
                     let opt_ind =
                         conn_rt.iter().position(|e| e.id == time_report.id);
                     if let Some(ind) = opt_ind {
-                        conn_rt[ind].queue_len -= 1;
                         let elapsed = time_report.elapsed.as_secs_f64();
                         if elapsed < conn_stats[ind].mean {
                             // Do not update the mean if a
@@ -931,7 +932,7 @@ impl<'a, Req: Clone + Send + Sync + 'static> Transport<Req> {
     /// Print statistics.
     fn print_stats(conn_stats: &[ConnStats], conn_rt: &[ConnRT]) {
         for i in 0..conn_rt.len() {
-            println!("id {} label {} burst {} max burst {:?} Qlen {} Est. RT {:.3}", conn_rt[i].id, conn_stats[i].label, conn_stats[i].burst, conn_stats[i].max_burst, conn_rt[i].queue_len, conn_rt[i].est_rt.as_secs_f64());
+            println!("id {} label {} burst {} max burst {:?} Qlen {} Est. RT {:.3}", conn_rt[i].id, conn_stats[i].label, conn_stats[i].burst, conn_stats[i].max_burst, Arc::strong_count(&conn_rt[i].queue_length_plus_one)-1, conn_rt[i].est_rt.as_secs_f64());
         }
     }
 }
@@ -984,8 +985,10 @@ fn conn_rt_cmp(e1: &ConnRT, e2: &ConnRT, slow_rt: f64) -> Ordering {
     }
     if !e1_slow && !e2_slow {
         // Normal case. First check queue lengths.
-        if e1.queue_len != e2.queue_len {
-            return if e1.queue_len < e2.queue_len {
+        let ql1 = Arc::strong_count(&e1.queue_length_plus_one);
+        let ql2 = Arc::strong_count(&e2.queue_length_plus_one);
+        if ql1 != ql2 {
+            return if ql1 < ql2 {
                 Ordering::Less
             } else {
                 Ordering::Greater
