@@ -559,10 +559,7 @@ where
     }
 
     /// Stop queueing new responses and process those already in the queue.
-    async fn flush_write_queue(&mut self)
-    // where
-    // Target: Composer,
-    {
+    async fn flush_write_queue(&mut self) {
         debug!("Flushing connection write queue.");
         // Stop accepting new response messages (should we check for in-flight
         // messages that haven't generated a response yet but should be
@@ -978,7 +975,7 @@ where
     }
 }
 
-/// Handle I/O errors by deciding whether to log them, and whethr to continue
+/// Handle I/O errors by deciding whether to log them, and whether to continue
 /// or abort.
 #[must_use]
 fn process_io_error(err: io::Error) -> ControlFlow<ConnectionEvent> {
