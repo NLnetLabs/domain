@@ -91,6 +91,8 @@ Unstable features
   * Add an `as_any` method and `Clone` and `Debug` impls to various zonetree
     types. ([#397])
   * Add `AsRef<dyn ZoneStore>` to `Zone`. ([#397])
+  * Zone walking now includes glue records. A new flag `at_zone_cut` was
+    added to the callback interface. ([#401])
 
 Other changes
 
@@ -125,6 +127,7 @@ Other changes
 [#392]: https://github.com/NLnetLabs/domain/pull/392
 [#397]: https://github.com/NLnetLabs/domain/pull/397
 [#398]: https://github.com/NLnetLabs/domain/pull/398
+[#401]: https://github.com/NLnetLabs/domain/pull/401
 [@dklbreitling]: https://github.com/dklbreitling
 
 ## 0.10.1
