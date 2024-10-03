@@ -2,9 +2,10 @@
 //!
 //! This crates provides a number of building blocks for developing
 //! functionality related to the
-//! [DNS](https://www.rfc-editor.org/rfc/rfc9499.html). It provides
-//! fundamental types, traits, and code as well as a wide range of optional
-//! features. The intent is to eventually cover all aspects of modern DNS.
+//! [Domain Name System (DNS)](https://www.rfc-editor.org/rfc/rfc9499.html).
+//! It provides fundamental types, traits, and code as well as a wide range
+//! of optional features. The intent is to eventually cover all aspects of
+//! modern DNS.
 //!
 //! The crate uses feature flags to allow you to select only those modules
 //! you need for you particular project. In most cases, the feature names
