@@ -26,7 +26,7 @@ use crate::base::{Message, StreamTarget};
 use crate::net::server::buf::BufSource;
 use crate::net::server::message::Request;
 use crate::net::server::metrics::ServerMetrics;
-use crate::net::server::service::{Service, ServiceError, ServiceFeedback};
+use crate::net::server::service::{Service, ServiceFeedback};
 use crate::net::server::util::to_pcap_text;
 use crate::utils::config::DefMinMax;
 
@@ -446,9 +446,6 @@ where
                             self.flush_write_queue().await;
                             break 'outer;
                         }
-                        ConnectionEvent::ServiceError(err) => {
-                            error!("Service error: {}", err);
-                        }
                     }
                 }
             }
@@ -664,9 +661,7 @@ where
                         tracing::warn!(
                             "Failed while parsing request message: {err}"
                         );
-                        return Err(ConnectionEvent::ServiceError(
-                            ServiceError::FormatError,
-                        ));
+                        return Err(ConnectionEvent::DisconnectWithoutFlush);
                     }
 
                     Ok(msg) => {
@@ -974,10 +969,6 @@ enum ConnectionEvent {
     /// to send those responses.  Of course, the DNS server MAY cache those
     /// responses."
     DisconnectWithFlush,
-
-    /// A [`Service`] specific error occurred while the service was processing
-    /// a request message.
-    ServiceError(ServiceError),
 }
 
 //--- Display
@@ -990,9 +981,6 @@ impl Display for ConnectionEvent {
             }
             ConnectionEvent::DisconnectWithFlush => {
                 write!(f, "Disconnect with flush")
-            }
-            ConnectionEvent::ServiceError(err) => {
-                write!(f, "Service error: {err}")
             }
         }
     }
