@@ -46,21 +46,25 @@ impl ZoneFunneler {
         }
 
         let cloned_batcher_tx = self.batcher_tx.clone();
-        let op = Box::new(move |owner: StoredName, rrset: &SharedRrset| {
-            if rrset.rtype() != Rtype::SOA {
-                let _ = cloned_batcher_tx
-                    .blocking_send((owner.clone(), rrset.clone()));
-                // If the blocking send fails it means that the
-                // batcher is no longer available. This can happen if
-                // it was no longer able to pass messages back to the
-                // underlying transport, which can happen if the
-                // client closed the connection. We don't log this
-                // because we can't stop the tree walk and so will
-                // keep hitting this error until the tree walk is
-                // complete, causing a lot of noise if we were to log
-                // this.
-            }
-        });
+        let op = Box::new(
+            move |owner: StoredName,
+                  rrset: &SharedRrset,
+                  _at_zone_cut: bool| {
+                if rrset.rtype() != Rtype::SOA {
+                    let _ = cloned_batcher_tx
+                        .blocking_send((owner.clone(), rrset.clone()));
+                    // If the blocking send fails it means that the
+                    // batcher is no longer available. This can happen if
+                    // it was no longer able to pass messages back to the
+                    // underlying transport, which can happen if the
+                    // client closed the connection. We don't log this
+                    // because we can't stop the tree walk and so will
+                    // keep hitting this error until the tree walk is
+                    // complete, causing a lot of noise if we were to log
+                    // this.
+                }
+            },
+        );
 
         // Walk the zone tree, invoking our operation for each leaf.
         match self.read.is_async() {
