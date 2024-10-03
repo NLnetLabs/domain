@@ -262,7 +262,8 @@ impl<Target: Composer> MessageBuilder<Target> {
 
     /// Starts creating an error for the given message.
     ///
-    /// Like [`start_answer()`] but infallible. Questions will be pushed if possible.
+    /// Like [`start_answer()`][Self::start_answer] but infallible. Questions
+    /// will be pushed if possible.
     pub fn start_error<Octs: Octets + ?Sized>(
         mut self,
         msg: &Message<Octs>,
@@ -308,15 +309,15 @@ impl<Target: Composer> MessageBuilder<Target> {
 impl<Target: Composer> MessageBuilder<Target> {
     /// Limit how much of the underlying buffer may be used.
     ///
-    /// When a limit is set, calling [`push()`] will fail if the limit is
-    /// exceeded just as if the actual end of the underlying buffer had been
-    /// reached.
+    /// When a limit is set, calling `push()` on a message section (e.g.
+    /// [`AdditionalBuilder::push()`]) will fail if the limit is exceeded just
+    /// as if the actual end of the underlying buffer had been reached.
     ///
     /// Note: Calling this function does NOT truncate the underlying buffer.
     /// If the new limit is lees than the amount of the buffer that has
     /// already been used, exisitng content beyond the limit will remain
     /// untouched, the length will remain larger than the limit, and calls to
-    /// [`push()`] will fail until the buffer is truncated to a size less than
+    /// `push()` will fail until the buffer is truncated to a size less than
     /// the limit.
     pub fn set_push_limit(&mut self, limit: usize) {
         self.limit = limit;
@@ -869,6 +870,19 @@ impl<Target: Composer> AnswerBuilder<Target> {
     pub fn push(
         &mut self,
         record: impl ComposeRecord,
+    ) -> Result<(), PushError> {
+        self.builder.push(
+            |target| record.compose_record(target).map_err(Into::into),
+            |counts| counts.inc_ancount(),
+        )
+    }
+
+    /// Appends a record to the answer section without consuming it.
+    ///
+    /// See [`push`][Self::push].
+    pub fn push_ref(
+        &mut self,
+        record: &impl ComposeRecord,
     ) -> Result<(), PushError> {
         self.builder.push(
             |target| record.compose_record(target).map_err(Into::into),

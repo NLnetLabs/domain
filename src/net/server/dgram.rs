@@ -36,6 +36,7 @@ use tracing::warn;
 use tracing::Level;
 use tracing::{enabled, error, trace};
 
+use crate::base::iana::OptRcode;
 use crate::base::message_builder::AdditionalBuilder;
 use crate::base::wire::Composer;
 use crate::base::{Message, StreamTarget};
@@ -45,6 +46,7 @@ use crate::net::server::message::Request;
 use crate::net::server::metrics::ServerMetrics;
 use crate::net::server::service::Service;
 use crate::net::server::sock::AsyncDgramSock;
+use crate::net::server::util::mk_error_response;
 use crate::net::server::util::to_pcap_text;
 use crate::utils::config::DefMinMax;
 
@@ -122,7 +124,7 @@ impl Config {
     /// [RFC 6891]:
     ///     https://datatracker.ietf.org/doc/html/rfc6891#section-6.2.5
     pub fn set_max_response_size(&mut self, value: Option<u16>) {
-        self.max_response_size = value;
+        self.max_response_size = value.map(|v| MAX_RESPONSE_SIZE.limit(v));
     }
 
     /// Sets the time to wait for a complete message to be written to the
@@ -501,36 +503,7 @@ where
                         Err(err) => return Err(format!("Error while receiving message: {err}")),
                     };
 
-                    let received_at = Instant::now();
-                    self.metrics.inc_num_received_requests();
-
-                    if enabled!(Level::TRACE) {
-                        let pcap_text = to_pcap_text(&buf, bytes_read);
-                        trace!(%addr, pcap_text, "Received message");
-                    }
-
-                    match Message::from_octets(buf) {
-                        Err(err) => {
-                            tracing::warn!("Failed while parsing request message: {err}");
-                        }
-
-                        Ok(msg) => {
-                            let ctx = UdpTransportContext::new(self.config.load().max_response_size);
-                            let ctx = TransportSpecificContext::Udp(ctx);
-                            let request = Request::new(addr, received_at, msg, ctx, ());
-
-                            trace!(
-                                "Spawning task to handle new message with id {}",
-                                request.message().header().id()
-                            );
-
-                            let mut dispatcher = self.request_dispatcher.clone();
-                            let service = self.service.clone();
-                            tokio::spawn(async move {
-                                dispatcher.dispatch(request, service, addr).await
-                            });
-                        }
-                    }
+                    self.process_received_message(buf, addr, bytes_read);
                 }
             }
         }
@@ -585,6 +558,66 @@ where
         }
 
         Ok(())
+    }
+
+    fn process_received_message(
+        &self,
+        buf: <Buf as BufSource>::Output,
+        addr: SocketAddr,
+        bytes_read: usize,
+    ) {
+        let received_at = Instant::now();
+        self.metrics.inc_num_received_requests();
+
+        if enabled!(Level::TRACE) {
+            let pcap_text = to_pcap_text(&buf, bytes_read);
+            trace!(%addr, pcap_text, "Received message");
+        }
+
+        match Message::from_octets(buf) {
+            Err(err) => {
+                // TO DO: Count this event?
+                warn!("Failed while parsing request message: {err}");
+                // We can't send a response as we don't have a query ID to
+                // copy to the response.
+            }
+
+            // https://datatracker.ietf.org/doc/html/rfc1035#section-4.1.1
+            // 4.1.1. Header section format
+            //   "QR   A one bit field that specifies whether this message is
+            //         a query (0), or a response (1)."
+            Ok(msg) if msg.header().qr() => {
+                // TO DO: Count this event?
+                trace!("Ignoring received message because it is a reply, not a query.");
+                let response = mk_error_response::<Buf::Output, Svc::Target>(
+                    &msg,
+                    OptRcode::FORMERR,
+                );
+                let dispatcher = self.request_dispatcher.clone();
+                tokio::spawn(async move {
+                    dispatcher.send_response(addr, response).await;
+                });
+            }
+
+            Ok(msg) => {
+                let ctx = UdpTransportContext::new(
+                    self.config.load().max_response_size,
+                );
+                let ctx = TransportSpecificContext::Udp(ctx);
+                let request = Request::new(addr, received_at, msg, ctx, ());
+
+                trace!(
+                    "Spawning task to handle new message with id {}",
+                    request.message().header().id()
+                );
+
+                let mut dispatcher = self.request_dispatcher.clone();
+                let service = self.service.clone();
+                tokio::spawn(async move {
+                    dispatcher.dispatch(request, service, addr).await
+                });
+            }
+        }
     }
 
     /// Receive a single datagram using the user supplied network socket.

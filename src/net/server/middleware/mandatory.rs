@@ -35,9 +35,11 @@ pub const MINIMUM_RESPONSE_BYTE_LEN: u16 = 512;
 /// |--------|---------|
 /// | [1035] | TBD     |
 /// | [2181] | TBD     |
+/// | [9619] | TBD     |
 ///
 /// [1035]: https://datatracker.ietf.org/doc/html/rfc1035
 /// [2181]: https://datatracker.ietf.org/doc/html/rfc2181
+/// [9619]: https://datatracker.ietf.org/doc/html/rfc9619
 #[derive(Clone, Debug)]
 pub struct MandatoryMiddlewareSvc<RequestOctets, NextSvc, RequestMeta> {
     /// The upstream [`Service`] to pass requests to and receive responses
@@ -203,12 +205,29 @@ where
         //   "Therefore IQUERY is now obsolete, and name servers SHOULD return
         //    a "Not Implemented" error when an IQUERY request is received."
         if self.strict && msg.header().opcode() == Opcode::IQUERY {
-            debug!(
-                "RFC 3425 3 violation: request opcode IQUERY is obsolete."
-            );
+            debug!("RFC 3425 violation: request opcode IQUERY is obsolete.");
             return ControlFlow::Break(mk_error_response(
                 msg,
                 OptRcode::NOTIMP,
+            ));
+        }
+
+        // https://datatracker.ietf.org/doc/html/rfc9619#section-4
+        // 4. Updates to RFC 1035
+        //   ...
+        //   "A DNS message with OPCODE = 0 and QDCOUNT > 1 MUST be treated as
+        //   an incorrectly formatted message. The value of the RCODE
+        //   parameter in the response message MUST be set to 1 (FORMERR)."
+        if self.strict
+            && msg.header().opcode() == Opcode::QUERY
+            && msg.header_counts().qdcount() > 1
+        {
+            debug!(
+                "RFC 9619 violation: request opcode QUERY with QDCOUNT > 1."
+            );
+            return ControlFlow::Break(mk_error_response(
+                msg,
+                OptRcode::FORMERR,
             ));
         }
 
@@ -268,11 +287,11 @@ where
     fn map_stream_item(
         request: Request<RequestOctets, RequestMeta>,
         mut stream_item: ServiceResult<NextSvc::Target>,
-        strict: bool,
+        strict: &mut bool,
     ) -> ServiceResult<NextSvc::Target> {
         if let Ok(cr) = &mut stream_item {
             if let Some(response) = cr.response_mut() {
-                Self::postprocess(&request, response, strict);
+                Self::postprocess(&request, response, *strict);
             }
         }
         stream_item

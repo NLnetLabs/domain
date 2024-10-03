@@ -12,21 +12,40 @@
 //! post-processing the resulting responses and propagating them back down
 //! through the layers to the server.
 //!
+//! # Middleware layering strategies
+//!
+//! The simplest strategy for using middleware is to use a single layered
+//! stack of middleware for all incoming requests.
+//!
+//! If however some middleware layers impose a disproportionately high cost on
+//! request processing for request types that occur rarely, an alternate
+//! strategy could be to add a middleware layer that routes requests to the
+//! appropriate middleware "chain" based on some property or properties of the
+//! request. Rather than a liner processing "chain" one would then have a tree
+//! like processing path.
+//!
+//! Another option that may be suitable in some cases could be to use separate
+//! server instances listening on separate ports or interfaces, each with
+//! their own differing middleware "chains".
+//!
+//! # Middleware-to-middleware communication
+//!
+//! If needed middleware services can pass service specific data to upstream
+//! services for consumption, via the  `RequestMeta` custom data support of
+//! the [`Service`] trait. An example of this can be seen in the
+//! [`TsigMiddlewareSvc`][tsig::TsigMiddlewareSvc].
+//!
+//!
 //! Currently the following middleware are available:
 //!
-//!   - [`MandatoryMiddlewareSvc`]: Core DNS RFC standards based message
-//!         processing for MUST requirements.
-//!   - [`EdnsMiddlewareSvc`]: RFC 6891 and related EDNS message processing.
-//!   - [`CookiesMiddlewareSvc`]: RFC 7873 DNS Cookies related message
-//!         processing.
-//!
-//! [`MandatoryMiddlewareSvc`]: mandatory::MandatoryMiddlewareSvc
-//! [`EdnsMiddlewareSvc`]: edns::EdnsMiddlewareSvc
-//! [`CookiesMiddlewareSvc`]: cookies::CookiesMiddlewareSvc
 //! [`Service`]: crate::net::server::service::Service
-
 #[cfg(feature = "siphasher")]
 pub mod cookies;
 pub mod edns;
 pub mod mandatory;
+pub mod notify;
 pub mod stream;
+#[cfg(feature = "tsig")]
+pub mod tsig;
+#[cfg(feature = "unstable-xfr")]
+pub mod xfr;

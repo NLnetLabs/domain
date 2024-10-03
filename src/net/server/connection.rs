@@ -22,14 +22,15 @@ use tokio::time::{sleep_until, timeout};
 use tracing::Level;
 use tracing::{debug, enabled, error, trace, warn};
 
+use crate::base::iana::OptRcode;
 use crate::base::message_builder::AdditionalBuilder;
 use crate::base::wire::Composer;
 use crate::base::{Message, StreamTarget};
 use crate::net::server::buf::BufSource;
 use crate::net::server::message::Request;
 use crate::net::server::metrics::ServerMetrics;
-use crate::net::server::service::{Service, ServiceError};
-use crate::net::server::util::to_pcap_text;
+use crate::net::server::service::Service;
+use crate::net::server::util::{mk_error_response, to_pcap_text};
 use crate::utils::config::DefMinMax;
 
 use super::invoker::{InvokerStatus, ServiceInvoker};
@@ -116,7 +117,7 @@ pub struct Config {
     /// `tcp-idle-timeout` setting.
     response_write_timeout: Duration,
 
-    /// Limit on the number of DNS responses queued for wriing to the client.
+    /// Limit on the number of DNS responses queued for writing to the client.
     max_queued_responses: usize,
 }
 
@@ -462,9 +463,6 @@ where
                             self.flush_write_queue().await;
                             break 'outer;
                         }
-                        ConnectionEvent::ServiceError(err) => {
-                            error!("Service error: {}", err);
-                        }
                     }
                 }
             }
@@ -678,12 +676,29 @@ where
 
                 match Message::from_octets(buf) {
                     Err(err) => {
+                        // TO DO: Count this event?
                         tracing::warn!(
                             "Failed while parsing request message: {err}"
                         );
-                        return Err(ConnectionEvent::ServiceError(
-                            ServiceError::FormatError,
-                        ));
+                        return Err(ConnectionEvent::DisconnectWithoutFlush);
+                    }
+
+                    // https://datatracker.ietf.org/doc/html/rfc1035#section-4.1.1
+                    // 4.1.1. Header section format
+                    //   "QR   A one bit field that specifies whether this
+                    //         message is a query (0), or a response (1)."
+                    Ok(msg) if msg.header().qr() => {
+                        // TO DO: Count this event?
+                        trace!("Ignoring received message because it is a reply, not a query.");
+                        let response =
+                            mk_error_response::<Buf::Output, Svc::Target>(
+                                &msg,
+                                OptRcode::FORMERR,
+                            );
+                        let dispatcher = self.request_dispatcher.clone();
+                        tokio::spawn(async move {
+                            dispatcher.do_enqueue_response(response).await;
+                        });
                     }
 
                     Ok(msg) => {
@@ -904,10 +919,6 @@ enum ConnectionEvent {
     /// to send those responses.  Of course, the DNS server MAY cache those
     /// responses."
     DisconnectWithFlush,
-
-    /// A [`Service`] specific error occurred while the service was processing
-    /// a request message.
-    ServiceError(ServiceError),
 }
 
 //--- Display
@@ -920,9 +931,6 @@ impl Display for ConnectionEvent {
             }
             ConnectionEvent::DisconnectWithFlush => {
                 write!(f, "Disconnect with flush")
-            }
-            ConnectionEvent::ServiceError(err) => {
-                write!(f, "Service error: {err}")
             }
         }
     }

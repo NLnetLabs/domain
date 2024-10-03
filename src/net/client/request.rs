@@ -119,6 +119,17 @@ pub trait SendRequest<CR> {
     ) -> Box<dyn GetResponse + Send + Sync>;
 }
 
+impl<T: SendRequest<RequestMessage<Octs>> + ?Sized, Octs: Octets>
+    SendRequest<RequestMessage<Octs>> for Box<T>
+{
+    fn send_request(
+        &self,
+        request_msg: RequestMessage<Octs>,
+    ) -> Box<dyn GetResponse + Send + Sync> {
+        (**self).send_request(request_msg)
+    }
+}
+
 //------------ SendRequestMulti -----------------------------------------------
 
 /// Trait for starting a DNS request based on a request composer.
@@ -131,6 +142,17 @@ pub trait SendRequestMulti<CR> {
         &self,
         request_msg: CR,
     ) -> Box<dyn GetResponseMulti + Send + Sync>;
+}
+
+impl<T: SendRequestMulti<RequestMessage<Octs>> + ?Sized, Octs: Octets>
+    SendRequestMulti<RequestMessage<Octs>> for Box<T>
+{
+    fn send_request(
+        &self,
+        request_msg: RequestMessage<Octs>,
+    ) -> Box<dyn GetResponseMulti + Send + Sync> {
+        (**self).send_request(request_msg)
+    }
 }
 
 //------------ GetResponse ---------------------------------------------------

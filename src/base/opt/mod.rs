@@ -77,6 +77,26 @@ pub struct Opt<Octs: ?Sized> {
     octets: Octs,
 }
 
+#[cfg(feature = "serde")]
+impl<O: AsRef<[u8]>> serde::Serialize for Opt<O> {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeSeq;
+        let mut list = serializer.serialize_seq(None)?;
+
+        for rec in self.for_slice_ref().iter::<AllOptData<_, _>>() {
+            let Ok(rec) = rec else {
+                continue;
+            };
+            list.serialize_element(&rec)?;
+        }
+
+        list.end()
+    }
+}
+
 impl Opt<()> {
     /// The rtype of this record data type.
     pub(crate) const RTYPE: Rtype = Rtype::OPT;
@@ -866,11 +886,21 @@ pub trait ComposeOptData: OptData {
 ///
 /// This type accepts any option type via its option code and raw data.
 #[derive(Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct UnknownOptData<Octs> {
     /// The option code for the option.
     code: OptionCode,
 
     /// The raw option data.
+    #[cfg_attr(
+        feature = "serde",
+        serde(
+            serialize_with = "crate::utils::base16::serde::serialize",
+            bound(
+                serialize = "Octs: AsRef<[u8]> + octseq::serde::SerializeOctets",
+            )
+        )
+    )]
     data: Octs,
 }
 
