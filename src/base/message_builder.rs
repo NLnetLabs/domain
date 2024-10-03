@@ -141,7 +141,7 @@ use super::wire::{Compose, Composer};
 use bytes::BytesMut;
 use core::ops::{Deref, DerefMut};
 use core::{fmt, mem};
-#[cfg(feature = "hash-name-compressor")]
+#[cfg(feature = "std")]
 use hashbrown::HashTable;
 #[cfg(feature = "std")]
 use octseq::array::Array;
@@ -149,11 +149,9 @@ use octseq::array::Array;
 use octseq::builder::infallible;
 use octseq::builder::{FreezeBuilder, OctetsBuilder, ShortBuf, Truncate};
 use octseq::octets::Octets;
-#[cfg(feature = "hash-name-compressor")]
-use std::collections::hash_map::RandomState;
 #[cfg(feature = "std")]
-use std::collections::HashMap;
-#[cfg(feature = "hash-name-compressor")]
+use std::collections::{hash_map::RandomState, HashMap};
+#[cfg(feature = "std")]
 use std::hash::{BuildHasher, Hash, Hasher};
 #[cfg(feature = "std")]
 use std::vec::Vec;
@@ -2387,7 +2385,7 @@ impl<Target: Composer> Truncate for TreeCompressor<Target> {
 /// you need to place it inside this type, _not_ the other way around.
 ///
 /// [`StreamTarget`]: struct.StreamTarget.html
-#[cfg(feature = "hash-name-compressor")]
+#[cfg(feature = "std")]
 #[derive(Clone, Debug)]
 pub struct HashCompressor<Target> {
     /// The underlying octetsbuilder.
@@ -2440,7 +2438,7 @@ pub struct HashCompressor<Target> {
     hasher: RandomState,
 }
 
-#[cfg(feature = "hash-name-compressor")]
+#[cfg(feature = "std")]
 #[derive(Copy, Clone, Debug)]
 struct HashEntry {
     /// The position of the head label in the name.
@@ -2450,7 +2448,7 @@ struct HashEntry {
     tail: u16,
 }
 
-#[cfg(feature = "hash-name-compressor")]
+#[cfg(feature = "std")]
 impl HashEntry {
     /// Try constructing a [`HashEntry`].
     fn new(head: usize, tail: usize) -> Option<Self> {
@@ -2484,7 +2482,7 @@ impl HashEntry {
     }
 }
 
-#[cfg(feature = "hash-name-compressor")]
+#[cfg(feature = "std")]
 impl<Target> HashCompressor<Target> {
     /// Creates a new compressor from an underlying octets builder.
     pub fn new(target: Target) -> Self {
@@ -2524,21 +2522,21 @@ impl<Target> HashCompressor<Target> {
 
 //--- AsRef, AsMut, and OctetsBuilder
 
-#[cfg(feature = "hash-name-compressor")]
+#[cfg(feature = "std")]
 impl<Target: AsRef<[u8]>> AsRef<[u8]> for HashCompressor<Target> {
     fn as_ref(&self) -> &[u8] {
         self.as_slice()
     }
 }
 
-#[cfg(feature = "hash-name-compressor")]
+#[cfg(feature = "std")]
 impl<Target: AsMut<[u8]>> AsMut<[u8]> for HashCompressor<Target> {
     fn as_mut(&mut self) -> &mut [u8] {
         self.as_slice_mut()
     }
 }
 
-#[cfg(feature = "hash-name-compressor")]
+#[cfg(feature = "std")]
 impl<Target: OctetsBuilder> OctetsBuilder for HashCompressor<Target> {
     type AppendError = Target::AppendError;
 
@@ -2550,7 +2548,7 @@ impl<Target: OctetsBuilder> OctetsBuilder for HashCompressor<Target> {
     }
 }
 
-#[cfg(feature = "hash-name-compressor")]
+#[cfg(feature = "std")]
 impl<Target: Composer> Composer for HashCompressor<Target> {
     fn append_compressed_name<N: ToName + ?Sized>(
         &mut self,
@@ -2635,7 +2633,7 @@ impl<Target: Composer> Composer for HashCompressor<Target> {
     }
 }
 
-#[cfg(feature = "hash-name-compressor")]
+#[cfg(feature = "std")]
 impl<Target: Composer> Truncate for HashCompressor<Target> {
     fn truncate(&mut self, len: usize) {
         self.target.truncate(len);
@@ -2913,7 +2911,7 @@ mod test {
         assert_eq!(expect[..], actual, "unexpected response data");
     }
 
-    #[cfg(feature = "hash-name-compressor")]
+    #[cfg(feature = "std")]
     #[test]
     fn hash_compress_positive_response() {
         // An example positive response to `A example.com.` that is compressed

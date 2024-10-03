@@ -92,10 +92,8 @@ pub use self::cmp::CanonicalOrd;
 pub use self::header::{Header, HeaderCounts, HeaderSection};
 pub use self::iana::Rtype;
 pub use self::message::{Message, QuestionSection, RecordSection};
-#[cfg(feature = "hash-name-compressor")]
-pub use self::message_builder::HashCompressor;
 #[cfg(feature = "std")]
-pub use self::message_builder::TreeCompressor;
+pub use self::message_builder::{HashCompressor, TreeCompressor};
 pub use self::message_builder::{
     MessageBuilder, RecordSectionBuilder, StaticCompressor, StreamTarget,
 };
