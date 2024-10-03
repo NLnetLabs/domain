@@ -162,6 +162,7 @@ extern crate core;
 
 pub mod base;
 pub mod dep;
+pub mod guide;
 pub mod net;
 pub mod rdata;
 pub mod resolv;
