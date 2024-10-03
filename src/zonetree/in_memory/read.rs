@@ -8,7 +8,7 @@ use bytes::Bytes;
 use crate::base::iana::{Rcode, Rtype};
 use crate::base::name::Label;
 use crate::base::Name;
-use crate::zonetree::answer::{Answer, AnswerAuthority};
+use crate::zonetree::answer::{Answer, AnswerAdditional, AnswerAuthority};
 use crate::zonetree::error::OutOfZone;
 use crate::zonetree::types::ZoneCut;
 use crate::zonetree::walk::WalkState;
@@ -99,13 +99,15 @@ impl ReadZone {
                     // There is nothing more in this zone, only a cut here.
                     // Respond with NODATA and an authority section referring the
                     // client to the nameserver that should know more.
-                    NodeAnswer::authority(AnswerAuthority::new(
-                        cut.name.clone(),
-                        None,
-                        Some(cut.ns.clone()),
-                        cut.ds.as_ref().cloned(),
-                        cut.glue.clone(),
-                    ))
+                    NodeAnswer::authority(
+                        AnswerAuthority::new(
+                            cut.name.clone(),
+                            None,
+                            Some(cut.ns.clone()),
+                            cut.ds.as_ref().cloned(),
+                        ),
+                        AnswerAdditional::new(cut.glue.clone()),
+                    )
                 }
             }
             Some(Special::NxDomain) => NodeAnswer::nx_domain(),
@@ -215,13 +217,15 @@ impl ReadZone {
                     NodeAnswer::no_data()
                 }
             }
-            _ => NodeAnswer::authority(AnswerAuthority::new(
-                cut.name.clone(),
-                None,
-                Some(cut.ns.clone()),
-                cut.ds.as_ref().cloned(),
-                cut.glue.clone(),
-            )),
+            _ => NodeAnswer::authority(
+                AnswerAuthority::new(
+                    cut.name.clone(),
+                    None,
+                    Some(cut.ns.clone()),
+                    cut.ds.as_ref().cloned(),
+                ),
+                AnswerAdditional::new(cut.glue.clone()),
+            ),
         }
     }
 
@@ -365,10 +369,16 @@ impl NodeAnswer {
         }
     }
 
-    fn authority(authority: AnswerAuthority) -> Self {
+    fn authority(
+        authority: AnswerAuthority,
+        additional: AnswerAdditional,
+    ) -> Self {
         // Tell the client who the authority is, because it is not us.
+        let mut answer = Answer::with_authority(Rcode::NOERROR, authority);
+        answer.set_additional(additional);
+
         NodeAnswer {
-            answer: Answer::with_authority(Rcode::NOERROR, authority),
+            answer,
             add_soa: false,
             authoritative: false,
         }
@@ -382,7 +392,6 @@ impl NodeAnswer {
                     Some(soa),
                     None,
                     None,
-                    vec![],
                 ))
             }
         }
