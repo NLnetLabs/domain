@@ -141,7 +141,7 @@ use super::wire::{Compose, Composer};
 use bytes::BytesMut;
 use core::ops::{Deref, DerefMut};
 use core::{fmt, mem};
-#[cfg(feature = "hashbrown")]
+#[cfg(feature = "hash-name-compressor")]
 use hashbrown::HashTable;
 #[cfg(feature = "std")]
 use octseq::array::Array;
@@ -149,11 +149,11 @@ use octseq::array::Array;
 use octseq::builder::infallible;
 use octseq::builder::{FreezeBuilder, OctetsBuilder, ShortBuf, Truncate};
 use octseq::octets::Octets;
-#[cfg(feature = "hashbrown")]
+#[cfg(feature = "hash-name-compressor")]
 use std::collections::hash_map::RandomState;
 #[cfg(feature = "std")]
 use std::collections::HashMap;
-#[cfg(feature = "hashbrown")]
+#[cfg(feature = "hash-name-compressor")]
 use std::hash::{BuildHasher, Hash, Hasher};
 #[cfg(feature = "std")]
 use std::vec::Vec;
@@ -2387,7 +2387,7 @@ impl<Target: Composer> Truncate for TreeCompressor<Target> {
 /// you need to place it inside this type, _not_ the other way around.
 ///
 /// [`StreamTarget`]: struct.StreamTarget.html
-#[cfg(feature = "hashbrown")]
+#[cfg(feature = "hash-name-compressor")]
 #[derive(Clone, Debug)]
 pub struct HashCompressor<Target> {
     /// The underlying octetsbuilder.
@@ -2395,21 +2395,52 @@ pub struct HashCompressor<Target> {
 
     /// The names inserted into the message.
     ///
-    /// Each entry represents a name with at least one non-root label and its
-    /// position in the message.  The name is divided into a head (the leftmost
-    /// label) and a tail (the remaining labels).  The entry is stored as the
-    /// position of the head label in the message, and the position of the tail
-    /// label in the m
+    /// Consider a set of names, where the "parent" (i.e. tail) of each name is
+    /// another name in the set.  For example, a set might contain `.`, `org.`,
+    /// `example.org.`, and `www.example.org.`.  Each of these names (except the
+    /// root, which is handled specially) is stored as a separate entry in this
+    /// hash table.  A name `<head>.<tail>` is stored as the index of `<head>`
+    /// and the index of `<tail>` in the built message.  Its hash is built from
+    /// `<head>` (the bytes in the label, not the index into the message) and
+    /// the index of `<tail>`.
     ///
-    /// Each entry is a tuple of head and tail positions.  The head position is
-    /// the position
+    /// Lookups are performed by iterating backward through the labels in a name
+    /// (to go from the root outward).  At each step, the canonical position of
+    /// `<tail>` is already known; it is hashed together with the next label and
+    /// searched for in the hash table.  An entry with a matching `<head>` (i.e.
+    /// where the referenced content in the message matches the searched label)
+    /// and a matching `<tail>` position represents the same name.
+    ///
+    /// The root is handled specially.  It is never inserted in the hash table,
+    /// and instead has a fixed fake position in the message of 0xFFFF.  That is
+    /// the initial value that lookups start with.
+    ///
+    /// As an example, consider a message `org. example.org. www.example.org.`.
+    /// In the hash table, the first two entries will look like:
+    ///
+    /// ```text
+    /// - head=0 ("org") tail=0xFFFF
+    /// - head=5 ("example") tail=0
+    /// ```
+    ///
+    /// Now, to insert `www.example.org.`, the lookup begins from the end.  We
+    /// search for a label "org" with tail 0xFFFF, and find head=0.  We set this
+    /// as the next tail, and search for label "example" to find head=5.  Since
+    /// a label "www" with tail=5 is not already in the hash table, it will be
+    /// inserted with head=18.
+    ///
+    /// This has a space overhead of 4-5 bytes for each entry, accounting for
+    /// the load factor (which appears to be 87.5%).  Technically, storing the
+    /// labels indirectly means that comparisons are more expensive; but most
+    /// labels are relatively short and storing them inline as 64-byte arrays
+    /// would be quite wasteful.
     names: HashTable<HashEntry>,
 
     /// How names in the table are hashed.
     hasher: RandomState,
 }
 
-#[cfg(feature = "hashbrown")]
+#[cfg(feature = "hash-name-compressor")]
 #[derive(Copy, Clone, Debug)]
 struct HashEntry {
     /// The position of the head label in the name.
@@ -2419,7 +2450,7 @@ struct HashEntry {
     tail: u16,
 }
 
-#[cfg(feature = "hashbrown")]
+#[cfg(feature = "hash-name-compressor")]
 impl HashEntry {
     /// Try constructing a [`HashEntry`].
     fn new(head: usize, tail: usize) -> Option<Self> {
@@ -2453,7 +2484,7 @@ impl HashEntry {
     }
 }
 
-#[cfg(feature = "hashbrown")]
+#[cfg(feature = "hash-name-compressor")]
 impl<Target> HashCompressor<Target> {
     /// Creates a new compressor from an underlying octets builder.
     pub fn new(target: Target) -> Self {
@@ -2493,21 +2524,21 @@ impl<Target> HashCompressor<Target> {
 
 //--- AsRef, AsMut, and OctetsBuilder
 
-#[cfg(feature = "hashbrown")]
+#[cfg(feature = "hash-name-compressor")]
 impl<Target: AsRef<[u8]>> AsRef<[u8]> for HashCompressor<Target> {
     fn as_ref(&self) -> &[u8] {
         self.as_slice()
     }
 }
 
-#[cfg(feature = "hashbrown")]
+#[cfg(feature = "hash-name-compressor")]
 impl<Target: AsMut<[u8]>> AsMut<[u8]> for HashCompressor<Target> {
     fn as_mut(&mut self) -> &mut [u8] {
         self.as_slice_mut()
     }
 }
 
-#[cfg(feature = "hashbrown")]
+#[cfg(feature = "hash-name-compressor")]
 impl<Target: OctetsBuilder> OctetsBuilder for HashCompressor<Target> {
     type AppendError = Target::AppendError;
 
@@ -2519,7 +2550,7 @@ impl<Target: OctetsBuilder> OctetsBuilder for HashCompressor<Target> {
     }
 }
 
-#[cfg(feature = "hashbrown")]
+#[cfg(feature = "hash-name-compressor")]
 impl<Target: Composer> Composer for HashCompressor<Target> {
     fn append_compressed_name<N: ToName + ?Sized>(
         &mut self,
@@ -2604,7 +2635,7 @@ impl<Target: Composer> Composer for HashCompressor<Target> {
     }
 }
 
-#[cfg(feature = "hashbrown")]
+#[cfg(feature = "hash-name-compressor")]
 impl<Target: Composer> Truncate for HashCompressor<Target> {
     fn truncate(&mut self, len: usize) {
         self.target.truncate(len);
@@ -2882,7 +2913,7 @@ mod test {
         assert_eq!(expect[..], actual, "unexpected response data");
     }
 
-    #[cfg(feature = "hashbrown")]
+    #[cfg(feature = "hash-name-compressor")]
     #[test]
     fn hash_compress_positive_response() {
         // An example positive response to `A example.com.` that is compressed

@@ -48,7 +48,7 @@ tracing-subscriber = { version = "0.3.18", optional = true, features = ["env-fil
 [features]
 default     = ["std", "rand"]
 bytes       = ["dep:bytes", "octseq/bytes"]
-hashbrown   = ["dep:hashbrown", "std"]
+hash-name-compressor = ["dep:hashbrown", "std"]
 heapless    = ["dep:heapless", "octseq/heapless"]
 resolv      = ["net", "smallvec", "unstable-client-transport"]
 resolv-sync = ["resolv", "tokio/rt"]
