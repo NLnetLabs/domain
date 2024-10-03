@@ -49,7 +49,8 @@ pub struct Answer {
 impl Answer {
     /// Creates an "empty" answer.
     ///
-    /// The answer, authority and additional sections will be empty.
+    /// The answer, authority and additional sections will be empty and the
+    /// response will NOT have the AA (Authoritative Answer) flag set.
     pub fn new(rcode: Rcode) -> Self {
         Answer {
             rcode,
@@ -63,7 +64,8 @@ impl Answer {
     ///
     /// The answer section will be empty. The additional section will be
     /// populated with the additional records in the given
-    /// [`AnswerAuthority`].
+    /// [`AnswerAuthority`]. The response will NOT have the AA (Authoritative
+    /// Answer) flag set.
     pub fn with_authority(rcode: Rcode, authority: AnswerAuthority) -> Self {
         Answer {
             rcode,
@@ -95,7 +97,10 @@ impl Answer {
         self.authority = Some(authority)
     }
 
-    /// Marks the response authoritative for the QNAME.
+    /// Marks the response authoritative or not.
+    /// 
+    /// Determines whether or not the response will have the AA (Authoritative
+    /// Answer) flag set.
     pub fn set_authoritative(&mut self, authoritative: bool) {
         self.authoritative = authoritative;
     }
