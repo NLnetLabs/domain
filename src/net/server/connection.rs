@@ -574,16 +574,14 @@ where
             "Writing queued response with id {} to stream",
             response.header().id()
         );
-        self.write_response_to_stream(response.finish()).await;
-
-        Ok(())
+        self.write_response_to_stream(response.finish()).await
     }
 
     /// Write a response back to the caller over the network stream.
     async fn write_response_to_stream(
         &mut self,
         msg: StreamTarget<Svc::Target>,
-    ) {
+    ) -> Result<(), ConnectionEvent> {
         if enabled!(Level::TRACE) {
             let bytes = msg.as_dgram_slice();
             let pcap_text = to_pcap_text(bytes, bytes.len());
@@ -601,10 +599,11 @@ where
                     "Write timed out (>{:?})",
                     self.config.load().response_write_timeout
                 );
-                // TODO: Push it to the back of the queue to retry it?
+                return Err(ConnectionEvent::DisconnectWithoutFlush);
             }
             Ok(Err(err)) => {
                 error!("Write error: {err}");
+                return Err(ConnectionEvent::DisconnectWithoutFlush);
             }
             Ok(Ok(_)) => {
                 self.metrics.inc_num_sent_responses();
@@ -616,6 +615,8 @@ where
         if self.result_q_tx.capacity() == self.result_q_tx.max_capacity() {
             self.idle_timer.response_queue_emptied();
         }
+
+        Ok(())
     }
 
     /// Implemnt DNS rules regarding timing out of idle connections.
