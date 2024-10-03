@@ -680,6 +680,9 @@ where
                         tracing::warn!(
                             "Failed while parsing request message: {err}"
                         );
+                        // Consider the client to be a threat to us if it is
+                        // sending garbage that we can't parse: disconnect it
+                        // immediately.
                         return Err(ConnectionEvent::DisconnectWithoutFlush);
                     }
 
