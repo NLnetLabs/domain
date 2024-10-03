@@ -73,6 +73,7 @@ pub enum StellineErrorCause {
     MissingResponse,
     MissingStepEntry,
     MissingClient,
+    MissingTermination,
     AnswerTimedOut,
 }
 
@@ -99,6 +100,9 @@ impl std::fmt::Display for StellineErrorCause {
             }
             StellineErrorCause::MissingStepEntry => {
                 f.write_str("Missing step entry")
+            }
+            StellineErrorCause::MissingTermination => {
+                f.write_str("Expected connection termination")
             }
             StellineErrorCause::AnswerTimedOut => {
                 f.write_str("Timed out waiting for answer")
@@ -549,6 +553,14 @@ pub async fn do_client<'a, T: ClientFactory>(
 
                             let resp = resp.unwrap();
 
+                            if entry.matches.as_ref().map(|v| v.conn_closed)
+                                == Some(true)
+                            {
+                                return Err(
+                                    StellineErrorCause::MissingTermination,
+                                );
+                            }
+
                             trace!("Received answer.");
                             trace!(?resp);
 
@@ -610,6 +622,14 @@ pub async fn do_client<'a, T: ClientFactory>(
                                     StellineErrorCause::MissingResponse,
                                 );
                             };
+
+                            if entry.matches.as_ref().map(|v| v.conn_closed)
+                                == Some(true)
+                            {
+                                return Err(
+                                    StellineErrorCause::MissingTermination,
+                                );
+                            }
 
                             trace!("Received answer.");
                             trace!(?resp);
