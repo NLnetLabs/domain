@@ -92,7 +92,7 @@ const RESPONSE_WRITE_RETRIES: DefMinMax<u8> =
 /// becomes available.
 const MAX_QUEUED_RESPONSES: DefMinMax<usize> = DefMinMax::new(10, 0, 1024);
 
-//----------- Config ----------------------------------------------------------
+//----------- Config ---------------------------------------------------------
 
 /// Configuration for a stream server connection.
 #[derive(Copy, Debug)]
@@ -239,7 +239,7 @@ impl Clone for Config {
     }
 }
 
-//------------ Connection -----------------------------------------------------
+//------------ Connection ----------------------------------------------------
 
 /// A handler for a single stream connection between client and server.
 pub struct Connection<Stream, Buf, Svc>
@@ -854,7 +854,7 @@ where
     }
 }
 
-//----------- DnsMessageReceiver ----------------------------------------------
+//----------- DnsMessageReceiver ---------------------------------------------
 
 /// The [`DnsMessageReceiver`] state machine.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -999,7 +999,7 @@ fn process_io_error(err: io::Error) -> ControlFlow<ConnectionEvent> {
     }
 }
 
-//------------ ConnectionEvent ------------------------------------------------
+//------------ ConnectionEvent -----------------------------------------------
 
 /// An event that occurred while the connection handler was handling the
 /// connection.
@@ -1045,7 +1045,7 @@ impl Display for ConnectionEvent {
     }
 }
 
-//------------ IdleTimer ------------------------------------------------------
+//------------ IdleTimer -----------------------------------------------------
 
 /// RFC 7766 section 6.2.3 / RFC 7828 section 3 idle time out tracking.
 pub struct IdleTimer {
