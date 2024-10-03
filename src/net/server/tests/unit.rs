@@ -490,11 +490,11 @@ async fn tcp_client_disconnect_test() {
         let fast_client = MockClientConfig {
             new_message_every: Duration::from_millis(100),
             messages: VecDeque::from([
-                mk_query().as_stream_slice().to_vec(),
-                mk_query().as_stream_slice().to_vec(),
-                mk_query().as_stream_slice().to_vec(),
-                mk_query().as_stream_slice().to_vec(),
-                mk_query().as_stream_slice().to_vec(),
+                mk_query().as_dgram_slice().to_vec(),
+                mk_query().as_dgram_slice().to_vec(),
+                mk_query().as_dgram_slice().to_vec(),
+                mk_query().as_dgram_slice().to_vec(),
+                mk_query().as_dgram_slice().to_vec(),
             ]),
             client_port: 1,
             disconnect_with_pending_responses: true,
@@ -502,8 +502,8 @@ async fn tcp_client_disconnect_test() {
         let slow_client = MockClientConfig {
             new_message_every: Duration::from_millis(3000),
             messages: VecDeque::from([
-                mk_query().as_stream_slice().to_vec(),
-                mk_query().as_stream_slice().to_vec(),
+                mk_query().as_dgram_slice().to_vec(),
+                mk_query().as_dgram_slice().to_vec(),
             ]),
             client_port: 2,
             disconnect_with_pending_responses: false,
