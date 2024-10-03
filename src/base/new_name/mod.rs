@@ -5,7 +5,11 @@
 //! (the root) -> `org.` -> `example.org.` -> `www.example.org.`.  Labels are
 //! stored in reverse order, from innermost to outermost.
 
-use core::{cmp, iter};
+use core::{
+    cmp,
+    hash::{Hash, Hasher},
+    iter,
+};
 
 /// An absolute domain name.
 #[repr(transparent)]
@@ -275,6 +279,21 @@ impl Ord for Name {
     }
 }
 
+impl Hash for Name {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        // NOTE: Label lengths are not affected by 'to_ascii_lowercase()' since
+        // they are always less than 64.  As such, we don't need to iterate over
+        // the labels manually; we can just give them to the hasher as-is.
+
+        // The default 'std' hasher actually buffers 8 bytes of input before
+        // processing them.  There's no point trying to chunk the input here.
+        self.as_bytes()
+            .iter()
+            .map(|&b| b.to_ascii_lowercase())
+            .for_each(|b| state.write_u8(b));
+    }
+}
+
 impl AsRef<[u8]> for Name {
     fn as_ref(&self) -> &[u8] {
         &self.0
@@ -292,7 +311,7 @@ impl RelName {
     ///
     /// The byte string must be correctly encoded in the wire format, and within
     /// the size restriction (255 bytes or fewer).  It must be relative.
-    pub unsafe fn from_bytes_unchecked(bytes: &[u8]) -> &Self {
+    pub const unsafe fn from_bytes_unchecked(bytes: &[u8]) -> &Self {
         // SAFETY: 'RelName' is a 'repr(transparent)' wrapper around '[u8]', so
         // casting a '[u8]' into a 'RelName' is sound.
         core::mem::transmute(bytes)
@@ -481,6 +500,21 @@ impl PartialEq for RelName {
 
 impl Eq for RelName {}
 
+impl Hash for RelName {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        // NOTE: Label lengths are not affected by 'to_ascii_lowercase()' since
+        // they are always less than 64.  As such, we don't need to iterate over
+        // the labels manually; we can just give them to the hasher as-is.
+
+        // The default 'std' hasher actually buffers 8 bytes of input before
+        // processing them.  There's no point trying to chunk the input here.
+        self.as_bytes()
+            .iter()
+            .map(|&b| b.to_ascii_lowercase())
+            .for_each(|b| state.write_u8(b));
+    }
+}
+
 impl AsRef<[u8]> for RelName {
     fn as_ref(&self) -> &[u8] {
         &self.0
@@ -592,6 +626,20 @@ impl Ord for Label {
             .map_or(Ord::cmp(&self.len(), &that.len()), |(l, r)| {
                 Ord::cmp(&l.to_ascii_lowercase(), &r.to_ascii_lowercase())
             })
+    }
+}
+
+impl Hash for Label {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        // Individual labels and names should hash in the same way.
+        state.write_u8(self.len() as u8);
+
+        // The default 'std' hasher actually buffers 8 bytes of input before
+        // processing them.  There's no point trying to chunk the input here.
+        self.as_bytes()
+            .iter()
+            .map(|&b| b.to_ascii_lowercase())
+            .for_each(|b| state.write_u8(b));
     }
 }
 
