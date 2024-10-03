@@ -50,13 +50,18 @@ use super::{Opt, OptData, ComposeOptData, ParseOptData};
 /// can be created via [`create_initial`][Self::create_initial]. As this will
 /// be a random client cookie, it needs the `rand` feature. The server can
 /// check whether a received cookie includes a server cookie created by it
-/// via the [`check_server_hash`][Self::check_server_hash] method. It needs
-/// the SipHash-2-4 algorithm and is thus available if the `siphasher` feature
-/// is enabled. The same feature also enables the
-/// [`create_response`][Self::create_response] method which creates the server
+/// via the
+#[cfg_attr(feature = "siphasher", doc = "[`check_server_hash`](Self::check_server_hash)")]
+#[cfg_attr(not(feature = "siphasher"), doc = "`check_server_hash`")]
+/// method. It needs the SipHash-2-4 algorithm and is thus available if the
+/// `siphasher` feature is enabled. The same feature also enables the
+#[cfg_attr(feature = "siphasher", doc = "[`create_response`](Self::create_response)")]
+#[cfg_attr(not(feature = "siphasher"), doc = "`create_response`")]
+/// method which creates the server
 /// cookie to be included in a response.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 #[cfg_attr(feature = "rand", derive(Default))]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct Cookie {
     /// The client cookie.
     client: ClientCookie, 
@@ -277,6 +282,16 @@ impl<'a, Target: Composer> OptBuilder<'a, Target> {
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
 pub struct ClientCookie([u8; 8]);
 
+#[cfg(feature = "serde")]
+impl serde::Serialize for ClientCookie {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer {
+            use octseq::serde::SerializeOctets;
+            self.0.serialize_octets(serializer)
+    }
+}
+
 impl ClientCookie {
     /// Creates a new client cookie from the given octets.
     #[must_use]
@@ -394,6 +409,16 @@ impl fmt::Display for ClientCookie {
 /// [RFC 9018]: https://tools.ietf.org/html/rfc9018
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct ServerCookie(Array<32>);
+
+#[cfg(feature = "serde")]
+impl serde::Serialize for ServerCookie {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer {
+        use octseq::serde::SerializeOctets;
+        self.0.serialize_octets(serializer)
+    }
+}
 
 impl ServerCookie {
     /// Creates a new server cookie from the given octets.

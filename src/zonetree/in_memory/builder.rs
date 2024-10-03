@@ -6,7 +6,7 @@ use std::vec::Vec;
 use crate::base::iana::Class;
 use crate::base::name::{Label, ToName};
 use crate::zonetree::error::{CnameError, OutOfZone, ZoneCutError};
-use crate::zonetree::types::{StoredDname, StoredRecord, ZoneCut};
+use crate::zonetree::types::{StoredName, StoredRecord, ZoneCut};
 use crate::zonetree::{SharedRr, SharedRrset, Zone};
 
 use super::nodes::{Special, ZoneApex, ZoneNode};
@@ -45,7 +45,7 @@ use super::versioned::Version;
 /// To use `ZoneBuilder`:
 /// - Call [`ZoneBuilder::new`] to create a new builder.
 /// - Call the various `insert_()` functions to add as many resource records
-/// as needed.
+///   as needed.
 /// - Call [`ZoneBuilder::build`] to exchange the builder for a populated
 ///   [`Zone`].
 ///
@@ -65,7 +65,7 @@ impl ZoneBuilder {
     /// All resource records in the zone will be considered to have the
     /// specified [`Class`].
     #[must_use]
-    pub fn new(apex_name: StoredDname, class: Class) -> Self {
+    pub fn new(apex_name: StoredName, class: Class) -> Self {
         ZoneBuilder {
             apex: ZoneApex::new(apex_name, class),
         }

@@ -82,7 +82,6 @@ pub struct FoundAddrsIter<'a, Octs: Octets> {
 impl<'a, Octs: Octets> Iterator for FoundAddrsIter<'a, Octs> {
     type Item = ParsedName<Octs::Range<'a>>;
 
-    #[allow(clippy::while_let_on_iterator)]
     fn next(&mut self) -> Option<Self::Item> {
         let name = self.name.as_ref()?;
         let answer = self.answer.as_mut()?;

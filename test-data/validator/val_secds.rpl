@@ -1,0 +1,233 @@
+do-ip6: no
+
+; config options
+; The island of trust is at example.com
+server:
+	trust-anchor: "example.com.    3600    IN      DS      50354 7 1 4BAD1572F3C729F6F04749D8B19E00D8356E3871 "
+	val-override-date: "20181130121919"
+;	target-fetch-policy: "0 0 0 0 0"
+;	fake-sha1: yes
+
+;stub-zone:
+;	name: "."
+	stub-addr: 193.0.14.129 	# K.ROOT-SERVERS.NET.
+query-minimization: off
+CONFIG_END
+
+SCENARIO_BEGIN Test validator with secure delegation
+
+; K.ROOT-SERVERS.NET.
+RANGE_BEGIN 0 100
+	ADDRESS 193.0.14.129 
+ENTRY_BEGIN
+MATCH opcode qtype qname
+ADJUST copy_id
+REPLY QR NOERROR
+SECTION QUESTION
+. IN NS
+SECTION ANSWER
+. IN NS	K.ROOT-SERVERS.NET.
+SECTION ADDITIONAL
+K.ROOT-SERVERS.NET.	IN	A	193.0.14.129
+ENTRY_END
+
+ENTRY_BEGIN
+MATCH opcode qtype qname
+ADJUST copy_id
+REPLY QR NOERROR
+SECTION QUESTION
+www.sub.example.com. IN A
+SECTION AUTHORITY
+com.	IN NS	a.gtld-servers.net.
+SECTION ADDITIONAL
+a.gtld-servers.net.	IN 	A	192.5.6.30
+ENTRY_END
+RANGE_END
+
+; a.gtld-servers.net.
+RANGE_BEGIN 0 100
+	ADDRESS 192.5.6.30
+ENTRY_BEGIN
+MATCH opcode qtype qname
+ADJUST copy_id
+REPLY QR NOERROR
+SECTION QUESTION
+com. IN NS
+SECTION ANSWER
+com.    IN NS   a.gtld-servers.net.
+SECTION ADDITIONAL
+a.gtld-servers.net.     IN      A       192.5.6.30
+ENTRY_END
+
+ENTRY_BEGIN
+MATCH opcode qtype qname
+ADJUST copy_id
+REPLY QR NOERROR
+SECTION QUESTION
+www.sub.example.com. IN A
+SECTION AUTHORITY
+example.com.	IN NS	ns.example.com.
+SECTION ADDITIONAL
+ns.example.com.		IN 	A	1.2.3.4
+ENTRY_END
+RANGE_END
+
+; ns.example.com.
+RANGE_BEGIN 0 100
+	ADDRESS 1.2.3.4
+ENTRY_BEGIN
+MATCH opcode qtype qname
+ADJUST copy_id
+REPLY QR NOERROR
+SECTION QUESTION
+example.com. IN NS
+SECTION ANSWER
+example.com.    IN NS   ns.example.com.
+example.com.    3600    IN      RRSIG   NS 7 2 3600 20181230101919 20181130101919 50354 example.com. t69qTSQb8vTWf/DKSpTtvWAACIa9sKDKmOILmY73STpsvjo036t1sBXV iJGBtb6P0dC/gUeAXZdZYgTC2vsTJLSjOtzc8lUTVgswvn2QDSaY8eU2 5UwgGbqZF5cOW87a/NQV1pFZSWi9eFo8IBvbCP+mio6wKvFNqQH7Ja8T aNw=     ;{id = 2854}
+SECTION ADDITIONAL
+ns.example.com.         IN      A       1.2.3.4
+ns.example.com. 3600    IN      RRSIG   A 7 3 3600 20181230101919 20181130101919 50354 example.com. Jo9iWIAFOGFQlSzoyXWSRmuZvftlr6NyyI2wFnYVa94mivyRbJViL3G9 vPbhSuP7lkD1DzFbH2nztu6LBqavrVCQCGsEixo6f5eUhywptl/hLTLp 8shS5iWfGvZKXobH9n9ryJIQfwPoVHhEfx5FpOKR+A7ORQOgsQb9TaGv EX8=     ;{id = 2854}
+ENTRY_END
+
+; response to DNSKEY priming query
+ENTRY_BEGIN
+MATCH opcode qtype qname
+ADJUST copy_id
+REPLY QR NOERROR
+SECTION QUESTION
+example.com. IN DNSKEY
+SECTION ANSWER
+example.com.    3600    IN      DNSKEY  256 3 7 AwEAAcQBfewjdxsAmqiSCuk/SB/CrZSA3C4DvikJfW9pVEqRbEwe05Ii UmGaajAfF7RtC5GD1Lq7T0wVpIJLl7VwX2oCB+jvBIjGPfQ9yvyrfEdM r/hIQlFoEuPqAOwzxJUiOyJOh6utSEwRSnWLoqd8xsxnUJWC6Q7jLgs1 VF4YEnJ7     ;{id = 2854 (zsk), size = 1688b}
+example.com. 3600    IN      RRSIG   DNSKEY 7 2 3600 20181230101919 20181130101919 50354 example.com. a2fVpjpw/Bf7coByItHRN6tUhnrSLsvAxGyYz4YyNlRJeW2erOgYvwSQ 5JYRwQQaUrtMD1AnBE9B0Fdey5gIi/9xl5LPBqYbfTR9yxcWJoUwmwBs 2JDx6dwzIr5DItXgSNjKd0x0A2cEjFO25XR6R+ukvFZfIBaZW4d41vjw AFM=     ;{id = 2854}
+SECTION AUTHORITY
+example.com.	IN NS	ns.example.com.
+example.com.    3600    IN      RRSIG   NS 7 2 3600 20181230101919 20181130101919 50354 example.com. t69qTSQb8vTWf/DKSpTtvWAACIa9sKDKmOILmY73STpsvjo036t1sBXV iJGBtb6P0dC/gUeAXZdZYgTC2vsTJLSjOtzc8lUTVgswvn2QDSaY8eU2 5UwgGbqZF5cOW87a/NQV1pFZSWi9eFo8IBvbCP+mio6wKvFNqQH7Ja8T aNw=     ;{id = 2854}
+SECTION ADDITIONAL
+ns.example.com.		IN 	A	1.2.3.4
+ns.example.com. 3600    IN      RRSIG   A 7 3 3600 20181230101919 20181130101919 50354 example.com. Jo9iWIAFOGFQlSzoyXWSRmuZvftlr6NyyI2wFnYVa94mivyRbJViL3G9 vPbhSuP7lkD1DzFbH2nztu6LBqavrVCQCGsEixo6f5eUhywptl/hLTLp 8shS5iWfGvZKXobH9n9ryJIQfwPoVHhEfx5FpOKR+A7ORQOgsQb9TaGv EX8=     ;{id = 2854}
+ENTRY_END
+
+; response for delegation to sub.example.com.
+ENTRY_BEGIN
+MATCH opcode qtype qname
+ADJUST copy_id
+REPLY QR NOERROR
+SECTION QUESTION
+www.sub.example.com. IN A
+SECTION ANSWER
+SECTION AUTHORITY
+sub.example.com. IN	NS ns.sub.example.com.
+sub.example.com.        3600    IN      DS      58437 5 1 CA63FDB4AD33BB461138E76EC4DC94DBE0F038A8    
+sub.example.com.        3600    IN      RRSIG   DS 7 3 3600 20181230101919 20181130101919 50354 example.com. g46bxGtNNjp5Zw4L06Yfz/GHWoZbuhlTYMjy/pwREOo1ns3YwF13EK7y juBEsnzR9t+38koZNRgQ1GGI2cAhBxt95xakkvop64zqvdQ9oLqUdapp LfbuPSruLmNUdv6iePkjBuBiSa0XDMaKzfj+gMaIti/43W2wGFDpD+5Z x88=     ;{id = 2854}
+SECTION ADDITIONAL
+ns.sub.example.com. IN A 1.2.3.6
+ENTRY_END
+
+; response for delegation to sub.example.com.
+ENTRY_BEGIN
+MATCH opcode qtype qname
+ADJUST copy_id
+REPLY QR NOERROR
+SECTION QUESTION
+sub.example.com. IN DNSKEY
+SECTION ANSWER
+SECTION AUTHORITY
+sub.example.com. IN	NS ns.sub.example.com.
+sub.example.com.        3600    IN      DS      58437 5 1 CA63FDB4AD33BB461138E76EC4DC94DBE0F038A8    
+sub.example.com.        3600    IN      RRSIG   DS 7 3 3600 20181230101919 20181130101919 50354 example.com. g46bxGtNNjp5Zw4L06Yfz/GHWoZbuhlTYMjy/pwREOo1ns3YwF13EK7y juBEsnzR9t+38koZNRgQ1GGI2cAhBxt95xakkvop64zqvdQ9oLqUdapp LfbuPSruLmNUdv6iePkjBuBiSa0XDMaKzfj+gMaIti/43W2wGFDpD+5Z x88=     ;{id = 2854}
+SECTION ADDITIONAL
+ns.sub.example.com. IN A 1.2.3.6
+ENTRY_END
+RANGE_END
+
+; ns.sub.example.com.
+RANGE_BEGIN 0 100
+	ADDRESS 1.2.3.6
+ENTRY_BEGIN
+MATCH opcode qtype qname
+ADJUST copy_id
+REPLY QR NOERROR
+SECTION QUESTION
+sub.example.com. IN NS
+SECTION ANSWER
+sub.example.com. IN	NS ns.sub.example.com.
+sub.example.com.        3600    IN      RRSIG   NS 5 3 3600 20181230101919 20181130101919 58437 sub.example.com. ItcLJAYgLspxtEVeL8fZEb8j1TC6Y92edHMA2/wXO7xiQ+hz7RHJvp2x z3KAAhFX9TJgcrBbWKfpnZ51+IOTgpDLJvZMCsAmHJNmVdITbzzQc5O5 AA2mz0j5Gu9HoMFYZjgHAxRB+YJEYzqMOFAdp4kDhKyVXsqQkiZ/P2BD 41I=     ;{id = 30899}
+SECTION ADDITIONAL
+ns.sub.example.com. IN A 1.2.3.6
+ns.sub.example.com.     3600    IN      RRSIG   A 5 4 3600 20181230101919 20181130101919 58437 sub.example.com. Al3EkHOo8/SiRqHaHxOA/d2KWRRUaTRklYFlh32mjW20m1oY6G+UpuuZ P6JoNxb7MuME2hd097u8voJlpOtPn90vlTrPgl8QfYroicHWhAepHkT1 bRdwOqVnkUtw4B3uAkz/kkSgOmKsmqvcSRMIqULTIVeSXBPHE0331hcF uGc=     ;{id = 30899}
+ENTRY_END
+
+; response to DNSKEY priming query
+; sub.example.com.        3600    IN      DS      58437 5 1 CA63FDB4AD33BB461138E76EC4DC94DBE0F038A8    
+ENTRY_BEGIN
+MATCH opcode qtype qname
+ADJUST copy_id
+REPLY QR NOERROR
+SECTION QUESTION
+sub.example.com. IN DNSKEY
+SECTION ANSWER
+sub.example.com.        3600    IN      DNSKEY  256 3 5 AwEAAcidUcbaG85xnWPvZBRbP2yb8hg06PeLTFOpZT2GUMRx3EaOanGC G+qffFqMx2427wBoHXXWTlN97aR1H/GBjnH65BQhXC0LFnamFpIA+5kg x8Q6qJP72mGfx0lSnvzSsdnwGJ2DYcSV44fQ/edMxW0YlQH2rkNGlzrr KBMCv3ip     ;{id = 30899 (zsk), size = 512b}
+sub.example.com.        3600    IN      RRSIG   DNSKEY 5 3 3600 20181230101919 20181130101919 58437 sub.example.com. nhsKPftsVfsu1hx+zqQ2oCx+NEVzuyIHLAgylBnIGG/alPdfne8qUzPB f3KNGTwuCGfIhUBL7TveVAm5WcPfFi7BDW0uhHqFyJJoJvMLBuiLmCL5 tB13KS2f/HaowRAFuua7g/1e4SjJ0FXfU+/xuP0wrMsI5GI9QKZJr+Bq yi8=     ;{id = 30899}
+SECTION AUTHORITY
+sub.example.com. IN	NS ns.sub.example.com.
+sub.example.com.        3600    IN      RRSIG   NS 5 3 3600 20181230101919 20181130101919 58437 sub.example.com. ItcLJAYgLspxtEVeL8fZEb8j1TC6Y92edHMA2/wXO7xiQ+hz7RHJvp2x z3KAAhFX9TJgcrBbWKfpnZ51+IOTgpDLJvZMCsAmHJNmVdITbzzQc5O5 AA2mz0j5Gu9HoMFYZjgHAxRB+YJEYzqMOFAdp4kDhKyVXsqQkiZ/P2BD 41I=     ;{id = 30899}
+SECTION ADDITIONAL
+ns.sub.example.com. IN A 1.2.3.6
+ns.sub.example.com.     3600    IN      RRSIG   A 5 4 3600 20181230101919 20181130101919 58437 sub.example.com. Al3EkHOo8/SiRqHaHxOA/d2KWRRUaTRklYFlh32mjW20m1oY6G+UpuuZ P6JoNxb7MuME2hd097u8voJlpOtPn90vlTrPgl8QfYroicHWhAepHkT1 bRdwOqVnkUtw4B3uAkz/kkSgOmKsmqvcSRMIqULTIVeSXBPHE0331hcF uGc=     ;{id = 30899}
+ENTRY_END
+
+; response to query of interest
+ENTRY_BEGIN
+MATCH opcode qtype qname
+ADJUST copy_id
+REPLY QR NOERROR
+SECTION QUESTION
+www.sub.example.com. IN A
+SECTION ANSWER
+www.sub.example.com. IN A	11.11.11.11
+www.sub.example.com.    3600    IN      RRSIG   A 5 4 3600 20181230101919 20181130101919 58437 sub.example.com. gXjsKvu10zuDSjsMrDT3GN2tjkVbC4xrGjvY3VUL2+RuNI0iAdNUngTv LcHvFpS8jdgQ8AKRNXjL+I7buQmnmfA335Atlzk9plgFxjv313fn7ri6 s4mhBy6+Kyjf8v/wd3cnO9myXxSGAtp7sUcYI3D4CJaWiu8JQ4GgnE+P fuA=     ;{id = 30899}
+SECTION AUTHORITY
+SECTION ADDITIONAL
+ENTRY_END
+RANGE_END
+
+; Extra entries for a validator that is not a recursive resolver.
+RANGE_BEGIN 0 100
+	ADDRESS 6.6.6.6
+
+ENTRY_BEGIN
+MATCH opcode qtype qname
+ADJUST copy_id
+REPLY QR NOERROR
+SECTION QUESTION
+sub.example.com. IN DS
+SECTION ANSWER
+sub.example.com.        3600    IN      DS      58437 5 1 CA63FDB4AD33BB461138E76EC4DC94DBE0F038A8    
+sub.example.com.        3600    IN      RRSIG   DS 7 3 3600 20181230101919 20181130101919 50354 example.com. g46bxGtNNjp5Zw4L06Yfz/GHWoZbuhlTYMjy/pwREOo1ns3YwF13EK7y juBEsnzR9t+38koZNRgQ1GGI2cAhBxt95xakkvop64zqvdQ9oLqUdapp LfbuPSruLmNUdv6iePkjBuBiSa0XDMaKzfj+gMaIti/43W2wGFDpD+5Z x88=     ;{id = 2854}
+ENTRY_END
+
+; end of 6.6.6.6
+RANGE_END
+
+STEP 1 QUERY
+ENTRY_BEGIN
+REPLY RD DO
+SECTION QUESTION
+www.sub.example.com. IN A
+ENTRY_END
+
+; recursion happens here.
+STEP 10 CHECK_ANSWER
+ENTRY_BEGIN
+MATCH all
+REPLY QR AD DO NOERROR
+SECTION QUESTION
+www.sub.example.com. IN A
+SECTION ANSWER
+www.sub.example.com. 	3600	IN	A	11.11.11.11
+www.sub.example.com.    3600    IN      RRSIG   A 5 4 3600 20181230101919 20181130101919 58437 sub.example.com. gXjsKvu10zuDSjsMrDT3GN2tjkVbC4xrGjvY3VUL2+RuNI0iAdNUngTv LcHvFpS8jdgQ8AKRNXjL+I7buQmnmfA335Atlzk9plgFxjv313fn7ri6 s4mhBy6+Kyjf8v/wd3cnO9myXxSGAtp7sUcYI3D4CJaWiu8JQ4GgnE+P fuA=     ;{id = 30899}
+SECTION AUTHORITY
+SECTION ADDITIONAL
+ENTRY_END
+
+SCENARIO_END

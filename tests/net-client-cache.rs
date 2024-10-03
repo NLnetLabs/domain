@@ -1,14 +1,13 @@
 #![cfg(feature = "net")]
-mod net;
 
 use std::fs::File;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use net::stelline::client::do_client_simple;
-use net::stelline::client::CurrStepValue;
-use net::stelline::connect::Connect;
-use net::stelline::parse_stelline::parse_file;
+use domain::stelline::client::do_client_simple;
+use domain::stelline::client::CurrStepValue;
+use domain::stelline::connect::Connect;
+use domain::stelline::parse_stelline::parse_file;
 
 use rstest::rstest;
 use tracing::instrument;
@@ -85,7 +84,7 @@ async fn test_transport_error() {
     let mut msg = msg.question();
     msg.push((Name::vec_from_str("example.com").unwrap(), Rtype::AAAA))
         .unwrap();
-    let req = RequestMessage::new(msg);
+    let req = RequestMessage::new(msg).unwrap();
 
     let mut request = cached.send_request(req.clone());
     let reply = request.get_response().await;

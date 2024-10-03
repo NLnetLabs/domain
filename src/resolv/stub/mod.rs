@@ -256,7 +256,7 @@ impl StubResolver {
     /// lookup, on a resolver using the system’s configuration and wait for
     /// the result.
     ///
-    /// The only argument is a closure taking a reference to a `StubResolver`
+    /// The only argument is a closure taking a reference to a [`StubResolver`]
     /// and returning a future. Whatever that future resolves to will be
     /// returned.
     pub fn run<R, T, E, F>(op: F) -> R::Output
@@ -273,7 +273,7 @@ impl StubResolver {
     /// This is like [`run`] but also takes a resolver configuration for
     /// tailor-making your own resolver.
     ///
-    /// [`run`]: #method.run
+    /// [`run`]: Self::run
     pub fn run_with_conf<R, T, E, F>(conf: ResolvConf, op: F) -> R::Output
     where
         R: Future<Output = Result<T, E>> + Send + 'static,
@@ -395,7 +395,9 @@ impl<'a> Query<'a> {
         let msg = Message::from_octets(message.as_target().to_vec())
             .expect("Message::from_octets should not fail");
 
-        let request_msg = RequestMessage::new(msg);
+        let request_msg = RequestMessage::new(msg).map_err(|e| {
+            io::Error::new(io::ErrorKind::Other, e.to_string())
+        })?;
 
         let transport = self.resolver.get_transport().await.map_err(|e| {
             io::Error::new(io::ErrorKind::Other, e.to_string())
@@ -434,7 +436,7 @@ impl<'a> Query<'a> {
 
 //------------ QueryMessage --------------------------------------------------
 
-// XXX This needs to be re-evaluated if we start adding OPTtions to the query.
+// XXX This needs to be re-evaluated if we start adding OPTions to the query.
 pub(super) type QueryMessage = AdditionalBuilder<Array<512>>;
 
 //------------ Answer --------------------------------------------------------

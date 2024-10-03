@@ -21,9 +21,7 @@
 //! something that looks like a [`Record`]. Apart from actual values
 //! of these types, tuples of the components also work, such as a pair of a
 //! domain name and a record type for a question or a triple of the owner
-//! name, TTL, and record data for a record. If you already have a question
-//! or record, you can use the `push_ref` method to add
-//!
+//! name, TTL, and record data for a record.
 //!
 //! The `push` method of the record
 //! section builders is also available via the [`RecordSectionBuilder`]
@@ -169,6 +167,11 @@ use std::vec::Vec;
 #[derive(Clone, Debug)]
 pub struct MessageBuilder<Target> {
     target: Target,
+
+    /// An optional maximum message size.
+    ///
+    /// Defaults to usize::MAX.
+    limit: usize,
 }
 
 /// # Creating Message Builders
@@ -187,7 +190,10 @@ impl<Target: OctetsBuilder + Truncate> MessageBuilder<Target> {
     ) -> Result<Self, Target::AppendError> {
         target.truncate(0);
         target.append_slice(HeaderSection::new().as_slice())?;
-        Ok(MessageBuilder { target })
+        Ok(MessageBuilder {
+            target,
+            limit: usize::MAX,
+        })
     }
 }
 
@@ -230,7 +236,7 @@ impl<Target: Composer> MessageBuilder<Target> {
     ///
     /// Specifically, this sets the ID, QR, OPCODE, RD, and RCODE fields
     /// in the header and attempts to push the message’s questions to the
-    /// builder. If iterating of the questions fails, it adds what it can.
+    /// builder.
     ///
     /// The method converts the message builder into an answer builder ready
     /// to receive the answer for the question.
@@ -254,6 +260,35 @@ impl<Target: Composer> MessageBuilder<Target> {
         Ok(builder.answer())
     }
 
+    /// Starts creating an error for the given message.
+    ///
+    /// Like [`start_answer()`][Self::start_answer] but infallible. Questions
+    /// will be pushed if possible.
+    pub fn start_error<Octs: Octets + ?Sized>(
+        mut self,
+        msg: &Message<Octs>,
+        rcode: Rcode,
+    ) -> AnswerBuilder<Target> {
+        {
+            let header = self.header_mut();
+            header.set_id(msg.header().id());
+            header.set_qr(true);
+            header.set_opcode(msg.header().opcode());
+            header.set_rd(msg.header().rd());
+            header.set_rcode(rcode);
+        }
+
+        let mut builder = self.question();
+        for item in msg.question().flatten() {
+            if builder.push(item).is_err() {
+                builder.header_mut().set_rcode(Rcode::SERVFAIL);
+                break;
+            }
+        }
+
+        builder.answer()
+    }
+
     /// Creates an AXFR request for the given domain.
     ///
     /// Sets a random ID, pushes the domain and the AXFR record type into
@@ -267,6 +302,41 @@ impl<Target: Composer> MessageBuilder<Target> {
         let mut builder = self.question();
         builder.push((apex, Rtype::AXFR))?;
         Ok(builder.answer())
+    }
+}
+
+/// # Limiting message size
+impl<Target: Composer> MessageBuilder<Target> {
+    /// Limit how much of the underlying buffer may be used.
+    ///
+    /// When a limit is set, calling `push()` on a message section (e.g.
+    /// [`AdditionalBuilder::push()`]) will fail if the limit is exceeded just
+    /// as if the actual end of the underlying buffer had been reached.
+    ///
+    /// Note: Calling this function does NOT truncate the underlying buffer.
+    /// If the new limit is lees than the amount of the buffer that has
+    /// already been used, exisitng content beyond the limit will remain
+    /// untouched, the length will remain larger than the limit, and calls to
+    /// `push()` will fail until the buffer is truncated to a size less than
+    /// the limit.
+    pub fn set_push_limit(&mut self, limit: usize) {
+        self.limit = limit;
+    }
+
+    /// Clear the push limit, if set.
+    ///
+    /// Removes any push limit previously set via `[set_push_limit()`].
+    pub fn clear_push_limit(&mut self) {
+        self.limit = usize::MAX;
+    }
+
+    /// Returns the current push limit, if set.
+    pub fn push_limit(&self) -> Option<usize> {
+        if self.limit == usize::MAX {
+            None
+        } else {
+            Some(self.limit)
+        }
     }
 }
 
@@ -401,6 +471,13 @@ impl<Target: Composer> MessageBuilder<Target> {
             self.target.truncate(pos);
             return Err(From::from(err));
         }
+
+        let new_pos = self.target.as_ref().len();
+        if new_pos >= self.limit {
+            self.target.truncate(pos);
+            return Err(PushError::ShortBuf);
+        }
+
         if inc(self.counts_mut()).is_err() {
             self.target.truncate(pos);
             return Err(PushError::CountOverflow);
@@ -793,6 +870,19 @@ impl<Target: Composer> AnswerBuilder<Target> {
     pub fn push(
         &mut self,
         record: impl ComposeRecord,
+    ) -> Result<(), PushError> {
+        self.builder.push(
+            |target| record.compose_record(target).map_err(Into::into),
+            |counts| counts.inc_ancount(),
+        )
+    }
+
+    /// Appends a record to the answer section without consuming it.
+    ///
+    /// See [`push`][Self::push].
+    pub fn push_ref(
+        &mut self,
+        record: &impl ComposeRecord,
     ) -> Result<(), PushError> {
         self.builder.push(
             |target| record.compose_record(target).map_err(Into::into),
@@ -1706,6 +1796,11 @@ impl<'a, Target: Composer + ?Sized> OptBuilder<'a, Target> {
         let start = self.start;
         OptHeader::for_record_slice_mut(&mut self.target.as_mut()[start..])
     }
+
+    /// Returns a reference to the underlying octets builder.
+    pub fn as_target(&self) -> &Target {
+        self.target
+    }
 }
 
 //------------ StreamTarget --------------------------------------------------
@@ -1726,6 +1821,9 @@ impl<'a, Target: Composer + ?Sized> OptBuilder<'a, Target> {
 /// Because the length is 16 bits long, the assembled message can be at most
 /// 65536 octets long, independently of the maximum length the underlying
 /// builder allows.
+///
+/// [`as_dgram_slice`]: Self::as_dgram_slice
+/// [`as_stream_slice`]: Self::as_stream_slice
 #[derive(Clone, Debug, Default)]
 pub struct StreamTarget<Target> {
     /// The underlying octets builder.
@@ -2044,6 +2142,14 @@ impl<Target: Truncate> Truncate for StaticCompressor<Target> {
                 }
             }
         }
+    }
+}
+
+impl<Target: FreezeBuilder> FreezeBuilder for StaticCompressor<Target> {
+    type Octets = Target::Octets;
+
+    fn freeze(self) -> Self::Octets {
+        self.target.freeze()
     }
 }
 
@@ -2366,6 +2472,42 @@ mod test {
         assert_eq!(rr.data(), &A::from_octets(192, 0, 2, 1));
     }
 
+    #[cfg(feature = "heapless")]
+    #[test]
+    fn exceed_limits() {
+        // Create a limited message builder.
+        let buf = heapless::Vec::<u8, 100>::new();
+
+        // Initialize it with a message header (12 bytes)
+        let mut msg = MessageBuilder::from_target(buf).unwrap();
+        let hdr_len = msg.as_slice().len();
+
+        // Add some bytes.
+        msg.push(|t| t.append_slice(&[0u8; 50]), |_| Ok(()))
+            .unwrap();
+        assert_eq!(msg.as_slice().len(), hdr_len + 50);
+
+        // Set a push limit below the current length.
+        msg.set_push_limit(25);
+
+        // Verify that push fails.
+        assert!(msg.push(|t| t.append_slice(&[0u8; 1]), |_| Ok(())).is_err());
+        assert_eq!(msg.as_slice().len(), hdr_len + 50);
+
+        // Remove the limit.
+        msg.clear_push_limit();
+
+        // Verify that push up until capacity succeeds.
+        for _ in (hdr_len + 50)..100 {
+            msg.push(|t| t.append_slice(&[0u8; 1]), |_| Ok(())).unwrap();
+        }
+        assert_eq!(msg.as_slice().len(), 100);
+
+        // Verify that exceeding the underlying capacity limit fails.
+        assert!(msg.push(|t| t.append_slice(&[0u8; 1]), |_| Ok(())).is_err());
+        assert_eq!(msg.as_slice().len(), 100);
+    }
+
     #[test]
     fn opt_builder() {
         let mut msg = MessageBuilder::new_vec().additional();
@@ -2445,5 +2587,51 @@ mod test {
 
         let msg = create_compressed(TreeCompressor::new(Vec::new()));
         assert_eq!(&expect[..], msg.as_ref());
+    }
+
+    #[test]
+    fn compress_positive_response() {
+        // An example positive response to `A example.com.` that is compressed
+        //
+        // ;; ->>HEADER<<- opcode: QUERY, status: NOERROR, id: 0
+        // ;; flags: qr rd ra ad; QUERY: 1, ANSWER: 1, AUTHORITY: 0, ADDITIONAL: 0
+        //
+        // ;; QUESTION SECTION:
+        // ;example.com.			IN	A
+        //
+        // ;; ANSWER SECTION:
+        // example.com.		3600	IN	A	203.0.113.1
+        //
+        // ;; MSG SIZE  rcvd: 45
+        let expect = &[
+            0x00, 0x00, 0x81, 0xa0, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x00,
+            0x00, 0x07, 0x65, 0x78, 0x61, 0x6d, 0x70, 0x6c, 0x65, 0x03, 0x63,
+            0x6f, 0x6d, 0x00, 0x00, 0x01, 0x00, 0x01, 0xc0, 0x0c, 0x00, 0x01,
+            0x00, 0x01, 0x00, 0x00, 0x0e, 0x10, 0x00, 0x04, 0xcb, 0x00, 0x71,
+            0x01,
+        ];
+
+        let name = "example.com.".parse::<Name<Vec<u8>>>().unwrap();
+        let mut msg =
+            MessageBuilder::from_target(StaticCompressor::new(Vec::new()))
+                .unwrap()
+                .question();
+        msg.header_mut().set_rcode(Rcode::NOERROR);
+        msg.header_mut().set_rd(true);
+        msg.header_mut().set_ra(true);
+        msg.header_mut().set_qr(true);
+        msg.header_mut().set_ad(true);
+
+        // Question
+        msg.push((name.clone(), Rtype::A)).unwrap();
+
+        // Answer
+        let mut msg = msg.answer();
+        msg.push((name.clone(), 3600, A::from_octets(203, 0, 113, 1)))
+            .unwrap();
+
+        let actual = msg.finish().into_target();
+        assert_eq!(45, actual.len(), "unexpected response size");
+        assert_eq!(expect[..], actual, "unexpected response data");
     }
 }

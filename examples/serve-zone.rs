@@ -15,27 +15,50 @@
 //!
 //!   dig @127.0.0.1 -p 8053 AXFR example.com
 
-use domain::base::iana::{Opcode, Rcode};
-use domain::base::message_builder::AdditionalBuilder;
-use domain::base::{Message, Name, Rtype, ToName};
+use core::future::{ready, Future};
+use core::pin::Pin;
+use core::str::FromStr;
+
+use std::collections::HashMap;
+use std::future::pending;
+use std::io::BufReader;
+use std::process::exit;
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
+
+use octseq::Octets;
+use rand::distributions::Alphanumeric;
+use rand::Rng;
+use tokio::net::{TcpListener, UdpSocket};
+use tracing_subscriber::EnvFilter;
+
+use domain::base::iana::{Class, Rcode};
+use domain::base::name::OwnedLabel;
+use domain::base::net::IpAddr;
+use domain::base::{Name, Rtype, Serial, ToName, Ttl};
 use domain::net::server::buf::VecBufSource;
 use domain::net::server::dgram::DgramServer;
 use domain::net::server::message::Request;
-use domain::net::server::service::{
-    CallResult, ServiceError, Transaction, TransactionStream,
+#[cfg(feature = "siphasher")]
+use domain::net::server::middleware::cookies::CookiesMiddlewareSvc;
+use domain::net::server::middleware::edns::EdnsMiddlewareSvc;
+use domain::net::server::middleware::mandatory::MandatoryMiddlewareSvc;
+use domain::net::server::middleware::notify::{
+    Notifiable, NotifyError, NotifyMiddlewareSvc,
 };
+use domain::net::server::middleware::tsig::TsigMiddlewareSvc;
+use domain::net::server::middleware::xfr::{
+    XfrData, XfrDataProvider, XfrDataProviderError, XfrMiddlewareSvc,
+};
+use domain::net::server::service::{CallResult, ServiceResult};
 use domain::net::server::stream::StreamServer;
 use domain::net::server::util::{mk_builder_for_target, service_fn};
+use domain::tsig::{Algorithm, Key, KeyName};
 use domain::zonefile::inplace;
-use domain::zonetree::{Answer, Rrset};
+use domain::zonetree::{
+    Answer, InMemoryZoneDiff, Rrset, SharedRrset, StoredName,
+};
 use domain::zonetree::{Zone, ZoneTree};
-use octseq::OctetsBuilder;
-use std::future::{pending, ready, Future};
-use std::io::BufReader;
-use std::sync::{Arc, Mutex};
-use std::time::Duration;
-use tokio::net::{TcpListener, UdpSocket};
-use tracing_subscriber::EnvFilter;
 
 #[tokio::main()]
 async fn main() {
@@ -48,23 +71,66 @@ async fn main() {
         .try_init()
         .ok();
 
+    // Create a TSIG key store with a demo key.
+    let mut key_store = HashMap::<(KeyName, Algorithm), Key>::new();
+    let key_name = KeyName::from_str("demo-key").unwrap();
+    let secret = domain::utils::base64::decode::<Vec<u8>>(
+        "zlCZbVJPIhobIs1gJNQfrsS3xCxxsR9pMUrGwG8OgG8=",
+    )
+    .unwrap();
+    let key =
+        Key::new(Algorithm::Sha256, &secret, key_name.clone(), None, None)
+            .unwrap();
+    key_store.insert((key_name, Algorithm::Sha256), key);
+
     // Populate a zone tree with test data
-    let mut zones = ZoneTree::new();
     let zone_bytes = include_bytes!("../test-data/zonefiles/nsd-example.txt");
     let mut zone_bytes = BufReader::new(&zone_bytes[..]);
 
     // We're reading from static data so this cannot fail due to I/O error.
     // Don't handle errors that shouldn't happen, keep the example focused
     // on what we want to demonstrate.
-    let reader = inplace::Zonefile::load(&mut zone_bytes).unwrap();
-    let zone = Zone::try_from(reader).unwrap();
+    let mut zones = ZoneTree::new();
+    let reader =
+        inplace::Zonefile::load(&mut zone_bytes).unwrap_or_else(|err| {
+            eprintln!("Error reading zone file bytes: {err}");
+            exit(1);
+        });
+    let zone = Zone::try_from(reader).unwrap_or_else(|errors| {
+        eprintln!(
+            "{} zone file entries could not be parsed, aborting:",
+            errors.len()
+        );
+        for (name, err) in errors {
+            eprintln!("  {name}: {err}");
+        }
+        exit(1);
+    });
     zones.insert_zone(zone).unwrap();
     let zones = Arc::new(zones);
 
-    let addr = "127.0.0.1:8053";
-    let svc = Arc::new(service_fn(my_service, zones));
+    // Create an XFR data provider that can serve diffs for our zone.
+    let zones_and_diffs = ZoneTreeWithDiffs::new(zones.clone());
 
-    let sock = UdpSocket::bind(addr).await.unwrap();
+    // Create a server with middleware layers and an application service
+    // listening on localhost port 8053.
+    let addr = "127.0.0.1:8053";
+    let svc = service_fn(my_service, zones.clone());
+
+    #[cfg(feature = "siphasher")]
+    let svc = CookiesMiddlewareSvc::<Vec<u8>, _, _>::with_random_secret(svc);
+    let svc = EdnsMiddlewareSvc::<Vec<u8>, _, _>::new(svc);
+    let svc = XfrMiddlewareSvc::<Vec<u8>, _, _, _>::new(
+        svc,
+        zones_and_diffs.clone(),
+        1,
+    );
+    let svc = NotifyMiddlewareSvc::new(svc, DemoNotifyTarget);
+    let svc = MandatoryMiddlewareSvc::<Vec<u8>, _, _>::new(svc);
+    let svc = TsigMiddlewareSvc::new(svc, key_store);
+    let svc = Arc::new(svc);
+
+    let sock = UdpSocket::bind(&addr).await.unwrap();
     let sock = Arc::new(sock);
     let mut udp_metrics = vec![];
     let num_cores = std::thread::available_parallelism().unwrap().get();
@@ -82,26 +148,90 @@ async fn main() {
 
     tokio::spawn(async move { tcp_srv.run().await });
 
+    eprintln!("Listening on {addr}");
+    eprintln!("Try:");
+    eprintln!("  dig @127.0.0.1 -p 8053 example.com");
+    eprintln!("  dig @127.0.0.1 -p 8053 example.com AXFR");
+    eprintln!("  dig @127.0.0.1 -p 8053 -y hmac-sha256:demo-key:zlCZbVJPIhobIs1gJNQfrsS3xCxxsR9pMUrGwG8OgG8= example.com AXFR");
+    eprintln!("  dig @127.0.0.1 -p 8053 +opcode=notify example.com SOA");
+    eprintln!("  cargo run --example ixfr-client --all-features -- 127.0.0.1:8053 example.com 2020080302");
+    eprintln!();
+    eprintln!("Tip: set env var RUST_LOG=info (or debug or trace) for more log output.");
+
+    // Print some status information every 5 seconds
     tokio::spawn(async move {
         loop {
             tokio::time::sleep(Duration::from_millis(5000)).await;
-            for (i, metrics) in udp_metrics.iter().enumerate() {
-                eprintln!(
-                    "Server status: UDP[{i}]: #conn={:?}, #in-flight={}, #pending-writes={}, #msgs-recvd={}, #msgs-sent={}",
-                    metrics.num_connections(),
-                    metrics.num_inflight_requests(),
-                    metrics.num_pending_writes(),
-                    metrics.num_received_requests(),
-                    metrics.num_sent_responses(),
-                );
+
+            let mut udp_num_connections = 0;
+            let mut udp_num_inflight_requests = 0;
+            let mut udp_num_pending_writes = 0;
+            let mut udp_num_received_requests = 0;
+            let mut udp_num_sent_responses = 0;
+
+            for metrics in udp_metrics.iter() {
+                udp_num_connections += metrics.num_connections();
+                udp_num_inflight_requests += metrics.num_inflight_requests();
+                udp_num_pending_writes += metrics.num_pending_writes();
+                udp_num_received_requests += metrics.num_received_requests();
+                udp_num_sent_responses += metrics.num_sent_responses();
             }
             eprintln!(
-                "Server status: TCP: #conn={:?}, #in-flight={}, #pending-writes={}, #msgs-recvd={}, #msgs-sent={}",
+                "Server status: #conn/#in-flight/#pending-writes/#msgs-recvd/#msgs-sent: UDP={}/{}/{}/{}/{} TCP={}/{}/{}/{}/{}",
+                udp_num_connections,
+                udp_num_inflight_requests,
+                udp_num_pending_writes,
+                udp_num_received_requests,
+                udp_num_sent_responses,
                 tcp_metrics.num_connections(),
                 tcp_metrics.num_inflight_requests(),
                 tcp_metrics.num_pending_writes(),
                 tcp_metrics.num_received_requests(),
                 tcp_metrics.num_sent_responses(),
+            );
+        }
+    });
+
+    // Mutate our own zone every 10 seconds.
+    tokio::spawn(async move {
+        let zone_name = Name::<Vec<u8>>::from_str("example.com").unwrap();
+        let mut label: Option<OwnedLabel> = None;
+
+        loop {
+            tokio::time::sleep(Duration::from_millis(10000)).await;
+
+            let zone = zones.get_zone(&zone_name, Class::IN).unwrap();
+            let mut writer = zone.write().await;
+            {
+                let node = writer.open(true).await.unwrap();
+
+                if let Some(old_label) = label {
+                    let node = node.update_child(&old_label).await.unwrap();
+                    node.remove_rrset(Rtype::A).await.unwrap();
+                }
+
+                let random_string: String = rand::thread_rng()
+                    .sample_iter(&Alphanumeric)
+                    .take(7)
+                    .map(char::from)
+                    .collect();
+                let new_label = OwnedLabel::from_str(&random_string).unwrap();
+
+                let node = node.update_child(&new_label).await.unwrap();
+                let mut rrset = Rrset::new(Rtype::A, Ttl::from_secs(60));
+                let rec = domain::rdata::A::new("127.0.0.1".parse().unwrap());
+                rrset.push_data(rec.into());
+                node.update_rrset(SharedRrset::new(rrset)).await.unwrap();
+
+                label = Some(new_label);
+            }
+            let diff = writer.commit(true).await.unwrap();
+            if let Some(diff) = diff {
+                zones_and_diffs.add_diff(diff);
+            }
+            eprintln!(
+                "Added {} A record to zone example.com",
+                label.unwrap()
             );
         }
     });
@@ -113,30 +243,7 @@ async fn main() {
 fn my_service(
     request: Request<Vec<u8>>,
     zones: Arc<ZoneTree>,
-) -> Result<
-    Transaction<
-        Vec<u8>,
-        impl Future<Output = Result<CallResult<Vec<u8>>, ServiceError>> + Send,
-    >,
-    ServiceError,
-> {
-    let qtype = request.message().sole_question().unwrap().qtype();
-    match qtype {
-        Rtype::AXFR if request.transport_ctx().is_non_udp() => {
-            let fut = handle_axfr_request(request, zones);
-            Ok(Transaction::stream(Box::pin(fut)))
-        }
-        _ => {
-            let fut = handle_non_axfr_request(request, zones);
-            Ok(Transaction::single(fut))
-        }
-    }
-}
-
-async fn handle_non_axfr_request(
-    request: Request<Vec<u8>>,
-    zones: Arc<ZoneTree>,
-) -> Result<CallResult<Vec<u8>>, ServiceError> {
+) -> ServiceResult<Vec<u8>> {
     let question = request.message().sole_question().unwrap();
     let zone = zones
         .find_zone(question.qname(), question.qclass())
@@ -155,164 +262,100 @@ async fn handle_non_axfr_request(
     Ok(CallResult::new(additional))
 }
 
-async fn handle_axfr_request(
-    request: Request<Vec<u8>>,
+#[derive(Copy, Clone, Default, Debug)]
+struct DemoNotifyTarget;
+
+impl Notifiable for DemoNotifyTarget {
+    fn notify_zone_changed(
+        &self,
+        class: Class,
+        apex_name: &StoredName,
+        source: IpAddr,
+    ) -> Pin<
+        Box<dyn Future<Output = Result<(), NotifyError>> + Sync + Send + '_>,
+    > {
+        eprintln!("Notify received from {source} of change to zone {apex_name} in class {class}");
+
+        let res = match apex_name.to_string().to_lowercase().as_str() {
+            "example.com" => Ok(()),
+            "othererror.com" => Err(NotifyError::Other),
+            _ => Err(NotifyError::NotAuthForZone),
+        };
+
+        Box::pin(ready(res))
+    }
+}
+
+#[derive(Clone)]
+struct ZoneTreeWithDiffs {
     zones: Arc<ZoneTree>,
-) -> TransactionStream<Result<CallResult<Vec<u8>>, ServiceError>> {
-    let mut stream = TransactionStream::default();
+    diffs: Arc<Mutex<Vec<InMemoryZoneDiff>>>,
+}
 
-    // Look up the zone for the queried name.
-    let question = request.message().sole_question().unwrap();
-    let zone = zones
-        .find_zone(question.qname(), question.qclass())
-        .map(|zone| zone.read());
-
-    // If not found, return an NXDOMAIN error response.
-    let Some(zone) = zone else {
-        let answer = Answer::new(Rcode::NXDOMAIN);
-        add_to_stream(answer, request.message(), &mut stream);
-        return stream;
-    };
-
-    // https://datatracker.ietf.org/doc/html/rfc5936#section-2.2
-    // 2.2: AXFR Response
-    //
-    // "An AXFR response that is transferring the zone's contents
-    //  will consist of a series (which could be a series of
-    //  length 1) of DNS messages.  In such a series, the first
-    //  message MUST begin with the SOA resource record of the
-    //  zone, and the last message MUST conclude with the same SOA
-    //  resource record.  Intermediate messages MUST NOT contain
-    //  the SOA resource record.  The AXFR server MUST copy the
-    //  Question section from the corresponding AXFR query message
-    //  into the first response message's Question section.  For
-    //  subsequent messages, it MAY do the same or leave the
-    //  Question section empty."
-
-    // Get the SOA record as AXFR transfers must start and end with the SOA
-    // record. If not found, return a SERVFAIL error response.
-    let qname = question.qname().to_bytes();
-    let Ok(soa_answer) = zone.query(qname, Rtype::SOA) else {
-        let answer = Answer::new(Rcode::SERVFAIL);
-        add_to_stream(answer, request.message(), &mut stream);
-        return stream;
-    };
-
-    // Push the begin SOA response message into the stream
-    add_to_stream(soa_answer.clone(), request.message(), &mut stream);
-
-    // "The AXFR protocol treats the zone contents as an unordered
-    //  collection (or to use the mathematical term, a "set") of
-    //  RRs.  Except for the requirement that the transfer must
-    //  begin and end with the SOA RR, there is no requirement to
-    //  send the RRs in any particular order or grouped into
-    //  response messages in any particular way.  Although servers
-    //  typically do attempt to send related RRs (such as the RRs
-    //  forming an RRset, and the RRsets of a name) as a
-    //  contiguous group or, when message space allows, in the
-    //  same response message, they are not required to do so, and
-    //  clients MUST accept any ordering and grouping of the
-    //  non-SOA RRs.  Each RR SHOULD be transmitted only once, and
-    //  AXFR clients MUST ignore any duplicate RRs received.
-    //
-    //  Each AXFR response message SHOULD contain a sufficient
-    //  number of RRs to reasonably amortize the per-message
-    //  overhead, up to the largest number that will fit within a
-    //  DNS message (taking the required content of the other
-    //  sections into account, as described below).
-    //
-    //  Some old AXFR clients expect each response message to
-    //  contain only a single RR.  To interoperate with such
-    //  clients, the server MAY restrict response messages to a
-    //  single RR.  As there is no standard way to automatically
-    //  detect such clients, this typically requires manual
-    //  configuration at the server."
-
-    let stream = Arc::new(Mutex::new(stream));
-    let cloned_stream = stream.clone();
-    let cloned_msg = request.message().clone();
-
-    let op = Box::new(move |owner: Name<_>, rrset: &Rrset| {
-        if rrset.rtype() != Rtype::SOA {
-            let builder = mk_builder_for_target();
-            let mut answer =
-                builder.start_answer(&cloned_msg, Rcode::NOERROR).unwrap();
-            for item in rrset.data() {
-                answer.push((owner.clone(), rrset.ttl(), item)).unwrap();
-            }
-
-            let additional = answer.additional();
-            let mut stream = cloned_stream.lock().unwrap();
-            add_additional_to_stream(additional, &cloned_msg, &mut stream);
+impl ZoneTreeWithDiffs {
+    fn new(zones: Arc<ZoneTree>) -> Self {
+        Self {
+            zones,
+            diffs: Default::default(),
         }
-    });
-    zone.walk(op);
+    }
 
-    let mutex = Arc::try_unwrap(stream).unwrap();
-    let mut stream = mutex.into_inner().unwrap();
+    fn add_diff(&self, diff: InMemoryZoneDiff) {
+        self.diffs.lock().unwrap().push(diff);
+    }
 
-    // Push the end SOA response message into the stream
-    add_to_stream(soa_answer, request.message(), &mut stream);
-
-    stream
+    fn get_diffs(&self, diff_from: Option<Serial>) -> Vec<InMemoryZoneDiff> {
+        let diffs = self.diffs.lock().unwrap();
+        if let Some(idx) = diffs
+            .iter()
+            .position(|diff| Some(diff.start_serial) == diff_from)
+        {
+            diffs[idx..].to_vec()
+        } else {
+            vec![]
+        }
+    }
 }
 
-#[allow(clippy::type_complexity)]
-fn add_to_stream(
-    answer: Answer,
-    msg: &Message<Vec<u8>>,
-    stream: &mut TransactionStream<Result<CallResult<Vec<u8>>, ServiceError>>,
-) {
-    let builder = mk_builder_for_target();
-    let additional = answer.to_message(msg, builder);
-    add_additional_to_stream(additional, msg, stream);
-}
+impl<RequestMeta> XfrDataProvider<RequestMeta> for ZoneTreeWithDiffs {
+    type Diff = InMemoryZoneDiff;
 
-#[allow(clippy::type_complexity)]
-fn add_additional_to_stream(
-    mut additional: AdditionalBuilder<domain::base::StreamTarget<Vec<u8>>>,
-    msg: &Message<Vec<u8>>,
-    stream: &mut TransactionStream<Result<CallResult<Vec<u8>>, ServiceError>>,
-) {
-    set_axfr_header(msg, &mut additional);
-    stream.push(ready(Ok(CallResult::new(additional))));
-}
+    fn request<Octs>(
+        &self,
+        req: &Request<Octs, RequestMeta>,
+        diff_from: Option<Serial>,
+    ) -> Pin<
+        Box<
+            dyn Future<
+                    Output = Result<
+                        XfrData<Self::Diff>,
+                        XfrDataProviderError,
+                    >,
+                > + Sync
+                + Send,
+        >,
+    >
+    where
+        Octs: Octets + Send + Sync,
+    {
+        let res = req
+            .message()
+            .sole_question()
+            .map_err(XfrDataProviderError::ParseError)
+            .and_then(|q| {
+                if let Some(zone) =
+                    self.zones.find_zone(q.qname(), q.qclass())
+                {
+                    Ok(XfrData::new(
+                        zone.clone(),
+                        self.get_diffs(diff_from),
+                        false,
+                    ))
+                } else {
+                    Err(XfrDataProviderError::UnknownZone)
+                }
+            });
 
-fn set_axfr_header<Target>(
-    msg: &Message<Vec<u8>>,
-    additional: &mut AdditionalBuilder<Target>,
-) where
-    Target: AsMut<[u8]>,
-    Target: OctetsBuilder,
-{
-    // https://datatracker.ietf.org/doc/html/rfc5936#section-2.2.1
-    // 2.2.1: Header Values
-    //
-    // "These are the DNS message header values for AXFR responses.
-    //
-    //     ID          MUST be copied from request -- see Note a)
-    //
-    //     QR          MUST be 1 (Response)
-    //
-    //     OPCODE      MUST be 0 (Standard Query)
-    //
-    //     Flags:
-    //        AA       normally 1 -- see Note b)
-    //        TC       MUST be 0 (Not truncated)
-    //        RD       RECOMMENDED: copy request's value; MAY be set to 0
-    //        RA       SHOULD be 0 -- see Note c)
-    //        Z        "mbz" -- see Note d)
-    //        AD       "mbz" -- see Note d)
-    //        CD       "mbz" -- see Note d)"
-    let header = additional.header_mut();
-    header.set_id(msg.header().id());
-    header.set_qr(true);
-    header.set_opcode(Opcode::QUERY);
-    header.set_aa(true);
-    header.set_tc(false);
-    header.set_rd(msg.header().rd());
-    header.set_ra(false);
-    header.set_z(false);
-    header.set_ad(false);
-    header.set_cd(false);
+        Box::pin(ready(res))
+    }
 }

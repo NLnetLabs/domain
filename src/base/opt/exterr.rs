@@ -17,7 +17,9 @@ use octseq::builder::OctetsBuilder;
 use octseq::octets::{Octets, OctetsFrom};
 use octseq::parse::Parser;
 use octseq::str::Str;
+use octseq::{EmptyBuilder, FromBuilder};
 use core::{fmt, hash, str};
+use core::convert::Infallible;
 
 //------------ ExtendedError -------------------------------------------------
 
@@ -28,6 +30,13 @@ use core::{fmt, hash, str};
 /// standardized [`ExtendedErrorCode`] for machines and an optional UTF-8
 /// error text for humans.
 #[derive(Clone)]
+#[cfg_attr(
+    feature = "serde",
+    derive(serde::Serialize),
+    serde(bound(
+        serialize = "Octs: AsRef<[u8]>"
+    ))
+)]
 pub struct ExtendedError<Octs> {
     /// The extended error code.
     code: ExtendedErrorCode,
@@ -35,7 +44,23 @@ pub struct ExtendedError<Octs> {
     /// Optional human-readable error information.
     ///
     /// See `text` for the interpretation of the result.
+    #[cfg_attr(feature = "serde", serde(serialize_with = "lossy_text"))]
     text: Option<Result<Str<Octs>, Octs>>,
+}
+
+#[cfg(feature = "serde")]
+fn lossy_text<S, Octs: AsRef<[u8]>>(
+    text: &Option<Result<Str<Octs>, Octs>>,
+    serializer: S,
+) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    match text {
+        Some(Ok(text)) => serializer.serialize_str(text),
+        Some(Err(text)) => serializer.serialize_str(&std::string::String::from_utf8_lossy(text.as_ref())),
+        None => serializer.serialize_none(),
+    }
 }
 
 impl ExtendedError<()> {
@@ -58,6 +83,15 @@ impl<Octs> ExtendedError<Octs> {
             )?
         }
         Ok(unsafe { Self::new_unchecked(code, text.map(Ok)) })
+    }
+
+    pub fn new_with_str(code: ExtendedErrorCode, text: &str) ->
+	Result<Self, LongOptData>
+	where Octs: AsRef<[u8]> + FromBuilder,
+	<Octs as FromBuilder>::Builder: EmptyBuilder,
+	<<Octs as FromBuilder>::Builder as OctetsBuilder>::AppendError: Into<Infallible>,
+    {
+	Self::new(code, Some(Str::copy_from_str(text)))
     }
 
     /// Creates a new value without checking for the option length.

@@ -10,14 +10,14 @@ use crate::base::name::{FlattenInto, ParsedName, ToName};
 use crate::base::rdata::{
     ComposeRecordData, LongRecordData, ParseRecordData, RecordData,
 };
-use crate::base::Ttl;
 use crate::base::scan::{Scan, Scanner, ScannerError};
 use crate::base::serial::Serial;
 use crate::base::wire::{Compose, Composer, FormError, Parse, ParseError};
+use crate::base::Ttl;
 use crate::utils::{base16, base64};
 use core::cmp::Ordering;
 use core::convert::TryInto;
-use core::{cmp, fmt, hash, ptr, str};
+use core::{cmp, fmt, hash, str};
 use octseq::builder::{
     EmptyBuilder, FreezeBuilder, FromBuilder, OctetsBuilder, Truncate,
 };
@@ -170,7 +170,6 @@ impl<Octs> Dnskey<Octs> {
     }
 
     /// Returns the key tag for this DNSKEY data.
-    #[allow(clippy::while_let_loop)] // I find this clearer with a loop.
     pub fn key_tag(&self) -> u16
     where
         Octs: AsRef<[u8]>,
@@ -197,6 +196,9 @@ impl<Octs> Dnskey<Octs> {
             res += u32::from(self.protocol) << 8;
             res += u32::from(self.algorithm.to_int());
             let mut iter = self.public_key().as_ref().iter();
+
+            // I find this clearer with a loop.
+            #[allow(clippy::while_let_loop)]
             loop {
                 match iter.next() {
                     Some(&x) => res += u32::from(x) << 8,
@@ -207,6 +209,7 @@ impl<Octs> Dnskey<Octs> {
                     None => break,
                 }
             }
+
             res += (res >> 16) & 0xFFFF;
             (res & 0xFFFF) as u16
         }
@@ -505,22 +508,10 @@ impl<Name: ToName> ProtoRrsig<Name> {
         self.signer_name.compose_canonical(target)
     }
 
-    fn compose_len(&self) -> u16 {
-        Rtype::COMPOSE_LEN
-            + SecAlg::COMPOSE_LEN
-            + u8::COMPOSE_LEN
-            + u32::COMPOSE_LEN
-            + Timestamp::COMPOSE_LEN
-            + Timestamp::COMPOSE_LEN
-            + u16::COMPOSE_LEN
-            + self.signer_name.compose_len()
-    }
-
     fn compose_head<Target: Composer + ?Sized>(
         &self,
         target: &mut Target,
     ) -> Result<(), Target::AppendError> {
-        self.compose_len().compose(target)?;
         self.type_covered.compose(target)?;
         self.algorithm.compose(target)?;
         self.labels.compose(target)?;
@@ -562,7 +553,7 @@ where
     type AppendError = Name::AppendError;
 
     fn try_flatten_into(
-        self
+        self,
     ) -> Result<ProtoRrsig<TName>, Name::AppendError> {
         Ok(ProtoRrsig::new(
             self.type_covered,
@@ -626,7 +617,7 @@ impl Timestamp {
     /// serial values. Their representation format can either be the
     /// value or a specific date in `YYYYMMDDHHmmSS` format.
     ///
-    /// [RRSIG]: ../../rdata/rfc4034/struct.Rrsig.html
+    /// [RRSIG]: Rrsig
     pub fn scan<S: Scanner>(scanner: &mut S) -> Result<Self, S::Error> {
         let mut pos = 0;
         let mut buf = [0u8; 14];
@@ -683,7 +674,6 @@ impl Timestamp {
     pub fn into_int(self) -> u32 {
         self.0.into_int()
     }
-
 }
 
 /// # Parsing and Composing
@@ -704,7 +694,6 @@ impl Timestamp {
         self.0.compose(target)
     }
 }
-
 
 //--- From and FromStr
 
@@ -753,9 +742,9 @@ impl str::FromStr for Timestamp {
                 .unix_timestamp() as u32,
             )))
         } else {
-            Serial::from_str(src).map(Timestamp).map_err(|_| {
-                IllegalSignatureTime(())
-            })
+            Serial::from_str(src)
+                .map(Timestamp)
+                .map_err(|_| IllegalSignatureTime(()))
         }
     }
 }
@@ -781,7 +770,6 @@ impl CanonicalOrd for Timestamp {
         self.0.canonical_cmp(&other.0)
     }
 }
-
 
 //------------ Helper Functions ----------------------------------------------
 
@@ -1442,10 +1430,7 @@ impl<Octs, Name> Nsec<Octs, Name> {
     pub fn scan<S: Scanner<Octets = Octs, Name = Name>>(
         scanner: &mut S,
     ) -> Result<Self, S::Error> {
-        Ok(Self::new(
-            scanner.scan_name()?,
-            RtypeBitmap::scan(scanner)?,
-        ))
+        Ok(Self::new(scanner.scan_name()?, RtypeBitmap::scan(scanner)?))
     }
 }
 
@@ -2030,10 +2015,8 @@ impl<Octs> RtypeBitmap<Octs> {
     pub fn scan<S: Scanner<Octets = Octs>>(
         scanner: &mut S,
     ) -> Result<Self, S::Error> {
-        let first = Rtype::scan(scanner)?;
         let mut builder =
             RtypeBitmapBuilder::with_builder(scanner.octets_builder()?);
-        builder.add(first).map_err(|_| S::Error::short_buf())?;
         while scanner.continues() {
             builder
                 .add(Rtype::scan(scanner)?)
@@ -2418,18 +2401,18 @@ where
                     return Ok(&mut self.buf.as_mut()[pos..pos + 34])
                 }
                 Ordering::Greater => {
-                    let len = self.buf.as_ref().len() - pos;
+                    // We need the length from before we add the new block
+                    let len = self.buf.as_ref().len();
+
+                    // Allocate space for the new block
                     self.buf.append_slice(&[0; 34])?;
+
+                    // Move everything after this block back by 34 bytes
                     let buf = self.buf.as_mut();
-                    unsafe {
-                        ptr::copy(
-                            buf.as_ptr().add(pos),
-                            buf.as_mut_ptr().add(pos + 34),
-                            len,
-                        );
-                        ptr::write_bytes(buf.as_mut_ptr().add(pos), 0, 34);
-                    }
+                    buf.copy_within(pos..len, pos + 34);
+                    buf[pos..pos + 34].fill(0);
                     buf[pos] = block;
+
                     return Ok(&mut buf[pos..pos + 34]);
                 }
                 Ordering::Less => pos += 34,
@@ -2445,22 +2428,13 @@ where
     where
         Builder: FreezeBuilder + Truncate,
     {
-        let mut src_pos = 0;
         let mut dst_pos = 0;
-        while src_pos < self.buf.as_ref().len() {
-            let len = (self.buf.as_ref()[src_pos + 1] as usize) + 2;
-            if src_pos != dst_pos {
+        let buf_len = self.buf.as_ref().len();
+        for src_pos in (0..buf_len).step_by(34) {
+            let chunk_len = (self.buf.as_ref()[src_pos + 1] as usize) + 2;
                 let buf = self.buf.as_mut();
-                unsafe {
-                    ptr::copy(
-                        buf.as_ptr().add(src_pos),
-                        buf.as_mut_ptr().add(dst_pos),
-                        len,
-                    )
-                }
-            }
-            dst_pos += len;
-            src_pos += 34;
+            buf.copy_within(src_pos..src_pos+chunk_len, dst_pos);
+            dst_pos += chunk_len;
         }
         self.buf.truncate(dst_pos);
         RtypeBitmap(self.buf.freeze())
@@ -2728,6 +2702,13 @@ mod test {
         test_rdlen(&rdata);
         test_compose_parse(&rdata, |parser| Nsec::parse(parser));
         test_scan(&["example.com.", "A", "SRV"], Nsec::scan, &rdata);
+
+        // scan empty rtype bitmap
+        let rdata = Nsec::new(
+            Name::<Vec<u8>>::from_str("example.com.").unwrap(),
+            RtypeBitmapBuilder::new_vec().finalize(),
+        );
+        test_scan(&["example.com."], Nsec::scan, &rdata);
     }
 
     //--- Ds

@@ -4,10 +4,13 @@ use std::fmt::Display;
 use std::io;
 use std::vec::Vec;
 
-use crate::base::Rtype;
+use bytes::Bytes;
+
+use crate::base::iana::Class;
+use crate::base::{Name, Rtype, ToName};
 use crate::zonefile::inplace;
 
-use super::types::{StoredDname, StoredRecord};
+use super::types::{StoredName, StoredRecord};
 
 //------------ ZoneCutError --------------------------------------------------
 
@@ -75,16 +78,20 @@ pub struct OutOfZone;
 #[derive(Clone, Debug)]
 pub enum RecordError {
     /// The class of the record does not match the class of the zone.
-    ClassMismatch(StoredRecord),
+    ClassMismatch(StoredRecord, Class),
 
     /// Attempted to add zone cut records where there is no zone cut.
-    IllegalZoneCut(StoredRecord),
+    ///
+    /// At least one record of non-zone cut type Rtype already exists.
+    IllegalZoneCut(StoredRecord, Rtype),
 
     /// Attempted to add a normal record to a zone cut or CNAME.
-    IllegalRecord(StoredRecord),
+    IllegalRecord(StoredRecord, Rtype),
 
     /// Attempted to add a CNAME record where there are other records.
-    IllegalCname(StoredRecord),
+    ///
+    /// At least one record of type Rtype already exists.
+    IllegalCname(StoredRecord, Rtype),
 
     /// Attempted to add multiple CNAME records for an owner.
     MultipleCnames(StoredRecord),
@@ -93,37 +100,57 @@ pub enum RecordError {
     MalformedRecord(inplace::Error),
 
     /// The record is parseable but not valid.
-    InvalidRecord(ZoneErrors),
+    InvalidRecord(ContextError),
 
     /// The SOA record was not found.
     MissingSoa(StoredRecord),
 }
 
+impl RecordError {
+    /// Get the RR owner name for the error, if any.
+    pub fn owner(&self) -> Option<&Name<Bytes>> {
+        match self {
+            RecordError::ClassMismatch(rec, _)
+            | RecordError::IllegalZoneCut(rec, _)
+            | RecordError::IllegalRecord(rec, _)
+            | RecordError::IllegalCname(rec, _)
+            | RecordError::MultipleCnames(rec)
+            | RecordError::MissingSoa(rec) => Some(rec.owner()),
+            RecordError::MalformedRecord(_)
+            | RecordError::InvalidRecord(_) => None,
+        }
+    }
+}
+
+//--- Display
+
 impl Display for RecordError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            RecordError::ClassMismatch(rec) => {
-                write!(f, "ClassMismatch: {rec}")
+            RecordError::ClassMismatch(rec, zone_class) => {
+                write!(f, "The class of the record does not match the class {zone_class} of the zone: {rec}")
             }
-            RecordError::IllegalZoneCut(rec) => {
-                write!(f, "IllegalZoneCut: {rec}")
+            RecordError::IllegalZoneCut(rec, existing_rtype) => {
+                write!(f, "Attempted to add zone cut records where non-zone cut records ({existing_rtype}) already exist: {rec}")
             }
-            RecordError::IllegalRecord(rec) => {
-                write!(f, "IllegalRecord: {rec}")
+            RecordError::IllegalRecord(rec, existing_rtype) => {
+                write!(f, "Attempted to add a normal record where a {existing_rtype} record already exists: {rec}")
             }
-            RecordError::IllegalCname(rec) => {
-                write!(f, "IllegalCname: {rec}")
+            RecordError::IllegalCname(rec, existing_rtype) => {
+                write!(f, "Attempted to add a CNAME record where a {existing_rtype} record already exists: {rec}")
             }
             RecordError::MultipleCnames(rec) => {
-                write!(f, "MultipleCnames: {rec}")
+                write!(f, "Attempted to add a CNAME record a CNAME record already exists: {rec}")
             }
             RecordError::MalformedRecord(err) => {
-                write!(f, "MalformedRecord: {err}")
+                write!(f, "The record could not be parsed: {err}")
             }
             RecordError::InvalidRecord(err) => {
-                write!(f, "InvalidRecord: {err}")
+                write!(f, "The record is parseable but not valid: {err}")
             }
-            RecordError::MissingSoa(rec) => write!(f, "MissingSoa: {rec}"),
+            RecordError::MissingSoa(rec) => {
+                write!(f, "The SOA record was not found: {rec}")
+            }
         }
     }
 }
@@ -131,21 +158,21 @@ impl Display for RecordError {
 //------------ ZoneErrors ----------------------------------------------------
 
 /// A set of problems relating to a zone.
-#[derive(Clone, Debug, Default)]
-pub struct ZoneErrors {
-    errors: Vec<(StoredDname, ContextError)>,
+#[derive(Clone, Debug)]
+pub struct ZoneErrors<T> {
+    errors: Vec<(StoredName, T)>,
 }
 
-impl ZoneErrors {
+impl<T> ZoneErrors<T> {
     /// Add an error to the set.
-    pub fn add_error(&mut self, name: StoredDname, error: ContextError) {
-        self.errors.push((name, error))
+    pub fn add_error(&mut self, name: impl ToName, error: T) {
+        self.errors.push((name.to_name(), error))
     }
 
     /// Unwrap the set of errors.
     ///
-    /// Returns the set of errors as [Result::Err(ZonErrors)] or [Result::Ok]
-    /// if the set is empty.
+    /// Returns the set of errors as [Result::Err(T)] or [Result::Ok] if the
+    /// set is empty.
     pub fn unwrap(self) -> Result<(), Self> {
         if self.errors.is_empty() {
             Ok(())
@@ -153,9 +180,43 @@ impl ZoneErrors {
             Err(self)
         }
     }
+
+    /// Returns true if there are no errors.
+    pub fn is_empty(&self) -> bool {
+        self.errors.is_empty()
+    }
+
+    /// Returns the number of errors.
+    pub fn len(&self) -> usize {
+        self.errors.len()
+    }
 }
 
-impl Display for ZoneErrors {
+//--- IntoIter
+
+impl<T> IntoIterator for ZoneErrors<T> {
+    type Item = (StoredName, T);
+
+    type IntoIter = std::vec::IntoIter<Self::Item>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.errors.into_iter()
+    }
+}
+
+//--- Default
+
+impl<T> Default for ZoneErrors<T> {
+    fn default() -> Self {
+        Self {
+            errors: Default::default(),
+        }
+    }
+}
+
+//--- Display
+
+impl<T: Display> Display for ZoneErrors<T> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(f, "Zone file errors: [")?;
         for err in &self.errors {

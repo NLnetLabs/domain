@@ -16,7 +16,7 @@ use crate::utils::{base16, base32};
 #[cfg(feature = "bytes")]
 use bytes::Bytes;
 use core::cmp::Ordering;
-use core::{fmt, hash, str};
+use core::{fmt, hash, mem, str};
 use octseq::builder::{
     EmptyBuilder, FreezeBuilder, FromBuilder, OctetsBuilder,
 };
@@ -671,6 +671,7 @@ impl<Octs: AsRef<[u8]>> fmt::Debug for Nsec3param<Octs> {
 /// The salt uses Base 16 (i.e., hex digits) as its representation format with
 /// no whitespace allowed.
 #[derive(Clone)]
+#[repr(transparent)]
 pub struct Nsec3Salt<Octs: ?Sized>(Octs);
 
 impl Nsec3Salt<()> {
@@ -771,8 +772,18 @@ impl Nsec3Salt<[u8]> {
         if slice.len() > Nsec3Salt::MAX_LEN {
             Err(Nsec3SaltError(()))
         } else {
-            Ok(unsafe { &*(slice as *const [u8] as *const Nsec3Salt<[u8]>) })
+            Ok(unsafe { Self::from_slice_unchecked(slice) })
         }
+    }
+
+    /// Creates a new salt value from an octets slice without checking.
+    ///
+    /// # Safety
+    ///
+    /// The passed slice must be no longer than [`Nsec3Salt::MAX_LEN`].
+    unsafe fn from_slice_unchecked(slice: &[u8]) -> &Self {
+        // SAFETY: Nsec3Salt has repr(transparent)
+        mem::transmute(slice)
     }
 }
 
@@ -1081,6 +1092,7 @@ where
 /// For its presentation format, the hash uses an unpadded Base 32 encoding
 /// with no whitespace allowed.
 #[derive(Clone)]
+#[repr(transparent)]
 pub struct OwnerHash<Octs: ?Sized>(Octs);
 
 impl OwnerHash<()> {
@@ -1179,8 +1191,18 @@ impl OwnerHash<[u8]> {
         if slice.len() > OwnerHash::MAX_LEN {
             Err(OwnerHashError(()))
         } else {
-            Ok(unsafe { &*(slice as *const [u8] as *const OwnerHash<[u8]>) })
+            Ok(unsafe { Self::from_slice_unchecked(slice) })
         }
+    }
+
+    /// Creates a new owner hash from an octet slice without checking.
+    ///
+    /// # Safety
+    ///
+    /// The passed slice must be no longer than [`OwnerHash::MAX_LEN`].
+    unsafe fn from_slice_unchecked(slice: &[u8]) -> &Self {
+        // SAFETY: OwnerHash has repr(transparent)
+        mem::transmute(slice)
     }
 }
 

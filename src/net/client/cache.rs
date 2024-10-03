@@ -11,11 +11,11 @@
 //! The response to a query is in general affected by four flags: the
 //! AD, CD, DO, and RD flags.
 //! These flags are defined in the following RFCs:
-//! [RFC 1035](https://www.rfc-editor.org/info/rfc1035),
-//! [RFC 2535](https://www.rfc-editor.org/info/rfc2535),
-//! [RFC 3225](https://www.rfc-editor.org/info/rfc3225),
-//! [RFC 4035](https://www.rfc-editor.org/info/rfc4035),
-//! [RFC 6840](https://www.rfc-editor.org/info/rfc6840).
+//! [RFC 1035](https://tools.ietf.org/html/rfc1035),
+//! [RFC 2535](https://tools.ietf.org/html/rfc2535),
+//! [RFC 3225](https://tools.ietf.org/html/rfc3225),
+//! [RFC 4035](https://tools.ietf.org/html/rfc4035),
+//! [RFC 6840](https://tools.ietf.org/html/rfc6840).
 //! The cache takes these flags into account to
 //! see if a cached response can be returned. In some cases, a cached response
 //! with one set of flags can be made suitable for a query with different
@@ -25,9 +25,6 @@
 //! the maximum number of cache entries, how long different types of
 //! responses should be cached and whether truncated responses should be cached
 //! or not.
-
-#![warn(missing_docs)]
-#![warn(clippy::missing_docs_in_private_items)]
 
 use crate::base::iana::{Class, Opcode, OptRcode, Rtype};
 use crate::base::name::ToName;
@@ -59,7 +56,7 @@ const MAX_CACHE_ENTRIES: DefMinMax<u64> =
 
 /// Limit on the maximum time a cache entry is considered valid.
 ///
-/// According to [RFC 8767](https://www.rfc-editor.org/info/rfc8767) the
+/// According to [RFC 8767](https://tools.ietf.org/html/rfc8767) the
 /// limit should be on the order of days to weeks with a recommended cap of
 /// 604800 seconds (7 days).
 const MAX_VALIDITY: DefMinMax<Duration> = DefMinMax::new(
@@ -70,7 +67,7 @@ const MAX_VALIDITY: DefMinMax<Duration> = DefMinMax::new(
 
 /// Amount of time to cache transport failures.
 ///
-/// According to [RFC 9520](https://www.rfc-editor.org/info/rfc9520)
+/// According to [RFC 9520](https://tools.ietf.org/html/rfc9520)
 /// at least 1 second and at most 5 minutes.
 const TRANSPORT_FAILURE_DURATION: DefMinMax<Duration> = DefMinMax::new(
     Duration::from_secs(30),
@@ -81,7 +78,7 @@ const TRANSPORT_FAILURE_DURATION: DefMinMax<Duration> = DefMinMax::new(
 /// Limit on the amount of time to cache DNS result codes that are not
 /// NOERROR or NXDOMAIN.
 ///
-/// According to [RFC 9520](https://www.rfc-editor.org/info/rfc9520)
+/// According to [RFC 9520](https://tools.ietf.org/html/rfc9520)
 /// at least 1 second and at most 5 minutes.
 const MISC_ERROR_DURATION: DefMinMax<Duration> = DefMinMax::new(
     Duration::from_secs(30),
@@ -91,7 +88,7 @@ const MISC_ERROR_DURATION: DefMinMax<Duration> = DefMinMax::new(
 
 /// Limit on the amount of time to cache a NXDOMAIN error.
 ///
-/// According to [RFC 2308](https://www.rfc-editor.org/info/rfc2308)
+/// According to [RFC 2308](https://tools.ietf.org/html/rfc2308)
 /// the limit should be one to three hours with a maximum of one day.
 const MAX_NXDOMAIN_VALIDITY: DefMinMax<Duration> = DefMinMax::new(
     Duration::from_secs(3600),
@@ -101,7 +98,7 @@ const MAX_NXDOMAIN_VALIDITY: DefMinMax<Duration> = DefMinMax::new(
 
 /// Limit on the amount of time to cache a NODATA response.
 ///
-/// According to [RFC 2308](https://www.rfc-editor.org/info/rfc2308)
+/// According to [RFC 2308](https://tools.ietf.org/html/rfc2308)
 ///  the limit should be one to three hours with a maximum of one day.
 const MAX_NODATA_VALIDITY: DefMinMax<Duration> = DefMinMax::new(
     Duration::from_secs(3600),
@@ -118,15 +115,15 @@ const MAX_DELEGATION_VALIDITY: DefMinMax<Duration> = DefMinMax::new(
 
 // The following four flags are relevant to caching: AD, CD, DO, and RD.
 // The RD flag is defined in RFC 1035
-// (https://www.rfc-editor.org/info/rfc1035) Section 4.1.1.
+// (https://tools.ietf.org/html/rfc1035) Section 4.1.1.
 // The AD and CD flags are defined in RFC 2535
-// (https://www.rfc-editor.org/info/rfc2535) Section 6.1. However the
+// (https://tools.ietf.org/html/rfc2535) Section 6.1. However the
 // meaning of those flags has been redefined in RFC 4035
-// (https://www.rfc-editor.org/info/rfc4035). With another update for the
-// AD flag in RFC 6840 (https://www.rfc-editor.org/info/rfc6840)
+// (https://tools.ietf.org/html/rfc4035). With another update for the
+// AD flag in RFC 6840 (https://tools.ietf.org/html/rfc6840)
 // Sections 5.7 and 5.8.
 // The DO flag is defined in RFC 3225
-// (https://www.rfc-editor.org/info/rfc3225) Section 3.
+// (https://tools.ietf.org/html/rfc3225) Section 3.
 //
 // The AD flag needs to be part of the key when DO is clear. When replying,
 // if both AD and DO are not set in the original request then AD needs to be
@@ -148,7 +145,7 @@ const MAX_DELEGATION_VALIDITY: DefMinMax<Duration> = DefMinMax::new(
 // However, this is not implemented.
 
 // Caching the result of a query for a wildcard record seems to disallowed
-// by Section 4.3.3 of RFC 1034 (https://www.rfc-editor.org/info/rfc1034)
+// by Section 4.3.3 of RFC 1034 (https://tools.ietf.org/html/rfc1034)
 // which says:
 // A * label appearing in a query name has no special effect, but can be
 // used to test for wildcards in an authoritative zone; such a query is the
@@ -159,7 +156,7 @@ const MAX_DELEGATION_VALIDITY: DefMinMax<Duration> = DefMinMax::new(
 // this by replacing the word 'cached' with 'used to synthesize RRs'
 
 // Negative caching is described in RFC 2308
-// (https://www.rfc-editor.org/info/rfc2308).
+// (https://tools.ietf.org/html/rfc2308).
 // NXDOMAIN and NODATA require special treatment. NXDOMAIN can be found
 // directly in the rcode field. NODATA is the condition where the answer
 // section does not contain any record that matches qtype and the message
@@ -180,14 +177,14 @@ const MAX_DELEGATION_VALIDITY: DefMinMax<Duration> = DefMinMax::new(
 // Caching SERVFAIL should be limited to 5 minutes.
 
 // Truncated responses require special treatment. RFC 1035, Section 7.4
-// (https://www.rfc-editor.org/info/rfc1035) warns against potentially
+// (https://tools.ietf.org/html/rfc1035) warns against potentially
 // caching partial sets of resource records. However, because this is a
 // message cache, the users of the cache still has to decide what to do
 // with a truncated response and there is no risk of using cached
 // resource records in a different context.
 // The issue is made more complex by the introduction of the UDP payload
 // size field in RFC 6891, Section 6.1.2
-// (https://www.rfc-editor.org/info/rfc6891).
+// (https://tools.ietf.org/html/rfc6891).
 // This means that a later request with a larger value UDP payload size might
 // get an answer that is not truncated. However the complexity of keeping
 // track of the UDP payload size in the cache does not seem worth it for the
@@ -205,14 +202,14 @@ const MAX_DELEGATION_VALIDITY: DefMinMax<Duration> = DefMinMax::new(
 // caching of truncated responses without taking into account the UDP payload
 // size.
 
-// RFC 8020 (https://www.rfc-editor.org/info/rfc8020) suggests a separate
+// RFC 8020 (https://tools.ietf.org/html/rfc8020) suggests a separate
 // <QNAME, QCLASS> cache for NXDOMAIN, but that may be too hard to implement.
 
-// RFC 9520 (https://www.rfc-editor.org/info/rfc9520) requires resolution
+// RFC 9520 (https://tools.ietf.org/html/rfc9520) requires resolution
 // failures to be cached for at least one second. Resolution failure must
 // not be cached for longer than 5 minutes.
 
-// RFC 8767 (https://www.rfc-editor.org/info/rfc8767) describes serving stale
+// RFC 8767 (https://tools.ietf.org/html/rfc8767) describes serving stale
 // data.
 
 //------------ Config ---------------------------------------------------------
@@ -766,10 +763,10 @@ enum RequestState {
 
 //------------ Key ------------------------------------------------------------
 
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 /// The key for cache entries.
 ///
 /// Note that the AD and DO flags are combined into a single enum.
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 struct Key {
     /// DNS name in the request.
     qname: Name<Bytes>,
@@ -864,8 +861,8 @@ impl AdDo {
 
 //------------ Value ----------------------------------------------------------
 
-#[derive(Debug)]
 /// The value to be cached.
+#[derive(Debug)]
 struct Value
 /*<C>*/
 // where

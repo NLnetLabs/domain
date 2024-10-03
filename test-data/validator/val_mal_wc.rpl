@@ -1,0 +1,153 @@
+do-ip6: no
+
+; config options
+; The island of trust is at example.com
+server:
+	trust-anchor: "example.com.    3600    IN      DS      16907 7 1 15491CE8EE9AC1D17E48D226C0460219546181CD "
+	val-override-date: "20181130121851"
+;	target-fetch-policy: "0 0 0 0 0"
+;	fake-sha1: yes
+
+;stub-zone:
+;	name: "."
+	stub-addr: 193.0.14.129 	# K.ROOT-SERVERS.NET.
+query-minimization: off
+CONFIG_END
+
+SCENARIO_BEGIN Test validator with nodata, wildcards and ENT
+
+; K.ROOT-SERVERS.NET.
+RANGE_BEGIN 0 100
+	ADDRESS 193.0.14.129 
+ENTRY_BEGIN
+MATCH opcode qtype qname
+ADJUST copy_id
+REPLY QR NOERROR
+SECTION QUESTION
+. IN NS
+SECTION ANSWER
+. IN NS	K.ROOT-SERVERS.NET.
+SECTION ADDITIONAL
+K.ROOT-SERVERS.NET.	IN	A	193.0.14.129
+ENTRY_END
+
+ENTRY_BEGIN
+MATCH opcode qtype qname
+ADJUST copy_id
+REPLY QR NOERROR
+SECTION QUESTION
+b.example.com. IN DS
+SECTION AUTHORITY
+com.	IN NS	a.gtld-servers.net.
+SECTION ADDITIONAL
+a.gtld-servers.net.	IN 	A	192.5.6.30
+ENTRY_END
+RANGE_END
+
+; a.gtld-servers.net.
+RANGE_BEGIN 0 100
+	ADDRESS 192.5.6.30
+ENTRY_BEGIN
+MATCH opcode qtype qname
+ADJUST copy_id
+REPLY QR NOERROR
+SECTION QUESTION
+com. IN NS
+SECTION ANSWER
+com.    IN NS   a.gtld-servers.net.
+SECTION ADDITIONAL
+a.gtld-servers.net.     IN      A       192.5.6.30
+ENTRY_END
+
+ENTRY_BEGIN
+MATCH opcode qtype qname
+ADJUST copy_id
+REPLY QR NOERROR
+SECTION QUESTION
+b.example.com. IN DS
+SECTION AUTHORITY
+example.com.	IN NS	ns.example.com.
+SECTION ADDITIONAL
+ns.example.com.		IN 	A	1.2.3.4
+ENTRY_END
+RANGE_END
+
+; ns.example.com.
+RANGE_BEGIN 0 100
+	ADDRESS 1.2.3.4
+ENTRY_BEGIN
+MATCH opcode qtype qname
+ADJUST copy_id
+REPLY QR NOERROR
+SECTION QUESTION
+example.com. IN NS
+SECTION ANSWER
+example.com.    IN NS   ns.example.com.
+example.com.    3600    IN      RRSIG   NS 7 2 3600 20181230101851 20181130101851 16907 example.com. KXsKhCme80OQl4qekE+q0KvymkhEelk+OdOsajCsGmfG5eeCEkN58gVw 5fBgtR2Ekp15KLsV1elsyVL8i7W5Hp5f2G70/plqSQ+78n3Al5jXONgN oVFSOuf8N179F2uf3k20MpnlxQQ7W/VX6SpuAOejyVpp6il6dm2YwRHH nX4=     ;{id = 2854}
+SECTION ADDITIONAL
+ns.example.com.         IN      A       1.2.3.4
+ns.example.com. 3600    IN      RRSIG   A 7 3 3600 20181230101851 20181130101851 16907 example.com. KqDPciNi+sv+8MOP2P0C3qWpFCHjw8eu213ztGMvVDZsEvJLz9QRXkgI XuwhZIEUiKaV9C7jG+aMyOc1amX0Uo8kp+UXuL5k43gjSi0PbhO72aTG QSOZV4S1/Pa/ZN/phWItlN18HGWqBQvx26K16AzziwQvVuL7nUmu/KUj MIY=     ;{id = 2854}
+ENTRY_END
+
+; response to DNSKEY priming query
+ENTRY_BEGIN
+MATCH opcode qtype qname
+ADJUST copy_id
+REPLY QR NOERROR
+SECTION QUESTION
+example.com. IN DNSKEY
+SECTION ANSWER
+example.com.    3600    IN      DNSKEY  256 3 7 AwEAAef0Gt81KzrbFGbFmk6VeEzLLcRbnKiDjdMBO7R+HsQWCO9YpPGx 20mBEV7ISCLva+LZulf584i30ga7qMeVsarsdh9xCYtyMXd4Ex5nMEXx V9f2Or+FjihPduL2TnAlWpvL8oc1oKVI2RISTT1yf8IYy6X/FpfmMP81 9WBN2Kit     ;{id = 2854 (zsk), size = 1688b}
+example.com.    3600    IN      RRSIG   DNSKEY 7 2 3600 20181230101851 20181130101851 16907 example.com. RPXAcaVjBdtk/geHTdTg9ZOKREpAdjZAopRE/5Kk9fdFYQWwg0uRxexL PJ11jXjnp9MKOp1FehctyvE/mm1lB/J6+YepHu3tRAzzJ9YfjVxJjUpp Qv/nA/fU55MHWYhdhXwKn7F+PXD8+MFlAqPyFz9mYZEO89lI4P2/Wf4x pv4=     ;{id = 2854}
+SECTION AUTHORITY
+example.com.	IN NS	ns.example.com.
+example.com.    3600    IN      RRSIG   NS 7 2 3600 20181230101851 20181130101851 16907 example.com. KXsKhCme80OQl4qekE+q0KvymkhEelk+OdOsajCsGmfG5eeCEkN58gVw 5fBgtR2Ekp15KLsV1elsyVL8i7W5Hp5f2G70/plqSQ+78n3Al5jXONgN oVFSOuf8N179F2uf3k20MpnlxQQ7W/VX6SpuAOejyVpp6il6dm2YwRHH nX4=     ;{id = 2854}
+SECTION ADDITIONAL
+ns.example.com.		IN 	A	1.2.3.4
+ns.example.com. 3600    IN      RRSIG   A 7 3 3600 20181230101851 20181130101851 16907 example.com. KqDPciNi+sv+8MOP2P0C3qWpFCHjw8eu213ztGMvVDZsEvJLz9QRXkgI XuwhZIEUiKaV9C7jG+aMyOc1amX0Uo8kp+UXuL5k43gjSi0PbhO72aTG QSOZV4S1/Pa/ZN/phWItlN18HGWqBQvx26K16AzziwQvVuL7nUmu/KUj MIY=     ;{id = 2854}
+ENTRY_END
+
+; response to query of interest
+ENTRY_BEGIN
+MATCH opcode qtype qname
+ADJUST copy_id
+REPLY QR AA NOERROR
+SECTION QUESTION
+b.example.com. IN DS
+SECTION ANSWER
+SECTION AUTHORITY
+example.com.    86394   IN      SOA     NS.IANA.ORG. NSTLD.IANA.ORG. 2007092000 1800 900 604800 86400
+example.com.    86394   IN      RRSIG   SOA 7 2 86394 20181230101851 20181130101851 16907 example.com. uQjgfvlcxQLPfqetqWjTgKTbDOK3BoqbdmrqudrEl/X/S3OR8uhTQu7P EsrJm7IP7lmKcsbF4LAFjBNRp28G4at8v5cnCpvZfKFDzO3JzCubaVnn 18rSZj9gM1e4CN5ms/aAlr5I2hDhIQnsKmhxQBTrngyTcpGgf/YQuruM RKw=     ;{id = 2854}
+
+; note that b.example.com. is an empty nonterminal
+*.example.com.  3600    IN      NSEC    *.b.example.com. A MX RRSIG NSEC 
+*.example.com.  3600    IN      RRSIG   NSEC 7 2 86400 20181230101851 20181130101851 16907 example.com. 5NyjMTv7p0jvYrfxQzTJXvTlf1Uy2tMSmYKEWZoBq87u6mLNBtRgpKl9 1gpVvT8o+uA2XAznujnFZYgLdE9Swk87KqQQSWkyM81458SuSVwB5hma 9afCrB38FH9D9aOCN1nfqIuoEsQi3Bu3Uvtr+eV7oE97ViROSy/1pyyK g9A=     ;{id = 2854}
+
+SECTION ADDITIONAL
+ENTRY_END
+RANGE_END
+
+STEP 1 QUERY
+ENTRY_BEGIN
+REPLY RD DO
+SECTION QUESTION
+b.example.com. IN DS
+ENTRY_END
+
+; recursion happens here.
+STEP 10 CHECK_ANSWER
+ENTRY_BEGIN
+MATCH all
+REPLY QR AA AD DO NOERROR
+SECTION QUESTION
+b.example.com. IN DS
+SECTION ANSWER
+SECTION AUTHORITY
+example.com.    86394   IN      SOA     NS.IANA.ORG. NSTLD.IANA.ORG. 2007092000 1800 900 604800 86400
+example.com.    86394   IN      RRSIG   SOA 7 2 86394 20181230101851 20181130101851 16907 example.com. uQjgfvlcxQLPfqetqWjTgKTbDOK3BoqbdmrqudrEl/X/S3OR8uhTQu7P EsrJm7IP7lmKcsbF4LAFjBNRp28G4at8v5cnCpvZfKFDzO3JzCubaVnn 18rSZj9gM1e4CN5ms/aAlr5I2hDhIQnsKmhxQBTrngyTcpGgf/YQuruM RKw=     ;{id = 2854}
+*.example.com.  3600    IN      NSEC    *.b.example.com. A MX RRSIG NSEC 
+*.example.com.  3600    IN      RRSIG   NSEC 7 2 86400 20181230101851 20181130101851 16907 example.com. 5NyjMTv7p0jvYrfxQzTJXvTlf1Uy2tMSmYKEWZoBq87u6mLNBtRgpKl9 1gpVvT8o+uA2XAznujnFZYgLdE9Swk87KqQQSWkyM81458SuSVwB5hma 9afCrB38FH9D9aOCN1nfqIuoEsQi3Bu3Uvtr+eV7oE97ViROSy/1pyyK g9A=     ;{id = 2854}
+SECTION ADDITIONAL
+ENTRY_END
+
+SCENARIO_END

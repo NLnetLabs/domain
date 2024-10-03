@@ -1,15 +1,12 @@
 //! A DNS over multiple octet streams transport
 
-#![warn(missing_docs)]
-#![warn(clippy::missing_docs_in_private_items)]
-
 // To do:
 // - too many connection errors
 
 use crate::base::Message;
 use crate::net::client::protocol::AsyncConnect;
 use crate::net::client::request::{
-    ComposeRequest, Error, GetResponse, SendRequest,
+    ComposeRequest, Error, GetResponse, RequestMessageMulti, SendRequest,
 };
 use crate::net::client::stream;
 use bytes::Bytes;
@@ -22,6 +19,7 @@ use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Duration;
+use std::vec::Vec;
 use tokio::io;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::sync::{mpsc, oneshot};
@@ -29,7 +27,7 @@ use tokio::time::{sleep_until, Instant};
 
 //------------ Constants -----------------------------------------------------
 
-/// Capacity of the channel that transports `ChanReq`.
+/// Capacity of the channel that transports [`ChanReq`].
 const DEF_CHAN_CAP: usize = 8;
 
 /// Error messafe when the connection is closed.
@@ -200,7 +198,7 @@ enum QueryState<Req> {
     ReceiveConn(oneshot::Receiver<ChanResp<Req>>),
 
     /// Start a query using the given stream transport.
-    StartQuery(Arc<stream::Connection<Req>>),
+    StartQuery(Arc<stream::Connection<Req, RequestMessageMulti<Vec<u8>>>>),
 
     /// Get the result of the query.
     GetResult(stream::Request),
@@ -225,7 +223,7 @@ struct ChanRespOk<Req> {
     id: u64,
 
     /// The new stream transport to use for sending a request.
-    conn: Arc<stream::Connection<Req>>,
+    conn: Arc<stream::Connection<Req, RequestMessageMulti<Vec<u8>>>>,
 }
 
 impl<Req> Request<Req> {
@@ -296,8 +294,11 @@ impl<Req: ComposeRequest + Clone + 'static> Request<Req> {
                     continue;
                 }
                 QueryState::GetResult(ref mut query) => {
-                    match query.get_response().await {
-                        Ok(reply) => return Ok(reply),
+                    let res = query.get_response().await;
+                    match res {
+                        Ok(reply) => {
+                            return Ok(reply);
+                        }
                         // XXX This replicates the previous behavior. But
                         //     maybe we should have a whole category of
                         //     fatal errors where retrying doesn’t make any
@@ -305,13 +306,28 @@ impl<Req: ComposeRequest + Clone + 'static> Request<Req> {
                         Err(Error::WrongReplyForQuery) => {
                             return Err(Error::WrongReplyForQuery)
                         }
+                        Err(Error::ConnectionClosed) => {
+                            // The stream may immedately return that the
+                            // connection was already closed. Do not delay
+                            // the first time.
+                            self.delayed_retry_count += 1;
+                            if self.delayed_retry_count == 1 {
+                                self.state = QueryState::RequestConn;
+                            } else {
+                                let retry_time =
+                                    retry_time(self.delayed_retry_count);
+                                self.state = QueryState::Delay(
+                                    Instant::now(),
+                                    retry_time,
+                                );
+                            }
+                        }
                         Err(_) => {
                             self.delayed_retry_count += 1;
                             let retry_time =
                                 retry_time(self.delayed_retry_count);
                             self.state =
                                 QueryState::Delay(Instant::now(), retry_time);
-                            continue;
                         }
                     }
                 }
@@ -394,7 +410,7 @@ enum SingleConnState3<Req> {
     None,
 
     /// Current stream transport.
-    Some(Arc<stream::Connection<Req>>),
+    Some(Arc<stream::Connection<Req, RequestMessageMulti<Vec<u8>>>>),
 
     /// State that deals with an error getting a new octet stream from
     /// a connection stream.

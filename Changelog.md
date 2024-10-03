@@ -6,10 +6,185 @@ Breaking changes
 
 New
 
+* Added an optional push size limit to `MessageBuilder`. ([#348])
+* Added `FromStr` impls for `Rcode` and `OptRcode`. ([#357])
+* Added `OptRcode::is_ext` to check if the code is an extended code.
+  ([#358])
+* Added `Rtype::is_glue` to check if the Rtype may be used as glue. ([#363])
+* Added `MessageBuilder::start_error`, like `start_answer` but infallible. ([#369])
+* Added `AnswerBuilder::push_ref`, like `push` but takes the record by
+  reference. ([#383])
+* Added `Rtype::NXNAME` and `ExtendedErrorCode::INVALID_QUERY_TYPE`. ([#392])
+* Added a `Serialize` impl to `AllRecordData` and as a consequence to
+  the OPT record and all OPT options, as well as `ParsedName`. ([#343])
+* Added `Display` impl to `tsig::Key`. ([#397])
+
 Bug fixes
+
+* Fixed a mistake in the tsig module while calculating the start of
+  the TSIG record when there were other records in the additional section,
+  causing the TSIG code to fail if OPT records were in use. ([#333])
+* Fixed the mnemonic for the `NOTAUTH` rcode – it was `NOAUTH`. ([#360])
+* Fixes the way the `Txt<_> `record data implements comparison-related
+  traits. They now directly compare the underlying octets, i.e., the wire
+  format bytes. ([#374] by [@dklbreitling])
+* Fix the `tsig` module to reject messages with multiple TSIG records
+  ([#334])
+
+Unstable features
+
+* New unstable feature `unstable-validator` that adds a DNSSEC validator.
+  ([#328])
+* New unstable feature `unstable-xfr` that adds `XfrResponseInterpreter` for
+  iterating over XFR responses as a sequence of high level `ZoneUpdate`s, and
+  `XfrMiddlewareSvc` and `XfrDataProvider` for responding to received XFR
+  requests. ([#375], [#384])
+* `unstable-client-transport`:
+  * Fixed an issue with slow responses in the
+    `multi_stream` transport by not waiting in the first iteration if an
+    underlying stream reports its connection being closed. ([#338])
+  * Added an option called `idle_timeout` to stream that allows a TCP or
+    TLS connection to stay open even if no TcpKeepalive option is received
+    from the server. ([#341])
+  * Fixed an off-by-one error in Dgram client retry count checking. ([#354])
+  * Add support for requests that may result in multiple responses. This
+    adds `ComposeRequestMulti` and other `*Multi` types. The main change is to
+    the stream transport, which is the only transport that implements
+    `SendRequestMulti`. ([#377])
+  * Added a TSIG request signing and response validating passthrough
+    transport in `net::client:tsig`. ([#373])
+* `unstable-server-transport`
+  * Breaking changes to the `Service` and middleware traits. ([#369])
+  * Added `TsigMiddlewareSvc` request validating and response signing
+    middleware in `net::server::middleware::tsig`. ([#380])
+  * Added `NotifyMiddlewareSvc` in `net::server::middleware::notify` to parse
+    and acknowledge SOA NOTIFY requests, for use by secondary nameservers to
+    detect outdated zones compared to the primary. ([#382])
+  * `CookiesMiddlewareSvc` now allows requests with invalid cookies to proceed
+    if they are authenticated or not required to authenticate. ([#336])
+  * Added an `enabled` flag to `CookiesMiddlewareSvc`. ([#369])
+  * Added trait `ResourceRecordBatcher` and impl `CallbackBatcher` in
+    `net::server::batcher` for pushing as many records into a response as will
+    fit according to defined limits. ([#383])
+  * Enforce dgram max response size limit. ([#398])
+  * Extend MandatoryMiddlewareSvc with an RFC 9619 check for opcode QUERY with
+    QDCOUNT > 1. ([#365])
+  * Add blanket `SendRequest` and `SendRequestMulti` impls for boxes.
+    ([#397])
+* `unstable-zonetree`:
+  * Added `ZoneUpdate`. ([#375])
+  * Added `ZoneUpdater`, `ZoneDiff`, `InMemoryZoneDiffBuilder`,
+    `InMemoryZoneDiff` and improved `ZoneUpdate`. ([#376], [#384])
+  * Improved zonefile parsing error messages. ([#362]). 
+  * `TryFrom<inplace::Zonefile> for Zonefile` now returns the set of
+    errors instead of logging and ignoring them. ([#362])
+  * Allow both glue (A/AAAA) and zone cuts at the same owner when zone
+    parsing. ([#363])
+  * Altered the logic in `Versioned::remove_all()` (formerly
+    `Versioned::clean()`) as it made destructive changes to the zone that
+    would have impacted readers of the current zone version while the new zone
+    version was being created. ([#376])
+  * Removed / renamed references to `clean` in `zonetree::in_memory` to
+    `remove`. ([#376])
+  * Fix zone walking to include non-leaf CNAMEs. ([#352])
+  * Fix zone walking to pass the correct owner name to the callback. ([#384])
+  * Add an `as_any` method and `Clone` and `Debug` impls to various zonetree
+    types. ([#397])
+  * Add `AsRef<dyn ZoneStore>` to `Zone`. ([#397])
+  * Zone walking now includes glue records. A new flag `at_zone_cut` was
+    added to the callback interface. ([#401])
 
 Other changes
 
+* None.
+
+[#328]: https://github.com/NLnetLabs/domain/pull/328
+[#333]: https://github.com/NLnetLabs/domain/pull/333
+[#334]: https://github.com/NLnetLabs/domain/pull/334
+[#336]: https://github.com/NLnetLabs/domain/pull/336
+[#338]: https://github.com/NLnetLabs/domain/pull/338
+[#341]: https://github.com/NLnetLabs/domain/pull/341
+[#343]: https://github.com/NLnetLabs/domain/pull/343
+[#348]: https://github.com/NLnetLabs/domain/pull/348
+[#352]: https://github.com/NLnetLabs/domain/pull/352
+[#354]: https://github.com/NLnetLabs/domain/pull/354
+[#357]: https://github.com/NLnetLabs/domain/pull/357
+[#358]: https://github.com/NLnetLabs/domain/pull/358
+[#360]: https://github.com/NLnetLabs/domain/pull/360
+[#362]: https://github.com/NLnetLabs/domain/pull/362
+[#363]: https://github.com/NLnetLabs/domain/pull/363
+[#365]: https://github.com/NLnetLabs/domain/pull/365
+[#369]: https://github.com/NLnetLabs/domain/pull/369
+[#373]: https://github.com/NLnetLabs/domain/pull/373
+[#374]: https://github.com/NLnetLabs/domain/pull/374
+[#375]: https://github.com/NLnetLabs/domain/pull/375
+[#376]: https://github.com/NLnetLabs/domain/pull/376
+[#377]: https://github.com/NLnetLabs/domain/pull/377
+[#380]: https://github.com/NLnetLabs/domain/pull/380
+[#382]: https://github.com/NLnetLabs/domain/pull/382
+[#383]: https://github.com/NLnetLabs/domain/pull/383
+[#384]: https://github.com/NLnetLabs/domain/pull/384
+[#392]: https://github.com/NLnetLabs/domain/pull/392
+[#397]: https://github.com/NLnetLabs/domain/pull/397
+[#398]: https://github.com/NLnetLabs/domain/pull/398
+[#401]: https://github.com/NLnetLabs/domain/pull/401
+[@dklbreitling]: https://github.com/dklbreitling
+
+## 0.10.1
+
+Release 2024-06-03.
+
+New
+
+* Allow AllRecordData’s parsing impls to accept an unsized [u8] as the
+  source octets. ([#310] by [@xofyarg])
+* Made `sign::records::FamilyName` public. ([#312] by [@achow101])
+* Added an impl of `FromStr` for `Question`. ([#317])
+
+Bug fixes
+
+* Accept an empty record type bitmap when scanning NSEC/NSEC3 data.
+  ([#310] by [@xofyarg])
+* Fix serialization of ProtoRrsig to conform with RFC 4034. ([#313 by
+  [@achow101])
+* Add `?Sized` bounds to `Message::is_answer` and `ParsedRecord::to_record`.
+  ([#318] by [@xofyarg], [#325] by [@hunts])
+* Bring back `MessageBuilder::as_target`. ([#318] by [@xofyarg])
+* Bring back `impl FreezeBuilder for StaticCompressor`. ([#318] by [@xofyarg])
+* `sign::records::RecordsIter::skip_before` now stops at the first name in
+  zone even if the apex itself doesn’t appear. ([#314] by [@achow101])
+* Fix a counting error in `SliceLabelsIter::next` that broke compression
+  via `StaticCompressor`. ([#321] by [@hunts])
+
+Unstable features
+
+* New unstable feature `unstable-stelline` for the Stelline testing
+  framework as a “normal” module of _domain._ ([#315])
+* `unstable-server-transport`:
+  *  Redesigned the service trait and changes middleware processors as
+     services that take an upstream service to pass requests on to. ([#307])
+* `unstable-zonetree`:
+  * Renamed the domain name types in `zonetree` from `Dname` to `Name`.
+    ([#308])
+
+Other changes
+
+* The minimum Rust version is now 1.78. ([#320])
+
+[#307]: https://github.com/NLnetLabs/domain/pull/307
+[#308]: https://github.com/NLnetLabs/domain/pull/308
+[#310]: https://github.com/NLnetLabs/domain/pull/310
+[#312]: https://github.com/NLnetLabs/domain/pull/312
+[#314]: https://github.com/NLnetLabs/domain/pull/314
+[#315]: https://github.com/NLnetLabs/domain/pull/315
+[#317]: https://github.com/NLnetLabs/domain/pull/317
+[#318]: https://github.com/NLnetLabs/domain/pull/318
+[#320]: https://github.com/NLnetLabs/domain/pull/320
+[#321]: https://github.com/NLnetLabs/domain/pull/321
+[#325]: https://github.com/NLnetLabs/domain/pull/325
+[@achow101]: https://github.com/achow101
+[@hunts]: https://github.com/hunts
+[@xofyarg]: https://github.com/xofyarg
 
 ## 0.10.0
 

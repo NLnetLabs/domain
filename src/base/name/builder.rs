@@ -152,7 +152,7 @@ where
     /// This returns `false` if the name is still empty or if the last thing
     /// that happend was a call to [`end_label`].
     ///
-    /// [`end_label`]: #method.end_label
+    /// [`end_label`]: NameBuilder::end_label
     pub fn in_label(&self) -> bool {
         self.head.is_some()
     }
@@ -413,8 +413,8 @@ where
     /// like to turn it into an absolute name, use [`into_name`] which
     /// appends the root label before finishing.
     ///
-    /// [`end_label`]: #method.end_label
-    /// [`into_name`]: #method.into_name
+    /// [`end_label`]: NameBuilder::end_label
+    /// [`into_name`]: NameBuilder::into_name
     pub fn finish(mut self) -> RelativeName<Builder::Octets>
     where
         Builder: FreezeBuilder,
@@ -423,11 +423,11 @@ where
         unsafe { RelativeName::from_octets_unchecked(self.builder.freeze()) }
     }
 
-    /// Appends the root label to the name and returns it as a `Name`.
+    /// Appends the root label to the name and returns it as a [`Name`].
     ///
     /// If there currently is a label under construction, ends the label.
     /// Then adds the empty root label and transforms the name into a
-    /// `Name`.
+    /// [`Name`].
     pub fn into_name(mut self) -> Result<Name<Builder::Octets>, PushError>
     where
         Builder: FreezeBuilder,
@@ -437,10 +437,11 @@ where
         Ok(unsafe { Name::from_octets_unchecked(self.builder.freeze()) })
     }
 
-    /// Appends an origin and returns the resulting `Name`.
+    /// Appends an origin and returns the resulting [`Name`].
+    ///
     /// If there currently is a label under construction, ends the label.
     /// Then adds the `origin` and transforms the name into a
-    /// `Name`.
+    /// [`Name`].
     //
     //  XXX NEEDS TESTS
     pub fn append_origin<N: ToName>(

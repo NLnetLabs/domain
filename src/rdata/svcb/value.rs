@@ -12,7 +12,7 @@ use octseq::builder::{
 use octseq::octets::{Octets, OctetsFrom};
 use octseq::parse::Parser;
 use octseq::str::Str;
-use core::{fmt, hash, str};
+use core::{fmt, hash, mem, str};
 use core::fmt::Write as _;
 use core::str::FromStr;
 
@@ -226,6 +226,7 @@ macro_rules! octets_wrapper {
     ( $(#[$attr:meta])* $name:ident => $key:ident) => {
         $(#[$attr])*
         #[derive(Debug, Clone)]
+        #[repr(transparent)]
         pub struct $name<Octs: ?Sized>(Octs);
 
         impl $name<()> {
@@ -254,7 +255,8 @@ macro_rules! octets_wrapper {
             /// formated value of at most 65,535 octets.
             #[must_use]
             pub unsafe fn from_slice_unchecked(slice: &[u8]) -> &Self {
-                &*(slice as *const [u8] as *const Self)
+                // SAFETY: Self has repr(transparent)
+                mem::transmute(slice)
             }
         }
 
@@ -723,7 +725,7 @@ impl<Target> AlpnBuilder<Target> {
                 protocol.len() + 1
             ).expect("long Alpn value")
         ).map_err(|_| BuildAlpnError::LongSvcParam)?;
-        len.compose(&mut self.target).map(Into::into)?;
+        len.compose(&mut self.target)?;
         self.target.append_slice(
             protocol
         ).map_err(|_| BuildAlpnError::ShortBuf)

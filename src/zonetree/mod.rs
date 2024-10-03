@@ -1,35 +1,53 @@
 #![cfg(feature = "unstable-zonetree")]
 #![cfg_attr(docsrs, doc(cfg(feature = "unstable-zonetree")))]
 #![warn(missing_docs)]
-//! Experimental storing and querying of zone trees.
+//! Experimental storing and querying of zones and zone trees.
+//!
+//! # Zone trees
 //!
 //! A [`ZoneTree`] is a multi-rooted hierarchy of [`Zone`]s, each root being
-//! the apex of a subtree for a distinct [`Class`].
+//! the apex of a subtree for a distinct [`Class`]. `Zone`s can be inserted
+//! and removed from the tree, looked up by containing or exact name, and the
+//! set of zones in the tree can be iterated over.
 //!
-//! Individual `Zone`s within the tree can be looked up by containing or exact
-//! name, and then one can [`query`] the found `Zone` by [`Class`], [`Rtype`] and
-//! [`Name`] to produce an [`Answer`], which in turn can be used to produce a
-//! response [`Message`] for serving to a DNS client.
-//!
-//! Trees can also be iterated over to inspect or export their content.
+//! # Zones
 //!
 //! The `Zone`s that a tree is comprised of can be created by feeding
 //! zonefiles or individual resource records into [`ZoneBuilder`] and then
-//! inserted into a `ZoneTree`.
+//! inserted into a `ZoneTree`. `Zone`s can also be used directly without
+//! inserting them into a `ZoneTree`.
+//!
+//! `Zone`s can be queried via their [read interface][traits::ReadableZone] by
+//! [`Class`], [`Rtype`] and [`Name`] to produce an [`Answer`], which in turn
+//! can be used to produce a response [`Message`] for serving to a DNS client.
+//! Entire `Zone`s can also be [`walk`]ed to inspect or export their content.
+//!
+//! Updating a zone can be done via the low-level [`WritableZone`] interface
+//! or using a higher-level helper like the [`ZoneUpdater`]. Updates to a
+//! `Zone` can be captured as difference sets which for example can be used to
+//! respond to IXFR queries.
+//!
+//! # Backing stores
 //!
 //! By default `Zone`s are stored in memory only. Zones with other types of
 //! backing store can be created by implementing the [`ZoneStore`] trait and
 //! passing an instance of the implementing struct to [`Zone::new`]. Zones
 //! with different backing store types can be mixed and matched within the
-//! same tree.
+//! same tree. Backing stores can be synchronous or asynchronous, the latter
+//! being useful for a remote backing store such as a distributed database.
 //!
-//! The example below shows how to populate a `ZoneTree` from a zonefile. For
-//! more examples of using `Zone`s and `ZoneTree`s including implementing an
-//! alternate zone backing store for your `Zone`s, see the [examples in the
-//! GitHub
-//! repository](https://github.com/NLnetLabs/domain/tree/main/examples).
+//! The default in-memory zone implementation uses an append only write
+//! strategy with new zone versions only becoming visible to consumers on
+//! commit and existing zone versions remaining readable during write
+//! operations.
 //!
 //! # Usage
+//!
+//! The example below shows how to populate a [`ZoneTree`] from a zonefile.
+//! For more examples of using [`Zone`]s and [`ZoneTree`]s including
+//! implementing an alternate zone backing store for your [`Zone`]s, see the
+//! [examples in the GitHub
+//! repository](https://github.com/NLnetLabs/domain/tree/main/examples).
 //!
 //! The following example builds and queries a [`ZoneTree`] containing a
 //! single in-memory [`Zone`].
@@ -72,7 +90,8 @@
 //! assert_eq!(res.rcode(), Rcode::NOERROR);
 //! ```
 //!
-//! [`query`]: crate::zonetree::ReadableZone::query
+//! [`query`]: ReadableZone::query
+//! [`walk`]: ReadableZone::walk
 //! [`Class`]: crate::base::iana::Class
 //! [`Rtype`]: crate::base::iana::Rtype
 //! [`Name`]: crate::base::name::Name
@@ -80,6 +99,7 @@
 //! [`NoError`]: crate::base::iana::code::Rcode::NOERROR
 //! [`NxDomain`]: crate::base::iana::code::Rcode::NXDOMAIN
 //! [`ZoneBuilder`]: in_memory::ZoneBuilder
+//! [`ZoneUpdater`]: update::ZoneUpdater
 
 mod answer;
 pub mod error;
@@ -88,15 +108,47 @@ pub mod parsed;
 mod traits;
 mod tree;
 pub mod types;
+pub mod update;
 mod walk;
 mod zone;
 
 pub use self::answer::{Answer, AnswerAuthority, AnswerContent};
 pub use self::in_memory::ZoneBuilder;
 pub use self::traits::{
-    ReadableZone, WritableZone, WritableZoneNode, ZoneStore,
+    ReadableZone, WritableZone, WritableZoneNode, ZoneDiff, ZoneDiffItem,
+    ZoneStore,
 };
-pub use self::tree::ZoneTree;
-pub use self::types::{Rrset, SharedRr, SharedRrset};
+pub use self::tree::{ZoneSetIter, ZoneTree};
+pub use self::types::{
+    InMemoryZoneDiff, InMemoryZoneDiffBuilder, Rrset, SharedRr, SharedRrset,
+    StoredName, StoredRecord,
+};
 pub use self::walk::WalkOp;
 pub use self::zone::Zone;
+
+/// Zone related utilities.
+pub mod util {
+    use crate::base::name::{Label, ToLabelIter};
+    use crate::base::ToName;
+
+    use super::error::OutOfZone;
+    use super::StoredName;
+
+    /// Gets a reverse iterator to the relative part of a name.
+    ///
+    /// Can be used for example to get an iterator over the part of a name
+    /// that is "under" a zone apex name.
+    pub fn rel_name_rev_iter<'l>(
+        base: &StoredName,
+        qname: &'l impl ToName,
+    ) -> Result<impl Iterator<Item = &'l Label> + Clone, OutOfZone> {
+        let mut qname = qname.iter_labels().rev();
+        for apex_label in base.iter_labels().rev() {
+            let qname_label = qname.next();
+            if Some(apex_label) != qname_label {
+                return Err(OutOfZone);
+            }
+        }
+        Ok(qname)
+    }
+}

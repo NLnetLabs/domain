@@ -25,7 +25,7 @@ use std::string::String;
 /// Decodes a string with *base64* encoded data.
 ///
 /// The function attempts to decode the entire string and returns the result
-/// as a `Bytes` value.
+/// as a `Octets` value.
 pub fn decode<Octets>(s: &str) -> Result<Octets, DecodeError>
 where
     Octets: FromBuilder,
@@ -523,7 +523,6 @@ const EOF_MARKER: usize = 0xF0;
 mod test {
     use super::*;
 
-    #[allow(dead_code)]
     const HAPPY_CASES: &[(&[u8], &str)] = &[
         (b"", ""),
         (b"f", "Zg=="),

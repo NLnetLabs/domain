@@ -1,32 +1,51 @@
-//! Request pre-processing and response post-processing.
+//! Request pre-processing and response post-processing middleware.
 //!
-//! Middleware sits in the middle between the server nearest the client and
-//! the [`Service`] that implements the application logic.
-//!
-//! Middleware pre-processes requests and post-processes responses to
+//! Middleware sits between the server and the application [`Service`],
+//! pre-processing requests and post-processing responses in order to
 //! filter/reject/modify them according to policy and standards.
 //!
-//! Middleware processing should happen immediately after receipt of a request
-//! (to ensure the least resources are spent on processing malicious requests)
-//! and immediately prior to writing responses back to the client (to ensure
-//! that what is sent to the client is correct).
+//! Middleware is implemented in terms of the [`Service`] trait, just like
+//! your application service, but also takes a [`Service`] instance as an
+//! argument. This is intended to enable middleware to be composed in layers
+//! one atop another, each layer receiving and pre-processing requests from
+//! the layer beneath, passing them on to the layer above and then
+//! post-processing the resulting responses and propagating them back down
+//! through the layers to the server.
 //!
-//! Mandatory functionality and logic required by all standards compliant DNS
-//! servers can be incorporated into your server by building a middleware
-//! chain starting from [`MiddlewareBuilder::default`].
+//! # Middleware layering strategies
 //!
-//! A selection of additional functionality relating to server behaviour and
-//! DNS standards (as opposed to your own application logic) is provided which
-//! you can incorporate into your DNS server via [`MiddlewareBuilder::push`].
-//! See the various implementations of [`MiddlewareProcessor`] for more
-//! information.
+//! The simplest strategy for using middleware is to use a single layered
+//! stack of middleware for all incoming requests.
 //!
-//! [`MiddlewareBuilder::default`]: builder::MiddlewareBuilder::default()
-//! [`MiddlewareBuilder::push`]: builder::MiddlewareBuilder::push()
-//! [`MiddlewareChain`]: chain::MiddlewareChain
-//! [`MiddlewareProcessor`]: processor::MiddlewareProcessor
+//! If however some middleware layers impose a disproportionately high cost on
+//! request processing for request types that occur rarely, an alternate
+//! strategy could be to add a middleware layer that routes requests to the
+//! appropriate middleware "chain" based on some property or properties of the
+//! request. Rather than a liner processing "chain" one would then have a tree
+//! like processing path.
+//!
+//! Another option that may be suitable in some cases could be to use separate
+//! server instances listening on separate ports or interfaces, each with
+//! their own differing middleware "chains".
+//!
+//! # Middleware-to-middleware communication
+//!
+//! If needed middleware services can pass service specific data to upstream
+//! services for consumption, via the  `RequestMeta` custom data support of
+//! the [`Service`] trait. An example of this can be seen in the
+//! [`TsigMiddlewareSvc`][tsig::TsigMiddlewareSvc].
+//!
+//!
+//! Currently the following middleware are available:
+//!
 //! [`Service`]: crate::net::server::service::Service
-pub mod builder;
-pub mod chain;
-pub mod processor;
-pub mod processors;
+#[cfg(feature = "siphasher")]
+pub mod cookies;
+pub mod edns;
+pub mod mandatory;
+pub mod notify;
+pub mod stream;
+#[cfg(feature = "tsig")]
+pub mod tsig;
+#[cfg(feature = "unstable-xfr")]
+pub mod xfr;

@@ -72,8 +72,29 @@ use octseq::parse::Parser;
 /// [`iter`]: #method.iter
 /// [`OptRecord`]: struct.OptRecord.html
 #[derive(Clone)]
+#[repr(transparent)]
 pub struct Opt<Octs: ?Sized> {
     octets: Octs,
+}
+
+#[cfg(feature = "serde")]
+impl<O: AsRef<[u8]>> serde::Serialize for Opt<O> {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeSeq;
+        let mut list = serializer.serialize_seq(None)?;
+
+        for rec in self.for_slice_ref().iter::<AllOptData<_, _>>() {
+            let Ok(rec) = rec else {
+                continue;
+            };
+            list.serialize_element(&rec)?;
+        }
+
+        list.end()
+    }
 }
 
 impl Opt<()> {
@@ -135,7 +156,8 @@ impl Opt<[u8]> {
     /// OPT record data. The data of the options themselves does not need to
     /// be correct.
     unsafe fn from_slice_unchecked(slice: &[u8]) -> &Self {
-        &*(slice as *const [u8] as *const Self)
+        // SAFETY: Opt has repr(transparent)
+        mem::transmute(slice)
     }
 
     /// Checks that the slice contains acceptable OPT record data.
@@ -362,11 +384,12 @@ impl<Octs: AsRef<[u8]> + ?Sized> fmt::Debug for Opt<Octs> {
 ///
 /// The OPT record reappropriates the record header for encoding some
 /// basic information. This type provides access to this information. It
-/// consists of the record header with the exception of the fiinal `rdlen`
+/// consists of the record header with the exception of the final `rdlen`
 /// field.
 ///
-/// This is so that `OptBuilder` can safely deref to this type.
+/// This is so that [`OptBuilder`] can safely deref to this type.
 ///
+/// [`OptBuilder`]: crate::base::message_builder::OptBuilder
 //    +------------+--------------+------------------------------+
 //    | Field Name | Field Type   | Description                  |
 //    +------------+--------------+------------------------------+
@@ -378,6 +401,7 @@ impl<Octs: AsRef<[u8]> + ?Sized> fmt::Debug for Opt<Octs> {
 //    | RDATA      | octet stream | {attribute,value} pairs      |
 //    +------------+--------------+------------------------------+
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
+#[repr(transparent)]
 pub struct OptHeader {
     /// The bytes of the header.
     inner: [u8; 9],
@@ -388,12 +412,20 @@ impl OptHeader {
     #[must_use]
     pub fn for_record_slice(slice: &[u8]) -> &OptHeader {
         assert!(slice.len() >= mem::size_of::<Self>());
+
+        // SAFETY: the pointer cast is sound because
+        //   - OptHeader has repr(transparent) and
+        //   - the size of the slice is large enough
         unsafe { &*(slice.as_ptr() as *const OptHeader) }
     }
 
     /// Returns a mutable reference pointing into a record’s octets.
     pub fn for_record_slice_mut(slice: &mut [u8]) -> &mut OptHeader {
         assert!(slice.len() >= mem::size_of::<Self>());
+
+        // SAFETY: the pointer cast is sound because
+        //   - OptHeader has repr(transparent) and
+        //   - the size of the slice is large enough
         unsafe { &mut *(slice.as_mut_ptr() as *mut OptHeader) }
     }
 
@@ -854,11 +886,21 @@ pub trait ComposeOptData: OptData {
 ///
 /// This type accepts any option type via its option code and raw data.
 #[derive(Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct UnknownOptData<Octs> {
     /// The option code for the option.
     code: OptionCode,
 
     /// The raw option data.
+    #[cfg_attr(
+        feature = "serde",
+        serde(
+            serialize_with = "crate::utils::base16::serde::serialize",
+            bound(
+                serialize = "Octs: AsRef<[u8]> + octseq::serde::SerializeOctets",
+            )
+        )
+    )]
     data: Octs,
 }
 
@@ -1055,7 +1097,7 @@ pub enum BuildDataError {
 }
 
 impl BuildDataError {
-    /// Converts the error into a `LongOptData` error for ‘endless’ buffers.
+    /// Converts the error into a [`LongOptData`] error for ‘endless’ buffers.
     ///
     /// # Panics
     ///

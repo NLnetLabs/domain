@@ -43,7 +43,7 @@ const READ_TIMEOUT: DefMinMax<Duration> = DefMinMax::new(
 );
 
 /// Configuration limits for the maximum number of retries.
-const MAX_RETRIES: DefMinMax<u8> = DefMinMax::new(5, 1, 100);
+const MAX_RETRIES: DefMinMax<u8> = DefMinMax::new(5, 0, 100);
 
 /// Default UDP payload size.
 const DEF_UDP_PAYLOAD_SIZE: u16 = 1232;
@@ -85,7 +85,7 @@ impl Config {
     /// Once this many number of requests are currently outstanding,
     /// additional requests will wait.
     ///
-    /// If this value is too small or too large, it will be caped.
+    /// If this value is too small or too large, it will be capped.
     pub fn set_max_parallel(&mut self, value: usize) {
         self.max_parallel = MAX_PARALLEL.limit(value)
     }
@@ -100,7 +100,7 @@ impl Config {
     /// The read timeout is the maximum amount of time to wait for any
     /// response after a request was sent.
     ///
-    /// If this value is too small or too large, it will be caped.
+    /// If this value is too small or too large, it will be capped.
     pub fn set_read_timeout(&mut self, value: Duration) {
         self.read_timeout = READ_TIMEOUT.limit(value)
     }
@@ -110,9 +110,10 @@ impl Config {
         self.read_timeout
     }
 
-    /// Sets the maximum number a request is retried before giving up.
+    /// Sets the maximum number of times a request is retried before giving
+    /// up.
     ///
-    /// If this value is too small or too large, it will be caped.
+    /// If this value is too small or too large, it will be capped.
     pub fn set_max_retries(&mut self, value: u8) {
         self.max_retries = MAX_RETRIES.limit(value)
     }
@@ -175,14 +176,14 @@ impl Default for Config {
 //------------ Connection -----------------------------------------------------
 
 /// A datagram protocol connection.
-///
-/// Because it owns the connection’s resources, this type is not `Clone`.
-/// However, it is entirely safe to share it by sticking it into e.g. an arc.
 #[derive(Clone, Debug)]
 pub struct Connection<S> {
+    /// Actual state of the connection.
     state: Arc<ConnectionState<S>>,
 }
 
+/// Because it owns the connection’s resources, this type is not [`Clone`].
+/// However, it is entirely safe to share it by sticking it into e.g. an arc.
 #[derive(Debug)]
 struct ConnectionState<S> {
     /// User configuration variables.
@@ -239,7 +240,7 @@ where
         let mut reuse_buf = None;
 
         // Transmit loop.
-        for _ in 0..self.state.config.max_retries {
+        for _ in 0..1 + self.state.config.max_retries {
             let mut sock = self
                 .state
                 .connect
@@ -321,7 +322,7 @@ where
     S: AsyncConnect + Clone + Send + Sync + 'static,
     S::Connection:
         AsyncDgramRecv + AsyncDgramSend + Send + Sync + Unpin + 'static,
-    Req: ComposeRequest + Clone + Send + Sync + 'static,
+    Req: ComposeRequest + Send + Sync + 'static,
 {
     fn send_request(
         &self,
@@ -386,18 +387,22 @@ pub struct QueryError {
 }
 
 impl QueryError {
+    /// Create a new `QueryError`.
     fn new(kind: QueryErrorKind, io: io::Error) -> Self {
         Self { kind, io }
     }
 
+    /// Create a new connect error.
     fn connect(io: io::Error) -> Self {
         Self::new(QueryErrorKind::Connect, io)
     }
 
+    /// Create a new send error.
     fn send(io: io::Error) -> Self {
         Self::new(QueryErrorKind::Send, io)
     }
 
+    /// Create a new short send error.
     fn short_send() -> Self {
         Self::new(
             QueryErrorKind::Send,
@@ -405,6 +410,7 @@ impl QueryError {
         )
     }
 
+    /// Create a new timeout error.
     fn timeout() -> Self {
         Self::new(
             QueryErrorKind::Timeout,
@@ -412,6 +418,7 @@ impl QueryError {
         )
     }
 
+    /// Create a new receive error.
     fn receive(io: io::Error) -> Self {
         Self::new(QueryErrorKind::Receive, io)
     }

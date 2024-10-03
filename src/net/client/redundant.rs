@@ -1,8 +1,5 @@
 //! A transport that multiplexes requests over multiple redundant transports.
 
-#![warn(missing_docs)]
-#![warn(clippy::missing_docs_in_private_items)]
-
 use bytes::Bytes;
 
 use futures_util::stream::FuturesUnordered;
@@ -213,7 +210,7 @@ where
     /// The state of the query
     state: QueryState,
 
-    /// The reuqest message
+    /// The request message
     request_msg: Req,
 
     /// List of connections identifiers and estimated response times.

@@ -25,7 +25,9 @@ use octseq::parse::Parser;
 /// bit IPv4 address in network byte order. The representation file format
 /// is the usual dotted notation.
 ///
-/// The A record type is defined in RFC 1035, section 3.4.1.
+/// The A record type is defined in [RFC 1035, section 3.4.1][1].
+/// 
+/// [1]: https://tools.ietf.org/html/rfc1035#section-3.4.1
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct A {

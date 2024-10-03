@@ -10,7 +10,7 @@ use crate::base::iana::Rtype;
 use crate::base::rdata::{
     ComposeRecordData, LongRecordData, ParseRecordData, RecordData,
 };
-use crate::base::scan::{Scanner};
+use crate::base::scan::Scanner;
 #[cfg(feature = "serde")]
 use crate::base::scan::Symbol;
 use crate::base::wire::{Composer, FormError, ParseError};
@@ -18,7 +18,7 @@ use crate::base::wire::{Composer, FormError, ParseError};
 use bytes::BytesMut;
 use core::cmp::Ordering;
 use core::convert::{Infallible, TryFrom};
-use core::{fmt, hash, str};
+use core::{fmt, hash, mem, str};
 use octseq::builder::{
     infallible, EmptyBuilder, FreezeBuilder, FromBuilder, OctetsBuilder,
     ShortBuf,
@@ -33,10 +33,10 @@ use octseq::serde::{DeserializeOctets, SerializeOctets};
 /// TXT record data.
 ///
 /// TXT records hold descriptive text. While it may appear as a single text,
-/// it internally consists of a sequence of one or more [character
-/// strings][CharStr]. The type holds this sequence in its encoded form, i.e.,
-/// each character string is at most 255 octets long and preceded by an
-/// octet with its length.
+/// it internally consists of a sequence of one or more
+/// [character strings][CharStr]. The type holds this sequence in its encoded
+/// form, i.e., each character string is at most 255 octets long and preceded
+/// by an octet with its length.
 ///
 /// The type provides means to iterate over these strings, either as
 /// [`CharStr`s][CharStr] via [`iter_charstrs`][Self::iter_charstrs] or
@@ -46,7 +46,7 @@ use octseq::serde::{DeserializeOctets, SerializeOctets};
 /// [`text`][Self::text] and [`try_text`][Self::try_text] allow combining the
 /// content into one single octets sequence.
 ///
-/// The TXT record type is defined in [RFC 1035], section 3.3.14.
+/// The TXT record type is defined in [RFC 1035, section 3.3.14].
 ///
 /// # Presentation format
 ///
@@ -78,8 +78,9 @@ use octseq::serde::{DeserializeOctets, SerializeOctets};
 /// For compact formats, the type serializes as a newtype `Txt` that contains
 /// a byte array of the wire format representation of the content.
 ///
-/// [RFC 1035]: https://tools.ietf.org/html/rfc1035
+/// [RFC 1035, section 3.3.14]: https://tools.ietf.org/html/rfc1035#section-3.3.14
 #[derive(Clone)]
+#[repr(transparent)]
 pub struct Txt<Octs: ?Sized>(Octs);
 
 impl Txt<()> {
@@ -153,7 +154,8 @@ impl Txt<[u8]> {
     /// The passed octets must contain correctly encoded TXT record data.
     /// See [`from_octets][Self::from_octets] for the required content.
     unsafe fn from_slice_unchecked(slice: &[u8]) -> &Self {
-        unsafe { &*(slice as *const [u8] as *const Self) }
+        // SAFETY: Txt has repr(transparent)
+        mem::transmute(slice)
     }
 
     /// Checks that a slice contains correctly encoded TXT data.
@@ -329,9 +331,7 @@ where
     Other: AsRef<[u8]>,
 {
     fn eq(&self, other: &Txt<Other>) -> bool {
-        self.iter()
-            .flat_map(|s| s.iter().copied())
-            .eq(other.iter().flat_map(|s| s.iter().copied()))
+        self.0.as_ref().eq(other.0.as_ref())
     }
 }
 
@@ -345,9 +345,7 @@ where
     Other: AsRef<[u8]>,
 {
     fn partial_cmp(&self, other: &Txt<Other>) -> Option<Ordering> {
-        self.iter()
-            .flat_map(|s| s.iter().copied())
-            .partial_cmp(other.iter().flat_map(|s| s.iter().copied()))
+        self.0.as_ref().partial_cmp(other.0.as_ref())
     }
 }
 
@@ -357,26 +355,13 @@ where
     Other: AsRef<[u8]>,
 {
     fn canonical_cmp(&self, other: &Txt<Other>) -> Ordering {
-        // Canonical comparison requires TXT RDATA to be canonically
-        // sorted in the wire format.
-        // The TXT has each label prefixed by length, which must be
-        // taken into account.
-        for (a, b) in self.iter().zip(other.iter()) {
-            match (a.len(), a).cmp(&(b.len(), b)) {
-                Ordering::Equal => continue,
-                r => return r,
-            }
-        }
-
-        Ordering::Equal
+        self.0.as_ref().cmp(other.0.as_ref())
     }
 }
 
 impl<Octs: AsRef<[u8]>> Ord for Txt<Octs> {
     fn cmp(&self, other: &Self) -> Ordering {
-        self.iter()
-            .flat_map(|s| s.iter().copied())
-            .cmp(other.iter().flat_map(|s| s.iter().copied()))
+        self.0.as_ref().cmp(other.0.as_ref())
     }
 }
 
@@ -384,9 +369,7 @@ impl<Octs: AsRef<[u8]>> Ord for Txt<Octs> {
 
 impl<Octs: AsRef<[u8]>> hash::Hash for Txt<Octs> {
     fn hash<H: hash::Hasher>(&self, state: &mut H) {
-        self.iter()
-            .flat_map(|s| s.iter().copied())
-            .for_each(|c| c.hash(state))
+        self.0.as_ref().hash(state)
     }
 }
 
@@ -986,13 +969,13 @@ mod test {
         // Too long
         let mut builder: TxtBuilder<Vec<u8>> = TxtBuilder::new();
         assert!(builder
-            .append_slice(&b"\x00".repeat(std::u16::MAX as usize))
+            .append_slice(&b"\x00".repeat(u16::MAX as usize))
             .is_err());
 
         // Incremental, reserve space for offsets
         let mut builder: TxtBuilder<Vec<u8>> = TxtBuilder::new();
         assert!(builder
-            .append_slice(&b"\x00".repeat(std::u16::MAX as usize - 512))
+            .append_slice(&b"\x00".repeat(u16::MAX as usize - 512))
             .is_ok());
         assert!(builder.append_slice(&b"\x00".repeat(512)).is_err());
     }
@@ -1031,6 +1014,29 @@ mod test {
         for (a, b) in records.iter().zip(sorted.iter()) {
             assert_eq!(a, b);
         }
+    }
+
+    #[test]
+    fn txt_strings_eq() {
+        let records = [["foo", "bar"], ["foob", "ar"], ["foo", "bar"]];
+
+        let records = records
+            .iter()
+            .map(|strings| {
+                let mut builder = TxtBuilder::<Vec<u8>>::new();
+                for string in strings {
+                    builder
+                        .append_charstr(
+                            CharStr::from_slice(string.as_bytes()).unwrap(),
+                        )
+                        .unwrap();
+                }
+                builder.finish().unwrap()
+            })
+            .collect::<Vec<_>>();
+
+        assert_ne!(records[0], records[1]);
+        assert_eq!(records[0], records[2]);
     }
 
     #[cfg(all(feature = "serde", feature = "std"))]

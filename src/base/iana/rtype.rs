@@ -364,6 +364,11 @@ int_enum! {
     /// See RFC 7043.
     (EUI64 => 109, b"EUI64")
 
+    /// NXNAME.
+    ///
+    /// IANA-Reserved.
+    (NXNAME => 128, b"NXNAME")
+
     /// Transaction key.
     ///
     /// See RFC 2930.
@@ -425,3 +430,13 @@ int_enum! {
 }
 
 int_enum_str_with_prefix!(Rtype, "TYPE", b"TYPE", u16, "unknown record type");
+
+impl Rtype {
+    /// Returns true if this record type is a type used for Glue records.
+    ///
+    /// See the definition of "glue" in [RFC
+    /// 9499](https://datatracker.ietf.org/doc/rfc9499/) Section 7 "Zones".
+    pub fn is_glue(&self) -> bool {
+        matches!(*self, Rtype::A | Rtype::AAAA)
+    }
+}

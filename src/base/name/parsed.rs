@@ -34,23 +34,18 @@ use octseq::parse::Parser;
 /// need the complete name. Many operations can be performed by just
 /// iterating over the labels which we can do in place.
 ///
-/// `ParsedName` deals with such names. It takes a copy of a [`Parser`]
+/// [`ParsedName`] deals with such names. It takes a copy of a [`Parser`]
 /// representing a reference to the underlying DNS message and, if nedded,
 /// traverses over the name starting at the current position of the parser.
 /// When being created, the type quickly walks over the name to check that it
 /// is, indeed, a valid name. While this does take a bit of time, it spares
 /// you having to deal with possible parse errors later on.
 ///
-/// `ParsedName` implementes the [`ToName`] trait, so you can use it
+/// [`ParsedName`] implementes the [`ToName`] trait, so you can use it
 /// everywhere where a generic absolute domain name is accepted. In
 /// particular, you can compare it to other names or chain it to the end of a
 /// relative name. If necessary, [`ToName::to_name`] can be used to produce
 /// a flat, self-contained [`Name`].
-///
-/// [`Name`]: struct.Name.html
-/// [`Parser`]: ../parse/struct.Parser.html
-/// [`ToName`]: trait.ToName.html
-/// [`ToName::to_name`]: trait.ToName.html#method.to_name
 #[derive(Clone, Copy)]
 pub struct ParsedName<Octs> {
     /// The octets the name is embedded in.
@@ -64,7 +59,7 @@ pub struct ParsedName<Octs> {
 
     /// The length of the uncompressed name in octets.
     ///
-    /// We need this for implementing `ToLabelIter`.
+    /// We need this for implementing [`ToLabelIter`].
     name_len: u16,
 
     /// Whether the name is compressed.
@@ -520,6 +515,19 @@ impl<Octs: AsRef<[u8]>> fmt::Display for ParsedName<Octs> {
 impl<Octs: AsRef<[u8]>> fmt::Debug for ParsedName<Octs> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "ParsedName({}.)", self)
+    }
+}
+
+//--- Serialize
+
+#[cfg(feature = "serde")]
+impl<Octs: AsRef<[u8]>> serde::Serialize for ParsedName<Octs> {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use std::string::ToString;
+        self.to_string().serialize(serializer)
     }
 }
 

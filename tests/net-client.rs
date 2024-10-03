@@ -1,17 +1,17 @@
 #![cfg(feature = "net")]
-mod net;
 
-use crate::net::stelline::client::do_client_simple;
-use crate::net::stelline::client::CurrStepValue;
-use crate::net::stelline::connect::Connect;
-use crate::net::stelline::connection::Connection;
-use crate::net::stelline::dgram::Dgram;
-use crate::net::stelline::parse_stelline::parse_file;
+use domain::stelline::client::do_client_simple;
+use domain::stelline::client::CurrStepValue;
+use domain::stelline::connect::Connect;
+use domain::stelline::connection::Connection;
+use domain::stelline::dgram::Dgram;
+use domain::stelline::parse_stelline::parse_file;
 // use domain::net::client::clock::{Clock, FakeClock};
 use domain::net::client::dgram;
 use domain::net::client::dgram_stream;
 use domain::net::client::multi_stream;
 use domain::net::client::redundant;
+use domain::net::client::request::RequestMessageMulti;
 use domain::net::client::stream;
 use std::fs::File;
 use std::net::IpAddr;
@@ -44,7 +44,8 @@ fn single() {
         let step_value = Arc::new(CurrStepValue::new());
 
         let conn = Connection::new(stelline.clone(), step_value.clone());
-        let (octstr, transport) = stream::Connection::new(conn);
+        let (octstr, transport) =
+            stream::Connection::<_, RequestMessageMulti<Vec<u8>>>::new(conn);
         tokio::spawn(async move {
             transport.run().await;
         });
@@ -139,7 +140,10 @@ fn tcp() {
             }
         };
 
-        let (tcp, transport) = stream::Connection::new(tcp_conn);
+        let (tcp, transport) = stream::Connection::<
+            _,
+            RequestMessageMulti<Vec<u8>>,
+        >::new(tcp_conn);
         tokio::spawn(async move {
             transport.run().await;
             println!("single TCP run terminated");
