@@ -31,6 +31,8 @@ impl Label {
     /// Try converting a byte string into a [`Label`].
     ///
     /// If the byte string is too long, an error is returned.
+    ///
+    /// Runtime: `O(bytes.len())`.
     pub fn from_bytes(bytes: &[u8]) -> Result<&Self, LabelError> {
         if bytes.len() > Self::MAX_SIZE {
             // The label was too long to be used.
@@ -46,6 +48,8 @@ impl Label {
     /// of the given byte string.  If a valid label cannot be extracted, or the
     /// byte string is simply empty, an error is returned.  The extracted label
     /// and the remainder of the byte string are returned.
+    ///
+    /// Runtime: `O(1)`.
     pub fn split_off(bytes: &[u8]) -> Result<(&Self, &[u8]), LabelError> {
         let (&length, bytes) = bytes.split_first().ok_or(LabelError)?;
         if length < 64 && bytes.len() >= length as usize {
@@ -81,12 +85,20 @@ impl Label {
     /// Canonicalize this label.
     ///
     /// All uppercase ASCII characters in the label will be lowercased.
+    ///
+    /// Runtime: `O(self.len())`.
     pub fn canonicalize(&mut self) {
         self.0.make_ascii_lowercase()
     }
 }
 
 impl PartialEq for Label {
+    /// Compare labels by their canonical value.
+    ///
+    /// Canonicalized labels have uppercase ASCII characters lowercased, so this
+    /// function compares the two names ASCII-case-insensitively.
+    ///
+    // Runtime: `O(self.len())`, which is equal to `O(that.len())`.
     fn eq(&self, that: &Self) -> bool {
         self.0.eq_ignore_ascii_case(&that.0)
     }
@@ -95,12 +107,24 @@ impl PartialEq for Label {
 impl Eq for Label {}
 
 impl PartialOrd for Label {
+    /// Compare labels by their canonical value.
+    ///
+    /// Canonicalized labels have uppercase ASCII characters lowercased, so this
+    /// function compares the two names ASCII-case-insensitively.
+    ///
+    // Runtime: `O(self.len())`, which is equal to `O(that.len())`.
     fn partial_cmp(&self, that: &Self) -> Option<cmp::Ordering> {
         Some(Ord::cmp(self, that))
     }
 }
 
 impl Ord for Label {
+    /// Compare labels by their canonical value.
+    ///
+    /// Canonicalized labels have uppercase ASCII characters lowercased, so this
+    /// function compares the two names ASCII-case-insensitively.
+    ///
+    // Runtime: `O(self.len())`, which is equal to `O(that.len())`.
     fn cmp(&self, that: &Self) -> cmp::Ordering {
         let this_bytes = self.as_bytes().iter().copied();
         let that_bytes = that.as_bytes().iter().copied();
@@ -113,6 +137,16 @@ impl Ord for Label {
 }
 
 impl Hash for Label {
+    /// Hash this label by its canonical value.
+    ///
+    /// The hasher is provided with the labels in this name with ASCII
+    /// characters lowercased.  Each label is preceded by its length as `u8`.
+    ///
+    /// The same scheme is used by [`Name`] and [`RelName`], so a tuple of any
+    /// of these types will have the same hash as the concatenation of the
+    /// labels.
+    ///
+    /// Runtime: `O(self.len())`.
     fn hash<H: Hasher>(&self, state: &mut H) {
         // Individual labels and names should hash in the same way.
         state.write_u8(self.len() as u8);
@@ -127,6 +161,7 @@ impl Hash for Label {
 }
 
 impl AsRef<[u8]> for Label {
+    /// The raw bytes in this name, with no length octet.
     fn as_ref(&self) -> &[u8] {
         &self.0
     }

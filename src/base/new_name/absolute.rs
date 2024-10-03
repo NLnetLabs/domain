@@ -35,6 +35,8 @@ impl Name {
     ///
     /// The byte string is confirmed to be correctly encoded in the wire format.
     /// If it is not properly encoded, an error is returned.
+    ///
+    /// Runtime: `O(bytes.len())`.
     pub fn from_bytes(bytes: &[u8]) -> Result<&Self, NameError> {
         // Without the last byte, this should be a relative name.
         let (root, rel_name) = bytes.split_last().ok_or(NameError)?;
@@ -72,6 +74,8 @@ impl Name {
     ///
     /// The name containing all but the first label is returned.  If this is a
     /// root name, [`None`] is returned.
+    ///
+    /// Runtime: `O(1)`.
     pub fn parent(&self) -> Option<&Self> {
         if self.is_root() {
             return None;
@@ -89,6 +93,8 @@ impl Name {
     /// If this is a root name, an empty relative name is returned.
     ///
     /// This is equivalent to `self.strip_suffix(Name::ROOT).unwrap()`.
+    ///
+    /// Runtime: `O(1)`.
     pub fn without_root(&self) -> &RelName {
         let bytes = &self.as_bytes()[..self.len() - 1];
         // SAFETY: A slice of labels (as from 'self') is a relative name.
@@ -96,19 +102,24 @@ impl Name {
     }
 
     /// Whether this name starts with a particular relative name.
-    pub fn starts_with(&self, that: &RelName) -> bool {
-        if self.len() < that.len() {
+    ///
+    /// Runtime: `O(prefix.len())`, which is less than `O(self.len())`.
+    pub fn starts_with(&self, prefix: &RelName) -> bool {
+        if self.len() < prefix.len() {
             return false;
         }
 
         // Label lengths are never ASCII characters, because they start from
         // byte value 65.  So we can treat the byte strings as ASCII.
-        self.as_bytes()[..that.len()].eq_ignore_ascii_case(that.as_bytes())
+        self.as_bytes()[..prefix.len()]
+            .eq_ignore_ascii_case(prefix.as_bytes())
     }
 
     /// Whether this name ends with a particular absolute name.
-    pub fn ends_with(&self, that: &Self) -> bool {
-        if self.len() < that.len() {
+    ///
+    /// Runtime: `O(self.len())`, which is more than `O(suffix.len())`.
+    pub fn ends_with(&self, suffix: &Self) -> bool {
+        if self.len() < suffix.len() {
             return false;
         }
 
@@ -117,7 +128,7 @@ impl Name {
         // at a valid label boundary.
 
         let mut index = 0usize;
-        let offset = self.len() - that.len();
+        let offset = self.len() - suffix.len();
         while index < offset {
             index += 1 + self.0[index] as usize;
         }
@@ -128,7 +139,7 @@ impl Name {
 
         // Label lengths are never ASCII characters, because they start from
         // byte value 65.  So we can treat the byte strings as ASCII.
-        self.as_bytes()[offset..].eq_ignore_ascii_case(that.as_bytes())
+        self.as_bytes()[offset..].eq_ignore_ascii_case(suffix.as_bytes())
     }
 }
 
@@ -137,6 +148,8 @@ impl Name {
     ///
     /// If this is the root name, [`None`] is returned.  The returned label will
     /// always be non-empty.
+    ///
+    /// Runtime: `O(1)`.
     pub fn split_first(&self) -> Option<(&Label, &Self)> {
         if self.is_root() {
             return None;
@@ -158,6 +171,8 @@ impl Name {
     /// If this name has the given prefix (see [`Self::starts_with()`]), the
     /// rest of the name without the prefix is returned.  Otherwise, [`None`] is
     /// returned.
+    ///
+    /// Runtime: `O(prefix.len())`, which is less than `O(self.len())`.
     pub fn strip_prefix<'a>(&'a self, prefix: &RelName) -> Option<&'a Self> {
         if self.starts_with(prefix) {
             let bytes = &self.as_bytes()[prefix.len()..];
@@ -176,6 +191,8 @@ impl Name {
     /// If this name has the given suffix (see [`Self::ends_with()`]), the rest
     /// of the name without the suffix is returned.  Otherwise, [`None`] is
     /// returned.
+    ///
+    /// Runtime: `O(self.len())`, which is more than `O(suffix.len())`.
     pub fn strip_suffix<'a>(&'a self, suffix: &Self) -> Option<&'a Self> {
         if self.ends_with(suffix) {
             let bytes = &self.as_bytes()[..self.len() - suffix.len()];
@@ -192,6 +209,8 @@ impl Name {
     /// Canonicalize this domain name.
     ///
     /// All uppercase ASCII characters in the name will be lowercased.
+    ///
+    /// Runtime: `O(self.len())`.
     pub fn canonicalize(&mut self) {
         // Label lengths are never ASCII characters, because they start from
         // byte value 65.  So we can treat the entire byte string as ASCII.
@@ -200,6 +219,12 @@ impl Name {
 }
 
 impl PartialEq for Name {
+    /// Compare labels by their canonical value.
+    ///
+    /// Canonicalized labels have uppercase ASCII characters lowercased, so this
+    /// function compares the two names ASCII-case-insensitively.
+    ///
+    // Runtime: `O(self.len())`, which is equal to `O(that.len())`.
     fn eq(&self, that: &Self) -> bool {
         // Label lengths are never ASCII characters, because they start from
         // byte value 65.  So we can treat the entire byte string as ASCII.
@@ -210,12 +235,26 @@ impl PartialEq for Name {
 impl Eq for Name {}
 
 impl PartialOrd for Name {
+    /// Compare names according to the canonical ordering.
+    ///
+    /// The 'canonical DNS name order' is defined in RFC 4034, section 6.1.
+    /// Essentially, any shared suffix of labels is stripped away, and the
+    /// remaining unequal label at the end is compared ASCII-case-insensitively.
+    ///
+    /// Runtime: `O(self.len() + that.len())`.
     fn partial_cmp(&self, that: &Self) -> Option<cmp::Ordering> {
         Some(Ord::cmp(self, that))
     }
 }
 
 impl Ord for Name {
+    /// Compare names according to the canonical ordering.
+    ///
+    /// The 'canonical DNS name order' is defined in RFC 4034, section 6.1.
+    /// Essentially, any shared suffix of labels is stripped away, and the
+    /// remaining unequal label at the end is compared ASCII-case-insensitively.
+    ///
+    /// Runtime: `O(self.len() + that.len())`.
     fn cmp(&self, that: &Self) -> cmp::Ordering {
         // We want to find a shared suffix between the two names, and the labels
         // immediately before that shared suffix.  However, we can't determine
@@ -275,6 +314,16 @@ impl Ord for Name {
 }
 
 impl Hash for Name {
+    /// Hash this label by its canonical value.
+    ///
+    /// The hasher is provided with the labels in this name with ASCII
+    /// characters lowercased.  Each label is preceded by its length as `u8`.
+    ///
+    /// The same scheme is used by [`RelName`] and [`Label`], so a tuple of any
+    /// of these types will have the same hash as the concatenation of the
+    /// labels.
+    ///
+    /// Runtime: `O(self.len())`.
     fn hash<H: Hasher>(&self, state: &mut H) {
         // NOTE: Label lengths are not affected by 'to_ascii_lowercase()' since
         // they are always less than 64.  As such, we don't need to iterate over
@@ -290,6 +339,7 @@ impl Hash for Name {
 }
 
 impl AsRef<[u8]> for Name {
+    /// The bytes in the name in the wire format.
     fn as_ref(&self) -> &[u8] {
         &self.0
     }
