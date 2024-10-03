@@ -75,14 +75,6 @@ const RESPONSE_WRITE_TIMEOUT: DefMinMax<Duration> = DefMinMax::new(
     Duration::from_secs(60 * 60),
 );
 
-/// Limit on the number of attempts that will be made to overcome
-/// non-fatal write errors.
-///
-/// The value has to be between 0 and 255 with a default of 2. A value of
-/// zero means that one try will be attempted.
-const RESPONSE_WRITE_RETRIES: DefMinMax<u8> =
-    DefMinMax::new(2, u8::MIN, u8::MAX);
-
 /// Limit on the number of DNS responses queued for writing to the client.
 ///
 /// The value has to be between zero and 1,024. The default value is 10. These
@@ -120,10 +112,6 @@ pub struct Config {
     /// default is based on the Unbound 1.19.2 default value for its
     /// `tcp-idle-timeout` setting.
     response_write_timeout: Duration,
-
-    /// Limit on the number of attempts that will be made to overcome
-    /// non-fatal write errors.
-    response_write_retries: u8,
 
     /// Limit on the number of DNS responses queued for writing to the client.
     max_queued_responses: usize,
@@ -186,16 +174,6 @@ impl Config {
         self.response_write_timeout = value;
     }
 
-    /// Limit on the number of attempts that will be made to overcome
-    /// non-fatal write errors.
-    ///
-    /// The value has to be between 0 and 255 with a default of 2. A value of
-    /// zero means that one try will be attempted.
-    #[allow(dead_code)]
-    pub fn set_response_write_retries(&mut self, value: u8) {
-        self.response_write_retries = value;
-    }
-
     /// Set the limit on the number of DNS responses queued for writing to the
     /// client.
     ///
@@ -225,7 +203,6 @@ impl Default for Config {
         Self {
             idle_timeout: IDLE_TIMEOUT.default(),
             response_write_timeout: RESPONSE_WRITE_TIMEOUT.default(),
-            response_write_retries: RESPONSE_WRITE_RETRIES.default(),
             max_queued_responses: MAX_QUEUED_RESPONSES.default(),
         }
     }
@@ -600,7 +577,7 @@ where
             "Writing queued response with id {} to stream",
             response.header().id()
         );
-        self.write_response_to_stream(response.finish()).await?;
+        self.write_response_to_stream(response.finish()).await;
 
         Ok(())
     }
@@ -609,62 +586,38 @@ where
     async fn write_response_to_stream(
         &mut self,
         msg: StreamTarget<Svc::Target>,
-    ) -> Result<(), ConnectionEvent> {
+    ) {
         if enabled!(Level::TRACE) {
             let bytes = msg.as_dgram_slice();
             let pcap_text = to_pcap_text(bytes, bytes.len());
             trace!(addr = %self.addr, pcap_text, "Sending response");
         }
 
-        let max_tries = self.config.load().response_write_retries + 1;
-        let mut tries_left = max_tries;
-        let mut success = false;
-        while tries_left > 0 {
-            debug!(addr = %self.addr, "Sending response: tries left={tries_left}");
-
-            let response_write_timeout =
-                self.config.load().response_write_timeout;
-
-            match timeout(
-                response_write_timeout,
-                self.stream_tx.write_all(msg.as_stream_slice()),
-            )
-            .await
-            {
-                Err(_) => {
-                    error!("Write timed out (>{response_write_timeout:?})",);
-                    // Retry
-                }
-                Ok(Err(err)) => {
-                    if let ControlFlow::Break(_err) = process_io_error(err) {
-                        // Fatal error, abort.
-                        break;
-                    } else {
-                        // Retry
-                    }
-                }
-                Ok(Ok(_)) => {
-                    // Success.
-                    success = true;
-                    break;
-                }
+        match timeout(
+            self.config.load().response_write_timeout,
+            self.stream_tx.write_all(msg.as_stream_slice()),
+        )
+        .await
+        {
+            Err(_) => {
+                error!(
+                    "Write timed out (>{:?})",
+                    self.config.load().response_write_timeout
+                );
+                // TODO: Push it to the back of the queue to retry it?
             }
-
-            tries_left -= 1;
+            Ok(Err(err)) => {
+                error!("Write error: {err}");
+            }
+            Ok(Ok(_)) => {
+                self.metrics.inc_num_sent_responses();
+            }
         }
 
         self.metrics.dec_num_pending_writes();
 
         if self.result_q_tx.capacity() == self.result_q_tx.max_capacity() {
             self.idle_timer.response_queue_emptied();
-        }
-
-        if success {
-            self.metrics.inc_num_sent_responses();
-            Ok(())
-        } else {
-            error!(addr = %self.addr, "Failed to send response after {}/{max_tries} attempts. The connection will be closed.", max_tries - tries_left);
-            Err(ConnectionEvent::DisconnectWithoutFlush)
         }
     }
 
@@ -966,35 +919,35 @@ where
                 // buffer.
                 Ok(_size) => return Ok(()),
 
-                Err(err) => match process_io_error(err) {
+                Err(err) => match Self::process_io_error(err) {
                     ControlFlow::Continue(_) => continue,
                     ControlFlow::Break(err) => return Err(err),
                 },
             }
         }
     }
-}
 
-/// Handle I/O errors by deciding whether to log them, and whether to continue
-/// or abort.
-#[must_use]
-fn process_io_error(err: io::Error) -> ControlFlow<ConnectionEvent> {
-    match err.kind() {
-        io::ErrorKind::UnexpectedEof => {
-            // The client disconnected. Per RFC 7766 6.2.4 pending responses
-            // MUST NOT be sent to the client.
-            ControlFlow::Break(ConnectionEvent::DisconnectWithoutFlush)
-        }
-        io::ErrorKind::TimedOut | io::ErrorKind::Interrupted => {
-            // These errors might be recoverable, try again.
-            ControlFlow::Continue(())
-        }
-        _ => {
-            // Everything else is either unrecoverable or unknown to us at the
-            // time of writing and so we can't guess how to handle it, so
-            // abort.
-            error!("I/O error: {}", err);
-            ControlFlow::Break(ConnectionEvent::DisconnectWithoutFlush)
+    /// Handle I/O errors by deciding whether to log them, and whethr to
+    /// continue or abort.
+    #[must_use]
+    fn process_io_error(err: io::Error) -> ControlFlow<ConnectionEvent> {
+        match err.kind() {
+            io::ErrorKind::UnexpectedEof => {
+                // The client disconnected. Per RFC 7766 6.2.4 pending
+                // responses MUST NOT be sent to the client.
+                ControlFlow::Break(ConnectionEvent::DisconnectWithoutFlush)
+            }
+            io::ErrorKind::TimedOut | io::ErrorKind::Interrupted => {
+                // These errors might be recoverable, try again.
+                ControlFlow::Continue(())
+            }
+            _ => {
+                // Everything else is either unrecoverable or unknown to us at
+                // the time of writing and so we can't guess how to handle it,
+                // so abort.
+                error!("I/O error: {}", err);
+                ControlFlow::Break(ConnectionEvent::DisconnectWithoutFlush)
+            }
         }
     }
 }
