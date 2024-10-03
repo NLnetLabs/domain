@@ -30,6 +30,7 @@ use octseq::parse::Parser;
 /// its response, including a 16-bit value that provides the idle time in
 /// units of 100 milliseconds.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct TcpKeepalive(Option<IdleTimeout>);
 
 impl TcpKeepalive {
@@ -147,6 +148,7 @@ impl<'a, Target: Composer> OptBuilder<'a, Target> {
 /// type provides means to conver the value into its raw `u16` value or into
 /// a [`Duration`] value.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct IdleTimeout(u16);
 
 impl IdleTimeout {

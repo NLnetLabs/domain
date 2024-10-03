@@ -1318,9 +1318,8 @@ impl std::fmt::Display for Error {
         match self {
             Error::OutOfZone => f.write_str("OutOfZone"),
             Error::NotSoaRecord => f.write_str("NotSoaRecord"),
-            Error::IoError(err) => {
-                f.write_fmt(format_args!("I/O error: {err}"))
-            }
+            Error::IoError(err) => write!(f, "I/O error: {err}"),
+
             Error::Finished => f.write_str("Finished"),
         }
     }

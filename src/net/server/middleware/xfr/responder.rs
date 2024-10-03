@@ -74,7 +74,7 @@ where
         // Note: NSD apparently uses name compresson on AXFR responses
         // because AXFR responses they typically contain lots of
         // alphabetically ordered duplicate names which compress well. NSD
-        // limits AXFR responses to 16,383 RRs because DNS name
+        // limits AXFR responses to 16,383 bytes because DNS name
         // compression uses a 14-bit offset (2^14-1=16383) from the start
         // of the message to the first occurence of a name instead of
         // repeating the name, and name compression is less effective
