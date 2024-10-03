@@ -69,8 +69,15 @@ Unstable features
   * Enforce dgram max response size limit. ([#398])
   * Extended MandatoryMiddlewareSvc with an RFC 9619 check for opcode QUERY
     with QDCOUNT > 1. ([#365])
-  * Added blanket `SendRequest` and `SendRequestMulti` impls for boxes.
-    ([#397])
+  * Added blanket `SendRequest` and `SendRequestMulti` impls for boxes. ([#397])
+  * `EdnsMiddlewareSvc` fixes: ([#355])
+    * Reply with FORMERR if an OPT RR cannot be parsed.
+    * Don't reply with FORMERR if an edns-tcp-keepalive option is received via
+      UDP, instead ignore it per RFC 7828 3.2.1.
+    * Only reserve space for an edns-tcp-keepalive option for TCP requests,
+      not UDP requests.
+    * Always reserve space for an OPT RR in the response for any request that
+      has an OPT RR, not just TCP requests.
   * Servers now drop received DNS response messages. (#381)
 * `unstable-zonetree`:
   * Added `ZoneUpdate`. ([#375])
@@ -112,6 +119,7 @@ Other changes
 [#348]: https://github.com/NLnetLabs/domain/pull/348
 [#352]: https://github.com/NLnetLabs/domain/pull/352
 [#354]: https://github.com/NLnetLabs/domain/pull/354
+]#355]: https://github.com/NLnetLabs/domain/pull/355
 [#357]: https://github.com/NLnetLabs/domain/pull/357
 [#358]: https://github.com/NLnetLabs/domain/pull/358
 [#360]: https://github.com/NLnetLabs/domain/pull/360
