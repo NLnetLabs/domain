@@ -7,8 +7,6 @@
 //! `interop`. Since they require additional software packages to be available
 //! and can be expensive, they are tagged as ignored by default.
 //!
-#![cfg(all(test, feature = "bytes", feature = "std"))]
+#![cfg(all(feature = "bytes", feature = "std"))]
 
-pub mod cargo;
 pub mod nsd;
-pub mod utils;

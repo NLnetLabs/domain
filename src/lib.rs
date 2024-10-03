@@ -167,7 +167,6 @@ pub mod rdata;
 pub mod resolv;
 pub mod sign;
 pub mod stelline;
-pub mod test;
 pub mod tsig;
 pub mod utils;
 pub mod validate;
