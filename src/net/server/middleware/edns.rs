@@ -12,7 +12,7 @@ use crate::base::message_builder::AdditionalBuilder;
 use crate::base::opt::keepalive::IdleTimeout;
 use crate::base::opt::{ComposeOptData, Opt, OptRecord, TcpKeepalive};
 use crate::base::wire::Composer;
-use crate::base::{Name, StreamTarget};
+use crate::base::{Message, Name, StreamTarget};
 use crate::net::server::message::{Request, TransportSpecificContext};
 use crate::net::server::middleware::stream::MiddlewareStream;
 use crate::net::server::service::{CallResult, Service, ServiceResult};
@@ -23,7 +23,6 @@ use crate::net::server::util::{
 use super::mandatory::MINIMUM_RESPONSE_BYTE_LEN;
 use super::stream::PostprocessingStream;
 use crate::base::name::ToLabelIter;
-use core::time::Duration;
 
 /// EDNS version 0.
 ///
@@ -208,17 +207,10 @@ where
 
                         ctx.set_max_response_size_hint(Some(negotiated_hint));
 
-                        // https://datatracker.ietf.org/doc/html/rfc6891#section-6.1.1
-                        // 6.1.1. Basic Elements
-                        //   "If an OPT record is present in a received
-                        //    request, compliant responders MUST include an
-                        //    OPT record in their respective responses."
-                        return Self::reserve_space_for_keep_alive_opt(
-                            request, None,
-                        );
+                        Self::reserve_space_for_opt(request, false);
                     }
 
-                    TransportSpecificContext::NonUdp(ctx) => {
+                    TransportSpecificContext::NonUdp(_ctx) => {
                         // https://datatracker.ietf.org/doc/html/rfc7828#section-3.2.1
                         // 3.2.1. Sending Queries
                         //   "Clients MUST specify an OPTION-LENGTH of 0 and
@@ -237,15 +229,7 @@ where
                             }
                         }
 
-                        // https://datatracker.ietf.org/doc/html/rfc6891#section-6.1.1
-                        // 6.1.1. Basic Elements
-                        //   "If an OPT record is present in a received
-                        //    request, compliant responders MUST include an
-                        //    OPT record in their respective responses."
-                        return Self::reserve_space_for_keep_alive_opt(
-                            request,
-                            ctx.idle_timeout(),
-                        );
+                        Self::reserve_space_for_opt(request, true);
                     }
                 }
             }
@@ -258,15 +242,6 @@ where
         request: &Request<RequestOctets, RequestMeta>,
         response: &mut AdditionalBuilder<StreamTarget<NextSvc::Target>>,
     ) {
-        // https://www.rfc-editor.org/rfc/rfc6891.html#section-6.1.1
-        // 6.1.1: Basic Elements
-        // ...
-        // "If an OPT record is present in a received request, compliant
-        //  responders MUST include an OPT record in their respective
-        //  responses."
-        //
-        // We don't do anything about this scenario at present.
-
         // https://www.rfc-editor.org/rfc/rfc6891.html#section-7
         // 7: Transport considerations
         // ...
@@ -313,6 +288,11 @@ where
                                 // timeout is known: "Signal the timeout value
                                 // using the edns-tcp-keepalive EDNS(0) option
                                 // [RFC7828]".
+
+                                // Remove the limit we should have imposed during pre-processing so
+                                // that we can use the space we reserved for the OPT RR.
+                                response.clear_push_limit();
+
                                 if let Err(err) =
                                     // TODO: Don't add the option if it
                                     // already exists?
@@ -338,34 +318,58 @@ where
             }
         }
 
+        // https://www.rfc-editor.org/rfc/rfc6891.html#section-6.1.1
+        // 6.1.1: Basic Elements
+        // ...
+        // "If an OPT record is present in a received request, compliant
+        //  responders MUST include an OPT record in their respective
+        //  responses."
+        if request.message().opt().is_some()
+            && Message::from_octets(response.as_slice())
+                .unwrap()
+                .opt()
+                .is_none()
+        {
+            if let Err(err) = response.opt(|_| Ok(())) {
+                warn!("Cannot add RFC 6891 OPT record to response: {err}");
+            }
+        }
+
         // TODO: For UDP EDNS capable clients (those that included an OPT
         // record in the request) should we set the Requestor's Payload Size
         // field to some value?
     }
 
-    fn reserve_space_for_keep_alive_opt(
+    fn reserve_space_for_opt(
         request: &mut Request<RequestOctets, RequestMeta>,
-        timeout: Option<Duration>,
-    ) -> ControlFlow<AdditionalBuilder<StreamTarget<NextSvc::Target>>> {
-        let keep_alive_option_len = match timeout {
-            Some(timeout) => {
-                match IdleTimeout::try_from(timeout) {
-                    Ok(idle_timeout) => {
-                        let option_data =
-                            TcpKeepalive::new(Some(idle_timeout));
-                        // OPTION-CODE + OPTION-LENGTH + OPTION-DATA
-                        2 + 2 + option_data.compose_len()
-                    }
-                    Err(err) => {
-                        debug!("RFC 7828 3.1 violation: unable to parse edns-tcp-keepalive timeout value: {err}");
-                        return ControlFlow::Break(mk_error_response(
-                            request.message(),
-                            OptRcode::FORMERR,
-                        ));
-                    }
-                }
-            }
-            None => 0,
+        is_tcp: bool,
+    ) {
+        // https://datatracker.ietf.org/doc/html/rfc6891#section-6.1.1
+        // 6.1.1. Basic Elements
+        //   "If an OPT record is present in a received
+        //    request, compliant responders MUST include an
+        //    OPT record in their respective responses."
+        if request.message().opt().is_none() {
+            return;
+        }
+
+        // https://datatracker.ietf.org/doc/html/rfc7828#section-3.3.2
+        // 3.3.2.  Sending Responses
+        //   "A DNS server that receives a query sent using TCP transport that
+        //    includes an OPT RR (with or without the edns-tcp-keepalive
+        //    option) MAY include the edns-tcp-keepalive option in the
+        //    response to signal the expected idle timeout on a connection.
+        //    Servers MUST specify the TIMEOUT value that is currently
+        //    associated with the TCP session."
+        let keep_alive_option_len = if is_tcp {
+            // TODO: As the byte length to reserve is fixed we would ideally
+            // be able to use a constant here instead of calculating the
+            // length.
+            let option_data = TcpKeepalive::new(Some(0u16.into()));
+            // OPTION-CODE + OPTION-LENGTH + OPTION-DATA
+            2 + 2 + option_data.compose_len()
+        } else {
+            0
         };
 
         let root_name_len = Name::root_ref().compose_len();
@@ -385,8 +389,6 @@ where
             + keep_alive_option_len; // OPTION-DATA
 
         request.reserve_bytes(wire_opt_len);
-
-        ControlFlow::Continue(())
     }
 
     fn map_stream_item(
