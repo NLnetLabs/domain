@@ -762,8 +762,8 @@ where
                                             }
 
                                             Err(TrySendError::Closed(_)) => {
-                                                error!("Unable to queue message for sending: server is shutting down.");
-                                                break;
+                                                error!("Unable to queue message for sending: connection is shutting down.");
+                                                return;
                                             }
 
                                             Err(TrySendError::Full(
@@ -777,7 +777,7 @@ where
                                                         unused_response;
                                                 } else {
                                                     error!("Unable to queue message for sending: queue is full.");
-                                                    break;
+                                                    return;
                                                 }
                                             }
                                         }
