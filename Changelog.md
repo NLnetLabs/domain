@@ -17,6 +17,7 @@ New
 * Added `Rtype::NXNAME` and `ExtendedErrorCode::INVALID_QUERY_TYPE`. ([#392])
 * Added a `Serialize` impl to `AllRecordData` and as a consequence to
   the OPT record and all OPT options, as well as `ParsedName`. ([#343])
+* Added `Display` impl to `tsig::Key`. ([#397])
 
 Bug fixes
 
@@ -68,6 +69,8 @@ Unstable features
   * Enforce dgram max response size limit. ([#398])
   * Extend MandatoryMiddlewareSvc with an RFC 9619 check for opcode QUERY with
     QDCOUNT > 1. ([#365])
+  * Add blanket `SendRequest` and `SendRequestMulti` impls for boxes.
+    ([#397])
 * `unstable-zonetree`:
   * Added `ZoneUpdate`. ([#375])
   * Added `ZoneUpdater`, `ZoneDiff`, `InMemoryZoneDiffBuilder`,
@@ -85,6 +88,9 @@ Unstable features
     `remove`. ([#376])
   * Fix zone walking to include non-leaf CNAMEs. ([#352])
   * Fix zone walking to pass the correct owner name to the callback. ([#384])
+  * Add an `as_any` method and `Clone` and `Debug` impls to various zonetree
+    types. ([#397])
+  * Add `AsRef<dyn ZoneStore>` to `Zone`. ([#397])
 
 Other changes
 
@@ -117,6 +123,7 @@ Other changes
 [#383]: https://github.com/NLnetLabs/domain/pull/383
 [#384]: https://github.com/NLnetLabs/domain/pull/384
 [#392]: https://github.com/NLnetLabs/domain/pull/392
+[#397]: https://github.com/NLnetLabs/domain/pull/397
 [#398]: https://github.com/NLnetLabs/domain/pull/398
 [@dklbreitling]: https://github.com/dklbreitling
 
