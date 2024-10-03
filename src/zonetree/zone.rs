@@ -13,17 +13,6 @@ use super::traits::WritableZone;
 use super::types::StoredName;
 use super::{parsed, ReadableZone, ZoneStore};
 
-//------------ ZoneTuple ------------------------------------------------------
-
-/// A tuple that identifies a zone.
-///
-/// A zone is identified by the owner name of the apex and its class. Every
-/// record in a zone must be at or under the apex owner name and be of the
-/// same class.
-pub type ZoneTuple = (StoredName, Class);
-
-//------------ Zone -----------------------------------------------------------
-
 /// A single DNS zone.
 ///
 /// # Abstract backing store
@@ -94,14 +83,6 @@ impl Zone {
     ) -> Pin<Box<dyn Future<Output = Box<dyn WritableZone>> + Send + Sync>>
     {
         self.store.clone().write()
-    }
-
-    /// Gets a key that uniquely identifies this zone.
-    ///
-    /// Note: Assumes that there is only ever one instance of a zone with a
-    /// given apex name and class in a set of zones.
-    pub fn key(&self) -> ZoneTuple {
-        (self.apex_name().clone(), self.class())
     }
 }
 
