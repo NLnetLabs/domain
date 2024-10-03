@@ -395,7 +395,9 @@ impl<'a> Query<'a> {
         let msg = Message::from_octets(message.as_target().to_vec())
             .expect("Message::from_octets should not fail");
 
-        let request_msg = RequestMessage::new(msg);
+        let request_msg = RequestMessage::new(msg).map_err(|e| {
+            io::Error::new(io::ErrorKind::Other, e.to_string())
+        })?;
 
         let transport = self.resolver.get_transport().await.map_err(|e| {
             io::Error::new(io::ErrorKind::Other, e.to_string())

@@ -27,7 +27,7 @@
 //!         <-- (optional) middleware services - post-processes responses
 //!     <-- server                             - serializes responses
 //! <-- network source                         - writes bytes to the client
-//! ````
+//! ```
 //!
 //! # Getting started
 //!
@@ -38,15 +38,15 @@
 //! application [`Service`] impl at the peak.
 //!
 //! Whether using [`DgramServer`] or [`StreamServer`] the required steps are
-//! the same.
+//! the same:
 //!
-//!   - Create an appropriate network source (more on this below).
-//!   - Construct a server transport with `new()` passing in the network
-//!     source and service instance as arguments.
-//!     - (optional) Tune the server behaviour via builder functions such as
-//!       `with_config()`.
-//!   - `run()` the server.
-//!   - `shutdown()` the server, explicitly or on [`drop`].
+//!   1. Create an appropriate network source (more on this below).
+//!   2. Construct a server transport with `new()` passing in the network
+//!      source and service instance as arguments.
+//!      - (optional) Tune the server behaviour via builder functions such as
+//!        `with_config()`.
+//!   3. `run()` the server.
+//!   4. `shutdown()` the server, explicitly or on [`drop`].
 //!
 //! See [`DgramServer`] and [`StreamServer`] for example code to help you get
 //! started.
@@ -104,6 +104,50 @@
 //! other DNS servers is left for you to define by implementing the
 //! [`Service`] trait yourself and passing an instance of that service to the
 //! server or middleware service as input.
+//!
+//! ## Zone maintenance and zone transfers
+//!
+//! This crate provides everything you need to do zone maintenance, i.e.
+//! serving entire zones to clients and keeping your own zones synchronized
+//! with those of a primary server.
+//!
+//! If acting as a primary nameserver:
+//! - Use [`XfrMiddlewareSvc`] to respond to AXFR and IXFR requests from
+//!   secondary nameservers.
+//! - Implement [`XfrDataProvider`] to define your XFR access policy.
+//! - Create [`ZoneDiff`]s when making changes to [`Zone`] content and make
+//!   those diffs available via your [`XfrDataProvider`] implementation.
+//! - Use [`TsigMiddlewareSvc`] to authenticate transfer requests from
+//!   secondary nameservers.
+//! - Use the UDP client support in `net::client` to send out NOTIFY messages
+//!   on zone change.
+//!
+//! If acting as a secondary nameserver:
+//! - Use [`NotifyMiddlewareSvc`] to detect changes at the primary to zones
+//!   that you are mirroring.
+//! - Use the TCP client support in [`net::client`] to make outbound XFR
+//!   requests on SOA timer expiration or NOTIFY to fetch changes to zone
+//!   content.
+//! - Use [`net::client::tsig`] to authenticate your transfer requests to
+//!   primary nameservers.
+//! - Use [`XfrResponseInterpreter`] and [`ZoneUpdater`] to parse transfer
+//!   responses and apply the changes to your zones.
+//!
+//! Additionally you may wish to use [`ZoneTree`] to simplify serving multiple
+//! zones.
+//!
+//! [`net::client`]: crate::net::client
+//! [`net::client::tsig`]: crate::net::client::tsig
+//! [`NotifyMiddlewareSvc`]: middleware::notify::NotifyMiddlewareSvc
+//! [`TsigMiddlewareSvc`]: middleware::tsig::TsigMiddlewareSvc
+//! [`XfrMiddlewareSvc`]: middleware::xfr::XfrMiddlewareSvc
+//! [`XfrDataProvider`]: middleware::xfr::XfrDataProvider
+//! [`XfrResponseInterpreter`]:
+//!     crate::net::xfr::protocol::XfrResponseInterpreter
+//! [`Zone`]: crate::zonetree::Zone
+//! [`ZoneDiff`]: crate::zonetree::ZoneDiff
+//! [`ZoneTree`]: crate::zonetree::ZoneTree
+//! [`ZoneUpdater`]: crate::zonetree::update::ZoneUpdater
 //!
 //! # Advanced
 //!
@@ -180,6 +224,7 @@
 mod connection;
 pub use connection::Config as ConnectionConfig;
 
+pub mod batcher;
 pub mod buf;
 pub mod dgram;
 pub mod error;

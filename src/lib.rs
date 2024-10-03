@@ -137,6 +137,7 @@
 //!   a server perspective; primarily the `net::server` module.
 //! * `unstable-validator`: a DNSSEC validator, primarily the `validator`
 //!   and the `net::client::validator` modules.
+//! * `unstable-xfr`: zone transfer related functionality..
 //! * `unstable-zonetree`: building & querying zone trees; primarily the
 //!   `zonetree` module.
 //!
@@ -166,7 +167,6 @@ pub mod rdata;
 pub mod resolv;
 pub mod sign;
 pub mod stelline;
-pub mod test;
 pub mod tsig;
 pub mod utils;
 pub mod validate;

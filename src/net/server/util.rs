@@ -1,15 +1,16 @@
 //! Small utilities for building and working with servers.
-use core::future::Ready;
+use core::future::{ready, Ready};
 
+use core::marker::PhantomData;
 use std::string::{String, ToString};
 
-use futures::stream::Once;
+use futures_util::stream::Once;
 use octseq::{Octets, OctetsBuilder};
 use tracing::warn;
 
-use crate::base::iana::{OptRcode, Rcode};
+use crate::base::iana::OptRcode;
 use crate::base::message_builder::{
-    AdditionalBuilder, OptBuilder, PushError, QuestionBuilder,
+    AdditionalBuilder, OptBuilder, PushError,
 };
 use crate::base::wire::Composer;
 use crate::base::Message;
@@ -43,9 +44,17 @@ where
 /// those of its associated types, but this makes implementing it for simple
 /// cases quite verbose.
 ///
-/// `service_fn()` enables you to write a slightly simpler function definition
-/// that implements the [`Service`] trait than implementing [`Service`]
-/// directly.
+/// [`service_fn()`] enables you to write a slightly simpler function
+/// definition that implements the [`Service`] trait than implementing
+/// [`Service`] directly.
+///
+/// <div class="warning">
+///
+/// Note that [`service_fn`] does not support async service functions. To
+/// use async code in a service you must implement the [`Service`] trait
+/// manually on a struct.
+///
+/// </div>
 ///
 /// # Example
 ///
@@ -55,13 +64,9 @@ where
 ///
 /// ```
 /// // Import the types we need.
-/// use std::boxed::Box;
-/// use std::future::Future;
-/// use std::pin::Pin;
 /// use domain::base::iana::Rcode;
-/// use domain::base::Message;
 /// use domain::net::server::message::Request;
-/// use domain::net::server::service::{CallResult, ServiceError, ServiceResult};
+/// use domain::net::server::service::{CallResult, ServiceResult};
 /// use domain::net::server::util::{mk_builder_for_target, service_fn};
 ///
 /// // Define some types to make the example easier to read.
@@ -69,7 +74,9 @@ where
 ///
 /// // Implement the application logic of our service.
 /// // Takes the received DNS request and any additional meta data you wish to
-/// // provide, and returns one or more future DNS responses.
+/// // provide, and returns one or more DNS responses.
+/// //
+/// // Note that using `service_fn()` does not permit you to use async code!
 /// fn my_service(req: Request<Vec<u8>>, _meta: MyMeta)
 ///     -> ServiceResult<Vec<u8>>
 /// {
@@ -90,21 +97,63 @@ where
 /// [`Vec<u8>`]: std::vec::Vec<u8>
 /// [`CallResult`]: crate::net::server::service::CallResult
 /// [`Result::Ok`]: std::result::Result::Ok
-pub fn service_fn<RequestOctets, Target, T, Metadata>(
+pub fn service_fn<RequestOctets, Target, T, RequestMeta, Metadata>(
     request_handler: T,
     metadata: Metadata,
-) -> impl Service<
-    RequestOctets,
-    Target = Target,
-    Stream = Once<Ready<ServiceResult<Target>>>,
-    Future = Ready<Once<Ready<ServiceResult<Target>>>>,
-> + Clone
+) -> ServiceFn<Target, T, Metadata>
 where
     RequestOctets: AsRef<[u8]> + Send + Sync + Unpin,
+    RequestMeta: Clone + Default,
     Metadata: Clone,
-    T: Fn(Request<RequestOctets>, Metadata) -> ServiceResult<Target> + Clone,
+    Target: Composer + Default,
+    T: Fn(
+            Request<RequestOctets, RequestMeta>,
+            Metadata,
+        ) -> ServiceResult<Target>
+        + Clone,
 {
-    move |request| request_handler(request, metadata.clone())
+    ServiceFn {
+        request_handler,
+        metadata,
+        _phantom: PhantomData,
+    }
+}
+
+//--- ServiceFn
+
+#[derive(Clone, Debug)]
+pub struct ServiceFn<Target, T, Metadata> {
+    request_handler: T,
+    metadata: Metadata,
+    _phantom: PhantomData<Target>,
+}
+
+impl<RequestOctets, Target, RequestMeta, T, Metadata>
+    Service<RequestOctets, RequestMeta> for ServiceFn<Target, T, Metadata>
+where
+    RequestOctets: AsRef<[u8]> + Send + Sync + Unpin,
+    RequestMeta: Default + Clone,
+    Metadata: Clone,
+    Target: Composer + Default,
+    T: Fn(
+            Request<RequestOctets, RequestMeta>,
+            Metadata,
+        ) -> ServiceResult<Target>
+        + Clone,
+{
+    type Target = Target;
+    type Stream = Once<Ready<ServiceResult<Self::Target>>>;
+    type Future = Ready<Self::Stream>;
+
+    fn call(
+        &self,
+        request: Request<RequestOctets, RequestMeta>,
+    ) -> Self::Future {
+        ready(futures_util::stream::once(ready((self.request_handler)(
+            request,
+            self.metadata.clone(),
+        ))))
+    }
 }
 
 //----------- to_pcap_text() -------------------------------------------------
@@ -138,53 +187,6 @@ pub(crate) fn to_pcap_text<T: AsRef<[u8]>>(
     formatted
 }
 
-//----------- start_reply ----------------------------------------------------
-
-/// Create a DNS response message that is a reply to a given request message.
-///
-/// Copy the request question into a new response and return the builder for
-/// further message construction.
-///
-/// On internal error this function will attempt to set RCODE ServFail in the
-/// returned message.
-pub fn start_reply<RequestOctets, Target>(
-    msg: &Message<RequestOctets>,
-) -> QuestionBuilder<StreamTarget<Target>>
-where
-    RequestOctets: Octets,
-    Target: Composer + Default,
-{
-    let builder = mk_builder_for_target();
-
-    // RFC (1035?) compliance - copy question from request to response.
-    let mut abort = false;
-    let mut builder = builder.question();
-    for rr in msg.question() {
-        match rr {
-            Ok(rr) => {
-                if let Err(err) = builder.push(rr) {
-                    warn!("Internal error while copying question RR to the resposne: {err}");
-                    abort = true;
-                    break;
-                }
-            }
-            Err(err) => {
-                warn!(
-                    "Parse error while copying question RR to the resposne: {err} [RR: {rr:?}]"
-                );
-                abort = true;
-                break;
-            }
-        }
-    }
-
-    if abort {
-        builder.header_mut().set_rcode(Rcode::SERVFAIL);
-    }
-
-    builder
-}
-
 //------------ mk_error_response ---------------------------------------------
 
 pub fn mk_error_response<RequestOctets, Target>(
@@ -195,7 +197,9 @@ where
     RequestOctets: Octets,
     Target: Composer + Default,
 {
-    let mut additional = start_reply(msg).additional();
+    let mut additional = mk_builder_for_target()
+        .start_error(msg, rcode.rcode())
+        .additional();
 
     // Note: if rcode is non-extended this will also correctly handle
     // setting the rcode in the main message header.
@@ -343,13 +347,12 @@ mod tests {
     use crate::base::{Message, MessageBuilder, Name, Rtype, StreamTarget};
     use crate::net::server::message::{Request, UdpTransportContext};
 
-    use super::start_reply;
     use crate::base::iana::{OptRcode, Rcode};
     use crate::base::message_builder::AdditionalBuilder;
     use crate::base::opt::UnknownOptData;
     use crate::base::wire::Composer;
     use crate::net::server::util::{
-        add_edns_options, remove_edns_opt_record,
+        add_edns_options, mk_builder_for_target, remove_edns_opt_record,
     };
     use std::vec::Vec;
 
@@ -365,10 +368,12 @@ mod tests {
         let client_ip = "127.0.0.1:12345".parse().unwrap();
         let sent_at = Instant::now();
         let ctx = UdpTransportContext::default();
-        let request = Request::new(client_ip, sent_at, msg, ctx.into());
+        let request = Request::new(client_ip, sent_at, msg, ctx.into(), ());
 
         // Create a dummy DNS reply which does not yet have an OPT record.
-        let reply = start_reply::<_, Vec<u8>>(request.message());
+        let reply = mk_builder_for_target::<Vec<u8>>()
+            .start_answer(request.message(), Rcode::NOERROR)
+            .unwrap();
         assert_eq!(reply.counts().arcount(), 0);
         assert_eq!(reply.header().rcode(), Rcode::NOERROR);
 
@@ -453,10 +458,12 @@ mod tests {
         let client_ip = "127.0.0.1:12345".parse().unwrap();
         let sent_at = Instant::now();
         let ctx = UdpTransportContext::default();
-        let request = Request::new(client_ip, sent_at, msg, ctx.into());
+        let request = Request::new(client_ip, sent_at, msg, ctx.into(), ());
 
         // Create a dummy DNS reply which does not yet have an OPT record.
-        let reply = start_reply::<_, Vec<u8>>(request.message());
+        let reply = mk_builder_for_target::<Vec<u8>>()
+            .start_answer(request.message(), Rcode::NOERROR)
+            .unwrap();
         assert_eq!(reply.counts().arcount(), 0);
 
         // Add an OPT record to the reply.

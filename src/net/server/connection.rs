@@ -8,7 +8,7 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 
 use arc_swap::ArcSwap;
-use futures::StreamExt;
+use futures_util::StreamExt;
 use octseq::Octets;
 use tokio::io::{
     AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, ReadHalf, WriteHalf,
@@ -113,7 +113,7 @@ pub struct Config {
     /// `tcp-idle-timeout` setting.
     response_write_timeout: Duration,
 
-    /// Limit on the number of DNS responses queued for wriing to the client.
+    /// Limit on the number of DNS responses queued for writing to the client.
     max_queued_responses: usize,
 }
 
@@ -683,8 +683,13 @@ where
                             self.config.load().idle_timeout,
                         ));
                         let ctx = TransportSpecificContext::NonUdp(ctx);
-                        let request =
-                            Request::new(self.addr, received_at, msg, ctx);
+                        let request = Request::new(
+                            self.addr,
+                            received_at,
+                            msg,
+                            ctx,
+                            (),
+                        );
 
                         let svc = self.service.clone();
                         let result_q_tx = self.result_q_tx.clone();

@@ -21,9 +21,7 @@
 //! something that looks like a [`Record`]. Apart from actual values
 //! of these types, tuples of the components also work, such as a pair of a
 //! domain name and a record type for a question or a triple of the owner
-//! name, TTL, and record data for a record. If you already have a question
-//! or record, you can use the `push_ref` method to add
-//!
+//! name, TTL, and record data for a record.
 //!
 //! The `push` method of the record
 //! section builders is also available via the [`RecordSectionBuilder`]
@@ -238,7 +236,7 @@ impl<Target: Composer> MessageBuilder<Target> {
     ///
     /// Specifically, this sets the ID, QR, OPCODE, RD, and RCODE fields
     /// in the header and attempts to push the message’s questions to the
-    /// builder. If iterating of the questions fails, it adds what it can.
+    /// builder.
     ///
     /// The method converts the message builder into an answer builder ready
     /// to receive the answer for the question.
@@ -262,6 +260,35 @@ impl<Target: Composer> MessageBuilder<Target> {
         Ok(builder.answer())
     }
 
+    /// Starts creating an error for the given message.
+    ///
+    /// Like [`start_answer()`][Self::start_answer] but infallible. Questions
+    /// will be pushed if possible.
+    pub fn start_error<Octs: Octets + ?Sized>(
+        mut self,
+        msg: &Message<Octs>,
+        rcode: Rcode,
+    ) -> AnswerBuilder<Target> {
+        {
+            let header = self.header_mut();
+            header.set_id(msg.header().id());
+            header.set_qr(true);
+            header.set_opcode(msg.header().opcode());
+            header.set_rd(msg.header().rd());
+            header.set_rcode(rcode);
+        }
+
+        let mut builder = self.question();
+        for item in msg.question().flatten() {
+            if builder.push(item).is_err() {
+                builder.header_mut().set_rcode(Rcode::SERVFAIL);
+                break;
+            }
+        }
+
+        builder.answer()
+    }
+
     /// Creates an AXFR request for the given domain.
     ///
     /// Sets a random ID, pushes the domain and the AXFR record type into
@@ -282,15 +309,15 @@ impl<Target: Composer> MessageBuilder<Target> {
 impl<Target: Composer> MessageBuilder<Target> {
     /// Limit how much of the underlying buffer may be used.
     ///
-    /// When a limit is set, calling [`push()`] will fail if the limit is
-    /// exceeded just as if the actual end of the underlying buffer had been
-    /// reached.
+    /// When a limit is set, calling `push()` on a message section (e.g.
+    /// [`AdditionalBuilder::push()`]) will fail if the limit is exceeded just
+    /// as if the actual end of the underlying buffer had been reached.
     ///
     /// Note: Calling this function does NOT truncate the underlying buffer.
     /// If the new limit is lees than the amount of the buffer that has
     /// already been used, exisitng content beyond the limit will remain
     /// untouched, the length will remain larger than the limit, and calls to
-    /// [`push()`] will fail until the buffer is truncated to a size less than
+    /// `push()` will fail until the buffer is truncated to a size less than
     /// the limit.
     pub fn set_push_limit(&mut self, limit: usize) {
         self.limit = limit;
@@ -843,6 +870,19 @@ impl<Target: Composer> AnswerBuilder<Target> {
     pub fn push(
         &mut self,
         record: impl ComposeRecord,
+    ) -> Result<(), PushError> {
+        self.builder.push(
+            |target| record.compose_record(target).map_err(Into::into),
+            |counts| counts.inc_ancount(),
+        )
+    }
+
+    /// Appends a record to the answer section without consuming it.
+    ///
+    /// See [`push`][Self::push].
+    pub fn push_ref(
+        &mut self,
+        record: &impl ComposeRecord,
     ) -> Result<(), PushError> {
         self.builder.push(
             |target| record.compose_record(target).map_err(Into::into),

@@ -5,7 +5,7 @@ use core::ops::ControlFlow;
 
 use std::fmt::Display;
 
-use futures::stream::{once, Once};
+use futures_util::stream::{once, Once, Stream};
 use octseq::Octets;
 use tracing::{debug, error, trace, warn};
 
@@ -35,51 +35,59 @@ pub const MINIMUM_RESPONSE_BYTE_LEN: u16 = 512;
 /// |--------|---------|
 /// | [1035] | TBD     |
 /// | [2181] | TBD     |
+/// | [9619] | TBD     |
 ///
 /// [1035]: https://datatracker.ietf.org/doc/html/rfc1035
 /// [2181]: https://datatracker.ietf.org/doc/html/rfc2181
+/// [9619]: https://datatracker.ietf.org/doc/html/rfc9619
 #[derive(Clone, Debug)]
-pub struct MandatoryMiddlewareSvc<RequestOctets, Svc> {
-    /// In strict mode the processor does more checks on requests and
+pub struct MandatoryMiddlewareSvc<RequestOctets, NextSvc, RequestMeta> {
+    /// The upstream [`Service`] to pass requests to and receive responses
+    /// from.
+    next_svc: NextSvc,
+
+    /// In strict mode the service does more checks on requests and
     /// responses.
     strict: bool,
 
-    svc: Svc,
-
-    _phantom: PhantomData<RequestOctets>,
+    _phantom: PhantomData<(RequestOctets, RequestMeta)>,
 }
 
-impl<RequestOctets, Svc> MandatoryMiddlewareSvc<RequestOctets, Svc> {
-    /// Creates a new processor instance.
+impl<RequestOctets, NextSvc, RequestMeta>
+    MandatoryMiddlewareSvc<RequestOctets, NextSvc, RequestMeta>
+{
+    /// Creates an instance of this middleware service.
     ///
-    /// The processor will operate in strict mode.
+    /// The service will operate in strict mode.
     #[must_use]
-    pub fn new(svc: Svc) -> Self {
+    pub fn new(next_svc: NextSvc) -> Self {
         Self {
             strict: true,
-            svc,
+            next_svc,
             _phantom: PhantomData,
         }
     }
 
-    /// Creates a new processor instance.
+    /// Creates an instance of this middleware service.
     ///
-    /// The processor will operate in relaxed mode.
+    /// The service will operate in relaxed mode.
     #[must_use]
-    pub fn relaxed(svc: Svc) -> Self {
+    pub fn relaxed(next_svc: NextSvc) -> Self {
         Self {
             strict: false,
-            svc,
+            next_svc,
             _phantom: PhantomData,
         }
     }
 }
 
-impl<RequestOctets, Svc> MandatoryMiddlewareSvc<RequestOctets, Svc>
+impl<RequestOctets, NextSvc, RequestMeta>
+    MandatoryMiddlewareSvc<RequestOctets, NextSvc, RequestMeta>
 where
     RequestOctets: Octets + Send + Sync + Unpin,
-    Svc: Service<RequestOctets>,
-    Svc::Target: Composer + Default,
+    NextSvc: Service<RequestOctets, RequestMeta>,
+    NextSvc::Target: Composer + Default,
+    RequestMeta: Clone + Default,
 {
     /// Truncate the given response message if it is too large.
     ///
@@ -92,8 +100,8 @@ where
     /// any OPT record present which will be preserved, then truncates to the
     /// specified byte length.
     fn truncate(
-        request: &Request<RequestOctets>,
-        response: &mut AdditionalBuilder<StreamTarget<Svc::Target>>,
+        request: &Request<RequestOctets, RequestMeta>,
+        response: &mut AdditionalBuilder<StreamTarget<NextSvc::Target>>,
     ) -> Result<(), TruncateError> {
         if let TransportSpecificContext::Udp(ctx) = request.transport_ctx() {
             // https://datatracker.ietf.org/doc/html/rfc1035#section-4.2.1
@@ -190,19 +198,36 @@ where
     fn preprocess(
         &self,
         msg: &Message<RequestOctets>,
-    ) -> ControlFlow<AdditionalBuilder<StreamTarget<Svc::Target>>> {
+    ) -> ControlFlow<AdditionalBuilder<StreamTarget<NextSvc::Target>>> {
         // https://www.rfc-editor.org/rfc/rfc3425.html
         // 3 - Effect on RFC 1035
         //   ..
         //   "Therefore IQUERY is now obsolete, and name servers SHOULD return
         //    a "Not Implemented" error when an IQUERY request is received."
         if self.strict && msg.header().opcode() == Opcode::IQUERY {
-            debug!(
-                "RFC 3425 3 violation: request opcode IQUERY is obsolete."
-            );
+            debug!("RFC 3425 violation: request opcode IQUERY is obsolete.");
             return ControlFlow::Break(mk_error_response(
                 msg,
                 OptRcode::NOTIMP,
+            ));
+        }
+
+        // https://datatracker.ietf.org/doc/html/rfc9619#section-4
+        // 4. Updates to RFC 1035
+        //   ...
+        //   "A DNS message with OPCODE = 0 and QDCOUNT > 1 MUST be treated as
+        //   an incorrectly formatted message. The value of the RCODE
+        //   parameter in the response message MUST be set to 1 (FORMERR)."
+        if self.strict
+            && msg.header().opcode() == Opcode::QUERY
+            && msg.header_counts().qdcount() > 1
+        {
+            debug!(
+                "RFC 9619 violation: request opcode QUERY with QDCOUNT > 1."
+            );
+            return ControlFlow::Break(mk_error_response(
+                msg,
+                OptRcode::FORMERR,
             ));
         }
 
@@ -210,8 +235,8 @@ where
     }
 
     fn postprocess(
-        request: &Request<RequestOctets>,
-        response: &mut AdditionalBuilder<StreamTarget<Svc::Target>>,
+        request: &Request<RequestOctets, RequestMeta>,
+        response: &mut AdditionalBuilder<StreamTarget<NextSvc::Target>>,
         strict: bool,
     ) {
         if let Err(err) = Self::truncate(request, response) {
@@ -260,13 +285,13 @@ where
     }
 
     fn map_stream_item(
-        request: Request<RequestOctets>,
-        mut stream_item: ServiceResult<Svc::Target>,
-        strict: bool,
-    ) -> ServiceResult<Svc::Target> {
+        request: Request<RequestOctets, RequestMeta>,
+        mut stream_item: ServiceResult<NextSvc::Target>,
+        strict: &mut bool,
+    ) -> ServiceResult<NextSvc::Target> {
         if let Ok(cr) = &mut stream_item {
             if let Some(response) = cr.response_mut() {
-                Self::postprocess(&request, response, strict);
+                Self::postprocess(&request, response, *strict);
             }
         }
         stream_item
@@ -275,28 +300,38 @@ where
 
 //--- Service
 
-impl<RequestOctets, Svc> Service<RequestOctets>
-    for MandatoryMiddlewareSvc<RequestOctets, Svc>
+impl<RequestOctets, NextSvc, RequestMeta> Service<RequestOctets, RequestMeta>
+    for MandatoryMiddlewareSvc<RequestOctets, NextSvc, RequestMeta>
 where
     RequestOctets: Octets + Send + Sync + 'static + Unpin,
-    Svc: Service<RequestOctets>,
-    Svc::Future: Unpin,
-    Svc::Target: Composer + Default,
+    NextSvc: Service<RequestOctets, RequestMeta>,
+    NextSvc::Future: Unpin,
+    NextSvc::Target: Composer + Default,
+    RequestMeta: Clone + Default + Unpin,
 {
-    type Target = Svc::Target;
+    type Target = NextSvc::Target;
     type Stream = MiddlewareStream<
-        Svc::Future,
-        Svc::Stream,
-        PostprocessingStream<RequestOctets, Svc::Future, Svc::Stream, bool>,
-        Once<Ready<<Svc::Stream as futures::stream::Stream>::Item>>,
-        <Svc::Stream as futures::stream::Stream>::Item,
+        NextSvc::Future,
+        NextSvc::Stream,
+        PostprocessingStream<
+            RequestOctets,
+            NextSvc::Future,
+            NextSvc::Stream,
+            RequestMeta,
+            bool,
+        >,
+        Once<Ready<<NextSvc::Stream as Stream>::Item>>,
+        <NextSvc::Stream as Stream>::Item,
     >;
     type Future = Ready<Self::Stream>;
 
-    fn call(&self, request: Request<RequestOctets>) -> Self::Future {
+    fn call(
+        &self,
+        request: Request<RequestOctets, RequestMeta>,
+    ) -> Self::Future {
         match self.preprocess(request.message()) {
             ControlFlow::Continue(()) => {
-                let svc_call_fut = self.svc.call(request.clone());
+                let svc_call_fut = self.next_svc.call(request.clone());
                 let map = PostprocessingStream::new(
                     svc_call_fut,
                     request,
@@ -357,7 +392,7 @@ mod tests {
     use std::vec::Vec;
 
     use bytes::Bytes;
-    use futures::StreamExt;
+    use futures_util::StreamExt;
     use tokio::time::Instant;
 
     use crate::base::iana::Rcode;
@@ -418,6 +453,7 @@ mod tests {
             Instant::now(),
             message,
             ctx.into(),
+            (),
         );
 
         fn my_service(
@@ -437,9 +473,9 @@ mod tests {
         let _call_result: CallResult<Vec<u8>> =
             stream.next().await.unwrap().unwrap();
 
-        // Or pass the query through the middleware processor
-        let processor_svc = MandatoryMiddlewareSvc::new(my_svc);
-        let mut stream = processor_svc.call(request).await;
+        // Or pass the query through the middleware service
+        let middleware_svc = MandatoryMiddlewareSvc::new(my_svc);
+        let mut stream = middleware_svc.call(request).await;
         let call_result: CallResult<Vec<u8>> =
             stream.next().await.unwrap().unwrap();
         let (response, _feedback) = call_result.into_inner();

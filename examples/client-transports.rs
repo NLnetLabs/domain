@@ -1,5 +1,11 @@
-use domain::base::MessageBuilder;
 /// Using the `domain::net::client` module for sending a query.
+use std::net::{IpAddr, SocketAddr};
+use std::str::FromStr;
+use std::sync::Arc;
+use std::time::Duration;
+use std::vec::Vec;
+
+use domain::base::MessageBuilder;
 use domain::base::Name;
 use domain::base::Rtype;
 use domain::net::client::cache;
@@ -8,11 +14,18 @@ use domain::net::client::dgram_stream;
 use domain::net::client::multi_stream;
 use domain::net::client::protocol::{TcpConnect, TlsConnect, UdpConnect};
 use domain::net::client::redundant;
-use domain::net::client::request::{RequestMessage, SendRequest};
+use domain::net::client::request::{
+    RequestMessage, RequestMessageMulti, SendRequest,
+};
 use domain::net::client::stream;
-use std::net::{IpAddr, SocketAddr};
-use std::str::FromStr;
-use std::time::Duration;
+
+#[cfg(feature = "tsig")]
+use domain::net::client::request::SendRequestMulti;
+#[cfg(feature = "tsig")]
+use domain::net::client::tsig::{self};
+#[cfg(feature = "tsig")]
+use domain::tsig::{Algorithm, Key, KeyName};
+
 use tokio::net::TcpStream;
 use tokio::time::timeout;
 use tokio_rustls::rustls::{ClientConfig, RootCertStore};
@@ -33,7 +46,7 @@ async fn main() {
     let mut msg = msg.question();
     msg.push((Name::vec_from_str("example.com").unwrap(), Rtype::AAAA))
         .unwrap();
-    let req = RequestMessage::new(msg);
+    let req = RequestMessage::new(msg).unwrap();
 
     // Destination for UDP and TCP
     let server_addr = SocketAddr::new(IpAddr::from_str("::1").unwrap(), 53);
@@ -222,7 +235,7 @@ async fn main() {
     let reply = request.get_response().await;
     println!("Dgram reply: {reply:?}");
 
-    // Create a single TCP transport connection. This is usefull for a
+    // Create a single TCP transport connection. This is useful for a
     // single request or a small burst of requests.
     let tcp_conn = match TcpStream::connect(server_addr).await {
         Ok(conn) => conn,
@@ -234,20 +247,44 @@ async fn main() {
         }
     };
 
-    let (tcp, transport) = stream::Connection::new(tcp_conn);
+    let (tcp, transport) =
+        stream::Connection::<_, RequestMessageMulti<Vec<u8>>>::new(tcp_conn);
     tokio::spawn(async move {
         transport.run().await;
         println!("single TCP run terminated");
     });
 
     // Send a request message.
-    let mut request = tcp.send_request(req);
+    let mut request = SendRequest::send_request(&tcp, req.clone());
 
     // Get the reply
     let reply = request.get_response().await;
     println!("TCP reply: {reply:?}");
 
     drop(tcp);
+
+    #[cfg(feature = "tsig")]
+    {
+        let tcp_conn = TcpStream::connect(server_addr).await.unwrap();
+        let (tcp, transport) =
+            stream::Connection::<RequestMessage<Vec<u8>>, _>::new(tcp_conn);
+        tokio::spawn(async move {
+            transport.run().await;
+            println!("single TSIG TCP run terminated");
+        });
+
+        let mut msg = MessageBuilder::new_vec();
+        msg.header_mut().set_rd(true);
+        msg.header_mut().set_ad(true);
+        let mut msg = msg.question();
+        msg.push((Name::vec_from_str("example.com").unwrap(), Rtype::AXFR))
+            .unwrap();
+        let req = RequestMessageMulti::new(msg).unwrap();
+
+        do_tsig(tcp.clone(), req).await;
+
+        drop(tcp);
+    }
 }
 
 #[cfg(feature = "unstable-validator")]
@@ -270,9 +307,10 @@ where
     let ta =
         domain::validator::anchor::TrustAnchors::from_reader(anchor_file)
             .unwrap();
-    let vc = std::sync::Arc::new(
-        domain::validator::context::ValidationContext::new(ta, conn.clone()),
-    );
+    let vc = Arc::new(domain::validator::context::ValidationContext::new(
+        ta,
+        conn.clone(),
+    ));
     let val_conn = domain::net::client::validator::Connection::new(conn, vc);
 
     // Send a query message.
@@ -282,4 +320,52 @@ where
     println!("Wating for Validator reply");
     let reply = request.get_response().await;
     println!("Validator reply: {:?}", reply);
+}
+
+#[cfg(feature = "tsig")]
+async fn do_tsig<Octs, SR>(conn: SR, req: RequestMessageMulti<Octs>)
+where
+    Octs: AsRef<[u8]>
+        + Send
+        + Sync
+        + std::fmt::Debug
+        + domain::dep::octseq::Octets
+        + 'static,
+    SR: SendRequestMulti<
+            tsig::RequestMessage<RequestMessageMulti<Octs>, Arc<Key>>,
+        > + Send
+        + Sync
+        + 'static,
+{
+    // Create a signing key.
+    let key_name = KeyName::from_str("demo-key").unwrap();
+    let secret = domain::utils::base64::decode::<Vec<u8>>(
+        "zlCZbVJPIhobIs1gJNQfrsS3xCxxsR9pMUrGwG8OgG8=",
+    )
+    .unwrap();
+    let key = Arc::new(
+        Key::new(Algorithm::Sha256, &secret, key_name, None, None).unwrap(),
+    );
+
+    // Create a signing transport. This assumes that the server being
+    // connected to is configured with a key with the same name, algorithm and
+    // secret and to allow that key to be used for the request we are making.
+    let tsig_conn = tsig::Connection::new(key, conn);
+
+    // Send a query message.
+    let mut request = tsig_conn.send_request(req);
+
+    // Get the reply
+    loop {
+        println!("Waiting for signed reply");
+        let reply = request.get_response()
+                .await
+                .expect("Failed while getting a TSIG signed response. This is probably expected as the server will not know the TSIG key we are using unless you have ensured that is the case.");
+        match reply {
+            Some(reply) => {
+                println!("Signed reply: {:?}", reply);
+            }
+            None => break,
+        }
+    }
 }
