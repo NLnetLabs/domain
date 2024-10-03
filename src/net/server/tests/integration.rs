@@ -7,7 +7,7 @@ use std::boxed::Box;
 use std::collections::{HashMap, VecDeque};
 use std::fs::File;
 use std::net::SocketAddr;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::result::Result;
 use std::string::{String, ToString};
 use std::sync::Arc;
@@ -103,17 +103,21 @@ async fn server_tests(#[files("test-data/server/*.rpl")] rpl_file: PathBuf) {
 
     // Build the test defined zone, if any.
     let mut zones = ZoneTree::new();
-    let zone = match &server_config.zone {
+    match &server_config.zone {
         ServerZone {
-            zone_file: Some(zone_file),
-            ..
-        } => {
-            // This is a primary zone with content already defined.
-            Some(Zone::try_from(zone_file.clone()).unwrap())
+            zone_files: zfs, ..
+        } if !zfs.is_empty() => {
+            // One or more primary zone with content already defined.
+            for zone_file in zfs {
+                zones
+                    .insert_zone(Zone::try_from(zone_file.clone()).unwrap())
+                    .unwrap();
+            }
         }
+
         ServerZone {
             zone_name: Some(zone_name),
-            zone_file: None,
+            ..
         } => {
             // This is a secondary zone with content to be received via
             // XFR.
@@ -121,12 +125,19 @@ async fn server_tests(#[files("test-data/server/*.rpl")] rpl_file: PathBuf) {
                 Name::from_str(zone_name).unwrap(),
                 Class::IN,
             );
-            Some(builder.build())
+            zones.insert_zone(builder.build()).unwrap();
         }
-        _ => None,
-    };
-    if let Some(zone) = zone {
-        zones.insert_zone(zone).unwrap();
+
+        ServerZone {
+            zone_files: zfs,
+            zone_name: None,
+        } if zfs.is_empty() => {
+            // No zones defined at all.
+        }
+
+        _ => {
+            unimplemented!()
+        }
     }
     let zones = Arc::new(zones);
 
@@ -358,9 +369,13 @@ fn mk_client_factory(
                         simple_dgram_client::Connection::new(connect),
                     )),
 
-                    _ => Client::Single(Box::new(dgram::Connection::new(
-                        connect,
-                    ))),
+                    _ => {
+                        let mut config = dgram::Config::new();
+                        config.set_max_retries(0);
+                        Client::Single(Box::new(
+                            dgram::Connection::with_config(connect, config),
+                        ))
+                    }
                 }
             }
         },
@@ -430,9 +445,9 @@ fn test_service<RequestMeta>(
 
 #[derive(Default)]
 struct ServerZone {
-    /// Used for an empty secondary zone. Ignored if zone_file is Some.
+    /// Used for an empty secondary zone. Ignored if zone_files is non-empty.
     zone_name: Option<String>,
-    zone_file: Option<Zonefile>,
+    zone_files: Vec<Zonefile>,
 }
 
 #[derive(Default)]
@@ -455,6 +470,7 @@ fn parse_server_config(config: &Config) -> ServerConfig {
     let mut in_server_block = false;
     let mut zone_name = None;
     let mut zone_file_bytes = VecDeque::<u8>::new();
+    let mut zone_files = vec![];
 
     for line in config.lines() {
         if line.starts_with("server:") {
@@ -511,6 +527,15 @@ fn parse_server_config(config: &Config) -> ServerConfig {
                             .extend(v.trim_matches('"').as_bytes().iter());
                         zone_file_bytes.push_back(b'\n');
                     }
+                    ("local-file", v) => {
+                        let zone_path =
+                            Path::new("test-data").join(v.trim_matches('"'));
+                        let zone_file = Zonefile::load(
+                            &mut File::open(zone_path).unwrap(),
+                        )
+                        .unwrap();
+                        zone_files.push(zone_file);
+                    }
                     ("edns-tcp-keepalive", "yes") => {
                         parsed_config.edns_tcp_keepalive = true;
                     }
@@ -523,6 +548,7 @@ fn parse_server_config(config: &Config) -> ServerConfig {
                     }
                     ("zone", v) => {
                         // zone: <name>
+                        zone_file_bytes = Default::default();
                         zone_name = Some(v.to_string());
                     }
                     _ => {
@@ -533,12 +559,15 @@ fn parse_server_config(config: &Config) -> ServerConfig {
         }
     }
 
-    let zone_file = (!zone_file_bytes.is_empty())
-        .then(|| Zonefile::load(&mut zone_file_bytes).unwrap());
+    if let Some(zone_file) = (!zone_file_bytes.is_empty())
+        .then(|| Zonefile::load(&mut zone_file_bytes).unwrap())
+    {
+        zone_files.push(zone_file);
+    }
 
     parsed_config.zone = ServerZone {
         zone_name,
-        zone_file,
+        zone_files,
     };
 
     parsed_config

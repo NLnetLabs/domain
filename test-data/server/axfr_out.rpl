@@ -31,6 +31,8 @@ server:
     local-data: "example.com.       86400   IN  DS      370 13 2 BE74359954660069D5C63D200C39F5603827D7DD02B56F120EE9F3A8 6764247C"
     local-data: "www.terminal.com.   3600   IN  A       1.2.3.4"
     local-data: "alt.terminal.com.   3600   IN  CNAME   www.example.com."
+    local-data: "with_glue.com.     86400   IN  NS      ns.with_glue.com."
+    local-data: "ns.with_glue.com.  86400   IN  A       4.5.6.7"
 CONFIG_END
 
 ;------------ Test definition ------------------------------------------------
@@ -92,6 +94,8 @@ SECTION ANSWER
     example.com.            86400   IN      DS      370 13 2 BE74359954660069D5C63D200C39F5603827D7DD02B56F120EE9F3A8 6764247C
     www.terminal.com.       3600    IN      A       1.2.3.4
     alt.terminal.com.       3600    IN      CNAME   www.example.com.
+    with_glue.com.          86400   IN      NS      ns.with_glue.com.
+    ns.with_glue.com.       86400   IN      A       4.5.6.7
     com.                    900     IN      SOA     a.gtld-servers.net. nstld.verisign-grs.com. 1720688795 1800 900 604800 86400
 ENTRY_END
 
@@ -134,6 +138,8 @@ SECTION ANSWER
     example.com.            86400   IN      DS      370 13 2 BE74359954660069D5C63D200C39F5603827D7DD02B56F120EE9F3A8 6764247C
     www.terminal.com.       3600    IN      A       1.2.3.4
     alt.com.                3600    IN      CNAME   example.com.
+    with_glue.com.          86400   IN      NS      ns.with_glue.com.
+    ns.with_glue.com.       86400   IN      A       4.5.6.7
     com.                    900     IN      SOA     a.gtld-servers.net. nstld.verisign-grs.com. 1720688795 1800 900 604800 86400
 ENTRY_END
 

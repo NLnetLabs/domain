@@ -659,10 +659,20 @@ where
 
                 match Message::from_octets(buf) {
                     Err(err) => {
+                        // TO DO: Count this event?
                         tracing::warn!(
                             "Failed while parsing request message: {err}"
                         );
                         return Err(ConnectionEvent::DisconnectWithoutFlush);
+                    }
+
+                    // https://datatracker.ietf.org/doc/html/rfc1035#section-4.1.1
+                    // 4.1.1. Header section format
+                    //   "QR   A one bit field that specifies whether this
+                    //         message is a query (0), or a response (1)."
+                    Ok(msg) if msg.header().qr() => {
+                        // TO DO: Count this event?
+                        trace!("Ignoring received message because it is a reply, not a query.");
                     }
 
                     Ok(msg) => {

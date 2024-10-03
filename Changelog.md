@@ -25,10 +25,10 @@ Bug fixes
   the TSIG record when there were other records in the additional section,
   causing the TSIG code to fail if OPT records were in use. ([#333])
 * Fixed the mnemonic for the `NOTAUTH` rcode – it was `NOAUTH`. ([#360])
-* Fixes the way the `Txt<_> `record data implements comparison-related
+* Fixed the way the `Txt<_> `record data implements comparison-related
   traits. They now directly compare the underlying octets, i.e., the wire
   format bytes. ([#374] by [@dklbreitling])
-* Fix the `tsig` module to reject messages with multiple TSIG records
+* Fixed the `tsig` module to reject messages with multiple TSIG records
   ([#334])
 
 Unstable features
@@ -47,7 +47,7 @@ Unstable features
     TLS connection to stay open even if no TcpKeepalive option is received
     from the server. ([#341])
   * Fixed an off-by-one error in Dgram client retry count checking. ([#354])
-  * Add support for requests that may result in multiple responses. This
+  * Added support for requests that may result in multiple responses. This
     adds `ComposeRequestMulti` and other `*Multi` types. The main change is to
     the stream transport, which is the only transport that implements
     `SendRequestMulti`. ([#377])
@@ -67,10 +67,18 @@ Unstable features
     `net::server::batcher` for pushing as many records into a response as will
     fit according to defined limits. ([#383])
   * Enforce dgram max response size limit. ([#398])
-  * Extend MandatoryMiddlewareSvc with an RFC 9619 check for opcode QUERY with
-    QDCOUNT > 1. ([#365])
-  * Add blanket `SendRequest` and `SendRequestMulti` impls for boxes.
-    ([#397])
+  * Extended MandatoryMiddlewareSvc with an RFC 9619 check for opcode QUERY
+    with QDCOUNT > 1. ([#365])
+  * Added blanket `SendRequest` and `SendRequestMulti` impls for boxes. ([#397])
+  * `EdnsMiddlewareSvc` fixes: ([#355])
+    * Reply with FORMERR if an OPT RR cannot be parsed.
+    * Don't reply with FORMERR if an edns-tcp-keepalive option is received via
+      UDP, instead ignore it per RFC 7828 3.2.1.
+    * Only reserve space for an edns-tcp-keepalive option for TCP requests,
+      not UDP requests.
+    * Always reserve space for an OPT RR in the response for any request that
+      has an OPT RR, not just TCP requests.
+  * Servers now drop received DNS response messages. (#381)
 * `unstable-zonetree`:
   * Added `ZoneUpdate`. ([#375])
   * Added `ZoneUpdater`, `ZoneDiff`, `InMemoryZoneDiffBuilder`,
@@ -86,11 +94,14 @@ Unstable features
     version was being created. ([#376])
   * Removed / renamed references to `clean` in `zonetree::in_memory` to
     `remove`. ([#376])
-  * Fix zone walking to include non-leaf CNAMEs. ([#352])
-  * Fix zone walking to pass the correct owner name to the callback. ([#384])
-  * Add an `as_any` method and `Clone` and `Debug` impls to various zonetree
+  * Fixed zone walking to include non-leaf CNAMEs. ([#352])
+  * Fixed zone walking to pass the correct owner name to the callback.
+    ([#384])
+  * Added an `as_any` method and `Clone` and `Debug` impls to various zonetree
     types. ([#397])
-  * Add `AsRef<dyn ZoneStore>` to `Zone`. ([#397])
+  * Added `AsRef<dyn ZoneStore>` to `Zone`. ([#397])
+  * Added handling of the AA flag and additional records to answer generation.
+    ([#400])
   * Zone walking now includes glue records. A new flag `at_zone_cut` was
     added to the callback interface. ([#401])
 
@@ -108,6 +119,7 @@ Other changes
 [#348]: https://github.com/NLnetLabs/domain/pull/348
 [#352]: https://github.com/NLnetLabs/domain/pull/352
 [#354]: https://github.com/NLnetLabs/domain/pull/354
+]#355]: https://github.com/NLnetLabs/domain/pull/355
 [#357]: https://github.com/NLnetLabs/domain/pull/357
 [#358]: https://github.com/NLnetLabs/domain/pull/358
 [#360]: https://github.com/NLnetLabs/domain/pull/360
@@ -121,12 +133,14 @@ Other changes
 [#376]: https://github.com/NLnetLabs/domain/pull/376
 [#377]: https://github.com/NLnetLabs/domain/pull/377
 [#380]: https://github.com/NLnetLabs/domain/pull/380
+[#381]: https://github.com/NLnetLabs/domain/pull/381
 [#382]: https://github.com/NLnetLabs/domain/pull/382
 [#383]: https://github.com/NLnetLabs/domain/pull/383
 [#384]: https://github.com/NLnetLabs/domain/pull/384
 [#392]: https://github.com/NLnetLabs/domain/pull/392
 [#397]: https://github.com/NLnetLabs/domain/pull/397
 [#398]: https://github.com/NLnetLabs/domain/pull/398
+[#400]: https://github.com/NLnetLabs/domain/pull/401
 [#401]: https://github.com/NLnetLabs/domain/pull/401
 [@dklbreitling]: https://github.com/dklbreitling
 

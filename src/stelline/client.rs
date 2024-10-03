@@ -73,6 +73,7 @@ pub enum StellineErrorCause {
     MissingResponse,
     MissingStepEntry,
     MissingClient,
+    MissingTermination,
     AnswerTimedOut,
 }
 
@@ -99,6 +100,9 @@ impl std::fmt::Display for StellineErrorCause {
             }
             StellineErrorCause::MissingStepEntry => {
                 f.write_str("Missing step entry")
+            }
+            StellineErrorCause::MissingTermination => {
+                f.write_str("Expected connection termination")
             }
             StellineErrorCause::AnswerTimedOut => {
                 f.write_str("Timed out waiting for answer")
@@ -549,6 +553,14 @@ pub async fn do_client<'a, T: ClientFactory>(
 
                             let resp = resp.unwrap();
 
+                            if entry.matches.as_ref().map(|v| v.conn_closed)
+                                == Some(true)
+                            {
+                                return Err(
+                                    StellineErrorCause::MissingTermination,
+                                );
+                            }
+
                             trace!("Received answer.");
                             trace!(?resp);
 
@@ -570,11 +582,20 @@ pub async fn do_client<'a, T: ClientFactory>(
                             trace!("Answer RRs remaining = {num_rrs_remaining_after}");
                         }
                     } else {
-                        let num_expected_answers = entry
-                            .sections
+                        let num_expected_answers = if entry
+                            .matches
                             .as_ref()
-                            .map(|section| section.answer.len())
-                            .unwrap_or_default();
+                            .map(|v| v.any_answer)
+                            .unwrap_or_default()
+                        {
+                            1
+                        } else {
+                            entry
+                                .sections
+                                .as_ref()
+                                .map(|section| section.answer.len())
+                                .unwrap_or_default()
+                        };
 
                         for idx in 0..num_expected_answers {
                             trace!(
@@ -610,6 +631,14 @@ pub async fn do_client<'a, T: ClientFactory>(
                                     StellineErrorCause::MissingResponse,
                                 );
                             };
+
+                            if entry.matches.as_ref().map(|v| v.conn_closed)
+                                == Some(true)
+                            {
+                                return Err(
+                                    StellineErrorCause::MissingTermination,
+                                );
+                            }
 
                             trace!("Received answer.");
                             trace!(?resp);
