@@ -113,9 +113,6 @@ impl ReadZone {
                     walk.op(&SharedRrset::new(rrset));
                 }
 
-                // As we are querying for a qname below this node this
-                // means that the CNAME at this node cannot be a match, so
-                // ignore it and look for a match in the children.
                 self.query_children(
                     node.children(),
                     label,

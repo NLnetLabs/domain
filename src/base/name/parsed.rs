@@ -518,6 +518,19 @@ impl<Octs: AsRef<[u8]>> fmt::Debug for ParsedName<Octs> {
     }
 }
 
+//--- Serialize
+
+#[cfg(feature = "serde")]
+impl<Octs: AsRef<[u8]>> serde::Serialize for ParsedName<Octs> {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use std::string::ToString;
+        self.to_string().serialize(serializer)
+    }
+}
+
 //------------ ParsedNameIter -----------------------------------------------
 
 /// An iterator over the labels in a parsed domain name.

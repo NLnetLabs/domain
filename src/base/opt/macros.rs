@@ -17,6 +17,16 @@ macro_rules! opt_types {
         //------------ AllOptData --------------------------------------------
 
         #[derive(Clone)]
+        #[cfg_attr(
+            feature = "serde",
+            derive(serde::Serialize),
+            serde(bound(
+                serialize = "
+                    Octs: AsRef<[u8]> + octseq::serde::SerializeOctets,
+                    Name: serde::Serialize,
+                ",
+            ))
+        )]
         #[non_exhaustive]
         pub enum AllOptData<Octs, Name> {
             $( $(
