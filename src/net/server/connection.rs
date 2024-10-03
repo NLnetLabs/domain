@@ -113,7 +113,7 @@ pub struct Config {
     /// `tcp-idle-timeout` setting.
     response_write_timeout: Duration,
 
-    /// Limit on the number of DNS responses queued for wriing to the client.
+    /// Limit on the number of DNS responses queued for writing to the client.
     max_queued_responses: usize,
 }
 
