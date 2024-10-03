@@ -1309,6 +1309,20 @@ pub enum Error {
     Finished,
 }
 
+//--- Display
+
+impl std::fmt::Display for Error {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Error::OutOfZone => f.write_str("OutOfZone"),
+            Error::NotSoaRecord => f.write_str("NotSoaRecord"),
+            Error::IoError(err) => write!(f, "I/O error: {err}"),
+
+            Error::Finished => f.write_str("Finished"),
+        }
+    }
+}
+
 //--- From
 
 impl From<std::io::Error> for Error {

@@ -54,6 +54,16 @@
 #![cfg(feature = "tsig")]
 #![cfg_attr(docsrs, doc(cfg(feature = "tsig")))]
 
+use core::{cmp, fmt, mem, str};
+
+#[cfg(feature = "std")]
+use std::collections::HashMap;
+use std::sync::Arc;
+
+use bytes::{Bytes, BytesMut};
+use octseq::octets::Octets;
+use ring::{constant_time, hkdf::KeyType, hmac, rand};
+
 use crate::base::header::HeaderSection;
 use crate::base::iana::{Class, Rcode, TsigRcode};
 use crate::base::message::Message;
@@ -64,12 +74,6 @@ use crate::base::name::{Label, Name, ParsedName, ToLabelIter, ToName};
 use crate::base::record::Record;
 use crate::base::wire::{Composer, ParseError};
 use crate::rdata::tsig::{Time48, Tsig};
-use bytes::{Bytes, BytesMut};
-use core::{cmp, fmt, mem, str};
-use octseq::octets::Octets;
-use ring::{constant_time, hkdf::KeyType, hmac, rand};
-#[cfg(feature = "std")]
-use std::collections::HashMap;
 
 //------------ KeyName -------------------------------------------------------
 
@@ -387,6 +391,15 @@ impl AsRef<Key> for Key {
     }
 }
 
+//--- Display
+
+#[cfg(feature = "std")]
+impl fmt::Display for Key {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.name.fmt(f)
+    }
+}
+
 //------------ KeyStore ------------------------------------------------------
 
 /// A type that stores TSIG secret keys.
@@ -455,6 +468,23 @@ where
         // XXX This seems a bit wasteful.
         let name = name.try_to_name().ok()?;
         self.get(&(name, algorithm)).cloned()
+    }
+}
+
+#[cfg(feature = "std")]
+impl KeyStore for Arc<HashMap<(KeyName, Algorithm), Key>> {
+    type Key = Key;
+
+    fn get_key<N: ToName>(
+        &self,
+        name: &N,
+        algorithm: Algorithm,
+    ) -> Option<Self::Key> {
+        if let Ok(name) = name.try_to_name() {
+            self.get(&(name, algorithm)).cloned()
+        } else {
+            None
+        }
     }
 }
 
