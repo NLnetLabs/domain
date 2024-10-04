@@ -6,15 +6,21 @@ use std::fs::File;
 use std::{process::exit, str::FromStr};
 
 use bytes::Bytes;
+use core::pin::Pin;
+use core::task::{Context, Poll};
 use domain::base::iana::{Class, Rcode};
 use domain::base::record::ComposeRecord;
 use domain::base::{Name, ParsedName, Rtype};
 use domain::base::{ParsedRecord, Record};
-use domain::rdata::ZoneRecordData;
+use domain::rdata::dnssec::RtypeBitmap;
+use domain::rdata::{Nsec, ZoneRecordData};
 use domain::zonefile::inplace;
-use domain::zonetree::{Answer, Rrset};
+use domain::zonetree::{Answer, Rrset, SharedRrset};
 use domain::zonetree::{Zone, ZoneTree};
+
+use futures_util::{pin_mut, Stream, StreamExt};
 use octseq::Parser;
+use tokio::sync::mpsc::UnboundedReceiver;
 use tracing_subscriber::EnvFilter;
 
 #[path = "common/serve-utils.rs"]
@@ -27,7 +33,8 @@ enum Verbosity {
     Verbose(u8),
 }
 
-fn main() {
+#[tokio::main]
+async fn main() {
     // Initialize tracing based logging. Override with env var RUST_LOG, e.g.
     // RUST_LOG=trace.
     tracing_subscriber::fmt()
@@ -97,6 +104,17 @@ fn main() {
             if level > 0 {
                 println!("Debug dumping zone...");
                 dbg!(zone);
+            }
+
+            // NSEC testing
+
+            println!("NSEC'ing and dumping...");
+            let zone_iter = NsecZoneIter::new(zone.clone());
+            for rec in nsecs(zone_iter).await {
+                let mut rrset = Rrset::new(rec.rtype(), rec.ttl());
+                let (owner, data) = rec.into_owner_and_data();
+                rrset.push_data(ZoneRecordData::Nsec(data));
+                dump_rrset(owner, &rrset);
             }
         }
     }
@@ -208,4 +226,88 @@ fn dump_rrset(owner: Name<Bytes>, rrset: &Rrset) {
             }
         }
     }
+}
+
+//------------ ZoneIter -------------------------------------------------------
+pub struct NsecZoneIter {
+    rx: UnboundedReceiver<(Name<Bytes>, SharedRrset)>,
+}
+
+impl NsecZoneIter {
+    pub fn new(zone: Zone) -> Self {
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+
+        tokio::task::spawn(zone.read().walk_async(Box::new(
+            move |name, rrset, at_zone_cut| {
+                // Do not emit glue records as the zone is not authoritative
+                // for glue and only authoritative records should be signed.
+                if !at_zone_cut || !rrset.rtype().is_glue() {
+                    tx.send((name, rrset.clone())).unwrap();
+                }
+            },
+        )));
+
+        Self {
+            rx,
+        }
+    }
+}
+
+impl Stream for NsecZoneIter {
+    type Item = (Name<Bytes>, SharedRrset);
+
+    fn poll_next(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+    ) -> Poll<Option<Self::Item>> {
+        self.rx.poll_recv(cx)
+    }
+}
+
+/// Generate an ordered vec of NSEC records for a zone.
+/// 
+/// Assumes that the records provided by the given iterator are in DNSSEC
+/// canonical order and do not include glue records.
+pub async fn nsecs(
+    zone_iter: NsecZoneIter,
+) -> Vec<Record<Name<Bytes>, Nsec<Bytes, Name<Bytes>>>> {
+    let mut nsecs = Vec::new();
+
+    // Get a peekable version of the iterator and use it to get the apex name
+    // and TTL of the first RR (of the first RRset) in the zone.
+    let zone_iter = zone_iter.peekable();
+    pin_mut!(zone_iter);
+    let (name, rrset) = zone_iter.as_mut().peek().await.unwrap();
+    let apex_name = name.to_owned();
+    let apex_ttl = rrset.ttl();
+
+    let mut bitmap = RtypeBitmap::<Bytes>::builder();
+
+    while let Some((name, rrset)) = zone_iter.next().await {
+        bitmap.add(rrset.rtype()).unwrap();
+
+        // If the next RR has a different owner, or there is no next RR,
+        // finalize the current bitmap and create an NSEC record.
+        let peeked = zone_iter.as_mut().peek().await;
+        let next_name = match peeked {
+            Some((next_name, _)) => next_name,
+            None => &apex_name,
+        };
+        if next_name != &name {
+            // Assume there’s gonna be an RRSIG and there is NSEC itself as well.
+            bitmap.add(Rtype::RRSIG).unwrap();
+            bitmap.add(Rtype::NSEC).unwrap();
+
+            nsecs.push(Record::new(
+                name,
+                Class::IN,
+                apex_ttl,
+                Nsec::new(next_name.clone(), bitmap.finalize()),
+            ));
+
+            bitmap = RtypeBitmap::<Bytes>::builder();
+        }
+    }
+
+    nsecs
 }

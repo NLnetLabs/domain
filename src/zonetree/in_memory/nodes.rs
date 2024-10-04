@@ -3,7 +3,7 @@
 use core::any::Any;
 
 use std::boxed::Box;
-use std::collections::{hash_map, HashMap};
+use std::collections::{btree_map, BTreeMap};
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -231,7 +231,7 @@ impl ZoneNode {
 
 #[derive(Default, Debug)]
 pub struct NodeRrsets {
-    rrsets: RwLock<HashMap<Rtype, NodeRrset>>,
+    rrsets: RwLock<BTreeMap<Rtype, NodeRrset>>,
 }
 
 impl NodeRrsets {
@@ -302,15 +302,15 @@ impl NodeRrsets {
 //------------ NodeRrsetIter -------------------------------------------------
 
 pub(super) struct NodeRrsetsIter<'a> {
-    guard: RwLockReadGuard<'a, HashMap<Rtype, NodeRrset>>,
+    guard: RwLockReadGuard<'a, BTreeMap<Rtype, NodeRrset>>,
 }
 
 impl<'a> NodeRrsetsIter<'a> {
-    fn new(guard: RwLockReadGuard<'a, HashMap<Rtype, NodeRrset>>) -> Self {
+    fn new(guard: RwLockReadGuard<'a, BTreeMap<Rtype, NodeRrset>>) -> Self {
         Self { guard }
     }
 
-    pub fn iter(&self) -> hash_map::Iter<'_, Rtype, NodeRrset> {
+    pub fn iter(&self) -> btree_map::Iter<'_, Rtype, NodeRrset> {
         self.guard.iter()
     }
 }
@@ -354,7 +354,7 @@ pub enum Special {
 
 #[derive(Debug, Default)]
 pub struct NodeChildren {
-    children: RwLock<HashMap<OwnedLabel, Arc<ZoneNode>>>,
+    children: RwLock<BTreeMap<OwnedLabel, Arc<ZoneNode>>>,
 }
 
 impl NodeChildren {
