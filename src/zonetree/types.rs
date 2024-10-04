@@ -662,6 +662,9 @@ pub enum ZoneUpdate<R> {
     /// For example this could be used to trigger an atomic commit of a set of
     /// related pending changes.
     Finished(R),
+
+    /// TODO
+    FinishedWithoutNewSoa,
 }
 
 //--- Display
@@ -677,6 +680,7 @@ impl<R> std::fmt::Display for ZoneUpdate<R> {
             }
             ZoneUpdate::BeginBatchAdd(_) => f.write_str("BeginBatchAdd"),
             ZoneUpdate::Finished(_) => f.write_str("Finished"),
+            ZoneUpdate::FinishedWithoutNewSoa => f.write_str("FinishedWithoutNewSoa"),
         }
     }
 }

@@ -3,7 +3,10 @@
 //! This module provides a high-level interface for making alterations to the
 //! content of zones without requiring knowledge of the low-level details of
 //! how the [`WritableZone`] trait implemented by [`Zone`] works.
+use core::cmp::PartialEq;
+use core::convert::{From, Infallible};
 use core::future::Future;
+use core::marker::PhantomData;
 use core::pin::Pin;
 
 use std::borrow::ToOwned;
@@ -13,13 +16,12 @@ use bytes::Bytes;
 use tracing::trace;
 
 use crate::base::name::{FlattenInto, Label};
-use crate::base::{ParsedName, Record, Rtype};
-use crate::net::xfr::protocol::ParsedRecord;
+use crate::base::{Name, Record, RecordData, Rtype, ToName};
 use crate::rdata::ZoneRecordData;
 use crate::zonetree::{Rrset, SharedRrset};
 
 use super::error::OutOfZone;
-use super::types::ZoneUpdate;
+use super::types::{StoredRecordData, ZoneUpdate};
 use super::util::rel_name_rev_iter;
 use super::{InMemoryZoneDiff, WritableZone, WritableZoneNode, Zone};
 
@@ -214,7 +216,7 @@ use super::{InMemoryZoneDiff, WritableZone, WritableZoneNode, Zone};
 /// ```
 ///
 /// [`apply()`]: ZoneUpdater::apply()
-pub struct ZoneUpdater {
+pub struct ZoneUpdater<N, D> {
     /// The zone to be updated.
     zone: Zone,
 
@@ -226,9 +228,11 @@ pub struct ZoneUpdater {
 
     /// The current state of the updater.
     state: ZoneUpdaterState,
+
+    _phantom: PhantomData<(N, D)>,
 }
 
-impl ZoneUpdater {
+impl<N, D> ZoneUpdater<N, D> {
     /// Creates a new [`ZoneUpdater`] that will update the given [`Zone`]
     /// content.
     ///
@@ -246,12 +250,19 @@ impl ZoneUpdater {
                 zone,
                 write,
                 state: Default::default(),
+                _phantom: PhantomData,
             })
         })
     }
 }
 
-impl ZoneUpdater {
+impl<N, D> ZoneUpdater<N, D>
+where
+    Infallible: From<<D as FlattenInto<StoredRecordData>>::AppendError>,
+    ZoneRecordData<Bytes, Name<Bytes>>: PartialEq<D>,
+    N: ToName,
+    D: Clone + FlattenInto<StoredRecordData> + RecordData,
+{
     /// Apply the given [`ZoneUpdate`] to the [`Zone`] being updated.
     ///
     /// Returns `Ok` on success, `Err` otherwise. On success, if changes were
@@ -266,7 +277,7 @@ impl ZoneUpdater {
     /// progress and re-open the zone for editing again.
     pub async fn apply(
         &mut self,
-        update: ZoneUpdate<ParsedRecord>,
+        update: ZoneUpdate<Record<N, D>>,
     ) -> Result<Option<InMemoryZoneDiff>, Error> {
         trace!("Update: {update}");
 
@@ -300,7 +311,7 @@ impl ZoneUpdater {
             // batch addition that was in progress.
             ZoneUpdate::BeginBatchDelete(_old_soa) => {
                 // Commit the previous batch.
-                let diff = self.write.commit().await?;
+                let diff = self.write.commit(false).await?;
 
                 // Open a writer for the new batch.
                 self.write.reopen().await?;
@@ -321,7 +332,19 @@ impl ZoneUpdater {
                 self.update_soa(zone_soa).await?;
 
                 // Commit the previous batch and return any diff produced.
-                let diff = self.write.commit().await?;
+                let diff = self.write.commit(false).await?;
+
+                // Close this updater
+                self.write.close()?;
+                self.state = ZoneUpdaterState::Finished;
+
+                return Ok(diff);
+            }
+
+            ZoneUpdate::FinishedWithoutNewSoa => {
+                // Bump the SOA, commit the previous batch and return any diff
+                // produced.
+                let diff = self.write.commit(true).await?;
 
                 // Close this updater
                 self.write.close()?;
@@ -344,7 +367,13 @@ impl ZoneUpdater {
     }
 }
 
-impl ZoneUpdater {
+impl<N, D> ZoneUpdater<N, D>
+where
+    Infallible: From<<D as FlattenInto<StoredRecordData>>::AppendError>,
+    ZoneRecordData<Bytes, Name<Bytes>>: PartialEq<D>,
+    N: ToName,
+    D: Clone + FlattenInto<StoredRecordData> + RecordData,
+{
     /// Given a zone record, obtain a [`WritableZoneNode`] for the owner.
     ///
     /// A [`Zone`] is a tree structure which can be modified by descending the
@@ -364,7 +393,7 @@ impl ZoneUpdater {
     /// the record owner name.
     async fn get_writable_child_node_for_owner(
         &mut self,
-        rec: &ParsedRecord,
+        rec: &Record<N, D>,
     ) -> Result<Option<Box<dyn WritableZoneNode>>, Error> {
         let mut it = rel_name_rev_iter(self.zone.apex_name(), rec.owner())?;
 
@@ -386,10 +415,7 @@ impl ZoneUpdater {
     /// Create or update the SOA RRset using the given SOA record.
     async fn update_soa(
         &mut self,
-        new_soa: Record<
-            ParsedName<Bytes>,
-            ZoneRecordData<Bytes, ParsedName<Bytes>>,
-        >,
+        new_soa: Record<N, D>,
     ) -> Result<(), Error> {
         if new_soa.rtype() != Rtype::SOA {
             return Err(Error::NotSoaRecord);
@@ -407,10 +433,7 @@ impl ZoneUpdater {
     /// Find and delete a resource record in the zone by exact match.
     async fn delete_record_from_rrset(
         &mut self,
-        rec: Record<
-            ParsedName<Bytes>,
-            ZoneRecordData<Bytes, ParsedName<Bytes>>,
-        >,
+        rec: Record<N, D>,
     ) -> Result<(), Error> {
         // Find or create the point to edit in the node tree.
         let tree_node = self.get_writable_child_node_for_owner(&rec).await?;
@@ -443,10 +466,7 @@ impl ZoneUpdater {
     /// Add a resource record to a new or existing RRset.
     async fn add_record_to_rrset(
         &mut self,
-        rec: Record<
-            ParsedName<Bytes>,
-            ZoneRecordData<Bytes, ParsedName<Bytes>>,
-        >,
+        rec: Record<N, D>,
     ) -> Result<(), Error> {
         // Find or create the point to edit in the node tree.
         let tree_node = self.get_writable_child_node_for_owner(&rec).await?;
@@ -523,7 +543,7 @@ impl ReopenableZoneWriter {
     /// Commits any pending changes to the [`Zone`] being written to.
     ///
     /// Returns the created diff, if any.
-    async fn commit(&mut self) -> Result<Option<InMemoryZoneDiff>, Error> {
+    async fn commit(&mut self, bump_soa_serial: bool) -> Result<Option<InMemoryZoneDiff>, Error> {
         // Commit the deletes and adds that just occurred
         if let Some(writable) = self.writable.take() {
             // Ensure that there are no dangling references to the created
@@ -534,7 +554,7 @@ impl ReopenableZoneWriter {
                 .write
                 .as_mut()
                 .ok_or(Error::Finished)?
-                .commit(false)
+                .commit(bump_soa_serial)
                 .await?;
 
             Ok(diff)
@@ -640,7 +660,7 @@ mod tests {
 
         let s = Serial::now();
         let soa = mk_soa(s);
-        let soa_data = ZoneRecordData::Soa(soa.clone());
+        let soa_data = ZoneRecordData::<Bytes, _>::Soa(soa.clone());
         let soa_rec = Record::new(
             ParsedName::from(qname.clone()),
             Class::IN,
@@ -698,7 +718,7 @@ mod tests {
 
         let s = Serial(20240922);
         let soa = mk_soa(s);
-        let soa_data = ZoneRecordData::Soa(soa.clone());
+        let soa_data = ZoneRecordData::<Bytes, _>::Soa(soa.clone());
         let soa_rec = Record::new(
             ParsedName::from(qname.clone()),
             Class::IN,

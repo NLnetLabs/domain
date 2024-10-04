@@ -5,20 +5,24 @@ use std::env;
 use std::fs::File;
 use std::{process::exit, str::FromStr};
 
-use bytes::Bytes;
+use bytes::{Bytes, BytesMut};
 use core::pin::Pin;
 use core::task::{Context, Poll};
 use domain::base::iana::{Class, Rcode};
 use domain::base::record::ComposeRecord;
-use domain::base::{Name, ParsedName, Rtype};
+use domain::base::{Name, ParsedName, Rtype, Ttl};
 use domain::base::{ParsedRecord, Record};
-use domain::rdata::dnssec::RtypeBitmap;
+use domain::rdata::dnssec::{RtypeBitmap, RtypeBitmapBuilder};
 use domain::rdata::{Nsec, ZoneRecordData};
 use domain::zonefile::inplace;
-use domain::zonetree::{Answer, Rrset, SharedRrset};
+use domain::zonetree::types::ZoneUpdate;
+use domain::zonetree::update::ZoneUpdater;
+use domain::zonetree::{
+    Answer, Rrset, SharedRrset, StoredName, StoredRecord,
+};
 use domain::zonetree::{Zone, ZoneTree};
 
-use futures_util::{pin_mut, Stream, StreamExt};
+use futures_util::{Stream, StreamExt};
 use octseq::Parser;
 use tokio::sync::mpsc::UnboundedReceiver;
 use tracing_subscriber::EnvFilter;
@@ -90,6 +94,20 @@ async fn main() {
 
     if let Verbosity::Verbose(level) = verbosity {
         for zone in zones.iter_zones() {
+            // NSEC testing
+            println!("NSEC'ing and updating...");
+            let mut zone_updater =
+                ZoneUpdater::new(zone.clone()).await.unwrap();
+            let mut zone_iter = NsecZoneIter::new(zone.clone());
+            while let Some(rec) = zone_iter.next().await {
+                let update = ZoneUpdate::AddRecord(rec);
+                zone_updater.apply(update).await.unwrap();
+            }
+            zone_updater
+                .apply(ZoneUpdate::FinishedWithoutNewSoa)
+                .await
+                .unwrap();
+
             println!(
                 "Dumping zone {} class {}...",
                 zone.apex_name(),
@@ -104,17 +122,6 @@ async fn main() {
             if level > 0 {
                 println!("Debug dumping zone...");
                 dbg!(zone);
-            }
-
-            // NSEC testing
-
-            println!("NSEC'ing and dumping...");
-            let zone_iter = NsecZoneIter::new(zone.clone());
-            for rec in nsecs(zone_iter).await {
-                let mut rrset = Rrset::new(rec.rtype(), rec.ttl());
-                let (owner, data) = rec.into_owner_and_data();
-                rrset.push_data(ZoneRecordData::Nsec(data));
-                dump_rrset(owner, &rrset);
             }
         }
     }
@@ -228,9 +235,30 @@ fn dump_rrset(owner: Name<Bytes>, rrset: &Rrset) {
     }
 }
 
-//------------ ZoneIter -------------------------------------------------------
+//------------ NsecZoneIter --------------------------------------------------
+
 pub struct NsecZoneIter {
     rx: UnboundedReceiver<(Name<Bytes>, SharedRrset)>,
+
+    iter_state: NsecZoneIterState,
+}
+
+enum NsecZoneIterState {
+    New,
+
+    First {
+        last_name: StoredName,
+        last_rrset: SharedRrset,
+    },
+
+    Next {
+        apex_name: StoredName,
+        apex_ttl: Ttl,
+        bitmap: RtypeBitmapBuilder<BytesMut>,
+        last_name: StoredName,
+    },
+
+    End,
 }
 
 impl NsecZoneIter {
@@ -249,65 +277,158 @@ impl NsecZoneIter {
 
         Self {
             rx,
+            iter_state: NsecZoneIterState::New,
         }
     }
 }
 
+impl NsecZoneIterState {
+    fn step(
+        &mut self,
+        name: StoredName,
+        rrset: SharedRrset,
+    ) -> Option<StoredRecord> {
+        match self {
+            NsecZoneIterState::New => {
+                *self = NsecZoneIterState::First {
+                    last_name: name,
+                    last_rrset: rrset,
+                };
+                None
+            }
+
+            NsecZoneIterState::First {
+                last_name,
+                last_rrset,
+            } => {
+                // We can't generate an NSEC record for the first zone record
+                // because we always need a current and a next record, which
+                // can also be thought of as a last record and current record.
+                // Set the current record as the last record so that on
+                // NsecState::Next both a last and a current record are
+                // available.
+                //
+                // The apex name and TTL can be taken from the first record in
+                // the zone on the assumption that the zone is ordered so that
+                // the first RRset is the apex RRset.
+                let mut bitmap = RtypeBitmapBuilder::<BytesMut>::new();
+                bitmap.add(last_rrset.rtype()).unwrap();
+                bitmap.add(rrset.rtype()).unwrap();
+
+                *self = NsecZoneIterState::Next {
+                    apex_name: name.clone(),
+                    apex_ttl: rrset.ttl(),
+                    bitmap,
+                    last_name: last_name.clone(),
+                };
+
+                None
+            }
+
+            NsecZoneIterState::Next {
+                apex_name: _,
+                apex_ttl,
+                bitmap,
+                last_name,
+            } => {
+                // If this RR has a different owner than the last RR, or there
+                // is no next RR, finalize the current bitmap and create an
+                // NSEC record.
+                if &name == last_name {
+                    // Another RR in the same RRset.
+                    bitmap.add(rrset.rtype()).unwrap();
+                    None
+                } else {
+                    // A new RRset.
+                    bitmap.add(rrset.rtype()).unwrap();
+                    let finalized_bitmap = Self::finalize_bitmap(bitmap);
+                    let nsec = Nsec::new(name.clone(), finalized_bitmap);
+                    let last_name = std::mem::replace(last_name, name);
+                    let nsec_rec = Record::new(
+                        last_name,
+                        Class::IN,
+                        *apex_ttl,
+                        ZoneRecordData::Nsec(nsec),
+                    );
+                    Some(nsec_rec)
+                }
+            }
+
+            NsecZoneIterState::End => unreachable!(),
+        }
+    }
+
+    fn finalize(&mut self) -> StoredRecord {
+        let NsecZoneIterState::Next {
+            apex_name,
+            apex_ttl,
+            bitmap,
+            last_name,
+        } = self
+        else {
+            unreachable!();
+        };
+
+        let finalized_bitmap = Self::finalize_bitmap(bitmap);
+
+        let nsec = Nsec::new(apex_name.clone(), finalized_bitmap);
+
+        let nsec_rec = Record::new(
+            last_name.clone(),
+            Class::IN,
+            *apex_ttl,
+            ZoneRecordData::Nsec(nsec),
+        );
+
+        *self = NsecZoneIterState::End;
+
+        nsec_rec
+    }
+
+    fn finalize_bitmap(
+        bitmap: &mut RtypeBitmapBuilder<BytesMut>,
+    ) -> RtypeBitmap<Bytes> {
+        bitmap.add(Rtype::RRSIG).unwrap();
+        bitmap.add(Rtype::NSEC).unwrap();
+        let new_bitmap = RtypeBitmap::<Bytes>::builder();
+        std::mem::replace(bitmap, new_bitmap).finalize()
+    }
+}
+
 impl Stream for NsecZoneIter {
-    type Item = (Name<Bytes>, SharedRrset);
+    type Item = StoredRecord;
 
     fn poll_next(
         mut self: Pin<&mut Self>,
         cx: &mut Context<'_>,
     ) -> Poll<Option<Self::Item>> {
-        self.rx.poll_recv(cx)
-    }
-}
+        match self.rx.poll_recv(cx) {
+            Poll::Ready(Some((name, rrset))) => {
+                match self.iter_state.step(name, rrset) {
+                    Some(nsec_rec) => {
+                        // RRset completed, NSEC record created
+                        Poll::Ready(Some(nsec_rec))
+                    }
+                    None => {
+                        // RRset in-proress, no NSEC record
+                        // Poll again to process the next RR.
+                        cx.waker().wake_by_ref();
+                        Poll::Pending
+                    }
+                }
+            }
 
-/// Generate an ordered vec of NSEC records for a zone.
-/// 
-/// Assumes that the records provided by the given iterator are in DNSSEC
-/// canonical order and do not include glue records.
-pub async fn nsecs(
-    zone_iter: NsecZoneIter,
-) -> Vec<Record<Name<Bytes>, Nsec<Bytes, Name<Bytes>>>> {
-    let mut nsecs = Vec::new();
+            Poll::Ready(None)
+                if matches!(self.iter_state, NsecZoneIterState::End) =>
+            {
+                Poll::Ready(None)
+            }
 
-    // Get a peekable version of the iterator and use it to get the apex name
-    // and TTL of the first RR (of the first RRset) in the zone.
-    let zone_iter = zone_iter.peekable();
-    pin_mut!(zone_iter);
-    let (name, rrset) = zone_iter.as_mut().peek().await.unwrap();
-    let apex_name = name.to_owned();
-    let apex_ttl = rrset.ttl();
+            Poll::Ready(None) => {
+                Poll::Ready(Some(self.iter_state.finalize()))
+            }
 
-    let mut bitmap = RtypeBitmap::<Bytes>::builder();
-
-    while let Some((name, rrset)) = zone_iter.next().await {
-        bitmap.add(rrset.rtype()).unwrap();
-
-        // If the next RR has a different owner, or there is no next RR,
-        // finalize the current bitmap and create an NSEC record.
-        let peeked = zone_iter.as_mut().peek().await;
-        let next_name = match peeked {
-            Some((next_name, _)) => next_name,
-            None => &apex_name,
-        };
-        if next_name != &name {
-            // Assume there’s gonna be an RRSIG and there is NSEC itself as well.
-            bitmap.add(Rtype::RRSIG).unwrap();
-            bitmap.add(Rtype::NSEC).unwrap();
-
-            nsecs.push(Record::new(
-                name,
-                Class::IN,
-                apex_ttl,
-                Nsec::new(next_name.clone(), bitmap.finalize()),
-            ));
-
-            bitmap = RtypeBitmap::<Bytes>::builder();
+            Poll::Pending => Poll::Pending,
         }
     }
-
-    nsecs
 }
