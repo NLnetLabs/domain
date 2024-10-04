@@ -78,7 +78,8 @@ Unstable features
       not UDP requests.
     * Always reserve space for an OPT RR in the response for any request that
       has an OPT RR, not just TCP requests.
-  * Servers now drop received DNS response messages. (#381)
+  * Servers now drop received DNS response messages. ([#381])
+  * Improved handling of errors while sending TCP responses. ([#309]) 
 * `unstable-zonetree`:
   * Added `ZoneUpdate`. ([#375])
   * Added `ZoneUpdater`, `ZoneDiff`, `InMemoryZoneDiffBuilder`,
@@ -109,6 +110,7 @@ Other changes
 
 * None.
 
+[#309]: https://github.com/NLnetLabs/domain/pull/309
 [#328]: https://github.com/NLnetLabs/domain/pull/328
 [#333]: https://github.com/NLnetLabs/domain/pull/333
 [#334]: https://github.com/NLnetLabs/domain/pull/334
