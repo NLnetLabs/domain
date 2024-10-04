@@ -9,7 +9,7 @@
 #![warn(missing_docs)]
 #![warn(clippy::missing_docs_in_private_items)]
 
-use super::message::RequestNG;
+use super::message::Request;
 use crate::base::message_builder::AdditionalBuilder;
 use crate::base::opt::{AllOptData, ComposeOptData, LongOptData, OptRecord};
 use crate::base::{Message, MessageBuilder, ParsedName, Rtype, StreamTarget};
@@ -22,13 +22,13 @@ use std::pin::Pin;
 use std::vec::Vec;
 
 /// Trait for a service that results in a single response.
-pub trait SingleService<RequestOcts, CR> {
+pub trait SingleService<RequestOcts: Send + Sync, CR> {
     /// Call the service with a request message.
     ///
     /// The service returns a boxed future.
     fn call(
         &self,
-        request: RequestNG<RequestOcts>,
+        request: Request<RequestOcts>,
     ) -> Pin<Box<dyn Future<Output = Result<CR, Error>> + Send + Sync>>
     where
         RequestOcts: AsRef<[u8]> + Octets;

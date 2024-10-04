@@ -296,141 +296,48 @@ where
     }
 }
 
-//------------ RequestNG ------------------------------------------------------
+//--- TryFrom<Request<Octs>> for RequestMessage<Octs>>
 
-/// RequestNG is very similar to Request. The main changes are:
-/// * to_request_message to convert to a [RequestMessage].
-///
-/// A DNS message with additional properties describing its context.
-///
-/// DNS messages don't exist in isolation, they are received from somewhere or
-/// created by something. This type wraps a message with additional context
-/// about its origins so that decisions can be taken based not just on the
-/// message itself but also on the circumstances surrounding its creation and
-/// delivery.
-#[derive(Debug)]
-pub struct RequestNG<Octs: AsRef<[u8]>> {
-    /// The network address of the connected client.
-    client_addr: std::net::SocketAddr,
+impl<Octs: Octets + Send + Sync + Debug + Clone> TryFrom<Request<Octs>>
+    for RequestMessage<Octs>
+{
+    type Error = Error;
 
-    /// The instant when the request was received.
-    received_at: Instant,
-
-    /// The message that was received.
-    message: Arc<Message<Octs>>,
-
-    /// Properties of the request specific to the server and transport
-    /// protocol via which it was received.
-    transport_specific: TransportSpecificContext,
-
-    /// Options that should be used upstream in providing the service.
-    opt: Vec<AllOptData<Bytes, Name<Bytes>>>,
-}
-
-impl<Octs: AsRef<[u8]>> RequestNG<Octs> {
-    /// Creates a new request wrapper around a message along with its context.
-    pub fn new(
-        client_addr: std::net::SocketAddr,
-        received_at: Instant,
-        message: Message<Octs>,
-        transport_specific: TransportSpecificContext,
-    ) -> Self {
-        Self {
-            client_addr,
-            received_at,
-            message: Arc::new(message),
-            transport_specific,
-            opt: Vec::new(),
-        }
-    }
-
-    /// Convert a Request to a RequestNG.
-    pub fn from_request(request: Request<Octs>) -> Self
-    where
-        Octs: Octets + Send + Sync + Unpin,
-    {
-        let mut req = Self {
-            client_addr: request.client_addr,
-            received_at: request.received_at,
-            message: request.message,
-            transport_specific: request.transport_specific,
-            opt: Vec::new(),
-        };
-
+    fn try_from(req: Request<Octs>) -> Result<Self, Self::Error> {
         // Copy the ECS option from the message. This is just an example,
         // there should be a separate plugin that deals with ECS.
 
         // We want the ECS options in Bytes. No clue how to do this. Just
         // convert the message to Bytes and use that.
+        let mut extra_opts: Vec<AllOptData<Bytes, Name<Bytes>>> = vec![];
+
         let bytes = Bytes::copy_from_slice(req.message.as_slice());
         let bytes_msg = Message::from_octets(bytes).unwrap();
         if let Some(optrec) = bytes_msg.opt() {
             for opt in optrec.opt().iter::<AllOptData<_, _>>() {
                 let opt = opt.unwrap();
                 if let AllOptData::ClientSubnet(_ecs) = opt {
-                    req.opt.push(opt);
+                    extra_opts.push(opt);
                 }
             }
         }
 
-        req
-    }
-
-    /// Convert the Request to a Message.
-    pub fn to_request_message(&self) -> Result<RequestMessage<Octs>, Error>
-    where
-        Octs: Clone + Debug + Octets + Send + Sync,
-    {
         // We need to make a copy of message. Somehow we can't use the
         // message in the Arc directly.
-        let msg =
-            Message::from_octets(self.message.as_octets().clone()).unwrap();
+        let set_do = dnssec_ok(&req.message);
+        let msg = Message::from_octets(req.message.as_octets().clone()).unwrap();
         let mut reqmsg = RequestMessage::new(msg)?;
 
         // Copy DO bit
-        if dnssec_ok(&self.message) {
+        if set_do {
             reqmsg.set_dnssec_ok(true);
         }
 
         // Copy options
-        for opt in &self.opt {
+        for opt in &extra_opts {
             reqmsg.add_opt(opt).unwrap();
         }
         Ok(reqmsg)
-    }
-
-    /// When was this message received?
-    pub fn received_at(&self) -> Instant {
-        self.received_at
-    }
-
-    /// Get a reference to the transport specific context
-    pub fn transport_ctx(&self) -> &TransportSpecificContext {
-        &self.transport_specific
-    }
-
-    /// From which IP address and port number was this message received?
-    pub fn client_addr(&self) -> std::net::SocketAddr {
-        self.client_addr
-    }
-
-    /// Read access to the inner message
-    pub fn message(&self) -> &Arc<Message<Octs>> {
-        &self.message
-    }
-}
-
-//--- Clone
-
-impl<Octs: AsRef<[u8]>> Clone for RequestNG<Octs> {
-    fn clone(&self) -> Self {
-        Self {
-            client_addr: self.client_addr,
-            received_at: self.received_at,
-            message: Arc::clone(&self.message),
-            transport_specific: self.transport_specific.clone(),
-            opt: self.opt.clone(),
-        }
     }
 }
 

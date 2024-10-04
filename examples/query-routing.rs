@@ -1,3 +1,5 @@
+use bytes::Bytes;
+use core::any::Any;
 use core::fmt;
 use core::future::{ready, Future, Ready};
 use core::sync::atomic::{AtomicBool, Ordering};
@@ -581,8 +583,7 @@ async fn main() {
         let query_svc = Arc::new(svc);
     */
     // Start building the query router plus upstreams.
-    let mut qr: QnameRouter<Vec<u8>, Vec<u8>, ReplyMessage> =
-        QnameRouter::new();
+    let mut qr: QnameRouter<Vec<u8>, ReplyMessage> = QnameRouter::new();
 
     // Queries to the root go to 1.1.1.1
     let server_addr =
@@ -590,7 +591,11 @@ async fn main() {
     let udp_connect = UdpConnect::new(server_addr);
     let dgram_conn = client_dgram::Connection::new(udp_connect);
     let conn_service = ClientTransportToSingleService::new(dgram_conn);
-    qr.add(Name::<Vec<u8>>::from_str(".").unwrap(), conn_service);
+    qr.add(
+        Box::new(|req, data| is_ours(req, data)),
+        Box::new(Name::<Bytes>::from_str(".").unwrap()),
+        conn_service,
+    );
 
     // Queries to .com go to 8.8.8.8
     let server_addr =
@@ -598,7 +603,11 @@ async fn main() {
     let udp_connect = UdpConnect::new(server_addr);
     let dgram_conn = client_dgram::Connection::new(udp_connect);
     let conn_service = ClientTransportToSingleService::new(dgram_conn);
-    qr.add(Name::<Vec<u8>>::from_str("com").unwrap(), conn_service);
+    qr.add(
+        Box::new(|req, data| is_ours(req, data)),
+        Box::new(Name::<Bytes>::from_str("com").unwrap()),
+        conn_service,
+    );
 
     // Queries to .nl go to 9.9.9.9
     let server_addr =
@@ -606,7 +615,27 @@ async fn main() {
     let udp_connect = UdpConnect::new(server_addr);
     let dgram_conn = client_dgram::Connection::new(udp_connect);
     let conn_service = ClientTransportToSingleService::new(dgram_conn);
-    qr.add(Name::<Vec<u8>>::from_str("nl").unwrap(), conn_service);
+    qr.add(
+        Box::new(|req, data| {
+            let question = req
+                .message()
+                .question()
+                .into_iter()
+                .next()
+                .unwrap()
+                .unwrap();
+            let name = question.qname();
+            if let Some(wanted_name) = data.downcast_ref::<Name<Bytes>>() {
+                let base = &wanted_name;
+                if name.ends_with(base) {
+                    return wanted_name.label_count();
+                }
+            }
+            0
+        }),
+        Box::new(Name::<Bytes>::from_str("nl").unwrap()),
+        conn_service,
+    );
 
     let srv = SingleServiceToService::new(qr);
     let my_svc = Arc::new(build_middleware_chain(srv, stats.clone()));
@@ -836,4 +865,26 @@ async fn main() {
     tfo_join_handle.await.unwrap();
     fn_join_handle.await.unwrap();
     tls_join_handle.await.unwrap();
+}
+
+fn is_ours<RequestOcts: Octets + Send + Sync + Unpin>(
+    req: &Request<RequestOcts>,
+    data: &Box<dyn Any + Send + Sync>,
+) -> usize {
+    let question = req
+        .message()
+        .question()
+        .into_iter()
+        .next()
+        .unwrap()
+        .unwrap();
+    let name = question.qname();
+    if let Some(wanted_name) = data.downcast_ref::<Name<Bytes>>() {
+        let base = &wanted_name;
+        if name.ends_with(base) {
+            let score = wanted_name.label_count();
+            return score;
+        }
+    }
+    0
 }

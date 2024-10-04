@@ -11,7 +11,7 @@
 #![warn(missing_docs)]
 #![warn(clippy::missing_docs_in_private_items)]
 
-use super::message::{Request, RequestNG};
+use super::message::Request;
 use super::service::{CallResult, Service, ServiceResult};
 use super::single_service::{ComposeReply, SingleService};
 use crate::dep::octseq::Octets;
@@ -29,11 +29,8 @@ pub struct SingleServiceToService<RequestOcts, SVC, CR> {
     /// Service that is wrapped by this object.
     service: SVC,
 
-    /// Phantom field for RequestOcts.
-    ro_phantom: PhantomData<RequestOcts>,
-
-    /// Phantom field for CR.
-    cr_phantom: PhantomData<CR>,
+    /// Phantom field for RequestOcts and CR.
+    _phantom: PhantomData<(RequestOcts, CR)>,
 }
 
 impl<RequestOcts, SVC, CR> SingleServiceToService<RequestOcts, SVC, CR> {
@@ -41,8 +38,7 @@ impl<RequestOcts, SVC, CR> SingleServiceToService<RequestOcts, SVC, CR> {
     pub fn new(service: SVC) -> Self {
         Self {
             service,
-            ro_phantom: PhantomData,
-            cr_phantom: PhantomData,
+            _phantom: PhantomData,
         }
     }
 }
@@ -59,8 +55,7 @@ where
     type Future = Pin<Box<dyn Future<Output = Self::Stream> + Send>>;
 
     fn call(&self, request: Request<RequestOcts>) -> Self::Future {
-        let req = RequestNG::from_request(request);
-        let fut = self.service.call(req);
+        let fut = self.service.call(request);
         let fut = async move {
             let reply = fut.await.unwrap();
             let abs = reply.additional_builder_stream_target();
@@ -107,12 +102,12 @@ where
 {
     fn call(
         &self,
-        request: RequestNG<RequestOcts>,
+        request: Request<RequestOcts>,
     ) -> Pin<Box<dyn Future<Output = Result<CR, Error>> + Send + Sync>>
     where
         RequestOcts: AsRef<[u8]>,
     {
-        let req = match request.to_request_message() {
+        let req = match request.try_into() {
             Ok(req) => req,
             Err(e) => return Box::pin(ready(Err(e))),
         };
@@ -160,12 +155,12 @@ where
 {
     fn call(
         &self,
-        request: RequestNG<RequestOcts>,
+        request: Request<RequestOcts>,
     ) -> Pin<Box<dyn Future<Output = Result<CR, Error>> + Send + Sync>>
     where
         RequestOcts: AsRef<[u8]>,
     {
-        let req = match request.to_request_message() {
+        let req = match request.try_into() {
             Ok(req) => req,
             Err(e) => return Box::pin(ready(Err(e))),
         };
