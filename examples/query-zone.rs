@@ -88,9 +88,10 @@ fn main() {
                 zone.apex_name(),
                 zone.class()
             );
-            zone.read().walk(Box::new(move |owner, rrset| {
-                dump_rrset(owner, rrset);
-            }));
+            zone.read()
+                .walk(Box::new(move |owner, rrset, _at_zone_cut| {
+                    dump_rrset(owner, rrset);
+                }));
             println!("Dump complete.");
 
             if level > 0 {

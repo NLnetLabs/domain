@@ -6,11 +6,19 @@
 //!
 //! Middleware is implemented in terms of the [`Service`] trait, just like
 //! your application service, but also takes a [`Service`] instance as an
-//! argument. This is intended to enable middleware to be composed in layers
-//! one atop another, each layer receiving and pre-processing requests from
-//! the layer beneath, passing them on to the layer above and then
-//! post-processing the resulting responses and propagating them back down
-//! through the layers to the server.
+//! argument.
+//!
+//! This extra argument enables middleware to be composed in layers one atop
+//! another, each layer receiving and pre-processing requests from the layer
+//! beneath, passing them on to the layer above and then post-processing the
+//! resulting responses and propagating them back down through the layers to
+//! the server.
+//!
+//! A middleware service may also choose to respond immediately to a request
+//! without passing it to the layer above. This could be because the
+//! middleware determines that the request is invalid, or because the
+//! middleware is able to handle and respond to the request entirely on its
+//! own.
 //!
 //! # Middleware layering strategies
 //!
@@ -34,7 +42,6 @@
 //! services for consumption, via the  `RequestMeta` custom data support of
 //! the [`Service`] trait. An example of this can be seen in the
 //! [`TsigMiddlewareSvc`][tsig::TsigMiddlewareSvc].
-//!
 //!
 //! Currently the following middleware are available:
 //!

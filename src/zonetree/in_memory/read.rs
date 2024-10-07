@@ -8,7 +8,7 @@ use bytes::Bytes;
 use crate::base::iana::{Rcode, Rtype};
 use crate::base::name::Label;
 use crate::base::Name;
-use crate::zonetree::answer::{Answer, AnswerAuthority};
+use crate::zonetree::answer::{Answer, AnswerAdditional, AnswerAuthority};
 use crate::zonetree::error::OutOfZone;
 use crate::zonetree::types::ZoneCut;
 use crate::zonetree::walk::WalkState;
@@ -87,21 +87,27 @@ impl ReadZone {
         node.with_special(self.version, |special| match special {
             Some(Special::Cut(ref cut)) => {
                 if walk.enabled() {
-                    walk.op(&cut.ns);
+                    walk.op(&cut.ns, true);
                     if let Some(ds) = &cut.ds {
-                        walk.op(ds);
+                        walk.op(ds, true);
+                    }
+                    for glue_rec in &cut.glue {
+                        walk.op_glue_rec(glue_rec);
                     }
                     NodeAnswer::no_data()
                 } else {
                     // There is nothing more in this zone, only a cut here.
                     // Respond with NODATA and an authority section referring the
                     // client to the nameserver that should know more.
-                    NodeAnswer::authority(AnswerAuthority::new(
-                        cut.name.clone(),
-                        None,
-                        Some(cut.ns.clone()),
-                        cut.ds.as_ref().cloned(),
-                    ))
+                    NodeAnswer::authority(
+                        AnswerAuthority::new(
+                            cut.name.clone(),
+                            None,
+                            Some(cut.ns.clone()),
+                            cut.ds.as_ref().cloned(),
+                        ),
+                        AnswerAdditional::new(cut.glue.clone()),
+                    )
                 }
             }
             Some(Special::NxDomain) => NodeAnswer::nx_domain(),
@@ -109,7 +115,7 @@ impl ReadZone {
                 if walk.enabled() {
                     let mut rrset = Rrset::new(Rtype::CNAME, cname.ttl());
                     rrset.push_data(cname.data().clone());
-                    walk.op(&SharedRrset::new(rrset));
+                    walk.op(&SharedRrset::new(rrset), false);
                 }
 
                 self.query_children(
@@ -155,7 +161,7 @@ impl ReadZone {
             let guard = rrsets.iter();
             for (_rtype, rrset) in guard.iter() {
                 if let Some(shared_rrset) = rrset.get(self.version) {
-                    walk.op(shared_rrset);
+                    walk.op(shared_rrset, false);
                 }
             }
             NodeAnswer::no_data()
@@ -211,12 +217,15 @@ impl ReadZone {
                     NodeAnswer::no_data()
                 }
             }
-            _ => NodeAnswer::authority(AnswerAuthority::new(
-                cut.name.clone(),
-                None,
-                Some(cut.ns.clone()),
-                cut.ds.as_ref().cloned(),
-            )),
+            _ => NodeAnswer::authority(
+                AnswerAuthority::new(
+                    cut.name.clone(),
+                    None,
+                    Some(cut.ns.clone()),
+                    cut.ds.as_ref().cloned(),
+                ),
+                AnswerAdditional::new(cut.glue.clone()),
+            ),
         }
     }
 
@@ -307,6 +316,10 @@ impl ReadableZone for ReadZone {
 //------------ NodeAnswer ----------------------------------------------------
 
 /// An answer that includes instructions to the apex on what it needs to do.
+///
+/// Instructs the answer to be authoritative (AA flag set) except in the case
+/// of supplying authority records (i.e. a referral) rather than an answer
+/// (NOERROR, NODATA, NXDOMAIN).
 #[derive(Clone)]
 struct NodeAnswer {
     /// The actual answer.
@@ -314,6 +327,9 @@ struct NodeAnswer {
 
     /// Does the apex need to add the SOA RRset to the answer?
     add_soa: bool,
+
+    /// Should the answer be flagged as authoritative?
+    authoritative: bool,
 }
 
 impl NodeAnswer {
@@ -323,6 +339,7 @@ impl NodeAnswer {
         NodeAnswer {
             answer,
             add_soa: false,
+            authoritative: true,
         }
     }
 
@@ -330,6 +347,7 @@ impl NodeAnswer {
         NodeAnswer {
             answer: Answer::new(Rcode::NOERROR),
             add_soa: true,
+            authoritative: true,
         }
     }
 
@@ -339,6 +357,7 @@ impl NodeAnswer {
         NodeAnswer {
             answer,
             add_soa: false,
+            authoritative: true,
         }
     }
 
@@ -346,13 +365,22 @@ impl NodeAnswer {
         NodeAnswer {
             answer: Answer::new(Rcode::NXDOMAIN),
             add_soa: true,
+            authoritative: true,
         }
     }
 
-    fn authority(authority: AnswerAuthority) -> Self {
+    fn authority(
+        authority: AnswerAuthority,
+        additional: AnswerAdditional,
+    ) -> Self {
+        // Tell the client who the authority is, because it is not us.
+        let mut answer = Answer::with_authority(Rcode::NOERROR, authority);
+        answer.set_additional(additional);
+
         NodeAnswer {
-            answer: Answer::with_authority(Rcode::NOERROR, authority),
+            answer,
             add_soa: false,
+            authoritative: false,
         }
     }
 
@@ -367,6 +395,7 @@ impl NodeAnswer {
                 ))
             }
         }
+        self.answer.set_authoritative(self.authoritative);
         self.answer
     }
 }
