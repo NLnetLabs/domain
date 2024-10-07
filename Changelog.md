@@ -79,7 +79,8 @@ Unstable features
     * Always reserve space for an OPT RR in the response for any request that
       has an OPT RR, not just TCP requests.
   * Servers now drop received DNS response messages. ([#381])
-  * Improved handling of errors while sending TCP responses. ([#309]) 
+  * Improved handling of errors while sending TCP responses. ([#309])
+  * Correctly reserve space for OPT in `EdnsMiddlewareSvc`. ([#403])
 * `unstable-zonetree`:
   * Added `ZoneUpdate`. ([#375])
   * Added `ZoneUpdater`, `ZoneDiff`, `InMemoryZoneDiffBuilder`,
@@ -142,8 +143,9 @@ Other changes
 [#392]: https://github.com/NLnetLabs/domain/pull/392
 [#397]: https://github.com/NLnetLabs/domain/pull/397
 [#398]: https://github.com/NLnetLabs/domain/pull/398
-[#400]: https://github.com/NLnetLabs/domain/pull/401
+[#400]: https://github.com/NLnetLabs/domain/pull/400
 [#401]: https://github.com/NLnetLabs/domain/pull/401
+[#403]: https://github.com/NLnetLabs/domain/pull/403
 [@dklbreitling]: https://github.com/dklbreitling
 
 ## 0.10.1
