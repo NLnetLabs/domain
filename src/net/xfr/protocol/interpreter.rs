@@ -298,7 +298,7 @@ impl RecordProcessor {
                 //    MUST conclude with the same SOA resource record.
                 //    Intermediate messages MUST NOT contain the SOA resource
                 //    record."
-                ZoneUpdate::Finished(rec)
+                ZoneUpdate::FinishedWithSoa(rec)
             }
 
             XfrType::Axfr => ZoneUpdate::AddRecord(rec),
@@ -308,7 +308,7 @@ impl RecordProcessor {
             XfrType::Ixfr if self.rr_count == 2 => {
                 if record_matches_initial_soa {
                     // IXFR not available, AXFR of empty zone detected.
-                    ZoneUpdate::Finished(rec)
+                    ZoneUpdate::FinishedWithSoa(rec)
                 } else if let Some(soa) = soa {
                     // This SOA record is the start of an IXFR diff sequence.
                     self.current_soa = soa.clone();
@@ -365,7 +365,7 @@ impl RecordProcessor {
                             // Is this the end of the transfer, or the start
                             // of a new diff sequence?
                             if record_matches_initial_soa {
-                                ZoneUpdate::Finished(rec)
+                                ZoneUpdate::FinishedWithSoa(rec)
                             } else {
                                 ZoneUpdate::BeginBatchDelete(rec)
                             }
@@ -388,7 +388,7 @@ impl RecordProcessor {
             }
         };
 
-        if matches!(update, ZoneUpdate::Finished(_)) {
+        if matches!(update, ZoneUpdate::FinishedWithSoa(_)) {
             self.finished = true;
         }
 

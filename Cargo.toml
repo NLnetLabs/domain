@@ -33,6 +33,7 @@ libc           = { version = "0.2.153", default-features = false, optional = tru
 parking_lot    = { version = "0.12", optional = true }
 moka           = { version = "0.12.3", optional = true, features = ["future"] }
 proc-macro2    = { version = "1.0.69", optional = true } # Force proc-macro2 to at least 1.0.69 for minimal-version build
+pkcs8          = { version = "0.10.2", optional = true }
 ring           = { version = "0.17", optional = true }
 rustversion    = { version = "1", optional = true }
 serde          = { version = "1.0.130", optional = true, features = ["derive"] }
@@ -121,7 +122,7 @@ required-features = ["zonefile"]
 
 [[example]]
 name = "query-zone"
-required-features = ["zonefile", "unstable-zonetree"]
+required-features = ["zonefile", "unstable-zonetree", "pkcs8"]
 
 [[example]]
 name = "serve-zone"

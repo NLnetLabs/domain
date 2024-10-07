@@ -143,7 +143,7 @@ fn axfr_response_with_only_soas_is_accepted() {
 
     // Verify the updates emitted by the XFR interpreter.
     assert_eq!(it.next(), Some(Ok(ZoneUpdate::DeleteAllRecords)));
-    assert!(matches!(it.next(), Some(Ok(ZU::Finished(_)))));
+    assert!(matches!(it.next(), Some(Ok(ZU::FinishedWithSoa(_)))));
     assert!(it.next().is_none());
 }
 
@@ -183,7 +183,7 @@ fn axfr_multi_response_with_only_soas_is_accepted() {
     let mut it = interpreter.interpret_response(resp).unwrap();
 
     // Verify the updates emitted by the XFR interpreter.
-    assert!(matches!(it.next(), Some(Ok(ZU::Finished(_)))));
+    assert!(matches!(it.next(), Some(Ok(ZU::FinishedWithSoa(_)))));
     assert!(it.next().is_none());
 }
 
@@ -218,7 +218,7 @@ fn axfr_response_generates_expected_updates() {
     assert!(
         matches!(it.next(), Some(Ok(ZoneUpdate::AddRecord(r))) if r.rtype() == Rtype::AAAA)
     );
-    assert!(matches!(it.next(), Some(Ok(ZoneUpdate::Finished(_)))));
+    assert!(matches!(it.next(), Some(Ok(ZoneUpdate::FinishedWithSoa(_)))));
     assert!(it.next().is_none());
 }
 
@@ -315,7 +315,7 @@ fn ixfr_response_generates_expected_updates() {
             0,
             ZoneRecordData::A(A::new(Ipv4Addr::LOCALHOST)),
         )))),
-        Ok(ZoneUpdate::Finished(Record::from((
+        Ok(ZoneUpdate::FinishedWithSoa(Record::from((
             owner.clone(),
             0,
             ZoneRecordData::Soa(expected_new_soa),
@@ -368,7 +368,7 @@ fn multi_ixfr_response_generates_expected_updates() {
     assert!(matches!(it.next(), Some(Ok(ZU::BeginBatchAdd(_)))));
     assert!(matches!(it.next(), Some(Ok(ZU::AddRecord(..)))));
     assert!(matches!(it.next(), Some(Ok(ZU::AddRecord(..)))));
-    assert!(matches!(it.next(), Some(Ok(ZU::Finished(_)))));
+    assert!(matches!(it.next(), Some(Ok(ZU::FinishedWithSoa(_)))));
     assert!(it.next().is_none());
 }
 

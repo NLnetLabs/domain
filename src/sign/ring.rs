@@ -26,13 +26,21 @@ pub struct Key<'a> {
 }
 
 #[allow(dead_code, clippy::large_enum_variant)]
-enum RingKey {
+pub enum RingKey {
     Ecdsa(EcdsaKeyPair),
     Ed25519(Ed25519KeyPair),
     Rsa(RsaKeyPair, &'static dyn RsaEncoding),
 }
 
 impl<'a> Key<'a> {
+    pub fn new(dnskey: Dnskey<Vec<u8>>, key: RingKey, rng: &'a dyn SecureRandom) -> Self {
+        Self { dnskey, key, rng }
+    }
+
+    pub fn key(&self) -> &RingKey {
+        &self.key
+    }
+    
     pub fn throwaway_13(
         flags: u16,
         rng: &'a dyn SecureRandom,

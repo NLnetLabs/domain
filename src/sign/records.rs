@@ -70,8 +70,8 @@ impl<N, D> SortedRecords<N, D> {
         key: Key,
     ) -> Result<Vec<Record<N, Rrsig<Octets, ApexName>>>, Key::Error>
     where
-        N: ToName + Clone,
-        D: RecordData + ComposeRecordData,
+        N: ToName + Clone + std::fmt::Debug,
+        D: RecordData + ComposeRecordData + std::fmt::Debug,
         Key: SigningKey,
         Octets: From<Key::Signature> + AsRef<[u8]>,
         ApexName: ToName + Clone,
@@ -132,6 +132,7 @@ impl<N, D> SortedRecords<N, D> {
                 }
 
                 // Create the signature.
+                eprintln!("Clear buf");
                 buf.clear();
                 let rrsig = ProtoRrsig::new(
                     rrset.rtype(),
@@ -145,6 +146,7 @@ impl<N, D> SortedRecords<N, D> {
                 );
                 rrsig.compose_canonical(&mut buf).unwrap();
                 for record in rrset.iter() {
+                    eprintln!("{record:?}");
                     record.compose_canonical(&mut buf).unwrap();
                 }
 

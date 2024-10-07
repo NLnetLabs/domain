@@ -171,6 +171,11 @@ impl<'a> From<&'a ZoneApex> for ZoneCutError {
 
 //------------ ZoneNode ------------------------------------------------------
 
+// TODO: Allow NSEC and RRSIG records to be stored in rrsets when the node is
+// "special". Currently rrsets and special are supposed to be mutually
+// exclusive but for DNSSEC signed zones the normal rules about what is
+// allowed at a zone cut or CNAME are changed such that NSEC and RRSIG records
+// are also allowed at such nodes.
 #[derive(Default, Debug)]
 pub struct ZoneNode {
     /// The RRsets of the node.
@@ -319,7 +324,7 @@ impl<'a> NodeRrsetsIter<'a> {
 
 #[derive(Default, Debug)]
 pub(crate) struct NodeRrset {
-    /// The RRsets for the various versions.
+    /// Different versions of the RRset at this node.
     rrsets: Versioned<SharedRrset>,
 }
 

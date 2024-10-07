@@ -12,8 +12,9 @@ use domain::net::client::request::SendRequestMulti;
 use domain::net::client::request::{RequestMessage, RequestMessageMulti};
 use domain::net::client::stream;
 use domain::rdata::Soa;
+use common::serve_utils::print_dig_style_response;
 
-#[path = "common/serve-utils.rs"]
+#[path = "common/mod.rs"]
 mod common;
 
 #[tokio::main]
@@ -64,6 +65,6 @@ async fn main() {
     // Get the reply
     let mock_req = msg.into_message();
     while let Some(reply) = request.get_response().await.unwrap() {
-        common::print_dig_style_response(&mock_req, &reply, false);
+        print_dig_style_response(&mock_req, &reply, false);
     }
 }

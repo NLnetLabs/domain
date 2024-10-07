@@ -21,7 +21,7 @@ use crate::base::rdata::RecordData;
 use crate::base::record::Record;
 use crate::base::{iana::Rtype, Ttl};
 use crate::base::{Serial, ToName};
-use crate::rdata::ZoneRecordData;
+use crate::rdata::{Rrsig, ZoneRecordData};
 
 //------------ Type Aliases --------------------------------------------------
 
@@ -93,6 +93,7 @@ pub struct Rrset {
     rtype: Rtype,
     ttl: Ttl,
     data: Vec<StoredRecordData>,
+    rrsig: Option<Rrsig<Bytes, StoredName>>,
 }
 
 impl Rrset {
@@ -102,6 +103,7 @@ impl Rrset {
             rtype,
             ttl,
             data: Vec::new(),
+            rrsig: None,
         }
     }
 
@@ -118,6 +120,11 @@ impl Rrset {
     /// Gets the data for each record in the RRset.
     pub fn data(&self) -> &[StoredRecordData] {
         &self.data
+    }
+
+    /// Gets the RRSIG for this RRset, if any.
+    pub fn rrsig(&self) -> Option<&Rrsig<Bytes, StoredName>> {
+        self.rrsig.as_ref()
     }
 
     /// Returns true if this RRset has no resource records, false otherwise.
@@ -168,6 +175,11 @@ impl Rrset {
         self.push_data(record.into_data());
     }
 
+    /// Sets or removes the RRSIG record for this RRset.
+    pub fn set_rrsig(&mut self, rrsig: Option<Rrsig<Bytes, StoredName>>) {
+        self.rrsig = rrsig;
+    }
+
     /// Converts this [`Rrset`] to an [`SharedRrset`].
     pub fn into_shared(self) -> SharedRrset {
         SharedRrset::new(self)
@@ -180,6 +192,7 @@ impl From<StoredRecord> for Rrset {
             rtype: record.rtype(),
             ttl: record.ttl(),
             data: vec![record.into_data()],
+            rrsig: None,
         }
     }
 }
@@ -661,7 +674,10 @@ pub enum ZoneUpdate<R> {
     ///
     /// For example this could be used to trigger an atomic commit of a set of
     /// related pending changes.
-    Finished(R),
+    FinishedWithSoa(R),
+
+    /// TODO
+    Finished,
 
     /// TODO
     FinishedWithoutNewSoa,
@@ -679,7 +695,8 @@ impl<R> std::fmt::Display for ZoneUpdate<R> {
                 f.write_str("BeginBatchDelete")
             }
             ZoneUpdate::BeginBatchAdd(_) => f.write_str("BeginBatchAdd"),
-            ZoneUpdate::Finished(_) => f.write_str("Finished"),
+            ZoneUpdate::Finished => f.write_str("Finished"),
+            ZoneUpdate::FinishedWithSoa(_) => f.write_str("FinishedWithSoa"),
             ZoneUpdate::FinishedWithoutNewSoa => f.write_str("FinishedWithoutNewSoa"),
         }
     }

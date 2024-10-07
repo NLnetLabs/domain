@@ -448,8 +448,8 @@ impl WriteNode {
 
     fn update_rrset(&self, new_rrset: SharedRrset) -> Result<(), io::Error> {
         let rrsets = match self.node {
-            Either::Right(ref apex) => apex.rrsets(),
-            Either::Left(ref node) => node.rrsets(),
+            Either::Left(ref apex) => apex.rrsets(),
+            Either::Right(ref node) => node.rrsets(),
         };
 
         trace!("Updating RRset");
@@ -586,6 +586,7 @@ impl WriteNode {
     }
 
     fn make_regular(&self) -> Result<(), io::Error> {
+        // TODO: Add support for extending the diff, if any..
         if let Either::Right(ref node) = self.node {
             node.update_special(self.zone.new_version, None);
             self.check_nx_domain()?;
@@ -594,6 +595,7 @@ impl WriteNode {
     }
 
     fn make_zone_cut(&self, cut: ZoneCut) -> Result<(), io::Error> {
+        // TODO: Add support for extending the diff, if any..
         match self.node {
             Either::Left(_) => Err(WriteApexError::NotAllowed),
             Either::Right(ref node) => {
@@ -613,6 +615,7 @@ impl WriteNode {
     }
 
     fn make_cname(&self, cname: SharedRr) -> Result<(), io::Error> {
+        // TODO: Add support for extending the diff, if any..
         match self.node {
             Either::Left(_) => Err(WriteApexError::NotAllowed),
             Either::Right(ref node) => {
@@ -632,6 +635,7 @@ impl WriteNode {
     }
 
     fn remove_all(&self) -> Result<(), io::Error> {
+        // TODO: Add support for extending the diff, if any.?
         match self.node {
             Either::Left(ref apex) => {
                 apex.remove_all(self.zone.new_version);
@@ -646,6 +650,7 @@ impl WriteNode {
 
     /// Makes sure a NXDomain special is set or removed as necesssary.
     fn check_nx_domain(&self) -> Result<(), io::Error> {
+        // TODO: Add support for extending the diff, if any.?
         let node = match self.node {
             Either::Left(_) => return Ok(()),
             Either::Right(ref node) => node,

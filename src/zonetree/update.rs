@@ -327,7 +327,18 @@ where
                 self.state = ZoneUpdaterState::Batching;
             }
 
-            ZoneUpdate::Finished(zone_soa) => {
+            ZoneUpdate::Finished => {
+                // Commit the previous batch and return any diff produced.
+                let diff = self.write.commit(false).await?;
+
+                // Close this updater
+                self.write.close()?;
+                self.state = ZoneUpdaterState::Finished;
+
+                return Ok(diff);
+            }
+
+            ZoneUpdate::FinishedWithSoa(zone_soa) => {
                 // Update the SOA record.
                 self.update_soa(zone_soa).await?;
 
@@ -474,11 +485,21 @@ where
 
         // Prepare an RRset that contains all of the records of the existing
         // RRset in the tree plus the one to add.
-        let mut rrset = Rrset::new(rec.rtype(), rec.ttl());
-        let rtype = rec.rtype();
+        let mut rtype = rec.rtype();
+        let ttl = rec.ttl();
         let data = rec.into_data().flatten_into();
 
-        rrset.push_data(data);
+        // If the record is an RRSIG add it to the existing RRSET that it covers.
+        let mut rrset = if let ZoneRecordData::Rrsig(rrsig) = data {
+            rtype = rrsig.type_covered();
+            let mut rrset = Rrset::new(rtype, ttl);
+            rrset.set_rrsig(Some(rrsig));
+            rrset
+        } else {
+            let mut rrset = Rrset::new(rtype, ttl);
+            rrset.push_data(data);
+            rrset
+        };
 
         if let Some(existing_rrset) = tree_node.get_rrset(rtype).await? {
             for existing_data in existing_rrset.data() {
@@ -674,7 +695,7 @@ mod tests {
             .unwrap();
 
         let diff = updater
-            .apply(ZoneUpdate::Finished(soa_rec.clone()))
+            .apply(ZoneUpdate::FinishedWithSoa(soa_rec.clone()))
             .await
             .unwrap();
 
@@ -732,7 +753,7 @@ mod tests {
             .unwrap();
 
         let diff = updater
-            .apply(ZoneUpdate::Finished(soa_rec.clone()))
+            .apply(ZoneUpdate::FinishedWithSoa(soa_rec.clone()))
             .await
             .unwrap();
 
@@ -761,7 +782,7 @@ mod tests {
             .unwrap();
 
         let diff = updater
-            .apply(ZoneUpdate::Finished(soa_rec.clone()))
+            .apply(ZoneUpdate::FinishedWithSoa(soa_rec.clone()))
             .await
             .unwrap();
 
@@ -1022,7 +1043,7 @@ mod tests {
             .unwrap();
 
         let diff_3 = updater
-            .apply(ZoneUpdate::Finished(soa_3.clone()))
+            .apply(ZoneUpdate::FinishedWithSoa(soa_3.clone()))
             .await
             .unwrap();
 
@@ -1235,7 +1256,7 @@ mod tests {
             let update = update.unwrap();
             // Don't pass ZoneUpdate::Finished to ZoneUpdater thereby preventing
             // it from commiting the changes to the zone.
-            if !matches!(update, ZoneUpdate::Finished(_)) {
+            if !matches!(update, ZoneUpdate::FinishedWithSoa(_)) {
                 updater.apply(update).await.unwrap();
             }
         }
