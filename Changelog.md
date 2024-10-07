@@ -122,7 +122,7 @@ Other changes
 [#348]: https://github.com/NLnetLabs/domain/pull/348
 [#352]: https://github.com/NLnetLabs/domain/pull/352
 [#354]: https://github.com/NLnetLabs/domain/pull/354
-]#355]: https://github.com/NLnetLabs/domain/pull/355
+[#355]: https://github.com/NLnetLabs/domain/pull/355
 [#357]: https://github.com/NLnetLabs/domain/pull/357
 [#358]: https://github.com/NLnetLabs/domain/pull/358
 [#360]: https://github.com/NLnetLabs/domain/pull/360
