@@ -11,6 +11,8 @@ use crate::rdata::Dnskey;
 /// any cryptographic primitives.  Instead, it is a generic representation that
 /// can be imported/exported or converted into a [`Sign`] (if the underlying
 /// cryptographic implementation supports it).
+///
+/// [`Sign`]: super::Sign
 pub enum SecretKey<B: AsRef<[u8]> + AsMut<[u8]>> {
     /// An RSA/SHA256 keypair.
     RsaSha256(RsaSecretKey<B>),
@@ -355,7 +357,7 @@ impl<B: AsRef<[u8]>> PublicKey<B> {
     }
 
     /// Construct a DNSKEY record with the given flags.
-    pub fn into_dns<'a, Octs>(self, flags: u16) -> Dnskey<Octs>
+    pub fn into_dns<Octs>(self, flags: u16) -> Dnskey<Octs>
     where
         Octs: From<Vec<u8>> + AsRef<[u8]>,
     {
