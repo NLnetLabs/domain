@@ -1,10 +1,8 @@
 ; Based on: https://datatracker.ietf.org/doc/html/rfc1034#section-6
 ; config options
 server:
-    ;zone: .
-	local-file: "zonefiles/rfc1034-6-1-root.zone"
-    ;zone: edu.
-	local-file: "zonefiles/rfc1034-6-1-edu.zone"
+    local-file: "zonefiles/rfc1034-6-1-root.zone"
+    local-file: "zonefiles/rfc1034-6-1-edu.zone"
 CONFIG_END
 
 SCENARIO_BEGIN Test authority zone with zonefile
