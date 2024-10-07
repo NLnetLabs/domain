@@ -1,8 +1,9 @@
-use core::{fmt, str};
+use core::{fmt, mem, str};
 
 use std::vec::Vec;
 
 use crate::base::iana::SecAlg;
+use crate::rdata::Dnskey;
 
 /// A generic secret key.
 ///
@@ -12,7 +13,7 @@ use crate::base::iana::SecAlg;
 /// cryptographic implementation supports it).
 pub enum SecretKey<B: AsRef<[u8]> + AsMut<[u8]>> {
     /// An RSA/SHA256 keypair.
-    RsaSha256(RsaKey<B>),
+    RsaSha256(RsaSecretKey<B>),
 
     /// An ECDSA P-256/SHA-256 keypair.
     ///
@@ -136,7 +137,9 @@ impl<B: AsRef<[u8]> + AsMut<[u8]>> SecretKey<B> {
         }
 
         match (code, name) {
-            (8, "(RSASHA256)") => RsaKey::from_dns(data).map(Self::RsaSha256),
+            (8, "(RSASHA256)") => {
+                RsaSecretKey::from_dns(data).map(Self::RsaSha256)
+            }
             (13, "(ECDSAP256SHA256)") => {
                 parse_pkey(data).map(Self::EcdsaP256Sha256)
             }
@@ -163,11 +166,11 @@ impl<B: AsRef<[u8]> + AsMut<[u8]>> Drop for SecretKey<B> {
     }
 }
 
-/// An RSA private key.
+/// A generic RSA private key.
 ///
 /// All fields here are arbitrary-precision integers in big-endian format,
 /// without any leading zero bytes.
-pub struct RsaKey<B: AsRef<[u8]> + AsMut<[u8]>> {
+pub struct RsaSecretKey<B: AsRef<[u8]> + AsMut<[u8]>> {
     /// The public modulus.
     pub n: B,
 
@@ -193,7 +196,7 @@ pub struct RsaKey<B: AsRef<[u8]> + AsMut<[u8]>> {
     pub q_i: B,
 }
 
-impl<B: AsRef<[u8]> + AsMut<[u8]>> RsaKey<B> {
+impl<B: AsRef<[u8]> + AsMut<[u8]>> RsaSecretKey<B> {
     /// Serialize this key in the conventional DNS format.
     ///
     /// The output does not include an 'Algorithm' specifier.
@@ -282,7 +285,7 @@ impl<B: AsRef<[u8]> + AsMut<[u8]>> RsaKey<B> {
     }
 }
 
-impl<B: AsRef<[u8]> + AsMut<[u8]>> Drop for RsaKey<B> {
+impl<B: AsRef<[u8]> + AsMut<[u8]>> Drop for RsaSecretKey<B> {
     fn drop(&mut self) {
         // Zero the bytes for each field.
         self.n.as_mut().fill(0u8);
@@ -293,6 +296,124 @@ impl<B: AsRef<[u8]> + AsMut<[u8]>> Drop for RsaKey<B> {
         self.d_p.as_mut().fill(0u8);
         self.d_q.as_mut().fill(0u8);
         self.q_i.as_mut().fill(0u8);
+    }
+}
+
+/// A generic public key.
+pub enum PublicKey<B: AsRef<[u8]>> {
+    /// An RSA/SHA-1 public key.
+    RsaSha1(RsaPublicKey<B>),
+
+    // TODO: RSA/SHA-1 with NSEC3/SHA-1?
+    /// An RSA/SHA-256 public key.
+    RsaSha256(RsaPublicKey<B>),
+
+    /// An RSA/SHA-512 public key.
+    RsaSha512(RsaPublicKey<B>),
+
+    /// An ECDSA P-256/SHA-256 public key.
+    ///
+    /// The public key is stored in uncompressed format:
+    ///
+    /// - A single byte containing the value 0x04.
+    /// - The encoding of the `x` coordinate (32 bytes).
+    /// - The encoding of the `y` coordinate (32 bytes).
+    EcdsaP256Sha256([u8; 65]),
+
+    /// An ECDSA P-384/SHA-384 public key.
+    ///
+    /// The public key is stored in uncompressed format:
+    ///
+    /// - A single byte containing the value 0x04.
+    /// - The encoding of the `x` coordinate (48 bytes).
+    /// - The encoding of the `y` coordinate (48 bytes).
+    EcdsaP384Sha384([u8; 97]),
+
+    /// An Ed25519 public key.
+    ///
+    /// The public key is a 32-byte encoding of the public point.
+    Ed25519([u8; 32]),
+
+    /// An Ed448 public key.
+    ///
+    /// The public key is a 57-byte encoding of the public point.
+    Ed448([u8; 57]),
+}
+
+impl<B: AsRef<[u8]>> PublicKey<B> {
+    /// The algorithm used by this key.
+    pub fn algorithm(&self) -> SecAlg {
+        match self {
+            Self::RsaSha1(_) => SecAlg::RSASHA1,
+            Self::RsaSha256(_) => SecAlg::RSASHA256,
+            Self::RsaSha512(_) => SecAlg::RSASHA512,
+            Self::EcdsaP256Sha256(_) => SecAlg::ECDSAP256SHA256,
+            Self::EcdsaP384Sha384(_) => SecAlg::ECDSAP384SHA384,
+            Self::Ed25519(_) => SecAlg::ED25519,
+            Self::Ed448(_) => SecAlg::ED448,
+        }
+    }
+
+    /// Construct a DNSKEY record with the given flags.
+    pub fn into_dns<'a, Octs>(self, flags: u16) -> Dnskey<Octs>
+    where
+        Octs: From<Vec<u8>> + AsRef<[u8]>,
+    {
+        let protocol = 3u8;
+        let algorithm = self.algorithm();
+        let public_key = match self {
+            Self::RsaSha1(k) | Self::RsaSha256(k) | Self::RsaSha512(k) => {
+                let (n, e) = (k.n.as_ref(), k.e.as_ref());
+                let e_len_len = if e.len() < 256 { 1 } else { 3 };
+                let len = e_len_len + e.len() + n.len();
+                let mut buf = Vec::with_capacity(len);
+                if let Ok(e_len) = u8::try_from(e.len()) {
+                    buf.push(e_len);
+                } else {
+                    // RFC 3110 is not explicit about the endianness of this,
+                    // but 'ldns' (in 'ldns_key_buf2rsa_raw()') uses network
+                    // byte order, which I suppose makes sense.
+                    let e_len = u16::try_from(e.len()).unwrap();
+                    buf.extend_from_slice(&e_len.to_be_bytes());
+                }
+                buf.extend_from_slice(e);
+                buf.extend_from_slice(n);
+                buf
+            }
+
+            // From my reading of RFC 6605, the marker byte is not included.
+            Self::EcdsaP256Sha256(k) => k[1..].to_vec(),
+            Self::EcdsaP384Sha384(k) => k[1..].to_vec(),
+
+            Self::Ed25519(k) => k.to_vec(),
+            Self::Ed448(k) => k.to_vec(),
+        };
+
+        Dnskey::new(flags, protocol, algorithm, public_key.into()).unwrap()
+    }
+}
+
+/// A generic RSA public key.
+///
+/// All fields here are arbitrary-precision integers in big-endian format,
+/// without any leading zero bytes.
+pub struct RsaPublicKey<B: AsRef<[u8]>> {
+    /// The public modulus.
+    pub n: B,
+
+    /// The public exponent.
+    pub e: B,
+}
+
+impl<B> From<RsaSecretKey<B>> for RsaPublicKey<B>
+where
+    B: AsRef<[u8]> + AsMut<[u8]> + Default,
+{
+    fn from(mut value: RsaSecretKey<B>) -> Self {
+        Self {
+            n: mem::take(&mut value.n),
+            e: mem::take(&mut value.e),
+        }
     }
 }
 
