@@ -1086,7 +1086,7 @@ where
 ///
 /// This hash is used instead of the actual owner name in an NSEC3 record.
 ///
-/// The hash can never be longer than 255 octets since its lenght is encoded
+/// The hash can never be longer than 255 octets since its length is encoded
 /// as a single octet.
 ///
 /// For its presentation format, the hash uses an unpadded Base 32 encoding
