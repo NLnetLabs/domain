@@ -13,3 +13,6 @@ pub use relative::{RelName, RelNameError};
 
 mod label;
 pub use label::{Label, LabelError};
+
+mod builder;
+pub use builder::NameBuilder;
