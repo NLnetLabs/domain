@@ -79,6 +79,15 @@ impl Label {
     pub const fn as_bytes(&self) -> &[u8] {
         &self.0
     }
+
+    /// Whether this is an internationalized label.
+    ///
+    /// If the label begins with the ACE (ASCII Compatible Encoding) prefix
+    /// `xn--`, it is assumed to be a Unicode string encoded into ASCII using
+    /// the Nameprep and Punycode algorithms.
+    pub fn is_internationalized(&self) -> bool {
+        self.as_bytes().starts_with(b"xn--")
+    }
 }
 
 impl Label {
