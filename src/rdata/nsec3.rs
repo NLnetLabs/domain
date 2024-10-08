@@ -1493,6 +1493,7 @@ mod test {
     use std::vec::Vec;
 
     #[test]
+    #[allow(clippy::redundant_closure)] // lifetimes ...
     fn nsec3_compose_parse_scan() {
         let mut rtype = RtypeBitmapBuilder::new_vec();
         rtype.add(Rtype::A).unwrap();
@@ -1516,6 +1517,7 @@ mod test {
     }
 
     #[test]
+    #[allow(clippy::redundant_closure)] // lifetimes ...
     fn nsec3_compose_parse_scan_empty_salt() {
         let mut rtype = RtypeBitmapBuilder::new_vec();
         rtype.add(Rtype::A).unwrap();
@@ -1539,6 +1541,7 @@ mod test {
     }
 
     #[test]
+    #[allow(clippy::redundant_closure)] // lifetimes ...
     fn nsec3param_compose_parse_scan() {
         let rdata = Nsec3param::new(
             Nsec3HashAlg::SHA1,
