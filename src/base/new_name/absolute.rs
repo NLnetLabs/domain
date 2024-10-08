@@ -345,7 +345,7 @@ impl AsRef<[u8]> for Name {
     }
 }
 
-/// An error in costructing a [`Name`].
+/// An error in constructing a [`Name`].
 #[derive(Clone, Debug)]
 pub struct NameError;
 
