@@ -66,22 +66,22 @@ impl<B: AsRef<[u8]> + AsMut<[u8]>> SecretKey<B> {
 
             Self::EcdsaP256Sha256(s) => {
                 w.write_str("Algorithm: 13 (ECDSAP256SHA256)\n")?;
-                write!(w, "PrivateKey: {}\n", base64::encode_display(s))
+                writeln!(w, "PrivateKey: {}", base64::encode_display(s))
             }
 
             Self::EcdsaP384Sha384(s) => {
                 w.write_str("Algorithm: 14 (ECDSAP384SHA384)\n")?;
-                write!(w, "PrivateKey: {}\n", base64::encode_display(s))
+                writeln!(w, "PrivateKey: {}", base64::encode_display(s))
             }
 
             Self::Ed25519(s) => {
                 w.write_str("Algorithm: 15 (ED25519)\n")?;
-                write!(w, "PrivateKey: {}\n", base64::encode_display(s))
+                writeln!(w, "PrivateKey: {}", base64::encode_display(s))
             }
 
             Self::Ed448(s) => {
                 w.write_str("Algorithm: 16 (ED448)\n")?;
-                write!(w, "PrivateKey: {}\n", base64::encode_display(s))
+                writeln!(w, "PrivateKey: {}", base64::encode_display(s))
             }
         }
     }
