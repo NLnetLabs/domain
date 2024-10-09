@@ -1,58 +1,137 @@
 //! Key and Signer using OpenSSL.
+
 #![cfg(feature = "openssl")]
 #![cfg_attr(docsrs, doc(cfg(feature = "openssl")))]
 
+use core::fmt;
 use std::vec::Vec;
-use openssl::error::ErrorStack;
-use openssl::hash::MessageDigest;
-use openssl::pkey::{PKey, Private};
-use openssl::sha::sha256;
-use openssl::sign::Signer as OpenSslSigner;
-use unwrap::unwrap;
-use crate::base::iana::DigestAlg;
-use crate::base::name::ToDname;
-use crate::base::octets::Compose;
-use crate::rdata::{Ds, Dnskey};
-use super::key::SigningKey;
 
+use openssl::{
+    bn::BigNum,
+    pkey::{self, PKey, Private},
+};
 
-pub struct Key {
-    dnskey: Dnskey<Vec<u8>>,
-    key: PKey<Private>,
-    digest: MessageDigest,
+use crate::base::iana::SecAlg;
+
+use super::generic;
+
+/// A key pair backed by OpenSSL.
+pub struct SecretKey {
+    /// The algorithm used by the key.
+    algorithm: SecAlg,
+
+    /// The private key.
+    pkey: PKey<Private>,
 }
 
-impl SigningKey for Key {
-    type Octets = Vec<u8>;
-    type Signature = Vec<u8>;
-    type Error = ErrorStack;
+impl SecretKey {
+    /// Use a generic secret key with OpenSSL.
+    ///
+    /// # Panics
+    ///
+    /// Panics if OpenSSL fails or if memory could not be allocated.
+    pub fn import<B: AsRef<[u8]> + AsMut<[u8]>>(
+        key: generic::SecretKey<B>,
+    ) -> Result<Self, ImportError> {
+        fn num(slice: &[u8]) -> BigNum {
+            let mut v = BigNum::new_secure().unwrap();
+            v.copy_from_slice(slice).unwrap();
+            v
+        }
 
-    fn dnskey(&self) -> Result<Dnskey<Self::Octets>, Self::Error> {
-        Ok(self.dnskey.clone())
+        let pkey = match &key {
+            generic::SecretKey::RsaSha256(k) => {
+                let n = BigNum::from_slice(k.n.as_ref()).unwrap();
+                let e = BigNum::from_slice(k.e.as_ref()).unwrap();
+                let d = num(k.d.as_ref());
+                let p = num(k.p.as_ref());
+                let q = num(k.q.as_ref());
+                let d_p = num(k.d_p.as_ref());
+                let d_q = num(k.d_q.as_ref());
+                let q_i = num(k.q_i.as_ref());
+
+                // NOTE: The 'openssl' crate doesn't seem to expose
+                // 'EVP_PKEY_fromdata', which could be used to replace the
+                // deprecated methods called here.
+
+                openssl::rsa::Rsa::from_private_components(
+                    n, e, d, p, q, d_p, d_q, q_i,
+                )
+                .and_then(PKey::from_rsa)
+                .unwrap()
+            }
+            // TODO: Support ECDSA.
+            generic::SecretKey::Ed25519(k) => {
+                PKey::private_key_from_raw_bytes(
+                    k.as_ref(),
+                    pkey::Id::ED25519,
+                )
+                .unwrap()
+            }
+            generic::SecretKey::Ed448(k) => {
+                PKey::private_key_from_raw_bytes(k.as_ref(), pkey::Id::ED448)
+                    .unwrap()
+            }
+            _ => return Err(ImportError::UnsupportedAlgorithm),
+        };
+
+        Ok(Self {
+            algorithm: key.algorithm(),
+            pkey,
+        })
     }
 
-    fn ds<N: ToDname>(
-        &self,
-        owner: N
-    ) -> Result<Ds<Self::Octets>, Self::Error> {
-        let mut buf = Vec::new();
-        unwrap!(owner.compose_canonical(&mut buf));
-        unwrap!(self.dnskey.compose_canonical(&mut buf));
-        let digest = Vec::from(sha256(&buf).as_ref());
-        Ok(Ds::new(
-            self.key_tag()?,
-            self.dnskey.algorithm(),
-            DigestAlg::Sha256,
-            digest,
-        ))
-    }
-
-    fn sign(&self, data: &[u8]) -> Result<Self::Signature, Self::Error> {
-        let mut signer = OpenSslSigner::new(
-            self.digest, &self.key
-        )?;
-        signer.update(data)?;
-        signer.sign_to_vec()
+    /// Export this key into a generic secret key.
+    ///
+    /// # Panics
+    ///
+    /// Panics if OpenSSL fails or if memory could not be allocated.
+    pub fn export<B>(self) -> generic::SecretKey<B>
+    where
+        B: AsRef<[u8]> + AsMut<[u8]> + From<Vec<u8>>,
+    {
+        match self.algorithm {
+            SecAlg::RSASHA256 => {
+                let key = self.pkey.rsa().unwrap();
+                generic::SecretKey::RsaSha256(generic::RsaSecretKey {
+                    n: key.n().to_vec().into(),
+                    e: key.e().to_vec().into(),
+                    d: key.d().to_vec().into(),
+                    p: key.p().unwrap().to_vec().into(),
+                    q: key.q().unwrap().to_vec().into(),
+                    d_p: key.dmp1().unwrap().to_vec().into(),
+                    d_q: key.dmq1().unwrap().to_vec().into(),
+                    q_i: key.iqmp().unwrap().to_vec().into(),
+                })
+            }
+            SecAlg::ED25519 => {
+                let key = self.pkey.raw_private_key().unwrap();
+                generic::SecretKey::Ed25519(key.try_into().unwrap())
+            }
+            SecAlg::ED448 => {
+                let key = self.pkey.raw_private_key().unwrap();
+                generic::SecretKey::Ed448(key.try_into().unwrap())
+            }
+            _ => unreachable!(),
+        }
     }
 }
 
+/// An error in importing a key into OpenSSL.
+#[derive(Clone, Debug)]
+pub enum ImportError {
+    /// The requested algorithm was not supported.
+    UnsupportedAlgorithm,
+
+    /// The provided secret key was invalid.
+    InvalidKey,
+}
+
+impl fmt::Display for ImportError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Self::UnsupportedAlgorithm => "algorithm not supported",
+            Self::InvalidKey => "malformed or insecure private key",
+        })
+    }
+}
