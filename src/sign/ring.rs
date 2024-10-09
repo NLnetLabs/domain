@@ -43,7 +43,6 @@ impl<'a> SecretKey<'a> {
                     qInv: k.q_i.as_ref(),
                 };
                 ring::signature::RsaKeyPair::from_components(&components)
-                    .inspect_err(|e| println!("Got err {e:?}"))
                     .map_err(|_| ImportError::InvalidKey)
                     .map(|key| Self::RsaSha256 { key, rng })
             }
