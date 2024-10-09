@@ -11,6 +11,7 @@ jobs:
     env:
         RUSTFLAGS: "-D warnings"
         VCPKG_ROOT: "${{ github.workspace }}\\vcpkg"
+        VCPKGRS_TRIPLET: x64-windows-release
     steps:
     - name: Checkout repository
       uses: actions/checkout@v1
@@ -24,7 +25,7 @@ jobs:
       uses: johnwason/vcpkg-action@v6
       with:
         pkgs: openssl
-        triplet: x64-windows-release
+        triplet: ${{ env.VCPKGRS_TRIPLET }}
         token: ${{ github.token }}
         github-binarycache: true
     - if: matrix.rust == 'stable'
