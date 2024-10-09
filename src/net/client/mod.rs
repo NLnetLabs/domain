@@ -21,6 +21,10 @@
 //!   transport connections. The [redundant] transport favors the connection
 //!   with the lowest response time. Any of the other transports can be added
 //!   as upstream transports.
+//! * [load_balancer] This transport distributes requests over a collecton of
+//!   transport connections. The [load_balancer] transport favors connections
+//!   with the shortest outstanding request queue. Any of the other transports
+//!   can be added as upstream transports.
 //! * [cache] This is a simple message cache provided as a pass through
 //!   transport. The cache works with any of the other transports.
 #![cfg_attr(feature = "unstable-validator", doc = "* [validator]:")]
