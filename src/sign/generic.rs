@@ -57,30 +57,30 @@ impl<B: AsRef<[u8]> + AsMut<[u8]>> SecretKey<B> {
     /// - For ECDSA, see RFC 6605, section 6.
     /// - For EdDSA, see RFC 8080, section 6.
     pub fn into_dns(&self, w: &mut impl fmt::Write) -> fmt::Result {
-        w.write_str("Private-key-format: v1.2\n")?;
+        writeln!(w, "Private-key-format: v1.2")?;
         match self {
             Self::RsaSha256(k) => {
-                w.write_str("Algorithm: 8 (RSASHA256)\n")?;
+                writeln!(w, "Algorithm: 8 (RSASHA256)")?;
                 k.into_dns(w)
             }
 
             Self::EcdsaP256Sha256(s) => {
-                w.write_str("Algorithm: 13 (ECDSAP256SHA256)\n")?;
+                writeln!(w, "Algorithm: 13 (ECDSAP256SHA256)")?;
                 writeln!(w, "PrivateKey: {}", base64::encode_display(s))
             }
 
             Self::EcdsaP384Sha384(s) => {
-                w.write_str("Algorithm: 14 (ECDSAP384SHA384)\n")?;
+                writeln!(w, "Algorithm: 14 (ECDSAP384SHA384)")?;
                 writeln!(w, "PrivateKey: {}", base64::encode_display(s))
             }
 
             Self::Ed25519(s) => {
-                w.write_str("Algorithm: 15 (ED25519)\n")?;
+                writeln!(w, "Algorithm: 15 (ED25519)")?;
                 writeln!(w, "PrivateKey: {}", base64::encode_display(s))
             }
 
             Self::Ed448(s) => {
-                w.write_str("Algorithm: 16 (ED448)\n")?;
+                writeln!(w, "Algorithm: 16 (ED448)")?;
                 writeln!(w, "PrivateKey: {}", base64::encode_display(s))
             }
         }
@@ -209,22 +209,22 @@ impl<B: AsRef<[u8]> + AsMut<[u8]>> RsaSecretKey<B> {
     /// See RFC 5702, section 6 for examples of this format.
     pub fn into_dns(&self, w: &mut impl fmt::Write) -> fmt::Result {
         w.write_str("Modulus: ")?;
-        write!(w, "{}", base64::encode_display(&self.n))?;
-        w.write_str("\nPublicExponent: ")?;
-        write!(w, "{}", base64::encode_display(&self.e))?;
-        w.write_str("\nPrivateExponent: ")?;
-        write!(w, "{}", base64::encode_display(&self.d))?;
-        w.write_str("\nPrime1: ")?;
-        write!(w, "{}", base64::encode_display(&self.p))?;
-        w.write_str("\nPrime2: ")?;
-        write!(w, "{}", base64::encode_display(&self.q))?;
-        w.write_str("\nExponent1: ")?;
-        write!(w, "{}", base64::encode_display(&self.d_p))?;
-        w.write_str("\nExponent2: ")?;
-        write!(w, "{}", base64::encode_display(&self.d_q))?;
-        w.write_str("\nCoefficient: ")?;
-        write!(w, "{}", base64::encode_display(&self.q_i))?;
-        w.write_char('\n')
+        writeln!(w, "{}", base64::encode_display(&self.n))?;
+        w.write_str("PublicExponent: ")?;
+        writeln!(w, "{}", base64::encode_display(&self.e))?;
+        w.write_str("PrivateExponent: ")?;
+        writeln!(w, "{}", base64::encode_display(&self.d))?;
+        w.write_str("Prime1: ")?;
+        writeln!(w, "{}", base64::encode_display(&self.p))?;
+        w.write_str("Prime2: ")?;
+        writeln!(w, "{}", base64::encode_display(&self.q))?;
+        w.write_str("Exponent1: ")?;
+        writeln!(w, "{}", base64::encode_display(&self.d_p))?;
+        w.write_str("Exponent2: ")?;
+        writeln!(w, "{}", base64::encode_display(&self.d_q))?;
+        w.write_str("Coefficient: ")?;
+        writeln!(w, "{}", base64::encode_display(&self.q_i))?;
+        Ok(())
     }
 
     /// Parse a key from the conventional DNS format.
@@ -504,6 +504,8 @@ mod tests {
             let key = super::SecretKey::<Vec<u8>>::from_dns(&data).unwrap();
             let mut same = String::new();
             key.into_dns(&mut same).unwrap();
+            let data = data.lines().collect::<Vec<_>>();
+            let same = same.lines().collect::<Vec<_>>();
             assert_eq!(data, same);
         }
     }
