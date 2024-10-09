@@ -17,14 +17,20 @@ jobs:
       uses: hecrj/setup-rust-action@v2
       with:
         rust-version: ${{ matrix.rust }}
+    - if: matrix.os == 'ubuntu-latest'
+      run: |
+        sudo apt install libssl-dev
+        echo "OPENSSL_FLAVOR=" >> "$GITHUB_ENV"
+    - if: matrix.os == 'windows-latest'
+      run: echo "OPENSSL_FLAVOR=--features openssl/vendored" >> "$GITHUB_ENV"
     - if: matrix.rust == 'stable'
       run: rustup component add clippy
     - if: matrix.rust == 'stable'
-      run: cargo clippy --all-features --all-targets -- -D warnings
+      run: cargo clippy --all-features $OPENSSL_FLAVOR --all-targets -- -D warnings
     - if: matrix.rust == 'stable' && matrix.os == 'ubuntu-latest'
       run: cargo fmt --all -- --check
-    - run: cargo check --no-default-features --all-targets
-    - run: cargo test --all-features
+    - run: cargo check --no-default-features $OPENSSL_FLAVOR --all-targets
+    - run: cargo test $OPENSSL_FLAVOR --all-features
   minimal-versions:
     name: Check minimal versions
     runs-on: ubuntu-latest
@@ -37,6 +43,8 @@ jobs:
       uses: hecrj/setup-rust-action@v2
       with:
         rust-version: "1.68.2"
+    - name: Install OpenSSL
+      run: sudo apt install libssl-dev
     - name: Install nightly Rust
       run: rustup install nightly
     - name: Check with minimal-versions
