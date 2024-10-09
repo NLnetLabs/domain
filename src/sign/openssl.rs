@@ -13,7 +13,7 @@ use openssl::{
 
 use crate::base::iana::SecAlg;
 
-use super::generic;
+use super::{generic, Sign};
 
 /// A key pair backed by OpenSSL.
 pub struct SecretKey {
@@ -149,6 +149,36 @@ impl SecretKey {
             }
             _ => unreachable!(),
         }
+    }
+}
+
+impl Sign<Vec<u8>> for SecretKey {
+    type Error = openssl::error::ErrorStack;
+
+    fn algorithm(&self) -> SecAlg {
+        self.algorithm
+    }
+
+    fn sign(&self, data: &[u8]) -> Result<Vec<u8>, Self::Error> {
+        use openssl::hash::MessageDigest;
+        use openssl::sign::Signer;
+
+        let mut signer = match self.algorithm {
+            SecAlg::RSASHA256 => {
+                Signer::new(MessageDigest::sha256(), &self.pkey)?
+            }
+            SecAlg::ECDSAP256SHA256 => {
+                Signer::new(MessageDigest::sha256(), &self.pkey)?
+            }
+            SecAlg::ECDSAP384SHA384 => {
+                Signer::new(MessageDigest::sha384(), &self.pkey)?
+            }
+            SecAlg::ED25519 => Signer::new_without_digest(&self.pkey)?,
+            SecAlg::ED448 => Signer::new_without_digest(&self.pkey)?,
+            _ => unreachable!(),
+        };
+
+        signer.sign_oneshot_to_vec(data)
     }
 }
 
