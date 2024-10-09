@@ -10,6 +10,7 @@ jobs:
         rust: [1.76.0, stable, beta, nightly]
     env:
         RUSTFLAGS: "-D warnings"
+        VCPKG_ROOT: "${{ github.workspace }}\\vcpkg"
     steps:
     - name: Checkout repository
       uses: actions/checkout@v1
@@ -26,8 +27,6 @@ jobs:
         triplet: x64-windows-release
         token: ${{ github.token }}
         github-binarycache: true
-    - if: matrix.os == 'windows-latest'
-      run: echo "VCPKG_ROOT=${{ github.workspace }}\\vcpkg" >> "$GITHUB_ENV"
     - if: matrix.rust == 'stable'
       run: rustup component add clippy
     - if: matrix.rust == 'stable'
