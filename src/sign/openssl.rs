@@ -67,7 +67,7 @@ impl SecretKey {
                 let group =
                     openssl::ec::EcGroup::from_curve_name(group).unwrap();
                 let mut p = openssl::ec::EcPoint::new(&group).unwrap();
-                let n = num(&*k);
+                let n = num(k.as_slice());
                 p.mul_generator(&group, &n, &ctx).unwrap();
                 openssl::ec::EcKey::from_private_components(&group, &n, &p)
                     .and_then(PKey::from_ec_key)
@@ -80,7 +80,7 @@ impl SecretKey {
                 let group =
                     openssl::ec::EcGroup::from_curve_name(group).unwrap();
                 let mut p = openssl::ec::EcPoint::new(&group).unwrap();
-                let n = num(&*k);
+                let n = num(k.as_slice());
                 p.mul_generator(&group, &n, &ctx).unwrap();
                 openssl::ec::EcKey::from_private_components(&group, &n, &p)
                     .and_then(PKey::from_ec_key)
