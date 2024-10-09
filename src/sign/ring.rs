@@ -55,6 +55,28 @@ impl<'a> SecretKey<'a> {
             _ => Err(ImportError::UnsupportedAlgorithm),
         }
     }
+
+    /// Export this key into a generic public key.
+    pub fn export_public<B>(&self) -> generic::PublicKey<B>
+    where
+        B: AsRef<[u8]> + From<Vec<u8>>,
+    {
+        match self {
+            Self::RsaSha256 { key, rng: _ } => {
+                let components: ring::rsa::PublicKeyComponents<Vec<u8>> =
+                    key.public().into();
+                generic::PublicKey::RsaSha256(generic::RsaPublicKey {
+                    n: components.n.into(),
+                    e: components.e.into(),
+                })
+            }
+            Self::Ed25519(key) => {
+                use ring::signature::KeyPair;
+                let key = key.public_key().as_ref();
+                generic::PublicKey::Ed25519(key.try_into().unwrap())
+            }
+        }
+    }
 }
 
 /// An error in importing a key into `ring`.
