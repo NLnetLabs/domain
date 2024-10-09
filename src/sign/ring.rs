@@ -3,6 +3,7 @@
 #![cfg(feature = "ring")]
 #![cfg_attr(docsrs, doc(cfg(feature = "ring")))]
 
+use core::fmt;
 use std::vec::Vec;
 
 use crate::base::iana::SecAlg;
@@ -42,6 +43,7 @@ impl<'a> SecretKey<'a> {
                     qInv: k.q_i.as_ref(),
                 };
                 ring::signature::RsaKeyPair::from_components(&components)
+                    .inspect_err(|e| println!("Got err {e:?}"))
                     .map_err(|_| ImportError::InvalidKey)
                     .map(|key| Self::RsaSha256 { key, rng })
             }
@@ -80,12 +82,22 @@ impl<'a> SecretKey<'a> {
 }
 
 /// An error in importing a key into `ring`.
+#[derive(Clone, Debug)]
 pub enum ImportError {
     /// The requested algorithm was not supported.
     UnsupportedAlgorithm,
 
     /// The provided keypair was invalid.
     InvalidKey,
+}
+
+impl fmt::Display for ImportError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Self::UnsupportedAlgorithm => "algorithm not supported",
+            Self::InvalidKey => "malformed or insecure private key",
+        })
+    }
 }
 
 impl<'a> super::Sign<Vec<u8>> for SecretKey<'a> {
@@ -107,6 +119,51 @@ impl<'a> super::Sign<Vec<u8>> for SecretKey<'a> {
                 Ok(buf)
             }
             Self::Ed25519(key) => Ok(key.sign(data).as_ref().to_vec()),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::vec::Vec;
+
+    use crate::{
+        base::{iana::SecAlg, scan::IterScanner},
+        rdata::Dnskey,
+        sign::generic,
+    };
+
+    const KEYS: &[(SecAlg, u16)] =
+        &[(SecAlg::RSASHA256, 27096), (SecAlg::ED25519, 43769)];
+
+    #[test]
+    fn export_public() {
+        type GenericSecretKey = generic::SecretKey<Vec<u8>>;
+        type GenericPublicKey = generic::PublicKey<Vec<u8>>;
+
+        for &(algorithm, key_tag) in KEYS {
+            let name = format!("test.+{:03}+{}", algorithm.to_int(), key_tag);
+
+            let path = format!("test-data/dnssec-keys/K{}.private", name);
+            let data = std::fs::read_to_string(path).unwrap();
+            let sec_key = GenericSecretKey::from_dns(&data).unwrap();
+            let rng = ring::rand::SystemRandom::new();
+            let sec_key = super::SecretKey::import(sec_key, &rng).unwrap();
+            let pub_key: GenericPublicKey = sec_key.export_public();
+
+            let path = format!("test-data/dnssec-keys/K{}.key", name);
+            let mut data = std::fs::read_to_string(path).unwrap();
+            // Remove a trailing comment, if any.
+            if let Some(pos) = data.bytes().position(|b| b == b';') {
+                data.truncate(pos);
+            }
+            // Skip '<domain-name> <record-class> <record-type>'
+            let data = data.split_ascii_whitespace().skip(3);
+            let mut data = IterScanner::new(data);
+            let dns_key: Dnskey<Vec<u8>> = Dnskey::scan(&mut data).unwrap();
+
+            assert_eq!(dns_key.key_tag(), key_tag);
+            assert_eq!(pub_key.into_dns::<Vec<u8>>(256), dns_key)
         }
     }
 }
