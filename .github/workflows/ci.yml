@@ -12,6 +12,7 @@ jobs:
         RUSTFLAGS: "-D warnings"
         VCPKG_ROOT: "${{ github.workspace }}\\vcpkg"
         VCPKGRS_TRIPLET: x64-windows-release
+        VCPKGRS_DYNAMIC: 1
     steps:
     - name: Checkout repository
       uses: actions/checkout@v1
