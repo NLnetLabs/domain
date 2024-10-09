@@ -289,28 +289,32 @@ impl std::error::Error for ImportError {}
 
 #[cfg(test)]
 mod tests {
-    use std::vec::Vec;
+    use std::{string::String, vec::Vec};
 
-    use crate::{base::iana::SecAlg, sign::generic};
+    use crate::{
+        base::{iana::SecAlg, scan::IterScanner},
+        rdata::Dnskey,
+        sign::generic,
+    };
 
-    const ALGORITHMS: &[SecAlg] = &[
-        SecAlg::RSASHA256,
-        SecAlg::ECDSAP256SHA256,
-        SecAlg::ECDSAP384SHA384,
-        SecAlg::ED25519,
-        SecAlg::ED448,
+    const KEYS: &[(SecAlg, u16)] = &[
+        (SecAlg::RSASHA256, 27096),
+        (SecAlg::ECDSAP256SHA256, 40436),
+        (SecAlg::ECDSAP384SHA384, 17013),
+        (SecAlg::ED25519, 43769),
+        (SecAlg::ED448, 34114),
     ];
 
     #[test]
-    fn generate_all() {
-        for &algorithm in ALGORITHMS {
+    fn generate() {
+        for &(algorithm, _) in KEYS {
             let _ = super::generate(algorithm).unwrap();
         }
     }
 
     #[test]
-    fn export_and_import() {
-        for &algorithm in ALGORITHMS {
+    fn generated_roundtrip() {
+        for &(algorithm, _) in KEYS {
             let key = super::generate(algorithm).unwrap();
             let exp: generic::SecretKey<Vec<u8>> = key.export();
             let imp = super::SecretKey::import(exp).unwrap();
@@ -319,10 +323,49 @@ mod tests {
     }
 
     #[test]
+    fn imported_roundtrip() {
+        type GenericKey = generic::SecretKey<Vec<u8>>;
+
+        for &(algorithm, key_tag) in KEYS {
+            let name = format!("test.+{:03}+{}", algorithm.to_int(), key_tag);
+            let path = format!("test-data/dnssec-keys/K{}.private", name);
+            let data = std::fs::read_to_string(path).unwrap();
+            let imp = GenericKey::from_dns(&data).unwrap();
+            let key = super::SecretKey::import(imp).unwrap();
+            let exp: GenericKey = key.export();
+            let mut same = String::new();
+            exp.into_dns(&mut same).unwrap();
+            assert_eq!(data, same);
+        }
+    }
+
+    #[test]
     fn export_public() {
-        for &algorithm in ALGORITHMS {
-            let key = super::generate(algorithm).unwrap();
-            let _: generic::PublicKey<Vec<u8>> = key.export_public();
+        type GenericSecretKey = generic::SecretKey<Vec<u8>>;
+        type GenericPublicKey = generic::PublicKey<Vec<u8>>;
+
+        for &(algorithm, key_tag) in KEYS {
+            let name = format!("test.+{:03}+{}", algorithm.to_int(), key_tag);
+
+            let path = format!("test-data/dnssec-keys/K{}.private", name);
+            let data = std::fs::read_to_string(path).unwrap();
+            let sec_key = GenericSecretKey::from_dns(&data).unwrap();
+            let sec_key = super::SecretKey::import(sec_key).unwrap();
+            let pub_key: GenericPublicKey = sec_key.export_public();
+
+            let path = format!("test-data/dnssec-keys/K{}.key", name);
+            let mut data = std::fs::read_to_string(path).unwrap();
+            // Remove a trailing comment, if any.
+            if let Some(pos) = data.bytes().position(|b| b == b';') {
+                data.truncate(pos);
+            }
+            // Skip '<domain-name> <record-class> <record-type>'
+            let data = data.split_ascii_whitespace().skip(3);
+            let mut data = IterScanner::new(data);
+            let dns_key: Dnskey<Vec<u8>> = Dnskey::scan(&mut data).unwrap();
+
+            assert_eq!(dns_key.key_tag(), key_tag);
+            assert_eq!(pub_key.into_dns::<Vec<u8>>(256), dns_key)
         }
     }
 }

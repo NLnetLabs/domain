@@ -477,7 +477,7 @@ mod tests {
     use crate::base::iana::SecAlg;
 
     const KEYS: &[(SecAlg, u16)] = &[
-        (SecAlg::RSASHA256, 55993),
+        (SecAlg::RSASHA256, 27096),
         (SecAlg::ECDSAP256SHA256, 40436),
         (SecAlg::ECDSAP384SHA384, 17013),
         (SecAlg::ED25519, 43769),
