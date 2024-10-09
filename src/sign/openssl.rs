@@ -150,6 +150,55 @@ impl SecretKey {
             _ => unreachable!(),
         }
     }
+
+    /// Export this key into a generic public key.
+    ///
+    /// # Panics
+    ///
+    /// Panics if OpenSSL fails or if memory could not be allocated.
+    pub fn export_public<B>(&self) -> generic::PublicKey<B>
+    where
+        B: AsRef<[u8]> + From<Vec<u8>>,
+    {
+        match self.algorithm {
+            SecAlg::RSASHA256 => {
+                let key = self.pkey.rsa().unwrap();
+                generic::PublicKey::RsaSha256(generic::RsaPublicKey {
+                    n: key.n().to_vec().into(),
+                    e: key.e().to_vec().into(),
+                })
+            }
+            SecAlg::ECDSAP256SHA256 => {
+                let key = self.pkey.ec_key().unwrap();
+                let form = openssl::ec::PointConversionForm::UNCOMPRESSED;
+                let mut ctx = openssl::bn::BigNumContext::new().unwrap();
+                let key = key
+                    .public_key()
+                    .to_bytes(key.group(), form, &mut ctx)
+                    .unwrap();
+                generic::PublicKey::EcdsaP256Sha256(key.try_into().unwrap())
+            }
+            SecAlg::ECDSAP384SHA384 => {
+                let key = self.pkey.ec_key().unwrap();
+                let form = openssl::ec::PointConversionForm::UNCOMPRESSED;
+                let mut ctx = openssl::bn::BigNumContext::new().unwrap();
+                let key = key
+                    .public_key()
+                    .to_bytes(key.group(), form, &mut ctx)
+                    .unwrap();
+                generic::PublicKey::EcdsaP384Sha384(key.try_into().unwrap())
+            }
+            SecAlg::ED25519 => {
+                let key = self.pkey.raw_public_key().unwrap();
+                generic::PublicKey::Ed25519(key.try_into().unwrap())
+            }
+            SecAlg::ED448 => {
+                let key = self.pkey.raw_public_key().unwrap();
+                generic::PublicKey::Ed448(key.try_into().unwrap())
+            }
+            _ => unreachable!(),
+        }
+    }
 }
 
 impl Sign<Vec<u8>> for SecretKey {
@@ -266,6 +315,14 @@ mod tests {
             let exp: generic::SecretKey<Vec<u8>> = key.export();
             let imp = super::SecretKey::import(exp).unwrap();
             assert!(key.pkey.public_eq(&imp.pkey));
+        }
+    }
+
+    #[test]
+    fn export_public() {
+        for &algorithm in ALGORITHMS {
+            let key = super::generate(algorithm).unwrap();
+            let _: generic::PublicKey<Vec<u8>> = key.export_public();
         }
     }
 }
