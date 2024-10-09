@@ -60,7 +60,32 @@ impl SecretKey {
                 .and_then(PKey::from_rsa)
                 .unwrap()
             }
-            // TODO: Support ECDSA.
+            generic::SecretKey::EcdsaP256Sha256(k) => {
+                // Calculate the public key manually.
+                let ctx = openssl::bn::BigNumContext::new_secure().unwrap();
+                let group = openssl::nid::Nid::X9_62_PRIME256V1;
+                let group =
+                    openssl::ec::EcGroup::from_curve_name(group).unwrap();
+                let mut p = openssl::ec::EcPoint::new(&group).unwrap();
+                let n = num(&*k);
+                p.mul_generator(&group, &n, &ctx).unwrap();
+                openssl::ec::EcKey::from_private_components(&group, &n, &p)
+                    .and_then(PKey::from_ec_key)
+                    .unwrap()
+            }
+            generic::SecretKey::EcdsaP384Sha384(k) => {
+                // Calculate the public key manually.
+                let ctx = openssl::bn::BigNumContext::new_secure().unwrap();
+                let group = openssl::nid::Nid::SECP384R1;
+                let group =
+                    openssl::ec::EcGroup::from_curve_name(group).unwrap();
+                let mut p = openssl::ec::EcPoint::new(&group).unwrap();
+                let n = num(&*k);
+                p.mul_generator(&group, &n, &ctx).unwrap();
+                openssl::ec::EcKey::from_private_components(&group, &n, &p)
+                    .and_then(PKey::from_ec_key)
+                    .unwrap()
+            }
             generic::SecretKey::Ed25519(k) => {
                 PKey::private_key_from_raw_bytes(
                     k.as_ref(),
@@ -72,7 +97,6 @@ impl SecretKey {
                 PKey::private_key_from_raw_bytes(k.as_ref(), pkey::Id::ED448)
                     .unwrap()
             }
-            _ => return Err(ImportError::UnsupportedAlgorithm),
         };
 
         Ok(Self {
@@ -90,6 +114,7 @@ impl SecretKey {
     where
         B: AsRef<[u8]> + AsMut<[u8]> + From<Vec<u8>>,
     {
+        // TODO: Consider security implications of secret data in 'Vec's.
         match self.algorithm {
             SecAlg::RSASHA256 => {
                 let key = self.pkey.rsa().unwrap();
@@ -103,6 +128,16 @@ impl SecretKey {
                     d_q: key.dmq1().unwrap().to_vec().into(),
                     q_i: key.iqmp().unwrap().to_vec().into(),
                 })
+            }
+            SecAlg::ECDSAP256SHA256 => {
+                let key = self.pkey.ec_key().unwrap();
+                let key = key.private_key().to_vec();
+                generic::SecretKey::EcdsaP256Sha256(key.try_into().unwrap())
+            }
+            SecAlg::ECDSAP384SHA384 => {
+                let key = self.pkey.ec_key().unwrap();
+                let key = key.private_key().to_vec();
+                generic::SecretKey::EcdsaP384Sha384(key.try_into().unwrap())
             }
             SecAlg::ED25519 => {
                 let key = self.pkey.raw_private_key().unwrap();
@@ -130,6 +165,20 @@ pub fn generate(algorithm: SecAlg) -> Option<SecretKey> {
         SecAlg::RSASHA256 => openssl::rsa::Rsa::generate(3072)
             .and_then(PKey::from_rsa)
             .unwrap(),
+        SecAlg::ECDSAP256SHA256 => {
+            let group = openssl::nid::Nid::X9_62_PRIME256V1;
+            let group = openssl::ec::EcGroup::from_curve_name(group).unwrap();
+            openssl::ec::EcKey::generate(&group)
+                .and_then(PKey::from_ec_key)
+                .unwrap()
+        }
+        SecAlg::ECDSAP384SHA384 => {
+            let group = openssl::nid::Nid::SECP384R1;
+            let group = openssl::ec::EcGroup::from_curve_name(group).unwrap();
+            openssl::ec::EcKey::generate(&group)
+                .and_then(PKey::from_ec_key)
+                .unwrap()
+        }
         SecAlg::ED25519 => PKey::generate_ed25519().unwrap(),
         SecAlg::ED448 => PKey::generate_ed448().unwrap(),
         _ => return None,
@@ -165,8 +214,13 @@ mod tests {
 
     use crate::{base::iana::SecAlg, sign::generic};
 
-    const ALGORITHMS: &[SecAlg] =
-        &[SecAlg::RSASHA256, SecAlg::ED25519, SecAlg::ED448];
+    const ALGORITHMS: &[SecAlg] = &[
+        SecAlg::RSASHA256,
+        SecAlg::ECDSAP256SHA256,
+        SecAlg::ECDSAP384SHA384,
+        SecAlg::ED25519,
+        SecAlg::ED448,
+    ];
 
     #[test]
     fn generate_all() {
