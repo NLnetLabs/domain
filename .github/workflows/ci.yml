@@ -26,6 +26,8 @@ jobs:
         triplet: x64-windows-release
         token: ${{ github.token }}
         github-binarycache: true
+    - if: matrix.os == 'windows-latest'
+      run: echo "VCPKG_ROOT=${{ github.workspace }}\\vcpkg" >> "$GITHUB_ENV"
     - if: matrix.rust == 'stable'
       run: rustup component add clippy
     - if: matrix.rust == 'stable'
