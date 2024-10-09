@@ -16,7 +16,7 @@ use crate::base::iana::SecAlg;
 
 pub mod generic;
 pub mod key;
-//pub mod openssl;
+pub mod openssl;
 pub mod records;
 pub mod ring;
 

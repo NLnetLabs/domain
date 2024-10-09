@@ -10,8 +10,8 @@ use crate::base::iana::SecAlg;
 use super::generic;
 
 /// A key pair backed by `ring`.
-pub enum KeyPair<'a> {
-    /// An RSA/SHA256 keypair.
+pub enum SecretKey<'a> {
+    /// An RSA/SHA-256 keypair.
     RsaSha256 {
         key: ring::signature::RsaKeyPair,
         rng: &'a dyn ring::rand::SecureRandom,
@@ -21,7 +21,7 @@ pub enum KeyPair<'a> {
     Ed25519(ring::signature::Ed25519KeyPair),
 }
 
-impl<'a> KeyPair<'a> {
+impl<'a> SecretKey<'a> {
     /// Use a generic keypair with `ring`.
     pub fn import<B: AsRef<[u8]> + AsMut<[u8]>>(
         key: generic::SecretKey<B>,
@@ -66,25 +66,25 @@ pub enum ImportError {
     InvalidKey,
 }
 
-impl<'a> super::Sign<Vec<u8>> for KeyPair<'a> {
+impl<'a> super::Sign<Vec<u8>> for SecretKey<'a> {
     type Error = ring::error::Unspecified;
 
     fn algorithm(&self) -> SecAlg {
         match self {
-            KeyPair::RsaSha256 { .. } => SecAlg::RSASHA256,
-            KeyPair::Ed25519(_) => SecAlg::ED25519,
+            Self::RsaSha256 { .. } => SecAlg::RSASHA256,
+            Self::Ed25519(_) => SecAlg::ED25519,
         }
     }
 
     fn sign(&self, data: &[u8]) -> Result<Vec<u8>, Self::Error> {
         match self {
-            KeyPair::RsaSha256 { key, rng } => {
+            Self::RsaSha256 { key, rng } => {
                 let mut buf = vec![0u8; key.public().modulus_len()];
                 let pad = &ring::signature::RSA_PKCS1_SHA256;
                 key.sign(pad, *rng, data, &mut buf)?;
                 Ok(buf)
             }
-            KeyPair::Ed25519(key) => Ok(key.sign(data).as_ref().to_vec()),
+            Self::Ed25519(key) => Ok(key.sign(data).as_ref().to_vec()),
         }
     }
 }
