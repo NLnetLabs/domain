@@ -23,6 +23,7 @@ jobs:
     - if: matrix.os == 'ubuntu-latest'
       run: sudo apt install libssl-dev
     - if: matrix.os == 'windows-latest'
+      id: vcpkg
       uses: johnwason/vcpkg-action@v6
       with:
         pkgs: openssl
