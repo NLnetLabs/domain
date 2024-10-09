@@ -4,6 +4,7 @@ use std::vec::Vec;
 
 use crate::base::iana::SecAlg;
 use crate::rdata::Dnskey;
+use crate::utils::base64;
 
 /// A generic secret key.
 ///
@@ -56,6 +57,7 @@ impl<B: AsRef<[u8]> + AsMut<[u8]>> SecretKey<B> {
     /// - For ECDSA, see RFC 6605, section 6.
     /// - For EdDSA, see RFC 8080, section 6.
     pub fn into_dns(&self, w: &mut impl fmt::Write) -> fmt::Result {
+        w.write_str("Private-key-format: v1.2\n")?;
         match self {
             Self::RsaSha256(k) => {
                 w.write_str("Algorithm: 8 (RSASHA256)\n")?;
@@ -64,22 +66,22 @@ impl<B: AsRef<[u8]> + AsMut<[u8]>> SecretKey<B> {
 
             Self::EcdsaP256Sha256(s) => {
                 w.write_str("Algorithm: 13 (ECDSAP256SHA256)\n")?;
-                base64_encode(s, &mut *w)
+                write!(w, "PrivateKey: {}\n", base64::encode_display(s))
             }
 
             Self::EcdsaP384Sha384(s) => {
                 w.write_str("Algorithm: 14 (ECDSAP384SHA384)\n")?;
-                base64_encode(s, &mut *w)
+                write!(w, "PrivateKey: {}\n", base64::encode_display(s))
             }
 
             Self::Ed25519(s) => {
                 w.write_str("Algorithm: 15 (ED25519)\n")?;
-                base64_encode(s, &mut *w)
+                write!(w, "PrivateKey: {}\n", base64::encode_display(s))
             }
 
             Self::Ed448(s) => {
                 w.write_str("Algorithm: 16 (ED448)\n")?;
-                base64_encode(s, &mut *w)
+                write!(w, "PrivateKey: {}\n", base64::encode_display(s))
             }
         }
     }
@@ -107,11 +109,12 @@ impl<B: AsRef<[u8]> + AsMut<[u8]>> SecretKey<B> {
                 return Err(DnsFormatError::Misformatted);
             }
 
-            let mut buf = [0u8; N];
-            if base64_decode(val.as_bytes(), &mut buf) != Ok(N) {
-                // The private key was of the wrong size.
-                return Err(DnsFormatError::Misformatted);
-            }
+            let buf: Vec<u8> = base64::decode(val)
+                .map_err(|_| DnsFormatError::Misformatted)?;
+            let buf = buf
+                .as_slice()
+                .try_into()
+                .map_err(|_| DnsFormatError::Misformatted)?;
 
             Ok(buf)
         }
@@ -205,22 +208,22 @@ impl<B: AsRef<[u8]> + AsMut<[u8]>> RsaSecretKey<B> {
     ///
     /// See RFC 5702, section 6 for examples of this format.
     pub fn into_dns(&self, w: &mut impl fmt::Write) -> fmt::Result {
-        w.write_str("Modulus:\t")?;
-        base64_encode(self.n.as_ref(), &mut *w)?;
-        w.write_str("\nPublicExponent:\t")?;
-        base64_encode(self.e.as_ref(), &mut *w)?;
-        w.write_str("\nPrivateExponent:\t")?;
-        base64_encode(self.d.as_ref(), &mut *w)?;
-        w.write_str("\nPrime1:\t")?;
-        base64_encode(self.p.as_ref(), &mut *w)?;
-        w.write_str("\nPrime2:\t")?;
-        base64_encode(self.q.as_ref(), &mut *w)?;
-        w.write_str("\nExponent1:\t")?;
-        base64_encode(self.d_p.as_ref(), &mut *w)?;
-        w.write_str("\nExponent2:\t")?;
-        base64_encode(self.d_q.as_ref(), &mut *w)?;
-        w.write_str("\nCoefficient:\t")?;
-        base64_encode(self.q_i.as_ref(), &mut *w)?;
+        w.write_str("Modulus: ")?;
+        write!(w, "{}", base64::encode_display(&self.n))?;
+        w.write_str("\nPublicExponent: ")?;
+        write!(w, "{}", base64::encode_display(&self.e))?;
+        w.write_str("\nPrivateExponent: ")?;
+        write!(w, "{}", base64::encode_display(&self.d))?;
+        w.write_str("\nPrime1: ")?;
+        write!(w, "{}", base64::encode_display(&self.p))?;
+        w.write_str("\nPrime2: ")?;
+        write!(w, "{}", base64::encode_display(&self.q))?;
+        w.write_str("\nExponent1: ")?;
+        write!(w, "{}", base64::encode_display(&self.d_p))?;
+        w.write_str("\nExponent2: ")?;
+        write!(w, "{}", base64::encode_display(&self.d_q))?;
+        w.write_str("\nCoefficient: ")?;
+        write!(w, "{}", base64::encode_display(&self.q_i))?;
         w.write_char('\n')
     }
 
@@ -258,10 +261,8 @@ impl<B: AsRef<[u8]> + AsMut<[u8]>> RsaSecretKey<B> {
                 return Err(DnsFormatError::Misformatted);
             }
 
-            let mut buffer = vec![0u8; (val.len() + 3) / 4 * 3];
-            let size = base64_decode(val.as_bytes(), &mut buffer)
+            let buffer: Vec<u8> = base64::decode(val)
                 .map_err(|_| DnsFormatError::Misformatted)?;
-            buffer.truncate(size);
 
             *field = Some(buffer.into());
             data = rest;
@@ -428,6 +429,11 @@ fn parse_dns_pair(
     // Trim any pending newlines.
     let data = data.trim_start();
 
+    // Stop if there's no more data.
+    if data.is_empty() {
+        return Ok(None);
+    }
+
     // Get the first line (NOTE: CR LF is handled later).
     let (line, rest) = data.split_once('\n').unwrap_or((data, ""));
 
@@ -437,177 +443,6 @@ fn parse_dns_pair(
 
     // Trim the key and value (incl. for CR LFs).
     Ok(Some((key.trim(), val.trim(), rest)))
-}
-
-/// A utility function to format data as Base64.
-///
-/// This is a simple implementation with the only requirement of being
-/// constant-time and side-channel resistant.
-fn base64_encode(data: &[u8], w: &mut impl fmt::Write) -> fmt::Result {
-    // Convert a single chunk of bytes into Base64.
-    fn encode(data: [u8; 3]) -> [u8; 4] {
-        let [a, b, c] = data;
-
-        // Expand the chunk using integer operations; it's pretty fast.
-        let chunk = (a as u32) << 16 | (b as u32) << 8 | (c as u32);
-        // 0b00000000_XXXXXXXX_XXXXXXXX_XXXXXXXXu32
-        let chunk = (chunk & 0x00FFF000) << 4 | (chunk & 0x00000FFF);
-        // (0b0000XXXX_XXXXXXXXu16, 0b0000XXXX_XXXXXXXXu16)
-        let chunk = (chunk & 0x0FC00FC0) << 2 | (chunk & 0x003F003F);
-        // (0b00XXXXXXu8, 0b00XXXXXXu8, 0b00XXXXXXu8, 0b00XXXXXXu8)
-
-        // Classify each output byte as A-Z, a-z, 0-9, + or /.
-        let bcast = 0x01010101u32;
-        let uppers = chunk + (128 - 26) * bcast;
-        let lowers = chunk + (128 - 52) * bcast;
-        let digits = chunk + (128 - 62) * bcast;
-        let pluses = chunk + (128 - 63) * bcast;
-
-        // For each byte, the LSB is set if it is in the class.
-        let uppers = !uppers >> 7;
-        let lowers = (uppers & !lowers) >> 7;
-        let digits = (lowers & !digits) >> 7;
-        let pluses = (digits & !pluses) >> 7;
-        let slashs = pluses >> 7;
-
-        // Add the corresponding offset for each class.
-        #[allow(clippy::identity_op)]
-        let chunk = chunk
-            + (uppers & bcast) * (b'A' - 0) as u32
-            + (lowers & bcast) * (b'a' - 26) as u32
-            - (digits & bcast) * (52 - b'0') as u32
-            - (pluses & bcast) * (62 - b'+') as u32
-            - (slashs & bcast) * (63 - b'/') as u32;
-
-        // Convert back into a byte array.
-        chunk.to_be_bytes()
-    }
-
-    // TODO: Use 'slice::array_chunks()' or 'slice::as_chunks()'.
-    let mut chunks = data.chunks_exact(3);
-
-    // Iterate over the whole chunks in the input.
-    for chunk in &mut chunks {
-        let chunk = <[u8; 3]>::try_from(chunk).unwrap();
-        let chunk = encode(chunk);
-        let chunk = str::from_utf8(&chunk).unwrap();
-        w.write_str(chunk)?;
-    }
-
-    // Encode the final chunk and handle padding.
-    let mut chunk = [0u8; 3];
-    chunk[..chunks.remainder().len()].copy_from_slice(chunks.remainder());
-    let mut chunk = encode(chunk);
-    match chunks.remainder().len() {
-        0 => return Ok(()),
-        1 => chunk[2..].fill(b'='),
-        2 => chunk[3..].fill(b'='),
-        _ => unreachable!(),
-    }
-    let chunk = str::from_utf8(&chunk).unwrap();
-    w.write_str(chunk)
-}
-
-/// A utility function to decode Base64 data.
-///
-/// This is a simple implementation with the only requirement of being
-/// constant-time and side-channel resistant.
-///
-/// Incorrect padding or garbage bytes will result in an error.
-fn base64_decode(encoded: &[u8], decoded: &mut [u8]) -> Result<usize, ()> {
-    /// Decode a single chunk of bytes from Base64.
-    fn decode(data: [u8; 4]) -> Result<[u8; 3], ()> {
-        let chunk = u32::from_be_bytes(data);
-        let bcast = 0x01010101u32;
-
-        // Mask out non-ASCII bytes early.
-        if chunk & 0x80808080 != 0 {
-            return Err(());
-        }
-
-        // Classify each byte as A-Z, a-z, 0-9, + or /.
-        let uppers = chunk + (128 - b'A' as u32) * bcast;
-        let lowers = chunk + (128 - b'a' as u32) * bcast;
-        let digits = chunk + (128 - b'0' as u32) * bcast;
-        let pluses = chunk + (128 - b'+' as u32) * bcast;
-        let slashs = chunk + (128 - b'/' as u32) * bcast;
-
-        // For each byte, the LSB is set if it is in the class.
-        let uppers = (uppers ^ (uppers - bcast * 26)) >> 7;
-        let lowers = (lowers ^ (lowers - bcast * 26)) >> 7;
-        let digits = (digits ^ (digits - bcast * 10)) >> 7;
-        let pluses = (pluses ^ (pluses - bcast)) >> 7;
-        let slashs = (slashs ^ (slashs - bcast)) >> 7;
-
-        // Check if an input was in none of the classes.
-        if bcast & !(uppers | lowers | digits | pluses | slashs) != 0 {
-            return Err(());
-        }
-
-        // Subtract the corresponding offset for each class.
-        #[allow(clippy::identity_op)]
-        let chunk = chunk
-            - (uppers & bcast) * (b'A' - 0) as u32
-            - (lowers & bcast) * (b'a' - 26) as u32
-            + (digits & bcast) * (52 - b'0') as u32
-            + (pluses & bcast) * (62 - b'+') as u32
-            + (slashs & bcast) * (63 - b'/') as u32;
-
-        // Compress the chunk using integer operations.
-        // (0b00XXXXXXu8, 0b00XXXXXXu8, 0b00XXXXXXu8, 0b00XXXXXXu8)
-        let chunk = (chunk & 0x3F003F00) >> 2 | (chunk & 0x003F003F);
-        // (0b0000XXXX_XXXXXXXXu16, 0b0000XXXX_XXXXXXXXu16)
-        let chunk = (chunk & 0x0FFF0000) >> 4 | (chunk & 0x00000FFF);
-        // 0b00000000_XXXXXXXX_XXXXXXXX_XXXXXXXXu32
-        let [_, a, b, c] = chunk.to_be_bytes();
-
-        Ok([a, b, c])
-    }
-
-    // Uneven inputs are not allowed; use padding.
-    if encoded.len() % 4 != 0 {
-        return Err(());
-    }
-
-    // The index into the decoded buffer.
-    let mut index = 0usize;
-
-    // Iterate over the whole chunks in the input.
-    // TODO: Use 'slice::array_chunks()' or 'slice::as_chunks()'.
-    for chunk in encoded.chunks_exact(4) {
-        let mut chunk = <[u8; 4]>::try_from(chunk).unwrap();
-
-        // Check for padding.
-        let ppos = chunk.iter().position(|&b| b == b'=').unwrap_or(4);
-        if chunk[ppos..].iter().any(|&b| b != b'=') {
-            // A padding byte was followed by a non-padding byte.
-            return Err(());
-        }
-
-        // Mask out the padding for the main decoder.
-        chunk[ppos..].fill(b'A');
-
-        // Determine how many output bytes there are.
-        let amount = match ppos {
-            0 | 1 => return Err(()),
-            2 => 1,
-            3 => 2,
-            4 => 3,
-            _ => unreachable!(),
-        };
-
-        if index + amount >= decoded.len() {
-            // The input was too long, or the output was too short.
-            return Err(());
-        }
-
-        // Decode the chunk and write the unpadded amount.
-        let chunk = decode(chunk)?;
-        decoded[index..][..amount].copy_from_slice(&chunk[..amount]);
-        index += amount;
-    }
-
-    Ok(index)
 }
 
 /// An error in loading a [`SecretKey`] from the conventional DNS format.
@@ -634,3 +469,42 @@ impl fmt::Display for DnsFormatError {
 }
 
 impl std::error::Error for DnsFormatError {}
+
+#[cfg(test)]
+mod tests {
+    use std::{string::String, vec::Vec};
+
+    use crate::base::iana::SecAlg;
+
+    const KEYS: &[(SecAlg, u16)] = &[
+        (SecAlg::RSASHA256, 55993),
+        (SecAlg::ECDSAP256SHA256, 40436),
+        (SecAlg::ECDSAP384SHA384, 17013),
+        (SecAlg::ED25519, 43769),
+        (SecAlg::ED448, 34114),
+    ];
+
+    #[test]
+    fn secret_from_dns() {
+        for &(algorithm, key_tag) in KEYS {
+            let name = format!("test.+{:03}+{}", algorithm.to_int(), key_tag);
+            let path = format!("test-data/dnssec-keys/K{}.private", name);
+            let data = std::fs::read_to_string(path).unwrap();
+            let key = super::SecretKey::<Vec<u8>>::from_dns(&data).unwrap();
+            assert_eq!(key.algorithm(), algorithm);
+        }
+    }
+
+    #[test]
+    fn secret_roundtrip() {
+        for &(algorithm, key_tag) in KEYS {
+            let name = format!("test.+{:03}+{}", algorithm.to_int(), key_tag);
+            let path = format!("test-data/dnssec-keys/K{}.private", name);
+            let data = std::fs::read_to_string(path).unwrap();
+            let key = super::SecretKey::<Vec<u8>>::from_dns(&data).unwrap();
+            let mut same = String::new();
+            key.into_dns(&mut same).unwrap();
+            assert_eq!(data, same);
+        }
+    }
+}
