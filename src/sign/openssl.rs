@@ -335,6 +335,8 @@ mod tests {
             let exp: GenericKey = key.export();
             let mut same = String::new();
             exp.into_dns(&mut same).unwrap();
+            let data = data.lines().collect::<Vec<_>>();
+            let same = same.lines().collect::<Vec<_>>();
             assert_eq!(data, same);
         }
     }
