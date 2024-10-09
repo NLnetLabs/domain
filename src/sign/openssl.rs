@@ -117,6 +117,27 @@ impl SecretKey {
     }
 }
 
+/// Generate a new secret key for the given algorithm.
+///
+/// If the algorithm is not supported, [`None`] is returned.
+///
+/// # Panics
+///
+/// Panics if OpenSSL fails or if memory could not be allocated.
+pub fn generate(algorithm: SecAlg) -> Option<SecretKey> {
+    let pkey = match algorithm {
+        // We generate 3072-bit keys for an estimated 128 bits of security.
+        SecAlg::RSASHA256 => openssl::rsa::Rsa::generate(3072)
+            .and_then(PKey::from_rsa)
+            .unwrap(),
+        SecAlg::ED25519 => PKey::generate_ed25519().unwrap(),
+        SecAlg::ED448 => PKey::generate_ed448().unwrap(),
+        _ => return None,
+    };
+
+    Some(SecretKey { algorithm, pkey })
+}
+
 /// An error in importing a key into OpenSSL.
 #[derive(Clone, Debug)]
 pub enum ImportError {
@@ -135,3 +156,5 @@ impl fmt::Display for ImportError {
         })
     }
 }
+
+impl std::error::Error for ImportError {}
