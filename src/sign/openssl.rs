@@ -86,7 +86,7 @@ impl SecretKey {
     /// # Panics
     ///
     /// Panics if OpenSSL fails or if memory could not be allocated.
-    pub fn export<B>(self) -> generic::SecretKey<B>
+    pub fn export<B>(&self) -> generic::SecretKey<B>
     where
         B: AsRef<[u8]> + AsMut<[u8]> + From<Vec<u8>>,
     {
@@ -158,3 +158,30 @@ impl fmt::Display for ImportError {
 }
 
 impl std::error::Error for ImportError {}
+
+#[cfg(test)]
+mod tests {
+    use std::vec::Vec;
+
+    use crate::{base::iana::SecAlg, sign::generic};
+
+    const ALGORITHMS: &[SecAlg] =
+        &[SecAlg::RSASHA256, SecAlg::ED25519, SecAlg::ED448];
+
+    #[test]
+    fn generate_all() {
+        for &algorithm in ALGORITHMS {
+            let _ = super::generate(algorithm).unwrap();
+        }
+    }
+
+    #[test]
+    fn export_and_import() {
+        for &algorithm in ALGORITHMS {
+            let key = super::generate(algorithm).unwrap();
+            let exp: generic::SecretKey<Vec<u8>> = key.export();
+            let imp = super::SecretKey::import(exp).unwrap();
+            assert!(key.pkey.public_eq(&imp.pkey));
+        }
+    }
+}
