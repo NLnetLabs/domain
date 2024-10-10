@@ -3,7 +3,7 @@ use core::{
     hash::{Hash, Hasher},
 };
 
-use super::{Label, Name};
+use super::{Label, Labels, Name};
 
 /// A relative domain name.
 #[repr(transparent)]
@@ -101,6 +101,14 @@ impl RelName {
 
         // SAFETY: 'bytes' is 253 bytes or smaller and has valid labels.
         Some(unsafe { Self::from_bytes_unchecked(bytes) })
+    }
+
+    /// The labels in this name.
+    ///
+    /// Runtime: `O(1)`.  Each step of the iterator has runtime `O(1)` too.
+    pub const fn labels(&self) -> Labels<'_> {
+        // SAFETY: This is a valid relative name.
+        unsafe { Labels::from_bytes_unchecked(self.as_bytes()) }
     }
 
     /// Whether this name starts with a particular relative name.
@@ -284,6 +292,15 @@ impl<'a> TryFrom<&'a [u8]> for &'a RelName {
 impl<'a> From<&'a RelName> for &'a [u8] {
     fn from(name: &'a RelName) -> Self {
         name.as_bytes()
+    }
+}
+
+impl<'a> IntoIterator for &'a RelName {
+    type Item = &'a Label;
+    type IntoIter = Labels<'a>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.labels()
     }
 }
 

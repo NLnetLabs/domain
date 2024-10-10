@@ -4,7 +4,7 @@ use core::{
     iter,
 };
 
-use super::{Label, RelName};
+use super::{Label, Labels, RelName};
 
 /// An absolute domain name.
 #[repr(transparent)]
@@ -99,6 +99,16 @@ impl Name {
         let bytes = &self.as_bytes()[..self.len() - 1];
         // SAFETY: A slice of labels (as from 'self') is a relative name.
         unsafe { RelName::from_bytes_unchecked(bytes) }
+    }
+
+    /// The labels in this name.
+    ///
+    /// The root label is included in the iterator.
+    ///
+    /// Runtime: `O(1)`.  Each step of the iterator has runtime `O(1)` too.
+    pub const fn labels(&self) -> Labels<'_> {
+        // SAFETY: This is a valid absolute name.
+        unsafe { Labels::from_bytes_unchecked(self.as_bytes()) }
     }
 
     /// Whether this name starts with a particular relative name.
@@ -356,6 +366,15 @@ impl<'a> TryFrom<&'a [u8]> for &'a Name {
 impl<'a> From<&'a Name> for &'a [u8] {
     fn from(name: &'a Name) -> Self {
         name.as_bytes()
+    }
+}
+
+impl<'a> IntoIterator for &'a Name {
+    type Item = &'a Label;
+    type IntoIter = Labels<'a>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.labels()
     }
 }
 

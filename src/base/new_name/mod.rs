@@ -14,5 +14,8 @@ pub use relative::{RelName, RelNameError};
 mod label;
 pub use label::{Label, LabelError};
 
+mod labels;
+pub use labels::Labels;
+
 mod builder;
 pub use builder::NameBuilder;
