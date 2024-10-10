@@ -964,7 +964,7 @@ pub fn supported_nsec3_hash(h: Nsec3HashAlg) -> bool {
 ///
 /// Then the calculated hash of an owner name is
 ///    IH(salt, owner name, iterations),
-fn nsec3_hash<N, HashOcts>(
+pub fn nsec3_hash<N, HashOcts>(
     owner: N,
     algorithm: Nsec3HashAlg,
     iterations: u16,

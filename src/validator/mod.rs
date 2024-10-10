@@ -110,3 +110,5 @@ pub mod context;
 mod group;
 mod nsec;
 mod utilities;
+
+pub use nsec::nsec3_hash;

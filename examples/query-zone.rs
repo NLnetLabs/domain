@@ -3,24 +3,26 @@
 
 use std::env;
 use std::fmt::Debug;
-use std::fs::File;
+use std::fs::{File, OpenOptions};
 use std::ops::Add;
 use std::{process::exit, str::FromStr};
 
 use bytes::{Bytes, BytesMut};
 use core::pin::Pin;
 use core::task::{Context, Poll};
-use domain::base::iana::{Class, Rcode, SecAlg};
+use domain::base::iana::{Class, Nsec3HashAlg, Rcode, SecAlg};
 use domain::base::record::ComposeRecord;
 use domain::base::{Name, ParsedName, Rtype, ToName, Ttl};
 use domain::base::{ParsedRecord, Record};
 use domain::rdata::dnssec::{
     ProtoRrsig, RtypeBitmap, RtypeBitmapBuilder, Timestamp,
 };
+use domain::rdata::nsec3::Nsec3Salt;
 use domain::rdata::{Dnskey, Nsec, ZoneRecordData};
 use domain::sign::key::SigningKey;
 use domain::sign::ring::{RingKey, Signature};
 use domain::utils::base64;
+use domain::validator::nsec3_hash;
 use domain::zonefile::inplace;
 use domain::zonetree::types::{StoredRecordData, ZoneUpdate};
 use domain::zonetree::update::ZoneUpdater;
@@ -42,7 +44,7 @@ use core::ops::Sub;
 use domain::sign::records::{FamilyName, SortedRecords};
 use futures_util::{Stream, StreamExt};
 use octseq::Parser;
-use std::io::{BufRead, BufReader};
+use std::io::{BufRead, BufReader, Write};
 use tokio::sync::mpsc::UnboundedReceiver;
 use tokio_stream::wrappers::UnboundedReceiverStream;
 use tracing_subscriber::EnvFilter;
@@ -148,163 +150,171 @@ async fn main() {
             let ringkey = RingKey::Ecdsa(keypair);
             let key = domain::sign::ring::Key::new(dnskey, ringkey, &rng);
 
-            // Dump the keys out
-            let key_info =
-                pkcs8::PrivateKeyInfo::try_from(pkcs8.as_ref()).unwrap();
-            let key_data = KeyData::Ec(EcKeyData::new(
-                13,
-                key_info.private_key.to_vec(),
-            ));
-            std::fs::write(
-                "/tmp/x/gen.private",
-                key_data.gen_private_key_file_text().unwrap(),
-            )
-            .unwrap();
+            // // Dump the keys out
+            // let key_info =
+            //     pkcs8::PrivateKeyInfo::try_from(pkcs8.as_ref()).unwrap();
+            // let key_data = KeyData::Ec(EcKeyData::new(
+            //     13,
+            //     key_info.private_key.to_vec(),
+            // ));
+            // std::fs::write(
+            //     "/tmp/x/gen.private",
+            //     key_data.gen_private_key_file_text().unwrap(),
+            // )
+            // .unwrap();
 
-            let pubkey_rr = format!("{}    {}    DNSKEY  256 3 {} {} ;{{id = {} (zsk), size = {}b}}", zone.apex_name(), zone.class(), key.algorithm().unwrap().to_int(), base64::encode_string(&pubkey), key.key_tag().unwrap(), pubkey.len());
-            std::fs::write("/tmp/x/gen.key", pubkey_rr).unwrap();
+            // let pubkey_rr = format!("{}    {}    DNSKEY  256 3 {} {} ;{{id = {} (zsk), size = {}b}}", zone.apex_name(), zone.class(), key.algorithm().unwrap().to_int(), base64::encode_string(&pubkey), key.key_tag().unwrap(), pubkey.len());
+            // std::fs::write("/tmp/x/gen.key", pubkey_rr).unwrap();
 
-            // let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+            let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
 
-            // tokio::task::spawn(zone.read().walk_async(Box::new(
-            //     move |name, rrset, at_zone_cut| {
-            //         // Do not emit glue records as the zone is not authoritative
-            //         // for glue and only authoritative records should be signed.
-            //         if !at_zone_cut || !rrset.rtype().is_glue() {
-            //             tx.send((name, rrset.clone())).unwrap();
-            //         }
-            //     },
-            // )));
+            tokio::task::spawn(zone.read().walk_async(Box::new(
+                move |name, rrset, at_zone_cut| {
+                    // Do not emit glue records as the zone is not authoritative
+                    // for glue and only authoritative records should be signed.
+                    if !at_zone_cut || !rrset.rtype().is_glue() {
+                        tx.send((name, rrset.clone())).unwrap();
+                    }
+                },
+            )));
 
-            // fn find_apex(
-            //     records: &SortedRecords::<StoredName, StoredRecordData>
-            // ) -> Result<(FamilyName<Name<Bytes>>, Ttl), std::io::Error> {
-            //     let soa = match records.find_soa() {
-            //         Some(soa) => soa,
-            //         None => {
-            //             return Err(std::io::Error::new(
-            //                 std::io::ErrorKind::Other,
-            //                 "cannot find SOA record"
-            //             ))
-            //         }
-            //     };
-            //     let ttl = match *soa.first().data() {
-            //         ZoneRecordData::Soa(ref soa) => soa.minimum(),
-            //         _ => unreachable!()
-            //     };
-            //     Ok((soa.family_name().cloned(), ttl))
-            // }
-
-            // let mut records =
-            //     SortedRecords::<StoredName, StoredRecordData>::new();
-
-            // while let Some((owner, rrset)) = rx.recv().await {
-            //     for rr in rrset.data() {
-            //         let rec = Record::new(
-            //             owner.clone(),
-            //             Class::IN,
-            //             rrset.ttl(),
-            //             rr.clone(),
-            //         );
-            //         records.insert(rec).unwrap();
-            //     }
-            // }
-
-            // let (apex, ttl) = find_apex(&records).unwrap();
-            // let nsecs = records.nsecs(&apex, ttl);
-            // records.extend(nsecs.into_iter().map(Record::from_record));
-            // let record = apex.dnskey(ttl, &key).unwrap();
-            // let _ = records.insert(Record::from_record(record));
-            // let inception: Timestamp = Timestamp::now().into_int().sub(10).into();
-            // let expiration = inception.into_int().add(2592000).into(); // XXX 30 days
-            // let rrsigs = records.sign(&apex, expiration, inception, &key).unwrap();
-            // records.extend(rrsigs.into_iter().map(Record::from_record));
-            // records.write(&mut std::io::stderr().lock()).unwrap();
-
-            // NSEC testing
-            println!("NSEC'ing and updating...");
-            let mut zone_updater =
-                ZoneUpdater::new(zone.clone()).await.unwrap();
-            let mut zone_iter = NsecZoneIter::new(zone.clone());
-            while let Some(rec) = zone_iter.next().await {
-                // This won't work for an NSEC at a CNAME as the tree only
-                // allows storing a CNAME at the node, not an NSEC too.
-                let update = ZoneUpdate::AddRecord(rec);
-                zone_updater.apply(update).await.unwrap();
+            fn find_apex(
+                records: &SortedRecords<StoredName, StoredRecordData>,
+            ) -> Result<(FamilyName<Name<Bytes>>, Ttl), std::io::Error>
+            {
+                let soa = match records.find_soa() {
+                    Some(soa) => soa,
+                    None => {
+                        return Err(std::io::Error::new(
+                            std::io::ErrorKind::Other,
+                            "cannot find SOA record",
+                        ))
+                    }
+                };
+                let ttl = match *soa.first().data() {
+                    ZoneRecordData::Soa(ref soa) => soa.minimum(),
+                    _ => unreachable!(),
+                };
+                Ok((soa.family_name().cloned(), ttl))
             }
 
-            let dnskey = key.dnskey().unwrap();
-            let rec: StoredRecord = Record::new(
-                zone.apex_name().to_owned(),
-                zone.class(),
-                Ttl::ZERO,
-                dnskey.convert().into(),
-            );
-            // WARNING: This won't correctly add an NSEC record to a CNAME.
-            let update = ZoneUpdate::AddRecord(rec);
-            zone_updater.apply(update).await.unwrap();
+            let mut records =
+                SortedRecords::<StoredName, StoredRecordData>::new();
 
-            zone_updater
-                .apply(ZoneUpdate::FinishedWithoutNewSoa)
-                .await
+            while let Some((owner, rrset)) = rx.recv().await {
+                for rr in rrset.data() {
+                    let rec = Record::new(
+                        owner.clone(),
+                        Class::IN,
+                        rrset.ttl(),
+                        rr.clone(),
+                    );
+                    records.insert(rec).unwrap();
+                }
+            }
+
+            let (apex, ttl) = find_apex(&records).unwrap();
+            let (nsecs, lookups) = records.nsec3s(&apex, ttl, true);
+            records.extend(nsecs.into_iter().map(Record::from_record));
+            let record = apex.dnskey(ttl, &key).unwrap();
+            let _ = records.insert(Record::from_record(record));
+            let inception: Timestamp =
+                Timestamp::now().into_int().sub(10).into();
+            let expiration = inception.into_int().add(2592000).into(); // XXX 30 days
+            let rrsigs =
+                records.sign(&apex, expiration, inception, &key).unwrap();
+            records.extend(rrsigs.into_iter().map(Record::from_record));
+            eprintln!("Writing to file /tmp/x/zone.out");
+            let mut dump_file = File::create("/tmp/x/zone.out").unwrap();
+            records
+                .write(&mut dump_file, lookups)
                 .unwrap();
+            eprintln!("Write complete");
 
-            println!(
-                "Dumping zone {} class {}...",
-                zone.apex_name(),
-                zone.class()
-            );
-            zone.read()
-                .walk(Box::new(move |owner, rrset, _at_zone_cut| {
-                    dump_rrset(owner, rrset);
-                }));
-            println!("Dump complete.");
+            // // NSEC testing
+            // println!("NSEC'ing and updating...");
+            // let mut zone_updater =
+            //     ZoneUpdater::new(zone.clone()).await.unwrap();
+            // let mut zone_iter = NsecZoneIter::new(zone.clone());
+            // while let Some(rec) = zone_iter.next().await {
+            //     // This won't work for an NSEC at a CNAME as the tree only
+            //     // allows storing a CNAME at the node, not an NSEC too.
+            //     let update = ZoneUpdate::AddRecord(rec);
+            //     zone_updater.apply(update).await.unwrap();
+            // }
 
-            // signing testing
-            println!("signing and updating...");
-
-            // // bump the SOA manually before signing.
-            // let (old_soa_ttl, old_soa_data) = zone.read().query(zone.apex_name().to_owned(), Rtype::SOA).unwrap().content().first().unwrap();
-            // let ZoneRecordData::Soa(old_soa) = old_soa_data else {
-            //     unreachable!();
-            // };
-    
-            // // Create a SOA record with a higher serial number than the previous
-            // // SOA record.
-            // let new_soa_serial = old_soa.serial().add(1);
-            // let new_soa_data = domain::rdata::Soa::new(
-            //     old_soa.mname().clone(),
-            //     old_soa.rname().clone(),
-            //     new_soa_serial,
-            //     old_soa.refresh(),
-            //     old_soa.retry(),
-            //     old_soa.expire(),
-            //     old_soa.minimum(),
+            // let dnskey = key.dnskey().unwrap();
+            // let rec: StoredRecord = Record::new(
+            //     zone.apex_name().to_owned(),
+            //     zone.class(),
+            //     Ttl::ZERO,
+            //     dnskey.convert().into(),
             // );
-            // let new_soa_data = ZoneRecordData::Soa(new_soa_data);
-            // let new_soa_rr = Record::new(zone.apex_name().to_owned(), Class::IN, old_soa_ttl, new_soa_data);
+            // // WARNING: This won't correctly add an NSEC record to a CNAME.
+            // let update = ZoneUpdate::AddRecord(rec);
+            // zone_updater.apply(update).await.unwrap();
 
-            let mut zone_updater =
-                ZoneUpdater::new(zone.clone()).await.unwrap();
-            let inception = Timestamp::now();
-            let expiration = Timestamp::now().into_int().add(600).into();
+            // zone_updater
+            //     .apply(ZoneUpdate::FinishedWithoutNewSoa)
+            //     .await
+            //     .unwrap();
 
-            let mut zone_iter =
-                SignZoneIter::new(zone.clone(), key, expiration, inception);
-            while let Some(rec) = zone_iter.next().await {
-                // This won't work for an RRSIG at a CNAME as the tree only
-                // allows storing a CNAME at the node, not an RRSIG too. Also,
-                // I wonder if the walk order is correct if we allow as now
-                // that the RRSIGs at an owner name get grouped together under
-                // their own RRtype instead of each RRSIG being associated in
-                // some way with the RRset for a single RTYPE that it covers?
-                let update = ZoneUpdate::AddRecord(rec);
-                zone_updater.apply(update).await.unwrap();
-            }
-            zone_updater
-                .apply(ZoneUpdate::Finished)
-                .await
-                .unwrap();
+            // println!(
+            //     "Dumping zone {} class {}...",
+            //     zone.apex_name(),
+            //     zone.class()
+            // );
+            // zone.read()
+            //     .walk(Box::new(move |owner, rrset, _at_zone_cut| {
+            //         dump_rrset(owner, rrset);
+            //     }));
+            // println!("Dump complete.");
+
+            // // signing testing
+            // println!("signing and updating...");
+
+            // // // bump the SOA manually before signing.
+            // // let (old_soa_ttl, old_soa_data) = zone.read().query(zone.apex_name().to_owned(), Rtype::SOA).unwrap().content().first().unwrap();
+            // // let ZoneRecordData::Soa(old_soa) = old_soa_data else {
+            // //     unreachable!();
+            // // };
+
+            // // // Create a SOA record with a higher serial number than the previous
+            // // // SOA record.
+            // // let new_soa_serial = old_soa.serial().add(1);
+            // // let new_soa_data = domain::rdata::Soa::new(
+            // //     old_soa.mname().clone(),
+            // //     old_soa.rname().clone(),
+            // //     new_soa_serial,
+            // //     old_soa.refresh(),
+            // //     old_soa.retry(),
+            // //     old_soa.expire(),
+            // //     old_soa.minimum(),
+            // // );
+            // // let new_soa_data = ZoneRecordData::Soa(new_soa_data);
+            // // let new_soa_rr = Record::new(zone.apex_name().to_owned(), Class::IN, old_soa_ttl, new_soa_data);
+
+            // let mut zone_updater =
+            //     ZoneUpdater::new(zone.clone()).await.unwrap();
+            // let inception = Timestamp::now();
+            // let expiration = Timestamp::now().into_int().add(600).into();
+
+            // let mut zone_iter =
+            //     SignZoneIter::new(zone.clone(), key, expiration, inception);
+            // while let Some(rec) = zone_iter.next().await {
+            //     // This won't work for an RRSIG at a CNAME as the tree only
+            //     // allows storing a CNAME at the node, not an RRSIG too. Also,
+            //     // I wonder if the walk order is correct if we allow as now
+            //     // that the RRSIGs at an owner name get grouped together under
+            //     // their own RRtype instead of each RRSIG being associated in
+            //     // some way with the RRset for a single RTYPE that it covers?
+            //     let update = ZoneUpdate::AddRecord(rec);
+            //     zone_updater.apply(update).await.unwrap();
+            // }
+            // zone_updater
+            //     .apply(ZoneUpdate::Finished)
+            //     .await
+            //     .unwrap();
 
             println!(
                 "Dumping zone {} class {}...",

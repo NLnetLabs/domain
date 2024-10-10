@@ -21,3 +21,6 @@ example.com.    A       192.0.2.1
 www                             CNAME   example.com.
 
 mail                    MX      10      example.com.
+
+; An ENT for NSEC3 testing purposes.
+a.b.c.mail   A       127.0.0.1

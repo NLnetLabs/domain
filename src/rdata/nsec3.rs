@@ -16,6 +16,7 @@ use crate::utils::{base16, base32};
 #[cfg(feature = "bytes")]
 use bytes::Bytes;
 use core::cmp::Ordering;
+use core::fmt::Write;
 use core::{fmt, hash, mem, str};
 use octseq::builder::{
     EmptyBuilder, FreezeBuilder, FromBuilder, OctetsBuilder,
@@ -98,6 +99,10 @@ impl<Octs> Nsec3<Octs> {
 
     pub fn next_owner(&self) -> &OwnerHash<Octs> {
         &self.next_owner
+    }
+
+    pub fn set_next_owner(&mut self, next_owner: OwnerHash<Octs>) {
+        self.next_owner = next_owner;
     }
 
     pub fn types(&self) -> &RtypeBitmap<Octs> {
@@ -958,7 +963,15 @@ impl<T: AsRef<[u8]> + ?Sized> hash::Hash for Nsec3Salt<T> {
 
 impl<Octs: AsRef<[u8]> + ?Sized> fmt::Display for Nsec3Salt<Octs> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        base16::display(self.as_slice(), f)
+        let s = self.as_slice();
+        if s.is_empty() {
+            // https://www.rfc-editor.org/rfc/rfc5155.html#section-3.3
+            //   "The Salt field is represented as "-" (without the quotes)
+            //    when the Salt Length field has a value of 0."
+            f.write_char('-')
+        } else {
+            base16::display(s, f)
+        }
     }
 }
 
@@ -1484,7 +1497,6 @@ mod test {
     use std::vec::Vec;
 
     #[test]
-    #[allow(clippy::redundant_closure)] // lifetimes ...
     fn nsec3_compose_parse_scan() {
         let mut rtype = RtypeBitmapBuilder::new_vec();
         rtype.add(Rtype::A).unwrap();
@@ -1504,10 +1516,33 @@ mod test {
             Nsec3::scan,
             &rdata,
         );
+        assert_eq!(&format!("{rdata}"), "1 10 11 626172 CPNMU A SRV");
     }
 
     #[test]
-    #[allow(clippy::redundant_closure)] // lifetimes ...
+    fn nsec3_compose_parse_scan_empty_salt() {
+        let mut rtype = RtypeBitmapBuilder::new_vec();
+        rtype.add(Rtype::A).unwrap();
+        rtype.add(Rtype::SRV).unwrap();
+        let rdata = Nsec3::new(
+            Nsec3HashAlg::SHA1,
+            10,
+            11,
+            Nsec3Salt::empty(),
+            OwnerHash::from_octets(Vec::from("foo")).unwrap(),
+            rtype.finalize(),
+        );
+        test_rdlen(&rdata);
+        test_compose_parse(&rdata, |parser| Nsec3::parse(parser));
+        test_scan(
+            &["1", "10", "11", "-", "CPNMU", "A", "SRV"],
+            Nsec3::scan,
+            &rdata,
+        );
+        assert_eq!(&format!("{rdata}"), "1 10 11 - CPNMU A SRV");
+    }
+
+    #[test]
     fn nsec3param_compose_parse_scan() {
         let rdata = Nsec3param::new(
             Nsec3HashAlg::SHA1,
