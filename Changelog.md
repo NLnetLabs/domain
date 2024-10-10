@@ -1,8 +1,8 @@
 # Change Log
 
-## Unreleased next version
+## 0.10.2
 
-Breaking changes
+Released 2024-10-10.
 
 New
 
@@ -109,10 +109,6 @@ Unstable features
   * Zone walking now includes glue records. A new flag `at_zone_cut` was
     added to the callback interface. ([#401])
 
-Other changes
-
-* None.
-
 [#309]: https://github.com/NLnetLabs/domain/pull/309
 [#328]: https://github.com/NLnetLabs/domain/pull/328
 [#333]: https://github.com/NLnetLabs/domain/pull/333
@@ -150,6 +146,7 @@ Other changes
 [#403]: https://github.com/NLnetLabs/domain/pull/403
 [#407]: https://github.com/NLnetLabs/domain/pull/407
 [@dklbreitling]: https://github.com/dklbreitling
+
 
 ## 0.10.1
 
