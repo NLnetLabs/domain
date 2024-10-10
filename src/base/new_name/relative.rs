@@ -1,6 +1,7 @@
 use core::{
-    fmt,
+    cmp, fmt,
     hash::{Hash, Hasher},
+    iter,
 };
 
 use super::{Label, Labels, Name};
@@ -166,7 +167,7 @@ impl RelName {
         }
 
         let bytes = self.as_bytes();
-        let (label, rest) = bytes[1..].split_at(1 + bytes[0] as usize);
+        let (label, rest) = bytes[1..].split_at(bytes[0] as usize);
 
         // SAFETY: 'self' only contains valid labels.
         let label = unsafe { Label::from_bytes_unchecked(label) };
@@ -243,6 +244,85 @@ impl PartialEq for RelName {
 }
 
 impl Eq for RelName {}
+
+impl PartialOrd for RelName {
+    /// Compare names according to the canonical ordering.
+    ///
+    /// The 'canonical DNS name order' is defined in RFC 4034, section 6.1.
+    /// Essentially, any shared suffix of labels is stripped away, and the
+    /// remaining unequal label at the end is compared ASCII-case-insensitively.
+    ///
+    /// Runtime: `O(self.len() + that.len())`.
+    fn partial_cmp(&self, that: &Self) -> Option<cmp::Ordering> {
+        Some(Ord::cmp(self, that))
+    }
+}
+
+impl Ord for RelName {
+    /// Compare names according to the canonical ordering.
+    ///
+    /// The 'canonical DNS name order' is defined in RFC 4034, section 6.1.
+    /// Essentially, any shared suffix of labels is stripped away, and the
+    /// remaining unequal label at the end is compared ASCII-case-insensitively.
+    ///
+    /// Runtime: `O(self.len() + that.len())`.
+    fn cmp(&self, that: &Self) -> cmp::Ordering {
+        // We want to find a shared suffix between the two names, and the labels
+        // immediately before that shared suffix.  However, we can't determine
+        // label boundaries when working backward.  So, we find a shared suffix
+        // (even if it crosses partially between labels), then iterate through
+        // both names until we find their label boundaries up to the suffix.
+
+        let this_iter = self.as_bytes().iter().rev();
+        let that_iter = that.as_bytes().iter().rev();
+        let suffix = iter::zip(this_iter, that_iter)
+            .position(|(l, r)| !l.eq_ignore_ascii_case(r));
+
+        if let Some(suffix) = suffix {
+            // Iterate through the labels in both names until both have a tail
+            // of equal size within the shared suffix we found.
+
+            // SAFETY: At least one unequal byte exists in both names, and it
+            // cannot be the root label, so there must be at least one non-root
+            // label in both names.
+            let (mut this_head, mut this_tail) =
+                unsafe { self.split_first().unwrap_unchecked() };
+            let (mut that_head, mut that_tail) =
+                unsafe { self.split_first().unwrap_unchecked() };
+
+            loop {
+                let (this_len, that_len) = (this_tail.len(), that_tail.len());
+
+                if this_len == that_len && this_len < suffix {
+                    // We have found the shared suffix of labels.  Now, we must
+                    // have two unequal head labels; we compare them (ASCII case
+                    // insensitively).
+                    break Ord::cmp(this_head, that_head);
+                }
+
+                // If one tail is longer than the other, it will be shortened.
+                // Any tail longer than the suffix will also be shortened.
+
+                if this_len > that_len || this_len > suffix {
+                    // SAFETY: 'this_tail' has strictly more than one byte.
+                    (this_head, this_tail) =
+                        unsafe { this_tail.split_first().unwrap_unchecked() };
+                }
+
+                if that_len > this_len || that_len > suffix {
+                    // SAFETY: 'that_tail' has strictly more than one byte.
+                    (that_head, that_tail) =
+                        unsafe { that_tail.split_first().unwrap_unchecked() };
+                }
+            }
+        } else {
+            // The shorter name is a suffix of the longer one.  If the names are
+            // of equal length, they are equal; otherwise, the longer one has
+            // more labels, and is greater than the shorter one.
+            Ord::cmp(&self.len(), &that.len())
+        }
+    }
+}
 
 impl Hash for RelName {
     /// Hash this label by its canonical value.

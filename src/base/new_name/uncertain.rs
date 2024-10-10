@@ -4,48 +4,68 @@ use core::{
     iter,
 };
 
-use super::{Label, Labels, RelName};
+use super::{Label, Labels, Name, RelName};
 
 /// An absolute domain name.
 #[repr(transparent)]
-pub struct Name([u8]);
+pub struct UncertainName([u8]);
 
-impl Name {
-    /// The maximum size of an absolute domain name in the wire format.
+impl UncertainName {
+    /// The maximum size of an uncertain domain name in the wire format.
     pub const MAX_SIZE: usize = 255;
 
     /// The root name.
     pub const ROOT: &Self = unsafe { Self::from_bytes_unchecked(&[0u8]) };
 }
 
-impl Name {
-    /// Assume a byte string is a valid [`Name`].
+impl UncertainName {
+    /// Assume a byte string is a valid [`UncertainName`].
     ///
     /// # Safety
     ///
     /// The byte string must be correctly encoded in the wire format, and within
-    /// the size restriction (255 bytes or fewer).  It must be absolute.
+    /// the size restriction (255 bytes or fewer).  If it is 255 bytes long, it
+    /// must end with a root label.
     pub const unsafe fn from_bytes_unchecked(bytes: &[u8]) -> &Self {
-        // SAFETY: 'Name' is a 'repr(transparent)' wrapper around '[u8]', so
-        // casting a '[u8]' into a 'Name' is sound.
+        // SAFETY: 'UncertainName' is a 'repr(transparent)' wrapper around
+        // '[u8]', so casting a '[u8]' into an 'UncertainName' is sound.
         core::mem::transmute(bytes)
     }
 
-    /// Try converting a byte string into a [`Name`].
+    /// Try converting a byte string into a [`UncertainName`].
     ///
     /// The byte string is confirmed to be correctly encoded in the wire format.
     /// If it is not properly encoded, an error is returned.
     ///
     /// Runtime: `O(bytes.len())`.
-    pub fn from_bytes(bytes: &[u8]) -> Result<&Self, NameError> {
-        // Without the last byte, this should be a relative name.
-        let (root, rel_name) = bytes.split_last().ok_or(NameError)?;
+    pub fn from_bytes(bytes: &[u8]) -> Result<&Self, UncertainNameError> {
+        if bytes.len() > Name::MAX_SIZE {
+            // Absolute or relative, this domain name is too long.
+            return Err(UncertainNameError);
+        }
 
-        if RelName::from_bytes(rel_name).is_err() {
-            return Err(NameError);
-        } else if *root != 0u8 {
-            // The last byte must be a root label.
-            return Err(NameError);
+        // Iterate through labels in the name.
+        let mut index = 0usize;
+        while index < bytes.len() {
+            let length = bytes[index];
+            if length == 0 {
+                // Assume this was the end of the name.
+                index += 1;
+                break;
+            } else if length >= 64 {
+                // An invalid label length (or a compression pointer).
+                return Err(UncertainNameError);
+            } else {
+                // This was the length of the label, excluding the length octet.
+                index += 1 + length as usize;
+            }
+        }
+
+        // We must land exactly at the end of the name, otherwise there was an
+        // empty label in the middle of the name, or the previous label reported
+        // a length that was too long.
+        if index != bytes.len() {
+            return Err(UncertainNameError);
         }
 
         // SAFETY: 'bytes' has been confirmed to be correctly encoded.
@@ -53,11 +73,15 @@ impl Name {
     }
 }
 
-impl Name {
+impl UncertainName {
     /// The size of this name in the wire format.
-    #[allow(clippy::len_without_is_empty)]
     pub const fn len(&self) -> usize {
         self.0.len()
+    }
+
+    /// Whether this name contains no labels at all.
+    pub const fn is_empty(&self) -> bool {
+        self.0.is_empty()
     }
 
     /// Whether this is the root label.
@@ -77,7 +101,7 @@ impl Name {
     ///
     /// Runtime: `O(1)`.
     pub fn parent(&self) -> Option<&Self> {
-        if self.is_root() {
+        if self.is_empty() || self.is_root() {
             return None;
         }
 
@@ -88,26 +112,13 @@ impl Name {
         Some(unsafe { Self::from_bytes_unchecked(bytes) })
     }
 
-    /// The whole name without the root label.
-    ///
-    /// If this is a root name, an empty relative name is returned.
-    ///
-    /// This is equivalent to `self.strip_suffix(Name::ROOT).unwrap()`.
-    ///
-    /// Runtime: `O(1)`.
-    pub fn without_root(&self) -> &RelName {
-        let bytes = &self.as_bytes()[..self.len() - 1];
-        // SAFETY: A slice of labels (as from 'self') is a relative name.
-        unsafe { RelName::from_bytes_unchecked(bytes) }
-    }
-
     /// The labels in this name.
     ///
     /// The root label is included in the iterator.
     ///
     /// Runtime: `O(1)`.  Each step of the iterator has runtime `O(1)` too.
     pub const fn labels(&self) -> Labels<'_> {
-        // SAFETY: This is a valid absolute name.
+        // SAFETY: This is a valid absolute or relative name.
         unsafe { Labels::from_bytes_unchecked(self.as_bytes()) }
     }
 
@@ -153,7 +164,7 @@ impl Name {
     }
 }
 
-impl Name {
+impl UncertainName {
     /// Split this name into a label and the rest.
     ///
     /// If this is the root name, [`None`] is returned.  The returned label will
@@ -161,7 +172,7 @@ impl Name {
     ///
     /// Runtime: `O(1)`.
     pub fn split_first(&self) -> Option<(&Label, &Self)> {
-        if self.is_root() {
+        if self.is_empty() || self.is_root() {
             return None;
         }
 
@@ -228,7 +239,7 @@ impl Name {
     }
 }
 
-impl PartialEq for Name {
+impl PartialEq for UncertainName {
     /// Compare labels by their canonical value.
     ///
     /// Canonicalized labels have uppercase ASCII characters lowercased, so this
@@ -242,14 +253,15 @@ impl PartialEq for Name {
     }
 }
 
-impl Eq for Name {}
+impl Eq for UncertainName {}
 
-impl PartialOrd for Name {
+impl PartialOrd for UncertainName {
     /// Compare names according to the canonical ordering.
     ///
     /// The 'canonical DNS name order' is defined in RFC 4034, section 6.1.
     /// Essentially, any shared suffix of labels is stripped away, and the
     /// remaining unequal label at the end is compared ASCII-case-insensitively.
+    /// Absolute domain names come before relative ones.
     ///
     /// Runtime: `O(self.len() + that.len())`.
     fn partial_cmp(&self, that: &Self) -> Option<cmp::Ordering> {
@@ -257,12 +269,13 @@ impl PartialOrd for Name {
     }
 }
 
-impl Ord for Name {
+impl Ord for UncertainName {
     /// Compare names according to the canonical ordering.
     ///
     /// The 'canonical DNS name order' is defined in RFC 4034, section 6.1.
     /// Essentially, any shared suffix of labels is stripped away, and the
     /// remaining unequal label at the end is compared ASCII-case-insensitively.
+    /// Absolute domain names come before relative ones.
     ///
     /// Runtime: `O(self.len() + that.len())`.
     fn cmp(&self, that: &Self) -> cmp::Ordering {
@@ -323,7 +336,7 @@ impl Ord for Name {
     }
 }
 
-impl Hash for Name {
+impl Hash for UncertainName {
     /// Hash this label by its canonical value.
     ///
     /// The hasher is provided with the labels in this name with ASCII
@@ -348,28 +361,28 @@ impl Hash for Name {
     }
 }
 
-impl AsRef<[u8]> for Name {
+impl AsRef<[u8]> for UncertainName {
     /// The bytes in the name in the wire format.
     fn as_ref(&self) -> &[u8] {
         &self.0
     }
 }
 
-impl<'a> TryFrom<&'a [u8]> for &'a Name {
-    type Error = NameError;
+impl<'a> TryFrom<&'a [u8]> for &'a UncertainName {
+    type Error = UncertainNameError;
 
     fn try_from(bytes: &'a [u8]) -> Result<Self, Self::Error> {
-        Name::from_bytes(bytes)
+        UncertainName::from_bytes(bytes)
     }
 }
 
-impl<'a> From<&'a Name> for &'a [u8] {
-    fn from(name: &'a Name) -> Self {
+impl<'a> From<&'a UncertainName> for &'a [u8] {
+    fn from(name: &'a UncertainName) -> Self {
         name.as_bytes()
     }
 }
 
-impl<'a> IntoIterator for &'a Name {
+impl<'a> IntoIterator for &'a UncertainName {
     type Item = &'a Label;
     type IntoIter = Labels<'a>;
 
@@ -378,15 +391,15 @@ impl<'a> IntoIterator for &'a Name {
     }
 }
 
-/// An error in constructing a [`Name`].
+/// An error in constructing an [`UncertainName`].
 #[derive(Clone, Debug)]
-pub struct NameError;
+pub struct UncertainNameError;
 
-impl fmt::Display for NameError {
+impl fmt::Display for UncertainNameError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str("could not parse an absolute domain name")
+        f.write_str("could not parse an absolute/relative domain name")
     }
 }
 
 #[cfg(feature = "std")]
-impl std::error::Error for NameError {}
+impl std::error::Error for UncertainNameError {}

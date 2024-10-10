@@ -11,6 +11,9 @@ pub use absolute::{Name, NameError};
 mod relative;
 pub use relative::{RelName, RelNameError};
 
+mod uncertain;
+pub use uncertain::{UncertainName, UncertainNameError};
+
 mod label;
 pub use label::{Label, LabelError};
 
