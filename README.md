@@ -21,8 +21,9 @@ Currently, these blocks include:
 * experimental and as yet incomplete support for DNSSEC signing and
   validation.
 
-The library is currently under heavy development and additional building
-blocks and features are being added.
+The library is currently under
+[heavy development}](https://blog.nlnetlabs.nl/domain-dns-building-blocks-for-rust-application-developers/)
+and additional building blocks and features are being added.
 
 
 ## Minimal Supported Rust Versions
