@@ -13,15 +13,16 @@ Currently, these blocks include:
 
 * basic data structures and functionality for creating and parsing DNS
   data and messages,
+* a simple Tokio-based stub resolver,
 * experimental support for DNS client and server transports,
-* support for signing and verifying messages using the TSIG mechanism,
-* experimental support for reading data from DNS zone files,
+* experimental support for reading data from DNS zone files, storing them
+  in memory and answering queries,
+* experimental support for zone transfer, including support for TSIG,
 * experimental and as yet incomplete support for DNSSEC signing and
-  validation,
-* a simple Tokio-based stub resolver.
+  validation.
 
-If you have ideas, requests, or proposals for future features, please
-don’t hesitate to open Github issues.
+The library is currently under heavy development and additional building
+blocks and features are being added.
 
 
 ## Minimal Supported Rust Versions
