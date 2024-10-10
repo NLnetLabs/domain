@@ -176,6 +176,20 @@ impl AsRef<[u8]> for Label {
     }
 }
 
+impl<'a> TryFrom<&'a [u8]> for &'a Label {
+    type Error = LabelError;
+
+    fn try_from(bytes: &'a [u8]) -> Result<Self, Self::Error> {
+        Label::from_bytes(bytes)
+    }
+}
+
+impl<'a> From<&'a Label> for &'a [u8] {
+    fn from(label: &'a Label) -> Self {
+        label.as_bytes()
+    }
+}
+
 /// An error in constructing a [`Label`].
 #[derive(Clone, Debug)]
 pub struct LabelError;

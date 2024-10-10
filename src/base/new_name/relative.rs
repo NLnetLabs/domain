@@ -59,6 +59,14 @@ impl RelName {
         // SAFETY: 'bytes' has been confirmed to be correctly encoded.
         Ok(unsafe { Self::from_bytes_unchecked(bytes) })
     }
+
+    /// Treat a single label as a [`RelName`].
+    ///
+    /// Runtime: `O(1)`.
+    pub fn from_label(label: &Label) -> &Self {
+        // SAFETY: 'bytes' is a valid label and always fits within a name.
+        unsafe { Self::from_bytes_unchecked(label.as_bytes()) }
+    }
 }
 
 impl RelName {
@@ -256,6 +264,26 @@ impl AsRef<[u8]> for RelName {
     /// The bytes in the name in the wire format.
     fn as_ref(&self) -> &[u8] {
         &self.0
+    }
+}
+
+impl<'a> From<&'a Label> for &'a RelName {
+    fn from(label: &'a Label) -> Self {
+        RelName::from_label(label)
+    }
+}
+
+impl<'a> TryFrom<&'a [u8]> for &'a RelName {
+    type Error = RelNameError;
+
+    fn try_from(bytes: &'a [u8]) -> Result<Self, Self::Error> {
+        RelName::from_bytes(bytes)
+    }
+}
+
+impl<'a> From<&'a RelName> for &'a [u8] {
+    fn from(name: &'a RelName) -> Self {
+        name.as_bytes()
     }
 }
 

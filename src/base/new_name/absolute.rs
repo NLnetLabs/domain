@@ -345,6 +345,20 @@ impl AsRef<[u8]> for Name {
     }
 }
 
+impl<'a> TryFrom<&'a [u8]> for &'a Name {
+    type Error = NameError;
+
+    fn try_from(bytes: &'a [u8]) -> Result<Self, Self::Error> {
+        Name::from_bytes(bytes)
+    }
+}
+
+impl<'a> From<&'a Name> for &'a [u8] {
+    fn from(name: &'a Name) -> Self {
+        name.as_bytes()
+    }
+}
+
 /// An error in constructing a [`Name`].
 #[derive(Clone, Debug)]
 pub struct NameError;
