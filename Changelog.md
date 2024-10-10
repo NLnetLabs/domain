@@ -28,8 +28,10 @@ Bug fixes
 * Fixed the way the `Txt<_> `record data implements comparison-related
   traits. They now directly compare the underlying octets, i.e., the wire
   format bytes. ([#374] by [@dklbreitling])
-* Fixed the `tsig` module to reject messages with multiple TSIG records
+* Fixed the `tsig` module to reject messages with multiple TSIG records.
   ([#334])
+* Fixed Display rendering of empty NSEC3 salt to be '-' per RFC 5155
+  section 3.3. ([#407])
 
 Unstable features
 
@@ -146,6 +148,7 @@ Other changes
 [#400]: https://github.com/NLnetLabs/domain/pull/400
 [#401]: https://github.com/NLnetLabs/domain/pull/401
 [#403]: https://github.com/NLnetLabs/domain/pull/403
+[#407]: https://github.com/NLnetLabs/domain/pull/407
 [@dklbreitling]: https://github.com/dklbreitling
 
 ## 0.10.1
