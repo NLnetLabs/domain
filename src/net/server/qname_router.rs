@@ -3,7 +3,7 @@
 #![warn(missing_docs)]
 #![warn(clippy::missing_docs_in_private_items)]
 
-use super::message::RequestNG;
+use super::message::Request;
 use super::single_service::SingleService;
 use crate::base::{Name, ToName};
 use crate::dep::octseq::{EmptyBuilder, FromBuilder, Octets};
@@ -41,6 +41,7 @@ impl<Octs, RequestOcts, CR> QnameRouter<Octs, RequestOcts, CR> {
         Octs: FromBuilder,
         <Octs as FromBuilder>::Builder: EmptyBuilder,
         TN: ToName,
+	RequestOcts: Send + Sync,
         SVC: SingleService<RequestOcts, CR> + Send + Sync + 'static,
     {
         let el = Element {
@@ -61,10 +62,11 @@ impl<Octs, RequestOcts, CR> SingleService<RequestOcts, CR>
     for QnameRouter<Octs, RequestOcts, CR>
 where
     Octs: AsRef<[u8]>,
+    RequestOcts: Send + Sync + Unpin,
 {
     fn call(
         &self,
-        request: RequestNG<RequestOcts>,
+        request: Request<RequestOcts>,
     ) -> Pin<Box<dyn Future<Output = Result<CR, Error>> + Send + Sync>>
     where
         RequestOcts: AsRef<[u8]> + Octets,
