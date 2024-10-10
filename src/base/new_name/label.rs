@@ -155,6 +155,9 @@ impl Hash for Label {
     /// of these types will have the same hash as the concatenation of the
     /// labels.
     ///
+    /// [`Name`]: super::Name
+    /// [`RelName`]: super::RelName
+    ///
     /// Runtime: `O(self.len())`.
     fn hash<H: Hasher>(&self, state: &mut H) {
         // Individual labels and names should hash in the same way.
