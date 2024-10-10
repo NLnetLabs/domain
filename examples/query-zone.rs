@@ -1,15 +1,26 @@
 //! Reads a zone file into memory and queries it.
 //! Command line argument and response style emulate that of dig.
+use core::ops::Sub;
+use core::pin::Pin;
+use core::task::{Context, Poll};
 
 use std::env;
 use std::fmt::Debug;
-use std::fs::{File, OpenOptions};
+use std::fs::File;
 use std::ops::Add;
 use std::{process::exit, str::FromStr};
 
 use bytes::{Bytes, BytesMut};
-use core::pin::Pin;
-use core::task::{Context, Poll};
+use domain::rdata::nsec3::Nsec3Salt;
+use futures_util::Stream;
+use octseq::Parser;
+use ring::rand::SystemRandom;
+use ring::signature::{
+    EcdsaKeyPair, KeyPair, ECDSA_P256_SHA256_FIXED_SIGNING,
+};
+use tokio::sync::mpsc::UnboundedReceiver;
+use tracing_subscriber::EnvFilter;
+
 use domain::base::iana::{Class, Nsec3HashAlg, Rcode, SecAlg};
 use domain::base::record::ComposeRecord;
 use domain::base::{Name, ParsedName, Rtype, ToName, Ttl};
@@ -17,37 +28,20 @@ use domain::base::{ParsedRecord, Record};
 use domain::rdata::dnssec::{
     ProtoRrsig, RtypeBitmap, RtypeBitmapBuilder, Timestamp,
 };
-use domain::rdata::nsec3::Nsec3Salt;
 use domain::rdata::{Dnskey, Nsec, ZoneRecordData};
 use domain::sign::key::SigningKey;
+use domain::sign::records::{FamilyName, SortedRecords};
 use domain::sign::ring::{RingKey, Signature};
-use domain::utils::base64;
-use domain::validator::nsec3_hash;
 use domain::zonefile::inplace;
-use domain::zonetree::types::{StoredRecordData, ZoneUpdate};
-use domain::zonetree::update::ZoneUpdater;
+use domain::zonetree::types::StoredRecordData;
 use domain::zonetree::{
     Answer, Rrset, SharedRrset, StoredName, StoredRecord,
 };
 use domain::zonetree::{Zone, ZoneTree};
-use ring::rand::SystemRandom;
-use ring::signature::{
-    EcdsaKeyPair, EcdsaSigningAlgorithm, KeyPair,
-    ECDSA_P256_SHA256_FIXED_SIGNING,
-};
 
-use common::private_key_file_parser::{self, EcKeyData, KeyData};
 use common::serve_utils::{
     generate_wire_query, generate_wire_response, print_dig_style_response,
 };
-use core::ops::Sub;
-use domain::sign::records::{FamilyName, SortedRecords};
-use futures_util::{Stream, StreamExt};
-use octseq::Parser;
-use std::io::{BufRead, BufReader, Write};
-use tokio::sync::mpsc::UnboundedReceiver;
-use tokio_stream::wrappers::UnboundedReceiverStream;
-use tracing_subscriber::EnvFilter;
 
 #[path = "common/mod.rs"]
 mod common;
@@ -213,8 +207,19 @@ async fn main() {
                 }
             }
 
+            // https://www.rfc-editor.org/rfc/rfc9276#section-3.1
+            // - SHA-1, no extra iterations, empty salt.
+            let alg = Nsec3HashAlg::SHA1;
+            let flags = 0;
+            let iterations = 2;
+            let salt =
+                Nsec3Salt::from_octets(Bytes::from_static(&[0x4, 0xD2]))
+                    .unwrap();
+
             let (apex, ttl) = find_apex(&records).unwrap();
-            let (nsecs, lookups) = records.nsec3s(&apex, ttl, true);
+            let nsecs = records.nsec3s::<_, BytesMut>(
+                &apex, ttl, alg, flags, iterations, salt,
+            );
             records.extend(nsecs.into_iter().map(Record::from_record));
             let record = apex.dnskey(ttl, &key).unwrap();
             let _ = records.insert(Record::from_record(record));
@@ -226,9 +231,7 @@ async fn main() {
             records.extend(rrsigs.into_iter().map(Record::from_record));
             eprintln!("Writing to file /tmp/x/zone.out");
             let mut dump_file = File::create("/tmp/x/zone.out").unwrap();
-            records
-                .write(&mut dump_file, lookups)
-                .unwrap();
+            records.write(&mut dump_file).unwrap();
             eprintln!("Write complete");
 
             // // NSEC testing

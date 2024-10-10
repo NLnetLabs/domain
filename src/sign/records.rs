@@ -1,24 +1,30 @@
 //! Actual signing.
+use core::convert::From;
 
-use super::key::SigningKey;
+use std::fmt::Debug;
+use std::hash::Hash;
+use std::string::String;
+use std::vec::Vec;
+use std::{fmt, io, slice};
+
+use octseq::builder::{EmptyBuilder, FromBuilder, OctetsBuilder, Truncate};
+use octseq::{FreezeBuilder, OctetsFrom};
+
 use crate::base::cmp::CanonicalOrd;
 use crate::base::iana::{Class, Nsec3HashAlg, Rtype};
 use crate::base::name::{ToLabelIter, ToName};
 use crate::base::rdata::{ComposeRecordData, RecordData};
 use crate::base::record::Record;
 use crate::base::{Name, NameBuilder, Ttl};
-use crate::rdata::dnssec::{ProtoRrsig, RtypeBitmap, Timestamp};
+use crate::rdata::dnssec::{
+    ProtoRrsig, RtypeBitmap, RtypeBitmapBuilder, Timestamp,
+};
 use crate::rdata::nsec3::{Nsec3Salt, OwnerHash};
 use crate::rdata::{Dnskey, Ds, Nsec, Nsec3, Rrsig, ZoneRecordData};
 use crate::utils::base32;
 use crate::validator::nsec3_hash;
-use bytes::Bytes;
-use core::convert::Infallible;
-use octseq::builder::{EmptyBuilder, FromBuilder, OctetsBuilder, Truncate};
-use octseq::{FreezeBuilder, OctetsFrom};
-use std::collections::HashMap;
-use std::vec::Vec;
-use std::{fmt, io, slice};
+
+use super::key::SigningKey;
 
 //------------ SortedRecords -------------------------------------------------
 
@@ -179,7 +185,7 @@ impl<N, D> SortedRecords<N, D> {
         D: RecordData,
         Octets: FromBuilder,
         Octets::Builder: EmptyBuilder + Truncate + AsRef<[u8]> + AsMut<[u8]>,
-        <Octets::Builder as OctetsBuilder>::AppendError: fmt::Debug,
+        <Octets::Builder as OctetsBuilder>::AppendError: Debug,
         ApexName: ToName,
     {
         // NSECs in combination with RRSIGs allow a server to respond with
@@ -265,32 +271,27 @@ impl<N, D> SortedRecords<N, D> {
         res
     }
 
-    pub fn nsec3s<Octets, ApexName>(
+    pub fn nsec3s<Octets, OctetsMut>(
         &self,
-        apex: &FamilyName<ApexName>,
+        apex: &FamilyName<N>,
         ttl: Ttl,
-        create_lookups: bool,
-    ) -> (
-        Vec<Record<N, Nsec3<Octets>>>,
-        Option<(
-            HashMap<N, OwnerHash<Octets>>,
-            HashMap<OwnerHash<Octets>, Name<Vec<u8>>>,
-        )>,
-    )
+        alg: Nsec3HashAlg,
+        flags: u8,
+        iterations: u16,
+        salt: Nsec3Salt<Octets>,
+    ) -> Vec<Record<N, Nsec3<Octets>>>
     where
-        N: ToName
-            + Clone
-            + From<Name<Octets>>
-            + std::fmt::Display
-            + Eq
-            + std::hash::Hash,
+        N: ToName + Clone + From<Name<Octets>>,
+        N: From<Name<<OctetsMut as FreezeBuilder>::Octets>>,
         D: RecordData,
-        Octets:
-            FromBuilder + OctetsFrom<Vec<u8>> + From<&'static [u8]> + Clone,
+        Octets: FromBuilder + OctetsFrom<Vec<u8>> + Clone + Default,
         Octets::Builder: EmptyBuilder + Truncate + AsRef<[u8]> + AsMut<[u8]>,
-        <Octets::Builder as OctetsBuilder>::AppendError: fmt::Debug,
-        ApexName: ToName,
-        Infallible: From<<Octets as OctetsFrom<Vec<u8>>>::Error>,
+        <Octets::Builder as OctetsBuilder>::AppendError: Debug,
+        OctetsMut: OctetsBuilder
+            + AsRef<[u8]>
+            + AsMut<[u8]>
+            + EmptyBuilder
+            + FreezeBuilder,
     {
         // Unlike NSEC, NSEC3 (a) doesn't leak the names that actually exist
         // in the zone, and (b) allows non-existence to be proven without
@@ -307,7 +308,6 @@ impl<N, D> SortedRecords<N, D> {
         //
         // TODO:
         //   - Handle name collisions? (see RFC 5155 7.1 Zone Signing)
-        //   - Handle ENTs
 
         let mut nsec3s = SortedRecords::new();
 
@@ -320,29 +320,9 @@ impl<N, D> SortedRecords<N, D> {
         // we can skip everything before that.
         families.skip_before(apex);
 
-        // Because of the next name thing, we need to keep the last NSEC
-        // around.
-        let mut prev: Option<(OwnerHash<Octets>, RtypeBitmap<Octets>)> = None;
-
         // We also need the apex for the last NSEC.
         let apex_owner = families.first_owner().clone();
         let apex_label_count = apex_owner.iter_labels().count();
-
-        // https://www.rfc-editor.org/rfc/rfc9276#section-3.1
-        // - SHA-1, no extra iterations, empty salt.
-        let alg = Nsec3HashAlg::SHA1;
-        let flags = 0;
-        let iterations = 2;
-        let salt =
-            Nsec3Salt::<Octets>::from_octets(Octets::from(&[0x4, 0xD2]))
-                .unwrap();
-
-        let mut non_empty_label_count = 0;
-
-        let mut hashed_owner_hashes_to_owner_hashes =
-            HashMap::<N, OwnerHash<Octets>>::new();
-        let mut owner_hashes_to_names =
-            HashMap::<OwnerHash<Octets>, Name<Vec<u8>>>::new();
 
         for family in families {
             // If the owner is out of zone, we have moved out of our zone and
@@ -360,7 +340,6 @@ impl<N, D> SortedRecords<N, D> {
 
             // A copy of the family name. We’ll need it later.
             let name = family.family_name().cloned();
-            eprintln!("name={}", name.owner());
 
             // If this family is the parent side of a zone cut, we keep the
             // family name for later. This also means below that if
@@ -372,12 +351,9 @@ impl<N, D> SortedRecords<N, D> {
             };
 
             // RFC 5155 7.1 step 4.
-            let num_labels_from_owner_to_root =
-                name.owner().iter_labels().count();
-            let num_labels_from_owner_to_apex =
-                num_labels_from_owner_to_root - apex_label_count;
-            eprintln!("non_empty_label_count={non_empty_label_count}, num_labels_from_owner_to_root={num_labels_from_owner_to_root}, apex_label_count={apex_label_count}, num_labels_from_owner_to_apex={num_labels_from_owner_to_apex}");
-            if num_labels_from_owner_to_apex > 1 {
+            let distance_to_root = name.owner().iter_labels().count();
+            let distance_to_apex = distance_to_root - apex_label_count;
+            if distance_to_apex > 1 {
                 // Are there any empty nodes between this node and the apex?
                 // The zone file records are already sorted so if all of the
                 // parent labels had records at them, i.e. they were non-empty
@@ -398,163 +374,54 @@ impl<N, D> SortedRecords<N, D> {
                 // It will NOT construct the last name as that will be dealt
                 // with in the next outer loop iteration.
                 //   - a.b.c.mail.example.com
-                for n in (1..num_labels_from_owner_to_apex - 1).rev() {
+                for n in (1..distance_to_apex - 1).rev() {
                     let rev_label_it = name.owner().iter_labels().skip(n);
 
-                    let mut builder = NameBuilder::<Vec<u8>>::new();
-                    for label in
-                        rev_label_it.take(num_labels_from_owner_to_apex - n)
-                    {
+                    // Create next longest ENT name.
+                    let mut builder = NameBuilder::<OctetsMut>::new();
+                    for label in rev_label_it.take(distance_to_apex - n) {
                         builder.append_label(label.as_slice()).unwrap();
                     }
-                    let name = builder.append_origin(&apex_owner).unwrap();
+                    let name =
+                        builder.append_origin(&apex_owner).unwrap().into();
 
-                    let mut bitmap = RtypeBitmap::<Octets>::builder();
-                    // Assume there’s gonna be an RRSIG.
-                    bitmap.add(Rtype::RRSIG).unwrap();
-                    for rrset in family.rrsets() {
-                        bitmap.add(rrset.rtype()).unwrap()
-                    }
-
-                    let hash_octets: Vec<u8> =
-                        nsec3_hash(name.clone(), alg, iterations, &salt)
-                            .into_octets();
-                    let hash_octets: Octets =
-                        Octets::octets_from(hash_octets);
-                    let next_owner: OwnerHash<Octets> =
-                        OwnerHash::from_octets(hash_octets.clone()).unwrap();
-
-                    if create_lookups {
-                        owner_hashes_to_names
-                            .insert(next_owner.clone(), name);
-                    }
-
-                    if let Some((prev_owner, bitmap)) = prev.take() {
-                        let base32_label =
-                            base32::encode_string_hex(prev_owner.as_slice())
-                                .to_ascii_lowercase();
-                        let mut builder =
-                            NameBuilder::<Octets::Builder>::new();
-                        builder
-                            .append_label(base32_label.as_bytes())
-                            .unwrap();
-                        let owner_name =
-                            builder.append_origin(&apex_owner).unwrap();
-                        let owner_name: N = owner_name.into();
-
-                        eprintln!("Adding ENT NSEC from {owner_name} -> {next_owner}");
-                        let nsec3 = Nsec3::new(
-                            alg,
-                            flags,
-                            iterations,
-                            salt.clone(),
-                            next_owner,
-                            bitmap,
-                        );
-                        let rec =
-                            Record::new(owner_name, Class::IN, ttl, nsec3);
-                        let _ = nsec3s.insert(rec);
-                    }
-
+                    // Create the type bitmap, empty for an ENT NSEC3.
                     let bitmap = RtypeBitmap::<Octets>::builder();
-                    // There are no RR types to record in the NSEC3 bitmap
-                    // because this RRset was solely created to hold an NSEC3
-                    // for an ENT, it's otherwise empty.
 
-                    let next_owner: OwnerHash<Octets> =
-                        OwnerHash::from_octets(hash_octets.clone()).unwrap();
-                    prev = Some((next_owner, bitmap.finalize()));
+                    let rec = mk_nsec3(
+                        &name,
+                        alg,
+                        iterations,
+                        &salt,
+                        &apex_owner,
+                        flags,
+                        bitmap,
+                        ttl,
+                    );
+
+                    // Store the record by order of its owner name.
+                    let _ = nsec3s.insert(rec);
                 }
             }
 
-            let hash_octets: Vec<u8> =
-                nsec3_hash(name.owner().clone(), alg, iterations, &salt)
-                    .into_octets();
-            let hash_octets: Octets = Octets::octets_from(hash_octets);
-            let next_owner: OwnerHash<Octets> =
-                OwnerHash::from_octets(hash_octets.clone()).unwrap();
-
-            if create_lookups {
-                owner_hashes_to_names
-                    .insert(next_owner.clone(), name.owner().to_name());
-            }
-
-            if let Some((prev_owner, bitmap)) = prev.take() {
-                let base32_label =
-                    base32::encode_string_hex(prev_owner.as_slice())
-                        .to_ascii_lowercase();
-                let mut builder = NameBuilder::<Octets::Builder>::new();
-                builder.append_label(base32_label.as_bytes()).unwrap();
-                let owner_name = builder.append_origin(&apex_owner).unwrap();
-                let owner_name: N = owner_name.into();
-
-                eprintln!("Adding NSEC from {owner_name} -> {next_owner}");
-                let nsec3 = Nsec3::new(
-                    alg,
-                    flags,
-                    iterations,
-                    salt.clone(),
-                    next_owner,
-                    bitmap,
-                );
-                let rec = Record::new(owner_name, Class::IN, ttl, nsec3);
-                let _ = nsec3s.insert(rec);
-            }
-
-            // This label is non-empty otherwise it wouldn't be a record in
-            // the set. So however many labels deep we are from the apex we
-            // know that at this depth the tree has a non-empty label, this
-            // is not an empty-non terminal (ENT).
-            non_empty_label_count = num_labels_from_owner_to_apex;
-
-            // Finalize the bitmap to be added when this name becomes
-            // prev_name and we have a known next_owner to use to construct
-            // the NSEC3.
+            // Create the type bitmap, assume there will be an RRSIG.
             let mut bitmap = RtypeBitmap::<Octets>::builder();
-            // Assume there’s gonna be an RRSIG.
             bitmap.add(Rtype::RRSIG).unwrap();
             for rrset in family.rrsets() {
                 bitmap.add(rrset.rtype()).unwrap()
             }
 
-            let next_owner: OwnerHash<Octets> =
-                OwnerHash::from_octets(hash_octets.clone()).unwrap();
-            prev = Some((next_owner, bitmap.finalize()));
-        }
-
-        if let Some((prev_owner, bitmap)) = prev {
-            // https://www.rfc-editor.org/rfc/rfc9276#section-3.1
-            // - SHA-1, no extra iterations, empty salt.
-            let base32_label =
-                base32::encode_string_hex(prev_owner.as_slice())
-                    .to_ascii_lowercase();
-            let mut builder = NameBuilder::<Octets::Builder>::new();
-            builder.append_label(base32_label.as_bytes()).unwrap();
-            let owner_name = builder.append_origin(&apex_owner).unwrap();
-            let owner_name: N = owner_name.into();
-
-            let hash_octets: Vec<u8> =
-                nsec3_hash(apex_owner.clone(), alg, iterations, &salt)
-                    .into_octets();
-            let hash_octets: Octets = Octets::octets_from(hash_octets);
-            let next_owner: OwnerHash<Octets> =
-                OwnerHash::from_octets(hash_octets).unwrap();
-
-            if create_lookups {
-                owner_hashes_to_names
-                    .insert(next_owner.clone(), apex_owner.to_name());
-            }
-
-            eprintln!("Adding final NSEC from {owner_name} -> {next_owner}");
-            let nsec3 = Nsec3::new(
+            let rec = mk_nsec3(
+                name.owner(),
                 alg,
-                flags,
                 iterations,
-                salt.clone(),
-                next_owner,
+                &salt,
+                &apex_owner,
+                flags,
                 bitmap,
+                ttl,
             );
-            let rec = Record::new(owner_name, Class::IN, ttl, nsec3);
+
             let _ = nsec3s.insert(rec);
         }
 
@@ -563,39 +430,28 @@ impl<N, D> SortedRecords<N, D> {
             let cur_owner = nsec3s.records[next_i].owner();
             let name: Name<Octets> = cur_owner.try_to_name().unwrap();
             let label = name.iter_labels().next().unwrap();
-            let hash_octets: Octets =
-                base32::decode_hex(&format!("{label}")).unwrap();
-            let owner_hash =
-                OwnerHash::<Octets>::from_octets(hash_octets).unwrap();
+            let owner_hash = if let Ok(hash_octets) =
+                base32::decode_hex(&format!("{label}"))
+            {
+                OwnerHash::<Octets>::from_octets(hash_octets).unwrap()
+            } else {
+                OwnerHash::<Octets>::from_octets(name.as_octets().clone())
+                    .unwrap()
+            };
             let last_rec = &mut nsec3s.records[i - 1];
             let last_nsec3: &mut Nsec3<Octets> = last_rec.data_mut();
             last_nsec3.set_next_owner(owner_hash.clone());
-
-            if create_lookups {
-                hashed_owner_hashes_to_owner_hashes
-                    .insert(name.into(), owner_hash);
-            }
         }
 
-        let lookups = if create_lookups {
-            Some((hashed_owner_hashes_to_owner_hashes, owner_hashes_to_names))
-        } else {
-            None
-        };
-
-        (nsec3s.records, lookups)
+        nsec3s.records
     }
 
     pub fn write<'a, W, Octets>(
         &'a self,
         target: &mut W,
-        lookups: Option<(
-            HashMap<N, OwnerHash<Octets>>,
-            HashMap<OwnerHash<Octets>, Name<Vec<u8>>>,
-        )>,
     ) -> Result<(), io::Error>
     where
-        N: fmt::Display + Eq + std::hash::Hash,
+        N: fmt::Display + Eq + Hash,
         D: RecordData + fmt::Display + Clone,
         Octets: AsRef<[u8]> + 'a,
         W: io::Write,
@@ -605,60 +461,84 @@ impl<N, D> SortedRecords<N, D> {
         {
             writeln!(target, "{record}")?;
         }
-        if let Some((
-            hashed_owner_hashes_to_owner_hashes,
-            owner_hashes_to_names,
-        )) = lookups
-        {
-            self.write_with_resolved_names(
-                target,
-                &hashed_owner_hashes_to_owner_hashes,
-                &owner_hashes_to_names,
-            )?;
-        } else {
-            for record in
-                self.records.iter().filter(|r| r.rtype() != Rtype::SOA)
-            {
-                writeln!(target, "{record}")?;
-            }
-        }
-        Ok(())
-    }
 
-    fn write_with_resolved_names<'a, W, Octets>(
-        &'a self,
-        target: &mut W,
-        hashed_owner_hashes_to_owner_hashes: &HashMap<N, OwnerHash<Octets>>,
-        owner_hashes_to_names: &HashMap<OwnerHash<Octets>, Name<Vec<u8>>>,
-    ) -> Result<(), io::Error>
-    where
-        N: fmt::Display + Eq + std::hash::Hash,
-        D: RecordData + fmt::Display + Clone,
-        Octets: AsRef<[u8]> + 'a,
-        W: io::Write,
-        ZoneRecordData<Octets, N>: TryFrom<D>,
-    {
         for record in self.records.iter().filter(|r| r.rtype() != Rtype::SOA)
         {
-            if record.rtype() == Rtype::NSEC3 {
-                let from = hashed_owner_hashes_to_owner_hashes
-                    .get(record.owner())
-                    .unwrap();
-                let from = owner_hashes_to_names.get(from).unwrap();
-                let Ok(ZoneRecordData::<Octets, N>::Nsec3(nsec3)) =
-                    (*record.data()).clone().try_into()
-                else {
-                    unreachable!();
-                };
-                let to =
-                    owner_hashes_to_names.get(nsec3.next_owner()).unwrap();
-                writeln!(target, "{record} ; {from} -> {to}")?;
-            } else {
-                writeln!(target, "{record}")?;
-            }
+            writeln!(target, "{record}")?;
         }
+
         Ok(())
     }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn mk_nsec3<N, Octets>(
+    name: &N,
+    alg: Nsec3HashAlg,
+    iterations: u16,
+    salt: &Nsec3Salt<Octets>,
+    apex_owner: &N,
+    flags: u8,
+    bitmap: RtypeBitmapBuilder<<Octets as FromBuilder>::Builder>,
+    ttl: Ttl,
+) -> Record<N, Nsec3<Octets>>
+where
+    N: ToName + From<Name<Octets>>,
+    Octets: FromBuilder + Clone + Default,
+    <Octets as FromBuilder>::Builder:
+        EmptyBuilder + AsRef<[u8]> + AsMut<[u8]> + Truncate,
+{
+    // Create the base32hex ENT NSEC owner name.
+    let base32hex_label =
+        mk_base32hex_label_for_name(&name, alg, iterations, salt);
+
+    // Prepend it to the zone name to create the NSEC3 owner
+    // name.
+    let owner_name = append_origin(base32hex_label, apex_owner);
+
+    // Create a placeholder next owner, we'll fix it later.
+    let placeholder_next_owner =
+        OwnerHash::<Octets>::from_octets(Octets::default()).unwrap();
+
+    // Create an NSEC3 record.
+    let nsec3 = Nsec3::new(
+        alg,
+        flags,
+        iterations,
+        salt.clone(),
+        placeholder_next_owner,
+        bitmap.finalize(),
+    );
+
+    Record::new(owner_name, Class::IN, ttl, nsec3)
+}
+
+fn append_origin<N, Octets>(base32hex_label: String, apex_owner: &N) -> N
+where
+    N: ToName + From<Name<Octets>>,
+    Octets: FromBuilder,
+    <Octets as FromBuilder>::Builder:
+        EmptyBuilder + AsRef<[u8]> + AsMut<[u8]>,
+{
+    let mut builder = NameBuilder::<Octets::Builder>::new();
+    builder.append_label(base32hex_label.as_bytes()).unwrap();
+    let owner_name = builder.append_origin(apex_owner).unwrap();
+    let owner_name: N = owner_name.into();
+    owner_name
+}
+
+fn mk_base32hex_label_for_name<N, Octets>(
+    name: &N,
+    alg: Nsec3HashAlg,
+    iterations: u16,
+    salt: &Nsec3Salt<Octets>,
+) -> String
+where
+    N: ToName,
+    Octets: AsRef<[u8]>,
+{
+    let hash_octets = nsec3_hash(name, alg, iterations, salt).into_octets();
+    base32::encode_string_hex(&hash_octets).to_ascii_lowercase()
 }
 
 impl<N, D> Default for SortedRecords<N, D> {
