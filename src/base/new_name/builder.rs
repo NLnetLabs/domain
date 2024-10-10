@@ -105,8 +105,9 @@ impl<Buffer: AsRef<[u8]>> NameBuilder<Buffer> {
     /// The length of the name built this far.
     ///
     /// This does not include the length of any partially-built label.
+    #[allow(clippy::len_without_is_empty)]
     pub fn len(&self) -> usize {
-        self.write_offset as usize
+        self.label_offset as usize
     }
 
     /// The length of the name built this far.
