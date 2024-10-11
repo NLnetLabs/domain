@@ -48,6 +48,7 @@ pub trait ComposeReply {
 }
 
 /// Record changes to a Message for generating a reply message.
+#[derive(Debug)]
 pub struct ReplyMessage {
     /// Field to store the underlying Message.
     msg: Message<Vec<u8>>,
