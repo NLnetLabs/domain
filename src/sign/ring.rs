@@ -164,7 +164,7 @@ where
             PublicKey::Ed448(bytes) => bytes.to_vec(),
         };
 
-        let dnskey = Dnskey::new(256, 1, alg, pub_key_bytes)?;
+        let dnskey = Dnskey::new(256, 3, alg, pub_key_bytes)?;
 
         Ok(Self {
             public,
