@@ -8,6 +8,7 @@ use std::vec::Vec;
 
 use openssl::{
     bn::BigNum,
+    ecdsa::EcdsaSig,
     pkey::{self, PKey, Private},
 };
 
@@ -212,22 +213,42 @@ impl Sign<Vec<u8>> for SecretKey {
         use openssl::hash::MessageDigest;
         use openssl::sign::Signer;
 
-        let mut signer = match self.algorithm {
+        match self.algorithm {
             SecAlg::RSASHA256 => {
-                Signer::new(MessageDigest::sha256(), &self.pkey)?
+                let mut s = Signer::new(MessageDigest::sha256(), &self.pkey)?;
+                s.set_rsa_padding(openssl::rsa::Padding::PKCS1)?;
+                s.sign_oneshot_to_vec(data)
             }
             SecAlg::ECDSAP256SHA256 => {
-                Signer::new(MessageDigest::sha256(), &self.pkey)?
+                let mut s = Signer::new(MessageDigest::sha256(), &self.pkey)?;
+                let signature = s.sign_oneshot_to_vec(data)?;
+                // Convert from DER to the fixed representation.
+                let signature = EcdsaSig::from_der(&signature).unwrap();
+                let r = signature.r().to_vec_padded(32).unwrap();
+                let s = signature.s().to_vec_padded(32).unwrap();
+                let mut signature = Vec::new();
+                signature.extend_from_slice(&r);
+                signature.extend_from_slice(&s);
+                Ok(signature)
             }
             SecAlg::ECDSAP384SHA384 => {
-                Signer::new(MessageDigest::sha384(), &self.pkey)?
+                let mut s = Signer::new(MessageDigest::sha384(), &self.pkey)?;
+                let signature = s.sign_oneshot_to_vec(data)?;
+                // Convert from DER to the fixed representation.
+                let signature = EcdsaSig::from_der(&signature).unwrap();
+                let r = signature.r().to_vec_padded(48).unwrap();
+                let s = signature.s().to_vec_padded(48).unwrap();
+                let mut signature = Vec::new();
+                signature.extend_from_slice(&r);
+                signature.extend_from_slice(&s);
+                Ok(signature)
             }
-            SecAlg::ED25519 => Signer::new_without_digest(&self.pkey)?,
-            SecAlg::ED448 => Signer::new_without_digest(&self.pkey)?,
+            SecAlg::ED25519 | SecAlg::ED448 => {
+                let mut s = Signer::new_without_digest(&self.pkey)?;
+                s.sign_oneshot_to_vec(data)
+            }
             _ => unreachable!(),
-        };
-
-        signer.sign_oneshot_to_vec(data)
+        }
     }
 }
 
@@ -294,7 +315,7 @@ mod tests {
     use crate::{
         base::{iana::SecAlg, scan::IterScanner},
         rdata::Dnskey,
-        sign::generic,
+        sign::{generic, Sign},
     };
 
     const KEYS: &[(SecAlg, u16)] = &[
@@ -368,6 +389,22 @@ mod tests {
 
             assert_eq!(dns_key.key_tag(), key_tag);
             assert_eq!(pub_key.into_dns::<Vec<u8>>(256), dns_key)
+        }
+    }
+
+    #[test]
+    fn sign() {
+        type GenericSecretKey = generic::SecretKey<Vec<u8>>;
+
+        for &(algorithm, key_tag) in KEYS {
+            let name = format!("test.+{:03}+{}", algorithm.to_int(), key_tag);
+
+            let path = format!("test-data/dnssec-keys/K{}.private", name);
+            let data = std::fs::read_to_string(path).unwrap();
+            let sec_key = GenericSecretKey::from_dns(&data).unwrap();
+            let sec_key = super::SecretKey::import(sec_key).unwrap();
+
+            let _ = sec_key.sign(b"Hello, World!").unwrap();
         }
     }
 }
