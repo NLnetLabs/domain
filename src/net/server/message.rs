@@ -325,7 +325,8 @@ impl<Octs: Octets + Send + Sync + Debug + Clone> TryFrom<Request<Octs>>
         // We need to make a copy of message. Somehow we can't use the
         // message in the Arc directly.
         let set_do = dnssec_ok(&req.message);
-        let msg = Message::from_octets(req.message.as_octets().clone()).unwrap();
+        let msg =
+            Message::from_octets(req.message.as_octets().clone()).unwrap();
         let mut reqmsg = RequestMessage::new(msg)?;
 
         // Copy DO bit

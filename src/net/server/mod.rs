@@ -188,7 +188,7 @@
 //! The [SingleService][single_service::SingleService] trait has a single
 //! method [call()][single_service::SingleService::call()] that takes a
 //! [Request][message::Request] and returns a Future that results in
-//! either an error or a reply. 
+//! either an error or a reply.
 //! To assist building reply messages there is the trait
 //! [ComposeReply][single_service::ComposeReply].
 //! The [ComposeReply][single_service::ComposeReply] trait is implemented by

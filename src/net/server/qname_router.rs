@@ -41,7 +41,7 @@ impl<Octs, RequestOcts, CR> QnameRouter<Octs, RequestOcts, CR> {
         Octs: FromBuilder,
         <Octs as FromBuilder>::Builder: EmptyBuilder,
         TN: ToName,
-	RequestOcts: Send + Sync,
+        RequestOcts: Send + Sync,
         SVC: SingleService<RequestOcts, CR> + Send + Sync + 'static,
     {
         let el = Element {
