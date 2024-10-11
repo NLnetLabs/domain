@@ -175,9 +175,9 @@ impl<N, D> SortedRecords<N, D> {
         Ok(res)
     }
 
-    pub fn nsecs<Octets, ApexName>(
+    pub fn nsecs<Octets>(
         &self,
-        apex: &FamilyName<ApexName>,
+        apex: &FamilyName<N>,
         ttl: Ttl,
     ) -> Vec<Record<N, Nsec<Octets, N>>>
     where
@@ -186,7 +186,6 @@ impl<N, D> SortedRecords<N, D> {
         Octets: FromBuilder,
         Octets::Builder: EmptyBuilder + Truncate + AsRef<[u8]> + AsMut<[u8]>,
         <Octets::Builder as OctetsBuilder>::AppendError: Debug,
-        ApexName: ToName,
     {
         // NSECs in combination with RRSIGs allow a server to respond with
         // verified (secured) authority that either a domain does not exist or

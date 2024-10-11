@@ -31,7 +31,7 @@ use domain::rdata::dnssec::{
 use domain::rdata::{Dnskey, Nsec, ZoneRecordData};
 use domain::sign::key::SigningKey;
 use domain::sign::records::{FamilyName, SortedRecords};
-use domain::sign::ring::{RingKey, Signature};
+// use domain::sign::ring::{RingKey, Signature};
 use domain::zonefile::inplace;
 use domain::zonetree::types::StoredRecordData;
 use domain::zonetree::{
@@ -42,6 +42,7 @@ use domain::zonetree::{Zone, ZoneTree};
 use common::serve_utils::{
     generate_wire_query, generate_wire_response, print_dig_style_response,
 };
+use domain::base::name::FlattenInto;
 
 #[path = "common/mod.rs"]
 mod common;
@@ -71,55 +72,67 @@ async fn main() {
     );
 
     // Process command line arguments.
-    let (verbosity, zone_files, qtype, qname, short) =
+    let (verbosity, mut zone_files, qtype, qname, short) =
         process_dig_style_args(args).unwrap_or_else(|err| {
             eprintln!("{usage}");
             eprintln!("{err}");
             exit(2);
         });
 
-    // Go!
-    let mut zones = ZoneTree::new();
-
-    for (zone_file_path, mut zone_file) in zone_files {
-        if verbosity != Verbosity::Quiet {
-            println!("Reading zone file '{zone_file_path}'...");
-        }
-        let reader = inplace::Zonefile::load(&mut zone_file).unwrap();
-
-        if verbosity != Verbosity::Quiet {
-            println!("Constructing zone...");
-        }
-        let zone = Zone::try_from(reader).unwrap_or_else(|err| {
-            eprintln!("Error while constructing zone: {err}");
-            exit(1);
-        });
-
-        if verbosity != Verbosity::Quiet {
-            println!(
-                "Inserting zone for {} class {}...",
-                zone.apex_name(),
-                zone.class()
-            );
-        }
-        zones.insert_zone(zone).unwrap_or_else(|err| {
-            eprintln!("Error while inserting zone: {err}");
-            exit(1);
-        });
+    let (_zone_file_path, mut zone_file) = zone_files.pop().unwrap();
+    let reader = inplace::Zonefile::load(&mut zone_file).unwrap();
+    let mut records = SortedRecords::new();
+    for entry in reader {
+        let entry = entry.unwrap();
+        let inplace::Entry::Record(record) = entry else {
+            unimplemented!();
+        };
+        let record: StoredRecord = record.flatten_into();
+        records.insert(record).unwrap();
     }
 
-    if let Verbosity::Verbose(level) = verbosity {
-        for zone in zones.iter_zones() {
-            println!(
-                "Dumping zone {} class {}...",
-                zone.apex_name(),
-                zone.class()
-            );
-            zone.read()
-                .walk(Box::new(move |owner, rrset, _at_zone_cut| {
-                    dump_rrset(owner, rrset);
-                }));
-            println!("Dump complete.");
+    // // Go!
+    // let mut zones = ZoneTree::new();
+
+    // for (zone_file_path, mut zone_file) in zone_files {
+    //     if verbosity != Verbosity::Quiet {
+    //         println!("Reading zone file '{zone_file_path}'...");
+    //     }
+    //     let reader = inplace::Zonefile::load(&mut zone_file).unwrap();
+
+    //     if verbosity != Verbosity::Quiet {
+    //         println!("Constructing zone...");
+    //     }
+    //     let zone = Zone::try_from(reader).unwrap_or_else(|err| {
+    //         eprintln!("Error while constructing zone: {err}");
+    //         exit(1);
+    //     });
+
+    //     if verbosity != Verbosity::Quiet {
+    //         println!(
+    //             "Inserting zone for {} class {}...",
+    //             zone.apex_name(),
+    //             zone.class()
+    //         );
+    //     }
+    //     zones.insert_zone(zone).unwrap_or_else(|err| {
+    //         eprintln!("Error while inserting zone: {err}");
+    //         exit(1);
+    //     });
+    // }
+
+    // if let Verbosity::Verbose(level) = verbosity {
+    //     for zone in zones.iter_zones() {
+    //         println!(
+    //             "Dumping zone {} class {}...",
+    //             zone.apex_name(),
+    //             zone.class()
+    //         );
+    //         zone.read()
+    //             .walk(Box::new(move |owner, rrset, _at_zone_cut| {
+    //                 dump_rrset(owner, rrset);
+    //             }));
+    //         println!("Dump complete.");
 
             // Generate or import a zone signing key.
             let rng = SystemRandom::new();
@@ -141,8 +154,8 @@ async fn main() {
             let dnskey: Dnskey<Vec<u8>> =
                 Dnskey::new(256, 3, SecAlg::ECDSAP256SHA256, pubkey.clone())
                     .unwrap();
-            let ringkey = RingKey::Ecdsa(keypair);
-            let key = domain::sign::ring::Key::new(dnskey, ringkey, &rng);
+            // let ringkey = RingKey::Ecdsa(keypair);
+            // let key = domain::sign::ring::Key::new(dnskey, ringkey, &rng);
 
             // // Dump the keys out
             // let key_info =
@@ -160,17 +173,17 @@ async fn main() {
             // let pubkey_rr = format!("{}    {}    DNSKEY  256 3 {} {} ;{{id = {} (zsk), size = {}b}}", zone.apex_name(), zone.class(), key.algorithm().unwrap().to_int(), base64::encode_string(&pubkey), key.key_tag().unwrap(), pubkey.len());
             // std::fs::write("/tmp/x/gen.key", pubkey_rr).unwrap();
 
-            let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+            // let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
 
-            tokio::task::spawn(zone.read().walk_async(Box::new(
-                move |name, rrset, at_zone_cut| {
-                    // Do not emit glue records as the zone is not authoritative
-                    // for glue and only authoritative records should be signed.
-                    if !at_zone_cut || !rrset.rtype().is_glue() {
-                        tx.send((name, rrset.clone())).unwrap();
-                    }
-                },
-            )));
+            // tokio::task::spawn(zone.read().walk_async(Box::new(
+            //     move |name, rrset, at_zone_cut| {
+            //         // Do not emit glue records as the zone is not authoritative
+            //         // for glue and only authoritative records should be signed.
+            //         if !at_zone_cut || !rrset.rtype().is_glue() {
+            //             tx.send((name, rrset.clone())).unwrap();
+            //         }
+            //     },
+            // )));
 
             fn find_apex(
                 records: &SortedRecords<StoredName, StoredRecordData>,
@@ -192,20 +205,20 @@ async fn main() {
                 Ok((soa.family_name().cloned(), ttl))
             }
 
-            let mut records =
-                SortedRecords::<StoredName, StoredRecordData>::new();
+            // let mut records =
+            //     SortedRecords::<StoredName, StoredRecordData>::new();
 
-            while let Some((owner, rrset)) = rx.recv().await {
-                for rr in rrset.data() {
-                    let rec = Record::new(
-                        owner.clone(),
-                        Class::IN,
-                        rrset.ttl(),
-                        rr.clone(),
-                    );
-                    records.insert(rec).unwrap();
-                }
-            }
+            // while let Some((owner, rrset)) = rx.recv().await {
+            //     for rr in rrset.data() {
+            //         let rec = Record::new(
+            //             owner.clone(),
+            //             Class::IN,
+            //             rrset.ttl(),
+            //             rr.clone(),
+            //         );
+            //         records.insert(rec).unwrap();
+            //     }
+            // }
 
             // https://www.rfc-editor.org/rfc/rfc9276#section-3.1
             // - SHA-1, no extra iterations, empty salt.
@@ -216,23 +229,20 @@ async fn main() {
                 Nsec3Salt::from_octets(Bytes::from_static(&[0x4, 0xD2]))
                     .unwrap();
 
-            let (apex, ttl) = find_apex(&records).unwrap();
-            let nsecs = records.nsec3s::<_, BytesMut>(
-                &apex, ttl, alg, flags, iterations, salt,
-            );
-            records.extend(nsecs.into_iter().map(Record::from_record));
-            let record = apex.dnskey(ttl, &key).unwrap();
-            let _ = records.insert(Record::from_record(record));
-            let inception: Timestamp =
-                Timestamp::now().into_int().sub(10).into();
-            let expiration = inception.into_int().add(2592000).into(); // XXX 30 days
-            let rrsigs =
-                records.sign(&apex, expiration, inception, &key).unwrap();
-            records.extend(rrsigs.into_iter().map(Record::from_record));
-            eprintln!("Writing to file /tmp/x/zone.out");
-            let mut dump_file = File::create("/tmp/x/zone.out").unwrap();
-            records.write(&mut dump_file).unwrap();
-            eprintln!("Write complete");
+            // let (apex, ttl) = find_apex(&records).unwrap();
+            // let nsecs = records.nsec3s::<_, BytesMut>(
+            //     &apex, ttl, alg, flags, iterations, salt,
+            // );
+            // records.extend(nsecs.into_iter().map(Record::from_record));
+            // let record = apex.dnskey(ttl, &key).unwrap();
+            // let _ = records.insert(Record::from_record(record));
+            // let inception: Timestamp =
+            //     Timestamp::now().into_int().sub(10).into();
+            // let expiration = inception.into_int().add(2592000).into(); // XXX 30 days
+            // let rrsigs =
+            //     records.sign(&apex, expiration, inception, &key).unwrap();
+            // records.extend(rrsigs.into_iter().map(Record::from_record));
+            // records.write(&mut std::io::stderr().lock()).unwrap();
 
             // // NSEC testing
             // println!("NSEC'ing and updating...");
@@ -319,48 +329,48 @@ async fn main() {
             //     .await
             //     .unwrap();
 
-            println!(
-                "Dumping zone {} class {}...",
-                zone.apex_name(),
-                zone.class()
-            );
-            zone.read()
-                .walk(Box::new(move |owner, rrset, _at_zone_cut| {
-                    dump_rrset(owner, rrset);
-                }));
-            println!("Dump complete.");
+            // println!(
+            //     "Dumping zone {} class {}...",
+            //     zone.apex_name(),
+            //     zone.class()
+            // );
+            // zone.read()
+            //     .walk(Box::new(move |owner, rrset, _at_zone_cut| {
+            //         dump_rrset(owner, rrset);
+            //     }));
+            // println!("Dump complete.");
 
-            if level > 0 {
-                println!("Debug dumping zone...");
-                dbg!(zone);
-            }
-        }
-    }
+            // if level > 0 {
+            //     println!("Debug dumping zone...");
+            //     dbg!(zone);
+            // }
+    //     }
+    // }
 
-    // Find the zone to query
-    let qclass = Class::IN;
-    if verbosity != Verbosity::Quiet {
-        println!("Finding zone for qname {qname} class {qclass}...");
-    }
-    let zone_answer = if let Some(zone) = zones.find_zone(&qname, qclass) {
-        // Query the built zone for the requested records.
-        if verbosity != Verbosity::Quiet {
-            println!("Querying zone {} class {} for qname {qname} with qtype {qtype}...", zone.apex_name(), zone.class());
-        }
-        zone.read().query(qname.clone(), qtype).unwrap()
-    } else {
-        Answer::new(Rcode::NXDOMAIN)
-    };
+    // // Find the zone to query
+    // let qclass = Class::IN;
+    // if verbosity != Verbosity::Quiet {
+    //     println!("Finding zone for qname {qname} class {qclass}...");
+    // }
+    // let zone_answer = if let Some(zone) = zones.find_zone(&qname, qclass) {
+    //     // Query the built zone for the requested records.
+    //     if verbosity != Verbosity::Quiet {
+    //         println!("Querying zone {} class {} for qname {qname} with qtype {qtype}...", zone.apex_name(), zone.class());
+    //     }
+    //     zone.read().query(qname.clone(), qtype).unwrap()
+    // } else {
+    //     Answer::new(Rcode::NXDOMAIN)
+    // };
 
-    // Emulate a DIG style response by generating a complete DNS wire response
-    // from the zone answer, which requires that we fake a DNS wire query to
-    // respond to.
-    if verbosity != Verbosity::Quiet {
-        println!("Preparing dig style response...\n");
-    }
-    let wire_query = generate_wire_query(&qname, qtype);
-    let wire_response = generate_wire_response(&wire_query, zone_answer);
-    print_dig_style_response(&wire_query, &wire_response, short);
+    // // Emulate a DIG style response by generating a complete DNS wire response
+    // // from the zone answer, which requires that we fake a DNS wire query to
+    // // respond to.
+    // if verbosity != Verbosity::Quiet {
+    //     println!("Preparing dig style response...\n");
+    // }
+    // let wire_query = generate_wire_query(&qname, qtype);
+    // let wire_response = generate_wire_response(&wire_query, zone_answer);
+    // print_dig_style_response(&wire_query, &wire_response, short);
 }
 
 #[allow(clippy::type_complexity)]
@@ -682,137 +692,137 @@ impl Stream for NsecZoneIter {
 
 //------------ SignZoneIter --------------------------------------------------
 
-pub struct SignZoneIter<Key>
-where
-    Key: SigningKey<Signature = Signature> + Unpin,
-    <Key as SigningKey>::Error: Debug,
-{
-    rx: UnboundedReceiver<(Name<Bytes>, SharedRrset, bool)>,
+// pub struct SignZoneIter<Key>
+// where
+//     Key: SigningKey<Signature = Signature> + Unpin,
+//     <Key as SigningKey>::Error: Debug,
+// {
+//     rx: UnboundedReceiver<(Name<Bytes>, SharedRrset, bool)>,
 
-    iter_state: SignZoneIterState<Key>,
-}
+//     iter_state: SignZoneIterState<Key>,
+// }
 
-struct SignZoneIterState<Key> {
-    apex_name: StoredName,
-    key: Key,
-    inception: Timestamp,
-    expiration: Timestamp,
-    buf: Vec<u8>,
-}
+// struct SignZoneIterState<Key> {
+//     apex_name: StoredName,
+//     key: Key,
+//     inception: Timestamp,
+//     expiration: Timestamp,
+//     buf: Vec<u8>,
+// }
 
-impl<Key> SignZoneIter<Key>
-where
-    Key: SigningKey<Signature = Signature> + Unpin,
-    <Key as SigningKey>::Error: Debug,
-{
-    pub fn new(
-        zone: Zone,
-        key: Key,
-        expiration: Timestamp,
-        inception: Timestamp,
-    ) -> Self {
-        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+// impl<Key> SignZoneIter<Key>
+// where
+//     Key: SigningKey<Signature = Signature> + Unpin,
+//     <Key as SigningKey>::Error: Debug,
+// {
+//     pub fn new(
+//         zone: Zone,
+//         key: Key,
+//         expiration: Timestamp,
+//         inception: Timestamp,
+//     ) -> Self {
+//         let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
 
-        tokio::task::spawn(zone.read().walk_async(Box::new(
-            move |name, rrset, at_zone_cut| {
-                tx.send((name, rrset.clone(), at_zone_cut)).unwrap();
-            },
-        )));
+//         tokio::task::spawn(zone.read().walk_async(Box::new(
+//             move |name, rrset, at_zone_cut| {
+//                 tx.send((name, rrset.clone(), at_zone_cut)).unwrap();
+//             },
+//         )));
 
-        Self {
-            rx,
-            iter_state: SignZoneIterState {
-                apex_name: zone.apex_name().to_owned(),
-                key,
-                inception,
-                expiration,
-                buf: vec![],
-            },
-        }
-    }
-}
+//         Self {
+//             rx,
+//             iter_state: SignZoneIterState {
+//                 apex_name: zone.apex_name().to_owned(),
+//                 key,
+//                 inception,
+//                 expiration,
+//                 buf: vec![],
+//             },
+//         }
+//     }
+// }
 
-impl<Key> SignZoneIterState<Key>
-where
-    Key: SigningKey<Signature = Signature>,
-    <Key as SigningKey>::Error: Debug,
-{
-    fn step(
-        &mut self,
-        name: StoredName,
-        rrset: SharedRrset,
-        at_zone_cut: bool,
-    ) -> Option<StoredRecord> {
-        if at_zone_cut {
-            if rrset.rtype() != Rtype::DS && rrset.rtype() != Rtype::NSEC {
-                return None;
-            }
-        } else if rrset.rtype() == Rtype::RRSIG {
-            return None;
-        }
+// impl<Key> SignZoneIterState<Key>
+// where
+//     Key: SigningKey<Signature = Signature>,
+//     <Key as SigningKey>::Error: Debug,
+// {
+//     fn step(
+//         &mut self,
+//         name: StoredName,
+//         rrset: SharedRrset,
+//         at_zone_cut: bool,
+//     ) -> Option<StoredRecord> {
+//         if at_zone_cut {
+//             if rrset.rtype() != Rtype::DS && rrset.rtype() != Rtype::NSEC {
+//                 return None;
+//             }
+//         } else if rrset.rtype() == Rtype::RRSIG {
+//             return None;
+//         }
 
-        eprintln!("Clear buf");
-        self.buf.clear();
-        let rrsig = ProtoRrsig::new(
-            rrset.rtype(),
-            self.key.algorithm().unwrap(),
-            name.rrsig_label_count(),
-            rrset.ttl(),
-            self.expiration,
-            self.inception,
-            self.key.key_tag().unwrap(),
-            self.apex_name.clone(),
-        );
-        rrsig.compose_canonical(&mut self.buf).unwrap();
-        for data in rrset.data() {
-            let record = Record::from((&name, Class::IN, rrset.ttl(), data));
-            eprintln!("{record:?}");
-            record.compose_canonical(&mut self.buf).unwrap();
-        }
+//         eprintln!("Clear buf");
+//         self.buf.clear();
+//         let rrsig = ProtoRrsig::new(
+//             rrset.rtype(),
+//             self.key.algorithm().unwrap(),
+//             name.rrsig_label_count(),
+//             rrset.ttl(),
+//             self.expiration,
+//             self.inception,
+//             self.key.key_tag().unwrap(),
+//             self.apex_name.clone(),
+//         );
+//         rrsig.compose_canonical(&mut self.buf).unwrap();
+//         for data in rrset.data() {
+//             let record = Record::from((&name, Class::IN, rrset.ttl(), data));
+//             eprintln!("{record:?}");
+//             record.compose_canonical(&mut self.buf).unwrap();
+//         }
 
-        Some(Record::new(
-            name.clone(),
-            Class::IN,
-            rrset.ttl(),
-            ZoneRecordData::Rrsig(
-                rrsig
-                    .into_rrsig(self.key.sign(&self.buf).unwrap().into())
-                    .unwrap(),
-            ),
-        ))
-    }
-}
+//         Some(Record::new(
+//             name.clone(),
+//             Class::IN,
+//             rrset.ttl(),
+//             ZoneRecordData::Rrsig(
+//                 rrsig
+//                     .into_rrsig(self.key.sign(&self.buf).unwrap().into())
+//                     .unwrap(),
+//             ),
+//         ))
+//     }
+// }
 
-impl<Key> Stream for SignZoneIter<Key>
-where
-    Key: SigningKey<Signature = Signature> + Unpin,
-    <Key as SigningKey>::Error: Debug,
-{
-    type Item = StoredRecord;
+// impl<Key> Stream for SignZoneIter<Key>
+// where
+//     Key: SigningKey<Signature = Signature> + Unpin,
+//     <Key as SigningKey>::Error: Debug,
+// {
+//     type Item = StoredRecord;
 
-    fn poll_next(
-        mut self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-    ) -> Poll<Option<Self::Item>> {
-        match self.as_mut().rx.poll_recv(cx) {
-            Poll::Ready(Some((name, rrset, at_zone_cut))) => {
-                match self.iter_state.step(name, rrset, at_zone_cut) {
-                    Some(rrsig_rec) => {
-                        // RRset completed, RRSIG record created
-                        Poll::Ready(Some(rrsig_rec))
-                    }
-                    None => {
-                        // RRset in-proress, no RRSIG record
-                        // Poll again to process the next RR.
-                        cx.waker().wake_by_ref();
-                        Poll::Pending
-                    }
-                }
-            }
+//     fn poll_next(
+//         mut self: Pin<&mut Self>,
+//         cx: &mut Context<'_>,
+//     ) -> Poll<Option<Self::Item>> {
+//         match self.as_mut().rx.poll_recv(cx) {
+//             Poll::Ready(Some((name, rrset, at_zone_cut))) => {
+//                 match self.iter_state.step(name, rrset, at_zone_cut) {
+//                     Some(rrsig_rec) => {
+//                         // RRset completed, RRSIG record created
+//                         Poll::Ready(Some(rrsig_rec))
+//                     }
+//                     None => {
+//                         // RRset in-proress, no RRSIG record
+//                         // Poll again to process the next RR.
+//                         cx.waker().wake_by_ref();
+//                         Poll::Pending
+//                     }
+//                 }
+//             }
 
-            Poll::Ready(None) => Poll::Ready(None),
+//             Poll::Ready(None) => Poll::Ready(None),
 
-            Poll::Pending => Poll::Pending,
-        }
-    }
-}
+//             Poll::Pending => Poll::Pending,
+//         }
+//     }
+// }

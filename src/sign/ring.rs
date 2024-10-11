@@ -6,9 +6,14 @@
 use core::fmt;
 use std::vec::Vec;
 
-use crate::base::iana::SecAlg;
+use crate::base::iana::{DigestAlg, SecAlg};
 
-use super::generic;
+use super::generic::{self, PublicKey};
+use super::key::SigningKey;
+use super::Sign;
+use crate::base::rdata::{ComposeRecordData, LongRecordData};
+use crate::base::ToName;
+use crate::rdata::{Dnskey, Ds};
 
 /// A key pair backed by `ring`.
 pub enum SecretKey<'a> {
@@ -23,6 +28,13 @@ pub enum SecretKey<'a> {
 }
 
 impl<'a> SecretKey<'a> {
+    fn algorithm(&self) -> SecAlg {
+        match self {
+            SecretKey::RsaSha256 { .. } => SecAlg::RSASHA256,
+            SecretKey::Ed25519(_) => SecAlg::ED25519,
+        }
+    }
+
     /// Use a generic keypair with `ring`.
     pub fn import<B: AsRef<[u8]> + AsMut<[u8]>>(
         key: generic::SecretKey<B>,
@@ -119,6 +131,109 @@ impl<'a> super::Sign<Vec<u8>> for SecretKey<'a> {
             }
             Self::Ed25519(key) => Ok(key.sign(data).as_ref().to_vec()),
         }
+    }
+}
+
+//------------ KeyPair --------------------------------------------------------
+
+pub struct KeyPair<'a, KeyOcts>
+where
+    KeyOcts: AsRef<[u8]> + AsMut<[u8]> + From<Vec<u8>>,
+{
+    public: PublicKey<KeyOcts>,
+    private: SecretKey<'a>,
+    dnskey: Dnskey<Vec<u8>>,
+}
+
+impl<'a, KeyOcts> KeyPair<'a, KeyOcts>
+where
+    KeyOcts: AsRef<[u8]> + AsMut<[u8]> + From<Vec<u8>>,
+{
+    pub fn new(private: SecretKey<'a>) -> Result<Self, LongRecordData> {
+        let alg = private.algorithm();
+
+        let public = private.export_public();
+
+        let pub_key_bytes = match public {
+            PublicKey::RsaSha1(_rsa_public_key) => todo!(),
+            PublicKey::RsaSha256(_rsa_public_key) => todo!(),
+            PublicKey::RsaSha512(_rsa_public_key) => todo!(),
+            PublicKey::EcdsaP256Sha256(bytes) => bytes.to_vec(),
+            PublicKey::EcdsaP384Sha384(bytes) => bytes.to_vec(),
+            PublicKey::Ed25519(bytes) => bytes.to_vec(),
+            PublicKey::Ed448(bytes) => bytes.to_vec(),
+        };
+
+        let dnskey = Dnskey::new(256, 1, alg, pub_key_bytes)?;
+
+        Ok(Self {
+            public,
+            private,
+            dnskey,
+        })
+    }
+
+    pub fn public(&self) -> &PublicKey<KeyOcts> {
+        &self.public
+    }
+
+    pub fn private(&self) -> &SecretKey {
+        &self.private
+    }
+}
+
+#[derive(Clone, Debug)]
+pub enum SignerError {
+    LongRecordData,
+
+    AppendError,
+
+    SignError(ring::error::Unspecified),
+}
+
+impl<'a, KeyOcts> SigningKey for KeyPair<'a, KeyOcts>
+where
+    KeyOcts: AsRef<[u8]> + AsMut<[u8]> + From<Vec<u8>>,
+{
+    type Octets = Vec<u8>;
+
+    type Signature = Vec<u8>;
+
+    type Error = SignerError;
+
+    fn dnskey(&self) -> Result<Dnskey<Self::Octets>, Self::Error> {
+        Ok(self.dnskey.clone())
+    }
+
+    fn ds<N: ToName>(
+        &self,
+        owner: N,
+    ) -> Result<Ds<Self::Octets>, Self::Error> {
+        let mut buf = Vec::new();
+        owner.compose_canonical(&mut buf).unwrap();
+        self.dnskey
+            .compose_canonical_rdata(&mut buf)
+            .map_err(|_err| SignerError::AppendError)?;
+
+        let digest = ring::digest::digest(&ring::digest::SHA256, &buf)
+            .as_ref()
+            .to_vec();
+
+        let ds = Ds::<Self::Octets>::new(
+            self.key_tag()?,
+            self.dnskey.algorithm(),
+            DigestAlg::SHA256,
+            digest,
+        )
+        .map_err(|_err| SignerError::LongRecordData)?;
+
+        Ok(ds)
+    }
+
+    fn sign(&self, data: &[u8]) -> Result<Self::Signature, Self::Error> {
+        self.private
+            .sign(data)
+            .map_err(|err| SignerError::SignError(err))
     }
 }
 

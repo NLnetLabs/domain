@@ -2,8 +2,10 @@ use core::{fmt, mem, str};
 
 use std::vec::Vec;
 
+use super::key::SigningKey;
 use crate::base::iana::SecAlg;
-use crate::rdata::Dnskey;
+use crate::base::ToName;
+use crate::rdata::{Dnskey, Ds};
 use crate::utils::base64;
 
 /// A generic secret key.
@@ -469,6 +471,72 @@ impl fmt::Display for DnsFormatError {
 }
 
 impl std::error::Error for DnsFormatError {}
+
+//------------ KeyPair --------------------------------------------------------
+
+pub enum KeyPair<'a, Octs>
+where
+    Octs: AsRef<[u8]> + AsMut<[u8]> + From<Vec<u8>>,
+{
+    #[cfg(feature = "ring")]
+    Ring(super::ring::KeyPair<'a, Octs>),
+
+    #[cfg(feature = "openssl")]
+    Openssl(super::openssl::KeyPair<Octs>),
+}
+
+impl<'a, Octs> SigningKey for KeyPair<'a, Octs>
+where
+    Octs: AsRef<[u8]> + AsMut<[u8]> + From<Vec<u8>>,
+{
+    type Octets = Vec<u8>;
+
+    type Signature = Vec<u8>;
+
+    type Error = ();
+
+    fn dnskey(&self) -> Result<Dnskey<Self::Octets>, Self::Error> {
+        match self {
+            #[cfg(feature = "ring")]
+            KeyPair::Ring(key_pair) => {
+                Ok(key_pair.dnskey().map_err(|_| ())?)
+            }
+            #[cfg(feature = "openssl")]
+            KeyPair::Openssl(key_pair) => {
+                Ok(key_pair.dnskey().map_err(|_| ())?)
+            }
+        }
+    }
+
+    fn ds<N: ToName>(
+        &self,
+        owner: N,
+    ) -> Result<Ds<Self::Octets>, Self::Error> {
+        match self {
+            #[cfg(feature = "ring")]
+            KeyPair::Ring(key_pair) => {
+                Ok(key_pair.ds(owner).map_err(|_| ())?)
+            }
+            #[cfg(feature = "openssl")]
+            KeyPair::Openssl(key_pair) => {
+                Ok(key_pair.ds(owner).map_err(|_| ())?)
+            }
+        }
+    }
+
+    fn sign(&self, data: &[u8]) -> Result<Self::Signature, Self::Error> {
+        match self {
+            #[cfg(feature = "ring")]
+            KeyPair::Ring(key_pair) => {
+                Ok(key_pair.sign(data).map_err(|_| ())?)
+            }
+            #[cfg(feature = "openssl")]
+            KeyPair::Openssl(key_pair) => {
+                Ok(key_pair.sign(data).map_err(|_| ())?)
+            }
+        }
+    }
+}
 
 #[cfg(test)]
 mod tests {
