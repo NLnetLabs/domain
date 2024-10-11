@@ -129,7 +129,7 @@ mod tests {
     use crate::{
         base::{iana::SecAlg, scan::IterScanner},
         rdata::Dnskey,
-        sign::generic,
+        sign::{generic, Sign},
     };
 
     const KEYS: &[(SecAlg, u16)] =
@@ -163,6 +163,23 @@ mod tests {
 
             assert_eq!(dns_key.key_tag(), key_tag);
             assert_eq!(pub_key.into_dns::<Vec<u8>>(256), dns_key)
+        }
+    }
+
+    #[test]
+    fn sign() {
+        type GenericSecretKey = generic::SecretKey<Vec<u8>>;
+
+        for &(algorithm, key_tag) in KEYS {
+            let name = format!("test.+{:03}+{}", algorithm.to_int(), key_tag);
+
+            let path = format!("test-data/dnssec-keys/K{}.private", name);
+            let data = std::fs::read_to_string(path).unwrap();
+            let sec_key = GenericSecretKey::from_dns(&data).unwrap();
+            let rng = ring::rand::SystemRandom::new();
+            let sec_key = super::SecretKey::import(sec_key, &rng).unwrap();
+
+            let _ = sec_key.sign(b"Hello, World!").unwrap();
         }
     }
 }
