@@ -6,19 +6,22 @@
 //! stored in reverse order, from innermost to outermost.
 
 mod absolute;
-pub use absolute::{Name, NameError};
+pub use absolute::{Name, NameError, OwnedName};
 
 mod relative;
-pub use relative::{RelName, RelNameError};
+pub use relative::{OwnedRelName, RelName, RelNameError};
 
 mod uncertain;
-pub use uncertain::{UncertainName, UncertainNameError};
+pub use uncertain::{OwnedUncertainName, UncertainName, UncertainNameError};
 
 mod label;
-pub use label::{Label, LabelError};
+pub use label::{Label, LabelError, OwnedLabel};
 
 mod labels;
 pub use labels::Labels;
 
 mod builder;
 pub use builder::NameBuilder;
+
+mod octets;
+pub use octets::{Octets, Owned, SmallOctets};

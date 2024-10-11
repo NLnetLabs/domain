@@ -4,6 +4,8 @@ use core::{
     iter,
 };
 
+use super::{Octets, Owned, SmallOctets};
+
 /// A label in a domain name.
 #[repr(transparent)]
 pub struct Label([u8]);
@@ -101,6 +103,21 @@ impl Label {
     }
 }
 
+unsafe impl Octets for Label {
+    unsafe fn from_bytes_unchecked(bytes: &[u8]) -> &Self {
+        Label::from_bytes_unchecked(bytes)
+    }
+
+    fn as_bytes(&self) -> &[u8] {
+        self.as_bytes()
+    }
+}
+
+unsafe impl<Buffer> SmallOctets<Buffer> for Label where
+    Buffer: AsRef<[u8; 64]> + AsRef<[u8]>
+{
+}
+
 impl PartialEq for Label {
     /// Compare labels by their canonical value.
     ///
@@ -192,6 +209,9 @@ impl<'a> From<&'a Label> for &'a [u8] {
         label.as_bytes()
     }
 }
+
+/// An owned label.
+pub type OwnedLabel = Owned<[u8; 64], Label>;
 
 /// An error in constructing a [`Label`].
 #[derive(Clone, Debug)]

@@ -4,7 +4,7 @@ use core::{
     iter,
 };
 
-use super::{Label, Labels, RelName};
+use super::{Label, Labels, Octets, Owned, RelName, SmallOctets};
 
 /// An absolute domain name.
 #[repr(transparent)]
@@ -228,6 +228,21 @@ impl Name {
     }
 }
 
+unsafe impl Octets for Name {
+    unsafe fn from_bytes_unchecked(bytes: &[u8]) -> &Self {
+        Self::from_bytes_unchecked(bytes)
+    }
+
+    fn as_bytes(&self) -> &[u8] {
+        self.as_bytes()
+    }
+}
+
+unsafe impl<Buffer> SmallOctets<Buffer> for Name where
+    Buffer: AsRef<[u8; 256]> + AsRef<[u8]>
+{
+}
+
 impl PartialEq for Name {
     /// Compare labels by their canonical value.
     ///
@@ -377,6 +392,9 @@ impl<'a> IntoIterator for &'a Name {
         self.labels()
     }
 }
+
+/// An owned [`Name`].
+pub type OwnedName = Owned<[u8; 256], Name>;
 
 /// An error in constructing a [`Name`].
 #[derive(Clone, Debug)]
