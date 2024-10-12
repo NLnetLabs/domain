@@ -245,7 +245,6 @@ where
 {
     public: PublicKey<KeyOcts>,
     private: SecretKey,
-    dnskey: Dnskey<Vec<u8>>,
 }
 
 impl<KeyOcts> KeyPair<KeyOcts>
@@ -253,27 +252,8 @@ where
     KeyOcts: AsRef<[u8]> + AsMut<[u8]> + From<Vec<u8>>,
 {
     pub fn new(private: SecretKey) -> Result<Self, LongRecordData> {
-        let alg = private.algorithm();
-
         let public = private.export_public();
-
-        let pub_key_bytes = match public {
-            PublicKey::RsaSha1(_rsa_public_key) => todo!(),
-            PublicKey::RsaSha256(_rsa_public_key) => todo!(),
-            PublicKey::RsaSha512(_rsa_public_key) => todo!(),
-            PublicKey::EcdsaP256Sha256(bytes) => bytes.to_vec(),
-            PublicKey::EcdsaP384Sha384(bytes) => bytes.to_vec(),
-            PublicKey::Ed25519(bytes) => bytes.to_vec(),
-            PublicKey::Ed448(bytes) => bytes.to_vec(),
-        };
-
-        let dnskey = Dnskey::new(256, 3, alg, pub_key_bytes)?;
-
-        Ok(Self {
-            public,
-            private,
-            dnskey,
-        })
+        Ok(Self { public, private })
     }
 
     pub fn public(&self) -> &PublicKey<KeyOcts> {
@@ -304,25 +284,40 @@ where
 
     type Error = SignerError;
 
-    fn dnskey(&self) -> Result<Dnskey<Self::Octets>, Self::Error> {
-        Ok(self.dnskey.clone())
+    fn algorithm(&self) -> Result<SecAlg, Self::Error> {
+        Ok(self.private.algorithm())
+    }
+
+    fn dnskey(
+        &self,
+        flags: u16,
+    ) -> Result<Dnskey<Self::Octets>, Self::Error> {
+        let alg = self.private.algorithm();
+
+        let pub_key_bytes = self.public.to_vec();
+
+        let dnskey = Dnskey::new(flags, 3, alg, pub_key_bytes)
+            .map_err(|_err| SignerError::LongRecordData)?;
+
+        Ok(dnskey)
     }
 
     fn ds<N: ToName>(
         &self,
         owner: N,
+        flags: u16,
     ) -> Result<Ds<Self::Octets>, Self::Error> {
         let mut buf = Vec::new();
         owner.compose_canonical(&mut buf).unwrap();
-        self.dnskey
+        self.dnskey(flags)?
             .compose_canonical_rdata(&mut buf)
             .map_err(|_err| SignerError::AppendError)?;
 
         let digest = openssl::sha::sha256(&buf).to_vec();
 
         let ds = Ds::<Self::Octets>::new(
-            self.key_tag()?,
-            self.dnskey.algorithm(),
+            self.key_tag(flags)?,
+            self.algorithm()?,
             DigestAlg::SHA256,
             digest,
         )

@@ -498,15 +498,31 @@ where
 
     type Error = ();
 
-    fn dnskey(&self) -> Result<Dnskey<Self::Octets>, Self::Error> {
+    fn algorithm(&self) -> Result<SecAlg, Self::Error> {
         match self {
             #[cfg(feature = "ring")]
             KeyPair::Ring(key_pair) => {
-                Ok(key_pair.dnskey().map_err(|_| ())?)
+                Ok(key_pair.algorithm().map_err(|_| ())?)
             }
             #[cfg(feature = "openssl")]
             KeyPair::Openssl(key_pair) => {
-                Ok(key_pair.dnskey().map_err(|_| ())?)
+                Ok(key_pair.algorithm().map_err(|_| ())?)
+            }
+        }
+    }
+
+    fn dnskey(
+        &self,
+        flags: u16,
+    ) -> Result<Dnskey<Self::Octets>, Self::Error> {
+        match self {
+            #[cfg(feature = "ring")]
+            KeyPair::Ring(key_pair) => {
+                Ok(key_pair.dnskey(flags).map_err(|_| ())?)
+            }
+            #[cfg(feature = "openssl")]
+            KeyPair::Openssl(key_pair) => {
+                Ok(key_pair.dnskey(flags).map_err(|_| ())?)
             }
         }
     }
@@ -514,15 +530,16 @@ where
     fn ds<N: ToName>(
         &self,
         owner: N,
+        flags: u16,
     ) -> Result<Ds<Self::Octets>, Self::Error> {
         match self {
             #[cfg(feature = "ring")]
             KeyPair::Ring(key_pair) => {
-                Ok(key_pair.ds(owner).map_err(|_| ())?)
+                Ok(key_pair.ds(owner, flags).map_err(|_| ())?)
             }
             #[cfg(feature = "openssl")]
             KeyPair::Openssl(key_pair) => {
-                Ok(key_pair.ds(owner).map_err(|_| ())?)
+                Ok(key_pair.ds(owner, flags).map_err(|_| ())?)
             }
         }
     }

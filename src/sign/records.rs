@@ -80,7 +80,8 @@ impl<N, D> SortedRecords<N, D> {
         apex: &FamilyName<ApexName>,
         expiration: Timestamp,
         inception: Timestamp,
-        key: Key,
+        ksk: Key,
+        zsk: Option<Key>,
     ) -> Result<Vec<Record<N, Rrsig<Octets, ApexName>>>, Key::Error>
     where
         N: ToName + Clone + std::fmt::Debug,
@@ -89,6 +90,9 @@ impl<N, D> SortedRecords<N, D> {
         Octets: From<Key::Signature> + AsRef<[u8]>,
         ApexName: ToName + Clone,
     {
+        let csk = zsk.is_none();
+        let zsk = zsk.as_ref().unwrap_or(&ksk);
+
         let mut res = Vec::new();
         let mut buf = Vec::new();
 
@@ -146,30 +150,58 @@ impl<N, D> SortedRecords<N, D> {
 
                 // Create the signature.
                 buf.clear();
-                let rrsig = ProtoRrsig::new(
-                    rrset.rtype(),
-                    key.algorithm()?,
-                    name.owner().rrsig_label_count(),
-                    rrset.ttl(),
-                    expiration,
-                    inception,
-                    key.key_tag()?,
-                    apex.owner().clone(),
-                );
-                rrsig.compose_canonical(&mut buf).unwrap();
-                for record in rrset.iter() {
-                    record.compose_canonical(&mut buf).unwrap();
+
+                if rrset.rtype() == Rtype::DNSKEY {
+                    let rrsig = ProtoRrsig::new(
+                        rrset.rtype(),
+                        ksk.algorithm()?,
+                        name.owner().rrsig_label_count(),
+                        rrset.ttl(),
+                        expiration,
+                        inception,
+                        ksk.key_tag(257)?,
+                        apex.owner().clone(),
+                    );
+                    rrsig.compose_canonical(&mut buf).unwrap();
+                    for record in rrset.iter() {
+                        record.compose_canonical(&mut buf).unwrap();
+                    }
+                    res.push(Record::new(
+                        name.owner().clone(),
+                        name.class(),
+                        rrset.ttl(),
+                        rrsig
+                            .into_rrsig(ksk.sign(&buf)?.into())
+                            .expect("long signature"),
+                    ));
                 }
 
-                // Create and push the RRSIG record.
-                res.push(Record::new(
-                    name.owner().clone(),
-                    name.class(),
-                    rrset.ttl(),
-                    rrsig
-                        .into_rrsig(key.sign(&buf)?.into())
-                        .expect("long signature"),
-                ));
+                if rrset.rtype() != Rtype::DNSKEY || csk {
+                    let rrsig = ProtoRrsig::new(
+                        rrset.rtype(),
+                        zsk.algorithm()?,
+                        name.owner().rrsig_label_count(),
+                        rrset.ttl(),
+                        expiration,
+                        inception,
+                        zsk.key_tag(if csk { 257 } else { 256 })?,
+                        apex.owner().clone(),
+                    );
+                    rrsig.compose_canonical(&mut buf).unwrap();
+                    for record in rrset.iter() {
+                        record.compose_canonical(&mut buf).unwrap();
+                    }
+
+                    // Create and push the RRSIG record.
+                    res.push(Record::new(
+                        name.owner().clone(),
+                        name.class(),
+                        rrset.ttl(),
+                        rrsig
+                            .into_rrsig(zsk.sign(&buf)?.into())
+                            .expect("long signature"),
+                    ));
+                }
             }
         }
         Ok(res)
@@ -256,6 +288,7 @@ impl<N, D> SortedRecords<N, D> {
             let mut bitmap = RtypeBitmap::<Octets>::builder();
             // Assume there’s gonna be an RRSIG.
             bitmap.add(Rtype::RRSIG).unwrap();
+            bitmap.add(Rtype::NSEC).unwrap();
             for rrset in family.rrsets() {
                 bitmap.add(rrset.rtype()).unwrap()
             }
@@ -666,11 +699,12 @@ impl<N> FamilyName<N> {
         &self,
         ttl: Ttl,
         key: K,
+        flags: u16,
     ) -> Result<Record<N, Dnskey<Octets>>, K::Error>
     where
         N: Clone,
     {
-        key.dnskey()
+        key.dnskey(flags)
             .map(|dnskey| self.clone().into_record(ttl, dnskey.convert()))
     }
 
@@ -678,11 +712,12 @@ impl<N> FamilyName<N> {
         &self,
         ttl: Ttl,
         key: K,
+        flags: u16,
     ) -> Result<Record<N, Ds<K::Octets>>, K::Error>
     where
         N: ToName + Clone,
     {
-        key.ds(&self.owner)
+        key.ds(&self.owner, flags)
             .map(|ds| self.clone().into_record(ttl, ds))
     }
 }
