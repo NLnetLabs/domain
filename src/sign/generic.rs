@@ -366,7 +366,12 @@ impl<B: AsRef<[u8]>> PublicKey<B> {
     {
         let protocol = 3u8;
         let algorithm = self.algorithm();
-        let public_key = match self {
+        let public_key = self.to_vec();
+        Dnskey::new(flags, protocol, algorithm, public_key.into()).unwrap()
+    }
+
+    pub fn to_vec(&self) -> Vec<u8> {
+        match self {
             Self::RsaSha1(k) | Self::RsaSha256(k) | Self::RsaSha512(k) => {
                 let (n, e) = (k.n.as_ref(), k.e.as_ref());
                 let e_len_len = if e.len() < 256 { 1 } else { 3 };
@@ -392,9 +397,7 @@ impl<B: AsRef<[u8]>> PublicKey<B> {
 
             Self::Ed25519(k) => k.to_vec(),
             Self::Ed448(k) => k.to_vec(),
-        };
-
-        Dnskey::new(flags, protocol, algorithm, public_key.into()).unwrap()
+        }
     }
 }
 
