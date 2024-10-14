@@ -520,14 +520,13 @@ impl<Octs: AsRef<[u8]>> fmt::Debug for ParsedName<Octs> {
 
 //--- Serialize
 
-#[cfg(feature = "serde")]
+#[cfg(all(feature = "serde", feature = "std"))]
 impl<Octs: AsRef<[u8]>> serde::Serialize for ParsedName<Octs> {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: serde::Serializer,
     {
-        use std::string::ToString;
-        self.to_string().serialize(serializer)
+        serializer.collect_str(self)
     }
 }
 

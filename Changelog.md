@@ -6,16 +6,22 @@ Breaking Changes
 
 New
 
+* Added `Deserialize` impl for the `base::net::nostd::Ipv6Addr` and fixed
+  the impl for `Ipv4Addr`. ([#413])
+
 Bug fixes
 
 * Fix an incorrect feature gate that blocks compilation if only `"net"`
   is enabled. ([#412])
+* Fix `Deserialize` impls for `ParsedName` and `ExtendedError` to compile
+  and work without `std`. ([#413])
 
 Unstable features
 
 Other changes
 
 [#412]: https://github.com/NLnetLabs/domain/pull/412
+[#413]: https://github.com/NLnetLabs/domain/pull/413
 
 
 ## 0.10.2
