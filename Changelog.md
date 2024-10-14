@@ -1,8 +1,8 @@
 # Change Log
 
-## Unreleased next version
+## 0.10.3
 
-Breaking Changes
+Released 2024-10-14.
 
 New
 
@@ -16,10 +16,6 @@ Bug fixes
 * Added (all? most?) missing feature dependencies for all features.
 * Fixed `Deserialize` impls for `ParsedName` and `ExtendedError` to compile
   and work without `std`. ([#413])
-
-Unstable features
-
-Other changes
 
 [#412]: https://github.com/NLnetLabs/domain/pull/412
 [#413]: https://github.com/NLnetLabs/domain/pull/413
