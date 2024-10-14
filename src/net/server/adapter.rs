@@ -12,7 +12,7 @@
 #![warn(clippy::missing_docs_in_private_items)]
 
 use super::message::Request;
-use super::service::{CallResult, Service, ServiceResult};
+use super::service::{CallResult, Service, ServiceError, ServiceResult};
 use super::single_service::{ComposeReply, SingleService};
 use crate::dep::octseq::Octets;
 use crate::net::client::request::{Error, RequestMessage, SendRequest};
@@ -57,8 +57,23 @@ where
     fn call(&self, request: Request<RequestOcts>) -> Self::Future {
         let fut = self.service.call(request);
         let fut = async move {
-            let reply = fut.await.unwrap();
-            let abs = reply.additional_builder_stream_target();
+            let reply = match fut.await {
+                Ok(reply) => reply,
+                Err(_) => {
+                    // Every error gets mapped to InternalError.
+                    // Should we add an EDE here?
+                    return once(ready(Err(ServiceError::InternalError)));
+                }
+            };
+            let abs = match reply.additional_builder_stream_target() {
+                Ok(reply) => reply,
+                Err(_) => {
+                    // Every error gets mapped to InternalError.
+                    // There is probably not much we could do here.
+                    // The error results from a bad reply message.
+                    return once(ready(Err(ServiceError::InternalError)));
+                }
+            };
             once(ready(Ok(CallResult::new(abs))))
         };
         Box::pin(fut)
@@ -113,8 +128,8 @@ where
         };
         let mut gr = self.conn.send_request(req);
         let fut = async move {
-            let msg = gr.get_response().await.unwrap();
-            Ok(CR::from_message(&msg))
+            let msg = gr.get_response().await?;
+            Ok(CR::from_message(&msg)?)
         };
         Box::pin(fut)
     }
@@ -166,8 +181,8 @@ where
         };
         let mut gr = self.conn.send_request(req);
         let fut = async move {
-            let msg = gr.get_response().await.unwrap();
-            Ok(CR::from_message(&msg))
+            let msg = gr.get_response().await?;
+            Ok(CR::from_message(&msg)?)
         };
         Box::pin(fut)
     }

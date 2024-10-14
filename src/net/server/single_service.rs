@@ -37,14 +37,15 @@ pub trait SingleService<RequestOcts: Send + Sync, CR> {
 /// Trait for creating a reply message.
 pub trait ComposeReply {
     /// Start a reply from an existing message.
-    fn from_message<Octs>(msg: &Message<Octs>) -> Self
+    fn from_message<Octs>(msg: &Message<Octs>) -> Result<Self, Error>
     where
-        Octs: AsRef<[u8]>;
+        Octs: AsRef<[u8]>,
+        Self: Sized;
 
     /// Return the reply message as an AdditionalBuilder with a StreamTarget.
     fn additional_builder_stream_target(
         &self,
-    ) -> AdditionalBuilder<StreamTarget<Vec<u8>>>;
+    ) -> Result<AdditionalBuilder<StreamTarget<Vec<u8>>>, Error>;
 }
 
 /// Record changes to a Message for generating a reply message.
@@ -75,12 +76,12 @@ impl ReplyMessage {
 }
 
 impl ComposeReply for ReplyMessage {
-    fn from_message<Octs>(msg: &Message<Octs>) -> Self
+    fn from_message<Octs>(msg: &Message<Octs>) -> Result<Self, Error>
     where
         Octs: AsRef<[u8]>,
     {
         let vec = msg.as_slice().to_vec();
-        let msg = Message::from_octets(vec).unwrap();
+        let msg = Message::from_octets(vec)?;
         let mut repl = Self { msg, opt: None };
 
         // As an example, copy any ECS option from the message.
@@ -94,27 +95,28 @@ impl ComposeReply for ReplyMessage {
             opt.set_dnssec_ok(optrec.dnssec_ok());
 
             for opt in optrec.opt().iter::<AllOptData<_, _>>() {
-                let opt = opt.unwrap();
+                let opt = opt?;
                 if let AllOptData::ClientSubnet(_ecs) = opt {
-                    repl.add_opt(&opt).unwrap();
+                    repl.add_opt(&opt)?;
                 }
                 if let AllOptData::ExtendedError(ref _ede) = opt {
-                    repl.add_opt(&opt).unwrap();
+                    repl.add_opt(&opt)?;
                 }
             }
         }
-        repl
+        Ok(repl)
     }
 
     fn additional_builder_stream_target(
         &self,
-    ) -> AdditionalBuilder<StreamTarget<Vec<u8>>> {
+    ) -> Result<AdditionalBuilder<StreamTarget<Vec<u8>>>, Error> {
         let source = &self.msg;
 
         let mut target = MessageBuilder::from_target(
-            StreamTarget::<Vec<u8>>::new(Default::default()).unwrap(),
+            StreamTarget::<Vec<u8>>::new(Default::default())
+                .expect("new StreamTarget should not fail"),
         )
-        .unwrap();
+        .expect("new MessageBuilder should not fail");
 
         let header = source.header();
         *target.header_mut() = header;
@@ -122,48 +124,49 @@ impl ComposeReply for ReplyMessage {
         let source = source.question();
         let mut target = target.additional().builder().question();
         for rr in source {
-            let rr = rr.unwrap();
-            target.push(rr).unwrap();
+            let rr = rr?;
+            target.push(rr).expect("push should not fail");
         }
-        let mut source = source.answer().unwrap();
+        let mut source = source.answer()?;
         let mut target = target.answer();
         for rr in &mut source {
-            let rr = rr.unwrap();
+            let rr = rr?;
             let rr = rr
-                .into_record::<AllRecordData<_, ParsedName<_>>>()
-                .unwrap()
-                .unwrap();
-            target.push(rr).unwrap();
+                .into_record::<AllRecordData<_, ParsedName<_>>>()?
+                .expect("AllRecordData should not fail");
+            target.push(rr).expect("push should not fail");
         }
 
-        let mut source = source.next_section().unwrap().unwrap();
+        let mut source = source
+            .next_section()?
+            .expect("authority section should be present");
         let mut target = target.authority();
         for rr in &mut source {
-            let rr = rr.unwrap();
+            let rr = rr?;
             let rr = rr
-                .into_record::<AllRecordData<_, ParsedName<_>>>()
-                .unwrap()
-                .unwrap();
-            target.push(rr).unwrap();
+                .into_record::<AllRecordData<_, ParsedName<_>>>()?
+                .expect("AllRecordData should not fail");
+            target.push(rr).expect("push should not fail");
         }
 
-        let source = source.next_section().unwrap().unwrap();
+        let source = source
+            .next_section()?
+            .expect("additional section should be present");
         let mut target = target.additional();
         for rr in source {
-            let rr = rr.unwrap();
+            let rr = rr?;
             if rr.rtype() == Rtype::OPT {
             } else {
                 let rr = rr
-                    .into_record::<AllRecordData<_, ParsedName<_>>>()
-                    .unwrap()
-                    .unwrap();
-                target.push(rr).unwrap();
+                    .into_record::<AllRecordData<_, ParsedName<_>>>()?
+                    .expect("AllRecordData should not fail");
+                target.push(rr).expect("push should not fail");
             }
         }
         if let Some(opt) = self.opt.as_ref() {
-            target.push(opt.as_record()).unwrap();
+            target.push(opt.as_record()).expect("push should not fail");
         }
 
-        target
+        Ok(target)
     }
 }
