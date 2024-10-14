@@ -16,7 +16,7 @@ use super::service::{CallResult, Service, ServiceError, ServiceResult};
 use super::single_service::{ComposeReply, SingleService};
 use crate::dep::octseq::Octets;
 use crate::net::client::request::{Error, RequestMessage, SendRequest};
-use futures::stream::{once, Once};
+use futures_util::stream::{once, Once};
 use std::boxed::Box;
 use std::fmt::Debug;
 use std::future::{ready, Future, Ready};
