@@ -11,9 +11,10 @@ New
 
 Bug fixes
 
-* Fix an incorrect feature gate that blocks compilation if only `"net"`
+* Fixed an incorrect feature gate that blocks compilation if only `"net"`
   is enabled. ([#412])
-* Fix `Deserialize` impls for `ParsedName` and `ExtendedError` to compile
+* Added (all? most?) missing feature dependencies for all features.
+* Fixed `Deserialize` impls for `ParsedName` and `ExtendedError` to compile
   and work without `std`. ([#413])
 
 Unstable features
