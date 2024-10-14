@@ -73,7 +73,7 @@ impl<'de> serde::Deserialize<'de> for Ipv4Addr {
         if deserializer.is_human_readable() {
             deserializer.deserialize_str(Visitor)
         } else {
-            deserializer.deserialize_tuple(4, Visitor)
+            <[u8; 4]>::deserialize(deserializer).map(Ipv4Addr::from)
         }
     }
 }
@@ -236,6 +236,38 @@ impl serde::Serialize for Ipv6Addr {
             serializer.collect_str(self)
         } else {
             self.octets().serialize(serializer)
+        }
+    }
+}
+
+#[cfg(feature = "serde")]
+impl<'de> serde::Deserialize<'de> for Ipv6Addr {
+    fn deserialize<D: serde::Deserializer<'de>>(
+        deserializer: D,
+    ) -> Result<Self, D::Error> {
+        struct Visitor;
+
+        impl<'de> serde::de::Visitor<'de> for Visitor {
+            type Value = Ipv6Addr;
+
+            fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+                f.write_str("an IPv6 address")
+            }
+
+            fn visit_str<E: serde::de::Error>(
+                self,
+                v: &str,
+            ) -> Result<Self::Value, E> {
+                use core::str::FromStr;
+
+                Ipv6Addr::from_str(v).map_err(E::custom)
+            }
+        }
+
+        if deserializer.is_human_readable() {
+            deserializer.deserialize_str(Visitor)
+        } else {
+            <[u8; 16]>::deserialize(deserializer).map(Ipv6Addr::from)
         }
     }
 }

@@ -2,6 +2,7 @@
     not(feature = "unstable-xfr"),
     doc = " The `unstable-xfr` feature is necessary to enable this module."
 )]
+#![cfg(feature = "unstable-xfr")]
 // #![warn(missing_docs)]
 // #![warn(clippy::missing_docs_in_private_items)]
 //! XFR related functionality.
