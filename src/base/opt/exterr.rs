@@ -373,7 +373,7 @@ impl<Octs: AsRef<[u8]>> fmt::Display for LossyOctets<Octs> {
                         // Safety: valid UTF8 for this part was confirmed
                         // above.
                         unsafe {
-                            &str::from_utf8_unchecked(good)
+                            str::from_utf8_unchecked(good)
                         }
                     )?;
                     f.write_str("\u{fffd}")?;
