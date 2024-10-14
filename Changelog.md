@@ -8,9 +8,14 @@ New
 
 Bug fixes
 
+* Fix an incorrect feature gate that blocks compilation if only `"net"`
+  is enabled. ([#412])
+
 Unstable features
 
 Other changes
+
+[#412]: https://github.com/NLnetLabs/domain/pull/412
 
 
 ## 0.10.2
