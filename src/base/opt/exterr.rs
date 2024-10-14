@@ -360,10 +360,31 @@ impl<Octs> AsRef<Octs> for LossyOctets<Octs> {
 
 impl<Octs: AsRef<[u8]>> fmt::Display for LossyOctets<Octs> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        for chunk in self.0.as_ref().utf8_chunks() {
-            f.write_str(chunk.valid())?;
-            if !chunk.invalid().is_empty() {
-                f.write_str("\u{fffd}")?;
+        let mut source = self.0.as_ref();
+        loop {
+            match str::from_utf8(source) {
+                Ok(s) => {
+                    f.write_str(s)?;
+                    break;
+                }
+                Err(err) => {
+                    let (good, mut tail) = source.split_at(err.valid_up_to());
+                    f.write_str(
+                        // Safety: valid UTF8 for this part was confirmed
+                        // above.
+                        unsafe {
+                            &str::from_utf8_unchecked(good)
+                        }
+                    )?;
+                    f.write_str("\u{fffd}")?;
+                    match err.error_len() {
+                        None => break,
+                        Some(len) => {
+                            tail = &tail[len..];
+                        }
+                    }
+                    source = tail;
+                }
             }
         }
         Ok(())
@@ -398,5 +419,23 @@ mod tests {
 
         let ede: ExtendedError<&[u8]> = EDE_PRIVATE_RANGE_BEGIN.into();
         assert!(ede.is_private());
+    }
+
+    #[test]
+    fn display_lossy_octets() {
+        use std::string::ToString;
+
+        assert_eq!(
+            LossyOctets(b"foo").to_string(),
+            "foo"
+        );
+        assert_eq!(
+            LossyOctets(b"foo\xe7").to_string(),
+            "foo\u{fffd}"
+        );
+        assert_eq!(
+            LossyOctets(b"foo\xe7foo").to_string(),
+            "foo\u{fffd}foo"
+        );
     }
 }
