@@ -128,7 +128,7 @@ impl<Octs> ExtendedError<Octs> {
     where Octs: AsRef<[u8]> {
         match self.text {
             Some(Ok(ref text)) => Some(text.as_slice()),
-            Some(Err(ref text)) => Some(text.as_ref().as_ref()),
+            Some(Err(ref text)) => Some(text.as_slice()),
             None => None
         }
     }
@@ -345,6 +345,12 @@ impl<'a, Target: Composer> OptBuilder<'a, Target> {
 /// A octets wrapper that displays its content as a lossy UTF-8 sequence.
 #[derive(Clone)]
 struct LossyOctets<Octs>(Octs);
+
+impl<Octs: AsRef<[u8]>> LossyOctets<Octs> {
+    fn as_slice(&self) -> &[u8] {
+        self.0.as_ref()
+    }
+}
 
 impl<Octs> From<Octs> for LossyOctets<Octs> {
     fn from(src: Octs) -> Self {
