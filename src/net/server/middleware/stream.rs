@@ -1,11 +1,38 @@
+//! Support for working with response streams needed by all middleware.
+//!
+//! Like application services all middleware implementations implement the
+//! [`Service`] trait and so return a [`futures::stream::Stream`] of
+//! responses.
+//!
+//! A middleware [`Service`] may respond immediately, or pass the request to
+//! the next [`Service`] above and then handle the response or responses
+//! returned by the upper layer, either passing them through unchanged or
+//! post-processing them depending on the purpose of the middleware.
+//!
+//! Unlike an application service, middleware is not completely in control of
+//! the type of response stream that it returns, and may even return a
+//! different type in different circumstances. A middleware that passes the
+//! responses from the upper service through unchanged must return whatever
+//! type of response stream the upper service generates. A middleware that
+//! responds immediately returns its own type of response stream. And
+//! middleware that post-processes responses received from the upper service
+//! may transform the upper service response type to a different response
+//! type.
+//!
+//! The [`MiddlewareStream`] and [`PostprocessingStream`] types provided by
+//! this module are intended to simplify and standardize the way that
+//! middleware implementations handle these cases.
+//!
+//! [`futures::stream::Stream`]: futures::stream::Stream
+//! [`Service`]: crate::net::server::service::Service
 use core::future::Future;
 use core::ops::DerefMut;
 use core::task::{ready, Context, Poll};
 
 use std::pin::Pin;
 
-use futures::prelude::future::FutureExt;
-use futures::stream::{Stream, StreamExt};
+use futures_util::future::FutureExt;
+use futures_util::stream::{Stream, StreamExt};
 use octseq::Octets;
 use tracing::trace;
 
@@ -13,6 +40,19 @@ use crate::net::server::message::Request;
 
 //------------ MiddlewareStream ----------------------------------------------
 
+/// A [`futures::stream::Stream`] of middleware responses.
+///
+/// A middleware [`Service`] must be able to respond with different types of
+/// response streams depending on the received request or on post-processing
+/// applied to responses received from the upper service.
+///
+/// It is not sufficient therefore to define a single `Service::Stream` type
+/// for a middleware [`Service`] impl. Instead middleware should return the
+/// [`MiddlewareStream`] enum type which is able to represent the different
+/// variants of response stream that may result from middleware processing:
+///
+/// [`futures::stream::Stream`]: futures::stream::Stream
+/// [`Service`]: crate::net::server::service::Service
 pub enum MiddlewareStream<
     IdentityFuture,
     IdentityStream,
@@ -26,8 +66,7 @@ pub enum MiddlewareStream<
     ResultStream: Stream<Item = StreamItem>,
 {
     /// The inner service response future will be passed through this service
-    /// without modification, resolving the future first and then the
-    /// resulting IdentityStream next.
+    /// without modification, resolving the future into an IdentityStream.
     IdentityFuture(IdentityFuture),
 
     /// The inner service response stream will be passed through this service
@@ -36,10 +75,15 @@ pub enum MiddlewareStream<
 
     /// Either a single response has been created without invoking the inner
     /// service, or the inner service response will be post-processed by this
-    /// service.
+    /// service. In both cases the response stream is potentially a different
+    /// type than that of the upper service, i.e. the upper service response
+    /// stream type is said to be "mapped" to a different response stream
+    /// type.
     Map(MapStream),
 
-    /// A response has been created without invoking the inner service.
+    /// A response has been created without invoking the inner service. Its
+    /// type may be different to that of the upper service response stream and
+    /// so is referred to as a "result" stream.
     Result(ResultStream),
 }
 
@@ -93,7 +137,7 @@ where
 
 enum PostprocessingStreamState<Future, Stream>
 where
-    Stream: futures::stream::Stream,
+    Stream: futures_util::stream::Stream,
     Future: core::future::Future<Output = Stream>,
 {
     Pending(Future),
@@ -110,11 +154,24 @@ type PostprocessingStreamCallback<
 > = fn(
     Request<RequestOctets, RequestMeta>,
     StreamItem,
-    PostProcessingMeta,
+    &mut PostProcessingMeta,
 ) -> StreamItem;
 
 //------------ PostprocessingStream ------------------------------------------
 
+/// A [`futures::stream::Stream`] that post-processes responses using a
+/// provided callback.
+///
+/// To post-process an upper service response stream one must first resolve
+/// the `Service::Future` into a `Service::Stream` and then apply transforming
+/// logic to each of the response stream items as they are received one by one
+/// in streaming fashion.
+///
+/// This type takes care of these details for you so that you can focus on
+/// defining the transformation logic via a user supplied callback function
+/// which will be invoked on each received response stream item.
+///
+/// [`futures::stream::Stream`]: futures::stream::Stream
 pub struct PostprocessingStream<
     RequestOctets,
     Future,
@@ -124,7 +181,7 @@ pub struct PostprocessingStream<
 > where
     RequestOctets: Octets + Send + Sync + Unpin,
     Future: core::future::Future<Output = Stream>,
-    Stream: futures::stream::Stream,
+    Stream: futures_util::stream::Stream,
 {
     request: Request<RequestOctets, RequestMeta>,
     state: PostprocessingStreamState<Future, Stream>,
@@ -148,12 +205,25 @@ impl<RequestOctets, Future, Stream, RequestMeta, PostProcessingMeta>
 where
     RequestOctets: Octets + Send + Sync + Unpin,
     Future: core::future::Future<Output = Stream>,
-    Stream: futures::stream::Stream,
+    Stream: futures_util::stream::Stream,
 {
+    /// Creates a new post-processing stream.
+    ///
+    /// The created post-processing stream will resolve the given
+    /// `Service::Future` to its `Service::Stream` type and then invoke the
+    /// given callback on each item in the stream one by one.
+    ///
+    /// As the original request that resulted in the response stream is often
+    /// needed in post-processing, e.g. to copy properties of the request to
+    /// the response, or to vary the behaviour based on the request transport,
+    /// you must supply the original request when calling this function.
+    ///
+    /// You may also supply user defined metadata which will be made available
+    /// to the callback each time it is invoked.
     pub fn new(
         svc_call_fut: Future,
         request: Request<RequestOctets, RequestMeta>,
-        metadata: PostProcessingMeta,
+        pp_meta: PostProcessingMeta,
         cb: PostprocessingStreamCallback<
             RequestOctets,
             Stream::Item,
@@ -165,7 +235,7 @@ where
             state: PostprocessingStreamState::Pending(svc_call_fut),
             request,
             cb,
-            pp_meta: metadata,
+            pp_meta,
         }
     }
 }
@@ -173,7 +243,7 @@ where
 //--- impl Stream
 
 impl<RequestOctets, Future, Stream, RequestMeta, PostProcessingMeta>
-    futures::stream::Stream
+    futures_util::stream::Stream
     for PostprocessingStream<
         RequestOctets,
         Future,
@@ -184,10 +254,9 @@ impl<RequestOctets, Future, Stream, RequestMeta, PostProcessingMeta>
 where
     RequestOctets: Octets + Send + Sync + Unpin,
     Future: core::future::Future<Output = Stream> + Unpin,
-    Stream: futures::stream::Stream + Unpin,
+    Stream: futures_util::stream::Stream + Unpin,
     Self: Unpin,
     RequestMeta: Clone,
-    PostProcessingMeta: Clone,
 {
     type Item = Stream::Item;
 
@@ -206,9 +275,8 @@ where
                 let stream_item = ready!(stream.poll_next_unpin(cx));
                 trace!("Stream item retrieved, mapping to downstream type");
                 let request = self.request.clone();
-                let pp_meta = self.pp_meta.clone();
-                let map =
-                    stream_item.map(|item| (self.cb)(request, item, pp_meta));
+                let map = stream_item
+                    .map(|item| (self.cb)(request, item, &mut self.pp_meta));
                 Poll::Ready(map)
             }
         }

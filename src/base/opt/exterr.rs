@@ -30,6 +30,13 @@ use core::convert::Infallible;
 /// standardized [`ExtendedErrorCode`] for machines and an optional UTF-8
 /// error text for humans.
 #[derive(Clone)]
+#[cfg_attr(
+    feature = "serde",
+    derive(serde::Serialize),
+    serde(bound(
+        serialize = "Octs: AsRef<[u8]>"
+    ))
+)]
 pub struct ExtendedError<Octs> {
     /// The extended error code.
     code: ExtendedErrorCode,
@@ -37,7 +44,23 @@ pub struct ExtendedError<Octs> {
     /// Optional human-readable error information.
     ///
     /// See `text` for the interpretation of the result.
+    #[cfg_attr(feature = "serde", serde(serialize_with = "lossy_text"))]
     text: Option<Result<Str<Octs>, Octs>>,
+}
+
+#[cfg(feature = "serde")]
+fn lossy_text<S, Octs: AsRef<[u8]>>(
+    text: &Option<Result<Str<Octs>, Octs>>,
+    serializer: S,
+) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    match text {
+        Some(Ok(text)) => serializer.serialize_str(text),
+        Some(Err(text)) => serializer.serialize_str(&std::string::String::from_utf8_lossy(text.as_ref())),
+        None => serializer.serialize_none(),
+    }
 }
 
 impl ExtendedError<()> {

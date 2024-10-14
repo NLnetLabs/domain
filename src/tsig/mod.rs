@@ -1,7 +1,7 @@
 //! Support for TSIG.
 //!
 //! This module provides high-level support for signing message exchanges with
-//! TSIG as defined in [RFC 2845].
+//! TSIG as defined in [RFC 8945].
 //!
 //! TSIG is intended to provide authentication for message exchanges. Messages
 //! are signed using a secret key shared between the two participants. The
@@ -41,8 +41,8 @@
 //! mostly for testing).
 //!
 //! [RFC 2104]: https://tools.ietf.org/html/rfc2104
-//! [RFC 2845]: https://tools.ietf.org/html/rfc2845
 //! [RFC 4635]: https://tools.ietf.org/html/rfc4653
+//! [RFC 8945]: https://tools.ietf.org/html/rfc8945
 //! [TSIG]: ../rdata/tsig/struct.Tsig.html
 //! [`Algorithm`]: enum.Algorithm.html
 //! [`Key`]: enum.Key.html
@@ -54,7 +54,15 @@
 #![cfg(feature = "tsig")]
 #![cfg_attr(docsrs, doc(cfg(feature = "tsig")))]
 
-mod interop;
+use core::{cmp, fmt, mem, str};
+
+#[cfg(feature = "std")]
+use std::collections::HashMap;
+use std::sync::Arc;
+
+use bytes::{Bytes, BytesMut};
+use octseq::octets::Octets;
+use ring::{constant_time, hkdf::KeyType, hmac, rand};
 
 use crate::base::header::HeaderSection;
 use crate::base::iana::{Class, Rcode, TsigRcode};
@@ -66,12 +74,6 @@ use crate::base::name::{Label, Name, ParsedName, ToLabelIter, ToName};
 use crate::base::record::Record;
 use crate::base::wire::{Composer, ParseError};
 use crate::rdata::tsig::{Time48, Tsig};
-use bytes::{Bytes, BytesMut};
-use core::{cmp, fmt, mem, str};
-use octseq::octets::Octets;
-use ring::{constant_time, hkdf::KeyType, hmac, rand};
-#[cfg(feature = "std")]
-use std::collections::HashMap;
 
 //------------ KeyName -------------------------------------------------------
 
@@ -103,7 +105,7 @@ pub type KeyName = Name<octseq::array::Array<255>>;
 /// [`new`]: #method.new
 /// [`min_mac_len`]: #method.min_mac_len
 /// [`signing_len`]: #method.signing_len
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Key {
     /// The key’s bits and algorithm.
     key: hmac::Key,
@@ -261,6 +263,70 @@ impl Key {
         self.signing_len
     }
 
+    /// Returns the space needed for a TSIG RR for this key.
+    pub fn compose_len(&self) -> u16 {
+        // The length of the generated TSIG RR is governed by variable and
+        // fixed parts. The variable parts are the key name, the algorithm
+        // name and the MAC. Given the key we can work this out.
+
+        // https://datatracker.ietf.org/doc/html/rfc8945#section-4.2
+        // 4.2. TSIG Record Format
+        //   "The fields of the TSIG RR are described below. All multi-octet
+        //   integers in the record are sent in network byte order (see
+        //   Section 2.3.2 of [RFC1035]).
+        //
+        //   Field     Description                               RFC 1035 Size
+        //   -----------------------------------------------------------------
+        //   NAME:     The name of the key used, in domain name  (variable)
+        //             syntax. [...]
+        //   TYPE:     This MUST be TSIG (250: Transaction       two octets
+        //             SIGnature).
+        //   CLASS:    This MUST be ANY.                         two octets
+        //   TTL:      This MUST be 0.                           32-bit
+        //   RDLENGTH: (variable)                                16-bit
+        //   RDATA:    The RDATA for a TSIG RR consists of a     (variable)
+        //             number of fields, described below:
+        //
+        //                        1 1 1 1 1 1 1 1 1 1 2 2 2 2 2 2 2 2 2 2 3 3
+        //    0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+        //   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+        //   /                         Algorithm Name                        /
+        //   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+        //   |                                                               |
+        //   |          Time Signed          +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+        //   |                               |            Fudge              |
+        //   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+        //   |          MAC Size             |                               /
+        //   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+             MAC               /
+        //   /                                                               /
+        //   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+        //   |          Original ID          |            Error              |
+        //   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+        //   |          Other Len            |                               /
+        //   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+           Other Data          /
+        //   /                                                               /
+        //   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+        //   "
+        let rdata_len = self.algorithm().to_name().compose_len() // Algorithm Name
+            + 6 // Time Signed
+            + 2 // Fudge
+            + 2 // MAC Size
+            + self.signing_len() as u16
+            + 2 // Original ID
+            + 2 // Error
+            + 2; // Other Len
+                 //+ 0; // Other Data (assume a successful response)
+
+        let rr_len = self.name().compose_len()
+            + 2 // TYPE
+            + 2 // CLASS
+            + 4 // TTL
+            + 2 // RDLENGTH
+            + rdata_len;
+
+        rr_len
+    }
+
     /// Checks whether the key in the record is this key.
     fn check_tsig<Octs: Octets + ?Sized>(
         &self,
@@ -305,7 +371,7 @@ impl Key {
     /// if that is required.
     ///
     /// The method fails if the TSIG record doesn’t fit into the message
-    /// anymore, in which case the builder is returned unharmed.
+    /// anymore, in which case the builder is left unmodified.
     fn complete_message<Target: Composer>(
         &self,
         message: &mut AdditionalBuilder<Target>,
@@ -322,6 +388,15 @@ impl Key {
 impl AsRef<Key> for Key {
     fn as_ref(&self) -> &Self {
         self
+    }
+}
+
+//--- Display
+
+#[cfg(feature = "std")]
+impl fmt::Display for Key {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.name.fmt(f)
     }
 }
 
@@ -396,9 +471,26 @@ where
     }
 }
 
+#[cfg(feature = "std")]
+impl KeyStore for Arc<HashMap<(KeyName, Algorithm), Key>> {
+    type Key = Key;
+
+    fn get_key<N: ToName>(
+        &self,
+        name: &N,
+        algorithm: Algorithm,
+    ) -> Option<Self::Key> {
+        if let Ok(name) = name.try_to_name() {
+            self.get(&(name, algorithm)).cloned()
+        } else {
+            None
+        }
+    }
+}
+
 //------------ ClientTransaction ---------------------------------------------
 
-/// TSIG Client Transaction State.
+/// TSIG Client transaction state.
 ///
 /// This types allows signing a DNS request with a given key and validate an
 /// answer received for it.
@@ -425,14 +517,15 @@ impl<K: AsRef<Key>> ClientTransaction<K> {
     /// builder and a key. It signs the message with the key and adds the
     /// signature as a TSIG record to the message’s additional section. It
     /// also creates a transaction value that can later be used to validate
-    /// the response. It returns both the message and the transaction.
+    /// the response. It modifies the given message and returns the created
+    /// transaction.
     ///
-    /// The function can fail if the TSIG record doesn’t actually fit into
-    /// the message anymore. In this case, the function returns an error and
-    /// the untouched message.
+    /// The function can fail if the TSIG record doesn’t fit into the message.
+    /// In this case, the function returns an error and leave the given
+    /// message unmodified.
     ///
-    /// Unlike [`request_with_fudge`], this function uses the
-    /// recommended default value for _fudge:_ 300 seconds.
+    /// Unlike [`request_with_fudge`], this function uses the recommended
+    /// default value for _fudge:_ 300 seconds.
     ///
     /// [`request_with_fudge`]: #method.request_with_fudge
     pub fn request<Target: Composer>(
@@ -586,8 +679,7 @@ impl<K: AsRef<Key>> ServerTransaction<K> {
     /// TSIG record must be the last record and returns it.
     ///
     /// If appending the TSIG record fails, which can only happen if there
-    /// isn’t enough space left, it returns the builder unchanged as the
-    /// error case.
+    /// isn’t enough space left, it returns an error.
     pub fn answer<Target: Composer>(
         self,
         message: &mut AdditionalBuilder<Target>,
@@ -598,7 +690,7 @@ impl<K: AsRef<Key>> ServerTransaction<K> {
 
     /// Produces a signed answer with a given fudge.
     ///
-    /// This method is similar to [`answer`] but lets you explicitely state
+    /// This method is similar to [`answer`] but lets you explicitly state
     /// the `fudge`, i.e., the number of seconds the recipient’s clock is
     /// allowed to differ from your current time when checking the signature.
     /// The default, suggested by the RFC, is 300.
@@ -624,6 +716,14 @@ impl<K: AsRef<Key>> ServerTransaction<K> {
     /// Returns a reference to the transaction’s key.
     pub fn key(&self) -> &Key {
         self.context.key()
+    }
+
+    /// Returns a reference to the transaction's key.
+    ///
+    /// This is the same as [`Self::key`] but doesn't lose the original key
+    /// type information.
+    pub fn wrapped_key(&self) -> &K {
+        self.context.wrapped_key()
     }
 }
 
@@ -952,6 +1052,33 @@ impl<K: AsRef<Key>> ServerSequence<K> {
     pub fn key(&self) -> &Key {
         self.context.key()
     }
+
+    /// Returns a reference to the transaction's key.
+    ///
+    /// This is the same as [`Self::key`] but doesn't lose the original key
+    /// type information.
+    pub fn wrapped_key(&self) -> &K {
+        self.context.wrapped_key()
+    }
+}
+
+//--- From
+
+/// Convert an unused [`ServerTransaction`] to a [`ServerSequence`]
+///
+/// If [`ServerTransaction::request()`] was used to verify a TSIG signed
+/// request but then you need to sign multiple responses,
+/// [`ServerTransaction`] will not suffice as it can only sign a single
+/// response. To resolve this you can use this function to convert the
+/// [`ServerTransaction`] to a [`ServerSequence`] which can be used to sign
+/// multiple responses.
+impl<K> From<ServerTransaction<K>> for ServerSequence<K> {
+    fn from(txn: ServerTransaction<K>) -> Self {
+        Self {
+            context: txn.context,
+            first: true,
+        }
+    }
 }
 
 //------------ SigningContext ------------------------------------------------
@@ -1006,8 +1133,24 @@ impl<K: AsRef<Key>> SigningContext<K> {
         //
         // First, do we have a valid TSIG?
         let tsig = match MessageTsig::from_message(message) {
-            Some(tsig) => tsig,
-            None => return Ok(None),
+            Ok(tsig) => tsig,
+            // RFC 8945, section 5.2:
+            // > If multiple TSIG records are detected or a TSIG record is present
+            // > in any other position, the DNS message is dropped and a response
+            // > with RCODE 1 (FORMERR) MUST be returned.
+            Err(TsigError::Position) => {
+                return Err(ServerError::unsigned(TsigRcode::FORMERR));
+            }
+            // RFC 8945, section 5.2:
+            // > If the TSIG RR cannot be interpreted, the server MUST regard
+            // > the message as corrupt and return a FORMERR to the server.
+            Err(TsigError::Invalid) => {
+                return Err(ServerError::unsigned(TsigRcode::FORMERR))
+            }
+            Err(TsigError::ParseError) => {
+                return Err(ServerError::unsigned(TsigRcode::FORMERR))
+            }
+            Err(TsigError::Missing) => return Ok(None),
         };
 
         // 4.5.1. KEY check and error handling
@@ -1095,8 +1238,20 @@ impl<K: AsRef<Key>> SigningContext<K> {
     {
         // Extract TSIG or bail out.
         let tsig = match MessageTsig::from_message(message) {
-            Some(tsig) => tsig,
-            None => return Ok(None),
+            Ok(tsig) => tsig,
+            // RFC 8945, section 5.2:
+            // >  If multiple TSIG records are detected or a TSIG record is present
+            // > in any other position, the DNS message is dropped and a response
+            // > with RCODE 1 (FORMERR) MUST be returned.
+            Err(TsigError::Position) => return Err(ValidationError::FormErr),
+            // RFC 8945, section 5.2:
+            // > If the TSIG RR cannot be interpreted, the server MUST regard
+            // > the message as corrupt and return a FORMERR to the server.
+            Err(TsigError::Invalid) => return Err(ValidationError::FormErr),
+            Err(TsigError::ParseError) => {
+                return Err(ValidationError::FormErr)
+            }
+            Err(TsigError::Missing) => return Ok(None),
         };
 
         // Check for unsigned errors.
@@ -1161,9 +1316,17 @@ impl<K: AsRef<Key>> SigningContext<K> {
         }
     }
 
-    /// Returns a references to the key that was used to create the context.
+    /// Returns a reference to the key that was used to create the context.
     fn key(&self) -> &Key {
         self.key.as_ref()
+    }
+
+    /// Returns a reference to the key that was used to create the context.
+    ///
+    /// This is the same as [`key`] but doesn't lose the original key type
+    /// information.
+    fn wrapped_key(&self) -> &K {
+        &self.key
     }
 
     /// Applies a signature to the signing context.
@@ -1312,23 +1475,34 @@ impl<'a, Octs: Octets + ?Sized> MessageTsig<'a, Octs> {
     /// Checks that there is exactly one TSIG record in the additional
     /// section, that it is the last record in this section. If that is true,
     /// returns the parsed TSIG records.
-    fn from_message(msg: &'a Message<Octs>) -> Option<Self> {
-        let mut section = msg.additional().ok()?;
-        let mut start = section.pos();
-        let mut record = section.next()?;
+    fn from_message(msg: &'a Message<Octs>) -> Result<Self, TsigError> {
+        let mut section =
+            msg.additional().map_err(|_| TsigError::ParseError)?;
+
+        // Find the first TSIG record, which we will assert to be the last
+        // one to verify that it is the only one.
         loop {
-            let record_start = section.pos();
-            record = match section.next() {
-                Some(record) => record,
-                None => break,
+            let start = section.pos();
+
+            let Some(record) = section.next() else {
+                return Err(TsigError::Missing);
             };
-            start = record_start;
+
+            let record = record
+                .map_err(|_| TsigError::ParseError)?
+                .into_record::<Tsig<_, _>>()
+                .map_err(|_| TsigError::Invalid)?;
+
+            // If it's None, then it's some other record type, and we just
+            // continue.
+            if let Some(record) = record {
+                // We got a valid TSIG, now assert that it's the last record:
+                if section.next().is_some() {
+                    return Err(TsigError::Position);
+                }
+                return Ok(MessageTsig { record, start });
+            }
         }
-        record
-            .ok()?
-            .into_record::<Tsig<_, _>>()
-            .ok()?
-            .map(|record| MessageTsig { record, start })
     }
 
     fn variables(&self) -> Variables {
@@ -1404,8 +1578,8 @@ impl Variables {
             Class::ANY,
             0,
             // The only reason creating TSIG record data can fail here is
-            // that the hmac is unreasonable large. Since we control its
-            // creation, panicing in this case is fine.
+            // that the hmac is unreasonably large. Since we control its
+            // creation, panicking in this case is fine.
             Tsig::new(
                 key.algorithm().to_name(),
                 self.time_signed,
@@ -1657,7 +1831,7 @@ impl<K: AsRef<Key>> ServerError<K> {
                     tsig.record.owner(),
                     tsig.record.class(),
                     tsig.record.ttl(),
-                    // The TSIG record data can never ever be to long.
+                    // The TSIG record data can never ever be too long.
                     Tsig::new(
                         tsig.record.data().algorithm(),
                         tsig.record.data().time_signed(),
@@ -1871,3 +2045,21 @@ impl fmt::Display for ValidationError {
 
 #[cfg(feature = "std")]
 impl std::error::Error for ValidationError {}
+
+//------------ TsigError -----------------------------------------------------
+
+/// Error while retrieving a TSIG from a message
+#[derive(Debug)]
+enum TsigError {
+    /// The TSIG record was present but malformed
+    Invalid,
+
+    /// A TSIG record was found that was **not** the last record in the message
+    Position,
+
+    /// The TSIG record was missing
+    Missing,
+
+    /// An error occurred while parsing the message
+    ParseError,
+}
