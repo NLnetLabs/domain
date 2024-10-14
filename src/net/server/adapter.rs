@@ -46,7 +46,7 @@ impl<RequestOcts, SVC, CR> SingleServiceToService<RequestOcts, SVC, CR> {
 impl<RequestOcts, SVC, CR> Service<RequestOcts>
     for SingleServiceToService<RequestOcts, SVC, CR>
 where
-    RequestOcts: Octets + Send + Sync + Unpin,
+    RequestOcts: Octets + Send + Sync,
     SVC: SingleService<RequestOcts, CR>,
     CR: ComposeReply + 'static,
 {

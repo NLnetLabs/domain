@@ -66,7 +66,7 @@ impl<Octs, RequestOcts, CR> SingleService<RequestOcts, CR>
     for QnameRouter<Octs, RequestOcts, CR>
 where
     Octs: AsRef<[u8]>,
-    RequestOcts: Send + Sync + Unpin,
+    RequestOcts: Send + Sync,
     CR: Send + Sync + 'static,
 {
     fn call(
