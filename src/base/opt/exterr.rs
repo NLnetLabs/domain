@@ -342,7 +342,7 @@ impl<'a, Target: Composer> OptBuilder<'a, Target> {
 
 //------------ LossyOctets ---------------------------------------------------
 
-/// A octets wrapper that displays its content as a lossy UTF-8 sequence.
+/// An octets wrapper that displays its content as a lossy UTF-8 sequence.
 #[derive(Clone)]
 struct LossyOctets<Octs>(Octs);
 
