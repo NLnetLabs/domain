@@ -45,12 +45,12 @@ pub struct ExtendedError<Octs> {
     ///
     /// See `text` for the interpretation of the result.
     #[cfg_attr(feature = "serde", serde(serialize_with = "lossy_text"))]
-    text: Option<Result<Str<Octs>, Octs>>,
+    text: Option<Result<Str<Octs>, LossyOctets<Octs>>>,
 }
 
 #[cfg(feature = "serde")]
 fn lossy_text<S, Octs: AsRef<[u8]>>(
-    text: &Option<Result<Str<Octs>, Octs>>,
+    text: &Option<Result<Str<Octs>, LossyOctets<Octs>>>,
     serializer: S,
 ) -> Result<S::Ok, S::Error>
 where
@@ -58,7 +58,7 @@ where
 {
     match text {
         Some(Ok(text)) => serializer.serialize_str(text),
-        Some(Err(text)) => serializer.serialize_str(&std::string::String::from_utf8_lossy(text.as_ref())),
+        Some(Err(text)) => serializer.collect_str(text),
         None => serializer.serialize_none(),
     }
 }
@@ -103,7 +103,10 @@ impl<Octs> ExtendedError<Octs> {
     pub unsafe fn new_unchecked(
         code: ExtendedErrorCode, text: Option<Result<Str<Octs>, Octs>>
     ) -> Self {
-        Self { code, text }
+        Self {
+            code,
+            text: text.map(|res| res.map_err(LossyOctets))
+        }
     }
 
     /// Returns the error code.
@@ -117,7 +120,7 @@ impl<Octs> ExtendedError<Octs> {
     /// correctly encoded UTF-8, returns `Some(Ok(_))`. If there is text but
     /// it is not UTF-8, returns `Some(Err(_))`.
     pub fn text(&self) -> Option<Result<&Str<Octs>, &Octs>> {
-        self.text.as_ref().map(Result::as_ref)
+        self.text.as_ref().map(|res| res.as_ref().map_err(|err| err.as_ref()))
     }
 
     /// Returns the text as an octets slice.
@@ -125,7 +128,7 @@ impl<Octs> ExtendedError<Octs> {
     where Octs: AsRef<[u8]> {
         match self.text {
             Some(Ok(ref text)) => Some(text.as_slice()),
-            Some(Err(ref text)) => Some(text.as_ref()),
+            Some(Err(ref text)) => Some(text.as_slice()),
             None => None
         }
     }
@@ -198,7 +201,9 @@ where
     ) -> Result<Self, Self::Error> {
         let text = match source.text {
             Some(Ok(text)) => Some(Ok(Str::try_octets_from(text)?)),
-            Some(Err(octs)) => Some(Err(Octs::try_octets_from(octs)?)),
+            Some(Err(octs)) => {
+                Some(Err(LossyOctets(Octs::try_octets_from(octs.0)?)))
+            }
             None => None,
         };
         Ok(Self { code: source.code, text })
@@ -257,37 +262,7 @@ impl<Octs: AsRef<[u8]>> fmt::Display for ExtendedError<Octs> {
         self.code.fmt(f)?;
         match self.text {
             Some(Ok(ref text)) => write!(f, " {}", text)?,
-            Some(Err(ref text)) => {
-                let mut text = text.as_ref();
-                f.write_str(" ")?;
-                while !text.is_empty() {
-                    let tail = match str::from_utf8(text) {
-                        Ok(text) => {
-                            f.write_str(text)?;
-                            break;
-                        }
-                        Err(err) => {
-                            let (head, tail) = text.split_at(
-                                err.valid_up_to()
-                            );
-                            f.write_str(
-                                unsafe {
-                                    str::from_utf8_unchecked(head)
-                                }
-                            )?;
-                            f.write_str("\u{FFFD}")?;
-
-                            if let Some(err_len) = err.error_len() {
-                                &tail[err_len..]
-                            }
-                            else {
-                                break;
-                            }
-                        }
-                    };
-                    text = tail;
-                }
-            }
+            Some(Err(ref text)) => write!(f, " {}", text)?,
             None => { }
         }
         Ok(())
@@ -299,7 +274,7 @@ impl<Octs: AsRef<[u8]>> fmt::Debug for ExtendedError<Octs> {
         f.debug_struct("ExtendedError")
             .field("code", &self.code)
             .field("text", &self.text.as_ref().map(|text| {
-                text.as_ref().map_err(|err| err.as_ref())
+                text.as_ref().map_err(|err| err.0.as_ref())
             }))
             .finish()
     }
@@ -364,6 +339,65 @@ impl<'a, Target: Composer> OptBuilder<'a, Target> {
     }
 }
 
+
+//------------ LossyOctets ---------------------------------------------------
+
+/// An octets wrapper that displays its content as a lossy UTF-8 sequence.
+#[derive(Clone)]
+struct LossyOctets<Octs>(Octs);
+
+impl<Octs: AsRef<[u8]>> LossyOctets<Octs> {
+    fn as_slice(&self) -> &[u8] {
+        self.0.as_ref()
+    }
+}
+
+impl<Octs> From<Octs> for LossyOctets<Octs> {
+    fn from(src: Octs) -> Self {
+        Self(src)
+    }
+}
+
+impl<Octs> AsRef<Octs> for LossyOctets<Octs> {
+    fn as_ref(&self) -> &Octs {
+        &self.0
+    }
+}
+
+impl<Octs: AsRef<[u8]>> fmt::Display for LossyOctets<Octs> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let mut source = self.0.as_ref();
+        loop {
+            match str::from_utf8(source) {
+                Ok(s) => {
+                    f.write_str(s)?;
+                    break;
+                }
+                Err(err) => {
+                    let (good, mut tail) = source.split_at(err.valid_up_to());
+                    f.write_str(
+                        // Safety: valid UTF8 for this part was confirmed
+                        // above.
+                        unsafe {
+                            str::from_utf8_unchecked(good)
+                        }
+                    )?;
+                    f.write_str("\u{fffd}")?;
+                    match err.error_len() {
+                        None => break,
+                        Some(len) => {
+                            tail = &tail[len..];
+                        }
+                    }
+                    source = tail;
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
+
 //============ Tests =========================================================
 
 #[cfg(all(test, feature="std", feature = "bytes"))]
@@ -391,5 +425,23 @@ mod tests {
 
         let ede: ExtendedError<&[u8]> = EDE_PRIVATE_RANGE_BEGIN.into();
         assert!(ede.is_private());
+    }
+
+    #[test]
+    fn display_lossy_octets() {
+        use std::string::ToString;
+
+        assert_eq!(
+            LossyOctets(b"foo").to_string(),
+            "foo"
+        );
+        assert_eq!(
+            LossyOctets(b"foo\xe7").to_string(),
+            "foo\u{fffd}"
+        );
+        assert_eq!(
+            LossyOctets(b"foo\xe7foo").to_string(),
+            "foo\u{fffd}foo"
+        );
     }
 }

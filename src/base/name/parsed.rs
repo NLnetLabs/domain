@@ -526,8 +526,7 @@ impl<Octs: AsRef<[u8]>> serde::Serialize for ParsedName<Octs> {
     where
         S: serde::Serializer,
     {
-        use std::string::ToString;
-        self.to_string().serialize(serializer)
+        serializer.collect_str(self)
     }
 }
 
