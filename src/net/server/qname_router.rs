@@ -6,9 +6,12 @@
 use super::message::Request;
 use super::single_service::SingleService;
 use crate::base::{Name, ToName};
+use crate::dep::octseq::OctetsBuilder;
 use crate::dep::octseq::{EmptyBuilder, FromBuilder, Octets};
 use crate::net::client::request::Error;
 use std::boxed::Box;
+use std::convert::Infallible;
+use std::future::ready;
 use std::future::Future;
 use std::pin::Pin;
 use std::vec::Vec;
@@ -39,13 +42,14 @@ impl<Octs, RequestOcts, CR> QnameRouter<Octs, RequestOcts, CR> {
     pub fn add<TN, SVC>(&mut self, name: TN, service: SVC)
     where
         Octs: FromBuilder,
-        <Octs as FromBuilder>::Builder: EmptyBuilder,
+        <Octs as FromBuilder>::Builder:
+            EmptyBuilder + OctetsBuilder<AppendError = Infallible>,
         TN: ToName,
         RequestOcts: Send + Sync,
         SVC: SingleService<RequestOcts, CR> + Send + Sync + 'static,
     {
         let el = Element {
-            name: name.try_to_name().ok().unwrap(),
+            name: name.to_name(),
             service: Box::new(service),
         };
         self.list.push(el);
@@ -63,6 +67,7 @@ impl<Octs, RequestOcts, CR> SingleService<RequestOcts, CR>
 where
     Octs: AsRef<[u8]>,
     RequestOcts: Send + Sync + Unpin,
+    CR: Send + Sync + 'static,
 {
     fn call(
         &self,
@@ -76,15 +81,23 @@ where
             .question()
             .into_iter()
             .next()
-            .unwrap()
-            .unwrap();
+            .expect("the caller need to make sure that there is question")
+            .expect("the caller need to make sure that the question can be parsed")
+            ;
         let name = question.qname();
-        self.list
+        let el = match self
+            .list
             .iter()
             .filter(|l| name.ends_with(&l.name))
             .max_by_key(|l| l.name.label_count())
-            .unwrap()
-            .service
-            .call(request.clone())
+        {
+            Some(el) => el,
+            None => {
+                // Nothing, return InternalError
+                return Box::pin(ready(Err(Error::NoTransportAvailable)));
+            }
+        };
+
+        el.service.call(request.clone())
     }
 }
