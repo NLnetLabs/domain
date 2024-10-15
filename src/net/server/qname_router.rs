@@ -99,7 +99,7 @@ where
                 // We can't find a suitable upstream. Generate a SERVFAIL
                 // reply with an EDE.
                 let builder: AdditionalBuilder<StreamTarget<Vec<u8>>> =
-                    mk_error_response(&request.message(), OptRcode::SERVFAIL);
+                    mk_error_response(request.message(), OptRcode::SERVFAIL);
                 let msg = builder.as_message();
                 let mut cr = CR::from_message(&msg)
                     .expect("CR should handle an error response");

@@ -115,7 +115,8 @@ impl ComposeReply for ReplyMessage {
         &mut self,
         opt: &impl ComposeOptData,
     ) -> Result<(), LongOptData> {
-        Ok(self.add_opt_impl(opt))
+        self.add_opt_impl(opt);
+        Ok(())
     }
 
     fn additional_builder_stream_target(

@@ -130,7 +130,7 @@ where
     {
         // Prepare for an error. It is best to borrow request here.
         let builder: AdditionalBuilder<StreamTarget<Vec<u8>>> =
-            mk_error_response(&request.message(), OptRcode::SERVFAIL);
+            mk_error_response(request.message(), OptRcode::SERVFAIL);
 
         let req = match request.try_into() {
             Ok(req) => req,
@@ -162,7 +162,7 @@ where
                     return Ok(cr);
                 }
             };
-            Ok(CR::from_message(&msg)?)
+            CR::from_message(&msg)
         };
         Box::pin(fut)
     }
@@ -210,7 +210,7 @@ where
     {
         // Prepare for an error. It is best to borrow request here.
         let builder: AdditionalBuilder<StreamTarget<Vec<u8>>> =
-            mk_error_response(&request.message(), OptRcode::SERVFAIL);
+            mk_error_response(request.message(), OptRcode::SERVFAIL);
 
         let req = match request.try_into() {
             Ok(req) => req,
@@ -242,7 +242,7 @@ where
                     return Ok(cr);
                 }
             };
-            Ok(CR::from_message(&msg)?)
+            CR::from_message(&msg)
         };
         Box::pin(fut)
     }
