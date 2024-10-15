@@ -26,17 +26,25 @@ MATCH MOCK_CLIENT
 SECTION QUESTION
     example.com.            IN  SOA
 SECTION ADDITIONAL
-; Stelline doesn't support parsing zone entries that use the ( multiline )
+; Stelline doesn't support parsing resource records that use the ( multiline )
 ; format, otherwise we could use that here.
     TESTKEY           0     CLASS255  TYPE250  \# 61 0b686d61632d73686132353600 000000000000 012c 0020 a1c86ced1815d60903129a525a14494516895d99ea94bf0b5b04338126a4d625 0000 0000 0000
 ;                                                                                                                                                                                 ^ Other Len
 ;                                                                                                                                                                            ^ Error
 ;                                                                                                                                                                       ^ Original ID
 ;                                                                                                      ^ MAC
+;                                                                                                      1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2
+;                                                                                                      32 bytes of MAC data (message authentication code)
 ;                                                                                                 ^ MAC Size
+;                                                                                                 0x20 = 32 bytes of MAC expected
 ;                                                                                            ^ Fudge
+;                                                                                            0x12c = 300 seconds
 ;                                                    ^ Algorithm Name           ^ Time Signed
+;                                                                               Time starts at zero in test mode.
+;                                                    11 h m a c - s h a 2 5 6
+;                                                    11 bytes of algorithm name
 ;                                                 ^ RDATA byte length.
+;                                                 61 bytes of RDATA expected = byte length of Algorithm Name + Time Signed + Fudge + MAC Size + MAC + Original ID + Error + Other Len
 ;                           ^ RFC 3597 CLASSNN TYPENN \# encoding of unknown DNS RR types.
 ;                             We use this so that we can define the RDATA using HEX bytes.
 ENTRY_END
@@ -44,13 +52,13 @@ ENTRY_END
 STEP 11 CHECK_ANSWER
 ENTRY_BEGIN
 MATCH all
-REPLY QR NOERROR
+REPLY QR NOERROR AA
 SECTION QUESTION
     example.com.            IN  SOA
 SECTION ANSWER
     example.com.      3600  IN  SOA  ns.example.com. hostmaster.example.com. 1 3600 900 86400 3600
 SECTION ADDITIONAL
-    TESTKEY           0     CLASS255  TYPE250  \# 61 0b686d61632d73686132353600 000000000000 012c 0020 6d7f9c5a14c2b48d4a0549000af29808e5eb25f7a80c22a2b1c0cf2ef3929bcd 0000 0000 0000
+    TESTKEY           0     CLASS255  TYPE250  \# 61 0b686d61632d73686132353600 000000000000 012c 0020 4780EAF3410A852578F71C9B5F57CD4CFD0FFF73273CF88AED3541014C63D905 0000 0000 0000
 ENTRY_END
 
 SCENARIO_END

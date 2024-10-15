@@ -6,6 +6,40 @@ Breaking changes
 
 New
 
+Bug fixes
+
+Unstable features
+
+Other changes
+
+
+## 0.10.3
+
+Released 2024-10-14.
+
+New
+
+* Added `Deserialize` impl for the `base::net::nostd::Ipv6Addr` and fixed
+  the impl for `Ipv4Addr`. ([#413])
+
+Bug fixes
+
+* Fixed an incorrect feature gate that blocks compilation if only `"net"`
+  is enabled. ([#412])
+* Added (all? most?) missing feature dependencies for all features.
+* Fixed `Deserialize` impls for `ParsedName` and `ExtendedError` to compile
+  and work without `std`. ([#413])
+
+[#412]: https://github.com/NLnetLabs/domain/pull/412
+[#413]: https://github.com/NLnetLabs/domain/pull/413
+
+
+## 0.10.2
+
+Released 2024-10-10.
+
+New
+
 * Added an optional push size limit to `MessageBuilder`. ([#348])
 * Added `FromStr` impls for `Rcode` and `OptRcode`. ([#357])
 * Added `OptRcode::is_ext` to check if the code is an extended code.
@@ -14,6 +48,10 @@ New
 * Added `MessageBuilder::start_error`, like `start_answer` but infallible. ([#369])
 * Added `AnswerBuilder::push_ref`, like `push` but takes the record by
   reference. ([#383])
+* Added `Rtype::NXNAME` and `ExtendedErrorCode::INVALID_QUERY_TYPE`. ([#392])
+* Added a `Serialize` impl to `AllRecordData` and as a consequence to
+  the OPT record and all OPT options, as well as `ParsedName`. ([#343])
+* Added `Display` impl to `tsig::Key`. ([#397])
 
 Bug fixes
 
@@ -21,29 +59,34 @@ Bug fixes
   the TSIG record when there were other records in the additional section,
   causing the TSIG code to fail if OPT records were in use. ([#333])
 * Fixed the mnemonic for the `NOTAUTH` rcode – it was `NOAUTH`. ([#360])
-* Fixes the way the `Txt<_> `record data implements comparison-related
+* Fixed the way the `Txt<_> `record data implements comparison-related
   traits. They now directly compare the underlying octets, i.e., the wire
   format bytes. ([#374] by [@dklbreitling])
+* Fixed the `tsig` module to reject messages with multiple TSIG records.
+  ([#334])
+* Fixed Display rendering of empty NSEC3 salt to be '-' per RFC 5155
+  section 3.3. ([#407])
 
 Unstable features
 
 * New unstable feature `unstable-validator` that adds a DNSSEC validator.
   ([#328])
-* New unstable feature `unstable-xfr` that adds `XfrResponseInterpreter` in
-  `net::xfr` for iterating over XFR responses as a sequence of high level
-  `ZoneUpdate`s. ([#375])
+* New unstable feature `unstable-xfr` that adds `XfrResponseInterpreter` for
+  iterating over XFR responses as a sequence of high level `ZoneUpdate`s, and
+  `XfrMiddlewareSvc` and `XfrDataProvider` for responding to received XFR
+  requests. ([#375], [#384])
 * `unstable-client-transport`:
   * Fixed an issue with slow responses in the
     `multi_stream` transport by not waiting in the first iteration if an
     underlying stream reports its connection being closed. ([#338])
-  * Added an option called idle_timeout to stream that allows a TCP or
+  * Added an option called `idle_timeout` to stream that allows a TCP or
     TLS connection to stay open even if no TcpKeepalive option is received
     from the server. ([#341])
   * Fixed an off-by-one error in Dgram client retry count checking. ([#354])
-  * Add support for requests that may result in multiple responses. This
-    adds ComposeRequestMulti and other *Multi types. The main change is to
+  * Added support for requests that may result in multiple responses. This
+    adds `ComposeRequestMulti` and other `*Multi` types. The main change is to
     the stream transport, which is the only transport that implements
-    SendRequestMulti. ([#377])
+    `SendRequestMulti`. ([#377])
   * Added a TSIG request signing and response validating passthrough
     transport in `net::client:tsig`. ([#373])
 * `unstable-server-transport`
@@ -59,10 +102,25 @@ Unstable features
   * Added trait `ResourceRecordBatcher` and impl `CallbackBatcher` in
     `net::server::batcher` for pushing as many records into a response as will
     fit according to defined limits. ([#383])
+  * Enforce dgram max response size limit. ([#398])
+  * Extended MandatoryMiddlewareSvc with an RFC 9619 check for opcode QUERY
+    with QDCOUNT > 1. ([#365])
+  * Added blanket `SendRequest` and `SendRequestMulti` impls for boxes. ([#397])
+  * `EdnsMiddlewareSvc` fixes: ([#355])
+    * Reply with FORMERR if an OPT RR cannot be parsed.
+    * Don't reply with FORMERR if an edns-tcp-keepalive option is received via
+      UDP, instead ignore it per RFC 7828 3.2.1.
+    * Only reserve space for an edns-tcp-keepalive option for TCP requests,
+      not UDP requests.
+    * Always reserve space for an OPT RR in the response for any request that
+      has an OPT RR, not just TCP requests.
+  * Servers now drop received DNS response messages. ([#381])
+  * Improved handling of errors while sending TCP responses. ([#309])
+  * Correctly reserve space for OPT in `EdnsMiddlewareSvc`. ([#403])
 * `unstable-zonetree`:
   * Added `ZoneUpdate`. ([#375])
-  * Added `ZoneUpdater`, `ZoneDiffBuilder` and `ZoneDiff` and improved
-    `ZoneUpdate`. ([#376])
+  * Added `ZoneUpdater`, `ZoneDiff`, `InMemoryZoneDiffBuilder`,
+    `InMemoryZoneDiff` and improved `ZoneUpdate`. ([#376], [#384])
   * Improved zonefile parsing error messages. ([#362]). 
   * `TryFrom<inplace::Zonefile> for Zonefile` now returns the set of
     errors instead of logging and ignoring them. ([#362])
@@ -74,23 +132,35 @@ Unstable features
     version was being created. ([#376])
   * Removed / renamed references to `clean` in `zonetree::in_memory` to
     `remove`. ([#376])
+  * Fixed zone walking to include non-leaf CNAMEs. ([#352])
+  * Fixed zone walking to pass the correct owner name to the callback.
+    ([#384])
+  * Added an `as_any` method and `Clone` and `Debug` impls to various zonetree
+    types. ([#397])
+  * Added `AsRef<dyn ZoneStore>` to `Zone`. ([#397])
+  * Added handling of the AA flag and additional records to answer generation.
+    ([#400])
+  * Zone walking now includes glue records. A new flag `at_zone_cut` was
+    added to the callback interface. ([#401])
 
-Other changes
-
-* None.
-
+[#309]: https://github.com/NLnetLabs/domain/pull/309
 [#328]: https://github.com/NLnetLabs/domain/pull/328
 [#333]: https://github.com/NLnetLabs/domain/pull/333
+[#334]: https://github.com/NLnetLabs/domain/pull/334
 [#336]: https://github.com/NLnetLabs/domain/pull/336
 [#338]: https://github.com/NLnetLabs/domain/pull/338
 [#341]: https://github.com/NLnetLabs/domain/pull/341
+[#343]: https://github.com/NLnetLabs/domain/pull/343
 [#348]: https://github.com/NLnetLabs/domain/pull/348
+[#352]: https://github.com/NLnetLabs/domain/pull/352
 [#354]: https://github.com/NLnetLabs/domain/pull/354
+[#355]: https://github.com/NLnetLabs/domain/pull/355
 [#357]: https://github.com/NLnetLabs/domain/pull/357
 [#358]: https://github.com/NLnetLabs/domain/pull/358
 [#360]: https://github.com/NLnetLabs/domain/pull/360
 [#362]: https://github.com/NLnetLabs/domain/pull/362
 [#363]: https://github.com/NLnetLabs/domain/pull/363
+[#365]: https://github.com/NLnetLabs/domain/pull/365
 [#369]: https://github.com/NLnetLabs/domain/pull/369
 [#373]: https://github.com/NLnetLabs/domain/pull/373
 [#374]: https://github.com/NLnetLabs/domain/pull/374
@@ -98,9 +168,19 @@ Other changes
 [#376]: https://github.com/NLnetLabs/domain/pull/376
 [#377]: https://github.com/NLnetLabs/domain/pull/377
 [#380]: https://github.com/NLnetLabs/domain/pull/380
+[#381]: https://github.com/NLnetLabs/domain/pull/381
 [#382]: https://github.com/NLnetLabs/domain/pull/382
 [#383]: https://github.com/NLnetLabs/domain/pull/383
+[#384]: https://github.com/NLnetLabs/domain/pull/384
+[#392]: https://github.com/NLnetLabs/domain/pull/392
+[#397]: https://github.com/NLnetLabs/domain/pull/397
+[#398]: https://github.com/NLnetLabs/domain/pull/398
+[#400]: https://github.com/NLnetLabs/domain/pull/400
+[#401]: https://github.com/NLnetLabs/domain/pull/401
+[#403]: https://github.com/NLnetLabs/domain/pull/403
+[#407]: https://github.com/NLnetLabs/domain/pull/407
 [@dklbreitling]: https://github.com/dklbreitling
+
 
 ## 0.10.1
 

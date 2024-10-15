@@ -51,6 +51,7 @@ use std::boxed::Box;
 use std::fmt::Debug;
 use std::sync::Arc;
 
+use bytes::Bytes;
 use futures_util::stream::{once, Once, Stream};
 use octseq::Octets;
 use tracing::{error, info, warn};
@@ -58,6 +59,7 @@ use tracing::{error, info, warn};
 use crate::base::iana::{Class, Opcode, OptRcode, Rcode};
 use crate::base::message::CopyRecordsError;
 use crate::base::message_builder::AdditionalBuilder;
+use crate::base::name::Name;
 use crate::base::net::IpAddr;
 use crate::base::wire::Composer;
 use crate::base::{
@@ -68,7 +70,6 @@ use crate::net::server::middleware::stream::MiddlewareStream;
 use crate::net::server::service::{CallResult, Service};
 use crate::net::server::util::{mk_builder_for_target, mk_error_response};
 use crate::rdata::AllRecordData;
-use crate::zonetree::StoredName;
 
 /// A DNS NOTIFY middleware service.
 ///
@@ -393,7 +394,7 @@ pub trait Notifiable {
     fn notify_zone_changed(
         &self,
         class: Class,
-        apex_name: &StoredName,
+        apex_name: &Name<Bytes>,
         source: IpAddr,
     ) -> Pin<
         Box<dyn Future<Output = Result<(), NotifyError>> + Sync + Send + '_>,
@@ -406,7 +407,7 @@ impl<T: Notifiable> Notifiable for Arc<T> {
     fn notify_zone_changed(
         &self,
         class: Class,
-        apex_name: &StoredName,
+        apex_name: &Name<Bytes>,
         source: IpAddr,
     ) -> Pin<
         Box<dyn Future<Output = Result<(), NotifyError>> + Sync + Send + '_>,

@@ -54,7 +54,16 @@
 #![cfg(feature = "tsig")]
 #![cfg_attr(docsrs, doc(cfg(feature = "tsig")))]
 
-mod interop;
+use core::{cmp, fmt, mem, str};
+
+#[cfg(feature = "std")]
+use std::collections::HashMap;
+#[cfg(feature = "std")]
+use std::sync::Arc;
+
+use bytes::{Bytes, BytesMut};
+use octseq::octets::Octets;
+use ring::{constant_time, hkdf::KeyType, hmac, rand};
 
 use crate::base::header::HeaderSection;
 use crate::base::iana::{Class, Rcode, TsigRcode};
@@ -66,12 +75,6 @@ use crate::base::name::{Label, Name, ParsedName, ToLabelIter, ToName};
 use crate::base::record::Record;
 use crate::base::wire::{Composer, ParseError};
 use crate::rdata::tsig::{Time48, Tsig};
-use bytes::{Bytes, BytesMut};
-use core::{cmp, fmt, mem, str};
-use octseq::octets::Octets;
-use ring::{constant_time, hkdf::KeyType, hmac, rand};
-#[cfg(feature = "std")]
-use std::collections::HashMap;
 
 //------------ KeyName -------------------------------------------------------
 
@@ -389,6 +392,15 @@ impl AsRef<Key> for Key {
     }
 }
 
+//--- Display
+
+#[cfg(feature = "std")]
+impl fmt::Display for Key {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.name.fmt(f)
+    }
+}
+
 //------------ KeyStore ------------------------------------------------------
 
 /// A type that stores TSIG secret keys.
@@ -457,6 +469,23 @@ where
         // XXX This seems a bit wasteful.
         let name = name.try_to_name().ok()?;
         self.get(&(name, algorithm)).cloned()
+    }
+}
+
+#[cfg(feature = "std")]
+impl KeyStore for Arc<HashMap<(KeyName, Algorithm), Key>> {
+    type Key = Key;
+
+    fn get_key<N: ToName>(
+        &self,
+        name: &N,
+        algorithm: Algorithm,
+    ) -> Option<Self::Key> {
+        if let Ok(name) = name.try_to_name() {
+            self.get(&(name, algorithm)).cloned()
+        } else {
+            None
+        }
     }
 }
 
@@ -1105,8 +1134,24 @@ impl<K: AsRef<Key>> SigningContext<K> {
         //
         // First, do we have a valid TSIG?
         let tsig = match MessageTsig::from_message(message) {
-            Some(tsig) => tsig,
-            None => return Ok(None),
+            Ok(tsig) => tsig,
+            // RFC 8945, section 5.2:
+            // > If multiple TSIG records are detected or a TSIG record is present
+            // > in any other position, the DNS message is dropped and a response
+            // > with RCODE 1 (FORMERR) MUST be returned.
+            Err(TsigError::Position) => {
+                return Err(ServerError::unsigned(TsigRcode::FORMERR));
+            }
+            // RFC 8945, section 5.2:
+            // > If the TSIG RR cannot be interpreted, the server MUST regard
+            // > the message as corrupt and return a FORMERR to the server.
+            Err(TsigError::Invalid) => {
+                return Err(ServerError::unsigned(TsigRcode::FORMERR))
+            }
+            Err(TsigError::ParseError) => {
+                return Err(ServerError::unsigned(TsigRcode::FORMERR))
+            }
+            Err(TsigError::Missing) => return Ok(None),
         };
 
         // 4.5.1. KEY check and error handling
@@ -1194,8 +1239,20 @@ impl<K: AsRef<Key>> SigningContext<K> {
     {
         // Extract TSIG or bail out.
         let tsig = match MessageTsig::from_message(message) {
-            Some(tsig) => tsig,
-            None => return Ok(None),
+            Ok(tsig) => tsig,
+            // RFC 8945, section 5.2:
+            // >  If multiple TSIG records are detected or a TSIG record is present
+            // > in any other position, the DNS message is dropped and a response
+            // > with RCODE 1 (FORMERR) MUST be returned.
+            Err(TsigError::Position) => return Err(ValidationError::FormErr),
+            // RFC 8945, section 5.2:
+            // > If the TSIG RR cannot be interpreted, the server MUST regard
+            // > the message as corrupt and return a FORMERR to the server.
+            Err(TsigError::Invalid) => return Err(ValidationError::FormErr),
+            Err(TsigError::ParseError) => {
+                return Err(ValidationError::FormErr)
+            }
+            Err(TsigError::Missing) => return Ok(None),
         };
 
         // Check for unsigned errors.
@@ -1419,23 +1476,34 @@ impl<'a, Octs: Octets + ?Sized> MessageTsig<'a, Octs> {
     /// Checks that there is exactly one TSIG record in the additional
     /// section, that it is the last record in this section. If that is true,
     /// returns the parsed TSIG records.
-    fn from_message(msg: &'a Message<Octs>) -> Option<Self> {
-        let mut section = msg.additional().ok()?;
-        let mut start = section.pos();
-        let mut record = section.next()?;
+    fn from_message(msg: &'a Message<Octs>) -> Result<Self, TsigError> {
+        let mut section =
+            msg.additional().map_err(|_| TsigError::ParseError)?;
+
+        // Find the first TSIG record, which we will assert to be the last
+        // one to verify that it is the only one.
         loop {
-            let record_start = section.pos();
-            record = match section.next() {
-                Some(record) => record,
-                None => break,
+            let start = section.pos();
+
+            let Some(record) = section.next() else {
+                return Err(TsigError::Missing);
             };
-            start = record_start;
+
+            let record = record
+                .map_err(|_| TsigError::ParseError)?
+                .into_record::<Tsig<_, _>>()
+                .map_err(|_| TsigError::Invalid)?;
+
+            // If it's None, then it's some other record type, and we just
+            // continue.
+            if let Some(record) = record {
+                // We got a valid TSIG, now assert that it's the last record:
+                if section.next().is_some() {
+                    return Err(TsigError::Position);
+                }
+                return Ok(MessageTsig { record, start });
+            }
         }
-        record
-            .ok()?
-            .into_record::<Tsig<_, _>>()
-            .ok()?
-            .map(|record| MessageTsig { record, start })
     }
 
     fn variables(&self) -> Variables {
@@ -1764,7 +1832,7 @@ impl<K: AsRef<Key>> ServerError<K> {
                     tsig.record.owner(),
                     tsig.record.class(),
                     tsig.record.ttl(),
-                    // The TSIG record data can never ever be to long.
+                    // The TSIG record data can never ever be too long.
                     Tsig::new(
                         tsig.record.data().algorithm(),
                         tsig.record.data().time_signed(),
@@ -1978,3 +2046,21 @@ impl fmt::Display for ValidationError {
 
 #[cfg(feature = "std")]
 impl std::error::Error for ValidationError {}
+
+//------------ TsigError -----------------------------------------------------
+
+/// Error while retrieving a TSIG from a message
+#[derive(Debug)]
+enum TsigError {
+    /// The TSIG record was present but malformed
+    Invalid,
+
+    /// A TSIG record was found that was **not** the last record in the message
+    Position,
+
+    /// The TSIG record was missing
+    Missing,
+
+    /// An error occurred while parsing the message
+    ParseError,
+}
