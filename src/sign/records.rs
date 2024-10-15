@@ -484,7 +484,7 @@ impl<N, D> SortedRecords<N, D> {
         //   "If a hash collision is detected, then a new salt has to be
         //    chosen, and the signing process restarted."
         //
-        // TOOD
+        // TODO
 
         Ok(Nsec3Records::new(nsec3s.records, nsec3param_rec))
     }
