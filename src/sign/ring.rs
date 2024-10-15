@@ -175,12 +175,12 @@ where
 ///
 /// Computes an NSEC3 hash according to [RFC 5155] section 5:
 ///
-///     IH(salt, x, 0) = H(x || salt)
-///     IH(salt, x, k) = H(IH(salt, x, k-1) || salt), if k > 0
+/// > IH(salt, x, 0) = H(x || salt)
+/// > IH(salt, x, k) = H(IH(salt, x, k-1) || salt), if k > 0
 ///
 /// Then the calculated hash of an owner name is:
 ///
-///     IH(salt, owner name, iterations),
+/// > IH(salt, owner name, iterations),
 ///
 /// Note that the `iterations` parameter is the number of _additional_
 /// iterations as defined in [RFC 5155] section 3.1.3.
