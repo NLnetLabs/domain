@@ -20,9 +20,7 @@ use crate::base::message_builder::AdditionalBuilder;
 use crate::base::opt::ExtendedError;
 use crate::base::StreamTarget;
 use crate::dep::octseq::Octets;
-use crate::net::client::request::{
-    ComposeRequest, RequestMessage, SendRequest,
-};
+use crate::net::client::request::{RequestMessage, SendRequest};
 use futures_util::stream::{once, Once};
 use std::boxed::Box;
 use std::fmt::Debug;
@@ -130,7 +128,11 @@ where
     where
         RequestOcts: AsRef<[u8]>,
     {
-        let req: RequestMessage<RequestOcts> = match request.try_into() {
+        // Prepare for an error. It is best to borrow request here.
+        let builder: AdditionalBuilder<StreamTarget<Vec<u8>>> =
+            mk_error_response(&request.message(), OptRcode::SERVFAIL);
+
+        let req = match request.try_into() {
             Ok(req) => req,
             Err(_) => {
                 // Can this fail? Should the request be checked earlier.
@@ -138,11 +140,6 @@ where
                 return Box::pin(ready(Err(ServiceError::InternalError)));
             }
         };
-
-        // Prepare for an error. It is best to borrow req here before we
-        // pass it to send_request.
-        let builder: AdditionalBuilder<StreamTarget<Vec<u8>>> =
-            mk_error_response(&req.to_message().unwrap(), OptRcode::SERVFAIL);
 
         let mut gr = self.conn.send_request(req);
         let fut = async move {
@@ -208,7 +205,11 @@ where
     where
         RequestOcts: AsRef<[u8]>,
     {
-        let req: RequestMessage<RequestOcts> = match request.try_into() {
+        // Prepare for an error. It is best to borrow request here.
+        let builder: AdditionalBuilder<StreamTarget<Vec<u8>>> =
+            mk_error_response(&request.message(), OptRcode::SERVFAIL);
+
+        let req = match request.try_into() {
             Ok(req) => req,
             Err(_) => {
                 // Can this fail? Should the request be checked earlier.
@@ -216,11 +217,6 @@ where
                 return Box::pin(ready(Err(ServiceError::InternalError)));
             }
         };
-
-        // Prepare for an error. It is best to borrow req here before we
-        // pass it to send_request.
-        let builder: AdditionalBuilder<StreamTarget<Vec<u8>>> =
-            mk_error_response(&req.to_message().unwrap(), OptRcode::SERVFAIL);
 
         let mut gr = self.conn.send_request(req);
         let fut = async move {

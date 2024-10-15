@@ -101,12 +101,13 @@ where
                 let builder: AdditionalBuilder<StreamTarget<Vec<u8>>> =
                     mk_error_response(&request.message(), OptRcode::SERVFAIL);
                 let msg = builder.as_message();
-                let mut cr = CR::from_message(&msg).unwrap();
+                let mut cr = CR::from_message(&msg)
+                    .expect("CR should handle an error response");
                 if let Ok(ede) = ExtendedError::<Vec<u8>>::new_with_str(
                     ExtendedErrorCode::OTHER,
-                    "no upstream for request",
+                    "No upstream for request",
                 ) {
-                    cr.add_opt(&ede).unwrap();
+                    cr.add_opt(&ede).expect("Adding an ede should not fail");
                 }
                 return Box::pin(ready(Ok(cr)));
             }

@@ -84,7 +84,8 @@ impl ComposeReply for ReplyMessage {
         Octs: AsRef<[u8]>,
     {
         let vec = msg.as_slice().to_vec();
-        let msg = Message::from_octets(vec).unwrap();
+        let msg = Message::from_octets(vec)
+            .expect("creating a Message from a Message should not fail");
         let mut repl = Self { msg, opt: None };
 
         // As an example, copy any ECS option from the message.
