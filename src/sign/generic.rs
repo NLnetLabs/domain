@@ -1,10 +1,11 @@
-use core::{fmt, mem, str};
+use core::{fmt, str};
 
+use std::boxed::Box;
 use std::vec::Vec;
 
 use crate::base::iana::SecAlg;
-use crate::rdata::Dnskey;
 use crate::utils::base64;
+use crate::validate::RsaPublicKey;
 
 /// A generic secret key.
 ///
@@ -14,32 +15,97 @@ use crate::utils::base64;
 /// cryptographic implementation supports it).
 ///
 /// [`Sign`]: super::Sign
-pub enum SecretKey<B: AsRef<[u8]> + AsMut<[u8]>> {
-    /// An RSA/SHA256 keypair.
-    RsaSha256(RsaSecretKey<B>),
+///
+/// # Serialization
+///
+/// This type can be used to interact with private keys stored in the format
+/// popularized by BIND.  The format is rather under-specified, but examples
+/// of it are available in [RFC 5702], [RFC 6605], and [RFC 8080].
+///
+/// [RFC 5702]: https://www.rfc-editor.org/rfc/rfc5702
+/// [RFC 6605]: https://www.rfc-editor.org/rfc/rfc6605
+/// [RFC 8080]: https://www.rfc-editor.org/rfc/rfc8080
+///
+/// In this format, a private key is a line-oriented text file.  Each line is
+/// either blank (having only whitespace) or a key-value entry.  Entries have
+/// three components: a key, an ASCII colon, and a value.  Keys contain ASCII
+/// text (except for colons) and values contain any data up to the end of the
+/// line.  Whitespace at either end of the key and the value will be ignored.
+///
+/// Every file begins with two entries:
+///
+/// - `Private-key-format` specifies the format of the file.  The RFC examples
+///   above use version 1.2 (serialised `v1.2`), but recent versions of BIND
+///   have defined a new version 1.3 (serialized `v1.3`).
+///
+///   This value should be treated akin to Semantic Versioning principles.  If
+///   the major version (the first number) is unknown to a parser, it should
+///   fail, since it does not know the layout of the following fields.  If the
+///   minor version is greater than what a parser is expecting, it should
+///   ignore any following fields it did not expect.
+///
+/// - `Algorithm` specifies the signing algorithm used by the private key.
+///   This can affect the format of later fields.  The value consists of two
+///   whitespace-separated words: the first is the ASCII decimal number of the
+///   algorithm (see [`SecAlg`]); the second is the name of the algorithm in
+///   ASCII parentheses (with no whitespace inside).  Valid combinations are:
+///
+///   - `8 (RSASHA256)`: RSA with the SHA-256 digest.
+///   - `10 (RSASHA512)`: RSA with the SHA-512 digest.
+///   - `13 (ECDSAP256SHA256)`: ECDSA with the P-256 curve and SHA-256 digest.
+///   - `14 (ECDSAP384SHA384)`: ECDSA with the P-384 curve and SHA-384 digest.
+///   - `15 (ED25519)`: Ed25519.
+///   - `16 (ED448)`: Ed448.
+///
+/// The value of every following entry is a Base64-encoded string of variable
+/// length, using the RFC 4648 variant (i.e. with `+` and `/`, and `=` for
+/// padding).  It is unclear whether padding is required or optional.
+///
+/// In the case of RSA, the following fields are defined (their conventional
+/// symbolic names are also provided):
+///
+/// - `Modulus` (n)
+/// - `PublicExponent` (e)
+/// - `PrivateExponent` (d)
+/// - `Prime1` (p)
+/// - `Prime2` (q)
+/// - `Exponent1` (d_p)
+/// - `Exponent2` (d_q)
+/// - `Coefficient` (q_inv)
+///
+/// For all other algorithms, there is a single `PrivateKey` field, whose
+/// contents should be interpreted as:
+///
+/// - For ECDSA, the private scalar of the key, as a fixed-width byte string
+///   interpreted as a big-endian integer.
+///
+/// - For EdDSA, the private scalar of the key, as a fixed-width byte string.
+pub enum SecretKey {
+    /// An RSA/SHA-256 keypair.
+    RsaSha256(RsaSecretKey),
 
     /// An ECDSA P-256/SHA-256 keypair.
     ///
     /// The private key is a single 32-byte big-endian integer.
-    EcdsaP256Sha256([u8; 32]),
+    EcdsaP256Sha256(Box<[u8; 32]>),
 
     /// An ECDSA P-384/SHA-384 keypair.
     ///
     /// The private key is a single 48-byte big-endian integer.
-    EcdsaP384Sha384([u8; 48]),
+    EcdsaP384Sha384(Box<[u8; 48]>),
 
     /// An Ed25519 keypair.
     ///
     /// The private key is a single 32-byte string.
-    Ed25519([u8; 32]),
+    Ed25519(Box<[u8; 32]>),
 
     /// An Ed448 keypair.
     ///
     /// The private key is a single 57-byte string.
-    Ed448([u8; 57]),
+    Ed448(Box<[u8; 57]>),
 }
 
-impl<B: AsRef<[u8]> + AsMut<[u8]>> SecretKey<B> {
+impl SecretKey {
     /// The algorithm used by this key.
     pub fn algorithm(&self) -> SecAlg {
         match self {
@@ -51,99 +117,99 @@ impl<B: AsRef<[u8]> + AsMut<[u8]>> SecretKey<B> {
         }
     }
 
-    /// Serialize this key in the conventional DNS format.
+    /// Serialize this key in the conventional format used by BIND.
     ///
-    /// - For RSA, see RFC 5702, section 6.
-    /// - For ECDSA, see RFC 6605, section 6.
-    /// - For EdDSA, see RFC 8080, section 6.
-    pub fn into_dns(&self, w: &mut impl fmt::Write) -> fmt::Result {
+    /// The key is formatted in the private key v1.2 format and written to the
+    /// given formatter.  See the type-level documentation for a description
+    /// of this format.
+    pub fn format_as_bind(&self, w: &mut impl fmt::Write) -> fmt::Result {
         writeln!(w, "Private-key-format: v1.2")?;
         match self {
             Self::RsaSha256(k) => {
                 writeln!(w, "Algorithm: 8 (RSASHA256)")?;
-                k.into_dns(w)
+                k.format_as_bind(w)
             }
 
             Self::EcdsaP256Sha256(s) => {
                 writeln!(w, "Algorithm: 13 (ECDSAP256SHA256)")?;
-                writeln!(w, "PrivateKey: {}", base64::encode_display(s))
+                writeln!(w, "PrivateKey: {}", base64::encode_display(&**s))
             }
 
             Self::EcdsaP384Sha384(s) => {
                 writeln!(w, "Algorithm: 14 (ECDSAP384SHA384)")?;
-                writeln!(w, "PrivateKey: {}", base64::encode_display(s))
+                writeln!(w, "PrivateKey: {}", base64::encode_display(&**s))
             }
 
             Self::Ed25519(s) => {
                 writeln!(w, "Algorithm: 15 (ED25519)")?;
-                writeln!(w, "PrivateKey: {}", base64::encode_display(s))
+                writeln!(w, "PrivateKey: {}", base64::encode_display(&**s))
             }
 
             Self::Ed448(s) => {
                 writeln!(w, "Algorithm: 16 (ED448)")?;
-                writeln!(w, "PrivateKey: {}", base64::encode_display(s))
+                writeln!(w, "PrivateKey: {}", base64::encode_display(&**s))
             }
         }
     }
 
-    /// Parse a key from the conventional DNS format.
+    /// Parse a key from the conventional format used by BIND.
     ///
-    /// - For RSA, see RFC 5702, section 6.
-    /// - For ECDSA, see RFC 6605, section 6.
-    /// - For EdDSA, see RFC 8080, section 6.
-    pub fn from_dns(data: &str) -> Result<Self, DnsFormatError>
-    where
-        B: From<Vec<u8>>,
-    {
+    /// This parser supports the private key v1.2 format, but it should be
+    /// compatible with any future v1.x key.  See the type-level documentation
+    /// for a description of this format.
+    pub fn parse_from_bind(data: &str) -> Result<Self, BindFormatError> {
         /// Parse private keys for most algorithms (except RSA).
         fn parse_pkey<const N: usize>(
-            data: &str,
-        ) -> Result<[u8; N], DnsFormatError> {
-            // Extract the 'PrivateKey' field.
-            let (_, val, data) = parse_dns_pair(data)?
-                .filter(|&(k, _, _)| k == "PrivateKey")
-                .ok_or(DnsFormatError::Misformatted)?;
+            mut data: &str,
+        ) -> Result<Box<[u8; N]>, BindFormatError> {
+            // Look for the 'PrivateKey' field.
+            while let Some((key, val, rest)) = parse_dns_pair(data)? {
+                data = rest;
 
-            if !data.trim().is_empty() {
-                // There were more fields following.
-                return Err(DnsFormatError::Misformatted);
+                if key != "PrivateKey" {
+                    continue;
+                }
+
+                return base64::decode::<Vec<u8>>(val)
+                    .map_err(|_| BindFormatError::Misformatted)?
+                    .into_boxed_slice()
+                    .try_into()
+                    .map_err(|_| BindFormatError::Misformatted);
             }
 
-            let buf: Vec<u8> = base64::decode(val)
-                .map_err(|_| DnsFormatError::Misformatted)?;
-            let buf = buf
-                .as_slice()
-                .try_into()
-                .map_err(|_| DnsFormatError::Misformatted)?;
-
-            Ok(buf)
+            // The 'PrivateKey' field was not found.
+            Err(BindFormatError::Misformatted)
         }
 
         // The first line should specify the key format.
         let (_, _, data) = parse_dns_pair(data)?
-            .filter(|&(k, v, _)| (k, v) == ("Private-key-format", "v1.2"))
-            .ok_or(DnsFormatError::UnsupportedFormat)?;
+            .filter(|&(k, v, _)| {
+                k == "Private-key-format"
+                    && v.strip_prefix("v1.")
+                        .and_then(|minor| minor.parse::<u8>().ok())
+                        .map_or(false, |minor| minor >= 2)
+            })
+            .ok_or(BindFormatError::UnsupportedFormat)?;
 
         // The second line should specify the algorithm.
         let (_, val, data) = parse_dns_pair(data)?
             .filter(|&(k, _, _)| k == "Algorithm")
-            .ok_or(DnsFormatError::Misformatted)?;
+            .ok_or(BindFormatError::Misformatted)?;
 
         // Parse the algorithm.
         let mut words = val.split_whitespace();
         let code = words
             .next()
-            .ok_or(DnsFormatError::Misformatted)?
-            .parse::<u8>()
-            .map_err(|_| DnsFormatError::Misformatted)?;
-        let name = words.next().ok_or(DnsFormatError::Misformatted)?;
+            .and_then(|code| code.parse::<u8>().ok())
+            .ok_or(BindFormatError::Misformatted)?;
+        let name = words.next().ok_or(BindFormatError::Misformatted)?;
         if words.next().is_some() {
-            return Err(DnsFormatError::Misformatted);
+            return Err(BindFormatError::Misformatted);
         }
 
         match (code, name) {
             (8, "(RSASHA256)") => {
-                RsaSecretKey::from_dns(data).map(Self::RsaSha256)
+                RsaSecretKey::parse_from_bind(data).map(Self::RsaSha256)
             }
             (13, "(ECDSAP256SHA256)") => {
                 parse_pkey(data).map(Self::EcdsaP256Sha256)
@@ -153,12 +219,12 @@ impl<B: AsRef<[u8]> + AsMut<[u8]>> SecretKey<B> {
             }
             (15, "(ED25519)") => parse_pkey(data).map(Self::Ed25519),
             (16, "(ED448)") => parse_pkey(data).map(Self::Ed448),
-            _ => Err(DnsFormatError::UnsupportedAlgorithm),
+            _ => Err(BindFormatError::UnsupportedAlgorithm),
         }
     }
 }
 
-impl<B: AsRef<[u8]> + AsMut<[u8]>> Drop for SecretKey<B> {
+impl Drop for SecretKey {
     fn drop(&mut self) {
         // Zero the bytes for each field.
         match self {
@@ -175,39 +241,40 @@ impl<B: AsRef<[u8]> + AsMut<[u8]>> Drop for SecretKey<B> {
 ///
 /// All fields here are arbitrary-precision integers in big-endian format,
 /// without any leading zero bytes.
-pub struct RsaSecretKey<B: AsRef<[u8]> + AsMut<[u8]>> {
+pub struct RsaSecretKey {
     /// The public modulus.
-    pub n: B,
+    pub n: Box<[u8]>,
 
     /// The public exponent.
-    pub e: B,
+    pub e: Box<[u8]>,
 
     /// The private exponent.
-    pub d: B,
+    pub d: Box<[u8]>,
 
     /// The first prime factor of `d`.
-    pub p: B,
+    pub p: Box<[u8]>,
 
     /// The second prime factor of `d`.
-    pub q: B,
+    pub q: Box<[u8]>,
 
     /// The exponent corresponding to the first prime factor of `d`.
-    pub d_p: B,
+    pub d_p: Box<[u8]>,
 
     /// The exponent corresponding to the second prime factor of `d`.
-    pub d_q: B,
+    pub d_q: Box<[u8]>,
 
     /// The inverse of the second prime factor modulo the first.
-    pub q_i: B,
+    pub q_i: Box<[u8]>,
 }
 
-impl<B: AsRef<[u8]> + AsMut<[u8]>> RsaSecretKey<B> {
-    /// Serialize this key in the conventional DNS format.
+impl RsaSecretKey {
+    /// Serialize this key in the conventional format used by BIND.
     ///
-    /// The output does not include an 'Algorithm' specifier.
-    ///
-    /// See RFC 5702, section 6 for examples of this format.
-    pub fn into_dns(&self, w: &mut impl fmt::Write) -> fmt::Result {
+    /// The key is formatted in the private key v1.2 format and written to the
+    /// given formatter.  Note that the header and algorithm lines are not
+    /// written.  See the type-level documentation of [`SecretKey`] for a
+    /// description of this format.
+    pub fn format_as_bind(&self, w: &mut impl fmt::Write) -> fmt::Result {
         w.write_str("Modulus: ")?;
         writeln!(w, "{}", base64::encode_display(&self.n))?;
         w.write_str("PublicExponent: ")?;
@@ -227,13 +294,13 @@ impl<B: AsRef<[u8]> + AsMut<[u8]>> RsaSecretKey<B> {
         Ok(())
     }
 
-    /// Parse a key from the conventional DNS format.
+    /// Parse a key from the conventional format used by BIND.
     ///
-    /// See RFC 5702, section 6.
-    pub fn from_dns(mut data: &str) -> Result<Self, DnsFormatError>
-    where
-        B: From<Vec<u8>>,
-    {
+    /// This parser supports the private key v1.2 format, but it should be
+    /// compatible with any future v1.x key.  Note that the header and
+    /// algorithm lines are ignored.  See the type-level documentation of
+    /// [`SecretKey`] for a description of this format.
+    pub fn parse_from_bind(mut data: &str) -> Result<Self, BindFormatError> {
         let mut n = None;
         let mut e = None;
         let mut d = None;
@@ -253,25 +320,28 @@ impl<B: AsRef<[u8]> + AsMut<[u8]>> RsaSecretKey<B> {
                 "Exponent1" => &mut d_p,
                 "Exponent2" => &mut d_q,
                 "Coefficient" => &mut q_i,
-                _ => return Err(DnsFormatError::Misformatted),
+                _ => {
+                    data = rest;
+                    continue;
+                }
             };
 
             if field.is_some() {
                 // This field has already been filled.
-                return Err(DnsFormatError::Misformatted);
+                return Err(BindFormatError::Misformatted);
             }
 
             let buffer: Vec<u8> = base64::decode(val)
-                .map_err(|_| DnsFormatError::Misformatted)?;
+                .map_err(|_| BindFormatError::Misformatted)?;
 
-            *field = Some(buffer.into());
+            *field = Some(buffer.into_boxed_slice());
             data = rest;
         }
 
         for field in [&n, &e, &d, &p, &q, &d_p, &d_q, &q_i] {
             if field.is_none() {
                 // A field was missing.
-                return Err(DnsFormatError::Misformatted);
+                return Err(BindFormatError::Misformatted);
             }
         }
 
@@ -288,142 +358,33 @@ impl<B: AsRef<[u8]> + AsMut<[u8]>> RsaSecretKey<B> {
     }
 }
 
-impl<B: AsRef<[u8]> + AsMut<[u8]>> Drop for RsaSecretKey<B> {
+impl<'a> From<&'a RsaSecretKey> for RsaPublicKey {
+    fn from(value: &'a RsaSecretKey) -> Self {
+        RsaPublicKey {
+            n: value.n.clone(),
+            e: value.e.clone(),
+        }
+    }
+}
+
+impl Drop for RsaSecretKey {
     fn drop(&mut self) {
         // Zero the bytes for each field.
-        self.n.as_mut().fill(0u8);
-        self.e.as_mut().fill(0u8);
-        self.d.as_mut().fill(0u8);
-        self.p.as_mut().fill(0u8);
-        self.q.as_mut().fill(0u8);
-        self.d_p.as_mut().fill(0u8);
-        self.d_q.as_mut().fill(0u8);
-        self.q_i.as_mut().fill(0u8);
-    }
-}
-
-/// A generic public key.
-pub enum PublicKey<B: AsRef<[u8]>> {
-    /// An RSA/SHA-1 public key.
-    RsaSha1(RsaPublicKey<B>),
-
-    // TODO: RSA/SHA-1 with NSEC3/SHA-1?
-    /// An RSA/SHA-256 public key.
-    RsaSha256(RsaPublicKey<B>),
-
-    /// An RSA/SHA-512 public key.
-    RsaSha512(RsaPublicKey<B>),
-
-    /// An ECDSA P-256/SHA-256 public key.
-    ///
-    /// The public key is stored in uncompressed format:
-    ///
-    /// - A single byte containing the value 0x04.
-    /// - The encoding of the `x` coordinate (32 bytes).
-    /// - The encoding of the `y` coordinate (32 bytes).
-    EcdsaP256Sha256([u8; 65]),
-
-    /// An ECDSA P-384/SHA-384 public key.
-    ///
-    /// The public key is stored in uncompressed format:
-    ///
-    /// - A single byte containing the value 0x04.
-    /// - The encoding of the `x` coordinate (48 bytes).
-    /// - The encoding of the `y` coordinate (48 bytes).
-    EcdsaP384Sha384([u8; 97]),
-
-    /// An Ed25519 public key.
-    ///
-    /// The public key is a 32-byte encoding of the public point.
-    Ed25519([u8; 32]),
-
-    /// An Ed448 public key.
-    ///
-    /// The public key is a 57-byte encoding of the public point.
-    Ed448([u8; 57]),
-}
-
-impl<B: AsRef<[u8]>> PublicKey<B> {
-    /// The algorithm used by this key.
-    pub fn algorithm(&self) -> SecAlg {
-        match self {
-            Self::RsaSha1(_) => SecAlg::RSASHA1,
-            Self::RsaSha256(_) => SecAlg::RSASHA256,
-            Self::RsaSha512(_) => SecAlg::RSASHA512,
-            Self::EcdsaP256Sha256(_) => SecAlg::ECDSAP256SHA256,
-            Self::EcdsaP384Sha384(_) => SecAlg::ECDSAP384SHA384,
-            Self::Ed25519(_) => SecAlg::ED25519,
-            Self::Ed448(_) => SecAlg::ED448,
-        }
-    }
-
-    /// Construct a DNSKEY record with the given flags.
-    pub fn into_dns<Octs>(self, flags: u16) -> Dnskey<Octs>
-    where
-        Octs: From<Vec<u8>> + AsRef<[u8]>,
-    {
-        let protocol = 3u8;
-        let algorithm = self.algorithm();
-        let public_key = match self {
-            Self::RsaSha1(k) | Self::RsaSha256(k) | Self::RsaSha512(k) => {
-                let (n, e) = (k.n.as_ref(), k.e.as_ref());
-                let e_len_len = if e.len() < 256 { 1 } else { 3 };
-                let len = e_len_len + e.len() + n.len();
-                let mut buf = Vec::with_capacity(len);
-                if let Ok(e_len) = u8::try_from(e.len()) {
-                    buf.push(e_len);
-                } else {
-                    // RFC 3110 is not explicit about the endianness of this,
-                    // but 'ldns' (in 'ldns_key_buf2rsa_raw()') uses network
-                    // byte order, which I suppose makes sense.
-                    let e_len = u16::try_from(e.len()).unwrap();
-                    buf.extend_from_slice(&e_len.to_be_bytes());
-                }
-                buf.extend_from_slice(e);
-                buf.extend_from_slice(n);
-                buf
-            }
-
-            // From my reading of RFC 6605, the marker byte is not included.
-            Self::EcdsaP256Sha256(k) => k[1..].to_vec(),
-            Self::EcdsaP384Sha384(k) => k[1..].to_vec(),
-
-            Self::Ed25519(k) => k.to_vec(),
-            Self::Ed448(k) => k.to_vec(),
-        };
-
-        Dnskey::new(flags, protocol, algorithm, public_key.into()).unwrap()
-    }
-}
-
-/// A generic RSA public key.
-///
-/// All fields here are arbitrary-precision integers in big-endian format,
-/// without any leading zero bytes.
-pub struct RsaPublicKey<B: AsRef<[u8]>> {
-    /// The public modulus.
-    pub n: B,
-
-    /// The public exponent.
-    pub e: B,
-}
-
-impl<B> From<RsaSecretKey<B>> for RsaPublicKey<B>
-where
-    B: AsRef<[u8]> + AsMut<[u8]> + Default,
-{
-    fn from(mut value: RsaSecretKey<B>) -> Self {
-        Self {
-            n: mem::take(&mut value.n),
-            e: mem::take(&mut value.e),
-        }
+        self.n.fill(0u8);
+        self.e.fill(0u8);
+        self.d.fill(0u8);
+        self.p.fill(0u8);
+        self.q.fill(0u8);
+        self.d_p.fill(0u8);
+        self.d_q.fill(0u8);
+        self.q_i.fill(0u8);
     }
 }
 
 /// Extract the next key-value pair in a DNS private key file.
 fn parse_dns_pair(
     data: &str,
-) -> Result<Option<(&str, &str, &str)>, DnsFormatError> {
+) -> Result<Option<(&str, &str, &str)>, BindFormatError> {
     // TODO: Use 'trim_ascii_start()' etc. once they pass the MSRV.
 
     // Trim any pending newlines.
@@ -439,7 +400,7 @@ fn parse_dns_pair(
 
     // Split the line by a colon.
     let (key, val) =
-        line.split_once(':').ok_or(DnsFormatError::Misformatted)?;
+        line.split_once(':').ok_or(BindFormatError::Misformatted)?;
 
     // Trim the key and value (incl. for CR LFs).
     Ok(Some((key.trim(), val.trim(), rest)))
@@ -447,7 +408,7 @@ fn parse_dns_pair(
 
 /// An error in loading a [`SecretKey`] from the conventional DNS format.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub enum DnsFormatError {
+pub enum BindFormatError {
     /// The key file uses an unsupported version of the format.
     UnsupportedFormat,
 
@@ -458,7 +419,7 @@ pub enum DnsFormatError {
     UnsupportedAlgorithm,
 }
 
-impl fmt::Display for DnsFormatError {
+impl fmt::Display for BindFormatError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(match self {
             Self::UnsupportedFormat => "unsupported format",
@@ -468,7 +429,7 @@ impl fmt::Display for DnsFormatError {
     }
 }
 
-impl std::error::Error for DnsFormatError {}
+impl std::error::Error for BindFormatError {}
 
 #[cfg(test)]
 mod tests {
@@ -490,7 +451,7 @@ mod tests {
             let name = format!("test.+{:03}+{}", algorithm.to_int(), key_tag);
             let path = format!("test-data/dnssec-keys/K{}.private", name);
             let data = std::fs::read_to_string(path).unwrap();
-            let key = super::SecretKey::<Vec<u8>>::from_dns(&data).unwrap();
+            let key = super::SecretKey::parse_from_bind(&data).unwrap();
             assert_eq!(key.algorithm(), algorithm);
         }
     }
@@ -501,9 +462,9 @@ mod tests {
             let name = format!("test.+{:03}+{}", algorithm.to_int(), key_tag);
             let path = format!("test-data/dnssec-keys/K{}.private", name);
             let data = std::fs::read_to_string(path).unwrap();
-            let key = super::SecretKey::<Vec<u8>>::from_dns(&data).unwrap();
+            let key = super::SecretKey::parse_from_bind(&data).unwrap();
             let mut same = String::new();
-            key.into_dns(&mut same).unwrap();
+            key.format_as_bind(&mut same).unwrap();
             let data = data.lines().collect::<Vec<_>>();
             let same = same.lines().collect::<Vec<_>>();
             assert_eq!(data, same);

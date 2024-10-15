@@ -10,13 +10,360 @@ use crate::base::name::Name;
 use crate::base::name::ToName;
 use crate::base::rdata::{ComposeRecordData, RecordData};
 use crate::base::record::Record;
+use crate::base::scan::IterScanner;
 use crate::base::wire::{Compose, Composer};
 use crate::rdata::{Dnskey, Rrsig};
 use bytes::Bytes;
 use octseq::builder::with_infallible;
 use ring::{digest, signature};
+use std::boxed::Box;
 use std::vec::Vec;
 use std::{error, fmt};
+
+/// A generic public key.
+#[derive(Clone, Debug)]
+pub enum PublicKey {
+    /// An RSA/SHA-1 public key.
+    RsaSha1(RsaPublicKey),
+
+    /// An RSA/SHA-1 with NSEC3 public key.
+    RsaSha1Nsec3Sha1(RsaPublicKey),
+
+    /// An RSA/SHA-256 public key.
+    RsaSha256(RsaPublicKey),
+
+    /// An RSA/SHA-512 public key.
+    RsaSha512(RsaPublicKey),
+
+    /// An ECDSA P-256/SHA-256 public key.
+    ///
+    /// The public key is stored in uncompressed format:
+    ///
+    /// - A single byte containing the value 0x04.
+    /// - The encoding of the `x` coordinate (32 bytes).
+    /// - The encoding of the `y` coordinate (32 bytes).
+    EcdsaP256Sha256(Box<[u8; 65]>),
+
+    /// An ECDSA P-384/SHA-384 public key.
+    ///
+    /// The public key is stored in uncompressed format:
+    ///
+    /// - A single byte containing the value 0x04.
+    /// - The encoding of the `x` coordinate (48 bytes).
+    /// - The encoding of the `y` coordinate (48 bytes).
+    EcdsaP384Sha384(Box<[u8; 97]>),
+
+    /// An Ed25519 public key.
+    ///
+    /// The public key is a 32-byte encoding of the public point.
+    Ed25519(Box<[u8; 32]>),
+
+    /// An Ed448 public key.
+    ///
+    /// The public key is a 57-byte encoding of the public point.
+    Ed448(Box<[u8; 57]>),
+}
+
+impl PublicKey {
+    /// The algorithm used by this key.
+    pub fn algorithm(&self) -> SecAlg {
+        match self {
+            Self::RsaSha1(_) => SecAlg::RSASHA1,
+            Self::RsaSha1Nsec3Sha1(_) => SecAlg::RSASHA1_NSEC3_SHA1,
+            Self::RsaSha256(_) => SecAlg::RSASHA256,
+            Self::RsaSha512(_) => SecAlg::RSASHA512,
+            Self::EcdsaP256Sha256(_) => SecAlg::ECDSAP256SHA256,
+            Self::EcdsaP384Sha384(_) => SecAlg::ECDSAP384SHA384,
+            Self::Ed25519(_) => SecAlg::ED25519,
+            Self::Ed448(_) => SecAlg::ED448,
+        }
+    }
+}
+
+impl PublicKey {
+    /// Parse a public key as stored in a DNSKEY record.
+    pub fn from_dnskey(
+        algorithm: SecAlg,
+        data: &[u8],
+    ) -> Result<Self, FromDnskeyError> {
+        match algorithm {
+            SecAlg::RSASHA1 => {
+                RsaPublicKey::from_dnskey(data).map(Self::RsaSha1)
+            }
+            SecAlg::RSASHA1_NSEC3_SHA1 => {
+                RsaPublicKey::from_dnskey(data).map(Self::RsaSha1Nsec3Sha1)
+            }
+            SecAlg::RSASHA256 => {
+                RsaPublicKey::from_dnskey(data).map(Self::RsaSha256)
+            }
+            SecAlg::RSASHA512 => {
+                RsaPublicKey::from_dnskey(data).map(Self::RsaSha512)
+            }
+
+            SecAlg::ECDSAP256SHA256 => {
+                let mut key = Box::new([0u8; 65]);
+                if key.len() == 1 + data.len() {
+                    key[0] = 0x04;
+                    key[1..].copy_from_slice(data);
+                    Ok(Self::EcdsaP256Sha256(key))
+                } else {
+                    Err(FromDnskeyError::InvalidKey)
+                }
+            }
+            SecAlg::ECDSAP384SHA384 => {
+                let mut key = Box::new([0u8; 97]);
+                if key.len() == 1 + data.len() {
+                    key[0] = 0x04;
+                    key[1..].copy_from_slice(data);
+                    Ok(Self::EcdsaP384Sha384(key))
+                } else {
+                    Err(FromDnskeyError::InvalidKey)
+                }
+            }
+
+            SecAlg::ED25519 => Box::<[u8]>::from(data)
+                .try_into()
+                .map(Self::Ed25519)
+                .map_err(|_| FromDnskeyError::InvalidKey),
+            SecAlg::ED448 => Box::<[u8]>::from(data)
+                .try_into()
+                .map(Self::Ed448)
+                .map_err(|_| FromDnskeyError::InvalidKey),
+
+            _ => Err(FromDnskeyError::UnsupportedAlgorithm),
+        }
+    }
+
+    /// Parse a public key from a DNSKEY record in presentation format.
+    ///
+    /// This format is popularized for storing alongside private keys by the
+    /// BIND name server.  This function is convenient for loading such keys.
+    ///
+    /// The text should consist of a single line of the following format (each
+    /// field is separated by a non-zero number of ASCII spaces):
+    ///
+    /// ```text
+    /// <domain-name> <record-class> DNSKEY <record-data> [<comment>]
+    /// ```
+    ///
+    /// Where `<record-data>` consists of the following fields:
+    ///
+    /// ```text
+    /// <flags> <protocol> <algorithm> <encoded-public-key>
+    /// ```
+    ///
+    /// The first three fields are simple integers, while the last field is
+    /// Base64 encoded data (with or without padding).  The [`from_dnskey()`]
+    /// and [`to_dnskey()`] read from and serialize to the Base64-decoded data
+    /// format.
+    ///
+    /// [`from_dnskey()`]: Self::from_dnskey()
+    /// [`to_dnskey()`]: Self::to_dnskey()
+    ///
+    /// The `<comment>` is any text starting with an ASCII semicolon.
+    pub fn from_dnskey_text(
+        dnskey: &str,
+    ) -> Result<Self, FromDnskeyTextError> {
+        // Ensure there is a single line in the input.
+        let (line, rest) = dnskey.split_once('\n').unwrap_or((dnskey, ""));
+        if !rest.trim().is_empty() {
+            return Err(FromDnskeyTextError::Misformatted);
+        }
+
+        // Strip away any semicolon from the line.
+        let (line, _) = line.split_once(';').unwrap_or((line, ""));
+
+        // Ensure the record header looks reasonable.
+        let mut words = line.split_ascii_whitespace().skip(2);
+        if !words.next().unwrap_or("").eq_ignore_ascii_case("DNSKEY") {
+            return Err(FromDnskeyTextError::Misformatted);
+        }
+
+        // Parse the DNSKEY record data.
+        let mut data = IterScanner::new(words);
+        let dnskey: Dnskey<Vec<u8>> = Dnskey::scan(&mut data)
+            .map_err(|_| FromDnskeyTextError::Misformatted)?;
+        println!("importing {:?}", dnskey);
+        Self::from_dnskey(dnskey.algorithm(), dnskey.public_key().as_slice())
+            .map_err(FromDnskeyTextError::FromDnskey)
+    }
+
+    /// Serialize this public key as stored in a DNSKEY record.
+    pub fn to_dnskey(&self) -> Box<[u8]> {
+        match self {
+            Self::RsaSha1(k)
+            | Self::RsaSha1Nsec3Sha1(k)
+            | Self::RsaSha256(k)
+            | Self::RsaSha512(k) => k.to_dnskey(),
+
+            // From my reading of RFC 6605, the marker byte is not included.
+            Self::EcdsaP256Sha256(k) => k[1..].into(),
+            Self::EcdsaP384Sha384(k) => k[1..].into(),
+
+            Self::Ed25519(k) => k.as_slice().into(),
+            Self::Ed448(k) => k.as_slice().into(),
+        }
+    }
+}
+
+impl PartialEq for PublicKey {
+    fn eq(&self, other: &Self) -> bool {
+        use ring::constant_time::verify_slices_are_equal;
+
+        match (self, other) {
+            (Self::RsaSha1(a), Self::RsaSha1(b)) => a == b,
+            (Self::RsaSha1Nsec3Sha1(a), Self::RsaSha1Nsec3Sha1(b)) => a == b,
+            (Self::RsaSha256(a), Self::RsaSha256(b)) => a == b,
+            (Self::RsaSha512(a), Self::RsaSha512(b)) => a == b,
+            (Self::EcdsaP256Sha256(a), Self::EcdsaP256Sha256(b)) => {
+                verify_slices_are_equal(&**a, &**b).is_ok()
+            }
+            (Self::EcdsaP384Sha384(a), Self::EcdsaP384Sha384(b)) => {
+                verify_slices_are_equal(&**a, &**b).is_ok()
+            }
+            (Self::Ed25519(a), Self::Ed25519(b)) => {
+                verify_slices_are_equal(&**a, &**b).is_ok()
+            }
+            (Self::Ed448(a), Self::Ed448(b)) => {
+                verify_slices_are_equal(&**a, &**b).is_ok()
+            }
+            _ => false,
+        }
+    }
+}
+
+/// A generic RSA public key.
+///
+/// All fields here are arbitrary-precision integers in big-endian format,
+/// without any leading zero bytes.
+#[derive(Clone, Debug)]
+pub struct RsaPublicKey {
+    /// The public modulus.
+    pub n: Box<[u8]>,
+
+    /// The public exponent.
+    pub e: Box<[u8]>,
+}
+
+impl RsaPublicKey {
+    /// Parse an RSA public key as stored in a DNSKEY record.
+    pub fn from_dnskey(data: &[u8]) -> Result<Self, FromDnskeyError> {
+        if data.len() < 3 {
+            return Err(FromDnskeyError::InvalidKey);
+        }
+
+        // The exponent length is encoded as 1 or 3 bytes.
+        let (exp_len, off) = if data[0] != 0 {
+            (data[0] as usize, 1)
+        } else if data[1..3] != [0, 0] {
+            // NOTE: Even though this is the extended encoding of the length,
+            // a user could choose to put a length less than 256 over here.
+            let exp_len = u16::from_be_bytes(data[1..3].try_into().unwrap());
+            (exp_len as usize, 3)
+        } else {
+            // The extended encoding of the length just held a zero value.
+            return Err(FromDnskeyError::InvalidKey);
+        };
+
+        // NOTE: off <= 3 so is safe to index up to.
+        let e = data[off..]
+            .get(..exp_len)
+            .ok_or(FromDnskeyError::InvalidKey)?
+            .into();
+
+        // NOTE: The previous statement indexed up to 'exp_len'.
+        let n = data[off + exp_len..].into();
+
+        Ok(Self { n, e })
+    }
+
+    /// Serialize this public key as stored in a DNSKEY record.
+    pub fn to_dnskey(&self) -> Box<[u8]> {
+        let mut key = Vec::new();
+
+        // Encode the exponent length.
+        if let Ok(exp_len) = u8::try_from(self.e.len()) {
+            key.reserve_exact(1 + self.e.len() + self.n.len());
+            key.push(exp_len);
+        } else if let Ok(exp_len) = u16::try_from(self.e.len()) {
+            key.reserve_exact(3 + self.e.len() + self.n.len());
+            key.push(0u8);
+            key.extend(&exp_len.to_be_bytes());
+        } else {
+            unreachable!("RSA exponents are (much) shorter than 64KiB")
+        }
+
+        key.extend(&*self.e);
+        key.extend(&*self.n);
+        key.into_boxed_slice()
+    }
+}
+
+impl PartialEq for RsaPublicKey {
+    fn eq(&self, other: &Self) -> bool {
+        /// Compare after stripping leading zeros.
+        fn cmp_without_leading(a: &[u8], b: &[u8]) -> bool {
+            let a = &a[a.iter().position(|&x| x != 0).unwrap_or(a.len())..];
+            let b = &b[b.iter().position(|&x| x != 0).unwrap_or(b.len())..];
+            if a.len() == b.len() {
+                ring::constant_time::verify_slices_are_equal(a, b).is_ok()
+            } else {
+                false
+            }
+        }
+
+        cmp_without_leading(&self.n, &other.n)
+            && cmp_without_leading(&self.e, &other.e)
+    }
+}
+
+#[derive(Clone, Debug)]
+pub enum FromDnskeyError {
+    UnsupportedAlgorithm,
+    UnsupportedProtocol,
+    InvalidKey,
+}
+
+#[derive(Clone, Debug)]
+pub enum FromDnskeyTextError {
+    Misformatted,
+    FromDnskey(FromDnskeyError),
+}
+
+/// A cryptographic signature.
+///
+/// The format of the signature varies depending on the underlying algorithm:
+///
+/// - RSA: the signature is a single integer `s`, which is less than the key's
+///   public modulus `n`.  `s` is encoded as bytes and ordered from most
+///   significant to least significant digits.  It must be at least 64 bytes
+///   long and at most 512 bytes long.  Leading zero bytes can be inserted for
+///   padding.
+///
+///   See [RFC 3110](https://datatracker.ietf.org/doc/html/rfc3110).
+///
+/// - ECDSA: the signature has a fixed length (64 bytes for P-256, 96 for
+///   P-384).  It is the concatenation of two fixed-length integers (`r` and
+///   `s`, each of equal size).
+///
+///   See [RFC 6605](https://datatracker.ietf.org/doc/html/rfc6605) and [SEC 1
+///   v2.0](https://www.secg.org/sec1-v2.pdf).
+///
+/// - EdDSA: the signature has a fixed length (64 bytes for ED25519, 114 bytes
+///   for ED448).  It is the concatenation of two curve points (`R` and `S`)
+///   that are encoded into bytes.
+///
+/// Signatures are too big to pass by value, so they are placed on the heap.
+pub enum Signature {
+    RsaSha1(Box<[u8]>),
+    RsaSha1Nsec3Sha1(Box<[u8]>),
+    RsaSha256(Box<[u8]>),
+    RsaSha512(Box<[u8]>),
+    EcdsaP256Sha256(Box<[u8; 64]>),
+    EcdsaP384Sha384(Box<[u8; 96]>),
+    Ed25519(Box<[u8; 64]>),
+    Ed448(Box<[u8; 114]>),
+}
 
 //------------ Dnskey --------------------------------------------------------
 

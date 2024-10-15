@@ -1,17 +1,18 @@
 //! Key and Signer using OpenSSL.
 
-#![cfg(feature = "openssl")]
-#![cfg_attr(docsrs, doc(cfg(feature = "openssl")))]
-
 use core::fmt;
-use std::vec::Vec;
+use std::boxed::Box;
 
 use openssl::{
     bn::BigNum,
+    ecdsa::EcdsaSig,
     pkey::{self, PKey, Private},
 };
 
-use crate::base::iana::SecAlg;
+use crate::{
+    base::iana::SecAlg,
+    validate::{PublicKey, RsaPublicKey, Signature},
+};
 
 use super::{generic, Sign};
 
@@ -30,25 +31,31 @@ impl SecretKey {
     /// # Panics
     ///
     /// Panics if OpenSSL fails or if memory could not be allocated.
-    pub fn import<B: AsRef<[u8]> + AsMut<[u8]>>(
-        key: generic::SecretKey<B>,
-    ) -> Result<Self, ImportError> {
+    pub fn from_generic(
+        secret: &generic::SecretKey,
+        public: &PublicKey,
+    ) -> Result<Self, FromGenericError> {
         fn num(slice: &[u8]) -> BigNum {
             let mut v = BigNum::new_secure().unwrap();
             v.copy_from_slice(slice).unwrap();
             v
         }
 
-        let pkey = match &key {
-            generic::SecretKey::RsaSha256(k) => {
-                let n = BigNum::from_slice(k.n.as_ref()).unwrap();
-                let e = BigNum::from_slice(k.e.as_ref()).unwrap();
-                let d = num(k.d.as_ref());
-                let p = num(k.p.as_ref());
-                let q = num(k.q.as_ref());
-                let d_p = num(k.d_p.as_ref());
-                let d_q = num(k.d_q.as_ref());
-                let q_i = num(k.q_i.as_ref());
+        let pkey = match (secret, public) {
+            (generic::SecretKey::RsaSha256(s), PublicKey::RsaSha256(p)) => {
+                // Ensure that the public and private key match.
+                if p != &RsaPublicKey::from(s) {
+                    return Err(FromGenericError::InvalidKey);
+                }
+
+                let n = BigNum::from_slice(&s.n).unwrap();
+                let e = BigNum::from_slice(&s.e).unwrap();
+                let d = num(&s.d);
+                let p = num(&s.p);
+                let q = num(&s.q);
+                let d_p = num(&s.d_p);
+                let d_q = num(&s.d_q);
+                let q_i = num(&s.q_i);
 
                 // NOTE: The 'openssl' crate doesn't seem to expose
                 // 'EVP_PKEY_fromdata', which could be used to replace the
@@ -60,47 +67,75 @@ impl SecretKey {
                 .and_then(PKey::from_rsa)
                 .unwrap()
             }
-            generic::SecretKey::EcdsaP256Sha256(k) => {
-                // Calculate the public key manually.
-                let ctx = openssl::bn::BigNumContext::new_secure().unwrap();
-                let group = openssl::nid::Nid::X9_62_PRIME256V1;
-                let group =
-                    openssl::ec::EcGroup::from_curve_name(group).unwrap();
-                let mut p = openssl::ec::EcPoint::new(&group).unwrap();
-                let n = num(k.as_slice());
-                p.mul_generator(&group, &n, &ctx).unwrap();
-                openssl::ec::EcKey::from_private_components(&group, &n, &p)
-                    .and_then(PKey::from_ec_key)
-                    .unwrap()
+
+            (
+                generic::SecretKey::EcdsaP256Sha256(s),
+                PublicKey::EcdsaP256Sha256(p),
+            ) => {
+                use openssl::{bn, ec, nid};
+
+                let mut ctx = bn::BigNumContext::new_secure().unwrap();
+                let group = nid::Nid::X9_62_PRIME256V1;
+                let group = ec::EcGroup::from_curve_name(group).unwrap();
+                let n = num(s.as_slice());
+                let p = ec::EcPoint::from_bytes(&group, &**p, &mut ctx)
+                    .map_err(|_| FromGenericError::InvalidKey)?;
+                let k = ec::EcKey::from_private_components(&group, &n, &p)
+                    .map_err(|_| FromGenericError::InvalidKey)?;
+                k.check_key().map_err(|_| FromGenericError::InvalidKey)?;
+                PKey::from_ec_key(k).unwrap()
             }
-            generic::SecretKey::EcdsaP384Sha384(k) => {
-                // Calculate the public key manually.
-                let ctx = openssl::bn::BigNumContext::new_secure().unwrap();
-                let group = openssl::nid::Nid::SECP384R1;
-                let group =
-                    openssl::ec::EcGroup::from_curve_name(group).unwrap();
-                let mut p = openssl::ec::EcPoint::new(&group).unwrap();
-                let n = num(k.as_slice());
-                p.mul_generator(&group, &n, &ctx).unwrap();
-                openssl::ec::EcKey::from_private_components(&group, &n, &p)
-                    .and_then(PKey::from_ec_key)
-                    .unwrap()
+
+            (
+                generic::SecretKey::EcdsaP384Sha384(s),
+                PublicKey::EcdsaP384Sha384(p),
+            ) => {
+                use openssl::{bn, ec, nid};
+
+                let mut ctx = bn::BigNumContext::new_secure().unwrap();
+                let group = nid::Nid::SECP384R1;
+                let group = ec::EcGroup::from_curve_name(group).unwrap();
+                let n = num(s.as_slice());
+                let p = ec::EcPoint::from_bytes(&group, &**p, &mut ctx)
+                    .map_err(|_| FromGenericError::InvalidKey)?;
+                let k = ec::EcKey::from_private_components(&group, &n, &p)
+                    .map_err(|_| FromGenericError::InvalidKey)?;
+                k.check_key().map_err(|_| FromGenericError::InvalidKey)?;
+                PKey::from_ec_key(k).unwrap()
             }
-            generic::SecretKey::Ed25519(k) => {
-                PKey::private_key_from_raw_bytes(
-                    k.as_ref(),
-                    pkey::Id::ED25519,
-                )
-                .unwrap()
+
+            (generic::SecretKey::Ed25519(s), PublicKey::Ed25519(p)) => {
+                use openssl::memcmp;
+
+                let id = pkey::Id::ED25519;
+                let k = PKey::private_key_from_raw_bytes(&**s, id)
+                    .map_err(|_| FromGenericError::InvalidKey)?;
+                if memcmp::eq(&k.raw_public_key().unwrap(), &**p) {
+                    k
+                } else {
+                    return Err(FromGenericError::InvalidKey);
+                }
             }
-            generic::SecretKey::Ed448(k) => {
-                PKey::private_key_from_raw_bytes(k.as_ref(), pkey::Id::ED448)
-                    .unwrap()
+
+            (generic::SecretKey::Ed448(s), PublicKey::Ed448(p)) => {
+                use openssl::memcmp;
+
+                let id = pkey::Id::ED448;
+                let k = PKey::private_key_from_raw_bytes(&**s, id)
+                    .map_err(|_| FromGenericError::InvalidKey)?;
+                if memcmp::eq(&k.raw_public_key().unwrap(), &**p) {
+                    k
+                } else {
+                    return Err(FromGenericError::InvalidKey);
+                }
             }
+
+            // The public and private key types did not match.
+            _ => return Err(FromGenericError::InvalidKey),
         };
 
         Ok(Self {
-            algorithm: key.algorithm(),
+            algorithm: secret.algorithm(),
             pkey,
         })
     }
@@ -110,10 +145,7 @@ impl SecretKey {
     /// # Panics
     ///
     /// Panics if OpenSSL fails or if memory could not be allocated.
-    pub fn export<B>(&self) -> generic::SecretKey<B>
-    where
-        B: AsRef<[u8]> + AsMut<[u8]> + From<Vec<u8>>,
-    {
+    pub fn to_generic(&self) -> generic::SecretKey {
         // TODO: Consider security implications of secret data in 'Vec's.
         match self.algorithm {
             SecAlg::RSASHA256 => {
@@ -150,20 +182,18 @@ impl SecretKey {
             _ => unreachable!(),
         }
     }
+}
 
-    /// Export this key into a generic public key.
-    ///
-    /// # Panics
-    ///
-    /// Panics if OpenSSL fails or if memory could not be allocated.
-    pub fn export_public<B>(&self) -> generic::PublicKey<B>
-    where
-        B: AsRef<[u8]> + From<Vec<u8>>,
-    {
+impl Sign for SecretKey {
+    fn algorithm(&self) -> SecAlg {
+        self.algorithm
+    }
+
+    fn public_key(&self) -> PublicKey {
         match self.algorithm {
             SecAlg::RSASHA256 => {
                 let key = self.pkey.rsa().unwrap();
-                generic::PublicKey::RsaSha256(generic::RsaPublicKey {
+                PublicKey::RsaSha256(RsaPublicKey {
                     n: key.n().to_vec().into(),
                     e: key.e().to_vec().into(),
                 })
@@ -176,7 +206,7 @@ impl SecretKey {
                     .public_key()
                     .to_bytes(key.group(), form, &mut ctx)
                     .unwrap();
-                generic::PublicKey::EcdsaP256Sha256(key.try_into().unwrap())
+                PublicKey::EcdsaP256Sha256(key.try_into().unwrap())
             }
             SecAlg::ECDSAP384SHA384 => {
                 let key = self.pkey.ec_key().unwrap();
@@ -186,48 +216,72 @@ impl SecretKey {
                     .public_key()
                     .to_bytes(key.group(), form, &mut ctx)
                     .unwrap();
-                generic::PublicKey::EcdsaP384Sha384(key.try_into().unwrap())
+                PublicKey::EcdsaP384Sha384(key.try_into().unwrap())
             }
             SecAlg::ED25519 => {
                 let key = self.pkey.raw_public_key().unwrap();
-                generic::PublicKey::Ed25519(key.try_into().unwrap())
+                PublicKey::Ed25519(key.try_into().unwrap())
             }
             SecAlg::ED448 => {
                 let key = self.pkey.raw_public_key().unwrap();
-                generic::PublicKey::Ed448(key.try_into().unwrap())
+                PublicKey::Ed448(key.try_into().unwrap())
             }
             _ => unreachable!(),
         }
     }
-}
 
-impl Sign<Vec<u8>> for SecretKey {
-    type Error = openssl::error::ErrorStack;
-
-    fn algorithm(&self) -> SecAlg {
-        self.algorithm
-    }
-
-    fn sign(&self, data: &[u8]) -> Result<Vec<u8>, Self::Error> {
+    fn sign(&self, data: &[u8]) -> Signature {
         use openssl::hash::MessageDigest;
         use openssl::sign::Signer;
 
-        let mut signer = match self.algorithm {
+        match self.algorithm {
             SecAlg::RSASHA256 => {
-                Signer::new(MessageDigest::sha256(), &self.pkey)?
+                let mut s =
+                    Signer::new(MessageDigest::sha256(), &self.pkey).unwrap();
+                s.set_rsa_padding(openssl::rsa::Padding::PKCS1).unwrap();
+                let signature = s.sign_oneshot_to_vec(data).unwrap();
+                Signature::RsaSha256(signature.into_boxed_slice())
             }
             SecAlg::ECDSAP256SHA256 => {
-                Signer::new(MessageDigest::sha256(), &self.pkey)?
+                let mut s =
+                    Signer::new(MessageDigest::sha256(), &self.pkey).unwrap();
+                let signature = s.sign_oneshot_to_vec(data).unwrap();
+                // Convert from DER to the fixed representation.
+                let signature = EcdsaSig::from_der(&signature).unwrap();
+                let r = signature.r().to_vec_padded(32).unwrap();
+                let s = signature.s().to_vec_padded(32).unwrap();
+                let mut signature = Box::new([0u8; 64]);
+                signature[..32].copy_from_slice(&r);
+                signature[32..].copy_from_slice(&s);
+                Signature::EcdsaP256Sha256(signature)
             }
             SecAlg::ECDSAP384SHA384 => {
-                Signer::new(MessageDigest::sha384(), &self.pkey)?
+                let mut s =
+                    Signer::new(MessageDigest::sha384(), &self.pkey).unwrap();
+                let signature = s.sign_oneshot_to_vec(data).unwrap();
+                // Convert from DER to the fixed representation.
+                let signature = EcdsaSig::from_der(&signature).unwrap();
+                let r = signature.r().to_vec_padded(48).unwrap();
+                let s = signature.s().to_vec_padded(48).unwrap();
+                let mut signature = Box::new([0u8; 96]);
+                signature[..48].copy_from_slice(&r);
+                signature[48..].copy_from_slice(&s);
+                Signature::EcdsaP384Sha384(signature)
             }
-            SecAlg::ED25519 => Signer::new_without_digest(&self.pkey)?,
-            SecAlg::ED448 => Signer::new_without_digest(&self.pkey)?,
+            SecAlg::ED25519 => {
+                let mut s = Signer::new_without_digest(&self.pkey).unwrap();
+                let signature =
+                    s.sign_oneshot_to_vec(data).unwrap().into_boxed_slice();
+                Signature::Ed25519(signature.try_into().unwrap())
+            }
+            SecAlg::ED448 => {
+                let mut s = Signer::new_without_digest(&self.pkey).unwrap();
+                let signature =
+                    s.sign_oneshot_to_vec(data).unwrap().into_boxed_slice();
+                Signature::Ed448(signature.try_into().unwrap())
+            }
             _ => unreachable!(),
-        };
-
-        signer.sign_oneshot_to_vec(data)
+        }
     }
 }
 
@@ -268,15 +322,15 @@ pub fn generate(algorithm: SecAlg) -> Option<SecretKey> {
 
 /// An error in importing a key into OpenSSL.
 #[derive(Clone, Debug)]
-pub enum ImportError {
+pub enum FromGenericError {
     /// The requested algorithm was not supported.
     UnsupportedAlgorithm,
 
-    /// The provided secret key was invalid.
+    /// The key's parameters were invalid.
     InvalidKey,
 }
 
-impl fmt::Display for ImportError {
+impl fmt::Display for FromGenericError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(match self {
             Self::UnsupportedAlgorithm => "algorithm not supported",
@@ -285,17 +339,19 @@ impl fmt::Display for ImportError {
     }
 }
 
-impl std::error::Error for ImportError {}
+impl std::error::Error for FromGenericError {}
 
 #[cfg(test)]
 mod tests {
     use std::{string::String, vec::Vec};
 
     use crate::{
-        base::{iana::SecAlg, scan::IterScanner},
-        rdata::Dnskey,
-        sign::generic,
+        base::iana::SecAlg,
+        sign::{generic, Sign},
+        validate::PublicKey,
     };
+
+    use super::SecretKey;
 
     const KEYS: &[(SecAlg, u16)] = &[
         (SecAlg::RSASHA256, 27096),
@@ -316,25 +372,32 @@ mod tests {
     fn generated_roundtrip() {
         for &(algorithm, _) in KEYS {
             let key = super::generate(algorithm).unwrap();
-            let exp: generic::SecretKey<Vec<u8>> = key.export();
-            let imp = super::SecretKey::import(exp).unwrap();
-            assert!(key.pkey.public_eq(&imp.pkey));
+            let gen_key = key.to_generic();
+            let pub_key = key.public_key();
+            let equiv = SecretKey::from_generic(&gen_key, &pub_key).unwrap();
+            assert!(key.pkey.public_eq(&equiv.pkey));
         }
     }
 
     #[test]
     fn imported_roundtrip() {
-        type GenericKey = generic::SecretKey<Vec<u8>>;
-
         for &(algorithm, key_tag) in KEYS {
             let name = format!("test.+{:03}+{}", algorithm.to_int(), key_tag);
+
+            let path = format!("test-data/dnssec-keys/K{}.key", name);
+            let data = std::fs::read_to_string(path).unwrap();
+            let pub_key = PublicKey::from_dnskey_text(&data).unwrap();
+
             let path = format!("test-data/dnssec-keys/K{}.private", name);
             let data = std::fs::read_to_string(path).unwrap();
-            let imp = GenericKey::from_dns(&data).unwrap();
-            let key = super::SecretKey::import(imp).unwrap();
-            let exp: GenericKey = key.export();
+            let gen_key = generic::SecretKey::parse_from_bind(&data).unwrap();
+
+            let key = SecretKey::from_generic(&gen_key, &pub_key).unwrap();
+
+            let equiv = key.to_generic();
             let mut same = String::new();
-            exp.into_dns(&mut same).unwrap();
+            equiv.format_as_bind(&mut same).unwrap();
+
             let data = data.lines().collect::<Vec<_>>();
             let same = same.lines().collect::<Vec<_>>();
             assert_eq!(data, same);
@@ -342,32 +405,40 @@ mod tests {
     }
 
     #[test]
-    fn export_public() {
-        type GenericSecretKey = generic::SecretKey<Vec<u8>>;
-        type GenericPublicKey = generic::PublicKey<Vec<u8>>;
-
+    fn public_key() {
         for &(algorithm, key_tag) in KEYS {
             let name = format!("test.+{:03}+{}", algorithm.to_int(), key_tag);
 
             let path = format!("test-data/dnssec-keys/K{}.private", name);
             let data = std::fs::read_to_string(path).unwrap();
-            let sec_key = GenericSecretKey::from_dns(&data).unwrap();
-            let sec_key = super::SecretKey::import(sec_key).unwrap();
-            let pub_key: GenericPublicKey = sec_key.export_public();
+            let gen_key = generic::SecretKey::parse_from_bind(&data).unwrap();
 
             let path = format!("test-data/dnssec-keys/K{}.key", name);
-            let mut data = std::fs::read_to_string(path).unwrap();
-            // Remove a trailing comment, if any.
-            if let Some(pos) = data.bytes().position(|b| b == b';') {
-                data.truncate(pos);
-            }
-            // Skip '<domain-name> <record-class> <record-type>'
-            let data = data.split_ascii_whitespace().skip(3);
-            let mut data = IterScanner::new(data);
-            let dns_key: Dnskey<Vec<u8>> = Dnskey::scan(&mut data).unwrap();
+            let data = std::fs::read_to_string(path).unwrap();
+            let pub_key = PublicKey::from_dnskey_text(&data).unwrap();
 
-            assert_eq!(dns_key.key_tag(), key_tag);
-            assert_eq!(pub_key.into_dns::<Vec<u8>>(256), dns_key)
+            let key = SecretKey::from_generic(&gen_key, &pub_key).unwrap();
+
+            assert_eq!(key.public_key(), pub_key);
+        }
+    }
+
+    #[test]
+    fn sign() {
+        for &(algorithm, key_tag) in KEYS {
+            let name = format!("test.+{:03}+{}", algorithm.to_int(), key_tag);
+
+            let path = format!("test-data/dnssec-keys/K{}.private", name);
+            let data = std::fs::read_to_string(path).unwrap();
+            let gen_key = generic::SecretKey::parse_from_bind(&data).unwrap();
+
+            let path = format!("test-data/dnssec-keys/K{}.key", name);
+            let data = std::fs::read_to_string(path).unwrap();
+            let pub_key = PublicKey::from_dnskey_text(&data).unwrap();
+
+            let key = SecretKey::from_generic(&gen_key, &pub_key).unwrap();
+
+            let _ = key.sign(b"Hello, World!");
         }
     }
 }
