@@ -100,6 +100,10 @@ impl<Octs> Nsec3<Octs> {
         &self.next_owner
     }
 
+    pub fn set_next_owner(&mut self, next_owner: OwnerHash<Octs>) {
+        self.next_owner = next_owner;
+    }
+
     pub fn types(&self) -> &RtypeBitmap<Octs> {
         &self.types
     }
@@ -428,6 +432,10 @@ impl<Octs> Nsec3param<Octs> {
         &self.salt
     }
 
+    pub fn into_salt(self) -> Nsec3Salt<Octs> {
+        self.salt
+    }
+
     pub(super) fn convert_octets<Target>(
         self,
     ) -> Result<Nsec3param<Target>, Target::Error>
@@ -468,6 +476,35 @@ impl<Octs> Nsec3param<Octs> {
             u16::scan(scanner)?,
             Nsec3Salt::scan(scanner)?,
         ))
+    }
+}
+
+//--- Default
+
+impl<Octs> Default for Nsec3param<Octs>
+where
+    Octs: From<&'static [u8]>,
+{
+    /// Best practice default values for NSEC3 hashing.
+    ///
+    /// Per [RFC 9276] section 3.1:
+    ///
+    /// - _SHA-1, no extra iterations, empty salt._
+    ///
+    /// Per [RFC 5155] section 4.1.2:
+    ///
+    /// - _The Opt-Out flag is not used and is set to zero._
+    /// - _All other flags are reserved for future use, and must be zero._
+    ///
+    /// [RFC 5155]: https://www.rfc-editor.org/rfc/rfc5155.html
+    /// [RFC 9276]: https://www.rfc-editor.org/rfc/rfc9276.html
+    fn default() -> Self {
+        Self {
+            hash_algorithm: Nsec3HashAlg::SHA1,
+            flags: 0,
+            iterations: 0,
+            salt: Nsec3Salt::empty(),
+        }
     }
 }
 

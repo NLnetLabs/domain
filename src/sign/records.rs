@@ -1,17 +1,30 @@
 //! Actual signing.
+use core::convert::From;
+use core::fmt::Display;
 
-use super::key::SigningKey;
-use crate::base::cmp::CanonicalOrd;
-use crate::base::iana::{Class, Rtype};
-use crate::base::name::ToName;
-use crate::base::rdata::{ComposeRecordData, RecordData};
-use crate::base::record::Record;
-use crate::base::Ttl;
-use crate::rdata::dnssec::{ProtoRrsig, RtypeBitmap, Timestamp};
-use crate::rdata::{Dnskey, Ds, Nsec, Rrsig};
-use octseq::builder::{EmptyBuilder, FromBuilder, OctetsBuilder, Truncate};
+use std::fmt::Debug;
+use std::string::String;
 use std::vec::Vec;
 use std::{fmt, io, slice};
+
+use octseq::builder::{EmptyBuilder, FromBuilder, OctetsBuilder, Truncate};
+use octseq::{FreezeBuilder, OctetsFrom};
+
+use crate::base::cmp::CanonicalOrd;
+use crate::base::iana::{Class, Nsec3HashAlg, Rtype};
+use crate::base::name::{ToLabelIter, ToName};
+use crate::base::rdata::{ComposeRecordData, RecordData};
+use crate::base::record::Record;
+use crate::base::{Name, NameBuilder, Ttl};
+use crate::rdata::dnssec::{
+    ProtoRrsig, RtypeBitmap, RtypeBitmapBuilder, Timestamp,
+};
+use crate::rdata::nsec3::{Nsec3Salt, OwnerHash};
+use crate::rdata::{Dnskey, Ds, Nsec, Nsec3, Nsec3param, Rrsig};
+use crate::utils::base32;
+
+use super::key::SigningKey;
+use super::ring::{nsec3_hash, Nsec3HashError};
 
 //------------ SortedRecords -------------------------------------------------
 
@@ -243,6 +256,239 @@ impl<N, D> SortedRecords<N, D> {
         res
     }
 
+    /// Generate [RFC5155] NSEC3 and NSEC3PARAM records for this record set.
+    ///
+    /// This function does NOT enforce use of current best practice settings,
+    /// as defined by [RFC 5155], [RFC 9077] and [RFC 9276] which state that:
+    ///
+    /// - The `ttl` should be the _"lesser of the MINIMUM field of the zone
+    ///   SOA RR and the TTL of the zone SOA RR itself"_.
+    ///
+    /// - The `params` should be set to _"SHA-1, no extra iterations, empty
+    ///   salt"_ and zero flags. See `Nsec3param::default()`.
+    ///
+    /// [RFC 5155]: https://www.rfc-editor.org/rfc/rfc5155.html
+    /// [RFC 9077]: https://www.rfc-editor.org/rfc/rfc9077.html
+    /// [RFC 9276]: https://www.rfc-editor.org/rfc/rfc9276.html
+    pub fn nsec3s<Octets, OctetsMut>(
+        &self,
+        apex: &FamilyName<N>,
+        ttl: Ttl,
+        params: Nsec3param<Octets>,
+        opt_out: bool,
+    ) -> Result<Nsec3Records<N, Octets>, Nsec3HashError>
+    where
+        N: ToName + Clone + From<Name<Octets>> + Display,
+        N: From<Name<<OctetsMut as FreezeBuilder>::Octets>>,
+        D: RecordData,
+        Octets: FromBuilder + OctetsFrom<Vec<u8>> + Clone + Default,
+        Octets::Builder: EmptyBuilder + Truncate + AsRef<[u8]> + AsMut<[u8]>,
+        <Octets::Builder as OctetsBuilder>::AppendError: Debug,
+        OctetsMut: OctetsBuilder
+            + AsRef<[u8]>
+            + AsMut<[u8]>
+            + EmptyBuilder
+            + FreezeBuilder,
+    {
+        // TODO:
+        //   - Handle name collisions? (see RFC 5155 7.1 Zone Signing)
+        //   - RFC 5155 section 2 Backwards compatibility:
+        //     Reject old algorithms? if not, map 3 to 6 and 5 to 7, or reject
+        //     use of 3 and 5?
+
+        // RFC 5155 7.1 step 5: _"Sort the set of NSEC3 RRs into hash order."
+        // We store the NSEC3s as we create them in a self-sorting vec.
+        let mut nsec3s = SortedRecords::new();
+
+        // The owner name of a zone cut if we currently are at or below one.
+        let mut cut: Option<FamilyName<N>> = None;
+
+        let mut families = self.families();
+
+        // Since the records are ordered, the first family is the apex --
+        // we can skip everything before that.
+        families.skip_before(apex);
+
+        // We also need the apex for the last NSEC.
+        let apex_owner = families.first_owner().clone();
+        let apex_label_count = apex_owner.iter_labels().count();
+
+        for family in families {
+            // If the owner is out of zone, we have moved out of our zone and
+            // are done.
+            if !family.is_in_zone(apex) {
+                break;
+            }
+
+            // If the family is below a zone cut, we must ignore it.
+            if let Some(ref cut) = cut {
+                if family.owner().ends_with(cut.owner()) {
+                    continue;
+                }
+            }
+
+            // A copy of the family name. We’ll need it later.
+            let name = family.family_name().cloned();
+
+            // If this family is the parent side of a zone cut, we keep the
+            // family name for later. This also means below that if
+            // `cut.is_some()` we are at the parent side of a zone.
+            cut = if family.is_zone_cut(apex) {
+                Some(name.clone())
+            } else {
+                None
+            };
+
+            // RFC 5155 7.1 step 2:
+            //   "If Opt-Out is being used, owner names of unsigned
+            //    delegations MAY be excluded."
+            let has_ds = family.records().any(|rec| rec.rtype() == Rtype::DS);
+            if cut.is_some() && !has_ds && opt_out {
+                continue;
+            }
+
+            // RFC 5155 7.1 step 4:
+            //   "If the difference in number of labels between the apex and
+            //    the original owner name is greater than 1, additional NSEC3
+            //    RRs need to be added for every empty non-terminal between
+            //    the apex and the original owner name."
+            let distance_to_root = name.owner().iter_labels().count();
+            let distance_to_apex = distance_to_root - apex_label_count;
+            if distance_to_apex > 1 {
+                // Are there any empty nodes between this node and the apex?
+                // The zone file records are already sorted so if all of the
+                // parent labels had records at them, i.e. they were non-empty
+                // then non_empty_label_count would be equal to label_distance.
+                // If it is less that means there are ENTs between us and the
+                // last non-empty label in our ancestor path to the apex.
+
+                // Walk from the owner name down the tree of labels from the
+                // last known non-empty non-terminal label, extending the name
+                // each time by one label until we get to the current name.
+
+                // Given a.b.c.mail.example.com where:
+                //   - example.com is the apex owner
+                //   - mail.example.com was the last non-empty non-terminal
+                // This loop will construct the names:
+                //   - c.mail.example.com
+                //   - b.c.mail.example.com
+                // It will NOT construct the last name as that will be dealt
+                // with in the next outer loop iteration.
+                //   - a.b.c.mail.example.com
+                for n in (1..distance_to_apex - 1).rev() {
+                    let rev_label_it = name.owner().iter_labels().skip(n);
+
+                    // Create next longest ENT name.
+                    let mut builder = NameBuilder::<OctetsMut>::new();
+                    for label in rev_label_it.take(distance_to_apex - n) {
+                        builder.append_label(label.as_slice()).unwrap();
+                    }
+                    let name =
+                        builder.append_origin(&apex_owner).unwrap().into();
+
+                    // Create the type bitmap, empty for an ENT NSEC3.
+                    let bitmap = RtypeBitmap::<Octets>::builder();
+
+                    let rec = Self::mk_nsec3(
+                        &name,
+                        params.hash_algorithm(),
+                        params.flags(),
+                        params.iterations(),
+                        params.salt(),
+                        &apex_owner,
+                        bitmap,
+                        ttl,
+                    )?;
+
+                    // Store the record by order of its owner name.
+                    let _ = nsec3s.insert(rec);
+                }
+            }
+
+            // Create the type bitmap, assume there will be an RRSIG and an
+            // NSEC3PARAM.
+            let mut bitmap = RtypeBitmap::<Octets>::builder();
+
+            // Authoritative RRsets will be signed.
+            if cut.is_none() || has_ds {
+                bitmap.add(Rtype::RRSIG).unwrap();
+            }
+
+            // RFC 5155 7.1 step 3:
+            //   "For each RRSet at the original owner name, set the
+            //    corresponding bit in the Type Bit Maps field."
+            for rrset in family.rrsets() {
+                bitmap.add(rrset.rtype()).unwrap();
+            }
+
+            if distance_to_apex == 0 {
+                bitmap.add(Rtype::NSEC3PARAM).unwrap();
+            }
+
+            // RFC 5155 7.1 step 2:
+            //   "If Opt-Out is being used, set the Opt-Out bit to one."
+            let mut nsec3_flags = params.flags();
+            if opt_out {
+                // Set the Opt-Out flag.
+                nsec3_flags |= 0b0000_0001;
+            }
+
+            let rec = Self::mk_nsec3(
+                name.owner(),
+                params.hash_algorithm(),
+                nsec3_flags,
+                params.iterations(),
+                params.salt(),
+                &apex_owner,
+                bitmap,
+                ttl,
+            )?;
+
+            let _ = nsec3s.insert(rec);
+        }
+
+        // RFC 5155 7.1 step 7:
+        //   "In each NSEC3 RR, insert the next hashed owner name by using the
+        //    value of the next NSEC3 RR in hash order.  The next hashed owner
+        //    name of the last NSEC3 RR in the zone contains the value of the
+        //    hashed owner name of the first NSEC3 RR in the hash order."
+        for i in 1..=nsec3s.records.len() {
+            let next_i = if i == nsec3s.records.len() { 0 } else { i };
+            let cur_owner = nsec3s.records[next_i].owner();
+            let name: Name<Octets> = cur_owner.try_to_name().unwrap();
+            let label = name.iter_labels().next().unwrap();
+            let owner_hash = if let Ok(hash_octets) =
+                base32::decode_hex(&format!("{label}"))
+            {
+                OwnerHash::<Octets>::from_octets(hash_octets).unwrap()
+            } else {
+                OwnerHash::<Octets>::from_octets(name.as_octets().clone())
+                    .unwrap()
+            };
+            let last_rec = &mut nsec3s.records[i - 1];
+            let last_nsec3: &mut Nsec3<Octets> = last_rec.data_mut();
+            last_nsec3.set_next_owner(owner_hash.clone());
+        }
+
+        // RFC 5155 7.1 step 8:
+        //   "Finally, add an NSEC3PARAM RR with the same Hash Algorithm,
+        //    Iterations, and Salt fields to the zone apex."
+        let nsec3param_rec = Record::new(
+            apex.owner().try_to_name::<Octets>().unwrap().into(),
+            Class::IN,
+            ttl,
+            params,
+        );
+
+        // RFC 5155 7.1 after step 8:
+        //   "If a hash collision is detected, then a new salt has to be
+        //    chosen, and the signing process restarted."
+        //
+        // TOOD
+
+        Ok(Nsec3Records::new(nsec3s.records, nsec3param_rec))
+    }
+
     pub fn write<W>(&self, target: &mut W) -> Result<(), io::Error>
     where
         N: fmt::Display,
@@ -253,6 +499,81 @@ impl<N, D> SortedRecords<N, D> {
             writeln!(target, "{}", record)?;
         }
         Ok(())
+    }
+}
+
+/// Helper functions used to create NSEC3 records per RFC 5155.
+impl<N, D> SortedRecords<N, D> {
+    fn mk_nsec3<Octets>(
+        name: &N,
+        alg: Nsec3HashAlg,
+        flags: u8,
+        iterations: u16,
+        salt: &Nsec3Salt<Octets>,
+        apex_owner: &N,
+        bitmap: RtypeBitmapBuilder<<Octets as FromBuilder>::Builder>,
+        ttl: Ttl,
+    ) -> Result<Record<N, Nsec3<Octets>>, Nsec3HashError>
+    where
+        N: ToName + From<Name<Octets>>,
+        Octets: FromBuilder + Clone + Default,
+        <Octets as FromBuilder>::Builder:
+            EmptyBuilder + AsRef<[u8]> + AsMut<[u8]> + Truncate,
+    {
+        // Create the base32hex ENT NSEC owner name.
+        let base32hex_label =
+            Self::mk_base32hex_label_for_name(&name, alg, iterations, salt)?;
+
+        // Prepend it to the zone name to create the NSEC3 owner
+        // name.
+        let owner_name = Self::append_origin(base32hex_label, apex_owner);
+
+        // RFC 5155 7.1. step 2:
+        //   "The Next Hashed Owner Name field is left blank for the moment."
+        // Create a placeholder next owner, we'll fix it later.
+        let placeholder_next_owner =
+            OwnerHash::<Octets>::from_octets(Octets::default()).unwrap();
+
+        // Create an NSEC3 record.
+        let nsec3 = Nsec3::new(
+            alg,
+            flags,
+            iterations,
+            salt.clone(),
+            placeholder_next_owner,
+            bitmap.finalize(),
+        );
+
+        Ok(Record::new(owner_name, Class::IN, ttl, nsec3))
+    }
+
+    fn append_origin<Octets>(base32hex_label: String, apex_owner: &N) -> N
+    where
+        N: ToName + From<Name<Octets>>,
+        Octets: FromBuilder,
+        <Octets as FromBuilder>::Builder:
+            EmptyBuilder + AsRef<[u8]> + AsMut<[u8]>,
+    {
+        let mut builder = NameBuilder::<Octets::Builder>::new();
+        builder.append_label(base32hex_label.as_bytes()).unwrap();
+        let owner_name = builder.append_origin(apex_owner).unwrap();
+        let owner_name: N = owner_name.into();
+        owner_name
+    }
+
+    fn mk_base32hex_label_for_name<Octets>(
+        name: &N,
+        alg: Nsec3HashAlg,
+        iterations: u16,
+        salt: &Nsec3Salt<Octets>,
+    ) -> Result<String, Nsec3HashError>
+    where
+        N: ToName,
+        Octets: AsRef<[u8]>,
+    {
+        let hash_octets: Vec<u8> =
+            nsec3_hash(name, alg, iterations, salt)?.into_octets();
+        Ok(base32::encode_string_hex(&hash_octets).to_ascii_lowercase())
     }
 }
 
@@ -295,6 +616,29 @@ where
     fn extend<T: IntoIterator<Item = Record<N, D>>>(&mut self, iter: T) {
         for item in iter {
             let _ = self.insert(item);
+        }
+    }
+}
+
+//------------ Nsec3Records ---------------------------------------------------
+
+/// The set of records created by [`SortedRecords::nsec3s()`].
+pub struct Nsec3Records<N, Octets> {
+    /// The NSEC3 records.
+    pub nsec3_recs: Vec<Record<N, Nsec3<Octets>>>,
+
+    /// The NSEC3PARAM record.
+    pub nsec3param_rec: Record<N, Nsec3param<Octets>>,
+}
+
+impl<N, Octets> Nsec3Records<N, Octets> {
+    pub fn new(
+        nsec3_recs: Vec<Record<N, Nsec3<Octets>>>,
+        nsec3param_rec: Record<N, Nsec3param<Octets>>,
+    ) -> Self {
+        Self {
+            nsec3_recs,
+            nsec3param_rec,
         }
     }
 }
