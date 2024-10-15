@@ -80,7 +80,8 @@ impl<N, D> SortedRecords<N, D> {
         apex: &FamilyName<ApexName>,
         expiration: Timestamp,
         inception: Timestamp,
-        key: Key,
+        ksk: Key,
+        zsk: Option<Key>,
     ) -> Result<Vec<Record<N, Rrsig<Octets, ApexName>>>, Key::Error>
     where
         N: ToName + Clone,
@@ -89,6 +90,15 @@ impl<N, D> SortedRecords<N, D> {
         Octets: From<Key::Signature> + AsRef<[u8]>,
         ApexName: ToName + Clone,
     {
+        let csk = zsk.is_none();
+        let zsk = zsk.as_ref().unwrap_or(&ksk);
+        let Ok(ksk_dnskey) = ksk.dnskey() else {
+            unreachable!()
+        }; // # SigningKey doesn't implement Debug
+        let Ok(zsk_dnskey) = zsk.dnskey() else {
+            unreachable!()
+        }; // # SigningKey doesn't implement Debug
+
         let mut res = Vec::new();
         let mut buf = Vec::new();
 
@@ -146,38 +156,66 @@ impl<N, D> SortedRecords<N, D> {
 
                 // Create the signature.
                 buf.clear();
-                let rrsig = ProtoRrsig::new(
-                    rrset.rtype(),
-                    key.algorithm()?,
-                    name.owner().rrsig_label_count(),
-                    rrset.ttl(),
-                    expiration,
-                    inception,
-                    key.key_tag()?,
-                    apex.owner().clone(),
-                );
-                rrsig.compose_canonical(&mut buf).unwrap();
-                for record in rrset.iter() {
-                    record.compose_canonical(&mut buf).unwrap();
+
+                if rrset.rtype() == Rtype::DNSKEY {
+                    let rrsig = ProtoRrsig::new(
+                        rrset.rtype(),
+                        ksk_dnskey.algorithm(),
+                        name.owner().rrsig_label_count(),
+                        rrset.ttl(),
+                        expiration,
+                        inception,
+                        ksk_dnskey.key_tag(),
+                        apex.owner().clone(),
+                    );
+                    rrsig.compose_canonical(&mut buf).unwrap();
+                    for record in rrset.iter() {
+                        record.compose_canonical(&mut buf).unwrap();
+                    }
+                    res.push(Record::new(
+                        name.owner().clone(),
+                        name.class(),
+                        rrset.ttl(),
+                        rrsig
+                            .into_rrsig(ksk.sign(&buf)?.into())
+                            .expect("long signature"),
+                    ));
                 }
 
-                // Create and push the RRSIG record.
-                res.push(Record::new(
-                    name.owner().clone(),
-                    name.class(),
-                    rrset.ttl(),
-                    rrsig
-                        .into_rrsig(key.sign(&buf)?.into())
-                        .expect("long signature"),
-                ));
+                if rrset.rtype() != Rtype::DNSKEY || csk {
+                    let rrsig = ProtoRrsig::new(
+                        rrset.rtype(),
+                        zsk_dnskey.algorithm(),
+                        name.owner().rrsig_label_count(),
+                        rrset.ttl(),
+                        expiration,
+                        inception,
+                        zsk_dnskey.key_tag(),
+                        apex.owner().clone(),
+                    );
+                    rrsig.compose_canonical(&mut buf).unwrap();
+                    for record in rrset.iter() {
+                        record.compose_canonical(&mut buf).unwrap();
+                    }
+
+                    // Create and push the RRSIG record.
+                    res.push(Record::new(
+                        name.owner().clone(),
+                        name.class(),
+                        rrset.ttl(),
+                        rrsig
+                            .into_rrsig(zsk.sign(&buf)?.into())
+                            .expect("long signature"),
+                    ));
+                }
             }
         }
         Ok(res)
     }
 
-    pub fn nsecs<Octets, ApexName>(
+    pub fn nsecs<Octets>(
         &self,
-        apex: &FamilyName<ApexName>,
+        apex: &FamilyName<N>,
         ttl: Ttl,
     ) -> Vec<Record<N, Nsec<Octets, N>>>
     where
@@ -185,8 +223,7 @@ impl<N, D> SortedRecords<N, D> {
         D: RecordData,
         Octets: FromBuilder,
         Octets::Builder: EmptyBuilder + Truncate + AsRef<[u8]> + AsMut<[u8]>,
-        <Octets::Builder as OctetsBuilder>::AppendError: fmt::Debug,
-        ApexName: ToName,
+        <Octets::Builder as OctetsBuilder>::AppendError: Debug,
     {
         let mut res = Vec::new();
 
@@ -242,6 +279,7 @@ impl<N, D> SortedRecords<N, D> {
             let mut bitmap = RtypeBitmap::<Octets>::builder();
             // Assume there’s gonna be an RRSIG.
             bitmap.add(Rtype::RRSIG).unwrap();
+            bitmap.add(Rtype::NSEC).unwrap();
             for rrset in family.rrsets() {
                 bitmap.add(rrset.rtype()).unwrap()
             }
@@ -491,13 +529,20 @@ impl<N, D> SortedRecords<N, D> {
 
     pub fn write<W>(&self, target: &mut W) -> Result<(), io::Error>
     where
-        N: fmt::Display,
-        D: RecordData + fmt::Display,
+        N: fmt::Display + Eq,
+        D: RecordData + fmt::Display + Clone,
         W: io::Write,
     {
-        for record in &self.records {
-            writeln!(target, "{}", record)?;
+        for record in self.records.iter().filter(|r| r.rtype() == Rtype::SOA)
+        {
+            writeln!(target, "{record}")?;
         }
+
+        for record in self.records.iter().filter(|r| r.rtype() != Rtype::SOA)
+        {
+            writeln!(target, "{record}")?;
+        }
+
         Ok(())
     }
 }
