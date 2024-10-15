@@ -58,6 +58,7 @@ use core::{cmp, fmt, mem, str};
 
 #[cfg(feature = "std")]
 use std::collections::HashMap;
+#[cfg(feature = "std")]
 use std::sync::Arc;
 
 use bytes::{Bytes, BytesMut};
