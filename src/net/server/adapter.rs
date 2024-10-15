@@ -149,12 +149,15 @@ where
                     // The request failed. Create a ServFail response and
                     // add an EDE that describes the error.
                     let msg = builder.as_message();
-                    let mut cr = CR::from_message(&msg).unwrap();
+                    let mut cr = CR::from_message(&msg).expect(
+                        "CR should be able to handle an error response",
+                    );
                     if let Ok(ede) = ExtendedError::<Vec<u8>>::new_with_str(
                         ExtendedErrorCode::OTHER,
                         &e.to_string(),
                     ) {
-                        cr.add_opt(&ede).unwrap();
+                        cr.add_opt(&ede)
+                            .expect("Adding an ede should not fail");
                     }
                     return Ok(cr);
                 }
@@ -226,12 +229,15 @@ where
                     // The request failed. Create a ServFail response and
                     // add an EDE that describes the error.
                     let msg = builder.as_message();
-                    let mut cr = CR::from_message(&msg).unwrap();
+                    let mut cr = CR::from_message(&msg).expect(
+                        "CR should be able to handle an error response",
+                    );
                     if let Ok(ede) = ExtendedError::<Vec<u8>>::new_with_str(
                         ExtendedErrorCode::OTHER,
                         &e.to_string(),
                     ) {
-                        cr.add_opt(&ede).unwrap();
+                        cr.add_opt(&ede)
+                            .expect("Adding an ede should not fail");
                     }
                     return Ok(cr);
                 }
