@@ -227,8 +227,12 @@ impl<N, D> SortedRecords<N, D> {
             }
 
             let mut bitmap = RtypeBitmap::<Octets>::builder();
-            // Assume there’s gonna be an RRSIG.
+            // RFC 4035 section 2.3:
+            //  "The type bitmap of every NSEC resource record in a signed
+            //   zone MUST indicate the presence of both the NSEC record
+            //   itself and its corresponding RRSIG record."
             bitmap.add(Rtype::RRSIG).unwrap();
+            bitmap.add(Rtype::NSEC).unwrap();
             for rrset in family.rrsets() {
                 bitmap.add(rrset.rtype()).unwrap()
             }
