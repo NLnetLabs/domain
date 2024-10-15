@@ -504,6 +504,7 @@ impl<N, D> SortedRecords<N, D> {
 
 /// Helper functions used to create NSEC3 records per RFC 5155.
 impl<N, D> SortedRecords<N, D> {
+    #[allow(clippy::too_many_arguments)]
     fn mk_nsec3<Octets>(
         name: &N,
         alg: Nsec3HashAlg,
@@ -522,7 +523,7 @@ impl<N, D> SortedRecords<N, D> {
     {
         // Create the base32hex ENT NSEC owner name.
         let base32hex_label =
-            Self::mk_base32hex_label_for_name(&name, alg, iterations, salt)?;
+            Self::mk_base32hex_label_for_name(name, alg, iterations, salt)?;
 
         // Prepend it to the zone name to create the NSEC3 owner
         // name.
