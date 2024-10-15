@@ -15,8 +15,8 @@ use tokio::time::Instant;
 use crate::base::opt::AllOptData;
 use crate::base::{Message, Name};
 use crate::dep::octseq::Octets;
-use crate::net::client::request::ComposeRequest;
-use crate::net::client::request::{Error, RequestMessage};
+use crate::net::client::request;
+use crate::net::client::request::{ComposeRequest, RequestMessage};
 
 //------------ UdpTransportContext -------------------------------------------
 
@@ -301,7 +301,7 @@ where
 impl<Octs: Octets + Send + Sync + Debug + Clone> TryFrom<Request<Octs>>
     for RequestMessage<Octs>
 {
-    type Error = Error;
+    type Error = request::Error;
 
     fn try_from(req: Request<Octs>) -> Result<Self, Self::Error> {
         // Copy the ECS option from the message. This is just an example,

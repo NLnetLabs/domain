@@ -4,15 +4,18 @@
 #![warn(clippy::missing_docs_in_private_items)]
 
 use super::message::Request;
-use super::single_service::SingleService;
+use super::service::ServiceError;
+use super::single_service::{ComposeReply, SingleService};
+use super::util::mk_error_response;
+use crate::base::iana::{ExtendedErrorCode, OptRcode};
+use crate::base::message_builder::AdditionalBuilder;
+use crate::base::opt::ExtendedError;
+use crate::base::StreamTarget;
 use crate::base::{Name, ToName};
-use crate::dep::octseq::OctetsBuilder;
-use crate::dep::octseq::{EmptyBuilder, FromBuilder, Octets};
-use crate::net::client::request::Error;
+use crate::dep::octseq::{EmptyBuilder, FromBuilder, Octets, OctetsBuilder};
 use std::boxed::Box;
 use std::convert::Infallible;
-use std::future::ready;
-use std::future::Future;
+use std::future::{ready, Future};
 use std::pin::Pin;
 use std::vec::Vec;
 
@@ -67,12 +70,12 @@ impl<Octs, RequestOcts, CR> SingleService<RequestOcts, CR>
 where
     Octs: AsRef<[u8]>,
     RequestOcts: Send + Sync,
-    CR: Send + Sync + 'static,
+    CR: ComposeReply + Send + Sync + 'static,
 {
     fn call(
         &self,
         request: Request<RequestOcts>,
-    ) -> Pin<Box<dyn Future<Output = Result<CR, Error>> + Send + Sync>>
+    ) -> Pin<Box<dyn Future<Output = Result<CR, ServiceError>> + Send + Sync>>
     where
         RequestOcts: AsRef<[u8]> + Octets,
     {
@@ -93,8 +96,19 @@ where
         {
             Some(el) => el,
             None => {
-                // Nothing, return InternalError
-                return Box::pin(ready(Err(Error::NoTransportAvailable)));
+                // We can't find a suitable upstream. Generate a SERVFAIL
+                // reply with an EDE.
+                let builder: AdditionalBuilder<StreamTarget<Vec<u8>>> =
+                    mk_error_response(&request.message(), OptRcode::SERVFAIL);
+                let msg = builder.as_message();
+                let mut cr = CR::from_message(&msg).unwrap();
+                if let Ok(ede) = ExtendedError::<Vec<u8>>::new_with_str(
+                    ExtendedErrorCode::OTHER,
+                    "no upstream for request",
+                ) {
+                    cr.add_opt(&ede).unwrap();
+                }
+                return Box::pin(ready(Ok(cr)));
             }
         };
 

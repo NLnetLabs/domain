@@ -14,14 +14,22 @@
 use super::message::Request;
 use super::service::{CallResult, Service, ServiceError, ServiceResult};
 use super::single_service::{ComposeReply, SingleService};
+use super::util::mk_error_response;
+use crate::base::iana::{ExtendedErrorCode, OptRcode};
+use crate::base::message_builder::AdditionalBuilder;
+use crate::base::opt::ExtendedError;
+use crate::base::StreamTarget;
 use crate::dep::octseq::Octets;
-use crate::net::client::request::{Error, RequestMessage, SendRequest};
+use crate::net::client::request::{
+    ComposeRequest, RequestMessage, SendRequest,
+};
 use futures_util::stream::{once, Once};
 use std::boxed::Box;
 use std::fmt::Debug;
 use std::future::{ready, Future, Ready};
 use std::marker::PhantomData;
 use std::pin::Pin;
+use std::string::ToString;
 use std::vec::Vec;
 
 /// Provide a [Service] trait for an object that implements [SingleService].
@@ -118,17 +126,42 @@ where
     fn call(
         &self,
         request: Request<RequestOcts>,
-    ) -> Pin<Box<dyn Future<Output = Result<CR, Error>> + Send + Sync>>
+    ) -> Pin<Box<dyn Future<Output = Result<CR, ServiceError>> + Send + Sync>>
     where
         RequestOcts: AsRef<[u8]>,
     {
-        let req = match request.try_into() {
+        let req: RequestMessage<RequestOcts> = match request.try_into() {
             Ok(req) => req,
-            Err(e) => return Box::pin(ready(Err(e))),
+            Err(_) => {
+                // Can this fail? Should the request be checked earlier.
+                // Just return ServFail.
+                return Box::pin(ready(Err(ServiceError::InternalError)));
+            }
         };
+
+        // Prepare for an error. It is best to borrow req here before we
+        // pass it to send_request.
+        let builder: AdditionalBuilder<StreamTarget<Vec<u8>>> =
+            mk_error_response(&req.to_message().unwrap(), OptRcode::SERVFAIL);
+
         let mut gr = self.conn.send_request(req);
         let fut = async move {
-            let msg = gr.get_response().await?;
+            let msg = match gr.get_response().await {
+                Ok(msg) => msg,
+                Err(e) => {
+                    // The request failed. Create a ServFail response and
+                    // add an EDE that describes the error.
+                    let msg = builder.as_message();
+                    let mut cr = CR::from_message(&msg).unwrap();
+                    if let Ok(ede) = ExtendedError::<Vec<u8>>::new_with_str(
+                        ExtendedErrorCode::OTHER,
+                        &e.to_string(),
+                    ) {
+                        cr.add_opt(&ede).unwrap();
+                    }
+                    return Ok(cr);
+                }
+            };
             Ok(CR::from_message(&msg)?)
         };
         Box::pin(fut)
@@ -171,17 +204,42 @@ where
     fn call(
         &self,
         request: Request<RequestOcts>,
-    ) -> Pin<Box<dyn Future<Output = Result<CR, Error>> + Send + Sync>>
+    ) -> Pin<Box<dyn Future<Output = Result<CR, ServiceError>> + Send + Sync>>
     where
         RequestOcts: AsRef<[u8]>,
     {
-        let req = match request.try_into() {
+        let req: RequestMessage<RequestOcts> = match request.try_into() {
             Ok(req) => req,
-            Err(e) => return Box::pin(ready(Err(e))),
+            Err(_) => {
+                // Can this fail? Should the request be checked earlier.
+                // Just return ServFail.
+                return Box::pin(ready(Err(ServiceError::InternalError)));
+            }
         };
+
+        // Prepare for an error. It is best to borrow req here before we
+        // pass it to send_request.
+        let builder: AdditionalBuilder<StreamTarget<Vec<u8>>> =
+            mk_error_response(&req.to_message().unwrap(), OptRcode::SERVFAIL);
+
         let mut gr = self.conn.send_request(req);
         let fut = async move {
-            let msg = gr.get_response().await?;
+            let msg = match gr.get_response().await {
+                Ok(msg) => msg,
+                Err(e) => {
+                    // The request failed. Create a ServFail response and
+                    // add an EDE that describes the error.
+                    let msg = builder.as_message();
+                    let mut cr = CR::from_message(&msg).unwrap();
+                    if let Ok(ede) = ExtendedError::<Vec<u8>>::new_with_str(
+                        ExtendedErrorCode::OTHER,
+                        &e.to_string(),
+                    ) {
+                        cr.add_opt(&ede).unwrap();
+                    }
+                    return Ok(cr);
+                }
+            };
             Ok(CR::from_message(&msg)?)
         };
         Box::pin(fut)

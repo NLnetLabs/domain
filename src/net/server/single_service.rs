@@ -10,11 +10,11 @@
 #![warn(clippy::missing_docs_in_private_items)]
 
 use super::message::Request;
+use super::service::ServiceError;
 use crate::base::message_builder::AdditionalBuilder;
 use crate::base::opt::{AllOptData, ComposeOptData, LongOptData, OptRecord};
 use crate::base::{Message, MessageBuilder, ParsedName, Rtype, StreamTarget};
 use crate::dep::octseq::Octets;
-use crate::net::client::request::Error;
 use crate::rdata::AllRecordData;
 use std::boxed::Box;
 use std::future::Future;
@@ -29,7 +29,7 @@ pub trait SingleService<RequestOcts: Send + Sync, CR> {
     fn call(
         &self,
         request: Request<RequestOcts>,
-    ) -> Pin<Box<dyn Future<Output = Result<CR, Error>> + Send + Sync>>
+    ) -> Pin<Box<dyn Future<Output = Result<CR, ServiceError>> + Send + Sync>>
     where
         RequestOcts: AsRef<[u8]> + Octets;
 }
@@ -37,15 +37,21 @@ pub trait SingleService<RequestOcts: Send + Sync, CR> {
 /// Trait for creating a reply message.
 pub trait ComposeReply {
     /// Start a reply from an existing message.
-    fn from_message<Octs>(msg: &Message<Octs>) -> Result<Self, Error>
+    fn from_message<Octs>(msg: &Message<Octs>) -> Result<Self, ServiceError>
     where
         Octs: AsRef<[u8]>,
         Self: Sized;
 
+    /// Add an EDNS option.
+    fn add_opt(
+        &mut self,
+        opt: &impl ComposeOptData,
+    ) -> Result<(), LongOptData>;
+
     /// Return the reply message as an AdditionalBuilder with a StreamTarget.
     fn additional_builder_stream_target(
         &self,
-    ) -> Result<AdditionalBuilder<StreamTarget<Vec<u8>>>, Error>;
+    ) -> Result<AdditionalBuilder<StreamTarget<Vec<u8>>>, ServiceError>;
 }
 
 /// Record changes to a Message for generating a reply message.
@@ -60,11 +66,8 @@ pub struct ReplyMessage {
 
 impl ReplyMessage {
     /// Add an option that is to be included in the final message.
-    fn add_opt(
-        &mut self,
-        opt: &impl ComposeOptData,
-    ) -> Result<(), LongOptData> {
-        self.opt_mut().push(opt).map_err(|e| e.unlimited_buf())
+    fn add_opt_impl(&mut self, opt: &impl ComposeOptData) {
+        self.opt_mut().push(opt).expect("push should not fail");
     }
 
     /// Returns a mutable reference to the OPT record.
@@ -76,12 +79,12 @@ impl ReplyMessage {
 }
 
 impl ComposeReply for ReplyMessage {
-    fn from_message<Octs>(msg: &Message<Octs>) -> Result<Self, Error>
+    fn from_message<Octs>(msg: &Message<Octs>) -> Result<Self, ServiceError>
     where
         Octs: AsRef<[u8]>,
     {
         let vec = msg.as_slice().to_vec();
-        let msg = Message::from_octets(vec)?;
+        let msg = Message::from_octets(vec).unwrap();
         let mut repl = Self { msg, opt: None };
 
         // As an example, copy any ECS option from the message.
@@ -97,19 +100,26 @@ impl ComposeReply for ReplyMessage {
             for opt in optrec.opt().iter::<AllOptData<_, _>>() {
                 let opt = opt?;
                 if let AllOptData::ClientSubnet(_ecs) = opt {
-                    repl.add_opt(&opt)?;
+                    repl.add_opt_impl(&opt);
                 }
                 if let AllOptData::ExtendedError(ref _ede) = opt {
-                    repl.add_opt(&opt)?;
+                    repl.add_opt_impl(&opt);
                 }
             }
         }
         Ok(repl)
     }
 
+    fn add_opt(
+        &mut self,
+        opt: &impl ComposeOptData,
+    ) -> Result<(), LongOptData> {
+        Ok(self.add_opt_impl(opt))
+    }
+
     fn additional_builder_stream_target(
         &self,
-    ) -> Result<AdditionalBuilder<StreamTarget<Vec<u8>>>, Error> {
+    ) -> Result<AdditionalBuilder<StreamTarget<Vec<u8>>>, ServiceError> {
         let source = &self.msg;
 
         let mut target = MessageBuilder::from_target(
