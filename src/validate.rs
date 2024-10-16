@@ -60,6 +60,11 @@ impl<Octs> Key<Octs> {
         &self.key
     }
 
+    /// The signing algorithm used.
+    pub fn algorithm(&self) -> SecAlg {
+        self.key.algorithm()
+    }
+
     /// Whether this is a zone signing key.
     ///
     /// From RFC 4034, section 2.1.1:
@@ -91,6 +96,26 @@ impl<Octs> Key<Octs> {
     /// > that cover RRsets.
     pub fn is_secure_entry_point(&self) -> bool {
         self.flags & (1 << 15) != 0
+    }
+
+    /// The key tag.
+    pub fn key_tag(&self) -> u16 {
+        // NOTE: RSA/MD5 uses a different algorithm.
+
+        // NOTE: A u32 can fit the sum of 65537 u16s without overflowing.  A
+        //   key can never exceed 64KiB anyway, so we won't even get close to
+        //   the limit.  Let's just add into a u32 and normalize it after.
+        let mut res = 0u32;
+
+        // Add basic DNSKEY fields.
+        res += self.flags as u32;
+        res += u16::from_be_bytes([3, self.algorithm().to_int()]) as u32;
+
+        // Add the raw key tag from the public key.
+        res += self.key.raw_key_tag();
+
+        // Normalize and return the result.
+        (res as u16).wrapping_add((res >> 16) as u16)
     }
 }
 
@@ -253,6 +278,32 @@ impl RawPublicKey {
             Self::Ed448(_) => SecAlg::ED448,
         }
     }
+
+    /// The raw key tag computation for this value.
+    fn raw_key_tag(&self) -> u32 {
+        fn compute(data: &[u8]) -> u32 {
+            data.chunks(2)
+                .map(|chunk| {
+                    let mut buf = [0u8; 2];
+                    // A 0 byte is appended for an incomplete chunk.
+                    buf[..chunk.len()].copy_from_slice(chunk);
+                    u16::from_be_bytes(buf) as u32
+                })
+                .sum()
+        }
+
+        match self {
+            Self::RsaSha1(k)
+            | Self::RsaSha1Nsec3Sha1(k)
+            | Self::RsaSha256(k)
+            | Self::RsaSha512(k) => k.raw_key_tag(),
+
+            Self::EcdsaP256Sha256(k) => compute(&k[1..]),
+            Self::EcdsaP384Sha384(k) => compute(&k[1..]),
+            Self::Ed25519(k) => compute(&**k),
+            Self::Ed448(k) => compute(&**k),
+        }
+    }
 }
 
 impl RawPublicKey {
@@ -365,6 +416,44 @@ pub struct RsaPublicKey {
 
     /// The public exponent.
     pub e: Box<[u8]>,
+}
+
+impl RsaPublicKey {
+    /// The raw key tag computation for this value.
+    fn raw_key_tag(&self) -> u32 {
+        let mut res = 0u32;
+
+        // Extended exponent lengths start with '00 (exp_len >> 8)', which is
+        // just zero for shorter exponents.  That doesn't affect the result,
+        // so let's just do it unconditionally.
+        res += (self.e.len() >> 8) as u32;
+        res += u16::from_be_bytes([self.e.len() as u8, self.e[0]]) as u32;
+
+        let mut chunks = self.e[1..].chunks_exact(2);
+        res += chunks
+            .by_ref()
+            .map(|chunk| u16::from_be_bytes(chunk.try_into().unwrap()) as u32)
+            .sum::<u32>();
+
+        let n = if !chunks.remainder().is_empty() {
+            res +=
+                u16::from_be_bytes([chunks.remainder()[0], self.n[0]]) as u32;
+            &self.n[1..]
+        } else {
+            &self.n
+        };
+
+        res += n
+            .chunks(2)
+            .map(|chunk| {
+                let mut buf = [0u8; 2];
+                buf[..chunk.len()].copy_from_slice(chunk);
+                u16::from_be_bytes(buf) as u32
+            })
+            .sum::<u32>();
+
+        res
+    }
 }
 
 impl RsaPublicKey {
@@ -929,6 +1018,14 @@ mod test {
     type Dnskey = crate::rdata::Dnskey<Vec<u8>>;
     type Rrsig = crate::rdata::Rrsig<Vec<u8>, Name>;
 
+    const KEYS: &[(SecAlg, u16)] = &[
+        (SecAlg::RSASHA256, 27096),
+        (SecAlg::ECDSAP256SHA256, 40436),
+        (SecAlg::ECDSAP384SHA384, 17013),
+        (SecAlg::ED25519, 43769),
+        (SecAlg::ED448, 34114),
+    ];
+
     // Returns current root KSK/ZSK for testing (2048b)
     fn root_pubkey() -> (Dnskey, Dnskey) {
         let ksk = base64::decode::<Vec<u8>>(
@@ -971,6 +1068,44 @@ mod test {
             Dnskey::new(257, 3, SecAlg::RSASHA256, ksk).unwrap(),
             Dnskey::new(256, 3, SecAlg::RSASHA256, zsk).unwrap(),
         )
+    }
+
+    #[test]
+    fn parse_dnskey_text() {
+        for &(algorithm, key_tag) in KEYS {
+            let name = format!("test.+{:03}+{}", algorithm.to_int(), key_tag);
+
+            let path = format!("test-data/dnssec-keys/K{}.key", name);
+            let data = std::fs::read_to_string(path).unwrap();
+            let _ = Key::<Vec<u8>>::parse_dnskey_text(&data).unwrap();
+        }
+    }
+
+    #[test]
+    fn key_tag() {
+        for &(algorithm, key_tag) in KEYS {
+            let name = format!("test.+{:03}+{}", algorithm.to_int(), key_tag);
+
+            let path = format!("test-data/dnssec-keys/K{}.key", name);
+            let data = std::fs::read_to_string(path).unwrap();
+            let key = Key::<Vec<u8>>::parse_dnskey_text(&data).unwrap();
+            assert_eq!(key.to_dnskey().key_tag(), key_tag);
+            assert_eq!(key.key_tag(), key_tag);
+        }
+    }
+
+    #[test]
+    fn dnskey_roundtrip() {
+        for &(algorithm, key_tag) in KEYS {
+            let name = format!("test.+{:03}+{}", algorithm.to_int(), key_tag);
+
+            let path = format!("test-data/dnssec-keys/K{}.key", name);
+            let data = std::fs::read_to_string(path).unwrap();
+            let key = Key::<Vec<u8>>::parse_dnskey_text(&data).unwrap();
+            let dnskey = key.to_dnskey().convert();
+            let same = Key::from_dnskey(key.owner().clone(), dnskey).unwrap();
+            assert_eq!(key.to_dnskey(), same.to_dnskey());
+        }
     }
 
     #[test]
