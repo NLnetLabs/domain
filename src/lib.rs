@@ -36,14 +36,14 @@
 #![cfg_attr(not(feature = "resolv"), doc = "* resolv:")]
 //!   An asynchronous DNS resolver based on the
 //!   [Tokio](https://tokio.rs/) async runtime.
-#![cfg_attr(feature = "sign", doc = "* [sign]:")]
-#![cfg_attr(not(feature = "sign"), doc = "* sign:")]
+#![cfg_attr(feature = "unstable-sign", doc = "* [sign]:")]
+#![cfg_attr(not(feature = "unstable-sign"), doc = "* sign:")]
 //!   Experimental support for DNSSEC signing.
 #![cfg_attr(feature = "tsig", doc = "* [tsig]:")]
 #![cfg_attr(not(feature = "tsig"), doc = "* tsig:")]
 //!   Support for securing DNS transactions with TSIG records.
-#![cfg_attr(feature = "validate", doc = "* [validate]:")]
-#![cfg_attr(not(feature = "validate"), doc = "* validate:")]
+#![cfg_attr(feature = "unstable-validate", doc = "* [validate]:")]
+#![cfg_attr(not(feature = "unstable-validate"), doc = "* validate:")]
 //!   Experimental support for DNSSEC validation.
 #![cfg_attr(feature = "unstable-validator", doc = "* [validator]:")]
 #![cfg_attr(not(feature = "unstable-validator"), doc = "* validator:")]
@@ -86,8 +86,8 @@
 //!   [ring](https://github.com/briansmith/ring) crate.
 //! * `serde`: Enables serde serialization for a number of basic types.
 //! * `sign`: basic DNSSEC signing support. This will enable the
-#![cfg_attr(feature = "sign", doc = "  [sign]")]
-#![cfg_attr(not(feature = "sign"), doc = "  sign")]
+#![cfg_attr(feature = "unstable-sign", doc = "  [sign]")]
+#![cfg_attr(not(feature = "unstable-sign"), doc = "  sign")]
 //!   module and requires the `std` feature. Note that this will not directly
 //!   enable actual signing. For that you will also need to pick a crypto
 //!   module via an additional feature. Currently we only support the `ring`
@@ -108,8 +108,8 @@
 //!   module and currently pulls in the
 //!   `bytes`, `ring`, and `smallvec` features.
 //! * `validate`: basic DNSSEC validation support. This feature enables the
-#![cfg_attr(feature = "validate", doc = "  [validate]")]
-#![cfg_attr(not(feature = "validate"), doc = "  validate")]
+#![cfg_attr(feature = "unstable-validate", doc = "  [validate]")]
+#![cfg_attr(not(feature = "unstable-validate"), doc = "  validate")]
 //!   module and currently also enables the `std` and `ring`
 //!   features.
 //! * `zonefile`: reading and writing of zonefiles. This feature enables the

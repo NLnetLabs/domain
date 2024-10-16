@@ -1,8 +1,8 @@
 //! DNSSEC validation.
 //!
 //! **This module is experimental and likely to change significantly.**
-#![cfg(feature = "validate")]
-#![cfg_attr(docsrs, doc(cfg(feature = "validate")))]
+#![cfg(feature = "unstable-validate")]
+#![cfg_attr(docsrs, doc(cfg(feature = "unstable-validate")))]
 
 use crate::base::cmp::CanonicalOrd;
 use crate::base::iana::{DigestAlg, SecAlg};
@@ -22,7 +22,7 @@ use std::{error, fmt};
 
 /// A generic public key.
 #[derive(Clone, Debug)]
-pub enum PublicKey {
+pub enum RawPublicKey {
     /// An RSA/SHA-1 public key.
     RsaSha1(RsaPublicKey),
 
@@ -64,7 +64,7 @@ pub enum PublicKey {
     Ed448(Box<[u8; 57]>),
 }
 
-impl PublicKey {
+impl RawPublicKey {
     /// The algorithm used by this key.
     pub fn algorithm(&self) -> SecAlg {
         match self {
@@ -80,7 +80,7 @@ impl PublicKey {
     }
 }
 
-impl PublicKey {
+impl RawPublicKey {
     /// Parse a public key as stored in a DNSKEY record.
     pub fn from_dnskey(
         algorithm: SecAlg,
@@ -161,7 +161,7 @@ impl PublicKey {
     /// [`to_dnskey()`]: Self::to_dnskey()
     ///
     /// The `<comment>` is any text starting with an ASCII semicolon.
-    pub fn from_dnskey_text(
+    pub fn parse_dnskey_text(
         dnskey: &str,
     ) -> Result<Self, FromDnskeyTextError> {
         // Ensure there is a single line in the input.
@@ -206,7 +206,7 @@ impl PublicKey {
     }
 }
 
-impl PartialEq for PublicKey {
+impl PartialEq for RawPublicKey {
     fn eq(&self, other: &Self) -> bool {
         use ring::constant_time::verify_slices_are_equal;
 
@@ -354,6 +354,7 @@ pub enum FromDnskeyTextError {
 ///   that are encoded into bytes.
 ///
 /// Signatures are too big to pass by value, so they are placed on the heap.
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Signature {
     RsaSha1(Box<[u8]>),
     RsaSha1Nsec3Sha1(Box<[u8]>),
@@ -363,6 +364,52 @@ pub enum Signature {
     EcdsaP384Sha384(Box<[u8; 96]>),
     Ed25519(Box<[u8; 64]>),
     Ed448(Box<[u8; 114]>),
+}
+
+impl Signature {
+    /// The algorithm used to make the signature.
+    pub fn algorithm(&self) -> SecAlg {
+        match self {
+            Self::RsaSha1(_) => SecAlg::RSASHA1,
+            Self::RsaSha1Nsec3Sha1(_) => SecAlg::RSASHA1_NSEC3_SHA1,
+            Self::RsaSha256(_) => SecAlg::RSASHA256,
+            Self::RsaSha512(_) => SecAlg::RSASHA512,
+            Self::EcdsaP256Sha256(_) => SecAlg::ECDSAP256SHA256,
+            Self::EcdsaP384Sha384(_) => SecAlg::ECDSAP384SHA384,
+            Self::Ed25519(_) => SecAlg::ED25519,
+            Self::Ed448(_) => SecAlg::ED448,
+        }
+    }
+}
+
+impl AsRef<[u8]> for Signature {
+    fn as_ref(&self) -> &[u8] {
+        match self {
+            Self::RsaSha1(s)
+            | Self::RsaSha1Nsec3Sha1(s)
+            | Self::RsaSha256(s)
+            | Self::RsaSha512(s) => s,
+            Self::EcdsaP256Sha256(s) => &**s,
+            Self::EcdsaP384Sha384(s) => &**s,
+            Self::Ed25519(s) => &**s,
+            Self::Ed448(s) => &**s,
+        }
+    }
+}
+
+impl From<Signature> for Box<[u8]> {
+    fn from(value: Signature) -> Self {
+        match value {
+            Signature::RsaSha1(s)
+            | Signature::RsaSha1Nsec3Sha1(s)
+            | Signature::RsaSha256(s)
+            | Signature::RsaSha512(s) => s,
+            Signature::EcdsaP256Sha256(s) => s as _,
+            Signature::EcdsaP384Sha384(s) => s as _,
+            Signature::Ed25519(s) => s as _,
+            Signature::Ed448(s) => s as _,
+        }
+    }
 }
 
 //------------ Dnskey --------------------------------------------------------

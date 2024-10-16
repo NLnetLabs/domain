@@ -10,8 +10,10 @@ jobs:
         rust: [1.76.0, stable, beta, nightly]
     env:
         RUSTFLAGS: "-D warnings"
+        # We use 'vcpkg' to install OpenSSL on Windows.
         VCPKG_ROOT: "${{ github.workspace }}\\vcpkg"
         VCPKGRS_TRIPLET: x64-windows-release
+        # Ensure that OpenSSL is dynamically linked.
         VCPKGRS_DYNAMIC: 1
     steps:
     - name: Checkout repository
