@@ -166,12 +166,12 @@ impl SecretKey {
             }
             SecAlg::ECDSAP256SHA256 => {
                 let key = self.pkey.ec_key().unwrap();
-                let key = key.private_key().to_vec();
+                let key = key.private_key().to_vec_padded(32).unwrap();
                 generic::SecretKey::EcdsaP256Sha256(key.try_into().unwrap())
             }
             SecAlg::ECDSAP384SHA384 => {
                 let key = self.pkey.ec_key().unwrap();
-                let key = key.private_key().to_vec();
+                let key = key.private_key().to_vec_padded(48).unwrap();
                 generic::SecretKey::EcdsaP384Sha384(key.try_into().unwrap())
             }
             SecAlg::ED25519 => {
