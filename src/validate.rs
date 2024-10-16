@@ -354,6 +354,7 @@ pub enum FromDnskeyTextError {
 ///   that are encoded into bytes.
 ///
 /// Signatures are too big to pass by value, so they are placed on the heap.
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Signature {
     RsaSha1(Box<[u8]>),
     RsaSha1Nsec3Sha1(Box<[u8]>),
@@ -363,6 +364,52 @@ pub enum Signature {
     EcdsaP384Sha384(Box<[u8; 96]>),
     Ed25519(Box<[u8; 64]>),
     Ed448(Box<[u8; 114]>),
+}
+
+impl Signature {
+    /// The algorithm used to make the signature.
+    pub fn algorithm(&self) -> SecAlg {
+        match self {
+            Self::RsaSha1(_) => SecAlg::RSASHA1,
+            Self::RsaSha1Nsec3Sha1(_) => SecAlg::RSASHA1_NSEC3_SHA1,
+            Self::RsaSha256(_) => SecAlg::RSASHA256,
+            Self::RsaSha512(_) => SecAlg::RSASHA512,
+            Self::EcdsaP256Sha256(_) => SecAlg::ECDSAP256SHA256,
+            Self::EcdsaP384Sha384(_) => SecAlg::ECDSAP384SHA384,
+            Self::Ed25519(_) => SecAlg::ED25519,
+            Self::Ed448(_) => SecAlg::ED448,
+        }
+    }
+}
+
+impl AsRef<[u8]> for Signature {
+    fn as_ref(&self) -> &[u8] {
+        match self {
+            Self::RsaSha1(s)
+            | Self::RsaSha1Nsec3Sha1(s)
+            | Self::RsaSha256(s)
+            | Self::RsaSha512(s) => s,
+            Self::EcdsaP256Sha256(s) => &**s,
+            Self::EcdsaP384Sha384(s) => &**s,
+            Self::Ed25519(s) => &**s,
+            Self::Ed448(s) => &**s,
+        }
+    }
+}
+
+impl From<Signature> for Box<[u8]> {
+    fn from(value: Signature) -> Self {
+        match value {
+            Signature::RsaSha1(s)
+            | Signature::RsaSha1Nsec3Sha1(s)
+            | Signature::RsaSha256(s)
+            | Signature::RsaSha512(s) => s,
+            Signature::EcdsaP256Sha256(s) => s as _,
+            Signature::EcdsaP384Sha384(s) => s as _,
+            Signature::Ed25519(s) => s as _,
+            Signature::Ed448(s) => s as _,
+        }
+    }
 }
 
 //------------ Dnskey --------------------------------------------------------
