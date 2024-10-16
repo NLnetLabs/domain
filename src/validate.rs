@@ -75,13 +75,25 @@ impl<Octs> Key<Octs> {
     /// > the DNSKEY record holds some other type of DNS public key and MUST
     /// > NOT be used to verify RRSIGs that cover RRsets.
     pub fn is_zone_signing_key(&self) -> bool {
+        self.flags & (1 << 8) != 0
+    }
+
+    /// Whether this key has been revoked.
+    ///
+    /// From RFC 5011, section 3:
+    ///
+    /// > Bit 8 of the DNSKEY Flags field is designated as the 'REVOKE' flag.
+    /// > If this bit is set to '1', AND the resolver sees an RRSIG(DNSKEY)
+    /// > signed by the associated key, then the resolver MUST consider this
+    /// > key permanently invalid for all purposes except for validating the
+    /// > revocation.
+    pub fn is_revoked(&self) -> bool {
         self.flags & (1 << 7) != 0
     }
 
     /// Whether this is a secure entry point.
     ///
     /// From RFC 4034, section 2.1.1:
-    ///
     ///
     /// > Bit 15 of the Flags field is the Secure Entry Point flag, described
     /// > in [RFC3757].  If bit 15 has value 1, then the DNSKEY record holds a
@@ -95,7 +107,7 @@ impl<Octs> Key<Octs> {
     /// > set and the Zone Key flag not set MUST NOT be used to verify RRSIGs
     /// > that cover RRsets.
     pub fn is_secure_entry_point(&self) -> bool {
-        self.flags & (1 << 15) != 0
+        self.flags & 1 != 0
     }
 
     /// The key tag.
