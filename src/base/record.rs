@@ -1536,11 +1536,7 @@ impl Ttl {
                     if first {
                         write!(f, " ")?;
                     }
-                    let s = if n > 1 {
-                        "s"
-                    } else {
-                        ""
-                    };
+                    let s = if n > 1 { "s" } else { "" };
                     write!(f, "{n} {unit}{s}")?;
                     first = false;
                 }
