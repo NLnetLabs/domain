@@ -10,10 +10,10 @@ use ring::signature::KeyPair;
 
 use crate::{
     base::iana::SecAlg,
-    validate::{PublicKey, RsaPublicKey, Signature},
+    validate::{RawPublicKey, RsaPublicKey, Signature},
 };
 
-use super::{generic, Sign};
+use super::{generic, SignRaw};
 
 /// A key pair backed by `ring`.
 pub enum SecretKey<'a> {
@@ -43,11 +43,14 @@ impl<'a> SecretKey<'a> {
     /// Use a generic keypair with `ring`.
     pub fn from_generic(
         secret: &generic::SecretKey,
-        public: &PublicKey,
+        public: &RawPublicKey,
         rng: &'a dyn ring::rand::SecureRandom,
     ) -> Result<Self, FromGenericError> {
         match (secret, public) {
-            (generic::SecretKey::RsaSha256(s), PublicKey::RsaSha256(p)) => {
+            (
+                generic::SecretKey::RsaSha256(s),
+                RawPublicKey::RsaSha256(p),
+            ) => {
                 // Ensure that the public and private key match.
                 if p != &RsaPublicKey::from(s) {
                     return Err(FromGenericError::InvalidKey);
@@ -72,7 +75,7 @@ impl<'a> SecretKey<'a> {
 
             (
                 generic::SecretKey::EcdsaP256Sha256(s),
-                PublicKey::EcdsaP256Sha256(p),
+                RawPublicKey::EcdsaP256Sha256(p),
             ) => {
                 let alg = &ring::signature::ECDSA_P256_SHA256_FIXED_SIGNING;
                 ring::signature::EcdsaKeyPair::from_private_key_and_public_key(
@@ -83,7 +86,7 @@ impl<'a> SecretKey<'a> {
 
             (
                 generic::SecretKey::EcdsaP384Sha384(s),
-                PublicKey::EcdsaP384Sha384(p),
+                RawPublicKey::EcdsaP384Sha384(p),
             ) => {
                 let alg = &ring::signature::ECDSA_P384_SHA384_FIXED_SIGNING;
                 ring::signature::EcdsaKeyPair::from_private_key_and_public_key(
@@ -92,7 +95,7 @@ impl<'a> SecretKey<'a> {
                     .map(|key| Self::EcdsaP384Sha384 { key, rng })
             }
 
-            (generic::SecretKey::Ed25519(s), PublicKey::Ed25519(p)) => {
+            (generic::SecretKey::Ed25519(s), RawPublicKey::Ed25519(p)) => {
                 ring::signature::Ed25519KeyPair::from_seed_and_public_key(
                     s.as_slice(),
                     p.as_slice(),
@@ -101,7 +104,7 @@ impl<'a> SecretKey<'a> {
                 .map(Self::Ed25519)
             }
 
-            (generic::SecretKey::Ed448(_), PublicKey::Ed448(_)) => {
+            (generic::SecretKey::Ed448(_), RawPublicKey::Ed448(_)) => {
                 Err(FromGenericError::UnsupportedAlgorithm)
             }
 
@@ -130,7 +133,7 @@ impl fmt::Display for FromGenericError {
     }
 }
 
-impl<'a> Sign for SecretKey<'a> {
+impl<'a> SignRaw for SecretKey<'a> {
     fn algorithm(&self) -> SecAlg {
         match self {
             Self::RsaSha256 { .. } => SecAlg::RSASHA256,
@@ -140,12 +143,12 @@ impl<'a> Sign for SecretKey<'a> {
         }
     }
 
-    fn public_key(&self) -> PublicKey {
+    fn raw_public_key(&self) -> RawPublicKey {
         match self {
             Self::RsaSha256 { key, rng: _ } => {
                 let components: ring::rsa::PublicKeyComponents<Vec<u8>> =
                     key.public().into();
-                PublicKey::RsaSha256(RsaPublicKey {
+                RawPublicKey::RsaSha256(RsaPublicKey {
                     n: components.n.into(),
                     e: components.e.into(),
                 })
@@ -154,24 +157,24 @@ impl<'a> Sign for SecretKey<'a> {
             Self::EcdsaP256Sha256 { key, rng: _ } => {
                 let key = key.public_key().as_ref();
                 let key = Box::<[u8]>::from(key);
-                PublicKey::EcdsaP256Sha256(key.try_into().unwrap())
+                RawPublicKey::EcdsaP256Sha256(key.try_into().unwrap())
             }
 
             Self::EcdsaP384Sha384 { key, rng: _ } => {
                 let key = key.public_key().as_ref();
                 let key = Box::<[u8]>::from(key);
-                PublicKey::EcdsaP384Sha384(key.try_into().unwrap())
+                RawPublicKey::EcdsaP384Sha384(key.try_into().unwrap())
             }
 
             Self::Ed25519(key) => {
                 let key = key.public_key().as_ref();
                 let key = Box::<[u8]>::from(key);
-                PublicKey::Ed25519(key.try_into().unwrap())
+                RawPublicKey::Ed25519(key.try_into().unwrap())
             }
         }
     }
 
-    fn sign(&self, data: &[u8]) -> Signature {
+    fn sign_raw(&self, data: &[u8]) -> Signature {
         match self {
             Self::RsaSha256 { key, rng } => {
                 let mut buf = vec![0u8; key.public().modulus_len()];
@@ -211,8 +214,8 @@ impl<'a> Sign for SecretKey<'a> {
 mod tests {
     use crate::{
         base::iana::SecAlg,
-        sign::{generic, Sign},
-        validate::PublicKey,
+        sign::{generic, SignRaw},
+        validate::RawPublicKey,
     };
 
     use super::SecretKey;
@@ -232,12 +235,12 @@ mod tests {
 
             let path = format!("test-data/dnssec-keys/K{}.key", name);
             let data = std::fs::read_to_string(path).unwrap();
-            let pub_key = PublicKey::from_dnskey_text(&data).unwrap();
+            let pub_key = RawPublicKey::parse_dnskey_text(&data).unwrap();
 
             let key =
                 SecretKey::from_generic(&gen_key, &pub_key, &rng).unwrap();
 
-            assert_eq!(key.public_key(), pub_key);
+            assert_eq!(key.raw_public_key(), pub_key);
         }
     }
 
@@ -253,12 +256,12 @@ mod tests {
 
             let path = format!("test-data/dnssec-keys/K{}.key", name);
             let data = std::fs::read_to_string(path).unwrap();
-            let pub_key = PublicKey::from_dnskey_text(&data).unwrap();
+            let pub_key = RawPublicKey::parse_dnskey_text(&data).unwrap();
 
             let key =
                 SecretKey::from_generic(&gen_key, &pub_key, &rng).unwrap();
 
-            let _ = key.sign(b"Hello, World!");
+            let _ = key.sign_raw(b"Hello, World!");
         }
     }
 }

@@ -11,10 +11,10 @@ use openssl::{
 
 use crate::{
     base::iana::SecAlg,
-    validate::{PublicKey, RsaPublicKey, Signature},
+    validate::{RawPublicKey, RsaPublicKey, Signature},
 };
 
-use super::{generic, Sign};
+use super::{generic, SignRaw};
 
 /// A key pair backed by OpenSSL.
 pub struct SecretKey {
@@ -33,7 +33,7 @@ impl SecretKey {
     /// Panics if OpenSSL fails or if memory could not be allocated.
     pub fn from_generic(
         secret: &generic::SecretKey,
-        public: &PublicKey,
+        public: &RawPublicKey,
     ) -> Result<Self, FromGenericError> {
         fn num(slice: &[u8]) -> BigNum {
             let mut v = BigNum::new_secure().unwrap();
@@ -42,7 +42,10 @@ impl SecretKey {
         }
 
         let pkey = match (secret, public) {
-            (generic::SecretKey::RsaSha256(s), PublicKey::RsaSha256(p)) => {
+            (
+                generic::SecretKey::RsaSha256(s),
+                RawPublicKey::RsaSha256(p),
+            ) => {
                 // Ensure that the public and private key match.
                 if p != &RsaPublicKey::from(s) {
                     return Err(FromGenericError::InvalidKey);
@@ -70,7 +73,7 @@ impl SecretKey {
 
             (
                 generic::SecretKey::EcdsaP256Sha256(s),
-                PublicKey::EcdsaP256Sha256(p),
+                RawPublicKey::EcdsaP256Sha256(p),
             ) => {
                 use openssl::{bn, ec, nid};
 
@@ -88,7 +91,7 @@ impl SecretKey {
 
             (
                 generic::SecretKey::EcdsaP384Sha384(s),
-                PublicKey::EcdsaP384Sha384(p),
+                RawPublicKey::EcdsaP384Sha384(p),
             ) => {
                 use openssl::{bn, ec, nid};
 
@@ -104,7 +107,7 @@ impl SecretKey {
                 PKey::from_ec_key(k).unwrap()
             }
 
-            (generic::SecretKey::Ed25519(s), PublicKey::Ed25519(p)) => {
+            (generic::SecretKey::Ed25519(s), RawPublicKey::Ed25519(p)) => {
                 use openssl::memcmp;
 
                 let id = pkey::Id::ED25519;
@@ -117,7 +120,7 @@ impl SecretKey {
                 }
             }
 
-            (generic::SecretKey::Ed448(s), PublicKey::Ed448(p)) => {
+            (generic::SecretKey::Ed448(s), RawPublicKey::Ed448(p)) => {
                 use openssl::memcmp;
 
                 let id = pkey::Id::ED448;
@@ -184,16 +187,16 @@ impl SecretKey {
     }
 }
 
-impl Sign for SecretKey {
+impl SignRaw for SecretKey {
     fn algorithm(&self) -> SecAlg {
         self.algorithm
     }
 
-    fn public_key(&self) -> PublicKey {
+    fn raw_public_key(&self) -> RawPublicKey {
         match self.algorithm {
             SecAlg::RSASHA256 => {
                 let key = self.pkey.rsa().unwrap();
-                PublicKey::RsaSha256(RsaPublicKey {
+                RawPublicKey::RsaSha256(RsaPublicKey {
                     n: key.n().to_vec().into(),
                     e: key.e().to_vec().into(),
                 })
@@ -206,7 +209,7 @@ impl Sign for SecretKey {
                     .public_key()
                     .to_bytes(key.group(), form, &mut ctx)
                     .unwrap();
-                PublicKey::EcdsaP256Sha256(key.try_into().unwrap())
+                RawPublicKey::EcdsaP256Sha256(key.try_into().unwrap())
             }
             SecAlg::ECDSAP384SHA384 => {
                 let key = self.pkey.ec_key().unwrap();
@@ -216,21 +219,21 @@ impl Sign for SecretKey {
                     .public_key()
                     .to_bytes(key.group(), form, &mut ctx)
                     .unwrap();
-                PublicKey::EcdsaP384Sha384(key.try_into().unwrap())
+                RawPublicKey::EcdsaP384Sha384(key.try_into().unwrap())
             }
             SecAlg::ED25519 => {
                 let key = self.pkey.raw_public_key().unwrap();
-                PublicKey::Ed25519(key.try_into().unwrap())
+                RawPublicKey::Ed25519(key.try_into().unwrap())
             }
             SecAlg::ED448 => {
                 let key = self.pkey.raw_public_key().unwrap();
-                PublicKey::Ed448(key.try_into().unwrap())
+                RawPublicKey::Ed448(key.try_into().unwrap())
             }
             _ => unreachable!(),
         }
     }
 
-    fn sign(&self, data: &[u8]) -> Signature {
+    fn sign_raw(&self, data: &[u8]) -> Signature {
         use openssl::hash::MessageDigest;
         use openssl::sign::Signer;
 
@@ -347,8 +350,8 @@ mod tests {
 
     use crate::{
         base::iana::SecAlg,
-        sign::{generic, Sign},
-        validate::PublicKey,
+        sign::{generic, SignRaw},
+        validate::RawPublicKey,
     };
 
     use super::SecretKey;
@@ -373,7 +376,7 @@ mod tests {
         for &(algorithm, _) in KEYS {
             let key = super::generate(algorithm).unwrap();
             let gen_key = key.to_generic();
-            let pub_key = key.public_key();
+            let pub_key = key.raw_public_key();
             let equiv = SecretKey::from_generic(&gen_key, &pub_key).unwrap();
             assert!(key.pkey.public_eq(&equiv.pkey));
         }
@@ -386,7 +389,7 @@ mod tests {
 
             let path = format!("test-data/dnssec-keys/K{}.key", name);
             let data = std::fs::read_to_string(path).unwrap();
-            let pub_key = PublicKey::from_dnskey_text(&data).unwrap();
+            let pub_key = RawPublicKey::parse_dnskey_text(&data).unwrap();
 
             let path = format!("test-data/dnssec-keys/K{}.private", name);
             let data = std::fs::read_to_string(path).unwrap();
@@ -415,11 +418,11 @@ mod tests {
 
             let path = format!("test-data/dnssec-keys/K{}.key", name);
             let data = std::fs::read_to_string(path).unwrap();
-            let pub_key = PublicKey::from_dnskey_text(&data).unwrap();
+            let pub_key = RawPublicKey::parse_dnskey_text(&data).unwrap();
 
             let key = SecretKey::from_generic(&gen_key, &pub_key).unwrap();
 
-            assert_eq!(key.public_key(), pub_key);
+            assert_eq!(key.raw_public_key(), pub_key);
         }
     }
 
@@ -434,11 +437,11 @@ mod tests {
 
             let path = format!("test-data/dnssec-keys/K{}.key", name);
             let data = std::fs::read_to_string(path).unwrap();
-            let pub_key = PublicKey::from_dnskey_text(&data).unwrap();
+            let pub_key = RawPublicKey::parse_dnskey_text(&data).unwrap();
 
             let key = SecretKey::from_generic(&gen_key, &pub_key).unwrap();
 
-            let _ = key.sign(b"Hello, World!");
+            let _ = key.sign_raw(b"Hello, World!");
         }
     }
 }
