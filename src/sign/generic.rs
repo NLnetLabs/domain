@@ -9,12 +9,10 @@ use crate::validate::RsaPublicKey;
 
 /// A generic secret key.
 ///
-/// This type cannot be used for computing signatures, as it does not implement
-/// any cryptographic primitives.  Instead, it is a generic representation that
-/// can be imported/exported or converted into a [`Sign`] (if the underlying
-/// cryptographic implementation supports it).
-///
-/// [`Sign`]: super::Sign
+/// This is a low-level generic representation of a secret key from any one of
+/// the commonly supported signature algorithms.  It is useful for abstracting
+/// over most cryptographic implementations, and it provides functionality for
+/// importing and exporting keys from and to the disk.
 ///
 /// # Serialization
 ///

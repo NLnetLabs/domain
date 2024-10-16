@@ -22,7 +22,7 @@ use std::{error, fmt};
 
 /// A generic public key.
 #[derive(Clone, Debug)]
-pub enum PublicKey {
+pub enum RawPublicKey {
     /// An RSA/SHA-1 public key.
     RsaSha1(RsaPublicKey),
 
@@ -64,7 +64,7 @@ pub enum PublicKey {
     Ed448(Box<[u8; 57]>),
 }
 
-impl PublicKey {
+impl RawPublicKey {
     /// The algorithm used by this key.
     pub fn algorithm(&self) -> SecAlg {
         match self {
@@ -80,7 +80,7 @@ impl PublicKey {
     }
 }
 
-impl PublicKey {
+impl RawPublicKey {
     /// Parse a public key as stored in a DNSKEY record.
     pub fn from_dnskey(
         algorithm: SecAlg,
@@ -161,7 +161,7 @@ impl PublicKey {
     /// [`to_dnskey()`]: Self::to_dnskey()
     ///
     /// The `<comment>` is any text starting with an ASCII semicolon.
-    pub fn from_dnskey_text(
+    pub fn parse_dnskey_text(
         dnskey: &str,
     ) -> Result<Self, FromDnskeyTextError> {
         // Ensure there is a single line in the input.
@@ -206,7 +206,7 @@ impl PublicKey {
     }
 }
 
-impl PartialEq for PublicKey {
+impl PartialEq for RawPublicKey {
     fn eq(&self, other: &Self) -> bool {
         use ring::constant_time::verify_slices_are_equal;
 
