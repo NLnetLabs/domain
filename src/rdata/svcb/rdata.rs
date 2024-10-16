@@ -9,12 +9,12 @@ use crate::base::name::{FlattenInto, ParsedName, ToName};
 use crate::base::rdata::{
     ComposeRecordData, LongRecordData, ParseRecordData, RecordData,
 };
-use crate::base::zonefile_fmt::{self, Presenter, ZonefileFmt};
 use crate::base::wire::{Compose, Composer, Parse, ParseError};
+use crate::base::zonefile_fmt::{self, Formatter, ZonefileFmt};
+use core::marker::PhantomData;
+use core::{cmp, fmt, hash};
 use octseq::octets::{Octets, OctetsFrom, OctetsInto};
 use octseq::parse::Parser;
-use core::{cmp, fmt, hash};
-use core::marker::PhantomData;
 
 //------------ Svcb and Https ------------------------------------------------
 
@@ -160,14 +160,12 @@ impl<Variant, Octs, Name> SvcbRdata<Variant, Octs, Name> {
 impl<Variant, Octs: AsRef<[u8]>> SvcbRdata<Variant, Octs, ParsedName<Octs>> {
     /// Parses service bindings record data from its wire format.
     pub fn parse<'a, Src: Octets<Range<'a> = Octs> + ?Sized + 'a>(
-        parser: &mut Parser<'a, Src>
+        parser: &mut Parser<'a, Src>,
     ) -> Result<Self, ParseError> {
         let priority = u16::parse(parser)?;
         let target = ParsedName::parse(parser)?;
         let params = SvcParams::parse(parser)?;
-        Ok(unsafe {
-            Self::new_unchecked(priority, target, params)
-        })
+        Ok(unsafe { Self::new_unchecked(priority, target, params) })
     }
 }
 
@@ -261,12 +259,12 @@ impl<Variant, Octs, TOcts, Name, TName>
     for SvcbRdata<Variant, Octs, Name>
 where
     TOcts: OctetsFrom<Octs>,
-    Name: FlattenInto<TName, AppendError = TOcts::Error>
+    Name: FlattenInto<TName, AppendError = TOcts::Error>,
 {
     type AppendError = TOcts::Error;
 
     fn try_flatten_into(
-        self
+        self,
     ) -> Result<SvcbRdata<Variant, TOcts, TName>, TOcts::Error> {
         self.flatten()
     }
@@ -472,7 +470,7 @@ where
     Octs: Octets,
     Name: ToName,
 {
-    fn show(&self, p: &mut Presenter) -> zonefile_fmt::Result {
+    fn fmt(&self, p: &mut impl Formatter) -> zonefile_fmt::Result {
         p.block(|p| {
             p.write_token(self.priority)?;
             p.write_comment("priority")?;

@@ -11,14 +11,16 @@ use super::value::AllValues;
 use crate::base::cmp::CanonicalOrd;
 use crate::base::iana::SvcParamKey;
 use crate::base::scan::Symbol;
-use crate::base::zonefile_fmt::{self, Presenter, ZonefileFmt};
 use crate::base::wire::{Compose, Parse, ParseError};
+use crate::base::zonefile_fmt::{
+    self, Formatter, ZonefileFmt,
+};
+use core::cmp::Ordering;
+use core::marker::PhantomData;
+use core::{cmp, fmt, hash, mem};
 use octseq::builder::{EmptyBuilder, FromBuilder, OctetsBuilder, ShortBuf};
 use octseq::octets::{Octets, OctetsFrom, OctetsInto};
 use octseq::parse::{Parser, ShortInput};
-use core::{cmp, fmt, hash, mem};
-use core::cmp::Ordering;
-use core::marker::PhantomData;
 
 //------------ SvcParams -----------------------------------------------------
 
@@ -361,29 +363,30 @@ impl<Octs: Octets + ?Sized> fmt::Display for SvcParams<Octs> {
 
 impl<Octs: Octets + ?Sized> fmt::Debug for SvcParams<Octs> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        f.debug_tuple("SvcParams").field(
-            &format_args!("{}", self)
-        ).finish()
+        f.debug_tuple("SvcParams")
+            .field(&format_args!("{}", self))
+            .finish()
     }
 }
 
-//-- Show
+//--- ZonefileFmt
 
 impl<Octs: Octets + ?Sized> ZonefileFmt for SvcParams<Octs> {
-    fn show(&self, p: &mut Presenter) -> zonefile_fmt::Result {
+    fn fmt(&self, p: &mut impl Formatter) -> zonefile_fmt::Result {
         p.block(|p| {
             let mut parser = Parser::from_ref(self.as_slice());
             while parser.remaining() > 0 {
-                let key = SvcParamKey::parse(
-                    &mut parser
-                ).expect("invalid SvcbParam");
+                let key = SvcParamKey::parse(&mut parser)
+                    .expect("invalid SvcbParam");
                 let len = usize::from(
-                    u16::parse(&mut parser).expect("invalid SvcParam")
+                    u16::parse(&mut parser).expect("invalid SvcParam"),
                 );
-                let mut parser = parser.parse_parser(
-                    len
-                ).expect("invalid SvcParam");
-                p.write_token(super::value::AllValues::parse_any(key, &mut parser))?;
+                let mut parser =
+                    parser.parse_parser(len).expect("invalid SvcParam");
+                p.write_token(super::value::AllValues::parse_any(
+                    key,
+                    &mut parser,
+                ))?;
             }
             Ok(())
         })
@@ -1036,7 +1039,7 @@ mod test {
             b"\x00\x03\
               \x00\x02\
               \x00\x35",
-            [ value::Port::new(53) ]
+            [value::Port::new(53)]
         );
     }
 
@@ -1046,12 +1049,8 @@ mod test {
             b"\x02\x9b\
               \x00\x05\
               \x68\x65\x6c\x6c\x6f",
-            [
-                UnknownSvcParam::new(
-                    0x029b.into(),
-                    octets512(b"hello")
-                ).unwrap()
-            ]
+            [UnknownSvcParam::new(0x029b.into(), octets512(b"hello"))
+                .unwrap()]
         );
     }
 
@@ -1061,12 +1060,11 @@ mod test {
             b"\x02\x9b\
               \x00\x09\
               \x68\x65\x6c\x6c\x6f\xd2\x71\x6f\x6f",
-            [
-                UnknownSvcParam::new(
+            [UnknownSvcParam::new(
                     0x029b.into(),
                     octets512(b"\x68\x65\x6c\x6c\x6f\xd2\x71\x6f\x6f"),
-                ).unwrap()
-            ]
+            )
+            .unwrap()]
         );
     }
 
@@ -1082,12 +1080,11 @@ mod test {
               \x00\x00\x00\x00\x00\x00\x00\x01\
               \x20\x01\x0d\xb8\x00\x00\x00\x00\
               \x00\x00\x00\x00\x00\x53\x00\x01",
-            [
-                value::Ipv6Hint::<Octets512>::from_addrs([
+            [value::Ipv6Hint::<Octets512>::from_addrs([
                     Ipv6Addr::from_str("2001:db8::1").unwrap(),
                     Ipv6Addr::from_str("2001:db8::53:1").unwrap(),
-                ]).unwrap()
-            ]
+            ])
+            .unwrap()]
         );
     }
 
@@ -1104,7 +1101,8 @@ mod test {
             [
                 value::Ipv6Hint::<Octets512>::from_addrs([
                     Ipv6Addr::from_str("::ffff:198.51.100.100").unwrap(),
-                ]).unwrap()
+                ])
+                .unwrap()
             ]
         );
     }
@@ -1119,9 +1117,11 @@ mod test {
             [
                 SvcParamKey::ALPN,
                 SvcParamKey::IPV4HINT,
-                SvcParamKey::PRIVATE_RANGE_BEGIN.into()
-            ].into_iter()
-        ).unwrap();
+                SvcParamKey::PRIVATE_RANGE_BEGIN.into(),
+            ]
+            .into_iter(),
+        )
+        .unwrap();
         assert_eq!(
             "mandatory=alpn,ipv4hint,key65280",
             format!("{}", mandatory)
@@ -1130,41 +1130,37 @@ mod test {
         let mut alpn_builder = value::AlpnBuilder::<Octets512>::empty();
         alpn_builder.push("h2").unwrap();
         alpn_builder.push("h3-19").unwrap();
-        assert_eq!(
-            "alpn=h2,h3-19",
-            format!("{}", alpn_builder.freeze())
-        );
+        assert_eq!("alpn=h2,h3-19", format!("{}", alpn_builder.freeze()));
 
         assert_eq!("nodefaultalpn", format!("{}", value::NoDefaultAlpn));
 
         assert_eq!(
             "ech",
-            format!(
-                "{}",
-                value::Ech::from_octets(Octets512::new()).unwrap()
-            )
+            format!("{}", value::Ech::from_octets(Octets512::new()).unwrap())
         );
 
         assert_eq!(
             "ipv4hint=192.0.2.1,192.0.2.2",
             format!(
                 "{}",
-                value::Ipv4Hint::<Octets512>::from_addrs(
-                    [
-                        [192, 0, 2, 1].into(), [192, 0, 2, 2].into()
-                    ]
-                ).unwrap()
+                value::Ipv4Hint::<Octets512>::from_addrs([
+                    [192, 0, 2, 1].into(),
+                    [192, 0, 2, 2].into()
+                ])
+                .unwrap()
             )
         );
     }
-
 
     //--- Builder
 
     #[test]
     fn empty_builder() {
         assert_eq!(
-            Builder512::empty().freeze::<Octets512>().unwrap().as_slice(),
+            Builder512::empty()
+                .freeze::<Octets512>()
+                .unwrap()
+                .as_slice(),
             b""
         );
     }
@@ -1182,15 +1178,15 @@ mod test {
     #[test]
     fn three_values_in_order() {
         let mut builder = Builder512::empty();
-        builder.push(
-            &UnknownSvcParam::new(1.into(), b"223").unwrap()
-        ).unwrap();
-        builder.push(
-            &UnknownSvcParam::new(2.into(), b"224").unwrap()
-        ).unwrap();
-        builder.push(
-            &UnknownSvcParam::new(8.into(), b"225").unwrap()
-        ).unwrap();
+        builder
+            .push(&UnknownSvcParam::new(1.into(), b"223").unwrap())
+            .unwrap();
+        builder
+            .push(&UnknownSvcParam::new(2.into(), b"224").unwrap())
+            .unwrap();
+        builder
+            .push(&UnknownSvcParam::new(8.into(), b"225").unwrap())
+            .unwrap();
         assert_eq!(
             builder.freeze::<Octets512>().unwrap().as_slice(),
             b"\x00\x01\x00\x03223\
@@ -1202,15 +1198,15 @@ mod test {
     #[test]
     fn three_values_out_of_order() {
         let mut builder = Builder512::empty();
-        builder.push(
-            &UnknownSvcParam::new(1.into(), b"223").unwrap()
-        ).unwrap();
-        builder.push(
-            &UnknownSvcParam::new(8.into(), b"225").unwrap()
-        ).unwrap();
-        builder.push(
-            &UnknownSvcParam::new(2.into(), b"224").unwrap()
-        ).unwrap();
+        builder
+            .push(&UnknownSvcParam::new(1.into(), b"223").unwrap())
+            .unwrap();
+        builder
+            .push(&UnknownSvcParam::new(8.into(), b"225").unwrap())
+            .unwrap();
+        builder
+            .push(&UnknownSvcParam::new(2.into(), b"224").unwrap())
+            .unwrap();
         assert_eq!(
             builder.freeze::<Octets512>().unwrap().as_slice(),
             b"\x00\x01\x00\x03223\
@@ -1222,17 +1218,14 @@ mod test {
     #[test]
     fn three_values_with_collision() {
         let mut builder = Builder512::empty();
-        builder.push(
-            &UnknownSvcParam::new(1.into(), b"223").unwrap()
-        ).unwrap();
-        builder.push(
-            &UnknownSvcParam::new(8.into(), b"225").unwrap()
-        ).unwrap();
-        assert!(
-            builder.push(
-                &UnknownSvcParam::new(8.into(), b"224").unwrap()
-            ).is_err()
-        );
+        builder
+            .push(&UnknownSvcParam::new(1.into(), b"223").unwrap())
+            .unwrap();
+        builder
+            .push(&UnknownSvcParam::new(8.into(), b"225").unwrap())
+            .unwrap();
+        assert!(builder
+            .push(&UnknownSvcParam::new(8.into(), b"224").unwrap())
+            .is_err());
     }
 }
-

@@ -9,8 +9,10 @@ use crate::base::rdata::{ComposeRecordData, ParseRecordData, RecordData};
 use crate::base::record::Ttl;
 use crate::base::scan::{Scan, Scanner};
 use crate::base::serial::Serial;
-use crate::base::zonefile_fmt::{self, Presenter, ZonefileFmt};
 use crate::base::wire::{Compose, Composer, ParseError};
+use crate::base::zonefile_fmt::{
+    self, Formatter, ZonefileFmt,
+};
 use core::cmp::Ordering;
 use core::fmt;
 use octseq::octets::{Octets, OctetsFrom, OctetsInto};
@@ -403,7 +405,7 @@ impl<N: fmt::Display> fmt::Display for Soa<N> {
 }
 
 impl<N: ToName> ZonefileFmt for Soa<N> {
-    fn show(&self, p: &mut Presenter) -> zonefile_fmt::Result {
+    fn fmt(&self, p: &mut impl Formatter) -> zonefile_fmt::Result {
         p.block(|p| {
             p.write_token(self.mname.fmt_with_dot())?;
             p.write_comment("mname")?;
@@ -417,10 +419,9 @@ impl<N: ToName> ZonefileFmt for Soa<N> {
                 self.refresh.pretty(),
             ))?;
             p.write_show(self.retry)?;
-            p.write_comment(format_args!(
-                "retry ({})",
-                self.retry.pretty(),
-            ))?;
+            p.write_comment(
+                format_args!("retry ({})", self.retry.pretty(),),
+            )?;
             p.write_show(self.expire)?;
             p.write_comment(format_args!(
                 "expire ({})",
