@@ -8,8 +8,8 @@
 //! "offline" (outside of a name server).  Once generated, signatures can be
 //! serialized as DNS records and stored alongside the authenticated records.
 
-#![cfg(feature = "sign")]
-#![cfg_attr(docsrs, doc(cfg(feature = "sign")))]
+#![cfg(feature = "unstable-sign")]
+#![cfg_attr(docsrs, doc(cfg(feature = "unstable-sign")))]
 
 use crate::{
     base::iana::SecAlg,

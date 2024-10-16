@@ -1,8 +1,8 @@
 //! DNSSEC validation.
 //!
 //! **This module is experimental and likely to change significantly.**
-#![cfg(feature = "validate")]
-#![cfg_attr(docsrs, doc(cfg(feature = "validate")))]
+#![cfg(feature = "unstable-validate")]
+#![cfg_attr(docsrs, doc(cfg(feature = "unstable-validate")))]
 
 use crate::base::cmp::CanonicalOrd;
 use crate::base::iana::{DigestAlg, SecAlg};
