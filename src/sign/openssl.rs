@@ -357,11 +357,11 @@ mod tests {
     use super::SecretKey;
 
     const KEYS: &[(SecAlg, u16)] = &[
-        (SecAlg::RSASHA256, 27096),
-        (SecAlg::ECDSAP256SHA256, 40436),
-        (SecAlg::ECDSAP384SHA384, 17013),
-        (SecAlg::ED25519, 43769),
-        (SecAlg::ED448, 34114),
+        (SecAlg::RSASHA256, 60616),
+        (SecAlg::ECDSAP256SHA256, 42253),
+        (SecAlg::ECDSAP384SHA384, 33566),
+        (SecAlg::ED25519, 56037),
+        (SecAlg::ED448, 7379),
     ];
 
     #[test]
@@ -385,7 +385,8 @@ mod tests {
     #[test]
     fn imported_roundtrip() {
         for &(algorithm, key_tag) in KEYS {
-            let name = format!("test.+{:03}+{}", algorithm.to_int(), key_tag);
+            let name =
+                format!("test.+{:03}+{:05}", algorithm.to_int(), key_tag);
 
             let path = format!("test-data/dnssec-keys/K{}.key", name);
             let data = std::fs::read_to_string(path).unwrap();
@@ -411,7 +412,8 @@ mod tests {
     #[test]
     fn public_key() {
         for &(algorithm, key_tag) in KEYS {
-            let name = format!("test.+{:03}+{}", algorithm.to_int(), key_tag);
+            let name =
+                format!("test.+{:03}+{:05}", algorithm.to_int(), key_tag);
 
             let path = format!("test-data/dnssec-keys/K{}.private", name);
             let data = std::fs::read_to_string(path).unwrap();
@@ -431,7 +433,8 @@ mod tests {
     #[test]
     fn sign() {
         for &(algorithm, key_tag) in KEYS {
-            let name = format!("test.+{:03}+{}", algorithm.to_int(), key_tag);
+            let name =
+                format!("test.+{:03}+{:05}", algorithm.to_int(), key_tag);
 
             let path = format!("test-data/dnssec-keys/K{}.private", name);
             let data = std::fs::read_to_string(path).unwrap();
