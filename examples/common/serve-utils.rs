@@ -2,7 +2,9 @@ use bytes::Bytes;
 use domain::base::{Message, MessageBuilder, Name, ParsedName, Rtype};
 use domain::rdata::ZoneRecordData;
 use domain::zonetree::Answer;
+use octseq::Octets;
 
+#[allow(dead_code)]
 pub fn generate_wire_query(
     qname: &Name<Bytes>,
     qtype: Rtype,
@@ -13,6 +15,7 @@ pub fn generate_wire_query(
     query.into()
 }
 
+#[allow(dead_code)]
 pub fn generate_wire_response(
     wire_query: &Message<Vec<u8>>,
     zone_answer: Answer,
@@ -22,9 +25,10 @@ pub fn generate_wire_response(
     response.into()
 }
 
-pub fn print_dig_style_response(
-    query: &Message<Vec<u8>>,
-    response: &Message<Vec<u8>>,
+#[allow(dead_code)]
+pub fn print_dig_style_response<Octs1: Octets, Octs2: Octets>(
+    query: &Message<Octs1>,
+    response: &Message<Octs2>,
     short: bool,
 ) {
     if !short {

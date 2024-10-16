@@ -12,16 +12,22 @@
 #![warn(clippy::missing_docs_in_private_items)]
 
 use super::message::Request;
-use super::service::{CallResult, Service, ServiceResult};
+use super::service::{CallResult, Service, ServiceError, ServiceResult};
 use super::single_service::{ComposeReply, SingleService};
+use super::util::mk_error_response;
+use crate::base::iana::{ExtendedErrorCode, OptRcode};
+use crate::base::message_builder::AdditionalBuilder;
+use crate::base::opt::ExtendedError;
+use crate::base::StreamTarget;
 use crate::dep::octseq::Octets;
-use crate::net::client::request::{Error, RequestMessage, SendRequest};
-use futures::stream::{once, Once};
+use crate::net::client::request::{RequestMessage, SendRequest};
+use futures_util::stream::{once, Once};
 use std::boxed::Box;
 use std::fmt::Debug;
 use std::future::{ready, Future, Ready};
 use std::marker::PhantomData;
 use std::pin::Pin;
+use std::string::ToString;
 use std::vec::Vec;
 
 /// Provide a [Service] trait for an object that implements [SingleService].
@@ -46,7 +52,7 @@ impl<RequestOcts, SVC, CR> SingleServiceToService<RequestOcts, SVC, CR> {
 impl<RequestOcts, SVC, CR> Service<RequestOcts>
     for SingleServiceToService<RequestOcts, SVC, CR>
 where
-    RequestOcts: Octets + Send + Sync + Unpin,
+    RequestOcts: Octets + Send + Sync,
     SVC: SingleService<RequestOcts, CR>,
     CR: ComposeReply + 'static,
 {
@@ -57,8 +63,23 @@ where
     fn call(&self, request: Request<RequestOcts>) -> Self::Future {
         let fut = self.service.call(request);
         let fut = async move {
-            let reply = fut.await.unwrap();
-            let abs = reply.additional_builder_stream_target();
+            let reply = match fut.await {
+                Ok(reply) => reply,
+                Err(_) => {
+                    // Every error gets mapped to InternalError.
+                    // Should we add an EDE here?
+                    return once(ready(Err(ServiceError::InternalError)));
+                }
+            };
+            let abs = match reply.additional_builder_stream_target() {
+                Ok(reply) => reply,
+                Err(_) => {
+                    // Every error gets mapped to InternalError.
+                    // There is probably not much we could do here.
+                    // The error results from a bad reply message.
+                    return once(ready(Err(ServiceError::InternalError)));
+                }
+            };
             once(ready(Ok(CallResult::new(abs))))
         };
         Box::pin(fut)
@@ -103,18 +124,45 @@ where
     fn call(
         &self,
         request: Request<RequestOcts>,
-    ) -> Pin<Box<dyn Future<Output = Result<CR, Error>> + Send + Sync>>
+    ) -> Pin<Box<dyn Future<Output = Result<CR, ServiceError>> + Send + Sync>>
     where
         RequestOcts: AsRef<[u8]>,
     {
+        // Prepare for an error. It is best to borrow request here.
+        let builder: AdditionalBuilder<StreamTarget<Vec<u8>>> =
+            mk_error_response(request.message(), OptRcode::SERVFAIL);
+
         let req = match request.try_into() {
             Ok(req) => req,
-            Err(e) => return Box::pin(ready(Err(e))),
+            Err(_) => {
+                // Can this fail? Should the request be checked earlier.
+                // Just return ServFail.
+                return Box::pin(ready(Err(ServiceError::InternalError)));
+            }
         };
+
         let mut gr = self.conn.send_request(req);
         let fut = async move {
-            let msg = gr.get_response().await.unwrap();
-            Ok(CR::from_message(&msg))
+            let msg = match gr.get_response().await {
+                Ok(msg) => msg,
+                Err(e) => {
+                    // The request failed. Create a ServFail response and
+                    // add an EDE that describes the error.
+                    let msg = builder.as_message();
+                    let mut cr = CR::from_message(&msg).expect(
+                        "CR should be able to handle an error response",
+                    );
+                    if let Ok(ede) = ExtendedError::<Vec<u8>>::new_with_str(
+                        ExtendedErrorCode::OTHER,
+                        &e.to_string(),
+                    ) {
+                        cr.add_opt(&ede)
+                            .expect("Adding an ede should not fail");
+                    }
+                    return Ok(cr);
+                }
+            };
+            CR::from_message(&msg)
         };
         Box::pin(fut)
     }
@@ -156,18 +204,45 @@ where
     fn call(
         &self,
         request: Request<RequestOcts>,
-    ) -> Pin<Box<dyn Future<Output = Result<CR, Error>> + Send + Sync>>
+    ) -> Pin<Box<dyn Future<Output = Result<CR, ServiceError>> + Send + Sync>>
     where
         RequestOcts: AsRef<[u8]>,
     {
+        // Prepare for an error. It is best to borrow request here.
+        let builder: AdditionalBuilder<StreamTarget<Vec<u8>>> =
+            mk_error_response(request.message(), OptRcode::SERVFAIL);
+
         let req = match request.try_into() {
             Ok(req) => req,
-            Err(e) => return Box::pin(ready(Err(e))),
+            Err(_) => {
+                // Can this fail? Should the request be checked earlier.
+                // Just return ServFail.
+                return Box::pin(ready(Err(ServiceError::InternalError)));
+            }
         };
+
         let mut gr = self.conn.send_request(req);
         let fut = async move {
-            let msg = gr.get_response().await.unwrap();
-            Ok(CR::from_message(&msg))
+            let msg = match gr.get_response().await {
+                Ok(msg) => msg,
+                Err(e) => {
+                    // The request failed. Create a ServFail response and
+                    // add an EDE that describes the error.
+                    let msg = builder.as_message();
+                    let mut cr = CR::from_message(&msg).expect(
+                        "CR should be able to handle an error response",
+                    );
+                    if let Ok(ede) = ExtendedError::<Vec<u8>>::new_with_str(
+                        ExtendedErrorCode::OTHER,
+                        &e.to_string(),
+                    ) {
+                        cr.add_opt(&ede)
+                            .expect("Adding an ede should not fail");
+                    }
+                    return Ok(cr);
+                }
+            };
+            CR::from_message(&msg)
         };
         Box::pin(fut)
     }

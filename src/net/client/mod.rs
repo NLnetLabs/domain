@@ -27,6 +27,12 @@
 //!   can be added as upstream transports.
 //! * [cache] This is a simple message cache provided as a pass through
 //!   transport. The cache works with any of the other transports.
+#![cfg_attr(feature = "tsig", doc = "* [tsig]:")]
+#![cfg_attr(not(feature = "tsig",), doc = "* tsig:")]
+//!   This is a TSIG request signer and response verifier provided as a
+//!   pass through transport. The tsig transport works with any upstream
+//!   transports so long as they don't modify the message once signed nor
+//!   modify the response before it can be verified.
 #![cfg_attr(feature = "unstable-validator", doc = "* [validator]:")]
 #![cfg_attr(not(feature = "unstable-validator",), doc = "* validator:")]
 //!   This is a DNSSEC validator provided as a pass through transport.
@@ -190,7 +196,7 @@
 
 //! # Limitations
 //!
-//! The current implementaton has the following limitations:
+//! The current implementation has the following limitations:
 //! * The [dgram] transport does not support DNS Cookies
 //!   ([`RFC 7873`](https://tools.ietf.org/html/rfc7873)
 //!   Domain Name System (DNS) Cookies).
@@ -198,7 +204,7 @@
 //!   the number of attempts to open a connection. The caller has to
 //!   implement a timeout mechanism.
 //! * The [cache] transport does not support:
-//!   * prefetching. In this context, prefetching means updating a cache entry
+//!   * Prefetching. In this context, prefetching means updating a cache entry
 //!     before it expires.
 //!   * [RFC 8767](https://tools.ietf.org/html/rfc8767)
 //!     (Serving Stale Data to Improve DNS Resiliency)
@@ -226,6 +232,8 @@ pub mod protocol;
 pub mod redundant;
 pub mod request;
 pub mod stream;
+#[cfg(feature = "tsig")]
+pub mod tsig;
 #[cfg(feature = "unstable-validator")]
 pub mod validator;
 pub mod validator_test;

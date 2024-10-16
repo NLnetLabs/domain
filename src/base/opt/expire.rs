@@ -29,6 +29,7 @@ use octseq::parse::Parser;
 ///
 /// See [RFC 7314](https://tools.ietf.org/html/rfc7314) for details.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct Expire(Option<u32>);
 
 impl Expire {

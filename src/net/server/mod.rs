@@ -13,6 +13,15 @@
 //! DNS server that answers requests based on the application logic you
 //! specify.
 //!
+//! In addtion, this module provides a less complex service interface called
+//! [SingleService][`single_service::SingleService`]. This interface supports
+//! only a single response per request.
+//! In other words, it does not support the AXFR and IXFR requests.
+//! Adaptors are avaiable to connect SingleServer to [`Service`] and to the
+//! [Client][`crate::net::client`] transports. See the
+//! Section [Single Service][crate::net::server#single-service] for
+//! more details.
+//!
 //! # Architecture
 //!
 //! A layered stack of components is responsible for handling incoming
@@ -105,6 +114,50 @@
 //! [`Service`] trait yourself and passing an instance of that service to the
 //! server or middleware service as input.
 //!
+//! ## Zone maintenance and zone transfers
+//!
+//! This crate provides everything you need to do zone maintenance, i.e.
+//! serving entire zones to clients and keeping your own zones synchronized
+//! with those of a primary server.
+//!
+//! If acting as a primary nameserver:
+//! - Use [`XfrMiddlewareSvc`] to respond to AXFR and IXFR requests from
+//!   secondary nameservers.
+//! - Implement [`XfrDataProvider`] to define your XFR access policy.
+//! - Create [`ZoneDiff`]s when making changes to [`Zone`] content and make
+//!   those diffs available via your [`XfrDataProvider`] implementation.
+//! - Use [`TsigMiddlewareSvc`] to authenticate transfer requests from
+//!   secondary nameservers.
+//! - Use the UDP client support in `net::client` to send out NOTIFY messages
+//!   on zone change.
+//!
+//! If acting as a secondary nameserver:
+//! - Use [`NotifyMiddlewareSvc`] to detect changes at the primary to zones
+//!   that you are mirroring.
+//! - Use the TCP client support in [`net::client`] to make outbound XFR
+//!   requests on SOA timer expiration or NOTIFY to fetch changes to zone
+//!   content.
+//! - Use [`net::client::tsig`] to authenticate your transfer requests to
+//!   primary nameservers.
+//! - Use [`XfrResponseInterpreter`] and [`ZoneUpdater`] to parse transfer
+//!   responses and apply the changes to your zones.
+//!
+//! Additionally you may wish to use [`ZoneTree`] to simplify serving multiple
+//! zones.
+//!
+//! [`net::client`]: crate::net::client
+//! [`net::client::tsig`]: crate::net::client::tsig
+//! [`NotifyMiddlewareSvc`]: middleware::notify::NotifyMiddlewareSvc
+//! [`TsigMiddlewareSvc`]: middleware::tsig::TsigMiddlewareSvc
+//! [`XfrMiddlewareSvc`]: middleware::xfr::XfrMiddlewareSvc
+//! [`XfrDataProvider`]: middleware::xfr::XfrDataProvider
+//! [`XfrResponseInterpreter`]:
+//!     crate::net::xfr::protocol::XfrResponseInterpreter
+//! [`Zone`]: crate::zonetree::Zone
+//! [`ZoneDiff`]: crate::zonetree::ZoneDiff
+//! [`ZoneTree`]: crate::zonetree::ZoneTree
+//! [`ZoneUpdater`]: crate::zonetree::update::ZoneUpdater
+//!
 //! # Advanced
 //!
 //! ## Memory allocation
@@ -173,6 +226,46 @@
 //!     https://docs.rs/tokio/latest/tokio/net/struct.TcpStream.html
 //! [`tokio::net::UdpSocket`]:
 //!     https://docs.rs/tokio/latest/tokio/net/struct.UdpSocket.html
+//!
+//! # Single Service
+//!
+//! The [SingleService][single_service::SingleService] trait has a single
+//! method [call()][single_service::SingleService::call()] that takes a
+//! [Request][message::Request] and returns a Future that results in
+//! either an error or a reply.
+//! To assist building reply messages there is the trait
+//! [ComposeReply][single_service::ComposeReply].
+//! The [ComposeReply][single_service::ComposeReply] trait is implemented by
+//! [ReplyMessage][single_service::ReplyMessage]
+//!
+//! To assist in connecting [SingleService][single_service::SingleService]
+//! to the rest of the ecosystem, there are three adapters:
+//! 1) The first adapter,
+//!    [SingleServiceToService][adapter::SingleServiceToService] implements
+//!    [Service][service::Service] for
+//!    [SingleService][single_service::SingleService]. This allows any
+//!    object that implements [SingleService][single_service::SingleService]
+//!    to connect to a place where [Service][service::Service] is required.
+//! 2) The second adapter,
+//!    [ClientTransportToSingleService][adapter::ClientTransportToSingleService]
+//!    implements  [SingleService][single_service::SingleService] for an
+//!    object that implements
+//!    [SendRequest][crate::net::client::request::SendRequest]. This
+//!    allows any [Client][crate::net::client] transport connection to be
+//!    used as a [SingleService][single_service::SingleService].
+//! 3) The third adapter,
+//!    [BoxClientTransportToSingleService][adapter::BoxClientTransportToSingleService]
+//!    is similar to the second one, except that it implements
+//!    [SingleService][single_service::SingleService] for a boxed
+//!    [SendRequest][crate::net::client::request::SendRequest] trait object.
+//!
+//! This module provides a simple query router called
+//! [QnameRouter][qname_router::QnameRouter]. This router uses the query
+//! name to decide with upstream [SingleService][single_service::SingleService]
+//! has to handle the request.
+//! This router is deliberately kept very simple. It is assumed that
+//! applications that need more complex routers implement them themselves
+//! in the application.
 
 #![cfg(feature = "unstable-server-transport")]
 #![cfg_attr(docsrs, doc(cfg(feature = "unstable-server-transport")))]
@@ -181,6 +274,7 @@ mod connection;
 pub use connection::Config as ConnectionConfig;
 
 pub mod adapter;
+pub mod batcher;
 pub mod buf;
 pub mod dgram;
 pub mod error;

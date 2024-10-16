@@ -119,6 +119,17 @@ pub trait SendRequest<CR> {
     ) -> Box<dyn GetResponse + Send + Sync>;
 }
 
+impl<T: SendRequest<RequestMessage<Octs>> + ?Sized, Octs: Octets>
+    SendRequest<RequestMessage<Octs>> for Box<T>
+{
+    fn send_request(
+        &self,
+        request_msg: RequestMessage<Octs>,
+    ) -> Box<dyn GetResponse + Send + Sync> {
+        (**self).send_request(request_msg)
+    }
+}
+
 //------------ SendRequestMulti -----------------------------------------------
 
 /// Trait for starting a DNS request based on a request composer.
@@ -131,6 +142,17 @@ pub trait SendRequestMulti<CR> {
         &self,
         request_msg: CR,
     ) -> Box<dyn GetResponseMulti + Send + Sync>;
+}
+
+impl<T: SendRequestMulti<RequestMessage<Octs>> + ?Sized, Octs: Octets>
+    SendRequestMulti<RequestMessage<Octs>> for Box<T>
+{
+    fn send_request(
+        &self,
+        request_msg: RequestMessage<Octs>,
+    ) -> Box<dyn GetResponseMulti + Send + Sync> {
+        (**self).send_request(request_msg)
+    }
 }
 
 //------------ GetResponse ---------------------------------------------------
@@ -758,7 +780,7 @@ impl fmt::Display for Error {
             Error::Dgram(err) => fmt::Display::fmt(err, f),
 
             #[cfg(feature = "unstable-server-transport")]
-            Error::ZoneWrite => write!(f, "zone write error"),
+            Error::ZoneWrite => write!(f, "error writing to zone"),
 
             #[cfg(feature = "tsig")]
             Error::Authentication(err) => fmt::Display::fmt(err, f),
@@ -806,10 +828,10 @@ impl error::Error for Error {
             Error::ZoneWrite => None,
 
             #[cfg(feature = "tsig")]
-            Error::Authentication(err) => Some(err),
+            Error::Authentication(e) => Some(e),
 
             #[cfg(feature = "unstable-validator")]
-            Error::Validation(err) => Some(err),
+            Error::Validation(e) => Some(e),
         }
     }
 }

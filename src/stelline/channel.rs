@@ -1,6 +1,9 @@
 // Using tokio::io::duplex() seems appealing but it can only create a channel
 // between two ends, it isn't possible to create additional client ends for a
 // single server end for example.
+use core::sync::atomic::{AtomicBool, AtomicU16, Ordering};
+use core::time::Duration;
+
 use std::boxed::Box;
 use std::collections::HashMap;
 use std::future::ready;
@@ -22,7 +25,6 @@ use crate::net::client::protocol::{
     AsyncConnect, AsyncDgramRecv, AsyncDgramSend,
 };
 use crate::net::server::sock::{AsyncAccept, AsyncDgramSock};
-use core::sync::atomic::{AtomicU16, Ordering};
 
 // If MSRV gets bumped to 1.69.0 we can replace these with a const SocketAddr.
 pub const DEF_CLIENT_ADDR: IpAddr = IpAddr::V4(Ipv4Addr::LOCALHOST);
@@ -72,7 +74,7 @@ struct ClientSocket {
     /// Sender for sender requests to the server.
     tx: mpsc::Sender<Data>,
 
-    /// Receiver for receving responses from the server.
+    /// Receiver for receiving responses from the server.
     ///
     /// Wrapped in a mutex so that it can be mutated even from a &self fn.
     rx: Mutex<mpsc::Receiver<Vec<u8>>>,
@@ -168,6 +170,9 @@ pub struct ClientServerChannel {
 
     /// Type of connection.
     is_stream: bool,
+
+    /// Is connection terminated?
+    is_shutdown: Arc<AtomicBool>,
 }
 
 impl Default for ClientServerChannel {
@@ -180,6 +185,7 @@ impl Default for ClientServerChannel {
             client_addr,
             next_client_port: Arc::new(AtomicU16::new(1)),
             is_stream: Default::default(),
+            is_shutdown: Default::default(),
         }
     }
 }
@@ -194,6 +200,7 @@ impl Clone for ClientServerChannel {
             client_addr: self.client_addr,
             next_client_port: self.next_client_port.clone(),
             is_stream: self.is_stream,
+            is_shutdown: self.is_shutdown.clone(),
         }
     }
 }
@@ -230,6 +237,7 @@ impl ClientServerChannel {
             client_addr,
             next_client_port: self.next_client_port.clone(),
             is_stream: self.is_stream,
+            is_shutdown: self.is_shutdown.clone(),
         }
     }
 
@@ -269,6 +277,7 @@ impl ClientServerChannel {
                     client_addr: self.client_addr,
                     next_client_port: self.next_client_port.clone(),
                     is_stream: false,
+                    is_shutdown: Arc::new(AtomicBool::new(false)),
                 }
             }
 
@@ -282,9 +291,10 @@ impl ClientServerChannel {
                 let channel = Self {
                     server: Arc::new(Mutex::new(server_socket)),
                     client: Some(client),
-                    client_addr: self.client_addr,
+                    client_addr,
                     next_client_port: self.next_client_port.clone(),
                     is_stream: true,
+                    is_shutdown: Arc::new(AtomicBool::new(false)),
                 };
 
                 // Tell the server how to receive from and respond to the client
@@ -497,9 +507,10 @@ impl Future for ClientServerChannelReadableFut {
             trace!("Server socket is now readable");
             Poll::Ready(Ok(()))
         } else {
-            trace!("Server socket is not yet readable");
             let waker = cx.waker().clone();
             tokio::task::spawn(async move {
+                // Give other tasks a chance to run.
+                tokio::time::sleep(Duration::from_nanos(1)).await;
                 waker.wake();
             });
             Poll::Pending
@@ -527,10 +538,8 @@ impl AsyncAccept for ClientServerChannel {
             // sends the details of a new client connection to us.
             Poll::Ready(Some(Data::StreamAccept(channel))) => {
                 trace!("Accepted connection in stream channel",);
-                Poll::Ready(Ok((
-                    ready(Ok(channel)),
-                    SocketAddr::new("::".parse().unwrap(), 0),
-                )))
+                let client_addr = channel.client_addr;
+                Poll::Ready(Ok((ready(Ok(channel)), client_addr)))
             }
             Poll::Ready(Some(Data::StreamRequest(..))) => unreachable!(),
             Poll::Ready(Some(Data::DgramRequest(..))) => unreachable!(),
@@ -557,12 +566,21 @@ impl AsyncRead for ClientServerChannel {
         cx: &mut Context<'_>,
         buf: &mut ReadBuf<'_>,
     ) -> Poll<io::Result<()>> {
+        if self.is_shutdown.load(Ordering::SeqCst) {
+            trace!(
+                "Stream shutdown while reading in client-server stream channel"
+            );
+            return Poll::Ready(Err(io::Error::from(
+                io::ErrorKind::BrokenPipe,
+            )));
+        }
+
         match &mut self.client {
             Some(client) => {
                 let rx = &mut client.rx.lock().unwrap();
                 match rx.poll_recv(cx) {
                     Poll::Ready(Some(data)) => {
-                        trace!("Reading {} bytes into internal buffer in server stream channel", data.len());
+                        trace!("Reading {} bytes into internal buffer in client stream channel", data.len());
                         client.unread_buf.extend(data).fill(buf);
                         Poll::Ready(Ok(()))
                     }
@@ -629,6 +647,15 @@ impl AsyncWrite for ClientServerChannel {
         cx: &mut Context<'_>,
         data: &[u8],
     ) -> Poll<Result<usize, io::Error>> {
+        if self.is_shutdown.load(Ordering::SeqCst) {
+            trace!(
+                "Stream shutdown while writing in client-server stream channel"
+            );
+            return Poll::Ready(Err(io::Error::from(
+                io::ErrorKind::BrokenPipe,
+            )));
+        }
+
         match &self.client {
             Some(client) => {
                 let mut fut = Box::pin(
@@ -700,7 +727,7 @@ impl AsyncWrite for ClientServerChannel {
         self: Pin<&mut Self>,
         _cx: &mut Context<'_>,
     ) -> Poll<Result<(), io::Error>> {
-        // Unsupported?
+        self.is_shutdown.store(true, Ordering::SeqCst);
         Poll::Ready(Ok(()))
     }
 }

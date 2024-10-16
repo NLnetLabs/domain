@@ -1,9 +1,11 @@
 //! A DNS library for Rust.
 //!
 //! This crates provides a number of building blocks for developing
-//! functionality related to the DNS. It provides fundamental types, traits,
-//! and code as well as a wide range of optional features. The intent is to
-//! eventually cover all aspects of modern DNS.
+//! functionality related to the
+//! [Domain Name System (DNS)](https://www.rfc-editor.org/rfc/rfc9499.html).
+//! It provides fundamental types, traits, and code as well as a wide range
+//! of optional features. The intent is to eventually cover all aspects of
+//! modern DNS.
 //!
 //! The crate uses feature flags to allow you to select only those modules
 //! you need for you particular project. In most cases, the feature names
@@ -137,6 +139,7 @@
 //!   a server perspective; primarily the `net::server` module.
 //! * `unstable-validator`: a DNSSEC validator, primarily the `validator`
 //!   and the `net::client::validator` modules.
+//! * `unstable-xfr`: zone transfer related functionality..
 //! * `unstable-zonetree`: building & querying zone trees; primarily the
 //!   `zonetree` module.
 //!
@@ -166,7 +169,6 @@ pub mod rdata;
 pub mod resolv;
 pub mod sign;
 pub mod stelline;
-pub mod test;
 pub mod tsig;
 pub mod utils;
 pub mod validate;

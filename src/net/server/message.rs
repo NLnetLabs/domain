@@ -15,8 +15,8 @@ use tokio::time::Instant;
 use crate::base::opt::AllOptData;
 use crate::base::{Message, Name};
 use crate::dep::octseq::Octets;
-use crate::net::client::request::ComposeRequest;
-use crate::net::client::request::{Error, RequestMessage};
+use crate::net::client::request;
+use crate::net::client::request::{ComposeRequest, RequestMessage};
 
 //------------ UdpTransportContext -------------------------------------------
 
@@ -203,7 +203,7 @@ where
 
 impl<Octs, Metadata> Request<Octs, Metadata>
 where
-    Octs: AsRef<[u8]> + Send + Sync + Unpin,
+    Octs: AsRef<[u8]> + Send + Sync,
 {
     /// Creates a new request wrapper around a message along with its context.
     pub fn new(
@@ -281,7 +281,7 @@ where
 
 impl<Octs, Metadata> Clone for Request<Octs, Metadata>
 where
-    Octs: AsRef<[u8]> + Send + Sync + Unpin,
+    Octs: AsRef<[u8]> + Send + Sync,
     Metadata: Clone,
 {
     fn clone(&self) -> Self {
@@ -301,7 +301,7 @@ where
 impl<Octs: Octets + Send + Sync + Debug + Clone> TryFrom<Request<Octs>>
     for RequestMessage<Octs>
 {
-    type Error = Error;
+    type Error = request::Error;
 
     fn try_from(req: Request<Octs>) -> Result<Self, Self::Error> {
         // Copy the ECS option from the message. This is just an example,
@@ -312,10 +312,10 @@ impl<Octs: Octets + Send + Sync + Debug + Clone> TryFrom<Request<Octs>>
         let mut extra_opts: Vec<AllOptData<Bytes, Name<Bytes>>> = vec![];
 
         let bytes = Bytes::copy_from_slice(req.message.as_slice());
-        let bytes_msg = Message::from_octets(bytes).unwrap();
+        let bytes_msg = Message::from_octets(bytes)?;
         if let Some(optrec) = bytes_msg.opt() {
             for opt in optrec.opt().iter::<AllOptData<_, _>>() {
-                let opt = opt.unwrap();
+                let opt = opt?;
                 if let AllOptData::ClientSubnet(_ecs) = opt {
                     extra_opts.push(opt);
                 }
@@ -325,7 +325,7 @@ impl<Octs: Octets + Send + Sync + Debug + Clone> TryFrom<Request<Octs>>
         // We need to make a copy of message. Somehow we can't use the
         // message in the Arc directly.
         let set_do = dnssec_ok(&req.message);
-        let msg = Message::from_octets(req.message.as_octets().clone()).unwrap();
+        let msg = Message::from_octets(req.message.as_octets().clone())?;
         let mut reqmsg = RequestMessage::new(msg)?;
 
         // Copy DO bit
@@ -335,7 +335,7 @@ impl<Octs: Octets + Send + Sync + Debug + Clone> TryFrom<Request<Octs>>
 
         // Copy options
         for opt in &extra_opts {
-            reqmsg.add_opt(opt).unwrap();
+            reqmsg.add_opt(opt)?;
         }
         Ok(reqmsg)
     }

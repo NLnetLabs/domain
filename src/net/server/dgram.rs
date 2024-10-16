@@ -21,7 +21,7 @@ use std::string::ToString;
 use std::sync::{Arc, Mutex};
 
 use arc_swap::ArcSwap;
-use futures::prelude::stream::StreamExt;
+use futures_util::stream::StreamExt;
 use octseq::Octets;
 use tokio::io::ReadBuf;
 use tokio::net::UdpSocket;
@@ -118,7 +118,7 @@ impl Config {
     /// [RFC 6891]:
     ///     https://datatracker.ietf.org/doc/html/rfc6891#section-6.2.5
     pub fn set_max_response_size(&mut self, value: Option<u16>) {
-        self.max_response_size = value;
+        self.max_response_size = value.map(|v| MAX_RESPONSE_SIZE.limit(v));
     }
 
     /// Sets the time to wait for a complete message to be written to the
@@ -511,7 +511,18 @@ where
                     tokio::spawn(async move {
                         match Message::from_octets(buf) {
                             Err(err) => {
-                                tracing::warn!("Failed while parsing request message: {err}");
+                                // TO DO: Count this event?
+                                warn!("Failed while parsing request message: {err}");
+                            }
+
+                            // https://datatracker.ietf.org/doc/html/rfc1035#section-4.1.1
+                            // 4.1.1. Header section format
+                            //   "QR   A one bit field that specifies whether
+                            //         this message is a query (0), or a
+                            //         response (1)."
+                            Ok(msg) if msg.header().qr() => {
+                                // TO DO: Count this event?
+                                trace!("Ignoring received message because it is a reply, not a query.");
                             }
 
                             Ok(msg) => {

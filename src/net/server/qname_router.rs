@@ -4,12 +4,18 @@
 #![warn(clippy::missing_docs_in_private_items)]
 
 use super::message::Request;
-use super::single_service::SingleService;
+use super::service::ServiceError;
+use super::single_service::{ComposeReply, SingleService};
+use super::util::mk_error_response;
+use crate::base::iana::{ExtendedErrorCode, OptRcode};
+use crate::base::message_builder::AdditionalBuilder;
+use crate::base::opt::ExtendedError;
+use crate::base::StreamTarget;
 use crate::base::{Name, ToName};
-use crate::dep::octseq::{EmptyBuilder, FromBuilder, Octets};
-use crate::net::client::request::Error;
+use crate::dep::octseq::{EmptyBuilder, FromBuilder, Octets, OctetsBuilder};
 use std::boxed::Box;
-use std::future::Future;
+use std::convert::Infallible;
+use std::future::{ready, Future};
 use std::pin::Pin;
 use std::vec::Vec;
 
@@ -39,13 +45,14 @@ impl<Octs, RequestOcts, CR> QnameRouter<Octs, RequestOcts, CR> {
     pub fn add<TN, SVC>(&mut self, name: TN, service: SVC)
     where
         Octs: FromBuilder,
-        <Octs as FromBuilder>::Builder: EmptyBuilder,
+        <Octs as FromBuilder>::Builder:
+            EmptyBuilder + OctetsBuilder<AppendError = Infallible>,
         TN: ToName,
-	RequestOcts: Send + Sync,
+        RequestOcts: Send + Sync,
         SVC: SingleService<RequestOcts, CR> + Send + Sync + 'static,
     {
         let el = Element {
-            name: name.try_to_name().ok().unwrap(),
+            name: name.to_name(),
             service: Box::new(service),
         };
         self.list.push(el);
@@ -62,12 +69,13 @@ impl<Octs, RequestOcts, CR> SingleService<RequestOcts, CR>
     for QnameRouter<Octs, RequestOcts, CR>
 where
     Octs: AsRef<[u8]>,
-    RequestOcts: Send + Sync + Unpin,
+    RequestOcts: Send + Sync,
+    CR: ComposeReply + Send + Sync + 'static,
 {
     fn call(
         &self,
         request: Request<RequestOcts>,
-    ) -> Pin<Box<dyn Future<Output = Result<CR, Error>> + Send + Sync>>
+    ) -> Pin<Box<dyn Future<Output = Result<CR, ServiceError>> + Send + Sync>>
     where
         RequestOcts: AsRef<[u8]> + Octets,
     {
@@ -76,15 +84,35 @@ where
             .question()
             .into_iter()
             .next()
-            .unwrap()
-            .unwrap();
+            .expect("the caller need to make sure that there is question")
+            .expect("the caller need to make sure that the question can be parsed")
+            ;
         let name = question.qname();
-        self.list
+        let el = match self
+            .list
             .iter()
             .filter(|l| name.ends_with(&l.name))
             .max_by_key(|l| l.name.label_count())
-            .unwrap()
-            .service
-            .call(request.clone())
+        {
+            Some(el) => el,
+            None => {
+                // We can't find a suitable upstream. Generate a SERVFAIL
+                // reply with an EDE.
+                let builder: AdditionalBuilder<StreamTarget<Vec<u8>>> =
+                    mk_error_response(request.message(), OptRcode::SERVFAIL);
+                let msg = builder.as_message();
+                let mut cr = CR::from_message(&msg)
+                    .expect("CR should handle an error response");
+                if let Ok(ede) = ExtendedError::<Vec<u8>>::new_with_str(
+                    ExtendedErrorCode::OTHER,
+                    "No upstream for request",
+                ) {
+                    cr.add_opt(&ede).expect("Adding an ede should not fail");
+                }
+                return Box::pin(ready(Ok(cr)));
+            }
+        };
+
+        el.service.call(request.clone())
     }
 }
