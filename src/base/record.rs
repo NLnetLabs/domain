@@ -1498,14 +1498,14 @@ impl Ttl {
     }
 
     /// Display the [`Ttl`] in a pretty format with time units
-    /// 
+    ///
     /// This writes the TTL as a duration with weeks, days, hours, minutes
     /// and seconds. For example:
-    /// 
+    ///
     /// ```txt
     /// 5 weeks 1 day 30 seconds
     /// ```
-    /// 
+    ///
     /// In most cases it will be a single unit, because people tend to pick
     /// a nice number as TTL.
     pub(crate) fn pretty(&self) -> impl fmt::Display {
