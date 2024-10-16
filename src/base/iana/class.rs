@@ -30,33 +30,34 @@ int_enum! {
     ///
     /// This class is defined in RFC 1035 and really the only one relevant
     /// at all.
-    (IN => 1, b"IN")
+    (IN => 1, "IN")
 
     /// Chaosnet (CH).
     ///
     /// A network protocol developed at MIT in the 1970s. Reused by BIND for
     /// built-in server information zones.",
-    (CH => 3, b"CH")
+    (CH => 3, "CH")
 
     /// Hesiod (HS).
     ///
     /// A system information protocol part of MIT's Project Athena.",
-    (HS => 4, b"HS")
+    (HS => 4, "HS")
 
     /// Query class None.
     ///
     /// Defined in RFC 2136, this class is used in UPDATE queries to
     /// require that an RRset does not exist prior to the update.",
-    (NONE => 0xFE, b"NONE")
+    (NONE => 0xFE, "NONE")
 
     /// Query class * (ANY).
     ///
     /// This class can be used in a query to indicate that records for the
     /// given name from any class are requested.",
-    (ANY => 0xFF, b"*")
+    (ANY => 0xFF, "*")
 }
 
 int_enum_str_with_prefix!(Class, "CLASS", b"CLASS", u16, "unknown class");
+int_enum_zonefile_fmt_with_prefix!(Class, "CLASS");
 
 //============ Tests =========================================================
 
