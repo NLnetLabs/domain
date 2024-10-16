@@ -149,6 +149,9 @@ int_enum! {
     /// is otherwise configured to support. Examples of this include
     /// its most recent zone being too old or having expired.
     (INVALID_DATA => 24, "Invalid Data")
+
+    /// The requested resource record type should not appear in a query.
+    (INVALID_QUERY_TYPE => 30, "Invalid Query Type")
 }
 
 /// Start of the private range for EDE codes.
@@ -160,13 +163,10 @@ int_enum! {
 /// ```
 pub const EDE_PRIVATE_RANGE_BEGIN: u16 = 49152;
 
-// Only implement `Display` for `ExtendedErrorCode`, as the `FromStr`
-// bundled by the `int_enum_*` macros is not very useful.
-impl core::fmt::Display for ExtendedErrorCode {
-    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
-        match self.to_mnemonic_str() {
-            Some(m) => f.write_str(m),
-            None => write!(f, "EDE{}", self.to_int()),
-        }
-    }
-}
+int_enum_str_with_prefix!(
+    ExtendedErrorCode,
+    "EDE",
+    b"EDE",
+    u16,
+    "unknown error code"
+);

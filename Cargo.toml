@@ -1,6 +1,6 @@
 [package]
 name = "domain"
-version = "0.10.1"
+version = "0.10.3"
 
 # This is the mimimal Rust version with minimal dependencies as specified
 # below. With latest dependency versions 1.76.0 is currently required.
@@ -21,7 +21,7 @@ name = "domain"
 path = "src/lib.rs"
 
 [dependencies]
-octseq         = { version = "0.5.2-dev", git = "https://github.com/NLnetLabs/octseq.git", rev ="3f7797f4274af0a52e66105250ee1186ff2ab6ac", default-features = false }
+octseq         = { version = "0.5.2", default-features = false }
 time           = { version = "0.3.1", default-features = false }
 rand           = { version = "0.8", optional = true }
 arc-swap       = { version = "1.7.0", optional = true }
@@ -62,10 +62,10 @@ zonefile    = ["bytes", "serde", "std"]
 # Unstable features
 unstable-client-transport = ["moka", "net", "tracing"]
 unstable-server-transport = ["arc-swap", "chrono/clock", "libc", "net", "siphasher", "tracing"]
-unstable-stelline = ["tokio/test-util", "tracing", "tracing-subscriber", "unstable-server-transport", "zonefile"]
+unstable-stelline = ["tokio/test-util", "tracing", "tracing-subscriber", "tsig", "unstable-client-transport", "unstable-server-transport", "zonefile"]
 unstable-validator = ["validate", "zonefile", "unstable-client-transport"]
-unstable-xfr = []
-unstable-zonetree = ["futures-util", "parking_lot", "rustversion", "serde", "tokio", "tracing"]
+unstable-xfr = ["net"]
+unstable-zonetree = ["futures-util", "parking_lot", "rustversion", "serde", "std", "tokio", "tracing", "unstable-xfr", "zonefile"]
 
 [dev-dependencies]
 lazy_static        = { version = "1.4.0" }
@@ -126,6 +126,10 @@ required-features = ["zonefile", "unstable-zonetree"]
 [[example]]
 name = "serve-zone"
 required-features = ["zonefile", "net", "unstable-server-transport", "unstable-zonetree"]
+
+[[example]]
+name = "ixfr-client"
+required-features = ["zonefile", "net", "unstable-client-transport", "unstable-zonetree"]
 
 # This example is commented out because it is difficult, if not impossible,
 # when including the sqlx dependency, to make the dependency tree compatible

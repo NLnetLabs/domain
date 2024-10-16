@@ -1,5 +1,7 @@
 //! The resource record tree nodes of an in-memory zone.
 
+use core::any::Any;
+
 use std::boxed::Box;
 use std::collections::{hash_map, HashMap};
 use std::future::Future;
@@ -144,6 +146,10 @@ impl ZoneStore for ZoneApex {
             Box::new(WriteZone::new(self, lock, version, zone_versions))
                 as Box<dyn WritableZone>
         })
+    }
+
+    fn as_any(&self) -> &dyn Any {
+        self as &dyn Any
     }
 }
 

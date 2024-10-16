@@ -106,7 +106,7 @@ use octseq::{Octets, OctetsFrom, Parser};
 /// use domain::base::Message;
 /// use domain::rdata::Mx;
 ///
-/// # let octets = vec![0; 12];
+/// # let octets = b"\0\0\0\0\0\0\0\0\0\0\0\0".as_slice();
 /// let msg = Message::from_octets(octets).unwrap();
 /// for record in msg.answer().unwrap().limit_to::<Mx<_>>() {
 ///     if let Ok(record) = record {

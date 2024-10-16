@@ -1,11 +1,15 @@
+use core::future::{ready, Future};
+use core::ops::Deref;
+use core::pin::Pin;
 use core::str::FromStr;
 
 use std::boxed::Box;
 use std::collections::{HashMap, VecDeque};
 use std::fs::File;
 use std::net::SocketAddr;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::result::Result;
+use std::string::{String, ToString};
 use std::sync::Arc;
 use std::time::Duration;
 use std::vec::Vec;
@@ -16,9 +20,10 @@ use tracing::instrument;
 use tracing::{trace, warn};
 
 use crate::base::iana::{Class, Rcode};
-use crate::base::name::{Name, ToName};
+use crate::base::name::ToName;
 use crate::base::net::IpAddr;
 use crate::base::wire::Composer;
+use crate::base::Name;
 use crate::base::Rtype;
 use crate::net::client::request::{RequestMessage, RequestMessageMulti};
 use crate::net::client::{dgram, stream, tsig};
@@ -32,6 +37,8 @@ use crate::net::server::middleware::mandatory::MandatoryMiddlewareSvc;
 use crate::net::server::middleware::notify::{
     Notifiable, NotifyError, NotifyMiddlewareSvc,
 };
+use crate::net::server::middleware::tsig::TsigMiddlewareSvc;
+use crate::net::server::middleware::xfr::XfrMiddlewareSvc;
 use crate::net::server::service::{CallResult, Service, ServiceResult};
 use crate::net::server::stream::StreamServer;
 use crate::net::server::util::{mk_builder_for_target, service_fn};
@@ -44,11 +51,9 @@ use crate::stelline::parse_stelline::{self, parse_file, Config, Matches};
 use crate::stelline::simple_dgram_client;
 use crate::tsig::{Algorithm, Key, KeyName, KeyStore};
 use crate::utils::base16;
-use crate::zonefile::inplace::{Entry, ScannedRecord, Zonefile};
-use crate::zonetree::StoredName;
-use core::future::{ready, Future};
-use core::pin::Pin;
-use std::string::ToString;
+use crate::zonefile::inplace::Zonefile;
+use crate::zonetree::{Answer, Zone};
+use crate::zonetree::{StoredName, ZoneBuilder, ZoneTree};
 
 //----------- Tests ----------------------------------------------------------
 
@@ -57,8 +62,6 @@ use std::string::ToString;
 ///
 /// Note: Adding or removing .rpl files on disk won't be detected until the
 /// test is re-compiled.
-// #[cfg(feature = "mock-time")] # Needed for the cookies test but that is
-// currently disabled by renaming it to .rpl.not.
 #[instrument(skip_all, fields(rpl = rpl_file.file_name().unwrap().to_str()))]
 #[rstest]
 #[tokio::test(start_paused = true)]
@@ -70,8 +73,6 @@ async fn server_tests(#[files("test-data/server/*.rpl")] rpl_file: PathBuf) {
     // Initialize tracing based logging. Override with env var RUST_LOG, e.g.
     // RUST_LOG=trace. DEBUG level will show the .rpl file name, Stelline step
     // numbers and types as they are being executed.
-
-    use crate::net::server::middleware::tsig::TsigMiddlewareSvc;
     tracing_subscriber::fmt()
         .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
         .with_thread_ids(true)
@@ -100,7 +101,45 @@ async fn server_tests(#[files("test-data/server/*.rpl")] rpl_file: PathBuf) {
     let dgram_server_conn = ClientServerChannel::new_dgram();
     let stream_server_conn = ClientServerChannel::new_stream();
 
-    let zonefile = server_config.zonefile.clone();
+    // Build the test defined zone, if any.
+    let mut zones = ZoneTree::new();
+    match &server_config.zone {
+        ServerZone {
+            zone_files: zfs, ..
+        } if !zfs.is_empty() => {
+            // One or more primary zone with content already defined.
+            for zone_file in zfs {
+                zones
+                    .insert_zone(Zone::try_from(zone_file.clone()).unwrap())
+                    .unwrap();
+            }
+        }
+
+        ServerZone {
+            zone_name: Some(zone_name),
+            ..
+        } => {
+            // This is a secondary zone with content to be received via
+            // XFR.
+            let builder = ZoneBuilder::new(
+                Name::from_str(zone_name).unwrap(),
+                Class::IN,
+            );
+            zones.insert_zone(builder.build()).unwrap();
+        }
+
+        ServerZone {
+            zone_files: zfs,
+            zone_name: None,
+        } if zfs.is_empty() => {
+            // No zones defined at all.
+        }
+
+        _ => {
+            unimplemented!()
+        }
+    }
+    let zones = Arc::new(zones);
 
     let with_cookies = server_config.cookies.enabled
         && server_config.cookies.secret.is_some();
@@ -120,7 +159,7 @@ async fn server_tests(#[files("test-data/server/*.rpl")] rpl_file: PathBuf) {
     // it and without it having to know or do anything about it.
 
     // 1. Application logic service
-    let svc = service_fn(test_service, zonefile);
+    let svc = service_fn(test_service, zones.clone());
 
     // 2. DNS COOKIES middleware service
     let svc = CookiesMiddlewareSvc::new(svc, secret)
@@ -131,13 +170,18 @@ async fn server_tests(#[files("test-data/server/*.rpl")] rpl_file: PathBuf) {
     let svc =
         EdnsMiddlewareSvc::new(svc).enable(server_config.edns_tcp_keepalive);
 
-    // 4. Mandatory DNS behaviour (e.g. RFC 1034/35 rules).
-    let svc = MandatoryMiddlewareSvc::new(svc);
+    // 4. RFC 5936 AXFR and RFC 1995 IXFR middleware service.
+    let svc = XfrMiddlewareSvc::<Vec<u8>, _, Option<Arc<Key>>, _>::new(
+        svc, zones, 1,
+    );
 
     // 5. RFC 1996 NOTIFY support.
     let svc = NotifyMiddlewareSvc::new(svc, TestNotifyTarget);
 
-    // 6. TSIG message authentication.
+    // 6. Mandatory DNS behaviour (e.g. RFC 1034/35 rules).
+    let svc = MandatoryMiddlewareSvc::new(svc);
+
+    // 7. TSIG message authentication.
     let svc = TsigMiddlewareSvc::new(svc, key_store.clone());
 
     // NOTE: TSIG middleware *MUST* be the first middleware in the chain per
@@ -145,7 +189,8 @@ async fn server_tests(#[files("test-data/server/*.rpl")] rpl_file: PathBuf) {
     // in order to verify the signature, and has to sign outgoing messages in
     // their final state without any modification occuring thereafter.
 
-    // Create dgram and stream servers for answering requests
+    // 8. The dgram and stream servers that receive DNS queries and dispatch
+    // them to the service layers above.
     let (dgram_srv, stream_srv) = mk_servers(
         svc,
         &server_config,
@@ -153,7 +198,11 @@ async fn server_tests(#[files("test-data/server/*.rpl")] rpl_file: PathBuf) {
         stream_server_conn.clone(),
     );
 
-    // Create a client factory for sending requests
+    // Create a client factory for creating DNS clients per Stelline STEP with
+    // the appropriate configuration (as defined by the .rpl content) to
+    // submit requests to our DNS servers. No actual network communication
+    // takes place, these clients and servers use a direct in-memory channel
+    // to exchange messages instead of actual network sockets.
     let client_factory =
         mk_client_factory(dgram_server_conn, stream_server_conn, key_store);
 
@@ -320,9 +369,13 @@ fn mk_client_factory(
                         simple_dgram_client::Connection::new(connect),
                     )),
 
-                    _ => Client::Single(Box::new(dgram::Connection::new(
-                        connect,
-                    ))),
+                    _ => {
+                        let mut config = dgram::Config::new();
+                        config.set_max_retries(0);
+                        Client::Single(Box::new(
+                            dgram::Connection::with_config(connect, config),
+                        ))
+                    }
                 }
             }
         },
@@ -369,70 +422,40 @@ fn mk_server_configs(
 #[allow(clippy::type_complexity)]
 fn test_service<RequestMeta>(
     request: Request<Vec<u8>, RequestMeta>,
-    zonefile: Zonefile,
+    zones: Arc<ZoneTree>,
 ) -> ServiceResult<Vec<u8>> {
-    fn as_record_and_dname(
-        r: ScannedRecord,
-    ) -> Option<(ScannedRecord, Name<Vec<u8>>)> {
-        let dname = r.owner().to_name();
-        Some((r, dname))
-    }
+    let question = request.message().sole_question().unwrap();
 
-    fn as_records(
-        e: Result<Entry, crate::zonefile::inplace::Error>,
-    ) -> Option<ScannedRecord> {
-        match e {
-            Ok(Entry::Record(r)) => Some(r),
-            Ok(_) => None,
-            Err(err) => panic!(
-                "Error while extracting records from the zonefile: {err}"
-            ),
+    let answer = match zones.find_zone(question.qname(), question.qclass()) {
+        Some(zone) => {
+            let readable_zone = zone.read();
+            let qname = question.qname().to_bytes();
+            let qtype = question.qtype();
+            readable_zone.query(qname, qtype).unwrap()
         }
-    }
+        None => Answer::new(Rcode::NXDOMAIN),
+    };
 
-    trace!("Service received request");
-    trace!("Service is constructing a single response");
-    // If given a single question:
-    let answer = request
-        .message()
-        .sole_question()
-        .ok()
-        .and_then(|q| {
-            // Walk the zone to find the queried name
-            zonefile
-                .clone()
-                .filter_map(as_records)
-                .filter_map(as_record_and_dname)
-                .find(|(_record, dname)| dname == q.qname())
-        })
-        .map_or_else(
-            || {
-                // The Qname was not found in the zone:
-                mk_builder_for_target()
-                    .start_answer(request.message(), Rcode::NXDOMAIN)
-                    .unwrap()
-            },
-            |(record, _)| {
-                // Respond with the found record:
-                let mut answer = mk_builder_for_target()
-                    .start_answer(request.message(), Rcode::NOERROR)
-                    .unwrap();
-                answer.push(record).unwrap();
-                answer
-            },
-        );
-
-    Ok(CallResult::new(answer.additional()))
+    let builder = mk_builder_for_target();
+    let additional = answer.to_message(request.message(), builder);
+    Ok(CallResult::new(additional))
 }
 
 //----------- Stelline config block parsing -----------------------------------
+
+#[derive(Default)]
+struct ServerZone {
+    /// Used for an empty secondary zone. Ignored if zone_files is non-empty.
+    zone_name: Option<String>,
+    zone_files: Vec<Zonefile>,
+}
 
 #[derive(Default)]
 struct ServerConfig<'a> {
     cookies: CookieConfig<'a>,
     edns_tcp_keepalive: bool,
     idle_timeout: Option<Duration>,
-    zonefile: Zonefile,
+    zone: ServerZone,
 }
 
 #[derive(Default)]
@@ -444,8 +467,10 @@ struct CookieConfig<'a> {
 
 fn parse_server_config(config: &Config) -> ServerConfig {
     let mut parsed_config = ServerConfig::default();
-    let mut zone_file_bytes = VecDeque::<u8>::new();
     let mut in_server_block = false;
+    let mut zone_name = None;
+    let mut zone_file_bytes = VecDeque::<u8>::new();
+    let mut zone_files = vec![];
 
     for line in config.lines() {
         if line.starts_with("server:") {
@@ -498,12 +523,18 @@ fn parse_server_config(config: &Config) -> ServerConfig {
                         }
                     }
                     ("local-data", v) => {
-                        if !zone_file_bytes.is_empty() {
-                            zone_file_bytes.push_back(b'\n');
-                        }
                         zone_file_bytes
                             .extend(v.trim_matches('"').as_bytes().iter());
                         zone_file_bytes.push_back(b'\n');
+                    }
+                    ("local-file", v) => {
+                        let zone_path =
+                            Path::new("test-data").join(v.trim_matches('"'));
+                        let zone_file = Zonefile::load(
+                            &mut File::open(zone_path).unwrap(),
+                        )
+                        .unwrap();
+                        zone_files.push(zone_file);
                     }
                     ("edns-tcp-keepalive", "yes") => {
                         parsed_config.edns_tcp_keepalive = true;
@@ -515,6 +546,11 @@ fn parse_server_config(config: &Config) -> ServerConfig {
                             );
                         }
                     }
+                    ("zone", v) => {
+                        // zone: <name>
+                        zone_file_bytes = Default::default();
+                        zone_name = Some(v.to_string());
+                    }
                     _ => {
                         eprintln!("Ignoring unknown server setting '{setting}' with value: {value}");
                     }
@@ -523,10 +559,16 @@ fn parse_server_config(config: &Config) -> ServerConfig {
         }
     }
 
-    if !zone_file_bytes.is_empty() {
-        parsed_config.zonefile =
-            Zonefile::load(&mut zone_file_bytes).unwrap();
+    if let Some(zone_file) = (!zone_file_bytes.is_empty())
+        .then(|| Zonefile::load(&mut zone_file_bytes).unwrap())
+    {
+        zone_files.push(zone_file);
     }
+
+    parsed_config.zone = ServerZone {
+        zone_name,
+        zone_files,
+    };
 
     parsed_config
 }
@@ -570,10 +612,6 @@ impl KeyStore for Arc<TestKeyStore> {
         name: &N,
         algorithm: Algorithm,
     ) -> Option<Self::Key> {
-        if let Ok(name) = name.try_to_name() {
-            self.get(&(name, algorithm)).cloned()
-        } else {
-            None
-        }
+        Arc::deref(self).get_key(name, algorithm)
     }
 }

@@ -364,6 +364,11 @@ int_enum! {
     /// See RFC 7043.
     (EUI64 => 109, "EUI64")
 
+    /// NXNAME.
+    ///
+    /// IANA-Reserved.
+    (NXNAME => 128, "NXNAME")
+
     /// Transaction key.
     ///
     /// See RFC 2930.

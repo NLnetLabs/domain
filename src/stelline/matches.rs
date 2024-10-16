@@ -87,27 +87,57 @@ where
         }
     }
     if matches.answer {
-        let Some(answer) = sections.answer.get(idx) else {
-            if verbose {
-                println!("match_msg: answer section {idx} missing");
+        if matches.any_answer {
+            // Match any one of the available answers (additional answers can
+            // be provided using the EXTRA_PACKET Stelline directive).
+            let mut matched = false;
+            for answer in &sections.answer {
+                if !match_section(
+                    answer.clone(),
+                    None,
+                    msg.answer().unwrap(),
+                    msg.header_counts().ancount(),
+                    matches.ttl,
+                    verbose,
+                    matches.extra_packets,
+                    out_answer,
+                ) {
+                    matched = true;
+                    break;
+                }
             }
-            return false;
-        };
-        if !match_section(
-            answer.clone(),
-            None,
-            msg.answer().unwrap(),
-            msg.header_counts().ancount(),
-            matches.ttl,
-            verbose,
-            matches.extra_packets,
-            out_answer,
-        ) && !matches.extra_packets
-        {
-            if verbose {
-                println!("match_msg: answer section {idx} does not match");
+
+            if !matched {
+                if verbose {
+                    println!("match_msg: answer section does not match");
+                }
+                return false;
             }
-            return false;
+        } else {
+            let Some(answer) = sections.answer.get(idx) else {
+                if verbose {
+                    println!("match_msg: answer section {idx} missing");
+                }
+                return false;
+            };
+            if !match_section(
+                answer.clone(),
+                None,
+                msg.answer().unwrap(),
+                msg.header_counts().ancount(),
+                matches.ttl,
+                verbose,
+                matches.extra_packets,
+                out_answer,
+            ) && !matches.extra_packets
+            {
+                if verbose {
+                    println!(
+                        "match_msg: answer section {idx} does not match"
+                    );
+                }
+                return false;
+            }
         }
     }
     if matches.authority
