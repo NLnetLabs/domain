@@ -351,7 +351,7 @@ mod tests {
     use crate::{
         base::iana::SecAlg,
         sign::{generic, SignRaw},
-        validate::RawPublicKey,
+        validate::Key,
     };
 
     use super::SecretKey;
@@ -389,13 +389,14 @@ mod tests {
 
             let path = format!("test-data/dnssec-keys/K{}.key", name);
             let data = std::fs::read_to_string(path).unwrap();
-            let pub_key = RawPublicKey::parse_dnskey_text(&data).unwrap();
+            let pub_key = Key::<Vec<u8>>::parse_dnskey_text(&data).unwrap();
+            let pub_key = pub_key.raw_public_key();
 
             let path = format!("test-data/dnssec-keys/K{}.private", name);
             let data = std::fs::read_to_string(path).unwrap();
             let gen_key = generic::SecretKey::parse_from_bind(&data).unwrap();
 
-            let key = SecretKey::from_generic(&gen_key, &pub_key).unwrap();
+            let key = SecretKey::from_generic(&gen_key, pub_key).unwrap();
 
             let equiv = key.to_generic();
             let mut same = String::new();
@@ -418,11 +419,12 @@ mod tests {
 
             let path = format!("test-data/dnssec-keys/K{}.key", name);
             let data = std::fs::read_to_string(path).unwrap();
-            let pub_key = RawPublicKey::parse_dnskey_text(&data).unwrap();
+            let pub_key = Key::<Vec<u8>>::parse_dnskey_text(&data).unwrap();
+            let pub_key = pub_key.raw_public_key();
 
-            let key = SecretKey::from_generic(&gen_key, &pub_key).unwrap();
+            let key = SecretKey::from_generic(&gen_key, pub_key).unwrap();
 
-            assert_eq!(key.raw_public_key(), pub_key);
+            assert_eq!(key.raw_public_key(), *pub_key);
         }
     }
 
@@ -437,9 +439,10 @@ mod tests {
 
             let path = format!("test-data/dnssec-keys/K{}.key", name);
             let data = std::fs::read_to_string(path).unwrap();
-            let pub_key = RawPublicKey::parse_dnskey_text(&data).unwrap();
+            let pub_key = Key::<Vec<u8>>::parse_dnskey_text(&data).unwrap();
+            let pub_key = pub_key.raw_public_key();
 
-            let key = SecretKey::from_generic(&gen_key, &pub_key).unwrap();
+            let key = SecretKey::from_generic(&gen_key, pub_key).unwrap();
 
             let _ = key.sign_raw(b"Hello, World!");
         }

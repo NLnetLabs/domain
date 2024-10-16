@@ -5,22 +5,197 @@
 #![cfg_attr(docsrs, doc(cfg(feature = "unstable-validate")))]
 
 use crate::base::cmp::CanonicalOrd;
-use crate::base::iana::{DigestAlg, SecAlg};
+use crate::base::iana::{Class, DigestAlg, SecAlg};
 use crate::base::name::Name;
 use crate::base::name::ToName;
 use crate::base::rdata::{ComposeRecordData, RecordData};
 use crate::base::record::Record;
-use crate::base::scan::IterScanner;
+use crate::base::scan::{IterScanner, Scanner};
 use crate::base::wire::{Compose, Composer};
+use crate::base::Rtype;
 use crate::rdata::{Dnskey, Rrsig};
 use bytes::Bytes;
 use octseq::builder::with_infallible;
+use octseq::{EmptyBuilder, FromBuilder};
 use ring::{digest, signature};
 use std::boxed::Box;
 use std::vec::Vec;
 use std::{error, fmt};
 
-/// A generic public key.
+/// A DNSSEC key for a particular zone.
+#[derive(Clone)]
+pub struct Key<Octs> {
+    /// The owner of the key.
+    owner: Name<Octs>,
+
+    /// The flags associated with the key.
+    ///
+    /// These flags are stored in the DNSKEY record.
+    flags: u16,
+
+    /// The raw public key.
+    ///
+    /// This identifies the key and can be used for signatures.
+    key: RawPublicKey,
+}
+
+impl<Octs> Key<Octs> {
+    /// Construct a new DNSSEC key manually.
+    pub fn new(owner: Name<Octs>, flags: u16, key: RawPublicKey) -> Self {
+        Self { owner, flags, key }
+    }
+
+    /// The owner name attached to the key.
+    pub fn owner(&self) -> &Name<Octs> {
+        &self.owner
+    }
+
+    /// The flags attached to the key.
+    pub fn flags(&self) -> u16 {
+        self.flags
+    }
+
+    /// The raw public key.
+    pub fn raw_public_key(&self) -> &RawPublicKey {
+        &self.key
+    }
+
+    /// Whether this is a zone signing key.
+    ///
+    /// From RFC 4034, section 2.1.1:
+    ///
+    /// > Bit 7 of the Flags field is the Zone Key flag.  If bit 7 has value
+    /// > 1, then the DNSKEY record holds a DNS zone key, and the DNSKEY RR's
+    /// > owner name MUST be the name of a zone.  If bit 7 has value 0, then
+    /// > the DNSKEY record holds some other type of DNS public key and MUST
+    /// > NOT be used to verify RRSIGs that cover RRsets.
+    pub fn is_zone_signing_key(&self) -> bool {
+        self.flags & (1 << 7) != 0
+    }
+
+    /// Whether this is a secure entry point.
+    ///
+    /// From RFC 4034, section 2.1.1:
+    ///
+    ///
+    /// > Bit 15 of the Flags field is the Secure Entry Point flag, described
+    /// > in [RFC3757].  If bit 15 has value 1, then the DNSKEY record holds a
+    /// > key intended for use as a secure entry point.  This flag is only
+    /// > intended to be a hint to zone signing or debugging software as to
+    /// > the intended use of this DNSKEY record; validators MUST NOT alter
+    /// > their behavior during the signature validation process in any way
+    /// > based on the setting of this bit.  This also means that a DNSKEY RR
+    /// > with the SEP bit set would also need the Zone Key flag set in order
+    /// > to be able to generate signatures legally.  A DNSKEY RR with the SEP
+    /// > set and the Zone Key flag not set MUST NOT be used to verify RRSIGs
+    /// > that cover RRsets.
+    pub fn is_secure_entry_point(&self) -> bool {
+        self.flags & (1 << 15) != 0
+    }
+}
+
+impl<Octs: AsRef<[u8]>> Key<Octs> {
+    /// Deserialize a key from DNSKEY record data.
+    ///
+    /// # Errors
+    ///
+    /// Fails if the DNSKEY uses an unknown protocol or contains an invalid
+    /// public key (e.g. one of the wrong size for the signature algorithm).
+    pub fn from_dnskey(
+        owner: Name<Octs>,
+        dnskey: Dnskey<Octs>,
+    ) -> Result<Self, FromDnskeyError> {
+        if dnskey.protocol() != 3 {
+            return Err(FromDnskeyError::UnsupportedProtocol);
+        }
+
+        let flags = dnskey.flags();
+        let algorithm = dnskey.algorithm();
+        let key = dnskey.public_key().as_ref();
+        let key = RawPublicKey::from_dnskey_format(algorithm, key)?;
+        Ok(Self { owner, flags, key })
+    }
+
+    /// Parse a DNSSEC key from a DNSKEY record in presentation format.
+    ///
+    /// This format is popularized for storing alongside private keys by the
+    /// BIND name server.  This function is convenient for loading such keys.
+    ///
+    /// The text should consist of a single line of the following format (each
+    /// field is separated by a non-zero number of ASCII spaces):
+    ///
+    /// ```text
+    /// <domain-name> <record-class> DNSKEY <record-data> [<comment>]
+    /// ```
+    ///
+    /// Where `<record-data>` consists of the following fields:
+    ///
+    /// ```text
+    /// <flags> <protocol> <algorithm> <encoded-public-key>
+    /// ```
+    ///
+    /// The first three fields are simple integers, while the last field is
+    /// Base64 encoded data (with or without padding).  The [`from_dnskey()`]
+    /// and [`to_dnskey()`] read from and serialize to the Base64-decoded data
+    /// format.
+    ///
+    /// [`from_dnskey()`]: Self::from_dnskey()
+    /// [`to_dnskey()`]: Self::to_dnskey()
+    ///
+    /// The `<comment>` is any text starting with an ASCII semicolon.
+    pub fn parse_dnskey_text(
+        dnskey: &str,
+    ) -> Result<Self, ParseDnskeyTextError>
+    where
+        Octs: FromBuilder,
+        Octs::Builder: EmptyBuilder + Composer,
+    {
+        // Ensure there is a single line in the input.
+        let (line, rest) = dnskey.split_once('\n').unwrap_or((dnskey, ""));
+        if !rest.trim().is_empty() {
+            return Err(ParseDnskeyTextError::Misformatted);
+        }
+
+        // Strip away any semicolon from the line.
+        let (line, _) = line.split_once(';').unwrap_or((line, ""));
+
+        // Parse the entire record.
+        let mut scanner = IterScanner::new(line.split_ascii_whitespace());
+
+        let name = scanner
+            .scan_name()
+            .map_err(|_| ParseDnskeyTextError::Misformatted)?;
+
+        let _ = Class::scan(&mut scanner)
+            .map_err(|_| ParseDnskeyTextError::Misformatted)?;
+
+        if Rtype::scan(&mut scanner).map_or(true, |t| t != Rtype::DNSKEY) {
+            return Err(ParseDnskeyTextError::Misformatted);
+        }
+
+        let data = Dnskey::scan(&mut scanner)
+            .map_err(|_| ParseDnskeyTextError::Misformatted)?;
+
+        Self::from_dnskey(name, data)
+            .map_err(ParseDnskeyTextError::FromDnskey)
+    }
+
+    /// Serialize the key into DNSKEY record data.
+    ///
+    /// The owner name can be combined with the returned record to serialize a
+    /// complete DNS record if necessary.
+    pub fn to_dnskey(&self) -> Dnskey<Box<[u8]>> {
+        Dnskey::new(
+            self.flags,
+            3,
+            self.key.algorithm(),
+            self.key.to_dnskey_format(),
+        )
+        .expect("long public key")
+    }
+}
+
+/// A low-level public key.
 #[derive(Clone, Debug)]
 pub enum RawPublicKey {
     /// An RSA/SHA-1 public key.
@@ -82,22 +257,23 @@ impl RawPublicKey {
 
 impl RawPublicKey {
     /// Parse a public key as stored in a DNSKEY record.
-    pub fn from_dnskey(
+    pub fn from_dnskey_format(
         algorithm: SecAlg,
         data: &[u8],
     ) -> Result<Self, FromDnskeyError> {
         match algorithm {
             SecAlg::RSASHA1 => {
-                RsaPublicKey::from_dnskey(data).map(Self::RsaSha1)
+                RsaPublicKey::from_dnskey_format(data).map(Self::RsaSha1)
             }
             SecAlg::RSASHA1_NSEC3_SHA1 => {
-                RsaPublicKey::from_dnskey(data).map(Self::RsaSha1Nsec3Sha1)
+                RsaPublicKey::from_dnskey_format(data)
+                    .map(Self::RsaSha1Nsec3Sha1)
             }
             SecAlg::RSASHA256 => {
-                RsaPublicKey::from_dnskey(data).map(Self::RsaSha256)
+                RsaPublicKey::from_dnskey_format(data).map(Self::RsaSha256)
             }
             SecAlg::RSASHA512 => {
-                RsaPublicKey::from_dnskey(data).map(Self::RsaSha512)
+                RsaPublicKey::from_dnskey_format(data).map(Self::RsaSha512)
             }
 
             SecAlg::ECDSAP256SHA256 => {
@@ -134,67 +310,13 @@ impl RawPublicKey {
         }
     }
 
-    /// Parse a public key from a DNSKEY record in presentation format.
-    ///
-    /// This format is popularized for storing alongside private keys by the
-    /// BIND name server.  This function is convenient for loading such keys.
-    ///
-    /// The text should consist of a single line of the following format (each
-    /// field is separated by a non-zero number of ASCII spaces):
-    ///
-    /// ```text
-    /// <domain-name> <record-class> DNSKEY <record-data> [<comment>]
-    /// ```
-    ///
-    /// Where `<record-data>` consists of the following fields:
-    ///
-    /// ```text
-    /// <flags> <protocol> <algorithm> <encoded-public-key>
-    /// ```
-    ///
-    /// The first three fields are simple integers, while the last field is
-    /// Base64 encoded data (with or without padding).  The [`from_dnskey()`]
-    /// and [`to_dnskey()`] read from and serialize to the Base64-decoded data
-    /// format.
-    ///
-    /// [`from_dnskey()`]: Self::from_dnskey()
-    /// [`to_dnskey()`]: Self::to_dnskey()
-    ///
-    /// The `<comment>` is any text starting with an ASCII semicolon.
-    pub fn parse_dnskey_text(
-        dnskey: &str,
-    ) -> Result<Self, FromDnskeyTextError> {
-        // Ensure there is a single line in the input.
-        let (line, rest) = dnskey.split_once('\n').unwrap_or((dnskey, ""));
-        if !rest.trim().is_empty() {
-            return Err(FromDnskeyTextError::Misformatted);
-        }
-
-        // Strip away any semicolon from the line.
-        let (line, _) = line.split_once(';').unwrap_or((line, ""));
-
-        // Ensure the record header looks reasonable.
-        let mut words = line.split_ascii_whitespace().skip(2);
-        if !words.next().unwrap_or("").eq_ignore_ascii_case("DNSKEY") {
-            return Err(FromDnskeyTextError::Misformatted);
-        }
-
-        // Parse the DNSKEY record data.
-        let mut data = IterScanner::new(words);
-        let dnskey: Dnskey<Vec<u8>> = Dnskey::scan(&mut data)
-            .map_err(|_| FromDnskeyTextError::Misformatted)?;
-        println!("importing {:?}", dnskey);
-        Self::from_dnskey(dnskey.algorithm(), dnskey.public_key().as_slice())
-            .map_err(FromDnskeyTextError::FromDnskey)
-    }
-
     /// Serialize this public key as stored in a DNSKEY record.
-    pub fn to_dnskey(&self) -> Box<[u8]> {
+    pub fn to_dnskey_format(&self) -> Box<[u8]> {
         match self {
             Self::RsaSha1(k)
             | Self::RsaSha1Nsec3Sha1(k)
             | Self::RsaSha256(k)
-            | Self::RsaSha512(k) => k.to_dnskey(),
+            | Self::RsaSha512(k) => k.to_dnskey_format(),
 
             // From my reading of RFC 6605, the marker byte is not included.
             Self::EcdsaP256Sha256(k) => k[1..].into(),
@@ -247,7 +369,7 @@ pub struct RsaPublicKey {
 
 impl RsaPublicKey {
     /// Parse an RSA public key as stored in a DNSKEY record.
-    pub fn from_dnskey(data: &[u8]) -> Result<Self, FromDnskeyError> {
+    pub fn from_dnskey_format(data: &[u8]) -> Result<Self, FromDnskeyError> {
         if data.len() < 3 {
             return Err(FromDnskeyError::InvalidKey);
         }
@@ -278,7 +400,7 @@ impl RsaPublicKey {
     }
 
     /// Serialize this public key as stored in a DNSKEY record.
-    pub fn to_dnskey(&self) -> Box<[u8]> {
+    pub fn to_dnskey_format(&self) -> Box<[u8]> {
         let mut key = Vec::new();
 
         // Encode the exponent length.
@@ -301,19 +423,10 @@ impl RsaPublicKey {
 
 impl PartialEq for RsaPublicKey {
     fn eq(&self, other: &Self) -> bool {
-        /// Compare after stripping leading zeros.
-        fn cmp_without_leading(a: &[u8], b: &[u8]) -> bool {
-            let a = &a[a.iter().position(|&x| x != 0).unwrap_or(a.len())..];
-            let b = &b[b.iter().position(|&x| x != 0).unwrap_or(b.len())..];
-            if a.len() == b.len() {
-                ring::constant_time::verify_slices_are_equal(a, b).is_ok()
-            } else {
-                false
-            }
-        }
+        use ring::constant_time::verify_slices_are_equal;
 
-        cmp_without_leading(&self.n, &other.n)
-            && cmp_without_leading(&self.e, &other.e)
+        verify_slices_are_equal(&self.n, &other.n).is_ok()
+            && verify_slices_are_equal(&self.e, &other.e).is_ok()
     }
 }
 
@@ -325,7 +438,7 @@ pub enum FromDnskeyError {
 }
 
 #[derive(Clone, Debug)]
-pub enum FromDnskeyTextError {
+pub enum ParseDnskeyTextError {
     Misformatted,
     FromDnskey(FromDnskeyError),
 }
