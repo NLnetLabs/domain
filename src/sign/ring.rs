@@ -222,13 +222,18 @@ mod tests {
 
     use super::SecretKey;
 
-    const KEYS: &[(SecAlg, u16)] =
-        &[(SecAlg::RSASHA256, 27096), (SecAlg::ED25519, 43769)];
+    const KEYS: &[(SecAlg, u16)] = &[
+        (SecAlg::RSASHA256, 60616),
+        (SecAlg::ECDSAP256SHA256, 42253),
+        (SecAlg::ECDSAP384SHA384, 33566),
+        (SecAlg::ED25519, 56037),
+    ];
 
     #[test]
     fn public_key() {
         for &(algorithm, key_tag) in KEYS {
-            let name = format!("test.+{:03}+{}", algorithm.to_int(), key_tag);
+            let name =
+                format!("test.+{:03}+{:05}", algorithm.to_int(), key_tag);
             let rng = Arc::new(ring::rand::SystemRandom::new());
 
             let path = format!("test-data/dnssec-keys/K{}.private", name);
@@ -250,7 +255,8 @@ mod tests {
     #[test]
     fn sign() {
         for &(algorithm, key_tag) in KEYS {
-            let name = format!("test.+{:03}+{}", algorithm.to_int(), key_tag);
+            let name =
+                format!("test.+{:03}+{:05}", algorithm.to_int(), key_tag);
             let rng = Arc::new(ring::rand::SystemRandom::new());
 
             let path = format!("test-data/dnssec-keys/K{}.private", name);
