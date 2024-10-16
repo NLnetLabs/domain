@@ -1,22 +1,18 @@
-/// Using the `domain::net::client` module for sending a query.
+//! Using the `domain::net::client` module for sending a query.
+use domain::base::{MessageBuilder, Name, Rtype};
+use domain::net::client::protocol::{TcpConnect, TlsConnect, UdpConnect};
+use domain::net::client::request::{
+    RequestMessage, RequestMessageMulti, SendRequest,
+};
+use domain::net::client::{
+    cache, dgram, dgram_stream, load_balancer, multi_stream, redundant,
+    stream,
+};
 use std::net::{IpAddr, SocketAddr};
 use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
 use std::vec::Vec;
-
-use domain::base::MessageBuilder;
-use domain::base::Name;
-use domain::base::Rtype;
-use domain::net::client::cache;
-use domain::net::client::dgram;
-use domain::net::client::dgram_stream;
-use domain::net::client::multi_stream;
-use domain::net::client::protocol::{TcpConnect, TlsConnect, UdpConnect};
-use domain::net::client::request::{
-    RequestMessage, RequestMessageMulti, SendRequest,
-};
-use domain::net::client::stream;
 
 #[cfg(feature = "tsig")]
 use domain::net::client::request::SendRequestMulti;
@@ -233,7 +229,9 @@ async fn main() {
     let mut conn_conf = load_balancer::ConnConfig::new();
     conn_conf.set_max_burst(Some(10));
     conn_conf.set_burst_interval(Duration::from_secs(10));
-    lb.add("UDP+TCP", &conn_conf, Box::new(udptcp_conn)).await.unwrap();
+    lb.add("UDP+TCP", &conn_conf, Box::new(udptcp_conn))
+        .await
+        .unwrap();
     lb.add("TCP", &conn_conf, Box::new(tcp_conn)).await.unwrap();
     lb.add("TLS", &conn_conf, Box::new(tls_conn)).await.unwrap();
 
