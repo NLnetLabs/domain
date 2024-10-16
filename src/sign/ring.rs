@@ -212,12 +212,12 @@ impl SignRaw for SecretKey {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
+    use std::{sync::Arc, vec::Vec};
 
     use crate::{
         base::iana::SecAlg,
         sign::{generic, SignRaw},
-        validate::RawPublicKey,
+        validate::Key,
     };
 
     use super::SecretKey;
@@ -237,12 +237,13 @@ mod tests {
 
             let path = format!("test-data/dnssec-keys/K{}.key", name);
             let data = std::fs::read_to_string(path).unwrap();
-            let pub_key = RawPublicKey::parse_dnskey_text(&data).unwrap();
+            let pub_key = Key::<Vec<u8>>::parse_dnskey_text(&data).unwrap();
+            let pub_key = pub_key.raw_public_key();
 
             let key =
-                SecretKey::from_generic(&gen_key, &pub_key, rng).unwrap();
+                SecretKey::from_generic(&gen_key, pub_key, rng).unwrap();
 
-            assert_eq!(key.raw_public_key(), pub_key);
+            assert_eq!(key.raw_public_key(), *pub_key);
         }
     }
 
@@ -258,10 +259,11 @@ mod tests {
 
             let path = format!("test-data/dnssec-keys/K{}.key", name);
             let data = std::fs::read_to_string(path).unwrap();
-            let pub_key = RawPublicKey::parse_dnskey_text(&data).unwrap();
+            let pub_key = Key::<Vec<u8>>::parse_dnskey_text(&data).unwrap();
+            let pub_key = pub_key.raw_public_key();
 
             let key =
-                SecretKey::from_generic(&gen_key, &pub_key, rng).unwrap();
+                SecretKey::from_generic(&gen_key, pub_key, rng).unwrap();
 
             let _ = key.sign_raw(b"Hello, World!");
         }
