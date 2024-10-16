@@ -8,31 +8,31 @@
 //! "offline" (outside of a name server).  Once generated, signatures can be
 //! serialized as DNS records and stored alongside the authenticated records.
 
-#![cfg(feature = "sign")]
-#![cfg_attr(docsrs, doc(cfg(feature = "sign")))]
+#![cfg(feature = "unstable-sign")]
+#![cfg_attr(docsrs, doc(cfg(feature = "unstable-sign")))]
 
 use crate::{
     base::iana::SecAlg,
-    validate::{PublicKey, Signature},
+    validate::{RawPublicKey, Signature},
 };
 
 pub mod generic;
 pub mod openssl;
 pub mod ring;
 
-/// Sign DNS records.
+/// Low-level signing functionality.
 ///
 /// Types that implement this trait own a private key and can sign arbitrary
 /// information (for zone signing keys, DNS records; for key signing keys,
 /// subsidiary public keys).
 ///
 /// Before a key can be used for signing, it should be validated.  If the
-/// implementing type allows [`sign()`] to be called on unvalidated keys, it
-/// will have to check the validity of the key for every signature; this is
+/// implementing type allows [`sign_raw()`] to be called on unvalidated keys,
+/// it will have to check the validity of the key for every signature; this is
 /// unnecessary overhead when many signatures have to be generated.
 ///
-/// [`sign()`]: Sign::sign()
-pub trait Sign {
+/// [`sign_raw()`]: SignRaw::sign_raw()
+pub trait SignRaw {
     /// The signature algorithm used.
     ///
     /// The following algorithms are known to this crate.  Recommendations
@@ -54,13 +54,13 @@ pub trait Sign {
     /// - [`SecAlg::ED448`]
     fn algorithm(&self) -> SecAlg;
 
-    /// The public key.
+    /// The raw public key.
     ///
     /// This can be used to verify produced signatures.  It must use the same
     /// algorithm as returned by [`algorithm()`].
     ///
     /// [`algorithm()`]: Self::algorithm()
-    fn public_key(&self) -> PublicKey;
+    fn raw_public_key(&self) -> RawPublicKey;
 
     /// Sign the given bytes.
     ///
@@ -84,5 +84,5 @@ pub trait Sign {
     ///
     /// None of these are considered likely or recoverable, so panicking is
     /// the simplest and most ergonomic solution.
-    fn sign(&self, data: &[u8]) -> Signature;
+    fn sign_raw(&self, data: &[u8]) -> Signature;
 }
