@@ -3,6 +3,14 @@
 //! **This module is experimental and likely to change significantly.**
 #![cfg(feature = "unstable-validate")]
 #![cfg_attr(docsrs, doc(cfg(feature = "unstable-validate")))]
+use std::boxed::Box;
+use std::vec::Vec;
+use std::{error, fmt};
+
+use bytes::Bytes;
+use octseq::builder::with_infallible;
+use octseq::{EmptyBuilder, FromBuilder};
+use ring::{digest, signature};
 
 use crate::base::cmp::CanonicalOrd;
 use crate::base::iana::{Class, DigestAlg, SecAlg};
@@ -14,13 +22,6 @@ use crate::base::scan::{IterScanner, Scanner};
 use crate::base::wire::{Compose, Composer};
 use crate::base::Rtype;
 use crate::rdata::{Dnskey, Ds, Rrsig};
-use bytes::Bytes;
-use octseq::builder::with_infallible;
-use octseq::{EmptyBuilder, FromBuilder};
-use ring::{digest, signature};
-use std::boxed::Box;
-use std::vec::Vec;
-use std::{error, fmt};
 
 //----------- Key ------------------------------------------------------------
 
@@ -240,10 +241,21 @@ impl<Octs: AsRef<[u8]>> Key<Octs> {
         Octs: FromBuilder,
         Octs::Builder: EmptyBuilder + Composer,
     {
-        // Ensure there is a single line in the input.
-        let (line, rest) = dnskey.split_once('\n').unwrap_or((dnskey, ""));
-        if !rest.trim().is_empty() {
-            return Err(ParseDnskeyTextError::Misformatted);
+        // Skip leading comment lines (BIND uses these to record key timing
+        // data)
+        let mut line = dnskey;
+        while let Some((this_line, rest)) = line.split_once('\n') {
+            if !this_line.starts_with(';') {
+                // Ensure there is a single data line in the input.
+                if !rest.trim().is_empty() {
+                    return Err(ParseDnskeyTextError::Misformatted);
+                } else {
+                    line = this_line;
+                    break;
+                }
+            } else {
+                line = rest;
+            }
         }
 
         // Strip away any semicolon from the line.
