@@ -600,8 +600,8 @@ impl<N, D> SortedRecords<N, D> {
 
     pub fn write<W>(&self, target: &mut W) -> Result<(), io::Error>
     where
-        N: fmt::Display + Eq,
-        D: RecordData + fmt::Display + Clone,
+        N: fmt::Display,
+        D: RecordData + fmt::Display,
         W: io::Write,
     {
         for record in self.records.iter().filter(|r| r.rtype() == Rtype::SOA)
