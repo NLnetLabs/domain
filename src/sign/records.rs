@@ -2,16 +2,18 @@
 use core::convert::From;
 use core::fmt::Display;
 
+use std::boxed::Box;
 use std::fmt::Debug;
 use std::string::String;
 use std::vec::Vec;
 use std::{fmt, io, slice};
 
 use octseq::builder::{EmptyBuilder, FromBuilder, OctetsBuilder, Truncate};
-use octseq::{FreezeBuilder, OctetsFrom};
+use octseq::{FreezeBuilder, OctetsFrom, OctetsInto};
+use tracing::{debug, enabled, Level};
 
 use crate::base::cmp::CanonicalOrd;
-use crate::base::iana::{Class, Nsec3HashAlg, Rtype};
+use crate::base::iana::{Class, Nsec3HashAlg, Rtype, SecAlg};
 use crate::base::name::{ToLabelIter, ToName};
 use crate::base::rdata::{ComposeRecordData, RecordData};
 use crate::base::record::Record;
@@ -20,11 +22,12 @@ use crate::rdata::dnssec::{
     ProtoRrsig, RtypeBitmap, RtypeBitmapBuilder, Timestamp,
 };
 use crate::rdata::nsec3::{Nsec3Salt, OwnerHash};
-use crate::rdata::{Dnskey, Ds, Nsec, Nsec3, Nsec3param, Rrsig};
+use crate::rdata::{Dnskey, Nsec, Nsec3, Nsec3param, ZoneRecordData};
 use crate::utils::base32;
+use crate::validate;
 
-use super::key::SigningKey;
 use super::ring::{nsec3_hash, Nsec3HashError};
+use super::SignRaw;
 
 //------------ SortedRecords -------------------------------------------------
 
@@ -74,34 +77,122 @@ impl<N, D> SortedRecords<N, D> {
         self.rrsets().find(|rrset| rrset.rtype() == Rtype::SOA)
     }
 
+    /// Sign a zone using the given keys.
+    ///
+    /// A DNSKEY RR will be output for each key.
+    ///
+    /// Keys with a supported algorithm with the ZONE flag set will be used as
+    /// ZSKs.
+    ///
+    /// Keys with a supported algorithm with the ZONE flag AND the SEP flag
+    /// set will be used as KSKs.
+    ///
+    /// If only one key has a supported algorithm and has the ZONE flag set
+    /// AND has the SEP flag set, it will be used as a CSK (i.e. both KSK and
+    /// ZSK).
     #[allow(clippy::type_complexity)]
-    pub fn sign<Octets, Key, ApexName>(
+    pub fn sign<Octets, SigningKey>(
         &self,
-        apex: &FamilyName<ApexName>,
+        apex: &FamilyName<N>,
         expiration: Timestamp,
         inception: Timestamp,
-        key: Key,
-    ) -> Result<Vec<Record<N, Rrsig<Octets, ApexName>>>, Key::Error>
+        keys: &[(SigningKey, validate::Key<Octets>)], // private, public key pair
+    ) -> Result<Vec<Record<N, ZoneRecordData<Octets, N>>>, ()>
     where
         N: ToName + Clone,
-        D: RecordData + ComposeRecordData,
-        Key: SigningKey,
-        Octets: From<Key::Signature> + AsRef<[u8]>,
-        ApexName: ToName + Clone,
+        D: RecordData + ComposeRecordData + From<Dnskey<Octets>>,
+        SigningKey: SignRaw,
+        Octets: AsRef<[u8]>
+            + Clone
+            + From<Box<[u8]>>
+            + octseq::OctetsFrom<std::vec::Vec<u8>>,
     {
-        let mut res = Vec::new();
+        // Per RFC 8624 section 3.1 "DNSSEC Signing" column guidance.
+        let unsupported_algorithms = [
+            SecAlg::RSAMD5,
+            SecAlg::DSA,
+            SecAlg::DSA_NSEC3_SHA1,
+            SecAlg::ECC_GOST,
+        ];
+
+        let mut ksks: Vec<&(SigningKey, validate::Key<Octets>)> = keys
+            .iter()
+            .filter(|(k, _)| !unsupported_algorithms.contains(&k.algorithm()))
+            .filter(|(_, dk)| {
+                dk.is_zone_signing_key() && dk.is_secure_entry_point()
+            })
+            .collect();
+
+        let mut zsks: Vec<&(SigningKey, validate::Key<Octets>)> = keys
+            .iter()
+            .filter(|(k, _)| !unsupported_algorithms.contains(&k.algorithm()))
+            .filter(|(_, dk)| {
+                dk.is_zone_signing_key() && !dk.is_secure_entry_point()
+            })
+            .collect();
+
+        // CSK?
+        if !ksks.is_empty() && zsks.is_empty() {
+            zsks = ksks.clone();
+        } else if ksks.is_empty() && !zsks.is_empty() {
+            ksks = zsks.clone();
+        }
+
+        if enabled!(Level::DEBUG) {
+            for key in keys {
+                debug!(
+                    "Key   : {} [supported={}], owner={}, flags={} (SEP={}, ZSK={}))",
+                    key.0.algorithm(),
+                    !unsupported_algorithms.contains(&key.0.algorithm()),
+                    key.1.owner(),
+                    key.1.flags(),
+                    key.1.is_secure_entry_point(),
+                    key.1.is_zone_signing_key(),
+                )
+            }
+            debug!("# KSKs: {}", ksks.len());
+            debug!("# ZSKs: {}", zsks.len());
+        }
+
+        let mut res: Vec<Record<N, ZoneRecordData<Octets, N>>> = Vec::new();
         let mut buf = Vec::new();
-
-        // The owner name of a zone cut if we currently are at or below one.
         let mut cut: Option<FamilyName<N>> = None;
-
         let mut families = self.families();
 
         // Since the records are ordered, the first family is the apex --
         // we can skip everything before that.
         families.skip_before(apex);
 
-        for family in families {
+        let mut families = families.peekable();
+
+        let apex_ttl =
+            families.peek().unwrap().records().next().unwrap().ttl();
+
+        let mut dnskey_rrs: Vec<Record<N, D>> =
+            Vec::with_capacity(keys.len());
+
+        for public_key in keys.iter().map(|(_, public_key)| public_key) {
+            let dnskey: Dnskey<Octets> =
+                Dnskey::convert(public_key.to_dnskey());
+            dnskey_rrs.push(Record::new(
+                apex.owner().clone(),
+                apex.class(),
+                apex_ttl,
+                dnskey.clone().into(),
+            ));
+
+            res.push(Record::new(
+                apex.owner().clone(),
+                apex.class(),
+                apex_ttl,
+                ZoneRecordData::Dnskey(dnskey),
+            ));
+        }
+
+        let dnskeys_iter = RecordsIter::new(dnskey_rrs.as_slice());
+        let families_iter = dnskeys_iter.chain(families);
+
+        for family in families_iter {
             // If the owner is out of zone, we have moved out of our zone and
             // are done.
             if !family.is_in_zone(apex) {
@@ -144,49 +235,61 @@ impl<N, D> SortedRecords<N, D> {
                     }
                 }
 
-                // Create the signature.
-                buf.clear();
-                let rrsig = ProtoRrsig::new(
-                    rrset.rtype(),
-                    key.algorithm()?,
-                    name.owner().rrsig_label_count(),
-                    rrset.ttl(),
-                    expiration,
-                    inception,
-                    key.key_tag()?,
-                    apex.owner().clone(),
-                );
-                rrsig.compose_canonical(&mut buf).unwrap();
-                for record in rrset.iter() {
-                    record.compose_canonical(&mut buf).unwrap();
-                }
+                let keys = if rrset.rtype() == Rtype::DNSKEY {
+                    &ksks
+                } else {
+                    &zsks
+                };
 
-                // Create and push the RRSIG record.
-                res.push(Record::new(
-                    name.owner().clone(),
-                    name.class(),
-                    rrset.ttl(),
-                    rrsig
-                        .into_rrsig(key.sign(&buf)?.into())
-                        .expect("long signature"),
-                ));
+                for (private_key, public_key) in keys {
+                    let rrsig = ProtoRrsig::new(
+                        rrset.rtype(),
+                        private_key.algorithm(),
+                        name.owner().rrsig_label_count(),
+                        rrset.ttl(),
+                        expiration,
+                        inception,
+                        public_key.key_tag(),
+                        apex.owner().clone(),
+                    );
+
+                    buf.clear();
+                    rrsig.compose_canonical(&mut buf).unwrap();
+                    for record in rrset.iter() {
+                        record.compose_canonical(&mut buf).unwrap();
+                    }
+                    let signature = private_key.sign_raw(&buf);
+                    let signature = signature.as_ref().to_vec();
+                    let Ok(signature) = signature.try_octets_into() else {
+                        return Err(());
+                    };
+
+                    let rrsig =
+                        rrsig.into_rrsig(signature).expect("long signature");
+                    res.push(Record::new(
+                        name.owner().clone(),
+                        name.class(),
+                        rrset.ttl(),
+                        ZoneRecordData::Rrsig(rrsig),
+                    ));
+                }
             }
         }
+
         Ok(res)
     }
 
-    pub fn nsecs<Octets, ApexName>(
+    pub fn nsecs<Octets>(
         &self,
-        apex: &FamilyName<ApexName>,
+        apex: &FamilyName<N>,
         ttl: Ttl,
     ) -> Vec<Record<N, Nsec<Octets, N>>>
     where
-        N: ToName + Clone,
+        N: ToName + Clone + PartialEq,
         D: RecordData,
         Octets: FromBuilder,
         Octets::Builder: EmptyBuilder + Truncate + AsRef<[u8]> + AsMut<[u8]>,
-        <Octets::Builder as OctetsBuilder>::AppendError: fmt::Debug,
-        ApexName: ToName,
+        <Octets::Builder as OctetsBuilder>::AppendError: Debug,
     {
         let mut res = Vec::new();
 
@@ -242,6 +345,11 @@ impl<N, D> SortedRecords<N, D> {
             let mut bitmap = RtypeBitmap::<Octets>::builder();
             // Assume there’s gonna be an RRSIG.
             bitmap.add(Rtype::RRSIG).unwrap();
+            if family.owner() == &apex_owner {
+                // Assume there's gonna be a DNSKEY.
+                bitmap.add(Rtype::DNSKEY).unwrap();
+            }
+            bitmap.add(Rtype::NSEC).unwrap();
             for rrset in family.rrsets() {
                 bitmap.add(rrset.rtype()).unwrap()
             }
@@ -423,6 +531,7 @@ impl<N, D> SortedRecords<N, D> {
 
             if distance_to_apex == 0 {
                 bitmap.add(Rtype::NSEC3PARAM).unwrap();
+                bitmap.add(Rtype::DNSKEY).unwrap();
             }
 
             // RFC 5155 7.1 step 2:
@@ -495,9 +604,16 @@ impl<N, D> SortedRecords<N, D> {
         D: RecordData + fmt::Display,
         W: io::Write,
     {
-        for record in &self.records {
-            writeln!(target, "{}", record)?;
+        for record in self.records.iter().filter(|r| r.rtype() == Rtype::SOA)
+        {
+            writeln!(target, "{record}")?;
         }
+
+        for record in self.records.iter().filter(|r| r.rtype() != Rtype::SOA)
+        {
+            writeln!(target, "{record}")?;
+        }
+
         Ok(())
     }
 }
@@ -721,30 +837,6 @@ impl<N> FamilyName<N> {
         N: Clone,
     {
         Record::new(self.owner.clone(), self.class, ttl, data)
-    }
-
-    pub fn dnskey<K: SigningKey, Octets: From<K::Octets>>(
-        &self,
-        ttl: Ttl,
-        key: K,
-    ) -> Result<Record<N, Dnskey<Octets>>, K::Error>
-    where
-        N: Clone,
-    {
-        key.dnskey()
-            .map(|dnskey| self.clone().into_record(ttl, dnskey.convert()))
-    }
-
-    pub fn ds<K: SigningKey>(
-        &self,
-        ttl: Ttl,
-        key: K,
-    ) -> Result<Record<N, Ds<K::Octets>>, K::Error>
-    where
-        N: ToName + Clone,
-    {
-        key.ds(&self.owner)
-            .map(|ds| self.clone().into_record(ttl, ds))
     }
 }
 

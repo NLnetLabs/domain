@@ -18,6 +18,7 @@ use crate::{
 
 pub mod generic;
 pub mod openssl;
+pub mod records;
 pub mod ring;
 
 /// Low-level signing functionality.
