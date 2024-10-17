@@ -838,30 +838,6 @@ impl<N> FamilyName<N> {
     {
         Record::new(self.owner.clone(), self.class, ttl, data)
     }
-
-    // pub fn dnskey<K: SigningKey, Octets: From<K::Octets>>(
-    //     &self,
-    //     ttl: Ttl,
-    //     key: K,
-    // ) -> Result<Record<N, Dnskey<Octets>>, K::Error>
-    // where
-    //     N: Clone,
-    // {
-    //     key.dnskey()
-    //         .map(|dnskey| self.clone().into_record(ttl, dnskey.convert()))
-    // }
-
-    // pub fn ds<K: SigningKey>(
-    //     &self,
-    //     ttl: Ttl,
-    //     key: K,
-    // ) -> Result<Record<N, Ds<K::Octets>>, K::Error>
-    // where
-    //     N: ToName + Clone,
-    // {
-    //     key.ds(&self.owner)
-    //         .map(|ds| self.clone().into_record(ttl, ds))
-    // }
 }
 
 impl<'a, N: Clone> FamilyName<&'a N> {
