@@ -13,7 +13,7 @@ use crate::base::record::Record;
 use crate::base::scan::{IterScanner, Scanner};
 use crate::base::wire::{Compose, Composer};
 use crate::base::Rtype;
-use crate::rdata::{Dnskey, Rrsig};
+use crate::rdata::{Dnskey, Ds, Rrsig};
 use bytes::Bytes;
 use octseq::builder::with_infallible;
 use octseq::{EmptyBuilder, FromBuilder};
@@ -21,6 +21,8 @@ use ring::{digest, signature};
 use std::boxed::Box;
 use std::vec::Vec;
 use std::{error, fmt};
+
+//----------- Key ------------------------------------------------------------
 
 /// A DNSSEC key for a particular zone.
 #[derive(Clone)]
@@ -39,12 +41,18 @@ pub struct Key<Octs> {
     key: RawPublicKey,
 }
 
+//--- Construction
+
 impl<Octs> Key<Octs> {
     /// Construct a new DNSSEC key manually.
     pub fn new(owner: Name<Octs>, flags: u16, key: RawPublicKey) -> Self {
         Self { owner, flags, key }
     }
+}
 
+//--- Inspection
+
+impl<Octs> Key<Octs> {
     /// The owner name attached to the key.
     pub fn owner(&self) -> &Name<Octs> {
         &self.owner
@@ -60,6 +68,11 @@ impl<Octs> Key<Octs> {
         &self.key
     }
 
+    /// The signing algorithm used.
+    pub fn algorithm(&self) -> SecAlg {
+        self.key.algorithm()
+    }
+
     /// Whether this is a zone signing key.
     ///
     /// From RFC 4034, section 2.1.1:
@@ -70,13 +83,25 @@ impl<Octs> Key<Octs> {
     /// > the DNSKEY record holds some other type of DNS public key and MUST
     /// > NOT be used to verify RRSIGs that cover RRsets.
     pub fn is_zone_signing_key(&self) -> bool {
+        self.flags & (1 << 8) != 0
+    }
+
+    /// Whether this key has been revoked.
+    ///
+    /// From RFC 5011, section 3:
+    ///
+    /// > Bit 8 of the DNSKEY Flags field is designated as the 'REVOKE' flag.
+    /// > If this bit is set to '1', AND the resolver sees an RRSIG(DNSKEY)
+    /// > signed by the associated key, then the resolver MUST consider this
+    /// > key permanently invalid for all purposes except for validating the
+    /// > revocation.
+    pub fn is_revoked(&self) -> bool {
         self.flags & (1 << 7) != 0
     }
 
     /// Whether this is a secure entry point.
     ///
     /// From RFC 4034, section 2.1.1:
-    ///
     ///
     /// > Bit 15 of the Flags field is the Secure Entry Point flag, described
     /// > in [RFC3757].  If bit 15 has value 1, then the DNSKEY record holds a
@@ -90,9 +115,74 @@ impl<Octs> Key<Octs> {
     /// > set and the Zone Key flag not set MUST NOT be used to verify RRSIGs
     /// > that cover RRsets.
     pub fn is_secure_entry_point(&self) -> bool {
-        self.flags & (1 << 15) != 0
+        self.flags & 1 != 0
+    }
+
+    /// The key tag.
+    pub fn key_tag(&self) -> u16 {
+        // NOTE: RSA/MD5 uses a different algorithm.
+
+        // NOTE: A u32 can fit the sum of 65537 u16s without overflowing.  A
+        //   key can never exceed 64KiB anyway, so we won't even get close to
+        //   the limit.  Let's just add into a u32 and normalize it after.
+        let mut res = 0u32;
+
+        // Add basic DNSKEY fields.
+        res += self.flags as u32;
+        res += u16::from_be_bytes([3, self.algorithm().to_int()]) as u32;
+
+        // Add the raw key tag from the public key.
+        res += self.key.raw_key_tag();
+
+        // Normalize and return the result.
+        (res as u16).wrapping_add((res >> 16) as u16)
+    }
+
+    /// The digest of this key.
+    pub fn digest(
+        &self,
+        algorithm: DigestAlg,
+    ) -> Result<Ds<Box<[u8]>>, DigestError>
+    where
+        Octs: AsRef<[u8]>,
+    {
+        let mut context = ring::digest::Context::new(match algorithm {
+            DigestAlg::SHA1 => &ring::digest::SHA1_FOR_LEGACY_USE_ONLY,
+            DigestAlg::SHA256 => &ring::digest::SHA256,
+            DigestAlg::SHA384 => &ring::digest::SHA384,
+            _ => return Err(DigestError::UnsupportedAlgorithm),
+        });
+
+        // Add the owner name.
+        if self
+            .owner
+            .as_slice()
+            .iter()
+            .any(|&b| b.is_ascii_uppercase())
+        {
+            let mut owner = [0u8; 256];
+            owner[..self.owner.len()].copy_from_slice(self.owner.as_slice());
+            owner.make_ascii_lowercase();
+            context.update(&owner[..self.owner.len()]);
+        } else {
+            context.update(self.owner.as_slice());
+        }
+
+        // Add basic DNSKEY fields.
+        context.update(&self.flags.to_be_bytes());
+        context.update(&[3, self.algorithm().to_int()]);
+
+        // Add the public key.
+        self.key.digest(&mut context);
+
+        // Finalize the digest.
+        let digest = context.finish().as_ref().into();
+        Ok(Ds::new(self.key_tag(), self.algorithm(), algorithm, digest)
+            .unwrap())
     }
 }
+
+//--- Conversion to and from DNSKEYs
 
 impl<Octs: AsRef<[u8]>> Key<Octs> {
     /// Deserialize a key from DNSKEY record data.
@@ -195,6 +285,8 @@ impl<Octs: AsRef<[u8]>> Key<Octs> {
     }
 }
 
+//----------- RsaPublicKey ---------------------------------------------------
+
 /// A low-level public key.
 #[derive(Clone, Debug)]
 pub enum RawPublicKey {
@@ -239,6 +331,8 @@ pub enum RawPublicKey {
     Ed448(Box<[u8; 57]>),
 }
 
+//--- Inspection
+
 impl RawPublicKey {
     /// The algorithm used by this key.
     pub fn algorithm(&self) -> SecAlg {
@@ -253,7 +347,50 @@ impl RawPublicKey {
             Self::Ed448(_) => SecAlg::ED448,
         }
     }
+
+    /// The raw key tag computation for this value.
+    fn raw_key_tag(&self) -> u32 {
+        fn compute(data: &[u8]) -> u32 {
+            data.chunks(2)
+                .map(|chunk| {
+                    let mut buf = [0u8; 2];
+                    // A 0 byte is appended for an incomplete chunk.
+                    buf[..chunk.len()].copy_from_slice(chunk);
+                    u16::from_be_bytes(buf) as u32
+                })
+                .sum()
+        }
+
+        match self {
+            Self::RsaSha1(k)
+            | Self::RsaSha1Nsec3Sha1(k)
+            | Self::RsaSha256(k)
+            | Self::RsaSha512(k) => k.raw_key_tag(),
+
+            Self::EcdsaP256Sha256(k) => compute(&k[1..]),
+            Self::EcdsaP384Sha384(k) => compute(&k[1..]),
+            Self::Ed25519(k) => compute(&**k),
+            Self::Ed448(k) => compute(&**k),
+        }
+    }
+
+    /// Compute a digest of this public key.
+    fn digest(&self, context: &mut ring::digest::Context) {
+        match self {
+            Self::RsaSha1(k)
+            | Self::RsaSha1Nsec3Sha1(k)
+            | Self::RsaSha256(k)
+            | Self::RsaSha512(k) => k.digest(context),
+
+            Self::EcdsaP256Sha256(k) => context.update(&k[1..]),
+            Self::EcdsaP384Sha384(k) => context.update(&k[1..]),
+            Self::Ed25519(k) => context.update(&**k),
+            Self::Ed448(k) => context.update(&**k),
+        }
+    }
 }
+
+//--- Conversion to and from DNSKEYs
 
 impl RawPublicKey {
     /// Parse a public key as stored in a DNSKEY record.
@@ -328,6 +465,8 @@ impl RawPublicKey {
     }
 }
 
+//--- Comparison
+
 impl PartialEq for RawPublicKey {
     fn eq(&self, other: &Self) -> bool {
         use ring::constant_time::verify_slices_are_equal;
@@ -354,6 +493,10 @@ impl PartialEq for RawPublicKey {
     }
 }
 
+impl Eq for RawPublicKey {}
+
+//----------- RsaPublicKey ---------------------------------------------------
+
 /// A generic RSA public key.
 ///
 /// All fields here are arbitrary-precision integers in big-endian format,
@@ -366,6 +509,63 @@ pub struct RsaPublicKey {
     /// The public exponent.
     pub e: Box<[u8]>,
 }
+
+//--- Inspection
+
+impl RsaPublicKey {
+    /// The raw key tag computation for this value.
+    fn raw_key_tag(&self) -> u32 {
+        let mut res = 0u32;
+
+        // Extended exponent lengths start with '00 (exp_len >> 8)', which is
+        // just zero for shorter exponents.  That doesn't affect the result,
+        // so let's just do it unconditionally.
+        res += (self.e.len() >> 8) as u32;
+        res += u16::from_be_bytes([self.e.len() as u8, self.e[0]]) as u32;
+
+        let mut chunks = self.e[1..].chunks_exact(2);
+        res += chunks
+            .by_ref()
+            .map(|chunk| u16::from_be_bytes(chunk.try_into().unwrap()) as u32)
+            .sum::<u32>();
+
+        let n = if !chunks.remainder().is_empty() {
+            res +=
+                u16::from_be_bytes([chunks.remainder()[0], self.n[0]]) as u32;
+            &self.n[1..]
+        } else {
+            &self.n
+        };
+
+        res += n
+            .chunks(2)
+            .map(|chunk| {
+                let mut buf = [0u8; 2];
+                buf[..chunk.len()].copy_from_slice(chunk);
+                u16::from_be_bytes(buf) as u32
+            })
+            .sum::<u32>();
+
+        res
+    }
+
+    /// Compute a digest of this public key.
+    fn digest(&self, context: &mut ring::digest::Context) {
+        // Encode the exponent length.
+        if let Ok(exp_len) = u8::try_from(self.e.len()) {
+            context.update(&[exp_len]);
+        } else if let Ok(exp_len) = u16::try_from(self.e.len()) {
+            context.update(&[0u8, (exp_len >> 8) as u8, exp_len as u8]);
+        } else {
+            unreachable!("RSA exponents are (much) shorter than 64KiB")
+        }
+
+        context.update(&self.e);
+        context.update(&self.n);
+    }
+}
+
+//--- Conversion to and from DNSKEYs
 
 impl RsaPublicKey {
     /// Parse an RSA public key as stored in a DNSKEY record.
@@ -421,6 +621,8 @@ impl RsaPublicKey {
     }
 }
 
+//--- Comparison
+
 impl PartialEq for RsaPublicKey {
     fn eq(&self, other: &Self) -> bool {
         use ring::constant_time::verify_slices_are_equal;
@@ -430,18 +632,9 @@ impl PartialEq for RsaPublicKey {
     }
 }
 
-#[derive(Clone, Debug)]
-pub enum FromDnskeyError {
-    UnsupportedAlgorithm,
-    UnsupportedProtocol,
-    InvalidKey,
-}
+impl Eq for RsaPublicKey {}
 
-#[derive(Clone, Debug)]
-pub enum ParseDnskeyTextError {
-    Misformatted,
-    FromDnskey(FromDnskeyError),
-}
+//----------- Signature ------------------------------------------------------
 
 /// A cryptographic signature.
 ///
@@ -884,6 +1077,71 @@ fn rsa_exponent_modulus(
 
 //============ Error Types ===================================================
 
+//----------- DigestError ----------------------------------------------------
+
+/// An error when computing a digest.
+#[derive(Clone, Debug)]
+pub enum DigestError {
+    UnsupportedAlgorithm,
+}
+
+//--- Display, Error
+
+impl fmt::Display for DigestError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Self::UnsupportedAlgorithm => "unsupported algorithm",
+        })
+    }
+}
+
+impl error::Error for DigestError {}
+
+//----------- FromDnskeyError ------------------------------------------------
+
+/// An error in reading a DNSKEY record.
+#[derive(Clone, Debug)]
+pub enum FromDnskeyError {
+    UnsupportedAlgorithm,
+    UnsupportedProtocol,
+    InvalidKey,
+}
+
+//--- Display, Error
+
+impl fmt::Display for FromDnskeyError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Self::UnsupportedAlgorithm => "unsupported algorithm",
+            Self::UnsupportedProtocol => "unsupported protocol",
+            Self::InvalidKey => "malformed key",
+        })
+    }
+}
+
+impl error::Error for FromDnskeyError {}
+
+//----------- ParseDnskeyTextError -------------------------------------------
+
+#[derive(Clone, Debug)]
+pub enum ParseDnskeyTextError {
+    Misformatted,
+    FromDnskey(FromDnskeyError),
+}
+
+//--- Display, Error
+
+impl fmt::Display for ParseDnskeyTextError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Self::Misformatted => "misformatted DNSKEY record",
+            Self::FromDnskey(e) => return e.fmt(f),
+        })
+    }
+}
+
+impl error::Error for ParseDnskeyTextError {}
+
 //------------ AlgorithmError ------------------------------------------------
 
 /// An algorithm error during verification.
@@ -894,17 +1152,15 @@ pub enum AlgorithmError {
     InvalidData,
 }
 
-//--- Display and Error
+//--- Display, Error
 
 impl fmt::Display for AlgorithmError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match *self {
-            AlgorithmError::Unsupported => {
-                f.write_str("unsupported algorithm")
-            }
-            AlgorithmError::BadSig => f.write_str("bad signature"),
-            AlgorithmError::InvalidData => f.write_str("invalid data"),
-        }
+        f.write_str(match self {
+            AlgorithmError::Unsupported => "unsupported algorithm",
+            AlgorithmError::BadSig => "bad signature",
+            AlgorithmError::InvalidData => "invalid data",
+        })
     }
 }
 
@@ -928,6 +1184,16 @@ mod test {
     type Ds = crate::rdata::Ds<Vec<u8>>;
     type Dnskey = crate::rdata::Dnskey<Vec<u8>>;
     type Rrsig = crate::rdata::Rrsig<Vec<u8>, Name>;
+
+    const KEYS: &[(SecAlg, u16)] = &[
+        (SecAlg::RSASHA1, 439),
+        (SecAlg::RSASHA1_NSEC3_SHA1, 22204),
+        (SecAlg::RSASHA256, 60616),
+        (SecAlg::ECDSAP256SHA256, 42253),
+        (SecAlg::ECDSAP384SHA384, 33566),
+        (SecAlg::ED25519, 56037),
+        (SecAlg::ED448, 7379),
+    ];
 
     // Returns current root KSK/ZSK for testing (2048b)
     fn root_pubkey() -> (Dnskey, Dnskey) {
@@ -971,6 +1237,70 @@ mod test {
             Dnskey::new(257, 3, SecAlg::RSASHA256, ksk).unwrap(),
             Dnskey::new(256, 3, SecAlg::RSASHA256, zsk).unwrap(),
         )
+    }
+
+    #[test]
+    fn parse_dnskey_text() {
+        for &(algorithm, key_tag) in KEYS {
+            let name =
+                format!("test.+{:03}+{:05}", algorithm.to_int(), key_tag);
+
+            let path = format!("test-data/dnssec-keys/K{}.key", name);
+            let data = std::fs::read_to_string(path).unwrap();
+            let _ = Key::<Vec<u8>>::parse_dnskey_text(&data).unwrap();
+        }
+    }
+
+    #[test]
+    fn key_tag() {
+        for &(algorithm, key_tag) in KEYS {
+            let name =
+                format!("test.+{:03}+{:05}", algorithm.to_int(), key_tag);
+
+            let path = format!("test-data/dnssec-keys/K{}.key", name);
+            let data = std::fs::read_to_string(path).unwrap();
+            let key = Key::<Vec<u8>>::parse_dnskey_text(&data).unwrap();
+            assert_eq!(key.to_dnskey().key_tag(), key_tag);
+            assert_eq!(key.key_tag(), key_tag);
+        }
+    }
+
+    #[test]
+    fn digest() {
+        for &(algorithm, key_tag) in KEYS {
+            let name =
+                format!("test.+{:03}+{:05}", algorithm.to_int(), key_tag);
+
+            let path = format!("test-data/dnssec-keys/K{}.key", name);
+            let data = std::fs::read_to_string(path).unwrap();
+            let key = Key::<Vec<u8>>::parse_dnskey_text(&data).unwrap();
+
+            // Scan the DS record from the file.
+            let path = format!("test-data/dnssec-keys/K{}.ds", name);
+            let data = std::fs::read_to_string(path).unwrap();
+            let mut scanner = IterScanner::new(data.split_ascii_whitespace());
+            let _ = scanner.scan_name().unwrap();
+            let _ = Class::scan(&mut scanner).unwrap();
+            assert_eq!(Rtype::scan(&mut scanner).unwrap(), Rtype::DS);
+            let ds = Ds::scan(&mut scanner).unwrap();
+
+            assert_eq!(key.digest(ds.digest_type()).unwrap(), ds);
+        }
+    }
+
+    #[test]
+    fn dnskey_roundtrip() {
+        for &(algorithm, key_tag) in KEYS {
+            let name =
+                format!("test.+{:03}+{:05}", algorithm.to_int(), key_tag);
+
+            let path = format!("test-data/dnssec-keys/K{}.key", name);
+            let data = std::fs::read_to_string(path).unwrap();
+            let key = Key::<Vec<u8>>::parse_dnskey_text(&data).unwrap();
+            let dnskey = key.to_dnskey().convert();
+            let same = Key::from_dnskey(key.owner().clone(), dnskey).unwrap();
+            assert_eq!(key.to_dnskey(), same.to_dnskey());
+        }
     }
 
     #[test]
