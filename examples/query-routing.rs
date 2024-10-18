@@ -22,7 +22,10 @@ use tracing_subscriber::EnvFilter;
 #[tokio::main(flavor = "multi_thread")]
 async fn main() {
     eprintln!("Test with commands such as:");
+    eprintln!("  dnsi query --server ::1 -p 8053 ietf.org");
+    eprintln!("  dnsi query --server ::1 -p 8053 nlnetlabs.nl");
     eprintln!("  dnsi query --server ::1 -p 8053 google.com");
+    eprintln!("Enabled tracing with 'RUST_LOG=trace' before the command");
 
     // -----------------------------------------------------------------------
     // Setup logging. You can override the log level by setting environment
