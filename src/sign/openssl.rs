@@ -390,7 +390,7 @@ mod tests {
 
             let path = format!("test-data/dnssec-keys/K{}.key", name);
             let data = std::fs::read_to_string(path).unwrap();
-            let pub_key = Key::<Vec<u8>>::parse_dnskey_text(&data).unwrap();
+            let pub_key = Key::<Vec<u8>>::parse_from_bind(&data).unwrap();
             let pub_key = pub_key.raw_public_key();
 
             let path = format!("test-data/dnssec-keys/K{}.private", name);
@@ -421,7 +421,7 @@ mod tests {
 
             let path = format!("test-data/dnssec-keys/K{}.key", name);
             let data = std::fs::read_to_string(path).unwrap();
-            let pub_key = Key::<Vec<u8>>::parse_dnskey_text(&data).unwrap();
+            let pub_key = Key::<Vec<u8>>::parse_from_bind(&data).unwrap();
             let pub_key = pub_key.raw_public_key();
 
             let key = SecretKey::from_generic(&gen_key, pub_key).unwrap();
@@ -442,7 +442,7 @@ mod tests {
 
             let path = format!("test-data/dnssec-keys/K{}.key", name);
             let data = std::fs::read_to_string(path).unwrap();
-            let pub_key = Key::<Vec<u8>>::parse_dnskey_text(&data).unwrap();
+            let pub_key = Key::<Vec<u8>>::parse_from_bind(&data).unwrap();
             let pub_key = pub_key.raw_public_key();
 
             let key = SecretKey::from_generic(&gen_key, pub_key).unwrap();
