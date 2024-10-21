@@ -221,13 +221,13 @@ pub trait SignRaw {
 ///   algorithms which use randomization (e.g. RSA and ECDSA).
 ///
 ///   On the vast majority of platforms, randomness can always be obtained.
-///   The [`getrandom` crate documentation](getrandom) notes:
+///   The [`getrandom` crate documentation][getrandom] notes:
 ///
 ///   > If an error does occur, then it is likely that it will occur on every
 ///   > call to getrandom, hence after the first successful call one can be
 ///   > reasonably confident that no errors will occur.
 ///
-///   getrandom: https://docs.rs/getrandom
+///   [getrandom]: https://docs.rs/getrandom
 ///
 ///   Thus, in case such a failure occurs, all future signing will probably
 ///   also fail.
