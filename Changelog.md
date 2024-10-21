@@ -6,11 +6,16 @@ Breaking changes
 
 New
 
+* Added `HashCompressor`, an unlimited name compressor that uses a hash map
+  rather than a tree.
+
 Bug fixes
 
 Unstable features
 
 Other changes
+
+[#396]: https://github.com/NLnetLabs/domain/pull/396
 
 
 ## 0.10.3
