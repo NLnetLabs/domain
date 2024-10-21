@@ -11,6 +11,8 @@
 #![cfg(feature = "unstable-sign")]
 #![cfg_attr(docsrs, doc(cfg(feature = "unstable-sign")))]
 
+use core::fmt;
+
 use crate::{
     base::{iana::SecAlg, Name},
     validate::{self, RawPublicKey, Signature},
@@ -167,23 +169,9 @@ impl<Octs, Inner> SigningKey<Octs, Inner> {
 pub trait SignRaw {
     /// The signature algorithm used.
     ///
-    /// The following algorithms are known to this crate.  Recommendations
-    /// toward or against usage are based on published RFCs, not the crate
-    /// authors' opinion.  Implementing types may choose to support some of
-    /// the prohibited algorithms anyway.
+    /// See [RFC 8624, section 3.1] for IETF implementation recommendations.
     ///
-    /// - [`SecAlg::RSAMD5`] (highly insecure, do not use)
-    /// - [`SecAlg::DSA`] (highly insecure, do not use)
-    /// - [`SecAlg::RSASHA1`] (insecure, not recommended)
-    /// - [`SecAlg::DSA_NSEC3_SHA1`] (highly insecure, do not use)
-    /// - [`SecAlg::RSASHA1_NSEC3_SHA1`] (insecure, not recommended)
-    /// - [`SecAlg::RSASHA256`]
-    /// - [`SecAlg::RSASHA512`] (not recommended)
-    /// - [`SecAlg::ECC_GOST`] (do not use)
-    /// - [`SecAlg::ECDSAP256SHA256`]
-    /// - [`SecAlg::ECDSAP384SHA384`]
-    /// - [`SecAlg::ED25519`]
-    /// - [`SecAlg::ED448`]
+    /// [RFC 8624, section 3.1]: https://datatracker.ietf.org/doc/html/rfc8624#section-3.1
     fn algorithm(&self) -> SecAlg;
 
     /// The raw public key.
@@ -198,23 +186,82 @@ pub trait SignRaw {
     ///
     /// # Errors
     ///
-    /// There are three expected failure cases for this function:
-    ///
-    /// - The secret key was invalid.  The implementing type is responsible
-    ///   for validating the secret key during initialization, so that this
-    ///   kind of error does not occur.
-    ///
-    /// - Not enough randomness could be obtained.  This applies to signature
-    ///   algorithms which use randomization (primarily ECDSA).  On common
-    ///   platforms like Linux, Mac OS, and Windows, cryptographically secure
-    ///   pseudo-random number generation is provided by the OS, so this is
-    ///   highly unlikely.
-    ///
-    /// - Not enough memory could be obtained.  Signature generation does not
-    ///   require significant memory and an out-of-memory condition means that
-    ///   the application will probably panic soon.
-    ///
-    /// None of these are considered likely or recoverable, so panicking is
-    /// the simplest and most ergonomic solution.
-    fn sign_raw(&self, data: &[u8]) -> Signature;
+    /// See [`SignError`] for a discussion of possible failure cases.  To the
+    /// greatest extent possible, the implementation should check for failure
+    /// cases beforehand and prevent them (e.g. when the keypair is created).
+    fn sign_raw(&self, data: &[u8]) -> Result<Signature, SignError>;
 }
+
+//============ Error Types ===================================================
+
+//----------- SignError ------------------------------------------------------
+
+/// A signature failure.
+///
+/// In case such an error occurs, callers should stop using the key pair they
+/// attempted to sign with.  If such an error occurs with every key pair they
+/// have available, or if such an error occurs with a freshly-generated key
+/// pair, they should use a different cryptographic implementation.  If that
+/// is not possible, they must forego signing entirely.
+///
+/// # Failure Cases
+///
+/// Signing should be an infallible process.  There are three considerable
+/// failure cases for it:
+///
+/// - The secret key was invalid (e.g. its parameters were inconsistent).
+///
+///   Such a failure would mean that all future signing (with this key) will
+///   also fail.  In any case, the implementations provided by this crate try
+///   to verify the key (e.g. by checking the consistency of the private and
+///   public components) before any signing occurs, largely ruling this class
+///   of errors out.
+///
+/// - Not enough randomness could be obtained.  This applies to signature
+///   algorithms which use randomization (e.g. RSA and ECDSA).
+///
+///   On the vast majority of platforms, randomness can always be obtained.
+///   The [`getrandom` crate documentation](getrandom) notes:
+///
+///   > If an error does occur, then it is likely that it will occur on every
+///   > call to getrandom, hence after the first successful call one can be
+///   > reasonably confident that no errors will occur.
+///
+///   getrandom: https://docs.rs/getrandom
+///
+///   Thus, in case such a failure occurs, all future signing will probably
+///   also fail.
+///
+/// - Not enough memory could be allocated.
+///
+///   Signature algorithms have a small memory overhead, so an out-of-memory
+///   condition means that the program is nearly out of allocatable space.
+///
+///   Callers who do not expect allocations to fail (i.e. who are using the
+///   standard memory allocation routines, not their `try_` variants) will
+///   likely panic shortly after such an error.
+///
+///   Callers who are aware of their memory usage will likely restrict it far
+///   before they get to this point.  Systems running at near-maximum load
+///   tend to quickly become unresponsive and staggeringly slow.  If memory
+///   usage is an important consideration, programs will likely cap it before
+///   the system reaches e.g. 90% memory use.
+///
+///   As such, memory allocation failure should never really occur.  It is far
+///   more likely that one of the other errors has occurred.
+///
+/// It may be reasonable to panic in any such situation, since each kind of
+/// error is essentially unrecoverable.  However, applications where signing
+/// is an optional step, or where crashing is prohibited, may wish to recover
+/// from such an error differently (e.g. by foregoing signatures or informing
+/// an operator).
+#[derive(Clone, Debug)]
+pub struct SignError;
+
+impl fmt::Display for SignError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("could not create a cryptographic signature")
+    }
+}
+
+impl std::error::Error for SignError {}

@@ -1,11 +1,12 @@
 //! Key and Signer using OpenSSL.
 
 use core::fmt;
-use std::boxed::Box;
+use std::vec::Vec;
 
 use openssl::{
     bn::BigNum,
     ecdsa::EcdsaSig,
+    error::ErrorStack,
     pkey::{self, PKey, Private},
 };
 
@@ -14,7 +15,9 @@ use crate::{
     validate::{RawPublicKey, RsaPublicKey, Signature},
 };
 
-use super::{generic, SignRaw};
+use super::{generic, SignError, SignRaw};
+
+//----------- SecretKey ------------------------------------------------------
 
 /// A key pair backed by OpenSSL.
 pub struct SecretKey {
@@ -24,6 +27,8 @@ pub struct SecretKey {
     /// The private key.
     pkey: PKey<Private>,
 }
+
+//--- Conversion to and from generic keys
 
 impl SecretKey {
     /// Use a generic secret key with OpenSSL.
@@ -187,6 +192,57 @@ impl SecretKey {
     }
 }
 
+//--- Signing
+
+impl SecretKey {
+    fn sign(&self, data: &[u8]) -> Result<Vec<u8>, ErrorStack> {
+        use openssl::hash::MessageDigest;
+        use openssl::sign::Signer;
+
+        match self.algorithm {
+            SecAlg::RSASHA256 => {
+                let mut s = Signer::new(MessageDigest::sha256(), &self.pkey)?;
+                s.set_rsa_padding(openssl::rsa::Padding::PKCS1)?;
+                s.sign_oneshot_to_vec(data)
+            }
+
+            SecAlg::ECDSAP256SHA256 => {
+                let mut s = Signer::new(MessageDigest::sha256(), &self.pkey)?;
+                let signature = s.sign_oneshot_to_vec(data)?;
+                // Convert from DER to the fixed representation.
+                let signature = EcdsaSig::from_der(&signature)?;
+                let mut r = signature.r().to_vec_padded(32)?;
+                let mut s = signature.s().to_vec_padded(32)?;
+                r.append(&mut s);
+                Ok(r)
+            }
+            SecAlg::ECDSAP384SHA384 => {
+                let mut s = Signer::new(MessageDigest::sha384(), &self.pkey)?;
+                let signature = s.sign_oneshot_to_vec(data)?;
+                // Convert from DER to the fixed representation.
+                let signature = EcdsaSig::from_der(&signature)?;
+                let mut r = signature.r().to_vec_padded(48)?;
+                let mut s = signature.s().to_vec_padded(48)?;
+                r.append(&mut s);
+                Ok(r)
+            }
+
+            SecAlg::ED25519 => {
+                let mut s = Signer::new_without_digest(&self.pkey)?;
+                s.sign_oneshot_to_vec(data)
+            }
+            SecAlg::ED448 => {
+                let mut s = Signer::new_without_digest(&self.pkey)?;
+                s.sign_oneshot_to_vec(data)
+            }
+
+            _ => unreachable!(),
+        }
+    }
+}
+
+//--- SignRaw
+
 impl SignRaw for SecretKey {
     fn algorithm(&self) -> SecAlg {
         self.algorithm
@@ -233,56 +289,33 @@ impl SignRaw for SecretKey {
         }
     }
 
-    fn sign_raw(&self, data: &[u8]) -> Signature {
-        use openssl::hash::MessageDigest;
-        use openssl::sign::Signer;
+    fn sign_raw(&self, data: &[u8]) -> Result<Signature, SignError> {
+        let signature = self
+            .sign(data)
+            .map(Vec::into_boxed_slice)
+            .map_err(|_| SignError)?;
 
         match self.algorithm {
-            SecAlg::RSASHA256 => {
-                let mut s =
-                    Signer::new(MessageDigest::sha256(), &self.pkey).unwrap();
-                s.set_rsa_padding(openssl::rsa::Padding::PKCS1).unwrap();
-                let signature = s.sign_oneshot_to_vec(data).unwrap();
-                Signature::RsaSha256(signature.into_boxed_slice())
-            }
-            SecAlg::ECDSAP256SHA256 => {
-                let mut s =
-                    Signer::new(MessageDigest::sha256(), &self.pkey).unwrap();
-                let signature = s.sign_oneshot_to_vec(data).unwrap();
-                // Convert from DER to the fixed representation.
-                let signature = EcdsaSig::from_der(&signature).unwrap();
-                let r = signature.r().to_vec_padded(32).unwrap();
-                let s = signature.s().to_vec_padded(32).unwrap();
-                let mut signature = Box::new([0u8; 64]);
-                signature[..32].copy_from_slice(&r);
-                signature[32..].copy_from_slice(&s);
-                Signature::EcdsaP256Sha256(signature)
-            }
-            SecAlg::ECDSAP384SHA384 => {
-                let mut s =
-                    Signer::new(MessageDigest::sha384(), &self.pkey).unwrap();
-                let signature = s.sign_oneshot_to_vec(data).unwrap();
-                // Convert from DER to the fixed representation.
-                let signature = EcdsaSig::from_der(&signature).unwrap();
-                let r = signature.r().to_vec_padded(48).unwrap();
-                let s = signature.s().to_vec_padded(48).unwrap();
-                let mut signature = Box::new([0u8; 96]);
-                signature[..48].copy_from_slice(&r);
-                signature[48..].copy_from_slice(&s);
-                Signature::EcdsaP384Sha384(signature)
-            }
-            SecAlg::ED25519 => {
-                let mut s = Signer::new_without_digest(&self.pkey).unwrap();
-                let signature =
-                    s.sign_oneshot_to_vec(data).unwrap().into_boxed_slice();
-                Signature::Ed25519(signature.try_into().unwrap())
-            }
-            SecAlg::ED448 => {
-                let mut s = Signer::new_without_digest(&self.pkey).unwrap();
-                let signature =
-                    s.sign_oneshot_to_vec(data).unwrap().into_boxed_slice();
-                Signature::Ed448(signature.try_into().unwrap())
-            }
+            SecAlg::RSASHA256 => Ok(Signature::RsaSha256(signature)),
+
+            SecAlg::ECDSAP256SHA256 => signature
+                .try_into()
+                .map(Signature::EcdsaP256Sha256)
+                .map_err(|_| SignError),
+            SecAlg::ECDSAP384SHA384 => signature
+                .try_into()
+                .map(Signature::EcdsaP384Sha384)
+                .map_err(|_| SignError),
+
+            SecAlg::ED25519 => signature
+                .try_into()
+                .map(Signature::Ed25519)
+                .map_err(|_| SignError),
+            SecAlg::ED448 => signature
+                .try_into()
+                .map(Signature::Ed448)
+                .map_err(|_| SignError),
+
             _ => unreachable!(),
         }
     }
@@ -323,6 +356,10 @@ pub fn generate(algorithm: SecAlg) -> Option<SecretKey> {
     Some(SecretKey { algorithm, pkey })
 }
 
+//============ Error Types ===================================================
+
+//----------- FromGenericError -----------------------------------------------
+
 /// An error in importing a key into OpenSSL.
 #[derive(Clone, Debug)]
 pub enum FromGenericError {
@@ -331,18 +368,28 @@ pub enum FromGenericError {
 
     /// The key's parameters were invalid.
     InvalidKey,
+
+    /// The implementation does not allow such weak keys.
+    WeakKey,
 }
+
+//--- Formatting
 
 impl fmt::Display for FromGenericError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(match self {
             Self::UnsupportedAlgorithm => "algorithm not supported",
             Self::InvalidKey => "malformed or insecure private key",
+            Self::WeakKey => "key too weak to be supported",
         })
     }
 }
 
+//--- Error
+
 impl std::error::Error for FromGenericError {}
+
+//============ Tests =========================================================
 
 #[cfg(test)]
 mod tests {
@@ -447,7 +494,7 @@ mod tests {
 
             let key = SecretKey::from_generic(&gen_key, pub_key).unwrap();
 
-            let _ = key.sign_raw(b"Hello, World!");
+            let _ = key.sign_raw(b"Hello, World!").unwrap();
         }
     }
 }
