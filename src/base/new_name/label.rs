@@ -15,7 +15,10 @@ impl Label {
     pub const MAX_SIZE: usize = 63;
 
     /// The root label.
-    pub const ROOT: &Self = unsafe { Self::from_bytes_unchecked(&[]) };
+    pub const ROOT: &Self = unsafe { Self::from_bytes_unchecked(b"") };
+
+    /// The wildcard label.
+    pub const WILDCARD: &Self = unsafe { Self::from_bytes_unchecked(b"*") };
 }
 
 impl Label {
@@ -69,6 +72,12 @@ impl Label {
     /// Whether this is the root label.
     pub const fn is_root(&self) -> bool {
         self.0.is_empty()
+    }
+
+    /// Whether this is the wildcard label.
+    pub const fn is_wildcard(&self) -> bool {
+        // NOTE: 'self.0 == *b"*"' is not const.
+        self.0.len() == 1 && self.0[0] == b'*'
     }
 
     /// The size of this name in the wire format.
