@@ -163,7 +163,7 @@ impl FormatWriter for MultiLineWriter<'_> {
 
     fn fmt_comment(&mut self, args: fmt::Arguments<'_>) -> Result {
         if self.block_indent.is_some() {
-            self.writer.write_fmt(format_args!("\t; {}", args))?;
+            write!(self.writer, "\t; {}", args)?;
             self.newline()
         } else {
             // a comment should not have been allowed
