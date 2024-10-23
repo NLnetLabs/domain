@@ -32,18 +32,20 @@ pub struct SecretKey {
 
 impl SecretKey {
     /// Use a generic secret key with OpenSSL.
-    ///
-    /// # Panics
-    ///
-    /// Panics if OpenSSL fails or if memory could not be allocated.
     pub fn from_generic(
         secret: &generic::SecretKey,
         public: &RawPublicKey,
     ) -> Result<Self, FromGenericError> {
-        fn num(slice: &[u8]) -> BigNum {
-            let mut v = BigNum::new_secure().unwrap();
-            v.copy_from_slice(slice).unwrap();
-            v
+        fn num(slice: &[u8]) -> Result<BigNum, FromGenericError> {
+            let mut v = BigNum::new()?;
+            v.copy_from_slice(slice)?;
+            Ok(v)
+        }
+
+        fn secure_num(slice: &[u8]) -> Result<BigNum, FromGenericError> {
+            let mut v = BigNum::new_secure()?;
+            v.copy_from_slice(slice)?;
+            Ok(v)
         }
 
         let pkey = match (secret, public) {
@@ -56,24 +58,28 @@ impl SecretKey {
                     return Err(FromGenericError::InvalidKey);
                 }
 
-                let n = BigNum::from_slice(&s.n).unwrap();
-                let e = BigNum::from_slice(&s.e).unwrap();
-                let d = num(&s.d);
-                let p = num(&s.p);
-                let q = num(&s.q);
-                let d_p = num(&s.d_p);
-                let d_q = num(&s.d_q);
-                let q_i = num(&s.q_i);
+                let n = num(&s.n)?;
+                let e = num(&s.e)?;
+                let d = secure_num(&s.d)?;
+                let p = secure_num(&s.p)?;
+                let q = secure_num(&s.q)?;
+                let d_p = secure_num(&s.d_p)?;
+                let d_q = secure_num(&s.d_q)?;
+                let q_i = secure_num(&s.q_i)?;
 
                 // NOTE: The 'openssl' crate doesn't seem to expose
                 // 'EVP_PKEY_fromdata', which could be used to replace the
                 // deprecated methods called here.
 
-                openssl::rsa::Rsa::from_private_components(
+                let key = openssl::rsa::Rsa::from_private_components(
                     n, e, d, p, q, d_p, d_q, q_i,
-                )
-                .and_then(PKey::from_rsa)
-                .unwrap()
+                )?;
+
+                if !key.check_key()? {
+                    return Err(FromGenericError::InvalidKey);
+                }
+
+                PKey::from_rsa(key)?
             }
 
             (
@@ -82,16 +88,14 @@ impl SecretKey {
             ) => {
                 use openssl::{bn, ec, nid};
 
-                let mut ctx = bn::BigNumContext::new_secure().unwrap();
+                let mut ctx = bn::BigNumContext::new_secure()?;
                 let group = nid::Nid::X9_62_PRIME256V1;
-                let group = ec::EcGroup::from_curve_name(group).unwrap();
-                let n = num(s.as_slice());
-                let p = ec::EcPoint::from_bytes(&group, &**p, &mut ctx)
-                    .map_err(|_| FromGenericError::InvalidKey)?;
-                let k = ec::EcKey::from_private_components(&group, &n, &p)
-                    .map_err(|_| FromGenericError::InvalidKey)?;
+                let group = ec::EcGroup::from_curve_name(group)?;
+                let n = secure_num(s.as_slice())?;
+                let p = ec::EcPoint::from_bytes(&group, &**p, &mut ctx)?;
+                let k = ec::EcKey::from_private_components(&group, &n, &p)?;
                 k.check_key().map_err(|_| FromGenericError::InvalidKey)?;
-                PKey::from_ec_key(k).unwrap()
+                PKey::from_ec_key(k)?
             }
 
             (
@@ -100,24 +104,21 @@ impl SecretKey {
             ) => {
                 use openssl::{bn, ec, nid};
 
-                let mut ctx = bn::BigNumContext::new_secure().unwrap();
+                let mut ctx = bn::BigNumContext::new_secure()?;
                 let group = nid::Nid::SECP384R1;
-                let group = ec::EcGroup::from_curve_name(group).unwrap();
-                let n = num(s.as_slice());
-                let p = ec::EcPoint::from_bytes(&group, &**p, &mut ctx)
-                    .map_err(|_| FromGenericError::InvalidKey)?;
-                let k = ec::EcKey::from_private_components(&group, &n, &p)
-                    .map_err(|_| FromGenericError::InvalidKey)?;
+                let group = ec::EcGroup::from_curve_name(group)?;
+                let n = secure_num(s.as_slice())?;
+                let p = ec::EcPoint::from_bytes(&group, &**p, &mut ctx)?;
+                let k = ec::EcKey::from_private_components(&group, &n, &p)?;
                 k.check_key().map_err(|_| FromGenericError::InvalidKey)?;
-                PKey::from_ec_key(k).unwrap()
+                PKey::from_ec_key(k)?
             }
 
             (generic::SecretKey::Ed25519(s), RawPublicKey::Ed25519(p)) => {
                 use openssl::memcmp;
 
                 let id = pkey::Id::ED25519;
-                let k = PKey::private_key_from_raw_bytes(&**s, id)
-                    .map_err(|_| FromGenericError::InvalidKey)?;
+                let k = PKey::private_key_from_raw_bytes(&**s, id)?;
                 if memcmp::eq(&k.raw_public_key().unwrap(), &**p) {
                     k
                 } else {
@@ -129,8 +130,7 @@ impl SecretKey {
                 use openssl::memcmp;
 
                 let id = pkey::Id::ED448;
-                let k = PKey::private_key_from_raw_bytes(&**s, id)
-                    .map_err(|_| FromGenericError::InvalidKey)?;
+                let k = PKey::private_key_from_raw_bytes(&**s, id)?;
                 if memcmp::eq(&k.raw_public_key().unwrap(), &**p) {
                     k
                 } else {
@@ -322,38 +322,28 @@ impl SignRaw for SecretKey {
 }
 
 /// Generate a new secret key for the given algorithm.
-///
-/// If the algorithm is not supported, [`None`] is returned.
-///
-/// # Panics
-///
-/// Panics if OpenSSL fails or if memory could not be allocated.
-pub fn generate(algorithm: SecAlg) -> Option<SecretKey> {
+pub fn generate(algorithm: SecAlg) -> Result<SecretKey, GenerateError> {
     let pkey = match algorithm {
         // We generate 3072-bit keys for an estimated 128 bits of security.
-        SecAlg::RSASHA256 => openssl::rsa::Rsa::generate(3072)
-            .and_then(PKey::from_rsa)
-            .unwrap(),
+        SecAlg::RSASHA256 => {
+            openssl::rsa::Rsa::generate(3072).and_then(PKey::from_rsa)?
+        }
         SecAlg::ECDSAP256SHA256 => {
             let group = openssl::nid::Nid::X9_62_PRIME256V1;
-            let group = openssl::ec::EcGroup::from_curve_name(group).unwrap();
-            openssl::ec::EcKey::generate(&group)
-                .and_then(PKey::from_ec_key)
-                .unwrap()
+            let group = openssl::ec::EcGroup::from_curve_name(group)?;
+            PKey::from_ec_key(openssl::ec::EcKey::generate(&group)?)?
         }
         SecAlg::ECDSAP384SHA384 => {
             let group = openssl::nid::Nid::SECP384R1;
-            let group = openssl::ec::EcGroup::from_curve_name(group).unwrap();
-            openssl::ec::EcKey::generate(&group)
-                .and_then(PKey::from_ec_key)
-                .unwrap()
+            let group = openssl::ec::EcGroup::from_curve_name(group)?;
+            PKey::from_ec_key(openssl::ec::EcKey::generate(&group)?)?
         }
-        SecAlg::ED25519 => PKey::generate_ed25519().unwrap(),
-        SecAlg::ED448 => PKey::generate_ed448().unwrap(),
-        _ => return None,
+        SecAlg::ED25519 => PKey::generate_ed25519()?,
+        SecAlg::ED448 => PKey::generate_ed448()?,
+        _ => return Err(GenerateError::UnsupportedAlgorithm),
     };
 
-    Some(SecretKey { algorithm, pkey })
+    Ok(SecretKey { algorithm, pkey })
 }
 
 //============ Error Types ===================================================
@@ -369,8 +359,18 @@ pub enum FromGenericError {
     /// The key's parameters were invalid.
     InvalidKey,
 
-    /// The implementation does not allow such weak keys.
-    WeakKey,
+    /// An implementation failure occurred.
+    ///
+    /// This includes memory allocation failures.
+    Implementation,
+}
+
+//--- Conversion
+
+impl From<ErrorStack> for FromGenericError {
+    fn from(_: ErrorStack) -> Self {
+        Self::Implementation
+    }
 }
 
 //--- Formatting
@@ -380,7 +380,7 @@ impl fmt::Display for FromGenericError {
         f.write_str(match self {
             Self::UnsupportedAlgorithm => "algorithm not supported",
             Self::InvalidKey => "malformed or insecure private key",
-            Self::WeakKey => "key too weak to be supported",
+            Self::Implementation => "an internal error occurred",
         })
     }
 }
@@ -388,6 +388,43 @@ impl fmt::Display for FromGenericError {
 //--- Error
 
 impl std::error::Error for FromGenericError {}
+
+//----------- GenerateError --------------------------------------------------
+
+/// An error in generating a key with OpenSSL.
+#[derive(Clone, Debug)]
+pub enum GenerateError {
+    /// The requested algorithm was not supported.
+    UnsupportedAlgorithm,
+
+    /// An implementation failure occurred.
+    ///
+    /// This includes memory allocation failures.
+    Implementation,
+}
+
+//--- Conversion
+
+impl From<ErrorStack> for GenerateError {
+    fn from(_: ErrorStack) -> Self {
+        Self::Implementation
+    }
+}
+
+//--- Formatting
+
+impl fmt::Display for GenerateError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Self::UnsupportedAlgorithm => "algorithm not supported",
+            Self::Implementation => "an internal error occurred",
+        })
+    }
+}
+
+//--- Error
+
+impl std::error::Error for GenerateError {}
 
 //============ Tests =========================================================
 
