@@ -14,6 +14,7 @@ use crate::base::scan::Scanner;
 #[cfg(feature = "serde")]
 use crate::base::scan::Symbol;
 use crate::base::wire::{Composer, FormError, ParseError};
+use crate::base::zonefile_fmt::{self, Formatter, ZonefileFmt};
 #[cfg(feature = "bytes")]
 use bytes::BytesMut;
 use core::cmp::Ordering;
@@ -161,7 +162,7 @@ impl Txt<[u8]> {
     /// Checks that a slice contains correctly encoded TXT data.
     fn check_slice(mut slice: &[u8]) -> Result<(), TxtError> {
         if slice.is_empty() {
-            return Err(TxtError(TxtErrorInner::Empty))
+            return Err(TxtError(TxtErrorInner::Empty));
         }
         LongRecordData::check_len(slice.len())?;
         while let Some(&len) = slice.first() {
@@ -442,6 +443,22 @@ impl<Octs: AsRef<[u8]>> fmt::Debug for Txt<Octs> {
         f.write_str("Txt(")?;
         fmt::Display::fmt(self, f)?;
         f.write_str(")")
+    }
+}
+
+//--- ZonefileFmt
+
+impl<Octs> ZonefileFmt for Txt<Octs>
+where
+    Octs: AsRef<[u8]>,
+{
+    fn fmt(&self, p: &mut impl Formatter) -> zonefile_fmt::Result {
+        p.block(|p| {
+            for slice in self.iter_charstrs() {
+                p.write_token(slice.display_quoted())?;
+            }
+            Ok(())
+        })
     }
 }
 
