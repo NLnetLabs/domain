@@ -78,13 +78,13 @@ pub trait FormatWriter: Sized {
 ///
 /// This writer does not do any alignment, comments and squeezes each record
 /// onto a single line.
-struct SimpleWriter<'a> {
+struct SimpleWriter<W> {
     first: bool,
-    writer: &'a mut (dyn fmt::Write + 'a),
+    writer: W,
 }
 
-impl<'a> SimpleWriter<'a> {
-    fn new(writer: &'a mut dyn fmt::Write) -> Self {
+impl<W: fmt::Write> SimpleWriter<W> {
+    fn new(writer: W) -> Self {
         Self {
             first: true,
             writer,
@@ -92,7 +92,7 @@ impl<'a> SimpleWriter<'a> {
     }
 }
 
-impl FormatWriter for SimpleWriter<'_> {
+impl<W: fmt::Write> FormatWriter for SimpleWriter<W> {
     fn fmt_token(&mut self, args: fmt::Arguments<'_>) -> Result {
         if !self.first {
             self.writer.write_char(' ')?;
@@ -121,15 +121,15 @@ impl FormatWriter for SimpleWriter<'_> {
     }
 }
 
-struct MultiLineWriter<'a> {
+struct MultiLineWriter<W> {
     current_column: usize,
     block_indent: Option<usize>,
     first: bool,
-    writer: &'a mut (dyn fmt::Write + 'a),
+    writer: W,
 }
 
-impl<'a> MultiLineWriter<'a> {
-    fn new(writer: &'a mut dyn fmt::Write) -> Self {
+impl<W> MultiLineWriter<W> {
+    fn new(writer: W) -> Self {
         Self {
             first: true,
             current_column: 0,
@@ -139,7 +139,7 @@ impl<'a> MultiLineWriter<'a> {
     }
 }
 
-impl FormatWriter for MultiLineWriter<'_> {
+impl<W: fmt::Write> FormatWriter for MultiLineWriter<W> {
     fn fmt_token(&mut self, args: fmt::Arguments<'_>) -> Result {
         use fmt::Write;
         if !self.first {
@@ -186,7 +186,7 @@ impl FormatWriter for MultiLineWriter<'_> {
     }
 }
 
-impl fmt::Write for MultiLineWriter<'_> {
+impl<W: fmt::Write> fmt::Write for MultiLineWriter<W> {
     fn write_str(&mut self, x: &str) -> fmt::Result {
         self.current_column += x.len();
         self.writer.write_str(x)
