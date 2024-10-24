@@ -668,6 +668,13 @@ impl<Octs: Octets + ?Sized> Message<Octs> {
 
 /// # Printing
 impl<Octs: AsRef<[u8]>> Message<Octs> {
+    /// Create a wrapper that displays the message in a dig style
+    ///
+    /// The dig style resembles a zonefile format (see also [`ZonefileFmt`]),
+    /// with additional lines that are commented out that contain information
+    /// about the header, OPT record and more.
+    ///
+    /// [`ZonefileFmt`]: super::zonefile_fmt::ZonefileFmt
     pub fn display_dig_style(&self) -> impl core::fmt::Display + '_ {
         DigPrinter { msg: self }
     }
