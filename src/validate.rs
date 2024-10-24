@@ -268,7 +268,8 @@ impl<Octs: AsRef<[u8]>> Key<Octs> {
                     // We found a line that does not start with a comment.
                     line = line
                         .split_once(';')
-                        .map_or(line, |(line, _)| line.trim_end());
+                        .map_or(line, |(line, _)| line)
+                        .trim_end();
                     return Some((line, data));
                 }
             }
@@ -280,25 +281,32 @@ impl<Octs: AsRef<[u8]>> Key<Octs> {
         let (line, rest) =
             next_line(data).ok_or(ParseDnskeyTextError::Misformatted)?;
         if next_line(rest).is_some() {
+            eprintln!("DEBUG: next line was Some");
             return Err(ParseDnskeyTextError::Misformatted);
         }
 
         // Parse the entire record.
         let mut scanner = IterScanner::new(line.split_ascii_whitespace());
 
-        let name = scanner
-            .scan_name()
-            .map_err(|_| ParseDnskeyTextError::Misformatted)?;
+        let name = scanner.scan_name().map_err(|_| {
+            eprintln!("DEBUG: owner name failed");
+            ParseDnskeyTextError::Misformatted
+        })?;
 
-        let _ = Class::scan(&mut scanner)
-            .map_err(|_| ParseDnskeyTextError::Misformatted)?;
+        let _ = Class::scan(&mut scanner).map_err(|_| {
+            eprintln!("DEBUG: class parsing failed");
+            ParseDnskeyTextError::Misformatted
+        })?;
 
         if Rtype::scan(&mut scanner).map_or(true, |t| t != Rtype::DNSKEY) {
+            eprintln!("DEBUG: rtype parsing failed");
             return Err(ParseDnskeyTextError::Misformatted);
         }
 
-        let data = Dnskey::scan(&mut scanner)
-            .map_err(|_| ParseDnskeyTextError::Misformatted)?;
+        let data = Dnskey::scan(&mut scanner).map_err(|_| {
+            eprintln!("DEBUG: record data parsing failed");
+            ParseDnskeyTextError::Misformatted
+        })?;
 
         Self::from_dnskey(name, data)
             .map_err(ParseDnskeyTextError::FromDnskey)
