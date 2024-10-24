@@ -1,4 +1,4 @@
-//! Key and Signer using OpenSSL.
+//! DNSSEC signing using OpenSSL.
 
 use core::fmt;
 use std::vec::Vec;
@@ -15,7 +15,10 @@ use crate::{
     validate::{RawPublicKey, RsaPublicKey, Signature},
 };
 
-use super::{generic, SignError, SignRaw};
+use super::{
+    generic::{self, GenerateParams},
+    SignError, SignRaw,
+};
 
 //----------- SecretKey ------------------------------------------------------
 
@@ -322,25 +325,25 @@ impl SignRaw for SecretKey {
 }
 
 /// Generate a new secret key for the given algorithm.
-pub fn generate(algorithm: SecAlg) -> Result<SecretKey, GenerateError> {
-    let pkey = match algorithm {
+pub fn generate(params: GenerateParams) -> Result<SecretKey, GenerateError> {
+    let algorithm = params.algorithm();
+    let pkey = match params {
         // We generate 3072-bit keys for an estimated 128 bits of security.
-        SecAlg::RSASHA256 => {
-            openssl::rsa::Rsa::generate(3072).and_then(PKey::from_rsa)?
+        GenerateParams::RsaSha256 { bits } => {
+            openssl::rsa::Rsa::generate(bits).and_then(PKey::from_rsa)?
         }
-        SecAlg::ECDSAP256SHA256 => {
+        GenerateParams::EcdsaP256Sha256 => {
             let group = openssl::nid::Nid::X9_62_PRIME256V1;
             let group = openssl::ec::EcGroup::from_curve_name(group)?;
             PKey::from_ec_key(openssl::ec::EcKey::generate(&group)?)?
         }
-        SecAlg::ECDSAP384SHA384 => {
+        GenerateParams::EcdsaP384Sha384 => {
             let group = openssl::nid::Nid::SECP384R1;
             let group = openssl::ec::EcGroup::from_curve_name(group)?;
             PKey::from_ec_key(openssl::ec::EcKey::generate(&group)?)?
         }
-        SecAlg::ED25519 => PKey::generate_ed25519()?,
-        SecAlg::ED448 => PKey::generate_ed448()?,
-        _ => return Err(GenerateError::UnsupportedAlgorithm),
+        GenerateParams::Ed25519 => PKey::generate_ed25519()?,
+        GenerateParams::Ed448 => PKey::generate_ed448()?,
     };
 
     Ok(SecretKey { algorithm, pkey })
@@ -434,7 +437,10 @@ mod tests {
 
     use crate::{
         base::iana::SecAlg,
-        sign::{generic, SignRaw},
+        sign::{
+            generic::{self, GenerateParams},
+            SignRaw,
+        },
         validate::Key,
     };
 
@@ -451,14 +457,32 @@ mod tests {
     #[test]
     fn generate() {
         for &(algorithm, _) in KEYS {
-            let _ = super::generate(algorithm).unwrap();
+            let params = match algorithm {
+                SecAlg::RSASHA256 => GenerateParams::RsaSha256 { bits: 3072 },
+                SecAlg::ECDSAP256SHA256 => GenerateParams::EcdsaP256Sha256,
+                SecAlg::ECDSAP384SHA384 => GenerateParams::EcdsaP384Sha384,
+                SecAlg::ED25519 => GenerateParams::Ed25519,
+                SecAlg::ED448 => GenerateParams::Ed448,
+                _ => unreachable!(),
+            };
+
+            let _ = super::generate(params).unwrap();
         }
     }
 
     #[test]
     fn generated_roundtrip() {
         for &(algorithm, _) in KEYS {
-            let key = super::generate(algorithm).unwrap();
+            let params = match algorithm {
+                SecAlg::RSASHA256 => GenerateParams::RsaSha256 { bits: 3072 },
+                SecAlg::ECDSAP256SHA256 => GenerateParams::EcdsaP256Sha256,
+                SecAlg::ECDSAP384SHA384 => GenerateParams::EcdsaP384Sha384,
+                SecAlg::ED25519 => GenerateParams::Ed25519,
+                SecAlg::ED448 => GenerateParams::Ed448,
+                _ => unreachable!(),
+            };
+
+            let key = super::generate(params).unwrap();
             let gen_key = key.to_generic();
             let pub_key = key.raw_public_key();
             let equiv = SecretKey::from_generic(&gen_key, &pub_key).unwrap();

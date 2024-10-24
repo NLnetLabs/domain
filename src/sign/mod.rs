@@ -18,6 +18,7 @@ use crate::{
     validate::{self, RawPublicKey, Signature},
 };
 
+pub mod common;
 pub mod generic;
 pub mod openssl;
 pub mod ring;
