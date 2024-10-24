@@ -13,6 +13,7 @@
 use super::header::{Header, HeaderCounts, HeaderSection};
 use super::iana::{Class, OptRcode, Rcode, Rtype};
 use super::message_builder::{AdditionalBuilder, AnswerBuilder, PushError};
+use super::message_printer::MessagePrinter;
 use super::name::ParsedName;
 use super::opt::{Opt, OptRecord};
 use super::question::Question;
@@ -662,6 +663,13 @@ impl<Octs: Octets + ?Sized> Message<Octs> {
         self.opt()
             .map(|opt| opt.rcode(self.header()))
             .unwrap_or_else(|| self.header().rcode().into())
+    }
+}
+
+/// # Printing
+impl<Octs: AsRef<[u8]>> Message<Octs> {
+    pub fn display_dig_style(&self) -> impl core::fmt::Display + '_ {
+        MessagePrinter { msg: self }
     }
 }
 
