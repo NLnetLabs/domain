@@ -10,6 +10,7 @@
 //!
 //! [`Message`]: struct.Message.html
 
+use super::dig_printer::DigPrinter;
 use super::header::{Header, HeaderCounts, HeaderSection};
 use super::iana::{Class, OptRcode, Rcode, Rtype};
 use super::message_builder::{AdditionalBuilder, AnswerBuilder, PushError};
@@ -662,6 +663,20 @@ impl<Octs: Octets + ?Sized> Message<Octs> {
         self.opt()
             .map(|opt| opt.rcode(self.header()))
             .unwrap_or_else(|| self.header().rcode().into())
+    }
+}
+
+/// # Printing
+impl<Octs: AsRef<[u8]>> Message<Octs> {
+    /// Create a wrapper that displays the message in a dig style
+    ///
+    /// The dig style resembles a zonefile format (see also [`ZonefileFmt`]),
+    /// with additional lines that are commented out that contain information
+    /// about the header, OPT record and more.
+    ///
+    /// [`ZonefileFmt`]: super::zonefile_fmt::ZonefileFmt
+    pub fn display_dig_style(&self) -> impl core::fmt::Display + '_ {
+        DigPrinter { msg: self }
     }
 }
 

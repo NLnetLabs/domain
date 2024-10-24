@@ -32,8 +32,15 @@ impl<T: ZonefileFmt + ?Sized> fmt::Display for ZoneFileDisplay<'_, T> {
 
 /// Show a value as zonefile format
 pub trait ZonefileFmt {
+    /// Format the item as zonefile fmt into a [`fmt::Formatter`]
+    ///
+    /// This method is meant for use in a `fmt::Display` implementation.
     fn fmt(&self, p: &mut impl Formatter) -> Result;
 
+    /// Display the item as a zonefile
+    ///
+    /// The returned object will be displayed as zonefile when printed or
+    /// written using `fmt::Display`.
     fn display_zonefile(&self, pretty: bool) -> ZoneFileDisplay<'_, Self> {
         ZoneFileDisplay {
             inner: self,
