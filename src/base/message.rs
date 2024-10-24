@@ -10,10 +10,10 @@
 //!
 //! [`Message`]: struct.Message.html
 
+use super::dig_printer::DigPrinter;
 use super::header::{Header, HeaderCounts, HeaderSection};
 use super::iana::{Class, OptRcode, Rcode, Rtype};
 use super::message_builder::{AdditionalBuilder, AnswerBuilder, PushError};
-use super::message_printer::MessagePrinter;
 use super::name::ParsedName;
 use super::opt::{Opt, OptRecord};
 use super::question::Question;
@@ -669,7 +669,7 @@ impl<Octs: Octets + ?Sized> Message<Octs> {
 /// # Printing
 impl<Octs: AsRef<[u8]>> Message<Octs> {
     pub fn display_dig_style(&self) -> impl core::fmt::Display + '_ {
-        MessagePrinter { msg: self }
+        DigPrinter { msg: self }
     }
 }
 

@@ -6,14 +6,14 @@ use super::zonefile_fmt::ZonefileFmt;
 use super::ParsedRecord;
 use super::{opt::AllOptData, Message, Rtype};
 
-/// Interal type for printing a message
+/// Interal type for printing a message in dig style
 ///
 /// This is only exposed to users of this library as `impl fmt::Display`.
-pub(super) struct MessagePrinter<'a, Octs> {
+pub(super) struct DigPrinter<'a, Octs> {
     pub msg: &'a Message<Octs>,
 }
 
-impl<'a, Octs: AsRef<[u8]>> fmt::Display for MessagePrinter<'a, Octs> {
+impl<'a, Octs: AsRef<[u8]>> fmt::Display for DigPrinter<'a, Octs> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let msg = self.msg.for_slice_ref();
 
@@ -97,11 +97,12 @@ impl<'a, Octs: AsRef<[u8]>> fmt::Display for MessagePrinter<'a, Octs> {
         if counts.qdcount() > 0 {
             writeln!(f, ";; QUESTION SECTION:")?;
             for item in questions {
-                let Ok(item) = item else {
+                if let Ok(item) = item {
+                    writeln!(f, "; {}", item)?;
+                } else {
                     writeln!(f, "; <invalid message>")?;
                     return Ok(());
                 };
-                writeln!(f, "; {}", item)?;
             }
         }
 
@@ -110,11 +111,12 @@ impl<'a, Octs: AsRef<[u8]>> fmt::Display for MessagePrinter<'a, Octs> {
         if counts.ancount() > 0 {
             writeln!(f, "\n;; ANSWER SECTION:")?;
             for item in section {
-                let Ok(item) = item else {
+                if let Ok(item) = item {
+                    write_record_item(f, &item)?;
+                } else {
                     writeln!(f, "; <invalid message>")?;
                     return Ok(());
                 };
-                write_record_item(f, &item)?;
             }
         }
 
@@ -123,11 +125,12 @@ impl<'a, Octs: AsRef<[u8]>> fmt::Display for MessagePrinter<'a, Octs> {
         if counts.nscount() > 0 {
             writeln!(f, "\n;; AUTHORITY SECTION:")?;
             for item in section {
-                let Ok(item) = item else {
+                if let Ok(item) = item {
+                    write_record_item(f, &item)?;
+                } else {
                     writeln!(f, "; <invalid message>")?;
                     return Ok(());
                 };
-                write_record_item(f, &item)?;
             }
         }
 
@@ -136,13 +139,14 @@ impl<'a, Octs: AsRef<[u8]>> fmt::Display for MessagePrinter<'a, Octs> {
         if counts.arcount() > 1 || (opt.is_none() && counts.arcount() > 0) {
             writeln!(f, "\n;; ADDITIONAL SECTION:")?;
             for item in section {
-                let Ok(item) = item else {
+                if let Ok(item) = item {
+                    if item.rtype() != Rtype::OPT {
+                        write_record_item(f, &item)?;
+                    }
+                } else {
                     writeln!(f, "; <invalid message>")?;
                     return Ok(());
                 };
-                if item.rtype() != Rtype::OPT {
-                    write_record_item(f, &item)?;
-                }
             }
         }
 
