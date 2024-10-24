@@ -288,6 +288,8 @@ impl<Octs: AsRef<[u8]>> Key<Octs> {
         // Parse the entire record.
         let mut scanner = IterScanner::new(line.split_ascii_whitespace());
 
+        eprintln!("DEBUG: line = '{}'", line);
+
         let name = scanner.scan_name().map_err(|_| {
             eprintln!("DEBUG: owner name failed");
             ParseDnskeyTextError::Misformatted
@@ -303,8 +305,8 @@ impl<Octs: AsRef<[u8]>> Key<Octs> {
             return Err(ParseDnskeyTextError::Misformatted);
         }
 
-        let data = Dnskey::scan(&mut scanner).map_err(|_| {
-            eprintln!("DEBUG: record data parsing failed");
+        let data = Dnskey::scan(&mut scanner).map_err(|err| {
+            eprintln!("DEBUG: record data parsing failed {err}");
             ParseDnskeyTextError::Misformatted
         })?;
 
