@@ -12,6 +12,7 @@ use crate::base::rdata::{ComposeRecordData, RecordData};
 use crate::base::record::Record;
 use crate::base::scan::{IterScanner, Scanner};
 use crate::base::wire::{Compose, Composer};
+use crate::base::zonefile_fmt::ZonefileFmt;
 use crate::base::Rtype;
 use crate::rdata::{Dnskey, Ds, Rrsig};
 use bytes::Bytes;
@@ -281,34 +282,25 @@ impl<Octs: AsRef<[u8]>> Key<Octs> {
         let (line, rest) =
             next_line(data).ok_or(ParseDnskeyTextError::Misformatted)?;
         if next_line(rest).is_some() {
-            eprintln!("DEBUG: next line was Some");
             return Err(ParseDnskeyTextError::Misformatted);
         }
 
         // Parse the entire record.
         let mut scanner = IterScanner::new(line.split_ascii_whitespace());
 
-        eprintln!("DEBUG: line = '{}'", line);
+        let name = scanner
+            .scan_name()
+            .map_err(|_| ParseDnskeyTextError::Misformatted)?;
 
-        let name = scanner.scan_name().map_err(|_| {
-            eprintln!("DEBUG: owner name failed");
-            ParseDnskeyTextError::Misformatted
-        })?;
-
-        let _ = Class::scan(&mut scanner).map_err(|_| {
-            eprintln!("DEBUG: class parsing failed");
-            ParseDnskeyTextError::Misformatted
-        })?;
+        let _ = Class::scan(&mut scanner)
+            .map_err(|_| ParseDnskeyTextError::Misformatted)?;
 
         if Rtype::scan(&mut scanner).map_or(true, |t| t != Rtype::DNSKEY) {
-            eprintln!("DEBUG: rtype parsing failed");
             return Err(ParseDnskeyTextError::Misformatted);
         }
 
-        let data = Dnskey::scan(&mut scanner).map_err(|err| {
-            eprintln!("DEBUG: record data parsing failed {err}");
-            ParseDnskeyTextError::Misformatted
-        })?;
+        let data = Dnskey::scan(&mut scanner)
+            .map_err(|_| ParseDnskeyTextError::Misformatted)?;
 
         Self::from_dnskey(name, data)
             .map_err(ParseDnskeyTextError::FromDnskey)
@@ -330,7 +322,7 @@ impl<Octs: AsRef<[u8]>> Key<Octs> {
             "{} {} DNSKEY {}",
             self.owner().fmt_with_dot(),
             class,
-            self.to_dnskey(),
+            self.to_dnskey().display_zonefile(false),
         )
     }
 }
