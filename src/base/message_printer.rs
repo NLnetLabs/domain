@@ -84,7 +84,6 @@ impl<'a, Octs: AsRef<[u8]>> fmt::Display for MessagePrinter<'a, Octs> {
                         Other(other) => {
                             writeln!(f, "; {}", other.code())?;
                         }
-                        _ => writeln!(f, "Unknown OPT")?,
                     },
                     Err(err) => {
                         writeln!(f, "; ERROR: bad option: {}.", err)?;
