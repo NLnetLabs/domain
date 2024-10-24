@@ -1,3 +1,5 @@
+//! A generic representation of secret keys.
+
 use core::{fmt, str};
 
 use std::boxed::Box;
