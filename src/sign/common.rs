@@ -108,9 +108,24 @@ impl SignRaw for SecretKey {
 //----------- generate() -----------------------------------------------------
 
 /// Generate a new secret key for the given algorithm.
-pub fn generate(params: GenerateParams) -> Result<SecretKey, GenerateError> {
-    // TODO: Support key generation in Ring.
-    Ok(SecretKey::OpenSSL(openssl::generate(params)?))
+pub fn generate(
+    params: GenerateParams,
+) -> Result<(generic::SecretKey, RawPublicKey), GenerateError> {
+    // Use Ring if it is available.
+    #[cfg(feature = "ring")]
+    if matches!(
+        &params,
+        GenerateParams::EcdsaP256Sha256
+            | GenerateParams::EcdsaP384Sha384
+            | GenerateParams::Ed25519
+    ) {
+        let rng = ::ring::rand::SystemRandom::new();
+        return Ok(ring::generate(params, &rng)?);
+    }
+
+    // Fall back to OpenSSL.
+    let key = openssl::generate(params)?;
+    Ok((key.to_generic(), key.raw_public_key()))
 }
 
 //============ Error Types ===================================================
@@ -201,6 +216,17 @@ impl From<openssl::GenerateError> for GenerateError {
                 Self::UnsupportedAlgorithm
             }
             openssl::GenerateError::Implementation => Self::Implementation,
+        }
+    }
+}
+
+impl From<ring::GenerateError> for GenerateError {
+    fn from(value: ring::GenerateError) -> Self {
+        match value {
+            ring::GenerateError::UnsupportedAlgorithm => {
+                Self::UnsupportedAlgorithm
+            }
+            ring::GenerateError::Implementation => Self::Implementation,
         }
     }
 }

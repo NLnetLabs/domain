@@ -324,11 +324,12 @@ impl SignRaw for SecretKey {
     }
 }
 
+//----------- generate() -----------------------------------------------------
+
 /// Generate a new secret key for the given algorithm.
 pub fn generate(params: GenerateParams) -> Result<SecretKey, GenerateError> {
     let algorithm = params.algorithm();
     let pkey = match params {
-        // We generate 3072-bit keys for an estimated 128 bits of security.
         GenerateParams::RsaSha256 { bits } => {
             openssl::rsa::Rsa::generate(bits).and_then(PKey::from_rsa)?
         }
