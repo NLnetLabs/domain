@@ -48,13 +48,21 @@ tracing-subscriber = { version = "0.3.18", optional = true, features = ["env-fil
 
 [features]
 default     = ["std", "rand"]
+
+# Support for libraries
 bytes       = ["dep:bytes", "octseq/bytes"]
 heapless    = ["dep:heapless", "octseq/heapless"]
-resolv      = ["net", "smallvec", "unstable-client-transport"]
-resolv-sync = ["resolv", "tokio/rt"]
 serde       = ["dep:serde", "octseq/serde"]
 smallvec    = ["dep:smallvec", "octseq/smallvec"]
 std         = ["dep:hashbrown", "bytes?/std", "octseq/std", "time/std"]
+
+# Cryptographic backends
+ring    = ["dep:ring"]
+openssl = ["dep:openssl"]
+
+# Crate features
+resolv      = ["net", "smallvec", "unstable-client-transport"]
+resolv-sync = ["resolv", "tokio/rt"]
 net         = ["bytes", "futures-util", "rand", "std", "tokio"]
 tsig        = ["bytes", "ring", "smallvec"]
 zonefile    = ["bytes", "serde", "std"]
