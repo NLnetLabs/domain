@@ -12,8 +12,14 @@ use crate::{
 
 use super::{
     generic::{self, GenerateParams},
-    openssl, ring, SignError, SignRaw,
+    SignError, SignRaw,
 };
+
+#[cfg(feature = "openssl")]
+use super::openssl;
+
+#[cfg(feature = "ring")]
+use super::ring;
 
 //----------- SecretKey ------------------------------------------------------
 
@@ -29,6 +35,7 @@ pub enum SecretKey {
     Ring(ring::SecretKey),
 
     /// A key backed by OpenSSL.
+    #[cfg(feature = "openssl")]
     OpenSSL(openssl::SecretKey),
 }
 
@@ -71,9 +78,14 @@ impl SecretKey {
         }
 
         // Fall back to OpenSSL.
-        Ok(Self::OpenSSL(openssl::SecretKey::from_generic(
+        #[cfg(feature = "openssl")]
+        return Ok(Self::OpenSSL(openssl::SecretKey::from_generic(
             secret, public,
-        )?))
+        )?));
+
+        // Otherwise fail.
+        #[allow(unreachable_code)]
+        Err(FromGenericError::UnsupportedAlgorithm)
     }
 }
 
@@ -84,6 +96,7 @@ impl SignRaw for SecretKey {
         match self {
             #[cfg(feature = "ring")]
             Self::Ring(key) => key.algorithm(),
+            #[cfg(feature = "openssl")]
             Self::OpenSSL(key) => key.algorithm(),
         }
     }
@@ -92,6 +105,7 @@ impl SignRaw for SecretKey {
         match self {
             #[cfg(feature = "ring")]
             Self::Ring(key) => key.raw_public_key(),
+            #[cfg(feature = "openssl")]
             Self::OpenSSL(key) => key.raw_public_key(),
         }
     }
@@ -100,6 +114,7 @@ impl SignRaw for SecretKey {
         match self {
             #[cfg(feature = "ring")]
             Self::Ring(key) => key.sign_raw(data),
+            #[cfg(feature = "openssl")]
             Self::OpenSSL(key) => key.sign_raw(data),
         }
     }
@@ -124,8 +139,15 @@ pub fn generate(
     }
 
     // Fall back to OpenSSL.
-    let key = openssl::generate(params)?;
-    Ok((key.to_generic(), key.raw_public_key()))
+    #[cfg(feature = "openssl")]
+    {
+        let key = openssl::generate(params)?;
+        return Ok((key.to_generic(), key.raw_public_key()));
+    }
+
+    // Otherwise fail.
+    #[allow(unreachable_code)]
+    Err(GenerateError::UnsupportedAlgorithm)
 }
 
 //============ Error Types ===================================================
@@ -152,6 +174,7 @@ pub enum FromGenericError {
 
 //--- Conversions
 
+#[cfg(feature = "ring")]
 impl From<ring::FromGenericError> for FromGenericError {
     fn from(value: ring::FromGenericError) -> Self {
         match value {
@@ -164,6 +187,7 @@ impl From<ring::FromGenericError> for FromGenericError {
     }
 }
 
+#[cfg(feature = "openssl")]
 impl From<openssl::FromGenericError> for FromGenericError {
     fn from(value: openssl::FromGenericError) -> Self {
         match value {
@@ -209,17 +233,7 @@ pub enum GenerateError {
 
 //--- Conversion
 
-impl From<openssl::GenerateError> for GenerateError {
-    fn from(value: openssl::GenerateError) -> Self {
-        match value {
-            openssl::GenerateError::UnsupportedAlgorithm => {
-                Self::UnsupportedAlgorithm
-            }
-            openssl::GenerateError::Implementation => Self::Implementation,
-        }
-    }
-}
-
+#[cfg(feature = "ring")]
 impl From<ring::GenerateError> for GenerateError {
     fn from(value: ring::GenerateError) -> Self {
         match value {
@@ -227,6 +241,18 @@ impl From<ring::GenerateError> for GenerateError {
                 Self::UnsupportedAlgorithm
             }
             ring::GenerateError::Implementation => Self::Implementation,
+        }
+    }
+}
+
+#[cfg(feature = "openssl")]
+impl From<openssl::GenerateError> for GenerateError {
+    fn from(value: openssl::GenerateError) -> Self {
+        match value {
+            openssl::GenerateError::UnsupportedAlgorithm => {
+                Self::UnsupportedAlgorithm
+            }
+            openssl::GenerateError::Implementation => Self::Implementation,
         }
     }
 }

@@ -1,5 +1,8 @@
 //! DNSSEC signing using OpenSSL.
 
+#![cfg(feature = "openssl")]
+#![cfg_attr(docsrs, doc(cfg(feature = "openssl")))]
+
 use core::fmt;
 use std::vec::Vec;
 
