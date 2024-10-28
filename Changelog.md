@@ -2,7 +2,38 @@
 
 ## Unreleased next version
 
-Breaking Changes
+Breaking changes
+
+New
+
+* Added `HashCompressor`, an unlimited name compressor that uses a hash map
+  rather than a tree.
+
+Bug fixes
+
+Unstable features
+
+* `unstable-server-transport`
+  * The trait `SingleService` which is a simplified service trait for
+    requests that should generate a single response ([#353]).
+  * The trait `ComposeReply` and an implementation of the trait
+    (`ReplyMessage`) to assist in capturing EDNS(0) options that should be
+    included in a response message ([#353]).
+  * Adapters to implement `Service` for `SingleService` and to implement
+    `SingleService` for `SendRequest` ([#353]).
+  * Conversion of a `Request` to a `RequestMessage` ([#353]).
+  * A sample query router, called `QnameRouter`, that routes requests based
+    on the QNAME field in the request ([#353]).
+
+Other changes
+
+[#353]: https://github.com/NLnetLabs/domain/pull/353
+[#396]: https://github.com/NLnetLabs/domain/pull/396
+
+
+## 0.10.3
+
+Released 2024-10-14.
 
 New
 
@@ -16,10 +47,6 @@ Bug fixes
 * Added (all? most?) missing feature dependencies for all features.
 * Fixed `Deserialize` impls for `ParsedName` and `ExtendedError` to compile
   and work without `std`. ([#413])
-
-Unstable features
-
-Other changes
 
 [#412]: https://github.com/NLnetLabs/domain/pull/412
 [#413]: https://github.com/NLnetLabs/domain/pull/413
