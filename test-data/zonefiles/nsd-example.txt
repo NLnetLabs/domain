@@ -21,3 +21,13 @@ example.com.    A       192.0.2.1
 www                             CNAME   example.com.
 
 mail                    MX      10      example.com.
+
+; An ENT for NSEC3 testing purposes.
+a.b.c.mail   A       127.0.0.1
+
+; An unsigned delegation for NSEC3 testing purposes.
+unsigned     NS      some.other.ns.net
+
+; A signed delegation for NSEC3 testing purposes.
+signed       NS      some.other.ns.net
+             DS      60485 5 1 ( 2BB183AF5F22588179A53B0A 98631FAD1A292118 )
