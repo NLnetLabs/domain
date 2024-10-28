@@ -25,7 +25,7 @@ async fn main() {
     eprintln!("  dnsi query --server ::1 -p 8053 ietf.org");
     eprintln!("  dnsi query --server ::1 -p 8053 nlnetlabs.nl");
     eprintln!("  dnsi query --server ::1 -p 8053 google.com");
-    eprintln!("Enabled tracing with 'RUST_LOG=trace' before the command");
+    eprintln!("Enable tracing with 'RUST_LOG=trace' before the command");
 
     // -----------------------------------------------------------------------
     // Setup logging. You can override the log level by setting environment
@@ -63,7 +63,7 @@ async fn main() {
     tokio::spawn(transport.run());
     redun.add(Box::new(conn)).await.unwrap();
     let conn_service = ClientTransportToSingleService::new(redun);
-    qr.add(Name::<Vec<u8>>::from_str(".").unwrap(), conn_service);
+    qr.add(Name::root_slice(), conn_service);
 
     // Queries to .com go to 2001:4860:4860::8888 and 8.8.8.8.
     let (redun, transport) = redundant::Connection::new();
