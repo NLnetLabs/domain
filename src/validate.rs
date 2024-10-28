@@ -12,6 +12,7 @@ use crate::base::rdata::{ComposeRecordData, RecordData};
 use crate::base::record::Record;
 use crate::base::scan::{IterScanner, Scanner};
 use crate::base::wire::{Compose, Composer};
+use crate::base::zonefile_fmt::ZonefileFmt;
 use crate::base::Rtype;
 use crate::rdata::{Dnskey, Ds, Rrsig};
 use bytes::Bytes;
@@ -25,6 +26,29 @@ use std::{error, fmt};
 //----------- Key ------------------------------------------------------------
 
 /// A DNSSEC key for a particular zone.
+///
+/// # Serialization
+///
+/// Keys can be parsed from or written in the conventional format used by the
+/// BIND name server.  This is a simplified version of the zonefile format.
+///
+/// In this format, a public key is a line-oriented text file.  Each line is
+/// either blank (having only whitespace) or a single DNSKEY record in the
+/// presentation format.  In either case, the line may end with a comment (an
+/// ASCII semicolon followed by arbitrary content until the end of the line).
+/// The file must contain a single DNSKEY record line.
+///
+/// The DNSKEY record line contains the following fields, separated by ASCII
+/// whitespace:
+///
+/// - The owner name.  This is an absolute name ending with a dot.
+/// - Optionally, the class of the record (usually `IN`).
+/// - The record type (which must be `DNSKEY`).
+/// - The DNSKEY record data, which has the following sub-fields:
+///   - The key flags, which describe the key's uses.
+///   - The protocol used (expected to be `3`).
+///   - The key algorithm (see [`SecAlg`]).
+///   - The public key encoded as a Base64 string.
 #[derive(Clone)]
 pub struct Key<Octs> {
     /// The owner of the key.
@@ -75,33 +99,37 @@ impl<Octs> Key<Octs> {
 
     /// Whether this is a zone signing key.
     ///
-    /// From RFC 4034, section 2.1.1:
+    /// From [RFC 4034, section 2.1.1]:
     ///
     /// > Bit 7 of the Flags field is the Zone Key flag.  If bit 7 has value
     /// > 1, then the DNSKEY record holds a DNS zone key, and the DNSKEY RR's
     /// > owner name MUST be the name of a zone.  If bit 7 has value 0, then
     /// > the DNSKEY record holds some other type of DNS public key and MUST
     /// > NOT be used to verify RRSIGs that cover RRsets.
+    ///
+    /// [RFC 4034, section 2.1.1]: https://datatracker.ietf.org/doc/html/rfc4034#section-2.1.1
     pub fn is_zone_signing_key(&self) -> bool {
         self.flags & (1 << 8) != 0
     }
 
     /// Whether this key has been revoked.
     ///
-    /// From RFC 5011, section 3:
+    /// From [RFC 5011, section 3]:
     ///
     /// > Bit 8 of the DNSKEY Flags field is designated as the 'REVOKE' flag.
     /// > If this bit is set to '1', AND the resolver sees an RRSIG(DNSKEY)
     /// > signed by the associated key, then the resolver MUST consider this
     /// > key permanently invalid for all purposes except for validating the
     /// > revocation.
+    ///
+    /// [RFC 5011, section 3]: https://datatracker.ietf.org/doc/html/rfc5011#section-3
     pub fn is_revoked(&self) -> bool {
         self.flags & (1 << 7) != 0
     }
 
     /// Whether this is a secure entry point.
     ///
-    /// From RFC 4034, section 2.1.1:
+    /// From [RFC 4034, section 2.1.1]:
     ///
     /// > Bit 15 of the Flags field is the Secure Entry Point flag, described
     /// > in [RFC3757].  If bit 15 has value 1, then the DNSKEY record holds a
@@ -114,6 +142,9 @@ impl<Octs> Key<Octs> {
     /// > to be able to generate signatures legally.  A DNSKEY RR with the SEP
     /// > set and the Zone Key flag not set MUST NOT be used to verify RRSIGs
     /// > that cover RRsets.
+    ///
+    /// [RFC 4034, section 2.1.1]: https://datatracker.ietf.org/doc/html/rfc4034#section-2.1.1
+    /// [RFC3757]: https://datatracker.ietf.org/doc/html/rfc3757
     pub fn is_secure_entry_point(&self) -> bool {
         self.flags & 1 != 0
     }
@@ -206,48 +237,53 @@ impl<Octs: AsRef<[u8]>> Key<Octs> {
         Ok(Self { owner, flags, key })
     }
 
-    /// Parse a DNSSEC key from a DNSKEY record in presentation format.
+    /// Serialize the key into DNSKEY record data.
     ///
-    /// This format is popularized for storing alongside private keys by the
-    /// BIND name server.  This function is convenient for loading such keys.
+    /// The owner name can be combined with the returned record to serialize a
+    /// complete DNS record if necessary.
+    pub fn to_dnskey(&self) -> Dnskey<Box<[u8]>> {
+        Dnskey::new(
+            self.flags,
+            3,
+            self.key.algorithm(),
+            self.key.to_dnskey_format(),
+        )
+        .expect("long public key")
+    }
+
+    /// Parse a DNSSEC key from the conventional format used by BIND.
     ///
-    /// The text should consist of a single line of the following format (each
-    /// field is separated by a non-zero number of ASCII spaces):
-    ///
-    /// ```text
-    /// <domain-name> <record-class> DNSKEY <record-data> [<comment>]
-    /// ```
-    ///
-    /// Where `<record-data>` consists of the following fields:
-    ///
-    /// ```text
-    /// <flags> <protocol> <algorithm> <encoded-public-key>
-    /// ```
-    ///
-    /// The first three fields are simple integers, while the last field is
-    /// Base64 encoded data (with or without padding).  The [`from_dnskey()`]
-    /// and [`to_dnskey()`] read from and serialize to the Base64-decoded data
-    /// format.
-    ///
-    /// [`from_dnskey()`]: Self::from_dnskey()
-    /// [`to_dnskey()`]: Self::to_dnskey()
-    ///
-    /// The `<comment>` is any text starting with an ASCII semicolon.
-    pub fn parse_dnskey_text(
-        dnskey: &str,
-    ) -> Result<Self, ParseDnskeyTextError>
+    /// See the type-level documentation for a description of this format.
+    pub fn parse_from_bind(data: &str) -> Result<Self, ParseDnskeyTextError>
     where
         Octs: FromBuilder,
         Octs::Builder: EmptyBuilder + Composer,
     {
-        // Ensure there is a single line in the input.
-        let (line, rest) = dnskey.split_once('\n').unwrap_or((dnskey, ""));
-        if !rest.trim().is_empty() {
-            return Err(ParseDnskeyTextError::Misformatted);
+        /// Find the next non-blank line in the file.
+        fn next_line(mut data: &str) -> Option<(&str, &str)> {
+            let mut line;
+            while !data.is_empty() {
+                (line, data) =
+                    data.trim_start().split_once('\n').unwrap_or((data, ""));
+                if !line.is_empty() && !line.starts_with(';') {
+                    // We found a line that does not start with a comment.
+                    line = line
+                        .split_once(';')
+                        .map_or(line, |(line, _)| line)
+                        .trim_end();
+                    return Some((line, data));
+                }
+            }
+
+            None
         }
 
-        // Strip away any semicolon from the line.
-        let (line, _) = line.split_once(';').unwrap_or((line, ""));
+        // Ensure there is a single DNSKEY record line in the input.
+        let (line, rest) =
+            next_line(data).ok_or(ParseDnskeyTextError::Misformatted)?;
+        if next_line(rest).is_some() {
+            return Err(ParseDnskeyTextError::Misformatted);
+        }
 
         // Parse the entire record.
         let mut scanner = IterScanner::new(line.split_ascii_whitespace());
@@ -270,18 +306,46 @@ impl<Octs: AsRef<[u8]>> Key<Octs> {
             .map_err(ParseDnskeyTextError::FromDnskey)
     }
 
-    /// Serialize the key into DNSKEY record data.
+    /// Serialize this key in the conventional format used by BIND.
     ///
-    /// The owner name can be combined with the returned record to serialize a
-    /// complete DNS record if necessary.
-    pub fn to_dnskey(&self) -> Dnskey<Box<[u8]>> {
-        Dnskey::new(
-            self.flags,
-            3,
-            self.key.algorithm(),
-            self.key.to_dnskey_format(),
+    /// A user-specified DNS class can be used in the record; however, this
+    /// will almost always just be `IN`.
+    ///
+    /// See the type-level documentation for a description of this format.
+    pub fn format_as_bind(
+        &self,
+        class: Class,
+        w: &mut impl fmt::Write,
+    ) -> fmt::Result {
+        writeln!(
+            w,
+            "{} {} DNSKEY {}",
+            self.owner().fmt_with_dot(),
+            class,
+            self.to_dnskey().display_zonefile(false),
         )
-        .expect("long public key")
+    }
+}
+
+//--- Comparison
+
+impl<Octs: AsRef<[u8]>> PartialEq for Key<Octs> {
+    fn eq(&self, other: &Self) -> bool {
+        self.owner() == other.owner()
+            && self.flags() == other.flags()
+            && self.raw_public_key() == other.raw_public_key()
+    }
+}
+
+//--- Debug
+
+impl<Octs: AsRef<[u8]>> fmt::Debug for Key<Octs> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Key")
+            .field("owner", self.owner())
+            .field("flags", &self.flags())
+            .field("raw_public_key", self.raw_public_key())
+            .finish()
     }
 }
 
@@ -1179,6 +1243,7 @@ mod test {
     use crate::utils::base64;
     use bytes::Bytes;
     use std::str::FromStr;
+    use std::string::String;
 
     type Name = crate::base::name::Name<Vec<u8>>;
     type Ds = crate::rdata::Ds<Vec<u8>>;
@@ -1240,14 +1305,14 @@ mod test {
     }
 
     #[test]
-    fn parse_dnskey_text() {
+    fn parse_from_bind() {
         for &(algorithm, key_tag) in KEYS {
             let name =
                 format!("test.+{:03}+{:05}", algorithm.to_int(), key_tag);
 
             let path = format!("test-data/dnssec-keys/K{}.key", name);
             let data = std::fs::read_to_string(path).unwrap();
-            let _ = Key::<Vec<u8>>::parse_dnskey_text(&data).unwrap();
+            let _ = Key::<Vec<u8>>::parse_from_bind(&data).unwrap();
         }
     }
 
@@ -1259,7 +1324,7 @@ mod test {
 
             let path = format!("test-data/dnssec-keys/K{}.key", name);
             let data = std::fs::read_to_string(path).unwrap();
-            let key = Key::<Vec<u8>>::parse_dnskey_text(&data).unwrap();
+            let key = Key::<Vec<u8>>::parse_from_bind(&data).unwrap();
             assert_eq!(key.to_dnskey().key_tag(), key_tag);
             assert_eq!(key.key_tag(), key_tag);
         }
@@ -1273,7 +1338,7 @@ mod test {
 
             let path = format!("test-data/dnssec-keys/K{}.key", name);
             let data = std::fs::read_to_string(path).unwrap();
-            let key = Key::<Vec<u8>>::parse_dnskey_text(&data).unwrap();
+            let key = Key::<Vec<u8>>::parse_from_bind(&data).unwrap();
 
             // Scan the DS record from the file.
             let path = format!("test-data/dnssec-keys/K{}.ds", name);
@@ -1296,10 +1361,26 @@ mod test {
 
             let path = format!("test-data/dnssec-keys/K{}.key", name);
             let data = std::fs::read_to_string(path).unwrap();
-            let key = Key::<Vec<u8>>::parse_dnskey_text(&data).unwrap();
+            let key = Key::<Vec<u8>>::parse_from_bind(&data).unwrap();
             let dnskey = key.to_dnskey().convert();
             let same = Key::from_dnskey(key.owner().clone(), dnskey).unwrap();
-            assert_eq!(key.to_dnskey(), same.to_dnskey());
+            assert_eq!(key, same);
+        }
+    }
+
+    #[test]
+    fn bind_format_roundtrip() {
+        for &(algorithm, key_tag) in KEYS {
+            let name =
+                format!("test.+{:03}+{:05}", algorithm.to_int(), key_tag);
+
+            let path = format!("test-data/dnssec-keys/K{}.key", name);
+            let data = std::fs::read_to_string(path).unwrap();
+            let key = Key::<Vec<u8>>::parse_from_bind(&data).unwrap();
+            let mut bind_fmt_key = String::new();
+            key.format_as_bind(Class::IN, &mut bind_fmt_key).unwrap();
+            let same = Key::parse_from_bind(&bind_fmt_key).unwrap();
+            assert_eq!(key, same);
         }
     }
 
