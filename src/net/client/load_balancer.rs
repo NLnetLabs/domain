@@ -129,6 +129,8 @@ const PROBE_P: f64 = 0.05;
 
 /// Cut off for slow upstreams.
 const DEF_SLOW_RT_FACTOR: f64 = 5.0;
+
+/// Minimum value for the cut off factor.
 const MIN_SLOW_RT_FACTOR: f64 = 1.0;
 
 /// Interval for limiting upstream query bursts.
