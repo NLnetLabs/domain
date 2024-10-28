@@ -15,10 +15,12 @@ impl Label {
     pub const MAX_SIZE: usize = 63;
 
     /// The root label.
-    pub const ROOT: &Self = unsafe { Self::from_bytes_unchecked(b"") };
+    pub const ROOT: &'static Self =
+        unsafe { Self::from_bytes_unchecked(b"") };
 
     /// The wildcard label.
-    pub const WILDCARD: &Self = unsafe { Self::from_bytes_unchecked(b"*") };
+    pub const WILDCARD: &'static Self =
+        unsafe { Self::from_bytes_unchecked(b"*") };
 }
 
 impl Label {

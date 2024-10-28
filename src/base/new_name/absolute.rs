@@ -15,7 +15,8 @@ impl Name {
     pub const MAX_SIZE: usize = 255;
 
     /// The root name.
-    pub const ROOT: &Self = unsafe { Self::from_bytes_unchecked(&[0u8]) };
+    pub const ROOT: &'static Self =
+        unsafe { Self::from_bytes_unchecked(&[0u8]) };
 }
 
 impl Name {
