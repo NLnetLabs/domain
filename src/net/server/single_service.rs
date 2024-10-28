@@ -12,10 +12,10 @@
 use super::message::Request;
 use super::service::ServiceError;
 use crate::base::message_builder::AdditionalBuilder;
-use crate::base::opt::{
-    AllOptData, ComposeOptData, LongOptData, OptRecord, UnknownRecordData,
+use crate::base::opt::{AllOptData, ComposeOptData, LongOptData, OptRecord};
+use crate::base::{
+    Message, MessageBuilder, Rtype, StreamTarget, UnknownRecordData,
 };
-use crate::base::{Message, MessageBuilder, Rtype, StreamTarget};
 use crate::dep::octseq::Octets;
 use std::boxed::Box;
 use std::future::Future;
