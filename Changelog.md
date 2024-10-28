@@ -7,7 +7,9 @@ Breaking changes
 New
 
 * Added `HashCompressor`, an unlimited name compressor that uses a hash map
-  rather than a tree.
+  rather than a tree. ([#396])
+* Changed `fmt::Display` for `HINFO` records to a show a quoted string.
+  ([#421])
 
 Bug fixes
 
@@ -29,6 +31,7 @@ Other changes
 
 [#353]: https://github.com/NLnetLabs/domain/pull/353
 [#396]: https://github.com/NLnetLabs/domain/pull/396
+[#421]: https://github.com/NLnetLabs/domain/pull/412
 
 
 ## 0.10.3
