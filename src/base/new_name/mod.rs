@@ -17,6 +17,8 @@ pub use uncertain::{OwnedUncertainName, UncertainName, UncertainNameError};
 mod label;
 pub use label::{Label, LabelError, OwnedLabel};
 
+mod idna;
+
 mod labels;
 pub use labels::Labels;
 

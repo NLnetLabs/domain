@@ -92,14 +92,40 @@ impl Label {
     pub const fn as_bytes(&self) -> &[u8] {
         &self.0
     }
+}
 
-    /// Whether this is an internationalized label.
+impl Label {
+    /// Whether this is an LDH label.
     ///
-    /// If the label begins with the ACE (ASCII Compatible Encoding) prefix
-    /// `xn--`, it is assumed to be a Unicode string encoded into ASCII using
-    /// the Nameprep and Punycode algorithms.
-    pub fn is_internationalized(&self) -> bool {
-        self.as_bytes().starts_with(b"xn--")
+    /// LDH ("letter-digit-hyphen") labels consist exclusively of ASCII letter
+    /// (A-Z, a-z), digit (0-9), and hyphen (-) characters, where labels begin
+    /// and end with non-hyphen characters.
+    ///
+    /// See [RFC 5890, section 2.3.1].  This is also known as the "preferred
+    /// name syntax" of [RFC 1034, section 3.5].
+    ///
+    /// [RFC 5890, section 2.3.1]: https://datatracker.ietf.org/doc/html/rfc5890#section-2.3.1
+    /// [RFC 1034, section 3.5]: https://datatracker.ietf.org/doc/html/rfc1034#section-3.5
+    pub fn is_ldh(&self) -> bool {
+        self.as_bytes()
+            .iter()
+            .all(|&b| b.is_ascii_alphanumeric() || b == b'-')
+            && !self.as_bytes().starts_with(b"-")
+            && !self.as_bytes().ends_with(b"-")
+    }
+
+    /// Whether this is an NR-LDH label.
+    ///
+    /// A "non-reserved" LDH label is slightly stricter than an LDH label (see
+    /// [`is_ldh()`]); it further does not allow the third and fourth
+    /// characters to both be hyphens.  A-labels (Unicode labels encoded into
+    /// ASCII) are not NR-LDH labels as they begin with `xn--`.
+    ///
+    /// See [RFC 5890, section 2.3.1].
+    ///
+    /// [RFC 5890, section 2.3.1]: https://datatracker.ietf.org/doc/html/rfc5890#section-2.3.1
+    pub fn is_nr_ldh(&self) -> bool {
+        self.is_ldh() && self.as_bytes().get(2..4) != Some(b"--")
     }
 }
 
