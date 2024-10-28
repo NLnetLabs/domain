@@ -143,8 +143,8 @@ where
 
         let mut gr = self.conn.send_request(req);
         let fut = async move {
-            let msg = match gr.get_response().await {
-                Ok(msg) => msg,
+            match gr.get_response().await {
+                Ok(msg) => CR::from_message(&msg),
                 Err(e) => {
                     // The request failed. Create a ServFail response and
                     // add an EDE that describes the error.
@@ -159,10 +159,9 @@ where
                         cr.add_opt(&ede)
                             .expect("Adding an ede should not fail");
                     }
-                    return Ok(cr);
+                    Ok(cr)
                 }
-            };
-            CR::from_message(&msg)
+            }
         };
         Box::pin(fut)
     }
@@ -212,13 +211,10 @@ where
         let builder: AdditionalBuilder<StreamTarget<Vec<u8>>> =
             mk_error_response(request.message(), OptRcode::SERVFAIL);
 
-        let req = match request.try_into() {
-            Ok(req) => req,
-            Err(_) => {
-                // Can this fail? Should the request be checked earlier.
-                // Just return ServFail.
-                return Box::pin(ready(Err(ServiceError::InternalError)));
-            }
+        let Ok(req) = request.try_into() else {
+            // Can this fail? Should the request be checked earlier.
+            // Just return ServFail.
+            return Box::pin(ready(Err(ServiceError::InternalError)));
         };
 
         let mut gr = self.conn.send_request(req);

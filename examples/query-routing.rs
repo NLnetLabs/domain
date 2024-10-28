@@ -1,5 +1,6 @@
 use domain::base::Name;
 use domain::net::client::protocol::{TcpConnect, UdpConnect};
+use domain::net::client::request::RequestMessage;
 use domain::net::client::{dgram_stream, redundant};
 use domain::net::server::adapter::{
     ClientTransportToSingleService, SingleServiceToService,
@@ -22,7 +23,10 @@ use tracing_subscriber::EnvFilter;
 #[tokio::main(flavor = "multi_thread")]
 async fn main() {
     eprintln!("Test with commands such as:");
+    eprintln!("  dnsi query --server ::1 -p 8053 ietf.org");
+    eprintln!("  dnsi query --server ::1 -p 8053 nlnetlabs.nl");
     eprintln!("  dnsi query --server ::1 -p 8053 google.com");
+    eprintln!("Enable tracing with 'RUST_LOG=trace' before the command");
 
     // -----------------------------------------------------------------------
     // Setup logging. You can override the log level by setting environment
@@ -39,72 +43,17 @@ async fn main() {
         QnameRouter::new();
 
     // Queries to the root go to 2606:4700:4700::1111 and 1.1.1.1.
-    let (redun, transport) = redundant::Connection::new();
-    tokio::spawn(transport.run());
-    let server_addr = SocketAddr::new(
-        IpAddr::from_str("2606:4700:4700::1111").unwrap(),
-        53,
-    );
-    let udp_connect = UdpConnect::new(server_addr);
-    let tcp_connect = TcpConnect::new(server_addr);
-    let (conn, transport) =
-        dgram_stream::Connection::new(udp_connect, tcp_connect);
-    tokio::spawn(transport.run());
-    redun.add(Box::new(conn)).await.unwrap();
-    let server_addr =
-        SocketAddr::new(IpAddr::from_str("1.1.1.1").unwrap(), 53);
-    let udp_connect = UdpConnect::new(server_addr);
-    let tcp_connect = TcpConnect::new(server_addr);
-    let (conn, transport) =
-        dgram_stream::Connection::new(udp_connect, tcp_connect);
-    tokio::spawn(transport.run());
-    redun.add(Box::new(conn)).await.unwrap();
+    let redun = example_redundant("2606:4700:4700::1111 ", "1.1.1.1").await;
     let conn_service = ClientTransportToSingleService::new(redun);
-    qr.add(Name::<Vec<u8>>::from_str(".").unwrap(), conn_service);
+    qr.add(Name::root_slice(), conn_service);
 
     // Queries to .com go to 2001:4860:4860::8888 and 8.8.8.8.
-    let (redun, transport) = redundant::Connection::new();
-    tokio::spawn(transport.run());
-    let server_addr = SocketAddr::new(
-        IpAddr::from_str("2001:4860:4860::8888").unwrap(),
-        53,
-    );
-    let udp_connect = UdpConnect::new(server_addr);
-    let tcp_connect = TcpConnect::new(server_addr);
-    let (conn, transport) =
-        dgram_stream::Connection::new(udp_connect, tcp_connect);
-    tokio::spawn(transport.run());
-    redun.add(Box::new(conn)).await.unwrap();
-    let server_addr =
-        SocketAddr::new(IpAddr::from_str("8.8.8.8").unwrap(), 53);
-    let udp_connect = UdpConnect::new(server_addr);
-    let tcp_connect = TcpConnect::new(server_addr);
-    let (conn, transport) =
-        dgram_stream::Connection::new(udp_connect, tcp_connect);
-    tokio::spawn(transport.run());
-    redun.add(Box::new(conn)).await.unwrap();
+    let redun = example_redundant("2001:4860:4860::8888", "8.8.8.8").await;
     let conn_service = ClientTransportToSingleService::new(redun);
     qr.add(Name::<Vec<u8>>::from_str("com").unwrap(), conn_service);
 
     // Queries to .nl go to 2620:fe::9 and 9.9.9.9.
-    let (redun, transport) = redundant::Connection::new();
-    tokio::spawn(transport.run());
-    let server_addr =
-        SocketAddr::new(IpAddr::from_str("2620:fe::9").unwrap(), 53);
-    let udp_connect = UdpConnect::new(server_addr);
-    let tcp_connect = TcpConnect::new(server_addr);
-    let (conn, transport) =
-        dgram_stream::Connection::new(udp_connect, tcp_connect);
-    tokio::spawn(transport.run());
-    redun.add(Box::new(conn)).await.unwrap();
-    let server_addr =
-        SocketAddr::new(IpAddr::from_str("9.9.9.9").unwrap(), 53);
-    let udp_connect = UdpConnect::new(server_addr);
-    let tcp_connect = TcpConnect::new(server_addr);
-    let (conn, transport) =
-        dgram_stream::Connection::new(udp_connect, tcp_connect);
-    tokio::spawn(transport.run());
-    redun.add(Box::new(conn)).await.unwrap();
+    let redun = example_redundant("2620:fe::9", "9.9.9.9").await;
     let conn_service = ClientTransportToSingleService::new(redun);
     qr.add(Name::<Vec<u8>>::from_str("nl").unwrap(), conn_service);
 
@@ -133,4 +82,28 @@ async fn main() {
 
     udp_join_handle.await.unwrap();
     tcp_join_handle.await.unwrap();
+}
+
+async fn example_redundant(
+    dst1: &str,
+    dst2: &str,
+) -> redundant::Connection<RequestMessage<Vec<u8>>> {
+    let (redun, transport) = redundant::Connection::new();
+    tokio::spawn(transport.run());
+    let server_addr = SocketAddr::new(IpAddr::from_str(dst1).unwrap(), 53);
+    let udp_connect = UdpConnect::new(server_addr);
+    let tcp_connect = TcpConnect::new(server_addr);
+    let (conn, transport) =
+        dgram_stream::Connection::new(udp_connect, tcp_connect);
+    tokio::spawn(transport.run());
+    redun.add(Box::new(conn)).await.unwrap();
+    let server_addr = SocketAddr::new(IpAddr::from_str(dst2).unwrap(), 53);
+    let udp_connect = UdpConnect::new(server_addr);
+    let tcp_connect = TcpConnect::new(server_addr);
+    let (conn, transport) =
+        dgram_stream::Connection::new(udp_connect, tcp_connect);
+    tokio::spawn(transport.run());
+    redun.add(Box::new(conn)).await.unwrap();
+
+    redun
 }

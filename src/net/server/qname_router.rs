@@ -18,6 +18,7 @@ use std::convert::Infallible;
 use std::future::{ready, Future};
 use std::pin::Pin;
 use std::vec::Vec;
+use tracing::trace;
 
 /// A service that routes requests to other services based on the Qname in the
 /// request.
@@ -112,7 +113,7 @@ where
                 return Box::pin(ready(Ok(cr)));
             }
         };
-
+        trace!("Routing request to '{}'", el.name);
         el.service.call(request.clone())
     }
 }

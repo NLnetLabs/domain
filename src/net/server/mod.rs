@@ -17,7 +17,7 @@
 //! [SingleService][`single_service::SingleService`]. This interface supports
 //! only a single response per request.
 //! In other words, it does not support the AXFR and IXFR requests.
-//! Adaptors are avaiable to connect SingleServer to [`Service`] and to the
+//! Adaptors are available to connect SingleServer to [`Service`] and to the
 //! [Client][`crate::net::client`] transports. See the
 //! Section [Single Service][crate::net::server#single-service] for
 //! more details.
