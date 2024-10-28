@@ -1004,7 +1004,6 @@ impl<'a, Req: Clone + Send + Sync + 'static> Transport<Req> {
             }
         }
     }
-
 }
 
 //------------ Utility --------------------------------------------------------
