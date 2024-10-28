@@ -417,16 +417,10 @@ impl<Req: Clone + Send + Sync + 'static> Query<Req> {
             // configuration parameter. A multiple of min_rt. Just use
             // min_rt for now.
             let min_rt = conn_rt.iter().map(|e| e.est_rt).min().unwrap();
-            println!("min_rt = {min_rt:?}");
 
             let mut e = conn_rt.remove(index);
             e.est_rt = min_rt;
             conn_rt.insert(0, e);
-        }
-
-        println!("Query::new after sort:");
-        for e in &conn_rt {
-            println!("{:?}", e);
         }
 
         Self {

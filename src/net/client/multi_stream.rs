@@ -302,10 +302,6 @@ impl<Req: ComposeRequest + Clone + 'static> Request<Req> {
     pub async fn get_response(&mut self) -> Result<Message<Bytes>, Error> {
         loop {
             let elapsed = self.start.elapsed();
-            println!(
-                "get_response: eleapsed {elapsed:?} timeout {:?}",
-                self.conn.response_timeout
-            );
             if elapsed >= self.conn.response_timeout {
                 return Err(Error::StreamReadTimeout);
             }
