@@ -334,4 +334,17 @@ mod test {
             record.display_zonefile(false).to_string()
         );
     }
+
+    #[test]
+    fn hinfo_record() {
+        use crate::rdata::Hinfo;
+        let record = create_record(Hinfo::<Vec<u8>>::new(
+            "Windows".parse().unwrap(),
+            "Windows Server".parse().unwrap(),
+        ));
+        assert_eq!(
+            "example.com. 3600 IN HINFO \"Windows\" \"Windows Server\"",
+            record.display_zonefile(false).to_string()
+        );
+    }
 }
