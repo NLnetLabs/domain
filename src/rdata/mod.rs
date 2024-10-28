@@ -132,4 +132,9 @@ rdata_types! {
             Zonemd<O>,
         }
     }
+    naptr::{
+        zone {
+            Naptr<O, N>,
+        }
+    }
 }
