@@ -311,11 +311,6 @@ impl<Req: Clone + Debug + Send + Sync + 'static> Connection<Req> {
         rx.await.expect("receive should not fail")
     }
 
-    /// Print statistics.
-    pub async fn print_stats(&self) {
-        self.sender.send(ChanReq::PrintStats).await.unwrap();
-    }
-
     /// Implementation of the query method.
     async fn request_impl(
         self,
@@ -482,9 +477,6 @@ where
 
     /// Report that a connection failed to provide a timely response
     Failure(TimeReport),
-
-    /// Print statistics.
-    PrintStats,
 }
 
 impl<Req> Debug for ChanReq<Req>
@@ -570,7 +562,7 @@ struct TimeReport {
 /// Connection statistics to compute the estimated response time.
 struct ConnStats {
     /// Name of the connection.
-    label: String,
+    _label: String,
 
     /// Aproximation of the windowed average of response times.
     mean: f64,
@@ -625,7 +617,6 @@ impl<Req: Clone + Send + Sync + 'static> Query<Req> {
     ) -> Self {
         let conn_rt_len = conn_rt.len();
         let min_rt = conn_rt.iter().map(|e| e.est_rt).min().unwrap();
-        println!("min_rt = {min_rt:?}");
         let slow_rt = min_rt.as_secs_f64() * config.slow_rt_factor;
         conn_rt.sort_unstable_by(|e1, e2| conn_rt_cmp(e1, e2, slow_rt));
 
@@ -636,12 +627,6 @@ impl<Req: Clone + Send + Sync + 'static> Query<Req> {
         if conn_rt_len > 1 && random::<f64>() < PROBE_P {
             let index: usize = 1 + random::<usize>() % (conn_rt_len - 1);
 
-            println!(
-                "probing: index {index}, Arc count {}",
-                conn_rt[index].queue_length
-            );
-
-            //if Arc::strong_count(&conn_rt[index].queue_length_plus_one) - 1
             if conn_rt[index].queue_length == 0 {
                 // Give the probe some head start. We may need a separate
                 // configuration parameter. A multiple of min_rt. Just use
@@ -650,11 +635,6 @@ impl<Req: Clone + Send + Sync + 'static> Query<Req> {
                 e.est_rt = min_rt;
                 conn_rt.insert(0, e);
             }
-        }
-
-        println!("Query::new after sort:");
-        for e in &conn_rt {
-            println!("{:?}", e);
         }
 
         Self {
@@ -906,13 +886,8 @@ impl<'a, Req: Clone + Send + Sync + 'static> Transport<Req> {
                 ChanReq::Add(add_req) => {
                     let id = next_id;
                     next_id += 1;
-                    let burst_interval = add_req.burst_interval;
-                    println!(
-                        "burst {:?} {burst_interval:?}",
-                        add_req.burst_interval
-                    );
                     conn_stats.push(ConnStats {
-                        label: add_req.label,
+                        _label: add_req.label,
                         mean: (DEFAULT_RT_MS as f64) / 1000.,
                         mean_sq: 0.,
                         max_burst: add_req.max_burst,
@@ -950,7 +925,6 @@ impl<'a, Req: Clone + Send + Sync + 'static> Transport<Req> {
                                 conn_stats[i].burst = 0;
                             }
                             if conn_stats[i].burst > max_burst {
-                                println!("qps exceeded for index {i}");
                                 tmp_conn_rt.swap_remove(i);
                             }
                         } else {
@@ -1025,19 +999,10 @@ impl<'a, Req: Clone + Send + Sync + 'static> Transport<Req> {
                         conn_rt[ind].est_rt = Duration::from_secs_f64(est_rt);
                     }
                 }
-                ChanReq::PrintStats => {
-                    Self::print_stats(&conn_stats, &conn_rt)
-                }
             }
         }
     }
 
-    /// Print statistics.
-    fn print_stats(conn_stats: &[ConnStats], conn_rt: &[ConnRT]) {
-        for i in 0..conn_rt.len() {
-            println!("id {} label {} burst {} max burst {:?} Qlen {} Est. RT {:.3}", conn_rt[i].id, conn_stats[i].label, conn_stats[i].burst, conn_stats[i].max_burst, conn_rt[i].queue_length, conn_rt[i].est_rt.as_secs_f64());
-        }
-    }
 }
 
 //------------ Utility --------------------------------------------------------
@@ -1078,11 +1043,6 @@ where
 fn conn_rt_cmp(e1: &ConnRT, e2: &ConnRT, slow_rt: f64) -> Ordering {
     let e1_slow = e1.est_rt.as_secs_f64() > slow_rt;
     let e2_slow = e2.est_rt.as_secs_f64() > slow_rt;
-    /*
-    println!(
-        "{e1_slow:?} and {e2_slow:?} for {e1:?}, {e2:?} and {slow_rt:?}"
-    );
-    */
     if e1_slow != e2_slow {
         return if e2_slow {
             Ordering::Less
