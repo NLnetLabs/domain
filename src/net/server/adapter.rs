@@ -159,7 +159,7 @@ where
                         cr.add_opt(&ede)
                             .expect("Adding an ede should not fail");
                     }
-                    return Ok(cr);
+                    Ok(cr)
                 }
             }
         };
