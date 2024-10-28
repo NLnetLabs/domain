@@ -100,7 +100,10 @@ impl<N, D> SortedRecords<N, D> {
     ) -> Result<Vec<Record<N, ZoneRecordData<Octets, N>>>, ()>
     where
         N: ToName + Clone,
-        D: RecordData + ComposeRecordData + From<Dnskey<Octets>>,
+        D: CanonicalOrd
+            + RecordData
+            + ComposeRecordData
+            + From<Dnskey<Octets>>,
         SigningKey: SignRaw,
         Octets: AsRef<[u8]>
             + Clone
@@ -168,18 +171,19 @@ impl<N, D> SortedRecords<N, D> {
         let apex_ttl =
             families.peek().unwrap().records().next().unwrap().ttl();
 
-        let mut dnskey_rrs: Vec<Record<N, D>> =
-            Vec::with_capacity(keys.len());
+        let mut dnskey_rrs = SortedRecords::new();
 
         for public_key in keys.iter().map(|(_, public_key)| public_key) {
             let dnskey: Dnskey<Octets> =
                 Dnskey::convert(public_key.to_dnskey());
-            dnskey_rrs.push(Record::new(
-                apex.owner().clone(),
-                apex.class(),
-                apex_ttl,
-                dnskey.clone().into(),
-            ));
+            dnskey_rrs
+                .insert(Record::new(
+                    apex.owner().clone(),
+                    apex.class(),
+                    apex_ttl,
+                    dnskey.clone().into(),
+                ))
+                .map_err(|_| ())?;
 
             res.push(Record::new(
                 apex.owner().clone(),
@@ -189,8 +193,7 @@ impl<N, D> SortedRecords<N, D> {
             ));
         }
 
-        let dnskeys_iter = RecordsIter::new(dnskey_rrs.as_slice());
-        let families_iter = dnskeys_iter.chain(families);
+        let families_iter = dnskey_rrs.families().chain(families);
 
         for family in families_iter {
             // If the owner is out of zone, we have moved out of our zone and
@@ -694,7 +697,7 @@ impl<N, D> SortedRecords<N, D> {
     }
 }
 
-impl<N, D> Default for SortedRecords<N, D> {
+impl<N, D: CanonicalOrd> Default for SortedRecords<N, D> {
     fn default() -> Self {
         Self::new()
     }
