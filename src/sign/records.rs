@@ -96,7 +96,10 @@ impl<N, D> SortedRecords<N, D> {
         expiration: Timestamp,
         inception: Timestamp,
         keys: &[SigningKey<Octets, ConcreteSecretKey>],
-    ) -> Result<Vec<Record<N, ZoneRecordData<Octets, N>>>, ()>
+    ) -> Result<
+        Vec<Record<N, ZoneRecordData<Octets, N>>>,
+        ErrorTypeToBeDetermined,
+    >
     where
         N: ToName + Clone,
         D: CanonicalOrd
@@ -162,7 +165,7 @@ impl<N, D> SortedRecords<N, D> {
                     apex_ttl,
                     dnskey.clone().into(),
                 ))
-                .map_err(|_| ())?;
+                .map_err(|_| ErrorTypeToBeDetermined)?;
 
             res.push(Record::new(
                 apex.owner().clone(),
@@ -244,7 +247,7 @@ impl<N, D> SortedRecords<N, D> {
                         key.raw_secret_key().sign_raw(&buf).unwrap();
                     let signature = signature.as_ref().to_vec();
                     let Ok(signature) = signature.try_octets_into() else {
-                        return Err(());
+                        return Err(ErrorTypeToBeDetermined);
                     };
 
                     let rrsig =
@@ -1025,3 +1028,7 @@ where
         Some(Rrset::new(res))
     }
 }
+
+//------------ ErrorTypeToBeDetermined ----------------------------------------
+
+pub struct ErrorTypeToBeDetermined;
