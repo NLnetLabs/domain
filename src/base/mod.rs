@@ -93,7 +93,7 @@ pub use self::header::{Header, HeaderCounts, HeaderSection};
 pub use self::iana::Rtype;
 pub use self::message::{Message, QuestionSection, RecordSection};
 #[cfg(feature = "std")]
-pub use self::message_builder::TreeCompressor;
+pub use self::message_builder::{HashCompressor, TreeCompressor};
 pub use self::message_builder::{
     MessageBuilder, RecordSectionBuilder, StaticCompressor, StreamTarget,
 };
@@ -121,6 +121,7 @@ pub mod rdata;
 pub mod record;
 pub mod scan;
 pub mod serial;
+pub mod zonefile_fmt;
 //pub mod str;
 pub mod wire;
 

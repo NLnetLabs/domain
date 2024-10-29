@@ -1,3 +1,5 @@
+//! A generic representation of secret keys.
+
 use core::{fmt, str};
 
 use std::boxed::Box;
@@ -6,6 +8,8 @@ use std::vec::Vec;
 use crate::base::iana::SecAlg;
 use crate::utils::base64;
 use crate::validate::RsaPublicKey;
+
+//----------- SecretKey ------------------------------------------------------
 
 /// A generic secret key.
 ///
@@ -103,6 +107,8 @@ pub enum SecretKey {
     Ed448(Box<[u8; 57]>),
 }
 
+//--- Inspection
+
 impl SecretKey {
     /// The algorithm used by this key.
     pub fn algorithm(&self) -> SecAlg {
@@ -114,7 +120,11 @@ impl SecretKey {
             Self::Ed448(_) => SecAlg::ED448,
         }
     }
+}
 
+//--- Converting to and from the BIND format.
+
+impl SecretKey {
     /// Serialize this key in the conventional format used by BIND.
     ///
     /// The key is formatted in the private key v1.2 format and written to the
@@ -222,6 +232,8 @@ impl SecretKey {
     }
 }
 
+//--- Drop
+
 impl Drop for SecretKey {
     fn drop(&mut self) {
         // Zero the bytes for each field.
@@ -234,6 +246,8 @@ impl Drop for SecretKey {
         }
     }
 }
+
+//----------- RsaSecretKey ---------------------------------------------------
 
 /// A generic RSA private key.
 ///
@@ -264,6 +278,8 @@ pub struct RsaSecretKey {
     /// The inverse of the second prime factor modulo the first.
     pub q_i: Box<[u8]>,
 }
+
+//--- Conversion to and from the BIND format
 
 impl RsaSecretKey {
     /// Serialize this key in the conventional format used by BIND.
@@ -356,6 +372,8 @@ impl RsaSecretKey {
     }
 }
 
+//--- Into<RsaPublicKey>
+
 impl<'a> From<&'a RsaSecretKey> for RsaPublicKey {
     fn from(value: &'a RsaSecretKey) -> Self {
         RsaPublicKey {
@@ -364,6 +382,8 @@ impl<'a> From<&'a RsaSecretKey> for RsaPublicKey {
         }
     }
 }
+
+//--- Drop
 
 impl Drop for RsaSecretKey {
     fn drop(&mut self) {
@@ -378,6 +398,44 @@ impl Drop for RsaSecretKey {
         self.q_i.fill(0u8);
     }
 }
+
+//----------- GenerateParams -------------------------------------------------
+
+/// Parameters for generating a secret key.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum GenerateParams {
+    /// Generate an RSA/SHA-256 keypair.
+    RsaSha256 { bits: u32 },
+
+    /// Generate an ECDSA P-256/SHA-256 keypair.
+    EcdsaP256Sha256,
+
+    /// Generate an ECDSA P-384/SHA-384 keypair.
+    EcdsaP384Sha384,
+
+    /// Generate an Ed25519 keypair.
+    Ed25519,
+
+    /// An Ed448 keypair.
+    Ed448,
+}
+
+//--- Inspection
+
+impl GenerateParams {
+    /// The algorithm of the generated key.
+    pub fn algorithm(&self) -> SecAlg {
+        match self {
+            Self::RsaSha256 { .. } => SecAlg::RSASHA256,
+            Self::EcdsaP256Sha256 => SecAlg::ECDSAP256SHA256,
+            Self::EcdsaP384Sha384 => SecAlg::ECDSAP384SHA384,
+            Self::Ed25519 => SecAlg::ED25519,
+            Self::Ed448 => SecAlg::ED448,
+        }
+    }
+}
+
+//----------- Helpers for parsing the BIND format ----------------------------
 
 /// Extract the next key-value pair in a DNS private key file.
 fn parse_dns_pair(
@@ -404,6 +462,10 @@ fn parse_dns_pair(
     Ok(Some((key.trim(), val.trim(), rest)))
 }
 
+//============ Error types ===================================================
+
+//----------- BindFormatError ------------------------------------------------
+
 /// An error in loading a [`SecretKey`] from the conventional DNS format.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum BindFormatError {
@@ -417,6 +479,8 @@ pub enum BindFormatError {
     UnsupportedAlgorithm,
 }
 
+//--- Display
+
 impl fmt::Display for BindFormatError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(match self {
@@ -427,7 +491,11 @@ impl fmt::Display for BindFormatError {
     }
 }
 
+//--- Error
+
 impl std::error::Error for BindFormatError {}
+
+//============ Tests =========================================================
 
 #[cfg(test)]
 mod tests {

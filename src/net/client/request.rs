@@ -6,8 +6,9 @@ use crate::base::message_builder::{
 };
 use crate::base::opt::{ComposeOptData, LongOptData, OptRecord};
 use crate::base::wire::{Composer, ParseError};
-use crate::base::{Header, Message, ParsedName, Rtype, StaticCompressor};
-use crate::rdata::AllRecordData;
+use crate::base::{
+    Header, Message, Rtype, StaticCompressor, UnknownRecordData,
+};
 use bytes::Bytes;
 use octseq::Octets;
 use std::boxed::Box;
@@ -262,7 +263,7 @@ impl<Octs: AsRef<[u8]> + Debug + Octets> RequestMessage<Octs> {
         let mut target = target.answer();
         for rr in &mut source {
             let rr = rr?
-                .into_record::<AllRecordData<_, ParsedName<_>>>()?
+                .into_record::<UnknownRecordData<_>>()?
                 .expect("record expected");
             target.push(rr)?;
         }
@@ -272,7 +273,7 @@ impl<Octs: AsRef<[u8]> + Debug + Octets> RequestMessage<Octs> {
         let mut target = target.authority();
         for rr in &mut source {
             let rr = rr?
-                .into_record::<AllRecordData<_, ParsedName<_>>>()?
+                .into_record::<UnknownRecordData<_>>()?
                 .expect("record expected");
             target.push(rr)?;
         }
@@ -284,7 +285,7 @@ impl<Octs: AsRef<[u8]> + Debug + Octets> RequestMessage<Octs> {
             let rr = rr?;
             if rr.rtype() != Rtype::OPT {
                 let rr = rr
-                    .into_record::<AllRecordData<_, ParsedName<_>>>()?
+                    .into_record::<UnknownRecordData<_>>()?
                     .expect("record expected");
                 target.push(rr)?;
             }
@@ -470,7 +471,7 @@ impl<Octs: AsRef<[u8]> + Debug + Octets> RequestMessageMulti<Octs> {
         let mut target = target.answer();
         for rr in &mut source {
             let rr = rr?
-                .into_record::<AllRecordData<_, ParsedName<_>>>()?
+                .into_record::<UnknownRecordData<_>>()?
                 .expect("record expected");
             target.push(rr)?;
         }
@@ -480,7 +481,7 @@ impl<Octs: AsRef<[u8]> + Debug + Octets> RequestMessageMulti<Octs> {
         let mut target = target.authority();
         for rr in &mut source {
             let rr = rr?
-                .into_record::<AllRecordData<_, ParsedName<_>>>()?
+                .into_record::<UnknownRecordData<_>>()?
                 .expect("record expected");
             target.push(rr)?;
         }
@@ -492,7 +493,7 @@ impl<Octs: AsRef<[u8]> + Debug + Octets> RequestMessageMulti<Octs> {
             let rr = rr?;
             if rr.rtype() != Rtype::OPT {
                 let rr = rr
-                    .into_record::<AllRecordData<_, ParsedName<_>>>()?
+                    .into_record::<UnknownRecordData<_>>()?
                     .expect("record expected");
                 target.push(rr)?;
             }

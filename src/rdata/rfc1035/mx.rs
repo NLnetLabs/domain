@@ -9,6 +9,7 @@ use crate::base::rdata::{
     ComposeRecordData, ParseRecordData, RecordData,
 };
 use crate::base::scan::{Scan, Scanner};
+use crate::base::zonefile_fmt::{self, Formatter, ZonefileFmt};
 use crate::base::wire::{Compose, Composer, Parse, ParseError};
 use core::fmt;
 use core::cmp::Ordering;
@@ -224,6 +225,18 @@ impl<Name: ToName> ComposeRecordData for Mx<Name> {
 impl<N: fmt::Display> fmt::Display for Mx<N> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{} {}.", self.preference, self.exchange)
+    }
+}
+
+//--- ZonefileFmt
+
+impl<N: ToName> ZonefileFmt for Mx<N> {
+    fn fmt(&self, p: &mut impl Formatter) -> zonefile_fmt::Result {
+        p.block(|p| {
+            p.write_token(self.preference)?;
+            p.write_comment("preference")?;
+            p.write_token(self.exchange.fmt_with_dot())
+        })
     }
 }
 
