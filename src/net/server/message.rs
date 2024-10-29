@@ -1,11 +1,22 @@
 //! Support for working with DNS messages in servers.
+
+#![warn(missing_docs)]
+#![warn(clippy::missing_docs_in_private_items)]
+
+use bytes::Bytes;
 use core::time::Duration;
 
+use std::fmt::Debug;
 use std::sync::{Arc, Mutex};
+use std::vec::Vec;
 
 use tokio::time::Instant;
 
-use crate::base::Message;
+use crate::base::opt::AllOptData;
+use crate::base::{Message, Name};
+use crate::dep::octseq::Octets;
+use crate::net::client::request;
+use crate::net::client::request::{ComposeRequest, RequestMessage};
 
 //------------ UdpTransportContext -------------------------------------------
 
@@ -282,5 +293,59 @@ where
             num_reserved_bytes: self.num_reserved_bytes,
             metadata: self.metadata.clone(),
         }
+    }
+}
+
+//--- TryFrom<Request<Octs>> for RequestMessage<Octs>>
+
+impl<Octs: Octets + Send + Sync + Debug + Clone> TryFrom<Request<Octs>>
+    for RequestMessage<Octs>
+{
+    type Error = request::Error;
+
+    fn try_from(req: Request<Octs>) -> Result<Self, Self::Error> {
+        // Copy the ECS option from the message. This is just an example,
+        // there should be a separate plugin that deals with ECS.
+
+        // We want the ECS options in Bytes. No clue how to do this. Just
+        // convert the message to Bytes and use that.
+        let mut extra_opts: Vec<AllOptData<Bytes, Name<Bytes>>> = vec![];
+
+        let bytes = Bytes::copy_from_slice(req.message.as_slice());
+        let bytes_msg = Message::from_octets(bytes)?;
+        if let Some(optrec) = bytes_msg.opt() {
+            for opt in optrec.opt().iter::<AllOptData<_, _>>() {
+                let opt = opt?;
+                if let AllOptData::ClientSubnet(_ecs) = opt {
+                    extra_opts.push(opt);
+                }
+            }
+        }
+
+        // We need to make a copy of message. Somehow we can't use the
+        // message in the Arc directly.
+        let set_do = dnssec_ok(&req.message);
+        let msg = Message::from_octets(req.message.as_octets().clone())?;
+        let mut reqmsg = RequestMessage::new(msg)?;
+
+        // Copy DO bit
+        if set_do {
+            reqmsg.set_dnssec_ok(true);
+        }
+
+        // Copy options
+        for opt in &extra_opts {
+            reqmsg.add_opt(opt)?;
+        }
+        Ok(reqmsg)
+    }
+}
+
+/// Return whether the DO flag is set. This should move to Message.
+fn dnssec_ok<Octs: Octets>(msg: &Message<Octs>) -> bool {
+    if let Some(opt) = msg.opt() {
+        opt.dnssec_ok()
+    } else {
+        false
     }
 }

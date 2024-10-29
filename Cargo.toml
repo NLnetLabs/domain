@@ -141,6 +141,10 @@ required-features = ["zonefile", "net", "unstable-server-transport", "unstable-z
 name = "ixfr-client"
 required-features = ["zonefile", "net", "unstable-client-transport", "unstable-zonetree"]
 
+[[example]]
+name = "query-routing"
+required-features = ["net", "unstable-client-transport", "unstable-server-transport", "tracing-subscriber"]
+
 # This example is commented out because it is difficult, if not impossible,
 # when including the sqlx dependency, to make the dependency tree compatible
 # with both `cargo +nightly update -Z minimal versions` and the crate minimum
