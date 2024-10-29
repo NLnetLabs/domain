@@ -10,7 +10,7 @@ use crate::{
     validate::{RawPublicKey, Signature},
 };
 
-use super::{GenerateParams, KeyBytes, SignError, SignRaw};
+use super::{GenerateParams, SecretKeyBytes, SignError, SignRaw};
 
 #[cfg(feature = "openssl")]
 use super::openssl;
@@ -41,7 +41,7 @@ pub enum KeyPair {
 impl KeyPair {
     /// Import a key pair from bytes.
     pub fn from_bytes(
-        secret: &KeyBytes,
+        secret: &SecretKeyBytes,
         public: &RawPublicKey,
     ) -> Result<Self, FromBytesError> {
         // Prefer Ring if it is available.
@@ -122,7 +122,7 @@ impl SignRaw for KeyPair {
 /// Generate a new secret key for the given algorithm.
 pub fn generate(
     params: GenerateParams,
-) -> Result<(KeyBytes, RawPublicKey), GenerateError> {
+) -> Result<(SecretKeyBytes, RawPublicKey), GenerateError> {
     // Use Ring if it is available.
     #[cfg(feature = "ring")]
     if matches!(

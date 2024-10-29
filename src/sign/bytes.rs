@@ -9,7 +9,7 @@ use crate::base::iana::SecAlg;
 use crate::utils::base64;
 use crate::validate::RsaPublicKey;
 
-//----------- KeyBytes -------------------------------------------------------
+//----------- SecretKeyBytes -------------------------------------------------
 
 /// A secret key expressed as raw bytes.
 ///
@@ -82,9 +82,9 @@ use crate::validate::RsaPublicKey;
 ///   interpreted as a big-endian integer.
 ///
 /// - For EdDSA, the private scalar of the key, as a fixed-width byte string.
-pub enum KeyBytes {
+pub enum SecretKeyBytes {
     /// An RSA/SHA-256 keypair.
-    RsaSha256(RsaKeyBytes),
+    RsaSha256(RsaSecretKeyBytes),
 
     /// An ECDSA P-256/SHA-256 keypair.
     ///
@@ -109,7 +109,7 @@ pub enum KeyBytes {
 
 //--- Inspection
 
-impl KeyBytes {
+impl SecretKeyBytes {
     /// The algorithm used by this key.
     pub fn algorithm(&self) -> SecAlg {
         match self {
@@ -122,10 +122,10 @@ impl KeyBytes {
     }
 }
 
-//--- Converting to and from the BIND format.
+//--- Converting to and from the BIND format
 
-impl KeyBytes {
-    /// Serialize this key in the conventional format used by BIND.
+impl SecretKeyBytes {
+    /// Serialize this secret key in the conventional format used by BIND.
     ///
     /// The key is formatted in the private key v1.2 format and written to the
     /// given formatter.  See the type-level documentation for a description
@@ -160,7 +160,7 @@ impl KeyBytes {
         }
     }
 
-    /// Parse a key from the conventional format used by BIND.
+    /// Parse a secret key from the conventional format used by BIND.
     ///
     /// This parser supports the private key v1.2 format, but it should be
     /// compatible with any future v1.x key.  See the type-level documentation
@@ -217,7 +217,7 @@ impl KeyBytes {
 
         match (code, name) {
             (8, "(RSASHA256)") => {
-                RsaKeyBytes::parse_from_bind(data).map(Self::RsaSha256)
+                RsaSecretKeyBytes::parse_from_bind(data).map(Self::RsaSha256)
             }
             (13, "(ECDSAP256SHA256)") => {
                 parse_pkey(data).map(Self::EcdsaP256Sha256)
@@ -234,7 +234,7 @@ impl KeyBytes {
 
 //--- Drop
 
-impl Drop for KeyBytes {
+impl Drop for SecretKeyBytes {
     fn drop(&mut self) {
         // Zero the bytes for each field.
         match self {
@@ -247,13 +247,14 @@ impl Drop for KeyBytes {
     }
 }
 
-//----------- RsaKeyBytes ---------------------------------------------------
+//----------- RsaSecretKeyBytes ---------------------------------------------------
 
-/// A generic RSA private key.
+/// An RSA secret key expressed as raw bytes.
 ///
-/// All fields here are arbitrary-precision integers in big-endian format,
-/// without any leading zero bytes.
-pub struct RsaKeyBytes {
+/// All fields here are arbitrary-precision integers in big-endian format.
+/// The public values, `n` and `e`, must not have leading zeros; the remaining
+/// values may be padded with leading zeros.
+pub struct RsaSecretKeyBytes {
     /// The public modulus.
     pub n: Box<[u8]>,
 
@@ -281,12 +282,12 @@ pub struct RsaKeyBytes {
 
 //--- Conversion to and from the BIND format
 
-impl RsaKeyBytes {
-    /// Serialize this key in the conventional format used by BIND.
+impl RsaSecretKeyBytes {
+    /// Serialize this secret key in the conventional format used by BIND.
     ///
     /// The key is formatted in the private key v1.2 format and written to the
     /// given formatter.  Note that the header and algorithm lines are not
-    /// written.  See the type-level documentation of [`KeyBytes`] for a
+    /// written.  See the type-level documentation of [`SecretKeyBytes`] for a
     /// description of this format.
     pub fn format_as_bind(&self, w: &mut impl fmt::Write) -> fmt::Result {
         w.write_str("Modulus: ")?;
@@ -308,12 +309,12 @@ impl RsaKeyBytes {
         Ok(())
     }
 
-    /// Parse a key from the conventional format used by BIND.
+    /// Parse a secret key from the conventional format used by BIND.
     ///
     /// This parser supports the private key v1.2 format, but it should be
     /// compatible with any future v1.x key.  Note that the header and
     /// algorithm lines are ignored.  See the type-level documentation of
-    /// [`KeyBytes`] for a description of this format.
+    /// [`SecretKeyBytes`] for a description of this format.
     pub fn parse_from_bind(mut data: &str) -> Result<Self, BindFormatError> {
         let mut n = None;
         let mut e = None;
@@ -374,8 +375,8 @@ impl RsaKeyBytes {
 
 //--- Into<RsaPublicKey>
 
-impl<'a> From<&'a RsaKeyBytes> for RsaPublicKey {
-    fn from(value: &'a RsaKeyBytes) -> Self {
+impl<'a> From<&'a RsaSecretKeyBytes> for RsaPublicKey {
+    fn from(value: &'a RsaSecretKeyBytes) -> Self {
         RsaPublicKey {
             n: value.n.clone(),
             e: value.e.clone(),
@@ -385,7 +386,7 @@ impl<'a> From<&'a RsaKeyBytes> for RsaPublicKey {
 
 //--- Drop
 
-impl Drop for RsaKeyBytes {
+impl Drop for RsaSecretKeyBytes {
     fn drop(&mut self) {
         // Zero the bytes for each field.
         self.n.fill(0u8);
@@ -396,42 +397,6 @@ impl Drop for RsaKeyBytes {
         self.d_p.fill(0u8);
         self.d_q.fill(0u8);
         self.q_i.fill(0u8);
-    }
-}
-
-//----------- GenerateParams -------------------------------------------------
-
-/// Parameters for generating a secret key.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum GenerateParams {
-    /// Generate an RSA/SHA-256 keypair.
-    RsaSha256 { bits: u32 },
-
-    /// Generate an ECDSA P-256/SHA-256 keypair.
-    EcdsaP256Sha256,
-
-    /// Generate an ECDSA P-384/SHA-384 keypair.
-    EcdsaP384Sha384,
-
-    /// Generate an Ed25519 keypair.
-    Ed25519,
-
-    /// An Ed448 keypair.
-    Ed448,
-}
-
-//--- Inspection
-
-impl GenerateParams {
-    /// The algorithm of the generated key.
-    pub fn algorithm(&self) -> SecAlg {
-        match self {
-            Self::RsaSha256 { .. } => SecAlg::RSASHA256,
-            Self::EcdsaP256Sha256 => SecAlg::ECDSAP256SHA256,
-            Self::EcdsaP384Sha384 => SecAlg::ECDSAP384SHA384,
-            Self::Ed25519 => SecAlg::ED25519,
-            Self::Ed448 => SecAlg::ED448,
-        }
     }
 }
 
@@ -466,7 +431,7 @@ fn parse_dns_pair(
 
 //----------- BindFormatError ------------------------------------------------
 
-/// An error in loading a [`KeyBytes`] from the conventional DNS format.
+/// An error in loading a [`SecretKeyBytes`] from the conventional DNS format.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum BindFormatError {
     /// The key file uses an unsupported version of the format.
@@ -518,7 +483,7 @@ mod tests {
                 format!("test.+{:03}+{:05}", algorithm.to_int(), key_tag);
             let path = format!("test-data/dnssec-keys/K{}.private", name);
             let data = std::fs::read_to_string(path).unwrap();
-            let key = super::KeyBytes::parse_from_bind(&data).unwrap();
+            let key = super::SecretKeyBytes::parse_from_bind(&data).unwrap();
             assert_eq!(key.algorithm(), algorithm);
         }
     }
@@ -530,7 +495,7 @@ mod tests {
                 format!("test.+{:03}+{:05}", algorithm.to_int(), key_tag);
             let path = format!("test-data/dnssec-keys/K{}.private", name);
             let data = std::fs::read_to_string(path).unwrap();
-            let key = super::KeyBytes::parse_from_bind(&data).unwrap();
+            let key = super::SecretKeyBytes::parse_from_bind(&data).unwrap();
             let mut same = String::new();
             key.format_as_bind(&mut same).unwrap();
             let data = data.lines().collect::<Vec<_>>();
