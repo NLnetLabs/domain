@@ -165,11 +165,10 @@ impl Label {
 
         // TODO: Verify the properties of this U-label.
 
-        for i in 0..output_len {
-            w.write_char(output[i])?;
-        }
-
-        Ok(())
+        output[..output_len]
+            .iter()
+            .try_for_each(|&c| w.write_char(c))
+            .map_err(DecodeError::Fmt)
     }
 }
 
