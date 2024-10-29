@@ -15,11 +15,11 @@ use core::fmt;
 
 use crate::{
     base::{iana::SecAlg, Name},
-    validate::{self, RawPublicKey, Signature},
+    validate::{self, PublicKeyBytes, Signature},
 };
 
 mod bytes;
-pub use bytes::{GenerateParams, KeyBytes, RsaKeyBytes};
+pub use self::bytes::{RsaSecretKeyBytes, SecretKeyBytes};
 
 pub mod common;
 pub mod openssl;
@@ -142,7 +142,7 @@ impl<Octs, Inner: SignRaw> SigningKey<Octs, Inner> {
     }
 
     /// The associated raw public key.
-    pub fn raw_public_key(&self) -> RawPublicKey {
+    pub fn raw_public_key(&self) -> PublicKeyBytes {
         self.inner.raw_public_key()
     }
 }
@@ -177,7 +177,7 @@ pub trait SignRaw {
     /// algorithm as returned by [`algorithm()`].
     ///
     /// [`algorithm()`]: Self::algorithm()
-    fn raw_public_key(&self) -> RawPublicKey;
+    fn raw_public_key(&self) -> PublicKeyBytes;
 
     /// Sign the given bytes.
     ///
@@ -187,6 +187,42 @@ pub trait SignRaw {
     /// greatest extent possible, the implementation should check for failure
     /// cases beforehand and prevent them (e.g. when the keypair is created).
     fn sign_raw(&self, data: &[u8]) -> Result<Signature, SignError>;
+}
+
+//----------- GenerateParams -------------------------------------------------
+
+/// Parameters for generating a secret key.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum GenerateParams {
+    /// Generate an RSA/SHA-256 keypair.
+    RsaSha256 { bits: u32 },
+
+    /// Generate an ECDSA P-256/SHA-256 keypair.
+    EcdsaP256Sha256,
+
+    /// Generate an ECDSA P-384/SHA-384 keypair.
+    EcdsaP384Sha384,
+
+    /// Generate an Ed25519 keypair.
+    Ed25519,
+
+    /// An Ed448 keypair.
+    Ed448,
+}
+
+//--- Inspection
+
+impl GenerateParams {
+    /// The algorithm of the generated key.
+    pub fn algorithm(&self) -> SecAlg {
+        match self {
+            Self::RsaSha256 { .. } => SecAlg::RSASHA256,
+            Self::EcdsaP256Sha256 => SecAlg::ECDSAP256SHA256,
+            Self::EcdsaP384Sha384 => SecAlg::ECDSAP384SHA384,
+            Self::Ed25519 => SecAlg::ED25519,
+            Self::Ed448 => SecAlg::ED448,
+        }
+    }
 }
 
 //============ Error Types ===================================================

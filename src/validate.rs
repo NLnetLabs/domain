@@ -60,17 +60,17 @@ pub struct Key<Octs> {
     /// These flags are stored in the DNSKEY record.
     flags: u16,
 
-    /// The raw public key.
+    /// The public key, in bytes.
     ///
     /// This identifies the key and can be used for signatures.
-    key: RawPublicKey,
+    key: PublicKeyBytes,
 }
 
 //--- Construction
 
 impl<Octs> Key<Octs> {
     /// Construct a new DNSSEC key manually.
-    pub fn new(owner: Name<Octs>, flags: u16, key: RawPublicKey) -> Self {
+    pub fn new(owner: Name<Octs>, flags: u16, key: PublicKeyBytes) -> Self {
         Self { owner, flags, key }
     }
 }
@@ -89,7 +89,7 @@ impl<Octs> Key<Octs> {
     }
 
     /// The raw public key.
-    pub fn raw_public_key(&self) -> &RawPublicKey {
+    pub fn raw_public_key(&self) -> &PublicKeyBytes {
         &self.key
     }
 
@@ -234,7 +234,7 @@ impl<Octs: AsRef<[u8]>> Key<Octs> {
         let flags = dnskey.flags();
         let algorithm = dnskey.algorithm();
         let key = dnskey.public_key().as_ref();
-        let key = RawPublicKey::from_dnskey_format(algorithm, key)?;
+        let key = PublicKeyBytes::from_dnskey_format(algorithm, key)?;
         Ok(Self { owner, flags, key })
     }
 
@@ -350,22 +350,22 @@ impl<Octs: AsRef<[u8]>> fmt::Debug for Key<Octs> {
     }
 }
 
-//----------- RsaPublicKey ---------------------------------------------------
+//----------- RsaPublicKeyBytes ----------------------------------------------
 
 /// A low-level public key.
 #[derive(Clone, Debug)]
-pub enum RawPublicKey {
+pub enum PublicKeyBytes {
     /// An RSA/SHA-1 public key.
-    RsaSha1(RsaPublicKey),
+    RsaSha1(RsaPublicKeyBytes),
 
     /// An RSA/SHA-1 with NSEC3 public key.
-    RsaSha1Nsec3Sha1(RsaPublicKey),
+    RsaSha1Nsec3Sha1(RsaPublicKeyBytes),
 
     /// An RSA/SHA-256 public key.
-    RsaSha256(RsaPublicKey),
+    RsaSha256(RsaPublicKeyBytes),
 
     /// An RSA/SHA-512 public key.
-    RsaSha512(RsaPublicKey),
+    RsaSha512(RsaPublicKeyBytes),
 
     /// An ECDSA P-256/SHA-256 public key.
     ///
@@ -398,7 +398,7 @@ pub enum RawPublicKey {
 
 //--- Inspection
 
-impl RawPublicKey {
+impl PublicKeyBytes {
     /// The algorithm used by this key.
     pub fn algorithm(&self) -> SecAlg {
         match self {
@@ -457,7 +457,7 @@ impl RawPublicKey {
 
 //--- Conversion to and from DNSKEYs
 
-impl RawPublicKey {
+impl PublicKeyBytes {
     /// Parse a public key as stored in a DNSKEY record.
     pub fn from_dnskey_format(
         algorithm: SecAlg,
@@ -465,18 +465,16 @@ impl RawPublicKey {
     ) -> Result<Self, FromDnskeyError> {
         match algorithm {
             SecAlg::RSASHA1 => {
-                RsaPublicKey::from_dnskey_format(data).map(Self::RsaSha1)
+                RsaPublicKeyBytes::from_dnskey_format(data).map(Self::RsaSha1)
             }
             SecAlg::RSASHA1_NSEC3_SHA1 => {
-                RsaPublicKey::from_dnskey_format(data)
+                RsaPublicKeyBytes::from_dnskey_format(data)
                     .map(Self::RsaSha1Nsec3Sha1)
             }
-            SecAlg::RSASHA256 => {
-                RsaPublicKey::from_dnskey_format(data).map(Self::RsaSha256)
-            }
-            SecAlg::RSASHA512 => {
-                RsaPublicKey::from_dnskey_format(data).map(Self::RsaSha512)
-            }
+            SecAlg::RSASHA256 => RsaPublicKeyBytes::from_dnskey_format(data)
+                .map(Self::RsaSha256),
+            SecAlg::RSASHA512 => RsaPublicKeyBytes::from_dnskey_format(data)
+                .map(Self::RsaSha512),
 
             SecAlg::ECDSAP256SHA256 => {
                 let mut key = Box::new([0u8; 65]);
@@ -532,7 +530,7 @@ impl RawPublicKey {
 
 //--- Comparison
 
-impl PartialEq for RawPublicKey {
+impl PartialEq for PublicKeyBytes {
     fn eq(&self, other: &Self) -> bool {
         use ring::constant_time::verify_slices_are_equal;
 
@@ -558,16 +556,16 @@ impl PartialEq for RawPublicKey {
     }
 }
 
-impl Eq for RawPublicKey {}
+impl Eq for PublicKeyBytes {}
 
-//----------- RsaPublicKey ---------------------------------------------------
+//----------- RsaPublicKeyBytes ---------------------------------------------------
 
 /// A generic RSA public key.
 ///
 /// All fields here are arbitrary-precision integers in big-endian format,
 /// without any leading zero bytes.
 #[derive(Clone, Debug)]
-pub struct RsaPublicKey {
+pub struct RsaPublicKeyBytes {
     /// The public modulus.
     pub n: Box<[u8]>,
 
@@ -577,7 +575,7 @@ pub struct RsaPublicKey {
 
 //--- Inspection
 
-impl RsaPublicKey {
+impl RsaPublicKeyBytes {
     /// The raw key tag computation for this value.
     fn raw_key_tag(&self) -> u32 {
         let mut res = 0u32;
@@ -632,7 +630,7 @@ impl RsaPublicKey {
 
 //--- Conversion to and from DNSKEYs
 
-impl RsaPublicKey {
+impl RsaPublicKeyBytes {
     /// Parse an RSA public key as stored in a DNSKEY record.
     pub fn from_dnskey_format(data: &[u8]) -> Result<Self, FromDnskeyError> {
         if data.len() < 3 {
@@ -688,7 +686,7 @@ impl RsaPublicKey {
 
 //--- Comparison
 
-impl PartialEq for RsaPublicKey {
+impl PartialEq for RsaPublicKeyBytes {
     fn eq(&self, other: &Self) -> bool {
         use ring::constant_time::verify_slices_are_equal;
 
@@ -697,7 +695,7 @@ impl PartialEq for RsaPublicKey {
     }
 }
 
-impl Eq for RsaPublicKey {}
+impl Eq for RsaPublicKeyBytes {}
 
 //----------- Signature ------------------------------------------------------
 
