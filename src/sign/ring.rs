@@ -7,21 +7,17 @@ use core::fmt;
 use std::{boxed::Box, sync::Arc, vec::Vec};
 
 use octseq::{EmptyBuilder, OctetsBuilder, Truncate};
-use ring::{digest::SHA1_FOR_LEGACY_USE_ONLY, signature::KeyPair as _};
+use ring::digest::SHA1_FOR_LEGACY_USE_ONLY;
+use ring::signature::KeyPair as _;
+use ring::signature::{EcdsaKeyPair, Ed25519KeyPair, RsaKeyPair};
 
-use crate::{
-    base::{
-        iana::{Nsec3HashAlg, SecAlg},
-        ToName,
-    },
-    rdata::{
-        nsec3::{Nsec3Salt, OwnerHash},
-        Nsec3param,
-    },
-    validate::{RawPublicKey, RsaPublicKey, Signature},
-};
+use crate::base::iana::{Nsec3HashAlg, SecAlg};
+use crate::base::ToName;
+use crate::rdata::nsec3::{Nsec3Salt, OwnerHash};
+use crate::rdata::Nsec3param;
+use crate::validate::{PublicKeyBytes, RsaPublicKeyBytes, Signature};
 
-use super::{GenerateParams, KeyBytes, SignError, SignRaw};
+use super::{GenerateParams, SecretKeyBytes, SignError, SignRaw};
 
 //----------- KeyPair --------------------------------------------------------
 
@@ -29,24 +25,24 @@ use super::{GenerateParams, KeyBytes, SignError, SignRaw};
 pub enum KeyPair {
     /// An RSA/SHA-256 keypair.
     RsaSha256 {
-        key: ring::signature::RsaKeyPair,
+        key: RsaKeyPair,
         rng: Arc<dyn ring::rand::SecureRandom>,
     },
 
     /// An ECDSA P-256/SHA-256 keypair.
     EcdsaP256Sha256 {
-        key: ring::signature::EcdsaKeyPair,
+        key: EcdsaKeyPair,
         rng: Arc<dyn ring::rand::SecureRandom>,
     },
 
     /// An ECDSA P-384/SHA-384 keypair.
     EcdsaP384Sha384 {
-        key: ring::signature::EcdsaKeyPair,
+        key: EcdsaKeyPair,
         rng: Arc<dyn ring::rand::SecureRandom>,
     },
 
     /// An Ed25519 keypair.
-    Ed25519(ring::signature::Ed25519KeyPair),
+    Ed25519(Ed25519KeyPair),
 }
 
 //--- Conversion from bytes
@@ -54,14 +50,14 @@ pub enum KeyPair {
 impl KeyPair {
     /// Import a key pair from bytes into OpenSSL.
     pub fn from_bytes(
-        secret: &KeyBytes,
-        public: &RawPublicKey,
+        secret: &SecretKeyBytes,
+        public: &PublicKeyBytes,
         rng: Arc<dyn ring::rand::SecureRandom>,
     ) -> Result<Self, FromBytesError> {
         match (secret, public) {
-            (KeyBytes::RsaSha256(s), RawPublicKey::RsaSha256(p)) => {
+            (SecretKeyBytes::RsaSha256(s), PublicKeyBytes::RsaSha256(p)) => {
                 // Ensure that the public and private key match.
-                if p != &RsaPublicKey::from(s) {
+                if p != &RsaPublicKeyBytes::from(s) {
                     return Err(FromBytesError::InvalidKey);
                 }
 
@@ -88,29 +84,37 @@ impl KeyPair {
             }
 
             (
-                KeyBytes::EcdsaP256Sha256(s),
-                RawPublicKey::EcdsaP256Sha256(p),
+                SecretKeyBytes::EcdsaP256Sha256(s),
+                PublicKeyBytes::EcdsaP256Sha256(p),
             ) => {
                 let alg = &ring::signature::ECDSA_P256_SHA256_FIXED_SIGNING;
-                ring::signature::EcdsaKeyPair::from_private_key_and_public_key(
-                        alg, s.as_slice(), p.as_slice(), &*rng)
-                    .map_err(|_| FromBytesError::InvalidKey)
-                    .map(|key| Self::EcdsaP256Sha256 { key, rng })
+                EcdsaKeyPair::from_private_key_and_public_key(
+                    alg,
+                    s.as_slice(),
+                    p.as_slice(),
+                    &*rng,
+                )
+                .map_err(|_| FromBytesError::InvalidKey)
+                .map(|key| Self::EcdsaP256Sha256 { key, rng })
             }
 
             (
-                KeyBytes::EcdsaP384Sha384(s),
-                RawPublicKey::EcdsaP384Sha384(p),
+                SecretKeyBytes::EcdsaP384Sha384(s),
+                PublicKeyBytes::EcdsaP384Sha384(p),
             ) => {
                 let alg = &ring::signature::ECDSA_P384_SHA384_FIXED_SIGNING;
-                ring::signature::EcdsaKeyPair::from_private_key_and_public_key(
-                        alg, s.as_slice(), p.as_slice(), &*rng)
-                    .map_err(|_| FromBytesError::InvalidKey)
-                    .map(|key| Self::EcdsaP384Sha384 { key, rng })
+                EcdsaKeyPair::from_private_key_and_public_key(
+                    alg,
+                    s.as_slice(),
+                    p.as_slice(),
+                    &*rng,
+                )
+                .map_err(|_| FromBytesError::InvalidKey)
+                .map(|key| Self::EcdsaP384Sha384 { key, rng })
             }
 
-            (KeyBytes::Ed25519(s), RawPublicKey::Ed25519(p)) => {
-                ring::signature::Ed25519KeyPair::from_seed_and_public_key(
+            (SecretKeyBytes::Ed25519(s), PublicKeyBytes::Ed25519(p)) => {
+                Ed25519KeyPair::from_seed_and_public_key(
                     s.as_slice(),
                     p.as_slice(),
                 )
@@ -118,7 +122,7 @@ impl KeyPair {
                 .map(Self::Ed25519)
             }
 
-            (KeyBytes::Ed448(_), RawPublicKey::Ed448(_)) => {
+            (SecretKeyBytes::Ed448(_), PublicKeyBytes::Ed448(_)) => {
                 Err(FromBytesError::UnsupportedAlgorithm)
             }
 
@@ -140,12 +144,12 @@ impl SignRaw for KeyPair {
         }
     }
 
-    fn raw_public_key(&self) -> RawPublicKey {
+    fn raw_public_key(&self) -> PublicKeyBytes {
         match self {
             Self::RsaSha256 { key, rng: _ } => {
                 let components: ring::rsa::PublicKeyComponents<Vec<u8>> =
                     key.public().into();
-                RawPublicKey::RsaSha256(RsaPublicKey {
+                PublicKeyBytes::RsaSha256(RsaPublicKeyBytes {
                     n: components.n.into(),
                     e: components.e.into(),
                 })
@@ -154,19 +158,19 @@ impl SignRaw for KeyPair {
             Self::EcdsaP256Sha256 { key, rng: _ } => {
                 let key = key.public_key().as_ref();
                 let key = Box::<[u8]>::from(key);
-                RawPublicKey::EcdsaP256Sha256(key.try_into().unwrap())
+                PublicKeyBytes::EcdsaP256Sha256(key.try_into().unwrap())
             }
 
             Self::EcdsaP384Sha384 { key, rng: _ } => {
                 let key = key.public_key().as_ref();
                 let key = Box::<[u8]>::from(key);
-                RawPublicKey::EcdsaP384Sha384(key.try_into().unwrap())
+                PublicKeyBytes::EcdsaP384Sha384(key.try_into().unwrap())
             }
 
             Self::Ed25519(key) => {
                 let key = key.public_key().as_ref();
                 let key = Box::<[u8]>::from(key);
-                RawPublicKey::Ed25519(key.try_into().unwrap())
+                PublicKeyBytes::Ed25519(key.try_into().unwrap())
             }
         }
     }
@@ -222,7 +226,7 @@ impl SignRaw for KeyPair {
 pub fn generate(
     params: GenerateParams,
     rng: &dyn ring::rand::SecureRandom,
-) -> Result<(KeyBytes, RawPublicKey), GenerateError> {
+) -> Result<(SecretKeyBytes, PublicKeyBytes), GenerateError> {
     use ring::signature::{EcdsaKeyPair, Ed25519KeyPair};
 
     match params {
@@ -234,12 +238,12 @@ pub fn generate(
             // Manually parse the PKCS#8 document for the private key.
             let sk: Box<[u8]> = Box::from(&doc.as_ref()[36..68]);
             let sk = sk.try_into().unwrap();
-            let sk = KeyBytes::EcdsaP256Sha256(sk);
+            let sk = SecretKeyBytes::EcdsaP256Sha256(sk);
 
             // Manually parse the PKCS#8 document for the public key.
             let pk: Box<[u8]> = Box::from(&doc.as_ref()[73..138]);
             let pk = pk.try_into().unwrap();
-            let pk = RawPublicKey::EcdsaP256Sha256(pk);
+            let pk = PublicKeyBytes::EcdsaP256Sha256(pk);
 
             Ok((sk, pk))
         }
@@ -252,12 +256,12 @@ pub fn generate(
             // Manually parse the PKCS#8 document for the private key.
             let sk: Box<[u8]> = Box::from(&doc.as_ref()[35..83]);
             let sk = sk.try_into().unwrap();
-            let sk = KeyBytes::EcdsaP384Sha384(sk);
+            let sk = SecretKeyBytes::EcdsaP384Sha384(sk);
 
             // Manually parse the PKCS#8 document for the public key.
             let pk: Box<[u8]> = Box::from(&doc.as_ref()[88..185]);
             let pk = pk.try_into().unwrap();
-            let pk = RawPublicKey::EcdsaP384Sha384(pk);
+            let pk = PublicKeyBytes::EcdsaP384Sha384(pk);
 
             Ok((sk, pk))
         }
@@ -269,12 +273,12 @@ pub fn generate(
             // Manually parse the PKCS#8 document for the private key.
             let sk: Box<[u8]> = Box::from(&doc.as_ref()[16..48]);
             let sk = sk.try_into().unwrap();
-            let sk = KeyBytes::Ed25519(sk);
+            let sk = SecretKeyBytes::Ed25519(sk);
 
             // Manually parse the PKCS#8 document for the public key.
             let pk: Box<[u8]> = Box::from(&doc.as_ref()[51..83]);
             let pk = pk.try_into().unwrap();
-            let pk = RawPublicKey::Ed25519(pk);
+            let pk = PublicKeyBytes::Ed25519(pk);
 
             Ok((sk, pk))
         }
@@ -474,7 +478,7 @@ mod tests {
 
     use crate::{
         base::iana::SecAlg,
-        sign::{GenerateParams, KeyBytes, SignRaw},
+        sign::{GenerateParams, SecretKeyBytes, SignRaw},
         validate::Key,
     };
 
@@ -502,7 +506,7 @@ mod tests {
 
             let path = format!("test-data/dnssec-keys/K{}.private", name);
             let data = std::fs::read_to_string(path).unwrap();
-            let gen_key = KeyBytes::parse_from_bind(&data).unwrap();
+            let gen_key = SecretKeyBytes::parse_from_bind(&data).unwrap();
 
             let path = format!("test-data/dnssec-keys/K{}.key", name);
             let data = std::fs::read_to_string(path).unwrap();
@@ -535,7 +539,7 @@ mod tests {
 
             let path = format!("test-data/dnssec-keys/K{}.private", name);
             let data = std::fs::read_to_string(path).unwrap();
-            let gen_key = KeyBytes::parse_from_bind(&data).unwrap();
+            let gen_key = SecretKeyBytes::parse_from_bind(&data).unwrap();
 
             let path = format!("test-data/dnssec-keys/K{}.key", name);
             let data = std::fs::read_to_string(path).unwrap();

@@ -15,10 +15,12 @@ use openssl::{
 
 use crate::{
     base::iana::SecAlg,
-    validate::{RawPublicKey, RsaPublicKey, Signature},
+    validate::{PublicKeyBytes, RsaPublicKeyBytes, Signature},
 };
 
-use super::{GenerateParams, KeyBytes, RsaKeyBytes, SignError, SignRaw};
+use super::{
+    GenerateParams, RsaSecretKeyBytes, SecretKeyBytes, SignError, SignRaw,
+};
 
 //----------- KeyPair --------------------------------------------------------
 
@@ -36,8 +38,8 @@ pub struct KeyPair {
 impl KeyPair {
     /// Import a key pair from bytes into OpenSSL.
     pub fn from_bytes(
-        secret: &KeyBytes,
-        public: &RawPublicKey,
+        secret: &SecretKeyBytes,
+        public: &PublicKeyBytes,
     ) -> Result<Self, FromBytesError> {
         fn num(slice: &[u8]) -> Result<BigNum, FromBytesError> {
             let mut v = BigNum::new()?;
@@ -52,9 +54,9 @@ impl KeyPair {
         }
 
         let pkey = match (secret, public) {
-            (KeyBytes::RsaSha256(s), RawPublicKey::RsaSha256(p)) => {
+            (SecretKeyBytes::RsaSha256(s), PublicKeyBytes::RsaSha256(p)) => {
                 // Ensure that the public and private key match.
-                if p != &RsaPublicKey::from(s) {
+                if p != &RsaPublicKeyBytes::from(s) {
                     return Err(FromBytesError::InvalidKey);
                 }
 
@@ -83,8 +85,8 @@ impl KeyPair {
             }
 
             (
-                KeyBytes::EcdsaP256Sha256(s),
-                RawPublicKey::EcdsaP256Sha256(p),
+                SecretKeyBytes::EcdsaP256Sha256(s),
+                PublicKeyBytes::EcdsaP256Sha256(p),
             ) => {
                 use openssl::{bn, ec, nid};
 
@@ -99,8 +101,8 @@ impl KeyPair {
             }
 
             (
-                KeyBytes::EcdsaP384Sha384(s),
-                RawPublicKey::EcdsaP384Sha384(p),
+                SecretKeyBytes::EcdsaP384Sha384(s),
+                PublicKeyBytes::EcdsaP384Sha384(p),
             ) => {
                 use openssl::{bn, ec, nid};
 
@@ -114,7 +116,7 @@ impl KeyPair {
                 PKey::from_ec_key(k)?
             }
 
-            (KeyBytes::Ed25519(s), RawPublicKey::Ed25519(p)) => {
+            (SecretKeyBytes::Ed25519(s), PublicKeyBytes::Ed25519(p)) => {
                 use openssl::memcmp;
 
                 let id = pkey::Id::ED25519;
@@ -126,7 +128,7 @@ impl KeyPair {
                 }
             }
 
-            (KeyBytes::Ed448(s), RawPublicKey::Ed448(p)) => {
+            (SecretKeyBytes::Ed448(s), PublicKeyBytes::Ed448(p)) => {
                 use openssl::memcmp;
 
                 let id = pkey::Id::ED448;
@@ -153,12 +155,12 @@ impl KeyPair {
     /// # Panics
     ///
     /// Panics if OpenSSL fails or if memory could not be allocated.
-    pub fn to_bytes(&self) -> KeyBytes {
+    pub fn to_bytes(&self) -> SecretKeyBytes {
         // TODO: Consider security implications of secret data in 'Vec's.
         match self.algorithm {
             SecAlg::RSASHA256 => {
                 let key = self.pkey.rsa().unwrap();
-                KeyBytes::RsaSha256(RsaKeyBytes {
+                SecretKeyBytes::RsaSha256(RsaSecretKeyBytes {
                     n: key.n().to_vec().into(),
                     e: key.e().to_vec().into(),
                     d: key.d().to_vec().into(),
@@ -172,20 +174,20 @@ impl KeyPair {
             SecAlg::ECDSAP256SHA256 => {
                 let key = self.pkey.ec_key().unwrap();
                 let key = key.private_key().to_vec_padded(32).unwrap();
-                KeyBytes::EcdsaP256Sha256(key.try_into().unwrap())
+                SecretKeyBytes::EcdsaP256Sha256(key.try_into().unwrap())
             }
             SecAlg::ECDSAP384SHA384 => {
                 let key = self.pkey.ec_key().unwrap();
                 let key = key.private_key().to_vec_padded(48).unwrap();
-                KeyBytes::EcdsaP384Sha384(key.try_into().unwrap())
+                SecretKeyBytes::EcdsaP384Sha384(key.try_into().unwrap())
             }
             SecAlg::ED25519 => {
                 let key = self.pkey.raw_private_key().unwrap();
-                KeyBytes::Ed25519(key.try_into().unwrap())
+                SecretKeyBytes::Ed25519(key.try_into().unwrap())
             }
             SecAlg::ED448 => {
                 let key = self.pkey.raw_private_key().unwrap();
-                KeyBytes::Ed448(key.try_into().unwrap())
+                SecretKeyBytes::Ed448(key.try_into().unwrap())
             }
             _ => unreachable!(),
         }
@@ -248,11 +250,11 @@ impl SignRaw for KeyPair {
         self.algorithm
     }
 
-    fn raw_public_key(&self) -> RawPublicKey {
+    fn raw_public_key(&self) -> PublicKeyBytes {
         match self.algorithm {
             SecAlg::RSASHA256 => {
                 let key = self.pkey.rsa().unwrap();
-                RawPublicKey::RsaSha256(RsaPublicKey {
+                PublicKeyBytes::RsaSha256(RsaPublicKeyBytes {
                     n: key.n().to_vec().into(),
                     e: key.e().to_vec().into(),
                 })
@@ -265,7 +267,7 @@ impl SignRaw for KeyPair {
                     .public_key()
                     .to_bytes(key.group(), form, &mut ctx)
                     .unwrap();
-                RawPublicKey::EcdsaP256Sha256(key.try_into().unwrap())
+                PublicKeyBytes::EcdsaP256Sha256(key.try_into().unwrap())
             }
             SecAlg::ECDSAP384SHA384 => {
                 let key = self.pkey.ec_key().unwrap();
@@ -275,15 +277,15 @@ impl SignRaw for KeyPair {
                     .public_key()
                     .to_bytes(key.group(), form, &mut ctx)
                     .unwrap();
-                RawPublicKey::EcdsaP384Sha384(key.try_into().unwrap())
+                PublicKeyBytes::EcdsaP384Sha384(key.try_into().unwrap())
             }
             SecAlg::ED25519 => {
                 let key = self.pkey.raw_public_key().unwrap();
-                RawPublicKey::Ed25519(key.try_into().unwrap())
+                PublicKeyBytes::Ed25519(key.try_into().unwrap())
             }
             SecAlg::ED448 => {
                 let key = self.pkey.raw_public_key().unwrap();
-                RawPublicKey::Ed448(key.try_into().unwrap())
+                PublicKeyBytes::Ed448(key.try_into().unwrap())
             }
             _ => unreachable!(),
         }
@@ -435,7 +437,7 @@ mod tests {
 
     use crate::{
         base::iana::SecAlg,
-        sign::{GenerateParams, KeyBytes, SignRaw},
+        sign::{GenerateParams, SecretKeyBytes, SignRaw},
         validate::Key,
     };
 
@@ -498,7 +500,7 @@ mod tests {
 
             let path = format!("test-data/dnssec-keys/K{}.private", name);
             let data = std::fs::read_to_string(path).unwrap();
-            let gen_key = KeyBytes::parse_from_bind(&data).unwrap();
+            let gen_key = SecretKeyBytes::parse_from_bind(&data).unwrap();
 
             let key = KeyPair::from_bytes(&gen_key, pub_key).unwrap();
 
@@ -520,7 +522,7 @@ mod tests {
 
             let path = format!("test-data/dnssec-keys/K{}.private", name);
             let data = std::fs::read_to_string(path).unwrap();
-            let gen_key = KeyBytes::parse_from_bind(&data).unwrap();
+            let gen_key = SecretKeyBytes::parse_from_bind(&data).unwrap();
 
             let path = format!("test-data/dnssec-keys/K{}.key", name);
             let data = std::fs::read_to_string(path).unwrap();
@@ -541,7 +543,7 @@ mod tests {
 
             let path = format!("test-data/dnssec-keys/K{}.private", name);
             let data = std::fs::read_to_string(path).unwrap();
-            let gen_key = KeyBytes::parse_from_bind(&data).unwrap();
+            let gen_key = SecretKeyBytes::parse_from_bind(&data).unwrap();
 
             let path = format!("test-data/dnssec-keys/K{}.key", name);
             let data = std::fs::read_to_string(path).unwrap();
