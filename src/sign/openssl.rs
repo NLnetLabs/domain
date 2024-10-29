@@ -20,10 +20,10 @@ use crate::{
 
 use super::{GenerateParams, KeyBytes, RsaKeyBytes, SignError, SignRaw};
 
-//----------- SecretKey ------------------------------------------------------
+//----------- KeyPair --------------------------------------------------------
 
 /// A key pair backed by OpenSSL.
-pub struct SecretKey {
+pub struct KeyPair {
     /// The algorithm used by the key.
     algorithm: SecAlg,
 
@@ -33,8 +33,8 @@ pub struct SecretKey {
 
 //--- Conversion to and from bytes
 
-impl SecretKey {
-    /// Import a secret key from bytes into OpenSSL.
+impl KeyPair {
+    /// Import a key pair from bytes into OpenSSL.
     pub fn from_bytes(
         secret: &KeyBytes,
         public: &RawPublicKey,
@@ -148,7 +148,7 @@ impl SecretKey {
         })
     }
 
-    /// Export this secret key into bytes.
+    /// Export the secret key into bytes.
     ///
     /// # Panics
     ///
@@ -194,7 +194,7 @@ impl SecretKey {
 
 //--- Signing
 
-impl SecretKey {
+impl KeyPair {
     fn sign(&self, data: &[u8]) -> Result<Vec<u8>, ErrorStack> {
         use openssl::hash::MessageDigest;
         use openssl::sign::Signer;
@@ -243,7 +243,7 @@ impl SecretKey {
 
 //--- SignRaw
 
-impl SignRaw for SecretKey {
+impl SignRaw for KeyPair {
     fn algorithm(&self) -> SecAlg {
         self.algorithm
     }
@@ -324,7 +324,7 @@ impl SignRaw for SecretKey {
 //----------- generate() -----------------------------------------------------
 
 /// Generate a new secret key for the given algorithm.
-pub fn generate(params: GenerateParams) -> Result<SecretKey, GenerateError> {
+pub fn generate(params: GenerateParams) -> Result<KeyPair, GenerateError> {
     let algorithm = params.algorithm();
     let pkey = match params {
         GenerateParams::RsaSha256 { bits } => {
@@ -344,14 +344,14 @@ pub fn generate(params: GenerateParams) -> Result<SecretKey, GenerateError> {
         GenerateParams::Ed448 => PKey::generate_ed448()?,
     };
 
-    Ok(SecretKey { algorithm, pkey })
+    Ok(KeyPair { algorithm, pkey })
 }
 
 //============ Error Types ===================================================
 
 //----------- FromBytesError -----------------------------------------------
 
-/// An error in importing a key from bytes into OpenSSL.
+/// An error in importing a key pair from bytes into OpenSSL.
 #[derive(Clone, Debug)]
 pub enum FromBytesError {
     /// The requested algorithm was not supported.
@@ -392,7 +392,7 @@ impl std::error::Error for FromBytesError {}
 
 //----------- GenerateError --------------------------------------------------
 
-/// An error in generating a key with OpenSSL.
+/// An error in generating a key pair with OpenSSL.
 #[derive(Clone, Debug)]
 pub enum GenerateError {
     /// The requested algorithm was not supported.
@@ -439,7 +439,7 @@ mod tests {
         validate::Key,
     };
 
-    use super::SecretKey;
+    use super::KeyPair;
 
     const KEYS: &[(SecAlg, u16)] = &[
         (SecAlg::RSASHA256, 60616),
@@ -480,7 +480,7 @@ mod tests {
             let key = super::generate(params).unwrap();
             let gen_key = key.to_bytes();
             let pub_key = key.raw_public_key();
-            let equiv = SecretKey::from_bytes(&gen_key, &pub_key).unwrap();
+            let equiv = KeyPair::from_bytes(&gen_key, &pub_key).unwrap();
             assert!(key.pkey.public_eq(&equiv.pkey));
         }
     }
@@ -500,7 +500,7 @@ mod tests {
             let data = std::fs::read_to_string(path).unwrap();
             let gen_key = KeyBytes::parse_from_bind(&data).unwrap();
 
-            let key = SecretKey::from_bytes(&gen_key, pub_key).unwrap();
+            let key = KeyPair::from_bytes(&gen_key, pub_key).unwrap();
 
             let equiv = key.to_bytes();
             let mut same = String::new();
@@ -527,7 +527,7 @@ mod tests {
             let pub_key = Key::<Vec<u8>>::parse_from_bind(&data).unwrap();
             let pub_key = pub_key.raw_public_key();
 
-            let key = SecretKey::from_bytes(&gen_key, pub_key).unwrap();
+            let key = KeyPair::from_bytes(&gen_key, pub_key).unwrap();
 
             assert_eq!(key.raw_public_key(), *pub_key);
         }
@@ -548,7 +548,7 @@ mod tests {
             let pub_key = Key::<Vec<u8>>::parse_from_bind(&data).unwrap();
             let pub_key = pub_key.raw_public_key();
 
-            let key = SecretKey::from_bytes(&gen_key, pub_key).unwrap();
+            let key = KeyPair::from_bytes(&gen_key, pub_key).unwrap();
 
             let _ = key.sign_raw(b"Hello, World!").unwrap();
         }

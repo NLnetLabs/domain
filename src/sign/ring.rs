@@ -6,7 +6,7 @@
 use core::fmt;
 use std::{boxed::Box, sync::Arc, vec::Vec};
 
-use ring::signature::KeyPair;
+use ring::signature::KeyPair as _;
 
 use crate::{
     base::iana::SecAlg,
@@ -15,10 +15,10 @@ use crate::{
 
 use super::{GenerateParams, KeyBytes, SignError, SignRaw};
 
-//----------- SecretKey ------------------------------------------------------
+//----------- KeyPair --------------------------------------------------------
 
 /// A key pair backed by `ring`.
-pub enum SecretKey {
+pub enum KeyPair {
     /// An RSA/SHA-256 keypair.
     RsaSha256 {
         key: ring::signature::RsaKeyPair,
@@ -43,8 +43,8 @@ pub enum SecretKey {
 
 //--- Conversion from bytes
 
-impl SecretKey {
-    /// Import a secret key from bytes into OpenSSL.
+impl KeyPair {
+    /// Import a key pair from bytes into OpenSSL.
     pub fn from_bytes(
         secret: &KeyBytes,
         public: &RawPublicKey,
@@ -122,7 +122,7 @@ impl SecretKey {
 
 //--- SignRaw
 
-impl SignRaw for SecretKey {
+impl SignRaw for KeyPair {
     fn algorithm(&self) -> SecAlg {
         match self {
             Self::RsaSha256 { .. } => SecAlg::RSASHA256,
@@ -206,7 +206,11 @@ impl SignRaw for SecretKey {
 
 //----------- generate() -----------------------------------------------------
 
-/// Generate a new secret key for the given algorithm.
+/// Generate a new key pair for the given algorithm.
+///
+/// While this uses Ring internally, the opaque nature of Ring means that it
+/// is not possible to export a secret key from [`KeyPair`].  Thus, the bytes
+/// of the secret key are returned directly.
 pub fn generate(
     params: GenerateParams,
     rng: &dyn ring::rand::SecureRandom,
@@ -273,7 +277,7 @@ pub fn generate(
 
 //============ Error Types ===================================================
 
-/// An error in importing a key from bytes into Ring.
+/// An error in importing a key pair from bytes into Ring.
 #[derive(Clone, Debug)]
 pub enum FromBytesError {
     /// The requested algorithm was not supported.
@@ -304,7 +308,7 @@ impl std::error::Error for FromBytesError {}
 
 //----------- GenerateError --------------------------------------------------
 
-/// An error in generating a key with Ring.
+/// An error in generating a key pair with Ring.
 #[derive(Clone, Debug)]
 pub enum GenerateError {
     /// The requested algorithm was not supported.
@@ -351,7 +355,7 @@ mod tests {
         validate::Key,
     };
 
-    use super::SecretKey;
+    use super::KeyPair;
 
     const KEYS: &[(SecAlg, u16)] = &[
         (SecAlg::RSASHA256, 60616),
@@ -382,8 +386,8 @@ mod tests {
             let pub_key = Key::<Vec<u8>>::parse_from_bind(&data).unwrap();
             let pub_key = pub_key.raw_public_key();
 
-            let key = SecretKey::from_bytes(&gen_key, pub_key, rng.clone())
-                .unwrap();
+            let key =
+                KeyPair::from_bytes(&gen_key, pub_key, rng.clone()).unwrap();
 
             assert_eq!(key.raw_public_key(), *pub_key);
         }
@@ -394,7 +398,7 @@ mod tests {
         let rng = Arc::new(ring::rand::SystemRandom::new());
         for params in GENERATE_PARAMS {
             let (sk, pk) = super::generate(params.clone(), &*rng).unwrap();
-            let key = SecretKey::from_bytes(&sk, &pk, rng.clone()).unwrap();
+            let key = KeyPair::from_bytes(&sk, &pk, rng.clone()).unwrap();
             assert_eq!(key.raw_public_key(), pk);
         }
     }
@@ -415,7 +419,7 @@ mod tests {
             let pub_key = Key::<Vec<u8>>::parse_from_bind(&data).unwrap();
             let pub_key = pub_key.raw_public_key();
 
-            let key = SecretKey::from_bytes(&gen_key, pub_key, rng).unwrap();
+            let key = KeyPair::from_bytes(&gen_key, pub_key, rng).unwrap();
 
             let _ = key.sign_raw(b"Hello, World!").unwrap();
         }

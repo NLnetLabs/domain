@@ -18,7 +18,7 @@ use super::openssl;
 #[cfg(feature = "ring")]
 use super::ring;
 
-//----------- SecretKey ------------------------------------------------------
+//----------- KeyPair --------------------------------------------------------
 
 /// A key pair based on a built-in backend.
 ///
@@ -26,20 +26,20 @@ use super::ring;
 /// Wherever possible, the Ring backend is preferred over OpenSSL -- but for
 /// more uncommon or insecure algorithms, that Ring does not support, OpenSSL
 /// must be used.
-pub enum SecretKey {
+pub enum KeyPair {
     /// A key backed by Ring.
     #[cfg(feature = "ring")]
-    Ring(ring::SecretKey),
+    Ring(ring::KeyPair),
 
     /// A key backed by OpenSSL.
     #[cfg(feature = "openssl")]
-    OpenSSL(openssl::SecretKey),
+    OpenSSL(openssl::KeyPair),
 }
 
-//--- Conversion to and from bytes keys
+//--- Conversion to and from bytes
 
-impl SecretKey {
-    /// Import a secret key from bytes.
+impl KeyPair {
+    /// Import a key pair from bytes.
     pub fn from_bytes(
         secret: &KeyBytes,
         public: &RawPublicKey,
@@ -54,20 +54,20 @@ impl SecretKey {
                 if k.n.len() >= 2048 / 8 =>
             {
                 let rng = Arc::new(SystemRandom::new());
-                let key = ring::SecretKey::from_bytes(secret, public, rng)?;
+                let key = ring::KeyPair::from_bytes(secret, public, rng)?;
                 return Ok(Self::Ring(key));
             }
 
             RawPublicKey::EcdsaP256Sha256(_)
             | RawPublicKey::EcdsaP384Sha384(_) => {
                 let rng = Arc::new(SystemRandom::new());
-                let key = ring::SecretKey::from_bytes(secret, public, rng)?;
+                let key = ring::KeyPair::from_bytes(secret, public, rng)?;
                 return Ok(Self::Ring(key));
             }
 
             RawPublicKey::Ed25519(_) => {
                 let rng = Arc::new(SystemRandom::new());
-                let key = ring::SecretKey::from_bytes(secret, public, rng)?;
+                let key = ring::KeyPair::from_bytes(secret, public, rng)?;
                 return Ok(Self::Ring(key));
             }
 
@@ -76,7 +76,7 @@ impl SecretKey {
 
         // Fall back to OpenSSL.
         #[cfg(feature = "openssl")]
-        return Ok(Self::OpenSSL(openssl::SecretKey::from_bytes(
+        return Ok(Self::OpenSSL(openssl::KeyPair::from_bytes(
             secret, public,
         )?));
 
@@ -88,7 +88,7 @@ impl SecretKey {
 
 //--- SignRaw
 
-impl SignRaw for SecretKey {
+impl SignRaw for KeyPair {
     fn algorithm(&self) -> SecAlg {
         match self {
             #[cfg(feature = "ring")]
@@ -151,7 +151,7 @@ pub fn generate(
 
 //----------- FromBytesError -----------------------------------------------
 
-/// An error in importing a key from bytes.
+/// An error in importing a key pair from bytes.
 #[derive(Clone, Debug)]
 pub enum FromBytesError {
     /// The requested algorithm was not supported.
@@ -216,7 +216,7 @@ impl std::error::Error for FromBytesError {}
 
 //----------- GenerateError --------------------------------------------------
 
-/// An error in generating a key.
+/// An error in generating a key pair.
 #[derive(Clone, Debug)]
 pub enum GenerateError {
     /// The requested algorithm was not supported.
