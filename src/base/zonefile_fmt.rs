@@ -277,8 +277,8 @@ mod test {
         assert_eq!(
             [
                 "example.com. 3600 IN DS ( 5414\t; key tag",
-                "                          15\t; algorithm: 15(ED25519)",
-                "                          2\t; digest type: 2(SHA-256)",
+                "                          15\t; algorithm: ED25519",
+                "                          2\t; digest type: SHA-256",
                 "                          DEADBEEF )",
             ]
             .join("\n"),
