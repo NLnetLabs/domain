@@ -13,7 +13,7 @@ use octseq::{FreezeBuilder, OctetsFrom, OctetsInto};
 use tracing::{debug, enabled, Level};
 
 use crate::base::cmp::CanonicalOrd;
-use crate::base::iana::{Class, Nsec3HashAlg, Rtype, SecAlg};
+use crate::base::iana::{Class, Nsec3HashAlg, Rtype};
 use crate::base::name::{ToLabelIter, ToName};
 use crate::base::rdata::{ComposeRecordData, RecordData};
 use crate::base::record::Record;
@@ -24,10 +24,9 @@ use crate::rdata::dnssec::{
 use crate::rdata::nsec3::{Nsec3Salt, OwnerHash};
 use crate::rdata::{Dnskey, Nsec, Nsec3, Nsec3param, ZoneRecordData};
 use crate::utils::base32;
-use crate::validate;
 
 use super::ring::{nsec3_hash, Nsec3HashError};
-use super::SignRaw;
+use super::{SignRaw, SigningKey};
 
 //------------ SortedRecords -------------------------------------------------
 
@@ -91,12 +90,12 @@ impl<N, D> SortedRecords<N, D> {
     /// AND has the SEP flag set, it will be used as a CSK (i.e. both KSK and
     /// ZSK).
     #[allow(clippy::type_complexity)]
-    pub fn sign<Octets, SigningKey>(
+    pub fn sign<Octets, ConcreteSecretKey>(
         &self,
         apex: &FamilyName<N>,
         expiration: Timestamp,
         inception: Timestamp,
-        keys: &[(SigningKey, validate::Key<Octets>)], // private, public key pair
+        keys: &[SigningKey<Octets, ConcreteSecretKey>],
     ) -> Result<Vec<Record<N, ZoneRecordData<Octets, N>>>, ()>
     where
         N: ToName + Clone,
@@ -104,35 +103,16 @@ impl<N, D> SortedRecords<N, D> {
             + RecordData
             + ComposeRecordData
             + From<Dnskey<Octets>>,
-        SigningKey: SignRaw,
+        ConcreteSecretKey: SignRaw,
         Octets: AsRef<[u8]>
             + Clone
             + From<Box<[u8]>>
             + octseq::OctetsFrom<std::vec::Vec<u8>>,
     {
-        // Per RFC 8624 section 3.1 "DNSSEC Signing" column guidance.
-        let unsupported_algorithms = [
-            SecAlg::RSAMD5,
-            SecAlg::DSA,
-            SecAlg::DSA_NSEC3_SHA1,
-            SecAlg::ECC_GOST,
-        ];
-
-        let mut ksks: Vec<&(SigningKey, validate::Key<Octets>)> = keys
+        let (mut ksks, mut zsks): (Vec<_>, Vec<_>) = keys
             .iter()
-            .filter(|(k, _)| !unsupported_algorithms.contains(&k.algorithm()))
-            .filter(|(_, dk)| {
-                dk.is_zone_signing_key() && dk.is_secure_entry_point()
-            })
-            .collect();
-
-        let mut zsks: Vec<&(SigningKey, validate::Key<Octets>)> = keys
-            .iter()
-            .filter(|(k, _)| !unsupported_algorithms.contains(&k.algorithm()))
-            .filter(|(_, dk)| {
-                dk.is_zone_signing_key() && !dk.is_secure_entry_point()
-            })
-            .collect();
+            .filter(|k| k.is_zone_signing_key())
+            .partition(|k| k.is_secure_entry_point());
 
         // CSK?
         if !ksks.is_empty() && zsks.is_empty() {
@@ -144,13 +124,12 @@ impl<N, D> SortedRecords<N, D> {
         if enabled!(Level::DEBUG) {
             for key in keys {
                 debug!(
-                    "Key   : {} [supported={}], owner={}, flags={} (SEP={}, ZSK={}))",
-                    key.0.algorithm(),
-                    !unsupported_algorithms.contains(&key.0.algorithm()),
-                    key.1.owner(),
-                    key.1.flags(),
-                    key.1.is_secure_entry_point(),
-                    key.1.is_zone_signing_key(),
+                    "Key   : {}, owner={}, flags={} (SEP={}, ZSK={}))",
+                    key.algorithm(),
+                    key.owner(),
+                    key.flags(),
+                    key.is_secure_entry_point(),
+                    key.is_zone_signing_key(),
                 )
             }
             debug!("# KSKs: {}", ksks.len());
@@ -173,7 +152,7 @@ impl<N, D> SortedRecords<N, D> {
 
         let mut dnskey_rrs = SortedRecords::new();
 
-        for public_key in keys.iter().map(|(_, public_key)| public_key) {
+        for public_key in keys.iter().map(|k| k.public_key()) {
             let dnskey: Dnskey<Octets> =
                 Dnskey::convert(public_key.to_dnskey());
             dnskey_rrs
@@ -244,15 +223,15 @@ impl<N, D> SortedRecords<N, D> {
                     &zsks
                 };
 
-                for (private_key, public_key) in keys {
+                for key in keys {
                     let rrsig = ProtoRrsig::new(
                         rrset.rtype(),
-                        private_key.algorithm(),
+                        key.algorithm(),
                         name.owner().rrsig_label_count(),
                         rrset.ttl(),
                         expiration,
                         inception,
-                        public_key.key_tag(),
+                        key.public_key().key_tag(),
                         apex.owner().clone(),
                     );
 
@@ -261,7 +240,8 @@ impl<N, D> SortedRecords<N, D> {
                     for record in rrset.iter() {
                         record.compose_canonical(&mut buf).unwrap();
                     }
-                    let signature = private_key.sign_raw(&buf);
+                    let signature =
+                        key.raw_secret_key().sign_raw(&buf).unwrap();
                     let signature = signature.as_ref().to_vec();
                     let Ok(signature) = signature.try_octets_into() else {
                         return Err(());
