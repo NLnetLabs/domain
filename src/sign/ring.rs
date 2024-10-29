@@ -7,7 +7,7 @@ use core::fmt;
 use std::{boxed::Box, sync::Arc, vec::Vec};
 
 use octseq::{EmptyBuilder, OctetsBuilder, Truncate};
-use ring::{digest::SHA1_FOR_LEGACY_USE_ONLY, signature::KeyPair};
+use ring::{digest::SHA1_FOR_LEGACY_USE_ONLY, signature::KeyPair as _};
 
 use crate::{
     base::{
@@ -21,15 +21,12 @@ use crate::{
     validate::{RawPublicKey, RsaPublicKey, Signature},
 };
 
-use super::{
-    generic::{self, GenerateParams},
-    SignError, SignRaw,
-};
+use super::{GenerateParams, KeyBytes, SignError, SignRaw};
 
-//----------- SecretKey ------------------------------------------------------
+//----------- KeyPair --------------------------------------------------------
 
 /// A key pair backed by `ring`.
-pub enum SecretKey {
+pub enum KeyPair {
     /// An RSA/SHA-256 keypair.
     RsaSha256 {
         key: ring::signature::RsaKeyPair,
@@ -52,28 +49,25 @@ pub enum SecretKey {
     Ed25519(ring::signature::Ed25519KeyPair),
 }
 
-//--- Conversion from generic keys
+//--- Conversion from bytes
 
-impl SecretKey {
-    /// Use a generic keypair with `ring`.
-    pub fn from_generic(
-        secret: &generic::SecretKey,
+impl KeyPair {
+    /// Import a key pair from bytes into OpenSSL.
+    pub fn from_bytes(
+        secret: &KeyBytes,
         public: &RawPublicKey,
         rng: Arc<dyn ring::rand::SecureRandom>,
-    ) -> Result<Self, FromGenericError> {
+    ) -> Result<Self, FromBytesError> {
         match (secret, public) {
-            (
-                generic::SecretKey::RsaSha256(s),
-                RawPublicKey::RsaSha256(p),
-            ) => {
+            (KeyBytes::RsaSha256(s), RawPublicKey::RsaSha256(p)) => {
                 // Ensure that the public and private key match.
                 if p != &RsaPublicKey::from(s) {
-                    return Err(FromGenericError::InvalidKey);
+                    return Err(FromBytesError::InvalidKey);
                 }
 
                 // Ensure that the key is strong enough.
                 if p.n.len() < 2048 / 8 {
-                    return Err(FromGenericError::WeakKey);
+                    return Err(FromBytesError::WeakKey);
                 }
 
                 let components = ring::rsa::KeyPairComponents {
@@ -89,54 +83,54 @@ impl SecretKey {
                     qInv: s.q_i.as_ref(),
                 };
                 ring::signature::RsaKeyPair::from_components(&components)
-                    .map_err(|_| FromGenericError::InvalidKey)
+                    .map_err(|_| FromBytesError::InvalidKey)
                     .map(|key| Self::RsaSha256 { key, rng })
             }
 
             (
-                generic::SecretKey::EcdsaP256Sha256(s),
+                KeyBytes::EcdsaP256Sha256(s),
                 RawPublicKey::EcdsaP256Sha256(p),
             ) => {
                 let alg = &ring::signature::ECDSA_P256_SHA256_FIXED_SIGNING;
                 ring::signature::EcdsaKeyPair::from_private_key_and_public_key(
                         alg, s.as_slice(), p.as_slice(), &*rng)
-                    .map_err(|_| FromGenericError::InvalidKey)
+                    .map_err(|_| FromBytesError::InvalidKey)
                     .map(|key| Self::EcdsaP256Sha256 { key, rng })
             }
 
             (
-                generic::SecretKey::EcdsaP384Sha384(s),
+                KeyBytes::EcdsaP384Sha384(s),
                 RawPublicKey::EcdsaP384Sha384(p),
             ) => {
                 let alg = &ring::signature::ECDSA_P384_SHA384_FIXED_SIGNING;
                 ring::signature::EcdsaKeyPair::from_private_key_and_public_key(
                         alg, s.as_slice(), p.as_slice(), &*rng)
-                    .map_err(|_| FromGenericError::InvalidKey)
+                    .map_err(|_| FromBytesError::InvalidKey)
                     .map(|key| Self::EcdsaP384Sha384 { key, rng })
             }
 
-            (generic::SecretKey::Ed25519(s), RawPublicKey::Ed25519(p)) => {
+            (KeyBytes::Ed25519(s), RawPublicKey::Ed25519(p)) => {
                 ring::signature::Ed25519KeyPair::from_seed_and_public_key(
                     s.as_slice(),
                     p.as_slice(),
                 )
-                .map_err(|_| FromGenericError::InvalidKey)
+                .map_err(|_| FromBytesError::InvalidKey)
                 .map(Self::Ed25519)
             }
 
-            (generic::SecretKey::Ed448(_), RawPublicKey::Ed448(_)) => {
-                Err(FromGenericError::UnsupportedAlgorithm)
+            (KeyBytes::Ed448(_), RawPublicKey::Ed448(_)) => {
+                Err(FromBytesError::UnsupportedAlgorithm)
             }
 
             // The public and private key types did not match.
-            _ => Err(FromGenericError::InvalidKey),
+            _ => Err(FromBytesError::InvalidKey),
         }
     }
 }
 
 //--- SignRaw
 
-impl SignRaw for SecretKey {
+impl SignRaw for KeyPair {
     fn algorithm(&self) -> SecAlg {
         match self {
             Self::RsaSha256 { .. } => SecAlg::RSASHA256,
@@ -220,11 +214,15 @@ impl SignRaw for SecretKey {
 
 //----------- generate() -----------------------------------------------------
 
-/// Generate a new secret key for the given algorithm.
+/// Generate a new key pair for the given algorithm.
+///
+/// While this uses Ring internally, the opaque nature of Ring means that it
+/// is not possible to export a secret key from [`KeyPair`].  Thus, the bytes
+/// of the secret key are returned directly.
 pub fn generate(
     params: GenerateParams,
     rng: &dyn ring::rand::SecureRandom,
-) -> Result<(generic::SecretKey, RawPublicKey), GenerateError> {
+) -> Result<(KeyBytes, RawPublicKey), GenerateError> {
     use ring::signature::{EcdsaKeyPair, Ed25519KeyPair};
 
     match params {
@@ -236,7 +234,7 @@ pub fn generate(
             // Manually parse the PKCS#8 document for the private key.
             let sk: Box<[u8]> = Box::from(&doc.as_ref()[36..68]);
             let sk = sk.try_into().unwrap();
-            let sk = generic::SecretKey::EcdsaP256Sha256(sk);
+            let sk = KeyBytes::EcdsaP256Sha256(sk);
 
             // Manually parse the PKCS#8 document for the public key.
             let pk: Box<[u8]> = Box::from(&doc.as_ref()[73..138]);
@@ -254,7 +252,7 @@ pub fn generate(
             // Manually parse the PKCS#8 document for the private key.
             let sk: Box<[u8]> = Box::from(&doc.as_ref()[35..83]);
             let sk = sk.try_into().unwrap();
-            let sk = generic::SecretKey::EcdsaP384Sha384(sk);
+            let sk = KeyBytes::EcdsaP384Sha384(sk);
 
             // Manually parse the PKCS#8 document for the public key.
             let pk: Box<[u8]> = Box::from(&doc.as_ref()[88..185]);
@@ -271,7 +269,7 @@ pub fn generate(
             // Manually parse the PKCS#8 document for the private key.
             let sk: Box<[u8]> = Box::from(&doc.as_ref()[16..48]);
             let sk = sk.try_into().unwrap();
-            let sk = generic::SecretKey::Ed25519(sk);
+            let sk = KeyBytes::Ed25519(sk);
 
             // Manually parse the PKCS#8 document for the public key.
             let pk: Box<[u8]> = Box::from(&doc.as_ref()[51..83]);
@@ -287,9 +285,9 @@ pub fn generate(
 
 //============ Error Types ===================================================
 
-/// An error in importing a key into `ring`.
+/// An error in importing a key pair from bytes into Ring.
 #[derive(Clone, Debug)]
-pub enum FromGenericError {
+pub enum FromBytesError {
     /// The requested algorithm was not supported.
     UnsupportedAlgorithm,
 
@@ -302,7 +300,7 @@ pub enum FromGenericError {
 
 //--- Formatting
 
-impl fmt::Display for FromGenericError {
+impl fmt::Display for FromBytesError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(match self {
             Self::UnsupportedAlgorithm => "algorithm not supported",
@@ -314,11 +312,11 @@ impl fmt::Display for FromGenericError {
 
 //--- Error
 
-impl std::error::Error for FromGenericError {}
+impl std::error::Error for FromBytesError {}
 
 //----------- GenerateError --------------------------------------------------
 
-/// An error in generating a key with Ring.
+/// An error in generating a key pair with Ring.
 #[derive(Clone, Debug)]
 pub enum GenerateError {
     /// The requested algorithm was not supported.
@@ -476,14 +474,11 @@ mod tests {
 
     use crate::{
         base::iana::SecAlg,
-        sign::{
-            generic::{self, GenerateParams},
-            SignRaw,
-        },
+        sign::{GenerateParams, KeyBytes, SignRaw},
         validate::Key,
     };
 
-    use super::SecretKey;
+    use super::KeyPair;
 
     const KEYS: &[(SecAlg, u16)] = &[
         (SecAlg::RSASHA256, 60616),
@@ -507,15 +502,15 @@ mod tests {
 
             let path = format!("test-data/dnssec-keys/K{}.private", name);
             let data = std::fs::read_to_string(path).unwrap();
-            let gen_key = generic::SecretKey::parse_from_bind(&data).unwrap();
+            let gen_key = KeyBytes::parse_from_bind(&data).unwrap();
 
             let path = format!("test-data/dnssec-keys/K{}.key", name);
             let data = std::fs::read_to_string(path).unwrap();
             let pub_key = Key::<Vec<u8>>::parse_from_bind(&data).unwrap();
             let pub_key = pub_key.raw_public_key();
 
-            let key = SecretKey::from_generic(&gen_key, pub_key, rng.clone())
-                .unwrap();
+            let key =
+                KeyPair::from_bytes(&gen_key, pub_key, rng.clone()).unwrap();
 
             assert_eq!(key.raw_public_key(), *pub_key);
         }
@@ -526,7 +521,7 @@ mod tests {
         let rng = Arc::new(ring::rand::SystemRandom::new());
         for params in GENERATE_PARAMS {
             let (sk, pk) = super::generate(params.clone(), &*rng).unwrap();
-            let key = SecretKey::from_generic(&sk, &pk, rng.clone()).unwrap();
+            let key = KeyPair::from_bytes(&sk, &pk, rng.clone()).unwrap();
             assert_eq!(key.raw_public_key(), pk);
         }
     }
@@ -540,15 +535,14 @@ mod tests {
 
             let path = format!("test-data/dnssec-keys/K{}.private", name);
             let data = std::fs::read_to_string(path).unwrap();
-            let gen_key = generic::SecretKey::parse_from_bind(&data).unwrap();
+            let gen_key = KeyBytes::parse_from_bind(&data).unwrap();
 
             let path = format!("test-data/dnssec-keys/K{}.key", name);
             let data = std::fs::read_to_string(path).unwrap();
             let pub_key = Key::<Vec<u8>>::parse_from_bind(&data).unwrap();
             let pub_key = pub_key.raw_public_key();
 
-            let key =
-                SecretKey::from_generic(&gen_key, pub_key, rng).unwrap();
+            let key = KeyPair::from_bytes(&gen_key, pub_key, rng).unwrap();
 
             let _ = key.sign_raw(b"Hello, World!").unwrap();
         }

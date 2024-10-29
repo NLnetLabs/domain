@@ -209,12 +209,7 @@ macro_rules! int_enum_str_decimal {
 
         impl core::fmt::Display for $ianatype {
             fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
-                write!(f, "{}", self.to_int())?;
-
-                if let Some(m) = self.to_mnemonic_str() {
-                    write!(f, "({m})")?;
-                }
-                Ok(())
+                write!(f, "{}", self.to_int())
             }
         }
 
@@ -445,7 +440,11 @@ macro_rules! int_enum_zonefile_fmt_decimal {
                 p: &mut impl $crate::base::zonefile_fmt::Formatter,
             ) -> $crate::base::zonefile_fmt::Result {
                 p.write_token(self.to_int())?;
-                p.write_comment(format_args!("{}: {}", $name, self))
+                if let Some(mnemonic) = self.to_mnemonic_str() {
+                    p.write_comment(format_args!("{}: {}", $name, mnemonic))
+                } else {
+                    p.write_comment($name)
+                }
             }
         }
     };

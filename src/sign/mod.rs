@@ -18,8 +18,10 @@ use crate::{
     validate::{self, RawPublicKey, Signature},
 };
 
+mod bytes;
+pub use bytes::{GenerateParams, KeyBytes, RsaKeyBytes};
+
 pub mod common;
-pub mod generic;
 pub mod openssl;
 pub mod records;
 pub mod ring;
@@ -29,7 +31,7 @@ pub mod ring;
 /// A signing key.
 ///
 /// This associates important metadata with a raw cryptographic secret key.
-pub struct SigningKey<Octs, Inner> {
+pub struct SigningKey<Octs, Inner: SignRaw> {
     /// The owner of the key.
     owner: Name<Octs>,
 
@@ -44,7 +46,7 @@ pub struct SigningKey<Octs, Inner> {
 
 //--- Construction
 
-impl<Octs, Inner> SigningKey<Octs, Inner> {
+impl<Octs, Inner: SignRaw> SigningKey<Octs, Inner> {
     /// Construct a new signing key manually.
     pub fn new(owner: Name<Octs>, flags: u16, inner: Inner) -> Self {
         Self {
@@ -57,7 +59,7 @@ impl<Octs, Inner> SigningKey<Octs, Inner> {
 
 //--- Inspection
 
-impl<Octs, Inner> SigningKey<Octs, Inner> {
+impl<Octs, Inner: SignRaw> SigningKey<Octs, Inner> {
     /// The owner name attached to the key.
     pub fn owner(&self) -> &Name<Octs> {
         &self.owner
@@ -126,10 +128,7 @@ impl<Octs, Inner> SigningKey<Octs, Inner> {
     }
 
     /// The signing algorithm used.
-    pub fn algorithm(&self) -> SecAlg
-    where
-        Inner: SignRaw,
-    {
+    pub fn algorithm(&self) -> SecAlg {
         self.inner.algorithm()
     }
 
@@ -137,17 +136,13 @@ impl<Octs, Inner> SigningKey<Octs, Inner> {
     pub fn public_key(&self) -> validate::Key<&Octs>
     where
         Octs: AsRef<[u8]>,
-        Inner: SignRaw,
     {
         let owner = Name::from_octets(self.owner.as_octets()).unwrap();
         validate::Key::new(owner, self.flags, self.inner.raw_public_key())
     }
 
     /// The associated raw public key.
-    pub fn raw_public_key(&self) -> RawPublicKey
-    where
-        Inner: SignRaw,
-    {
+    pub fn raw_public_key(&self) -> RawPublicKey {
         self.inner.raw_public_key()
     }
 }

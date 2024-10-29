@@ -277,8 +277,8 @@ mod test {
         assert_eq!(
             [
                 "example.com. 3600 IN DS ( 5414\t; key tag",
-                "                          15\t; algorithm: 15(ED25519)",
-                "                          2\t; digest type: 2(SHA-256)",
+                "                          15\t; algorithm: ED25519",
+                "                          2\t; digest type: SHA-256",
                 "                          DEADBEEF )",
             ]
             .join("\n"),
@@ -331,6 +331,19 @@ mod test {
             more like a silly monkey with a typewriter accidentally writing \
             some shakespeare along the way but it feels like I have to type \
             e\" \"ven longer to hit that limit!\"",
+            record.display_zonefile(false).to_string()
+        );
+    }
+
+    #[test]
+    fn hinfo_record() {
+        use crate::rdata::Hinfo;
+        let record = create_record(Hinfo::<Vec<u8>>::new(
+            "Windows".parse().unwrap(),
+            "Windows Server".parse().unwrap(),
+        ));
+        assert_eq!(
+            "example.com. 3600 IN HINFO \"Windows\" \"Windows Server\"",
             record.display_zonefile(false).to_string()
         );
     }

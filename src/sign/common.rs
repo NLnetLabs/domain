@@ -10,10 +10,7 @@ use crate::{
     validate::{RawPublicKey, Signature},
 };
 
-use super::{
-    generic::{self, GenerateParams},
-    SignError, SignRaw,
-};
+use super::{GenerateParams, KeyBytes, SignError, SignRaw};
 
 #[cfg(feature = "openssl")]
 use super::openssl;
@@ -21,7 +18,7 @@ use super::openssl;
 #[cfg(feature = "ring")]
 use super::ring;
 
-//----------- SecretKey ------------------------------------------------------
+//----------- KeyPair --------------------------------------------------------
 
 /// A key pair based on a built-in backend.
 ///
@@ -29,24 +26,24 @@ use super::ring;
 /// Wherever possible, the Ring backend is preferred over OpenSSL -- but for
 /// more uncommon or insecure algorithms, that Ring does not support, OpenSSL
 /// must be used.
-pub enum SecretKey {
+pub enum KeyPair {
     /// A key backed by Ring.
     #[cfg(feature = "ring")]
-    Ring(ring::SecretKey),
+    Ring(ring::KeyPair),
 
     /// A key backed by OpenSSL.
     #[cfg(feature = "openssl")]
-    OpenSSL(openssl::SecretKey),
+    OpenSSL(openssl::KeyPair),
 }
 
-//--- Conversion to and from generic keys
+//--- Conversion to and from bytes
 
-impl SecretKey {
-    /// Use a generic secret key with OpenSSL.
-    pub fn from_generic(
-        secret: &generic::SecretKey,
+impl KeyPair {
+    /// Import a key pair from bytes.
+    pub fn from_bytes(
+        secret: &KeyBytes,
         public: &RawPublicKey,
-    ) -> Result<Self, FromGenericError> {
+    ) -> Result<Self, FromBytesError> {
         // Prefer Ring if it is available.
         #[cfg(feature = "ring")]
         match public {
@@ -57,20 +54,20 @@ impl SecretKey {
                 if k.n.len() >= 2048 / 8 =>
             {
                 let rng = Arc::new(SystemRandom::new());
-                let key = ring::SecretKey::from_generic(secret, public, rng)?;
+                let key = ring::KeyPair::from_bytes(secret, public, rng)?;
                 return Ok(Self::Ring(key));
             }
 
             RawPublicKey::EcdsaP256Sha256(_)
             | RawPublicKey::EcdsaP384Sha384(_) => {
                 let rng = Arc::new(SystemRandom::new());
-                let key = ring::SecretKey::from_generic(secret, public, rng)?;
+                let key = ring::KeyPair::from_bytes(secret, public, rng)?;
                 return Ok(Self::Ring(key));
             }
 
             RawPublicKey::Ed25519(_) => {
                 let rng = Arc::new(SystemRandom::new());
-                let key = ring::SecretKey::from_generic(secret, public, rng)?;
+                let key = ring::KeyPair::from_bytes(secret, public, rng)?;
                 return Ok(Self::Ring(key));
             }
 
@@ -79,19 +76,19 @@ impl SecretKey {
 
         // Fall back to OpenSSL.
         #[cfg(feature = "openssl")]
-        return Ok(Self::OpenSSL(openssl::SecretKey::from_generic(
+        return Ok(Self::OpenSSL(openssl::KeyPair::from_bytes(
             secret, public,
         )?));
 
         // Otherwise fail.
         #[allow(unreachable_code)]
-        Err(FromGenericError::UnsupportedAlgorithm)
+        Err(FromBytesError::UnsupportedAlgorithm)
     }
 }
 
 //--- SignRaw
 
-impl SignRaw for SecretKey {
+impl SignRaw for KeyPair {
     fn algorithm(&self) -> SecAlg {
         match self {
             #[cfg(feature = "ring")]
@@ -125,7 +122,7 @@ impl SignRaw for SecretKey {
 /// Generate a new secret key for the given algorithm.
 pub fn generate(
     params: GenerateParams,
-) -> Result<(generic::SecretKey, RawPublicKey), GenerateError> {
+) -> Result<(KeyBytes, RawPublicKey), GenerateError> {
     // Use Ring if it is available.
     #[cfg(feature = "ring")]
     if matches!(
@@ -142,7 +139,7 @@ pub fn generate(
     #[cfg(feature = "openssl")]
     {
         let key = openssl::generate(params)?;
-        return Ok((key.to_generic(), key.raw_public_key()));
+        return Ok((key.to_bytes(), key.raw_public_key()));
     }
 
     // Otherwise fail.
@@ -152,11 +149,11 @@ pub fn generate(
 
 //============ Error Types ===================================================
 
-//----------- FromGenericError -----------------------------------------------
+//----------- FromBytesError -----------------------------------------------
 
-/// An error in importing a key.
+/// An error in importing a key pair from bytes.
 #[derive(Clone, Debug)]
-pub enum FromGenericError {
+pub enum FromBytesError {
     /// The requested algorithm was not supported.
     UnsupportedAlgorithm,
 
@@ -175,34 +172,34 @@ pub enum FromGenericError {
 //--- Conversions
 
 #[cfg(feature = "ring")]
-impl From<ring::FromGenericError> for FromGenericError {
-    fn from(value: ring::FromGenericError) -> Self {
+impl From<ring::FromBytesError> for FromBytesError {
+    fn from(value: ring::FromBytesError) -> Self {
         match value {
-            ring::FromGenericError::UnsupportedAlgorithm => {
+            ring::FromBytesError::UnsupportedAlgorithm => {
                 Self::UnsupportedAlgorithm
             }
-            ring::FromGenericError::InvalidKey => Self::InvalidKey,
-            ring::FromGenericError::WeakKey => Self::WeakKey,
+            ring::FromBytesError::InvalidKey => Self::InvalidKey,
+            ring::FromBytesError::WeakKey => Self::WeakKey,
         }
     }
 }
 
 #[cfg(feature = "openssl")]
-impl From<openssl::FromGenericError> for FromGenericError {
-    fn from(value: openssl::FromGenericError) -> Self {
+impl From<openssl::FromBytesError> for FromBytesError {
+    fn from(value: openssl::FromBytesError) -> Self {
         match value {
-            openssl::FromGenericError::UnsupportedAlgorithm => {
+            openssl::FromBytesError::UnsupportedAlgorithm => {
                 Self::UnsupportedAlgorithm
             }
-            openssl::FromGenericError::InvalidKey => Self::InvalidKey,
-            openssl::FromGenericError::Implementation => Self::Implementation,
+            openssl::FromBytesError::InvalidKey => Self::InvalidKey,
+            openssl::FromBytesError::Implementation => Self::Implementation,
         }
     }
 }
 
 //--- Formatting
 
-impl fmt::Display for FromGenericError {
+impl fmt::Display for FromBytesError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(match self {
             Self::UnsupportedAlgorithm => "algorithm not supported",
@@ -215,11 +212,11 @@ impl fmt::Display for FromGenericError {
 
 //--- Error
 
-impl std::error::Error for FromGenericError {}
+impl std::error::Error for FromBytesError {}
 
 //----------- GenerateError --------------------------------------------------
 
-/// An error in generating a key.
+/// An error in generating a key pair.
 #[derive(Clone, Debug)]
 pub enum GenerateError {
     /// The requested algorithm was not supported.
