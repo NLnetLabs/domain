@@ -15,11 +15,11 @@ use core::fmt;
 
 use crate::{
     base::{iana::SecAlg, Name},
-    validate::{self, RawPublicKey, Signature},
+    validate::{self, PublicKeyBytes, Signature},
 };
 
 mod bytes;
-pub use bytes::{RsaSecretKeyBytes, SecretKeyBytes};
+pub use self::bytes::{RsaSecretKeyBytes, SecretKeyBytes};
 
 pub mod common;
 pub mod openssl;
@@ -141,7 +141,7 @@ impl<Octs, Inner: SignRaw> SigningKey<Octs, Inner> {
     }
 
     /// The associated raw public key.
-    pub fn raw_public_key(&self) -> RawPublicKey {
+    pub fn raw_public_key(&self) -> PublicKeyBytes {
         self.inner.raw_public_key()
     }
 }
@@ -176,7 +176,7 @@ pub trait SignRaw {
     /// algorithm as returned by [`algorithm()`].
     ///
     /// [`algorithm()`]: Self::algorithm()
-    fn raw_public_key(&self) -> RawPublicKey;
+    fn raw_public_key(&self) -> PublicKeyBytes;
 
     /// Sign the given bytes.
     ///

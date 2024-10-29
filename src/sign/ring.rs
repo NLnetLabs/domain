@@ -12,7 +12,7 @@ use ring::signature::{
 
 use crate::{
     base::iana::SecAlg,
-    validate::{RawPublicKey, RsaPublicKey, Signature},
+    validate::{PublicKeyBytes, RsaPublicKeyBytes, Signature},
 };
 
 use super::{GenerateParams, SecretKeyBytes, SignError, SignRaw};
@@ -49,13 +49,13 @@ impl KeyPair {
     /// Import a key pair from bytes into OpenSSL.
     pub fn from_bytes(
         secret: &SecretKeyBytes,
-        public: &RawPublicKey,
+        public: &PublicKeyBytes,
         rng: Arc<dyn ring::rand::SecureRandom>,
     ) -> Result<Self, FromBytesError> {
         match (secret, public) {
-            (SecretKeyBytes::RsaSha256(s), RawPublicKey::RsaSha256(p)) => {
+            (SecretKeyBytes::RsaSha256(s), PublicKeyBytes::RsaSha256(p)) => {
                 // Ensure that the public and private key match.
-                if p != &RsaPublicKey::from(s) {
+                if p != &RsaPublicKeyBytes::from(s) {
                     return Err(FromBytesError::InvalidKey);
                 }
 
@@ -83,7 +83,7 @@ impl KeyPair {
 
             (
                 SecretKeyBytes::EcdsaP256Sha256(s),
-                RawPublicKey::EcdsaP256Sha256(p),
+                PublicKeyBytes::EcdsaP256Sha256(p),
             ) => {
                 let alg = &ring::signature::ECDSA_P256_SHA256_FIXED_SIGNING;
                 EcdsaKeyPair::from_private_key_and_public_key(
@@ -98,7 +98,7 @@ impl KeyPair {
 
             (
                 SecretKeyBytes::EcdsaP384Sha384(s),
-                RawPublicKey::EcdsaP384Sha384(p),
+                PublicKeyBytes::EcdsaP384Sha384(p),
             ) => {
                 let alg = &ring::signature::ECDSA_P384_SHA384_FIXED_SIGNING;
                 EcdsaKeyPair::from_private_key_and_public_key(
@@ -111,7 +111,7 @@ impl KeyPair {
                 .map(|key| Self::EcdsaP384Sha384 { key, rng })
             }
 
-            (SecretKeyBytes::Ed25519(s), RawPublicKey::Ed25519(p)) => {
+            (SecretKeyBytes::Ed25519(s), PublicKeyBytes::Ed25519(p)) => {
                 Ed25519KeyPair::from_seed_and_public_key(
                     s.as_slice(),
                     p.as_slice(),
@@ -120,7 +120,7 @@ impl KeyPair {
                 .map(Self::Ed25519)
             }
 
-            (SecretKeyBytes::Ed448(_), RawPublicKey::Ed448(_)) => {
+            (SecretKeyBytes::Ed448(_), PublicKeyBytes::Ed448(_)) => {
                 Err(FromBytesError::UnsupportedAlgorithm)
             }
 
@@ -142,12 +142,12 @@ impl SignRaw for KeyPair {
         }
     }
 
-    fn raw_public_key(&self) -> RawPublicKey {
+    fn raw_public_key(&self) -> PublicKeyBytes {
         match self {
             Self::RsaSha256 { key, rng: _ } => {
                 let components: ring::rsa::PublicKeyComponents<Vec<u8>> =
                     key.public().into();
-                RawPublicKey::RsaSha256(RsaPublicKey {
+                PublicKeyBytes::RsaSha256(RsaPublicKeyBytes {
                     n: components.n.into(),
                     e: components.e.into(),
                 })
@@ -156,19 +156,19 @@ impl SignRaw for KeyPair {
             Self::EcdsaP256Sha256 { key, rng: _ } => {
                 let key = key.public_key().as_ref();
                 let key = Box::<[u8]>::from(key);
-                RawPublicKey::EcdsaP256Sha256(key.try_into().unwrap())
+                PublicKeyBytes::EcdsaP256Sha256(key.try_into().unwrap())
             }
 
             Self::EcdsaP384Sha384 { key, rng: _ } => {
                 let key = key.public_key().as_ref();
                 let key = Box::<[u8]>::from(key);
-                RawPublicKey::EcdsaP384Sha384(key.try_into().unwrap())
+                PublicKeyBytes::EcdsaP384Sha384(key.try_into().unwrap())
             }
 
             Self::Ed25519(key) => {
                 let key = key.public_key().as_ref();
                 let key = Box::<[u8]>::from(key);
-                RawPublicKey::Ed25519(key.try_into().unwrap())
+                PublicKeyBytes::Ed25519(key.try_into().unwrap())
             }
         }
     }
@@ -224,7 +224,7 @@ impl SignRaw for KeyPair {
 pub fn generate(
     params: GenerateParams,
     rng: &dyn ring::rand::SecureRandom,
-) -> Result<(SecretKeyBytes, RawPublicKey), GenerateError> {
+) -> Result<(SecretKeyBytes, PublicKeyBytes), GenerateError> {
     use ring::signature::{EcdsaKeyPair, Ed25519KeyPair};
 
     match params {
@@ -241,7 +241,7 @@ pub fn generate(
             // Manually parse the PKCS#8 document for the public key.
             let pk: Box<[u8]> = Box::from(&doc.as_ref()[73..138]);
             let pk = pk.try_into().unwrap();
-            let pk = RawPublicKey::EcdsaP256Sha256(pk);
+            let pk = PublicKeyBytes::EcdsaP256Sha256(pk);
 
             Ok((sk, pk))
         }
@@ -259,7 +259,7 @@ pub fn generate(
             // Manually parse the PKCS#8 document for the public key.
             let pk: Box<[u8]> = Box::from(&doc.as_ref()[88..185]);
             let pk = pk.try_into().unwrap();
-            let pk = RawPublicKey::EcdsaP384Sha384(pk);
+            let pk = PublicKeyBytes::EcdsaP384Sha384(pk);
 
             Ok((sk, pk))
         }
@@ -276,7 +276,7 @@ pub fn generate(
             // Manually parse the PKCS#8 document for the public key.
             let pk: Box<[u8]> = Box::from(&doc.as_ref()[51..83]);
             let pk = pk.try_into().unwrap();
-            let pk = RawPublicKey::Ed25519(pk);
+            let pk = PublicKeyBytes::Ed25519(pk);
 
             Ok((sk, pk))
         }

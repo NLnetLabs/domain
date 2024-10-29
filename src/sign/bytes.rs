@@ -7,7 +7,7 @@ use std::vec::Vec;
 
 use crate::base::iana::SecAlg;
 use crate::utils::base64;
-use crate::validate::RsaPublicKey;
+use crate::validate::RsaPublicKeyBytes;
 
 //----------- SecretKeyBytes -------------------------------------------------
 
@@ -373,11 +373,11 @@ impl RsaSecretKeyBytes {
     }
 }
 
-//--- Into<RsaPublicKey>
+//--- Into<RsaPublicKeyBytes>
 
-impl<'a> From<&'a RsaSecretKeyBytes> for RsaPublicKey {
+impl<'a> From<&'a RsaSecretKeyBytes> for RsaPublicKeyBytes {
     fn from(value: &'a RsaSecretKeyBytes) -> Self {
-        RsaPublicKey {
+        RsaPublicKeyBytes {
             n: value.n.clone(),
             e: value.e.clone(),
         }

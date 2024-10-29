@@ -7,7 +7,7 @@ use ::ring::rand::SystemRandom;
 
 use crate::{
     base::iana::SecAlg,
-    validate::{RawPublicKey, Signature},
+    validate::{PublicKeyBytes, Signature},
 };
 
 use super::{GenerateParams, SecretKeyBytes, SignError, SignRaw};
@@ -42,15 +42,15 @@ impl KeyPair {
     /// Import a key pair from bytes.
     pub fn from_bytes(
         secret: &SecretKeyBytes,
-        public: &RawPublicKey,
+        public: &PublicKeyBytes,
     ) -> Result<Self, FromBytesError> {
         // Prefer Ring if it is available.
         #[cfg(feature = "ring")]
         match public {
-            RawPublicKey::RsaSha1(k)
-            | RawPublicKey::RsaSha1Nsec3Sha1(k)
-            | RawPublicKey::RsaSha256(k)
-            | RawPublicKey::RsaSha512(k)
+            PublicKeyBytes::RsaSha1(k)
+            | PublicKeyBytes::RsaSha1Nsec3Sha1(k)
+            | PublicKeyBytes::RsaSha256(k)
+            | PublicKeyBytes::RsaSha512(k)
                 if k.n.len() >= 2048 / 8 =>
             {
                 let rng = Arc::new(SystemRandom::new());
@@ -58,14 +58,14 @@ impl KeyPair {
                 return Ok(Self::Ring(key));
             }
 
-            RawPublicKey::EcdsaP256Sha256(_)
-            | RawPublicKey::EcdsaP384Sha384(_) => {
+            PublicKeyBytes::EcdsaP256Sha256(_)
+            | PublicKeyBytes::EcdsaP384Sha384(_) => {
                 let rng = Arc::new(SystemRandom::new());
                 let key = ring::KeyPair::from_bytes(secret, public, rng)?;
                 return Ok(Self::Ring(key));
             }
 
-            RawPublicKey::Ed25519(_) => {
+            PublicKeyBytes::Ed25519(_) => {
                 let rng = Arc::new(SystemRandom::new());
                 let key = ring::KeyPair::from_bytes(secret, public, rng)?;
                 return Ok(Self::Ring(key));
@@ -98,7 +98,7 @@ impl SignRaw for KeyPair {
         }
     }
 
-    fn raw_public_key(&self) -> RawPublicKey {
+    fn raw_public_key(&self) -> PublicKeyBytes {
         match self {
             #[cfg(feature = "ring")]
             Self::Ring(key) => key.raw_public_key(),
@@ -122,7 +122,7 @@ impl SignRaw for KeyPair {
 /// Generate a new secret key for the given algorithm.
 pub fn generate(
     params: GenerateParams,
-) -> Result<(SecretKeyBytes, RawPublicKey), GenerateError> {
+) -> Result<(SecretKeyBytes, PublicKeyBytes), GenerateError> {
     // Use Ring if it is available.
     #[cfg(feature = "ring")]
     if matches!(
