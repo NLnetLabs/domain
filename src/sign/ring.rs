@@ -225,8 +225,6 @@ pub fn generate(
     params: GenerateParams,
     rng: &dyn ring::rand::SecureRandom,
 ) -> Result<(SecretKeyBytes, PublicKeyBytes), GenerateError> {
-    use ring::signature::{EcdsaKeyPair, Ed25519KeyPair};
-
     match params {
         GenerateParams::EcdsaP256Sha256 => {
             // Generate a key and a PKCS#8 document out of Ring.
