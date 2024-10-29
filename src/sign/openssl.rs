@@ -18,10 +18,7 @@ use crate::{
     validate::{RawPublicKey, RsaPublicKey, Signature},
 };
 
-use super::{
-    generic::{self, GenerateParams},
-    SignError, SignRaw,
-};
+use super::{GenerateParams, KeyBytes, RsaKeyBytes, SignError, SignRaw};
 
 //----------- SecretKey ------------------------------------------------------
 
@@ -34,34 +31,31 @@ pub struct SecretKey {
     pkey: PKey<Private>,
 }
 
-//--- Conversion to and from generic keys
+//--- Conversion to and from bytes
 
 impl SecretKey {
-    /// Use a generic secret key with OpenSSL.
-    pub fn from_generic(
-        secret: &generic::SecretKey,
+    /// Import a secret key from bytes into OpenSSL.
+    pub fn from_bytes(
+        secret: &KeyBytes,
         public: &RawPublicKey,
-    ) -> Result<Self, FromGenericError> {
-        fn num(slice: &[u8]) -> Result<BigNum, FromGenericError> {
+    ) -> Result<Self, FromBytesError> {
+        fn num(slice: &[u8]) -> Result<BigNum, FromBytesError> {
             let mut v = BigNum::new()?;
             v.copy_from_slice(slice)?;
             Ok(v)
         }
 
-        fn secure_num(slice: &[u8]) -> Result<BigNum, FromGenericError> {
+        fn secure_num(slice: &[u8]) -> Result<BigNum, FromBytesError> {
             let mut v = BigNum::new_secure()?;
             v.copy_from_slice(slice)?;
             Ok(v)
         }
 
         let pkey = match (secret, public) {
-            (
-                generic::SecretKey::RsaSha256(s),
-                RawPublicKey::RsaSha256(p),
-            ) => {
+            (KeyBytes::RsaSha256(s), RawPublicKey::RsaSha256(p)) => {
                 // Ensure that the public and private key match.
                 if p != &RsaPublicKey::from(s) {
-                    return Err(FromGenericError::InvalidKey);
+                    return Err(FromBytesError::InvalidKey);
                 }
 
                 let n = num(&s.n)?;
@@ -82,14 +76,14 @@ impl SecretKey {
                 )?;
 
                 if !key.check_key()? {
-                    return Err(FromGenericError::InvalidKey);
+                    return Err(FromBytesError::InvalidKey);
                 }
 
                 PKey::from_rsa(key)?
             }
 
             (
-                generic::SecretKey::EcdsaP256Sha256(s),
+                KeyBytes::EcdsaP256Sha256(s),
                 RawPublicKey::EcdsaP256Sha256(p),
             ) => {
                 use openssl::{bn, ec, nid};
@@ -100,12 +94,12 @@ impl SecretKey {
                 let n = secure_num(s.as_slice())?;
                 let p = ec::EcPoint::from_bytes(&group, &**p, &mut ctx)?;
                 let k = ec::EcKey::from_private_components(&group, &n, &p)?;
-                k.check_key().map_err(|_| FromGenericError::InvalidKey)?;
+                k.check_key().map_err(|_| FromBytesError::InvalidKey)?;
                 PKey::from_ec_key(k)?
             }
 
             (
-                generic::SecretKey::EcdsaP384Sha384(s),
+                KeyBytes::EcdsaP384Sha384(s),
                 RawPublicKey::EcdsaP384Sha384(p),
             ) => {
                 use openssl::{bn, ec, nid};
@@ -116,11 +110,11 @@ impl SecretKey {
                 let n = secure_num(s.as_slice())?;
                 let p = ec::EcPoint::from_bytes(&group, &**p, &mut ctx)?;
                 let k = ec::EcKey::from_private_components(&group, &n, &p)?;
-                k.check_key().map_err(|_| FromGenericError::InvalidKey)?;
+                k.check_key().map_err(|_| FromBytesError::InvalidKey)?;
                 PKey::from_ec_key(k)?
             }
 
-            (generic::SecretKey::Ed25519(s), RawPublicKey::Ed25519(p)) => {
+            (KeyBytes::Ed25519(s), RawPublicKey::Ed25519(p)) => {
                 use openssl::memcmp;
 
                 let id = pkey::Id::ED25519;
@@ -128,11 +122,11 @@ impl SecretKey {
                 if memcmp::eq(&k.raw_public_key().unwrap(), &**p) {
                     k
                 } else {
-                    return Err(FromGenericError::InvalidKey);
+                    return Err(FromBytesError::InvalidKey);
                 }
             }
 
-            (generic::SecretKey::Ed448(s), RawPublicKey::Ed448(p)) => {
+            (KeyBytes::Ed448(s), RawPublicKey::Ed448(p)) => {
                 use openssl::memcmp;
 
                 let id = pkey::Id::ED448;
@@ -140,12 +134,12 @@ impl SecretKey {
                 if memcmp::eq(&k.raw_public_key().unwrap(), &**p) {
                     k
                 } else {
-                    return Err(FromGenericError::InvalidKey);
+                    return Err(FromBytesError::InvalidKey);
                 }
             }
 
             // The public and private key types did not match.
-            _ => return Err(FromGenericError::InvalidKey),
+            _ => return Err(FromBytesError::InvalidKey),
         };
 
         Ok(Self {
@@ -154,17 +148,17 @@ impl SecretKey {
         })
     }
 
-    /// Export this key into a generic secret key.
+    /// Export this secret key into bytes.
     ///
     /// # Panics
     ///
     /// Panics if OpenSSL fails or if memory could not be allocated.
-    pub fn to_generic(&self) -> generic::SecretKey {
+    pub fn to_bytes(&self) -> KeyBytes {
         // TODO: Consider security implications of secret data in 'Vec's.
         match self.algorithm {
             SecAlg::RSASHA256 => {
                 let key = self.pkey.rsa().unwrap();
-                generic::SecretKey::RsaSha256(generic::RsaSecretKey {
+                KeyBytes::RsaSha256(RsaKeyBytes {
                     n: key.n().to_vec().into(),
                     e: key.e().to_vec().into(),
                     d: key.d().to_vec().into(),
@@ -178,20 +172,20 @@ impl SecretKey {
             SecAlg::ECDSAP256SHA256 => {
                 let key = self.pkey.ec_key().unwrap();
                 let key = key.private_key().to_vec_padded(32).unwrap();
-                generic::SecretKey::EcdsaP256Sha256(key.try_into().unwrap())
+                KeyBytes::EcdsaP256Sha256(key.try_into().unwrap())
             }
             SecAlg::ECDSAP384SHA384 => {
                 let key = self.pkey.ec_key().unwrap();
                 let key = key.private_key().to_vec_padded(48).unwrap();
-                generic::SecretKey::EcdsaP384Sha384(key.try_into().unwrap())
+                KeyBytes::EcdsaP384Sha384(key.try_into().unwrap())
             }
             SecAlg::ED25519 => {
                 let key = self.pkey.raw_private_key().unwrap();
-                generic::SecretKey::Ed25519(key.try_into().unwrap())
+                KeyBytes::Ed25519(key.try_into().unwrap())
             }
             SecAlg::ED448 => {
                 let key = self.pkey.raw_private_key().unwrap();
-                generic::SecretKey::Ed448(key.try_into().unwrap())
+                KeyBytes::Ed448(key.try_into().unwrap())
             }
             _ => unreachable!(),
         }
@@ -355,11 +349,11 @@ pub fn generate(params: GenerateParams) -> Result<SecretKey, GenerateError> {
 
 //============ Error Types ===================================================
 
-//----------- FromGenericError -----------------------------------------------
+//----------- FromBytesError -----------------------------------------------
 
-/// An error in importing a key into OpenSSL.
+/// An error in importing a key from bytes into OpenSSL.
 #[derive(Clone, Debug)]
-pub enum FromGenericError {
+pub enum FromBytesError {
     /// The requested algorithm was not supported.
     UnsupportedAlgorithm,
 
@@ -374,7 +368,7 @@ pub enum FromGenericError {
 
 //--- Conversion
 
-impl From<ErrorStack> for FromGenericError {
+impl From<ErrorStack> for FromBytesError {
     fn from(_: ErrorStack) -> Self {
         Self::Implementation
     }
@@ -382,7 +376,7 @@ impl From<ErrorStack> for FromGenericError {
 
 //--- Formatting
 
-impl fmt::Display for FromGenericError {
+impl fmt::Display for FromBytesError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(match self {
             Self::UnsupportedAlgorithm => "algorithm not supported",
@@ -394,7 +388,7 @@ impl fmt::Display for FromGenericError {
 
 //--- Error
 
-impl std::error::Error for FromGenericError {}
+impl std::error::Error for FromBytesError {}
 
 //----------- GenerateError --------------------------------------------------
 
@@ -441,10 +435,7 @@ mod tests {
 
     use crate::{
         base::iana::SecAlg,
-        sign::{
-            generic::{self, GenerateParams},
-            SignRaw,
-        },
+        sign::{GenerateParams, KeyBytes, SignRaw},
         validate::Key,
     };
 
@@ -487,9 +478,9 @@ mod tests {
             };
 
             let key = super::generate(params).unwrap();
-            let gen_key = key.to_generic();
+            let gen_key = key.to_bytes();
             let pub_key = key.raw_public_key();
-            let equiv = SecretKey::from_generic(&gen_key, &pub_key).unwrap();
+            let equiv = SecretKey::from_bytes(&gen_key, &pub_key).unwrap();
             assert!(key.pkey.public_eq(&equiv.pkey));
         }
     }
@@ -507,11 +498,11 @@ mod tests {
 
             let path = format!("test-data/dnssec-keys/K{}.private", name);
             let data = std::fs::read_to_string(path).unwrap();
-            let gen_key = generic::SecretKey::parse_from_bind(&data).unwrap();
+            let gen_key = KeyBytes::parse_from_bind(&data).unwrap();
 
-            let key = SecretKey::from_generic(&gen_key, pub_key).unwrap();
+            let key = SecretKey::from_bytes(&gen_key, pub_key).unwrap();
 
-            let equiv = key.to_generic();
+            let equiv = key.to_bytes();
             let mut same = String::new();
             equiv.format_as_bind(&mut same).unwrap();
 
@@ -529,14 +520,14 @@ mod tests {
 
             let path = format!("test-data/dnssec-keys/K{}.private", name);
             let data = std::fs::read_to_string(path).unwrap();
-            let gen_key = generic::SecretKey::parse_from_bind(&data).unwrap();
+            let gen_key = KeyBytes::parse_from_bind(&data).unwrap();
 
             let path = format!("test-data/dnssec-keys/K{}.key", name);
             let data = std::fs::read_to_string(path).unwrap();
             let pub_key = Key::<Vec<u8>>::parse_from_bind(&data).unwrap();
             let pub_key = pub_key.raw_public_key();
 
-            let key = SecretKey::from_generic(&gen_key, pub_key).unwrap();
+            let key = SecretKey::from_bytes(&gen_key, pub_key).unwrap();
 
             assert_eq!(key.raw_public_key(), *pub_key);
         }
@@ -550,14 +541,14 @@ mod tests {
 
             let path = format!("test-data/dnssec-keys/K{}.private", name);
             let data = std::fs::read_to_string(path).unwrap();
-            let gen_key = generic::SecretKey::parse_from_bind(&data).unwrap();
+            let gen_key = KeyBytes::parse_from_bind(&data).unwrap();
 
             let path = format!("test-data/dnssec-keys/K{}.key", name);
             let data = std::fs::read_to_string(path).unwrap();
             let pub_key = Key::<Vec<u8>>::parse_from_bind(&data).unwrap();
             let pub_key = pub_key.raw_public_key();
 
-            let key = SecretKey::from_generic(&gen_key, pub_key).unwrap();
+            let key = SecretKey::from_bytes(&gen_key, pub_key).unwrap();
 
             let _ = key.sign_raw(b"Hello, World!").unwrap();
         }
