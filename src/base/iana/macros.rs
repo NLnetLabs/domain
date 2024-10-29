@@ -209,12 +209,7 @@ macro_rules! int_enum_str_decimal {
 
         impl core::fmt::Display for $ianatype {
             fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
-                write!(f, "{}", self.to_int())?;
-
-                if let Some(m) = self.to_mnemonic_str() {
-                    write!(f, "({m})")?;
-                }
-                Ok(())
+                write!(f, "{}", self.to_int())
             }
         }
 
