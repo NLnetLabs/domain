@@ -13,10 +13,9 @@ use super::message::Request;
 use super::service::ServiceError;
 use crate::base::message_builder::AdditionalBuilder;
 use crate::base::opt::{AllOptData, ComposeOptData, LongOptData, OptRecord};
-use crate::base::{
-    Message, MessageBuilder, Rtype, StreamTarget, UnknownRecordData,
-};
+use crate::base::{Message, MessageBuilder, ParsedName, Rtype, StreamTarget};
 use crate::dep::octseq::Octets;
+use crate::rdata::AllRecordData;
 use std::boxed::Box;
 use std::future::Future;
 use std::pin::Pin;
@@ -145,8 +144,8 @@ impl ComposeReply for ReplyMessage {
         for rr in &mut source {
             let rr = rr?;
             let rr = rr
-                .into_record::<UnknownRecordData<_>>()?
-                .expect("UnknownRecordData should not fail");
+                .into_record::<AllRecordData<_, ParsedName<_>>>()?
+                .expect("AllRecordData should not fail");
             target.push(rr).expect("push should not fail");
         }
 
@@ -157,8 +156,8 @@ impl ComposeReply for ReplyMessage {
         for rr in &mut source {
             let rr = rr?;
             let rr = rr
-                .into_record::<UnknownRecordData<_>>()?
-                .expect("UnknownRecordData should not fail");
+                .into_record::<AllRecordData<_, ParsedName<_>>>()?
+                .expect("AllRecordData should not fail");
             target.push(rr).expect("push should not fail");
         }
 
@@ -171,8 +170,8 @@ impl ComposeReply for ReplyMessage {
             if rr.rtype() == Rtype::OPT {
             } else {
                 let rr = rr
-                    .into_record::<UnknownRecordData<_>>()?
-                    .expect("UnknownRecordData should not fail");
+                    .into_record::<AllRecordData<_, ParsedName<_>>>()?
+                    .expect("AllRecordData should not fail");
                 target.push(rr).expect("push should not fail");
             }
         }
