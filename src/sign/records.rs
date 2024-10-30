@@ -369,7 +369,7 @@ impl<N, D> SortedRecords<N, D> {
         apex: &FamilyName<N>,
         ttl: Ttl,
         params: Nsec3param<Octets>,
-        opt_out: bool,
+        opt_out: Nsec3OptOut,
     ) -> Result<Nsec3Records<N, Octets>, Nsec3HashError>
     where
         N: ToName + Clone + From<Name<Octets>> + Display,
@@ -389,6 +389,17 @@ impl<N, D> SortedRecords<N, D> {
         //   - RFC 5155 section 2 Backwards compatibility:
         //     Reject old algorithms? if not, map 3 to 6 and 5 to 7, or reject
         //     use of 3 and 5?
+
+        // RFC 5155 7.1 step 2:
+        //   "If Opt-Out is being used, set the Opt-Out bit to one."
+        let mut nsec3_flags = params.flags();
+        if matches!(
+            opt_out,
+            Nsec3OptOut::OptOut | Nsec3OptOut::OptOutFlagsOnly
+        ) {
+            // Set the Opt-Out flag.
+            nsec3_flags |= 0b0000_0001;
+        }
 
         // RFC 5155 7.1 step 5: _"Sort the set of NSEC3 RRs into hash order."
         // We store the NSEC3s as we create them in a self-sorting vec.
@@ -437,7 +448,7 @@ impl<N, D> SortedRecords<N, D> {
             //   "If Opt-Out is being used, owner names of unsigned
             //    delegations MAY be excluded."
             let has_ds = family.records().any(|rec| rec.rtype() == Rtype::DS);
-            if cut.is_some() && !has_ds && opt_out {
+            if cut.is_some() && !has_ds && opt_out == Nsec3OptOut::OptOut {
                 continue;
             }
 
@@ -486,7 +497,7 @@ impl<N, D> SortedRecords<N, D> {
                     let rec = Self::mk_nsec3(
                         &name,
                         params.hash_algorithm(),
-                        params.flags(),
+                        nsec3_flags,
                         params.iterations(),
                         params.salt(),
                         &apex_owner,
@@ -518,14 +529,6 @@ impl<N, D> SortedRecords<N, D> {
             if distance_to_apex == 0 {
                 bitmap.add(Rtype::NSEC3PARAM).unwrap();
                 bitmap.add(Rtype::DNSKEY).unwrap();
-            }
-
-            // RFC 5155 7.1 step 2:
-            //   "If Opt-Out is being used, set the Opt-Out bit to one."
-            let mut nsec3_flags = params.flags();
-            if opt_out {
-                // Set the Opt-Out flag.
-                nsec3_flags |= 0b0000_0001;
             }
 
             let rec = Self::mk_nsec3(
@@ -1029,6 +1032,26 @@ where
     }
 }
 
-//------------ ErrorTypeToBeDetermined ----------------------------------------
+//------------ ErrorTypeToBeDetermined ---------------------------------------
 
+#[derive(Debug)]
 pub struct ErrorTypeToBeDetermined;
+
+//------------ Nsec3OptOut ---------------------------------------------------
+
+/// The different types of NSEC3 opt-out.
+#[derive(Copy, Clone, Debug, Default, Eq, PartialEq)]
+pub enum Nsec3OptOut {
+    /// No opt-out. The opt-out flag of NSEC3 RRs will NOT be set and insecure
+    /// delegations will be included in the NSEC3 chain.
+    #[default]
+    NoOptOut,
+
+    /// Opt-out. The opt-out flag of NSEC3 RRs will be set and insecure
+    /// delegations will NOT be included in the NSEC3 chain.
+    OptOut,
+
+    /// Opt-out (flags only). The opt-out flag of NSEC3 RRs will be set and
+    /// insecure delegations will be included in the NSEC3 chain.
+    OptOutFlagsOnly,
+}
