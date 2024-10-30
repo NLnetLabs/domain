@@ -1,8 +1,8 @@
 //! Record data from [RFC 3403]: NAPTR records.
 //!
-//! This RFC defines the Naptr record type.
+//! This RFC defines the NAPTR record type.
 //!
-//! [RFC 3403]: https://tools.ietf.org/html/rfc3403
+//! [RFC 3403]: https://www.rfc-editor.org/info/rfc3403
 
 use crate::base::{
     name::FlattenInto,
@@ -20,6 +20,15 @@ use octseq::{Octets, OctetsFrom, OctetsInto, Parser};
 
 //------------ Naptr ---------------------------------------------------------
 
+/// Naptr record data.
+///
+/// The Naptr encodes DNS rules for URI delegation, allowing changes and redelegation.
+/// It uses regex for string-to-domain name conversion, chosen for compactness and
+/// expressivity in small DNS packets.
+///
+/// The Naptr record type is defined in [RFC 3403, section 4.1][1].
+///
+/// [1]: https://tools.ietf.org/html/rfc3403#section-4.1
 #[derive(Clone)]
 #[cfg_attr(
     feature = "serde",
@@ -53,6 +62,7 @@ impl Naptr<(), ()> {
 }
 
 impl<Octs, Name> Naptr<Octs, Name> {
+    /// Creates a new Naptr record data from content.
     pub fn new(
         order: u16,
         preference: u16,
@@ -71,31 +81,44 @@ impl<Octs, Name> Naptr<Octs, Name> {
         }
     }
 
+    /// The order of processing the records is from lowest to highest.
+    /// If two records have the same order value, they should be processed
+    /// according to their preference value and services field.
     pub fn order(&self) -> u16 {
         self.order
     }
 
+    /// The priority of the DDDS Algorithm, from lowest to highest.
     pub fn preference(&self) -> u16 {
         self.preference
     }
 
+    /// The flags controls aspects of the rewriting and interpretation of
+    /// the fields in the record.
     pub fn flags(&self) -> &CharStr<Octs> {
         &self.flags
     }
 
+    /// The services specify the Service Parameters applicable to
+    /// this delegation path.
     pub fn services(&self) -> &CharStr<Octs> {
         &self.services
     }
 
+    /// The regexp containing a substitution expression that is
+    /// applied to the original string held by the client in order to
+    /// construct the next domain name to lookup.
     pub fn regexp(&self) -> &CharStr<Octs> {
         &self.regexp
     }
 
+    /// The replacement is the next domain name to query for,
+    /// depending on the potential values found in the flags field.
     pub fn replacement(&self) -> &Name {
         &self.replacement
     }
 
-    pub(crate) fn convert_octets<TOcts, TName>(
+    pub(in crate::rdata) fn convert_octets<TOcts, TName>(
         self,
     ) -> Result<Naptr<TOcts, TName>, TOcts::Error>
     where
@@ -112,7 +135,7 @@ impl<Octs, Name> Naptr<Octs, Name> {
         ))
     }
 
-    pub(crate) fn flatten<TOcts, TName>(
+    pub(in crate::rdata) fn flatten<TOcts, TName>(
         self,
     ) -> Result<Naptr<TOcts, TName>, TOcts::Error>
     where
@@ -288,7 +311,7 @@ where
             other => return other,
         }
 
-        self.replacement.name_cmp(&other.replacement)
+        self.replacement.lowercase_composed_cmp(&other.replacement)
     }
 }
 
@@ -344,7 +367,7 @@ where
 
 impl<Octs, Name> RecordData for Naptr<Octs, Name> {
     fn rtype(&self) -> Rtype {
-        Rtype::NAPTR
+        Naptr::RTYPE
     }
 }
 
@@ -370,11 +393,15 @@ where
 {
     fn rdlen(&self, _compress: bool) -> Option<u16> {
         Some(
-            2 + 2
-                + self.flags.compose_len()
-                + self.services.compose_len()
-                + self.regexp.compose_len()
-                + self.replacement.compose_len(),
+            (u16::COMPOSE_LEN + u16::COMPOSE_LEN)
+                .checked_add(self.flags.compose_len())
+                .expect("flags too long")
+                .checked_add(self.services.compose_len())
+                .expect("services too long")
+                .checked_add(self.regexp.compose_len())
+                .expect("regexp too long")
+                .checked_add(self.replacement.compose_len())
+                .expect("replacement too long"),
         )
     }
 
@@ -382,12 +409,8 @@ where
         &self,
         target: &mut Target,
     ) -> Result<(), Target::AppendError> {
-        self.order.compose(target)?;
-        self.preference.compose(target)?;
-        self.flags.compose(target)?;
-        self.services.compose(target)?;
-        self.regexp.compose(target)?;
-        self.replacement.compose_canonical(target)
+        self.compose_head(target)?;
+        self.replacement.compose(target)
     }
 
     fn compose_canonical_rdata<
@@ -396,7 +419,25 @@ where
         &self,
         target: &mut Target,
     ) -> Result<(), Target::AppendError> {
-        self.compose_rdata(target)
+        self.compose_head(target)?;
+        self.replacement.compose_canonical(target)
+    }
+}
+
+impl<Octs, Name> Naptr<Octs, Name>
+where
+    Octs: AsRef<[u8]>,
+    Name: ToName,
+{
+    fn compose_head<Target: crate::base::wire::Composer + ?Sized>(
+        &self,
+        target: &mut Target,
+    ) -> Result<(), Target::AppendError> {
+        self.order.compose(target)?;
+        self.preference.compose(target)?;
+        self.flags.compose(target)?;
+        self.services.compose(target)?;
+        self.regexp.compose(target)
     }
 }
 
