@@ -918,7 +918,7 @@ where
     Octs: FromBuilder,
     <Octs as FromBuilder>::Builder: EmptyBuilder,
 {
-    type Err = base16::DecodeError;
+    type Err = Nsec3SaltFromStrError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         if s == "-" {
@@ -927,7 +927,11 @@ where
             })
         } else {
             base16::decode(s)
-                .map(|octets| unsafe { Self::from_octets_unchecked(octets) })
+                .map_err(Nsec3SaltFromStrError::DecodeError)
+                .and_then(|octets| {
+                    Self::from_octets(octets)
+                        .map_err(Nsec3SaltFromStrError::Nsec3SaltError)
+                })
         }
     }
 }
@@ -1140,6 +1144,26 @@ where
             "Nsec3Salt",
             NewtypeVisitor(PhantomData),
         )
+    }
+}
+
+//------------ Nsec3SaltFromStrError -----------------------------------------
+
+/// An error happened while parsing an NSEC3 salt from a string.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Nsec3SaltFromStrError {
+    DecodeError(base16::DecodeError),
+    Nsec3SaltError(Nsec3SaltError),
+}
+
+//--- Display
+
+impl fmt::Display for Nsec3SaltFromStrError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Nsec3SaltFromStrError::DecodeError(err) => err.fmt(f),
+            Nsec3SaltFromStrError::Nsec3SaltError(err) => err.fmt(f),
+        }
     }
 }
 
@@ -1567,7 +1591,10 @@ mod test {
             Nsec3::scan,
             &rdata,
         );
-        assert_eq!(&format!("{}", rdata.display_zonefile(false)), "1 10 11 626172 CPNMU A SRV");
+        assert_eq!(
+            &format!("{}", rdata.display_zonefile(false)),
+            "1 10 11 626172 CPNMU A SRV"
+        );
     }
 
     #[test]
@@ -1591,7 +1618,10 @@ mod test {
             Nsec3::scan,
             &rdata,
         );
-        assert_eq!(&format!("{}", rdata.display_zonefile(false)), "1 10 11 - CPNMU A SRV");
+        assert_eq!(
+            &format!("{}", rdata.display_zonefile(false)),
+            "1 10 11 - CPNMU A SRV"
+        );
     }
 
     #[test]
