@@ -433,10 +433,7 @@ impl std::error::Error for GenerateError {}
 
 #[cfg(test)]
 mod tests {
-    use std::{
-        string::{String, ToString},
-        vec::Vec,
-    };
+    use std::{string::ToString, vec::Vec};
 
     use crate::{
         base::iana::SecAlg,

@@ -1246,7 +1246,7 @@ mod test {
     use crate::utils::base64;
     use bytes::Bytes;
     use std::str::FromStr;
-    use std::string::{String, ToString};
+    use std::string::ToString;
 
     type Name = crate::base::name::Name<Vec<u8>>;
     type Ds = crate::rdata::Ds<Vec<u8>>;
