@@ -130,7 +130,7 @@ impl SecretKeyBytes {
     /// The key is formatted in the private key v1.2 format and written to the
     /// given formatter.  See the type-level documentation for a description
     /// of this format.
-    pub fn format_as_bind(&self, w: &mut impl fmt::Write) -> fmt::Result {
+    pub fn format_as_bind(&self, mut w: impl fmt::Write) -> fmt::Result {
         writeln!(w, "Private-key-format: v1.2")?;
         match self {
             Self::RsaSha256(k) => {
@@ -158,6 +158,19 @@ impl SecretKeyBytes {
                 writeln!(w, "PrivateKey: {}", base64::encode_display(&**s))
             }
         }
+    }
+
+    /// Display this secret key in the conventional format used by BIND.
+    ///
+    /// This is a simple wrapper around [`Self::format_as_bind()`].
+    pub fn display_as_bind(&self) -> impl fmt::Display + '_ {
+        struct Display<'a>(&'a SecretKeyBytes);
+        impl fmt::Display for Display<'_> {
+            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                self.0.format_as_bind(f)
+            }
+        }
+        Display(self)
     }
 
     /// Parse a secret key from the conventional format used by BIND.
@@ -289,7 +302,7 @@ impl RsaSecretKeyBytes {
     /// given formatter.  Note that the header and algorithm lines are not
     /// written.  See the type-level documentation of [`SecretKeyBytes`] for a
     /// description of this format.
-    pub fn format_as_bind(&self, w: &mut impl fmt::Write) -> fmt::Result {
+    pub fn format_as_bind(&self, mut w: impl fmt::Write) -> fmt::Result {
         w.write_str("Modulus: ")?;
         writeln!(w, "{}", base64::encode_display(&self.n))?;
         w.write_str("PublicExponent: ")?;
@@ -307,6 +320,19 @@ impl RsaSecretKeyBytes {
         w.write_str("Coefficient: ")?;
         writeln!(w, "{}", base64::encode_display(&self.q_i))?;
         Ok(())
+    }
+
+    /// Display this secret key in the conventional format used by BIND.
+    ///
+    /// This is a simple wrapper around [`Self::format_as_bind()`].
+    pub fn display_as_bind(&self) -> impl fmt::Display + '_ {
+        struct Display<'a>(&'a RsaSecretKeyBytes);
+        impl fmt::Display for Display<'_> {
+            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                self.0.format_as_bind(f)
+            }
+        }
+        Display(self)
     }
 
     /// Parse a secret key from the conventional format used by BIND.
@@ -464,7 +490,7 @@ impl std::error::Error for BindFormatError {}
 
 #[cfg(test)]
 mod tests {
-    use std::{string::String, vec::Vec};
+    use std::{string::ToString, vec::Vec};
 
     use crate::base::iana::SecAlg;
 
@@ -496,8 +522,7 @@ mod tests {
             let path = format!("test-data/dnssec-keys/K{}.private", name);
             let data = std::fs::read_to_string(path).unwrap();
             let key = super::SecretKeyBytes::parse_from_bind(&data).unwrap();
-            let mut same = String::new();
-            key.format_as_bind(&mut same).unwrap();
+            let same = key.display_as_bind().to_string();
             let data = data.lines().collect::<Vec<_>>();
             let same = same.lines().collect::<Vec<_>>();
             assert_eq!(data, same);

@@ -433,7 +433,10 @@ impl std::error::Error for GenerateError {}
 
 #[cfg(test)]
 mod tests {
-    use std::{string::String, vec::Vec};
+    use std::{
+        string::{String, ToString},
+        vec::Vec,
+    };
 
     use crate::{
         base::iana::SecAlg,
@@ -503,10 +506,7 @@ mod tests {
             let gen_key = SecretKeyBytes::parse_from_bind(&data).unwrap();
 
             let key = KeyPair::from_bytes(&gen_key, pub_key).unwrap();
-
-            let equiv = key.to_bytes();
-            let mut same = String::new();
-            equiv.format_as_bind(&mut same).unwrap();
+            let same = key.to_bytes().display_as_bind().to_string();
 
             let data = data.lines().collect::<Vec<_>>();
             let same = same.lines().collect::<Vec<_>>();
