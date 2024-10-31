@@ -473,7 +473,7 @@ impl<N, D> SortedRecords<N, D> {
         // RFC 5155 7.1 step 8:
         //   "Finally, add an NSEC3PARAM RR with the same Hash Algorithm,
         //    Iterations, and Salt fields to the zone apex."
-        let nsec3param_rec = Record::new(
+        let nsec3param = Record::new(
             apex.owner().try_to_name::<Octets>().unwrap().into(),
             Class::IN,
             ttl,
@@ -486,7 +486,7 @@ impl<N, D> SortedRecords<N, D> {
         //
         // TODO
 
-        Ok(Nsec3Records::new(nsec3s.records, nsec3param_rec))
+        Ok(Nsec3Records::new(nsec3s.records, nsec3param))
     }
 
     pub fn write<W>(&self, target: &mut W) -> Result<(), io::Error>
@@ -626,21 +626,18 @@ where
 /// The set of records created by [`SortedRecords::nsec3s()`].
 pub struct Nsec3Records<N, Octets> {
     /// The NSEC3 records.
-    pub nsec3_recs: Vec<Record<N, Nsec3<Octets>>>,
+    pub nsec3s: Vec<Record<N, Nsec3<Octets>>>,
 
     /// The NSEC3PARAM record.
-    pub nsec3param_rec: Record<N, Nsec3param<Octets>>,
+    pub nsec3param: Record<N, Nsec3param<Octets>>,
 }
 
 impl<N, Octets> Nsec3Records<N, Octets> {
     pub fn new(
-        nsec3_recs: Vec<Record<N, Nsec3<Octets>>>,
-        nsec3param_rec: Record<N, Nsec3param<Octets>>,
+        nsec3s: Vec<Record<N, Nsec3<Octets>>>,
+        nsec3param: Record<N, Nsec3param<Octets>>,
     ) -> Self {
-        Self {
-            nsec3_recs,
-            nsec3param_rec,
-        }
+        Self { nsec3s, nsec3param }
     }
 }
 
