@@ -1,10 +1,12 @@
 use core::{
+    borrow::{Borrow, BorrowMut},
     cmp, fmt,
     hash::{Hash, Hasher},
     iter,
+    ops::{Deref, DerefMut},
 };
 
-use super::{Octets, Owned, SmallOctets};
+use super::UncertainName;
 
 /// A label in a domain name.
 #[repr(transparent)]
@@ -28,8 +30,21 @@ impl Label {
     ///
     /// # Safety
     ///
-    /// The byte string must be within the size restriction (63 bytes or fewer).
+    /// The byte string must be within the size restriction (63 bytes or
+    /// fewer).
     pub const unsafe fn from_bytes_unchecked(bytes: &[u8]) -> &Self {
+        // SAFETY: 'Label' is a 'repr(transparent)' wrapper around '[u8]', so
+        // casting a '[u8]' into a 'Label' is sound.
+        core::mem::transmute(bytes)
+    }
+
+    /// Assume a mutable byte string is a valid [`Label`].
+    ///
+    /// # Safety
+    ///
+    /// The byte string must be within the size restriction (63 bytes or
+    /// fewer).
+    pub unsafe fn from_bytes_unchecked_mut(bytes: &mut [u8]) -> &mut Self {
         // SAFETY: 'Label' is a 'repr(transparent)' wrapper around '[u8]', so
         // casting a '[u8]' into a 'Label' is sound.
         core::mem::transmute(bytes)
@@ -117,7 +132,7 @@ impl Label {
     /// Whether this is an NR-LDH label.
     ///
     /// A "non-reserved" LDH label is slightly stricter than an LDH label (see
-    /// [`is_ldh()`]); it further does not allow the third and fourth
+    /// [`Self::is_ldh()`]); it further does not allow the third and fourth
     /// characters to both be hyphens.  A-labels (Unicode labels encoded into
     /// ASCII) are not NR-LDH labels as they begin with `xn--`.
     ///
@@ -138,21 +153,6 @@ impl Label {
     pub fn canonicalize(&mut self) {
         self.0.make_ascii_lowercase()
     }
-}
-
-unsafe impl Octets for Label {
-    unsafe fn from_bytes_unchecked(bytes: &[u8]) -> &Self {
-        Label::from_bytes_unchecked(bytes)
-    }
-
-    fn as_bytes(&self) -> &[u8] {
-        self.as_bytes()
-    }
-}
-
-unsafe impl<Buffer> SmallOctets<Buffer> for Label where
-    Buffer: AsRef<[u8; 64]> + AsRef<[u8]>
-{
 }
 
 impl PartialEq for Label {
@@ -219,10 +219,9 @@ impl Hash for Label {
 
         // The default 'std' hasher actually buffers 8 bytes of input before
         // processing them.  There's no point trying to chunk the input here.
-        self.as_bytes()
-            .iter()
-            .map(|&b| b.to_ascii_lowercase())
-            .for_each(|b| state.write_u8(b));
+        for &b in self.as_bytes() {
+            state.write_u8(b.to_ascii_lowercase());
+        }
     }
 }
 
@@ -247,8 +246,102 @@ impl<'a> From<&'a Label> for &'a [u8] {
     }
 }
 
-/// An owned label.
-pub type OwnedLabel = Owned<[u8; 64], Label>;
+/// A [`Label`] in a 64-byte buffer.
+///
+/// This is a simple wrapper around a 64-byte buffer that stores a [`Label`]
+/// within it.  It can be used in situations where a [`Label`] must be placed
+/// on the stack or within a `struct`, although it is also possible to store
+/// [`Label`]s on the heap as `Box<Label>` or `Rc<Label>`.
+#[derive(Clone)]
+#[repr(transparent)]
+pub struct LabelBuf([u8; 64]);
+
+impl LabelBuf {
+    /// Copy the given label.
+    pub fn copy(label: &Label) -> Self {
+        let mut buf = [0u8; 64];
+        buf[1..1 + label.len()].copy_from_slice(label.as_bytes());
+        buf[0] = label.len() as u8;
+        Self(buf)
+    }
+
+    /// Overwrite this by copying in a different label.
+    ///
+    /// Any label contained in this buffer previously will be overwritten.
+    pub fn replace_with(&mut self, label: &Label) {
+        self.0[1..1 + label.len()].copy_from_slice(label.as_bytes());
+        self.0[0] = label.len() as u8;
+    }
+}
+
+impl LabelBuf {
+    /// The size of this label, without the length octet.
+    #[allow(clippy::len_without_is_empty)]
+    pub const fn len(&self) -> usize {
+        self.0[0] as usize
+    }
+
+    /// The bytes in the label, without the length octet.
+    pub fn as_bytes(&self) -> &[u8] {
+        &self.0[1..1 + self.len()]
+    }
+
+    /// Treat this as an uncertain name.
+    pub fn as_name(&self) -> &UncertainName {
+        // SAFETY: A valid label with length octet is a valid name.
+        unsafe { UncertainName::from_bytes_unchecked(&self.0) }
+    }
+}
+
+impl Deref for LabelBuf {
+    type Target = Label;
+
+    fn deref(&self) -> &Self::Target {
+        // SAFETY: 'LabelBuf' always contains a valid label.
+        let len = self.len();
+        let bytes = &self.0[1..1 + len];
+        unsafe { Label::from_bytes_unchecked(bytes) }
+    }
+}
+
+impl DerefMut for LabelBuf {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        // SAFETY: 'LabelBuf' always contains a valid label.
+        let len = self.len();
+        let bytes = &mut self.0[1..1 + len];
+        unsafe { Label::from_bytes_unchecked_mut(bytes) }
+    }
+}
+
+impl Borrow<Label> for LabelBuf {
+    fn borrow(&self) -> &Label {
+        self
+    }
+}
+
+impl BorrowMut<Label> for LabelBuf {
+    fn borrow_mut(&mut self) -> &mut Label {
+        self
+    }
+}
+
+impl AsRef<Label> for LabelBuf {
+    fn as_ref(&self) -> &Label {
+        self
+    }
+}
+
+impl AsMut<Label> for LabelBuf {
+    fn as_mut(&mut self) -> &mut Label {
+        self
+    }
+}
+
+impl From<&Label> for LabelBuf {
+    fn from(value: &Label) -> Self {
+        Self::copy(value)
+    }
+}
 
 /// An error in constructing a [`Label`].
 #[derive(Clone, Debug)]

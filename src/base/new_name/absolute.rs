@@ -1,10 +1,12 @@
 use core::{
+    borrow::{Borrow, BorrowMut},
     cmp, fmt,
     hash::{Hash, Hasher},
     iter,
+    ops::{Deref, DerefMut},
 };
 
-use super::{Label, Labels, Octets, Owned, RelName, SmallOctets};
+use super::{Label, Labels, RelName};
 
 /// An absolute domain name.
 #[repr(transparent)]
@@ -24,9 +26,23 @@ impl Name {
     ///
     /// # Safety
     ///
-    /// The byte string must be correctly encoded in the wire format, and within
-    /// the size restriction (255 bytes or fewer).  It must be absolute.
+    /// The byte string must be correctly encoded in the wire format, and
+    /// within the size restriction (255 bytes or fewer).  It must be
+    /// absolute.
     pub const unsafe fn from_bytes_unchecked(bytes: &[u8]) -> &Self {
+        // SAFETY: 'Name' is a 'repr(transparent)' wrapper around '[u8]', so
+        // casting a '[u8]' into a 'Name' is sound.
+        core::mem::transmute(bytes)
+    }
+
+    /// Assume a mutable byte string is a valid [`Name`].
+    ///
+    /// # Safety
+    ///
+    /// The byte string must be correctly encoded in the wire format, and
+    /// within the size restriction (255 bytes or fewer).  It must be
+    /// absolute.
+    pub unsafe fn from_bytes_unchecked_mut(bytes: &mut [u8]) -> &mut Self {
         // SAFETY: 'Name' is a 'repr(transparent)' wrapper around '[u8]', so
         // casting a '[u8]' into a 'Name' is sound.
         core::mem::transmute(bytes)
@@ -34,8 +50,8 @@ impl Name {
 
     /// Try converting a byte string into a [`Name`].
     ///
-    /// The byte string is confirmed to be correctly encoded in the wire format.
-    /// If it is not properly encoded, an error is returned.
+    /// The byte string is confirmed to be correctly encoded in the wire
+    /// format.  If it is not properly encoded, an error is returned.
     ///
     /// Runtime: `O(bytes.len())`.
     pub fn from_bytes(bytes: &[u8]) -> Result<&Self, NameError> {
@@ -157,8 +173,8 @@ impl Name {
 impl Name {
     /// Split this name into a label and the rest.
     ///
-    /// If this is the root name, [`None`] is returned.  The returned label will
-    /// always be non-empty.
+    /// If this is the root name, [`None`] is returned.  The returned label
+    /// will always be non-empty.
     ///
     /// Runtime: `O(1)`.
     pub fn split_first(&self) -> Option<(&Label, &Self)> {
@@ -180,8 +196,8 @@ impl Name {
     /// Strip a prefix from this name.
     ///
     /// If this name has the given prefix (see [`Self::starts_with()`]), the
-    /// rest of the name without the prefix is returned.  Otherwise, [`None`] is
-    /// returned.
+    /// rest of the name without the prefix is returned.  Otherwise, [`None`]
+    /// is returned.
     ///
     /// Runtime: `O(prefix.len())`, which is less than `O(self.len())`.
     pub fn strip_prefix<'a>(&'a self, prefix: &RelName) -> Option<&'a Self> {
@@ -199,9 +215,9 @@ impl Name {
 
     /// Strip a suffix from this name.
     ///
-    /// If this name has the given suffix (see [`Self::ends_with()`]), the rest
-    /// of the name without the suffix is returned.  Otherwise, [`None`] is
-    /// returned.
+    /// If this name has the given suffix (see [`Self::ends_with()`]), the
+    /// rest of the name without the suffix is returned.  Otherwise, [`None`]
+    /// is returned.
     ///
     /// Runtime: `O(self.len())`, which is more than `O(suffix.len())`.
     pub fn strip_suffix<'a>(&'a self, suffix: &Self) -> Option<&'a Self> {
@@ -229,26 +245,11 @@ impl Name {
     }
 }
 
-unsafe impl Octets for Name {
-    unsafe fn from_bytes_unchecked(bytes: &[u8]) -> &Self {
-        Self::from_bytes_unchecked(bytes)
-    }
-
-    fn as_bytes(&self) -> &[u8] {
-        self.as_bytes()
-    }
-}
-
-unsafe impl<Buffer> SmallOctets<Buffer> for Name where
-    Buffer: AsRef<[u8; 256]> + AsRef<[u8]>
-{
-}
-
 impl PartialEq for Name {
     /// Compare labels by their canonical value.
     ///
-    /// Canonicalized labels have uppercase ASCII characters lowercased, so this
-    /// function compares the two names ASCII-case-insensitively.
+    /// Canonicalized labels have uppercase ASCII characters lowercased, so
+    /// this function compares the two names case-insensitively.
     ///
     // Runtime: `O(self.len())`, which is equal to `O(that.len())`.
     fn eq(&self, that: &Self) -> bool {
@@ -265,7 +266,7 @@ impl PartialOrd for Name {
     ///
     /// The 'canonical DNS name order' is defined in RFC 4034, section 6.1.
     /// Essentially, any shared suffix of labels is stripped away, and the
-    /// remaining unequal label at the end is compared ASCII-case-insensitively.
+    /// remaining unequal label at the end is compared case-insensitively.
     ///
     /// Runtime: `O(self.len() + that.len())`.
     fn partial_cmp(&self, that: &Self) -> Option<cmp::Ordering> {
@@ -278,15 +279,16 @@ impl Ord for Name {
     ///
     /// The 'canonical DNS name order' is defined in RFC 4034, section 6.1.
     /// Essentially, any shared suffix of labels is stripped away, and the
-    /// remaining unequal label at the end is compared ASCII-case-insensitively.
+    /// remaining unequal label at the end is compared case-insensitively.
     ///
     /// Runtime: `O(self.len() + that.len())`.
     fn cmp(&self, that: &Self) -> cmp::Ordering {
-        // We want to find a shared suffix between the two names, and the labels
-        // immediately before that shared suffix.  However, we can't determine
-        // label boundaries when working backward.  So, we find a shared suffix
-        // (even if it crosses partially between labels), then iterate through
-        // both names until we find their label boundaries up to the suffix.
+        // We want to find a shared suffix between the two names, and the
+        // labels immediately before that shared suffix.  However, we can't
+        // determine label boundaries when working backward.  So, we find a
+        // shared suffix (even if it crosses partially between labels), then
+        // iterate through both names until we find their label boundaries up
+        // to the suffix.
 
         let this_iter = self.as_bytes().iter().rev();
         let that_iter = that.as_bytes().iter().rev();
@@ -298,8 +300,8 @@ impl Ord for Name {
             // of equal size within the shared suffix we found.
 
             // SAFETY: At least one unequal byte exists in both names, and it
-            // cannot be the root label, so there must be at least one non-root
-            // label in both names.
+            // cannot be the root label, so there must be at least one
+            // non-root label in both names.
             let (mut this_head, mut this_tail) =
                 unsafe { self.split_first().unwrap_unchecked() };
             let (mut that_head, mut that_tail) =
@@ -309,9 +311,9 @@ impl Ord for Name {
                 let (this_len, that_len) = (this_tail.len(), that_tail.len());
 
                 if this_len == that_len && this_len < suffix {
-                    // We have found the shared suffix of labels.  Now, we must
-                    // have two unequal head labels; we compare them (ASCII case
-                    // insensitively).
+                    // We have found the shared suffix of labels.  Now, we
+                    // must have two unequal head labels; we compare them
+                    // (ASCII case insensitively).
                     break Ord::cmp(this_head, that_head);
                 }
 
@@ -331,9 +333,9 @@ impl Ord for Name {
                 }
             }
         } else {
-            // The shorter name is a suffix of the longer one.  If the names are
-            // of equal length, they are equal; otherwise, the longer one has
-            // more labels, and is greater than the shorter one.
+            // The shorter name is a suffix of the longer one.  If the names
+            // are of equal length, they are equal; otherwise, the longer one
+            // has more labels, and is greater than the shorter one.
             Ord::cmp(&self.len(), &that.len())
         }
     }
@@ -345,15 +347,16 @@ impl Hash for Name {
     /// The hasher is provided with the labels in this name with ASCII
     /// characters lowercased.  Each label is preceded by its length as `u8`.
     ///
-    /// The same scheme is used by [`RelName`] and [`Label`], so a tuple of any
-    /// of these types will have the same hash as the concatenation of the
+    /// The same scheme is used by [`RelName`] and [`Label`], so a tuple of
+    /// any of these types will have the same hash as the concatenation of the
     /// labels.
     ///
     /// Runtime: `O(self.len())`.
     fn hash<H: Hasher>(&self, state: &mut H) {
-        // NOTE: Label lengths are not affected by 'to_ascii_lowercase()' since
-        // they are always less than 64.  As such, we don't need to iterate over
-        // the labels manually; we can just give them to the hasher as-is.
+        // NOTE: Label lengths are not affected by 'to_ascii_lowercase()'
+        // since they are always less than 64.  As such, we don't need to
+        // iterate over the labels manually; we can just give them to the
+        // hasher as-is.
 
         // The default 'std' hasher actually buffers 8 bytes of input before
         // processing them.  There's no point trying to chunk the input here.
@@ -394,8 +397,96 @@ impl<'a> IntoIterator for &'a Name {
     }
 }
 
-/// An owned [`Name`].
-pub type OwnedName = Owned<[u8; 256], Name>;
+/// A [`Name`] in a 256-byte buffer.
+///
+/// This is a simple wrapper around a 256-byte buffer that stores a [`Name`]
+/// within it.  It can be used in situations where a [`Name`] must be placed
+/// on the stack or within a `struct`, although it is also possible to store
+/// [`Name`]s on the heap as `Box<Name>` or `Rc<Name>`.
+#[derive(Clone)]
+#[repr(transparent)]
+pub struct NameBuf([u8; 256]);
+
+impl NameBuf {
+    /// Copy the given name.
+    pub fn copy(name: &Name) -> Self {
+        let mut buf = [0u8; 256];
+        buf[1..1 + name.len()].copy_from_slice(name.as_bytes());
+        buf[0] = name.len() as u8;
+        Self(buf)
+    }
+
+    /// Overwrite this by copying in a different name.
+    ///
+    /// Any name contained in this buffer previously will be overwritten.
+    pub fn replace_with(&mut self, name: &Name) {
+        self.0[1..1 + name.len()].copy_from_slice(name.as_bytes());
+        self.0[0] = name.len() as u8;
+    }
+}
+
+impl NameBuf {
+    /// The size of this name in the wire format.
+    #[allow(clippy::len_without_is_empty)]
+    pub const fn len(&self) -> usize {
+        self.0[0] as usize
+    }
+
+    /// The wire format representation of the name.
+    pub fn as_bytes(&self) -> &[u8] {
+        &self.0[1..1 + self.len()]
+    }
+}
+
+impl Deref for NameBuf {
+    type Target = Name;
+
+    fn deref(&self) -> &Self::Target {
+        // SAFETY: 'NameBuf' always contains a valid name.
+        let len = self.len();
+        let bytes = &self.0[1..1 + len];
+        unsafe { Name::from_bytes_unchecked(bytes) }
+    }
+}
+
+impl DerefMut for NameBuf {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        // SAFETY: 'NameBuf' always contains a valid name.
+        let len = self.len();
+        let bytes = &mut self.0[1..1 + len];
+        unsafe { Name::from_bytes_unchecked_mut(bytes) }
+    }
+}
+
+impl Borrow<Name> for NameBuf {
+    fn borrow(&self) -> &Name {
+        self
+    }
+}
+
+impl BorrowMut<Name> for NameBuf {
+    fn borrow_mut(&mut self) -> &mut Name {
+        self
+    }
+}
+
+impl AsRef<Name> for NameBuf {
+    fn as_ref(&self) -> &Name {
+        self
+    }
+}
+
+impl AsMut<Name> for NameBuf {
+    fn as_mut(&mut self) -> &mut Name {
+        self
+    }
+}
+
+impl From<&Name> for NameBuf {
+    fn from(value: &Name) -> Self {
+        Self::copy(value)
+    }
+}
 
 /// An error in constructing a [`Name`].
 #[derive(Clone, Debug)]
