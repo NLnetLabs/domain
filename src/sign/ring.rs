@@ -1,4 +1,11 @@
 //! DNSSEC signing using `ring`.
+//!
+//! This backend supports the following algorithms:
+//!
+//! - RSA/SHA-256 (2048-bit keys or larger)
+//! - ECDSA P-256/SHA-256
+//! - ECDSA P-384/SHA-384
+//! - Ed25519
 
 #![cfg(feature = "ring")]
 #![cfg_attr(docsrs, doc(cfg(feature = "ring")))]

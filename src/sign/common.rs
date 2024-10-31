@@ -1,4 +1,8 @@
 //! DNSSEC signing using built-in backends.
+//!
+//! This backend supports all the algorithms supported by Ring and OpenSSL,
+//! depending on whether the respective crate features are enabled.  See the
+//! documentation for each backend for more information.
 
 use core::fmt;
 use std::sync::Arc;
