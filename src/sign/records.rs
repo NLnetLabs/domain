@@ -359,7 +359,7 @@ impl<N, D> SortedRecords<N, D> {
     ///   SOA RR and the TTL of the zone SOA RR itself"_.
     ///
     /// - The `params` should be set to _"SHA-1, no extra iterations, empty
-    ///   salt"_ and zero flags. See `Nsec3param::default()`.
+    ///   salt"_ and zero flags. See [`Nsec3param::default()`].
     ///
     /// [RFC 5155]: https://www.rfc-editor.org/rfc/rfc5155.html
     /// [RFC 9077]: https://www.rfc-editor.org/rfc/rfc9077.html
