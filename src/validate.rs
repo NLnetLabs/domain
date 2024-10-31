@@ -1778,13 +1778,10 @@ where
         let mut h = ctx.finish();
 
         for _ in 0..iterations {
-            canonical_owner.truncate(0);
-            canonical_owner.append_slice(h.as_ref())?;
-            canonical_owner.append_slice(salt.as_slice())?;
-
             let mut ctx =
                 ring::digest::Context::new(&SHA1_FOR_LEGACY_USE_ONLY);
-            ctx.update(canonical_owner.as_ref());
+            ctx.update(h.as_ref());
+            ctx.update(salt.as_slice());
             h = ctx.finish();
         }
 
