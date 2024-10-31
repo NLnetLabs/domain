@@ -24,8 +24,8 @@ use crate::rdata::dnssec::{
 use crate::rdata::nsec3::{Nsec3Salt, OwnerHash};
 use crate::rdata::{Dnskey, Nsec, Nsec3, Nsec3param, ZoneRecordData};
 use crate::utils::base32;
+use crate::validate::{nsec3_hash, Nsec3HashError};
 
-use super::ring::{nsec3_hash, Nsec3HashError};
 use super::{SignRaw, SigningKey};
 
 //------------ SortedRecords -------------------------------------------------

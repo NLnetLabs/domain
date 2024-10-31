@@ -6,15 +6,10 @@
 use core::fmt;
 use std::{boxed::Box, sync::Arc, vec::Vec};
 
-use octseq::{EmptyBuilder, OctetsBuilder, Truncate};
-use ring::digest::SHA1_FOR_LEGACY_USE_ONLY;
 use ring::signature::KeyPair as _;
 use ring::signature::{EcdsaKeyPair, Ed25519KeyPair, RsaKeyPair};
 
-use crate::base::iana::{Nsec3HashAlg, SecAlg};
-use crate::base::ToName;
-use crate::rdata::nsec3::{Nsec3Salt, OwnerHash};
-use crate::rdata::Nsec3param;
+use crate::base::iana::SecAlg;
 use crate::validate::{PublicKeyBytes, RsaPublicKeyBytes, Signature};
 
 use super::{GenerateParams, SecretKeyBytes, SignError, SignRaw};
@@ -352,121 +347,6 @@ impl fmt::Display for GenerateError {
 //--- Error
 
 impl std::error::Error for GenerateError {}
-
-//------------ Nsec3HashError -------------------------------------------------
-
-/// An error when creating an NSEC3 hash.
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
-pub enum Nsec3HashError {
-    /// The requested algorithm for NSEC3 hashing is not supported.
-    UnsupportedAlgorithm,
-
-    /// Data could not be appended to a buffer.
-    ///
-    /// This could indicate an out of memory condition.
-    AppendError,
-
-    /// The hashing process produced an invalid owner hash.
-    ///
-    /// See: [OwnerHashError](crate::rdata::nsec3::OwnerHashError)
-    OwnerHashError,
-}
-
-/// Compute an [RFC 5155] NSEC3 hash using default settings.
-///
-/// See: [Nsec3param::default].
-///
-/// [RFC 5155]: https://www.rfc-editor.org/rfc/rfc5155
-pub fn nsec3_default_hash<N, HashOcts>(
-    owner: N,
-) -> Result<OwnerHash<HashOcts>, Nsec3HashError>
-where
-    N: ToName,
-    HashOcts: AsRef<[u8]> + EmptyBuilder + OctetsBuilder + Truncate,
-    for<'a> HashOcts: From<&'a [u8]>,
-{
-    let params = Nsec3param::<HashOcts>::default();
-    nsec3_hash(
-        owner,
-        params.hash_algorithm(),
-        params.iterations(),
-        params.salt(),
-    )
-}
-
-/// Compute an [RFC 5155] NSEC3 hash.
-///
-/// Computes an NSEC3 hash according to [RFC 5155] section 5:
-///
-/// > IH(salt, x, 0) = H(x || salt)
-/// > IH(salt, x, k) = H(IH(salt, x, k-1) || salt), if k > 0
-///
-/// Then the calculated hash of an owner name is:
-///
-/// > IH(salt, owner name, iterations),
-///
-/// Note that the `iterations` parameter is the number of _additional_
-/// iterations as defined in [RFC 5155] section 3.1.3.
-///
-/// [RFC 5155]: https://www.rfc-editor.org/rfc/rfc5155
-pub fn nsec3_hash<N, SaltOcts, HashOcts>(
-    owner: N,
-    algorithm: Nsec3HashAlg,
-    iterations: u16,
-    salt: &Nsec3Salt<SaltOcts>,
-) -> Result<OwnerHash<HashOcts>, Nsec3HashError>
-where
-    N: ToName,
-    SaltOcts: AsRef<[u8]>,
-    HashOcts: AsRef<[u8]> + EmptyBuilder + OctetsBuilder + Truncate,
-    for<'a> HashOcts: From<&'a [u8]>,
-{
-    if algorithm != Nsec3HashAlg::SHA1 {
-        return Err(Nsec3HashError::UnsupportedAlgorithm);
-    }
-
-    fn mk_hash<N, SaltOcts, HashOcts>(
-        owner: N,
-        iterations: u16,
-        salt: &Nsec3Salt<SaltOcts>,
-    ) -> Result<HashOcts, HashOcts::AppendError>
-    where
-        N: ToName,
-        SaltOcts: AsRef<[u8]>,
-        HashOcts: AsRef<[u8]> + EmptyBuilder + OctetsBuilder + Truncate,
-        for<'a> HashOcts: From<&'a [u8]>,
-    {
-        let mut buf = HashOcts::empty();
-
-        owner.compose_canonical(&mut buf)?;
-        buf.append_slice(salt.as_slice())?;
-
-        let mut ctx = ring::digest::Context::new(&SHA1_FOR_LEGACY_USE_ONLY);
-        ctx.update(buf.as_ref());
-        let mut h = ctx.finish();
-
-        for _ in 0..iterations {
-            buf.truncate(0);
-            buf.append_slice(h.as_ref())?;
-            buf.append_slice(salt.as_slice())?;
-
-            let mut ctx =
-                ring::digest::Context::new(&SHA1_FOR_LEGACY_USE_ONLY);
-            ctx.update(buf.as_ref());
-            h = ctx.finish();
-        }
-
-        Ok(h.as_ref().into())
-    }
-
-    let hash = mk_hash(owner, iterations, salt)
-        .map_err(|_| Nsec3HashError::AppendError)?;
-
-    let owner_hash = OwnerHash::from_octets(hash)
-        .map_err(|_| Nsec3HashError::OwnerHashError)?;
-
-    Ok(owner_hash)
-}
 
 //============ Tests =========================================================
 

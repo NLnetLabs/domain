@@ -15,7 +15,7 @@ use crate::base::{Name, ParsedName, Rtype};
 use crate::dep::octseq::Octets;
 use crate::rdata::nsec3::{Nsec3Salt, OwnerHash};
 use crate::rdata::{AllRecordData, Nsec, Nsec3};
-use crate::sign::ring::nsec3_hash;
+use crate::validate::nsec3_hash;
 
 use super::context::{Config, ValidationState};
 use super::group::ValidatedGroup;
