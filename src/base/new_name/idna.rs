@@ -205,7 +205,7 @@ impl From<fmt::Error> for DecodeError {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(feature = "std", test))]
 mod tests {
     use std::string::String;
 
