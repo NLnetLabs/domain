@@ -1,4 +1,12 @@
 //! DNSSEC signing using OpenSSL.
+//!
+//! This backend supports the following algorithms:
+//!
+//! - RSA/SHA-256 (512-bit keys or larger)
+//! - ECDSA P-256/SHA-256
+//! - ECDSA P-384/SHA-384
+//! - Ed25519
+//! - Ed448
 
 #![cfg(feature = "openssl")]
 #![cfg_attr(docsrs, doc(cfg(feature = "openssl")))]

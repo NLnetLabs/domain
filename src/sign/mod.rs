@@ -7,6 +7,87 @@
 //! made "online" (in an authoritative name server while it is running) or
 //! "offline" (outside of a name server).  Once generated, signatures can be
 //! serialized as DNS records and stored alongside the authenticated records.
+//!
+//! A DNSSEC key actually has two components: a cryptographic key, which can
+//! be used to make and verify signatures, and key metadata, which defines how
+//! the key should be used.  These components are brought together by the
+//! [`SigningKey`] type.  It must be instantiated with a cryptographic key
+//! type, such as [`common::KeyPair`], in order to be used.
+//!
+//! # Example Usage
+//!
+//! At the moment, only "low-level" signing is supported.
+//!
+//! ```
+//! # use domain::sign::*;
+//! # use domain::base::Name;
+//! // Generate a new ED25519 key.
+//! let params = GenerateParams::Ed25519;
+//! let (sec_bytes, pub_bytes) = common::generate(params).unwrap();
+//!
+//! // Parse the key into Ring or OpenSSL.
+//! let key_pair = common::KeyPair::from_bytes(&sec_bytes, &pub_bytes).unwrap();
+//!
+//! // Associate the key with important metadata.
+//! let owner: Name<Vec<u8>> = "www.example.org.".parse().unwrap();
+//! let flags = 257; // key signing key
+//! let key = SigningKey::new(owner, flags, key_pair);
+//!
+//! // Access the public key (with metadata).
+//! let pub_key = key.public_key();
+//! println!("{:?}", pub_key);
+//!
+//! // Sign arbitrary byte sequences with the key.
+//! let sig = key.raw_secret_key().sign_raw(b"Hello, World!").unwrap();
+//! println!("{:?}", sig);
+//! ```
+//!
+//! # Cryptography
+//!
+//! This crate supports OpenSSL and Ring for performing cryptography.  These
+//! cryptographic backends are gated on the `openssl` and `ring` features,
+//! respectively.  They offer mostly equivalent functionality, but OpenSSL
+//! supports a larger set of signing algorithms.  A [`common`] backend is
+//! provided for users that wish to use either or both backends at runtime.
+//!
+//! Each backend module exposes a `KeyPair` type, representing a cryptographic
+//! key that can be used for signing, and a `generate()` function for creating
+//! new keys.
+//!
+//! Users can choose to bring their own cryptography by providing their own
+//! `KeyPair` type that implements [`SignRaw`].  Note that `async` signing
+//! (useful for interacting with cryptographic hardware like HSMs) is not
+//! currently supported.
+//!
+//! While each cryptographic backend can support a limited number of signature
+//! algorithms, even the types independent of a cryptographic backend (e.g.
+//! [`SecretKeyBytes`] and [`GenerateParams`]) support a limited number of
+//! algorithms.  They are:
+//!
+//! - RSA/SHA-256
+//! - ECDSA P-256/SHA-256
+//! - ECDSA P-384/SHA-384
+//! - Ed25519
+//! - Ed448
+//!
+//! # Importing and Exporting
+//!
+//! The [`SecretKeyBytes`] type is a generic representation of a secret key as
+//! a byte slice.  While it does not offer any cryptographic functionality, it
+//! is useful to transfer secret keys stored in memory, independent of any
+//! cryptographic backend.
+//!
+//! The `KeyPair` types of the cryptographic backends in this module each
+//! support a `from_bytes()` function that parses the generic representation
+//! into a functional cryptographic key.  Importantly, these functions require
+//! both the public and private keys to be provided -- the pair are verified
+//! for consistency.  In some cases, it may also be possible to serialize an
+//! existing cryptographic key back to the generic bytes representation.
+//!
+//! [`SecretKeyBytes`] also supports importing and exporting keys from and to
+//! the conventional private-key format popularized by BIND.  This format is
+//! used by a variety of tools for storing DNSSEC keys on disk.  See the
+//! type-level documentation for a specification of the format.
 
 #![cfg(feature = "unstable-sign")]
 #![cfg_attr(docsrs, doc(cfg(feature = "unstable-sign")))]
@@ -195,7 +276,14 @@ pub trait SignRaw {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum GenerateParams {
     /// Generate an RSA/SHA-256 keypair.
-    RsaSha256 { bits: u32 },
+    RsaSha256 {
+        /// The number of bits in the public modulus.
+        ///
+        /// A ~3000-bit key corresponds to a 128-bit security level.  However,
+        /// RSA is mostly used with 2048-bit keys.  Some backends (like Ring)
+        /// do not support smaller key sizes than that.
+        bits: u32,
+    },
 
     /// Generate an ECDSA P-256/SHA-256 keypair.
     EcdsaP256Sha256,
