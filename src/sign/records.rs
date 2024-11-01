@@ -1052,3 +1052,30 @@ pub enum Nsec3OptOut {
     /// insecure delegations will be included in the NSEC3 chain.
     OptOutFlagsOnly,
 }
+
+// TODO: Add tests for nsec3s() that validate the following from RFC 5155:
+//
+// https://www.rfc-editor.org/rfc/rfc5155.html#section-7.1
+// 7.1. Zone Signing
+//     "Zones using NSEC3 must satisfy the following properties:
+//      
+//      o  Each owner name within the zone that owns authoritative RRSets
+//         MUST have a corresponding NSEC3 RR.  Owner names that correspond
+//         to unsigned delegations MAY have a corresponding NSEC3 RR.
+//         However, if there is not a corresponding NSEC3 RR, there MUST be
+//         an Opt-Out NSEC3 RR that covers the "next closer" name to the
+//         delegation.  Other non-authoritative RRs are not represented by
+//         NSEC3 RRs.
+//      
+//      o  Each empty non-terminal MUST have a corresponding NSEC3 RR, unless
+//         the empty non-terminal is only derived from an insecure delegation
+//         covered by an Opt-Out NSEC3 RR.
+//      
+//      o  The TTL value for any NSEC3 RR SHOULD be the same as the minimum
+//         TTL value field in the zone SOA RR.
+//      
+//      o  The Type Bit Maps field of every NSEC3 RR in a signed zone MUST
+//         indicate the presence of all types present at the original owner
+//         name, except for the types solely contributed by an NSEC3 RR
+//         itself.  Note that this means that the NSEC3 type itself will
+//         never be present in the Type Bit Maps."
