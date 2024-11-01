@@ -28,7 +28,7 @@ use octseq::{Octets, OctetsFrom, OctetsInto, Parser};
 ///
 /// The Naptr record type is defined in [RFC 3403, section 4.1][1].
 ///
-/// [1]: https://tools.ietf.org/html/rfc3403#section-4.1
+/// [1]: https://www.rfc-editor.org/rfc/rfc3403#section-4.1
 #[derive(Clone)]
 #[cfg_attr(
     feature = "serde",
