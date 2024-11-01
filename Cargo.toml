@@ -126,7 +126,7 @@ required-features = ["zonefile", "unstable-zonetree"]
 
 [[example]]
 name = "serve-zone"
-required-features = ["zonefile", "net", "unstable-server-transport", "unstable-zonetree"]
+required-features = ["zonefile", "net", "tokio-stream", "tracing-subscriber", "tsig", "unstable-client-transport", "unstable-server-transport", "unstable-zonetree"]
 
 [[example]]
 name = "ixfr-client"
