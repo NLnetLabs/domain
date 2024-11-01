@@ -22,7 +22,9 @@ www                             CNAME   example.com.
 
 mail                    MX      10      example.com.
 
-; An ENT for NSEC3 testing purposes.
+; ENTs for NSEC3 testing purposes.
+some.ent     A       127.0.0.1
+x.y.mail     A       127.0.0.1
 a.b.c.mail   A       127.0.0.1
 
 ; An unsigned delegation for NSEC3 testing purposes.
