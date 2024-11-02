@@ -311,22 +311,27 @@ impl<Octs: AsRef<[u8]>> Key<Octs> {
 
     /// Serialize this key in the conventional format used by BIND.
     ///
-    /// A user-specified DNS class can be used in the record; however, this
-    /// will almost always just be `IN`.
-    ///
     /// See the type-level documentation for a description of this format.
-    pub fn format_as_bind(
-        &self,
-        class: Class,
-        w: &mut impl fmt::Write,
-    ) -> fmt::Result {
+    pub fn format_as_bind(&self, mut w: impl fmt::Write) -> fmt::Result {
         writeln!(
             w,
-            "{} {} DNSKEY {}",
+            "{} IN DNSKEY {}",
             self.owner().fmt_with_dot(),
-            class,
             self.to_dnskey().display_zonefile(false),
         )
+    }
+
+    /// Display this key in the conventional format used by BIND.
+    ///
+    /// See the type-level documentation for a description of this format.
+    pub fn display_as_bind(&self) -> impl fmt::Display + '_ {
+        struct Display<'a, Octs>(&'a Key<Octs>);
+        impl<'a, Octs: AsRef<[u8]>> fmt::Display for Display<'a, Octs> {
+            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                self.0.format_as_bind(f)
+            }
+        }
+        Display(self)
     }
 }
 
@@ -1244,7 +1249,7 @@ mod test {
     use crate::utils::base64;
     use bytes::Bytes;
     use std::str::FromStr;
-    use std::string::String;
+    use std::string::ToString;
 
     type Name = crate::base::name::Name<Vec<u8>>;
     type Ds = crate::rdata::Ds<Vec<u8>>;
@@ -1378,8 +1383,7 @@ mod test {
             let path = format!("test-data/dnssec-keys/K{}.key", name);
             let data = std::fs::read_to_string(path).unwrap();
             let key = Key::<Vec<u8>>::parse_from_bind(&data).unwrap();
-            let mut bind_fmt_key = String::new();
-            key.format_as_bind(Class::IN, &mut bind_fmt_key).unwrap();
+            let bind_fmt_key = key.display_as_bind().to_string();
             let same = Key::parse_from_bind(&bind_fmt_key).unwrap();
             assert_eq!(key, same);
         }
