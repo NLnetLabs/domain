@@ -575,12 +575,13 @@ mod test {
             50,
             CharStr::from_octets("a").unwrap(),
             CharStr::from_octets("z3950+N2L+N2C").unwrap(),
-            CharStr::from_octets("").unwrap(),
+            CharStr::from_octets(r#"!^urn:cid:.+@([^\.]+\.)(.*)$!\2!i"#)
+                .unwrap(),
             Name::<Vec<u8>>::from_str("cidserver.example.com.").unwrap(),
         );
         assert_eq!(
             format!("{}", naptr),
-            r#"100 50 "a" "z3950+N2L+N2C" "" cidserver.example.com."#
+            r#"100 50 "a" "z3950+N2L+N2C" "!^urn:cid:.+@([^\\.]+\\.)(.*)$!\\2!i" cidserver.example.com."#
         );
     }
 }

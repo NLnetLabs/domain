@@ -356,11 +356,11 @@ mod test {
             50,
             "a".parse().unwrap(),
             "z3950+N2L+N2C".parse().unwrap(),
-            "".parse().unwrap(),
+            r#"!^urn:cid:.+@([^\\.]+\\.)(.*)$!\\2!i"#.parse().unwrap(),
             Name::from_slice(b"\x09cidserver\x07example\x03com\x00").unwrap(),
         ));
         assert_eq!(
-            r#"example.com. 3600 IN NAPTR 100 50 "a" "z3950+N2L+N2C" "" cidserver.example.com."#,
+            r#"example.com. 3600 IN NAPTR 100 50 "a" "z3950+N2L+N2C" "!^urn:cid:.+@([^\\.]+\\.)(.*)$!\\2!i" cidserver.example.com."#,
             record.display_zonefile(false).to_string()
         );
     }
