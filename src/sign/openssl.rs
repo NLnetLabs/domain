@@ -1,4 +1,12 @@
 //! DNSSEC signing using OpenSSL.
+//!
+//! This backend supports the following algorithms:
+//!
+//! - RSA/SHA-256 (512-bit keys or larger)
+//! - ECDSA P-256/SHA-256
+//! - ECDSA P-384/SHA-384
+//! - Ed25519
+//! - Ed448
 
 #![cfg(feature = "openssl")]
 #![cfg_attr(docsrs, doc(cfg(feature = "openssl")))]
@@ -433,7 +441,7 @@ impl std::error::Error for GenerateError {}
 
 #[cfg(test)]
 mod tests {
-    use std::{string::String, vec::Vec};
+    use std::{string::ToString, vec::Vec};
 
     use crate::{
         base::iana::SecAlg,
@@ -503,10 +511,7 @@ mod tests {
             let gen_key = SecretKeyBytes::parse_from_bind(&data).unwrap();
 
             let key = KeyPair::from_bytes(&gen_key, pub_key).unwrap();
-
-            let equiv = key.to_bytes();
-            let mut same = String::new();
-            equiv.format_as_bind(&mut same).unwrap();
+            let same = key.to_bytes().display_as_bind().to_string();
 
             let data = data.lines().collect::<Vec<_>>();
             let same = same.lines().collect::<Vec<_>>();
