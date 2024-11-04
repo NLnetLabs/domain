@@ -61,9 +61,9 @@ ring    = ["dep:ring"]
 openssl = ["dep:openssl"]
 
 # Crate features
+net         = ["bytes", "futures-util", "rand", "std", "tokio"]
 resolv      = ["net", "smallvec", "unstable-client-transport"]
 resolv-sync = ["resolv", "tokio/rt"]
-net         = ["bytes", "futures-util", "rand", "std", "tokio"]
 tsig        = ["bytes", "ring", "smallvec"]
 zonefile    = ["bytes", "serde", "std"]
 
