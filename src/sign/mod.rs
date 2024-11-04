@@ -8,11 +8,10 @@
 //! "offline" (outside of a name server).  Once generated, signatures can be
 //! serialized as DNS records and stored alongside the authenticated records.
 //!
-//! A DNSSEC key actually has two components: a cryptographic key, which can
-//! be used to make and verify signatures, and key metadata, which defines how
-//! the key should be used.  These components are brought together by the
-//! [`SigningKey`] type.  It must be instantiated with a cryptographic key
-//! type, such as [`common::KeyPair`], in order to be used.
+//! Signatures can be generated using a [`SigningKey`], which combines
+//! cryptographic key material with additional information that defines how
+//! the key should be used.  [`SigningKey`] relies on a cryptographic backend
+//! to provide the underlying signing operation (e.g. [`common::KeyPair`]).
 //!
 //! # Example Usage
 //!
@@ -47,12 +46,13 @@
 //! This crate supports OpenSSL and Ring for performing cryptography.  These
 //! cryptographic backends are gated on the `openssl` and `ring` features,
 //! respectively.  They offer mostly equivalent functionality, but OpenSSL
-//! supports a larger set of signing algorithms.  A [`common`] backend is
-//! provided for users that wish to use either or both backends at runtime.
+//! supports a larger set of signing algorithms (and, for RSA keys, supports
+//! weaker key sizes).  A [`common`] backend is provided for users that wish
+//! to use either or both backends at runtime.
 //!
-//! Each backend module exposes a `KeyPair` type, representing a cryptographic
-//! key that can be used for signing, and a `generate()` function for creating
-//! new keys.
+//! Each backend module (`openssl`, `ring`, and `common`) exposes a `KeyPair`
+//! type, representing a cryptographic key that can be used for signing, and a
+//! `generate()` function for creating new keys.
 //!
 //! Users can choose to bring their own cryptography by providing their own
 //! `KeyPair` type that implements [`SignRaw`].  Note that `async` signing
@@ -238,10 +238,11 @@ impl<Octs, Inner: SignRaw> SigningKey<Octs, Inner> {
 /// information (for zone signing keys, DNS records; for key signing keys,
 /// subsidiary public keys).
 ///
-/// Before a key can be used for signing, it should be validated.  If the
-/// implementing type allows [`sign_raw()`] to be called on unvalidated keys,
-/// it will have to check the validity of the key for every signature; this is
-/// unnecessary overhead when many signatures have to be generated.
+/// Implementing types should validate keys during construction, so that
+/// signing does not fail due to invalid keys.  If the implementing type
+/// allows [`sign_raw()`] to be called on unvalidated keys, it will have to
+/// check the validity of the key for every signature; this is unnecessary
+/// overhead when many signatures have to be generated.
 ///
 /// [`sign_raw()`]: SignRaw::sign_raw()
 pub trait SignRaw {
@@ -282,6 +283,11 @@ pub enum GenerateParams {
         /// A ~3000-bit key corresponds to a 128-bit security level.  However,
         /// RSA is mostly used with 2048-bit keys.  Some backends (like Ring)
         /// do not support smaller key sizes than that.
+        ///
+        /// For more information about security levels, see [NIST SP 800-57
+        /// part 1 revision 5], page 54, table 2.
+        ///
+        /// [NIST SP 800-57 part 1 revision 5]: https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-57pt1r5.pdf
         bits: u32,
     },
 
