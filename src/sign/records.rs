@@ -157,19 +157,18 @@ impl<N, D> SortedRecords<N, D> {
                     key.public_key().key_tag(),
                     apex.owner().clone(),
                 );
-
-                buf.clear();
                 rrsig.compose_canonical(&mut buf).unwrap();
                 for record in rrset.iter() {
                     record.compose_canonical(&mut buf).unwrap();
                 }
+
+                // Create and push the RRSIG record.
                 let signature = key.raw_secret_key().sign_raw(&buf).unwrap();
                 let signature = signature.as_ref().to_vec();
                 let Ok(signature) = signature.try_octets_into() else {
                     return Err(ErrorTypeToBeDetermined);
                 };
 
-                // Create and push the RRSIG record.
                 res.push(Record::new(
                     name.owner().clone(),
                     name.class(),
@@ -1095,48 +1094,3 @@ pub enum Nsec3OptOut {
 //         name, except for the types solely contributed by an NSEC3 RR
 //         itself.  Note that this means that the NSEC3 type itself will
 //         never be present in the Type Bit Maps."
-// #[cfg(test)]
-// mod tests {
-//     use core::str::FromStr;
-
-//     use crate::rdata::A;
-
-//     use super::*;
-
-//     #[test]
-//     fn nsec3s() {
-//         fn mk_test_record(name: &str) -> Record<Name<Vec<u8>>, A> {
-//             Record::new(
-//                 Name::<Vec<u8>>::from_str(name).unwrap(),
-//                 Class::IN,
-//                 Ttl::from_days(1),
-//                 A::new("127.0.0.1".parse().unwrap()),
-//             )
-//         }
-
-//         let mut recs = SortedRecords::new();
-//         recs.insert(mk_test_record("mail.example.com")).unwrap();
-//         recs.insert(mk_test_record("x.y.mail.example.com")).unwrap();
-//         recs.insert(mk_test_record("a.b.c.mail.example.com"))
-//             .unwrap();
-//         recs.insert(mk_test_record("a.other.c.mail.example.com"))
-//             .unwrap();
-
-//         for rec in recs.families() {
-//             println!("{}", rec.family_name().owner());
-//         }
-
-//         let mut recs = SortedRecords::new();
-//         recs.insert(mk_test_record("y.mail.example.com")).unwrap();
-//         recs.insert(mk_test_record("c.mail.example.com")).unwrap();
-//         recs.insert(mk_test_record("b.c.mail.example.com")).unwrap();
-//         recs.insert(mk_test_record("c.mail.example.com"));
-//         recs.insert(mk_test_record("other.c.mail.example.com"))
-//             .unwrap();
-
-//         println!();
-//         for rec in recs.families() {
-//             println!("{}", rec.family_name().owner());
-//         }
-//     }
-// }
