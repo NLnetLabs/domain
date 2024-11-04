@@ -13,8 +13,10 @@
 use core::fmt;
 use std::{boxed::Box, sync::Arc, vec::Vec};
 
-use ring::signature::KeyPair as _;
-use ring::signature::{EcdsaKeyPair, Ed25519KeyPair, RsaKeyPair};
+use ring::signature::{
+    EcdsaKeyPair, Ed25519KeyPair, KeyPair as _, RsaKeyPair,
+};
+use secrecy::ExposeSecret;
 
 use crate::base::iana::SecAlg;
 use crate::validate::{PublicKeyBytes, RsaPublicKeyBytes, Signature};
@@ -73,12 +75,12 @@ impl KeyPair {
                         n: s.n.as_ref(),
                         e: s.e.as_ref(),
                     },
-                    d: s.d.as_ref(),
-                    p: s.p.as_ref(),
-                    q: s.q.as_ref(),
-                    dP: s.d_p.as_ref(),
-                    dQ: s.d_q.as_ref(),
-                    qInv: s.q_i.as_ref(),
+                    d: s.d.expose_secret(),
+                    p: s.p.expose_secret(),
+                    q: s.q.expose_secret(),
+                    dP: s.d_p.expose_secret(),
+                    dQ: s.d_q.expose_secret(),
+                    qInv: s.q_i.expose_secret(),
                 };
                 ring::signature::RsaKeyPair::from_components(&components)
                     .map_err(|_| FromBytesError::InvalidKey)
@@ -92,7 +94,7 @@ impl KeyPair {
                 let alg = &ring::signature::ECDSA_P256_SHA256_FIXED_SIGNING;
                 EcdsaKeyPair::from_private_key_and_public_key(
                     alg,
-                    s.as_slice(),
+                    s.expose_secret(),
                     p.as_slice(),
                     &*rng,
                 )
@@ -107,7 +109,7 @@ impl KeyPair {
                 let alg = &ring::signature::ECDSA_P384_SHA384_FIXED_SIGNING;
                 EcdsaKeyPair::from_private_key_and_public_key(
                     alg,
-                    s.as_slice(),
+                    s.expose_secret(),
                     p.as_slice(),
                     &*rng,
                 )
@@ -117,7 +119,7 @@ impl KeyPair {
 
             (SecretKeyBytes::Ed25519(s), PublicKeyBytes::Ed25519(p)) => {
                 Ed25519KeyPair::from_seed_and_public_key(
-                    s.as_slice(),
+                    s.expose_secret(),
                     p.as_slice(),
                 )
                 .map_err(|_| FromBytesError::InvalidKey)
@@ -237,8 +239,8 @@ pub fn generate(
 
             // Manually parse the PKCS#8 document for the private key.
             let sk: Box<[u8]> = Box::from(&doc.as_ref()[36..68]);
-            let sk = sk.try_into().unwrap();
-            let sk = SecretKeyBytes::EcdsaP256Sha256(sk);
+            let sk: Box<[u8; 32]> = sk.try_into().unwrap();
+            let sk = SecretKeyBytes::EcdsaP256Sha256(sk.into());
 
             // Manually parse the PKCS#8 document for the public key.
             let pk: Box<[u8]> = Box::from(&doc.as_ref()[73..138]);
@@ -255,8 +257,8 @@ pub fn generate(
 
             // Manually parse the PKCS#8 document for the private key.
             let sk: Box<[u8]> = Box::from(&doc.as_ref()[35..83]);
-            let sk = sk.try_into().unwrap();
-            let sk = SecretKeyBytes::EcdsaP384Sha384(sk);
+            let sk: Box<[u8; 48]> = sk.try_into().unwrap();
+            let sk = SecretKeyBytes::EcdsaP384Sha384(sk.into());
 
             // Manually parse the PKCS#8 document for the public key.
             let pk: Box<[u8]> = Box::from(&doc.as_ref()[88..185]);
@@ -272,8 +274,8 @@ pub fn generate(
 
             // Manually parse the PKCS#8 document for the private key.
             let sk: Box<[u8]> = Box::from(&doc.as_ref()[16..48]);
-            let sk = sk.try_into().unwrap();
-            let sk = SecretKeyBytes::Ed25519(sk);
+            let sk: Box<[u8; 32]> = sk.try_into().unwrap();
+            let sk = SecretKeyBytes::Ed25519(sk.into());
 
             // Manually parse the PKCS#8 document for the public key.
             let pk: Box<[u8]> = Box::from(&doc.as_ref()[51..83]);

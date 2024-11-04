@@ -3,7 +3,9 @@ use core::convert::From;
 use core::fmt::Display;
 
 use std::boxed::Box;
+use std::collections::HashMap;
 use std::fmt::Debug;
+use std::hash::Hash;
 use std::string::String;
 use std::vec::Vec;
 use std::{fmt, io, slice};
@@ -329,7 +331,7 @@ impl<N, D> SortedRecords<N, D> {
             }
 
             let mut bitmap = RtypeBitmap::<Octets>::builder();
-            // Assume there’s gonna be an RRSIG.
+            // Assume there's gonna be an RRSIG.
             bitmap.add(Rtype::RRSIG).unwrap();
             if family.owner() == &apex_owner {
                 // Assume there's gonna be a DNSKEY.
@@ -370,9 +372,10 @@ impl<N, D> SortedRecords<N, D> {
         ttl: Ttl,
         params: Nsec3param<Octets>,
         opt_out: Nsec3OptOut,
+        capture_hash_to_owner_mappings: bool,
     ) -> Result<Nsec3Records<N, Octets>, Nsec3HashError>
     where
-        N: ToName + Clone + From<Name<Octets>> + Display,
+        N: ToName + Clone + From<Name<Octets>> + Display + Ord + Hash,
         N: From<Name<<OctetsMut as FreezeBuilder>::Octets>>,
         D: RecordData,
         Octets: FromBuilder + OctetsFrom<Vec<u8>> + Clone + Default,
@@ -383,6 +386,7 @@ impl<N, D> SortedRecords<N, D> {
             + AsMut<[u8]>
             + EmptyBuilder
             + FreezeBuilder,
+        <OctetsMut as FreezeBuilder>::Octets: AsRef<[u8]>,
     {
         // TODO:
         //   - Handle name collisions? (see RFC 5155 7.1 Zone Signing)
@@ -405,6 +409,8 @@ impl<N, D> SortedRecords<N, D> {
         // We store the NSEC3s as we create them in a self-sorting vec.
         let mut nsec3s = SortedRecords::new();
 
+        let mut ents = Vec::<N>::new();
+
         // The owner name of a zone cut if we currently are at or below one.
         let mut cut: Option<FamilyName<N>> = None;
 
@@ -417,6 +423,13 @@ impl<N, D> SortedRecords<N, D> {
         // We also need the apex for the last NSEC.
         let apex_owner = families.first_owner().clone();
         let apex_label_count = apex_owner.iter_labels().count();
+
+        let mut last_nent_stack: Vec<N> = vec![];
+        let mut nsec3_hash_map = if capture_hash_to_owner_mappings {
+            Some(HashMap::<N, N>::new())
+        } else {
+            None
+        };
 
         for family in families {
             // If the owner is out of zone, we have moved out of our zone and
@@ -457,9 +470,20 @@ impl<N, D> SortedRecords<N, D> {
             //    the original owner name is greater than 1, additional NSEC3
             //    RRs need to be added for every empty non-terminal between
             //    the apex and the original owner name."
+            let mut last_nent_distance_to_apex = 0;
+            let mut last_nent = None;
+            while let Some(this_last_nent) = last_nent_stack.pop() {
+                if name.owner().ends_with(&this_last_nent) {
+                    last_nent_distance_to_apex =
+                        this_last_nent.iter_labels().count()
+                            - apex_label_count;
+                    last_nent = Some(this_last_nent);
+                    break;
+                }
+            }
             let distance_to_root = name.owner().iter_labels().count();
             let distance_to_apex = distance_to_root - apex_label_count;
-            if distance_to_apex > 1 {
+            if distance_to_apex > last_nent_distance_to_apex {
                 // Are there any empty nodes between this node and the apex?
                 // The zone file records are already sorted so if all of the
                 // parent labels had records at them, i.e. they were non-empty
@@ -480,7 +504,8 @@ impl<N, D> SortedRecords<N, D> {
                 // It will NOT construct the last name as that will be dealt
                 // with in the next outer loop iteration.
                 //   - a.b.c.mail.example.com
-                for n in (1..distance_to_apex - 1).rev() {
+                let distance = distance_to_apex - last_nent_distance_to_apex;
+                for n in (1..=distance - 1).rev() {
                     let rev_label_it = name.owner().iter_labels().skip(n);
 
                     // Create next longest ENT name.
@@ -491,22 +516,9 @@ impl<N, D> SortedRecords<N, D> {
                     let name =
                         builder.append_origin(&apex_owner).unwrap().into();
 
-                    // Create the type bitmap, empty for an ENT NSEC3.
-                    let bitmap = RtypeBitmap::<Octets>::builder();
-
-                    let rec = Self::mk_nsec3(
-                        &name,
-                        params.hash_algorithm(),
-                        nsec3_flags,
-                        params.iterations(),
-                        params.salt(),
-                        &apex_owner,
-                        bitmap,
-                        ttl,
-                    )?;
-
-                    // Store the record by order of its owner name.
-                    let _ = nsec3s.insert(rec);
+                    if let Err(pos) = ents.binary_search(&name) {
+                        ents.insert(pos, name);
+                    }
                 }
             }
 
@@ -542,7 +554,45 @@ impl<N, D> SortedRecords<N, D> {
                 ttl,
             )?;
 
-            let _ = nsec3s.insert(rec);
+            if let Some(nsec3_hash_map) = &mut nsec3_hash_map {
+                nsec3_hash_map
+                    .insert(rec.owner().clone(), name.owner().clone());
+            }
+
+            // Store the record by order of its owner name.
+            if nsec3s.insert(rec).is_err() {
+                return Err(Nsec3HashError::CollisionDetected);
+            }
+
+            if let Some(last_nent) = last_nent {
+                last_nent_stack.push(last_nent);
+            }
+            last_nent_stack.push(name.owner().clone());
+        }
+
+        for name in ents {
+            // Create the type bitmap, empty for an ENT NSEC3.
+            let bitmap = RtypeBitmap::<Octets>::builder();
+
+            let rec = Self::mk_nsec3(
+                &name,
+                params.hash_algorithm(),
+                nsec3_flags,
+                params.iterations(),
+                params.salt(),
+                &apex_owner,
+                bitmap,
+                ttl,
+            )?;
+
+            if let Some(nsec3_hash_map) = &mut nsec3_hash_map {
+                nsec3_hash_map.insert(rec.owner().clone(), name);
+            }
+
+            // Store the record by order of its owner name.
+            if nsec3s.insert(rec).is_err() {
+                return Err(Nsec3HashError::CollisionDetected);
+            }
         }
 
         // RFC 5155 7.1 step 7:
@@ -582,9 +632,15 @@ impl<N, D> SortedRecords<N, D> {
         //   "If a hash collision is detected, then a new salt has to be
         //    chosen, and the signing process restarted."
         //
-        // TODO
+        // Handled above.
 
-        Ok(Nsec3Records::new(nsec3s.records, nsec3param))
+        let res = Nsec3Records::new(nsec3s.records, nsec3param);
+
+        if let Some(nsec3_hash_map) = nsec3_hash_map {
+            Ok(res.with_hashes(nsec3_hash_map))
+        } else {
+            Ok(res)
+        }
     }
 
     pub fn write<W>(&self, target: &mut W) -> Result<(), io::Error>
@@ -601,6 +657,39 @@ impl<N, D> SortedRecords<N, D> {
         for record in self.records.iter().filter(|r| r.rtype() != Rtype::SOA)
         {
             writeln!(target, "{record}")?;
+        }
+
+        Ok(())
+    }
+
+    pub fn write_with_comments<W, F, C>(
+        &self,
+        target: &mut W,
+        comment_cb: F,
+    ) -> Result<(), io::Error>
+    where
+        N: fmt::Display,
+        D: RecordData + fmt::Display,
+        W: io::Write,
+        C: fmt::Display,
+        F: Fn(&Record<N, D>) -> Option<C>,
+    {
+        for record in self.records.iter().filter(|r| r.rtype() == Rtype::SOA)
+        {
+            if let Some(comment) = comment_cb(record) {
+                writeln!(target, "{record} ;{}", comment)?;
+            } else {
+                writeln!(target, "{record}")?;
+            }
+        }
+
+        for record in self.records.iter().filter(|r| r.rtype() != Rtype::SOA)
+        {
+            if let Some(comment) = comment_cb(record) {
+                writeln!(target, "{record} ;{}", comment)?;
+            } else {
+                writeln!(target, "{record}")?;
+            }
         }
 
         Ok(())
@@ -728,21 +817,34 @@ where
 
 //------------ Nsec3Records ---------------------------------------------------
 
-/// The set of records created by [`SortedRecords::nsec3s()`].
 pub struct Nsec3Records<N, Octets> {
     /// The NSEC3 records.
-    pub nsec3s: Vec<Record<N, Nsec3<Octets>>>,
+    pub recs: Vec<Record<N, Nsec3<Octets>>>,
 
     /// The NSEC3PARAM record.
-    pub nsec3param: Record<N, Nsec3param<Octets>>,
+    pub param: Record<N, Nsec3param<Octets>>,
+
+    /// A map of hashes to owner names.
+    ///
+    /// For diagnostic purposes. None if not generated.
+    pub hashes: Option<HashMap<N, N>>,
 }
 
 impl<N, Octets> Nsec3Records<N, Octets> {
     pub fn new(
-        nsec3s: Vec<Record<N, Nsec3<Octets>>>,
-        nsec3param: Record<N, Nsec3param<Octets>>,
+        recs: Vec<Record<N, Nsec3<Octets>>>,
+        param: Record<N, Nsec3param<Octets>>,
     ) -> Self {
-        Self { nsec3s, nsec3param }
+        Self {
+            recs,
+            param,
+            hashes: None,
+        }
+    }
+
+    pub fn with_hashes(mut self, hashes: HashMap<N, N>) -> Self {
+        self.hashes = Some(hashes);
+        self
     }
 }
 
@@ -1058,7 +1160,7 @@ pub enum Nsec3OptOut {
 // https://www.rfc-editor.org/rfc/rfc5155.html#section-7.1
 // 7.1. Zone Signing
 //     "Zones using NSEC3 must satisfy the following properties:
-//      
+//
 //      o  Each owner name within the zone that owns authoritative RRSets
 //         MUST have a corresponding NSEC3 RR.  Owner names that correspond
 //         to unsigned delegations MAY have a corresponding NSEC3 RR.
@@ -1066,14 +1168,14 @@ pub enum Nsec3OptOut {
 //         an Opt-Out NSEC3 RR that covers the "next closer" name to the
 //         delegation.  Other non-authoritative RRs are not represented by
 //         NSEC3 RRs.
-//      
+//
 //      o  Each empty non-terminal MUST have a corresponding NSEC3 RR, unless
 //         the empty non-terminal is only derived from an insecure delegation
 //         covered by an Opt-Out NSEC3 RR.
-//      
+//
 //      o  The TTL value for any NSEC3 RR SHOULD be the same as the minimum
 //         TTL value field in the zone SOA RR.
-//      
+//
 //      o  The Type Bit Maps field of every NSEC3 RR in a signed zone MUST
 //         indicate the presence of all types present at the original owner
 //         name, except for the types solely contributed by an NSEC3 RR

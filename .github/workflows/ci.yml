@@ -23,7 +23,7 @@ jobs:
       with:
         rust-version: ${{ matrix.rust }}
     - if: matrix.os == 'ubuntu-latest'
-      run: sudo apt install libssl-dev
+      run: sudo apt-get install -y libssl-dev
     - if: matrix.os == 'windows-latest'
       id: vcpkg
       uses: johnwason/vcpkg-action@v6
@@ -53,7 +53,7 @@ jobs:
       with:
         rust-version: "1.68.2"
     - name: Install OpenSSL
-      run: sudo apt install libssl-dev
+      run: sudo apt-get install -y libssl-dev
     - name: Install nightly Rust
       run: rustup install nightly
     - name: Check with minimal-versions
