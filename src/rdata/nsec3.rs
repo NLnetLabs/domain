@@ -358,7 +358,10 @@ impl<Octs: AsRef<[u8]>> fmt::Display for Nsec3<Octs> {
             self.hash_algorithm, self.flags, self.iterations, self.salt
         )?;
         base32::display_hex(&self.next_owner, f)?;
-        write!(f, " {}", self.types)
+        if !self.types.is_empty() {
+            write!(f, " {}", self.types)?;
+        }
+        Ok(())
     }
 }
 

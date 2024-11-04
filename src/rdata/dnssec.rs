@@ -2169,6 +2169,11 @@ impl<Octs: AsRef<[u8]>> RtypeBitmap<Octs> {
     ) -> Result<(), Target::AppendError> {
         target.append_slice(self.0.as_ref())
     }
+
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.iter().next().is_none()
+    }
 }
 
 //--- AsRef
