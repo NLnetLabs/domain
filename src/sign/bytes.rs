@@ -2,6 +2,7 @@
 
 use core::{fmt, str};
 
+use secrecy::{ExposeSecret, SecretBox};
 use std::boxed::Box;
 use std::vec::Vec;
 
@@ -89,22 +90,22 @@ pub enum SecretKeyBytes {
     /// An ECDSA P-256/SHA-256 keypair.
     ///
     /// The private key is a single 32-byte big-endian integer.
-    EcdsaP256Sha256(Box<[u8; 32]>),
+    EcdsaP256Sha256(SecretBox<[u8; 32]>),
 
     /// An ECDSA P-384/SHA-384 keypair.
     ///
     /// The private key is a single 48-byte big-endian integer.
-    EcdsaP384Sha384(Box<[u8; 48]>),
+    EcdsaP384Sha384(SecretBox<[u8; 48]>),
 
     /// An Ed25519 keypair.
     ///
     /// The private key is a single 32-byte string.
-    Ed25519(Box<[u8; 32]>),
+    Ed25519(SecretBox<[u8; 32]>),
 
     /// An Ed448 keypair.
     ///
     /// The private key is a single 57-byte string.
-    Ed448(Box<[u8; 57]>),
+    Ed448(SecretBox<[u8; 57]>),
 }
 
 //--- Inspection
@@ -139,23 +140,27 @@ impl SecretKeyBytes {
             }
 
             Self::EcdsaP256Sha256(s) => {
+                let s = s.expose_secret();
                 writeln!(w, "Algorithm: 13 (ECDSAP256SHA256)")?;
-                writeln!(w, "PrivateKey: {}", base64::encode_display(&**s))
+                writeln!(w, "PrivateKey: {}", base64::encode_display(s))
             }
 
             Self::EcdsaP384Sha384(s) => {
+                let s = s.expose_secret();
                 writeln!(w, "Algorithm: 14 (ECDSAP384SHA384)")?;
-                writeln!(w, "PrivateKey: {}", base64::encode_display(&**s))
+                writeln!(w, "PrivateKey: {}", base64::encode_display(s))
             }
 
             Self::Ed25519(s) => {
+                let s = s.expose_secret();
                 writeln!(w, "Algorithm: 15 (ED25519)")?;
-                writeln!(w, "PrivateKey: {}", base64::encode_display(&**s))
+                writeln!(w, "PrivateKey: {}", base64::encode_display(s))
             }
 
             Self::Ed448(s) => {
+                let s = s.expose_secret();
                 writeln!(w, "Algorithm: 16 (ED448)")?;
-                writeln!(w, "PrivateKey: {}", base64::encode_display(&**s))
+                writeln!(w, "PrivateKey: {}", base64::encode_display(s))
             }
         }
     }
@@ -182,7 +187,7 @@ impl SecretKeyBytes {
         /// Parse private keys for most algorithms (except RSA).
         fn parse_pkey<const N: usize>(
             mut data: &str,
-        ) -> Result<Box<[u8; N]>, BindFormatError> {
+        ) -> Result<SecretBox<[u8; N]>, BindFormatError> {
             // Look for the 'PrivateKey' field.
             while let Some((key, val, rest)) = parse_bind_entry(data)? {
                 data = rest;
@@ -191,11 +196,15 @@ impl SecretKeyBytes {
                     continue;
                 }
 
-                return base64::decode::<Vec<u8>>(val)
-                    .map_err(|_| BindFormatError::Misformatted)?
-                    .into_boxed_slice()
+                // TODO: Evaluate security of 'base64::decode()'.
+                let val: Vec<u8> = base64::decode(val)
+                    .map_err(|_| BindFormatError::Misformatted)?;
+                let val: Box<[u8]> = val.into_boxed_slice();
+                let val: Box<[u8; N]> = val
                     .try_into()
-                    .map_err(|_| BindFormatError::Misformatted);
+                    .map_err(|_| BindFormatError::Misformatted)?;
+
+                return Ok(val.into());
             }
 
             // The 'PrivateKey' field was not found.
@@ -245,22 +254,6 @@ impl SecretKeyBytes {
     }
 }
 
-//--- Drop
-
-impl Drop for SecretKeyBytes {
-    /// Securely clear the secret key bytes from memory.
-    fn drop(&mut self) {
-        // Zero the bytes for each field.
-        match self {
-            Self::RsaSha256(_) => {}
-            Self::EcdsaP256Sha256(s) => s.fill(0),
-            Self::EcdsaP384Sha384(s) => s.fill(0),
-            Self::Ed25519(s) => s.fill(0),
-            Self::Ed448(s) => s.fill(0),
-        }
-    }
-}
-
 //----------- RsaSecretKeyBytes ---------------------------------------------------
 
 /// An RSA secret key expressed as raw bytes.
@@ -276,22 +269,22 @@ pub struct RsaSecretKeyBytes {
     pub e: Box<[u8]>,
 
     /// The private exponent.
-    pub d: Box<[u8]>,
+    pub d: SecretBox<[u8]>,
 
     /// The first prime factor of `d`.
-    pub p: Box<[u8]>,
+    pub p: SecretBox<[u8]>,
 
     /// The second prime factor of `d`.
-    pub q: Box<[u8]>,
+    pub q: SecretBox<[u8]>,
 
     /// The exponent corresponding to the first prime factor of `d`.
-    pub d_p: Box<[u8]>,
+    pub d_p: SecretBox<[u8]>,
 
     /// The exponent corresponding to the second prime factor of `d`.
-    pub d_q: Box<[u8]>,
+    pub d_q: SecretBox<[u8]>,
 
     /// The inverse of the second prime factor modulo the first.
-    pub q_i: Box<[u8]>,
+    pub q_i: SecretBox<[u8]>,
 }
 
 //--- Conversion to and from the BIND format
@@ -309,17 +302,17 @@ impl RsaSecretKeyBytes {
         w.write_str("PublicExponent: ")?;
         writeln!(w, "{}", base64::encode_display(&self.e))?;
         w.write_str("PrivateExponent: ")?;
-        writeln!(w, "{}", base64::encode_display(&self.d))?;
+        writeln!(w, "{}", base64::encode_display(&self.d.expose_secret()))?;
         w.write_str("Prime1: ")?;
-        writeln!(w, "{}", base64::encode_display(&self.p))?;
+        writeln!(w, "{}", base64::encode_display(&self.p.expose_secret()))?;
         w.write_str("Prime2: ")?;
-        writeln!(w, "{}", base64::encode_display(&self.q))?;
+        writeln!(w, "{}", base64::encode_display(&self.q.expose_secret()))?;
         w.write_str("Exponent1: ")?;
-        writeln!(w, "{}", base64::encode_display(&self.d_p))?;
+        writeln!(w, "{}", base64::encode_display(&self.d_p.expose_secret()))?;
         w.write_str("Exponent2: ")?;
-        writeln!(w, "{}", base64::encode_display(&self.d_q))?;
+        writeln!(w, "{}", base64::encode_display(&self.d_q.expose_secret()))?;
         w.write_str("Coefficient: ")?;
-        writeln!(w, "{}", base64::encode_display(&self.q_i))?;
+        writeln!(w, "{}", base64::encode_display(&self.q_i.expose_secret()))?;
         Ok(())
     }
 
@@ -390,12 +383,12 @@ impl RsaSecretKeyBytes {
         Ok(Self {
             n: n.unwrap(),
             e: e.unwrap(),
-            d: d.unwrap(),
-            p: p.unwrap(),
-            q: q.unwrap(),
-            d_p: d_p.unwrap(),
-            d_q: d_q.unwrap(),
-            q_i: q_i.unwrap(),
+            d: d.unwrap().into(),
+            p: p.unwrap().into(),
+            q: q.unwrap().into(),
+            d_p: d_p.unwrap().into(),
+            d_q: d_q.unwrap().into(),
+            q_i: q_i.unwrap().into(),
         })
     }
 }
@@ -408,23 +401,6 @@ impl<'a> From<&'a RsaSecretKeyBytes> for RsaPublicKeyBytes {
             n: value.n.clone(),
             e: value.e.clone(),
         }
-    }
-}
-
-//--- Drop
-
-impl Drop for RsaSecretKeyBytes {
-    /// Securely clear the secret key bytes from memory.
-    fn drop(&mut self) {
-        // Zero the bytes for each field.
-        self.n.fill(0u8);
-        self.e.fill(0u8);
-        self.d.fill(0u8);
-        self.p.fill(0u8);
-        self.q.fill(0u8);
-        self.d_p.fill(0u8);
-        self.d_q.fill(0u8);
-        self.q_i.fill(0u8);
     }
 }
 

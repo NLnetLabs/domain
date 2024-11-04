@@ -12,7 +12,7 @@
 #![cfg_attr(docsrs, doc(cfg(feature = "openssl")))]
 
 use core::fmt;
-use std::vec::Vec;
+use std::{boxed::Box, vec::Vec};
 
 use openssl::{
     bn::BigNum,
@@ -20,6 +20,7 @@ use openssl::{
     error::ErrorStack,
     pkey::{self, PKey, Private},
 };
+use secrecy::ExposeSecret;
 
 use crate::{
     base::iana::SecAlg,
@@ -70,12 +71,12 @@ impl KeyPair {
 
                 let n = num(&s.n)?;
                 let e = num(&s.e)?;
-                let d = secure_num(&s.d)?;
-                let p = secure_num(&s.p)?;
-                let q = secure_num(&s.q)?;
-                let d_p = secure_num(&s.d_p)?;
-                let d_q = secure_num(&s.d_q)?;
-                let q_i = secure_num(&s.q_i)?;
+                let d = secure_num(s.d.expose_secret())?;
+                let p = secure_num(s.p.expose_secret())?;
+                let q = secure_num(s.q.expose_secret())?;
+                let d_p = secure_num(s.d_p.expose_secret())?;
+                let d_q = secure_num(s.d_q.expose_secret())?;
+                let q_i = secure_num(s.q_i.expose_secret())?;
 
                 // NOTE: The 'openssl' crate doesn't seem to expose
                 // 'EVP_PKEY_fromdata', which could be used to replace the
@@ -101,7 +102,7 @@ impl KeyPair {
                 let mut ctx = bn::BigNumContext::new_secure()?;
                 let group = nid::Nid::X9_62_PRIME256V1;
                 let group = ec::EcGroup::from_curve_name(group)?;
-                let n = secure_num(s.as_slice())?;
+                let n = secure_num(s.expose_secret().as_slice())?;
                 let p = ec::EcPoint::from_bytes(&group, &**p, &mut ctx)?;
                 let k = ec::EcKey::from_private_components(&group, &n, &p)?;
                 k.check_key().map_err(|_| FromBytesError::InvalidKey)?;
@@ -117,7 +118,7 @@ impl KeyPair {
                 let mut ctx = bn::BigNumContext::new_secure()?;
                 let group = nid::Nid::SECP384R1;
                 let group = ec::EcGroup::from_curve_name(group)?;
-                let n = secure_num(s.as_slice())?;
+                let n = secure_num(s.expose_secret().as_slice())?;
                 let p = ec::EcPoint::from_bytes(&group, &**p, &mut ctx)?;
                 let k = ec::EcKey::from_private_components(&group, &n, &p)?;
                 k.check_key().map_err(|_| FromBytesError::InvalidKey)?;
@@ -128,7 +129,8 @@ impl KeyPair {
                 use openssl::memcmp;
 
                 let id = pkey::Id::ED25519;
-                let k = PKey::private_key_from_raw_bytes(&**s, id)?;
+                let s = s.expose_secret();
+                let k = PKey::private_key_from_raw_bytes(s, id)?;
                 if memcmp::eq(&k.raw_public_key().unwrap(), &**p) {
                     k
                 } else {
@@ -140,7 +142,8 @@ impl KeyPair {
                 use openssl::memcmp;
 
                 let id = pkey::Id::ED448;
-                let k = PKey::private_key_from_raw_bytes(&**s, id)?;
+                let s = s.expose_secret();
+                let k = PKey::private_key_from_raw_bytes(s, id)?;
                 if memcmp::eq(&k.raw_public_key().unwrap(), &**p) {
                     k
                 } else {
@@ -182,20 +185,24 @@ impl KeyPair {
             SecAlg::ECDSAP256SHA256 => {
                 let key = self.pkey.ec_key().unwrap();
                 let key = key.private_key().to_vec_padded(32).unwrap();
-                SecretKeyBytes::EcdsaP256Sha256(key.try_into().unwrap())
+                let key: Box<[u8; 32]> = key.try_into().unwrap();
+                SecretKeyBytes::EcdsaP256Sha256(key.into())
             }
             SecAlg::ECDSAP384SHA384 => {
                 let key = self.pkey.ec_key().unwrap();
                 let key = key.private_key().to_vec_padded(48).unwrap();
-                SecretKeyBytes::EcdsaP384Sha384(key.try_into().unwrap())
+                let key: Box<[u8; 48]> = key.try_into().unwrap();
+                SecretKeyBytes::EcdsaP384Sha384(key.into())
             }
             SecAlg::ED25519 => {
                 let key = self.pkey.raw_private_key().unwrap();
-                SecretKeyBytes::Ed25519(key.try_into().unwrap())
+                let key: Box<[u8; 32]> = key.try_into().unwrap();
+                SecretKeyBytes::Ed25519(key.into())
             }
             SecAlg::ED448 => {
                 let key = self.pkey.raw_private_key().unwrap();
-                SecretKeyBytes::Ed448(key.try_into().unwrap())
+                let key: Box<[u8; 57]> = key.try_into().unwrap();
+                SecretKeyBytes::Ed448(key.into())
             }
             _ => unreachable!(),
         }

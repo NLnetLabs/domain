@@ -37,6 +37,7 @@ openssl        = { version = "0.10.57", optional = true } # 0.10.57 upgrades to 
 proc-macro2    = { version = "1.0.69", optional = true } # Force proc-macro2 to at least 1.0.69 for minimal-version build
 ring           = { version = "0.17", optional = true }
 rustversion    = { version = "1", optional = true }
+secrecy        = { version = "0.10", optional = true }
 serde          = { version = "1.0.130", optional = true, features = ["derive"] }
 siphasher      = { version = "1", optional = true }
 smallvec       = { version = "1.3", optional = true }
@@ -70,7 +71,7 @@ zonefile    = ["bytes", "serde", "std"]
 # Unstable features
 unstable-client-transport = ["moka", "net", "tracing"]
 unstable-server-transport = ["arc-swap", "chrono/clock", "libc", "net", "siphasher", "tracing"]
-unstable-sign = ["std", "unstable-validate"]
+unstable-sign = ["std", "dep:secrecy", "unstable-validate"]
 unstable-stelline = ["tokio/test-util", "tracing", "tracing-subscriber", "tsig", "unstable-client-transport", "unstable-server-transport", "zonefile"]
 unstable-validate = ["bytes", "std", "ring"]
 unstable-validator = ["unstable-validate", "zonefile", "unstable-client-transport"]
