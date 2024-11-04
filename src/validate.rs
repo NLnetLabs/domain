@@ -1703,6 +1703,9 @@ pub enum Nsec3HashError {
     ///
     /// See: [OwnerHashError](crate::rdata::nsec3::OwnerHashError)
     OwnerHashError,
+
+    /// The hashing process produced a hash that already exists.
+    CollisionDetected,
 }
 
 /// Compute an [RFC 5155] NSEC3 hash using default settings.
