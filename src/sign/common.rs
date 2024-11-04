@@ -26,10 +26,10 @@ use super::ring;
 
 /// A key pair based on a built-in backend.
 ///
-/// This supports any built-in backend (currently, that is OpenSSL and Ring).
-/// Wherever possible, the Ring backend is preferred over OpenSSL -- but for
-/// more uncommon or insecure algorithms, that Ring does not support, OpenSSL
-/// must be used.
+/// This supports any built-in backend (currently, that is OpenSSL and Ring,
+/// if their respective feature flags are enabled).  Wherever possible, it
+/// will prefer the Ring backend over OpenSSL -- but for more uncommon or
+/// insecure algorithms, that Ring does not support, OpenSSL must be used.
 pub enum KeyPair {
     /// A key backed by Ring.
     #[cfg(feature = "ring")]

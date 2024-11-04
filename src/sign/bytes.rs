@@ -184,7 +184,7 @@ impl SecretKeyBytes {
             mut data: &str,
         ) -> Result<Box<[u8; N]>, BindFormatError> {
             // Look for the 'PrivateKey' field.
-            while let Some((key, val, rest)) = parse_dns_pair(data)? {
+            while let Some((key, val, rest)) = parse_bind_entry(data)? {
                 data = rest;
 
                 if key != "PrivateKey" {
@@ -203,7 +203,7 @@ impl SecretKeyBytes {
         }
 
         // The first line should specify the key format.
-        let (_, _, data) = parse_dns_pair(data)?
+        let (_, _, data) = parse_bind_entry(data)?
             .filter(|&(k, v, _)| {
                 k == "Private-key-format"
                     && v.strip_prefix("v1.")
@@ -213,7 +213,7 @@ impl SecretKeyBytes {
             .ok_or(BindFormatError::UnsupportedFormat)?;
 
         // The second line should specify the algorithm.
-        let (_, val, data) = parse_dns_pair(data)?
+        let (_, val, data) = parse_bind_entry(data)?
             .filter(|&(k, _, _)| k == "Algorithm")
             .ok_or(BindFormatError::Misformatted)?;
 
@@ -248,6 +248,7 @@ impl SecretKeyBytes {
 //--- Drop
 
 impl Drop for SecretKeyBytes {
+    /// Securely clear the secret key bytes from memory.
     fn drop(&mut self) {
         // Zero the bytes for each field.
         match self {
@@ -351,7 +352,7 @@ impl RsaSecretKeyBytes {
         let mut d_q = None;
         let mut q_i = None;
 
-        while let Some((key, val, rest)) = parse_dns_pair(data)? {
+        while let Some((key, val, rest)) = parse_bind_entry(data)? {
             let field = match key {
                 "Modulus" => &mut n,
                 "PublicExponent" => &mut e,
@@ -413,6 +414,7 @@ impl<'a> From<&'a RsaSecretKeyBytes> for RsaPublicKeyBytes {
 //--- Drop
 
 impl Drop for RsaSecretKeyBytes {
+    /// Securely clear the secret key bytes from memory.
     fn drop(&mut self) {
         // Zero the bytes for each field.
         self.n.fill(0u8);
@@ -428,8 +430,8 @@ impl Drop for RsaSecretKeyBytes {
 
 //----------- Helpers for parsing the BIND format ----------------------------
 
-/// Extract the next key-value pair in a DNS private key file.
-fn parse_dns_pair(
+/// Extract the next key-value pair in a BIND-format private key file.
+fn parse_bind_entry(
     data: &str,
 ) -> Result<Option<(&str, &str, &str)>, BindFormatError> {
     // TODO: Use 'trim_ascii_start()' etc. once they pass the MSRV.
