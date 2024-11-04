@@ -47,6 +47,7 @@ const HEX_EDNSDATA_BEGIN: &str = "HEX_EDNSDATA_BEGIN";
 const HEX_EDNSDATA_END: &str = "HEX_EDNSDATA_END";
 
 /// A section in a DNS message
+#[derive(PartialEq, Eq)]
 enum Section {
     Question,
     Answer,
@@ -105,7 +106,7 @@ pub fn parse_file<F: Debug + Read, T: ToString>(
     file: F,
     name: T,
 ) -> Stelline {
-    let mut lines = io::BufReader::new(file).lines();
+    let mut lines = io::BufReader::new(file).lines().map(|l| l.unwrap());
     Stelline {
         name: name.to_string(),
         config: parse_config(&mut lines),
@@ -117,15 +118,14 @@ pub fn parse_file<F: Debug + Read, T: ToString>(
 ///
 /// This consumes the iterator of lines until the `CONFIG END` token is
 /// found.
-fn parse_config<Lines: Iterator<Item = Result<String, std::io::Error>>>(
-    l: &mut Lines,
-) -> Config {
+fn parse_config<Lines: Iterator<Item = String>>(l: &mut Lines) -> Config {
     let mut config: Config = Default::default();
     loop {
-        let line = l.next().unwrap().unwrap();
-        let Some(clean_line) = get_clean_line(line.as_ref()) else {
+        let line = l.next().unwrap();
+        let clean_line = remove_comment(line.as_ref()).trim();
+        if clean_line.is_empty() {
             continue;
-        };
+        }
         if clean_line == CONFIG_END {
             break;
         }
@@ -140,20 +140,18 @@ pub struct Scenario {
     pub steps: Vec<Step>,
 }
 
-pub fn parse_scenario<
-    Lines: Iterator<Item = Result<String, std::io::Error>>,
->(
+pub fn parse_scenario<Lines: Iterator<Item = String>>(
     l: &mut Lines,
 ) -> Scenario {
     let mut scenario: Scenario = Default::default();
     // Find SCENARIO_BEGIN
     loop {
-        let line = l.next().unwrap().unwrap();
-        let Some(clean_line) = get_clean_line(line.as_ref()) else {
+        let line = l.next().unwrap();
+        let clean_line = remove_comment(line.as_ref());
+        let mut tokens = clean_line.split_whitespace();
+        let Some(token) = tokens.next() else {
             continue;
         };
-        let mut tokens = clean_line.split_whitespace();
-        let token = tokens.next().unwrap();
         if token == SCENARIO_BEGIN {
             break;
         }
@@ -163,12 +161,12 @@ pub fn parse_scenario<
 
     // Find RANGE_BEGIN, STEP, or SCENARIO_END
     loop {
-        let line = l.next().unwrap().unwrap();
-        let Some(clean_line) = get_clean_line(line.as_ref()) else {
+        let line = l.next().unwrap();
+        let clean_line = remove_comment(line.as_ref());
+        let mut tokens = clean_line.split_whitespace();
+        let Some(token) = tokens.next() else {
             continue;
         };
-        let mut tokens = clean_line.split_whitespace();
-        let token = tokens.next().unwrap();
         if token == RANGE_BEGIN {
             scenario.ranges.push(parse_range(tokens, l));
             continue;
@@ -193,7 +191,7 @@ pub struct Range {
     pub entry: Vec<Entry>,
 }
 
-fn parse_range<Lines: Iterator<Item = Result<String, std::io::Error>>>(
+fn parse_range<Lines: Iterator<Item = String>>(
     mut tokens: SplitWhitespace<'_>,
     l: &mut Lines,
 ) -> Range {
@@ -203,12 +201,12 @@ fn parse_range<Lines: Iterator<Item = Result<String, std::io::Error>>>(
         ..Default::default()
     };
     loop {
-        let line = l.next().unwrap().unwrap();
-        let Some(clean_line) = get_clean_line(line.as_ref()) else {
+        let line = l.next().unwrap();
+        let clean_line = remove_comment(line.as_ref());
+        let mut tokens = clean_line.split_whitespace();
+        let Some(token) = tokens.next() else {
             continue;
         };
-        let mut tokens = clean_line.split_whitespace();
-        let token = tokens.next().unwrap();
         if token == ADDRESS {
             let addr_str = tokens.next().unwrap();
             range.addr = Some(addr_str.parse().unwrap());
@@ -234,7 +232,7 @@ pub struct Step {
     pub time_passes: Option<u64>,
 }
 
-fn parse_step<Lines: Iterator<Item = Result<String, std::io::Error>>>(
+fn parse_step<Lines: Iterator<Item = String>>(
     mut tokens: SplitWhitespace<'_>,
     l: &mut Lines,
 ) -> Step {
@@ -319,12 +317,12 @@ fn parse_step<Lines: Iterator<Item = Result<String, std::io::Error>>>(
     }
 
     loop {
-        let line = l.next().unwrap().unwrap();
-        let Some(clean_line) = get_clean_line(line.as_ref()) else {
+        let line = l.next().unwrap();
+        let clean_line = remove_comment(line.as_ref());
+        let mut tokens = clean_line.split_whitespace();
+        let Some(token) = tokens.next() else {
             continue;
         };
-        let mut tokens = clean_line.split_whitespace();
-        let token = tokens.next().unwrap();
         if token == ENTRY_BEGIN {
             step.entry = Some(parse_entry(l));
             let entry = step.entry.as_mut().unwrap();
@@ -347,19 +345,15 @@ pub struct Entry {
     pub sections: Option<Sections>,
 }
 
-fn parse_entry<Lines: Iterator<Item = Result<String, std::io::Error>>>(
-    l: &mut Lines,
-) -> Entry {
+fn parse_entry<Lines: Iterator<Item = String>>(l: &mut Lines) -> Entry {
     let mut entry = Entry::default();
     loop {
-        let line = l.next().unwrap().unwrap();
-        let clean_line = get_clean_line(line.as_ref());
-        if clean_line.is_none() {
-            continue;
-        }
-        let clean_line = clean_line.unwrap();
+        let line = l.next().unwrap();
+        let clean_line = remove_comment(line.as_ref());
         let mut tokens = clean_line.split_whitespace();
-        let token = tokens.next().unwrap();
+        let Some(token) = tokens.next() else {
+            continue;
+        };
         if token == OPCODE {
             entry.opcode =
                 Some(Opcode::from_str(tokens.next().unwrap()).unwrap());
@@ -379,12 +373,12 @@ fn parse_entry<Lines: Iterator<Item = Result<String, std::io::Error>>>(
         }
         if token == SECTION {
             let (sections, line) = parse_section(tokens, l);
-            //println!("parse_entry: sections {:?}", sections);
             entry.sections = Some(sections);
-            let clean_line = get_clean_line(line.as_ref());
-            let clean_line = clean_line.unwrap();
+            let clean_line = remove_comment(line.as_ref());
             let mut tokens = clean_line.split_whitespace();
-            let token = tokens.next().unwrap();
+            let Some(token) = tokens.next() else {
+                continue;
+            };
             if token == ENTRY_END {
                 break;
             }
@@ -426,7 +420,7 @@ impl Default for Sections {
 pub type Name = base::Name<Bytes>;
 pub type Question = base::Question<Name>;
 
-fn parse_section<Lines: Iterator<Item = Result<String, std::io::Error>>>(
+fn parse_section<Lines: Iterator<Item = String>>(
     mut tokens: SplitWhitespace<'_>,
     l: &mut Lines,
 ) -> (Sections, String) {
@@ -441,24 +435,20 @@ fn parse_section<Lines: Iterator<Item = Result<String, std::io::Error>>>(
     };
     // Should extract which section
     loop {
-        let line = l.next().unwrap().unwrap();
-        let Some(clean_line) = get_clean_line(line.as_ref()) else {
+        let line = l.next().unwrap();
+        let clean_line = remove_comment(line.as_ref()).trim();
+        let mut tokens = clean_line.split_whitespace();
+        let Some(token) = tokens.next() else {
             continue;
         };
-        let mut tokens = clean_line.split_whitespace();
-        let token = tokens.next().unwrap();
         if token == SECTION {
             let next = tokens.next().unwrap();
-            section = if next == QUESTION {
-                Section::Question
-            } else if next == ANSWER {
-                Section::Answer
-            } else if next == AUTHORITY {
-                Section::Authority
-            } else if next == ADDITIONAL {
-                Section::Additional
-            } else {
-                panic!("Bad section {next}");
+            section = match next {
+                QUESTION => Section::Question,
+                ANSWER => Section::Answer,
+                AUTHORITY => Section::Authority,
+                ADDITIONAL => Section::Additional,
+                _ => panic!("Bad section {next}"),
             };
             origin = ".".to_string();
             continue;
@@ -478,15 +468,15 @@ fn parse_section<Lines: Iterator<Item = Result<String, std::io::Error>>>(
                     .push(Question::from_str(clean_line).unwrap());
             }
             Section::Answer | Section::Authority | Section::Additional => {
-                if matches!(section, Section::Additional)
+                if section == Section::Additional
                     && clean_line == HEX_EDNSDATA_BEGIN
                 {
                     loop {
-                        let line = l.next().unwrap().unwrap();
-                        let Some(clean_line) = get_clean_line(line.as_ref())
-                        else {
+                        let line = l.next().unwrap();
+                        let clean_line = remove_comment(line.as_ref()).trim();
+                        if clean_line.is_empty() {
                             continue;
-                        };
+                        }
                         if clean_line == HEX_EDNSDATA_END {
                             break;
                         }
@@ -572,15 +562,10 @@ pub struct Matches {
     pub any_answer: bool,
 }
 
-fn parse_match(mut tokens: SplitWhitespace<'_>) -> Matches {
+fn parse_match(tokens: SplitWhitespace<'_>) -> Matches {
     let mut matches: Matches = Default::default();
 
-    loop {
-        let token = match tokens.next() {
-            None => return matches,
-            Some(token) => token,
-        };
-
+    for token in tokens {
         match token {
             "all" => matches.all = true,
             "AD" => matches.ad = true,
@@ -612,6 +597,8 @@ fn parse_match(mut tokens: SplitWhitespace<'_>) -> Matches {
             }
         }
     }
+
+    matches
 }
 
 #[derive(Clone, Debug, Default)]
@@ -620,14 +607,10 @@ pub struct Adjust {
     pub copy_query: bool,
 }
 
-fn parse_adjust(mut tokens: SplitWhitespace<'_>) -> Adjust {
+fn parse_adjust(tokens: SplitWhitespace<'_>) -> Adjust {
     let mut adjust: Adjust = Default::default();
 
-    loop {
-        let Some(token) = tokens.next() else {
-            return adjust;
-        };
-
+    for token in tokens {
         match token {
             "copy_id" => adjust.copy_id = true,
             "copy_query" => adjust.copy_query = true,
@@ -637,6 +620,8 @@ fn parse_adjust(mut tokens: SplitWhitespace<'_>) -> Adjust {
             }
         }
     }
+
+    adjust
 }
 
 #[derive(Clone, Debug, Default)]
@@ -659,15 +644,11 @@ pub struct Reply {
     pub notify: bool,
 }
 
-fn parse_reply(mut tokens: SplitWhitespace<'_>) -> Reply {
+/// Parse the reply section
+fn parse_reply(tokens: SplitWhitespace<'_>) -> Reply {
     let mut reply: Reply = Default::default();
 
-    loop {
-        let token = match tokens.next() {
-            None => return reply,
-            Some(token) => token,
-        };
-
+    for token in tokens {
         if let Ok(rcode) = token.parse() {
             reply.rcode = Some(rcode);
             continue;
@@ -689,23 +670,14 @@ fn parse_reply(mut tokens: SplitWhitespace<'_>) -> Reply {
             }
         }
     }
+
+    reply
 }
 
-/// Remove a comment and whitespace from the line
-///
-/// Returns [`None`] if the final string is empty. Only whitespace from the
-/// start and the end of the line is trimmed.
-fn get_clean_line(line: &str) -> Option<&str> {
-    let line = match line.split_once(';') {
+/// Remove a comment from the line if present
+fn remove_comment(line: &str) -> &str {
+    match line.split_once(';') {
         Some((before_comment, _)) => before_comment,
         None => line,
-    };
-
-    let trimmed = line.trim();
-
-    if trimmed.is_empty() {
-        None
-    } else {
-        Some(trimmed)
     }
 }
