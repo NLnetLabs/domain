@@ -552,7 +552,7 @@ fn parse_server_config(config: &Config) -> ServerConfig {
                         zone_name = Some(v.to_string());
                     }
                     _ => {
-                        eprintln!("Ignoring unknown server setting '{setting}' with value: {value}");
+                        eprintln!("Ignoring unknown server setting '{setting}' with value: {value:?}");
                     }
                 }
             }
