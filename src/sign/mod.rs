@@ -20,7 +20,7 @@
 //! ```
 //! # use domain::sign::*;
 //! # use domain::base::Name;
-//! // Generate a new ED25519 key.
+//! // Generate a new Ed25519 key.
 //! let params = GenerateParams::Ed25519;
 //! let (sec_bytes, pub_bytes) = common::generate(params).unwrap();
 //!
@@ -39,6 +39,31 @@
 //! // Sign arbitrary byte sequences with the key.
 //! let sig = key.raw_secret_key().sign_raw(b"Hello, World!").unwrap();
 //! println!("{:?}", sig);
+//! ```
+//!
+//! It is also possible to import keys stored on disk in the conventional BIND
+//! format.
+//!
+//! ```
+//! # use domain::base::iana::SecAlg;
+//! # use domain::{sign::*, validate};
+//! // Load an Ed25519 key named 'Ktest.+015+56037'.
+//! let base = "test-data/dnssec-keys/Ktest.+015+56037";
+//! let sec_text = std::fs::read_to_string(format!("{base}.private")).unwrap();
+//! let sec_bytes = SecretKeyBytes::parse_from_bind(&sec_text).unwrap();
+//! let pub_text = std::fs::read_to_string(format!("{base}.key")).unwrap();
+//! let pub_key = validate::Key::<Vec<u8>>::parse_from_bind(&pub_text).unwrap();
+//!
+//! // Parse the key into Ring or OpenSSL.
+//! let key_pair = common::KeyPair::from_bytes(&sec_bytes, pub_key.raw_public_key()).unwrap();
+//!
+//! // Associate the key with important metadata.
+//! let key = SigningKey::new(pub_key.owner().clone(), pub_key.flags(), key_pair);
+//!
+//! // Check that the owner, algorithm, and key tag matched expectations.
+//! assert_eq!(key.owner().to_string(), "test");
+//! assert_eq!(key.algorithm(), SecAlg::ED25519);
+//! assert_eq!(key.public_key().key_tag(), 56037);
 //! ```
 //!
 //! # Cryptography
@@ -62,13 +87,8 @@
 //! While each cryptographic backend can support a limited number of signature
 //! algorithms, even the types independent of a cryptographic backend (e.g.
 //! [`SecretKeyBytes`] and [`GenerateParams`]) support a limited number of
-//! algorithms.  They are:
-//!
-//! - RSA/SHA-256
-//! - ECDSA P-256/SHA-256
-//! - ECDSA P-384/SHA-384
-//! - Ed25519
-//! - Ed448
+//! algorithms.  Even with custom cryptographic backends, this module can only
+//! support these algorithms.
 //!
 //! # Importing and Exporting
 //!
@@ -96,8 +116,10 @@ use core::fmt;
 
 use crate::{
     base::{iana::SecAlg, Name},
-    validate::{self, PublicKeyBytes, Signature},
+    validate,
 };
+
+pub use crate::validate::{PublicKeyBytes, RsaPublicKeyBytes, Signature};
 
 mod bytes;
 pub use self::bytes::{RsaSecretKeyBytes, SecretKeyBytes};
@@ -234,8 +256,7 @@ impl<Octs, Inner: SignRaw> SigningKey<Octs, Inner> {
 /// Low-level signing functionality.
 ///
 /// Types that implement this trait own a private key and can sign arbitrary
-/// information (for zone signing keys, DNS records; for key signing keys,
-/// subsidiary public keys).
+/// information (in the form of slices of bytes).
 ///
 /// Implementing types should validate keys during construction, so that
 /// signing does not fail due to invalid keys.  If the implementing type
