@@ -10,6 +10,11 @@ jobs:
         rust: [1.76.0, stable, beta, nightly]
     env:
         RUSTFLAGS: "-D warnings"
+        # We use 'vcpkg' to install OpenSSL on Windows.
+        VCPKG_ROOT: "${{ github.workspace }}\\vcpkg"
+        VCPKGRS_TRIPLET: x64-windows-release
+        # Ensure that OpenSSL is dynamically linked.
+        VCPKGRS_DYNAMIC: 1
     steps:
     - name: Checkout repository
       uses: actions/checkout@v1
@@ -17,6 +22,16 @@ jobs:
       uses: hecrj/setup-rust-action@v2
       with:
         rust-version: ${{ matrix.rust }}
+    - if: matrix.os == 'ubuntu-latest'
+      run: sudo apt-get install -y libssl-dev
+    - if: matrix.os == 'windows-latest'
+      id: vcpkg
+      uses: johnwason/vcpkg-action@v6
+      with:
+        pkgs: openssl
+        triplet: ${{ env.VCPKGRS_TRIPLET }}
+        token: ${{ github.token }}
+        github-binarycache: true
     - if: matrix.rust == 'stable'
       run: rustup component add clippy
     - if: matrix.rust == 'stable'
@@ -37,6 +52,8 @@ jobs:
       uses: hecrj/setup-rust-action@v2
       with:
         rust-version: "1.68.2"
+    - name: Install OpenSSL
+      run: sudo apt-get install -y libssl-dev
     - name: Install nightly Rust
       run: rustup install nightly
     - name: Check with minimal-versions
