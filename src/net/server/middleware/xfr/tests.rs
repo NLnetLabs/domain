@@ -75,6 +75,8 @@ async fn axfr_with_example_zone() {
         (n("www.example.com"), Cname::new(n("example.com")).into()),
         (n("mail.example.com"), Mx::new(10, n("example.com")).into()),
         (n("a.b.c.mail.example.com"), A::new(p("127.0.0.1")).into()),
+        (n("x.y.mail.example.com"), A::new(p("127.0.0.1")).into()),
+        (n("some.ent.example.com"), A::new(p("127.0.0.1")).into()),
         (
             n("unsigned.example.com"),
             Ns::new(n("some.other.ns.net.example.com")).into(),
