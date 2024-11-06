@@ -662,7 +662,7 @@ impl<N, D> SortedRecords<N, D> {
         Ok(())
     }
 
-    pub fn write_with_comments<W, F, C>(
+    pub fn write_with_comments<W, F>(
         &self,
         target: &mut W,
         comment_cb: F,
@@ -671,25 +671,20 @@ impl<N, D> SortedRecords<N, D> {
         N: fmt::Display,
         D: RecordData + fmt::Display,
         W: io::Write,
-        C: fmt::Display,
-        F: Fn(&Record<N, D>) -> Option<C>,
+        F: Fn(&Record<N, D>, &mut W) -> std::io::Result<()>,
     {
         for record in self.records.iter().filter(|r| r.rtype() == Rtype::SOA)
         {
-            if let Some(comment) = comment_cb(record) {
-                writeln!(target, "{record} ;{}", comment)?;
-            } else {
-                writeln!(target, "{record}")?;
-            }
+            write!(target, "{record}")?;
+            comment_cb(record, target)?;
+            writeln!(target)?;
         }
 
         for record in self.records.iter().filter(|r| r.rtype() != Rtype::SOA)
         {
-            if let Some(comment) = comment_cb(record) {
-                writeln!(target, "{record} ;{}", comment)?;
-            } else {
-                writeln!(target, "{record}")?;
-            }
+            write!(target, "{record}")?;
+            comment_cb(record, target)?;
+            writeln!(target)?;
         }
 
         Ok(())
