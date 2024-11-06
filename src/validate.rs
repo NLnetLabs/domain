@@ -1717,10 +1717,18 @@ pub enum Nsec3HashError {
 impl std::fmt::Display for Nsec3HashError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            Nsec3HashError::UnsupportedAlgorithm => f.write_str("Unsupported algorithm"),
-            Nsec3HashError::AppendError => f.write_str("Append error: out of memory?"),
-            Nsec3HashError::OwnerHashError => f.write_str("Hashing produced an invalid owner hash"),
-            Nsec3HashError::CollisionDetected => f.write_str("Hash collision detected"),
+            Nsec3HashError::UnsupportedAlgorithm => {
+                f.write_str("Unsupported algorithm")
+            }
+            Nsec3HashError::AppendError => {
+                f.write_str("Append error: out of memory?")
+            }
+            Nsec3HashError::OwnerHashError => {
+                f.write_str("Hashing produced an invalid owner hash")
+            }
+            Nsec3HashError::CollisionDetected => {
+                f.write_str("Hash collision detected")
+            }
         }
     }
 }
