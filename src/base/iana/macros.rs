@@ -13,6 +13,7 @@ macro_rules! int_enum {
                                         $value:expr, $mnemonic:expr) )* ) => {
         $(#[$attr])*
         #[derive(Clone, Copy, Eq, Hash, Ord, PartialEq, PartialOrd)]
+        #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
         pub struct $ianatype($inttype);
 
         impl $ianatype {
