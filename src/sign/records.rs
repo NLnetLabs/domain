@@ -24,9 +24,11 @@ use crate::rdata::dnssec::{
     ProtoRrsig, RtypeBitmap, RtypeBitmapBuilder, Timestamp,
 };
 use crate::rdata::nsec3::{Nsec3Salt, OwnerHash};
-use crate::rdata::{Dnskey, Nsec, Nsec3, Nsec3param, ZoneRecordData};
+use crate::rdata::{Dnskey, Nsec, Nsec3, Nsec3param, Soa, ZoneRecordData};
 use crate::utils::base32;
 use crate::validate::{nsec3_hash, Nsec3HashError};
+use crate::zonetree::types::StoredRecordData;
+use crate::zonetree::StoredName;
 
 use super::{SignRaw, SigningKey};
 
@@ -77,7 +79,23 @@ impl<N, D> SortedRecords<N, D> {
     {
         self.rrsets().find(|rrset| rrset.rtype() == Rtype::SOA)
     }
+}
 
+impl<N> SortedRecords<N, StoredRecordData> {
+    pub fn replace_soa(&mut self, new_soa: Soa<StoredName>) {
+        if let Some(soa_rrset) = self
+            .records
+            .iter_mut()
+            .find(|rrset| rrset.rtype() == Rtype::SOA)
+        {
+            if let ZoneRecordData::Soa(current_soa) = soa_rrset.data_mut() {
+                *current_soa = new_soa;
+            }
+        }
+    }
+}
+
+impl<N, D> SortedRecords<N, D> {
     /// Sign a zone using the given keys.
     ///
     /// A DNSKEY RR will be output for each key.
