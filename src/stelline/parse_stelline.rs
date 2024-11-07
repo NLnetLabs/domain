@@ -338,15 +338,20 @@ fn parse_step<Lines: Iterator<Item = String>>(
 pub struct Entry {
     pub client_addr: Option<IpAddr>,
     pub key_name: Option<KeyName>,
-    pub matches: Option<Matches>,
-    pub adjust: Option<Adjust>,
+    pub matches: Matches,
+    pub adjust: Adjust,
     pub opcode: Option<Opcode>,
-    pub reply: Option<Reply>,
-    pub sections: Option<Sections>,
+    pub reply: Reply,
+    pub sections: Sections,
 }
 
 fn parse_entry<Lines: Iterator<Item = String>>(l: &mut Lines) -> Entry {
-    let mut entry = Entry::default();
+    let mut opcode = None;
+    let mut matches = None;
+    let mut adjust = None;
+    let mut reply = None;
+    let mut sections = None;
+
     loop {
         let line = l.next().unwrap();
         let clean_line = remove_comment(line.as_ref());
@@ -355,41 +360,42 @@ fn parse_entry<Lines: Iterator<Item = String>>(l: &mut Lines) -> Entry {
             continue;
         };
         if token == OPCODE {
-            entry.opcode =
-                Some(Opcode::from_str(tokens.next().unwrap()).unwrap());
+            opcode = Some(Opcode::from_str(tokens.next().unwrap()).unwrap());
             continue;
         }
         if token == MATCH {
-            entry.matches = Some(parse_match(tokens));
+            matches = Some(parse_match(tokens));
             continue;
         }
         if token == ADJUST {
-            entry.adjust = Some(parse_adjust(tokens));
+            adjust = Some(parse_adjust(tokens));
             continue;
         }
         if token == REPLY {
-            entry.reply = Some(parse_reply(tokens));
+            reply = Some(parse_reply(tokens));
             continue;
         }
         if token == SECTION {
-            let (sections, line) = parse_section(tokens, l);
-            entry.sections = Some(sections);
-            let clean_line = remove_comment(line.as_ref());
-            let mut tokens = clean_line.split_whitespace();
-            let Some(token) = tokens.next() else {
-                continue;
-            };
-            if token == ENTRY_END {
-                break;
-            }
-            todo!();
+            sections = Some(parse_section(tokens, l));
+            // the sections extend until the end  of the entry, so we can
+            // break safely here.
+            break;
         }
         if token == ENTRY_END {
             break;
         }
         todo!("Unsupported token '{token}'");
     }
-    entry
+
+    Entry {
+        client_addr: Default::default(),
+        key_name: Default::default(),
+        matches: matches.unwrap_or_default(),
+        adjust: adjust.unwrap_or_default(),
+        reply: reply.unwrap_or_default(),
+        opcode,
+        sections: sections.expect("at least one section must be given"),
+    }
 }
 
 #[derive(Clone, Debug, Default)]
@@ -423,7 +429,7 @@ pub type Question = base::Question<Name>;
 fn parse_section<Lines: Iterator<Item = String>>(
     mut tokens: SplitWhitespace<'_>,
     l: &mut Lines,
-) -> (Sections, String) {
+) -> Sections {
     let mut sections = Sections::default();
     let next = tokens.next().unwrap();
     let mut answer_idx = 0;
@@ -454,7 +460,7 @@ fn parse_section<Lines: Iterator<Item = String>>(
             continue;
         }
         if token == ENTRY_END {
-            return (sections, line);
+            return sections;
         }
         if token == EXTRA_PACKET {
             answer_idx += 1;
@@ -537,7 +543,6 @@ fn parse_section<Lines: Iterator<Item = String>>(
 #[derive(Clone, Debug, Default)]
 pub struct Matches {
     pub additional: bool,
-    pub all: bool,
     pub answer: bool,
     pub authority: bool,
     pub ad: bool,
@@ -548,7 +553,6 @@ pub struct Matches {
     pub opcode: bool,
     pub qname: bool,
     pub qtype: bool,
-    pub question: bool,
     pub rcode: bool,
     pub subdomain: bool,
     pub tcp: bool,
@@ -567,7 +571,7 @@ fn parse_match(tokens: SplitWhitespace<'_>) -> Matches {
 
     for token in tokens {
         match token {
-            "all" => matches.all = true,
+            "all" => matches.set_all(),
             "AD" => matches.ad = true,
             "additional" => matches.additional = true,
             "answer" => matches.answer = true,
@@ -578,7 +582,7 @@ fn parse_match(tokens: SplitWhitespace<'_>) -> Matches {
             "opcode" => matches.opcode = true,
             "flags" => matches.flags = true,
             "qname" => matches.qname = true,
-            "question" => matches.question = true,
+            "question" => matches.set_question(),
             "qtype" => matches.qtype = true,
             "rcode" => matches.rcode = true,
             "subdomain" => matches.subdomain = true,

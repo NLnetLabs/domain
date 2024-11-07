@@ -41,7 +41,7 @@ A scenario consists of steps. Each step is something that is executed in the tes
 
 In general, the syntax looks like:
 
-```
+```rpl
 STEP id type data
 ```
 
@@ -58,13 +58,13 @@ STEP 1 QUERY ADDRESS <ip_address> KEY <key_name>
 
 A `CHECK_ANSWER` step checks an incoming answer. It has no data, only entries.
 
-```
+```rpl
 STEP 1 CHECK_ANSWER
 ```
 
 A `TIME_PASSES` step increments the fake system clock by the specified number of seconds. The time is given after the `ELAPSE` token.
 
-```
+```rpl
 STEP 1 TIME_PASSES ELAPSE
 ```
 
@@ -72,7 +72,7 @@ STEP 1 TIME_PASSES ELAPSE
 
 An entry represents a DNS message (or an expected DNS message). It starts with `ENTRY_BEGIN` and ends with `ENTRY_END`. There are several parts to an entry, which depend on the use of the entry. The simplest form is the form used the `QUERY` step:
 
-```
+```rpl
 ENTRY_BEGIN
 REPLY <opcode> <rcode> <flags>
 SECTION <section_type>
@@ -121,7 +121,7 @@ After the numeric range, a range has a list of addresses that match on this rang
 
 Lastly, a range contains a list of entries, following the syntax described above.
 
-```
+```rpl
 RANGE_BEGIN 0 100 ; begin and end of the range
   ADDRESS 1.1.1.1 ; an address to match
   ADDRESS 2.2.2.2 ; a second address, any number of address is allowed

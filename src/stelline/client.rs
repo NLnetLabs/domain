@@ -25,11 +25,9 @@ use crate::net::client::request::{
     GetResponseMulti, RequestMessage, RequestMessageMulti, SendRequest,
     SendRequestMulti,
 };
-use crate::stelline::matches::match_multi_msg;
 use crate::zonefile::inplace::Entry::Record;
 
 use super::channel::DEF_CLIENT_ADDR;
-use super::matches::match_msg;
 use super::parse_stelline::{Entry, Reply, Sections, Stelline, StepType};
 
 //----------- StellineError ---------------------------------------------------
@@ -156,7 +154,7 @@ pub async fn do_client_simple<R: SendRequest<RequestMessage<Vec<u8>>>>(
                         .entry
                         .as_ref()
                         .ok_or(StellineErrorCause::MissingStepEntry)?;
-                    if !match_msg(entry, &answer, true) {
+                    if entry.match_msg(&answer).is_err() {
                         return Err(StellineErrorCause::MismatchedAnswer);
                     }
                 }
@@ -501,12 +499,9 @@ pub async fn do_client<'a, T: ClientFactory>(
                         return Err(StellineErrorCause::MissingResponse);
                     };
 
-                    if entry
-                        .matches
-                        .as_ref()
-                        .map(|v| v.extra_packets)
-                        .unwrap_or_default()
-                    {
+                    // If extra_packets is true, then the all the reponses are
+                    // checked out of order.
+                    if entry.matches.extra_packets {
                         // This assumes that the client used for the test knows
                         // how to detect the last response in a set of
                         // responses, e.g. the xfr client knows how to detect
@@ -524,12 +519,7 @@ pub async fn do_client<'a, T: ClientFactory>(
                                 Err(
                                     Error::StreamReceiveError
                                     | Error::ConnectionClosed,
-                                ) if entry
-                                    .matches
-                                    .as_ref()
-                                    .map(|v| v.conn_closed)
-                                    == Some(true) =>
-                                {
+                                ) if entry.matches.conn_closed => {
                                     trace!(
                                         "Connection terminated as expected"
                                     );
@@ -540,9 +530,7 @@ pub async fn do_client<'a, T: ClientFactory>(
 
                             if resp.is_none() {
                                 trace!("Stream complete");
-                                if !entry.sections.as_ref().unwrap().answer[0]
-                                    .is_empty()
-                                {
+                                if !entry.sections.answer[0].is_empty() {
                                     return Err(
                                         StellineErrorCause::MismatchedAnswer,
                                     );
@@ -553,9 +541,7 @@ pub async fn do_client<'a, T: ClientFactory>(
 
                             let resp = resp.unwrap();
 
-                            if entry.matches.as_ref().map(|v| v.conn_closed)
-                                == Some(true)
-                            {
+                            if entry.matches.conn_closed {
                                 return Err(
                                     StellineErrorCause::MissingTermination,
                                 );
@@ -565,36 +551,20 @@ pub async fn do_client<'a, T: ClientFactory>(
                             trace!(?resp);
 
                             let mut out_entry = Some(vec![]);
-                            match_multi_msg(
-                                &entry,
-                                0,
-                                &resp,
-                                true,
-                                &mut out_entry,
-                            );
+                            entry.match_msg(&resp);
                             let num_rrs_remaining_after = out_entry
                                 .as_ref()
                                 .map(|entries| entries.len())
                                 .unwrap_or_default();
-                            if let Some(section) = &mut entry.sections {
-                                section.answer[0] = out_entry.unwrap();
-                            }
+                            entry.sections.answer[0] = out_entry.unwrap();
                             trace!("Answer RRs remaining = {num_rrs_remaining_after}");
                         }
                     } else {
-                        let num_expected_answers = if entry
-                            .matches
-                            .as_ref()
-                            .map(|v| v.any_answer)
-                            .unwrap_or_default()
+                        let num_expected_answers = if entry.matches.any_answer
                         {
                             1
                         } else {
-                            entry
-                                .sections
-                                .as_ref()
-                                .map(|section| section.answer.len())
-                                .unwrap_or_default()
+                            entry.sections.answer.len()
                         };
 
                         for idx in 0..num_expected_answers {
@@ -612,12 +582,7 @@ pub async fn do_client<'a, T: ClientFactory>(
                                 Err(
                                     Error::StreamReceiveError
                                     | Error::ConnectionClosed,
-                                ) if entry
-                                    .matches
-                                    .as_ref()
-                                    .map(|v| v.conn_closed)
-                                    == Some(true) =>
-                                {
+                                ) if entry.matches.conn_closed => {
                                     trace!(
                                         "Connection terminated as expected"
                                     );
@@ -632,9 +597,7 @@ pub async fn do_client<'a, T: ClientFactory>(
                                 );
                             };
 
-                            if entry.matches.as_ref().map(|v| v.conn_closed)
-                                == Some(true)
-                            {
+                            if entry.matches.conn_closed {
                                 return Err(
                                     StellineErrorCause::MissingTermination,
                                 );
@@ -642,9 +605,7 @@ pub async fn do_client<'a, T: ClientFactory>(
 
                             trace!("Received answer.");
                             trace!(?resp);
-                            if !match_multi_msg(
-                                entry, idx, &resp, true, &mut None,
-                            ) {
+                            if entry.match_msg(&resp).is_err() {
                                 return Err(
                                     StellineErrorCause::MismatchedAnswer,
                                 );
@@ -716,12 +677,7 @@ fn entry2reqmsg(entry: &Entry) -> RequestMessage<Vec<u8>> {
 
     let mut reqmsg = RequestMessage::new(msg)
         .expect("should not fail unless the request is AXFR");
-    if !entry
-        .matches
-        .as_ref()
-        .map(|v| v.mock_client)
-        .unwrap_or_default()
-    {
+    if !entry.matches.mock_client {
         reqmsg.set_dnssec_ok(reply.fl_do);
     }
 
@@ -742,12 +698,7 @@ fn entry2reqmsg_multi(entry: &Entry) -> RequestMessageMulti<Vec<u8>> {
     let (sections, reply, msg) = entry2msg(entry);
 
     let mut reqmsg = RequestMessageMulti::new(msg).unwrap();
-    if !entry
-        .matches
-        .as_ref()
-        .map(|v| v.mock_client)
-        .unwrap_or_default()
-    {
+    if !entry.matches.mock_client {
         reqmsg.set_dnssec_ok(reply.fl_do);
     }
     if reply.notify {
@@ -763,8 +714,8 @@ fn entry2reqmsg_multi(entry: &Entry) -> RequestMessageMulti<Vec<u8>> {
     reqmsg
 }
 
-fn entry2msg(entry: &Entry) -> (&Sections, Reply, Message<Vec<u8>>) {
-    let sections = entry.sections.as_ref().unwrap();
+fn entry2msg(entry: &Entry) -> (&Sections, &Reply, Message<Vec<u8>>) {
+    let sections = &entry.sections;
     let mut msg = MessageBuilder::new_vec().question();
     if let Some(opcode) = entry.opcode {
         msg.header_mut().set_opcode(opcode);
@@ -788,10 +739,7 @@ fn entry2msg(entry: &Entry) -> (&Sections, Reply, Message<Vec<u8>>) {
             msg.push(rec).unwrap();
         }
     }
-    let reply: Reply = match &entry.reply {
-        Some(reply) => reply.clone(),
-        None => Default::default(),
-    };
+    let reply = &entry.reply;
     let header = msg.header_mut();
     header.set_rd(reply.rd);
     header.set_ad(reply.ad);
