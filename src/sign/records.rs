@@ -98,6 +98,7 @@ impl<N, D> SortedRecords<N, D> {
         expiration: Timestamp,
         inception: Timestamp,
         keys: &[SigningKey<Octets, ConcreteSecretKey>],
+        add_used_dnskeys: bool,
     ) -> Result<
         Vec<Record<N, ZoneRecordData<Octets, N>>>,
         ErrorTypeToBeDetermined,
@@ -160,6 +161,7 @@ impl<N, D> SortedRecords<N, D> {
         for public_key in keys.iter().map(|k| k.public_key()) {
             let dnskey: Dnskey<Octets> =
                 Dnskey::convert(public_key.to_dnskey());
+
             dnskey_rrs
                 .insert(Record::new(
                     apex.owner().clone(),
@@ -169,15 +171,22 @@ impl<N, D> SortedRecords<N, D> {
                 ))
                 .map_err(|_| ErrorTypeToBeDetermined)?;
 
-            res.push(Record::new(
-                apex.owner().clone(),
-                apex.class(),
-                apex_ttl,
-                ZoneRecordData::Dnskey(dnskey),
-            ));
+            if add_used_dnskeys {
+                res.push(Record::new(
+                    apex.owner().clone(),
+                    apex.class(),
+                    apex_ttl,
+                    ZoneRecordData::Dnskey(dnskey),
+                ));
+            }
         }
 
-        let families_iter = dnskey_rrs.families().chain(families);
+        let dummy_dnskey_rrs = SortedRecords::new();
+        let families_iter = if add_used_dnskeys {
+            dnskey_rrs.families().chain(families)
+        } else {
+            dummy_dnskey_rrs.families().chain(families)
+        };
 
         for family in families_iter {
             // If the owner is out of zone, we have moved out of our zone and
@@ -271,6 +280,7 @@ impl<N, D> SortedRecords<N, D> {
         &self,
         apex: &FamilyName<N>,
         ttl: Ttl,
+        assume_dnskeys_will_be_added: bool,
     ) -> Vec<Record<N, Nsec<Octets, N>>>
     where
         N: ToName + Clone + PartialEq,
@@ -331,9 +341,8 @@ impl<N, D> SortedRecords<N, D> {
             }
 
             let mut bitmap = RtypeBitmap::<Octets>::builder();
-            // Assume there's gonna be an RRSIG.
             bitmap.add(Rtype::RRSIG).unwrap();
-            if family.owner() == &apex_owner {
+            if assume_dnskeys_will_be_added && family.owner() == &apex_owner {
                 // Assume there's gonna be a DNSKEY.
                 bitmap.add(Rtype::DNSKEY).unwrap();
             }
@@ -372,6 +381,7 @@ impl<N, D> SortedRecords<N, D> {
         ttl: Ttl,
         params: Nsec3param<Octets>,
         opt_out: Nsec3OptOut,
+        assume_dnskeys_will_be_added: bool,
         capture_hash_to_owner_mappings: bool,
     ) -> Result<Nsec3Records<N, Octets>, Nsec3HashError>
     where
@@ -540,7 +550,9 @@ impl<N, D> SortedRecords<N, D> {
 
             if distance_to_apex == 0 {
                 bitmap.add(Rtype::NSEC3PARAM).unwrap();
-                bitmap.add(Rtype::DNSKEY).unwrap();
+                if assume_dnskeys_will_be_added {
+                    bitmap.add(Rtype::DNSKEY).unwrap();
+                }
             }
 
             let rec = Self::mk_nsec3(
