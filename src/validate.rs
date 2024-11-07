@@ -97,6 +97,11 @@ impl<Octs> Key<Octs> {
         self.key.algorithm()
     }
 
+    /// The size of this key, in bits.
+    pub fn key_size(&self) -> usize {
+        self.key.key_size()
+    }
+
     /// Whether this is a zone signing key.
     ///
     /// From [RFC 4034, section 2.1.1]:
@@ -417,6 +422,23 @@ impl PublicKeyBytes {
         }
     }
 
+    /// The size of this key, in bits.
+    ///
+    /// For RSA keys, this measures the size of the public modulus.  For all
+    /// other algorithms, it is the size of the fixed-width public key.
+    pub fn key_size(&self) -> usize {
+        match self {
+            Self::RsaSha1(k)
+            | Self::RsaSha1Nsec3Sha1(k)
+            | Self::RsaSha256(k)
+            | Self::RsaSha512(k) => k.key_size(),
+            Self::EcdsaP256Sha256(_) => 256,
+            Self::EcdsaP384Sha384(_) => 384,
+            Self::Ed25519(_) => 256,
+            Self::Ed448(_) => 456,
+        }
+    }
+
     /// The raw key tag computation for this value.
     fn raw_key_tag(&self) -> u32 {
         fn compute(data: &[u8]) -> u32 {
@@ -580,6 +602,11 @@ pub struct RsaPublicKeyBytes {
 //--- Inspection
 
 impl RsaPublicKeyBytes {
+    /// The size of the public modulus, in bits.
+    pub fn key_size(&self) -> usize {
+        self.n.len() * 8 - self.n[0].leading_zeros() as usize
+    }
+
     /// The raw key tag computation for this value.
     fn raw_key_tag(&self) -> u32 {
         let mut res = 0u32;
@@ -655,13 +682,18 @@ impl RsaPublicKeyBytes {
         };
 
         // NOTE: off <= 3 so is safe to index up to.
-        let e = data[off..]
+        let e: Box<[u8]> = data[off..]
             .get(..exp_len)
             .ok_or(FromDnskeyError::InvalidKey)?
             .into();
 
         // NOTE: The previous statement indexed up to 'exp_len'.
-        let n = data[off + exp_len..].into();
+        let n: Box<[u8]> = data[off + exp_len..].into();
+
+        // Empty values and leading zeros are not allowed.
+        if e.is_empty() || n.is_empty() || e[0] == 0 || n[0] == 0 {
+            return Err(FromDnskeyError::InvalidKey);
+        }
 
         Ok(Self { n, e })
     }
