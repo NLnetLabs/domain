@@ -432,10 +432,14 @@ impl PublicKeyBytes {
             | Self::RsaSha1Nsec3Sha1(k)
             | Self::RsaSha256(k)
             | Self::RsaSha512(k) => k.key_size(),
-            Self::EcdsaP256Sha256(_) => 256,
-            Self::EcdsaP384Sha384(_) => 384,
-            Self::Ed25519(_) => 256,
-            Self::Ed448(_) => 456,
+
+            // ECDSA public keys have a marker byte and two points.
+            Self::EcdsaP256Sha256(k) => (k.len() - 1) / 2 * 8,
+            Self::EcdsaP384Sha384(k) => (k.len() - 1) / 2 * 8,
+
+            // EdDSA public key sizes are measured in encoded form.
+            Self::Ed25519(k) => k.len() * 8,
+            Self::Ed448(k) => k.len() * 8,
         }
     }
 
@@ -1285,14 +1289,14 @@ mod test {
     type Dnskey = crate::rdata::Dnskey<Vec<u8>>;
     type Rrsig = crate::rdata::Rrsig<Vec<u8>, Name>;
 
-    const KEYS: &[(SecAlg, u16)] = &[
-        (SecAlg::RSASHA1, 439),
-        (SecAlg::RSASHA1_NSEC3_SHA1, 22204),
-        (SecAlg::RSASHA256, 60616),
-        (SecAlg::ECDSAP256SHA256, 42253),
-        (SecAlg::ECDSAP384SHA384, 33566),
-        (SecAlg::ED25519, 56037),
-        (SecAlg::ED448, 7379),
+    const KEYS: &[(SecAlg, u16, usize)] = &[
+        (SecAlg::RSASHA1, 439, 2048),
+        (SecAlg::RSASHA1_NSEC3_SHA1, 22204, 2048),
+        (SecAlg::RSASHA256, 60616, 2048),
+        (SecAlg::ECDSAP256SHA256, 42253, 256),
+        (SecAlg::ECDSAP384SHA384, 33566, 384),
+        (SecAlg::ED25519, 56037, 256),
+        (SecAlg::ED448, 7379, 456),
     ];
 
     // Returns current root KSK/ZSK for testing (2048b)
@@ -1341,7 +1345,7 @@ mod test {
 
     #[test]
     fn parse_from_bind() {
-        for &(algorithm, key_tag) in KEYS {
+        for &(algorithm, key_tag, _) in KEYS {
             let name =
                 format!("test.+{:03}+{:05}", algorithm.to_int(), key_tag);
 
@@ -1352,8 +1356,21 @@ mod test {
     }
 
     #[test]
+    fn key_size() {
+        for &(algorithm, key_tag, key_size) in KEYS {
+            let name =
+                format!("test.+{:03}+{:05}", algorithm.to_int(), key_tag);
+
+            let path = format!("test-data/dnssec-keys/K{}.key", name);
+            let data = std::fs::read_to_string(path).unwrap();
+            let key = Key::<Vec<u8>>::parse_from_bind(&data).unwrap();
+            assert_eq!(key.key_size(), key_size);
+        }
+    }
+
+    #[test]
     fn key_tag() {
-        for &(algorithm, key_tag) in KEYS {
+        for &(algorithm, key_tag, _) in KEYS {
             let name =
                 format!("test.+{:03}+{:05}", algorithm.to_int(), key_tag);
 
@@ -1367,7 +1384,7 @@ mod test {
 
     #[test]
     fn digest() {
-        for &(algorithm, key_tag) in KEYS {
+        for &(algorithm, key_tag, _) in KEYS {
             let name =
                 format!("test.+{:03}+{:05}", algorithm.to_int(), key_tag);
 
@@ -1390,7 +1407,7 @@ mod test {
 
     #[test]
     fn dnskey_roundtrip() {
-        for &(algorithm, key_tag) in KEYS {
+        for &(algorithm, key_tag, _) in KEYS {
             let name =
                 format!("test.+{:03}+{:05}", algorithm.to_int(), key_tag);
 
@@ -1405,7 +1422,7 @@ mod test {
 
     #[test]
     fn bind_format_roundtrip() {
-        for &(algorithm, key_tag) in KEYS {
+        for &(algorithm, key_tag, _) in KEYS {
             let name =
                 format!("test.+{:03}+{:05}", algorithm.to_int(), key_tag);
 
