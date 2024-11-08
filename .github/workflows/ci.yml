@@ -89,9 +89,25 @@ jobs:
       # TODO: Emit matrix elements based on inspecting Cargo.toml so that
       # each example runs as its own GitHub Actions step/job?
       run: |
-        # Generate the set of cargo check --example X --features Y commands to run
-        # and store them in a temporary script:
+        # Generate the set of cargo check --example X --features Y commands to
+        # run and store them in a temporary script. This command works by
+        # extracting the example blocks from the Cargo.toml file and the set
+        # of features that the block indicates are needed to run the example.
+        # E.g. given this block in Cargo.toml:
+        # 
+        #   [[example]]
+        #   name = "lookup"
+        #   required-features = ["resolv"]
+        #
+        # It outputs a line that looks like this:
+        #
+        #   cargo check --example lookup --features resolv
+        #
+        # One line per example is output and the set of lines directed to a temporary
+        # shell script file which is then run in the next step.
+
         cargo metadata --no-deps --format-version 1 | jq -r '.packages[0].targets[] | select(.kind[] | contains("example")) | "cargo check --example \(.name) --features \(."required-features" | flatten)"' | tr -d '[]"' > ${{ runner.temp }}/check-examples.sh
 
         # Run the temporary script:
+
         bash ${{ runner.temp }}/check-examples.sh
