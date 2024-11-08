@@ -132,7 +132,7 @@ required-features = ["zonefile"]
 
 [[example]]
 name = "query-zone"
-required-features = ["zonefile", "unstable-zonetree"]
+required-features = ["tracing-subscriber", "unstable-zonetree", "zonefile"]
 
 [[example]]
 name = "serve-zone"
