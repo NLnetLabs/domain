@@ -95,4 +95,4 @@ jobs:
         cargo metadata --no-deps --format-version 1 | jq -r '.packages[0].targets[] | select(.kind[] | contains("example")) | "cargo check --example \(.name) --features \(."required-features" | flatten)"' | tr -d '[]"' > ${{ runner.temp }}/check-examples.sh
 
         # Run the temporary script:
-        ${{ runner.temp }}/check-examples.sh
+        bash ${{ runner.temp }}/check-examples.sh
