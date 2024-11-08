@@ -359,6 +359,10 @@ impl<N, D> SortedRecords<N, D> {
             }
 
             let mut bitmap = RtypeBitmap::<Octets>::builder();
+            // RFC 4035 section 2.3:
+            //  "The type bitmap of every NSEC resource record in a signed
+            //   zone MUST indicate the presence of both the NSEC record
+            //   itself and its corresponding RRSIG record."
             bitmap.add(Rtype::RRSIG).unwrap();
             if assume_dnskeys_will_be_added && family.owner() == &apex_owner {
                 // Assume there's gonna be a DNSKEY.

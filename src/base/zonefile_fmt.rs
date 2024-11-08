@@ -32,8 +32,15 @@ impl<T: ZonefileFmt + ?Sized> fmt::Display for ZoneFileDisplay<'_, T> {
 
 /// Show a value as zonefile format
 pub trait ZonefileFmt {
+    /// Format the item as zonefile fmt into a [`fmt::Formatter`]
+    ///
+    /// This method is meant for use in a `fmt::Display` implementation.
     fn fmt(&self, p: &mut impl Formatter) -> Result;
 
+    /// Display the item as a zonefile
+    ///
+    /// The returned object will be displayed as zonefile when printed or
+    /// written using `fmt::Display`.
     fn display_zonefile(&self, pretty: bool) -> ZoneFileDisplay<'_, Self> {
         ZoneFileDisplay {
             inner: self,
@@ -344,6 +351,23 @@ mod test {
         ));
         assert_eq!(
             "example.com. 3600 IN HINFO \"Windows\" \"Windows Server\"",
+            record.display_zonefile(false).to_string()
+        );
+    }
+
+    #[test]
+    fn naptr_record() {
+        use crate::rdata::Naptr;
+        let record = create_record(Naptr::<Vec<u8>, &Name<[u8]>>::new(
+            100,
+            50,
+            "a".parse().unwrap(),
+            "z3950+N2L+N2C".parse().unwrap(),
+            r#"!^urn:cid:.+@([^\\.]+\\.)(.*)$!\\2!i"#.parse().unwrap(),
+            Name::from_slice(b"\x09cidserver\x07example\x03com\x00").unwrap(),
+        ));
+        assert_eq!(
+            r#"example.com. 3600 IN NAPTR 100 50 "a" "z3950+N2L+N2C" "!^urn:cid:.+@([^\\.]+\\.)(.*)$!\\2!i" cidserver.example.com."#,
             record.display_zonefile(false).to_string()
         );
     }

@@ -752,6 +752,7 @@ impl<Octs: AsRef<[u8]>> ZonefileFmt for Nsec3param<Octs> {
 /// no whitespace allowed.
 #[derive(Clone)]
 #[repr(transparent)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub struct Nsec3Salt<Octs: ?Sized>(Octs);
 
 impl Nsec3Salt<()> {
