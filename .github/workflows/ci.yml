@@ -110,4 +110,4 @@ jobs:
 
         # Run the temporary script:
 
-        bash ${{ runner.temp }}/check-examples.sh
+        bash -x -e ${{ runner.temp }}/check-examples.sh
