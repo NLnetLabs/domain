@@ -106,7 +106,7 @@ jobs:
         # One line per example is output and the set of lines directed to a temporary
         # shell script file which is then run in the next step.
 
-        cargo metadata --no-deps --format-version 1 | jq -r '.packages[0].targets[] | select(.kind[] | contains("example")) | "cargo check --example \(.name) --features \(."required-features" | flatten)"' | tr -d '[]"' > ${{ runner.temp }}/check-examples.sh
+        cargo metadata --no-deps --format-version 1 | jq -r '.packages[0].targets[] | select(.kind[] | contains("example")) | "cargo check --example \(.name) --features \(."required-features" | flatten | join(","))"' > ${{ runner.temp }}/check-examples.sh
 
         # Run the temporary script:
 
