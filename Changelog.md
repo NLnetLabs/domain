@@ -10,8 +10,11 @@ New
   rather than a tree. ([#396])
 * Changed `fmt::Display` for `HINFO` records to a show a quoted string.
   ([#421])
+* Added support for `NAPTR` record type. ([#427] by [@weilence])
 
 Bug fixes
+
+* NSEC records should include themselves in the generated bitmap. ([#417])
 
 Unstable features
 
@@ -31,8 +34,10 @@ Other changes
 
 [#353]: https://github.com/NLnetLabs/domain/pull/353
 [#396]: https://github.com/NLnetLabs/domain/pull/396
-[#421]: https://github.com/NLnetLabs/domain/pull/412
-
+[#417]: https://github.com/NLnetLabs/domain/pull/417
+[#421]: https://github.com/NLnetLabs/domain/pull/421
+[#427]: https://github.com/NLnetLabs/domain/pull/427
+[@weilence]: https://github.com/weilence
 
 ## 0.10.3
 

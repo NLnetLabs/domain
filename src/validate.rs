@@ -100,6 +100,11 @@ impl<Octs> Key<Octs> {
         self.key.algorithm()
     }
 
+    /// The size of this key, in bits.
+    pub fn key_size(&self) -> usize {
+        self.key.key_size()
+    }
+
     /// Whether this is a zone signing key.
     ///
     /// From [RFC 4034, section 2.1.1]:
@@ -420,6 +425,27 @@ impl PublicKeyBytes {
         }
     }
 
+    /// The size of this key, in bits.
+    ///
+    /// For RSA keys, this measures the size of the public modulus.  For all
+    /// other algorithms, it is the size of the fixed-width public key.
+    pub fn key_size(&self) -> usize {
+        match self {
+            Self::RsaSha1(k)
+            | Self::RsaSha1Nsec3Sha1(k)
+            | Self::RsaSha256(k)
+            | Self::RsaSha512(k) => k.key_size(),
+
+            // ECDSA public keys have a marker byte and two points.
+            Self::EcdsaP256Sha256(k) => (k.len() - 1) / 2 * 8,
+            Self::EcdsaP384Sha384(k) => (k.len() - 1) / 2 * 8,
+
+            // EdDSA public key sizes are measured in encoded form.
+            Self::Ed25519(k) => k.len() * 8,
+            Self::Ed448(k) => k.len() * 8,
+        }
+    }
+
     /// The raw key tag computation for this value.
     fn raw_key_tag(&self) -> u32 {
         fn compute(data: &[u8]) -> u32 {
@@ -583,6 +609,11 @@ pub struct RsaPublicKeyBytes {
 //--- Inspection
 
 impl RsaPublicKeyBytes {
+    /// The size of the public modulus, in bits.
+    pub fn key_size(&self) -> usize {
+        self.n.len() * 8 - self.n[0].leading_zeros() as usize
+    }
+
     /// The raw key tag computation for this value.
     fn raw_key_tag(&self) -> u32 {
         let mut res = 0u32;
@@ -658,13 +689,18 @@ impl RsaPublicKeyBytes {
         };
 
         // NOTE: off <= 3 so is safe to index up to.
-        let e = data[off..]
+        let e: Box<[u8]> = data[off..]
             .get(..exp_len)
             .ok_or(FromDnskeyError::InvalidKey)?
             .into();
 
         // NOTE: The previous statement indexed up to 'exp_len'.
-        let n = data[off + exp_len..].into();
+        let n: Box<[u8]> = data[off + exp_len..].into();
+
+        // Empty values and leading zeros are not allowed.
+        if e.is_empty() || n.is_empty() || e[0] == 0 || n[0] == 0 {
+            return Err(FromDnskeyError::InvalidKey);
+        }
 
         Ok(Self { n, e })
     }
@@ -1256,14 +1292,14 @@ mod test {
     type Dnskey = crate::rdata::Dnskey<Vec<u8>>;
     type Rrsig = crate::rdata::Rrsig<Vec<u8>, Name>;
 
-    const KEYS: &[(SecAlg, u16)] = &[
-        (SecAlg::RSASHA1, 439),
-        (SecAlg::RSASHA1_NSEC3_SHA1, 22204),
-        (SecAlg::RSASHA256, 60616),
-        (SecAlg::ECDSAP256SHA256, 42253),
-        (SecAlg::ECDSAP384SHA384, 33566),
-        (SecAlg::ED25519, 56037),
-        (SecAlg::ED448, 7379),
+    const KEYS: &[(SecAlg, u16, usize)] = &[
+        (SecAlg::RSASHA1, 439, 2048),
+        (SecAlg::RSASHA1_NSEC3_SHA1, 22204, 2048),
+        (SecAlg::RSASHA256, 60616, 2048),
+        (SecAlg::ECDSAP256SHA256, 42253, 256),
+        (SecAlg::ECDSAP384SHA384, 33566, 384),
+        (SecAlg::ED25519, 56037, 256),
+        (SecAlg::ED448, 7379, 456),
     ];
 
     // Returns current root KSK/ZSK for testing (2048b)
@@ -1312,7 +1348,7 @@ mod test {
 
     #[test]
     fn parse_from_bind() {
-        for &(algorithm, key_tag) in KEYS {
+        for &(algorithm, key_tag, _) in KEYS {
             let name =
                 format!("test.+{:03}+{:05}", algorithm.to_int(), key_tag);
 
@@ -1323,8 +1359,21 @@ mod test {
     }
 
     #[test]
+    fn key_size() {
+        for &(algorithm, key_tag, key_size) in KEYS {
+            let name =
+                format!("test.+{:03}+{:05}", algorithm.to_int(), key_tag);
+
+            let path = format!("test-data/dnssec-keys/K{}.key", name);
+            let data = std::fs::read_to_string(path).unwrap();
+            let key = Key::<Vec<u8>>::parse_from_bind(&data).unwrap();
+            assert_eq!(key.key_size(), key_size);
+        }
+    }
+
+    #[test]
     fn key_tag() {
-        for &(algorithm, key_tag) in KEYS {
+        for &(algorithm, key_tag, _) in KEYS {
             let name =
                 format!("test.+{:03}+{:05}", algorithm.to_int(), key_tag);
 
@@ -1338,7 +1387,7 @@ mod test {
 
     #[test]
     fn digest() {
-        for &(algorithm, key_tag) in KEYS {
+        for &(algorithm, key_tag, _) in KEYS {
             let name =
                 format!("test.+{:03}+{:05}", algorithm.to_int(), key_tag);
 
@@ -1361,7 +1410,7 @@ mod test {
 
     #[test]
     fn dnskey_roundtrip() {
-        for &(algorithm, key_tag) in KEYS {
+        for &(algorithm, key_tag, _) in KEYS {
             let name =
                 format!("test.+{:03}+{:05}", algorithm.to_int(), key_tag);
 
@@ -1376,7 +1425,7 @@ mod test {
 
     #[test]
     fn bind_format_roundtrip() {
-        for &(algorithm, key_tag) in KEYS {
+        for &(algorithm, key_tag, _) in KEYS {
             let name =
                 format!("test.+{:03}+{:05}", algorithm.to_int(), key_tag);
 

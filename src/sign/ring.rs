@@ -18,8 +18,10 @@ use ring::signature::{
 };
 use secrecy::ExposeSecret;
 
-use crate::base::iana::SecAlg;
-use crate::validate::{PublicKeyBytes, RsaPublicKeyBytes, Signature};
+use crate::{
+    base::iana::SecAlg,
+    validate::{PublicKeyBytes, RsaPublicKeyBytes, Signature},
+};
 
 use super::{GenerateParams, SecretKeyBytes, SignError, SignRaw};
 
