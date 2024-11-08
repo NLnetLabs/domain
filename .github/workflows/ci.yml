@@ -10,6 +10,11 @@ jobs:
         rust: [1.76.0, stable, beta, nightly]
     env:
         RUSTFLAGS: "-D warnings"
+        # We use 'vcpkg' to install OpenSSL on Windows.
+        VCPKG_ROOT: "${{ github.workspace }}\\vcpkg"
+        VCPKGRS_TRIPLET: x64-windows-release
+        # Ensure that OpenSSL is dynamically linked.
+        VCPKGRS_DYNAMIC: 1
     steps:
     - name: Checkout repository
       uses: actions/checkout@v1
@@ -17,6 +22,16 @@ jobs:
       uses: hecrj/setup-rust-action@v2
       with:
         rust-version: ${{ matrix.rust }}
+    - if: matrix.os == 'ubuntu-latest'
+      run: sudo apt-get install -y libssl-dev
+    - if: matrix.os == 'windows-latest'
+      id: vcpkg
+      uses: johnwason/vcpkg-action@v6
+      with:
+        pkgs: openssl
+        triplet: ${{ env.VCPKGRS_TRIPLET }}
+        token: ${{ github.token }}
+        github-binarycache: true
     - if: matrix.rust == 'stable'
       run: rustup component add clippy
     - if: matrix.rust == 'stable'
@@ -25,6 +40,7 @@ jobs:
       run: cargo fmt --all -- --check
     - run: cargo check --no-default-features --all-targets
     - run: cargo test --all-features
+
   minimal-versions:
     name: Check minimal versions
     runs-on: ubuntu-latest
@@ -37,10 +53,61 @@ jobs:
       uses: hecrj/setup-rust-action@v2
       with:
         rust-version: "1.68.2"
+    - name: Install OpenSSL
+      run: sudo apt-get install -y libssl-dev
     - name: Install nightly Rust
       run: rustup install nightly
     - name: Check with minimal-versions
       run: |
         cargo +nightly update -Z minimal-versions
         cargo check --all-features --all-targets --locked
-      
+
+  # Note: This deliberately doesn't try to run the examples as some of them
+  # don't terminate and/or attempt to make network connections that will fail
+  # or perhaps be a nuisance to real name servers if run regularly by CI.
+  #
+  # Note: This is just a band aid, ideally there would be a way for Cargo to
+  # build/run examples using the feature set specified in Cargo.toml itself,
+  # but that isn't currently possible (see [1]).
+  # 
+  # [1]: https://github.com/rust-lang/cargo/issues/4663)
+  build-examples:
+    name: Build examples
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        rust: [1.78.0, stable, beta, nightly]
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v1
+    - name: Install Rust
+      uses: hecrj/setup-rust-action@v2
+      with:
+        rust-version: ${{ matrix.rust }}
+    - name: Compile all examples
+      shell: bash
+      # TODO: Emit matrix elements based on inspecting Cargo.toml so that
+      # each example runs as its own GitHub Actions step/job?
+      run: |
+        # Generate the set of cargo check --example X --features Y commands to
+        # run and store them in a temporary script. This command works by
+        # extracting the example blocks from the Cargo.toml file and the set
+        # of features that the block indicates are needed to run the example.
+        # E.g. given this block in Cargo.toml:
+        # 
+        #   [[example]]
+        #   name = "lookup"
+        #   required-features = ["resolv"]
+        #
+        # It outputs a line that looks like this:
+        #
+        #   cargo check --example lookup --features resolv
+        #
+        # One line per example is output and the set of lines directed to a temporary
+        # shell script file which is then run in the next step.
+
+        cargo metadata --no-deps --format-version 1 | jq -r '.packages[0].targets[] | select(.kind[] | contains("example")) | "cargo check --example \(.name) --features \(."required-features" | flatten | join(","))"' > ${{ runner.temp }}/check-examples.sh
+
+        # Run the temporary script:
+
+        bash ${{ runner.temp }}/check-examples.sh
