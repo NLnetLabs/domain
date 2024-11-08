@@ -1,7 +1,6 @@
 /// Using the `domain::net::client` module for sending a query.
 use std::net::{IpAddr, SocketAddr};
 use std::str::FromStr;
-use std::sync::Arc;
 use std::time::Duration;
 use std::vec::Vec;
 
