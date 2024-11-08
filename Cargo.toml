@@ -120,7 +120,7 @@ required-features = ["std", "rand"]
 
 [[example]]
 name = "client-transports"
-required-features = ["net", "unstable-client-transport"]
+required-features = ["net", "tokio-rustls", "unstable-client-transport"]
 
 [[example]]
 name = "server-transports"
