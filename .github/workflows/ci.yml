@@ -1,5 +1,7 @@
 name: ci
-on: [push, pull_request]
+# Don't run on pull_request as well otherwise the jobs will be run twice.
+# See: https://github.com/orgs/community/discussions/26940
+on: push
 jobs:
   test:
     name: test
