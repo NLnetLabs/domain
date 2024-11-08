@@ -73,10 +73,9 @@ jobs:
   # [1]: https://github.com/rust-lang/cargo/issues/4663)
   build-examples:
     name: Build examples
-    runs-on: ${{ matrix.os }}
+    runs-on: ubuntu-latest
     strategy:
       matrix:
-        os: [ubuntu-latest]
         rust: [1.78.0, stable, beta, nightly]
     steps:
     - name: Checkout repository
