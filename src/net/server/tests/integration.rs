@@ -25,6 +25,7 @@ use crate::base::net::IpAddr;
 use crate::base::wire::Composer;
 use crate::base::Name;
 use crate::base::Rtype;
+use crate::logging::init_logging;
 use crate::net::client::request::{RequestMessage, RequestMessageMulti};
 use crate::net::client::{dgram, stream, tsig};
 use crate::net::server;
@@ -70,15 +71,7 @@ async fn server_tests(#[files("test-data/server/*.rpl")] rpl_file: PathBuf) {
     // which responses will be expected, and how the server that answers them
     // should be configured.
 
-    // Initialize tracing based logging. Override with env var RUST_LOG, e.g.
-    // RUST_LOG=trace. DEBUG level will show the .rpl file name, Stelline step
-    // numbers and types as they are being executed.
-    tracing_subscriber::fmt()
-        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
-        .with_thread_ids(true)
-        .without_time()
-        .try_init()
-        .ok();
+    init_logging();
 
     // Load the test .rpl file that determines which queries will be sent
     // and which responses will be expected, and how the server that
