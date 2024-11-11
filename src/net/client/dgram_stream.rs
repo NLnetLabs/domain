@@ -208,7 +208,7 @@ where
             match &mut self.state {
                 QueryState::StartUdpRequest => {
                     let msg = self.request_msg.clone();
-                    let request = self.udp_conn.send_request(msg);
+                    let request = (*self.udp_conn).send_request(msg);
                     self.state = QueryState::GetUdpResponse(request);
                     continue;
                 }

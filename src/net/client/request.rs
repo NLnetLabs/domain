@@ -128,6 +128,17 @@ impl<T: SendRequest<RequestMessage<Octs>> + ?Sized, Octs: Octets>
     }
 }
 
+impl<T: SendRequest<RequestMessage<Octs>> + ?Sized, Octs: Octets>
+    SendRequest<RequestMessage<Octs>> for Arc<T>
+{
+    fn send_request(
+        &self,
+        request_msg: RequestMessage<Octs>,
+    ) -> Box<dyn GetResponse + Send + Sync> {
+        (**self).send_request(request_msg)
+    }
+}
+
 //------------ SendRequestMulti -----------------------------------------------
 
 /// Trait for starting a DNS request based on a request composer.

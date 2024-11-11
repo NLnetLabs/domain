@@ -106,14 +106,8 @@ fn redundant() {
         });
 
         // Redundant add previous connection.
-        let (redun, transp) = redundant::Connection::new();
-        let run_fut = transp.run();
-        tokio::spawn(async move {
-            run_fut.await;
-            println!("redundant conn run terminated");
-        });
-
-        redun.add(Box::new(ms.clone())).await.unwrap();
+        let redun = redundant::Connection::new();
+        redun.add(Box::new(ms.clone()));
 
         do_client_simple(&stelline, &step_value, redun).await;
     });

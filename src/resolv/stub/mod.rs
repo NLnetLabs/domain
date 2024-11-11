@@ -22,7 +22,7 @@ use crate::net::client::multi_stream;
 use crate::net::client::protocol::{TcpConnect, UdpConnect};
 use crate::net::client::redundant;
 use crate::net::client::request::{
-    ComposeRequest, Error, RequestMessage, SendRequest,
+    ComposeRequest, RequestMessage, SendRequest,
 };
 use crate::resolv::lookup::addr::{lookup_addr, FoundAddrs};
 use crate::resolv::lookup::host::{lookup_host, search_host, FoundHosts};
@@ -75,7 +75,8 @@ pub mod conf;
 /// [`run_with_conf`]: #method.run_with_conf
 #[derive(Debug)]
 pub struct StubResolver {
-    transport: Mutex<Option<redundant::Connection<RequestMessage<Vec<u8>>>>>,
+    transport:
+        Mutex<Option<Arc<redundant::Connection<RequestMessage<Vec<u8>>>>>>,
 
     /// Resolver options.
     options: ResolvOptions,
@@ -138,20 +139,9 @@ impl StubResolver {
         CR: Clone + Debug + ComposeRequest + Send + Sync + 'static,
     >(
         &self,
-    ) -> Result<redundant::Connection<CR>, Error> {
+    ) -> redundant::Connection<CR> {
         // Create a redundant transport and fill it with the right transports
-        let (redun, transp) = redundant::Connection::new();
-
-        // Start the run function on a separate task.
-        let redun_run_fut = transp.run();
-
-        // It would be nice to have just one task. However redun.run() has to
-        // execute before we can call redun.add(). However, we need to know
-        // the type of the elements we add to FuturesUnordered. For the moment
-        // we have two tasks.
-        tokio::spawn(async move {
-            redun_run_fut.await;
-        });
+        let redun = redundant::Connection::new();
 
         let fut_list_tcp = FuturesUnordered::new();
         let fut_list_udp_tcp = FuturesUnordered::new();
@@ -170,7 +160,7 @@ impl StubResolver {
                     multi_stream::Connection::new(TcpConnect::new(s.addr));
                 // Start the run function on a separate task.
                 fut_list_tcp.push(tran.run());
-                redun.add(Box::new(conn)).await?;
+                redun.add(Box::new(conn));
             } else {
                 let udp_connect = UdpConnect::new(s.addr);
                 let tcp_connect = TcpConnect::new(s.addr);
@@ -178,7 +168,7 @@ impl StubResolver {
                     dgram_stream::Connection::new(udp_connect, tcp_connect);
                 // Start the run function on a separate task.
                 fut_list_udp_tcp.push(tran.run());
-                redun.add(Box::new(conn)).await?;
+                redun.add(Box::new(conn));
             }
         }
 
@@ -186,20 +176,20 @@ impl StubResolver {
             run(fut_list_tcp, fut_list_udp_tcp).await;
         });
 
-        Ok(redun)
+        redun
     }
 
     async fn get_transport(
         &self,
-    ) -> Result<redundant::Connection<RequestMessage<Vec<u8>>>, Error> {
+    ) -> Arc<redundant::Connection<RequestMessage<Vec<u8>>>> {
         let mut opt_transport = self.transport.lock().await;
 
         match &*opt_transport {
-            Some(transport) => Ok(transport.clone()),
+            Some(transport) => transport.clone(),
             None => {
-                let transport = self.setup_transport().await?;
+                let transport = Arc::new(self.setup_transport().await);
                 *opt_transport = Some(transport.clone());
-                Ok(transport)
+                transport
             }
         }
     }
@@ -414,9 +404,7 @@ impl<'a> Query<'a> {
             io::Error::new(io::ErrorKind::Other, e.to_string())
         })?;
 
-        let transport = self.resolver.get_transport().await.map_err(|e| {
-            io::Error::new(io::ErrorKind::Other, e.to_string())
-        })?;
+        let transport = self.resolver.get_transport().await;
         let mut gr_fut = transport.send_request(request_msg);
         let reply =
             timeout(self.resolver.options.timeout, gr_fut.get_response())

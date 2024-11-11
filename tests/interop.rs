@@ -1,5 +1,5 @@
 //! TSIG interop testing with other DNS implementations.
-#![cfg(all(feature = "bytes", feature = "std"))]
+#![cfg(all(feature = "bytes", feature = "std", feature = "tsig"))]
 
 mod common;
 
