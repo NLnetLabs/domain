@@ -1,11 +1,9 @@
 use tracing::trace;
 
-use super::parse_stelline::{Entry, Matches, Question};
+use super::parse_stelline::{Entry, Matches};
 use crate::base::iana::{Opcode, Rtype};
 use crate::base::opt::Opt;
-use crate::base::{
-    Message, ParsedName, ParsedRecord, QuestionSection, RecordSection,
-};
+use crate::base::{Message, ParsedName, ParsedRecord, RecordSection};
 use crate::dep::octseq::Octets;
 use crate::rdata::ZoneRecordData;
 use crate::zonefile::inplace::Entry as ZonefileEntry;
@@ -153,6 +151,9 @@ impl Entry {
     }
 
     /// Match the question section
+    ///
+    /// This checks the qname, qtype and subdomain of the records in the section
+    /// (if the relevant fields of `Matches` are set).
     fn match_question<Octs: Octets>(
         &self,
         msg: &Message<Octs>,
@@ -224,7 +225,7 @@ impl Entry {
             } else {
                 // Nothing matches
                 trace!(
-                    "no match for record {} {} {}",
+                    "no match for record '{} {} {}'",
                     msg_rr.owner(),
                     msg_rr.class(),
                     msg_rr.rtype(),
@@ -256,7 +257,7 @@ impl Entry {
             let owner = msg_rr.owner() == mat_rr.owner();
             let class = msg_rr.class() == mat_rr.class();
             let rtype = msg_rr.rtype() == mat_rr.rtype();
-            let rdata = msg_rdata.data() != mat_rr.data();
+            let rdata = msg_rdata.data() == mat_rr.data();
 
             if !(owner && class && rtype && rdata) {
                 return false;
@@ -435,7 +436,12 @@ impl OrderedMultiMatcher<'_> {
     }
 
     pub fn finish(self) -> Result<(), DidNotMatch> {
-        if self.answer_idx < self.entry.sections.answer.len() {
+        let answer = &self.entry.sections.answer;
+
+        // Special case for when we don't have to check anything
+        if self.answer_idx == 0 && answer.len() == 1 && answer[0].is_empty() {
+            Ok(())
+        } else if self.answer_idx < answer.len() {
             Err(DidNotMatch)
         } else {
             Ok(())
@@ -449,6 +455,10 @@ pub struct UnorderedMultiMatcher<'a> {
 }
 
 impl UnorderedMultiMatcher<'_> {
+    pub fn answer_records_left(&self) -> usize {
+        self.answers.len()
+    }
+
     pub fn match_msg<Octs: Octets>(
         &mut self,
         msg: &Message<Octs>,

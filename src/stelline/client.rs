@@ -15,11 +15,11 @@ use bytes::Bytes;
 #[cfg(all(feature = "std", test))]
 use mock_instant::thread_local::MockClock;
 use tracing::{debug, info_span, trace};
-use tracing_subscriber::EnvFilter;
 
 use crate::base::iana::{Opcode, OptionCode};
 use crate::base::opt::{ComposeOptData, OptData};
 use crate::base::{Message, MessageBuilder};
+use crate::logging::init_logging;
 use crate::net::client::request::{
     ComposeRequest, ComposeRequestMulti, Error, GetResponse,
     GetResponseMulti, RequestMessage, RequestMessageMulti, SendRequest,
@@ -432,13 +432,14 @@ impl ClientFactory for QueryTailoredClientFactory {
 
 //----------- do_client() ----------------------------------------------------
 
-// This function handles the client part of a Stelline script. It is meant
-// to test server code. This code need refactoring. The do_client_simple
-// function takes care of supporting SendRequest, so no need to support that
-// here. UDP support can be made simplere by removing any notion of a
-// connection and associating a source address with every request. TCP
-// suport can be made simpler because the test code does not have to be
-// careful about the TcpKeepalive option and just keep the connection open.
+/// This function handles the client part of a Stelline script.
+///
+/// It is meant to test server code. This code needs refactoring. The
+/// do_client_simple function takes care of supporting SendRequest, so no need
+/// to support that here. UDP support can be made simpler by removing any
+/// notion of a connection and associating a source address with every request.
+/// TCP support can be made simpler because the test code does not have to be
+/// careful about the TcpKeepalive option and just keep the connection open.
 pub async fn do_client<'a, T: ClientFactory>(
     stelline: &'a Stelline,
     step_value: &'a CurrStepValue,
@@ -499,7 +500,7 @@ pub async fn do_client<'a, T: ClientFactory>(
                         return Err(StellineErrorCause::MissingResponse);
                     };
 
-                    // If extra_packets is true, then the all the reponses are
+                    // If extra_packets is true, then the all the responses are
                     // checked out of order.
                     if entry.matches.extra_packets {
                         // This assumes that the client used for the test knows
@@ -507,105 +508,82 @@ pub async fn do_client<'a, T: ClientFactory>(
                         // responses, e.g. the xfr client knows how to detect
                         // the last response in an AXFR/IXFR response set.
                         trace!("Awaiting an unknown number of answers");
-                        let mut entry = entry.clone();
+                        let mut matcher = entry.match_multi_msg_unordered();
                         loop {
-                            let resp = match tokio::time::timeout(
-                                Duration::from_secs(3),
-                                send_request.get_response(),
-                            )
-                            .await
-                            .map_err(|_| StellineErrorCause::AnswerTimedOut)?
-                            {
-                                Err(
-                                    Error::StreamReceiveError
-                                    | Error::ConnectionClosed,
-                                ) if entry.matches.conn_closed => {
-                                    trace!(
-                                        "Connection terminated as expected"
-                                    );
-                                    break;
-                                }
-                                other => other,
-                            }?;
+                            let resp =
+                                get_next_response(&mut send_request).await?;
+                            let resp = check_connection_closed(entry, resp)?;
 
-                            if resp.is_none() {
+                            let Some(resp) = resp else {
                                 trace!("Stream complete");
-                                if !entry.sections.answer[0].is_empty() {
+                                if matcher.finish().is_err() {
                                     return Err(
                                         StellineErrorCause::MismatchedAnswer,
                                     );
                                 } else {
                                     break;
                                 }
-                            }
-
-                            let resp = resp.unwrap();
-
-                            if entry.matches.conn_closed {
-                                return Err(
-                                    StellineErrorCause::MissingTermination,
-                                );
-                            }
+                            };
 
                             trace!("Received answer.");
                             trace!(?resp);
 
-                            let mut out_entry = Some(vec![]);
-                            entry.match_msg(&resp);
-                            let num_rrs_remaining_after = out_entry
-                                .as_ref()
-                                .map(|entries| entries.len())
-                                .unwrap_or_default();
-                            entry.sections.answer[0] = out_entry.unwrap();
-                            trace!("Answer RRs remaining = {num_rrs_remaining_after}");
-                        }
-                    } else {
-                        let num_expected_answers = if entry.matches.any_answer
-                        {
-                            1
-                        } else {
-                            entry.sections.answer.len()
-                        };
-
-                        for idx in 0..num_expected_answers {
-                            trace!(
-                                "Awaiting answer {}/{num_expected_answers}...",
-                                idx + 1
-                            );
-                            let resp = match tokio::time::timeout(
-                                Duration::from_secs(3),
-                                send_request.get_response(),
-                            )
-                            .await
-                            .map_err(|_| StellineErrorCause::AnswerTimedOut)?
-                            {
-                                Err(
-                                    Error::StreamReceiveError
-                                    | Error::ConnectionClosed,
-                                ) if entry.matches.conn_closed => {
-                                    trace!(
-                                        "Connection terminated as expected"
-                                    );
-                                    break;
-                                }
-                                other => other,
-                            }?;
-
-                            let Some(resp) = resp else {
+                            if matcher.match_msg(&resp).is_err() {
                                 return Err(
-                                    StellineErrorCause::MissingResponse,
+                                    StellineErrorCause::MismatchedAnswer,
                                 );
                             };
 
-                            if entry.matches.conn_closed {
+                            trace!(
+                                "Answer RRs remaining = {}",
+                                matcher.answer_records_left()
+                            );
+                        }
+                    } else if entry.matches.any_answer {
+                        let resp =
+                            get_next_response(&mut send_request).await?;
+                        let resp = check_connection_closed(entry, resp)?;
+
+                        let Some(resp) = resp else {
+                            if !entry.matches.conn_closed {
                                 return Err(
-                                    StellineErrorCause::MissingTermination,
+                                    StellineErrorCause::MissingResponse,
                                 );
                             }
+                            break;
+                        };
+
+                        if entry.match_msg(&resp).is_err() {
+                            return Err(StellineErrorCause::MismatchedAnswer);
+                        }
+                    } else {
+                        let num_expected_answers =
+                            entry.sections.answer.len();
+
+                        let mut matcher = entry.match_multi_msg_ordered();
+
+                        for idx in 1..=num_expected_answers {
+                            trace!(
+                                "Awaiting answer {idx}/{num_expected_answers}..."
+                            );
+                            let resp =
+                                get_next_response(&mut send_request).await?;
+                            let resp = check_connection_closed(entry, resp)?;
+
+                            let Some(resp) = resp else {
+                                trace!("Stream complete");
+                                if matcher.finish().is_err() {
+                                    return Err(
+                                        StellineErrorCause::MismatchedAnswer,
+                                    );
+                                } else {
+                                    break;
+                                }
+                            };
 
                             trace!("Received answer.");
                             trace!(?resp);
-                            if entry.match_msg(&resp).is_err() {
+                            if matcher.match_msg(&resp).is_err() {
                                 return Err(
                                     StellineErrorCause::MismatchedAnswer,
                                 );
@@ -651,25 +629,32 @@ pub async fn do_client<'a, T: ClientFactory>(
     }
 }
 
-/// Setup logging of events reported by domain and the test suite.
-///
-/// Use the RUST_LOG environment variable to override the defaults.
-///
-/// E.g. To enable debug level logging:
-///   RUST_LOG=DEBUG
-///
-/// Or to log only the steps processed by the Stelline client:
-///   RUST_LOG=net_server::net::stelline::client=DEBUG
-///
-/// Or to enable trace level logging but not for the test suite itself:
-///   RUST_LOG=TRACE,net_server=OFF
-fn init_logging() {
-    tracing_subscriber::fmt()
-        .with_env_filter(EnvFilter::from_default_env())
-        .with_thread_ids(true)
-        .without_time()
-        .try_init()
-        .ok();
+async fn get_next_response(
+    send_request: &mut Response,
+) -> Result<Option<Message<Bytes>>, StellineErrorCause> {
+    let resp = tokio::time::timeout(
+        Duration::from_secs(3),
+        send_request.get_response(),
+    )
+    .await
+    .map_err(|_| StellineErrorCause::AnswerTimedOut)?;
+
+    if let Err(Error::StreamReceiveError | Error::ConnectionClosed) = resp {
+        Ok(None)
+    } else {
+        dbg!(resp.map_err(StellineErrorCause::ClientError))
+    }
+}
+
+fn check_connection_closed<T>(
+    entry: &Entry,
+    resp: Option<T>,
+) -> Result<Option<T>, StellineErrorCause> {
+    let conn_closed = entry.matches.conn_closed;
+    match resp {
+        Some(_) if conn_closed => Err(StellineErrorCause::MissingTermination),
+        x => Ok(x),
+    }
 }
 
 fn entry2reqmsg(entry: &Entry) -> RequestMessage<Vec<u8>> {
