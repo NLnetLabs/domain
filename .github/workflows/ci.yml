@@ -1,7 +1,10 @@
 name: ci
-# Don't run on pull_request as well otherwise the jobs will be run twice.
-# See: https://github.com/orgs/community/discussions/26940
-on: push
+# Don't run on push as well as pull_request otherwise the jobs will be run
+# twice [1]. Run on pull_request instead of push as otherwise code is not
+# built & tested against the PR target branch as if it were already merged
+# (thus hiding issues until post-merge).
+# [1]: https://github.com/orgs/community/discussions/26940
+on: pull_request
 jobs:
   test:
     name: test
