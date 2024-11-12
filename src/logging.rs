@@ -5,7 +5,8 @@
 /// Use the RUST_LOG environment variable to override the defaults.
 ///
 /// E.g. To enable debug level logging:
-/// ```
+///
+/// ```bash
 /// RUST_LOG=DEBUG
 /// ```
 #[cfg(feature = "tracing-subscriber")]

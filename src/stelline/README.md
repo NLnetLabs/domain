@@ -51,7 +51,7 @@ Steps of types `QUERY` and `CHECK_ANSWER` have entries associated with them, whi
 
 A `QUERY` step sends a query to the tested program. It can optionally have data declaring its `ADDRESS` and `KEY`:
 
-```
+```rpl
 STEP 1 QUERY
 STEP 1 QUERY ADDRESS <ip_address> KEY <key_name>  
 ```
