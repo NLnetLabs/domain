@@ -265,21 +265,25 @@ impl<Req: Clone> Connection<Req> {
         // Occasionally the probe slow transports.
         let mut rng = rand::thread_rng();
         if transports.len() > 1 && rng.gen_bool(0.05) {
-            let min_timeout = transports
+            // Find the fastest transport.
+            let (min_pos, min_timeout) = transports
                 .iter()
                 .map(|transport| transport.timeout)
-                .min()
+                .enumerate()
+                .min_by_key(|&(_, timeout)| timeout)
                 .expect("there are at least two transports");
 
-            // Pick a random transport and try to get it probed early.
-            transports
+            // Randomly pick a slower transport and get it probed first.
+            let last_pos = transports.len() - 1;
+            transports.swap(min_pos, last_pos);
+            transports[..last_pos]
                 .choose_mut(&mut rng)
                 .expect("there are at least two transports")
                 .timeout = min_timeout;
         }
 
         // Sort the transports by lowest timeout; we will query in this order.
-        transports.sort_unstable_by_key(|t| t.timeout);
+        transports.sort_by_key(|t| t.timeout);
 
         transports
     }
