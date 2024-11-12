@@ -164,7 +164,6 @@ extern crate core;
 
 pub mod base;
 pub mod dep;
-mod logging;
 pub mod net;
 pub mod rdata;
 pub mod resolv;
@@ -176,3 +175,5 @@ pub mod validate;
 pub mod validator;
 pub mod zonefile;
 pub mod zonetree;
+
+mod logging;
