@@ -150,17 +150,12 @@ where
         request_msg: Req,
     ) -> Box<dyn GetResponse + Send + Sync> {
         /// A wrapper type for a multiplexed request.
-        struct Request(
-            Pin<
-                Box<
-                    dyn Future<Output = Result<Message<Bytes>, Error>>
-                        + Send
-                        + Sync,
-                >,
-            >,
-        );
+        struct Request<Fut>(Pin<Box<Fut>>);
 
-        impl GetResponse for Request {
+        impl<Fut> GetResponse for Request<Fut>
+        where
+            Fut: Future<Output = Result<Message<Bytes>, Error>> + Send + Sync,
+        {
             fn get_response(
                 &mut self,
             ) -> Pin<
@@ -175,7 +170,7 @@ where
             }
         }
 
-        impl fmt::Debug for Request {
+        impl<Fut> fmt::Debug for Request<Fut> {
             fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
                 f.write_str("redundant::Request")
             }
