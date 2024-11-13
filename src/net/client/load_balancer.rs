@@ -744,7 +744,7 @@ impl<Req: Clone + Send + Sync + 'static> Query<Req> {
                                     }
                                 }
                                 self.result = Some(res.1);
-                                self.res_index= res.0;
+                                self.res_index = res.0;
 
                                 self.state = QueryState::Report(0);
                                 // Break out of receive loop
@@ -1042,28 +1042,18 @@ where
 fn conn_rt_cmp(e1: &ConnRT, e2: &ConnRT, slow_rt: f64) -> Ordering {
     let e1_slow = e1.est_rt.as_secs_f64() > slow_rt;
     let e2_slow = e2.est_rt.as_secs_f64() > slow_rt;
-    if e1_slow != e2_slow {
-        return if e2_slow {
-            Ordering::Less
-        } else {
-            Ordering::Greater
-        };
-    }
-    if !e1_slow && !e2_slow {
-        // Normal case. First check queue lengths.
-        if e1.queue_length != e2.queue_length {
-            return if e1.queue_length < e2.queue_length {
-                Ordering::Less
-            } else {
-                Ordering::Greater
-            };
-        }
 
-        // Equal queue length. Just take est_rt.
-        return e1.est_rt.cmp(&e2.est_rt);
+    match (e1_slow, e2_slow) {
+        (true, true) => {
+            // Normal case. First check queue lengths. Then check est_rt.
+            e1.queue_length
+                .cmp(&e2.queue_length)
+                .then(e1.est_rt.cmp(&e2.est_rt))
+        }
+        (true, false) => Ordering::Greater,
+        (false, true) => Ordering::Less,
+        (false, false) => e1.est_rt.cmp(&e2.est_rt),
     }
-    // e1_slow == e2_slow
-    e1.est_rt.cmp(&e2.est_rt)
 }
 
 /// Return if this reply should be skipped or not.
