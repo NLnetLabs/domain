@@ -591,13 +591,16 @@ struct ConnStats {
 }
 
 impl ConnStats {
+    /// Update response time statistics.
     fn update(&mut self, elapsed: Duration) {
         let elapsed = elapsed.as_secs_f64();
         self.mean += (elapsed - self.mean) / SMOOTH_N;
         let elapsed_sq = elapsed * elapsed;
         self.mean_sq += (elapsed_sq - self.mean_sq) / SMOOTH_N;
     }
-    fn get_est_rt(&self) -> f64 {
+
+    /// Get an estimated response time.
+    fn est_rt(&self) -> f64 {
         let mean = self.mean;
         let var = self.mean_sq - mean * mean;
         let std_dev = f64::sqrt(var.max(0.));
@@ -981,7 +984,7 @@ impl<'a, Req: Clone + Send + Sync + 'static> Transport<Req> {
                     if let Some(ind) = opt_ind {
                         conn_stats[ind].update(time_report.elapsed);
 
-                        let est_rt = conn_stats[ind].get_est_rt();
+                        let est_rt = conn_stats[ind].est_rt();
                         conn_rt[ind].est_rt = Duration::from_secs_f64(est_rt);
                     }
                 }
@@ -997,7 +1000,7 @@ impl<'a, Req: Clone + Send + Sync + 'static> Transport<Req> {
                             continue;
                         }
                         conn_stats[ind].update(time_report.elapsed);
-                        let est_rt = conn_stats[ind].get_est_rt();
+                        let est_rt = conn_stats[ind].est_rt();
                         conn_rt[ind].est_rt = Duration::from_secs_f64(est_rt);
                     }
                 }
