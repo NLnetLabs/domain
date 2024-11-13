@@ -1,6 +1,6 @@
 use domain::base::Name;
 use domain::net::client::protocol::{TcpConnect, UdpConnect};
-use domain::net::client::request::RequestMessage;
+use domain::net::client::request::{RequestMessage, SendRequest};
 use domain::net::client::{dgram_stream, redundant};
 use domain::net::server::adapter::{
     ClientTransportToSingleService, SingleServiceToService,
@@ -87,7 +87,9 @@ async fn main() {
 async fn example_redundant(
     dst1: &str,
     dst2: &str,
-) -> redundant::Connection<RequestMessage<Vec<u8>>> {
+) -> redundant::Connection<
+    Box<dyn SendRequest<RequestMessage<Vec<u8>>> + Send + Sync>,
+> {
     let redun = redundant::Connection::new();
     let server_addr = SocketAddr::new(IpAddr::from_str(dst1).unwrap(), 53);
     let udp_connect = UdpConnect::new(server_addr);
@@ -95,14 +97,14 @@ async fn example_redundant(
     let (conn, transport) =
         dgram_stream::Connection::new(udp_connect, tcp_connect);
     tokio::spawn(transport.run());
-    redun.add(Box::new(conn));
+    redun.add(Box::new(conn) as _);
     let server_addr = SocketAddr::new(IpAddr::from_str(dst2).unwrap(), 53);
     let udp_connect = UdpConnect::new(server_addr);
     let tcp_connect = TcpConnect::new(server_addr);
     let (conn, transport) =
         dgram_stream::Connection::new(udp_connect, tcp_connect);
     tokio::spawn(transport.run());
-    redun.add(Box::new(conn));
+    redun.add(Box::new(conn) as _);
 
     redun
 }
