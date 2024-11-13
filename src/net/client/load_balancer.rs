@@ -258,6 +258,7 @@ impl ConnConfig {
     }
 
     /// Set a new burst interval.
+    ///
     /// The interval is silently limited to at least 1 millesecond and
     /// at most 1 hour.
     pub fn set_burst_interval(&mut self, burst_interval: Duration) {
@@ -587,6 +588,21 @@ struct ConnStats {
     /// Use the number of references to an Arc as queue length. The number
     /// of references is one higher than then actual queue length.
     queue_length_plus_one: Arc<()>,
+}
+
+impl ConnStats {
+    fn update(&mut self, elapsed: Duration) {
+        let elapsed = elapsed.as_secs_f64();
+        self.mean += (elapsed - self.mean) / SMOOTH_N;
+        let elapsed_sq = elapsed * elapsed;
+        self.mean_sq += (elapsed_sq - self.mean_sq) / SMOOTH_N;
+    }
+    fn get_est_rt(&self) -> f64 {
+        let mean = self.mean;
+        let var = self.mean_sq - mean * mean;
+        let std_dev = f64::sqrt(var.max(0.));
+        mean + 3. * std_dev
+    }
 }
 
 /// Data required to schedule requests and report timing results.
@@ -963,17 +979,9 @@ impl<'a, Req: Clone + Send + Sync + 'static> Transport<Req> {
                     let opt_ind =
                         conn_rt.iter().position(|e| e.id == time_report.id);
                     if let Some(ind) = opt_ind {
-                        let elapsed = time_report.elapsed.as_secs_f64();
-                        conn_stats[ind].mean +=
-                            (elapsed - conn_stats[ind].mean) / SMOOTH_N;
-                        let elapsed_sq = elapsed * elapsed;
-                        conn_stats[ind].mean_sq +=
-                            (elapsed_sq - conn_stats[ind].mean_sq) / SMOOTH_N;
-                        let mean = conn_stats[ind].mean;
-                        let var = conn_stats[ind].mean_sq - mean * mean;
-                        let std_dev =
-                            if var < 0. { 0. } else { f64::sqrt(var) };
-                        let est_rt = mean + 3. * std_dev;
+                        conn_stats[ind].update(time_report.elapsed);
+
+                        let est_rt = conn_stats[ind].get_est_rt();
                         conn_rt[ind].est_rt = Duration::from_secs_f64(est_rt);
                     }
                 }
@@ -988,16 +996,8 @@ impl<'a, Req: Clone + Send + Sync + 'static> Transport<Req> {
                             // current mean.
                             continue;
                         }
-                        conn_stats[ind].mean +=
-                            (elapsed - conn_stats[ind].mean) / SMOOTH_N;
-                        let elapsed_sq = elapsed * elapsed;
-                        conn_stats[ind].mean_sq +=
-                            (elapsed_sq - conn_stats[ind].mean_sq) / SMOOTH_N;
-                        let mean = conn_stats[ind].mean;
-                        let var = conn_stats[ind].mean_sq - mean * mean;
-                        let std_dev =
-                            if var < 0. { 0. } else { f64::sqrt(var) };
-                        let est_rt = mean + 3. * std_dev;
+                        conn_stats[ind].update(time_report.elapsed);
+                        let est_rt = conn_stats[ind].get_est_rt();
                         conn_rt[ind].est_rt = Duration::from_secs_f64(est_rt);
                     }
                 }
@@ -1028,7 +1028,7 @@ where
             tx,
         }))
         .await
-        .expect("send is expected to work");
+        .expect("receiver still exists");
     let (mut request, qlp1) =
         match rx.await.expect("receive is expected to work") {
             Err(err) => return (index, Err(err)),
