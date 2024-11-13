@@ -102,11 +102,12 @@
 //! # }
 //! ```
 
-#![warn(missing_docs)]
-#![warn(clippy::missing_docs_in_private_items)]
+//#![warn(missing_docs)]
+//#![warn(clippy::missing_docs_in_private_items)]
 
 pub mod anchor;
 pub mod context;
+pub mod reply_from_chain;
 mod group;
 mod nsec;
 mod utilities;

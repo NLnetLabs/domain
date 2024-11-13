@@ -731,6 +731,10 @@ impl<Upstream> ValidationContext<Upstream> {
         Ok((ValidationState::Bogus, ede))
     }
 
+    pub fn get_ta(&self) -> &TrustAnchors {
+	&self.ta
+    }
+
     /// Get the apprioprate node for validating `name`.
     pub(crate) async fn get_node<Octs>(
         &self,
