@@ -243,12 +243,7 @@ impl ConnConfig {
 
     /// Set the configuration value for the maximum burst.
     /// The value None means no limit.
-    pub fn set_max_burst(&mut self, mut max_burst: Option<u64>) {
-        if let Some(burst) = max_burst {
-            if burst == 0 {
-                max_burst = Some(1);
-            }
-        }
+    pub fn set_max_burst(&mut self, max_burst: Option<u64>) {
         self.max_burst = max_burst;
     }
 
