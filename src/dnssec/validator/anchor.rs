@@ -79,6 +79,7 @@ impl TrustAnchor {
 //----------- TrustAnchors ---------------------------------------------------
 
 /// DNSSEC trust anchors.
+#[derive(Clone)]
 pub struct TrustAnchors(Vec<TrustAnchor>);
 
 impl TrustAnchors {
