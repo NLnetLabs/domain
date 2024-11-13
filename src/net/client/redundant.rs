@@ -454,17 +454,17 @@ impl Default for TransportStats {
 //------------ RequestTransport ----------------------------------------------
 
 /// A transport within the context of a request.
-struct RequestTransport<Req> {
+struct RequestTransport<Conn> {
     /// The underlying transport.
-    transport: Arc<Transport<Req>>,
+    transport: Arc<Transport<Conn>>,
 
     /// The expected timeout for the transport.
     timeout: Duration,
 }
 
-impl<Req> RequestTransport<Req> {
+impl<Conn> RequestTransport<Conn> {
     /// Construct a new [`RequestTransport`].
-    pub fn new(transport: Arc<Transport<Req>>) -> Self {
+    pub fn new(transport: Arc<Transport<Conn>>) -> Self {
         let timeout = transport.stats.lock().timeout;
         Self { transport, timeout }
     }
