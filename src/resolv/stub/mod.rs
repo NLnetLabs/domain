@@ -103,7 +103,7 @@ impl StubResolver {
         &self.options
     }
 
-    /// Add a new connection to the running resolver.
+    /// Adds a new connection to the running resolver.
     pub async fn add_connection(
         &self,
         connection: Box<
