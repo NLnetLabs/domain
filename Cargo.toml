@@ -21,6 +21,7 @@ name = "domain"
 path = "src/lib.rs"
 
 [dependencies]
+arbitrary      = { version = "1.4.1", optional = true, features = ["derive"] }
 octseq         = { version = "0.5.2", default-features = false }
 time           = { version = "0.3.1", default-features = false }
 rand           = { version = "0.8", optional = true }
@@ -77,6 +78,9 @@ unstable-validate = ["bytes", "std", "ring"]
 unstable-validator = ["unstable-validate", "zonefile", "unstable-client-transport"]
 unstable-xfr = ["net"]
 unstable-zonetree = ["futures-util", "parking_lot", "rustversion", "serde", "std", "tokio", "tracing", "unstable-xfr", "zonefile"]
+
+# Support for testing
+arbitrary = ["dep:arbitrary"]
 
 [dev-dependencies]
 lazy_static        = { version = "1.4.0" }

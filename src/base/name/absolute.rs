@@ -50,6 +50,7 @@ use std::vec::Vec;
 /// [`Display`]: std::fmt::Display
 #[derive(Clone)]
 #[repr(transparent)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub struct Name<Octs: ?Sized>(Octs);
 
 impl Name<()> {
