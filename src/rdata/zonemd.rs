@@ -13,8 +13,8 @@ use crate::base::iana::Rtype;
 use crate::base::rdata::{ComposeRecordData, RecordData};
 use crate::base::scan::{Scan, Scanner};
 use crate::base::serial::Serial;
-use crate::base::zonefile_fmt::{self, Formatter, ZonefileFmt};
 use crate::base::wire::{Composer, ParseError};
+use crate::base::zonefile_fmt::{self, Formatter, ZonefileFmt};
 use crate::utils::base16;
 use core::cmp::Ordering;
 use core::{fmt, hash};
@@ -233,20 +233,26 @@ impl<Octs: AsRef<[u8]>> ZonefileFmt for Zonemd<Octs> {
         p.block(|p| {
             p.write_token(self.serial)?;
             p.write_show(self.scheme)?;
-            p.write_comment(format_args!("scheme ({})", match self.scheme {
-                Scheme::Reserved => "reserved",
-                Scheme::Simple => "simple",
-                Scheme::Unassigned(_) => "unassigned",
-                Scheme::Private(_) => "private",
-            }))?;
+            p.write_comment(format_args!(
+                "scheme ({})",
+                match self.scheme {
+                    Scheme::Reserved => "reserved",
+                    Scheme::Simple => "simple",
+                    Scheme::Unassigned(_) => "unassigned",
+                    Scheme::Private(_) => "private",
+                }
+            ))?;
             p.write_show(self.algo)?;
-            p.write_comment(format_args!("algorithm ({})", match self.algo {
-                Algorithm::Reserved => "reserved",
-                Algorithm::Sha384 => "SHA384",
-                Algorithm::Sha512 => "SHA512",
-                Algorithm::Unassigned(_) => "unassigned",
-                Algorithm::Private(_) => "private",
-            }))?;
+            p.write_comment(format_args!(
+                "algorithm ({})",
+                match self.algo {
+                    Algorithm::Reserved => "reserved",
+                    Algorithm::Sha384 => "SHA384",
+                    Algorithm::Sha512 => "SHA512",
+                    Algorithm::Unassigned(_) => "unassigned",
+                    Algorithm::Private(_) => "private",
+                }
+            ))?;
             p.write_token(base16::encode_display(&self.digest))
         })
     }
