@@ -17,6 +17,7 @@ use crate::base::zonefile_fmt::{self, Formatter, ZonefileFmt};
 use crate::base::wire::{Composer, ParseError};
 use crate::utils::base16;
 use core::cmp::Ordering;
+use core::str::FromStr;
 use core::{fmt, hash};
 use octseq::octets::{Octets, OctetsFrom, OctetsInto};
 use octseq::parse::Parser;
@@ -350,11 +351,40 @@ impl From<u8> for Scheme {
     }
 }
 
+impl FromStr for Scheme {
+    type Err = SchemeFromStrError;
+
+    // Only implement the actionable variants
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "1" | "SIMPLE" => Ok(Self::Simple),
+            _ => Err(SchemeFromStrError(())),
+        }
+    }
+}
+
 impl ZonefileFmt for Scheme {
     fn fmt(&self, p: &mut impl Formatter) -> zonefile_fmt::Result {
         p.write_token(u8::from(*self))
     }
 }
+
+//------------ SchemeFromStrError ---------------------------------------------
+
+/// An error occured while reading the scheme from a string.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct SchemeFromStrError(());
+
+//--- Display and Error
+
+impl fmt::Display for SchemeFromStrError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "unknown zonemd scheme mnemonic")
+    }
+}
+
+#[cfg(feature = "std")]
+impl std::error::Error for SchemeFromStrError {}
 
 /// The Hash Algorithm used to construct the digest.
 ///
@@ -394,11 +424,41 @@ impl From<u8> for Algorithm {
     }
 }
 
+impl FromStr for Algorithm {
+    type Err = AlgorithmFromStrError;
+
+    // Only implement the actionable variants
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "1" | "SHA384" => Ok(Self::Sha384),
+            "2" | "SHA512" => Ok(Self::Sha512),
+            _ => Err(AlgorithmFromStrError(())),
+        }
+    }
+}
+
 impl ZonefileFmt for Algorithm {
     fn fmt(&self, p: &mut impl Formatter) -> zonefile_fmt::Result {
         p.write_token(u8::from(*self))
     }
 }
+
+//------------ AlgorithmFromStrError ---------------------------------------------
+
+/// An error occured while reading the algorithm from a string.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct AlgorithmFromStrError(());
+
+//--- Display and Error
+
+impl fmt::Display for AlgorithmFromStrError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "unknown zonemd hash algorithm mnemonic")
+    }
+}
+
+#[cfg(feature = "std")]
+impl std::error::Error for AlgorithmFromStrError {}
 
 #[cfg(test)]
 #[cfg(all(feature = "std", feature = "bytes"))]
