@@ -8,7 +8,7 @@ use std::fmt::Debug;
 use std::hash::Hash;
 use std::string::String;
 use std::vec::Vec;
-use std::{fmt, io, slice};
+use std::{fmt, slice};
 
 use octseq::builder::{EmptyBuilder, FromBuilder, OctetsBuilder, Truncate};
 use octseq::{FreezeBuilder, OctetsFrom, OctetsInto};
@@ -677,20 +677,20 @@ impl<N, D> SortedRecords<N, D> {
         }
     }
 
-    pub fn write<W>(&self, target: &mut W) -> Result<(), io::Error>
+    pub fn write<W>(&self, target: &mut W) -> Result<(), fmt::Error>
     where
         N: fmt::Display,
         D: RecordData + fmt::Display,
-        W: io::Write,
+        W: fmt::Write,
     {
         for record in self.records.iter().filter(|r| r.rtype() == Rtype::SOA)
         {
-            writeln!(target, "{record}")?;
+            write!(target, "{record}")?;
         }
 
         for record in self.records.iter().filter(|r| r.rtype() != Rtype::SOA)
         {
-            writeln!(target, "{record}")?;
+            write!(target, "{record}")?;
         }
 
         Ok(())
@@ -700,12 +700,12 @@ impl<N, D> SortedRecords<N, D> {
         &self,
         target: &mut W,
         comment_cb: F,
-    ) -> Result<(), io::Error>
+    ) -> Result<(), fmt::Error>
     where
         N: fmt::Display,
         D: RecordData + fmt::Display,
-        W: io::Write,
-        F: Fn(&Record<N, D>, &mut W) -> std::io::Result<()>,
+        W: fmt::Write,
+        F: Fn(&Record<N, D>, &mut W) -> Result<(), fmt::Error>,
     {
         for record in self.records.iter().filter(|r| r.rtype() == Rtype::SOA)
         {
