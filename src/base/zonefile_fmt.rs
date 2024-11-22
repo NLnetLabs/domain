@@ -42,7 +42,11 @@ pub trait ZonefileFmt {
     ///
     /// The returned object will be displayed as zonefile when printed or
     /// written using `fmt::Display`.
-    fn display_zonefile(&self, multiline: bool, tabbed: bool) -> ZoneFileDisplay<'_, Self> {
+    fn display_zonefile(
+        &self,
+        multiline: bool,
+        tabbed: bool,
+    ) -> ZoneFileDisplay<'_, Self> {
         ZoneFileDisplay {
             inner: self,
             multiline,

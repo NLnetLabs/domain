@@ -81,7 +81,6 @@ impl<N, D> SortedRecords<N, D> {
         self.rrsets().find(|rrset| rrset.rtype() == Rtype::SOA)
     }
 
-
     pub fn iter(&self) -> Iter<'_, Record<N, D>> {
         self.records.iter()
     }
