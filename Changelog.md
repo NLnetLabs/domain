@@ -11,6 +11,12 @@ New
 * Changed `fmt::Display` for `HINFO` records to a show a quoted string.
   ([#421])
 * Added support for `NAPTR` record type. ([#427] by [@weilence])
+* Added initial fuzz testing support for some types via a new `arbitrary`
+  feature (not enabled by default). ([#441])
+* Added `StubResolver::add_connection()` to allow adding a connection to the
+  running resolver. In combination with `ResolvConf::new()` this can also be
+  used to control the connections made when testing code that uses the stub
+  resolver. ([#440])
 
 Bug fixes
 
@@ -37,6 +43,8 @@ Other changes
 [#417]: https://github.com/NLnetLabs/domain/pull/417
 [#421]: https://github.com/NLnetLabs/domain/pull/421
 [#427]: https://github.com/NLnetLabs/domain/pull/427
+[#440]: https://github.com/NLnetLabs/domain/pull/440
+[#441]: https://github.com/NLnetLabs/domain/pull/441
 [@weilence]: https://github.com/weilence
 
 ## 0.10.3
