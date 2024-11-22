@@ -31,6 +31,7 @@ use crate::zonetree::types::StoredRecordData;
 use crate::zonetree::StoredName;
 
 use super::{SignRaw, SigningKey};
+use core::slice::Iter;
 
 //------------ SortedRecords -------------------------------------------------
 
@@ -78,6 +79,11 @@ impl<N, D> SortedRecords<N, D> {
         D: RecordData,
     {
         self.rrsets().find(|rrset| rrset.rtype() == Rtype::SOA)
+    }
+
+
+    pub fn iter(&self) -> Iter<'_, Record<N, D>> {
+        self.records.iter()
     }
 }
 

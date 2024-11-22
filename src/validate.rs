@@ -322,7 +322,7 @@ impl<Octs: AsRef<[u8]>> Key<Octs> {
             w,
             "{} IN DNSKEY {}",
             self.owner().fmt_with_dot(),
-            self.to_dnskey().display_zonefile(false),
+            self.to_dnskey().display_zonefile(false, false),
         )
     }
 

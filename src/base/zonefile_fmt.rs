@@ -13,18 +13,19 @@ pub type Result = core::result::Result<(), Error>;
 
 pub struct ZoneFileDisplay<'a, T: ?Sized> {
     inner: &'a T,
-    pretty: bool,
+    multiline: bool,
+    tabbed: bool,
 }
 
 impl<T: ZonefileFmt + ?Sized> fmt::Display for ZoneFileDisplay<'_, T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        if self.pretty {
+        if self.multiline {
             self.inner
                 .fmt(&mut MultiLineWriter::new(f))
                 .map_err(|_| fmt::Error)
         } else {
             self.inner
-                .fmt(&mut SimpleWriter::new(f))
+                .fmt(&mut SimpleWriter::new(f, self.tabbed))
                 .map_err(|_| fmt::Error)
         }
     }
@@ -41,10 +42,11 @@ pub trait ZonefileFmt {
     ///
     /// The returned object will be displayed as zonefile when printed or
     /// written using `fmt::Display`.
-    fn display_zonefile(&self, pretty: bool) -> ZoneFileDisplay<'_, Self> {
+    fn display_zonefile(&self, multiline: bool, tabbed: bool) -> ZoneFileDisplay<'_, Self> {
         ZoneFileDisplay {
             inner: self,
-            pretty,
+            multiline,
+            tabbed,
         }
     }
 }
@@ -88,13 +90,15 @@ pub trait FormatWriter: Sized {
 struct SimpleWriter<W> {
     first: bool,
     writer: W,
+    tabbed: bool,
 }
 
 impl<W: fmt::Write> SimpleWriter<W> {
-    fn new(writer: W) -> Self {
+    fn new(writer: W, tabbed: bool) -> Self {
         Self {
             first: true,
             writer,
+            tabbed,
         }
     }
 }
@@ -102,7 +106,10 @@ impl<W: fmt::Write> SimpleWriter<W> {
 impl<W: fmt::Write> FormatWriter for SimpleWriter<W> {
     fn fmt_token(&mut self, args: fmt::Arguments<'_>) -> Result {
         if !self.first {
-            self.writer.write_char(' ')?;
+            match self.tabbed {
+                true => self.writer.write_char('\t')?,
+                false => self.writer.write_char(' ')?,
+            }
         }
         self.first = false;
         self.writer.write_fmt(args)?;
@@ -251,7 +258,7 @@ mod test {
         let record = create_record(A::new("128.140.76.106".parse().unwrap()));
         assert_eq!(
             "example.com. 3600 IN A 128.140.76.106",
-            record.display_zonefile(false).to_string()
+            record.display_zonefile(false, false).to_string()
         );
     }
 
@@ -262,7 +269,7 @@ mod test {
         ));
         assert_eq!(
             "example.com. 3600 IN CNAME example.com.",
-            record.display_zonefile(false).to_string()
+            record.display_zonefile(false, false).to_string()
         );
     }
 
@@ -279,7 +286,7 @@ mod test {
         );
         assert_eq!(
             "example.com. 3600 IN DS 5414 15 2 DEADBEEF",
-            record.display_zonefile(false).to_string()
+            record.display_zonefile(false, false).to_string()
         );
         assert_eq!(
             [
@@ -289,7 +296,7 @@ mod test {
                 "                          DEADBEEF )",
             ]
             .join("\n"),
-            record.display_zonefile(true).to_string()
+            record.display_zonefile(true, false).to_string()
         );
     }
 
@@ -306,7 +313,7 @@ mod test {
         );
         assert_eq!(
             "example.com. 3600 IN CDS 5414 15 2 DEADBEEF",
-            record.display_zonefile(false).to_string()
+            record.display_zonefile(false, false).to_string()
         );
     }
 
@@ -318,7 +325,7 @@ mod test {
         ));
         assert_eq!(
             "example.com. 3600 IN MX 20 example.com.",
-            record.display_zonefile(false).to_string()
+            record.display_zonefile(false, false).to_string()
         );
     }
 
@@ -338,7 +345,7 @@ mod test {
             more like a silly monkey with a typewriter accidentally writing \
             some shakespeare along the way but it feels like I have to type \
             e\" \"ven longer to hit that limit!\"",
-            record.display_zonefile(false).to_string()
+            record.display_zonefile(false, false).to_string()
         );
     }
 
@@ -351,7 +358,7 @@ mod test {
         ));
         assert_eq!(
             "example.com. 3600 IN HINFO \"Windows\" \"Windows Server\"",
-            record.display_zonefile(false).to_string()
+            record.display_zonefile(false, false).to_string()
         );
     }
 
@@ -368,7 +375,7 @@ mod test {
         ));
         assert_eq!(
             r#"example.com. 3600 IN NAPTR 100 50 "a" "z3950+N2L+N2C" "!^urn:cid:.+@([^\\.]+\\.)(.*)$!\\2!i" cidserver.example.com."#,
-            record.display_zonefile(false).to_string()
+            record.display_zonefile(false, false).to_string()
         );
     }
 }
