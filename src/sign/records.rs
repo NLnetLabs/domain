@@ -880,6 +880,7 @@ impl<N, Octets> Nsec3Records<N, Octets> {
 //------------ Family --------------------------------------------------------
 
 /// A set of records with the same owner name and class.
+#[derive(Clone)]
 pub struct Family<'a, N, D> {
     slice: &'a [Record<N, D>],
 }
