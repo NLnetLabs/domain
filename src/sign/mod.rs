@@ -125,6 +125,7 @@ mod bytes;
 pub use self::bytes::{RsaSecretKeyBytes, SecretKeyBytes};
 
 pub mod common;
+pub mod keyset;
 pub mod openssl;
 pub mod ring;
 

@@ -72,7 +72,7 @@ zonefile    = ["bytes", "serde", "std"]
 # Unstable features
 unstable-client-transport = ["moka", "net", "tracing"]
 unstable-server-transport = ["arc-swap", "chrono/clock", "libc", "net", "siphasher", "tracing"]
-unstable-sign = ["std", "dep:secrecy", "unstable-validate"]
+unstable-sign = ["std", "dep:secrecy", "unstable-validate", "time/formatting"]
 unstable-stelline = ["tokio/test-util", "tracing", "tracing-subscriber", "tsig", "unstable-client-transport", "unstable-server-transport", "zonefile"]
 unstable-validate = ["bytes", "std", "ring"]
 unstable-validator = ["unstable-validate", "zonefile", "unstable-client-transport"]
@@ -149,6 +149,10 @@ required-features = ["zonefile", "net", "unstable-client-transport", "unstable-z
 [[example]]
 name = "query-routing"
 required-features = ["net", "unstable-client-transport", "unstable-server-transport", "tracing-subscriber"]
+
+[[example]]
+name = "keyset"
+required-features = ["serde", "unstable-sign"]
 
 # This example is commented out because it is difficult, if not impossible,
 # when including the sqlx dependency, to make the dependency tree compatible
