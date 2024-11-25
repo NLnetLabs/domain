@@ -104,9 +104,8 @@ fn main() {
 fn init() {
     let mut ks = KeySet::new(Name::from_str(ZONE).unwrap());
 
-    ks.add_key("first KSK".to_string(), None, KeyType::Ksk, 
-	UnixTime::now());
-    ks.add_key("first ZSK".to_string(), None, KeyType::Zsk, 
+    ks.add_key_ksk("first KSK".to_string(), None, UnixTime::now());
+    ks.add_key_zsk("first ZSK".to_string(), None, 
 	UnixTime::now());
 
     save_keyset(&ks);
@@ -141,18 +140,34 @@ fn handle_action(action: &Action, ks: &KeySet) {
 	    let keys = ks.keys();
 	    print!("Present in DNSKEY RRset:");
 	    for key in keys {
-		if key.status().present() {
+		let status = match key.keytype() {
+		    KeyType::Ksk(keystate)
+		    | KeyType::Zsk(keystate)
+		    | KeyType::Csk(keystate, _)
+		    | KeyType::Include(keystate)
+			=> keystate,
+		};
+		if status.present() {
 		    print!(" {}", key.pubref());
 		}
 	    }
 	    println!("");
 	    print!("DNSKEY RRset is signed by:");
 	    for key in keys {
-		if key.keytype() != KeyType::Ksk {
+		if let KeyType::Ksk(_) = key.keytype() {
+		    // Fine.
+		} else {
 		    continue;
 		}
-		if key.status().signer() {
-		    print!(" {}", key.pubref());
+		match key.keytype() {
+		    KeyType::Ksk(keystate)
+		    | KeyType::Csk(keystate, _)
+			=> {
+			if keystate.signer() {
+			    print!(" {}", key.pubref());
+			}
+		    }
+		    KeyType::Zsk(_) | KeyType::Include(_) => ()
 		}
 	    }
 	    println!("");
@@ -162,7 +177,14 @@ fn handle_action(action: &Action, ks: &KeySet) {
 	    let keys = ks.keys();
 	    print!("Present in DS RRset:");
 	    for key in keys {
-		if key.status().at_parent() {
+		let status = match key.keytype() {
+		    KeyType::Ksk(keystate)
+		    | KeyType::Zsk(keystate)
+		    | KeyType::Csk(keystate, _)
+		    | KeyType::Include(keystate)
+			=> keystate,
+		};
+		if status.at_parent() {
 		    print!(" {}", key.pubref());
 		}
 	    }
@@ -176,7 +198,14 @@ fn handle_action(action: &Action, ks: &KeySet) {
 	    let keys = ks.keys();
 	    print!("Present in CDS/CDNSKEY RRsets:");
 	    for key in keys {
-		if key.status().at_parent() {
+		let status = match key.keytype() {
+		    KeyType::Ksk(keystate)
+		    | KeyType::Zsk(keystate)
+		    | KeyType::Csk(keystate, _)
+		    | KeyType::Include(keystate)
+			=> keystate,
+		};
+		if status.at_parent() {
 		    print!(" {}", key.pubref());
 		}
 	    }
@@ -200,8 +229,22 @@ fn handle_action(action: &Action, ks: &KeySet) {
 fn print_status(ks: &KeySet) {
     let keys = ks.keys();
     for key in keys {
-	println!("{} {} {}", key.pubref(), match key.privref() { None => "",
-		Some(s) => s }, key.status());
+	match key.keytype() {
+	    KeyType::Ksk(keystate)
+	    | KeyType::Zsk(keystate)
+	    | KeyType::Include(keystate)
+		=> {
+		println!("{} {} {}", key.pubref(),
+			match key.privref() { None => "", Some(s) => s },
+			keystate);
+	    }
+	    KeyType::Csk(keystate_ksk, keystate_zsk)
+		=> {
+		println!("{} {} {} {}", key.pubref(),
+			match key.privref() { None => "", Some(s) => s },
+			keystate_ksk, keystate_zsk);
+	    }
+	}
 	let ts = key.timestamps();
 	println!("Created: {}, published: {}",
 		ts.creation().map_or("<empty>".to_string(), |x| x.to_string()),

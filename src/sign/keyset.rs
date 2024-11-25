@@ -32,9 +32,15 @@ impl KeySet {
 		zsk_roll: RollState::Idle }
     }
 
-    pub fn add_key(&mut self, pubref: String, privref: Option<String>, keytype: KeyType, creation_ts: UnixTime) {
+    pub fn add_key_ksk(&mut self, pubref: String, privref: Option<String>, creation_ts: UnixTime) {
 	let keystate: KeyState = Default::default();
-	let key = Key::new(pubref, privref, keytype, keystate, creation_ts);
+	let key = Key::new(pubref, privref, KeyType::Ksk(keystate), creation_ts);
+	self.keys.push(key);
+    }
+
+    pub fn add_key_zsk(&mut self, pubref: String, privref: Option<String>, creation_ts: UnixTime) {
+	let keystate: KeyState = Default::default();
+	let key = Key::new(pubref, privref, KeyType::Zsk(keystate), creation_ts);
 	self.keys.push(key);
     }
 
@@ -80,13 +86,11 @@ impl KeySet {
 	// Set the visible time of new KSKs to the current time.
 	let now = UnixTime::now();
 	for k in &mut self.keys {
-	    if let KeyType::Ksk = k.keytype {
-		// Fine.
-	    }
+	    let KeyType::Ksk(ref keystate) = k.keytype 
 	    else {
 		continue;
-	    }
-	    if k.keystate.old || !k.keystate.present {
+	    };
+	    if keystate.old || !keystate.present {
 		continue;
 	    }
 
@@ -107,13 +111,11 @@ impl KeySet {
 	};
 
 	for k in &mut self.keys {
-	    if let KeyType::Ksk = k.keytype {
-		// Fine.
-	    }
+	    let KeyType::Ksk(ref keystate) = k.keytype 
 	    else {
 		continue;
-	    }
-	    if k.keystate.old || !k.keystate.present {
+	    };
+	    if keystate.old || !keystate.present {
 		continue;
 	    }
 
@@ -126,17 +128,16 @@ impl KeySet {
 	}
 
 	for k in &mut self.keys {
-	    if let KeyType::Ksk = k.keytype {
-		// Fine.
-	    }
-	    else {
-		continue;
-	    }
-	    if k.keystate.old || !k.keystate.present {
-		continue;
-	    }
+	    match k.keytype {	    
+		KeyType::Ksk(ref mut keystate) => {
+		    if keystate.old || !keystate.present {
+			continue;
+		    }
 
-	    k.keystate.at_parent = true;
+		    keystate.at_parent = true;
+		}
+		_ => ()
+	    }
 	}
 
 	self.ksk_roll = RollState::Propagation2;
@@ -158,13 +159,11 @@ impl KeySet {
 	// Set the published time of new DS records to the current time.
 	let now = UnixTime::now();
 	for k in &mut self.keys {
-	    if let KeyType::Ksk = k.keytype {
-		// Fine.
-	    }
+	    let KeyType::Ksk(ref keystate) = k.keytype 
 	    else {
 		continue;
-	    }
-	    if k.keystate.old || !k.keystate.present {
+	    };
+	    if keystate.old || !keystate.present {
 		continue;
 	    }
 
@@ -185,13 +184,11 @@ impl KeySet {
 	};
 
 	for k in &mut self.keys {
-	    if let KeyType::Ksk = k.keytype {
-		// Fine.
-	    }
+	    let KeyType::Ksk(ref keystate) = k.keytype 
 	    else {
 		continue;
-	    }
-	    if k.keystate.old || !k.keystate.present {
+	    };
+	    if keystate.old || !keystate.present {
 		continue;
 	    }
 
@@ -256,13 +253,11 @@ impl KeySet {
 	// Set the visiable time of new ZSKs to the current time.
 	let now = UnixTime::now();
 	for k in &mut self.keys {
-	    if let KeyType::Zsk = k.keytype {
-		// Fine.
-	    }
+	    let KeyType::Zsk(ref keystate) = k.keytype 
 	    else {
 		continue;
-	    }
-	    if k.keystate.old || !k.keystate.present {
+	    };
+	    if keystate.old || !keystate.present {
 		continue;
 	    }
 
@@ -283,13 +278,11 @@ impl KeySet {
 	};
 
 	for k in &mut self.keys {
-	    if let KeyType::Zsk = k.keytype {
-		// Fine.
-	    }
+	    let KeyType::Zsk(ref keystate) = k.keytype 
 	    else {
 		continue;
-	    }
-	    if k.keystate.old || !k.keystate.present {
+	    };
+	    if keystate.old || !keystate.present {
 		continue;
 	    }
 
@@ -303,17 +296,15 @@ impl KeySet {
 
 	// Move the Incoming keys to Active.
 	for k in &mut self.keys {
-	    if let KeyType::Zsk = k.keytype {
-		// Fine.
-	    }
+	    let KeyType::Zsk(ref mut keystate) = k.keytype 
 	    else {
 		continue;
-	    }
-	    if k.keystate.old || !k.keystate.present {
+	    };
+	    if keystate.old || !keystate.present {
 		continue;
 	    }
 
-	    k.keystate.signer = true;
+	    keystate.signer = true;
 	}
 
 	self.zsk_roll = RollState::Propagation2;
@@ -335,13 +326,11 @@ impl KeySet {
 	// Set the published time of new RRSIG records to the current time.
 	let now = UnixTime::now();
 	for k in &mut self.keys {
-	    if let KeyType::Zsk = k.keytype {
-		// Fine.
-	    }
+	    let KeyType::Zsk(ref keystate) = k.keytype
 	    else {
 		continue;
-	    }
-	    if k.keystate.old || !k.keystate.signer {
+	    };
+	    if keystate.old || !keystate.signer {
 		continue;
 	    }
 
@@ -363,13 +352,11 @@ impl KeySet {
 	};
 
 	for k in &mut self.keys {
-	    if let KeyType::Zsk = k.keytype {
-		// Fine.
-	    }
+	    let KeyType::Zsk(ref keystate) = k.keytype 
 	    else {
 		continue;
-	    }
-	    if k.keystate.old || !k.keystate.signer {
+	    };
+	    if keystate.old || !keystate.signer {
 		continue;
 	    }
 
@@ -426,24 +413,25 @@ impl KeySet {
 		if keys[i].pubref != *k {
 		    continue;
 		}
-		if let KeyType::Ksk = keys[i].keytype {
-		    // Fine.
-		}
-		else {
-		    // Should return error for wrong key type.
-		    todo!();
-		}
-		if keys[i].keystate != (KeyState { old: false,
-		    signer: false, present: false, at_parent: false }) {
-		    // Should return error for wrong key state.
-		    todo!();
-		}
+		match keys[i].keytype {
+		    KeyType::Ksk(ref mut keystate) => {
+			if *keystate != (KeyState { old: false,
+			    signer: false, present: false, at_parent: false }) {
+			    // Should return error for wrong key state.
+			    todo!();
+			}
 
-		// Move key state to Incoming.
-		keys[i].keystate.present = true;
-		keys[i].keystate.signer = true;
-		keys[i].timestamps.published = Some(now.clone());
-		continue 'outer;
+			// Move key state to Incoming.
+			keystate.present = true;
+			keystate.signer = true;
+			keys[i].timestamps.published = Some(now.clone());
+			continue 'outer;
+		    }
+		    _ => {
+			// Should return error for wrong key type.
+			todo!();
+		    }
+		}
 	    }
 
 	    // Should return error for unknown pubref.
@@ -451,8 +439,9 @@ impl KeySet {
 	}
 
 	// Make sure we have at least one key in incoming state.
-	if keys.into_iter().filter(|k| if let KeyType::Ksk = k.keytype { true } else { false }).
-	    filter(|k| !k.keystate.old && k.keystate.present).next().is_none() {
+	if keys.into_iter().filter(|k| if let KeyType::Ksk(keystate) = &k.keytype { !keystate.old && keystate.present } else { false })
+		.next()
+		.is_none() {
 	    // Should return error.
 	    todo!();
 	}
@@ -481,21 +470,19 @@ impl KeySet {
 		if keys[i].pubref != *k {
 		    continue;
 		}
-		if let KeyType::Zsk = keys[i].keytype {
-		    // Fine.
-		}
+		let KeyType::Zsk(ref mut keystate) = keys[i].keytype
 		else {
 		    // Should return error for wrong key type.
 		    todo!();
-		}
-		if keys[i].keystate != (KeyState { old: false,
+		};
+		if *keystate != (KeyState { old: false,
 		    signer: false, present: false, at_parent: false }) {
 		    // Should return error for wrong key state.
 		    todo!();
 		}
 
 		// Move key state to Incoming.
-		keys[i].keystate.present = true;
+		keystate.present = true;
 		keys[i].timestamps.published = Some(now.clone());
 		continue 'outer;
 	    }
@@ -505,8 +492,8 @@ impl KeySet {
 	}
 
 	// Make sure we have at least one key in incoming state.
-	if keys.into_iter().filter(|k| if let KeyType::Zsk = k.keytype { true } else { false }).
-	    filter(|k| !k.keystate.old || k.keystate.present).next().is_none() {
+	if keys.into_iter().filter(|k| if let KeyType::Zsk(keystate) = &k.keytype { !keystate.old || keystate.present } else { false })
+	    .next().is_none() {
 	    // Should return error.
 	    todo!();
 	}
@@ -518,7 +505,6 @@ pub struct Key {
     pubref: String,
     privref: Option<String>,
     keytype: KeyType,
-    keystate: KeyState,
     timestamps: KeyTimestamps,
 }
 
@@ -535,29 +521,25 @@ impl Key {
 	self.keytype.clone()
     }
 
-    pub fn status(&self) -> KeyState {
-	self.keystate.clone()
-    }
-
     pub fn timestamps(&self) -> &KeyTimestamps {
 	&self.timestamps
     }
 
     fn new(pubref: String, privref: Option<String>,
-	keytype: KeyType, keystate: KeyState, creation_ts: UnixTime) -> Self {
+	keytype: KeyType, creation_ts: UnixTime) -> Self {
 	let mut timestamps: KeyTimestamps = Default::default();
 	timestamps.creation = Some(creation_ts);
-	Self { pubref, privref, keytype, keystate,
+	Self { pubref, privref, keytype,
 	   timestamps }
     }
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub enum KeyType {
-    Ksk,
-    Zsk,
-    Csk,
-    Include,
+    Ksk(KeyState),
+    Zsk(KeyState),
+    Csk(KeyState, KeyState),
+    Include(KeyState),
 }
 
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
