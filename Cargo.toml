@@ -79,6 +79,9 @@ unstable-validator = ["unstable-validate", "zonefile", "unstable-client-transpor
 unstable-xfr = ["net"]
 unstable-zonetree = ["futures-util", "parking_lot", "rustversion", "serde", "std", "tokio", "tracing", "unstable-xfr", "zonefile"]
 
+# Support for testing
+arbitrary = ["dep:arbitrary"]
+
 [dev-dependencies]
 lazy_static        = { version = "1.4.0" }
 rstest             = "0.19.0"
@@ -121,11 +124,11 @@ required-features = ["std", "rand"]
 
 [[example]]
 name = "client-transports"
-required-features = ["net", "unstable-client-transport"]
+required-features = ["net", "tokio-rustls", "unstable-client-transport"]
 
 [[example]]
 name = "server-transports"
-required-features = ["net", "unstable-server-transport"]
+required-features = ["net", "tokio-stream", "tracing-subscriber", "unstable-client-transport", "unstable-server-transport"]
 
 [[example]]
 name = "read-zone"
@@ -133,11 +136,11 @@ required-features = ["zonefile"]
 
 [[example]]
 name = "query-zone"
-required-features = ["zonefile", "unstable-zonetree"]
+required-features = ["tracing-subscriber", "unstable-zonetree", "zonefile"]
 
 [[example]]
 name = "serve-zone"
-required-features = ["zonefile", "net", "unstable-server-transport", "unstable-zonetree"]
+required-features = ["zonefile", "net", "tokio-stream", "tracing-subscriber", "tsig", "unstable-client-transport", "unstable-server-transport", "unstable-zonetree"]
 
 [[example]]
 name = "ixfr-client"
