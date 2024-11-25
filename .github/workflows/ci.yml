@@ -1,5 +1,10 @@
 name: ci
-on: [push, pull_request]
+# Don't run on push as well as pull_request otherwise the jobs will be run
+# twice [1]. Run on pull_request instead of push as otherwise code is not
+# built & tested against the PR target branch as if it were already merged
+# (thus hiding issues until post-merge).
+# [1]: https://github.com/orgs/community/discussions/26940
+on: pull_request
 jobs:
   test:
     name: test
@@ -110,4 +115,4 @@ jobs:
 
         # Run the temporary script:
 
-        bash ${{ runner.temp }}/check-examples.sh
+        bash -x -e ${{ runner.temp }}/check-examples.sh
