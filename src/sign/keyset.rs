@@ -32,7 +32,8 @@ impl KeySet {
 		zsk_roll: RollState::Idle }
     }
 
-    pub fn add_key(&mut self, pubref: String, privref: Option<String>, keytype: KeyType, keystate: KeyState, creation_ts: UnixTime) {
+    pub fn add_key(&mut self, pubref: String, privref: Option<String>, keytype: KeyType, creation_ts: UnixTime) {
+	let keystate: KeyState = Default::default();
 	let key = Key::new(pubref, privref, keytype, keystate, creation_ts);
 	self.keys.push(key);
     }
@@ -85,10 +86,7 @@ impl KeySet {
 	    else {
 		continue;
 	    }
-	    if let KeyState::Incoming = k.keystate {
-		// Fine.
-	    }
-	    else {
+	    if k.keystate.old || !k.keystate.present {
 		continue;
 	    }
 
@@ -115,10 +113,7 @@ impl KeySet {
 	    else {
 		continue;
 	    }
-	    if let KeyState::Incoming = k.keystate {
-		// Fine.
-	    }
-	    else {
+	    if k.keystate.old || !k.keystate.present {
 		continue;
 	    }
 
@@ -128,6 +123,20 @@ impl KeySet {
 		println!("ksk_roll_cache_expired1: elapsed {:?}, waiting for {ttl}", visible.elapsed());
 		todo!();
 	    }
+	}
+
+	for k in &mut self.keys {
+	    if let KeyType::Ksk = k.keytype {
+		// Fine.
+	    }
+	    else {
+		continue;
+	    }
+	    if k.keystate.old || !k.keystate.present {
+		continue;
+	    }
+
+	    k.keystate.at_parent = true;
 	}
 
 	self.ksk_roll = RollState::Propagation2;
@@ -155,10 +164,7 @@ impl KeySet {
 	    else {
 		continue;
 	    }
-	    if let KeyState::Incoming = k.keystate {
-		// Fine.
-	    }
-	    else {
+	    if k.keystate.old || !k.keystate.present {
 		continue;
 	    }
 
@@ -185,10 +191,7 @@ impl KeySet {
 	    else {
 		continue;
 	    }
-	    if let KeyState::Incoming = k.keystate {
-		// Fine.
-	    }
-	    else {
+	    if k.keystate.old || !k.keystate.present {
 		continue;
 	    }
 
@@ -199,25 +202,6 @@ impl KeySet {
 		todo!();
 	    }
 	}
-
-	// Move the Incoming keys to Active.
-	for k in &mut self.keys {
-	    if let KeyType::Ksk = k.keytype {
-		// Fine.
-	    }
-	    else {
-		continue;
-	    }
-	    if let KeyState::Incoming = k.keystate {
-		// Fine.
-	    }
-	    else {
-		continue;
-	    }
-
-	    k.keystate = KeyState::Active;
-	}
-
 
 	self.ksk_roll = RollState::Done;
 	let mut actions = Vec::new();
@@ -278,10 +262,7 @@ impl KeySet {
 	    else {
 		continue;
 	    }
-	    if let KeyState::Incoming = k.keystate {
-		// Fine.
-	    }
-	    else {
+	    if k.keystate.old || !k.keystate.present {
 		continue;
 	    }
 
@@ -308,10 +289,7 @@ impl KeySet {
 	    else {
 		continue;
 	    }
-	    if let KeyState::Incoming = k.keystate {
-		// Fine.
-	    }
-	    else {
+	    if k.keystate.old || !k.keystate.present {
 		continue;
 	    }
 
@@ -331,14 +309,11 @@ impl KeySet {
 	    else {
 		continue;
 	    }
-	    if let KeyState::Incoming = k.keystate {
-		// Fine.
-	    }
-	    else {
+	    if k.keystate.old || !k.keystate.present {
 		continue;
 	    }
 
-	    k.keystate = KeyState::Active;
+	    k.keystate.signer = true;
 	}
 
 	self.zsk_roll = RollState::Propagation2;
@@ -366,10 +341,7 @@ impl KeySet {
 	    else {
 		continue;
 	    }
-	    if let KeyState::Active = k.keystate {
-		// Fine.
-	    }
-	    else {
+	    if k.keystate.old || !k.keystate.signer {
 		continue;
 	    }
 
@@ -397,10 +369,7 @@ impl KeySet {
 	    else {
 		continue;
 	    }
-	    if let KeyState::Active = k.keystate {
-		// Fine.
-	    }
-	    else {
+	    if k.keystate.old || !k.keystate.signer {
 		continue;
 	    }
 
@@ -464,16 +433,15 @@ impl KeySet {
 		    // Should return error for wrong key type.
 		    todo!();
 		}
-		if let KeyState::Future = keys[i].keystate {
-		    // Fine.
-		}
-		else {
+		if keys[i].keystate != (KeyState { old: false,
+		    signer: false, present: false, at_parent: false }) {
 		    // Should return error for wrong key state.
 		    todo!();
 		}
 
 		// Move key state to Incoming.
-		keys[i].keystate = KeyState::Incoming;
+		keys[i].keystate.present = true;
+		keys[i].keystate.signer = true;
 		keys[i].timestamps.published = Some(now.clone());
 		continue 'outer;
 	    }
@@ -484,7 +452,7 @@ impl KeySet {
 
 	// Make sure we have at least one key in incoming state.
 	if keys.into_iter().filter(|k| if let KeyType::Ksk = k.keytype { true } else { false }).
-	    filter(|k| if let KeyState::Incoming = k.keystate { true } else { false }).next().is_none() {
+	    filter(|k| !k.keystate.old && k.keystate.present).next().is_none() {
 	    // Should return error.
 	    todo!();
 	}
@@ -520,16 +488,14 @@ impl KeySet {
 		    // Should return error for wrong key type.
 		    todo!();
 		}
-		if let KeyState::Future = keys[i].keystate {
-		    // Fine.
-		}
-		else {
+		if keys[i].keystate != (KeyState { old: false,
+		    signer: false, present: false, at_parent: false }) {
 		    // Should return error for wrong key state.
 		    todo!();
 		}
 
 		// Move key state to Incoming.
-		keys[i].keystate = KeyState::Incoming;
+		keys[i].keystate.present = true;
 		keys[i].timestamps.published = Some(now.clone());
 		continue 'outer;
 	    }
@@ -540,7 +506,7 @@ impl KeySet {
 
 	// Make sure we have at least one key in incoming state.
 	if keys.into_iter().filter(|k| if let KeyType::Zsk = k.keytype { true } else { false }).
-	    filter(|k| if let KeyState::Incoming = k.keystate { true } else { false }).next().is_none() {
+	    filter(|k| !k.keystate.old || k.keystate.present).next().is_none() {
 	    // Should return error.
 	    todo!();
 	}
@@ -565,6 +531,10 @@ impl Key {
 	self.privref.as_ref().map(|x| x.as_str())
     }
 
+    pub fn keytype(&self) -> KeyType {
+	self.keytype.clone()
+    }
+
     pub fn status(&self) -> KeyState {
 	self.keystate.clone()
     }
@@ -582,7 +552,7 @@ impl Key {
     }
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub enum KeyType {
     Ksk,
     Zsk,
@@ -590,7 +560,8 @@ pub enum KeyType {
     Include,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
+/*
 pub enum KeyState {
     // KeyState idea: 4 booleans
     // 1) old. Set if the key is on its way out
@@ -609,6 +580,50 @@ pub enum KeyState {
     // !old, signer, !present, (ds || !ds)
     // old, signer, !present, (ds || !ds)
     // old, !signer, !present, ds
+}
+*/
+pub struct KeyState {
+    old: bool,
+    signer: bool,
+    present: bool,
+    at_parent: bool,
+}
+
+impl KeyState {
+    pub fn signer(&self) -> bool { self.signer }
+    pub fn present(&self) -> bool { self.present }
+    pub fn at_parent(&self) -> bool { self.at_parent }
+}
+
+impl Display for KeyState {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), fmt::Error> {
+	let mut first = true;
+	if self.old {
+	    write!(f, "Old")?;
+	    first= false;
+	}
+	if self.signer {
+	    write!(f, "{}Signer", if first { "" } else { ", " })?;
+	    first= false;
+	}
+	if self.present {
+	    write!(f, "{}Present", if first { "" } else { ", " })?;
+	    first= false;
+	}
+	if self.at_parent {
+	    write!(f, "{}At Parent", if first { "" } else { ", " })?;
+	}
+	match (self.old, self.signer, self.present) {
+	    (false, false, false) => write!(f, "(Future)")?,
+	    (false, false, true) => write!(f, " (Incoming)")?,
+	    (false, true, true) => write!(f, " (Active)")?,
+	    (true, true, true) => write!(f, " (Leaving)")?,
+	    (true, false, true) => write!(f, " (Retired)")?,
+	    (true, false, false) => write!(f, " (Old)")?,
+	    (_, _, _) => ()
+	}
+	Ok(())
+    }
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
