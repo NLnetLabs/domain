@@ -110,6 +110,18 @@ impl Zonefile {
         std::io::copy(read, &mut buf)?;
         Ok(buf.into_inner())
     }
+
+    pub fn pos(&self) -> usize {
+        self.buf.pos()
+    }
+
+    pub fn len(&self) -> usize {
+        self.buf.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
 }
 
 impl Default for Zonefile {
@@ -213,8 +225,9 @@ impl Iterator for Zonefile {
 /// An entry of a zonefile.
 #[derive(Clone, Debug)]
 pub enum Entry {
-    /// A DNS record.
-    Record(ScannedRecord),
+    /// A DNS record and the approximate index into the source buffer after
+    /// the record was read from it.
+    Record(ScannedRecord, usize),
 
     /// An include directive.
     ///
@@ -362,9 +375,10 @@ impl<'a> EntryScanner<'a> {
 
         self.zonefile.buf.require_line_feed()?;
 
-        Ok(ScannedEntry::Entry(Entry::Record(Record::new(
-            owner, class, ttl, data,
-        ))))
+        Ok(ScannedEntry::Entry(Entry::Record(
+            Record::new(owner, class, ttl, data),
+            self.zonefile.pos(),
+        )))
     }
 
     /// Scans the TTL, class, and type portions of a regular record.
@@ -969,6 +983,9 @@ struct SourceBuf {
     ///
     /// This may be negative if we cut off bits of the current line.
     line_start: isize,
+
+    /// The number of bytes read so far from the start of the data given to Zonefile.
+    pos: usize,
 }
 
 impl SourceBuf {
@@ -986,7 +1003,16 @@ impl SourceBuf {
             parens: 0,
             line_num: 1,
             line_start: 1,
+            pos: 0,
         }
+    }
+
+    fn pos(&self) -> usize {
+        self.pos
+    }
+
+    fn len(&self) -> usize {
+        self.buf.len()
     }
 
     /// Enriches an entry error with position information.
@@ -1363,6 +1389,7 @@ impl SourceBuf {
     fn split_to(&mut self, at: usize) -> BytesMut {
         assert!(at <= self.start);
         let res = self.buf.split_to(at);
+        self.pos += at;
         self.start -= at;
         self.line_start -= at as isize;
         res
@@ -1376,6 +1403,7 @@ impl SourceBuf {
     fn trim_to(&mut self, at: usize) {
         assert!(at <= self.start);
         self.buf.advance(at);
+        self.pos += at;
         self.start -= at;
         self.line_start -= at as isize;
     }
@@ -1576,7 +1604,7 @@ mod test {
             let mut result = case.result.as_slice();
             while let Some(entry) = zone.next_entry().unwrap() {
                 match entry {
-                    Entry::Record(record) => {
+                    Entry::Record(record, _) => {
                         let (first, tail) = result.split_first().unwrap();
                         assert_eq!(first, &record);
                         result = tail;
