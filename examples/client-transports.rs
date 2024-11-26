@@ -10,6 +10,7 @@ use domain::net::client::{
 };
 use std::net::{IpAddr, SocketAddr};
 use std::str::FromStr;
+#[cfg(feature = "unstable-validator")]
 use std::sync::Arc;
 use std::time::Duration;
 use std::vec::Vec;

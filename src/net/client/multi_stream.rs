@@ -309,15 +309,11 @@ impl<Req: ComposeRequest + Clone + 'static> Request<Req> {
 
             match self.state {
                 QueryState::RequestConn => {
-                    let to = match timeout(
-                        remaining,
-                        self.conn.new_conn(self.conn_id),
-                    )
-                    .await
-                    {
-                        Err(_) => return Err(Error::StreamReadTimeout),
-                        Ok(v) => v,
-                    };
+                    let to =
+                        timeout(remaining, self.conn.new_conn(self.conn_id))
+                            .await
+                            .map_err(|_| Error::StreamReadTimeout)?;
+
                     let rx = match to {
                         Ok(rx) => rx,
                         Err(err) => {
@@ -328,10 +324,9 @@ impl<Req: ComposeRequest + Clone + 'static> Request<Req> {
                     self.state = QueryState::ReceiveConn(rx);
                 }
                 QueryState::ReceiveConn(ref mut receiver) => {
-                    let to = match timeout(remaining, receiver).await {
-                        Err(_) => return Err(Error::StreamReadTimeout),
-                        Ok(v) => v,
-                    };
+                    let to = timeout(remaining, receiver)
+                        .await
+                        .map_err(|_| Error::StreamReadTimeout)?;
                     let res = match to {
                         Ok(res) => res,
                         Err(_) => {
@@ -368,12 +363,9 @@ impl<Req: ComposeRequest + Clone + 'static> Request<Req> {
                     continue;
                 }
                 QueryState::GetResult(ref mut query) => {
-                    let to = match timeout(remaining, query.get_response())
+                    let to = timeout(remaining, query.get_response())
                         .await
-                    {
-                        Err(_) => return Err(Error::StreamReadTimeout),
-                        Ok(v) => v,
-                    };
+                        .map_err(|_| Error::StreamReadTimeout)?;
                     match to {
                         Ok(reply) => {
                             return Ok(reply);

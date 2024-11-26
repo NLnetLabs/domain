@@ -21,6 +21,7 @@ name = "domain"
 path = "src/lib.rs"
 
 [dependencies]
+arbitrary      = { version = "1.4.1", optional = true, features = ["derive"] }
 octseq         = { version = "0.5.2", default-features = false }
 time           = { version = "0.3.1", default-features = false }
 rand           = { version = "0.8", optional = true }
@@ -33,9 +34,11 @@ heapless       = { version = "0.8", optional = true }
 libc           = { version = "0.2.153", default-features = false, optional = true } # 0.2.79 is the first version that has IP_PMTUDISC_OMIT
 parking_lot    = { version = "0.12", optional = true }
 moka           = { version = "0.12.3", optional = true, features = ["future"] }
+openssl        = { version = "0.10.57", optional = true } # 0.10.57 upgrades to 'bitflags' 2.x
 proc-macro2    = { version = "1.0.69", optional = true } # Force proc-macro2 to at least 1.0.69 for minimal-version build
 ring           = { version = "0.17", optional = true }
 rustversion    = { version = "1", optional = true }
+secrecy        = { version = "0.10", optional = true }
 serde          = { version = "1.0.130", optional = true, features = ["derive"] }
 siphasher      = { version = "1", optional = true }
 smallvec       = { version = "1.3", optional = true }
@@ -47,26 +50,37 @@ tracing-subscriber = { version = "0.3.18", optional = true, features = ["env-fil
 
 [features]
 default     = ["std", "rand"]
+
+# Support for libraries
 bytes       = ["dep:bytes", "octseq/bytes"]
 heapless    = ["dep:heapless", "octseq/heapless"]
-resolv      = ["net", "smallvec", "unstable-client-transport"]
-resolv-sync = ["resolv", "tokio/rt"]
 serde       = ["dep:serde", "octseq/serde"]
-sign        = ["std"]
 smallvec    = ["dep:smallvec", "octseq/smallvec"]
 std         = ["dep:hashbrown", "bytes?/std", "octseq/std", "time/std"]
+
+# Cryptographic backends
+ring    = ["dep:ring"]
+openssl = ["dep:openssl"]
+
+# Crate features
 net         = ["bytes", "futures-util", "rand", "std", "tokio"]
+resolv      = ["net", "smallvec", "unstable-client-transport"]
+resolv-sync = ["resolv", "tokio/rt"]
 tsig        = ["bytes", "ring", "smallvec"]
-validate    = ["bytes", "std", "ring"]
 zonefile    = ["bytes", "serde", "std"]
 
 # Unstable features
 unstable-client-transport = ["moka", "net", "tracing"]
 unstable-server-transport = ["arc-swap", "chrono/clock", "libc", "net", "siphasher", "tracing"]
+unstable-sign = ["std", "dep:secrecy", "unstable-validate"]
 unstable-stelline = ["tokio/test-util", "tracing", "tracing-subscriber", "tsig", "unstable-client-transport", "unstable-server-transport", "zonefile"]
-unstable-validator = ["validate", "zonefile", "unstable-client-transport"]
+unstable-validate = ["bytes", "std", "ring"]
+unstable-validator = ["unstable-validate", "zonefile", "unstable-client-transport"]
 unstable-xfr = ["net"]
 unstable-zonetree = ["futures-util", "parking_lot", "rustversion", "serde", "std", "tokio", "tracing", "unstable-xfr", "zonefile"]
+
+# Support for testing
+arbitrary = ["dep:arbitrary"]
 
 [dev-dependencies]
 lazy_static        = { version = "1.4.0" }
@@ -110,11 +124,11 @@ required-features = ["std", "rand"]
 
 [[example]]
 name = "client-transports"
-required-features = ["net", "unstable-client-transport", "tokio-rustls"]
+required-features = ["net", "tokio-rustls", "unstable-client-transport"]
 
 [[example]]
 name = "server-transports"
-required-features = ["net", "unstable-server-transport"]
+required-features = ["net", "tokio-stream", "tracing-subscriber", "unstable-client-transport", "unstable-server-transport"]
 
 [[example]]
 name = "read-zone"
@@ -122,11 +136,11 @@ required-features = ["zonefile"]
 
 [[example]]
 name = "query-zone"
-required-features = ["zonefile", "unstable-zonetree"]
+required-features = ["tracing-subscriber", "unstable-zonetree", "zonefile"]
 
 [[example]]
 name = "serve-zone"
-required-features = ["zonefile", "net", "unstable-server-transport", "unstable-zonetree"]
+required-features = ["zonefile", "net", "tokio-stream", "tracing-subscriber", "tsig", "unstable-client-transport", "unstable-server-transport", "unstable-zonetree"]
 
 [[example]]
 name = "ixfr-client"
