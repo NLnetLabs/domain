@@ -495,4 +495,18 @@ mod test {
             record.display_zonefile(DisplayKind::Tabbed).to_string()
         );
     }
+
+    #[test]
+    fn caa_record() {
+        use crate::rdata::Caa;
+        let record = create_record(Caa::new(
+            0,
+            "issue".parse().unwrap(),
+            "ca.example.net".as_bytes().to_vec(),
+        ));
+        assert_eq!(
+            "example.com. 3600 IN CAA 0 issue \"ca.example.net\"",
+            record.display_zonefile(false).to_string()
+        );
+    }
 }
