@@ -20,8 +20,52 @@ fn main() {
     let mut ks = load_keyset(ZONE,);
     print_status(&ks);	    
 
+    println!("CSK roll start");
+    let actions = ks.start_csk_roll(&[], &["first KSK", "first ZSK"]);
+    handle_actions(&actions, &ks);
+    save_keyset(&ks);
+    print_status(&ks);	    
+
+    println!("CSK roll propagation1 complete");
+    let actions = ks.csk_roll_propagation1_complete(1);
+    handle_actions(&actions, &ks);
+    save_keyset(&ks);
+    print_status(&ks);	    
+
+    sleep(Duration::from_secs(1));
+
+    println!("CSK roll cache expired1");
+    let actions = ks.csk_roll_cache_expired1();
+    handle_actions(&actions, &ks);
+    save_keyset(&ks);
+    print_status(&ks);	    
+
+    println!("CSK roll propagation2 complete");
+    let actions = ks.csk_roll_propagation2_complete(1);
+    handle_actions(&actions, &ks);
+    save_keyset(&ks);
+    print_status(&ks);	    
+
+    sleep(Duration::from_secs(1));
+
+    println!("CSK roll cache expired2");
+    let actions = ks.csk_roll_cache_expired2();
+    handle_actions(&actions, &ks);
+    save_keyset(&ks);
+    print_status(&ks);	    
+
+    println!("CSK roll done");
+    let actions = ks.csk_roll_done();
+    handle_actions(&actions, &ks);
+    save_keyset(&ks);
+
+    println!("");
+    ks.add_key_ksk("second KSK".to_string(), None, UnixTime::now());
+    ks.add_key_zsk("second ZSK".to_string(), None, UnixTime::now());
+    save_keyset(&ks);
+
     println!("ZSK roll start");
-    let actions = ks.start_zsk_roll(&[], &["first ZSK"]);
+    let actions = ks.start_zsk_roll(&["first ZSK"], &["second ZSK"]);
     handle_actions(&actions, &ks);
     save_keyset(&ks);
     print_status(&ks);	    
@@ -57,10 +101,11 @@ fn main() {
     println!("ZSK roll done");
     let actions = ks.zsk_roll_done();
     handle_actions(&actions, &ks);
+    ks.delete_key("first ZSK");
     save_keyset(&ks);
 
     println!("KSK roll start");
-    let actions = ks.start_ksk_roll(&[], &["first KSK"]);
+    let actions = ks.start_ksk_roll(&["first KSK"], &["second KSK"]);
     handle_actions(&actions, &ks);
     save_keyset(&ks);
     print_status(&ks);	    
@@ -96,6 +141,92 @@ fn main() {
     println!("KSK roll done");
     let actions = ks.ksk_roll_done();
     handle_actions(&actions, &ks);
+    ks.delete_key("first KSK");
+    save_keyset(&ks);
+
+    ks.add_key_csk("first CSK".to_string(), None, UnixTime::now());
+
+    println!("CSK roll start");
+    let actions = ks.start_csk_roll(&["second KSK", "second ZSK"], &["first CSK"]);
+    handle_actions(&actions, &ks);
+    save_keyset(&ks);
+    print_status(&ks);	    
+
+    println!("CSK roll propagation1 complete");
+    let actions = ks.csk_roll_propagation1_complete(1);
+    handle_actions(&actions, &ks);
+    save_keyset(&ks);
+    print_status(&ks);	    
+
+    sleep(Duration::from_secs(1));
+
+    println!("CSK roll cache expired1");
+    let actions = ks.csk_roll_cache_expired1();
+    handle_actions(&actions, &ks);
+    save_keyset(&ks);
+    print_status(&ks);	    
+
+    println!("CSK roll propagation2 complete");
+    let actions = ks.csk_roll_propagation2_complete(1);
+    handle_actions(&actions, &ks);
+    save_keyset(&ks);
+    print_status(&ks);	    
+
+    sleep(Duration::from_secs(1));
+
+    println!("CSK roll cache expired2");
+    let actions = ks.csk_roll_cache_expired2();
+    handle_actions(&actions, &ks);
+    save_keyset(&ks);
+    print_status(&ks);	    
+
+    println!("CSK roll done");
+    let actions = ks.csk_roll_done();
+    handle_actions(&actions, &ks);
+    ks.delete_key("second KSK");
+    ks.delete_key("second ZSK");
+    save_keyset(&ks);
+
+    ks.add_key_csk("second CSK".to_string(), None, UnixTime::now());
+
+    println!("CSK roll start");
+    let actions = ks.start_csk_roll(&["first CSK"], &["second CSK"]);
+    handle_actions(&actions, &ks);
+    save_keyset(&ks);
+    print_status(&ks);	    
+
+    println!("CSK roll propagation1 complete");
+    let actions = ks.csk_roll_propagation1_complete(1);
+    handle_actions(&actions, &ks);
+    save_keyset(&ks);
+    print_status(&ks);	    
+
+    sleep(Duration::from_secs(1));
+
+    println!("CSK roll cache expired1");
+    let actions = ks.csk_roll_cache_expired1();
+    handle_actions(&actions, &ks);
+    save_keyset(&ks);
+    print_status(&ks);	    
+
+    println!("CSK roll propagation2 complete");
+    let actions = ks.csk_roll_propagation2_complete(1);
+    handle_actions(&actions, &ks);
+    save_keyset(&ks);
+    print_status(&ks);	    
+
+    sleep(Duration::from_secs(1));
+
+    println!("CSK roll cache expired2");
+    let actions = ks.csk_roll_cache_expired2();
+    handle_actions(&actions, &ks);
+    save_keyset(&ks);
+    print_status(&ks);	    
+
+    println!("CSK roll done");
+    let actions = ks.csk_roll_done();
+    handle_actions(&actions, &ks);
+    ks.delete_key("first CSK");
     save_keyset(&ks);
 
     todo!();
@@ -154,11 +285,6 @@ fn handle_action(action: &Action, ks: &KeySet) {
 	    println!("");
 	    print!("DNSKEY RRset is signed by:");
 	    for key in keys {
-		if let KeyType::Ksk(_) = key.keytype() {
-		    // Fine.
-		} else {
-		    continue;
-		}
 		match key.keytype() {
 		    KeyType::Ksk(keystate)
 		    | KeyType::Csk(keystate, _)
@@ -192,6 +318,21 @@ fn handle_action(action: &Action, ks: &KeySet) {
 	}
 	Action::UpdateRrsig => {
 	    println!("Should update RRsig records");
+	    let keys = ks.keys();
+	    print!("The zone is signed by:");
+	    for key in keys {
+		match key.keytype() {
+		    KeyType::Zsk(keystate)
+		    | KeyType::Csk(_, keystate)
+			=> {
+			if keystate.signer() {
+			    print!(" {}", key.pubref());
+			}
+		    }
+		    KeyType::Ksk(_) | KeyType::Include(_) => ()
+		}
+	    }
+	    println!("");
 	}
 	Action::CreateCdsRrset => {
 	    println!("Should create CDS and CDNSKEY RRsets");

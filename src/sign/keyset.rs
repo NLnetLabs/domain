@@ -24,12 +24,14 @@ pub struct KeySet {
 
     ksk_roll: RollState,
     zsk_roll: RollState,
+    csk_roll: RollState,
 }
 
 impl KeySet {
     pub fn new(name: Name<Vec<u8>>) -> Self {
 	Self { name, keys: Vec::new(), ksk_roll: RollState::Idle,
-		zsk_roll: RollState::Idle }
+		zsk_roll: RollState::Idle,
+		csk_roll: RollState::Idle }
     }
 
     pub fn add_key_ksk(&mut self, pubref: String, privref: Option<String>, creation_ts: UnixTime) {
@@ -43,6 +45,52 @@ impl KeySet {
 	let key = Key::new(pubref, privref, KeyType::Zsk(keystate), creation_ts);
 	self.keys.push(key);
     }
+
+    pub fn add_key_csk(&mut self, pubref: String, privref: Option<String>, creation_ts: UnixTime) {
+	let keystate: KeyState = Default::default();
+	let key = Key::new(pubref, privref, KeyType::Csk(keystate.clone(), keystate), creation_ts);
+	self.keys.push(key);
+    }
+
+    pub fn delete_key(&mut self, pubref: &str) {
+	// Assume no duplicate keys.
+	for i in 0..self.keys.len() {
+	    if self.keys[i].pubref != pubref {
+		continue;
+	    }
+	    match &self.keys[i].keytype {
+		KeyType::Ksk(keystate)
+		| KeyType::Zsk(keystate)
+		| KeyType::Include(keystate)
+			=> {
+		    if !keystate.old || keystate.signer || keystate.present ||
+			keystate.at_parent {
+			// Should return error.
+			todo!();
+		    }
+		    self.keys.remove(i);
+		    return;
+		}
+		KeyType::Csk(ksk_keystate, zsk_keystate) => {
+		    if !ksk_keystate.old || ksk_keystate.signer || ksk_keystate.present ||
+			ksk_keystate.at_parent {
+			// Should return error.
+			todo!();
+		    }
+		    if !zsk_keystate.old || zsk_keystate.signer || zsk_keystate.present ||
+			zsk_keystate.at_parent {
+			// Should return error.
+			todo!();
+		    }
+		    self.keys.remove(i);
+		    return;
+		}
+	    }
+	    
+	}
+	todo!();
+    }
+
 
     pub fn name(&self) -> String {
 	self.name.to_string()
@@ -130,11 +178,13 @@ impl KeySet {
 	for k in &mut self.keys {
 	    match k.keytype {	    
 		KeyType::Ksk(ref mut keystate) => {
-		    if keystate.old || !keystate.present {
-			continue;
+		    if keystate.old && keystate.present {
+			keystate.at_parent = false;
 		    }
 
-		    keystate.at_parent = true;
+		    if !keystate.old && keystate.present {
+			keystate.at_parent = true;
+		    }
 		}
 		_ => ()
 	    }
@@ -199,6 +249,21 @@ impl KeySet {
 		todo!();
 	    }
 	}
+
+	// Move old keys out
+	for k in &mut self.keys {
+	    let KeyType::Ksk(ref mut keystate) = k.keytype 
+	    else {
+		continue;
+	    };
+	    if keystate.old && keystate.present {
+		keystate.signer = false;
+		keystate.present = false;
+		k.timestamps.withdrawn = Some(UnixTime::now());
+	    }
+
+	}
+
 
 	self.ksk_roll = RollState::Done;
 	let mut actions = Vec::new();
@@ -294,17 +359,20 @@ impl KeySet {
 	    }
 	}
 
-	// Move the Incoming keys to Active.
+	// Move the Incoming keys to Active. Move the Leaving keys to
+	// Retired.
 	for k in &mut self.keys {
 	    let KeyType::Zsk(ref mut keystate) = k.keytype 
 	    else {
 		continue;
 	    };
-	    if keystate.old || !keystate.present {
-		continue;
+	    if !keystate.old && keystate.present {
+		keystate.signer = true;
+	    }
+	    if keystate.old {
+		keystate.signer = false;
 	    }
 
-	    keystate.signer = true;
 	}
 
 	self.zsk_roll = RollState::Propagation2;
@@ -369,6 +437,17 @@ impl KeySet {
 	}
 
 	// Move old keys out
+	for k in &mut self.keys {
+	    let KeyType::Zsk(ref mut keystate) = k.keytype 
+	    else {
+		continue;
+	    };
+	    if keystate.old && !keystate.signer {
+		keystate.present = false;
+		k.timestamps.withdrawn = Some(UnixTime::now());
+	    }
+
+	}
 
 	self.zsk_roll = RollState::Done;
 	let mut actions = Vec::new();
@@ -389,18 +468,287 @@ impl KeySet {
 	actions
     }
 
+    pub fn start_csk_roll(&mut self, old: &[&str], new: &[&str]) -> Vec<Action> {
+	// First check if the current CSK-roll state is idle. We need to check
+	// all conflicting key rolls as well.
+	if let RollState::Idle = self.csk_roll {
+	    // this is fine.
+	} else {
+	    // Should return an error.
+	    todo!();
+	}
+	// Check if we can move the states of the keys
+	self.update_csk(Mode::DryRun, old, new);
+	// Move the states of the keys
+	self.update_csk(Mode::ForReal, old, new);
+	// Move to the next state.
+	// Return actions that need to be performed by the caller.
+
+	self.csk_roll = RollState::Propagation1;
+	let mut actions = Vec::new();
+	actions.push(Action::UpdateDnskeyRrset);
+	actions.push(Action::ReportDnskeyPropagated);
+	actions
+    }
+
+    pub fn csk_roll_propagation1_complete(&mut self, ttl: u32) -> Vec<Action> {
+	// First check if the current CSK-roll state is propagation1.
+	if let RollState::Propagation1 = self.csk_roll {
+	    // this is fine.
+	} else {
+	    // Should return an error.
+	    todo!();
+	}
+
+	// Set the visiable time of new KSKs, ZSKs and CSKs to the current
+	// time.
+	let now = UnixTime::now();
+	for k in &mut self.keys {
+	    match &k.keytype {
+		KeyType::Ksk(keystate)
+		| KeyType::Zsk(keystate)
+		| KeyType::Csk(keystate, _)
+			=> {
+		    if keystate.old || !keystate.present {
+			continue;
+		    }
+
+		    k.timestamps.visible = Some(now.clone());
+		}
+		KeyType::Include(_) => ()
+	    }
+	}
+
+	self.csk_roll = RollState::CacheExpire1(ttl);
+	let actions = Vec::new();
+	actions
+    }
+
+    pub fn csk_roll_cache_expired1(&mut self) -> Vec<Action> {
+	// First check if the current CSK-roll state is CacheExpire1.
+	let RollState::CacheExpire1(ttl) = self.csk_roll 
+	else {
+	    // Should return an error.
+	    todo!();
+	};
+
+	for k in &mut self.keys {
+	    let keystate = match &k.keytype {
+		KeyType::Ksk(keystate)
+		| KeyType::Zsk(keystate)
+		| KeyType::Csk(keystate, _)
+		=> keystate,
+		KeyType::Include(_) => continue
+	    };
+	    if keystate.old || !keystate.present {
+		continue;
+	    }
+
+	    let visible = k.timestamps.visible.as_ref().unwrap();
+	    if visible.elapsed() < Duration::from_secs(ttl.into()) {
+		// Should report error.
+		println!("csk_roll_cache_expired1: elapsed {:?}, waiting for {ttl}", visible.elapsed());
+		todo!();
+	    }
+	}
+
+	for k in &mut self.keys {
+	    match k.keytype {	    
+		KeyType::Ksk(ref mut keystate) => {
+		    if keystate.old && keystate.present {
+			keystate.at_parent = false;
+		    }
+
+		    // Put Active keys at parent.
+		    if !keystate.old && keystate.present {
+			keystate.at_parent = true;
+		    }
+		}
+		KeyType::Zsk(ref mut keystate) => {
+		    // Move the Incoming keys to Active.
+		    if !keystate.old && keystate.present {
+			keystate.signer = true;
+		    }
+		    if keystate.old {
+			keystate.signer = false;
+		    }
+		}
+		KeyType::Csk(ref mut ksk_keystate, ref mut zsk_keystate) => {
+		    if ksk_keystate.old && ksk_keystate.present {
+			ksk_keystate.at_parent = false;
+		    }
+
+		    // Put Active keys at parent.
+		    if !ksk_keystate.old && ksk_keystate.present {
+			ksk_keystate.at_parent = true;
+		    }
+
+		    // Move the Incoming keys to Active.
+		    if !zsk_keystate.old && zsk_keystate.present {
+			zsk_keystate.signer = true;
+		    }
+		    if zsk_keystate.old {
+			zsk_keystate.signer = false;
+		    }
+		}
+		_ => ()
+	    }
+	}
+
+	self.csk_roll = RollState::Propagation2;
+	let mut actions = Vec::new();
+	actions.push(Action::CreateCdsRrset);
+	actions.push(Action::UpdateDsRrset);
+	actions.push(Action::UpdateRrsig);
+	actions.push(Action::ReportDsPropagated);
+	actions.push(Action::ReportRrsigPropagated);
+	actions
+    }
+
+    pub fn csk_roll_propagation2_complete(&mut self, ttl: u32) -> Vec<Action> {
+	// First check if the current CSK-roll state is propagation2.
+	if let RollState::Propagation2 = self.csk_roll {
+	    // this is fine.
+	} else {
+	    // Should return an error.
+	    todo!();
+	}
+
+	// Set the published time of new DS records to the current time.
+	let now = UnixTime::now();
+	for k in &mut self.keys {
+	    match &k.keytype {
+		KeyType::Ksk(keystate)
+		| KeyType::Csk(keystate, _)
+		=> {
+		    if keystate.old || !keystate.present {
+			continue;
+		    }
+
+		    k.timestamps.ds_visible = Some(now.clone());
+		}
+		KeyType::Zsk(_) | KeyType::Include(_) => ()
+	    }
+	}
+
+	// Set the published time of new RRSIG records to the current time.
+	for k in &mut self.keys {
+	    let keystate = match &k.keytype {
+		KeyType::Zsk(keystate) |
+		KeyType::Csk(_, keystate) => keystate,
+		KeyType::Ksk(_) | KeyType::Include(_) => continue,
+
+	    };
+	    if keystate.old || !keystate.signer {
+		continue;
+	    }
+
+	    k.timestamps.rrsig_visible = Some(now.clone());
+	}
+
+
+	self.csk_roll = RollState::CacheExpire2(ttl);
+	let actions = Vec::new();
+	actions
+    }
+
+    pub fn csk_roll_cache_expired2(&mut self) -> Vec<Action> {
+	// First check if the current CSK-roll state is CacheExpire2.
+	let RollState::CacheExpire2(ttl) = self.csk_roll 
+	else {
+	    // Should return an error.
+	    todo!();
+	};
+
+	for k in &mut self.keys {
+	    let keystate = match &k.keytype {
+		KeyType::Zsk(keystate) |
+		KeyType::Csk(_, keystate) => keystate,
+		KeyType::Ksk(_) | KeyType::Include(_) => continue,
+	    };
+	    if keystate.old || !keystate.signer {
+		continue;
+	    }
+
+	    let rrsig_visible = k.timestamps.rrsig_visible.as_ref().unwrap();
+	    if rrsig_visible.elapsed() < Duration::from_secs(ttl.into()) {
+		// Should report error.
+		println!("csk_roll_cache_expired2: elapsed {:?}, waiting for {ttl}", rrsig_visible.elapsed());
+		todo!();
+	    }
+	}
+
+	// Move old keys out
+	for k in &mut self.keys {
+	    match k.keytype {
+		KeyType::Ksk(ref mut keystate)
+		| KeyType::Csk(ref mut keystate, _)
+		=> {
+		    if keystate.old && keystate.present {
+			keystate.signer = false;
+			keystate.present = false;
+			k.timestamps.withdrawn = Some(UnixTime::now());
+		    }
+		}
+		KeyType::Zsk(_) | KeyType::Include(_) => ()
+	    }
+	}
+	for k in &mut self.keys {
+	    match k.keytype {
+		KeyType::Zsk(ref mut keystate)
+		| KeyType::Csk(_, ref mut keystate) => {
+		    if keystate.old && !keystate.signer {
+			keystate.present = false;
+			k.timestamps.withdrawn = Some(UnixTime::now());
+		    }
+		}
+		KeyType::Ksk(_) | KeyType::Include(_) => ()
+	    }
+	}
+
+
+	self.csk_roll = RollState::Done;
+	let mut actions = Vec::new();
+	actions.push(Action::RemoveCdsRrset);
+	actions.push(Action::UpdateDnskeyRrset);
+	actions
+    }
+
+    pub fn csk_roll_done(&mut self) -> Vec<Action> {
+	// First check if the current CSK-roll state is Done.
+	let RollState::Done = self.csk_roll 
+	else {
+	    // Should return an error.
+	    todo!();
+	};
+
+	self.csk_roll = RollState::Idle;
+	let actions = Vec::new();
+	actions
+    }
+
+
 
     fn update_ksk(&mut self, mode: Mode, old: &[&str], new: &[&str]) {
 	let keys: &mut Vec<Key> = match mode {
 	    Mode::DryRun => &mut self.keys.clone(),
 	    Mode::ForReal => &mut self.keys,
 	};
+	'outer:
 	for k in old {
 	    for i in 0..keys.len() {
 		if keys[i].pubref != *k {
 		    continue;
 		}
-		todo!();
+		let KeyType::Ksk(ref mut keystate) = keys[i].keytype
+		else {
+		    // Should return error for wrong key type.
+		    todo!();
+		};
+
+		// Set old for any key we find.
+		keystate.old = true;
+		continue 'outer;
 	    }
 
 	    // Should return error for unknown pubref.
@@ -452,12 +800,21 @@ impl KeySet {
 	    Mode::DryRun => &mut self.keys.clone(),
 	    Mode::ForReal => &mut self.keys,
 	};
+	'outer:
 	for k in old {
 	    for i in 0..keys.len() {
 		if keys[i].pubref != *k {
 		    continue;
 		}
-		todo!();
+		let KeyType::Zsk(ref mut keystate) = keys[i].keytype
+		else {
+		    // Should return error for wrong key type.
+		    todo!();
+		};
+
+		// Set old for any key we find.
+		keystate.old = true;
+		continue 'outer;
 	    }
 
 	    // Should return error for unknown pubref.
@@ -498,6 +855,139 @@ impl KeySet {
 	    todo!();
 	}
     }
+
+    fn update_csk(&mut self, mode: Mode, old: &[&str], new: &[&str]) {
+	let keys: &mut Vec<Key> = match mode {
+	    Mode::DryRun => &mut self.keys.clone(),
+	    Mode::ForReal => &mut self.keys,
+	};
+	'outer:
+	for k in old {
+	    for i in 0..keys.len() {
+		if keys[i].pubref != *k {
+		    continue;
+		}
+
+		// Set old for any key we find.
+		match keys[i].keytype {
+		    KeyType::Ksk(ref mut keystate) 
+		    | KeyType::Zsk(ref mut keystate)
+			=> {
+			keystate.old = true;
+		    }
+		    KeyType::Csk(ref mut ksk_keystate, ref mut zsk_keystate) => { 
+			ksk_keystate.old = true;
+			zsk_keystate.old = true;
+		    }
+		    KeyType::Include(_)
+		    => {
+			// Should return error for wrong key type.
+			todo!();
+		    }
+		}
+		continue 'outer;
+	    }
+
+	    // Should return error for unknown pubref.
+	    todo!();
+	}
+	let now = UnixTime::now();
+	'outer:
+	for k in new {
+	    for i in 0..keys.len() {
+		if keys[i].pubref != *k {
+		    continue;
+		}
+		match keys[i].keytype {
+		    KeyType::Ksk(ref mut keystate) => {
+			if *keystate != (KeyState { old: false,
+			    signer: false, present: false, at_parent: false }) {
+			    // Should return error for wrong key state.
+			    todo!();
+			}
+
+			// Move key state to Active.
+			keystate.present = true;
+			keystate.signer = true;
+			keys[i].timestamps.published = Some(now.clone());
+			continue 'outer;
+		    }
+		    KeyType::Zsk(ref mut keystate) => {
+			if *keystate != (KeyState { old: false,
+			    signer: false, present: false, at_parent: false }) {
+			    // Should return error for wrong key state.
+			    todo!();
+			}
+
+			// Move key state to Incoming.
+			keystate.present = true;
+			keys[i].timestamps.published = Some(now.clone());
+			continue 'outer;
+		    }
+		    KeyType::Csk(ref mut ksk_keystate, ref mut zsk_keystate) => {
+			if *ksk_keystate != (KeyState { old: false,
+			    signer: false, present: false, at_parent: false }) {
+			    // Should return error for wrong key state.
+			    todo!();
+			}
+
+			// Move key state to Active.
+			ksk_keystate.present = true;
+			ksk_keystate.signer = true;
+
+			if *zsk_keystate != (KeyState { old: false,
+			    signer: false, present: false, at_parent: false }) {
+			    // Should return error for wrong key state.
+			    todo!();
+			}
+
+			// Move key state to Incoming.
+			zsk_keystate.present = true;
+
+			keys[i].timestamps.published = Some(now.clone());
+			continue 'outer;
+		    }
+		    _ => {
+			// Should return error for wrong key type.
+			todo!();
+		    }
+		}
+	    }
+
+	    // Should return error for unknown pubref.
+	    todo!();
+	}
+
+	// Make sure we have at least one KSK key in incoming state.
+	if keys.into_iter().filter(|k|
+		match &k.keytype {
+		    KeyType::Ksk(keystate)
+		    | KeyType::Csk(keystate, _)
+			=> !keystate.old && keystate.present,
+		    _ => false
+		}
+		)
+		.next()
+		.is_none() {
+	    // Should return error.
+	    todo!();
+	}
+	// Make sure we have at least one ZSK key in incoming state.
+	if keys.into_iter().filter(|k|
+		match &k.keytype {
+		    KeyType::Zsk(keystate)
+		    | KeyType::Csk(_, keystate)
+			=> !keystate.old && keystate.present,
+		    _ => false
+		}
+		)
+		.next()
+		.is_none() {
+	    // Should return error.
+	    todo!();
+	}
+    }
+
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
