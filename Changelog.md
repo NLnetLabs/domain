@@ -40,6 +40,8 @@ Unstable features
   * introduce timeout option in multi_stream ([#424]).
   * improve probing in redundant ([#424]).
   * restructure configuration for multi_stream and redundant ([#424]).
+  * introduce a load balancer client transport. This transport tries to
+    distribute requests equally over upstream transports ([#425]).
 
 Other changes
 
@@ -48,6 +50,7 @@ Other changes
 [#417]: https://github.com/NLnetLabs/domain/pull/417
 [#421]: https://github.com/NLnetLabs/domain/pull/421
 [#424]: https://github.com/NLnetLabs/domain/pull/424
+[#425]: https://github.com/NLnetLabs/domain/pull/425
 [#427]: https://github.com/NLnetLabs/domain/pull/427
 [#440]: https://github.com/NLnetLabs/domain/pull/440
 [#441]: https://github.com/NLnetLabs/domain/pull/441
