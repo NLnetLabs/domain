@@ -107,6 +107,8 @@ fn main() {
     println!("KSK roll start");
     let actions = ks.start_ksk_roll(&["first KSK"], &["second KSK"]);
     handle_actions(&actions, &ks);
+    let json = serde_json::to_string(&ks).unwrap();
+    println!("KSK start state: {json}");
     save_keyset(&ks);
     print_status(&ks);	    
 
