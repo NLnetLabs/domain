@@ -13,7 +13,7 @@ pub type Result = core::result::Result<(), Error>;
 
 pub enum DisplayKind {
     Simple,
-    Aligned,
+    Tabbed,
     Multiline,
 }
 
@@ -29,9 +29,9 @@ impl<T: ZonefileFmt + ?Sized> fmt::Display for ZoneFileDisplay<'_, T> {
                 .inner
                 .fmt(&mut SimpleWriter::new(f))
                 .map_err(|_| fmt::Error),
-            DisplayKind::Aligned => self
+            DisplayKind::Tabbed => self
                 .inner
-                .fmt(&mut AlignedWriter::new(f))
+                .fmt(&mut TabbedWriter::new(f))
                 .map_err(|_| fmt::Error),
             DisplayKind::Multiline => self
                 .inner
@@ -142,14 +142,14 @@ impl<W: fmt::Write> FormatWriter for SimpleWriter<W> {
     }
 }
 
-/// A simple writer that aligns some bits
-struct AlignedWriter<W> {
+/// A single line writer that puts tabs between ungrouped tokens
+struct TabbedWriter<W> {
     first: bool,
     blocks: usize,
     writer: W,
 }
 
-impl<W> AlignedWriter<W> {
+impl<W> TabbedWriter<W> {
     fn new(writer: W) -> Self {
         Self {
             first: true,
@@ -159,7 +159,7 @@ impl<W> AlignedWriter<W> {
     }
 }
 
-impl<W: fmt::Write> FormatWriter for AlignedWriter<W> {
+impl<W: fmt::Write> FormatWriter for TabbedWriter<W> {
     fn fmt_token(&mut self, args: fmt::Arguments<'_>) -> Result {
         if !self.first {
             let c = if self.blocks == 0 { '\t' } else { ' ' };
@@ -188,8 +188,7 @@ impl<W: fmt::Write> FormatWriter for AlignedWriter<W> {
         self.writer.write_char('\n')?;
         self.first = true;
 
-        // Little sanity thing, it _should_ already be 0
-        self.blocks = 0;
+        debug_assert_eq!(self.blocks, 0);
 
         Ok(())
     }
@@ -455,7 +454,7 @@ mod test {
         // rdata shouldn't.
         assert_eq!(
             "example.com.\t3600\tIN\tCDS 5414 15 2 DEADBEEF",
-            record.display_zonefile(DisplayKind::Aligned).to_string()
+            record.display_zonefile(DisplayKind::Tabbed).to_string()
         );
     }
 }
