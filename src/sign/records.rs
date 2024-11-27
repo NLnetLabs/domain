@@ -72,45 +72,46 @@ impl<N, D> SortedRecords<N, D> {
     /// Class and Rtype can be None to match any.
     ///
     /// Returns:
-    ///   - Ok: if one or more matching records were found (and removed)
-    ///   - Err: if no matching record was found
+    ///   - true: if one or more matching records were found (and removed)
+    ///   - false: if no matching record was found
     pub fn remove_all_by_name_class_rtype(
         &mut self,
         name: N,
         class: Option<Class>,
         rtype: Option<Rtype>,
-    ) -> Result<(), ()>
+    ) -> bool
     where
         N: ToName + Clone,
         D: RecordData,
     {
         let mut found_one = false;
         loop {
-            match self.remove_first_by_name_class_rtype(
+            if self.remove_first_by_name_class_rtype(
                 name.clone(),
                 class.clone(),
                 rtype.clone(),
             ) {
-                Ok(_) => found_one = true,
-                Err(_) => break,
+                found_one = true
+            } else {
+                break;
             }
         }
 
-        found_one.then_some(()).ok_or(())
+        found_one
     }
 
     /// Remove first records matching the owner name, class, and rtype.
     /// Class and Rtype can be None to match any.
     ///
     /// Returns:
-    ///   - Ok: if a matching record was found (and removed)
-    ///   - Err: if no matching record was found
+    ///   - true: if a matching record was found (and removed)
+    ///   - false: if no matching record was found
     pub fn remove_first_by_name_class_rtype(
         &mut self,
         name: N,
         class: Option<Class>,
         rtype: Option<Rtype>,
-    ) -> Result<(), ()>
+    ) -> bool
     where
         N: ToName,
         D: RecordData,
@@ -139,9 +140,9 @@ impl<N, D> SortedRecords<N, D> {
         match idx {
             Ok(idx) => {
                 self.records.remove(idx);
-                return Ok(());
+                return true;
             }
-            Err(_) => return Err(()),
+            Err(_) => return false,
         };
     }
 
