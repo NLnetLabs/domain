@@ -203,3 +203,5 @@ pub mod validate;
 pub mod validator;
 pub mod zonefile;
 pub mod zonetree;
+
+mod logging;
