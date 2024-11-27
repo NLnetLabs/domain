@@ -11,6 +11,7 @@ use domain::sign::keyset::UnixTime;
 use domain::sign::keyset::Action;
 use std::thread::sleep;
 use std::time::Duration;
+use domain::sign::keyset::RollType;
 
 const ZONE: &str = "example.com";
 
@@ -105,7 +106,7 @@ fn main() {
     save_keyset(&ks);
 
     println!("KSK roll start");
-    let actions = ks.start_ksk_roll(&["first KSK"], &["second KSK"]);
+    let actions = ks.start_roll(RollType::KskRoll, &["first KSK"], &["second KSK"]);
     handle_actions(&actions, &ks);
     let json = serde_json::to_string(&ks).unwrap();
     println!("KSK start state: {json}");
@@ -113,7 +114,7 @@ fn main() {
     print_status(&ks);	    
 
     println!("KSK roll propagation1 complete");
-    let actions = ks.ksk_roll_propagation1_complete(1);
+    let actions = ks.propagation1_complete(RollType::KskRoll, 1);
     handle_actions(&actions, &ks);
     save_keyset(&ks);
     print_status(&ks);	    
@@ -121,13 +122,13 @@ fn main() {
     sleep(Duration::from_secs(1));
 
     println!("KSK roll cache expired1");
-    let actions = ks.ksk_roll_cache_expired1();
+    let actions = ks.cache_expired1(RollType::KskRoll);
     handle_actions(&actions, &ks);
     save_keyset(&ks);
     print_status(&ks);	    
 
     println!("KSK roll propagation2 complete");
-    let actions = ks.ksk_roll_propagation2_complete(1);
+    let actions = ks.propagation2_complete(RollType::KskRoll, 1);
     handle_actions(&actions, &ks);
     save_keyset(&ks);
     print_status(&ks);	    
@@ -135,13 +136,13 @@ fn main() {
     sleep(Duration::from_secs(1));
 
     println!("KSK roll cache expired2");
-    let actions = ks.ksk_roll_cache_expired2();
+    let actions = ks.cache_expired2(RollType::KskRoll);
     handle_actions(&actions, &ks);
     save_keyset(&ks);
     print_status(&ks);	    
 
     println!("KSK roll done");
-    let actions = ks.ksk_roll_done();
+    let actions = ks.roll_done(RollType::KskRoll);
     handle_actions(&actions, &ks);
     ks.delete_key("first KSK");
     save_keyset(&ks);
