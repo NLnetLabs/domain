@@ -492,11 +492,10 @@ impl<'a, N, D> RecordsIter<'a, N, D> {
     where
         N: ToName,
     {
-        while let Some(first) = self.slice.first() {
-            if first.class() != apex.class() {
-                continue;
-            }
-            if apex == first || first.owner().ends_with(apex.owner()) {
+        for rr in self.slice {
+            if rr.class() == apex.class()
+                && (apex == rr || rr.owner().ends_with(apex.owner()))
+            {
                 break;
             }
             self.slice = &self.slice[1..]
