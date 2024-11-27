@@ -22,13 +22,13 @@ fn main() {
     print_status(&ks);	    
 
     println!("CSK roll start");
-    let actions = ks.start_csk_roll(&[], &["first KSK", "first ZSK"]);
+    let actions = ks.start_roll(RollType::CskRoll, &[], &["first KSK", "first ZSK"]);
     handle_actions(&actions, &ks);
     save_keyset(&ks);
     print_status(&ks);	    
 
     println!("CSK roll propagation1 complete");
-    let actions = ks.csk_roll_propagation1_complete(1);
+    let actions = ks.propagation1_complete(RollType::CskRoll, 1);
     handle_actions(&actions, &ks);
     save_keyset(&ks);
     print_status(&ks);	    
@@ -36,13 +36,13 @@ fn main() {
     sleep(Duration::from_secs(1));
 
     println!("CSK roll cache expired1");
-    let actions = ks.csk_roll_cache_expired1();
+    let actions = ks.cache_expired1(RollType::CskRoll);
     handle_actions(&actions, &ks);
     save_keyset(&ks);
     print_status(&ks);	    
 
     println!("CSK roll propagation2 complete");
-    let actions = ks.csk_roll_propagation2_complete(1);
+    let actions = ks.propagation2_complete(RollType::CskRoll, 1);
     handle_actions(&actions, &ks);
     save_keyset(&ks);
     print_status(&ks);	    
@@ -50,13 +50,13 @@ fn main() {
     sleep(Duration::from_secs(1));
 
     println!("CSK roll cache expired2");
-    let actions = ks.csk_roll_cache_expired2();
+    let actions = ks.cache_expired2(RollType::CskRoll);
     handle_actions(&actions, &ks);
     save_keyset(&ks);
     print_status(&ks);	    
 
     println!("CSK roll done");
-    let actions = ks.csk_roll_done();
+    let actions = ks.roll_done(RollType::CskRoll);
     handle_actions(&actions, &ks);
     save_keyset(&ks);
 
@@ -150,13 +150,13 @@ fn main() {
     ks.add_key_csk("first CSK".to_string(), None, UnixTime::now());
 
     println!("CSK roll start");
-    let actions = ks.start_csk_roll(&["second KSK", "second ZSK"], &["first CSK"]);
+    let actions = ks.start_roll(RollType::CskRoll, &["second KSK", "second ZSK"], &["first CSK"]);
     handle_actions(&actions, &ks);
     save_keyset(&ks);
     print_status(&ks);	    
 
     println!("CSK roll propagation1 complete");
-    let actions = ks.csk_roll_propagation1_complete(1);
+    let actions = ks.propagation1_complete(RollType::CskRoll, 1);
     handle_actions(&actions, &ks);
     save_keyset(&ks);
     print_status(&ks);	    
@@ -164,13 +164,13 @@ fn main() {
     sleep(Duration::from_secs(1));
 
     println!("CSK roll cache expired1");
-    let actions = ks.csk_roll_cache_expired1();
+    let actions = ks.cache_expired1(RollType::CskRoll);
     handle_actions(&actions, &ks);
     save_keyset(&ks);
     print_status(&ks);	    
 
     println!("CSK roll propagation2 complete");
-    let actions = ks.csk_roll_propagation2_complete(1);
+    let actions = ks.propagation2_complete(RollType::CskRoll, 1);
     handle_actions(&actions, &ks);
     save_keyset(&ks);
     print_status(&ks);	    
@@ -178,13 +178,13 @@ fn main() {
     sleep(Duration::from_secs(1));
 
     println!("CSK roll cache expired2");
-    let actions = ks.csk_roll_cache_expired2();
+    let actions = ks.cache_expired2(RollType::CskRoll);
     handle_actions(&actions, &ks);
     save_keyset(&ks);
     print_status(&ks);	    
 
     println!("CSK roll done");
-    let actions = ks.csk_roll_done();
+    let actions = ks.roll_done(RollType::CskRoll);
     handle_actions(&actions, &ks);
     ks.delete_key("second KSK");
     ks.delete_key("second ZSK");
@@ -193,13 +193,13 @@ fn main() {
     ks.add_key_csk("second CSK".to_string(), None, UnixTime::now());
 
     println!("CSK roll start");
-    let actions = ks.start_csk_roll(&["first CSK"], &["second CSK"]);
+    let actions = ks.start_roll(RollType::CskRoll, &["first CSK"], &["second CSK"]);
     handle_actions(&actions, &ks);
     save_keyset(&ks);
     print_status(&ks);	    
 
     println!("CSK roll propagation1 complete");
-    let actions = ks.csk_roll_propagation1_complete(1);
+    let actions = ks.propagation1_complete(RollType::CskRoll, 1);
     handle_actions(&actions, &ks);
     save_keyset(&ks);
     print_status(&ks);	    
@@ -207,13 +207,13 @@ fn main() {
     sleep(Duration::from_secs(1));
 
     println!("CSK roll cache expired1");
-    let actions = ks.csk_roll_cache_expired1();
+    let actions = ks.cache_expired1(RollType::CskRoll);
     handle_actions(&actions, &ks);
     save_keyset(&ks);
     print_status(&ks);	    
 
     println!("CSK roll propagation2 complete");
-    let actions = ks.csk_roll_propagation2_complete(1);
+    let actions = ks.propagation2_complete(RollType::CskRoll, 1);
     handle_actions(&actions, &ks);
     save_keyset(&ks);
     print_status(&ks);	    
@@ -221,13 +221,13 @@ fn main() {
     sleep(Duration::from_secs(1));
 
     println!("CSK roll cache expired2");
-    let actions = ks.csk_roll_cache_expired2();
+    let actions = ks.cache_expired2(RollType::CskRoll);
     handle_actions(&actions, &ks);
     save_keyset(&ks);
     print_status(&ks);	    
 
     println!("CSK roll done");
-    let actions = ks.csk_roll_done();
+    let actions = ks.roll_done(RollType::CskRoll);
     handle_actions(&actions, &ks);
     ks.delete_key("first CSK");
     save_keyset(&ks);

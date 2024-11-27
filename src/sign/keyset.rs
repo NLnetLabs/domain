@@ -101,21 +101,11 @@ impl KeySet {
 
     pub fn start_roll(&mut self, rolltype: RollType, old: &[&str], new: &[&str]) -> Vec<Action> {
 	let next_state = RollState::Propagation1;
-	match rolltype {
-	    RollType::KskRoll => 
-		ksk_roll(RollOp::Start(old, new), self),
-	    RollType::ZskRoll => 
-		zsk_roll(RollOp::Start(old, new), self),
-	    RollType::CskRoll => return self.start_csk_roll(old, new),
-	}
+	rolltype.rollfn()(RollOp::Start(old, new), self);
 
 	self.rollstates.insert(rolltype.clone(), next_state.clone());
 
-	match rolltype {
-	    RollType::KskRoll => ksk_roll_actions(next_state),
-	    RollType::ZskRoll => zsk_roll_actions(next_state),
-	    RollType::CskRoll => todo!()
-	}
+	rolltype.roll_actions_fn()(next_state)
     }
 
     pub fn propagation1_complete(&mut self, rolltype: RollType, ttl: u32) -> Vec<Action> {
@@ -126,19 +116,11 @@ impl KeySet {
 	    todo!();
 	};
 	let next_state = RollState::CacheExpire1(ttl);
-	match rolltype {
-	    RollType::KskRoll =>
-		ksk_roll(RollOp::Propagation1, self),
-	    RollType::ZskRoll => 
-		zsk_roll(RollOp::Propagation1, self),
-	    RollType::CskRoll => return self.csk_roll_propagation1_complete(ttl),
-	}
+	rolltype.rollfn()(RollOp::Propagation1, self);
+
 	self.rollstates.insert(rolltype.clone(), next_state.clone());
-	match rolltype {
-	    RollType::KskRoll => ksk_roll_actions(next_state),
-	    RollType::ZskRoll => zsk_roll_actions(next_state),
-	    RollType::CskRoll => todo!(),
-	}
+
+	rolltype.roll_actions_fn()(next_state)
     }
 
     pub fn cache_expired1(&mut self, rolltype: RollType) -> Vec<Action> {
@@ -149,20 +131,10 @@ impl KeySet {
 	    todo!();
 	};
 	let next_state = RollState::Propagation2;
-	match rolltype {
-	    RollType::KskRoll => 
-		ksk_roll(RollOp::CacheExpire1(*ttl), self),
-	    RollType::ZskRoll =>
-		zsk_roll(RollOp::CacheExpire1(*ttl), self),
-	    RollType::CskRoll => return self.csk_roll_cache_expired1(),
-	}
+	rolltype.rollfn()(RollOp::CacheExpire1(*ttl), self);
 	self.rollstates.insert(rolltype.clone(), next_state.clone());
 
-	match rolltype {
-	    RollType::KskRoll => ksk_roll_actions(next_state),
-	    RollType::ZskRoll => zsk_roll_actions(next_state),
-	    RollType::CskRoll => todo!(),
-	}
+	rolltype.roll_actions_fn()(next_state)
     }
 
     pub fn propagation2_complete(&mut self, rolltype: RollType, ttl: u32) -> Vec<Action> {
@@ -173,19 +145,9 @@ impl KeySet {
 	    todo!();
 	};
 	let next_state = RollState::CacheExpire2(ttl);
-	match rolltype {
-	    RollType::KskRoll =>
-		ksk_roll(RollOp::Propagation2, self),
-	    RollType::ZskRoll => 
-		zsk_roll(RollOp::Propagation2, self),
-	    RollType::CskRoll => return self.csk_roll_propagation2_complete(ttl),
-	}
+	rolltype.rollfn()(RollOp::Propagation2, self);
 	self.rollstates.insert(rolltype.clone(), next_state.clone());
-	match rolltype {
-	    RollType::KskRoll => ksk_roll_actions(next_state),
-	    RollType::ZskRoll => zsk_roll_actions(next_state),
-	    RollType::CskRoll => todo!(),
-	}
+	rolltype.roll_actions_fn()(next_state)
     }
 
     pub fn cache_expired2(&mut self, rolltype: RollType) -> Vec<Action> {
@@ -196,20 +158,10 @@ impl KeySet {
 	    todo!();
 	};
 	let next_state = RollState::Done;
-	match rolltype {
-	    RollType::KskRoll => 
-		ksk_roll(RollOp::CacheExpire2(*ttl), self),
-	    RollType::ZskRoll => 
-		zsk_roll(RollOp::CacheExpire2(*ttl), self),
-	    RollType::CskRoll => return self.csk_roll_cache_expired2(),
-	}
+	rolltype.rollfn()(RollOp::CacheExpire2(*ttl), self);
 	self.rollstates.insert(rolltype.clone(), next_state.clone());
 
-	match rolltype {
-	    RollType::KskRoll => ksk_roll_actions(next_state),
-	    RollType::ZskRoll => zsk_roll_actions(next_state),
-	    RollType::CskRoll => todo!(),
-	}
+	rolltype.roll_actions_fn()(next_state)
     }
 
     pub fn roll_done(&mut self, rolltype: RollType) -> Vec<Action> {
@@ -219,274 +171,11 @@ impl KeySet {
 	    // Should return an error.
 	    todo!();
 	};
-	match rolltype {
-	    RollType::KskRoll => 
-		ksk_roll(RollOp::Done, self),
-	    RollType::ZskRoll => 
-		zsk_roll(RollOp::Done, self),
-	    RollType::CskRoll => return self.csk_roll_done(),
-	}
+	rolltype.rollfn()(RollOp::Done, self);
 	self.rollstates.remove(&rolltype);
 	Vec::new()
     }
 
-
-    pub fn start_csk_roll(&mut self, old: &[&str], new: &[&str]) -> Vec<Action> {
-	// First check if the current CSK-roll state is idle. We need to check
-	// all conflicting key rolls as well. The way we check is to allow
-	// specified non-conflicting rolls and consider everything else
-	// as a conflict.
-	if self.rollstates.keys().next().is_some() {
-	    // Should return an error.
-	    todo!();
-	}
-	// Check if we can move the states of the keys
-	self.update_csk(Mode::DryRun, old, new);
-	// Move the states of the keys
-	self.update_csk(Mode::ForReal, old, new);
-	// Move to the next state.
-	// Return actions that need to be performed by the caller.
-
-	self.rollstates.insert(RollType::CskRoll, RollState::Propagation1);
-	let mut actions = Vec::new();
-	actions.push(Action::UpdateDnskeyRrset);
-	actions.push(Action::ReportDnskeyPropagated);
-	actions
-    }
-
-    pub fn csk_roll_propagation1_complete(&mut self, ttl: u32) -> Vec<Action> {
-	// First check if the current CSK-roll state is propagation1.
-	let Some(RollState::Propagation1) = self.rollstates.get(&RollType::CskRoll)
-	else {
-	    // Should return an error.
-	    todo!();
-	};
-
-	// Set the visiable time of new KSKs, ZSKs and CSKs to the current
-	// time.
-	let now = UnixTime::now();
-	for k in &mut self.keys {
-	    match &k.keytype {
-		KeyType::Ksk(keystate)
-		| KeyType::Zsk(keystate)
-		| KeyType::Csk(keystate, _)
-			=> {
-		    if keystate.old || !keystate.present {
-			continue;
-		    }
-
-		    k.timestamps.visible = Some(now.clone());
-		}
-		KeyType::Include(_) => ()
-	    }
-	}
-
-	self.rollstates.insert(RollType::CskRoll, RollState::CacheExpire1(ttl));
-	let actions = Vec::new();
-	actions
-    }
-
-    pub fn csk_roll_cache_expired1(&mut self) -> Vec<Action> {
-	// First check if the current CSK-roll state is CacheExpire1.
-	let Some(RollState::CacheExpire1(ttl)) = self.rollstates.get(&RollType::CskRoll)
-	else {
-	    // Should return an error.
-	    todo!();
-	};
-
-	for k in &mut self.keys {
-	    let keystate = match &k.keytype {
-		KeyType::Ksk(keystate)
-		| KeyType::Zsk(keystate)
-		| KeyType::Csk(keystate, _)
-		=> keystate,
-		KeyType::Include(_) => continue
-	    };
-	    if keystate.old || !keystate.present {
-		continue;
-	    }
-
-	    let visible = k.timestamps.visible.as_ref().unwrap();
-	    if visible.elapsed() < Duration::from_secs((*ttl).into()) {
-		// Should report error.
-		println!("csk_roll_cache_expired1: elapsed {:?}, waiting for {ttl}", visible.elapsed());
-		todo!();
-	    }
-	}
-
-	for k in &mut self.keys {
-	    match k.keytype {	    
-		KeyType::Ksk(ref mut keystate) => {
-		    if keystate.old && keystate.present {
-			keystate.at_parent = false;
-		    }
-
-		    // Put Active keys at parent.
-		    if !keystate.old && keystate.present {
-			keystate.at_parent = true;
-		    }
-		}
-		KeyType::Zsk(ref mut keystate) => {
-		    // Move the Incoming keys to Active.
-		    if !keystate.old && keystate.present {
-			keystate.signer = true;
-		    }
-		    if keystate.old {
-			keystate.signer = false;
-		    }
-		}
-		KeyType::Csk(ref mut ksk_keystate, ref mut zsk_keystate) => {
-		    if ksk_keystate.old && ksk_keystate.present {
-			ksk_keystate.at_parent = false;
-		    }
-
-		    // Put Active keys at parent.
-		    if !ksk_keystate.old && ksk_keystate.present {
-			ksk_keystate.at_parent = true;
-		    }
-
-		    // Move the Incoming keys to Active.
-		    if !zsk_keystate.old && zsk_keystate.present {
-			zsk_keystate.signer = true;
-		    }
-		    if zsk_keystate.old {
-			zsk_keystate.signer = false;
-		    }
-		}
-		_ => ()
-	    }
-	}
-
-	self.rollstates.insert(RollType::CskRoll, RollState::Propagation2);
-	let mut actions = Vec::new();
-	actions.push(Action::CreateCdsRrset);
-	actions.push(Action::UpdateDsRrset);
-	actions.push(Action::UpdateRrsig);
-	actions.push(Action::ReportDsPropagated);
-	actions.push(Action::ReportRrsigPropagated);
-	actions
-    }
-
-    pub fn csk_roll_propagation2_complete(&mut self, ttl: u32) -> Vec<Action> {
-	// First check if the current CSK-roll state is propagation2.
-	let Some(RollState::Propagation2) = self.rollstates.get(&RollType::CskRoll)
-	else {
-	    // Should return an error.
-	    todo!();
-	};
-
-	// Set the published time of new DS records to the current time.
-	let now = UnixTime::now();
-	for k in &mut self.keys {
-	    match &k.keytype {
-		KeyType::Ksk(keystate)
-		| KeyType::Csk(keystate, _)
-		=> {
-		    if keystate.old || !keystate.present {
-			continue;
-		    }
-
-		    k.timestamps.ds_visible = Some(now.clone());
-		}
-		KeyType::Zsk(_) | KeyType::Include(_) => ()
-	    }
-	}
-
-	// Set the published time of new RRSIG records to the current time.
-	for k in &mut self.keys {
-	    let keystate = match &k.keytype {
-		KeyType::Zsk(keystate) |
-		KeyType::Csk(_, keystate) => keystate,
-		KeyType::Ksk(_) | KeyType::Include(_) => continue,
-
-	    };
-	    if keystate.old || !keystate.signer {
-		continue;
-	    }
-
-	    k.timestamps.rrsig_visible = Some(now.clone());
-	}
-
-
-	self.rollstates.insert(RollType::CskRoll, RollState::CacheExpire2(ttl));
-	let actions = Vec::new();
-	actions
-    }
-
-    pub fn csk_roll_cache_expired2(&mut self) -> Vec<Action> {
-	// First check if the current CSK-roll state is CacheExpire2.
-	let Some(RollState::CacheExpire2(ttl)) = self.rollstates.get(&RollType::CskRoll)
-	else {
-	    // Should return an error.
-	    todo!();
-	};
-
-	for k in &mut self.keys {
-	    let keystate = match &k.keytype {
-		KeyType::Zsk(keystate) |
-		KeyType::Csk(_, keystate) => keystate,
-		KeyType::Ksk(_) | KeyType::Include(_) => continue,
-	    };
-	    if keystate.old || !keystate.signer {
-		continue;
-	    }
-
-	    let rrsig_visible = k.timestamps.rrsig_visible.as_ref().unwrap();
-	    if rrsig_visible.elapsed() < Duration::from_secs((*ttl).into()) {
-		// Should report error.
-		println!("csk_roll_cache_expired2: elapsed {:?}, waiting for {ttl}", rrsig_visible.elapsed());
-		todo!();
-	    }
-	}
-
-	// Move old keys out
-	for k in &mut self.keys {
-	    match k.keytype {
-		KeyType::Ksk(ref mut keystate)
-		| KeyType::Csk(ref mut keystate, _)
-		=> {
-		    if keystate.old && keystate.present {
-			keystate.signer = false;
-			keystate.present = false;
-			k.timestamps.withdrawn = Some(UnixTime::now());
-		    }
-		}
-		KeyType::Zsk(_) | KeyType::Include(_) => ()
-	    }
-	}
-	for k in &mut self.keys {
-	    match k.keytype {
-		KeyType::Zsk(ref mut keystate)
-		| KeyType::Csk(_, ref mut keystate) => {
-		    if keystate.old && !keystate.signer {
-			keystate.present = false;
-			k.timestamps.withdrawn = Some(UnixTime::now());
-		    }
-		}
-		KeyType::Ksk(_) | KeyType::Include(_) => ()
-	    }
-	}
-
-
-	self.rollstates.insert(RollType::CskRoll, RollState::Done);
-	let mut actions = Vec::new();
-	actions.push(Action::RemoveCdsRrset);
-	actions.push(Action::UpdateDnskeyRrset);
-	actions
-    }
-
-    pub fn csk_roll_done(&mut self) -> Vec<Action> {
-	// First check if the current CSK-roll state is Done.
-	let Some(RollState::Done) = self.rollstates.get(&RollType::CskRoll)
-	else {
-	    // Should return an error.
-	    todo!();
-	};
-
-	self.rollstates.remove(&RollType::CskRoll);
-	let actions = Vec::new();
-	actions
-    }
 
 
 
@@ -959,6 +648,23 @@ pub enum RollType {
     CskRoll
 }
 
+impl RollType {
+    fn rollfn(&self) -> fn(RollOp, &mut KeySet) {
+	match self {
+	    RollType::KskRoll => ksk_roll,
+	    RollType::ZskRoll => zsk_roll,
+	    RollType::CskRoll => csk_roll,
+	}
+    }
+    fn roll_actions_fn(&self) -> fn(RollState) -> Vec<Action> {
+	match self {
+	    RollType::KskRoll => ksk_roll_actions,
+	    RollType::ZskRoll => zsk_roll_actions,
+	    RollType::CskRoll => csk_roll_actions,
+	}
+    }
+}
+
 enum RollOp<'a> {
     Start(&'a [&'a str], &'a [&'a str]),
     Propagation1,
@@ -1237,6 +943,214 @@ fn zsk_roll_actions(rollstate: RollState) -> Vec<Action> {
 	}
 	RollState::CacheExpire2(_) => (),
 	RollState::Done => {
+	    actions.push(Action::UpdateDnskeyRrset);
+	}
+    }
+    actions
+}
+
+fn csk_roll(rollop: RollOp, ks: &mut KeySet) {
+    match rollop {
+	RollOp::Start(old, new) => {
+	    // First check if the current CSK-roll state is idle. We need to check
+	    // all conflicting key rolls as well. The way we check is to allow
+	    // specified non-conflicting rolls and consider everything else
+	    // as a conflict.
+	    if ks.rollstates.keys().next().is_some() {
+		// Should return an error.
+		todo!();
+	    }
+	    // Check if we can move the states of the keys
+	    ks.update_csk(Mode::DryRun, old, new);
+	    // Move the states of the keys
+	    ks.update_csk(Mode::ForReal, old, new);
+	}
+	RollOp::Propagation1 => {
+	    // Set the visiable time of new KSKs, ZSKs and CSKs to the current
+	    // time.
+	    let now = UnixTime::now();
+	    for k in &mut ks.keys {
+		match &k.keytype {
+		    KeyType::Ksk(keystate)
+		    | KeyType::Zsk(keystate)
+		    | KeyType::Csk(keystate, _) => {
+			if keystate.old || !keystate.present {
+			    continue;
+			}
+
+			k.timestamps.visible = Some(now.clone());
+		    }
+		    KeyType::Include(_) => ()
+		}
+	    }
+	}
+	RollOp::CacheExpire1(ttl) => {
+	    for k in &mut ks.keys {
+		let keystate = match &k.keytype {
+		    KeyType::Ksk(keystate)
+		    | KeyType::Zsk(keystate)
+		    | KeyType::Csk(keystate, _)
+		    => keystate,
+		    KeyType::Include(_) => continue
+		};
+		if keystate.old || !keystate.present {
+		    continue;
+		}
+
+		let visible = k.timestamps.visible.as_ref().unwrap();
+		if visible.elapsed() < Duration::from_secs(ttl.into()) {
+		    // Should report error.
+		    println!("csk_roll_cache_expired1: elapsed {:?}, waiting for {ttl}", visible.elapsed());
+		    todo!();
+		}
+	    }
+
+	    for k in &mut ks.keys {
+		match k.keytype {	    
+		    KeyType::Ksk(ref mut keystate) => {
+			if keystate.old && keystate.present {
+			    keystate.at_parent = false;
+			}
+
+			// Put Active keys at parent.
+			if !keystate.old && keystate.present {
+			    keystate.at_parent = true;
+			}
+		    }
+		    KeyType::Zsk(ref mut keystate) => {
+			// Move the Incoming keys to Active.
+			if !keystate.old && keystate.present {
+			    keystate.signer = true;
+			}
+			if keystate.old {
+			    keystate.signer = false;
+			}
+		    }
+		    KeyType::Csk(ref mut ksk_keystate, ref mut zsk_keystate) => {
+			if ksk_keystate.old && ksk_keystate.present {
+			    ksk_keystate.at_parent = false;
+			}
+
+			// Put Active keys at parent.
+			if !ksk_keystate.old && ksk_keystate.present {
+			    ksk_keystate.at_parent = true;
+			}
+
+			// Move the Incoming keys to Active.
+			if !zsk_keystate.old && zsk_keystate.present {
+			    zsk_keystate.signer = true;
+			}
+			if zsk_keystate.old {
+			    zsk_keystate.signer = false;
+			}
+		    }
+		    _ => ()
+		}
+	    }
+	}
+	RollOp::Propagation2 => {
+	    // Set the published time of new DS records to the current time.
+	    let now = UnixTime::now();
+	    for k in &mut ks.keys {
+		match &k.keytype {
+		    KeyType::Ksk(keystate)
+		    | KeyType::Csk(keystate, _)
+		    => {
+			if keystate.old || !keystate.present {
+			    continue;
+			}
+
+			k.timestamps.ds_visible = Some(now.clone());
+		    }
+		    KeyType::Zsk(_) | KeyType::Include(_) => ()
+		}
+	    }
+
+	    // Set the published time of new RRSIG records to the current time.
+	    for k in &mut ks.keys {
+		let keystate = match &k.keytype {
+		    KeyType::Zsk(keystate) |
+		    KeyType::Csk(_, keystate) => keystate,
+		    KeyType::Ksk(_) | KeyType::Include(_) => continue,
+
+		};
+		if keystate.old || !keystate.signer {
+		    continue;
+		}
+
+		k.timestamps.rrsig_visible = Some(now.clone());
+	    }
+	}
+	RollOp::CacheExpire2(ttl) => {
+	    for k in &mut ks.keys {
+		let keystate = match &k.keytype {
+		    KeyType::Zsk(keystate) |
+		    KeyType::Csk(_, keystate) => keystate,
+		    KeyType::Ksk(_) | KeyType::Include(_) => continue,
+		};
+		if keystate.old || !keystate.signer {
+		    continue;
+		}
+
+		let rrsig_visible = k.timestamps.rrsig_visible.as_ref().unwrap();
+		if rrsig_visible.elapsed() < Duration::from_secs(ttl.into()) {
+		    // Should report error.
+		    println!("csk_roll_cache_expired2: elapsed {:?}, waiting for {ttl}", rrsig_visible.elapsed());
+		    todo!();
+		}
+	    }
+
+	    // Move old keys out
+	    for k in &mut ks.keys {
+		match k.keytype {
+		    KeyType::Ksk(ref mut keystate)
+		    | KeyType::Csk(ref mut keystate, _)
+		    => {
+			if keystate.old && keystate.present {
+			    keystate.signer = false;
+			    keystate.present = false;
+			    k.timestamps.withdrawn = Some(UnixTime::now());
+			}
+		    }
+		    KeyType::Zsk(_) | KeyType::Include(_) => ()
+		}
+	    }
+	    for k in &mut ks.keys {
+		match k.keytype {
+		    KeyType::Zsk(ref mut keystate)
+		    | KeyType::Csk(_, ref mut keystate) => {
+			if keystate.old && !keystate.signer {
+			    keystate.present = false;
+			    k.timestamps.withdrawn = Some(UnixTime::now());
+			}
+		    }
+		    KeyType::Ksk(_) | KeyType::Include(_) => ()
+		}
+	    }
+	}
+	RollOp::Done => (),
+    }
+}
+
+fn csk_roll_actions(rollstate: RollState) -> Vec<Action> {
+    println!("csk_roll_actions: actions for state {rollstate:?}");
+    let mut actions = Vec::new();
+    match rollstate {
+	RollState::Propagation1 => {
+	    actions.push(Action::UpdateDnskeyRrset);
+	    actions.push(Action::ReportDnskeyPropagated);
+	}
+	RollState::CacheExpire1(_) => (),
+	RollState::Propagation2 => {
+	    actions.push(Action::CreateCdsRrset);
+	    actions.push(Action::UpdateDsRrset);
+	    actions.push(Action::UpdateRrsig);
+	    actions.push(Action::ReportDsPropagated);
+	    actions.push(Action::ReportRrsigPropagated);
+	}
+	RollState::CacheExpire2(_) => (),
+	RollState::Done => {
+	    actions.push(Action::RemoveCdsRrset);
 	    actions.push(Action::UpdateDnskeyRrset);
 	}
     }
