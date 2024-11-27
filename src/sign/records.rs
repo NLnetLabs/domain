@@ -88,8 +88,8 @@ impl<N, D> SortedRecords<N, D> {
         loop {
             if self.remove_first_by_name_class_rtype(
                 name.clone(),
-                class.clone(),
-                rtype.clone(),
+                class,
+                rtype,
             ) {
                 found_one = true
             } else {
@@ -140,10 +140,10 @@ impl<N, D> SortedRecords<N, D> {
         match idx {
             Ok(idx) => {
                 self.records.remove(idx);
-                return true;
+                true
             }
-            Err(_) => return false,
-        };
+            Err(_) => false,
+        }
     }
 
     pub fn families(&self) -> RecordsIter<N, D> {
@@ -191,7 +191,7 @@ impl<N: ToName> SortedRecords<N, StoredRecordData> {
                     }
                 }
             }
-            return false;
+            false
         }) {
             if let ZoneRecordData::Rrsig(current_rrsig) =
                 zonemd_rrsig.data_mut()
