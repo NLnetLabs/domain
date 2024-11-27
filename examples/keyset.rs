@@ -66,13 +66,13 @@ fn main() {
     save_keyset(&ks);
 
     println!("ZSK roll start");
-    let actions = ks.start_zsk_roll(&["first ZSK"], &["second ZSK"]);
+    let actions = ks.start_roll(RollType::ZskRoll, &["first ZSK"], &["second ZSK"]);
     handle_actions(&actions, &ks);
     save_keyset(&ks);
     print_status(&ks);	    
 
     println!("ZSK roll propagation1 complete");
-    let actions = ks.zsk_roll_propagation1_complete(1);
+    let actions = ks.propagation1_complete(RollType::ZskRoll, 1);
     handle_actions(&actions, &ks);
     save_keyset(&ks);
     print_status(&ks);	    
@@ -80,13 +80,13 @@ fn main() {
     sleep(Duration::from_secs(1));
 
     println!("ZSK roll cache expired1");
-    let actions = ks.zsk_roll_cache_expired1();
+    let actions = ks.cache_expired1(RollType::ZskRoll);
     handle_actions(&actions, &ks);
     save_keyset(&ks);
     print_status(&ks);	    
 
     println!("ZSK roll propagation2 complete");
-    let actions = ks.zsk_roll_propagation2_complete(1);
+    let actions = ks.propagation2_complete(RollType::ZskRoll, 1);
     handle_actions(&actions, &ks);
     save_keyset(&ks);
     print_status(&ks);	    
@@ -94,13 +94,13 @@ fn main() {
     sleep(Duration::from_secs(1));
 
     println!("ZSK roll cache expired2");
-    let actions = ks.zsk_roll_cache_expired2();
+    let actions = ks.cache_expired2(RollType::ZskRoll);
     handle_actions(&actions, &ks);
     save_keyset(&ks);
     print_status(&ks);	    
 
     println!("ZSK roll done");
-    let actions = ks.zsk_roll_done();
+    let actions = ks.roll_done(RollType::ZskRoll);
     handle_actions(&actions, &ks);
     ks.delete_key("first ZSK");
     save_keyset(&ks);
