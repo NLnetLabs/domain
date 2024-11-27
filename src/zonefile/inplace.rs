@@ -1422,75 +1422,87 @@ enum ItemCat {
 
 /// An error returned by the entry scanner.
 #[derive(Clone, Debug)]
-pub struct EntryError(&'static str);
+pub enum EntryError {
+    UnknownRtype(Rtype),
+    Other(&'static str),
+}
 
 impl EntryError {
     fn bad_symbol(_err: SymbolOctetsError) -> Self {
-        EntryError("bad symbol")
+        Self::Other("bad symbol")
     }
 
     fn bad_charstr() -> Self {
-        EntryError("bad charstr")
+        Self::Other("bad charstr")
     }
 
     fn bad_name() -> Self {
-        EntryError("bad name")
+        Self::Other("bad name")
     }
 
     fn unbalanced_parens() -> Self {
-        EntryError("unbalanced parens")
+        Self::Other("unbalanced parens")
     }
 
     fn missing_last_owner() -> Self {
-        EntryError("missing last owner")
+        Self::Other("missing last owner")
     }
 
     fn missing_origin() -> Self {
-        EntryError("missing origin")
+        Self::Other("missing origin")
     }
 
     fn expected_rtype() -> Self {
-        EntryError("expected rtype")
+        Self::Other("expected rtype")
     }
 
     fn unknown_control() -> Self {
-        EntryError("unknown control")
+        Self::Other("unknown control")
     }
 }
 
 impl ScannerError for EntryError {
     fn custom(msg: &'static str) -> Self {
-        EntryError(msg)
+        Self::Other(msg)
     }
 
     fn end_of_entry() -> Self {
-        Self("unexpected end of entry")
+        Self::Other("unexpected end of entry")
     }
 
     fn short_buf() -> Self {
-        Self("short buffer")
+        Self::Other("short buffer")
     }
 
     fn trailing_tokens() -> Self {
-        Self("trailing tokens")
+        Self::Other("trailing tokens")
+    }
+
+    fn unknown_rtype(rtype: crate::base::iana::Rtype) -> Self {
+        Self::UnknownRtype(rtype)
     }
 }
 
 impl From<SymbolOctetsError> for EntryError {
     fn from(_: SymbolOctetsError) -> Self {
-        EntryError("symbol octets error")
+        Self::Other("symbol octets error")
     }
 }
 
 impl From<BadSymbol> for EntryError {
     fn from(_: BadSymbol) -> Self {
-        EntryError("bad symbol")
+        Self::Other("bad symbol")
     }
 }
 
 impl fmt::Display for EntryError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        f.write_str(self.0.as_ref())
+        match self {
+            EntryError::UnknownRtype(rtype) => {
+                write!(f, "unknown record type {rtype}")
+            }
+            EntryError::Other(msg) => f.write_str(msg),
+        }
     }
 }
 

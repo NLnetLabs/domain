@@ -111,9 +111,7 @@ macro_rules! rdata_types {
                             }
                         )* )* )*
                         _ => {
-                            Err(S::Error::custom(
-                                "unknown record type with concrete data"
-                            ))
+                            Err(S::Error::unknown_rtype(rtype))
                         }
                     }
                 }
