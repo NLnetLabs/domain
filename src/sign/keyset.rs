@@ -6,7 +6,6 @@
 #![warn(missing_docs)]
 
 // TODO:
-// - add tests (based on current example).
 // - rework example to be interactive.
 // - add support for undo/abort.
 
@@ -16,10 +15,16 @@ use std::collections::HashMap;
 use std::fmt;
 use std::fmt::{Debug, Display, Formatter};
 use std::string::{String, ToString};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 use std::vec::Vec;
 use time::format_description;
 use time::OffsetDateTime;
+
+#[cfg(test)]
+use mock_instant::global::{SystemTime, UNIX_EPOCH};
+
+#[cfg(not(test))]
+use std::time::{SystemTime, UNIX_EPOCH};
 
 #[derive(Deserialize, Serialize)]
 /// This type maintains a collection keys used to sign a zone.
@@ -803,8 +808,11 @@ impl UnixTime {
 
 impl Display for UnixTime {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), fmt::Error> {
-        let ts = UNIX_EPOCH + self.0;
-        let dt: OffsetDateTime = ts.into();
+        let nanos = self.0.as_nanos();
+        let dt = OffsetDateTime::from_unix_timestamp_nanos(
+            nanos.try_into().expect("bad time value"),
+        )
+        .expect("bad time value");
         let format = format_description::parse(
             "[year]-[month]-[day]T[hour]:[minute]:[second]",
         )
@@ -827,7 +835,7 @@ enum Mode {
     ForReal,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 /// Actions that have to be performed by the user.
 ///
 /// Note that if a list contains multiple report actions then the user
@@ -1440,4 +1448,359 @@ fn csk_roll_actions(rollstate: RollState) -> Vec<Action> {
         }
     }
     actions
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::base::Name;
+    use crate::sign::keyset::{Action, KeySet, KeyType, RollType, UnixTime};
+    use crate::std::string::ToString;
+    use mock_instant::global::MockClock;
+    use std::str::FromStr;
+    use std::string::String;
+    use std::time::Duration;
+    use std::vec::Vec;
+
+    #[test]
+    fn test_rolls() {
+        let mut ks = KeySet::new(Name::from_str("example.com").unwrap());
+
+        ks.add_key_ksk("first KSK".to_string(), None, UnixTime::now());
+        ks.add_key_zsk("first ZSK".to_string(), None, UnixTime::now());
+
+        let actions = ks
+            .start_roll(RollType::CskRoll, &[], &["first KSK", "first ZSK"])
+            .unwrap();
+        assert_eq!(
+            actions,
+            [Action::UpdateDnskeyRrset, Action::ReportDnskeyPropagated]
+        );
+        assert_eq!(dnskey(&ks), ["first KSK", "first ZSK"]);
+        assert_eq!(dnskey_sigs(&ks), ["first KSK"]);
+        assert_eq!(zone_sigs(&ks), Vec::<String>::new());
+        assert_eq!(ds_keys(&ks), Vec::<String>::new());
+
+        let actions =
+            ks.propagation1_complete(RollType::CskRoll, 3600).unwrap();
+        assert_eq!(actions, []);
+
+        MockClock::advance_system_time(Duration::from_secs(3600));
+
+        let actions = ks.cache_expired1(RollType::CskRoll).unwrap();
+        assert_eq!(
+            actions,
+            [
+                Action::CreateCdsRrset,
+                Action::UpdateDsRrset,
+                Action::UpdateRrsig,
+                Action::ReportDsPropagated,
+                Action::ReportRrsigPropagated
+            ]
+        );
+        assert_eq!(dnskey(&ks), ["first KSK", "first ZSK"]);
+        assert_eq!(dnskey_sigs(&ks), ["first KSK"]);
+        assert_eq!(zone_sigs(&ks), ["first ZSK"]);
+        assert_eq!(ds_keys(&ks), ["first KSK"]);
+
+        let actions =
+            ks.propagation2_complete(RollType::CskRoll, 3600).unwrap();
+        assert_eq!(actions, []);
+
+        MockClock::advance_system_time(Duration::from_secs(3600));
+
+        let actions = ks.cache_expired2(RollType::CskRoll).unwrap();
+        assert_eq!(
+            actions,
+            [Action::RemoveCdsRrset, Action::UpdateDnskeyRrset]
+        );
+        assert_eq!(dnskey(&ks), ["first KSK", "first ZSK"]);
+        assert_eq!(dnskey_sigs(&ks), ["first KSK"]);
+        assert_eq!(zone_sigs(&ks), ["first ZSK"]);
+        assert_eq!(ds_keys(&ks), ["first KSK"]);
+
+        let actions = ks.roll_done(RollType::CskRoll).unwrap();
+        assert_eq!(actions, []);
+
+        ks.add_key_ksk("second KSK".to_string(), None, UnixTime::now());
+        ks.add_key_zsk("second ZSK".to_string(), None, UnixTime::now());
+
+        let actions = ks
+            .start_roll(RollType::ZskRoll, &["first ZSK"], &["second ZSK"])
+            .unwrap();
+        assert_eq!(
+            actions,
+            [Action::UpdateDnskeyRrset, Action::ReportDnskeyPropagated]
+        );
+        assert_eq!(dnskey(&ks), ["first KSK", "first ZSK", "second ZSK"]);
+        assert_eq!(dnskey_sigs(&ks), ["first KSK"]);
+        assert_eq!(zone_sigs(&ks), ["first ZSK"]);
+        assert_eq!(ds_keys(&ks), ["first KSK"]);
+
+        let actions =
+            ks.propagation1_complete(RollType::ZskRoll, 3600).unwrap();
+        assert_eq!(actions, []);
+
+        MockClock::advance_system_time(Duration::from_secs(3600));
+
+        let actions = ks.cache_expired1(RollType::ZskRoll).unwrap();
+        assert_eq!(
+            actions,
+            [Action::UpdateRrsig, Action::ReportRrsigPropagated]
+        );
+        assert_eq!(dnskey(&ks), ["first KSK", "first ZSK", "second ZSK"]);
+        assert_eq!(dnskey_sigs(&ks), ["first KSK"]);
+        assert_eq!(zone_sigs(&ks), ["second ZSK"]);
+        assert_eq!(ds_keys(&ks), ["first KSK"]);
+
+        let actions =
+            ks.propagation2_complete(RollType::ZskRoll, 3600).unwrap();
+        assert_eq!(actions, []);
+
+        MockClock::advance_system_time(Duration::from_secs(3600));
+
+        let actions = ks.cache_expired2(RollType::ZskRoll).unwrap();
+        assert_eq!(actions, [Action::UpdateDnskeyRrset]);
+        assert_eq!(dnskey(&ks), ["first KSK", "second ZSK"]);
+        assert_eq!(dnskey_sigs(&ks), ["first KSK"]);
+        assert_eq!(zone_sigs(&ks), ["second ZSK"]);
+        assert_eq!(ds_keys(&ks), ["first KSK"]);
+
+        let actions = ks.roll_done(RollType::ZskRoll).unwrap();
+        assert_eq!(actions, []);
+        ks.delete_key("first ZSK").unwrap();
+
+        let actions = ks
+            .start_roll(RollType::KskRoll, &["first KSK"], &["second KSK"])
+            .unwrap();
+        assert_eq!(
+            actions,
+            [Action::UpdateDnskeyRrset, Action::ReportDnskeyPropagated]
+        );
+        assert_eq!(dnskey(&ks), ["first KSK", "second KSK", "second ZSK"]);
+        assert_eq!(dnskey_sigs(&ks), ["first KSK", "second KSK"]);
+        assert_eq!(zone_sigs(&ks), ["second ZSK"]);
+        assert_eq!(ds_keys(&ks), ["first KSK"]);
+
+        let actions =
+            ks.propagation1_complete(RollType::KskRoll, 3600).unwrap();
+        assert_eq!(actions, []);
+
+        MockClock::advance_system_time(Duration::from_secs(3600));
+
+        let actions = ks.cache_expired1(RollType::KskRoll).unwrap();
+        assert_eq!(
+            actions,
+            [
+                Action::CreateCdsRrset,
+                Action::UpdateDsRrset,
+                Action::ReportDsPropagated
+            ]
+        );
+        assert_eq!(dnskey(&ks), ["first KSK", "second KSK", "second ZSK"]);
+        assert_eq!(dnskey_sigs(&ks), ["first KSK", "second KSK"]);
+        assert_eq!(zone_sigs(&ks), ["second ZSK"]);
+        assert_eq!(ds_keys(&ks), ["second KSK"]);
+
+        let actions =
+            ks.propagation2_complete(RollType::KskRoll, 3600).unwrap();
+        assert_eq!(actions, []);
+
+        MockClock::advance_system_time(Duration::from_secs(3600));
+
+        let actions = ks.cache_expired2(RollType::KskRoll).unwrap();
+        assert_eq!(
+            actions,
+            [Action::RemoveCdsRrset, Action::UpdateDnskeyRrset]
+        );
+        assert_eq!(dnskey(&ks), ["second KSK", "second ZSK"]);
+        assert_eq!(dnskey_sigs(&ks), ["second KSK"]);
+        assert_eq!(zone_sigs(&ks), ["second ZSK"]);
+        assert_eq!(ds_keys(&ks), ["second KSK"]);
+
+        let actions = ks.roll_done(RollType::KskRoll).unwrap();
+        assert_eq!(actions, []);
+        ks.delete_key("first KSK").unwrap();
+
+        ks.add_key_csk("first CSK".to_string(), None, UnixTime::now());
+
+        let actions = ks
+            .start_roll(
+                RollType::CskRoll,
+                &["second KSK", "second ZSK"],
+                &["first CSK"],
+            )
+            .unwrap();
+        assert_eq!(
+            actions,
+            [Action::UpdateDnskeyRrset, Action::ReportDnskeyPropagated]
+        );
+        assert_eq!(dnskey(&ks), ["second KSK", "second ZSK", "first CSK"]);
+        assert_eq!(dnskey_sigs(&ks), ["second KSK", "first CSK"]);
+        assert_eq!(zone_sigs(&ks), ["second ZSK"]);
+        assert_eq!(ds_keys(&ks), ["second KSK"]);
+
+        let actions =
+            ks.propagation1_complete(RollType::CskRoll, 3600).unwrap();
+        assert_eq!(actions, []);
+
+        MockClock::advance_system_time(Duration::from_secs(3600));
+
+        let actions = ks.cache_expired1(RollType::CskRoll).unwrap();
+        assert_eq!(
+            actions,
+            [
+                Action::CreateCdsRrset,
+                Action::UpdateDsRrset,
+                Action::UpdateRrsig,
+                Action::ReportDsPropagated,
+                Action::ReportRrsigPropagated
+            ]
+        );
+        assert_eq!(dnskey(&ks), ["second KSK", "second ZSK", "first CSK"]);
+        assert_eq!(dnskey_sigs(&ks), ["second KSK", "first CSK"]);
+        assert_eq!(zone_sigs(&ks), ["first CSK"]);
+        assert_eq!(ds_keys(&ks), ["first CSK"]);
+
+        let actions =
+            ks.propagation2_complete(RollType::CskRoll, 3600).unwrap();
+        assert_eq!(actions, []);
+
+        MockClock::advance_system_time(Duration::from_secs(3600));
+
+        let actions = ks.cache_expired2(RollType::CskRoll).unwrap();
+        assert_eq!(
+            actions,
+            [Action::RemoveCdsRrset, Action::UpdateDnskeyRrset]
+        );
+        assert_eq!(dnskey(&ks), ["first CSK"]);
+        assert_eq!(dnskey_sigs(&ks), ["first CSK"]);
+        assert_eq!(zone_sigs(&ks), ["first CSK"]);
+        assert_eq!(ds_keys(&ks), ["first CSK"]);
+
+        let actions = ks.roll_done(RollType::CskRoll).unwrap();
+        assert_eq!(actions, []);
+        ks.delete_key("second KSK").unwrap();
+        ks.delete_key("second ZSK").unwrap();
+
+        ks.add_key_csk("second CSK".to_string(), None, UnixTime::now());
+
+        let actions = ks
+            .start_roll(RollType::CskRoll, &["first CSK"], &["second CSK"])
+            .unwrap();
+        assert_eq!(
+            actions,
+            [Action::UpdateDnskeyRrset, Action::ReportDnskeyPropagated]
+        );
+        assert_eq!(dnskey(&ks), ["first CSK", "second CSK"]);
+        assert_eq!(dnskey_sigs(&ks), ["first CSK", "second CSK"]);
+        assert_eq!(zone_sigs(&ks), ["first CSK"]);
+        assert_eq!(ds_keys(&ks), ["first CSK"]);
+
+        let actions =
+            ks.propagation1_complete(RollType::CskRoll, 3600).unwrap();
+        assert_eq!(actions, []);
+
+        MockClock::advance_system_time(Duration::from_secs(3600));
+
+        println!("CSK roll cache expired1");
+        let actions = ks.cache_expired1(RollType::CskRoll).unwrap();
+        assert_eq!(
+            actions,
+            [
+                Action::CreateCdsRrset,
+                Action::UpdateDsRrset,
+                Action::UpdateRrsig,
+                Action::ReportDsPropagated,
+                Action::ReportRrsigPropagated
+            ]
+        );
+        assert_eq!(dnskey(&ks), ["first CSK", "second CSK"]);
+        assert_eq!(dnskey_sigs(&ks), ["first CSK", "second CSK"]);
+        assert_eq!(zone_sigs(&ks), ["second CSK"]);
+        assert_eq!(ds_keys(&ks), ["second CSK"]);
+
+        let actions =
+            ks.propagation2_complete(RollType::CskRoll, 3600).unwrap();
+        assert_eq!(actions, []);
+
+        MockClock::advance_system_time(Duration::from_secs(3600));
+
+        let actions = ks.cache_expired2(RollType::CskRoll).unwrap();
+        assert_eq!(
+            actions,
+            [Action::RemoveCdsRrset, Action::UpdateDnskeyRrset]
+        );
+        assert_eq!(dnskey(&ks), ["second CSK"]);
+        assert_eq!(dnskey_sigs(&ks), ["second CSK"]);
+        assert_eq!(zone_sigs(&ks), ["second CSK"]);
+        assert_eq!(ds_keys(&ks), ["second CSK"]);
+
+        let actions = ks.roll_done(RollType::CskRoll).unwrap();
+        assert_eq!(actions, []);
+        ks.delete_key("first CSK").unwrap();
+    }
+
+    fn dnskey(ks: &KeySet) -> Vec<String> {
+        let keys = ks.keys();
+        let mut vec = Vec::new();
+        for key in keys {
+            let status = match key.keytype() {
+                KeyType::Ksk(keystate)
+                | KeyType::Zsk(keystate)
+                | KeyType::Csk(keystate, _)
+                | KeyType::Include(keystate) => keystate,
+            };
+            if status.present() {
+                vec.push(key.pubref().to_string());
+            }
+        }
+        vec
+    }
+
+    fn dnskey_sigs(ks: &KeySet) -> Vec<String> {
+        let keys = ks.keys();
+        let mut vec = Vec::new();
+        for key in keys {
+            match key.keytype() {
+                KeyType::Ksk(keystate) | KeyType::Csk(keystate, _) => {
+                    if keystate.signer() {
+                        vec.push(key.pubref().to_string());
+                    }
+                }
+                KeyType::Zsk(_) | KeyType::Include(_) => (),
+            }
+        }
+        vec
+    }
+    fn zone_sigs(ks: &KeySet) -> Vec<String> {
+        let keys = ks.keys();
+        let mut vec = Vec::new();
+        for key in keys {
+            match key.keytype() {
+                KeyType::Zsk(keystate) | KeyType::Csk(_, keystate) => {
+                    if keystate.signer() {
+                        vec.push(key.pubref().to_string());
+                    }
+                }
+                KeyType::Ksk(_) | KeyType::Include(_) => (),
+            }
+        }
+        vec
+    }
+    fn ds_keys(ks: &KeySet) -> Vec<String> {
+        let keys = ks.keys();
+        let mut vec = Vec::new();
+        for key in keys {
+            let status = match key.keytype() {
+                KeyType::Ksk(keystate)
+                | KeyType::Zsk(keystate)
+                | KeyType::Csk(keystate, _)
+                | KeyType::Include(keystate) => keystate,
+            };
+            if status.at_parent() {
+                vec.push(key.pubref().to_string());
+            }
+        }
+        vec
+    }
 }
