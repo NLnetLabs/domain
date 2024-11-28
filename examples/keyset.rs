@@ -61,7 +61,7 @@ fn main() {
     handle_actions(&actions, &ks);
     save_keyset(&ks);
 
-    println!("");
+    println!();
     ks.add_key_ksk("second KSK".to_string(), None, UnixTime::now());
     ks.add_key_zsk("second ZSK".to_string(), None, UnixTime::now());
     save_keyset(&ks);
@@ -296,7 +296,7 @@ fn handle_action(action: &Action, ks: &KeySet) {
                     print!(" {}", key.pubref());
                 }
             }
-            println!("");
+            println!();
             print!("DNSKEY RRset is signed by:");
             for key in keys {
                 match key.keytype() {
@@ -308,7 +308,7 @@ fn handle_action(action: &Action, ks: &KeySet) {
                     KeyType::Zsk(_) | KeyType::Include(_) => (),
                 }
             }
-            println!("");
+            println!();
         }
         Action::UpdateDsRrset => {
             println!("Should update DS RRset at the parent");
@@ -325,7 +325,7 @@ fn handle_action(action: &Action, ks: &KeySet) {
                     print!(" {}", key.pubref());
                 }
             }
-            println!("");
+            println!();
         }
         Action::UpdateRrsig => {
             println!("Should update RRsig records");
@@ -341,7 +341,7 @@ fn handle_action(action: &Action, ks: &KeySet) {
                     KeyType::Ksk(_) | KeyType::Include(_) => (),
                 }
             }
-            println!("");
+            println!();
         }
         Action::CreateCdsRrset => {
             println!("Should create CDS and CDNSKEY RRsets");
@@ -358,7 +358,7 @@ fn handle_action(action: &Action, ks: &KeySet) {
                     print!(" {}", key.pubref());
                 }
             }
-            println!("");
+            println!();
         }
         Action::RemoveCdsRrset => {
             println!("Should remove CDS and CDNSKEY RRsets");
@@ -385,10 +385,7 @@ fn print_status(ks: &KeySet) {
                 println!(
                     "{} {} {}",
                     key.pubref(),
-                    match key.privref() {
-                        None => "",
-                        Some(s) => s,
-                    },
+                    key.privref().unwrap_or_default(),
                     keystate
                 );
             }
@@ -396,10 +393,7 @@ fn print_status(ks: &KeySet) {
                 println!(
                     "{} {} {} {}",
                     key.pubref(),
-                    match key.privref() {
-                        None => "",
-                        Some(s) => s,
-                    },
+                    key.privref().unwrap_or_default(),
                     keystate_ksk,
                     keystate_zsk
                 );

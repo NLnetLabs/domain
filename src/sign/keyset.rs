@@ -226,11 +226,11 @@ impl KeySet {
             Mode::ForReal => &mut self.keys,
         };
         'outer: for k in old {
-            for i in 0..keys.len() {
-                if keys[i].pubref != *k {
+            for inner_k in &mut *keys {
+                if inner_k.pubref != *k {
                     continue;
                 }
-                let KeyType::Ksk(ref mut keystate) = keys[i].keytype else {
+                let KeyType::Ksk(ref mut keystate) = inner_k.keytype else {
                     return Err(Error::WrongKeyType);
                 };
 
@@ -244,11 +244,11 @@ impl KeySet {
         }
         let now = UnixTime::now();
         'outer: for k in new {
-            for i in 0..keys.len() {
-                if keys[i].pubref != *k {
+            for inner_k in &mut *keys {
+                if inner_k.pubref != *k {
                     continue;
                 }
-                match keys[i].keytype {
+                match inner_k.keytype {
                     KeyType::Ksk(ref mut keystate) => {
                         if *keystate
                             != (KeyState {
@@ -264,7 +264,7 @@ impl KeySet {
                         // Move key state to Incoming.
                         keystate.present = true;
                         keystate.signer = true;
-                        keys[i].timestamps.published = Some(now.clone());
+                        inner_k.timestamps.published = Some(now.clone());
                         continue 'outer;
                     }
                     _ => {
@@ -277,18 +277,13 @@ impl KeySet {
         }
 
         // Make sure we have at least one key in incoming state.
-        if keys
-            .into_iter()
-            .filter(|k| {
-                if let KeyType::Ksk(keystate) = &k.keytype {
-                    !keystate.old && keystate.present
-                } else {
-                    false
-                }
-            })
-            .next()
-            .is_none()
-        {
+        if !keys.iter_mut().any(|k| {
+            if let KeyType::Ksk(keystate) = &k.keytype {
+                !keystate.old && keystate.present
+            } else {
+                false
+            }
+        }) {
             return Err(Error::NoSuitableKeyPresent);
         }
         Ok(())
@@ -305,11 +300,11 @@ impl KeySet {
             Mode::ForReal => &mut self.keys,
         };
         'outer: for k in old {
-            for i in 0..keys.len() {
-                if keys[i].pubref != *k {
+            for inner_k in &mut *keys {
+                if inner_k.pubref != *k {
                     continue;
                 }
-                let KeyType::Zsk(ref mut keystate) = keys[i].keytype else {
+                let KeyType::Zsk(ref mut keystate) = inner_k.keytype else {
                     return Err(Error::WrongKeyType);
                 };
 
@@ -322,11 +317,11 @@ impl KeySet {
         }
         let now = UnixTime::now();
         'outer: for k in new {
-            for i in 0..keys.len() {
-                if keys[i].pubref != *k {
+            for inner_k in &mut *keys {
+                if inner_k.pubref != *k {
                     continue;
                 }
-                let KeyType::Zsk(ref mut keystate) = keys[i].keytype else {
+                let KeyType::Zsk(ref mut keystate) = inner_k.keytype else {
                     return Err(Error::WrongKeyType);
                 };
                 if *keystate
@@ -342,7 +337,7 @@ impl KeySet {
 
                 // Move key state to Incoming.
                 keystate.present = true;
-                keys[i].timestamps.published = Some(now.clone());
+                inner_k.timestamps.published = Some(now.clone());
                 continue 'outer;
             }
 
@@ -350,18 +345,13 @@ impl KeySet {
         }
 
         // Make sure we have at least one key in incoming state.
-        if keys
-            .into_iter()
-            .filter(|k| {
-                if let KeyType::Zsk(keystate) = &k.keytype {
-                    !keystate.old || keystate.present
-                } else {
-                    false
-                }
-            })
-            .next()
-            .is_none()
-        {
+        if !keys.iter_mut().any(|k| {
+            if let KeyType::Zsk(keystate) = &k.keytype {
+                !keystate.old || keystate.present
+            } else {
+                false
+            }
+        }) {
             return Err(Error::NoSuitableKeyPresent);
         }
         Ok(())
@@ -378,13 +368,13 @@ impl KeySet {
             Mode::ForReal => &mut self.keys,
         };
         'outer: for k in old {
-            for i in 0..keys.len() {
-                if keys[i].pubref != *k {
+            for inner_k in &mut *keys {
+                if inner_k.pubref != *k {
                     continue;
                 }
 
                 // Set old for any key we find.
-                match keys[i].keytype {
+                match inner_k.keytype {
                     KeyType::Ksk(ref mut keystate)
                     | KeyType::Zsk(ref mut keystate) => {
                         keystate.old = true;
@@ -407,11 +397,11 @@ impl KeySet {
         }
         let now = UnixTime::now();
         'outer: for k in new {
-            for i in 0..keys.len() {
-                if keys[i].pubref != *k {
+            for inner_k in &mut *keys {
+                if inner_k.pubref != *k {
                     continue;
                 }
-                match keys[i].keytype {
+                match inner_k.keytype {
                     KeyType::Ksk(ref mut keystate) => {
                         if *keystate
                             != (KeyState {
@@ -427,7 +417,7 @@ impl KeySet {
                         // Move key state to Active.
                         keystate.present = true;
                         keystate.signer = true;
-                        keys[i].timestamps.published = Some(now.clone());
+                        inner_k.timestamps.published = Some(now.clone());
                         continue 'outer;
                     }
                     KeyType::Zsk(ref mut keystate) => {
@@ -444,7 +434,7 @@ impl KeySet {
 
                         // Move key state to Incoming.
                         keystate.present = true;
-                        keys[i].timestamps.published = Some(now.clone());
+                        inner_k.timestamps.published = Some(now.clone());
                         continue 'outer;
                     }
                     KeyType::Csk(
@@ -480,7 +470,7 @@ impl KeySet {
                         // Move key state to Incoming.
                         zsk_keystate.present = true;
 
-                        keys[i].timestamps.published = Some(now.clone());
+                        inner_k.timestamps.published = Some(now.clone());
                         continue 'outer;
                     }
                     _ => {
@@ -493,31 +483,21 @@ impl KeySet {
         }
 
         // Make sure we have at least one KSK key in incoming state.
-        if keys
-            .into_iter()
-            .filter(|k| match &k.keytype {
-                KeyType::Ksk(keystate) | KeyType::Csk(keystate, _) => {
-                    !keystate.old && keystate.present
-                }
-                _ => false,
-            })
-            .next()
-            .is_none()
-        {
+        if !keys.iter_mut().any(|k| match &k.keytype {
+            KeyType::Ksk(keystate) | KeyType::Csk(keystate, _) => {
+                !keystate.old && keystate.present
+            }
+            _ => false,
+        }) {
             return Err(Error::NoSuitableKeyPresent);
         }
         // Make sure we have at least one ZSK key in incoming state.
-        if keys
-            .into_iter()
-            .filter(|k| match &k.keytype {
-                KeyType::Zsk(keystate) | KeyType::Csk(_, keystate) => {
-                    !keystate.old && keystate.present
-                }
-                _ => false,
-            })
-            .next()
-            .is_none()
-        {
+        if !keys.iter_mut().any(|k| match &k.keytype {
+            KeyType::Zsk(keystate) | KeyType::Csk(_, keystate) => {
+                !keystate.old && keystate.present
+            }
+            _ => false,
+        }) {
             return Err(Error::NoSuitableKeyPresent);
         }
         Ok(())
@@ -538,7 +518,7 @@ impl Key {
     }
 
     pub fn privref(&self) -> Option<&str> {
-        self.privref.as_ref().map(|x| x.as_str())
+        self.privref.as_deref()
     }
 
     pub fn keytype(&self) -> KeyType {
@@ -555,8 +535,10 @@ impl Key {
         keytype: KeyType,
         creation_ts: UnixTime,
     ) -> Self {
-        let mut timestamps: KeyTimestamps = Default::default();
-        timestamps.creation = Some(creation_ts);
+        let timestamps = KeyTimestamps {
+            creation: Some(creation_ts),
+            ..Default::default()
+        };
         Self {
             pubref,
             privref,
@@ -795,11 +777,8 @@ fn ksk_roll(rollop: RollOp, ks: &mut KeySet) -> Result<(), Error> {
             // check all conflicting key rolls as well. The way we check is
             // to allow specified non-conflicting rolls and consider
             // everything else as a conflict.
-            if let Some(rolltype) = ks
-                .rollstates
-                .keys()
-                .filter(|k| **k != RollType::ZskRoll)
-                .next()
+            if let Some(rolltype) =
+                ks.rollstates.keys().find(|k| **k != RollType::ZskRoll)
             {
                 if *rolltype == RollType::KskRoll {
                     return Err(Error::WrongStateForRollOperation);
@@ -849,17 +828,14 @@ fn ksk_roll(rollop: RollOp, ks: &mut KeySet) -> Result<(), Error> {
             }
 
             for k in &mut ks.keys {
-                match k.keytype {
-                    KeyType::Ksk(ref mut keystate) => {
-                        if keystate.old && keystate.present {
-                            keystate.at_parent = false;
-                        }
-
-                        if !keystate.old && keystate.present {
-                            keystate.at_parent = true;
-                        }
+                if let KeyType::Ksk(ref mut keystate) = k.keytype {
+                    if keystate.old && keystate.present {
+                        keystate.at_parent = false;
                     }
-                    _ => (),
+
+                    if !keystate.old && keystate.present {
+                        keystate.at_parent = true;
+                    }
                 }
             }
         }
@@ -945,11 +921,8 @@ fn zsk_roll(rollop: RollOp, ks: &mut KeySet) -> Result<(), Error> {
             // to check all conflicting key rolls as well. The way we check
             // is to allow specified non-conflicting rolls and consider
             // everything else as a conflict.
-            if let Some(rolltype) = ks
-                .rollstates
-                .keys()
-                .filter(|k| **k != RollType::KskRoll)
-                .next()
+            if let Some(rolltype) =
+                ks.rollstates.keys().find(|k| **k != RollType::KskRoll)
             {
                 if *rolltype == RollType::ZskRoll {
                     return Err(Error::WrongStateForRollOperation);
