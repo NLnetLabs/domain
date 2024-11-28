@@ -274,8 +274,9 @@ impl KeySet {
         new: &[&str],
     ) -> Result<(), Error> {
         println!("update_ksk: for old {old:?}, new {new:?}");
+        let mut tmpkeys = self.keys.clone();
         let keys: &mut Vec<Key> = match mode {
-            Mode::DryRun => &mut self.keys.clone(),
+            Mode::DryRun => &mut tmpkeys,
             Mode::ForReal => &mut self.keys,
         };
         'outer: for k in old {
@@ -348,8 +349,9 @@ impl KeySet {
         old: &[&str],
         new: &[&str],
     ) -> Result<(), Error> {
+        let mut tmpkeys = self.keys.clone();
         let keys: &mut Vec<Key> = match mode {
-            Mode::DryRun => &mut self.keys.clone(),
+            Mode::DryRun => &mut tmpkeys,
             Mode::ForReal => &mut self.keys,
         };
         'outer: for k in old {
@@ -416,8 +418,9 @@ impl KeySet {
         old: &[&str],
         new: &[&str],
     ) -> Result<(), Error> {
+        let mut tmpkeys = self.keys.clone();
         let keys: &mut Vec<Key> = match mode {
-            Mode::DryRun => &mut self.keys.clone(),
+            Mode::DryRun => &mut tmpkeys,
             Mode::ForReal => &mut self.keys,
         };
         'outer: for k in old {
