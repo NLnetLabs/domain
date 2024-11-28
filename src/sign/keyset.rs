@@ -51,7 +51,7 @@ impl KeySet {
 	self.keys.push(key);
     }
 
-    pub fn delete_key(&mut self, pubref: &str) {
+    pub fn delete_key(&mut self, pubref: &str) -> Result<(), Error> {
 	// Assume no duplicate keys.
 	for i in 0..self.keys.len() {
 	    if self.keys[i].pubref != pubref {
@@ -64,30 +64,27 @@ impl KeySet {
 			=> {
 		    if !keystate.old || keystate.signer || keystate.present ||
 			keystate.at_parent {
-			// Should return error.
-			todo!();
+			return Err(Error::KeyNotOld);
 		    }
 		    self.keys.remove(i);
-		    return;
+		    return Ok(());
 		}
 		KeyType::Csk(ksk_keystate, zsk_keystate) => {
 		    if !ksk_keystate.old || ksk_keystate.signer || ksk_keystate.present ||
 			ksk_keystate.at_parent {
-			// Should return error.
-			todo!();
+			return Err(Error::KeyNotOld);
 		    }
 		    if !zsk_keystate.old || zsk_keystate.signer || zsk_keystate.present ||
 			zsk_keystate.at_parent {
-			// Should return error.
-			todo!();
+			return Err(Error::KeyNotOld);
 		    }
 		    self.keys.remove(i);
-		    return;
+		    return Ok(());
 		}
 	    }
 	    
 	}
-	todo!();
+	Err(Error::KeyNotFound)
     }
 
 
@@ -99,87 +96,82 @@ impl KeySet {
 	&self.keys
     }
 
-    pub fn start_roll(&mut self, rolltype: RollType, old: &[&str], new: &[&str]) -> Vec<Action> {
+    pub fn start_roll(&mut self, rolltype: RollType, old: &[&str], new: &[&str]) -> Result<Vec<Action>, Error> {
 	let next_state = RollState::Propagation1;
-	rolltype.rollfn()(RollOp::Start(old, new), self);
+	rolltype.rollfn()(RollOp::Start(old, new), self)?;
 
 	self.rollstates.insert(rolltype.clone(), next_state.clone());
 
-	rolltype.roll_actions_fn()(next_state)
+	Ok(rolltype.roll_actions_fn()(next_state))
     }
 
-    pub fn propagation1_complete(&mut self, rolltype: RollType, ttl: u32) -> Vec<Action> {
+    pub fn propagation1_complete(&mut self, rolltype: RollType, ttl: u32) -> Result<Vec<Action>, Error> {
 	// First check if the current roll state is Propagation1.
 	let Some(RollState::Propagation1) = self.rollstates.get(&rolltype)
 	else {
-	    // Should return an error.
-	    todo!();
+	    return Err(Error::WrongStateForRollOperation);
 	};
 	let next_state = RollState::CacheExpire1(ttl);
-	rolltype.rollfn()(RollOp::Propagation1, self);
+	rolltype.rollfn()(RollOp::Propagation1, self)?;
 
 	self.rollstates.insert(rolltype.clone(), next_state.clone());
 
-	rolltype.roll_actions_fn()(next_state)
+	Ok(rolltype.roll_actions_fn()(next_state))
     }
 
-    pub fn cache_expired1(&mut self, rolltype: RollType) -> Vec<Action> {
+    pub fn cache_expired1(&mut self, rolltype: RollType) -> Result<Vec<Action>, Error> {
 	// First check if the current roll state is CacheExpire1.
 	let Some(RollState::CacheExpire1(ttl)) = self.rollstates.get(&rolltype)
 	else {
-	    // Should return an error.
-	    todo!();
+	    return Err(Error::WrongStateForRollOperation);
 	};
 	let next_state = RollState::Propagation2;
-	rolltype.rollfn()(RollOp::CacheExpire1(*ttl), self);
+	rolltype.rollfn()(RollOp::CacheExpire1(*ttl), self)?;
 	self.rollstates.insert(rolltype.clone(), next_state.clone());
 
-	rolltype.roll_actions_fn()(next_state)
+	Ok(rolltype.roll_actions_fn()(next_state))
     }
 
-    pub fn propagation2_complete(&mut self, rolltype: RollType, ttl: u32) -> Vec<Action> {
+    pub fn propagation2_complete(&mut self, rolltype: RollType, ttl: u32) -> Result<Vec<Action>, Error> {
 	// First check if the current roll state is Propagation2.
 	let Some(RollState::Propagation2) = self.rollstates.get(&rolltype)
 	else {
-	    // Should return an error.
-	    todo!();
+	    return Err(Error::WrongStateForRollOperation);
 	};
 	let next_state = RollState::CacheExpire2(ttl);
-	rolltype.rollfn()(RollOp::Propagation2, self);
+	rolltype.rollfn()(RollOp::Propagation2, self)?;
 	self.rollstates.insert(rolltype.clone(), next_state.clone());
-	rolltype.roll_actions_fn()(next_state)
+	Ok(rolltype.roll_actions_fn()(next_state))
     }
 
-    pub fn cache_expired2(&mut self, rolltype: RollType) -> Vec<Action> {
+    pub fn cache_expired2(&mut self, rolltype: RollType) -> Result<Vec<Action>, Error> {
 	// First check if the current roll state is CacheExpire2.
 	let Some(RollState::CacheExpire2(ttl)) = self.rollstates.get(&rolltype)
 	else {
-	    // Should return an error.
-	    todo!();
+	    return Err(Error::WrongStateForRollOperation);
 	};
 	let next_state = RollState::Done;
-	rolltype.rollfn()(RollOp::CacheExpire2(*ttl), self);
+	rolltype.rollfn()(RollOp::CacheExpire2(*ttl), self)?;
 	self.rollstates.insert(rolltype.clone(), next_state.clone());
 
-	rolltype.roll_actions_fn()(next_state)
+	Ok(rolltype.roll_actions_fn()(next_state))
     }
 
-    pub fn roll_done(&mut self, rolltype: RollType) -> Vec<Action> {
+    pub fn roll_done(&mut self, rolltype: RollType) -> Result<Vec<Action>, Error> {
 	// First check if the current roll state is Done.
 	let Some(RollState::Done) = self.rollstates.get(&rolltype)
 	else {
-	    // Should return an error.
-	    todo!();
+	    return Err(Error::WrongStateForRollOperation);
 	};
-	rolltype.rollfn()(RollOp::Done, self);
+	rolltype.rollfn()(RollOp::Done, self)?;
 	self.rollstates.remove(&rolltype);
-	Vec::new()
+	Ok(Vec::new())
     }
 
 
 
 
-    fn update_ksk(&mut self, mode: Mode, old: &[&str], new: &[&str]) {
+    fn update_ksk(&mut self, mode: Mode, old: &[&str], new: &[&str]) -> Result<(), Error> {
 	println!("update_ksk: for old {old:?}, new {new:?}");
 	let keys: &mut Vec<Key> = match mode {
 	    Mode::DryRun => &mut self.keys.clone(),
@@ -193,8 +185,7 @@ impl KeySet {
 		}
 		let KeyType::Ksk(ref mut keystate) = keys[i].keytype
 		else {
-		    // Should return error for wrong key type.
-		    todo!();
+		    return Err(Error::WrongKeyType);
 		};
 
 		// Set old for any key we find.
@@ -203,7 +194,7 @@ impl KeySet {
 	    }
 
 	    // Should return error for unknown pubref.
-	    todo!();
+	    return Err(Error::KeyNotFound);
 	}
 	let now = UnixTime::now();
 	'outer:
@@ -216,8 +207,7 @@ impl KeySet {
 		    KeyType::Ksk(ref mut keystate) => {
 			if *keystate != (KeyState { old: false,
 			    signer: false, present: false, at_parent: false }) {
-			    // Should return error for wrong key state.
-			    todo!();
+			    return Err(Error::WrongKeyState);
 			}
 
 			// Move key state to Incoming.
@@ -227,26 +217,24 @@ impl KeySet {
 			continue 'outer;
 		    }
 		    _ => {
-			// Should return error for wrong key type.
-			todo!();
+			return Err(Error::WrongKeyType);
 		    }
 		}
 	    }
 
-	    // Should return error for unknown pubref.
-	    todo!();
+	    return Err(Error::KeyNotFound);
 	}
 
 	// Make sure we have at least one key in incoming state.
 	if keys.into_iter().filter(|k| if let KeyType::Ksk(keystate) = &k.keytype { !keystate.old && keystate.present } else { false })
 		.next()
 		.is_none() {
-	    // Should return error.
-	    todo!();
+	    return Err(Error::NoSuitableKeyPresent);
 	}
+	Ok(())
     }
 
-    fn update_zsk(&mut self, mode: Mode, old: &[&str], new: &[&str]) {
+    fn update_zsk(&mut self, mode: Mode, old: &[&str], new: &[&str]) -> Result<(), Error> {
 	let keys: &mut Vec<Key> = match mode {
 	    Mode::DryRun => &mut self.keys.clone(),
 	    Mode::ForReal => &mut self.keys,
@@ -259,8 +247,7 @@ impl KeySet {
 		}
 		let KeyType::Zsk(ref mut keystate) = keys[i].keytype
 		else {
-		    // Should return error for wrong key type.
-		    todo!();
+		    return Err(Error::WrongKeyType);
 		};
 
 		// Set old for any key we find.
@@ -268,8 +255,7 @@ impl KeySet {
 		continue 'outer;
 	    }
 
-	    // Should return error for unknown pubref.
-	    todo!();
+	    return Err(Error::KeyNotFound);
 	}
 	let now = UnixTime::now();
 	'outer:
@@ -280,13 +266,11 @@ impl KeySet {
 		}
 		let KeyType::Zsk(ref mut keystate) = keys[i].keytype
 		else {
-		    // Should return error for wrong key type.
-		    todo!();
+		    return Err(Error::WrongKeyType);
 		};
 		if *keystate != (KeyState { old: false,
 		    signer: false, present: false, at_parent: false }) {
-		    // Should return error for wrong key state.
-		    todo!();
+		    return Err(Error::WrongKeyState);
 		}
 
 		// Move key state to Incoming.
@@ -295,19 +279,18 @@ impl KeySet {
 		continue 'outer;
 	    }
 
-	    // Should return error for unknown pubref.
-	    todo!();
+	    return Err(Error::KeyNotFound);
 	}
 
 	// Make sure we have at least one key in incoming state.
 	if keys.into_iter().filter(|k| if let KeyType::Zsk(keystate) = &k.keytype { !keystate.old || keystate.present } else { false })
 	    .next().is_none() {
-	    // Should return error.
-	    todo!();
+	    return Err(Error::NoSuitableKeyPresent);
 	}
+	Ok(())
     }
 
-    fn update_csk(&mut self, mode: Mode, old: &[&str], new: &[&str]) {
+    fn update_csk(&mut self, mode: Mode, old: &[&str], new: &[&str]) -> Result<(), Error> {
 	let keys: &mut Vec<Key> = match mode {
 	    Mode::DryRun => &mut self.keys.clone(),
 	    Mode::ForReal => &mut self.keys,
@@ -332,15 +315,13 @@ impl KeySet {
 		    }
 		    KeyType::Include(_)
 		    => {
-			// Should return error for wrong key type.
-			todo!();
+			return Err(Error::WrongKeyType);
 		    }
 		}
 		continue 'outer;
 	    }
 
-	    // Should return error for unknown pubref.
-	    todo!();
+	    return Err(Error::KeyNotFound);
 	}
 	let now = UnixTime::now();
 	'outer:
@@ -353,8 +334,7 @@ impl KeySet {
 		    KeyType::Ksk(ref mut keystate) => {
 			if *keystate != (KeyState { old: false,
 			    signer: false, present: false, at_parent: false }) {
-			    // Should return error for wrong key state.
-			    todo!();
+			    return Err(Error::WrongKeyState);
 			}
 
 			// Move key state to Active.
@@ -366,8 +346,7 @@ impl KeySet {
 		    KeyType::Zsk(ref mut keystate) => {
 			if *keystate != (KeyState { old: false,
 			    signer: false, present: false, at_parent: false }) {
-			    // Should return error for wrong key state.
-			    todo!();
+			    return Err(Error::WrongKeyState);
 			}
 
 			// Move key state to Incoming.
@@ -378,8 +357,7 @@ impl KeySet {
 		    KeyType::Csk(ref mut ksk_keystate, ref mut zsk_keystate) => {
 			if *ksk_keystate != (KeyState { old: false,
 			    signer: false, present: false, at_parent: false }) {
-			    // Should return error for wrong key state.
-			    todo!();
+			    return Err(Error::WrongKeyState);
 			}
 
 			// Move key state to Active.
@@ -388,8 +366,7 @@ impl KeySet {
 
 			if *zsk_keystate != (KeyState { old: false,
 			    signer: false, present: false, at_parent: false }) {
-			    // Should return error for wrong key state.
-			    todo!();
+			    return Err(Error::WrongKeyState);
 			}
 
 			// Move key state to Incoming.
@@ -399,14 +376,12 @@ impl KeySet {
 			continue 'outer;
 		    }
 		    _ => {
-			// Should return error for wrong key type.
-			todo!();
+			return Err(Error::WrongKeyType);
 		    }
 		}
 	    }
 
-	    // Should return error for unknown pubref.
-	    todo!();
+	    return Err(Error::KeyNotFound);
 	}
 
 	// Make sure we have at least one KSK key in incoming state.
@@ -420,8 +395,7 @@ impl KeySet {
 		)
 		.next()
 		.is_none() {
-	    // Should return error.
-	    todo!();
+	    return Err(Error::NoSuitableKeyPresent);
 	}
 	// Make sure we have at least one ZSK key in incoming state.
 	if keys.into_iter().filter(|k|
@@ -434,11 +408,10 @@ impl KeySet {
 		)
 		.next()
 		.is_none() {
-	    // Should return error.
-	    todo!();
+	    return Err(Error::NoSuitableKeyPresent);
 	}
+	Ok(())
     }
-
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -649,7 +622,7 @@ pub enum RollType {
 }
 
 impl RollType {
-    fn rollfn(&self) -> fn(RollOp, &mut KeySet) {
+    fn rollfn(&self) -> fn(RollOp, &mut KeySet) -> Result<(), Error> {
 	match self {
 	    RollType::KskRoll => ksk_roll,
 	    RollType::ZskRoll => zsk_roll,
@@ -674,21 +647,37 @@ enum RollOp<'a> {
     Done,
 }
 
-fn ksk_roll(rollop: RollOp, ks: &mut KeySet) {
+#[derive(Debug)]
+pub enum Error {
+    KeyNotFound,
+    KeyNotOld,
+    WrongKeyType,
+    WrongKeyState,
+    NoSuitableKeyPresent,
+    WrongStateForRollOperation,
+    ConflictingRollInProgress,
+    Wait(Duration),
+}
+
+fn ksk_roll(rollop: RollOp, ks: &mut KeySet) -> Result<(), Error> {
     match rollop {
 	RollOp::Start(old, new) => {
 	    // First check if the current KSK-roll state is idle. We need to check
 	    // all conflicting key rolls as well. The way we check is to allow
 	    // specified non-conflicting rolls and consider everything else
 	    // as a conflict.
-	    if ks.rollstates.keys().next().is_some() {
-		// Should return an error.
-		todo!();
+	    if let Some(rolltype) = ks.rollstates.keys().filter(|k| **k != RollType::ZskRoll).next() {
+		if *rolltype == RollType::KskRoll {
+		    return Err(Error::WrongStateForRollOperation);
+		}
+		else {
+		    return Err(Error::ConflictingRollInProgress);
+		}
 	    }
 	    // Check if we can move the states of the keys
-	    ks.update_ksk(Mode::DryRun, old, new);
+	    ks.update_ksk(Mode::DryRun, old, new)?;
 	    // Move the states of the keys
-	    ks.update_ksk(Mode::ForReal, old, new);
+	    ks.update_ksk(Mode::ForReal, old, new).expect("Should have been checked by DryRun");
 	}
 	RollOp::Propagation1 => {
 	    // Set the visible time of new KSKs to the current time.
@@ -716,10 +705,10 @@ fn ksk_roll(rollop: RollOp, ks: &mut KeySet) {
 		}
 
 		let visible = k.timestamps.visible.as_ref().unwrap();
-		if visible.elapsed() < Duration::from_secs(ttl.into()) {
-		    // Should report error.
-		    println!("ksk_roll_cache_expired1: elapsed {:?}, waiting for {ttl}", visible.elapsed());
-		    todo!();
+		let elapsed = visible.elapsed();
+		let ttl = Duration::from_secs(ttl.into());
+		if elapsed < ttl {
+		    return Err(Error::Wait(ttl - elapsed));
 		}
 	    }
 
@@ -764,10 +753,10 @@ fn ksk_roll(rollop: RollOp, ks: &mut KeySet) {
 		}
 
 		let ds_visible = k.timestamps.ds_visible.as_ref().unwrap();
-		if ds_visible.elapsed() < Duration::from_secs(ttl.into()) {
-		    // Should report error.
-		    println!("ksk_roll_cache_expired2: elapsed {:?}, waiting for {ttl}", ds_visible.elapsed());
-		    todo!();
+		let elapsed = ds_visible.elapsed();
+		let ttl = Duration::from_secs(ttl.into());
+		if elapsed < ttl {
+		    return Err(Error::Wait(ttl - elapsed));
 		}
 	    }
 
@@ -788,6 +777,7 @@ fn ksk_roll(rollop: RollOp, ks: &mut KeySet) {
 	}
 	RollOp::Done => ()
     }
+    Ok(())
 }
 
 fn ksk_roll_actions(rollstate: RollState) -> Vec<Action> {
@@ -813,21 +803,25 @@ fn ksk_roll_actions(rollstate: RollState) -> Vec<Action> {
     actions
 }
 
-fn zsk_roll(rollop: RollOp, ks: &mut KeySet) {
+fn zsk_roll(rollop: RollOp, ks: &mut KeySet) -> Result<(), Error> {
     match rollop {
 	RollOp::Start(old, new) => {
 	    // First check if the current ZSK-roll state is idle. We need to check
 	    // all conflicting key rolls as well. The way we check is to allow
 	    // specified non-conflicting rolls and consider everything else
 	    // as a conflict.
-	    if ks.rollstates.keys().next().is_some() {
-		// Should return an error.
-		todo!();
+	    if let Some(rolltype) = ks.rollstates.keys().filter(|k| **k != RollType::KskRoll).next() {
+		if *rolltype == RollType::ZskRoll {
+		    return Err(Error::WrongStateForRollOperation);
+		}
+		else {
+		    return Err(Error::ConflictingRollInProgress);
+		}
 	    }
 	    // Check if we can move the states of the keys
-	    ks.update_zsk(Mode::DryRun, old, new);
+	    ks.update_zsk(Mode::DryRun, old, new)?;
 	    // Move the states of the keys
-	    ks.update_zsk(Mode::ForReal, old, new);
+	    ks.update_zsk(Mode::ForReal, old, new).expect("Should have been checked with DryRun");
 	}
 	RollOp::Propagation1 => {
 	    // Set the visiable time of new ZSKs to the current time.
@@ -855,10 +849,10 @@ fn zsk_roll(rollop: RollOp, ks: &mut KeySet) {
 		}
 
 		let visible = k.timestamps.visible.as_ref().unwrap();
-		if visible.elapsed() < Duration::from_secs((ttl).into()) {
-		    // Should report error.
-		    println!("zsk_roll_cache_expired1: elapsed {:?}, waiting for {ttl}", visible.elapsed());
-		    todo!();
+		let elapsed = visible.elapsed();
+		let ttl = Duration::from_secs(ttl.into());
+		if elapsed < ttl {
+		    return Err(Error::Wait(ttl - elapsed));
 		}
 	    }
 
@@ -904,10 +898,10 @@ fn zsk_roll(rollop: RollOp, ks: &mut KeySet) {
 		}
 
 		let rrsig_visible = k.timestamps.rrsig_visible.as_ref().unwrap();
-		if rrsig_visible.elapsed() < Duration::from_secs(ttl.into()) {
-		    // Should report error.
-		    println!("zsk_roll_cache_expired2: elapsed {:?}, waiting for {ttl}", rrsig_visible.elapsed());
-		    todo!();
+		let elapsed = rrsig_visible.elapsed();
+		let ttl = Duration::from_secs(ttl.into());
+		if elapsed < ttl {
+		    return Err(Error::Wait(ttl - elapsed));
 		}
 	    }
 
@@ -926,6 +920,7 @@ fn zsk_roll(rollop: RollOp, ks: &mut KeySet) {
 	}
 	RollOp::Done => (),
     }
+    Ok(())
 }
 
 fn zsk_roll_actions(rollstate: RollState) -> Vec<Action> {
@@ -949,21 +944,25 @@ fn zsk_roll_actions(rollstate: RollState) -> Vec<Action> {
     actions
 }
 
-fn csk_roll(rollop: RollOp, ks: &mut KeySet) {
+fn csk_roll(rollop: RollOp, ks: &mut KeySet) -> Result<(), Error> {
     match rollop {
 	RollOp::Start(old, new) => {
 	    // First check if the current CSK-roll state is idle. We need to check
 	    // all conflicting key rolls as well. The way we check is to allow
 	    // specified non-conflicting rolls and consider everything else
 	    // as a conflict.
-	    if ks.rollstates.keys().next().is_some() {
-		// Should return an error.
-		todo!();
+	    if let Some(rolltype) = ks.rollstates.keys().next() {
+		if *rolltype == RollType::CskRoll {
+		    return Err(Error::WrongStateForRollOperation);
+		}
+		else {
+		    return Err(Error::ConflictingRollInProgress);
+		}
 	    }
 	    // Check if we can move the states of the keys
-	    ks.update_csk(Mode::DryRun, old, new);
+	    ks.update_csk(Mode::DryRun, old, new)?;
 	    // Move the states of the keys
-	    ks.update_csk(Mode::ForReal, old, new);
+	    ks.update_csk(Mode::ForReal, old, new).expect("Should have been check with DryRun");
 	}
 	RollOp::Propagation1 => {
 	    // Set the visiable time of new KSKs, ZSKs and CSKs to the current
@@ -998,10 +997,10 @@ fn csk_roll(rollop: RollOp, ks: &mut KeySet) {
 		}
 
 		let visible = k.timestamps.visible.as_ref().unwrap();
-		if visible.elapsed() < Duration::from_secs(ttl.into()) {
-		    // Should report error.
-		    println!("csk_roll_cache_expired1: elapsed {:?}, waiting for {ttl}", visible.elapsed());
-		    todo!();
+		let elapsed = visible.elapsed();
+		let ttl = Duration::from_secs(ttl.into());
+		if elapsed < ttl {
+		    return Err(Error::Wait(ttl - elapsed));
 		}
 	    }
 
@@ -1093,10 +1092,10 @@ fn csk_roll(rollop: RollOp, ks: &mut KeySet) {
 		}
 
 		let rrsig_visible = k.timestamps.rrsig_visible.as_ref().unwrap();
-		if rrsig_visible.elapsed() < Duration::from_secs(ttl.into()) {
-		    // Should report error.
-		    println!("csk_roll_cache_expired2: elapsed {:?}, waiting for {ttl}", rrsig_visible.elapsed());
-		    todo!();
+		let elapsed = rrsig_visible.elapsed();
+		let ttl = Duration::from_secs(ttl.into());
+		if elapsed < ttl {
+		    return Err(Error::Wait(ttl - elapsed));
 		}
 	    }
 
@@ -1130,6 +1129,7 @@ fn csk_roll(rollop: RollOp, ks: &mut KeySet) {
 	}
 	RollOp::Done => (),
     }
+    Ok(())
 }
 
 fn csk_roll_actions(rollstate: RollState) -> Vec<Action> {
