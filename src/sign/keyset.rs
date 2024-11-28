@@ -563,11 +563,11 @@ pub struct UnixTime(Duration);
 
 impl UnixTime {
     pub fn now() -> Self {
-	let dur = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
+	let dur = SystemTime::now().duration_since(UNIX_EPOCH).expect("System time is expected to be after UNIX_EPOCH");
 	UnixTime(dur)
     }
     pub fn elapsed(&self) -> Duration {
-	let dur = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
+	let dur = SystemTime::now().duration_since(UNIX_EPOCH).expect("System time is expected to be after UNIX_EPOCH");
 	if dur < self.0 {
 	    // Clamp elapsed to zero.
 	    Duration::ZERO
@@ -583,8 +583,8 @@ impl Display for UnixTime {
 	let ts = UNIX_EPOCH + self.0;
 	let dt: OffsetDateTime = ts.into();
 	let format = format_description::parse(
-    "[year]-[month]-[day]T[hour]:[minute]:[second]",).unwrap();
-	write!(f, "{}", dt.format(&format).unwrap())
+    "[year]-[month]-[day]T[hour]:[minute]:[second]",).expect("");
+	write!(f, "{}", dt.format(&format).expect(""))
     }
 }
 
@@ -704,7 +704,7 @@ fn ksk_roll(rollop: RollOp, ks: &mut KeySet) -> Result<(), Error> {
 		    continue;
 		}
 
-		let visible = k.timestamps.visible.as_ref().unwrap();
+		let visible = k.timestamps.visible.as_ref().expect("Should have been set in Propagation1");
 		let elapsed = visible.elapsed();
 		let ttl = Duration::from_secs(ttl.into());
 		if elapsed < ttl {
@@ -752,7 +752,7 @@ fn ksk_roll(rollop: RollOp, ks: &mut KeySet) -> Result<(), Error> {
 		    continue;
 		}
 
-		let ds_visible = k.timestamps.ds_visible.as_ref().unwrap();
+		let ds_visible = k.timestamps.ds_visible.as_ref().expect("Should have been set in Propagation2");
 		let elapsed = ds_visible.elapsed();
 		let ttl = Duration::from_secs(ttl.into());
 		if elapsed < ttl {
@@ -848,7 +848,7 @@ fn zsk_roll(rollop: RollOp, ks: &mut KeySet) -> Result<(), Error> {
 		    continue;
 		}
 
-		let visible = k.timestamps.visible.as_ref().unwrap();
+		let visible = k.timestamps.visible.as_ref().expect("Should have been set in Propagation1");
 		let elapsed = visible.elapsed();
 		let ttl = Duration::from_secs(ttl.into());
 		if elapsed < ttl {
@@ -897,7 +897,7 @@ fn zsk_roll(rollop: RollOp, ks: &mut KeySet) -> Result<(), Error> {
 		    continue;
 		}
 
-		let rrsig_visible = k.timestamps.rrsig_visible.as_ref().unwrap();
+		let rrsig_visible = k.timestamps.rrsig_visible.as_ref().expect("Should have been set in Propagation2");
 		let elapsed = rrsig_visible.elapsed();
 		let ttl = Duration::from_secs(ttl.into());
 		if elapsed < ttl {
@@ -996,7 +996,7 @@ fn csk_roll(rollop: RollOp, ks: &mut KeySet) -> Result<(), Error> {
 		    continue;
 		}
 
-		let visible = k.timestamps.visible.as_ref().unwrap();
+		let visible = k.timestamps.visible.as_ref().expect("Should have been set in Propagation1");
 		let elapsed = visible.elapsed();
 		let ttl = Duration::from_secs(ttl.into());
 		if elapsed < ttl {
@@ -1091,7 +1091,7 @@ fn csk_roll(rollop: RollOp, ks: &mut KeySet) -> Result<(), Error> {
 		    continue;
 		}
 
-		let rrsig_visible = k.timestamps.rrsig_visible.as_ref().unwrap();
+		let rrsig_visible = k.timestamps.rrsig_visible.as_ref().expect("Should have been set in Propagation1");
 		let elapsed = rrsig_visible.elapsed();
 		let ttl = Duration::from_secs(ttl.into());
 		if elapsed < ttl {
