@@ -1,14 +1,13 @@
 /// A key set is a collection of key used to sign a zone. The module
 /// support the management of key sets including key rollover.
 use crate::base::Name;
-use std::string::String;
-use std::vec::Vec;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fmt;
-use std::fmt::{ Debug, Display, Formatter};
-use std::string::ToString;
+use std::fmt::{Debug, Display, Formatter};
+use std::string::{String, ToString};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::vec::Vec;
 use time::format_description;
 use time::OffsetDateTime;
 
@@ -793,9 +792,9 @@ fn ksk_roll(rollop: RollOp, ks: &mut KeySet) -> Result<(), Error> {
     match rollop {
         RollOp::Start(old, new) => {
             // First check if the current KSK-roll state is idle. We need to
-	    // check all conflicting key rolls as well. The way we check is
-	    // to allow specified non-conflicting rolls and consider
-	    // everything else as a conflict.
+            // check all conflicting key rolls as well. The way we check is
+            // to allow specified non-conflicting rolls and consider
+            // everything else as a conflict.
             if let Some(rolltype) = ks
                 .rollstates
                 .keys()
@@ -943,9 +942,9 @@ fn zsk_roll(rollop: RollOp, ks: &mut KeySet) -> Result<(), Error> {
     match rollop {
         RollOp::Start(old, new) => {
             // First check if the current ZSK-roll state is idle. We need
-	    // to check all conflicting key rolls as well. The way we check
-	    // is to allow specified non-conflicting rolls and consider
-	    // everything else as a conflict.
+            // to check all conflicting key rolls as well. The way we check
+            // is to allow specified non-conflicting rolls and consider
+            // everything else as a conflict.
             if let Some(rolltype) = ks
                 .rollstates
                 .keys()
@@ -1089,9 +1088,9 @@ fn csk_roll(rollop: RollOp, ks: &mut KeySet) -> Result<(), Error> {
     match rollop {
         RollOp::Start(old, new) => {
             // First check if the current CSK-roll state is idle. We need
-	    // to check all conflicting key rolls as well. The way we check
-	    // is to allow specified non-conflicting rolls and consider
-	    // everything else as a conflict.
+            // to check all conflicting key rolls as well. The way we check
+            // is to allow specified non-conflicting rolls and consider
+            // everything else as a conflict.
             if let Some(rolltype) = ks.rollstates.keys().next() {
                 if *rolltype == RollType::CskRoll {
                     return Err(Error::WrongStateForRollOperation);
