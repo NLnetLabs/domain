@@ -108,6 +108,12 @@
 //! the conventional private-key format popularized by BIND.  This format is
 //! used by a variety of tools for storing DNSSEC keys on disk.  See the
 //! type-level documentation for a specification of the format.
+//!
+//! # Key Sets and Key Lifetime
+//! The [`keyset`] module provides a way to keep track of the collection of
+//! keys that are used to sign a particular zone. In addition, the lifetime
+//! of keys can be maintained using key rolls that phase out old keys and
+//! introduce new keys.
 
 #![cfg(feature = "unstable-sign")]
 #![cfg_attr(docsrs, doc(cfg(feature = "unstable-sign")))]

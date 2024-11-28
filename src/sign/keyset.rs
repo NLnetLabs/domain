@@ -1,5 +1,15 @@
-/// A key set is a collection of key used to sign a zone. The module
-/// support the management of key sets including key rollover.
+//! Maintain the state of a collection keys used to sign a zone.
+//!
+//! A key set is a collection of keys used to sign a sigle zone.
+//! This module support the management of key sets including key rollover.
+
+#![warn(missing_docs)]
+
+// TODO:
+// - add tests (based on current example).
+// - rework example to be interactive.
+// - add support for undo/abort.
+
 use crate::base::Name;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -12,6 +22,10 @@ use time::format_description;
 use time::OffsetDateTime;
 
 #[derive(Deserialize, Serialize)]
+/// This type maintains a collection keys used to sign a zone.
+///
+/// The state of this type can be serialized and deserialized. The state
+/// includes the state of any key rollovers going on.
 pub struct KeySet {
     name: Name<Vec<u8>>,
     keys: Vec<Key>,
@@ -20,6 +34,7 @@ pub struct KeySet {
 }
 
 impl KeySet {
+    /// Create a new key set for a give zone name.
     pub fn new(name: Name<Vec<u8>>) -> Self {
         Self {
             name,
@@ -28,6 +43,7 @@ impl KeySet {
         }
     }
 
+    /// Add a KSK.
     pub fn add_key_ksk(
         &mut self,
         pubref: String,
@@ -40,6 +56,7 @@ impl KeySet {
         self.keys.push(key);
     }
 
+    /// Add a ZSK.
     pub fn add_key_zsk(
         &mut self,
         pubref: String,
@@ -52,6 +69,7 @@ impl KeySet {
         self.keys.push(key);
     }
 
+    /// Add a CSK.
     pub fn add_key_csk(
         &mut self,
         pubref: String,
@@ -68,6 +86,7 @@ impl KeySet {
         self.keys.push(key);
     }
 
+    /// Delete a key.
     pub fn delete_key(&mut self, pubref: &str) -> Result<(), Error> {
         // Assume no duplicate keys.
         for i in 0..self.keys.len() {
@@ -111,14 +130,22 @@ impl KeySet {
         Err(Error::KeyNotFound)
     }
 
+    /// Return the zone name this key set belongs to.
     pub fn name(&self) -> String {
         self.name.to_string()
     }
 
+    /// Return the list of keys in the key set.
     pub fn keys(&self) -> &[Key] {
         &self.keys
     }
 
+    /// Start a key roll.
+    ///
+    /// The parameters are the type of key roll, a list of old keys that need
+    /// to be rolled out and a list of new keys that on their way in.
+    /// A list of actions is returned. The caller is responsible for
+    /// performing the actions.
     pub fn start_roll(
         &mut self,
         rolltype: RollType,
@@ -133,6 +160,12 @@ impl KeySet {
         Ok(rolltype.roll_actions_fn()(next_state))
     }
 
+    /// A report that the propagation of the first change has completed.
+    ///
+    /// The user reports that the changes have propagated and provides the
+    /// required ttl value. The actual changes to monitor were specified as
+    /// an action in the previous state (start_roll). A list of actions is
+    /// returned.
     pub fn propagation1_complete(
         &mut self,
         rolltype: RollType,
@@ -151,6 +184,12 @@ impl KeySet {
         Ok(rolltype.roll_actions_fn()(next_state))
     }
 
+    /// A report that any cached values should have expired by now.
+    ///
+    /// This method should be called at least ttl seconds after the call to
+    /// propagation1_complete where ttl is the value of the ttl parameter
+    /// passed to the propagation1_complete method. A list of actions is
+    /// returned.
     pub fn cache_expired1(
         &mut self,
         rolltype: RollType,
@@ -168,6 +207,12 @@ impl KeySet {
         Ok(rolltype.roll_actions_fn()(next_state))
     }
 
+    /// A report that the propagation of the second change has completed.
+    ///
+    /// The user reports that the changes have propagated and provides the
+    /// required ttl value. The actual changes to monitor were specified as on
+    /// action in the previous state (cache_expired1). A list of actions is
+    /// returned.
     pub fn propagation2_complete(
         &mut self,
         rolltype: RollType,
@@ -184,6 +229,12 @@ impl KeySet {
         Ok(rolltype.roll_actions_fn()(next_state))
     }
 
+    /// A report that any cached values should have expired by now.
+    ///
+    /// This method should be called at least ttl seconds after the call to
+    /// propagation2_complete where ttl is the value of the ttl parameter
+    /// passed to the propagation2_complete method. A list of actions is
+    /// returned.
     pub fn cache_expired2(
         &mut self,
         rolltype: RollType,
@@ -201,6 +252,8 @@ impl KeySet {
         Ok(rolltype.roll_actions_fn()(next_state))
     }
 
+    /// The user reports that all actions have been performed and that the
+    /// key roll is now complete.
     pub fn roll_done(
         &mut self,
         rolltype: RollType,
@@ -505,6 +558,12 @@ impl KeySet {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
+/// The state of a single key.
+///
+/// The state includes a way to refer to the public key and optionally a
+/// way to refer to the provate key. The state includes the type of the
+/// key (which in itself includes the key state) and a list of timestamps
+/// that mark the various stages in the life of a key.
 pub struct Key {
     pubref: String,
     privref: Option<String>,
@@ -513,18 +572,22 @@ pub struct Key {
 }
 
 impl Key {
+    /// Return the 'reference' to the public key.
     pub fn pubref(&self) -> &str {
         &self.pubref
     }
 
+    /// Return the 'reference' to the private key (if present).
     pub fn privref(&self) -> Option<&str> {
         self.privref.as_deref()
     }
 
+    /// Return the key type (which includes the state of the key).
     pub fn keytype(&self) -> KeyType {
         self.keytype.clone()
     }
 
+    /// Return the timestamps.
     pub fn timestamps(&self) -> &KeyTimestamps {
         &self.timestamps
     }
@@ -549,10 +612,21 @@ impl Key {
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+/// The different types of keys.
 pub enum KeyType {
+    /// Key signing key (KSK).
     Ksk(KeyState),
+
+    /// Zone signing key (ZSK).
     Zsk(KeyState),
+
+    /// Combined signing key (CSK).
+    ///
+    /// Note that this key has two states, one for its KSK role and one for
+    /// the ZSK role.
     Csk(KeyState, KeyState),
+
+    /// Included key that belongs to another signer in a nulti-signer setup.
     Include(KeyState),
 }
 
@@ -578,6 +652,14 @@ pub enum KeyState {
     // old, !signer, !present, ds
 }
 */
+/// State of a key.
+///
+/// The state is expressed as four booleans:
+/// * old. Set if the key is on its way out.
+/// * signer. Set if the key either signes the DNSKEY RRset or the rest of the
+///   zone.
+/// * present. If the key is present in the DNSKEY RRset.
+/// * at_parent. If the key has a DS record at the parent.
 pub struct KeyState {
     old: bool,
     signer: bool,
@@ -586,12 +668,18 @@ pub struct KeyState {
 }
 
 impl KeyState {
+    /// Return whether the key is a signer, i.e. signs the DNSKEY RRset or
+    /// the zone.
     pub fn signer(&self) -> bool {
         self.signer
     }
+
+    /// Return whether the key is present in the DNSKEY RRset.
     pub fn present(&self) -> bool {
         self.present
     }
+
+    /// Return whether the key needs to have a DS record at the parent.
     pub fn at_parent(&self) -> bool {
         self.at_parent
     }
@@ -629,6 +717,15 @@ impl Display for KeyState {
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
+/// This type contains the various timestamps in the life of a key.
+///
+/// All timestamps are optional. The following timestamps are supported:
+/// * when the key was created,
+/// * when the key was first published in the DNSKEY RRset,
+/// * when the DNSKEY RRset with the key was first visible,
+/// * when the DS record for the key was first visible,
+/// * when RRSIG records signed by the key were first visible,
+/// * when the key was withdrawn from the DNSKEY RRset.
 pub struct KeyTimestamps {
     creation: Option<UnixTime>,
     published: Option<UnixTime>,
@@ -639,41 +736,55 @@ pub struct KeyTimestamps {
 }
 
 impl KeyTimestamps {
+    /// Return the creation time of a key.
     pub fn creation(&self) -> Option<UnixTime> {
         self.creation.clone()
     }
 
+    /// Return the time when a key was first published in the DNSKEY RRset.
     pub fn published(&self) -> Option<UnixTime> {
         self.published.clone()
     }
 
+    /// Return the time when DNSKEY RRset with a key was first visible.
     pub fn visible(&self) -> Option<UnixTime> {
         self.visible.clone()
     }
 
+    /// Return the time when a DS record for a key was first visible.
     pub fn ds_visible(&self) -> Option<UnixTime> {
         self.ds_visible.clone()
     }
 
+    /// Return the time when an RRSIG record signed by the key was first
+    /// visible.
     pub fn rrsig_visible(&self) -> Option<UnixTime> {
         self.rrsig_visible.clone()
     }
 
+    /// Return the time when the key was removed from the DNSKEY RRset.
     pub fn withdrawn(&self) -> Option<UnixTime> {
         self.withdrawn.clone()
     }
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
+/// A type that contains Unix time.
+///
+/// Unix time is the number of seconds since midnight January first
+/// 1970 GMT.
 pub struct UnixTime(Duration);
 
 impl UnixTime {
+    /// Create a value for the current time.
     pub fn now() -> Self {
         let dur = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .expect("System time is expected to be after UNIX_EPOCH");
         UnixTime(dur)
     }
+
+    /// Return how much time has elapsed since the current timestamp.
     pub fn elapsed(&self) -> Duration {
         let dur = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -714,21 +825,54 @@ enum Mode {
 }
 
 #[derive(Debug)]
+/// Actions that have to be performed by the user.
+///
+/// Note that if a list contains multiple report actions then the user
+/// has to wait until all action have completed and has to report the
+/// highest TTL value among the values to report.
 pub enum Action {
+    /// Generate a new version of the zone with an updated DNSKEY RRset.
     UpdateDnskeyRrset,
+
+    /// Generate a new version of the zone with CDS and CDNSKEY RRsets.
     CreateCdsRrset,
+
+    /// Generate a new version of the zone without CDS and CDNSKEY RRsets.
     RemoveCdsRrset,
+
+    /// Update the DS RRset at the parent.
     UpdateDsRrset,
+
+    /// Generate a new version of the zone with updated RRSIG records.
     UpdateRrsig,
+
+    /// Report whether an updated DNSKEY RRset has propagated to all
+    /// secondaries that serve the zone. Also report the TTL of the
+    /// DNSKEY RRset.
     ReportDnskeyPropagated,
+
+    /// Report whether updated DS records have propagated to all
+    /// secondaries that serve the parent zone. Also report the TTL of
+    /// the DS records.
     ReportDsPropagated,
+
+    /// Report whether updated RRSIG records have propagated to all
+    /// secondaries that the serve the zone. For propagation it is
+    /// sufficient to track the signatures on the SOA record. Report the
+    /// highest TTL among all signatures.
     ReportRrsigPropagated,
 }
 
 #[derive(Clone, Deserialize, Eq, Hash, PartialEq, Serialize)]
+/// The type of key roll to perform.
 pub enum RollType {
+    /// A KSK roll.
     KskRoll,
+
+    /// A ZSK roll.
     ZskRoll,
+
+    /// A CSK roll.
     CskRoll,
 }
 
@@ -759,14 +903,31 @@ enum RollOp<'a> {
 }
 
 #[derive(Debug)]
+/// The various errors that can be returned.
 pub enum Error {
+    /// The listed key cannot be found in the key set.
     KeyNotFound,
+
+    /// The key cannot be deleted because it is not old.
     KeyNotOld,
+
+    /// The key has to wrong type.
     WrongKeyType,
+
+    /// The key is in the wrong state.
     WrongKeyState,
+
+    /// The operation would cause no suitable key to be present.
     NoSuitableKeyPresent,
+
+    /// The key set is in the wrong state for the requested key roll operation.
     WrongStateForRollOperation,
+
+    /// A conflicting key roll is currently in progress.
     ConflictingRollInProgress,
+
+    /// The operation is too early. The Duration parameter specifies how long
+    /// to wait.
     Wait(Duration),
 }
 
