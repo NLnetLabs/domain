@@ -145,6 +145,11 @@ impl KeySet {
         &self.keys
     }
 
+    /// Return the current active rolls and their states.
+    pub fn rollstates(&self) -> &HashMap<RollType, RollState> {
+        &self.rollstates
+    }
+
     /// Start a key roll.
     ///
     /// The parameters are the type of key roll, a list of old keys that need
@@ -272,13 +277,25 @@ impl KeySet {
         Ok(Vec::new())
     }
 
+    /// Return the actions that need to be performed for the current
+    /// roll state.
+    pub fn actions(
+        &mut self,
+        rolltype: RollType,
+    ) -> Result<Vec<Action>, Error> {
+        if let Some(rollstate) = self.rollstates.get(&rolltype) {
+            Ok(rolltype.roll_actions_fn()(rollstate.clone()))
+        } else {
+            Ok(Vec::new())
+        }
+    }
+
     fn update_ksk(
         &mut self,
         mode: Mode,
         old: &[&str],
         new: &[&str],
     ) -> Result<(), Error> {
-        println!("update_ksk: for old {old:?}, new {new:?}");
         let mut tmpkeys = self.keys.clone();
         let keys: &mut Vec<Key> = match mode {
             Mode::DryRun => &mut tmpkeys,
@@ -676,6 +693,11 @@ pub struct KeyState {
 }
 
 impl KeyState {
+    /// Return whether the key is old, i.e. on its way out.
+    pub fn old(&self) -> bool {
+        self.old
+    }
+
     /// Return whether the key is a signer, i.e. signs the DNSKEY RRset or
     /// the zone.
     pub fn signer(&self) -> bool {
@@ -822,11 +844,26 @@ impl Display for UnixTime {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
-enum RollState {
+/// States of a key roll.
+pub enum RollState {
+    /// Waiting for the first change to propagate.
     Propagation1,
+    /// Waiting for old data to expire from caches.
+    ///
+    /// This is data that prevents the first change from getting loaded in the
+    /// cache. The TTL of the old data is a parameter.
     CacheExpire1(u32),
+    /// Waiting for the second change to propagate.
     Propagation2,
+    /// Waiting for old data to expire from caches.
+    ///
+    /// This is data that prevents the second change from getting loaded in the
+    /// cache. The TTL of the old data is a parameter.
     CacheExpire2(u32),
+
+    /// The key roll is done.
+    ///
+    /// This state gives the user the chance to execute the remaining actions.
     Done,
 }
 
@@ -874,7 +911,7 @@ pub enum Action {
     ReportRrsigPropagated,
 }
 
-#[derive(Clone, Deserialize, Eq, Hash, PartialEq, Serialize)]
+#[derive(Clone, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 /// The type of key roll to perform.
 pub enum RollType {
     /// A KSK roll.
@@ -940,6 +977,27 @@ pub enum Error {
     /// The operation is too early. The Duration parameter specifies how long
     /// to wait.
     Wait(Duration),
+}
+
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Error::KeyNotFound => write!(f, "key not found"),
+            Error::KeyNotOld => write!(f, "key is still in use, not old"),
+            Error::WrongKeyType => write!(f, "key has the wrong type"),
+            Error::WrongKeyState => write!(f, "key is in the wrong state"),
+            Error::NoSuitableKeyPresent => {
+                write!(f, "no suitable key present after key roll")
+            }
+            Error::WrongStateForRollOperation => {
+                write!(f, "wrong roll state for operation")
+            }
+            Error::ConflictingRollInProgress => {
+                write!(f, "conflicting roll is in progress")
+            }
+            Error::Wait(d) => write!(f, "wait for duration {d:?}"),
+        }
+    }
 }
 
 fn ksk_roll(rollop: RollOp, ks: &mut KeySet) -> Result<(), Error> {
@@ -1064,7 +1122,6 @@ fn ksk_roll(rollop: RollOp, ks: &mut KeySet) -> Result<(), Error> {
 }
 
 fn ksk_roll_actions(rollstate: RollState) -> Vec<Action> {
-    println!("ksk_roll_actions: actions for state {rollstate:?}");
     let mut actions = Vec::new();
     match rollstate {
         RollState::Propagation1 => {
@@ -1209,7 +1266,6 @@ fn zsk_roll(rollop: RollOp, ks: &mut KeySet) -> Result<(), Error> {
 }
 
 fn zsk_roll_actions(rollstate: RollState) -> Vec<Action> {
-    println!("zsk_roll_actions: actions for state {rollstate:?}");
     let mut actions = Vec::new();
     match rollstate {
         RollState::Propagation1 => {
@@ -1426,7 +1482,6 @@ fn csk_roll(rollop: RollOp, ks: &mut KeySet) -> Result<(), Error> {
 }
 
 fn csk_roll_actions(rollstate: RollState) -> Vec<Action> {
-    println!("csk_roll_actions: actions for state {rollstate:?}");
     let mut actions = Vec::new();
     match rollstate {
         RollState::Propagation1 => {
