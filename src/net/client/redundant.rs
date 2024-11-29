@@ -648,7 +648,7 @@ where
     receiver: mpsc::Receiver<ChanReq<Req>>,
 }
 
-impl<'a, Req: Clone + Send + Sync + 'static> Transport<Req> {
+impl<Req: Clone + Send + Sync + 'static> Transport<Req> {
     /// Implementation of the new method.
     fn new(receiver: mpsc::Receiver<ChanReq<Req>>) -> Self {
         Self { receiver }

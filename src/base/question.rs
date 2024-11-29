@@ -331,7 +331,7 @@ pub trait ComposeQuestion {
     ) -> Result<(), Target::AppendError>;
 }
 
-impl<'a, Q: ComposeQuestion> ComposeQuestion for &'a Q {
+impl<Q: ComposeQuestion> ComposeQuestion for &Q {
     fn compose_question<Target: Composer + ?Sized>(
         &self,
         target: &mut Target,

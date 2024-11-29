@@ -239,7 +239,7 @@ impl<Octs: Octets> Opt<Octs> {
     }
 }
 
-impl<'a, Target: Composer> OptBuilder<'a, Target> {
+impl<Target: Composer> OptBuilder<'_, Target> {
     /// Appends a new cookie option.
     pub fn cookie(
         &mut self, cookie: Cookie,

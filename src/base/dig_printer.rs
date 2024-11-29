@@ -13,7 +13,7 @@ pub(super) struct DigPrinter<'a, Octs> {
     pub msg: &'a Message<Octs>,
 }
 
-impl<'a, Octs: AsRef<[u8]>> fmt::Display for DigPrinter<'a, Octs> {
+impl<Octs: AsRef<[u8]>> fmt::Display for DigPrinter<'_, Octs> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let msg = self.msg.for_slice_ref();
 
