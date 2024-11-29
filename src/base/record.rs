@@ -471,7 +471,7 @@ pub trait ComposeRecord {
     ) -> Result<(), Target::AppendError>;
 }
 
-impl<'a, T: ComposeRecord> ComposeRecord for &'a T {
+impl<T: ComposeRecord> ComposeRecord for &T {
     fn compose_record<Target: Composer + ?Sized>(
         &self,
         target: &mut Target,
@@ -1026,8 +1026,8 @@ impl<'a, Octs: Octets + ?Sized> ParsedRecord<'a, Octs> {
 
 //--- PartialEq and Eq
 
-impl<'a, 'o, Octs, Other> PartialEq<ParsedRecord<'o, Other>>
-    for ParsedRecord<'a, Octs>
+impl<'o, Octs, Other> PartialEq<ParsedRecord<'o, Other>>
+    for ParsedRecord<'_, Octs>
 where
     Octs: Octets + ?Sized,
     Other: Octets + ?Sized,
@@ -1041,7 +1041,7 @@ where
     }
 }
 
-impl<'a, Octs: Octets + ?Sized> Eq for ParsedRecord<'a, Octs> {}
+impl<Octs: Octets + ?Sized> Eq for ParsedRecord<'_, Octs> {}
 
 //------------ RecordParseError ----------------------------------------------
 

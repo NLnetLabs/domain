@@ -328,7 +328,7 @@ impl<Octs: AsRef<[u8]>> Key<Octs> {
     /// See the type-level documentation for a description of this format.
     pub fn display_as_bind(&self) -> impl fmt::Display + '_ {
         struct Display<'a, Octs>(&'a Key<Octs>);
-        impl<'a, Octs: AsRef<[u8]>> fmt::Display for Display<'a, Octs> {
+        impl<Octs: AsRef<[u8]>> fmt::Display for Display<'_, Octs> {
             fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
                 self.0.format_as_bind(f)
             }

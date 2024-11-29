@@ -131,7 +131,7 @@ impl<Octs: Octets> Opt<Octs> {
     }
 }
 
-impl<'a, Target: Composer> OptBuilder<'a, Target> {
+impl<Target: Composer> OptBuilder<'_, Target> {
     pub fn tcp_keepalive(
         &mut self, timeout: Option<IdleTimeout>
     ) -> Result<(), Target::AppendError> {

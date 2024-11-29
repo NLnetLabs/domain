@@ -819,13 +819,13 @@ impl<'a, Octs: Octets + ?Sized> QuestionSection<'a, Octs> {
 
 //--- Clone and Clone
 
-impl<'a, Octs: ?Sized> Clone for QuestionSection<'a, Octs> {
+impl<Octs: ?Sized> Clone for QuestionSection<'_, Octs> {
     fn clone(&self) -> Self {
         *self
     }
 }
 
-impl<'a, Octs: ?Sized> Copy for QuestionSection<'a, Octs> {}
+impl<Octs: ?Sized> Copy for QuestionSection<'_, Octs> {}
 
 //--- Iterator
 
@@ -852,8 +852,8 @@ impl<'a, Octs: Octets + ?Sized> Iterator for QuestionSection<'a, Octs> {
 
 //--- PartialEq
 
-impl<'a, 'o, Octs, Other> PartialEq<QuestionSection<'o, Other>>
-    for QuestionSection<'a, Octs>
+impl<'o, Octs, Other> PartialEq<QuestionSection<'o, Other>>
+    for QuestionSection<'_, Octs>
 where
     Octs: Octets + ?Sized,
     Other: Octets + ?Sized,
@@ -1056,13 +1056,13 @@ impl<'a, Octs: Octets + ?Sized> RecordSection<'a, Octs> {
 
 //--- Clone and Copy
 
-impl<'a, Octs: ?Sized> Clone for RecordSection<'a, Octs> {
+impl<Octs: ?Sized> Clone for RecordSection<'_, Octs> {
     fn clone(&self) -> Self {
         *self
     }
 }
 
-impl<'a, Octs: ?Sized> Copy for RecordSection<'a, Octs> {}
+impl<Octs: ?Sized> Copy for RecordSection<'_, Octs> {}
 
 //--- Iterator
 
@@ -1182,7 +1182,7 @@ where
 
 //--- Clone
 
-impl<'a, Octs: ?Sized, Data> Clone for RecordIter<'a, Octs, Data> {
+impl<Octs: ?Sized, Data> Clone for RecordIter<'_, Octs, Data> {
     fn clone(&self) -> Self {
         RecordIter {
             section: self.section,
@@ -1273,7 +1273,7 @@ where
 
 //--- Clone
 
-impl<'a, Octs: ?Sized, Data> Clone for AnyRecordIter<'a, Octs, Data> {
+impl<Octs: ?Sized, Data> Clone for AnyRecordIter<'_, Octs, Data> {
     fn clone(&self) -> Self {
         Self {
             section: self.section,
