@@ -80,7 +80,7 @@ pub trait ComposeRequestMulti: Debug + Send + Sync {
 
     /// Create a message that captures the recorded changes and convert to
     /// a Vec.
-    /// 
+    ///
     /// Return a reference to the current Header.
     fn header(&self) -> &Header;
 

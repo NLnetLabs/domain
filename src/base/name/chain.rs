@@ -126,7 +126,11 @@ impl<L, R> Chain<L, R> {
 //--- ToLabelIter, ToRelativeName, ToName
 
 impl<L: ToRelativeName, R: ToLabelIter> ToLabelIter for Chain<L, R> {
-    type LabelIter<'a> = ChainIter<'a, L, R> where L: 'a, R: 'a;
+    type LabelIter<'a>
+        = ChainIter<'a, L, R>
+    where
+        L: 'a,
+        R: 'a;
 
     fn iter_labels(&self) -> Self::LabelIter<'_> {
         ChainIter(self.left.iter_labels().chain(self.right.iter_labels()))
@@ -145,8 +149,11 @@ where
     Octs: AsRef<[u8]>,
     R: ToName,
 {
-    type LabelIter<'a> = UncertainChainIter<'a, Octs, R>
-        where Octs: 'a, R: 'a;
+    type LabelIter<'a>
+        = UncertainChainIter<'a, Octs, R>
+    where
+        Octs: 'a,
+        R: 'a;
 
     fn iter_labels(&self) -> Self::LabelIter<'_> {
         match self.left {

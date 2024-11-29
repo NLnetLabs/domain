@@ -36,7 +36,6 @@ pub struct ResolvOptions {
 
     // TODO Sortlist
     // sortlist: ??
-
     /// Number of dots before an initial absolute query is made.
     pub ndots: usize,
 
