@@ -85,7 +85,7 @@ pub trait Compose {
     ) -> Result<(), Target::AppendError>;
 }
 
-impl<'a, T: Compose + ?Sized> Compose for &'a T {
+impl<T: Compose + ?Sized> Compose for &T {
     const COMPOSE_LEN: u16 = T::COMPOSE_LEN;
 
     fn compose<Target: OctetsBuilder + ?Sized>(
