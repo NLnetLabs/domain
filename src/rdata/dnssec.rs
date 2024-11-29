@@ -2305,7 +2305,7 @@ where
         if serializer.is_human_readable() {
             struct Inner<'a>(&'a [u8]);
 
-            impl<'a> serde::Serialize for Inner<'a> {
+            impl serde::Serialize for Inner<'_> {
                 fn serialize<S: serde::Serializer>(
                     &self,
                     serializer: S,
@@ -2626,7 +2626,7 @@ impl<'a> RtypeBitmapIter<'a> {
     }
 }
 
-impl<'a> Iterator for RtypeBitmapIter<'a> {
+impl Iterator for RtypeBitmapIter<'_> {
     type Item = Rtype;
 
     fn next(&mut self) -> Option<Self::Item> {

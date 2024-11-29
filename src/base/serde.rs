@@ -32,7 +32,7 @@ where
     ) -> Result<T, D::Error> {
         struct Visitor<T>(PhantomData<T>);
 
-        impl<'de, T> serde::de::Visitor<'de> for Visitor<T>
+        impl<T> serde::de::Visitor<'_> for Visitor<T>
         where
             T: From<u8> + FromStr,
             T::Err: fmt::Display,
@@ -70,7 +70,7 @@ where
     ) -> Result<T, D::Error> {
         struct Visitor<T>(PhantomData<T>);
 
-        impl<'de, T> serde::de::Visitor<'de> for Visitor<T>
+        impl<T> serde::de::Visitor<'_> for Visitor<T>
         where
             T: From<u16> + FromStr,
             T::Err: fmt::Display,
@@ -108,7 +108,7 @@ where
     ) -> Result<T, D::Error> {
         struct Visitor<T>(PhantomData<T>);
 
-        impl<'de, T> serde::de::Visitor<'de> for Visitor<T>
+        impl<T> serde::de::Visitor<'_> for Visitor<T>
         where
             T: From<u32> + FromStr,
             T::Err: fmt::Display,

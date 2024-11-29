@@ -351,7 +351,7 @@ pub trait ToName: ToLabelIter {
 
 pub struct DisplayWithDot<'a, T: ?Sized>(&'a T);
 
-impl<'a, T> fmt::Display for DisplayWithDot<'a, T>
+impl<T> fmt::Display for DisplayWithDot<'_, T>
 where
     T: ToLabelIter + ?Sized,
 {

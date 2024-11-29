@@ -179,7 +179,7 @@ impl<Octs: AsRef<[u8]> + ?Sized> fmt::Debug for Padding<Octs> {
 
 //--- Extended OptBuilder
 
-impl<'a, Target: Composer> OptBuilder<'a, Target> {
+impl<Target: Composer> OptBuilder<'_, Target> {
     pub fn padding( &mut self, len: u16) -> Result<(), Target::AppendError> {
         self.push_raw_option(
             OptionCode::PADDING,
