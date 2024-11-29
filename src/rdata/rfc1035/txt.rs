@@ -477,7 +477,7 @@ where
 
         struct TxtSeq<'a, Octs>(&'a Txt<Octs>);
 
-        impl<'a, Octs> serde::Serialize for TxtSeq<'a, Octs>
+        impl<Octs> serde::Serialize for TxtSeq<'_, Octs>
         where
             Octs: AsRef<[u8]> + SerializeOctets,
         {
