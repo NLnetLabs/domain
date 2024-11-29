@@ -315,7 +315,7 @@ impl<Octs: Octets> Opt<Octs> {
     }
 }
 
-impl<'a, Target: Composer> OptBuilder<'a, Target> {
+impl<Target: Composer> OptBuilder<'_, Target> {
     /// Appends an extended DNS error option.
     ///
     /// The extended DNS error option carries additional error information in

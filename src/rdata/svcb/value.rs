@@ -474,7 +474,7 @@ impl<Octs: AsRef<[u8]>> Mandatory<Octs> {
 
 //--- Iterator
 
-impl<'a, Octs: Octets + ?Sized> Iterator for MandatoryIter<'a, Octs> {
+impl<Octs: Octets + ?Sized> Iterator for MandatoryIter<'_, Octs> {
     type Item = SvcParamKey;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -1089,7 +1089,7 @@ impl<Octs: AsRef<[u8]>> Ipv4Hint<Octs> {
     }
 }
 
-impl<'a, Octs: Octets + ?Sized> Iterator for Ipv4HintIter<'a, Octs> {
+impl<Octs: Octets + ?Sized> Iterator for Ipv4HintIter<'_, Octs> {
     type Item = Ipv4Addr;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -1234,7 +1234,7 @@ impl<Octs: AsRef<[u8]>> Ipv6Hint<Octs> {
 
 //--- Iterator
 
-impl<'a, Octs: Octets + ?Sized> Iterator for Ipv6HintIter<'a, Octs> {
+impl<Octs: Octets + ?Sized> Iterator for Ipv6HintIter<'_, Octs> {
     type Item = Ipv6Addr;
 
     fn next(&mut self) -> Option<Self::Item> {

@@ -247,7 +247,6 @@ type CommandReceiver = watch::Receiver<ServerCommandType>;
 /// [`VecBufSource`]: super::buf::VecBufSource
 /// [`tokio::net::TcpListener`]:
 ///     https://docs.rs/tokio/latest/tokio/net/struct.TcpListener.html
-
 pub struct DgramServer<Sock, Buf, Svc>
 where
     Sock: AsyncDgramSock + Send + Sync + 'static,

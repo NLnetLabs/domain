@@ -81,7 +81,11 @@ pub trait ToLabelIter {
 }
 
 impl<'r, N: ToLabelIter + ?Sized> ToLabelIter for &'r N {
-    type LabelIter<'a> = N::LabelIter<'a> where 'r: 'a, N: 'a;
+    type LabelIter<'a>
+        = N::LabelIter<'a>
+    where
+        'r: 'a,
+        N: 'a;
 
     fn iter_labels(&self) -> Self::LabelIter<'_> {
         (*self).iter_labels()
@@ -351,7 +355,7 @@ pub trait ToName: ToLabelIter {
 
 pub struct DisplayWithDot<'a, T: ?Sized>(&'a T);
 
-impl<'a, T> fmt::Display for DisplayWithDot<'a, T>
+impl<T> fmt::Display for DisplayWithDot<'_, T>
 where
     T: ToLabelIter + ?Sized,
 {

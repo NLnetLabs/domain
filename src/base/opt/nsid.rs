@@ -283,7 +283,7 @@ impl<Octs: Octets> Opt<Octs> {
     }
 }
 
-impl<'a, Target: Composer> OptBuilder<'a, Target> {
+impl<Target: Composer> OptBuilder<'_, Target> {
     /// Appends an NSID option with the given server identifier.
     ///
     /// The NSID option contains an identifier for the name server that
