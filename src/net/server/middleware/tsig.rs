@@ -461,7 +461,6 @@ where
 }
 
 /// Data needed to do signing during response post-processing.
-
 pub struct PostprocessingState<K> {
     /// The signer used to verify the request.
     ///
