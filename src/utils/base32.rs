@@ -118,7 +118,7 @@ pub fn encode_display_hex<Octets: AsRef<[u8]>>(
 ) -> impl fmt::Display + '_ {
     struct Display<'a>(&'a [u8]);
 
-    impl<'a> fmt::Display for Display<'a> {
+    impl fmt::Display for Display<'_> {
         fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
             display_hex(self.0, f)
         }

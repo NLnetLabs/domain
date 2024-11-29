@@ -511,7 +511,7 @@ pub struct SearchIter<'a> {
     pos: usize,
 }
 
-impl<'a> Iterator for SearchIter<'a> {
+impl Iterator for SearchIter<'_> {
     type Item = SearchSuffix;
 
     fn next(&mut self) -> Option<Self::Item> {

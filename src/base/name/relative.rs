@@ -637,7 +637,10 @@ impl<Octs> ToLabelIter for RelativeName<Octs>
 where
     Octs: AsRef<[u8]> + ?Sized,
 {
-    type LabelIter<'a> = NameIter<'a> where Octs: 'a;
+    type LabelIter<'a>
+        = NameIter<'a>
+    where
+        Octs: 'a;
 
     fn iter_labels(&self) -> Self::LabelIter<'_> {
         self.iter()
@@ -926,7 +929,7 @@ impl<'a> Iterator for NameIter<'a> {
     }
 }
 
-impl<'a> DoubleEndedIterator for NameIter<'a> {
+impl DoubleEndedIterator for NameIter<'_> {
     fn next_back(&mut self) -> Option<Self::Item> {
         if self.slice.is_empty() {
             return None;

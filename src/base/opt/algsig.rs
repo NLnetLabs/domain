@@ -474,7 +474,7 @@ impl<Octs: Octets> Opt<Octs> {
     }
 }
 
-impl<'a, Target: Composer> OptBuilder<'a, Target> {
+impl<Target: Composer> OptBuilder<'_, Target> {
     /// Appends a DAU option.
     ///
     /// The DAU option lists the DNSSEC signature algorithms the requester
@@ -538,7 +538,7 @@ impl<'a> SecAlgsIter<'a> {
     }
 }
 
-impl<'a> Iterator for SecAlgsIter<'a> {
+impl Iterator for SecAlgsIter<'_> {
     type Item = SecAlg;
 
     fn next(&mut self) -> Option<Self::Item> {
