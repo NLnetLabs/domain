@@ -40,7 +40,7 @@ pub trait RecordData {
     fn rtype(&self) -> Rtype;
 }
 
-impl<'a, T: RecordData> RecordData for &'a T {
+impl<T: RecordData> RecordData for &T {
     fn rtype(&self) -> Rtype {
         (*self).rtype()
     }
@@ -126,7 +126,7 @@ where
     }
 }
 
-impl<'a, T: ComposeRecordData> ComposeRecordData for &'a T {
+impl<T: ComposeRecordData> ComposeRecordData for &T {
     fn rdlen(&self, compress: bool) -> Option<u16> {
         (*self).rdlen(compress)
     }
