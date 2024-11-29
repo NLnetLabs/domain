@@ -622,7 +622,6 @@ where
 /// than the other. Since this is neatly implemented by the `PartialOrd`
 /// trait, the type implements that.
 ///
-///
 /// [RFC 1982]: https://tools.ietf.org/html/rfc1982
 /// [RFC 4034]: https://tools.ietf.org/html/rfc4034
 
