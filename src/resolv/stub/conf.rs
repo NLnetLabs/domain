@@ -34,8 +34,8 @@ pub struct ResolvOptions {
     /// Search list for host-name lookup.
     pub search: SearchList,
 
-    /// TODO Sortlist
-    /// sortlist: ??
+    // TODO Sortlist
+    // sortlist: ??
 
     /// Number of dots before an initial absolute query is made.
     pub ndots: usize,
