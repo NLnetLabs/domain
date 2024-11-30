@@ -254,41 +254,26 @@ impl fmt::Display for SectionCounts {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut some = false;
 
-        match self.questions.get() {
-            0 => {}
-            1 => f.write_str("1 question")?,
-            n => write!(f, "{n} questions")?,
-        }
-        some |= self.questions > 0;
+        for (num, single, many) in [
+            (self.questions.get(), "question", "questions"),
+            (self.answers.get(), "answer", "answers"),
+            (self.authorities.get(), "authority", "authorities"),
+            (self.additional.get(), "additional", "additional"),
+        ] {
+            // Add a comma if we have printed something before.
+            if some && num > 0 {
+                f.write_str(", ")?;
+            }
 
-        if some && self.answers > 0 {
-            f.write_str(", ")?;
-        }
-        match self.answers.get() {
-            0 => {}
-            1 => f.write_str("1 answer")?,
-            n => write!(f, "{n} answers")?,
-        }
-        some |= self.answers > 0;
+            // Print a count of this section.
+            match num {
+                0 => {}
+                1 => write!(f, "1 {single}")?,
+                n => write!(f, "{n} {many}")?,
+            }
 
-        if some && self.authorities > 0 {
-            f.write_str(", ")?;
+            some |= num > 0;
         }
-        match self.authorities.get() {
-            0 => {}
-            1 => f.write_str("1 authority")?,
-            n => write!(f, "{n} authorities")?,
-        }
-        some |= self.authorities > 0;
-
-        if some && self.additional > 0 {
-            f.write_str(", ")?;
-        }
-        match self.additional.get() {
-            0 => {}
-            n => write!(f, "{n} additional")?,
-        }
-        some |= self.additional > 0;
 
         if !some {
             f.write_str("empty")?;
