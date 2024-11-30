@@ -77,17 +77,17 @@ impl Deref for Question {
     type Target = QuestionFields;
 
     fn deref(&self) -> &Self::Target {
-        let name_end = self.name.as_bytes().as_ptr_range().end;
+        let range = self.name.as_bytes().as_ptr_range();
         // SAFETY: The 'ParsedName' is always followed by a 'QuestionFields'.
-        unsafe { &*name_end.cast::<QuestionFields>() }
+        unsafe { &*range.end.cast::<QuestionFields>() }
     }
 }
 
 impl DerefMut for Question {
     fn deref_mut(&mut self) -> &mut Self::Target {
-        let name_end = self.name.as_bytes().as_ptr_range().end;
+        let range = self.name.as_bytes().as_ptr_range();
         // SAFETY: The 'ParsedName' is always followed by a 'QuestionFields'.
-        unsafe { &mut *name_end.cast_mut().cast::<QuestionFields>() }
+        unsafe { &mut *range.end.cast_mut().cast::<QuestionFields>() }
     }
 }
 

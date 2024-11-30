@@ -1,5 +1,7 @@
 //! Parsing DNS messages from the wire format.
 
+use core::fmt;
+
 /// Parsing from the start of a byte string.
 pub trait SplitFrom<'a>: Sized {
     /// Parse a value of [`Self`] from the start of the byte string.
@@ -18,9 +20,21 @@ pub trait ParseFrom<'a>: Sized {
     fn parse_from(bytes: &'a [u8]) -> Result<Self, ParseError>;
 }
 
-/// A parse error.
+//----------- ParseError -----------------------------------------------------
+
+/// A DNS parsing error.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct ParseError;
+
+//--- Formatting
+
+impl fmt::Display for ParseError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("DNS data could not be parsed from the wire format")
+    }
+}
+
+//--- Conversion from 'zerocopy' errors
 
 impl<A, S, V> From<zerocopy::ConvertError<A, S, V>> for ParseError {
     fn from(_: zerocopy::ConvertError<A, S, V>) -> Self {
