@@ -48,6 +48,11 @@ tokio-stream   = { version = "0.1.1", optional = true }
 tracing        = { version = "0.1.40", optional = true }
 tracing-subscriber = { version = "0.3.18", optional = true, features = ["env-filter"] }
 
+# 'zerocopy' provides network-endian integer primitives, which are very useful
+# for defining DNS message component types with the right memory layout.
+zerocopy = "0.8"
+zerocopy-derive = "0.8"
+
 [features]
 default     = ["std", "rand"]
 
