@@ -21,3 +21,15 @@ pub trait ParseFrom<'a>: Sized {
 /// A parse error.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct ParseError;
+
+impl<A, S, V> From<zerocopy::ConvertError<A, S, V>> for ParseError {
+    fn from(_: zerocopy::ConvertError<A, S, V>) -> Self {
+        Self
+    }
+}
+
+impl<Src, Dst: ?Sized> From<zerocopy::SizeError<Src, Dst>> for ParseError {
+    fn from(_: zerocopy::SizeError<Src, Dst>) -> Self {
+        Self
+    }
+}
