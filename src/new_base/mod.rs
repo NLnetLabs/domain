@@ -3,4 +3,6 @@
 pub mod message;
 pub use message::Message;
 
+pub mod name;
+
 pub mod parse;
