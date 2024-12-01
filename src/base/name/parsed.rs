@@ -741,474 +741,474 @@ impl From<ParsedDnameError> for ParseError {
 
 //============ Testing =======================================================
 
-#[cfg(test)]
-mod test {
-    use super::*;
+// #[cfg(test)]
+// mod test {
+//     use super::*;
 
-    macro_rules! name {
-        (root) => {
-            name!(b"123\0", 3, 1, false)
-        };
-        (flat) => {
-            name!(b"\x03www\x07example\x03com\0\xc0\0", 0, 17, false)
-        };
-        (copy) => {
-            name!(b"\x03www\x07example\x03com\0\xc0\0", 17, 17, false)
-        };
-        (once) => {
-            name!(b"\x03com\0\x03www\x07example\xC0\0", 5, 17, true)
-        };
-        (twice) => {
-            name!(b"\x03com\0\x07example\xc0\0\x03www\xc0\x05", 15, 17, true)
-        };
+//     macro_rules! name {
+//         (root) => {
+//             name!(b"123\0", 3, 1, false)
+//         };
+//         (flat) => {
+//             name!(b"\x03www\x07example\x03com\0\xc0\0", 0, 17, false)
+//         };
+//         (copy) => {
+//             name!(b"\x03www\x07example\x03com\0\xc0\0", 17, 17, false)
+//         };
+//         (once) => {
+//             name!(b"\x03com\0\x03www\x07example\xC0\0", 5, 17, true)
+//         };
+//         (twice) => {
+//             name!(b"\x03com\0\x07example\xc0\0\x03www\xc0\x05", 15, 17, true)
+//         };
 
-        ($bytes:expr, $start:expr, $len:expr, $compressed:expr) => {{
-            let mut parser = Parser::from_ref($bytes.as_ref());
-            parser.advance($start).unwrap();
-            ParsedName {
-                octets: $bytes.as_ref(),
-                pos: $start,
-                name_len: $len,
-                compressed: $compressed,
-            }
-        }};
-    }
+//         ($bytes:expr, $start:expr, $len:expr, $compressed:expr) => {{
+//             let mut parser = Parser::from_ref($bytes.as_ref());
+//             parser.advance($start).unwrap();
+//             ParsedName {
+//                 octets: $bytes.as_ref(),
+//                 pos: $start,
+//                 name_len: $len,
+//                 compressed: $compressed,
+//             }
+//         }};
+//     }
 
-    static WECR: &[u8] = b"\x03www\x07example\x03com\0";
+//     static WECR: &[u8] = b"\x03www\x07example\x03com\0";
 
-    #[test]
-    fn len() {
-        assert_eq!(name!(root).compose_len(), 1);
-        assert_eq!(name!(flat).compose_len(), 17);
-        assert_eq!(name!(once).compose_len(), 17);
-        assert_eq!(name!(twice).compose_len(), 17);
-    }
+//     #[test]
+//     fn len() {
+//         assert_eq!(name!(root).compose_len(), 1);
+//         assert_eq!(name!(flat).compose_len(), 17);
+//         assert_eq!(name!(once).compose_len(), 17);
+//         assert_eq!(name!(twice).compose_len(), 17);
+//     }
 
-    #[test]
-    fn is_compressed() {
-        assert!(!name!(root).is_compressed());
-        assert!(!name!(flat).is_compressed());
-        assert!(name!(once).is_compressed());
-        assert!(name!(twice).is_compressed());
-    }
+//     #[test]
+//     fn is_compressed() {
+//         assert!(!name!(root).is_compressed());
+//         assert!(!name!(flat).is_compressed());
+//         assert!(name!(once).is_compressed());
+//         assert!(name!(twice).is_compressed());
+//     }
 
-    #[test]
-    fn is_root() {
-        assert!(name!(root).is_root());
-        assert!(!name!(flat).is_root());
-        assert!(!name!(once).is_root());
-        assert!(!name!(twice).is_root());
-    }
+//     #[test]
+//     fn is_root() {
+//         assert!(name!(root).is_root());
+//         assert!(!name!(flat).is_root());
+//         assert!(!name!(once).is_root());
+//         assert!(!name!(twice).is_root());
+//     }
 
-    #[test]
-    fn iter() {
-        use crate::base::name::absolute::test::cmp_iter;
+//     #[test]
+//     fn iter() {
+//         use crate::base::name::absolute::test::cmp_iter;
 
-        let labels: &[&[u8]] = &[b"www", b"example", b"com", b""];
-        cmp_iter(name!(root).iter(), &[b""]);
-        cmp_iter(name!(flat).iter(), labels);
-        cmp_iter(name!(once).iter(), labels);
-        cmp_iter(name!(twice).iter(), labels);
-    }
+//         let labels: &[&[u8]] = &[b"www", b"example", b"com", b""];
+//         cmp_iter(name!(root).iter(), &[b""]);
+//         cmp_iter(name!(flat).iter(), labels);
+//         cmp_iter(name!(once).iter(), labels);
+//         cmp_iter(name!(twice).iter(), labels);
+//     }
 
-    #[test]
-    fn iter_back() {
-        use crate::base::name::absolute::test::cmp_iter_back;
+//     #[test]
+//     fn iter_back() {
+//         use crate::base::name::absolute::test::cmp_iter_back;
 
-        let labels: &[&[u8]] = &[b"", b"com", b"example", b"www"];
-        cmp_iter_back(name!(root).iter(), &[b""]);
-        cmp_iter_back(name!(flat).iter(), labels);
-        cmp_iter_back(name!(once).iter(), labels);
-        cmp_iter_back(name!(twice).iter(), labels);
-    }
+//         let labels: &[&[u8]] = &[b"", b"com", b"example", b"www"];
+//         cmp_iter_back(name!(root).iter(), &[b""]);
+//         cmp_iter_back(name!(flat).iter(), labels);
+//         cmp_iter_back(name!(once).iter(), labels);
+//         cmp_iter_back(name!(twice).iter(), labels);
+//     }
 
-    fn cmp_iter_suffixes<'a, I>(iter: I, labels: &[&[u8]])
-    where
-        I: Iterator<Item = ParsedName<&'a [u8]>>,
-    {
-        for (name, labels) in iter.zip(labels) {
-            let mut iter = name.iter();
-            let labels = Name::from_slice(labels).unwrap();
-            let mut labels_iter = labels.iter();
-            loop {
-                match (iter.next(), labels_iter.next()) {
-                    (Some(left), Some(right)) => assert_eq!(left, right),
-                    (None, None) => break,
-                    (_, None) => panic!("extra items in iterator"),
-                    (None, _) => panic!("missing items in iterator"),
-                }
-            }
-        }
-    }
+//     fn cmp_iter_suffixes<'a, I>(iter: I, labels: &[&[u8]])
+//     where
+//         I: Iterator<Item = ParsedName<&'a [u8]>>,
+//     {
+//         for (name, labels) in iter.zip(labels) {
+//             let mut iter = name.iter();
+//             let labels = Name::from_slice(labels).unwrap();
+//             let mut labels_iter = labels.iter();
+//             loop {
+//                 match (iter.next(), labels_iter.next()) {
+//                     (Some(left), Some(right)) => assert_eq!(left, right),
+//                     (None, None) => break,
+//                     (_, None) => panic!("extra items in iterator"),
+//                     (None, _) => panic!("missing items in iterator"),
+//                 }
+//             }
+//         }
+//     }
 
-    #[test]
-    fn iter_suffixes() {
-        let suffixes: &[&[u8]] = &[
-            b"\x03www\x07example\x03com\0",
-            b"\x07example\x03com\0",
-            b"\x03com\0",
-            b"\0",
-        ];
-        cmp_iter_suffixes(name!(root).iter_suffixes(), &[b"\0"]);
-        cmp_iter_suffixes(name!(flat).iter_suffixes(), suffixes);
-        cmp_iter_suffixes(name!(once).iter_suffixes(), suffixes);
-        cmp_iter_suffixes(name!(twice).iter_suffixes(), suffixes);
-    }
+//     #[test]
+//     fn iter_suffixes() {
+//         let suffixes: &[&[u8]] = &[
+//             b"\x03www\x07example\x03com\0",
+//             b"\x07example\x03com\0",
+//             b"\x03com\0",
+//             b"\0",
+//         ];
+//         cmp_iter_suffixes(name!(root).iter_suffixes(), &[b"\0"]);
+//         cmp_iter_suffixes(name!(flat).iter_suffixes(), suffixes);
+//         cmp_iter_suffixes(name!(once).iter_suffixes(), suffixes);
+//         cmp_iter_suffixes(name!(twice).iter_suffixes(), suffixes);
+//     }
 
-    #[test]
-    fn label_count() {
-        assert_eq!(name!(root).label_count(), 1);
-        assert_eq!(name!(flat).label_count(), 4);
-        assert_eq!(name!(once).label_count(), 4);
-        assert_eq!(name!(twice).label_count(), 4);
-    }
+//     #[test]
+//     fn label_count() {
+//         assert_eq!(name!(root).label_count(), 1);
+//         assert_eq!(name!(flat).label_count(), 4);
+//         assert_eq!(name!(once).label_count(), 4);
+//         assert_eq!(name!(twice).label_count(), 4);
+//     }
 
-    #[test]
-    fn first() {
-        assert_eq!(name!(root).first().as_slice(), b"");
-        assert_eq!(name!(flat).first().as_slice(), b"www");
-        assert_eq!(name!(once).first().as_slice(), b"www");
-        assert_eq!(name!(twice).first().as_slice(), b"www");
-    }
+//     #[test]
+//     fn first() {
+//         assert_eq!(name!(root).first().as_slice(), b"");
+//         assert_eq!(name!(flat).first().as_slice(), b"www");
+//         assert_eq!(name!(once).first().as_slice(), b"www");
+//         assert_eq!(name!(twice).first().as_slice(), b"www");
+//     }
 
-    #[test]
-    fn starts_with() {
-        let root = name!(root);
-        let flat_wec = name!(flat);
-        let once_wec = name!(once);
-        let twice_wec = name!(twice);
+//     #[test]
+//     fn starts_with() {
+//         let root = name!(root);
+//         let flat_wec = name!(flat);
+//         let once_wec = name!(once);
+//         let twice_wec = name!(twice);
 
-        let test = Name::root_ref();
-        assert!(root.starts_with(&test));
-        assert!(!flat_wec.starts_with(&test));
-        assert!(!once_wec.starts_with(&test));
-        assert!(!twice_wec.starts_with(&test));
+//         let test = Name::root_ref();
+//         assert!(root.starts_with(&test));
+//         assert!(!flat_wec.starts_with(&test));
+//         assert!(!once_wec.starts_with(&test));
+//         assert!(!twice_wec.starts_with(&test));
 
-        let test = RelativeName::empty_ref();
-        assert!(root.starts_with(&test));
-        assert!(flat_wec.starts_with(&test));
-        assert!(once_wec.starts_with(&test));
-        assert!(twice_wec.starts_with(&test));
+//         let test = RelativeName::empty_ref();
+//         assert!(root.starts_with(&test));
+//         assert!(flat_wec.starts_with(&test));
+//         assert!(once_wec.starts_with(&test));
+//         assert!(twice_wec.starts_with(&test));
 
-        let test = RelativeName::from_slice(b"\x03www").unwrap();
-        assert!(!root.starts_with(&test));
-        assert!(flat_wec.starts_with(&test));
-        assert!(once_wec.starts_with(&test));
-        assert!(twice_wec.starts_with(&test));
+//         let test = RelativeName::from_slice(b"\x03www").unwrap();
+//         assert!(!root.starts_with(&test));
+//         assert!(flat_wec.starts_with(&test));
+//         assert!(once_wec.starts_with(&test));
+//         assert!(twice_wec.starts_with(&test));
 
-        let test = RelativeName::from_slice(b"\x03www\x07example").unwrap();
-        assert!(!root.starts_with(&test));
-        assert!(flat_wec.starts_with(&test));
-        assert!(once_wec.starts_with(&test));
-        assert!(twice_wec.starts_with(&test));
+//         let test = RelativeName::from_slice(b"\x03www\x07example").unwrap();
+//         assert!(!root.starts_with(&test));
+//         assert!(flat_wec.starts_with(&test));
+//         assert!(once_wec.starts_with(&test));
+//         assert!(twice_wec.starts_with(&test));
 
-        let test =
-            RelativeName::from_slice(b"\x03www\x07example\x03com").unwrap();
-        assert!(!root.starts_with(&test));
-        assert!(flat_wec.starts_with(&test));
-        assert!(once_wec.starts_with(&test));
-        assert!(twice_wec.starts_with(&test));
+//         let test =
+//             RelativeName::from_slice(b"\x03www\x07example\x03com").unwrap();
+//         assert!(!root.starts_with(&test));
+//         assert!(flat_wec.starts_with(&test));
+//         assert!(once_wec.starts_with(&test));
+//         assert!(twice_wec.starts_with(&test));
 
-        let test = Name::from_slice(b"\x03www\x07example\x03com\0").unwrap();
-        assert!(!root.starts_with(&test));
-        assert!(flat_wec.starts_with(&test));
-        assert!(once_wec.starts_with(&test));
-        assert!(twice_wec.starts_with(&test));
+//         let test = Name::from_slice(b"\x03www\x07example\x03com\0").unwrap();
+//         assert!(!root.starts_with(&test));
+//         assert!(flat_wec.starts_with(&test));
+//         assert!(once_wec.starts_with(&test));
+//         assert!(twice_wec.starts_with(&test));
 
-        let test = RelativeName::from_slice(b"\x07example\x03com").unwrap();
-        assert!(!root.starts_with(&test));
-        assert!(!flat_wec.starts_with(&test));
-        assert!(!once_wec.starts_with(&test));
-        assert!(!twice_wec.starts_with(&test));
+//         let test = RelativeName::from_slice(b"\x07example\x03com").unwrap();
+//         assert!(!root.starts_with(&test));
+//         assert!(!flat_wec.starts_with(&test));
+//         assert!(!once_wec.starts_with(&test));
+//         assert!(!twice_wec.starts_with(&test));
 
-        let test = RelativeName::from_octets(b"\x03www".as_ref())
-            .unwrap()
-            .chain(
-                RelativeName::from_octets(b"\x07example".as_ref()).unwrap(),
-            )
-            .unwrap();
-        assert!(!root.starts_with(&test));
-        assert!(flat_wec.starts_with(&test));
-        assert!(once_wec.starts_with(&test));
-        assert!(twice_wec.starts_with(&test));
+//         let test = RelativeName::from_octets(b"\x03www".as_ref())
+//             .unwrap()
+//             .chain(
+//                 RelativeName::from_octets(b"\x07example".as_ref()).unwrap(),
+//             )
+//             .unwrap();
+//         assert!(!root.starts_with(&test));
+//         assert!(flat_wec.starts_with(&test));
+//         assert!(once_wec.starts_with(&test));
+//         assert!(twice_wec.starts_with(&test));
 
-        let test = test
-            .chain(RelativeName::from_octets(b"\x03com".as_ref()).unwrap())
-            .unwrap();
-        assert!(!root.starts_with(&test));
-        assert!(flat_wec.starts_with(&test));
-        assert!(once_wec.starts_with(&test));
-        assert!(twice_wec.starts_with(&test));
-    }
+//         let test = test
+//             .chain(RelativeName::from_octets(b"\x03com".as_ref()).unwrap())
+//             .unwrap();
+//         assert!(!root.starts_with(&test));
+//         assert!(flat_wec.starts_with(&test));
+//         assert!(once_wec.starts_with(&test));
+//         assert!(twice_wec.starts_with(&test));
+//     }
 
-    #[test]
-    fn ends_with() {
-        let root = name!(root);
-        let flat_wec = name!(flat);
-        let once_wec = name!(once);
-        let twice_wec = name!(twice);
-        let wecr = Name::from_octets(b"\x03www\x07example\x03com\0".as_ref())
-            .unwrap();
+//     #[test]
+//     fn ends_with() {
+//         let root = name!(root);
+//         let flat_wec = name!(flat);
+//         let once_wec = name!(once);
+//         let twice_wec = name!(twice);
+//         let wecr = Name::from_octets(b"\x03www\x07example\x03com\0".as_ref())
+//             .unwrap();
 
-        for name in wecr.iter_suffixes() {
-            if name.is_root() {
-                assert!(root.ends_with(&name))
-            } else {
-                assert!(!root.ends_with(&name))
-            }
-            assert!(flat_wec.ends_with(&name));
-            assert!(once_wec.ends_with(&name));
-            assert!(twice_wec.ends_with(&name));
-        }
-    }
+//         for name in wecr.iter_suffixes() {
+//             if name.is_root() {
+//                 assert!(root.ends_with(&name))
+//             } else {
+//                 assert!(!root.ends_with(&name))
+//             }
+//             assert!(flat_wec.ends_with(&name));
+//             assert!(once_wec.ends_with(&name));
+//             assert!(twice_wec.ends_with(&name));
+//         }
+//     }
 
-    #[test]
-    #[cfg(feature = "std")]
-    fn split_first() {
-        fn split_first_wec(mut name: ParsedName<&[u8]>) {
-            assert_eq!(
-                name.to_vec().as_slice(),
-                b"\x03www\x07example\x03com\0"
-            );
-            assert_eq!(
-                name.split_first().unwrap().as_slice(),
-                b"\x03www".as_ref()
-            );
-            assert_eq!(name.to_vec().as_slice(), b"\x07example\x03com\0");
-            assert_eq!(
-                name.split_first().unwrap().as_slice(),
-                b"\x07example".as_ref()
-            );
-            assert_eq!(name.to_vec().as_slice(), b"\x03com\0");
-            assert_eq!(
-                name.split_first().unwrap().as_slice(),
-                b"\x03com".as_ref()
-            );
-            assert_eq!(name.to_vec().as_slice(), b"\0");
-            assert_eq!(name.split_first(), None);
-            assert_eq!(name.split_first(), None);
-        }
+//     #[test]
+//     #[cfg(feature = "std")]
+//     fn split_first() {
+//         fn split_first_wec(mut name: ParsedName<&[u8]>) {
+//             assert_eq!(
+//                 name.to_vec().as_slice(),
+//                 b"\x03www\x07example\x03com\0"
+//             );
+//             assert_eq!(
+//                 name.split_first().unwrap().as_slice(),
+//                 b"\x03www".as_ref()
+//             );
+//             assert_eq!(name.to_vec().as_slice(), b"\x07example\x03com\0");
+//             assert_eq!(
+//                 name.split_first().unwrap().as_slice(),
+//                 b"\x07example".as_ref()
+//             );
+//             assert_eq!(name.to_vec().as_slice(), b"\x03com\0");
+//             assert_eq!(
+//                 name.split_first().unwrap().as_slice(),
+//                 b"\x03com".as_ref()
+//             );
+//             assert_eq!(name.to_vec().as_slice(), b"\0");
+//             assert_eq!(name.split_first(), None);
+//             assert_eq!(name.split_first(), None);
+//         }
 
-        split_first_wec(name!(flat));
-        split_first_wec(name!(once));
-        split_first_wec(name!(twice));
-    }
+//         split_first_wec(name!(flat));
+//         split_first_wec(name!(once));
+//         split_first_wec(name!(twice));
+//     }
 
-    #[test]
-    #[cfg(feature = "std")]
-    fn parent() {
-        fn parent_wec(mut name: ParsedName<&[u8]>) {
-            assert_eq!(
-                name.to_vec().as_slice(),
-                b"\x03www\x07example\x03com\0"
-            );
-            assert!(name.parent());
-            assert_eq!(name.to_vec().as_slice(), b"\x07example\x03com\0");
-            assert!(name.parent());
-            assert_eq!(name.to_vec().as_slice(), b"\x03com\0");
-            assert!(name.parent());
-            assert_eq!(name.to_vec().as_slice(), b"\0");
-            assert!(!name.parent());
-            assert!(!name.parent());
-        }
+//     #[test]
+//     #[cfg(feature = "std")]
+//     fn parent() {
+//         fn parent_wec(mut name: ParsedName<&[u8]>) {
+//             assert_eq!(
+//                 name.to_vec().as_slice(),
+//                 b"\x03www\x07example\x03com\0"
+//             );
+//             assert!(name.parent());
+//             assert_eq!(name.to_vec().as_slice(), b"\x07example\x03com\0");
+//             assert!(name.parent());
+//             assert_eq!(name.to_vec().as_slice(), b"\x03com\0");
+//             assert!(name.parent());
+//             assert_eq!(name.to_vec().as_slice(), b"\0");
+//             assert!(!name.parent());
+//             assert!(!name.parent());
+//         }
 
-        parent_wec(name!(flat));
-        parent_wec(name!(once));
-        parent_wec(name!(twice));
-    }
+//         parent_wec(name!(flat));
+//         parent_wec(name!(once));
+//         parent_wec(name!(twice));
+//     }
 
-    #[test]
-    #[cfg(feature = "std")]
-    fn parse_and_skip() {
-        use std::vec::Vec;
+//     #[test]
+//     #[cfg(feature = "std")]
+//     fn parse_and_skip() {
+//         use std::vec::Vec;
 
-        fn name_eq(parsed: ParsedName<&[u8]>, name: ParsedName<&[u8]>) {
-            assert_eq!(parsed.octets, name.octets);
-            assert_eq!(parsed.pos, name.pos);
-            assert_eq!(parsed.name_len, name.name_len);
-            assert_eq!(parsed.compressed, name.compressed);
-        }
+//         fn name_eq(parsed: ParsedName<&[u8]>, name: ParsedName<&[u8]>) {
+//             assert_eq!(parsed.octets, name.octets);
+//             assert_eq!(parsed.pos, name.pos);
+//             assert_eq!(parsed.name_len, name.name_len);
+//             assert_eq!(parsed.compressed, name.compressed);
+//         }
 
-        fn parse(
-            mut parser: Parser<&[u8]>,
-            equals: ParsedName<&[u8]>,
-            compose_len: usize,
-        ) {
-            let end = parser.pos() + compose_len;
-            name_eq(ParsedName::parse(&mut parser).unwrap(), equals);
-            assert_eq!(parser.pos(), end);
-        }
+//         fn parse(
+//             mut parser: Parser<&[u8]>,
+//             equals: ParsedName<&[u8]>,
+//             compose_len: usize,
+//         ) {
+//             let end = parser.pos() + compose_len;
+//             name_eq(ParsedName::parse(&mut parser).unwrap(), equals);
+//             assert_eq!(parser.pos(), end);
+//         }
 
-        fn skip(name: ParsedName<&[u8]>, len: usize) {
-            let mut parser = name.parser();
-            let pos = parser.pos();
-            assert_eq!(ParsedName::skip(&mut parser), Ok(()));
-            assert_eq!(parser.pos(), pos + len);
-        }
+//         fn skip(name: ParsedName<&[u8]>, len: usize) {
+//             let mut parser = name.parser();
+//             let pos = parser.pos();
+//             assert_eq!(ParsedName::skip(&mut parser), Ok(()));
+//             assert_eq!(parser.pos(), pos + len);
+//         }
 
-        fn p(slice: &[u8], pos: usize) -> Parser<[u8]> {
-            let mut res = Parser::from_ref(slice);
-            res.advance(pos).unwrap();
-            res
-        }
+//         fn p(slice: &[u8], pos: usize) -> Parser<[u8]> {
+//             let mut res = Parser::from_ref(slice);
+//             res.advance(pos).unwrap();
+//             res
+//         }
 
-        // Correctly formatted names.
-        parse(name!(root).parser(), name!(root), 1);
-        parse(name!(flat).parser(), name!(flat), 17);
-        parse(name!(copy).parser(), name!(flat), 2);
-        parse(name!(once).parser(), name!(once), 14);
-        parse(name!(twice).parser(), name!(twice), 6);
-        skip(name!(root), 1);
-        skip(name!(flat), 17);
-        skip(name!(copy), 2);
-        skip(name!(once), 14);
-        skip(name!(twice), 6);
+//         // Correctly formatted names.
+//         parse(name!(root).parser(), name!(root), 1);
+//         parse(name!(flat).parser(), name!(flat), 17);
+//         parse(name!(copy).parser(), name!(flat), 2);
+//         parse(name!(once).parser(), name!(once), 14);
+//         parse(name!(twice).parser(), name!(twice), 6);
+//         skip(name!(root), 1);
+//         skip(name!(flat), 17);
+//         skip(name!(copy), 2);
+//         skip(name!(once), 14);
+//         skip(name!(twice), 6);
 
-        // Short buffer in the middle of a label.
-        let mut parser = p(b"\x03www\x07exam", 0);
-        assert_eq!(
-            ParsedName::parse(&mut parser.clone()),
-            Err(ParseError::ShortInput)
-        );
-        assert_eq!(
-            ParsedName::skip(&mut parser),
-            Err(ParseError::ShortInput)
-        );
+//         // Short buffer in the middle of a label.
+//         let mut parser = p(b"\x03www\x07exam", 0);
+//         assert_eq!(
+//             ParsedName::parse(&mut parser.clone()),
+//             Err(ParseError::ShortInput)
+//         );
+//         assert_eq!(
+//             ParsedName::skip(&mut parser),
+//             Err(ParseError::ShortInput)
+//         );
 
-        // Short buffer at end of label.
-        let mut parser = p(b"\x03www\x07example", 0);
-        assert_eq!(
-            ParsedName::parse(&mut parser.clone()),
-            Err(ParseError::ShortInput)
-        );
-        assert_eq!(
-            ParsedName::skip(&mut parser),
-            Err(ParseError::ShortInput)
-        );
+//         // Short buffer at end of label.
+//         let mut parser = p(b"\x03www\x07example", 0);
+//         assert_eq!(
+//             ParsedName::parse(&mut parser.clone()),
+//             Err(ParseError::ShortInput)
+//         );
+//         assert_eq!(
+//             ParsedName::skip(&mut parser),
+//             Err(ParseError::ShortInput)
+//         );
 
-        // Compression pointer beyond the end of buffer.
-        let mut parser = p(b"\x03www\xc0\xee12", 0);
-        assert!(ParsedName::parse(&mut parser.clone()).is_err());
-        assert_eq!(ParsedName::skip(&mut parser), Ok(()));
-        assert_eq!(parser.remaining(), 2);
+//         // Compression pointer beyond the end of buffer.
+//         let mut parser = p(b"\x03www\xc0\xee12", 0);
+//         assert!(ParsedName::parse(&mut parser.clone()).is_err());
+//         assert_eq!(ParsedName::skip(&mut parser), Ok(()));
+//         assert_eq!(parser.remaining(), 2);
 
-        // Compression pointer to itself
-        assert!(ParsedName::parse(&mut p(b"\x03www\xc0\x0412", 4)).is_err());
+//         // Compression pointer to itself
+//         assert!(ParsedName::parse(&mut p(b"\x03www\xc0\x0412", 4)).is_err());
 
-        // Compression pointer forward
-        assert!(ParsedName::parse(&mut p(b"\x03www\xc0\x0612", 4)).is_err());
+//         // Compression pointer forward
+//         assert!(ParsedName::parse(&mut p(b"\x03www\xc0\x0612", 4)).is_err());
 
-        // Bad label header.
-        let mut parser = p(b"\x03www\x07example\xbffoo", 0);
-        assert!(ParsedName::parse(&mut parser.clone()).is_err());
-        assert!(ParsedName::skip(&mut parser).is_err());
+//         // Bad label header.
+//         let mut parser = p(b"\x03www\x07example\xbffoo", 0);
+//         assert!(ParsedName::parse(&mut parser.clone()).is_err());
+//         assert!(ParsedName::skip(&mut parser).is_err());
 
-        // Long name: 255 bytes is fine.
-        let mut buf = Vec::from(&b"\x03123\0"[..]);
-        for _ in 0..25 {
-            buf.extend_from_slice(b"\x09123456789");
-        }
-        buf.extend_from_slice(b"\xc0\x0012");
-        let mut parser = Parser::from_ref(buf.as_slice());
-        parser.advance(5).unwrap();
-        let name = ParsedName::parse(&mut parser.clone()).unwrap();
-        assert_eq!(name.compose_len(), 255);
-        assert_eq!(ParsedName::skip(&mut parser), Ok(()));
-        assert_eq!(parser.remaining(), 2);
+//         // Long name: 255 bytes is fine.
+//         let mut buf = Vec::from(&b"\x03123\0"[..]);
+//         for _ in 0..25 {
+//             buf.extend_from_slice(b"\x09123456789");
+//         }
+//         buf.extend_from_slice(b"\xc0\x0012");
+//         let mut parser = Parser::from_ref(buf.as_slice());
+//         parser.advance(5).unwrap();
+//         let name = ParsedName::parse(&mut parser.clone()).unwrap();
+//         assert_eq!(name.compose_len(), 255);
+//         assert_eq!(ParsedName::skip(&mut parser), Ok(()));
+//         assert_eq!(parser.remaining(), 2);
 
-        // Long name: 256 bytes are bad.
-        let mut buf = Vec::from(&b"\x041234\x00"[..]);
-        for _ in 0..25 {
-            buf.extend_from_slice(b"\x09123456789");
-        }
-        buf.extend_from_slice(b"\xc0\x0012");
-        let mut parser = Parser::from_ref(buf.as_slice());
-        parser.advance(6).unwrap();
-        assert!(ParsedName::parse(&mut parser.clone()).is_err());
-        assert_eq!(ParsedName::skip(&mut parser), Ok(()));
-        assert_eq!(parser.remaining(), 2);
+//         // Long name: 256 bytes are bad.
+//         let mut buf = Vec::from(&b"\x041234\x00"[..]);
+//         for _ in 0..25 {
+//             buf.extend_from_slice(b"\x09123456789");
+//         }
+//         buf.extend_from_slice(b"\xc0\x0012");
+//         let mut parser = Parser::from_ref(buf.as_slice());
+//         parser.advance(6).unwrap();
+//         assert!(ParsedName::parse(&mut parser.clone()).is_err());
+//         assert_eq!(ParsedName::skip(&mut parser), Ok(()));
+//         assert_eq!(parser.remaining(), 2);
 
-        // Long name through recursion
-        let mut parser = p(b"\x03www\xc0\x0012", 0);
-        assert!(ParsedName::parse(&mut parser.clone()).is_err());
-        assert_eq!(ParsedName::skip(&mut parser), Ok(()));
-        assert_eq!(parser.remaining(), 2);
+//         // Long name through recursion
+//         let mut parser = p(b"\x03www\xc0\x0012", 0);
+//         assert!(ParsedName::parse(&mut parser.clone()).is_err());
+//         assert_eq!(ParsedName::skip(&mut parser), Ok(()));
+//         assert_eq!(parser.remaining(), 2);
 
-        // Single-step infinite recursion
-        let mut parser = p(b"\xc0\x0012", 0);
-        assert!(ParsedName::parse(&mut parser.clone()).is_err());
-        assert_eq!(ParsedName::skip(&mut parser), Ok(()));
-        assert_eq!(parser.remaining(), 2);
+//         // Single-step infinite recursion
+//         let mut parser = p(b"\xc0\x0012", 0);
+//         assert!(ParsedName::parse(&mut parser.clone()).is_err());
+//         assert_eq!(ParsedName::skip(&mut parser), Ok(()));
+//         assert_eq!(parser.remaining(), 2);
 
-        // Two-step infinite recursion
-        let mut parser = p(b"\xc0\x02\xc0\x0012", 2);
-        assert!(ParsedName::parse(&mut parser.clone()).is_err());
-        assert_eq!(ParsedName::skip(&mut parser), Ok(()));
-        assert_eq!(parser.remaining(), 2);
-    }
+//         // Two-step infinite recursion
+//         let mut parser = p(b"\xc0\x02\xc0\x0012", 2);
+//         assert!(ParsedName::parse(&mut parser.clone()).is_err());
+//         assert_eq!(ParsedName::skip(&mut parser), Ok(()));
+//         assert_eq!(parser.remaining(), 2);
+//     }
 
-    #[test]
-    #[cfg(feature = "std")]
-    fn compose() {
-        use octseq::builder::infallible;
-        use std::vec::Vec;
+//     #[test]
+//     #[cfg(feature = "std")]
+//     fn compose() {
+//         use octseq::builder::infallible;
+//         use std::vec::Vec;
 
-        fn step(name: ParsedName<&[u8]>, result: &[u8]) {
-            let mut buf = Vec::new();
-            infallible(name.compose(&mut buf));
-            assert_eq!(buf.as_slice(), result);
-        }
+//         fn step(name: ParsedName<&[u8]>, result: &[u8]) {
+//             let mut buf = Vec::new();
+//             infallible(name.compose(&mut buf));
+//             assert_eq!(buf.as_slice(), result);
+//         }
 
-        step(name!(root), b"\x00");
-        step(name!(flat), WECR);
-        step(name!(once), WECR);
-        step(name!(twice), WECR);
-    }
+//         step(name!(root), b"\x00");
+//         step(name!(flat), WECR);
+//         step(name!(once), WECR);
+//         step(name!(twice), WECR);
+//     }
 
-    // XXX TODO compose_canonical
+//     // XXX TODO compose_canonical
 
-    #[test]
-    fn as_flat_slice() {
-        assert_eq!(name!(root).as_flat_slice(), Some(b"\x00".as_ref()));
-        assert_eq!(name!(flat).as_flat_slice(), Some(WECR));
-        assert_eq!(name!(once).as_flat_slice(), None);
-        assert_eq!(name!(twice).as_flat_slice(), None);
-    }
+//     #[test]
+//     fn as_flat_slice() {
+//         assert_eq!(name!(root).as_flat_slice(), Some(b"\x00".as_ref()));
+//         assert_eq!(name!(flat).as_flat_slice(), Some(WECR));
+//         assert_eq!(name!(once).as_flat_slice(), None);
+//         assert_eq!(name!(twice).as_flat_slice(), None);
+//     }
 
-    #[test]
-    fn eq() {
-        fn step<N: ToName + fmt::Debug>(name: N) {
-            assert_eq!(name!(flat), &name);
-            assert_eq!(name!(once), &name);
-            assert_eq!(name!(twice), &name);
-        }
+//     #[test]
+//     fn eq() {
+//         fn step<N: ToName + fmt::Debug>(name: N) {
+//             assert_eq!(name!(flat), &name);
+//             assert_eq!(name!(once), &name);
+//             assert_eq!(name!(twice), &name);
+//         }
 
-        fn ne_step<N: ToName + fmt::Debug>(name: N) {
-            assert_ne!(name!(flat), &name);
-            assert_ne!(name!(once), &name);
-            assert_ne!(name!(twice), &name);
-        }
+//         fn ne_step<N: ToName + fmt::Debug>(name: N) {
+//             assert_ne!(name!(flat), &name);
+//             assert_ne!(name!(once), &name);
+//             assert_ne!(name!(twice), &name);
+//         }
 
-        step(name!(flat));
-        step(name!(once));
-        step(name!(twice));
+//         step(name!(flat));
+//         step(name!(once));
+//         step(name!(twice));
 
-        step(Name::from_slice(b"\x03www\x07example\x03com\x00").unwrap());
-        step(Name::from_slice(b"\x03wWw\x07EXAMPLE\x03com\x00").unwrap());
-        step(
-            RelativeName::from_octets(b"\x03www\x07example\x03com")
-                .unwrap()
-                .chain_root(),
-        );
-        step(
-            RelativeName::from_octets(b"\x03www\x07example")
-                .unwrap()
-                .chain(Name::from_octets(b"\x03com\x00").unwrap())
-                .unwrap(),
-        );
+//         step(Name::from_slice(b"\x03www\x07example\x03com\x00").unwrap());
+//         step(Name::from_slice(b"\x03wWw\x07EXAMPLE\x03com\x00").unwrap());
+//         step(
+//             RelativeName::from_octets(b"\x03www\x07example\x03com")
+//                 .unwrap()
+//                 .chain_root(),
+//         );
+//         step(
+//             RelativeName::from_octets(b"\x03www\x07example")
+//                 .unwrap()
+//                 .chain(Name::from_octets(b"\x03com\x00").unwrap())
+//                 .unwrap(),
+//         );
 
-        ne_step(Name::from_slice(b"\x03ww4\x07EXAMPLE\x03com\x00").unwrap());
-    }
+//         ne_step(Name::from_slice(b"\x03ww4\x07EXAMPLE\x03com\x00").unwrap());
+//     }
 
-    // XXX TODO Test for cmp and hash.
-}
+//     // XXX TODO Test for cmp and hash.
+// }

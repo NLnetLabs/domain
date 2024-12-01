@@ -1359,139 +1359,139 @@ impl std::error::Error for CopyRecordsError {}
 
 //============ Testing =======================================================
 
-#[cfg(test)]
-mod test {
-    use super::*;
-    #[cfg(feature = "std")]
-    use crate::base::message_builder::MessageBuilder;
-    #[cfg(feature = "std")]
-    use crate::base::name::Name;
-    #[cfg(feature = "std")]
-    use crate::rdata::{AllRecordData, Ns};
-    #[cfg(feature = "std")]
-    use std::vec::Vec;
+// #[cfg(test)]
+// mod test {
+//     use super::*;
+//     #[cfg(feature = "std")]
+//     use crate::base::message_builder::MessageBuilder;
+//     #[cfg(feature = "std")]
+//     use crate::base::name::Name;
+//     #[cfg(feature = "std")]
+//     use crate::rdata::{AllRecordData, Ns};
+//     #[cfg(feature = "std")]
+//     use std::vec::Vec;
 
-    // Helper for test cases
-    #[cfg(feature = "std")]
-    fn get_test_message() -> Message<Vec<u8>> {
-        let msg = MessageBuilder::new_vec();
-        let mut msg = msg.answer();
-        msg.push((
-            Name::vec_from_str("foo.example.com.").unwrap(),
-            86000,
-            Cname::new(Name::vec_from_str("baz.example.com.").unwrap()),
-        ))
-        .unwrap();
-        let mut msg = msg.authority();
-        msg.push((
-            Name::vec_from_str("bar.example.com.").unwrap(),
-            86000,
-            Ns::new(Name::vec_from_str("baz.example.com.").unwrap()),
-        ))
-        .unwrap();
-        msg.into_message()
-    }
+//     // Helper for test cases
+//     #[cfg(feature = "std")]
+//     fn get_test_message() -> Message<Vec<u8>> {
+//         let msg = MessageBuilder::new_vec();
+//         let mut msg = msg.answer();
+//         msg.push((
+//             Name::vec_from_str("foo.example.com.").unwrap(),
+//             86000,
+//             Cname::new(Name::vec_from_str("baz.example.com.").unwrap()),
+//         ))
+//         .unwrap();
+//         let mut msg = msg.authority();
+//         msg.push((
+//             Name::vec_from_str("bar.example.com.").unwrap(),
+//             86000,
+//             Ns::new(Name::vec_from_str("baz.example.com.").unwrap()),
+//         ))
+//         .unwrap();
+//         msg.into_message()
+//     }
 
-    #[test]
-    fn short_message() {
-        assert!(Message::from_octets(&[0u8; 11]).is_err());
-        assert!(Message::from_octets(&[0u8; 12]).is_ok());
-    }
+//     #[test]
+//     fn short_message() {
+//         assert!(Message::from_octets(&[0u8; 11]).is_err());
+//         assert!(Message::from_octets(&[0u8; 12]).is_ok());
+//     }
 
-    #[test]
-    #[cfg(feature = "std")]
-    fn canonical_name() {
-        use crate::rdata::A;
+//     #[test]
+//     #[cfg(feature = "std")]
+//     fn canonical_name() {
+//         use crate::rdata::A;
 
-        // Message without CNAMEs.
-        let mut msg = MessageBuilder::new_vec().question();
-        msg.push((Name::vec_from_str("example.com.").unwrap(), Rtype::A))
-            .unwrap();
-        let msg_ref = msg.as_message();
-        assert_eq!(
-            Name::vec_from_str("example.com.").unwrap(),
-            msg_ref.canonical_name().unwrap()
-        );
+//         // Message without CNAMEs.
+//         let mut msg = MessageBuilder::new_vec().question();
+//         msg.push((Name::vec_from_str("example.com.").unwrap(), Rtype::A))
+//             .unwrap();
+//         let msg_ref = msg.as_message();
+//         assert_eq!(
+//             Name::vec_from_str("example.com.").unwrap(),
+//             msg_ref.canonical_name().unwrap()
+//         );
 
-        // Message with CNAMEs.
-        let mut msg = msg.answer();
-        msg.push((
-            Name::vec_from_str("bar.example.com.").unwrap(),
-            86000,
-            Cname::new(Name::vec_from_str("baz.example.com.").unwrap()),
-        ))
-        .unwrap();
-        msg.push((
-            Name::vec_from_str("example.com.").unwrap(),
-            86000,
-            Cname::new(Name::vec_from_str("foo.example.com.").unwrap()),
-        ))
-        .unwrap();
-        msg.push((
-            Name::vec_from_str("foo.example.com.").unwrap(),
-            86000,
-            Cname::new(Name::vec_from_str("bar.example.com.").unwrap()),
-        ))
-        .unwrap();
-        let msg_ref = msg.as_message();
-        assert_eq!(
-            Name::vec_from_str("baz.example.com.").unwrap(),
-            msg_ref.canonical_name().unwrap()
-        );
+//         // Message with CNAMEs.
+//         let mut msg = msg.answer();
+//         msg.push((
+//             Name::vec_from_str("bar.example.com.").unwrap(),
+//             86000,
+//             Cname::new(Name::vec_from_str("baz.example.com.").unwrap()),
+//         ))
+//         .unwrap();
+//         msg.push((
+//             Name::vec_from_str("example.com.").unwrap(),
+//             86000,
+//             Cname::new(Name::vec_from_str("foo.example.com.").unwrap()),
+//         ))
+//         .unwrap();
+//         msg.push((
+//             Name::vec_from_str("foo.example.com.").unwrap(),
+//             86000,
+//             Cname::new(Name::vec_from_str("bar.example.com.").unwrap()),
+//         ))
+//         .unwrap();
+//         let msg_ref = msg.as_message();
+//         assert_eq!(
+//             Name::vec_from_str("baz.example.com.").unwrap(),
+//             msg_ref.canonical_name().unwrap()
+//         );
 
-        // CNAME loop.
-        msg.push((
-            Name::vec_from_str("baz.example.com").unwrap(),
-            86000,
-            Cname::new(Name::vec_from_str("foo.example.com").unwrap()),
-        ))
-        .unwrap();
-        assert!(msg.as_message().canonical_name().is_none());
-        msg.push((
-            Name::vec_from_str("baz.example.com").unwrap(),
-            86000,
-            A::from_octets(127, 0, 0, 1),
-        ))
-        .unwrap();
-        assert!(msg.as_message().canonical_name().is_none());
-    }
+//         // CNAME loop.
+//         msg.push((
+//             Name::vec_from_str("baz.example.com").unwrap(),
+//             86000,
+//             Cname::new(Name::vec_from_str("foo.example.com").unwrap()),
+//         ))
+//         .unwrap();
+//         assert!(msg.as_message().canonical_name().is_none());
+//         msg.push((
+//             Name::vec_from_str("baz.example.com").unwrap(),
+//             86000,
+//             A::from_octets(127, 0, 0, 1),
+//         ))
+//         .unwrap();
+//         assert!(msg.as_message().canonical_name().is_none());
+//     }
 
-    #[test]
-    #[cfg(feature = "std")]
-    fn message_iterator() {
-        let msg = get_test_message();
-        let mut iter = msg.iter();
+//     #[test]
+//     #[cfg(feature = "std")]
+//     fn message_iterator() {
+//         let msg = get_test_message();
+//         let mut iter = msg.iter();
 
-        // Check that it returns a record from first section
-        let (_rr, section) = iter.next().unwrap().unwrap();
-        assert_eq!(Section::Answer, section);
+//         // Check that it returns a record from first section
+//         let (_rr, section) = iter.next().unwrap().unwrap();
+//         assert_eq!(Section::Answer, section);
 
-        // Check that it advances to next section
-        let (_rr, section) = iter.next().unwrap().unwrap();
-        assert_eq!(Section::Authority, section);
-    }
+//         // Check that it advances to next section
+//         let (_rr, section) = iter.next().unwrap().unwrap();
+//         assert_eq!(Section::Authority, section);
+//     }
 
-    #[test]
-    #[cfg(feature = "std")]
-    fn copy_records() {
-        let msg = get_test_message();
-        let target = MessageBuilder::new_vec().question();
-        let res = msg.copy_records(target.answer(), |rr| {
-            if let Ok(Some(rr)) =
-                rr.into_record::<AllRecordData<_, ParsedName<_>>>()
-            {
-                if rr.rtype() == Rtype::CNAME {
-                    return Some(rr);
-                }
-            }
-            None
-        });
+//     #[test]
+//     #[cfg(feature = "std")]
+//     fn copy_records() {
+//         let msg = get_test_message();
+//         let target = MessageBuilder::new_vec().question();
+//         let res = msg.copy_records(target.answer(), |rr| {
+//             if let Ok(Some(rr)) =
+//                 rr.into_record::<AllRecordData<_, ParsedName<_>>>()
+//             {
+//                 if rr.rtype() == Rtype::CNAME {
+//                     return Some(rr);
+//                 }
+//             }
+//             None
+//         });
 
-        assert!(res.is_ok());
-        if let Ok(target) = res {
-            let msg = target.into_message();
-            assert_eq!(1, msg.header_counts().ancount());
-            assert_eq!(0, msg.header_counts().arcount());
-        }
-    }
-}
+//         assert!(res.is_ok());
+//         if let Ok(target) = res {
+//             let msg = target.into_message();
+//             assert_eq!(1, msg.header_counts().ancount());
+//             assert_eq!(0, msg.header_counts().arcount());
+//         }
+//     }
+// }

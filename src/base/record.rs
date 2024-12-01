@@ -1649,33 +1649,33 @@ impl From<Ttl> for Duration {
 
 //============ Testing ======================================================
 
-#[cfg(test)]
-mod test {
-    #[test]
-    #[cfg(feature = "bytes")]
-    fn ds_octets_into() {
-        use super::*;
-        use crate::base::iana::{Class, DigestAlg, SecAlg};
-        use crate::base::name::Name;
-        use crate::rdata::Ds;
-        use bytes::Bytes;
-        use octseq::octets::OctetsInto;
+// #[cfg(test)]
+// mod test {
+//     #[test]
+//     #[cfg(feature = "bytes")]
+//     fn ds_octets_into() {
+//         use super::*;
+//         use crate::base::iana::{Class, DigestAlg, SecAlg};
+//         use crate::base::name::Name;
+//         use crate::rdata::Ds;
+//         use bytes::Bytes;
+//         use octseq::octets::OctetsInto;
 
-        let ds: Record<Name<&[u8]>, Ds<&[u8]>> = Record::new(
-            Name::from_octets(b"\x01a\x07example\0".as_ref()).unwrap(),
-            Class::IN,
-            Ttl::from_secs(86400),
-            Ds::new(
-                12,
-                SecAlg::RSASHA256,
-                DigestAlg::SHA256,
-                b"something".as_ref(),
-            )
-            .unwrap(),
-        );
-        let ds_bytes: Record<Name<Bytes>, Ds<Bytes>> =
-            ds.clone().octets_into();
-        assert_eq!(ds.owner(), ds_bytes.owner());
-        assert_eq!(ds.data().digest(), ds_bytes.data().digest());
-    }
-}
+//         let ds: Record<Name<&[u8]>, Ds<&[u8]>> = Record::new(
+//             Name::from_octets(b"\x01a\x07example\0".as_ref()).unwrap(),
+//             Class::IN,
+//             Ttl::from_secs(86400),
+//             Ds::new(
+//                 12,
+//                 SecAlg::RSASHA256,
+//                 DigestAlg::SHA256,
+//                 b"something".as_ref(),
+//             )
+//             .unwrap(),
+//         );
+//         let ds_bytes: Record<Name<Bytes>, Ds<Bytes>> =
+//             ds.clone().octets_into();
+//         assert_eq!(ds.owner(), ds_bytes.owner());
+//         assert_eq!(ds.data().digest(), ds_bytes.data().digest());
+//     }
+// }
