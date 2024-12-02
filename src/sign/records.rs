@@ -117,6 +117,7 @@ impl<N, D> SortedRecords<N, D> {
         inception: Timestamp,
         keys: &[SigningKey<Octets, ConcreteSecretKey>],
         add_used_dnskeys: bool,
+        sign_dnskeys_with_all_keys: bool,
     ) -> Result<
         Vec<Record<N, ZoneRecordData<Octets, N>>>,
         ErrorTypeToBeDetermined,
@@ -133,17 +134,19 @@ impl<N, D> SortedRecords<N, D> {
             + From<Box<[u8]>>
             + octseq::OctetsFrom<std::vec::Vec<u8>>,
     {
-        let (mut ksks, mut zsks): (Vec<_>, Vec<_>) = keys
+        let keys_by_ref: Vec<_> = keys.iter().map(|k| k).collect();
+        let (ksks, zsks): (Vec<_>, Vec<_>) = keys
             .iter()
             .filter(|k| k.is_zone_signing_key())
             .partition(|k| k.is_secure_entry_point());
 
-        // CSK?
-        if !ksks.is_empty() && zsks.is_empty() {
-            zsks = ksks.clone();
-        } else if ksks.is_empty() && !zsks.is_empty() {
-            ksks = zsks.clone();
-        }
+        let dnskey_signing_keys = if sign_dnskeys_with_all_keys {
+            &keys_by_ref
+        } else if ksks.is_empty() {
+            &zsks
+        } else {
+            &ksks
+        };
 
         if enabled!(Level::DEBUG) {
             for key in keys {
@@ -250,7 +253,7 @@ impl<N, D> SortedRecords<N, D> {
                 }
 
                 let keys = if rrset.rtype() == Rtype::DNSKEY {
-                    &ksks
+                    dnskey_signing_keys
                 } else {
                     &zsks
                 };
