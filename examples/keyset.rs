@@ -101,8 +101,8 @@ keyset example-keyset.json status
 
 fn do_init(filename: &str, args: &[String]) {
     if args.len() != 1 {
-        // Give usage.
-        todo!();
+        eprintln!("Usage: ... init <domain>");
+        exit(1);
     }
     let domainname = &args[0];
 
@@ -113,8 +113,8 @@ fn do_init(filename: &str, args: &[String]) {
 
 fn do_addkey(filename: &str, args: &[String]) {
     if args.len() < 2 || args.len() > 3 {
-        // Give usage.
-        todo!();
+        eprintln!("Usage: ... addkey <key-type> <pubref> [<privref>]");
+        exit(1);
     }
     let keytype = &args[0];
     let pubref = args[1].clone();
@@ -132,15 +132,16 @@ fn do_addkey(filename: &str, args: &[String]) {
     } else if keytype == "csk" {
         ks.add_key_csk(pubref, privref, UnixTime::now());
     } else {
-        todo!();
+        eprintln!("Unknown key type '{keytype}'");
+        exit(1);
     }
     save_keyset(filename, &ks);
 }
 
 fn do_deletekey(filename: &str, args: &[String]) {
     if args.len() != 1 {
-        // Give usage.
-        todo!();
+        eprintln!("Usage: ... deletekey <pubref>");
+        exit(1);
     }
     let pubref = &args[0];
 
@@ -154,8 +155,8 @@ fn do_deletekey(filename: &str, args: &[String]) {
 
 fn do_start(filename: &str, args: &[String]) {
     if args.len() != 1 {
-        // Give usage.
-        todo!();
+        eprintln!("Usage: ... start <roll-type>");
+        exit(1);
     }
     let rolltype = &args[0];
 
@@ -237,8 +238,8 @@ fn do_start(filename: &str, args: &[String]) {
 
 fn do_propagation1(filename: &str, args: &[String]) {
     if args.len() != 2 {
-        // Give usage.
-        todo!();
+        eprintln!("Usage: ... propagation1-complete <roll-type> <ttl>");
+        exit(1);
     }
     let rolltype = &args[0];
     let ttl = &args[1];
@@ -256,8 +257,8 @@ fn do_propagation1(filename: &str, args: &[String]) {
 
 fn do_cache_expired1(filename: &str, args: &[String]) {
     if args.len() != 1 {
-        // Give usage.
-        todo!();
+        eprintln!("Usage: ... cache-expired1 <roll-type>");
+        exit(1);
     }
     let rolltype = &args[0];
 
@@ -273,8 +274,8 @@ fn do_cache_expired1(filename: &str, args: &[String]) {
 
 fn do_propagation2(filename: &str, args: &[String]) {
     if args.len() != 2 {
-        // Give usage.
-        todo!();
+        eprintln!("Usage: ... propagation2-complete <roll-type> <ttl>");
+        exit(1);
     }
     let rolltype = &args[0];
     let ttl = &args[1];
@@ -292,8 +293,8 @@ fn do_propagation2(filename: &str, args: &[String]) {
 
 fn do_cache_expired2(filename: &str, args: &[String]) {
     if args.len() != 1 {
-        // Give usage.
-        todo!();
+        eprintln!("Usage: ... cache-expired2 <roll-type>");
+        exit(1);
     }
     let rolltype = &args[0];
 
@@ -309,8 +310,8 @@ fn do_cache_expired2(filename: &str, args: &[String]) {
 
 fn do_done(filename: &str, args: &[String]) {
     if args.len() != 1 {
-        // Give usage.
-        todo!();
+        eprintln!("Usage: ... done <roll-type>");
+        exit(1);
     }
     let rolltype = &args[0];
 
@@ -326,8 +327,8 @@ fn do_done(filename: &str, args: &[String]) {
 
 fn do_actions(filename: &str, args: &[String]) {
     if args.len() != 1 {
-        // Give usage.
-        todo!();
+        eprintln!("Usage: ... actions <roll-type>");
+        exit(1);
     }
     let rolltype = &args[0];
 
@@ -341,8 +342,8 @@ fn do_actions(filename: &str, args: &[String]) {
 
 fn do_status(filename: &str, args: &[String]) {
     if !args.is_empty() {
-        // Give usage.
-        todo!();
+        eprintln!("Usage: ... status");
+        exit(1);
     }
 
     let ks = load_keyset(filename);
