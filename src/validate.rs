@@ -1762,7 +1762,6 @@ pub enum Nsec3HashError {
 }
 
 ///--- Display
-
 impl std::fmt::Display for Nsec3HashError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
