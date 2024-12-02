@@ -202,7 +202,7 @@ where
             + From<Box<[u8]>>
             + octseq::OctetsFrom<std::vec::Vec<u8>>,
     {
-        let keys_by_ref: Vec<_> = keys.iter().map(|k| k).collect();
+        let keys_by_ref: Vec<_> = keys.iter().collect();
         let (ksks, zsks): (Vec<_>, Vec<_>) = keys
             .iter()
             .filter(|k| k.is_zone_signing_key())
@@ -1042,7 +1042,7 @@ impl<N> FamilyName<N> {
     }
 }
 
-impl<'a, N: Clone> FamilyName<&'a N> {
+impl<N: Clone> FamilyName<&N> {
     pub fn cloned(&self) -> FamilyName<N> {
         FamilyName {
             owner: (*self.owner).clone(),
