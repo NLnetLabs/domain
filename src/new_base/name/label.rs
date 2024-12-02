@@ -46,18 +46,6 @@ impl Label {
         // casting a '[u8]' into a 'Label' is sound.
         core::mem::transmute(bytes)
     }
-
-    /// Assume a mutable byte string is a valid [`Label`].
-    ///
-    /// # Safety
-    ///
-    /// The byte string must be within the size restriction (63 bytes or
-    /// fewer).
-    pub unsafe fn from_bytes_unchecked_mut(bytes: &mut [u8]) -> &mut Self {
-        // SAFETY: 'Label' is a 'repr(transparent)' wrapper around '[u8]', so
-        // casting a '[u8]' into a 'Label' is sound.
-        core::mem::transmute(bytes)
-    }
 }
 
 //--- Inspection
