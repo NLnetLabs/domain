@@ -2,11 +2,56 @@
 //!
 //! A key set is a collection of keys used to sign a sigle zone.
 //! This module support the management of key sets including key rollover.
+//!
+//! # Example
+//!
+//! ```no_run
+//! use domain::base::Name;
+//! use domain::sign::keyset::{KeySet, RollType, UnixTime};
+//! use std::fs::File;
+//! use std::io::Write;
+//! use std::str::FromStr;
+//! use std::thread::sleep;
+//! use std::time::Duration;
+//!
+//! // Create new KeySet for example.com
+//! let mut ks = KeySet::new(Name::from_str("example.com").unwrap());
+//!
+//! // Add two keys.
+//! ks.add_key_ksk("first KSK.key".to_string(), None, UnixTime::now());
+//! ks.add_key_zsk("first ZSK.key".to_string(),
+//!     Some("first ZSK.private".to_string()), UnixTime::now());
+//!
+//! // Save the state.
+//! let json = serde_json::to_string(&ks).unwrap();
+//! let mut file = File::create("example.com-keyset.json").unwrap();
+//! write!(file, "{json}").unwrap();
+//!
+//! // Load the state from a file.
+//! let file = File::open("example.com-keyset.json").unwrap();
+//! let mut ks: KeySet = serde_json::from_reader(file).unwrap();
+//!
+//! // Start CSK roll.
+//! let actions = ks.start_roll(RollType::CskRoll, &[], &["first KSK.key",
+//!     "first ZSK.key"]);
+//! // Handle actions.
+//! // Report first propagation complete and ttl.
+//! let actions = ks.propagation1_complete(RollType::CskRoll, 3600);
+//! sleep(Duration::from_secs(3600));
+//! // Report that cached entries have expired.
+//! let actions = ks.cache_expired1(RollType::CskRoll);
+//! // Report second propagation complete and ttl.
+//! let actions = ks.propagation2_complete(RollType::CskRoll, 3600);
+//! sleep(Duration::from_secs(3600));
+//! // Report that cached entries have expired.
+//! let actions = ks.cache_expired1(RollType::CskRoll);
+//! // And we are done!
+//! let actions = ks.roll_done(RollType::CskRoll);
+//! ```
 
 #![warn(missing_docs)]
 
 // TODO:
-// - rework example to be interactive.
 // - add support for undo/abort.
 
 use crate::base::Name;
